@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleApi, handleVerify } from "../src/index.js";
-import { base58Encode, buildMessage } from "../src/solana.js";
+import { base58Decode, base58Encode, buildMessage } from "../src/solana.js";
+import { isOnCurve } from "../src/chain.js";
 
 // A fake Solana RPC so tests never touch the real network.
 const MINT = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm";
 const POOL_OWNER = "PooL1111111111111111111111111111111111111111";
-const WHALE = "WhaLe111111111111111111111111111111111111111";
+const WHALE = "FbvKBmz8YytrTe7SWjPjkUe19edFZumG6hsT3Mv9edg1"; // a real wallet key (on the curve)
 function fakeRpc({ holdingFor = {}, failLargest = false } = {}) {
   return async (_url, init) => {
     const { method, params } = JSON.parse(init.body);
@@ -93,4 +94,29 @@ test("verified wallet with no tokens is not a holder", async () => {
   assert.equal(d.verified, true);
   assert.equal(d.holder, false);
   assert.equal(d.tier, null);
+});
+
+test("pools on any exchange are spotted: program-controlled addresses are off the ed25519 curve", async () => {
+  const { generateKeyPairSync, randomBytes } = await import("node:crypto");
+  // every real wallet key is on the curve
+  for (let i = 0; i < 100; i++) {
+    const raw = generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).subarray(-32);
+    assert.equal(isOnCurve(raw), true);
+  }
+  // cross-check with a separate textbook test (Euler's criterion) on random addresses: about half are off the curve
+  const P = (1n << 255n) - 19n, mod = (a) => ((a % P) + P) % P;
+  const pow = (b, e) => { let r = 1n; b = mod(b); for (; e > 0n; e >>= 1n, b = (b * b) % P) if (e & 1n) r = (r * b) % P; return r; };
+  const d = mod(-121665n * pow(121666n, P - 2n));
+  let off = 0;
+  for (let i = 0; i < 200; i++) {
+    const b = randomBytes(32);
+    let y = 0n; for (let j = 31; j >= 0; j--) y = (y << 8n) | BigInt(b[j]);
+    y = mod(y & ((1n << 255n) - 1n));
+    const ratio = mod((y * y - 1n) * pow(d * y * y + 1n, P - 2n));
+    const square = ratio === 0n || pow(ratio, (P - 1n) / 2n) === 1n;
+    assert.equal(isOnCurve(b), square);
+    if (!square) off++;
+  }
+  assert.ok(off > 50 && off < 150, `about half off the curve, got ${off}`);
+  assert.equal(isOnCurve(base58Decode("5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1")), false, "Raydium's pool authority is program-controlled");
 });

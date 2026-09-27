@@ -778,3 +778,25 @@ select option { background: var(--bg-2); }
 .snap-lookup input { flex: 1; min-width: 0; font-family: var(--mono); font-size: .9rem; background: var(--card-2); border: 1px solid var(--line-2); border-radius: 12px; padding: 11px 12px; color: var(--text); }
 @media (max-width: 520px) { .snap-lookup { flex-direction: column; } }
 .dot--choosing { background: transparent; border: 2px dashed var(--gold); }
+
+/* ---------- home: trust line, why now, get $VICINITY (also on the token page) ---------- */
+.hero__trust { list-style: none; margin: -16px 0 30px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.hero__trust li { font-size: .8rem; font-weight: 600; color: var(--text-2); padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); }
+.hero__trust li::before { content: "✓"; color: var(--ok-text); font-weight: 800; margin-right: 6px; }
+.hero__cta--end { margin: 0; }
+.why-now { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.why-now .card { padding: 24px 22px; }
+.why-now p { margin: 0; }
+.why-now h3 { margin: 0 0 8px; }
+.why-now__big { display: block; margin-bottom: 14px; font: 700 2.1rem/1 var(--display); letter-spacing: -.03em; background: linear-gradient(100deg, var(--pin) 10%, var(--gold) 90%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.buy-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.buy-steps .card { padding: 22px 20px; }
+.buy-steps h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.buy-steps p { margin: 0; font-size: .93rem; }
+.buy-steps__n { width: 34px; height: 34px; margin-bottom: 14px; border-radius: 50%; display: grid; place-items: center; font: 700 .95rem var(--display); color: #fff; background: linear-gradient(135deg, var(--pin), var(--gold)); box-shadow: 0 6px 18px rgba(255,90,54,.3); }
+.scam-note { margin: 18px 0 0; padding: 14px 18px; border-radius: 14px; border: 1px solid rgba(255,90,54,.35); background: rgba(255,90,54,.07); color: var(--text-2); font-size: .93rem; }
+.scam-note strong { color: var(--bad-text); }
+#get .hero__cta { margin: 26px 0 0; }
+.chip-link--buy { background: linear-gradient(135deg, var(--pin), var(--pin-2)); border-color: transparent; color: #fff; font-weight: 700; }
+@media (max-width: 960px) { .why-now, .buy-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .why-now, .buy-steps { grid-template-columns: minmax(0, 1fr); } .why-now__big { font-size: 1.8rem; } .hero__trust { margin-top: -18px; } }

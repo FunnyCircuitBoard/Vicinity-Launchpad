@@ -7,7 +7,7 @@
  * Without it we fall back to the public endpoint, which can't list holders.
  */
 import { OFFICIAL } from "./official.js";
-import { base58Encode } from "./solana.js";
+import { base58Decode, base58Encode } from "./solana.js";
 
 const PUBLIC_RPC = "https://api.mainnet-beta.solana.com";
 const TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
@@ -19,6 +19,31 @@ const PROGRAM_LABELS = {
   "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C": "Raydium liquidity pool",
   "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo": "Meteora liquidity pool",
   "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG": "Meteora liquidity pool",
+};
+const PROGRAM_ACCOUNT = "Pool or program account";
+
+/* A normal wallet address is an ed25519 public key: a point on the curve. Addresses controlled by a
+ * program (pools, bonding curves, vaults, lockers, on any exchange, StonkFun's Raydium ones included)
+ * are made off the curve on purpose, so no private key can exist for them. Same test as Solana's
+ * PublicKey.isOnCurve: does y decode to a curve point, i.e. is (y² − 1) / (d·y² + 1) a square? */
+const P = (1n << 255n) - 19n;
+const modP = (a) => ((a % P) + P) % P;
+const powP = (b, e) => { let r = 1n; b = modP(b); for (; e > 0n; e >>= 1n, b = (b * b) % P) if (e & 1n) r = (r * b) % P; return r; };
+const D = modP(-121665n * powP(121666n, P - 2n));
+export function isOnCurve(bytes) {
+  if (!bytes || bytes.length !== 32) return false;
+  let y = 0n;
+  for (let i = 31; i >= 0; i--) y = (y << 8n) | BigInt(bytes[i]);
+  y = modP(y & ((1n << 255n) - 1n));
+  const y2 = (y * y) % P, u = modP(y2 - 1n), v = modP(D * y2 + 1n);
+  const x = (((u * powP(v, 3n)) % P) * powP(u * powP(v, 7n), (P - 5n) / 8n)) % P; // RFC 8032 §5.1.3
+  const vx2 = (((v * x) % P) * x) % P;
+  return vx2 === u || vx2 === modP(-u);
+}
+/** A label for a big holder: a known pool program, or any program-controlled (off-curve) address. */
+const poolLabel = (owner, ownerProgram) => {
+  if (PROGRAM_LABELS[ownerProgram]) return PROGRAM_LABELS[ownerProgram];
+  try { return isOnCurve(base58Decode(owner)) ? null : PROGRAM_ACCOUNT; } catch { return null; }
 };
 
 export async function rpc(env, method, params, fetchImpl = fetch) {
@@ -84,7 +109,7 @@ export async function getTopHolders(env, mint, fetchImpl) {
       owner,
       amount,
       percent: facts.supply ? (amount / facts.supply) * 100 : 0,
-      label: team.has(owner) ? "Team wallet (public)" : PROGRAM_LABELS[ownerProgram[owner]] || null,
+      label: team.has(owner) ? "Team wallet (public)" : poolLabel(owner, ownerProgram[owner]),
     }));
   return { facts, holders };
 }
@@ -153,7 +178,7 @@ export async function getAllHolders(env, mint, fetchImpl = fetch) {
   const labels = new Map();
   if (top.length) {
     const acc = await rpc(env, "getMultipleAccounts", [top, { encoding: "base64", dataSlice: { offset: 0, length: 0 } }], fetchImpl);
-    top.forEach((o, i) => { const l = PROGRAM_LABELS[acc?.value?.[i]?.owner]; if (l) labels.set(o, l); });
+    top.forEach((o, i) => { const l = poolLabel(o, acc?.value?.[i]?.owner); if (l) labels.set(o, l); });
   }
   for (const w of OFFICIAL.teamWallets || []) labels.set(w, "Team wallet (public)");
   return { facts, list, labels, slot };

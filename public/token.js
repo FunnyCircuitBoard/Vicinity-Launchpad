@@ -32,7 +32,7 @@
     $("#ca-copy").onclick = () => copy(m, "Contract address copied");
     $("#lnk-solscan").href = `https://solscan.io/token/${m}`;
     $("#lnk-jup").href = `https://jup.ag/tokens/${m}`;
-    $("#lnk-pump").href = `https://pump.fun/coin/${m}`;
+    $("#lnk-stonk").href = `https://www.stonkfun.xyz/token/${m}`;
     $("#lnk-dex").href = `https://dexscreener.com/solana/${m}`;
     $("#ca-links").hidden = false;
     $("#ca-note").textContent = "This is the only official $VICINITY. Anything else using the name is fake.";
