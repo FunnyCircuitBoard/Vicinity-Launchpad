@@ -10,6 +10,8 @@ export const SECURITY_HEADERS = {
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "X-Frame-Options": "DENY",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=(self)",
+  // Browsers remember to use https:// for a year (ignored on http:// and on this computer).
+  "Strict-Transport-Security": "max-age=31536000",
   "Cache-Control": "no-store",
 };
 

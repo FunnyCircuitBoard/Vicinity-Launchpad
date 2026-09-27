@@ -19,11 +19,11 @@
     "not_found_handling": "404-page"
   },
   // vicinity.city is the site. The others forward to it (src/index.js).
+  // vicinitycity.net and www.vicinitycity.net go back in here once their old DNS records are deleted
+  // (until then Cloudflare refuses them and the whole deploy fails).
   "routes": [
     { "pattern": "vicinity.city", "custom_domain": true },
-    { "pattern": "www.vicinity.city", "custom_domain": true },
-    { "pattern": "vicinitycity.net", "custom_domain": true },
-    { "pattern": "www.vicinitycity.net", "custom_domain": true }
+    { "pattern": "www.vicinity.city", "custom_domain": true }
   ],
   // The database; the code creates and upgrades its tables the first time they're used.
   "d1_databases": [{ "binding": "DB", "database_name": "vicinity-claims", "database_id": "e0e01286-ca8f-49dd-82c0-638fa24abb40" }],

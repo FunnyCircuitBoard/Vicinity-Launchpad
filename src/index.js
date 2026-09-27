@@ -313,16 +313,23 @@ export function withSecurityHeaders(response) {
   return res;
 }
 
-/** vicinity.city is the address; the old one and the www versions forward there, keeping the path. */
+/** vicinity.city is the address; the old one and the www versions forward there, keeping the path.
+ *  Plain http:// visits are sent to https:// (except on this computer, for `wrangler dev`). */
 const CANONICAL_HOST = "vicinity.city";
 const FORWARD_HOSTS = new Set(["www.vicinity.city", "vicinitycity.net", "www.vicinitycity.net"]);
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
+// `wrangler dev` presents local visits as http://vicinity.city, but from this computer's own address.
+const isLocal = (request, url) =>
+  LOCAL_HOST.test(url.hostname) || ["127.0.0.1", "::1"].includes(request.headers.get("cf-connecting-ip"));
 
 export default {
   async fetch(request, env) {
     try {
       const url = new URL(request.url);
-      if (FORWARD_HOSTS.has(url.hostname)) {
-        url.protocol = "https:"; url.hostname = CANONICAL_HOST; url.port = "";
+      const insecure = url.protocol === "http:" && !isLocal(request, url);
+      if (FORWARD_HOSTS.has(url.hostname) || insecure) {
+        if (FORWARD_HOSTS.has(url.hostname)) url.hostname = CANONICAL_HOST;
+        url.protocol = "https:"; url.port = "";
         return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
       }
       if (url.pathname.startsWith("/api/")) return await handleApi(request, env);

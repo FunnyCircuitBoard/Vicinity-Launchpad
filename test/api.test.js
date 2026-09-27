@@ -128,4 +128,25 @@ test("old and www addresses forward to vicinity.city, keeping the path", async (
   }
   const own = await worker.fetch(new Request("https://vicinity.city/api/health"), {});
   assert.equal(own.status, 200);
+  assert.equal(own.headers.get("strict-transport-security"), "max-age=31536000");
+});
+
+test("http:// visits go to https://, except on this computer", async () => {
+  const cases = [
+    ["http://vicinity.city/rules?x=1", "https://vicinity.city/rules?x=1"],
+    ["http://www.vicinity.city/", "https://vicinity.city/"],
+    ["http://vicinitycity.net/cities", "https://vicinity.city/cities"],
+    ["http://vicinity-map.sakibul-noyon.workers.dev/api/health", "https://vicinity-map.sakibul-noyon.workers.dev/api/health"],
+  ];
+  for (const [from, to] of cases) {
+    const res = await worker.fetch(new Request(from), {});
+    assert.equal(res.status, 301, from);
+    assert.equal(res.headers.get("location"), to);
+  }
+  for (const local of ["http://localhost:8787/api/health", "http://127.0.0.1:8787/api/health"]) {
+    assert.equal((await worker.fetch(new Request(local), {})).status, 200, local);
+  }
+  // how `wrangler dev` presents a local visit
+  const dev = new Request("http://vicinity.city/api/health", { headers: { "cf-connecting-ip": "127.0.0.1" } });
+  assert.equal((await worker.fetch(dev, {})).status, 200);
 });
