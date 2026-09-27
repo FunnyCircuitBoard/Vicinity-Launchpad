@@ -169,8 +169,8 @@
     $("#me-home").textContent = home ? `${home.name}, ${countryName(home.country)}` : "No home community yet";
     $$("[data-policy-version]").forEach((e) => (e.textContent = d.policyVersion));
 
-    $("#d-amount").textContent = d.launched ? compact(h.amount) : "At launch";
-    $("#d-amount-sub").textContent = d.launched ? `${fmt(h.amount)} $VICINITY` : "$VICINITY isn't live yet";
+    $("#d-amount").textContent = d.launched ? compact(h.amount) : "—";
+    $("#d-amount-sub").textContent = d.launched ? `${fmt(h.amount)} $VICINITY` : "live at launch";
     $("#d-rank").textContent = h.rank ? `#${fmt(h.rank)}` : "—";
     $("#d-rank-sub").textContent = h.rank ? `of ${fmt(h.total)} · top ${pctText(h.percentile)}%` : d.launched ? (h.amount > 0 ? "ranking…" : "not holding yet") : "live at launch";
     $("#d-city-label").textContent = home ? home.name : "your city";

@@ -23,7 +23,7 @@ const icon = (paths) => `<svg viewBox="0 0 24 24" width="22" height="22" aria-hi
 const current = (page, p) => (page === p ? ' aria-current="page"' : "");
 
 function layout({ title, description, page, scripts = [], main = "" }, body) {
-  const nav = NAV.map(([p, href, label]) => `        <a href="${href}"${current(page, p)}>${label}${p === "launchpad" ? ' <span class="nav__soon">Nov 10</span>' : ""}</a>`).join("\n");
+  const nav = NAV.map(([p, href, label]) => `        <a href="${href}"${current(page, p)}>${label}${p === "launchpad" ? ' <span class="nav__soon">Oct 10</span>' : ""}</a>`).join("\n");
   const tabs = NAV.map(([p, href, , short, paths]) => `    <a href="${href}"${current(page, p)}>${icon(paths)}<span>${short}</span></a>`).join("\n");
   const js = ["site", ...scripts].map((s) => `  <script src="/${s}.js" defer></script>`).join("\n");
   const fullTitle = page === "home" ? "Vicinity — One city. One coin. One community." : `${title} · Vicinity`;

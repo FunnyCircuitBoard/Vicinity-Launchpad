@@ -17,8 +17,10 @@
     $("#countdown")?.classList.toggle("is-open", ms === 0);
     const bar = $("#lp-bar"); if (bar) bar.style.width = `${Math.min(100, Math.max(0, ((Date.now() - START) / (at - START)) * 100)).toFixed(2)}%`;
     const d = new Date(at);
-    $("#lp-date").textContent = d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-    $("#lp-local").textContent = ms === 0 ? "The Launchpad is open." : `Opens ${d.toLocaleString(undefined, { dateStyle: "full", timeStyle: "short" })} (your time).`;
+    // Always stated in New York time; the line below gives the visitor's own time.
+    const ny = { timeZone: "America/New_York" };
+    $("#lp-date").textContent = `${d.toLocaleDateString("en-US", { ...ny, month: "long", day: "numeric", year: "numeric" })} · ${d.toLocaleTimeString("en-US", { ...ny, hour: "numeric", minute: "2-digit", second: "2-digit" })} New York time`;
+    $("#lp-local").textContent = ms === 0 ? "The Launchpad is open." : `Opens ${d.toLocaleString(undefined, { dateStyle: "full", timeStyle: "medium" })} (your time).`;
   }
   official.then(tick); tick(); setInterval(tick, 1000);
 

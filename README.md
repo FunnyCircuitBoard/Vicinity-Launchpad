@@ -1,6 +1,6 @@
 # Vicinity
 
-**One city. One coin. One community.** Every real city on one map, with real boundaries. Each community gets one official coin, local leaders, and its own feed of memes, check-ins, discussions and weekly votes. $VICINITY holders get in first; the Vicinity Launchpad opens November 10, 2026.
+**One city. One coin. One community.** Every real city on one map, with real boundaries. Each community gets one official coin, local leaders, and its own feed of memes, check-ins, discussions and weekly votes. $VICINITY holders get in first; the Vicinity Launchpad opens October 10, 2026 at 10:10:10 AM New York time.
 
 Live: https://vicinity.city (vicinitycity.net and the www addresses forward there).
 
@@ -11,7 +11,7 @@ Separate pages, one shared menu (top menu on computers, bottom menu bar on phone
 - **/** How it works: the problem, a step-by-step walkthrough on the real New York City boundaries (73 places, one coin), how the app works, incentives for holders and for the Launchpad, roles, roadmap, FAQ (including why $VICINITY launched on pump.fun).
 - **/token** Token and holders: live facts from the blockchain (minting/freezing off, supply, price), every holder in a table that scrolls on its own, "where does this wallet stand?" (paste any address: rank, percentile, gap to the next wallet), the official token list and link checker.
 - **/cities** The live map: 8,000+ communities in 244 countries with real boundaries that never overlap; claimed vs open; the communities filling up. The claim button leads to the dashboard.
-- **/launchpad** Countdown to November 10, the planned phases, who gets in first, add-to-calendar.
+- **/launchpad** Countdown to October 10 (10:10:10 AM New York time), the planned phases, who gets in first, add-to-calendar.
 - **/connect** Sign in: any Solana wallet (Wallet Standard + older ones; app links for phones), "wallet on my phone" (QR code + 2-digit check number), and a tiny-transfer proof for app wallets that can't connect (FOMO, exchanges). Then X or Google. One wallet + one login = one account.
 - **/rules** Every rule and formula, the "never" list, and whether the balance checks are running (filled live from `/api/policy`).
 - **/dashboard** Onboarding (live rank + home community from one location check; people in empty land pick one of the three nearest communities), then: role and badges re-checked live (selling removes them), founder race with a progress bar and claiming, community and country cards, local and national feeds (memes with pictures, check-ins, discussions, weekly votes weighted 1 / 2 founders / 3 managers), reports, moderator tools, "add my town" requests, roles and responsibilities.
@@ -57,7 +57,7 @@ Add each one as a **Secret**, so later deploys never wipe it.
 | `ADMIN_WALLETS` | Admin wallet address(es), comma-separated. Two admins let appeals of an admin's own decisions be judged by the other. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in. Redirect URI: `https://vicinity.city/api/auth/google/callback` |
 | `X_CLIENT_ID`, `X_CLIENT_SECRET` | X sign-in. Callback: `https://vicinity.city/api/auth/x/callback` |
-| `SNAPSHOT_CUTOFF` | The Founding Supporter cutoff, always 00:00 UTC, e.g. `2026-11-08T00:00:00Z`. Announce it first. |
+| `SNAPSHOT_CUTOFF` | The Founding Supporter cutoff, always 00:00 UTC, e.g. `2026-10-08T00:00:00Z`. Announce it first. |
 | `ATTEST_KEY` | Optional: the key that signs location attestations (otherwise one is made once and kept in the database). |
 
 The scheduled job and the full holder list need more CPU time than Cloudflare's free plan allows once there are many holders: use the Workers Paid plan.

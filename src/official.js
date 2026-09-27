@@ -6,12 +6,12 @@
 // The $VICINITY mint address. Paste it here the moment the token launches (one line change).
 export const VICINITY_MINT = null;
 
-// When the Vicinity Launchpad opens (the countdown on /launchpad). Midnight New York time, Nov 10 2026.
-export const LAUNCHPAD_OPENS_AT = "2026-11-10T00:00:00-05:00";
+// When the Vicinity Launchpad opens (the countdown on /launchpad). 10:10:10 AM New York time (EDT, UTC-4), Oct 10 2026.
+export const LAUNCHPAD_OPENS_AT = "2026-10-10T10:10:10-04:00";
 
 export const OFFICIAL = {
   updated: "2026-09-27", // vicinity.city is the main address; vicinitycity.net forwards to it
-  websites: ["vicinity.city", "vicinitycity.net", "vicinity-map.noyonsakibul.workers.dev"],
+  websites: ["vicinity.city", "vicinitycity.net", "vicinity-map.sakibul-noyon.workers.dev", "vicinity-map.noyonsakibul.workers.dev"],
   github: [],             // code is private
   socials: [],            // none yet: any "Vicinity" social account is not us
   tokenContract: VICINITY_MINT,

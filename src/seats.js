@@ -60,13 +60,14 @@ const openApplicationOf = (db, userId) =>
  */
 export async function eligibility(env, u, now = Date.now(), fetchImpl = fetch) {
   const db = env.DB;
-  const out = { ok: false, threshold: null, tenure: null, amount: 0, cooldownUntil: null, homeReadyAt: null };
+  // homeReadyAt is known before launch too, so the dashboard can tick "home set 7 days" early.
+  const homeReadyAt = u.home_city && u.home_at ? iso(Date.parse(u.home_at) + F.localDays * DAY) : null;
+  const out = { ok: false, threshold: null, tenure: null, amount: 0, cooldownUntil: null, homeReadyAt };
   if (!activeMint(env)) return { ...out, error: "not_launched" };
   if (!u.home_city) return { ...out, error: "no_home" };
   out.threshold = await thresholdFor(env, u.home_country, u.home_city);
   out.tenure = await tenure(env, u.wallet, out.threshold, now);
   out.amount = (await amountsFor(env, [u.wallet], fetchImpl)).get(u.wallet) || 0;
-  out.homeReadyAt = iso(Date.parse(u.home_at) + F.localDays * DAY);
   out.cooldownUntil = await cooldownUntil(db, u.id, now);
   if (Date.parse(out.homeReadyAt) > now) return { ...out, error: "home_too_new" };
   if (await liveSeatOfUser(db, u.id)) return { ...out, error: "has_seat" };

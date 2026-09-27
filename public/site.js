@@ -79,7 +79,7 @@
   });
 
   /* ---------- live launch countdown (short form, used in several places) ---------- */
-  let opensAt = Date.parse("2026-11-10T00:00:00-05:00");
+  let opensAt = Date.parse("2026-10-10T10:10:10-04:00");
   const official = api("/api/official").then((o) => { if (o && o.launchpadOpensAt) opensAt = Date.parse(o.launchpadOpensAt); return o; });
   function shortCountdown() {
     const ms = opensAt - Date.now();

@@ -93,14 +93,14 @@ test("cities page: live map, claimed vs open, claiming sends you to the dashboar
   assert.deepEqual(order, ["theme", "site", "ticker", "cities"]);
 });
 
-test("launchpad: countdown to November 10 and who gets in first", () => {
+test("launchpad: countdown to October 10, 10:10:10 AM New York time, and who gets in first", () => {
   const h = html["launchpad.html"];
   for (const id of ["countdown", "lp-bar", "lp-cal"]) assert.ok(h.includes(`id="${id}"`), id);
-  assert.match(h, /November 10, 2026/);
+  assert.match(h, /October 10, 2026 · 10:10:10 AM New York time/);
   assert.match(h, /data-cd="seconds"/);
   assert.match(h, /Founding Supporters/);
   const official = readFileSync(new URL("../src/official.js", import.meta.url), "utf8");
-  assert.match(official, /LAUNCHPAD_OPENS_AT = "2026-11-10T/);
+  assert.match(official, /LAUNCHPAD_OPENS_AT = "2026-10-10T10:10:10-04:00"/);
 });
 
 test("connect: every popular wallet, phone QR, app wallets like FOMO, then X or Google", () => {

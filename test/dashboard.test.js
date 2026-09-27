@@ -45,6 +45,11 @@ test("dashboard before launch: early member, verified, local; the founder path w
   assert.equal(me.community.seat, null);
   assert.equal(me.founder.why, "not_launched");
   assert.equal(me.progress.steps.find((s) => s.id === "hold").detail, "starts at launch");
+  const home = () => a.get("/api/me").then((m) => m.progress.steps.find((s) => s.id === "home"));
+  assert.equal((await home()).done, false);
+  assert.equal((await home()).detail, "ready 2026-10-08", "the 7-day home clock runs before launch too");
+  await passTime(env, 7 * DAY);
+  assert.equal((await home()).done, true);
   assert.equal((await browser(env).get("/api/me")).signedIn, false);
 });
 
