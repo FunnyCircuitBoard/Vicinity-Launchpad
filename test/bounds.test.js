@@ -1,11 +1,9 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { handleClaim } from "../src/index.js";
-import { buildMessage, base58Encode, statementFor } from "../src/solana.js";
+import { locate } from "../src/community.js";
 import { _resetCityCache } from "../src/cities.js";
 import { cityAt, decodeArea, encodeArea, findCityArea, inArea } from "../src/geo.js";
-import { memoryStore } from "../src/store.js";
 import { findOverlaps } from "../scripts/boundaries/overlaps.mjs";
 
 // A square "Utica" (≈ 8 km across) with a hole, and a neighbourhood that is part of it.
@@ -27,56 +25,30 @@ test("geometry: encode/decode round-trip, holes, one-line lookups", () => {
   assert.equal(cityAt(US_BOUNDS, -74, 40.7), null);
 });
 
-// ---- claims use the boundary instead of the distance rule ------------------------------------
-const MINT = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm";
-const HOST = "vicinity.test";
+// ---- the community a point is in uses the real boundary --------------------------------------
 const TINY = { source: "test", countries: { US: "United States" }, admin: {}, byCountry: {
   US: [[5142056, "Utica", "NY", 43.1, -75.23, 61100], [9999001, "Downtown Utica", "NY", 43.1, -75.22, 5000]],
 } };
 const files = { "/data/cities.json": JSON.stringify(TINY), "/data/bounds/US.txt": US_BOUNDS };
 const assets = { fetch: async (r) => { const f = files[new URL(r.url).pathname]; return f ? new Response(f) : new Response("", { status: 404 }); } };
-const rpc = (amt) => async () => new Response(JSON.stringify({ result: { value: [{ account: { data: { parsed: { info: { tokenAmount: { uiAmount: amt } } } } } }] } }));
-async function wallet() {
-  const kp = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
-  const address = base58Encode(new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey)));
-  const sign = async (text) => Buffer.from(await crypto.subtle.sign({ name: "Ed25519" }, kp.privateKey, new TextEncoder().encode(text))).toString("base64");
-  return { address, sign };
-}
-async function send(action, target, location) {
-  const w = await wallet();
-  const message = buildMessage({ host: HOST, address: w.address, nonce: "abcdefghijklmnop", issuedAt: new Date().toISOString(), statement: statementFor(action, target) });
-  const req = new Request(`https://${HOST}/api/claim`, { method: "POST", body: JSON.stringify({ address: w.address, message, signature: await w.sign(message), location }) });
-  const res = await handleClaim(req, env, Date.now(), rpc(2_000_000));
-  return { status: res.status, ...(await res.json()) };
-}
 let env;
-beforeEach(() => { _resetCityCache(); env = { VICINITY_MINT: MINT, ASSETS: assets, store: memoryStore() }; });
+beforeEach(() => { _resetCityCache(); env = { ASSETS: assets }; });
 
-test("claim: inside the boundary passes", async () => {
-  const r = await send("claim", { cityId: "5142056", country: "US" }, { lat: 43.12, lon: -75.25, accuracy: 30 });
-  assert.equal(r.claimed, true, JSON.stringify(r));
+test("locate: inside the boundary is the city", async () => {
+  assert.equal((await locate(env, "US", -75.25, 43.12)).city.id, "5142056");
 });
 
-test("claim: 10 km away is refused even though the old 25 km circle allowed it", async () => {
-  const r = await send("claim", { cityId: "5142056", country: "US" }, { lat: 43.1, lon: -75.35, accuracy: 30 });
-  assert.equal(r.status, 403);
-  assert.equal(r.error, "not_in_city");
-  const hole = await send("claim", { cityId: "5142056", country: "US" }, { lat: 43.07, lon: -75.2, accuracy: 30 });
-  assert.equal(hole.error, "not_in_city");
+test("locate: 10 km outside, or in a hole, is not the city (only the three nearest are offered)", async () => {
+  const out = await locate(env, "US", -75.35, 43.1);
+  assert.equal(out.city, null);
+  assert.equal(out.nearby[0].id, "5142056");
+  assert.equal(out.nearby.some((c) => c.id === "9999001"), false, "a neighbourhood that's part of a city is never offered on its own");
+  assert.equal((await locate(env, "US", -75.2, 43.07)).city, null);
 });
 
-test("claim: a neighbourhood that is part of another city points to that city", async () => {
-  const r = await send("claim", { cityId: "9999001", country: "US" }, { lat: 43.1, lon: -75.22, accuracy: 30 });
-  assert.equal(r.error, "part_of");
-  assert.equal(r.parentId, "5142056");
-});
-
-test("add: refused while standing inside a listed city; fine outside every boundary", async () => {
-  const inside = await send("add", { name: "Cornhill", country: "US" }, { lat: 43.11, lon: -75.24, accuracy: 30 });
-  assert.equal(inside.error, "inside_listed_city");
-  assert.equal(inside.cityId, "5142056");
-  const outside = await send("add", { name: "Rome", country: "US" }, { lat: 43.21, lon: -75.46, accuracy: 30 });
-  assert.equal(outside.claimed, true, JSON.stringify(outside));
+test("locate: standing in a neighbourhood that's part of a city means that city", async () => {
+  assert.equal((await locate(env, "US", -75.22, 43.1)).city.id, "5142056");
+  assert.equal(await locate(env, "ZZ", 0, 0), null);
 });
 
 // ---- the generated boundary files ------------------------------------------------------------

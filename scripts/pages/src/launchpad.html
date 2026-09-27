@@ -19,7 +19,7 @@
           <a class="btn btn--primary btn--lg" href="/connect">Get ready: connect &amp; claim →</a>
           <button class="btn btn--glass btn--lg" type="button" id="lp-cal">Add to my calendar</button>
         </div>
-        <p class="tiny muted">The Launchpad opens at <strong>vicinity.city</strong>. We'll add it to the <a href="/token#check">official list</a> the day it goes live. Until then, any "Vicinity Launchpad" link is fake.</p>
+        <p class="tiny muted">The Launchpad opens right here, on <strong>vicinity.city</strong>. Any "Vicinity Launchpad" on another address is fake: <a href="/token#check">check a link</a>.</p>
       </div>
     </section>
 
@@ -31,7 +31,7 @@
           <p class="muted">Planned order. The exact times are announced here before launch.</p>
         </div>
         <ol class="phases">
-          <li class="card phase reveal"><span class="phase__n">1</span><h3>Snapshot</h3><p class="muted">$VICINITY holders at the snapshot become Founding Supporters. City Founders and Country Managers are fixed at the same moment. The time is announced in advance.</p></li>
+          <li class="card phase reveal"><span class="phase__n">1</span><h3>Snapshot</h3><p class="muted">Founding Supporters are counted by the lower of their balance at the cutoff and their 14-day average, so renting tokens for a day doesn't work. The cutoff is announced in advance.</p></li>
           <li class="card phase reveal"><span class="phase__n">2</span><h3>Founders launch</h3><p class="muted">Each City Founder gets first right to launch their city's one official coin, with the ticker reserved for that city.</p></li>
           <li class="card phase reveal"><span class="phase__n">3</span><h3>Supporters first</h3><p class="muted">Founding Supporters get early access to new city coins before the public.</p></li>
           <li class="card phase reveal"><span class="phase__n">4</span><h3>Everyone</h3><p class="muted">The public joins. Every city coin keeps its real boundary, verified locals and moderators.</p></li>
@@ -43,9 +43,28 @@
       <div class="wrap">
         <div class="section-head"><p class="kicker">Who gets in first</p><h2>Get your place before November 10.</h2></div>
         <div class="grid-3">
-          <article class="card perk reveal"><span class="perk__icon" aria-hidden="true">🏅</span><h3>Founding Supporters</h3><p class="muted">Hold $VICINITY at the snapshot. That's it: no sign-up needed, it's read from the blockchain.</p><a class="link-btn" href="/token#verify">Check a wallet →</a></article>
-          <article class="card perk reveal"><span class="perk__icon" aria-hidden="true">👑</span><h3>City Founders</h3><p class="muted">Claim your city with 1,000,000+ $VICINITY while standing in it. First right to launch its coin.</p><a class="link-btn" href="/cities">Find your city →</a></article>
-          <article class="card perk reveal"><span class="perk__icon" aria-hidden="true">🛡️</span><h3>Country Managers</h3><p class="muted">The founder holding the most in each country. Approves new towns and keeps the country's coins clean.</p><a class="link-btn" href="/dashboard#roles">Roles →</a></article>
+          <article class="card perk reveal"><span class="perk__icon" aria-hidden="true">🏅</span><h3>Founding Supporters</h3><p class="muted">Hold $VICINITY through the 14 days before the snapshot. No sign-up needed: it's read from the blockchain.</p><a class="link-btn" href="#supporters">Check a wallet →</a></article>
+          <article class="card perk reveal"><span class="perk__icon" aria-hidden="true">👑</span><h3>City Founders</h3><p class="muted">Chosen by your city after holding 1,000,000+ $VICINITY for 14 days. First right to launch its coin.</p><a class="link-btn" href="/cities">Find your city →</a></article>
+          <article class="card perk reveal"><span class="perk__icon" aria-hidden="true">🛡️</span><h3>Country Managers</h3><p class="muted">Elected by each country's locals for 90 days. Advise on new towns and keep the country's coins clean.</p><a class="link-btn" href="/dashboard#roles">Roles →</a></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--glow" id="supporters">
+      <div class="wrap verify-grid">
+        <div>
+          <p class="kicker">Founding Supporter snapshot</p>
+          <h2 class="h2--sm">Counted fairly. Checked by anyone.</h2>
+          <p class="muted">Every wallet counts as the lower of its balance at the cutoff and its average over the 14 days before, so renting tokens for a day doesn't help. Pools and team wallets are excluded. The result is published with a Merkle root and 48 hours to challenge it. <a href="/rules#supporters">The rules</a>.</p>
+          <p class="small" id="snap-status">Checking…</p>
+        </div>
+        <div class="card">
+          <form class="snap-lookup" id="snap-form" novalidate>
+            <label class="sr-only" for="snap-input">Solana wallet address</label>
+            <input id="snap-input" type="text" autocomplete="off" spellcheck="false" maxlength="60" placeholder="Paste a wallet address">
+            <button class="btn btn--primary" type="submit">Check</button>
+          </form>
+          <div class="small" id="snap-result" aria-live="polite"><p class="muted">Once the snapshot is published, paste any wallet to see its amount and Merkle proof.</p></div>
         </div>
       </div>
     </section>
@@ -58,7 +77,7 @@
           <ul class="ticks">
             <li><strong>No copycats.</strong> Each community gets exactly one official coin, and its ticker is reserved (London, UK is $LONDON; London, Canada is $LONDONCA).</li>
             <li><strong>Real holders.</strong> Locals are verified by wallet, location and one login per person.</li>
-            <li><strong>Accountable leaders.</strong> Founders and managers keep their roles only while they hold, checked live.</li>
+            <li><strong>Accountable leaders.</strong> Founders are chosen by locals and managers are elected; both keep their roles only while they hold, and nobody moderates alone.</li>
             <li><strong>Built for the long run.</strong> Every coin comes with its community's feed, check-ins and weekly votes.</li>
           </ul>
         </div>

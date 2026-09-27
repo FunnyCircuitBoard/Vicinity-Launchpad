@@ -2,7 +2,7 @@
 
 **One city. One coin. One community.** Every real city on one map, with real boundaries. Each community gets one official coin, local leaders, and its own feed of memes, check-ins, discussions and weekly votes. $VICINITY holders get in first; the Vicinity Launchpad opens November 10, 2026.
 
-Live: https://vicinitycity.net (backup address: https://vicinity-map.noyonsakibul.workers.dev)
+Live: https://vicinity.city (vicinitycity.net and the www addresses forward there).
 
 > **No token exists yet.** $VICINITY has not launched. No presale, no airdrop, no contract address. When it launches, the official address will be published in this README and on the website. Use the site's "Is this link really Vicinity?" checker if in doubt.
 
@@ -13,63 +13,77 @@ Separate pages, one shared menu (top menu on computers, bottom menu bar on phone
 - **/cities** The live map: 8,000+ communities in 244 countries with real boundaries that never overlap; claimed vs open; the communities filling up. The claim button leads to the dashboard.
 - **/launchpad** Countdown to November 10, the planned phases, who gets in first, add-to-calendar.
 - **/connect** Sign in: any Solana wallet (Wallet Standard + older ones; app links for phones), "wallet on my phone" (QR code + 2-digit check number), and a tiny-transfer proof for app wallets that can't connect (FOMO, exchanges). Then X or Google. One wallet + one login = one account.
+- **/rules** Every rule and formula, the "never" list, and whether the balance checks are running (filled live from `/api/policy`).
 - **/dashboard** Onboarding (live rank + home community from one location check; people in empty land pick one of the three nearest communities), then: role and badges re-checked live (selling removes them), founder race with a progress bar and claiming, community and country cards, local and national feeds (memes with pictures, check-ins, discussions, weekly votes weighted 1 / 2 founders / 3 managers), reports, moderator tools, "add my town" requests, roles and responsibilities.
+
+## Fair launch (why nobody can buy, rush or bully their way in)
+All rules live in `src/policy.js` with a version number; seats, elections and snapshots store the version they were decided under.
+- **Balance history** (`src/ledger.js`): every 10 minutes the scheduled job *may* record every holder's balance, on average once an hour at unpredictable moments (at least every 3 hours). Borrowing tokens for a few minutes doesn't help anyone.
+- **City founders** (`src/seats.js`): hold the founder amount in every check for 14 days, have your home set 7+ days, apply from inside the city (a signed location attestation). The first application opens a 72-hour window; verified locals endorse (one person, one endorsement); the winner is scored 50% endorsements, 30% contribution, 20% holdings capped at 2× the amount; ties by a public hash. Result + hash published. 48 hours for objections (an admin who didn't object decides). Below the amount → grace (powers paused), 7 days to fix it; more than 2 graces in 90 days, or an unfixed grace → released, and a 30-day cooldown. The database allows one live seat per city and per person.
+- **Country managers** (`src/elections.js`): elected for 90 days by the country's verified locals (50% votes, 30% service, 20% capped holdings), from founders active 30+ days, at most two terms in a row.
+- **Moderation** (`src/moderation.js`): hides need a reason and last 24 hours unless a second moderator (or 3 reports) confirms; bans are proposed by one person and approved by another, last 30 days, and can be appealed to someone uninvolved. Everything is in the public log (`/api/audit`).
+- **Founding Supporters** (`src/snapshot.js`): eligible = min(balance at the cutoff, 14-day average); pools and team wallets excluded; Merkle root + input hash; 48-hour challenge period.
+- **Location** (`src/attest.js`): read in one place only, turned into a 5-minute single-use signed "city attestation"; coordinates are never stored or logged. Risk checks answer generically.
+- **Fresh proof**: applying, endorsing, voting and moderating need the wallet proven in the last 30 minutes.
 
 ## Project layout
 ```
 public/             Website: generated pages (*.html), style.css, page scripts (site.js shared; home, token, cities,
-                    launchpad, connect, dashboard, wallets.js), data/ (cities, boundaries, NYC example, stats)
+                    launchpad, connect, dashboard, rules, wallets.js), data/ (cities, boundaries, NYC example, stats)
 scripts/pages/      Page sources + shared layout: edit here, then `npm run pages` (a test checks public/*.html match)
 scripts/demo/       nyc.mjs builds the New York City example + site numbers (`npm run demo:nyc`)
 scripts/boundaries/ Builds the city boundaries; scripts/cities/ builds the city list
-src/index.js        Backend (Cloudflare Worker): API routes, claims
-src/auth.js         Accounts: wallet sign-in, X / Google, phone pairing, tiny-transfer proof, sessions
-src/me.js           Dashboard data: live rank, roles, badges, claim progress, home community
-src/social.js       Feeds, votes, reports, moderation, "add my town" requests
-src/roles.js        Admin / country manager / city founder / holder, checked live
-src/community.js    Which community a point is in (or the three nearest)
+src/index.js        Backend (Cloudflare Worker): routes, the scheduled job, forwarding old addresses
+src/policy.js       Every rule, versioned
+src/jobs.js         The every-10-minutes job: balance checks, seats, elections, moderation expiry, snapshots
+src/ledger.js       Balance history (random-time samples, 14-day streaks and averages)
+src/seats.js        City founders · src/elections.js country managers · src/moderation.js moderation + town requests
+src/snapshot.js     Founding Supporters (Merkle proofs) · src/attest.js location attestations
+src/auth.js         Accounts: wallet sign-in, X / Google, phone pairing, tiny-transfer proof, re-proving, sessions
+src/me.js           Dashboard data · src/social.js feeds · src/roles.js roles · src/access.js who may do what
 src/chain.js        Read-only Solana data: token facts, every holder + ranks, balances, transfer lookup
-src/solana.js       Base58, sign-in message format, Ed25519 signature check
-src/official.js     Official links, the mint address, the Launchpad opening time
-src/cities.js       City list + boundary file loaders, claim rules; src/geo.js boundary format
-src/store.js        Database schema (Cloudflare D1; tables are created automatically) + claims store
-test/               Automated tests (npm test); test/helpers/d1.js runs the real SQL on Node's SQLite
-wrangler.jsonc      Cloudflare settings (build copies fonts + QR library, builds pages, runs tests)
+src/community.js    Which community a point is in (or the three nearest) · src/cities.js + src/geo.js city data
+src/store.js        Database schema + migrations (Cloudflare D1; applied automatically) · src/blobs.js big stored values
+test/               Automated tests (npm test); helpers/world.js is a small test world with a clock tests can move
+wrangler.jsonc      Cloudflare settings (addresses, database, the 10-minute schedule, build = copy files + pages + tests)
 ```
 
 ## Settings (Cloudflare → Workers → vicinity-map → Settings → Variables and secrets)
+Add each one as a **Secret**, so later deploys never wipe it.
 | Name | What it's for |
 |---|---|
-| `SOLANA_RPC_URL` (secret) | A Helius (or similar) RPC URL. Needed for the full holder list and ranks; without it only the top 20 show. |
+| `SOLANA_RPC_URL` | A Helius (or similar) RPC URL. Needed for the full holder list, ranks and the balance history; without it only the top 20 show and nobody can qualify as founder. |
 | `VICINITY_MINT` | The token address, the moment it launches (or edit `src/official.js`). |
-| `ADMIN_WALLETS` | Your wallet address(es), comma-separated: admin powers on the dashboard. |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (secret) | Google sign-in. Google Cloud console → Credentials → OAuth client (Web application). Redirect URI: `https://vicinitycity.net/api/auth/google/callback` |
-| `X_CLIENT_ID`, `X_CLIENT_SECRET` (secret) | X sign-in. X developer portal → your app → User authentication settings (OAuth 2.0, Web App). Callback: `https://vicinitycity.net/api/auth/x/callback` |
+| `ADMIN_WALLETS` | Admin wallet address(es), comma-separated. Two admins let appeals of an admin's own decisions be judged by the other. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in. Redirect URI: `https://vicinity.city/api/auth/google/callback` |
+| `X_CLIENT_ID`, `X_CLIENT_SECRET` | X sign-in. Callback: `https://vicinity.city/api/auth/x/callback` |
+| `SNAPSHOT_CUTOFF` | The Founding Supporter cutoff, always 00:00 UTC, e.g. `2026-11-08T00:00:00Z`. Announce it first. |
+| `ATTEST_KEY` | Optional: the key that signs location attestations (otherwise one is made once and kept in the database). |
 
-Without the Google / X settings the site works, but new people can't finish signing up (the connect page says sign-in is being switched on).
+The scheduled job and the full holder list need more CPU time than Cloudflare's free plan allows once there are many holders: use the Workers Paid plan.
 
 ## API
 | Route | What it does |
 |---|---|
-| `GET /api/health` · `GET /api/official` · `GET /api/check?q=` | Status · official links (+ Launchpad time) · is this link official? |
-| `GET /api/message?address=&action=verify / login / claim / add` | The exact text a wallet signs |
-| `POST /api/verify` | Checks `{address, message, signature(base64)}`; nothing stored |
-| `GET /api/token` · `GET /api/holders` · `GET /api/rank?address=` | Live token facts + price · every holder (top 1,000) · one wallet's rank |
-| `GET /api/claims` · `POST /api/claim` · `GET /api/moderator?country=` | Claimed cities · claim (signed in, or signed message) · a country's manager |
-| `GET /api/members` | How many members call each community home (no names) |
-| `POST /api/auth/wallet` · `POST /api/auth/transfer` (+ `/check`) · `POST /api/pair` · `GET /api/pair?code=` · `POST /api/pair/finish` | Prove a wallet |
+| `GET /api/health` · `/api/official` · `/api/check?q=` · `/api/policy` | Status · official links · is this link official? · the rules + job health |
+| `GET /api/token` · `/api/holders` · `/api/rank?address=` | Live token facts + price · every holder (top 1,000) · one wallet's rank |
+| `GET /api/message?address=&action=verify/login` · `POST /api/verify` | The text a wallet signs · check a signature (nothing stored) |
+| `GET /api/seats` (also `/api/claims`) · `/api/seats/results/:id` | Founder seats + open windows · a window's published result and hash |
+| `GET /api/moderator?country=` · `/api/elections/results/:id` | A country's manager · an election's published result |
+| `GET /api/members` · `/api/audit?country=` | Members per community · every moderation decision |
+| `GET /api/snapshots` · `/api/snapshots/:id/proof?wallet=` · `/api/snapshots/:id/data` | Founding Supporters, Merkle proofs, all inputs |
+| `POST /api/auth/wallet` · `/api/auth/transfer` (+`/check`) · `/api/auth/reprove` · `/api/pair` (+`/finish`) · `GET /api/pair?code=` | Prove a wallet |
 | `GET /api/auth/google/start` (and `/x/`, `/callback`) · `POST /api/auth/logout` | X / Google sign-in |
-| `GET /api/me` · `POST /api/home` | Dashboard data · set home community |
-| `GET /api/posts` · `POST /api/posts` · `POST /api/posts/vote` (`report`, `hide`, `ban`) · `GET /api/mod` · `GET /api/media/:id` | Feeds and moderation |
-| `GET /api/requests` · `POST /api/requests` · `POST /api/requests/decide` | "Add my town" requests |
+| `GET /api/me` · `POST /api/home` · `POST /api/locate` | Dashboard data · home community · the only place a location is read |
+| `GET\|POST /api/posts` · `POST /api/posts/vote` · `/api/posts/report` · `GET /api/media/:id` | Feeds |
+| `POST /api/seats/apply` · `/withdraw` · `/endorse` · `/object` · `/objections/decide` · `/api/elections/vote` | Founders and managers |
+| `GET /api/mod` · `POST /api/mod/hide` · `/unhide` · `/ban` · `/ban/approve` · `/ban/reject` · `/api/appeals` (+`/decide`) | Moderation |
+| `GET\|POST /api/towns` · `POST /api/towns/decide` · `POST /api/snapshots/cancel` | Town requests · correcting a snapshot |
 
 ## Moderating
-Most moderation happens on the dashboard: city founders hide posts in their city; country managers hide posts, ban people and decide "add my town" requests in their country; admins (`ADMIN_WALLETS`) can do all of it everywhere. For anything else: Cloudflare dashboard → Storage & databases → D1 → `vicinity-claims` → Console.
-- Release a claim that broke the rules: `DELETE FROM claims WHERE city_id = '5142056';`
-- Hide a community-added city: `UPDATE added_cities SET hidden = 1 WHERE id = 3;`
-- Lift a ban: `DELETE FROM bans WHERE user_id = 12;`
-- Approved "add my town" requests: `SELECT * FROM requests WHERE status = 'approved';` (add them to the city list at the next map build)
-- Before the Launchpad snapshot, re-check every founder still holds 1,000,000+ $VICINITY.
+Moderation happens on the dashboard, under the two-person rules above, and every action is public at `/api/audit`. For anything else: Cloudflare dashboard → Storage & databases → D1 → `vicinity-claims` → Console.
+- Approved "add my town" requests: `SELECT * FROM town_requests WHERE status = 'approved';` (add them to the city list at the next map build)
+- A founder's seat can only be ended by an upheld objection (dashboard) or by the rules (grace), never by editing the database quietly.
 
 ## Run it locally
 Requires Node.js 20+.
@@ -106,7 +120,9 @@ npm run check:boundaries   # exact geometry, every pair of neighbouring areas; e
 The test suite runs the same check, so a build with overlapping areas can't deploy.
 
 ## Deploy
-Cloudflare Workers Builds deploys automatically whenever `main` changes on GitHub. Before each deploy, `npm run build` copies the fonts and the QR library, builds the pages and runs every test, so a failing test blocks the deploy.
+Code: https://github.com/FunnyCircuitBoard/Vicinity-Launchpad · Cloudflare account: the one that owns vicinity.city.
+- By hand: `npx wrangler deploy` (runs `npm run build` first: files copied in, pages built, every test must pass).
+- Automatically on every push to `main`: Cloudflare → Workers & Pages → vicinity-map → Settings → Builds → connect the GitHub repository.
 
 ## Security
 - One account per person: one wallet + one X or Google login, enforced by the database. From Google we keep the account id and first name; from X the id, @handle and name. No e-mail, no passwords. Only a hash of the session cookie is stored (HttpOnly, Secure, SameSite=Lax, 30 days); requests that change something must come from this site (Origin check).

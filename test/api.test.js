@@ -19,7 +19,7 @@ const postVerify = (body) =>
 test("health endpoint returns ok with security headers", async () => {
   const res = await handleApi(req("/api/health"));
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { ok: true, service: "vicinity-map", milestone: 1 });
+  assert.deepEqual(await res.json(), { ok: true, service: "vicinity-map", milestone: 2 });
   assert.equal(res.headers.get("X-Content-Type-Options"), "nosniff");
 });
 
@@ -39,6 +39,8 @@ test("link checker: official site, official GitHub, fakes", async () => {
   const check = async (q) => (await (await handleApi(req("/api/check?q=" + encodeURIComponent(q)))).json()).verdict;
   assert.equal(await check("https://vicinity-map.noyonsakibul.workers.dev/"), "official");
   assert.equal(await check("https://vicinitycity.net"), "official");
+  assert.equal(await check("https://vicinity.city/launchpad"), "official");
+  assert.equal(await check("vicinity.city.evil.io"), "not_official");
   assert.equal(await check("www.vicinitycity.net/whatever"), "official");
   assert.equal(await check("vicinitycity.net.evil.io"), "not_official");
   assert.equal(await check("https://github.com/someone/vicinity-map"), "not_official");
@@ -116,4 +118,14 @@ test("the Worker entry file only exports functions (Cloudflare refuses to start 
     if (name === "default") assert.equal(typeof value.fetch, "function");
     else assert.equal(typeof value, "function", `export "${name}" must be a function`);
   }
+});
+
+test("old and www addresses forward to vicinity.city, keeping the path", async () => {
+  for (const host of ["vicinitycity.net", "www.vicinitycity.net", "www.vicinity.city"]) {
+    const res = await worker.fetch(new Request(`https://${host}/cities?city=5142056`), {});
+    assert.equal(res.status, 301);
+    assert.equal(res.headers.get("location"), "https://vicinity.city/cities?city=5142056");
+  }
+  const own = await worker.fetch(new Request("https://vicinity.city/api/health"), {});
+  assert.equal(own.status, 200);
 });

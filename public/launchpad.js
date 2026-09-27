@@ -25,9 +25,9 @@
   // A standard calendar file, made right here in the browser.
   $("#lp-cal")?.addEventListener("click", () => {
     const at = new Date(opensAt()), stamp = (t) => t.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-    const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Vicinity//Launchpad//EN", "BEGIN:VEVENT", `UID:launchpad-${at.getTime()}@vicinitycity.net`,
+    const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Vicinity//Launchpad//EN", "BEGIN:VEVENT", `UID:launchpad-${at.getTime()}@vicinity.city`,
       `DTSTAMP:${stamp(new Date())}`, `DTSTART:${stamp(at)}`, `DTEND:${stamp(new Date(at.getTime() + 3600000))}`,
-      "SUMMARY:Vicinity Launchpad opens", "DESCRIPTION:Every city gets its own coin. Details: https://vicinitycity.net/launchpad", "URL:https://vicinitycity.net/launchpad",
+      "SUMMARY:Vicinity Launchpad opens", "DESCRIPTION:Every city gets its own coin. Details: https://vicinity.city/launchpad", "URL:https://vicinity.city/launchpad",
       "END:VEVENT", "END:VCALENDAR"].join("\r\n");
     const a = document.createElement("a");
     a.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
@@ -35,4 +35,28 @@
     document.body.append(a); a.click(); a.remove();
   });
   void $$;
+})();
+
+// Founding Supporter snapshot: status, and any wallet's amount + Merkle proof.
+(() => {
+  "use strict";
+  const { $, el, api, fmt, isAddr } = window.V;
+  let snap = null;
+  (async () => {
+    const d = await api("/api/snapshots");
+    snap = (d.snapshots || []).find((s) => s.status !== "cancelled") || null;
+    const st = $("#snap-status"); if (!st) return;
+    if (snap) st.textContent = `Snapshot #${snap.id} (cutoff ${new Date(snap.cutoff).toUTCString()}): ${snap.status === "active" ? "final" : `challenge period until ${new Date(snap.activatesAt).toLocaleString()}`} · ${fmt(snap.holders)} wallets · Merkle root ${snap.merkleRoot.slice(0, 16)}…`;
+    else st.textContent = d.scheduledCutoff ? `Cutoff scheduled for ${new Date(d.scheduledCutoff).toUTCString()}.` : "The cutoff hasn't been announced yet. It will be, here, well ahead of time.";
+  })();
+  $("#snap-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const out = $("#snap-result"), w = $("#snap-input").value.trim();
+    if (!isAddr(w)) { out.replaceChildren(el("p", "wallet__error", "That doesn't look like a Solana wallet address.")); return; }
+    if (!snap) { out.replaceChildren(el("p", "muted", "No snapshot has been published yet.")); return; }
+    const r = await api(`/api/snapshots/${snap.id}/proof?wallet=${encodeURIComponent(w)}`);
+    if (!r.eligible) { out.replaceChildren(el("p", null, "This wallet isn't in the snapshot.")); return; }
+    const proof = el("pre", "formula", JSON.stringify({ leaf: r.leaf, proof: r.proof, root: r.snapshot.merkleRoot }, null, 1));
+    out.replaceChildren(el("p", null, `✓ Founding Supporter: ${fmt(r.amount / 1e6)} $VICINITY counted${r.verified ? " · proof verified" : ""}.`), proof);
+  });
 })();

@@ -5,11 +5,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Dashboard · Vicinity</title>
-  <meta name="description" content="Your live Vicinity dashboard: rank among all holders, your city and country, badges, the founder race, and local and national memes, check-ins and discussions.">
+  <meta name="description" content="Your live Vicinity dashboard: rank among all holders, your city and country, badges, the path to founding your city, elections, and local and national memes, check-ins and discussions.">
   <meta name="theme-color" content="#070E19">
   <meta name="color-scheme" content="dark light">
   <meta property="og:title" content="Dashboard · Vicinity">
-  <meta property="og:description" content="Your live Vicinity dashboard: rank among all holders, your city and country, badges, the founder race, and local and national memes, check-ins and discussions.">
+  <meta property="og:description" content="Your live Vicinity dashboard: rank among all holders, your city and country, badges, the path to founding your city, elections, and local and national memes, check-ins and discussions.">
   <meta property="og:type" content="website">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/space-grotesk.woff2" as="font" type="font/woff2" crossorigin>
@@ -47,13 +47,13 @@
         <div class="teaser__copy">
           <p class="kicker">Your dashboard</p>
           <h1 class="page-title">Your city is talking.<br><span class="accent">You're not in it yet.</span></h1>
-          <p class="lead">Connect your wallet to see your live rank among every holder, your city's founder race, local memes, and who's checking in near you.</p>
+          <p class="lead">Connect your wallet to see your live rank among every holder, who's applying to found your city, local memes, and who's checking in near you.</p>
           <a class="btn btn--primary btn--lg" href="/connect">Connect &amp; sign in →</a>
           <p class="tiny muted">Takes about a minute. Signing is free and isn't a transaction.</p>
         </div>
         <div class="teaser__preview" aria-hidden="true">
           <div class="card blur-card"><span class="muted small">Your rank</span><strong>#???</strong><span class="muted small">of every holder</span></div>
-          <div class="card blur-card"><span class="muted small">Your city</span><strong>??? members</strong><span class="muted small">founder seat: ???</span></div>
+          <div class="card blur-card"><span class="muted small">Your city</span><strong>??? members</strong><span class="muted small">founder: ???</span></div>
           <div class="card blur-card"><span class="muted small">This week's top meme</span><strong>▲ ???</strong><span class="muted small">locals only</span></div>
           <span class="teaser__lock">🔒 Members only</span>
         </div>
@@ -70,7 +70,7 @@
             <li class="is-ok"><span class="req__dot"></span><div><strong>Wallet verified</strong><p class="tiny muted mono" data-me-wallet></p></div></li>
             <li class="is-ok"><span class="req__dot"></span><div><strong>Account linked</strong><p class="tiny muted" data-me-login></p></div></li>
             <li id="ob-rank"><span class="req__dot"></span><div><strong>Your position among all holders</strong><p class="tiny muted" id="ob-rank-text">Checking the blockchain…</p></div></li>
-            <li id="ob-city"><span class="req__dot"></span><div><strong>Your community</strong><p class="tiny muted" id="ob-city-text">We use your location once to find the community you're in. It's never saved.</p>
+            <li id="ob-city"><span class="req__dot"></span><div><strong>Your community</strong><p class="tiny muted" id="ob-city-text">We use your location once to find the community you're in. It's never saved: only the community is.</p>
               <button class="btn btn--primary btn--sm" type="button" id="ob-locate">Find my community</button>
               <ul class="nearby-list" id="ob-nearby" hidden></ul></div></li>
           </ol>
@@ -83,6 +83,7 @@
     <!-- the dashboard -->
     <section class="dash" id="dash-main" hidden>
       <div class="wrap">
+        <div class="lost-alert" id="ban-notice" role="alert" hidden></div>
         <div class="lost-alert" id="lost-alert" role="alert" hidden></div>
         <div class="dash-top">
           <div class="idcard card">
@@ -106,13 +107,13 @@
           <div class="dash-col">
             <section class="card progress-card" id="progress" aria-labelledby="progress-title">
               <div class="progress-card__head">
-                <div><p class="kicker">Founder race</p><h2 class="h2--sm" id="progress-title">Claim <span id="p-city">your city</span></h2></div>
+                <div><p class="kicker">Founder path · <a href="/rules#founders">the rules</a></p><h2 class="h2--sm" id="progress-title">Found <span id="p-city">your city</span></h2></div>
                 <strong class="progress-card__pct" id="p-pct">0%</strong>
               </div>
               <div class="bar" aria-hidden="true"><span id="p-bar"></span></div>
               <ol class="psteps" id="p-steps"></ol>
-              <p class="small" id="p-note"></p>
-              <button class="btn btn--primary btn--block" type="button" id="p-claim" hidden>Claim it now (checks your location)</button>
+              <div class="seat-panel" id="p-panel"></div>
+              <div class="window-panel" id="p-window" hidden></div>
               <p class="wallet__error" id="p-error" role="alert" hidden></p>
             </section>
 
@@ -163,12 +164,13 @@
             </section>
 
             <section class="card" id="national">
-              <p class="kicker">Your country</p>
+              <p class="kicker">Your country · <a href="/rules#managers">how managers are elected</a></p>
               <h2 class="h2--sm" id="nc-name">—</h2>
               <dl class="kv">
                 <div><dt>Members</dt><dd id="nc-members">—</dd></div>
                 <div><dt>Country Manager</dt><dd id="nc-manager">—</dd></div>
               </dl>
+              <div class="election" id="nc-election" hidden></div>
             </section>
 
             <section class="card" id="badges">
@@ -178,16 +180,14 @@
 
             <section class="card mod-card" id="mod" hidden>
               <p class="kicker">🛡️ Moderator tools · <span id="mod-scope"></span></p>
-              <h2 class="h2--sm">Reports</h2>
-              <ul class="posts posts--compact" id="mod-posts"></ul>
-              <h2 class="h2--sm">"Add my town" requests</h2>
-              <ul class="req-list" id="mod-requests"></ul>
+              <p class="tiny muted">Every action needs a reason and is <a href="/rules#moderation">logged publicly</a>. A hide lasts 24 hours unless a second moderator (or 3 reports) confirms it. Bans need two people.</p>
+              <div id="mod-sections"></div>
             </section>
 
             <section class="card" id="request">
               <p class="kicker">Missing town?</p>
               <h2 class="h2--sm">Ask for your town</h2>
-              <p class="small muted">Stand in the town and send a request. Your Country Manager approves new communities; approved towns join the map at the next update.</p>
+              <p class="small muted">Stand in the town and send a request. Your Country Manager gives advice and an admin decides; approved towns join the map at the next update. Only the nearest community is kept, never your location.</p>
               <form class="req-form" id="req-form" novalidate>
                 <label class="sr-only" for="req-name">Town name</label>
                 <input id="req-name" type="text" maxlength="60" autocomplete="off" placeholder="e.g. New Hartford">
@@ -201,34 +201,56 @@
       </div>
     </section>
 
+    <!-- "confirm it's you": sensitive actions need the wallet proven in the last 30 minutes -->
+    <div class="modal" id="proof-modal" role="dialog" aria-modal="true" aria-labelledby="proof-title" hidden>
+      <div class="modal__box card">
+        <h2 class="h2--sm" id="proof-title">Confirm it's you</h2>
+        <p class="small muted">Sensitive actions (applying, endorsing, voting, moderating) need your wallet to sign once every 30 minutes. It's free and isn't a transaction. This stops anyone who gets hold of your login from acting as you.</p>
+        <div class="wallet-list" id="proof-wallets"></div>
+        <p class="small muted" id="proof-none" hidden>No wallet found in this browser. Open this page in your wallet app, or use the tiny transfer below.</p>
+        <details class="more-wallets" id="proof-transfer">
+          <summary>App wallet (FOMO…)? Prove it with a tiny transfer</summary>
+          <div class="tp-code" id="proof-code" hidden>
+            <p class="small">Send exactly</p>
+            <p class="big-amount"><strong id="proof-sol">0.000000</strong> <span>SOL</span></p>
+            <p class="small">to your own address. It only costs the network fee.</p>
+            <p class="muted small"><span class="live-dot" aria-hidden="true"></span> Watching for it…</p>
+          </div>
+          <button class="btn btn--glass btn--sm" type="button" id="proof-start">Get my code</button>
+        </details>
+        <p class="wallet__error" id="proof-error" role="alert" hidden></p>
+        <button class="link-btn" type="button" id="proof-cancel">Cancel</button>
+      </div>
+    </div>
+
     <!-- roles: always visible -->
     <section class="section section--panel" id="roles">
       <div class="wrap">
         <div class="section-head">
-          <p class="kicker">Roles &amp; responsibilities</p>
+          <p class="kicker">Roles &amp; responsibilities · rules version <span data-policy-version>2</span></p>
           <h2>Who does what, now and when Vicinity goes live.</h2>
-          <p class="muted">Every role except Admin is earned from live blockchain data. Fall below the line and the role moves to the next person on the next check.</p>
+          <p class="muted">Leadership is earned over time and chosen by locals, not bought in a minute. Holdings count, but only up to 2× the founder amount, so the biggest wallet can't simply take over. <a href="/rules">Read every rule →</a></p>
         </div>
         <div class="roles-table">
           <article class="card role-row" data-role="holder">
             <div class="role-row__who"><span class="role__icon" aria-hidden="true">🏅</span><div><h3>Holder</h3><p class="tiny muted">Holds any $VICINITY · vote ×1</p></div></div>
-            <div><p class="role-row__when">Now</p><ul><li>Verify your wallet and set your home community.</li><li>Post memes, check-ins and discussions in your city and country.</li><li>Vote in the weekly meme vote. Report spam and scams.</li></ul></div>
-            <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Your rank among all holders updates every minute.</li><li>Only holders can post and vote, so keep holding.</li><li>Holders at the snapshot become Founding Supporters: early access to city coins on the Launchpad.</li></ul></div>
+            <div><p class="role-row__when">Now</p><ul><li>Verify your wallet and set your home community.</li><li>Post memes, check-ins and discussions in your city and country.</li><li>Report spam and scams: 5 reports hide a post until a moderator reviews it.</li></ul></div>
+            <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Only holders can post and vote.</li><li>Endorse who should found your city, and elect your Country Manager: one person, one vote.</li><li>Founding Supporters are the holders by 14-day average balance at the snapshot: early access to city coins.</li></ul></div>
           </article>
           <article class="card role-row" data-role="founder">
-            <div class="role-row__who"><span class="role__icon" aria-hidden="true">👑</span><div><h3>City Founder</h3><p class="tiny muted">Claimed a city · 1,000,000+ · vote ×2</p></div></div>
-            <div><p class="role-row__when">Now</p><ul><li>Get founder-ready: set your home community and plan to hold 1,000,000+.</li><li>Bring your locals in: every member makes the city's coin stronger.</li><li>Claims open the moment $VICINITY launches. First come, first served.</li></ul></div>
-            <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Claim the city while standing inside its boundary.</li><li>Moderate the city's feed: review reports, hide spam.</li><li>Keep 1,000,000+ or lose the seat on the next check.</li><li>At the Launchpad: first right to launch the city's one official coin.</li></ul></div>
+            <div class="role-row__who"><span class="role__icon" aria-hidden="true">👑</span><div><h3>City Founder</h3><p class="tiny muted">Chosen by the city · vote ×2</p></div></div>
+            <div><p class="role-row__when">Now</p><ul><li>Set your home community (it must be set 7 days before you apply).</li><li>Bring your locals in: they'll endorse the founder.</li><li>Plan to hold the founder amount for 14 days straight after launch: balances are checked at random times.</li></ul></div>
+            <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Apply from inside the city; a 72-hour window lets others apply too. No race.</li><li>Chosen by the published formula: 50% local endorsements, 30% contribution, 20% holdings (capped at 2×). Then 48 hours for objections.</li><li>Moderate the city's feed (hides need a second person). Drop below the amount and moderation pauses; 7 days to fix it or the seat reopens.</li><li>At the Launchpad: first right to launch the city's one official coin.</li></ul></div>
           </article>
           <article class="card role-row" data-role="manager">
-            <div class="role-row__who"><span class="role__icon" aria-hidden="true">🛡️</span><div><h3>Country Manager</h3><p class="tiny muted">The founder holding the most in a country · vote ×3</p></div></div>
-            <div><p class="role-row__when">Now</p><ul><li>The seat opens once the first cities are claimed. Until then the Admin covers it.</li><li>Become a City Founder first: the manager is chosen among founders.</li></ul></div>
-            <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Approve or decline "add my town" requests in your country.</li><li>Hide posts anywhere in the country; ban scammers from the country's feeds.</li><li>Help review city coin launches in the country.</li><li>The seat moves live to whichever founder holds the most; it's fixed at the Launchpad snapshot.</li></ul></div>
+            <div class="role-row__who"><span class="role__icon" aria-hidden="true">🛡️</span><div><h3>Country Manager</h3><p class="tiny muted">Elected for 90 days · vote ×3</p></div></div>
+            <div><p class="role-row__when">Now</p><ul><li>The seat opens once the country has founders with 30+ days of service. Until then the Admin covers it.</li></ul></div>
+            <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Elected by the country's verified locals: 50% votes, 30% service, 20% holdings (capped). 90-day terms, at most two in a row.</li><li>Hide posts in the country, propose bans (another person must approve), advise on "add my town" requests.</li><li>Powers pause the moment their founder seat is in grace.</li></ul></div>
           </article>
           <article class="card role-row" data-role="admin">
             <div class="role-row__who"><span class="role__icon" aria-hidden="true">⚙️</span><div><h3>Admin</h3><p class="tiny muted">The Vicinity team · team wallets are public</p></div></div>
-            <div><p class="role-row__when">Now</p><ul><li>Runs the map, approves new communities anywhere, and handles disputes.</li><li>Moderates every feed and can ban across all of Vicinity.</li><li>Publishes team wallets and announces the snapshot time.</li></ul></div>
-            <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Publishes the only official contract address.</li><li>Runs the Launchpad and its schedule.</li><li>Releases claims that broke the rules (fake location, VPN).</li></ul></div>
+            <div><p class="role-row__when">Now</p><ul><li>Decides "add my town" requests, objections to founders and appeals they weren't part of.</li><li>Moderates everywhere, under the same two-person rules.</li><li>Publishes team wallets, the snapshot time and every rule change first.</li></ul></div>
+            <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Publishes the only official contract address.</li><li>Can never move anyone's tokens, mint, change a launched city's coin, or change rules silently.</li></ul></div>
           </article>
         </div>
       </div>
@@ -248,7 +270,7 @@
       </nav>
       <nav class="footer-links" aria-label="Safety">
         <p class="footer-title">Stay safe</p>
-        <a href="/token#check">Is this link official?</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
+        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
         <p class="tiny muted">Vicinity will never ask for your recovery phrase or private key.</p>
       </nav>
       <div class="footer-links">
@@ -256,7 +278,7 @@
         <p class="tiny muted">Places: <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> (CC BY 4.0). City boundaries: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL). Country outlines: Natural Earth.</p>
       </div>
     </div>
-    <p class="wrap tiny muted footer-legal">vicinitycity.net · Nothing here is financial advice. Meme coins are very risky: only use money you can afford to lose.</p>
+    <p class="wrap tiny muted footer-legal">vicinity.city · Nothing here is financial advice. Meme coins are very risky: only use money you can afford to lose.</p>
   </footer>
 
   <nav class="tabbar" aria-label="Main (phone)">
@@ -270,6 +292,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   <script src="/site.js" defer></script>
   <script src="/ticker.js" defer></script>
+  <script src="/wallets.js" defer></script>
   <script src="/dashboard.js" defer></script>
 </body>
 </html>

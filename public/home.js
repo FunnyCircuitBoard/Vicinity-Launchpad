@@ -1,5 +1,5 @@
 // Home page: the real New York City example (hero + step-by-step map), live numbers, and
-// redirects for old links (vicinitycity.net/#cities → /cities ...).
+// redirects for old links (/#cities → /cities ...).
 (() => {
   "use strict";
   const { $, $$, fmt, api, reduced } = window.V;

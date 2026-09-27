@@ -277,6 +277,14 @@
       ctx.fillStyle = `rgb(${col})`; ctx.beginPath(); ctx.arc(x, y, 3.4, 0, Math.PI * 2); ctx.fill();
       ctx.shadowBlur = 0;
     }
+    // cities choosing their founder right now: a gold ring
+    if (windows.size) {
+      ctx.strokeStyle = "rgba(255,200,87,.95)"; ctx.lineWidth = 2;
+      for (const c of visible) {
+        if (!windows.has(c.id) || claims.has(c.id)) continue;
+        ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.arc(sx(c.lon), sy(c.lat), 7, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
     // labels once you zoom in (biggest first, never overlapping)
     if (k >= 2.5) {
       const boxes = [], maxLabels = W < 600 ? 18 : k >= AREA_K ? 70 : 42;
@@ -367,7 +375,7 @@
     if (!c) { tip.hidden = true; return; }
     const cl = claims.get(c.id), tk = tickers.get(c.id), a = areas.get(c.id);
     tip.replaceChildren(el("strong", null, c.name), el("span", null, ` ${placeOf(c)}`), document.createElement("br"),
-      el("span", cl ? "tip-claimed" : "tip-open", cl ? `Claimed by ${mask(cl.wallet)}` : "Open"), el("span", "tip-ticker", tk ? `  $${tk.ticker}` : ""));
+      el("span", cl ? "tip-claimed" : "tip-open", cl ? `Founder: ${cl.founder || mask(cl.wallet)}${cl.status === "active" ? "" : ` (${cl.status})`}` : windows.has(c.id) ? `Choosing its founder: ${windows.get(c.id).applicants} applying` : "Open"), el("span", "tip-ticker", tk ? `  $${tk.ticker}` : ""));
     if (a) tip.append(document.createElement("br"), el("span", "tip-area", areaNote(a, c)));
     const n = (members.get(c.id) || []).length;
     if (n) tip.append(document.createElement("br"), el("span", "tip-area", `Includes ${n} listed place${n === 1 ? "" : "s"}`));
@@ -512,7 +520,7 @@
       const cl = claims.get(c.id), mine = cl && me() && cl.wallet === me(), parent = parts.has(c.id) && byId.get(parts.get(c.id));
       b.append(nm, parent ? el("span", "tag", `Part of ${parent.name}`)
         : outside.has(c.id) ? el("span", "tag", "No community yet")
-        : el("span", mine ? "tag tag--warn" : cl ? "tag tag--no" : "tag tag--ok", mine ? "Yours" : cl ? "Claimed" : "Open"));
+        : el("span", mine ? "tag tag--warn" : cl ? "tag tag--no" : windows.has(c.id) ? "tag tag--gold" : "tag tag--ok", mine ? "Yours" : cl ? "Founded" : windows.has(c.id) ? "Choosing" : "Open"));
       b.addEventListener("click", () => select(c, true));
       li.append(b); return li;
     }));
@@ -605,14 +613,16 @@
       sub.append(ul, el("span", "tiny muted", "Is your town missing? Ask for it from your dashboard, standing in it; your Country Manager approves new communities."));
     } else if (selected) {
       const cl = claims.get(selected.id);
-      $("#claim-kicker").textContent = cl ? "Claimed" : "Open city";
+      $("#claim-kicker").textContent = cl ? (cl.status === "provisional" ? "Founder chosen · objection period" : "Founded") : windows.has(selected.id) ? "Choosing its founder now" : "Open city";
       $("#claim-title").textContent = selected.name;
       sub.textContent = `${placeOf(selected)}${selected.pop ? " · " + fmt(selected.pop) + " people" : ""}`;
       const a = areas.get(selected.id);
       if (a) sub.append(document.createElement("br"), el("span", a.kind === "r" ? "area-note" : "area-note area-note--near", areaNote(a, selected)));
       const shared = sharedNote(selected);
       if (shared) sub.append(document.createElement("br"), el("span", "shared-note", shared));
-      if (cl) sub.append(document.createElement("br"), document.createTextNode("Founder: "), solscan(cl.wallet), document.createTextNode(` · since ${new Date(cl.claimed_at).toLocaleDateString()}`));
+      if (cl) sub.append(document.createElement("br"), document.createTextNode(`Founder: ${cl.founder} `), solscan(cl.wallet), document.createTextNode(` · since ${new Date(cl.claimed_at).toLocaleDateString()}${cl.status === "grace" ? " · in grace" : ""}`));
+      const win = windows.get(selected.id);
+      if (!cl && win) sub.append(document.createElement("br"), el("span", "shared-note", `${win.applicants} applying · window closes ${new Date(win.closesAt).toLocaleString()}`));
       const m = memberCount.get(selected.id) || 0;
       mrow.hidden = false;
       mrow.textContent = m ? `👥 ${fmt(m)} verified member${m === 1 ? "" : "s"} call ${selected.name} home${cl ? "" : " · founder seat open"}` : `👥 No members yet. Be the first to call ${selected.name} home.`;
@@ -621,13 +631,14 @@
     let label = "Claim a city in your dashboard →", href = "/dashboard";
     if (mode === "nearby") label = "Pick a community above";
     else if (myCity) { label = `You founded ${myCity[1].city_name} · open dashboard →`; }
-    else if (selected && claims.has(selected.id)) { label = `${selected.name} is claimed · see your dashboard →`; }
-    else if (selected) { label = open ? `Claim ${selected.name} in your dashboard →` : `Get ready to claim ${selected.name} →`; href = `/dashboard?claim=${encodeURIComponent(selected.id)}`; }
+    else if (selected && claims.has(selected.id)) { label = `${selected.name} has a founder · see your dashboard →`; }
+    else if (selected && windows.has(selected.id)) { label = `${selected.name} is choosing its founder · apply or endorse in your dashboard →`; href = `/dashboard?claim=${encodeURIComponent(selected.id)}`; }
+    else if (selected) { label = open ? `Apply to found ${selected.name} in your dashboard →` : `Get ready to found ${selected.name} →`; href = `/dashboard?claim=${encodeURIComponent(selected.id)}`; }
     btn.textContent = label; btn.href = href;
     const note = $("#claim-note");
-    note.textContent = !open ? "Claims open the moment $VICINITY launches. Sign in now and set your home community to be first in line."
+    note.textContent = !open ? "Applications open after $VICINITY launches, for people who have held the founder amount for 14 days. There's no race: each city gets a 72-hour window and locals decide."
       : selected && myHome() && myHome() !== selected.id ? "You can only found the community you live in. Your dashboard shows yours."
-      : "Claiming happens in your dashboard, where your wallet, holdings and location are checked together.";
+      : "Founders are chosen in a 72-hour window: 50% local endorsements, 30% contribution, 20% holdings (capped). Apply or endorse in your dashboard.";
   }
   function select(c, fly = false) {
     // too small to be a community, in empty land: offer the three nearest communities
@@ -693,13 +704,13 @@
   function renderFeed(fresh = new Set()) {
     const feed = $("#claim-feed");
     const list = [...claims.values()].sort((a, b) => Date.parse(b.claimed_at) - Date.parse(a.claimed_at)).slice(0, 8);
-    if (!list.length) { feed.replaceChildren(el("li", "claim-feed__empty", open ? "No cities claimed yet. Be the first founder." : "No cities claimed yet. Claims open when $VICINITY launches.")); return; }
+    if (!list.length) { feed.replaceChildren(el("li", "claim-feed__empty", open ? "No founders yet. Qualify by holding for 14 days, then apply." : "No founders yet. Applications open after $VICINITY launches.")); return; }
     feed.replaceChildren(...list.map((c) => {
       const li = el("li", fresh.has(c.city_id) ? "is-new" : null);
       const city = byId.get(c.city_id);
       const go = el("button", "claim-feed__city", `📍 ${c.city_name}, ${c.country}`); go.type = "button";
       if (city) go.addEventListener("click", () => select(city, true));
-      li.append(go, el("span", "muted", " · founder "), solscan(c.wallet), el("span", "muted", ` · ${ago(c.claimed_at)}`));
+      li.append(go, el("span", "muted", ` · ${c.status === "provisional" ? "chosen" : "founder"} ${c.founder} `), solscan(c.wallet), el("span", "muted", ` · ${ago(c.claimed_at)}`));
       return li;
     }));
   }
@@ -707,17 +718,19 @@
   function retick() { tickers = window.vicinityTicker ? window.vicinityTicker.assign(cities.filter((c) => !parts.has(c.id))) : new Map(); }
 
   let firstClaims = true;
+  let windows = new Map(); // cities choosing their founder right now
+  /** Founder seats (founded, or chosen and in the objection period) and open application windows. */
   async function refreshClaims() {
     try {
-      const cl = await (await fetch("/api/claims", { cache: "no-store" })).json();
-      if (!cl.claims) return;
+      const d = await (await fetch("/api/seats", { cache: "no-store" })).json();
+      if (!Array.isArray(d.seats)) return;
+      const list = d.seats.map((s) => ({ city_id: s.cityId, wallet: s.wallet, city_name: s.city, country: s.country, claimed_at: s.since, status: s.status, founder: s.founder }));
       const fresh = new Set();
-      for (const a of cl.added || []) if (!byId.has(a.id)) { const c = { id: a.id, name: a.name, cc: a.country, adm: "", lat: a.lat, lon: a.lon, pop: 0, n: norm(a.name), added: true }; cities.push(c); byId.set(c.id, c); }
-      if ((cl.added || []).length) retick();
-      if (!firstClaims) for (const c of cl.claims) if (!claims.has(c.city_id)) { fresh.add(c.city_id); const city = byId.get(c.city_id); if (city) ripple(city, "255,90,54"); }
+      if (!firstClaims) for (const c of list) if (!claims.has(c.city_id)) { fresh.add(c.city_id); const city = byId.get(c.city_id); if (city) ripple(city, "255,90,54"); }
       firstClaims = false;
-      claims = new Map(cl.claims.map((c) => [c.city_id, c]));
-      open = Boolean(cl.open);
+      claims = new Map(list.map((c) => [c.city_id, c]));
+      windows = new Map((d.windows || []).map((w) => [w.cityId, w]));
+      open = Boolean(d.launched);
       updateStats(); renderFeed(fresh);
       if (fresh.size) { renderList(); refreshPanel(); }
       needDraw = true; kick();

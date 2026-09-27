@@ -4,7 +4,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { buildPages } from "../scripts/pages/build.mjs";
 
 const read = (p) => readFileSync(new URL("../public/" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "connect.html", "dashboard.html", "404.html"];
+const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "connect.html", "dashboard.html", "rules.html", "404.html"];
 const html = Object.fromEntries(PAGES.map((p) => [p, read(p)]));
 const all = Object.values(html).join("\n");
 const css = read("style.css");
@@ -46,7 +46,7 @@ test("same menu on every page: top menu for computers, bottom menu bar for phone
     const nav = h.match(/<nav class="nav"[\s\S]*?<\/nav>/)[0], tabs = h.match(/<nav class="tabbar"[\s\S]*?<\/nav>/)[0];
     assert.deepEqual([...nav.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), links, f);
     assert.deepEqual([...tabs.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), links, f);
-    assert.equal((nav.match(/aria-current="page"/g) || []).length, ["404.html", "connect.html"].includes(f) ? 0 : 1, f);
+    assert.equal((nav.match(/aria-current="page"/g) || []).length, ["404.html", "connect.html", "rules.html"].includes(f) ? 0 : 1, f);
     assert.match(h, /data-theme-toggle/);
     assert.match(h, /<script src="\/theme\.js"><\/script>\s*<\/head>/, `${f}: theme runs before paint`);
     assert.match(h, /data-account/);
@@ -108,7 +108,7 @@ test("connect: every popular wallet, phone QR, app wallets like FOMO, then X or 
   for (const id of ["wallets-detected", "wallets-known", "alt-phone", "alt-app", "qr", "tp-form", "go-x", "go-google", "stepper"]) assert.ok(h.includes(`id="${id}"`), id);
   assert.match(h, /isn't a transaction/);
   assert.match(h, /never ask for your recovery phrase/);
-  assert.match(h, /One wallet \+ one X or Google login = one person/);
+  assert.match(h, /One account per wallet and per X or Google login/);
   const order = [...h.matchAll(/<script src="\/([a-z/]+)\.js"/g)].map((m) => m[1]);
   assert.deepEqual(order, ["theme", "site", "vendor/qrcode", "wallets", "connect"]);
   const wallets = read("wallets.js");
@@ -117,11 +117,22 @@ test("connect: every popular wallet, phone QR, app wallets like FOMO, then X or 
 
 test("dashboard: onboarding, live rank + badges, founder race, local/national feeds, roles now and at launch", () => {
   const h = html["dashboard.html"];
-  for (const id of ["dash-out", "dash-onboard", "ob-locate", "dash-main", "d-rank", "d-crank", "d-nrank", "progress", "p-claim", "feed", "composer", "posts", "community", "national", "badges", "badge-grid", "mod", "request", "roles", "lost-alert"]) assert.ok(h.includes(`id="${id}"`), id);
+  for (const id of ["dash-out", "dash-onboard", "ob-locate", "dash-main", "d-rank", "d-crank", "d-nrank", "progress", "p-panel", "p-window", "feed", "composer", "posts", "community", "national", "nc-election", "badges", "badge-grid", "mod", "request", "roles", "lost-alert", "ban-notice", "proof-modal"]) assert.ok(h.includes(`id="${id}"`), id);
   for (const k of ["meme", "checkin", "talk"]) assert.ok(h.includes(`data-kind="${k}"`), k);
   for (const s of ["city", "country"]) assert.ok(h.includes(`data-scope="${s}"`), s);
   const roles = h.match(/<section class="section section--panel" id="roles">[\s\S]*?<\/section>/)[0];
   for (const r of ["holder", "founder", "manager", "admin"]) assert.ok(roles.includes(`data-role="${r}"`), r);
   assert.equal((roles.match(/role-row__when">Now</g) || []).length, 4);
   assert.equal((roles.match(/role-row__when">When Vicinity goes live</g) || []).length, 4);
+});
+
+test("rules page: every rule, the formulas and the never-list, filled from the live rules", () => {
+  const h = html["rules.html"];
+  for (const id of ["founders", "managers", "moderation", "supporters", "privacy", "never", "never-list", "founder-formula", "health"]) assert.ok(h.includes(`id="${id}"`), id);
+  assert.match(h, /50% × endorsement share/);
+  assert.ok(h.includes("the lower of (balance at the cutoff) and (average of the last 14 days)"));
+  for (const k of ["qualifyingDays", "windowHours", "appealHours", "graceDays", "cooldownDays", "termDays", "hideHours", "banDays"]) assert.ok(h.includes(`data-rule="${k}"`), k);
+  for (const p of PAGES) assert.ok(html[p].includes('href="/rules">Rules &amp; fairness</a>'), `${p} links the rules in the footer`);
+  assert.doesNotMatch(all, /first come, first served/i, "no races");
+  assert.doesNotMatch(all, /= one person/i, "no overclaiming: accounts aren't proof of a unique person");
 });

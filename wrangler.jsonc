@@ -1,6 +1,7 @@
 // Cloudflare settings for Vicinity.
 // "main" = backend code. "assets" = public website files.
-// "build" runs before every deploy: fonts are copied in, then every test must pass.
+// "build" runs before every deploy: fonts and the QR library are copied in, pages are built,
+// then every test must pass.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "vicinity-map",
@@ -12,11 +13,21 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"],
+    // The Worker sees every request first: /api/* is handled in code, old addresses forward to
+    // vicinity.city, and everything else is handed to the static files.
+    "run_worker_first": true,
     "not_found_handling": "404-page"
   },
-  // City claims database. Cloudflare creates it automatically on the first deploy;
-  // the tables are created by the code the first time they're used.
-  "d1_databases": [{ "binding": "DB", "database_name": "vicinity-claims" }],
+  // vicinity.city is the site. The others forward to it (src/index.js).
+  "routes": [
+    { "pattern": "vicinity.city", "custom_domain": true },
+    { "pattern": "www.vicinity.city", "custom_domain": true },
+    { "pattern": "vicinitycity.net", "custom_domain": true },
+    { "pattern": "www.vicinitycity.net", "custom_domain": true }
+  ],
+  // The database; the code creates and upgrades its tables the first time they're used.
+  "d1_databases": [{ "binding": "DB", "database_name": "vicinity-claims", "database_id": "e0e01286-ca8f-49dd-82c0-638fa24abb40" }],
+  // Every 10 minutes: balance history, founder seats, elections, moderation expiry, snapshots (src/jobs.js)
+  "triggers": { "crons": ["*/10 * * * *"] },
   "observability": { "enabled": true }
 }

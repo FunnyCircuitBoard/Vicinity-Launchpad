@@ -132,9 +132,11 @@ export async function getAllHolders(env, mint, fetchImpl = fetch) {
   const program = facts.program === "Token-2022" ? TOKEN_2022 : TOKEN_PROGRAM;
   const filters = [{ memcmp: { offset: 0, bytes: mint } }];
   if (program === TOKEN_PROGRAM) filters.unshift({ dataSize: 165 });
-  const accs = await rpc(env, "getProgramAccounts", [program, { encoding: "base64", dataSlice: { offset: 32, length: 40 }, filters }], fetchImpl);
+  const res = await rpc(env, "getProgramAccounts", [program, { encoding: "base64", dataSlice: { offset: 32, length: 40 }, filters, withContext: true }], fetchImpl);
+  const accs = Array.isArray(res) ? res : res?.value || [];
+  const slot = Array.isArray(res) ? null : res?.context?.slot ?? null;
   const byOwner = new Map();
-  for (const a of accs || []) {
+  for (const a of accs) {
     const data = a?.account?.data;
     const bytes = b64bytes(Array.isArray(data) ? data[0] : "");
     if (bytes.length < 40) continue;
@@ -154,7 +156,7 @@ export async function getAllHolders(env, mint, fetchImpl = fetch) {
     top.forEach((o, i) => { const l = PROGRAM_LABELS[acc?.value?.[i]?.owner]; if (l) labels.set(o, l); });
   }
   for (const w of OFFICIAL.teamWallets || []) labels.set(w, "Team wallet (public)");
-  return { facts, list, labels };
+  return { facts, list, labels, slot };
 }
 
 /**
@@ -220,4 +222,21 @@ export async function findTransfer(env, address, lamports, sinceMs, fetchImpl = 
     }
   }
   return false;
+}
+
+/**
+ * Live $VICINITY amounts for some wallets: from the one-minute holder snapshot when the RPC allows it,
+ * otherwise a direct lookup (only for short lists). Before launch everyone holds 0.
+ */
+export async function liveAmounts(env, wallets, fetchImpl = fetch, { maxDirect = 200, mint = null } = {}) {
+  const out = new Map();
+  if (!mint || !wallets.length) return out;
+  try {
+    const snap = await holderSnapshot(env, mint, fetchImpl);
+    for (const w of wallets) out.set(w, snap.byOwner.get(w)?.amount || 0);
+    return out;
+  } catch {
+    if (wallets.length > maxDirect) return out;
+    return getHoldings(env, wallets, mint, fetchImpl);
+  }
 }

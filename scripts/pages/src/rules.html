@@ -1,0 +1,91 @@
+<!--{"title": "Rules & fairness", "description": "Every Vicinity rule in one place: how founders are chosen, how country managers are elected, how moderation works, how Founding Supporters are counted, and what nobody can ever do.", "page": "rules", "scripts": ["rules"]}-->
+    <section class="page-hero">
+      <div class="wrap">
+        <p class="kicker">Rules &amp; fairness · version <span data-rule="version">2</span> · in effect since <span data-rule="effectiveAt">2026-09-27</span></p>
+        <h1 class="page-title">Fair by design.<br><span class="accent">Checked by anyone.</span></h1>
+        <p class="lead">No races, no single-person power, and no whale takeovers. Leadership is earned over time and chosen by locals. Every decision is published with a hash you can check, and every rule change is a new version, announced first.</p>
+        <div class="health card" id="health" aria-live="polite"><span class="live-dot" aria-hidden="true"></span><span id="health-text">Checking the balance history…</span></div>
+      </div>
+    </section>
+
+    <section class="section section--tight">
+      <div class="wrap rules-grid">
+        <article class="card" id="founders">
+          <p class="kicker">City founders</p>
+          <h3>Earned over time, chosen by locals</h3>
+          <ol>
+            <li><strong>Qualify:</strong> hold <b data-rule="founderAmount">1,000,000</b> $VICINITY in <em>every</em> balance check for <b data-rule="qualifyingDays">14</b> days. Checks happen at random times, about once an hour, so borrowing tokens for a few minutes doesn't work.</li>
+            <li><strong>Be local:</strong> your home community is set by a location check at least <b data-rule="localDays">7</b> days before you apply.</li>
+            <li><strong>Apply</strong> standing inside the city. The first application opens a <b data-rule="windowHours">72</b>-hour window for everyone; being first gives nothing.</li>
+            <li><strong>Endorse:</strong> verified locals back one applicant each (one person, one endorsement).</li>
+            <li><strong>Score</strong> when the window closes (published with its hash):</li>
+          </ol>
+          <p class="formula" id="founder-formula">score = 50% × endorsement share + 30% × contribution + 20% × holdings
+holdings count from the amount up to 2× the amount (more counts the same)
+ties: lowest sha256("vicinity-seat|window|wallet")</p>
+          <ol start="6">
+            <li><strong>Objections:</strong> <b data-rule="appealHours">48</b> hours for locals to object; an admin who didn't object decides. Upheld → the next applicant.</li>
+            <li><strong>Grace:</strong> below the amount (in a check, or before any sensitive action) → moderation pauses at once, <b data-rule="graceDays">7</b> days to fix it. More than <b data-rule="maxGraces">2</b> graces in 90 days → released.</li>
+            <li><strong>Released:</strong> the city reopens; the former founder waits <b data-rule="cooldownDays">30</b> days before applying anywhere.</li>
+          </ol>
+        </article>
+
+        <article class="card" id="managers">
+          <p class="kicker">Country managers</p>
+          <h3>Elected for a term, not handed to the richest</h3>
+          <ul>
+            <li><strong>Candidates:</strong> founders active for <b data-rule="minFounderDays">30</b>+ days, not banned, not just finishing a second term in a row.</li>
+            <li><strong>Voters:</strong> verified locals of the country, one vote each.</li>
+            <li><strong>Election:</strong> opens automatically, runs <b data-rule="electionDays">7</b> days, result and hash published.</li>
+            <li><strong>Term:</strong> <b data-rule="termDays">90</b> days, at most two in a row. Powers pause while the manager's seat is in grace.</li>
+          </ul>
+          <p class="formula">score = 50% × vote share + 30% × service + 20% × holdings (capped at 2×)
+service = time as founder (up to 180 days) + confirmed moderation − overturned decisions</p>
+          <p class="small muted"><strong>Who may vote or endorse:</strong> an account and a home community set at least 7 days before the vote opened, and at least one check-in there (being physically present). One vote per person.</p>
+        </article>
+
+        <article class="card" id="moderation">
+          <p class="kicker">Moderation</p>
+          <h3>Nobody moderates alone</h3>
+          <ul>
+            <li><strong>Hide:</strong> a founder (their city), a manager (their country) or an admin, always with a reason. It comes back after <b data-rule="hideHours">24</b> hours unless a second moderator confirms it or <b data-rule="reportsToConfirm">3</b> people reported it.</li>
+            <li><strong>Reports:</strong> <b data-rule="reportsToAutoHide">5</b> reports hide a post until a moderator reviews it.</li>
+            <li><strong>Bans:</strong> proposed by one person, approved by a different one; they last <b data-rule="banDays">30</b> days.</li>
+            <li><strong>Appeals:</strong> once per decision, judged by someone who wasn't involved.</li>
+            <li><strong>Public log:</strong> every action, with who (role and name), why and what happened. <a href="/api/audit" target="_blank" rel="noopener">See the log ↗</a></li>
+          </ul>
+        </article>
+
+        <article class="card" id="supporters">
+          <p class="kicker">Founding Supporters</p>
+          <h3>Counted fairly, with no sign-up</h3>
+          <p class="formula">eligible = the lower of (balance at the cutoff) and (average of the last 14 days)
+pools, bonding curves and team wallets are excluded</p>
+          <ul>
+            <li>The cutoff is always 00:00 UTC and announced ahead: <strong id="cutoff">not scheduled yet</strong>.</li>
+            <li>Published with a Merkle root and a hash of every input, then <b data-rule="challengeHours">48</b> hours to challenge before it's final.</li>
+            <li>Check any wallet and get its proof on the <a href="/launchpad#supporters">Launchpad page</a>.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="privacy">
+          <p class="kicker">Location &amp; accounts</p>
+          <h3>Private, and hard to fake</h3>
+          <ul>
+            <li>Your location is read in exactly one place. It returns a signed note naming your community (valid <b data-rule="attestationMinutes">5</b> minutes, usable once), and the coordinates are thrown away.</li>
+            <li>VPNs, proxies and far-away connections are refused, with one generic answer, so nobody can probe which check they tripped.</li>
+            <li>One account per wallet and per X or Google login. It makes fake accounts much harder, but no online check can prove someone is one unique person: that's why votes also need age and a check-in.</li>
+            <li>Sensitive actions (applying, endorsing, voting, moderating) need your wallet proven in the last <b data-rule="freshProofMinutes">30</b> minutes.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="never">
+          <p class="kicker">Never</p>
+          <h3>What nobody can ever do</h3>
+          <ul class="never" id="never-list">
+            <li>Move, freeze or take anyone's tokens.</li>
+          </ul>
+          <p class="small muted">Rules change only as a new, published version. Seats, elections and snapshots keep the version they were decided under.</p>
+        </article>
+      </div>
+    </section>

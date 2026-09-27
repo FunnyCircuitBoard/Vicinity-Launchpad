@@ -77,14 +77,14 @@ async function signedBody(host = "vicinity.test") {
   return { address, body: JSON.stringify({ address, message, signature }) };
 }
 
-test("verified holder gets Founding Supporter; nothing stored", async () => {
+test("verified holder is recognised as a holder (Founding Supporters come from the snapshot); nothing stored", async () => {
   const { address, body } = await signedBody();
   const res = await handleVerify(req("/api/verify", { method: "POST", body }), { VICINITY_MINT: MINT }, Date.now(), fakeRpc({ holdingFor: { [address]: 1234.5 } }));
   const d = await res.json();
   assert.equal(d.verified, true);
   assert.equal(d.holder, true);
   assert.equal(d.amount, 1234.5);
-  assert.equal(d.tier, "Founding Supporter");
+  assert.equal(d.tier, "Holder");
 });
 
 test("verified wallet with no tokens is not a holder", async () => {

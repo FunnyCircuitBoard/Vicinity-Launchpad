@@ -154,7 +154,7 @@
         <div class="flow-wrap">
           <ol class="flow">
             <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🔗</span><div><h3>Connect a wallet</h3><p class="muted">Phantom, Solflare, Backpack, OKX, Coinbase, Trust and more. Wallet on your phone? Scan a code. Using FOMO? Prove it with a tiny transfer to yourself.</p></div></li>
-            <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🪪</span><div><h3>Sign in with X or Google</h3><p class="muted">One wallet + one login = one person. That's how fake accounts and spam stay out.</p></div></li>
+            <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🪪</span><div><h3>Sign in with X or Google</h3><p class="muted">One account per wallet and per login, so fake accounts and spam get much harder.</p></div></li>
             <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">⚡</span><div><h3>Checked automatically</h3><p class="muted">We read the blockchain for your rank among all holders, and find the community you're standing in (location used once, never saved).</p></div></li>
             <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🏙️</span><div><h3>Your dashboard</h3><p class="muted">Local and national feeds: memes, check-ins, discussions and weekly votes. Your badges update live.</p></div></li>
             <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🚀</span><div><h3>Launchpad, November 10</h3><p class="muted">City coins launch on the Vicinity Launchpad. Founders and $VICINITY holders go first.</p></div></li>
@@ -162,11 +162,12 @@
           <aside class="live-panel card reveal" aria-label="What is checked live">
             <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Checked live, all the time</p>
             <ul class="checks">
-              <li><strong>Holdings</strong><span>Re-read from the blockchain every minute.</span></li>
-              <li><strong>Badges and roles</strong><span>Sell below the line and they're gone on the next check.</span></li>
+              <li><strong>Holdings</strong><span>Checked at random times, about every hour: borrowed tokens don't count.</span></li>
+              <li><strong>Badges and roles</strong><span>Sell below the line and badges go on the next check; founders get 7 days of grace.</span></li>
               <li><strong>Location</strong><span>Must be inside the real boundary. Used once, never stored.</span></li>
               <li><strong>Connection</strong><span>VPNs, proxies and far-away networks are refused.</span></li>
               <li><strong>Scam guard</strong><span>Contract addresses can't be posted in feeds.</span></li>
+              <li><strong>Two-person rule</strong><span>No hide lasts, and no ban happens, on one moderator's word.</span></li>
             </ul>
           </aside>
         </div>
@@ -187,8 +188,8 @@
             <h3>Get in first</h3>
             <p class="muted">Holders at the Launchpad snapshot are <strong>Founding Supporters</strong>: early access to city coins before the public.</p>
           </article>
-          <article class="card reveal"><span class="bento__icon" aria-hidden="true">👑</span><h3>Lead your city</h3><p class="muted">Hold 1,000,000+ and claim your city: your wallet on it, first right to launch its coin, moderation powers.</p></article>
-          <article class="card reveal"><span class="bento__icon" aria-hidden="true">🛡️</span><h3>Run your country</h3><p class="muted">The founder holding the most in a country is its <strong>Country Manager</strong>: approves new towns, bans scammers.</p></article>
+          <article class="card reveal"><span class="bento__icon" aria-hidden="true">👑</span><h3>Lead your city</h3><p class="muted">Hold 1,000,000+ for 14 days, apply, and win your city's endorsement: first right to launch its coin, moderation powers.</p></article>
+          <article class="card reveal"><span class="bento__icon" aria-hidden="true">🛡️</span><h3>Run your country</h3><p class="muted">Founders can be elected <strong>Country Manager</strong> by their country's locals for 90 days: advises on new towns, fights scams.</p></article>
           <article class="card reveal"><span class="bento__icon" aria-hidden="true">🗳️</span><h3>A louder vote</h3><p class="muted">Weekly meme votes: founders count 2×, country managers 3×.</p></article>
           <article class="card reveal"><span class="bento__icon" aria-hidden="true">🏅</span><h3>Status that's real</h3><p class="muted">A live rank among every holder, plus badges your city can see. Hold and climb; sell and they're gone.</p></article>
           <article class="card bento__wide reveal"><span class="bento__icon" aria-hidden="true">🏙️</span><h3>Something to do after you buy</h3><p class="muted">Your city's memes, check-ins, discussions and votes, and your country's. It's a reason to stay, not just a chart to watch.</p></article>
@@ -214,7 +215,7 @@
                 <tr><th scope="row">Only one per city</th><td class="no">✕</td><td class="yes">✓</td></tr>
                 <tr><th scope="row">Real, non-overlapping boundary</th><td class="no">✕</td><td class="yes">✓</td></tr>
                 <tr><th scope="row">Holders verified as locals</th><td class="no">✕</td><td class="yes">✓</td></tr>
-                <tr><th scope="row">Leaders chosen by holding + presence</th><td class="no">✕</td><td class="yes">✓</td></tr>
+                <tr><th scope="row">Leaders chosen by locals, not the biggest wallet</th><td class="no">✕</td><td class="yes">✓</td></tr>
                 <tr><th scope="row">Something to do after buying</th><td class="no">✕</td><td class="yes">✓</td></tr>
                 <tr><th scope="row">Fake contract addresses blocked</th><td class="no">✕</td><td class="yes">✓</td></tr>
               </tbody>
@@ -233,11 +234,11 @@
         </div>
         <div class="roles-grid">
           <article class="card role reveal"><span class="role__icon" aria-hidden="true">🏅</span><h3>Holder</h3><p class="muted">Hold any $VICINITY. Post, vote and check in with your city and country.</p></article>
-          <article class="card role reveal"><span class="role__icon" aria-hidden="true">👑</span><h3>City Founder</h3><p class="muted">Claimed a city while standing in it, holding 1,000,000+. Moderates the city, launches its coin first.</p></article>
-          <article class="card role reveal"><span class="role__icon" aria-hidden="true">🛡️</span><h3>Country Manager</h3><p class="muted">The founder holding the most in the country. Approves new towns, bans scammers, strongest vote.</p></article>
-          <article class="card role reveal"><span class="role__icon" aria-hidden="true">⚙️</span><h3>Admin</h3><p class="muted">The Vicinity team: final say on disputes, publishes the snapshot rules. Team wallets are public.</p></article>
+          <article class="card role reveal"><span class="role__icon" aria-hidden="true">👑</span><h3>City Founder</h3><p class="muted">Held 1,000,000+ for 14 days, applied from inside the city, chosen by locals. Moderates the city, launches its coin first.</p></article>
+          <article class="card role reveal"><span class="role__icon" aria-hidden="true">🛡️</span><h3>Country Manager</h3><p class="muted">Elected by the country's locals for 90 days. Advises on new towns, proposes bans (a second person approves).</p></article>
+          <article class="card role reveal"><span class="role__icon" aria-hidden="true">⚙️</span><h3>Admin</h3><p class="muted">The Vicinity team: decides objections and appeals it wasn't part of. Can never touch anyone's tokens.</p></article>
         </div>
-        <p class="bridge"><a href="/dashboard#roles">Full roles and responsibilities, now and after launch →</a></p>
+        <p class="bridge"><a href="/dashboard#roles">Full roles and responsibilities, now and after launch →</a> · <a href="/rules">Every rule, and how to check it →</a></p>
       </div>
     </section>
 
@@ -266,12 +267,13 @@
           <p><strong>Reach.</strong> pump.fun is where Solana's meme-coin traders already are. It's the fastest way to build a real holder base in many countries at once.</p>
           <p><strong>Focus.</strong> The Launchpad is built for city coins: one official coin per city, verified locals, founders and managers. $VICINITY is the key to that map, not a city coin, so it stays where it launched.</p>
         </details>
-        <details><summary>How do I get my dashboard?</summary><p>Connect a Solana wallet, sign one free message (it isn't a transaction), then sign in with X or Google. Your rank and your city are checked automatically, and you're in. One wallet and one login per person.</p></details>
+        <details><summary>How do I get my dashboard?</summary><p>Connect a Solana wallet, sign one free message (it isn't a transaction), then sign in with X or Google. Your rank and your city are checked automatically, and you're in. One account per wallet and per login.</p></details>
         <details><summary>I use FOMO (or another app wallet). How do I connect?</summary><p>If the app can't connect to websites, choose "App wallet (FOMO…)" on the connect page. We'll show a tiny, exact amount of SOL to send <em>to yourself</em>. It costs only the network fee, and since only the wallet's owner can send from it, it proves the wallet is yours. You can also open this site inside a wallet app's browser, or scan a code with a wallet app on your phone.</p></details>
         <details><summary>What if I don't live inside any city?</summary><p>Then you pick one of the three nearest communities to join. You can also ask for your town to become its own community; your Country Manager approves it.</p></details>
-        <details><summary>What happens if I sell?</summary><p>Holdings are re-checked every minute. Badges and roles that need a balance are removed on the next check. A City Founder who drops below 1,000,000 $VICINITY loses the founder role (and the claim is re-checked at the Launchpad snapshot).</p></details>
-        <details><summary>How do I become a City Founder?</summary><p>Hold 1,000,000+ $VICINITY, stand inside your city's boundary, and claim it from your dashboard. One wallet can found one city, and each city has one founder.</p></details>
-        <details><summary>Who is the Country Manager?</summary><p>The City Founder in a country who holds the most $VICINITY, checked live. Team wallets can't be managers. The final manager is fixed at the Launchpad snapshot.</p></details>
+        <details><summary>What happens if I sell?</summary><p>Badges that need a balance go on the next check. A City Founder who drops below 1,000,000 $VICINITY loses moderation powers at once and has 7 days to hold again; after that (or after a third grace within 90 days) the seat reopens, and they wait 30 days before applying again.</p></details>
+        <details><summary>How do I become a City Founder?</summary><p>Hold 1,000,000+ $VICINITY for 14 days in a row (balances are checked at random times), have your home set in the city for 7+ days, and apply from inside its boundary. The first application opens a 72-hour window; then the published formula picks the founder: 50% local endorsements, 30% contribution, 20% holdings (capped at 2×). Locals have 48 hours to object. One person, one city.</p></details>
+        <details><summary>Who is the Country Manager?</summary><p>A City Founder elected by the country's verified locals for 90 days (50% votes, 30% service, 20% capped holdings), at most two terms in a row. Until a country has one, the admin covers it.</p></details>
+        <details><summary>Can a whale take over?</summary><p>No. Holdings only count up to 2× the founder amount, founders are chosen mostly by local endorsements, managers are elected, and every vote is one person, one vote. Balances are checked at random times, so renting tokens for a day doesn't work either. <a href="/rules">See every rule</a>.</p></details>
         <details><summary>Is this a rug pull?</summary><p>No. Minting and freezing are switched off, the liquidity is burned when it graduates on pump.fun, and every team wallet is listed on this site. You can check all of it live on the blockchain on the Token page.</p></details>
         <details><summary>Which contract address is real?</summary><p>Only the one on the <a href="/token">Token page</a>. Paste any address into the <a href="/token#check">checker</a> to confirm. Contract addresses can't be posted in Vicinity feeds, so a fake can't spread there.</p></details>
         <details><summary>What do you store about me?</summary><p>Your wallet address, your X or Google account id and display name (no e-mail), and the name of your home community. Never your location: it's used once to find your community, then thrown away. Feeds show your display name, never your wallet.</p></details>
@@ -305,7 +307,7 @@
       </nav>
       <nav class="footer-links" aria-label="Safety">
         <p class="footer-title">Stay safe</p>
-        <a href="/token#check">Is this link official?</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
+        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
         <p class="tiny muted">Vicinity will never ask for your recovery phrase or private key.</p>
       </nav>
       <div class="footer-links">
@@ -313,7 +315,7 @@
         <p class="tiny muted">Places: <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> (CC BY 4.0). City boundaries: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL). Country outlines: Natural Earth.</p>
       </div>
     </div>
-    <p class="wrap tiny muted footer-legal">vicinitycity.net · Nothing here is financial advice. Meme coins are very risky: only use money you can afford to lose.</p>
+    <p class="wrap tiny muted footer-legal">vicinity.city · Nothing here is financial advice. Meme coins are very risky: only use money you can afford to lose.</p>
   </footer>
 
   <nav class="tabbar" aria-label="Main (phone)">

@@ -45,12 +45,12 @@
       <div class="wrap">
         <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Live map</p>
         <h1 class="page-title">Claim your city.</h1>
-        <p class="lead">One wallet. One city. Be its founder. Every city has a real boundary: stand inside yours, hold 1,000,000+ $VICINITY, and claim it from your dashboard.</p>
+        <p class="lead">One wallet. One city. Chosen by locals. Every city has a real boundary. Hold 1,000,000+ $VICINITY for 14 days, apply from inside your city, and the people who live there decide. <a href="/rules#founders">How it works</a>.</p>
 
         <div class="city-stats" aria-live="polite">
           <div><strong id="cs-cities">…</strong><span>communities</span></div>
           <div><strong id="cs-countries">…</strong><span>countries</span></div>
-          <div class="is-claimed"><strong id="cs-claimed">…</strong><span>claimed</span></div>
+          <div class="is-claimed"><strong id="cs-claimed">…</strong><span>founded</span></div>
           <div class="is-open"><strong id="cs-open">…</strong><span>still open</span></div>
           <div><strong id="cs-members">…</strong><span>verified members</span></div>
           <div><strong id="cs-status">…</strong><span>claims</span></div>
@@ -70,9 +70,9 @@
             </div>
             <p class="map-hint" id="map-hint">Click the map first, then scroll to zoom (or use + and −)</p>
           </div>
-          <p class="citymap__legend"><span><span class="dot dot--open"></span> Open</span><span><span class="dot dot--claimed"></span> Claimed</span><span><span class="dot dot--mine"></span> Yours</span><span><span class="line line--real"></span> Official city boundary + the land nearest to it</span><span><span class="line line--near"></span> No official boundary: the land nearest the city</span><span class="citymap__how">Drag to move · scroll, pinch or double-tap to zoom · tap a country or a city · ◎ finds yours · 🎨 colours</span></p>
+          <p class="citymap__legend"><span><span class="dot dot--open"></span> Open</span><span><span class="dot dot--choosing"></span> Choosing its founder</span><span><span class="dot dot--claimed"></span> Founded</span><span><span class="dot dot--mine"></span> Yours</span><span><span class="line line--real"></span> Official city boundary + the land nearest to it</span><span><span class="line line--near"></span> No official boundary: the land nearest the city</span><span class="citymap__how">Drag to move · scroll, pinch or double-tap to zoom · tap a country or a city · ◎ finds yours · 🎨 colours</span></p>
           <div class="claim-feed-wrap">
-            <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Latest claims · live</p>
+            <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Latest founders · live</p>
             <ul class="claim-feed" id="claim-feed" aria-live="polite"><li class="claim-feed__empty">Loading…</li></ul>
           </div>
         </div>
@@ -89,7 +89,7 @@
               <label class="sr-only" for="city-country">Country</label>
               <select id="city-country"><option value="">All countries</option></select>
               <label class="sr-only" for="city-filter">Show</label>
-              <select id="city-filter"><option value="all">All</option><option value="open">Open</option><option value="claimed">Claimed</option></select>
+              <select id="city-filter"><option value="all">All</option><option value="open">Open</option><option value="claimed">Founded</option></select>
             </div>
             <ul class="city-list" id="city-list" aria-live="polite"><li class="muted">Loading the world…</li></ul>
             <p class="tiny muted" id="city-count"></p>
@@ -116,13 +116,14 @@
             <p class="members-row small" id="members-row" hidden></p>
 
             <ol class="reqs reqs--static" id="claim-reqs">
-              <li><span class="req__dot"></span><div><strong>Sign in</strong><p class="tiny muted">Wallet + X or Google. One account per person.</p></div></li>
-              <li><span class="req__dot"></span><div><strong>Hold 1,000,000+ $VICINITY</strong><p class="tiny muted">Checked live on the blockchain. Keep holding: founders are re-checked all the time and at the Launchpad snapshot.</p></div></li>
-              <li><span class="req__dot"></span><div><strong>Stand in the city</strong><p class="tiny muted">Your location is checked once against the city's real boundary, and your internet connection must be local too. VPNs are blocked. We never save it.</p></div></li>
+              <li><span class="req__dot"></span><div><strong>A local account</strong><p class="tiny muted">Wallet + X or Google, with this city set as home at least 7 days before you apply.</p></div></li>
+              <li><span class="req__dot"></span><div><strong>Hold 1,000,000+ $VICINITY for 14 days</strong><p class="tiny muted">Balances are checked at random times about every hour, so borrowed tokens don't count. Holdings above 2× only count as 2×.</p></div></li>
+              <li><span class="req__dot"></span><div><strong>Apply standing in the city</strong><p class="tiny muted">Your location is checked once against the real boundary, with your internet connection. VPNs are blocked. We never save it.</p></div></li>
+              <li><span class="req__dot"></span><div><strong>Locals decide</strong><p class="tiny muted">72-hour window, then 50% endorsements, 30% contribution, 20% holdings. 48 hours for objections.</p></div></li>
             </ol>
 
-            <a class="btn btn--primary btn--block" id="claim-btn" href="/dashboard">Claim a city in your dashboard →</a>
-            <p class="tiny muted claim-note" id="claim-note">Claiming happens in your dashboard, where your wallet, holdings and location are checked together.</p>
+            <a class="btn btn--primary btn--block" id="claim-btn" href="/dashboard">Apply to found a city in your dashboard →</a>
+            <p class="tiny muted claim-note" id="claim-note">Founders are chosen in your dashboard, where your wallet, holding time and location are checked together.</p>
           </div>
         </div>
       </div>
@@ -153,7 +154,7 @@
       </nav>
       <nav class="footer-links" aria-label="Safety">
         <p class="footer-title">Stay safe</p>
-        <a href="/token#check">Is this link official?</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
+        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
         <p class="tiny muted">Vicinity will never ask for your recovery phrase or private key.</p>
       </nav>
       <div class="footer-links">
@@ -161,7 +162,7 @@
         <p class="tiny muted">Places: <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> (CC BY 4.0). City boundaries: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL). Country outlines: Natural Earth.</p>
       </div>
     </div>
-    <p class="wrap tiny muted footer-legal">vicinitycity.net · Nothing here is financial advice. Meme coins are very risky: only use money you can afford to lose.</p>
+    <p class="wrap tiny muted footer-legal">vicinity.city · Nothing here is financial advice. Meme coins are very risky: only use money you can afford to lose.</p>
   </footer>
 
   <nav class="tabbar" aria-label="Main (phone)">

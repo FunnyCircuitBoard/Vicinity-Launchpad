@@ -10,8 +10,8 @@ export const VICINITY_MINT = null;
 export const LAUNCHPAD_OPENS_AT = "2026-11-10T00:00:00-05:00";
 
 export const OFFICIAL = {
-  updated: "2026-09-23", // vicinitycity.net is the main address
-  websites: ["vicinitycity.net", "vicinity-map.noyonsakibul.workers.dev"],
+  updated: "2026-09-27", // vicinity.city is the main address; vicinitycity.net forwards to it
+  websites: ["vicinity.city", "vicinitycity.net", "vicinity-map.noyonsakibul.workers.dev"],
   github: [],             // code is private
   socials: [],            // none yet: any "Vicinity" social account is not us
   tokenContract: VICINITY_MINT,
@@ -79,3 +79,7 @@ export function checkOfficial(input, isSolanaAddress) {
 
 /** The live mint: the Cloudflare setting VICINITY_MINT wins over the line above (so launch needs no code change). */
 export const activeMint = (env) => (env && env.VICINITY_MINT) || VICINITY_MINT;
+
+// Founding Supporter snapshot cutoff (always 00:00 UTC), announced ahead of time. The setting
+// SNAPSHOT_CUTOFF in Cloudflare wins over this line. null = not scheduled yet.
+export const SUPPORTER_SNAPSHOT_AT = null;

@@ -1,34 +1,28 @@
 /**
- * Local (your city) and national (your country) feeds: memes, check-ins and discussions,
- * weekly votes, reports, and the moderators' tools. Plus "add my town" requests that the
- * country manager approves.
+ * Local (your city) and national (your country) feeds: memes, check-ins and discussions, weekly votes
+ * and reports. Moderation is in src/moderation.js.
  *
  * Rules, kept here in one place:
  *   - signed in, with a home community, to read or post; after launch, only holders can post and vote
- *   - 12 posts an hour at most; one check-in a day, and only from inside your community
+ *   - 12 posts an hour at most; one check-in a day, and only from inside your community (a location attestation)
  *   - no contract addresses in posts (the only real one is on the Token page): stops fake-token scams
  *   - votes: 1 for everyone, 2 for city founders, 3 for country managers; "top" = this week (from Monday, UTC)
- *   - 5 reports hide a post until a moderator looks at it
- *   - moderators: a city founder in their city, a country manager in their country, the admin everywhere.
- *     Founders and managers can hide posts; managers can also ban someone from their country's feeds;
- *     the admin can ban from everything.
+ *   - 3 reports confirm a moderator's hide; 5 reports hide a post until a moderator reviews it
  */
-import { json, readJson, sameSite } from "./http.js";
-import { getSession } from "./auth.js";
+import { json, readJson } from "./http.js";
+import { access } from "./access.js";
+import { useAttestation, countRecent, noteEvent } from "./attest.js";
+import { activeBan, canModerate, managerOf, powersOf } from "./roles.js";
 import { ensureSchema } from "./store.js";
-import { CITY_NAME_RE } from "./solana.js";
-import { MAX_LOCATION_ACCURACY_M, cleanLocation } from "./cities.js";
-import { networkCheck } from "./network.js";
-import { locate } from "./community.js";
-import { FOUNDER_MIN, amountsFor, canModerate, managerOf, powersOf } from "./roles.js";
-import { activeMint } from "./official.js";
+import { DAY, POLICY, iso } from "./policy.js";
+import { HAS_ADDRESS, cleanText } from "./text.js";
+import { toBytes } from "./blobs.js";
 
+export { cleanText };
 const KINDS = ["meme", "checkin", "talk"];
 const LIMITS = { meme: 280, checkin: 140, talk: 1000, reply: 500 };
 const MAX_IMAGE = 200_000;
 const POSTS_PER_HOUR = 12;
-const AUTO_HIDE_REPORTS = 5;
-const iso = (ms) => new Date(ms).toISOString();
 
 /** Monday 00:00 UTC of this week: weekly votes start here. */
 export function weekStart(now = Date.now()) {
@@ -37,67 +31,55 @@ export function weekStart(now = Date.now()) {
   return iso(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day));
 }
 
-/** Text as typed, minus control characters and runs of blank lines. */
-export function cleanText(s, max) {
-  const t = String(s || "").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, "").replace(/\n{3,}/g, "\n\n").trim();
-  return t.length > max ? null : t;
-}
-const HAS_ADDRESS = /(^|[^1-9A-HJ-NP-Za-km-z])[1-9A-HJ-NP-Za-km-z]{32,44}($|[^1-9A-HJ-NP-Za-km-z])/;
-
-async function signedIn(request, env, now) {
-  const s = await getSession(env, request, now);
-  if (!s || !s.user) return { error: json({ ok: false, error: "sign_in" }, 401) };
-  await ensureSchema(env.DB);
-  return { u: s.user };
-}
 const placeFor = (u, scope) => (scope === "country" ? u.home_country : u.home_city);
 /** Can this person see this post? Your city's posts, your country's posts. */
 const sees = (u, p, pw) => canModerate(pw, p) || (p.scope === "city" ? p.place === u.home_city : p.place === u.home_country);
 
-const COLS = "p.id, p.user_id, p.scope, p.place, p.country, p.kind, p.body, p.media_id, p.parent_id, p.score, p.reports, p.replies, p.hidden, p.created_at, u.handle, u.name, u.wallet, u.home_name AS author_home, c.city_name AS founder_city";
-const FROM = "FROM posts p JOIN users u ON u.id = p.user_id LEFT JOIN claims c ON c.wallet = u.wallet";
+export const COLS = "p.id, p.user_id, p.scope, p.place, p.country, p.kind, p.body, p.media_id, p.parent_id, p.score, p.reports, p.replies, p.hidden, p.hide_confirmed, p.hidden_until, p.created_at, u.handle, u.name, u.home_name AS author_home";
+export const FROM = "FROM posts p JOIN users u ON u.id = p.user_id";
 
 /** Posts as the page sees them: author name and live role, never their wallet. */
-async function present(env, rows, me, pw, fetchImpl) {
+export async function present(env, rows, me, pw, fetchImpl = fetch, now = Date.now()) {
   if (!rows.length) return [];
+  const db = env.DB;
   const ids = rows.map((r) => r.id);
-  const mine = new Set((await env.DB.prepare(`SELECT post_id FROM votes WHERE user_id = ? AND post_id IN (${ids.map(() => "?").join(",")})`)
+  const mine = new Set((await db.prepare(`SELECT post_id FROM votes WHERE user_id = ? AND post_id IN (${ids.map(() => "?").join(",")})`)
     .bind(me.id, ...ids).all()).results.map((r) => r.post_id));
-  // founders keep the label only while they hold 1M+ (checked live)
-  const launched = Boolean(activeMint(env));
-  const founders = [...new Set(rows.filter((r) => r.founder_city).map((r) => r.wallet))];
-  const amounts = launched && founders.length ? await amountsFor(env, founders, fetchImpl).catch(() => new Map()) : new Map();
-  const countries = [...new Set(rows.map((r) => r.country))];
-  const managerWallets = new Set();
-  for (const cc of countries) { const m = await managerOf(env, cc, fetchImpl).catch(() => null); if (m) managerWallets.add(m.wallet); }
-  return rows.map((r) => ({
-    id: r.id, kind: r.kind, body: r.body, image: r.media_id ? `/api/media/${r.media_id}` : null,
-    score: r.score, replies: r.replies, at: r.created_at, hidden: Boolean(r.hidden), reports: canModerate(pw, r) ? r.reports : undefined,
-    where: r.kind === "checkin" ? r.author_home : undefined,
-    voted: mine.has(r.id), mine: r.user_id === me.id, canModerate: canModerate(pw, r),
-    author: {
-      id: canModerate(pw, r) ? r.user_id : undefined,
-      name: r.handle || r.name || "Member",
-      founder: r.founder_city && (amounts.get(r.wallet) || 0) >= FOUNDER_MIN ? r.founder_city : null,
-      manager: managerWallets.has(r.wallet),
-    },
-  }));
+  const authors = [...new Set(rows.map((r) => r.user_id))];
+  const founders = new Map((await db.prepare(`SELECT user_id, city_name FROM seats WHERE status = 'active' AND user_id IN (${authors.map(() => "?").join(",")})`)
+    .bind(...authors).all()).results.map((r) => [r.user_id, r.city_name]));
+  const managers = new Set();
+  for (const cc of new Set(rows.map((r) => r.country))) { const m = await managerOf(env, cc, now); if (m) managers.add(m.userId); }
+  const actions = new Map((await db.prepare(`SELECT target_id, id, state, reason FROM mod_actions WHERE target_type = 'post' AND action = 'hide' AND state IN ('pending', 'confirmed')
+    AND target_id IN (${ids.map(() => "?").join(",")}) ORDER BY id`).bind(...ids).all()).results.map((r) => [r.target_id, r]));
+  return rows.map((r) => {
+    const mod = canModerate(pw, r), act = actions.get(r.id);
+    return {
+      id: r.id, kind: r.kind, body: r.body, image: r.media_id ? `/api/media/${r.media_id}` : null,
+      score: r.score, replies: r.replies, at: r.created_at, hidden: Boolean(r.hidden),
+      hiddenUntil: r.hidden && !r.hide_confirmed ? r.hidden_until : null,
+      hideAction: r.hidden && act && (mod || r.user_id === me.id) ? { id: act.id, state: act.state, reason: act.reason } : null,
+      reports: mod ? r.reports : undefined,
+      where: r.kind === "checkin" ? r.author_home : undefined,
+      voted: mine.has(r.id), mine: r.user_id === me.id, canModerate: mod,
+      author: { id: mod ? r.user_id : undefined, name: r.handle || r.name || "Member", founder: founders.get(r.user_id) || null, manager: managers.has(r.user_id) },
+    };
+  });
 }
 
 /** GET /api/posts?scope=city|country&kind=meme|checkin|talk&sort=new|top&before=<id>  or  ?parent=<id> for replies */
 export async function handlePosts(request, env, fetchImpl = fetch, now = Date.now()) {
-  const m = await signedIn(request, env, now);
-  if (m.error) return m.error;
-  const u = m.u, q = new URL(request.url).searchParams;
-  const pw = await powersOf(env, u, fetchImpl);
-  const db = env.DB;
+  const a = await access(request, env, now, { write: false });
+  if (a.error) return a.error;
+  const u = a.u, q = new URL(request.url).searchParams, db = env.DB;
+  const pw = await powersOf(env, u, fetchImpl, now);
   let rows;
   if (q.get("parent")) {
     const par = await db.prepare("SELECT * FROM posts WHERE id = ?").bind(Number(q.get("parent")) || 0).first();
-    if (!par || !sees(u, par, pw) || (par.hidden && !canModerate(pw, par))) return json({ ok: false, error: "not_found" }, 404);
-    rows = (await db.prepare(`SELECT ${COLS} ${FROM} WHERE p.parent_id = ? AND (p.hidden = 0 OR ?) ORDER BY p.id LIMIT 100`)
-      .bind(par.id, canModerate(pw, par) ? 1 : 0).all()).results;
-    return json({ ok: true, posts: await present(env, rows, u, pw, fetchImpl) });
+    if (!par || !sees(u, par, pw) || (par.hidden && !canModerate(pw, par) && par.user_id !== u.id)) return json({ ok: false, error: "not_found" }, 404);
+    rows = (await db.prepare(`SELECT ${COLS} ${FROM} WHERE p.parent_id = ? AND (p.hidden = 0 OR ? OR p.user_id = ?) ORDER BY p.id LIMIT 100`)
+      .bind(par.id, canModerate(pw, par) ? 1 : 0, u.id).all()).results;
+    return json({ ok: true, posts: await present(env, rows, u, pw, fetchImpl, now) });
   }
   const scope = q.get("scope") === "country" ? "country" : "city";
   const kind = KINDS.includes(q.get("kind")) ? q.get("kind") : "meme";
@@ -107,18 +89,18 @@ export async function handlePosts(request, env, fetchImpl = fetch, now = Date.no
   // Check-ins are always local; the national tab shows every city's check-ins in the country.
   const nationalCheckins = scope === "country" && kind === "checkin";
   const where = nationalCheckins
-    ? `p.country = ? AND ? <> '' AND p.kind = ? AND p.parent_id IS NULL AND (p.hidden = 0 OR ?)`
-    : `p.scope = ? AND p.place = ? AND p.kind = ? AND p.parent_id IS NULL AND (p.hidden = 0 OR ?)`;
+    ? `p.country = ? AND ? <> '' AND p.kind = ? AND p.parent_id IS NULL AND (p.hidden = 0 OR ? OR p.user_id = ?)`
+    : `p.scope = ? AND p.place = ? AND p.kind = ? AND p.parent_id IS NULL AND (p.hidden = 0 OR ? OR p.user_id = ?)`;
   const [a1, a2] = nationalCheckins ? [place, "x"] : [scope, place];
   if (q.get("sort") === "top") {
     rows = (await db.prepare(`SELECT ${COLS} ${FROM} WHERE ${where} AND p.created_at >= ? ORDER BY p.score DESC, p.id DESC LIMIT 30`)
-      .bind(a1, a2, kind, mod, weekStart(now)).all()).results;
+      .bind(a1, a2, kind, mod, u.id, weekStart(now)).all()).results;
   } else {
     const before = Number(q.get("before")) || 0;
     rows = (await db.prepare(`SELECT ${COLS} ${FROM} WHERE ${where} AND (? = 0 OR p.id < ?) ORDER BY p.id DESC LIMIT 20`)
-      .bind(a1, a2, kind, mod, before, before).all()).results;
+      .bind(a1, a2, kind, mod, u.id, before, before).all()).results;
   }
-  return json({ ok: true, scope, kind, place, canModerate: Boolean(mod), weekStart: weekStart(now), posts: await present(env, rows, u, pw, fetchImpl) });
+  return json({ ok: true, scope, kind, place, canModerate: Boolean(mod), weekStart: weekStart(now), posts: await present(env, rows, u, pw, fetchImpl, now) });
 }
 
 /** A meme picture: base64 of a JPEG, PNG or WebP the browser already shrank. Returns { type, bytes } or null. */
@@ -134,22 +116,19 @@ function readImage(b64) {
 }
 
 /**
- * POST /api/posts { scope, kind, body, image?, parent?, location? }
- * kind: meme (caption and/or picture) · checkin (from inside your community, once a day) · talk (a discussion)
- * parent: reply to a post.
+ * POST /api/posts { scope, kind, body, image?, parent?, attestation? }
+ * kind: meme (caption and/or picture) · checkin (standing in your community: an attestation from
+ * /api/locate, once a day) · talk (a discussion) · parent: reply to a post.
  */
-export async function handleNewPost(request, env, fetchImpl = fetch, now = Date.now(), cf = request.cf) {
-  if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
-  const m = await signedIn(request, env, now);
-  if (m.error) return m.error;
-  const u = m.u, db = env.DB;
+export async function handleNewPost(request, env, fetchImpl = fetch, now = Date.now()) {
+  const a = await access(request, env, now);
+  if (a.error) return a.error;
+  const u = a.u, db = env.DB;
   const body = await readJson(request, 300_000);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
   if (!u.home_city) return json({ ok: false, error: "no_home" }, 409);
-
-  const ban = await db.prepare("SELECT country FROM bans WHERE user_id = ? AND (country = '*' OR country = ?)").bind(u.id, u.home_country).first();
-  if (ban) return json({ ok: false, error: "banned" }, 403);
-  const pw = await powersOf(env, u, fetchImpl);
+  if (await activeBan(db, u.id, u.home_country, now)) return json({ ok: false, error: "banned" }, 403);
+  const pw = await powersOf(env, u, fetchImpl, now);
   if (pw.launched && !pw.holder && !pw.admin) return json({ ok: false, error: "holders_only" }, 403);
   const recent = await db.prepare("SELECT COUNT(*) AS n FROM posts WHERE user_id = ? AND created_at >= ?").bind(u.id, iso(now - 3600_000)).first();
   if ((recent?.n || 0) >= POSTS_PER_HOUR) return json({ ok: false, error: "slow_down" }, 429);
@@ -170,15 +149,12 @@ export async function handleNewPost(request, env, fetchImpl = fetch, now = Date.
 
   if (kind === "checkin") {
     const today = iso(now).slice(0, 10);
-    const already = await db.prepare("SELECT id FROM posts WHERE user_id = ? AND kind = 'checkin' AND created_at >= ?").bind(u.id, today).first();
-    if (already) return json({ ok: false, error: "checked_in_today" }, 409);
-    const loc = cleanLocation(body.location);
-    if (!loc) return json({ ok: false, error: "location_required" }, 400);
-    if (loc.accuracy > MAX_LOCATION_ACCURACY_M) return json({ ok: false, error: "location_too_rough" }, 400);
-    const net = networkCheck(cf, loc, u.home_country);
-    if (net) return json({ ok: false, ...net }, 403);
-    const here = await locate(env, u.home_country, loc.lon, loc.lat).catch(() => null);
-    if (!here || !here.city || here.city.id !== u.home_city) return json({ ok: false, error: "not_in_city", here: here?.city?.name || null }, 403);
+    if (await db.prepare("SELECT id FROM posts WHERE user_id = ? AND kind = 'checkin' AND created_at >= ?").bind(u.id, today).first()) {
+      return json({ ok: false, error: "checked_in_today" }, 409);
+    }
+    const at = await useAttestation(env, body.attestation, { userId: u.id, purpose: "checkin", now });
+    if (!at.ok) return json({ ok: false, error: at.error }, 400);
+    if (at.att.city !== u.home_city) return json({ ok: false, error: "not_in_city", here: at.att.cityName || null }, 403);
     if (!text) text = `Checked in to ${u.home_name}`;
   }
   if (!text && !image) return json({ ok: false, error: "empty" }, 400);
@@ -194,19 +170,18 @@ export async function handleNewPost(request, env, fetchImpl = fetch, now = Date.
     .bind(u.id, scope, place, country, kind, text, mediaId, parent ? parent.id : null, iso(now)).run();
   if (parent) await db.prepare("UPDATE posts SET replies = replies + 1 WHERE id = ?").bind(parent.id).run();
   const row = await db.prepare(`SELECT ${COLS} ${FROM} WHERE p.id = ?`).bind(ins.meta.last_row_id).first();
-  return json({ ok: true, post: (await present(env, [row], u, pw, fetchImpl))[0] });
+  return json({ ok: true, post: (await present(env, [row], u, pw, fetchImpl, now))[0] });
 }
 
 async function postFor(request, env, now, fetchImpl) {
-  if (!sameSite(request)) return { error: json({ ok: false, error: "wrong_origin" }, 403) };
-  const m = await signedIn(request, env, now);
-  if (m.error) return m;
+  const a = await access(request, env, now);
+  if (a.error) return a;
   const body = await readJson(request);
   if (!body) return { error: json({ ok: false, error: "bad_json" }, 400) };
   const post = await env.DB.prepare("SELECT * FROM posts WHERE id = ?").bind(Number(body.id) || 0).first();
-  const pw = await powersOf(env, m.u, fetchImpl);
-  if (!post || !sees(m.u, post, pw)) return { error: json({ ok: false, error: "not_found" }, 404) };
-  return { u: m.u, body, post, pw };
+  const pw = await powersOf(env, a.u, fetchImpl, now);
+  if (!post || !sees(a.u, post, pw)) return { error: json({ ok: false, error: "not_found" }, 404) };
+  return { u: a.u, body, post, pw };
 }
 
 /** POST /api/posts/vote { id } → vote, or take your vote back. Founders count 2, managers 3. */
@@ -233,63 +208,35 @@ export async function handleVote(request, env, fetchImpl = fetch, now = Date.now
   return json({ ok: true, voted: !had, score: s.score, weight: pw.weight });
 }
 
-/** POST /api/posts/report { id, reason } → five reports hide a post until a moderator looks. */
+/**
+ * POST /api/posts/report { id, reason } → 3 reports confirm a moderator's hide; 5 reports hide the post
+ * until a moderator reviews it (both logged publicly as "community reports").
+ */
 export async function handleReport(request, env, fetchImpl = fetch, now = Date.now()) {
   const r = await postFor(request, env, now, fetchImpl);
   if (r.error) return r.error;
   const { u, post, body } = r, db = env.DB;
   if (post.user_id === u.id) return json({ ok: false, error: "own_post" }, 400);
+  if (await countRecent(env, u.id, "report", now - DAY) >= POLICY.limits.reportsPerDay) return json({ ok: false, error: "slow_down" }, 429);
   const reason = cleanText(body.reason, 140) || null;
   const ins = await db.prepare("INSERT OR IGNORE INTO reports (post_id, user_id, reason, created_at) VALUES (?, ?, ?, ?)").bind(post.id, u.id, reason, iso(now)).run();
-  if (ins.meta.changes) {
-    await db.prepare("UPDATE posts SET reports = reports + 1, hidden = CASE WHEN reports + 1 >= ? THEN 1 ELSE hidden END WHERE id = ?").bind(AUTO_HIDE_REPORTS, post.id).run();
+  if (!ins.meta.changes) return json({ ok: true });
+  await noteEvent(env, u.id, "report", now);
+  const n = post.reports + 1;
+  const stmts = [db.prepare("UPDATE posts SET reports = ? WHERE id = ?").bind(n, post.id)];
+  const log = (action, state) => db.prepare(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, created_at, state)
+    VALUES (NULL, 'community', ?, 'post', ?, ?, ?, ?, 'reports', ?, ?)`).bind(action, post.id, post.user_id, post.country, post.place, iso(now), state);
+  const pending = await db.prepare("SELECT id FROM mod_actions WHERE target_type = 'post' AND target_id = ? AND action = 'hide' AND state = 'pending'").bind(post.id).first();
+  if (post.hidden && !post.hide_confirmed && pending && n >= POLICY.moderation.reportsToConfirm) {
+    stmts.push(db.prepare("UPDATE posts SET hide_confirmed = 1, hidden_until = NULL WHERE id = ?").bind(post.id));
+    stmts.push(db.prepare("UPDATE mod_actions SET state = 'confirmed', second_at = ? WHERE id = ?").bind(iso(now), pending.id));
+    stmts.push(log("confirm_hide", "confirmed"));
+  } else if (!post.hidden && n >= POLICY.moderation.reportsToAutoHide) {
+    stmts.push(db.prepare("UPDATE posts SET hidden = 1, hide_confirmed = 1, hidden_until = NULL WHERE id = ?").bind(post.id));
+    stmts.push(log("hide", "confirmed"));
   }
+  await db.batch(stmts);
   return json({ ok: true });
-}
-
-/** POST /api/posts/hide { id, hidden } → moderators only. */
-export async function handleHide(request, env, fetchImpl = fetch, now = Date.now()) {
-  const r = await postFor(request, env, now, fetchImpl);
-  if (r.error) return r.error;
-  if (!canModerate(r.pw, r.post)) return json({ ok: false, error: "not_allowed" }, 403);
-  const hidden = r.body.hidden === false ? 0 : 1;
-  await env.DB.prepare("UPDATE posts SET hidden = ?, reports = CASE WHEN ? = 0 THEN 0 ELSE reports END WHERE id = ?").bind(hidden, hidden, r.post.id).run();
-  return json({ ok: true, hidden: Boolean(hidden) });
-}
-
-/** POST /api/posts/ban { id, reason } → ban the post's author: a manager from their country's feeds, the admin from everything. */
-export async function handleBan(request, env, fetchImpl = fetch, now = Date.now()) {
-  const r = await postFor(request, env, now, fetchImpl);
-  if (r.error) return r.error;
-  const { u, post, pw, body } = r;
-  const where = pw.admin ? "*" : pw.managerCountry && post.country === pw.managerCountry ? pw.managerCountry : null;
-  if (!where) return json({ ok: false, error: "not_allowed" }, 403);
-  if (post.user_id === u.id) return json({ ok: false, error: "own_post" }, 400);
-  await env.DB.batch([
-    env.DB.prepare("INSERT OR REPLACE INTO bans (user_id, country, by_user, reason, created_at) VALUES (?, ?, ?, ?, ?)").bind(post.user_id, where, u.id, cleanText(body.reason, 140) || null, iso(now)),
-    env.DB.prepare("UPDATE posts SET hidden = 1 WHERE id = ?").bind(post.id),
-  ]);
-  return json({ ok: true, banned: where });
-}
-
-/** GET /api/mod → the moderator's to-do list: reported posts and "add my town" requests in their area. */
-export async function handleModQueue(request, env, fetchImpl = fetch, now = Date.now()) {
-  const m = await signedIn(request, env, now);
-  if (m.error) return m.error;
-  const pw = await powersOf(env, m.u, fetchImpl);
-  if (!pw.admin && !pw.managerCountry && !pw.founderCity) return json({ ok: true, moderator: false, posts: [], requests: [] });
-  const db = env.DB;
-  const [scopeSql, scopeArgs] = pw.admin ? ["1 = 1", []]
-    : pw.managerCountry ? ["p.country = ?", [pw.managerCountry]]
-    : ["p.scope = 'city' AND p.place = ?", [pw.founderCity]];
-  const posts = (await db.prepare(`SELECT ${COLS} ${FROM} WHERE p.reports > 0 AND ${scopeSql} ORDER BY p.reports DESC, p.id DESC LIMIT 50`).bind(...scopeArgs).all()).results;
-  const reqs = pw.admin || pw.managerCountry
-    ? (await db.prepare(`SELECT r.id, r.name, r.country, r.near, r.status, r.created_at, u.handle, u.name AS by_name FROM requests r JOIN users u ON u.id = r.user_id
-        WHERE r.status = 'waiting' AND (? = '*' OR r.country = ?) ORDER BY r.id LIMIT 100`).bind(pw.admin ? "*" : pw.managerCountry, pw.managerCountry || "").all()).results
-    : [];
-  return json({ ok: true, moderator: true, scope: pw.admin ? "everywhere" : pw.managerCountry ? `country ${pw.managerCountry}` : `city ${pw.claim?.city_name}`,
-    posts: await present(env, posts, m.u, pw, fetchImpl),
-    requests: reqs.map((x) => ({ id: x.id, name: x.name, country: x.country, near: x.near, at: x.created_at, by: x.handle || x.by_name })) });
 }
 
 /** GET /api/media/:id → a meme picture. */
@@ -298,64 +245,9 @@ export async function handleMedia(env, id) {
   await ensureSchema(env.DB);
   const row = await env.DB.prepare("SELECT type, bytes FROM media WHERE id = ?").bind(Number(id)).first();
   if (!row) return json({ error: "not_found" }, 404);
-  const bytes = row.bytes instanceof ArrayBuffer ? new Uint8Array(row.bytes) : Array.isArray(row.bytes) ? Uint8Array.from(row.bytes) : row.bytes;
-  return new Response(bytes, { headers: {
+  return new Response(toBytes(row.bytes), { headers: {
     "Content-Type": row.type, "Cache-Control": "public, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": "inline",
   } });
 }
 
-/* ---------------- "add my town" requests ---------------- */
-
-/** POST /api/requests { name, location } → ask your country manager to make your town a community. You must be there. */
-export async function handleNewRequest(request, env, now = Date.now(), cf = request.cf) {
-  if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
-  const m = await signedIn(request, env, now);
-  if (m.error) return m.error;
-  const u = m.u, db = env.DB;
-  const body = await readJson(request);
-  if (!body) return json({ ok: false, error: "bad_json" }, 400);
-  const name = String(body.name || "").trim().replace(/\s+/g, " ");
-  if (!CITY_NAME_RE.test(name)) return json({ ok: false, error: "bad_name" }, 400);
-  const loc = cleanLocation(body.location);
-  if (!loc) return json({ ok: false, error: "location_required" }, 400);
-  if (loc.accuracy > MAX_LOCATION_ACCURACY_M) return json({ ok: false, error: "location_too_rough" }, 400);
-  const cc = (cf && /^[A-Z]{2}$/.test(cf.country || "") && cf.country) || u.home_country;
-  if (!cc) return json({ ok: false, error: "unknown_country" }, 400);
-  const net = networkCheck(cf, loc, cc);
-  if (net) return json({ ok: false, ...net }, 403);
-  const open = await db.prepare("SELECT id FROM requests WHERE user_id = ? AND status = 'waiting'").bind(u.id).first();
-  if (open) return json({ ok: false, error: "one_at_a_time" }, 409);
-  const here = await locate(env, cc, loc.lon, loc.lat).catch(() => null);
-  const near = here ? (here.city ? `inside ${here.city.name}` : here.nearby[0] ? `${here.nearby[0].km} km from ${here.nearby[0].name}` : null) : null;
-  const round = (v) => Math.round(v * 20) / 20; // about 5 km
-  const ins = await db.prepare("INSERT INTO requests (user_id, name, country, lat, lon, near, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .bind(u.id, name, cc, round(loc.lat), round(loc.lon), near, iso(now)).run();
-  return json({ ok: true, request: { id: ins.meta.last_row_id, name, country: cc, near, status: "waiting" } });
-}
-
-/** GET /api/requests → your own requests and what happened to them. */
-export async function handleMyRequests(request, env, now = Date.now()) {
-  const m = await signedIn(request, env, now);
-  if (m.error) return m.error;
-  const rows = (await env.DB.prepare("SELECT id, name, country, near, status, note, created_at, decided_at FROM requests WHERE user_id = ? ORDER BY id DESC LIMIT 10").bind(m.u.id).all()).results;
-  return json({ ok: true, requests: rows });
-}
-
-/** POST /api/requests/decide { id, approve, note } → the country manager (or the admin) decides. */
-export async function handleDecide(request, env, fetchImpl = fetch, now = Date.now()) {
-  if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
-  const m = await signedIn(request, env, now);
-  if (m.error) return m.error;
-  const body = await readJson(request);
-  if (!body) return json({ ok: false, error: "bad_json" }, 400);
-  const req = await env.DB.prepare("SELECT * FROM requests WHERE id = ?").bind(Number(body.id) || 0).first();
-  if (!req) return json({ ok: false, error: "not_found" }, 404);
-  const pw = await powersOf(env, m.u, fetchImpl);
-  if (!pw.admin && pw.managerCountry !== req.country) return json({ ok: false, error: "not_allowed" }, 403);
-  if (req.status !== "waiting") return json({ ok: false, error: "already_decided" }, 409);
-  const status = body.approve ? "approved" : "declined";
-  await env.DB.prepare("UPDATE requests SET status = ?, decided_by = ?, note = ?, decided_at = ? WHERE id = ?")
-    .bind(status, m.u.id, cleanText(body.note, 200) || null, iso(now), req.id).run();
-  return json({ ok: true, status });
-}

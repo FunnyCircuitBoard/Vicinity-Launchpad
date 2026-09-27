@@ -1,94 +1,69 @@
 /**
- * Roles, checked live against the blockchain (a sale takes a role away on the next check):
+ * Who may do what, from live data:
  *   Admin            → a wallet in the ADMIN_WALLETS setting (Cloudflare → Settings → Variables)
- *   Country manager  → the city founder in a country holding the most $VICINITY
- *   City founder     → claimed a city and still holds 1,000,000+ $VICINITY
+ *   Country manager  → elected for a 90-day term (src/elections.js), while their founder seat is active
+ *   City founder     → holds an ACTIVE founder seat (src/seats.js); a seat in grace keeps its badge
+ *                      but not its powers
  *   Holder           → holds any $VICINITY
  *   Member           → signed in, not holding (yet)
  */
-import { OFFICIAL, activeMint } from "./official.js";
-import { CLAIM_MIN_HOLD } from "./cities.js";
-import { getHoldings, holderSnapshot } from "./chain.js";
+import { activeMint } from "./official.js";
+import { liveAmounts } from "./chain.js";
 import { isSolanaAddress } from "./solana.js";
-import { storeFor } from "./store.js";
+import { iso } from "./policy.js";
 
-export const FOUNDER_MIN = CLAIM_MIN_HOLD;
-export const WHALE_MIN = 10_000_000;
-/** Weekly votes: founders and country managers have stronger votes (their "special voting rights"). */
+/** Weekly meme votes: founders and country managers have stronger votes (their "special voting rights"). */
 export const VOTE_WEIGHT = { member: 1, holder: 1, founder: 2, manager: 3, admin: 1 };
+export const LIVE = ["provisional", "active", "grace"];
 
 export const adminWallets = (env) => String((env && env.ADMIN_WALLETS) || "").split(/[\s,]+/).filter(isSolanaAddress);
+export const amountsFor = (env, wallets, fetchImpl = fetch, opts = {}) => liveAmounts(env, wallets, fetchImpl, { ...opts, mint: activeMint(env) });
 
-/**
- * Live $VICINITY amounts for some wallets: from the one-minute holder snapshot when the RPC allows it,
- * otherwise a direct lookup (only for short lists). Before launch everyone holds 0.
- */
-export async function amountsFor(env, wallets, fetchImpl = fetch, { maxDirect = 200 } = {}) {
-  const mint = activeMint(env);
-  const out = new Map();
-  if (!mint || !wallets.length) return out;
-  try {
-    const snap = await holderSnapshot(env, mint, fetchImpl);
-    for (const w of wallets) out.set(w, snap.byOwner.get(w)?.amount || 0);
-    return out;
-  } catch {
-    if (wallets.length > maxDirect) return out;
-    return getHoldings(env, wallets, mint, fetchImpl);
-  }
+export const liveSeatOfUser = (db, userId) =>
+  db.prepare("SELECT * FROM seats WHERE user_id = ? AND status IN ('provisional', 'active', 'grace')").bind(userId).first();
+export const liveSeatOfCity = (db, cityId) =>
+  db.prepare("SELECT * FROM seats WHERE city_id = ? AND status IN ('provisional', 'active', 'grace')").bind(cityId).first();
+
+/** The country's manager right now: { term, seat } when the term is running AND the manager's seat is active. */
+export async function managerOf(env, cc, now = Date.now()) {
+  if (!env.DB || !cc) return null;
+  const term = await env.DB.prepare("SELECT * FROM manager_terms WHERE country = ? AND status = 'active' AND starts_at <= ? AND ends_at > ? ORDER BY id DESC LIMIT 1")
+    .bind(cc, iso(now), iso(now)).first();
+  if (!term) return null;
+  const seat = await env.DB.prepare("SELECT * FROM seats WHERE id = ?").bind(term.seat_id).first();
+  if (!seat || seat.status !== "active") return null;
+  const user = await env.DB.prepare("SELECT handle, name FROM users WHERE id = ?").bind(term.user_id).first();
+  return { term, seat, wallet: term.wallet, userId: term.user_id, city: seat.city_name, name: user?.handle || user?.name || "Manager" };
 }
 
 /**
- * A country's manager: { wallet, city, cityId, amount, founders } or null. Team wallets can't be managers.
- * Kept for two minutes per server.
+ * Everything a person may do right now:
+ *   { admin, launched, amount, holder, seat, founderCity, managerCountry, level, weight }
  */
-const managers = new Map();
-export function managerOf(env, cc, fetchImpl = fetch) {
-  const key = cc + "|" + (activeMint(env) || "none");
-  const hit = managers.get(key);
-  if (hit && Date.now() - hit.at < 120_000) return hit.promise;
-  const promise = (async () => {
-    if (!activeMint(env) || (!env.DB && !env.store)) return null;
-    const team = new Set(OFFICIAL.teamWallets || []);
-    const founders = (await storeFor(env).claimsByCountry(cc)).filter((f) => !team.has(f.wallet));
-    if (!founders.length) return null;
-    const amounts = await amountsFor(env, founders.map((f) => f.wallet), fetchImpl);
-    let best = null;
-    for (const f of founders) {
-      const amount = amounts.get(f.wallet) || 0;
-      if (amount > 0 && (!best || amount > best.amount)) best = { wallet: f.wallet, city: f.city_name, cityId: f.city_id, amount };
-    }
-    return best && { ...best, founders: founders.length };
-  })();
-  managers.set(key, { at: Date.now(), promise });
-  promise.catch(() => managers.delete(key));
-  return promise;
-}
-export const _resetRoles = () => managers.clear();
-/** A new founder in a country: work its manager out again on the next look. */
-export const forgetManager = (cc) => { for (const k of managers.keys()) if (k.startsWith(cc + "|")) managers.delete(k); };
-
-/**
- * Everything a person may do, from live data: { admin, holder, amount, founderCity, founderCountry, managerCountry, level, weight }.
- */
-export async function powersOf(env, user, fetchImpl = fetch) {
+export async function powersOf(env, user, fetchImpl = fetch, now = Date.now()) {
   const launched = Boolean(activeMint(env));
   const admin = adminWallets(env).includes(user.wallet);
   const amount = launched ? (await amountsFor(env, [user.wallet], fetchImpl)).get(user.wallet) || 0 : 0;
-  const claim = await storeFor(env).claimByWallet(user.wallet);
-  const founder = Boolean(claim && launched && amount >= FOUNDER_MIN);
+  const seat = await liveSeatOfUser(env.DB, user.id);
+  const founderCity = seat && seat.status === "active" ? seat.city_id : null;
   let managerCountry = null;
-  if (founder) {
-    const m = await managerOf(env, claim.country, fetchImpl).catch(() => null);
-    if (m && m.wallet === user.wallet) managerCountry = claim.country;
+  if (founderCity) {
+    const m = await managerOf(env, seat.country, now);
+    if (m && m.userId === user.id) managerCountry = seat.country;
   }
-  const level = admin ? "admin" : managerCountry ? "manager" : founder ? "founder" : amount > 0 ? "holder" : "member";
+  const level = admin ? "admin" : managerCountry ? "manager" : founderCity ? "founder" : amount > 0 ? "holder" : "member";
   return {
-    admin, launched, amount, holder: amount > 0, claim,
-    founderCity: founder ? claim.city_id : null, founderCountry: founder ? claim.country : null,
-    managerCountry, level, weight: VOTE_WEIGHT[managerCountry ? "manager" : founder ? "founder" : "member"],
+    admin, launched, amount, holder: amount > 0, seat, founderCity, founderCountry: founderCity ? seat.country : null,
+    managerCountry, level, weight: VOTE_WEIGHT[managerCountry ? "manager" : founderCity ? "founder" : "member"],
   };
 }
 
 /** May these powers moderate this post? Admin anywhere, a manager in their country, a founder in their city. */
 export const canModerate = (p, post) =>
   Boolean(p.admin || (p.managerCountry && post.country === p.managerCountry) || (p.founderCity && post.scope === "city" && post.place === p.founderCity));
+
+/** Is this person banned from posting here (a country, or everywhere)? */
+export async function activeBan(db, userId, country, now = Date.now()) {
+  return db.prepare("SELECT user_id, country, expires_at, action_id FROM bans WHERE user_id = ? AND (country = '*' OR country = ?) AND (expires_at IS NULL OR expires_at > ?) ORDER BY expires_at DESC LIMIT 1")
+    .bind(userId, country || "", iso(now)).first();
+}

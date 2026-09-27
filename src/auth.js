@@ -14,8 +14,8 @@
  * Settings (Cloudflare → Workers → vicinity-map → Settings → Variables and secrets):
  *   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   Google sign-in
  *   X_CLIENT_ID, X_CLIENT_SECRET             X sign-in
- * Redirect addresses to register with them: https://vicinitycity.net/api/auth/google/callback
- * and https://vicinitycity.net/api/auth/x/callback
+ * Redirect addresses to register with them: https://vicinity.city/api/auth/google/callback
+ * and https://vicinity.city/api/auth/x/callback
  */
 import { b64url, clearCookie, cookie, getCookie, json, randomToken, readJson, redirect, sameSite, sha256 } from "./http.js";
 import { checkSigned } from "./signed.js";
@@ -23,6 +23,7 @@ import { isSolanaAddress } from "./solana.js";
 import { ensureSchema } from "./store.js";
 import { findTransfer } from "./chain.js";
 import { activeMint } from "./official.js";
+import { POLICY } from "./policy.js";
 
 export const SESSION_COOKIE = "vs";
 const OAUTH_COOKIE = "vo";
@@ -86,10 +87,10 @@ export const providers = (env) => Object.fromEntries(Object.entries(PROVIDERS).m
 
 /* ---------------- sessions ---------------- */
 
-async function createSession(env, { wallet = null, userId = null, proof = null }, seconds, now) {
+async function createSession(env, { wallet = null, userId = null, proof = null, provenAt = null }, seconds, now) {
   const token = randomToken(32);
-  await env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .bind(await sha256(token), wallet, userId, proof, iso(now), iso(now + seconds * 1000)).run();
+  await env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .bind(await sha256(token), wallet, userId, proof, iso(now), iso(now + seconds * 1000), provenAt).run();
   if (Math.random() < 0.02) { // tidy up now and then
     await env.DB.batch([
       env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(iso(now)),
@@ -105,7 +106,7 @@ export async function getSession(env, request, now = Date.now()) {
   const token = getCookie(request, SESSION_COOKIE);
   if (!token || token.length > 100) return null;
   await ensureSchema(env.DB);
-  const s = await env.DB.prepare("SELECT id, wallet, user_id, proof, expires_at FROM sessions WHERE id = ?").bind(await sha256(token)).first();
+  const s = await env.DB.prepare("SELECT id, wallet, user_id, proof, expires_at, proven_at FROM sessions WHERE id = ?").bind(await sha256(token)).first();
   if (!s || Date.parse(s.expires_at) <= now) return null;
   const user = s.user_id ? await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(s.user_id).first() : null;
   if (s.user_id && !user) return null;
@@ -120,8 +121,31 @@ async function dropCurrent(env, request) {
 /** The wallet is proven. A linked wallet signs straight in; a new one has 30 minutes to link X or Google. */
 async function signInWallet(env, wallet, now) {
   const user = await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(wallet).first();
-  if (user) return { cookie: await createSession(env, { wallet, userId: user.id }, SESSION_SECONDS, now), next: "/dashboard" };
-  return { cookie: await createSession(env, { wallet }, PENDING_SECONDS, now), next: "social" };
+  const provenAt = iso(now);
+  if (user) return { cookie: await createSession(env, { wallet, userId: user.id, provenAt }, SESSION_SECONDS, now), next: "/dashboard" };
+  return { cookie: await createSession(env, { wallet, provenAt }, PENDING_SECONDS, now), next: "social" };
+}
+
+/** Was the wallet proven in this session within the last 30 minutes? Sensitive actions need that. */
+export const isFresh = (session, now = Date.now()) =>
+  Boolean(session && session.proven_at && now - Date.parse(session.proven_at) <= POLICY.freshProofMinutes * 60_000);
+
+/**
+ * POST /api/auth/reprove { address, message, signature } → "it's still me": the signed-in person signs
+ * a login message with THEIR wallet again, which unlocks sensitive actions for 30 minutes.
+ */
+export async function handleReprove(request, env, now = Date.now()) {
+  const blocked = await guard(request, env);
+  if (blocked) return blocked;
+  const s = await getSession(env, request, now);
+  if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
+  const body = await readJson(request);
+  if (!body) return json({ ok: false, error: "bad_json" }, 400);
+  const r = await checkSigned(body, request, now, ["login"], badSigned);
+  if (r.error) return r.error;
+  if (r.parsed.pin || r.parsed.address !== s.user.wallet) return json({ ok: false, error: "wrong_wallet" }, 403);
+  await env.DB.prepare("UPDATE sessions SET proven_at = ? WHERE id = ?").bind(iso(now), s.id).run();
+  return json({ ok: true, provenAt: iso(now) });
 }
 
 const guard = async (request, env) => {
@@ -216,9 +240,18 @@ export async function handleTransferStart(request, env, now = Date.now()) {
   if (!isSolanaAddress(address)) return json({ ok: false, error: "bad_address" }, 400);
   const r = crypto.getRandomValues(new Uint16Array(1))[0];
   const lamports = (1001 + (r % 8999)) * 1000; // 0.001001 – 0.009999 SOL, six decimals
+  const proof = JSON.stringify({ address, lamports, since: now });
+  const out = { ok: true, address, lamports, sol: (lamports / 1e9).toFixed(6), expiresAt: iso(now + PENDING_SECONDS * 1000) };
+  // Already signed in and proving "it's still me" (app wallets can't sign): keep the session, add the proof.
+  const current = body.reprove ? await getSession(env, request, now) : null;
+  if (current && current.user) {
+    if (address !== current.user.wallet) return json({ ok: false, error: "wrong_wallet" }, 403);
+    await env.DB.prepare("UPDATE sessions SET proof = ? WHERE id = ?").bind(proof, current.id).run();
+    return json({ ...out, reprove: true });
+  }
   await dropCurrent(env, request);
-  const c = await createSession(env, { proof: JSON.stringify({ address, lamports, since: now }) }, PENDING_SECONDS, now);
-  return json({ ok: true, address, lamports, sol: (lamports / 1e9).toFixed(6), expiresAt: iso(now + PENDING_SECONDS * 1000) }, 200, { "Set-Cookie": c });
+  const c = await createSession(env, { proof }, PENDING_SECONDS, now);
+  return json(out, 200, { "Set-Cookie": c });
 }
 
 /** POST /api/auth/transfer/check → looks for that exact transfer on the blockchain. */
@@ -235,6 +268,10 @@ export async function handleTransferCheck(request, env, now = Date.now(), fetchI
   try { found = await findTransfer(env, p.address, p.lamports, p.since, fetchImpl); }
   catch (e) { console.error("transfer check failed", String(e)); return json({ ok: false, error: "chain_unavailable" }, 503); }
   if (!found) return json({ ok: false, error: "not_found_yet" });
+  if (s.user) {
+    await env.DB.prepare("UPDATE sessions SET proven_at = ?, proof = NULL WHERE id = ?").bind(iso(now), s.id).run();
+    return json({ ok: true, wallet: p.address, reproven: true });
+  }
   await dropSession(env, s.id);
   const { cookie: c, next } = await signInWallet(env, p.address, now);
   return json({ ok: true, wallet: p.address, next }, 200, { "Set-Cookie": c });
@@ -273,9 +310,11 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
   await ensureSchema(env.DB);
   const session = await getSession(env, request, now);
   const linked = await env.DB.prepare("SELECT id, wallet FROM users WHERE provider = ? AND provider_id = ?").bind(provider, who.id).first();
+  // Signing in with X / Google alone doesn't prove the wallet: sensitive actions will ask for it again.
   const start = async (userId, wallet, to) => {
     if (session) await dropSession(env, session.id);
-    return redirect(to, [clear, await createSession(env, { wallet, userId }, SESSION_SECONDS, now)]);
+    const provenAt = session && session.wallet === wallet ? session.proven_at : null;
+    return redirect(to, [clear, await createSession(env, { wallet, userId, provenAt }, SESSION_SECONDS, now)]);
   };
 
   if (session && session.user) return redirect("/dashboard", [clear]);

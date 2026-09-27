@@ -743,3 +743,38 @@ select option { background: var(--bg-2); }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .reveal { opacity: 1; transform: none; }
 }
+
+/* ---------- fair launch: founder path, windows, elections, moderation ---------- */
+.seat-panel { display: grid; gap: 8px; margin-top: 4px; }
+.seat-panel p { margin: 0; }
+.apply-form { display: grid; gap: 8px; }
+.apply-form textarea, .reason-form select, .reason-form input { background: var(--card-2); border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px; color: var(--text); font: 500 .95rem var(--body); width: 100%; resize: vertical; }
+.window-panel, .election { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; }
+.window-panel__head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.applicants { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.applicants li { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 12px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
+.applicants li > div { flex: 1 1 180px; min-width: 0; }
+.applicants li p { margin: 2px 0 0; overflow-wrap: anywhere; }
+.applicants li.is-you { border-color: rgba(255,200,87,.55); }
+.applicants__n { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .85rem; }
+.reason-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; grid-column: 1 / -1; }
+.reason-form select { width: auto; flex: 0 1 auto; }
+.reason-form input { flex: 1 1 160px; width: auto; }
+.mod-section { margin-top: 14px; }
+.mod-section h3 { font-size: .95rem; margin: 0 0 6px; }
+.modal { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; padding: 16px; background: rgba(3,7,14,.6); backdrop-filter: blur(4px); }
+.modal__box { width: min(460px, 100%); max-height: calc(100vh - 32px); overflow: auto; display: grid; gap: 12px; }
+.modal__box h2 { margin: 0; }
+.rules-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 800px) { .rules-grid { grid-template-columns: 1fr; } }
+.rules-grid .card h3 { margin-top: 0; }
+.rules-grid ol, .rules-grid ul { margin: 0; padding-left: 20px; color: var(--text-2); display: grid; gap: 6px; }
+.formula { font-family: var(--mono); font-size: .88rem; background: var(--code-bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; overflow-x: auto; white-space: pre-wrap; }
+.never { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.never li { padding-left: 30px; position: relative; color: var(--text-2); }
+.never li::before { content: "✕"; position: absolute; left: 0; top: 1px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: .72rem; font-weight: 800; background: rgba(255,90,54,.18); color: var(--bad-text); }
+.health { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.snap-lookup { display: flex; gap: 10px; padding: 10px; margin-top: 10px; }
+.snap-lookup input { flex: 1; min-width: 0; font-family: var(--mono); font-size: .9rem; background: var(--card-2); border: 1px solid var(--line-2); border-radius: 12px; padding: 11px 12px; color: var(--text); }
+@media (max-width: 520px) { .snap-lookup { flex-direction: column; } }
+.dot--choosing { background: transparent; border: 2px dashed var(--gold); }

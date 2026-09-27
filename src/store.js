@@ -1,20 +1,23 @@
 /**
- * Vicinity database (Cloudflare D1, binding name "DB").
+ * Vicinity database (Cloudflare D1, binding name "DB"). Tables are created and upgraded automatically.
  *
  * What is saved, and nothing more:
- *   claims       → which wallet claimed which city, and when (public on the site)
- *   added_cities → cities the community added: name, country, approximate center
- *                  (rounded to ~10 km), which wallet added it
- *   users        → one account per person: ONE wallet + ONE X or Google login, a display name,
- *                  and the home community (its id and name, never the location that found it)
- *   sessions     → who is signed in (only a hash of the cookie is stored)
+ *   users        → one account per wallet and per X / Google login: a display name and the home
+ *                  community (its id and name, never the location that found it)
+ *   sessions     → who is signed in (only a hash of the cookie) and when the wallet was last proven
  *   pairs        → short-lived "sign in with my phone" codes (10 minutes)
- *   posts, votes, reports, media, bans → the local and national feeds and their moderation
- *   requests     → "add my town" requests; the place is rounded to about 5 km
+ *   posts, votes, reports, media, bans → the local and national feeds
+ *   mod_actions, appeals → every moderation action, public, and appeals against them
+ *   windows, applications, endorsements, seats, objections → choosing city founders (src/seats.js)
+ *   elections, election_votes, manager_terms → electing country managers (src/elections.js)
+ *   balance_samples, streaks, blobs → balance history for fair eligibility (src/ledger.js)
+ *   snapshots    → Founding Supporter lists (src/snapshot.js)
+ *   town_requests → "add my town": the nearest community, never coordinates
+ *   claims, added_cities, requests → the first version (no longer written)
  * Locations of visitors are never saved. Wallets that only "verify" or look up a rank are never saved.
  *
- * The UNIQUE rules in the database itself enforce: one wallet ↔ one city,
- * one wallet ↔ one account, one X / Google login ↔ one account.
+ * The database itself enforces: one live founder per city, one live seat per person,
+ * one open application window per city, one account per wallet and per X / Google login.
  */
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS claims (
@@ -133,95 +136,249 @@ CREATE TABLE IF NOT EXISTS requests (
 );
 CREATE INDEX IF NOT EXISTS requests_country ON requests (country, status);
 `;
+/**
+ * Changes to the database after the first version, in order. Each runs once (recorded in
+ * schema_migrations). New columns on existing tables are added with ALTER TABLE; a second server
+ * adding the same column at the same moment is harmless ("duplicate column" is ignored).
+ */
+export const MIGRATIONS = [
+  {
+    id: "2026-09-27-fair-launch",
+    sql: `
+ALTER TABLE sessions ADD COLUMN proven_at TEXT;
+ALTER TABLE posts ADD COLUMN hidden_until TEXT;
+ALTER TABLE posts ADD COLUMN hide_confirmed INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE bans ADD COLUMN expires_at TEXT;
+ALTER TABLE bans ADD COLUMN action_id INTEGER;
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS blobs (
+  key  TEXT NOT NULL,
+  part INTEGER NOT NULL,
+  data BLOB NOT NULL,
+  PRIMARY KEY (key, part)
+);
+CREATE TABLE IF NOT EXISTS balance_samples (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  taken_at TEXT NOT NULL,
+  day      TEXT NOT NULL,
+  slot     INTEGER,
+  holders  INTEGER NOT NULL,
+  hash     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS balance_samples_day ON balance_samples (day);
+CREATE TABLE IF NOT EXISTS streaks (
+  wallet      TEXT NOT NULL,
+  level       REAL NOT NULL,
+  above_since TEXT,
+  PRIMARY KEY (wallet, level)
+);
+CREATE TABLE IF NOT EXISTS used_nonces (
+  nonce      TEXT PRIMARY KEY,
+  expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rate_events (
+  user_id INTEGER NOT NULL,
+  kind    TEXT NOT NULL,
+  at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS rate_events_user ON rate_events (user_id, kind, at);
+CREATE TABLE IF NOT EXISTS windows (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  city_id    TEXT NOT NULL,
+  city_name  TEXT NOT NULL,
+  country    TEXT NOT NULL,
+  policy     INTEGER NOT NULL,
+  threshold  REAL NOT NULL,
+  opened_at  TEXT NOT NULL,
+  closes_at  TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'open',
+  decided_at TEXT,
+  result     TEXT,
+  result_hash TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS windows_open_city ON windows (city_id) WHERE status = 'open';
+CREATE TABLE IF NOT EXISTS applications (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  window_id  INTEGER NOT NULL,
+  city_id    TEXT NOT NULL,
+  user_id    INTEGER NOT NULL,
+  wallet     TEXT NOT NULL,
+  pitch      TEXT,
+  created_at TEXT NOT NULL,
+  withdrawn  INTEGER NOT NULL DEFAULT 0,
+  valid      INTEGER,
+  endorse_score  REAL,
+  contrib_score  REAL,
+  stake_score    REAL,
+  total      REAL,
+  tiebreak   TEXT,
+  rank       INTEGER,
+  UNIQUE (window_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS applications_user ON applications (user_id);
+CREATE TABLE IF NOT EXISTS endorsements (
+  window_id      INTEGER NOT NULL,
+  user_id        INTEGER NOT NULL,
+  application_id INTEGER NOT NULL,
+  created_at     TEXT NOT NULL,
+  PRIMARY KEY (window_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS seats (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  city_id        TEXT NOT NULL,
+  city_name      TEXT NOT NULL,
+  country        TEXT NOT NULL,
+  user_id        INTEGER NOT NULL,
+  wallet         TEXT NOT NULL,
+  window_id      INTEGER,
+  application_id INTEGER,
+  policy         INTEGER NOT NULL,
+  threshold      REAL NOT NULL,
+  status         TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  appeal_until   TEXT,
+  activated_at   TEXT,
+  grace_until    TEXT,
+  graces         TEXT NOT NULL DEFAULT '[]',
+  ended_at       TEXT,
+  end_reason     TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS seats_city_live ON seats (city_id) WHERE status IN ('provisional', 'active', 'grace');
+CREATE UNIQUE INDEX IF NOT EXISTS seats_user_live ON seats (user_id) WHERE status IN ('provisional', 'active', 'grace');
+CREATE INDEX IF NOT EXISTS seats_country ON seats (country, status);
+CREATE TABLE IF NOT EXISTS objections (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  seat_id    INTEGER NOT NULL,
+  user_id    INTEGER NOT NULL,
+  reason     TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'open',
+  decided_by INTEGER,
+  decided_at TEXT,
+  note       TEXT,
+  UNIQUE (seat_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS elections (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  country    TEXT NOT NULL,
+  policy     INTEGER NOT NULL,
+  opened_at  TEXT NOT NULL,
+  closes_at  TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'open',
+  decided_at TEXT,
+  result     TEXT,
+  result_hash TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS elections_open_country ON elections (country) WHERE status = 'open';
+CREATE TABLE IF NOT EXISTS election_votes (
+  election_id INTEGER NOT NULL,
+  user_id     INTEGER NOT NULL,
+  seat_id     INTEGER NOT NULL,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (election_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS manager_terms (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  country     TEXT NOT NULL,
+  seat_id     INTEGER NOT NULL,
+  user_id     INTEGER NOT NULL,
+  wallet      TEXT NOT NULL,
+  election_id INTEGER,
+  starts_at   TEXT NOT NULL,
+  ends_at     TEXT NOT NULL,
+  consecutive INTEGER NOT NULL DEFAULT 1,
+  status      TEXT NOT NULL DEFAULT 'upcoming',
+  ended_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS manager_terms_country ON manager_terms (country, status);
+CREATE TABLE IF NOT EXISTS mod_actions (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_id    INTEGER,
+  actor_role  TEXT NOT NULL,
+  action      TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id   INTEGER,
+  target_user INTEGER,
+  country     TEXT,
+  place       TEXT,
+  reason      TEXT NOT NULL,
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  expires_at  TEXT,
+  state       TEXT NOT NULL DEFAULT 'done',
+  second_id   INTEGER,
+  second_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS mod_actions_country ON mod_actions (country, created_at);
+CREATE INDEX IF NOT EXISTS mod_actions_target ON mod_actions (target_type, target_id);
+CREATE TABLE IF NOT EXISTS appeals (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  action_id  INTEGER NOT NULL,
+  user_id    INTEGER NOT NULL,
+  text       TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'open',
+  decided_by INTEGER,
+  decided_at TEXT,
+  note       TEXT,
+  UNIQUE (action_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS town_requests (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
+  name       TEXT NOT NULL,
+  country    TEXT NOT NULL,
+  near_id    TEXT,
+  near_name  TEXT,
+  near_km    INTEGER,
+  inside     INTEGER NOT NULL DEFAULT 0,
+  status     TEXT NOT NULL DEFAULT 'waiting',
+  decided_by INTEGER,
+  note       TEXT,
+  created_at TEXT NOT NULL,
+  decided_at TEXT
+);
+CREATE INDEX IF NOT EXISTS town_requests_country ON town_requests (country, status);
+CREATE TABLE IF NOT EXISTS snapshots (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  cutoff_at   TEXT NOT NULL,
+  policy      INTEGER NOT NULL,
+  created_at  TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'provisional',
+  activates_at TEXT NOT NULL,
+  holders     INTEGER NOT NULL,
+  total       REAL NOT NULL,
+  samples     INTEGER NOT NULL,
+  input_hash  TEXT NOT NULL,
+  merkle_root TEXT NOT NULL,
+  note        TEXT
+);
+`,
+  },
+];
 
+const split = (sql) => sql.split(";").map((s) => s.trim()).filter(Boolean);
 const schemaReady = new WeakMap();
-/** Create the tables the first time they're needed ("IF NOT EXISTS" makes this safe to repeat). */
-export function ensureSchema(db) {
-  if (!schemaReady.has(db)) {
-    const stmts = SCHEMA.split(";").map((s) => s.trim()).filter(Boolean).map((s) => db.prepare(s));
-    schemaReady.set(db, db.batch(stmts).catch((e) => { schemaReady.delete(db); throw e; }));
+
+async function migrate(db) {
+  await db.batch(split(SCHEMA).map((s) => db.prepare(s)));
+  await db.prepare("CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)").run();
+  const done = new Set((await db.prepare("SELECT id FROM schema_migrations").all()).results.map((r) => r.id));
+  for (const m of MIGRATIONS) {
+    if (done.has(m.id)) continue;
+    for (const s of split(m.sql)) {
+      try { await db.prepare(s).run(); }
+      catch (e) { if (!/duplicate column/i.test(String(e && e.message ? e.message : e))) throw e; }
+    }
+    await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(m.id, new Date().toISOString()).run();
   }
+}
+
+/** Create / upgrade the tables the first time they're needed on this server (safe to repeat). */
+export function ensureSchema(db) {
+  if (!schemaReady.has(db)) schemaReady.set(db, migrate(db).catch((e) => { schemaReady.delete(db); throw e; }));
   return schemaReady.get(db);
 }
-
-/** D1-backed store. Every function the API needs, in one place. */
-export function d1Store(db) {
-  const api = {
-    async claimByWallet(wallet) {
-      return db.prepare("SELECT city_id, city_name, country, claimed_at FROM claims WHERE wallet = ?").bind(wallet).first();
-    },
-    async claimByCity(cityId) {
-      return db.prepare("SELECT wallet, claimed_at FROM claims WHERE city_id = ?").bind(cityId).first();
-    },
-    async addedCity(id) {
-      return db.prepare("SELECT id, name, country, lat, lon FROM added_cities WHERE id = ? AND hidden = 0").bind(id).first();
-    },
-    async addedByName(country, norm) {
-      const { results } = await db.prepare("SELECT id, name, country, lat, lon FROM added_cities WHERE country = ? AND norm = ? AND hidden = 0").bind(country, norm).all();
-      return results;
-    },
-    async insertClaim({ cityId, wallet, cityName, country, at }) {
-      await db.prepare("INSERT INTO claims (city_id, wallet, city_name, country, claimed_at) VALUES (?, ?, ?, ?, ?)")
-        .bind(cityId, wallet, cityName, country, at).run();
-    },
-    /** Add a city and claim it in one all-or-nothing step. Returns the new city id ("c<number>"). */
-    async insertAddedCityAndClaim({ name, norm, country, lat, lon, wallet, at }) {
-      const [ins] = await db.batch([
-        db.prepare("INSERT INTO added_cities (name, norm, country, lat, lon, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-          .bind(name, norm, country, lat, lon, wallet, at),
-        db.prepare("INSERT INTO claims (city_id, wallet, city_name, country, claimed_at) VALUES ('c' || last_insert_rowid(), ?, ?, ?, ?)")
-          .bind(wallet, name, country, at),
-      ]);
-      return "c" + ins.meta.last_row_id;
-    },
-    async claimsByCountry(country, limit = 100) {
-      const { results } = await db.prepare("SELECT city_id, wallet, city_name, claimed_at FROM claims WHERE country = ? ORDER BY claimed_at LIMIT ?").bind(country, limit).all();
-      return results;
-    },
-    async listAll() {
-      const [claims, added] = await db.batch([
-        db.prepare("SELECT city_id, wallet, city_name, country, claimed_at FROM claims ORDER BY claimed_at DESC"),
-        db.prepare("SELECT id, name, country, lat, lon FROM added_cities WHERE hidden = 0 ORDER BY id"),
-      ]);
-      return { claims: claims.results, added: added.results.map((c) => ({ ...c, id: "c" + c.id })) };
-    },
-  };
-  // Every call makes sure the tables exist first (only really runs once per worker instance).
-  return Object.fromEntries(Object.entries(api).map(([k, fn]) => [k, async (...a) => { await ensureSchema(db); return fn(...a); }]));
-}
-
-/** In-memory store with the same rules, for tests. */
-export function memoryStore() {
-  const claims = new Map(), added = [];
-  const byWallet = (w) => [...claims.entries()].find(([, c]) => c.wallet === w);
-  const insert = (c) => {
-    if (claims.has(c.cityId) || byWallet(c.wallet)) throw new Error("UNIQUE constraint failed");
-    claims.set(c.cityId, c);
-  };
-  return {
-    async claimByWallet(w) { const e = byWallet(w); return e ? { city_id: e[0], city_name: e[1].cityName, country: e[1].country, claimed_at: e[1].at } : null; },
-    async claimByCity(id) { const c = claims.get(id); return c ? { wallet: c.wallet, claimed_at: c.at } : null; },
-    async addedCity(id) { return added.find((c) => c.id === Number(id)) || null; },
-    async addedByName(country, norm) { return added.filter((c) => c.country === country && c.norm === norm); },
-    async insertClaim(c) { insert(c); },
-    async insertAddedCityAndClaim({ name, norm, country, lat, lon, wallet, at }) {
-      const id = added.length + 1, cityId = "c" + id;
-      insert({ cityId, wallet, cityName: name, country, at });
-      added.push({ id, name, norm, country, lat, lon });
-      return cityId;
-    },
-    async claimsByCountry(country, limit = 100) {
-      return [...claims.entries()].filter(([, c]) => c.country === country).slice(0, limit)
-        .map(([id, c]) => ({ city_id: id, wallet: c.wallet, city_name: c.cityName, claimed_at: c.at }));
-    },
-    async listAll() {
-      return {
-        claims: [...claims.entries()].map(([id, c]) => ({ city_id: id, wallet: c.wallet, city_name: c.cityName, country: c.country, claimed_at: c.at })),
-        added: added.map(({ id, name, country, lat, lon }) => ({ id: "c" + id, name, country, lat, lon })),
-      };
-    },
-  };
-}
-
-/** The claims store for this request: the test store when there is one, otherwise D1. */
-export const storeFor = (env) => env.store || d1Store(env.DB);
