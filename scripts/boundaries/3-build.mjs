@@ -195,6 +195,9 @@ const overrides = existsSync(OVERRIDES) ? JSON.parse(readFileSync(OVERRIDES, "ut
 // Wikidata "located in" links between listed places (step 1b); optional
 const locatedIn = existsSync(`${CACHE}/located-in.json`) ? JSON.parse(readFileSync(`${CACHE}/located-in.json`, "utf8")) : {};
 const keepSeparate = new Set((overrides.keepSeparate || []).map(String));
+// Cities that keep only their own official boundary: they never take in neighbouring communities by
+// reach (step 4b), so the cities around them keep their own coins (New York City: the five boroughs).
+const officialOnly = new Set((overrides.officialOnly || []).map(String));
 const top = (c) => {
   for (let i = 0; i < 50; i++) { const n = c.parentCity || mergeInto.get(c); if (!n) return c; c = n; }
   throw new Error(`merge loop around ${c.name} (${c.id}): check scripts/boundaries/metro-overrides.json`);
@@ -384,8 +387,8 @@ applyMerges([...mergeInto]);
 //     4 + 12 × log10(people / 5,000) km: about 4 km for 5,000 people, 16 km for 50,000, 20 km for
 //     100,000, 28 km for 500,000 and 40 km for 5 million. Biggest first, a community joins the one
 //     whose reach it is relatively deepest in, when:
-//      - that one has 500k+ people and it has fewer (New York City keeps Newark, Yonkers, Jersey City;
-//        Denver keeps Aurora, Lakewood; Dhaka keeps Narayanganj, Savar), or
+//      - that one has 500k+ people and it has fewer (Denver keeps Aurora, Lakewood; Dhaka keeps
+//        Narayanganj, Savar), unless that city is "official boundary only" (New York City), or
 //      - it is at most half that one's size (Syracuse + Clay, Albany + Troy, Utica + Whitesboro), or
 //      - it is right next door: within 40% of the reach, and at least 5 km (Herkimer + Ilion).
 //     Otherwise it keeps its own coin (Rome, Herkimer, Little Falls next to Utica).
@@ -401,6 +404,7 @@ const metroJoined = new Set();
     for (const p of list.sort((a, b) => b.pop - a.pop)) {
       let best = null, bestRel = Infinity;
       if (!keepSeparate.has(p.id)) for (const b of roots) {
+        if (officialOnly.has(b.id)) continue; // keeps only its official boundary
         if (Math.abs(b.lat - p.lat) > 0.5 || Math.abs(b.lon - p.lon) > 0.9) continue; // farther than any reach
         const d = distanceKm(p.lat, p.lon, b.lat, b.lon), r = reachOf(b.pop);
         if (d > r) continue;

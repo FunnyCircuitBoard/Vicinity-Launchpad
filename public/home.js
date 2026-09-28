@@ -121,7 +121,7 @@
     }
     svg.append(nbLabels);
     const memberLabels = svgEl("g", {}, "m-link");
-    for (const [name, lon, lat] of data.members.filter((m) => ["Manhattan", "Brooklyn", "Queens", "The Bronx", "Staten Island", "Newark", "Jersey City", "Yonkers", "Paterson"].includes(m[0]))) {
+    for (const [name, lon, lat] of data.members.filter((m) => ["Manhattan", "Brooklyn", "Queens", "The Bronx", "Staten Island"].includes(m[0]))) {
       label(P.x(lon), P.y(lat) - 12, name, "m-label", memberLabels);
     }
     svg.append(memberLabels);

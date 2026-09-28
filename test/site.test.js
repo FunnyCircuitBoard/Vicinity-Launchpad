@@ -70,8 +70,11 @@ test("home: the problem, the real New York City map, how it works, incentives, r
   assert.match(h, /Nothing here is financial advice/);
   assert.doesNotMatch(h, /Maple Falls|Port Jasper|Cedar Bay/, "no more fictional demo towns");
   const nyc = JSON.parse(read("data/demo-nyc.json"));
-  assert.ok(nyc.members.length > 50 && nyc.official.length && nyc.nyc.area.length && nyc.neighbors.length > 5);
+  assert.ok(nyc.members.length > 30 && nyc.official.length && nyc.nyc.area.length && nyc.neighbors.length > 5);
   assert.ok(nyc.members.some(([name]) => name === "Brooklyn"));
+  // New York City keeps only its five boroughs: nobody's city is folded into $NYC
+  for (const n of ["Newark", "Jersey City", "Yonkers", "Paterson", "Hempstead"]) assert.ok(!nyc.members.some(([name]) => name === n), `${n} isn't part of $NYC`);
+  for (const n of ["Newark", "Yonkers", "Paterson"]) assert.ok(nyc.neighbors.some((x) => x.name === n), `${n} has its own coin`);
   const stats = JSON.parse(read("data/stats.json"));
   assert.ok(stats.communities > 1000 && stats.countries > 200);
 });
