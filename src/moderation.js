@@ -250,7 +250,7 @@ export async function handleAudit(env, url) {
   const rows = (await env.DB.prepare(`SELECT m.id, m.actor_role, m.action, m.target_type, m.target_id, m.country, m.reason, m.note, m.created_at, m.state, m.second_at,
     a.handle, a.name FROM mod_actions m LEFT JOIN users a ON a.id = m.actor_id ${where} ORDER BY m.id DESC LIMIT 100`).bind(...(where ? [cc] : [])).all()).results;
   return json({ actions: rows.map((r) => ({ id: r.id, at: r.created_at, by: r.actor_role === "community" ? "Community reports" : `${r.handle || r.name || "Moderator"} (${r.actor_role})`,
-    action: r.action, target: `${r.target_type} #${r.target_id}`, country: r.country, reason: r.reason, note: r.note, state: r.state, secondAt: r.second_at })) });
+    action: r.action, target: r.target_id != null ? `${r.target_type} #${r.target_id}` : r.target_type, country: r.country, reason: r.reason, note: r.note, state: r.state, secondAt: r.second_at })) });
 }
 
 /* ---------------- "add my town" ---------------- */

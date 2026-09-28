@@ -825,3 +825,143 @@ select option { background: var(--bg-2); }
 .early__steps li:last-child b { color: var(--bad-text); }
 .proof__live.is-wait { color: var(--warn); }
 @media (max-width: 600px) { .early__coins .coin-disc { width: 52px; height: 52px; } .early__coins .coin-disc--lg { width: 84px; height: 84px; } .early__steps { grid-template-columns: minmax(0, 1fr); } .map-open { font-size: .76rem; padding: 6px 11px; } }
+
+/* =====================================================================
+   Dashboard, premium: the Vicinity Pass, glassier cards, city coins, buy & swap
+   ===================================================================== */
+.dash { position: relative; isolation: isolate; }
+.dash::before { content: ""; position: absolute; inset: 0 0 auto; height: 620px; z-index: -1; pointer-events: none;
+  background: radial-gradient(45% 60% at 12% 0%, rgba(255,90,54,.16), transparent 70%), radial-gradient(40% 55% at 88% 4%, rgba(122,92,255,.16), transparent 70%); }
+.dash .card { position: relative; border-radius: 24px; background: linear-gradient(180deg, rgba(var(--ink),.07), rgba(var(--ink),.025)); border-color: rgba(var(--ink),.1);
+  box-shadow: inset 0 1px 0 rgba(var(--ink),.08), 0 30px 60px -42px rgba(0,0,0,.9); }
+.dash .card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
+  background: linear-gradient(160deg, rgba(var(--ink),.22), transparent 32%, transparent 72%, rgba(255,90,54,.28));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+
+/* the Vicinity Pass: a membership card */
+.dash-top { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); }
+.pass { position: relative; overflow: hidden; isolation: isolate; border-radius: 26px; padding: 20px 22px; color: #fff; min-height: 196px;
+  display: flex; flex-direction: column; justify-content: space-between; gap: 14px; border: 1px solid rgba(255,255,255,.16);
+  background: radial-gradient(90% 120% at 0% 0%, rgba(255,106,61,.95), transparent 60%), radial-gradient(90% 120% at 100% 100%, rgba(122,92,255,.9), transparent 60%), linear-gradient(135deg, #1B1030, #0B1426);
+  box-shadow: 0 34px 80px -34px rgba(255,90,54,.6), inset 0 1px 0 rgba(255,255,255,.22); }
+.pass::after { content: ""; position: absolute; inset: 0; z-index: -1; opacity: .25; pointer-events: none;
+  background: repeating-linear-gradient(115deg, rgba(255,255,255,.06) 0 1px, transparent 1px 14px); }
+.pass__shine { position: absolute; inset: -60% -30%; z-index: -1; pointer-events: none; background: linear-gradient(110deg, transparent 42%, rgba(255,255,255,.22) 50%, transparent 58%); transform: translateX(-70%); animation: passShine 8s ease-in-out infinite; }
+@keyframes passShine { 0%, 55% { transform: translateX(-70%); } 100% { transform: translateX(70%); } }
+@media (prefers-reduced-motion: reduce) { .pass__shine { display: none; } }
+.pass__top, .pass__who, .pass__bottom { display: flex; align-items: center; gap: 12px; }
+.pass__top { justify-content: space-between; }
+.pass__brand { display: inline-flex; align-items: center; gap: 8px; font: 700 .78rem var(--display); letter-spacing: .2em; text-transform: uppercase; color: rgba(255,255,255,.85); }
+.pass__mark { width: 18px; height: 18px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: linear-gradient(135deg, #FFD37A, #FF6A3D); box-shadow: 0 0 0 3px rgba(255,255,255,.18); }
+.pass .role-pill { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.3); color: #fff; backdrop-filter: blur(6px); }
+.pass .role-pill[data-level="founder"] { background: linear-gradient(135deg, #FFE08A, #FFB547); color: #3A2400; border-color: transparent; }
+.pass .idcard__avatar { width: 54px; height: 54px; border-radius: 16px; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.3); box-shadow: none; backdrop-filter: blur(6px); }
+.pass__id { flex: 1; min-width: 0; }
+.pass__id p { margin: 0; }
+.pass__name { font: 700 1.35rem/1.15 var(--display); letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pass__home { font-size: .9rem; color: rgba(255,255,255,.82); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pass__coin { width: 58px; height: 58px; }
+.pass__coin span { font-size: .72rem; }
+.pass__bottom { flex-wrap: wrap; gap: 6px 14px; font-size: .8rem; color: rgba(255,255,255,.78); padding-top: 12px; border-top: 1px solid rgba(255,255,255,.16); }
+.pass__bottom .mono { color: #fff; }
+.pass .link-btn { color: rgba(255,255,255,.85); }
+.pass .live-note { margin-left: auto; }
+
+/* stats: numbers with a gradient, a thin glowing top edge */
+.stat-row--dash { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.stat-row--dash .stat { position: relative; overflow: hidden; border-radius: 20px; padding: 16px 18px; background: linear-gradient(180deg, rgba(var(--ink),.07), rgba(var(--ink),.02)); border-color: rgba(var(--ink),.1); }
+.stat-row--dash .stat::before { content: ""; position: absolute; left: 18px; right: 18px; top: 0; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--pin), var(--gold), transparent); opacity: .8; }
+.stat-row--dash .stat strong { font-size: 1.6rem; background: linear-gradient(100deg, var(--text), var(--text-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.stat__icon { margin-right: 6px; filter: saturate(1.2); }
+
+/* city coin designs: six colours */
+.coin-art, .pass__coin, .swatch { --c1: #FFF1C2; --c2: #FFC857; --c3: #D98A1F; }
+[data-color="rose"] { --c1: #FFE3EA; --c2: #FF6B8B; --c3: #B8174F; }
+[data-color="ocean"] { --c1: #DDF1FF; --c2: #3BA7FF; --c3: #1B4FD8; }
+[data-color="emerald"] { --c1: #DBFFF1; --c2: #37C29A; --c3: #0E7C5A; }
+[data-color="violet"] { --c1: #EEE5FF; --c2: #9B7BFF; --c3: #5334C0; }
+[data-color="ink"] { --c1: #EEF1F7; --c2: #6A7890; --c3: #1C2433; }
+.pass__coin[data-color] { background: radial-gradient(circle at 32% 28%, var(--c1), var(--c2) 45%, var(--c3) 100%); }
+.coin-card__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.coin-show { display: flex; align-items: center; gap: 22px; margin: 6px 0 4px; }
+.coin-art { position: relative; flex: none; width: 128px; height: 128px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
+  background: radial-gradient(circle at 32% 28%, var(--c1), var(--c2) 45%, var(--c3) 100%); border: 4px solid rgba(255,255,255,.6);
+  box-shadow: inset 0 -8px 16px rgba(0,0,0,.28), inset 0 5px 10px rgba(255,255,255,.55), 0 22px 44px -16px var(--c2); transition: background .3s, box-shadow .3s; }
+.coin-art::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: linear-gradient(135deg, rgba(255,255,255,.45), transparent 45%); pointer-events: none; }
+.coin-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.coin-art span { font: 800 1.4rem var(--display); color: rgba(20,12,0,.62); text-shadow: 0 1px 0 rgba(255,255,255,.5); letter-spacing: .02em; }
+.coin-show__text { min-width: 0; }
+.coin-show__text h3 { margin: 0 0 4px; font: 700 1.4rem/1.2 var(--display); }
+.coin-show__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 6px; }
+.coin-show__meta > strong { font: 700 1rem var(--display); color: var(--gold-text); }
+.coin-show__pair { font-size: .85rem; color: var(--muted); padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line-2); }
+.coin-show__pair strong { color: var(--text); }
+#coin-pitch { margin: 0 0 4px; }
+#coin-by { margin: 0; }
+.coin-contract { margin: 8px 0 0; }
+.coin-contract code { word-break: break-all; }
+.coin-note { margin: 12px 0 0; padding: 10px 14px; border-radius: 14px; background: rgba(255,200,87,.07); border: 1px solid rgba(255,200,87,.22); color: var(--text-2); }
+.coin-studio { margin-top: 18px; padding-top: 18px; border-top: 1px dashed var(--line-2); }
+.coin-studio__grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; }
+.fieldset { display: flex; flex-direction: column; gap: 6px; font-size: .82rem; font-weight: 600; color: var(--muted); }
+.fieldset--wide { grid-column: 1 / -1; }
+.fieldset .field, .fieldset textarea { width: 100%; resize: vertical; }
+.fieldset__label { margin: 16px 0 8px; font-size: .82rem; font-weight: 600; color: var(--muted); }
+.pair-pick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.pair-opt { position: relative; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; padding: 12px; border-radius: 16px; border: 1px solid var(--line-2); background: var(--card); cursor: pointer; transition: border-color .2s, background .2s, transform .2s; }
+.pair-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.pair-opt__icon { grid-row: 1 / 3; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font: 800 1rem var(--display); color: #fff; background: linear-gradient(135deg, #9945FF, #14F195); }
+.pair-opt:nth-child(2) .pair-opt__icon { background: linear-gradient(135deg, #2775CA, #5AA0F0); }
+.pair-opt:nth-child(3) .pair-opt__icon { background: linear-gradient(135deg, #C200FB, #3772FF); }
+.pair-opt strong { font: 700 .98rem var(--display); }
+.pair-opt em { font-style: normal; font-size: .76rem; color: var(--muted); line-height: 1.3; }
+.pair-opt:hover { transform: translateY(-1px); }
+.pair-opt:has(input:checked) { border-color: var(--pin); background: rgba(255,90,54,.08); box-shadow: 0 0 0 3px rgba(255,90,54,.15); }
+.pair-opt:has(input:focus-visible) { outline: 2px solid var(--pin); outline-offset: 2px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.swatches label { position: relative; cursor: pointer; }
+.swatches input { position: absolute; opacity: 0; pointer-events: none; }
+.swatch { display: block; width: 34px; height: 34px; border-radius: 50%; background: radial-gradient(circle at 32% 28%, var(--c1), var(--c2) 45%, var(--c3)); border: 2px solid rgba(255,255,255,.6); box-shadow: 0 6px 14px -6px var(--c2); transition: transform .2s; }
+.swatches input:checked + .swatch { transform: scale(1.12); box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--pin); }
+.swatches input:focus-visible + .swatch { outline: 2px solid var(--pin); outline-offset: 3px; }
+.coin-studio__logo, .coin-studio__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 16px; }
+.coin-launch { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.coin-launch summary { cursor: pointer; font-weight: 600; font-size: .92rem; }
+.coin-launch .req-form { margin-top: 8px; }
+.coin-admin { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line-2); }
+.coin-admin li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.coin-admin a.mono { word-break: break-all; color: var(--text); }
+
+/* buy & swap */
+.trade__head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.trade__head .kicker { margin: 0; }
+.trade h2 { margin: 6px 0 14px; }
+.trade__tabs { display: flex; width: 100%; margin-bottom: 14px; }
+.trade__tabs button { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.swapbox { position: relative; display: grid; gap: 6px; margin-bottom: 14px; }
+.swapbox__row { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 18px; background: rgba(var(--ink),.05); border: 1px solid var(--line); }
+.swapbox__label { font-size: .76rem; font-weight: 600; color: var(--muted); }
+.swapbox__line { display: flex; align-items: center; gap: 10px; }
+.swapbox__amt { flex: 1 1 0; width: 0; min-width: 0; font: 650 1.6rem/1.2 var(--display); letter-spacing: -.02em; color: var(--text); background: none; border: 0; padding: 0; outline: none; overflow: hidden; text-overflow: ellipsis; }
+.swapbox__amt:disabled { opacity: .45; cursor: not-allowed; }
+.swapbox__usd { min-height: 1em; font-size: .76rem; color: var(--muted); }
+.swapbox__flip { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1; width: 38px; height: 38px; border-radius: 12px; border: 4px solid var(--bg); background: linear-gradient(135deg, var(--pin), var(--gold)); color: #fff; font: 700 1rem var(--body); cursor: pointer; transition: transform .25s; }
+.swapbox__flip:hover { transform: translate(-50%, -50%) rotate(180deg); }
+.token-chip { flex: none; display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px 6px 7px; border-radius: 999px; background: var(--card-2); border: 1px solid var(--line-2); font: 700 .88rem var(--display); white-space: nowrap; }
+.token-chip__dot { width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle at 32% 28%, #FFF1C2, #FFC857 45%, #D98A1F); }
+.token-chip[data-token="sol"] .token-chip__dot { background: linear-gradient(135deg, #9945FF, #14F195); }
+.token-chip[data-token="usdc"] .token-chip__dot { background: linear-gradient(135deg, #2775CA, #5AA0F0); }
+.token-chip[data-token="ray"] .token-chip__dot { background: linear-gradient(135deg, #C200FB, #3772FF); }
+.token-chip[data-token="vic"] .token-chip__dot { background: radial-gradient(circle at 35% 30%, #FFD37A, #FF6A3D 60%, #B8340F); }
+.trade__alt { margin-top: 8px; }
+.trade__note { margin: 12px 0 0; }
+
+@media (max-width: 1100px) { .dash-top { grid-template-columns: minmax(0, 1fr); } .stat-row--dash { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .stat-row--dash { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) {
+  .coin-show { flex-direction: column; text-align: center; }
+  .coin-show__meta { justify-content: center; }
+  .coin-studio__grid, .pair-pick { grid-template-columns: minmax(0, 1fr); }
+  .pass { padding: 18px; }
+  .pass .live-note { margin-left: 0; }
+}

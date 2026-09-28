@@ -86,20 +86,32 @@
         <div class="lost-alert" id="ban-notice" role="alert" hidden></div>
         <div class="lost-alert" id="lost-alert" role="alert" hidden></div>
         <div class="dash-top">
-          <div class="idcard card">
-            <div class="idcard__avatar" id="me-avatar" aria-hidden="true">V</div>
-            <div class="idcard__who">
-              <p class="idcard__name"><strong data-me-name>—</strong> <span class="role-pill" id="me-role">Member</span></p>
-              <p class="tiny muted"><span data-me-login></span> · <span class="mono" data-me-wallet></span> <button class="link-btn link-btn--tiny" type="button" id="me-copy">Copy</button></p>
-              <p class="tiny muted">📍 <span id="me-home">—</span> · <span class="live-note"><span class="live-dot" aria-hidden="true"></span> <span id="me-checked">live</span></span></p>
+          <div class="pass" id="pass">
+            <span class="pass__shine" aria-hidden="true"></span>
+            <div class="pass__top">
+              <span class="pass__brand"><span class="pass__mark" aria-hidden="true"></span>Vicinity Pass</span>
+              <span class="role-pill" id="me-role">Member</span>
             </div>
-            <button class="link-btn" type="button" id="me-logout">Sign out</button>
+            <div class="pass__who">
+              <div class="idcard__avatar" id="me-avatar" aria-hidden="true">V</div>
+              <div class="pass__id">
+                <p class="pass__name"><strong data-me-name>—</strong></p>
+                <p class="pass__home">📍 <span id="me-home">—</span></p>
+              </div>
+              <div class="coin-disc pass__coin" aria-hidden="true"><span id="pass-coin">—</span></div>
+            </div>
+            <div class="pass__bottom">
+              <span><span class="mono" data-me-wallet></span> <button class="link-btn link-btn--tiny" type="button" id="me-copy">Copy</button></span>
+              <span data-me-login></span>
+              <span class="live-note"><span class="live-dot" aria-hidden="true"></span> <span id="me-checked">live</span></span>
+              <button class="link-btn link-btn--tiny" type="button" id="me-logout">Sign out</button>
+            </div>
           </div>
           <div class="stat-row stat-row--dash">
-            <div class="stat"><span class="stat__label">You hold</span><strong id="d-amount">—</strong><span class="stat__sub" id="d-amount-sub">$VICINITY</span></div>
-            <div class="stat"><span class="stat__label">Rank · all holders</span><strong id="d-rank">—</strong><span class="stat__sub" id="d-rank-sub"></span></div>
-            <div class="stat"><span class="stat__label">Rank · <span id="d-city-label">your city</span></span><strong id="d-crank">—</strong><span class="stat__sub" id="d-crank-sub"></span></div>
-            <div class="stat"><span class="stat__label">Rank · <span id="d-country-label">your country</span></span><strong id="d-nrank">—</strong><span class="stat__sub" id="d-nrank-sub"></span></div>
+            <div class="stat"><span class="stat__label"><span class="stat__icon" aria-hidden="true">💰</span>You hold</span><strong id="d-amount">—</strong><span class="stat__sub" id="d-amount-sub">$VICINITY</span></div>
+            <div class="stat"><span class="stat__label"><span class="stat__icon" aria-hidden="true">🏆</span>Rank · all holders</span><strong id="d-rank">—</strong><span class="stat__sub" id="d-rank-sub"></span></div>
+            <div class="stat"><span class="stat__label"><span class="stat__icon" aria-hidden="true">🏙️</span>Rank · <span id="d-city-label">your city</span></span><strong id="d-crank">—</strong><span class="stat__sub" id="d-crank-sub"></span></div>
+            <div class="stat"><span class="stat__label"><span class="stat__icon" aria-hidden="true">🌎</span>Rank · <span id="d-country-label">your country</span></span><strong id="d-nrank">—</strong><span class="stat__sub" id="d-nrank-sub"></span></div>
           </div>
         </div>
 
@@ -115,6 +127,65 @@
               <div class="seat-panel" id="p-panel"></div>
               <div class="window-panel" id="p-window" hidden></div>
               <p class="wallet__error" id="p-error" role="alert" hidden></p>
+            </section>
+
+            <section class="card coin-card" id="coin" aria-labelledby="coin-title">
+              <div class="coin-card__head">
+                <div><p class="kicker">City coin · designed by the City Founder</p><h2 class="h2--sm" id="coin-title"><span id="coin-city">Your city</span>'s coin</h2></div>
+                <span class="tag" id="coin-status">Not designed yet</span>
+              </div>
+              <div class="coin-show">
+                <div class="coin-art" id="coin-art" data-color="gold" aria-hidden="true"><img id="coin-logo" alt="" hidden><span id="coin-art-face">—</span></div>
+                <div class="coin-show__text">
+                  <h3 id="coin-name">—</h3>
+                  <p class="coin-show__meta"><strong id="coin-ticker">$—</strong><span class="coin-show__pair">paired with <strong id="coin-pair">—</strong></span></p>
+                  <p class="small muted" id="coin-pitch"></p>
+                  <p class="tiny muted" id="coin-by"></p>
+                  <p class="coin-contract tiny" id="coin-contract" hidden>Contract <code id="coin-mint"></code> <button class="link-btn link-btn--tiny" type="button" id="coin-mint-copy">Copy</button></p>
+                </div>
+              </div>
+              <p class="small coin-note" id="coin-note"></p>
+
+              <form class="coin-studio" id="coin-studio" hidden novalidate>
+                <p class="kicker">🎨 Coin studio · only you, the City Founder</p>
+                <div class="coin-studio__grid">
+                  <label class="fieldset"><span>Name</span><input class="field" id="cs-name" maxlength="32" autocomplete="off"></label>
+                  <label class="fieldset"><span>Ticker · fixed by the map</span><input class="field" id="cs-ticker" disabled></label>
+                  <label class="fieldset fieldset--wide"><span>Pitch · <span id="cs-count">0/200</span></span><textarea class="field" id="cs-pitch" rows="2" maxlength="200" placeholder="What makes this coin your city's?"></textarea></label>
+                </div>
+                <p class="fieldset__label">Paired with, on Raydium LaunchLab</p>
+                <div class="pair-pick" role="radiogroup" aria-label="Paired with">
+                  <label class="pair-opt"><input type="radio" name="cs-pair" value="SOL" checked><span class="pair-opt__icon" aria-hidden="true">◎</span><strong>SOL</strong><em>Solana's own coin. What most traders hold.</em></label>
+                  <label class="pair-opt"><input type="radio" name="cs-pair" value="USDC"><span class="pair-opt__icon" aria-hidden="true">$</span><strong>USDC</strong><em>A digital dollar. Prices read in dollars.</em></label>
+                  <label class="pair-opt"><input type="radio" name="cs-pair" value="RAY"><span class="pair-opt__icon" aria-hidden="true">R</span><strong>RAY</strong><em>Raydium's own token.</em></label>
+                </div>
+                <p class="fieldset__label">Colour</p>
+                <div class="swatches" role="radiogroup" aria-label="Colour">
+                  <label><input type="radio" name="cs-color" value="gold" checked><span class="swatch" data-color="gold"></span><span class="sr-only">Gold</span></label>
+                  <label><input type="radio" name="cs-color" value="rose"><span class="swatch" data-color="rose"></span><span class="sr-only">Rose</span></label>
+                  <label><input type="radio" name="cs-color" value="ocean"><span class="swatch" data-color="ocean"></span><span class="sr-only">Ocean</span></label>
+                  <label><input type="radio" name="cs-color" value="emerald"><span class="swatch" data-color="emerald"></span><span class="sr-only">Emerald</span></label>
+                  <label><input type="radio" name="cs-color" value="violet"><span class="swatch" data-color="violet"></span><span class="sr-only">Violet</span></label>
+                  <label><input type="radio" name="cs-color" value="ink"><span class="swatch" data-color="ink"></span><span class="sr-only">Ink</span></label>
+                </div>
+                <div class="coin-studio__logo">
+                  <label class="btn btn--glass btn--sm"><input type="file" id="cs-logo" accept="image/*" class="sr-only">🖼 Upload logo</label>
+                  <button class="link-btn" type="button" id="cs-logo-remove" hidden>Remove logo</button>
+                  <span class="tiny muted">Square works best: it's cropped to a circle and shrunk in your browser.</span>
+                </div>
+                <div class="coin-studio__actions">
+                  <button class="btn btn--primary" type="submit" id="cs-save">Save design</button>
+                  <span class="tiny muted">Public and logged. Locked for good once the coin launches.</span>
+                </div>
+                <p class="wallet__error" id="cs-err" role="alert" hidden></p>
+                <details class="coin-launch">
+                  <summary>Launched it on Raydium LaunchLab? Add the contract</summary>
+                  <p class="small muted">Paste the contract address. An admin (never you) checks it on the blockchain and records it. From then on the design is locked and it becomes the one official $<span data-city-ticker>CITY</span>.</p>
+                  <div class="req-form"><label class="sr-only" for="cs-mint">Contract address</label><input class="field mono" id="cs-mint" maxlength="44" placeholder="Contract address" autocomplete="off" spellcheck="false"><button class="btn btn--glass btn--sm" type="button" id="cs-mint-send">Send for a check</button></div>
+                </details>
+              </form>
+
+              <div class="coin-admin" id="coin-admin" hidden><p class="kicker">🛡️ Contracts waiting for a check</p><ul class="req-list" id="coin-waiting"></ul></div>
             </section>
 
             <section class="card feed" id="feed" aria-label="Feeds">
@@ -147,6 +218,32 @@
           </div>
 
           <aside class="dash-col dash-col--side">
+            <section class="card trade" id="trade" aria-labelledby="trade-title">
+              <div class="trade__head"><p class="kicker">Buy &amp; swap</p><span class="tag" id="trade-state">Opens at launch</span></div>
+              <h2 class="h2--sm" id="trade-title">Grow your stack.</h2>
+              <div class="seg seg--sm trade__tabs" role="tablist" aria-label="What to do">
+                <button type="button" role="tab" data-route="vic" aria-selected="true">$VICINITY</button>
+                <button type="button" role="tab" data-route="city" aria-selected="false"><span data-city-tk>$CITY</span></button>
+                <button type="button" role="tab" data-route="swap" aria-selected="false">Swap</button>
+              </div>
+              <div class="swapbox">
+                <div class="swapbox__row">
+                  <span class="swapbox__label">You pay</span>
+                  <div class="swapbox__line"><label class="sr-only" for="tr-amt">Amount to pay</label><input class="swapbox__amt" id="tr-amt" inputmode="decimal" placeholder="0.0" autocomplete="off"><span class="token-chip" id="tr-in"><span class="token-chip__dot" aria-hidden="true"></span><span>SOL</span></span></div>
+                  <span class="swapbox__usd" id="tr-in-usd"></span>
+                </div>
+                <button class="swapbox__flip" type="button" id="tr-flip" aria-label="Switch direction">⇅</button>
+                <div class="swapbox__row">
+                  <span class="swapbox__label">You get · estimate</span>
+                  <div class="swapbox__line"><output class="swapbox__amt" id="tr-out" for="tr-amt">—</output><span class="token-chip" id="tr-outk"><span class="token-chip__dot" aria-hidden="true"></span><span>$VICINITY</span></span></div>
+                  <span class="swapbox__usd" id="tr-rate"></span>
+                </div>
+              </div>
+              <a class="btn btn--primary btn--block" id="tr-go" href="/token#buy">How to get ready →</a>
+              <a class="btn btn--glass btn--block btn--sm trade__alt" id="tr-go-2" href="/token#buy" hidden>or on Raydium ↗</a>
+              <p class="tiny muted trade__note" id="tr-note">You sign every swap in your own wallet on Jupiter or Raydium. Vicinity never touches your funds.</p>
+            </section>
+
             <section class="card community-card" id="community">
               <div class="community-card__head">
                 <div class="coin-disc" aria-hidden="true"><span id="cc-face">—</span></div>
@@ -227,7 +324,7 @@
     <section class="section section--panel" id="roles">
       <div class="wrap">
         <div class="section-head">
-          <p class="kicker">Roles &amp; responsibilities · rules version <span data-policy-version>2</span></p>
+          <p class="kicker">Roles &amp; responsibilities · rules version <span data-policy-version>3</span></p>
           <h2>Who does what, now and when Vicinity goes live.</h2>
           <p class="muted">Leadership is earned over time and chosen by locals, not bought in a minute. Holdings count, but only up to 2× the founder amount, so the biggest wallet can't simply take over. <a href="/rules">Read every rule →</a></p>
         </div>
@@ -240,7 +337,7 @@
           <article class="card role-row" data-role="founder">
             <div class="role-row__who"><span class="role__icon" aria-hidden="true">👑</span><div><h3>City Founder</h3><p class="tiny muted">Chosen by the city · vote ×2</p></div></div>
             <div><p class="role-row__when">Now</p><ul><li>Set your home community (it must be set 7 days before you apply).</li><li>Bring your locals in: they'll endorse the founder.</li><li>Plan to hold the founder amount for 14 days straight after launch: balances are checked at random times.</li></ul></div>
-            <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Apply from inside the city; a 72-hour window lets others apply too. No race.</li><li>Chosen by the published formula: 50% local endorsements, 30% contribution, 20% holdings (capped at 2×). Then 48 hours for objections.</li><li>Moderate the city's feed (hides need a second person). Drop below the amount and moderation pauses; 7 days to fix it or the seat reopens.</li><li>At the Launchpad: first right to launch the city's one official coin.</li></ul></div>
+            <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Apply from inside the city; a 72-hour window lets others apply too. No race.</li><li>Chosen by the published formula: 50% local endorsements, 30% contribution, 20% holdings (capped at 2×). Then 48 hours for objections.</li><li>Moderate the city's feed (hides need a second person). Drop below the amount and moderation pauses; 7 days to fix it or the seat reopens.</li><li>Design the city's coin: name, logo, colour, a short pitch, and what it's paired with (SOL, USDC or RAY). Public, logged, and locked once it launches.</li><li>At the Launchpad: first right to launch the city's one official coin.</li></ul></div>
           </article>
           <article class="card role-row" data-role="manager">
             <div class="role-row__who"><span class="role__icon" aria-hidden="true">🛡️</span><div><h3>Country Manager</h3><p class="tiny muted">Elected for 90 days · vote ×3</p></div></div>

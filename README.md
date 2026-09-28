@@ -14,7 +14,7 @@ Separate pages, one shared menu (top menu on computers, bottom menu bar on phone
 - **/launchpad** Countdown to October 10 (10:10:10 AM New York time), the planned phases, who gets in first, add-to-calendar.
 - **/connect** Sign in: any Solana wallet (Wallet Standard + older ones; app links for phones), "wallet on my phone" (QR code + 2-digit check number), and a tiny-transfer proof for app wallets that can't connect (FOMO, exchanges). Then X or Google. One wallet + one login = one account.
 - **/rules** Every rule and formula, the "never" list, and whether the balance checks are running (filled live from `/api/policy`).
-- **/dashboard** Onboarding (live rank + home community from one location check; people in empty land pick one of the three nearest communities), then: role and badges re-checked live (selling removes them), founder race with a progress bar and claiming, community and country cards, local and national feeds (memes with pictures, check-ins, discussions, weekly votes weighted 1 / 2 founders / 3 managers), reports, moderator tools, "add my town" requests, roles and responsibilities.
+- **/dashboard** The Vicinity Pass (member card), Buy & swap ($VICINITY, your city's coin, city coin ⇄ $VICINITY: straight to Jupiter or Raydium, where people sign in their own wallet; estimates from live prices), your city's coin (the founder's coin studio: name, pitch, colour, logo, pair SOL/USDC/RAY). Onboarding (live rank + home community from one location check; people in empty land pick one of the three nearest communities), then: role and badges re-checked live (selling removes them), founder race with a progress bar and claiming, community and country cards, local and national feeds (memes with pictures, check-ins, discussions, weekly votes weighted 1 / 2 founders / 3 managers), reports, moderator tools, "add my town" requests, roles and responsibilities.
 
 ## Fair launch (why nobody can buy, rush or bully their way in)
 All rules live in `src/policy.js` with a version number; seats, elections and snapshots store the version they were decided under.
@@ -77,6 +77,7 @@ The scheduled job and the full holder list need more CPU time than Cloudflare's 
 | `GET /api/me` · `POST /api/home` · `POST /api/locate` | Dashboard data · home community · the only place a location is read |
 | `GET\|POST /api/posts` · `POST /api/posts/vote` · `/api/posts/report` · `GET /api/media/:id` | Feeds |
 | `POST /api/seats/apply` · `/withdraw` · `/endorse` · `/object` · `/objections/decide` · `/api/elections/vote` | Founders and managers |
+| `GET /api/coins` (`?city=`, admins `?waiting=1`) · `POST /api/coins/design` · `/mint` · `/mint/decide` · `/takedown` · `GET /api/prices?mints=` | City coins designed by founders (src/coins.js); prices for the swap panel |
 | `GET /api/mod` · `POST /api/mod/hide` · `/unhide` · `/ban` · `/ban/approve` · `/ban/reject` · `/api/appeals` (+`/decide`) | Moderation |
 | `GET\|POST /api/towns` · `POST /api/towns/decide` · `POST /api/snapshots/cancel` | Town requests · correcting a snapshot |
 

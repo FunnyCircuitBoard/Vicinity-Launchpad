@@ -41,6 +41,7 @@ import { handleAppeal, handleAudit, handleBanDecision, handleDecideAppeal, handl
   handleTownDecision, handleTownRequest, handleUnhide } from "./moderation.js";
 import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots, snapshotCutoff } from "./snapshot.js";
 import { managerOf } from "./roles.js";
+import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown } from "./coins.js";
 import { runJobs } from "./jobs.js";
 
 export { json, activeMint };
@@ -220,6 +221,20 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return only("POST") || handleObject(request, env);
     case "/api/seats/objections/decide":
       return only("POST") || handleDecideObjection(request, env, fetchImpl);
+
+    // city coins (designed by City Founders) and prices for the swap panel
+    case "/api/coins":
+      return only("GET") || handleCoins(request, env, fetchImpl);
+    case "/api/coins/design":
+      return only("POST") || handleDesign(request, env, fetchImpl);
+    case "/api/coins/mint":
+      return only("POST") || handleProposeMint(request, env, fetchImpl);
+    case "/api/coins/mint/decide":
+      return only("POST") || handleDecideMint(request, env, fetchImpl);
+    case "/api/coins/takedown":
+      return only("POST") || handleTakedown(request, env, fetchImpl);
+    case "/api/prices":
+      return only("GET") || handlePrices(request, env, fetchImpl);
 
     // country managers
     case "/api/moderator": {

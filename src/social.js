@@ -104,7 +104,7 @@ export async function handlePosts(request, env, fetchImpl = fetch, now = Date.no
 }
 
 /** A meme picture: base64 of a JPEG, PNG or WebP the browser already shrank. Returns { type, bytes } or null. */
-function readImage(b64) {
+export function readImage(b64) {
   if (typeof b64 !== "string" || b64.length > Math.ceil(MAX_IMAGE / 3) * 4 + 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return null;
   const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   if (bytes.length > MAX_IMAGE || bytes.length < 16) return null;

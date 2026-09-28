@@ -358,6 +358,31 @@ CREATE TABLE IF NOT EXISTS snapshots (
 );
 `,
   },
+  {
+    // City coins designed by City Founders (src/coins.js)
+    id: "2026-09-27-city-coins",
+    sql: `
+CREATE TABLE IF NOT EXISTS city_coins (
+  city_id      TEXT PRIMARY KEY,
+  city_name    TEXT NOT NULL,
+  country      TEXT NOT NULL,
+  seat_id      INTEGER NOT NULL,
+  user_id      INTEGER NOT NULL,
+  name         TEXT NOT NULL,
+  pitch        TEXT,
+  pair         TEXT NOT NULL,
+  color        TEXT NOT NULL,
+  media_id     INTEGER,
+  mint         TEXT UNIQUE,
+  pending_mint TEXT,
+  pending_at   TEXT,
+  launched_at  TEXT,
+  launched_by  INTEGER,
+  updated_at   TEXT NOT NULL,
+  created_at   TEXT NOT NULL
+);
+`,
+  },
 ];
 
 const split = (sql) => sql.split(";").map((s) => s.trim()).filter(Boolean);

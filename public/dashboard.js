@@ -204,6 +204,7 @@
     renderCommunity(d);
     renderCountry(d);
     renderBadges(d);
+    loadCoin();
     $$(".role-row").forEach((r) => r.classList.toggle("is-you", r.dataset.role === d.level));
     $("#f-city").textContent = home ? home.name : "Local";
     $("#f-country").textContent = n ? countryName(n.country) : "National";
@@ -336,6 +337,7 @@
     if (!c) return;
     const tk = ticker(c.name);
     $("#cc-face").textContent = tk.slice(0, 5);
+    $("#pass-coin").textContent = tk.slice(0, 5);
     $("#cc-name").textContent = c.name;
     $("#cc-ticker").textContent = `$${tk} · city coin preview · ${countryName(c.country)}`;
     $("#cc-members").textContent = fmt(c.members);
@@ -343,7 +345,9 @@
     $("#cc-founder").textContent = c.seat ? (c.seat.you ? `You 👑${c.seat.status !== "active" ? ` (${c.seat.status})` : ""}` : `${c.seat.name}${c.seat.status !== "active" ? ` (${c.seat.status})` : ""}`)
       : c.window ? `Choosing · ${c.window.applicants.length} applying` : "Open seat 🔥";
     const others = c.members - 1;
-    $("#cc-fomo").textContent = c.seat && !c.seat.you
+    $("#cc-fomo").textContent = c.seat && c.seat.you
+      ? `You're ${c.name}'s founder. Bring your locals in, and design ${c.name}'s coin so they can see what's coming.`
+      : c.seat
       ? `${c.name} has a founder. Climb the local board: the top holders here are the first people the city sees.`
       : c.window ? `${c.name} is choosing its founder right now (${left(c.window.closesAt)}). Locals' endorsements count most.`
       : others <= 0 ? `You're the first member of ${c.name}. Bring your locals in: they're the ones who choose the founder.`
@@ -607,6 +611,216 @@
     } catch (x) { showErr("#c-err", x.message); }
     finally { btn.disabled = false; setupComposer(); }
   });
+
+  /* ---------- your city's coin: the City Founder designs it (name, pitch, colour, logo, pair) ---------- */
+  const SOL_MINT = "So11111111111111111111111111111111111111112";
+  const COIN_ERR = {
+    not_founder: "Only the city's active founder can design its coin.",
+    coin_locked: "This coin has launched, so its design is locked.",
+    bad_name: "Use 2 to 32 letters, numbers or spaces for the name (no links).",
+    too_long: (d) => `That's too long (at most ${d.max} characters).`,
+    no_addresses: "Contract addresses can't go in a coin's name or pitch.",
+    no_links: "Links can't go in the pitch.",
+    bad_pair: "Pick SOL, USDC or RAY.",
+    bad_color: "Pick one of the colours.",
+    bad_image: "That picture couldn't be used. Try a PNG, JPEG or WebP.",
+    bad_address: "That isn't a Solana contract address.",
+    not_a_city_coin: "That's $VICINITY or the pair, not your city's coin.",
+    design_first: "Save a design first.",
+    mint_taken: "That contract is already another city's coin.",
+    needs_second_person: "Someone other than the founder has to check a coin's contract.",
+  };
+  let coinData = null, coinPairs = null, vicMint = null, logoData = null, dropLogo = false, studioDirty = false;
+  const cityTk = () => (me && me.community ? ticker(me.community.name) : "CITY");
+  const picked = (name, fallback) => (document.querySelector(`input[name='${name}']:checked`) || {}).value || fallback;
+  const num = (x) => new Intl.NumberFormat(undefined, { maximumSignificantDigits: 6 }).format(x);
+  const usd = (x) => new Intl.NumberFormat(undefined, { maximumFractionDigits: x < 1 ? 4 : 2 }).format(x);
+
+  async function loadCoin() {
+    const c = me && me.community; if (!c) return;
+    const r = await api(`/api/coins?city=${encodeURIComponent(c.id)}`);
+    if (!r || r.ok === false) return;
+    coinData = r.coin || null; coinPairs = r.pairs || coinPairs; vicMint = r.vicinity || null;
+    renderCoin(); renderTrade();
+    if (me.roles && me.roles.admin) loadCoinQueue();
+  }
+  function paintCoin({ name, color, logo, pair }) {
+    const tk = cityTk(), face = $("#coin-art-face"), img = $("#coin-logo");
+    $("#coin-art").dataset.color = color || "gold";
+    $(".pass__coin").dataset.color = color || "gold";
+    if (logo) { img.src = logo; img.hidden = false; } else { img.hidden = true; img.removeAttribute("src"); }
+    face.textContent = tk.slice(0, 5); face.hidden = Boolean(logo);
+    $("#coin-name").textContent = name;
+    $("#coin-ticker").textContent = `$${tk}`;
+    $("#coin-pair").textContent = pair || "chosen by the founder";
+  }
+  function renderCoin() {
+    const c = me.community, tk = cityTk(), cd = coinData, seat = c.seat;
+    const mine = Boolean(seat && seat.you && seat.status === "active");
+    $("#coin-city").textContent = c.name;
+    $$("[data-city-ticker]").forEach((e) => (e.textContent = tk));
+    const st = $("#coin-status");
+    st.className = "tag " + (cd && cd.launched ? "tag--ok" : cd && cd.waiting ? "tag--warn" : cd ? "tag--gold" : "");
+    st.textContent = cd && cd.launched ? "● Live" : cd && cd.waiting ? "Contract being checked" : cd ? "Designed" : "Not designed yet";
+    if (!(mine && studioDirty)) paintCoin(cd ? cd : { name: c.name, color: "gold", logo: null, pair: null });
+    $("#coin-pitch").textContent = cd ? cd.pitch : "";
+    $("#coin-by").textContent = cd ? `Designed by ${cd.by || "the City Founder"} · updated ${date(cd.updatedAt)}` : "";
+    $("#coin-contract").hidden = !(cd && cd.mint);
+    if (cd && cd.mint) $("#coin-mint").textContent = cd.mint;
+    $("#coin-note").textContent = mine
+      ? (cd ? (cd.launched ? `${c.name}'s coin is live. Its design is locked, as the rules promise.` : "Change anything until your coin launches. Every save is public in the log.")
+        : `Your coin, your call. Design ${c.name}'s coin below: everyone in ${c.name} will see it.`)
+      : cd ? (cd.launched ? `The one official $${tk}. Buy or swap it in the panel on the right.` : `Designed by ${c.name}'s founder. It launches on Raydium LaunchLab.`)
+      : seat ? `${seat.name}, ${c.name}'s founder, hasn't designed the coin yet. It'll appear here the moment they do.`
+      : `${c.name}'s founder designs this coin: its name, logo, colour and what it's paired with. The seat is still open: see the founder path.`;
+    $("#coin-studio").hidden = !mine || Boolean(cd && cd.launched);
+    if (mine && !studioDirty) fillStudio();
+  }
+  const countPitch = () => ($("#cs-count").textContent = `${$("#cs-pitch").value.length}/200`);
+  function fillStudio() {
+    const cd = coinData;
+    $("#cs-name").value = cd ? cd.name : me.community.name;
+    $("#cs-ticker").value = `$${cityTk()}`;
+    $("#cs-pitch").value = cd ? cd.pitch : "";
+    const p = document.querySelector(`input[name='cs-pair'][value='${cd ? cd.pair : "SOL"}']`); if (p) p.checked = true;
+    const k = document.querySelector(`input[name='cs-color'][value='${cd ? cd.color : "gold"}']`); if (k) k.checked = true;
+    logoData = null; dropLogo = false;
+    $("#cs-logo-remove").hidden = !(cd && cd.logo);
+    countPitch();
+  }
+  function studioPreview() {
+    studioDirty = true;
+    paintCoin({ name: $("#cs-name").value.trim() || me.community.name, color: picked("cs-color", "gold"), pair: picked("cs-pair", "SOL"),
+      logo: logoData ? `data:${logoData.type};base64,${logoData.b64}` : dropLogo ? null : coinData && coinData.logo });
+    countPitch();
+  }
+  $("#coin-studio").addEventListener("input", studioPreview);
+  $("#coin-studio").addEventListener("change", (e) => { if (e.target.id !== "cs-logo") studioPreview(); });
+  // the logo: cropped to a centred square and shrunk in the browser (under 190 KB) before it's sent
+  $("#cs-logo").addEventListener("change", async () => {
+    const file = $("#cs-logo").files[0]; if (!file) return;
+    try {
+      const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+      const side = Math.min(img.width, img.height);
+      let size = 512, out = "";
+      for (let i = 0; i < 5; i++) {
+        const cv = document.createElement("canvas"); cv.width = cv.height = size;
+        cv.getContext("2d").drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+        out = cv.toDataURL("image/webp", 0.86);
+        if (!out.startsWith("data:image/webp")) out = cv.toDataURL("image/png");
+        if (out.length * 0.75 < 190_000) break;
+        size = Math.round(size * 0.8);
+      }
+      logoData = { type: out.slice(5, out.indexOf(";")), b64: out.slice(out.indexOf(",") + 1) };
+      dropLogo = false; $("#cs-logo-remove").hidden = false; studioPreview();
+    } catch { toast("That picture couldn't be read."); }
+    $("#cs-logo").value = "";
+  });
+  $("#cs-logo-remove").addEventListener("click", () => { logoData = null; dropLogo = true; $("#cs-logo-remove").hidden = true; studioPreview(); });
+  $("#coin-studio").addEventListener("submit", async (e) => {
+    e.preventDefault(); showErr("#cs-err", "");
+    const btn = $("#cs-save"); btn.disabled = true;
+    const body = { name: $("#cs-name").value.trim(), pitch: $("#cs-pitch").value.trim(), pair: picked("cs-pair", "SOL"), color: picked("cs-color", "gold") };
+    if (logoData) body.image = logoData.b64; else if (dropLogo) body.removeLogo = true;
+    try {
+      const r = await sensitive(() => api("/api/coins/design", body));
+      if (!r.ok) throw new Error(errText(COIN_ERR, r, "Couldn't save the design. Please try again."));
+      coinData = r.coin; studioDirty = false; renderCoin(); renderTrade();
+      toast(`🎨 ${me.community.name}'s coin is saved`);
+      const rr = btn.getBoundingClientRect(); burst(rr.left + rr.width / 2, rr.top);
+    } catch (x) { showErr("#cs-err", x.message); }
+    finally { btn.disabled = false; }
+  });
+  $("#cs-mint-send").addEventListener("click", async () => {
+    showErr("#cs-err", "");
+    const r = await sensitive(() => api("/api/coins/mint", { mint: $("#cs-mint").value.trim() }));
+    if (!r.ok) { showErr("#cs-err", errText(COIN_ERR, r, "Couldn't send it. Please try again.")); return; }
+    coinData = r.coin; $("#cs-mint").value = ""; renderCoin();
+    toast("Sent. An admin checks it on the blockchain.");
+  });
+  $("#coin-mint-copy").addEventListener("click", () => coinData && coinData.mint && copy(coinData.mint, "Contract copied"));
+
+  // admins: contracts founders sent, waiting for someone else to check them
+  async function loadCoinQueue() {
+    const r = await api("/api/coins?waiting=1");
+    const list = r && r.ok ? r.waiting : [];
+    $("#coin-admin").hidden = !list.length;
+    $("#coin-waiting").replaceChildren(...list.map((w) => {
+      const li = el("li");
+      const link = el("a", "mono", w.pendingMint); link.href = `https://solscan.io/token/${w.pendingMint}`; link.target = "_blank"; link.rel = "noopener";
+      li.append(el("strong", null, `${w.cityName} · `), link, el("span", "tiny muted", ` · ${w.pair} pair · sent ${ago(w.pendingAt)}`));
+      const decide = (approve, note) => sensitive(() => api("/api/coins/mint/decide", { city: w.city, approve, note }));
+      li.append(
+        actBtn("Record it ✓", async () => { const x = await decide(true, "Checked on the blockchain"); toast(x.ok ? "Recorded: it's the official coin now ✓" : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue(); }),
+        actBtn("Reject", () => reasonForm(li, "Reject", async (reason, note) => {
+          const x = await decide(false, note || REASONS[reason]); toast(x.ok ? "Rejected" : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue();
+        })));
+      return li;
+    }));
+  }
+
+  /* ---------- buy & swap: straight to Jupiter or Raydium, where you sign in your own wallet ---------- */
+  let route = "vic", flipped = false, priceCache = { key: "", at: 0, p: {} }, estTimer = 0;
+  function routeInfo() {
+    const cd = coinData, tk = `$${cityTk()}`, cityMint = cd && cd.mint ? cd.mint : null;
+    const base = route === "vic" ? [["SOL", SOL_MINT], ["$VICINITY", vicMint]]
+      : route === "city" ? [[cd ? cd.pair : "SOL", cd ? cd.pairMint : SOL_MINT], [tk, cityMint]]
+      : [[tk, cityMint], ["$VICINITY", vicMint]];
+    const [a, b] = flipped ? [base[1], base[0]] : base;
+    const missing = route !== "city" && !vicMint ? "$VICINITY" : route !== "vic" && !cityMint ? tk : null;
+    return { a, b, missing, tk };
+  }
+  const swapSide = (m, raydium) => (m === SOL_MINT ? (raydium ? "sol" : "SOL") : m);
+  function renderTrade() {
+    if (!me || !me.community) return;
+    const { a, b, missing, tk } = routeInfo();
+    $$("[data-city-tk]").forEach((e) => (e.textContent = tk));
+    $$("#trade [data-route]").forEach((x) => x.setAttribute("aria-selected", String(x.dataset.route === route)));
+    $("#tr-in").lastElementChild.textContent = a[0];
+    $("#tr-outk").lastElementChild.textContent = b[0];
+    $("#tr-in").dataset.token = a[0].startsWith("$") ? (a[0] === "$VICINITY" ? "vic" : "city") : a[0].toLowerCase();
+    $("#tr-outk").dataset.token = b[0].startsWith("$") ? (b[0] === "$VICINITY" ? "vic" : "city") : b[0].toLowerCase();
+    const state = $("#trade-state"), go = $("#tr-go"), go2 = $("#tr-go-2"), amt = $("#tr-amt");
+    state.className = "tag " + (missing ? "tag--warn" : "tag--ok");
+    state.textContent = missing ? (!vicMint ? "Opens at launch" : `${tk} isn't live yet`) : "● Live";
+    amt.disabled = Boolean(missing);
+    if (missing) {
+      const mine = me.community.seat && me.community.seat.you;
+      go.textContent = !vicMint ? "How to get ready →" : mine ? "Design & launch your coin ↓" : `See ${tk}'s design ↓`;
+      go.href = !vicMint ? "/token#buy" : "#coin"; go.removeAttribute("target");
+      go2.hidden = true;
+      $("#tr-note").textContent = !vicMint
+        ? "Trading opens the moment $VICINITY launches on Raydium LaunchLab. Its contract is published on the Token page first."
+        : `${tk} trades once ${me.community.name}'s founder launches it and an admin records its contract.`;
+    } else {
+      go.textContent = `${route === "swap" ? "Swap" : flipped ? `Sell ${a[0]}` : `Buy ${b[0]}`} on Jupiter ↗`;
+      go.href = `https://jup.ag/swap/${swapSide(a[1])}-${swapSide(b[1])}`; go.target = "_blank"; go.rel = "noopener";
+      const curve = route === "vic" ? vicMint : route === "city" ? coinData.mint : null; // a new coin trades on its LaunchLab page
+      go2.href = curve ? `https://raydium.io/launchpad/token/?mint=${curve}` : `https://raydium.io/swap/?inputMint=${swapSide(a[1], true)}&outputMint=${swapSide(b[1], true)}`;
+      go2.textContent = curve ? "or on Raydium LaunchLab ↗" : "or on Raydium ↗"; go2.hidden = false;
+      $("#tr-note").textContent = "You sign every swap in your own wallet on Jupiter or Raydium; Vicinity never touches your funds. Estimates use live prices, and the swap page shows the exact amount.";
+    }
+    estimate();
+  }
+  async function estimate() {
+    const { a, b, missing } = routeInfo();
+    const amount = Number(String($("#tr-amt").value).replace(",", "."));
+    $("#tr-out").textContent = "—"; $("#tr-in-usd").textContent = ""; $("#tr-rate").textContent = "";
+    if (missing) return;
+    const key = `${a[1]},${b[1]}`;
+    if (priceCache.key !== key || Date.now() - priceCache.at > 30_000) {
+      const r = await api(`/api/prices?mints=${key}`);
+      priceCache = { key, at: Date.now(), p: (r && r.prices) || {} };
+    }
+    const pa = priceCache.p[a[1]], pb = priceCache.p[b[1]];
+    if (!pa || !pb) { $("#tr-rate").textContent = "No live price yet: the swap page shows the exact amount."; return; }
+    $("#tr-rate").textContent = `1 ${a[0]} ≈ ${num(pa / pb)} ${b[0]}`;
+    if (amount > 0) { $("#tr-out").textContent = num((amount * pa) / pb); $("#tr-in-usd").textContent = `≈ $${usd(amount * pa)}`; }
+  }
+  $("#tr-amt").addEventListener("input", () => { clearTimeout(estTimer); estTimer = setTimeout(estimate, 250); });
+  $("#tr-flip").addEventListener("click", () => { flipped = !flipped; renderTrade(); });
+  $$("#trade [data-route]").forEach((x) => x.addEventListener("click", () => { route = x.dataset.route; flipped = false; renderTrade(); }));
 
   /* ---------- moderator tools ---------- */
   async function loadMod() {

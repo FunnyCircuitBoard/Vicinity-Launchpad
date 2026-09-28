@@ -13,8 +13,8 @@
  *   - Country managers are elected for 90 days (votes count most), not handed to the richest wallet.
  */
 export const POLICY = {
-  version: 2,
-  effectiveAt: "2026-09-27",
+  version: 3,
+  effectiveAt: "2026-09-27", // v3: City Founders design their city's coin
 
   founder: {
     // Tokens a founder must hold. Tiers let bigger cities ask for more; one tier = the same for every city.
@@ -52,6 +52,10 @@ export const POLICY = {
   },
 
   supporters: { averageDays: 14, challengeHours: 48, minAmount: 1 },
+
+  // City coins: the active City Founder designs the city's one official coin. The ticker is the city's own
+  // (fixed by the map). Raydium LaunchLab pairs a coin with SOL, USDC or RAY. The design locks once launched.
+  coins: { pairs: ["SOL", "USDC", "RAY"], colors: ["gold", "rose", "ocean", "emerald", "violet", "ink"], nameMax: 32, pitchMax: 200, editsPerDay: 20 },
 
   sampling: { cronMinutes: 10, meanMinutes: 60, minGapMinutes: 5, maxGapMinutes: 180 },
   attestation: { minutes: 5 },
