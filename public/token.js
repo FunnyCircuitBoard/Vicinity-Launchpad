@@ -32,12 +32,13 @@
     $("#ca-copy").onclick = () => copy(m, "Contract address copied");
     $("#lnk-solscan").href = `https://solscan.io/token/${m}`;
     $("#lnk-jup").href = `https://jup.ag/tokens/${m}`;
-    $("#lnk-stonk").href = `https://www.stonkfun.xyz/token/${m}`;
+    $("#lnk-raydium").href = `https://raydium.io/launchpad/token/?mint=${m}`;
     $("#lnk-dex").href = `https://dexscreener.com/solana/${m}`;
     $("#ca-links").hidden = false;
     $("#ca-note").textContent = "This is the only official $VICINITY. Anything else using the name is fake.";
     const live = (key, ok, okText, badText) => $$(`[data-live="${key}"]`).forEach((e) => { e.textContent = ok ? okText : badText; e.classList.add(ok ? "is-live" : "is-bad"); });
-    live("mint", f.mintingDisabled, "Verified on-chain", "Warning: minting is ON");
+    if (!f.mintingDisabled && f.mintHeldByProgram) $$('[data-live="mint"]').forEach((e) => { e.textContent = "Held by the launch program until the curve fills"; e.classList.add("is-wait"); });
+    else live("mint", f.mintingDisabled, "Verified on-chain", "Warning: minting is ON");
     live("freeze", f.freezingDisabled, "Verified on-chain", "Warning: freezing is ON");
     live("supply", true, "Verified on-chain", "");
     live("supply2", true, "Verified on-chain", "");

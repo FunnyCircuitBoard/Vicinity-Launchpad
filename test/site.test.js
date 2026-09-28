@@ -59,10 +59,12 @@ test("home: the problem, the real New York City map, how it works, incentives, r
   const h = html["index.html"];
   for (const id of ["problem", "nyc", "nyc-map", "why-now", "how", "why", "get", "roles", "roadmap", "faq"]) assert.ok(h.includes(`id="${id}"`), id);
   assert.match(h, /Real map, real data · New York City/);
-  assert.match(h, /Why is \$VICINITY launching on StonkFun and not on the Vicinity Launchpad\?/);
+  assert.match(h, /Why is \$VICINITY launching on Raydium LaunchLab and not on the Vicinity Launchpad\?/);
+  assert.match(h, /<a class="hero-map__link" href="\/cities\?city=5128581"/, "the New York map opens the map page");
+  assert.doesNotMatch(h, /stonkfun|stonfun/i, "launching on Raydium LaunchLab");
   assert.match(h, /How do I buy \$VICINITY\?/);
   assert.match(h, /href="\/token#buy"/);
-  assert.doesNotMatch(h, /pump\.fun/i, "launching on StonkFun, not pump.fun");
+  assert.doesNotMatch(h, /pump\.fun/i, "not pump.fun");
   assert.doesNotMatch(h, /first to claim/i, "founders are chosen by locals, not a race");
   assert.match(h, /FOMO/);
   assert.match(h, /Nothing here is financial advice/);
@@ -76,11 +78,11 @@ test("home: the problem, the real New York City map, how it works, incentives, r
 
 test("token page: live facts on top, verify a wallet, holders in a scrolling table, official list", () => {
   const h = html["token.html"];
-  for (const id of ["token", "contract", "buy", "lnk-stonk", "verify", "lookup", "rank-card", "holders", "holders-scroll", "holders-table", "check", "checker"]) assert.ok(h.includes(`id="${id}"`), id);
+  for (const id of ["token", "contract", "buy", "lnk-raydium", "verify", "lookup", "rank-card", "holders", "holders-scroll", "holders-table", "check", "checker"]) assert.ok(h.includes(`id="${id}"`), id);
   assert.match(h, /No rug pull/);
-  assert.match(h, /Buy on StonkFun/);
-  assert.doesNotMatch(h, /pump\.fun/i, "launching on StonkFun, not pump.fun");
-  assert.match(read("token.js"), /https:\/\/www\.stonkfun\.xyz\/token\/\$\{m\}/, "buy link goes to the real stonkfun.xyz");
+  assert.match(h, /Buy on Raydium/);
+  assert.doesNotMatch(h, /pump\.fun|stonkfun|stonfun/i, "launching on Raydium LaunchLab");
+  assert.match(read("token.js"), /https:\/\/raydium\.io\/launchpad\/token\/\?mint=\$\{m\}/, "buy link goes to the real raydium.io");
   assert.match(css, /\.table-scroll \{ max-height: 560px; overflow: auto;/);
   assert.match(css, /\.holders__table thead th \{ position: sticky;/);
 });

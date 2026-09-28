@@ -800,3 +800,28 @@ select option { background: var(--bg-2); }
 .chip-link--buy { background: linear-gradient(135deg, var(--pin), var(--pin-2)); border-color: transparent; color: #fff; font-weight: 700; }
 @media (max-width: 960px) { .why-now, .buy-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .why-now, .buy-steps { grid-template-columns: minmax(0, 1fr); } .why-now__big { font-size: 1.8rem; } .hero__trust { margin-top: -18px; } }
+
+/* ---------- home: the New York maps open the live map; "Get in first" shows what it means ---------- */
+.hero-map__link { display: block; color: inherit; text-decoration: none; border-radius: 28px; }
+.hero-map__link .hero-map__svg { transition: transform .35s cubic-bezier(.2,.8,.2,1), border-color .35s, box-shadow .35s; }
+.hero-map__link:hover .hero-map__svg, .hero-map__link:focus-visible .hero-map__svg { transform: translateY(-4px); border-color: rgba(255,90,54,.55); box-shadow: 0 50px 110px -30px rgba(255,90,54,.45); }
+.hero-map__link:focus-visible { outline: 3px solid var(--pin); outline-offset: 6px; }
+.map-open { position: absolute; right: 5%; bottom: 5%; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; font-size: .84rem; font-weight: 700; color: #fff; background: linear-gradient(135deg, var(--pin), var(--pin-2)); box-shadow: 0 10px 26px -10px rgba(255,90,54,.8); text-decoration: none; transition: transform .25s; }
+.hero-map__link:hover .map-open, .map-open:hover { transform: translateX(3px); }
+.map-open--corner { top: 12px; right: 12px; bottom: auto; font-size: .8rem; padding: 7px 12px; }
+#nyc-map { cursor: pointer; }
+.early { margin-block: auto; padding: 6px 0 26px; }
+.early__coins { display: flex; justify-content: center; align-items: center; padding: 8px 0 22px; }
+.early__coins .coin-disc { margin: 0 -7px; }
+.early__coins .coin-disc:nth-child(1), .early__coins .coin-disc:nth-child(5) { transform: scale(.82) translateY(8px); opacity: .85; }
+.early__coins .coin-disc:nth-child(2), .early__coins .coin-disc:nth-child(4) { transform: translateY(-4px); }
+.early__coins .coin-disc--lg { position: relative; z-index: 1; }
+.early__coins .coin-disc span { font-size: .7rem; }
+.early__coins .coin-disc--lg span { font-size: 1.05rem; }
+.early__steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.early__steps li { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--card); font-size: .82rem; color: var(--muted); }
+.early__steps b { font: 700 .95rem var(--display); color: var(--text); }
+.early__steps li:last-child { border-color: rgba(255,90,54,.45); background: rgba(255,90,54,.08); }
+.early__steps li:last-child b { color: var(--bad-text); }
+.proof__live.is-wait { color: var(--warn); }
+@media (max-width: 600px) { .early__coins .coin-disc { width: 52px; height: 52px; } .early__coins .coin-disc--lg { width: 84px; height: 84px; } .early__steps { grid-template-columns: minmax(0, 1fr); } .map-open { font-size: .76rem; padding: 6px 11px; } }

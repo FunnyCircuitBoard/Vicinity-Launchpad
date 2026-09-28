@@ -23,7 +23,7 @@ const PROGRAM_LABELS = {
 const PROGRAM_ACCOUNT = "Pool or program account";
 
 /* A normal wallet address is an ed25519 public key: a point on the curve. Addresses controlled by a
- * program (pools, bonding curves, vaults, lockers, on any exchange, StonkFun's Raydium ones included)
+ * program (pools, bonding curves, vaults, lockers, on any exchange, Raydium LaunchLab's included)
  * are made off the curve on purpose, so no private key can exist for them. Same test as Solana's
  * PublicKey.isOnCurve: does y decode to a curve point, i.e. is (y² − 1) / (d·y² + 1) a square? */
 const P = (1n << 255n) - 19n;
@@ -76,6 +76,9 @@ export async function getTokenFacts(env, mint, fetchImpl) {
     freezeAuthority: parsed.freezeAuthority || null,
     mintingDisabled: !parsed.mintAuthority,
     freezingDisabled: !parsed.freezeAuthority,
+    // On a LaunchLab curve the launch program itself holds minting until the curve fills; that's a
+    // program-controlled (off-curve) address, not a person's wallet.
+    mintHeldByProgram: Boolean(parsed.mintAuthority) && !isOnCurve(base58Decode(parsed.mintAuthority)),
   };
 }
 

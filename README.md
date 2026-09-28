@@ -8,7 +8,7 @@ Live: https://vicinity.city (vicinitycity.net and the www addresses forward ther
 
 ## What's on the site
 Separate pages, one shared menu (top menu on computers, bottom menu bar on phones), dark / light theme:
-- **/** How it works: the problem, a step-by-step walkthrough on the real New York City boundaries (73 places, one coin), why joining early matters (straight from the rules), how the app works, incentives for holders and for the Launchpad, how to get $VICINITY, roles, roadmap, FAQ (including why $VICINITY launches on StonkFun, stonkfun.xyz).
+- **/** How it works: the problem, a step-by-step walkthrough on the real New York City boundaries (73 places, one coin), why joining early matters (straight from the rules), how the app works, incentives for holders and for the Launchpad, how to get $VICINITY, roles, roadmap, FAQ (including why $VICINITY launches on Raydium LaunchLab).
 - **/token** Token and holders: live facts from the blockchain (minting/freezing off, supply, price), every holder in a table that scrolls on its own, "where does this wallet stand?" (paste any address: rank, percentile, gap to the next wallet), the official token list and link checker.
 - **/cities** The live map: 8,000+ communities in 244 countries with real boundaries that never overlap; claimed vs open; the communities filling up. The claim button leads to the dashboard.
 - **/launchpad** Countdown to October 10 (10:10:10 AM New York time), the planned phases, who gets in first, add-to-calendar.

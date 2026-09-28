@@ -68,12 +68,14 @@
       tip.style.left = `${e.clientX - r.left}px`; tip.style.top = `${e.clientY - r.top}px`;
     };
     const hideTip = () => (tip.hidden = true);
+    // clicking the map opens that city on the live map page (a neighbour opens itself, anything else New York City)
+    svg.addEventListener("click", (e) => { location.href = `/cities?city=${encodeURIComponent(e.target.dataset.city || data.nyc.id)}`; });
 
     // neighbours: their own communities and coins
     const nb = svgEl("g", {}, "m-nb");
     for (const n of data.neighbors) {
-      const p = svgEl("path", { d: pathOf(P, n.area), "fill-rule": "evenodd" }, "m-area" + (n.kind === "n" ? " is-near" : ""));
-      p.addEventListener("pointermove", (e) => showTip(e, `${n.name}, ${n.state} · own coin $${ticker(n.name)} · ${fmt(n.pop)} people`));
+      const p = svgEl("path", { d: pathOf(P, n.area), "fill-rule": "evenodd", "data-city": n.id }, "m-area" + (n.kind === "n" ? " is-near" : ""));
+      p.addEventListener("pointermove", (e) => showTip(e, `${n.name}, ${n.state} · own coin ${ticker(n.name)} · ${fmt(n.pop)} people · click to open`));
       p.addEventListener("pointerleave", hideTip);
       nb.append(p);
     }
@@ -81,7 +83,7 @@
 
     // New York City's community area, and its official boundary
     const nyc = svgEl("path", { d: pathOf(P, data.nyc.area), "fill-rule": "evenodd" }, "m-nyc");
-    nyc.addEventListener("pointermove", (e) => showTip(e, `New York City community · ${data.members.length + 1} places, one coin: $NYC`));
+    nyc.addEventListener("pointermove", (e) => showTip(e, `New York City community · ${data.members.length + 1} places, one coin: $NYC · click to open`));
     nyc.addEventListener("pointerleave", hideTip);
     svg.append(nyc);
     svg.append(svgEl("path", { d: pathOf(P, data.official), "fill-rule": "evenodd" }, "m-official"));

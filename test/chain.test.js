@@ -8,12 +8,12 @@ import { isOnCurve } from "../src/chain.js";
 const MINT = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm";
 const POOL_OWNER = "PooL1111111111111111111111111111111111111111";
 const WHALE = "FbvKBmz8YytrTe7SWjPjkUe19edFZumG6hsT3Mv9edg1"; // a real wallet key (on the curve)
-function fakeRpc({ holdingFor = {}, failLargest = false } = {}) {
+function fakeRpc({ holdingFor = {}, failLargest = false, mintAuthority = null } = {}) {
   return async (_url, init) => {
     const { method, params } = JSON.parse(init.body);
     const ok = (result) => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }));
     if (method === "getAccountInfo")
-      return ok({ value: { owner: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", data: { parsed: { info: { decimals: 6, supply: "1000000000000000", mintAuthority: null, freezeAuthority: null } } } } });
+      return ok({ value: { owner: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", data: { parsed: { info: { decimals: 6, supply: "1000000000000000", mintAuthority, freezeAuthority: null } } } } });
     if (method === "getTokenLargestAccounts") {
       if (failLargest) return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 429 } }));
       return ok({ value: [
@@ -119,4 +119,16 @@ test("pools on any exchange are spotted: program-controlled addresses are off th
   }
   assert.ok(off > 50 && off < 150, `about half off the curve, got ${off}`);
   assert.equal(isOnCurve(base58Decode("5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1")), false, "Raydium's pool authority is program-controlled");
+});
+
+test("on a LaunchLab curve the launch program holds minting: shown as the program, a person's key as a warning", async () => {
+  const facts = async (mintAuthority) => (await (await handleApi(req("/api/token"), { VICINITY_MINT: MINT }, fakeRpc({ mintAuthority }))).json()).facts;
+  let f = await facts("5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"); // a program-controlled address
+  assert.equal(f.mintingDisabled, false);
+  assert.equal(f.mintHeldByProgram, true);
+  f = await facts(WHALE); // a person's wallet key
+  assert.equal(f.mintHeldByProgram, false);
+  f = await facts(null);
+  assert.equal(f.mintingDisabled, true);
+  assert.equal(f.mintHeldByProgram, false);
 });
