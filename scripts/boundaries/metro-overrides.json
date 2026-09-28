@@ -1,11 +1,18 @@
 {
   "_help": "Hand corrections for 'one coin per big city' (used by 3-build.mjs). officialOnly: GeoNames ids of cities that keep only their official boundary (they never take in neighbouring communities). keepSeparate: GeoNames ids that must keep their own coin. merge: { childId: parentId } to force a place into a bigger city's coin. Ids are the numbers in public/data/cities.json.",
   "_why": {
+    "5101717": "New Brunswick keeps its own coin, as before New York City stopped taking in Edison (2026-09-28).",
+    "5124276": "Levittown (NY) keeps its own coin rather than joining Hempstead, as the user approved (2026-09-28).",
     "5128581": "New York City: the five boroughs only, so Newark, Jersey City, Yonkers and the rest don't see their city merged into NYC (decided 2026-09-28).",
-    "5145215": "Yonkers keeps its own coin (decided 2026-09-28).",
-    "5101717": "New Brunswick keeps its own coin, as before New York City stopped taking in Edison (2026-09-28)."
+    "5145215": "Yonkers keeps its own coin (decided 2026-09-28)."
   },
-  "officialOnly": ["5128581"],
-  "keepSeparate": ["5145215", "5101717"],
+  "officialOnly": [
+    "5128581"
+  ],
+  "keepSeparate": [
+    "5145215",
+    "5101717",
+    "5124276"
+  ],
   "merge": {}
 }
