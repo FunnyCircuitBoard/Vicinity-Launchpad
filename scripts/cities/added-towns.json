@@ -1,0 +1,10 @@
+{
+  "_help": "Towns added to public/data/cities.json from the full GeoNames list (.cache/cities-148k.json) by scripts/cities/add-towns.mjs. Under the map's rules every place with 4,000+ people gets a coin; these sat in land with no community. build-list.mjs keeps them on later runs.",
+  "_why": {
+    "US": "Long Island (2026-09-28): the east end (Riverhead, the Hamptons, the Moriches, the North Fork) was more than 25 km from every community, so it had no coin. Every town there with 4,000+ people is added."
+  },
+  "towns": {
+    "US": ["5138022", "5126208", "5126209", "5125817", "5119899", "5133832", "5133926", "5127824", "5128905", "5126787", "5143022", "5112020",
+           "5116063", "5139294", "5111137", "5145197", "5139054", "5115974", "5116035", "5117347", "5129210", "5126239", "7258233", "5118889"]
+  }
+}

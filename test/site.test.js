@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { buildPages } from "../scripts/pages/build.mjs";
+import { cityAt } from "../src/geo.js";
 
 const read = (p) => readFileSync(new URL("../public/" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "connect.html", "dashboard.html", "rules.html", "404.html"];
@@ -77,6 +78,13 @@ test("home: the problem, the real New York City map, how it works, incentives, r
   for (const n of ["Newark", "Yonkers", "Paterson"]) assert.ok(nyc.neighbors.some((x) => x.name === n), `${n} has its own coin`);
   const stats = JSON.parse(read("data/stats.json"));
   assert.ok(stats.communities > 1000 && stats.countries > 200);
+});
+
+test("Long Island has a coin everywhere people live (no empty land from Hicksville to Montauk)", () => {
+  const us = read("data/bounds/US.txt");
+  const spots = { Hicksville: [-73.525, 40.768], Plainview: [-73.467, 40.776], Massapequa: [-73.474, 40.681], Bethpage: [-73.48, 40.744],
+    Huntington: [-73.426, 40.868], Shirley: [-72.867, 40.801], Riverhead: [-72.662, 40.917], Southampton: [-72.39, 40.884], Montauk: [-71.95, 41.035] };
+  for (const [name, [lon, lat]] of Object.entries(spots)) assert.ok(cityAt(us, lon, lat), `${name} has no community`);
 });
 
 test("token page: live facts on top, verify a wallet, holders in a scrolling table, official list", () => {

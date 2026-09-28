@@ -326,13 +326,24 @@ for (const cc of Object.keys(data.byCountry)) {
       if (onLand?.length) area = onLand;
     }
     if (area?.length && c.enclaveOf) {
-      // an enclave's area is cut out of the big boundary it sits in (Voronoi cells never overlap,
-      // so this can't clash with the other nearest-land areas)
+      // an enclave: the part of its nearest land inside the big boundary it sits in is cut out of that
+      // boundary (Voronoi cells never overlap, so this can't clash with the other nearest-land areas);
+      // the part outside the boundary is ordinary nearest land. (That outside part used to be dropped,
+      // which left empty land: Hicksville and Plainview next to Levittown, inside Hempstead's town.)
       const e = c.enclaveOf;
-      area = clip("intersection", area, e.area);
-      const rest = area?.length ? clip("difference", e.area, area) : null;
-      if (rest?.length) { e.area = e.city.area = rest; e.box = e.city.box = bboxOf(rest); }
-      else area = null;
+      const inside = clip("intersection", area, e.area);
+      let outside = clip("difference", area, e.area);
+      if (outside?.length) {
+        const over = placed.filter((p) => p !== e && hits(bboxOf(outside), p.box)).map((p) => p.area);
+        if (over.length) outside = clip("difference", outside, ...over);
+      }
+      const rest = inside?.length ? clip("difference", e.area, inside) : e.area;
+      if (!rest?.length) area = null; // it would take the whole boundary: it stays part of the big city
+      else {
+        if (inside?.length) { e.area = e.city.area = rest; e.box = e.city.box = bboxOf(rest); }
+        const parts = [inside, outside].filter((x) => x?.length);
+        area = parts.length > 1 ? clip("union", ...parts) : parts[0] || null;
+      }
     } else if (area?.length) {
       const box = bboxOf(area);
       const over = placed.filter((p) => hits(box, p.box)).map((p) => p.area);
