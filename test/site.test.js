@@ -5,7 +5,7 @@ import { buildPages } from "../scripts/pages/build.mjs";
 import { cityAt } from "../src/geo.js";
 
 const read = (p) => readFileSync(new URL("../public/" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "connect.html", "dashboard.html", "rules.html", "404.html"];
+const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "connect.html", "dashboard.html", "rules.html", "404.html", "admin.html"];
 const html = Object.fromEntries(PAGES.map((p) => [p, read(p)]));
 const all = Object.values(html).join("\n");
 const css = read("style.css");
@@ -47,7 +47,7 @@ test("same menu on every page: top menu for computers, bottom menu bar for phone
     const nav = h.match(/<nav class="nav"[\s\S]*?<\/nav>/)[0], tabs = h.match(/<nav class="tabbar"[\s\S]*?<\/nav>/)[0];
     assert.deepEqual([...nav.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), links, f);
     assert.deepEqual([...tabs.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), links, f);
-    assert.equal((nav.match(/aria-current="page"/g) || []).length, ["404.html", "connect.html", "rules.html"].includes(f) ? 0 : 1, f);
+    assert.equal((nav.match(/aria-current="page"/g) || []).length, ["404.html", "connect.html", "rules.html", "admin.html"].includes(f) ? 0 : 1, f);
     assert.match(h, /data-theme-toggle/);
     assert.match(h, /<script src="\/theme\.js"><\/script>\s*<\/head>/, `${f}: theme runs before paint`);
     assert.match(h, /data-account/);

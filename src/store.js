@@ -436,6 +436,41 @@ CREATE TABLE IF NOT EXISTS squad_members (
 CREATE INDEX IF NOT EXISTS squad_members_user ON squad_members (user_id);
 `,
   },
+  {
+    // Admin dashboard + test lab (src/admin.js): roles, audit trail, token registry, test-row tracking.
+    id: "2026-09-30-admin-dashboard",
+    sql: `
+CREATE TABLE IF NOT EXISTS admin_roles (
+  wallet     TEXT PRIMARY KEY,
+  role       TEXT NOT NULL,
+  granted_by TEXT,
+  granted_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_audit (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor      TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  target     TEXT,
+  detail     TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS admin_audit_created ON admin_audit (created_at);
+CREATE TABLE IF NOT EXISTS admin_tokens (
+  mint           TEXT PRIMARY KEY,
+  city           TEXT NOT NULL,
+  founder_wallet TEXT,
+  platform       TEXT NOT NULL DEFAULT 'other',
+  registered_by  TEXT,
+  created_at     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_test (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_name TEXT NOT NULL,
+  row_id     INTEGER,
+  row_id2    INTEGER
+);
+`,
+  },
 ];
 
 const split = (sql) => sql.split(";").map((s) => s.trim()).filter(Boolean);
