@@ -14,21 +14,51 @@
           <p class="kicker">City founders</p>
           <h3>Earned over time, chosen by locals</h3>
           <ol>
-            <li><strong>Qualify:</strong> hold <b data-rule="founderAmount">1,000,000</b> $VICINITY in <em>every</em> balance check for <b data-rule="qualifyingDays">14</b> days. Checks happen at random times, about once an hour, so borrowing tokens for a few minutes doesn't work.</li>
+            <li><strong>Qualify:</strong> hold <b data-rule="founderAmount">100K–1M by city size</b> $VICINITY in <em>every</em> balance check for <b data-rule="qualifyingDays">7</b> days. Checks happen at random times, about once an hour, so borrowing tokens for a few minutes doesn't work.</li>
             <li><strong>Be local:</strong> your home community is set by a location check at least <b data-rule="localDays">7</b> days before you apply.</li>
-            <li><strong>Apply</strong> standing inside the city. The first application opens a <b data-rule="windowHours">72</b>-hour window for everyone; being first gives nothing.</li>
-            <li><strong>Endorse:</strong> verified locals back one applicant each (one person, one endorsement).</li>
-            <li><strong>Score</strong> when the window closes (published with its hash):</li>
+            <li><strong>Apply</strong> standing inside the city. The first qualified claimer becomes <strong>Seed Steward</strong> at once — no election of one (see below).</li>
+            <li><strong>Challenge:</strong> if a verified local disagrees, <b data-rule="stewardChallengeEndorsements">10</b> endorsements from verified locals in <b data-rule="windowHours">72</b> hours force an election the steward runs in.</li>
+            <li><strong>Score</strong> when a window closes (published with its hash):</li>
           </ol>
           <p class="formula" id="founder-formula">score = 50% × endorsement share + 30% × contribution + 20% × holdings
 holdings count from the amount up to 2× the amount (more counts the same)
 ties: lowest sha256("vicinity-seat|window|wallet")</p>
           <ol start="6">
             <li><strong>Objections:</strong> <b data-rule="appealHours">48</b> hours for locals to object; an admin who didn't object decides. Upheld → the next applicant.</li>
-            <li><strong>Grace:</strong> below the amount (in a check, or before any sensitive action) → moderation pauses at once, <b data-rule="graceDays">7</b> days to fix it. More than <b data-rule="maxGraces">2</b> graces in 90 days → released.</li>
+            <li><strong>Grace:</strong> below the amount (in a check, or before any sensitive action) → moderation pauses at once, <b data-rule="graceDays">7</b> days to fix it (<b data-rule="stewardGraceHours">48</b> hours for a Seed Steward). More than <b data-rule="maxGraces">2</b> graces in 90 days → released.</li>
             <li><strong>Released:</strong> the city reopens; the former founder waits <b data-rule="cooldownDays">30</b> days before applying anywhere.</li>
             <li id="coins"><strong>The city's coin:</strong> the active founder designs it: its name, a short pitch, a colour, a logo, and what it's paired with on Raydium LaunchLab (SOL, USDC or RAY). The ticker is the city's own, so nobody can copy it. Every design is public and every change is in the log. Once it launches, the founder sends its contract, someone else (an admin) checks and records it, and the design is locked for good.</li>
           </ol>
+        </article>
+
+        <article class="card" id="ladder">
+          <p class="kicker">The Stake Ladder</p>
+          <h3>Big city, bigger stake</h3>
+          <p>The founder's holding bar is set by city size — a hamlet shouldn't demand a metropolis-sized stake, and a metropolis shouldn't be claimable with pocket change. Your bar is fixed when you claim; founders already seated keep theirs, and bars are re-tiered quarterly.</p>
+          <p class="formula" id="ladder-formula">stake = 100,000 × (population ÷ 10,000)^(1/3), clamped 100,000–1,000,000, rounded down to 10,000
+rule of eight: 8× the people → 2× the stake</p>
+        </article>
+
+        <article class="card" id="steward">
+          <p class="kicker">Seed Steward</p>
+          <h3>Claim it, prove it, keep it</h3>
+          <ul>
+            <li><strong>Immediate:</strong> the first qualified claimer of an unclaimed city becomes Seed Steward on the spot and can mint the city's coin as a trial founder.</li>
+            <li><strong>Probation:</strong> <b data-rule="stewardProbationDays">90</b> days bonded. Confirmed automatically at 90 days of good behavior, or earlier once <b data-rule="stewardQuorum">50</b> verified local holders back the city.</li>
+            <li><strong>Challenged:</strong> <b data-rule="stewardChallengeEndorsements">10</b> endorsements from verified locals during probation force an election — which the steward runs in and defends at the same bar.</li>
+            <li><strong>Resign:</strong> walk away any time; the bond is released and the city reopens.</li>
+            <li><strong>Dark cities:</strong> a city with no founder for <b data-rule="darkCityDays">30</b> days can be adopted by any holder — but a verified local challenger keeps priority.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="squads">
+          <p class="kicker">Squad Founding</p>
+          <h3>Found it together</h3>
+          <ul>
+            <li><b data-rule="squadMin">3</b>–<b data-rule="squadMax">5</b> verified locals can pool their holdings to meet the bar — the 7-day tenure applies to the pooled sum.</li>
+            <li>One wallet is designated the founder and mints the coin; every member is recorded as a co-founder.</li>
+            <li>The seat's balance is the squad's combined holdings: if the pool drops below the bar, the whole seat goes to grace.</li>
+          </ul>
         </article>
 
         <article class="card" id="managers">
