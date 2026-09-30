@@ -18,7 +18,7 @@ export const POLICY = {
 
   founder: {
     // Tokens a founder must hold. Tiers let bigger cities ask for more; one tier = the same for every city.
-    // PRODUCT DECISION PENDING: 1B total supply ÷ 1,000,000 = at most 1,000 founder seats ever.
+    // Decided 2026-09-30: 1B total supply, 1M stake — at most ~1,000 concurrent founder seats holding 1M each.
     tiers: [{ minPopulation: 0, amount: 1_000_000 }],
     qualifyingDays: 14,        // held the amount in every balance sample for 14 days before applying
     localDays: 7,              // home community set at least 7 days before applying

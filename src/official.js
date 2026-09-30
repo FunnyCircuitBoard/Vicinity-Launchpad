@@ -13,13 +13,13 @@ export const OFFICIAL = {
   updated: "2026-09-27", // vicinity.city is the main address; vicinitycity.net forwards to it
   websites: ["vicinity.city", "vicinitycity.net", "vicinity-map.sakibul-noyon.workers.dev", "vicinity-map.noyonsakibul.workers.dev"],
   github: [],             // code is private
-  socials: [],            // none yet: any "Vicinity" social account is not us
+  socials: ["@VicinityCitySOL"], // official X account (verified 2026-09-30)
   tokenContract: VICINITY_MINT,
   teamWallets: [],        // every wallet the team controls, listed publicly
   launchpadOpensAt: LAUNCHPAD_OPENS_AT,
   // Every official Vicinity token on every network. Anything not listed here is fake.
   tokens: [
-    { network: "Solana", name: "Vicinity", symbol: "VICINITY", contract: VICINITY_MINT, platform: "Raydium LaunchLab", status: "Launching soon" },
+    { network: "Solana", name: "Vicinity", symbol: "VICINITY", contract: VICINITY_MINT, platform: "Raydium LaunchLab", status: "Launching October 3, 2026" },
     { network: "Solana", name: "City coins (one per city)", symbol: "e.g. $UTICA", contract: null, platform: "Vicinity Launchpad", status: "Phase 3" },
   ],
 };
