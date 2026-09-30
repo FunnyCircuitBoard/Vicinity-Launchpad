@@ -1,7 +1,7 @@
 /**
  * City founders: fair, stable, and never for sale in a minute.
  *
- *   1. Qualify   hold the city's founder amount in EVERY balance sample for 14 days (src/ledger.js),
+ *   1. Qualify   hold the city's founder amount in EVERY balance sample for 7 days (src/ledger.js),
  *                with a home community set 7+ days ago. No seat can be bought with borrowed tokens.
  *   2. Apply     standing in the city (a location attestation). The first application opens a 72-hour
  *                window for that city; being first gives no advantage, so there's nothing to race for.
