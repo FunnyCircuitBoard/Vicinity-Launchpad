@@ -243,7 +243,7 @@
         toast(r.ok ? "Withdrawn" : errText({}, r, "Couldn't withdraw.")); refresh();
       }));
     } else if (!d.launched) {
-      parts.push(say("Applications open after $VICINITY launches, once you've held the founder amount for 14 days in a row. There's no race: each city's first application opens a 72-hour window for everyone."));
+      parts.push(say("Applications open after $VICINITY launches, once you've held the founder amount for 7 days in a row. There's no race: each city's first application opens a 72-hour window for everyone."));
     } else if (f.eligible) {
       const form = el("form", "apply-form");
       const ta = el("textarea"); ta.maxLength = 280; ta.rows = 2; ta.placeholder = `Why should you found ${home.name}? (optional, locals see this)`; ta.setAttribute("aria-label", "Your pitch");
@@ -260,14 +260,14 @@
         } catch (x) { showErr("#p-error", x.message); }
         finally { go.disabled = false; go.textContent = `Apply to found ${home.name} (checks your location)`; }
       });
-      parts.push(say(`✅ You qualify: held ${T} $VICINITY for 14 days. Apply from inside ${home.name}; others have 72 hours to apply too, then locals' endorsements count most.`), form);
+      parts.push(say(`✅ You qualify: held ${T} $VICINITY for 7 days. Apply from inside ${home.name}; others have 72 hours to apply too, then locals' endorsements count most.`), form);
     } else {
       const why = {
         no_home: "Set your home community first.",
         home_too_new: `Your home community must be set 7 days before applying: ready ${f.homeReadyAt ? date(f.homeReadyAt) : "soon"}.`,
         not_qualified: f.tenure && f.tenure.days > 0
-          ? `Held ${T} for ${Math.floor(f.tenure.days)} of 14 days. Balances are checked at random times, about every hour: hold through all of them.`
-          : `Hold ${T} $VICINITY to start your 14-day clock. Balances are checked at random times, so borrowed tokens don't help.`,
+          ? `Held ${T} for ${Math.floor(f.tenure.days)} of 7 days. Balances are checked at random times, about every hour: hold through all of them.`
+          : `Hold ${T} $VICINITY to start your 7-day clock. Balances are checked at random times, so borrowed tokens don't help.`,
         below_threshold: `Hold ${T} $VICINITY right now to apply.`,
         cooldown: `You can apply again on ${f.cooldownUntil ? date(f.cooldownUntil) : "soon"} (30 days after losing a seat).`,
         city_taken: `${home ? home.name : "Your city"} already has a founder.`,

@@ -4,7 +4,7 @@
  * a new version here (and a public commit), never a silent edit: people keep the rules they joined under.
  *
  * Why these rules (see /rules on the site):
- *   - Leadership is earned over time, not bought in a minute: founders must HOLD for 14 days before
+ *   - Leadership is earned over time, not bought in a minute: founders must HOLD for 7 days before
  *     applying, balances are sampled at unpredictable times, and big bags only count up to 2× the minimum.
  *   - No races: a city's founder is chosen after a 72-hour application window, mostly by verified locals.
  *   - No squatting: a founder who drops below the line gets 7 days to fix it, then the seat reopens.
@@ -13,14 +13,14 @@
  *   - Country managers are elected for 90 days (votes count most), not handed to the richest wallet.
  */
 export const POLICY = {
-  version: 3,
-  effectiveAt: "2026-09-27", // v3: City Founders design their city's coin
+  version: 4,
+  effectiveAt: "2026-09-30", // v4: founder qualifying hold 14 days -> 7 days (genesis pace)
 
   founder: {
     // Tokens a founder must hold. Tiers let bigger cities ask for more; one tier = the same for every city.
     // Decided 2026-09-30: 1B total supply, 1M stake — at most ~1,000 concurrent founder seats holding 1M each.
     tiers: [{ minPopulation: 0, amount: 1_000_000 }],
-    qualifyingDays: 14,        // held the amount in every balance sample for 14 days before applying
+    qualifyingDays: 7,         // held the amount in every balance sample for 7 days before applying
     localDays: 7,              // home community set at least 7 days before applying
     windowHours: 72,           // the first application opens a 72-hour window for that city
     appealHours: 48,           // then 48 hours for locals to object before the seat is final

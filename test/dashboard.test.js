@@ -53,7 +53,7 @@ test("dashboard before launch: early member, verified, local; the founder path w
   assert.equal((await browser(env).get("/api/me")).signedIn, false);
 });
 
-test("live after launch: ranks, and the 14-day holding clock towards founder-ready", async () => {
+test("live after launch: ranks, and the 7-day holding clock towards founder-ready", async () => {
   launch();
   const a = await person(env, { home: IN_UTICA, holds: 2_000_000 });
   const b = await person(env, { home: IN_UTICA, holds: 5_000 });

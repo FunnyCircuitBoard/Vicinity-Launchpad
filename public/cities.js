@@ -636,7 +636,7 @@
     else if (selected) { label = open ? `Apply to found ${selected.name} in your dashboard →` : `Get ready to found ${selected.name} →`; href = `/dashboard?claim=${encodeURIComponent(selected.id)}`; }
     btn.textContent = label; btn.href = href;
     const note = $("#claim-note");
-    note.textContent = !open ? "Applications open after $VICINITY launches, for people who have held the founder amount for 14 days. There's no race: each city gets a 72-hour window and locals decide."
+    note.textContent = !open ? "Applications open after $VICINITY launches, for people who have held the founder amount for 7 days. There's no race: each city gets a 72-hour window and locals decide."
       : selected && myHome() && myHome() !== selected.id ? "You can only found the community you live in. Your dashboard shows yours."
       : "Founders are chosen in a 72-hour window: 50% local endorsements, 30% contribution, 20% holdings (capped). Apply or endorse in your dashboard.";
   }
@@ -704,7 +704,7 @@
   function renderFeed(fresh = new Set()) {
     const feed = $("#claim-feed");
     const list = [...claims.values()].sort((a, b) => Date.parse(b.claimed_at) - Date.parse(a.claimed_at)).slice(0, 8);
-    if (!list.length) { feed.replaceChildren(el("li", "claim-feed__empty", open ? "No founders yet. Qualify by holding for 14 days, then apply." : "No founders yet. Applications open after $VICINITY launches.")); return; }
+    if (!list.length) { feed.replaceChildren(el("li", "claim-feed__empty", open ? "No founders yet. Qualify by holding for 7 days, then apply." : "No founders yet. Applications open after $VICINITY launches.")); return; }
     feed.replaceChildren(...list.map((c) => {
       const li = el("li", fresh.has(c.city_id) ? "is-new" : null);
       const city = byId.get(c.city_id);
