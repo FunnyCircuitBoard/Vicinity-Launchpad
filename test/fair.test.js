@@ -24,7 +24,7 @@ async function locals(n, point = IN_UTICA) {
 }
 const apply = async (p, point = IN_UTICA, pitch = "I love this city") => { await reprove(p); return p.post("/api/seats/apply", { attestation: await attest(p, point, "apply"), pitch }); };
 const endorse = async (p, applicationId) => { await reprove(p); return p.post("/api/seats/endorse", { applicationId }); };
-const appId = async (env_, windowCity) => (await env_.DB.prepare("SELECT id, user_id FROM applications WHERE city_id = ? AND withdrawn = 0 ORDER BY id").bind(windowCity).all()).results;
+const appId = async (env_, windowCity) => (await env_.DB.prepare("SELECT id, user_id, window_id, wallet FROM applications WHERE city_id = ? AND withdrawn = 0 ORDER BY id").bind(windowCity).all()).results;
 const seatOf = (cityId) => env.DB.prepare("SELECT * FROM seats WHERE city_id = ? ORDER BY id DESC LIMIT 1").bind(cityId).first();
 
 test("qualifying: 7 days of holding in every sample, home set 7 days before — borrowed tokens can't found a city", async () => {
@@ -34,8 +34,8 @@ test("qualifying: 7 days of holding in every sample, home set 7 days before — 
   assert.equal(r.error, "home_too_new");
   await passTime(env, 8 * DAY);
 
-  // one sample below the line restarts the clock
-  setHolding(a.w.address, 999_999); advance(10 * 60_000); await tick(env);
+  // one sample below the line restarts the clock (Utica's bar is 180K on the ladder)
+  setHolding(a.w.address, 179_999); advance(10 * 60_000); await tick(env);
   setHolding(a.w.address, 2_000_000); await passTime(env, 4 * DAY);
   r = await apply(a);
   assert.equal(r.error, "not_qualified", "the dip restarted the 7 days");
@@ -58,64 +58,92 @@ test("qualifying: 7 days of holding in every sample, home set 7 days before — 
   const att = await attest(a, IN_UTICA, "apply");
   r = await a.post("/api/seats/apply", { attestation: att, pitch: "Let's go Utica" });
   assert.equal(r.ok, true, JSON.stringify(r));
-  assert.equal(r.window.closesAt, new Date(clock.now + 72 * HOUR).toISOString());
-  assert.equal((await a.post("/api/seats/apply", { attestation: att })).error, "already_applied");
+  assert.equal(r.steward, true, "a lone qualified claimer becomes Seed Steward at once");
+  assert.equal(r.seat.probationUntil, new Date(clock.now + 90 * DAY).toISOString());
+  assert.equal((await seatOf("5142056")).status, "steward");
+  assert.equal((await a.post("/api/seats/apply", { attestation: att })).error, "has_seat");
 });
 
-test("window → endorsements → formula: locals decide, and a whale's extra tokens are capped", async () => {
+test("steward → challenge: 10 local endorsements force an election; a whale's extra tokens are capped", async () => {
   const [a, whale] = [await person(env, { home: IN_UTICA, holds: 2_000_000 }), await person(env, { home: IN_UTICA, holds: 100_000_000 })];
-  const [c, d, e] = await locals(3);
+  const supporters = await locals(21);
   const n = (await locals(1, IN_NYC))[0];
   await tick(env);
   await passTime(env, 15 * DAY);
+  for (const p of [a, whale]) {
+    const c = await p.post("/api/posts", { kind: "checkin", attestation: await attest(p, IN_UTICA, "checkin") });
+    assert.equal(c.ok, true, JSON.stringify(c));
+  }
 
-  assert.equal((await apply(a)).ok, true);
-  assert.equal((await apply(whale)).ok, true, "joins the same window: being first gives nothing");
-  const [appA, appW] = await appId(env, "5142056");
-  assert.equal((await endorse(c, appW.id)).ok, true);
-  assert.equal((await endorse(c, appA.id)).ok, true, "can change their endorsement while open");
-  assert.equal((await endorse(d, appA.id)).ok, true);
-  assert.equal((await endorse(e, appW.id)).ok, true);
+  // the first qualified claimer becomes Seed Steward at once — being first wins nothing final
+  const ra = await apply(a);
+  assert.equal(ra.ok, true, JSON.stringify(ra));
+  assert.equal(ra.steward, true);
+  assert.equal((await seatOf("5142056")).status, "steward");
+
+  // a verified local challenger opens a 72-hour challenge window; the steward is entered to defend
+  const rw = await apply(whale);
+  assert.equal(rw.ok, true, JSON.stringify(rw));
+  assert.equal(rw.challenge, true);
+  const apps = await appId(env, "5142056");
+  const chw = await env.DB.prepare("SELECT id FROM windows WHERE city_id = '5142056' AND kind = 'steward_challenge'").first();
+  const chApps = apps.filter((x) => x.window_id === chw.id);
+  assert.equal(chApps.length, 2, "steward auto-entered plus the challenger");
+  const appA = chApps.find((x) => x.wallet === a.w.address);
+  const appW = chApps.find((x) => x.wallet === whale.w.address);
+  assert.equal((await endorse(n, appW.id)).error, "not_local");
+
+  // 10 endorsements force the election; the rest decide it — locals overrule the whale
+  for (let i = 0; i < 10; i++) assert.equal((await endorse(supporters[i], appW.id)).ok, true);
+  for (let i = 10; i < 21; i++) assert.equal((await endorse(supporters[i], appA.id)).ok, true);
   assert.equal((await endorse(a, appW.id)).error, "applicants_cant_endorse");
-  assert.equal((await endorse(n, appA.id)).error, "not_local");
-  const newcomer = await person(env, { home: IN_UTICA, holds: 10 });
-  assert.equal((await endorse(newcomer, appA.id)).error, "account_too_new");
 
-  const view = await c.get("/api/me");
+  const view = await supporters[20].get("/api/me");
   assert.equal(view.community.window.applicants.length, 2);
-  assert.equal(view.community.window.myEndorsement, appA.id);
 
   await passTime(env, 73 * HOUR);
   const seat = await seatOf("5142056");
-  assert.equal(seat.user_id, appA.user_id, "2 local endorsements beat 1, even against 50× the tokens");
-  assert.equal(seat.status, "provisional");
+  assert.equal(seat.user_id, appA.user_id, "11 local endorsements beat 10, even against 50× the tokens");
+  assert.equal(seat.status, "steward", "the steward keeps the seat and the probation");
 
   // the full result is published, and its hash checks out
-  const w = await env.DB.prepare("SELECT id FROM windows WHERE city_id = '5142056'").first();
-  const pub = await (await c.send(`/api/seats/results/${w.id}`)).json();
+  const w = await env.DB.prepare("SELECT id FROM windows WHERE city_id = '5142056' AND kind = 'steward_challenge'").first();
+  const pub = await (await supporters[0].send(`/api/seats/results/${w.id}`)).json();
   assert.equal(await sha256hex(JSON.stringify(pub.result)), pub.hash);
-  const [ra, rw] = pub.result.applicants;
-  assert.equal(ra.scores.stake, rw.scores.stake, "holdings count only up to 2× the founder amount");
-  assert.ok(ra.total > rw.total);
-  assert.equal(ra.wallet.includes("*****"), true, "applicant wallets are masked");
+  assert.equal(pub.result.decision, "steward_wins_election");
+  const [sa, sw] = pub.result.applicants;
+  assert.equal(sa.scores.stake, sw.scores.stake, "holdings count only up to 2× the founder amount");
+  assert.ok(sa.total > sw.total);
+  assert.equal(sa.wallet.includes("*****"), true, "applicant wallets are masked");
 
-  await passTime(env, 49 * HOUR);
-  assert.equal((await seatOf("5142056")).status, "active", "no objections: final after 48 hours");
+  await passTime(env, 90 * DAY);
+  assert.equal((await seatOf("5142056")).status, "active", "90 days of good behavior confirms the steward");
+  await reprove(a); // the test spans 100+ days: sign in again
   assert.equal((await a.get("/api/me")).level, "founder");
 });
 
 test("objections: an admin who didn't object decides; upheld passes the seat to the runner-up", async () => {
   const [a, b] = [await person(env, { home: IN_UTICA, holds: 2_000_000 }), await person(env, { home: IN_UTICA, holds: 1_500_000 })];
-  const [c, d] = await locals(2);
+  const supporters = await locals(11);
+  const [c, d] = supporters;
   const admin = await person(env, { home: IN_NYC });
   env.ADMIN_WALLETS = admin.w.address;
   await tick(env); await passTime(env, 15 * DAY);
-  await apply(a); await apply(b);
-  const [appA] = await appId(env, "5142056");
-  await endorse(c, appA.id);
+  for (const p of [a, b]) {
+    const ck = await p.post("/api/posts", { kind: "checkin", attestation: await attest(p, IN_UTICA, "checkin") });
+    assert.equal(ck.ok, true, JSON.stringify(ck));
+  }
+  assert.equal((await apply(a)).steward, true);
+  const rb = await apply(b);
+  assert.equal(rb.challenge, true, JSON.stringify(rb));
+  const apps = await appId(env, "5142056");
+  const appB = apps.find((x) => x.wallet === b.w.address);
+  assert.ok(appB, "the challenger is in the window");
+  for (const s of supporters) assert.equal((await endorse(s, appB.id)).ok, true);
   await passTime(env, 73 * HOUR);
   let seat = await seatOf("5142056");
-  assert.equal(seat.user_id, appA.user_id);
+  assert.equal(seat.wallet, b.w.address, "the challenger won the election");
+  assert.equal(seat.status, "provisional");
 
   assert.equal((await d.post("/api/seats/object", { seatId: seat.id, reason: "short" })).error, "reason_required");
   assert.equal((await d.post("/api/seats/object", { seatId: seat.id, reason: "They don't live here, I've never seen them" })).ok, true);
@@ -131,23 +159,24 @@ test("objections: an admin who didn't object decides; upheld passes the seat to 
   assert.equal(r.nextApplicant, true);
   seat = await seatOf("5142056");
   assert.equal(seat.status, "provisional");
-  assert.equal(seat.user_id, (await appId(env, "5142056"))[1].user_id, "the runner-up");
+  assert.equal(seat.wallet, a.w.address, "the runner-up (the former steward)");
   const revoked = await env.DB.prepare("SELECT * FROM seats WHERE status = 'revoked'").first();
-  assert.equal(revoked.user_id, appA.user_id);
+  assert.equal(revoked.wallet, b.w.address);
   const audit = await (await admin.send("/api/audit")).json();
   assert.equal(audit.actions[0].action, "revoke_seat");
-  assert.equal((await apply(a)).error, "cooldown", "30 days before applying again");
+  assert.equal((await apply(b)).error, "cooldown", "the ousted founder waits 30 days before applying again");
 });
 
 test("grace: selling pauses powers at once, 7 days to fix it, then the seat reopens; too many graces release it", async () => {
   const a = await person(env, { home: IN_UTICA, holds: 2_000_000 });
   const [c] = await locals(1);
   await tick(env); await passTime(env, 15 * DAY);
-  await apply(a);
-  await passTime(env, 73 * HOUR + 49 * HOUR);
+  assert.equal((await apply(a)).steward, true);
+  await passTime(env, 91 * DAY); // steward confirmed after 90 days of good behavior
   assert.equal((await seatOf("5142056")).status, "active");
 
   // a post to moderate
+  await reprove(c); // the 91 days outlasted the 30-day session
   const post = (await c.post("/api/posts", { scope: "city", kind: "talk", body: "spam spam spam" })).post;
   setHolding(a.w.address, 10);  // sells; no sample yet
   await reprove(a);
@@ -174,7 +203,9 @@ test("grace: selling pauses powers at once, 7 days to fix it, then the seat reop
 test("grace that isn't fixed: released after 7 days; home can't be changed while holding a seat", async () => {
   const a = await person(env, { home: IN_UTICA, holds: 2_000_000 });
   await tick(env); await passTime(env, 15 * DAY);
-  await apply(a);
+  assert.equal((await apply(a)).steward, true);
+  await passTime(env, 91 * DAY); // steward confirmed after 90 days
+  await reprove(a); // the 91 days outlasted the 30-day session
   assert.equal((await a.post("/api/home", { attestation: await attest(a, IN_NYC, "home") })).error, "founder_home_locked");
   await passTime(env, 5 * DAY);
   setHolding(a.w.address, 100); await passTime(env, 6 * DAY);
@@ -189,7 +220,7 @@ test("country manager: elected for 90 days by locals, not handed to the richest 
   const voters = [...(await locals(2)), ...(await locals(1, IN_NYC))];
   await tick(env); await passTime(env, 15 * DAY);
   await apply(u1); await apply(n1, IN_NYC);
-  await passTime(env, 73 * HOUR + 49 * HOUR);
+  await passTime(env, 91 * DAY); // stewards confirmed after 90 days of good behavior
   assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM seats WHERE status = 'active'").first()).n, 2);
   assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM elections").first()).n, 0, "candidates need 30 days as founder");
 

@@ -41,12 +41,26 @@ test("network check: VPNs, Tor, other countries and far-away connections are ref
   assert.equal(networkCheck(undefined, UTICA, "US"), null, "local tests have no network data");
 });
 
-test("rules: founder amount, tiers and the never-list are published", async () => {
-  assert.equal(founderAmount(8_800_000), POLICY.founder.tiers.at(-1).amount);
-  assert.deepEqual(founderLevels(), [...new Set(POLICY.founder.tiers.map((t) => t.amount))]);
+test("rules: founder stake ladder is published (100K–1M by city size)", async () => {
+  // rule of eight: 8x the people → 2x the stake, floored to 10K rungs, clamped [100K, 1M]
+  assert.equal(founderAmount(10_000), 100_000);
+  assert.equal(founderAmount(80_000), 200_000);
+  assert.equal(founderAmount(640_000), 400_000);
+  assert.equal(founderAmount(5_120_000), 800_000);
+  assert.equal(founderAmount(8_800_000), 950_000);   // NYC
+  assert.equal(founderAmount(61_100), 180_000);     // Utica
+  assert.equal(founderAmount(142_000), 240_000);    // Syracuse
+  assert.equal(founderAmount(99_000), 210_000);     // Albany
+  assert.equal(founderAmount(100_000_000), 1_000_000); // clamped at the top
+  const levels = founderLevels();
+  assert.equal(levels.length, 100);
+  assert.equal(levels[0], 10_000);
+  assert.equal(levels[levels.length - 1], 1_000_000);
+  assert.ok(levels.every((x, i) => i === 0 || x === levels[i - 1] + 10_000), "every 10K rung");
   const r = await (await handleApi(new Request("https://vicinity.test/api/policy"))).json();
   assert.equal(r.policy.version, POLICY.version);
-  assert.equal(r.policy.founder.stakeCap, 2);
+  assert.equal(r.policy.founder.ladder.base, 100_000);
+  assert.equal(r.policy.founder.ladder.max, 1_000_000);
   assert.ok(r.policy.never.length >= 5);
   assert.equal(r.balanceHistory.running, false);
 });

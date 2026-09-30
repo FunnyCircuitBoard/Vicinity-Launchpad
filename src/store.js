@@ -195,6 +195,7 @@ CREATE TABLE IF NOT EXISTS windows (
   opened_at  TEXT NOT NULL,
   closes_at  TEXT NOT NULL,
   status     TEXT NOT NULL DEFAULT 'open',
+  kind       TEXT NOT NULL DEFAULT 'standard',
   decided_at TEXT,
   result     TEXT,
   result_hash TEXT
@@ -206,6 +207,7 @@ CREATE TABLE IF NOT EXISTS applications (
   city_id    TEXT NOT NULL,
   user_id    INTEGER NOT NULL,
   wallet     TEXT NOT NULL,
+  squad_id   INTEGER,
   pitch      TEXT,
   created_at TEXT NOT NULL,
   withdrawn  INTEGER NOT NULL DEFAULT 0,
@@ -241,13 +243,33 @@ CREATE TABLE IF NOT EXISTS seats (
   created_at     TEXT NOT NULL,
   appeal_until   TEXT,
   activated_at   TEXT,
+  probation_until TEXT,
   grace_until    TEXT,
   graces         TEXT NOT NULL DEFAULT '[]',
   ended_at       TEXT,
   end_reason     TEXT
 );
-CREATE UNIQUE INDEX IF NOT EXISTS seats_city_live ON seats (city_id) WHERE status IN ('provisional', 'active', 'grace');
-CREATE UNIQUE INDEX IF NOT EXISTS seats_user_live ON seats (user_id) WHERE status IN ('provisional', 'active', 'grace');
+CREATE UNIQUE INDEX IF NOT EXISTS seats_city_live ON seats (city_id) WHERE status IN ('provisional', 'active', 'grace', 'steward');
+CREATE UNIQUE INDEX IF NOT EXISTS seats_user_live ON seats (user_id) WHERE status IN ('provisional', 'active', 'grace', 'steward');
+CREATE TABLE IF NOT EXISTS squads (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  city_id      TEXT NOT NULL,
+  city_name    TEXT NOT NULL,
+  country      TEXT NOT NULL,
+  created_by   INTEGER NOT NULL,
+  founder_wallet TEXT,
+  status       TEXT NOT NULL DEFAULT 'forming',
+  created_at   TEXT NOT NULL,
+  seated_at    TEXT
+);
+CREATE TABLE IF NOT EXISTS squad_members (
+  squad_id  INTEGER NOT NULL,
+  user_id   INTEGER NOT NULL,
+  wallet    TEXT NOT NULL,
+  joined_at TEXT NOT NULL,
+  PRIMARY KEY (squad_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS squad_members_user ON squad_members (user_id);
 CREATE INDEX IF NOT EXISTS seats_country ON seats (country, status);
 CREATE TABLE IF NOT EXISTS objections (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -381,6 +403,37 @@ CREATE TABLE IF NOT EXISTS city_coins (
   updated_at   TEXT NOT NULL,
   created_at   TEXT NOT NULL
 );
+`,
+  },
+  {
+    id: "2026-10-01-v5-founder-policy",
+    sql: `
+ALTER TABLE seats ADD COLUMN probation_until TEXT;
+ALTER TABLE windows ADD COLUMN kind TEXT NOT NULL DEFAULT 'standard';
+ALTER TABLE applications ADD COLUMN squad_id INTEGER;
+DROP INDEX IF EXISTS seats_city_live;
+CREATE UNIQUE INDEX seats_city_live ON seats (city_id) WHERE status IN ('provisional', 'active', 'grace', 'steward');
+DROP INDEX IF EXISTS seats_user_live;
+CREATE UNIQUE INDEX seats_user_live ON seats (user_id) WHERE status IN ('provisional', 'active', 'grace', 'steward');
+CREATE TABLE IF NOT EXISTS squads (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  city_id      TEXT NOT NULL,
+  city_name    TEXT NOT NULL,
+  country      TEXT NOT NULL,
+  created_by   INTEGER NOT NULL,
+  founder_wallet TEXT,
+  status       TEXT NOT NULL DEFAULT 'forming',
+  created_at   TEXT NOT NULL,
+  seated_at    TEXT
+);
+CREATE TABLE IF NOT EXISTS squad_members (
+  squad_id  INTEGER NOT NULL,
+  user_id   INTEGER NOT NULL,
+  wallet    TEXT NOT NULL,
+  joined_at TEXT NOT NULL,
+  PRIMARY KEY (squad_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS squad_members_user ON squad_members (user_id);
 `,
   },
 ];
