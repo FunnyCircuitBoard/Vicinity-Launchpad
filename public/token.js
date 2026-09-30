@@ -14,9 +14,9 @@
     body.replaceChildren(...list.map((t) => {
       const tr = el("tr");
       const ca = el("td");
-      if (isAddr(t.contract)) ca.append(el("code", null, t.contract)); else ca.textContent = t.status === "Launching soon" ? "Launching soon" : "—";
+      if (isAddr(t.contract)) ca.append(el("code", null, t.contract)); else ca.textContent = t.status || "—";
       const st = el("td");
-      st.append(el("span", t.contract ? "tag tag--ok" : t.status === "Launching soon" ? "tag tag--warn" : "tag", t.contract ? "Live" : t.status));
+      st.append(el("span", t.contract ? "tag tag--ok" : /^launching/i.test(t.status || "") ? "tag tag--warn" : "tag", t.contract ? "Live" : t.status));
       tr.append(el("td", null, t.network), el("td", null, `${t.name} (${t.symbol.startsWith("e.g.") ? t.symbol : "$" + t.symbol})`), ca, st);
       return tr;
     }));

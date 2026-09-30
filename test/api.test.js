@@ -29,10 +29,10 @@ test("wrong method is rejected; unknown route is 404", async () => {
   assert.equal((await handleApi(req("/api/nope"))).status, 404);
 });
 
-test("official list says no token and no socials yet", async () => {
+test("official list: no token yet, X account listed", async () => {
   const data = await (await handleApi(req("/api/official"))).json();
   assert.equal(data.tokenContract, null);
-  assert.deepEqual(data.socials, []);
+  assert.deepEqual(data.socials, ["@VicinityCitySOL"]);
 });
 
 test("link checker: official site, official GitHub, fakes", async () => {
