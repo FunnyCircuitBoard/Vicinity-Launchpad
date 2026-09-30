@@ -80,6 +80,63 @@
 
         <div class="dash-grid">
           <div class="dash-col" id="col-main">
+            <section class="card trade" id="trade" aria-labelledby="trade-title">
+              <div class="trade__head"><p class="kicker">Buy &amp; swap</p><span class="tag" id="trade-state">Opens at launch</span></div>
+              <h2 class="h2--sm" id="trade-title">Grow your stack.</h2>
+              <div class="seg seg--sm trade__tabs" role="tablist" aria-label="What to do">
+                <button type="button" role="tab" data-route="vic" aria-selected="true">$VICINITY</button>
+                <button type="button" role="tab" data-route="city" aria-selected="false"><span data-city-tk>$CITY</span></button>
+                <button type="button" role="tab" data-route="swap" aria-selected="false">Swap</button>
+              </div>
+              <div class="swapbox">
+                <div class="swapbox__row">
+                  <span class="swapbox__label">You pay</span>
+                  <div class="swapbox__line"><label class="sr-only" for="tr-amt">Amount to pay</label><input class="swapbox__amt" id="tr-amt" inputmode="decimal" placeholder="0.0" autocomplete="off"><span class="token-chip" id="tr-in"><span class="token-chip__dot" aria-hidden="true"></span><span>SOL</span></span></div>
+                  <span class="swapbox__usd" id="tr-in-usd"></span>
+                </div>
+                <button class="swapbox__flip" type="button" id="tr-flip" aria-label="Switch direction">⇅</button>
+                <div class="swapbox__row">
+                  <span class="swapbox__label">You get · estimate</span>
+                  <div class="swapbox__line"><output class="swapbox__amt" id="tr-out" for="tr-amt">—</output><span class="token-chip" id="tr-outk"><span class="token-chip__dot" aria-hidden="true"></span><span>$VICINITY</span></span></div>
+                  <span class="swapbox__usd" id="tr-rate"></span>
+                </div>
+              </div>
+              <a class="btn btn--primary btn--block" id="tr-go" href="/token#buy">How to get ready →</a>
+              <a class="btn btn--glass btn--block btn--sm trade__alt" id="tr-go-2" href="/token#buy" hidden>or on Raydium ↗</a>
+              <p class="tiny muted trade__note" id="tr-note">You sign every swap in your own wallet on Jupiter or Raydium. Vicinity never touches your funds.</p>
+            </section>
+
+            <section class="card" id="national">
+              <p class="kicker">Your country · <a href="/rules#managers">how managers are elected</a></p>
+              <h2 class="h2--sm" id="nc-name">—</h2>
+              <dl class="kv">
+                <div><dt>Members</dt><dd id="nc-members">—</dd></div>
+                <div><dt>Country Manager</dt><dd id="nc-manager">—</dd></div>
+              </dl>
+              <div class="election" id="nc-election" hidden></div>
+            </section>
+
+            <section class="card community-card" id="community">
+              <div class="community-card__head">
+                <div class="coin-disc" aria-hidden="true"><span id="cc-face">—</span></div>
+                <div><p class="kicker">Your community</p><h2 class="h2--sm" id="cc-name">—</h2><p class="tiny muted" id="cc-ticker"></p></div>
+              </div>
+              <dl class="kv">
+                <div><dt>Members</dt><dd id="cc-members">—</dd></div>
+                <div><dt>Holders here</dt><dd id="cc-holders">—</dd></div>
+                <div><dt>City Founder</dt><dd id="cc-founder">—</dd></div>
+              </dl>
+              <p class="small fomo" id="cc-fomo"></p>
+              <p class="kicker">Top holders here</p>
+              <ol class="mini-board" id="cc-top"><li class="muted small">Live at launch.</li></ol>
+              <button class="btn btn--glass btn--sm btn--block" type="button" id="cc-share">Invite locals · copy link</button>
+            </section>
+
+            <section class="card" id="badges">
+              <p class="kicker">Badges · checked live</p>
+              <ul class="badge-grid" id="badge-grid"></ul>
+            </section>
+
             <section class="card progress-card" id="progress" aria-labelledby="progress-title">
               <div class="progress-card__head">
                 <div><p class="kicker">Founder path · <a href="/rules#founders">the rules</a></p><h2 class="h2--sm" id="progress-title">Found <span id="p-city">your city</span></h2></div>
@@ -150,6 +207,27 @@
 
               <div class="coin-admin" id="coin-admin" hidden><p class="kicker">🛡️ Contracts waiting for a check</p><ul class="req-list" id="coin-waiting"></ul></div>
             </section>
+          </div>
+
+          <aside class="dash-col dash-col--side" id="col-side">
+            <section class="card mod-card" id="mod" hidden>
+              <p class="kicker">🛡️ Moderator tools · <span id="mod-scope"></span></p>
+              <p class="tiny muted">Every action needs a reason and is <a href="/rules#moderation">logged publicly</a>. A hide lasts 24 hours unless a second moderator (or 3 reports) confirms it. Bans need two people.</p>
+              <div id="mod-sections"></div>
+            </section>
+
+            <section class="card" id="request">
+              <p class="kicker">Missing town?</p>
+              <h2 class="h2--sm">Ask for your town</h2>
+              <p class="small muted">Stand in the town and send a request. Your Country Manager gives advice and an admin decides; approved towns join the map at the next update. Only the nearest community is kept, never your location.</p>
+              <form class="req-form" id="req-form" novalidate>
+                <label class="sr-only" for="req-name">Town name</label>
+                <input id="req-name" type="text" maxlength="60" autocomplete="off" placeholder="e.g. New Hartford">
+                <button class="btn btn--glass btn--sm" type="submit">Send (checks location)</button>
+              </form>
+              <ul class="req-list" id="req-mine"></ul>
+              <p class="wallet__error" id="req-err" role="alert" hidden></p>
+            </section>
 
             <section class="card feed" id="feed" aria-label="Feeds">
               <div class="feed__head">
@@ -177,84 +255,6 @@
               <div class="feed__sort"><span class="tiny muted" id="f-note"></span><div class="seg seg--sm"><button type="button" data-sort="new" aria-pressed="true">New</button><button type="button" data-sort="top" aria-pressed="false">Top this week</button></div></div>
               <ul class="posts" id="posts"><li class="muted">Loading…</li></ul>
               <button class="link-btn" type="button" id="f-more" hidden>Load more</button>
-            </section>
-          </div>
-
-          <aside class="dash-col dash-col--side" id="col-side">
-            <section class="card trade" id="trade" aria-labelledby="trade-title">
-              <div class="trade__head"><p class="kicker">Buy &amp; swap</p><span class="tag" id="trade-state">Opens at launch</span></div>
-              <h2 class="h2--sm" id="trade-title">Grow your stack.</h2>
-              <div class="seg seg--sm trade__tabs" role="tablist" aria-label="What to do">
-                <button type="button" role="tab" data-route="vic" aria-selected="true">$VICINITY</button>
-                <button type="button" role="tab" data-route="city" aria-selected="false"><span data-city-tk>$CITY</span></button>
-                <button type="button" role="tab" data-route="swap" aria-selected="false">Swap</button>
-              </div>
-              <div class="swapbox">
-                <div class="swapbox__row">
-                  <span class="swapbox__label">You pay</span>
-                  <div class="swapbox__line"><label class="sr-only" for="tr-amt">Amount to pay</label><input class="swapbox__amt" id="tr-amt" inputmode="decimal" placeholder="0.0" autocomplete="off"><span class="token-chip" id="tr-in"><span class="token-chip__dot" aria-hidden="true"></span><span>SOL</span></span></div>
-                  <span class="swapbox__usd" id="tr-in-usd"></span>
-                </div>
-                <button class="swapbox__flip" type="button" id="tr-flip" aria-label="Switch direction">⇅</button>
-                <div class="swapbox__row">
-                  <span class="swapbox__label">You get · estimate</span>
-                  <div class="swapbox__line"><output class="swapbox__amt" id="tr-out" for="tr-amt">—</output><span class="token-chip" id="tr-outk"><span class="token-chip__dot" aria-hidden="true"></span><span>$VICINITY</span></span></div>
-                  <span class="swapbox__usd" id="tr-rate"></span>
-                </div>
-              </div>
-              <a class="btn btn--primary btn--block" id="tr-go" href="/token#buy">How to get ready →</a>
-              <a class="btn btn--glass btn--block btn--sm trade__alt" id="tr-go-2" href="/token#buy" hidden>or on Raydium ↗</a>
-              <p class="tiny muted trade__note" id="tr-note">You sign every swap in your own wallet on Jupiter or Raydium. Vicinity never touches your funds.</p>
-            </section>
-
-            <section class="card community-card" id="community">
-              <div class="community-card__head">
-                <div class="coin-disc" aria-hidden="true"><span id="cc-face">—</span></div>
-                <div><p class="kicker">Your community</p><h2 class="h2--sm" id="cc-name">—</h2><p class="tiny muted" id="cc-ticker"></p></div>
-              </div>
-              <dl class="kv">
-                <div><dt>Members</dt><dd id="cc-members">—</dd></div>
-                <div><dt>Holders here</dt><dd id="cc-holders">—</dd></div>
-                <div><dt>City Founder</dt><dd id="cc-founder">—</dd></div>
-              </dl>
-              <p class="small fomo" id="cc-fomo"></p>
-              <p class="kicker">Top holders here</p>
-              <ol class="mini-board" id="cc-top"><li class="muted small">Live at launch.</li></ol>
-              <button class="btn btn--glass btn--sm btn--block" type="button" id="cc-share">Invite locals · copy link</button>
-            </section>
-
-            <section class="card" id="national">
-              <p class="kicker">Your country · <a href="/rules#managers">how managers are elected</a></p>
-              <h2 class="h2--sm" id="nc-name">—</h2>
-              <dl class="kv">
-                <div><dt>Members</dt><dd id="nc-members">—</dd></div>
-                <div><dt>Country Manager</dt><dd id="nc-manager">—</dd></div>
-              </dl>
-              <div class="election" id="nc-election" hidden></div>
-            </section>
-
-            <section class="card" id="badges">
-              <p class="kicker">Badges · checked live</p>
-              <ul class="badge-grid" id="badge-grid"></ul>
-            </section>
-
-            <section class="card mod-card" id="mod" hidden>
-              <p class="kicker">🛡️ Moderator tools · <span id="mod-scope"></span></p>
-              <p class="tiny muted">Every action needs a reason and is <a href="/rules#moderation">logged publicly</a>. A hide lasts 24 hours unless a second moderator (or 3 reports) confirms it. Bans need two people.</p>
-              <div id="mod-sections"></div>
-            </section>
-
-            <section class="card" id="request">
-              <p class="kicker">Missing town?</p>
-              <h2 class="h2--sm">Ask for your town</h2>
-              <p class="small muted">Stand in the town and send a request. Your Country Manager gives advice and an admin decides; approved towns join the map at the next update. Only the nearest community is kept, never your location.</p>
-              <form class="req-form" id="req-form" novalidate>
-                <label class="sr-only" for="req-name">Town name</label>
-                <input id="req-name" type="text" maxlength="60" autocomplete="off" placeholder="e.g. New Hartford">
-                <button class="btn btn--glass btn--sm" type="submit">Send (checks location)</button>
-              </form>
-              <ul class="req-list" id="req-mine"></ul>
-              <p class="wallet__error" id="req-err" role="alert" hidden></p>
             </section>
           </aside>
         </div>
