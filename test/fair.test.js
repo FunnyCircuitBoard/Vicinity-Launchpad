@@ -27,30 +27,29 @@ const endorse = async (p, applicationId) => { await reprove(p); return p.post("/
 const appId = async (env_, windowCity) => (await env_.DB.prepare("SELECT id, user_id FROM applications WHERE city_id = ? AND withdrawn = 0 ORDER BY id").bind(windowCity).all()).results;
 const seatOf = (cityId) => env.DB.prepare("SELECT * FROM seats WHERE city_id = ? ORDER BY id DESC LIMIT 1").bind(cityId).first();
 
-test("qualifying: 14 days of holding in every sample, home set 7 days before — borrowed tokens can't found a city", async () => {
+test("qualifying: 7 days of holding in every sample, home set 7 days before — borrowed tokens can't found a city", async () => {
   const a = await person(env, { home: IN_UTICA, holds: 2_000_000 });
   await tick(env);
   let r = await apply(a);
   assert.equal(r.error, "home_too_new");
   await passTime(env, 8 * DAY);
-  r = await apply(a);
-  assert.equal(r.error, "not_qualified");
-  assert.ok(r.tenure.days >= 7.9 && r.tenure.days < 9, JSON.stringify(r.tenure));
 
   // one sample below the line restarts the clock
   setHolding(a.w.address, 999_999); advance(10 * 60_000); await tick(env);
-  setHolding(a.w.address, 2_000_000); await passTime(env, 7 * DAY);
+  setHolding(a.w.address, 2_000_000); await passTime(env, 4 * DAY);
   r = await apply(a);
-  assert.equal(r.error, "not_qualified", "the dip restarted the 14 days");
-  await passTime(env, 8 * DAY);
+  assert.equal(r.error, "not_qualified", "the dip restarted the 7 days");
+  assert.ok(r.tenure.days >= 3.5 && r.tenure.days < 5, JSON.stringify(r.tenure));
+  await passTime(env, 4 * DAY);
 
   // a flash-buy right now doesn't help someone who didn't hold before
-  const flash = await person(env, { home: IN_UTICA, holds: 50_000_000 });
-  advance(8 * DAY); await tick(env);
+  const flash = await person(env, { home: IN_UTICA, holds: 0 });
+  await passTime(env, 8 * DAY);
+  setHolding(flash.w.address, 50_000_000); advance(10 * 60_000); await tick(env);
   assert.equal((await apply(flash)).error, "not_qualified");
 
   // sensitive: needs the wallet proven in the last 30 minutes, and the attestation must be for this purpose and city
-  await a.post("/api/auth/wallet", await loginBody(a.w)); // signed in again (the test spans 30+ days)
+  await a.post("/api/auth/wallet", await loginBody(a.w)); // signed in again (the test spans days)
   advance(HOUR);
   assert.equal((await a.post("/api/seats/apply", { attestation: await attest(a, IN_UTICA, "apply") })).error, "reprove");
   await reprove(a);
