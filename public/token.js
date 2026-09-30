@@ -116,7 +116,7 @@
     const amount = d.amount || 0;
     set("#rank-amount", `${fmt(amount)} $VICINITY`);
     set("#rank-share", amount ? `${pctText(d.percent || 0)}%` : "0%");
-    set("#rank-founder", amount >= FOUNDER ? "✓ Holds it (must hold 14 days)" : `${fmt(FOUNDER - amount)} to go`);
+    set("#rank-founder", amount >= FOUNDER ? "✓ Holds it (must hold 7 days)" : `${fmt(FOUNDER - amount)} to go`);
     if (d.label && !d.rank) { set("#rank-num", "Pool"); set("#rank-of", d.label); set("#rank-pct", "Pools and curves are listed but not ranked."); }
     else if (d.rank) {
       set("#rank-num", `#${fmt(d.rank)}`); set("#rank-of", `of ${fmt(d.total)} holders`);
