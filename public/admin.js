@@ -21,14 +21,36 @@
   /* ---------- sign-in ---------- */
   function renderGate() {
     const list = W.list();
-    $("#admin-wallets").replaceChildren(...list.map((a) => {
-      const b = el("button", "wallet-option"); b.type = "button";
-      const icon = W.safeIcon(a.icon);
-      if (icon) { const img = el("img"); img.alt = ""; img.src = icon; b.append(img); } else b.append(W.mark(a.name));
-      b.append(el("span", null, a.name), el("span", "detected", "Sign"));
-      b.addEventListener("click", () => pickWallet(a));
-      return b;
-    }), list.length ? null : el("p", "muted", "No wallet detected. Install Phantom or another Solana wallet, then reload."));
+    const box = $("#admin-wallets");
+    if (list.length) {
+      box.replaceChildren(...list.map((a) => {
+        const b = el("button", "wallet-option"); b.type = "button";
+        const icon = W.safeIcon(a.icon);
+        if (icon) { const img = el("img"); img.alt = ""; img.src = icon; b.append(img); } else b.append(W.mark(a.name));
+        b.append(el("span", null, a.name), el("span", "detected", "Sign"));
+        b.addEventListener("click", () => pickWallet(a));
+        return b;
+      }));
+    }
+    // No wallet in this browser. Phones: open this page inside the wallet app, where its
+    // wallet is injected and the normal connect flow works.
+    else if (W.isMobile) {
+      const openers = W.KNOWN.filter((k) => k.open);
+      const rest = W.KNOWN.filter((k) => !k.open);
+      const tile = (k, href, label, blank) => {
+        const a = el("a", "wallet-option"); a.href = href;
+        if (blank) { a.target = "_blank"; a.rel = "noopener"; }
+        a.append(W.mark(k.name), el("span", null, k.name), el("span", "go", label));
+        return a;
+      };
+      box.replaceChildren(
+        el("p", "muted", "You're on a phone — open this page inside your wallet app, then connect it there."),
+        ...openers.map((k) => tile(k, k.open(location.href), "Open app")),
+        ...rest.map((k) => tile(k, k.site, "Get", true)),
+      );
+    } else {
+      box.replaceChildren(el("p", "muted", "No wallet detected. Install Phantom or another Solana wallet, then reload."));
+    }
     W.onChange(renderGateOnce);
   }
   let gateRendered = false;
