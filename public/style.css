@@ -665,6 +665,9 @@ body.layout-edit .layout-bar { display: flex; align-items: center; gap: 8px; mar
 .dash-col > .card.drop-before::before { top: -9px; }
 .dash-col > .card.drop-after::after { bottom: -9px; }
 .dash-col.drop-target { outline: 2px dashed var(--pin); outline-offset: 6px; min-height: 80px; border-radius: 14px; }
+/* Badge tabs. */
+.badge-tabs { margin: 10px 0 12px; }
+.badge__pending { display: inline-block; margin-top: 4px; font-size: .62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--gold-text); }
 .layout-ghost { position: fixed; z-index: 9999; pointer-events: none; opacity: .94; margin: 0; box-shadow: 0 18px 50px rgba(0,0,0,.45); border: 2px solid var(--pin); }
 .progress-card__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
 .progress-card__pct { font: 700 2rem var(--display); color: var(--gold-text); }

@@ -388,18 +388,34 @@
       el("p", "tiny muted", "One vote per person. Score: 50% votes, 30% service, 20% holdings capped at 2×. 90-day term."));
   }
 
-  function renderBadges(d) {
-    $("#badge-grid").replaceChildren(...d.badges.map((b) => {
-      const lost = d.lost.includes(b.id);
-      const li = el("li", `badge ${b.earned ? "is-earned" : lost ? "is-lost" : "is-locked"}`);
-      li.title = `${b.name}: ${b.detail}${b.earned ? " ✓" : ""}`;
-      li.tabIndex = 0;
-      li.append(el("span", "badge__icon", b.icon), el("span", "badge__name", b.grace ? `${b.name} (grace)` : b.name));
-      if (!b.earned && b.progress > 0) { const p = el("span", "badge__prog"), f = el("span"); f.style.width = `${Math.round(b.progress * 100)}%`; p.append(f); li.append(p); }
-      li.addEventListener("click", () => toast(`${b.icon} ${b.name}: ${b.detail}`));
-      return li;
-    }));
+  let btab = "earned";
+  function badgeEl(d, b) {
+    const lost = d.lost.includes(b.id);
+    const li = el("li", `badge ${b.earned ? "is-earned" : lost ? "is-lost" : "is-locked"}`);
+    li.title = `${b.name}: ${b.detail}${b.earned ? " ✓" : ""}`;
+    li.tabIndex = 0;
+    li.append(el("span", "badge__icon", b.icon), el("span", "badge__name", b.grace ? `${b.name} (grace)` : b.name));
+    if (!b.earned && b.progress > 0) {
+      const p = el("span", "badge__prog"), f = el("span");
+      f.style.width = `${Math.round(b.progress * 100)}%`; p.append(f); li.append(p);
+      li.append(el("span", "badge__pending", "◐ In progress"));
+    }
+    li.addEventListener("click", () => toast(`${b.icon} ${b.name}: ${b.detail}`));
+    return li;
   }
+  function renderBadges(d) {
+    const earned = d.badges.filter((b) => b.earned), locked = d.badges.filter((b) => !b.earned);
+    $("#bg-n-earned").textContent = earned.length;
+    $("#bg-n-locked").textContent = locked.length;
+    const list = btab === "earned" ? earned : locked;
+    $("#badge-grid").replaceChildren(...list.map((b) => badgeEl(d, b)));
+    if (!list.length) $("#badge-grid").append(el("li", "muted small", btab === "earned" ? "Nothing earned yet — your first badges are waiting." : "Everything achieved. Nice."));
+  }
+  $$("[data-btab]").forEach((b) => b.addEventListener("click", () => {
+    btab = b.dataset.btab;
+    $$("[data-btab]").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
+    if (me) renderBadges(me);
+  }));
 
   const showErr = (sel, msg) => { const e = $(sel); e.textContent = msg || ""; e.hidden = !msg; };
 
