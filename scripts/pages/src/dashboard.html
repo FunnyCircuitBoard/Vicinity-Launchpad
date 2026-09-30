@@ -73,8 +73,13 @@
           </div>
         </div>
 
+        <div class="dash-tools">
+          <button class="btn btn--glass btn--sm" type="button" id="layout-edit">🎛 Customize layout</button>
+          <button class="btn btn--glass btn--sm" type="button" id="layout-reset" hidden>Reset</button>
+        </div>
+
         <div class="dash-grid">
-          <div class="dash-col">
+          <div class="dash-col" id="col-main">
             <section class="card progress-card" id="progress" aria-labelledby="progress-title">
               <div class="progress-card__head">
                 <div><p class="kicker">Founder path · <a href="/rules#founders">the rules</a></p><h2 class="h2--sm" id="progress-title">Found <span id="p-city">your city</span></h2></div>
@@ -175,7 +180,7 @@
             </section>
           </div>
 
-          <aside class="dash-col dash-col--side">
+          <aside class="dash-col dash-col--side" id="col-side">
             <section class="card trade" id="trade" aria-labelledby="trade-title">
               <div class="trade__head"><p class="kicker">Buy &amp; swap</p><span class="tag" id="trade-state">Opens at launch</span></div>
               <h2 class="h2--sm" id="trade-title">Grow your stack.</h2>

@@ -907,6 +907,127 @@
   $("#me-copy").addEventListener("click", () => me && copy(me.user.wallet, "Wallet address copied"));
   $("#me-logout").addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/"); });
 
+  /* ---------- customizable card layout ---------- */
+  // Drag-to-reorder (touch + mouse) with per-card column move, saved per user in
+  // localStorage. Temporary scaffolding so the layout can be arranged by hand.
+  const LAYOUT_LABELS = { progress: "Founder path", coin: "City coin", feed: "Community feed", trade: "Buy & swap", community: "Your community", national: "Your country", badges: "Badges", mod: "Moderator tools", request: "Ask for your town" };
+  let layoutDef = null, layoutEditing = false;
+  const layoutKey = () => `vicinity:dash-layout:${me && me.user ? me.user.id : "anon"}`;
+  const layoutCards = (col) => [...col.querySelectorAll(":scope > section.card")].filter((c) => c.id && !c.hidden);
+  const layoutRead = () => ({ main: layoutCards($("#col-main")).map((c) => c.id), side: layoutCards($("#col-side")).map((c) => c.id) });
+  const layoutSave = () => { try { localStorage.setItem(layoutKey(), JSON.stringify(layoutRead())); } catch {} };
+  function layoutLoad() {
+    try {
+      const l = JSON.parse(localStorage.getItem(layoutKey()));
+      return l && Array.isArray(l.main) && Array.isArray(l.side) ? l : null;
+    } catch { return null; }
+  }
+  function layoutApply(l) {
+    const byId = {};
+    $$("#col-main > section.card, #col-side > section.card").forEach((c) => { if (c.id) byId[c.id] = c; });
+    const main = $("#col-main"), side = $("#col-side"), seen = new Set();
+    const put = (col, id) => { const c = byId[id]; if (c && !seen.has(id)) { col.append(c); seen.add(id); } };
+    l.main.forEach((id) => put(main, id));
+    l.side.forEach((id) => put(side, id));
+    if (layoutDef) { layoutDef.main.forEach((id) => put(main, id)); layoutDef.side.forEach((id) => put(side, id)); }
+  }
+  function layoutDrag(card, handle) {
+    handle.addEventListener("pointerdown", (e) => {
+      if (e.button != null && e.button !== 0) return;
+      e.preventDefault();
+      try { handle.setPointerCapture(e.pointerId); } catch {}
+      const rect = card.getBoundingClientRect();
+      const ghost = card.cloneNode(true);
+      ghost.classList.add("layout-ghost");
+      ghost.querySelector(":scope > .layout-bar")?.remove();
+      ghost.style.width = `${rect.width}px`;
+      ghost.style.left = `${rect.left}px`;
+      ghost.style.top = `${rect.top}px`;
+      document.body.append(ghost);
+      card.classList.add("card--dragging");
+      let target = null;
+      const clear = () => {
+        $$(".drop-before, .drop-after").forEach((x) => x.classList.remove("drop-before", "drop-after"));
+        $$(".dash-col.drop-target").forEach((x) => x.classList.remove("drop-target"));
+      };
+      const move = (ev) => {
+        ghost.style.left = `${ev.clientX - rect.width / 2}px`;
+        ghost.style.top = `${ev.clientY - 40}px`;
+        if (ev.clientY < 70) window.scrollBy(0, -14);
+        else if (ev.clientY > window.innerHeight - 70) window.scrollBy(0, 14);
+        clear(); target = null;
+        const under = document.elementFromPoint(ev.clientX, ev.clientY);
+        const col = under && under.closest ? under.closest(".dash-col") : null;
+        if (!col) return;
+        const cards = [...col.querySelectorAll(":scope > section.card")].filter((c) => c !== card && !c.hidden);
+        for (const c of cards) {
+          const r = c.getBoundingClientRect();
+          if (ev.clientY < r.top + r.height / 2) { target = { card: c, before: true }; c.classList.add("drop-before"); return; }
+        }
+        const last = cards[cards.length - 1];
+        if (last) { target = { card: last, before: false }; last.classList.add("drop-after"); }
+        else { target = { col }; col.classList.add("drop-target"); }
+      };
+      const up = () => {
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", up);
+        handle.removeEventListener("pointercancel", up);
+        ghost.remove();
+        card.classList.remove("card--dragging");
+        clear();
+        if (target) {
+          if (target.col) target.col.append(card);
+          else if (target.before) target.card.before(card);
+          else target.card.after(card);
+          layoutSave();
+        }
+      };
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", up);
+      handle.addEventListener("pointercancel", up);
+    });
+  }
+  function layoutDecorate(card) {
+    if (card.querySelector(":scope > .layout-bar")) return;
+    const bar = el("div", "layout-bar");
+    bar.append(el("span", "layout-bar__label", LAYOUT_LABELS[card.id] || card.id));
+    const handle = el("button", "layout-handle", "⋮⋮ drag");
+    handle.type = "button";
+    const mv = el("button", "layout-move", card.parentElement.id === "col-main" ? "→ side" : "→ main");
+    mv.type = "button";
+    mv.addEventListener("click", () => {
+      const other = card.parentElement.id === "col-main" ? $("#col-side") : $("#col-main");
+      other.append(card);
+      mv.textContent = other.id === "col-main" ? "→ side" : "→ main";
+      layoutSave();
+    });
+    bar.append(handle, mv);
+    card.prepend(bar);
+    layoutDrag(card, handle);
+  }
+  function layoutSetEdit(on) {
+    layoutEditing = on;
+    document.body.classList.toggle("layout-edit", on);
+    $("#layout-edit").textContent = on ? "✓ Done" : "🎛 Customize layout";
+    $("#layout-reset").hidden = !on;
+    $$("#col-main > section.card, #col-side > section.card").forEach((c) => {
+      if (on) { if (!c.hidden) layoutDecorate(c); }
+      else c.querySelector(":scope > .layout-bar")?.remove();
+    });
+  }
+  function layoutInit() {
+    if (!$("#col-main") || !$("#col-side") || !$("#layout-edit")) return;
+    layoutDef = layoutRead();
+    const saved = layoutLoad();
+    if (saved) layoutApply(saved);
+    $("#layout-edit").addEventListener("click", () => layoutSetEdit(!layoutEditing));
+    $("#layout-reset").addEventListener("click", () => {
+      try { localStorage.removeItem(layoutKey()); } catch {}
+      if (layoutDef) layoutApply(layoutDef);
+      toast("Layout reset to the default.");
+    });
+  }
+
   /* ---------- start ---------- */
   (async () => {
     const d = await api("/api/me");
@@ -919,6 +1040,7 @@
     if (!d.user.home) { onboard(d); return; }
     $("#dash-main").hidden = false;
     render(d);
+    layoutInit();
     setupComposer(); loadFeed(true); loadMod(); loadTowns();
     reveal();
     if (params.get("welcome")) toast(`Welcome to Vicinity, ${d.user.handle || d.user.name} 🎉`);

@@ -650,6 +650,22 @@ select option { background: var(--bg-2); }
 .dash-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
 .dash-grid > *, .dash-top > * { min-width: 0; }
 .dash-col > .card { padding: 22px; }
+.dash-tools { display: flex; gap: 8px; justify-content: flex-end; margin: 2px 0 12px; }
+/* Customizable layout: edit mode, drag handles, drop indicator, drag ghost. */
+body.layout-edit .dash-col > .card { outline: 2px dashed rgba(var(--ink),.28); outline-offset: -2px; }
+body.layout-edit .dash-col > .card.card--dragging { opacity: .35; }
+.layout-bar { display: none; }
+body.layout-edit .layout-bar { display: flex; align-items: center; gap: 8px; margin: -8px -8px 10px; padding: 4px 6px; border-radius: 10px; background: rgba(var(--ink),.06); }
+.layout-bar__label { font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.layout-handle { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 600 .8rem var(--body); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.layout-handle:active { cursor: grabbing; }
+.layout-move { padding: 6px 10px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 600 .8rem var(--body); cursor: pointer; }
+.dash-col > .card.drop-before, .dash-col > .card.drop-after { position: relative; }
+.dash-col > .card.drop-before::before, .dash-col > .card.drop-after::after { content: ""; position: absolute; left: 10px; right: 10px; height: 4px; border-radius: 2px; background: var(--pin); z-index: 5; }
+.dash-col > .card.drop-before::before { top: -9px; }
+.dash-col > .card.drop-after::after { bottom: -9px; }
+.dash-col.drop-target { outline: 2px dashed var(--pin); outline-offset: 6px; min-height: 80px; border-radius: 14px; }
+.layout-ghost { position: fixed; z-index: 9999; pointer-events: none; opacity: .94; margin: 0; box-shadow: 0 18px 50px rgba(0,0,0,.45); border: 2px solid var(--pin); }
 .progress-card__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
 .progress-card__pct { font: 700 2rem var(--display); color: var(--gold-text); }
 .bar { height: 12px; border-radius: 8px; background: rgba(var(--ink),.08); overflow: hidden; margin: 6px 0 14px; }
