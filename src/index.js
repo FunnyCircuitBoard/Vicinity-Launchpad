@@ -24,6 +24,7 @@
  * SNAPSHOT_CUTOFF, ATTEST_KEY (optional).
  */
 import { OFFICIAL, activeMint, checkOfficial, officialFor } from "./official.js";
+import { handleAdmin } from "./admin.js";
 import { getHolding, getTokenFacts, getTopHolders, holderSnapshot, rankOf } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
 import { SECURITY_HEADERS, json } from "./http.js";
@@ -134,6 +135,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
   const db = async (fn) => needsDb() || (await ensureSchema(env.DB), fn());
 
   // paths with an id in them
+  if (path.startsWith("/api/admin/")) return db(() => handleAdmin(request, env));
   const oauth = path.match(/^\/api\/auth\/(google|x)\/(start|callback)$/);
   if (oauth) return only("GET") || (oauth[2] === "start" ? handleOAuthStart(request, env, oauth[1]) : handleOAuthCallback(request, env, oauth[1], fetchImpl));
   let m = path.match(/^\/api\/media\/([0-9]{1,10})$/);

@@ -209,3 +209,31 @@ test("token registry round-trips", async () => {
   assert.equal(d.registered.length, 1);
   assert.equal(d.registered[0].city, "Testville");
 });
+
+test("owner bootstrap: wallet-only session (no linked account) gets owner access", async () => {
+  // A session with a proven wallet but no user row — e.g. Saki before linking Google.
+  const now = Date.now();
+  const tok = randomToken(24);
+  await env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, created_at, expires_at, proven_at) VALUES (?, ?, NULL, ?, ?, ?)")
+    .bind(await sha256(tok), OWNER, iso(now), iso(now + 30 * 86400000), iso(now)).run();
+  const cookie = `vs=${encodeURIComponent(tok)}`;
+
+  const me = await (await call("/api/admin/me", { cookie })).json();
+  assert.ok(me.ok);
+  assert.equal(me.role, "owner");
+  assert.equal(me.wallet, OWNER);
+
+  // Bootstrap provisioned a user row and linked the session.
+  const u = await env.DB.prepare("SELECT * FROM users WHERE wallet = ?").bind(OWNER).first();
+  assert.ok(u, "owner user row provisioned");
+  assert.equal(u.provider, "wallet");
+  const s = await env.DB.prepare("SELECT user_id FROM sessions WHERE id = ?").bind(await sha256(tok)).first();
+  assert.equal(s.user_id, u.id, "session linked to provisioned user");
+
+  // A non-owner wallet without a linked account still gets 401.
+  const stranger = await newWallet();
+  const tok2 = randomToken(24);
+  await env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, created_at, expires_at, proven_at) VALUES (?, ?, NULL, ?, ?, ?)")
+    .bind(await sha256(tok2), stranger, iso(now), iso(now + 30 * 86400000), iso(now)).run();
+  assert.equal((await call("/api/admin/me", { cookie: `vs=${encodeURIComponent(tok2)}` })).status, 401);
+});

@@ -19,9 +19,9 @@
  *   import { handleAdmin } from "./admin.js";
  *   if (path.startsWith("/api/admin/")) return handleAdmin(request, env);
  */
-import { getSession, isFresh } from "./auth.js";
+import { getSession, isFresh, SESSION_COOKIE } from "./auth.js";
 import { adminWallets } from "./roles.js";
-import { clearCookie, cookie, json, readJson, sameSite } from "./http.js";
+import { clearCookie, cookie, getCookie, json, readJson, sameSite, sha256 } from "./http.js";
 import { ensureSchema } from "./store.js";
 import { cleanText } from "./text.js";
 import { isSolanaAddress } from "./solana.js";
@@ -53,15 +53,44 @@ const track = (db, table, id, id2 = null) =>
  * Signed-in admin check. Returns { ctx } or { res } with the 401/403 to send.
  * minRole: the lowest tier allowed. fresh: also require a wallet proof from the last 30 minutes.
  */
+/**
+ * Resolve the admin caller: session -> user, with owner bootstrap (see guard).
+ * Returns { s, user, wallet } or null when not signed in / not provisionable.
+ */
+async function adminCaller(request, env, now = Date.now()) {
+  const db = env.DB;
+  const s = await getSession(env, request, now);
+  if (!s) return null;
+  let user = s.user;
+  const wallet = user ? user.wallet : s.wallet;
+  if (!user && wallet && adminWallets(env).includes(wallet)) {
+    user = await db.prepare("SELECT * FROM users WHERE wallet = ?").bind(wallet).first();
+    if (!user) {
+      const r = await db.prepare("INSERT INTO users (wallet, provider, provider_id, created_at) VALUES (?, 'wallet', ?, ?)")
+        .bind(wallet, wallet, iso(now)).run();
+      user = await db.prepare("SELECT * FROM users WHERE id = ?").bind(r.meta.last_row_id).first();
+      await logAudit(db, { actor: wallet, action: "admin/bootstrap", detail: "owner user row provisioned from wallet signature" }, now).run();
+    }
+    const token = getCookie(request, SESSION_COOKIE);
+    if (token && token.length <= 100) await db.prepare("UPDATE sessions SET user_id = ? WHERE id = ?").bind(user.id, await sha256(token)).run();
+  }
+  if (!user) return null;
+  return { s, user, wallet: user.wallet };
+}
+
+/**
+ * Signed-in admin check. Returns { ctx } or { res } with the 401/403 to send.
+ * minRole: the lowest tier allowed. fresh: also require a wallet proof from the last 30 minutes.
+ */
 async function guard(request, env, minRole, { fresh = false, now = Date.now() } = {}) {
   if (!env.DB) return { res: json({ ok: false, error: "unavailable" }, 503) };
   await ensureSchema(env.DB);
-  const s = await getSession(env, request, now);
-  if (!s || !s.user) return { res: json({ ok: false, error: "sign_in" }, 401) };
-  const role = await adminRoleOf(env, s.user.wallet);
+  const c = await adminCaller(request, env, now);
+  if (!c) return { res: json({ ok: false, error: "sign_in" }, 401) };
+  const role = await adminRoleOf(env, c.wallet);
   if (!role || LEVEL[role] < LEVEL[minRole]) return { res: json({ ok: false, error: "forbidden", need: minRole }, 403) };
-  if (fresh && !isFresh(s, now)) return { res: json({ ok: false, error: "reprove" }, 403) };
-  return { ctx: { session: s, user: s.user, wallet: s.user.wallet, role, db: env.DB, now } };
+  if (fresh && !isFresh(c.s, now)) return { res: json({ ok: false, error: "reprove" }, 403) };
+  return { ctx: { session: c.s, user: c.user, wallet: c.wallet, role, db: env.DB, now, env } };
 }
 /** Same, but the request changes something: it must come from this site's own pages. */
 const postGuard = (request, env, minRole, opts = {}) =>
@@ -75,9 +104,9 @@ const limitOf = (url, dflt = 50, max = 200) => Math.min(max, Math.max(1, Number(
 async function handleMe(request, env, now) {
   if (!env.DB) return json({ ok: false, error: "unavailable" }, 503);
   await ensureSchema(env.DB);
-  const s = await getSession(env, request, now);
-  if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
-  return json({ ok: true, wallet: s.user.wallet, role: await adminRoleOf(env, s.user.wallet) });
+  const c = await adminCaller(request, env, now);
+  if (!c) return json({ ok: false, error: "sign_in" }, 401);
+  return json({ ok: true, wallet: c.wallet, role: await adminRoleOf(env, c.wallet) });
 }
 
 async function handleOverview(ctx) {
