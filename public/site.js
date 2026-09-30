@@ -84,6 +84,10 @@
   const official = api("/api/official").then((o) => {
     if (o && o.launchpadOpensAt) opensAt = Date.parse(o.launchpadOpensAt);
     if (o && o.siteMode) { siteMode = o.siteMode; if (siteMode === "preview") showPreviewBanner(); }
+    // nav "Oct 10" chip flips to "Open" once the launchpad date has passed
+    if (opensAt <= Date.now()) $$("[data-nav-launch]").forEach((e) => {
+      e.textContent = "Open"; e.classList.remove("nav__soon"); e.classList.add("nav__open");
+    });
     return o;
   });
   function showPreviewBanner() {
