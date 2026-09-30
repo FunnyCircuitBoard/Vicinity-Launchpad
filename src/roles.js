@@ -14,15 +14,15 @@ import { iso } from "./policy.js";
 
 /** Weekly meme votes: founders and country managers have stronger votes (their "special voting rights"). */
 export const VOTE_WEIGHT = { member: 1, holder: 1, founder: 2, manager: 3, admin: 1 };
-export const LIVE = ["provisional", "active", "grace"];
+export const LIVE = ["provisional", "active", "grace", "steward"];
 
 export const adminWallets = (env) => String((env && env.ADMIN_WALLETS) || "").split(/[\s,]+/).filter(isSolanaAddress);
 export const amountsFor = (env, wallets, fetchImpl = fetch, opts = {}) => liveAmounts(env, wallets, fetchImpl, { ...opts, mint: activeMint(env) });
 
 export const liveSeatOfUser = (db, userId) =>
-  db.prepare("SELECT * FROM seats WHERE user_id = ? AND status IN ('provisional', 'active', 'grace')").bind(userId).first();
+  db.prepare("SELECT * FROM seats WHERE user_id = ? AND status IN ('provisional', 'active', 'grace', 'steward')").bind(userId).first();
 export const liveSeatOfCity = (db, cityId) =>
-  db.prepare("SELECT * FROM seats WHERE city_id = ? AND status IN ('provisional', 'active', 'grace')").bind(cityId).first();
+  db.prepare("SELECT * FROM seats WHERE city_id = ? AND status IN ('provisional', 'active', 'grace', 'steward')").bind(cityId).first();
 
 /** The country's manager right now: { term, seat } when the term is running AND the manager's seat is active. */
 export async function managerOf(env, cc, now = Date.now()) {
@@ -45,7 +45,7 @@ export async function powersOf(env, user, fetchImpl = fetch, now = Date.now()) {
   const admin = adminWallets(env).includes(user.wallet);
   const amount = launched ? (await amountsFor(env, [user.wallet], fetchImpl)).get(user.wallet) || 0 : 0;
   const seat = await liveSeatOfUser(env.DB, user.id);
-  const founderCity = seat && seat.status === "active" ? seat.city_id : null;
+  const founderCity = seat && (seat.status === "active" || seat.status === "steward") ? seat.city_id : null;
   let managerCountry = null;
   if (founderCity) {
     const m = await managerOf(env, seat.country, now);

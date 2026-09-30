@@ -14,7 +14,8 @@
  * Accounts (src/auth.js): /api/auth/wallet · /api/auth/transfer(/check) · /api/auth/reprove · /api/pair(/finish)
  *   · /api/auth/{google,x}/start|callback · /api/auth/logout
  * Signed in: /api/me · /api/home · /api/locate (the ONLY place a location is read) · /api/posts(/vote, /report)
- *   · /api/seats/{apply,withdraw,endorse,object} · /api/elections/vote · /api/appeals · /api/towns
+ *   · /api/seats/{apply,withdraw,endorse,object,resign} · /api/elections/vote · /api/appeals · /api/towns
+ *   · /api/seats/squad/{create,join,leave,apply} · /api/seats/squad/:id (readiness)
  * Moderators: /api/mod · /api/mod/{hide,unhide,ban,ban/approve,ban/reject} · /api/appeals/decide
  *   · /api/towns/decide · /api/seats/objections/decide · /api/snapshots/cancel
  *
@@ -35,7 +36,7 @@ import { handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, 
 import { handleHome, handleMe, handleMembers } from "./me.js";
 import { handleLocate } from "./attest.js";
 import { handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
-import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResult, handleSeats, handleWithdraw } from "./seats.js";
+import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
 import { handleElectionResult, handleElectionVote } from "./elections.js";
 import { handleAppeal, handleAudit, handleBanDecision, handleDecideAppeal, handleHide, handleModQueue, handleMyTowns, handleProposeBan,
   handleTownDecision, handleTownRequest, handleUnhide } from "./moderation.js";
@@ -139,6 +140,8 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
   if (m) return only("GET") || handleMedia(env, m[1]);
   m = path.match(/^\/api\/seats\/results\/([0-9]{1,10})$/);
   if (m) return only("GET") || db(() => handleResult(env, m[1]));
+  m = path.match(/^\/api\/seats\/squad\/([0-9]{1,10})$/);
+  if (m) return only("GET") || db(() => handleSquadGet(env, m[1], Date.now(), fetchImpl));
   m = path.match(/^\/api\/elections\/results\/([0-9]{1,10})$/);
   if (m) return only("GET") || db(() => handleElectionResult(env, m[1]));
   m = path.match(/^\/api\/snapshots\/([0-9]{1,10})\/(proof|data)$/);
@@ -219,8 +222,18 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return only("POST") || handleEndorse(request, env);
     case "/api/seats/object":
       return only("POST") || handleObject(request, env);
+    case "/api/seats/resign":
+      return only("POST") || handleResign(request, env);
     case "/api/seats/objections/decide":
       return only("POST") || handleDecideObjection(request, env, fetchImpl);
+    case "/api/seats/squad/create":
+      return only("POST") || handleSquadCreate(request, env);
+    case "/api/seats/squad/join":
+      return only("POST") || handleSquadJoin(request, env);
+    case "/api/seats/squad/leave":
+      return only("POST") || handleSquadLeave(request, env);
+    case "/api/seats/squad/apply":
+      return only("POST") || handleSquadApply(request, env, fetchImpl);
 
     // city coins (designed by City Founders) and prices for the swap panel
     case "/api/coins":

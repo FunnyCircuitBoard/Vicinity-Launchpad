@@ -33,7 +33,7 @@ const HOLDING_BADGES = new Set(["holder", "founder_ready", "whale", "top100", "t
 
 function badgesFor({ u, launched, amount, position, seat, manager, admin, checkins, posts, tenure, threshold }) {
   const pct = (v, of) => Math.max(0, Math.min(1, v / of));
-  const T = threshold || POLICY.founder.tiers[0].amount;
+  const T = threshold || POLICY.founder.ladder.base;
   const list = [
     { id: "early", icon: "🌱", name: "Early member", detail: "Joined before $VICINITY launched. This one can never be earned again.", earned: Boolean(u.early) },
     { id: "verified", icon: "✅", name: "Verified account", detail: "One wallet + one X or Google login.", earned: true },
@@ -67,7 +67,7 @@ async function liveStatus(env, s, fetchImpl, now) {
   const seat = await liveSeatOfUser(db, u.id);
   const mgr = seat && seat.status === "active" ? await managerOf(env, seat.country, now) : null;
   const isManager = Boolean(mgr && mgr.userId === u.id);
-  const level = admin ? "admin" : isManager ? "manager" : seat && seat.status === "active" ? "founder" : amount > 0 ? "holder" : "member";
+  const level = admin ? "admin" : isManager ? "manager" : seat && (seat.status === "active" || seat.status === "steward") ? "founder" : amount > 0 ? "holder" : "member";
   const ban = await activeBan(db, u.id, u.home_country, now);
   const appealed = ban && ban.action_id ? await db.prepare("SELECT id FROM appeals WHERE action_id = ?").bind(ban.action_id).first() : null;
 
@@ -79,7 +79,7 @@ async function liveStatus(env, s, fetchImpl, now) {
     homeReadyAt: elig.homeReadyAt, cooldownUntil: elig.cooldownUntil || (await cooldownUntil(db, u.id, now)),
     application: app ? { id: app.id, windowId: app.window_id, cityId: app.city_id, since: app.created_at, closesAt: app.closes_at } : null,
     seat: seat ? { id: seat.id, cityId: seat.city_id, city: seat.city_name, country: seat.country, status: seat.status, since: seat.activated_at || seat.created_at,
-      appealUntil: seat.appeal_until, graceUntil: seat.grace_until, threshold: seat.threshold, policy: seat.policy } : null,
+      appealUntil: seat.appeal_until, graceUntil: seat.grace_until, probationUntil: seat.probation_until, threshold: seat.threshold, policy: seat.policy } : null,
   };
 
   // your community and your country: members, where you rank among them
@@ -116,7 +116,7 @@ async function liveStatus(env, s, fetchImpl, now) {
     { id: "account", label: "Wallet + account verified", done: true },
     { id: "home", label: u.home_city ? `Home: ${u.home_name} (${POLICY.founder.localDays} days before applying)` : "Set your home community",
       done: Boolean(u.home_city) && Date.parse(elig.homeReadyAt || iso(now + DAY)) <= now, detail: u.home_city && elig.homeReadyAt && Date.parse(elig.homeReadyAt) > now ? `ready ${elig.homeReadyAt.slice(0, 10)}` : null },
-    { id: "hold", label: `Hold ${(elig.threshold || POLICY.founder.tiers[0].amount).toLocaleString("en-US")} for ${POLICY.founder.qualifyingDays} days`,
+    { id: "hold", label: `Hold ${(elig.threshold || POLICY.founder.ladder.base).toLocaleString("en-US")}+ for ${POLICY.founder.qualifyingDays} days`,
       done: Boolean(elig.tenure && elig.tenure.qualified), progress: elig.tenure ? Math.min(1, elig.tenure.days / elig.tenure.needed) : 0,
       detail: launched ? `${Math.min(days, POLICY.founder.qualifyingDays)} / ${POLICY.founder.qualifyingDays} days` : "starts at launch" },
     { id: "apply", label: "Apply in your city's 72-hour window", done: Boolean(app || seat) },
