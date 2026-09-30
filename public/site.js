@@ -80,7 +80,21 @@
 
   /* ---------- live launch countdown (short form, used in several places) ---------- */
   let opensAt = Date.parse("2026-10-10T10:10:10-04:00");
-  const official = api("/api/official").then((o) => { if (o && o.launchpadOpensAt) opensAt = Date.parse(o.launchpadOpensAt); return o; });
+  let siteMode = "live";
+  const official = api("/api/official").then((o) => {
+    if (o && o.launchpadOpensAt) opensAt = Date.parse(o.launchpadOpensAt);
+    if (o && o.siteMode) { siteMode = o.siteMode; if (siteMode === "preview") showPreviewBanner(); }
+    return o;
+  });
+  function showPreviewBanner() {
+    if (document.getElementById("preview-banner")) return;
+    const b = document.createElement("div");
+    b.id = "preview-banner";
+    b.setAttribute("role", "note");
+    b.style.cssText = "position:sticky;top:0;z-index:9999;background:#7c3aed;color:#fff;text-align:center;font:600 13px/1.4 system-ui,sans-serif;padding:8px 12px;letter-spacing:.02em";
+    b.textContent = "TEST ENVIRONMENT — previewing the post-launch site. Nothing here is real yet.";
+    document.body.prepend(b);
+  }
   function shortCountdown() {
     const ms = opensAt - Date.now();
     if (ms <= 0) return "Open now";
@@ -98,5 +112,5 @@
   })();
 
   window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, reveal, reduced,
-    me: () => meLite, ready, official, opensAt: () => opensAt };
+    me: () => meLite, ready, official, opensAt: () => opensAt, siteMode: () => siteMode };
 })();

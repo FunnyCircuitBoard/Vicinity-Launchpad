@@ -23,7 +23,7 @@
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, X_CLIENT_ID/SECRET,
  * SNAPSHOT_CUTOFF, ATTEST_KEY (optional).
  */
-import { OFFICIAL, activeMint, checkOfficial } from "./official.js";
+import { OFFICIAL, activeMint, checkOfficial, officialFor } from "./official.js";
 import { getHolding, getTokenFacts, getTopHolders, holderSnapshot, rankOf } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
 import { SECURITY_HEADERS, json } from "./http.js";
@@ -151,7 +151,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
     case "/api/health":
       return only("GET") || json({ ok: true, service: "vicinity-map", milestone: 2 });
     case "/api/official":
-      return only("GET") || json(OFFICIAL);
+      return only("GET") || json(officialFor(env));
     case "/api/policy":
       return only("GET") || json({ policy: POLICY, snapshotCutoff: snapshotCutoff(env), launched: Boolean(activeMint(env)),
         balanceHistory: env.DB ? await ledgerStatus(env, Date.now()) : { running: false } });

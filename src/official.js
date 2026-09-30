@@ -80,6 +80,20 @@ export function checkOfficial(input, isSolanaAddress) {
 /** The live mint: the Cloudflare setting VICINITY_MINT wins over the line above (so launch needs no code change). */
 export const activeMint = (env) => (env && env.VICINITY_MINT) || VICINITY_MINT;
 
+/** SITE_MODE=preview: the site behaves as if the launchpad already opened, so every
+ *  post-launch flow can be tested. The real announced date is kept as announcedOpensAt. */
+export function officialFor(env) {
+  if (env && env.SITE_MODE === "preview") {
+    return {
+      ...OFFICIAL,
+      siteMode: "preview",
+      announcedOpensAt: OFFICIAL.launchpadOpensAt,
+      launchpadOpensAt: new Date(Date.now() - 86400000).toISOString(), // "opened yesterday"
+    };
+  }
+  return { ...OFFICIAL, siteMode: "live" };
+}
+
 // Founding Supporter snapshot cutoff (always 00:00 UTC), announced ahead of time. The setting
 // SNAPSHOT_CUTOFF in Cloudflare wins over this line. null = not scheduled yet.
 export const SUPPORTER_SNAPSHOT_AT = null;

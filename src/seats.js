@@ -561,9 +561,38 @@ export async function advanceSeats(env, now = Date.now(), fetchImpl = fetch) {
   for (const w of (await db.prepare("SELECT * FROM windows WHERE status = 'open' AND closes_at <= ?").bind(iso(now)).all()).results) {
     await closeWindow(env, w, now, fetchImpl); out.closed++;
   }
-  const act = await db.prepare(`UPDATE seats SET status = 'active', activated_at = ?
-    WHERE status = 'provisional' AND appeal_until <= ? AND NOT EXISTS (SELECT 1 FROM objections o WHERE o.seat_id = seats.id AND o.status = 'open')`).bind(iso(now), iso(now)).run();
-  out.activated = act.meta.changes || 0;
+  // balance checks use the latest sample, and only if it's recent: never act on stale data
+  const latest = await latestBalances(env, now);
+  const balancesFresh = latest && now - Date.parse(latest.at) <= POLICY.sampling.maxGapMinutes * 60_000 * 2;
+
+  // provisional → active, but only if the winner still holds the bar at activation time:
+  // a winner who dumps during the appeal window must not become founder.
+  for (const seat of (await db.prepare(`SELECT * FROM seats WHERE status = 'provisional' AND appeal_until <= ?
+      AND NOT EXISTS (SELECT 1 FROM objections o WHERE o.seat_id = seats.id AND o.status = 'open')`).bind(iso(now)).all()).results) {
+    if (!balancesFresh) continue; // fail closed: retry next run when the sample is fresh
+    const amount = await seatBalance(db, seat, latest.balances);
+    if (amount < seat.threshold) {
+      await db.prepare("UPDATE seats SET status = 'released', ended_at = ?, end_reason = 'balance_at_activation' WHERE id = ? AND status = 'provisional'")
+        .bind(iso(now), seat.id).run();
+      out.released++;
+      await db.prepare("INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, note, created_at, state) VALUES ('system', 'system', 'release_provisional_balance', 'seat', ?, ?, ?, ?, 'balance', ?, ?, 'done')")
+        .bind(seat.id, seat.user_id, seat.country, seat.city_id, `held ${amount} < ${seat.threshold} at activation`, iso(now)).run();
+      // offer the seat to the next still-qualified applicant from the same window
+      if (seat.window_id) {
+        const w = await db.prepare("SELECT * FROM windows WHERE id = ?").bind(seat.window_id).first();
+        const ranked = (await db.prepare("SELECT * FROM applications WHERE window_id = ? AND valid = 1 AND rank IS NOT NULL AND user_id <> ? ORDER BY rank").bind(seat.window_id, seat.user_id).all()).results;
+        const still = [];
+        for (const x of ranked) {
+          const amt = latest.balances[x.wallet] || 0;
+          if (w && amt >= w.threshold && (await tenure(env, x.wallet, w.threshold, now)).qualified) still.push(x);
+        }
+        if (w && still.length) await grantProvisional(env, w, still, now);
+      }
+      continue;
+    }
+    await db.prepare("UPDATE seats SET status = 'active', activated_at = ? WHERE id = ? AND status = 'provisional'").bind(iso(now), seat.id).run();
+    out.activated++;
+  }
 
   // steward confirmation: 90 days of good behavior, or 50 verified locals in the city — never mid-challenge
   for (const s of (await db.prepare("SELECT * FROM seats WHERE status = 'steward'").all()).results) {
@@ -576,9 +605,8 @@ export async function advanceSeats(env, now = Date.now(), fetchImpl = fetch) {
     }
   }
 
-  // balance checks use the latest sample, and only if it's recent: never act on stale data
-  const latest = await latestBalances(env, now);
-  if (!latest || now - Date.parse(latest.at) > POLICY.sampling.maxGapMinutes * 60_000 * 2) return { ...out, balances: "stale" };
+  // balance checks use the latest sample (fetched above); never act on stale data
+  if (!balancesFresh) return { ...out, balances: "stale" };
   for (const seat of (await db.prepare("SELECT * FROM seats WHERE status IN ('active', 'grace', 'steward')").all()).results) {
     const amount = await seatBalance(db, seat, latest.balances);
     if ((seat.status === "active" || (seat.status === "steward" && !seat.grace_until)) && amount < seat.threshold) {
@@ -813,7 +841,7 @@ export async function handleDecideObjection(request, env, fetchImpl = fetch, now
   await db.batch([
     db.prepare("UPDATE objections SET status = 'upheld', decided_by = ?, decided_at = ?, note = ? WHERE id = ?").bind(u.id, iso(now), note, o.id),
     db.prepare("UPDATE objections SET status = 'closed' WHERE seat_id = ? AND status = 'open'").bind(seat.id),
-    db.prepare("UPDATE seats SET status = 'revoked', ended_at = ?, end_reason = 'objection_upheld' WHERE id = ? AND status IN ('provisional', 'active', 'grace')").bind(iso(now), seat.id),
+    db.prepare("UPDATE seats SET status = 'revoked', ended_at = ?, end_reason = 'objection_upheld' WHERE id = ? AND status IN ('provisional', 'active', 'grace', 'steward')").bind(iso(now), seat.id),
   ]);
   await logSeatAction(db, u, "revoke_seat", seat, note, now);
   // the next applicant from the same window, if they still qualify
