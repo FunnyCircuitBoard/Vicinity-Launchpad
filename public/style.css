@@ -665,6 +665,31 @@ body.layout-edit .layout-bar { display: flex; align-items: center; gap: 8px; mar
 .dash-col > .card.drop-before::before { top: -9px; }
 .dash-col > .card.drop-after::after { bottom: -9px; }
 .dash-col.drop-target { outline: 2px dashed var(--pin); outline-offset: 6px; min-height: 80px; border-radius: 14px; }
+/* Dashboard tabs: Home / City coin / Memes / Check-ins / Discussions / Moderate. */
+.dash-tabs { display: flex; gap: 6px; overflow-x: auto; margin: 0 0 14px; padding: 2px; scrollbar-width: none; }
+.dash-tabs::-webkit-scrollbar { display: none; }
+.dash-tabs [role="tab"] { flex: 0 0 auto; border: 1px solid var(--line-2); background: var(--card); color: var(--muted); font: 600 .85rem var(--body); padding: 8px 14px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.dash-tabs [role="tab"][aria-selected="true"] { color: var(--text); border-color: rgba(255,90,54,.6); background: rgba(255,90,54,.12); }
+.dash-pane > .card { max-width: 860px; }
+.pane-empty { padding: 24px 4px; }
+/* Pass settings panel (holds the layout customizer). */
+button.role-pill { font: inherit; cursor: pointer; }
+.pass__settings { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.18); }
+.pass__settings[hidden] { display: none; }
+/* Community founder vote. */
+#cc-vote { margin: 12px 0; display: grid; gap: 8px; }
+#cc-vote[hidden] { display: none; }
+/* Badge tabs. */
+.badge-tabs { margin: 10px 0 12px; }
+.badge__pending { display: inline-block; margin-top: 4px; font-size: .62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--gold-text); }
+/* Role ladder modal. */
+.role-ladder { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.role-ladder__row { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
+.role-ladder__row.is-current { border-color: rgba(255,200,87,.55); }
+.role-ladder__row.is-locked { opacity: .55; }
+.role-ladder__icon { font-size: 1.4rem; }
+.role-ladder__row > div { min-width: 0; }
+.role-ladder__row p { margin: 2px 0 0; }
 .layout-ghost { position: fixed; z-index: 9999; pointer-events: none; opacity: .94; margin: 0; box-shadow: 0 18px 50px rgba(0,0,0,.45); border: 2px solid var(--pin); }
 .progress-card__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
 .progress-card__pct { font: 700 2rem var(--display); color: var(--gold-text); }
