@@ -315,24 +315,21 @@
     const head = el("div", "window-panel__head");
     head.append(el("strong", null, `${w.applicants.length} applying to found ${c.name}`), el("span", "tag tag--warn", left(w.closesAt)));
     const list = el("ul", "applicants");
-    for (const a of w.applicants) list.append(applicantRow(a, w, "Endorse", "endorsed"));
+    for (const a of w.applicants) {
+      const li = el("li", a.you ? "is-you" : "");
+      const who = el("div");
+      who.append(el("strong", null, a.you ? `${a.name} (you)` : a.name));
+      if (a.pitch) who.append(el("p", "small muted", `“${a.pitch}”`));
+      li.append(who, el("span", "applicants__n", `${a.endorsements} endorsement${a.endorsements === 1 ? "" : "s"}`));
+      if (w.myEndorsement === a.id) li.append(el("span", "tag tag--ok", "✓ Your endorsement"));
+      else if (w.canEndorse && !a.you) li.append(actBtn("Endorse", async () => {
+        const r = await sensitive(() => api("/api/seats/endorse", { applicationId: a.id }));
+        toast(r.ok ? `You endorsed ${a.name}` : errText({ window_closed: "The window has closed." }, r, "Couldn't endorse.")); if (r.ok) refresh();
+      }, "btn btn--glass btn--sm"));
+      list.append(li);
+    }
     const note = el("p", "tiny muted", "One endorsement per person (you can change it until the window closes). Final score: 50% endorsements, 30% contribution, 20% holdings capped at 2× the founder amount.");
     box.replaceChildren(head, list, ...(why ? [el("p", "small muted", why)] : []), note);
-  }
-
-  /** One founder applicant row with a vote/endorse button. `verb` is the button label; `past` the past-tense for the toast. */
-  function applicantRow(a, w, verb, past) {
-    const li = el("li", a.you ? "is-you" : "");
-    const who = el("div");
-    who.append(el("strong", null, a.you ? `${a.name} (you)` : a.name));
-    if (a.pitch) who.append(el("p", "small muted", `“${a.pitch}”`));
-    li.append(who, el("span", "applicants__n", `${a.endorsements} endorsement${a.endorsements === 1 ? "" : "s"}`));
-    if (w.myEndorsement === a.id) li.append(el("span", "tag tag--ok", "✓ Your endorsement"));
-    else if (w.canEndorse && !a.you) li.append(actBtn(verb, async () => {
-      const r = await sensitive(() => api("/api/seats/endorse", { applicationId: a.id }));
-      toast(r.ok ? `You ${past} ${a.name}` : errText({ window_closed: "The window has closed." }, r, "Couldn't vote.")); if (r.ok) refresh();
-    }, "btn btn--glass btn--sm"));
-    return li;
   }
 
   function renderCommunity(d) {
@@ -355,22 +352,6 @@
       : c.window ? `${c.name} is choosing its founder right now (${left(c.window.closesAt)}). Locals' endorsements count most.`
       : others <= 0 ? `You're the first member of ${c.name}. Bring your locals in: they're the ones who choose the founder.`
       : `${fmt(others)} other ${others === 1 ? "person" : "people"} from ${c.name} ${others === 1 ? "is" : "are"} here, and nobody has applied to found it yet.`;
-    // Vote for City Founder: when the seat is open and a window is running, holders vote right here.
-    const voteBox = $("#cc-vote"), w = c.window;
-    if (!c.seat && w && w.applicants && w.applicants.length) {
-      voteBox.hidden = false;
-      $("#cc-applicants").replaceChildren(...w.applicants.map((a) => applicantRow(a, w, "Vote", "voted for")));
-      const why = {
-        applicant: "You're applying, so you can't vote.",
-        not_local: "Only people whose home is this city can vote.",
-        account_too_new: "To vote, your account had to be 7+ days old when this window opened.",
-        home_too_new: "To vote, your home had to be set 7+ days before this window opened.",
-        needs_checkin: `Check in once from inside ${c.name} to vote (proof you're really here).`,
-        banned: "You can't vote while banned.",
-      }[w.whyNot];
-      const whyEl = $("#cc-vote-why");
-      whyEl.hidden = !why; whyEl.textContent = why || "";
-    } else voteBox.hidden = true;
     $("#cc-top").replaceChildren(...(c.top && c.top.length ? c.top.map((t) => { const li = el("li", t.you ? "is-you" : ""); li.append(el("span", "mono", t.you ? "You" : t.wallet), el("span", "amt", compact(t.amount))); return li; })
       : [el("li", "muted small", d.launched ? "No holders here yet. Be the first." : "Live at launch.")]));
   }
@@ -407,34 +388,18 @@
       el("p", "tiny muted", "One vote per person. Score: 50% votes, 30% service, 20% holdings capped at 2×. 90-day term."));
   }
 
-  let btab = "earned";
-  function badgeEl(d, b) {
-    const lost = d.lost.includes(b.id);
-    const li = el("li", `badge ${b.earned ? "is-earned" : lost ? "is-lost" : "is-locked"}`);
-    li.title = `${b.name}: ${b.detail}${b.earned ? " ✓" : ""}`;
-    li.tabIndex = 0;
-    li.append(el("span", "badge__icon", b.icon), el("span", "badge__name", b.grace ? `${b.name} (grace)` : b.name));
-    if (!b.earned && b.progress > 0) {
-      const p = el("span", "badge__prog"), f = el("span");
-      f.style.width = `${Math.round(b.progress * 100)}%`; p.append(f); li.append(p);
-      li.append(el("span", "badge__pending", "◐ In progress"));
-    }
-    li.addEventListener("click", () => toast(`${b.icon} ${b.name}: ${b.detail}`));
-    return li;
-  }
   function renderBadges(d) {
-    const earned = d.badges.filter((b) => b.earned), locked = d.badges.filter((b) => !b.earned);
-    $("#bg-n-earned").textContent = earned.length;
-    $("#bg-n-locked").textContent = locked.length;
-    const list = btab === "earned" ? earned : locked;
-    $("#badge-grid").replaceChildren(...list.map((b) => badgeEl(d, b)));
-    if (!list.length) $("#badge-grid").append(el("li", "muted small", btab === "earned" ? "Nothing earned yet — your first badges are waiting." : "Everything achieved. Nice."));
+    $("#badge-grid").replaceChildren(...d.badges.map((b) => {
+      const lost = d.lost.includes(b.id);
+      const li = el("li", `badge ${b.earned ? "is-earned" : lost ? "is-lost" : "is-locked"}`);
+      li.title = `${b.name}: ${b.detail}${b.earned ? " ✓" : ""}`;
+      li.tabIndex = 0;
+      li.append(el("span", "badge__icon", b.icon), el("span", "badge__name", b.grace ? `${b.name} (grace)` : b.name));
+      if (!b.earned && b.progress > 0) { const p = el("span", "badge__prog"), f = el("span"); f.style.width = `${Math.round(b.progress * 100)}%`; p.append(f); li.append(p); }
+      li.addEventListener("click", () => toast(`${b.icon} ${b.name}: ${b.detail}`));
+      return li;
+    }));
   }
-  $$("[data-btab]").forEach((b) => b.addEventListener("click", () => {
-    btab = b.dataset.btab;
-    $$("[data-btab]").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-    if (me) renderBadges(me);
-  }));
 
   const showErr = (sel, msg) => { const e = $(sel); e.textContent = msg || ""; e.hidden = !msg; };
 
@@ -860,10 +825,8 @@
   /* ---------- moderator tools ---------- */
   async function loadMod() {
     const d = await api("/api/mod");
-    const tab = $("[data-dtab=\"mod\"]");
-    if (!d.ok || !d.moderator) { $("#mod").hidden = true; if (tab) tab.hidden = true; return; }
+    if (!d.ok || !d.moderator) { $("#mod").hidden = true; return; }
     $("#mod").hidden = false;
-    if (tab) tab.hidden = false;
     $("#mod-scope").textContent = `${LEVEL[d.role] || d.role} · ${d.scope}`;
     const sections = [];
     const section = (title, items) => { const s = el("div", "mod-section"); s.append(el("h3", null, title)); const ul = el("ul", "req-list"); ul.append(...items); s.append(ul); return s; };
@@ -943,61 +906,11 @@
   }, 5000);
   $("#me-copy").addEventListener("click", () => me && copy(me.user.wallet, "Wallet address copied"));
   $("#me-logout").addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/"); });
-  $("#pass-settings").addEventListener("click", () => { $("#pass-settings-panel").hidden = !$("#pass-settings-panel").hidden; });
-
-  /* ---------- role ladder: the pass shows your highest role; tap it for the full ladder ---------- */
-  const ROLE_ORDER = ["member", "holder", "founder", "manager", "admin"];
-  const ROLE_META = {
-    member: { name: "Member", icon: "👤", how: "Join Vicinity and set your home community." },
-    holder: { name: "Holder", icon: "💰", how: "Hold any amount of $VICINITY." },
-    founder: { name: "City Founder", icon: "👑", how: "Win your city's founder selection and hold the founder amount." },
-    manager: { name: "Country Manager", icon: "🛡️", how: "Elected by City Founders. 90-day term." },
-    admin: { name: "Admin", icon: "⚙️", how: "The Vicinity team." },
-  };
-  function openRoles() {
-    const d = me; if (!d) return;
-    const idx = Math.max(0, ROLE_ORDER.indexOf(d.level));
-    $("#role-bar").style.width = `${Math.round(((idx + 1) / ROLE_ORDER.length) * 100)}%`;
-    $("#role-ladder").replaceChildren(...ROLE_ORDER.map((r, i) => {
-      const li = el("li", `role-ladder__row ${i < idx ? "is-done" : i === idx ? "is-current" : "is-locked"}`);
-      const state = i < idx ? "Completed ✓" : i === idx ? "Your current role" : ROLE_META[r].how;
-      li.append(el("span", "role-ladder__icon", ROLE_META[r].icon),
-        el("div", null, el("strong", null, ROLE_META[r].name), el("p", "tiny muted", state)));
-      return li;
-    }));
-    $("#role-modal").hidden = false;
-  }
-  $("#me-role").addEventListener("click", openRoles);
-  $("#role-close").addEventListener("click", () => { $("#role-modal").hidden = true; });
-  $("#role-modal").addEventListener("click", (e) => { if (e.target.id === "role-modal") $("#role-modal").hidden = true; });
-
-  /* ---------- dashboard tabs: Home / City coin / Memes / Check-ins / Discussions / Moderate ---------- */
-  // The feed card is a single node: switching to a content tab moves it into that
-  // pane and pins its kind. The kind chips hide in tab mode (the tab is the picker).
-  const DTAB_KEY = "vicinity:dtab";
-  function setDTab(name, save = true) {
-    $$("[data-dtab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.dtab === name)));
-    $$("[data-dpane]").forEach((p) => { p.hidden = p.dataset.dpane !== name; });
-    const feed = $("#feed"), chips = feed.querySelector(".chips");
-    if (name === "meme" || name === "checkin" || name === "talk") {
-      const pane = $(`[data-dpane="${name}"]`);
-      pane.querySelector("[data-pane-empty]")?.remove();
-      if (feed.parentElement !== pane) pane.append(feed);
-      if (chips) chips.hidden = true;
-      if (kind !== name) {
-        kind = name;
-        $$(".chips [data-kind]").forEach((x) => x.setAttribute("aria-selected", String(x.dataset.kind === kind)));
-        setupComposer(); loadFeed(true);
-      }
-    } else if (chips) chips.hidden = false;
-    if (save) { try { localStorage.setItem(DTAB_KEY, name); } catch {} }
-  }
-  $$("[data-dtab]").forEach((b) => b.addEventListener("click", () => setDTab(b.dataset.dtab)));
 
   /* ---------- customizable card layout ---------- */
   // Drag-to-reorder (touch + mouse) with per-card column move, saved per user in
   // localStorage. Temporary scaffolding so the layout can be arranged by hand.
-  const LAYOUT_LABELS = { progress: "Founder path", trade: "Buy & swap", community: "Your community", national: "Your country", badges: "Badges", request: "Ask for your town" };
+  const LAYOUT_LABELS = { progress: "Founder path", coin: "City coin", feed: "Community feed", trade: "Buy & swap", community: "Your community", national: "Your country", badges: "Badges", mod: "Moderator tools", request: "Ask for your town" };
   let layoutDef = null, layoutEditing = false;
   const layoutKey = () => `vicinity:dash-layout:${me && me.user ? me.user.id : "anon"}`;
   const layoutCards = (col) => [...col.querySelectorAll(":scope > section.card")].filter((c) => c.id && !c.hidden);
@@ -1129,11 +1042,6 @@
     render(d);
     layoutInit();
     setupComposer(); loadFeed(true); loadMod(); loadTowns();
-    try {
-      const saved = localStorage.getItem(DTAB_KEY);
-      const btn = saved && $(`[data-dtab="${saved}"]`);
-      if (btn && !btn.hidden) setDTab(saved, false);
-    } catch {}
     reveal();
     if (params.get("welcome")) toast(`Welcome to Vicinity, ${d.user.handle || d.user.name} 🎉`);
     if (params.get("claim")) $("#progress").scrollIntoView({ block: "center" });

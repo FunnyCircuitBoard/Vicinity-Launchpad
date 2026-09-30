@@ -48,7 +48,7 @@
             <span class="pass__shine" aria-hidden="true"></span>
             <div class="pass__top">
               <span class="pass__brand"><span class="pass__mark" aria-hidden="true"></span>Vicinity Pass</span>
-              <button class="role-pill" id="me-role" type="button" title="Your roles">Member</button>
+              <span class="role-pill" id="me-role">Member</span>
             </div>
             <div class="pass__who">
               <div class="idcard__avatar" id="me-avatar" aria-hidden="true">V</div>
@@ -62,12 +62,7 @@
               <span><span class="mono" data-me-wallet></span> <button class="link-btn link-btn--tiny" type="button" id="me-copy">Copy</button></span>
               <span data-me-login></span>
               <span class="live-note"><span class="live-dot" aria-hidden="true"></span> <span id="me-checked">live</span></span>
-              <button class="link-btn link-btn--tiny" type="button" id="pass-settings">⚙️ Settings</button>
               <button class="link-btn link-btn--tiny" type="button" id="me-logout">Sign out</button>
-            </div>
-            <div class="pass__settings" id="pass-settings-panel" hidden>
-              <button class="btn btn--glass btn--sm" type="button" id="layout-edit">🎛 Customize layout</button>
-              <button class="btn btn--glass btn--sm" type="button" id="layout-reset" hidden>Reset</button>
             </div>
           </div>
           <div class="stat-row stat-row--dash">
@@ -78,16 +73,12 @@
           </div>
         </div>
 
-        <div class="dash-tabs" role="tablist" aria-label="Dashboard sections">
-          <button type="button" role="tab" data-dtab="home" aria-selected="true">🏠 Home</button>
-          <button type="button" role="tab" data-dtab="coin" aria-selected="false">🪙 City coin</button>
-          <button type="button" role="tab" data-dtab="meme" aria-selected="false">😂 Memes</button>
-          <button type="button" role="tab" data-dtab="checkin" aria-selected="false">📍 Check-ins</button>
-          <button type="button" role="tab" data-dtab="talk" aria-selected="false">💬 Discussions</button>
-          <button type="button" role="tab" data-dtab="mod" aria-selected="false" hidden>🛡️ Moderate</button>
+        <div class="dash-tools">
+          <button class="btn btn--glass btn--sm" type="button" id="layout-edit">🎛 Customize layout</button>
+          <button class="btn btn--glass btn--sm" type="button" id="layout-reset" hidden>Reset</button>
         </div>
 
-        <div class="dash-grid" data-dpane="home">
+        <div class="dash-grid">
           <div class="dash-col" id="col-main">
             <section class="card trade" id="trade" aria-labelledby="trade-title">
               <div class="trade__head"><p class="kicker">Buy &amp; swap</p><span class="tag" id="trade-state">Opens at launch</span></div>
@@ -136,23 +127,13 @@
                 <div><dt>City Founder</dt><dd id="cc-founder">—</dd></div>
               </dl>
               <p class="small fomo" id="cc-fomo"></p>
-              <div id="cc-vote" hidden>
-                <p class="kicker kicker--live">🗳️ Vote for City Founder</p>
-                <ul class="applicants" id="cc-applicants"></ul>
-                <p class="tiny muted" id="cc-vote-why" hidden></p>
-              </div>
               <p class="kicker">Top holders here</p>
               <ol class="mini-board" id="cc-top"><li class="muted small">Live at launch.</li></ol>
               <button class="btn btn--glass btn--sm btn--block" type="button" id="cc-share">Invite locals · copy link</button>
             </section>
 
-          <aside class="dash-col dash-col--side" id="col-side">
             <section class="card" id="badges">
               <p class="kicker">Badges · checked live</p>
-              <div class="seg seg--sm badge-tabs" role="tablist" aria-label="Badges">
-                <button type="button" role="tab" data-btab="earned" aria-selected="true">🏆 Achieved · <span id="bg-n-earned">0</span></button>
-                <button type="button" role="tab" data-btab="locked" aria-selected="false">🔒 Unachieved · <span id="bg-n-locked">0</span></button>
-              </div>
               <ul class="badge-grid" id="badge-grid"></ul>
             </section>
 
@@ -168,21 +149,6 @@
               <p class="wallet__error" id="p-error" role="alert" hidden></p>
             </section>
 
-            <section class="card" id="request">
-              <p class="kicker">Missing town?</p>
-              <h2 class="h2--sm">Ask for your town</h2>
-              <p class="small muted">Stand in the town and send a request. Your Country Manager gives advice and an admin decides; approved towns join the map at the next update. Only the nearest community is kept, never your location.</p>
-              <form class="req-form" id="req-form" novalidate>
-                <label class="sr-only" for="req-name">Town name</label>
-                <input id="req-name" type="text" maxlength="60" autocomplete="off" placeholder="e.g. New Hartford">
-                <button class="btn btn--glass btn--sm" type="submit">Send (checks location)</button>
-              </form>
-              <ul class="req-list" id="req-mine"></ul>
-              <p class="wallet__error" id="req-err" role="alert" hidden></p>
-            </section>
-          </aside>
-        </div>
-        <div class="dash-pane" data-dpane="coin" hidden>
             <section class="card coin-card" id="coin" aria-labelledby="coin-title">
               <div class="coin-card__head">
                 <div><p class="kicker">City coin · designed by the City Founder</p><h2 class="h2--sm" id="coin-title"><span id="coin-city">Your city</span>'s coin</h2></div>
@@ -241,8 +207,28 @@
 
               <div class="coin-admin" id="coin-admin" hidden><p class="kicker">🛡️ Contracts waiting for a check</p><ul class="req-list" id="coin-waiting"></ul></div>
             </section>
-        </div>
-        <div class="dash-pane" data-dpane="meme" hidden>
+          </div>
+
+          <aside class="dash-col dash-col--side" id="col-side">
+            <section class="card mod-card" id="mod" hidden>
+              <p class="kicker">🛡️ Moderator tools · <span id="mod-scope"></span></p>
+              <p class="tiny muted">Every action needs a reason and is <a href="/rules#moderation">logged publicly</a>. A hide lasts 24 hours unless a second moderator (or 3 reports) confirms it. Bans need two people.</p>
+              <div id="mod-sections"></div>
+            </section>
+
+            <section class="card" id="request">
+              <p class="kicker">Missing town?</p>
+              <h2 class="h2--sm">Ask for your town</h2>
+              <p class="small muted">Stand in the town and send a request. Your Country Manager gives advice and an admin decides; approved towns join the map at the next update. Only the nearest community is kept, never your location.</p>
+              <form class="req-form" id="req-form" novalidate>
+                <label class="sr-only" for="req-name">Town name</label>
+                <input id="req-name" type="text" maxlength="60" autocomplete="off" placeholder="e.g. New Hartford">
+                <button class="btn btn--glass btn--sm" type="submit">Send (checks location)</button>
+              </form>
+              <ul class="req-list" id="req-mine"></ul>
+              <p class="wallet__error" id="req-err" role="alert" hidden></p>
+            </section>
+
             <section class="card feed" id="feed" aria-label="Feeds">
               <div class="feed__head">
                 <div class="seg" role="tablist" aria-label="Local or national">
@@ -270,33 +256,10 @@
               <ul class="posts" id="posts"><li class="muted">Loading…</li></ul>
               <button class="link-btn" type="button" id="f-more" hidden>Load more</button>
             </section>
-        </div>
-        <div class="dash-pane" data-dpane="checkin" hidden>
-          <p class="muted small pane-empty" data-pane-empty>Switch to this tab to see check-ins.</p>
-        </div>
-        <div class="dash-pane" data-dpane="talk" hidden>
-          <p class="muted small pane-empty" data-pane-empty>Switch to this tab to see discussions.</p>
-        </div>
-        <div class="dash-pane" data-dpane="mod" hidden>
-            <section class="card mod-card" id="mod" hidden>
-              <p class="kicker">🛡️ Moderator tools · <span id="mod-scope"></span></p>
-              <p class="tiny muted">Every action needs a reason and is <a href="/rules#moderation">logged publicly</a>. A hide lasts 24 hours unless a second moderator (or 3 reports) confirms it. Bans need two people.</p>
-              <div id="mod-sections"></div>
-            </section>
+          </aside>
         </div>
       </div>
     </section>
-
-    <!-- role ladder: what each role means and where you stand -->
-    <div class="modal" id="role-modal" role="dialog" aria-modal="true" aria-labelledby="role-title" hidden>
-      <div class="modal__box card">
-        <h2 class="h2--sm" id="role-title">Your roles</h2>
-        <p class="small muted">Every role builds on the last. Your pass shows your highest one.</p>
-        <div class="bar" aria-hidden="true"><span id="role-bar"></span></div>
-        <ol class="role-ladder" id="role-ladder"></ol>
-        <button class="btn btn--glass" type="button" id="role-close">Close</button>
-      </div>
-    </div>
 
     <!-- "confirm it's you": sensitive actions need the wallet proven in the last 30 minutes -->
     <div class="modal" id="proof-modal" role="dialog" aria-modal="true" aria-labelledby="proof-title" hidden>
