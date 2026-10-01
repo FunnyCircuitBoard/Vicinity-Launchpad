@@ -23,7 +23,7 @@
 import { b64url, clearCookie, cookie, getCookie, json, randomToken, readJson, redirect, sameSite, sha256 } from "./http.js";
 import { checkSigned } from "./signed.js";
 import { isSolanaAddress } from "./solana.js";
-import { emailConfigured, sendMail } from "./mail.js";
+import { emailConfigured, sendMail, verificationEmail } from "./mail.js";
 import { ensureSchema } from "./store.js";
 import { findTransfer } from "./chain.js";
 import { activeMint } from "./official.js";
@@ -370,10 +370,8 @@ function sixDigits() {
 }
 
 async function sendCodeEmail(env, to, code, fetchImpl, mailer = {}) {
-  return sendMail(env, {
-    to, subject: `${code} is your Vicinity code`,
-    text: `Your Vicinity sign-in code is ${code}.\n\nIt expires in 10 minutes. If you didn't ask for this, just ignore this e-mail.`,
-  }, { fetchImpl, smtpImpl: mailer.smtpImpl || null });
+  const { subject, text, html } = verificationEmail(code);
+  return sendMail(env, { to, subject, text, html }, { fetchImpl, smtpImpl: mailer.smtpImpl || null });
 }
 
 /** POST /api/auth/email/start { email } → send a 6-digit code. */

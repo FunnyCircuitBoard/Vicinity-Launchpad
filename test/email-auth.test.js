@@ -17,6 +17,8 @@ function resendFetch() {
     const body = JSON.parse(init.body);
     const to = body.to[0];
     const code = body.text.match(/code is (\d{6})/)[1];
+    assert.ok(body.html.includes(code), "html version carries the code");
+    assert.ok(body.html.includes("vicinity.city/connect"), "html links back to the site");
     sentCodes.push({ to, code, from: body.from });
     return new Response(JSON.stringify({ id: "re_1" }), { status: 200 });
   };
@@ -195,6 +197,17 @@ test("gmail path sends the code via SMTP when configured", async () => {
   assert.equal(calls[0].user, "vicinity.test@gmail.com");
   assert.equal(calls[0].pass, "abcdefghijklmnop"); // spaces stripped
   assert.match(calls[0].subject, /^\d{6} is your Vicinity code$/);
+});
+
+test("verification e-mail template is branded and carries the code", async () => {
+  const { verificationEmail } = await import("../src/mail.js");
+  const { subject, text, html } = verificationEmail("482916");
+  assert.equal(subject, "482916 is your Vicinity code");
+  assert.ok(text.includes("482916"));
+  assert.ok(html.includes("482916"));
+  assert.ok(html.includes("VICINITY"));
+  assert.ok(html.includes("ONE CITY"));
+  assert.ok(html.includes("https://vicinity.city/connect"));
 });
 
 test("gmail is preferred over resend when both are configured", async () => {
