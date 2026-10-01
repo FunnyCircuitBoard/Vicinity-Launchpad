@@ -34,7 +34,7 @@ import { POLICY, founderAmount } from "./policy.js";
 import { ledgerStatus } from "./ledger.js";
 import { handleEmailStart, handleEmailVerify, handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, handlePairStart, handlePairStatus,
   handleReprove, handleTransferCheck, handleTransferStart, handleWalletLogin } from "./auth.js";
-import { handleHome, handleMe, handleMembers } from "./me.js";
+import { handleHome, handleMe, handleMembers, handleTermsAgree } from "./me.js";
 import { handleLocate } from "./attest.js";
 import { handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
 import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
@@ -288,6 +288,8 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
     // dashboard
     case "/api/me":
       return only("GET") || handleMe(request, env, fetchImpl);
+    case "/api/me/terms":
+      return only("POST") || handleTermsAgree(request, env);
     case "/api/home":
       return only("POST") || handleHome(request, env);
     case "/api/locate":

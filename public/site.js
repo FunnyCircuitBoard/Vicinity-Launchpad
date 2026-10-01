@@ -115,6 +115,43 @@
     s.textContent = d.ok ? "online ✓" : "offline";
   })();
 
+  /* ---------- terms gate: agree before entry ---------- */
+  (() => {
+    const gate = $("#termsgate");
+    if (!gate) return;
+    const version = gate.dataset.termsVersion || "2026-10-01";
+    const key = "vicinity_terms";
+    const lock = (on) => { document.documentElement.style.overflow = on ? "hidden" : ""; };
+    const record = () => {
+      try { localStorage.setItem(key, version); } catch { /* private mode: gate reappears next visit */ }
+      ready.then((d) => { if (d && d.signedIn) api("/api/me/terms", { version }); });
+    };
+    // The terms page itself stays readable without the gate; it gets an inline agree button instead.
+    if (document.body.dataset.page === "terms") {
+      const inline = $("#terms-agree");
+      if (inline) inline.addEventListener("click", () => {
+        record();
+        inline.disabled = true;
+        inline.textContent = "Agreed ✓";
+        toast("Thanks — you're all set.");
+      });
+      return;
+    }
+    let agreed = null;
+    try { agreed = localStorage.getItem(key); } catch { /* ignore */ }
+    if (agreed === version) return;
+    gate.hidden = false;
+    lock(true);
+    $("#termsgate-agree").addEventListener("click", () => { record(); gate.hidden = true; lock(false); });
+    $("#termsgate-decline").addEventListener("click", () => {
+      gate.querySelector(".termsgate__card").innerHTML =
+        '<div class="termsgate__done"><p class="kicker">No problem</p>' +
+        "<h2>You&rsquo;ll need to agree to enter</h2>" +
+        '<p class="muted">The Terms of Use keep everyone on the same page. You can read them any time and come back when you&rsquo;re ready.</p>' +
+        '<p><a href="/terms">Read the Terms of Use</a></p></div>';
+    });
+  })();
+
   window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, reveal, reduced,
     me: () => meLite, ready, official, opensAt: () => opensAt, siteMode: () => siteMode };
 })();

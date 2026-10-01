@@ -5,7 +5,7 @@ import { buildPages } from "../scripts/pages/build.mjs";
 import { cityAt } from "../src/geo.js";
 
 const read = (p) => readFileSync(new URL("../public/" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "connect.html", "dashboard.html", "rules.html", "404.html", "admin.html"];
+const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "connect.html", "dashboard.html", "rules.html", "terms.html", "404.html", "admin.html"];
 const html = Object.fromEntries(PAGES.map((p) => [p, read(p)]));
 const all = Object.values(html).join("\n");
 const css = read("style.css");
@@ -47,13 +47,35 @@ test("same menu on every page: top menu for computers, bottom menu bar for phone
     const nav = h.match(/<nav class="nav"[\s\S]*?<\/nav>/)[0], tabs = h.match(/<nav class="tabbar"[\s\S]*?<\/nav>/)[0];
     assert.deepEqual([...nav.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), links, f);
     assert.deepEqual([...tabs.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), links, f);
-    assert.equal((nav.match(/aria-current="page"/g) || []).length, ["404.html", "connect.html", "rules.html", "admin.html"].includes(f) ? 0 : 1, f);
+    assert.equal((nav.match(/aria-current="page"/g) || []).length, ["404.html", "connect.html", "rules.html", "terms.html", "admin.html"].includes(f) ? 0 : 1, f);
     assert.match(h, /data-theme-toggle/);
     assert.match(h, /<script src="\/theme\.js"><\/script>\s*<\/head>/, `${f}: theme runs before paint`);
     assert.match(h, /data-account/);
   }
   assert.match(css, /:root\[data-theme="light"\]/);
   assert.match(css, /\.tabbar \{ display: grid;/);
+});
+
+test("terms gate: every page (except /terms) asks for agreement before entry", () => {
+  for (const [f, h] of Object.entries(html)) {
+    if (f === "terms.html") continue;
+    assert.match(h, /id="termsgate"[^>]*data-terms-version="2026-10-01"/, `${f}: gate modal with version`);
+    assert.match(h, /id="termsgate-agree"/, `${f}: agree button`);
+    assert.match(h, /id="termsgate-decline"/, `${f}: decline button`);
+    assert.match(h, /href="\/terms"/, `${f}: link to the full terms`);
+  }
+  assert.doesNotMatch(html["terms.html"], /id="termsgate"/, "terms page itself stays readable (inline agree instead)");
+  assert.match(html["terms.html"], /id="terms-agree"/, "terms page has an inline agree button");
+});
+
+test("terms page: the full Terms of Use", () => {
+  const h = html["terms.html"];
+  for (const s of ["1. Introduction", "4. Eligibility", "13. Warranty Disclaimer", "14. Limitation of Liability",
+                   "16. Dispute Resolution", "Class Action Waiver", "19. Contact", "@VicinityCitySOL"]) {
+    assert.ok(h.includes(s), `terms mention: ${s}`);
+  }
+  assert.match(css, /\.termsgate\s*\{/, "gate styles exist");
+  assert.match(css, /\.terms h2/, "terms page styles exist");
 });
 
 test("home: the problem, the real New York City map, how it works, incentives, roles, FAQ", () => {

@@ -482,6 +482,13 @@ CREATE TABLE IF NOT EXISTS admin_test (
 );
 `,
   },
+  {
+    id: "2026-10-01-terms-agree",
+    sql: `
+ALTER TABLE users ADD COLUMN terms_version TEXT;
+ALTER TABLE users ADD COLUMN terms_agreed_at TEXT;
+`,
+  },
 ];
 
 const split = (sql) => sql.split(";").map((s) => s.trim()).filter(Boolean);

@@ -152,6 +152,22 @@ export async function handleMe(request, env, fetchImpl = fetch, now = Date.now()
 }
 
 /**
+ * POST /api/me/terms { version } → record that the signed-in user agreed to the Terms of Use.
+ * The frontend also keeps a local copy so anonymous visitors are gated before entry.
+ */
+export async function handleTermsAgree(request, env, now = Date.now()) {
+  const a = await access(request, env, now);
+  if (a.error) return a.error;
+  const body = await readJson(request);
+  const version = typeof body?.version === "string" ? body.version.slice(0, 32) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(version)) return json({ ok: false, error: "bad_version" }, 400);
+  await ensureSchema(env.DB);
+  await env.DB.prepare("UPDATE users SET terms_version = ?, terms_agreed_at = ? WHERE id = ?")
+    .bind(version, new Date(now).toISOString(), a.u.id).run();
+  return json({ ok: true, version });
+}
+
+/**
  * POST /api/home { attestation, choice? }
  * Inside a community → that's home. In empty land → pick one of the three nearest (send `choice`).
  * Locked for a week after setting it, and while you hold or are applying for a founder seat.
