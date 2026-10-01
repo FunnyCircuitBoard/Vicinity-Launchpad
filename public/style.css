@@ -897,7 +897,6 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .pass__bottom .mono { color: #fff; }
 .pass .link-btn { color: rgba(255,255,255,.85); }
 .pass .live-note { margin-left: auto; }
-.pass__top-right { display: inline-flex; align-items: center; gap: 8px; }
 .icon-btn { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.12); color: #fff; font-size: 1rem; cursor: pointer; backdrop-filter: blur(6px); }
 .icon-btn:hover { background: rgba(255,255,255,.24); }
 

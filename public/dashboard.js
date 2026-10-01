@@ -976,7 +976,8 @@
         b.addEventListener("click", () => { $("#phone-form").hidden = false; $("#phone-input").focus(); }); return b; })());
     }
   }
-  $("#profile-open").addEventListener("click", openProfile);
+  /* the header username button IS the profile button (site.js hooks it up) */
+  window.V.openProfile = openProfile;
   $("#profile-close").addEventListener("click", closeProfile);
   $("#profile-modal").addEventListener("click", (e) => { if (e.target.id === "profile-modal") closeProfile(); });
   $("#profile-copy").addEventListener("click", () => me && copy(me.user.wallet, "Wallet address copied"));
@@ -1152,6 +1153,10 @@
     $("#dash-main").hidden = false;
     render(d);
     layoutInit();
+    if (location.hash === "#profile") {
+      history.replaceState(null, "", location.pathname + location.search);
+      openProfile();
+    }
     setupComposer(); loadFeed(true); loadMod(); loadTowns();
     reveal();
     if (params.get("welcome")) toast(`Welcome to Vicinity, ${d.user.handle || d.user.name} 🎉`);

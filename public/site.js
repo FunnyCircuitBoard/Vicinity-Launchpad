@@ -67,10 +67,18 @@
     meLite = d;
     const b = $("[data-account]"), label = $("[data-account-label]");
     if (d.signedIn && b) {
-      b.href = "/dashboard"; b.classList.add("is-in");
+      b.href = "/dashboard#profile"; b.classList.add("is-in");
       const who = d.user.handle || d.user.name || short(d.user.wallet);
       label.textContent = who.length > 16 ? who.slice(0, 15) + "…" : who;
-      b.setAttribute("aria-label", `Your dashboard (${who})`);
+      // the header username button IS the profile button: on the dashboard it
+      // opens the profile modal in place, anywhere else it lands on it
+      b.setAttribute("aria-label", `Profile and settings (${who})`);
+      b.addEventListener("click", (e) => {
+        if (document.body.dataset.page === "dashboard" && typeof window.V.openProfile === "function") {
+          e.preventDefault();
+          window.V.openProfile();
+        }
+      });
     } else if (d.pending && b) {
       label.textContent = "Finish sign-in";
     }

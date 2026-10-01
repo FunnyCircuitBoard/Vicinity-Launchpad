@@ -88,19 +88,26 @@ test("terms page: the full Terms of Use", () => {
   assert.match(css, /\.terms h2/, "terms page styles exist");
 });
 
-test("profile: the pass shows no real name, and a profile section exists", () => {
+test("profile: the pass shows no real name, and the header username button is the profile button", () => {
   const js = read("dashboard.js");
   const loginLine = js.split("\n").find((l) => l.includes("[data-me-login]") && l.includes("textContent"));
   assert.ok(loginLine && !loginLine.includes("u.name"), "the sign-in line never interpolates the real name");
   assert.ok(js.includes("PROVIDER_LABEL"), "the pass shows the sign-in method label only");
   const h = html["dashboard.html"];
-  assert.match(h, /id="profile-open"/, "profile button on the pass");
+  assert.ok(!h.includes('id="profile-open"'), "no profile button on the pass — the header button is the profile entry");
   assert.match(h, /id="profile-modal"/, "profile modal");
   assert.match(h, /id="username-form"/, "username change form");
   assert.match(h, /id="email-form"/, "e-mail add form");
   assert.match(h, /id="phone-form"/, "phone form");
   assert.match(h, /id="profile-logout"/, "log out in the profile section");
   assert.ok(h.includes("Help &amp; support"), "help & support section");
+  // dashboard exposes the opener; the header button calls it on the dashboard
+  assert.ok(js.includes("window.V.openProfile = openProfile"), "dashboard exposes openProfile");
+  assert.ok(js.includes('"#profile"'), "dashboard opens the profile on the #profile hash");
+  const site = read("site.js");
+  assert.ok(site.includes("/dashboard#profile"), "the header account button points at the profile");
+  assert.ok(site.includes("Profile and settings"), "the header button is labeled as the profile button");
+  assert.ok(site.includes("window.V.openProfile"), "the header button opens the profile in place on the dashboard");
   assert.match(css, /\.profile__sec/, "profile styles exist");
   assert.match(css, /\.icon-btn/, "profile icon button styles exist");
 });
