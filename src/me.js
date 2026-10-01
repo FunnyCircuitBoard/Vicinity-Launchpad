@@ -7,7 +7,7 @@
  *   POST /api/home        → set your home community from a location attestation (never the location)
  */
 import { json, readJson } from "./http.js";
-import { getSession, isFresh, providers } from "./auth.js";
+import { cleanEmail, consumeEmailCode, getSession, isFresh, providers, validEmail } from "./auth.js";
 import { access } from "./access.js";
 import { useAttestation } from "./attest.js";
 import { activeMint } from "./official.js";
@@ -25,6 +25,7 @@ const mask = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
 
 export const publicUser = (u) => ({
   id: u.id, wallet: u.wallet, provider: u.provider, handle: u.handle, name: u.name,
+  contact_email: u.contact_email || null, phone: u.phone || null,
   home: u.home_city ? { id: u.home_city, name: u.home_name, country: u.home_country, since: u.home_at } : null,
   joined: u.created_at,
 });
@@ -165,6 +166,75 @@ export async function handleTermsAgree(request, env, now = Date.now()) {
   await env.DB.prepare("UPDATE users SET terms_version = ?, terms_agreed_at = ? WHERE id = ?")
     .bind(version, new Date(now).toISOString(), a.u.id).run();
   return json({ ok: true, version });
+}
+
+/** Usernames: 3–20 chars, start with a letter, letters/digits/underscore. Unique, case-insensitively. */
+export const validUsername = (s) => /^[A-Za-z][A-Za-z0-9_]{2,19}$/.test(String(s || ""));
+
+/**
+ * POST /api/me/username { username } → change the public username.
+ * First come, first served: it must not match any existing username (any casing).
+ * Needs a fresh wallet proof, like other identity changes.
+ */
+export async function handleUsername(request, env, now = Date.now()) {
+  const a = await access(request, env, now, { fresh: true });
+  if (a.error) return a.error;
+  const body = await readJson(request);
+  const username = typeof body?.username === "string" ? body.username.trim() : "";
+  if (!validUsername(username)) return json({ ok: false, error: "bad_username" }, 400);
+  await ensureSchema(env.DB);
+  if (a.u.handle && a.u.handle.toLowerCase() === username.toLowerCase()) return json({ ok: true, username: a.u.handle });
+  const taken = await env.DB.prepare("SELECT id FROM users WHERE lower(handle) = lower(?) AND id != ?").bind(username, a.u.id).first();
+  if (taken) return json({ ok: false, error: "username_taken" }, 409);
+  try {
+    await env.DB.prepare("UPDATE users SET handle = ? WHERE id = ?").bind(username, a.u.id).run();
+  } catch (e) {
+    if (/UNIQUE/i.test(String(e && e.message ? e.message : e))) return json({ ok: false, error: "username_taken" }, 409);
+    throw e;
+  }
+  return json({ ok: true, username });
+}
+
+/**
+ * POST /api/me/contact/email/verify { email, code } → verify the code (sent by the
+ * shared /api/auth/email/start) and store it as the account's contact e-mail.
+ * A verified contact e-mail is not a sign-in method; someone else's sign-in e-mail can't be taken.
+ */
+export async function handleContactEmailVerify(request, env, now = Date.now()) {
+  const a = await access(request, env, now);
+  if (a.error) return a.error;
+  const body = await readJson(request);
+  const email = cleanEmail(body && body.email);
+  const code = String((body && body.code) || "").replace(/\D/g, "").slice(0, 6);
+  if (!validEmail(email) || code.length !== 6) return json({ ok: false, error: "bad_code" }, 400);
+  const v = await consumeEmailCode(env.DB, email, code, now);
+  if (!v.ok) return json({ ok: false, error: v.error, ...(v.left != null ? { left: v.left } : {}) }, v.error === "too_many" ? 429 : 400);
+  await ensureSchema(env.DB);
+  const other = await env.DB.prepare("SELECT id FROM users WHERE provider = 'email' AND provider_id = ? AND id != ?").bind(email, a.u.id).first();
+  if (other) return json({ ok: false, error: "email_taken" }, 409);
+  await env.DB.prepare("UPDATE users SET contact_email = ? WHERE id = ?").bind(email, a.u.id).run();
+  return json({ ok: true, email });
+}
+
+const validPhone = (s) => {
+  const t = String(s || "").trim();
+  const digits = t.replace(/\D/g, "");
+  return /^\+?[0-9\s\-().]{7,24}$/.test(t) && digits.length >= 7 && digits.length <= 15;
+};
+
+/**
+ * POST /api/me/phone { phone } → set (or clear, with "") the contact phone number.
+ * Stored for future notifications; not verified.
+ */
+export async function handlePhone(request, env, now = Date.now()) {
+  const a = await access(request, env, now);
+  if (a.error) return a.error;
+  const body = await readJson(request);
+  const phone = typeof body?.phone === "string" ? body.phone.trim() : "";
+  if (phone && !validPhone(phone)) return json({ ok: false, error: "bad_phone" }, 400);
+  await ensureSchema(env.DB);
+  await env.DB.prepare("UPDATE users SET phone = ? WHERE id = ?").bind(phone || null, a.u.id).run();
+  return json({ ok: true, phone: phone || null });
 }
 
 /**

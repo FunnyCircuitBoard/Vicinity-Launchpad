@@ -489,6 +489,14 @@ ALTER TABLE users ADD COLUMN terms_version TEXT;
 ALTER TABLE users ADD COLUMN terms_agreed_at TEXT;
 `,
   },
+  {
+    id: "2026-10-01-profile",
+    sql: `
+ALTER TABLE users ADD COLUMN contact_email TEXT;
+ALTER TABLE users ADD COLUMN phone TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users (lower(handle)) WHERE handle IS NOT NULL;
+`,
+  },
 ];
 
 const split = (sql) => sql.split(";").map((s) => s.trim()).filter(Boolean);

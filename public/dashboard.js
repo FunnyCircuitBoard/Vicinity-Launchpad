@@ -106,11 +106,13 @@
   }
 
   /* ---------- identity ---------- */
+  const PROVIDER_LABEL = { google: "Google", email: "Email" };
   function identity(d) {
     const u = d.user, name = u.handle || u.name || mask(u.wallet);
     $$("[data-me-name]").forEach((e) => (e.textContent = name));
     $$("[data-me-wallet]").forEach((e) => (e.textContent = mask(u.wallet)));
-    $$("[data-me-login]").forEach((e) => (e.textContent = u.provider === "x" ? `X ${u.handle || ""}`.trim() : `Google · ${u.name || ""}`));
+    // the pass shows the sign-in method only — never the real name (privacy)
+    $$("[data-me-login]").forEach((e) => (e.textContent = PROVIDER_LABEL[u.provider] || "Google"));
     $("#me-avatar").textContent = initials(name);
   }
 
@@ -922,6 +924,99 @@
   }, 5000);
   $("#me-copy").addEventListener("click", () => me && copy(me.user.wallet, "Wallet address copied"));
   $("#me-logout").addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/"); });
+
+  /* ---------- profile & settings ---------- */
+  const USERNAME_ERR = {
+    bad_username: "Usernames are 3–20 characters: letters, numbers and underscores, starting with a letter.",
+    username_taken: "That username is taken. Try another one.",
+    reprove: "Please confirm it's you with your wallet first, then try again.",
+    sign_in: "Your session ended. Please sign in again.",
+  };
+  function openProfile() {
+    if (!me) return;
+    const u = me.user, name = u.handle || u.name || mask(u.wallet);
+    $("#profile-avatar").textContent = initials(name);
+    $("#profile-since").textContent = `Member since ${date(u.joined)} · ${LEVEL[me.level] || "Member"}`;
+    $("#profile-wallet").textContent = mask(u.wallet);
+    $("#profile-provider").textContent = PROVIDER_LABEL[u.provider] || "Google";
+    $("#profile-home").textContent = u.home ? `${u.home.name}, ${countryName(u.home.country)}` : "No home community yet";
+    $("#username-input").value = u.handle || "";
+    $("#username-err").hidden = true;
+    renderEmailView(u); renderPhoneView(u);
+    $("#email-form").hidden = true; $("#email-code-form").hidden = true; $("#phone-form").hidden = true;
+    $("#contact-err").hidden = true;
+    $("#profile-modal").hidden = false;
+  }
+  function closeProfile() { $("#profile-modal").hidden = true; }
+  // e-mail: verified badge or an add/verify flow (the code comes from /api/auth/email/start)
+  let pendingEmail = "";
+  function renderEmailView(u) {
+    const v = $("#email-view");
+    if (u.contact_email) {
+      v.replaceChildren(el("span", "verified-pill", `✓ ${u.contact_email}`),
+        (() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Change";
+          b.addEventListener("click", () => { $("#email-form").hidden = false; $("#email-code-form").hidden = true; $("#email-input").focus(); }); return b; })());
+      $("#email-desc").textContent = "Verified. We only write when it matters.";
+    } else {
+      v.replaceChildren((() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Add";
+        b.addEventListener("click", () => { $("#email-form").hidden = false; $("#email-input").focus(); }); return b; })());
+      $("#email-desc").textContent = "Get security alerts and city updates.";
+    }
+  }
+  function renderPhoneView(u) {
+    const v = $("#phone-view");
+    if (u.phone) {
+      v.replaceChildren(el("span", null, u.phone),
+        (() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Change";
+          b.addEventListener("click", () => { $("#phone-input").value = u.phone; $("#phone-form").hidden = false; $("#phone-input").focus(); }); return b; })(),
+        (() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Remove";
+          b.addEventListener("click", async () => { const r = await api("/api/me/phone", { phone: "" }); if (r.ok) { me.user.phone = null; renderPhoneView(me.user); toast("Phone removed"); } }); return b; })());
+    } else {
+      v.replaceChildren((() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Add";
+        b.addEventListener("click", () => { $("#phone-form").hidden = false; $("#phone-input").focus(); }); return b; })());
+    }
+  }
+  $("#profile-open").addEventListener("click", openProfile);
+  $("#profile-close").addEventListener("click", closeProfile);
+  $("#profile-modal").addEventListener("click", (e) => { if (e.target.id === "profile-modal") closeProfile(); });
+  $("#profile-copy").addEventListener("click", () => me && copy(me.user.wallet, "Wallet address copied"));
+  $("#profile-logout").addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/"); });
+  $("#username-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#username-err"); err.hidden = true;
+    const r = await sensitive(() => api("/api/me/username", { username: $("#username-input").value.trim() }));
+    if (!r || !r.ok) { err.textContent = USERNAME_ERR[r && r.error] || "Couldn't save that. Try again."; err.hidden = false; return; }
+    me.user.handle = r.username; identity(me);
+    $("#username-input").value = r.username; toast("Username updated ✓");
+  });
+  $("#email-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#contact-err"); err.hidden = true;
+    pendingEmail = $("#email-input").value.trim().toLowerCase();
+    const r = await api("/api/auth/email/start", { email: pendingEmail });
+    if (!r.ok) { err.textContent = r.error === "bad_email" ? "That doesn't look like an e-mail address." : r.error === "too_soon" ? "We just sent a code — wait a minute before asking again." : "Couldn't send the code. Try again."; err.hidden = false; return; }
+    $("#email-form").hidden = true; $("#email-code-form").hidden = false; $("#email-code-input").focus();
+    toast("Code sent — check your inbox");
+  });
+  $("#email-code-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#contact-err"); err.hidden = true;
+    const r = await api("/api/me/contact/email/verify", { email: pendingEmail, code: $("#email-code-input").value });
+    if (!r.ok) {
+      err.textContent = r.error === "code_wrong" ? `Wrong code${r.left != null ? ` (${r.left} tries left)` : ""}.` : r.error === "code_expired" ? "That code expired. Send a new one." : r.error === "email_taken" ? "That e-mail is someone else's sign-in. Use a different one." : "Couldn't verify. Try again.";
+      err.hidden = false; return;
+    }
+    me.user.contact_email = r.email; renderEmailView(me.user);
+    $("#email-code-form").hidden = true; $("#email-code-input").value = ""; toast("E-mail verified ✓");
+  });
+  $("#phone-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#contact-err"); err.hidden = true;
+    const r = await api("/api/me/phone", { phone: $("#phone-input").value.trim() });
+    if (!r.ok) { err.textContent = r.error === "bad_phone" ? "That doesn't look like a phone number." : "Couldn't save that. Try again."; err.hidden = false; return; }
+    me.user.phone = r.phone; renderPhoneView(me.user);
+    $("#phone-form").hidden = true; toast("Phone saved ✓");
+  });
 
   /* ---------- customizable card layout ---------- */
   // Drag-to-reorder (touch + mouse) with per-card column move, saved per user in

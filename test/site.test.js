@@ -88,6 +88,23 @@ test("terms page: the full Terms of Use", () => {
   assert.match(css, /\.terms h2/, "terms page styles exist");
 });
 
+test("profile: the pass shows no real name, and a profile section exists", () => {
+  const js = read("dashboard.js");
+  const loginLine = js.split("\n").find((l) => l.includes("[data-me-login]") && l.includes("textContent"));
+  assert.ok(loginLine && !loginLine.includes("u.name"), "the sign-in line never interpolates the real name");
+  assert.ok(js.includes("PROVIDER_LABEL"), "the pass shows the sign-in method label only");
+  const h = html["dashboard.html"];
+  assert.match(h, /id="profile-open"/, "profile button on the pass");
+  assert.match(h, /id="profile-modal"/, "profile modal");
+  assert.match(h, /id="username-form"/, "username change form");
+  assert.match(h, /id="email-form"/, "e-mail add form");
+  assert.match(h, /id="phone-form"/, "phone form");
+  assert.match(h, /id="profile-logout"/, "log out in the profile section");
+  assert.ok(h.includes("Help &amp; support"), "help & support section");
+  assert.match(css, /\.profile__sec/, "profile styles exist");
+  assert.match(css, /\.icon-btn/, "profile icon button styles exist");
+});
+
 test("home: the problem, the real New York City map, how it works, incentives, roles, FAQ", () => {
   const h = html["index.html"];
   for (const id of ["problem", "nyc", "nyc-map", "why-now", "how", "why", "get", "roles", "roadmap", "faq"]) assert.ok(h.includes(`id="${id}"`), id);

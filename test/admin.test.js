@@ -28,8 +28,8 @@ async function sessionFor(wallet, { stale = false } = {}) {
   let user = await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(wallet).first();
   if (!user) {
     const ins = await env.DB.prepare(
-      "INSERT INTO users (wallet, provider, provider_id, handle, name, created_at) VALUES (?, 'test', ?, 't', 'T', ?)")
-      .bind(wallet, wallet + ":" + randomToken(6), iso(now)).run();
+      "INSERT INTO users (wallet, provider, provider_id, handle, name, created_at) VALUES (?, 'test', ?, ?, 'T', ?)")
+      .bind(wallet, wallet + ":" + randomToken(6), "t" + wallet.slice(0, 8), iso(now)).run();
     user = { id: ins.meta.last_row_id };
   }
   const tok = randomToken(24);

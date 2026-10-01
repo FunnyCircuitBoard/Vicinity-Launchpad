@@ -355,6 +355,25 @@ const CODE_MAX_ATTEMPTS = 5;        // wrong guesses before the code is thrown a
 
 const cleanEmail = (s) => String(s || "").trim().toLowerCase().slice(0, 254);
 const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
+export { cleanEmail, validEmail };
+
+/**
+ * Check a 6-digit e-mail code and burn it. Returns { ok: true } or
+ * { ok: false, error, left? }. Shared by sign-in and contact-e-mail verification.
+ */
+export async function consumeEmailCode(db, email, code, now = Date.now()) {
+  const row = await db.prepare("SELECT code_hash, expires_at, attempts FROM email_codes WHERE email = ?").bind(email).first();
+  const gone = async () => { await db.prepare("DELETE FROM email_codes WHERE email = ?").bind(email).run(); };
+  if (!row) return { ok: false, error: "code_expired" };
+  if (Date.parse(row.expires_at) <= now) { await gone(); return { ok: false, error: "code_expired" }; }
+  if (row.attempts >= CODE_MAX_ATTEMPTS) { await gone(); return { ok: false, error: "too_many" }; }
+  if (!safeEqual(await sha256(code), row.code_hash)) {
+    await db.prepare("UPDATE email_codes SET attempts = attempts + 1 WHERE email = ?").bind(email).run();
+    return { ok: false, error: "code_wrong", left: CODE_MAX_ATTEMPTS - row.attempts - 1 };
+  }
+  await gone();
+  return { ok: true };
+}
 
 /** Constant-time compare for hex digests (no timing leak on wrong guesses). */
 function safeEqual(a, b) {
@@ -414,16 +433,8 @@ export async function handleEmailVerify(request, env, fetchImpl = fetch, now = D
   const code = String((body && body.code) || "").replace(/\D/g, "").slice(0, 6);
   if (!validEmail(email) || code.length !== 6) return json({ ok: false, error: "bad_code" }, 400);
 
-  const row = await env.DB.prepare("SELECT code_hash, expires_at, attempts FROM email_codes WHERE email = ?").bind(email).first();
-  const gone = async () => { await env.DB.prepare("DELETE FROM email_codes WHERE email = ?").bind(email).run(); };
-  if (!row) return json({ ok: false, error: "code_expired" }, 400);
-  if (Date.parse(row.expires_at) <= now) { await gone(); return json({ ok: false, error: "code_expired" }, 400); }
-  if (row.attempts >= CODE_MAX_ATTEMPTS) { await gone(); return json({ ok: false, error: "too_many" }, 429); }
-  if (!safeEqual(await sha256(code), row.code_hash)) {
-    await env.DB.prepare("UPDATE email_codes SET attempts = attempts + 1 WHERE email = ?").bind(email).run();
-    return json({ ok: false, error: "code_wrong", left: CODE_MAX_ATTEMPTS - row.attempts - 1 }, 400);
-  }
-  await gone();
+  const v = await consumeEmailCode(env.DB, email, code, now);
+  if (!v.ok) return json({ ok: false, error: v.error, ...(v.left != null ? { left: v.left } : {}) }, v.error === "too_many" ? 429 : 400);
 
   await ensureSchema(env.DB);
   const session = await getSession(env, request, now);
