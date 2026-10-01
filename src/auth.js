@@ -16,12 +16,14 @@
  *
  * Settings (Cloudflare → Workers → vicinity-map → Settings → Variables and secrets):
  *   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   Google sign-in
- *   RESEND_API_KEY                           e-mail codes (Resend); EMAIL_FROM sets the sender
+ *   GMAIL_USER, GMAIL_APP_PASSWORD            e-mail codes, sent straight from Gmail (simplest);
+ *                                             or RESEND_API_KEY (Resend); EMAIL_FROM sets the sender
  * Redirect address to register with Google: https://vicinity.city/api/auth/google/callback
  */
 import { b64url, clearCookie, cookie, getCookie, json, randomToken, readJson, redirect, sameSite, sha256 } from "./http.js";
 import { checkSigned } from "./signed.js";
 import { isSolanaAddress } from "./solana.js";
+import { emailConfigured, sendMail } from "./mail.js";
 import { ensureSchema } from "./store.js";
 import { findTransfer } from "./chain.js";
 import { activeMint } from "./official.js";
@@ -67,7 +69,7 @@ export const PROVIDERS = {
 };
 export const providers = (env) => ({
   google: Boolean(PROVIDERS.google.configured(env)),
-  email: Boolean(env.RESEND_API_KEY),
+  email: emailConfigured(env),
 });
 
 /* ---------------- sessions ---------------- */
@@ -367,32 +369,21 @@ function sixDigits() {
   return String(100000 + ((b[0] * 65536 + b[1] * 256 + b[2]) % 900000));
 }
 
-async function sendCodeEmail(env, to, code, fetchImpl) {
-  if (!env.RESEND_API_KEY) return { ok: false, error: "email_unavailable" };
-  const from = env.EMAIL_FROM || "Vicinity <noreply@vicinity.city>";
-  let res;
-  try {
-    res = await fetchImpl("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        from, to: [to], subject: `${code} is your Vicinity code`,
-        text: `Your Vicinity sign-in code is ${code}.\n\nIt expires in 10 minutes. If you didn't ask for this, just ignore this e-mail.`,
-      }),
-    });
-  } catch (e) { console.error("code e-mail failed", String(e)); return { ok: false, error: "email_unavailable" }; }
-  if (!res.ok) { console.error("code e-mail failed", res.status); return { ok: false, error: "email_unavailable" }; }
-  return { ok: true };
+async function sendCodeEmail(env, to, code, fetchImpl, mailer = {}) {
+  return sendMail(env, {
+    to, subject: `${code} is your Vicinity code`,
+    text: `Your Vicinity sign-in code is ${code}.\n\nIt expires in 10 minutes. If you didn't ask for this, just ignore this e-mail.`,
+  }, { fetchImpl, smtpImpl: mailer.smtpImpl || null });
 }
 
 /** POST /api/auth/email/start { email } → send a 6-digit code. */
-export async function handleEmailStart(request, env, fetchImpl = fetch, now = Date.now()) {
+export async function handleEmailStart(request, env, fetchImpl = fetch, now = Date.now(), mailer = {}) {
   const blocked = await guard(request, env);
   if (blocked) return blocked;
   const body = await readJson(request);
   const email = cleanEmail(body && body.email);
   if (!validEmail(email)) return json({ ok: false, error: "bad_email" }, 400);
-  if (!env.RESEND_API_KEY) return json({ ok: false, error: "email_unavailable" }, 503);
+  if (!emailConfigured(env)) return json({ ok: false, error: "email_unavailable" }, 503);
 
   const row = await env.DB.prepare("SELECT expires_at, attempts, send_count, window_start, last_sent_at FROM email_codes WHERE email = ?").bind(email).first();
   if (row && row.last_sent_at && now - Date.parse(row.last_sent_at) < CODE_RESEND_SECONDS * 1000)
@@ -401,7 +392,7 @@ export async function handleEmailStart(request, env, fetchImpl = fetch, now = Da
   if (inWindow && row.send_count >= CODE_MAX_SENDS) return json({ ok: false, error: "too_many" }, 429);
 
   const code = sixDigits();
-  const sent = await sendCodeEmail(env, email, code, fetchImpl);
+  const sent = await sendCodeEmail(env, email, code, fetchImpl, mailer);
   if (!sent.ok) return json(sent, 503);
 
   const sendCount = inWindow ? row.send_count + 1 : 1;

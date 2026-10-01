@@ -172,5 +172,39 @@ test("expired codes are rejected", async () => {
 test("providers() advertises e-mail only when the mail key is set", async () => {
   const { providers } = await import("../src/auth.js");
   assert.deepEqual(providers({ RESEND_API_KEY: "x" }), { google: false, email: true });
+  assert.deepEqual(providers({ GMAIL_USER: "a@gmail.com", GMAIL_APP_PASSWORD: "x" }), { google: false, email: true });
   assert.deepEqual(providers({}), { google: false, email: false });
+});
+
+test("gmail path sends the code via SMTP when configured", async () => {
+  const { handleEmailStart } = await import("../src/auth.js");
+  env = { DB: d1(), GMAIL_USER: "vicinity.test@gmail.com", GMAIL_APP_PASSWORD: "abcd efgh ijkl mnop" };
+  const calls = [];
+  const req = new Request(ORIGIN + "/api/auth/email/start", {
+    method: "POST",
+    headers: { origin: ORIGIN, "content-type": "application/json" },
+    body: JSON.stringify({ email: "user@example.com" }),
+  });
+  const r = await handleEmailStart(req, env, fetch, Date.now(), {
+    smtpImpl: async (m) => { calls.push(m); return { ok: true }; },
+  });
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].to, "user@example.com");
+  assert.equal(calls[0].user, "vicinity.test@gmail.com");
+  assert.equal(calls[0].pass, "abcdefghijklmnop"); // spaces stripped
+  assert.match(calls[0].subject, /^\d{6} is your Vicinity code$/);
+});
+
+test("gmail is preferred over resend when both are configured", async () => {
+  const { sendMail } = await import("../src/mail.js");
+  let via = null;
+  const deps = {
+    smtpImpl: async () => { via = "gmail"; return { ok: true }; },
+    fetchImpl: async () => { via = "resend"; return new Response("{}", { status: 200 }); },
+  };
+  await sendMail({ GMAIL_USER: "a@gmail.com", GMAIL_APP_PASSWORD: "x", RESEND_API_KEY: "y" },
+    { to: "t@example.com", subject: "s", text: "t" }, deps);
+  assert.equal(via, "gmail");
 });
