@@ -1,4 +1,4 @@
-// Accounts: one wallet + one X / Google login per person, sessions, phone pairing, tiny-transfer proof.
+// Accounts: one wallet + one Google login / verified e-mail per person, sessions, phone pairing, tiny-transfer proof.
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { handleApi } from "../src/index.js";
@@ -69,7 +69,7 @@ async function oauth(b, provider, id) {
 
 beforeEach(() => {
   _resetCityCache();
-  env = { DB: d1(), GOOGLE_CLIENT_ID: "gid", GOOGLE_CLIENT_SECRET: "gsecret", X_CLIENT_ID: "xid" };
+  env = { DB: d1(), GOOGLE_CLIENT_ID: "gid", GOOGLE_CLIENT_SECRET: "gsecret" };
   jar = browser();
 });
 
@@ -82,7 +82,7 @@ test("new person: wallet first, then Google, then signed in for good", async () 
   const me = await (await jar.send("/api/me")).json();
   assert.equal(me.signedIn, false);
   assert.equal(me.pending.wallet, w.address);
-  assert.deepEqual(me.providers, { google: true, x: true });
+  assert.deepEqual(me.providers, { google: true, email: false });
 
   r = await oauth(jar, "google", "g-1");
   assert.equal(r.status, 302);
@@ -117,18 +117,23 @@ test("one wallet ↔ one login: a second wallet can't reuse the Google account, 
 test("returning person can sign in with the linked login alone; an unknown login must connect a wallet first", async () => {
   const w = await wallet();
   await jar.send("/api/auth/wallet", { method: "POST", body: await loginBody(w) });
-  await oauth(jar, "x", "777");
+  await oauth(jar, "google", "g-7");
   const me = await (await jar.send("/api/me?lite=1")).json();
-  assert.equal(me.user.handle, "@utica_777");
+  assert.match(me.user.handle, /^[A-Z][a-z]+[A-Z][a-z]+\d{2}$/, "Google signups get an auto username");
 
   const fresh = browser();
-  let r = await oauth(fresh, "x", "777");
+  let r = await oauth(fresh, "google", "g-7");
   assert.equal(r.headers.get("location"), "/dashboard");
   assert.equal((await (await fresh.send("/api/me?lite=1")).json()).user.wallet, w.address);
 
   const stranger = browser();
-  r = await oauth(stranger, "x", "999");
+  r = await oauth(stranger, "google", "g-9");
   assert.equal(r.headers.get("location"), "/connect?error=wallet_first");
+});
+
+test("X sign-in is gone: the old endpoints 404", async () => {
+  assert.equal((await jar.send("/api/auth/x/start")).status, 404);
+  assert.equal((await jar.send("/api/auth/x/callback?code=z&state=z")).status, 404);
 });
 
 test("login safety: other sites, wrong state, missing settings, logout", async () => {

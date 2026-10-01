@@ -5,11 +5,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Connect · Vicinity</title>
-  <meta name="description" content="Connect any Solana wallet, sign in with X or Google, and get your Vicinity dashboard: live rank, your city, your people.">
+  <meta name="description" content="Connect any Solana wallet, sign in with Google or e-mail, and get your Vicinity dashboard: live rank, your city, your people.">
   <meta name="theme-color" content="#070E19">
   <meta name="color-scheme" content="dark light">
   <meta property="og:title" content="Connect · Vicinity">
-  <meta property="og:description" content="Connect any Solana wallet, sign in with X or Google, and get your Vicinity dashboard: live rank, your city, your people.">
+  <meta property="og:description" content="Connect any Solana wallet, sign in with Google or e-mail, and get your Vicinity dashboard: live rank, your city, your people.">
   <meta property="og:type" content="website">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/space-grotesk.woff2" as="font" type="font/woff2" crossorigin>
@@ -49,13 +49,13 @@
           <p class="lead">Two quick steps, then your dashboard: your live rank, your city and your people.</p>
           <ol class="stepper" id="stepper">
             <li data-s="1" class="is-active"><span class="stepper__n">1</span><span>Connect your wallet</span></li>
-            <li data-s="2"><span class="stepper__n">2</span><span>Sign in with X or Google</span></li>
+            <li data-s="2"><span class="stepper__n">2</span><span>Sign in with Google or e-mail</span></li>
             <li data-s="3"><span class="stepper__n">3</span><span>Your dashboard</span></li>
           </ol>
           <ul class="safety">
             <li>Signing in is free. It isn't a transaction and can't move funds.</li>
             <li>Vicinity will never ask for your recovery phrase or private key.</li>
-            <li>One account per wallet and per X or Google login, which keeps fake accounts out.</li>
+            <li>One account per wallet and per Google login or verified e-mail, which keeps fake accounts out.</li>
           </ul>
         </div>
 
@@ -135,18 +135,32 @@
             <div class="approve-done" id="approve-done" hidden><div class="verified-badge" aria-hidden="true">✓</div><p><strong>Approved.</strong> Go back to your computer.</p></div>
           </div>
 
-          <!-- 2. X or Google -->
+          <!-- 2. Google or e-mail -->
           <div class="cstate" data-state="social" hidden>
             <div class="verified-badge" aria-hidden="true">✓</div>
             <h2 class="h2--sm">Wallet verified. Now, who are you?</h2>
             <p class="addr addr--center"><span id="s-addr">—</span></p>
-            <p class="muted small">Sign in with X or Google to finish. Your login is linked to this wallet for good: one account per wallet and per login.</p>
+            <p class="muted small">Sign in with Google or your e-mail to finish. Your login is linked to this wallet for good: one account per wallet and per login.</p>
             <div class="social-btns">
-              <a class="btn btn--social btn--x" href="/api/auth/x/start" id="go-x"><span class="social-mark" aria-hidden="true">𝕏</span> Continue with X</a>
               <a class="btn btn--social btn--google" href="/api/auth/google/start" id="go-google"><span class="social-mark" aria-hidden="true">G</span> Continue with Google</a>
+              <button class="btn btn--social btn--email" type="button" id="go-email"><span class="social-mark" aria-hidden="true">✉</span> Continue with e-mail</button>
             </div>
-            <p class="muted small" id="social-off" hidden>Sign-in with X and Google is being switched on. Please check back soon.</p>
-            <p class="tiny muted">We keep your account id and display name. No e-mail, no posts, no contacts.</p>
+            <form class="email-form" id="email-form" hidden novalidate>
+              <div id="email-step-address">
+                <label for="email-addr">Your e-mail address</label>
+                <input id="email-addr" type="email" autocomplete="email" spellcheck="false" maxlength="254" placeholder="you@example.com">
+                <button class="btn btn--primary btn--block" type="submit" id="email-send">Send me a code</button>
+              </div>
+              <div id="email-step-code" hidden>
+                <p class="small">We sent a 6-digit code to <strong id="email-sent-to">—</strong></p>
+                <label for="email-code">Your code</label>
+                <input id="email-code" type="text" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" maxlength="6" placeholder="••••••">
+                <button class="btn btn--primary btn--block" type="button" id="email-verify">Verify</button>
+                <button class="link-btn" type="button" id="email-resend">Send a new code</button>
+              </div>
+            </form>
+            <p class="muted small" id="social-off" hidden>Sign-in is being switched on. Please check back soon.</p>
+            <p class="tiny muted">We keep your account id and display name — never your password, posts or contacts.</p>
             <button class="link-btn" type="button" id="s-restart">Use a different wallet</button>
           </div>
 

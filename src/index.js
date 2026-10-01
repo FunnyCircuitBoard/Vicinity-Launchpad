@@ -32,7 +32,7 @@ import { readSigned } from "./signed.js";
 import { ensureSchema } from "./store.js";
 import { POLICY, founderAmount } from "./policy.js";
 import { ledgerStatus } from "./ledger.js";
-import { handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, handlePairStart, handlePairStatus,
+import { handleEmailStart, handleEmailVerify, handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, handlePairStart, handlePairStatus,
   handleReprove, handleTransferCheck, handleTransferStart, handleWalletLogin } from "./auth.js";
 import { handleHome, handleMe, handleMembers } from "./me.js";
 import { handleLocate } from "./attest.js";
@@ -136,8 +136,10 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
 
   // paths with an id in them
   if (path.startsWith("/api/admin/")) return db(() => handleAdmin(request, env));
-  const oauth = path.match(/^\/api\/auth\/(google|x)\/(start|callback)$/);
+  const oauth = path.match(/^\/api\/auth\/(google)\/(start|callback)$/);
   if (oauth) return only("GET") || (oauth[2] === "start" ? handleOAuthStart(request, env, oauth[1]) : handleOAuthCallback(request, env, oauth[1], fetchImpl));
+  if (path === "/api/auth/email/start") return only("POST") || db(() => handleEmailStart(request, env, fetchImpl));
+  if (path === "/api/auth/email/verify") return only("POST") || db(() => handleEmailVerify(request, env, fetchImpl));
   let m = path.match(/^\/api\/media\/([0-9]{1,10})$/);
   if (m) return only("GET") || handleMedia(env, m[1]);
   m = path.match(/^\/api\/seats\/results\/([0-9]{1,10})$/);

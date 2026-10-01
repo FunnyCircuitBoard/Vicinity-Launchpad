@@ -1,4 +1,4 @@
-// Connect page: 1. prove the wallet (sign a message / phone QR / tiny transfer)  2. X or Google  3. dashboard.
+// Connect page: 1. prove the wallet (sign a message / phone QR / tiny transfer)  2. Google or e-mail  3. dashboard.
 // Needs site.js (window.V), wallets.js (window.VW) and vendor/qrcode.js (window.qrcode).
 (() => {
   "use strict";
@@ -7,13 +7,13 @@
   const params = new URLSearchParams(location.search);
   const pairCode = params.get("pair");
   const panel = $("#connect-panel");
-  let state = "pick", active = null, address = null, message = null, pairPin = null, providers = { google: false, x: false };
+  let state = "pick", active = null, address = null, message = null, pairPin = null, providers = { google: false, email: false };
 
   const ERR = {
-    social_taken: "That X / Google account is already linked to a different wallet. Sign in with the wallet it's linked to, or use another account.",
+    social_taken: "That Google account is already linked to a different wallet. Sign in with the wallet it's linked to, or use another account.",
     wallet_taken: "This wallet is already linked to another account. Sign in with that account instead.",
-    wallet_first: "That login isn't linked to a wallet yet. Connect your wallet first, then sign in with X or Google.",
-    login_unavailable: "Sign-in with X and Google is being switched on. Please check back soon.",
+    wallet_first: "That login isn't linked to a wallet yet. Connect your wallet first, then sign in with Google or e-mail.",
+    login_unavailable: "Sign-in with Google is being switched on. Please check back soon.",
     login_cancelled: "Sign-in was cancelled. Nothing changed.",
     login_failed: "The sign-in didn't go through. Please try again.",
     login_expired: "That sign-in took too long or was opened in another tab. Please try again.",
@@ -96,7 +96,7 @@
     finally { btn.disabled = false; btn.textContent = "Sign in"; }
   });
 
-  /** The wallet is proven: straight to the dashboard (linked before) or on to X / Google. */
+  /** The wallet is proven: straight to the dashboard (linked before) or on to Google / e-mail. */
   function after(d) {
     if (String(d.next || "").startsWith("/dashboard")) {
       show("done");
@@ -106,12 +106,74 @@
   }
   function showSocial(wallet) {
     $("#s-addr").textContent = short(wallet);
-    $("#go-x").hidden = !providers.x;
     $("#go-google").hidden = !providers.google;
-    $("#social-off").hidden = Boolean(providers.x || providers.google);
+    $("#go-email").hidden = !providers.email;
+    $("#email-form").hidden = true;
+    $("#email-step-address").hidden = false;
+    $("#email-step-code").hidden = true;
+    $(".social-btns").hidden = false;
+    $("#social-off").hidden = Boolean(providers.google || providers.email);
     show("social");
   }
   $("#s-restart").addEventListener("click", async () => { await api("/api/auth/logout", {}); active = null; address = null; show("pick"); renderPick(); });
+
+  /* ---------- e-mail codes ---------- */
+  let emailAddr = "";
+  $("#go-email").addEventListener("click", () => {
+    setErr("");
+    $("#email-form").hidden = false;
+    $(".social-btns").hidden = true;
+    $("#email-step-address").hidden = false;
+    $("#email-step-code").hidden = true;
+    $("#email-addr").focus();
+  });
+  async function emailSend() {
+    setErr("");
+    emailAddr = $("#email-addr").value.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailAddr)) { setErr("That doesn't look like an e-mail address."); return; }
+    const btn = $("#email-send"); btn.disabled = true; btn.textContent = "Sending…";
+    try {
+      const d = await api("/api/auth/email/start", { email: emailAddr });
+      if (!d.ok) throw new Error(d.error);
+      $("#email-sent-to").textContent = emailAddr;
+      $("#email-step-address").hidden = true;
+      $("#email-step-code").hidden = false;
+      $("#email-code").value = "";
+      $("#email-code").focus();
+    } catch (e) { setErr(emailErr(e.message)); }
+    finally { btn.disabled = false; btn.textContent = "Send me a code"; }
+  }
+  async function emailVerify() {
+    setErr("");
+    const code = $("#email-code").value.replace(/\D/g, "").slice(0, 6);
+    if (code.length !== 6) { setErr("Enter the 6-digit code from the e-mail."); return; }
+    const btn = $("#email-verify"); btn.disabled = true; btn.textContent = "Checking…";
+    try {
+      const d = await api("/api/auth/email/verify", { email: emailAddr, code });
+      if (!d.ok) throw new Error(d.error + (d.left != null ? ":" + d.left : ""));
+      location.assign(d.next || "/dashboard");
+    } catch (e) { setErr(emailErr(e.message)); }
+    finally { btn.disabled = false; btn.textContent = "Verify"; }
+  }
+  function emailErr(code) {
+    const [c, left] = String(code).split(":");
+    return {
+      bad_email: "That doesn't look like an e-mail address.",
+      email_unavailable: "E-mail sign-in is being switched on. Please check back soon.",
+      too_soon: "A code was just sent — wait a minute before asking for another.",
+      too_many: "Too many tries. Wait an hour, then ask for a new code.",
+      code_expired: "That code expired. Send a new one.",
+      code_wrong: `That code doesn't match. ${left} ${left === "1" ? "try" : "tries"} left.`,
+      bad_code: "Enter the 6-digit code from the e-mail.",
+      social_taken: "That e-mail is already linked to a different wallet. Sign in with the wallet it's linked to, or use another address.",
+      wallet_taken: "This wallet is already linked to another account. Sign in with that account instead.",
+      wallet_first: "That e-mail isn't linked to a wallet yet. Connect your wallet first, then verify your e-mail.",
+    }[c] || "Something went wrong. Please try again.";
+  }
+  $("#email-form").addEventListener("submit", (e) => { e.preventDefault(); emailSend(); });
+  $("#email-verify").addEventListener("click", emailVerify);
+  $("#email-resend").addEventListener("click", emailSend);
+  $("#email-code").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); emailVerify(); } });
   $$("[data-back]").forEach((b) => b.addEventListener("click", () => { clearTimeout(timer); show("pick"); renderPick(); }));
 
   /* ---------- wallet on a phone: the computer shows a QR code ---------- */
