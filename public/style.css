@@ -748,15 +748,20 @@ body.layout-edit .layout-bar { display: flex; align-items: center; gap: 8px; mar
 .req-list li .req-actions { margin-left: auto; display: flex; gap: 6px; }
 .mod-card { border-color: rgba(255,200,87,.35); }
 .roles-table { display: grid; gap: 12px; }
-.role-row { display: grid; grid-template-columns: .8fr 1fr 1fr; gap: 20px; padding: 20px; }
+.role-row { display: block; padding: 0; overflow: hidden; }
+.role-row__head { display: flex; gap: 12px; align-items: center; padding: 16px 20px; cursor: pointer; list-style: none; }
+.role-row__head::-webkit-details-marker { display: none; }
+.role-row__head h3 { margin: 0; }
+.role-row__head p { margin: 2px 0 0; }
+.role-row__chev { margin-left: auto; color: var(--text-3); font-size: 1.1rem; transition: transform .18s ease; flex: none; }
+.role-row__chev::before { content: "▾"; }
+details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
+.role-row__body { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 2px 20px 20px; }
 .role-row ul { margin: 0; padding-left: 18px; color: var(--text-2); font-size: .93rem; display: grid; gap: 4px; }
-.role-row__who { display: flex; gap: 12px; align-items: flex-start; }
-.role-row__who h3 { margin: 0; }
-.role-row__who p { margin: 2px 0 0; }
 .role-row__when { font-size: .74rem; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: var(--pin-2); margin-bottom: 6px; }
 .role-row.is-you { border-color: rgba(255,200,87,.6); box-shadow: 0 0 0 1px rgba(255,200,87,.3), var(--shadow); }
-.role-row.is-you .role-row__who h3::after { content: " · you"; color: var(--gold-text); font-size: .85rem; }
-@media (max-width: 900px) { .role-row { grid-template-columns: 1fr; gap: 12px; } }
+.role-row.is-you .role-row__head h3::after { content: " · you"; color: var(--gold-text); font-size: .85rem; }
+@media (max-width: 900px) { .role-row__body { grid-template-columns: 1fr; gap: 12px; } }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

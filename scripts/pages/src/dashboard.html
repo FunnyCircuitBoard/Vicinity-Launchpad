@@ -296,26 +296,34 @@
           <p class="muted">Leadership is earned over time and chosen by locals, not bought in a minute. Holdings count, but only up to 2× the founder amount, so the biggest wallet can't simply take over. <a href="/rules">Read every rule →</a></p>
         </div>
         <div class="roles-table">
-          <article class="card role-row" data-role="holder">
-            <div class="role-row__who"><span class="role__icon" aria-hidden="true">🏅</span><div><h3>Holder</h3><p class="tiny muted">Holds any $VICINITY · vote ×1</p></div></div>
+          <details class="card role-row" data-role="holder" open>
+            <summary class="role-row__head"><span class="role__icon" aria-hidden="true">🏅</span><div><h3>Holder</h3><p class="tiny muted">Holds any $VICINITY · vote ×1</p></div><span class="role-row__chev" aria-hidden="true"></span></summary>
+            <div class="role-row__body">
             <div><p class="role-row__when">Now</p><ul><li>Verify your wallet and set your home community.</li><li>Post memes, check-ins and discussions in your city and country.</li><li>Report spam and scams: 5 reports hide a post until a moderator reviews it.</li></ul></div>
             <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Only holders can post and vote.</li><li>Endorse who should found your city, and elect your Country Manager: one person, one vote.</li><li>Founding Supporters are the holders by 14-day average balance at the snapshot: early access to city coins.</li></ul></div>
-          </article>
-          <article class="card role-row" data-role="founder">
-            <div class="role-row__who"><span class="role__icon" aria-hidden="true">👑</span><div><h3>City Founder</h3><p class="tiny muted">Chosen by the city · vote ×2</p></div></div>
+            </div>
+          </details>
+          <details class="card role-row" data-role="founder">
+            <summary class="role-row__head"><span class="role__icon" aria-hidden="true">👑</span><div><h3>City Founder</h3><p class="tiny muted">Chosen by the city · vote ×2</p></div><span class="role-row__chev" aria-hidden="true"></span></summary>
+            <div class="role-row__body">
             <div><p class="role-row__when">Now</p><ul><li>Set your home community (it must be set 7 days before you apply).</li><li>Bring your locals in: they'll endorse the founder.</li><li>Plan to hold the founder amount for 7 days straight after launch: balances are checked at random times.</li></ul></div>
             <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Apply from inside the city; a 72-hour window lets others apply too. No race.</li><li>Chosen by the published formula: 50% local endorsements, 30% contribution, 20% holdings (capped at 2×). Then 48 hours for objections.</li><li>Moderate the city's feed (hides need a second person). Drop below the amount and moderation pauses; 7 days to fix it or the seat reopens.</li><li>Design the city's coin: name, logo, colour, a short pitch, and what it's paired with (SOL, USDC or RAY). Public, logged, and locked once it launches.</li><li>At the Launchpad: first right to launch the city's one official coin.</li></ul></div>
-          </article>
-          <article class="card role-row" data-role="manager">
-            <div class="role-row__who"><span class="role__icon" aria-hidden="true">🛡️</span><div><h3>Country Manager</h3><p class="tiny muted">Elected for 90 days · vote ×3</p></div></div>
+            </div>
+          </details>
+          <details class="card role-row" data-role="manager">
+            <summary class="role-row__head"><span class="role__icon" aria-hidden="true">🛡️</span><div><h3>Country Manager</h3><p class="tiny muted">Elected for 90 days · vote ×3</p></div><span class="role-row__chev" aria-hidden="true"></span></summary>
+            <div class="role-row__body">
             <div><p class="role-row__when">Now</p><ul><li>The seat opens once the country has founders with 30+ days of service. Until then the Admin covers it.</li></ul></div>
             <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Elected by the country's verified locals: 50% votes, 30% service, 20% holdings (capped). 90-day terms, at most two in a row.</li><li>Hide posts in the country, propose bans (another person must approve), advise on "add my town" requests.</li><li>Powers pause the moment their founder seat is in grace.</li></ul></div>
-          </article>
-          <article class="card role-row" data-role="admin">
-            <div class="role-row__who"><span class="role__icon" aria-hidden="true">⚙️</span><div><h3>Admin</h3><p class="tiny muted">The Vicinity team · team wallets are public</p></div></div>
+            </div>
+          </details>
+          <details class="card role-row" data-role="admin">
+            <summary class="role-row__head"><span class="role__icon" aria-hidden="true">⚙️</span><div><h3>Admin</h3><p class="tiny muted">The Vicinity team · team wallets are public</p></div><span class="role-row__chev" aria-hidden="true"></span></summary>
+            <div class="role-row__body">
             <div><p class="role-row__when">Now</p><ul><li>Decides "add my town" requests, objections to founders and appeals they weren't part of.</li><li>Moderates everywhere, under the same two-person rules.</li><li>Publishes team wallets, the snapshot time and every rule change first.</li></ul></div>
             <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Publishes the only official contract address.</li><li>Can never move anyone's tokens, mint, change a launched city's coin, or change rules silently.</li></ul></div>
-          </article>
+            </div>
+          </details>
         </div>
       </div>
     </section>
