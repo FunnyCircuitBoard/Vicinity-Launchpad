@@ -117,12 +117,8 @@
 
   /* ---------- terms gate: agree before entry ---------- */
   (() => {
-    const gate = $("#termsgate");
-    if (!gate) return;
-    const version = gate.dataset.termsVersion || "2026-10-01";
     const key = "vicinity_terms";
-    const lock = (on) => { document.documentElement.style.overflow = on ? "hidden" : ""; };
-    const record = () => {
+    const record = (version) => {
       try { localStorage.setItem(key, version); } catch { /* private mode: gate reappears next visit */ }
       ready.then((d) => { if (d && d.signedIn) api("/api/me/terms", { version }); });
     };
@@ -130,19 +126,21 @@
     if (document.body.dataset.page === "terms") {
       const inline = $("#terms-agree");
       if (inline) inline.addEventListener("click", () => {
-        record();
+        record("2026-10-01");
         inline.disabled = true;
         inline.textContent = "Agreed ✓";
         toast("Thanks — you're all set.");
       });
       return;
     }
+    const gate = $("#termsgate");
+    if (!gate) return;
+    const version = gate.dataset.termsVersion || "2026-10-01";
     let agreed = null;
     try { agreed = localStorage.getItem(key); } catch { /* ignore */ }
     if (agreed === version) return;
     gate.hidden = false;
-    lock(true);
-    $("#termsgate-agree").addEventListener("click", () => { record(); gate.hidden = true; lock(false); });
+    $("#termsgate-agree").addEventListener("click", () => { record(version); gate.hidden = true; });
     $("#termsgate-decline").addEventListener("click", () => {
       gate.querySelector(".termsgate__card").innerHTML =
         '<div class="termsgate__done"><p class="kicker">No problem</p>' +

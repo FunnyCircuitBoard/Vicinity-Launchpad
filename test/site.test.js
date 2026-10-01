@@ -68,6 +68,16 @@ test("terms gate: every page (except /terms) asks for agreement before entry", (
   assert.match(html["terms.html"], /id="terms-agree"/, "terms page has an inline agree button");
 });
 
+test("terms gate script: the inline agree button is wired even when the modal is absent", () => {
+  const js = read("site.js");
+  const gateLookup = js.indexOf('$("#termsgate")');
+  const termsBranch = js.indexOf('dataset.page === "terms"');
+  assert.ok(termsBranch !== -1 && gateLookup !== -1 && termsBranch < gateLookup,
+    "the terms-page branch must run before the gate-missing early return, or the inline button stays dead");
+  assert.ok(js.includes('$("#terms-agree")'), "inline agree button is wired");
+  assert.doesNotMatch(js, /style\.overflow\s*=\s*["']hidden["']/, "the gate never freezes page scrolling");
+});
+
 test("terms page: the full Terms of Use", () => {
   const h = html["terms.html"];
   for (const s of ["1. Introduction", "4. Eligibility", "13. Warranty Disclaimer", "14. Limitation of Liability",
