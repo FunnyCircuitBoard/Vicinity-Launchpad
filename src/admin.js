@@ -23,7 +23,7 @@ import { getSession, isFresh, SESSION_COOKIE } from "./auth.js";
 import { adminWallets } from "./roles.js";
 import { clearCookie, cookie, getCookie, json, readJson, sameSite, sha256 } from "./http.js";
 import { ensureSchema } from "./store.js";
-import { cleanText } from "./text.js";
+import { autoUsername, cleanText } from "./text.js";
 import { isSolanaAddress } from "./solana.js";
 import { POLICY, DAY, iso } from "./policy.js";
 import { OFFICIAL } from "./official.js";
@@ -66,8 +66,8 @@ async function adminCaller(request, env, now = Date.now()) {
   if (!user && wallet && adminWallets(env).includes(wallet)) {
     user = await db.prepare("SELECT * FROM users WHERE wallet = ?").bind(wallet).first();
     if (!user) {
-      const r = await db.prepare("INSERT INTO users (wallet, provider, provider_id, created_at) VALUES (?, 'wallet', ?, ?)")
-        .bind(wallet, wallet, iso(now)).run();
+      const r = await db.prepare("INSERT INTO users (wallet, provider, provider_id, handle, created_at) VALUES (?, 'wallet', ?, ?, ?)")
+        .bind(wallet, wallet, await autoUsername(db), iso(now)).run();
       user = await db.prepare("SELECT * FROM users WHERE id = ?").bind(r.meta.last_row_id).first();
       await logAudit(db, { actor: wallet, action: "admin/bootstrap", detail: "owner user row provisioned from wallet signature" }, now).run();
     }

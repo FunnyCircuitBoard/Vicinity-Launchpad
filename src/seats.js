@@ -888,7 +888,7 @@ export async function handleSeats(env, now = Date.now()) {
   const seatViews = [];
   for (const s of seats.results) {
     seatViews.push({ id: s.id, cityId: s.city_id, city: s.city_name, country: s.country, status: s.status,
-      founder: s.handle || s.name || "Founder", wallet: s.wallet, since: s.activated_at || s.created_at,
+      founder: s.handle || s.name || mask(s.wallet), wallet: s.wallet, since: s.activated_at || s.created_at,
       appealUntil: s.appeal_until, graceUntil: s.grace_until, probationUntil: s.probation_until,
       cofounders: await cofoundersOf(db, s) });
   }

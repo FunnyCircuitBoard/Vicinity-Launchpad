@@ -24,6 +24,7 @@ import { ensureSchema } from "./store.js";
 import { findTransfer } from "./chain.js";
 import { activeMint } from "./official.js";
 import { POLICY } from "./policy.js";
+import { autoUsername } from "./text.js";
 
 export const SESSION_COOKIE = "vs";
 const OAUTH_COOKIE = "vo";
@@ -325,7 +326,7 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
     if (await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(session.wallet).first()) return fail("wallet_taken");
     try {
       const ins = await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, name, early, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .bind(session.wallet, provider, who.id, who.handle, who.name, activeMint(env) ? 0 : 1, iso(now)).run();
+        .bind(session.wallet, provider, who.id, who.handle || await autoUsername(env.DB), who.name, activeMint(env) ? 0 : 1, iso(now)).run();
       console.log("account created", provider, session.wallet.slice(0, 4) + "…" + session.wallet.slice(-4));
       return start(ins.meta.last_row_id, session.wallet, "/dashboard?welcome=1");
     } catch (e) {

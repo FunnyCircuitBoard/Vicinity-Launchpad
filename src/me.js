@@ -18,6 +18,7 @@ import { cityPicture, cooldownUntil, eligibility } from "./seats.js";
 import { countryPicture } from "./elections.js";
 import { ensureSchema } from "./store.js";
 import { communityById } from "./community.js";
+import { latestBalances } from "./ledger.js";
 
 const HOME_LOCK_DAYS = 7; // a home community can be changed once a week
 const mask = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
@@ -187,9 +188,20 @@ export async function handleHome(request, env, now = Date.now()) {
 export async function handleMembers(env) {
   if (!env.DB) return json({ members: 0, communities: [] });
   await ensureSchema(env.DB);
-  const [total, top] = await env.DB.batch([
+  const [total, top, placed] = await env.DB.batch([
     env.DB.prepare("SELECT COUNT(*) AS n FROM users"),
     env.DB.prepare("SELECT home_city AS id, home_name AS name, home_country AS country, COUNT(*) AS members FROM users WHERE home_city IS NOT NULL GROUP BY home_city ORDER BY members DESC LIMIT 300"),
+    env.DB.prepare("SELECT wallet, home_city FROM users WHERE home_city IS NOT NULL"),
   ]);
-  return json({ members: total.results[0]?.n || 0, communities: top.results });
+  // Holders per city: members whose wallet holds > 0 in the latest balance sample.
+  let balances = null;
+  try { balances = (await latestBalances(env, Date.now()))?.balances || null; } catch { balances = null; }
+  const holders = new Map();
+  if (balances) {
+    for (const u of placed.results) {
+      if ((balances[u.wallet] || 0) > 0) holders.set(u.home_city, (holders.get(u.home_city) || 0) + 1);
+    }
+  }
+  return json({ members: total.results[0]?.n || 0,
+    communities: top.results.map((c) => ({ ...c, holders: holders.get(c.id) || 0 })) });
 }
