@@ -5,7 +5,7 @@
 //
 // Each source file starts with one line of settings:
 //   <!--{"title": "...", "description": "...", "page": "home", "scripts": ["home"], "styles": ["extra"], "main": "class"}-->
-// ("styles" are extra stylesheets from public/, e.g. "admin" -> /admin.css; never an inline <style>, the security policy blocks it)
+// ("noindex": true keeps a page out of search engines; "styles" are extra stylesheets from public/, e.g. "admin" -> /admin.css; never an inline <style>, the security policy blocks it)
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -23,7 +23,7 @@ const NAV = [
 const icon = (paths) => `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const current = (page, p) => (page === p ? ' aria-current="page"' : "");
 
-function layout({ title, description, page, scripts = [], styles = [], main = "" }, body) {
+function layout({ title, description, page, scripts = [], styles = [], main = "", noindex = false }, body) {
   const nav = NAV.map(([p, href, label]) => `        <a href="${href}"${current(page, p)}>${label}${p === "launchpad" ? ' <span class="nav__soon" data-nav-launch>Oct 10</span>' : ""}</a>`).join("\n");
   const tabs = NAV.map(([p, href, , short, paths]) => `    <a href="${href}"${current(page, p)}>${icon(paths)}<span>${short}</span></a>`).join("\n");
   const js = ["site", ...scripts].map((s) => `  <script src="/${s}.js" defer></script>`).join("\n");
@@ -56,7 +56,7 @@ function layout({ title, description, page, scripts = [], styles = [], main = ""
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>${fullTitle}</title>
   <meta name="description" content="${description}">
-  <meta name="theme-color" content="#070E19">
+${noindex ? '  <meta name="robots" content="noindex, nofollow">\n' : ""}  <meta name="theme-color" content="#070E19">
   <meta name="color-scheme" content="dark light">
   <meta property="og:title" content="${fullTitle}">
   <meta property="og:description" content="${description}">

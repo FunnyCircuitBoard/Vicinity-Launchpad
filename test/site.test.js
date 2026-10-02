@@ -236,3 +236,13 @@ test("privacy statements match what is really stored (no X sign-in, no 'no e-mai
   assert.match(js, /\/api\/me\/contact\/email\/remove/);
   assert.match(js, /\/api\/me\/phone", \{ phone: "" \}/);
 });
+
+test("admin console: kept out of search engines, and destructive buttons ask first (Cancel on a ban bans nobody)", () => {
+  assert.match(html["admin.html"], /<meta name="robots" content="noindex, nofollow">/);
+  for (const [f, h] of Object.entries(html)) if (f !== "admin.html") assert.doesNotMatch(h, /name="robots"/, f);
+  assert.doesNotMatch(html["admin.html"], /<meta (name|property)="(og:)?description" content="[^"]*test lab/i, "the public description does not advertise the test lab");
+  const js = read("admin.js");
+  assert.match(js, /if \(reason === null \|\| !reason\.trim\(\)\) return;/, "Cancel / empty reason stops the ban");
+  assert.doesNotMatch(js, /prompt\([^)]*\)\s*\|\|\s*"spam"/, "no default reason that survives Cancel");
+  for (const label of ["Approve", "Reject", "Hide", "Uphold", "Revoke", "Unban"]) assert.match(js, new RegExp(`btn\\("${label}[^"]*", async \\(\\) => \\{ if \\(sure\\(`), label);
+});

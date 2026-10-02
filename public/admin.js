@@ -159,6 +159,8 @@
   }
   const td = (tr, text, cls) => { const c = el("td", cls || null, text == null ? "—" : String(text)); tr.append(c); return c; };
   const monoTd = (tr, text) => td(tr, text, "mono");
+  /** Ask before anything that cannot be undone with one click. */
+  const sure = (msg) => window.confirm(msg);
   const btn = (label, fn, sm = true) => {
     const b = el("button", sm ? "btn btn--sm" : "btn btn--primary", label); b.type = "button";
     b.addEventListener("click", async () => { b.disabled = true; try { await fn(); } finally { b.disabled = false; } });
@@ -213,10 +215,11 @@
           td(tr, u.created_at ? ago(u.created_at) : "—");
           td(tr, u.banned ? "banned" : "—");
           const act = el("td");
-          if (can(2) && u.banned) act.append(btn("Unban", async () => okMsg(await post("/api/admin/users/unban", { wallet: u.wallet }), "Unbanned")));
+          if (can(2) && u.banned) act.append(btn("Unban", async () => { if (sure("Lift this ban?")) okMsg(await post("/api/admin/users/unban", { wallet: u.wallet }), "Unbanned"); }));
           if (can(2) && !u.banned) act.append(btn("Ban", async () => {
-            const reason = prompt("Ban reason:", "spam") || "spam";
-            okMsg(await post("/api/admin/users/ban", { wallet: u.wallet, reason }), "Banned");
+            const reason = prompt(`Ban ${u.handle || "this user"} for 30 days? Reason:`, "spam");
+            if (reason === null || !reason.trim()) return; // Cancel (or an empty reason) bans nobody
+            okMsg(await post("/api/admin/users/ban", { wallet: u.wallet, reason: reason.trim() }), "Banned");
           }));
           tr.append(act);
         }));
@@ -255,9 +258,9 @@
           td(tr, `${a.city_name} (${a.country})`); td(tr, a.handle || walletOf(a.wallet));
           td(tr, (a.pitch || "—").slice(0, 80)); td(tr, a.total == null ? "—" : Number(a.total).toFixed(2));
           const act = el("td");
-          act.append(btn("Approve", async () => okMsg(await post("/api/admin/seats/decide", { id: a.id, decision: "approve" }), "Claim approved")));
+          act.append(btn("Approve", async () => { if (sure("Approve this claim?")) okMsg(await post("/api/admin/seats/decide", { id: a.id, decision: "approve" }), "Claim approved"); }));
           act.append(" ");
-          act.append(btn("Reject", async () => okMsg(await post("/api/admin/seats/decide", { id: a.id, decision: "reject" }), "Claim rejected")));
+          act.append(btn("Reject", async () => { if (sure("Reject this claim? The applicant is removed from the window.")) okMsg(await post("/api/admin/seats/decide", { id: a.id, decision: "reject" }), "Claim rejected"); }));
           tr.append(act);
         }));
     }
@@ -315,9 +318,9 @@
       (tr, x) => {
         td(tr, (x.body || "").slice(0, 90)); td(tr, x.handle || x.name || "—"); td(tr, x.reports, "num"); td(tr, ago(x.last_report));
         const act = el("td");
-        act.append(btn("Hide", async () => okMsg(await post("/api/admin/reports/decide", { id: x.post_id, action: "hide" }), "Post hidden")));
+        act.append(btn("Hide", async () => { if (sure("Hide this post for good?")) okMsg(await post("/api/admin/reports/decide", { id: x.post_id, action: "hide" }), "Post hidden"); }));
         act.append(" ");
-        act.append(btn("Dismiss", async () => okMsg(await post("/api/admin/reports/decide", { id: x.post_id, action: "dismiss" }), "Report dismissed")));
+        act.append(btn("Dismiss", async () => { if (sure("Dismiss all reports on this post?")) okMsg(await post("/api/admin/reports/decide", { id: x.post_id, action: "dismiss" }), "Report dismissed"); }));
         tr.append(act);
       }));
     p.append(h2("Ban appeals"));
@@ -329,9 +332,9 @@
         td(tr, x.handle || x.name || "—"); td(tr, (x.text || "").slice(0, 90)); td(tr, ago(x.created_at));
         const act = el("td");
         if (can(2)) {
-          act.append(btn("Uphold (lift ban)", async () => okMsg(await post("/api/admin/appeals/decide", { id: x.id, decision: "uphold" }), "Appeal upheld")));
+          act.append(btn("Uphold (lift ban)", async () => { if (sure("Uphold this appeal? The ban is lifted.")) okMsg(await post("/api/admin/appeals/decide", { id: x.id, decision: "uphold" }), "Appeal upheld"); }));
           act.append(" ");
-          act.append(btn("Reject", async () => okMsg(await post("/api/admin/appeals/decide", { id: x.id, decision: "reject" }), "Appeal rejected")));
+          act.append(btn("Reject", async () => { if (sure("Reject this appeal? The ban stays.")) okMsg(await post("/api/admin/appeals/decide", { id: x.id, decision: "reject" }), "Appeal rejected"); }));
         } else act.append(el("span", "muted", "admin only"));
         tr.append(act);
       }));
@@ -345,9 +348,9 @@
         td(tr, (x.reason || "").slice(0, 90)); td(tr, ago(x.created_at));
         const act = el("td");
         if (can(2)) {
-          act.append(btn("Uphold", async () => okMsg(await post("/api/admin/objections/decide", { id: x.id, uphold: true }), "Objection upheld")));
+          act.append(btn("Uphold", async () => { if (sure("Uphold this objection? The founder seat is revoked at once.")) okMsg(await post("/api/admin/objections/decide", { id: x.id, uphold: true }), "Objection upheld"); }));
           act.append(" ");
-          act.append(btn("Dismiss", async () => okMsg(await post("/api/admin/objections/decide", { id: x.id, uphold: false }), "Objection dismissed")));
+          act.append(btn("Dismiss", async () => { if (sure("Dismiss this objection?")) okMsg(await post("/api/admin/objections/decide", { id: x.id, uphold: false }), "Objection dismissed"); }));
         } else act.append(el("span", "muted", "admin only"));
         tr.append(act);
       }));
@@ -399,7 +402,7 @@
       (tr, r) => {
         monoTd(tr, short(r.wallet)); td(tr, r.role); td(tr, r.source || "granted"); td(tr, r.granted_by ? short(r.granted_by) : "—");
         const act = el("td");
-        if (r.source !== "env" && r.wallet !== me.wallet) act.append(btn("Revoke", async () => okMsg(await post("/api/admin/roles/revoke", { wallet: r.wallet }), "Role revoked")));
+        if (r.source !== "env" && r.wallet !== me.wallet) act.append(btn("Revoke", async () => { if (sure("Revoke this role?")) okMsg(await post("/api/admin/roles/revoke", { wallet: r.wallet }), "Role revoked"); }));
         tr.append(act);
       }));
     p.append(el("h3", null, "Grant a role"));
