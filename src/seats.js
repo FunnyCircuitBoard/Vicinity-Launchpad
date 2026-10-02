@@ -88,10 +88,28 @@ export async function darkSince(db, cityId, now = Date.now()) {
   return last || Date.parse(LAUNCHPAD_OPENS_AT);
 }
 
-/** Verified local members of a city (home set by location proof): the steward-confirmation quorum. */
+/** Everyone whose home is this city (the community's size). Not the steward quorum: see verifiedLocalHolders. */
 export async function localMembers(db, cityId) {
   const r = await db.prepare("SELECT COUNT(*) AS n FROM users WHERE home_city = ?").bind(cityId).first();
   return r ? r.n : 0;
+}
+
+/**
+ * The steward-confirmation quorum, as the rules word it: "verified local HOLDERS". A member counts only when
+ * their home is the city, they have checked in from inside it (a visible check-in), and their wallet holds
+ * something right now. Accounts that hold nothing never count: otherwise one person could open 49 free
+ * accounts and confirm their own steward on the spot, skipping the probation and the challenge.
+ * `balanceOf(wallet)` is the live or latest-sample balance. Returns the number of such people.
+ */
+export async function verifiedLocalHolders(db, cityId, balanceOf) {
+  return (await checkedInWallets(db, cityId)).filter((w) => (balanceOf(w) || 0) > 0).length;
+}
+
+/** Wallets of the people whose home is this city and who have checked in from inside it. */
+export async function checkedInWallets(db, cityId) {
+  return (await db.prepare(
+    `SELECT DISTINCT u.wallet FROM users u JOIN posts p ON p.user_id = u.id AND p.kind = 'checkin' AND p.hidden = 0 AND p.place = u.home_city
+     WHERE u.home_city = ? LIMIT 5000`).bind(cityId).all()).results.map((r) => r.wallet);
 }
 
 export async function eligibility(env, u, now = Date.now(), fetchImpl = fetch, target = null, opts = {}) {
@@ -563,7 +581,7 @@ export async function advanceSeats(env, now = Date.now(), fetchImpl = fetch) {
   }
   // balance checks use the latest sample, and only if it's recent: never act on stale data
   const latest = await latestBalances(env, now);
-  const balancesFresh = latest && now - Date.parse(latest.at) <= POLICY.sampling.maxGapMinutes * 60_000 * 2;
+  const balancesFresh = Boolean(latest) && now - Date.parse(latest.at) <= POLICY.sampling.maxGapMinutes * 60_000 * 2;
 
   // provisional → active, but only if the winner still holds the bar at activation time:
   // a winner who dumps during the appeal window must not become founder.
@@ -594,12 +612,14 @@ export async function advanceSeats(env, now = Date.now(), fetchImpl = fetch) {
     out.activated++;
   }
 
-  // steward confirmation: 90 days of good behavior, or 50 verified locals in the city — never mid-challenge
+  // steward confirmation: 90 days of good behavior, or 50 verified local HOLDERS in the city — never mid-challenge.
+  // The early route needs fresh balances (no data → no early confirmation); the 90-day route never does.
   for (const s of (await db.prepare("SELECT * FROM seats WHERE status = 'steward'").all()).results) {
     const challengeOpen = await db.prepare("SELECT id FROM windows WHERE city_id = ? AND status = 'open'").bind(s.city_id).first();
     if (challengeOpen) continue;
-    const members = await localMembers(db, s.city_id);
-    if (Date.parse(s.probation_until) <= now || members >= F.stewardQuorum) {
+    const timeServed = Date.parse(s.probation_until) <= now;
+    const quorum = !timeServed && balancesFresh && (await verifiedLocalHolders(db, s.city_id, (w) => latest.balances[w])) >= F.stewardQuorum;
+    if (timeServed || quorum) {
       const r = await db.prepare("UPDATE seats SET status = 'active', activated_at = ?, probation_until = NULL WHERE id = ? AND status = 'steward'").bind(iso(now), s.id).run();
       out.confirmed += r.meta.changes || 0;
     }
@@ -662,7 +682,7 @@ export async function qualifySquad(env, squadId, threshold, now, fetchImpl = fet
     else if (await activeBan(db, u.id, u.home_country, now)) whyNot = "banned";
     else if (contribution <= 0) whyNot = "no_balance";
     else if (!(await tenure(env, m.wallet, contribution, now)).qualified) whyNot = "not_qualified";
-    out.members.push({ user_id: m.user_id, handle: m.handle, wallet: m.wallet, balance, contribution, qualified: !whyNot, whyNot });
+    out.members.push({ user_id: m.user_id, handle: m.handle, name: m.name, wallet: m.wallet, balance, contribution, qualified: !whyNot, whyNot });
     if (!whyNot) out.pooled += contribution;
   }
   if (squad.members.length < F.squadMin || squad.members.length > F.squadMax) out.error = "bad_size";
@@ -729,21 +749,43 @@ export async function handleSquadLeave(request, env, now = Date.now()) {
   return json({ ok: true });
 }
 
-/** GET /api/seats/squad/:id — the squad, its members, pooled seasoned balance, readiness. */
-export async function handleSquadGet(env, id, now = Date.now(), fetchImpl = fetch) {
-  const db = env.DB;
-  const squad = await getSquad(db, Number(id) || 0);
-  if (!squad) return json({ error: "not_found" }, 404);
+/** A squad as the page sees it: members with their seasoned share, the pooled total, and whether it meets the bar. */
+async function squadView(env, squad, now, fetchImpl) {
   const threshold = await thresholdFor(env, squad.country, squad.city_id);
   const q = await qualifySquad(env, squad.id, threshold, now, fetchImpl);
-  return json({
-    squad: {
-      id: squad.id, cityId: squad.city_id, city: squad.city_name, country: squad.country, status: squad.status,
-      members: q.members.map((m) => ({ name: m.handle || "Member", wallet: mask(m.wallet), balance: m.balance, contribution: m.contribution, qualified: m.qualified, whyNot: m.whyNot })),
-      pooled: q.pooled, threshold, ready: q.ok, whyNot: q.error || null,
-      min: F.squadMin, max: F.squadMax,
-    },
-  });
+  return {
+    id: squad.id, cityId: squad.city_id, city: squad.city_name, country: squad.country, status: squad.status,
+    members: q.members.map((m) => ({ name: m.handle || m.name || "Member", wallet: mask(m.wallet), balance: m.balance, contribution: m.contribution, qualified: m.qualified, whyNot: m.whyNot })),
+    pooled: q.pooled, threshold, ready: q.ok, whyNot: q.error || null,
+    min: F.squadMin, max: F.squadMax,
+  };
+}
+
+/** GET /api/seats/squad/:id — the squad, its members, pooled seasoned balance, readiness. */
+export async function handleSquadGet(env, id, now = Date.now(), fetchImpl = fetch) {
+  const squad = await getSquad(env.DB, Number(id) || 0);
+  if (!squad) return json({ error: "not_found" }, 404);
+  return json({ squad: await squadView(env, squad, now, fetchImpl) });
+}
+
+/**
+ * Squads from one person's point of view (for the dashboard): the squad they're in (forming or already applied),
+ * otherwise the forming squad in their home city they could join, and whether they could start one.
+ */
+export async function squadPicture(env, u, now = Date.now(), fetchImpl = fetch) {
+  const db = env.DB;
+  if (!u.home_city) return { mine: null, joinable: null, canCreate: false };
+  const mineRow = await db.prepare(
+    `SELECT s.* FROM squads s JOIN squad_members m ON m.squad_id = s.id WHERE m.user_id = ? AND s.status IN ('forming', 'applied') ORDER BY s.id DESC LIMIT 1`).bind(u.id).first();
+  if (mineRow) return { mine: await squadView(env, await getSquad(db, mineRow.id), now, fetchImpl), joinable: null, canCreate: false };
+  // squads can only form in a city with no live seat: the same rule create and join enforce
+  if (await liveSeatOfCity(db, u.home_city)) return { mine: null, joinable: null, canCreate: false };
+  const open = await db.prepare("SELECT * FROM squads WHERE city_id = ? AND status = 'forming' ORDER BY id LIMIT 1").bind(u.home_city).first();
+  if (open) {
+    const sq = await getSquad(db, open.id);
+    return { mine: null, joinable: { id: sq.id, members: sq.members.map((m) => m.handle || m.name || "Member"), max: F.squadMax, full: sq.members.length >= F.squadMax }, canCreate: false };
+  }
+  return { mine: null, joinable: null, canCreate: !(await liveSeatOfUser(db, u.id)) };
 }
 
 /**
@@ -900,7 +942,7 @@ export async function handleSeats(env, now = Date.now()) {
 }
 
 /** A city's founder picture: the live seat, the open window (with applicants), the last result. */
-export async function cityPicture(env, cityId, viewer, now = Date.now()) {
+export async function cityPicture(env, cityId, viewer, now = Date.now(), fetchImpl = fetch) {
   const db = env.DB;
   const seat = await db.prepare("SELECT s.*, u.handle, u.name FROM seats s JOIN users u ON u.id = s.user_id WHERE s.city_id = ? AND s.status IN ('provisional', 'active', 'grace', 'steward')").bind(cityId).first();
   const w = await db.prepare("SELECT * FROM windows WHERE city_id = ? AND status = 'open'").bind(cityId).first();
@@ -920,10 +962,17 @@ export async function cityPicture(env, cityId, viewer, now = Date.now()) {
   }
   const last = await db.prepare("SELECT id, status, decided_at, result_hash FROM windows WHERE city_id = ? AND status IN ('decided', 'empty') ORDER BY id DESC LIMIT 1").bind(cityId).first();
   const objections = seat ? (await db.prepare("SELECT COUNT(*) AS n FROM objections WHERE seat_id = ? AND status = 'open'").bind(seat.id).first()).n : 0;
+  // A steward's progress towards the early confirmation: verified local holders so far, and how many are needed.
+  let quorum = null;
+  if (seat && seat.status === "steward") {
+    const wallets = await checkedInWallets(db, cityId);
+    const amounts = activeMint(env) && wallets.length ? await amountsFor(env, wallets, fetchImpl) : new Map();
+    quorum = { have: wallets.filter((w) => (amounts.get(w) || 0) > 0).length, need: F.stewardQuorum };
+  }
   return {
     seat: seat ? { id: seat.id, status: seat.status, name: seat.handle || seat.name || "Founder", wallet: mask(seat.wallet), since: seat.activated_at || seat.created_at,
       appealUntil: seat.appeal_until, graceUntil: seat.grace_until, probationUntil: seat.probation_until, you: Boolean(viewer && seat.user_id === viewer.id), openObjections: objections,
-      threshold: seat.threshold, policy: seat.policy, cofounders: await cofoundersOf(db, seat) } : null,
+      threshold: seat.threshold, policy: seat.policy, cofounders: await cofoundersOf(db, seat), quorum } : null,
     window: windowView,
     lastResult: last ? { windowId: last.id, status: last.status, decidedAt: last.decided_at, hash: last.result_hash } : null,
   };

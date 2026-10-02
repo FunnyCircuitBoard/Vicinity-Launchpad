@@ -12,6 +12,7 @@
     "check:live": "node scripts/check-live.mjs",
     "check:boundaries": "node scripts/boundaries/check-overlaps.mjs",
     "pages": "node scripts/pages/build.mjs",
+    "tickers": "node scripts/cities/tickers.mjs",
     "demo:nyc": "node scripts/demo/nyc.mjs"
   },
   "devDependencies": {

@@ -35,6 +35,7 @@ async function cleanup(env, now) {
     db.prepare("DELETE FROM rate_events WHERE at < ?").bind(iso(now - 2 * DAY)),
     db.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(iso(now)),
     db.prepare("DELETE FROM pairs WHERE expires_at < ?").bind(iso(now)),
+    db.prepare("DELETE FROM handoffs WHERE expires_at < ?").bind(iso(now)),
     // sign-in codes: only rows whose code AND hourly send counters are both over (same rule as the tidy-up in handleEmailStart)
     db.prepare("DELETE FROM email_codes WHERE expires_at < ? AND (window_start IS NULL OR window_start < ?)").bind(iso(now), iso(now - HOUR)),
   ]);

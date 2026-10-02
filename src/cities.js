@@ -4,14 +4,13 @@
  * plus the rules for claiming a city.
  *
  * Rules (the same numbers are shown on the website):
- *   - hold at least CLAIM_MIN_HOLD $VICINITY in the claiming wallet
+ *   - the founder amount is the Stake Ladder in src/policy.js (100K to 1M by city size), not a number here
  *   - be inside the city: inside its boundary on the map (public/data/bounds, see src/geo.js).
  *     Cities without a boundary (community-added ones) use the old rule: within CLAIM_RADIUS_KM
  *     of the center (BIG_CITY_RADIUS_KM for 1M+ people)
- *   - one wallet = one city, one city = one wallet
+ *   - one person = one live seat, one city = one live seat
  * The visitor's location is only used for this one check. It is never saved.
  */
-export const CLAIM_MIN_HOLD = 1_000_000;
 export const CLAIM_RADIUS_KM = 25;
 export const BIG_CITY_RADIUS_KM = 50;
 export const MAX_LOCATION_ACCURACY_M = 20_000;

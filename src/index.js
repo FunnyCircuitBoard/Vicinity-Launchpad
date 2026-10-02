@@ -12,15 +12,18 @@
  *   GET  /api/members · /api/audit?country=                  members per community; every moderation decision
  *   GET  /api/snapshots · /api/snapshots/:id/proof?wallet= · /api/snapshots/:id/data   Founding Supporters
  * Accounts (src/auth.js): /api/auth/wallet · /api/auth/transfer(/check) · /api/auth/reprove · /api/pair(/finish)
- *   · /api/auth/{google,x}/start|callback · /api/auth/logout
- * Signed in: /api/me · /api/me/{terms,username,phone} · /api/me/contact/email/{verify,remove} · /api/home · /api/locate (the ONLY place a location is read) · /api/posts(/vote, /report)
+ *   · /api/auth/google/start|callback · /api/auth/email/{start,verify} · /api/auth/logout
+ * Signed in: /api/me · /api/me/{terms,username,phone} · /api/me/contact/email/{verify,remove} · /api/home
+ *   · /api/locate (the place a location is read, with /api/locate/handoff/* when a wallet app's browser can't
+ *   share GPS: src/handoff.js) · /api/posts(/vote, /report)
  *   · /api/seats/{apply,withdraw,endorse,object,resign} · /api/elections/vote · /api/appeals · /api/towns
  *   · /api/seats/squad/{create,join,leave,apply} · /api/seats/squad/:id (readiness)
+ * Admins: /api/admin/* (src/admin.js: fresh wallet proof on every change)
  * Moderators: /api/mod · /api/mod/{hide,unhide,ban,ban/approve,ban/reject} · /api/appeals/decide
  *   · /api/towns/decide · /api/seats/objections/decide · /api/snapshots/cancel
  *
  * Everything else is served from /public by Cloudflare's static asset handler.
- * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, X_CLIENT_ID/SECRET,
+ * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
  * SNAPSHOT_CUTOFF, ATTEST_KEY (optional).
  */
 import { OFFICIAL, activeMint, checkOfficial, officialFor } from "./official.js";
@@ -36,6 +39,7 @@ import { handleEmailStart, handleEmailVerify, handleLogout, handleOAuthCallback,
   handleReprove, handleTransferCheck, handleTransferStart, handleWalletLogin } from "./auth.js";
 import { handleContactEmailRemove, handleContactEmailVerify, handleHome, handleMe, handleMembers, handlePhone, handleTermsAgree, handleUsername } from "./me.js";
 import { handleLocate } from "./attest.js";
+import { handleHandoffClaim, handleHandoffComplete, handleHandoffInfo, handleHandoffStart } from "./handoff.js";
 import { handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
 import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
 import { handleElectionResult, handleElectionVote } from "./elections.js";
@@ -141,7 +145,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
   if (path === "/api/auth/email/start") return only("POST") || db(() => handleEmailStart(request, env, fetchImpl));
   if (path === "/api/auth/email/verify") return only("POST") || db(() => handleEmailVerify(request, env, fetchImpl));
   let m = path.match(/^\/api\/media\/([0-9]{1,10})$/);
-  if (m) return only("GET") || handleMedia(env, m[1]);
+  if (m) return only("GET") || handleMedia(request, env, m[1], fetchImpl);
   m = path.match(/^\/api\/seats\/results\/([0-9]{1,10})$/);
   if (m) return only("GET") || db(() => handleResult(env, m[1]));
   m = path.match(/^\/api\/seats\/squad\/([0-9]{1,10})$/);
@@ -302,6 +306,14 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return only("POST") || handleHome(request, env);
     case "/api/locate":
       return only("POST") || handleLocate(request, env);
+    case "/api/locate/handoff":
+      return only("POST") || db(() => handleHandoffStart(request, env));
+    case "/api/locate/handoff/info":
+      return only("POST") || db(() => handleHandoffInfo(request, env));
+    case "/api/locate/handoff/complete":
+      return only("POST") || db(() => handleHandoffComplete(request, env));
+    case "/api/locate/handoff/claim":
+      return only("POST") || db(() => handleHandoffClaim(request, env));
     case "/api/members":
       return only("GET") || cached("members", 60, () => handleMembers(env));
 

@@ -41,6 +41,7 @@ test("dashboard before launch: early member, verified, local; the founder path w
   assert.equal(me.level, "member");
   assert.deepEqual(me.badges.filter((b) => b.earned).map((b) => b.id), ["early", "verified", "local"]);
   assert.equal(me.community.name, "Utica");
+  assert.equal(me.community.ticker, "UTICA", "the server hands the dashboard the one official ticker");
   assert.equal(me.community.members, 1);
   assert.equal(me.community.seat, null);
   assert.equal(me.founder.why, "not_launched");
@@ -158,6 +159,25 @@ test("check-ins: only from inside your community, once a day; pictures are check
   assert.equal(img.headers.get("content-type"), "image/png");
   assert.equal((await img.arrayBuffer()).byteLength, 48);
   assert.equal((await a.post("/api/posts", { scope: "city", kind: "meme", image: Buffer.from("<svg onload=alert(1)>").toString("base64") })).error, "bad_image");
+});
+
+test("pictures in a feed are only for people who may see the post: counting ids gets you nothing", async () => {
+  const a = await person(env, { home: IN_UTICA });
+  const local = await person(env, { home: IN_UTICA });
+  const away = await person(env, { home: IN_NYC });
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40)]).toString("base64");
+  const city = await a.post("/api/posts", { scope: "city", kind: "meme", body: "Utica only", image: png });
+  const country = await a.post("/api/posts", { scope: "country", kind: "meme", body: "all of the US", image: png });
+
+  const fetchAs = async (who, url) => (await who.send(url)).status;
+  assert.equal(await fetchAs(a, city.post.image), 200, "the author");
+  assert.equal(await fetchAs(local, city.post.image), 200, "someone from the same city");
+  assert.equal(await fetchAs(away, city.post.image), 404, "another city's member can't fetch a Utica-only picture");
+  assert.equal(await fetchAs(browser(env), city.post.image), 404, "nor can someone who isn't signed in");
+  assert.equal(await fetchAs(away, country.post.image), 200, "a national post is for the whole country");
+  assert.equal(await fetchAs(a, "/api/media/99999"), 404);
+  const cache = (await local.send(city.post.image)).headers.get("cache-control");
+  assert.match(cache, /^private/, "a private picture never sits in a shared cache");
 });
 
 test("add-my-town: you must be there, one at a time; the manager advises, an admin decides; no coordinates kept", async () => {

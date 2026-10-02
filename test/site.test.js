@@ -5,7 +5,7 @@ import { buildPages } from "../scripts/pages/build.mjs";
 import { cityAt } from "../src/geo.js";
 
 const read = (p) => readFileSync(new URL("../public/" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "connect.html", "dashboard.html", "rules.html", "terms.html", "404.html", "admin.html"];
+const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "connect.html", "locate.html", "dashboard.html", "rules.html", "terms.html", "404.html", "admin.html"];
 const html = Object.fromEntries(PAGES.map((p) => [p, read(p)]));
 const all = Object.values(html).join("\n");
 const css = read("style.css");
@@ -48,10 +48,12 @@ test("same menu on every page: top menu for computers, bottom menu bar for phone
     const nav = h.match(/<nav class="nav"[\s\S]*?<\/nav>/)[0], tabs = h.match(/<nav class="tabbar"[\s\S]*?<\/nav>/)[0];
     assert.deepEqual([...nav.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), links, f);
     assert.deepEqual([...tabs.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), links, f);
-    assert.equal((nav.match(/aria-current="page"/g) || []).length, ["404.html", "connect.html", "rules.html", "terms.html", "admin.html"].includes(f) ? 0 : 1, f);
+    assert.equal((nav.match(/aria-current="page"/g) || []).length, ["404.html", "connect.html", "locate.html", "rules.html", "terms.html", "admin.html"].includes(f) ? 0 : 1, f);
     assert.match(h, /data-theme-toggle/);
     assert.match(h, /<script src="\/theme\.js"><\/script>\s*<\/head>/, `${f}: theme runs before paint`);
     assert.match(h, /data-account/);
+    assert.match(h, /<span data-account-label>Log in<\/span>/, `${f}: signed-out visitors see a Log in button`);
+    assert.doesNotMatch(h, /data-logout|account-out/, `${f}: one account button in the header; Log out lives in the profile modal`);
   }
   assert.match(css, /:root\[data-theme="light"\]/);
   assert.match(css, /\.tabbar \{ display: grid;/);
@@ -160,7 +162,8 @@ test("cities page: live map, claimed vs open, claiming sends you to the dashboar
   for (const id of ["cities", "city-canvas", "map-in", "map-out", "map-reset", "map-locate", "coin-preview", "coin-ticker", "claim-feed", "mod-row", "city-q", "cs-claimed", "cs-open", "wanted-list"]) assert.ok(h.includes(`id="${id}"`), id);
   assert.match(h, /<a class="btn btn--primary btn--block" id="claim-btn" href="\/dashboard">/);
   assert.match(h, /One wallet\. One city\./);
-  assert.match(h, /1,000,000\+ \$VICINITY/);
+  assert.match(h, /100,000 to 1,000,000 \$VICINITY/, "the Stake Ladder, not a flat 1M");
+  assert.doesNotMatch(h, /Hold 1,000,000\+/);
   assert.match(h, /We never save it/);
   assert.match(h, /VPNs are blocked/);
   assert.match(h, /Sample only/);
@@ -182,7 +185,11 @@ test("launchpad: countdown to October 10, 10:10:10 AM New York time, and who get
 
 test("connect: every popular wallet, phone QR, app wallets like FOMO, then Google or e-mail", () => {
   const h = html["connect.html"];
-  for (const id of ["wallets-detected", "wallets-known", "alt-phone", "alt-app", "qr", "tp-form", "go-google", "go-email", "email-form", "email-addr", "email-code", "stepper"]) assert.ok(h.includes(`id="${id}"`), id);
+  for (const id of ["wallets-detected", "wallets-known", "alt-phone", "alt-app", "qr", "tp-form", "go-google", "go-email", "email-form", "email-addr", "email-code", "stepper",
+    "login-block", "login-google", "login-email", "login-inapp", "social-inapp"]) assert.ok(h.includes(`id="${id}"`), id);
+  assert.match(h, /Log in with Google/);
+  assert.match(h, /Log in with e-mail/);
+  assert.doesNotMatch(h, /id="(go-x|login-x|link-start|link-url|lp-x|lp-google)"/, "no X sign-in, and no sign-up link hand-off (e-mail sign-in works inside wallet apps)");
   assert.match(h, /isn't a transaction/);
   assert.match(h, /never ask for your recovery phrase/);
   assert.match(h, /One account per wallet and per Google login or verified e-mail/);
@@ -194,13 +201,27 @@ test("connect: every popular wallet, phone QR, app wallets like FOMO, then Googl
 
 test("dashboard: onboarding, live rank + badges, founder race, local/national feeds, roles now and at launch", () => {
   const h = html["dashboard.html"];
-  for (const id of ["dash-out", "dash-onboard", "ob-locate", "dash-main", "d-rank", "d-crank", "d-nrank", "progress", "p-panel", "p-window", "feed", "composer", "posts", "community", "national", "nc-election", "badges", "badge-grid", "mod", "request", "roles", "lost-alert", "ban-notice", "proof-modal"]) assert.ok(h.includes(`id="${id}"`), id);
+  for (const id of ["dash-out", "dash-onboard", "ob-locate", "dash-main", "d-rank", "d-crank", "d-nrank", "progress", "p-panel", "p-window", "feed", "composer", "posts", "community", "national", "nc-election", "badges", "badge-grid", "mod", "request", "roles", "lost-alert", "ban-notice", "proof-modal", "role-home", "squad", "locate-modal"]) assert.ok(h.includes(`id="${id}"`), id);
   for (const k of ["meme", "checkin", "talk"]) assert.ok(h.includes(`data-kind="${k}"`), k);
   for (const s of ["city", "country"]) assert.ok(h.includes(`data-scope="${s}"`), s);
+  const order = [...h.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]);
+  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "dashboard-roles", "dashboard"], "the role panel script loads before the dashboard script");
   const roles = h.match(/<section class="section section--panel" id="roles">[\s\S]*?<\/section>/)[0];
   for (const r of ["holder", "founder", "manager", "admin"]) assert.ok(roles.includes(`data-role="${r}"`), r);
   assert.equal((roles.match(/role-row__when">Now</g) || []).length, 4);
   assert.equal((roles.match(/role-row__when">When Vicinity goes live</g) || []).length, 4);
+});
+
+test("locate: the phone's browser page for the location hand-off, and one shared location helper", () => {
+  const h = html["locate.html"];
+  for (const id of ["l-go", "l-purpose", "l-error"]) assert.ok(h.includes(`id="${id}"`), id);
+  assert.match(h, /never saved/);
+  const order = [...h.matchAll(/<script src="\/([a-z/]+)\.js"/g)].map((m) => m[1]);
+  assert.deepEqual(order, ["theme", "site", "locate"]);
+  assert.ok(html["dashboard.html"].includes('id="locate-modal"'), "the dashboard can start a hand-off");
+  const geo = ["site.js", "cities.js", "dashboard.js", "locate.js", "connect.js"].filter((f) => /navigator\.geolocation/.test(read(f)));
+  assert.deepEqual(geo, ["site.js"], "only site.js talks to the browser's geolocation");
+  assert.match(read("site.js"), /enableHighAccuracy: false/, "a network-based position is the fallback when GPS doesn't answer");
 });
 
 test("rules page: every rule, the formulas and the never-list, filled from the live rules", () => {
@@ -212,6 +233,11 @@ test("rules page: every rule, the formulas and the never-list, filled from the l
   for (const p of PAGES) assert.ok(html[p].includes('href="/rules">Rules &amp; fairness</a>'), `${p} links the rules in the footer`);
   assert.doesNotMatch(all, /first come, first served/i, "no races");
   assert.doesNotMatch(all, /= one person/i, "no overclaiming: accounts aren't proof of a unique person");
+});
+
+test("no page still says the founder amount is a flat 1,000,000 (policy v5: the Stake Ladder, 100K to 1M)", () => {
+  for (const [f, h] of Object.entries(html)) assert.doesNotMatch(h, /(held|hold|holds|drops below|Held)\s+(the\s+)?1,000,000/, `${f} still shows the old flat founder amount`);
+  assert.doesNotMatch(read("token.js"), /FOUNDER = 1_000_000/);
 });
 
 test("privacy statements match what is really stored (no X sign-in, no 'no e-mail', no unused purposes)", () => {
@@ -245,4 +271,12 @@ test("admin console: kept out of search engines, and destructive buttons ask fir
   assert.match(js, /if \(reason === null \|\| !reason\.trim\(\)\) return;/, "Cancel / empty reason stops the ban");
   assert.doesNotMatch(js, /prompt\([^)]*\)\s*\|\|\s*"spam"/, "no default reason that survives Cancel");
   for (const label of ["Approve", "Reject", "Hide", "Uphold", "Revoke", "Unban"]) assert.match(js, new RegExp(`btn\\("${label}[^"]*", async \\(\\) => \\{ if \\(sure\\(`), label);
+});
+
+test("connect: e-mail sign-in errors appear inside the e-mail form (it moves between the log-in block and the sign-up step)", () => {
+  const h = html["connect.html"], js = read("connect.js");
+  const form = h.match(/<form class="email-form" id="email-form"[\s\S]*?<\/form>/)[0];
+  assert.match(form, /id="email-error"/);
+  assert.match(js, /setEmailErr\(emailErr\(e\.message\)\)/);
+  assert.doesNotMatch(js, /setErr\(emailErr/, "e-mail errors must not go to the far-away wallet error line");
 });

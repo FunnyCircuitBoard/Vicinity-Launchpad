@@ -35,7 +35,7 @@
       </nav>
       <div class="site-header__actions">
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false"><span class="moon" aria-hidden="true">☾</span><span class="sun" aria-hidden="true">☀</span></button>
-        <a class="btn btn--primary btn--sm account-btn" href="/connect" data-account><span class="btn__dot" aria-hidden="true"></span><span data-account-label>Connect</span></a>
+        <a class="btn btn--primary btn--sm account-btn" href="/connect?mode=login" data-account><span class="btn__dot" aria-hidden="true"></span><span data-account-label>Log in</span></a>
       </div>
     </div>
   </header>
@@ -122,6 +122,8 @@
 
         <div class="dash-grid">
           <div class="dash-col" id="col-main">
+            <section class="card role-home" id="role-home" aria-label="Your role" hidden></section>
+
             <section class="card trade" id="trade" aria-labelledby="trade-title">
               <div class="trade__head"><p class="kicker">Buy &amp; swap</p><span class="tag" id="trade-state">Opens at launch</span></div>
               <h2 class="h2--sm" id="trade-title">Grow your stack.</h2>
@@ -194,6 +196,8 @@
               <div class="window-panel" id="p-window" hidden></div>
               <p class="wallet__error" id="p-error" role="alert" hidden></p>
             </section>
+
+            <section class="card squad-card" id="squad" aria-label="Squad founding" hidden></section>
 
             <section class="card coin-card" id="coin" aria-labelledby="coin-title">
               <div class="coin-card__head">
@@ -402,11 +406,29 @@
       </div>
     </div>
 
+    <!-- a wallet app's browser can't share GPS: finish the location check in the phone's normal browser -->
+    <div class="modal" id="locate-modal" role="dialog" aria-modal="true" aria-labelledby="locate-title" hidden>
+      <div class="modal__box card">
+        <h2 class="h2--sm" id="locate-title">Share your location in your browser</h2>
+        <p class="small muted">This wallet app's browser can't share your location. Do that step in Safari or Chrome instead. It takes a few seconds, and this page continues by itself.</p>
+        <ol class="howto small">
+          <li>Copy the link below.</li>
+          <li>Paste it in Safari or Chrome and tap <strong>Share my location</strong>.</li>
+          <li>Come back to this wallet app.</li>
+        </ol>
+        <div class="req-form"><label class="sr-only" for="locate-link">Link</label><input class="field mono" id="locate-link" readonly><button class="btn btn--primary btn--sm" type="button" id="locate-copy">Copy link</button></div>
+        <p class="muted small" id="locate-status"><span class="live-dot" aria-hidden="true"></span> Waiting for your browser…</p>
+        <p class="tiny muted">Your location is used once to find your community and is never saved. The link works for 10 minutes and only for you.</p>
+        <p class="wallet__error" id="locate-error" role="alert" hidden></p>
+        <button class="link-btn" type="button" id="locate-cancel">Cancel</button>
+      </div>
+    </div>
+
     <!-- roles: always visible -->
     <section class="section section--panel" id="roles">
       <div class="wrap">
         <div class="section-head">
-          <p class="kicker">Roles &amp; responsibilities · rules version <span data-policy-version>3</span></p>
+          <p class="kicker">Roles &amp; responsibilities · rules version <span data-policy-version>5</span></p>
           <h2>Who does what, now and when Vicinity goes live.</h2>
           <p class="muted">Leadership is earned over time and chosen by locals, not bought in a minute. Holdings count, but only up to 2× the founder amount, so the biggest wallet can't simply take over. <a href="/rules">Read every rule →</a></p>
         </div>
@@ -422,7 +444,7 @@
             <summary class="role-row__head"><span class="role__icon" aria-hidden="true">👑</span><div><h3>City Founder</h3><p class="tiny muted">Chosen by the city · vote ×2</p></div><span class="role-row__chev" aria-hidden="true"></span></summary>
             <div class="role-row__body">
             <div><p class="role-row__when">Now</p><ul><li>Set your home community (it must be set 7 days before you apply).</li><li>Bring your locals in: they'll endorse the founder.</li><li>Plan to hold the founder amount for 7 days straight after launch: balances are checked at random times.</li></ul></div>
-            <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Apply from inside the city; a 72-hour window lets others apply too. No race.</li><li>Chosen by the published formula: 50% local endorsements, 30% contribution, 20% holdings (capped at 2×). Then 48 hours for objections.</li><li>Moderate the city's feed (hides need a second person). Drop below the amount and moderation pauses; 7 days to fix it or the seat reopens.</li><li>Design the city's coin: name, logo, colour, a short pitch, and what it's paired with (SOL, USDC or RAY). Public, logged, and locked once it launches.</li><li>At the Launchpad: first right to launch the city's one official coin.</li></ul></div>
+            <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Apply from inside the city. The first qualified claimer becomes Seed Steward at once: a 90-day probation, confirmed early by 50 verified local holders, and locals can challenge (10 endorsements force an election).</li><li>If several claim together, a 72-hour window scores them: 50% local endorsements, 30% contribution, 20% holdings (capped at 2×). Then 48 hours for objections.</li><li>Your bar is set by city size (100K to 1M $VICINITY). Friends can found together: 3 to 5 verified locals can pool as a squad.</li><li>Moderate the city's feed (hides need a second person). Drop below the amount and moderation pauses; 7 days to fix it (48 hours for a Seed Steward) or the seat reopens.</li><li>Design the city's coin: name, logo, colour, a short pitch, and what it's paired with (SOL, USDC or RAY). Public, logged, and locked once it launches.</li><li>At the Launchpad: first right to launch the city's one official coin.</li></ul></div>
             </div>
           </details>
           <details class="card role-row" data-role="manager">
@@ -500,6 +522,7 @@
   <script src="/site.js" defer></script>
   <script src="/ticker.js" defer></script>
   <script src="/wallets.js" defer></script>
+  <script src="/dashboard-roles.js" defer></script>
   <script src="/dashboard.js" defer></script>
 </body>
 </html>

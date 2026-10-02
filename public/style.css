@@ -592,6 +592,11 @@ select option { background: var(--bg-2); }
 .wallet-grid .wallet-option { padding: 10px 12px; font-size: .9rem; }
 .wallet-grid .wallet-option .go { display: none; }
 .more-wallets summary { cursor: pointer; color: var(--text-2); font-weight: 600; }
+.login-block { display: grid; gap: 10px; }
+.login-block[hidden] { display: none; }
+.or-line { display: flex; align-items: center; gap: 12px; margin: 18px 0 14px; color: var(--muted); font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.or-line::before, .or-line::after { content: ""; flex: 1; height: 1px; background: var(--line-2); }
+.callout { padding: 10px 12px; border-radius: 12px; background: rgba(255,213,138,.1); border: 1px solid rgba(255,213,138,.35); color: var(--text-2); }
 .alt-ways { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 14px; }
 .alt { display: flex; gap: 12px; align-items: flex-start; text-align: left; width: 100%; padding: 12px 14px; border-radius: 14px; border: 1px dashed var(--line-2); background: transparent; color: var(--text); font: inherit; cursor: pointer; text-decoration: none; transition: border-color .2s, background .2s; }
 .alt:hover { border-color: rgba(255,90,54,.55); background: var(--card); }
@@ -1046,3 +1051,22 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .termsgate__done p { margin: .6em 0; }
 .terms .agreebox { margin-top: 28px; text-align: center; }
 .terms .agreebox .btn { margin-top: 6px; }
+
+/* ---------- dashboard: the role panel (one per level), squads, the admin console ---------- */
+.role-home, .squad-card { display: grid; gap: 12px; }
+.role-home[hidden], .squad-card[hidden] { display: none; }
+.role-home__head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.role-home__head .role__icon { font-size: 1.8rem; line-height: 1; }
+.role-home__head h2 { margin: 0; }
+.role-home__head .tag { margin-left: auto; }
+.role-home[data-level="admin"], .role-home[data-level="manager"] { border-color: rgba(255,200,87,.45); }
+.role-note { padding: 10px 12px; border-radius: 12px; background: rgba(255,213,138,.1); border: 1px solid rgba(255,213,138,.35); }
+.role-queue { color: var(--gold-text); font-weight: 600; }
+.role-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.role-meter__row { display: flex; justify-content: space-between; gap: 10px; font-size: .86rem; color: var(--muted); }
+.role-meter__row strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.role-meter .bar { margin: 6px 0 2px; }
+.role-meter.is-bad .bar span { background: linear-gradient(90deg, var(--pin), var(--gold)); }
+.role-meter.is-ok .bar span { background: linear-gradient(90deg, var(--moss), var(--ok-text)); }
+.req-list li.is-ok { border-color: rgba(55,194,154,.4); }
+.btn.is-soft { opacity: .75; }

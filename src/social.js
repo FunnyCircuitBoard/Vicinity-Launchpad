@@ -46,8 +46,11 @@ export async function present(env, rows, me, pw, fetchImpl = fetch, now = Date.n
   const mine = new Set((await db.prepare(`SELECT post_id FROM votes WHERE user_id = ? AND post_id IN (${ids.map(() => "?").join(",")})`)
     .bind(me.id, ...ids).all()).results.map((r) => r.post_id));
   const authors = [...new Set(rows.map((r) => r.user_id))];
-  const founders = new Map((await db.prepare(`SELECT user_id, city_name FROM seats WHERE status = 'active' AND user_id IN (${authors.map(() => "?").join(",")})`)
-    .bind(...authors).all()).results.map((r) => [r.user_id, r.city_name]));
+  // active founders and Seed Stewards (a steward has a founder's powers) carry the 👑
+  const seatRows = (await db.prepare(`SELECT user_id, city_name, status FROM seats WHERE status IN ('active', 'steward') AND user_id IN (${authors.map(() => "?").join(",")})`)
+    .bind(...authors).all()).results;
+  const founders = new Map(seatRows.map((r) => [r.user_id, r.city_name]));
+  const stewards = new Set(seatRows.filter((r) => r.status === "steward").map((r) => r.user_id));
   const managers = new Set();
   for (const cc of new Set(rows.map((r) => r.country))) { const m = await managerOf(env, cc, now); if (m) managers.add(m.userId); }
   const actions = new Map((await db.prepare(`SELECT target_id, id, state, reason FROM mod_actions WHERE target_type = 'post' AND action = 'hide' AND state IN ('pending', 'confirmed')
@@ -62,7 +65,7 @@ export async function present(env, rows, me, pw, fetchImpl = fetch, now = Date.n
       reports: mod ? r.reports : undefined,
       where: r.kind === "checkin" ? r.author_home : undefined,
       voted: mine.has(r.id), mine: r.user_id === me.id, canModerate: mod,
-      author: { id: mod ? r.user_id : undefined, name: r.handle || r.name || "Member", founder: founders.get(r.user_id) || null, manager: managers.has(r.user_id) },
+      author: { id: mod ? r.user_id : undefined, name: r.handle || r.name || "Member", founder: founders.get(r.user_id) || null, steward: stewards.has(r.user_id), manager: managers.has(r.user_id) },
     };
   });
 }
@@ -239,15 +242,33 @@ export async function handleReport(request, env, fetchImpl = fetch, now = Date.n
   return json({ ok: true });
 }
 
-/** GET /api/media/:id → a meme picture. */
-export async function handleMedia(env, id) {
+/**
+ * GET /api/media/:id → a picture.
+ *   A city coin's logo is public, like the coin itself.
+ *   A meme picture is only for people who may see its post (that city or country, or its moderators): a feed
+ *   that says "only people from Utica see this" can't have pictures anyone can fetch by counting ids.
+ *   A picture that isn't attached to anything is only for the person who uploaded it.
+ * Ids are sequential and guessable, so a picture the viewer may not see answers "not found", never "forbidden".
+ */
+export async function handleMedia(request, env, id, fetchImpl = fetch, now = Date.now()) {
   if (!env.DB || !/^[0-9]{1,10}$/.test(id)) return json({ error: "not_found" }, 404);
   await ensureSchema(env.DB);
-  const row = await env.DB.prepare("SELECT type, bytes FROM media WHERE id = ?").bind(Number(id)).first();
+  const row = await env.DB.prepare("SELECT m.type, m.bytes, m.user_id, (SELECT 1 FROM city_coins c WHERE c.media_id = m.id LIMIT 1) AS is_logo FROM media m WHERE m.id = ?").bind(Number(id)).first();
   if (!row) return json({ error: "not_found" }, 404);
+  let shared = Boolean(row.is_logo);
+  if (!shared) {
+    const a = await access(request, env, now, { write: false });
+    if (a.error) return json({ error: "not_found" }, 404);
+    const post = await env.DB.prepare("SELECT * FROM posts WHERE media_id = ?").bind(Number(id)).first();
+    if (!post) { if (row.user_id !== a.u.id) return json({ error: "not_found" }, 404); }
+    else {
+      const pw = await powersOf(env, a.u, fetchImpl, now);
+      if (!sees(a.u, post, pw) || (post.hidden && !canModerate(pw, post) && post.user_id !== a.u.id)) return json({ error: "not_found" }, 404);
+    }
+  }
   return new Response(toBytes(row.bytes), { headers: {
-    "Content-Type": row.type, "Cache-Control": "public, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": "inline",
+    "Content-Type": row.type, "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": "inline",
+    // logos are the same for everyone; a private picture must never sit in a shared cache
+    "Cache-Control": shared ? "public, max-age=31536000, immutable" : "private, max-age=3600",
   } });
 }
-

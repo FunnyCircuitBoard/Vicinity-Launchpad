@@ -97,13 +97,52 @@
     return r;
   }
 
-  /** A location attestation for one purpose (the location itself never leaves this function except to /api/locate). */
+  /**
+   * A location attestation for one purpose (the location itself never leaves this function except to /api/locate).
+   * Inside a wallet app's browser, which often can't share GPS, the check is finished in the phone's normal browser.
+   */
   async function locateFor(purpose) {
-    const loc = await getLocation();
+    let loc;
+    try { loc = await getLocation(); }
+    catch (e) { if (e.inApp) return locateInBrowser(purpose); throw e; }
     const r = await api("/api/locate", { location: loc, purpose });
     if (!r.ok) throw new Error(errText({}, r, "Couldn't check your location. Please try again."));
     return r;
   }
+
+  let locateTimer = null, locateDone = null;
+  function closeLocate(result, error) {
+    clearTimeout(locateTimer);
+    $("#locate-modal").hidden = true;
+    if (locateDone) { const d = locateDone; locateDone = null; error ? d.reject(error) : d.resolve(result); }
+  }
+  /** Ask for a one-time link, wait for the phone's browser to answer it, and return the same thing /api/locate does. */
+  async function locateInBrowser(purpose) {
+    $("#locate-error").hidden = true;
+    const h = await api("/api/locate/handoff", { purpose });
+    if (!h.ok) throw new Error(errText({}, h, "Couldn't start. Please try again."));
+    return new Promise((resolve, reject) => {
+      locateDone = { resolve, reject };
+      $("#locate-link").value = h.url;
+      $("#locate-modal").hidden = false;
+      const until = Date.parse(h.expiresAt), expired = () => closeLocate(null, new Error("That link expired. Please try again."));
+      const poll = async () => {
+        if ($("#locate-modal").hidden) return;
+        if (Date.now() > until) return expired();
+        const r = await api("/api/locate/handoff/claim", { code: h.code });
+        if (r.ok) return closeLocate(r);
+        if (r.status === "expired") return expired();
+        locateTimer = setTimeout(poll, 2000);
+      };
+      locateTimer = setTimeout(poll, 2000);
+    });
+  }
+  $("#locate-copy").addEventListener("click", () => copy($("#locate-link").value, "Link copied. Paste it in Safari or Chrome."));
+  $("#locate-link").addEventListener("focus", (e) => e.target.select());
+  $("#locate-cancel").addEventListener("click", () => closeLocate(null, new Error("Cancelled. Nothing was changed.")));
+
+  /** What dashboard-roles.js needs from this file. */
+  const roleCtx = { sensitive, refresh: () => refresh(), locateFor, errText, countryName };
 
   /* ---------- identity ---------- */
   const PROVIDER_LABEL = { google: "Google", email: "Email" };
@@ -167,7 +206,7 @@
     me = d; checkedAt = Date.now();
     identity(d);
     const u = d.user, h = d.holding, home = u.home, c = d.community, n = d.national;
-    const pill = $("#me-role"); pill.textContent = LEVEL[d.level] || "Member"; pill.dataset.level = d.level;
+    const pill = $("#me-role"); pill.textContent = d.roles.steward && d.level === "founder" ? "Seed Steward" : LEVEL[d.level] || "Member"; pill.dataset.level = d.level;
     $("#me-home").textContent = home ? `${home.name}, ${countryName(home.country)}` : "No home community yet";
     $$("[data-policy-version]").forEach((e) => (e.textContent = d.policyVersion));
 
@@ -202,6 +241,8 @@
       alert.hidden = false;
     } else alert.hidden = true;
 
+    window.VRole.render(d, roleCtx);
+    if (layoutEditing) layoutSetEdit(true); // a card that just appeared (role panel, squad) gets its drag bar too
     renderPath(d);
     renderCommunity(d);
     renderCountry(d);
@@ -215,6 +256,14 @@
   const actBtn = (label, fn, cls = "link-btn") => { const b = el("button", cls, label); b.type = "button"; b.addEventListener("click", fn); return b; };
 
   /* ---------- founder path ---------- */
+  /** Why someone can't endorse, vote or challenge (the same checks the server makes for verified locals). */
+  const VOTER_WHY = {
+    not_local: "Only people whose home is this city can do this.", account_too_new: "Your account had to be 7+ days old when this opened.",
+    home_too_new: "Your home had to be set 7+ days before this opened.", needs_checkin: "Check in once from inside your city first (proof you're really here).", banned: "You can't do this while banned.",
+  };
+  const APPLY_ERR = { not_in_city: (d) => d.here ? `You're in ${d.here} right now, not your home city.` : "You're not inside your city right now.", no_addresses: "No contract addresses in your pitch, please.",
+    city_taken: "Someone just became founder here.", already_applied: "You've already applied.", not_dark: "That city isn't dark long enough yet." };
+
   function renderPath(d) {
     const p = d.progress, f = d.founder, home = d.user.home, c = d.community;
     $("#p-city").textContent = home ? home.name : "your city";
@@ -235,6 +284,7 @@
     if (f.seat) {
       const s = f.seat;
       if (s.status === "provisional") parts.push(say(`🎉 ${s.city} chose you! Locals can object until ${when(s.appealUntil)}; if no objection is upheld, you're the founder.`));
+      else if (s.status === "steward") parts.push(say(`🌟 You're ${s.city}'s Seed Steward: probation until ${date(s.probationUntil)}, or sooner once enough verified local holders back the city. Locals can challenge you.`));
       else if (s.status === "active") parts.push(say(`👑 You're the founder of ${s.city}. Keep ${fmt(s.threshold)} $VICINITY: if you drop below, moderation pauses at once and you have 7 days to fix it.`));
       else if (s.status === "grace") parts.push(say(`⚠️ Grace until ${when(s.graceUntil)}: hold ${fmt(s.threshold)} $VICINITY again or ${s.city}'s seat reopens.`));
     } else if (f.application) {
@@ -245,24 +295,28 @@
         toast(r.ok ? "Withdrawn" : errText({}, r, "Couldn't withdraw.")); refresh();
       }));
     } else if (!d.launched) {
-      parts.push(say("Applications open after $VICINITY launches, once you've held the founder amount for 7 days in a row. There's no race: each city's first application opens a 72-hour window for everyone."));
+      parts.push(say("Applications open after $VICINITY launches, once you've held your city's founder amount for 7 days in a row. The first qualified claimer becomes Seed Steward at once; if rivals claim together, a 72-hour window decides."));
     } else if (f.eligible) {
+      const challenge = Boolean(f.challenging);
+      const label = challenge ? `Challenge ${c && c.seat ? c.seat.name : "the steward"} (checks your location)` : `Apply to found ${home.name} (checks your location)`;
       const form = el("form", "apply-form");
-      const ta = el("textarea"); ta.maxLength = 280; ta.rows = 2; ta.placeholder = `Why should you found ${home.name}? (optional, locals see this)`; ta.setAttribute("aria-label", "Your pitch");
-      const go = el("button", "btn btn--primary btn--block", `Apply to found ${home.name} (checks your location)`); go.type = "submit";
+      const ta = el("textarea"); ta.maxLength = 280; ta.rows = 2; ta.placeholder = challenge ? `Why should locals pick you over ${c && c.seat ? c.seat.name : "the steward"}? (optional, locals see this)` : `Why should you found ${home.name}? (optional, locals see this)`; ta.setAttribute("aria-label", "Your pitch");
+      const go = el("button", "btn btn--primary btn--block", label); go.type = "submit";
       form.append(ta, go);
       form.addEventListener("submit", async (e) => {
         e.preventDefault(); showErr("#p-error", "");
         go.disabled = true; go.textContent = "Checking your location…";
         try {
           const r = await sensitive(async () => api("/api/seats/apply", { attestation: (await locateFor("apply")).attestation, pitch: ta.value.trim() }));
-          if (!r.ok) throw new Error(errText({ not_in_city: `You're not inside ${home.name} right now.`, no_addresses: "No contract addresses in your pitch, please.",
-            city_taken: "Someone just became founder here.", already_applied: "You've already applied." }, r, "Couldn't apply. Please try again."));
-          toast(`📨 Applied to found ${home.name}`); const b = go.getBoundingClientRect(); burst(b.left + b.width / 2, b.top); refresh();
+          if (!r.ok) throw new Error(errText(APPLY_ERR, r, "Couldn't apply. Please try again."));
+          toast(r.steward ? `🌟 You're ${home.name}'s Seed Steward` : r.challenge ? `📨 Challenge opened: 72 hours` : `📨 Applied to found ${home.name}`);
+          const b = go.getBoundingClientRect(); burst(b.left + b.width / 2, b.top); refresh();
         } catch (x) { showErr("#p-error", x.message); }
-        finally { go.disabled = false; go.textContent = `Apply to found ${home.name} (checks your location)`; }
+        finally { go.disabled = false; go.textContent = label; }
       });
-      parts.push(say(`✅ You qualify: held ${T} $VICINITY for 7 days. Apply from inside ${home.name}; others have 72 hours to apply too, then locals' endorsements count most.`), form);
+      parts.push(say(challenge
+        ? `✅ You qualify to challenge ${c && c.seat ? c.seat.name : "the steward"}, ${home.name}'s Seed Steward. If 10 verified locals endorse you within 72 hours, an election is forced (the steward defends the seat in it).`
+        : `✅ You qualify: held ${T} $VICINITY for 7 days. Apply from inside ${home.name}: you become Seed Steward at once if nobody else is claiming. If rivals claim together, a 72-hour window scores everyone, locals' endorsements first.`), form);
     } else {
       const why = {
         no_home: "Set your home community first.",
@@ -272,16 +326,18 @@
           : `Hold ${T} $VICINITY to start your 7-day clock. Balances are checked at random times, so borrowed tokens don't help.`,
         below_threshold: `Hold ${T} $VICINITY right now to apply.`,
         cooldown: `You can apply again on ${f.cooldownUntil ? date(f.cooldownUntil) : "soon"} (30 days after losing a seat).`,
-        city_taken: `${home ? home.name : "Your city"} already has a founder.`,
+        city_taken: f.whyNot ? `${home ? home.name : "Your city"} has a Seed Steward on probation. To challenge them: ${VOTER_WHY[f.whyNot] || "you need to be a verified local."}` : `${home ? home.name : "Your city"} already has a founder.`,
         banned: "You can't apply while banned.",
+        has_seat: "You already hold a seat.", already_applied: "You've already applied.",
       }[f.why];
       if (why) parts.push(say(why));
     }
     // the city's seat, if it's someone else's
     if (c && c.seat && !c.seat.you) {
       const s = c.seat;
-      const line = say(`${s.status === "provisional" ? "Chosen" : "Founder"}: ${s.name} (${s.wallet}) since ${date(s.since)}`);
+      const line = say(`${s.status === "provisional" ? "Chosen" : s.status === "steward" ? "Seed Steward" : "Founder"}: ${s.name} (${s.wallet}) since ${date(s.since)}`);
       if (s.status === "provisional") line.append(` · objections until ${when(s.appealUntil)}`);
+      if (s.status === "steward") line.append(` · probation until ${date(s.probationUntil)}${s.quorum ? ` · ${s.quorum.have}/${s.quorum.need} local holders` : ""}`);
       if (s.status === "grace") line.append(" · in grace");
       if (s.openObjections) line.append(` · ${s.openObjections} objection${s.openObjections === 1 ? "" : "s"} under review`);
       parts.push(line, actBtn("Object to this founder", () => objectTo(s.id, s.name)));
@@ -337,7 +393,7 @@
   function renderCommunity(d) {
     const c = d.community;
     if (!c) return;
-    const tk = ticker(c.name);
+    const tk = c.ticker || ticker(c.name);
     $("#cc-face").textContent = tk.slice(0, 5);
     $("#pass-coin").textContent = tk.slice(0, 5);
     $("#cc-name").textContent = c.name;
@@ -649,7 +705,7 @@
     needs_second_person: "Someone other than the founder has to check a coin's contract.",
   };
   let coinData = null, coinPairs = null, vicMint = null, logoData = null, dropLogo = false, studioDirty = false;
-  const cityTk = () => (me && me.community ? ticker(me.community.name) : "CITY");
+  const cityTk = () => (me && me.community ? me.community.ticker || ticker(me.community.name) : "CITY");
   const picked = (name, fallback) => (document.querySelector(`input[name='${name}']:checked`) || {}).value || fallback;
   const num = (x) => new Intl.NumberFormat(undefined, { maximumSignificantDigits: 6 }).format(x);
   const usd = (x) => new Intl.NumberFormat(undefined, { maximumFractionDigits: x < 1 ? 4 : 2 }).format(x);
@@ -764,6 +820,7 @@
     const r = await api("/api/coins?waiting=1");
     const list = r && r.ok ? r.waiting : [];
     $("#coin-admin").hidden = !list.length;
+    window.VRole.queue({ coins: list.length });
     $("#coin-waiting").replaceChildren(...list.map((w) => {
       const li = el("li");
       const link = el("a", "mono", w.pendingMint); link.href = `https://solscan.io/token/${w.pendingMint}`; link.target = "_blank"; link.rel = "noopener";
@@ -845,6 +902,7 @@
     const d = await api("/api/mod");
     if (!d.ok || !d.moderator) { $("#mod").hidden = true; return; }
     $("#mod").hidden = false;
+    window.VRole.queue({ posts: d.posts.length, proposals: d.proposals.filter((x) => x.canApprove).length, appeals: d.appeals.length, objections: d.objections.length, towns: d.towns.length });
     $("#mod-scope").textContent = `${LEVEL[d.role] || d.role} · ${d.scope}`;
     const sections = [];
     const section = (title, items) => { const s = el("div", "mod-section"); s.append(el("h3", null, title)); const ul = el("ul", "req-list"); ul.append(...items); s.append(ul); return s; };
@@ -1027,10 +1085,11 @@
   /* ---------- customizable card layout ---------- */
   // Drag-to-reorder (touch + mouse) with per-card column move, saved per user in
   // localStorage. Temporary scaffolding so the layout can be arranged by hand.
-  const LAYOUT_LABELS = { progress: "Founder path", coin: "City coin", feed: "Community feed", trade: "Buy & swap", community: "Your community", national: "Your country", badges: "Badges", mod: "Moderator tools", request: "Ask for your town" };
+  const LAYOUT_LABELS = { "role-home": "Your role", squad: "Squad founding", progress: "Founder path", coin: "City coin", feed: "Community feed", trade: "Buy & swap", community: "Your community", national: "Your country", badges: "Badges", mod: "Moderator tools", request: "Ask for your town" };
   let layoutDef = null, layoutEditing = false;
   const layoutKey = () => `vicinity:dash-layout:${me && me.user ? me.user.id : "anon"}`;
-  const layoutCards = (col) => [...col.querySelectorAll(":scope > section.card")].filter((c) => c.id && !c.hidden);
+  // hidden cards (the role panel, squad, moderator tools) keep their slot too, so they appear in the right place when they show up
+  const layoutCards = (col) => [...col.querySelectorAll(":scope > section.card")].filter((c) => c.id);
   const layoutRead = () => ({ main: layoutCards($("#col-main")).map((c) => c.id), side: layoutCards($("#col-side")).map((c) => c.id) });
   const layoutSave = () => { try { localStorage.setItem(layoutKey(), JSON.stringify(layoutRead())); } catch {} };
   function layoutLoad() {
@@ -1046,7 +1105,17 @@
     const put = (col, id) => { const c = byId[id]; if (c && !seen.has(id)) { col.append(c); seen.add(id); } };
     l.main.forEach((id) => put(main, id));
     l.side.forEach((id) => put(side, id));
-    if (layoutDef) { layoutDef.main.forEach((id) => put(main, id)); layoutDef.side.forEach((id) => put(side, id)); }
+    // a card the saved layout has never seen (added since it was saved) goes right after the card that precedes it by default
+    if (layoutDef) {
+      for (const [col, ids] of [[main, layoutDef.main], [side, layoutDef.side]]) {
+        ids.forEach((id, i) => {
+          const c = byId[id]; if (!c || seen.has(id)) return;
+          seen.add(id);
+          const prev = ids.slice(0, i).reverse().map((x) => byId[x]).find((x) => x && x.parentElement === col);
+          if (prev) prev.after(c); else col.prepend(c);
+        });
+      }
+    }
   }
   function layoutDrag(card, handle) {
     handle.addEventListener("pointerdown", (e) => {

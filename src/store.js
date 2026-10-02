@@ -7,6 +7,7 @@
  *   sessions     → who is signed in (only a hash of the cookie) and when the wallet was last proven
  *   pairs        → short-lived "sign in with my phone" codes (10 minutes)
  *   email_codes  → short-lived e-mail sign-in codes (only a hash, 10 minutes)
+ *   handoffs     → short-lived links to read the location in the phone's normal browser (10 minutes, src/handoff.js)
  *   posts, votes, reports, media, bans → the local and national feeds
  *   mod_actions, appeals → every moderation action, public, and appeals against them
  *   windows, applications, endorsements, seats, objections → choosing city founders (src/seats.js)
@@ -495,6 +496,24 @@ ALTER TABLE users ADD COLUMN terms_agreed_at TEXT;
 ALTER TABLE users ADD COLUMN contact_email TEXT;
 ALTER TABLE users ADD COLUMN phone TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users (lower(handle)) WHERE handle IS NOT NULL;
+`,
+  },
+  {
+    // Hand-offs (src/handoff.js): finish a step in the phone's normal browser. Rows live for minutes.
+    id: "2026-10-02-handoffs",
+    sql: `
+CREATE TABLE IF NOT EXISTS handoffs (
+  id         TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  user_id    INTEGER,
+  wallet     TEXT,
+  purpose    TEXT,
+  net        TEXT,
+  result     TEXT,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS handoffs_user ON handoffs (user_id, kind);
 `,
   },
 ];

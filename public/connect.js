@@ -12,13 +12,23 @@
   const ERR = {
     social_taken: "That Google account is already linked to a different wallet. Sign in with the wallet it's linked to, or use another account.",
     wallet_taken: "This wallet is already linked to another account. Sign in with that account instead.",
-    wallet_first: "That login isn't linked to a wallet yet. Connect your wallet first, then sign in with Google or e-mail.",
-    login_unavailable: "Sign-in with Google is being switched on. Please check back soon.",
+    wallet_first: "That login isn't linked to a Vicinity account yet. New here? Connect your wallet below first, then link that login in step 2.",
+    login_unavailable: "Log in with Google is being switched on. Please check back soon, or use e-mail or your wallet.",
     login_cancelled: "Sign-in was cancelled. Nothing changed.",
     login_failed: "The sign-in didn't go through. Please try again.",
     login_expired: "That sign-in took too long or was opened in another tab. Please try again.",
   };
   const setErr = (m) => { const e = $("#c-error"); e.textContent = m || ""; e.hidden = !m; };
+  // The e-mail form moves between the log-in block and the sign-up step, so its errors live INSIDE the form (right next to the input).
+  const setEmailErr = (m) => { const e = $("#email-error"); e.textContent = m || ""; e.hidden = !m; };
+  const hasAccount = () => { try { return localStorage.getItem("vicinity-account") === "1"; } catch { return false; } };
+  /** Returning people (the header's Log in button, or an account remembered on this device) get a "welcome back" top. */
+  function welcomeBack() {
+    $(".connect__intro .kicker").textContent = "Welcome back";
+    const title = $(".connect__intro .page-title"), accent = el("span", "accent", "Your city's waiting.");
+    title.replaceChildren("Log in.", el("br"), accent);
+    $(".connect__intro .lead").textContent = "Log in with the Google account or e-mail you signed up with, or with your wallet. New here? Use your wallet to create your account.";
+  }
   const cancelled = (e) => /reject|cancel|denied|declin|closed/i.test(String(e?.message || e)) || e?.code === 4001;
 
   function show(s) {
@@ -46,7 +56,18 @@
     else { a.href = k.site; a.target = "_blank"; a.rel = "noopener"; a.append(el("span", "go", "Get")); }
     return a;
   }
+  /** The "Already a member? Log in" block: Google or e-mail. Google can't run inside wallet apps. */
+  function renderLogin() {
+    const inApp = W.inWalletApp();
+    $("#login-google").hidden = !providers.google || inApp;
+    $("#login-email").hidden = !providers.email;
+    $("#login-off").hidden = Boolean(providers.google || providers.email);
+    $("#login-inapp").hidden = !(inApp && providers.google);
+    mountEmail("login");
+  }
+  $("#login-copy").addEventListener("click", () => copy(`${location.origin}/connect`, "Link copied. Paste it in Safari or Chrome."));
   function renderPick() {
+    renderLogin();
     const list = W.list();
     $("#wallets-detected").replaceChildren(...list.map((a) => walletButton(a, connectWith)));
     $("#wallets-none").hidden = list.length > 0;
@@ -105,32 +126,45 @@
     } else showSocial(d.wallet || address);
   }
   function showSocial(wallet) {
+    const inApp = W.inWalletApp();
     $("#s-addr").textContent = short(wallet);
-    $("#go-google").hidden = !providers.google;
+    $("#go-google").hidden = !providers.google || inApp; // Google refuses to run inside a wallet app's browser
     $("#go-email").hidden = !providers.email;
-    $("#email-form").hidden = true;
-    $("#email-step-address").hidden = false;
-    $("#email-step-code").hidden = true;
-    $(".social-btns").hidden = false;
+    mountEmail("social");
     $("#social-off").hidden = Boolean(providers.google || providers.email);
+    $("#social-inapp").hidden = !(inApp && providers.google);
     show("social");
   }
+
   $("#s-restart").addEventListener("click", async () => { await api("/api/auth/logout", {}); active = null; address = null; show("pick"); renderPick(); });
 
   /* ---------- e-mail codes ---------- */
+  // ONE e-mail form + code step serves both places ("Already a member? Log in" and the sign-up step 2): it is moved
+  // into whichever block is showing, and the button group that opened it is hidden while it is open.
   let emailAddr = "";
-  $("#go-email").addEventListener("click", () => {
-    setErr("");
-    $("#email-form").hidden = false;
-    $(".social-btns").hidden = true;
+  const groupOf = { login: "#login-social", social: "#go-social" };
+  function mountEmail(where) {
+    const slot = $(`#${where}-email-slot`);
+    if (slot.contains($("#email-form"))) return; // already here (a wallet appearing re-renders the page: don't close a form being typed in)
+    slot.append($("#email-form"));
+    $("#email-form").hidden = true;
     $("#email-step-address").hidden = false;
     $("#email-step-code").hidden = true;
+    $(groupOf.login).hidden = false; $(groupOf.social).hidden = false;
+  }
+  function openEmail(where) {
+    setErr(""); setEmailErr("");
+    mountEmail(where);
+    $("#email-form").hidden = false;
+    $(groupOf[where]).hidden = true;
     $("#email-addr").focus();
-  });
+  }
+  $("#go-email").addEventListener("click", () => openEmail("social"));
+  $("#login-email").addEventListener("click", () => openEmail("login"));
   async function emailSend() {
-    setErr("");
+    setErr(""); setEmailErr("");
     emailAddr = $("#email-addr").value.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailAddr)) { setErr("That doesn't look like an e-mail address."); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailAddr)) { setEmailErr("That doesn't look like an e-mail address."); return; }
     const btn = $("#email-send"); btn.disabled = true; btn.textContent = "Sending…";
     try {
       const d = await api("/api/auth/email/start", { email: emailAddr });
@@ -140,19 +174,19 @@
       $("#email-step-code").hidden = false;
       $("#email-code").value = "";
       $("#email-code").focus();
-    } catch (e) { setErr(emailErr(e.message)); }
+    } catch (e) { setEmailErr(emailErr(e.message)); }
     finally { btn.disabled = false; btn.textContent = "Send me a code"; }
   }
   async function emailVerify() {
-    setErr("");
+    setErr(""); setEmailErr("");
     const code = $("#email-code").value.replace(/\D/g, "").slice(0, 6);
-    if (code.length !== 6) { setErr("Enter the 6-digit code from the e-mail."); return; }
+    if (code.length !== 6) { setEmailErr("Enter the 6-digit code from the e-mail."); return; }
     const btn = $("#email-verify"); btn.disabled = true; btn.textContent = "Checking…";
     try {
       const d = await api("/api/auth/email/verify", { email: emailAddr, code });
       if (!d.ok) throw new Error(d.error + (d.left != null ? ":" + d.left : ""));
       location.assign(d.next || "/dashboard");
-    } catch (e) { setErr(emailErr(e.message)); }
+    } catch (e) { setEmailErr(emailErr(e.message)); }
     finally { btn.disabled = false; btn.textContent = "Verify"; }
   }
   function emailErr(code) {
@@ -276,6 +310,7 @@
     if (pairCode) return startApprove();
     const me = await window.V.ready;
     providers = me.providers || providers;
+    if (params.get("mode") === "login" || hasAccount()) welcomeBack();
     if (me.signedIn) { show("done"); setTimeout(() => location.assign("/dashboard"), 900); return; }
     if (me.pending) showSocial(me.pending.wallet);
     else if (me.proof) { show("app"); showCode(me.proof); }

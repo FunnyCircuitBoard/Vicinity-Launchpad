@@ -5,6 +5,7 @@
   "use strict";
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
   const enc = encodeURIComponent;
+  const webView = Boolean(window.V && window.V.webView); // a wallet app's own browser (detected once, in site.js)
 
   // Popular Solana wallets. open(url) = link that opens a page inside the wallet app's browser (phones).
   const KNOWN = [
@@ -107,8 +108,8 @@
     s.style.background = k ? k.color : "#445";
     return s;
   }
-  /** Inside a wallet app's own browser? (then its wallet is usually already on the page) */
-  const inWalletApp = () => isMobile && found.size > 0;
+  /** Inside a wallet app's own browser? True when the user agent says so, or a phone browser already has a wallet on the page. */
+  const inWalletApp = () => webView || (isMobile && found.size > 0);
 
   window.VW = {
     KNOWN, isMobile, inWalletApp, safeIcon, mark,
