@@ -26,7 +26,7 @@
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
  * SNAPSHOT_CUTOFF, ATTEST_KEY (optional).
  */
-import { OFFICIAL, activeMint, checkOfficial, officialFor } from "./official.js";
+import { activeMint, checkOfficial, officialFor, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
 import { getHolding, getTokenFacts, getTopHolders, holderSnapshot, rankOf } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
@@ -164,18 +164,18 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return only("GET") || json({ policy: POLICY, snapshotCutoff: snapshotCutoff(env), launched: Boolean(activeMint(env)),
         balanceHistory: env.DB ? await ledgerStatus(env, Date.now()) : { running: false } });
     case "/api/check":
-      return only("GET") || json(checkOfficial(url.searchParams.get("q"), isSolanaAddress));
+      return only("GET") || json(checkOfficial(url.searchParams.get("q"), isSolanaAddress, env));
     case "/api/verify":
       return only("POST") || handleVerify(request, env, Date.now(), fetchImpl);
     case "/api/token": {
       const blocked = only("GET");
       if (blocked) return blocked;
       const mint = activeMint(env);
-      if (!mint) return json({ launched: false, registry: OFFICIAL.tokens });
+      if (!mint) return json({ launched: false, registry: withMint(env).tokens });
       return cached("token-" + mint, 60, async () => {
         try {
           const [facts, price] = await Promise.all([getTokenFacts(env, mint, fetchImpl), tokenPrice(mint, fetchImpl)]);
-          return json({ launched: true, registry: OFFICIAL.tokens, facts, price, marketCap: price && facts.supply ? price * facts.supply : null });
+          return json({ launched: true, registry: withMint(env).tokens, facts, price, marketCap: price && facts.supply ? price * facts.supply : null });
         } catch (e) { console.error("token facts failed", String(e)); return json({ launched: true, error: "chain_unavailable" }, 503); }
       });
     }

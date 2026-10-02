@@ -28,7 +28,7 @@ import { ensureSchema } from "./store.js";
 import { autoUsername, cleanText } from "./text.js";
 import { isSolanaAddress } from "./solana.js";
 import { POLICY, DAY, iso } from "./policy.js";
-import { OFFICIAL } from "./official.js";
+import { withMint } from "./official.js";
 
 const ROLES = ["moderator", "admin", "owner"];
 const LEVEL = { moderator: 1, admin: 2, owner: 3 };
@@ -308,7 +308,7 @@ async function handleTokens(ctx) {
   const registered = (await ctx.db.prepare("SELECT * FROM admin_tokens ORDER BY created_at DESC LIMIT 200").all()).results;
   const cityCoins = (await ctx.db.prepare(
     "SELECT city_id, city_name, country, name, mint, launched_at FROM city_coins WHERE mint IS NOT NULL ORDER BY launched_at DESC LIMIT 200").all()).results;
-  return json({ ok: true, registered, cityCoins, official: OFFICIAL.tokens || [] });
+  return json({ ok: true, registered, cityCoins, official: withMint(ctx.env).tokens || [] });
 }
 
 async function handleTokenRegister(request, ctx) {

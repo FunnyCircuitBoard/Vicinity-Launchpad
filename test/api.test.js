@@ -37,8 +37,10 @@ test("official list: no token yet, X account listed", async () => {
 
 test("link checker: official site, official GitHub, fakes", async () => {
   const check = async (q) => (await (await handleApi(req("/api/check?q=" + encodeURIComponent(q)))).json()).verdict;
-  assert.equal(await check("https://vicinity-map.noyonsakibul.workers.dev/"), "official");
-  assert.equal(await check("https://vicinity-map.sakibul-noyon.workers.dev/"), "official");
+  assert.equal(await check("https://vicinitycity.com"), "official", "the team's other public address");
+  assert.equal(await check("https://www.vicinitycity.com/"), "official");
+  assert.equal(await check("https://vicinity-map.noyonsakibul.workers.dev/"), "not_official", "workers.dev names are not on the list: anyone can claim a released one");
+  assert.equal(await check("https://vicinity-map.sakibul-noyon.workers.dev/"), "not_official");
   assert.equal(await check("https://vicinitycity.net"), "official");
   assert.equal(await check("https://vicinity.city/launchpad"), "official");
   assert.equal(await check("vicinity.city.evil.io"), "not_official");
@@ -48,7 +50,7 @@ test("link checker: official site, official GitHub, fakes", async () => {
   assert.equal(await check("vicinity-airdrop.xyz"), "not_official");
   assert.equal(await check("@vicinity_official"), "not_official");
   assert.equal(await check("So11111111111111111111111111111111111111112"), "not_official");
-  assert.equal(await check("http://vicinity-map.noyonsakibul.workers.dev"), "warning");
+  assert.equal(await check("http://vicinitycity.net"), "warning");
   assert.equal(await check(""), "empty");
 });
 
@@ -150,4 +152,25 @@ test("http:// visits go to https://, except on this computer", async () => {
   // how `wrangler dev` presents a local visit
   const dev = new Request("http://vicinity.city/api/health", { headers: { "cf-connecting-ip": "127.0.0.1" } });
   assert.equal((await worker.fetch(dev, {})).status, 200);
+});
+
+test("launch: setting VICINITY_MINT puts the real contract on every official list at once (no code change)", async () => {
+  const MINT = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm";
+  const get = async (path, env) => (await handleApi(req(path), env)).json();
+  const q = (a) => "/api/check?q=" + encodeURIComponent(a);
+
+  // before the launch: no contract, and any address is called fake
+  assert.equal((await get(q(MINT), {})).verdict, "not_official");
+  assert.equal((await get("/api/official", {})).tokenContract, null);
+  assert.equal((await get("/api/token", {})).registry[0].contract, null);
+
+  // after: the checker, the official page data and the registry all name it
+  const env = { VICINITY_MINT: MINT };
+  const checked = await get(q(MINT), env);
+  assert.deepEqual([checked.verdict, checked.kind], ["official", "contract"]);
+  assert.equal((await get(q("So11111111111111111111111111111111111111112"), env)).verdict, "not_official", "any other address is still fake");
+  const official = await get("/api/official", env);
+  assert.equal(official.tokenContract, MINT);
+  assert.deepEqual([official.tokens[0].contract, official.tokens[0].status], [MINT, "Live"]);
+  assert.equal(official.tokens[1].contract, null, "city coins are not official until they launch");
 });
