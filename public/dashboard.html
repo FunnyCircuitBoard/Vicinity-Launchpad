@@ -30,7 +30,7 @@
         <a href="/">How it works</a>
         <a href="/token">Token &amp; holders</a>
         <a href="/cities">Claim a city</a>
-        <a href="/launchpad">Launchpad <span class="nav__soon">Oct 10</span></a>
+        <a href="/launchpad">Launchpad <span class="nav__soon" data-nav-launch>Oct 10</span></a>
         <a href="/dashboard" aria-current="page">Dashboard</a>
       </nav>
       <div class="site-header__actions">
@@ -115,8 +115,74 @@
           </div>
         </div>
 
+        <div class="dash-tools">
+          <button class="btn btn--glass btn--sm" type="button" id="layout-edit">🎛 Customize layout</button>
+          <button class="btn btn--glass btn--sm" type="button" id="layout-reset" hidden>Reset</button>
+        </div>
+
         <div class="dash-grid">
-          <div class="dash-col">
+          <div class="dash-col" id="col-main">
+            <section class="card trade" id="trade" aria-labelledby="trade-title">
+              <div class="trade__head"><p class="kicker">Buy &amp; swap</p><span class="tag" id="trade-state">Opens at launch</span></div>
+              <h2 class="h2--sm" id="trade-title">Grow your stack.</h2>
+              <div class="seg seg--sm trade__tabs" role="tablist" aria-label="What to do">
+                <button type="button" role="tab" data-route="vic" aria-selected="true">$VICINITY</button>
+                <button type="button" role="tab" data-route="city" aria-selected="false"><span data-city-tk>$CITY</span></button>
+                <button type="button" role="tab" data-route="swap" aria-selected="false">Swap</button>
+              </div>
+              <div class="swapbox">
+                <div class="swapbox__row">
+                  <span class="swapbox__label">You pay</span>
+                  <div class="swapbox__line"><label class="sr-only" for="tr-amt">Amount to pay</label><input class="swapbox__amt" id="tr-amt" inputmode="decimal" placeholder="0.0" autocomplete="off"><span class="token-chip" id="tr-in"><span class="token-chip__dot" aria-hidden="true"></span><span>SOL</span></span></div>
+                  <span class="swapbox__usd" id="tr-in-usd"></span>
+                </div>
+                <button class="swapbox__flip" type="button" id="tr-flip" aria-label="Switch direction">⇅</button>
+                <div class="swapbox__row">
+                  <span class="swapbox__label">You get · estimate</span>
+                  <div class="swapbox__line"><output class="swapbox__amt" id="tr-out" for="tr-amt">—</output><span class="token-chip" id="tr-outk"><span class="token-chip__dot" aria-hidden="true"></span><span>$VICINITY</span></span></div>
+                  <span class="swapbox__usd" id="tr-rate"></span>
+                </div>
+              </div>
+              <a class="btn btn--primary btn--block" id="tr-go" href="/token#buy">How to get ready →</a>
+              <a class="btn btn--glass btn--block btn--sm trade__alt" id="tr-go-2" href="/token#buy" hidden>or on Raydium ↗</a>
+              <p class="tiny muted trade__note" id="tr-note">You sign every swap in your own wallet on Jupiter or Raydium. Vicinity never touches your funds.</p>
+            </section>
+
+            <section class="card" id="national">
+              <p class="kicker">Your country · <a href="/rules#managers">how managers are elected</a></p>
+              <h2 class="h2--sm" id="nc-name">—</h2>
+              <dl class="kv">
+                <div><dt>Members</dt><dd id="nc-members">—</dd></div>
+                <div><dt>Country Manager</dt><dd id="nc-manager">—</dd></div>
+              </dl>
+              <div class="election" id="nc-election" hidden></div>
+            </section>
+
+            <section class="card community-card" id="community">
+              <div class="community-card__head">
+                <div class="coin-disc" aria-hidden="true"><span id="cc-face">—</span></div>
+                <div><p class="kicker">Your community</p><h2 class="h2--sm" id="cc-name">—</h2><p class="tiny muted" id="cc-ticker"></p></div>
+              </div>
+              <dl class="kv">
+                <div><dt>Members</dt><dd id="cc-members">—</dd></div>
+                <div><dt>Holders here</dt><dd id="cc-holders">—</dd></div>
+                <div><dt>City Founder</dt><dd id="cc-founder">—</dd></div>
+              </dl>
+              <p class="small fomo" id="cc-fomo"></p>
+              <p class="kicker">Top holders here</p>
+              <ol class="mini-board" id="cc-top"><li class="muted small">Live at launch.</li></ol>
+              <button class="btn btn--glass btn--sm btn--block" type="button" id="cc-share">Invite locals · copy link</button>
+            </section>
+
+            <section class="card" id="badges">
+              <p class="kicker">Badges · checked live</p>
+              <div class="seg seg--sm badge-tabs" role="tablist" aria-label="Badges">
+                <button type="button" role="tab" data-btab="earned" aria-selected="true">🏆 Achieved · <span id="bg-n-earned">0</span></button>
+                <button type="button" role="tab" data-btab="locked" aria-selected="false">🔒 Unachieved · <span id="bg-n-locked">0</span></button>
+              </div>
+              <ul class="badge-grid" id="badge-grid"></ul>
+            </section>
+
             <section class="card progress-card" id="progress" aria-labelledby="progress-title">
               <div class="progress-card__head">
                 <div><p class="kicker">Founder path · <a href="/rules#founders">the rules</a></p><h2 class="h2--sm" id="progress-title">Found <span id="p-city">your city</span></h2></div>
@@ -187,6 +253,27 @@
 
               <div class="coin-admin" id="coin-admin" hidden><p class="kicker">🛡️ Contracts waiting for a check</p><ul class="req-list" id="coin-waiting"></ul></div>
             </section>
+          </div>
+
+          <aside class="dash-col dash-col--side" id="col-side">
+            <section class="card mod-card" id="mod" hidden>
+              <p class="kicker">🛡️ Moderator tools · <span id="mod-scope"></span></p>
+              <p class="tiny muted">Every action needs a reason and is <a href="/rules#moderation">logged publicly</a>. A hide lasts 24 hours unless a second moderator (or 3 reports) confirms it. Bans need two people.</p>
+              <div id="mod-sections"></div>
+            </section>
+
+            <section class="card" id="request">
+              <p class="kicker">Missing town?</p>
+              <h2 class="h2--sm">Ask for your town</h2>
+              <p class="small muted">Stand in the town and send a request. Your Country Manager gives advice and an admin decides; approved towns join the map at the next update. Only the nearest community is kept, never your location.</p>
+              <form class="req-form" id="req-form" novalidate>
+                <label class="sr-only" for="req-name">Town name</label>
+                <input id="req-name" type="text" maxlength="60" autocomplete="off" placeholder="e.g. New Hartford">
+                <button class="btn btn--glass btn--sm" type="submit">Send (checks location)</button>
+              </form>
+              <ul class="req-list" id="req-mine"></ul>
+              <p class="wallet__error" id="req-err" role="alert" hidden></p>
+            </section>
 
             <section class="card feed" id="feed" aria-label="Feeds">
               <div class="feed__head">
@@ -215,88 +302,83 @@
               <ul class="posts" id="posts"><li class="muted">Loading…</li></ul>
               <button class="link-btn" type="button" id="f-more" hidden>Load more</button>
             </section>
-          </div>
-
-          <aside class="dash-col dash-col--side">
-            <section class="card trade" id="trade" aria-labelledby="trade-title">
-              <div class="trade__head"><p class="kicker">Buy &amp; swap</p><span class="tag" id="trade-state">Opens at launch</span></div>
-              <h2 class="h2--sm" id="trade-title">Grow your stack.</h2>
-              <div class="seg seg--sm trade__tabs" role="tablist" aria-label="What to do">
-                <button type="button" role="tab" data-route="vic" aria-selected="true">$VICINITY</button>
-                <button type="button" role="tab" data-route="city" aria-selected="false"><span data-city-tk>$CITY</span></button>
-                <button type="button" role="tab" data-route="swap" aria-selected="false">Swap</button>
-              </div>
-              <div class="swapbox">
-                <div class="swapbox__row">
-                  <span class="swapbox__label">You pay</span>
-                  <div class="swapbox__line"><label class="sr-only" for="tr-amt">Amount to pay</label><input class="swapbox__amt" id="tr-amt" inputmode="decimal" placeholder="0.0" autocomplete="off"><span class="token-chip" id="tr-in"><span class="token-chip__dot" aria-hidden="true"></span><span>SOL</span></span></div>
-                  <span class="swapbox__usd" id="tr-in-usd"></span>
-                </div>
-                <button class="swapbox__flip" type="button" id="tr-flip" aria-label="Switch direction">⇅</button>
-                <div class="swapbox__row">
-                  <span class="swapbox__label">You get · estimate</span>
-                  <div class="swapbox__line"><output class="swapbox__amt" id="tr-out" for="tr-amt">—</output><span class="token-chip" id="tr-outk"><span class="token-chip__dot" aria-hidden="true"></span><span>$VICINITY</span></span></div>
-                  <span class="swapbox__usd" id="tr-rate"></span>
-                </div>
-              </div>
-              <a class="btn btn--primary btn--block" id="tr-go" href="/token#buy">How to get ready →</a>
-              <a class="btn btn--glass btn--block btn--sm trade__alt" id="tr-go-2" href="/token#buy" hidden>or on Raydium ↗</a>
-              <p class="tiny muted trade__note" id="tr-note">You sign every swap in your own wallet on Jupiter or Raydium. Vicinity never touches your funds.</p>
-            </section>
-
-            <section class="card community-card" id="community">
-              <div class="community-card__head">
-                <div class="coin-disc" aria-hidden="true"><span id="cc-face">—</span></div>
-                <div><p class="kicker">Your community</p><h2 class="h2--sm" id="cc-name">—</h2><p class="tiny muted" id="cc-ticker"></p></div>
-              </div>
-              <dl class="kv">
-                <div><dt>Members</dt><dd id="cc-members">—</dd></div>
-                <div><dt>Holders here</dt><dd id="cc-holders">—</dd></div>
-                <div><dt>City Founder</dt><dd id="cc-founder">—</dd></div>
-              </dl>
-              <p class="small fomo" id="cc-fomo"></p>
-              <p class="kicker">Top holders here</p>
-              <ol class="mini-board" id="cc-top"><li class="muted small">Live at launch.</li></ol>
-              <button class="btn btn--glass btn--sm btn--block" type="button" id="cc-share">Invite locals · copy link</button>
-            </section>
-
-            <section class="card" id="national">
-              <p class="kicker">Your country · <a href="/rules#managers">how managers are elected</a></p>
-              <h2 class="h2--sm" id="nc-name">—</h2>
-              <dl class="kv">
-                <div><dt>Members</dt><dd id="nc-members">—</dd></div>
-                <div><dt>Country Manager</dt><dd id="nc-manager">—</dd></div>
-              </dl>
-              <div class="election" id="nc-election" hidden></div>
-            </section>
-
-            <section class="card" id="badges">
-              <p class="kicker">Badges · checked live</p>
-              <ul class="badge-grid" id="badge-grid"></ul>
-            </section>
-
-            <section class="card mod-card" id="mod" hidden>
-              <p class="kicker">🛡️ Moderator tools · <span id="mod-scope"></span></p>
-              <p class="tiny muted">Every action needs a reason and is <a href="/rules#moderation">logged publicly</a>. A hide lasts 24 hours unless a second moderator (or 3 reports) confirms it. Bans need two people.</p>
-              <div id="mod-sections"></div>
-            </section>
-
-            <section class="card" id="request">
-              <p class="kicker">Missing town?</p>
-              <h2 class="h2--sm">Ask for your town</h2>
-              <p class="small muted">Stand in the town and send a request. Your Country Manager gives advice and an admin decides; approved towns join the map at the next update. Only the nearest community is kept, never your location.</p>
-              <form class="req-form" id="req-form" novalidate>
-                <label class="sr-only" for="req-name">Town name</label>
-                <input id="req-name" type="text" maxlength="60" autocomplete="off" placeholder="e.g. New Hartford">
-                <button class="btn btn--glass btn--sm" type="submit">Send (checks location)</button>
-              </form>
-              <ul class="req-list" id="req-mine"></ul>
-              <p class="wallet__error" id="req-err" role="alert" hidden></p>
-            </section>
           </aside>
         </div>
       </div>
     </section>
+
+    <!-- profile & settings -->
+    <div class="modal" id="profile-modal" role="dialog" aria-modal="true" aria-labelledby="profile-title" hidden>
+      <div class="modal__box card">
+        <div class="profile__head">
+          <div class="idcard__avatar" id="profile-avatar" aria-hidden="true">V</div>
+          <div class="profile__head-id">
+            <h2 class="h2--sm" id="profile-title">Profile</h2>
+            <p class="tiny muted" id="profile-since">—</p>
+          </div>
+          <button class="icon-btn" type="button" id="profile-close" aria-label="Close">✕</button>
+        </div>
+
+        <section class="profile__sec" aria-labelledby="profile-username-h">
+          <h3 id="profile-username-h">Username</h3>
+          <p class="small muted">Your public name everywhere on Vicinity. Every username is unique — once someone takes one, it's theirs.</p>
+          <form id="username-form" class="inline-form" novalidate>
+            <input id="username-input" maxlength="20" spellcheck="false" autocomplete="off" placeholder="Pick a username" aria-label="New username">
+            <button class="btn btn--primary btn--sm" type="submit">Save</button>
+          </form>
+          <p class="inline-err" id="username-err" role="alert" hidden></p>
+          <p class="tiny muted">3–20 characters: letters, numbers and underscores, starting with a letter.</p>
+        </section>
+
+        <section class="profile__sec" aria-labelledby="profile-account-h">
+          <h3 id="profile-account-h">Your account</h3>
+          <dl class="kv">
+            <div><dt>Wallet</dt><dd><span class="mono" id="profile-wallet">—</span> <button class="link-btn link-btn--tiny" type="button" id="profile-copy">Copy</button></dd></div>
+            <div><dt>Signed in with</dt><dd id="profile-provider">—</dd></div>
+            <div><dt>Home</dt><dd id="profile-home">—</dd></div>
+          </dl>
+          <div class="contact-row" id="email-row">
+            <div class="contact-row__main">
+              <strong>E-mail</strong>
+              <p class="tiny muted" id="email-desc">Get security alerts and city updates.</p>
+            </div>
+            <div id="email-view"></div>
+          </div>
+          <form id="email-form" class="inline-form" hidden novalidate>
+            <input id="email-input" type="email" autocomplete="email" spellcheck="false" maxlength="254" placeholder="you@example.com" aria-label="E-mail address">
+            <button class="btn btn--glass btn--sm" type="submit">Send code</button>
+          </form>
+          <form id="email-code-form" class="inline-form" hidden novalidate>
+            <input id="email-code-input" type="text" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" maxlength="6" placeholder="••••••" aria-label="6-digit code">
+            <button class="btn btn--primary btn--sm" type="submit">Verify</button>
+          </form>
+          <div class="contact-row" id="phone-row">
+            <div class="contact-row__main">
+              <strong>Phone</strong>
+              <p class="tiny muted">Optional. Only used if we ever need to reach you about your account.</p>
+            </div>
+            <div id="phone-view"></div>
+          </div>
+          <form id="phone-form" class="inline-form" hidden novalidate>
+            <input id="phone-input" type="tel" autocomplete="tel" spellcheck="false" maxlength="24" placeholder="+1 555 123 4567" aria-label="Phone number">
+            <button class="btn btn--glass btn--sm" type="submit">Save</button>
+          </form>
+          <p class="inline-err" id="contact-err" role="alert" hidden></p>
+        </section>
+
+        <section class="profile__sec" aria-labelledby="profile-help-h">
+          <h3 id="profile-help-h">Help &amp; support</h3>
+          <ul class="link-list">
+            <li><a href="/#faq">FAQ</a></li>
+            <li><a href="/rules">Rules &amp; fairness</a></li>
+            <li><a href="/terms" target="_blank" rel="noopener">Terms of Use</a></li>
+            <li><a href="https://x.com/VicinityCitySOL" target="_blank" rel="noopener">Contact us on X (@VicinityCitySOL)</a></li>
+          </ul>
+        </section>
+
+        <button class="btn btn--glass btn--block" type="button" id="profile-logout">Log out</button>
+      </div>
+    </div>
 
     <!-- "confirm it's you": sensitive actions need the wallet proven in the last 30 minutes -->
     <div class="modal" id="proof-modal" role="dialog" aria-modal="true" aria-labelledby="proof-title" hidden>
@@ -329,26 +411,34 @@
           <p class="muted">Leadership is earned over time and chosen by locals, not bought in a minute. Holdings count, but only up to 2× the founder amount, so the biggest wallet can't simply take over. <a href="/rules">Read every rule →</a></p>
         </div>
         <div class="roles-table">
-          <article class="card role-row" data-role="holder">
-            <div class="role-row__who"><span class="role__icon" aria-hidden="true">🏅</span><div><h3>Holder</h3><p class="tiny muted">Holds any $VICINITY · vote ×1</p></div></div>
+          <details class="card role-row" data-role="holder" open>
+            <summary class="role-row__head"><span class="role__icon" aria-hidden="true">🏅</span><div><h3>Holder</h3><p class="tiny muted">Holds any $VICINITY · vote ×1</p></div><span class="role-row__chev" aria-hidden="true"></span></summary>
+            <div class="role-row__body">
             <div><p class="role-row__when">Now</p><ul><li>Verify your wallet and set your home community.</li><li>Post memes, check-ins and discussions in your city and country.</li><li>Report spam and scams: 5 reports hide a post until a moderator reviews it.</li></ul></div>
             <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Only holders can post and vote.</li><li>Endorse who should found your city, and elect your Country Manager: one person, one vote.</li><li>Founding Supporters are the holders by 14-day average balance at the snapshot: early access to city coins.</li></ul></div>
-          </article>
-          <article class="card role-row" data-role="founder">
-            <div class="role-row__who"><span class="role__icon" aria-hidden="true">👑</span><div><h3>City Founder</h3><p class="tiny muted">Chosen by the city · vote ×2</p></div></div>
+            </div>
+          </details>
+          <details class="card role-row" data-role="founder">
+            <summary class="role-row__head"><span class="role__icon" aria-hidden="true">👑</span><div><h3>City Founder</h3><p class="tiny muted">Chosen by the city · vote ×2</p></div><span class="role-row__chev" aria-hidden="true"></span></summary>
+            <div class="role-row__body">
             <div><p class="role-row__when">Now</p><ul><li>Set your home community (it must be set 7 days before you apply).</li><li>Bring your locals in: they'll endorse the founder.</li><li>Plan to hold the founder amount for 7 days straight after launch: balances are checked at random times.</li></ul></div>
             <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Apply from inside the city; a 72-hour window lets others apply too. No race.</li><li>Chosen by the published formula: 50% local endorsements, 30% contribution, 20% holdings (capped at 2×). Then 48 hours for objections.</li><li>Moderate the city's feed (hides need a second person). Drop below the amount and moderation pauses; 7 days to fix it or the seat reopens.</li><li>Design the city's coin: name, logo, colour, a short pitch, and what it's paired with (SOL, USDC or RAY). Public, logged, and locked once it launches.</li><li>At the Launchpad: first right to launch the city's one official coin.</li></ul></div>
-          </article>
-          <article class="card role-row" data-role="manager">
-            <div class="role-row__who"><span class="role__icon" aria-hidden="true">🛡️</span><div><h3>Country Manager</h3><p class="tiny muted">Elected for 90 days · vote ×3</p></div></div>
+            </div>
+          </details>
+          <details class="card role-row" data-role="manager">
+            <summary class="role-row__head"><span class="role__icon" aria-hidden="true">🛡️</span><div><h3>Country Manager</h3><p class="tiny muted">Elected for 90 days · vote ×3</p></div><span class="role-row__chev" aria-hidden="true"></span></summary>
+            <div class="role-row__body">
             <div><p class="role-row__when">Now</p><ul><li>The seat opens once the country has founders with 30+ days of service. Until then the Admin covers it.</li></ul></div>
             <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Elected by the country's verified locals: 50% votes, 30% service, 20% holdings (capped). 90-day terms, at most two in a row.</li><li>Hide posts in the country, propose bans (another person must approve), advise on "add my town" requests.</li><li>Powers pause the moment their founder seat is in grace.</li></ul></div>
-          </article>
-          <article class="card role-row" data-role="admin">
-            <div class="role-row__who"><span class="role__icon" aria-hidden="true">⚙️</span><div><h3>Admin</h3><p class="tiny muted">The Vicinity team · team wallets are public</p></div></div>
+            </div>
+          </details>
+          <details class="card role-row" data-role="admin">
+            <summary class="role-row__head"><span class="role__icon" aria-hidden="true">⚙️</span><div><h3>Admin</h3><p class="tiny muted">The Vicinity team · team wallets are public</p></div><span class="role-row__chev" aria-hidden="true"></span></summary>
+            <div class="role-row__body">
             <div><p class="role-row__when">Now</p><ul><li>Decides "add my town" requests, objections to founders and appeals they weren't part of.</li><li>Moderates everywhere, under the same two-person rules.</li><li>Publishes team wallets, the snapshot time and every rule change first.</li></ul></div>
             <div><p class="role-row__when">When Vicinity goes live</p><ul><li>Publishes the only official contract address.</li><li>Can never move anyone's tokens, mint, change a launched city's coin, or change rules silently.</li></ul></div>
-          </article>
+            </div>
+          </details>
         </div>
       </div>
     </section>
@@ -367,7 +457,7 @@
       </nav>
       <nav class="footer-links" aria-label="Safety">
         <p class="footer-title">Stay safe</p>
-        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
+        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/terms">Terms of Use</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
         <p class="tiny muted">Vicinity will never ask for your recovery phrase or private key.</p>
       </nav>
       <div class="footer-links">
@@ -387,6 +477,26 @@
   </nav>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <div class="termsgate" id="termsgate" data-terms-version="2026-10-01" hidden>
+    <div class="termsgate__card" role="dialog" aria-modal="true" aria-labelledby="termsgate-title">
+      <p class="kicker">Before you enter</p>
+      <h2 id="termsgate-title">Agree to the Terms of Use</h2>
+      <p class="muted">To use vicinity.city you need to accept our Terms of Use. The short version:</p>
+      <ul class="termsgate__points">
+        <li>Nothing here is financial advice. Meme coins are very risky — only use money you can afford to lose.</li>
+        <li>You must be 18 or older and not in a restricted jurisdiction.</li>
+        <li>We never custody your assets. Blockchain transactions are irreversible.</li>
+        <li>Rewards, fees, and features can change or stop at any time. Nothing is promised.</li>
+        <li>Disputes are resolved by individual arbitration, not class actions.</li>
+      </ul>
+      <p class="small"><a href="/terms" target="_blank" rel="noopener">Read the full Terms of Use</a></p>
+      <div class="termsgate__actions">
+        <button class="btn btn--primary" type="button" id="termsgate-agree">I agree</button>
+        <button class="btn btn--glass" type="button" id="termsgate-decline">Decline</button>
+      </div>
+    </div>
+  </div>
   <script src="/site.js" defer></script>
   <script src="/ticker.js" defer></script>
   <script src="/wallets.js" defer></script>

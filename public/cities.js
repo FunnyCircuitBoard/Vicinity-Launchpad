@@ -21,7 +21,7 @@
   const listEl = $("#city-list"), qEl = $("#city-q"), countryEl = $("#city-country"), filterEl = $("#city-filter");
   const btn = $("#claim-btn");
   let cities = [], byId = new Map(), countries = {}, admin = {}, claims = new Map(), tickers = new Map(), open = false, loaded = false;
-  let selected = null, mode = "claim", memberCount = new Map(), totalMembers = 0;
+  let selected = null, mode = "claim", memberCount = new Map(), holderCount = new Map(), totalMembers = 0;
   // the signed-in person's wallet (to show "Yours"), from site.js
   const me = () => V().me?.()?.user?.wallet || null;
   const myHome = () => V().me?.()?.user?.home?.id || null;
@@ -620,7 +620,9 @@
       if (a) sub.append(document.createElement("br"), el("span", a.kind === "r" ? "area-note" : "area-note area-note--near", areaNote(a, selected)));
       const shared = sharedNote(selected);
       if (shared) sub.append(document.createElement("br"), el("span", "shared-note", shared));
-      if (cl) sub.append(document.createElement("br"), document.createTextNode(`Founder: ${cl.founder} `), solscan(cl.wallet), document.createTextNode(` · since ${new Date(cl.claimed_at).toLocaleDateString()}${cl.status === "grace" ? " · in grace" : ""}`));
+      if (cl) sub.append(document.createElement("br"), document.createTextNode(`City Founder: ${cl.founder} `), solscan(cl.wallet), document.createTextNode(` · since ${new Date(cl.claimed_at).toLocaleDateString()}${cl.status === "grace" ? " · in grace" : ""}`));
+      else sub.append(document.createElement("br"), document.createTextNode("City Founder: No city founder yet"));
+      sub.append(document.createElement("br"), document.createTextNode(`Holders: ${fmt(holderCount.get(selected.id) || 0)}`));
       const win = windows.get(selected.id);
       if (!cl && win) sub.append(document.createElement("br"), el("span", "shared-note", `${win.applicants} applying · window closes ${new Date(win.closesAt).toLocaleString()}`));
       const m = memberCount.get(selected.id) || 0;
@@ -686,6 +688,7 @@
     if (!d || !Array.isArray(d.communities)) return;
     totalMembers = d.members || 0;
     memberCount = new Map(d.communities.map((c) => [String(c.id), c.members]));
+    holderCount = new Map(d.communities.map((c) => [String(c.id), c.holders || 0]));
     updateStats();
     const list = $("#wanted-list");
     if (!d.communities.length) { list.replaceChildren(el("li", "muted", "No members yet. Sign in and set your home community to put your city on this list.")); return; }

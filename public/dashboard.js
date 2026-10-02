@@ -106,11 +106,13 @@
   }
 
   /* ---------- identity ---------- */
+  const PROVIDER_LABEL = { google: "Google", email: "Email" };
   function identity(d) {
     const u = d.user, name = u.handle || u.name || mask(u.wallet);
     $$("[data-me-name]").forEach((e) => (e.textContent = name));
     $$("[data-me-wallet]").forEach((e) => (e.textContent = mask(u.wallet)));
-    $$("[data-me-login]").forEach((e) => (e.textContent = u.provider === "x" ? `X ${u.handle || ""}`.trim() : `Google · ${u.name || ""}`));
+    // the pass shows the sign-in method only — never the real name (privacy)
+    $$("[data-me-login]").forEach((e) => (e.textContent = PROVIDER_LABEL[u.provider] || "Google"));
     $("#me-avatar").textContent = initials(name);
   }
 
@@ -388,18 +390,34 @@
       el("p", "tiny muted", "One vote per person. Score: 50% votes, 30% service, 20% holdings capped at 2×. 90-day term."));
   }
 
-  function renderBadges(d) {
-    $("#badge-grid").replaceChildren(...d.badges.map((b) => {
-      const lost = d.lost.includes(b.id);
-      const li = el("li", `badge ${b.earned ? "is-earned" : lost ? "is-lost" : "is-locked"}`);
-      li.title = `${b.name}: ${b.detail}${b.earned ? " ✓" : ""}`;
-      li.tabIndex = 0;
-      li.append(el("span", "badge__icon", b.icon), el("span", "badge__name", b.grace ? `${b.name} (grace)` : b.name));
-      if (!b.earned && b.progress > 0) { const p = el("span", "badge__prog"), f = el("span"); f.style.width = `${Math.round(b.progress * 100)}%`; p.append(f); li.append(p); }
-      li.addEventListener("click", () => toast(`${b.icon} ${b.name}: ${b.detail}`));
-      return li;
-    }));
+  let btab = "earned";
+  function badgeEl(d, b) {
+    const lost = d.lost.includes(b.id);
+    const li = el("li", `badge ${b.earned ? "is-earned" : lost ? "is-lost" : "is-locked"}`);
+    li.title = `${b.name}: ${b.detail}${b.earned ? " ✓" : ""}`;
+    li.tabIndex = 0;
+    li.append(el("span", "badge__icon", b.icon), el("span", "badge__name", b.grace ? `${b.name} (grace)` : b.name));
+    if (!b.earned && b.progress > 0) {
+      const p = el("span", "badge__prog"), f = el("span");
+      f.style.width = `${Math.round(b.progress * 100)}%`; p.append(f); li.append(p);
+      li.append(el("span", "badge__pending", "◐ In progress"));
+    }
+    li.addEventListener("click", () => toast(`${b.icon} ${b.name}: ${b.detail}`));
+    return li;
   }
+  function renderBadges(d) {
+    const earned = d.badges.filter((b) => b.earned), locked = d.badges.filter((b) => !b.earned);
+    $("#bg-n-earned").textContent = earned.length;
+    $("#bg-n-locked").textContent = locked.length;
+    const list = btab === "earned" ? earned : locked;
+    $("#badge-grid").replaceChildren(...list.map((b) => badgeEl(d, b)));
+    if (!list.length) $("#badge-grid").append(el("li", "muted small", btab === "earned" ? "Nothing earned yet — your first badges are waiting." : "Everything achieved. Nice."));
+  }
+  $$("[data-btab]").forEach((b) => b.addEventListener("click", () => {
+    btab = b.dataset.btab;
+    $$("[data-btab]").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
+    if (me) renderBadges(me);
+  }));
 
   const showErr = (sel, msg) => { const e = $(sel); e.textContent = msg || ""; e.hidden = !msg; };
 
@@ -907,6 +925,221 @@
   $("#me-copy").addEventListener("click", () => me && copy(me.user.wallet, "Wallet address copied"));
   $("#me-logout").addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/"); });
 
+  /* ---------- profile & settings ---------- */
+  const USERNAME_ERR = {
+    bad_username: "Usernames are 3–20 characters: letters, numbers and underscores, starting with a letter.",
+    username_taken: "That username is taken. Try another one.",
+    reprove: "Please confirm it's you with your wallet first, then try again.",
+    sign_in: "Your session ended. Please sign in again.",
+  };
+  function openProfile() {
+    if (!me) return;
+    const u = me.user, name = u.handle || u.name || mask(u.wallet);
+    $("#profile-avatar").textContent = initials(name);
+    $("#profile-since").textContent = `Member since ${date(u.joined)} · ${LEVEL[me.level] || "Member"}`;
+    $("#profile-wallet").textContent = mask(u.wallet);
+    $("#profile-provider").textContent = PROVIDER_LABEL[u.provider] || "Google";
+    $("#profile-home").textContent = u.home ? `${u.home.name}, ${countryName(u.home.country)}` : "No home community yet";
+    $("#username-input").value = u.handle || "";
+    $("#username-err").hidden = true;
+    renderEmailView(u); renderPhoneView(u);
+    $("#email-form").hidden = true; $("#email-code-form").hidden = true; $("#phone-form").hidden = true;
+    $("#contact-err").hidden = true;
+    $("#profile-modal").hidden = false;
+  }
+  function closeProfile() { $("#profile-modal").hidden = true; }
+  // e-mail: verified badge or an add/verify flow (the code comes from /api/auth/email/start)
+  let pendingEmail = "";
+  function renderEmailView(u) {
+    const v = $("#email-view");
+    if (u.contact_email) {
+      v.replaceChildren(el("span", "verified-pill", `✓ ${u.contact_email}`),
+        (() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Change";
+          b.addEventListener("click", () => { $("#email-form").hidden = false; $("#email-code-form").hidden = true; $("#email-input").focus(); }); return b; })());
+      $("#email-desc").textContent = "Verified. We only write when it matters.";
+    } else {
+      v.replaceChildren((() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Add";
+        b.addEventListener("click", () => { $("#email-form").hidden = false; $("#email-input").focus(); }); return b; })());
+      $("#email-desc").textContent = "Get security alerts and city updates.";
+    }
+  }
+  function renderPhoneView(u) {
+    const v = $("#phone-view");
+    if (u.phone) {
+      v.replaceChildren(el("span", null, u.phone),
+        (() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Change";
+          b.addEventListener("click", () => { $("#phone-input").value = u.phone; $("#phone-form").hidden = false; $("#phone-input").focus(); }); return b; })(),
+        (() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Remove";
+          b.addEventListener("click", async () => { const r = await api("/api/me/phone", { phone: "" }); if (r.ok) { me.user.phone = null; renderPhoneView(me.user); toast("Phone removed"); } }); return b; })());
+    } else {
+      v.replaceChildren((() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Add";
+        b.addEventListener("click", () => { $("#phone-form").hidden = false; $("#phone-input").focus(); }); return b; })());
+    }
+  }
+  /* the header username button IS the profile button (site.js hooks it up) */
+  window.V.openProfile = openProfile;
+  $("#profile-close").addEventListener("click", closeProfile);
+  $("#profile-modal").addEventListener("click", (e) => { if (e.target.id === "profile-modal") closeProfile(); });
+  $("#profile-copy").addEventListener("click", () => me && copy(me.user.wallet, "Wallet address copied"));
+  $("#profile-logout").addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/"); });
+  $("#username-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#username-err"); err.hidden = true;
+    const r = await sensitive(() => api("/api/me/username", { username: $("#username-input").value.trim() }));
+    if (!r || !r.ok) { err.textContent = USERNAME_ERR[r && r.error] || "Couldn't save that. Try again."; err.hidden = false; return; }
+    me.user.handle = r.username; identity(me);
+    $("#username-input").value = r.username; toast("Username updated ✓");
+  });
+  $("#email-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#contact-err"); err.hidden = true;
+    pendingEmail = $("#email-input").value.trim().toLowerCase();
+    const r = await api("/api/auth/email/start", { email: pendingEmail });
+    if (!r.ok) { err.textContent = r.error === "bad_email" ? "That doesn't look like an e-mail address." : r.error === "too_soon" ? "We just sent a code — wait a minute before asking again." : "Couldn't send the code. Try again."; err.hidden = false; return; }
+    $("#email-form").hidden = true; $("#email-code-form").hidden = false; $("#email-code-input").focus();
+    toast("Code sent — check your inbox");
+  });
+  $("#email-code-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#contact-err"); err.hidden = true;
+    const r = await api("/api/me/contact/email/verify", { email: pendingEmail, code: $("#email-code-input").value });
+    if (!r.ok) {
+      err.textContent = r.error === "code_wrong" ? `Wrong code${r.left != null ? ` (${r.left} tries left)` : ""}.` : r.error === "code_expired" ? "That code expired. Send a new one." : r.error === "email_taken" ? "That e-mail is someone else's sign-in. Use a different one." : "Couldn't verify. Try again.";
+      err.hidden = false; return;
+    }
+    me.user.contact_email = r.email; renderEmailView(me.user);
+    $("#email-code-form").hidden = true; $("#email-code-input").value = ""; toast("E-mail verified ✓");
+  });
+  $("#phone-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#contact-err"); err.hidden = true;
+    const r = await api("/api/me/phone", { phone: $("#phone-input").value.trim() });
+    if (!r.ok) { err.textContent = r.error === "bad_phone" ? "That doesn't look like a phone number." : "Couldn't save that. Try again."; err.hidden = false; return; }
+    me.user.phone = r.phone; renderPhoneView(me.user);
+    $("#phone-form").hidden = true; toast("Phone saved ✓");
+  });
+
+  /* ---------- customizable card layout ---------- */
+  // Drag-to-reorder (touch + mouse) with per-card column move, saved per user in
+  // localStorage. Temporary scaffolding so the layout can be arranged by hand.
+  const LAYOUT_LABELS = { progress: "Founder path", coin: "City coin", feed: "Community feed", trade: "Buy & swap", community: "Your community", national: "Your country", badges: "Badges", mod: "Moderator tools", request: "Ask for your town" };
+  let layoutDef = null, layoutEditing = false;
+  const layoutKey = () => `vicinity:dash-layout:${me && me.user ? me.user.id : "anon"}`;
+  const layoutCards = (col) => [...col.querySelectorAll(":scope > section.card")].filter((c) => c.id && !c.hidden);
+  const layoutRead = () => ({ main: layoutCards($("#col-main")).map((c) => c.id), side: layoutCards($("#col-side")).map((c) => c.id) });
+  const layoutSave = () => { try { localStorage.setItem(layoutKey(), JSON.stringify(layoutRead())); } catch {} };
+  function layoutLoad() {
+    try {
+      const l = JSON.parse(localStorage.getItem(layoutKey()));
+      return l && Array.isArray(l.main) && Array.isArray(l.side) ? l : null;
+    } catch { return null; }
+  }
+  function layoutApply(l) {
+    const byId = {};
+    $$("#col-main > section.card, #col-side > section.card").forEach((c) => { if (c.id) byId[c.id] = c; });
+    const main = $("#col-main"), side = $("#col-side"), seen = new Set();
+    const put = (col, id) => { const c = byId[id]; if (c && !seen.has(id)) { col.append(c); seen.add(id); } };
+    l.main.forEach((id) => put(main, id));
+    l.side.forEach((id) => put(side, id));
+    if (layoutDef) { layoutDef.main.forEach((id) => put(main, id)); layoutDef.side.forEach((id) => put(side, id)); }
+  }
+  function layoutDrag(card, handle) {
+    handle.addEventListener("pointerdown", (e) => {
+      if (e.button != null && e.button !== 0) return;
+      e.preventDefault();
+      try { handle.setPointerCapture(e.pointerId); } catch {}
+      const rect = card.getBoundingClientRect();
+      const ghost = card.cloneNode(true);
+      ghost.classList.add("layout-ghost");
+      ghost.querySelector(":scope > .layout-bar")?.remove();
+      ghost.style.width = `${rect.width}px`;
+      ghost.style.left = `${rect.left}px`;
+      ghost.style.top = `${rect.top}px`;
+      document.body.append(ghost);
+      card.classList.add("card--dragging");
+      let target = null;
+      const clear = () => {
+        $$(".drop-before, .drop-after").forEach((x) => x.classList.remove("drop-before", "drop-after"));
+        $$(".dash-col.drop-target").forEach((x) => x.classList.remove("drop-target"));
+      };
+      const move = (ev) => {
+        ghost.style.left = `${ev.clientX - rect.width / 2}px`;
+        ghost.style.top = `${ev.clientY - 40}px`;
+        if (ev.clientY < 70) window.scrollBy(0, -14);
+        else if (ev.clientY > window.innerHeight - 70) window.scrollBy(0, 14);
+        clear(); target = null;
+        const under = document.elementFromPoint(ev.clientX, ev.clientY);
+        const col = under && under.closest ? under.closest(".dash-col") : null;
+        if (!col) return;
+        const cards = [...col.querySelectorAll(":scope > section.card")].filter((c) => c !== card && !c.hidden);
+        for (const c of cards) {
+          const r = c.getBoundingClientRect();
+          if (ev.clientY < r.top + r.height / 2) { target = { card: c, before: true }; c.classList.add("drop-before"); return; }
+        }
+        const last = cards[cards.length - 1];
+        if (last) { target = { card: last, before: false }; last.classList.add("drop-after"); }
+        else { target = { col }; col.classList.add("drop-target"); }
+      };
+      const up = () => {
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", up);
+        handle.removeEventListener("pointercancel", up);
+        ghost.remove();
+        card.classList.remove("card--dragging");
+        clear();
+        if (target) {
+          if (target.col) target.col.append(card);
+          else if (target.before) target.card.before(card);
+          else target.card.after(card);
+          layoutSave();
+        }
+      };
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", up);
+      handle.addEventListener("pointercancel", up);
+    });
+  }
+  function layoutDecorate(card) {
+    if (card.querySelector(":scope > .layout-bar")) return;
+    const bar = el("div", "layout-bar");
+    bar.append(el("span", "layout-bar__label", LAYOUT_LABELS[card.id] || card.id));
+    const handle = el("button", "layout-handle", "⋮⋮ drag");
+    handle.type = "button";
+    const mv = el("button", "layout-move", card.parentElement.id === "col-main" ? "→ side" : "→ main");
+    mv.type = "button";
+    mv.addEventListener("click", () => {
+      const other = card.parentElement.id === "col-main" ? $("#col-side") : $("#col-main");
+      other.append(card);
+      mv.textContent = other.id === "col-main" ? "→ side" : "→ main";
+      layoutSave();
+    });
+    bar.append(handle, mv);
+    card.prepend(bar);
+    layoutDrag(card, handle);
+  }
+  function layoutSetEdit(on) {
+    layoutEditing = on;
+    document.body.classList.toggle("layout-edit", on);
+    $("#layout-edit").textContent = on ? "✓ Done" : "🎛 Customize layout";
+    $("#layout-reset").hidden = !on;
+    $$("#col-main > section.card, #col-side > section.card").forEach((c) => {
+      if (on) { if (!c.hidden) layoutDecorate(c); }
+      else c.querySelector(":scope > .layout-bar")?.remove();
+    });
+  }
+  function layoutInit() {
+    if (!$("#col-main") || !$("#col-side") || !$("#layout-edit")) return;
+    layoutDef = layoutRead();
+    const saved = layoutLoad();
+    if (saved) layoutApply(saved);
+    $("#layout-edit").addEventListener("click", () => layoutSetEdit(!layoutEditing));
+    $("#layout-reset").addEventListener("click", () => {
+      try { localStorage.removeItem(layoutKey()); } catch {}
+      if (layoutDef) layoutApply(layoutDef);
+      toast("Layout reset to the default.");
+    });
+  }
+
   /* ---------- start ---------- */
   (async () => {
     const d = await api("/api/me");
@@ -919,6 +1152,11 @@
     if (!d.user.home) { onboard(d); return; }
     $("#dash-main").hidden = false;
     render(d);
+    layoutInit();
+    if (location.hash === "#profile") {
+      history.replaceState(null, "", location.pathname + location.search);
+      openProfile();
+    }
     setupComposer(); loadFeed(true); loadMod(); loadTowns();
     reveal();
     if (params.get("welcome")) toast(`Welcome to Vicinity, ${d.user.handle || d.user.name} 🎉`);

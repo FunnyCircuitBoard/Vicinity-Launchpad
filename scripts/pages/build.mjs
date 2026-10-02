@@ -22,8 +22,31 @@ const NAV = [
 const icon = (paths) => `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const current = (page, p) => (page === p ? ' aria-current="page"' : "");
 
+// The "agree to the Terms of Use" dialog every page carries (site.js shows it until the visitor agrees; the terms
+// page itself has an inline button instead).
+const TERMS_GATE = `  <div class="termsgate" id="termsgate" data-terms-version="2026-10-01" hidden>
+    <div class="termsgate__card" role="dialog" aria-modal="true" aria-labelledby="termsgate-title">
+      <p class="kicker">Before you enter</p>
+      <h2 id="termsgate-title">Agree to the Terms of Use</h2>
+      <p class="muted">To use vicinity.city you need to accept our Terms of Use. The short version:</p>
+      <ul class="termsgate__points">
+        <li>Nothing here is financial advice. Meme coins are very risky — only use money you can afford to lose.</li>
+        <li>You must be 18 or older and not in a restricted jurisdiction.</li>
+        <li>We never custody your assets. Blockchain transactions are irreversible.</li>
+        <li>Rewards, fees, and features can change or stop at any time. Nothing is promised.</li>
+        <li>Disputes are resolved by individual arbitration, not class actions.</li>
+      </ul>
+      <p class="small"><a href="/terms" target="_blank" rel="noopener">Read the full Terms of Use</a></p>
+      <div class="termsgate__actions">
+        <button class="btn btn--primary" type="button" id="termsgate-agree">I agree</button>
+        <button class="btn btn--glass" type="button" id="termsgate-decline">Decline</button>
+      </div>
+    </div>
+  </div>
+`;
+
 function layout({ title, description, page, scripts = [], main = "" }, body) {
-  const nav = NAV.map(([p, href, label]) => `        <a href="${href}"${current(page, p)}>${label}${p === "launchpad" ? ' <span class="nav__soon">Oct 10</span>' : ""}</a>`).join("\n");
+  const nav = NAV.map(([p, href, label]) => `        <a href="${href}"${current(page, p)}>${label}${p === "launchpad" ? ' <span class="nav__soon" data-nav-launch>Oct 10</span>' : ""}</a>`).join("\n");
   const tabs = NAV.map(([p, href, , short, paths]) => `    <a href="${href}"${current(page, p)}>${icon(paths)}<span>${short}</span></a>`).join("\n");
   const js = ["site", ...scripts].map((s) => `  <script src="/${s}.js" defer></script>`).join("\n");
   const fullTitle = page === "home" ? "Vicinity — One city. One coin. One community." : `${title} · Vicinity`;
@@ -82,7 +105,7 @@ ${body.trimEnd()}
       </nav>
       <nav class="footer-links" aria-label="Safety">
         <p class="footer-title">Stay safe</p>
-        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
+        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/terms">Terms of Use</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
         <p class="tiny muted">Vicinity will never ask for your recovery phrase or private key.</p>
       </nav>
       <div class="footer-links">
@@ -98,7 +121,8 @@ ${tabs}
   </nav>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-${js}
+
+${page === "terms" ? "" : TERMS_GATE}${js}
 </body>
 </html>
 `;
