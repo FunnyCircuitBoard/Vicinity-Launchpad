@@ -16,11 +16,11 @@ const NAME_ADJ = ["Swift", "Bright", "Bold", "Calm", "Keen", "Vivid", "Noble", "
 const NAME_NOUN = ["Harbor", "Beacon", "Comet", "River", "Summit", "Meadow", "Ember", "Tide", "Falcon", "Willow", "Canyon", "Drift", "Flint", "Grove", "Haven", "Inlet", "Juniper", "Kite", "Lark", "Maple", "North", "Opal", "Pine", "Quill", "Ridge", "Sable"];
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
-/** A username nobody has yet (checks the users table, retries, then falls back). */
+/** A username nobody has yet (checks the users table the way its unique index does: ignoring case; retries, then falls back). */
 export async function autoUsername(db) {
   for (let i = 0; i < 12; i++) {
     const name = `${pick(NAME_ADJ)}${pick(NAME_NOUN)}${10 + Math.floor(Math.random() * 90)}`;
-    const taken = await db.prepare("SELECT id FROM users WHERE handle = ?").bind(name).first();
+    const taken = await db.prepare("SELECT id FROM users WHERE lower(handle) = lower(?)").bind(name).first();
     if (!taken) return name;
   }
   return `Citizen${Date.now().toString(36)}`;

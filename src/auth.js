@@ -105,7 +105,7 @@ async function dropCurrent(env, request) {
   if (token && token.length <= 100) await dropSession(env, await sha256(token));
 }
 
-/** The wallet is proven. A linked wallet signs straight in; a new one has 30 minutes to link X or Google. */
+/** The wallet is proven. A linked wallet signs straight in; a new one has 30 minutes to link Google or an e-mail. */
 async function signInWallet(env, wallet, now) {
   const user = await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(wallet).first();
   const provenAt = iso(now);
@@ -323,14 +323,20 @@ export async function linkIdentity(env, session, provider, who, now) {
       return start(linked.id, linked.wallet, "/dashboard", false);
     }
     if (await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(session.wallet).first()) return { error: "wallet_taken" };
-    try {
-      const ins = await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, name, early, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .bind(session.wallet, provider, who.id, who.handle || await autoUsername(env.DB), who.name, activeMint(env) ? 0 : 1, iso(now)).run();
-      console.log("account created", provider, session.wallet.slice(0, 4) + "…" + session.wallet.slice(-4));
-      return start(ins.meta.last_row_id, session.wallet, "/dashboard?welcome=1", true);
-    } catch (e) {
-      if (/UNIQUE/i.test(String(e))) return { error: "social_taken" };
-      throw e;
+    // A handle can collide with the (case-insensitive) unique index when someone takes it between the check and the
+    // INSERT: that is not the person's problem, so pick another name and go on. wallet / provider_id collisions are.
+    for (let attempt = 0; ; attempt++) {
+      const handle = attempt === 0 && who.handle ? who.handle : await autoUsername(env.DB);
+      try {
+        const ins = await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, name, early, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+          .bind(session.wallet, provider, who.id, handle, who.name, activeMint(env) ? 0 : 1, iso(now)).run();
+        console.log("account created", provider, session.wallet.slice(0, 4) + "…" + session.wallet.slice(-4));
+        return start(ins.meta.last_row_id, session.wallet, "/dashboard?welcome=1", true);
+      } catch (e) {
+        if (!/UNIQUE/i.test(String(e))) throw e;
+        const handleTaken = await env.DB.prepare("SELECT id FROM users WHERE lower(handle) = lower(?)").bind(handle).first();
+        if (!handleTaken || attempt >= 4) return { error: "social_taken" };
+      }
     }
   }
 

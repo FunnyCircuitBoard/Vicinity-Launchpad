@@ -13,7 +13,7 @@
           <ul class="safety">
             <li>Signing in is free. It isn't a transaction and can't move funds.</li>
             <li>Vicinity will never ask for your recovery phrase or private key.</li>
-            <li>One account per wallet and per Google login or verified e-mail, which keeps fake accounts out.</li>
+            <li>One account per wallet and per Google login or verified e-mail. That makes fake accounts harder, but it is not proof of one person.</li>
           </ul>
         </div>
 
@@ -98,7 +98,7 @@
             <div class="verified-badge" aria-hidden="true">✓</div>
             <h2 class="h2--sm">Wallet verified. Now, who are you?</h2>
             <p class="addr addr--center"><span id="s-addr">—</span></p>
-            <p class="muted small">Sign in with Google or your e-mail to finish. Your login is linked to this wallet for good: one account per wallet and per login.</p>
+            <p class="muted small">Sign in with Google or your e-mail to finish. Your login is linked to this wallet for good (an e-mail address that is your sign-in cannot be changed or removed): one account per wallet and per login.</p>
             <div class="social-btns">
               <a class="btn btn--social btn--google" href="/api/auth/google/start" id="go-google"><span class="social-mark" aria-hidden="true">G</span> Continue with Google</a>
               <button class="btn btn--social btn--email" type="button" id="go-email"><span class="social-mark" aria-hidden="true">✉</span> Continue with e-mail</button>
@@ -118,7 +118,7 @@
               </div>
             </form>
             <p class="muted small" id="social-off" hidden>Sign-in is being switched on. Please check back soon.</p>
-            <p class="tiny muted">We keep your account id and display name — never your password, posts or contacts.</p>
+            <p class="tiny muted">With Google we keep only your Google account id and first name. With e-mail we keep the address itself (it is your account id) and a hash of the code, which expires in 10 minutes. No passwords.</p>
             <button class="link-btn" type="button" id="s-restart">Use a different wallet</button>
           </div>
 
