@@ -19,9 +19,9 @@
   // (for example ADMIN_WALLETS) are kept by a deploy instead of being deleted.
   "keep_vars": true,
   "vars": {
-    // "preview" shows the purple TEST ENVIRONMENT banner and the post-launch state of the site.
-    // To go live, change it to "live" in a pull request (see docs/DEPLOY.md).
-    "SITE_MODE": "preview",
+    // "preview" shows the purple TEST ENVIRONMENT banner and the post-launch state of the site;
+    // "live" is the real site (countdown until the Launchpad opens, no banner, no test lab seeding).
+    "SITE_MODE": "live",
     "GOOGLE_CLIENT_ID": "508878292080-h05nh9h4p6u4ajpqldc423f6elmqc0nl.apps.googleusercontent.com",
     "EMAIL_FROM": "Vicinity <noreply@vicinity.city>"
   },
