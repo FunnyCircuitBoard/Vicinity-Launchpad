@@ -123,9 +123,7 @@ npm run check:boundaries   # exact geometry, every pair of neighbouring areas; e
 The test suite runs the same check, so a build with overlapping areas can't deploy.
 
 ## Deploy
-Code: https://github.com/FunnyCircuitBoard/Vicinity-Launchpad · Cloudflare account: the one that owns vicinity.city.
-- By hand: `npx wrangler deploy` (runs `npm run build` first: files copied in, pages built, every test must pass).
-- Automatically on every push to `main`: Cloudflare → Workers & Pages → vicinity-map → Settings → Builds → connect the GitHub repository.
+Everything is launched from GitHub: a pull request is tested automatically (`.github/workflows/ci.yml`), and merging it into `main` deploys it (`.github/workflows/deploy.yml`: build, every test, `wrangler deploy`, then a check of the live security headers). One-time setup, the launch checklist and rollback: [docs/DEPLOY.md](docs/DEPLOY.md). Nothing should be deployed from anyone's computer.
 
 ## Security
 - One account per person: one wallet + one X or Google login, enforced by the database. From Google we keep the account id and first name; from X the id, @handle and name. No e-mail, no passwords. Only a hash of the session cookie is stored (HttpOnly, Secure, SameSite=Lax, 30 days); requests that change something must come from this site (Origin check).
