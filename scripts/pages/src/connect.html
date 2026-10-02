@@ -116,8 +116,38 @@
               <a class="btn btn--social btn--google" href="/api/auth/google/start" id="go-google"><span class="social-mark" aria-hidden="true">G</span> Continue with Google</a>
             </div>
             <p class="muted small" id="social-off" hidden>Sign-in with X and Google is being switched on. Please check back soon.</p>
+            <div class="callout small" id="social-inapp" hidden>You're inside a wallet app's browser. Google can't sign you in here, and X may jump to another app. <button class="btn btn--glass btn--sm" type="button" id="link-start">Continue in my phone's browser</button></div>
             <p class="tiny muted">We keep your account id and display name. No e-mail, no posts, no contacts.</p>
             <button class="link-btn" type="button" id="s-restart">Use a different wallet</button>
+          </div>
+
+          <!-- 2b. the wallet app waits while X / Google is linked in the phone's own browser -->
+          <div class="cstate" data-state="link" hidden>
+            <h2 class="h2--sm">Continue in your browser</h2>
+            <p class="muted small">Open this link in Safari or Chrome, sign in with X or Google there, then come back here. This page finishes by itself.</p>
+            <p class="pin-row">Check number: <strong class="pin" id="link-pin">--</strong></p>
+            <div class="req-form"><label class="sr-only" for="link-url">Link</label><input class="field mono" id="link-url" readonly><button class="btn btn--primary btn--sm" type="button" id="link-copy">Copy link</button></div>
+            <p class="muted small" id="link-status"><span class="live-dot" aria-hidden="true"></span> Waiting for your browser…</p>
+            <p class="tiny muted">Only continue if you started this yourself. The link works for 15 minutes.</p>
+            <button class="link-btn" type="button" data-back>Back</button>
+          </div>
+
+          <!-- 2c. the phone's own browser: link X / Google for the wallet that asked -->
+          <div class="cstate" data-state="linkphone" hidden>
+            <div class="verified-badge" aria-hidden="true">✓</div>
+            <h2 class="h2--sm">Finish creating your account</h2>
+            <p class="addr addr--center"><span id="lp-addr">—</span></p>
+            <p>Does your wallet app show the check number <strong class="pin" id="lp-pin">--</strong>?</p>
+            <p class="muted small">Only continue if you started this yourself, in your own wallet app. Your login is linked to that wallet for good.</p>
+            <div class="social-btns">
+              <a class="btn btn--social btn--x" href="/api/auth/x/start" id="lp-x" hidden><span class="social-mark" aria-hidden="true">𝕏</span> Continue with X</a>
+              <a class="btn btn--social btn--google" href="/api/auth/google/start" id="lp-google" hidden><span class="social-mark" aria-hidden="true">G</span> Continue with Google</a>
+            </div>
+          </div>
+          <div class="cstate" data-state="linkdone" hidden>
+            <div class="verified-badge" aria-hidden="true">✓</div>
+            <h2 class="h2--sm">Linked</h2>
+            <p class="muted">Go back to your wallet app. It finishes signing you in by itself in a few seconds. You can close this page.</p>
           </div>
 
           <!-- 3. done -->

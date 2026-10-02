@@ -280,14 +280,17 @@ export async function handleTransferCheck(request, env, now = Date.now(), fetchI
 /* ---------------- 2. X / Google ---------------- */
 
 /** GET /api/auth/:provider/start → off to X or Google (PKCE, with a one-time state). */
-export async function handleOAuthStart(request, env, provider) {
+export async function handleOAuthStart(request, env, provider, now = Date.now()) {
   const p = PROVIDERS[provider];
   if (!p) return json({ error: "not_found" }, 404);
   if (!p.configured(env) || !env.DB) return redirect("/connect?error=login_unavailable");
+  // ?link=CODE: finishing a sign-up that was started inside a wallet app's browser (see "2b" below)
+  const link = new URL(request.url).searchParams.get("link");
+  if (link) { await ensureSchema(env.DB); if (!(await findLink(env, link, now))) return redirect("/connect?error=link_expired"); }
   const state = randomToken(16), verifier = randomToken(48);
   const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
   const redirectUri = `${new URL(request.url).origin}/api/auth/${provider}/callback`;
-  return redirect(p.authorize(env, { redirectUri, state, challenge }), [cookie(OAUTH_COOKIE, `${provider}.${state}.${verifier}`, 600)]);
+  return redirect(p.authorize(env, { redirectUri, state, challenge }), [cookie(OAUTH_COOKIE, `${provider}.${state}.${verifier}${link ? "." + link : ""}`, 600)]);
 }
 
 /** GET /api/auth/:provider/callback → link the login to the proven wallet (or sign a returning person in). */
@@ -299,7 +302,7 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
   const fail = (error) => redirect(`/connect?error=${error}`, [clear]);
   if (!p.configured(env) || !env.DB) return fail("login_unavailable");
   if (url.searchParams.get("error")) return fail("login_cancelled");
-  const [cp, state, verifier] = (getCookie(request, OAUTH_COOKIE) || "").split(".");
+  const [cp, state, verifier, linkCode] = (getCookie(request, OAUTH_COOKIE) || "").split(".");
   const code = url.searchParams.get("code");
   if (cp !== provider || !state || state !== url.searchParams.get("state") || !code || !verifier) return fail("login_expired");
 
@@ -308,6 +311,7 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
   catch (e) { console.error("login failed", provider, String(e)); return fail("login_failed"); }
 
   await ensureSchema(env.DB);
+  if (linkCode) return finishLink(env, linkCode, provider, who, now, clear, fail);
   const session = await getSession(env, request, now);
   const linked = await env.DB.prepare("SELECT id, wallet FROM users WHERE provider = ? AND provider_id = ?").bind(provider, who.id).first();
   // Signing in with X / Google alone doesn't prove the wallet: sensitive actions will ask for it again.
@@ -337,6 +341,90 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
   // No wallet proven in this browser: a returning person signs in with their login alone.
   if (linked) return start(linked.id, linked.wallet, "/dashboard");
   return fail("wallet_first");
+}
+
+/* ---------------- 2b. finish a sign-up in the phone's own browser ---------------- */
+// Wallet apps open web pages in an embedded browser. Google refuses to sign people in there, and X or Google may
+// jump to their own app or the phone's browser, which has none of the cookies from the wallet app. So the wallet app
+// (wallet proven, X / Google still to link) asks for a one-time link; the person opens it in Safari / Chrome, links
+// X or Google there, and the wallet app takes over the finished sign-in. The row lives in `handoffs`
+// (kind "link", `purpose` holds the 2-digit check number, like the "wallet on my phone" flow).
+const LINK_MINUTES = 15;
+
+async function findLink(env, code, now) {
+  if (typeof code !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(code)) return null;
+  const h = await env.DB.prepare("SELECT * FROM handoffs WHERE id = ? AND kind = 'link'").bind(await sha256(code)).first();
+  return h && Date.parse(h.expires_at) > now ? h : null;
+}
+
+/** POST /api/auth/handoff → a one-time link + check number, for a wallet that is proven but not linked yet. */
+export async function handleLinkStart(request, env, now = Date.now()) {
+  const blocked = await guard(request, env);
+  if (blocked) return blocked;
+  const s = await getSession(env, request, now);
+  if (!s || s.user || !s.wallet) return json({ ok: false, error: "no_pending" }, 400);
+  const code = randomToken(18);
+  const pin = String(10 + (crypto.getRandomValues(new Uint8Array(1))[0] % 90));
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM handoffs WHERE kind = 'link' AND (wallet = ? OR expires_at < ?)").bind(s.wallet, iso(now)),
+    env.DB.prepare("INSERT INTO handoffs (id, kind, wallet, purpose, created_at, expires_at) VALUES (?, 'link', ?, ?, ?, ?)")
+      .bind(await sha256(code), s.wallet, pin, iso(now), iso(now + LINK_MINUTES * 60_000)),
+  ]);
+  return json({ ok: true, code, pin, url: `${new URL(request.url).origin}/connect?link=${code}`, expiresAt: iso(now + LINK_MINUTES * 60_000) });
+}
+
+/** GET /api/auth/handoff?code= → what the phone's browser shows before linking: which wallet, and the check number. */
+export async function handleLinkInfo(request, env, now = Date.now()) {
+  if (!env.DB) return json({ ok: false, error: "expired" }, 410);
+  await ensureSchema(env.DB);
+  const h = await findLink(env, new URL(request.url).searchParams.get("code"), now);
+  if (!h || h.result) return json({ ok: false, error: "expired" }, 410);
+  return json({ ok: true, wallet: `${h.wallet.slice(0, 4)}…${h.wallet.slice(-4)}`, pin: h.purpose });
+}
+
+/** The OAuth callback for a hand-off: link the X / Google identity to the wallet that asked, for good. */
+async function finishLink(env, code, provider, who, now, clear, fail) {
+  const h = await findLink(env, code, now);
+  if (!h || h.result) return fail("link_expired");
+  const linked = await env.DB.prepare("SELECT id, wallet FROM users WHERE provider = ? AND provider_id = ?").bind(provider, who.id).first();
+  let userId;
+  if (linked) {
+    if (linked.wallet !== h.wallet) return fail("social_taken");
+    userId = linked.id;
+  } else {
+    if (await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(h.wallet).first()) return fail("wallet_taken");
+    try {
+      const ins = await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, name, early, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .bind(h.wallet, provider, who.id, who.handle, who.name, activeMint(env) ? 0 : 1, iso(now)).run();
+      userId = ins.meta.last_row_id;
+      console.log("account created", provider, h.wallet.slice(0, 4) + "…" + h.wallet.slice(-4), "via the phone's browser");
+    } catch (e) {
+      if (/UNIQUE/i.test(String(e))) return fail("social_taken");
+      throw e;
+    }
+  }
+  await env.DB.prepare("UPDATE handoffs SET result = 'done', user_id = ? WHERE id = ?").bind(userId, h.id).run();
+  // No session is started here: the phone's browser only needed to prove who the person is. The wallet app finishes.
+  return redirect("/connect?linked=1", [clear]);
+}
+
+/**
+ * POST /api/auth/handoff/finish { code } → the wallet app takes over once X / Google is linked in the other browser.
+ * Only the browser that asked (the one with that proven wallet) can finish it, and only once.
+ */
+export async function handleLinkFinish(request, env, now = Date.now()) {
+  const blocked = await guard(request, env);
+  if (blocked) return blocked;
+  const body = await readJson(request);
+  const s = await getSession(env, request, now);
+  const h = body && await findLink(env, body.code, now);
+  if (!h || !s || s.user || s.wallet !== h.wallet) return json({ ok: false, status: "expired" }, 410);
+  if (!h.result || !h.user_id) return json({ ok: false, status: "waiting" });
+  const gone = await env.DB.prepare("DELETE FROM handoffs WHERE id = ? AND result IS NOT NULL").bind(h.id).run();
+  if (!gone.meta?.changes) return json({ ok: false, status: "expired" }, 410);
+  await dropSession(env, s.id);
+  const c = await createSession(env, { wallet: h.wallet, userId: h.user_id, provenAt: s.proven_at }, SESSION_SECONDS, now);
+  return json({ ok: true, wallet: h.wallet, next: "/dashboard?welcome=1" }, 200, { "Set-Cookie": c });
 }
 
 /** POST /api/auth/logout */

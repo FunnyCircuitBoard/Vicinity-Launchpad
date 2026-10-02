@@ -17,6 +17,7 @@
     login_cancelled: "Sign-in was cancelled. Nothing changed.",
     login_failed: "The sign-in didn't go through. Please try again.",
     login_expired: "That sign-in took too long or was opened in another tab. Please try again.",
+    link_expired: "That link expired or was already used. Start again in your wallet app.",
   };
   const setErr = (m) => { const e = $("#c-error"); e.textContent = m || ""; e.hidden = !m; };
   const hasAccount = () => { try { return localStorage.getItem("vicinity-account") === "1"; } catch { return false; } };
@@ -33,7 +34,7 @@
     state = s;
     $$(".cstate", panel).forEach((x) => (x.hidden = x.dataset.state !== s));
     setErr("");
-    const step = s === "social" ? 2 : s === "done" ? 3 : 1;
+    const step = ["social", "link", "linkphone"].includes(s) ? 2 : ["done", "linkdone"].includes(s) ? 3 : 1;
     $$("#stepper li").forEach((li) => { const n = Number(li.dataset.s); li.classList.toggle("is-active", n === step); li.classList.toggle("is-done", n < step); });
   }
 
@@ -123,11 +124,45 @@
     } else showSocial(d.wallet || address);
   }
   function showSocial(wallet) {
+    const inApp = W.inWalletApp();
     $("#s-addr").textContent = short(wallet);
     $("#go-x").hidden = !providers.x;
-    $("#go-google").hidden = !providers.google;
+    $("#go-google").hidden = !providers.google || inApp; // Google refuses to run inside a wallet app's browser
     $("#social-off").hidden = Boolean(providers.x || providers.google);
+    $("#social-inapp").hidden = !(inApp && (providers.x || providers.google));
     show("social");
+  }
+
+  /* ---------- sign-up finished in the phone's own browser (wallet apps can't run Google; cookies don't cross browsers) ---------- */
+  $("#link-start").addEventListener("click", async () => {
+    setErr("");
+    const d = await api("/api/auth/handoff", {});
+    if (!d.ok) return setErr("Couldn't start. Please connect your wallet again.");
+    show("link");
+    $("#link-pin").textContent = d.pin;
+    $("#link-url").value = d.url;
+    const until = Date.parse(d.expiresAt), status = $("#link-status");
+    const poll = async () => {
+      if (state !== "link") return;
+      if (Date.now() > until) { status.textContent = "The link expired. Go back and try again."; return; }
+      const f = await api("/api/auth/handoff/finish", { code: d.code });
+      if (f.ok) { toast("Linked ✓"); return after(f); }
+      if (f.status === "expired") { status.textContent = "The link expired. Go back and try again."; return; }
+      timer = setTimeout(poll, 2000);
+    };
+    clearTimeout(timer); timer = setTimeout(poll, 2000);
+  });
+  $("#link-copy").addEventListener("click", () => copy($("#link-url").value, "Link copied. Paste it in Safari or Chrome."));
+  $("#link-url").addEventListener("focus", (e) => e.target.select());
+  /** The phone's own browser, opened from the wallet app's link. */
+  async function startLinkPhone(code) {
+    const r = await api(`/api/auth/handoff?code=${encodeURIComponent(code)}`);
+    if (!r.ok) { show("pick"); renderPick(); return setErr(ERR.link_expired); }
+    $("#lp-addr").textContent = r.wallet; $("#lp-pin").textContent = r.pin;
+    const me = await window.V.ready; providers = me.providers || providers;
+    $("#lp-x").href = `/api/auth/x/start?link=${encodeURIComponent(code)}`; $("#lp-x").hidden = !providers.x;
+    $("#lp-google").href = `/api/auth/google/start?link=${encodeURIComponent(code)}`; $("#lp-google").hidden = !providers.google;
+    show("linkphone");
   }
   $("#s-restart").addEventListener("click", async () => { await api("/api/auth/logout", {}); active = null; address = null; show("pick"); renderPick(); });
   $$("[data-back]").forEach((b) => b.addEventListener("click", () => { clearTimeout(timer); show("pick"); renderPick(); }));
@@ -230,6 +265,8 @@
     const err = params.get("error");
     if (err) history.replaceState(null, "", location.pathname + (pairCode ? `?pair=${pairCode}` : ""));
     if (pairCode) return startApprove();
+    if (params.get("linked")) { history.replaceState(null, "", location.pathname); return show("linkdone"); }
+    if (params.get("link")) return startLinkPhone(params.get("link"));
     const me = await window.V.ready;
     providers = me.providers || providers;
     if (params.get("mode") === "login" || hasAccount()) welcomeBack();

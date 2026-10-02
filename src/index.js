@@ -12,6 +12,7 @@
  *   GET  /api/members · /api/audit?country=                  members per community; every moderation decision
  *   GET  /api/snapshots · /api/snapshots/:id/proof?wallet= · /api/snapshots/:id/data   Founding Supporters
  * Accounts (src/auth.js): /api/auth/wallet · /api/auth/transfer(/check) · /api/auth/reprove · /api/pair(/finish)
+ *   · /api/auth/handoff(/finish) (finish a sign-up in the phone's own browser)
  *   · /api/auth/{google,x}/start|callback · /api/auth/logout
  * Signed in: /api/me · /api/home · /api/locate (the place a location is read, with /api/locate/handoff/* when a wallet
  *   app's browser can't share GPS: src/handoff.js) · /api/posts(/vote, /report)
@@ -33,7 +34,7 @@ import { readSigned } from "./signed.js";
 import { ensureSchema } from "./store.js";
 import { POLICY, founderAmount } from "./policy.js";
 import { ledgerStatus } from "./ledger.js";
-import { handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, handlePairStart, handlePairStatus,
+import { handleLinkFinish, handleLinkInfo, handleLinkStart, handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, handlePairStart, handlePairStatus,
   handleReprove, handleTransferCheck, handleTransferStart, handleWalletLogin } from "./auth.js";
 import { handleHome, handleMe, handleMembers } from "./me.js";
 import { handleLocate } from "./attest.js";
@@ -277,6 +278,11 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return only("POST") || handleTransferStart(request, env);
     case "/api/auth/transfer/check":
       return only("POST") || handleTransferCheck(request, env, Date.now(), fetchImpl);
+    case "/api/auth/handoff":
+      if (method === "POST") return handleLinkStart(request, env);
+      return only("GET") || handleLinkInfo(request, env);
+    case "/api/auth/handoff/finish":
+      return only("POST") || handleLinkFinish(request, env);
     case "/api/auth/logout":
       return only("POST") || handleLogout(request, env);
     case "/api/pair":
