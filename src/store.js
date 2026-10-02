@@ -1,25 +1,6 @@
-/**
- * Vicinity database (Cloudflare D1, binding name "DB"). Tables are created and upgraded automatically.
- *
- * What is saved, and nothing more:
- *   users        → one account per wallet and per X / Google login: a display name and the home
- *                  community (its id and name, never the location that found it)
- *   sessions     → who is signed in (only a hash of the cookie) and when the wallet was last proven
- *   pairs        → short-lived "sign in with my phone" codes (10 minutes)
- *   posts, votes, reports, media, bans → the local and national feeds
- *   mod_actions, appeals → every moderation action, public, and appeals against them
- *   windows, applications, endorsements, seats, objections → choosing city founders (src/seats.js)
- *   elections, election_votes, manager_terms → electing country managers (src/elections.js)
- *   balance_samples, streaks, blobs → balance history for fair eligibility (src/ledger.js)
- *   snapshots    → Founding Supporter lists (src/snapshot.js)
- *   town_requests → "add my town": the nearest community, never coordinates
- *   claims, added_cities, requests → the first version (no longer written)
- * Locations of visitors are never saved. Wallets that only "verify" or look up a rank are never saved.
- *
- * The database itself enforces: one live founder per city, one live seat per person,
- * one open application window per city, one account per wallet and per X / Google login.
- */
-export const SCHEMA = `
+// src/store.js: recovered from the code deployed on Cloudflare (Worker "vicinity-map", 2026-10-02).
+// The original comments and formatting were lost in the bundle; the code is the deployed code, byte for byte after bundling.
+var SCHEMA = `
 CREATE TABLE IF NOT EXISTS claims (
   city_id    TEXT PRIMARY KEY,
   wallet     TEXT NOT NULL UNIQUE,
@@ -71,6 +52,16 @@ CREATE TABLE IF NOT EXISTS pairs (
   wallet     TEXT,
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS email_codes (
+  email        TEXT PRIMARY KEY,
+  code_hash    TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  send_count   INTEGER NOT NULL DEFAULT 0,
+  window_start TEXT,
+  last_sent_at TEXT
 );
 CREATE TABLE IF NOT EXISTS posts (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -136,12 +127,7 @@ CREATE TABLE IF NOT EXISTS requests (
 );
 CREATE INDEX IF NOT EXISTS requests_country ON requests (country, status);
 `;
-/**
- * Changes to the database after the first version, in order. Each runs once (recorded in
- * schema_migrations). New columns on existing tables are added with ALTER TABLE; a second server
- * adding the same column at the same moment is harmless ("duplicate column" is ignored).
- */
-export const MIGRATIONS = [
+var MIGRATIONS = [
   {
     id: "2026-09-27-fair-launch",
     sql: `
@@ -378,7 +364,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
   merkle_root TEXT NOT NULL,
   note        TEXT
 );
-`,
+`
   },
   {
     // City coins designed by City Founders (src/coins.js)
@@ -403,7 +389,7 @@ CREATE TABLE IF NOT EXISTS city_coins (
   updated_at   TEXT NOT NULL,
   created_at   TEXT NOT NULL
 );
-`,
+`
   },
   {
     id: "2026-10-01-v5-founder-policy",
@@ -434,13 +420,61 @@ CREATE TABLE IF NOT EXISTS squad_members (
   PRIMARY KEY (squad_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS squad_members_user ON squad_members (user_id);
-`,
+`
   },
+  {
+    // Admin dashboard + test lab (src/admin.js): roles, audit trail, token registry, test-row tracking.
+    id: "2026-09-30-admin-dashboard",
+    sql: `
+CREATE TABLE IF NOT EXISTS admin_roles (
+  wallet     TEXT PRIMARY KEY,
+  role       TEXT NOT NULL,
+  granted_by TEXT,
+  granted_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_audit (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor      TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  target     TEXT,
+  detail     TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS admin_audit_created ON admin_audit (created_at);
+CREATE TABLE IF NOT EXISTS admin_tokens (
+  mint           TEXT PRIMARY KEY,
+  city           TEXT NOT NULL,
+  founder_wallet TEXT,
+  platform       TEXT NOT NULL DEFAULT 'other',
+  registered_by  TEXT,
+  created_at     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_test (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_name TEXT NOT NULL,
+  row_id     INTEGER,
+  row_id2    INTEGER
+);
+`
+  },
+  {
+    id: "2026-10-01-terms-agree",
+    sql: `
+ALTER TABLE users ADD COLUMN terms_version TEXT;
+ALTER TABLE users ADD COLUMN terms_agreed_at TEXT;
+`
+  },
+  {
+    id: "2026-10-01-profile",
+    sql: `
+ALTER TABLE users ADD COLUMN contact_email TEXT;
+ALTER TABLE users ADD COLUMN phone TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users (lower(handle)) WHERE handle IS NOT NULL;
+`
+  }
 ];
-
-const split = (sql) => sql.split(";").map((s) => s.trim()).filter(Boolean);
-const schemaReady = new WeakMap();
-
+var split = (sql) => sql.split(";").map((s) => s.trim()).filter(Boolean);
+var schemaReady = /* @__PURE__ */ new WeakMap();
 async function migrate(db) {
   await db.batch(split(SCHEMA).map((s) => db.prepare(s)));
   await db.prepare("CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)").run();
@@ -448,15 +482,20 @@ async function migrate(db) {
   for (const m of MIGRATIONS) {
     if (done.has(m.id)) continue;
     for (const s of split(m.sql)) {
-      try { await db.prepare(s).run(); }
-      catch (e) { if (!/duplicate column/i.test(String(e && e.message ? e.message : e))) throw e; }
+      try {
+        await db.prepare(s).run();
+      } catch (e) {
+        if (!/duplicate column/i.test(String(e && e.message ? e.message : e))) throw e;
+      }
     }
-    await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(m.id, new Date().toISOString()).run();
+    await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(m.id, (/* @__PURE__ */ new Date()).toISOString()).run();
   }
 }
-
-/** Create / upgrade the tables the first time they're needed on this server (safe to repeat). */
-export function ensureSchema(db) {
-  if (!schemaReady.has(db)) schemaReady.set(db, migrate(db).catch((e) => { schemaReady.delete(db); throw e; }));
+function ensureSchema(db) {
+  if (!schemaReady.has(db)) schemaReady.set(db, migrate(db).catch((e) => {
+    schemaReady.delete(db);
+    throw e;
+  }));
   return schemaReady.get(db);
 }
+export { ensureSchema };

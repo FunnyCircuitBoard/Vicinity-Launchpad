@@ -1,61 +1,50 @@
-/**
- * The ONE list of official Vicinity places. The website and the
- * "Is this link official?" checker both read from here.
- * Change it only by a public commit so everyone can see the history.
- */
-// The $VICINITY mint address. Paste it here the moment the token launches (one line change).
-export const VICINITY_MINT = null;
-
-// When the Vicinity Launchpad opens (the countdown on /launchpad). 10:10:10 AM New York time (EDT, UTC-4), Oct 10 2026.
-export const LAUNCHPAD_OPENS_AT = "2026-10-10T10:10:10-04:00";
-
-export const OFFICIAL = {
-  updated: "2026-09-27", // vicinity.city is the main address; vicinitycity.net forwards to it
+// src/official.js: recovered from the code deployed on Cloudflare (Worker "vicinity-map", 2026-10-02).
+// The original comments and formatting were lost in the bundle; the code is the deployed code, byte for byte after bundling.
+var VICINITY_MINT = null;
+var LAUNCHPAD_OPENS_AT = "2026-10-10T10:10:10-04:00";
+var OFFICIAL = {
+  updated: "2026-09-27",
+  // vicinity.city is the main address; vicinitycity.net forwards to it
   websites: ["vicinity.city", "vicinitycity.net", "vicinity-map.sakibul-noyon.workers.dev", "vicinity-map.noyonsakibul.workers.dev"],
-  github: [],             // code is private
-  socials: ["@VicinityCitySOL"], // official X account (verified 2026-09-30)
+  github: [],
+  // code is private
+  socials: ["@VicinityCitySOL"],
+  // official X account (verified 2026-09-30)
   tokenContract: VICINITY_MINT,
-  teamWallets: [],        // every wallet the team controls, listed publicly
+  teamWallets: [],
+  // every wallet the team controls, listed publicly
   launchpadOpensAt: LAUNCHPAD_OPENS_AT,
   // Every official Vicinity token on every network. Anything not listed here is fake.
   tokens: [
     { network: "Solana", name: "Vicinity", symbol: "VICINITY", contract: VICINITY_MINT, platform: "Raydium LaunchLab", status: "Launching October 3, 2026" },
-    { network: "Solana", name: "City coins (one per city)", symbol: "e.g. $UTICA", contract: null, platform: "Vicinity Launchpad", status: "Phase 3" },
-  ],
+    { network: "Solana", name: "City coins (one per city)", symbol: "e.g. $UTICA", contract: null, platform: "Vicinity Launchpad", status: "Phase 3" }
+  ]
 };
-
-const clean = (s) => String(s || "").trim().slice(0, 300);
-
-/** Decide whether something a visitor pasted is an official Vicinity place. */
-export function checkOfficial(input, isSolanaAddress) {
+var clean = (s) => String(s || "").trim().slice(0, 300);
+function checkOfficial(input, isSolanaAddress2) {
   const raw = clean(input);
   if (!raw) return { verdict: "empty", message: "Paste a link, address or @handle to check it." };
-
-  // Solana address (token contract or wallet)
-  if (isSolanaAddress(raw)) {
+  if (isSolanaAddress2(raw)) {
     if (OFFICIAL.tokenContract && raw === OFFICIAL.tokenContract)
       return { verdict: "official", kind: "contract", message: "This is the official $VICINITY contract address." };
     if (OFFICIAL.teamWallets.includes(raw))
       return { verdict: "official", kind: "wallet", message: "This is a published Vicinity team wallet." };
     return {
-      verdict: "not_official", kind: "address",
-      message: OFFICIAL.tokenContract
-        ? "This address is NOT the official $VICINITY contract or a team wallet."
-        : "$VICINITY has not launched, so there is no official contract address yet. Any token using this name right now is fake.",
+      verdict: "not_official",
+      kind: "address",
+      message: OFFICIAL.tokenContract ? "This address is NOT the official $VICINITY contract or a team wallet." : "$VICINITY has not launched, so there is no official contract address yet. Any token using this name right now is fake."
     };
   }
-
-  // Social handle like @vicinity
   if (/^@[A-Za-z0-9_.]{1,40}$/.test(raw)) {
     const ok = OFFICIAL.socials.map((h) => h.toLowerCase()).includes(raw.toLowerCase());
-    return ok
-      ? { verdict: "official", kind: "social", message: "This is an official Vicinity account." }
-      : { verdict: "not_official", kind: "social", message: "Vicinity has no official social accounts yet, so this account is not us." };
+    return ok ? { verdict: "official", kind: "social", message: "This is an official Vicinity account." } : { verdict: "not_official", kind: "social", message: "Vicinity has no official social accounts yet, so this account is not us." };
   }
-
-  // Website link
   let url;
-  try { url = new URL(/^https?:\/\//i.test(raw) ? raw : "https://" + raw); } catch { url = null; }
+  try {
+    url = new URL(/^https?:\/\//i.test(raw) ? raw : "https://" + raw);
+  } catch {
+    url = null;
+  }
   if (url && url.hostname.includes(".")) {
     const host = url.hostname.toLowerCase().replace(/^www\./, "");
     const hostPath = (host + url.pathname.toLowerCase()).replace(/\/+$/, "");
@@ -67,19 +56,25 @@ export function checkOfficial(input, isSolanaAddress) {
       return { verdict: "official", kind: "github", message: "This is the official Vicinity code repository." };
     const lookalike = /v[i1l]c[i1l]n[i1l]ty/i.test(host);
     return {
-      verdict: "not_official", kind: "website",
-      message: lookalike
-        ? "Careful: this looks like a copy of our name, but it is NOT an official Vicinity site. Don't connect your wallet there."
-        : "This link is not on our official list.",
+      verdict: "not_official",
+      kind: "website",
+      message: lookalike ? "Careful: this looks like a copy of our name, but it is NOT an official Vicinity site. Don't connect your wallet there." : "This link is not on our official list."
     };
   }
-
   return { verdict: "unknown", message: "That doesn't look like a link, Solana address or @handle." };
 }
-
-/** The live mint: the Cloudflare setting VICINITY_MINT wins over the line above (so launch needs no code change). */
-export const activeMint = (env) => (env && env.VICINITY_MINT) || VICINITY_MINT;
-
-// Founding Supporter snapshot cutoff (always 00:00 UTC), announced ahead of time. The setting
-// SNAPSHOT_CUTOFF in Cloudflare wins over this line. null = not scheduled yet.
-export const SUPPORTER_SNAPSHOT_AT = null;
+var activeMint = (env) => env && env.VICINITY_MINT || VICINITY_MINT;
+function officialFor(env) {
+  if (env && env.SITE_MODE === "preview") {
+    return {
+      ...OFFICIAL,
+      siteMode: "preview",
+      announcedOpensAt: OFFICIAL.launchpadOpensAt,
+      launchpadOpensAt: new Date(Date.now() - 864e5).toISOString()
+      // "opened yesterday"
+    };
+  }
+  return { ...OFFICIAL, siteMode: "live" };
+}
+var SUPPORTER_SNAPSHOT_AT = null;
+export { LAUNCHPAD_OPENS_AT, OFFICIAL, SUPPORTER_SNAPSHOT_AT, activeMint, checkOfficial, officialFor };

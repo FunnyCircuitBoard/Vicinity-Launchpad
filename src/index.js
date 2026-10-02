@@ -1,57 +1,32 @@
-/**
- * Vicinity — backend (Cloudflare Worker). Every 10 minutes the scheduled job (src/jobs.js) keeps the
- * balance history, founder seats, elections, moderation and snapshots moving.
- *
- * Public:
- *   GET  /api/health · /api/official · /api/check?q= · /api/policy (the rules, their version, and job health)
- *   GET  /api/token · /api/holders · /api/rank?address=      live token facts, holders, one wallet's rank
- *   GET  /api/message?address&action=verify|login            the exact text a wallet signs
- *   POST /api/verify                                         check a signed message (nothing stored)
- *   GET  /api/seats (also /api/claims) · /api/seats/results/:id   founder seats, open windows, published results
- *   GET  /api/moderator?country= · /api/elections/results/:id     country managers
- *   GET  /api/members · /api/audit?country=                  members per community; every moderation decision
- *   GET  /api/snapshots · /api/snapshots/:id/proof?wallet= · /api/snapshots/:id/data   Founding Supporters
- * Accounts (src/auth.js): /api/auth/wallet · /api/auth/transfer(/check) · /api/auth/reprove · /api/pair(/finish)
- *   · /api/auth/{google,x}/start|callback · /api/auth/logout
- * Signed in: /api/me · /api/home · /api/locate (the ONLY place a location is read) · /api/posts(/vote, /report)
- *   · /api/seats/{apply,withdraw,endorse,object,resign} · /api/elections/vote · /api/appeals · /api/towns
- *   · /api/seats/squad/{create,join,leave,apply} · /api/seats/squad/:id (readiness)
- * Moderators: /api/mod · /api/mod/{hide,unhide,ban,ban/approve,ban/reject} · /api/appeals/decide
- *   · /api/towns/decide · /api/seats/objections/decide · /api/snapshots/cancel
- *
- * Everything else is served from /public by Cloudflare's static asset handler.
- * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, X_CLIENT_ID/SECRET,
- * SNAPSHOT_CUTOFF, ATTEST_KEY (optional).
- */
-import { OFFICIAL, activeMint, checkOfficial } from "./official.js";
-import { getHolding, getTokenFacts, getTopHolders, holderSnapshot, rankOf } from "./chain.js";
-import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
+// src/index.js: recovered from the code deployed on Cloudflare (Worker "vicinity-map", 2026-10-02).
+// The original comments and formatting were lost in the bundle; the code is the deployed code, byte for byte after bundling.
+import { OFFICIAL, activeMint, checkOfficial, officialFor } from "./official.js";
 import { SECURITY_HEADERS, json } from "./http.js";
+import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
 import { readSigned } from "./signed.js";
 import { ensureSchema } from "./store.js";
+import { getHolding, getTokenFacts, getTopHolders, holderSnapshot, rankOf } from "./chain.js";
 import { POLICY, founderAmount } from "./policy.js";
-import { ledgerStatus } from "./ledger.js";
-import { handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, handlePairStart, handlePairStatus,
-  handleReprove, handleTransferCheck, handleTransferStart, handleWalletLogin } from "./auth.js";
-import { handleHome, handleMe, handleMembers } from "./me.js";
-import { handleLocate } from "./attest.js";
-import { handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
-import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
-import { handleElectionResult, handleElectionVote } from "./elections.js";
-import { handleAppeal, handleAudit, handleBanDecision, handleDecideAppeal, handleHide, handleModQueue, handleMyTowns, handleProposeBan,
-  handleTownDecision, handleTownRequest, handleUnhide } from "./moderation.js";
-import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots, snapshotCutoff } from "./snapshot.js";
+import { handleEmailStart, handleEmailVerify, handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, handlePairStart, handlePairStatus, handleReprove, handleTransferCheck, handleTransferStart, handleWalletLogin } from "./auth.js";
 import { managerOf } from "./roles.js";
+import { handleAdmin } from "./admin.js";
+import { ledgerStatus } from "./ledger.js";
+import { handleLocate } from "./attest.js";
+import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats as handleSeats2, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
+import { handleElectionResult, handleElectionVote } from "./elections.js";
+import { handleContactEmailVerify, handleHome, handleMe as handleMe2, handleMembers, handlePhone, handleTermsAgree, handleUsername } from "./me.js";
+import { handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
+import { handleAppeal, handleAudit as handleAudit2, handleBanDecision, handleDecideAppeal, handleHide, handleModQueue, handleMyTowns, handleProposeBan, handleTownDecision, handleTownRequest, handleUnhide } from "./moderation.js";
+import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots as handleSnapshots2, snapshotCutoff } from "./snapshot.js";
 import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown } from "./coins.js";
 import { runJobs } from "./jobs.js";
-
-export { json, activeMint };
-
-/** Cache small JSON answers for a short time so we don't hammer the blockchain. */
 async function cached(key, seconds, produce) {
   const cache = typeof caches !== "undefined" ? caches.default : null;
   const req = new Request("https://cache.vicinity.internal/" + key);
-  if (cache) { const hit = await cache.match(req); if (hit) return hit; }
+  if (cache) {
+    const hit = await cache.match(req);
+    if (hit) return hit;
+  }
   const res = await produce();
   if (cache && res.status === 200) {
     const copy = new Response(res.clone().body, res);
@@ -60,12 +35,11 @@ async function cached(key, seconds, produce) {
   }
   return res;
 }
-
-export async function handleVerify(request, env = {}, now = Date.now(), fetchImpl = fetch) {
+async function handleVerify(request, env = {}, now = Date.now(), fetchImpl = fetch) {
   const r = await readSigned(request, now, ["verify"], "verified");
   if (r.error) return r.error;
   const address = r.parsed.address;
-  console.log("wallet verified", address.slice(0, 4) + "…" + address.slice(-4));
+  console.log("wallet verified", address.slice(0, 4) + "\u2026" + address.slice(-4));
   const out = { verified: true, address, verifiedAt: new Date(now).toISOString(), launched: false };
   const mint = activeMint(env);
   if (mint) {
@@ -82,60 +56,57 @@ export async function handleVerify(request, env = {}, now = Date.now(), fetchImp
   }
   return json(out);
 }
-
-/** USD price from Jupiter's public price API (asked by the server, so the page loads nothing from other sites). null if unknown. */
 async function tokenPrice(mint, fetchImpl) {
   try {
-    const res = await fetchImpl(`https://lite-api.jup.ag/price/v3?ids=${mint}`, { signal: AbortSignal.timeout(3000) });
+    const res = await fetchImpl(`https://lite-api.jup.ag/price/v3?ids=${mint}`, { signal: AbortSignal.timeout(3e3) });
     if (!res.ok) return null;
     const p = Number((await res.json())?.[mint]?.usdPrice);
     return Number.isFinite(p) && p > 0 ? p : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
-
-/** Live holders: every holder from the one-minute snapshot, or the top 20 when the RPC can't list them all. */
 async function holdersResponse(env, mint, fetchImpl) {
   try {
     const snap = await holderSnapshot(env, mint, fetchImpl);
-    return json({ launched: true, mint, supply: snap.facts.supply, total: snap.people, full: true, holders: snap.rows.slice(0, 1000), updatedAt: snap.at });
+    return json({ launched: true, mint, supply: snap.facts.supply, total: snap.people, full: true, holders: snap.rows.slice(0, 1e3), updatedAt: snap.at });
   } catch (e) {
     console.error("full holder list failed, using the top 20", String(e));
   }
   try {
     const { facts, holders } = await getTopHolders(env, mint, fetchImpl);
-    return json({ launched: true, mint, supply: facts.supply, total: null, full: false, holders, updatedAt: new Date().toISOString() });
+    return json({ launched: true, mint, supply: facts.supply, total: null, full: false, holders, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
   } catch (e) {
     console.error("holders failed", String(e));
     return json({ launched: true, error: "chain_unavailable" }, 503);
   }
 }
-
-/** Where does a wallet stand? Read-only; the address is not stored. */
 async function rankResponse(env, mint, address, fetchImpl) {
   const founderMin = founderAmount(0);
   try {
     const snap = await holderSnapshot(env, mint, fetchImpl);
     return json({ launched: true, full: true, address, ...rankOf(snap, address), supply: snap.facts.supply, founderMin, updatedAt: snap.at });
-  } catch { /* fall back to the balance alone */ }
+  } catch {
+  }
   try {
     const amount = await getHolding(env, address, mint, fetchImpl);
-    return json({ launched: true, full: false, address, amount, rank: null, total: null, founderMin, updatedAt: new Date().toISOString() });
+    return json({ launched: true, full: false, address, amount, rank: null, total: null, founderMin, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
   } catch {
     return json({ launched: true, error: "chain_unavailable" }, 503);
   }
 }
-
-export async function handleApi(request, env = {}, fetchImpl = fetch) {
+async function handleApi(request, env = {}, fetchImpl = fetch) {
   const url = new URL(request.url);
   const method = request.method;
-  const only = (m) => (method === m ? null : json({ error: "method_not_allowed" }, 405));
+  const only = (m2) => method === m2 ? null : json({ error: "method_not_allowed" }, 405);
   const path = url.pathname;
-  const needsDb = () => (env.DB ? null : json({ ok: false, error: "unavailable" }, 503));
+  const needsDb = () => env.DB ? null : json({ ok: false, error: "unavailable" }, 503);
   const db = async (fn) => needsDb() || (await ensureSchema(env.DB), fn());
-
-  // paths with an id in them
-  const oauth = path.match(/^\/api\/auth\/(google|x)\/(start|callback)$/);
+  if (path.startsWith("/api/admin/")) return db(() => handleAdmin(request, env));
+  const oauth = path.match(/^\/api\/auth\/(google)\/(start|callback)$/);
   if (oauth) return only("GET") || (oauth[2] === "start" ? handleOAuthStart(request, env, oauth[1]) : handleOAuthCallback(request, env, oauth[1], fetchImpl));
+  if (path === "/api/auth/email/start") return only("POST") || db(() => handleEmailStart(request, env, fetchImpl));
+  if (path === "/api/auth/email/verify") return only("POST") || db(() => handleEmailVerify(request, env, fetchImpl));
   let m = path.match(/^\/api\/media\/([0-9]{1,10})$/);
   if (m) return only("GET") || handleMedia(env, m[1]);
   m = path.match(/^\/api\/seats\/results\/([0-9]{1,10})$/);
@@ -145,16 +116,19 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
   m = path.match(/^\/api\/elections\/results\/([0-9]{1,10})$/);
   if (m) return only("GET") || db(() => handleElectionResult(env, m[1]));
   m = path.match(/^\/api\/snapshots\/([0-9]{1,10})\/(proof|data)$/);
-  if (m) return only("GET") || db(() => (m[2] === "proof" ? handleProof(env, m[1], url.searchParams.get("wallet")) : handleSnapshotData(env, m[1])));
-
+  if (m) return only("GET") || db(() => m[2] === "proof" ? handleProof(env, m[1], url.searchParams.get("wallet")) : handleSnapshotData(env, m[1]));
   switch (path) {
     case "/api/health":
       return only("GET") || json({ ok: true, service: "vicinity-map", milestone: 2 });
     case "/api/official":
-      return only("GET") || json(OFFICIAL);
+      return only("GET") || json(officialFor(env));
     case "/api/policy":
-      return only("GET") || json({ policy: POLICY, snapshotCutoff: snapshotCutoff(env), launched: Boolean(activeMint(env)),
-        balanceHistory: env.DB ? await ledgerStatus(env, Date.now()) : { running: false } });
+      return only("GET") || json({
+        policy: POLICY,
+        snapshotCutoff: snapshotCutoff(env),
+        launched: Boolean(activeMint(env)),
+        balanceHistory: env.DB ? await ledgerStatus(env, Date.now()) : { running: false }
+      });
     case "/api/check":
       return only("GET") || json(checkOfficial(url.searchParams.get("q"), isSolanaAddress));
     case "/api/verify":
@@ -168,7 +142,10 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
         try {
           const [facts, price] = await Promise.all([getTokenFacts(env, mint, fetchImpl), tokenPrice(mint, fetchImpl)]);
           return json({ launched: true, registry: OFFICIAL.tokens, facts, price, marketCap: price && facts.supply ? price * facts.supply : null });
-        } catch (e) { console.error("token facts failed", String(e)); return json({ launched: true, error: "chain_unavailable" }, 503); }
+        } catch (e) {
+          console.error("token facts failed", String(e));
+          return json({ launched: true, error: "chain_unavailable" }, 503);
+        }
       });
     }
     case "/api/holders": {
@@ -188,21 +165,19 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return rankResponse(env, mint, address, fetchImpl);
     }
     case "/api/message": {
-      // Helper so the browser builds exactly the same text the server expects.
       const blocked = only("GET");
       if (blocked) return blocked;
-      const q = url.searchParams;
-      const address = q.get("address");
+      const q2 = url.searchParams;
+      const address = q2.get("address");
       if (!isSolanaAddress(address)) return json({ error: "bad_address" }, 400);
-      const action = q.get("action") || "verify";
+      const action = q2.get("action") || "verify";
       let statement;
       if (action === "verify") statement = statementFor("verify");
-      else if (action === "login" && (!q.get("pin") || /^[0-9]{2}$/.test(q.get("pin")))) statement = statementFor("login", { pin: q.get("pin") || undefined });
+      else if (action === "login" && (!q2.get("pin") || /^[0-9]{2}$/.test(q2.get("pin")))) statement = statementFor("login", { pin: q2.get("pin") || void 0 });
       else return json({ error: "bad_request" }, 400);
       const nonce = base58Encode(crypto.getRandomValues(new Uint8Array(16)));
-      return json({ message: buildMessage({ host: url.host, address, nonce, issuedAt: new Date().toISOString(), statement }) });
+      return json({ message: buildMessage({ host: url.host, address, nonce, issuedAt: (/* @__PURE__ */ new Date()).toISOString(), statement }) });
     }
-
     // founder seats (and the map)
     case "/api/seats":
     case "/api/claims": {
@@ -210,7 +185,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       if (blocked) return blocked;
       if (!env.DB) return json({ launched: Boolean(activeMint(env)), seats: [], windows: [] });
       await ensureSchema(env.DB);
-      const res = await handleSeats(env);
+      const res = await handleSeats2(env);
       const body = await res.json();
       return json({ ...body, launched: Boolean(activeMint(env)), founderAmount: founderAmount(0) });
     }
@@ -234,7 +209,6 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return only("POST") || handleSquadLeave(request, env);
     case "/api/seats/squad/apply":
       return only("POST") || handleSquadApply(request, env, fetchImpl);
-
     // city coins (designed by City Founders) and prices for the swap panel
     case "/api/coins":
       return only("GET") || handleCoins(request, env, fetchImpl);
@@ -248,7 +222,6 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return only("POST") || handleTakedown(request, env, fetchImpl);
     case "/api/prices":
       return only("GET") || handlePrices(request, env, fetchImpl);
-
     // country managers
     case "/api/moderator": {
       const blocked = only("GET");
@@ -263,7 +236,6 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
     }
     case "/api/elections/vote":
       return only("POST") || handleElectionVote(request, env);
-
     // accounts
     case "/api/auth/wallet":
       return only("POST") || handleWalletLogin(request, env);
@@ -280,17 +252,23 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return only("GET") || handlePairStatus(request, env);
     case "/api/pair/finish":
       return only("POST") || handlePairFinish(request, env);
-
     // dashboard
     case "/api/me":
-      return only("GET") || handleMe(request, env, fetchImpl);
+      return only("GET") || handleMe2(request, env, fetchImpl);
+    case "/api/me/terms":
+      return only("POST") || handleTermsAgree(request, env);
+    case "/api/me/username":
+      return only("POST") || handleUsername(request, env);
+    case "/api/me/phone":
+      return only("POST") || handlePhone(request, env);
+    case "/api/me/contact/email/verify":
+      return only("POST") || handleContactEmailVerify(request, env);
     case "/api/home":
       return only("POST") || handleHome(request, env);
     case "/api/locate":
       return only("POST") || handleLocate(request, env);
     case "/api/members":
       return only("GET") || cached("members", 60, () => handleMembers(env));
-
     // feeds
     case "/api/posts":
       if (method === "POST") return handleNewPost(request, env, fetchImpl);
@@ -299,7 +277,6 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return only("POST") || handleVote(request, env, fetchImpl);
     case "/api/posts/report":
       return only("POST") || handleReport(request, env, fetchImpl);
-
     // moderation
     case "/api/mod":
       return only("GET") || handleModQueue(request, env, fetchImpl);
@@ -318,38 +295,30 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
     case "/api/appeals/decide":
       return only("POST") || handleDecideAppeal(request, env, fetchImpl);
     case "/api/audit":
-      return only("GET") || db(() => handleAudit(env, url));
+      return only("GET") || db(() => handleAudit2(env, url));
     case "/api/towns":
       if (method === "POST") return handleTownRequest(request, env);
       return only("GET") || handleMyTowns(request, env);
     case "/api/towns/decide":
       return only("POST") || handleTownDecision(request, env, fetchImpl);
-
     // Founding Supporters
     case "/api/snapshots":
-      return only("GET") || (env.DB ? db(() => handleSnapshots(env)) : json({ scheduledCutoff: snapshotCutoff(env), snapshots: [] }));
+      return only("GET") || (env.DB ? db(() => handleSnapshots2(env)) : json({ scheduledCutoff: snapshotCutoff(env), snapshots: [] }));
     case "/api/snapshots/cancel":
       return only("POST") || handleCancelSnapshot(request, env);
     default:
       return json({ error: "not_found" }, 404);
   }
 }
-
-export function withSecurityHeaders(response) {
+function withSecurityHeaders(response) {
   const res = new Response(response.body, response);
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (k !== "Cache-Control") res.headers.set(k, v);
   return res;
 }
-
-/** vicinity.city is the address; the old one and the www versions forward there, keeping the path.
- *  Plain http:// visits are sent to https:// (except on this computer, for `wrangler dev`). */
-const CANONICAL_HOST = "vicinity.city";
-const FORWARD_HOSTS = new Set(["www.vicinity.city", "vicinitycity.net", "www.vicinitycity.net"]);
-const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
-// `wrangler dev` presents local visits as http://vicinity.city, but from this computer's own address.
-const isLocal = (request, url) =>
-  LOCAL_HOST.test(url.hostname) || ["127.0.0.1", "::1"].includes(request.headers.get("cf-connecting-ip"));
-
+var CANONICAL_HOST = "vicinity.city";
+var FORWARD_HOSTS = /* @__PURE__ */ new Set(["www.vicinity.city", "vicinitycity.net", "www.vicinitycity.net"]);
+var LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
+var isLocal = (request, url) => LOCAL_HOST.test(url.hostname) || ["127.0.0.1", "::1"].includes(request.headers.get("cf-connecting-ip"));
 export default {
   async fetch(request, env) {
     try {
@@ -357,7 +326,8 @@ export default {
       const insecure = url.protocol === "http:" && !isLocal(request, url);
       if (FORWARD_HOSTS.has(url.hostname) || insecure) {
         if (FORWARD_HOSTS.has(url.hostname)) url.hostname = CANONICAL_HOST;
-        url.protocol = "https:"; url.port = "";
+        url.protocol = "https:";
+        url.port = "";
         return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
       }
       if (url.pathname.startsWith("/api/")) return await handleApi(request, env);
@@ -369,5 +339,6 @@ export default {
   },
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runJobs(env, Date.now()).then((r) => console.log("jobs", JSON.stringify(r))).catch((e) => console.error("jobs failed", String(e))));
-  },
+  }
 };
+export { activeMint, handleApi, handleVerify, json, withSecurityHeaders };
