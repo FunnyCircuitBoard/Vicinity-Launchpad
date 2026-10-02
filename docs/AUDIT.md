@@ -1,0 +1,132 @@
+# Vicinity audit · 2 October 2026
+
+Co-founder / developer audit of the whole repository (backend `src/`, site `public/` + `scripts/pages/`, build
+scripts, tests, README, Cloudflare config). Written the day before the $VICINITY token launch (Oct 3) and eight days
+before the Launchpad opens (Oct 10).
+
+**How this was done**
+- Read every file in `src/`, every page source and page script, the schema/migrations, the build scripts and the tests.
+- Ran the test suite (82/82 pass once `scripts/copy-assets.mjs` has copied the fonts and QR library in; the one
+  failure on a fresh clone is just that git-ignored copy step).
+- Ran the real Worker locally (`wrangler dev`) and took phone and desktop screenshots of `/connect` and `/dashboard`.
+- Wrote three throw-away probes against the real API in the repo's own test world (Seed Steward, zero-balance quorum,
+  ticker comparison over the full city list). Numbers below come from those runs, not from guesses.
+- Checked the Cloudflare account through the connector (read-only): Workers `vicinity-map`, `vicinity-countdown`,
+  `cosmos`; D1 `vicinity-claims` (the id in `wrangler.jsonc`) and `vicinity-countdown`. The connector does **not**
+  expose secret names, so I could not confirm which Worker secrets are set.
+
+**What I could not verify** (needs you or a real device): sign-in with real Google/X credentials, wallet apps'
+in-app browsers on a real phone, and the production Worker's secrets. Items that depend on those say "needs
+real-device test".
+
+Severity: **P0** breaks a core flow or fairness, fix before/at launch · **P1** serious inconsistency · **P2** polish or debt.
+
+---
+
+## Headline
+
+1. **There is no way to log in.** The header says "Connect", the connect page only offers wallets, and the
+   server-side "log in with your linked X/Google" path has no button anywhere (A1).
+2. **Sign-up is a single point of failure.** A new account needs a wallet *and* X or Google. If either provider is
+   not configured/approved the person is stuck, and on phones Google refuses to run inside wallet in-app browsers (A3, A4).
+3. **Location is built for desktop browsers.** Wallet in-app browsers often don't pass geolocation to web pages, and
+   the only message tells people to change a browser setting that doesn't exist there (B1).
+4. **Everyone gets the same dashboard.** Seed Steward (new in policy v5) is invisible in the UI, Squad Founding has
+   four API endpoints and no screen, and admins/managers have no console (C1–C7).
+5. **A fairness hole in Seed Steward confirmation.** 49 accounts holding nothing confirm a steward instantly and
+   erase the 90-day probation and the challenge route (D1). Small fix, high impact.
+6. **Policy v5 changed the founder stake to a 100K–1M ladder, but eight places still say "1,000,000"**, and a test
+   locks that text in (D2). The README still says 14 days and a 72-hour window (D3).
+7. **Coin tickers disagree between pages**: 248 of 8,030 communities show a different ticker on the dashboard than on
+   the map, and 70 map tickers contain digits (D5). A ticker is a coin's identity.
+8. **The "Launchpad" itself is not built.** What exists: design a city coin, record its contract, link out to
+   Jupiter/Raydium. Nothing launches a coin (E1). Decide what goes live on Oct 10.
+
+---
+
+## A · Sign-in and accounts
+
+| ID | Sev | Finding | Evidence | Fix |
+|---|---|---|---|---|
+| A1 | P0 | No "Log in" anywhere. Header button is labelled "Connect"; signed-out dashboard says "Connect & sign in"; no log-out outside the dashboard card. | Screenshots of `/connect` and `/dashboard` at 390 px; `scripts/pages/build.mjs` header | "Log in" + "Sign up" entry points, header menu with Dashboard / Log out |
+| A2 | P0 | Returning users can't use X/Google alone. `handleOAuthCallback` supports it and `test/accounts.test.js` covers it, but the buttons only appear *after* a wallet is proven (`showSocial`). A person on a laptop with no wallet extension cannot get back in. | `src/auth.js` callback; `public/connect.js` `renderPick`/`showSocial` | Log-in panel on `/connect` with X and Google, plus honest errors |
+| A3 | P0 | Sign-up requires X or Google. If neither is configured (or the X/Google app isn't approved for production) new users hit "being switched on" after signing a message and can't finish. Nothing tells you which provider is missing. | `src/auth.js` `PROVIDERS.configured`; `connect.js` `social-off` | Per-provider status for admins (E3); keep the message honest. **Needs you:** confirm secrets + redirect URIs |
+| A4 | P0 (phones) | Google blocks OAuth in embedded WebViews (`disallowed_useragent`), and wallet in-app browsers are WebViews. X/Google may also hop to the native app or system browser, where the half-finished sign-up cookie doesn't exist, which ends in `wallet_first`. | Platform behaviour (needs real-device test); `src/auth.js` keeps the pending wallet only in a cookie | Detect in-app browser; "continue in your browser" hand-off that finishes the link server-side |
+| A5 | P1 | Two different `workers.dev` hostnames are listed as *official websites*, `workers_dev` is on, and they are not forwarded to vicinity.city. OAuth redirect URIs are registered for vicinity.city only, so sign-in fails there. A Cloudflare account has one workers.dev subdomain, so one of the two listed is wrong, and a wrong "official" entry is a trust hole. | `src/official.js` `websites`; `wrangler.jsonc` | Verify which subdomain is yours, drop the other, forward workers.dev to vicinity.city |
+| A6 | P1 | The 30-minute "confirm it's you" modal has no phone path. The phone-pairing flow only exists for login, so a computer user whose wallet is on their phone must send an on-chain transfer every 30 minutes. | `public/dashboard.js` `askProof`; `src/auth.js` `handleReprove` | Reuse pairing for re-proof |
+| A7 | P1 | Logging in with X/Google alone leaves `proven_at` empty, so the first applying/endorsing/voting/moderating action always interrupts with a wallet proof. Correct for safety, but the UI never says so up front. | `src/auth.js` `start()` | Say it on the log-in panel; ties to A6 |
+| A8 | P2 | No rate limit on unauthenticated writes: `/api/pair`, `/api/auth/transfer`. Cleanup runs 2–5 % of the time. | `src/auth.js` | Cloudflare rate-limit rule or per-IP counter |
+| A9 | P2 | `inWalletApp()` in `wallets.js` is never used; wallet detection waits 350 ms before scanning legacy providers. | `public/wallets.js` | Use it to switch the page to in-app-browser mode |
+
+## B · Location
+
+| ID | Sev | Finding | Evidence | Fix |
+|---|---|---|---|---|
+| B1 | P0 (phones) | Wallet in-app browsers often deny or never prompt for geolocation. The error says "Allow location for this site in your browser settings", which doesn't exist inside a wallet app. Every location-gated action (home, check-in, apply, add-town, map "locate me") fails there. | `public/site.js` `getLocation`; needs real-device test | Detect, explain correctly, and offer a hand-off to the phone's normal browser that returns a single-use attestation |
+| B2 | P1 | Always `enableHighAccuracy: true, maximumAge: 0, timeout 20 s`, but the server accepts up to 20 km accuracy (`MAX_LOCATION_ACCURACY_M`). A coarse retry would succeed on many more phones and desktops. | `public/site.js`; `src/cities.js` | Retry once with network-based location |
+| B3 | P1 | Three divergent copies of the location helper (`site.js`, `cities.js`). | grep `getLocation` | One shared helper |
+| B4 | P2 | Failed `/api/locate` calls count toward the 20-per-hour limit before the check runs, so flaky WebView retries lock people out. | `src/attest.js` | Count only after the request is well-formed |
+
+## C · Dashboards and roles
+
+| ID | Sev | Finding | Evidence | Fix |
+|---|---|---|---|---|
+| C1 | P0 | One dashboard for every level. Admin, manager, founder, holder and member see the same page with a coloured pill; the only role-specific panel is one moderator card. | `public/dashboard.js`, `dashboard.html` | A role "home" panel at the top, with the right tools for each level |
+| C2 | P0 | **Seed Steward is invisible.** Probe output: `level: founder`, `roles.founder: false`, `city_founder` badge not earned, no 👑 on their posts, progress stuck at 83 %, and `renderPath` has no branch for `status: "steward"`. The steward can moderate (the API allows it) but the page shows nothing about probation, bond, challenge or grace. | Probe run; `src/me.js`, `src/social.js` (`status = 'active'`), `dashboard.js` | Steward panel, badge, consistent role flags |
+| C3 | P0 | Squad Founding: `create / join / leave / apply / :id` endpoints and 3 tests, but no UI. | `dashboard.js` has zero mentions of "squad" | Squad panel |
+| C4 | P1 | A qualified local can't challenge a steward (UI says "already has a founder"); no Resign button; no dark-city adoption UI. APIs exist. | `eligibility()` returns `challenging`; `dashboard.js` `why` map | Buttons + explanations |
+| C5 | P1 | Founder-path copy and progress steps are pre-v5 ("Apply in your city's 72-hour window", "others have 72 hours to apply too"). A lone qualified claimer now becomes steward immediately. | `src/me.js` steps; `dashboard.js` `renderPath` | Rewrite for v5 |
+| C6 | P1 | Country manager has no console. | — | Manager panel: election, town advice, country queue |
+| C7 | P1 | Admin has no console. Snapshot cancel exists only as an API; no readiness/health view; coin checks and objections are tucked into the sidebar. | `src/snapshot.js` `handleCancelSnapshot` | Admin console + launch-readiness panel (E3) |
+| C8 | P2 | The always-visible roles table never mentions the Stake Ladder, stewards or squads, and prints "rules version 3" when signed out (actual: 5). The rules page prints "2" before its script runs. | `dashboard.html`, `rules.html` | Update text and defaults |
+| C9 | P2 | Role flags disagree: `roles.founder` is false for a steward while `level` is `founder`; vote weight is 2 in `powersOf` but 1 in `/api/me` for an admin who is also a founder. | `src/me.js` vs `src/roles.js` | One source of truth |
+| C10 | P1 (scale) | Each `/api/me` loads up to 5,000 + 20,000 member rows and re-ranks them. The page polls every 60 s. Fine for 50 users, a CPU and D1-read problem at launch-week volume. | `src/me.js` `ranked()` | Precompute leaderboards in the 10-minute job and cache |
+
+## D · Policy, fairness and consistency
+
+| ID | Sev | Finding | Evidence | Fix |
+|---|---|---|---|---|
+| D1 | P0 | **Steward early-confirmation counts accounts, not holders.** `localMembers()` is `COUNT(*) FROM users WHERE home_city = ?`. Probe: a steward plus 49 accounts holding 0 $VICINITY → status `active`, `probation_until` cleared on the next job run. That skips the 90-day probation and the challenge window. Rules text: "50 verified local holders". | `src/seats.js` `localMembers`, `advanceSeats` | Count only members who hold > 0 and have checked in |
+| D2 | P1 | Flat **1,000,000** still shown: `index.html` ×4, `cities.html` ×2, `launchpad.html`, `token.html`, `public/token.js` (`FOUNDER = 1_000_000`), dead `CLAIM_MIN_HOLD`. `test/site.test.js` asserts the stale cities text. | grep | Show the ladder (100K–1M by city size) everywhere; fix the test |
+| D3 | P1 | README: "hold … for 14 days", "first application opens a 72-hour window". Code: 7 days, steward on first claim. | `README.md` L22 | Update |
+| D4 | P1 | "Hold through the 14 days before the snapshot": the token launches Oct 3 and the Launchpad opens Oct 10, so at most 7 days of history can exist. | `launchpad.html`, `index.html`, `rules.html` | **Needs you:** shorten the window, or reword |
+| D5 | P1 | Tickers are computed in the browser, differently on different pages: map uses `assign()` (resolves name clashes), dashboard/home use `baseTicker()`. Measured over the real list: **248 / 8,030 communities mismatch; 70 map tickers contain digits** (e.g. `$DONDOAO05`). No server-side source of truth. | Probe over `public/data/*` | One server-side ticker, served with `/api/me` and `/api/coins` |
+| D6 | P2 | `/api/seats` returns founders' full wallet addresses; the dashboard masks wallets. Decide the policy, then make both agree. | `src/seats.js` `handleSeats` | Policy decision |
+| D7 | P1 | `/api/media/:id` has no auth, ids are sequential, and responses are `public, immutable`. City feeds say "only people from X see this", but their pictures can be fetched by guessing ids. | `src/social.js` `handleMedia` | Visibility check for post images (coin logos stay public) |
+| D8 | P2 | Stale leftovers: `/api/health` says `milestone: 2`, `OFFICIAL.updated` 2026-09-27, `.dev.vars.example` ("Milestone 1"), `claims`/`added_cities`/`requests` tables and `migrations/0001_city_claims.sql`. | — | Clean up |
+
+## E · Product gaps and operations
+
+| ID | Sev | Finding | Fix |
+|---|---|---|---|
+| E1 | P0 (decision) | The **Launchpad is not built**. A founder can design a coin and paste the contract of a coin they launched on Raydium LaunchLab; trading is links to Jupiter/Raydium. Nothing in the repo launches a city coin. What exactly opens on Oct 10 needs defining. | **Needs you** |
+| E2 | P1 | No shareable city page (`/city/<id>`); invites copy `/connect`. Growth loop is weak. | Public city pages + OG cards |
+| E3 | P1 | Launch depends on six Cloudflare settings (`VICINITY_MINT`, `SOLANA_RPC_URL`, `ADMIN_WALLETS`, `GOOGLE_*`, `X_*`, `SNAPSHOT_CUTOFF`) with no in-app way to see which are missing. A missing one fails silently or gets blamed on users. | Admin "launch readiness" panel (booleans only, never values) |
+| E4 | P2 | No CI (tests only run inside the Cloudflare build), `package-lock.json` not committed, no browser-level tests: `dashboard.js` (930 lines) is untested. | GitHub Action, lockfile, a few Playwright smoke tests |
+
+## What is already solid (keep)
+
+- Fair-launch design is coherent and enforced in the database (one live seat per city and per person, one open window, unique accounts).
+- 82 backend tests exercising real flows end to end; deploy is gated on them.
+- Strict CSP, Origin checks on writes, hashed sessions, no third-party requests, locations never stored, generic risk answers.
+- Boundary data: 244 countries, 8,030 communities, overlap check runs in the test suite and matches the README's numbers.
+
+---
+
+## Launch checklist (Oct 3)
+
+1. `VICINITY_MINT` secret set the moment the token exists (balance sampling and every holder feature start from this).
+2. `SOLANA_RPC_URL` is a paid RPC that allows `getProgramAccounts` (Helius). Without it only 20 holders show and nobody can qualify.
+3. `ADMIN_WALLETS` set; each admin has signed in once (admins need an account too).
+4. Google and X apps: production mode, redirect URIs `https://vicinity.city/api/auth/{google,x}/callback`.
+5. Workers Paid plan (the 10-minute job and full holder list exceed free-plan CPU).
+6. Decide the Founding Supporters cutoff and announce it (`SNAPSHOT_CUTOFF`, 00:00 UTC) — see D4.
+7. Test sign-up end to end on a real phone inside Phantom and Solflare, and on desktop with a phone wallet.
+
+## Questions for you
+
+1. What must be live on **Oct 10** for the Launchpad: only design + record contracts, or an actual launch flow (E1)?
+2. Founding Supporters: keep "14 days" (cutoff would need to be later than Oct 10) or move to 7 (D4)?
+3. Which `workers.dev` subdomain is yours (A5)? Which of the Google/X apps are already live (A3)?
+4. Should founder wallets be public on the map (D6)?
+5. What are `vicinity-countdown` and `cosmos` — still serving anything, or can they be retired?
