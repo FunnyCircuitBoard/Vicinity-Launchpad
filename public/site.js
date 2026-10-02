@@ -63,6 +63,8 @@
 
   /* ---------- who's signed in (header button) ---------- */
   let meLite = null;
+  const logout = async () => { await api("/api/auth/logout", {}); try { localStorage.removeItem("vicinity-account"); } catch {} location.assign("/"); };
+  $$("[data-logout]").forEach((b) => b.addEventListener("click", logout));
   const ready = api("/api/me?lite=1").then((d) => {
     meLite = d;
     const b = $("[data-account]"), label = $("[data-account-label]");
@@ -71,8 +73,10 @@
       const who = d.user.handle || d.user.name || short(d.user.wallet);
       label.textContent = who.length > 16 ? who.slice(0, 15) + "…" : who;
       b.setAttribute("aria-label", `Your dashboard (${who})`);
+      $$("[data-logout]").forEach((x) => (x.hidden = false));
+      try { localStorage.setItem("vicinity-account", "1"); } catch {} // remembered so /connect opens on "Log in"
     } else if (d.pending && b) {
-      label.textContent = "Finish sign-in";
+      label.textContent = "Finish sign-up";
     }
     document.dispatchEvent(new CustomEvent("vicinity:me", { detail: d }));
     return d;
@@ -98,5 +102,5 @@
   })();
 
   window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, reveal, reduced,
-    me: () => meLite, ready, official, opensAt: () => opensAt };
+    me: () => meLite, ready, logout, official, opensAt: () => opensAt };
 })();

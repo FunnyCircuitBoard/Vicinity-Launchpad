@@ -51,6 +51,8 @@ test("same menu on every page: top menu for computers, bottom menu bar for phone
     assert.match(h, /data-theme-toggle/);
     assert.match(h, /<script src="\/theme\.js"><\/script>\s*<\/head>/, `${f}: theme runs before paint`);
     assert.match(h, /data-account/);
+    assert.match(h, /<span data-account-label>Log in<\/span>/, `${f}: signed-out visitors see a Log in button`);
+    assert.match(h, /data-logout/, `${f}: signed-in visitors can log out from the header`);
   }
   assert.match(css, /:root\[data-theme="light"\]/);
   assert.match(css, /\.tabbar \{ display: grid;/);
@@ -126,7 +128,9 @@ test("launchpad: countdown to October 10, 10:10:10 AM New York time, and who get
 
 test("connect: every popular wallet, phone QR, app wallets like FOMO, then X or Google", () => {
   const h = html["connect.html"];
-  for (const id of ["wallets-detected", "wallets-known", "alt-phone", "alt-app", "qr", "tp-form", "go-x", "go-google", "stepper"]) assert.ok(h.includes(`id="${id}"`), id);
+  for (const id of ["wallets-detected", "wallets-known", "alt-phone", "alt-app", "qr", "tp-form", "go-x", "go-google", "stepper", "login-block", "login-x", "login-google", "login-inapp"]) assert.ok(h.includes(`id="${id}"`), id);
+  assert.match(h, /Log in with X/);
+  assert.match(h, /Log in with Google/);
   assert.match(h, /isn't a transaction/);
   assert.match(h, /never ask for your recovery phrase/);
   assert.match(h, /One account per wallet and per X or Google login/);

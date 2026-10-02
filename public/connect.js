@@ -12,13 +12,21 @@
   const ERR = {
     social_taken: "That X / Google account is already linked to a different wallet. Sign in with the wallet it's linked to, or use another account.",
     wallet_taken: "This wallet is already linked to another account. Sign in with that account instead.",
-    wallet_first: "That login isn't linked to a wallet yet. Connect your wallet first, then sign in with X or Google.",
-    login_unavailable: "Sign-in with X and Google is being switched on. Please check back soon.",
+    wallet_first: "That X / Google login isn't linked to a Vicinity account yet. New here? Connect your wallet below first, then link that login in step 2.",
+    login_unavailable: "Log in with X and Google is being switched on. Please check back soon, or use your wallet.",
     login_cancelled: "Sign-in was cancelled. Nothing changed.",
     login_failed: "The sign-in didn't go through. Please try again.",
     login_expired: "That sign-in took too long or was opened in another tab. Please try again.",
   };
   const setErr = (m) => { const e = $("#c-error"); e.textContent = m || ""; e.hidden = !m; };
+  const hasAccount = () => { try { return localStorage.getItem("vicinity-account") === "1"; } catch { return false; } };
+  /** Returning people (the header's Log in button, or an account remembered on this device) get a "welcome back" top. */
+  function welcomeBack() {
+    $(".connect__intro .kicker").textContent = "Welcome back";
+    const title = $(".connect__intro .page-title"), accent = el("span", "accent", "Your city's waiting.");
+    title.replaceChildren("Log in.", el("br"), accent);
+    $(".connect__intro .lead").textContent = "Log in with the X or Google account you linked, or with your wallet. New here? Use your wallet to create your account.";
+  }
   const cancelled = (e) => /reject|cancel|denied|declin|closed/i.test(String(e?.message || e)) || e?.code === 4001;
 
   function show(s) {
@@ -46,7 +54,17 @@
     else { a.href = k.site; a.target = "_blank"; a.rel = "noopener"; a.append(el("span", "go", "Get")); }
     return a;
   }
+  /** The "Log in" block: X / Google for people who already have an account. Google can't run inside wallet apps. */
+  function renderLogin() {
+    const inApp = W.inWalletApp();
+    $("#login-x").hidden = !providers.x;
+    $("#login-google").hidden = !providers.google || inApp;
+    $("#login-off").hidden = Boolean(providers.x || providers.google);
+    $("#login-inapp").hidden = !(inApp && providers.google);
+  }
+  $("#login-copy").addEventListener("click", () => copy(`${location.origin}/connect`, "Link copied. Paste it in Safari or Chrome."));
   function renderPick() {
+    renderLogin();
     const list = W.list();
     $("#wallets-detected").replaceChildren(...list.map((a) => walletButton(a, connectWith)));
     $("#wallets-none").hidden = list.length > 0;
@@ -214,6 +232,7 @@
     if (pairCode) return startApprove();
     const me = await window.V.ready;
     providers = me.providers || providers;
+    if (params.get("mode") === "login" || hasAccount()) welcomeBack();
     if (me.signedIn) { show("done"); setTimeout(() => location.assign("/dashboard"), 900); return; }
     if (me.pending) showSocial(me.pending.wallet);
     else if (me.proof) { show("app"); showCode(me.proof); }

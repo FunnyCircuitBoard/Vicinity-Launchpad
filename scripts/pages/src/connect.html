@@ -4,7 +4,7 @@
         <div class="connect__intro">
           <p class="kicker">Join Vicinity</p>
           <h1 class="page-title">Connect. Verify.<br><span class="accent">Represent.</span></h1>
-          <p class="lead">Two quick steps, then your dashboard: your live rank, your city and your people.</p>
+          <p class="lead">New here? Two quick steps, then your dashboard: your live rank, your city and your people. Already a member? Log in.</p>
           <ol class="stepper" id="stepper">
             <li data-s="1" class="is-active"><span class="stepper__n">1</span><span>Connect your wallet</span></li>
             <li data-s="2"><span class="stepper__n">2</span><span>Sign in with X or Google</span></li>
@@ -18,8 +18,20 @@
         </div>
 
         <div class="connect__panel card" id="connect-panel" aria-live="polite">
-          <!-- 1. choose a wallet -->
+          <!-- 1. log in, or choose a wallet -->
           <div class="cstate" data-state="pick">
+            <section class="login-block" id="login-block" aria-labelledby="login-title">
+              <h2 class="h2--sm" id="login-title">Log in</h2>
+              <p class="muted small">Already have a Vicinity account? Continue with the X or Google login you linked.</p>
+              <div class="social-btns">
+                <a class="btn btn--social btn--x" href="/api/auth/x/start" id="login-x" hidden><span class="social-mark" aria-hidden="true">𝕏</span> Log in with X</a>
+                <a class="btn btn--social btn--google" href="/api/auth/google/start" id="login-google" hidden><span class="social-mark" aria-hidden="true">G</span> Log in with Google</a>
+              </div>
+              <p class="muted small" id="login-off" hidden>Log in with X or Google is being switched on. Use your wallet below for now.</p>
+              <p class="callout small" id="login-inapp" hidden>You're inside a wallet app's browser. Google doesn't allow log-in here, so use X or your wallet. To use Google, open <strong>vicinity.city/connect</strong> in Safari or Chrome. <button class="link-btn" type="button" id="login-copy">Copy the link</button></p>
+              <p class="tiny muted">Logging in with X or Google doesn't prove your wallet. You'll sign once with it before you apply, vote or moderate.</p>
+            </section>
+            <p class="or-line" id="or-line"><span>New here, or logging in with your wallet</span></p>
             <h2 class="h2--sm">Choose your wallet</h2>
             <div class="wallet-list" id="wallets-detected"></div>
             <p class="muted small" id="wallets-none" hidden>No wallet found in this browser. Pick one below, or use your phone.</p>

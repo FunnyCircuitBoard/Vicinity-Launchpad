@@ -5,6 +5,12 @@
   "use strict";
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
   const enc = encodeURIComponent;
+  const ua = navigator.userAgent;
+  // A wallet app's own browser (a "WebView") rather than Safari / Chrome: Android WebViews say "wv", iPhone apps
+  // leave out "Safari/", and a few wallets put their name in the user agent. Google refuses to sign people in
+  // inside these, and they often can't share GPS with a web page.
+  const webView = (/Android/i.test(ua) && /; wv\)|\bwv\b/.test(ua)) || (/iPhone|iPad|iPod/i.test(ua) && !/Safari\//.test(ua)) ||
+    (isMobile && /Phantom|Solflare|Backpack|OKX|TokenPocket|Trust\/|Coinbase|Bitget|BitKeep|MetaMask|imToken|Binance|Exodus/i.test(ua));
 
   // Popular Solana wallets. open(url) = link that opens a page inside the wallet app's browser (phones).
   const KNOWN = [
@@ -107,8 +113,8 @@
     s.style.background = k ? k.color : "#445";
     return s;
   }
-  /** Inside a wallet app's own browser? (then its wallet is usually already on the page) */
-  const inWalletApp = () => isMobile && found.size > 0;
+  /** Inside a wallet app's own browser? True when the user agent says so, or a phone browser already has a wallet on the page. */
+  const inWalletApp = () => webView || (isMobile && found.size > 0);
 
   window.VW = {
     KNOWN, isMobile, inWalletApp, safeIcon, mark,
