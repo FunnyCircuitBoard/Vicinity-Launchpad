@@ -390,7 +390,7 @@
   function renderCommunity(d) {
     const c = d.community;
     if (!c) return;
-    const tk = ticker(c.name);
+    const tk = c.ticker || ticker(c.name);
     $("#cc-face").textContent = tk.slice(0, 5);
     $("#pass-coin").textContent = tk.slice(0, 5);
     $("#cc-name").textContent = c.name;
@@ -686,7 +686,7 @@
     needs_second_person: "Someone other than the founder has to check a coin's contract.",
   };
   let coinData = null, coinPairs = null, vicMint = null, logoData = null, dropLogo = false, studioDirty = false;
-  const cityTk = () => (me && me.community ? ticker(me.community.name) : "CITY");
+  const cityTk = () => (me && me.community ? me.community.ticker || ticker(me.community.name) : "CITY");
   const picked = (name, fallback) => (document.querySelector(`input[name='${name}']:checked`) || {}).value || fallback;
   const num = (x) => new Intl.NumberFormat(undefined, { maximumSignificantDigits: 6 }).format(x);
   const usd = (x) => new Intl.NumberFormat(undefined, { maximumFractionDigits: x < 1 ? 4 : 2 }).format(x);

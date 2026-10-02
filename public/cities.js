@@ -706,7 +706,12 @@
     }));
   }
   // neighbourhoods that are part of another city don't get a coin of their own
-  function retick() { tickers = window.vicinityTicker ? window.vicinityTicker.assign(cities.filter((c) => !parts.has(c.id))) : new Map(); }
+  // One list of tickers for every page (public/data/tickers.json); computed here only if that file can't be loaded
+  let tickerFile = null;
+  function retick() {
+    if (tickerFile) tickers = new Map(Object.entries(tickerFile).map(([id, v]) => [id, typeof v === "string" ? { ticker: v, base: v, shared: 1 } : { ticker: v[0], base: v[1], shared: v[2] }]));
+    else tickers = window.vicinityTicker ? window.vicinityTicker.assign(cities.filter((c) => !parts.has(c.id))) : new Map();
+  }
 
   let firstClaims = true;
   let windows = new Map(); // cities choosing their founder right now
@@ -731,11 +736,13 @@
   async function load() {
     if (loaded) return; loaded = true;
     try {
-      const [data, wd, bi] = await Promise.all([
+      const [data, wd, bi, tf] = await Promise.all([
         fetch("/data/cities.json").then((r) => r.json()),
         fetch("/data/world.json").then((r) => r.json()).catch(() => null),        // map background (optional)
         fetch("/data/bounds/index.json").then((r) => r.json()).catch(() => null), // city boundaries (optional)
+        fetch("/data/tickers.json").then((r) => r.json()).catch(() => null),      // every community's ticker (computed here if missing)
       ]);
+      tickerFile = tf;
       countries = data.countries; admin = data.admin;
       readPalette();
       world = wd ? Object.entries(wd.countries).map(([cc, enc]) => { const area = enc.map((poly) => poly.map((r) => decodeRing(r, wd.unit))); return { cc, area, box: boxOf(area), path: toPath(area) }; }) : [];

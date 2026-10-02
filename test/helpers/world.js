@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { handleApi } from "../../src/index.js";
 import { base58Decode, base58Encode, buildMessage, statementFor } from "../../src/solana.js";
 import { _resetCityCache } from "../../src/cities.js";
+import { _resetTickers } from "../../src/tickers.js";
 import { _resetSnapshots } from "../../src/chain.js";
 import { encodeArea } from "../../src/geo.js";
 import { runJobs } from "../../src/jobs.js";
@@ -64,9 +65,10 @@ export function chain() {
 }
 
 export function newWorld(extra = {}) {
-  _resetCityCache(); _resetSnapshots();
+  _resetCityCache(); _resetSnapshots(); _resetTickers();
   for (const k of Object.keys(holdings)) delete holdings[k];
-  const files = { "/data/cities.json": JSON.stringify(CITIES), "/data/bounds/US.txt": BOUNDS };
+  const files = { "/data/cities.json": JSON.stringify(CITIES), "/data/bounds/US.txt": BOUNDS,
+    "/data/tickers.json": JSON.stringify({ 5128581: "NYC", 5140405: "SYRACUSE", 5106834: "ALBANY", 5142056: "UTICA" }) };
   const assets = { fetch: async (r) => { const f = files[new URL(r.url).pathname]; return f ? new Response(f) : new Response("", { status: 404 }); } };
   return { DB: d1(), ASSETS: assets, GOOGLE_CLIENT_ID: "gid", GOOGLE_CLIENT_SECRET: "s", ...extra };
 }

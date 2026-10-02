@@ -18,6 +18,7 @@ import { cityPicture, cooldownUntil, eligibility, squadPicture } from "./seats.j
 import { countryPicture } from "./elections.js";
 import { ensureSchema } from "./store.js";
 import { communityById } from "./community.js";
+import { tickerOf } from "./tickers.js";
 
 const HOME_LOCK_DAYS = 7; // a home community can be changed once a week
 const mask = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
@@ -57,6 +58,31 @@ function badgesFor({ u, launched, amount, position, seat, manager, admin, checki
   return list;
 }
 
+
+/**
+ * A community's (or country's) holders, ranked. Building it reads every member and looks up every balance, so it's
+ * built once per holder snapshot (about a minute) and shared by everyone's dashboard: a launch-week crowd asking every
+ * minute costs one ranking, not one per person. The member count is asked every time (cheap), and a change in it
+ * (someone joined) builds a fresh ranking.
+ */
+const rankings = new WeakMap(); // holder snapshot → Map("column:value:members" → [[wallet, amount], …] biggest first)
+async function leaderboard(env, column, value, snap, fetchImpl) {
+  const members = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM users WHERE ${column} = ?`).bind(value).first())?.n || 0;
+  let list = null;
+  if (snap) {
+    let byKey = rankings.get(snap);
+    if (!byKey) rankings.set(snap, (byKey = new Map()));
+    const key = `${column}:${value}:${members}`;
+    if (!byKey.has(key)) {
+      const wallets = (await env.DB.prepare(`SELECT wallet FROM users WHERE ${column} = ? LIMIT 20000`).bind(value).all()).results.map((r) => r.wallet);
+      const amounts = await amountsFor(env, wallets, fetchImpl);
+      byKey.set(key, wallets.map((w) => [w, amounts.get(w) || 0]).filter(([, a]) => a > 0).sort((a, b) => b[1] - a[1]));
+    }
+    list = byKey.get(key);
+  }
+  return { members, list };
+}
+
 async function liveStatus(env, s, fetchImpl, now) {
   const u = s.user, db = env.DB;
   const mint = activeMint(env), launched = Boolean(mint), wallet = u.wallet;
@@ -89,22 +115,20 @@ async function liveStatus(env, s, fetchImpl, now) {
   };
 
   // your community and your country: members, where you rank among them
-  const ranked = async (wallets) => {
-    if (!launched || !snap) return { rank: null, holders: null, top: [] };
-    const amounts = await amountsFor(env, wallets, fetchImpl);
-    const list = wallets.map((w) => [w, amounts.get(w) || 0]).filter(([, a]) => a > 0).sort((a, b) => b[1] - a[1]);
-    const i = list.findIndex(([w]) => w === wallet);
-    return { rank: i >= 0 ? i + 1 : null, holders: list.length, top: list.slice(0, 5).map(([w, a]) => ({ wallet: mask(w), amount: a, you: w === wallet })) };
+  const ranked = (board) => {
+    if (!launched || !snap || !board.list) return { rank: null, holders: null, top: [] };
+    const i = board.list.findIndex(([w]) => w === wallet);
+    return { rank: i >= 0 ? i + 1 : null, holders: board.list.length, top: board.list.slice(0, 5).map(([w, a]) => ({ wallet: mask(w), amount: a, you: w === wallet })) };
   };
   let community = null, national = null;
   if (u.home_city) {
-    const members = (await db.prepare("SELECT wallet FROM users WHERE home_city = ? LIMIT 5000").bind(u.home_city).all()).results.map((r) => r.wallet);
-    community = { id: u.home_city, name: u.home_name, country: u.home_country, members: members.length, ...(await ranked(members)),
-      ...(await cityPicture(env, u.home_city, u, now, fetchImpl)) };
+    const board = await leaderboard(env, "home_city", u.home_city, snap, fetchImpl);
+    community = { id: u.home_city, name: u.home_name, country: u.home_country, ticker: (await tickerOf(env, u.home_city))?.ticker || null,
+      members: board.members, ...ranked(board), ...(await cityPicture(env, u.home_city, u, now, fetchImpl)) };
   }
   if (u.home_country) {
-    const members = (await db.prepare("SELECT wallet FROM users WHERE home_country = ? LIMIT 20000").bind(u.home_country).all()).results.map((r) => r.wallet);
-    national = { country: u.home_country, members: members.length, ...(await ranked(members)), ...(await countryPicture(env, u.home_country, u, now)) };
+    const board = await leaderboard(env, "home_country", u.home_country, snap, fetchImpl);
+    national = { country: u.home_country, members: board.members, ...ranked(board), ...(await countryPicture(env, u.home_country, u, now)) };
   }
 
   const act = await db.prepare(

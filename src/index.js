@@ -142,7 +142,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
   const oauth = path.match(/^\/api\/auth\/(google|x)\/(start|callback)$/);
   if (oauth) return only("GET") || (oauth[2] === "start" ? handleOAuthStart(request, env, oauth[1]) : handleOAuthCallback(request, env, oauth[1], fetchImpl));
   let m = path.match(/^\/api\/media\/([0-9]{1,10})$/);
-  if (m) return only("GET") || handleMedia(env, m[1]);
+  if (m) return only("GET") || handleMedia(request, env, m[1], fetchImpl);
   m = path.match(/^\/api\/seats\/results\/([0-9]{1,10})$/);
   if (m) return only("GET") || db(() => handleResult(env, m[1]));
   m = path.match(/^\/api\/seats\/squad\/([0-9]{1,10})$/);
