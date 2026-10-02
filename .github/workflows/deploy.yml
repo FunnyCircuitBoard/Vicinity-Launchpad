@@ -19,11 +19,22 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # the build and tests run with the Cloudflare token in reach: leave no GitHub credential on disk
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Fail early with a clear message when the one-time setup in docs/DEPLOY.md was not done yet.
+      - name: Check the Cloudflare token is set
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error title=Deploy not set up yet::The repository secret CLOUDFLARE_API_TOKEN is missing. Nothing was deployed and the live site is unchanged. Add the secret (see docs/DEPLOY.md, step 1-2), then re-run this workflow."
+            exit 1
+          fi
       # wrangler runs `npm run build` first (copy files, build pages, every test must pass), then uploads.
       - name: Deploy to Cloudflare
         run: npx wrangler deploy
