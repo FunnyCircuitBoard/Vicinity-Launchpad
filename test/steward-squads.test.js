@@ -144,3 +144,78 @@ test("squad leave: the last one out disbands it", async () => {
   const s = await env.DB.prepare("SELECT status FROM squads WHERE id = ?").bind(squadId).first();
   assert.equal(s.status, "disbanded");
 });
+
+test("steward quorum counts verified local HOLDERS: 49 empty accounts can't confirm a steward early", async () => {
+  const a = await localWith(2_000_000);
+  await tick(env); await passTime(env, 15 * DAY);
+  assert.equal((await apply(a)).steward, true);
+
+  // 49 more accounts that live in Utica and checked in (only holders can post), then sold everything
+  const crowd = [];
+  for (let i = 0; i < 49; i++) { const p = await localWith(1); setHolding(p.w.address, 0); crowd.push(p); }
+  await passTime(env, 12 * HOUR);
+  assert.equal((await seatOf("5142056")).status, "steward", "accounts that hold nothing don't count");
+  const before = await a.get("/api/me");
+  assert.deepEqual(before.community.seat.quorum, { have: 1, need: 50 }, "only the steward holds so far");
+
+  // once they hold something, the quorum is real
+  for (const p of crowd) setHolding(p.w.address, 1);
+  await passTime(env, 12 * HOUR);
+  const seat = await seatOf("5142056");
+  assert.equal(seat.status, "active", "50 verified local holders confirm the steward");
+  assert.equal(seat.probation_until, null);
+});
+
+test("a Seed Steward is a founder everywhere: role flags, badge, crown on posts, progress, quorum", async () => {
+  const a = await localWith(2_000_000);
+  await tick(env); await passTime(env, 15 * DAY);
+  assert.equal((await apply(a)).steward, true);
+
+  const me = await a.get("/api/me");
+  assert.equal(me.level, "founder");
+  assert.equal(me.roles.founder, true, "roles.founder agrees with level");
+  assert.equal(me.roles.steward, true);
+  assert.equal(me.roles.weight, 2, "same vote weight as /api/posts/vote gives a founder");
+  const badge = me.badges.find((b) => b.id === "city_founder");
+  assert.equal(badge.earned, true);
+  assert.equal(badge.name, "Seed Steward");
+  assert.equal(me.founder.seat.status, "steward");
+  assert.ok(me.founder.seat.probationUntil);
+  const steps = Object.fromEntries(me.progress.steps.map((s) => [s.id, s]));
+  assert.equal(steps.apply.done && steps.chosen.done, true);
+  assert.equal(steps.founder.done, false, "confirmed founder comes after probation");
+  assert.match(steps.founder.detail, /^probation until /);
+  assert.deepEqual(me.community.seat.quorum, { have: 1, need: 50 });
+
+  const posted = await a.post("/api/posts", { scope: "city", kind: "talk", body: "Hello Utica" });
+  assert.equal(posted.post.author.founder, "Utica", "the 👑 shows for a steward");
+  assert.equal(posted.post.author.steward, true);
+});
+
+test("squads on the dashboard: you can start one, others see it to join, members see the readiness", async () => {
+  const a = await localWith(70_000);
+  const b = await localWith(70_000);
+  await tick(env); await passTime(env, 15 * DAY);
+
+  assert.deepEqual(await a.get("/api/me").then((m) => m.squad), { mine: null, joinable: null, canCreate: true });
+  await reprove(a);
+  const squadId = (await a.post("/api/seats/squad/create", {})).squad.id;
+
+  const mineA = (await a.get("/api/me")).squad;
+  assert.equal(mineA.mine.id, squadId);
+  assert.equal(mineA.mine.members.length, 1);
+  assert.equal(mineA.mine.ready, false);
+  assert.equal(mineA.canCreate, false);
+
+  const seenByB = (await b.get("/api/me")).squad;
+  assert.equal(seenByB.mine, null);
+  assert.equal(seenByB.joinable.id, squadId);
+  assert.equal(seenByB.joinable.full, false);
+
+  await reprove(b);
+  assert.equal((await b.post("/api/seats/squad/join", { squadId })).ok, true);
+  const both = (await b.get("/api/me")).squad.mine;
+  assert.equal(both.members.length, 2);
+  assert.equal(both.pooled, 140_000);
+  assert.ok(both.members.every((m) => m.qualified));
+});

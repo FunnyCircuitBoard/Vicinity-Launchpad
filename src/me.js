@@ -14,7 +14,7 @@ import { activeMint } from "./official.js";
 import { getHolding, holderSnapshot, rankOf } from "./chain.js";
 import { DAY, POLICY, iso } from "./policy.js";
 import { VOTE_WEIGHT, activeBan, adminWallets, amountsFor, liveSeatOfUser, managerOf } from "./roles.js";
-import { cityPicture, cooldownUntil, eligibility } from "./seats.js";
+import { cityPicture, cooldownUntil, eligibility, squadPicture } from "./seats.js";
 import { countryPicture } from "./elections.js";
 import { ensureSchema } from "./store.js";
 import { communityById } from "./community.js";
@@ -44,8 +44,11 @@ function badgesFor({ u, launched, amount, position, seat, manager, admin, checki
     { id: "whale", icon: "🐋", name: "Big holder", detail: "Hold 10,000,000+ $VICINITY.", earned: amount >= 10_000_000, progress: pct(amount, 10_000_000) },
     { id: "top100", icon: "💯", name: "Top 100", detail: "One of the 100 biggest holders (pools not counted).", earned: Boolean(position?.rank && position.rank <= 100) },
     { id: "top10", icon: "🏆", name: "Top 10", detail: "One of the 10 biggest holders.", earned: Boolean(position?.rank && position.rank <= 10) },
-    { id: "city_founder", icon: "👑", name: "City Founder", detail: seat && seat.status === "grace" ? "In grace: hold the founder amount again to keep the seat." : "Chosen by your city and still holding the founder amount.",
-      earned: Boolean(seat && ["active", "grace"].includes(seat.status)), grace: Boolean(seat && seat.status === "grace") },
+    { id: "city_founder", icon: "👑", name: seat && seat.status === "steward" ? "Seed Steward" : "City Founder",
+      detail: seat && seat.status === "grace" ? "In grace: hold the founder amount again to keep the seat."
+        : seat && seat.status === "steward" ? "Founded your city first and is on probation: confirmed after 90 days or when 50 verified local holders back it."
+        : "Chosen by your city and still holding the founder amount.",
+      earned: Boolean(seat && ["active", "grace", "steward"].includes(seat.status)), grace: Boolean(seat && seat.status === "grace") },
     { id: "country_manager", icon: "🛡️", name: "Country Manager", detail: "Elected by your country for 90 days.", earned: manager },
     { id: "voice", icon: "💬", name: "Local voice", detail: "Posted in your city or country feed.", earned: posts > 0 },
     { id: "streak", icon: "🔥", name: "On the streets", detail: "Checked in on 3 different days.", earned: checkins >= 3, progress: pct(checkins, 3) },
@@ -67,7 +70,8 @@ async function liveStatus(env, s, fetchImpl, now) {
   const seat = await liveSeatOfUser(db, u.id);
   const mgr = seat && seat.status === "active" ? await managerOf(env, seat.country, now) : null;
   const isManager = Boolean(mgr && mgr.userId === u.id);
-  const level = admin ? "admin" : isManager ? "manager" : seat && (seat.status === "active" || seat.status === "steward") ? "founder" : amount > 0 ? "holder" : "member";
+  const founderLive = Boolean(seat && (seat.status === "active" || seat.status === "steward")); // a steward has a founder's powers
+  const level = admin ? "admin" : isManager ? "manager" : founderLive ? "founder" : amount > 0 ? "holder" : "member";
   const ban = await activeBan(db, u.id, u.home_country, now);
   const appealed = ban && ban.action_id ? await db.prepare("SELECT id FROM appeals WHERE action_id = ?").bind(ban.action_id).first() : null;
 
@@ -75,7 +79,9 @@ async function liveStatus(env, s, fetchImpl, now) {
   const elig = await eligibility(env, u, now, fetchImpl);
   const app = await db.prepare("SELECT a.id, a.window_id, a.city_id, a.created_at, w.closes_at FROM applications a JOIN windows w ON w.id = a.window_id WHERE a.user_id = ? AND a.withdrawn = 0 AND w.status = 'open'").bind(u.id).first();
   const founder = {
-    threshold: elig.threshold, tenure: elig.tenure, amount, eligible: elig.ok, why: elig.ok ? null : elig.error,
+    threshold: elig.threshold, tenure: elig.tenure, amount, eligible: elig.ok, why: elig.ok ? null : elig.error, whyNot: elig.whyNot || null,
+    // a qualified local may challenge a Seed Steward during probation (needs 10 local endorsements to force an election)
+    challenging: elig.ok && elig.challenging ? { seatId: elig.challenging } : null,
     homeReadyAt: elig.homeReadyAt, cooldownUntil: elig.cooldownUntil || (await cooldownUntil(db, u.id, now)),
     application: app ? { id: app.id, windowId: app.window_id, cityId: app.city_id, since: app.created_at, closesAt: app.closes_at } : null,
     seat: seat ? { id: seat.id, cityId: seat.city_id, city: seat.city_name, country: seat.country, status: seat.status, since: seat.activated_at || seat.created_at,
@@ -94,7 +100,7 @@ async function liveStatus(env, s, fetchImpl, now) {
   if (u.home_city) {
     const members = (await db.prepare("SELECT wallet FROM users WHERE home_city = ? LIMIT 5000").bind(u.home_city).all()).results.map((r) => r.wallet);
     community = { id: u.home_city, name: u.home_name, country: u.home_country, members: members.length, ...(await ranked(members)),
-      ...(await cityPicture(env, u.home_city, u, now)) };
+      ...(await cityPicture(env, u.home_city, u, now, fetchImpl)) };
   }
   if (u.home_country) {
     const members = (await db.prepare("SELECT wallet FROM users WHERE home_country = ? LIMIT 20000").bind(u.home_country).all()).results.map((r) => r.wallet);
@@ -119,18 +125,23 @@ async function liveStatus(env, s, fetchImpl, now) {
     { id: "hold", label: `Hold ${(elig.threshold || POLICY.founder.ladder.base).toLocaleString("en-US")}+ for ${POLICY.founder.qualifyingDays} days`,
       done: Boolean(elig.tenure && elig.tenure.qualified), progress: elig.tenure ? Math.min(1, elig.tenure.days / elig.tenure.needed) : 0,
       detail: launched ? `${Math.min(days, POLICY.founder.qualifyingDays)} / ${POLICY.founder.qualifyingDays} days` : "starts at launch" },
-    { id: "apply", label: "Apply in your city's 72-hour window", done: Boolean(app || seat) },
-    { id: "chosen", label: "Chosen by the formula, 48 hours for objections", done: Boolean(seat && seat.status !== "provisional") },
-    { id: "founder", label: seat && seat.status === "grace" ? "Founder — in grace, top up to keep it" : "Founder", done: Boolean(seat && seat.status === "active") },
+    { id: "apply", label: "Claim your city: the first qualified claimer becomes Seed Steward at once", done: Boolean(app || seat) },
+    { id: "chosen", label: "Seated: Seed Steward now, or chosen by locals if several claim together", done: Boolean(seat) },
+    { id: "founder", label: seat && seat.status === "grace" ? "Founder: in grace, top up to keep it"
+        : seat && seat.status === "steward" ? `Confirmed founder: after ${POLICY.founder.stewardProbationDays} days, or ${POLICY.founder.stewardQuorum} verified local holders`
+        : seat && seat.status === "provisional" ? "Confirmed founder: after the 48-hour objection period" : "Confirmed founder",
+      done: Boolean(seat && seat.status === "active"),
+      detail: seat && seat.status === "steward" && seat.probation_until ? `probation until ${seat.probation_until.slice(0, 10)}` : null },
   ];
   const done = steps.filter((x) => x.done).length;
 
   return {
     launched, chain, checkedAt: iso(now), level, fresh: isFresh(s, now), policyVersion: POLICY.version,
-    roles: { admin, manager: isManager, founder: Boolean(seat && seat.status === "active"), holder: amount > 0, weight: VOTE_WEIGHT[level] || 1 },
+    roles: { admin, manager: isManager, founder: founderLive, steward: Boolean(seat && seat.status === "steward"), holder: amount > 0,
+      weight: VOTE_WEIGHT[isManager ? "manager" : founderLive ? "founder" : "member"] }, // the same weight powersOf gives for feed votes
     holding: { amount, rank: position ? position.rank : null, total: position ? position.total : null, percent: position ? position.percent : null,
       percentile: position ? position.percentile : null, next: position ? position.next : null },
-    founder, badges, lost, community, national,
+    founder, badges, lost, community, national, squad: await squadPicture(env, u, now, fetchImpl),
     ban: ban ? { country: ban.country, until: ban.expires_at, actionId: ban.action_id, appealed: Boolean(appealed) } : null,
     progress: { percent: Math.round((done / steps.length) * 100), steps },
   };

@@ -46,8 +46,11 @@ export async function present(env, rows, me, pw, fetchImpl = fetch, now = Date.n
   const mine = new Set((await db.prepare(`SELECT post_id FROM votes WHERE user_id = ? AND post_id IN (${ids.map(() => "?").join(",")})`)
     .bind(me.id, ...ids).all()).results.map((r) => r.post_id));
   const authors = [...new Set(rows.map((r) => r.user_id))];
-  const founders = new Map((await db.prepare(`SELECT user_id, city_name FROM seats WHERE status = 'active' AND user_id IN (${authors.map(() => "?").join(",")})`)
-    .bind(...authors).all()).results.map((r) => [r.user_id, r.city_name]));
+  // active founders and Seed Stewards (a steward has a founder's powers) carry the 👑
+  const seatRows = (await db.prepare(`SELECT user_id, city_name, status FROM seats WHERE status IN ('active', 'steward') AND user_id IN (${authors.map(() => "?").join(",")})`)
+    .bind(...authors).all()).results;
+  const founders = new Map(seatRows.map((r) => [r.user_id, r.city_name]));
+  const stewards = new Set(seatRows.filter((r) => r.status === "steward").map((r) => r.user_id));
   const managers = new Set();
   for (const cc of new Set(rows.map((r) => r.country))) { const m = await managerOf(env, cc, now); if (m) managers.add(m.userId); }
   const actions = new Map((await db.prepare(`SELECT target_id, id, state, reason FROM mod_actions WHERE target_type = 'post' AND action = 'hide' AND state IN ('pending', 'confirmed')
@@ -62,7 +65,7 @@ export async function present(env, rows, me, pw, fetchImpl = fetch, now = Date.n
       reports: mod ? r.reports : undefined,
       where: r.kind === "checkin" ? r.author_home : undefined,
       voted: mine.has(r.id), mine: r.user_id === me.id, canModerate: mod,
-      author: { id: mod ? r.user_id : undefined, name: r.handle || r.name || "Member", founder: founders.get(r.user_id) || null, manager: managers.has(r.user_id) },
+      author: { id: mod ? r.user_id : undefined, name: r.handle || r.name || "Member", founder: founders.get(r.user_id) || null, steward: stewards.has(r.user_id), manager: managers.has(r.user_id) },
     };
   });
 }
