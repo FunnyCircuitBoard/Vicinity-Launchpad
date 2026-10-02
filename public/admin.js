@@ -79,11 +79,21 @@
     } catch (e) { setErr(cancelled(e) ? "Cancelled in your wallet." : "Couldn't sign. Try again."); }
   }
 
-  /** Re-prove the wallet for sensitive actions (fresh proof), then retry once. */
+  /**
+   * Every change needs a fresh wallet proof. When the server asks for one ("reprove"), sign
+   * again with the wallet and retry once. After a page reload there is no wallet connected
+   * yet; connect it first when there is only one to pick from.
+   */
   async function sensitive(call) {
     let r = await call();
     if (r && r.error === "reprove") {
       try {
+        if (!adapter) {
+          const list = W.list();
+          if (list.length !== 1) throw new Error("no wallet");
+          address = await list[0].connect(); adapter = list[0];
+        }
+        if (me && address !== me.wallet) { toast(`Connect the wallet ${short(me.wallet)}, then try again.`); return r; }
         const d = await api(`/api/message?address=${encodeURIComponent(address)}&action=login`);
         if (!d.message) throw new Error("no message");
         const sig = await adapter.signMessage(new TextEncoder().encode(d.message));
@@ -94,6 +104,9 @@
     }
     return r;
   }
+
+  /** A change to the site: wrapped in the re-sign flow like every other admin POST. */
+  const post = (path, body) => sensitive(() => api(path, body));
 
   async function loadMe() {
     const d = await api("/api/admin/me");
@@ -155,7 +168,14 @@
     const f = el("label", "field"); f.append(el("span", "fieldset__label", label), input); return f;
   };
   const textInput = (ph = "", value = "") => { const i = el("input"); i.placeholder = ph; i.value = value; return i; };
-  const okMsg = (r, what) => { if (r && r.ok) { toast(`${what} ✓`); refresh(); } else toast(`Failed: ${r && r.error ? r.error : "unknown"}`); };
+  const ERRORS = {
+    reprove: "Confirm in your wallet, then try again.", not_in_preview: "Only available on the preview site.",
+    own_objection: "You can't decide your own objection.", outranked: "You can't act on someone of equal or higher role.",
+    protected_wallet: "That wallet is an owner wallet (ADMIN_WALLETS).", owner_not_grantable: "Owners come from ADMIN_WALLETS only.",
+    window_closed: "That claim window is closed.",
+  };
+  const okMsg = (r, what) => { if (r && r.ok) { toast(`${what} ✓`); refresh(); } else toast(r && ERRORS[r.error] ? ERRORS[r.error] : `Failed: ${r && r.error ? r.error : "unknown"}`); };
+  const walletOf = (w) => (w && w.includes("*") ? w : short(w));
 
   /* ---------- tab: overview ---------- */
   async function tabOverview(p) {
@@ -178,7 +198,7 @@
   async function tabUsers(p) {
     p.append(h2("Users"));
     const row = el("div", "admin-row");
-    const search = textInput("Search wallet, handle, name…");
+    const search = textInput(can(2) ? "Search wallet, handle, name…" : "Search handle…");
     row.append(field("Search", search), btn("Search", () => load()));
     p.append(row);
     const list = el("div"); p.append(list);
@@ -188,15 +208,15 @@
         ["User", "Wallet", "Home", "Joined", "Ban", ""],
         d.users,
         (tr, u) => {
-          td(tr, u.handle || u.name || "—"); monoTd(tr, short(u.wallet));
+          td(tr, u.handle || u.name || "—"); monoTd(tr, walletOf(u.wallet));
           td(tr, u.home_name ? `${u.home_name}, ${u.home_country || ""}` : "—");
           td(tr, u.created_at ? ago(u.created_at) : "—");
           td(tr, u.banned ? "banned" : "—");
           const act = el("td");
-          if (can(2) && u.banned) act.append(btn("Unban", async () => okMsg(await sensitive(() => api("/api/admin/users/unban", { wallet: u.wallet })), "Unbanned")));
+          if (can(2) && u.banned) act.append(btn("Unban", async () => okMsg(await post("/api/admin/users/unban", { wallet: u.wallet }), "Unbanned")));
           if (can(2) && !u.banned) act.append(btn("Ban", async () => {
             const reason = prompt("Ban reason:", "spam") || "spam";
-            okMsg(await sensitive(() => api("/api/admin/users/ban", { wallet: u.wallet, reason })), "Banned");
+            okMsg(await post("/api/admin/users/ban", { wallet: u.wallet, reason }), "Banned");
           }));
           tr.append(act);
         }));
@@ -220,7 +240,7 @@
         ["City", "Founder", "Status", "Since", "Ended"],
         d.seats,
         (tr, s) => {
-          td(tr, `${s.city_name} (${s.country})`); td(tr, s.handle || short(s.wallet)); td(tr, s.status);
+          td(tr, `${s.city_name} (${s.country})`); td(tr, s.handle || walletOf(s.wallet)); td(tr, s.status);
           td(tr, s.activated_at ? ago(s.activated_at) : ago(s.created_at)); td(tr, s.ended_at ? `${ago(s.ended_at)} (${s.end_reason || ""})` : "—");
         }));
     }
@@ -232,12 +252,12 @@
         ["City", "Claimant", "Pitch", "Score", ""],
         c.claims,
         (tr, a) => {
-          td(tr, `${a.city_name} (${a.country})`); td(tr, a.handle || short(a.wallet));
+          td(tr, `${a.city_name} (${a.country})`); td(tr, a.handle || walletOf(a.wallet));
           td(tr, (a.pitch || "—").slice(0, 80)); td(tr, a.total == null ? "—" : Number(a.total).toFixed(2));
           const act = el("td");
-          act.append(btn("Approve", async () => okMsg(await api("/api/admin/seats/decide", { id: a.id, decision: "approve" }), "Claim approved")));
+          act.append(btn("Approve", async () => okMsg(await post("/api/admin/seats/decide", { id: a.id, decision: "approve" }), "Claim approved")));
           act.append(" ");
-          act.append(btn("Reject", async () => okMsg(await api("/api/admin/seats/decide", { id: a.id, decision: "reject" }), "Claim rejected")));
+          act.append(btn("Reject", async () => okMsg(await post("/api/admin/seats/decide", { id: a.id, decision: "reject" }), "Claim rejected")));
           tr.append(act);
         }));
     }
@@ -256,7 +276,7 @@
       const row = el("div", "admin-row");
       const country = textInput("US"); const seats = textInput("3"); const days = textInput("14");
       row.append(field("Country (2-letter)", country), field("Seats", seats), field("Days open", days),
-        btn("Create", async () => okMsg(await api("/api/admin/elections/create", { country: country.value, seats: seats.value, closesInDays: days.value }), "Election created"), false));
+        btn("Create", async () => okMsg(await post("/api/admin/elections/create", { country: country.value, seats: seats.value, closesInDays: days.value }), "Election created"), false));
       p.append(row);
     }
   }
@@ -280,7 +300,7 @@
       const mint = textInput("Mint address"); const city = textInput("City name"); const fw = textInput("Founder wallet (optional)");
       const plat = el("select"); ["raydium", "launchlab", "jupiter", "other"].forEach((x) => { const o = el("option", null, x); o.value = x; plat.append(o); });
       row.append(field("Mint", mint), field("City", city), field("Founder wallet", fw), field("Platform", plat),
-        btn("Register", async () => okMsg(await api("/api/admin/tokens/register", { mint: mint.value, city: city.value, founderWallet: fw.value || null, platform: plat.value }), "Token registered"), false));
+        btn("Register", async () => okMsg(await post("/api/admin/tokens/register", { mint: mint.value, city: city.value, founderWallet: fw.value || null, platform: plat.value }), "Token registered"), false));
       p.append(row);
     }
   }
@@ -295,9 +315,9 @@
       (tr, x) => {
         td(tr, (x.body || "").slice(0, 90)); td(tr, x.handle || x.name || "—"); td(tr, x.reports, "num"); td(tr, ago(x.last_report));
         const act = el("td");
-        act.append(btn("Hide", async () => okMsg(await api("/api/admin/reports/decide", { id: x.post_id, action: "hide" }), "Post hidden")));
+        act.append(btn("Hide", async () => okMsg(await post("/api/admin/reports/decide", { id: x.post_id, action: "hide" }), "Post hidden")));
         act.append(" ");
-        act.append(btn("Dismiss", async () => okMsg(await api("/api/admin/reports/decide", { id: x.post_id, action: "dismiss" }), "Report dismissed")));
+        act.append(btn("Dismiss", async () => okMsg(await post("/api/admin/reports/decide", { id: x.post_id, action: "dismiss" }), "Report dismissed")));
         tr.append(act);
       }));
     p.append(h2("Ban appeals"));
@@ -309,9 +329,9 @@
         td(tr, x.handle || x.name || "—"); td(tr, (x.text || "").slice(0, 90)); td(tr, ago(x.created_at));
         const act = el("td");
         if (can(2)) {
-          act.append(btn("Uphold (lift ban)", async () => okMsg(await api("/api/admin/appeals/decide", { id: x.id, decision: "uphold" }), "Appeal upheld")));
+          act.append(btn("Uphold (lift ban)", async () => okMsg(await post("/api/admin/appeals/decide", { id: x.id, decision: "uphold" }), "Appeal upheld")));
           act.append(" ");
-          act.append(btn("Reject", async () => okMsg(await api("/api/admin/appeals/decide", { id: x.id, decision: "reject" }), "Appeal rejected")));
+          act.append(btn("Reject", async () => okMsg(await post("/api/admin/appeals/decide", { id: x.id, decision: "reject" }), "Appeal rejected")));
         } else act.append(el("span", "muted", "admin only"));
         tr.append(act);
       }));
@@ -324,9 +344,11 @@
         td(tr, `${x.city_name} (${x.country}) — ${x.seat_status}`); td(tr, x.handle || x.name || "—");
         td(tr, (x.reason || "").slice(0, 90)); td(tr, ago(x.created_at));
         const act = el("td");
-        act.append(btn("Uphold", async () => okMsg(await api("/api/admin/objections/decide", { id: x.id, uphold: true }), "Objection upheld")));
-        act.append(" ");
-        act.append(btn("Dismiss", async () => okMsg(await api("/api/admin/objections/decide", { id: x.id, uphold: false }), "Objection dismissed")));
+        if (can(2)) {
+          act.append(btn("Uphold", async () => okMsg(await post("/api/admin/objections/decide", { id: x.id, uphold: true }), "Objection upheld")));
+          act.append(" ");
+          act.append(btn("Dismiss", async () => okMsg(await post("/api/admin/objections/decide", { id: x.id, uphold: false }), "Objection dismissed")));
+        } else act.append(el("span", "muted", "admin only"));
         tr.append(act);
       }));
   }
@@ -339,12 +361,12 @@
       ["Cutoff", "Status", "Holders", "Created", "Note"],
       d.snapshots,
       (tr, s) => { td(tr, ago(s.cutoff_at)); td(tr, s.status); td(tr, s.holders, "num"); td(tr, ago(s.created_at)); td(tr, (s.note || "").slice(0, 80)); }));
-    if (can(2)) {
+    if (can(3)) {
       p.append(el("h3", null, "New snapshot"));
       const row = el("div", "admin-row");
       const cutoff = textInput("2026-10-01T00:00:00Z");
       row.append(field("Cutoff (ISO, past)", cutoff),
-        btn("Create", async () => okMsg(await api("/api/admin/snapshots/create", { cutoff: cutoff.value }), "Snapshot created"), false));
+        btn("Create", async () => okMsg(await post("/api/admin/snapshots/create", { cutoff: cutoff.value }), "Snapshot created"), false));
       p.append(row);
       p.append(el("p", "muted small", "Creates the snapshot row; holder data is computed by the site's own job."));
     }
@@ -368,7 +390,7 @@
   /* ---------- tab: roles ---------- */
   async function tabRoles(p) {
     p.append(h2("Roles"));
-    p.append(el("p", "muted", "Owner wallets come from the ADMIN_WALLETS setting. Extra roles are granted here. You can't change your own."));
+    p.append(el("p", "muted", "Owner wallets come only from the ADMIN_WALLETS setting. Moderator and admin roles are granted here. You can't change your own."));
     const d = await api("/api/admin/roles");
     const all = [...d.envOwners, ...(d.roles || [])];
     p.append(!d.ok ? el("p", null, "Couldn't load roles.") : table(
@@ -377,15 +399,15 @@
       (tr, r) => {
         monoTd(tr, short(r.wallet)); td(tr, r.role); td(tr, r.source || "granted"); td(tr, r.granted_by ? short(r.granted_by) : "—");
         const act = el("td");
-        if (r.source !== "env" && r.wallet !== me.wallet) act.append(btn("Revoke", async () => okMsg(await sensitive(() => api("/api/admin/roles/revoke", { wallet: r.wallet })), "Role revoked")));
+        if (r.source !== "env" && r.wallet !== me.wallet) act.append(btn("Revoke", async () => okMsg(await post("/api/admin/roles/revoke", { wallet: r.wallet }), "Role revoked")));
         tr.append(act);
       }));
     p.append(el("h3", null, "Grant a role"));
     const row = el("div", "admin-row");
     const wallet = textInput("Wallet address"); const role = el("select");
-    ["moderator", "admin", "owner"].forEach((x) => { const o = el("option", null, x); o.value = x; role.append(o); });
+    ["moderator", "admin"].forEach((x) => { const o = el("option", null, x); o.value = x; role.append(o); });
     row.append(field("Wallet", wallet), field("Role", role),
-      btn("Grant", async () => okMsg(await sensitive(() => api("/api/admin/roles/grant", { wallet: wallet.value, role: role.value })), "Role granted"), false));
+      btn("Grant", async () => okMsg(await post("/api/admin/roles/grant", { wallet: wallet.value, role: role.value }), "Role granted"), false));
     p.append(row);
   }
 
@@ -405,7 +427,7 @@
     p.append(h2("Test lab"));
     p.append(el("p", "muted", "Seed clearly-marked test data (8 users, 3 seats, 5 posts, reports, an objection, an election), then wipe only that data. Real rows are never touched."));
     const row = el("div", "admin-row");
-    row.append(btn("Seed test data", async () => okMsg(await api("/api/admin/test/seed", {}), "Test data seeded"), false));
+    row.append(btn("Seed test data", async () => okMsg(await post("/api/admin/test/seed", {}), "Test data seeded"), false));
     p.append(row);
     const dz = el("div", "danger-zone");
     dz.append(el("h3", null, "Reset"));
@@ -414,7 +436,7 @@
     const confirm = textInput("RESET");
     zrow.append(field("Confirmation", confirm), btn("Wipe test data", async () => {
       if (confirm.value !== "RESET") return toast("Type RESET to confirm.");
-      okMsg(await sensitive(() => api("/api/admin/test/reset", { confirm: "RESET" })), "Test data wiped");
+      okMsg(await post("/api/admin/test/reset", { confirm: "RESET" }), "Test data wiped");
     }, false));
     dz.append(zrow);
     p.append(dz);
@@ -426,7 +448,7 @@
       const o = el("option", null, l); o.value = v; psel.append(o);
     });
     prow.append(field("Role preview", psel), btn("Apply", async () => {
-      const r = await api("/api/admin/test/preview-role", { role: psel.value || null });
+      const r = await post("/api/admin/test/preview-role", { role: psel.value || null });
       okMsg(r, r.previewRole ? `Previewing as ${r.previewRole}` : "Preview cleared");
     }, false));
     p.append(prow);

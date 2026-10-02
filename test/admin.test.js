@@ -153,7 +153,7 @@ test("test lab: seed then reset removes only seeded rows", async () => {
 test("test lab: upheld objection revokes the steward seat", async () => {
   const owner = await sessionFor(OWNER);
   const modAddr = await newWallet(); await sessionFor(modAddr);
-  await call("/api/admin/roles/grant", { method: "POST", cookie: owner.cookie, body: { wallet: modAddr, role: "moderator" } });
+  await call("/api/admin/roles/grant", { method: "POST", cookie: owner.cookie, body: { wallet: modAddr, role: "admin" } });
   const mod = await sessionFor(modAddr);
 
   await (await call("/api/admin/test/seed", { method: "POST", cookie: owner.cookie, body: {} })).json();
@@ -180,16 +180,20 @@ test("test lab: preview-role sets and clears the cookie", async () => {
 
 test("config exposes presence flags only, never secret values", async () => {
   env.GOOGLE_CLIENT_ID = "gid123"; env.GOOGLE_CLIENT_SECRET = "gsec-secret";
-  env.X_CLIENT_ID = "xid"; env.VICINITY_MINT = "mint"; env.SOLANA_RPC_URL = "rpc";
+  env.GMAIL_USER = "me@example.test"; env.VICINITY_MINT = "mint"; env.SOLANA_RPC_URL = "rpc";
   const owner = await sessionFor(OWNER);
   const d = await (await call("/api/admin/config", { cookie: owner.cookie })).json();
   assert.ok(d.ok);
   assert.equal(d.siteMode, "preview");
   assert.equal(d.policyVersion, 5);
   assert.deepEqual(d.flags.GOOGLE_CLIENT_ID, true);
-  assert.deepEqual(d.flags.X_CLIENT_SECRET, false);
+  assert.deepEqual(d.flags.GMAIL_USER, true);
+  assert.deepEqual(d.flags.GMAIL_APP_PASSWORD, false);
+  // X sign-in no longer exists; the e-mail settings are listed instead
+  assert.ok(!Object.keys(d.flags).some((k) => k.startsWith("X_")));
+  for (const k of ["GMAIL_USER", "GMAIL_APP_PASSWORD", "RESEND_API_KEY", "EMAIL_FROM", "EMAIL_MAX_PER_HOUR"]) assert.ok(k in d.flags, k);
   const raw = JSON.stringify(d);
-  assert.ok(!raw.includes("gsec-secret") && !raw.includes("gid123"), "no secret values leak");
+  assert.ok(!raw.includes("gsec-secret") && !raw.includes("gid123") && !raw.includes("me@example.test"), "no secret values leak");
   // moderator cannot see config
   const mAddr = await newWallet(); await sessionFor(mAddr);
   await call("/api/admin/roles/grant", { method: "POST", cookie: owner.cookie, body: { wallet: mAddr, role: "moderator" } });
@@ -236,4 +240,226 @@ test("owner bootstrap: wallet-only session (no linked account) gets owner access
   await env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, created_at, expires_at, proven_at) VALUES (?, ?, NULL, ?, ?, ?)")
     .bind(await sha256(tok2), stranger, iso(now), iso(now + 30 * 86400000), iso(now)).run();
   assert.equal((await call("/api/admin/me", { cookie: `vs=${encodeURIComponent(tok2)}` })).status, 401);
+});
+
+/* ---------------- hardening ---------------- */
+
+/** A session for a wallet holding a granted role (fresh wallet proof unless stale:true). */
+async function staff(role, opts = {}) {
+  const wallet = await newWallet();
+  const ses = await sessionFor(wallet, opts);
+  await env.DB.prepare("INSERT OR REPLACE INTO admin_roles (wallet, role, granted_by, granted_at) VALUES (?, ?, ?, ?)")
+    .bind(wallet, role, OWNER, iso(Date.now())).run();
+  return { wallet, ...ses };
+}
+const post = (path, who, body = {}) => call(path, { method: "POST", cookie: who.cookie, body });
+
+test("every POST route needs a fresh wallet proof, GET routes do not", async () => {
+  const owner = await sessionFor(OWNER, { stale: true });
+  const POSTS = ["users/ban", "users/unban", "seats/decide", "objections/decide", "elections/create", "tokens/register",
+    "reports/decide", "appeals/decide", "snapshots/create", "roles/grant", "roles/revoke", "test/seed", "test/reset", "test/preview-role"];
+  for (const route of POSTS) {
+    const r = await post("/api/admin/" + route, owner);
+    assert.equal(r.status, 403, route);
+    assert.equal((await r.json()).error, "reprove", route);
+  }
+  for (const route of ["overview", "users", "seats", "claims", "objections", "elections", "tokens", "reports", "appeals",
+    "snapshots", "config", "roles", "audit"]) {
+    assert.equal((await call("/api/admin/" + route, { cookie: owner.cookie })).status, 200, route);
+  }
+  // the role is still checked before the proof
+  const mod = await staff("moderator", { stale: true });
+  const r = await post("/api/admin/tokens/register", mod);
+  assert.equal((await r.json()).error, "forbidden");
+  // with a fresh proof a normal write goes through
+  const fresh = await sessionFor(OWNER);
+  const mint = await newWallet();
+  assert.ok((await (await post("/api/admin/tokens/register", fresh, { mint, city: "Testville" })).json()).ok);
+});
+
+async function objectionFixture(objectorId) {
+  const seat = await env.DB.prepare(
+    "INSERT INTO seats (city_id, city_name, country, user_id, wallet, policy, threshold, status, created_at) VALUES (?, 'City', 'XX', ?, 'W', 5, 0.5, 'active', ?)")
+    .bind("c" + randomToken(4), (await sessionFor(await newWallet())).userId, iso(Date.now())).run();
+  const o = await env.DB.prepare("INSERT INTO objections (seat_id, user_id, reason, created_at) VALUES (?, ?, 'reason enough here', ?)")
+    .bind(seat.meta.last_row_id, objectorId, iso(Date.now())).run();
+  return { seatId: seat.meta.last_row_id, id: o.meta.last_row_id };
+}
+const seatStatus = async (id) => (await env.DB.prepare("SELECT status FROM seats WHERE id = ?").bind(id).first()).status;
+
+test("objections/decide: admin or owner with a fresh proof, never the objector, never a moderator", async () => {
+  const other = await sessionFor(await newWallet());
+  const { id, seatId } = await objectionFixture(other.userId);
+  const mod = await staff("moderator");
+  let r = await post("/api/admin/objections/decide", mod, { id, uphold: true });
+  assert.equal(r.status, 403);
+  assert.equal((await r.json()).error, "forbidden");
+  const staleAdmin = await staff("admin", { stale: true });
+  r = await post("/api/admin/objections/decide", staleAdmin, { id, uphold: true });
+  assert.equal((await r.json()).error, "reprove");
+  assert.equal(await seatStatus(seatId), "active", "nothing changed");
+
+  // the decider is the objector: refused, for an admin and for the owner
+  const admin = await staff("admin");
+  const own = await objectionFixture(admin.userId);
+  r = await post("/api/admin/objections/decide", admin, { id: own.id, uphold: true });
+  assert.equal(r.status, 403);
+  assert.equal((await r.json()).error, "own_objection");
+  assert.equal(await seatStatus(own.seatId), "active");
+  const owner = await sessionFor(OWNER);
+  const ownerOwn = await objectionFixture(owner.userId);
+  assert.equal((await (await post("/api/admin/objections/decide", owner, { id: ownerOwn.id, uphold: true })).json()).error, "own_objection");
+
+  // someone else's objection: an admin decides it
+  r = await post("/api/admin/objections/decide", admin, { id, uphold: true });
+  assert.ok((await r.json()).ok);
+  assert.equal(await seatStatus(seatId), "revoked");
+});
+
+test("snapshots/create: owner with a fresh proof only", async () => {
+  const body = { cutoff: "2020-01-01T00:00:00Z" };
+  const admin = await staff("admin");
+  let r = await post("/api/admin/snapshots/create", admin, body);
+  assert.equal(r.status, 403);
+  assert.equal((await r.json()).error, "forbidden");
+  const staleOwner = await sessionFor(OWNER, { stale: true });
+  assert.equal((await (await post("/api/admin/snapshots/create", staleOwner, body)).json()).error, "reprove");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM snapshots").first()).n, 0);
+  const owner = await sessionFor(OWNER);
+  assert.ok((await (await post("/api/admin/snapshots/create", owner, body)).json()).ok);
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM snapshots").first()).n, 1);
+});
+
+test("test/seed refuses outside preview mode; test/reset still works in live mode and deletes only tracked rows", async () => {
+  const owner = await sessionFor(OWNER);
+  for (const mode of [undefined, "live", "other"]) {
+    env.SITE_MODE = mode;
+    const r = await post("/api/admin/test/seed", owner);
+    assert.equal(r.status, 403, String(mode));
+    assert.equal((await r.json()).error, "not_in_preview");
+  }
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE provider = 'testlab'").first()).n, 0);
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_test").first()).n, 0);
+
+  // seed on the preview site, add real rows, then wipe it after the live cutover
+  env.SITE_MODE = "preview";
+  assert.ok((await (await post("/api/admin/test/seed", owner)).json()).ok);
+  const real = await sessionFor(await newWallet());
+  await env.DB.prepare("INSERT INTO posts (user_id, scope, place, country, kind, body, created_at) VALUES (?, 'city', 'x', 'US', 'meme', 'real post', ?)")
+    .bind(real.userId, iso(Date.now())).run();
+  const tracked = (await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_test").first()).n;
+  assert.equal(tracked, 20);
+
+  env.SITE_MODE = "live";
+  const reset = await (await post("/api/admin/test/reset", owner, { confirm: "RESET" })).json();
+  assert.ok(reset.ok);
+  assert.equal(reset.deleted, tracked);
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first()).n, 2, "owner and the real user remain");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE provider = 'testlab'").first()).n, 0);
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM posts").first()).n, 1, "the real post remains");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM seats").first()).n, 0);
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_test").first()).n, 0);
+});
+
+test("roles: owner can't be granted through the API, nobody bans or revokes an ADMIN_WALLETS wallet", async () => {
+  const owner = await sessionFor(OWNER);
+  const target = await newWallet(); await sessionFor(target);
+  let r = await post("/api/admin/roles/grant", owner, { wallet: target, role: "owner" });
+  assert.equal(r.status, 400);
+  assert.equal((await r.json()).error, "owner_not_grantable");
+  assert.equal(await env.DB.prepare("SELECT role FROM admin_roles WHERE wallet = ?").bind(target).first(), null);
+  assert.ok((await (await post("/api/admin/roles/grant", owner, { wallet: target, role: "admin" })).json()).ok);
+
+  // a second env owner: nobody (not even the first owner) can ban or revoke it
+  const owner2 = await newWallet(); await sessionFor(owner2);
+  env.ADMIN_WALLETS = `${OWNER},${owner2}`;
+  for (const route of ["users/ban", "users/unban", "roles/revoke"]) {
+    r = await post("/api/admin/" + route, owner, { wallet: owner2 });
+    assert.equal(r.status, 403, route);
+    assert.equal((await r.json()).error, "protected_wallet", route);
+  }
+  // an admin can't ban the owner either
+  const admin = await staff("admin");
+  r = await post("/api/admin/users/ban", admin, { wallet: OWNER });
+  assert.equal((await r.json()).error, "protected_wallet");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM bans").first()).n, 0);
+});
+
+test("ban, unban and revoke need a higher role than the target", async () => {
+  const owner = await sessionFor(OWNER);
+  const admin = await staff("admin"), admin2 = await staff("admin"), mod = await staff("moderator");
+  const legacyOwner = await staff("owner");   // a DB owner row from before owners became env-only
+  const plain = await newWallet(); await sessionFor(plain);
+  const err = async (route, who, wallet) => (await (await post("/api/admin/" + route, who, { wallet })).json()).error;
+
+  assert.equal(await err("users/ban", admin, admin2.wallet), "outranked", "peer");
+  assert.equal(await err("users/ban", admin, legacyOwner.wallet), "outranked", "higher role");
+  assert.equal(await err("users/ban", owner, legacyOwner.wallet), "outranked", "owner vs owner");
+  assert.equal(await err("users/unban", admin, admin2.wallet), "outranked");
+  assert.equal(await err("roles/revoke", owner, legacyOwner.wallet), "outranked");
+  assert.equal(await err("users/ban", admin, admin.wallet), "own_account", "self-ban refusal kept");
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM bans").first()).n, 0);
+
+  // lower roles and plain accounts are fine
+  assert.ok((await (await post("/api/admin/users/ban", admin, { wallet: mod.wallet, reason: "x" })).json()).ok);
+  assert.ok((await (await post("/api/admin/users/unban", admin, { wallet: mod.wallet })).json()).ok);
+  assert.ok((await (await post("/api/admin/users/ban", admin, { wallet: plain })).json()).ok);
+  assert.ok((await (await post("/api/admin/users/ban", owner, { wallet: admin2.wallet })).json()).ok);
+  assert.ok((await (await post("/api/admin/roles/revoke", owner, { wallet: admin2.wallet })).json()).revoked);
+  assert.equal((await post("/api/admin/roles/revoke", owner, { wallet: plain })).status, 404);
+});
+
+test("moderators get masked wallets and no names in users, seats and claims; admins see everything", async () => {
+  const owner = await sessionFor(OWNER);
+  assert.ok((await (await post("/api/admin/test/seed", owner)).json()).ok);
+  const win = await env.DB.prepare(
+    "INSERT INTO windows (city_id, city_name, country, policy, threshold, opened_at, closes_at, status) VALUES ('testlab-nyc', 'Testville', 'XX', 5, 0.5, ?, ?, 'open')")
+    .bind(iso(Date.now()), iso(Date.now() + 3 * 86400000)).run();
+  const u0 = await env.DB.prepare("SELECT id, wallet FROM users WHERE handle = '@testlab0'").first();
+  await env.DB.prepare("INSERT INTO applications (window_id, city_id, user_id, wallet, pitch, created_at) VALUES (?, 'testlab-nyc', ?, ?, 'pitch', ?)")
+    .bind(win.meta.last_row_id, u0.id, u0.wallet, iso(Date.now())).run();
+  const mod = await staff("moderator"), admin = await staff("admin");
+  const get = async (path, who) => (await call(path, { cookie: who.cookie })).json();
+
+  for (const [path, key] of [["/api/admin/users", "users"], ["/api/admin/seats", "seats"], ["/api/admin/claims", "claims"]]) {
+    const m = (await get(path, mod))[key];
+    assert.ok(m.length, key);
+    for (const row of m) {
+      assert.ok(!("name" in row), `${key}: no name`);
+      if (row.wallet) assert.match(row.wallet, /^.{5}\*{5}.{3}$/, `${key}: masked wallet`);
+    }
+    assert.ok(!JSON.stringify(m).includes("TestLab0"), `${key}: no full wallet`);
+    const a = (await get(path, admin))[key];
+    assert.ok(a.some((row) => row.wallet === u0.wallet), `${key}: admin sees the wallet`);
+    assert.ok(a.some((row) => row.name === "Test Lab 0"), `${key}: admin sees the name`);
+  }
+  // no search by wallet or name for the lowest role (it would undo the masking), handles still work
+  assert.equal((await get("/api/admin/users?q=TestLab03", mod)).users.length, 0);
+  assert.equal((await get("/api/admin/users?q=Test%20Lab%203", mod)).users.length, 0);
+  assert.equal((await get("/api/admin/users?q=testlab3", mod)).users.length, 1);
+  assert.equal((await get("/api/admin/users?q=TestLab03", admin)).users.length, 1);
+  assert.equal((await get("/api/admin/users?q=Test%20Lab%203", admin)).users.length, 1);
+});
+
+test("seats/decide: needs a fresh proof and an open window", async () => {
+  const mk = async (status) => {
+    const w = await env.DB.prepare(
+      "INSERT INTO windows (city_id, city_name, country, policy, threshold, opened_at, closes_at, status) VALUES (?, 'C', 'XX', 5, 0.5, ?, ?, ?)")
+      .bind("c" + status + randomToken(3), iso(Date.now()), iso(Date.now() + 86400000), status).run();
+    const u = await sessionFor(await newWallet());
+    const a = await env.DB.prepare("INSERT INTO applications (window_id, city_id, user_id, wallet, created_at) VALUES (?, 'c', ?, 'W', ?)")
+      .bind(w.meta.last_row_id, u.userId, iso(Date.now())).run();
+    return a.meta.last_row_id;
+  };
+  const open = await mk("open"), decided = await mk("decided");
+  const withdrawn = async (id) => (await env.DB.prepare("SELECT withdrawn FROM applications WHERE id = ?").bind(id).first()).withdrawn;
+  const stale = await staff("admin", { stale: true }), admin = await staff("admin");
+  assert.equal((await (await post("/api/admin/seats/decide", stale, { id: open, decision: "reject" })).json()).error, "reprove");
+  let r = await post("/api/admin/seats/decide", admin, { id: decided, decision: "reject" });
+  assert.equal(r.status, 409);
+  assert.equal((await r.json()).error, "window_closed");
+  assert.equal(await withdrawn(decided), 0);
+  assert.equal(await withdrawn(open), 0);
+  assert.ok((await (await post("/api/admin/seats/decide", admin, { id: open, decision: "reject" })).json()).ok);
+  assert.equal(await withdrawn(open), 1);
 });
