@@ -638,7 +638,7 @@
     const note = $("#claim-note");
     note.textContent = !open ? "Applications open after $VICINITY launches, for people who have held the founder amount for 7 days. There's no race: each city gets a 72-hour window and locals decide."
       : selected && myHome() && myHome() !== selected.id ? "You can only found the community you live in. Your dashboard shows yours."
-      : "Founders are chosen in a 72-hour window: 50% local endorsements, 30% contribution, 20% holdings (capped). Apply or endorse in your dashboard.";
+      : "The first qualified claimer becomes Seed Steward at once (90-day probation, locals can challenge). If several claim together, a 72-hour window decides: 50% endorsements, 30% contribution, 20% holdings. Apply or endorse in your dashboard.";
   }
   function select(c, fly = false) {
     // too small to be a community, in empty land: offer the three nearest communities

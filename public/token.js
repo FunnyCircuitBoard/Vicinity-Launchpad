@@ -3,7 +3,7 @@
 (() => {
   "use strict";
   const { $, $$, el, api, toast, copy, fmt, compact, mask, isAddr } = window.V;
-  const FOUNDER = 1_000_000;
+  const FOUNDER_MAX = 1_000_000; // the top of the Stake Ladder (100K to 1M by city size, see /rules#ladder)
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
   const usd = (n) => (n >= 1 ? "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "$" + n.toPrecision(3));
   let holders = [], launched = false;
@@ -116,7 +116,9 @@
     const amount = d.amount || 0;
     set("#rank-amount", `${fmt(amount)} $VICINITY`);
     set("#rank-share", amount ? `${pctText(d.percent || 0)}%` : "0%");
-    set("#rank-founder", amount >= FOUNDER ? "✓ Holds it (must hold 7 days)" : `${fmt(FOUNDER - amount)} to go`);
+    const founderMin = d.founderMin || 100_000; // the smallest founder amount: the exact one depends on the city
+    set("#rank-founder", amount >= FOUNDER_MAX ? "✓ Enough for any city (hold it 7 days)"
+      : amount >= founderMin ? "✓ Enough for smaller cities (hold it 7 days)" : `${fmt(founderMin - amount)} to reach the smallest`);
     if (d.label && !d.rank) { set("#rank-num", "Pool"); set("#rank-of", d.label); set("#rank-pct", "Pools and curves are listed but not ranked."); }
     else if (d.rank) {
       set("#rank-num", `#${fmt(d.rank)}`); set("#rank-of", `of ${fmt(d.total)} holders`);

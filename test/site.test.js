@@ -103,7 +103,8 @@ test("cities page: live map, claimed vs open, claiming sends you to the dashboar
   for (const id of ["cities", "city-canvas", "map-in", "map-out", "map-reset", "map-locate", "coin-preview", "coin-ticker", "claim-feed", "mod-row", "city-q", "cs-claimed", "cs-open", "wanted-list"]) assert.ok(h.includes(`id="${id}"`), id);
   assert.match(h, /<a class="btn btn--primary btn--block" id="claim-btn" href="\/dashboard">/);
   assert.match(h, /One wallet\. One city\./);
-  assert.match(h, /1,000,000\+ \$VICINITY/);
+  assert.match(h, /100,000 to 1,000,000 \$VICINITY/, "the Stake Ladder, not a flat 1M");
+  assert.doesNotMatch(h, /Hold 1,000,000\+/);
   assert.match(h, /We never save it/);
   assert.match(h, /VPNs are blocked/);
   assert.match(h, /Sample only/);
@@ -155,4 +156,9 @@ test("rules page: every rule, the formulas and the never-list, filled from the l
   for (const p of PAGES) assert.ok(html[p].includes('href="/rules">Rules &amp; fairness</a>'), `${p} links the rules in the footer`);
   assert.doesNotMatch(all, /first come, first served/i, "no races");
   assert.doesNotMatch(all, /= one person/i, "no overclaiming: accounts aren't proof of a unique person");
+});
+
+test("no page still says the founder amount is a flat 1,000,000 (policy v5: the Stake Ladder, 100K to 1M)", () => {
+  for (const [f, h] of Object.entries(html)) assert.doesNotMatch(h, /(held|hold|holds|drops below|Held)\s+(the\s+)?1,000,000/, `${f} still shows the old flat founder amount`);
+  assert.doesNotMatch(read("token.js"), /FOUNDER = 1_000_000/);
 });
