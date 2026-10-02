@@ -8,7 +8,9 @@
   "account_id": "bb77f7451b478e895fa1efb10aaccc35",
   "main": "src/index.js",
   "compatibility_date": "2026-09-01",
-  "workers_dev": true,
+  // Off: the workers.dev address served the whole site (admin included) outside the vicinity.city protections,
+  // and sign-in cannot work there anyway. Turn it back on only for a short test.
+  "workers_dev": false,
   "preview_urls": false,
   "build": { "command": "npm run build" },
   // Public settings, versioned here so a change goes through a pull request. Everything secret

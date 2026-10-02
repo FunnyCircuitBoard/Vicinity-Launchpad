@@ -11,7 +11,9 @@ export const LAUNCHPAD_OPENS_AT = "2026-10-10T10:10:10-04:00";
 
 export const OFFICIAL = {
   updated: "2026-09-27", // vicinity.city is the main address; vicinitycity.net forwards to it
-  websites: ["vicinity.city", "vicinitycity.net", "vicinity-map.sakibul-noyon.workers.dev", "vicinity-map.noyonsakibul.workers.dev"],
+  // Only addresses we control for sure. (The two workers.dev addresses were listed before: a workers.dev name can be
+  // claimed by anyone once it is released, so a name on this list that is not ours would vouch for a fake site.)
+  websites: ["vicinity.city", "vicinitycity.com", "vicinitycity.net"],
   github: [],             // code is private
   socials: ["@VicinityCitySOL"], // official X account (verified 2026-09-30)
   tokenContract: VICINITY_MINT,
@@ -26,8 +28,9 @@ export const OFFICIAL = {
 
 const clean = (s) => String(s || "").trim().slice(0, 300);
 
-/** Decide whether something a visitor pasted is an official Vicinity place. */
-export function checkOfficial(input, isSolanaAddress) {
+/** Decide whether something a visitor pasted is an official Vicinity place (the list as it is now: see withMint). */
+export function checkOfficial(input, isSolanaAddress, env) {
+  const OFFICIAL = withMint(env);
   const raw = clean(input);
   if (!raw) return { verdict: "empty", message: "Paste a link, address or @handle to check it." };
 
@@ -80,9 +83,25 @@ export function checkOfficial(input, isSolanaAddress) {
 /** The live mint: the Cloudflare setting VICINITY_MINT wins over the line above (so launch needs no code change). */
 export const activeMint = (env) => (env && env.VICINITY_MINT) || VICINITY_MINT;
 
+/**
+ * The official list as it is right now: the contract from the VICINITY_MINT setting (or the line at the top of
+ * this file) is on it, so the link checker, the token registry and /api/official all know the real contract the
+ * moment the setting is saved. No code change at launch.
+ */
+export function withMint(env) {
+  const mint = activeMint(env);
+  if (!mint) return OFFICIAL;
+  return {
+    ...OFFICIAL,
+    tokenContract: mint,
+    tokens: OFFICIAL.tokens.map((t, i) => (i === 0 ? { ...t, contract: mint, status: "Live" } : t)),
+  };
+}
+
 /** SITE_MODE=preview: the site behaves as if the launchpad already opened, so every
  *  post-launch flow can be tested. The real announced date is kept as announcedOpensAt. */
 export function officialFor(env) {
+  const OFFICIAL = withMint(env);
   if (env && env.SITE_MODE === "preview") {
     return {
       ...OFFICIAL,
