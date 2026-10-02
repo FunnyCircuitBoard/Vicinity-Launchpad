@@ -1,112 +1,138 @@
-// src/social.js: recovered from the code deployed on Cloudflare (Worker "vicinity-map", 2026-10-02).
-// The original comments and formatting were lost in the bundle; the code is the deployed code, byte for byte after bundling.
+/**
+ * Local (your city) and national (your country) feeds: memes, check-ins and discussions, weekly votes
+ * and reports. Moderation is in src/moderation.js.
+ *
+ * Rules, kept here in one place:
+ *   - signed in, with a home community, to read or post; after launch, only holders can post and vote
+ *   - 12 posts an hour at most; one check-in a day, and only from inside your community (a location attestation)
+ *   - no contract addresses in posts (the only real one is on the Token page): stops fake-token scams
+ *   - votes: 1 for everyone, 2 for city founders, 3 for country managers; "top" = this week (from Monday, UTC)
+ *   - 3 reports confirm a moderator's hide; 5 reports hide a post until a moderator reviews it
+ */
 import { json, readJson } from "./http.js";
+import { access } from "./access.js";
+import { useAttestation, countRecent, noteEvent } from "./attest.js";
+import { activeBan, canModerate, managerOf, powersOf } from "./roles.js";
 import { ensureSchema } from "./store.js";
 import { DAY, POLICY, iso } from "./policy.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
-import { activeBan, canModerate, managerOf, powersOf } from "./roles.js";
 import { toBytes } from "./blobs.js";
-import { access } from "./access.js";
-import { countRecent, noteEvent, useAttestation } from "./attest.js";
-var KINDS = ["meme", "checkin", "talk"];
-var LIMITS = { meme: 280, checkin: 140, talk: 1e3, reply: 500 };
-var MAX_IMAGE = 2e5;
-var POSTS_PER_HOUR = 12;
-function weekStart(now = Date.now()) {
+
+export { cleanText };
+const KINDS = ["meme", "checkin", "talk"];
+const LIMITS = { meme: 280, checkin: 140, talk: 1000, reply: 500 };
+const MAX_IMAGE = 200_000;
+const POSTS_PER_HOUR = 12;
+
+/** Monday 00:00 UTC of this week: weekly votes start here. */
+export function weekStart(now = Date.now()) {
   const d = new Date(now);
   const day = (d.getUTCDay() + 6) % 7;
   return iso(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day));
 }
-var placeFor = (u, scope) => scope === "country" ? u.home_country : u.home_city;
-var sees = (u, p, pw) => canModerate(pw, p) || (p.scope === "city" ? p.place === u.home_city : p.place === u.home_country);
-var COLS = "p.id, p.user_id, p.scope, p.place, p.country, p.kind, p.body, p.media_id, p.parent_id, p.score, p.reports, p.replies, p.hidden, p.hide_confirmed, p.hidden_until, p.created_at, u.handle, u.name, u.home_name AS author_home";
-var FROM = "FROM posts p JOIN users u ON u.id = p.user_id";
-async function present(env, rows, me, pw, fetchImpl = fetch, now = Date.now()) {
+
+const placeFor = (u, scope) => (scope === "country" ? u.home_country : u.home_city);
+/** Can this person see this post? Your city's posts, your country's posts. */
+const sees = (u, p, pw) => canModerate(pw, p) || (p.scope === "city" ? p.place === u.home_city : p.place === u.home_country);
+
+export const COLS = "p.id, p.user_id, p.scope, p.place, p.country, p.kind, p.body, p.media_id, p.parent_id, p.score, p.reports, p.replies, p.hidden, p.hide_confirmed, p.hidden_until, p.created_at, u.handle, u.name, u.home_name AS author_home";
+export const FROM = "FROM posts p JOIN users u ON u.id = p.user_id";
+
+/** Posts as the page sees them: author name and live role, never their wallet. */
+export async function present(env, rows, me, pw, fetchImpl = fetch, now = Date.now()) {
   if (!rows.length) return [];
   const db = env.DB;
   const ids = rows.map((r) => r.id);
-  const mine = new Set((await db.prepare(`SELECT post_id FROM votes WHERE user_id = ? AND post_id IN (${ids.map(() => "?").join(",")})`).bind(me.id, ...ids).all()).results.map((r) => r.post_id));
+  const mine = new Set((await db.prepare(`SELECT post_id FROM votes WHERE user_id = ? AND post_id IN (${ids.map(() => "?").join(",")})`)
+    .bind(me.id, ...ids).all()).results.map((r) => r.post_id));
   const authors = [...new Set(rows.map((r) => r.user_id))];
-  const founders = new Map((await db.prepare(`SELECT user_id, city_name FROM seats WHERE status = 'active' AND user_id IN (${authors.map(() => "?").join(",")})`).bind(...authors).all()).results.map((r) => [r.user_id, r.city_name]));
-  const managers = /* @__PURE__ */ new Set();
-  for (const cc of new Set(rows.map((r) => r.country))) {
-    const m = await managerOf(env, cc, now);
-    if (m) managers.add(m.userId);
-  }
+  const founders = new Map((await db.prepare(`SELECT user_id, city_name FROM seats WHERE status = 'active' AND user_id IN (${authors.map(() => "?").join(",")})`)
+    .bind(...authors).all()).results.map((r) => [r.user_id, r.city_name]));
+  const managers = new Set();
+  for (const cc of new Set(rows.map((r) => r.country))) { const m = await managerOf(env, cc, now); if (m) managers.add(m.userId); }
   const actions = new Map((await db.prepare(`SELECT target_id, id, state, reason FROM mod_actions WHERE target_type = 'post' AND action = 'hide' AND state IN ('pending', 'confirmed')
     AND target_id IN (${ids.map(() => "?").join(",")}) ORDER BY id`).bind(...ids).all()).results.map((r) => [r.target_id, r]));
   return rows.map((r) => {
     const mod = canModerate(pw, r), act = actions.get(r.id);
     return {
-      id: r.id,
-      kind: r.kind,
-      body: r.body,
-      image: r.media_id ? `/api/media/${r.media_id}` : null,
-      score: r.score,
-      replies: r.replies,
-      at: r.created_at,
-      hidden: Boolean(r.hidden),
+      id: r.id, kind: r.kind, body: r.body, image: r.media_id ? `/api/media/${r.media_id}` : null,
+      score: r.score, replies: r.replies, at: r.created_at, hidden: Boolean(r.hidden),
       hiddenUntil: r.hidden && !r.hide_confirmed ? r.hidden_until : null,
       hideAction: r.hidden && act && (mod || r.user_id === me.id) ? { id: act.id, state: act.state, reason: act.reason } : null,
-      reports: mod ? r.reports : void 0,
-      where: r.kind === "checkin" ? r.author_home : void 0,
-      voted: mine.has(r.id),
-      mine: r.user_id === me.id,
-      canModerate: mod,
-      author: { id: mod ? r.user_id : void 0, name: r.handle || r.name || "Member", founder: founders.get(r.user_id) || null, manager: managers.has(r.user_id) }
+      reports: mod ? r.reports : undefined,
+      where: r.kind === "checkin" ? r.author_home : undefined,
+      voted: mine.has(r.id), mine: r.user_id === me.id, canModerate: mod,
+      author: { id: mod ? r.user_id : undefined, name: r.handle || r.name || "Member", founder: founders.get(r.user_id) || null, manager: managers.has(r.user_id) },
     };
   });
 }
-async function handlePosts(request, env, fetchImpl = fetch, now = Date.now()) {
+
+/** GET /api/posts?scope=city|country&kind=meme|checkin|talk&sort=new|top&before=<id>  or  ?parent=<id> for replies */
+export async function handlePosts(request, env, fetchImpl = fetch, now = Date.now()) {
   const a = await access(request, env, now, { write: false });
   if (a.error) return a.error;
-  const u = a.u, q2 = new URL(request.url).searchParams, db = env.DB;
+  const u = a.u, q = new URL(request.url).searchParams, db = env.DB;
   const pw = await powersOf(env, u, fetchImpl, now);
   let rows;
-  if (q2.get("parent")) {
-    const par = await db.prepare("SELECT * FROM posts WHERE id = ?").bind(Number(q2.get("parent")) || 0).first();
-    if (!par || !sees(u, par, pw) || par.hidden && !canModerate(pw, par) && par.user_id !== u.id) return json({ ok: false, error: "not_found" }, 404);
-    rows = (await db.prepare(`SELECT ${COLS} ${FROM} WHERE p.parent_id = ? AND (p.hidden = 0 OR ? OR p.user_id = ?) ORDER BY p.id LIMIT 100`).bind(par.id, canModerate(pw, par) ? 1 : 0, u.id).all()).results;
+  if (q.get("parent")) {
+    const par = await db.prepare("SELECT * FROM posts WHERE id = ?").bind(Number(q.get("parent")) || 0).first();
+    if (!par || !sees(u, par, pw) || (par.hidden && !canModerate(pw, par) && par.user_id !== u.id)) return json({ ok: false, error: "not_found" }, 404);
+    rows = (await db.prepare(`SELECT ${COLS} ${FROM} WHERE p.parent_id = ? AND (p.hidden = 0 OR ? OR p.user_id = ?) ORDER BY p.id LIMIT 100`)
+      .bind(par.id, canModerate(pw, par) ? 1 : 0, u.id).all()).results;
     return json({ ok: true, posts: await present(env, rows, u, pw, fetchImpl, now) });
   }
-  const scope = q2.get("scope") === "country" ? "country" : "city";
-  const kind = KINDS.includes(q2.get("kind")) ? q2.get("kind") : "meme";
+  const scope = q.get("scope") === "country" ? "country" : "city";
+  const kind = KINDS.includes(q.get("kind")) ? q.get("kind") : "meme";
   const place = placeFor(u, scope);
   if (!place) return json({ ok: false, error: "no_home" }, 409);
   const mod = canModerate(pw, { scope, place, country: u.home_country }) ? 1 : 0;
+  // Check-ins are always local; the national tab shows every city's check-ins in the country.
   const nationalCheckins = scope === "country" && kind === "checkin";
-  const where = nationalCheckins ? `p.country = ? AND ? <> '' AND p.kind = ? AND p.parent_id IS NULL AND (p.hidden = 0 OR ? OR p.user_id = ?)` : `p.scope = ? AND p.place = ? AND p.kind = ? AND p.parent_id IS NULL AND (p.hidden = 0 OR ? OR p.user_id = ?)`;
+  const where = nationalCheckins
+    ? `p.country = ? AND ? <> '' AND p.kind = ? AND p.parent_id IS NULL AND (p.hidden = 0 OR ? OR p.user_id = ?)`
+    : `p.scope = ? AND p.place = ? AND p.kind = ? AND p.parent_id IS NULL AND (p.hidden = 0 OR ? OR p.user_id = ?)`;
   const [a1, a2] = nationalCheckins ? [place, "x"] : [scope, place];
-  if (q2.get("sort") === "top") {
-    rows = (await db.prepare(`SELECT ${COLS} ${FROM} WHERE ${where} AND p.created_at >= ? ORDER BY p.score DESC, p.id DESC LIMIT 30`).bind(a1, a2, kind, mod, u.id, weekStart(now)).all()).results;
+  if (q.get("sort") === "top") {
+    rows = (await db.prepare(`SELECT ${COLS} ${FROM} WHERE ${where} AND p.created_at >= ? ORDER BY p.score DESC, p.id DESC LIMIT 30`)
+      .bind(a1, a2, kind, mod, u.id, weekStart(now)).all()).results;
   } else {
-    const before = Number(q2.get("before")) || 0;
-    rows = (await db.prepare(`SELECT ${COLS} ${FROM} WHERE ${where} AND (? = 0 OR p.id < ?) ORDER BY p.id DESC LIMIT 20`).bind(a1, a2, kind, mod, u.id, before, before).all()).results;
+    const before = Number(q.get("before")) || 0;
+    rows = (await db.prepare(`SELECT ${COLS} ${FROM} WHERE ${where} AND (? = 0 OR p.id < ?) ORDER BY p.id DESC LIMIT 20`)
+      .bind(a1, a2, kind, mod, u.id, before, before).all()).results;
   }
   return json({ ok: true, scope, kind, place, canModerate: Boolean(mod), weekStart: weekStart(now), posts: await present(env, rows, u, pw, fetchImpl, now) });
 }
-function readImage(b642) {
-  if (typeof b642 !== "string" || b642.length > Math.ceil(MAX_IMAGE / 3) * 4 + 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b642)) return null;
-  const bytes = Uint8Array.from(atob(b642), (c) => c.charCodeAt(0));
+
+/** A meme picture: base64 of a JPEG, PNG or WebP the browser already shrank. Returns { type, bytes } or null. */
+export function readImage(b64) {
+  if (typeof b64 !== "string" || b64.length > Math.ceil(MAX_IMAGE / 3) * 4 + 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return null;
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   if (bytes.length > MAX_IMAGE || bytes.length < 16) return null;
   const is = (...sig) => sig.every((v, i) => v == null || bytes[i] === v);
-  if (is(255, 216, 255)) return { type: "image/jpeg", bytes };
-  if (is(137, 80, 78, 71)) return { type: "image/png", bytes };
-  if (is(82, 73, 70, 70, null, null, null, null, 87, 69, 66, 80)) return { type: "image/webp", bytes };
+  if (is(0xff, 0xd8, 0xff)) return { type: "image/jpeg", bytes };
+  if (is(0x89, 0x50, 0x4e, 0x47)) return { type: "image/png", bytes };
+  if (is(0x52, 0x49, 0x46, 0x46, null, null, null, null, 0x57, 0x45, 0x42, 0x50)) return { type: "image/webp", bytes };
   return null;
 }
-async function handleNewPost(request, env, fetchImpl = fetch, now = Date.now()) {
+
+/**
+ * POST /api/posts { scope, kind, body, image?, parent?, attestation? }
+ * kind: meme (caption and/or picture) · checkin (standing in your community: an attestation from
+ * /api/locate, once a day) · talk (a discussion) · parent: reply to a post.
+ */
+export async function handleNewPost(request, env, fetchImpl = fetch, now = Date.now()) {
   const a = await access(request, env, now);
   if (a.error) return a.error;
   const u = a.u, db = env.DB;
-  const body = await readJson(request, 3e5);
+  const body = await readJson(request, 300_000);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
   if (!u.home_city) return json({ ok: false, error: "no_home" }, 409);
   if (await activeBan(db, u.id, u.home_country, now)) return json({ ok: false, error: "banned" }, 403);
   const pw = await powersOf(env, u, fetchImpl, now);
   if (pw.launched && !pw.holder && !pw.admin) return json({ ok: false, error: "holders_only" }, 403);
-  const recent = await db.prepare("SELECT COUNT(*) AS n FROM posts WHERE user_id = ? AND created_at >= ?").bind(u.id, iso(now - 36e5)).first();
+  const recent = await db.prepare("SELECT COUNT(*) AS n FROM posts WHERE user_id = ? AND created_at >= ?").bind(u.id, iso(now - 3600_000)).first();
   if ((recent?.n || 0) >= POSTS_PER_HOUR) return json({ ok: false, error: "slow_down" }, 429);
+
   let parent = null;
   if (body.parent != null) {
     parent = await db.prepare("SELECT * FROM posts WHERE id = ? AND parent_id IS NULL AND hidden = 0").bind(Number(body.parent) || 0).first();
@@ -120,6 +146,7 @@ async function handleNewPost(request, env, fetchImpl = fetch, now = Date.now()) 
   if (HAS_ADDRESS.test(text)) return json({ ok: false, error: "no_addresses" }, 400);
   const image = kind === "meme" && body.image != null ? readImage(body.image) : null;
   if (kind === "meme" && body.image != null && !image) return json({ ok: false, error: "bad_image" }, 400);
+
   if (kind === "checkin") {
     const today = iso(now).slice(0, 10);
     if (await db.prepare("SELECT id FROM posts WHERE user_id = ? AND kind = 'checkin' AND created_at >= ?").bind(u.id, today).first()) {
@@ -131,6 +158,7 @@ async function handleNewPost(request, env, fetchImpl = fetch, now = Date.now()) 
     if (!text) text = `Checked in to ${u.home_name}`;
   }
   if (!text && !image) return json({ ok: false, error: "empty" }, 400);
+
   const place = parent ? parent.place : placeFor(u, scope);
   const country = parent ? parent.country : u.home_country;
   let mediaId = null;
@@ -138,11 +166,13 @@ async function handleNewPost(request, env, fetchImpl = fetch, now = Date.now()) 
     const r = await db.prepare("INSERT INTO media (user_id, type, bytes, created_at) VALUES (?, ?, ?, ?)").bind(u.id, image.type, image.bytes, iso(now)).run();
     mediaId = r.meta.last_row_id;
   }
-  const ins = await db.prepare("INSERT INTO posts (user_id, scope, place, country, kind, body, media_id, parent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(u.id, scope, place, country, kind, text, mediaId, parent ? parent.id : null, iso(now)).run();
+  const ins = await db.prepare("INSERT INTO posts (user_id, scope, place, country, kind, body, media_id, parent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(u.id, scope, place, country, kind, text, mediaId, parent ? parent.id : null, iso(now)).run();
   if (parent) await db.prepare("UPDATE posts SET replies = replies + 1 WHERE id = ?").bind(parent.id).run();
   const row = await db.prepare(`SELECT ${COLS} ${FROM} WHERE p.id = ?`).bind(ins.meta.last_row_id).first();
   return json({ ok: true, post: (await present(env, [row], u, pw, fetchImpl, now))[0] });
 }
+
 async function postFor(request, env, now, fetchImpl) {
   const a = await access(request, env, now);
   if (a.error) return a;
@@ -153,7 +183,9 @@ async function postFor(request, env, now, fetchImpl) {
   if (!post || !sees(a.u, post, pw)) return { error: json({ ok: false, error: "not_found" }, 404) };
   return { u: a.u, body, post, pw };
 }
-async function handleVote(request, env, fetchImpl = fetch, now = Date.now()) {
+
+/** POST /api/posts/vote { id } → vote, or take your vote back. Founders count 2, managers 3. */
+export async function handleVote(request, env, fetchImpl = fetch, now = Date.now()) {
   const r = await postFor(request, env, now, fetchImpl);
   if (r.error) return r.error;
   const { u, post, pw } = r, db = env.DB;
@@ -164,18 +196,23 @@ async function handleVote(request, env, fetchImpl = fetch, now = Date.now()) {
   if (had) {
     await db.batch([
       db.prepare("DELETE FROM votes WHERE post_id = ? AND user_id = ?").bind(post.id, u.id),
-      db.prepare("UPDATE posts SET score = score - ? WHERE id = ?").bind(had.weight, post.id)
+      db.prepare("UPDATE posts SET score = score - ? WHERE id = ?").bind(had.weight, post.id),
     ]);
   } else {
     await db.batch([
       db.prepare("INSERT INTO votes (post_id, user_id, weight, created_at) VALUES (?, ?, ?, ?)").bind(post.id, u.id, pw.weight, iso(now)),
-      db.prepare("UPDATE posts SET score = score + ? WHERE id = ?").bind(pw.weight, post.id)
+      db.prepare("UPDATE posts SET score = score + ? WHERE id = ?").bind(pw.weight, post.id),
     ]);
   }
   const s = await db.prepare("SELECT score FROM posts WHERE id = ?").bind(post.id).first();
   return json({ ok: true, voted: !had, score: s.score, weight: pw.weight });
 }
-async function handleReport(request, env, fetchImpl = fetch, now = Date.now()) {
+
+/**
+ * POST /api/posts/report { id, reason } → 3 reports confirm a moderator's hide; 5 reports hide the post
+ * until a moderator reviews it (both logged publicly as "community reports").
+ */
+export async function handleReport(request, env, fetchImpl = fetch, now = Date.now()) {
   const r = await postFor(request, env, now, fetchImpl);
   if (r.error) return r.error;
   const { u, post, body } = r, db = env.DB;
@@ -187,31 +224,30 @@ async function handleReport(request, env, fetchImpl = fetch, now = Date.now()) {
   await noteEvent(env, u.id, "report", now);
   const n = post.reports + 1;
   const stmts = [db.prepare("UPDATE posts SET reports = ? WHERE id = ?").bind(n, post.id)];
-  const log2 = (action, state) => db.prepare(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, created_at, state)
+  const log = (action, state) => db.prepare(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, created_at, state)
     VALUES (NULL, 'community', ?, 'post', ?, ?, ?, ?, 'reports', ?, ?)`).bind(action, post.id, post.user_id, post.country, post.place, iso(now), state);
   const pending = await db.prepare("SELECT id FROM mod_actions WHERE target_type = 'post' AND target_id = ? AND action = 'hide' AND state = 'pending'").bind(post.id).first();
   if (post.hidden && !post.hide_confirmed && pending && n >= POLICY.moderation.reportsToConfirm) {
     stmts.push(db.prepare("UPDATE posts SET hide_confirmed = 1, hidden_until = NULL WHERE id = ?").bind(post.id));
     stmts.push(db.prepare("UPDATE mod_actions SET state = 'confirmed', second_at = ? WHERE id = ?").bind(iso(now), pending.id));
-    stmts.push(log2("confirm_hide", "confirmed"));
+    stmts.push(log("confirm_hide", "confirmed"));
   } else if (!post.hidden && n >= POLICY.moderation.reportsToAutoHide) {
     stmts.push(db.prepare("UPDATE posts SET hidden = 1, hide_confirmed = 1, hidden_until = NULL WHERE id = ?").bind(post.id));
-    stmts.push(log2("hide", "confirmed"));
+    stmts.push(log("hide", "confirmed"));
   }
   await db.batch(stmts);
   return json({ ok: true });
 }
-async function handleMedia(env, id) {
+
+/** GET /api/media/:id → a meme picture. */
+export async function handleMedia(env, id) {
   if (!env.DB || !/^[0-9]{1,10}$/.test(id)) return json({ error: "not_found" }, 404);
   await ensureSchema(env.DB);
   const row = await env.DB.prepare("SELECT type, bytes FROM media WHERE id = ?").bind(Number(id)).first();
   if (!row) return json({ error: "not_found" }, 404);
   return new Response(toBytes(row.bytes), { headers: {
-    "Content-Type": row.type,
-    "Cache-Control": "public, max-age=31536000, immutable",
-    "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": "default-src 'none'; sandbox",
-    "Content-Disposition": "inline"
+    "Content-Type": row.type, "Cache-Control": "public, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": "inline",
   } });
 }
-export { COLS, FROM, handleMedia, handleNewPost, handlePosts, handleReport, handleVote, present, readImage };
+
