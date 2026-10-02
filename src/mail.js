@@ -124,6 +124,9 @@ async function sendViaResend(env, { to, subject, text, html }, fetchImpl) {
 }
 
 export async function sendMail(env, { to, subject, text, html }, deps = {}) {
+  // Defense in depth: whatever the caller checked, never let control characters, spaces or angle brackets
+  // reach the SMTP "RCPT TO" line or a mail header.
+  if (typeof to !== "string" || !to || /[\u0000-\u0020\u007f-\u009f<>]/.test(to)) return { ok: false, error: "bad_email" };
   const fetchImpl = deps.fetchImpl || fetch;
   if (env.GMAIL_USER && env.GMAIL_APP_PASSWORD) return sendViaGmail(env, { to, subject, text, html }, deps.smtpImpl || null);
   return sendViaResend(env, { to, subject, text, html }, fetchImpl);

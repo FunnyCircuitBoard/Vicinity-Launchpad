@@ -221,3 +221,103 @@ test("gmail is preferred over resend when both are configured", async () => {
     { to: "t@example.com", subject: "s", text: "t" }, deps);
   assert.equal(via, "gmail");
 });
+
+// ---- Parallel requests (security): the database answers a little later than the code runs, like the real one,
+// so requests that arrive together really do overlap.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function slowDb(db, ms = 2) {
+  const wrap = (stmt) => ({
+    sql: stmt.sql,
+    bind: (...p) => wrap(stmt.bind(...p)),
+    first: async (...a) => { await sleep(ms); const r = await stmt.first(...a); await sleep(ms); return r; },
+    run: async () => { await sleep(ms); const r = await stmt.run(); await sleep(ms); return r; },
+    all: async () => { await sleep(ms); const r = await stmt.all(); await sleep(ms); return r; },
+  });
+  return { ...db, prepare: (sql) => wrap(db.prepare(sql)) };
+}
+const attemptsOf = (email) => env.DB.prepare("SELECT attempts, send_count FROM email_codes WHERE email = ?").bind(email).first();
+
+test("60 guesses sent at the same moment still only get five tries (the right code in the middle loses)", async () => {
+  await start(jar, "victim@example.com");
+  const right = sentCodes[0].code;
+  env.DB = slowDb(env.DB);
+  const wrong = (i) => String(100000 + ((Number(right) - 100000 + 1 + i) % 900000));
+  const guesses = Array.from({ length: 61 }, (_, i) => (i === 30 ? right : wrong(i)));
+  const answers = await Promise.all(guesses.map((g) => verify(browser(), "victim@example.com", g).then((r) => r.json())));
+  const compared = answers.filter((a) => a.error === "code_wrong" || a.ok || a.error === "wallet_first").length;
+  assert.ok(compared <= 5, `only five guesses may be compared, got ${compared}`);
+  assert.equal(answers.filter((a) => a.ok).length, 0, "nobody got in with the code in 31st place");
+  assert.ok(answers.every((a) => ["code_wrong", "too_many", "code_expired", "wallet_first"].includes(a.error)));
+  assert.equal((await attemptsOf("victim@example.com")).attempts, 5);
+});
+
+test("two requests carrying the right code at once: only one can use it", async () => {
+  const { consumeEmailCode } = await import("../src/auth.js");
+  await start(jar, "once@example.com");
+  const code = sentCodes[0].code;
+  const slow = slowDb(env.DB);
+  const results = await Promise.all([consumeEmailCode(slow, "once@example.com", code), consumeEmailCode(slow, "once@example.com", code)]);
+  assert.equal(results.filter((r) => r.ok).length, 1);
+});
+
+test("30 parallel requests for one address send one e-mail, not thirty", async () => {
+  env.DB = slowDb(env.DB);
+  const answers = await Promise.all(Array.from({ length: 30 }, () => start(browser(), "bomb@example.com")));
+  assert.equal(sentCodes.length, 1);
+  assert.deepEqual(answers.map((r) => r.status).sort(), [200, ...Array(29).fill(429)]);
+  assert.equal((await attemptsOf("bomb@example.com")).send_count, 1);
+});
+
+test("burning the five guesses does not reset the one-a-minute and five-an-hour limits", async () => {
+  const E = "loop@example.com", ago = (ms) => new Date(Date.now() - ms).toISOString();
+  await start(jar, E);
+  for (let i = 0; i < 5; i++) await verify(jar, E, "111111");
+  assert.equal((await verify(jar, E, "111111")).status, 429, "code is dead");
+  const r = await start(jar, E);
+  assert.equal(r.status, 429, "the mailing limits survived the burn");
+  assert.equal((await r.json()).error, "too_soon");
+  // five an hour: a minute passes between sends, the count keeps growing through burns
+  for (let i = 2; i <= 5; i++) {
+    await env.DB.prepare("UPDATE email_codes SET last_sent_at = ? WHERE email = ?").bind(ago(61_000), E).run();
+    assert.equal((await start(jar, E)).status, 200, `send ${i}`);
+    for (let k = 0; k < 6; k++) await verify(jar, E, "111111");
+  }
+  await env.DB.prepare("UPDATE email_codes SET last_sent_at = ? WHERE email = ?").bind(ago(61_000), E).run();
+  const sixth = await start(jar, E);
+  assert.equal(sixth.status, 429);
+  assert.equal((await sixth.json()).error, "too_many");
+  assert.equal(sentCodes.length, 5);
+});
+
+test("a failed mail gives the send slot back and leaves no usable code", async () => {
+  const bad = async () => new Response("nope", { status: 500 });
+  let r = await jar.send("/api/auth/email/start", { method: "POST", body: { email: "flaky@example.com" }, fetchImpl: bad });
+  assert.equal(r.status, 503);
+  assert.equal((await attemptsOf("flaky@example.com")).send_count, 0);
+  r = await start(jar, "flaky@example.com");
+  assert.equal(r.status, 200, "retry right away works");
+  assert.equal(sentCodes.length, 1);
+});
+
+test("a site-wide hourly cap protects the mail quota (EMAIL_MAX_PER_HOUR)", async () => {
+  env.EMAIL_MAX_PER_HOUR = "3";
+  const answers = [];
+  for (const n of ["a", "b", "c", "d"]) answers.push((await start(jar, `${n}@example.com`)).status);
+  assert.deepEqual(answers, [200, 200, 200, 429]);
+  assert.equal(sentCodes.length, 3);
+});
+
+test("control characters and brackets never reach the mail server", async () => {
+  const { validEmail } = await import("../src/auth.js");
+  const { sendMail } = await import("../src/mail.js");
+  for (const bad of ["a@b.co\u0085", "a@b.co\u0000x", "a@b.co>", "<a@b.co", "a@b.co\r\nRCPT TO:<x@y.zz>", "a b@c.de"]) assert.equal(validEmail(bad), false, JSON.stringify(bad));
+  assert.equal(validEmail("o'brien+tag@example.co.uk"), true);
+  let called = 0;
+  const smtpImpl = async () => { called++; return { ok: true }; };
+  for (const bad of ["a@b.co\r\nRCPT TO:<x@y.zz>", "a@b.co>", "a@b.co\u0085", "", null]) {
+    const r = await sendMail({ GMAIL_USER: "u@gmail.com", GMAIL_APP_PASSWORD: "p" }, { to: bad, subject: "s", text: "t" }, { smtpImpl });
+    assert.deepEqual(r, { ok: false, error: "bad_email" });
+  }
+  assert.equal(called, 0);
+  assert.equal((await sendMail({ GMAIL_USER: "u@gmail.com", GMAIL_APP_PASSWORD: "p" }, { to: "a@b.co", subject: "s", text: "t" }, { smtpImpl })).ok, true);
+});
