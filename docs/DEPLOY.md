@@ -29,6 +29,8 @@ merge to main ─► Deploy: build + tests + wrangler deploy  (.github/workflows
 | `VICINITY_MINT` | add to `wrangler.jsonc` → `vars` (pull request) right after the token exists | picked up with no code change |
 | `EMAIL_MAX_PER_HOUR` (optional) | `wrangler.jsonc` → `vars` | site-wide cap on sign-in e-mails per hour, default 2000 |
 
+**Security headers on pages.** Pages and files are served straight from Cloudflare's static assets and get their headers from `public/_headers` (the Worker only runs first for `/api/*`, see `wrangler.jsonc`). That keeps page views off the Worker request quota. Today's production sends no headers on pages because the previous deploy script left this out; `npm run check:live` proves it is fixed after a deploy. Not done by this setup: forcing https and forwarding `www.vicinity.city` to the main address. Do both in the Cloudflare dashboard (*SSL/TLS* → *Edge Certificates* → *Always Use HTTPS*, and a redirect rule), or set `"run_worker_first": true` and let the Worker do it (then every request counts as a Worker request).
+
 The database needs nothing at deploy time: the code creates and upgrades its tables when they are first used.
 
 ## Launch checklist (each item needs your go-ahead)
