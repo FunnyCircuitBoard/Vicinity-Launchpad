@@ -49,7 +49,7 @@ wrangler.jsonc      Cloudflare settings (addresses, database, the 10-minute sche
 ```
 
 ## Settings (Cloudflare → Workers → vicinity-map → Settings → Variables and secrets)
-Add each one as a **Secret**, so later deploys never wipe it.
+Keys and passwords (`SOLANA_RPC_URL`, `GOOGLE_CLIENT_SECRET`, the mail keys) are **Secrets**: a deploy never touches them. Public settings (`SITE_MODE`, `GOOGLE_CLIENT_ID`, `EMAIL_FROM`) live in `wrangler.jsonc`; other plain variables added in the dashboard (for example `ADMIN_WALLETS`) are kept by a deploy. See [docs/DEPLOY.md](docs/DEPLOY.md).
 | Name | What it's for |
 |---|---|
 | `SOLANA_RPC_URL` | A Helius (or similar) RPC URL. Needed for the full holder list, ranks and the balance history; without it only the top 20 show and nobody can qualify as founder. |
@@ -86,7 +86,7 @@ Moderation happens on the dashboard, under the two-person rules above, and every
 - A founder's seat can only be ended by an upheld objection (dashboard) or by the rules (grace), never by editing the database quietly.
 
 ## Run it locally
-Requires Node.js 20+.
+Requires Node.js 22.13+ (the tests use the built-in SQLite).
 ```
 npm install
 npm test          # automated tests

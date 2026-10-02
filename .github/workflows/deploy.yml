@@ -19,6 +19,8 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # the build and tests run with the Cloudflare token in reach: leave no GitHub credential on disk
       - uses: actions/setup-node@v4
         with:
           node-version: 22
