@@ -27,6 +27,7 @@ test("pages load nothing from other websites (privacy + security)", () => {
 test("no inline scripts or inline styles (blocked by our security policy), no links to the code", () => {
   assert.doesNotMatch(all, /<script(?![^>]*\bsrc=)[^>]*>/);
   assert.doesNotMatch(all, /\sstyle="/);
+  assert.doesNotMatch(all, /<style[\s>]/, "an inline <style> block is blocked by the security policy: use a stylesheet file");
   assert.doesNotMatch(all, /\son[a-z]+="/);
   assert.doesNotMatch(all, /github\.com/i);
 });
