@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { handleApi } from "../src/index.js";
 import { base58Encode, buildMessage, statementFor } from "../src/solana.js";
 import { d1 } from "./helpers/d1.js";
+import { ensureSchema } from "../src/store.js";
 
 const HOST = "vicinity.test";
 const ORIGIN = `https://${HOST}`;
@@ -320,4 +321,63 @@ test("control characters and brackets never reach the mail server", async () => 
   }
   assert.equal(called, 0);
   assert.equal((await sendMail({ GMAIL_USER: "u@gmail.com", GMAIL_APP_PASSWORD: "p" }, { to: "a@b.co", subject: "s", text: "t" }, { smtpImpl })).ok, true);
+});
+
+// ---- Usernames at sign-up, and the scheduled clean-up
+
+// Sign a new person up; the first generated name is forced to SwiftHarbor10 (Math.random only changes while the code is checked).
+const signUpWithEmail = async (email) => {
+  const b = browser();
+  await b.send("/api/auth/wallet", { method: "POST", body: await loginBody(await wallet()) });
+  await start(b, email);
+  const realRandom = Math.random;
+  let calls = 0;
+  Math.random = () => (calls++ < 3 ? 0 : 0.5);
+  try { return await (await verify(b, email, sentCodes[sentCodes.length - 1].code)).json(); } finally { Math.random = realRandom; }
+};
+
+test("sign-up never fails because a generated name differs only by case from a name in use", async () => {
+  await ensureSchema(env.DB);
+  await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, created_at) VALUES ('w-old', 'wallet', 'w-old', 'swiftharbor10', ?)").bind(new Date().toISOString()).run();
+  const d = await signUpWithEmail("case@example.com"); // the first name drawn is SwiftHarbor10, which the other casing already holds
+  assert.equal(d.ok, true, JSON.stringify(d));
+  assert.equal(d.isNew, true);
+  const row = await env.DB.prepare("SELECT handle FROM users WHERE provider_id = 'case@example.com'").first();
+  assert.notEqual(row.handle.toLowerCase(), "swiftharbor10");
+});
+
+test("a handle collision at the INSERT retries with a new name (and does not burn the code); a login collision is still social_taken", async () => {
+  await ensureSchema(env.DB);
+  await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, created_at) VALUES ('w-old', 'wallet', 'w-old', 'swiftharbor10', ?)").bind(new Date().toISOString()).run();
+  const realDb = env.DB;
+  let fake = 1; // the first "is this name free?" lookup wrongly says yes, like a name taken a moment later by someone else
+  const lookup = (stmt) => ({ ...stmt, bind: (...p) => ({ ...stmt.bind(...p), first: async () => (fake-- > 0 ? null : stmt.bind(...p).first()) }) });
+  env.DB = { ...realDb, prepare: (sql) => (/^SELECT id FROM users WHERE lower\(handle\)/.test(sql) ? lookup(realDb.prepare(sql)) : realDb.prepare(sql)) };
+  let d;
+  try { d = await signUpWithEmail("retry@example.com"); } finally { env.DB = realDb; }
+  assert.equal(d.ok, true, JSON.stringify(d));
+  const row = await env.DB.prepare("SELECT handle FROM users WHERE provider_id = 'retry@example.com'").first();
+  assert.ok(row && row.handle.toLowerCase() !== "swiftharbor10");
+
+  // the same e-mail on a second wallet: still reported as taken by another wallet
+  const b = browser();
+  await b.send("/api/auth/wallet", { method: "POST", body: await loginBody(await wallet()) });
+  await start(b, "retry@example.com");
+  const again = await (await verify(b, "retry@example.com", sentCodes[sentCodes.length - 1].code)).json();
+  assert.equal(again.error, "social_taken");
+});
+
+test("the scheduled job deletes dead e-mail codes, but keeps live ones and ones whose hourly counters still count", async () => {
+  const { runJobs } = await import("../src/jobs.js");
+  await ensureSchema(env.DB);
+  const now = Date.now(), at = (ms) => new Date(now + ms).toISOString();
+  const put = (email, expires, windowStart) => env.DB.prepare("INSERT INTO email_codes (email, code_hash, created_at, expires_at, attempts, send_count, window_start, last_sent_at) VALUES (?, 'h', ?, ?, 0, 1, ?, ?)")
+    .bind(email, at(-3 * 3600_000), expires, windowStart, windowStart).run();
+  await put("dead-old@example.com", at(-2 * 3600_000), at(-3 * 3600_000));  // expired, window over: goes
+  await put("dead-null@example.com", at(-2 * 3600_000), null);              // expired, no window: goes
+  await put("dead-recent@example.com", at(-60_000), at(-10 * 60_000));      // expired, but sent within the hour: stays (send limit)
+  await put("live@example.com", at(5 * 60_000), at(-3 * 3600_000));         // code still valid: stays
+  await runJobs({ DB: env.DB }, now);
+  const left = (await env.DB.prepare("SELECT email FROM email_codes ORDER BY email").all()).results.map((r) => r.email);
+  assert.deepEqual(left, ["dead-recent@example.com", "live@example.com"]);
 });

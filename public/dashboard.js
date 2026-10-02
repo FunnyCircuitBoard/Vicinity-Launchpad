@@ -929,6 +929,8 @@
   const USERNAME_ERR = {
     bad_username: "Usernames are 3–20 characters: letters, numbers and underscores, starting with a letter.",
     username_taken: "That username is taken. Try another one.",
+    username_reserved: "That name is reserved. Try another one.",
+    slow_down: "You can change your username 3 times a day. Try again tomorrow.",
     reprove: "Please confirm it's you with your wallet first, then try again.",
     sign_in: "Your session ended. Please sign in again.",
   };
@@ -955,12 +957,14 @@
     if (u.contact_email) {
       v.replaceChildren(el("span", "verified-pill", `✓ ${u.contact_email}`),
         (() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Change";
-          b.addEventListener("click", () => { $("#email-form").hidden = false; $("#email-code-form").hidden = true; $("#email-input").focus(); }); return b; })());
-      $("#email-desc").textContent = "Verified. We only write when it matters.";
+          b.addEventListener("click", () => { $("#email-form").hidden = false; $("#email-code-form").hidden = true; $("#email-input").focus(); }); return b; })(),
+        (() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Remove";
+          b.addEventListener("click", async () => { const r = await api("/api/me/contact/email/remove", {}); if (r.ok) { me.user.contact_email = null; renderEmailView(me.user); toast("E-mail removed"); } }); return b; })());
+      $("#email-desc").textContent = "Verified. Not used for anything yet. You can remove it any time.";
     } else {
       v.replaceChildren((() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Add";
         b.addEventListener("click", () => { $("#email-form").hidden = false; $("#email-input").focus(); }); return b; })());
-      $("#email-desc").textContent = "Get security alerts and city updates.";
+      $("#email-desc").textContent = "Optional. Not used for anything yet. You can remove it any time.";
     }
   }
   function renderPhoneView(u) {

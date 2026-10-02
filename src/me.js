@@ -9,7 +9,7 @@
 import { json, readJson } from "./http.js";
 import { cleanEmail, consumeEmailCode, getSession, isFresh, providers, validEmail } from "./auth.js";
 import { access } from "./access.js";
-import { useAttestation } from "./attest.js";
+import { countRecent, noteEvent, useAttestation } from "./attest.js";
 import { activeMint } from "./official.js";
 import { getHolding, holderSnapshot, rankOf } from "./chain.js";
 import { DAY, POLICY, iso } from "./policy.js";
@@ -38,7 +38,7 @@ function badgesFor({ u, launched, amount, position, seat, manager, admin, checki
   const T = threshold || POLICY.founder.ladder.base;
   const list = [
     { id: "early", icon: "🌱", name: "Early member", detail: "Joined before $VICINITY launched. This one can never be earned again.", earned: Boolean(u.early) },
-    { id: "verified", icon: "✅", name: "Verified account", detail: "One wallet + one X or Google login.", earned: true },
+    { id: "verified", icon: "✅", name: "Verified account", detail: "One wallet + one Google login or verified e-mail.", earned: true },
     { id: "local", icon: "📍", name: "Local", detail: "Home community confirmed by location.", earned: Boolean(u.home_city) },
     { id: "holder", icon: "🏅", name: "Holder", detail: launched ? "Hold any $VICINITY." : "Hold $VICINITY once it launches.", earned: amount > 0, progress: amount > 0 ? 1 : 0 },
     { id: "founder_ready", icon: "🔑", name: "Founder-ready", detail: `Held ${T.toLocaleString("en-US")}+ $VICINITY for ${POLICY.founder.qualifyingDays} days: may apply to found your city.`,
@@ -94,12 +94,12 @@ async function liveStatus(env, s, fetchImpl, now) {
   };
   let community = null, national = null;
   if (u.home_city) {
-    const members = (await db.prepare("SELECT wallet FROM users WHERE home_city = ? LIMIT 5000").bind(u.home_city).all()).results.map((r) => r.wallet);
+    const members = (await db.prepare("SELECT wallet FROM users WHERE home_city = ? AND provider != 'testlab' LIMIT 5000").bind(u.home_city).all()).results.map((r) => r.wallet);
     community = { id: u.home_city, name: u.home_name, country: u.home_country, members: members.length, ...(await ranked(members)),
       ...(await cityPicture(env, u.home_city, u, now)) };
   }
   if (u.home_country) {
-    const members = (await db.prepare("SELECT wallet FROM users WHERE home_country = ? LIMIT 20000").bind(u.home_country).all()).results.map((r) => r.wallet);
+    const members = (await db.prepare("SELECT wallet FROM users WHERE home_country = ? AND provider != 'testlab' LIMIT 20000").bind(u.home_country).all()).results.map((r) => r.wallet);
     national = { country: u.home_country, members: members.length, ...(await ranked(members)), ...(await countryPicture(env, u.home_country, u, now)) };
   }
 
@@ -171,9 +171,32 @@ export async function handleTermsAgree(request, env, now = Date.now()) {
 /** Usernames: 3–20 chars, start with a letter, letters/digits/underscore. Unique, case-insensitively. */
 export const validUsername = (s) => /^[A-Za-z][A-Za-z0-9_]{2,19}$/.test(String(s || ""));
 
+const RENAMES_PER_DAY = 3; // username changes per person per rolling day (rate_events kind "rename")
+
+/**
+ * What a name "looks like": lower-case, look-alike digits mapped to letters (and i to l, so I / l / 1 are one
+ * letter), everything that is not a letter or digit dropped (_ and -), repeated letters collapsed.
+ * "V1c1nity", "vicinity_" and "Viiicinity" all come out as the same skeleton.
+ */
+export function nameSkeleton(s) {
+  return String(s || "").toLowerCase()
+    .replace(/[013457i]/g, (c) => ({ 0: "o", 1: "l", 3: "e", 4: "a", 5: "s", 7: "t", i: "l" })[c])
+    .replace(/[^a-z0-9]/g, "")
+    .replace(/([a-z])\1+/g, "$1");
+}
+
+// Nobody may be called these (or start or end with them): they pass for the project or its staff.
+const RESERVED_AROUND = ["vicinity", "vicinitycity", "admin", "administrator", "moderator", "support", "official", "staff", "owner", "system", "security", "team vicinity"].map(nameSkeleton);
+const RESERVED_EXACT = ["mod", "mods", "help", "founder", "root"].map(nameSkeleton);
+export const reservedUsername = (s) => {
+  const k = nameSkeleton(s);
+  return RESERVED_EXACT.includes(k) || RESERVED_AROUND.some((r) => k.startsWith(r) || k.endsWith(r));
+};
+
 /**
  * POST /api/me/username { username } → change the public username.
- * First come, first served: it must not match any existing username (any casing).
+ * First come, first served: it must not match any existing username (any casing), nor look like one
+ * (I / l / 1, O / 0, underscores), nor pass for the project or its staff. At most 3 changes a day.
  * Needs a fresh wallet proof, like other identity changes.
  */
 export async function handleUsername(request, env, now = Date.now()) {
@@ -186,8 +209,15 @@ export async function handleUsername(request, env, now = Date.now()) {
   if (a.u.handle && a.u.handle.toLowerCase() === username.toLowerCase()) return json({ ok: true, username: a.u.handle });
   const taken = await env.DB.prepare("SELECT id FROM users WHERE lower(handle) = lower(?) AND id != ?").bind(username, a.u.id).first();
   if (taken) return json({ ok: false, error: "username_taken" }, 409);
+  if (reservedUsername(username)) return json({ ok: false, error: "username_reserved" }, 400);
+  // Existing members keep their names, but nobody new may take a look-alike of another member's name.
+  const skeleton = nameSkeleton(username);
+  const others = (await env.DB.prepare("SELECT handle FROM users WHERE handle IS NOT NULL AND id != ?").bind(a.u.id).all()).results;
+  if (others.some((o) => nameSkeleton(o.handle) === skeleton)) return json({ ok: false, error: "username_taken" }, 409);
+  if (await countRecent(env, a.u.id, "rename", now - DAY) >= RENAMES_PER_DAY) return json({ ok: false, error: "slow_down" }, 429);
   try {
     await env.DB.prepare("UPDATE users SET handle = ? WHERE id = ?").bind(username, a.u.id).run();
+    await noteEvent(env, a.u.id, "rename", now);
   } catch (e) {
     if (/UNIQUE/i.test(String(e && e.message ? e.message : e))) return json({ ok: false, error: "username_taken" }, 409);
     throw e;
@@ -214,6 +244,14 @@ export async function handleContactEmailVerify(request, env, now = Date.now()) {
   if (other) return json({ ok: false, error: "email_taken" }, 409);
   await env.DB.prepare("UPDATE users SET contact_email = ? WHERE id = ?").bind(email, a.u.id).run();
   return json({ ok: true, email });
+}
+
+/** POST /api/me/contact/email/remove → clear the contact e-mail (the sign-in e-mail of an e-mail account is not touched). */
+export async function handleContactEmailRemove(request, env, now = Date.now()) {
+  const a = await access(request, env, now);
+  if (a.error) return a.error;
+  await env.DB.prepare("UPDATE users SET contact_email = NULL WHERE id = ?").bind(a.u.id).run();
+  return json({ ok: true, email: null });
 }
 
 const validPhone = (s) => {
@@ -270,14 +308,14 @@ export async function handleHome(request, env, now = Date.now()) {
   return json({ ok: true, home, joinedNearby: !att.city });
 }
 
-/** GET /api/members → how many people call each community home (public, no names or wallets). */
+/** GET /api/members → how many people call each community home (public, no names or wallets). Test-lab accounts are not people and are not counted. */
 export async function handleMembers(env) {
   if (!env.DB) return json({ members: 0, communities: [] });
   await ensureSchema(env.DB);
   const [total, top, placed] = await env.DB.batch([
-    env.DB.prepare("SELECT COUNT(*) AS n FROM users"),
-    env.DB.prepare("SELECT home_city AS id, home_name AS name, home_country AS country, COUNT(*) AS members FROM users WHERE home_city IS NOT NULL GROUP BY home_city ORDER BY members DESC LIMIT 300"),
-    env.DB.prepare("SELECT wallet, home_city FROM users WHERE home_city IS NOT NULL"),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE provider != 'testlab'"),
+    env.DB.prepare("SELECT home_city AS id, home_name AS name, home_country AS country, COUNT(*) AS members FROM users WHERE home_city IS NOT NULL AND provider != 'testlab' GROUP BY home_city ORDER BY members DESC LIMIT 300"),
+    env.DB.prepare("SELECT wallet, home_city FROM users WHERE home_city IS NOT NULL AND provider != 'testlab'"),
   ]);
   // Holders per city: members whose wallet holds > 0 in the latest balance sample.
   let balances = null;

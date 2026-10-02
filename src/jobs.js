@@ -9,7 +9,7 @@ import { advanceSeats } from "./seats.js";
 import { advanceElections } from "./elections.js";
 import { expireModeration } from "./moderation.js";
 import { advanceSnapshots } from "./snapshot.js";
-import { DAY, iso } from "./policy.js";
+import { DAY, HOUR, iso } from "./policy.js";
 
 export async function runJobs(env, now = Date.now(), fetchImpl = fetch, rand = Math.random) {
   if (!env.DB) return { skipped: "no database" };
@@ -35,6 +35,8 @@ async function cleanup(env, now) {
     db.prepare("DELETE FROM rate_events WHERE at < ?").bind(iso(now - 2 * DAY)),
     db.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(iso(now)),
     db.prepare("DELETE FROM pairs WHERE expires_at < ?").bind(iso(now)),
+    // sign-in codes: only rows whose code AND hourly send counters are both over (same rule as the tidy-up in handleEmailStart)
+    db.prepare("DELETE FROM email_codes WHERE expires_at < ? AND (window_start IS NULL OR window_start < ?)").bind(iso(now), iso(now - HOUR)),
   ]);
   if (new Date(now).getUTCHours() === 3 && new Date(now).getUTCMinutes() < 10) await pruneLedger(env, now);
   return { ok: true };
