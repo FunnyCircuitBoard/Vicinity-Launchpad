@@ -1,4 +1,4 @@
-// Accounts: one wallet + one X / Google login per person, sessions, phone pairing, tiny-transfer proof.
+// Accounts: one wallet + one Google login or e-mail address per person, sessions, phone pairing, tiny-transfer proof.
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { handleApi } from "../src/index.js";
@@ -41,7 +41,7 @@ const loginBody = async (w, { pin, host = HOST } = {}) => {
   return { address: w.address, message, signature: await w.sign(message) };
 };
 
-// Fake Google / X: code "good-<id>" logs in as account <id>.
+// Fake Google: code "good-<id>" logs in as account <id>.
 function oauthFetch() {
   return async (url, init) => {
     const u = String(url);
@@ -51,11 +51,6 @@ function oauthFetch() {
       if (!code.startsWith("good-") || !form.get("code_verifier")) return new Response("{}", { status: 400 });
       const payload = Buffer.from(JSON.stringify({ iss: "https://accounts.google.com", aud: "gid", sub: code.slice(5), given_name: "Sakib" })).toString("base64url");
       return new Response(JSON.stringify({ id_token: `x.${payload}.y` }));
-    }
-    if (u === "https://api.x.com/2/oauth2/token") return new Response(JSON.stringify({ access_token: "tok-" + form.get("code").slice(5) }));
-    if (u === "https://api.x.com/2/users/me") {
-      const id = init.headers.authorization.slice("Bearer tok-".length);
-      return new Response(JSON.stringify({ data: { id, username: "utica_" + id, name: "Utica Fan" } }));
     }
     throw new Error("unexpected " + u);
   };
@@ -67,9 +62,28 @@ async function oauth(b, provider, id) {
   return b.send(`/api/auth/${provider}/callback?code=good-${id}&state=${state}`, { fetchImpl: oauthFetch() });
 }
 
+
+// Fake mail service (Resend): keeps what was "sent" so a test can read the 6-digit code out of the message.
+function mailbox() {
+  const sent = [];
+  const fetchImpl = async (url, init) => {
+    assert.equal(String(url), "https://api.resend.com/emails");
+    sent.push(JSON.parse(init.body));
+    return new Response("{}");
+  };
+  return { sent, fetchImpl, code: () => sent.at(-1).text.match(/code is (\d{6})/)[1] };
+}
+// Ask for a code, then type it back.
+async function emailIn(b, mail, email) {
+  const start = await b.send("/api/auth/email/start", { method: "POST", body: { email }, fetchImpl: mail.fetchImpl });
+  assert.equal(start.status, 200);
+  return b.send("/api/auth/email/verify", { method: "POST", body: { email, code: mail.code() } });
+}
+const later = (ms) => new Date(Date.now() - ms).toISOString();
+
 beforeEach(() => {
   _resetCityCache();
-  env = { DB: d1(), GOOGLE_CLIENT_ID: "gid", GOOGLE_CLIENT_SECRET: "gsecret", X_CLIENT_ID: "xid" };
+  env = { DB: d1(), GOOGLE_CLIENT_ID: "gid", GOOGLE_CLIENT_SECRET: "gsecret", RESEND_API_KEY: "re_test" };
   jar = browser();
 });
 
@@ -82,7 +96,7 @@ test("new person: wallet first, then Google, then signed in for good", async () 
   const me = await (await jar.send("/api/me")).json();
   assert.equal(me.signedIn, false);
   assert.equal(me.pending.wallet, w.address);
-  assert.deepEqual(me.providers, { google: true, x: true });
+  assert.deepEqual(me.providers, { google: true, email: true });
 
   r = await oauth(jar, "google", "g-1");
   assert.equal(r.status, 302);
@@ -114,21 +128,73 @@ test("one wallet ↔ one login: a second wallet can't reuse the Google account, 
   assert.equal((await (await again.send("/api/me?lite=1")).json()).signedIn, true);
 });
 
-test("returning person can sign in with the linked login alone; an unknown login must connect a wallet first", async () => {
-  const w = await wallet();
+test("returning person can sign in with the linked e-mail alone; an unknown e-mail must connect a wallet first", async () => {
+  const w = await wallet(), mail = mailbox();
   await jar.send("/api/auth/wallet", { method: "POST", body: await loginBody(w) });
-  await oauth(jar, "x", "777");
+  let d = await (await emailIn(jar, mail, "Sakib@Example.com ")).json();
+  assert.deepEqual([d.ok, d.next, d.isNew], [true, "/dashboard?welcome=1", true]);
   const me = await (await jar.send("/api/me?lite=1")).json();
-  assert.equal(me.user.handle, "@utica_777");
+  assert.equal(me.user.provider, "email");
+  assert.equal(me.user.wallet, w.address);
+  assert.match(me.user.handle, /^\S+$/, "a made-up username, never the e-mail address");
+  assert.doesNotMatch(JSON.stringify(me), /sakib@example\.com/i, "the e-mail address is not sent back to the page");
 
   const fresh = browser();
-  let r = await oauth(fresh, "x", "777");
-  assert.equal(r.headers.get("location"), "/dashboard");
+  d = await (await emailIn(fresh, mail, "sakib@example.com")).json();
+  assert.deepEqual([d.ok, d.next, d.isNew], [true, "/dashboard", false]);
   assert.equal((await (await fresh.send("/api/me?lite=1")).json()).user.wallet, w.address);
 
   const stranger = browser();
-  r = await oauth(stranger, "x", "999");
-  assert.equal(r.headers.get("location"), "/connect?error=wallet_first");
+  const r = await emailIn(stranger, mail, "someone-else@example.com");
+  assert.equal(r.status, 400);
+  assert.equal((await r.json()).error, "wallet_first");
+});
+
+test("e-mail codes: shape, setup, one every minute, five wrong guesses, expiry, one use, five an hour", async () => {
+  const mail = mailbox(), start = (email, b = jar) => b.send("/api/auth/email/start", { method: "POST", body: { email }, fetchImpl: mail.fetchImpl });
+  const verify = (email, code) => jar.send("/api/auth/email/verify", { method: "POST", body: { email, code } }).then((r) => r.json());
+  const row = (email) => env.DB.prepare("SELECT * FROM email_codes WHERE email = ?").bind(email).first();
+  const E = "a@example.com";
+
+  assert.equal((await start("not an address")).status, 400);
+  assert.equal((await start("a@b.c\r\nRCPT TO:<x@y.zz>")).status, 400, "no line breaks can reach the mail server");
+  assert.equal((await jar.send("/api/auth/email/start", { method: "POST", body: { email: E }, origin: "https://evil.example" })).status, 403);
+  assert.equal(mail.sent.length, 0);
+
+  const noMail = { ...env }; delete noMail.RESEND_API_KEY;
+  const saved = env; env = noMail;
+  assert.equal((await start(E)).status, 503, "no mail setup: say so, don't pretend");
+  env = saved;
+
+  assert.deepEqual(await (await start(E)).json(), { ok: true });
+  assert.match(mail.sent[0].subject, /^\d{6} is your Vicinity code$/);
+  assert.deepEqual(mail.sent[0].to, [E]);
+  assert.equal((await row(E)).code_hash.includes(mail.code()), false, "only a hash of the code is stored");
+  assert.equal((await start(E)).status, 429, "a second mail within a minute is refused");
+
+  // wrong guesses are counted; a code can't be used for another address
+  const wrong = mail.code() === "123456" ? "654321" : "123456";
+  let d = await verify(E, wrong);
+  assert.deepEqual([d.error, d.left], ["code_wrong", 4]);
+  assert.equal((await verify("b@example.com", mail.code())).error, "code_expired");
+  assert.equal((await verify(E, "12ab")).error, "bad_code");
+  for (let i = 0; i < 3; i++) await verify(E, wrong);
+  d = await verify(E, wrong);
+  assert.deepEqual([d.error, d.left], ["code_wrong", 0]);
+  assert.equal((await jar.send("/api/auth/email/verify", { method: "POST", body: { email: E, code: mail.code() } })).status, 429, "after five wrong guesses even the right code is dead");
+  assert.equal(await row(E), null);
+
+  // a code expires after ten minutes
+  await start(E);
+  await env.DB.prepare("UPDATE email_codes SET expires_at = ? WHERE email = ?").bind(later(1000), E).run();
+  assert.equal((await verify(E, mail.code())).error, "code_expired");
+
+  // five mails an hour per address (the expired code above was removed with its row, so this count starts fresh)
+  assert.equal((await start(E)).status, 200);
+  for (let i = 2; i <= 6; i++) {
+    await env.DB.prepare("UPDATE email_codes SET last_sent_at = ? WHERE email = ?").bind(later(61_000), E).run();
+    assert.equal((await start(E)).status, i <= 5 ? 200 : 429, `mail ${i}`);
+  }
 });
 
 test("login safety: other sites, wrong state, missing settings, logout", async () => {

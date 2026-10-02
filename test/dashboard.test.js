@@ -85,7 +85,9 @@ test("feeds: post, see only your city (and your country), vote, reply; moderator
   let d = await a.post("/api/posts", { scope: "city", kind: "meme", body: "The Boilermaker hill has a name 😂" });
   assert.equal(d.ok, true);
   const id = d.post.id;
-  assert.equal(d.post.author.name, a.name);
+  const mine = (await a.get("/api/me?lite=1")).user;
+  assert.equal(d.post.author.name, mine.handle || mine.name, "posts carry the made-up username, never a wallet");
+  assert.notEqual(d.post.author.name, a.w.address);
   assert.equal((await a.post("/api/posts", { scope: "city", kind: "meme", body: "Buy EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm now" })).error, "no_addresses");
   assert.equal((await a.post("/api/posts", { scope: "city", kind: "talk", body: "x".repeat(1001) })).error, "too_long");
   await a.post("/api/posts", { scope: "country", kind: "talk", body: "Which NY city has the best pizza?" });
@@ -183,7 +185,7 @@ test("public: member counts per community, live holder list and anyone's rank (n
   await person(env, { home: IN_UTICA }); await person(env, { home: IN_UTICA }); await person(env, { home: IN_NYC });
   const m = await browser(env).get("/api/members");
   assert.equal(m.members, 3);
-  assert.deepEqual(m.communities[0], { id: "5142056", name: "Utica", country: "US", members: 2 });
+  assert.deepEqual(m.communities[0], { id: "5142056", name: "Utica", country: "US", members: 2, holders: 0 });
 
   const x = await wallet(), y = await wallet();
   assert.equal((await browser(env).get(`/api/rank?address=${x.address}`)).launched, false);
