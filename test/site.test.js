@@ -56,6 +56,8 @@ test("same menu on every page: top menu for computers, bottom menu bar for phone
   }
   assert.match(css, /:root\[data-theme="light"\]/);
   assert.match(css, /\.tabbar \{ display: grid;/);
+  // the header's Log out button is for computers only; on phones it would crowd the brand (it must out-rank .btn's display)
+  assert.match(css, /@media \(max-width: 900px\) \{ \.site-header__actions \.account-out \{ display: none; \} \}/);
 });
 
 test("home: the problem, the real New York City map, how it works, incentives, roles, FAQ", () => {
