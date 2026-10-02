@@ -6,11 +6,13 @@
  *   owner      → a wallet in the ADMIN_WALLETS setting (or granted in admin_roles). Everything,
  *                including roles, the test lab and anything destructive.
  *   admin      → everything except granting/revoking roles and test-lab reset.
- *   moderator  → content moderation and objection triage only (read + decide).
+ *   moderator  → content moderation (read + hide/dismiss reports). Wallets are masked and
+ *                names left out of the lists it can read.
  *
- * Sign-in is the site's own wallet session (the vs cookie, src/auth.js). The four sensitive
- * actions (user ban, role grant/revoke, test reset) need a fresh wallet proof (last 30 min),
- * like the site's other sensitive actions.
+ * Sign-in is the site's own wallet session (the vs cookie, src/auth.js). Every state-changing
+ * (POST) route needs a fresh wallet proof (last 30 min) on top of the role, because a Google
+ * or e-mail login linked to a staff wallet yields the role without any wallet signature.
+ * Read-only (GET) routes work without it.
  *
  * Every mutating call is appended to admin_audit. The test lab seeds rows tagged in admin_test
  * and reset deletes ONLY those rows, never real data.
@@ -39,7 +41,10 @@ export async function adminRoleOf(env, wallet) {
   if (!wallet) return null;
   if (adminWallets(env).includes(wallet)) return "owner";
   const r = await env.DB.prepare("SELECT role FROM admin_roles WHERE wallet = ?").bind(wallet).first();
-  return r && ROLES.includes(r.role) ? r.role : null;
+  if (!r || !ROLES.includes(r.role)) return null;
+  // Owner comes only from ADMIN_WALLETS. An 'owner' row left in the table from before that rule counts as admin,
+  // so it can't outlive a change of ADMIN_WALLETS and the real owner can still revoke or ban it.
+  return r.role === "owner" ? "admin" : r.role;
 }
 
 function logAudit(db, { actor, action, target = null, detail = null }, now = Date.now()) {
@@ -96,6 +101,19 @@ async function guard(request, env, minRole, { fresh = false, now = Date.now() } 
 const postGuard = (request, env, minRole, opts = {}) =>
   !sameSite(request) ? { res: json({ ok: false, error: "wrong_origin" }, 403) } : guard(request, env, minRole, opts);
 
+/** Same masking style as mask() in src/me.js. */
+const maskWallet = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
+/** The lowest role sees masked wallets and no names in the lists. */
+const limited = (ctx) => ctx.role === "moderator";
+const withoutName = (ctx, rows) => (limited(ctx) ? rows.map(({ name, ...rest }) => rest) : rows);
+const looksLikeWallet = (v) => typeof v === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v);
+/** Can the caller act on this wallet? Never an ADMIN_WALLETS wallet, and only one of a lower role. */
+async function outranks(ctx, wallet) {
+  if (adminWallets(ctx.env).includes(wallet)) return "protected_wallet";
+  const target = await adminRoleOf(ctx.env, wallet);
+  return (LEVEL[target] || 0) < LEVEL[ctx.role] ? null : "outranked";
+}
+
 const q = (url, name, max = 60) => cleanText(url.searchParams.get(name) || "", max) || "";
 const limitOf = (url, dflt = 50, max = 200) => Math.min(max, Math.max(1, Number(url.searchParams.get("limit")) || dflt));
 
@@ -139,13 +157,15 @@ async function handleOverview(ctx) {
 
 async function handleUsers(ctx, url) {
   const like = `%${q(url, "q", 40).replace(/[%_]/g, "")}%`;
+  const low = limited(ctx);
+  // The lowest role gets no name column and no wallet/name search (that would undo the masking).
   const rows = (await ctx.db.prepare(
-    `SELECT u.id, u.wallet, u.handle, u.name, u.home_name, u.home_country, u.created_at,
+    `SELECT u.id, u.wallet, u.handle, ${low ? "" : "u.name, "}u.home_name, u.home_country, u.created_at,
             (SELECT COUNT(*) FROM bans b WHERE b.user_id = u.id AND b.country = '*') AS banned
-     FROM users u WHERE ? = '%%' OR u.wallet LIKE ? OR u.handle LIKE ? OR u.name LIKE ?
+     FROM users u WHERE ? = '%%' OR u.handle LIKE ?${low ? "" : " OR u.wallet LIKE ? OR u.name LIKE ?"}
      ORDER BY u.id DESC LIMIT ?`)
-    .bind(like, like, like, like, limitOf(url)).all()).results;
-  return json({ ok: true, users: rows });
+    .bind(...(low ? [like, like] : [like, like, like, like]), limitOf(url)).all()).results;
+  return json({ ok: true, users: low ? rows.map((r) => ({ ...r, wallet: maskWallet(r.wallet) })) : rows });
 }
 
 async function handleBan(request, ctx, unban) {
@@ -155,6 +175,9 @@ async function handleBan(request, ctx, unban) {
   const target = await ctx.db.prepare("SELECT id FROM users WHERE wallet = ?").bind(wallet).first();
   if (!target) return json({ ok: false, error: "not_found" }, 404);
   if (target.id === ctx.user.id) return json({ ok: false, error: "own_account" }, 400);
+  // The caller must outrank the target; an ADMIN_WALLETS wallet is out of reach for everyone.
+  const blocked = await outranks(ctx, wallet);
+  if (blocked) return json({ ok: false, error: blocked }, 403);
   const now = ctx.now;
   if (unban) {
     await ctx.db.batch([
@@ -174,6 +197,9 @@ async function handleBan(request, ctx, unban) {
 
 /* ---------------- seats & claims ---------------- */
 
+/** A list row for the lowest role: masked wallet, no name. */
+const maskedRow = ({ name, wallet, ...rest }) => ({ ...rest, wallet: maskWallet(wallet) });
+
 async function handleSeats(ctx, url) {
   const status = q(url, "status", 20);
   const rows = (await ctx.db.prepare(
@@ -182,7 +208,7 @@ async function handleSeats(ctx, url) {
      FROM seats s LEFT JOIN users u ON u.id = s.user_id
      ${status ? "WHERE s.status = ?" : ""} ORDER BY s.id DESC LIMIT 200`)
     .bind(...(status ? [status] : [])).all()).results;
-  return json({ ok: true, seats: rows });
+  return json({ ok: true, seats: limited(ctx) ? rows.map(maskedRow) : rows });
 }
 
 /** Founder claims waiting on a human: applications in open windows. */
@@ -192,7 +218,7 @@ async function handleClaims(ctx) {
             u.handle, u.name, u.wallet
      FROM applications a JOIN windows w ON w.id = a.window_id JOIN users u ON u.id = a.user_id
      WHERE a.withdrawn = 0 AND w.status = 'open' ORDER BY a.id DESC LIMIT 200`).all()).results;
-  return json({ ok: true, claims: rows });
+  return json({ ok: true, claims: limited(ctx) ? rows.map(maskedRow) : rows });
 }
 
 /**
@@ -201,8 +227,11 @@ async function handleClaims(ctx) {
  */
 async function handleSeatDecide(request, ctx) {
   const body = await readJson(request);
-  const app = body && await ctx.db.prepare("SELECT * FROM applications WHERE id = ?").bind(Number(body.id) || 0).first();
+  const app = body && await ctx.db.prepare(
+    "SELECT a.*, w.status AS window_status FROM applications a JOIN windows w ON w.id = a.window_id WHERE a.id = ?").bind(Number(body.id) || 0).first();
   if (!app) return json({ ok: false, error: "not_found" }, 404);
+  // Only while the claim window is open: a decided window's result is already published.
+  if (app.window_status !== "open") return json({ ok: false, error: "window_closed" }, 409);
   if (app.withdrawn) return json({ ok: false, error: "already_decided" }, 409);
   const decision = body.decision === "approve" ? "approve" : body.decision === "reject" ? "reject" : null;
   if (!decision) return json({ ok: false, error: "bad_decision" }, 400);
@@ -222,13 +251,14 @@ async function handleObjections(ctx, url) {
             u.handle, u.name FROM objections o
      JOIN seats s ON s.id = o.seat_id JOIN users u ON u.id = o.user_id
      ${only} ORDER BY o.id DESC LIMIT 200`).all()).results;
-  return json({ ok: true, objections: rows });
+  return json({ ok: true, objections: withoutName(ctx, rows) });
 }
 
 async function handleObjectionDecide(request, ctx) {
   const body = await readJson(request);
   const o = body && await ctx.db.prepare("SELECT * FROM objections WHERE id = ? AND status = 'open'").bind(Number(body.id) || 0).first();
   if (!o) return json({ ok: false, error: "not_found" }, 404);
+  if (o.user_id === ctx.user.id) return json({ ok: false, error: "own_objection" }, 403);
   const uphold = body.uphold === true;
   const note = cleanText(body.note, 300);
   const stmts = [
@@ -311,7 +341,7 @@ async function handleReports(ctx) {
             COUNT(r.user_id) AS reports, MAX(r.created_at) AS last_report, MAX(r.reason) AS reason
      FROM reports r JOIN posts p ON p.id = r.post_id JOIN users u ON u.id = p.user_id
      WHERE p.hidden = 0 GROUP BY p.id ORDER BY last_report DESC LIMIT 100`).all()).results;
-  return json({ ok: true, reports: rows });
+  return json({ ok: true, reports: withoutName(ctx, rows) });
 }
 
 async function handleReportDecide(request, ctx) {
@@ -340,7 +370,7 @@ async function handleAppeals(ctx) {
   const rows = (await ctx.db.prepare(
     `SELECT ap.*, u.handle, u.name FROM appeals ap JOIN users u ON u.id = ap.user_id
      WHERE ap.status = 'open' ORDER BY ap.id DESC LIMIT 100`).all()).results;
-  return json({ ok: true, appeals: rows });
+  return json({ ok: true, appeals: withoutName(ctx, rows) });
 }
 
 async function handleAppealDecide(request, ctx) {
@@ -398,8 +428,11 @@ async function handleConfig(ctx) {
     flags: {
       GOOGLE_CLIENT_ID: Boolean(env.GOOGLE_CLIENT_ID),
       GOOGLE_CLIENT_SECRET: Boolean(env.GOOGLE_CLIENT_SECRET),
-      X_CLIENT_ID: Boolean(env.X_CLIENT_ID),
-      X_CLIENT_SECRET: Boolean(env.X_CLIENT_SECRET),
+      GMAIL_USER: Boolean(env.GMAIL_USER),
+      GMAIL_APP_PASSWORD: Boolean(env.GMAIL_APP_PASSWORD),
+      RESEND_API_KEY: Boolean(env.RESEND_API_KEY),
+      EMAIL_FROM: Boolean(env.EMAIL_FROM),
+      EMAIL_MAX_PER_HOUR: Boolean(env.EMAIL_MAX_PER_HOUR),
       VICINITY_MINT: Boolean(env.VICINITY_MINT),
       SOLANA_RPC_URL: Boolean(env.SOLANA_RPC_URL),
       ADMIN_WALLETS: Boolean(env.ADMIN_WALLETS),
@@ -421,7 +454,9 @@ async function handleRoleGrant(request, ctx) {
   const wallet = body && body.wallet;
   const role = body && body.role;
   if (!isSolanaAddress(wallet)) return json({ ok: false, error: "bad_wallet" }, 400);
-  if (!["moderator", "admin", "owner"].includes(role)) return json({ ok: false, error: "bad_role" }, 400);
+  // The owner comes only from the ADMIN_WALLETS setting, never from the API.
+  if (role === "owner") return json({ ok: false, error: "owner_not_grantable" }, 400);
+  if (!["moderator", "admin"].includes(role)) return json({ ok: false, error: "bad_role" }, 400);
   if (wallet === ctx.wallet) return json({ ok: false, error: "own_account" }, 400);
   await ctx.db.batch([
     ctx.db.prepare("INSERT OR REPLACE INTO admin_roles (wallet, role, granted_by, granted_at) VALUES (?, ?, ?, ?)")
@@ -436,6 +471,8 @@ async function handleRoleRevoke(request, ctx) {
   const wallet = body && body.wallet;
   if (!isSolanaAddress(wallet)) return json({ ok: false, error: "bad_wallet" }, 400);
   if (wallet === ctx.wallet) return json({ ok: false, error: "own_account" }, 400);
+  const blocked = await outranks(ctx, wallet);
+  if (blocked) return json({ ok: false, error: blocked }, 403);
   const r = await ctx.db.prepare("DELETE FROM admin_roles WHERE wallet = ?").bind(wallet).run();
   if (!r.meta.changes) return json({ ok: false, error: "not_found" }, 404);
   await logAudit(ctx.db, { actor: ctx.wallet, action: "roles/revoke", target: wallet }, ctx.now).run();
@@ -444,7 +481,9 @@ async function handleRoleRevoke(request, ctx) {
 
 async function handleAudit(ctx, url) {
   const rows = (await ctx.db.prepare("SELECT * FROM admin_audit ORDER BY id DESC LIMIT ?").bind(limitOf(url, 100, 500)).all()).results;
-  return json({ ok: true, audit: rows });
+  // The lowest role must not be able to unmask the masked lists through the log: wallets in actor / target are masked.
+  const hide = (v) => (looksLikeWallet(v) ? maskWallet(v) : v);
+  return json({ ok: true, audit: limited(ctx) ? rows.map((r) => ({ ...r, actor: hide(r.actor), target: hide(r.target) })) : rows });
 }
 
 /* ---------------- test lab (owner only) ---------------- */
@@ -453,6 +492,8 @@ const seedAddr = (i) => `TestLab${String(i).padStart(2, "0")}${"1".repeat(35)}`;
 
 async function handleTestSeed(ctx) {
   const { db, now } = ctx;
+  // Fake members and founders show up on the public site: only the preview site may have them.
+  if (ctx.env.SITE_MODE !== "preview") return json({ ok: false, error: "not_in_preview" }, 403);
   if ((await db.prepare("SELECT COUNT(*) AS n FROM admin_test").first()).n)
     return json({ ok: false, error: "already_seeded" }, 409);
   const at = iso(now);
@@ -542,20 +583,21 @@ export async function handleAdmin(request, env, now = Date.now()) {
   const rel = url.pathname.replace(/^\/api\/admin\/?/, "");
   const only = (m) => (method === m ? null : json({ ok: false, error: "method_not_allowed" }, 405));
   const need = (minRole, opts) => guard(request, env, minRole, { ...opts, now });
-  const needPost = (minRole, opts) => postGuard(request, env, minRole, { ...opts, now });
+  // Every state-changing route needs a fresh wallet proof on top of the role.
+  const needPost = (minRole, opts) => postGuard(request, env, minRole, { fresh: true, ...opts, now });
   const run = async (g, fn) => { const r = await g; return r.res || fn(r.ctx); };
 
   switch (rel) {
     case "me": { const b = only("GET"); return b || handleMe(request, env, now); }
     case "overview": { const b = only("GET"); return b || run(need("moderator"), handleOverview); }
     case "users": { const b = only("GET"); return b || run(need("moderator"), (c) => handleUsers(c, url)); }
-    case "users/ban": { const b = only("POST"); return b || run(await needPost("admin", { fresh: true }), (c) => handleBan(request, c, false)); }
+    case "users/ban": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleBan(request, c, false)); }
     case "users/unban": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleBan(request, c, true)); }
     case "seats": { const b = only("GET"); return b || run(need("moderator"), (c) => handleSeats(c, url)); }
     case "claims": { const b = only("GET"); return b || run(need("moderator"), handleClaims); }
     case "seats/decide": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleSeatDecide(request, c)); }
     case "objections": { const b = only("GET"); return b || run(need("moderator"), (c) => handleObjections(c, url)); }
-    case "objections/decide": { const b = only("POST"); return b || run(await needPost("moderator"), (c) => handleObjectionDecide(request, c)); }
+    case "objections/decide": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleObjectionDecide(request, c)); }
     case "elections": { const b = only("GET"); return b || run(need("moderator"), handleElections); }
     case "elections/create": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleElectionCreate(request, c)); }
     case "tokens": { const b = only("GET"); return b || run(need("moderator"), handleTokens); }
@@ -565,14 +607,14 @@ export async function handleAdmin(request, env, now = Date.now()) {
     case "appeals": { const b = only("GET"); return b || run(need("moderator"), handleAppeals); }
     case "appeals/decide": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleAppealDecide(request, c)); }
     case "snapshots": { const b = only("GET"); return b || run(need("moderator"), handleSnapshots); }
-    case "snapshots/create": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleSnapshotCreate(request, c)); }
+    case "snapshots/create": { const b = only("POST"); return b || run(await needPost("owner"), (c) => handleSnapshotCreate(request, c)); }
     case "config": { const b = only("GET"); return b || run(need("admin"), (c) => handleConfig({ ...c, env })); }
     case "roles": { const b = only("GET"); return b || run(need("owner"), (c) => handleRoles({ ...c, env })); }
-    case "roles/grant": { const b = only("POST"); return b || run(await needPost("owner", { fresh: true }), (c) => handleRoleGrant(request, c)); }
-    case "roles/revoke": { const b = only("POST"); return b || run(await needPost("owner", { fresh: true }), (c) => handleRoleRevoke(request, c)); }
+    case "roles/grant": { const b = only("POST"); return b || run(await needPost("owner"), (c) => handleRoleGrant(request, c)); }
+    case "roles/revoke": { const b = only("POST"); return b || run(await needPost("owner"), (c) => handleRoleRevoke(request, c)); }
     case "audit": { const b = only("GET"); return b || run(need("moderator"), (c) => handleAudit(c, url)); }
     case "test/seed": { const b = only("POST"); return b || run(await needPost("owner"), handleTestSeed); }
-    case "test/reset": { const b = only("POST"); return b || run(await needPost("owner", { fresh: true }), (c) => handleTestReset(request, c)); }
+    case "test/reset": { const b = only("POST"); return b || run(await needPost("owner"), (c) => handleTestReset(request, c)); }
     case "test/preview-role": { const b = only("POST"); return b || run(await needPost("owner"), (c) => handlePreviewRole(request, c)); }
     default: return json({ ok: false, error: "not_found" }, 404);
   }

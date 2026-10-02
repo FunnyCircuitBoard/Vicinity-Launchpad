@@ -13,7 +13,7 @@
  *   GET  /api/snapshots · /api/snapshots/:id/proof?wallet= · /api/snapshots/:id/data   Founding Supporters
  * Accounts (src/auth.js): /api/auth/wallet · /api/auth/transfer(/check) · /api/auth/reprove · /api/pair(/finish)
  *   · /api/auth/{google,x}/start|callback · /api/auth/logout
- * Signed in: /api/me · /api/me/{terms,username,phone} · /api/me/contact/email/verify · /api/home · /api/locate (the ONLY place a location is read) · /api/posts(/vote, /report)
+ * Signed in: /api/me · /api/me/{terms,username,phone} · /api/me/contact/email/{verify,remove} · /api/home · /api/locate (the ONLY place a location is read) · /api/posts(/vote, /report)
  *   · /api/seats/{apply,withdraw,endorse,object,resign} · /api/elections/vote · /api/appeals · /api/towns
  *   · /api/seats/squad/{create,join,leave,apply} · /api/seats/squad/:id (readiness)
  * Moderators: /api/mod · /api/mod/{hide,unhide,ban,ban/approve,ban/reject} · /api/appeals/decide
@@ -34,7 +34,7 @@ import { POLICY, founderAmount } from "./policy.js";
 import { ledgerStatus } from "./ledger.js";
 import { handleEmailStart, handleEmailVerify, handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, handlePairStart, handlePairStatus,
   handleReprove, handleTransferCheck, handleTransferStart, handleWalletLogin } from "./auth.js";
-import { handleContactEmailVerify, handleHome, handleMe, handleMembers, handlePhone, handleTermsAgree, handleUsername } from "./me.js";
+import { handleContactEmailRemove, handleContactEmailVerify, handleHome, handleMe, handleMembers, handlePhone, handleTermsAgree, handleUsername } from "./me.js";
 import { handleLocate } from "./attest.js";
 import { handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
 import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
@@ -296,6 +296,8 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return only("POST") || handlePhone(request, env);
     case "/api/me/contact/email/verify":
       return only("POST") || handleContactEmailVerify(request, env);
+    case "/api/me/contact/email/remove":
+      return only("POST") || handleContactEmailRemove(request, env);
     case "/api/home":
       return only("POST") || handleHome(request, env);
     case "/api/locate":

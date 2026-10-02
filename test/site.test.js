@@ -27,6 +27,7 @@ test("pages load nothing from other websites (privacy + security)", () => {
 test("no inline scripts or inline styles (blocked by our security policy), no links to the code", () => {
   assert.doesNotMatch(all, /<script(?![^>]*\bsrc=)[^>]*>/);
   assert.doesNotMatch(all, /\sstyle="/);
+  assert.doesNotMatch(all, /<style[\s>]/, "an inline <style> block is blocked by the security policy: use a stylesheet file");
   assert.doesNotMatch(all, /\son[a-z]+="/);
   assert.doesNotMatch(all, /github\.com/i);
 });
@@ -211,4 +212,37 @@ test("rules page: every rule, the formulas and the never-list, filled from the l
   for (const p of PAGES) assert.ok(html[p].includes('href="/rules">Rules &amp; fairness</a>'), `${p} links the rules in the footer`);
   assert.doesNotMatch(all, /first come, first served/i, "no races");
   assert.doesNotMatch(all, /= one person/i, "no overclaiming: accounts aren't proof of a unique person");
+});
+
+test("privacy statements match what is really stored (no X sign-in, no 'no e-mail', no unused purposes)", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const rest = Object.entries(html).filter(([f]) => f !== "terms.html").map(([, h]) => h).join("\n"); // the Terms are the owner's lawyer's
+  for (const [name, text] of [["site", rest], ["README", readme], ["dashboard.js", read("dashboard.js")]]) {
+    assert.doesNotMatch(text, /\bX or Google\b|\bX \/ Google\b|from X the id|X_CLIENT|api\/auth\/x\//, `${name}: X sign-in is gone`);
+    assert.doesNotMatch(text, /No e-mail, no passwords/i, `${name}: e-mail addresses are stored`);
+    assert.doesNotMatch(text, /security alerts|city updates|only write when it matters|only used if we ever need to reach you/i, `${name}: nothing is sent to contact details yet`);
+  }
+  // the inventory, in the FAQ, on the rules page, on the connect page and in the README
+  assert.match(html["index.html"], /With Google sign-in, only your Google account id and first name/);
+  assert.match(html["index.html"], /the e-mail address itself \(it is your account id\) and a hash of the 6-digit code, which expires in 10 minutes/);
+  assert.match(html["index.html"], /phone number is not verified and not used for anything yet/);
+  assert.match(html["rules.html"], /the address itself \(it is your account id\) and a hash of the code/);
+  assert.match(html["connect.html"], /we keep the address itself \(it is your account id\)/);
+  assert.match(readme, /for e-mail sign-in the e-mail address itself \(it is your account id\) and a hash of the 6-digit code/);
+  assert.match(readme, /Check-in coordinates are never stored/);
+  // the profile modal: both contact details say what they are for and can be removed
+  const modal = html["dashboard.html"], js = read("dashboard.js");
+  assert.match(modal, /Not verified and not used for anything yet\. You can remove it any time/);
+  assert.match(js, /\/api\/me\/contact\/email\/remove/);
+  assert.match(js, /\/api\/me\/phone", \{ phone: "" \}/);
+});
+
+test("admin console: kept out of search engines, and destructive buttons ask first (Cancel on a ban bans nobody)", () => {
+  assert.match(html["admin.html"], /<meta name="robots" content="noindex, nofollow">/);
+  for (const [f, h] of Object.entries(html)) if (f !== "admin.html") assert.doesNotMatch(h, /name="robots"/, f);
+  assert.doesNotMatch(html["admin.html"], /<meta (name|property)="(og:)?description" content="[^"]*test lab/i, "the public description does not advertise the test lab");
+  const js = read("admin.js");
+  assert.match(js, /if \(reason === null \|\| !reason\.trim\(\)\) return;/, "Cancel / empty reason stops the ban");
+  assert.doesNotMatch(js, /prompt\([^)]*\)\s*\|\|\s*"spam"/, "no default reason that survives Cancel");
+  for (const label of ["Approve", "Reject", "Hide", "Uphold", "Revoke", "Unban"]) assert.match(js, new RegExp(`btn\\("${label}[^"]*", async \\(\\) => \\{ if \\(sure\\(`), label);
 });

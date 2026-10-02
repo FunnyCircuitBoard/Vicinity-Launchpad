@@ -105,7 +105,7 @@ async function dropCurrent(env, request) {
   if (token && token.length <= 100) await dropSession(env, await sha256(token));
 }
 
-/** The wallet is proven. A linked wallet signs straight in; a new one has 30 minutes to link X or Google. */
+/** The wallet is proven. A linked wallet signs straight in; a new one has 30 minutes to link Google or an e-mail. */
 async function signInWallet(env, wallet, now) {
   const user = await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(wallet).first();
   const provenAt = iso(now);
@@ -323,14 +323,20 @@ export async function linkIdentity(env, session, provider, who, now) {
       return start(linked.id, linked.wallet, "/dashboard", false);
     }
     if (await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(session.wallet).first()) return { error: "wallet_taken" };
-    try {
-      const ins = await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, name, early, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .bind(session.wallet, provider, who.id, who.handle || await autoUsername(env.DB), who.name, activeMint(env) ? 0 : 1, iso(now)).run();
-      console.log("account created", provider, session.wallet.slice(0, 4) + "…" + session.wallet.slice(-4));
-      return start(ins.meta.last_row_id, session.wallet, "/dashboard?welcome=1", true);
-    } catch (e) {
-      if (/UNIQUE/i.test(String(e))) return { error: "social_taken" };
-      throw e;
+    // A handle can collide with the (case-insensitive) unique index when someone takes it between the check and the
+    // INSERT: that is not the person's problem, so pick another name and go on. wallet / provider_id collisions are.
+    for (let attempt = 0; ; attempt++) {
+      const handle = attempt === 0 && who.handle ? who.handle : await autoUsername(env.DB);
+      try {
+        const ins = await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, name, early, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+          .bind(session.wallet, provider, who.id, handle, who.name, activeMint(env) ? 0 : 1, iso(now)).run();
+        console.log("account created", provider, session.wallet.slice(0, 4) + "…" + session.wallet.slice(-4));
+        return start(ins.meta.last_row_id, session.wallet, "/dashboard?welcome=1", true);
+      } catch (e) {
+        if (!/UNIQUE/i.test(String(e))) throw e;
+        const handleTaken = await env.DB.prepare("SELECT id FROM users WHERE lower(handle) = lower(?)").bind(handle).first();
+        if (!handleTaken || attempt >= 4) return { error: "social_taken" };
+      }
     }
   }
 
@@ -352,27 +358,35 @@ const CODE_SECONDS = 10 * 60;       // a code lives 10 minutes
 const CODE_RESEND_SECONDS = 60;     // wait a minute between sends to the same address
 const CODE_MAX_SENDS = 5;           // sends per rolling hour, per address
 const CODE_MAX_ATTEMPTS = 5;        // wrong guesses before the code is thrown away
+const GLOBAL_MAX_SENDS = 2000;      // codes mailed per rolling hour across the whole site (override: EMAIL_MAX_PER_HOUR)
+const HOUR_MS = 3600_000;
 
 const cleanEmail = (s) => String(s || "").trim().toLowerCase().slice(0, 254);
-const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
+// Loose shape check (the code that arrives is the real proof) that also refuses control characters and
+// angle brackets, so nothing odd can ever reach the mail server.
+const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e) && !/[\u0000-\u001f\u007f-\u009f<>]/.test(e);
 export { cleanEmail, validEmail };
 
 /**
  * Check a 6-digit e-mail code and burn it. Returns { ok: true } or
  * { ok: false, error, left? }. Shared by sign-in and contact-e-mail verification.
+ *
+ * Every guess is counted by ONE atomic statement before it is compared, so a flood of parallel guesses
+ * can't all read "0 attempts so far": only the first CODE_MAX_ATTEMPTS guesses on a live code ever get
+ * compared. A dead code (expired or out of guesses) keeps its row so the resend limits below survive;
+ * a used code is deleted by a single DELETE, so two requests carrying the right code can't both win.
  */
 export async function consumeEmailCode(db, email, code, now = Date.now()) {
-  const row = await db.prepare("SELECT code_hash, expires_at, attempts FROM email_codes WHERE email = ?").bind(email).first();
-  const gone = async () => { await db.prepare("DELETE FROM email_codes WHERE email = ?").bind(email).run(); };
-  if (!row) return { ok: false, error: "code_expired" };
-  if (Date.parse(row.expires_at) <= now) { await gone(); return { ok: false, error: "code_expired" }; }
-  if (row.attempts >= CODE_MAX_ATTEMPTS) { await gone(); return { ok: false, error: "too_many" }; }
-  if (!safeEqual(await sha256(code), row.code_hash)) {
-    await db.prepare("UPDATE email_codes SET attempts = attempts + 1 WHERE email = ?").bind(email).run();
-    return { ok: false, error: "code_wrong", left: CODE_MAX_ATTEMPTS - row.attempts - 1 };
+  const row = await db.prepare("UPDATE email_codes SET attempts = attempts + 1 WHERE email = ? AND attempts < ? AND expires_at > ? RETURNING code_hash, attempts")
+    .bind(email, CODE_MAX_ATTEMPTS, iso(now)).first();
+  if (!row) {
+    const old = await db.prepare("SELECT expires_at, attempts FROM email_codes WHERE email = ?").bind(email).first();
+    if (old && Date.parse(old.expires_at) > now && old.attempts >= CODE_MAX_ATTEMPTS) return { ok: false, error: "too_many" };
+    return { ok: false, error: "code_expired" };
   }
-  await gone();
-  return { ok: true };
+  if (!safeEqual(await sha256(code), row.code_hash)) return { ok: false, error: "code_wrong", left: CODE_MAX_ATTEMPTS - row.attempts };
+  const used = await db.prepare("DELETE FROM email_codes WHERE email = ? AND code_hash = ?").bind(email, row.code_hash).run();
+  return used.meta.changes ? { ok: true } : { ok: false, error: "code_expired" };
 }
 
 /** Constant-time compare for hex digests (no timing leak on wrong guesses). */
@@ -393,7 +407,12 @@ async function sendCodeEmail(env, to, code, fetchImpl, mailer = {}) {
   return sendMail(env, { to, subject, text, html }, { fetchImpl, smtpImpl: mailer.smtpImpl || null });
 }
 
-/** POST /api/auth/email/start { email } → send a 6-digit code. */
+/**
+ * POST /api/auth/email/start { email } → send a 6-digit code.
+ * The send slot (one a minute, five an hour per address) is claimed by ONE atomic statement BEFORE the mail
+ * goes out, so parallel requests can't all pass the checks and mail the same person dozens of times.
+ * A site-wide hourly cap (EMAIL_MAX_PER_HOUR, default 2000) keeps one caller from burning the mail quota.
+ */
 export async function handleEmailStart(request, env, fetchImpl = fetch, now = Date.now(), mailer = {}) {
   const blocked = await guard(request, env);
   if (blocked) return blocked;
@@ -402,25 +421,37 @@ export async function handleEmailStart(request, env, fetchImpl = fetch, now = Da
   if (!validEmail(email)) return json({ ok: false, error: "bad_email" }, 400);
   if (!emailConfigured(env)) return json({ ok: false, error: "email_unavailable" }, 503);
 
-  const row = await env.DB.prepare("SELECT expires_at, attempts, send_count, window_start, last_sent_at FROM email_codes WHERE email = ?").bind(email).first();
-  if (row && row.last_sent_at && now - Date.parse(row.last_sent_at) < CODE_RESEND_SECONDS * 1000)
-    return json({ ok: false, error: "too_soon" }, 429);
-  const inWindow = row && row.window_start && now - Date.parse(row.window_start) < 3600_000;
-  if (inWindow && row.send_count >= CODE_MAX_SENDS) return json({ ok: false, error: "too_many" }, 429);
+  const hourAgo = iso(now - HOUR_MS);
+  const cap = Number(env.EMAIL_MAX_PER_HOUR) > 0 ? Number(env.EMAIL_MAX_PER_HOUR) : GLOBAL_MAX_SENDS;
+  const total = await env.DB.prepare("SELECT COALESCE(SUM(send_count), 0) AS n FROM email_codes WHERE window_start > ?").bind(hourAgo).first();
+  if (total && total.n >= cap) return json({ ok: false, error: "too_many" }, 429);
 
   const code = sixDigits();
-  const sent = await sendCodeEmail(env, email, code, fetchImpl, mailer);
-  if (!sent.ok) return json(sent, 503);
+  const hash = await sha256(code);
+  const claimed = await env.DB.prepare(`INSERT INTO email_codes (email, code_hash, created_at, expires_at, attempts, send_count, window_start, last_sent_at)
+      VALUES (?, ?, ?, ?, 0, 1, ?, ?)
+      ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, created_at = excluded.created_at,
+        expires_at = excluded.expires_at, attempts = 0,
+        send_count = CASE WHEN window_start IS NOT NULL AND window_start > ? THEN send_count + 1 ELSE 1 END,
+        window_start = CASE WHEN window_start IS NOT NULL AND window_start > ? THEN window_start ELSE excluded.window_start END,
+        last_sent_at = excluded.last_sent_at
+      WHERE (last_sent_at IS NULL OR last_sent_at <= ?) AND (window_start IS NULL OR window_start <= ? OR send_count < ?)
+      RETURNING send_count`)
+    .bind(email, hash, iso(now), iso(now + CODE_SECONDS * 1000), iso(now), iso(now), hourAgo, hourAgo, iso(now - CODE_RESEND_SECONDS * 1000), hourAgo, CODE_MAX_SENDS).first();
+  if (!claimed) {
+    const row = await env.DB.prepare("SELECT last_sent_at FROM email_codes WHERE email = ?").bind(email).first();
+    const soon = row && row.last_sent_at && now - Date.parse(row.last_sent_at) < CODE_RESEND_SECONDS * 1000;
+    return json({ ok: false, error: soon ? "too_soon" : "too_many" }, 429);
+  }
 
-  const sendCount = inWindow ? row.send_count + 1 : 1;
-  const windowStart = inWindow ? row.window_start : iso(now);
-  await env.DB.prepare(`INSERT INTO email_codes (email, code_hash, created_at, expires_at, attempts, send_count, window_start, last_sent_at)
-      VALUES (?, ?, ?, ?, 0, ?, ?, ?)
-      ON CONFLICT(email) DO UPDATE SET code_hash=excluded.code_hash, created_at=excluded.created_at,
-      expires_at=excluded.expires_at, attempts=0, send_count=excluded.send_count, window_start=excluded.window_start,
-      last_sent_at=excluded.last_sent_at`)
-    .bind(email, await sha256(code), iso(now), iso(now + CODE_SECONDS * 1000), sendCount, windowStart, iso(now)).run();
-  if (Math.random() < 0.05) await env.DB.prepare("DELETE FROM email_codes WHERE expires_at < ?").bind(iso(now)).run();
+  const sent = await sendCodeEmail(env, email, code, fetchImpl, mailer);
+  if (!sent.ok) {
+    // The mail never left: give the slot back (and kill the code nobody received) so a mail-service hiccup doesn't lock the person out.
+    await env.DB.prepare("UPDATE email_codes SET last_sent_at = NULL, send_count = MAX(send_count - 1, 0), expires_at = ? WHERE email = ? AND code_hash = ?").bind(iso(now), email, hash).run();
+    return json(sent, 503);
+  }
+  // Tidy now and then: only rows whose code AND hourly counters are both over.
+  if (Math.random() < 0.05) await env.DB.prepare("DELETE FROM email_codes WHERE expires_at < ? AND (window_start IS NULL OR window_start < ?)").bind(iso(now), hourAgo).run();
   return json({ ok: true });
 }
 

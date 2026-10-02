@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { handleApi } from "../src/index.js";
 import { base58Encode, buildMessage, statementFor } from "../src/solana.js";
 import { d1 } from "./helpers/d1.js";
+import { ensureSchema } from "../src/store.js";
 
 const HOST = "vicinity.test";
 const ORIGIN = `https://${HOST}`;
@@ -220,4 +221,163 @@ test("gmail is preferred over resend when both are configured", async () => {
   await sendMail({ GMAIL_USER: "a@gmail.com", GMAIL_APP_PASSWORD: "x", RESEND_API_KEY: "y" },
     { to: "t@example.com", subject: "s", text: "t" }, deps);
   assert.equal(via, "gmail");
+});
+
+// ---- Parallel requests (security): the database answers a little later than the code runs, like the real one,
+// so requests that arrive together really do overlap.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function slowDb(db, ms = 2) {
+  const wrap = (stmt) => ({
+    sql: stmt.sql,
+    bind: (...p) => wrap(stmt.bind(...p)),
+    first: async (...a) => { await sleep(ms); const r = await stmt.first(...a); await sleep(ms); return r; },
+    run: async () => { await sleep(ms); const r = await stmt.run(); await sleep(ms); return r; },
+    all: async () => { await sleep(ms); const r = await stmt.all(); await sleep(ms); return r; },
+  });
+  return { ...db, prepare: (sql) => wrap(db.prepare(sql)) };
+}
+const attemptsOf = (email) => env.DB.prepare("SELECT attempts, send_count FROM email_codes WHERE email = ?").bind(email).first();
+
+test("60 guesses sent at the same moment still only get five tries (the right code in the middle loses)", async () => {
+  await start(jar, "victim@example.com");
+  const right = sentCodes[0].code;
+  env.DB = slowDb(env.DB);
+  const wrong = (i) => String(100000 + ((Number(right) - 100000 + 1 + i) % 900000));
+  const guesses = Array.from({ length: 61 }, (_, i) => (i === 30 ? right : wrong(i)));
+  const answers = await Promise.all(guesses.map((g) => verify(browser(), "victim@example.com", g).then((r) => r.json())));
+  const compared = answers.filter((a) => a.error === "code_wrong" || a.ok || a.error === "wallet_first").length;
+  assert.ok(compared <= 5, `only five guesses may be compared, got ${compared}`);
+  assert.equal(answers.filter((a) => a.ok).length, 0, "nobody got in with the code in 31st place");
+  assert.ok(answers.every((a) => ["code_wrong", "too_many", "code_expired", "wallet_first"].includes(a.error)));
+  assert.equal((await attemptsOf("victim@example.com")).attempts, 5);
+});
+
+test("two requests carrying the right code at once: only one can use it", async () => {
+  const { consumeEmailCode } = await import("../src/auth.js");
+  await start(jar, "once@example.com");
+  const code = sentCodes[0].code;
+  const slow = slowDb(env.DB);
+  const results = await Promise.all([consumeEmailCode(slow, "once@example.com", code), consumeEmailCode(slow, "once@example.com", code)]);
+  assert.equal(results.filter((r) => r.ok).length, 1);
+});
+
+test("30 parallel requests for one address send one e-mail, not thirty", async () => {
+  env.DB = slowDb(env.DB);
+  const answers = await Promise.all(Array.from({ length: 30 }, () => start(browser(), "bomb@example.com")));
+  assert.equal(sentCodes.length, 1);
+  assert.deepEqual(answers.map((r) => r.status).sort(), [200, ...Array(29).fill(429)]);
+  assert.equal((await attemptsOf("bomb@example.com")).send_count, 1);
+});
+
+test("burning the five guesses does not reset the one-a-minute and five-an-hour limits", async () => {
+  const E = "loop@example.com", ago = (ms) => new Date(Date.now() - ms).toISOString();
+  await start(jar, E);
+  for (let i = 0; i < 5; i++) await verify(jar, E, "111111");
+  assert.equal((await verify(jar, E, "111111")).status, 429, "code is dead");
+  const r = await start(jar, E);
+  assert.equal(r.status, 429, "the mailing limits survived the burn");
+  assert.equal((await r.json()).error, "too_soon");
+  // five an hour: a minute passes between sends, the count keeps growing through burns
+  for (let i = 2; i <= 5; i++) {
+    await env.DB.prepare("UPDATE email_codes SET last_sent_at = ? WHERE email = ?").bind(ago(61_000), E).run();
+    assert.equal((await start(jar, E)).status, 200, `send ${i}`);
+    for (let k = 0; k < 6; k++) await verify(jar, E, "111111");
+  }
+  await env.DB.prepare("UPDATE email_codes SET last_sent_at = ? WHERE email = ?").bind(ago(61_000), E).run();
+  const sixth = await start(jar, E);
+  assert.equal(sixth.status, 429);
+  assert.equal((await sixth.json()).error, "too_many");
+  assert.equal(sentCodes.length, 5);
+});
+
+test("a failed mail gives the send slot back and leaves no usable code", async () => {
+  const bad = async () => new Response("nope", { status: 500 });
+  let r = await jar.send("/api/auth/email/start", { method: "POST", body: { email: "flaky@example.com" }, fetchImpl: bad });
+  assert.equal(r.status, 503);
+  assert.equal((await attemptsOf("flaky@example.com")).send_count, 0);
+  r = await start(jar, "flaky@example.com");
+  assert.equal(r.status, 200, "retry right away works");
+  assert.equal(sentCodes.length, 1);
+});
+
+test("a site-wide hourly cap protects the mail quota (EMAIL_MAX_PER_HOUR)", async () => {
+  env.EMAIL_MAX_PER_HOUR = "3";
+  const answers = [];
+  for (const n of ["a", "b", "c", "d"]) answers.push((await start(jar, `${n}@example.com`)).status);
+  assert.deepEqual(answers, [200, 200, 200, 429]);
+  assert.equal(sentCodes.length, 3);
+});
+
+test("control characters and brackets never reach the mail server", async () => {
+  const { validEmail } = await import("../src/auth.js");
+  const { sendMail } = await import("../src/mail.js");
+  for (const bad of ["a@b.co\u0085", "a@b.co\u0000x", "a@b.co>", "<a@b.co", "a@b.co\r\nRCPT TO:<x@y.zz>", "a b@c.de"]) assert.equal(validEmail(bad), false, JSON.stringify(bad));
+  assert.equal(validEmail("o'brien+tag@example.co.uk"), true);
+  let called = 0;
+  const smtpImpl = async () => { called++; return { ok: true }; };
+  for (const bad of ["a@b.co\r\nRCPT TO:<x@y.zz>", "a@b.co>", "a@b.co\u0085", "", null]) {
+    const r = await sendMail({ GMAIL_USER: "u@gmail.com", GMAIL_APP_PASSWORD: "p" }, { to: bad, subject: "s", text: "t" }, { smtpImpl });
+    assert.deepEqual(r, { ok: false, error: "bad_email" });
+  }
+  assert.equal(called, 0);
+  assert.equal((await sendMail({ GMAIL_USER: "u@gmail.com", GMAIL_APP_PASSWORD: "p" }, { to: "a@b.co", subject: "s", text: "t" }, { smtpImpl })).ok, true);
+});
+
+// ---- Usernames at sign-up, and the scheduled clean-up
+
+// Sign a new person up; the first generated name is forced to SwiftHarbor10 (Math.random only changes while the code is checked).
+const signUpWithEmail = async (email) => {
+  const b = browser();
+  await b.send("/api/auth/wallet", { method: "POST", body: await loginBody(await wallet()) });
+  await start(b, email);
+  const realRandom = Math.random;
+  let calls = 0;
+  Math.random = () => (calls++ < 3 ? 0 : 0.5);
+  try { return await (await verify(b, email, sentCodes[sentCodes.length - 1].code)).json(); } finally { Math.random = realRandom; }
+};
+
+test("sign-up never fails because a generated name differs only by case from a name in use", async () => {
+  await ensureSchema(env.DB);
+  await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, created_at) VALUES ('w-old', 'wallet', 'w-old', 'swiftharbor10', ?)").bind(new Date().toISOString()).run();
+  const d = await signUpWithEmail("case@example.com"); // the first name drawn is SwiftHarbor10, which the other casing already holds
+  assert.equal(d.ok, true, JSON.stringify(d));
+  assert.equal(d.isNew, true);
+  const row = await env.DB.prepare("SELECT handle FROM users WHERE provider_id = 'case@example.com'").first();
+  assert.notEqual(row.handle.toLowerCase(), "swiftharbor10");
+});
+
+test("a handle collision at the INSERT retries with a new name (and does not burn the code); a login collision is still social_taken", async () => {
+  await ensureSchema(env.DB);
+  await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, created_at) VALUES ('w-old', 'wallet', 'w-old', 'swiftharbor10', ?)").bind(new Date().toISOString()).run();
+  const realDb = env.DB;
+  let fake = 1; // the first "is this name free?" lookup wrongly says yes, like a name taken a moment later by someone else
+  const lookup = (stmt) => ({ ...stmt, bind: (...p) => ({ ...stmt.bind(...p), first: async () => (fake-- > 0 ? null : stmt.bind(...p).first()) }) });
+  env.DB = { ...realDb, prepare: (sql) => (/^SELECT id FROM users WHERE lower\(handle\)/.test(sql) ? lookup(realDb.prepare(sql)) : realDb.prepare(sql)) };
+  let d;
+  try { d = await signUpWithEmail("retry@example.com"); } finally { env.DB = realDb; }
+  assert.equal(d.ok, true, JSON.stringify(d));
+  const row = await env.DB.prepare("SELECT handle FROM users WHERE provider_id = 'retry@example.com'").first();
+  assert.ok(row && row.handle.toLowerCase() !== "swiftharbor10");
+
+  // the same e-mail on a second wallet: still reported as taken by another wallet
+  const b = browser();
+  await b.send("/api/auth/wallet", { method: "POST", body: await loginBody(await wallet()) });
+  await start(b, "retry@example.com");
+  const again = await (await verify(b, "retry@example.com", sentCodes[sentCodes.length - 1].code)).json();
+  assert.equal(again.error, "social_taken");
+});
+
+test("the scheduled job deletes dead e-mail codes, but keeps live ones and ones whose hourly counters still count", async () => {
+  const { runJobs } = await import("../src/jobs.js");
+  await ensureSchema(env.DB);
+  const now = Date.now(), at = (ms) => new Date(now + ms).toISOString();
+  const put = (email, expires, windowStart) => env.DB.prepare("INSERT INTO email_codes (email, code_hash, created_at, expires_at, attempts, send_count, window_start, last_sent_at) VALUES (?, 'h', ?, ?, 0, 1, ?, ?)")
+    .bind(email, at(-3 * 3600_000), expires, windowStart, windowStart).run();
+  await put("dead-old@example.com", at(-2 * 3600_000), at(-3 * 3600_000));  // expired, window over: goes
+  await put("dead-null@example.com", at(-2 * 3600_000), null);              // expired, no window: goes
+  await put("dead-recent@example.com", at(-60_000), at(-10 * 60_000));      // expired, but sent within the hour: stays (send limit)
+  await put("live@example.com", at(5 * 60_000), at(-3 * 3600_000));         // code still valid: stays
+  await runJobs({ DB: env.DB }, now);
+  const left = (await env.DB.prepare("SELECT email FROM email_codes ORDER BY email").all()).results.map((r) => r.email);
+  assert.deepEqual(left, ["dead-recent@example.com", "live@example.com"]);
 });
