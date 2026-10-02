@@ -32,6 +32,22 @@ Still open and mostly waiting on a decision from you: A3/A5 (settings, `workers.
 Everything marked "needs a real-device test" works in real Chromium with a simulated wallet-app browser, but has not
 run inside Phantom or Solflare on a phone yet.
 
+## Live vs repo (found on 2 Oct, after the first version of this report)
+
+**What is running at vicinity.city is not what is in GitHub.** Everything above was audited against `main`. Checked afterwards, read-only:
+
+- 13 of the 23 top-level site files the live site serves differ from `main` (`site.js`, `connect.js`, `dashboard.js`, `dashboard.html`, `style.css`, and eight pages).
+- Live has features `main` doesn't: **e-mail code sign-in** (`/api/auth/email/start|verify`; the live provider list is `google` + `email`, X is gone), a **profile modal**, a **terms gate** and a `/terms` page, an `/admin` page, and a `siteMode: "preview"` that shows a "TEST ENVIRONMENT" banner and slides the Launchpad opening time to a moment in the past (the real date is kept as `announcedOpensAt: 2026-10-10T10:10:10-04:00`).
+- The production database has tables the repo's schema doesn't (`admin_roles`, `admin_tokens`, `admin_audit`, `admin_test`, `email_codes`) and three migrations the repo doesn't have (`2026-09-30-admin-dashboard`, `2026-10-01-terms-agree`, `2026-10-01-profile`). The Worker was last modified on 1 Oct 19:37 UTC, after `main`'s last commit (30 Sep).
+- Production holds 10 accounts: 1 Google, 1 e-mail, and **8 `testlab` accounts** in a made-up community ("Testville", country `XX`). They are counted in the public `/api/members` numbers.
+
+What this means for the rest of this report:
+
+- Findings **A1** (no Log in) and **A2** hold on live too: the live header still says "Connect". But the sign-in methods differ (e-mail instead of X), so the new Log in block, the hand-off and the X-specific advice must be reworked on top of the live code, not on `main`.
+- **Do not merge or deploy the fixes branch as it stands.** Deploying `main`, or this branch, would replace the live Worker and drop e-mail sign-in, the terms gate, the profile modal and the admin work.
+- First step: get the deployed code into git (it was deployed from somewhere that isn't GitHub: another machine, another session, or the Cloudflare dashboard), then rebase the fixes onto it. The backend fixes (D1, C2, C9, D7, D5, B-series) are mostly independent of the sign-in changes and should port cleanly; the login/connect/dashboard UI work will need real merging.
+- Clean up before launch: remove the 8 `testlab` accounts and turn `siteMode` back to live. I haven't touched either.
+
 ## Headline
 
 1. **There is no way to log in.** The header says "Connect", the connect page only offers wallets, and the
