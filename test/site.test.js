@@ -142,9 +142,11 @@ test("connect: every popular wallet, phone QR, app wallets like FOMO, then X or 
 
 test("dashboard: onboarding, live rank + badges, founder race, local/national feeds, roles now and at launch", () => {
   const h = html["dashboard.html"];
-  for (const id of ["dash-out", "dash-onboard", "ob-locate", "dash-main", "d-rank", "d-crank", "d-nrank", "progress", "p-panel", "p-window", "feed", "composer", "posts", "community", "national", "nc-election", "badges", "badge-grid", "mod", "request", "roles", "lost-alert", "ban-notice", "proof-modal"]) assert.ok(h.includes(`id="${id}"`), id);
+  for (const id of ["dash-out", "dash-onboard", "ob-locate", "dash-main", "d-rank", "d-crank", "d-nrank", "progress", "p-panel", "p-window", "feed", "composer", "posts", "community", "national", "nc-election", "badges", "badge-grid", "mod", "request", "roles", "lost-alert", "ban-notice", "proof-modal", "role-home", "squad", "locate-modal"]) assert.ok(h.includes(`id="${id}"`), id);
   for (const k of ["meme", "checkin", "talk"]) assert.ok(h.includes(`data-kind="${k}"`), k);
   for (const s of ["city", "country"]) assert.ok(h.includes(`data-scope="${s}"`), s);
+  const order = [...h.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]);
+  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "dashboard-roles", "dashboard"], "the role panel script loads before the dashboard script");
   const roles = h.match(/<section class="section section--panel" id="roles">[\s\S]*?<\/section>/)[0];
   for (const r of ["holder", "founder", "manager", "admin"]) assert.ok(roles.includes(`data-role="${r}"`), r);
   assert.equal((roles.match(/role-row__when">Now</g) || []).length, 4);

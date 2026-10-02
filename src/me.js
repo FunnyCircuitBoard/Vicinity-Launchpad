@@ -122,9 +122,10 @@ async function liveStatus(env, s, fetchImpl, now) {
     { id: "account", label: "Wallet + account verified", done: true },
     { id: "home", label: u.home_city ? `Home: ${u.home_name} (${POLICY.founder.localDays} days before applying)` : "Set your home community",
       done: Boolean(u.home_city) && Date.parse(elig.homeReadyAt || iso(now + DAY)) <= now, detail: u.home_city && elig.homeReadyAt && Date.parse(elig.homeReadyAt) > now ? `ready ${elig.homeReadyAt.slice(0, 10)}` : null },
-    { id: "hold", label: `Hold ${(elig.threshold || POLICY.founder.ladder.base).toLocaleString("en-US")}+ for ${POLICY.founder.qualifyingDays} days`,
-      done: Boolean(elig.tenure && elig.tenure.qualified), progress: elig.tenure ? Math.min(1, elig.tenure.days / elig.tenure.needed) : 0,
-      detail: launched ? `${Math.min(days, POLICY.founder.qualifyingDays)} / ${POLICY.founder.qualifyingDays} days` : "starts at launch" },
+    // a seated founder qualified when they claimed, under the bar they claimed with (the ladder may have moved since)
+    { id: "hold", label: `Hold ${((seat && seat.threshold) || elig.threshold || POLICY.founder.ladder.base).toLocaleString("en-US")}+ for ${POLICY.founder.qualifyingDays} days`,
+      done: Boolean(seat) || Boolean(elig.tenure && elig.tenure.qualified), progress: elig.tenure ? Math.min(1, elig.tenure.days / elig.tenure.needed) : 0,
+      detail: seat ? null : launched ? `${Math.min(days, POLICY.founder.qualifyingDays)} / ${POLICY.founder.qualifyingDays} days` : "starts at launch" },
     { id: "apply", label: "Claim your city: the first qualified claimer becomes Seed Steward at once", done: Boolean(app || seat) },
     { id: "chosen", label: "Seated: Seed Steward now, or chosen by locals if several claim together", done: Boolean(seat) },
     { id: "founder", label: seat && seat.status === "grace" ? "Founder: in grace, top up to keep it"

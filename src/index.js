@@ -17,6 +17,7 @@
  *   app's browser can't share GPS: src/handoff.js) · /api/posts(/vote, /report)
  *   · /api/seats/{apply,withdraw,endorse,object,resign} · /api/elections/vote · /api/appeals · /api/towns
  *   · /api/seats/squad/{create,join,leave,apply} · /api/seats/squad/:id (readiness)
+ * Admins: /api/admin/status (is launch set up? yes/no per setting, never a value)
  * Moderators: /api/mod · /api/mod/{hide,unhide,ban,ban/approve,ban/reject} · /api/appeals/decide
  *   · /api/towns/decide · /api/seats/objections/decide · /api/snapshots/cancel
  *
@@ -36,6 +37,7 @@ import { handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, 
   handleReprove, handleTransferCheck, handleTransferStart, handleWalletLogin } from "./auth.js";
 import { handleHome, handleMe, handleMembers } from "./me.js";
 import { handleLocate } from "./attest.js";
+import { handleAdminStatus } from "./admin.js";
 import { handleHandoffClaim, handleHandoffComplete, handleHandoffInfo, handleHandoffStart } from "./handoff.js";
 import { handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
 import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
@@ -334,6 +336,10 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return only("GET") || handleMyTowns(request, env);
     case "/api/towns/decide":
       return only("POST") || handleTownDecision(request, env, fetchImpl);
+
+    // the admin console's readiness numbers (admins only)
+    case "/api/admin/status":
+      return only("GET") || db(() => handleAdminStatus(request, env));
 
     // Founding Supporters
     case "/api/snapshots":

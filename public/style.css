@@ -972,3 +972,29 @@ select option { background: var(--bg-2); }
   .pass { padding: 18px; }
   .pass .live-note { margin-left: 0; }
 }
+
+/* ---------- dashboard: the role panel (one per level), squads, the admin console ---------- */
+.role-home, .squad-card { display: grid; gap: 12px; }
+.role-home[hidden], .squad-card[hidden] { display: none; }
+.role-home__head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.role-home__head .role__icon { font-size: 1.8rem; line-height: 1; }
+.role-home__head h2 { margin: 0; }
+.role-home__head .tag { margin-left: auto; }
+.role-home[data-level="admin"], .role-home[data-level="manager"] { border-color: rgba(255,200,87,.45); }
+.role-note { padding: 10px 12px; border-radius: 12px; background: rgba(255,213,138,.1); border: 1px solid rgba(255,213,138,.35); }
+.role-queue { color: var(--gold-text); font-weight: 600; }
+.role-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.role-meter__row { display: flex; justify-content: space-between; gap: 10px; font-size: .86rem; color: var(--muted); }
+.role-meter__row strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.role-meter .bar { margin: 6px 0 2px; }
+.role-meter.is-bad .bar span { background: linear-gradient(90deg, var(--pin), var(--gold)); }
+.role-meter.is-ok .bar span { background: linear-gradient(90deg, var(--moss), var(--ok-text)); }
+.role-admin { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+.role-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.role-checks li { display: flex; gap: 10px; align-items: flex-start; font-size: .92rem; }
+.role-checks li p { margin: 2px 0 0; }
+.role-checks .req__dot { margin-top: 5px; }
+.role-checks li.is-ok .req__dot { background: var(--moss); border-color: var(--moss); }
+.role-checks li.is-bad .req__dot { background: var(--pin); border-color: var(--pin); }
+.req-list li.is-ok { border-color: rgba(55,194,154,.4); }
+.btn.is-soft { opacity: .75; }

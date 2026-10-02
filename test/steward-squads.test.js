@@ -182,7 +182,8 @@ test("a Seed Steward is a founder everywhere: role flags, badge, crown on posts,
   assert.equal(me.founder.seat.status, "steward");
   assert.ok(me.founder.seat.probationUntil);
   const steps = Object.fromEntries(me.progress.steps.map((s) => [s.id, s]));
-  assert.equal(steps.apply.done && steps.chosen.done, true);
+  assert.equal(steps.hold.done && steps.apply.done && steps.chosen.done, true, "a seated founder has qualified, apply and chosen all done");
+  assert.match(steps.hold.label, /^Hold 180,000\+ for 7 days$/, "the bar the seat was claimed under");
   assert.equal(steps.founder.done, false, "confirmed founder comes after probation");
   assert.match(steps.founder.detail, /^probation until /);
   assert.deepEqual(me.community.seat.quorum, { have: 1, need: 50 });

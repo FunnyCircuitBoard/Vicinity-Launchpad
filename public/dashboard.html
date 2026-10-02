@@ -118,6 +118,8 @@
 
         <div class="dash-grid">
           <div class="dash-col">
+            <section class="card role-home" id="role-home" aria-label="Your role" hidden></section>
+
             <section class="card progress-card" id="progress" aria-labelledby="progress-title">
               <div class="progress-card__head">
                 <div><p class="kicker">Founder path · <a href="/rules#founders">the rules</a></p><h2 class="h2--sm" id="progress-title">Found <span id="p-city">your city</span></h2></div>
@@ -129,6 +131,8 @@
               <div class="window-panel" id="p-window" hidden></div>
               <p class="wallet__error" id="p-error" role="alert" hidden></p>
             </section>
+
+            <section class="card squad-card" id="squad" aria-label="Squad founding" hidden></section>
 
             <section class="card coin-card" id="coin" aria-labelledby="coin-title">
               <div class="coin-card__head">
@@ -409,6 +413,7 @@
   <script src="/site.js" defer></script>
   <script src="/ticker.js" defer></script>
   <script src="/wallets.js" defer></script>
+  <script src="/dashboard-roles.js" defer></script>
   <script src="/dashboard.js" defer></script>
 </body>
 </html>
