@@ -13,7 +13,7 @@
  *   GET  /api/snapshots · /api/snapshots/:id/proof?wallet= · /api/snapshots/:id/data   Founding Supporters
  * Accounts (src/auth.js): /api/auth/wallet · /api/auth/transfer(/check) · /api/auth/reprove · /api/pair(/finish)
  *   · /api/auth/{google,x}/start|callback · /api/auth/logout
- * Signed in: /api/me · /api/home · /api/locate (the ONLY place a location is read) · /api/posts(/vote, /report)
+ * Signed in: /api/me · /api/me/{terms,username,phone} · /api/me/contact/email/{verify,remove} · /api/home · /api/locate (the ONLY place a location is read) · /api/posts(/vote, /report)
  *   · /api/seats/{apply,withdraw,endorse,object,resign} · /api/elections/vote · /api/appeals · /api/towns
  *   · /api/seats/squad/{create,join,leave,apply} · /api/seats/squad/:id (readiness)
  * Moderators: /api/mod · /api/mod/{hide,unhide,ban,ban/approve,ban/reject} · /api/appeals/decide
@@ -23,7 +23,8 @@
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, X_CLIENT_ID/SECRET,
  * SNAPSHOT_CUTOFF, ATTEST_KEY (optional).
  */
-import { OFFICIAL, activeMint, checkOfficial } from "./official.js";
+import { OFFICIAL, activeMint, checkOfficial, officialFor } from "./official.js";
+import { handleAdmin } from "./admin.js";
 import { getHolding, getTokenFacts, getTopHolders, holderSnapshot, rankOf } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
 import { SECURITY_HEADERS, json } from "./http.js";
@@ -31,9 +32,9 @@ import { readSigned } from "./signed.js";
 import { ensureSchema } from "./store.js";
 import { POLICY, founderAmount } from "./policy.js";
 import { ledgerStatus } from "./ledger.js";
-import { handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, handlePairStart, handlePairStatus,
+import { handleEmailStart, handleEmailVerify, handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, handlePairStart, handlePairStatus,
   handleReprove, handleTransferCheck, handleTransferStart, handleWalletLogin } from "./auth.js";
-import { handleHome, handleMe, handleMembers } from "./me.js";
+import { handleContactEmailRemove, handleContactEmailVerify, handleHome, handleMe, handleMembers, handlePhone, handleTermsAgree, handleUsername } from "./me.js";
 import { handleLocate } from "./attest.js";
 import { handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
 import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
@@ -134,8 +135,11 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
   const db = async (fn) => needsDb() || (await ensureSchema(env.DB), fn());
 
   // paths with an id in them
-  const oauth = path.match(/^\/api\/auth\/(google|x)\/(start|callback)$/);
+  if (path.startsWith("/api/admin/")) return db(() => handleAdmin(request, env));
+  const oauth = path.match(/^\/api\/auth\/(google)\/(start|callback)$/);
   if (oauth) return only("GET") || (oauth[2] === "start" ? handleOAuthStart(request, env, oauth[1]) : handleOAuthCallback(request, env, oauth[1], fetchImpl));
+  if (path === "/api/auth/email/start") return only("POST") || db(() => handleEmailStart(request, env, fetchImpl));
+  if (path === "/api/auth/email/verify") return only("POST") || db(() => handleEmailVerify(request, env, fetchImpl));
   let m = path.match(/^\/api\/media\/([0-9]{1,10})$/);
   if (m) return only("GET") || handleMedia(env, m[1]);
   m = path.match(/^\/api\/seats\/results\/([0-9]{1,10})$/);
@@ -151,7 +155,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
     case "/api/health":
       return only("GET") || json({ ok: true, service: "vicinity-map", milestone: 2 });
     case "/api/official":
-      return only("GET") || json(OFFICIAL);
+      return only("GET") || json(officialFor(env));
     case "/api/policy":
       return only("GET") || json({ policy: POLICY, snapshotCutoff: snapshotCutoff(env), launched: Boolean(activeMint(env)),
         balanceHistory: env.DB ? await ledgerStatus(env, Date.now()) : { running: false } });
@@ -284,6 +288,16 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
     // dashboard
     case "/api/me":
       return only("GET") || handleMe(request, env, fetchImpl);
+    case "/api/me/terms":
+      return only("POST") || handleTermsAgree(request, env);
+    case "/api/me/username":
+      return only("POST") || handleUsername(request, env);
+    case "/api/me/phone":
+      return only("POST") || handlePhone(request, env);
+    case "/api/me/contact/email/verify":
+      return only("POST") || handleContactEmailVerify(request, env);
+    case "/api/me/contact/email/remove":
+      return only("POST") || handleContactEmailRemove(request, env);
     case "/api/home":
       return only("POST") || handleHome(request, env);
     case "/api/locate":

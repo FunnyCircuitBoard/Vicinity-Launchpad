@@ -7,23 +7,25 @@
  *   POST /api/home        → set your home community from a location attestation (never the location)
  */
 import { json, readJson } from "./http.js";
-import { getSession, isFresh, providers } from "./auth.js";
+import { cleanEmail, consumeEmailCode, getSession, isFresh, providers, validEmail } from "./auth.js";
 import { access } from "./access.js";
-import { useAttestation } from "./attest.js";
+import { countRecent, noteEvent, useAttestation } from "./attest.js";
 import { activeMint } from "./official.js";
 import { getHolding, holderSnapshot, rankOf } from "./chain.js";
-import { DAY, POLICY, iso } from "./policy.js";
+import { DAY, HOUR, POLICY, iso } from "./policy.js";
 import { VOTE_WEIGHT, activeBan, adminWallets, amountsFor, liveSeatOfUser, managerOf } from "./roles.js";
 import { cityPicture, cooldownUntil, eligibility } from "./seats.js";
 import { countryPicture } from "./elections.js";
 import { ensureSchema } from "./store.js";
 import { communityById } from "./community.js";
+import { latestBalances } from "./ledger.js";
 
 const HOME_LOCK_DAYS = 7; // a home community can be changed once a week
 const mask = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
 
 export const publicUser = (u) => ({
   id: u.id, wallet: u.wallet, provider: u.provider, handle: u.handle, name: u.name,
+  contact_email: u.contact_email || null, phone: u.phone || null,
   home: u.home_city ? { id: u.home_city, name: u.home_name, country: u.home_country, since: u.home_at } : null,
   joined: u.created_at,
 });
@@ -36,7 +38,7 @@ function badgesFor({ u, launched, amount, position, seat, manager, admin, checki
   const T = threshold || POLICY.founder.ladder.base;
   const list = [
     { id: "early", icon: "🌱", name: "Early member", detail: "Joined before $VICINITY launched. This one can never be earned again.", earned: Boolean(u.early) },
-    { id: "verified", icon: "✅", name: "Verified account", detail: "One wallet + one X or Google login.", earned: true },
+    { id: "verified", icon: "✅", name: "Verified account", detail: "One wallet + one Google login or verified e-mail.", earned: true },
     { id: "local", icon: "📍", name: "Local", detail: "Home community confirmed by location.", earned: Boolean(u.home_city) },
     { id: "holder", icon: "🏅", name: "Holder", detail: launched ? "Hold any $VICINITY." : "Hold $VICINITY once it launches.", earned: amount > 0, progress: amount > 0 ? 1 : 0 },
     { id: "founder_ready", icon: "🔑", name: "Founder-ready", detail: `Held ${T.toLocaleString("en-US")}+ $VICINITY for ${POLICY.founder.qualifyingDays} days: may apply to found your city.`,
@@ -92,12 +94,12 @@ async function liveStatus(env, s, fetchImpl, now) {
   };
   let community = null, national = null;
   if (u.home_city) {
-    const members = (await db.prepare("SELECT wallet FROM users WHERE home_city = ? LIMIT 5000").bind(u.home_city).all()).results.map((r) => r.wallet);
+    const members = (await db.prepare("SELECT wallet FROM users WHERE home_city = ? AND provider != 'testlab' LIMIT 5000").bind(u.home_city).all()).results.map((r) => r.wallet);
     community = { id: u.home_city, name: u.home_name, country: u.home_country, members: members.length, ...(await ranked(members)),
       ...(await cityPicture(env, u.home_city, u, now)) };
   }
   if (u.home_country) {
-    const members = (await db.prepare("SELECT wallet FROM users WHERE home_country = ? LIMIT 20000").bind(u.home_country).all()).results.map((r) => r.wallet);
+    const members = (await db.prepare("SELECT wallet FROM users WHERE home_country = ? AND provider != 'testlab' LIMIT 20000").bind(u.home_country).all()).results.map((r) => r.wallet);
     national = { country: u.home_country, members: members.length, ...(await ranked(members)), ...(await countryPicture(env, u.home_country, u, now)) };
   }
 
@@ -151,6 +153,144 @@ export async function handleMe(request, env, fetchImpl = fetch, now = Date.now()
 }
 
 /**
+ * POST /api/me/terms { version } → record that the signed-in user agreed to the Terms of Use.
+ * The frontend also keeps a local copy so anonymous visitors are gated before entry.
+ */
+export async function handleTermsAgree(request, env, now = Date.now()) {
+  const a = await access(request, env, now);
+  if (a.error) return a.error;
+  const body = await readJson(request);
+  const version = typeof body?.version === "string" ? body.version.slice(0, 32) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(version)) return json({ ok: false, error: "bad_version" }, 400);
+  await ensureSchema(env.DB);
+  await env.DB.prepare("UPDATE users SET terms_version = ?, terms_agreed_at = ? WHERE id = ?")
+    .bind(version, new Date(now).toISOString(), a.u.id).run();
+  return json({ ok: true, version });
+}
+
+/** Usernames: 3–20 chars, start with a letter, letters/digits/underscore. Unique, case-insensitively. */
+export const validUsername = (s) => /^[A-Za-z][A-Za-z0-9_]{2,19}$/.test(String(s || ""));
+
+const RENAMES_PER_DAY = 3; // username changes per person per rolling day (rate_events kind "rename")
+const RENAME_TRIES_PER_HOUR = 20; // attempts per person per hour, refused ones included (rate_events kind "rename_try")
+
+/**
+ * What a name "looks like": lower-case, look-alike digits mapped to letters (and i to l, so I / l / 1 are one
+ * letter), everything that is not a letter or digit dropped (_ and -). Repeated letters are NOT merged:
+ * Aaron and Aron are different names. "V1c1nity" and "vicinity_" come out as the same skeleton.
+ */
+export function nameSkeleton(s) {
+  return String(s || "").toLowerCase()
+    .replace(/[013457i]/g, (c) => ({ 0: "o", 1: "l", 3: "e", 4: "a", 5: "s", 7: "t", i: "l" })[c])
+    .replace(/[^a-z0-9]/g, "");
+}
+
+// Names that pass for the project or its staff are refused. Deliberately narrow, so ordinary names stay free
+// (Staffan, Supporter, Sysadmin and homeowner are fine):
+//   · anything with "vicinity" in it, look-alike letters included
+//   · exactly one of these words, with or without trailing digits (Admin, admin_, Support77, r00t)
+//   · one of the staff words as the first or last WORD of the name (Admin_Sakib, SupportTeam, TheOfficial)
+//   · starting with admin / administrator / moderator
+const STAFF_WORDS = ["admin", "administrator", "moderator", "mod", "mods", "support", "official", "staff", "owner", "system", "security", "help", "founder", "root", "team"];
+const STAFF_AS_WORD = ["admin", "administrator", "moderator", "mod", "mods", "support", "official", "staff"].map(nameSkeleton);
+const STAFF_SKELETONS = STAFF_WORDS.map(nameSkeleton);
+const STAFF_PREFIXES = ["admin", "administrator", "moderator"].map(nameSkeleton);
+const STAFF_EXACT = new RegExp(`^(${STAFF_WORDS.join("|")})[0-9]*$`);
+export const reservedUsername = (s) => {
+  const k = nameSkeleton(s);
+  if (k.includes(nameSkeleton("vicinity"))) return true;
+  if (STAFF_EXACT.test(String(s).toLowerCase().replace(/[^a-z0-9]/g, "")) || STAFF_SKELETONS.includes(k)) return true;
+  const words = String(s).replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(nameSkeleton);
+  if (words.length > 1 && (STAFF_AS_WORD.includes(words[0]) || STAFF_AS_WORD.includes(words[words.length - 1]))) return true;
+  return STAFF_PREFIXES.some((r) => k.startsWith(r));
+};
+
+/**
+ * POST /api/me/username { username } → change the public username.
+ * First come, first served: it must not match any existing username (any casing), nor look like one
+ * (I / l / 1, O / 0, underscores), nor pass for the project or its staff. At most 3 changes a day.
+ * Needs a fresh wallet proof, like other identity changes.
+ */
+export async function handleUsername(request, env, now = Date.now()) {
+  const a = await access(request, env, now, { fresh: true });
+  if (a.error) return a.error;
+  const body = await readJson(request);
+  const username = typeof body?.username === "string" ? body.username.trim() : "";
+  if (!validUsername(username)) return json({ ok: false, error: "bad_username" }, 400);
+  await ensureSchema(env.DB);
+  if (a.u.handle && a.u.handle.toLowerCase() === username.toLowerCase()) return json({ ok: true, username: a.u.handle });
+  const taken = await env.DB.prepare("SELECT id FROM users WHERE lower(handle) = lower(?) AND id != ?").bind(username, a.u.id).first();
+  if (taken) return json({ ok: false, error: "username_taken" }, 409);
+  if (reservedUsername(username)) return json({ ok: false, error: "username_reserved" }, 400);
+  // Limits first: the look-alike check below reads every username, so it must not be repeatable at will.
+  if (await countRecent(env, a.u.id, "rename", now - DAY) >= RENAMES_PER_DAY) return json({ ok: false, error: "slow_down" }, 429);
+  if (await countRecent(env, a.u.id, "rename_try", now - HOUR) >= RENAME_TRIES_PER_HOUR) return json({ ok: false, error: "slow_down" }, 429);
+  await noteEvent(env, a.u.id, "rename_try", now);
+  // Existing members keep their names, but nobody new may take a look-alike of another member's name.
+  const skeleton = nameSkeleton(username);
+  const others = (await env.DB.prepare("SELECT handle FROM users WHERE handle IS NOT NULL AND id != ?").bind(a.u.id).all()).results;
+  if (others.some((o) => nameSkeleton(o.handle) === skeleton)) return json({ ok: false, error: "username_similar" }, 409);
+  try {
+    await env.DB.prepare("UPDATE users SET handle = ? WHERE id = ?").bind(username, a.u.id).run();
+    await noteEvent(env, a.u.id, "rename", now);
+  } catch (e) {
+    if (/UNIQUE/i.test(String(e && e.message ? e.message : e))) return json({ ok: false, error: "username_taken" }, 409);
+    throw e;
+  }
+  return json({ ok: true, username });
+}
+
+/**
+ * POST /api/me/contact/email/verify { email, code } → verify the code (sent by the
+ * shared /api/auth/email/start) and store it as the account's contact e-mail.
+ * A verified contact e-mail is not a sign-in method; someone else's sign-in e-mail can't be taken.
+ */
+export async function handleContactEmailVerify(request, env, now = Date.now()) {
+  const a = await access(request, env, now);
+  if (a.error) return a.error;
+  const body = await readJson(request);
+  const email = cleanEmail(body && body.email);
+  const code = String((body && body.code) || "").replace(/\D/g, "").slice(0, 6);
+  if (!validEmail(email) || code.length !== 6) return json({ ok: false, error: "bad_code" }, 400);
+  const v = await consumeEmailCode(env.DB, email, code, now);
+  if (!v.ok) return json({ ok: false, error: v.error, ...(v.left != null ? { left: v.left } : {}) }, v.error === "too_many" ? 429 : 400);
+  await ensureSchema(env.DB);
+  const other = await env.DB.prepare("SELECT id FROM users WHERE provider = 'email' AND provider_id = ? AND id != ?").bind(email, a.u.id).first();
+  if (other) return json({ ok: false, error: "email_taken" }, 409);
+  await env.DB.prepare("UPDATE users SET contact_email = ? WHERE id = ?").bind(email, a.u.id).run();
+  return json({ ok: true, email });
+}
+
+/** POST /api/me/contact/email/remove → clear the contact e-mail (the sign-in e-mail of an e-mail account is not touched). */
+export async function handleContactEmailRemove(request, env, now = Date.now()) {
+  const a = await access(request, env, now);
+  if (a.error) return a.error;
+  await env.DB.prepare("UPDATE users SET contact_email = NULL WHERE id = ?").bind(a.u.id).run();
+  return json({ ok: true, email: null });
+}
+
+const validPhone = (s) => {
+  const t = String(s || "").trim();
+  const digits = t.replace(/\D/g, "");
+  return /^\+?[0-9\s\-().]{7,24}$/.test(t) && digits.length >= 7 && digits.length <= 15;
+};
+
+/**
+ * POST /api/me/phone { phone } → set (or clear, with "") the contact phone number.
+ * Stored for future notifications; not verified.
+ */
+export async function handlePhone(request, env, now = Date.now()) {
+  const a = await access(request, env, now);
+  if (a.error) return a.error;
+  const body = await readJson(request);
+  const phone = typeof body?.phone === "string" ? body.phone.trim() : "";
+  if (phone && !validPhone(phone)) return json({ ok: false, error: "bad_phone" }, 400);
+  await ensureSchema(env.DB);
+  await env.DB.prepare("UPDATE users SET phone = ? WHERE id = ?").bind(phone || null, a.u.id).run();
+  return json({ ok: true, phone: phone || null });
+}
+
+/**
  * POST /api/home { attestation, choice? }
  * Inside a community → that's home. In empty land → pick one of the three nearest (send `choice`).
  * Locked for a week after setting it, and while you hold or are applying for a founder seat.
@@ -183,13 +323,24 @@ export async function handleHome(request, env, now = Date.now()) {
   return json({ ok: true, home, joinedNearby: !att.city });
 }
 
-/** GET /api/members → how many people call each community home (public, no names or wallets). */
+/** GET /api/members → how many people call each community home (public, no names or wallets). Test-lab accounts are not people and are not counted. */
 export async function handleMembers(env) {
   if (!env.DB) return json({ members: 0, communities: [] });
   await ensureSchema(env.DB);
-  const [total, top] = await env.DB.batch([
-    env.DB.prepare("SELECT COUNT(*) AS n FROM users"),
-    env.DB.prepare("SELECT home_city AS id, home_name AS name, home_country AS country, COUNT(*) AS members FROM users WHERE home_city IS NOT NULL GROUP BY home_city ORDER BY members DESC LIMIT 300"),
+  const [total, top, placed] = await env.DB.batch([
+    env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE provider != 'testlab'"),
+    env.DB.prepare("SELECT home_city AS id, home_name AS name, home_country AS country, COUNT(*) AS members FROM users WHERE home_city IS NOT NULL AND provider != 'testlab' GROUP BY home_city ORDER BY members DESC LIMIT 300"),
+    env.DB.prepare("SELECT wallet, home_city FROM users WHERE home_city IS NOT NULL AND provider != 'testlab'"),
   ]);
-  return json({ members: total.results[0]?.n || 0, communities: top.results });
+  // Holders per city: members whose wallet holds > 0 in the latest balance sample.
+  let balances = null;
+  try { balances = (await latestBalances(env, Date.now()))?.balances || null; } catch { balances = null; }
+  const holders = new Map();
+  if (balances) {
+    for (const u of placed.results) {
+      if ((balances[u.wallet] || 0) > 0) holders.set(u.home_city, (holders.get(u.home_city) || 0) + 1);
+    }
+  }
+  return json({ members: total.results[0]?.n || 0,
+    communities: top.results.map((c) => ({ ...c, holders: holders.get(c.id) || 0 })) });
 }

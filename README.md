@@ -12,7 +12,7 @@ Separate pages, one shared menu (top menu on computers, bottom menu bar on phone
 - **/token** Token and holders: live facts from the blockchain (minting/freezing off, supply, price), every holder in a table that scrolls on its own, "where does this wallet stand?" (paste any address: rank, percentile, gap to the next wallet), the official token list and link checker.
 - **/cities** The live map: 8,000+ communities in 244 countries with real boundaries that never overlap; claimed vs open; the communities filling up. The claim button leads to the dashboard.
 - **/launchpad** Countdown to October 10 (10:10:10 AM New York time), the planned phases, who gets in first, add-to-calendar.
-- **/connect** Sign in: any Solana wallet (Wallet Standard + older ones; app links for phones), "wallet on my phone" (QR code + 2-digit check number), and a tiny-transfer proof for app wallets that can't connect (FOMO, exchanges). Then X or Google. One wallet + one login = one account.
+- **/connect** Sign in: any Solana wallet (Wallet Standard + older ones; app links for phones), "wallet on my phone" (QR code + 2-digit check number), and a tiny-transfer proof for app wallets that can't connect (FOMO, exchanges). Then Google or e-mail. One account per wallet and per login (a best-effort limit: it does not prove one person).
 - **/rules** Every rule and formula, the "never" list, and whether the balance checks are running (filled live from `/api/policy`).
 - **/dashboard** The Vicinity Pass (member card), Buy & swap ($VICINITY, your city's coin, city coin ⇄ $VICINITY: straight to Jupiter or Raydium, where people sign in their own wallet; estimates from live prices), your city's coin (the founder's coin studio: name, pitch, colour, logo, pair SOL/USDC/RAY). Onboarding (live rank + home community from one location check; people in empty land pick one of the three nearest communities), then: role and badges re-checked live (selling removes them), founder race with a progress bar and claiming, community and country cards, local and national feeds (memes with pictures, check-ins, discussions, weekly votes weighted 1 / 2 founders / 3 managers), reports, moderator tools, "add my town" requests, roles and responsibilities.
 
@@ -39,7 +39,7 @@ src/jobs.js         The every-10-minutes job: balance checks, seats, elections, 
 src/ledger.js       Balance history (random-time samples, 14-day streaks and averages)
 src/seats.js        City founders · src/elections.js country managers · src/moderation.js moderation + town requests
 src/snapshot.js     Founding Supporters (Merkle proofs) · src/attest.js location attestations
-src/auth.js         Accounts: wallet sign-in, X / Google, phone pairing, tiny-transfer proof, re-proving, sessions
+src/auth.js         Accounts: wallet sign-in, Google / e-mail codes, phone pairing, tiny-transfer proof, re-proving, sessions
 src/me.js           Dashboard data · src/social.js feeds · src/roles.js roles · src/access.js who may do what
 src/chain.js        Read-only Solana data: token facts, every holder + ranks, balances, transfer lookup
 src/community.js    Which community a point is in (or the three nearest) · src/cities.js + src/geo.js city data
@@ -49,14 +49,13 @@ wrangler.jsonc      Cloudflare settings (addresses, database, the 10-minute sche
 ```
 
 ## Settings (Cloudflare → Workers → vicinity-map → Settings → Variables and secrets)
-Add each one as a **Secret**, so later deploys never wipe it.
+Keys and passwords (`SOLANA_RPC_URL`, `GOOGLE_CLIENT_SECRET`, the mail keys) are **Secrets**: a deploy never touches them. Public settings (`SITE_MODE`, `GOOGLE_CLIENT_ID`, `EMAIL_FROM`) live in `wrangler.jsonc`; other plain variables added in the dashboard (for example `ADMIN_WALLETS`) are kept by a deploy. See [docs/DEPLOY.md](docs/DEPLOY.md).
 | Name | What it's for |
 |---|---|
 | `SOLANA_RPC_URL` | A Helius (or similar) RPC URL. Needed for the full holder list, ranks and the balance history; without it only the top 20 show and nobody can qualify as founder. |
 | `VICINITY_MINT` | The token address, the moment it launches (or edit `src/official.js`). |
 | `ADMIN_WALLETS` | Admin wallet address(es), comma-separated. Two admins let appeals of an admin's own decisions be judged by the other. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in. Redirect URI: `https://vicinity.city/api/auth/google/callback` |
-| `X_CLIENT_ID`, `X_CLIENT_SECRET` | X sign-in. Callback: `https://vicinity.city/api/auth/x/callback` |
 | `SNAPSHOT_CUTOFF` | The Founding Supporter cutoff, always 00:00 UTC, e.g. `2026-10-08T00:00:00Z`. Announce it first. |
 | `ATTEST_KEY` | Optional: the key that signs location attestations (otherwise one is made once and kept in the database). |
 
@@ -73,7 +72,7 @@ The scheduled job and the full holder list need more CPU time than Cloudflare's 
 | `GET /api/members` · `/api/audit?country=` | Members per community · every moderation decision |
 | `GET /api/snapshots` · `/api/snapshots/:id/proof?wallet=` · `/api/snapshots/:id/data` | Founding Supporters, Merkle proofs, all inputs |
 | `POST /api/auth/wallet` · `/api/auth/transfer` (+`/check`) · `/api/auth/reprove` · `/api/pair` (+`/finish`) · `GET /api/pair?code=` | Prove a wallet |
-| `GET /api/auth/google/start` (and `/x/`, `/callback`) · `POST /api/auth/logout` | X / Google sign-in |
+| `GET /api/auth/google/start` (and `/callback`) · `POST /api/auth/logout` | Google sign-in |
 | `GET /api/me` · `POST /api/home` · `POST /api/locate` | Dashboard data · home community · the only place a location is read |
 | `GET\|POST /api/posts` · `POST /api/posts/vote` · `/api/posts/report` · `GET /api/media/:id` | Feeds |
 | `POST /api/seats/apply` · `/withdraw` · `/endorse` · `/object` · `/objections/decide` · `/api/elections/vote` | Founders and managers |
@@ -87,7 +86,7 @@ Moderation happens on the dashboard, under the two-person rules above, and every
 - A founder's seat can only be ended by an upheld objection (dashboard) or by the rules (grace), never by editing the database quietly.
 
 ## Run it locally
-Requires Node.js 20+.
+Requires Node.js 22.13+ (the tests use the built-in SQLite).
 ```
 npm install
 npm test          # automated tests
@@ -123,12 +122,10 @@ npm run check:boundaries   # exact geometry, every pair of neighbouring areas; e
 The test suite runs the same check, so a build with overlapping areas can't deploy.
 
 ## Deploy
-Code: https://github.com/FunnyCircuitBoard/Vicinity-Launchpad · Cloudflare account: the one that owns vicinity.city.
-- By hand: `npx wrangler deploy` (runs `npm run build` first: files copied in, pages built, every test must pass).
-- Automatically on every push to `main`: Cloudflare → Workers & Pages → vicinity-map → Settings → Builds → connect the GitHub repository.
+Everything is launched from GitHub: a pull request is tested automatically (`.github/workflows/ci.yml`), and merging it into `main` deploys it (`.github/workflows/deploy.yml`: build, every test, `wrangler deploy`, then a check of the live security headers). One-time setup, the launch checklist and rollback: [docs/DEPLOY.md](docs/DEPLOY.md). Nothing should be deployed from anyone's computer.
 
 ## Security
-- One account per person: one wallet + one X or Google login, enforced by the database. From Google we keep the account id and first name; from X the id, @handle and name. No e-mail, no passwords. Only a hash of the session cookie is stored (HttpOnly, Secure, SameSite=Lax, 30 days); requests that change something must come from this site (Origin check).
+- One account per wallet and per login (Google account or e-mail address), enforced by the database. That makes fake accounts harder but does not prove one person: one inbox can have many addresses. What we keep: your wallet address; for Google sign-in only the Google account id and your first name; for e-mail sign-in the e-mail address itself (it is your account id) and a hash of the 6-digit code (codes expire after 10 minutes); a made-up username (changeable, 3 times a day at most); your home community; and, only if you add them, a contact e-mail and a phone number, which you can remove any time (the phone number is not verified and not used for anything yet). Check-in coordinates are never stored. No passwords. Only a hash of the session cookie is stored (HttpOnly, Secure, SameSite=Lax, 30 days); requests that change something must come from this site (Origin check).
 - Wallet proof is message signing (can't move funds; bound to this site; expires after 10 minutes), a phone approving a computer's sign-in (one-time code + 2-digit check number), or a tiny exact SOL transfer the wallet sends to itself (only the owner can send from a wallet).
 - Locations are never stored: they're used once to find a community, check in, claim, or request a town (requests keep a point rounded to about 5 km). VPNs, proxies and far-away connections are refused.
 - Feeds never show wallets; contract addresses can't be posted; pictures are checked (JPEG / PNG / WebP only) and served with a locked-down policy.

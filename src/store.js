@@ -2,10 +2,11 @@
  * Vicinity database (Cloudflare D1, binding name "DB"). Tables are created and upgraded automatically.
  *
  * What is saved, and nothing more:
- *   users        → one account per wallet and per X / Google login: a display name and the home
- *                  community (its id and name, never the location that found it)
+ *   users        → one account per wallet and per Google login / verified e-mail: a display name
+ *                  and the home community (its id and name, never the location that found it)
  *   sessions     → who is signed in (only a hash of the cookie) and when the wallet was last proven
  *   pairs        → short-lived "sign in with my phone" codes (10 minutes)
+ *   email_codes  → short-lived e-mail sign-in codes (only a hash, 10 minutes)
  *   posts, votes, reports, media, bans → the local and national feeds
  *   mod_actions, appeals → every moderation action, public, and appeals against them
  *   windows, applications, endorsements, seats, objections → choosing city founders (src/seats.js)
@@ -17,7 +18,7 @@
  * Locations of visitors are never saved. Wallets that only "verify" or look up a rank are never saved.
  *
  * The database itself enforces: one live founder per city, one live seat per person,
- * one open application window per city, one account per wallet and per X / Google login.
+ * one open application window per city, one account per wallet and per Google login / verified e-mail.
  */
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS claims (
@@ -71,6 +72,16 @@ CREATE TABLE IF NOT EXISTS pairs (
   wallet     TEXT,
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS email_codes (
+  email        TEXT PRIMARY KEY,
+  code_hash    TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  send_count   INTEGER NOT NULL DEFAULT 0,
+  window_start TEXT,
+  last_sent_at TEXT
 );
 CREATE TABLE IF NOT EXISTS posts (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -434,6 +445,56 @@ CREATE TABLE IF NOT EXISTS squad_members (
   PRIMARY KEY (squad_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS squad_members_user ON squad_members (user_id);
+`,
+  },
+  {
+    // Admin dashboard + test lab (src/admin.js): roles, audit trail, token registry, test-row tracking.
+    id: "2026-09-30-admin-dashboard",
+    sql: `
+CREATE TABLE IF NOT EXISTS admin_roles (
+  wallet     TEXT PRIMARY KEY,
+  role       TEXT NOT NULL,
+  granted_by TEXT,
+  granted_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_audit (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor      TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  target     TEXT,
+  detail     TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS admin_audit_created ON admin_audit (created_at);
+CREATE TABLE IF NOT EXISTS admin_tokens (
+  mint           TEXT PRIMARY KEY,
+  city           TEXT NOT NULL,
+  founder_wallet TEXT,
+  platform       TEXT NOT NULL DEFAULT 'other',
+  registered_by  TEXT,
+  created_at     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_test (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_name TEXT NOT NULL,
+  row_id     INTEGER,
+  row_id2    INTEGER
+);
+`,
+  },
+  {
+    id: "2026-10-01-terms-agree",
+    sql: `
+ALTER TABLE users ADD COLUMN terms_version TEXT;
+ALTER TABLE users ADD COLUMN terms_agreed_at TEXT;
+`,
+  },
+  {
+    id: "2026-10-01-profile",
+    sql: `
+ALTER TABLE users ADD COLUMN contact_email TEXT;
+ALTER TABLE users ADD COLUMN phone TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users (lower(handle)) WHERE handle IS NOT NULL;
 `,
   },
 ];

@@ -1,34 +1,39 @@
 /**
- * Accounts and sign-in. One person = ONE wallet + ONE X or Google login, so nobody can
- * run a crowd of accounts to spam their city.
+ * Accounts and sign-in. One person = ONE wallet + ONE Google login or verified e-mail, so
+ * nobody can run a crowd of accounts to spam their city.
  *
  * New person:
  *   1. prove the wallet: sign a free message (or, for apps that can't sign, send yourself a tiny
  *      exact amount of SOL; or sign on your phone for this computer by scanning a code)
- *   2. sign in with X or Google → the two are linked for good → dashboard
- * Returning person: either the wallet OR the linked X / Google login signs them straight in.
+ *   2. sign in with Google or verify an e-mail address with a code → the two are linked for
+ *      good → dashboard
+ * Returning person: either the wallet OR the linked Google login / verified e-mail signs them
+ * straight in.
  *
  * Only a hash of the session cookie is stored. From Google we keep the account id and first
- * name, from X the account id, @handle and name. No e-mail address, no password, ever.
+ * name; from e-mail we keep the address (a code proves it, we never see a password). No
+ * password, ever.
  *
  * Settings (Cloudflare → Workers → vicinity-map → Settings → Variables and secrets):
  *   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   Google sign-in
- *   X_CLIENT_ID, X_CLIENT_SECRET             X sign-in
- * Redirect addresses to register with them: https://vicinity.city/api/auth/google/callback
- * and https://vicinity.city/api/auth/x/callback
+ *   GMAIL_USER, GMAIL_APP_PASSWORD            e-mail codes, sent straight from Gmail (simplest);
+ *                                             or RESEND_API_KEY (Resend); EMAIL_FROM sets the sender
+ * Redirect address to register with Google: https://vicinity.city/api/auth/google/callback
  */
 import { b64url, clearCookie, cookie, getCookie, json, randomToken, readJson, redirect, sameSite, sha256 } from "./http.js";
 import { checkSigned } from "./signed.js";
 import { isSolanaAddress } from "./solana.js";
+import { emailConfigured, sendMail, verificationEmail } from "./mail.js";
 import { ensureSchema } from "./store.js";
 import { findTransfer } from "./chain.js";
 import { activeMint } from "./official.js";
 import { POLICY } from "./policy.js";
+import { autoUsername } from "./text.js";
 
 export const SESSION_COOKIE = "vs";
 const OAUTH_COOKIE = "vo";
 const SESSION_SECONDS = 30 * 86400;  // signed in for 30 days
-const PENDING_SECONDS = 30 * 60;     // wallet proven, X / Google still to link: 30 minutes
+const PENDING_SECONDS = 30 * 60;     // wallet proven, Google / e-mail still to link: 30 minutes
 const PAIR_SECONDS = 10 * 60;        // "sign in with my phone" codes: 10 minutes
 
 const iso = (ms) => new Date(ms).toISOString();
@@ -61,29 +66,11 @@ export const PROVIDERS = {
       return { id: String(c.sub), handle: null, name: cleanName(c.given_name || c.name) || "Google member" };
     },
   },
-  x: {
-    configured: (env) => Boolean(env.X_CLIENT_ID),
-    authorize: (env, { redirectUri, state, challenge }) => "https://x.com/i/oauth2/authorize?" + new URLSearchParams({
-      response_type: "code", client_id: env.X_CLIENT_ID, redirect_uri: redirectUri, scope: "users.read tweet.read",
-      state, code_challenge: challenge, code_challenge_method: "S256",
-    }),
-    async identity(env, { code, redirectUri, verifier }, fetchImpl) {
-      const headers = { "content-type": "application/x-www-form-urlencoded" };
-      if (env.X_CLIENT_SECRET) headers.authorization = "Basic " + btoa(`${env.X_CLIENT_ID}:${env.X_CLIENT_SECRET}`);
-      const res = await fetchImpl("https://api.x.com/2/oauth2/token", {
-        method: "POST", headers,
-        body: new URLSearchParams({ code, grant_type: "authorization_code", client_id: env.X_CLIENT_ID, redirect_uri: redirectUri, code_verifier: verifier }),
-      });
-      const tok = await res.json().catch(() => ({}));
-      if (!res.ok || !tok.access_token) throw new Error("x_token_" + res.status);
-      const me = await fetchImpl("https://api.x.com/2/users/me", { headers: { authorization: `Bearer ${tok.access_token}` } });
-      const u = (await me.json().catch(() => ({}))).data;
-      if (!me.ok || !u?.id || !/^[A-Za-z0-9_]{1,15}$/.test(u.username || "")) throw new Error("x_me_" + me.status);
-      return { id: String(u.id), handle: "@" + u.username, name: cleanName(u.name) || "@" + u.username };
-    },
-  },
 };
-export const providers = (env) => Object.fromEntries(Object.entries(PROVIDERS).map(([k, p]) => [k, p.configured(env)]));
+export const providers = (env) => ({
+  google: Boolean(PROVIDERS.google.configured(env)),
+  email: emailConfigured(env),
+});
 
 /* ---------------- sessions ---------------- */
 
@@ -118,7 +105,7 @@ async function dropCurrent(env, request) {
   if (token && token.length <= 100) await dropSession(env, await sha256(token));
 }
 
-/** The wallet is proven. A linked wallet signs straight in; a new one has 30 minutes to link X or Google. */
+/** The wallet is proven. A linked wallet signs straight in; a new one has 30 minutes to link Google or an e-mail. */
 async function signInWallet(env, wallet, now) {
   const user = await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(wallet).first();
   const provenAt = iso(now);
@@ -277,9 +264,9 @@ export async function handleTransferCheck(request, env, now = Date.now(), fetchI
   return json({ ok: true, wallet: p.address, next }, 200, { "Set-Cookie": c });
 }
 
-/* ---------------- 2. X / Google ---------------- */
+/* ---------------- 2. Google ---------------- */
 
-/** GET /api/auth/:provider/start → off to X or Google (PKCE, with a one-time state). */
+/** GET /api/auth/google/start → off to Google (PKCE, with a one-time state). */
 export async function handleOAuthStart(request, env, provider) {
   const p = PROVIDERS[provider];
   if (!p) return json({ error: "not_found" }, 404);
@@ -290,7 +277,7 @@ export async function handleOAuthStart(request, env, provider) {
   return redirect(p.authorize(env, { redirectUri, state, challenge }), [cookie(OAUTH_COOKIE, `${provider}.${state}.${verifier}`, 600)]);
 }
 
-/** GET /api/auth/:provider/callback → link the login to the proven wallet (or sign a returning person in). */
+/** GET /api/auth/google/callback → link the login to the proven wallet (or sign a returning person in). */
 export async function handleOAuthCallback(request, env, provider, fetchImpl = fetch, now = Date.now()) {
   const url = new URL(request.url);
   const p = PROVIDERS[provider];
@@ -309,34 +296,53 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
 
   await ensureSchema(env.DB);
   const session = await getSession(env, request, now);
+  const r = await linkIdentity(env, session, provider, who, now);
+  if (r.error) return fail(r.error);
+  return redirect(r.to, r.cookie ? [clear, r.cookie] : [clear]);
+}
+
+/**
+ * The shared "this login is verified" step: link it to the proven wallet (creating the
+ * account), or sign a returning person straight in. Returns { to, cookie, isNew } or { error }.
+ */
+export async function linkIdentity(env, session, provider, who, now) {
   const linked = await env.DB.prepare("SELECT id, wallet FROM users WHERE provider = ? AND provider_id = ?").bind(provider, who.id).first();
-  // Signing in with X / Google alone doesn't prove the wallet: sensitive actions will ask for it again.
-  const start = async (userId, wallet, to) => {
+  // Signing in with Google / e-mail alone doesn't prove the wallet: sensitive actions ask for it again.
+  const start = async (userId, wallet, to, isNew) => {
     if (session) await dropSession(env, session.id);
     const provenAt = session && session.wallet === wallet ? session.proven_at : null;
-    return redirect(to, [clear, await createSession(env, { wallet, userId, provenAt }, SESSION_SECONDS, now)]);
+    return { to, isNew, cookie: await createSession(env, { wallet, userId, provenAt }, SESSION_SECONDS, now) };
   };
 
-  if (session && session.user) return redirect("/dashboard", [clear]);
+  if (session && session.user) return { to: "/dashboard", isNew: false, cookie: null };
 
   if (session && session.wallet) {
     // The wallet was proven a moment ago: link this login to it, for good.
-    if (linked) return linked.wallet === session.wallet ? start(linked.id, linked.wallet, "/dashboard") : fail("social_taken");
-    if (await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(session.wallet).first()) return fail("wallet_taken");
-    try {
-      const ins = await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, name, early, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .bind(session.wallet, provider, who.id, who.handle, who.name, activeMint(env) ? 0 : 1, iso(now)).run();
-      console.log("account created", provider, session.wallet.slice(0, 4) + "…" + session.wallet.slice(-4));
-      return start(ins.meta.last_row_id, session.wallet, "/dashboard?welcome=1");
-    } catch (e) {
-      if (/UNIQUE/i.test(String(e))) return fail("social_taken");
-      throw e;
+    if (linked) {
+      if (linked.wallet !== session.wallet) return { error: "social_taken" };
+      return start(linked.id, linked.wallet, "/dashboard", false);
+    }
+    if (await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(session.wallet).first()) return { error: "wallet_taken" };
+    // A handle can collide with the (case-insensitive) unique index when someone takes it between the check and the
+    // INSERT: that is not the person's problem, so pick another name and go on. wallet / provider_id collisions are.
+    for (let attempt = 0; ; attempt++) {
+      const handle = attempt === 0 && who.handle ? who.handle : await autoUsername(env.DB);
+      try {
+        const ins = await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, name, early, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+          .bind(session.wallet, provider, who.id, handle, who.name, activeMint(env) ? 0 : 1, iso(now)).run();
+        console.log("account created", provider, session.wallet.slice(0, 4) + "…" + session.wallet.slice(-4));
+        return start(ins.meta.last_row_id, session.wallet, "/dashboard?welcome=1", true);
+      } catch (e) {
+        if (!/UNIQUE/i.test(String(e))) throw e;
+        const handleTaken = await env.DB.prepare("SELECT id FROM users WHERE lower(handle) = lower(?)").bind(handle).first();
+        if (!handleTaken || attempt >= 4) return { error: "social_taken" };
+      }
     }
   }
 
   // No wallet proven in this browser: a returning person signs in with their login alone.
-  if (linked) return start(linked.id, linked.wallet, "/dashboard");
-  return fail("wallet_first");
+  if (linked) return start(linked.id, linked.wallet, "/dashboard", false);
+  return { error: "wallet_first" };
 }
 
 /** POST /api/auth/logout */
@@ -344,4 +350,127 @@ export async function handleLogout(request, env) {
   if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
   if (env.DB) { await ensureSchema(env.DB); await dropCurrent(env, request); }
   return json({ ok: true }, 200, { "Set-Cookie": clearCookie(SESSION_COOKIE) });
+}
+
+/* ---------------- 3. e-mail codes ---------------- */
+
+const CODE_SECONDS = 10 * 60;       // a code lives 10 minutes
+const CODE_RESEND_SECONDS = 60;     // wait a minute between sends to the same address
+const CODE_MAX_SENDS = 5;           // sends per rolling hour, per address
+const CODE_MAX_ATTEMPTS = 5;        // wrong guesses before the code is thrown away
+const GLOBAL_MAX_SENDS = 2000;      // codes mailed per rolling hour across the whole site (override: EMAIL_MAX_PER_HOUR)
+const HOUR_MS = 3600_000;
+
+const cleanEmail = (s) => String(s || "").trim().toLowerCase().slice(0, 254);
+// Loose shape check (the code that arrives is the real proof) that also refuses control characters and
+// angle brackets, so nothing odd can ever reach the mail server.
+const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e) && !/[\u0000-\u001f\u007f-\u009f<>]/.test(e);
+export { cleanEmail, validEmail };
+
+/**
+ * Check a 6-digit e-mail code and burn it. Returns { ok: true } or
+ * { ok: false, error, left? }. Shared by sign-in and contact-e-mail verification.
+ *
+ * Every guess is counted by ONE atomic statement before it is compared, so a flood of parallel guesses
+ * can't all read "0 attempts so far": only the first CODE_MAX_ATTEMPTS guesses on a live code ever get
+ * compared. A dead code (expired or out of guesses) keeps its row so the resend limits below survive;
+ * a used code is deleted by a single DELETE, so two requests carrying the right code can't both win.
+ */
+export async function consumeEmailCode(db, email, code, now = Date.now()) {
+  const row = await db.prepare("UPDATE email_codes SET attempts = attempts + 1 WHERE email = ? AND attempts < ? AND expires_at > ? RETURNING code_hash, attempts")
+    .bind(email, CODE_MAX_ATTEMPTS, iso(now)).first();
+  if (!row) {
+    const old = await db.prepare("SELECT expires_at, attempts FROM email_codes WHERE email = ?").bind(email).first();
+    if (old && Date.parse(old.expires_at) > now && old.attempts >= CODE_MAX_ATTEMPTS) return { ok: false, error: "too_many" };
+    return { ok: false, error: "code_expired" };
+  }
+  if (!safeEqual(await sha256(code), row.code_hash)) return { ok: false, error: "code_wrong", left: CODE_MAX_ATTEMPTS - row.attempts };
+  const used = await db.prepare("DELETE FROM email_codes WHERE email = ? AND code_hash = ?").bind(email, row.code_hash).run();
+  return used.meta.changes ? { ok: true } : { ok: false, error: "code_expired" };
+}
+
+/** Constant-time compare for hex digests (no timing leak on wrong guesses). */
+function safeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+
+function sixDigits() {
+  const b = crypto.getRandomValues(new Uint8Array(3));
+  return String(100000 + ((b[0] * 65536 + b[1] * 256 + b[2]) % 900000));
+}
+
+async function sendCodeEmail(env, to, code, fetchImpl, mailer = {}) {
+  const { subject, text, html } = verificationEmail(code);
+  return sendMail(env, { to, subject, text, html }, { fetchImpl, smtpImpl: mailer.smtpImpl || null });
+}
+
+/**
+ * POST /api/auth/email/start { email } → send a 6-digit code.
+ * The send slot (one a minute, five an hour per address) is claimed by ONE atomic statement BEFORE the mail
+ * goes out, so parallel requests can't all pass the checks and mail the same person dozens of times.
+ * A site-wide hourly cap (EMAIL_MAX_PER_HOUR, default 2000) keeps one caller from burning the mail quota.
+ */
+export async function handleEmailStart(request, env, fetchImpl = fetch, now = Date.now(), mailer = {}) {
+  const blocked = await guard(request, env);
+  if (blocked) return blocked;
+  const body = await readJson(request);
+  const email = cleanEmail(body && body.email);
+  if (!validEmail(email)) return json({ ok: false, error: "bad_email" }, 400);
+  if (!emailConfigured(env)) return json({ ok: false, error: "email_unavailable" }, 503);
+
+  const hourAgo = iso(now - HOUR_MS);
+  const cap = Number(env.EMAIL_MAX_PER_HOUR) > 0 ? Number(env.EMAIL_MAX_PER_HOUR) : GLOBAL_MAX_SENDS;
+  const total = await env.DB.prepare("SELECT COALESCE(SUM(send_count), 0) AS n FROM email_codes WHERE window_start > ?").bind(hourAgo).first();
+  if (total && total.n >= cap) return json({ ok: false, error: "too_many" }, 429);
+
+  const code = sixDigits();
+  const hash = await sha256(code);
+  const claimed = await env.DB.prepare(`INSERT INTO email_codes (email, code_hash, created_at, expires_at, attempts, send_count, window_start, last_sent_at)
+      VALUES (?, ?, ?, ?, 0, 1, ?, ?)
+      ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, created_at = excluded.created_at,
+        expires_at = excluded.expires_at, attempts = 0,
+        send_count = CASE WHEN window_start IS NOT NULL AND window_start > ? THEN send_count + 1 ELSE 1 END,
+        window_start = CASE WHEN window_start IS NOT NULL AND window_start > ? THEN window_start ELSE excluded.window_start END,
+        last_sent_at = excluded.last_sent_at
+      WHERE (last_sent_at IS NULL OR last_sent_at <= ?) AND (window_start IS NULL OR window_start <= ? OR send_count < ?)
+      RETURNING send_count`)
+    .bind(email, hash, iso(now), iso(now + CODE_SECONDS * 1000), iso(now), iso(now), hourAgo, hourAgo, iso(now - CODE_RESEND_SECONDS * 1000), hourAgo, CODE_MAX_SENDS).first();
+  if (!claimed) {
+    const row = await env.DB.prepare("SELECT last_sent_at FROM email_codes WHERE email = ?").bind(email).first();
+    const soon = row && row.last_sent_at && now - Date.parse(row.last_sent_at) < CODE_RESEND_SECONDS * 1000;
+    return json({ ok: false, error: soon ? "too_soon" : "too_many" }, 429);
+  }
+
+  const sent = await sendCodeEmail(env, email, code, fetchImpl, mailer);
+  if (!sent.ok) {
+    // The mail never left: give the slot back (and kill the code nobody received) so a mail-service hiccup doesn't lock the person out.
+    await env.DB.prepare("UPDATE email_codes SET last_sent_at = NULL, send_count = MAX(send_count - 1, 0), expires_at = ? WHERE email = ? AND code_hash = ?").bind(iso(now), email, hash).run();
+    return json(sent, 503);
+  }
+  // Tidy now and then: only rows whose code AND hourly counters are both over.
+  if (Math.random() < 0.05) await env.DB.prepare("DELETE FROM email_codes WHERE expires_at < ? AND (window_start IS NULL OR window_start < ?)").bind(iso(now), hourAgo).run();
+  return json({ ok: true });
+}
+
+/** POST /api/auth/email/verify { email, code } → link the e-mail to the proven wallet, or sign in. */
+export async function handleEmailVerify(request, env, fetchImpl = fetch, now = Date.now()) {
+  const blocked = await guard(request, env);
+  if (blocked) return blocked;
+  const body = await readJson(request);
+  const email = cleanEmail(body && body.email);
+  const code = String((body && body.code) || "").replace(/\D/g, "").slice(0, 6);
+  if (!validEmail(email) || code.length !== 6) return json({ ok: false, error: "bad_code" }, 400);
+
+  const v = await consumeEmailCode(env.DB, email, code, now);
+  if (!v.ok) return json({ ok: false, error: v.error, ...(v.left != null ? { left: v.left } : {}) }, v.error === "too_many" ? 429 : 400);
+
+  await ensureSchema(env.DB);
+  const session = await getSession(env, request, now);
+  const r = await linkIdentity(env, session, "email", { id: email, handle: null, name: "E-mail member" }, now);
+  if (r.error) return json({ ok: false, error: r.error }, 400);
+  const headers = r.cookie ? { "Set-Cookie": r.cookie } : {};
+  return json({ ok: true, next: r.to, isNew: r.isNew }, 200, headers);
 }

@@ -85,7 +85,7 @@ test("feeds: post, see only your city (and your country), vote, reply; moderator
   let d = await a.post("/api/posts", { scope: "city", kind: "meme", body: "The Boilermaker hill has a name 😂" });
   assert.equal(d.ok, true);
   const id = d.post.id;
-  assert.equal(d.post.author.name, a.name);
+  assert.equal(d.post.author.name, (await a.get("/api/me?lite=1")).user.handle);
   assert.equal((await a.post("/api/posts", { scope: "city", kind: "meme", body: "Buy EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm now" })).error, "no_addresses");
   assert.equal((await a.post("/api/posts", { scope: "city", kind: "talk", body: "x".repeat(1001) })).error, "too_long");
   await a.post("/api/posts", { scope: "country", kind: "talk", body: "Which NY city has the best pizza?" });
@@ -183,7 +183,7 @@ test("public: member counts per community, live holder list and anyone's rank (n
   await person(env, { home: IN_UTICA }); await person(env, { home: IN_UTICA }); await person(env, { home: IN_NYC });
   const m = await browser(env).get("/api/members");
   assert.equal(m.members, 3);
-  assert.deepEqual(m.communities[0], { id: "5142056", name: "Utica", country: "US", members: 2 });
+  assert.deepEqual(m.communities[0], { id: "5142056", name: "Utica", country: "US", members: 2, holders: 0 });
 
   const x = await wallet(), y = await wallet();
   assert.equal((await browser(env).get(`/api/rank?address=${x.address}`)).launched, false);
@@ -198,4 +198,27 @@ test("public: member counts per community, live holder list and anyone's rank (n
   assert.equal((await browser(env).get("/api/rank?address=nope")).error, "bad_address");
   const seats = await browser(env).get("/api/seats");
   assert.deepEqual([seats.seats, seats.windows], [[], []]);
+});
+
+test("map: holders per city come from the latest balance sample; signups get auto usernames", async () => {
+  const a = await person(env, { home: IN_UTICA });
+  const b = await person(env, { home: IN_UTICA });
+  const c = await person(env, { home: IN_NYC });
+  // every signup got an automatic username (privacy: no raw wallet as identity)
+  for (const p of [a, b, c]) {
+    const me = await p.get("/api/me?lite=1");
+    assert.match(me.user.handle, /^[A-Z][a-z]+[A-Z][a-z]+\d{2}$/, `auto username: ${me.user.handle}`);
+  }
+  // seed a balance sample: a and c hold, b doesn't
+  const { putBlob } = await import("../src/blobs.js");
+  const { dayOf } = await import("../src/ledger.js");
+  await putBlob(env.DB, `day:${dayOf(Date.now())}`, {
+    last: { [a.w.address]: 1000, [c.w.address]: 500 }, lastAt: new Date(Date.now()).toISOString(), lastSlot: 1,
+  });
+  const m = await browser(env).get("/api/members");
+  const utica = m.communities.find((x) => x.id === "5142056");
+  const nyc = m.communities.find((x) => x.country === "US" && x.id !== "5142056");
+  assert.equal(utica.members, 2);
+  assert.equal(utica.holders, 1, "only the Utica member with a balance counts");
+  assert.equal(nyc.holders, 1);
 });

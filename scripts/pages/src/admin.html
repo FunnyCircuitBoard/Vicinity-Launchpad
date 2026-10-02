@@ -1,0 +1,22 @@
+<!--{"title": "Admin", "description": "Vicinity admin console.", "page": "admin", "scripts": ["wallets", "admin"], "styles": ["admin"], "noindex": true}-->
+
+<section class="wrap">
+  <p class="kicker">Admin</p>
+  <h1 class="page-title">Mission control</h1>
+  <div id="admin-banner" class="admin-banner" hidden><strong>TEST ENVIRONMENT</strong> — preview mode. Nothing here is public. Seeded test rows are marked <span class="mono">[TESTLAB]</span> and can be wiped from the Test lab tab.</div>
+
+  <div id="admin-gate">
+    <p class="lead">Connect the owner wallet and sign a message to open the dashboard.</p>
+    <div id="admin-wallets"></div>
+    <p id="admin-addr" class="muted small"></p>
+    <p id="admin-msg" class="muted small mono"></p>
+    <p><button id="admin-sign" class="btn btn--primary" type="button" hidden>Sign in as admin</button></p>
+    <p id="admin-error" hidden></p>
+  </div>
+
+  <div id="admin-main" hidden>
+    <p><span id="admin-role" class="role-badge"></span> <span id="admin-who" class="muted small"></span></p>
+    <nav class="admin-tabs" id="admin-tabs" aria-label="Admin sections"></nav>
+    <div id="admin-panel" class="admin-panel"></div>
+  </div>
+</section>
