@@ -97,13 +97,49 @@
     return r;
   }
 
-  /** A location attestation for one purpose (the location itself never leaves this function except to /api/locate). */
+  /**
+   * A location attestation for one purpose (the location itself never leaves this function except to /api/locate).
+   * Inside a wallet app's browser, which often can't share GPS, the check is finished in the phone's normal browser.
+   */
   async function locateFor(purpose) {
-    const loc = await getLocation();
+    let loc;
+    try { loc = await getLocation(); }
+    catch (e) { if (e.inApp) return locateInBrowser(purpose); throw e; }
     const r = await api("/api/locate", { location: loc, purpose });
     if (!r.ok) throw new Error(errText({}, r, "Couldn't check your location. Please try again."));
     return r;
   }
+
+  let locateTimer = null, locateDone = null;
+  function closeLocate(result, error) {
+    clearTimeout(locateTimer);
+    $("#locate-modal").hidden = true;
+    if (locateDone) { const d = locateDone; locateDone = null; error ? d.reject(error) : d.resolve(result); }
+  }
+  /** Ask for a one-time link, wait for the phone's browser to answer it, and return the same thing /api/locate does. */
+  async function locateInBrowser(purpose) {
+    $("#locate-error").hidden = true;
+    const h = await api("/api/locate/handoff", { purpose });
+    if (!h.ok) throw new Error(errText({}, h, "Couldn't start. Please try again."));
+    return new Promise((resolve, reject) => {
+      locateDone = { resolve, reject };
+      $("#locate-link").value = h.url;
+      $("#locate-modal").hidden = false;
+      const until = Date.parse(h.expiresAt), expired = () => closeLocate(null, new Error("That link expired. Please try again."));
+      const poll = async () => {
+        if ($("#locate-modal").hidden) return;
+        if (Date.now() > until) return expired();
+        const r = await api("/api/locate/handoff/claim", { code: h.code });
+        if (r.ok) return closeLocate(r);
+        if (r.status === "expired") return expired();
+        locateTimer = setTimeout(poll, 2000);
+      };
+      locateTimer = setTimeout(poll, 2000);
+    });
+  }
+  $("#locate-copy").addEventListener("click", () => copy($("#locate-link").value, "Link copied. Paste it in Safari or Chrome."));
+  $("#locate-link").addEventListener("focus", (e) => e.target.select());
+  $("#locate-cancel").addEventListener("click", () => closeLocate(null, new Error("Cancelled. Nothing was changed.")));
 
   /* ---------- identity ---------- */
   function identity(d) {

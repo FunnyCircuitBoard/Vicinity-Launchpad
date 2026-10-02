@@ -35,6 +35,7 @@ async function cleanup(env, now) {
     db.prepare("DELETE FROM rate_events WHERE at < ?").bind(iso(now - 2 * DAY)),
     db.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(iso(now)),
     db.prepare("DELETE FROM pairs WHERE expires_at < ?").bind(iso(now)),
+    db.prepare("DELETE FROM handoffs WHERE expires_at < ?").bind(iso(now)),
   ]);
   if (new Date(now).getUTCHours() === 3 && new Date(now).getUTCMinutes() < 10) await pruneLedger(env, now);
   return { ok: true };

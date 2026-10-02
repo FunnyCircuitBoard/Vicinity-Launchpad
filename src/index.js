@@ -13,7 +13,8 @@
  *   GET  /api/snapshots · /api/snapshots/:id/proof?wallet= · /api/snapshots/:id/data   Founding Supporters
  * Accounts (src/auth.js): /api/auth/wallet · /api/auth/transfer(/check) · /api/auth/reprove · /api/pair(/finish)
  *   · /api/auth/{google,x}/start|callback · /api/auth/logout
- * Signed in: /api/me · /api/home · /api/locate (the ONLY place a location is read) · /api/posts(/vote, /report)
+ * Signed in: /api/me · /api/home · /api/locate (the place a location is read, with /api/locate/handoff/* when a wallet
+ *   app's browser can't share GPS: src/handoff.js) · /api/posts(/vote, /report)
  *   · /api/seats/{apply,withdraw,endorse,object,resign} · /api/elections/vote · /api/appeals · /api/towns
  *   · /api/seats/squad/{create,join,leave,apply} · /api/seats/squad/:id (readiness)
  * Moderators: /api/mod · /api/mod/{hide,unhide,ban,ban/approve,ban/reject} · /api/appeals/decide
@@ -35,6 +36,7 @@ import { handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, 
   handleReprove, handleTransferCheck, handleTransferStart, handleWalletLogin } from "./auth.js";
 import { handleHome, handleMe, handleMembers } from "./me.js";
 import { handleLocate } from "./attest.js";
+import { handleHandoffClaim, handleHandoffComplete, handleHandoffInfo, handleHandoffStart } from "./handoff.js";
 import { handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
 import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
 import { handleElectionResult, handleElectionVote } from "./elections.js";
@@ -288,6 +290,14 @@ export async function handleApi(request, env = {}, fetchImpl = fetch) {
       return only("POST") || handleHome(request, env);
     case "/api/locate":
       return only("POST") || handleLocate(request, env);
+    case "/api/locate/handoff":
+      return only("POST") || db(() => handleHandoffStart(request, env));
+    case "/api/locate/handoff/info":
+      return only("POST") || db(() => handleHandoffInfo(request, env));
+    case "/api/locate/handoff/complete":
+      return only("POST") || db(() => handleHandoffComplete(request, env));
+    case "/api/locate/handoff/claim":
+      return only("POST") || db(() => handleHandoffClaim(request, env));
     case "/api/members":
       return only("GET") || cached("members", 60, () => handleMembers(env));
 

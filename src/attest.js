@@ -16,7 +16,7 @@ import { networkCheck } from "./network.js";
 import { locate } from "./community.js";
 import { POLICY, HOUR, iso } from "./policy.js";
 
-const PURPOSES = ["home", "apply", "checkin", "request"];
+export const PURPOSES = ["home", "apply", "checkin", "request"];
 let keyCache = null;
 
 /** The signing key: the ATTEST_KEY setting, or one made once and kept in the database. */
@@ -74,6 +74,37 @@ export const noteEvent = (env, userId, kind, now) =>
   env.DB.prepare("INSERT INTO rate_events (user_id, kind, at) VALUES (?, ?, ?)").bind(userId, kind, iso(now)).run();
 
 /**
+ * The location checks, shared by the normal request and the hand-off (src/handoff.js): GPS accuracy, the
+ * internet connection, which community the point is in. Returns { ok: true, found, cc } or { error: Response }.
+ * Every risk signal gives the same generic answer. The coordinates are used here and nowhere else.
+ */
+export async function checkLocation(env, rawLocation, body, cf) {
+  const loc = cleanLocation(rawLocation);
+  if (!loc) return { error: json({ ok: false, error: "location_required" }, 400) };
+  const unverified = { error: json({ ok: false, error: "location_unverified" }, 403) };
+  if (loc.accuracy > MAX_LOCATION_ACCURACY_M) return unverified;
+  const cc = (cf && /^[A-Z]{2}$/.test(cf.country || "") && cf.country) || (!cf && /^[A-Z]{2}$/.test(body.country || "") ? body.country : null);
+  if (!cc) return unverified;
+  if (networkCheck(cf, loc, cc)) return unverified;
+  let found;
+  try { found = await locate(env, cc, loc.lon, loc.lat); } catch { return { error: json({ ok: false, error: "cities_unavailable" }, 503) }; }
+  if (!found) return unverified;
+  return { ok: true, found, cc };
+}
+
+/** Sign the 5-minute, single-use city attestation for this person and purpose. Only the community goes in it. */
+export async function makeAttestation(env, u, purpose, { found, cc }, now) {
+  const exp = iso(now + POLICY.attestation.minutes * 60_000);
+  const att = {
+    v: 1, uid: u.id, wallet: u.wallet, purpose, country: cc,
+    city: found.city ? found.city.id : null, cityName: found.city ? found.city.name : null,
+    nearby: found.city ? null : found.nearby.map((c) => ({ id: c.id, name: c.name, km: Math.round(c.km / 5) * 5 })),
+    nonce: b64url(crypto.getRandomValues(new Uint8Array(12))), iat: iso(now), exp,
+  };
+  return { city: found.city, nearby: att.nearby, attestation: await issueAttestation(env, att), expiresAt: exp };
+}
+
+/**
  * POST /api/locate { location: { lat, lon, accuracy }, purpose, country? }
  * → { ok, city: { id, name, country } | null, nearby: [...] | null, attestation, expiresAt }
  */
@@ -86,26 +117,8 @@ export async function handleLocate(request, env, now = Date.now(), cf = request.
   const u = s.user;
   if (await countRecent(env, u.id, "locate", now - HOUR) >= POLICY.limits.locatePerHour) return json({ ok: false, error: "slow_down" }, 429);
   await noteEvent(env, u.id, "locate", now);
-
-  const loc = cleanLocation(body.location);
-  if (!loc) return json({ ok: false, error: "location_required" }, 400);
-  // One generic answer for every risk signal (imprecise GPS, VPN, proxy, far-away network).
-  const unverified = json({ ok: false, error: "location_unverified" }, 403);
-  if (loc.accuracy > MAX_LOCATION_ACCURACY_M) return unverified;
-  const cc = (cf && /^[A-Z]{2}$/.test(cf.country || "") && cf.country) || (!cf && /^[A-Z]{2}$/.test(body.country || "") ? body.country : null);
-  if (!cc) return unverified;
-  if (networkCheck(cf, loc, cc)) return unverified;
-
-  let found;
-  try { found = await locate(env, cc, loc.lon, loc.lat); } catch { return json({ ok: false, error: "cities_unavailable" }, 503); }
-  if (!found) return unverified;
+  const checked = await checkLocation(env, body.location, body, cf);
+  if (checked.error) return checked.error;
   // From here on only the community is used. The coordinates are not kept anywhere.
-  const exp = iso(now + POLICY.attestation.minutes * 60_000);
-  const att = {
-    v: 1, uid: u.id, wallet: u.wallet, purpose: body.purpose, country: cc,
-    city: found.city ? found.city.id : null, cityName: found.city ? found.city.name : null,
-    nearby: found.city ? null : found.nearby.map((c) => ({ id: c.id, name: c.name, km: Math.round(c.km / 5) * 5 })),
-    nonce: b64url(crypto.getRandomValues(new Uint8Array(12))), iat: iso(now), exp,
-  };
-  return json({ ok: true, city: found.city, nearby: att.nearby, attestation: await issueAttestation(env, att), expiresAt: exp });
+  return json({ ok: true, ...(await makeAttestation(env, u, body.purpose, checked, now)) });
 }

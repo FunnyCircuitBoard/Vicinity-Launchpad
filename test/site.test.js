@@ -5,7 +5,7 @@ import { buildPages } from "../scripts/pages/build.mjs";
 import { cityAt } from "../src/geo.js";
 
 const read = (p) => readFileSync(new URL("../public/" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "connect.html", "dashboard.html", "rules.html", "404.html"];
+const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "connect.html", "locate.html", "dashboard.html", "rules.html", "404.html"];
 const html = Object.fromEntries(PAGES.map((p) => [p, read(p)]));
 const all = Object.values(html).join("\n");
 const css = read("style.css");
@@ -47,7 +47,7 @@ test("same menu on every page: top menu for computers, bottom menu bar for phone
     const nav = h.match(/<nav class="nav"[\s\S]*?<\/nav>/)[0], tabs = h.match(/<nav class="tabbar"[\s\S]*?<\/nav>/)[0];
     assert.deepEqual([...nav.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), links, f);
     assert.deepEqual([...tabs.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), links, f);
-    assert.equal((nav.match(/aria-current="page"/g) || []).length, ["404.html", "connect.html", "rules.html"].includes(f) ? 0 : 1, f);
+    assert.equal((nav.match(/aria-current="page"/g) || []).length, ["404.html", "connect.html", "locate.html", "rules.html"].includes(f) ? 0 : 1, f);
     assert.match(h, /data-theme-toggle/);
     assert.match(h, /<script src="\/theme\.js"><\/script>\s*<\/head>/, `${f}: theme runs before paint`);
     assert.match(h, /data-account/);
@@ -149,6 +149,18 @@ test("dashboard: onboarding, live rank + badges, founder race, local/national fe
   for (const r of ["holder", "founder", "manager", "admin"]) assert.ok(roles.includes(`data-role="${r}"`), r);
   assert.equal((roles.match(/role-row__when">Now</g) || []).length, 4);
   assert.equal((roles.match(/role-row__when">When Vicinity goes live</g) || []).length, 4);
+});
+
+test("locate: the phone's browser page for the location hand-off, and one shared location helper", () => {
+  const h = html["locate.html"];
+  for (const id of ["l-go", "l-purpose", "l-error"]) assert.ok(h.includes(`id="${id}"`), id);
+  assert.match(h, /never saved/);
+  const order = [...h.matchAll(/<script src="\/([a-z/]+)\.js"/g)].map((m) => m[1]);
+  assert.deepEqual(order, ["theme", "site", "locate"]);
+  assert.ok(html["dashboard.html"].includes('id="locate-modal"'), "the dashboard can start a hand-off");
+  const geo = ["site.js", "cities.js", "dashboard.js", "locate.js", "connect.js"].filter((f) => /navigator\.geolocation/.test(read(f)));
+  assert.deepEqual(geo, ["site.js"], "only site.js talks to the browser's geolocation");
+  assert.match(read("site.js"), /enableHighAccuracy: false/, "a network-based position is the fallback when GPS doesn't answer");
 });
 
 test("rules page: every rule, the formulas and the never-list, filled from the live rules", () => {

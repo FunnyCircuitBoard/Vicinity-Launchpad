@@ -485,13 +485,13 @@
     if (!loaded || b.disabled) return;
     b.disabled = true; b.classList.add("is-busy");
     try {
-      const loc = await getLocation();
+      const loc = await V().getLocation();
       ripples.push({ lon: loc.lon, lat: loc.lat, t0: performance.now(), col: "55,194,154" });
       const c = await findCityAt(loc.lon, loc.lat);
       const home = c && parts.has(c.id) ? byId.get(parts.get(c.id)) : c;
       if (home) { select(home, true); V().toast?.(`📍 You're in ${home.name}`); }
       else { flyTo(loc.lon, loc.lat, 60); showNearby(loc.lon, loc.lat); V().toast?.("No community here yet: pick one of the three nearest."); }
-    } catch (e) { V().toast?.(e?.message || "Couldn't get your location."); }
+    } catch (e) { V().toast?.(e?.inApp ? `${e.message} Open vicinity.city in Safari or Chrome to see where you are.` : e?.message || "Couldn't get your location."); }
     finally { b.disabled = false; b.classList.remove("is-busy"); }
   });
   window.addEventListener("resize", () => { if (loaded) size(); });
@@ -661,15 +661,6 @@
   }
   document.addEventListener("vicinity:me", () => { if (loaded) { refreshPanel(); renderList(); needDraw = true; kick(); } });
 
-  function getLocation() {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) return reject(new Error("Your browser can't share location."));
-      navigator.geolocation.getCurrentPosition(
-        (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: Math.round(p.coords.accuracy || 0) }),
-        (e) => reject(new Error(e.code === 1 ? "Location is blocked. Allow location for this site in your browser settings, then try again." : "Couldn't get your location. Turn on location (GPS) and try again.")),
-        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
-    });
-  }
   /* =================== live claims feed + stats =================== */
   function updateStats() {
     const communities = cities.length - parts.size - outside.size;

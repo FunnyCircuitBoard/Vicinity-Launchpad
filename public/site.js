@@ -44,13 +44,39 @@
     } catch { return { ok: false, error: "offline", _status: 0 }; }
   }
 
+  /**
+   * Inside a wallet app's own browser (a "WebView") rather than Safari / Chrome? Android WebViews say "wv", iPhone apps
+   * leave out "Safari/", and some wallets put their name in the user agent. These browsers often can't share GPS with a
+   * page, and Google refuses to sign people in inside them.
+   */
+  const ua = navigator.userAgent;
+  const isPhone = /Android|iPhone|iPad|iPod/i.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));
+  const webView = (/Android/i.test(ua) && /; wv\)|\bwv\b/.test(ua)) || (/iPhone|iPad|iPod/i.test(ua) && !/Safari\//.test(ua)) ||
+    (isPhone && /Phantom|Solflare|Backpack|OKX|TokenPocket|Trust\/|Coinbase|Bitget|BitKeep|MetaMask|imToken|Binance|Exodus/i.test(ua));
+
+  /**
+   * The person's position, once. Rejects with an Error whose .code is "unsupported" | "denied" | "timeout" | "unavailable"
+   * and whose .inApp says whether this is a wallet app's browser (pages then offer to finish in the phone's browser).
+   * GPS first; if it doesn't answer, a network-based position (the server accepts anything within 20 km).
+   */
   function getLocation() {
+    const fail = (code) => {
+      const text = {
+        unsupported: webView ? "This wallet app's browser can't share your location." : "Your browser can't share location.",
+        denied: webView ? "This wallet app's browser isn't allowing location." : "Location is blocked. Allow location for this site in your browser settings, then try again.",
+        timeout: "Couldn't get your location. Turn on location (GPS) and try again.",
+        unavailable: "Couldn't get your location. Turn on location (GPS) and try again.",
+      }[code];
+      return Object.assign(new Error(text), { code, inApp: webView });
+    };
     return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) return reject(new Error("Your browser can't share location."));
-      navigator.geolocation.getCurrentPosition(
-        (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: Math.round(p.coords.accuracy || 0) }),
-        (e) => reject(new Error(e.code === 1 ? "Location is blocked. Allow location for this site in your browser settings, then try again." : "Couldn't get your location. Turn on location (GPS) and try again.")),
-        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+      if (!navigator.geolocation) return reject(fail("unsupported"));
+      const ok = (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: Math.round(p.coords.accuracy || 0) });
+      const why = (e) => (e && e.code === 1 ? "denied" : e && e.code === 3 ? "timeout" : "unavailable");
+      navigator.geolocation.getCurrentPosition(ok, (e) => {
+        if (e && e.code === 1) return reject(fail("denied"));
+        navigator.geolocation.getCurrentPosition(ok, (e2) => reject(fail(why(e2))), { enableHighAccuracy: false, timeout: 15000, maximumAge: 30000 });
+      }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
     });
   }
 
@@ -101,6 +127,6 @@
     s.textContent = d.ok ? "online ✓" : "offline";
   })();
 
-  window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, reveal, reduced,
+  window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, reveal, reduced,
     me: () => meLite, ready, logout, official, opensAt: () => opensAt };
 })();
