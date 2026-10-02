@@ -1,6 +1,7 @@
-// Dashboard, by level: the "Your role" panel (what you can do right now, and what's waiting for you),
-// the squad panel, and the admin console. One dashboard page, but a member, a holder, a founder, a Seed Steward,
-// a country manager and an admin each open it to a different top.
+// Dashboard, by level: the "Your role" card (what you can do right now, and what's waiting for you) and the
+// squad card. One dashboard page, but a member, a holder, a founder, a Seed Steward, a country manager and an
+// admin each open it to a different top. Both are ordinary dashboard cards: the layout customization (drag, move
+// between columns) treats them like the others, and the roles accordion at the bottom of the page holds the rules.
 // Needs site.js (window.V). dashboard.js calls window.VRole.render(d, ctx) on every refresh and passes ctx:
 //   { sensitive, refresh, locateFor, errText, countryName }
 (() => {
@@ -97,9 +98,16 @@
     if (d.level === "admin") {
       p.icon = "⚙️"; p.title = "Admin";
       p.tag = { text: "Runs Vicinity within the published rules", cls: "tag--gold" };
-      p.lead = "Everything that needs a decision is here. Settings are checked live; nothing below ever shows a secret's value.";
-      p.tools = [jump("Moderator tools", "#mod", "btn btn--primary btn--sm"), link("Public log", "/api/audit"), link("The rules", "/rules"), ...p.tools.filter((t) => t.tagName === "BUTTON" && /Resign|Invite/.test(t.textContent))];
+      p.lead = "Everything that needs a decision is in the moderator tools. Launch settings, team wallets and snapshots live in the admin console.";
+      p.tools = [link("Admin console", "/admin", "btn btn--primary btn--sm"), jump("Moderator tools", "#mod"), link("Public log", "/api/audit"), link("The rules", "/rules"), ...p.tools.filter((t) => t.tagName === "BUTTON" && /Resign|Invite/.test(t.textContent))];
     }
+    // the rules for this level live in the roles accordion at the bottom of the page: open that row
+    const row = d.level === "member" ? "holder" : d.level;
+    p.tools.push(tool("What my role can do", () => {
+      const r = $(`#roles details[data-role="${row}"]`);
+      if (r) r.open = true;
+      const t = $("#roles"); if (t) t.scrollIntoView({ behavior: window.V.reduced ? "auto" : "smooth", block: "start" });
+    }, "link-btn"));
     return p;
   }
 
@@ -110,48 +118,6 @@
     const items = Object.entries(QUEUE_LABEL).filter(([k]) => queue[k]).map(([k, [one, many]]) => `${queue[k]} ${queue[k] === 1 ? one : many}`);
     box.hidden = !queue.known;
     box.textContent = !queue.known ? "" : items.length ? `Waiting for you: ${items.join(" · ")}` : "Nothing is waiting for you right now. ✓";
-  }
-
-  /** The admin console: launch readiness (which settings are missing), counts, and the Founding Supporter snapshots. */
-  let adminNode = null, adminAt = 0;
-  async function adminConsole(host) {
-    const r = await api("/api/admin/status");
-    if (!r.ok) { host.replaceChildren(el("p", "small muted", "Couldn't load the admin numbers.")); return; }
-    const missing = r.checks.filter((x) => !x.ok);
-    const nodes = [el("p", "kicker", missing.length ? `Launch readiness · ${missing.length} to fix` : "Launch readiness · all set ✓")];
-    const list = el("ul", "role-checks");
-    for (const x of r.checks) {
-      const li = el("li", x.ok ? "is-ok" : "is-bad"), body = el("div");
-      body.append(el("strong", null, x.label));
-      if (!x.ok) body.append(el("p", "tiny muted", x.fix));
-      li.append(el("span", "req__dot"), body);
-      list.append(li);
-    }
-    nodes.push(list);
-    const n = r.counts, dl = el("dl", "kv");
-    for (const [k, v] of [["Accounts", n.users], ["With a home community", n.homes], ["Live seats", n.seats], ["Seed Stewards", n.stewards], ["Open application windows", n.windows]]) {
-      const row = el("div"); row.append(el("dt", null, k), el("dd", null, fmt(v))); dl.append(row);
-    }
-    nodes.push(dl);
-    if (r.snapshots.length) {
-      nodes.push(el("p", "kicker", "Founding Supporter snapshots"));
-      const ul = el("ul", "req-list");
-      for (const s of r.snapshots) {
-        const li = el("li"); li.append(el("strong", null, `#${s.id}`), el("span", "muted", ` ${s.status} · cutoff ${date(s.cutoff)} · ${fmt(s.holders)} wallets`));
-        if (s.status === "provisional") {
-          li.append(tool("Cancel and recompute", async () => {
-            const note = prompt("Why is this snapshot wrong? (public, a few words)");
-            if (!note) return;
-            const x = await ctx.sensitive(() => api("/api/snapshots/cancel", { id: s.id, note }));
-            toast(x.ok ? "Cancelled. It will be recomputed under a new id." : ctx.errText({}, x, "Couldn't cancel."));
-            if (x.ok) { adminAt = 0; ctx.refresh(); }
-          }, "link-btn"));
-        }
-        ul.append(li);
-      }
-      nodes.push(ul);
-    }
-    host.replaceChildren(...nodes);
   }
 
   function render(d, context) {
@@ -168,11 +134,6 @@
     parts.push(Object.assign(el("p", "small role-queue"), { id: "role-queue", hidden: true }), tools);
     host.replaceChildren(...parts);
     renderQueue();
-    if (d.level === "admin") {
-      if (!adminNode) adminNode = el("div", "role-admin");
-      host.append(adminNode);
-      if (Date.now() - adminAt > 120_000) { adminAt = Date.now(); adminConsole(adminNode); }
-    }
     renderSquad(d);
   }
 

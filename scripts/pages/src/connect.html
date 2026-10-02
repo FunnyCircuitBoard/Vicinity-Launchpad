@@ -1,4 +1,4 @@
-<!--{"title": "Connect", "description": "Connect any Solana wallet, sign in with X or Google, and get your Vicinity dashboard: live rank, your city, your people.", "page": "connect", "scripts": ["vendor/qrcode", "wallets", "connect"]}-->
+<!--{"title": "Connect", "description": "Connect any Solana wallet, sign in with Google or e-mail, and get your Vicinity dashboard: live rank, your city, your people.", "page": "connect", "scripts": ["vendor/qrcode", "wallets", "connect"]}-->
     <section class="connect">
       <div class="wrap connect__grid">
         <div class="connect__intro">
@@ -7,13 +7,13 @@
           <p class="lead">New here? Two quick steps, then your dashboard: your live rank, your city and your people. Already a member? Log in.</p>
           <ol class="stepper" id="stepper">
             <li data-s="1" class="is-active"><span class="stepper__n">1</span><span>Connect your wallet</span></li>
-            <li data-s="2"><span class="stepper__n">2</span><span>Sign in with X or Google</span></li>
+            <li data-s="2"><span class="stepper__n">2</span><span>Sign in with Google or e-mail</span></li>
             <li data-s="3"><span class="stepper__n">3</span><span>Your dashboard</span></li>
           </ol>
           <ul class="safety">
             <li>Signing in is free. It isn't a transaction and can't move funds.</li>
             <li>Vicinity will never ask for your recovery phrase or private key.</li>
-            <li>One account per wallet and per X or Google login, which keeps fake accounts out.</li>
+            <li>One account per wallet and per Google login or verified e-mail. That makes fake accounts harder, but it is not proof of one person.</li>
           </ul>
         </div>
 
@@ -21,15 +21,32 @@
           <!-- 1. log in, or choose a wallet -->
           <div class="cstate" data-state="pick">
             <section class="login-block" id="login-block" aria-labelledby="login-title">
-              <h2 class="h2--sm" id="login-title">Log in</h2>
-              <p class="muted small">Already have a Vicinity account? Continue with the X or Google login you linked.</p>
-              <div class="social-btns">
-                <a class="btn btn--social btn--x" href="/api/auth/x/start" id="login-x" hidden><span class="social-mark" aria-hidden="true">𝕏</span> Log in with X</a>
+              <h2 class="h2--sm" id="login-title">Already a member? Log in</h2>
+              <p class="muted small">Continue with the Google account or e-mail address you signed up with. No wallet needed to get back in.</p>
+              <div class="social-btns" id="login-social">
                 <a class="btn btn--social btn--google" href="/api/auth/google/start" id="login-google" hidden><span class="social-mark" aria-hidden="true">G</span> Log in with Google</a>
+                <button class="btn btn--social btn--email" type="button" id="login-email" hidden><span class="social-mark" aria-hidden="true">✉</span> Log in with e-mail</button>
               </div>
-              <p class="muted small" id="login-off" hidden>Log in with X or Google is being switched on. Use your wallet below for now.</p>
-              <p class="callout small" id="login-inapp" hidden>You're inside a wallet app's browser. Google doesn't allow log-in here, so use X or your wallet. To use Google, open <strong>vicinity.city/connect</strong> in Safari or Chrome. <button class="link-btn" type="button" id="login-copy">Copy the link</button></p>
-              <p class="tiny muted">Logging in with X or Google doesn't prove your wallet. You'll sign once with it before you apply, vote or moderate.</p>
+              <div id="login-email-slot">
+                <form class="email-form" id="email-form" hidden novalidate>
+                  <p class="wallet__error" id="email-error" role="alert" hidden></p>
+                  <div id="email-step-address">
+                    <label for="email-addr">Your e-mail address</label>
+                    <input id="email-addr" type="email" autocomplete="email" spellcheck="false" maxlength="254" placeholder="you@example.com">
+                    <button class="btn btn--primary btn--block" type="submit" id="email-send">Send me a code</button>
+                  </div>
+                  <div id="email-step-code" hidden>
+                    <p class="small">We sent a 6-digit code to <strong id="email-sent-to">—</strong></p>
+                    <label for="email-code">Your code</label>
+                    <input id="email-code" type="text" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" maxlength="6" placeholder="••••••">
+                    <button class="btn btn--primary btn--block" type="button" id="email-verify">Verify</button>
+                    <button class="link-btn" type="button" id="email-resend">Send a new code</button>
+                  </div>
+                </form>
+              </div>
+              <p class="muted small" id="login-off" hidden>Log in with Google or e-mail is being switched on. Use your wallet below for now.</p>
+              <p class="callout small" id="login-inapp" hidden>You're inside a wallet app's browser. Google doesn't allow log-in here, so use e-mail or your wallet. To use Google, open <strong>vicinity.city/connect</strong> in Safari or Chrome. <button class="link-btn" type="button" id="login-copy">Copy the link</button></p>
+              <p class="tiny muted">Logging in with Google or e-mail doesn't prove your wallet. You'll sign once with it before you apply, vote or moderate.</p>
             </section>
             <p class="or-line" id="or-line"><span>New here, or logging in with your wallet</span></p>
             <h2 class="h2--sm">Choose your wallet</h2>
@@ -105,49 +122,21 @@
             <div class="approve-done" id="approve-done" hidden><div class="verified-badge" aria-hidden="true">✓</div><p><strong>Approved.</strong> Go back to your computer.</p></div>
           </div>
 
-          <!-- 2. X or Google -->
+          <!-- 2. Google or e-mail -->
           <div class="cstate" data-state="social" hidden>
             <div class="verified-badge" aria-hidden="true">✓</div>
             <h2 class="h2--sm">Wallet verified. Now, who are you?</h2>
             <p class="addr addr--center"><span id="s-addr">—</span></p>
-            <p class="muted small">Sign in with X or Google to finish. Your login is linked to this wallet for good: one account per wallet and per login.</p>
-            <div class="social-btns">
-              <a class="btn btn--social btn--x" href="/api/auth/x/start" id="go-x"><span class="social-mark" aria-hidden="true">𝕏</span> Continue with X</a>
+            <p class="muted small">Sign in with Google or your e-mail to finish. Your login is linked to this wallet for good (an e-mail address that is your sign-in cannot be changed or removed): one account per wallet and per login.</p>
+            <div class="social-btns" id="go-social">
               <a class="btn btn--social btn--google" href="/api/auth/google/start" id="go-google"><span class="social-mark" aria-hidden="true">G</span> Continue with Google</a>
+              <button class="btn btn--social btn--email" type="button" id="go-email"><span class="social-mark" aria-hidden="true">✉</span> Continue with e-mail</button>
             </div>
-            <p class="muted small" id="social-off" hidden>Sign-in with X and Google is being switched on. Please check back soon.</p>
-            <div class="callout small" id="social-inapp" hidden>You're inside a wallet app's browser. Google can't sign you in here, and X may jump to another app. <button class="btn btn--glass btn--sm" type="button" id="link-start">Continue in my phone's browser</button></div>
-            <p class="tiny muted">We keep your account id and display name. No e-mail, no posts, no contacts.</p>
+            <div id="social-email-slot"></div>
+            <p class="muted small" id="social-off" hidden>Sign-in is being switched on. Please check back soon.</p>
+            <p class="callout small" id="social-inapp" hidden>You're inside a wallet app's browser. Google can't sign you in here, so use e-mail.</p>
+            <p class="tiny muted">With Google we keep only your Google account id and first name. With e-mail we keep the address itself (it is your account id) and a hash of the code, which expires in 10 minutes. No passwords.</p>
             <button class="link-btn" type="button" id="s-restart">Use a different wallet</button>
-          </div>
-
-          <!-- 2b. the wallet app waits while X / Google is linked in the phone's own browser -->
-          <div class="cstate" data-state="link" hidden>
-            <h2 class="h2--sm">Continue in your browser</h2>
-            <p class="muted small">Open this link in Safari or Chrome, sign in with X or Google there, then come back here. This page finishes by itself.</p>
-            <p class="pin-row">Check number: <strong class="pin" id="link-pin">--</strong></p>
-            <div class="req-form"><label class="sr-only" for="link-url">Link</label><input class="field mono" id="link-url" readonly><button class="btn btn--primary btn--sm" type="button" id="link-copy">Copy link</button></div>
-            <p class="muted small" id="link-status"><span class="live-dot" aria-hidden="true"></span> Waiting for your browser…</p>
-            <p class="tiny muted">Only continue if you started this yourself. The link works for 15 minutes.</p>
-            <button class="link-btn" type="button" data-back>Back</button>
-          </div>
-
-          <!-- 2c. the phone's own browser: link X / Google for the wallet that asked -->
-          <div class="cstate" data-state="linkphone" hidden>
-            <div class="verified-badge" aria-hidden="true">✓</div>
-            <h2 class="h2--sm">Finish creating your account</h2>
-            <p class="addr addr--center"><span id="lp-addr">—</span></p>
-            <p>Does your wallet app show the check number <strong class="pin" id="lp-pin">--</strong>?</p>
-            <p class="muted small">Only continue if you started this yourself, in your own wallet app. Your login is linked to that wallet for good.</p>
-            <div class="social-btns">
-              <a class="btn btn--social btn--x" href="/api/auth/x/start" id="lp-x" hidden><span class="social-mark" aria-hidden="true">𝕏</span> Continue with X</a>
-              <a class="btn btn--social btn--google" href="/api/auth/google/start" id="lp-google" hidden><span class="social-mark" aria-hidden="true">G</span> Continue with Google</a>
-            </div>
-          </div>
-          <div class="cstate" data-state="linkdone" hidden>
-            <div class="verified-badge" aria-hidden="true">✓</div>
-            <h2 class="h2--sm">Linked</h2>
-            <p class="muted">Go back to your wallet app. It finishes signing you in by itself in a few seconds. You can close this page.</p>
           </div>
 
           <!-- 3. done -->

@@ -5,11 +5,24 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "vicinity-map",
+  "account_id": "bb77f7451b478e895fa1efb10aaccc35",
   "main": "src/index.js",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
   "preview_urls": false,
   "build": { "command": "npm run build" },
+  // Public settings, versioned here so a change goes through a pull request. Everything secret
+  // (SOLANA_RPC_URL, RESEND_API_KEY, GOOGLE_CLIENT_SECRET, ...) stays in Cloudflare as a Secret and is
+  // never touched by a deploy. keep_vars: plain-text settings added in the Cloudflare dashboard
+  // (for example ADMIN_WALLETS) are kept by a deploy instead of being deleted.
+  "keep_vars": true,
+  "vars": {
+    // "preview" shows the purple TEST ENVIRONMENT banner and the post-launch state of the site.
+    // To go live, change it to "live" in a pull request (see docs/DEPLOY.md).
+    "SITE_MODE": "preview",
+    "GOOGLE_CLIENT_ID": "508878292080-h05nh9h4p6u4ajpqldc423f6elmqc0nl.apps.googleusercontent.com",
+    "EMAIL_FROM": "Vicinity <noreply@vicinity.city>"
+  },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

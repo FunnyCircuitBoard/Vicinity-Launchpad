@@ -1,4 +1,4 @@
-// Accounts: one wallet + one X / Google login per person, sessions, phone pairing, tiny-transfer proof.
+// Accounts: one wallet + one Google login / verified e-mail per person, sessions, phone pairing, tiny-transfer proof.
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { handleApi } from "../src/index.js";
@@ -69,7 +69,7 @@ async function oauth(b, provider, id) {
 
 beforeEach(() => {
   _resetCityCache();
-  env = { DB: d1(), GOOGLE_CLIENT_ID: "gid", GOOGLE_CLIENT_SECRET: "gsecret", X_CLIENT_ID: "xid" };
+  env = { DB: d1(), GOOGLE_CLIENT_ID: "gid", GOOGLE_CLIENT_SECRET: "gsecret" };
   jar = browser();
 });
 
@@ -82,7 +82,7 @@ test("new person: wallet first, then Google, then signed in for good", async () 
   const me = await (await jar.send("/api/me")).json();
   assert.equal(me.signedIn, false);
   assert.equal(me.pending.wallet, w.address);
-  assert.deepEqual(me.providers, { google: true, x: true });
+  assert.deepEqual(me.providers, { google: true, email: false });
 
   r = await oauth(jar, "google", "g-1");
   assert.equal(r.status, 302);
@@ -117,18 +117,23 @@ test("one wallet ↔ one login: a second wallet can't reuse the Google account, 
 test("returning person can sign in with the linked login alone; an unknown login must connect a wallet first", async () => {
   const w = await wallet();
   await jar.send("/api/auth/wallet", { method: "POST", body: await loginBody(w) });
-  await oauth(jar, "x", "777");
+  await oauth(jar, "google", "g-7");
   const me = await (await jar.send("/api/me?lite=1")).json();
-  assert.equal(me.user.handle, "@utica_777");
+  assert.match(me.user.handle, /^[A-Z][a-z]+[A-Z][a-z]+\d{2}$/, "Google signups get an auto username");
 
   const fresh = browser();
-  let r = await oauth(fresh, "x", "777");
+  let r = await oauth(fresh, "google", "g-7");
   assert.equal(r.headers.get("location"), "/dashboard");
   assert.equal((await (await fresh.send("/api/me?lite=1")).json()).user.wallet, w.address);
 
   const stranger = browser();
-  r = await oauth(stranger, "x", "999");
+  r = await oauth(stranger, "google", "g-9");
   assert.equal(r.headers.get("location"), "/connect?error=wallet_first");
+});
+
+test("X sign-in is gone: the old endpoints 404", async () => {
+  assert.equal((await jar.send("/api/auth/x/start")).status, 404);
+  assert.equal((await jar.send("/api/auth/x/callback?code=z&state=z")).status, 404);
 });
 
 test("login safety: other sites, wrong state, missing settings, logout", async () => {
@@ -210,80 +215,4 @@ test("apps that can't sign (FOMO...): prove the wallet by sending yourself an ex
   assert.equal(d.ok, true);
   assert.equal(d.next, "social");
   assert.equal((await (await jar.send("/api/me")).json()).pending.wallet, w.address);
-});
-
-test("finish the sign-up in the phone's own browser: link X / Google there, the wallet app takes over", async () => {
-  const w = await wallet();
-  await jar.send("/api/auth/wallet", { method: "POST", body: await loginBody(w) });        // inside the wallet app: proven, not linked yet
-  const started = await (await jar.send("/api/auth/handoff", { method: "POST", body: {} })).json();
-  assert.equal(started.ok, true);
-  assert.match(started.pin, /^[0-9]{2}$/);
-  assert.match(started.url, /^https:\/\/vicinity\.test\/connect\?link=[A-Za-z0-9_-]{16,}$/);
-  const code = new URL(started.url).searchParams.get("link");
-
-  const phone = browser();                                                                  // Safari / Chrome: no cookies at all
-  const info = await (await phone.send(`/api/auth/handoff?code=${code}`)).json();
-  assert.equal(info.ok, true);
-  assert.equal(info.pin, started.pin, "the same check number on both screens");
-  assert.equal(info.wallet, `${w.address.slice(0, 4)}…${w.address.slice(-4)}`);
-  assert.equal((await (await jar.send("/api/auth/handoff/finish", { method: "POST", body: { code } })).json()).status, "waiting");
-
-  const start = await phone.send(`/api/auth/google/start?link=${code}`);
-  assert.equal(start.status, 302);
-  const state = new URL(start.headers.get("location")).searchParams.get("state");
-  const back = await phone.send(`/api/auth/google/callback?code=good-g-77&state=${state}`, { fetchImpl: oauthFetch() });
-  assert.equal(back.headers.get("location"), "/connect?linked=1");
-  assert.equal((await (await phone.send("/api/me?lite=1")).json()).signedIn, false, "the phone's browser is not signed in: it only linked the login");
-  const row = await env.DB.prepare("SELECT wallet, provider, provider_id FROM users").first();
-  assert.deepEqual(row, { wallet: w.address, provider: "google", provider_id: "g-77" });
-
-  const fin = await jar.send("/api/auth/handoff/finish", { method: "POST", body: { code } });
-  assert.equal(fin.status, 200);
-  assert.equal((await fin.json()).next, "/dashboard?welcome=1");
-  const me = await (await jar.send("/api/me?lite=1")).json();
-  assert.equal(me.signedIn, true, "the wallet app is signed in now");
-  assert.equal(me.user.wallet, w.address);
-  assert.equal(me.fresh, true, "the wallet proof from a moment ago still counts");
-
-  assert.equal((await jar.send("/api/auth/handoff/finish", { method: "POST", body: { code } })).status, 410, "once only");
-  assert.equal((await phone.send(`/api/auth/handoff?code=${code}`)).status, 410);
-});
-
-test("hand-off safety: needs a proven wallet, the right browser, a live link, and the usual one-wallet-one-login rules", async () => {
-  // nothing proven yet, or already signed in: no link to hand off
-  assert.equal((await (await browser().send("/api/auth/handoff", { method: "POST", body: {} })).json()).error, "no_pending");
-  const done = browser(); const dw = await wallet();
-  await done.send("/api/auth/wallet", { method: "POST", body: await loginBody(dw) }); await oauth(done, "google", "g-done");
-  assert.equal((await (await done.send("/api/auth/handoff", { method: "POST", body: {} })).json()).error, "no_pending");
-  assert.equal((await browser().send("/api/auth/google/start?link=nope-not-a-real-link-code")).headers.get("location"), "/connect?error=link_expired");
-
-  const w = await wallet();
-  await jar.send("/api/auth/wallet", { method: "POST", body: await loginBody(w) });
-  const code = new URL((await (await jar.send("/api/auth/handoff", { method: "POST", body: {} })).json()).url).searchParams.get("link");
-  const link = async (provider, id) => {
-    const b = browser();
-    const state = new URL((await b.send(`/api/auth/${provider}/start?link=${code}`)).headers.get("location")).searchParams.get("state");
-    return (await b.send(`/api/auth/${provider}/callback?code=good-${id}&state=${state}`, { fetchImpl: oauthFetch() })).headers.get("location");
-  };
-
-  // another wallet's browser can't take the sign-in over
-  const other = browser(); const ow = await wallet();
-  await other.send("/api/auth/wallet", { method: "POST", body: await loginBody(ow) });
-  assert.equal((await other.send("/api/auth/handoff/finish", { method: "POST", body: { code } })).status, 410);
-
-  // that Google account already belongs to a different wallet
-  assert.equal(await link("google", "g-done"), "/connect?error=social_taken");
-  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first()).n, 1, "nothing was linked");
-
-  // the wallet got an account some other way in the meantime
-  await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, name, early, created_at) VALUES (?, 'x', 'x-1', 'N', 1, ?)").bind(w.address, new Date().toISOString()).run();
-  assert.equal(await link("google", "g-fresh"), "/connect?error=wallet_taken");
-  await env.DB.prepare("DELETE FROM users WHERE provider_id = 'x-1'").run();
-
-  // the link only lives 15 minutes: it's refused at the start, and a callback that was already under way is refused too
-  const mid = browser();
-  const state = new URL((await mid.send(`/api/auth/google/start?link=${code}`)).headers.get("location")).searchParams.get("state");
-  await env.DB.prepare("UPDATE handoffs SET expires_at = ?").bind(new Date(Date.now() - 1000).toISOString()).run();
-  assert.equal((await mid.send(`/api/auth/google/callback?code=good-g-late&state=${state}`, { fetchImpl: oauthFetch() })).headers.get("location"), "/connect?error=link_expired");
-  assert.equal((await browser().send(`/api/auth/google/start?link=${code}`)).headers.get("location"), "/connect?error=link_expired");
 });

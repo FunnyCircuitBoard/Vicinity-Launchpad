@@ -1,4 +1,4 @@
-// Connect page: 1. prove the wallet (sign a message / phone QR / tiny transfer)  2. X or Google  3. dashboard.
+// Connect page: 1. prove the wallet (sign a message / phone QR / tiny transfer)  2. Google or e-mail  3. dashboard.
 // Needs site.js (window.V), wallets.js (window.VW) and vendor/qrcode.js (window.qrcode).
 (() => {
   "use strict";
@@ -7,26 +7,27 @@
   const params = new URLSearchParams(location.search);
   const pairCode = params.get("pair");
   const panel = $("#connect-panel");
-  let state = "pick", active = null, address = null, message = null, pairPin = null, providers = { google: false, x: false };
+  let state = "pick", active = null, address = null, message = null, pairPin = null, providers = { google: false, email: false };
 
   const ERR = {
-    social_taken: "That X / Google account is already linked to a different wallet. Sign in with the wallet it's linked to, or use another account.",
+    social_taken: "That Google account is already linked to a different wallet. Sign in with the wallet it's linked to, or use another account.",
     wallet_taken: "This wallet is already linked to another account. Sign in with that account instead.",
-    wallet_first: "That X / Google login isn't linked to a Vicinity account yet. New here? Connect your wallet below first, then link that login in step 2.",
-    login_unavailable: "Log in with X and Google is being switched on. Please check back soon, or use your wallet.",
+    wallet_first: "That login isn't linked to a Vicinity account yet. New here? Connect your wallet below first, then link that login in step 2.",
+    login_unavailable: "Log in with Google is being switched on. Please check back soon, or use e-mail or your wallet.",
     login_cancelled: "Sign-in was cancelled. Nothing changed.",
     login_failed: "The sign-in didn't go through. Please try again.",
     login_expired: "That sign-in took too long or was opened in another tab. Please try again.",
-    link_expired: "That link expired or was already used. Start again in your wallet app.",
   };
   const setErr = (m) => { const e = $("#c-error"); e.textContent = m || ""; e.hidden = !m; };
+  // The e-mail form moves between the log-in block and the sign-up step, so its errors live INSIDE the form (right next to the input).
+  const setEmailErr = (m) => { const e = $("#email-error"); e.textContent = m || ""; e.hidden = !m; };
   const hasAccount = () => { try { return localStorage.getItem("vicinity-account") === "1"; } catch { return false; } };
   /** Returning people (the header's Log in button, or an account remembered on this device) get a "welcome back" top. */
   function welcomeBack() {
     $(".connect__intro .kicker").textContent = "Welcome back";
     const title = $(".connect__intro .page-title"), accent = el("span", "accent", "Your city's waiting.");
     title.replaceChildren("Log in.", el("br"), accent);
-    $(".connect__intro .lead").textContent = "Log in with the X or Google account you linked, or with your wallet. New here? Use your wallet to create your account.";
+    $(".connect__intro .lead").textContent = "Log in with the Google account or e-mail you signed up with, or with your wallet. New here? Use your wallet to create your account.";
   }
   const cancelled = (e) => /reject|cancel|denied|declin|closed/i.test(String(e?.message || e)) || e?.code === 4001;
 
@@ -34,7 +35,7 @@
     state = s;
     $$(".cstate", panel).forEach((x) => (x.hidden = x.dataset.state !== s));
     setErr("");
-    const step = ["social", "link", "linkphone"].includes(s) ? 2 : ["done", "linkdone"].includes(s) ? 3 : 1;
+    const step = s === "social" ? 2 : s === "done" ? 3 : 1;
     $$("#stepper li").forEach((li) => { const n = Number(li.dataset.s); li.classList.toggle("is-active", n === step); li.classList.toggle("is-done", n < step); });
   }
 
@@ -55,13 +56,14 @@
     else { a.href = k.site; a.target = "_blank"; a.rel = "noopener"; a.append(el("span", "go", "Get")); }
     return a;
   }
-  /** The "Log in" block: X / Google for people who already have an account. Google can't run inside wallet apps. */
+  /** The "Already a member? Log in" block: Google or e-mail. Google can't run inside wallet apps. */
   function renderLogin() {
     const inApp = W.inWalletApp();
-    $("#login-x").hidden = !providers.x;
     $("#login-google").hidden = !providers.google || inApp;
-    $("#login-off").hidden = Boolean(providers.x || providers.google);
+    $("#login-email").hidden = !providers.email;
+    $("#login-off").hidden = Boolean(providers.google || providers.email);
     $("#login-inapp").hidden = !(inApp && providers.google);
+    mountEmail("login");
   }
   $("#login-copy").addEventListener("click", () => copy(`${location.origin}/connect`, "Link copied. Paste it in Safari or Chrome."));
   function renderPick() {
@@ -115,7 +117,7 @@
     finally { btn.disabled = false; btn.textContent = "Sign in"; }
   });
 
-  /** The wallet is proven: straight to the dashboard (linked before) or on to X / Google. */
+  /** The wallet is proven: straight to the dashboard (linked before) or on to Google / e-mail. */
   function after(d) {
     if (String(d.next || "").startsWith("/dashboard")) {
       show("done");
@@ -126,45 +128,86 @@
   function showSocial(wallet) {
     const inApp = W.inWalletApp();
     $("#s-addr").textContent = short(wallet);
-    $("#go-x").hidden = !providers.x;
     $("#go-google").hidden = !providers.google || inApp; // Google refuses to run inside a wallet app's browser
-    $("#social-off").hidden = Boolean(providers.x || providers.google);
-    $("#social-inapp").hidden = !(inApp && (providers.x || providers.google));
+    $("#go-email").hidden = !providers.email;
+    mountEmail("social");
+    $("#social-off").hidden = Boolean(providers.google || providers.email);
+    $("#social-inapp").hidden = !(inApp && providers.google);
     show("social");
   }
 
-  /* ---------- sign-up finished in the phone's own browser (wallet apps can't run Google; cookies don't cross browsers) ---------- */
-  $("#link-start").addEventListener("click", async () => {
-    setErr("");
-    const d = await api("/api/auth/handoff", {});
-    if (!d.ok) return setErr("Couldn't start. Please connect your wallet again.");
-    show("link");
-    $("#link-pin").textContent = d.pin;
-    $("#link-url").value = d.url;
-    const until = Date.parse(d.expiresAt), status = $("#link-status");
-    const poll = async () => {
-      if (state !== "link") return;
-      if (Date.now() > until) { status.textContent = "The link expired. Go back and try again."; return; }
-      const f = await api("/api/auth/handoff/finish", { code: d.code });
-      if (f.ok) { toast("Linked ✓"); return after(f); }
-      if (f.status === "expired") { status.textContent = "The link expired. Go back and try again."; return; }
-      timer = setTimeout(poll, 2000);
-    };
-    clearTimeout(timer); timer = setTimeout(poll, 2000);
-  });
-  $("#link-copy").addEventListener("click", () => copy($("#link-url").value, "Link copied. Paste it in Safari or Chrome."));
-  $("#link-url").addEventListener("focus", (e) => e.target.select());
-  /** The phone's own browser, opened from the wallet app's link. */
-  async function startLinkPhone(code) {
-    const r = await api(`/api/auth/handoff?code=${encodeURIComponent(code)}`);
-    if (!r.ok) { show("pick"); renderPick(); return setErr(ERR.link_expired); }
-    $("#lp-addr").textContent = r.wallet; $("#lp-pin").textContent = r.pin;
-    const me = await window.V.ready; providers = me.providers || providers;
-    $("#lp-x").href = `/api/auth/x/start?link=${encodeURIComponent(code)}`; $("#lp-x").hidden = !providers.x;
-    $("#lp-google").href = `/api/auth/google/start?link=${encodeURIComponent(code)}`; $("#lp-google").hidden = !providers.google;
-    show("linkphone");
-  }
   $("#s-restart").addEventListener("click", async () => { await api("/api/auth/logout", {}); active = null; address = null; show("pick"); renderPick(); });
+
+  /* ---------- e-mail codes ---------- */
+  // ONE e-mail form + code step serves both places ("Already a member? Log in" and the sign-up step 2): it is moved
+  // into whichever block is showing, and the button group that opened it is hidden while it is open.
+  let emailAddr = "";
+  const groupOf = { login: "#login-social", social: "#go-social" };
+  function mountEmail(where) {
+    const slot = $(`#${where}-email-slot`);
+    if (slot.contains($("#email-form"))) return; // already here (a wallet appearing re-renders the page: don't close a form being typed in)
+    slot.append($("#email-form"));
+    $("#email-form").hidden = true;
+    $("#email-step-address").hidden = false;
+    $("#email-step-code").hidden = true;
+    $(groupOf.login).hidden = false; $(groupOf.social).hidden = false;
+  }
+  function openEmail(where) {
+    setErr(""); setEmailErr("");
+    mountEmail(where);
+    $("#email-form").hidden = false;
+    $(groupOf[where]).hidden = true;
+    $("#email-addr").focus();
+  }
+  $("#go-email").addEventListener("click", () => openEmail("social"));
+  $("#login-email").addEventListener("click", () => openEmail("login"));
+  async function emailSend() {
+    setErr(""); setEmailErr("");
+    emailAddr = $("#email-addr").value.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailAddr)) { setEmailErr("That doesn't look like an e-mail address."); return; }
+    const btn = $("#email-send"); btn.disabled = true; btn.textContent = "Sending…";
+    try {
+      const d = await api("/api/auth/email/start", { email: emailAddr });
+      if (!d.ok) throw new Error(d.error);
+      $("#email-sent-to").textContent = emailAddr;
+      $("#email-step-address").hidden = true;
+      $("#email-step-code").hidden = false;
+      $("#email-code").value = "";
+      $("#email-code").focus();
+    } catch (e) { setEmailErr(emailErr(e.message)); }
+    finally { btn.disabled = false; btn.textContent = "Send me a code"; }
+  }
+  async function emailVerify() {
+    setErr(""); setEmailErr("");
+    const code = $("#email-code").value.replace(/\D/g, "").slice(0, 6);
+    if (code.length !== 6) { setEmailErr("Enter the 6-digit code from the e-mail."); return; }
+    const btn = $("#email-verify"); btn.disabled = true; btn.textContent = "Checking…";
+    try {
+      const d = await api("/api/auth/email/verify", { email: emailAddr, code });
+      if (!d.ok) throw new Error(d.error + (d.left != null ? ":" + d.left : ""));
+      location.assign(d.next || "/dashboard");
+    } catch (e) { setEmailErr(emailErr(e.message)); }
+    finally { btn.disabled = false; btn.textContent = "Verify"; }
+  }
+  function emailErr(code) {
+    const [c, left] = String(code).split(":");
+    return {
+      bad_email: "That doesn't look like an e-mail address.",
+      email_unavailable: "E-mail sign-in is being switched on. Please check back soon.",
+      too_soon: "A code was just sent — wait a minute before asking for another.",
+      too_many: "Too many tries. Wait an hour, then ask for a new code.",
+      code_expired: "That code expired. Send a new one.",
+      code_wrong: `That code doesn't match. ${left} ${left === "1" ? "try" : "tries"} left.`,
+      bad_code: "Enter the 6-digit code from the e-mail.",
+      social_taken: "That e-mail is already linked to a different wallet. Sign in with the wallet it's linked to, or use another address.",
+      wallet_taken: "This wallet is already linked to another account. Sign in with that account instead.",
+      wallet_first: "That e-mail isn't linked to a wallet yet. Connect your wallet first, then verify your e-mail.",
+    }[c] || "Something went wrong. Please try again.";
+  }
+  $("#email-form").addEventListener("submit", (e) => { e.preventDefault(); emailSend(); });
+  $("#email-verify").addEventListener("click", emailVerify);
+  $("#email-resend").addEventListener("click", emailSend);
+  $("#email-code").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); emailVerify(); } });
   $$("[data-back]").forEach((b) => b.addEventListener("click", () => { clearTimeout(timer); show("pick"); renderPick(); }));
 
   /* ---------- wallet on a phone: the computer shows a QR code ---------- */
@@ -265,8 +308,6 @@
     const err = params.get("error");
     if (err) history.replaceState(null, "", location.pathname + (pairCode ? `?pair=${pairCode}` : ""));
     if (pairCode) return startApprove();
-    if (params.get("linked")) { history.replaceState(null, "", location.pathname); return show("linkdone"); }
-    if (params.get("link")) return startLinkPhone(params.get("link"));
     const me = await window.V.ready;
     providers = me.providers || providers;
     if (params.get("mode") === "login" || hasAccount()) welcomeBack();

@@ -89,20 +89,25 @@
 
   /* ---------- who's signed in (header button) ---------- */
   let meLite = null;
-  const logout = async () => { await api("/api/auth/logout", {}); try { localStorage.removeItem("vicinity-account"); } catch {} location.assign("/"); };
-  $$("[data-logout]").forEach((b) => b.addEventListener("click", logout));
   const ready = api("/api/me?lite=1").then((d) => {
     meLite = d;
     const b = $("[data-account]"), label = $("[data-account-label]");
     if (d.signedIn && b) {
-      b.href = "/dashboard"; b.classList.add("is-in");
+      b.href = "/dashboard#profile"; b.classList.add("is-in");
       const who = d.user.handle || d.user.name || short(d.user.wallet);
       label.textContent = who.length > 16 ? who.slice(0, 15) + "…" : who;
-      b.setAttribute("aria-label", `Your dashboard (${who})`);
-      $$("[data-logout]").forEach((x) => (x.hidden = false));
+      // the header username button IS the profile button: on the dashboard it
+      // opens the profile modal in place, anywhere else it lands on it
+      b.setAttribute("aria-label", `Profile and settings (${who})`);
       try { localStorage.setItem("vicinity-account", "1"); } catch {} // remembered so /connect opens on "Log in"
+      b.addEventListener("click", (e) => {
+        if (document.body.dataset.page === "dashboard" && typeof window.V.openProfile === "function") {
+          e.preventDefault();
+          window.V.openProfile();
+        }
+      });
     } else if (d.pending && b) {
-      label.textContent = "Finish sign-up";
+      label.textContent = "Finish sign-in";
     }
     document.dispatchEvent(new CustomEvent("vicinity:me", { detail: d }));
     return d;
@@ -110,7 +115,25 @@
 
   /* ---------- live launch countdown (short form, used in several places) ---------- */
   let opensAt = Date.parse("2026-10-10T10:10:10-04:00");
-  const official = api("/api/official").then((o) => { if (o && o.launchpadOpensAt) opensAt = Date.parse(o.launchpadOpensAt); return o; });
+  let siteMode = "live";
+  const official = api("/api/official").then((o) => {
+    if (o && o.launchpadOpensAt) opensAt = Date.parse(o.launchpadOpensAt);
+    if (o && o.siteMode) { siteMode = o.siteMode; if (siteMode === "preview") showPreviewBanner(); }
+    // nav "Oct 10" chip flips to "Open" once the launchpad date has passed
+    if (opensAt <= Date.now()) $$("[data-nav-launch]").forEach((e) => {
+      e.textContent = "Open"; e.classList.remove("nav__soon"); e.classList.add("nav__open");
+    });
+    return o;
+  });
+  function showPreviewBanner() {
+    if (document.getElementById("preview-banner")) return;
+    const b = document.createElement("div");
+    b.id = "preview-banner";
+    b.setAttribute("role", "note");
+    b.style.cssText = "position:sticky;top:0;z-index:9999;background:#7c3aed;color:#fff;text-align:center;font:600 13px/1.4 system-ui,sans-serif;padding:8px 12px;letter-spacing:.02em";
+    b.textContent = "TEST ENVIRONMENT — previewing the post-launch site. Nothing here is real yet.";
+    document.body.prepend(b);
+  }
   function shortCountdown() {
     const ms = opensAt - Date.now();
     if (ms <= 0) return "Open now";
@@ -127,6 +150,41 @@
     s.textContent = d.ok ? "online ✓" : "offline";
   })();
 
+  /* ---------- terms gate: agree before entry ---------- */
+  (() => {
+    const key = "vicinity_terms";
+    const record = (version) => {
+      try { localStorage.setItem(key, version); } catch { /* private mode: gate reappears next visit */ }
+      ready.then((d) => { if (d && d.signedIn) api("/api/me/terms", { version }); });
+    };
+    // The terms page itself stays readable without the gate; it gets an inline agree button instead.
+    if (document.body.dataset.page === "terms") {
+      const inline = $("#terms-agree");
+      if (inline) inline.addEventListener("click", () => {
+        record("2026-10-01");
+        inline.disabled = true;
+        inline.textContent = "Agreed ✓";
+        toast("Thanks — you're all set.");
+      });
+      return;
+    }
+    const gate = $("#termsgate");
+    if (!gate) return;
+    const version = gate.dataset.termsVersion || "2026-10-01";
+    let agreed = null;
+    try { agreed = localStorage.getItem(key); } catch { /* ignore */ }
+    if (agreed === version) return;
+    gate.hidden = false;
+    $("#termsgate-agree").addEventListener("click", () => { record(version); gate.hidden = true; });
+    $("#termsgate-decline").addEventListener("click", () => {
+      gate.querySelector(".termsgate__card").innerHTML =
+        '<div class="termsgate__done"><p class="kicker">No problem</p>' +
+        "<h2>You&rsquo;ll need to agree to enter</h2>" +
+        '<p class="muted">The Terms of Use keep everyone on the same page. You can read them any time and come back when you&rsquo;re ready.</p>' +
+        '<p><a href="/terms">Read the Terms of Use</a></p></div>';
+    });
+  })();
+
   window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, reveal, reduced,
-    me: () => meLite, ready, logout, official, opensAt: () => opensAt };
+    me: () => meLite, ready, official, opensAt: () => opensAt, siteMode: () => siteMode };
 })();
