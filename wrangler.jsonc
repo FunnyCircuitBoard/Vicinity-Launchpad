@@ -26,9 +26,11 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    // The Worker sees every request first: /api/* is handled in code, old addresses forward to
-    // vicinity.city, and everything else is handed to the static files.
-    "run_worker_first": true,
+    // The Worker runs first only for /api/*, which is handled in code. Pages and files are served straight
+    // from the static assets (free, no Worker call) and get their security headers from public/_headers.
+    // (To also forward www / old addresses and force https from inside the Worker, set this to true:
+    // every request then counts as a Worker request, which matters on the free plan.)
+    "run_worker_first": ["/api/*"],
     "not_found_handling": "404-page"
   },
   // vicinity.city is the site. The others forward to it (src/index.js).
