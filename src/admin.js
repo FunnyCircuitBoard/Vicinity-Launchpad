@@ -41,7 +41,10 @@ export async function adminRoleOf(env, wallet) {
   if (!wallet) return null;
   if (adminWallets(env).includes(wallet)) return "owner";
   const r = await env.DB.prepare("SELECT role FROM admin_roles WHERE wallet = ?").bind(wallet).first();
-  return r && ROLES.includes(r.role) ? r.role : null;
+  if (!r || !ROLES.includes(r.role)) return null;
+  // Owner comes only from ADMIN_WALLETS. An 'owner' row left in the table from before that rule counts as admin,
+  // so it can't outlive a change of ADMIN_WALLETS and the real owner can still revoke or ban it.
+  return r.role === "owner" ? "admin" : r.role;
 }
 
 function logAudit(db, { actor, action, target = null, detail = null }, now = Date.now()) {
@@ -102,6 +105,8 @@ const postGuard = (request, env, minRole, opts = {}) =>
 const maskWallet = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
 /** The lowest role sees masked wallets and no names in the lists. */
 const limited = (ctx) => ctx.role === "moderator";
+const withoutName = (ctx, rows) => (limited(ctx) ? rows.map(({ name, ...rest }) => rest) : rows);
+const looksLikeWallet = (v) => typeof v === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v);
 /** Can the caller act on this wallet? Never an ADMIN_WALLETS wallet, and only one of a lower role. */
 async function outranks(ctx, wallet) {
   if (adminWallets(ctx.env).includes(wallet)) return "protected_wallet";
@@ -246,7 +251,7 @@ async function handleObjections(ctx, url) {
             u.handle, u.name FROM objections o
      JOIN seats s ON s.id = o.seat_id JOIN users u ON u.id = o.user_id
      ${only} ORDER BY o.id DESC LIMIT 200`).all()).results;
-  return json({ ok: true, objections: rows });
+  return json({ ok: true, objections: withoutName(ctx, rows) });
 }
 
 async function handleObjectionDecide(request, ctx) {
@@ -336,7 +341,7 @@ async function handleReports(ctx) {
             COUNT(r.user_id) AS reports, MAX(r.created_at) AS last_report, MAX(r.reason) AS reason
      FROM reports r JOIN posts p ON p.id = r.post_id JOIN users u ON u.id = p.user_id
      WHERE p.hidden = 0 GROUP BY p.id ORDER BY last_report DESC LIMIT 100`).all()).results;
-  return json({ ok: true, reports: rows });
+  return json({ ok: true, reports: withoutName(ctx, rows) });
 }
 
 async function handleReportDecide(request, ctx) {
@@ -365,7 +370,7 @@ async function handleAppeals(ctx) {
   const rows = (await ctx.db.prepare(
     `SELECT ap.*, u.handle, u.name FROM appeals ap JOIN users u ON u.id = ap.user_id
      WHERE ap.status = 'open' ORDER BY ap.id DESC LIMIT 100`).all()).results;
-  return json({ ok: true, appeals: rows });
+  return json({ ok: true, appeals: withoutName(ctx, rows) });
 }
 
 async function handleAppealDecide(request, ctx) {
@@ -476,7 +481,9 @@ async function handleRoleRevoke(request, ctx) {
 
 async function handleAudit(ctx, url) {
   const rows = (await ctx.db.prepare("SELECT * FROM admin_audit ORDER BY id DESC LIMIT ?").bind(limitOf(url, 100, 500)).all()).results;
-  return json({ ok: true, audit: rows });
+  // The lowest role must not be able to unmask the masked lists through the log: wallets in actor / target are masked.
+  const hide = (v) => (looksLikeWallet(v) ? maskWallet(v) : v);
+  return json({ ok: true, audit: limited(ctx) ? rows.map((r) => ({ ...r, actor: hide(r.actor), target: hide(r.target) })) : rows });
 }
 
 /* ---------------- test lab (owner only) ---------------- */

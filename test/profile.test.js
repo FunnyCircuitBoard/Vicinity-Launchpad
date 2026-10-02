@@ -84,19 +84,28 @@ test("phone: set, clear, and bad formats", async () => {
 test("username: names that pass for the project or its staff are refused, whatever the casing or look-alike letters", async () => {
   const a = await person(env);
   for (const bad of ["Admin", "vicinity", "Vicinity_Official", "V1c1n1ty", "VICINITY", "TeamVicinity", "Team_Vicinity", "MyVicinity", "admin_", "Administrator1",
-    "Moderator", "M0derator", "Support", "SupportTeam", "Official", "TheOfficial", "Staff", "Owner", "System", "Security", "Mod", "MODS", "Help", "Founder", "r00t", "Root"]) {
+    "Moderator", "M0derator", "Support", "SupportTeam", "Official", "TheOfficial", "Staff", "Owner", "System", "Security", "Mod", "MODS", "Help", "Founder", "r00t", "Root",
+    "Admin_Sakib", "Sakib_Admin", "Supp0rt", "AdminSakib", "Support_Desk"]) {
     const r = await a.post("/api/me/username", { username: bad });
     assert.equal(r.error, "username_reserved", bad);
   }
   assert.notEqual((await a.get("/api/me")).user.handle, "Admin");
   // ordinary names that merely contain or start like those are fine
-  for (const ok of ["Modest77", "Helpful77", "Rootsy77"]) assert.equal((await a.post("/api/me/username", { username: ok })).ok, true, ok);
+  // (a person may change their name three times a day, so check the plain-name rule directly for the long list)
+  const { reservedUsername } = await import("../src/me.js");
+  for (const ok of ["Modest77", "Helpful77", "Rootsy77", "Staffan", "Supporter", "Supportive", "Homeowner", "Ecosystem", "Sysadmin", "Madmin", "Teamster", "Greenroot", "Officially", "Security_Sam", "Aaron", "Anna"])
+    assert.equal(reservedUsername(ok), false, ok);
+  assert.equal((await a.post("/api/me/username", { username: "Modest77" })).ok, true);
 });
 
 test("username: a look-alike of someone else's name is refused; existing members keep what they have", async () => {
   const a = await person(env), b = await person(env);
   assert.equal((await a.post("/api/me/username", { username: "Alice77" })).ok, true);
-  for (const bad of ["AIice77", "A1ice77", "Al_ice77", "alice_77", "Aliice77"]) assert.equal((await b.post("/api/me/username", { username: bad })).error, "username_taken", bad);
+  for (const bad of ["AIice77", "A1ice77", "Al_ice77", "alice_77"]) assert.equal((await b.post("/api/me/username", { username: bad })).error, "username_similar", bad);
+  // plain look-alike letters only: a different spelling (Aliice, Aron next to Aaron) is a different name
+  const { nameSkeleton } = await import("../src/me.js");
+  assert.notEqual(nameSkeleton("Aaron"), nameSkeleton("Aron"));
+  assert.notEqual(nameSkeleton("Anna"), nameSkeleton("Ana"));
   // your own look-alike is yours to take
   assert.equal((await a.post("/api/me/username", { username: "AIice77" })).ok, true);
 
@@ -171,4 +180,13 @@ test("public member counts do not include test-lab accounts", async () => {
   const me = await a.get("/api/me");
   assert.equal(me.community.members, 1);
   assert.equal(me.national.members, 1);
+});
+
+test("username: refused attempts are counted too (20 an hour), so the look-alike scan can't be hammered", async () => {
+  const a = await person(env), b = await person(env);
+  assert.equal((await b.post("/api/me/username", { username: "Alice77" })).ok, true);
+  for (let i = 0; i < 20; i++) assert.equal((await a.post("/api/me/username", { username: "AIice77" })).error, "username_similar");
+  const r = await a.send("/api/me/username", { method: "POST", body: { username: "AIice77" } });
+  assert.equal(r.status, 429);
+  assert.equal((await r.json()).error, "slow_down");
 });

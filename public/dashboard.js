@@ -930,6 +930,7 @@
     bad_username: "Usernames are 3–20 characters: letters, numbers and underscores, starting with a letter.",
     username_taken: "That username is taken. Try another one.",
     username_reserved: "That name is reserved. Try another one.",
+    username_similar: "That is too close to an existing username. Try another one.",
     slow_down: "You can change your username 3 times a day. Try again tomorrow.",
     reprove: "Please confirm it's you with your wallet first, then try again.",
     sign_in: "Your session ended. Please sign in again.",

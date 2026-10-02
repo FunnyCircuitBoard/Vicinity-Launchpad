@@ -12,7 +12,7 @@ import { access } from "./access.js";
 import { countRecent, noteEvent, useAttestation } from "./attest.js";
 import { activeMint } from "./official.js";
 import { getHolding, holderSnapshot, rankOf } from "./chain.js";
-import { DAY, POLICY, iso } from "./policy.js";
+import { DAY, HOUR, POLICY, iso } from "./policy.js";
 import { VOTE_WEIGHT, activeBan, adminWallets, amountsFor, liveSeatOfUser, managerOf } from "./roles.js";
 import { cityPicture, cooldownUntil, eligibility } from "./seats.js";
 import { countryPicture } from "./elections.js";
@@ -172,25 +172,37 @@ export async function handleTermsAgree(request, env, now = Date.now()) {
 export const validUsername = (s) => /^[A-Za-z][A-Za-z0-9_]{2,19}$/.test(String(s || ""));
 
 const RENAMES_PER_DAY = 3; // username changes per person per rolling day (rate_events kind "rename")
+const RENAME_TRIES_PER_HOUR = 20; // attempts per person per hour, refused ones included (rate_events kind "rename_try")
 
 /**
  * What a name "looks like": lower-case, look-alike digits mapped to letters (and i to l, so I / l / 1 are one
- * letter), everything that is not a letter or digit dropped (_ and -), repeated letters collapsed.
- * "V1c1nity", "vicinity_" and "Viiicinity" all come out as the same skeleton.
+ * letter), everything that is not a letter or digit dropped (_ and -). Repeated letters are NOT merged:
+ * Aaron and Aron are different names. "V1c1nity" and "vicinity_" come out as the same skeleton.
  */
 export function nameSkeleton(s) {
   return String(s || "").toLowerCase()
     .replace(/[013457i]/g, (c) => ({ 0: "o", 1: "l", 3: "e", 4: "a", 5: "s", 7: "t", i: "l" })[c])
-    .replace(/[^a-z0-9]/g, "")
-    .replace(/([a-z])\1+/g, "$1");
+    .replace(/[^a-z0-9]/g, "");
 }
 
-// Nobody may be called these (or start or end with them): they pass for the project or its staff.
-const RESERVED_AROUND = ["vicinity", "vicinitycity", "admin", "administrator", "moderator", "support", "official", "staff", "owner", "system", "security", "team vicinity"].map(nameSkeleton);
-const RESERVED_EXACT = ["mod", "mods", "help", "founder", "root"].map(nameSkeleton);
+// Names that pass for the project or its staff are refused. Deliberately narrow, so ordinary names stay free
+// (Staffan, Supporter, Sysadmin and homeowner are fine):
+//   · anything with "vicinity" in it, look-alike letters included
+//   · exactly one of these words, with or without trailing digits (Admin, admin_, Support77, r00t)
+//   · one of the staff words as the first or last WORD of the name (Admin_Sakib, SupportTeam, TheOfficial)
+//   · starting with admin / administrator / moderator
+const STAFF_WORDS = ["admin", "administrator", "moderator", "mod", "mods", "support", "official", "staff", "owner", "system", "security", "help", "founder", "root", "team"];
+const STAFF_AS_WORD = ["admin", "administrator", "moderator", "mod", "mods", "support", "official", "staff"].map(nameSkeleton);
+const STAFF_SKELETONS = STAFF_WORDS.map(nameSkeleton);
+const STAFF_PREFIXES = ["admin", "administrator", "moderator"].map(nameSkeleton);
+const STAFF_EXACT = new RegExp(`^(${STAFF_WORDS.join("|")})[0-9]*$`);
 export const reservedUsername = (s) => {
   const k = nameSkeleton(s);
-  return RESERVED_EXACT.includes(k) || RESERVED_AROUND.some((r) => k.startsWith(r) || k.endsWith(r));
+  if (k.includes(nameSkeleton("vicinity"))) return true;
+  if (STAFF_EXACT.test(String(s).toLowerCase().replace(/[^a-z0-9]/g, "")) || STAFF_SKELETONS.includes(k)) return true;
+  const words = String(s).replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(nameSkeleton);
+  if (words.length > 1 && (STAFF_AS_WORD.includes(words[0]) || STAFF_AS_WORD.includes(words[words.length - 1]))) return true;
+  return STAFF_PREFIXES.some((r) => k.startsWith(r));
 };
 
 /**
@@ -210,11 +222,14 @@ export async function handleUsername(request, env, now = Date.now()) {
   const taken = await env.DB.prepare("SELECT id FROM users WHERE lower(handle) = lower(?) AND id != ?").bind(username, a.u.id).first();
   if (taken) return json({ ok: false, error: "username_taken" }, 409);
   if (reservedUsername(username)) return json({ ok: false, error: "username_reserved" }, 400);
+  // Limits first: the look-alike check below reads every username, so it must not be repeatable at will.
+  if (await countRecent(env, a.u.id, "rename", now - DAY) >= RENAMES_PER_DAY) return json({ ok: false, error: "slow_down" }, 429);
+  if (await countRecent(env, a.u.id, "rename_try", now - HOUR) >= RENAME_TRIES_PER_HOUR) return json({ ok: false, error: "slow_down" }, 429);
+  await noteEvent(env, a.u.id, "rename_try", now);
   // Existing members keep their names, but nobody new may take a look-alike of another member's name.
   const skeleton = nameSkeleton(username);
   const others = (await env.DB.prepare("SELECT handle FROM users WHERE handle IS NOT NULL AND id != ?").bind(a.u.id).all()).results;
-  if (others.some((o) => nameSkeleton(o.handle) === skeleton)) return json({ ok: false, error: "username_taken" }, 409);
-  if (await countRecent(env, a.u.id, "rename", now - DAY) >= RENAMES_PER_DAY) return json({ ok: false, error: "slow_down" }, 429);
+  if (others.some((o) => nameSkeleton(o.handle) === skeleton)) return json({ ok: false, error: "username_similar" }, 409);
   try {
     await env.DB.prepare("UPDATE users SET handle = ? WHERE id = ?").bind(username, a.u.id).run();
     await noteEvent(env, a.u.id, "rename", now);

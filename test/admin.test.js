@@ -388,15 +388,13 @@ test("roles: owner can't be granted through the API, nobody bans or revokes an A
 test("ban, unban and revoke need a higher role than the target", async () => {
   const owner = await sessionFor(OWNER);
   const admin = await staff("admin"), admin2 = await staff("admin"), mod = await staff("moderator");
-  const legacyOwner = await staff("owner");   // a DB owner row from before owners became env-only
+  const legacyOwner = await staff("owner");   // an 'owner' row from before owners became env-only: counts as admin
   const plain = await newWallet(); await sessionFor(plain);
   const err = async (route, who, wallet) => (await (await post("/api/admin/" + route, who, { wallet })).json()).error;
 
   assert.equal(await err("users/ban", admin, admin2.wallet), "outranked", "peer");
-  assert.equal(await err("users/ban", admin, legacyOwner.wallet), "outranked", "higher role");
-  assert.equal(await err("users/ban", owner, legacyOwner.wallet), "outranked", "owner vs owner");
+  assert.equal(await err("users/ban", admin, legacyOwner.wallet), "outranked", "an old owner row is only a peer admin");
   assert.equal(await err("users/unban", admin, admin2.wallet), "outranked");
-  assert.equal(await err("roles/revoke", owner, legacyOwner.wallet), "outranked");
   assert.equal(await err("users/ban", admin, admin.wallet), "own_account", "self-ban refusal kept");
   assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM bans").first()).n, 0);
 
@@ -407,6 +405,25 @@ test("ban, unban and revoke need a higher role than the target", async () => {
   assert.ok((await (await post("/api/admin/users/ban", owner, { wallet: admin2.wallet })).json()).ok);
   assert.ok((await (await post("/api/admin/roles/revoke", owner, { wallet: admin2.wallet })).json()).revoked);
   assert.equal((await post("/api/admin/roles/revoke", owner, { wallet: plain })).status, 404);
+});
+
+test("an 'owner' row in the roles table only counts as admin: the real owner can revoke it and it does not outlive ADMIN_WALLETS", async () => {
+  const owner = await sessionFor(OWNER);
+  const legacy = await staff("owner");
+  const roleOf = async (who) => (await (await call("/api/admin/me", { cookie: who.cookie })).json()).role;
+  assert.equal(await roleOf(owner), "owner");
+  assert.equal(await roleOf(legacy), "admin");
+  const refused = await post("/api/admin/snapshots/create", legacy, {});
+  assert.equal(refused.status, 403);
+  assert.equal((await refused.json()).need, "owner");
+  // ADMIN_WALLETS moves to somebody else: the old row gains nothing
+  const real = env.ADMIN_WALLETS;
+  env.ADMIN_WALLETS = await newWallet();
+  assert.equal(await roleOf(legacy), "admin");
+  env.ADMIN_WALLETS = real;
+  // the real owner can take the row away
+  assert.ok((await (await post("/api/admin/roles/revoke", owner, { wallet: legacy.wallet })).json()).revoked);
+  assert.equal(await roleOf(legacy), null);
 });
 
 test("moderators get masked wallets and no names in users, seats and claims; admins see everything", async () => {
@@ -433,6 +450,19 @@ test("moderators get masked wallets and no names in users, seats and claims; adm
     assert.ok(a.some((row) => row.wallet === u0.wallet), `${key}: admin sees the wallet`);
     assert.ok(a.some((row) => row.name === "Test Lab 0"), `${key}: admin sees the name`);
   }
+  // the other lists a moderator can open must not undo the masking either
+  const objs = (await get("/api/admin/objections?status=all", mod)).objections;
+  assert.ok(objs.length);
+  assert.ok(objs.every((o) => !("name" in o)), "objections: no name");
+  assert.ok((await get("/api/admin/objections?status=all", admin)).objections.some((o) => o.name), "admin sees the objector's name");
+  const reps = (await get("/api/admin/reports", mod)).reports;
+  assert.ok(reps.length && reps.every((r) => !("name" in r)), "reports: no name");
+  assert.ok((await get("/api/admin/reports", admin)).reports.some((r) => r.name), "admin sees the author's name");
+  const log = (await get("/api/admin/audit", mod)).audit;
+  assert.ok(log.length);
+  assert.ok(!JSON.stringify(log).includes(OWNER), "audit: no full wallet for a moderator");
+  assert.ok(log.every((r) => /^.{5}\*{5}.{3}$/.test(r.actor)), "audit: actor masked");
+  assert.ok((await get("/api/admin/audit", admin)).audit.some((r) => r.actor === OWNER), "admin sees the real actor");
   // no search by wallet or name for the lowest role (it would undo the masking), handles still work
   assert.equal((await get("/api/admin/users?q=TestLab03", mod)).users.length, 0);
   assert.equal((await get("/api/admin/users?q=Test%20Lab%203", mod)).users.length, 0);
