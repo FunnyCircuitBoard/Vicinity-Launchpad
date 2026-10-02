@@ -12,7 +12,7 @@ Separate pages, one shared menu (top menu on computers, bottom menu bar on phone
 - **/token** Token and holders: live facts from the blockchain (minting/freezing off, supply, price), every holder in a table that scrolls on its own, "where does this wallet stand?" (paste any address: rank, percentile, gap to the next wallet), the official token list and link checker.
 - **/cities** The live map: 8,000+ communities in 244 countries with real boundaries that never overlap; claimed vs open; the communities filling up. The claim button leads to the dashboard.
 - **/launchpad** Countdown to October 10 (10:10:10 AM New York time), the planned phases, who gets in first, add-to-calendar.
-- **/connect** Sign in: any Solana wallet (Wallet Standard + older ones; app links for phones), "wallet on my phone" (QR code + 2-digit check number), and a tiny-transfer proof for app wallets that can't connect (FOMO, exchanges). Then X or Google. One wallet + one login = one account.
+- **/connect** Log in (X or Google, for people who already have an account) or sign up: any Solana wallet (Wallet Standard + older ones; app links for phones), "wallet on my phone" (QR code + 2-digit check number), and a tiny-transfer proof for app wallets that can't connect (FOMO, exchanges). Then X or Google. One wallet + one login = one account. Inside a wallet app's browser (where Google can't run and GPS often isn't shared) the page offers to finish in the phone's own browser. **/locate** is that page for location checks.
 - **/rules** Every rule and formula, the "never" list, and whether the balance checks are running (filled live from `/api/policy`).
 - **/dashboard** Your role's home (member, holder, founder or steward, country manager, admin), the Vicinity Pass (member card), Buy & swap ($VICINITY, your city's coin, city coin ⇄ $VICINITY: straight to Jupiter or Raydium, where people sign in their own wallet; estimates from live prices), your city's coin (the founder's coin studio: name, pitch, colour, logo, pair SOL/USDC/RAY). Onboarding (live rank + home community from one location check; people in empty land pick one of the three nearest communities), then: role and badges re-checked live (selling removes them), founder race with a progress bar and claiming, community and country cards, local and national feeds (memes with pictures, check-ins, discussions, weekly votes weighted 1 / 2 founders / 3 managers), reports, moderator tools, "add my town" requests, roles and responsibilities.
 
@@ -39,12 +39,15 @@ src/jobs.js         The every-10-minutes job: balance checks, seats, elections, 
 src/ledger.js       Balance history (random-time samples, 14-day streaks and averages)
 src/seats.js        City founders · src/elections.js country managers · src/moderation.js moderation + town requests
 src/snapshot.js     Founding Supporters (Merkle proofs) · src/attest.js location attestations
-src/auth.js         Accounts: wallet sign-in, X / Google, phone pairing, tiny-transfer proof, re-proving, sessions
+src/auth.js         Accounts: wallet sign-in, X / Google, phone pairing, tiny-transfer proof, re-proving, sessions, finishing a sign-up in the phone's browser
+src/handoff.js      Location hand-off: the wallet app's browser can't share GPS, the phone's own browser does it
+src/admin.js        The admin console's launch-readiness numbers (yes/no per setting, never a value)
+src/tickers.js      City coin tickers, read from public/data/tickers.json (npm run tickers builds it)
 src/me.js           Dashboard data · src/social.js feeds · src/roles.js roles · src/access.js who may do what
 src/chain.js        Read-only Solana data: token facts, every holder + ranks, balances, transfer lookup
 src/community.js    Which community a point is in (or the three nearest) · src/cities.js + src/geo.js city data
 src/store.js        Database schema + migrations (Cloudflare D1; applied automatically) · src/blobs.js big stored values
-test/               Automated tests (npm test); helpers/world.js is a small test world with a clock tests can move
+test/               Automated tests (npm test); the browser pages are checked by hand (see docs/AUDIT.md); helpers/world.js is a small test world with a clock tests can move
 wrangler.jsonc      Cloudflare settings (addresses, database, the 10-minute schedule, build = copy files + pages + tests)
 ```
 
@@ -74,7 +77,10 @@ The scheduled job and the full holder list need more CPU time than Cloudflare's 
 | `GET /api/snapshots` · `/api/snapshots/:id/proof?wallet=` · `/api/snapshots/:id/data` | Founding Supporters, Merkle proofs, all inputs |
 | `POST /api/auth/wallet` · `/api/auth/transfer` (+`/check`) · `/api/auth/reprove` · `/api/pair` (+`/finish`) · `GET /api/pair?code=` | Prove a wallet |
 | `GET /api/auth/google/start` (and `/x/`, `/callback`) · `POST /api/auth/logout` | X / Google sign-in |
-| `GET /api/me` · `POST /api/home` · `POST /api/locate` | Dashboard data · home community · the only place a location is read |
+| `GET /api/me` · `POST /api/home` · `POST /api/locate` | Dashboard data · home community · where a location is read |
+| `POST /api/locate/handoff` (+`/info`, `/complete`, `/claim`) | Location check finished in the phone's own browser, collected by the wallet app |
+| `POST /api/auth/handoff` (+`/finish`) · `GET /api/auth/handoff?code=` | Finish a sign-up in the phone's own browser |
+| `GET /api/admin/status` | Admins: which launch settings are missing (never a value) |
 | `GET\|POST /api/posts` · `POST /api/posts/vote` · `/api/posts/report` · `GET /api/media/:id` | Feeds |
 | `POST /api/seats/apply` · `/withdraw` · `/endorse` · `/object` · `/objections/decide` · `/api/elections/vote` | Founders and managers |
 | `GET /api/coins` (`?city=`, admins `?waiting=1`) · `POST /api/coins/design` · `/mint` · `/mint/decide` · `/takedown` · `GET /api/prices?mints=` | City coins designed by founders (src/coins.js); prices for the swap panel |
