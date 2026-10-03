@@ -71,7 +71,7 @@ const MEMBER_COLUMNS = "u.id, u.wallet, u.handle, u.provider, u.home_city, u.hom
  * A member by username. Case does not matter, and the lookup goes through the unique index (lower(handle) where handle
  * is not null: the `handle IS NOT NULL` is what lets SQLite use that partial index).
  *   viewerId  this member is always found (you can open your own profile), others only when they are SHOWN
- *   any       found whatever they are (moderators, unblocking)
+ *   any       found whatever they are (moderators)
  * Returns the row (never a name, e-mail, phone or provider id in it) or null.
  */
 export async function findMember(db, handle, { now = Date.now(), viewerId = 0, any = false } = {}) {

@@ -96,8 +96,27 @@ test("you can always let go: unfollowing works for a member who has been hidden 
   await env.DB.prepare("INSERT INTO bans (user_id, country, by_user, reason, created_at, expires_at) VALUES (?, '*', 1, 'x', ?, ?)").bind(b.id, iso(clock.now), iso(clock.now + HOUR)).run();
   assert.deepEqual((await a.get("/api/follows?list=following")).users, [], "hidden from the list");
   await expectStatus(await follow(a, "BobBrave"), 404, "not_found");
-  assert.deepEqual(await (await follow(a, "BobBrave", false)).json(), { ok: true, following: false, counts: { followers: 0, following: 0 } });
+  assert.deepEqual(await (await follow(a, "BobBrave", false)).json(), { ok: true, following: false }, "no counts of a member you cannot see");
   assert.deepEqual(await followPairs(env.DB), [], "the row is gone");
+});
+
+test("letting go is never an oracle: unfollowing or unblocking a banned member, a test-lab row or a username nobody has all answer alike, without counts", async () => {
+  const { env, people: [a, b, c, lab] } = await world(["Alice77", "BobBrave", "CarolCalm", "Labby"]);
+  await follow(c, "Alice77"); await follow(a, "CarolCalm"); await block(a, "Labby");
+  await env.DB.prepare("INSERT INTO bans (user_id, country, by_user, reason, created_at, expires_at) VALUES (?, '*', 1, 'x', ?, ?)").bind(b.id, iso(clock.now), iso(clock.now + HOUR)).run();
+  await env.DB.prepare("UPDATE users SET provider = 'testlab' WHERE handle = 'Labby'").run();
+  await expectStatus(await a.send("/api/profile?u=BobBrave"), 404, "not_found");
+  // Alice never followed Bob: the same answer for him (hidden), for Labby (test-lab) and for nobody, and never Bob's counts
+  const letGo = { ok: true, following: false };
+  for (const h of ["BobBrave", "Labby", "NoSuchPerson", "nosuchperson", "x' OR 1=1 --"]) assert.deepEqual(await (await follow(a, h, false)).json(), letGo, h);
+  for (const h of ["BobBrave", "Labby", "NoSuchPerson", "x' OR 1=1 --"]) assert.deepEqual(await (await block(a, h, false)).json(), { ok: true, blocked: false }, h);
+  assert.deepEqual(await blockPairs(env.DB), [], "the block of the member who is hidden since is gone all the same");
+  // a member you can see still gets their counts back, as before; nothing else moved
+  assert.deepEqual(await (await follow(a, "CarolCalm", false)).json(), { ok: true, following: false, counts: { followers: 0, following: 1 } });
+  assert.deepEqual(await followPairs(env.DB), ["CarolCalm>Alice77"]);
+  await expectStatus(await follow(a, "alice77", false), 400, "self");
+  await expectStatus(await block(a, "alice77", false), 400, "self");
+  void lab;
 });
 
 test("a banned or test-lab follower is not in the counts or the lists (they are exact for what people can see); the rows stay", async () => {
