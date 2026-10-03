@@ -7,6 +7,9 @@ import { GOOD_PASSWORD, doEmail, doGoogle, doLocation, doTerms, doWallet, fakeGo
 import { slowDb } from "./helpers/slowdb.js";
 import { _stats, verifyPassword } from "../src/password.js";
 import { limitKey } from "../src/limits.js";
+import { sendEmailCode } from "../src/auth.js";
+import { TERMS_VERSION } from "../src/signup-core.js";
+import { readFileSync } from "node:fs";
 
 let env, box;
 beforeEach(() => { useClock("2026-10-01T12:00:00Z"); env = V2(); box = outbox(); });
@@ -399,4 +402,38 @@ test("every account step needs a live sign-up, and refuses a signed-in person", 
     assert.equal(r.status, 409, path);
     assert.equal((await r.json()).error, "already_signed_in", path);
   }
+});
+
+test("the Terms version the server asks for is the version printed on the Terms page", () => {
+  const page = readFileSync(new URL("../scripts/pages/src/terms.html", import.meta.url), "utf8");
+  assert.equal(TERMS_VERSION, "2026-10-01");
+  assert.ok(page.includes(`Version ${TERMS_VERSION}`), "terms.html must show the version people accept (change both together)");
+});
+
+test("sendEmailCode for the password routes: noSend does the same database work without mailing, waitUntil mails in the background and still gives the slot back", async () => {
+  await member(env, box, { via: "google" }); // makes the tables
+  const row = (email) => one(env.DB, "SELECT send_count, last_sent_at, expires_at FROM email_codes WHERE email = ?", email);
+
+  const quiet = await sendEmailCode(env, "unknown@example.com", { fetchImpl: box.fetch, noSend: true, kind: "reset" });
+  assert.deepEqual(quiet, { ok: true });
+  assert.equal(box.sent.length, 0, "nothing mailed");
+  assert.equal((await row("unknown@example.com")).send_count, 1, "but the slot is claimed like a real send");
+  assert.equal((await sendEmailCode(env, "unknown@example.com", { fetchImpl: box.fetch, noSend: true })).error, "too_soon", "so the minute rule is the same too");
+
+  const waits = [];
+  const real = await sendEmailCode(env, "known@example.com", { fetchImpl: box.fetch, waitUntil: (p) => waits.push(p), kind: "reset" });
+  assert.deepEqual(real, { ok: true });
+  await Promise.all(waits);
+  assert.equal(box.sent.length, 1);
+  assert.equal(box.last().kind, "reset");
+  assert.equal(box.last().to, "known@example.com");
+
+  box.failing = true;
+  const later = [];
+  const failed = await sendEmailCode(env, "flaky@example.com", { fetchImpl: box.fetch, waitUntil: (p) => later.push(p), kind: "reset" });
+  assert.deepEqual(failed, { ok: true }, "the answer does not wait for the mail server");
+  await Promise.all(later);
+  assert.equal((await row("flaky@example.com")).send_count, 0, "the mail never left: the slot was given back");
+  box.failing = false;
+  assert.deepEqual(await sendEmailCode(env, "flaky@example.com", { fetchImpl: box.fetch }), { ok: true }, "and the person can ask again at once");
 });

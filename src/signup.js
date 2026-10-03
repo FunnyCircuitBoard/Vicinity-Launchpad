@@ -458,7 +458,12 @@ export async function handleSignupFinish(request, env, now = Date.now(), cf = re
     await env.DB.prepare("UPDATE signups SET loc_city = NULL, loc_name = NULL, loc_country = NULL, loc_choices = NULL, loc_net = NULL, loc_at = NULL WHERE id = ?").bind(row.id).run();
     return json({ ok: false, error: "location_unverified" }, 403);
   }
-  if (await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(session.wallet).first()) return json({ ok: false, error: "wallet_taken" }, 409);
+  const owner = await env.DB.prepare("SELECT provider, provider_id FROM users WHERE wallet = ?").bind(session.wallet).first();
+  if (owner) {
+    // this very sign-up finished a moment ago in another tab, or the wallet belongs to someone else
+    const mine = owner.provider === row.provider && owner.provider_id === row.provider_id;
+    return json({ ok: false, error: mine ? "already_finished" : "wallet_taken" }, 409);
+  }
   if (await env.DB.prepare("SELECT id FROM users WHERE provider = ? AND provider_id = ?").bind(row.provider, row.provider_id).first()) return json({ ok: false, error: "social_taken" }, 409);
 
   const early = activeMint(env) ? 0 : 1;
