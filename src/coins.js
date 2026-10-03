@@ -16,6 +16,7 @@ import { DAY, POLICY, iso } from "./policy.js";
 import { powersOf } from "./roles.js";
 import { stillFounder } from "./seats.js";
 import { activeMint } from "./official.js";
+import { mintInfo } from "./chain.js";
 import { isSolanaAddress } from "./solana.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
 import { readImage } from "./social.js";
@@ -158,7 +159,14 @@ export async function handleProposeMint(request, env, fetchImpl = fetch, now = D
   return json({ ok: true, coin: coinView(await coinOf(db, seat.city_id)) });
 }
 
-/** POST /api/coins/mint/decide { city, approve, note } — an admin (not the founder) records or rejects the contract. */
+/**
+ * POST /api/coins/mint/decide { city, mint, approve, note } — an admin (not the founder) records or rejects the contract.
+ * `mint` is the address the admin actually looked at. Recording happens only if it is still the one waiting (a founder
+ * who re-submits another address after the admin opened the first gets 409 mint_changed, and the row is matched on
+ * it again in the UPDATE so two requests crossing cannot slip one through), and only after the blockchain says it is
+ * a token mint with a supply; what the chain said is written into the public log. Rejecting needs no address (the
+ * page that ships today sends none), but when one is sent it must match too.
+ */
 export async function handleDecideMint(request, env, fetchImpl = fetch, now = Date.now()) {
   const a = await admin(request, env, now, fetchImpl);
   if (a.error) return a.error;
@@ -168,20 +176,31 @@ export async function handleDecideMint(request, env, fetchImpl = fetch, now = Da
   if (coin.user_id === a.u.id) return json({ ok: false, error: "needs_second_person" }, 403);
   const note = cleanText(body.note, 300);
   if (note == null) return json({ ok: false, error: "too_long", max: 300 }, 400);
+  const mint = typeof body.mint === "string" ? body.mint.trim() : "";
+  if (mint && mint !== coin.pending_mint) return json({ ok: false, error: "mint_changed" }, 409);
+  let seen = "";
   if (body.approve === true) {
+    if (!mint) return json({ ok: false, error: "mint_required" }, 400);
+    let facts;
+    try { facts = await mintInfo(env, mint, fetchImpl); }
+    catch (e) { console.error("mint check failed", String(e)); return json({ ok: false, error: "chain_unavailable" }, 503); }
+    if (!facts) return json({ ok: false, error: "not_a_mint" }, 400);
+    let r;
     try {
-      await db.prepare("UPDATE city_coins SET mint = pending_mint, pending_mint = NULL, pending_at = NULL, launched_at = ?, launched_by = ? WHERE city_id = ?")
-        .bind(iso(now), a.u.id, coin.city_id).run();
+      r = await db.prepare("UPDATE city_coins SET mint = pending_mint, pending_mint = NULL, pending_at = NULL, launched_at = ?, launched_by = ? WHERE city_id = ? AND pending_mint = ?")
+        .bind(iso(now), a.u.id, coin.city_id, mint).run();
     } catch (e) {
       if (/UNIQUE/i.test(String(e))) return json({ ok: false, error: "mint_taken" }, 409);
       throw e;
     }
+    if (!r.meta.changes) return json({ ok: false, error: "mint_changed" }, 409);
+    seen = ` · on the blockchain: ${facts.program} mint, supply ${facts.supply.toLocaleString("en-US")}, ${facts.decimals} decimals, mint authority ${facts.mintAuthority || "none"}, freeze authority ${facts.freezeAuthority || "none"}`;
   } else {
     if (!note) return json({ ok: false, error: "reason_required" }, 400);
     await db.prepare("UPDATE city_coins SET pending_mint = NULL, pending_at = NULL WHERE city_id = ?").bind(coin.city_id).run();
   }
   await log(db, { actor: a.u.id, role: "admin", action: body.approve === true ? "coin_launch_confirmed" : "coin_contract_rejected", user: coin.user_id,
-    country: coin.country, place: coin.city_id, reason: "launch", note: `${coin.city_name}${note ? `: ${note}` : ""}`, at: iso(now) });
+    country: coin.country, place: coin.city_id, reason: "launch", note: `${coin.city_name}${note ? `: ${note}` : ""}${seen}`, at: iso(now) });
   return json({ ok: true, coin: coinView(await coinOf(db, coin.city_id)) });
 }
 

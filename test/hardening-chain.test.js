@@ -3,7 +3,7 @@
 // fire one getProgramAccounts each the moment the RPC is in trouble.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { _resetSnapshots, getHoldings, getTopHolders, holderSnapshot, rpc } from "../src/chain.js";
+import { _resetSnapshots, getHoldings, getTopHolders, holderSnapshot, mintInfo, rpc } from "../src/chain.js";
 
 const MINT = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm";
 const WALLET = "FbvKBmz8YytrTe7SWjPjkUe19edFZumG6hsT3Mv9edg1";
@@ -72,4 +72,23 @@ test("holders on a Raydium LaunchLab curve and in Raydium's locked LP are named,
   };
   const { holders } = await getTopHolders({}, MINT, fakeRpc);
   assert.deepEqual(holders.map((h) => h.label), ["Raydium LaunchLab curve", "Raydium locked LP", null]);
+});
+
+test("mintInfo: what the chain says an address is, before an admin records it as a city coin", async () => {
+  const TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+  const answering = (value) => async () => ok({ value });
+  const mint = (owner, info) => ({ owner, data: { parsed: { type: "mint", info } } });
+
+  const a = await mintInfo({}, MINT, answering(mint(TOKEN, { decimals: 6, supply: "1000000000000000", mintAuthority: null, freezeAuthority: null })));
+  assert.deepEqual(a, { program: "SPL Token", supply: 1_000_000_000, decimals: 6, mintAuthority: null, freezeAuthority: null });
+  const b = await mintInfo({}, MINT, answering(mint(TOKEN_2022, { decimals: 9, supply: "123000000000", mintAuthority: WALLET, freezeAuthority: WALLET })));
+  assert.deepEqual(b, { program: "Token-2022", supply: 123, decimals: 9, mintAuthority: WALLET, freezeAuthority: WALLET });
+
+  assert.equal(await mintInfo({}, MINT, answering(null)), null, "no account at that address");
+  assert.equal(await mintInfo({}, MINT, answering({ owner: "11111111111111111111111111111111", data: ["", "base64"] })), null, "a wallet");
+  assert.equal(await mintInfo({}, MINT, answering({ owner: TOKEN, data: { parsed: { type: "account", info: { mint: MINT, owner: WALLET, tokenAmount: { uiAmount: 5 } } } } })), null, "somebody's token account, not the mint");
+  assert.equal(await mintInfo({}, MINT, answering(mint(TOKEN, { decimals: 6, supply: "0", mintAuthority: WALLET, freezeAuthority: null }))), null, "a mint nobody has minted: not a launched coin");
+  assert.equal(await mintInfo({}, MINT, answering(mint("LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj", { decimals: 6, supply: "5" }))), null, "a program account that merely looks parsed");
+
+  await assert.rejects(mintInfo({}, MINT, async () => new Response("", { status: 503 })), /rpc_http_503/, "an RPC failure is an error, never 'not a mint'");
 });

@@ -88,6 +88,22 @@ export async function getTokenFacts(env, mint, fetchImpl) {
   };
 }
 
+/**
+ * What the blockchain says an address is, before an admin records it as a city's coin: facts for a token mint
+ * (SPL Token or Token-2022) that has a supply, or null for anything else (no account, a wallet, somebody's token
+ * account, a mint nobody has minted). An RPC failure throws: "the chain could not be asked" is never "not a mint".
+ */
+export async function mintInfo(env, mint, fetchImpl = fetch) {
+  const info = await rpc(env, "getAccountInfo", [mint, { encoding: "jsonParsed" }], fetchImpl);
+  const v = info?.value, parsed = v?.data?.parsed, i = parsed?.info;
+  if (!v || (v.owner !== TOKEN_PROGRAM && v.owner !== TOKEN_2022) || !i || (parsed.type && parsed.type !== "mint") || i.supply == null) return null;
+  let raw;
+  try { raw = BigInt(i.supply); } catch { return null; }
+  const decimals = Number(i.decimals);
+  if (raw <= 0n || !Number.isInteger(decimals)) return null;
+  return { program: v.owner === TOKEN_2022 ? "Token-2022" : "SPL Token", supply: uiAmount(raw, decimals), decimals, mintAuthority: i.mintAuthority || null, freezeAuthority: i.freezeAuthority || null };
+}
+
 /** Top holders (up to 20), with owner wallets and labels for pools/curves/team. */
 export async function getTopHolders(env, mint, fetchImpl) {
   const facts = await getTokenFacts(env, mint, fetchImpl);
