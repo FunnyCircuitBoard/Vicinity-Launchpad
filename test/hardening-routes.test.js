@@ -74,6 +74,40 @@ test("GET /api/rank is cached for 30 seconds per token and wallet; a chain failu
   assert.deepEqual(keys(), [`rank-${MINT}-${p.w.address}`], "a bad request is not kept either");
 });
 
+test("an edge-cache hit tells the visitor the same short max-age as the miss, even when Cloudflare rewrote the stored copy's header to 4 hours", async () => {
+  // measured live 3 Oct 2026: a miss went out `no-store` (or max-age=5/30), the next request (cf-cache-status: HIT) went out
+  // `public, max-age=14400`: the zone's Browser Cache TTL rewrites what cache.match() returns, so browsers kept it 4 hours
+  const rewriting = fakeCaches();
+  const match = rewriting.default.match;
+  rewriting.default.match = async (req) => {
+    const hit = await match(req);
+    if (!hit) return hit;
+    const out = new Response(hit.body, hit);
+    out.headers.set("Cache-Control", "public, max-age=14400");
+    return out;
+  };
+  globalThis.caches = rewriting;
+  const b = browser(env);
+  for (const [path, maxAge] of [["/api/seats", 30], ["/api/coins", 30], ["/api/members", 60]]) {
+    const miss = await b.send(path);
+    assert.equal(miss.status, 200, path);
+    assert.equal(miss.headers.get("cache-control"), `public, max-age=${maxAge}`, `${path}: the miss`);
+    const hit = await b.send(path);
+    assert.equal(hit.headers.get("cache-control"), `public, max-age=${maxAge}`, `${path}: the hit`);
+    assert.equal(hit.headers.get("x-vicinity-max-age"), null, "the internal header never reaches the visitor");
+    assert.equal(await hit.text(), await (await b.send(path)).text());
+  }
+
+  // an answer that asks for less (the Launchpad list after a failed market call, max-age=5) keeps its 5 seconds on the hit
+  const { _cached: cachedForTest } = await import("../src/index.js");
+  const five = () => new Response("{}", { headers: { "Cache-Control": "public, max-age=5", "content-type": "application/json" } });
+  const m = await cachedForTest("short-test", 30, five);
+  assert.equal(m.headers.get("cache-control"), "public, max-age=5");
+  const h = await cachedForTest("short-test", 30, () => { throw new Error("must come from the cache"); });
+  assert.equal(h.headers.get("cache-control"), "public, max-age=5");
+  assert.equal(h.headers.get("x-vicinity-max-age"), null);
+});
+
 test("the rate-limit guard (src/guards.js) answers null for a first request and is called first on the public chain-touching routes", async () => {
   const req = new Request("https://vicinity.test/api/rank?address=x", { headers: { "cf-connecting-ip": "203.0.113.9" } });
   assert.equal(await publicLimit(env, req, "rank"), null, "a first request is never over the limit");
