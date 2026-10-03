@@ -15,8 +15,8 @@
 
   /** Characters as people count them (an emoji is one), the way the server counts a bio. */
   const cpLen = (s) => [...String(s == null ? "" : s)].length;
-  /** What the server stores: one line (line breaks become spaces), trimmed. */
-  const bioClean = (s) => String(s == null ? "" : s).replace(/[\r\n\u2028\u2029]+/g, " ").trim();
+  /** What the server stores: NFC, invisible characters dropped, one line (every run of blanks and line breaks is one space), trimmed. */
+  const bioClean = (s) => String(s == null ? "" : s).normalize("NFC").replace(/[\r\n\t\u0085\u2028\u2029]+/g, " ").replace(/[\u200B\u200C\u2060\uFEFF\u00AD\u180E]/g, "").replace(/\s+/g, " ").trim();
   /**
    * Live check of a bio while typing. Only the length is certain; the others are a friendly early warning (the server has the
    * last word and answers bio_not_allowed): a link, a wallet address, an e-mail address, a phone number.
@@ -158,6 +158,11 @@
     cannot_follow: "You can't follow this member right now.",
     too_many_following: "You follow 1,000 members, the most we allow. Unfollow someone to follow more.",
     cannot_block: "Admins and moderators can't be blocked.",
+    unblock_first: "You blocked this member. Unblock them first.",
+    too_many_blocks: "You've blocked as many members as we allow. Unblock someone first.",
+    no_bio: "This member has no bio to report.",
+    profiles_unavailable: "Member profiles are having trouble right now. Please try again in a few minutes.",
+    unavailable: "Member profiles are having trouble right now. Please try again in a few minutes.",
     bio_too_long: "Keep your bio to 100 characters or fewer.",
     bio_not_allowed: "A bio can't have links, wallet addresses, e-mail addresses or phone numbers.",
     bad_request: "That didn't look right. Please check it and try again.",
@@ -513,7 +518,7 @@
       show("#pf-loading", false);
       if (!d || !d.ok) {
         if (quiet) return d;
-        if (d && d.error === "login_required") { show("#pf-main", false); show("#pf-out"); return d; }
+        if (d && (d.error === "sign_in" || d.error === "login_required")) { show("#pf-main", false); show("#pf-out"); return d; }
         show("#pf-intro");
         setErr(d && d.error === "not_found" ? `We couldn't find a member called “${handle}”. Check the spelling, or search above.` : errText(d, "profile"));
         return d;
@@ -546,7 +551,7 @@
       $("#pf-hold-amount").textContent = h ? `${fmt(h.amount)} $VICINITY` : "—";
       $("#pf-hold-rank").textContent = h && h.rank ? `#${fmt(h.rank)} of ${fmt(h.total)}` : "—";
       $("#pf-hold-pct").textContent = h && h.rank ? `Top ${pctText(h.percentile)}%` : "—";
-      $("#pf-hold-note").textContent = !h ? "Ranks start when $VICINITY launches." : h.amount > 0 ? "" : "Doesn't hold $VICINITY yet.";
+      $("#pf-hold-note").textContent = !h ? "No $VICINITY figures to show right now. They appear once $VICINITY is live." : h.amount > 0 ? "" : "Doesn't hold $VICINITY yet.";
       $("#pf-hold-note").hidden = !$("#pf-hold-note").textContent;
 
       // who is this, to me
@@ -557,13 +562,32 @@
       $("#pf-menu-wrap").hidden = self;
       $("#pf-blocked-note").hidden = !v.blocked;
       paintFollow();
-      $("#pf-followers-n").textContent = fmt((p.counts || {}).followers);
-      $("#pf-following-n").textContent = fmt((p.counts || {}).following);
+      paintCounts();
       $("#pf-blocks").hidden = !self;
       $("#pf-menu-block").textContent = v.blocked ? "Unblock" : "Block";
+      $("#pf-menu-report").closest("li").hidden = !p.bio; // a report is about the bio: nothing to report without one
+      paintPosts(p);
 
       // portfolio
       livePortfolioFor(p);
+    }
+    function paintCounts() {
+      const c = (cur && cur.counts) || {};
+      $("#pf-followers-n").textContent = fmt(c.followers); $("#pf-followers-l").textContent = c.followers === 1 ? "follower" : "followers";
+      $("#pf-following-n").textContent = fmt(c.following);
+    }
+    const KIND = { meme: "Meme", checkin: "Check-in", talk: "Discussion" };
+    /** The member's latest posts this viewer may see (the server picks them: same city or country feed). Read-only. */
+    function paintPosts(p) {
+      const posts = p.posts || [];
+      $("#pf-posts").hidden = !posts.length;
+      $("#pf-posts-list").replaceChildren(...posts.map((x) => {
+        const li = el("li", "prof-post"), n = x.replies || 0;
+        li.append(el("p", "tiny muted prof-post__meta", `${KIND[x.kind] || "Post"} · ${window.V.ago(x.at)} · ▲ ${fmt(x.score)}${n ? ` · ${fmt(n)} repl${n === 1 ? "y" : "ies"}` : ""}`));
+        if (x.body) li.append(el("p", "prof-post__body", x.kind === "checkin" ? `📍 ${x.body}` : x.body));
+        if (typeof x.image === "string" && /^\/api\/media\/\d+$/.test(x.image)) { const img = el("img", "prof-post__img"); img.src = x.image; img.alt = "Picture in this post"; img.loading = "lazy"; li.append(img); }
+        return li;
+      }));
     }
     function paintFollow() {
       const f = cur && cur.viewer && cur.viewer.following, b = $("#pf-follow");
@@ -593,8 +617,7 @@
       $("#pf-hold-amount").textContent = h ? `${fmt(h.amount)} $VICINITY` : "—";
       $("#pf-hold-rank").textContent = h && h.rank ? `#${fmt(h.rank)} of ${fmt(h.total)}` : "—";
       $("#pf-hold-pct").textContent = h && h.rank ? `Top ${pctText(h.percentile)}%` : "—";
-      $("#pf-followers-n").textContent = fmt((p.counts || {}).followers);
-      $("#pf-following-n").textContent = fmt((p.counts || {}).following);
+      paintCounts();
     }
     async function loadTickers() {
       tickers = {}; // asked once; the page shows the name-based ticker until it arrives
@@ -635,18 +658,18 @@
       const was = Boolean(cur.viewer.following), before = { ...cur.counts };
       cur.viewer.following = !was; // optimistic: shows at once, taken back if the server says no
       cur.counts = { ...cur.counts, followers: Math.max(0, (cur.counts.followers || 0) + (was ? -1 : 1)) };
-      paintFollow(); $("#pf-followers-n").textContent = fmt(cur.counts.followers);
+      paintFollow(); paintCounts();
       const d = await api("/api/follow", { handle: cur.handle, follow: !was });
       busy = false;
       if (!d || !d.ok) {
         cur.viewer.following = was; cur.counts = before;
-        paintFollow(); $("#pf-followers-n").textContent = fmt(before.followers);
+        paintFollow(); paintCounts();
         const t = errText(d, "follow"); setErr(t); toast(t);
         return;
       }
       cur.viewer.following = Boolean(d.following);
       if (d.counts) cur.counts = d.counts;
-      paintFollow(); $("#pf-followers-n").textContent = fmt(cur.counts.followers); $("#pf-following-n").textContent = fmt(cur.counts.following);
+      paintFollow(); paintCounts();
       say(d.following ? `You now follow ${cur.handle}.` : `You no longer follow ${cur.handle}.`);
       if (list && list.kind === "followers") openList("followers", true);
     }
@@ -774,10 +797,13 @@
     function askReport() {
       $("#pf-report-note").value = "";
       openDialog({
-        title: `Report ${cur.handle}`, ok: "Send report", report: true,
-        text: "Tell us what's wrong with this profile. A moderator looks at it. Reports are not shared with the member.",
+        title: `Report ${cur.handle}'s bio`, ok: "Send report", report: true,
+        text: "Tell us what's wrong with this bio. A moderator looks at it. Reports are not shared with the member.",
         go: async () => {
-          const r = await api("/api/profile/report", { handle: cur.handle, reason: $("#pf-report-reason").value, note: $("#pf-report-note").value.trim() });
+          const label = $("#pf-report-reason").selectedOptions[0].textContent, note = $("#pf-report-note").value.trim();
+          let reason = (note ? `${label}: ${note}` : label).slice(0, 140); // the server keeps up to 140 characters
+          if (/[\ud800-\udbff]$/.test(reason)) reason = reason.slice(0, -1);
+          const r = await api("/api/profile/report", { handle: cur.handle, reason });
           if (!r || !r.ok) return errText(r, "report");
           toast("Thanks. A moderator will take a look."); return "";
         },

@@ -83,16 +83,22 @@
                       <button class="btn btn--glass prof-menu__btn" type="button" id="pf-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="pf-menu" aria-label="More actions"><span aria-hidden="true">…</span></button>
                       <ul class="prof-menu__list" id="pf-menu" role="menu" aria-label="More actions" hidden>
                         <li role="none"><button type="button" role="menuitem" id="pf-menu-block">Block</button></li>
-                        <li role="none"><button type="button" role="menuitem" id="pf-menu-report">Report</button></li>
+                        <li role="none"><button type="button" role="menuitem" id="pf-menu-report">Report bio</button></li>
                       </ul>
                     </div>
                   </div>
                   <p class="small muted" id="pf-blocked-note" hidden>You blocked this member. They can't follow you. They can still open your profile, as every member can.</p>
                   <div class="prof-counts">
-                    <button class="prof-count" type="button" id="pf-followers-btn" aria-expanded="false" aria-controls="pf-lists"><strong id="pf-followers-n">0</strong><span>followers</span></button>
+                    <button class="prof-count" type="button" id="pf-followers-btn" aria-expanded="false" aria-controls="pf-lists"><strong id="pf-followers-n">0</strong><span id="pf-followers-l">followers</span></button>
                     <button class="prof-count" type="button" id="pf-following-btn" aria-expanded="false" aria-controls="pf-lists"><strong id="pf-following-n">0</strong><span>following</span></button>
                   </div>
                 </div>
+
+                <section class="card prof-posts" id="pf-posts" aria-labelledby="pf-posts-h" hidden>
+                  <h2 class="prof-h" id="pf-posts-h">Recent posts</h2>
+                  <ul class="prof-postlist" id="pf-posts-list"></ul>
+                  <p class="tiny muted">Posts from the city and country feeds you can see.</p>
+                </section>
 
                 <section class="card prof-wallet" aria-labelledby="pf-wallet-h">
                   <h2 class="prof-h" id="pf-wallet-h">Wallet</h2>
@@ -164,7 +170,7 @@
             </select>
           </label>
           <label class="fieldset"><span>Anything to add? (optional)</span>
-            <textarea class="field" id="pf-report-note" rows="2" maxlength="200"></textarea>
+            <textarea class="field" id="pf-report-note" rows="2" maxlength="100"></textarea>
           </label>
         </div>
         <p class="inline-err" id="pf-dialog-err" role="alert" hidden></p>
