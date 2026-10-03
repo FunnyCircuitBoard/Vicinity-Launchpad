@@ -165,3 +165,36 @@ test("/api/seats (the map polls it) shows a founder's wallet masked, never the f
   const old = await browser(env).send("/api/claims");
   assert.ok(!(await old.text()).includes(f.w.address), "the old name of the route too");
 });
+
+/* ---------------- an admin thinning a founder race is public ---------------- */
+
+test("admin seats/decide: a rejection is in the public log (/api/audit) with the admin's name, role and note; an approval changes nothing visible", async () => {
+  const admin = await person(env, { home: IN_UTICA });
+  env.ADMIN_WALLETS = admin.w.address;
+  await reprove(admin);
+  const a = await person(env, { home: IN_UTICA }), b = await person(env, { home: IN_UTICA });
+  const at = new Date(Date.now()).toISOString();
+  const w = await env.DB.prepare("INSERT INTO windows (city_id, city_name, country, policy, threshold, opened_at, closes_at, status) VALUES ('5142056', 'Utica', 'US', 5, 180000, ?, ?, 'open')")
+    .bind(at, new Date(Date.now() + 72 * HOUR).toISOString()).run();
+  const app = async (p) => (await env.DB.prepare("INSERT INTO applications (window_id, city_id, user_id, wallet, pitch, created_at) VALUES (?, '5142056', ?, ?, 'me', ?)")
+    .bind(w.meta.last_row_id, await userId(p), p.w.address, at).run()).meta.last_row_id;
+  const appA = await app(a), appB = await app(b);
+
+  assert.equal((await admin.post("/api/admin/seats/decide", { id: appA, decision: "approve" })).ok, true);
+  let log = await (await browser(env).send("/api/audit?country=US")).json();
+  assert.equal(log.actions.length, 0, "approving is not a moderation decision");
+
+  assert.equal((await admin.post("/api/admin/seats/decide", { id: appB, decision: "reject", note: "Lives in Albany, not Utica" })).ok, true);
+  assert.equal((await env.DB.prepare("SELECT withdrawn FROM applications WHERE id = ?").bind(appB).first("withdrawn")), 1);
+  log = await (await browser(env).send("/api/audit?country=US")).json();
+  assert.equal(log.actions.length, 1);
+  const x = log.actions[0];
+  assert.equal(x.by, `${(await admin.get("/api/me?lite=1")).user.handle} (admin)`);
+  assert.deepEqual([x.action, x.target, x.country, x.reason, x.note, x.state], ["reject_application", `application #${appB}`, "US", "review", "Lives in Albany, not Utica", "done"]);
+  const text = JSON.stringify(log);
+  assert.ok(!text.includes(b.w.address) && !text.includes(admin.w.address), "no wallets in the public log");
+  // the private admin trail still has both decisions
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_audit WHERE action = 'seats/decide'").first("n")), 2);
+  const row = await env.DB.prepare("SELECT * FROM mod_actions WHERE action = 'reject_application'").first();
+  assert.deepEqual([row.actor_id, row.target_type, row.target_id, row.target_user, row.place], [await userId(admin), "application", appB, await userId(b), "5142056"]);
+});
