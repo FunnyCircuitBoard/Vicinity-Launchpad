@@ -33,6 +33,23 @@ merge to main ─► Deploy: build + tests + wrangler deploy  (.github/workflows
 | `PROFILES` | Cloudflare dashboard (plain variable), **not** `wrangler.jsonc` | the switch for member profiles: `on` = on, anything else or missing = no profiles. See "Profiles switch" below |
 | `PASSWORD_PEPPER` (v2, recommended) | Cloudflare *Secrets* | a secret mixed into every password hash; see below, set it BEFORE the first password exists |
 | `LIMIT_SALT` (v2, optional), `PASSWORD_ITERATIONS` (v2, tests only) | Cloudflare *Secrets* / not set in production | `LIMIT_SALT` scrambles the keys of the attempt counters (without it a random one is made once and kept in the database); `PASSWORD_ITERATIONS` can only LOWER the hashing cost, never raise it, so leave it unset |
+| `JUPITER_API_BASE` (optional) | Cloudflare dashboard (plain variable) | where prices come from. Unset = `https://lite-api.jup.ag`, the keyless address Jupiter is retiring. Set it to `https://api.jup.ag` together with the key below. The site asks Jupiter at most once per 30 seconds per set of tokens and keeps the last price for 5 minutes when Jupiter fails (the swap panel then shows it as an estimate, nothing goes blank) |
+| `JUPITER_API_KEY` (optional) | Cloudflare *Secrets* | the key from portal.jup.ag, sent as `x-api-key`. Without it the free, slower allowance applies |
+| `RPC_TIMEOUT_MS` (optional) | Cloudflare dashboard (plain variable) | how long one blockchain call may take before the site gives up on it, in milliseconds. Unset = 8000. Raise it only if the holder list grows so large that ranks keep falling back to "the full ranking is loading" |
+
+## Attempt limits on the public routes (launch week)
+The code counts attempts itself (src/guards.js) and answers `429 slow_down` over the limit; the pages show "too many tries from your network" and try again later. These are the first line. Add the same rules in Cloudflare (*Security* → *WAF* → *Rate limiting rules*, per IP) as the second line, so a flood is stopped before it reaches the Worker. Numbers at or above the code's, never below, or the WAF rule becomes the one that locks real people out:
+
+| Path (method) | In the code | WAF rule (per IP) | Why this number |
+|---|---|---|---|
+| `POST /api/verify` | 30 per 10 min per connection | 30 per 10 min | one blockchain call each |
+| `POST /api/auth/transfer` (exactly this path) | 30 per 10 min per connection | 30 per 10 min | phones on one mobile network share one address; 10 would lock out the 11th person |
+| `POST /api/auth/transfer/check` | 90 per 10 min per **session** | 200 per 10 min, or no rule | the page asks every 10 seconds (60 per person per 10 min); two people behind one address need 120. Do not put this path under the 30-rule above |
+| `POST /api/pair` | 20 per 10 min per connection | 20 per 10 min | one database row each; `GET /api/pair` (a phone polling for its code) is not counted |
+| `GET /api/rank` | 60 per minute per connection, cache hits free | 60 per minute | an RPC call when the snapshot is down |
+| `GET /api/prices` | answered from a 30-second cache | 60 per minute | one Jupiter call per 30 seconds per set of tokens |
+
+A "connection" is an IPv4 address, or an IPv6 address cut to its /64. Nothing identifying is stored: the counter keys are HMACs. A database problem never blocks these routes (the request goes through and a short code is logged).
 
 **Security headers on pages.** Pages and files are served straight from Cloudflare's static assets and get their headers from `public/_headers` (the Worker only runs first for `/api/*`, see `wrangler.jsonc`). That keeps page views off the Worker request quota. Today's production sends no headers on pages because the previous deploy script left this out; `npm run check:live` proves it is fixed after a deploy. Not done by this setup: forcing https and forwarding `www.vicinity.city` to the main address. Do both in the Cloudflare dashboard (*SSL/TLS* → *Edge Certificates* → *Always Use HTTPS*, and a redirect rule), or set `"run_worker_first": true` and let the Worker do it (then every request counts as a Worker request).
 
@@ -93,7 +110,9 @@ Member profiles are built and tested but **dark**: while `PROFILES` is not `on` 
 - [ ] Member profiles (only when you decide to switch them on): the members were told, the lawyer reviewed the privacy sentences and the Terms, the rate-limit rule covers the new routes, then set `PROFILES` to `on` (see "Profiles switch").
 - [ ] Wipe the test data: sign in to `/admin` with the owner wallet → *Test lab* → *Reset* (needs a fresh wallet signature). It deletes only the rows the test lab created.
 - [ ] Go live: pull request changing `SITE_MODE` to `"live"` in `wrangler.jsonc`, merge, approve the deploy. (In `live` mode the test lab can no longer be seeded.)
-- [ ] After the token launch: pull request adding `VICINITY_MINT`.
+- [x] After the token launch: pull request adding `VICINITY_MINT` (done 3 Oct 2026: `2e8VdgpT27LcNWyfk5Ce6ZyGwMdu7ajaSnMph83Xwray`).
+- [ ] Prices: create a free Jupiter API key (portal.jup.ag), set the secret `JUPITER_API_KEY` and the variable `JUPITER_API_BASE` = `https://api.jup.ag` (see the settings table). Until then the retiring keyless address is used.
+- [ ] Rate-limiting rules for the public routes, per IP, as listed in "Attempt limits on the public routes" above.
 - [x] The `workers.dev` addresses are switched off (`"workers_dev": false` in `wrangler.jsonc`, applied by the next deploy) and removed from the official-links list. Set it back to `true` only for a short test.
 
 ## Rolling back

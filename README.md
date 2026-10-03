@@ -64,6 +64,8 @@ Keys and passwords (`SOLANA_RPC_URL`, `GOOGLE_CLIENT_SECRET`, the mail keys) are
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in. Redirect URI: `https://vicinity.city/api/auth/google/callback` |
 | `SNAPSHOT_CUTOFF` | The Founding Supporter cutoff, always 00:00 UTC, e.g. `2026-10-08T00:00:00Z`. Announce it first. |
 | `ATTEST_KEY` | Optional: the key that signs location attestations (otherwise one is made once and kept in the database). |
+| `JUPITER_API_BASE`, `JUPITER_API_KEY` | Optional: where prices come from and the key for it (`https://api.jup.ag` with a free key from portal.jup.ag). Unset = the keyless address Jupiter is retiring. See [docs/DEPLOY.md](docs/DEPLOY.md). |
+| `RPC_TIMEOUT_MS` | Optional: how long one blockchain call may take before the site gives up on it (default 8000). |
 | `SIGNUP_FLOW` | `v2` switches on the new sign-up (see below); anything else or missing = today's sign-up. A plain dashboard variable, flipped without a deploy. |
 | `PROFILES` | `on` switches on member profiles (see below); anything else or missing = no profiles, as today. A plain dashboard variable, flipped without a deploy. |
 | `PASSWORD_PEPPER` | Secret for the new sign-up: mixed into every password hash. Create it before the first password exists and never change it. See [docs/DEPLOY.md](docs/DEPLOY.md). |
