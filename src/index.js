@@ -35,7 +35,7 @@
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
  * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional).
  */
-import { activeMint, checkOfficial, officialFor, withMint } from "./official.js";
+import { activeMint, checkOfficial, marketLink, officialFor, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
 import { getHolding, getTokenFacts, getTopHolders, holderSnapshot, rankOf } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
@@ -231,6 +231,12 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (verdict.verdict === "not_official" && verdict.kind === "address") {
         const coin = await officialCityCoin(env, String(q || "").trim());
         if (coin) return json(coin);
+      }
+      // a Raydium, Jupiter, DEX Screener or Solscan link that carries one recorded city coin opens that official coin
+      const market = verdict.verdict === "not_official" && verdict.kind === "market" ? marketLink(q, isSolanaAddress) : null;
+      if (market && market.addresses.length === 1) {
+        const coin = await officialCityCoin(env, market.addresses[0]);
+        if (coin) return json({ ...coin, kind: "market", message: `This ${market.name} link opens ${coin.message.replace(/^This is /, "")}` });
       }
       return json(verdict);
     }

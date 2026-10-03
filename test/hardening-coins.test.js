@@ -2,6 +2,7 @@
 // blockchain check that it is a token mint with a supply.
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { IN_UTICA, MINT, advance, browser, chain, newWorld, person, realClock, useClock } from "./helpers/world.js";
 import { _resetPrices } from "../src/coins.js";
 
@@ -135,6 +136,50 @@ test("the link checker knows recorded city coins: the real $UTICA is official fo
   assert.deepEqual([r.verdict, r.kind], ["official", "contract"], "$VICINITY itself is unchanged");
   r = await check(` ${COIN_A} `);
   assert.equal(r.kind, "city_coin", "spaces around the address are fine, like everywhere else in the checker");
+});
+
+test("the link checker calls the token page's own Buy, Jupiter, DEX Screener and Solscan links official, and the same sites with another token not", async () => {
+  // measured live 3 Oct 2026: every one of these answered not_official "This link is not on our official list.", including
+  // the exact href of the token page's "Buy on Raydium" button, which the same page tells visitors to check first
+  const check = async (q) => browser(env).get("/api/check?q=" + encodeURIComponent(q));
+  const OLD_TEST_COIN = "2e8VdgpT27LcNWyfk5Ce6ZyGwMdu7ajaSnMph83Xwray";
+  const tokenJs = readFileSync(new URL("../public/token.js", import.meta.url), "utf8");
+  const hrefs = [...tokenJs.matchAll(/\.href = `(https:\/\/[^`]+\$\{m\})`/g)].map((m) => m[1].replace("${m}", MINT));
+  assert.equal(hrefs.length, 4, "the four links the token page builds");
+  for (const link of [...hrefs, `https://jup.ag/swap/SOL-${MINT}`, `https://www.raydium.io/launchpad/token/?mint=${MINT}`, `raydium.io/swap/?inputMint=sol&outputMint=${MINT}`]) {
+    const r = await check(link);
+    assert.deepEqual([r.verdict, r.kind], ["official", "market"], link);
+    assert.ok(r.message.includes(MINT), "the answer names the contract");
+  }
+  assert.match((await check(`https://raydium.io/launchpad/token/?mint=${MINT}`)).message, /official \$VICINITY on Raydium/);
+
+  for (const link of [`https://raydium.io/launchpad/token/?mint=${OLD_TEST_COIN}`, `https://jup.ag/swap/SOL-${COIN_B}`, `https://dexscreener.com/solana/${COIN_B}`,
+    `https://solscan.io/token/${OLD_TEST_COIN}`, `https://raydium.io/launchpad/token/?mint=${COIN_B}&ref=${MINT}`]) {
+    const r = await check(link);
+    assert.deepEqual([r.verdict, r.kind], ["not_official", "market"], link);
+    assert.match(r.message, /different token, NOT the official \$VICINITY/);
+  }
+  for (const bare of ["raydium.io", "https://raydium.io/", "https://jup.ag"]) {
+    const r = await check(bare);
+    assert.deepEqual([r.verdict, r.kind], ["warning", "market"], bare);
+    assert.match(r.message, /real (Raydium|Jupiter)/);
+    assert.ok(r.message.includes(MINT));
+  }
+  // look-alike hosts are not the real sites, whatever they carry
+  for (const fake of [`https://raydium.io.evil.io/launchpad/token/?mint=${MINT}`, `https://raydium-io.com/launchpad/token/?mint=${MINT}`, `https://jup.ag.example/tokens/${MINT}`])
+    assert.equal((await check(fake)).verdict, "not_official", fake);
+
+  // a recorded city coin's link opens that official coin
+  const { adm } = await waiting(COIN_A);
+  assert.equal((await check(`https://raydium.io/launchpad/token/?mint=${COIN_A}`)).verdict, "not_official", "still waiting for the admin's check");
+  assert.equal((await decide(adm, { city: UTICA, approve: true, mint: COIN_A, note: "Checked" })).ok, true);
+  const city = await check(`https://raydium.io/launchpad/token/?mint=${COIN_A}`);
+  assert.deepEqual([city.verdict, city.kind, city.ticker], ["official", "market", "UTICA"]);
+  assert.match(city.message, /^This Raydium link opens the official \$UTICA/);
+
+  // before a launch nothing changes: no contract, so no trade link can be official
+  const pre = await browser(newWorld({})).get("/api/check?q=" + encodeURIComponent(`https://raydium.io/launchpad/token/?mint=${MINT}`));
+  assert.equal(pre.verdict, "not_official");
 });
 
 test("the link checker names the one official X account instead of claiming there is none", async () => {

@@ -30,6 +30,26 @@ export const OFFICIAL = {
 
 const clean = (s) => String(s || "").trim().slice(0, 300);
 
+// Where $VICINITY is traded and looked up: the four sites the token page itself links to (public/token.js: Buy on Raydium,
+// Jupiter, DEX Screener, Solscan). The real site is not enough: a link there is judged by the token it carries, because the
+// same raydium.io page shows any coin, fakes included.
+export const MARKETS = { "raydium.io": "Raydium", "jup.ag": "Jupiter", "dexscreener.com": "DEX Screener", "solscan.io": "Solscan" };
+
+/** A link to one of MARKETS: { host, name, addresses } with every Solana address in its path and query (jup.ag/swap/SOL-<mint>
+ *  and raydium.io/...?mint=<mint> included), or null for any other link. Exact host only (www. allowed): raydium.io.evil.io is not it. */
+export function marketLink(input, isSolanaAddress) {
+  let url;
+  const raw = clean(input);
+  try { url = new URL(/^https?:\/\//i.test(raw) ? raw : "https://" + raw); } catch { return null; }
+  const host = url.hostname.toLowerCase().replace(/^www\./, "");
+  if (!Object.hasOwn(MARKETS, host)) return null;
+  const parts = [url.pathname, ...url.searchParams.values()].join("/");
+  let words;
+  try { words = decodeURIComponent(parts).split(/[^1-9A-HJ-NP-Za-km-z]+/); } catch { words = parts.split(/[^1-9A-HJ-NP-Za-km-z]+/); }
+  const addresses = [...new Set(words.filter((w) => isSolanaAddress(w)))];
+  return { host, name: MARKETS[host], addresses };
+}
+
 /** Decide whether something a visitor pasted is an official Vicinity place (the list as it is now: see withMint). */
 export function checkOfficial(input, isSolanaAddress, env) {
   const OFFICIAL = withMint(env);
@@ -75,6 +95,15 @@ export function checkOfficial(input, isSolanaAddress, env) {
       return { verdict: "official", kind: "website", message: "This is the official Vicinity website." };
     if (host === "github.com" && OFFICIAL.github.some((g) => hostPath === g || hostPath.startsWith(g + "/")))
       return { verdict: "official", kind: "github", message: "This is the official Vicinity code repository." };
+    const market = OFFICIAL.tokenContract ? marketLink(raw, isSolanaAddress) : null;
+    if (market) {
+      const mint = OFFICIAL.tokenContract;
+      if (!market.addresses.length)
+        return { verdict: "warning", kind: "market", message: `This is the real ${market.name} (${market.host}). Before you buy, check that the token there has the official $VICINITY contract: ${mint}.` };
+      if (market.addresses.every((a) => a === mint))
+        return { verdict: "official", kind: "market", message: `This link opens the official $VICINITY on ${market.name} (contract ${mint}).` };
+      return { verdict: "not_official", kind: "market", message: `This ${market.name} link is for a different token, NOT the official $VICINITY. The official contract is ${mint}.` };
+    }
     const lookalike = /v[i1l]c[i1l]n[i1l]ty/i.test(host);
     return {
       verdict: "not_official", kind: "website",
