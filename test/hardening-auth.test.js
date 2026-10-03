@@ -288,3 +288,53 @@ test("when the used-message table cannot be written the message is accepted as b
   assert.equal((await checkSigned(body, request, Date.now(), ["login"], bad, env.DB)).parsed.address, w.address);
   assert.deepEqual((await checkSigned(body, request, Date.now(), ["login"], bad, env.DB)).error, { error: "replayed", status: 409 });
 });
+
+/* ---------------- the tiny-transfer proof runs out ---------------- */
+
+const noTransfer = () => async (url, init) => {
+  const body = JSON.parse(init.body);
+  const one = (b) => (b.method === "getSignaturesForAddress" ? [] : null);
+  return new Response(JSON.stringify(Array.isArray(body) ? body.map((b) => ({ jsonrpc: "2.0", id: b.id, result: one(b) })) : { jsonrpc: "2.0", id: 1, result: one(body) }));
+};
+
+test("re-proving by transfer: the proof is good for 30 minutes, then the check answers 410 expired once, clears it, and the session stays signed in", async () => {
+  useClock("2026-10-03T12:00:00Z");
+  const env = newWorld({ VICINITY_MINT: "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm" });
+  const a = await person(env);
+  advance(31 * MIN); // the sign-in proof is stale: the dashboard asks to prove it again
+  assert.equal((await a.get("/api/me?lite=1")).fresh, false);
+  const start = await a.post("/api/auth/transfer", { address: a.w.address, reprove: true });
+  assert.equal(start.reprove, true);
+  assert.equal(start.expiresAt, new Date(Date.now() + 30 * MIN).toISOString(), "the page is told when it runs out");
+  const check = (t) => a.send("/api/auth/transfer/check", { method: "POST", body: {}, fetchImpl: noTransfer() }).then((r) => r.json());
+
+  assert.equal((await check()).error, "not_found_yet");
+  advance(29 * MIN + 59_000);
+  assert.equal((await check()).error, "not_found_yet", "still inside the 30 minutes");
+  advance(2000);
+  const gone = await a.send("/api/auth/transfer/check", { method: "POST", body: {}, fetchImpl: noTransfer() });
+  assert.equal(gone.status, 410);
+  assert.deepEqual(await gone.json(), { ok: false, error: "expired" });
+  assert.equal((await env.DB.prepare("SELECT proof FROM sessions WHERE user_id = (SELECT id FROM users WHERE wallet = ?)").bind(a.w.address).first("proof")), null, "the proof is gone");
+  assert.equal((await check()).error, "no_proof", "and asking again says there is nothing to check");
+  const me = await a.get("/api/me?lite=1");
+  assert.equal(me.signedIn, true);
+  assert.equal(me.fresh, false, "nothing was proven");
+  // starting over works
+  assert.equal((await a.post("/api/auth/transfer", { address: a.w.address, reprove: true })).ok, true);
+  assert.equal((await check()).error, "not_found_yet");
+});
+
+test("the first-time flow is unchanged: the 30-minute pending session and its proof run out together", async () => {
+  useClock("2026-10-03T12:00:00Z");
+  const env = newWorld();
+  const b = browser(env);
+  const start = await b.post("/api/auth/transfer", { address: (await wallet()).address });
+  assert.equal(start.ok, true);
+  const check = () => b.send("/api/auth/transfer/check", { method: "POST", body: {}, fetchImpl: noTransfer() }).then((r) => r.json());
+  assert.equal((await check()).error, "not_found_yet");
+  advance(29 * MIN);
+  assert.equal((await check()).error, "not_found_yet");
+  advance(2 * MIN);
+  assert.equal((await check()).error, "no_proof", "the pending session itself is over, as before");
+});
