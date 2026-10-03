@@ -20,6 +20,14 @@
   const kmBetween = (a, b, c, d) => { const r = Math.PI / 180, x = Math.sin((c - a) * r / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin((d - b) * r / 2) ** 2; return 12742 * Math.asin(Math.min(1, Math.sqrt(x))); };
   const radiusOf = (c) => ((c.pop || 0) >= 1_000_000 ? 50 : 25);
   const ago = (iso) => { const s = Math.max(1, (Date.now() - Date.parse(iso)) / 1000); return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`; };
+  // The founder amount: the Stake Ladder of src/policy.js (founderAmount), 100K × (population ÷ 10K)^(1/3), clamped to 100K–1M and
+  // rounded down to 10K, held for qualifyingDays. The numbers come from /api/policy once the page loads (one request, not one per
+  // city, and the map never waits for it); until then, and if that answer fails, these are the published ones (POLICY.founder.ladder / qualifyingDays).
+  let ladder = { base: 100_000, max: 1_000_000, refPop: 10_000, rung: 10_000 }, qualifyingDays = 7;
+  const ladderAmount = (pop, l) => Math.floor(Math.min(l.max, Math.max(l.base, l.base * Math.cbrt(Math.max(pop || 0, 1) / l.refPop))) / l.rung) * l.rung;
+  /** What the next founder of this city must hold: the bar its open window was opened with (/api/seats sends it), otherwise the ladder for its population. A sitting founder's own bar is not shown: /api/seats doesn't send it, and this line is about becoming the founder. */
+  const founderMin = (c, win) => (win && win.threshold > 0 ? win.threshold : ladderAmount(c.pop, ladder));
+  const short = (n) => Number(n).toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 }); // 180,000 → 180K · 1,000,000 → 1M
 
   const canvas = $("#city-canvas"), ctx = canvas.getContext("2d"), tip = $("#city-tip"), wrapEl = $(".citymap__stage");
   const listEl = $("#city-list"), qEl = $("#city-q"), countryEl = $("#city-country"), filterEl = $("#city-filter");
@@ -380,6 +388,7 @@
     const cl = claims.get(c.id), tk = tickers.get(c.id), a = areas.get(c.id);
     tip.replaceChildren(el("strong", null, c.name), el("span", null, ` ${placeOf(c)}`), document.createElement("br"),
       el("span", cl ? "tip-claimed" : "tip-open", cl ? `Founder: ${cl.founder || cl.wallet}${cl.status === "active" ? "" : ` (${cl.status})`}` : windows.has(c.id) ? `Choosing its founder: ${windows.get(c.id).applicants} applying` : "Open"), el("span", "tip-ticker", tk ? `  $${tk.ticker}` : ""));
+    tip.append(document.createElement("br"), el("span", "tip-area", `Founder amount: ${short(founderMin(c, windows.get(c.id)))} $VICINITY`));
     if (a) tip.append(document.createElement("br"), el("span", "tip-area", areaNote(a, c)));
     const n = (members.get(c.id) || []).length;
     if (n) tip.append(document.createElement("br"), el("span", "tip-area", `Includes ${n} listed place${n === 1 ? "" : "s"}`));
@@ -627,6 +636,7 @@
       else sub.append(document.createElement("br"), document.createTextNode("City Founder: No city founder yet"));
       sub.append(document.createElement("br"), document.createTextNode(`Holders: ${fmt(holderCount.get(selected.id) || 0)}`));
       const win = windows.get(selected.id);
+      sub.append(document.createElement("br"), document.createTextNode(`Founder amount: ${fmt(founderMin(selected, win))} $VICINITY · held ${qualifyingDays} days`));
       if (!cl && win) sub.append(document.createElement("br"), el("span", "shared-note", `${win.applicants} applying · window closes ${new Date(win.closesAt).toLocaleString()}`));
       const m = memberCount.get(selected.id) || 0;
       mrow.hidden = false;
@@ -741,6 +751,14 @@
 
   async function load() {
     if (loaded) return; loaded = true;
+    // The Stake Ladder's numbers, applied when they land: /api/policy is a database round trip, so the map never waits for it.
+    // The published numbers paint first; the panel re-renders only if the live policy differs (today it doesn't).
+    fetch("/api/policy").then((r) => r.json()).then((pol) => {
+      const L = pol?.policy?.founder?.ladder;
+      if (L && ["base", "max", "refPop", "rung"].every((key) => Number.isFinite(L[key]) && L[key] > 0)) ladder = { base: L.base, max: L.max, refPop: L.refPop, rung: L.rung };
+      if (Number.isFinite(pol?.policy?.founder?.qualifyingDays) && pol.policy.founder.qualifyingDays > 0) qualifyingDays = pol.policy.founder.qualifyingDays;
+      if (sec.classList.contains("is-ready")) refreshPanel();
+    }).catch(() => {});
     try {
       const [data, wd, bi, tf] = await Promise.all([
         fetch("/data/cities.json").then((r) => r.json()),
