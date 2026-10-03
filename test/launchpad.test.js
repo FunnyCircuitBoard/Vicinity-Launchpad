@@ -333,7 +333,8 @@ test("a founder without a username shows no handle (never a name made from the w
   const utica = d.coins.find((c) => c.city.id === "5142056"), nyc = d.coins.find((c) => c.city.id === "5128581"), albany = d.coins.find((c) => c.city.id === "5106834");
   assert.deepEqual(utica.founder, { handle: null, wallet: `${a.w.address.slice(0, 5)}*****${a.w.address.slice(-3)}`, status: "steward" });
   assert.deepEqual(nyc.founder, { handle: "bigapple", wallet: `${b.w.address.slice(0, 5)}*****${b.w.address.slice(-3)}`, status: "provisional" });
-  assert.deepEqual(albany.founder, { handle: "Pat", wallet: `${c.w.address.slice(0, 5)}*****${c.w.address.slice(-3)}`, status: "grace" }, "no username: the display name /api/seats and the map already show");
+  assert.deepEqual(albany.founder, { handle: null, wallet: `${c.w.address.slice(0, 5)}*****${c.w.address.slice(-3)}`, status: "grace" }, "no username: no handle (a display name must never read as one)");
+  assert.ok(!JSON.stringify(d).includes('"Pat"'), "the display name is nowhere in the answer");
   assert.deepEqual(d.coins.map((c) => c.ticker).sort(), ["ALBANY", "NYC", "UTICA"]);
   // a seat that ended is no founder
   await env.DB.prepare("UPDATE seats SET status = 'released', ended_at = ? WHERE city_id = '5142056'").bind(new Date(clock.now).toISOString()).run();

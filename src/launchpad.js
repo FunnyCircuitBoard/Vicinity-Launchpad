@@ -88,6 +88,13 @@ async function build(env, fetchImpl, now) {
   const membersRes = await (await handleMembers(env)).json();
   const stats = await holderCounts(env);
   const seats = new Map(seatsRes.seats.map((s) => [String(s.cityId), s]));
+  // the founder's USERNAME only (users.handle): /api/seats falls back to a display name, which would read like a username here
+  const handles = new Map();
+  try {
+    const rows = await env.DB.prepare(`SELECT s.city_id, u.handle FROM seats s JOIN users u ON u.id = s.user_id
+      WHERE s.status IN ('provisional', 'active', 'grace', 'steward')`).all();
+    for (const r of rows.results) handles.set(String(r.city_id), r.handle || null);
+  } catch (e) { console.error("founder handles unavailable", shortErr(e)); }
   const members = new Map((membersRes.communities || []).map((c) => [String(c.id), { members: c.members, holders: c.holders }]));
   const coins = coinsRes.coins || [];
 
@@ -99,7 +106,7 @@ async function build(env, fetchImpl, now) {
   for (const c of coins) {
     const seat = seats.get(String(c.city)) || null;
     const founder = seat ? {
-      handle: seat.founder && seat.founder !== mask(seat.wallet) ? seat.founder : null, // the username; never a wallet in this field
+      handle: handles.get(String(c.city)) || null, // the username or nothing: never a display name, never a wallet
       wallet: mask(seat.wallet), status: seat.status,
     } : null;
     cards.push({
