@@ -4,7 +4,7 @@
   "use strict";
   const { $, $$, api, getLocation } = window.V;
   const code = new URLSearchParams(location.search).get("code");
-  const WHAT = { home: "set your home community", apply: "apply to found your city", checkin: "check in", request: "send your town request" };
+  const WHAT = { home: "set your home community", apply: "apply to found your city", checkin: "check in", request: "send your town request", signup: "check where you are for your new account" };
   const ERR = {
     location_unverified: "We couldn't confirm your location. Turn on precise location, use your normal mobile or home internet (no VPN) on the same phone as your wallet app, and try again.",
     expired: "This link has expired. Go back to your wallet app and start again.",
@@ -32,12 +32,20 @@
     finally { btn.disabled = false; btn.textContent = "Share my location"; }
   });
 
+  /** A new account's location check can be started from a computer too, so don't say "wallet app" there. */
+  function signupWording() {
+    const ask = $("#l-purpose").parentElement, strong = $("#l-purpose");
+    ask.replaceChildren("You started this on Vicinity to ", strong, ". Share your location here, then go back to the page where you started: it continues by itself.");
+    $(".cstate[data-state=done] p").textContent = "Go back to the page where you started. It picks this up in a few seconds. You can close this page.";
+  }
+
   (async () => {
     if (!code) return bad("This link is incomplete. Go back to your wallet app and start again.");
     const info = await api("/api/locate/handoff/info", { code });
     if (!info.ok) return bad();
     if (info.done) return show("done");
     $("#l-purpose").textContent = WHAT[info.purpose] || "continue";
+    if (info.purpose === "signup") signupWording(); // it may have been started on a computer, not in a wallet app
     show("ask");
   })();
 })();

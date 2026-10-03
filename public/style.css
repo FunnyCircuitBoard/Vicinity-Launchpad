@@ -627,6 +627,56 @@ select option { background: var(--bg-2); }
 .tp-copy { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
 .approve-done { text-align: center; }
 
+/* ---------- connect: sign-up v2 (hidden unless public/signup.js turns it on: SIGNUP_FLOW = "v2") ---------- */
+.su-top { display: grid; gap: 14px; margin-bottom: 18px; }
+.su-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 999px; background: var(--card-2); border: 1px solid var(--line-2); }
+.su-tab { min-height: 44px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font: 700 .95rem var(--body); cursor: pointer; transition: background .2s, color .2s; }
+.su-tab:hover { color: var(--text); }
+.su-tab[aria-pressed="true"] { background: linear-gradient(135deg, var(--pin), #FF7A45); color: #fff; box-shadow: 0 8px 22px -10px rgba(255,90,54,.7); }
+.stepper--bar { grid-template-columns: repeat(3, 1fr); margin: 0; gap: 6px; }
+.stepper--bar li { display: block; text-align: center; font-size: .78rem; }
+.stepper__btn { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; min-height: 44px; padding: 4px 2px; background: none; border: 0; border-radius: 12px; color: inherit; font: inherit; cursor: pointer; }
+.stepper__btn:disabled { cursor: default; }
+.stepper__btn:not(:disabled):hover .stepper__n { border-color: var(--pin-2); }
+.stepper--bar li.is-done .stepper__btn:not(:disabled) > span:nth-child(2) { text-decoration: underline; text-underline-offset: 3px; }
+.su-note { margin: 0; }
+.su-form { display: grid; gap: 14px; width: 100%; }
+.su-field { display: grid; gap: 6px; min-width: 0; }
+.su-field label { font-size: .85rem; font-weight: 700; color: var(--text-2); }
+.su-field input { width: 100%; min-width: 0; min-height: 48px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card-2); color: var(--text); font: 500 1rem var(--body); }
+.su-field input:focus { outline: 2px solid var(--pin-2); outline-offset: 1px; }
+.su-field input[aria-invalid="true"] { border-color: var(--bad-text); }
+.su-field input[name="code"] { letter-spacing: .5em; text-align: center; font-size: 1.4rem; font-weight: 800; }
+.su-pw { position: relative; }
+.su-pw input { padding-right: 82px; }
+.su-pw__toggle { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); min-width: 68px; min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: none; color: var(--pin-2); font: 700 .85rem var(--body); cursor: pointer; }
+.su-hint { margin: 0; color: var(--muted); font-size: .85rem; }
+.su-hint[data-level="good"] { color: var(--ok-text); }
+/* error lines stay in the page (a screen reader only announces text that APPEARS inside one that already exists), they just take no room while empty */
+.su-err { margin: 0; color: var(--bad-text); font-size: .9rem; overflow-wrap: anywhere; }
+.su-err:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.su-check { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--card); }
+.su-check input { width: 24px; height: 24px; flex: none; margin: 1px 0 0; accent-color: var(--pin); cursor: pointer; }
+.su-check label { font-size: .95rem; line-height: 1.5; min-width: 0; padding: 11px 0; margin: -11px 0; cursor: pointer; }
+.su-nowrap { white-space: nowrap; }
+.su-choices { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.su-choices .city-row { border: 1px solid var(--line-2); min-height: 56px; padding: 10px 12px; }
+.su-ident { display: grid; gap: 12px; margin-top: 14px; }
+.su-ident .or-line { margin: 4px 0; }
+.su-done { display: grid; gap: 10px; justify-items: center; text-align: center; }
+.su-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.su-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; margin: 0; padding: 8px 14px; border-radius: 999px; background: var(--card-2); border: 1px solid var(--line-2); font-size: .92rem; overflow-wrap: anywhere; }
+.su-chip[hidden] { display: none; }
+.su-chip svg { width: 18px; height: 18px; flex: none; color: var(--pin-2); }
+.su-actions { display: grid; gap: 10px; }
+.cstate[data-state="su-location"] .qr { justify-self: center; }
+/* phone-sized touch targets (44px) for everything in the v2 panel */
+.connect__panel.su-on .link-btn { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; text-align: center; padding: 6px 4px; }
+.connect__panel.su-on .btn--sm { min-height: 44px; }
+.connect__panel.su-on .more-wallets summary, .connect__panel.su-on .msg-preview summary { min-height: 44px; display: flex; align-items: center; }
+.connect__panel.su-on .su-done .link-btn, .connect__panel.su-on .su-form .link-btn { justify-self: center; }
+@media (max-width: 480px) { .connect__panel.su-on { padding: 20px 16px; } .su-tab { font-size: .9rem; } }
+
 /* ---------- dashboard ---------- */
 .dash-out { padding: 50px 0 80px; }
 .teaser { display: grid; grid-template-columns: 1.1fr .9fr; gap: 40px; align-items: center; }
