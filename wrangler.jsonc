@@ -28,7 +28,7 @@
     // 1,000,000,000 supply, 6 decimals, minting and freezing disabled. The checker, registry and every "Buy" link read it.
     "VICINITY_MINT": "2e8VdgpT27LcNWyfk5Ce6ZyGwMdu7ajaSnMph83Xwray",
     // The new sign-up (location → account with Google or e-mail + password → wallet → dashboard), on since 3 Oct 2026.
-    // Anything but "v2" (or deleting the line and merging) brings the old sign-up back at the next deploy.
+    // Any other value (change it, do not delete the line: keep_vars would keep the old value) brings the old sign-up back at the next deploy.
     "SIGNUP_FLOW": "v2"
   },
   "assets": {
