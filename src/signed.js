@@ -80,7 +80,7 @@ async function noteMessage(db, message, issued) {
     const ins = await db.prepare("INSERT OR IGNORE INTO used_nonces (nonce, expires_at) VALUES (?, ?)").bind("msg:" + await sha256(message), expires).run();
     return Boolean(ins.meta && ins.meta.changes);
   } catch (e) {
-    console.error("used message store failed", String((e && e.message) || e).slice(0, 80)); // a code only, never the message
+    console.error("used message store failed", String((e && e.message) || e).slice(0, 80)); // the reason only, never the message
     return null;
   }
 }
