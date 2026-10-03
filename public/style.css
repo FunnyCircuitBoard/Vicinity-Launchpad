@@ -397,8 +397,10 @@ select option { background: var(--bg-2); }
 .holders__head { display: flex; justify-content: space-between; gap: 12px; align-items: center; color: var(--muted); margin: 0 4px 10px; flex-wrap: wrap; font-size: .92rem; }
 .holders__tools { display: flex; gap: 10px; align-items: center; }
 .holders__tools input { width: 220px; padding: 8px 12px; font-size: .88rem; }
-.table-scroll { max-height: 560px; overflow: auto; border-radius: 14px; border: 1px solid var(--line); overscroll-behavior: contain; }
-@media (max-width: 600px) { .table-scroll { max-height: 60vh; } .holders__tools input { width: 100%; } .holders__tools { width: 100%; } }
+/* the holder list: a box of fixed height (about 60% of the screen, never under 320px or over 640px) that scrolls on its own,
+   so the page stays the same length whether 50 or 50,000 wallets hold the token; the table header stays put while the rows scroll */
+.table-scroll { height: clamp(320px, 60vh, 640px); overflow: auto; border-radius: 14px; border: 1px solid var(--line); overscroll-behavior: contain; }
+@media (max-width: 600px) { .holders__tools input { width: 100%; } .holders__tools { width: 100%; } }
 .holders__table, .registry__table { width: 100%; border-collapse: collapse; font-size: .94rem; }
 .holders__table th, .registry__table th { text-align: left; font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 11px 10px; border-bottom: 1px solid var(--line); }
 .holders__table thead th { position: sticky; top: 0; background: var(--bg-3); z-index: 1; }

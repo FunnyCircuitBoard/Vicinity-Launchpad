@@ -1,4 +1,4 @@
-// Token page: live token facts, every holder (the table scrolls, not the page), "where does this wallet stand?",
+// Token page: live token facts, every holder (the table scrolls, not the page; it is loaded in pages and drawn in chunks), "where does this wallet stand?",
 // the official token list and the link checker. Everything comes from this site's /api (read live from Solana).
 (() => {
   "use strict";
@@ -55,6 +55,12 @@
   }
 
   /* ---------- holders table ---------- */
+  // The server answers 1,000 wallets at a time (/api/holders?offset=N, `more` says whether to ask again); the page keeps
+  // asking until every holder is here. Rows go into the table 250 per animation frame, so a list of 10,000 wallets never
+  // freezes the page. The box itself has a fixed height and scrolls on its own (style.css .table-scroll), so the page
+  // stays the same length however many people hold the token.
+  const CHUNK = 250, MAX_PAGES = 200;
+  let queue = [], drawing = false, keepScroll = 0, load = 0;
   function row(h) {
     const tr = el("tr"); tr.dataset.owner = h.owner;
     const w = el("td");
@@ -67,26 +73,62 @@
     tr.append(el("td", null, h.rank ? String(h.rank) : "Pool"), w, el("td", "num", fmt(h.amount)), pct);
     return tr;
   }
+  const query = () => $("#holders-find").value.trim();
+  /** A row as it goes into the table: already filtered by the find box and highlighted if it is the wallet last looked up. */
+  function place(h) {
+    const tr = row(h), q = query();
+    tr.hidden = Boolean(q) && !h.owner.includes(q);
+    if (lastLookup && h.owner === lastLookup) tr.classList.add("is-me");
+    return tr;
+  }
+  function draw() {
+    const box = $("#holders-scroll");
+    $("#holders-body").append(...queue.splice(0, CHUNK).map(place));
+    if (keepScroll) box.scrollTop = keepScroll; // a refresh keeps the reader's place in the list (the box clamps until the rows are back)
+    drawing = queue.length > 0;
+    if (drawing) requestAnimationFrame(draw); else keepScroll = 0;
+  }
+  /** Queue rows for the table; `fresh` starts over (a new load) and remembers how far down the reader was. */
+  function show(rows, fresh) {
+    if (fresh) { queue = []; keepScroll = $("#holders-scroll").scrollTop; $("#holders-body").replaceChildren(); }
+    queue.push(...rows);
+    if (!drawing && queue.length) { drawing = true; requestAnimationFrame(draw); }
+  }
   async function loadHolders() {
     const status = $("#holders-status");
+    const run = ++load; // Refresh, or the minute timer, while pages are still coming: the older load stops where it is
     const d = await api("/api/holders");
+    if (run !== load) return;
     if (!d.launched) return;
     $("#holders-refresh").hidden = false;
     if (d.error || !Array.isArray(d.holders)) { status.textContent = "The blockchain is busy right now. Try Refresh in a minute."; return; }
     holders = d.holders;
-    $("#holders-body").replaceChildren(...holders.map(row));
+    show(holders, true);
+    // the next pages, if any; a wallet seen twice (the server's snapshot moved on between two pages) is listed once
+    const seen = new Set(holders.map((h) => h.owner));
+    let complete = true, offset = holders.length;
+    for (let page = d, pages = 1; page.more && pages < MAX_PAGES; pages++) {
+      status.textContent = `${fmt(holders.length)} of ${fmt(page.count)} loaded…`;
+      page = await api(`/api/holders?offset=${offset}`);
+      if (run !== load) return;
+      if (page.error || !Array.isArray(page.holders) || !page.holders.length) { complete = false; break; }
+      offset += page.holders.length;
+      const fresh = page.holders.filter((h) => !seen.has(h.owner) && seen.add(h.owner));
+      holders = holders.concat(fresh);
+      show(fresh, false);
+    }
     const people = holders.filter((h) => h.rank);
     const total = d.total ?? people.length;
-    status.textContent = d.full
-      ? `${fmt(total)} holders · showing the top ${fmt(Math.min(holders.length, 1000))} · updated ${new Date(d.updatedAt).toLocaleTimeString()}`
-      : `Top ${holders.length} wallets · updated ${new Date(d.updatedAt).toLocaleTimeString()}`;
+    const at = new Date(d.updatedAt).toLocaleTimeString();
+    status.textContent = !d.full ? `Top ${holders.length} wallets · updated ${at}`
+      : complete ? `${fmt(total)} holders · updated ${at}`
+      : `${fmt(total)} holders · showing the top ${fmt(people.length)} · updated ${at}`;
     $("#st-holders").textContent = d.full ? fmt(total) : `${people.length}+`;
     $("#st-top10").textContent = `${pctText(people.slice(0, 10).reduce((s, h) => s + h.percent, 0))}%`;
-    filter();
-    if (lastLookup) mark(lastLookup, false);
   }
+  /** The find box: every row already in the table; rows still on their way are filtered as they are placed. */
   function filter() {
-    const q = $("#holders-find").value.trim();
+    const q = query();
     $$("#holders-body tr").forEach((tr) => { tr.hidden = Boolean(q) && !(tr.dataset.owner || "").includes(q); });
   }
   $("#holders-find").addEventListener("input", filter);

@@ -44,16 +44,35 @@
       </div>
     </section>
 
-    <section class="section section--tight">
+    <!-- ============ HOLDERS ============ -->
+    <section id="holders" class="section">
       <div class="wrap">
-        <div class="section-head"><p class="kicker">No rug pull</p><h2 class="h2--sm">Here's the proof.</h2></div>
-        <div class="proof-grid">
-          <div class="proof card"><span class="proof__icon">✓</span><h3>Minting disabled</h3><p>No one, including us, can ever create more $VICINITY. Raydium switches minting off for good when the LaunchLab curve fills.</p><span class="proof__live" data-live="mint">Checked live at launch</span></div>
-          <div class="proof card"><span class="proof__icon">✓</span><h3>No freeze button</h3><p>No one can lock your tokens or stop you from selling.</p><span class="proof__live" data-live="freeze">Checked live at launch</span></div>
-          <div class="proof card"><span class="proof__icon">✓</span><h3>Liquidity can't be pulled</h3><p>Fair launch on Raydium LaunchLab. When the curve fills, the pool's liquidity is burned or locked for good. Nobody, including us, can pull it.</p><span class="proof__live">LaunchLab standard</span></div>
-          <div class="proof card"><span class="proof__icon">✓</span><h3>Fixed supply</h3><p><span id="supply-text">1,000,000,000</span> $VICINITY. That's it, forever.</p><span class="proof__live" data-live="supply2">Checked live at launch</span></div>
-          <div class="proof card"><span class="proof__icon">✓</span><h3>Team wallets public</h3><p>Every wallet we control is listed on this site and labeled in the holder list.</p><span class="proof__live" id="team-count">Listed at launch</span></div>
-          <div class="proof card"><span class="proof__icon">✓</span><h3>No presale</h3><p>No presale and no private sale. The team buys on the same public LaunchLab curve as everyone, from public wallets.</p><span class="proof__live">LaunchLab standard</span></div>
+        <div class="section-head">
+          <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Holders · live</p>
+          <h2>Everyone who holds $VICINITY.</h2>
+          <p class="muted">Straight from the blockchain, refreshed every minute. Pools and team wallets are labeled; ranks are for people only.</p>
+        </div>
+        <div class="holders card" aria-live="polite">
+          <div class="holders__head">
+            <span id="holders-status">The live holder list opens the moment $VICINITY launches.</span>
+            <div class="holders__tools">
+              <label class="sr-only" for="holders-find">Find a wallet in the list</label>
+              <input id="holders-find" type="search" placeholder="Find a wallet" autocomplete="off" spellcheck="false" maxlength="60">
+              <button class="link-btn" type="button" id="holders-refresh" hidden>Refresh</button>
+            </div>
+          </div>
+          <div class="table-scroll" id="holders-scroll" tabindex="0" aria-label="Holder list (scrolls)">
+            <table class="holders__table" id="holders-table">
+              <thead><tr><th>#</th><th>Wallet</th><th class="num">Amount</th><th class="num">% of supply</th></tr></thead>
+              <tbody id="holders-body">
+                <tr class="skeleton"><td>1</td><td><span></span></td><td class="num"><span></span></td><td class="num"><span></span></td></tr>
+                <tr class="skeleton"><td>2</td><td><span></span></td><td class="num"><span></span></td><td class="num"><span></span></td></tr>
+                <tr class="skeleton"><td>3</td><td><span></span></td><td class="num"><span></span></td><td class="num"><span></span></td></tr>
+                <tr class="skeleton"><td>4</td><td><span></span></td><td class="num"><span></span></td><td class="num"><span></span></td></tr>
+                <tr class="skeleton"><td>5</td><td><span></span></td><td class="num"><span></span></td><td class="num"><span></span></td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
@@ -88,41 +107,23 @@
               <div><dt>To pass the next wallet</dt><dd id="rank-next">—</dd></div>
               <div><dt>Founder amount (100K to 1M by city size, held 7 days)</dt><dd id="rank-founder">—</dd></div>
             </dl>
-            <button class="link-btn" type="button" id="rank-show">Show it in the holder list ↓</button>
+            <button class="link-btn" type="button" id="rank-show">Show it in the holder list ↑</button>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- ============ HOLDERS ============ -->
-    <section id="holders" class="section">
+    <!-- ============ NO RUG PULL ============ -->
+    <section class="section section--tight">
       <div class="wrap">
-        <div class="section-head">
-          <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Holders · live</p>
-          <h2>Everyone who holds $VICINITY.</h2>
-          <p class="muted">Straight from the blockchain, refreshed every minute. Pools and team wallets are labeled; ranks are for people only.</p>
-        </div>
-        <div class="holders card" aria-live="polite">
-          <div class="holders__head">
-            <span id="holders-status">The live holder list opens the moment $VICINITY launches.</span>
-            <div class="holders__tools">
-              <label class="sr-only" for="holders-find">Find a wallet in the list</label>
-              <input id="holders-find" type="search" placeholder="Find a wallet" autocomplete="off" spellcheck="false" maxlength="60">
-              <button class="link-btn" type="button" id="holders-refresh" hidden>Refresh</button>
-            </div>
-          </div>
-          <div class="table-scroll" id="holders-scroll" tabindex="0" aria-label="Holder list (scrolls)">
-            <table class="holders__table" id="holders-table">
-              <thead><tr><th>#</th><th>Wallet</th><th class="num">Amount</th><th class="num">% of supply</th></tr></thead>
-              <tbody id="holders-body">
-                <tr class="skeleton"><td>1</td><td><span></span></td><td class="num"><span></span></td><td class="num"><span></span></td></tr>
-                <tr class="skeleton"><td>2</td><td><span></span></td><td class="num"><span></span></td><td class="num"><span></span></td></tr>
-                <tr class="skeleton"><td>3</td><td><span></span></td><td class="num"><span></span></td><td class="num"><span></span></td></tr>
-                <tr class="skeleton"><td>4</td><td><span></span></td><td class="num"><span></span></td><td class="num"><span></span></td></tr>
-                <tr class="skeleton"><td>5</td><td><span></span></td><td class="num"><span></span></td><td class="num"><span></span></td></tr>
-              </tbody>
-            </table>
-          </div>
+        <div class="section-head"><p class="kicker">No rug pull</p><h2 class="h2--sm">Here's the proof.</h2></div>
+        <div class="proof-grid">
+          <div class="proof card"><span class="proof__icon">✓</span><h3>Minting disabled</h3><p>No one, including us, can ever create more $VICINITY. Raydium switches minting off for good when the LaunchLab curve fills.</p><span class="proof__live" data-live="mint">Checked live at launch</span></div>
+          <div class="proof card"><span class="proof__icon">✓</span><h3>No freeze button</h3><p>No one can lock your tokens or stop you from selling.</p><span class="proof__live" data-live="freeze">Checked live at launch</span></div>
+          <div class="proof card"><span class="proof__icon">✓</span><h3>Liquidity can't be pulled</h3><p>Fair launch on Raydium LaunchLab. When the curve fills, the pool's liquidity is burned or locked for good. Nobody, including us, can pull it.</p><span class="proof__live">LaunchLab standard</span></div>
+          <div class="proof card"><span class="proof__icon">✓</span><h3>Fixed supply</h3><p><span id="supply-text">1,000,000,000</span> $VICINITY. That's it, forever.</p><span class="proof__live" data-live="supply2">Checked live at launch</span></div>
+          <div class="proof card"><span class="proof__icon">✓</span><h3>Team wallets public</h3><p>Every wallet we control is listed on this site and labeled in the holder list.</p><span class="proof__live" id="team-count">Listed at launch</span></div>
+          <div class="proof card"><span class="proof__icon">✓</span><h3>No presale</h3><p>No presale and no private sale. The team buys on the same public LaunchLab curve as everyone, from public wallets.</p><span class="proof__live">LaunchLab standard</span></div>
         </div>
       </div>
     </section>
