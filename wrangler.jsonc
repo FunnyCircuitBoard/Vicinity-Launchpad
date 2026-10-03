@@ -31,7 +31,12 @@
     "VICINITY_MINT": "",
     // The new sign-up (location → account with Google or e-mail + password → wallet → dashboard), on since 3 Oct 2026.
     // Any other value (change it, do not delete the line: keep_vars would keep the old value) brings the old sign-up back at the next deploy.
-    "SIGNUP_FLOW": "v2"
+    "SIGNUP_FLOW": "v2",
+    // Member profiles, the Launchpad's city-coin list and the tabbed dashboard: all on since 3 Oct 2026 (the owner's
+    // "launch everything live"). Any other value than "on" (change it, do not delete the line: keep_vars) turns one off.
+    "PROFILES": "on",
+    "LAUNCHPAD_V2": "on",
+    "DASHBOARD_V2": "on"
   },
   "assets": {
     "directory": "./public",
