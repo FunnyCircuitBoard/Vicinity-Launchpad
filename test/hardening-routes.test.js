@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { MINT, browser, chain, newWorld, person, realClock, useClock } from "./helpers/world.js";
 import { _resetSnapshots } from "../src/chain.js";
+import { publicLimit } from "../src/guards.js";
 
 /** A stand-in for Cloudflare's Cache API (caches.default), keyed by URL, so the cached() wrapper can be watched. */
 function fakeCaches() {
@@ -71,4 +72,35 @@ test("GET /api/rank is cached for 30 seconds per token and wallet; a chain failu
   assert.equal((await browser(env).send(`/api/rank?address=${p.w.address}`, { fetchImpl: down })).status, 200, "answered from the cache, the chain is not asked");
   assert.equal((await browser(env).send("/api/rank?address=nope")).status, 400);
   assert.deepEqual(keys(), [`rank-${MINT}-${p.w.address}`], "a bad request is not kept either");
+});
+
+test("the rate-limit guard (src/guards.js) answers null for a first request and is called first on the public chain-touching routes", async () => {
+  const req = new Request("https://vicinity.test/api/rank?address=x", { headers: { "cf-connecting-ip": "203.0.113.9" } });
+  assert.equal(await publicLimit(env, req, "rank"), null, "a first request is never over the limit");
+
+  // the wiring, read from the source: the guard runs at the top of each route, before the handler that reaches the blockchain
+  const src = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+  const block = (route) => { const i = src.indexOf(`case "${route}":`); assert.ok(i >= 0, route); return src.slice(i, src.indexOf("\n    case ", i + 1)); };
+  for (const [route, kind, handler] of [
+    ["/api/verify", "verify", "handleVerify("],
+    ["/api/auth/transfer", "transfer", "handleTransferStart("],
+    ["/api/auth/transfer/check", "transfer_check", "handleTransferCheck("],
+    ["/api/pair", "pair", "handlePairStart("],
+    ["/api/rank", "rank", "rankResponse("],
+  ]) {
+    const text = block(route);
+    const guard = text.indexOf(`publicLimit(env, request, "${kind}")`);
+    assert.ok(guard >= 0, `${route} calls publicLimit with kind "${kind}"`);
+    assert.ok(text.indexOf(handler) > guard, `${route}: the guard comes before ${handler}`);
+  }
+  assert.ok(!block("/api/pair").includes('publicLimit(env, request, "pair")) || handlePairStatus'), "GET /api/pair (a phone polling its code) is not counted");
+});
+
+test("with the guard allowing a request, the guarded routes answer as before", async () => {
+  const p = await person(env, { holds: 5 });
+  assert.equal((await browser(env).get(`/api/rank?address=${p.w.address}`)).amount, 5);
+  assert.equal((await browser(env).post("/api/verify", {})).error, "bad_address", "the handler is reached (and refuses an empty body as before)");
+  const t = await browser(env).post("/api/auth/transfer", { address: p.w.address });
+  assert.equal(t.ok, true, JSON.stringify(t));
+  assert.equal((await browser(env).post("/api/pair", {})).ok, true);
 });

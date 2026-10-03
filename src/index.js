@@ -55,6 +55,7 @@ import { handleCoins, handleDecideMint, handleDesign, handlePrices, handlePropos
 import { runJobs } from "./jobs.js";
 import { v2On } from "./flags.js";
 import { routeV2 } from "./signup.js";
+import { publicLimit } from "./guards.js";
 
 export { json, activeMint };
 
@@ -186,7 +187,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       return json(verdict);
     }
     case "/api/verify":
-      return only("POST") || handleVerify(request, env, Date.now(), fetchImpl);
+      return only("POST") || (await publicLimit(env, request, "verify")) || handleVerify(request, env, Date.now(), fetchImpl);
     case "/api/token": {
       const blocked = only("GET");
       if (blocked) return blocked;
@@ -209,6 +210,8 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/rank": {
       const blocked = only("GET");
       if (blocked) return blocked;
+      const slow = await publicLimit(env, request, "rank");
+      if (slow) return slow;
       const address = url.searchParams.get("address");
       if (!isSolanaAddress(address)) return json({ error: "bad_address" }, 400);
       const mint = activeMint(env);
@@ -306,13 +309,13 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/auth/reprove":
       return only("POST") || handleReprove(request, env);
     case "/api/auth/transfer":
-      return only("POST") || handleTransferStart(request, env);
+      return only("POST") || (await publicLimit(env, request, "transfer")) || handleTransferStart(request, env);
     case "/api/auth/transfer/check":
-      return only("POST") || handleTransferCheck(request, env, Date.now(), fetchImpl);
+      return only("POST") || (await publicLimit(env, request, "transfer_check")) || handleTransferCheck(request, env, Date.now(), fetchImpl);
     case "/api/auth/logout":
       return only("POST") || handleLogout(request, env);
     case "/api/pair":
-      if (method === "POST") return handlePairStart(request, env);
+      if (method === "POST") return (await publicLimit(env, request, "pair")) || handlePairStart(request, env);
       return only("GET") || handlePairStatus(request, env);
     case "/api/pair/finish":
       return only("POST") || handlePairFinish(request, env);
