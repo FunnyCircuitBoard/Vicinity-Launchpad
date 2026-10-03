@@ -493,15 +493,20 @@ export async function sendEmailCode(env, email, { fetchImpl = fetch, now = Date.
     return { ok: false, error: soon ? "too_soon" : "too_many", status: 429 };
   }
 
+  // The mail never left: give the slot back (and kill the code nobody received).
+  const giveBack = () => env.DB.prepare("UPDATE email_codes SET last_sent_at = NULL, send_count = MAX(send_count - 1, 0), expires_at = ? WHERE email = ? AND code_hash = ?").bind(iso(now), email, hash).run();
   const deliver = async () => {
     const sent = await sendCodeEmail(env, email, code, fetchImpl, mailer, kind);
-    // The mail never left: give the slot back (and kill the code nobody received).
-    if (!sent.ok) await env.DB.prepare("UPDATE email_codes SET last_sent_at = NULL, send_count = MAX(send_count - 1, 0), expires_at = ? WHERE email = ? AND code_hash = ?").bind(iso(now), email, hash).run();
+    if (!sent.ok) await giveBack();
     return sent;
   };
   if (noSend) { /* nothing is sent */ }
-  else if (waitUntil) waitUntil(deliver().catch((e) => console.error("code e-mail failed", String((e && e.message) || e))));
-  else {
+  else if (waitUntil) {
+    waitUntil(deliver().catch(async (e) => {
+      console.error("code e-mail failed", String((e && e.message) || e));
+      try { await giveBack(); } catch { /* the slot frees itself after a minute anyway */ }
+    }));
+  } else {
     const sent = await deliver();
     if (!sent.ok) return { ...sent, status: 503 };
   }

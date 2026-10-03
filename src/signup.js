@@ -361,8 +361,10 @@ async function handleEmailVerify(request, env, x) {
 /* ---------------- 4. finish: the one atomic step that creates the account ---------------- */
 
 /**
- * Seven statements, one database transaction (D1 batch). Every ?N is a value of `finishValues` below. Nothing is created unless
- * EVERYTHING is still true at that moment; on any failure nothing at all changed, so nothing the person proved is burned.
+ * Seven statements, one database transaction (D1 batch). Nothing is created unless EVERYTHING is still true at that moment;
+ * on any failure nothing at all changed, so nothing the person proved is burned. The values, in order: ?1 a one-time marker,
+ * ?2 the pending session, ?3 its wallet, ?4 now, ?5 the oldest wallet proof still fresh, ?6 the sign-up, ?7 the Terms version,
+ * ?8 provider, ?9 provider id, ?10 the username, ?11 early member (0 or 1), ?12 the new session id, ?13 its end.
  *   1  marks the pending wallet session with a one-time value, only if the session, the sign-up (Terms, community, identity)
  *      are all still good and neither the wallet nor the identity has an account
  *   2  the account, built ONLY from database rows (the pending session's wallet, the sign-up), never from the request
