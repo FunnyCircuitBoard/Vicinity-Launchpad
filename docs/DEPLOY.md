@@ -38,7 +38,7 @@ The database needs nothing at deploy time: the code creates and upgrades its tab
 - [ ] E-mail sending: check the plan of the mail service (Resend's free plan allows about 100 e-mails a day). Add a Cloudflare rate-limiting rule on `POST /api/auth/email/*` (*Security* → *WAF* → *Rate limiting rules*), for example 5 requests per 10 minutes per IP.
 - [ ] Wipe the test data: sign in to `/admin` with the owner wallet → *Test lab* → *Reset* (needs a fresh wallet signature). It deletes only the rows the test lab created.
 - [ ] Go live: pull request changing `SITE_MODE` to `"live"` in `wrangler.jsonc`, merge, approve the deploy. (In `live` mode the test lab can no longer be seeded.)
-- [ ] After the token launch: pull request adding `VICINITY_MINT`.
+- [x] After the token launch: pull request adding `VICINITY_MINT` (done 3 Oct 2026: `2e8VdgpT27LcNWyfk5Ce6ZyGwMdu7ajaSnMph83Xwray`).
 - [x] The `workers.dev` addresses are switched off (`"workers_dev": false` in `wrangler.jsonc`, applied by the next deploy) and removed from the official-links list. Set it back to `true` only for a short test.
 
 ## Rolling back
