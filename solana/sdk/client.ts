@@ -203,6 +203,9 @@ export interface CityAddresses {
 export interface InitRegistryParams {
   payer: PublicKey;
   upgradeAuthority: PublicKey;
+  // Becomes registry.admin. The program requires its signature (a key nobody
+  // holds could never be replaced), so this is normally the deploying wallet;
+  // a multisig takes over afterwards with proposeAdmin / acceptAdmin.
   admin: PublicKey;
   overrides?: Record<string, PublicKey>;
 }
@@ -297,6 +300,12 @@ export class VicinityClient {
 
   programDataAddress(): PublicKey {
     return deriveProgramData(this.programId).address;
+  }
+
+  // ProgramData address of any upgradeable program (the tests use another
+  // program's to prove init_registry refuses it).
+  programDataAddressOf(programId: PublicKey): PublicKey {
+    return deriveProgramData(programId).address;
   }
 
   city(cityCoinMint: PublicKey): CityAddresses {
@@ -812,6 +821,46 @@ export interface ClaimStatusView {
   amount: bigint;
   claimedAt: number;
   bump: number;
+}
+
+// Upgrade authority recorded in a ProgramData account of the BPF upgradeable
+// loader: u32 variant (3 = ProgramData) | u64 slot | Option<Pubkey> (1-byte tag,
+// 32-byte key). null means the program is frozen (no authority).
+export function upgradeAuthorityOf(data: Uint8Array): PublicKey | null {
+  const b = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  if (b.length < 45 || b.readUInt32LE(0) !== 3) throw new Error("not a ProgramData account");
+  return b[12] === 1 ? new PublicKey(b.subarray(13, 45)) : null;
+}
+
+// Why a founder address may never be able to spend its founder share. The
+// program refuses the zero address, the config PDA, the vault and (at init_city
+// and at every funding) any account it owns itself; it cannot see whether some
+// program can sign for an arbitrary off-curve key. The Worker shows these
+// warnings before init_city and set_founder; an empty list is "nothing known
+// against it", not a guarantee.
+export function founderWarnings(founder: PublicKey, city: { config: PublicKey; vault: PublicKey; programId: PublicKey }): string[] {
+  const out: string[] = [];
+  if (founder.equals(PublicKey.default)) out.push("the zero address: refused by the program (InvalidFounder)");
+  if (founder.equals(city.config)) out.push("the city's config PDA: refused by the program (FounderIsProgramAccount)");
+  if (founder.equals(city.vault)) out.push("the city's vault: refused by the program (FounderIsProgramAccount)");
+  if (founder.equals(deriveRegistry(city.programId).address)) out.push("this program's registry PDA: refused at init_city and at every funding (FounderIsProgramAccount)");
+  if (!PublicKey.isOnCurve(founder.toBytes())) {
+    out.push(
+      "not on the ed25519 curve, so a program address: only a program that signs token transfers for it (a Squads vault) can ever spend the founder share; this program's own PDAs and associated token account addresses cannot"
+    );
+  }
+  return out;
+}
+
+// The on-chain part of the same check: what the account at `founder` is today.
+export async function founderAccountWarnings(connection: Connection, founder: PublicKey, programId: PublicKey): Promise<string[]> {
+  const info = await connection.getAccountInfo(founder, "confirmed");
+  if (!info) return [];
+  const out: string[] = [];
+  if (info.owner.equals(programId)) out.push("an account of this program (registry, config, epoch or claim status): refused at init_city and at every funding (FounderIsProgramAccount)");
+  if (info.owner.equals(TOKEN_PROGRAM_ID) || info.owner.equals(TOKEN_2022_PROGRAM_ID)) out.push("a token account address: nothing can sign for it unless someone holds its private key, so the founder share would be stuck");
+  if (info.executable) out.push("an executable program account: nothing can sign for it");
+  return out;
 }
 
 const KNOWN_ADDRESSES: Record<string, PublicKey> = {

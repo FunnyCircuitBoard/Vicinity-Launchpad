@@ -9,9 +9,9 @@ tests against a validator) or `#[test]` names in the Rust sources.
 
 | key | can | cannot |
 |---|---|---|
-| **Program upgrade authority** (the deployer; must become a multisig or be removed after the audit) | replace the program with any code (and therefore do anything, including draining vaults); create the registry once | nothing is denied to it while it exists, which is why `README.md` step 6 to 8 move or remove it |
+| **Program upgrade authority** (the deployer; must become a multisig or be removed after the audit) | replace the program with any code (and therefore do anything, including draining vaults); create the registry once, naming an admin that signs alongside it | nothing is denied to it while it exists, which is why `README.md` step 6 to 8 move or remove it; it cannot name an admin that did not sign |
 | **Registry admin** (`Registry.admin`, recommended: Squads multisig) | create a city's config and vault, choosing the authority, founder, model and split at creation; hand the admin role on (two-step) | change anything about an existing city; touch money |
-| **City authority** (`CityConfig.authority` per city; recommended: multisig) | publish epochs (deposit or vault surplus + Merkle root), pause/unpause, sweep after the deadline, cancel before any claim, change the founder, lock, hand the role on (two-step) | move vault money to itself or anyone except through a published root; change model, split, mints or vault after lock; shorten a claim window; sweep before the (pause-extended) deadline; cancel once anyone has claimed |
+| **City authority** (`CityConfig.authority` per city; recommended: multisig) | publish epochs (deposit or vault surplus + Merkle root), pause/unpause for as long as it likes, sweep after the deadline, cancel before any claim, change the founder, lock, hand the role on (two-step) | move vault money to itself or anyone except through a published root; change model, split, mints or vault after lock; shorten a claim window; sweep before the (pause-extended) deadline; cancel once anyone has claimed. An indefinite pause locks every open epoch (no claim, no sweep) until it unpauses: money delayed, never taken (3.8) |
 | **Funder** (any token account owner, often the authority) | deposit money into an epoch it co-signs with the authority | anything else |
 | **Founder** | receive the founder share (passively) | block anything except by making its own token account unusable (see 3.4) |
 | **Claimant** (any wallet) | claim exactly the leaf that names it, once per epoch, while the epoch is open; close its claim status after sweep or cancel | claim twice, claim another leaf, claim more than the leaf or than the epoch holds, claim after the deadline |
@@ -70,6 +70,17 @@ upgrade authority is removed before the registry exists, no city can ever be
 configured under that program id: `README.md` makes `init_registry` the first
 transaction after deploy.
 
+The admin named at `init_registry` must sign as well. The registry is created
+once and `propose_admin` needs the stored admin, so an admin nobody controls (a
+mistyped address, the vault of the wrong multisig) would have left `init_city`
+unusable for ever, with a program upgrade as the only remedy. A signature
+proves the key exists and is live, exactly as `init_city` demands the
+authority's signature. The deployer therefore starts as admin and hands the
+role to the multisig with `propose_admin` / `accept_admin`, where the accept is
+the same proof; `scripts/init-registry.ts` does both steps and prints the
+accept instruction, and `README.md` step 6 moves the upgrade authority only
+after the multisig is the admin.
+
 ### 3.4 The founder's token account can block funding
 `fund_epoch` and `fund_epoch_from_vault` create or use the founder's associated
 token account. A founder can re-own that account (classic SPL Token
@@ -110,6 +121,18 @@ funded before the pause, for both `claim` and `sweep_epoch`. So the first draft'
 problem (pause, wait out the deadline, sweep, carry the money to a new root) is
 closed; the test "a pause extends the deadline" proves it against a real clock.
 
+The flip side is a trust limit, not a bug: while a city is paused nobody can
+claim (`Paused`) and nobody can sweep either (the effective deadline moves with
+the clock, so `ClaimDeadlineNotPassed`), and only the authority can unpause. A
+compromised or absent authority can therefore keep every open epoch's holder
+money frozen for as long as the pause lasts. The money cannot be taken, only
+delayed; `cancel_epoch` still works for epochs without claims. A long pause
+also carries an epoch's effective window past `MAX_CLAIM_WINDOW_SECS`, which is
+a policy maximum on the nominal window, not on pause time. A cap on the total
+pause per epoch would reopen the pause-and-sweep path for a stuck authority, so
+documenting the limit and alerting on long pauses is the recommended default
+(`AUDIT.md` product decision 19).
+
 ### 3.9 Findings of the internal review, and how each was closed
 The program was reviewed once before this pack was assembled. Every finding and
 its outcome:
@@ -119,9 +142,12 @@ its outcome:
    registry (3.3): `init_city` needs `registry.admin`, `init_registry` needs the
    upgrade authority. Tests: 01 "a stranger cannot create the config for a coin
    Vicinity has not configured (Unauthorized)", "a key that is not the upgrade
-   authority cannot create the registry (NotUpgradeAuthority)", "two-step admin
-   transfer: propose, wrong accept, accept; the old admin loses the power and
-   the new one has it".
+   authority cannot create the registry (NotUpgradeAuthority)", "a real
+   ProgramData account of another program is refused by the program binding
+   (NotUpgradeAuthority), not by an earlier error" (a second copy of the
+   program in the test validator, see 3.10), "the admin must sign ...", "two-step
+   admin transfer: propose, wrong accept, accept; the old admin loses the power
+   and the new one has it".
 2. **Tokens sent straight to the vault were stuck.** There is no withdraw by
    design and `fund_epoch` only booked a funder's deposit. Closed by
    `fund_epoch_from_vault`: the unaccounted surplus (vault minus what open
@@ -146,9 +172,12 @@ its outcome:
    is refused".
 5. **Founder = config PDA or vault.** The founder share would land in a token
    account that no key can ever sign for. Closed by `FounderIsProgramAccount`
-   (and the zero address by `InvalidFounder`) in `init_city` and `set_founder`.
-   Test: 01 "rejects the config PDA and the vault as founder" (both
-   instructions).
+   (and the zero address by `InvalidFounder`) in `init_city` and `set_founder`;
+   widened after the second review to every account this program owns, checked
+   at `init_city` and at every funding (3.10). Tests: 01 "rejects the config
+   PDA, the vault, the registry PDA and another city's config as founder"; 02
+   "a founder that is an account of this program is refused at funding, before
+   any money moves".
 6. **Token-2022 `MintCloseAuthority`.** A closable reward mint could be closed
    while its supply is 0 (before the first funding) and recreated at the same
    address with other extensions. Closed by removing it from the allow-list.
@@ -176,6 +205,43 @@ its outcome:
    put into a transaction (1232-byte runtime limit)"; 06 compute units at depth
    20 and 22.
 
+### 3.10 Findings of the second review, and how each was closed
+A second adversarial pass over the fixes above (on chain, with a short-windows
+build, plus the Anchor source) confirmed the registry gate, the vault
+accounting, the pause arithmetic and the mint and founder checks, and raised
+four low findings:
+
+1. **`init_registry` stored an admin that never signed.** A wrong
+   `REGISTRY_ADMIN` would have disabled `init_city` for ever with no in-program
+   recovery. Closed in the program: `admin` is a `Signer` (3.3), and
+   `scripts/init-registry.ts` creates the registry with the wallet as admin,
+   proposes the multisig and prints the accept instruction. Test: 01 "the admin
+   must sign: a key nobody controls can never become the only key that may
+   create cities (AccountNotSigner)".
+2. **The foreign-ProgramData test passed for the wrong reason.** A random key
+   fails at deserialization (`AccountNotInitialized`) before the constraint
+   `program.programdata_address() == program_data` is reached. Closed: the test
+   validator loads a second copy of the program at another address
+   (`Anchor.toml [[test.genesis]]`, upgradeable, test wallet as its upgrade
+   authority) and 01 passes its real ProgramData, asserting exactly
+   `NotUpgradeAuthority`; the other program in the `program` slot
+   (`InvalidProgramId`), its executable account as `program_data`
+   (`AccountNotProgramData`) and the random key (`AccountNotInitialized`) are
+   asserted separately. Dropping the constraint now turns the suite red.
+3. **`FounderIsProgramAccount` was a partial filter and its comment said "any
+   wallet or PDA works".** Closed as far as the chain can see: `init_city`,
+   `fund_epoch` and `fund_epoch_from_vault` refuse a founder whose account is
+   owned by this program (registry, config, epoch, claim status) and the epoch
+   being created; `set_founder` only sees a key, so a bad choice there fails
+   at the next funding before any money moves and is corrected with another
+   `set_founder`. The chain cannot know whether anyone can sign for an
+   arbitrary off-curve key or a token account address, so
+   `sdk/client.ts` `founderWarnings` / `founderAccountWarnings` flag those for
+   the operator (section 5). Tests: 01 and 02 as listed in item 5 of 3.9, 01
+   "SDK founderWarnings names what the program refuses and flags off-curve keys".
+4. **Trust limit of pause not stated.** Documented in 3.8, the table in
+   section 1, section 5 and `AUDIT.md` (limitation 12, product decision 19).
+
 ## 4. The owner's list, item by item
 
 | risk | mechanism | proven by |
@@ -191,9 +257,9 @@ its outcome:
 | **Failed claims** | a claim either fully succeeds or changes nothing (one transaction); the claimant's token account is created if missing (`init_if_needed`, rent paid by the claimant); claims are accepted until the pause-extended deadline, then the money is carried over, never lost; claim status rent is returned after sweep | 03 "holder 0 claims 100: ATA created...", "a claimant with an existing ATA keeps the old balance"; 04 "after the deadline: claim is refused", "a pause extends the deadline...", "close_claim_status: ... rent returns to the claimant" |
 | **Accounting inconsistencies** | four lifetime totals and `carry_over` updated in the same instruction as the transfer, all checked arithmetic, `overflow-checks = true`; six invariants asserted after every test, including `vault == total_to_holders - total_claimed` (plus any not-yet-booked direct deposits) and `sum(epoch.claimed) == total_claimed` | `assertInvariants` in `tests/helpers.ts`, called in every `afterEach`; 02 `fund_epoch_from_vault` tests state the unaccounted amount explicitly before booking it; Rust `fund_epoch_from_vault::tests` |
 | **Account substitution** (wrong vault, other city's accounts, forged PDAs, wrong mint or token program, someone else's founder ATA) | every PDA is re-derived from seeds, `has_one` ties authority, mints, vault and founder to the config, token accounts are bound to the mint and token program, recipients are associated token accounts of the stored keys | all of 05; 02 "founder token account must be the founder's ATA...", "reward mint account must be config.reward_mint" |
-| **Config squatting** | `init_city` requires the registry admin; `init_registry` requires the upgrade authority | 01 "a stranger cannot create the config for a coin Vicinity has not configured", "a key that is not the upgrade authority cannot create the registry", "two-step admin transfer..." |
+| **Config squatting** | `init_city` requires the registry admin; `init_registry` requires the upgrade authority and a signing admin, and binds `program_data` to this program's ProgramData | 01 "a stranger cannot create the config for a coin Vicinity has not configured", "a key that is not the upgrade authority cannot create the registry", "a real ProgramData account of another program is refused by the program binding", "the admin must sign...", "two-step admin transfer..." |
 | **Money stuck in the vault** | `fund_epoch_from_vault` books direct deposits with the same rules as `fund_epoch` | 02 "Split 50%: the unaccounted vault balance becomes an epoch..." and the rest of that block; demo step "A fee wallet sends 100 straight to the vault; fund_epoch_from_vault turns it into epoch 3" |
-| **Lost founder share** | the founder may not be the zero address, the config PDA or the vault (their token accounts could never be emptied) | 01 "rejects the config PDA and the vault as founder" (init and set_founder) |
+| **Lost founder share** | the founder may not be the zero address, the config PDA, the vault or any account this program owns; `init_city` and both funding instructions check it, so a wrong `set_founder` fails before paying; the SDK warns about off-curve keys and token accounts the chain cannot judge | 01 "rejects the config PDA, the vault, the registry PDA and another city's config as founder", "SDK founderWarnings..."; 02 "a founder that is an account of this program is refused at funding, before any money moves" |
 | **Oversized or malicious proofs** | proof length checked before any hashing (cap 32); a legacy transaction cannot even carry 23 elements; a 2,000-leaf tree needs 11 | 03 "overlong proof is rejected...", "a 33-element proof cannot even be put into a transaction"; 06 compute at depth 11, 20 and 22 |
 
 ## 5. Known limitations (also in AUDIT.md)
@@ -207,6 +273,14 @@ its outcome:
 * `fund_epoch_from_vault` is the second outflow of the vault; it is bounded by
   `founder_bps` of money that no epoch has booked and it is recorded in
   `total_to_founder`.
+* An indefinite pause by the authority freezes every open epoch (no claim, no
+  sweep) until it unpauses; money is delayed, never taken, and a long pause
+  carries an epoch past the 365-day policy maximum.
+* The founder check is a filter, not a proof: the program refuses the keys it
+  can recognise as unspendable (zero, its own accounts, the vault); a lost
+  wallet, an off-curve key without a signing program or a token account
+  address are accepted, and the share paid to such a key is stuck. The Worker
+  shows the SDK's founder warnings before `init_city` and `set_founder`.
 
 ## 6. Reporting
 

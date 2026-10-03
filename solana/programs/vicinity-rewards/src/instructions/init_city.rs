@@ -37,10 +37,17 @@ pub struct InitCity<'info> {
     /// same key as `admin`.
     pub authority: Signer<'info>,
 
-    /// CHECK: only the key is stored (`config.founder`). The founder's reward
-    /// token account is derived from it later as an associated token account,
-    /// so any wallet or PDA works. Must not be the zero address, the config or
-    /// the vault (money sent to their token accounts could never move again).
+    /// CHECK: only the key is stored (`config.founder`). The founder share is
+    /// paid to this key's associated token account, so the key must be one that
+    /// can sign token transfers: a wallet, or a program address whose program
+    /// signs for it (a Squads vault does; this program's own PDAs never do).
+    /// The program cannot see whether anyone can sign for an arbitrary key, so
+    /// it refuses only what it can recognise: the zero address, the config,
+    /// the vault, and any account it owns itself (registry, another config, an
+    /// epoch, a claim status: `owner == this program`). `fund_epoch` and
+    /// `fund_epoch_from_vault` repeat the owner check at every funding, so a
+    /// later `set_founder` to such an account fails before any money moves.
+    #[account(constraint = *founder.owner != crate::ID @ RewardsError::FounderIsProgramAccount)]
     pub founder: UncheckedAccount<'info>,
 
     /// The city coin. Identity of the config; this program never moves it.

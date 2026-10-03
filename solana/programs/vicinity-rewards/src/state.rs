@@ -85,7 +85,8 @@ pub struct CityConfig {
     /// Unclaimed holder money from swept or cancelled epochs, rolled into the
     /// next epoch's `holders_amount`.
     pub carry_over: u64,
-    /// Lifetime amount deposited through `fund_epoch`.
+    /// Lifetime amount distributed: `fund_epoch` deposits plus the vault
+    /// surpluses booked by `fund_epoch_from_vault`.
     pub total_funded: u64,
     /// Lifetime amount paid to founders. Invariant: total_funded == total_to_founder + total_to_holders.
     pub total_to_founder: u64,

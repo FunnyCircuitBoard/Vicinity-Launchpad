@@ -72,7 +72,16 @@ pub struct FundEpoch<'info> {
     pub vault: InterfaceAccount<'info, TokenAccount>,
 
     /// CHECK: must equal `config.founder` (`has_one`); used only as the owner
-    /// of the associated token account below.
+    /// of the associated token account below. It must not be an account of
+    /// this program (registry, a config, an epoch, a claim status) and not the
+    /// epoch created here: nothing could ever sign a transfer out of such a
+    /// key's token account, so the share would be lost. `set_founder` only
+    /// sees a key, so the check belongs here, before any money moves; the
+    /// authority then fixes the founder with `set_founder` and funds again.
+    #[account(
+        constraint = *founder.owner != crate::ID @ RewardsError::FounderIsProgramAccount,
+        constraint = founder.key() != epoch.key() @ RewardsError::FounderIsProgramAccount,
+    )]
     pub founder: UncheckedAccount<'info>,
 
     /// The founder's associated token account for `reward_mint`. The ATA

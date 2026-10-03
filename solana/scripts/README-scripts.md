@@ -72,13 +72,18 @@ The demo exits with code 1 if any "must fail" step succeeds.
 ANCHOR_PROVIDER_URL=<rpc url> ANCHOR_WALLET=<upgrade authority keypair> REGISTRY_ADMIN=<admin public key> npm run init-registry
 ```
 
-Creates the `["registry"]` PDA with `REGISTRY_ADMIN` as the only key that may
-create city configs (without the variable the wallet itself becomes admin).
-It reads the program's ProgramData account first and refuses when the wallet is
-not the upgrade authority, does nothing when the registry already exists, and
-prints the transaction with an explorer link. The devnet-demo creates the
-registry itself when it is missing, so on devnet either order works; on
-mainnet this script is step 5 of the README's deployment procedure.
+Creates the `["registry"]` PDA with the wallet as admin (the program requires
+the admin to sign `init_registry`, so a key nobody holds can never become the
+only key that may create cities). With `REGISTRY_ADMIN` it then proposes that
+key as the new admin (`propose_admin`) and prints the `accept_admin`
+instruction (program, accounts, data) for the multisig to execute; the accept
+proves the key is live. It reads the program's ProgramData account first and
+refuses when the wallet is not the upgrade authority, repeats no step that is
+done (safe to rerun; a rerun after the accept prints the multisig as admin),
+and prints every transaction with an explorer link. The devnet-demo creates
+the registry itself when it is missing, so on devnet either order works; on
+mainnet this script is step 5 of the README's deployment procedure, and step 6
+(moving the upgrade authority) waits until it prints the multisig as admin.
 
 ## Devnet deployment and the real snapshot job
 

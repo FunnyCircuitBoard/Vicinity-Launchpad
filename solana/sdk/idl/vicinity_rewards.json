@@ -627,7 +627,12 @@
         {
           "name": "founder",
           "docs": [
-            "of the associated token account below."
+            "of the associated token account below. It must not be an account of",
+            "this program (registry, a config, an epoch, a claim status) and not the",
+            "epoch created here: nothing could ever sign a transfer out of such a",
+            "key's token account, so the share would be lost. `set_founder` only",
+            "sees a key, so the check belongs here, before any money moves; the",
+            "authority then fixes the founder with `set_founder` and funds again."
           ],
           "relations": [
             "config"
@@ -874,7 +879,8 @@
         {
           "name": "founder",
           "docs": [
-            "of the associated token account below."
+            "of the associated token account below. Same rule as in `fund_epoch`: not",
+            "an account of this program and not the epoch created here."
           ],
           "relations": [
             "config"
@@ -1083,9 +1089,15 @@
         {
           "name": "founder",
           "docs": [
-            "token account is derived from it later as an associated token account,",
-            "so any wallet or PDA works. Must not be the zero address, the config or",
-            "the vault (money sent to their token accounts could never move again)."
+            "paid to this key's associated token account, so the key must be one that",
+            "can sign token transfers: a wallet, or a program address whose program",
+            "signs for it (a Squads vault does; this program's own PDAs never do).",
+            "The program cannot see whether anyone can sign for an arbitrary key, so",
+            "it refuses only what it can recognise: the zero address, the config,",
+            "the vault, and any account it owns itself (registry, another config, an",
+            "epoch, a claim status: `owner == this program`). `fund_epoch` and",
+            "`fund_epoch_from_vault` repeat the owner check at every funding, so a",
+            "later `set_founder` to such an account fails before any money moves."
           ]
         },
         {
@@ -1218,9 +1230,13 @@
         {
           "name": "admin",
           "docs": [
-            "sign because the upgrade authority vouches for it, and it is checked",
-            "against the zero address."
-          ]
+            "Becomes `registry.admin`, the only key that may create city configs.",
+            "It must sign, like `authority` in `init_city`: a key that never signed",
+            "could be one nobody holds, and nothing in the program could ever",
+            "replace it (see the module comment). Usually the deployer itself, which",
+            "then hands the role to the multisig with `propose_admin`."
+          ],
+          "signer": true
         },
         {
           "name": "program",
@@ -1929,7 +1945,7 @@
     {
       "code": 6007,
       "name": "FounderIsProgramAccount",
-      "msg": "founder must not be the config PDA or the vault: nothing could ever move money out of their token accounts"
+      "msg": "founder must not be an account of this program (config, vault, registry, epoch, claim status): nothing could ever move money out of its token account"
     },
     {
       "code": 6008,
@@ -2294,7 +2310,8 @@
           {
             "name": "total_funded",
             "docs": [
-              "Lifetime amount deposited through `fund_epoch`."
+              "Lifetime amount distributed: `fund_epoch` deposits plus the vault",
+              "surpluses booked by `fund_epoch_from_vault`."
             ],
             "type": "u64"
           },

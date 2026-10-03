@@ -85,14 +85,14 @@ directly and has not been booked yet by `fund_epoch_from_vault`.
 
 | instruction | signer(s) | what it does | refuses when |
 |---|---|---|---|
-| `init_registry` | payer, **program upgrade authority** | one-time: creates the registry with `admin` | signer is not the upgrade authority (`NotUpgradeAuthority`), registry exists |
+| `init_registry` | payer, **program upgrade authority**, **admin** | one-time: creates the registry; the admin must sign too, so a key nobody holds can never become the only key that may create cities (there is no second `init_registry`) | signer is not the upgrade authority (`NotUpgradeAuthority`), admin did not sign (`AccountNotSigner`), registry exists |
 | `propose_admin(new)` / `accept_admin` | registry admin / proposed key | two-step admin transfer; zero address cancels | `Unauthorized`, `NoPendingAdmin`, `NotPendingAdmin` |
-| `init_city(model, bps, tag)` | payer, **registry admin**, authority | creates config + vault for one city coin | not admin (`Unauthorized`), bps/model mismatch, reward mint == city coin, unsupported Token-2022 mint, founder zero/config/vault, bad tag, config exists |
+| `init_city(model, bps, tag)` | payer, **registry admin**, authority | creates config + vault for one city coin | not admin (`Unauthorized`), bps/model mismatch, reward mint == city coin, unsupported Token-2022 mint, founder zero or an account of this program (config, vault, registry, epoch, claim status: `FounderIsProgramAccount`), bad tag, config exists |
 | `lock_config` | authority | economics permanent before the first epoch | `AlreadyLocked` |
-| `set_founder(new)` | authority | future founder shares go to `new` | zero, config PDA or vault as founder |
+| `set_founder(new)` | authority | future founder shares go to `new` | zero, the config PDA or the vault; it only sees a key, so any other account of this program is refused by the next funding instead |
 | `propose_authority(new)` / `accept_authority` | authority / proposed key | two-step authority transfer | as for admin |
 | `pause` / `unpause` | authority | blocks funding and claiming; pause time is added to every open epoch's deadline | `AlreadyPaused` / `NotPaused` |
-| `fund_epoch(amount, root, leaves, slot, hash, window)` | authority, funder | moves `founder_bps` of `amount` to the founder's ATA and the rest to the vault, adds `carry_over`, opens the epoch, locks the config | paused, window out of bounds, nothing to distribute, Creator with tree or holder money, Holders/Split without root/leaves/snapshot hash |
+| `fund_epoch(amount, root, leaves, slot, hash, window)` | authority, funder | moves `founder_bps` of `amount` to the founder's ATA and the rest to the vault, adds `carry_over`, opens the epoch, locks the config | paused, window out of bounds, nothing to distribute, Creator with tree or holder money, Holders/Split without root/leaves/snapshot hash, founder is an account of this program (`FounderIsProgramAccount`, fixed with `set_founder`) |
 | `fund_epoch_from_vault(root, leaves, slot, hash, window)` | authority, payer | same, but the money is the vault's **unaccounted surplus** (`vault - (total_to_holders - total_claimed)`); the founder share leaves the vault signed by the config PDA | same rules |
 | `claim(index, leaf_index, amount, proof)` | claimant | pays `amount` from the vault to the claimant's ATA | paused, epoch not open, past the (pause-extended) deadline, index out of range, amount 0, proof too long or invalid, cap exceeded, already claimed (account exists) |
 | `sweep_epoch(index)` | authority | after the deadline: unclaimed money to `carry_over`; state Swept | not open, deadline not passed (pauses extend it) |
@@ -127,7 +127,9 @@ city's **authority** publishes roots (the chain cannot judge a root's fairness,
 only hold it immutable and verifiable), pauses, sweeps, cancels and changes the
 founder. None of them can move vault money to themselves except by publishing a
 root that names themselves, which is public and checkable against the snapshot
-file. Recommended: all three keys on a Squads multisig, the upgrade authority
+file. The authority can also keep a city paused for as long as it likes: while
+paused nobody can claim and nobody can sweep, so holders' money is delayed, not
+taken. Recommended: all three keys on a Squads multisig, the upgrade authority
 frozen after the audit. Details and the per-risk table: `SECURITY.md`.
 
 ## Policy constants (PRODUCT DECISION REQUIRED)
@@ -156,8 +158,17 @@ Policies the binary enforces without a number:
   confidential transfers, default account state, mint close authority or any
   unknown extension (allow-list, fails closed). Recommended: WSOL or USDC.
 * **Registry admin model**: only `registry.admin` can create a city config;
-  only the upgrade authority can create the registry, once. Recommended: the
-  Squads multisig as admin, the Worker's ops key as each city's authority.
+  only the upgrade authority can create the registry, once, and the admin it
+  names must sign (so the deployer starts as admin and hands the role to the
+  multisig with the two-step transfer, whose accept proves the multisig is
+  live). Recommended: the Squads multisig as admin, the Worker's ops key as
+  each city's authority.
+* **Founder address**: the program refuses the zero address, the config, the
+  vault and any account it owns itself; it cannot see whether anyone can sign
+  for an arbitrary key, so the Worker shows `founderWarnings` /
+  `founderAccountWarnings` (`sdk/client.ts`) before `init_city` and
+  `set_founder`. A program address works only if its program signs token
+  transfers for it (a Squads vault does; this program's PDAs do not).
 * **Snapshot hash mandatory** for Holders/Split epochs
   (`MissingSnapshotHash`): a root nobody can recompute is refused.
 
@@ -221,24 +232,33 @@ the owner's machine with the owner's wallet.
    Copy `target/idl/vicinity_rewards.json` to `sdk/idl/` and commit it.
 4. **Deploy.** `solana config set --url mainnet-beta`, make sure the deploying
    wallet holds about 3 SOL (rent for the program data account: 2.57 SOL for
-   the 505 KB binary with `--max-len` equal to its size, about 5.1 SOL with the
+   the 506 KB binary with `--max-len` equal to its size, about 5.1 SOL with the
    default 2x headroom for future upgrades; see `AUDIT.md`), then
    `anchor deploy --provider.cluster mainnet --program-name vicinity_rewards --program-keypair ~/vicinity-mainnet-program.json --verifiable`
    (or `solana program deploy target/verifiable/vicinity_rewards.so --program-id ~/vicinity-mainnet-program.json --use-rpc`;
-   add `--max-len 505133` to pay rent for the exact size instead of the 2x default).
+   add `--max-len <size of your .so in bytes>` (505864 for the build recorded
+   in `AUDIT.md`) to pay rent for the exact size instead of the 2x default).
 5. **Create the registry immediately**, in the same session, with the deploying
-   wallet (the upgrade authority) and the multisig as admin:
+   wallet (the upgrade authority), then hand the admin role to the multisig:
    ```sh
    ANCHOR_PROVIDER_URL=https://api.mainnet-beta.solana.com \
    ANCHOR_WALLET=<the deploying wallet> \
    REGISTRY_ADMIN=<Squads vault address> \
    npm run init-registry
    ```
-   (`scripts/init-registry.ts`: checks on chain that the wallet is the upgrade
-   authority, does nothing if the registry exists, prints the transaction.)
-   Until the registry exists no city config can be created, and once the
-   upgrade authority is gone it can never be created.
-6. **Hand the upgrade authority to the multisig:**
+   `scripts/init-registry.ts` checks on chain that the wallet is the upgrade
+   authority, creates the registry with **the wallet as admin** (the program
+   requires the admin to sign, so an address nobody holds can never become the
+   admin: there is no second `init_registry` and `propose_admin` needs the
+   stored admin), then calls `propose_admin(<Squads vault>)` and prints the
+   `accept_admin` instruction (program, accounts, data) for the multisig to
+   execute as a vault transaction. The accept proves the multisig is live.
+   Run the script again afterwards: it must print the multisig as admin. It is
+   safe to rerun at any point; it never repeats a step that is done. Until the
+   registry exists no city config can be created, and once the upgrade
+   authority is gone it can never be created.
+6. **Hand the upgrade authority to the multisig, only after step 5 shows the
+   multisig as admin:**
    `solana program set-upgrade-authority <program id> --new-upgrade-authority <Squads vault address> --skip-new-upgrade-authority-signer-check`
    (or make it immutable right away, step 8).
 7. **Verify what is on chain.** `solana program dump <program id> /tmp/onchain.so`
@@ -275,7 +295,18 @@ devnet faucet did not fund the deployer, the exact state reached) are in
   amount, leaves), set `snapshot_hash = sha256(file)`, call `fund_epoch`.
 * **Proof API**: `/api/rewards/<mint>/<epoch>/proof?wallet=` returns index,
   amount and proof; the page builds `claim` for the user's wallet.
+* **Founder addresses**: before `init_city` and `set_founder` the Worker runs
+  `founderWarnings(founder, {config, vault, programId})` and
+  `founderAccountWarnings(connection, founder, programId)` from `sdk/client.ts`
+  and shows every warning to the operator (the chain refuses what it can
+  recognise; it cannot know whether anyone can sign for an arbitrary key).
+* **WSOL as reward mint**: lamports sent to the vault's address as plain SOL
+  do not count as token balance (and so not as surplus) until anyone calls the
+  token program's permissionless `SyncNative` on the vault; the Worker runs it
+  before `fund_epoch_from_vault`.
 * **Monitoring**: alert when `vault != total_to_holders - total_claimed` (money
-  waiting for `fund_epoch_from_vault`), when a `fund_epoch` fails on the
-  founder's token account (frozen or re-owned ATA: call `set_founder`), and on
-  every `set_founder`, `propose_authority`, `propose_admin`.
+  waiting for `fund_epoch_from_vault`), when a `fund_epoch*` fails on the
+  founder (frozen or re-owned ATA, or `FounderIsProgramAccount`: call
+  `set_founder`), when a city stays paused for longer than planned (claims and
+  sweeps are frozen until `unpause`), and on every `set_founder`,
+  `propose_authority`, `propose_admin`, `pause`.

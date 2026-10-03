@@ -29,7 +29,11 @@ pub fn handle_set_founder(ctx: Context<SetFounder>, new_founder: Pubkey) -> Resu
     require_keys_neq!(new_founder, Pubkey::default(), RewardsError::InvalidFounder);
     // The founder share is paid to the founder's associated token account. If
     // the founder were the config PDA or the vault, that account would be owned
-    // by a key no instruction ever signs for and the money would be lost.
+    // by a key no instruction ever signs for and the money would be lost. Only
+    // a key is passed here, so other accounts of this program (registry, epoch,
+    // another config) cannot be recognised at this point; `fund_epoch` and
+    // `fund_epoch_from_vault` refuse them before paying (FounderIsProgramAccount),
+    // and the authority corrects the founder with another `set_founder`.
     require_keys_neq!(
         new_founder,
         ctx.accounts.config.key(),

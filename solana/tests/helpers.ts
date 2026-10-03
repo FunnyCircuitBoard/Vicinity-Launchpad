@@ -33,18 +33,22 @@ import {
   MINT_SIZE,
 } from "@solana/spl-token";
 import { expect } from "chai";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   VicinityClient,
   camel,
   loadIdl,
   splitAmount,
+  upgradeAuthorityOf,
+  workspaceRoot,
   type RewardModelName,
   type CityConfigView,
   type EpochView,
 } from "../sdk/client";
 import { buildTree, claimArgs, getProof, hashLeaf, hashNode, sha256, type Tree } from "./merkle-types";
 
-export { buildTree, claimArgs, getProof, hashLeaf, hashNode, sha256, splitAmount, BN, PublicKey, Keypair, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID };
+export { buildTree, claimArgs, getProof, hashLeaf, hashNode, sha256, splitAmount, upgradeAuthorityOf, BN, PublicKey, Keypair, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID };
 export type { Tree, CityConfigView, EpochView, RewardModelName };
 
 // ---------------------------------------------------------------------------
@@ -219,6 +223,21 @@ export async function nowOnChain(): Promise<number> {
 // it can create cities without an extra signer. Tests that need a different
 // admin use the two-step transfer and move it back afterwards.
 export const registryAdmin: Keypair = payer;
+
+// The second genesis program of Anchor.toml (`[[test.genesis]]`): the same
+// binary at another address, upgradeable, with the test wallet as its upgrade
+// authority. tests/01 passes its ProgramData account to init_registry: the only
+// way to prove that a real ProgramData account of another program is refused by
+// the program/ProgramData binding and not by an earlier deserialization error.
+// Read from Anchor.toml so there is one source of truth; the test fails with a
+// clear message when the validator did not load it.
+export function secondGenesisProgram(): PublicKey {
+  const toml = readFileSync(join(workspaceRoot(), "Anchor.toml"), "utf8");
+  const block = toml.split("[[test.genesis]]")[1];
+  const m = block?.match(/^\s*address\s*=\s*"([1-9A-HJ-NP-Za-km-z]{32,44})"/m);
+  if (!m) throw new Error("Anchor.toml has no [[test.genesis]] entry with an address");
+  return new PublicKey(m[1]);
+}
 
 let registryReady: Promise<void> | undefined;
 
@@ -538,6 +557,8 @@ export const ANCHOR = {
   ConstraintRaw: "ConstraintRaw",
   AccountNotInitialized: "AccountNotInitialized",
   AccountOwnedByWrongProgram: "AccountOwnedByWrongProgram",
+  // `Account<ProgramData>` given a loader account that is not a ProgramData variant
+  AccountNotProgramData: "AccountNotProgramData",
   AccountDiscriminatorMismatch: "AccountDiscriminatorMismatch",
   AccountNotAssociatedTokenAccount: "AccountNotAssociatedTokenAccount",
   InvalidProgramId: "InvalidProgramId",

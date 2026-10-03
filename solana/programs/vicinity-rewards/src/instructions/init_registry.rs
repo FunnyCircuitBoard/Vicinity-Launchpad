@@ -8,6 +8,14 @@
 //! removed. If the program is ever frozen without a registry, `init_city` can
 //! never be called: the deployment steps in README.md make this the first
 //! transaction after the deploy.
+//!
+//! The admin it stores must sign too. The registry is created once and
+//! `propose_admin` needs the stored admin, so an admin key that nobody
+//! controls (a mistyped address, the vault of the wrong multisig) would leave
+//! `init_city` unusable for ever with no in-program recovery. Requiring the
+//! signature makes that impossible: a key that signed exists and is live. A
+//! multisig becomes admin afterwards with `propose_admin` / `accept_admin`,
+//! where the accept is the same proof (README.md, mainnet step 5).
 
 use anchor_lang::prelude::*;
 
@@ -26,10 +34,12 @@ pub struct InitRegistry<'info> {
     /// Must be the program's current upgrade authority.
     pub upgrade_authority: Signer<'info>,
 
-    /// CHECK: only the key is stored (`registry.admin`); it does not need to
-    /// sign because the upgrade authority vouches for it, and it is checked
-    /// against the zero address.
-    pub admin: UncheckedAccount<'info>,
+    /// Becomes `registry.admin`, the only key that may create city configs.
+    /// It must sign, like `authority` in `init_city`: a key that never signed
+    /// could be one nobody holds, and nothing in the program could ever
+    /// replace it (see the module comment). Usually the deployer itself, which
+    /// then hands the role to the multisig with `propose_admin`.
+    pub admin: Signer<'info>,
 
     /// This program's executable account; Anchor checks the address.
     ///
@@ -59,6 +69,8 @@ pub struct InitRegistry<'info> {
 }
 
 pub fn handle_init_registry(ctx: Context<InitRegistry>) -> Result<()> {
+    // Unreachable for a signer (nobody can sign for the zero address); kept so
+    // the rule is stated where the admin is stored.
     require_keys_neq!(
         ctx.accounts.admin.key(),
         Pubkey::default(),

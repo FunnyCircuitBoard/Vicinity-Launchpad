@@ -172,3 +172,16 @@ Epoch 182, ClaimStatus 57. Every open item of the list above is closed or
 recorded there: the docs exist, the devnet state is in `AUDIT.md` section 7,
 the verifiable build stays with the owner (Docker), the two SPEC GAPs are
 closed by the registry gate and by `fund_epoch_from_vault`.
+
+## Addendum by the second fixer (3 Oct 2026, after the second review)
+
+Four low findings, all accepted; none disputed after reproducing them against
+the code (details in `SECURITY.md` 3.10). Program changes: `init_registry`'s
+`admin` is a `Signer`; `init_city`, `fund_epoch` and `fund_epoch_from_vault`
+refuse a founder whose account this program owns (and the epoch being
+created). `scripts/init-registry.ts` creates the registry with the wallet as
+admin and proposes the multisig. The test validator loads a second copy of the
+program (`Anchor.toml [[test.genesis]]`) so the foreign-ProgramData case is
+tested for real; a hand-started validator needs the extra
+`--upgradeable-program` flag shown in `AUDIT.md` section 3. Current numbers and
+hashes: `AUDIT.md` sections 2, 4, 6 and 8.

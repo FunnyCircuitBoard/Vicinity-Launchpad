@@ -21,7 +21,7 @@ pub enum RewardsError {
     InvalidCityTag,
     #[msg("founder must not be the zero address")]
     InvalidFounder,
-    #[msg("founder must not be the config PDA or the vault: nothing could ever move money out of their token accounts")]
+    #[msg("founder must not be an account of this program (config, vault, registry, epoch, claim status): nothing could ever move money out of its token account")]
     FounderIsProgramAccount,
     #[msg("signer is not the config authority (or, for init_city, not the registry admin)")]
     Unauthorized,

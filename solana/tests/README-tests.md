@@ -8,8 +8,8 @@ After every test the accounting invariants of the touched cities are asserted
 
 | file | spec section 5 items |
 |---|---|
-| `01-init-lock-authority.ts` | IDL surface (exactly 16 instructions, no withdraw/set_root, every PDA's seeds, SDK constants equal the IDL constants), the registry (only the upgrade authority creates it, only its admin can create cities, two-step admin transfer, a stranger cannot squat a config), init for Creator/Holders/Split 25/50/75, every init rejection (incl. founder = config/vault, authority signature checked on chain), lock, set_founder, two-step authority with cancel-by-reproposal and zero-address cancel, pause/unpause, events |
-| `02-fund-epoch.ts` | exact founder floor and holders remainder for 25/50/75 and tiny amounts, Creator and Holders paths, auto-lock, window bounds, MissingSnapshotHash, NothingToDistribute, Paused, Unauthorized, funder token account checks, insufficient funds, epoch PDA, founder ATA checks, write-once epoch fields; `fund_epoch_from_vault`: money sent straight to the vault is distributed, only the unaccounted surplus counts, carry-over adds up, Creator model, same rules and founder ATA binding as fund_epoch |
+| `01-init-lock-authority.ts` | IDL surface (exactly 16 instructions, no withdraw/set_root, every PDA's seeds, SDK constants equal the IDL constants), the registry (only the upgrade authority creates it; a real ProgramData account of another program is refused by the program binding, the other program in the `program` slot, its executable account as `program_data` and a random key each with their exact code; the admin must sign; only the admin can create cities; two-step admin transfer; a stranger cannot squat a config), init for Creator/Holders/Split 25/50/75, every init rejection (incl. founder = config/vault/registry/another config, authority signature checked on chain), the SDK's founder warnings, lock, set_founder, two-step authority with cancel-by-reproposal and zero-address cancel, pause/unpause, events |
+| `02-fund-epoch.ts` | exact founder floor and holders remainder for 25/50/75 and tiny amounts, Creator and Holders paths, auto-lock, window bounds, MissingSnapshotHash, NothingToDistribute, Paused, Unauthorized, funder token account checks, insufficient funds, epoch PDA, founder ATA checks, a founder that is an account of this program is refused at funding (both paths) before any money moves, write-once epoch fields; `fund_epoch_from_vault`: money sent straight to the vault is distributed, only the unaccounted surplus counts, carry-over adds up, Creator model, same rules and founder ATA binding as fund_epoch |
 | `03-claim.ts` | exact payouts, ATA creation, ClaimStatus, Claimed event, claimant signature checked on chain, double claim, wrong amount/index/proof, another wallet's leaf, truncated/overlong/33-element proofs, tampered sibling, zero amount, paused, missing epoch, pre-existing ATA, cap test with a crafted root (total > deposit), Creator epoch has nothing to claim |
 | `04-sweep-cancel-deadline.ts` | cancel rules and events, carry-over into the next epoch exactly, carry-only epoch (amount 0), pause does not block cancel, pause time bookkeeping; with a short window: claim after deadline, sweep, EpochNotOpen on swept, close_claim_status rules and rent, and a pause extends the deadline (claim still works after the nominal deadline, sweep only after the extended one) |
 | `05-substitution.ts` | wrong vault / other city's vault, config and epoch of another city, forged PDAs, foreign claim status, foreign destination ATA, other mint's token account, wrong token program, founder ATA of someone else, Token-2022 transfer-fee and mint-close-authority mints rejected at init, plain Token-2022 mint works end to end |
@@ -58,6 +58,17 @@ fresh ledger: the first registry test asserts that no registry exists yet (the
 only state in which the upgrade-authority check is observable) and fails
 loudly on a reused ledger instead of passing for the wrong reason. `anchor test`
 always starts fresh; a hand-started validator needs `--reset`.
+
+The validator also loads a second copy of the same binary at the
+`[[test.genesis]]` address of `Anchor.toml` (upgradeable, test wallet as its
+upgrade authority). `helpers.ts` `secondGenesisProgram()` reads that address
+from `Anchor.toml`, and the registry test passes the second program's real
+ProgramData account to `init_registry`: because the wallet is that program's
+upgrade authority too, only the constraint binding `program_data` to this
+program's ProgramData can refuse it (`NotUpgradeAuthority`). A random key is
+asserted separately with its own code (`AccountNotInitialized`), so it can
+never stand in for the real case. A hand-started validator must load both
+programs (`AUDIT.md` section 3); the test fails with a clear message otherwise.
 
 The mainnet build must not enable the feature: `anchor build --verifiable`
 without features is what gets deployed, and its IDL shows

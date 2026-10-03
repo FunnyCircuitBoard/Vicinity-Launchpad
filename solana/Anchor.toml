@@ -39,6 +39,18 @@ shutdown_wait = 2000
 # `init_registry` is gated on the upgrade authority and the tests exercise it.
 upgradeable = true
 
+# A second copy of the same binary at another address, also upgradeable with
+# the test wallet as upgrade authority. tests/01 passes ITS ProgramData account
+# to init_registry to prove that a real ProgramData account of another program
+# is refused (NotUpgradeAuthority); a random key would fail earlier, for the
+# wrong reason (AccountNotInitialized). The address is a throwaway public key
+# with no private key behind it; a hand-started validator must load it too
+# (AUDIT.md section 3). tests/helpers.ts reads the address from this file.
+[[test.genesis]]
+address = "EVvMRwM4Dg9Etp7L9JkouWkcJkXRmW2jHYvgaMVfysbZ"
+program = "target/deploy/vicinity_rewards.so"
+upgradeable = true
+
 [test.validator]
 bind_address = "127.0.0.1"
 ledger = ".anchor/test-ledger"

@@ -64,7 +64,12 @@ pub struct FundEpochFromVault<'info> {
     pub vault: InterfaceAccount<'info, TokenAccount>,
 
     /// CHECK: must equal `config.founder` (`has_one`); used only as the owner
-    /// of the associated token account below.
+    /// of the associated token account below. Same rule as in `fund_epoch`: not
+    /// an account of this program and not the epoch created here.
+    #[account(
+        constraint = *founder.owner != crate::ID @ RewardsError::FounderIsProgramAccount,
+        constraint = founder.key() != epoch.key() @ RewardsError::FounderIsProgramAccount,
+    )]
     pub founder: UncheckedAccount<'info>,
 
     /// The founder's associated token account for `reward_mint` (see `fund_epoch`).

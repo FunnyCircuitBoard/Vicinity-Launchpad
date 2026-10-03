@@ -344,6 +344,33 @@ describe("02 fund_epoch: amounts, rounding, carry-over, auto-lock, window, funde
     expect(await tokenBalance(ata(city.rewardMint, city.founder.publicKey))).to.equal(50n);
   });
 
+  it("a founder that is an account of this program is refused at funding, before any money moves (FounderIsProgramAccount)", async () => {
+    const city = await createCity({ model: "split", founderBps: 5_000 });
+    cities.push(city);
+    const h = makeHolders([60n, 40n]);
+    const setFounder = (f: PublicKey) =>
+      client.setFounder({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, newFounder: f }).signers([city.authority]).rpc();
+    // set_founder only sees a key, so it accepts the PDA of the epoch this funding would create...
+    const epoch0 = epochAddress(city, 0);
+    await setFounder(epoch0);
+    // ...and the funding refuses to pay into a token account owned by it (before the fix: 500 paid into a dead ATA)
+    await expectError(fundEpoch(city, { amount: 1_000n, tree: h.tree, founder: epoch0 }), "FounderIsProgramAccount");
+    expect(await accountExists(epoch0), "no epoch was created").to.equal(false);
+    expect(await tokenBalance(ata(city.rewardMint, epoch0))).to.equal(0n);
+    // an existing account of this program (the registry): refused by both funding paths
+    await setFounder(client.registryAddress());
+    await expectError(fundEpoch(city, { amount: 1_000n, tree: h.tree, founder: client.registryAddress() }), "FounderIsProgramAccount");
+    await mintTo(city.rewardMint, city.vault, 1_000n);
+    await expectError(fundEpochFromVault(city, { tree: h.tree, founder: client.registryAddress() }), "FounderIsProgramAccount");
+    expect((await fetchConfig(city)).epochCount).to.equal(0n);
+    expect(await vaultBalance(city)).to.equal(1_000n);
+    // the authority corrects the founder and the same funding goes through
+    await setFounder(city.founder.publicKey);
+    const r = await fundEpochFromVault(city, { tree: h.tree });
+    expect(r.epochView.founderAmount).to.equal(500n);
+    expect(await founderBalance(city)).to.equal(500n);
+  });
+
   it("reward mint account must be config.reward_mint", async () => {
     const city = await createCity({ model: "holders" });
     cities.push(city);

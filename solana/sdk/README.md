@@ -10,7 +10,7 @@ Small, dependency-light helpers shared by the Anchor tests, the demo script and
 | `gen-fixtures.mjs` | - | writes `fixtures/merkle-js.json` with this SDK (`npm run sdk-fixtures`, which also runs `fixtures/generate.mjs`) |
 | `fixtures/generate.mjs` | `node:crypto` only | writes the canonical `fixtures/merkle.json`; shares no code with the SDK or the program |
 | `pda.mjs` | `@solana/web3.js` | PDA derivation with the exact seeds of the spec (registry, config, vault, epoch, claim status, and the program's ProgramData address) |
-| `client.ts` | `@coral-xyz/anchor` | instruction builders with every account resolved (one place for tests, demo and Worker); `policy()` reads the enforced constants from the IDL; `effectiveDeadline()` mirrors the program's pause-extended deadline |
+| `client.ts` | `@coral-xyz/anchor` | instruction builders with every account resolved (one place for tests, demo and Worker); `policy()` reads the enforced constants from the IDL; `effectiveDeadline()` mirrors the program's pause-extended deadline; `upgradeAuthorityOf()` reads a ProgramData account; `founderWarnings()` / `founderAccountWarnings()` say why a founder address may never be able to spend its share (the Worker shows them before `init_city` and `set_founder`) |
 | `idl/vicinity_rewards.json` | - | the program IDL, copied here by `anchor build` (see the workspace README) |
 
 The Worker imports `merkle.mjs` (and may import `pda.mjs`). `merkle.mjs` needs the

@@ -8,11 +8,13 @@ import {
   City,
   accountExists,
   assertInvariants,
+  ata,
   client,
   connection,
   createCity,
   economicsOf,
   ensureRegistry,
+  epochAddress,
   expect,
   expectEvent,
   expectError,
@@ -21,10 +23,12 @@ import {
   initCityTx,
   payer,
   registryAdmin,
+  secondGenesisProgram,
   send,
   sendAs,
+  upgradeAuthorityOf,
 } from "./helpers";
-import { ALLOWED_SPLIT_BPS, BPS_DENOMINATOR, CREATOR_BPS, HOLDERS_BPS } from "../sdk/client";
+import { ALLOWED_SPLIT_BPS, BPS_DENOMINATOR, CREATOR_BPS, HOLDERS_BPS, founderAccountWarnings, founderWarnings } from "../sdk/client";
 
 const SPEC_INSTRUCTIONS = [
   "initRegistry",
@@ -171,14 +175,42 @@ describe("01 init_city, lock_config, set_founder, authority transfer, pause", ()
       const ix2 = await client.initRegistry({ payer: stranger.publicKey, upgradeAuthority: payer.publicKey, admin: stranger.publicKey }).instruction();
       ix2.keys.find((k) => k.pubkey.equals(payer.publicKey))!.isSigner = false;
       await expectError(sendAs([ix2], [stranger]), ANCHOR.AccountNotSigner, ANCHOR.ConstraintSigner);
-      // a program_data account that is not this program's is refused before anything else
-      await expectError(
-        client.initRegistry({ payer: payer.publicKey, upgradeAuthority: payer.publicKey, admin: payer.publicKey, overrides: { programData: Keypair.generate().publicKey } }).rpc(),
-        ANCHOR.AccountNotInitialized,
-        ANCHOR.AccountOwnedByWrongProgram,
-        "NotUpgradeAuthority"
-      );
       expect(await client.fetchRegistry()).to.equal(null);
+    });
+
+    it("a real ProgramData account of another program is refused by the program binding (NotUpgradeAuthority), not by an earlier error", async () => {
+      expect(await client.fetchRegistry(), "fresh validator required").to.equal(null);
+      // Anchor.toml [[test.genesis]]: the same binary at another address, with
+      // the test wallet as ITS upgrade authority too. So the authority check
+      // passes and only `program.programdata_address() == program_data` can
+      // refuse; without that constraint this call would create the registry.
+      const second = secondGenesisProgram();
+      const secondData = client.programDataAddressOf(second);
+      const info = await connection.getAccountInfo(secondData, "confirmed");
+      expect(info, `the validator must load the second genesis program ${second.toBase58()} of Anchor.toml (tests/README-tests.md)`).to.not.equal(null);
+      expect(upgradeAuthorityOf(info!.data)?.equals(payer.publicKey), "the wallet is the second program's upgrade authority").to.equal(true);
+      const attempt = (overrides: Record<string, PublicKey>) =>
+        client.initRegistry({ payer: payer.publicKey, upgradeAuthority: payer.publicKey, admin: payer.publicKey, overrides }).rpc();
+      await expectError(attempt({ programData: secondData }), "NotUpgradeAuthority");
+      // the other program in the `program` slot: Program<VicinityRewards> checks the id
+      await expectError(attempt({ program: second, programData: secondData }), ANCHOR.InvalidProgramId);
+      // the other program's executable account (loader-owned, Program variant) in the program_data slot
+      await expectError(attempt({ programData: second }), ANCHOR.AccountNotProgramData);
+      // a key with no account fails at deserialization, before any constraint;
+      // asserted on its own so it can never stand in for the cases above
+      await expectError(attempt({ programData: Keypair.generate().publicKey }), ANCHOR.AccountNotInitialized);
+      expect(await client.fetchRegistry()).to.equal(null);
+    });
+
+    it("the admin must sign: a key nobody controls can never become the only key that may create cities (AccountNotSigner)", async () => {
+      expect(await client.fetchRegistry(), "fresh validator required").to.equal(null);
+      const adminAccount = (client.instruction("init_registry").accounts as Array<{ name: string; signer?: boolean }>).find((a) => a.name === "admin");
+      expect(adminAccount?.signer, "the IDL declares admin as a signer").to.equal(true);
+      const lost = Keypair.generate().publicKey; // the secret is discarded: nobody can ever sign for it
+      const ix = await client.initRegistry({ payer: payer.publicKey, upgradeAuthority: payer.publicKey, admin: lost }).instruction();
+      ix.keys.find((k) => k.pubkey.equals(lost))!.isSigner = false;
+      await expectError(send([ix], []), ANCHOR.AccountNotSigner, ANCHOR.ConstraintSigner);
+      expect(await client.fetchRegistry(), "no registry with an admin nobody controls").to.equal(null);
     });
 
     it("the upgrade authority creates it once (event); a second creation by anyone fails because the PDA exists", async () => {
@@ -188,7 +220,8 @@ describe("01 init_city, lock_config, set_founder, authority transfer, pause", ()
       expect(r?.pendingAdmin.equals(PublicKey.default)).to.equal(true);
       expect(r?.address.equals(client.registryAddress())).to.equal(true);
       const stranger = await fundedKeypair(1);
-      await expectError(client.initRegistry({ payer: payer.publicKey, upgradeAuthority: payer.publicKey, admin: stranger.publicKey }).rpc(), ANCHOR.AlreadyInUse);
+      // the admin co-signs, so the transaction is valid and the chain answers
+      await expectError(client.initRegistry({ payer: payer.publicKey, upgradeAuthority: payer.publicKey, admin: stranger.publicKey }).signers([stranger]).rpc(), ANCHOR.AlreadyInUse);
       const ix = await client.initRegistry({ payer: stranger.publicKey, upgradeAuthority: stranger.publicKey, admin: stranger.publicKey }).instruction();
       await expectError(sendAs([ix], [stranger]), ANCHOR.AlreadyInUse);
       expect((await client.fetchRegistry())?.admin.equals(registryAdmin.publicKey)).to.equal(true);
@@ -337,11 +370,30 @@ describe("01 init_city, lock_config, set_founder, authority transfer, pause", ()
       await expectError(initCityTx(base, { founder: PublicKey.default }).signers([base.authority]).rpc(), "InvalidFounder");
     });
 
-    it("rejects the config PDA and the vault as founder (their token accounts could never be emptied)", async () => {
+    it("rejects the config PDA, the vault, the registry PDA and another city's config as founder (their token accounts could never be emptied)", async () => {
       const base = await createCity({ model: "holders", skipInit: true });
-      await expectError(initCityTx(base, { founder: base.config }).signers([base.authority]).rpc(), "FounderIsProgramAccount");
-      await expectError(initCityTx(base, { founder: base.vault }).signers([base.authority]).rpc(), "FounderIsProgramAccount");
+      const other = await createCity({ model: "holders" });
+      cities.push(other);
+      for (const bad of [base.config, base.vault, client.registryAddress(), other.config]) {
+        await expectError(initCityTx(base, { founder: bad }).signers([base.authority]).rpc(), "FounderIsProgramAccount");
+      }
       expect(await accountExists(base.config)).to.equal(false);
+    });
+
+    it("SDK founderWarnings names what the program refuses and flags off-curve keys (the chain cannot see an unspendable key)", async () => {
+      const base = await createCity({ model: "holders", skipInit: true });
+      const ctx = { config: base.config, vault: base.vault, programId: client.programId };
+      expect(founderWarnings(base.founder.publicKey, ctx)).to.deep.equal([]);
+      expect(founderWarnings(PublicKey.default, ctx).join(" ")).to.match(/InvalidFounder/);
+      expect(founderWarnings(base.config, ctx).join(" ")).to.match(/config PDA/);
+      expect(founderWarnings(base.vault, ctx).join(" ")).to.match(/vault/);
+      expect(founderWarnings(client.registryAddress(), ctx).join(" ")).to.match(/registry PDA/);
+      expect(founderWarnings(epochAddress(base, 0), ctx).join(" ")).to.match(/not on the ed25519 curve/);
+      expect(founderWarnings(ata(base.rewardMint, base.founder.publicKey), ctx).join(" ")).to.match(/not on the ed25519 curve/);
+      expect((await founderAccountWarnings(connection, client.registryAddress(), client.programId)).join(" ")).to.match(/account of this program/);
+      expect((await founderAccountWarnings(connection, base.funderTokenAccount, client.programId)).join(" ")).to.match(/token account/);
+      expect(await founderAccountWarnings(connection, base.founder.publicKey, client.programId)).to.deep.equal([]);
+      expect(await founderAccountWarnings(connection, Keypair.generate().publicKey, client.programId)).to.deep.equal([]);
     });
 
     it("rejects a city tag with non-ASCII bytes or a zero inside the text", async () => {
