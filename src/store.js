@@ -607,3 +607,72 @@ export function ensureSignupSchema(db) {
   }
   return signupReady.get(db);
 }
+
+/**
+ * Member profiles (src/profiles.js, src/profile-core.js). Like the sign-up above, deliberately NOT in MIGRATIONS: it
+ * runs only when PROFILES=on (see ensureProfilesSchema), so with the switch off no new statement ever touches the
+ * database, and a failure here can only break the new profile routes. Every statement is safe to repeat. Same rule: no
+ * semicolon inside a comment or a string in this SQL, because split() cuts on every semicolon.
+ *   users.bio        → the 100-character bio on the Vicinity pass
+ *   follows          → who follows whom (one row per pair, newest first through created_at)
+ *   blocks           → who blocked whom (the blocked member can no longer follow)
+ *   profile_reports  → one report per reporter per member, about the bio, for the moderators to read
+ *   auth_limits      → the same attempt counters the sign-up uses (src/limits.js), created here too so the profile limits
+ *                      work with SIGNUP_FLOW off (whichever switch comes first creates it)
+ */
+export const PROFILES_MIGRATION = {
+  id: "2026-10-03-profiles",
+  sql: `
+ALTER TABLE users ADD COLUMN bio TEXT;
+CREATE TABLE IF NOT EXISTS follows (
+  follower_id INTEGER NOT NULL,
+  followee_id INTEGER NOT NULL,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (follower_id, followee_id)
+);
+CREATE INDEX IF NOT EXISTS follows_followee ON follows (followee_id, created_at, follower_id);
+CREATE TABLE IF NOT EXISTS blocks (
+  blocker_id INTEGER NOT NULL,
+  blocked_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (blocker_id, blocked_id)
+);
+CREATE INDEX IF NOT EXISTS blocks_blocked ON blocks (blocked_id);
+CREATE TABLE IF NOT EXISTS profile_reports (
+  user_id     INTEGER NOT NULL,
+  reporter_id INTEGER NOT NULL,
+  reason      TEXT,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (user_id, reporter_id)
+);
+CREATE TABLE IF NOT EXISTS auth_limits (
+  key          TEXT PRIMARY KEY,
+  n            INTEGER NOT NULL,
+  window_start TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS auth_limits_window ON auth_limits (window_start)
+`,
+};
+
+const profilesReady = new WeakMap();
+
+/**
+ * Create the profile tables and the bio column the first time a profile route needs them (safe to repeat, and to run
+ * from two servers at once: "duplicate column" is ignored). Rejects on any other failure and forgets that it tried, so
+ * the next request retries. Callers answer 503 profiles_unavailable and nothing else is affected.
+ */
+export function ensureProfilesSchema(db) {
+  if (!profilesReady.has(db)) {
+    profilesReady.set(db, (async () => {
+      await ensureSchema(db); // users exists (from the normal migrations)
+      const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(PROFILES_MIGRATION.id).first();
+      if (done) return;
+      for (const s of split(PROFILES_MIGRATION.sql)) {
+        try { await db.prepare(s).run(); }
+        catch (e) { if (!/duplicate column/i.test(String(e && e.message ? e.message : e))) throw e; }
+      }
+      await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(PROFILES_MIGRATION.id, new Date().toISOString()).run();
+    })().catch((e) => { profilesReady.delete(db); throw e; }));
+  }
+  return profilesReady.get(db);
+}

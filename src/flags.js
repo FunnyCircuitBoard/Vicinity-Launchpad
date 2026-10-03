@@ -7,3 +7,9 @@
  */
 export const signupFlow = (env) => (String((env && env.SIGNUP_FLOW) ?? "").trim().toLowerCase() === "v2" ? "v2" : "v1");
 export const v2On = (env) => signupFlow(env) === "v2";
+
+/**
+ * PROFILES=on turns on member profiles (a bio on the Vicinity pass, the portfolio chart, public member profiles with
+ * follow and block). Exactly "on" (trimmed, any letter case); anything else, unset included, is the site as it has always been.
+ */
+export const profilesOn = (env) => String((env && env.PROFILES) ?? "").trim().toLowerCase() === "on";
