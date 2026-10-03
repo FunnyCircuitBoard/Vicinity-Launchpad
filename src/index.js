@@ -28,7 +28,7 @@
  *
  * Everything else is served from /public by Cloudflare's static asset handler.
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
- * SNAPSHOT_CUTOFF, ATTEST_KEY (optional).
+ * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional).
  */
 import { activeMint, checkOfficial, officialFor, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
@@ -210,13 +210,12 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/rank": {
       const blocked = only("GET");
       if (blocked) return blocked;
-      const slow = await publicLimit(env, request, "rank");
-      if (slow) return slow;
       const address = url.searchParams.get("address");
       if (!isSolanaAddress(address)) return json({ error: "bad_address" }, 400);
       const mint = activeMint(env);
       if (!mint) return json({ launched: false, address, founderMin: founderAmount(0) });
-      return cached(`rank-${mint}-${address}`, 30, () => rankResponse(env, mint, address, fetchImpl));
+      // the attempt is counted only when the 30-second cache has no answer: looking at the same wallet again is free
+      return cached(`rank-${mint}-${address}`, 30, async () => (await publicLimit(env, request, "rank")) || rankResponse(env, mint, address, fetchImpl));
     }
     case "/api/message": {
       // Helper so the browser builds exactly the same text the server expects.

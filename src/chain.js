@@ -48,8 +48,11 @@ const poolLabel = (owner, ownerProgram) => {
   try { return isOnCurve(base58Decode(owner)) ? null : PROGRAM_ACCOUNT; } catch { return null; }
 };
 
-// A stuck RPC must not hold a request open: give up after 8 seconds (the Worker itself has 30).
+// A stuck RPC must not hold a request open: give up after 8 seconds (the Worker itself has 30). The setting
+// RPC_TIMEOUT_MS (a number of milliseconds) changes it without a deploy, for the day a very long holder list
+// needs more than that; anything that is not a positive number means the default.
 const RPC_TIMEOUT_MS = 8000;
+const rpcTimeout = (env) => { const n = Number(env && env.RPC_TIMEOUT_MS); return n > 0 ? n : RPC_TIMEOUT_MS; };
 
 export async function rpc(env, method, params, fetchImpl = fetch) {
   const url = (env && env.SOLANA_RPC_URL) || PUBLIC_RPC;
@@ -57,7 +60,7 @@ export async function rpc(env, method, params, fetchImpl = fetch) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+    signal: AbortSignal.timeout(rpcTimeout(env)),
   });
   if (!res.ok) throw new Error(`rpc_http_${res.status}`);
   const data = await res.json();
@@ -157,7 +160,7 @@ export async function getHoldings(env, owners, mint, fetchImpl = fetch) {
   for (let i = 0; i < owners.length; i += 25) {
     const chunk = owners.slice(i, i + 25);
     const body = chunk.map((o, j) => ({ jsonrpc: "2.0", id: j, method: "getTokenAccountsByOwner", params: [o, { mint }, { encoding: "jsonParsed" }] }));
-    const res = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(RPC_TIMEOUT_MS) });
+    const res = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(rpcTimeout(env)) });
     if (!res.ok) throw new Error(`rpc_http_${res.status}`);
     const data = await res.json();
     for (const r of Array.isArray(data) ? data : []) {

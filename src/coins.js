@@ -229,10 +229,18 @@ export async function handleTakedown(request, env, fetchImpl = fetch, now = Date
  */
 export async function officialCityCoin(env, address) {
   if (!env.DB || !isSolanaAddress(address)) return null;
-  await ensureSchema(env.DB);
-  const row = await env.DB.prepare("SELECT city_id, city_name, country, name FROM city_coins WHERE mint = ?").bind(address).first();
+  let row, ticker = null;
+  try {
+    await ensureSchema(env.DB);
+    row = await env.DB.prepare("SELECT city_id, city_name, country, name FROM city_coins WHERE mint = ?").bind(address).first();
+  } catch (e) {
+    // The checker is the one safety feature a scam target reaches for, so a database problem must not make it fail:
+    // the list's own verdict (not official) stands. A short code only, never the address.
+    console.error("city coin lookup skipped", String((e && e.message) || e).slice(0, 80));
+    return null;
+  }
   if (!row) return null;
-  const ticker = (await tickerOf(env, row.city_id))?.ticker || null;
+  try { ticker = (await tickerOf(env, row.city_id))?.ticker || null; } catch { ticker = null; } // the coin is official with or without its ticker
   const where = `${row.city_name}${row.country ? `, ${row.country}` : ""}`;
   return {
     verdict: "official", kind: "city_coin", city: row.city_id, cityName: row.city_name, country: row.country, ticker, name: row.name,

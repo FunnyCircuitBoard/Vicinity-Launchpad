@@ -79,13 +79,16 @@
   }
   $("#proof-start").addEventListener("click", async () => {
     const r = await api("/api/auth/transfer", { address: me.user.wallet, reprove: true });
-    if (!r.ok) return proofErr("Couldn't start. Try again.");
+    if (!r.ok) return proofErr(r.error === "slow_down" ? "Too many tries from your network right now. Wait a few minutes and try again." : "Couldn't start. Try again.");
     $("#proof-sol").textContent = r.sol; $("#proof-code").hidden = false; $("#proof-start").hidden = true;
     const poll = async () => {
       if ($("#proof-modal").hidden) return;
       const c = await api("/api/auth/transfer/check", {});
       if (c.ok) { toast("Transfer found ✓"); return closeProof(true); }
-      proofTimer = setTimeout(poll, 10_000);
+      // the amount is good for 30 minutes; after that the server drops it and the person gets a new one
+      if (c.error === "expired" || c.error === "no_proof") { $("#proof-code").hidden = true; $("#proof-start").hidden = false; return proofErr("This code expired. Get a new one."); }
+      // slow_down: the server wants fewer checks from this connection; ask every 30 seconds instead of 10
+      proofTimer = setTimeout(poll, c.error === "slow_down" ? 30_000 : 10_000);
     };
     proofTimer = setTimeout(poll, 8000);
   });
@@ -703,6 +706,10 @@
     design_first: "Save a design first.",
     mint_taken: "That contract is already another city's coin.",
     needs_second_person: "Someone other than the founder has to check a coin's contract.",
+    mint_required: "The decision has to name the contract address it is about. Reload the queue and try again.",
+    mint_changed: "The founder submitted a different address since you opened this one. Reload the queue and check the new one.",
+    not_a_mint: "The blockchain says that address is not a token with a supply. Nothing was recorded.",
+    chain_unavailable: "The blockchain could not be asked just now. Nothing was recorded; try again in a minute.",
   };
   let coinData = null, coinPairs = null, vicMint = null, logoData = null, dropLogo = false, studioDirty = false;
   const cityTk = () => (me && me.community ? me.community.ticker || ticker(me.community.name) : "CITY");

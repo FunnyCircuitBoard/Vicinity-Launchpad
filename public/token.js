@@ -112,6 +112,8 @@
     lastLookup = addr;
     const set = (id, t) => ($(id).textContent = t);
     if (d.error === "chain_unavailable") { set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "The blockchain is busy. Try again in a minute."); return; }
+    // many checks from one shared connection (an office, a campus, a mobile network): say so, never "not launched"
+    if (d.error === "slow_down") { set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "Too many checks from your network. Try again in a minute."); return; }
     if (!d.launched) {
       set("#rank-num", "—"); set("#rank-of", "");
       set("#rank-pct", "Ranks go live the moment $VICINITY launches. Save this page and check back.");

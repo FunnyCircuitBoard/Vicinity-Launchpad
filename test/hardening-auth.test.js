@@ -95,9 +95,9 @@ test("a failure is not remembered: the next call runs the migration again; from 
 
 /* ---------------- publicLimit ---------------- */
 
-test("the numbers: verify 30 and transfer 10 and pair 20 per 10 minutes, transfer check 60 per 10 minutes, rank 60 per minute", () => {
+test("the numbers: verify 30, transfer 30 and pair 20 per 10 minutes per connection; transfer check 90 per 10 minutes per session; rank 60 per minute", () => {
   assert.deepEqual(PUBLIC_LIMITS, {
-    verify: { max: 30, windowMs: 10 * MIN }, transfer: { max: 10, windowMs: 10 * MIN }, transfer_check: { max: 60, windowMs: 10 * MIN },
+    verify: { max: 30, windowMs: 10 * MIN }, transfer: { max: 30, windowMs: 10 * MIN }, transfer_check: { max: 90, windowMs: 10 * MIN, by: "session" },
     pair: { max: 20, windowMs: 10 * MIN }, rank: { max: 60, windowMs: MIN },
   });
   assert.rejects(publicLimit({ DB: d1() }, req("1.2.3.4"), "nothing"), /unknown public limit/);
