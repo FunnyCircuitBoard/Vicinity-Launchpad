@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Vicinity · 10.03 · 3:10 PM ET</title>
+  <meta name="description" content="Something is coming to your city. October 3, 3:10 PM ET. Rep your city and follow @VicinityCitySOL on X so you hear it first.">
+  <meta name="theme-color" content="#05070F">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://vicinitycity.com/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Vicinity">
+  <meta property="og:title" content="Something is coming to your city. 10.03 · 3:10 PM ET">
+  <meta property="og:description" content="Rep your city, and follow @VicinityCitySOL on X so you hear it first.">
+  <meta property="og:image" content="https://vicinitycity.com/og-sol.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@VicinityCitySOL">
+  <meta name="twitter:title" content="Something is coming to your city. 10.03 · 3:10 PM ET">
+  <meta name="twitter:description" content="Rep your city, and follow @VicinityCitySOL on X so you hear it first.">
+  <meta name="twitter:image" content="https://vicinitycity.com/og-sol.png">
+  <link rel="preload" href="/fonts/space-grotesk.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <canvas class="sky" id="sky" aria-hidden="true"></canvas>
+  <div class="veil" aria-hidden="true"></div>
+  <div class="spot" aria-hidden="true"></div>
+
+  <main class="stage">
+    <header class="top">
+      <span class="brand"><span class="mark" aria-hidden="true"></span>VICINITY</span>
+      <a class="top__x" href="https://x.com/VicinityCitySOL" target="_blank" rel="noopener" aria-label="Vicinity on X">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.9 2H22l-6.8 7.8L23 22h-6.2l-4.9-6.4L6.3 22H3.2l7.3-8.3L1 2h6.3l4.4 5.8L18.9 2zm-1.1 18h1.7L6.4 3.9H4.6L17.8 20z"/></svg>
+        <span>@VicinityCitySOL</span>
+      </a>
+    </header>
+
+    <section class="hero">
+      <p class="eyebrow"><span class="pulse" aria-hidden="true"></span><span id="status">Transmission incoming</span></p>
+      <h1 class="title" id="title"><span class="line">Something is coming</span> <span class="line accent">to your city.</span></h1>
+      <p class="riddle" id="riddle" aria-live="polite">Every city has a secret.</p>
+
+      <div class="clock" id="clock" role="timer" aria-label="Countdown to October 3, 3:10 PM Eastern Time">
+        <div class="unit"><span class="num tilt" data-u="days">00</span><span class="lab">days</span></div>
+        <span class="sep" aria-hidden="true">:</span>
+        <div class="unit"><span class="num tilt" data-u="hours">00</span><span class="lab">hours</span></div>
+        <span class="sep" aria-hidden="true">:</span>
+        <div class="unit"><span class="num tilt" data-u="minutes">00</span><span class="lab">minutes</span></div>
+        <span class="sep" aria-hidden="true">:</span>
+        <div class="unit"><span class="num tilt" data-u="seconds">00</span><span class="lab">seconds</span></div>
+      </div>
+      <p class="when"><strong>Saturday, October 3 · 3:10 PM ET</strong><span id="local"></span></p>
+
+      <div class="cta">
+        <a class="btn btn--x magnet" id="follow" href="https://x.com/VicinityCitySOL" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.9 2H22l-6.8 7.8L23 22h-6.2l-4.9-6.4L6.3 22H3.2l7.3-8.3L1 2h6.3l4.4 5.8L18.9 2zm-1.1 18h1.7L6.4 3.9H4.6L17.8 20z"/></svg>
+          Follow @VicinityCitySOL
+        </a>
+        <a class="btn btn--ghost" href="#rep">Rep your city ↓</a>
+      </div>
+      <p class="live-count" id="live-count" hidden><span class="live-dot" aria-hidden="true"></span><b id="lc-people">0</b> <span id="lc-pw">people</span> from <b id="lc-cities">0</b> <span id="lc-cw">cities</span> <span id="lc-verb">are</span> already waiting</p>
+    </section>
+
+    <!-- ============ REP YOUR CITY ============ -->
+    <section class="rep reveal" id="rep" aria-labelledby="rep-title">
+      <div class="rep__card">
+        <div class="rep__head">
+          <p class="kicker">Rep your city · 30 seconds</p>
+          <h2 id="rep-title">Where are you from?</h2>
+          <div class="rep__progress" aria-hidden="true"><span id="rep-bar"></span></div>
+        </div>
+
+        <form class="rep__form" id="rep-form" novalidate autocomplete="off">
+          <fieldset class="step is-on" data-step="1">
+            <legend>Which city are you from?</legend>
+            <div class="ac">
+              <input class="field" id="q-city" type="text" maxlength="60" placeholder="Start typing your city" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="q-city-list" spellcheck="false">
+              <ul class="ac__list" id="q-city-list" role="listbox" hidden></ul>
+            </div>
+            <p class="hint">Pick it from the list so it counts on the board.</p>
+          </fieldset>
+
+          <fieldset class="step" data-step="2">
+            <legend><span data-city>Your city</span> in one word</legend>
+            <input class="field" id="q-word" type="text" maxlength="24" placeholder="Legendary" spellcheck="false">
+            <div class="chips" data-fill="q-word">
+              <button type="button">Home</button><button type="button">Legendary</button><button type="button">Underrated</button>
+              <button type="button">Chaotic</button><button type="button">Cozy</button><button type="button">Iconic</button>
+            </div>
+          </fieldset>
+
+          <fieldset class="step" data-step="3">
+            <legend>How proud are you of <span data-city>it</span>?</legend>
+            <div class="pride"><span class="pride__emoji" id="q-emoji" aria-hidden="true">😎</span><output id="q-pride-out" for="q-pride">7</output><span class="pride__of">/10</span></div>
+            <input class="range" id="q-pride" type="range" min="1" max="10" value="7" aria-label="Pride, from 1 to 10">
+          </fieldset>
+
+          <fieldset class="step" data-step="4">
+            <legend>What should <span data-city>your city</span> have more of?</legend>
+            <p class="hint">Pick up to 3.</p>
+            <div class="chips chips--multi" id="q-wants">
+              <button type="button" data-v="things-to-do" aria-pressed="false">🎟️ Things to do</button>
+              <button type="button" data-v="meeting-people" aria-pressed="false">🤝 Meeting people</button>
+              <button type="button" data-v="local-pride" aria-pressed="false">🏙️ Local pride</button>
+              <button type="button" data-v="local-business" aria-pressed="false">🛍️ Love for local spots</button>
+              <button type="button" data-v="events" aria-pressed="false">🎉 Events</button>
+              <button type="button" data-v="memes" aria-pressed="false">😂 Memes</button>
+            </div>
+          </fieldset>
+
+          <fieldset class="step" data-step="5">
+            <legend>What's <span data-city>your city</span> famous for?</legend>
+            <input class="field" id="q-famous" type="text" maxlength="120" placeholder="The food, obviously" spellcheck="true">
+          </fieldset>
+
+          <div class="rep__nav">
+            <button class="btn btn--ghost btn--sm" type="button" id="rep-back" hidden>← Back</button>
+            <span class="rep__step" id="rep-step">1 / 5</span>
+            <button class="btn btn--primary" type="submit" id="rep-next">Next →</button>
+          </div>
+          <p class="rep__err" id="rep-err" role="alert" hidden></p>
+          <p class="rep__privacy">Anonymous: we keep your answers and your country. We never store your IP address or location.</p>
+        </form>
+
+        <div class="rep__done" id="rep-done" hidden>
+          <div class="done__badge" aria-hidden="true">🔥</div>
+          <h3 id="done-title">You're repping your city.</h3>
+          <p id="done-text"></p>
+          <div class="cta">
+            <a class="btn btn--x" id="done-share" href="https://x.com/intent/tweet" target="_blank" rel="noopener">Share on X</a>
+            <a class="btn btn--ghost" href="https://x.com/VicinityCitySOL" target="_blank" rel="noopener">Follow @VicinityCitySOL</a>
+          </div>
+          <button class="link-btn" type="button" id="rep-again">Change my answers</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ LIVE BOARD ============ -->
+    <section class="board reveal" id="board" aria-labelledby="board-title">
+      <div class="board__head">
+        <p class="kicker"><span class="live-dot" aria-hidden="true"></span> Live</p>
+        <h2 id="board-title">Cities waiting</h2>
+        <p class="muted">Which city shows up the loudest? Every answer counts.</p>
+      </div>
+      <ol class="board__list" id="board-list"></ol>
+      <p class="board__empty" id="board-empty">No city on the board yet. <a href="#rep">Put yours first →</a></p>
+    </section>
+
+    <section class="clues reveal" aria-label="Clues">
+      <article class="clue tilt-soft"><span class="clue__n">01</span><p>It starts where you live.</p></article>
+      <article class="clue tilt-soft"><span class="clue__n">02</span><p>Locals first. Always.</p></article>
+      <article class="clue tilt-soft"><span class="clue__n">03</span><p>One city. One <span class="redact" title="Classified">▇▇▇▇</span>.</p></article>
+    </section>
+
+    <footer class="foot">
+      <p>The first word drops on <a href="https://x.com/VicinityCitySOL" target="_blank" rel="noopener">@VicinityCitySOL</a> and nowhere else. Turn on notifications 🔔</p>
+      <div class="foot__row">
+        <button class="link-btn" id="cal" type="button">Add to calendar</button>
+        <a class="link-btn" id="share" href="https://x.com/intent/tweet" target="_blank" rel="noopener">Share on X</a>
+      </div>
+      <p class="tiny">© 2026 Vicinity · City names: GeoNames (CC BY 4.0)</p>
+    </footer>
+  </main>
+
+  <script src="/teaser.js" defer></script>
+</body>
+</html>
