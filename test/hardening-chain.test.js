@@ -3,7 +3,7 @@
 // fire one getProgramAccounts each the moment the RPC is in trouble.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { _resetSnapshots, getHoldings, holderSnapshot, rpc } from "../src/chain.js";
+import { _resetSnapshots, getHoldings, getTopHolders, holderSnapshot, rpc } from "../src/chain.js";
 
 const MINT = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm";
 const WALLET = "FbvKBmz8YytrTe7SWjPjkUe19edFZumG6hsT3Mv9edg1";
@@ -54,4 +54,22 @@ test("a failed holder snapshot is remembered for 5 seconds: concurrent and follo
   now += 1_500;
   assert.equal(await outcome(holderSnapshot({}, MINT, failing)), "rpc_429");
   assert.equal(programAccountCalls, 2, "retried once the 5 seconds passed");
+});
+
+test("holders on a Raydium LaunchLab curve and in Raydium's locked LP are named, not just 'Pool or program account'", async () => {
+  const CURVE = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"; // some program-controlled addresses
+  const LOCK = "7YttLkHDoNj9wyDur5pM1ejNaAvT9X4eqaYcHQqtj2G5";
+  const programOf = { [CURVE]: "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj", [LOCK]: "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE" };
+  const fakeRpc = async (_url, init) => {
+    const { method, params } = JSON.parse(init.body);
+    if (method === "getAccountInfo") return ok({ value: { owner: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", data: { parsed: { info: { decimals: 6, supply: "1000000000000000", mintAuthority: null, freezeAuthority: null } } } } });
+    if (method === "getTokenLargestAccounts") return ok({ value: [{ address: "accCurve", amount: "700000000000000", decimals: 6 }, { address: "accLock", amount: "200000000000000", decimals: 6 }, { address: "accPerson", amount: "1000000000", decimals: 6 }] });
+    if (method === "getMultipleAccounts") {
+      if (params[0][0] === "accCurve") return ok({ value: [CURVE, LOCK, WALLET].map((owner) => ({ data: { parsed: { info: { owner } } } })) });
+      return ok({ value: params[0].map((k) => ({ owner: programOf[k] || "11111111111111111111111111111111" })) });
+    }
+    throw new Error("unexpected " + method);
+  };
+  const { holders } = await getTopHolders({}, MINT, fakeRpc);
+  assert.deepEqual(holders.map((h) => h.label), ["Raydium LaunchLab curve", "Raydium locked LP", null]);
 });
