@@ -26,7 +26,7 @@ merge to main ─► Deploy: build + tests + wrangler deploy  (.github/workflows
 | `SITE_MODE`, `GOOGLE_CLIENT_ID`, `EMAIL_FROM` | `wrangler.jsonc` → `vars` | public, and changes (like going live) should be a reviewed pull request |
 | `ADMIN_WALLETS` | Cloudflare dashboard (plain variable) | kept by `keep_vars: true`; not needed in a public repo |
 | `SOLANA_RPC_URL`, `RESEND_API_KEY`, `GOOGLE_CLIENT_SECRET`, `GMAIL_*` | Cloudflare *Secrets* | never in GitHub; a deploy never touches them |
-| `VICINITY_MINT` | fastest: Cloudflare dashboard → Workers → `vicinity-map` → Settings → Variables → add it (live at once, kept by `keep_vars`). Then add it to `wrangler.jsonc` → `vars` in a pull request so GitHub stays the truth | picked up with no code change |
+| `VICINITY_MINT` | `wrangler.jsonc` → `vars` (set to the real contract `2aVkhRfAEm44tMhFo8oamWvumGGvweFqnUwukRMBkray` on 3 Oct 2026, after checking it on-chain; every deploy applies it). To change it, change the value there and merge (do not delete the line: `keep_vars` keeps the old value) | the deploy applies it within about a minute |
 | `EMAIL_MAX_PER_HOUR` (optional) | `wrangler.jsonc` → `vars` | site-wide cap on sign-in e-mails per hour, default 2000 |
 | `SIGNUP_FLOW` | `wrangler.jsonc` → `vars` (set to `v2` on 3 Oct 2026; every deploy applies it) | the switch for the new sign-up: `v2` = on, anything else or missing = the old sign-up. To switch it off, change the value there and merge. See "Sign-up v2 switch" below |
 | `SIGNUP_MAX_PER_HOUR` (v2, optional) | Cloudflare dashboard (plain variable) | the whole site's ceiling on new sign-ups started per hour, default 5000; see "The sign-up ceiling" below |
@@ -122,7 +122,7 @@ The tabbed dashboard is built and tested but **dark**: while `DASHBOARD_V2` is n
 - [ ] Member profiles (only when you decide to switch them on): the members were told, the lawyer reviewed the privacy sentences and the Terms, the rate-limit rule covers the new routes, then set `PROFILES` to `on` (see "Profiles switch").
 - [ ] Wipe the test data: sign in to `/admin` with the owner wallet → *Test lab* → *Reset* (needs a fresh wallet signature). It deletes only the rows the test lab created.
 - [ ] Go live: pull request changing `SITE_MODE` to `"live"` in `wrangler.jsonc`, merge, approve the deploy. (In `live` mode the test lab can no longer be seeded.)
-- [ ] After the token launch: pull request setting `VICINITY_MINT` in `wrangler.jsonc` to the real contract, after verifying it on-chain (the address set on 3 Oct 2026, `2e8V…Xray`, was a test coin and was removed the same day; the value is `""` until the real launch).
+- [x] After the token launch: `VICINITY_MINT` in `wrangler.jsonc` is the real contract (`2aVk…kray`, Raydium LaunchLab, 3 Oct 2026), set after checking it on-chain: 1,000,000,000 supply, 6 decimals, mint and freeze authority removed, metadata VICINITY. (An address set earlier that day, `2e8V…Xray`, was a test coin and was removed within hours.)
 - [ ] Prices: create a free Jupiter API key (portal.jup.ag), set the secret `JUPITER_API_KEY` and the variable `JUPITER_API_BASE` = `https://api.jup.ag` (see the settings table). Until then the retiring keyless address is used.
 - [ ] Rate-limiting rules for the public routes, per IP, as listed in "Attempt limits on the public routes" above.
 - [x] The `workers.dev` addresses are switched off (`"workers_dev": false` in `wrangler.jsonc`, applied by the next deploy) and removed from the official-links list. Set it back to `true` only for a short test.

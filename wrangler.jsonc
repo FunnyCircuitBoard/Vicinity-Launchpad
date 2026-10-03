@@ -24,11 +24,12 @@
     "SITE_MODE": "live",
     "GOOGLE_CLIENT_ID": "508878292080-h05nh9h4p6u4ajpqldc423f6elmqc0nl.apps.googleusercontent.com",
     "EMAIL_FROM": "Vicinity <noreply@vicinity.city>",
-    // The one official $VICINITY contract. Empty = not launched yet (countdown, no "Buy" links, the checker calls every
-    // address unofficial). The address set here on 3 Oct 2026 (2e8VdgpT27LcNWyfk5Ce6ZyGwMdu7ajaSnMph83Xwray) was the
-    // owner's TEST coin and was removed the same day. Put the real one here only after verifying it on-chain (1,000,000,000
-    // supply, 6 decimals, minting and freezing disabled, the expected metadata) and merge: the deploy makes it live.
-    "VICINITY_MINT": "",
+    // The one official $VICINITY contract (Raydium LaunchLab, launched 3 Oct 2026 at 16:48 UTC). Verified on-chain before it
+    // was set here: classic SPL token, 1,000,000,000 supply, 6 decimals, mint authority and freeze authority both removed,
+    // metadata "VICINITY CITY" / VICINITY. The checker, the registry, the holder list, the balance history and every "Buy"
+    // link read it. (An address set earlier the same day, 2e8VdgpT27LcNWyfk5Ce6ZyGwMdu7ajaSnMph83Xwray, was the owner's
+    // test coin and was removed within hours.) Empty would mean "not launched": countdown, no links, every address unofficial.
+    "VICINITY_MINT": "2aVkhRfAEm44tMhFo8oamWvumGGvweFqnUwukRMBkray",
     // The new sign-up (location → account with Google or e-mail + password → wallet → dashboard), on since 3 Oct 2026.
     // Any other value (change it, do not delete the line: keep_vars would keep the old value) brings the old sign-up back at the next deploy.
     "SIGNUP_FLOW": "v2",
