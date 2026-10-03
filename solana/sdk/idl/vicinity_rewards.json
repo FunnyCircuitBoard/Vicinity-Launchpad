@@ -2220,5 +2220,67 @@
         ]
       }
     }
+  ],
+  "constants": [
+    {
+      "name": "ALLOWED_SPLIT_BPS",
+      "docs": [
+        "Founder shares the Split model may use (PRODUCT DECISION: 25/50/75).",
+        "Arbitrary splits are deliberately not allowed until their economics are",
+        "reviewed; the UI offers exactly these choices."
+      ],
+      "type": {
+        "array": [
+          "u16",
+          3
+        ]
+      },
+      "value": "[2500, 5000, 7500]"
+    },
+    {
+      "name": "BPS_DENOMINATOR",
+      "docs": [
+        "Basis points denominator: 10000 bps = 100%."
+      ],
+      "type": "u64",
+      "value": "10000"
+    },
+    {
+      "name": "CREATOR_BPS",
+      "docs": [
+        "The Creator model sends everything to the founder."
+      ],
+      "type": "u16",
+      "value": "10000"
+    },
+    {
+      "name": "HOLDERS_BPS",
+      "docs": [
+        "The Holders model sends nothing to the founder."
+      ],
+      "type": "u16",
+      "value": "0"
+    },
+    {
+      "name": "MAX_CLAIM_WINDOW_SECS",
+      "docs": [
+        "Longest claim window an epoch may have (PRODUCT DECISION: 365 days)."
+      ],
+      "type": "i64",
+      "value": "31536000"
+    },
+    {
+      "name": "MIN_CLAIM_WINDOW_SECS",
+      "docs": [
+        "Shortest claim window an epoch may have (PRODUCT DECISION: 14 days).",
+        "",
+        "The `short-windows` Cargo feature (tests only, see Cargo.toml) lowers this",
+        "to 60 seconds so that the deadline, sweep and close_claim_status paths can",
+        "be exercised against a real clock. The IDL of such a build carries the short",
+        "value, so a client can tell the two apart."
+      ],
+      "type": "i64",
+      "value": "1209600"
+    }
   ]
 }

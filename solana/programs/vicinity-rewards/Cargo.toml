@@ -12,6 +12,13 @@ name = "vicinity_rewards"
 
 [features]
 default = []
+# TEST ONLY. Shrinks MIN_CLAIM_WINDOW_SECS from 14 days to 60 seconds so the
+# deadline, sweep and close_claim_status tests can run against a real clock:
+# `anchor test -- --features short-windows`. A build with this feature must
+# never be deployed; `anchor build --verifiable` without features is what the
+# owner deploys, and the IDL constant MIN_CLAIM_WINDOW_SECS shows which one a
+# binary is.
+short-windows = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
