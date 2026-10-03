@@ -26,6 +26,7 @@ test("the bio is counted in code points, one line, trimmed: the way the server c
   assert.equal(P.bioClean("a  \n  b"), "a b", "blanks around a line break go with it");
   assert.equal(P.bioClean("a   b"), "a b", "every run of blanks is one space, as on the server");
   assert.equal(P.bioClean("a\u200Bb\u00ADc"), "abc", "invisible characters are dropped before counting");
+  assert.equal(P.bioClean("a\u0080\u009F\u2061b" + String.fromCodePoint(0xe0073, 0xe007f) + "c"), "abc", "C1 controls, invisible operators and TAG characters too, as on the server");
   assert.equal(P.bioClean("e\u0301"), "\u00e9", "counted after NFC, so a letter and its accent is one character");
   assert.equal(P.bioCheck("e\u0301".repeat(100)).over, false);
   assert.equal(P.bioCheck("😀".repeat(100)).over, false, "100 emoji is exactly the limit");
@@ -48,6 +49,12 @@ test("the bio hint warns early about links, addresses, e-mail and phone numbers 
   assert.equal(problem("call 5551234567"), "phone");
   assert.equal(problem("since 2026"), null, "a year is not a phone number");
   for (const k of ["link", "address", "email", "phone"]) assert.match(P.BIO_HINT[k], /^That looks like .*\.$/);
+  // the server refuses every unbroken run of 26+ letters or digits as address-like (src/profile-core.js ADDRESS_LIKE): the hint says so while typing, and the refusal names it
+  assert.equal(problem("Donaudampfschifffahrtsgesellschaft fan"), "longword");
+  assert.equal(problem("A".repeat(26)), "longword");
+  assert.equal(problem("Supercalifragilistic is 20"), null, "25 letters or fewer in a row are a word");
+  assert.match(P.BIO_HINT.longword, /26 or more letters or digits/);
+  assert.match(P.ERR.bio_not_allowed, /unbroken word of 26\+ letters or digits/, "the message after a refusal names the long-word rule too");
 });
 
 /* ---------- names and links ---------- */

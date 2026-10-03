@@ -97,7 +97,10 @@ const PHONE = /\+?\p{Nd}(?:[\s().\-]*\p{Nd}){6,}/u;
 const ADDRESS_LIKE = /(?<![A-Za-z0-9])0x[0-9a-fA-F]{16,}|[A-Za-z0-9]{26,}/;
 const BIDI = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
 const BAD_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
-const INVISIBLE = /[\u200B\u200C\u2060\uFEFF\u00AD\u180E]/g;
+// characters that show nothing and are dropped: zero-width space and non-joiner (not U+200D, the joiner that makes one emoji of a family),
+// the word joiner and the invisible operators U+2060-2064, the byte-order mark, the soft hyphen, the Mongolian vowel separator, the C1
+// controls U+0080-009F and the TAG block U+E0000-E007F (invisible in every browser: a known way to hide text in a bio)
+const INVISIBLE = /[\u200B\u200C\u2060-\u2064\uFEFF\u00AD\u180E\u0080-\u009F\u{E0000}-\u{E007F}]/gu;
 
 /**
  * The bio rules, in one place. Returns { ok: true, bio } (bio is "" to clear it) or { ok: false, error }:
