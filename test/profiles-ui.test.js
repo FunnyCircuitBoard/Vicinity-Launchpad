@@ -385,6 +385,14 @@ test("styles: the ring colours are the validated palette in both themes, no anim
   assert.match(block, /\.prof \.btn--sm \{ min-height: 44px; \}/);
   assert.match(block, /\.prof-menu__list button \{[^}]*min-height: 44px/);
   assert.match(block, /\.prof-count \{[^}]*min-height: 56px/);
+  // a 320 px phone: the coin disc leaves the pass's id column room for the username on one line, and the role pill does not break in two
+  const tiny = block.match(/@media \(max-width: 359px\) \{([^}]*\}\s*)+?\n\}/);
+  assert.ok(tiny, "a rule set for the smallest phones");
+  assert.match(tiny[0], /\.prof-pass \.pass__coin \{ display: none; \}/);
+  assert.match(tiny[0], /\.prof-pass \.pass__name \{ font-size: 1\.05rem; \}/);
+  assert.match(tiny[0], /\.prof-pass \.pass__top \{ flex-wrap: wrap;/);
+  assert.match(tiny[0], /\.prof-pass \.role-pill \{ white-space: nowrap; \}/);
+  assert.match(block, /\.prof-pass \.pass__name \{ margin: 0; white-space: normal; overflow-wrap: anywhere; \}/, "wrapping mid-word stays the last resort for a username wider than the column");
 });
 
 test("the notice, the field and the page say what others can see, in the owner's words", () => {
