@@ -211,9 +211,10 @@ async function handleFollow(request, env, x) {
   const s = state.results[0];
   if (!s.there) return notFound();
   if (s.following) return json({ ok: true, following: true, counts: shapeCounts(counts) });
-  // Refused. A block is never named: "cannot_follow" is all the other member's choice ever shows.
-  if (s.blocked_you) return json({ ok: false, error: "cannot_follow" }, 403);
+  // Refused. Your own block is always the explanation when there is one (so the answer never changes with the other side's
+  // choice); a block by the other member is never named: "cannot_follow" is all their choice ever shows.
   if (s.you_blocked) return json({ ok: false, error: "unblock_first" }, 409);
+  if (s.blocked_you) return json({ ok: false, error: "cannot_follow" }, 403);
   if (s.mine >= MAX_FOLLOWING) return json({ ok: false, error: "too_many_following" }, 409);
   return json({ ok: false, error: "unavailable" }, 503);
 }

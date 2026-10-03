@@ -160,6 +160,17 @@ test("unblock: Alice may follow again (nothing is restored by itself); you canno
   assert.equal((await follow(b, "Alice77")).status, 200);
 });
 
+test("mutual block: a follow attempt is answered with your own block (unblock_first), never with the other member's (cannot_follow)", async () => {
+  const { env, people: [a, b] } = await world();
+  await block(a, "BobBrave"); await block(b, "Alice77");
+  await expectStatus(await follow(a, "BobBrave"), 409, "unblock_first");
+  await expectStatus(await follow(b, "Alice77"), 409, "unblock_first");
+  // the same answer as when only your own block exists: the other side's choice changes nothing you can see
+  await block(b, "Alice77", false);
+  await expectStatus(await follow(a, "BobBrave"), 409, "unblock_first");
+  assert.deepEqual(await followPairs(env.DB), []);
+});
+
 test("block refusals: yourself, nobody, bad input, signed out, another site, an owner, an admin, a moderator", async () => {
   const { env, people: [a, b, owner, admin, mod] } = await world(["Alice77", "BobBrave", "OwnerOlga", "AdminAl", "ModMia"]);
   env.ADMIN_WALLETS = owner.w.address;
