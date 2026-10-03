@@ -146,3 +146,22 @@ test("three reports still confirm a moderator's pending hide", async () => {
   assert.equal((await env.DB.prepare("SELECT hide_confirmed FROM posts WHERE id = ?").bind(id).first("hide_confirmed")), 1);
   assert.equal((await reportsOf(id)).reports, 3);
 });
+
+/* ---------------- what the public sees of a seat ---------------- */
+
+test("/api/seats (the map polls it) shows a founder's wallet masked, never the full address", async () => {
+  const f = await person(env, { home: IN_UTICA });
+  const id = await userId(f), at = new Date(Date.now()).toISOString();
+  await env.DB.prepare("INSERT INTO seats (city_id, city_name, country, user_id, wallet, policy, threshold, status, created_at, activated_at) VALUES ('5142056', 'Utica', 'US', ?, ?, 5, 180000, 'active', ?, ?)")
+    .bind(id, f.w.address, at, at).run();
+  const res = await browser(env).send("/api/seats");
+  const text = await res.text();
+  assert.ok(!text.includes(f.w.address), "the full wallet is not in the answer");
+  const d = JSON.parse(text);
+  assert.equal(d.seats.length, 1);
+  assert.match(d.seats[0].wallet, /^.{5}\*{5}.{3}$/);
+  assert.equal(d.seats[0].wallet, `${f.w.address.slice(0, 5)}*****${f.w.address.slice(-3)}`, "the same masking the dashboard and the admin console use");
+  assert.equal(d.seats[0].founder, (await f.get("/api/me?lite=1")).user.handle);
+  const old = await browser(env).send("/api/claims");
+  assert.ok(!(await old.text()).includes(f.w.address), "the old name of the route too");
+});
