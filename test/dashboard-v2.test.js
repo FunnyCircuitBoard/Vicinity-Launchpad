@@ -7,8 +7,9 @@ import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-import { IN_UTICA, V2, browser, loginBody, newWorld, person, realClock, useClock, wallet } from "./helpers/world.js";
+import { IN_UTICA, MINT, V2, browser, loginBody, newWorld, person, realClock, useClock, wallet } from "./helpers/world.js";
 import { dashboardV2On } from "../src/flags.js";
+import { POLICY } from "../src/policy.js";
 
 const read = (p) => readFileSync(new URL("../public/" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const html = read("dashboard.html"), v2 = read("dashboard-v2.js"), dash = read("dashboard.js"), roles = read("dashboard-roles.js");
@@ -208,7 +209,10 @@ test("every #id dashboard-v2.js names exists in the built page, and it creates n
   assert.match(v2, /For information only: rank does not decide the founder\./);
   assert.match(v2, /The first qualified claimer becomes Seed Steward at once/);
   assert.doesNotMatch(v2, /100_000|1_000_000|100,000|1,000,000/, "the founder amount comes from the server, never from this file");
-  for (const t of ["Founder confirmed", "Seed Steward · probation", "Chosen · objections open", "In grace", "Applied · window open", "Opens at launch", "Qualified to challenge", "Qualified", "Set your home", "Home too new", "7-day clock running", "Below the bar", "Cooling down", "City has a founder", "Banned"]) assert.ok(v2.includes(`"${t}"`), `state pill: ${t}`);
+  for (const t of ["Founder confirmed", "Seed Steward · probation", "Chosen · objections open", "In grace", "Applied · window open", "Opens at launch", "Qualified to challenge", "Qualified", "Set your home", "Home too new", "Below the bar", "Cooling down", "City has a founder", "Banned"]) assert.ok(v2.includes(`"${t}"`), `state pill: ${t}`);
+  // the clock's length is the server's (founder.tenure.needed, which is POLICY.founder.qualifyingDays), never a number written here
+  assert.match(v2, /\[`\$\{f\.tenure\.needed\}-day clock running`, "tag--gold"\]/, "state pill: the N-day clock from tenure.needed");
+  assert.doesNotMatch(v2, /\d-day clock/, "no hardcoded clock length");
   for (const t of ["Not designed yet", "Live", "Contract being checked", "Designed"]) assert.ok(v2.includes(`"${t}"`), `coin state: ${t}`);
   for (const t of ["Design the city coin", "Add the contract", "See the coin", "Manage city coin", "Founder path", "Buy & swap"]) assert.ok(v2.includes(`"${t}"`), `founder card button: ${t}`);
 });
@@ -258,3 +262,14 @@ test("dashboard-roles.js jumps through the tab router only when it exists", () =
   assert.equal((roles.match(/scrollIntoView/g) || []).length, 1, "one scroll helper");
   for (const other of ["site.js", "cities.js", "home.js", "token.js", "launchpad.js", "connect.js", "wallets.js", "profile.js"]) assert.doesNotMatch(read(other), /dashboard-v2|VDash/, `${other} knows nothing about v2`);
 });
+
+test("the N-day clock the Founder tab shows is the server's: /api/me founder.tenure.needed is POLICY.founder.qualifyingDays whenever tenure is known", async () => {
+  const env = newWorld({ DASHBOARD_V2: "on", VICINITY_MINT: MINT });
+  const p = await person(env, { home: IN_UTICA, holds: 300_000 });
+  const d = await p.get("/api/me");
+  assert.equal(d.dashboardV2, true);
+  assert.ok(d.founder.tenure, "launched and at home: tenure is known");
+  assert.equal(d.founder.tenure.needed, POLICY.founder.qualifyingDays);
+  assert.equal(typeof d.founder.tenure.days, "number");
+});
+
