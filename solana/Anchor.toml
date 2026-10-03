@@ -23,6 +23,10 @@ url = "https://api.apr.dev"
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
+# Full suite: `anchor test -- --features short-windows` (the test-only feature
+# lowers MIN_CLAIM_WINDOW_SECS to 60 s so the deadline/sweep tests can run; see
+# tests/README-tests.md). Plain `anchor test` runs the production build and
+# reports those 7 tests as pending.
 [scripts]
 test = "npm run test"
 

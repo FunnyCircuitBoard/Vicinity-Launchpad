@@ -16,38 +16,43 @@ After every test the accounting invariants of the touched cities are asserted
 | `06-large-tree-compute.ts` | 2,000 leaves (depth 11) with 8 claims, 1-leaf tree, compute units of `claim` at depth 11, 20 and 32 (prints `CU_RESULT` lines for AUDIT.md) |
 
 `npm run sdk-test` runs the pure Merkle tests (`sdk/merkle.test.mjs`), including
-the fixture cross-check against `sdk/fixtures/merkle.json`.
+the fixture cross-check against `sdk/fixtures/merkle.json` and
+`sdk/fixtures/merkle-js.json` (the Rust unit test reads the same two files; see
+`sdk/fixtures/README.md`). `npm run typecheck` type-checks the tests, the SDK
+and the demo.
 
-## Short claim window for the deadline tests
+## The one command that runs everything
 
-`MIN_CLAIM_WINDOW_SECS` is 14 days. The cases "claim after deadline", "sweep",
-"claim on a swept epoch" and "close_claim_status after sweep" can only run when
-an epoch's deadline passes during the test run. `04-sweep-cancel-deadline.ts`
-reads the constant from the IDL (`idl.constants`, present when the program
-declares it with `#[constant]`) and runs those cases when it is at most 120
-seconds; otherwise it prints a warning and skips them.
-
-To run them, build the program for tests with a short minimum window, for
-example a Cargo feature that overrides the constant:
-
-```toml
-# programs/vicinity-rewards/Cargo.toml
-[features]
-short-windows = []
+```
+anchor test -- --features short-windows
 ```
 
-```rust
-// constants.rs
-#[cfg(not(feature = "short-windows"))]
-pub const MIN_CLAIM_WINDOW_SECS: i64 = 14 * 86_400;
-#[cfg(feature = "short-windows")]
-pub const MIN_CLAIM_WINDOW_SECS: i64 = 5;
-```
+`MIN_CLAIM_WINDOW_SECS` is 14 days in production. The cases "claim after
+deadline", "sweep", "claim on a swept epoch" and "close_claim_status after
+sweep" (7 tests in `04-sweep-cancel-deadline.ts`, plus the sweep step of
+`scripts/demo.ts`) can only run when an epoch's deadline passes during the run.
+The `short-windows` Cargo feature (`programs/vicinity-rewards/Cargo.toml`,
+tests only) lowers the minimum to 60 seconds; the arguments after `--` go to
+`cargo build-sbf` and to the IDL build, so the IDL of that build carries
+`MIN_CLAIM_WINDOW_SECS = 60` in its `constants` section.
 
-and `anchor test -- --features short-windows` (the IDL then carries the short
-value, and the tests wait for real deadlines of a few seconds). The mainnet
-build must not enable the feature; `anchor build --verifiable` without features
-is what gets deployed.
+How the tests notice: `sdk/client.ts` loads `target/idl/vicinity_rewards.json`
+first (the IDL of the binary `anchor test` just deployed) and falls back to the
+committed `sdk/idl/vicinity_rewards.json`; `VICINITY_IDL=<path>` overrides both.
+`04` reads `MIN_CLAIM_WINDOW_SECS` from `idl.constants` and runs the deadline
+block when it is at most 120 seconds. With a production build (`anchor test`
+without the feature) that block prints a warning and is reported as pending:
+a green run with "7 pending" is NOT a full run.
+
+Every other test funds its epochs with `defaultWindow()` (30 days clamped into
+the program's bounds, `helpers.ts`), never with the minimum, so a 60-second
+minimum cannot expire an epoch under a running test file.
+
+The mainnet build must not enable the feature: `anchor build --verifiable`
+without features is what gets deployed, and its IDL shows
+`MIN_CLAIM_WINDOW_SECS = 1209600`. CI (`.github/workflows/solana.yml`) builds
+production first, checks the committed IDL against it, and only then builds and
+tests with the feature.
 
 ## Error matching
 

@@ -296,6 +296,16 @@ export function windowBounds() {
   return client.claimWindowBounds();
 }
 
+// The window a test epoch gets unless the test asks for another one: 30 days,
+// clamped into the program's bounds. The minimum is NOT used as the default on
+// purpose: with a `short-windows` test build the minimum is 60 seconds, and an
+// epoch funded in a before() hook would expire under the tests that follow.
+// Only the deadline tests (04) fund with `window: windowBounds().min`.
+export function defaultWindow(): number {
+  const { min, max } = windowBounds();
+  return Math.min(max, Math.max(min, 30 * 86_400));
+}
+
 export interface FundOptions {
   amount: bigint | number;
   tree?: Tree;
@@ -326,7 +336,7 @@ export async function fundEpochTx(city: City, o: FundOptions) {
     numLeaves: o.numLeaves ?? o.tree?.numLeaves ?? 0,
     snapshotSlot: o.snapshotSlot ?? (await connection.getSlot("confirmed")),
     snapshotHash: o.snapshotHash ?? (o.tree ? sha256(o.tree.root) : new Uint8Array(32)),
-    claimWindowSecs: o.window ?? windowBounds().min,
+    claimWindowSecs: o.window ?? defaultWindow(),
     founder: o.founder,
     rewardMint: o.rewardMint,
     tokenProgram: o.tokenProgram ?? city.tokenProgram,

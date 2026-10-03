@@ -37,7 +37,13 @@ export const DAY = 86_400;
 export const DEFAULT_MIN_CLAIM_WINDOW = 14 * DAY;
 export const DEFAULT_MAX_CLAIM_WINDOW = 365 * DAY;
 
-export const IDL_CANDIDATES = ["sdk/idl/vicinity_rewards.json", "target/idl/vicinity_rewards.json"];
+// The build output comes first: `anchor test` deploys target/deploy and writes
+// target/idl in the same run, so tests and the demo must read the IDL of the
+// binary that is actually on the validator (a `--features short-windows` test
+// build carries a different MIN_CLAIM_WINDOW_SECS). sdk/idl is the committed
+// production IDL for clients that have no build directory (the Worker).
+// VICINITY_IDL overrides both.
+export const IDL_CANDIDATES = ["target/idl/vicinity_rewards.json", "sdk/idl/vicinity_rewards.json"];
 
 // Role -> candidate IDL account names (camelCase, as the Anchor TS client exposes them).
 const ROLE_NAMES: Record<string, string[]> = {
@@ -73,6 +79,8 @@ export interface IdlAccountItem {
 }
 
 export function findIdlPath(root: string = workspaceRoot()): string | undefined {
+  const forced = process.env.VICINITY_IDL;
+  if (forced) return existsSync(forced) ? forced : join(root, forced);
   for (const rel of IDL_CANDIDATES) {
     const p = join(root, rel);
     if (existsSync(p)) return p;

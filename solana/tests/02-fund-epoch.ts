@@ -29,6 +29,7 @@ import {
   tokenBalance,
   vaultBalance,
   windowBounds,
+  defaultWindow,
   big,
   bytesOf,
 } from "./helpers";
@@ -59,7 +60,7 @@ describe("02 fund_epoch: amounts, rounding, carry-over, auto-lock, window, funde
     expect(bytesOf(e.merkleRoot).equals(Buffer.alloc(32))).to.equal(true);
     expect(e.depositAmount).to.equal(amount);
     expect(e.founderAmount).to.equal(amount);
-    expect(e.claimDeadline - e.fundedAt).to.equal(windowBounds().min);
+    expect(e.claimDeadline - e.fundedAt, "deadline = funded_at + the window the helper passed").to.equal(defaultWindow());
     expect(Math.abs(e.fundedAt - now)).to.be.lessThan(120);
 
     expect(cfg.locked, "auto-lock on first fund").to.equal(true);
