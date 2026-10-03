@@ -825,7 +825,8 @@
       const li = el("li");
       const link = el("a", "mono", w.pendingMint); link.href = `https://solscan.io/token/${w.pendingMint}`; link.target = "_blank"; link.rel = "noopener";
       li.append(el("strong", null, `${w.cityName} · `), link, el("span", "tiny muted", ` · ${w.pair} pair · sent ${ago(w.pendingAt)}`));
-      const decide = (approve, note) => sensitive(() => api("/api/coins/mint/decide", { city: w.city, approve, note }));
+      // the decision carries the address the admin looked at: the server records only if it is still the one waiting
+      const decide = (approve, note) => sensitive(() => api("/api/coins/mint/decide", { city: w.city, mint: w.pendingMint, approve, note }));
       li.append(
         actBtn("Record it ✓", async () => { const x = await decide(true, "Checked on the blockchain"); toast(x.ok ? "Recorded: it's the official coin now ✓" : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue(); }),
         actBtn("Reject", () => reasonForm(li, "Reject", async (reason, note) => {
@@ -846,7 +847,7 @@
     const missing = route !== "city" && !vicMint ? "$VICINITY" : route !== "vic" && !cityMint ? tk : null;
     return { a, b, missing, tk };
   }
-  const swapSide = (m, raydium) => (m === SOL_MINT ? (raydium ? "sol" : "SOL") : m);
+  const swapSide = (m) => (m === SOL_MINT ? "SOL" : m);
   function renderTrade() {
     if (!me || !me.community) return;
     const { a, b, missing, tk } = routeInfo();
@@ -857,8 +858,9 @@
     $("#tr-in").dataset.token = a[0].startsWith("$") ? (a[0] === "$VICINITY" ? "vic" : "city") : a[0].toLowerCase();
     $("#tr-outk").dataset.token = b[0].startsWith("$") ? (b[0] === "$VICINITY" ? "vic" : "city") : b[0].toLowerCase();
     const state = $("#trade-state"), go = $("#tr-go"), go2 = $("#tr-go-2"), amt = $("#tr-amt");
-    state.className = "tag " + (missing ? "tag--warn" : "tag--ok");
-    state.textContent = missing ? (!vicMint ? "Opens at launch" : `${tk} isn't live yet`) : "● Live";
+    // "● Live" only once /api/prices answered with both prices (see estimate): a recorded contract alone is listed, not live
+    state.className = "tag tag--warn";
+    state.textContent = missing ? (!vicMint ? "Opens at launch" : `${tk} isn't live yet`) : "Listed · no price yet";
     amt.disabled = Boolean(missing);
     if (missing) {
       const mine = me.community.seat && me.community.seat.you;
@@ -871,10 +873,11 @@
     } else {
       go.textContent = `${route === "swap" ? "Swap" : flipped ? `Sell ${a[0]}` : `Buy ${b[0]}`} on Jupiter ↗`;
       go.href = `https://jup.ag/swap/${swapSide(a[1])}-${swapSide(b[1])}`; go.target = "_blank"; go.rel = "noopener";
-      const curve = route === "vic" ? vicMint : route === "city" ? coinData.mint : null; // a new coin trades on its LaunchLab page
-      go2.href = curve ? `https://raydium.io/launchpad/token/?mint=${curve}` : `https://raydium.io/swap/?inputMint=${swapSide(a[1], true)}&outputMint=${swapSide(b[1], true)}`;
-      go2.textContent = curve ? "or on Raydium LaunchLab ↗" : "or on Raydium ↗"; go2.hidden = false;
-      $("#tr-note").textContent = "You sign every swap in your own wallet on Jupiter or Raydium; Vicinity never touches your funds. Estimates use live prices, and the swap page shows the exact amount.";
+      // The Raydium button only where a Raydium page exists: the LaunchLab page of $VICINITY or of the city coin. No direct
+      // pool between a city coin and $VICINITY is known, so the swap route offers Jupiter alone (it routes through SOL).
+      go2.hidden = route === "swap";
+      if (!go2.hidden) { go2.href = `https://raydium.io/launchpad/token/?mint=${route === "vic" ? vicMint : coinData.mint}`; go2.textContent = "or on Raydium LaunchLab ↗"; }
+      $("#tr-note").textContent = "You sign every swap in your own wallet on Jupiter or Raydium; Vicinity never touches your funds. Price ratio, not a quote. Slippage and fees are set in your wallet.";
     }
     estimate();
   }
@@ -888,8 +891,9 @@
       const r = await api(`/api/prices?mints=${key}`);
       priceCache = { key, at: Date.now(), p: (r && r.prices) || {} };
     }
-    const pa = priceCache.p[a[1]], pb = priceCache.p[b[1]];
-    if (!pa || !pb) { $("#tr-rate").textContent = "No live price yet: the swap page shows the exact amount."; return; }
+    const pa = priceCache.p[a[1]], pb = priceCache.p[b[1]], state = $("#trade-state");
+    if (!pa || !pb) { $("#tr-rate").textContent = "No live price yet: the swap page shows the exact amount."; state.className = "tag tag--warn"; state.textContent = "Listed · no price yet"; return; }
+    state.className = "tag tag--ok"; state.textContent = "● Live";
     $("#tr-rate").textContent = `1 ${a[0]} ≈ ${num(pa / pb)} ${b[0]}`;
     if (amount > 0) { $("#tr-out").textContent = num((amount * pa) / pb); $("#tr-in-usd").textContent = `≈ $${usd(amount * pa)}`; }
   }

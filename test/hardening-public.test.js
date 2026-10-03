@@ -58,3 +58,30 @@ test("wallets: the installed-wallet scan runs again when the tab comes back and 
   assert.ok(js.includes("rescan: scanLegacy"), "pages can still ask for a scan themselves");
   assert.ok(js.includes("setTimeout(scanLegacy, 350)"), "the first scans are unchanged");
 });
+
+/* ---------------- dashboard: the trade panel tells the truth, the admin's decision names the address ---------------- */
+
+test("dashboard trade panel: '● Live' only once both prices are known, the estimate is called a price ratio, no Raydium button on the swap route", () => {
+  const js = read("dashboard.js");
+  const panel = js.slice(js.indexOf("function renderTrade()"), js.indexOf('$("#tr-amt").addEventListener'));
+  // the state is set to "Listed · no price yet" when the contract exists, and flips to Live only in estimate(), after /api/prices answered
+  assert.ok(!/missing \?[^\n]*: "● Live"/.test(panel), "a recorded contract alone is not 'Live'");
+  assert.ok(panel.includes('"Listed · no price yet"'));
+  const est = panel.slice(panel.indexOf("async function estimate()"));
+  assert.ok(est.indexOf("if (!pa || !pb)") < est.indexOf('state.textContent = "● Live"'), "Live comes after both prices are there");
+  assert.ok(est.includes('state.className = "tag tag--ok"; state.textContent = "● Live"'));
+  assert.ok(est.includes('state.textContent = "Listed · no price yet"; return;'), "no price: back to Listed");
+  assert.ok(panel.includes("Price ratio, not a quote. Slippage and fees are set in your wallet."));
+  assert.ok(!panel.includes("Estimates use live prices"), "the old wording is gone");
+  assert.ok(panel.includes("You sign every swap in your own wallet on Jupiter or Raydium; Vicinity never touches your funds."), "the safety sentence stays");
+  assert.ok(panel.includes('go2.hidden = route === "swap";'), "no Raydium button for city coin <-> $VICINITY: no direct pool is known");
+  assert.ok(!panel.includes("raydium.io/swap/"), "no link to a Raydium pair page that would be empty");
+  assert.ok(panel.includes("https://raydium.io/launchpad/token/?mint="), "the LaunchLab page stays for $VICINITY and the city coin");
+  assert.ok(panel.includes("https://jup.ag/swap/"), "Jupiter stays the primary button");
+});
+
+test("dashboard admin queue: the decision sent to /api/coins/mint/decide carries the address the admin looked at", () => {
+  const js = read("dashboard.js");
+  assert.ok(js.includes('api("/api/coins/mint/decide", { city: w.city, mint: w.pendingMint, approve, note })'));
+  assert.ok(js.includes("link.href = `https://solscan.io/token/${w.pendingMint}`"), "it is the same address the Solscan link opened");
+});
