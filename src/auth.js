@@ -464,9 +464,11 @@ async function sendCodeEmail(env, to, code, fetchImpl, mailer = {}, kind = "sign
  *   waitUntil  (optional) a function that keeps a promise alive after the answer is sent, like ctx.waitUntil: the mail is then
  *            sent (and the slot given back on failure) in the background, so the answer does not wait for the mail server
  *   noSend   (optional) claim the slot and write the code, but send nothing: the same database work as a real send
+ *   codeKey  (optional) the name the code is filed under (default: the address). The mail still goes to `email`. A code can
+ *            only be used under the name it was filed under, so a sign-in code can never serve as a password reset code
  * Returns { ok: true } or { ok: false, error: "bad_email" | "email_unavailable" | "too_many" | "too_soon", status }.
  */
-export async function sendEmailCode(env, email, { fetchImpl = fetch, now = Date.now(), mailer = {}, kind = "signin", waitUntil = null, noSend = false } = {}) {
+export async function sendEmailCode(env, email, { fetchImpl = fetch, now = Date.now(), mailer = {}, kind = "signin", waitUntil = null, noSend = false, codeKey = email } = {}) {
   if (!validEmail(email)) return { ok: false, error: "bad_email", status: 400 };
   if (!emailConfigured(env)) return { ok: false, error: "email_unavailable", status: 503 };
 
@@ -486,15 +488,15 @@ export async function sendEmailCode(env, email, { fetchImpl = fetch, now = Date.
         last_sent_at = excluded.last_sent_at
       WHERE (last_sent_at IS NULL OR last_sent_at <= ?) AND (window_start IS NULL OR window_start <= ? OR send_count < ?)
       RETURNING send_count`)
-    .bind(email, hash, iso(now), iso(now + CODE_SECONDS * 1000), iso(now), iso(now), hourAgo, hourAgo, iso(now - CODE_RESEND_SECONDS * 1000), hourAgo, CODE_MAX_SENDS).first();
+    .bind(codeKey, hash, iso(now), iso(now + CODE_SECONDS * 1000), iso(now), iso(now), hourAgo, hourAgo, iso(now - CODE_RESEND_SECONDS * 1000), hourAgo, CODE_MAX_SENDS).first();
   if (!claimed) {
-    const row = await env.DB.prepare("SELECT last_sent_at FROM email_codes WHERE email = ?").bind(email).first();
+    const row = await env.DB.prepare("SELECT last_sent_at FROM email_codes WHERE email = ?").bind(codeKey).first();
     const soon = row && row.last_sent_at && now - Date.parse(row.last_sent_at) < CODE_RESEND_SECONDS * 1000;
     return { ok: false, error: soon ? "too_soon" : "too_many", status: 429 };
   }
 
   // The mail never left: give the slot back (and kill the code nobody received).
-  const giveBack = () => env.DB.prepare("UPDATE email_codes SET last_sent_at = NULL, send_count = MAX(send_count - 1, 0), expires_at = ? WHERE email = ? AND code_hash = ?").bind(iso(now), email, hash).run();
+  const giveBack = () => env.DB.prepare("UPDATE email_codes SET last_sent_at = NULL, send_count = MAX(send_count - 1, 0), expires_at = ? WHERE email = ? AND code_hash = ?").bind(iso(now), codeKey, hash).run();
   const deliver = async () => {
     const sent = await sendCodeEmail(env, email, code, fetchImpl, mailer, kind);
     if (!sent.ok) await giveBack();
