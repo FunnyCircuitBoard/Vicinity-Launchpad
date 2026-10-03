@@ -336,3 +336,17 @@ test("README (the public repo's front page) names the live official contract, th
   assert.ok(readme.split("\n").slice(0, 10).join("\n").includes(`\`${mint}\``), "the contract is at the top of the README, as promised there before the launch");
   assert.doesNotMatch(readme, /why \$VICINITY launches on Raydium LaunchLab/);
 });
+
+test("dashboard teaser: each staggered preview card is narrowed by as much as it is shifted, so none reaches past the screen", () => {
+  // measured live 3 Oct 2026 on /dashboard (signed out) at 320px: the second card ran 40 to 328px, the page widened to 328px and the
+  // bottom menu bar was laid out 8px past the screen edge. Checked in Chromium after this change: 320/360/390/414 wide, no overflow.
+  const rules = [...css.matchAll(/\.blur-card:nth-child\((\d)\) \{([^}]*)\}/g)];
+  assert.ok(rules.length >= 2, "the staggered cards");
+  for (const [, n, body] of rules) {
+    const x = Number(/translateX\((-?\d+)px\)/.exec(body)?.[1] || 0);
+    if (!x) continue;
+    const side = x > 0 ? "right" : "left";
+    const margin = Number(new RegExp(`margin-${side}: (\\d+)px`).exec(body)?.[1] || 0);
+    assert.ok(margin >= Math.abs(x), `card ${n} moves ${x}px: needs margin-${side} of at least ${Math.abs(x)}px, has ${margin}`);
+  }
+});
