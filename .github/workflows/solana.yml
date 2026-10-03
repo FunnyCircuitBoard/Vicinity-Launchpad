@@ -1,0 +1,73 @@
+# Solana program CI: runs only when something under solana/ changes. It never
+# deploys anything and is independent of ci.yml / deploy.yml (the Worker).
+name: Solana program
+on:
+  pull_request:
+    paths:
+      - "solana/**"
+      - ".github/workflows/solana.yml"
+  push:
+    branches-ignore: [main]
+    paths:
+      - "solana/**"
+      - ".github/workflows/solana.yml"
+permissions:
+  contents: read
+concurrency:
+  group: solana-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: always
+  # Keep in step with solana/README.md (toolchain section).
+  ANCHOR_VERSION: 0.31.1
+  AGAVE_VERSION: 4.3.0
+jobs:
+  rust:
+    name: Rust unit tests, clippy, fmt
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: solana
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: solana
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+  anchor:
+    name: anchor build and anchor test
+    runs-on: ubuntu-latest
+    needs: rust
+    defaults:
+      run:
+        working-directory: solana
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: solana
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: solana/package-lock.json
+      - name: Install Agave CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Install Anchor CLI
+        run: npm install -g @coral-xyz/anchor-cli@${ANCHOR_VERSION}
+      - name: Throwaway local wallet for the test validator
+        run: solana-keygen new --no-bip39-passphrase --silent --outfile ~/.config/solana/id.json
+      - run: solana --version && anchor --version
+      - run: npm ci
+      - run: anchor build
+      - name: Committed IDL matches the build
+        run: diff target/idl/vicinity_rewards.json sdk/idl/vicinity_rewards.json
+      - run: anchor test --skip-build

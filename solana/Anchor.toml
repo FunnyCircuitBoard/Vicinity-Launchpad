@@ -1,0 +1,38 @@
+[toolchain]
+anchor_version = "0.31.1"
+package_manager = "npm"
+
+[features]
+resolution = true
+skip-lint = false
+
+# The localnet id below is the throwaway program keypair generated on the build
+# machine (target/deploy/vicinity_rewards-keypair.json, not committed). For
+# mainnet the owner generates a fresh keypair on his own machine and updates
+# this value together with declare_id! in programs/vicinity-rewards/src/lib.rs.
+[programs.localnet]
+vicinity_rewards = "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi"
+
+[programs.devnet]
+vicinity_rewards = "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "npm run test"
+
+[test]
+# The validator needs a moment before the first transaction on a loaded machine.
+startup_wait = 20000
+shutdown_wait = 2000
+upgradeable = false
+
+[test.validator]
+bind_address = "127.0.0.1"
+ledger = ".anchor/test-ledger"
+rpc_port = 8899

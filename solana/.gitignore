@@ -1,0 +1,15 @@
+# Build output (includes target/deploy/*-keypair.json and target/idl; the IDL
+# that clients use is the committed copy under sdk/idl/).
+target/
+.anchor/
+test-ledger/
+node_modules/
+
+# Keypairs never enter git, wherever they are.
+*-keypair.json
+**/*-keypair.json
+!sdk/idl/vicinity_rewards.json
+
+# Local tooling noise
+*.log
+.DS_Store
