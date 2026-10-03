@@ -8,6 +8,7 @@
   const pairCode = params.get("pair");
   const panel = $("#connect-panel");
   let state = "pick", active = null, address = null, message = null, pairPin = null, providers = { google: false, email: false };
+  let signup = null; // the v2 sign-up controller (public/signup.js): stays null unless /api/me says signupFlow is "v2", so today's page runs untouched
 
   const ERR = {
     social_taken: "That Google account is already linked to a different wallet. Sign in with the wallet it's linked to, or use another account.",
@@ -37,6 +38,7 @@
     setErr("");
     const step = s === "social" ? 2 : s === "done" ? 3 : 1;
     $$("#stepper li").forEach((li) => { const n = Number(li.dataset.s); li.classList.toggle("is-active", n === step); li.classList.toggle("is-done", n < step); });
+    if (signup) signup.onShow(s);
   }
 
   /* ---------- wallet buttons ---------- */
@@ -58,6 +60,7 @@
   }
   /** The "Already a member? Log in" block: Google or e-mail. Google can't run inside wallet apps. */
   function renderLogin() {
+    if (signup) return; // v2 draws its own Log in block
     const inApp = W.inWalletApp();
     $("#login-google").hidden = !providers.google || inApp;
     $("#login-email").hidden = !providers.email;
@@ -76,6 +79,7 @@
     $("#wallets-known").replaceChildren(...order.map((k) => knownTile(k, location.origin + "/connect")));
     $("#more-label").textContent = W.isMobile && !list.length ? "Open Vicinity in your wallet app" : list.length ? "More wallets" : "Get a wallet";
     $("#more-wallets").open = list.length === 0;
+    if (signup) signup.onShow("pick"); // a wallet turning up changes whether this is a wallet app (Google hidden)
   }
   W.onChange(() => { if (state === "pick") renderPick(); if (state === "approve") renderApprove(); });
 
@@ -114,11 +118,12 @@
     const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Check your wallet…";
     try { after(await signIn()); }
     catch (err) { setErr(cancelled(err) ? "Signing cancelled in your wallet. Nothing happened." : err.message); loadMessage(); }
-    finally { btn.disabled = false; btn.textContent = "Sign in"; }
+    finally { btn.disabled = false; btn.textContent = signup ? signup.signLabel() : "Sign in"; }
   });
 
   /** The wallet is proven: straight to the dashboard (linked before) or on to Google / e-mail. */
   function after(d) {
+    if (signup) return signup.walletProven(d); // v2: straight to the dashboard (account exists) or on to the sign-up steps
     if (String(d.next || "").startsWith("/dashboard")) {
       show("done");
       const r = panel.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 80);
@@ -303,6 +308,29 @@
     clearTimeout(timer); timer = setTimeout(poll, 8000);
   }
 
+  /* ---------- sign-up v2: loaded only when the server says so ---------- */
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src; s.onload = resolve; s.onerror = reject;
+      document.head.append(s);
+    });
+  }
+  async function startV2(me, err) {
+    show("loading"); // hides today's half-drawn pick screen while the sign-up loads
+    try {
+      await loadScript("/signup.js");
+      signup = window.VSignup.start({ panel, params, show, setErr, renderPick, drawQR, showProof: (proof) => { show("app"); showCode(proof); } });
+      await signup.init(me, err);
+    } catch {
+      signup = null; show("loading");
+      $("#su-loading-text").textContent = "The sign-up didn't load.";
+      $("#su-reload").hidden = false;
+      $("#su-reload").onclick = () => location.reload();
+      setErr("Please reload the page. If it keeps happening, try again in a few minutes.");
+    }
+  }
+
   /* ---------- start ---------- */
   (async () => {
     const err = params.get("error");
@@ -312,6 +340,7 @@
     providers = me.providers || providers;
     if (params.get("mode") === "login" || hasAccount()) welcomeBack();
     if (me.signedIn) { show("done"); setTimeout(() => location.assign("/dashboard"), 900); return; }
+    if (me.signupFlow === "v2") return startV2(me, err);
     if (me.pending) showSocial(me.pending.wallet);
     else if (me.proof) { show("app"); showCode(me.proof); }
     else { show("pick"); renderPick(); }
