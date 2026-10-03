@@ -18,6 +18,9 @@
   const when = (iso) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const left = (iso) => { const ms = Date.parse(iso) - Date.now(); if (ms <= 0) return "closing now"; const h = Math.floor(ms / 3600000); return h >= 48 ? `${Math.floor(h / 24)} days left` : h >= 1 ? `${h}h left` : `${Math.ceil(ms / 60000)} min left`; };
   let me = null, checkedAt = 0;
+  // the tabbed dashboard (DASHBOARD_V2=on): its code is fetched only when /api/me says so, and this stays null otherwise
+  let v2 = null;
+  const V2_KEY = "vicinity:dash-v2";
 
   const COMMON_ERR = {
     location_unverified: "We couldn't confirm your location. Turn on precise location (GPS) and use your normal home or mobile internet, with no VPN or proxy.",
@@ -255,6 +258,7 @@
     $("#f-city").textContent = home ? home.name : "Local";
     $("#f-country").textContent = n ? countryName(n.country) : "National";
     if (d.profilesFlag) { profilesSync(d); linkName($("#cc-founder"), c && c.seat && !c.seat.you ? c.seat.name : null); linkName($("#nc-manager"), n && n.manager && !n.manager.you ? n.manager.name : null); }
+    if (v2) v2.render(d);
   }
 
   /* ---------- member profiles: the code is fetched ONLY when /api/me says profilesFlag, so with the switch off this page never asks for it ---------- */
@@ -739,6 +743,7 @@
     chain_unavailable: "The blockchain could not be asked just now. Nothing was recorded; try again in a minute.",
   };
   let coinData = null, coinPairs = null, vicMint = null, logoData = null, dropLogo = false, studioDirty = false;
+  const v2Coin = () => { if (v2) v2.coin({ coin: coinData, vicMint }); };
   const cityTk = () => (me && me.community ? me.community.ticker || ticker(me.community.name) : "CITY");
   const picked = (name, fallback) => (document.querySelector(`input[name='${name}']:checked`) || {}).value || fallback;
   const num = (x) => new Intl.NumberFormat(undefined, { maximumSignificantDigits: 6 }).format(x);
@@ -749,7 +754,7 @@
     const r = await api(`/api/coins?city=${encodeURIComponent(c.id)}`);
     if (!r || r.ok === false) return;
     coinData = r.coin || null; coinPairs = r.pairs || coinPairs; vicMint = r.vicinity || null;
-    renderCoin(); renderTrade();
+    renderCoin(); renderTrade(); v2Coin();
     if (me.roles && me.roles.admin) loadCoinQueue();
   }
   function paintCoin({ name, color, logo, pair }) {
@@ -764,7 +769,8 @@
   }
   function renderCoin() {
     const c = me.community, tk = cityTk(), cd = coinData, seat = c.seat;
-    const mine = Boolean(seat && seat.you && seat.status === "active");
+    // the server lets a Seed Steward design the coin too (src/roles.js); the tabbed dashboard shows them the studio
+    const mine = Boolean(seat && seat.you && (seat.status === "active" || (v2 && seat.status === "steward")));
     $("#coin-city").textContent = c.name;
     $$("[data-city-ticker]").forEach((e) => (e.textContent = tk));
     const st = $("#coin-status");
@@ -834,7 +840,7 @@
     try {
       const r = await sensitive(() => api("/api/coins/design", body));
       if (!r.ok) throw new Error(errText(COIN_ERR, r, "Couldn't save the design. Please try again."));
-      coinData = r.coin; studioDirty = false; renderCoin(); renderTrade();
+      coinData = r.coin; studioDirty = false; renderCoin(); renderTrade(); v2Coin();
       toast(`🎨 ${me.community.name}'s coin is saved`);
       const rr = btn.getBoundingClientRect(); burst(rr.left + rr.width / 2, rr.top);
     } catch (x) { showErr("#cs-err", x.message); }
@@ -844,7 +850,7 @@
     showErr("#cs-err", "");
     const r = await sensitive(() => api("/api/coins/mint", { mint: $("#cs-mint").value.trim() }));
     if (!r.ok) { showErr("#cs-err", errText(COIN_ERR, r, "Couldn't send it. Please try again.")); return; }
-    coinData = r.coin; $("#cs-mint").value = ""; renderCoin();
+    coinData = r.coin; $("#cs-mint").value = ""; renderCoin(); v2Coin();
     toast("Sent. An admin checks it on the blockchain.");
   });
   $("#coin-mint-copy").addEventListener("click", () => coinData && coinData.mint && copy(coinData.mint, "Contract copied"));
@@ -854,6 +860,7 @@
     const r = await api("/api/coins?waiting=1");
     const list = r && r.ok ? r.waiting : [];
     $("#coin-admin").hidden = !list.length;
+    if (v2) v2.coinQueue(list.length);
     window.VRole.queue({ coins: list.length });
     $("#coin-waiting").replaceChildren(...list.map((w) => {
       const li = el("li");
@@ -938,7 +945,7 @@
   /* ---------- moderator tools ---------- */
   async function loadMod() {
     const d = await api("/api/mod");
-    if (!d.ok || !d.moderator) { $("#mod").hidden = true; return; }
+    if (!d.ok || !d.moderator) { $("#mod").hidden = true; if (v2) v2.mod(d); return; }
     $("#mod").hidden = false;
     window.VRole.queue({ posts: d.posts.length, proposals: d.proposals.filter((x) => x.canApprove).length, appeals: d.appeals.length, objections: d.objections.length, towns: d.towns.length });
     $("#mod-scope").textContent = `${LEVEL[d.role] || d.role} · ${d.scope}`;
@@ -981,6 +988,7 @@
       li.append(acts); return li;
     }) : [empty("No requests waiting.")]));
     $("#mod-sections").replaceChildren(...sections);
+    if (v2) v2.mod(d);
   }
 
   /* ---------- "add my town" ---------- */
@@ -1255,7 +1263,11 @@
 
   /* ---------- start ---------- */
   (async () => {
+    // someone whose last visit was the tabbed dashboard sees placeholders while /api/me loads (the key only exists with the switch on)
+    try { if (localStorage.getItem(V2_KEY) === "1") $("#dash-skel").hidden = false; } catch {}
     const d = await api("/api/me");
+    const tabbed = d.dashboardV2 === true && d.signedIn && d.user && d.user.home;
+    if (!tabbed) { $("#dash-skel").hidden = true; if (d.dashboardV2 !== true) { try { localStorage.removeItem(V2_KEY); } catch {} } }
     if (!d.signedIn) {
       if (d.pending || d.proof) { location.assign("/connect"); return; }
       $("#dash-out").hidden = false; return;
@@ -1263,17 +1275,30 @@
     me = d;
     identity(d);
     if (!d.user.home) { onboard(d); return; }
+    if (tabbed) {
+      // the tabbed dashboard's code is fetched now, before the page shows, so the old layout never flashes; if it fails, today's dashboard
+      v2 = await new Promise((done) => {
+        const s = document.createElement("script"); s.src = "/dashboard-v2.js";
+        const t = setTimeout(() => done(null), 4000);
+        s.onload = () => { clearTimeout(t); done(window.VDash || null); };
+        s.onerror = () => { clearTimeout(t); done(null); };
+        document.head.append(s);
+      });
+      $("#dash-skel").hidden = true;
+      if (v2) v2.init({ me: () => me, coin: () => ({ coin: coinData, vicMint, pairs: coinPairs }), openProfile, refresh: () => refresh(), countryName });
+    }
     $("#dash-main").hidden = false;
     render(d);
-    layoutInit();
-    if (location.hash === "#profile") {
+    if (!v2) layoutInit();
+    if (v2) v2.start();
+    else if (location.hash === "#profile") {
       history.replaceState(null, "", location.pathname + location.search);
       openProfile();
     }
     setupComposer(); loadFeed(true); loadMod(); loadTowns();
     reveal();
     if (params.get("welcome")) toast(`Welcome to Vicinity, ${d.user.handle || d.user.name} 🎉`);
-    if (params.get("claim")) $("#progress").scrollIntoView({ block: "center" });
+    if (!v2 && params.get("claim")) $("#progress").scrollIntoView({ block: "center" });
     setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
   })();
 })();

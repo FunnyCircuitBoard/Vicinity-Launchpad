@@ -38,6 +38,19 @@
       </div>
     </section>
 
+    <!-- dashboard v2 (DASHBOARD_V2=on only): placeholders while /api/me loads, shown only to someone whose last visit was v2 -->
+    <section class="dash dv2-skel" id="dash-skel" aria-hidden="true" hidden>
+      <div class="wrap">
+        <div class="skel skel--tabs"></div>
+        <div class="skel-top">
+          <div class="skel skel--pass"></div>
+          <div class="skel-tiles"><div class="skel skel--tile"></div><div class="skel skel--tile"></div><div class="skel skel--tile"></div><div class="skel skel--tile"></div></div>
+        </div>
+        <div class="skel skel--card"></div>
+        <div class="skel skel--card"></div>
+      </div>
+    </section>
+
     <!-- the dashboard -->
     <section class="dash" id="dash-main" hidden>
       <div class="wrap">
@@ -48,7 +61,7 @@
         </div>
         <div class="lost-alert" id="ban-notice" role="alert" hidden></div>
         <div class="lost-alert" id="lost-alert" role="alert" hidden></div>
-        <div class="dash-top">
+        <div class="dash-top" id="dash-top">
           <div class="pass" id="pass">
             <span class="pass__shine" aria-hidden="true"></span>
             <div class="pass__top">
@@ -140,11 +153,14 @@
               <div class="community-card__head">
                 <div class="coin-disc" aria-hidden="true"><span id="cc-face">—</span></div>
                 <div><p class="kicker">Your community</p><h2 class="h2--sm" id="cc-name">—</h2><p class="tiny muted" id="cc-ticker"></p></div>
+                <span class="tag" id="ch-status" hidden></span>
               </div>
               <dl class="kv">
                 <div><dt>Members</dt><dd id="cc-members">—</dd></div>
                 <div><dt>Holders here</dt><dd id="cc-holders">—</dd></div>
                 <div><dt>City Founder</dt><dd id="cc-founder">—</dd></div>
+                <div id="ch-locals" hidden><dt>Verified locals</dt><dd id="ch-locals-n">—</dd></div>
+                <div id="ch-coin" hidden><dt>City coin</dt><dd id="ch-coin-v">—</dd></div>
               </dl>
               <p class="small fomo" id="cc-fomo"></p>
               <p class="kicker">Top holders here</p>
@@ -163,11 +179,12 @@
 
             <section class="card progress-card" id="progress" aria-labelledby="progress-title">
               <div class="progress-card__head">
-                <div><p class="kicker">Founder path · <a href="/rules#founders">the rules</a></p><h2 class="h2--sm" id="progress-title">Found <span id="p-city">your city</span></h2></div>
+                <div><p class="kicker">Founder path · <a href="/rules#founders">the rules</a></p><h2 class="h2--sm" id="progress-title">Found <span id="p-city">your city</span></h2><span class="tag fs-state" id="fs-state" hidden></span></div>
                 <strong class="progress-card__pct" id="p-pct">0%</strong>
               </div>
               <div class="bar" aria-hidden="true"><span id="p-bar"></span></div>
               <ol class="psteps" id="p-steps"></ol>
+              <p class="fs-rank" id="fs-rank" hidden><span id="fs-rank-text"></span> <span class="fs-rank__note" id="fs-rank-note"></span></p>
               <div class="seat-panel" id="p-panel"></div>
               <div class="window-panel" id="p-window" hidden></div>
               <p class="wallet__error" id="p-error" role="alert" hidden></p>
@@ -194,17 +211,20 @@
 
               <form class="coin-studio" id="coin-studio" hidden novalidate>
                 <p class="kicker">🎨 Coin studio · only you, the City Founder</p>
+                <p class="studio-step" id="studio-step-1" hidden>Step 1 · Identity</p>
                 <div class="coin-studio__grid">
                   <label class="fieldset"><span>Name</span><input class="field" id="cs-name" maxlength="32" autocomplete="off"></label>
                   <label class="fieldset"><span>Ticker · fixed by the map</span><input class="field" id="cs-ticker" disabled></label>
                   <label class="fieldset fieldset--wide"><span>Pitch · <span id="cs-count">0/200</span></span><textarea class="field" id="cs-pitch" rows="2" maxlength="200" placeholder="What makes this coin your city's?"></textarea></label>
                 </div>
+                <p class="studio-step" id="studio-step-2" hidden>Step 2 · Trading pair</p>
                 <p class="fieldset__label">Paired with, on Raydium LaunchLab</p>
                 <div class="pair-pick" role="radiogroup" aria-label="Paired with">
                   <label class="pair-opt"><input type="radio" name="cs-pair" value="SOL" checked><span class="pair-opt__icon" aria-hidden="true">◎</span><strong>SOL</strong><em>Solana's own coin. What most traders hold.</em></label>
                   <label class="pair-opt"><input type="radio" name="cs-pair" value="USDC"><span class="pair-opt__icon" aria-hidden="true">$</span><strong>USDC</strong><em>A digital dollar. Prices read in dollars.</em></label>
                   <label class="pair-opt"><input type="radio" name="cs-pair" value="RAY"><span class="pair-opt__icon" aria-hidden="true">R</span><strong>RAY</strong><em>Raydium's own token.</em></label>
                 </div>
+                <p class="studio-step" id="studio-step-3" hidden>Step 3 · Look: colour and logo</p>
                 <p class="fieldset__label">Colour</p>
                 <div class="swatches" role="radiogroup" aria-label="Colour">
                   <label><input type="radio" name="cs-color" value="gold" checked><span class="swatch" data-color="gold"></span><span class="sr-only">Gold</span></label>
@@ -283,6 +303,101 @@
               <button class="link-btn" type="button" id="f-more" hidden>Load more</button>
             </section>
           </aside>
+        </div>
+
+        <!-- dashboard v2 (DASHBOARD_V2=on only): the tab strip and the panels the cards above move into (public/dashboard-v2.js) -->
+        <div class="dv2" id="dv2" hidden>
+          <nav class="dtabs" id="dash-tabs" aria-label="Dashboard sections">
+            <div class="dtabs__list" id="dash-tablist" role="tablist" aria-label="Dashboard sections">
+              <a class="dtab" id="tab-home" role="tab" href="#home" data-tab="home" aria-controls="panel-home" aria-selected="true"><span class="dtab__text">Home</span></a>
+              <a class="dtab" id="tab-city" role="tab" href="#city" data-tab="city" aria-controls="panel-city" aria-selected="false" tabindex="-1"><span class="dtab__text">City</span></a>
+              <a class="dtab" id="tab-community" role="tab" href="#community" data-tab="community" aria-controls="panel-community" aria-selected="false" tabindex="-1"><span class="dtab__text">Community</span></a>
+              <a class="dtab" id="tab-rankings" role="tab" href="#rankings" data-tab="rankings" aria-controls="panel-rankings" aria-selected="false" tabindex="-1"><span class="dtab__text">Rankings</span></a>
+              <a class="dtab" id="tab-founder" role="tab" href="#founder" data-tab="founder" aria-controls="panel-founder" aria-selected="false" tabindex="-1"><span class="dtab__text">Founder</span></a>
+              <a class="dtab" id="tab-moderate" role="tab" href="#moderate" data-tab="moderate" aria-controls="panel-moderate" aria-selected="false" tabindex="-1" hidden><span class="dtab__text">Moderate</span><span class="dtab__badge" id="tab-moderate-n" hidden></span></a>
+              <a class="dtab" id="tab-profile" role="tab" href="#profile" data-tab="profile" aria-controls="panel-profile" aria-selected="false" tabindex="-1"><span class="dtab__text">Profile</span></a>
+            </div>
+          </nav>
+
+          <section class="dpanel" id="panel-home" role="tabpanel" aria-labelledby="tab-home" tabindex="0">
+            <div class="today" id="today" role="region" aria-labelledby="today-title" hidden>
+              <p class="kicker today__kicker" id="today-title">Next for you</p>
+              <div class="today__list" id="today-list"></div>
+            </div>
+          </section>
+
+          <section class="dpanel" id="panel-city" role="tabpanel" aria-labelledby="tab-city" tabindex="0" hidden>
+            <nav class="subnav" id="city-subnav" aria-label="City sections">
+              <a class="subnav__link" href="#city" data-go="#community">Overview</a>
+              <a class="subnav__link" href="#city" data-go="#coin">Coin</a>
+              <a class="subnav__link" href="#city" data-go="#cc-top">Leaderboard</a>
+              <a class="subnav__link" href="#city" data-go="#city-about">About</a>
+            </nav>
+            <section class="card" id="city-about" aria-labelledby="ca-title">
+              <div class="dv2-head"><div><p class="kicker">About</p><h2 class="h2--sm" id="ca-title">About <span id="ca-city">your city</span></h2></div></div>
+              <dl class="kv">
+                <div><dt>Ticker</dt><dd><span id="ca-ticker">$—</span> <span class="tiny muted">fixed by the map</span></dd></div>
+                <div><dt>Country</dt><dd id="ca-country">—</dd></div>
+                <div><dt>Founder amount</dt><dd id="ca-threshold">—</dd></div>
+              </dl>
+              <div class="dv2-actions">
+                <a class="btn btn--glass btn--sm" id="ca-map" href="/cities">See it on the map</a>
+                <a class="btn btn--glass btn--sm" href="/rules#founders">How founders are chosen</a>
+              </div>
+            </section>
+          </section>
+
+          <section class="dpanel" id="panel-community" role="tabpanel" aria-labelledby="tab-community" tabindex="0" hidden></section>
+
+          <section class="dpanel" id="panel-rankings" role="tabpanel" aria-labelledby="tab-rankings" tabindex="0" hidden>
+            <section class="card rk" id="rankings-card" aria-labelledby="rk-title">
+              <div class="dv2-head"><div><p class="kicker">Rankings · checked live</p><h2 class="h2--sm" id="rk-title">Where you stand</h2></div><span class="tag" id="rk-state">Live at launch</span></div>
+              <div class="tiles tiles--3" id="rk-tiles">
+                <div class="tile" id="rk-global"><span class="tile__label">All holders</span><strong class="tile__num" id="rk-global-rank">—</strong><span class="tile__sub" id="rk-global-sub">live at launch</span><span class="tile__note" id="rk-global-gap" hidden></span></div>
+                <div class="tile" id="rk-country"><span class="tile__label" id="rk-country-label">Your country</span><strong class="tile__num" id="rk-country-rank">—</strong><span class="tile__sub" id="rk-country-sub">live at launch</span><span class="tile__note" id="rk-country-note" hidden></span></div>
+                <div class="tile" id="rk-city"><span class="tile__label" id="rk-city-label">Your city</span><strong class="tile__num" id="rk-city-rank">—</strong><span class="tile__sub" id="rk-city-sub">live at launch</span><span class="tile__note" id="rk-city-note" hidden></span></div>
+              </div>
+              <p class="small muted" id="rk-note"></p>
+              <div class="dv2-actions">
+                <a class="btn btn--glass btn--sm" href="/token#verify">Check a wallet</a>
+                <a class="btn btn--glass btn--sm" href="/token#holders">All holders</a>
+                <a class="btn btn--glass btn--sm" href="#city" data-go="#cc-top">City leaderboard</a>
+              </div>
+            </section>
+          </section>
+
+          <section class="dpanel" id="panel-founder" role="tabpanel" aria-labelledby="tab-founder" tabindex="0" hidden>
+            <section class="card fcard" id="fcard" aria-labelledby="fcard-title" data-state="active" hidden>
+              <span class="fcard__shine" aria-hidden="true"></span>
+              <div class="fcard__top"><span class="fcard__kicker" id="fcard-kicker">City Founder</span><span class="tag fcard__tag" id="fcard-state">Active</span></div>
+              <h2 class="fcard__title" id="fcard-title">—</h2>
+              <p class="fcard__who"><span id="fcard-who">—</span> <a class="fcard__pick" id="fcard-pick" href="#profile" data-go="#username-input" hidden>Choose a username</a></p>
+              <dl class="fcard__facts">
+                <div><dt id="fcard-since-label">Founder since</dt><dd id="fcard-since">—</dd></div>
+                <div><dt>City coin</dt><dd id="fcard-coin">—</dd></div>
+                <div id="fcard-clock-row" hidden><dt id="fcard-clock-label">Objections until</dt><dd id="fcard-clock">—</dd></div>
+              </dl>
+              <p class="fcard__note" id="fcard-note"></p>
+              <div class="fcard__actions">
+                <button class="btn btn--primary" type="button" id="fcard-go">Design the city coin</button>
+                <a class="btn btn--glass btn--sm" id="fcard-alt" href="#moderate" data-go="#mod" hidden>Moderator tools</a>
+                <a class="link-btn fcard__link" id="fcard-meter" href="#home" data-go="#role-home" hidden>Probation meter</a>
+              </div>
+            </section>
+            <section class="card studio-card" id="studio-card" aria-labelledby="studio-title" hidden>
+              <div class="dv2-head"><div><p class="kicker">Coin studio</p><h2 class="h2--sm" id="studio-title">Design <span id="studio-city">your city</span>'s coin</h2></div><span class="tag" id="studio-state">Not designed yet</span></div>
+              <p class="small muted">Three steps: the coin's identity, what it is paired with, its look. Save as often as you like until it launches; every save is public.</p>
+            </section>
+            <p class="small muted dv2-foot" id="founder-foot"><a href="#profile" data-go="#roles" data-open-role="founder">What a City Founder can do</a> · <a href="/rules#founders">The rules</a></p>
+          </section>
+
+          <section class="dpanel" id="panel-moderate" role="tabpanel" aria-labelledby="tab-moderate" tabindex="0" hidden>
+            <section class="card" id="coin-admin-card" aria-label="Coin contracts waiting for a check" hidden></section>
+          </section>
+
+          <section class="dpanel" id="panel-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0" hidden>
+            <p class="small muted dv2-foot" id="profile-theme-note">Light or dark: the switch is in the header, on every page.</p>
+          </section>
         </div>
       </div>
     </section>

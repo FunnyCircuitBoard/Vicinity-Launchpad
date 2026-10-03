@@ -23,7 +23,9 @@
     return wrap;
   }
   const tool = (label, onClick, cls = "btn btn--glass btn--sm") => { const b = el("button", cls, label); b.type = "button"; b.addEventListener("click", onClick); return b; };
-  const jump = (label, target, cls) => tool(label, () => { const t = $(target); if (t) t.scrollIntoView({ behavior: window.V.reduced ? "auto" : "smooth", block: "start" }); }, cls);
+  // the tabbed dashboard (window.VDash exists only then) switches to the right tab first; otherwise the card is on this page
+  const scrollTo = (target) => { if (window.VDash) return window.VDash.goTo(target); const t = $(target); if (t) t.scrollIntoView({ behavior: window.V.reduced ? "auto" : "smooth", block: "start" }); };
+  const jump = (label, target, cls) => tool(label, () => scrollTo(target), cls);
   const link = (label, href, cls = "btn btn--glass btn--sm") => { const a = el("a", cls, label); a.href = href; return a; };
 
   /** Walk away from a live seat (the bond is released at once for a steward; the usual cooldown applies to a founder). */
@@ -106,7 +108,7 @@
     p.tools.push(tool("What my role can do", () => {
       const r = $(`#roles details[data-role="${row}"]`);
       if (r) r.open = true;
-      const t = $("#roles"); if (t) t.scrollIntoView({ behavior: window.V.reduced ? "auto" : "smooth", block: "start" });
+      scrollTo("#roles");
     }, "link-btn"));
     return p;
   }
