@@ -228,6 +228,19 @@ test("report a bio: one report per member, not your own, not one that is empty, 
   assert.equal((await a.get("/api/profile")).profile.bio, "Buy my course", "reports alone never remove a bio");
 });
 
+test("reports are about a text: when the member writes a new bio the reports are gone, and the same text typed again keeps them", async () => {
+  const env = PF();
+  const [a, b, c] = await crowd(env, ["Alice77", "BobBrave", "CarolCalm"]);
+  await a.post("/api/me/bio", { bio: "Buy my course" });
+  await b.post("/api/profile/report", { handle: "Alice77" }); await c.post("/api/profile/report", { handle: "Alice77" });
+  assert.equal((await rows(env.DB, "SELECT * FROM profile_reports")).length, 2);
+  await a.post("/api/me/bio", { bio: " Buy my course " }); // the same text: nothing changed
+  assert.equal((await rows(env.DB, "SELECT * FROM profile_reports")).length, 2);
+  await a.post("/api/me/bio", { bio: "Coffee and bikes" });
+  assert.equal((await rows(env.DB, "SELECT * FROM profile_reports")).length, 0, "a new text, a clean slate");
+  assert.equal((await b.post("/api/profile/report", { handle: "Alice77" })).ok, true, "and it can be reported again");
+});
+
 test("the moderator's queue lists reported bios in the moderator's own area only (admin everywhere, manager their country, founder their city)", async () => {
   const env = launched();
   const [near, far, reporter1, reporter2] = await Promise.all([pfPerson(env, "NearNed", { home: IN_UTICA }), pfPerson(env, "FarFiona", { home: IN_NYC }), pfPerson(env, "R1", { home: IN_UTICA }), pfPerson(env, "R2", { home: IN_NYC })]);

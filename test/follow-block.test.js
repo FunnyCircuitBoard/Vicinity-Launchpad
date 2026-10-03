@@ -282,6 +282,12 @@ test("20 identical follows at once make one row and one count; 20 unfollows at o
   const offs = await Promise.all(Array.from({ length: 20 }, () => follow(a, "BobBrave", false).then((r) => r.json())));
   assert.ok(offs.every((r) => r.ok && r.following === false));
   assert.equal((await rows(env.DB, "SELECT * FROM follows")).length, 0);
+  const blocks = await Promise.all(Array.from({ length: 20 }, () => block(b, "Alice77").then((r) => r.json())));
+  assert.ok(blocks.every((r) => r.ok && r.blocked === true));
+  assert.equal((await rows(env.DB, "SELECT * FROM blocks")).length, 1, "one block, however many taps");
+  const unblocks = await Promise.all(Array.from({ length: 20 }, () => block(b, "Alice77", false).then((r) => r.json())));
+  assert.ok(unblocks.every((r) => r.ok && r.blocked === false));
+  assert.equal((await rows(env.DB, "SELECT * FROM blocks")).length, 0);
 });
 
 test("30 follows and unfollows mixed up and sent together: every answer is fine and the counts equal the rows", async () => {
@@ -447,4 +453,33 @@ test("the follow rows are what the database says: nothing about follow or block 
   const text = seen.join("\n");
   assert.ok(!/"blockedBy":true|you_blocked|blocked_you|"blocked":true|blocked you/i.test(text), text);
   void env;
+});
+
+test("a member who changes their username is the same member: follows, blocks and lists follow the new name, the old name is free", async () => {
+  const { env, people: [a, b] } = await world();
+  await follow(a, "BobBrave"); await follow(b, "Alice77"); await block(a, "BobBrave"); // Alice blocks Bob after all: the follows are gone
+  await block(a, "BobBrave", false); await follow(a, "BobBrave");
+  assert.equal((await b.post("/api/me/username", { username: "BobRenamed" })).ok, true);
+  await expectStatus(await a.send("/api/profile?u=BobBrave"), 404, "not_found");
+  assert.deepEqual((await a.get("/api/follows?list=following")).users.map((u) => u.handle), ["BobRenamed"]);
+  assert.equal((await a.get("/api/profile?u=bobrenamed")).profile.viewer.following, true);
+  assert.deepEqual(await countsOf(env.DB, b.id), { followers: 1, following: 0 });
+  assert.deepEqual(await followPairs(env.DB), ["Alice77>BobRenamed"]);
+});
+
+test("a database error in the middle of a change is a plain 503 on these routes (nothing half done), and only a short reason is logged", async () => {
+  const { env, people: [a] } = await world();
+  const real = env.DB;
+  const failing = { ...real, batch: async (list) => { if (list.some((s) => /INSERT INTO follows|INSERT INTO blocks/.test((s.inner || s).sql))) throw new Error("D1_ERROR: database is locked"); return real.batch(list.map((s) => s.inner || s)); } };
+  env.DB = failing;
+  const noisy = console.error; const logged = [];
+  console.error = (...x) => { logged.push(x.join(" ")); };
+  try {
+    await expectStatus(await follow(a, "BobBrave"), 503, "unavailable");
+    await expectStatus(await block(a, "BobBrave"), 503, "unavailable");
+  } finally { console.error = noisy; }
+  assert.equal(logged.length, 2);
+  assert.ok(logged.every((l) => /profile route failed: ?D1_ERROR|profile route failed D1_ERROR/.test(l) && !l.includes(a.w.address) && l.length < 160), logged.join(" | "));
+  env.DB = real;
+  assert.equal((await follow(a, "BobBrave")).status, 200, "and it works again as soon as the database does");
 });

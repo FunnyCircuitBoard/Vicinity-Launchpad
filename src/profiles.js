@@ -315,7 +315,11 @@ async function handleBio(request, env, x) {
   if (!r.ok) return json({ ok: false, error: r.error }, 400);
   if (r.bio === (u.bio || "")) return json({ ok: true, bio: r.bio }); // nothing to change, nothing counted
   if (!(await within(env, "bio", u.id, x.now))) return slow();
-  await env.DB.prepare("UPDATE users SET bio = ? WHERE id = ?").bind(r.bio || null, u.id).run();
+  // Reports are about a text: a new text starts with a clean slate.
+  await env.DB.batch([
+    env.DB.prepare("UPDATE users SET bio = ? WHERE id = ?").bind(r.bio || null, u.id),
+    env.DB.prepare("DELETE FROM profile_reports WHERE user_id = ?").bind(u.id),
+  ]);
   return json({ ok: true, bio: r.bio });
 }
 

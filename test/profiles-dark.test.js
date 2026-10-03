@@ -262,3 +262,13 @@ test("switch on, sign-up off: the 10-minute job still clears old attempt counter
   assert.equal(left.length, 1, "the stale one is gone, today's counter stays: " + left);
   assert.ok(!left.includes("pf-bio:stale"));
 });
+
+test("switch on, no database at all: the new routes answer 503 unavailable, never a crash", async () => {
+  const env = { PROFILES: "on" };
+  const out = browser(env);
+  for (const [method, path] of ROUTES) {
+    const r = await out.send(path, { method, body: method === "POST" ? {} : undefined });
+    assert.equal(r.status, 503, `${method} ${path}`);
+    assert.deepEqual(await r.json(), { ok: false, error: "unavailable" });
+  }
+});
