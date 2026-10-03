@@ -1,0 +1,27 @@
+// vicinitycity.com: the countdown site (Worker "vicinity-countdown"), deployed from GitHub by
+// .github/workflows/deploy-countdown.yml on every push to main that changes countdown/.
+// Recovered from the live deployment on 3 Oct 2026; the settings below are the ones it was running with.
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "vicinity-countdown",
+  "account_id": "bb77f7451b478e895fa1efb10aaccc35",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  // Plain-text settings added in the Cloudflare dashboard (for example SALT) are kept by a deploy.
+  "keep_vars": true,
+  // No "routes" on purpose: vicinitycity.com and www.vicinitycity.com are already attached to this Worker in Cloudflare,
+  // and a deploy without routes leaves those attachments exactly as they are.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    // The Worker answers first on every path: it sets the security headers, forwards http and www, serves /api/*,
+    // and after the countdown sends everything to vicinity.city.
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  },
+  // The "Rep your city" answers and the live board.
+  "d1_databases": [{ "binding": "DB", "database_name": "vicinity-countdown", "database_id": "3cd376ee-8690-451a-ace5-815ee2858720" }],
+  "observability": { "enabled": true }
+}

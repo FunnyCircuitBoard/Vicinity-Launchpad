@@ -282,9 +282,11 @@ repository, never printed) deploys the production build to devnet
 (`solana program deploy`), creates the registry with `npm run init-registry`,
 then `scripts/devnet-demo.ts` creates one demo city with a test reward mint,
 funds epoch 0 with a 3-leaf tree, lets one holder claim, funds epoch 1 and
-cancels it. Addresses, explorer links and transaction signatures (or, if the
-devnet faucet did not fund the deployer, the exact state reached) are in
-`AUDIT.md` section 7. The committed `declare_id!` is the devnet program id.
+cancels it. This ran on 3 Oct 2026 (17:12 UTC): the program is live on devnet as
+`Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi`, with the registry, the demo city, the
+claim and the cancelled epoch on chain; every address, explorer link and transaction
+signature is in `AUDIT.md` section 7. The committed `declare_id!` is the devnet
+program id.
 
 ## Off-chain parts (specified, not built here)
 
