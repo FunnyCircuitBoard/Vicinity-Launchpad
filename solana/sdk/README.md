@@ -1,0 +1,111 @@
+# Vicinity Rewards SDK
+
+Small, dependency-light helpers shared by the Anchor tests, the demo script and
+(later) the Cloudflare Worker that serves claim proofs.
+
+| file | runtime deps | purpose |
+|---|---|---|
+| `merkle.mjs` | `node:crypto` only | leaf encoding, sorted-pair node hashing, tree build, proofs, verification, pro-rata allocation |
+| `merkle.test.mjs` | node:test | vectors, edge cases, fixture cross-check (`npm run sdk-test`) |
+| `gen-fixtures.mjs` | - | writes `fixtures/merkle-js.json` (`npm run sdk-fixtures`) |
+| `pda.mjs` | `@solana/web3.js` | PDA derivation with the exact seeds of the spec |
+| `client.ts` | `@coral-xyz/anchor` | instruction builders with every account resolved (one place for tests, demo and Worker) |
+| `idl/vicinity_rewards.json` | - | the program IDL, copied here by `anchor build` (see the workspace README) |
+
+The Worker imports `merkle.mjs` (and may import `pda.mjs`). `merkle.mjs` needs the
+`nodejs_compat` compatibility flag in `wrangler.jsonc` because it uses
+`node:crypto`'s `createHash` (synchronous SHA-256).
+
+## Hashing (byte exact, PROGRAM-SPEC.md section 3)
+
+```
+leaf = sha256( 0x00 || index: u32 LE || claimant: 32 bytes || amount: u64 LE )   (45 bytes hashed)
+node = sha256( 0x01 || min(left, right) || max(left, right) )                      (sorted pair)
+```
+
+* `index` is the leaf's position in the snapshot (0-based). The on-chain
+  `leaf_index` is this number. `buildTree` assigns it from array position and
+  rejects an explicit `index` that disagrees.
+* `min/max` is the lexicographic comparison of the two 32-byte hashes as
+  unsigned bytes (`compareBytes`). Because pairs are sorted, a proof carries no
+  direction bits: the verifier folds `node = hashNode(node, proof[i])`.
+* The 0x00 / 0x01 prefixes separate leaves from inner nodes (second-preimage
+  protection). `merkle.test.mjs` has a test that an inner node presented as a
+  leaf does not verify.
+* Proofs longer than 32 elements are rejected (`MAX_PROOF_LEN`); the program has
+  the same cap.
+
+### Odd layers: promote the last node unchanged
+
+When a layer has an odd number of nodes, the last node is carried up to the next
+layer **as is** (it is not hashed with a copy of itself, and nothing is
+duplicated). Consequences, which the Rust `merkle.rs` MUST share:
+
+* Tree of 3 leaves `L0 L1 L2`: layer 1 is `[node(L0,L1), L2]`, root is
+  `node(node(L0,L1), L2)`.
+* Proof lengths differ between leaves of the same tree: `L2` has a 1-element
+  proof, `L0` has 2. The verifier does not care; it only folds.
+* A 1-leaf tree has root == leaf hash and an empty proof.
+* `depth = ceil(log2(n))`; 2,000 leaves -> depth 11; a proof is never longer
+  than `depth`.
+
+The INTEGRATOR must confirm the Rust builder (if it builds trees at all; the
+program only verifies) and the Rust unit test use the same rule. The quickest
+check: `cargo test` reads `sdk/fixtures/merkle-js.json` (roots of 20 trees of
+sizes 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 64, 100, 127, 128, 129, 257
+plus 5 leaf vectors and 5 node vectors) and `npm run sdk-test` reads the Rust
+side's `sdk/fixtures/merkle.json` when it exists.
+
+### Fixture format (`fixtures/merkle-js.json`)
+
+```json
+{
+  "leafVectors": [{ "index": 0, "claimant": "<64 hex>", "amount": "<decimal u64>", "leafHash": "<64 hex>" }],
+  "nodeVectors": [{ "a": "<hex>", "b": "<hex>", "node": "<hex>", "nodeSwapped": "<hex>" }],
+  "trees": [{
+    "name": "tree-3", "numLeaves": 3, "depth": 2, "root": "<hex>",
+    "leaves": [{ "index": 0, "claimant": "<64 hex>", "amount": "<decimal>" }],
+    "leafHashes": ["<hex>"],              // omitted for trees > 33 leaves
+    "proofs": [{ "index": 0, "proof": ["<hex>"] }]
+  }]
+}
+```
+
+The JS test also accepts a bare array of `{ leaves, root }` objects, so a Rust
+writer can emit the simplest shape.
+
+## API (`merkle.mjs`)
+
+```js
+import { buildTree, getProof, verifyProof, hashLeaf, claimArgs, allocateProRata, ZERO_ROOT } from "./merkle.mjs";
+
+const tree = buildTree([{ claimant: "<base58 or 32 bytes>", amount: 123n }, ...]);
+tree.root        // Uint8Array(32)  -> fund_epoch(merkle_root)
+tree.numLeaves   // -> fund_epoch(num_leaves)
+tree.total       // BigInt, sum of amounts; must be <= holders_amount of the epoch
+const { index, amount, proof } = claimArgs(tree, i);   // -> claim(epoch_index, index, amount, proof)
+verifyProof(tree.root, hashLeaf(index, claimant, amount), proof) // true
+```
+
+Amounts are `BigInt` base units (also accepted: safe integers, decimal strings,
+Anchor `BN`). Claimants are 32 bytes, a base58 string or a web3.js `PublicKey`.
+Rejected with a thrown `Error`: duplicate claimants, amount 0 or > u64, bad index,
+empty trees.
+
+`allocateProRata(balances, total)` implements the off-chain rule of spec section 6:
+`floor(balance * total / sum)`, dust stays in the vault (becomes carry-over),
+holders that round to 0 get no leaf. Eligibility filtering (minimum balance,
+exclusions) happens BEFORE calling it and is a PRODUCT DECISION.
+
+## PDAs (`pda.mjs`)
+
+```js
+import { setProgramId, deriveConfig, deriveVault, deriveEpoch, deriveClaim, deriveCity } from "./pda.mjs";
+setProgramId(idl.address);
+const { config, vault } = deriveCity(cityCoinMint);
+const epoch = deriveEpoch(config, 0).address;          // ["epoch", config, u64 LE]
+const claim = deriveClaim(epoch, claimant).address;    // ["claim", epoch, claimant]
+```
+
+Seeds: `["city", city_coin_mint]`, `["vault", config]`, `["epoch", config, index u64 LE]`,
+`["claim", epoch, claimant]`.
