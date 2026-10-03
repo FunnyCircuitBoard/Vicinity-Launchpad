@@ -42,7 +42,7 @@ src/snapshot.js     Founding Supporters (Merkle proofs) · src/attest.js locatio
 src/auth.js         Accounts: wallet sign-in, Google / e-mail codes, phone pairing, tiny-transfer proof, re-proving, sessions
 src/admin.js        The /admin console API (/api/admin/*): roles, content, snapshots, config; every change needs a fresh wallet proof and is logged
 src/signup.js       The new sign-up (only while SIGNUP_FLOW=v2): state, location, Terms, Google / e-mail + password, and the one atomic `finish` · src/signup-core.js its cookie and tidy-up · src/pwlogin.js password log-in
-src/password.js     Password hashing (PBKDF2-SHA256) and rules · src/limits.js atomic attempt counters · src/flags.js the SIGNUP_FLOW and PROFILES switches
+src/password.js     Password hashing (PBKDF2-SHA256) and rules · src/limits.js atomic attempt counters · src/flags.js the SIGNUP_FLOW, PROFILES and DASHBOARD_V2 switches
 src/profiles.js     Member profiles (only while PROFILES=on): profile, search, follow, block, bio, bio report · src/profile-core.js their shared rules (bio, exact counts, who is visible) · src/portfolio.js the portfolio: only $VICINITY and launched city coins, with live dollar values
 src/handoff.js      Location hand-off: the wallet app's browser can't share GPS, the phone's own browser does it (coordinates are never stored)
 src/tickers.js      City coin tickers, one per community everywhere, read from public/data/tickers.json (npm run tickers builds it)
@@ -66,6 +66,7 @@ Keys and passwords (`SOLANA_RPC_URL`, `GOOGLE_CLIENT_SECRET`, the mail keys) are
 | `ATTEST_KEY` | Optional: the key that signs location attestations (otherwise one is made once and kept in the database). |
 | `SIGNUP_FLOW` | `v2` switches on the new sign-up (see below); anything else or missing = today's sign-up. A plain dashboard variable, flipped without a deploy. |
 | `PROFILES` | `on` switches on member profiles (see below); anything else or missing = no profiles, as today. A plain dashboard variable, flipped without a deploy. |
+| `DASHBOARD_V2` | `on` switches on the tabbed dashboard (Home, City, Community, Rankings, Founder, Moderate, Profile; Founder Status against the real steps; the Founder card); anything else or missing = today's dashboard. Only `/api/me` says `dashboardV2: true`; the page then loads `public/dashboard-v2.js`. See "Dashboard v2 switch" in [docs/DEPLOY.md](docs/DEPLOY.md). |
 | `PASSWORD_PEPPER` | Secret for the new sign-up: mixed into every password hash. Create it before the first password exists and never change it. See [docs/DEPLOY.md](docs/DEPLOY.md). |
 
 The scheduled job and the full holder list need more CPU time than Cloudflare's free plan allows once there are many holders: use the Workers Paid plan.
