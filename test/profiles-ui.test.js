@@ -26,6 +26,7 @@ test("the bio is counted in code points, one line, trimmed: the way the server c
   assert.equal(P.bioClean("a  \n  b"), "a b", "blanks around a line break go with it");
   assert.equal(P.bioClean("a   b"), "a b", "every run of blanks is one space, as on the server");
   assert.equal(P.bioClean("a\u200Bb\u00ADc"), "abc", "invisible characters are dropped before counting");
+  assert.equal(P.bioClean("a\u0080\u009F\u2061b" + String.fromCodePoint(0xe0073, 0xe007f) + "c"), "abc", "C1 controls, invisible operators and TAG characters too, as on the server");
   assert.equal(P.bioClean("e\u0301"), "\u00e9", "counted after NFC, so a letter and its accent is one character");
   assert.equal(P.bioCheck("e\u0301".repeat(100)).over, false);
   assert.equal(P.bioCheck("😀".repeat(100)).over, false, "100 emoji is exactly the limit");
@@ -48,6 +49,12 @@ test("the bio hint warns early about links, addresses, e-mail and phone numbers 
   assert.equal(problem("call 5551234567"), "phone");
   assert.equal(problem("since 2026"), null, "a year is not a phone number");
   for (const k of ["link", "address", "email", "phone"]) assert.match(P.BIO_HINT[k], /^That looks like .*\.$/);
+  // the server refuses every unbroken run of 26+ letters or digits as address-like (src/profile-core.js ADDRESS_LIKE): the hint says so while typing, and the refusal names it
+  assert.equal(problem("Donaudampfschifffahrtsgesellschaft fan"), "longword");
+  assert.equal(problem("A".repeat(26)), "longword");
+  assert.equal(problem("Supercalifragilistic is 20"), null, "25 letters or fewer in a row are a word");
+  assert.match(P.BIO_HINT.longword, /26 or more letters or digits/);
+  assert.match(P.ERR.bio_not_allowed, /unbroken word of 26\+ letters or digits/, "the message after a refusal names the long-word rule too");
 });
 
 /* ---------- names and links ---------- */
@@ -267,13 +274,31 @@ test("only the endpoints of the contract are used (FEATURES.md)", () => {
   assert.deepEqual([...hooks.matchAll(/["'`](\/api\/[^"'`]+)/g)].map((m) => m[1]), []);
 });
 
+test("the moderator tools list reported bios with a way to clear one, and count them in what is waiting", () => {
+  const mod = between(dashJs, "  async function loadMod() {", '    $("#mod-sections").replaceChildren(...sections);');
+  assert.match(mod, /towns: d\.towns\.length, bios: d\.bios \? d\.bios\.length : 0 \}\);/, "counted in the queue (0 when the server sends no bios: the switch is off)");
+  assert.match(mod, /if \(d\.bios\) sections\.push\(section\("Reported bios", d\.bios\.length \? d\.bios\.map\(\(x\) => \{/, "a section only when the server sent the key");
+  assert.match(mod, /memberLink\(x\.handle, x\.handle, "a"\)/, "the member's username, as a profile link");
+  assert.match(mod, /`“\$\{x\.bio\}” · \$\{x\.reports\} report\$\{x\.reports === 1 \? "" : "s"\} · last \$\{ago\(x\.lastAt\)\}`/, "the bio text and the report count, as text");
+  assert.match(mod, /actBtn\("Clear bio", \(\) => reasonForm\(li, "Clear the bio", async \(reason, note\) => \{\n\s+const r = await sensitive\(\(\) => api\("\/api\/mod\/bio\/clear", \{ handle: x\.handle, reason, note \}\)\);/,
+    "clearing asks for a reason and a note and needs a fresh wallet proof, like a hide; the call is the contract's");
+  assert.match(mod, /\[empty\("No reported bios\."\)\]/);
+  assert.match(read("dashboard-roles.js"), /bios: \["reported bio", "reported bios"\]/, "the role card can name them");
+  assert.doesNotMatch(mod, /innerHTML/);
+});
+
 test("nothing is requested for anyone but members with the switch on", () => {
   // the dashboard fetches profile.js in one place, behind the flag; it is not one of the page's scripts
   const order = [...dashHtml.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]);
   assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "dashboard-roles", "dashboard"], "profile.js is not a script tag of the dashboard");
   assert.equal((dashJs.match(/\/profile\.js/g) || []).length, 1, "named once");
   assert.match(dashJs, /if \(d\.profilesFlag\) \{ profilesSync\(d\);/, "asked for only when /api/me says so");
-  assert.match(dashJs, /if \(!\(me && me\.profilesFlag && HANDLE\.test\(name\)\)\) return el\(tag, null, name\);/, "names stay plain text without the switch");
+  assert.match(dashJs, /const memberLink = \(name, handle, tag = "b"\) => \{\n\s+if \(!\(me && me\.profilesFlag && typeof handle === "string" && HANDLE\.test\(handle\)\)\) return el\(tag, null, name\);/,
+    "names stay plain text without the switch, and with it only the server's `handle` makes a link: a display name never does");
+  assert.match(dashJs, /a\.href = `\/profile\?u=\$\{encodeURIComponent\(handle\)\}`/, "the link goes to the username, not to the text shown");
+  assert.match(dashJs, /meta\.append\(memberLink\(p\.author\.name, p\.author\.handle\)\);/, "a feed author is linked by author.handle");
+  assert.match(dashJs, /linkName\(\$\("#cc-founder"\), c && c\.seat && !c\.seat\.you \? c\.seat : null\); linkName\(\$\("#nc-manager"\), n && n\.manager && !n\.manager\.you \? n\.manager : null\);/, "the founder and the manager by seat.handle / manager.handle");
+  assert.match(dashJs, /function linkName\(host, who\) \{\n\s+if \(!host \|\| !who \|\| !who\.name \|\| !\(me && me\.profilesFlag && typeof who\.handle === "string" && HANDLE\.test\(who\.handle\)\)\) return;/);
   assert.match(dashJs, /if \(profiles\) profiles\.openModal\(me\);/);
   // the /profile page asks for members only after /api/me said the viewer is signed in and the switch is on
   const start = between(pagePart, "    async function start() {", "    function landing()");
@@ -360,6 +385,14 @@ test("styles: the ring colours are the validated palette in both themes, no anim
   assert.match(block, /\.prof \.btn--sm \{ min-height: 44px; \}/);
   assert.match(block, /\.prof-menu__list button \{[^}]*min-height: 44px/);
   assert.match(block, /\.prof-count \{[^}]*min-height: 56px/);
+  // a 320 px phone: the coin disc leaves the pass's id column room for the username on one line, and the role pill does not break in two
+  const tiny = block.match(/@media \(max-width: 359px\) \{([^}]*\}\s*)+?\n\}/);
+  assert.ok(tiny, "a rule set for the smallest phones");
+  assert.match(tiny[0], /\.prof-pass \.pass__coin \{ display: none; \}/);
+  assert.match(tiny[0], /\.prof-pass \.pass__name \{ font-size: 1\.05rem; \}/);
+  assert.match(tiny[0], /\.prof-pass \.pass__top \{ flex-wrap: wrap;/);
+  assert.match(tiny[0], /\.prof-pass \.role-pill \{ white-space: nowrap; \}/);
+  assert.match(block, /\.prof-pass \.pass__name \{ margin: 0; white-space: normal; overflow-wrap: anywhere; \}/, "wrapping mid-word stays the last resort for a username wider than the column");
 });
 
 test("the notice, the field and the page say what others can see, in the owner's words", () => {

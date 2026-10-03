@@ -17,6 +17,7 @@ import { DAY, POLICY, iso } from "./policy.js";
 import { averages, dayOf, latestBalances } from "./ledger.js";
 import { activeBan, amountsFor } from "./roles.js";
 import { sha256hex } from "./blobs.js";
+import { profilesOn } from "./flags.js";
 
 const M = POLICY.manager, F = POLICY.founder;
 const clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, v));
@@ -146,7 +147,8 @@ export async function countryPicture(env, cc, viewer, now = Date.now()) {
       candidates: cands.map((c) => ({ seatId: c.id, name: c.handle || c.name || "Founder", city: c.city_name, votes: votes.get(c.id) || 0, you: Boolean(viewer && c.user_id === viewer.id) })) };
   }
   return {
-    manager: term ? { name: term.handle || term.name || "Manager", city: term.city_name, startsAt: term.starts_at, endsAt: term.ends_at, paused: term.seat_status !== "active",
+    // with member profiles on, `handle` says whether `name` is the manager's username (null: a display name, so the page never links it)
+    manager: term ? { name: term.handle || term.name || "Manager", ...(profilesOn(env) ? { handle: term.handle || null } : {}), city: term.city_name, startsAt: term.starts_at, endsAt: term.ends_at, paused: term.seat_status !== "active",
       you: Boolean(viewer && term.user_id === viewer.id), term: term.consecutive } : null,
     election,
   };

@@ -96,8 +96,27 @@ test("you can always let go: unfollowing works for a member who has been hidden 
   await env.DB.prepare("INSERT INTO bans (user_id, country, by_user, reason, created_at, expires_at) VALUES (?, '*', 1, 'x', ?, ?)").bind(b.id, iso(clock.now), iso(clock.now + HOUR)).run();
   assert.deepEqual((await a.get("/api/follows?list=following")).users, [], "hidden from the list");
   await expectStatus(await follow(a, "BobBrave"), 404, "not_found");
-  assert.deepEqual(await (await follow(a, "BobBrave", false)).json(), { ok: true, following: false, counts: { followers: 0, following: 0 } });
+  assert.deepEqual(await (await follow(a, "BobBrave", false)).json(), { ok: true, following: false }, "no counts of a member you cannot see");
   assert.deepEqual(await followPairs(env.DB), [], "the row is gone");
+});
+
+test("letting go is never an oracle: unfollowing or unblocking a banned member, a test-lab row or a username nobody has all answer alike, without counts", async () => {
+  const { env, people: [a, b, c, lab] } = await world(["Alice77", "BobBrave", "CarolCalm", "Labby"]);
+  await follow(c, "Alice77"); await follow(a, "CarolCalm"); await block(a, "Labby");
+  await env.DB.prepare("INSERT INTO bans (user_id, country, by_user, reason, created_at, expires_at) VALUES (?, '*', 1, 'x', ?, ?)").bind(b.id, iso(clock.now), iso(clock.now + HOUR)).run();
+  await env.DB.prepare("UPDATE users SET provider = 'testlab' WHERE handle = 'Labby'").run();
+  await expectStatus(await a.send("/api/profile?u=BobBrave"), 404, "not_found");
+  // Alice never followed Bob: the same answer for him (hidden), for Labby (test-lab) and for nobody, and never Bob's counts
+  const letGo = { ok: true, following: false };
+  for (const h of ["BobBrave", "Labby", "NoSuchPerson", "nosuchperson", "x' OR 1=1 --"]) assert.deepEqual(await (await follow(a, h, false)).json(), letGo, h);
+  for (const h of ["BobBrave", "Labby", "NoSuchPerson", "x' OR 1=1 --"]) assert.deepEqual(await (await block(a, h, false)).json(), { ok: true, blocked: false }, h);
+  assert.deepEqual(await blockPairs(env.DB), [], "the block of the member who is hidden since is gone all the same");
+  // a member you can see still gets their counts back, as before; nothing else moved
+  assert.deepEqual(await (await follow(a, "CarolCalm", false)).json(), { ok: true, following: false, counts: { followers: 0, following: 1 } });
+  assert.deepEqual(await followPairs(env.DB), ["CarolCalm>Alice77"]);
+  await expectStatus(await follow(a, "alice77", false), 400, "self");
+  await expectStatus(await block(a, "alice77", false), 400, "self");
+  void lab;
 });
 
 test("a banned or test-lab follower is not in the counts or the lists (they are exact for what people can see); the rows stay", async () => {
@@ -160,6 +179,17 @@ test("unblock: Alice may follow again (nothing is restored by itself); you canno
   assert.equal((await follow(b, "Alice77")).status, 200);
 });
 
+test("mutual block: a follow attempt is answered with your own block (unblock_first), never with the other member's (cannot_follow)", async () => {
+  const { env, people: [a, b] } = await world();
+  await block(a, "BobBrave"); await block(b, "Alice77");
+  await expectStatus(await follow(a, "BobBrave"), 409, "unblock_first");
+  await expectStatus(await follow(b, "Alice77"), 409, "unblock_first");
+  // the same answer as when only your own block exists: the other side's choice changes nothing you can see
+  await block(b, "Alice77", false);
+  await expectStatus(await follow(a, "BobBrave"), 409, "unblock_first");
+  assert.deepEqual(await followPairs(env.DB), []);
+});
+
 test("block refusals: yourself, nobody, bad input, signed out, another site, an owner, an admin, a moderator", async () => {
   const { env, people: [a, b, owner, admin, mod] } = await world(["Alice77", "BobBrave", "OwnerOlga", "AdminAl", "ModMia"]);
   env.ADMIN_WALLETS = owner.w.address;
@@ -176,6 +206,21 @@ test("block refusals: yourself, nobody, bad input, signed out, another site, an 
   // an admin can be unblocked-from (a block made before the role was given) and can block others
   assert.equal((await block(admin, "BobBrave")).status, 200);
   void b;
+});
+
+test("a city founder and a country manager can be blocked like any member: only admin-console roles cannot (what README.md says)", async () => {
+  const { env, people: [a, fay, mo] } = await world(["Alice77", "FounderFay", "ManagerMo"]);
+  const at = iso(clock.now);
+  const seat = (p, city, name) => env.DB.prepare("INSERT INTO seats (city_id, city_name, country, user_id, wallet, policy, threshold, status, created_at, activated_at) VALUES (?, ?, 'US', ?, ?, 5, 1, 'active', ?, ?)")
+    .bind(city, name, p.id, p.w.address, at, at).run();
+  await seat(fay, "5142056", "Utica");
+  const moSeat = (await seat(mo, "5140405", "Syracuse")).meta.last_row_id;
+  await env.DB.prepare("INSERT INTO manager_terms (country, seat_id, user_id, wallet, starts_at, ends_at, consecutive, status) VALUES ('US', ?, ?, ?, ?, ?, 1, 'active')")
+    .bind(moSeat, mo.id, mo.w.address, iso(clock.now - 86400_000), iso(clock.now + 30 * 86400_000)).run();
+  assert.deepEqual(await (await block(a, "FounderFay")).json(), { ok: true, blocked: true });
+  assert.deepEqual(await (await block(a, "ManagerMo")).json(), { ok: true, blocked: true });
+  assert.deepEqual(await blockPairs(env.DB), ["Alice77>FounderFay", "Alice77>ManagerMo"]);
+  await expectStatus(await follow(fay, "Alice77"), 403, "cannot_follow");
 });
 
 test("you can block only members you can see, but unblock anybody who exists (also one who is hidden since)", async () => {
@@ -371,8 +416,9 @@ test("followers come newest first, 50 a page, with a cursor; ties on the same mo
   assert.equal(pages, 3);
   assert.equal(seen.length, 120);
   assert.equal(new Set(seen).size, 120);
-  // newest first: by time, and inside one moment by the larger id first
-  const expected = ids.map((u, i) => ({ u, t: Math.floor(i / 3) })).sort((x, y) => y.t - x.t || y.u - x.u).map((x) => "F" + ids.indexOf(x.u));
+  // newest first: by time, and inside one moment by username, Z to A (the way the database compares lower-case text)
+  const byName = (x, y) => (x.h.toLowerCase() < y.h.toLowerCase() ? 1 : x.h.toLowerCase() > y.h.toLowerCase() ? -1 : 0);
+  const expected = ids.map((u, i) => ({ h: "F" + i, t: Math.floor(i / 3) })).sort((x, y) => y.t - x.t || byName(x, y)).map((x) => x.h);
   assert.deepEqual(seen, expected);
   assert.equal((await a.get("/api/follows?list=followers&after=" + encodeURIComponent("2000-01-01T00:00:00.000Z_1"))).next, null);
   assert.deepEqual((await a.get("/api/follows?list=followers&after=" + encodeURIComponent("2000-01-01T00:00:00.000Z_1"))).users, [], "past the oldest: an empty page");
@@ -390,6 +436,20 @@ test("exactly 50 followers is one page with no next; 51 makes a second page of o
   assert.ok(r.next);
   const r2 = await a.get("/api/follows?list=followers&after=" + encodeURIComponent(r.next));
   assert.deepEqual([r2.users.length, r2.next, r2.users[0].handle], [1, null, "G0"]);
+});
+
+test("the cursor is only what the page already showed (the time and the username of its last row): nobody's internal id is in it", async () => {
+  const { env, people: [a, b] } = await world(["Alice77", "BobBrave"]);
+  await seedUsers(env.DB, "Shift", 7); // so that users.id and the position in the list have nothing to do with each other
+  const ids = await seedFollowers(env, a.id, "F", 51);
+  const r = await b.get("/api/follows?u=Alice77&list=followers");
+  assert.equal(r.users.length, 50);
+  const last = r.users[49];
+  const row = await one(env.DB, "SELECT f.created_at FROM follows f JOIN users s ON s.id = f.follower_id WHERE s.handle = ?", last.handle);
+  assert.equal(r.next, `${row.created_at}_${last.handle}`, "the time of the last follow shown and that member's username, nothing else");
+  for (const id of ids) assert.ok(!r.next.endsWith(`_${id}`) && !r.next.includes(`_${id}_`), `no users.id in the cursor: ${r.next}`);
+  const r2 = await b.get("/api/follows?u=Alice77&list=followers&after=" + encodeURIComponent(r.next));
+  assert.deepEqual([r2.users.length, r2.next, r2.users[0].handle], [1, null, "F0"], "and it still continues exactly where the page stopped");
 });
 
 test("the following list works the same way; any member may read another member's lists; with no username you get your own", async () => {
@@ -422,7 +482,7 @@ test("list refusals: no list name, a wrong one, a broken cursor, nobody there, s
   const { env, people: [a] } = await world(["Alice77"]);
   await expectStatus(await a.send("/api/follows"), 400, "bad_request");
   await expectStatus(await a.send("/api/follows?list=friends"), 400, "bad_request");
-  for (const after of ["x", "2026-10-01T00:00:00.000Z", "2026-10-01T00:00:00.000Z_", "2026-10-01T00:00:00.000Z_abc", "_5", "2026-10-01T00:00:00.000Z_5; DROP TABLE follows", "2026-10-01 00:00:00_5", "2026-10-01T00:00:00.000Z_" + "9".repeat(20)]) {
+  for (const after of ["x", "2026-10-01T00:00:00.000Z", "2026-10-01T00:00:00.000Z_", "2026-10-01T00:00:00.000Z_a b", "2026-10-01T00:00:00.000Z_a.b", "_5", "2026-10-01T00:00:00.000Z_5; DROP TABLE follows", "2026-10-01 00:00:00_5", "2026-10-01T00:00:00.000Z_" + "9".repeat(41)]) {
     await expectStatus(await a.send("/api/follows?list=followers&after=" + encodeURIComponent(after)), 400, "bad_request");
   }
   await expectStatus(await a.send("/api/follows?u=Nobody&list=followers"), 404, "not_found");
