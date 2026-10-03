@@ -213,7 +213,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (!isSolanaAddress(address)) return json({ error: "bad_address" }, 400);
       const mint = activeMint(env);
       if (!mint) return json({ launched: false, address, founderMin: founderAmount(0) });
-      return rankResponse(env, mint, address, fetchImpl);
+      return cached(`rank-${mint}-${address}`, 30, () => rankResponse(env, mint, address, fetchImpl));
     }
     case "/api/message": {
       // Helper so the browser builds exactly the same text the server expects.
@@ -237,10 +237,13 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       const blocked = only("GET");
       if (blocked) return blocked;
       if (!env.DB) return json({ launched: Boolean(activeMint(env)), seats: [], windows: [] });
-      await ensureSchema(env.DB);
-      const res = await handleSeats(env);
-      const body = await res.json();
-      return json({ ...body, launched: Boolean(activeMint(env)), founderAmount: founderAmount(0) });
+      // the map polls this every 30 seconds from every open tab: one answer per 30 seconds per server
+      return cached("seats", 30, async () => {
+        await ensureSchema(env.DB);
+        const res = await handleSeats(env);
+        const body = await res.json();
+        return json({ ...body, launched: Boolean(activeMint(env)), founderAmount: founderAmount(0) });
+      });
     }
     case "/api/seats/apply":
       return only("POST") || handleApply(request, env, fetchImpl);
@@ -264,8 +267,13 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       return only("POST") || handleSquadApply(request, env, fetchImpl);
 
     // city coins (designed by City Founders) and prices for the swap panel
-    case "/api/coins":
-      return only("GET") || handleCoins(request, env, fetchImpl);
+    case "/api/coins": {
+      const blocked = only("GET");
+      if (blocked) return blocked;
+      // the whole list is public and the same for everyone: cached. One city's coin (the founder's studio) and the admin queue are live.
+      if (url.searchParams.get("city") || url.searchParams.get("waiting")) return handleCoins(request, env, fetchImpl);
+      return cached("coins", 30, () => handleCoins(request, env, fetchImpl));
+    }
     case "/api/coins/design":
       return only("POST") || handleDesign(request, env, fetchImpl);
     case "/api/coins/mint":

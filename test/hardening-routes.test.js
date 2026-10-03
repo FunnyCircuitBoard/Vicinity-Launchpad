@@ -4,6 +4,7 @@ import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { MINT, browser, chain, newWorld, person, realClock, useClock } from "./helpers/world.js";
+import { _resetSnapshots } from "../src/chain.js";
 
 /** A stand-in for Cloudflare's Cache API (caches.default), keyed by URL, so the cached() wrapper can be watched. */
 function fakeCaches() {
@@ -35,4 +36,39 @@ test("GET /api/prices is cached for 30 seconds per set of mints, whatever their 
   assert.deepEqual(keys(), [`prices-${[MINT, SOL].sort().join(",")}`]);
   const hit = globalThis.caches.store.get(`https://cache.vicinity.internal/prices-${[MINT, SOL].sort().join(",")}`);
   assert.equal(new Headers(hit.headers).get("cache-control"), "public, max-age=30");
+});
+
+test("GET /api/coins (the whole list) is cached for 30 seconds; one city's coin and the admin queue are not", async () => {
+  const b = browser(env);
+  const first = await b.get("/api/coins");
+  assert.deepEqual(keys(), ["coins"]);
+  assert.deepEqual(await b.get("/api/coins"), first);
+  await b.get("/api/coins?city=5142056");
+  await b.get("/api/coins?waiting=1");
+  assert.deepEqual(keys(), ["coins"], "nothing else was put in the cache");
+  const hit = globalThis.caches.store.get("https://cache.vicinity.internal/coins");
+  assert.equal(new Headers(hit.headers).get("cache-control"), "public, max-age=30");
+});
+
+test("GET /api/seats (polled by the map every 30 seconds) is cached for 30 seconds", async () => {
+  const b = browser(env);
+  const first = await b.get("/api/seats");
+  assert.deepEqual(keys(), ["seats"]);
+  assert.deepEqual(await b.get("/api/claims"), first, "the old name shares the cache");
+  assert.equal(new Headers(globalThis.caches.store.get("https://cache.vicinity.internal/seats").headers).get("cache-control"), "public, max-age=30");
+});
+
+test("GET /api/rank is cached for 30 seconds per token and wallet; a chain failure is not cached", async () => {
+  const p = await person(env, { holds: 500 });
+  const down = async () => new Response("", { status: 503 });
+  const failed = await browser(env).send(`/api/rank?address=${p.w.address}`, { fetchImpl: down });
+  assert.equal(failed.status, 503);
+  assert.deepEqual(keys(), [], "a 503 is not kept");
+  _resetSnapshots();
+  const r = await browser(env).get(`/api/rank?address=${p.w.address}`);
+  assert.equal(r.amount, 500);
+  assert.deepEqual(keys(), [`rank-${MINT}-${p.w.address}`]);
+  assert.equal((await browser(env).send(`/api/rank?address=${p.w.address}`, { fetchImpl: down })).status, 200, "answered from the cache, the chain is not asked");
+  assert.equal((await browser(env).send("/api/rank?address=nope")).status, 400);
+  assert.deepEqual(keys(), [`rank-${MINT}-${p.w.address}`], "a bad request is not kept either");
 });
