@@ -524,8 +524,14 @@
       if (bad) return;
       await busy($("#su-email-send"), "Sending…", async () => {
         if (!(await ensureTerms())) return;
-        const d = await call("/api/signup/email", { email, password: pw });
+        let d = await call("/api/signup/email", { email, password: pw });
         if (d._handled) return;
+        if (!d.ok && d.error === "terms_required" && $("#su-terms").checked) { // the sign-up row is a new one: record the ticked box again and carry on
+          S.srv.terms.done = false;
+          if (!(await ensureTerms())) return;
+          d = await call("/api/signup/email", { email, password: pw });
+          if (d._handled) return;
+        }
         if (!d.ok) {
           if (d.error === "bad_email") return fieldErr("su-email", errText(d));
           if (/^password_|^bad_password$/.test(d.error)) return fieldErr("su-pw", errText(d));
