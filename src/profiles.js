@@ -224,7 +224,8 @@ const shapeCounts = (r) => ({ followers: Number(r.results[0]?.followers) || 0, f
 
 /* ---------------- lists ---------------- */
 
-const CURSOR = /^(\d{4}-\d{2}-\d{2}T[0-9:.]{8,16}Z)_(\d{1,12})$/;
+// "<time of the follow>_<username of that row>": the page's last row, nothing the list did not show already (never a member's id)
+const CURSOR = /^(\d{4}-\d{2}-\d{2}T[0-9:.]{8,16}Z)_([A-Za-z0-9_]{1,40})$/;
 
 /** GET /api/follows?u=<handle>&list=followers|following&after=<cursor> */
 async function handleFollows(request, env, x) {
@@ -244,14 +245,15 @@ async function handleFollows(request, env, x) {
   if (!who) return notFound();
 
   const [mine, theirs] = list === "followers" ? ["f.followee_id", "f.follower_id"] : ["f.follower_id", "f.followee_id"];
+  // newest first; follows of the same moment in a fixed order by username (the cursor must never carry a member's id)
   const rows = (await db.prepare(
-    `SELECT s.id AS uid, s.handle, s.home_name, s.home_country, f.created_at FROM follows f JOIN users s ON s.id = ${theirs}
-      WHERE ${mine} = ?1 AND ${SHOWN("s", "?2")}${cur ? ` AND (f.created_at, ${theirs}) < (?3, ?4)` : ""}
-      ORDER BY f.created_at DESC, ${theirs} DESC LIMIT ${PAGE + 1}`).bind(...[who.id, iso(now), ...(cur ? [cur[1], Number(cur[2])] : [])]).all()).results;
+    `SELECT s.handle, s.home_name, s.home_country, f.created_at FROM follows f JOIN users s ON s.id = ${theirs}
+      WHERE ${mine} = ?1 AND ${SHOWN("s", "?2")}${cur ? ` AND (f.created_at, lower(s.handle)) < (?3, lower(?4))` : ""}
+      ORDER BY f.created_at DESC, lower(s.handle) DESC LIMIT ${PAGE + 1}`).bind(...[who.id, iso(now), ...(cur ? [cur[1], cur[2]] : [])]).all()).results;
   const page = rows.slice(0, PAGE);
   const last = page[page.length - 1];
   return json({ ok: true, users: page.map((r) => ({ handle: r.handle, home: home(r.home_name, r.home_country) })),
-    next: rows.length > PAGE && last ? `${last.created_at}_${last.uid}` : null });
+    next: rows.length > PAGE && last ? `${last.created_at}_${last.handle}` : null });
 }
 
 /* ---------------- block ---------------- */

@@ -401,8 +401,9 @@ test("followers come newest first, 50 a page, with a cursor; ties on the same mo
   assert.equal(pages, 3);
   assert.equal(seen.length, 120);
   assert.equal(new Set(seen).size, 120);
-  // newest first: by time, and inside one moment by the larger id first
-  const expected = ids.map((u, i) => ({ u, t: Math.floor(i / 3) })).sort((x, y) => y.t - x.t || y.u - x.u).map((x) => "F" + ids.indexOf(x.u));
+  // newest first: by time, and inside one moment by username, Z to A (the way the database compares lower-case text)
+  const byName = (x, y) => (x.h.toLowerCase() < y.h.toLowerCase() ? 1 : x.h.toLowerCase() > y.h.toLowerCase() ? -1 : 0);
+  const expected = ids.map((u, i) => ({ h: "F" + i, t: Math.floor(i / 3) })).sort((x, y) => y.t - x.t || byName(x, y)).map((x) => x.h);
   assert.deepEqual(seen, expected);
   assert.equal((await a.get("/api/follows?list=followers&after=" + encodeURIComponent("2000-01-01T00:00:00.000Z_1"))).next, null);
   assert.deepEqual((await a.get("/api/follows?list=followers&after=" + encodeURIComponent("2000-01-01T00:00:00.000Z_1"))).users, [], "past the oldest: an empty page");
@@ -420,6 +421,20 @@ test("exactly 50 followers is one page with no next; 51 makes a second page of o
   assert.ok(r.next);
   const r2 = await a.get("/api/follows?list=followers&after=" + encodeURIComponent(r.next));
   assert.deepEqual([r2.users.length, r2.next, r2.users[0].handle], [1, null, "G0"]);
+});
+
+test("the cursor is only what the page already showed (the time and the username of its last row): nobody's internal id is in it", async () => {
+  const { env, people: [a, b] } = await world(["Alice77", "BobBrave"]);
+  await seedUsers(env.DB, "Shift", 7); // so that users.id and the position in the list have nothing to do with each other
+  const ids = await seedFollowers(env, a.id, "F", 51);
+  const r = await b.get("/api/follows?u=Alice77&list=followers");
+  assert.equal(r.users.length, 50);
+  const last = r.users[49];
+  const row = await one(env.DB, "SELECT f.created_at FROM follows f JOIN users s ON s.id = f.follower_id WHERE s.handle = ?", last.handle);
+  assert.equal(r.next, `${row.created_at}_${last.handle}`, "the time of the last follow shown and that member's username, nothing else");
+  for (const id of ids) assert.ok(!r.next.endsWith(`_${id}`) && !r.next.includes(`_${id}_`), `no users.id in the cursor: ${r.next}`);
+  const r2 = await b.get("/api/follows?u=Alice77&list=followers&after=" + encodeURIComponent(r.next));
+  assert.deepEqual([r2.users.length, r2.next, r2.users[0].handle], [1, null, "F0"], "and it still continues exactly where the page stopped");
 });
 
 test("the following list works the same way; any member may read another member's lists; with no username you get your own", async () => {
@@ -452,7 +467,7 @@ test("list refusals: no list name, a wrong one, a broken cursor, nobody there, s
   const { env, people: [a] } = await world(["Alice77"]);
   await expectStatus(await a.send("/api/follows"), 400, "bad_request");
   await expectStatus(await a.send("/api/follows?list=friends"), 400, "bad_request");
-  for (const after of ["x", "2026-10-01T00:00:00.000Z", "2026-10-01T00:00:00.000Z_", "2026-10-01T00:00:00.000Z_abc", "_5", "2026-10-01T00:00:00.000Z_5; DROP TABLE follows", "2026-10-01 00:00:00_5", "2026-10-01T00:00:00.000Z_" + "9".repeat(20)]) {
+  for (const after of ["x", "2026-10-01T00:00:00.000Z", "2026-10-01T00:00:00.000Z_", "2026-10-01T00:00:00.000Z_a b", "2026-10-01T00:00:00.000Z_a.b", "_5", "2026-10-01T00:00:00.000Z_5; DROP TABLE follows", "2026-10-01 00:00:00_5", "2026-10-01T00:00:00.000Z_" + "9".repeat(41)]) {
     await expectStatus(await a.send("/api/follows?list=followers&after=" + encodeURIComponent(after)), 400, "bad_request");
   }
   await expectStatus(await a.send("/api/follows?u=Nobody&list=followers"), 404, "not_found");
