@@ -208,6 +208,21 @@ test("block refusals: yourself, nobody, bad input, signed out, another site, an 
   void b;
 });
 
+test("a city founder and a country manager can be blocked like any member: only admin-console roles cannot (what README.md says)", async () => {
+  const { env, people: [a, fay, mo] } = await world(["Alice77", "FounderFay", "ManagerMo"]);
+  const at = iso(clock.now);
+  const seat = (p, city, name) => env.DB.prepare("INSERT INTO seats (city_id, city_name, country, user_id, wallet, policy, threshold, status, created_at, activated_at) VALUES (?, ?, 'US', ?, ?, 5, 1, 'active', ?, ?)")
+    .bind(city, name, p.id, p.w.address, at, at).run();
+  await seat(fay, "5142056", "Utica");
+  const moSeat = (await seat(mo, "5140405", "Syracuse")).meta.last_row_id;
+  await env.DB.prepare("INSERT INTO manager_terms (country, seat_id, user_id, wallet, starts_at, ends_at, consecutive, status) VALUES ('US', ?, ?, ?, ?, ?, 1, 'active')")
+    .bind(moSeat, mo.id, mo.w.address, iso(clock.now - 86400_000), iso(clock.now + 30 * 86400_000)).run();
+  assert.deepEqual(await (await block(a, "FounderFay")).json(), { ok: true, blocked: true });
+  assert.deepEqual(await (await block(a, "ManagerMo")).json(), { ok: true, blocked: true });
+  assert.deepEqual(await blockPairs(env.DB), ["Alice77>FounderFay", "Alice77>ManagerMo"]);
+  await expectStatus(await follow(fay, "Alice77"), 403, "cannot_follow");
+});
+
 test("you can block only members you can see, but unblock anybody who exists (also one who is hidden since)", async () => {
   const { env, people: [a, b] } = await world();
   await block(a, "BobBrave");

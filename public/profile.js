@@ -159,7 +159,7 @@
     self: "You can't follow yourself.",
     cannot_follow: "You can't follow this member right now.",
     too_many_following: "You follow 1,000 members, the most we allow. Unfollow someone to follow more.",
-    cannot_block: "Admins and moderators can't be blocked.",
+    cannot_block: "Members with an admin role can't be blocked.",
     unblock_first: "You blocked this member. Unblock them first.",
     too_many_blocks: "You've blocked as many members as we allow. Unblock someone first.",
     no_bio: "This member has no bio to report.",

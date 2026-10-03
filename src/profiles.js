@@ -16,7 +16,7 @@
  *
  * What other members see of a member: username, member since, level, badges, home community, bio, wallet address, exact
  * $VICINITY amount with rank and percentile, exact city-coin holdings with live dollar values, follower and following
- * counts, and the posts the feeds already show them. NEVER: real name, sign-in method, contact e-mail, phone, IP, location,
+ * counts and the lists behind them (usernames, 50 a page), and the posts the feeds already show them. NEVER: real name, sign-in method, contact e-mail, phone, IP, location,
  * sessions, anybody's block list, anything from the admin tools. Each answer is built field by field (no table row is ever
  * passed through), and test/profile-view.test.js scans every answer for what must not be in it.
  *
@@ -283,7 +283,8 @@ async function handleBlock(request, env, x) {
     return json({ ok: true, blocked: false });
   }
   if (!who) return notFound();
-  // admins and moderators answer to everybody: they cannot be blocked (and never learn who tried)
+  // members with an admin-console role (the owner wallets, the /admin roles admin and moderator) answer to everybody: they cannot be
+  // blocked (and never learn who tried). A city founder or a country manager is a member like any other here: a block only stops follows.
   if (await adminRoleOf(env, who.wallet)) return json({ ok: false, error: "cannot_block" }, 409);
   const [, , , state] = await db.batch([
     db.prepare(BLOCK).bind(u.id, who.id, iso(now), MAX_BLOCKS),
