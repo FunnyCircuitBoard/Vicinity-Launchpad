@@ -38,7 +38,7 @@ import { getHolding, holderSnapshot, rankOf } from "./chain.js";
 import { adminWallets, liveSeatOfUser, managerOf } from "./roles.js";
 import { badgesFor } from "./me.js";
 import { adminRoleOf } from "./admin.js";
-import { handlePortfolio, portfolioOf } from "./portfolio.js";
+import { portfolioOf } from "./portfolio.js";
 import { handleClearBio } from "./moderation.js";
 import { cleanText } from "./text.js";
 import { MAX_BLOCKS, MAX_FOLLOWING, PAGE, SEARCH_MAX, SHOWN, cleanBio, countsOf, countsStatement, findMember, memberById, parseHandle, within } from "./profile-core.js";
@@ -48,11 +48,12 @@ const slow = () => json({ ok: false, error: "slow_down" }, 429);
 const notFound = () => json({ ok: false, error: "not_found" }, 404);
 const home = (name, country) => (name ? { name, country } : null);
 
-/** A signed-in, real member (not a test-lab row) with the profile tables in place, or { error }. */
-async function member(request, env, now, { write }) {
+/** A signed-in, real member (not a test-lab row) with the profile tables in place (unless `tables: false`), or { error }. */
+async function member(request, env, now, { write, tables = true }) {
   const a = await access(request, env, now, { write });
   if (a.error) return a;
   if (a.u.provider === "testlab") return { error: json({ ok: false, error: "sign_in" }, 401) };
+  if (!tables) return a;
   try { await ensureProfilesSchema(env.DB); }
   catch (e) {
     console.error("profile tables unavailable", String((e && e.message) || e).slice(0, 80));
@@ -346,6 +347,15 @@ async function handleReport(request, env, x) {
   return json({ ok: true });
 }
 
+/* ---------------- the portfolio ---------------- */
+
+/** GET /api/me/portfolio → your own portfolio (src/portfolio.js): the one entry rule of every profile route, but none of the new tables are needed (only the wallet). */
+async function handleOwnPortfolio(request, env, x) {
+  const g = await member(request, env, x.now, { write: false, tables: false });
+  if (g.error) return g.error;
+  return json({ ok: true, portfolio: await portfolioOf(env, g.u.wallet, { fetchImpl: x.fetchImpl, now: x.now }) });
+}
+
 /* ---------------- routes ---------------- */
 
 const ROUTES = {
@@ -357,7 +367,7 @@ const ROUTES = {
   "/api/block": ["POST", handleBlock],
   "/api/me/blocks": ["GET", handleBlocks],
   "/api/me/bio": ["POST", handleBio],
-  "/api/me/portfolio": ["GET", (request, env, x) => handlePortfolio(request, env, x.fetchImpl, x.now)],
+  "/api/me/portfolio": ["GET", handleOwnPortfolio],
   "/api/mod/bio/clear": ["POST", (request, env, x) => handleClearBio(request, env, x.fetchImpl, x.now)],
 };
 /** Every path that exists only while PROFILES=on (src/index.js answers 404 not_enabled for them otherwise). */

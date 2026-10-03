@@ -85,8 +85,8 @@ test("signed out, a half-made account and a test-lab row see nothing on any prof
   await pending.post("/api/auth/wallet", await loginBody(await wallet()));
   const out = browser(env);
   for (const who of [out, pending, lab]) {
-    // (a test-lab row's own portfolio is only its own wallet's balances: it is not one of the routes that show other members)
-    for (const path of ["/api/profile?u=BobBrave", "/api/profile", "/api/members/search?q=bo", "/api/follows?u=BobBrave&list=followers", "/api/me/blocks", ...(who === lab ? [] : ["/api/me/portfolio"])]) {
+    // the portfolio route too: a test-lab row is not a member on any profile route (and its wallet is never asked about)
+    for (const path of ["/api/profile?u=BobBrave", "/api/profile", "/api/members/search?q=bo", "/api/follows?u=BobBrave&list=followers", "/api/me/blocks", "/api/me/portfolio"]) {
       const r = await who.send(path);
       assert.equal(r.status, 401, path);
       const text = await r.text();
