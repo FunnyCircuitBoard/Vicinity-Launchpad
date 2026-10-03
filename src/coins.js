@@ -242,24 +242,57 @@ export async function officialCityCoin(env, address) {
   };
 }
 
+// Jupiter's price API. The address and key come from the settings JUPITER_API_BASE and JUPITER_API_KEY (the
+// keyless lite address is being retired); the last price seen per token is kept for 5 minutes so a rate limit
+// or an outage does not blank every estimate on the swap panel.
+const JUPITER_BASE = "https://lite-api.jup.ag";
+const PRICE_TIMEOUT_MS = 3000, LAST_GOOD_MS = 5 * 60_000, LAST_GOOD_MAX = 500;
+const lastGood = new Map(); // mint → { price, at }, oldest first
+export const _resetPrices = () => lastGood.clear();
+
+/** The tokens a /api/prices request asks about: unique, in the order asked, at most 6. */
+export const wantedMints = (request) => [...new Set(String(new URL(request.url).searchParams.get("mints") || "").split(",").filter(isSolanaAddress))].slice(0, 6);
+
+/**
+ * US-dollar prices for some tokens: { prices: { mint → number | null }, stale }. Never throws. When Jupiter answers
+ * with an error, times out or is unreachable, the last price it gave for each token (at most 5 minutes old) is
+ * answered instead and stale is true.
+ */
+export async function jupiterPrices(env, mints, fetchImpl = fetch, now = Date.now()) {
+  const prices = Object.fromEntries(mints.map((m) => [m, null]));
+  if (!mints.length) return { prices, stale: false };
+  const base = String((env && env.JUPITER_API_BASE) || JUPITER_BASE).replace(/\/+$/, "");
+  const headers = env && env.JUPITER_API_KEY ? { "x-api-key": String(env.JUPITER_API_KEY) } : {};
+  try {
+    const res = await fetchImpl(`${base}/price/v3?ids=${mints.join(",")}`, { headers, signal: AbortSignal.timeout(PRICE_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`jupiter_http_${res.status}`);
+    const d = await res.json();
+    for (const m of mints) {
+      const p = Number(d?.[m]?.usdPrice);
+      if (!Number.isFinite(p) || p <= 0) continue;
+      prices[m] = p;
+      lastGood.delete(m); lastGood.set(m, { price: p, at: now });
+    }
+    while (lastGood.size > LAST_GOOD_MAX) lastGood.delete(lastGood.keys().next().value);
+    return { prices, stale: false };
+  } catch { /* prices are a nice-to-have: the swap page always shows the exact amount */ }
+  let stale = false;
+  for (const m of mints) {
+    const g = lastGood.get(m);
+    if (g && now - g.at < LAST_GOOD_MS) { prices[m] = g.price; stale = true; }
+  }
+  return { prices, stale };
+}
+
 /** Prices in US dollars for the tokens the swap panel shows (only those: $VICINITY, the pairs, launched city coins). */
 export async function handlePrices(request, env, fetchImpl = fetch) {
-  const wanted = [...new Set(String(new URL(request.url).searchParams.get("mints") || "").split(",").filter(isSolanaAddress))].slice(0, 6);
+  const wanted = wantedMints(request);
   const allowed = new Set([activeMint(env), ...Object.values(PAIRS).map((p) => p.mint)].filter(Boolean));
   if (env.DB && wanted.some((m) => !allowed.has(m))) {
     await ensureSchema(env.DB);
     for (const m of wanted) if (!allowed.has(m) && await env.DB.prepare("SELECT 1 FROM city_coins WHERE mint = ?").bind(m).first()) allowed.add(m);
   }
   const mints = wanted.filter((m) => allowed.has(m));
-  const prices = Object.fromEntries(mints.map((m) => [m, null]));
-  if (mints.length) {
-    try {
-      const res = await fetchImpl(`https://lite-api.jup.ag/price/v3?ids=${mints.join(",")}`, { signal: AbortSignal.timeout(3000) });
-      if (res.ok) {
-        const d = await res.json();
-        for (const m of mints) { const p = Number(d?.[m]?.usdPrice); if (Number.isFinite(p) && p > 0) prices[m] = p; }
-      }
-    } catch { /* prices are a nice-to-have: the swap page always shows the exact amount */ }
-  }
-  return json({ prices }, 200, { "Cache-Control": "public, max-age=30" });
+  const { prices, stale } = await jupiterPrices(env, mints, fetchImpl);
+  return json(stale ? { prices, stale: true } : { prices }, 200, { "Cache-Control": "public, max-age=30" });
 }

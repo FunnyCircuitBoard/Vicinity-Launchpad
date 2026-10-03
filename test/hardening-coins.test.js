@@ -2,10 +2,11 @@
 // blockchain check that it is a token mint with a supply.
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { IN_UTICA, MINT, browser, chain, newWorld, person, realClock, useClock } from "./helpers/world.js";
+import { IN_UTICA, MINT, advance, browser, chain, newWorld, person, realClock, useClock } from "./helpers/world.js";
+import { _resetPrices } from "../src/coins.js";
 
 let env;
-beforeEach(() => { useClock("2026-10-20T12:00:00Z"); env = newWorld({ VICINITY_MINT: MINT }); });
+beforeEach(() => { useClock("2026-10-20T12:00:00Z"); env = newWorld({ VICINITY_MINT: MINT }); _resetPrices(); });
 after(() => realClock());
 
 const UTICA = "5142056";
@@ -143,4 +144,49 @@ test("the link checker names the one official X account instead of claiming ther
   assert.doesNotMatch(r.message, /no official social accounts/);
   const ok = await browser(env).get("/api/check?q=" + encodeURIComponent("@vicinitycitysol"));
   assert.equal(ok.verdict, "official");
+});
+
+// ---- prices (Jupiter) ----
+const SOL = "So11111111111111111111111111111111111111112";
+const jupiter = (answer) => { const calls = []; const f = async (url, init) => { calls.push({ url: String(url), headers: new Headers(init && init.headers) }); return answer(); }; f.calls = calls; return f; };
+const good = () => new Response(JSON.stringify({ [SOL]: { usdPrice: 150 }, [MINT]: { usdPrice: 0.002 } }));
+const prices = (fetchImpl, over = {}) => browser({ ...env, ...over }).send(`/api/prices?mints=${SOL},${MINT}`, { fetchImpl });
+
+test("prices come from the Jupiter address in the settings, with the key when there is one", async () => {
+  let j = jupiter(good);
+  assert.deepEqual((await (await prices(j)).json()).prices, { [SOL]: 150, [MINT]: 0.002 });
+  assert.ok(j.calls[0].url.startsWith("https://lite-api.jup.ag/price/v3?ids="), "default address: " + j.calls[0].url);
+  assert.equal(j.calls[0].headers.get("x-api-key"), null, "no key, no header");
+
+  j = jupiter(good);
+  await prices(j, { JUPITER_API_BASE: "https://api.jup.ag/", JUPITER_API_KEY: "test-key" });
+  assert.ok(j.calls[0].url.startsWith("https://api.jup.ag/price/v3?ids="), "address from the setting: " + j.calls[0].url);
+  assert.equal(j.calls[0].headers.get("x-api-key"), "test-key");
+});
+
+test("when Jupiter fails, the last good prices are answered as stale for 5 minutes, and the route never throws", async () => {
+  const r1 = await (await prices(jupiter(good))).json();
+  assert.deepEqual(r1, { prices: { [SOL]: 150, [MINT]: 0.002 } }, "a fresh answer carries no stale mark");
+
+  const limited = await prices(jupiter(() => new Response("slow down", { status: 429 })));
+  assert.equal(limited.status, 200);
+  assert.deepEqual(await limited.json(), { prices: { [SOL]: 150, [MINT]: 0.002 }, stale: true }, "rate-limited: last good prices, marked stale");
+
+  advance(4 * 60_000);
+  const broken = await prices(jupiter(() => { throw new Error("network down"); }));
+  assert.equal(broken.status, 200);
+  assert.deepEqual(await broken.json(), { prices: { [SOL]: 150, [MINT]: 0.002 }, stale: true }, "unreachable: still the last good prices");
+
+  advance(60_001);
+  const old = await (await prices(jupiter(() => new Response("", { status: 503 })))).json();
+  assert.deepEqual(old, { prices: { [SOL]: null, [MINT]: null } }, "after 5 minutes the old prices are not shown any more");
+});
+
+test("the token page's price also survives a Jupiter outage with the last good price", async () => {
+  const token = (fetchImpl) => browser(env).send("/api/token", { fetchImpl });
+  const both = (j) => async (url, init) => (String(url).includes("jup.ag") ? j(url, init) : chain()(url, init));
+  assert.equal((await (await token(both(jupiter(good)))).json()).price, 0.002);
+  assert.equal((await (await token(both(jupiter(() => new Response("", { status: 429 }))))).json()).price, 0.002, "last good price");
+  _resetPrices();
+  assert.equal((await (await token(both(jupiter(() => new Response("", { status: 429 }))))).json()).price, null, "nothing remembered: no price, no error");
 });

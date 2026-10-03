@@ -51,7 +51,7 @@ import { handleAppeal, handleAudit, handleBanDecision, handleDecideAppeal, handl
   handleTownDecision, handleTownRequest, handleUnhide } from "./moderation.js";
 import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots, snapshotCutoff } from "./snapshot.js";
 import { managerOf } from "./roles.js";
-import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown, officialCityCoin } from "./coins.js";
+import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown, jupiterPrices, officialCityCoin, wantedMints } from "./coins.js";
 import { runJobs } from "./jobs.js";
 import { v2On } from "./flags.js";
 import { routeV2 } from "./signup.js";
@@ -94,14 +94,9 @@ export async function handleVerify(request, env = {}, now = Date.now(), fetchImp
   return json(out);
 }
 
-/** USD price from Jupiter's public price API (asked by the server, so the page loads nothing from other sites). null if unknown. */
-async function tokenPrice(mint, fetchImpl) {
-  try {
-    const res = await fetchImpl(`https://lite-api.jup.ag/price/v3?ids=${mint}`, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) return null;
-    const p = Number((await res.json())?.[mint]?.usdPrice);
-    return Number.isFinite(p) && p > 0 ? p : null;
-  } catch { return null; }
+/** USD price from Jupiter (asked by the server, so the page loads nothing from other sites; the last good price during an outage). null if unknown. */
+async function tokenPrice(env, mint, fetchImpl) {
+  return (await jupiterPrices(env, [mint], fetchImpl)).prices[mint];
 }
 
 /** Live holders: every holder from the one-minute snapshot, or the top 20 when the RPC can't list them all. */
@@ -199,7 +194,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (!mint) return json({ launched: false, registry: withMint(env).tokens });
       return cached("token-" + mint, 60, async () => {
         try {
-          const [facts, price] = await Promise.all([getTokenFacts(env, mint, fetchImpl), tokenPrice(mint, fetchImpl)]);
+          const [facts, price] = await Promise.all([getTokenFacts(env, mint, fetchImpl), tokenPrice(env, mint, fetchImpl)]);
           return json({ launched: true, registry: withMint(env).tokens, facts, price, marketCap: price && facts.supply ? price * facts.supply : null });
         } catch (e) { console.error("token facts failed", String(e)); return json({ launched: true, error: "chain_unavailable" }, 503); }
       });
@@ -280,7 +275,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/coins/takedown":
       return only("POST") || handleTakedown(request, env, fetchImpl);
     case "/api/prices":
-      return only("GET") || handlePrices(request, env, fetchImpl);
+      return only("GET") || cached("prices-" + wantedMints(request).slice().sort().join(","), 30, () => handlePrices(request, env, fetchImpl));
 
     // country managers
     case "/api/moderator": {
