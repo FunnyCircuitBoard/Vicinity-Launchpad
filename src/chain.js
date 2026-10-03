@@ -46,12 +46,16 @@ const poolLabel = (owner, ownerProgram) => {
   try { return isOnCurve(base58Decode(owner)) ? null : PROGRAM_ACCOUNT; } catch { return null; }
 };
 
+// A stuck RPC must not hold a request open: give up after 8 seconds (the Worker itself has 30).
+const RPC_TIMEOUT_MS = 8000;
+
 export async function rpc(env, method, params, fetchImpl = fetch) {
   const url = (env && env.SOLANA_RPC_URL) || PUBLIC_RPC;
   const res = await fetchImpl(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`rpc_http_${res.status}`);
   const data = await res.json();
@@ -135,7 +139,7 @@ export async function getHoldings(env, owners, mint, fetchImpl = fetch) {
   for (let i = 0; i < owners.length; i += 25) {
     const chunk = owners.slice(i, i + 25);
     const body = chunk.map((o, j) => ({ jsonrpc: "2.0", id: j, method: "getTokenAccountsByOwner", params: [o, { mint }, { encoding: "jsonParsed" }] }));
-    const res = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(RPC_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`rpc_http_${res.status}`);
     const data = await res.json();
     for (const r of Array.isArray(data) ? data : []) {
@@ -193,9 +197,12 @@ export async function getAllHolders(env, mint, fetchImpl = fetch) {
  *   { facts, rows: [{ owner, amount, percent, rank|null, label }], byOwner: Map(owner → row), people, at }
  */
 const snaps = new Map();
+// A failed snapshot is kept this long: every caller in that time gets the same error at once, instead of each
+// firing its own getProgramAccounts at an RPC that is already in trouble.
+const FAILED_FOR_MS = 5_000;
 export function holderSnapshot(env, mint, fetchImpl = fetch, maxAgeMs = 60_000) {
   const hit = snaps.get(mint);
-  if (hit && Date.now() - hit.at < maxAgeMs) return hit.promise;
+  if (hit && Date.now() < (hit.failedAt == null ? hit.at + maxAgeMs : hit.failedAt + FAILED_FOR_MS)) return hit.promise;
   const promise = getAllHolders(env, mint, fetchImpl).then(({ facts, list, labels }) => {
     let rank = 0;
     const rows = list.map(([owner, amount]) => {
@@ -205,8 +212,9 @@ export function holderSnapshot(env, mint, fetchImpl = fetch, maxAgeMs = 60_000) 
     });
     return { facts, rows, byOwner: new Map(rows.map((r) => [r.owner, r])), people: rank, at: new Date().toISOString() };
   });
-  snaps.set(mint, { at: Date.now(), promise });
-  promise.catch(() => snaps.delete(mint));
+  const entry = { at: Date.now(), promise, failedAt: null };
+  snaps.set(mint, entry);
+  promise.catch(() => { if (snaps.get(mint) === entry) entry.failedAt = Date.now(); });
   return promise;
 }
 export const _resetSnapshots = () => snaps.clear();
