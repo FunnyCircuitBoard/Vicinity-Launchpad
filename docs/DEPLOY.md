@@ -122,7 +122,7 @@ The tabbed dashboard is built and tested but **dark**: while `DASHBOARD_V2` is n
 - [ ] Member profiles (only when you decide to switch them on): the members were told, the lawyer reviewed the privacy sentences and the Terms, the rate-limit rule covers the new routes, then set `PROFILES` to `on` (see "Profiles switch").
 - [ ] Wipe the test data: sign in to `/admin` with the owner wallet → *Test lab* → *Reset* (needs a fresh wallet signature). It deletes only the rows the test lab created.
 - [ ] Go live: pull request changing `SITE_MODE` to `"live"` in `wrangler.jsonc`, merge, approve the deploy. (In `live` mode the test lab can no longer be seeded.)
-- [x] After the token launch: pull request adding `VICINITY_MINT` (done 3 Oct 2026: `2e8VdgpT27LcNWyfk5Ce6ZyGwMdu7ajaSnMph83Xwray`).
+- [ ] After the token launch: pull request setting `VICINITY_MINT` in `wrangler.jsonc` to the real contract, after verifying it on-chain (the address set on 3 Oct 2026, `2e8V…Xray`, was a test coin and was removed the same day; the value is `""` until the real launch).
 - [ ] Prices: create a free Jupiter API key (portal.jup.ag), set the secret `JUPITER_API_KEY` and the variable `JUPITER_API_BASE` = `https://api.jup.ag` (see the settings table). Until then the retiring keyless address is used.
 - [ ] Rate-limiting rules for the public routes, per IP, as listed in "Attempt limits on the public routes" above.
 - [x] The `workers.dev` addresses are switched off (`"workers_dev": false` in `wrangler.jsonc`, applied by the next deploy) and removed from the official-links list. Set it back to `true` only for a short test.

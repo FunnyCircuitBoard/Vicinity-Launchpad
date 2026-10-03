@@ -24,9 +24,11 @@
     "SITE_MODE": "live",
     "GOOGLE_CLIENT_ID": "508878292080-h05nh9h4p6u4ajpqldc423f6elmqc0nl.apps.googleusercontent.com",
     "EMAIL_FROM": "Vicinity <noreply@vicinity.city>",
-    // The one official $VICINITY contract (Raydium LaunchLab, 3 Oct 2026). Verified on-chain before this was set:
-    // 1,000,000,000 supply, 6 decimals, minting and freezing disabled. The checker, registry and every "Buy" link read it.
-    "VICINITY_MINT": "2e8VdgpT27LcNWyfk5Ce6ZyGwMdu7ajaSnMph83Xwray"
+    // The one official $VICINITY contract. Empty = not launched yet (countdown, no "Buy" links, the checker calls every
+    // address unofficial). The address set here on 3 Oct 2026 (2e8VdgpT27LcNWyfk5Ce6ZyGwMdu7ajaSnMph83Xwray) was the
+    // owner's TEST coin and was removed the same day. Put the real one here only after verifying it on-chain (1,000,000,000
+    // supply, 6 decimals, minting and freezing disabled, the expected metadata) and merge: the deploy makes it live.
+    "VICINITY_MINT": ""
   },
   "assets": {
     "directory": "./public",
