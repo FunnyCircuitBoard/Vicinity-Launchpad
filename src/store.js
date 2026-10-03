@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS streaks (
   above_since TEXT,
   PRIMARY KEY (wallet, level)
 );
+CREATE INDEX IF NOT EXISTS streaks_active ON streaks (level, wallet, above_since) WHERE above_since IS NOT NULL;
 CREATE TABLE IF NOT EXISTS used_nonces (
   nonce      TEXT PRIMARY KEY,
   expires_at TEXT NOT NULL
