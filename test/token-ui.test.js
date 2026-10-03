@@ -57,7 +57,7 @@ const fakeHolders = (n) => Array.from({ length: n }, (_, i) => ({ owner: owner(i
 let minute = 0; const tick = () => ++minute;
 const pageOf = (all, offset) => ({ launched: true, mint: MINT, supply: 1e9, total: all.filter((h) => h.rank).length, count: all.length, full: true, holders: all.slice(offset, offset + 1000), more: offset + 1000 < all.length, updatedAt: `2026-10-03T12:${String(minute).padStart(2, "0")}:00Z` });
 
-function page({ answer }) {
+function page({ answer, token = { launched: false, registry: [] } }) {
   const nodes = new Map(), frames = [], calls = [];
   function node(tag = "div") {
     const n = { tagName: tag.toUpperCase(), children: [], dataset: {}, style: {}, hidden: false, value: "", scrollTop: 0, _text: "", handlers: {}, classes: new Set(),
@@ -71,7 +71,7 @@ function page({ answer }) {
   const $$ = (sel) => (sel === "#holders-body tr" ? $("#holders-body").children.filter((c) => c.tagName === "TR") : []);
   const el = (tag, cls, text) => { const n = node(tag); if (cls) n.classes.add(cls); if (text != null) n.textContent = text; return n; };
   const V = { $, $$, el, toast() {}, copy() {}, fmt: (x) => Number(x).toLocaleString("en-US"), compact: (x) => String(x), mask: MASK, isAddr: () => true, official: null, reduced: true,
-    api: async (path) => { calls.push(path); await null; return path === "/api/token" ? { launched: false, registry: [] } : answer(path); } };
+    api: async (path) => { calls.push(path); await null; return path === "/api/token" ? token : answer(path); } };
   const statuses = []; const status = $("#holders-status"); Object.defineProperty(status, "textContent", { get: () => statuses[statuses.length - 1] || "", set: (t) => statuses.push(String(t)) });
   // the box: rows 46px tall, 400px of them in view; scrollTop clamps to the rows there are, as a browser's does, and stays clamped once rows go
   const ROW = 46, box = $("#holders-scroll"); let top = 0;
@@ -110,7 +110,7 @@ test("token.js: before launch nothing is drawn and the card keeps its own height
   const p = page({ answer: () => ({ launched: false, holders: [] }) });
   await p.settle();
   assert.equal(p.flush(), 0);
-  assert.deepEqual(p.statuses, []);
+  assert.deepEqual(p.statuses, ["The live holder list opens the moment $VICINITY launches."], "the page's own text says loading: the script says why nothing comes");
   assert.ok(!p.$(".holders").classes.has("holders--live"));
 });
 
@@ -249,4 +249,37 @@ test("token.js: a lookup never keeps the last wallet's values (a pool after a ra
   await look(RANKED); await look(BUSY);
   assert.deepEqual(card(), ["—", "", "—", "—", "—", "—"], "the blockchain is busy: nothing of the wallet before is shown under the new address");
   assert.equal(p.$("#rank-meter").style.width, "0%");
+});
+
+test("token page after launch: no 'the moment it launches' copy, and nothing in the page before its script runs names a date instead of the contract", () => {
+  // live 3 Oct 2026 after the launch: the lead said numbers are read live "the moment the token is live", step 3 said the Buy
+  // button "appears the moment $VICINITY launches", and before token.js ran (or when the chain was busy) the contract box read
+  // "October 3, 2026 — Raydium LaunchLab" with "Until it's published here, any $VICINITY you see is fake"
+  for (const h of [html, src]) {
+    assert.doesNotMatch(h, /the moment the token is live|it appears the moment \$VICINITY launches|opens the moment \$VICINITY launches/);
+    assert.doesNotMatch(h, /October 3, 2026/, "no date where the contract goes");
+    assert.doesNotMatch(h, /Until it's published here/);
+    assert.doesNotMatch(h, />At launch</);
+    assert.doesNotMatch(h, /Checked live at launch/);
+  }
+  assert.match(html, /<p class="lead">The key to the Vicinity map\. Every number on this page is read live from the blockchain\. Don't trust us, check the chain\.<\/p>/);
+  assert.match(html, /<code id="ca-text">Loading…<\/code>/);
+});
+
+test("token.js: while the chain is busy (/api/token 503) the official contract, its links and the official list still show; before launch it says not published", async () => {
+  const busy = page({ token: { launched: true, error: "chain_unavailable", mint: MINT, registry: [{ network: "Solana", name: "Vicinity", symbol: "VICINITY", contract: MINT, status: "Live" }], _status: 503 },
+    answer: () => ({ launched: true, error: "chain_unavailable" }) });
+  await busy.settle();
+  assert.equal(busy.$("#ca-text").textContent, MINT);
+  assert.equal(busy.$("#ca-links").hidden, false);
+  assert.equal(busy.$("#lnk-raydium").href, `https://raydium.io/launchpad/token/?mint=${MINT}`);
+  assert.equal(busy.$("#ca-note").textContent, "This is the only official $VICINITY. Anything else using the name is fake.");
+  assert.equal(busy.$("#registry-body").children.length, 1, "the official list is drawn from the settings");
+
+  const before = page({ answer: () => ({ launched: false, holders: [] }) });
+  await before.settle();
+  assert.equal(before.$("#ca-text").textContent, "Not published yet");
+  assert.match(before.$("#ca-note").textContent, /Until it's published here/);
+  assert.equal(before.$("#lnk-raydium").href, undefined, "no trade link before there is a contract");
+  assert.equal(before.statuses.at(-1), "The live holder list opens the moment $VICINITY launches.");
 });

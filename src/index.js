@@ -251,7 +251,8 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
         try {
           const [facts, price] = await Promise.all([getTokenFacts(env, mint, fetchImpl), tokenPrice(env, mint, fetchImpl)]);
           return json({ launched: true, registry: withMint(env).tokens, facts, price, marketCap: price && facts.supply ? price * facts.supply : null });
-        } catch (e) { console.error("token facts failed", String(e)); return json({ launched: true, error: "chain_unavailable" }, 503); }
+        // the contract comes from the settings, not the chain: the page still shows it (and the official list) while the chain is busy
+        } catch (e) { console.error("token facts failed", String(e)); return json({ launched: true, error: "chain_unavailable", mint, registry: withMint(env).tokens }, 503); }
       });
     }
     case "/api/holders": {

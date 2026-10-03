@@ -108,6 +108,16 @@ test("an edge-cache hit tells the visitor the same short max-age as the miss, ev
   assert.equal(h.headers.get("x-vicinity-max-age"), null);
 });
 
+test("GET /api/token while the chain is down still names the official contract and the official list (from the settings), and is not cached", async () => {
+  const down = async () => new Response("", { status: 503 });
+  const res = await browser(env).send("/api/token", { fetchImpl: down });
+  assert.equal(res.status, 503);
+  const d = await res.json();
+  assert.deepEqual([d.launched, d.error, d.mint], [true, "chain_unavailable", MINT]);
+  assert.deepEqual([d.registry[0].contract, d.registry[0].status], [MINT, "Live"]);
+  assert.deepEqual(keys(), [], "a 503 is not kept");
+});
+
 test("the rate-limit guard (src/guards.js) answers null for a first request and is called first on the public chain-touching routes", async () => {
   const req = new Request("https://vicinity.test/api/rank?address=x", { headers: { "cf-connecting-ip": "203.0.113.9" } });
   assert.equal(await publicLimit(env, req, "rank"), null, "a first request is never over the limit");
