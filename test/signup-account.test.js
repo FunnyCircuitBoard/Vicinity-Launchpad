@@ -437,3 +437,19 @@ test("sendEmailCode for the password routes: noSend does the same database work 
   box.failing = false;
   assert.deepEqual(await sendEmailCode(env, "flaky@example.com", { fetchImpl: box.fetch }), { ok: true }, "and the person can ask again at once");
 });
+
+test("if the sign-up tables cannot be checked when Google comes back, the person lands on a plain 'unavailable' message and nothing is recorded", async () => {
+  const b = await ready();
+  const begin = new URL((await b.send("/api/auth/google/start?signup=1")).headers.get("location")).searchParams.get("state");
+  const real = env.DB;
+  env.DB = { ...real, prepare: (sql) => {
+    if (!/schema_migrations WHERE id/.test(sql)) return real.prepare(sql);
+    const failing = { sql, bind: () => failing, first: async () => { throw new Error("D1_ERROR: disk I/O error"); } };
+    return failing;
+  } };
+  const cb = await b.send(`/api/auth/google/callback?code=c&state=${begin}`, { fetchImpl: fakeGoogle("never-recorded") });
+  env.DB = real;
+  assert.equal(cb.headers.get("location"), "/connect?error=login_unavailable");
+  assert.equal((await stateOf(b)).account.done, false);
+  assert.equal(await count("users"), 0);
+});

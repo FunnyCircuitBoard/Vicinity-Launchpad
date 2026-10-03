@@ -99,7 +99,8 @@ export function nextStep(row, walletDone) {
  * Errors are the /connect?error= codes of the Google callback, so a sign-up that ran out of time reads "expired".
  */
 export async function recordIdentity(env, request, provider, who, now, { walletDone = false } = {}) {
-  await ensureSignupSchema(env.DB);
+  try { await ensureSignupSchema(env.DB); }
+  catch (e) { console.error("sign-up tables unavailable", String((e && e.message) || e)); return { error: "login_unavailable" }; }
   const row = await getSignup(env, request, now);
   if (!row) return { error: "login_expired" };
   if (row.terms_version !== TERMS_VERSION) return { error: "terms_required" };
