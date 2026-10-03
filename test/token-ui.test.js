@@ -283,3 +283,16 @@ test("token.js: while the chain is busy (/api/token 503) the official contract, 
   assert.equal(before.$("#lnk-raydium").href, undefined, "no trade link before there is a contract");
   assert.equal(before.statuses.at(-1), "The live holder list opens the moment $VICINITY launches.");
 });
+
+test("token page on phones: the holder list and the official list are re-laid out to fit (no column outside the card), the holder header stays pinned", () => {
+  // measured 3 Oct 2026 at 320-414px: official list scrollWidth 398 in a 286-380px card (Status and the Live tag outside it), holder
+  // list 356 in 252-346 (% of supply cut). Checked in Chromium after this change: scrollWidth = clientWidth at 320, 360, 390 and 414.
+  const block = (() => { const i = css.indexOf("@media (max-width: 480px) {\n  .holders {"); assert.ok(i >= 0, "the phone block exists"); return css.slice(i, css.indexOf("\n}\n", i)); })();
+  assert.match(block, /\.holders__table tr \{ display: grid; grid-template-columns: 2\.8em minmax\(0, 1fr\) auto;/);
+  assert.match(block, /\.holders__table thead \{ position: sticky; top: 0;/, "the header row stays put while the rows scroll");
+  assert.match(block, /\.holders__table :is\(th, td\):nth-child\(4\) \{ grid-column: 3; grid-row: 2;/, "% of supply under the amount");
+  assert.match(block, /\.registry__table tr \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto;/);
+  assert.match(block, /\.registry__table td:nth-child\(4\) \{ grid-column: 2;/, "the status (Live) at the right of the row");
+  assert.match(block, /\.registry__table td:nth-child\(3\) \{ grid-column: 1 \/ -1;/, "the contract on a line of its own");
+  assert.match(block, /\.registry__table thead \{ position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect\(0 0 0 0\);/, "column names stay for screen readers");
+});
