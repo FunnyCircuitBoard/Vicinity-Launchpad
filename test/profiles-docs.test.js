@@ -27,6 +27,12 @@ test("switching PROFILES off: instant for the server, while a dashboard that is 
   assert.doesNotMatch(deploy, /vanish at once and the dashboard is as it was\./);
 });
 
+test("reported bios are handled from the dashboard's moderator tools, not only through the API", () => {
+  assert.match(readme, /sees the reported bios under "Reported bios" in the dashboard's moderator tools \(`GET \/api\/mod`, key `bios`\) and clears one there/);
+  assert.match(deploy, /reported bios are listed under "Reported bios" in the dashboard's moderator tools/);
+  assert.match(read("public/dashboard.js"), /section\("Reported bios"/);
+});
+
 test("the first profile request adds users.bio and three tables; auth_limits is on every deployment already", () => {
   assert.match(deploy, /`auth_limits`, is not new to it: every deployment has it since the first rate-limited public request or feed vote/);
   assert.doesNotMatch(deploy, /plus `auth_limits` if the new sign-up has not made it already/);

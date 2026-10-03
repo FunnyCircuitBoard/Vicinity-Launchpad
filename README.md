@@ -102,7 +102,7 @@ The scheduled job and the full holder list need more CPU time than Cloudflare's 
 Moderation happens on the dashboard, under the two-person rules above, and every action is public at `/api/audit`. For anything else: Cloudflare dashboard → Storage & databases → D1 → `vicinity-claims` → Console.
 - Approved "add my town" requests: `SELECT * FROM town_requests WHERE status = 'approved';` (add them to the city list at the next map build)
 - A founder's seat can only be ended by an upheld objection (dashboard) or by the rules (grace), never by editing the database quietly.
-- Bios (only while `PROFILES=on`): members report a bio from its profile; the founder of that city, the manager of that country or an admin sees the reported bios in `GET /api/mod` and clears one with `POST /api/mod/bio/clear` (a reason from the same list as a hide, a fresh wallet proof; the member may write a new bio).
+- Bios (only while `PROFILES=on`): members report a bio from its profile; the founder of that city, the manager of that country or an admin sees the reported bios under "Reported bios" in the dashboard's moderator tools (`GET /api/mod`, key `bios`) and clears one there with a reason from the same list as a hide and a fresh wallet proof (`POST /api/mod/bio/clear`); the member may write a new bio.
 
 ## Run it locally
 Requires Node.js 22.13+ (the tests use the built-in SQLite).
