@@ -16,7 +16,7 @@
   /** Characters as people count them (an emoji is one), the way the server counts a bio. */
   const cpLen = (s) => [...String(s == null ? "" : s)].length;
   /** What the server stores: NFC, invisible characters dropped, one line (every run of blanks and line breaks is one space), trimmed. */
-  const bioClean = (s) => String(s == null ? "" : s).normalize("NFC").replace(/[\r\n\t\u0085\u2028\u2029]+/g, " ").replace(/[\u200B\u200C\u2060\uFEFF\u00AD\u180E]/g, "").replace(/\s+/g, " ").trim();
+  const bioClean = (s) => String(s == null ? "" : s).normalize("NFC").replace(/[\r\n\t\u0085\u2028\u2029]+/g, " ").replace(/[\u200B\u200C\u2060-\u2064\uFEFF\u00AD\u180E\u0080-\u009F\u{E0000}-\u{E007F}]/gu, "").replace(/\s+/g, " ").trim();
   /**
    * Live check of a bio while typing. Only the length is certain; the others are a friendly early warning (the server has the
    * last word and answers bio_not_allowed): a link, a wallet address, an e-mail address, a phone number.
@@ -26,6 +26,7 @@
     const RULES = [
       ["email", /[^\s@]+@[^\s@]+\.[^\s@]{2,}/],
       ["address", /(^|[^1-9A-HJ-NP-Za-km-z])[1-9A-HJ-NP-Za-km-z]{32,44}($|[^1-9A-HJ-NP-Za-km-z])/],
+      ["longword", /[A-Za-z0-9]{26,}/], // the server refuses any run of 26+ letters or digits as address-like, whatever it is
       ["link", /(https?:\/\/|\bwww\.|\b[a-z0-9-]+\.(com|net|org|io|xyz|app|co|me|sol|fun|gg|ly|to|tv|dev|info|site|online|link)\b)/i],
       ["phone", /\+?\d[\d\s().-]{6,}\d/],
     ];
@@ -37,6 +38,7 @@
     address: "That looks like a wallet address. Bios can't have wallet addresses.",
     email: "That looks like an e-mail address. Bios can't have e-mail addresses.",
     phone: "That looks like a phone number. Bios can't have phone numbers.",
+    longword: "That's one very long word (26 or more letters or digits in a row). Bios can't have those: add a space or shorten it.",
   };
 
   const validHandle = (h) => typeof h === "string" && HANDLE_RE.test(h);
@@ -157,14 +159,14 @@
     self: "You can't follow yourself.",
     cannot_follow: "You can't follow this member right now.",
     too_many_following: "You follow 1,000 members, the most we allow. Unfollow someone to follow more.",
-    cannot_block: "Admins and moderators can't be blocked.",
+    cannot_block: "Members with an admin role can't be blocked.",
     unblock_first: "You blocked this member. Unblock them first.",
     too_many_blocks: "You've blocked as many members as we allow. Unblock someone first.",
     no_bio: "This member has no bio to report.",
     profiles_unavailable: "Member profiles are having trouble right now. Please try again in a few minutes.",
     unavailable: "Member profiles are having trouble right now. Please try again in a few minutes.",
     bio_too_long: "Keep your bio to 100 characters or fewer.",
-    bio_not_allowed: "A bio can't have links, wallet addresses, e-mail addresses or phone numbers.",
+    bio_not_allowed: "A bio can't have links, wallet addresses, e-mail addresses, phone numbers or an unbroken word of 26+ letters or digits.",
     bad_request: "That didn't look right. Please check it and try again.",
     wrong_origin: "Something went wrong. Reload the page and try again.",
     reprove: "Please confirm it's you with your wallet first, then try again.",

@@ -114,7 +114,7 @@
   }
 
   const QUEUE_LABEL = { posts: ["reported post", "reported posts"], proposals: ["ban proposal", "ban proposals"], appeals: ["appeal", "appeals"],
-    objections: ["objection", "objections"], towns: ["town request", "town requests"], coins: ["coin contract to check", "coin contracts to check"] };
+    objections: ["objection", "objections"], towns: ["town request", "town requests"], coins: ["coin contract to check", "coin contracts to check"], bios: ["reported bio", "reported bios"] };
   function renderQueue() {
     const box = $("#role-queue"); if (!box) return;
     const items = Object.entries(QUEUE_LABEL).filter(([k]) => queue[k]).map(([k, [one, many]]) => `${queue[k]} ${queue[k] === 1 ? one : many}`);

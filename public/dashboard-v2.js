@@ -309,7 +309,7 @@
     if (f.application) return ["Applied · window open", "tag--warn"];
     if (!d.launched) return ["Opens at launch", ""];
     if (f.eligible) return f.challenging ? ["Qualified to challenge", "tag--ok"] : ["Qualified", "tag--ok"];
-    return { no_home: ["Set your home", ""], home_too_new: ["Home too new", ""], not_qualified: f.tenure && f.tenure.days > 0 ? ["7-day clock running", "tag--gold"] : ["Below the bar", ""],
+    return { no_home: ["Set your home", ""], home_too_new: ["Home too new", ""], not_qualified: f.tenure && f.tenure.days > 0 ? [`${f.tenure.needed}-day clock running`, "tag--gold"] : ["Below the bar", ""],
       below_threshold: ["Below the bar", "tag--warn"], cooldown: ["Cooling down", ""], city_taken: ["City has a founder", ""], banned: ["Banned", "tag--no"] }[f.why] || null;
   }
   function founderStatus(d) {
