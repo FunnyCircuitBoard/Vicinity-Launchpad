@@ -698,6 +698,44 @@ export function ensureProfilesSchema(db) {
   return profilesReady.get(db);
 }
 
+/**
+ * Launchpad v2 (src/launchpad.js). Like the two above, deliberately NOT in MIGRATIONS: it runs only when LAUNCHPAD_V2=on
+ * (see ensureLaunchpadSchema), so with the switch off no new statement ever touches the database, and a failure here can
+ * only break the Launchpad list and the holder-count step of the job. Safe to repeat. Same rule: no semicolon inside a
+ * comment or a string in this SQL, because split() cuts on every semicolon.
+ *   coin_stats → how many wallets hold each launched coin (and $VICINITY), counted by the scheduled job; never a wallet
+ */
+export const LAUNCHPAD_MIGRATION = {
+  id: "2026-10-03-launchpad-v2",
+  sql: `
+CREATE TABLE IF NOT EXISTS coin_stats (
+  mint       TEXT PRIMARY KEY,
+  holders    INTEGER,
+  updated_at TEXT NOT NULL
+)
+`,
+};
+
+const launchpadReady = new WeakMap();
+
+/**
+ * Create the coin_stats table the first time the Launchpad list or the job needs it (safe to repeat, and to run from two
+ * servers at once). Rejects on failure and forgets that it tried, so the next request retries. Callers carry on without
+ * holder counts (the list) or skip the step (the job); nothing else is affected.
+ */
+export function ensureLaunchpadSchema(db) {
+  if (!launchpadReady.has(db)) {
+    launchpadReady.set(db, (async () => {
+      await ensureSchema(db); // city_coins exists (from the normal migrations)
+      const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(LAUNCHPAD_MIGRATION.id).first();
+      if (done) return;
+      for (const s of split(LAUNCHPAD_MIGRATION.sql)) await db.prepare(s).run();
+      await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(LAUNCHPAD_MIGRATION.id, new Date().toISOString()).run();
+    })().catch((e) => { launchpadReady.delete(db); throw e; }));
+  }
+  return launchpadReady.get(db);
+}
+
 const limitsReady = new WeakMap();
 
 /**
