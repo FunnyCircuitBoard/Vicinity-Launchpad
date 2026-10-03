@@ -294,7 +294,8 @@ test("the strict security policy holds in the new part: no markup from text, no 
 
 test("styles: one block, every control 44 px or taller, nothing moves by itself, both themes", () => {
   const i = css.indexOf("Launchpad city coins (LAUNCHPAD_V2=on)"); assert.ok(i > 0, "the block exists");
-  const block = css.slice(i);
+  const next = css.indexOf("\n/* ", i); // up to the next top-level block (other switches add theirs after this one)
+  const block = next < 0 ? css.slice(i) : css.slice(i, next);
   assert.ok(block.length > 2000 && block.length < 9000, "a block, not a stylesheet: " + block.length);
   assert.match(block, /\.lp-tabs button \{[^}]*min-height: 44px/); assert.match(block, /\.lp-search input \{[^}]*min-height: 48px/);
   assert.match(block, /\.lp-field select \{[^}]*min-height: 44px/); assert.match(block, /\.lp-card__actions \.btn \{ min-height: 44px; \}/);
