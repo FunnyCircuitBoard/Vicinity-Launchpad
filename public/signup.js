@@ -51,6 +51,13 @@
     if (len < 14) return { level: "ok", text: "Long enough. Longer is stronger." };
     return { level: "good", text: "Good length." };
   }
+  /** Which field a refused "send me a code" (reset) belongs to: the e-mail box while the first form shows, the code box once the second one does (its Send a new code button lives there). */
+  const resetField = (form2Hidden) => (form2Hidden ? "rs-email" : "rs-code");
+  const PHONE_NOTE = "On a phone, “Open app” opens this page inside your wallet app, and the sign-up starts again from step 1 there. What you did here is not carried over.";
+  /** Step 3's opening text. `phone` = a phone with no wallet in this browser, where the only way on is to open the wallet app's own browser. */
+  const walletLead = (phone) => "Last step. Connect the wallet you hold $VICINITY in and sign a free message. It isn't a transaction and can't move funds. Your account is created the moment it is verified." + (phone ? " " + PHONE_NOTE : "");
+  /** What the page says when "New here" with an e-mail that already has an account signs the person in instead (the typed password is thrown away). */
+  const SAME_EMAIL = "That e-mail already has a Vicinity account, so we logged you in. The password you just typed was not saved: to set a new one, use “Forgot or never set a password?” on the Log in tab. Taking you to your dashboard…";
   /** Only ever follow the server to our own dashboard. */
   const safeNext = (next) => (next === "/dashboard?welcome=1" ? next : "/dashboard");
   /** Same loose shape check as the server (the code that arrives is the real proof). */
@@ -68,6 +75,7 @@
     no_choices: "There is nothing to choose from any more. Please check your location again.",
     slow_down: "That's a lot of attempts. Take a short break and try again in a little while.",
     "slow_down:login": "Too many tries. Wait a few minutes, or log in with your wallet or Google, or use “Forgot or never set a password? E-mail me a code”.",
+    "slow_down:reset": "Too many codes were asked for that address just now. Wait a little while and try again. You can always log in with your wallet.",
     handoff_expired: "That link expired. Tap “Get a new link” to try again.",
     // the sign-up itself
     no_signup: "Your sign-up was open too long, so we cleared it. Please start again.",
@@ -88,6 +96,7 @@
     email_unavailable: "We can't send e-mails right now. Please try again in a few minutes.",
     too_soon: "A code was just sent. Wait a minute before asking for another.",
     too_many: "Too many tries. Wait an hour, then ask for a new code.",
+    "too_many:reset": "Too many codes were asked for that address. Wait an hour, then try again. You can always log in with your wallet.",
     "too_many:code": "That code was tried too many times. Tap “Send a new code” and use the new one.",
     "code_wrong:last": "That code doesn't match, and it can't be tried again. Tap “Send a new code” and use the new one.",
     bad_code: "Enter the 6-digit code from the e-mail.",
@@ -144,7 +153,7 @@
     return { go: "stuck", text: errText(d), actions: ["retry"] };
   }
 
-  window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, ERR } };
+  window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, resetField, walletLead, SAME_EMAIL, ERR } };
 
   /* ================= the controller ================= */
   function start(ctx) {
@@ -235,9 +244,13 @@
     async function busy(btn, label, fn) {
       if (btn.dataset.busy) return undefined;
       if (S.noteView) notice(""); // the person is moving on: the note about why they were moved has done its job
-      const old = btn.textContent;
+      const old = btn.textContent, hadFocus = document.activeElement === btn;
       btn.dataset.busy = "1"; btn.disabled = true; btn.textContent = label; btn.setAttribute("aria-busy", "true");
-      try { return await fn(); } finally { delete btn.dataset.busy; btn.removeAttribute("aria-busy"); btn.disabled = false; btn.textContent = old; syncTerms(); }
+      try { return await fn(); } finally {
+        delete btn.dataset.busy; btn.removeAttribute("aria-busy"); btn.disabled = false; btn.textContent = old; syncTerms();
+        // A disabled button drops the keyboard's place (Enter or Space on it): give it back after an error, unless the page moved it on.
+        if (hadFocus && (!document.activeElement || document.activeElement === document.body)) btn.focus({ preventScroll: true });
+      }
     }
     /** "Send a new code" can't be used again for a minute (the server enforces it too). */
     function cooldown(btn, label, seconds = 60) {
@@ -286,6 +299,7 @@
       if (s === "pick") {
         hide("#login-block"); // today's log-in block never shows in v2
         hide("#lg-block", newTab); hide("#or-line", newTab); hide("#su-wallet-lead", !newTab);
+        if (newTab) text("#su-wallet-lead", walletLead(W.isMobile && !inApp() && !W.list().length)); // wallets turn up a moment after load: this runs again then
         text("#wallet-h", newTab ? "Connect your wallet" : "Log in with your wallet");
         if (!newTab) text("#or-line span", "Or log in with your wallet");
         const google = S.providers.google && !inApp();
@@ -343,7 +357,7 @@
     }
 
     /* ---------- the end of every successful path ---------- */
-    function signedIn(sub, next) {
+    function signedIn(sub, next, ms = 1200) {
       if (S.leaving) return;
       S.leaving = true; stopHandoff();
       show("done");
@@ -352,7 +366,7 @@
       $(".cstate[data-state=done] a").href = to;
       announce(sub);
       const r = panel.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 80);
-      setTimeout(() => location.assign(to), 1200);
+      setTimeout(() => location.assign(to), ms);
     }
 
     /* ================= step 1: location ================= */
@@ -551,10 +565,16 @@
         if (email) $("#su-email").value = email;
         $("#su-pw").value = ""; fieldErr("su-pw", "Type your password again to get a new code."); return;
       }
-      const d = await call("/api/signup/email", { email, password: pw });
-      if (d._handled) return;
-      if (!d.ok) return fieldErr("su-code", errText(d));
-      toast("New code sent"); cooldown($("#su-code-resend"), "Send a new code");
+      const btn = $("#su-code-resend");
+      if (btn.disabled) return; // a double tap would send two requests, and the second one is refused ("A code was just sent")
+      btn.disabled = true;
+      let cooling = false;
+      try {
+        const d = await call("/api/signup/email", { email, password: pw });
+        if (d._handled) return;
+        if (!d.ok) return fieldErr("su-code", errText(d));
+        toast("New code sent"); cooldown(btn, "Send a new code"); cooling = true;
+      } finally { if (!cooling) btn.disabled = false; }
     }
     async function verifyCode(ev) {
       if (ev) ev.preventDefault();
@@ -569,7 +589,7 @@
           return fieldErr("su-code", errText(d, "code"));
         }
         $("#su-pw").value = ""; S.codeEmail = ""; S.accMode = null;
-        if (d.existing) return signedIn("That e-mail already has a Vicinity account, so we logged you in. Taking you to your dashboard…", d.next);
+        if (d.existing) return signedIn(SAME_EMAIL, d.next, 5000); // longer than usual: there is a sentence to read
         if (d.state) S.srv = d.state; else await refresh();
         S.hold = "account"; render();
       });
@@ -587,8 +607,7 @@
     /* ================= step 3: the wallet (today's screens) ================= */
     function showWallet(steps) {
       drawSteps(steps);
-      text("#su-wallet-lead", "Last step. Connect the wallet you hold $VICINITY in and sign a free message. It isn't a transaction and can't move funds. Your account is created the moment it is verified.");
-      show("pick"); renderPick();
+      show("pick"); renderPick(); // renderPick -> onShow("pick") writes the lead
       stepAnnounce("wallet"); focusHeading("wallet");
     }
     /** connect.js: the wallet is proven. An existing account is signed in; a new wallet joins this sign-up. */
@@ -664,19 +683,19 @@
       });
     }
     function openReset() {
-      S.reset = true; $("#rs-email").value = $("#lg-email").value;
+      S.reset = true; S.resetEmail = ""; $("#rs-email").value = $("#lg-email").value;
       hide("#rs-form1", false); hide("#rs-form2"); clearErrs("rs-email", "rs-code", "rs-pw", "rs");
       render();
     }
     async function resetStart(ev) {
       if (ev) ev.preventDefault();
-      fieldErr("rs-email", "");
+      clearErrs("rs-email", "rs-code");
       const email = $("#rs-email").value.trim().toLowerCase();
       if (!validEmail(email)) return fieldErr("rs-email", errText("bad_email"));
       await busy($("#rs-send"), "Sending…", async () => {
         const d = await call("/api/auth/password/reset/start", { email });
         if (d._handled) return;
-        if (!d.ok) return fieldErr(S.resetEmail ? "rs-code" : "rs-email", errText(d));
+        if (!d.ok) return fieldErr(resetField($("#rs-form2").hidden), errText(d, "reset")); // the form that is on screen, not the hidden one
         S.resetEmail = email; text("#rs-sent-to", email);
         hide("#rs-form1"); hide("#rs-form2", false); $("#rs-code").focus();
         announce(`If that address has an account, we sent a 6-digit code to ${email}.`);
@@ -723,7 +742,6 @@
       // step 2
       $("#su-terms").addEventListener("change", () => { fieldErr("su-terms", ""); syncTerms(); });
       $("#su-google").addEventListener("click", useGoogle);
-      $("#su-copy").addEventListener("click", () => copy(`${location.origin}/connect`, "Link copied. Paste it in Safari or Chrome."));
       $("#su-email-form").addEventListener("submit", sendCode);
       $("#su-code-form").addEventListener("submit", verifyCode);
       $("#su-code-resend").addEventListener("click", resendCode);

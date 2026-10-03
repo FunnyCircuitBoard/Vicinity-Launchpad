@@ -30,7 +30,7 @@ import { autoUsername } from "./text.js";
 import { emailConfigured } from "./mail.js";
 import { check, clientKey, limitKey } from "./limits.js";
 import { checkPassword, hashPassword } from "./password.js";
-import { DAY, HOUR, POLICY, iso } from "./policy.js";
+import { HOUR, POLICY, iso } from "./policy.js";
 import { v2On } from "./flags.js";
 import { SIGNUP_COOKIE, TERMS_VERSION, asText, endSignup, findHandoff, getSignup, guardV2, netOf, nextStep, startSignup, touchSignup } from "./signup-core.js";
 import { handleEmailLogin, handleReset, handleResetStart, handleSetPassword } from "./pwlogin.js";
@@ -38,13 +38,16 @@ import { handleEmailLogin, handleReset, handleResetStart, handleSetPassword } fr
 const MINUTES = 10;                       // a phone hand-off link lives 10 minutes (like today's)
 // How many tries, per window (counted BEFORE the work, atomically: src/limits.js).
 const LIMITS = {
-  start: { ip: 20, site: 5000 },          // new sign-ups per hour: per connection, whole site
+  start: { ip: 20, site: 5000 },          // new sign-ups per hour: per connection, whole site (the site's can be raised: SIGNUP_MAX_PER_HOUR)
   location: { signup: POLICY.limits.locatePerHour, ip: 60 },
   handoff: { signup: 10, ip: 30 },
-  email: { signup: 5, ip: 20, address: 20 },  // codes asked for per hour (per sign-up, per connection) and per 24 hours (per address)
+  email: { signup: 5, ip: 20 },           // codes asked for per hour (per sign-up, per connection). The 20 a day per address is counted in sendEmailCode
   verify: { signup: 20, ip: 60 },         // codes tried per hour
   finish: { signup: 10 },
 };
+
+/** The whole site's ceiling on new sign-ups per hour. A launch-day crowd can raise it in the dashboard (SIGNUP_MAX_PER_HOUR) without a deploy, like EMAIL_MAX_PER_HOUR. */
+const siteStarts = (env) => (Number(env.SIGNUP_MAX_PER_HOUR) > 0 ? Number(env.SIGNUP_MAX_PER_HOUR) : LIMITS.start.site);
 
 const maskEmail = (e) => { const [local, domain] = String(e).split("@"); return `${local.slice(0, 1)}***@${domain}`; };
 const maskWallet = (w) => `${w.slice(0, 4)}…${w.slice(-4)}`;
@@ -113,10 +116,10 @@ async function handleStart(request, env, x) {
   if (session && session.user) return json({ ok: false, error: "already_signed_in" }, 409);
   const row = await getSignup(env, request, x.now);
   if (row) return json({ ok: true, state: signupState(row, session, x.now) }, 200, { "Set-Cookie": await touchSignup(env, row, request, x.now) });
-  const over = await limited(env, x.now, [
-    await perHour(env, "sus", clientKey(request), LIMITS.start.ip),
-    { key: "sus:site", windowMs: HOUR, max: LIMITS.start.site },
-  ]);
+  // This connection first: one that is over its limit is refused right there and does NOT use up the site's allowance (else a single
+  // connection sending thousands of tries would close sign-up for everybody). Only a start that got through counts on the site.
+  const over = await limited(env, x.now, [await perHour(env, "sus", clientKey(request), LIMITS.start.ip)])
+    || await limited(env, x.now, [{ key: "sus:site", windowMs: HOUR, max: siteStarts(env) }]);
   if (over) return over;
   const made = await startSignup(env, x.now);
   return json({ ok: true, state: signupState({}, session, x.now) }, 200, { "Set-Cookie": made.cookie });
@@ -307,7 +310,6 @@ async function handleEmail(request, env, x) {
   const over = await limited(env, x.now, [
     await perHour(env, "sues", c.row.id, LIMITS.email.signup),
     await perHour(env, "suei", clientKey(request), LIMITS.email.ip),
-    { key: await limitKey(env, "mail", email), windowMs: DAY, max: LIMITS.email.address },
   ]);
   if (over) return over;
   const hash = await hashPassword(env, body.password);

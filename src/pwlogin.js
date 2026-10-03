@@ -38,7 +38,7 @@ import { access } from "./access.js";
 import { emailConfigured } from "./mail.js";
 import { check, clientKey, limitKey, refund } from "./limits.js";
 import { PASSWORD_MAX, checkPassword, hashPassword, verifyPassword } from "./password.js";
-import { DAY, HOUR, iso } from "./policy.js";
+import { HOUR, iso } from "./policy.js";
 import { asText, endSignup } from "./signup-core.js";
 
 const WINDOW = 15 * 60_000;     // attempt counters: fixed 15-minute windows
@@ -48,7 +48,7 @@ const MAX = {
   address: 15,                  // per address, all connections together: the cap on a spread-out attack
   user: 10,                     // password changes (and tries at the current password) per signed-in person
 };
-const RESET_START = { connection: 20, address: 5, mailPerDay: 20 };   // reset mails asked for: per connection / hour, per address / hour, per address / 24 hours
+const RESET_START = { connection: 20, address: 5 };   // reset mails asked for: per connection / hour, per address / hour (the 20 a day per address is counted in sendEmailCode, for mails really sent)
 const RAW_MAX = 1024;           // refuse absurd input before any work (the same cap password.js uses)
 
 /**
@@ -153,10 +153,7 @@ export async function handleResetStart(request, env, x) {
   // These count known and unknown addresses alike, so being over one says nothing about an account. This connection first:
   // one that is over its limit is refused before the address is counted (as in countTry).
   if (!(await check(env, [{ key: await limitKey(env, "rsi", clientKey(request)), windowMs: HOUR, max: RESET_START.connection }], now)).ok) return slowDown();
-  if (!(await check(env, [
-    { key: await limitKey(env, "rss", email), windowMs: HOUR, max: RESET_START.address },
-    { key: await limitKey(env, "mail", email), windowMs: DAY, max: RESET_START.mailPerDay },
-  ], now)).ok) return slowDown();
+  if (!(await check(env, [{ key: await limitKey(env, "rss", email), windowMs: HOUR, max: RESET_START.address }], now)).ok) return slowDown();
 
   // Both kinds of address do the same database work from here (sendEmailCode: site cap, send slot, code row). The only
   // difference is the mail itself, which for a real account goes out in the background, after the answer.

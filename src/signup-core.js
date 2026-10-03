@@ -127,8 +127,9 @@ export async function findHandoff(env, code, now) {
 }
 
 /**
- * The scheduled tidy-up: expired sign-ups and old attempt counters. Runs whatever the switch says (it also cleans up
- * after switching off) and stays silent when the tables were never created. Never throws.
+ * The scheduled tidy-up: expired sign-ups and old attempt counters. The job calls it only while the switch is on (with it off
+ * no sign-up statement may run: the tables may not exist), so rows left by a switch-off wait for the next switch-on, or for the
+ * two DELETEs in docs/DEPLOY.md. Stays silent when the tables were never created. Never throws.
  */
 export async function cleanupSignups(env, now) {
   try {

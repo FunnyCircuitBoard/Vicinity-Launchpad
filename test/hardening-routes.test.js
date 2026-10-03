@@ -3,7 +3,7 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { MINT, browser, chain, newWorld, person, realClock, useClock } from "./helpers/world.js";
+import { HOST, MINT, browser, chain, newWorld, person, realClock, useClock, wallet } from "./helpers/world.js";
 import { _resetSnapshots } from "../src/chain.js";
 import { publicLimit } from "../src/guards.js";
 
@@ -103,4 +103,23 @@ test("with the guard allowing a request, the guarded routes answer as before", a
   const t = await browser(env).post("/api/auth/transfer", { address: p.w.address });
   assert.equal(t.ok, true, JSON.stringify(t));
   assert.equal((await browser(env).post("/api/pair", {})).ok, true);
+});
+
+test("/api/verify: the same signed message a second time is 409 replayed; a fresh signature works", async () => {
+  useClock("2026-10-03T12:00:00Z");
+  const env = newWorld();
+  const w = await wallet();
+  const { base58Encode, buildMessage, statementFor } = await import("../src/solana.js");
+  const body = async () => {
+    const nonce = base58Encode(crypto.getRandomValues(new Uint8Array(16)));
+    const message = buildMessage({ host: HOST, address: w.address, nonce, issuedAt: new Date(Date.now()).toISOString(), statement: statementFor("verify") });
+    return { address: w.address, message, signature: await w.sign(message) };
+  };
+  const first = await body();
+  assert.equal((await browser(env).post("/api/verify", first)).verified, true);
+  const again = await browser(env).send("/api/verify", { method: "POST", body: first });
+  assert.equal(again.status, 409);
+  assert.deepEqual(await again.json(), { verified: false, error: "replayed" });
+  assert.equal((await browser(env).post("/api/verify", await body())).verified, true, "a fresh signature is fine");
+  realClock();
 });

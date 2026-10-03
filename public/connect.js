@@ -124,6 +124,7 @@
   /** The wallet is proven: straight to the dashboard (linked before) or on to Google / e-mail. */
   function after(d) {
     if (signup) return signup.walletProven(d); // v2: straight to the dashboard (account exists) or on to the sign-up steps
+    if (d.next === "signup") return location.reload(); // the new sign-up was switched on while this old page was open (or its /api/me answer was lost): the reloaded page is the new one
     if (String(d.next || "").startsWith("/dashboard")) {
       show("done");
       const r = panel.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 80);

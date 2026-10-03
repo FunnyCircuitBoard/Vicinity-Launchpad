@@ -74,7 +74,7 @@ async function cached(key, seconds, produce) {
 }
 
 export async function handleVerify(request, env = {}, now = Date.now(), fetchImpl = fetch) {
-  const r = await readSigned(request, now, ["verify"], "verified");
+  const r = await readSigned(request, now, ["verify"], "verified", undefined, env.DB || null); // one-time: a replayed body is 409, not another RPC call
   if (r.error) return r.error;
   const address = r.parsed.address;
   console.log("wallet verified", address.slice(0, 4) + "…" + address.slice(-4));

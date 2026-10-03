@@ -667,6 +667,8 @@ select option { background: var(--bg-2); }
 .su-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
 .su-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; margin: 0; padding: 8px 14px; border-radius: 999px; background: var(--card-2); border: 1px solid var(--line-2); font-size: .92rem; overflow-wrap: anywhere; }
 .su-chip[hidden] { display: none; }
+/* the address the code was sent to can be long (45+ characters): it wraps instead of widening the whole page */
+#su-code-to, #rs-sent-to { overflow-wrap: anywhere; }
 .su-chip svg { width: 18px; height: 18px; flex: none; color: var(--pin-2); }
 .su-actions { display: grid; gap: 10px; }
 .cstate[data-state="su-location"] .qr { justify-self: center; }
