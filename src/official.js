@@ -3,6 +3,8 @@
  * "Is this link official?" checker both read from here.
  * Change it only by a public commit so everyone can see the history.
  */
+import { launchpadV2On } from "./flags.js";
+
 // The $VICINITY mint address. Paste it here the moment the token launches (one line change).
 export const VICINITY_MINT = null;
 
@@ -104,18 +106,20 @@ export function withMint(env) {
 }
 
 /** SITE_MODE=preview: the site behaves as if the launchpad already opened, so every
- *  post-launch flow can be tested. The real announced date is kept as announcedOpensAt. */
+ *  post-launch flow can be tested. The real announced date is kept as announcedOpensAt.
+ *  With LAUNCHPAD_V2=on the answer also carries launchpadV2:true (the Launchpad page shows its coin list
+ *  only then); with the switch off the key does not exist, so the answer is exactly as it always was. */
 export function officialFor(env) {
   const OFFICIAL = withMint(env);
-  if (env && env.SITE_MODE === "preview") {
-    return {
+  const out = env && env.SITE_MODE === "preview"
+    ? {
       ...OFFICIAL,
       siteMode: "preview",
       announcedOpensAt: OFFICIAL.launchpadOpensAt,
       launchpadOpensAt: new Date(Date.now() - 86400000).toISOString(), // "opened yesterday"
-    };
-  }
-  return { ...OFFICIAL, siteMode: "live" };
+    }
+    : { ...OFFICIAL, siteMode: "live" };
+  return launchpadV2On(env) ? { ...out, launchpadV2: true } : out;
 }
 
 // Founding Supporter snapshot cutoff (always 00:00 UTC), announced ahead of time. The setting

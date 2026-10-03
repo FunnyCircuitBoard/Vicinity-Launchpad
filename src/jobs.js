@@ -10,7 +10,8 @@ import { advanceElections } from "./elections.js";
 import { expireModeration } from "./moderation.js";
 import { advanceSnapshots } from "./snapshot.js";
 import { cleanupSignups } from "./signup-core.js";
-import { v2On, profilesOn } from "./flags.js";
+import { refreshCoinStats } from "./launchpad.js";
+import { v2On, profilesOn, launchpadV2On } from "./flags.js";
 import { DAY, HOUR, iso } from "./policy.js";
 
 export async function runJobs(env, now = Date.now(), fetchImpl = fetch, rand = Math.random) {
@@ -27,6 +28,8 @@ export async function runJobs(env, now = Date.now(), fetchImpl = fetch, rand = M
   await step("moderation", () => expireModeration(env, now));
   await step("snapshot", () => advanceSnapshots(env, now));
   await step("cleanup", () => cleanup(env, now));
+  // holder counts for the Launchpad list: only while its switch is on (with it off this run is exactly as it always was)
+  if (launchpadV2On(env)) await step("coinStats", () => refreshCoinStats(env, now, fetchImpl));
   return out;
 }
 
