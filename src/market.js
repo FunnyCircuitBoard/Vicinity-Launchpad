@@ -57,7 +57,11 @@ export function marketOf(p, mint) {
   };
 }
 
-/** One GET for up to 30 mints: the pairs list. Throws on an HTTP error, a bad body, or a network error after one retry. */
+/**
+ * One GET for up to 30 mints: the pairs list. Throws on an HTTP error, a bad body, or a network error after one retry.
+ * `pairs: null` is DexScreener's normal answer for tokens that have no pair yet (seen for $VICINITY on 3 Oct 2026, HTTP 200
+ * {"schemaVersion":"1.0.0","pairs":null}): an empty list, not an outage.
+ */
 async function fetchPairs(mints, fetchImpl, timeoutMs) {
   const once = () => fetchImpl(DEX_URL + mints.join(","), { signal: AbortSignal.timeout(timeoutMs), headers: { accept: "application/json" } });
   let res;
@@ -65,8 +69,9 @@ async function fetchPairs(mints, fetchImpl, timeoutMs) {
   catch { res = await once(); } // a network error or a timeout: one retry, then give up
   if (!res.ok) throw new Error(`dex_http_${res.status}`);
   const body = await res.json();
-  if (!body || !Array.isArray(body.pairs)) throw new Error("dex_bad_answer");
-  return body.pairs;
+  const pairs = body && body.pairs === null ? [] : body?.pairs;
+  if (!Array.isArray(pairs)) throw new Error("dex_bad_answer");
+  return pairs;
 }
 
 let failedUntil = 0;

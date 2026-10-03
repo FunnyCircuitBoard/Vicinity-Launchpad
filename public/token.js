@@ -21,12 +21,8 @@
       return tr;
     }));
   }
-  async function loadToken() {
-    const d = await api("/api/token");
-    renderRegistry(d.registry);
-    launched = Boolean(d.launched);
-    if (!d.launched || !d.facts) return;
-    const f = d.facts, m = f.mint;
+  /** The official contract, its copy button and its trade links: from the chain's answer, or from the settings while the chain is busy. */
+  function showContract(m) {
     $("#ca-text").textContent = m;
     $("#ca-copy").hidden = false;
     $("#ca-copy").onclick = () => copy(m, "Contract address copied");
@@ -36,6 +32,24 @@
     $("#lnk-dex").href = `https://dexscreener.com/solana/${m}`;
     $("#ca-links").hidden = false;
     $("#ca-note").textContent = "This is the only official $VICINITY. Anything else using the name is fake.";
+  }
+  async function loadToken() {
+    const d = await api("/api/token");
+    renderRegistry(d.registry);
+    launched = Boolean(d.launched);
+    if (!d.launched) { // before the launch (VICINITY_MINT not set): say so, never a date or a guess
+      $("#ca-text").textContent = "Not published yet";
+      $("#ca-note").textContent = "Until it's published here, any \"$VICINITY\" you see is fake.";
+      $$('[data-live="mint"], [data-live="freeze"], [data-live="supply2"]').forEach((e) => { e.textContent = "Checked live at launch"; });
+      return;
+    }
+    const m = d.facts ? d.facts.mint : d.mint;
+    if (isAddr(m)) showContract(m);
+    if (!d.facts) { // the chain is busy: the contract is known, the live checks wait for the next visit
+      $$('[data-live="mint"], [data-live="freeze"], [data-live="supply2"]').forEach((e) => { e.textContent = "The blockchain is busy: check again in a minute"; e.classList.add("is-wait"); });
+      return;
+    }
+    const f = d.facts;
     const live = (key, ok, okText, badText) => $$(`[data-live="${key}"]`).forEach((e) => { e.textContent = ok ? okText : badText; e.classList.add(ok ? "is-live" : "is-bad"); });
     if (!f.mintingDisabled && f.mintHeldByProgram) $$('[data-live="mint"]').forEach((e) => { e.textContent = "Held by the launch program until the curve fills"; e.classList.add("is-wait"); });
     else live("mint", f.mintingDisabled, "Verified on-chain", "Warning: minting is ON");
@@ -109,7 +123,7 @@
     const run = ++load; // Refresh, or the minute timer, while pages are still coming: the older load stops where it is
     const d = await api("/api/holders");
     if (run !== load) return;
-    if (!d.launched) return;
+    if (!d.launched) { status.textContent = "The live holder list opens the moment $VICINITY launches."; return; }
     $("#holders-refresh").hidden = false;
     if (d.error || !Array.isArray(d.holders)) { status.textContent = "The blockchain is busy right now. Try Refresh in a minute."; return; }
     // the snapshot already on screen (the server keeps one for a minute): no more pages to ask for, nothing to redraw
@@ -169,6 +183,10 @@
     $("#rank-addr").textContent = addr;
     lastLookup = addr;
     const set = (id, t) => ($(id).textContent = t);
+    // every lookup starts from a blank card: nothing of the wallet looked up before may stay on it
+    set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "");
+    ["#rank-amount", "#rank-share", "#rank-next", "#rank-founder"].forEach((i) => set(i, "—"));
+    $("#rank-meter").style.width = "0%";
     if (d.error === "chain_unavailable") { set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "The blockchain is busy. Try again in a minute."); return; }
     // many checks from one shared connection (an office, a campus, a mobile network): say so, never "not launched"
     if (d.error === "slow_down") { set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "Too many checks from your network. Try again in a minute."); return; }
@@ -185,7 +203,10 @@
     const founderMin = d.founderMin || 100_000; // the smallest founder amount: the exact one depends on the city
     set("#rank-founder", amount >= FOUNDER_MAX ? "✓ Enough for any city (hold it 7 days)"
       : amount >= founderMin ? "✓ Enough for smaller cities (hold it 7 days)" : `${fmt(founderMin - amount)} to reach the smallest`);
-    if (d.label && !d.rank) { set("#rank-num", "Pool"); set("#rank-of", d.label); set("#rank-pct", "Pools and curves are listed but not ranked."); }
+    if (d.label && !d.rank) { // a pool or curve: no rank, no wallet to pass, not a founder
+      set("#rank-num", "Pool"); set("#rank-of", d.label); set("#rank-pct", "Pools and curves are listed but not ranked.");
+      set("#rank-founder", "—");
+    }
     else if (d.rank) {
       set("#rank-num", `#${fmt(d.rank)}`); set("#rank-of", `of ${fmt(d.total)} holders`);
       set("#rank-pct", d.rank === 1 ? "The biggest holder of all 🏆" : `Top ${pctText(d.percentile)}% of all holders`);
@@ -196,7 +217,8 @@
     } else {
       set("#rank-num", "—"); set("#rank-of", "not holding yet");
       set("#rank-pct", "This wallet doesn't hold $VICINITY yet.");
-      set("#rank-next", d.next ? `${fmt(Math.ceil(d.next.gap))} to enter at #${d.next.rank + 1}` : "Any amount");
+      // any amount above zero is ranked, right after the last ranked wallet (d.next); its whole amount is what passes it
+      set("#rank-next", d.next ? `Any amount enters at #${fmt(d.next.rank + 1)}; ${fmt(Math.ceil(d.next.gap))} to pass #${fmt(d.next.rank)}` : "Any amount");
       $("#rank-meter").style.width = "0%";
     }
     $("#rank-show").hidden = !mark(addr, false);

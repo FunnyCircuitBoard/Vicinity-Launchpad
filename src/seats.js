@@ -34,7 +34,7 @@ import { json, readJson } from "./http.js";
 import { access, voterProblem, hoursFrom } from "./access.js";
 import { useAttestation } from "./attest.js";
 import { DAY, POLICY, founderAmount, iso } from "./policy.js";
-import { averages, dayOf, latestBalances, tenure } from "./ledger.js";
+import { averages, dayOf, latestBalances, samplesStale, tenure } from "./ledger.js";
 import { LIVE, activeBan, adminWallets, amountsFor, liveSeatOfCity, liveSeatOfUser } from "./roles.js";
 import { LAUNCHPAD_OPENS_AT, activeMint } from "./official.js";
 import { countryCities } from "./cities.js";
@@ -156,11 +156,15 @@ export async function eligibility(env, u, now = Date.now(), fetchImpl = fetch, t
   return { ...out, ok: true };
 }
 
+/** An expired window that cannot be decided yet (no fresh balances): nobody joins it late, and no second one opens beside it. */
+const CLOSING = "closing";
+const closingAnswer = () => json({ ok: false, error: "window_closing" }, 409);
+
 /** The open window for a city (creating it if needed). Closes an expired one first. */
 async function openWindow(env, city, now, fetchImpl) {
   const db = env.DB;
   let w = await db.prepare("SELECT * FROM windows WHERE city_id = ? AND status = 'open'").bind(city.id).first();
-  if (w && Date.parse(w.closes_at) <= now) { await closeWindow(env, w, now, fetchImpl); w = null; }
+  if (w && Date.parse(w.closes_at) <= now) { if ((await closeWindow(env, w, now, fetchImpl))?.postponed) return CLOSING; w = null; }
   if (w) return w;
   if (await liveSeatOfCity(db, city.id)) return null;
   try {
@@ -208,7 +212,7 @@ async function tryGrantSteward(env, e, u, pitch, squadId, now) {
 async function openChallengeWindow(env, e, u, now, fetchImpl) {
   const db = env.DB;
   let w = await db.prepare("SELECT * FROM windows WHERE city_id = ? AND status = 'open'").bind(e.cityId).first();
-  if (w && Date.parse(w.closes_at) <= now) { await closeWindow(env, w, now, fetchImpl); w = null; }
+  if (w && Date.parse(w.closes_at) <= now) { if ((await closeWindow(env, w, now, fetchImpl))?.postponed) return CLOSING; w = null; }
   if (w) return w;
   const seat = await db.prepare("SELECT * FROM seats WHERE id = ? AND status = 'steward'").bind(e.challenging).first();
   if (!seat) return null; // the stewardship ended while the challenger was applying
@@ -252,6 +256,7 @@ export async function handleApply(request, env, fetchImpl = fetch, now = Date.no
 
   if (e.challenging) {
     const w = await openChallengeWindow(env, e, u, now, fetchImpl);
+    if (w === CLOSING) return closingAnswer();
     if (!w) return json({ ok: false, error: "city_taken" }, 409);
     try {
       await db.prepare("INSERT INTO applications (window_id, city_id, user_id, wallet, pitch, created_at) VALUES (?, ?, ?, ?, ?, ?)")
@@ -270,6 +275,7 @@ export async function handleApply(request, env, fetchImpl = fetch, now = Date.no
 
   // Lost the millisecond race: a standard 72-hour window decides instead.
   const w = await openWindow(env, { id: e.cityId, name: e.cityName, country: e.country, threshold: e.threshold }, now, fetchImpl);
+  if (w === CLOSING) return closingAnswer();
   if (!w) return json({ ok: false, error: "city_taken" }, 409);
   try {
     await db.prepare("INSERT INTO applications (window_id, city_id, user_id, wallet, pitch, created_at) VALUES (?, ?, ?, ?, ?, ?)")
@@ -427,6 +433,7 @@ async function publishWindow(db, w, scored, valid, winnerId, latest, extra, now)
 export async function closeWindow(env, w, now = Date.now(), fetchImpl = fetch) {
   const db = env.DB;
   if (w.status !== "open") return { closed: false };
+  if (await samplesStale(env, now)) return { closed: false, postponed: "stale_balances" }; // decided once a fresh sample is in
   const stewardSeat = w.kind === "steward_challenge"
     ? await db.prepare("SELECT * FROM seats WHERE city_id = ? AND status = 'steward'").bind(w.city_id).first()
     : null;
@@ -578,7 +585,8 @@ export async function advanceSeats(env, now = Date.now(), fetchImpl = fetch) {
   const db = env.DB;
   const out = { closed: 0, activated: 0, confirmed: 0, grace: 0, restored: 0, released: 0 };
   for (const w of (await db.prepare("SELECT * FROM windows WHERE status = 'open' AND closes_at <= ?").bind(iso(now)).all()).results) {
-    await closeWindow(env, w, now, fetchImpl); out.closed++;
+    if ((await closeWindow(env, w, now, fetchImpl))?.postponed) out.postponed = (out.postponed || 0) + 1; // stale balances: next run
+    else out.closed++;
   }
   // balance checks use the latest sample, and only if it's recent: never act on stale data
   const latest = await latestBalances(env, now);
@@ -818,6 +826,7 @@ export async function handleSquadApply(request, env, fetchImpl = fetch, now = Da
 
   if (e.challenging) {
     const w = await openChallengeWindow(env, e, u, now, fetchImpl);
+    if (w === CLOSING) return closingAnswer();
     if (!w) return json({ ok: false, error: "city_taken" }, 409);
     await db.prepare("INSERT INTO applications (window_id, city_id, user_id, wallet, squad_id, pitch, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .bind(w.id, e.cityId, u.id, u.wallet, squad.id, pitch || null, iso(now)).run();
@@ -831,6 +840,7 @@ export async function handleSquadApply(request, env, fetchImpl = fetch, now = Da
   // Lost the millisecond race: a standard 72-hour window decides instead.
   if (await liveSeatOfCity(db, e.cityId)) return json({ ok: false, error: "city_taken" }, 409);
   const w = await openWindow(env, { id: e.cityId, name: e.cityName, country: e.country, threshold: e.threshold }, now, fetchImpl);
+  if (w === CLOSING) return closingAnswer();
   if (!w) return json({ ok: false, error: "city_taken" }, 409);
   await db.prepare("INSERT INTO applications (window_id, city_id, user_id, wallet, squad_id, pitch, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .bind(w.id, w.city_id, u.id, u.wallet, squad.id, pitch || null, iso(now)).run();

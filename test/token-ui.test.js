@@ -57,7 +57,7 @@ const fakeHolders = (n) => Array.from({ length: n }, (_, i) => ({ owner: owner(i
 let minute = 0; const tick = () => ++minute;
 const pageOf = (all, offset) => ({ launched: true, mint: MINT, supply: 1e9, total: all.filter((h) => h.rank).length, count: all.length, full: true, holders: all.slice(offset, offset + 1000), more: offset + 1000 < all.length, updatedAt: `2026-10-03T12:${String(minute).padStart(2, "0")}:00Z` });
 
-function page({ answer }) {
+function page({ answer, token = { launched: false, registry: [] } }) {
   const nodes = new Map(), frames = [], calls = [];
   function node(tag = "div") {
     const n = { tagName: tag.toUpperCase(), children: [], dataset: {}, style: {}, hidden: false, value: "", scrollTop: 0, _text: "", handlers: {}, classes: new Set(),
@@ -71,7 +71,7 @@ function page({ answer }) {
   const $$ = (sel) => (sel === "#holders-body tr" ? $("#holders-body").children.filter((c) => c.tagName === "TR") : []);
   const el = (tag, cls, text) => { const n = node(tag); if (cls) n.classes.add(cls); if (text != null) n.textContent = text; return n; };
   const V = { $, $$, el, toast() {}, copy() {}, fmt: (x) => Number(x).toLocaleString("en-US"), compact: (x) => String(x), mask: MASK, isAddr: () => true, official: null, reduced: true,
-    api: async (path) => { calls.push(path); await null; return path === "/api/token" ? { launched: false, registry: [] } : answer(path); } };
+    api: async (path) => { calls.push(path); await null; return path === "/api/token" ? token : answer(path); } };
   const statuses = []; const status = $("#holders-status"); Object.defineProperty(status, "textContent", { get: () => statuses[statuses.length - 1] || "", set: (t) => statuses.push(String(t)) });
   // the box: rows 46px tall, 400px of them in view; scrollTop clamps to the rows there are, as a browser's does, and stays clamped once rows go
   const ROW = 46, box = $("#holders-scroll"); let top = 0;
@@ -110,7 +110,7 @@ test("token.js: before launch nothing is drawn and the card keeps its own height
   const p = page({ answer: () => ({ launched: false, holders: [] }) });
   await p.settle();
   assert.equal(p.flush(), 0);
-  assert.deepEqual(p.statuses, []);
+  assert.deepEqual(p.statuses, ["The live holder list opens the moment $VICINITY launches."], "the page's own text says loading: the script says why nothing comes");
   assert.ok(!p.$(".holders").classes.has("holders--live"));
 });
 
@@ -218,4 +218,81 @@ test("token.js: 'Show it in the holder list' appears when the looked-up wallet's
   assert.equal(p.rows().length, 5000);
   assert.deepEqual(p.rows().filter((tr) => tr.classes.has("is-me")).map((tr) => tr.dataset.owner), [me], "the row is highlighted when it lands");
   assert.equal(p.$("#rank-show").hidden, false, "and the button that scrolls to it is showing");
+});
+
+test("token.js: a lookup never keeps the last wallet's values (a pool after a ranked wallet), and a wallet with nothing is told any amount enters", async () => {
+  // measured live 3 Oct 2026: after a ranked wallet, the pool showed the wallet's "128,768,512 to pass #1" and its half-full
+  // meter under "not ranked"; a wallet holding nothing was told "6,573,219 to enter at #5" when any amount enters at #5
+  const POOL = owner(9001), RANKED = owner(2), NOBODY = owner(9002), BUSY = owner(9003);
+  const answers = {
+    [RANKED]: { launched: true, full: true, amount: 48_497_309, rank: 2, total: 4, label: null, percent: 4.85, percentile: 50, next: { rank: 1, amount: 177_265_821, gap: 128_768_512 }, founderMin: 100_000 },
+    [POOL]: { launched: true, full: true, amount: 732_489_439, rank: null, total: 4, label: "Pool or program account", percent: 73.2, percentile: null, next: { rank: 4, amount: 6_573_218, gap: 6_573_218 }, founderMin: 100_000 },
+    [NOBODY]: { launched: true, full: true, amount: 0, rank: null, total: 4, label: null, percent: 0, percentile: null, next: { rank: 4, amount: 6_573_218.776691, gap: 6_573_218.776691 }, founderMin: 100_000 },
+    [BUSY]: { error: "chain_unavailable" },
+  };
+  const p = page({ answer: (path) => (path.startsWith("/api/rank") ? answers[new URL(path, "https://x").searchParams.get("address")] : { launched: false, holders: [] }) });
+  await p.settle();
+  const look = async (a) => { p.$("#lookup-input").value = a; await p.$("#lookup").fire("submit"); await p.settle(); p.flush(); };
+  const card = () => ["#rank-num", "#rank-of", "#rank-amount", "#rank-share", "#rank-next", "#rank-founder"].map((id) => p.$(id).textContent);
+
+  await look(RANKED);
+  assert.equal(p.$("#rank-next").textContent, "128,768,512 to pass #1");
+  assert.equal(p.$("#rank-meter").style.width, "50%");
+
+  await look(POOL);
+  assert.deepEqual(card(), ["Pool", "Pool or program account", "732,489,439 $VICINITY", "73.2%", "—", "—"], "no rank, nothing to pass, not a founder");
+  assert.equal(p.$("#rank-meter").style.width, "0%", "the meter is empty for a pool");
+
+  await look(NOBODY);
+  assert.equal(p.$("#rank-next").textContent, "Any amount enters at #5; 6,573,219 to pass #4");
+
+  await look(RANKED); await look(BUSY);
+  assert.deepEqual(card(), ["—", "", "—", "—", "—", "—"], "the blockchain is busy: nothing of the wallet before is shown under the new address");
+  assert.equal(p.$("#rank-meter").style.width, "0%");
+});
+
+test("token page after launch: no 'the moment it launches' copy, and nothing in the page before its script runs names a date instead of the contract", () => {
+  // live 3 Oct 2026 after the launch: the lead said numbers are read live "the moment the token is live", step 3 said the Buy
+  // button "appears the moment $VICINITY launches", and before token.js ran (or when the chain was busy) the contract box read
+  // "October 3, 2026 — Raydium LaunchLab" with "Until it's published here, any $VICINITY you see is fake"
+  for (const h of [html, src]) {
+    assert.doesNotMatch(h, /the moment the token is live|it appears the moment \$VICINITY launches|opens the moment \$VICINITY launches/);
+    assert.doesNotMatch(h, /October 3, 2026/, "no date where the contract goes");
+    assert.doesNotMatch(h, /Until it's published here/);
+    assert.doesNotMatch(h, />At launch</);
+    assert.doesNotMatch(h, /Checked live at launch/);
+  }
+  assert.match(html, /<p class="lead">The key to the Vicinity map\. Every number on this page is read live from the blockchain\. Don't trust us, check the chain\.<\/p>/);
+  assert.match(html, /<code id="ca-text">Loading…<\/code>/);
+});
+
+test("token.js: while the chain is busy (/api/token 503) the official contract, its links and the official list still show; before launch it says not published", async () => {
+  const busy = page({ token: { launched: true, error: "chain_unavailable", mint: MINT, registry: [{ network: "Solana", name: "Vicinity", symbol: "VICINITY", contract: MINT, status: "Live" }], _status: 503 },
+    answer: () => ({ launched: true, error: "chain_unavailable" }) });
+  await busy.settle();
+  assert.equal(busy.$("#ca-text").textContent, MINT);
+  assert.equal(busy.$("#ca-links").hidden, false);
+  assert.equal(busy.$("#lnk-raydium").href, `https://raydium.io/launchpad/token/?mint=${MINT}`);
+  assert.equal(busy.$("#ca-note").textContent, "This is the only official $VICINITY. Anything else using the name is fake.");
+  assert.equal(busy.$("#registry-body").children.length, 1, "the official list is drawn from the settings");
+
+  const before = page({ answer: () => ({ launched: false, holders: [] }) });
+  await before.settle();
+  assert.equal(before.$("#ca-text").textContent, "Not published yet");
+  assert.match(before.$("#ca-note").textContent, /Until it's published here/);
+  assert.equal(before.$("#lnk-raydium").href, undefined, "no trade link before there is a contract");
+  assert.equal(before.statuses.at(-1), "The live holder list opens the moment $VICINITY launches.");
+});
+
+test("token page on phones: the holder list and the official list are re-laid out to fit (no column outside the card), the holder header stays pinned", () => {
+  // measured 3 Oct 2026 at 320-414px: official list scrollWidth 398 in a 286-380px card (Status and the Live tag outside it), holder
+  // list 356 in 252-346 (% of supply cut). Checked in Chromium after this change: scrollWidth = clientWidth at 320, 360, 390 and 414.
+  const block = (() => { const i = css.indexOf("@media (max-width: 480px) {\n  .holders {"); assert.ok(i >= 0, "the phone block exists"); return css.slice(i, css.indexOf("\n}\n", i)); })();
+  assert.match(block, /\.holders__table tr \{ display: grid; grid-template-columns: 2\.8em minmax\(0, 1fr\) auto;/);
+  assert.match(block, /\.holders__table thead \{ position: sticky; top: 0;/, "the header row stays put while the rows scroll");
+  assert.match(block, /\.holders__table :is\(th, td\):nth-child\(4\) \{ grid-column: 3; grid-row: 2;/, "% of supply under the amount");
+  assert.match(block, /\.registry__table tr \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto;/);
+  assert.match(block, /\.registry__table td:nth-child\(4\) \{ grid-column: 2;/, "the status (Live) at the right of the row");
+  assert.match(block, /\.registry__table td:nth-child\(3\) \{ grid-column: 1 \/ -1;/, "the contract on a line of its own");
+  assert.match(block, /\.registry__table thead \{ position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect\(0 0 0 0\);/, "column names stay for screen readers");
 });

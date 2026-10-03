@@ -119,7 +119,7 @@ test("home: the problem, the real New York City map, how it works, incentives, r
   const h = html["index.html"];
   for (const id of ["problem", "nyc", "nyc-map", "why-now", "how", "why", "get", "roles", "roadmap", "faq"]) assert.ok(h.includes(`id="${id}"`), id);
   assert.match(h, /Real map, real data · New York City/);
-  assert.match(h, /Why is \$VICINITY launching on Raydium LaunchLab and not on the Vicinity Launchpad\?/);
+  assert.match(h, /Why did \$VICINITY launch on Raydium LaunchLab and not on the Vicinity Launchpad\?/);
   assert.match(h, /<a class="hero-map__link" href="\/cities\?city=5128581"/, "the New York map opens the map page");
   assert.doesNotMatch(h, /stonkfun|stonfun/i, "launching on Raydium LaunchLab");
   assert.match(h, /How do I buy \$VICINITY\?/);
@@ -208,8 +208,8 @@ test("dashboard: onboarding, live rank + badges, founder race, local/national fe
   assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "dashboard-roles", "dashboard"], "the role panel script loads before the dashboard script");
   const roles = h.match(/<section class="section section--panel" id="roles">[\s\S]*?<\/section>/)[0];
   for (const r of ["holder", "founder", "manager", "admin"]) assert.ok(roles.includes(`data-role="${r}"`), r);
-  assert.equal((roles.match(/role-row__when">Now</g) || []).length, 4);
-  assert.equal((roles.match(/role-row__when">When Vicinity goes live</g) || []).length, 4);
+  assert.equal((roles.match(/role-row__when">Any time</g) || []).length, 4);
+  assert.equal((roles.match(/role-row__when">Since \$VICINITY launched</g) || []).length, 4);
 });
 
 test("locate: the phone's browser page for the location hand-off, and one shared location helper", () => {
@@ -279,4 +279,74 @@ test("connect: e-mail sign-in errors appear inside the e-mail form (it moves bet
   assert.match(form, /id="email-error"/);
   assert.match(js, /setEmailErr\(emailErr\(e\.message\)\)/);
   assert.doesNotMatch(js, /setErr\(emailErr/, "e-mail errors must not go to the far-away wallet error line");
+});
+
+test("the 'no rug pull' copy says minting is already off (the live mint's authority is null), never that it goes off when the curve fills", () => {
+  // measured 3 Oct 2026: getAccountInfo(the real mint) -> mintAuthority null, freezeAuthority null, while the LaunchLab
+  // curve was about a third full; the page said "Raydium switches minting off for good when the LaunchLab curve fills"
+  for (const f of ["index.html", "token.html"]) {
+    assert.doesNotMatch(html[f], /switch(es)? minting off|minting is switched off for good, and/i, f);
+    assert.doesNotMatch(html[f], /when the (LaunchLab )?curve fills[^<.]*minting/i, f);
+  }
+  assert.match(html["token.html"], /<h3>Minting disabled<\/h3><p>[^<]*mint authority is already removed on-chain[^<]*<\/p>/);
+  assert.match(html["index.html"], /Minting and freezing are already switched off for good/);
+  assert.match(html["index.html"], /<summary>Is this a rug pull\?<\/summary><p>No\. There's no presale, minting and freezing are already switched off for good/);
+});
+
+test("home: the Early member card no longer invites visitors to join for a badge new sign-ups can't get since launch", () => {
+  // src/signup.js and src/auth.js store early = 0 for every account made while VICINITY_MINT is set (since 3 Oct 2026)
+  const h = html["index.html"];
+  assert.doesNotMatch(h, /Join before \$VICINITY launches/);
+  assert.match(h, /<h3>Proof you were early<\/h3><p class="muted">Members who joined before \$VICINITY launched on October 3 carry the <strong>Early member<\/strong> badge for good\. Nobody can earn it any more\.<\/p>/);
+  for (const f of ["../src/signup.js", "../src/auth.js"]) assert.match(readFileSync(new URL(f, import.meta.url), "utf8"), /activeMint\(env\) \? 0 : 1/, `${f}: the rule the card describes`);
+});
+
+test("home: the roadmap shows the October 3 launch as done and the Launchpad as next; the FAQ and the map speak of the launch as past", () => {
+  // live 3 Oct 2026 after the launch: the launch was still the pulsing "next" step, "the contract address is published on this
+  // site first", the FAQ said "it launches October 3", and the New York map said founder "claims open at launch"
+  const h = html["index.html"];
+  const items = [...h.matchAll(/<li class="timeline__item([^"]*)"><span class="timeline__status">([^<]+)<\/span><h3>([^<]+)<\/h3>/g)].map((m) => [m[1].trim(), m[2], m[3]]);
+  assert.deepEqual(items.slice(0, 4), [["is-done reveal", "Done", "The real map"], ["is-done reveal", "Done", "Accounts and dashboards"],
+    ["is-done reveal", "Done", "$VICINITY launched"], ["is-next reveal", "October 10", "Vicinity Launchpad"]]);
+  assert.equal((h.match(/timeline__item is-next/g) || []).length, 1, "one next step");
+  assert.doesNotMatch(h, /published on this site first/);
+  assert.doesNotMatch(h, /it launches October 3|so it launches a week earlier|Why is \$VICINITY launching/);
+  assert.match(h, /it launched on October 3 on Raydium LaunchLab/);
+  const home = read("home.js");
+  assert.doesNotMatch(home, /claims open at launch/);
+  assert.match(home, /"👑 City Founder: seat open · hold 7 days, then apply"/);
+});
+
+test("dashboard roles (public, signed out too) no longer present the rules in force since the launch as 'when Vicinity goes live'", () => {
+  // live 3 Oct 2026 after the launch: "Who does what, now and when Vicinity goes live." with holders-only posting and voting,
+  // founder applications (already enforced by src/social.js and src/seats.js once VICINITY_MINT is set) and "Publishes the
+  // only official contract address" all listed as future
+  const roles = html["dashboard.html"].match(/<section class="section section--panel" id="roles">[\s\S]*?<\/section>/)[0];
+  assert.doesNotMatch(roles, /goes live|after launch/);
+  assert.match(roles, /<h2>Who does what\.<\/h2>/);
+  assert.match(roles, /Published the only official contract address: it is on the <a href="\/token">Token page<\/a>\./);
+  assert.doesNotMatch(html["index.html"], /now and after launch/);
+});
+
+test("README (the public repo's front page) names the live official contract, the same one the site uses, and no longer says no token exists", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const mint = /"VICINITY_MINT":\s*"([1-9A-HJ-NP-Za-km-z]{32,44})"/.exec(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"))?.[1];
+  assert.ok(mint, "the live mint is set in wrangler.jsonc");
+  assert.doesNotMatch(readme, /No token exists yet|has not launched|will be published in this README|the moment it launches/);
+  assert.ok(readme.split("\n").slice(0, 10).join("\n").includes(`\`${mint}\``), "the contract is at the top of the README, as promised there before the launch");
+  assert.doesNotMatch(readme, /why \$VICINITY launches on Raydium LaunchLab/);
+});
+
+test("dashboard teaser: each staggered preview card is narrowed by as much as it is shifted, so none reaches past the screen", () => {
+  // measured live 3 Oct 2026 on /dashboard (signed out) at 320px: the second card ran 40 to 328px, the page widened to 328px and the
+  // bottom menu bar was laid out 8px past the screen edge. Checked in Chromium after this change: 320/360/390/414 wide, no overflow.
+  const rules = [...css.matchAll(/\.blur-card:nth-child\((\d)\) \{([^}]*)\}/g)];
+  assert.ok(rules.length >= 2, "the staggered cards");
+  for (const [, n, body] of rules) {
+    const x = Number(/translateX\((-?\d+)px\)/.exec(body)?.[1] || 0);
+    if (!x) continue;
+    const side = x > 0 ? "right" : "left";
+    const margin = Number(new RegExp(`margin-${side}: (\\d+)px`).exec(body)?.[1] || 0);
+    assert.ok(margin >= Math.abs(x), `card ${n} moves ${x}px: needs margin-${side} of at least ${Math.abs(x)}px, has ${margin}`);
+  }
 });

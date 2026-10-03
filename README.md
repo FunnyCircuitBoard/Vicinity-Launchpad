@@ -4,11 +4,11 @@
 
 Live: https://vicinity.city (vicinitycity.net and the www addresses forward there).
 
-> **No token exists yet.** $VICINITY has not launched. No presale, no airdrop, no contract address. When it launches, the official address will be published in this README and on the website. Use the site's "Is this link really Vicinity?" checker if in doubt.
+> **$VICINITY launched on October 3, 2026, on Raydium LaunchLab.** The one official contract address (Solana) is `2aVkhRfAEm44tMhFo8oamWvumGGvweFqnUwukRMBkray`, the same one as on https://vicinity.city/token. No presale, no airdrop. Any other token using the name is fake: use the site's "Is this link really Vicinity?" checker if in doubt.
 
 ## What's on the site
 Separate pages, one shared menu (top menu on computers, bottom menu bar on phones), dark / light theme:
-- **/** How it works: the problem, a step-by-step walkthrough on the real New York City boundaries (73 places, one coin), why joining early matters (straight from the rules), how the app works, incentives for holders and for the Launchpad, how to get $VICINITY, roles, roadmap, FAQ (including why $VICINITY launches on Raydium LaunchLab).
+- **/** How it works: the problem, a step-by-step walkthrough on the real New York City boundaries (73 places, one coin), why joining early matters (straight from the rules), how the app works, incentives for holders and for the Launchpad, how to get $VICINITY, roles, roadmap, FAQ (including why $VICINITY launched on Raydium LaunchLab).
 - **/token** Token and holders: live facts from the blockchain (minting/freezing off, supply, price), every holder in a table that scrolls on its own, "where does this wallet stand?" (paste any address: rank, percentile, gap to the next wallet), the official token list and link checker.
 - **/cities** The live map: 8,000+ communities in 244 countries with real boundaries that never overlap; claimed vs open; the communities filling up. The claim button leads to the dashboard.
 - **/launchpad** Countdown to October 10 (10:10:10 AM New York time), the planned phases, who gets in first, add-to-calendar.
@@ -60,7 +60,7 @@ Keys and passwords (`SOLANA_RPC_URL`, `GOOGLE_CLIENT_SECRET`, the mail keys) are
 | Name | What it's for |
 |---|---|
 | `SOLANA_RPC_URL` | A Helius (or similar) RPC URL. Needed for the full holder list, ranks and the balance history; without it only the top 20 show and nobody can qualify as founder. |
-| `VICINITY_MINT` | The token address, the moment it launches (or edit `src/official.js`). |
+| `VICINITY_MINT` | The official token address. Set in `wrangler.jsonc` → `vars` since the launch on 3 Oct 2026 (`2aVkhRfAEm44tMhFo8oamWvumGGvweFqnUwukRMBkray`); it wins over the line in `src/official.js`. |
 | `ADMIN_WALLETS` | Admin wallet address(es), comma-separated. Two admins let appeals of an admin's own decisions be judged by the other. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in. Redirect URI: `https://vicinity.city/api/auth/google/callback` |
 | `SNAPSHOT_CUTOFF` | The Founding Supporter cutoff, always 00:00 UTC, e.g. `2026-10-08T00:00:00Z`. Announce it first. |

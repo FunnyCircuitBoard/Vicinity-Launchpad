@@ -14,7 +14,7 @@
 import { json, readJson } from "./http.js";
 import { access, voterProblem } from "./access.js";
 import { DAY, POLICY, iso } from "./policy.js";
-import { averages, dayOf, latestBalances } from "./ledger.js";
+import { averages, dayOf, latestBalances, samplesStale } from "./ledger.js";
 import { activeBan, amountsFor } from "./roles.js";
 import { sha256hex } from "./blobs.js";
 import { profilesOn } from "./flags.js";
@@ -50,9 +50,10 @@ export async function advanceElections(env, now = Date.now(), fetchImpl = fetch)
     WHERE status IN ('active', 'upcoming') AND seat_id IN (SELECT id FROM seats WHERE status IN ('released', 'revoked'))`).run();
   out.ended = (done.meta.changes || 0) + (lost.meta.changes || 0);
 
-  for (const e of (await db.prepare("SELECT * FROM elections WHERE status = 'open' AND closes_at <= ?").bind(iso(now)).all()).results) {
-    await decideElection(env, e, now, fetchImpl); out.decided++;
-  }
+  // an election is decided on fresh balances only: while the samples are stale it waits for the next run (fail closed)
+  const due = (await db.prepare("SELECT * FROM elections WHERE status = 'open' AND closes_at <= ?").bind(iso(now)).all()).results;
+  if (due.length && await samplesStale(env, now)) out.postponed = due.length;
+  else for (const e of due) { await decideElection(env, e, now, fetchImpl); out.decided++; }
   const countries = (await db.prepare("SELECT DISTINCT country FROM seats WHERE status = 'active'").all()).results.map((r) => r.country);
   for (const cc of countries) {
     if (await db.prepare("SELECT id FROM elections WHERE country = ? AND status = 'open'").bind(cc).first()) continue;

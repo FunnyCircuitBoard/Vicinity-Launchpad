@@ -44,23 +44,38 @@ export async function takeSample(env, now, fetchImpl = fetch) {
   for (const [owner, amount] of list) { acc.sums[owner] = (acc.sums[owner] || 0) + amount; last[owner] = amount; }
   acc.last = last; acc.lastAt = takenAt; acc.lastSlot = slot; acc.decimals = facts.decimals;
   for (const [owner, label] of labels) acc.labels[owner] = label;
+  // the streaks first, the sample's own records last: if the streaks fail (a database hiccup, a limit) nothing says this sample
+  // happened, so the next run takes it again instead of waiting an hour with half the founder clocks never started
+  await updateStreaks(db, list, takenAt);
   await putBlob(db, `day:${day}`, acc);
   await db.prepare("INSERT INTO balance_samples (taken_at, day, slot, holders, hash) VALUES (?, ?, ?, ?, ?)")
     .bind(takenAt, day, slot, list.length, await sha256hex(JSON.stringify(list))).run();
-  await updateStreaks(db, list, takenAt);
   return { sampled: true, takenAt, slot, holders: list.length };
 }
 
-/** Streaks only change when a wallet crosses a founder amount, so this writes very little. */
+const STREAK_CHUNK = 2_000; // wallets per statement, sent as one JSON list (about 90 KB; D1 takes up to 2 MB in one value)
+const STREAK_BATCH = 20; // statements per database call
+
+/**
+ * Streaks only change when a wallet crosses a founder amount. Per rung: one read of the wallets above it (an index keeps that to
+ * those rows: before, each of the 100 reads scanned the whole table), then the changes, as one statement per 2,000 wallets.
+ * About 100 database calls per sample however many people buy or sell between two samples (it was 100 plus one per 50
+ * changed wallets per rung, which passed the 10,000 subrequests of one run at about 5,000 new holders).
+ */
 async function updateStreaks(db, list, takenAt) {
+  const stmts = [];
   for (const level of founderLevels()) {
     const above = new Set(list.filter(([, a]) => a >= level).map(([o]) => o));
     const had = new Set((await db.prepare("SELECT wallet FROM streaks WHERE level = ? AND above_since IS NOT NULL").bind(level).all()).results.map((r) => r.wallet));
-    const stmts = [];
-    for (const w of above) if (!had.has(w)) stmts.push(db.prepare("INSERT INTO streaks (wallet, level, above_since) VALUES (?, ?, ?) ON CONFLICT (wallet, level) DO UPDATE SET above_since = excluded.above_since").bind(w, level, takenAt));
-    for (const w of had) if (!above.has(w)) stmts.push(db.prepare("UPDATE streaks SET above_since = NULL WHERE wallet = ? AND level = ?").bind(w, level));
-    for (let i = 0; i < stmts.length; i += 50) await db.batch(stmts.slice(i, i + 50));
+    const start = [...above].filter((w) => !had.has(w)), stop = [...had].filter((w) => !above.has(w));
+    for (let i = 0; i < start.length; i += STREAK_CHUNK)
+      stmts.push(db.prepare("INSERT INTO streaks (wallet, level, above_since) SELECT value, ?, ? FROM json_each(?) WHERE true ON CONFLICT (wallet, level) DO UPDATE SET above_since = excluded.above_since")
+        .bind(level, takenAt, JSON.stringify(start.slice(i, i + STREAK_CHUNK))));
+    for (let i = 0; i < stop.length; i += STREAK_CHUNK)
+      stmts.push(db.prepare("UPDATE streaks SET above_since = NULL WHERE level = ? AND wallet IN (SELECT value FROM json_each(?))")
+        .bind(level, JSON.stringify(stop.slice(i, i + STREAK_CHUNK))));
   }
+  for (let i = 0; i < stmts.length; i += STREAK_BATCH) await db.batch(stmts.slice(i, i + STREAK_BATCH));
 }
 
 /** How long has this wallet held `level` tokens in every sample? { since, days, needed, qualified } */
@@ -102,6 +117,17 @@ export async function latestBalances(env, now, lookback = 2) {
     if (acc && acc.lastAt) return { at: acc.lastAt, slot: acc.lastSlot, balances: acc.last, labels: acc.labels || {}, decimals: acc.decimals ?? 6, day: d };
   }
   return null;
+}
+
+/**
+ * True when samples exist but the newest is older than twice the longest gap between samples (6 hours): the chain read has
+ * been failing. Founder windows and manager elections then wait instead of deciding on old balances and on founder clocks
+ * that nothing has checked meanwhile (fail closed, src/jobs.js). Before the very first sample this is false: those decisions
+ * then read the chain directly, as they always did.
+ */
+export async function samplesStale(env, now) {
+  const last = await env.DB.prepare("SELECT taken_at FROM balance_samples ORDER BY id DESC LIMIT 1").first();
+  return Boolean(last) && now - Date.parse(last.taken_at) > POLICY.sampling.maxGapMinutes * 60_000 * 2;
 }
 
 /** Health of the balance history (shown on /rules so anyone can see it's running). */

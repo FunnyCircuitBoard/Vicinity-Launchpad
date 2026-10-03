@@ -143,7 +143,7 @@
       g.append(svgEl("rect", { width: text.length * 9.6 + 28, height: 40, rx: 20 }), t);
       lead.append(g);
     };
-    flag(Math.max(20, cx - 300), cy + 60, "👑 City Founder: seat open · claims open at launch");
+    flag(Math.max(20, cx - 300), cy + 60, "👑 City Founder: seat open · hold 7 days, then apply");
     flag(Math.max(20, cx - 300), cy + 115, "📍 Locals verify with wallet + location");
     svg.append(lead);
     // size each flag to its text (the text is bigger on phones)

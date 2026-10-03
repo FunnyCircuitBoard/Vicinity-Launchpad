@@ -35,7 +35,7 @@
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
  * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional).
  */
-import { activeMint, checkOfficial, officialFor, withMint } from "./official.js";
+import { activeMint, checkOfficial, marketLink, officialFor, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
 import { getHolding, getTokenFacts, getTopHolders, holderSnapshot, rankOf } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
@@ -64,22 +64,42 @@ import { PROFILE_PATHS, routeProfiles } from "./profiles.js";
 import { handleLaunchpad } from "./launchpad.js";
 import { publicLimit } from "./guards.js";
 
-export { json, activeMint };
+export { json, activeMint, cached as _cached };
 
 /** Cache small JSON answers for a short time so we don't hammer the blockchain. An answer that names a shorter
- *  max-age of its own (the Launchpad list after a failed market call) is kept only that long. */
+ *  max-age of its own (the Launchpad list after a failed market call) is kept only that long.
+ *  The visitor gets the same `public, max-age=<that long>` on a miss and on a hit. On a hit the header is set again
+ *  here: Cloudflare's zone Browser Cache TTL rewrites the copy cache.match() returns (measured 3 Oct 2026: every hit
+ *  went out as `public, max-age=14400`, so a browser kept a price or holder list for 4 hours). The intended lifetime
+ *  travels with the stored copy in an internal header that never reaches the visitor. */
+const KEEP_HEADER = "x-vicinity-max-age";
+function withMaxAge(res, maxAge) {
+  const out = new Response(res.body, res);
+  out.headers.set("Cache-Control", `public, max-age=${maxAge}`);
+  out.headers.delete(KEEP_HEADER);
+  return out;
+}
 async function cached(key, seconds, produce) {
   const cache = typeof caches !== "undefined" ? caches.default : null;
   const req = new Request("https://cache.vicinity.internal/" + key);
-  if (cache) { const hit = await cache.match(req); if (hit) return hit; }
+  if (cache) {
+    const hit = await cache.match(req);
+    if (hit) {
+      const kept = Number(hit.headers.get(KEEP_HEADER));
+      return withMaxAge(hit, Number.isInteger(kept) && kept > 0 && kept <= seconds ? kept : seconds);
+    }
+  }
   const res = await produce();
-  if (cache && res.status === 200) {
-    const copy = new Response(res.clone().body, res);
-    const own = /\bmax-age=(\d+)/.exec(res.headers.get("Cache-Control") || "");
-    copy.headers.set("Cache-Control", `public, max-age=${own ? Math.min(seconds, Number(own[1])) : seconds}`);
+  if (res.status !== 200) return res;
+  const own = /\bmax-age=(\d+)/.exec(res.headers.get("Cache-Control") || "");
+  const maxAge = own ? Math.min(seconds, Number(own[1])) : seconds;
+  const out = withMaxAge(res, maxAge);
+  if (cache) {
+    const copy = new Response(out.clone().body, out);
+    copy.headers.set(KEEP_HEADER, String(maxAge));
     await cache.put(req, copy);
   }
-  return res;
+  return out;
 }
 
 export async function handleVerify(request, env = {}, now = Date.now(), fetchImpl = fetch) {
@@ -212,6 +232,12 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
         const coin = await officialCityCoin(env, String(q || "").trim());
         if (coin) return json(coin);
       }
+      // a Raydium, Jupiter, DEX Screener or Solscan link that carries one recorded city coin opens that official coin
+      const market = verdict.verdict === "not_official" && verdict.kind === "market" ? marketLink(q, isSolanaAddress) : null;
+      if (market && market.addresses.length === 1) {
+        const coin = await officialCityCoin(env, market.addresses[0]);
+        if (coin) return json({ ...coin, kind: "market", message: `This ${market.name} link opens ${coin.message.replace(/^This is /, "")}` });
+      }
       return json(verdict);
     }
     case "/api/verify":
@@ -225,7 +251,8 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
         try {
           const [facts, price] = await Promise.all([getTokenFacts(env, mint, fetchImpl), tokenPrice(env, mint, fetchImpl)]);
           return json({ launched: true, registry: withMint(env).tokens, facts, price, marketCap: price && facts.supply ? price * facts.supply : null });
-        } catch (e) { console.error("token facts failed", String(e)); return json({ launched: true, error: "chain_unavailable" }, 503); }
+        // the contract comes from the settings, not the chain: the page still shows it (and the official list) while the chain is busy
+        } catch (e) { console.error("token facts failed", String(e)); return json({ launched: true, error: "chain_unavailable", mint, registry: withMint(env).tokens }, 503); }
       });
     }
     case "/api/holders": {

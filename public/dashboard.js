@@ -301,7 +301,8 @@
     home_too_new: "Your home had to be set 7+ days before this opened.", needs_checkin: "Check in once from inside your city first (proof you're really here).", banned: "You can't do this while banned.",
   };
   const APPLY_ERR = { not_in_city: (d) => d.here ? `You're in ${d.here} right now, not your home city.` : "You're not inside your city right now.", no_addresses: "No contract addresses in your pitch, please.",
-    city_taken: "Someone just became founder here.", already_applied: "You've already applied.", not_dark: "That city isn't dark long enough yet." };
+    city_taken: "Someone just became founder here.", already_applied: "You've already applied.", not_dark: "That city isn't dark long enough yet.",
+    window_closing: "This city's window has ended and is being decided. Try again in a few minutes." };
 
   function renderPath(d) {
     const p = d.progress, f = d.founder, home = d.user.home, c = d.community;
