@@ -30,7 +30,7 @@ import { autoUsername } from "./text.js";
 import { emailConfigured } from "./mail.js";
 import { check, clientKey, limitKey } from "./limits.js";
 import { checkPassword, hashPassword } from "./password.js";
-import { DAY, HOUR, POLICY, iso } from "./policy.js";
+import { HOUR, POLICY, iso } from "./policy.js";
 import { v2On } from "./flags.js";
 import { SIGNUP_COOKIE, TERMS_VERSION, asText, endSignup, findHandoff, getSignup, guardV2, netOf, nextStep, startSignup, touchSignup } from "./signup-core.js";
 import { handleEmailLogin, handleReset, handleResetStart, handleSetPassword } from "./pwlogin.js";
@@ -41,7 +41,7 @@ const LIMITS = {
   start: { ip: 20, site: 5000 },          // new sign-ups per hour: per connection, whole site
   location: { signup: POLICY.limits.locatePerHour, ip: 60 },
   handoff: { signup: 10, ip: 30 },
-  email: { signup: 5, ip: 20, address: 20 },  // codes asked for per hour (per sign-up, per connection) and per 24 hours (per address)
+  email: { signup: 5, ip: 20 },           // codes asked for per hour (per sign-up, per connection). The 20 a day per address is counted in sendEmailCode
   verify: { signup: 20, ip: 60 },         // codes tried per hour
   finish: { signup: 10 },
 };
@@ -307,7 +307,6 @@ async function handleEmail(request, env, x) {
   const over = await limited(env, x.now, [
     await perHour(env, "sues", c.row.id, LIMITS.email.signup),
     await perHour(env, "suei", clientKey(request), LIMITS.email.ip),
-    { key: await limitKey(env, "mail", email), windowMs: DAY, max: LIMITS.email.address },
   ]);
   if (over) return over;
   const hash = await hashPassword(env, body.password);
