@@ -6,8 +6,9 @@ Small, dependency-light helpers shared by the Anchor tests, the demo script and
 | file | runtime deps | purpose |
 |---|---|---|
 | `merkle.mjs` | `node:crypto` only | leaf encoding, sorted-pair node hashing, tree build, proofs, verification, pro-rata allocation |
-| `merkle.test.mjs` | node:test | vectors, edge cases, fixture cross-check (`npm run sdk-test`) |
-| `gen-fixtures.mjs` | - | writes `fixtures/merkle-js.json` (`npm run sdk-fixtures`) |
+| `merkle.test.mjs` | node:test | vectors, edge cases, cross-check of both fixture files (`npm run sdk-test`) |
+| `gen-fixtures.mjs` | - | writes `fixtures/merkle-js.json` with this SDK (`npm run sdk-fixtures`, which also runs `fixtures/generate.mjs`) |
+| `fixtures/generate.mjs` | `node:crypto` only | writes the canonical `fixtures/merkle.json`; shares no code with the SDK or the program |
 | `pda.mjs` | `@solana/web3.js` | PDA derivation with the exact seeds of the spec |
 | `client.ts` | `@coral-xyz/anchor` | instruction builders with every account resolved (one place for tests, demo and Worker) |
 | `idl/vicinity_rewards.json` | - | the program IDL, copied here by `anchor build` (see the workspace README) |
@@ -51,38 +52,24 @@ duplicated). Consequences, which the Rust `merkle.rs` MUST share:
 
 The Rust reference builder in `programs/vicinity-rewards/src/merkle.rs`
 (`reference::build_levels`, test-only; the program itself only verifies) uses the
-same rule, and two fixture files pin it:
+same rule, and two fixture files of one shape (`fixtures/README.md`) pin it:
 
-* `fixtures/merkle.json` (canonical, generated on the program side, format in
-  `fixtures/README.md`): 20 trees of 1 to 129 leaves plus leaf vectors. Read by
-  `cargo test` (`merkle.rs::fixtures_match_the_sdk`) AND by `npm run sdk-test`.
-* `fixtures/merkle-js.json` (this SDK's own vectors, `npm run sdk-fixtures`):
-  20 trees of sizes 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 64, 100, 127,
-  128, 129, 257 with leaf hashes for the small trees, 5 leaf vectors and 5 node
-  vectors. Read by `npm run sdk-test`.
+* `fixtures/merkle.json`: written by `fixtures/generate.mjs`, a dependency-free
+  script that shares no code with this SDK or the program. 20 trees of 1 to 129
+  leaves plus leaf vectors.
+* `fixtures/merkle-js.json`: written by `gen-fixtures.mjs` with this SDK's own
+  `buildTree`/`getProof`. 20 trees of sizes 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17,
+  31, 32, 33, 64, 100, 127, 128, 129, 257, 5 leaf vectors and 5 node vectors.
 
-Both reproduce byte for byte with this implementation (47 node tests). One
-deliberate difference in validation only: `hashLeaf`/`encodeLeaf` are pure like
-the Rust `leaf_hash` (they encode an amount of 0; the canonical fixture has such
-a vector), while `buildTree` refuses amount 0, duplicates and bad indices.
-
-### Fixture format (`fixtures/merkle-js.json`)
-
-```json
-{
-  "leafVectors": [{ "index": 0, "claimant": "<64 hex>", "amount": "<decimal u64>", "leafHash": "<64 hex>" }],
-  "nodeVectors": [{ "a": "<hex>", "b": "<hex>", "node": "<hex>", "nodeSwapped": "<hex>" }],
-  "trees": [{
-    "name": "tree-3", "numLeaves": 3, "depth": 2, "root": "<hex>",
-    "leaves": [{ "index": 0, "claimant": "<64 hex>", "amount": "<decimal>" }],
-    "leafHashes": ["<hex>"],              // omitted for trees > 33 leaves
-    "proofs": [{ "index": 0, "proof": ["<hex>"] }]
-  }]
-}
-```
-
-The JS test also accepts a bare array of `{ leaves, root }` objects, so a Rust
-writer can emit the simplest shape.
+BOTH files are read by `cargo test` (`merkle.rs::fixtures_match_the_sdk`) AND by
+`npm run sdk-test` (`merkle.test.mjs`): every root, every listed proof, every
+depth and every leaf hash must reproduce on both sides, so the program, the SDK
+and the independent generator are pinned to one construction. `npm run
+sdk-fixtures` regenerates both files; the result must equal what is committed
+(CI checks `git diff` after regenerating). One deliberate difference in
+validation only: `hashLeaf`/`encodeLeaf` are pure like the Rust `leaf_hash`
+(they encode an amount of 0; the canonical fixture has such a vector), while
+`buildTree` refuses amount 0, duplicates and bad indices.
 
 ## API (`merkle.mjs`)
 

@@ -67,7 +67,17 @@ jobs:
         run: solana-keygen new --no-bip39-passphrase --silent --outfile ~/.config/solana/id.json
       - run: solana --version && anchor --version
       - run: npm ci
-      - run: anchor build
-      - name: Committed IDL matches the build
+      - run: npm run sdk-test
+      - run: npm run typecheck
+      - name: Production build (no features)
+        run: anchor build
+      - name: Committed IDL matches the production build
         run: diff target/idl/vicinity_rewards.json sdk/idl/vicinity_rewards.json
-      - run: anchor test --skip-build
+      - name: Committed fixtures match their generators
+        run: npm run sdk-fixtures && git diff --exit-code -- sdk/fixtures
+      # The deadline, sweep and close_claim_status tests need an epoch whose
+      # claim window passes during the run: the test-only `short-windows`
+      # feature lowers MIN_CLAIM_WINDOW_SECS to 60 s. This rebuilds the program
+      # with the feature and runs every test; nothing from this build is kept.
+      - name: anchor test (short-windows test build, full suite)
+        run: anchor test -- --features short-windows
