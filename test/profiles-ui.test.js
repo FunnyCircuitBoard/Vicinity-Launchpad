@@ -274,6 +274,19 @@ test("only the endpoints of the contract are used (FEATURES.md)", () => {
   assert.deepEqual([...hooks.matchAll(/["'`](\/api\/[^"'`]+)/g)].map((m) => m[1]), []);
 });
 
+test("the moderator tools list reported bios with a way to clear one, and count them in what is waiting", () => {
+  const mod = between(dashJs, "  async function loadMod() {", '    $("#mod-sections").replaceChildren(...sections);');
+  assert.match(mod, /towns: d\.towns\.length, bios: d\.bios \? d\.bios\.length : 0 \}\);/, "counted in the queue (0 when the server sends no bios: the switch is off)");
+  assert.match(mod, /if \(d\.bios\) sections\.push\(section\("Reported bios", d\.bios\.length \? d\.bios\.map\(\(x\) => \{/, "a section only when the server sent the key");
+  assert.match(mod, /memberLink\(x\.handle, x\.handle, "a"\)/, "the member's username, as a profile link");
+  assert.match(mod, /`“\$\{x\.bio\}” · \$\{x\.reports\} report\$\{x\.reports === 1 \? "" : "s"\} · last \$\{ago\(x\.lastAt\)\}`/, "the bio text and the report count, as text");
+  assert.match(mod, /actBtn\("Clear bio", \(\) => reasonForm\(li, "Clear the bio", async \(reason, note\) => \{\n\s+const r = await sensitive\(\(\) => api\("\/api\/mod\/bio\/clear", \{ handle: x\.handle, reason, note \}\)\);/,
+    "clearing asks for a reason and a note and needs a fresh wallet proof, like a hide; the call is the contract's");
+  assert.match(mod, /\[empty\("No reported bios\."\)\]/);
+  assert.match(read("dashboard-roles.js"), /bios: \["reported bio", "reported bios"\]/, "the role card can name them");
+  assert.doesNotMatch(mod, /innerHTML/);
+});
+
 test("nothing is requested for anyone but members with the switch on", () => {
   // the dashboard fetches profile.js in one place, behind the flag; it is not one of the page's scripts
   const order = [...dashHtml.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]);

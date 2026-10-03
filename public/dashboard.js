@@ -945,7 +945,7 @@
     const d = await api("/api/mod");
     if (!d.ok || !d.moderator) { $("#mod").hidden = true; return; }
     $("#mod").hidden = false;
-    window.VRole.queue({ posts: d.posts.length, proposals: d.proposals.filter((x) => x.canApprove).length, appeals: d.appeals.length, objections: d.objections.length, towns: d.towns.length });
+    window.VRole.queue({ posts: d.posts.length, proposals: d.proposals.filter((x) => x.canApprove).length, appeals: d.appeals.length, objections: d.objections.length, towns: d.towns.length, bios: d.bios ? d.bios.length : 0 });
     $("#mod-scope").textContent = `${LEVEL[d.role] || d.role} · ${d.scope}`;
     const sections = [];
     const section = (title, items) => { const s = el("div", "mod-section"); s.append(el("h3", null, title)); const ul = el("ul", "req-list"); ul.append(...items); s.append(ul); return s; };
@@ -985,8 +985,23 @@
       for (const [label, decision, cls] of choice) acts.append(decide(label, () => api("/api/towns/decide", { id: x.id, decision }), cls));
       li.append(acts); return li;
     }) : [empty("No requests waiting.")]));
+    // reported bios: the server sends `bios` only while member profiles are on; clearing one needs a reason and a fresh wallet proof, like a hide
+    if (d.bios) sections.push(section("Reported bios", d.bios.length ? d.bios.map((x) => {
+      const li = el("li");
+      const who = el("strong"); who.append(memberLink(x.handle, x.handle, "a"));
+      li.append(who, el("span", "muted", `“${x.bio}” · ${x.reports} report${x.reports === 1 ? "" : "s"} · last ${ago(x.lastAt)}`));
+      const acts = el("span", "req-actions");
+      acts.append(actBtn("Clear bio", () => reasonForm(li, "Clear the bio", async (reason, note) => {
+        const r = await sensitive(() => api("/api/mod/bio/clear", { handle: x.handle, reason, note }));
+        toast(r.ok ? "Bio cleared. The member can write a new one." : errText(BIO_MOD_ERR, r, "Couldn't clear it."));
+        if (r.ok) loadMod();
+      }), "btn btn--glass btn--sm"));
+      li.append(acts); return li;
+    }) : [empty("No reported bios.")]));
     $("#mod-sections").replaceChildren(...sections);
   }
+  const BIO_MOD_ERR = { no_bio: "That bio is already gone.", own_profile: "You can't clear your own bio here: edit it in your profile.", not_enabled: "Member profiles are switched off right now.",
+    profiles_unavailable: "Member profiles are having trouble right now. Please try again in a few minutes." };
 
   /* ---------- "add my town" ---------- */
   async function loadTowns() {
