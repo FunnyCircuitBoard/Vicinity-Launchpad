@@ -280,3 +280,15 @@ test("connect: e-mail sign-in errors appear inside the e-mail form (it moves bet
   assert.match(js, /setEmailErr\(emailErr\(e\.message\)\)/);
   assert.doesNotMatch(js, /setErr\(emailErr/, "e-mail errors must not go to the far-away wallet error line");
 });
+
+test("the 'no rug pull' copy says minting is already off (the live mint's authority is null), never that it goes off when the curve fills", () => {
+  // measured 3 Oct 2026: getAccountInfo(the real mint) -> mintAuthority null, freezeAuthority null, while the LaunchLab
+  // curve was about a third full; the page said "Raydium switches minting off for good when the LaunchLab curve fills"
+  for (const f of ["index.html", "token.html"]) {
+    assert.doesNotMatch(html[f], /switch(es)? minting off|minting is switched off for good, and/i, f);
+    assert.doesNotMatch(html[f], /when the (LaunchLab )?curve fills[^<.]*minting/i, f);
+  }
+  assert.match(html["token.html"], /<h3>Minting disabled<\/h3><p>[^<]*mint authority is already removed on-chain[^<]*<\/p>/);
+  assert.match(html["index.html"], /Minting and freezing are already switched off for good/);
+  assert.match(html["index.html"], /<summary>Is this a rug pull\?<\/summary><p>No\. There's no presale, minting and freezing are already switched off for good/);
+});
