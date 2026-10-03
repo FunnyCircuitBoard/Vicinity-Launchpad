@@ -128,8 +128,10 @@ export function toClaimantBytes(claimant) {
   return bytes;
 }
 
-// Amounts are u64 base units. Accept bigint, safe integer or decimal string; reject 0.
-export function toAmount(amount) {
+// Amounts are u64 base units. Accept bigint, safe integer or decimal string.
+// Zero is rejected everywhere except in the pure leaf encoder (hashLeaf is a
+// pure function, like the Rust `leaf_hash`; buildTree is where zero is refused).
+export function toAmount(amount, { allowZero = false } = {}) {
   let v;
   if (typeof amount === "bigint") v = amount;
   else if (typeof amount === "number") {
@@ -143,7 +145,7 @@ export function toAmount(amount) {
   } else {
     throw new Error("amount must be bigint, integer or decimal string");
   }
-  if (v <= 0n) throw new Error("amount must be > 0");
+  if (v < 0n || (v === 0n && !allowZero)) throw new Error("amount must be > 0");
   if (v > U64_MAX) throw new Error("amount exceeds u64");
   return v;
 }
@@ -159,11 +161,12 @@ export function toIndex(index) {
 // ---------------------------------------------------------------------------
 // leaf / node hashing
 
-// 0x00 || u32 LE index || 32 bytes claimant || u64 LE amount  (45 bytes)
+// 0x00 || u32 LE index || 32 bytes claimant || u64 LE amount  (45 bytes).
+// Pure encoding (amount 0 allowed here, refused by buildTree and on chain).
 export function encodeLeaf(index, claimant, amount) {
   const i = toIndex(index);
   const c = toClaimantBytes(claimant);
-  const a = toAmount(amount);
+  const a = toAmount(amount, { allowZero: true });
   const out = new Uint8Array(LEAF_LEN);
   const view = new DataView(out.buffer);
   out[0] = LEAF_PREFIX;
