@@ -38,8 +38,8 @@ import { access } from "./access.js";
 import { emailConfigured } from "./mail.js";
 import { check, clientKey, limitKey, refund } from "./limits.js";
 import { PASSWORD_MAX, checkPassword, hashPassword, verifyPassword } from "./password.js";
-import { DAY, HOUR, iso } from "./policy.js";
-import { endSignup } from "./signup-core.js";
+import { HOUR, iso } from "./policy.js";
+import { asText, endSignup } from "./signup-core.js";
 
 const WINDOW = 15 * 60_000;     // attempt counters: fixed 15-minute windows
 const MAX = {
@@ -48,7 +48,7 @@ const MAX = {
   address: 15,                  // per address, all connections together: the cap on a spread-out attack
   user: 10,                     // password changes (and tries at the current password) per signed-in person
 };
-const RESET_START = { connection: 20, address: 5, mailPerDay: 20 };   // reset mails asked for: per connection / hour, per address / hour, per address / 24 hours
+const RESET_START = { connection: 20, address: 5 };   // reset mails asked for: per connection / hour, per address / hour (the 20 a day per address is counted in sendEmailCode, for mails really sent)
 const RAW_MAX = 1024;           // refuse absurd input before any work (the same cap password.js uses)
 
 /**
@@ -117,7 +117,7 @@ export async function handleEmailLogin(request, env, x) {
   const { now } = inputs(x);
   const body = await readJson(request);
   if (!body) return badJson();
-  const email = cleanEmail(body.email), password = body.password;
+  const email = cleanEmail(asText(body.email)), password = body.password;
   // The shape of the input does not depend on any account, so refusing it early tells nothing (and costs nothing).
   if (!validEmail(email) || !plausible(password)) return badCredentials();
 
@@ -146,17 +146,14 @@ export async function handleResetStart(request, env, x) {
   const { fetchImpl, ctx, now } = inputs(x);
   const body = await readJson(request);
   if (!body) return badJson();
-  const email = cleanEmail(body.email);
+  const email = cleanEmail(asText(body.email));
   if (!validEmail(email)) return json({ ok: false, error: "bad_email" }, 400);
   if (!emailConfigured(env)) return json({ ok: false, error: "email_unavailable" }, 503);
 
   // These count known and unknown addresses alike, so being over one says nothing about an account. This connection first:
   // one that is over its limit is refused before the address is counted (as in countTry).
   if (!(await check(env, [{ key: await limitKey(env, "rsi", clientKey(request)), windowMs: HOUR, max: RESET_START.connection }], now)).ok) return slowDown();
-  if (!(await check(env, [
-    { key: await limitKey(env, "rss", email), windowMs: HOUR, max: RESET_START.address },
-    { key: await limitKey(env, "mail", email), windowMs: DAY, max: RESET_START.mailPerDay },
-  ], now)).ok) return slowDown();
+  if (!(await check(env, [{ key: await limitKey(env, "rss", email), windowMs: HOUR, max: RESET_START.address }], now)).ok) return slowDown();
 
   // Both kinds of address do the same database work from here (sendEmailCode: site cap, send slot, code row). The only
   // difference is the mail itself, which for a real account goes out in the background, after the answer.
@@ -174,8 +171,8 @@ export async function handleReset(request, env, x) {
   const { now } = inputs(x);
   const body = await readJson(request);
   if (!body) return badJson();
-  const email = cleanEmail(body.email);
-  const code = String(body.code == null ? "" : body.code).replace(/\D/g, "").slice(0, 6);
+  const email = cleanEmail(asText(body.email));
+  const code = asText(body.code).replace(/\D/g, "").slice(0, 6);
   if (!validEmail(email)) return json({ ok: false, error: "bad_email" }, 400);
   if (code.length !== 6) return json({ ok: false, error: "bad_code" }, 400);
   // The rules first: a password that is refused must not use up a code the person waited for.

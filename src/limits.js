@@ -108,6 +108,12 @@ export async function check(env, specs, now = Date.now()) {
   return { ok: n.every((c, i) => c <= specs[i].max), n };
 }
 
+/** What one counter says right now, without counting a try (0 when it has no row or its window is over). For caps that count only what really happened. */
+export async function peek(env, key, windowMs, now = Date.now()) {
+  const row = await env.DB.prepare("SELECT n FROM auth_limits WHERE key = ? AND window_start > ?").bind(key, iso(now - windowMs)).first();
+  return row ? Number(row.n) : 0;
+}
+
 /** Give one attempt back on each counter (after a success). Never goes below zero. */
 export async function refund(env, keys) {
   if (!keys.length) return;

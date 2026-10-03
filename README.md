@@ -50,7 +50,7 @@ src/me.js           Dashboard data · src/social.js feeds · src/roles.js roles 
 src/chain.js        Read-only Solana data: token facts, every holder + ranks, balances, transfer lookup
 src/community.js    Which community a point is in (or the three nearest) · src/cities.js + src/geo.js city data
 src/store.js        Database schema + migrations (Cloudflare D1; applied automatically) · src/blobs.js big stored values
-test/               Automated tests (npm test); the browser pages are checked by hand (see docs/AUDIT.md); helpers/world.js is a small test world with a clock tests can move
+test/               Automated tests (npm test); the browser pages are checked by hand (see docs/AUDIT.md); helpers/world.js is a small test world with a clock tests can move; helpers/fakedom.js runs the sign-up page's script (public/signup.js) without a browser
 wrangler.jsonc      Cloudflare settings (addresses, database, the 10-minute schedule, build = copy files + pages + tests)
 ```
 
