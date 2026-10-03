@@ -303,30 +303,29 @@ describe("hex / base58", () => {
 // ({trees:[{leaves,root,proofs}], leafVectors, nodeVectors}) or a bare array of
 // {leaves:[{index,claimant,amount}], root} entries.
 
+// Claimants may be 64 hex chars or base58 (the Rust side uses Pubkey::from_str).
+const claimantBytes = (c) => (typeof c === "string" && /^[0-9a-fA-F]{64}$/.test(c) ? fromHex(c) : typeof c === "string" ? fromBase58(c) : c);
+
 function checkFixture(file) {
   const data = JSON.parse(readFileSync(file, "utf8"));
   const trees = Array.isArray(data) ? data : data.trees ?? data.vectors ?? [];
   assert.ok(trees.length > 0, `${file}: no trees`);
   let checked = 0;
   for (const v of trees) {
-    const leaves = v.leaves.map((l) => ({
-      index: l.index,
-      claimant: typeof l.claimant === "string" && /^[0-9a-fA-F]{64}$/.test(l.claimant) ? fromHex(l.claimant) : l.claimant,
-      amount: l.amount,
-    }));
+    const leaves = v.leaves.map((l) => ({ index: l.index, claimant: claimantBytes(l.claimant), amount: l.amount }));
     const t = buildTree(leaves);
     assert.equal(toHex(t.root), (v.root ?? "").replace(/^0x/, "").toLowerCase(), `${file} ${v.name ?? ""}: root`);
     if (v.leafHashes) assert.deepEqual(t.leafHashes.map(toHex), v.leafHashes, `${file} ${v.name}: leaf hashes`);
-    if (v.proofs) {
-      for (const p of v.proofs) {
-        assert.deepEqual(getProof(t, p.index).map(toHex), p.proof, `${file} ${v.name}: proof ${p.index}`);
-        assert.ok(verifyProof(t.root, t.leafHashes[p.index], p.proof.map(fromHex)));
-      }
+    // proofs: [{index, proof}] (JS shape) or {"index": [..]} (Rust shape)
+    const proofs = Array.isArray(v.proofs) ? v.proofs : Object.entries(v.proofs ?? {}).map(([i, proof]) => ({ index: Number(i), proof }));
+    for (const p of proofs) {
+      assert.deepEqual(getProof(t, p.index).map(toHex), p.proof, `${file} ${v.name}: proof ${p.index}`);
+      assert.ok(verifyProof(t.root, t.leafHashes[p.index], p.proof.map(fromHex)));
     }
     checked++;
   }
-  for (const lv of data.leafVectors ?? []) {
-    assert.equal(toHex(hashLeaf(lv.index, fromHex(lv.claimant), lv.amount)), lv.leafHash, `${file}: leaf vector`);
+  for (const lv of data.leafVectors ?? data.leaf_vectors ?? []) {
+    assert.equal(toHex(hashLeaf(lv.index, claimantBytes(lv.claimant), lv.amount)), lv.leafHash ?? lv.leaf, `${file}: leaf vector ${lv.index}`);
   }
   for (const nv of data.nodeVectors ?? []) {
     assert.equal(toHex(hashNode(fromHex(nv.a), fromHex(nv.b))), nv.node, `${file}: node vector`);
@@ -341,7 +340,10 @@ describe("fixtures", () => {
     assert.equal(checkFixture(js), 20);
   });
   const rust = join(here, "fixtures", "merkle.json");
-  test("merkle.json (Rust reference, written by the program side) reproduces", { skip: !existsSync(rust) && "not written yet" }, () => {
-    assert.ok(checkFixture(rust) > 0);
+  test("merkle.json (shape read by the Rust unit test, 20 trees) reproduces", { skip: !existsSync(rust) && "run npm run sdk-fixtures" }, () => {
+    assert.equal(checkFixture(rust), 20);
+    const data = JSON.parse(readFileSync(rust, "utf8"));
+    assert.ok(data.leaf_vectors.length >= 5);
+    for (const t of data.trees) assert.ok(Object.keys(t.proofs).length > 0, `${t.name}: Rust test needs at least one proof per tree`);
   });
 });

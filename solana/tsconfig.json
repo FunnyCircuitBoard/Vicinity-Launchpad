@@ -18,6 +18,7 @@
   "exclude": ["node_modules", "target"],
   "ts-node": {
     "transpileOnly": true,
-    "files": true
+    "files": true,
+    "ignore": ["(?:^|/)node_modules/", "\\.mjs$"]
   }
 }
