@@ -16,10 +16,12 @@ import { DAY, POLICY, iso } from "./policy.js";
 import { powersOf } from "./roles.js";
 import { stillFounder } from "./seats.js";
 import { activeMint } from "./official.js";
+import { mintInfo } from "./chain.js";
 import { isSolanaAddress } from "./solana.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
 import { readImage } from "./social.js";
 import { ensureSchema } from "./store.js";
+import { tickerOf } from "./tickers.js";
 
 const C = POLICY.coins;
 
@@ -158,7 +160,14 @@ export async function handleProposeMint(request, env, fetchImpl = fetch, now = D
   return json({ ok: true, coin: coinView(await coinOf(db, seat.city_id)) });
 }
 
-/** POST /api/coins/mint/decide { city, approve, note } — an admin (not the founder) records or rejects the contract. */
+/**
+ * POST /api/coins/mint/decide { city, mint, approve, note } — an admin (not the founder) records or rejects the contract.
+ * `mint` is the address the admin actually looked at. Recording happens only if it is still the one waiting (a founder
+ * who re-submits another address after the admin opened the first gets 409 mint_changed, and the row is matched on
+ * it again in the UPDATE so two requests crossing cannot slip one through), and only after the blockchain says it is
+ * a token mint with a supply; what the chain said is written into the public log. Rejecting needs no address (the
+ * page that ships today sends none), but when one is sent it must match too.
+ */
 export async function handleDecideMint(request, env, fetchImpl = fetch, now = Date.now()) {
   const a = await admin(request, env, now, fetchImpl);
   if (a.error) return a.error;
@@ -168,20 +177,31 @@ export async function handleDecideMint(request, env, fetchImpl = fetch, now = Da
   if (coin.user_id === a.u.id) return json({ ok: false, error: "needs_second_person" }, 403);
   const note = cleanText(body.note, 300);
   if (note == null) return json({ ok: false, error: "too_long", max: 300 }, 400);
+  const mint = typeof body.mint === "string" ? body.mint.trim() : "";
+  if (mint && mint !== coin.pending_mint) return json({ ok: false, error: "mint_changed" }, 409);
+  let seen = "";
   if (body.approve === true) {
+    if (!mint) return json({ ok: false, error: "mint_required" }, 400);
+    let facts;
+    try { facts = await mintInfo(env, mint, fetchImpl); }
+    catch (e) { console.error("mint check failed", String(e)); return json({ ok: false, error: "chain_unavailable" }, 503); }
+    if (!facts) return json({ ok: false, error: "not_a_mint" }, 400);
+    let r;
     try {
-      await db.prepare("UPDATE city_coins SET mint = pending_mint, pending_mint = NULL, pending_at = NULL, launched_at = ?, launched_by = ? WHERE city_id = ?")
-        .bind(iso(now), a.u.id, coin.city_id).run();
+      r = await db.prepare("UPDATE city_coins SET mint = pending_mint, pending_mint = NULL, pending_at = NULL, launched_at = ?, launched_by = ? WHERE city_id = ? AND pending_mint = ?")
+        .bind(iso(now), a.u.id, coin.city_id, mint).run();
     } catch (e) {
       if (/UNIQUE/i.test(String(e))) return json({ ok: false, error: "mint_taken" }, 409);
       throw e;
     }
+    if (!r.meta.changes) return json({ ok: false, error: "mint_changed" }, 409);
+    seen = ` · on the blockchain: ${facts.program} mint, supply ${facts.supply.toLocaleString("en-US")}, ${facts.decimals} decimals, mint authority ${facts.mintAuthority || "none"}, freeze authority ${facts.freezeAuthority || "none"}`;
   } else {
     if (!note) return json({ ok: false, error: "reason_required" }, 400);
     await db.prepare("UPDATE city_coins SET pending_mint = NULL, pending_at = NULL WHERE city_id = ?").bind(coin.city_id).run();
   }
   await log(db, { actor: a.u.id, role: "admin", action: body.approve === true ? "coin_launch_confirmed" : "coin_contract_rejected", user: coin.user_id,
-    country: coin.country, place: coin.city_id, reason: "launch", note: `${coin.city_name}${note ? `: ${note}` : ""}`, at: iso(now) });
+    country: coin.country, place: coin.city_id, reason: "launch", note: `${coin.city_name}${note ? `: ${note}` : ""}${seen}`, at: iso(now) });
   return json({ ok: true, coin: coinView(await coinOf(db, coin.city_id)) });
 }
 
@@ -204,14 +224,72 @@ export async function handleTakedown(request, env, fetchImpl = fetch, now = Date
 }
 
 /**
- * One Jupiter price call for up to 50 mints: Map(mint → US dollars, or null when Jupiter has no price). THROWS when the call
- * fails (HTTP error, timeout, bad answer). The caller must pass only allow-listed mints: this function trusts its input.
+ * For the link checker: the recorded city coin at this address, as an "official" answer with its city and ticker,
+ * or null when it is not one. A contract still waiting for an admin's check is not official yet.
  */
-export async function jupiterPrices(mints, fetchImpl = fetch) {
-  const res = await fetchImpl(`https://lite-api.jup.ag/price/v3?ids=${mints.join(",")}`, { signal: AbortSignal.timeout(3000) });
-  if (!res.ok) throw new Error(`price_http_${res.status}`);
-  const d = await res.json();
-  return new Map(mints.map((m) => { const p = Number(d?.[m]?.usdPrice); return [m, Number.isFinite(p) && p > 0 ? p : null]; }));
+export async function officialCityCoin(env, address) {
+  if (!env.DB || !isSolanaAddress(address)) return null;
+  let row, ticker = null;
+  try {
+    await ensureSchema(env.DB);
+    row = await env.DB.prepare("SELECT city_id, city_name, country, name FROM city_coins WHERE mint = ?").bind(address).first();
+  } catch (e) {
+    // The checker is the one safety feature a scam target reaches for, so a database problem must not make it fail:
+    // the list's own verdict (not official) stands. A short code only, never the address.
+    console.error("city coin lookup skipped", String((e && e.message) || e).slice(0, 80));
+    return null;
+  }
+  if (!row) return null;
+  try { ticker = (await tickerOf(env, row.city_id))?.ticker || null; } catch { ticker = null; } // the coin is official with or without its ticker
+  const where = `${row.city_name}${row.country ? `, ${row.country}` : ""}`;
+  return {
+    verdict: "official", kind: "city_coin", city: row.city_id, cityName: row.city_name, country: row.country, ticker, name: row.name,
+    message: ticker
+      ? `This is the official $${ticker}: the city coin of ${where}, recorded by Vicinity.`
+      : `This is the official city coin of ${where}, recorded by Vicinity.`,
+  };
+}
+
+// Jupiter's price API. The address and key come from the settings JUPITER_API_BASE and JUPITER_API_KEY (the
+// keyless lite address is being retired); the last price seen per token is kept for 5 minutes so a rate limit
+// or an outage does not blank every estimate on the swap panel.
+const JUPITER_BASE = "https://lite-api.jup.ag";
+const PRICE_TIMEOUT_MS = 3000, LAST_GOOD_MS = 5 * 60_000, LAST_GOOD_MAX = 500;
+const lastGood = new Map(); // mint → { price, at }, oldest first
+export const _resetPrices = () => lastGood.clear();
+
+/** The tokens a /api/prices request asks about: unique, in the order asked, at most 6. */
+export const wantedMints = (request) => [...new Set(String(new URL(request.url).searchParams.get("mints") || "").split(",").filter(isSolanaAddress))].slice(0, 6);
+
+/**
+ * US-dollar prices for some tokens: { prices: { mint → number | null }, stale }. Never throws. When Jupiter answers
+ * with an error, times out or is unreachable, the last price it gave for each token (at most 5 minutes old) is
+ * answered instead and stale is true.
+ */
+export async function jupiterPrices(env, mints, fetchImpl = fetch, now = Date.now()) {
+  const prices = Object.fromEntries(mints.map((m) => [m, null]));
+  if (!mints.length) return { prices, stale: false, failed: false };
+  const base = String((env && env.JUPITER_API_BASE) || JUPITER_BASE).replace(/\/+$/, "");
+  const headers = env && env.JUPITER_API_KEY ? { "x-api-key": String(env.JUPITER_API_KEY) } : {};
+  try {
+    const res = await fetchImpl(`${base}/price/v3?ids=${mints.join(",")}`, { headers, signal: AbortSignal.timeout(PRICE_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`jupiter_http_${res.status}`);
+    const d = await res.json();
+    for (const m of mints) {
+      const p = Number(d?.[m]?.usdPrice);
+      if (!Number.isFinite(p) || p <= 0) continue;
+      prices[m] = p;
+      lastGood.delete(m); lastGood.set(m, { price: p, at: now });
+    }
+    while (lastGood.size > LAST_GOOD_MAX) lastGood.delete(lastGood.keys().next().value);
+    return { prices, stale: false, failed: false };
+  } catch { /* prices are a nice-to-have: the swap page always shows the exact amount */ }
+  let stale = false;
+  for (const m of mints) {
+    const g = lastGood.get(m);
+    if (g && now - g.at < LAST_GOOD_MS) { prices[m] = g.price; stale = true; }
+  }
+  return { prices, stale, failed: true }; // failed: the call itself did not succeed (callers may cache this answer only briefly)
 }
 
 /** The launched city coins (an admin recorded the contract): with the live $VICINITY mint, the only mints a portfolio may ask about. */
@@ -221,18 +299,13 @@ export async function launchedCoins(db, limit = 300) {
 
 /** Prices in US dollars for the tokens the swap panel shows (only those: $VICINITY, the pairs, launched city coins). */
 export async function handlePrices(request, env, fetchImpl = fetch) {
-  const wanted = [...new Set(String(new URL(request.url).searchParams.get("mints") || "").split(",").filter(isSolanaAddress))].slice(0, 6);
+  const wanted = wantedMints(request);
   const allowed = new Set([activeMint(env), ...Object.values(PAIRS).map((p) => p.mint)].filter(Boolean));
   if (env.DB && wanted.some((m) => !allowed.has(m))) {
     await ensureSchema(env.DB);
     for (const m of wanted) if (!allowed.has(m) && await env.DB.prepare("SELECT 1 FROM city_coins WHERE mint = ?").bind(m).first()) allowed.add(m);
   }
   const mints = wanted.filter((m) => allowed.has(m));
-  const prices = Object.fromEntries(mints.map((m) => [m, null]));
-  if (mints.length) {
-    try {
-      for (const [m, p] of await jupiterPrices(mints, fetchImpl)) prices[m] = p;
-    } catch { /* prices are a nice-to-have: the swap page always shows the exact amount */ }
-  }
-  return json({ prices }, 200, { "Cache-Control": "public, max-age=30" });
+  const { prices, stale } = await jupiterPrices(env, mints, fetchImpl);
+  return json(stale ? { prices, stale: true } : { prices }, 200, { "Cache-Control": "public, max-age=30" });
 }

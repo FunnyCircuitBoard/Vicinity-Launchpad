@@ -19,7 +19,7 @@ const ROUTES = [
   ["POST", "/api/follow"], ["GET", "/api/follows?list=followers"], ["POST", "/api/block"], ["GET", "/api/me/blocks"],
   ["POST", "/api/me/bio"], ["GET", "/api/me/portfolio"], ["POST", "/api/mod/bio/clear"],
 ];
-const NEW_TABLES = ["follows", "blocks", "profile_reports", "auth_limits"];
+const NEW_TABLES = ["follows", "blocks", "profile_reports"];
 
 test("profilesOn: exactly 'on', trimmed, any letter case", () => {
   for (const v of ["on", " on ", "ON", "On", "\ton\n"]) assert.equal(profilesOn({ PROFILES: v }), true, JSON.stringify(v));
@@ -84,10 +84,10 @@ test("flag off: a whole journey (accounts, posts, votes, reports, the moderator'
   await c.post("/api/mod/hide", { id: post.id, reason: "spam" });
   await tick(env); await tick(env, { sample: false });
 
-  // the only statement that names a counter table is the job's sign-up tidy-up, which is older than profiles and shrugs at a missing table
-  const sqlText = env.DB.log.map((x) => x.sql).filter((q) => q !== "DELETE FROM auth_limits WHERE window_start < ?").join("\n");
+  // the counters table (auth_limits) is part of the live site since the launch-week hardening (votes count there), so it may appear
+  const sqlText = env.DB.log.map((x) => x.sql).join("\n");
   assert.ok(env.DB.log.length > 100, "the spy really saw the journey (" + env.DB.log.length + " statements)");
-  assert.ok(!/\b(follows|blocks|profile_reports|auth_limits)\b/i.test(sqlText), "no profile table is named in any statement");
+  assert.ok(!/\b(follows|blocks|profile_reports)\b/i.test(sqlText), "no profile table is named in any statement");
   assert.ok(!/\bbio\b/i.test(sqlText), "no bio column is named in any statement");
   assert.ok(!env.DB.log.some((x) => x.params.some((v) => typeof v === "string" && /^pf-/.test(v))), "no profile counter is touched");
   const all = await schemaOf(env.DB);
@@ -135,7 +135,7 @@ test("switch on: the first profile request creates exactly the new things, once,
   const after1 = await schemaOf(env.DB);
   for (const t of NEW_TABLES) assert.ok(after1.tables.includes(t), `table ${t} now exists`);
   assert.deepEqual(after1.columns.filter((c) => !mid.columns.includes(c)), ["bio"], "users gained only bio");
-  assert.deepEqual(after1.tables.filter((t) => !mid.tables.includes(t)).sort(), [...NEW_TABLES].sort());
+  assert.deepEqual(after1.tables.filter((t) => !mid.tables.includes(t) && t !== "auth_limits").sort(), [...NEW_TABLES].sort()); // the counters table is shared with the live site now
   assert.ok(before.tables.length <= mid.tables.length);
   const ids = (await env.DB.prepare("SELECT id FROM schema_migrations").all()).results.map((r) => r.id);
   assert.equal(ids.filter((id) => id === PROFILES_MIGRATION.id).length, 1);

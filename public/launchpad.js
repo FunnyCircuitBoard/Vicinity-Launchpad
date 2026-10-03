@@ -46,7 +46,9 @@
   let snap = null;
   (async () => {
     const d = await api("/api/snapshots");
-    snap = (d.snapshots || []).find((s) => s.status !== "cancelled") || null;
+    // Only a real snapshot: one the job computed from the balance samples. The admin console's one-click test
+    // snapshot (Merkle root "admin-manual", no holders) must never read as the Founding Supporter list.
+    snap = (d.snapshots || []).find((s) => s.status !== "cancelled" && s.merkleRoot !== "admin-manual" && s.holders > 0) || null;
     const st = $("#snap-status"); if (!st) return;
     if (snap) st.textContent = `Snapshot #${snap.id} (cutoff ${new Date(snap.cutoff).toUTCString()}): ${snap.status === "active" ? "final" : `challenge period until ${new Date(snap.activatesAt).toLocaleString()}`} · ${fmt(snap.holders)} wallets · Merkle root ${snap.merkleRoot.slice(0, 16)}…`;
     else st.textContent = d.scheduledCutoff ? `Cutoff scheduled for ${new Date(d.scheduledCutoff).toUTCString()}.` : "The cutoff hasn't been announced yet. It will be, here, well ahead of time.";

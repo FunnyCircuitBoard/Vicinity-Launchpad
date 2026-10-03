@@ -53,9 +53,14 @@ export function checkOfficial(input, isSolanaAddress, env) {
   // Social handle like @vicinity
   if (/^@[A-Za-z0-9_.]{1,40}$/.test(raw)) {
     const ok = OFFICIAL.socials.map((h) => h.toLowerCase()).includes(raw.toLowerCase());
-    return ok
-      ? { verdict: "official", kind: "social", message: "This is an official Vicinity account." }
-      : { verdict: "not_official", kind: "social", message: "Vicinity has no official social accounts yet, so this account is not us." };
+    if (ok) return { verdict: "official", kind: "social", message: "This is an official Vicinity account." };
+    const ours = OFFICIAL.socials;
+    return {
+      verdict: "not_official", kind: "social",
+      message: ours.length
+        ? `This account is not us. Vicinity's only official account${ours.length > 1 ? "s are" : " is"} ${ours.join(" and ")}.`
+        : "Vicinity has no official social accounts, so this account is not us.",
+    };
   }
 
   // Website link

@@ -9,9 +9,13 @@
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const fmt = (n) => Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  // Wallets are shown as first 5 + ***** + last 3, with a Solscan link so anyone can check the full address.
+  // Wallets are shown as first 5 + ***** + last 3. Founder wallets arrive from /api/seats already masked: the map
+  // never has a founder's full address, so it links nobody's wallet to a block explorer.
   const mask = (a) => (a && a.length > 10 ? `${a.slice(0, 5)}*****${a.slice(-3)}` : a || "");
   const solscan = (a) => { const l = el("a", "mono", mask(a)); l.href = `https://solscan.io/account/${a}`; l.target = "_blank"; l.rel = "noopener"; l.title = "Check this wallet on Solscan"; return l; };
+  const walletText = (a) => el("span", "mono", a || "");
+  // Is this seat the signed-in person's? The seat's wallet is masked, so compare the masked forms.
+  const isMine = (cl) => Boolean(cl && me() && (cl.wallet === me() || cl.wallet === mask(me())));
   const norm = (s) => String(s).normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^\p{L}]+/gu, "");
   const kmBetween = (a, b, c, d) => { const r = Math.PI / 180, x = Math.sin((c - a) * r / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin((d - b) * r / 2) ** 2; return 12742 * Math.asin(Math.min(1, Math.sqrt(x))); };
   const radiusOf = (c) => ((c.pop || 0) >= 1_000_000 ? 50 : 25);
@@ -217,7 +221,7 @@
       for (const [id, a] of areas) {
         if (!boxInView(a.box, v)) continue;
         const c = byId.get(id); if (!c) continue;
-        const cl = claims.get(id), mine = cl && me() && cl.wallet === me();
+        const cl = claims.get(id), mine = isMine(cl);
         const tint = colored ? hexA(AREA_COLORS[a.color ?? 0], c === hover ? 0.5 : pal.light ? 0.3 : 0.24) : c === hover ? pal.hoverFill : pal.area;
         ctx.fillStyle = mine ? "rgba(255,200,87,.24)" : cl ? "rgba(255,90,54,.2)" : tint;
         ctx.fill(a.path, "evenodd");
@@ -266,7 +270,7 @@
     // claimed cities: glowing markers with a slow pulse
     for (const c of visible) {
       const cl = claims.get(c.id); if (!cl) continue;
-      const x = sx(c.lon), y = sy(c.lat), mine = me() && cl.wallet === me();
+      const x = sx(c.lon), y = sy(c.lat), mine = isMine(cl);
       const col = mine ? "255,200,87" : "255,90,54";
       if (!reduced) {
         const p = (t * 0.55 + phase(c.id)) % 1;
@@ -375,7 +379,7 @@
     if (!c) { tip.hidden = true; return; }
     const cl = claims.get(c.id), tk = tickers.get(c.id), a = areas.get(c.id);
     tip.replaceChildren(el("strong", null, c.name), el("span", null, ` ${placeOf(c)}`), document.createElement("br"),
-      el("span", cl ? "tip-claimed" : "tip-open", cl ? `Founder: ${cl.founder || mask(cl.wallet)}${cl.status === "active" ? "" : ` (${cl.status})`}` : windows.has(c.id) ? `Choosing its founder: ${windows.get(c.id).applicants} applying` : "Open"), el("span", "tip-ticker", tk ? `  $${tk.ticker}` : ""));
+      el("span", cl ? "tip-claimed" : "tip-open", cl ? `Founder: ${cl.founder || cl.wallet}${cl.status === "active" ? "" : ` (${cl.status})`}` : windows.has(c.id) ? `Choosing its founder: ${windows.get(c.id).applicants} applying` : "Open"), el("span", "tip-ticker", tk ? `  $${tk.ticker}` : ""));
     if (a) tip.append(document.createElement("br"), el("span", "tip-area", areaNote(a, c)));
     const n = (members.get(c.id) || []).length;
     if (n) tip.append(document.createElement("br"), el("span", "tip-area", `Includes ${n} listed place${n === 1 ? "" : "s"}`));
@@ -517,7 +521,7 @@
       const tk = tickers.get(c.id);
       const nm = el("span", "city-row__name");
       nm.append(el("strong", null, c.name), el("span", null, `${placeOf(c)}${c.pop ? " · " + fmt(c.pop) : ""}${c.added ? " · community-added" : ""}${tk ? " · $" + tk.ticker : ""}`));
-      const cl = claims.get(c.id), mine = cl && me() && cl.wallet === me(), parent = parts.has(c.id) && byId.get(parts.get(c.id));
+      const cl = claims.get(c.id), mine = isMine(cl), parent = parts.has(c.id) && byId.get(parts.get(c.id));
       b.append(nm, parent ? el("span", "tag", `Part of ${parent.name}`)
         : outside.has(c.id) ? el("span", "tag", "No community yet")
         : el("span", mine ? "tag tag--warn" : cl ? "tag tag--no" : windows.has(c.id) ? "tag tag--gold" : "tag tag--ok", mine ? "Yours" : cl ? "Founded" : windows.has(c.id) ? "Choosing" : "Open"));
@@ -593,8 +597,7 @@
   /* =================== city panel: claiming happens in the dashboard =================== */
   function refreshPanel() {
     $("#claim-reqs").hidden = mode === "nearby";
-    const addr = me();
-    const myCity = addr ? [...claims.entries()].find(([, v]) => v.wallet === addr) : null;
+    const myCity = me() ? [...claims.entries()].find(([, v]) => isMine(v)) : null;
     const sub = $("#claim-sub"), mrow = $("#members-row");
     mrow.hidden = true;
     if (mode === "nearby" && nearby) {
@@ -620,7 +623,7 @@
       if (a) sub.append(document.createElement("br"), el("span", a.kind === "r" ? "area-note" : "area-note area-note--near", areaNote(a, selected)));
       const shared = sharedNote(selected);
       if (shared) sub.append(document.createElement("br"), el("span", "shared-note", shared));
-      if (cl) sub.append(document.createElement("br"), document.createTextNode(`City Founder: ${cl.founder} `), solscan(cl.wallet), document.createTextNode(` · since ${new Date(cl.claimed_at).toLocaleDateString()}${cl.status === "grace" ? " · in grace" : ""}`));
+      if (cl) sub.append(document.createElement("br"), document.createTextNode(`City Founder: ${cl.founder} `), walletText(cl.wallet), document.createTextNode(` · since ${new Date(cl.claimed_at).toLocaleDateString()}${cl.status === "grace" ? " · in grace" : ""}`));
       else sub.append(document.createElement("br"), document.createTextNode("City Founder: No city founder yet"));
       sub.append(document.createElement("br"), document.createTextNode(`Holders: ${fmt(holderCount.get(selected.id) || 0)}`));
       const win = windows.get(selected.id);
@@ -704,7 +707,7 @@
       const city = byId.get(c.city_id);
       const go = el("button", "claim-feed__city", `📍 ${c.city_name}, ${c.country}`); go.type = "button";
       if (city) go.addEventListener("click", () => select(city, true));
-      li.append(go, el("span", "muted", ` · ${c.status === "provisional" ? "chosen" : "founder"} ${c.founder} `), solscan(c.wallet), el("span", "muted", ` · ${ago(c.claimed_at)}`));
+      li.append(go, el("span", "muted", ` · ${c.status === "provisional" ? "chosen" : "founder"} ${c.founder} `), walletText(c.wallet), el("span", "muted", ` · ${ago(c.claimed_at)}`));
       return li;
     }));
   }

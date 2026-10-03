@@ -148,7 +148,7 @@ export async function handleReprove(request, env, now = Date.now()) {
   if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
-  const r = await checkSigned(body, request, now, ["login"], badSigned);
+  const r = await checkSigned(body, request, now, ["login"], badSigned, env.DB);
   if (r.error) return r.error;
   if (r.parsed.pin || r.parsed.address !== s.user.wallet) return json({ ok: false, error: "wrong_wallet" }, 403);
   await env.DB.prepare("UPDATE sessions SET proven_at = ? WHERE id = ?").bind(iso(now), s.id).run();
@@ -171,7 +171,7 @@ export async function handleWalletLogin(request, env, now = Date.now()) {
   if (blocked) return blocked;
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
-  const r = await checkSigned(body, request, now, ["login"], badSigned);
+  const r = await checkSigned(body, request, now, ["login"], badSigned, env.DB); // a signed message works once
   if (r.error) return r.error;
   const wallet = r.parsed.address;
 
@@ -268,6 +268,12 @@ export async function handleTransferCheck(request, env, now = Date.now(), fetchI
   const s = await getSession(env, request, now);
   if (!s || !s.proof) return json({ ok: false, error: "no_proof" }, 400);
   const p = JSON.parse(s.proof);
+  // The amount was good for 30 minutes (the page said so). A re-proof rides on a 30-day session, so the proof itself
+  // has to run out: a stale one is dropped and the page starts over, instead of a blockchain look every 10 seconds for a month.
+  if (now - p.since > PENDING_SECONDS * 1000) {
+    await env.DB.prepare("UPDATE sessions SET proof = NULL WHERE id = ?").bind(s.id).run();
+    return json({ ok: false, error: "expired" }, 410);
+  }
   // at most one blockchain look every 8 seconds per person (the page asks every 10)
   if (p.lastCheck && now - p.lastCheck < 8000) return json({ ok: false, error: "not_found_yet" });
   await env.DB.prepare("UPDATE sessions SET proof = ? WHERE id = ?").bind(JSON.stringify({ ...p, lastCheck: now }), s.id).run();

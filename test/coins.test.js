@@ -97,7 +97,7 @@ test("launch: the founder submits the contract, a different person (an admin) re
   assert.equal((await adm.post("/api/coins/mint/decide", { city: "5142056", approve: false })).error, "reason_required");
   assert.equal((await f.post("/api/coins/mint/decide", { city: "5142056", approve: true })).error, "needs_second_person", "a founder who is also an admin can't approve their own coin");
 
-  const ok = await adm.post("/api/coins/mint/decide", { city: "5142056", approve: true, note: "Checked on Raydium LaunchLab" });
+  const ok = await adm.post("/api/coins/mint/decide", { city: "5142056", mint: CITY_COIN, approve: true, note: "Checked on Raydium LaunchLab" });
   assert.equal(ok.coin.launched, true);
   assert.equal(ok.coin.mint, CITY_COIN);
   assert.equal((await browser(env).get("/api/coins?city=5142056")).coin.mint, CITY_COIN);

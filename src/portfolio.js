@@ -74,7 +74,7 @@ function stateOf(env) {
   const key = env || NO_ENV;
   let s = states.get(key);
   if (!s) {
-    s = { wallets: new Cache(MAX_ENTRIES), prices: new Cache(MAX_ENTRIES), walletFlights: new Map(), priceFlights: new Map(), mints: null, mintsFlight: null, lastKey: null, sig: 0 };
+    s = { env: env || {}, wallets: new Cache(MAX_ENTRIES), prices: new Cache(MAX_ENTRIES), walletFlights: new Map(), priceFlights: new Map(), mints: null, mintsFlight: null, lastKey: null, sig: 0 };
     states.set(key, s);
   }
   return s;
@@ -147,8 +147,9 @@ async function pricesFor(s, mints, fetchImpl, now) {
   }
   for (let i = 0; i < need.length; i += PRICE_CHUNK) {
     const chunk = need.slice(i, i + PRICE_CHUNK);
-    const call = jupiterPrices(chunk, fetchImpl)
-      .then((map) => new Map(chunk.map((m) => [m, { price: map.get(m) ?? null, failed: false, at: now }])),
+    // the shared helper never throws: a failed call gives null prices (or the last good ones, stale) and failed: true
+    const call = jupiterPrices(s.env, chunk, fetchImpl, now)
+      .then(({ prices, failed }) => new Map(chunk.map((m) => [m, { price: failed ? null : prices[m] ?? null, failed: Boolean(failed), at: now }])), // a failed call is a failure here too, never a stale price
         () => new Map(chunk.map((m) => [m, { price: null, failed: true, at: now }])))
       .then((r) => { // cache first, then let the waiters go: nobody can ask again in the gap
         for (const [m, v] of r) { s.prices.set(m, { price: v.price, failed: v.failed }, v.failed ? PRICE_FAIL_TTL : PRICE_TTL, now); s.priceFlights.delete(m); }

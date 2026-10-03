@@ -33,7 +33,7 @@
  *
  * Everything else is served from /public by Cloudflare's static asset handler.
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
- * SNAPSHOT_CUTOFF, ATTEST_KEY (optional).
+ * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional).
  */
 import { activeMint, checkOfficial, officialFor, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
@@ -56,12 +56,13 @@ import { handleAppeal, handleAudit, handleBanDecision, handleDecideAppeal, handl
   handleTownDecision, handleTownRequest, handleUnhide } from "./moderation.js";
 import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots, snapshotCutoff } from "./snapshot.js";
 import { managerOf } from "./roles.js";
-import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown } from "./coins.js";
+import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown, jupiterPrices, officialCityCoin, wantedMints } from "./coins.js";
 import { runJobs } from "./jobs.js";
 import { launchpadV2On, profilesOn, v2On } from "./flags.js";
 import { routeV2 } from "./signup.js";
 import { PROFILE_PATHS, routeProfiles } from "./profiles.js";
 import { handleLaunchpad } from "./launchpad.js";
+import { publicLimit } from "./guards.js";
 
 export { json, activeMint };
 
@@ -82,7 +83,7 @@ async function cached(key, seconds, produce) {
 }
 
 export async function handleVerify(request, env = {}, now = Date.now(), fetchImpl = fetch) {
-  const r = await readSigned(request, now, ["verify"], "verified");
+  const r = await readSigned(request, now, ["verify"], "verified", undefined, env.DB || null); // one-time: a replayed body is 409, not another RPC call
   if (r.error) return r.error;
   const address = r.parsed.address;
   console.log("wallet verified", address.slice(0, 4) + "…" + address.slice(-4));
@@ -103,14 +104,9 @@ export async function handleVerify(request, env = {}, now = Date.now(), fetchImp
   return json(out);
 }
 
-/** USD price from Jupiter's public price API (asked by the server, so the page loads nothing from other sites). null if unknown. */
-async function tokenPrice(mint, fetchImpl) {
-  try {
-    const res = await fetchImpl(`https://lite-api.jup.ag/price/v3?ids=${mint}`, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) return null;
-    const p = Number((await res.json())?.[mint]?.usdPrice);
-    return Number.isFinite(p) && p > 0 ? p : null;
-  } catch { return null; }
+/** USD price from Jupiter (asked by the server, so the page loads nothing from other sites; the last good price during an outage). null if unknown. */
+async function tokenPrice(env, mint, fetchImpl) {
+  return (await jupiterPrices(env, [mint], fetchImpl)).prices[mint];
 }
 
 /** Live holders: every holder from the one-minute snapshot, or the top 20 when the RPC can't list them all. */
@@ -199,10 +195,20 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/policy":
       return only("GET") || json({ policy: POLICY, snapshotCutoff: snapshotCutoff(env), launched: Boolean(activeMint(env)),
         balanceHistory: env.DB ? await ledgerStatus(env, Date.now()) : { running: false } });
-    case "/api/check":
-      return only("GET") || json(checkOfficial(url.searchParams.get("q"), isSolanaAddress, env));
+    case "/api/check": {
+      const blocked = only("GET");
+      if (blocked) return blocked;
+      const q = url.searchParams.get("q");
+      const verdict = checkOfficial(q, isSolanaAddress, env);
+      // the list alone knows $VICINITY and the team wallets; a city coin an admin recorded is official for its city
+      if (verdict.verdict === "not_official" && verdict.kind === "address") {
+        const coin = await officialCityCoin(env, String(q || "").trim());
+        if (coin) return json(coin);
+      }
+      return json(verdict);
+    }
     case "/api/verify":
-      return only("POST") || handleVerify(request, env, Date.now(), fetchImpl);
+      return only("POST") || (await publicLimit(env, request, "verify")) || handleVerify(request, env, Date.now(), fetchImpl);
     case "/api/token": {
       const blocked = only("GET");
       if (blocked) return blocked;
@@ -210,7 +216,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (!mint) return json({ launched: false, registry: withMint(env).tokens });
       return cached("token-" + mint, 60, async () => {
         try {
-          const [facts, price] = await Promise.all([getTokenFacts(env, mint, fetchImpl), tokenPrice(mint, fetchImpl)]);
+          const [facts, price] = await Promise.all([getTokenFacts(env, mint, fetchImpl), tokenPrice(env, mint, fetchImpl)]);
           return json({ launched: true, registry: withMint(env).tokens, facts, price, marketCap: price && facts.supply ? price * facts.supply : null });
         } catch (e) { console.error("token facts failed", String(e)); return json({ launched: true, error: "chain_unavailable" }, 503); }
       });
@@ -229,7 +235,8 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (!isSolanaAddress(address)) return json({ error: "bad_address" }, 400);
       const mint = activeMint(env);
       if (!mint) return json({ launched: false, address, founderMin: founderAmount(0) });
-      return rankResponse(env, mint, address, fetchImpl);
+      // the attempt is counted only when the 30-second cache has no answer: looking at the same wallet again is free
+      return cached(`rank-${mint}-${address}`, 30, async () => (await publicLimit(env, request, "rank")) || rankResponse(env, mint, address, fetchImpl));
     }
     case "/api/message": {
       // Helper so the browser builds exactly the same text the server expects.
@@ -253,10 +260,13 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       const blocked = only("GET");
       if (blocked) return blocked;
       if (!env.DB) return json({ launched: Boolean(activeMint(env)), seats: [], windows: [] });
-      await ensureSchema(env.DB);
-      const res = await handleSeats(env);
-      const body = await res.json();
-      return json({ ...body, launched: Boolean(activeMint(env)), founderAmount: founderAmount(0) });
+      // the map polls this every 30 seconds from every open tab: one answer per 30 seconds per server
+      return cached("seats", 30, async () => {
+        await ensureSchema(env.DB);
+        const res = await handleSeats(env);
+        const body = await res.json();
+        return json({ ...body, launched: Boolean(activeMint(env)), founderAmount: founderAmount(0) });
+      });
     }
     case "/api/seats/apply":
       return only("POST") || handleApply(request, env, fetchImpl);
@@ -280,8 +290,13 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       return only("POST") || handleSquadApply(request, env, fetchImpl);
 
     // city coins (designed by City Founders) and prices for the swap panel
-    case "/api/coins":
-      return only("GET") || handleCoins(request, env, fetchImpl);
+    case "/api/coins": {
+      const blocked = only("GET");
+      if (blocked) return blocked;
+      // the whole list is public and the same for everyone: cached. One city's coin (the founder's studio) and the admin queue are live.
+      if (url.searchParams.get("city") || url.searchParams.get("waiting")) return handleCoins(request, env, fetchImpl);
+      return cached("coins", 30, () => handleCoins(request, env, fetchImpl));
+    }
     case "/api/coins/design":
       return only("POST") || handleDesign(request, env, fetchImpl);
     case "/api/coins/mint":
@@ -291,7 +306,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/coins/takedown":
       return only("POST") || handleTakedown(request, env, fetchImpl);
     case "/api/prices":
-      return only("GET") || handlePrices(request, env, fetchImpl);
+      return only("GET") || cached("prices-" + wantedMints(request).slice().sort().join(","), 30, () => handlePrices(request, env, fetchImpl));
 
     // country managers
     case "/api/moderator": {
@@ -314,13 +329,13 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/auth/reprove":
       return only("POST") || handleReprove(request, env);
     case "/api/auth/transfer":
-      return only("POST") || handleTransferStart(request, env);
+      return only("POST") || (await publicLimit(env, request, "transfer")) || handleTransferStart(request, env);
     case "/api/auth/transfer/check":
-      return only("POST") || handleTransferCheck(request, env, Date.now(), fetchImpl);
+      return only("POST") || (await publicLimit(env, request, "transfer_check")) || handleTransferCheck(request, env, Date.now(), fetchImpl);
     case "/api/auth/logout":
       return only("POST") || handleLogout(request, env);
     case "/api/pair":
-      if (method === "POST") return handlePairStart(request, env);
+      if (method === "POST") return (await publicLimit(env, request, "pair")) || handlePairStart(request, env);
       return only("GET") || handlePairStatus(request, env);
     case "/api/pair/finish":
       return only("POST") || handlePairFinish(request, env);

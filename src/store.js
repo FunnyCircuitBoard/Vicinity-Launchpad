@@ -655,6 +655,26 @@ CREATE INDEX IF NOT EXISTS auth_limits_window ON auth_limits (window_start)
 `,
 };
 
+/**
+ * Attempt counters for the public routes (src/guards.js) and for votes (src/social.js): the auth_limits table on its
+ * own. Deliberately NOT in MIGRATIONS, for the same reason as SIGNUP_MIGRATION: a migration that runs on every request
+ * must never be able to take the whole site down, and a counter table is not worth that. It is created the first time
+ * something needs to count (ensureLimitsSchema). It is the very same table the sign-up migration creates, statement for
+ * statement, so the two can run in either order and both are safe to repeat. Rule: no semicolon inside a comment or a
+ * string in this SQL, because split() cuts on every semicolon.
+ */
+export const LIMITS_MIGRATION = {
+  id: "2026-10-03-auth-limits",
+  sql: `
+CREATE TABLE IF NOT EXISTS auth_limits (
+  key          TEXT PRIMARY KEY,
+  n            INTEGER NOT NULL,
+  window_start TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS auth_limits_window ON auth_limits (window_start)
+`,
+};
+
 const profilesReady = new WeakMap();
 
 /**
@@ -714,4 +734,24 @@ export function ensureLaunchpadSchema(db) {
     })().catch((e) => { launchpadReady.delete(db); throw e; }));
   }
   return launchpadReady.get(db);
+}
+
+const limitsReady = new WeakMap();
+
+/**
+ * Create the auth_limits table the first time a counter is used (safe to repeat, and to run from two servers at once).
+ * Rejects on failure and forgets that it tried, so the next call retries. Callers decide what a failure means: the
+ * public routes let the request through (src/guards.js), votes answer an error (src/social.js).
+ */
+export function ensureLimitsSchema(db) {
+  if (!limitsReady.has(db)) {
+    limitsReady.set(db, (async () => {
+      await ensureSchema(db); // schema_migrations exists
+      const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(LIMITS_MIGRATION.id).first();
+      if (done) return;
+      for (const s of split(LIMITS_MIGRATION.sql)) await db.prepare(s).run();
+      await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(LIMITS_MIGRATION.id, new Date().toISOString()).run();
+    })().catch((e) => { limitsReady.delete(db); throw e; }));
+  }
+  return limitsReady.get(db);
 }

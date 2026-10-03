@@ -17,6 +17,8 @@ const PROGRAM_LABELS = {
   "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA": "PumpSwap liquidity pool",
   "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8": "Raydium liquidity pool",
   "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C": "Raydium liquidity pool",
+  "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj": "Raydium LaunchLab curve",
+  "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE": "Raydium locked LP",
   "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo": "Meteora liquidity pool",
   "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG": "Meteora liquidity pool",
 };
@@ -46,12 +48,19 @@ const poolLabel = (owner, ownerProgram) => {
   try { return isOnCurve(base58Decode(owner)) ? null : PROGRAM_ACCOUNT; } catch { return null; }
 };
 
+// A stuck RPC must not hold a request open: give up after 8 seconds (the Worker itself has 30). The setting
+// RPC_TIMEOUT_MS (a number of milliseconds) changes it without a deploy, for the day a very long holder list
+// needs more than that; anything that is not a positive number means the default.
+const RPC_TIMEOUT_MS = 8000;
+const rpcTimeout = (env) => { const n = Number(env && env.RPC_TIMEOUT_MS); return n > 0 ? n : RPC_TIMEOUT_MS; };
+
 export async function rpc(env, method, params, fetchImpl = fetch) {
   const url = (env && env.SOLANA_RPC_URL) || PUBLIC_RPC;
   const res = await fetchImpl(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(rpcTimeout(env)),
   });
   if (!res.ok) throw new Error(`rpc_http_${res.status}`);
   const data = await res.json();
@@ -80,6 +89,22 @@ export async function getTokenFacts(env, mint, fetchImpl) {
     // program-controlled (off-curve) address, not a person's wallet.
     mintHeldByProgram: Boolean(parsed.mintAuthority) && !isOnCurve(base58Decode(parsed.mintAuthority)),
   };
+}
+
+/**
+ * What the blockchain says an address is, before an admin records it as a city's coin: facts for a token mint
+ * (SPL Token or Token-2022) that has a supply, or null for anything else (no account, a wallet, somebody's token
+ * account, a mint nobody has minted). An RPC failure throws: "the chain could not be asked" is never "not a mint".
+ */
+export async function mintInfo(env, mint, fetchImpl = fetch) {
+  const info = await rpc(env, "getAccountInfo", [mint, { encoding: "jsonParsed" }], fetchImpl);
+  const v = info?.value, parsed = v?.data?.parsed, i = parsed?.info;
+  if (!v || (v.owner !== TOKEN_PROGRAM && v.owner !== TOKEN_2022) || !i || (parsed.type && parsed.type !== "mint") || i.supply == null) return null;
+  let raw;
+  try { raw = BigInt(i.supply); } catch { return null; }
+  const decimals = Number(i.decimals);
+  if (raw <= 0n || !Number.isInteger(decimals)) return null;
+  return { program: v.owner === TOKEN_2022 ? "Token-2022" : "SPL Token", supply: uiAmount(raw, decimals), decimals, mintAuthority: i.mintAuthority || null, freezeAuthority: i.freezeAuthority || null };
 }
 
 /** Top holders (up to 20), with owner wallets and labels for pools/curves/team. */
@@ -135,7 +160,7 @@ export async function getHoldings(env, owners, mint, fetchImpl = fetch) {
   for (let i = 0; i < owners.length; i += 25) {
     const chunk = owners.slice(i, i + 25);
     const body = chunk.map((o, j) => ({ jsonrpc: "2.0", id: j, method: "getTokenAccountsByOwner", params: [o, { mint }, { encoding: "jsonParsed" }] }));
-    const res = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(rpcTimeout(env)) });
     if (!res.ok) throw new Error(`rpc_http_${res.status}`);
     const data = await res.json();
     for (const r of Array.isArray(data) ? data : []) {
@@ -240,9 +265,12 @@ export async function getAllHolders(env, mint, fetchImpl = fetch) {
  *   { facts, rows: [{ owner, amount, percent, rank|null, label }], byOwner: Map(owner → row), people, at }
  */
 const snaps = new Map();
+// A failed snapshot is kept this long: every caller in that time gets the same error at once, instead of each
+// firing its own getProgramAccounts at an RPC that is already in trouble.
+const FAILED_FOR_MS = 5_000;
 export function holderSnapshot(env, mint, fetchImpl = fetch, maxAgeMs = 60_000) {
   const hit = snaps.get(mint);
-  if (hit && Date.now() - hit.at < maxAgeMs) return hit.promise;
+  if (hit && Date.now() < (hit.failedAt == null ? hit.at + maxAgeMs : hit.failedAt + FAILED_FOR_MS)) return hit.promise;
   const promise = getAllHolders(env, mint, fetchImpl).then(({ facts, list, labels }) => {
     let rank = 0;
     const rows = list.map(([owner, amount]) => {
@@ -252,8 +280,9 @@ export function holderSnapshot(env, mint, fetchImpl = fetch, maxAgeMs = 60_000) 
     });
     return { facts, rows, byOwner: new Map(rows.map((r) => [r.owner, r])), people: rank, at: new Date().toISOString() };
   });
-  snaps.set(mint, { at: Date.now(), promise });
-  promise.catch(() => snaps.delete(mint));
+  const entry = { at: Date.now(), promise, failedAt: null };
+  snaps.set(mint, entry);
+  promise.catch(() => { if (snaps.get(mint) === entry) entry.failedAt = Date.now(); });
   return promise;
 }
 export const _resetSnapshots = () => snaps.clear();
