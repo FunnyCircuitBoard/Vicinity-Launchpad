@@ -92,6 +92,15 @@ export async function checkLocation(env, rawLocation, body, cf) {
   return { ok: true, found, cc };
 }
 
+/**
+ * The community part of a location check, shaped exactly as makeAttestation puts it in an attestation (the sign-up
+ * has no account to sign one for, so it keeps only this): { city: { id, name } | null, nearby: [{ id, name, km }] | null }.
+ */
+export const communityOf = (found) => ({
+  city: found.city ? { id: found.city.id, name: found.city.name } : null,
+  nearby: found.city ? null : found.nearby.map((c) => ({ id: c.id, name: c.name, km: Math.round(c.km / 5) * 5 })),
+});
+
 /** Sign the 5-minute, single-use city attestation for this person and purpose. Only the community goes in it. */
 export async function makeAttestation(env, u, purpose, { found, cc }, now) {
   const exp = iso(now + POLICY.attestation.minutes * 60_000);

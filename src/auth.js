@@ -2,17 +2,20 @@
  * Accounts and sign-in. One person = ONE wallet + ONE Google login or verified e-mail, so
  * nobody can run a crowd of accounts to spam their city.
  *
- * New person:
+ * New person (today's flow, SIGNUP_FLOW unset):
  *   1. prove the wallet: sign a free message (or, for apps that can't sign, send yourself a tiny
  *      exact amount of SOL; or sign on your phone for this computer by scanning a code)
  *   2. sign in with Google or verify an e-mail address with a code → the two are linked for
  *      good → dashboard
+ * New person (SIGNUP_FLOW=v2, src/signup.js): location → Terms + Google or e-mail with a password →
+ *   wallet → one atomic step creates the account. In v2 this file can no longer create an account:
+ *   an unknown Google id or e-mail answers "no_account" here, and only signs people in.
  * Returning person: either the wallet OR the linked Google login / verified e-mail signs them
- * straight in.
+ * straight in (and, in v2, an e-mail account may also use its password: src/pwlogin.js).
  *
  * Only a hash of the session cookie is stored. From Google we keep the account id and first
- * name; from e-mail we keep the address (a code proves it, we never see a password). No
- * password, ever.
+ * name; from e-mail we keep the address (a code proves it). A password exists only in v2, only
+ * for e-mail accounts, and only as a salted hash (src/password.js). Passwords are never logged.
  *
  * Settings (Cloudflare → Workers → vicinity-map → Settings → Variables and secrets):
  *   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   Google sign-in
@@ -24,16 +27,19 @@ import { b64url, clearCookie, cookie, getCookie, json, randomToken, readJson, re
 import { checkSigned } from "./signed.js";
 import { isSolanaAddress } from "./solana.js";
 import { emailConfigured, sendMail, verificationEmail } from "./mail.js";
-import { ensureSchema } from "./store.js";
+import { ensureSchema, ensureSignupSchema } from "./store.js";
 import { findTransfer } from "./chain.js";
 import { activeMint } from "./official.js";
 import { POLICY } from "./policy.js";
 import { autoUsername } from "./text.js";
+import { v2On } from "./flags.js";
+import { check, clientKey, hits, limitKey, peek, refund } from "./limits.js";
+import { TERMS_VERSION, endSignup, getSignup, recordIdentity } from "./signup-core.js";
 
 export const SESSION_COOKIE = "vs";
 const OAUTH_COOKIE = "vo";
-const SESSION_SECONDS = 30 * 86400;  // signed in for 30 days
-const PENDING_SECONDS = 30 * 60;     // wallet proven, Google / e-mail still to link: 30 minutes
+export const SESSION_SECONDS = 30 * 86400;  // signed in for 30 days
+export const PENDING_SECONDS = 30 * 60;     // wallet proven, Google / e-mail still to link: 30 minutes
 const PAIR_SECONDS = 10 * 60;        // "sign in with my phone" codes: 10 minutes
 
 const iso = (ms) => new Date(ms).toISOString();
@@ -74,7 +80,7 @@ export const providers = (env) => ({
 
 /* ---------------- sessions ---------------- */
 
-async function createSession(env, { wallet = null, userId = null, proof = null, provenAt = null }, seconds, now) {
+export async function createSession(env, { wallet = null, userId = null, proof = null, provenAt = null }, seconds, now) {
   const token = randomToken(32);
   await env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .bind(await sha256(token), wallet, userId, proof, iso(now), iso(now + seconds * 1000), provenAt).run();
@@ -99,18 +105,32 @@ export async function getSession(env, request, now = Date.now()) {
   if (s.user_id && !user) return null;
   return { ...s, user };
 }
-const dropSession = (env, id) => env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(id).run();
-async function dropCurrent(env, request) {
+export const dropSession = (env, id) => env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(id).run();
+export async function dropCurrent(env, request) {
   const token = getCookie(request, SESSION_COOKIE);
   if (token && token.length <= 100) await dropSession(env, await sha256(token));
 }
 
-/** The wallet is proven. A linked wallet signs straight in; a new one has 30 minutes to link Google or an e-mail. */
+/**
+ * The wallet is proven. A linked wallet signs straight in; a new one has 30 minutes to link Google or an e-mail
+ * (next: "social") or, in the v2 sign-up, to finish it (next: "signup").
+ */
 async function signInWallet(env, wallet, now) {
   const user = await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(wallet).first();
   const provenAt = iso(now);
   if (user) return { cookie: await createSession(env, { wallet, userId: user.id, provenAt }, SESSION_SECONDS, now), next: "/dashboard" };
-  return { cookie: await createSession(env, { wallet, provenAt }, PENDING_SECONDS, now), next: "social" };
+  return { cookie: await createSession(env, { wallet, provenAt }, PENDING_SECONDS, now), next: v2On(env) ? "signup" : "social" };
+}
+
+/**
+ * The Set-Cookie value(s) for a finished wallet sign-in. In v2, a wallet that already has an account signs straight
+ * in and the half-done sign-up of this browser is discarded with it (its cookie is cleared). With the switch off, or for a
+ * new wallet, this is the plain session cookie, exactly as before.
+ */
+async function walletCookies(env, request, c, next) {
+  if (!v2On(env) || !next.startsWith("/dashboard")) return c;
+  const clear = await endSignup(env, request);
+  return clear.length ? [c, ...clear] : c;
 }
 
 /** Was the wallet proven in this session within the last 30 minutes? Sensitive actions need that. */
@@ -135,7 +155,7 @@ export async function handleReprove(request, env, now = Date.now()) {
   return json({ ok: true, provenAt: iso(now) });
 }
 
-const guard = async (request, env) => {
+export const guard = async (request, env) => {
   if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
   if (!env.DB) return json({ ok: false, error: "accounts_unavailable" }, 503);
   await ensureSchema(env.DB);
@@ -168,7 +188,7 @@ export async function handleWalletLogin(request, env, now = Date.now()) {
 
   await dropCurrent(env, request);
   const { cookie: c, next } = await signInWallet(env, wallet, now);
-  return json({ ok: true, wallet, next }, 200, { "Set-Cookie": c });
+  return json({ ok: true, wallet, next }, 200, { "Set-Cookie": await walletCookies(env, request, c, next) });
 }
 
 /** POST /api/pair → a code for the phone (shown as a QR code) and a 2-digit check number. */
@@ -211,7 +231,7 @@ export async function handlePairFinish(request, env, now = Date.now()) {
   if (!del.meta?.changes) return json({ ok: false, status: "expired" }, 410); // someone was faster
   await dropCurrent(env, request);
   const { cookie: c, next } = await signInWallet(env, p.wallet, now);
-  return json({ ok: true, status: "done", wallet: p.wallet, next }, 200, { "Set-Cookie": c });
+  return json({ ok: true, status: "done", wallet: p.wallet, next }, 200, { "Set-Cookie": await walletCookies(env, request, c, next) });
 }
 
 /**
@@ -261,23 +281,40 @@ export async function handleTransferCheck(request, env, now = Date.now(), fetchI
   }
   await dropSession(env, s.id);
   const { cookie: c, next } = await signInWallet(env, p.address, now);
-  return json({ ok: true, wallet: p.address, next }, 200, { "Set-Cookie": c });
+  return json({ ok: true, wallet: p.address, next }, 200, { "Set-Cookie": await walletCookies(env, request, c, next) });
 }
 
 /* ---------------- 2. Google ---------------- */
 
-/** GET /api/auth/google/start → off to Google (PKCE, with a one-time state). */
+/**
+ * GET /api/auth/google/start → off to Google (PKCE, with a one-time state).
+ * With ?signup=1 (v2 only) the person is creating an account: the Terms must be accepted in their sign-up first, and the
+ * cookie gets a 4th part "s" so the callback records the Google login in that sign-up. Without it, the callback only
+ * signs existing people in.
+ */
 export async function handleOAuthStart(request, env, provider) {
   const p = PROVIDERS[provider];
   if (!p) return json({ error: "not_found" }, 404);
   if (!p.configured(env) || !env.DB) return redirect("/connect?error=login_unavailable");
+  let marker = "";
+  if (v2On(env) && new URL(request.url).searchParams.get("signup") === "1") {
+    let row;
+    try { await ensureSignupSchema(env.DB); row = await getSignup(env, request); }
+    catch (e) { console.error("sign-up lookup failed", String((e && e.message) || e)); return redirect("/connect?error=login_unavailable"); }
+    if (!row || row.terms_version !== TERMS_VERSION) return redirect("/connect?error=terms_required");
+    marker = ".s";
+  }
   const state = randomToken(16), verifier = randomToken(48);
   const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
   const redirectUri = `${new URL(request.url).origin}/api/auth/${provider}/callback`;
-  return redirect(p.authorize(env, { redirectUri, state, challenge }), [cookie(OAUTH_COOKIE, `${provider}.${state}.${verifier}`, 600)]);
+  return redirect(p.authorize(env, { redirectUri, state, challenge }), [cookie(OAUTH_COOKIE, `${provider}.${state}.${verifier}${marker}`, 600)]);
 }
 
-/** GET /api/auth/google/callback → link the login to the proven wallet (or sign a returning person in). */
+/**
+ * GET /api/auth/google/callback → link the login to the proven wallet (or sign a returning person in).
+ * v2: it never creates an account. A known Google id signs in; an unknown one is recorded in the sign-up (when the person
+ * started from the sign-up page) or refused with "no_account" (a login attempt).
+ */
 export async function handleOAuthCallback(request, env, provider, fetchImpl = fetch, now = Date.now()) {
   const url = new URL(request.url);
   const p = PROVIDERS[provider];
@@ -286,7 +323,7 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
   const fail = (error) => redirect(`/connect?error=${error}`, [clear]);
   if (!p.configured(env) || !env.DB) return fail("login_unavailable");
   if (url.searchParams.get("error")) return fail("login_cancelled");
-  const [cp, state, verifier] = (getCookie(request, OAUTH_COOKIE) || "").split(".");
+  const [cp, state, verifier, marker] = (getCookie(request, OAUTH_COOKIE) || "").split(".");
   const code = url.searchParams.get("code");
   if (cp !== provider || !state || state !== url.searchParams.get("state") || !code || !verifier) return fail("login_expired");
 
@@ -296,16 +333,26 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
 
   await ensureSchema(env.DB);
   const session = await getSession(env, request, now);
-  const r = await linkIdentity(env, session, provider, who, now);
+  const v2 = v2On(env) ? { onNew: marker === "s"
+    ? () => recordIdentity(env, request, provider, who, now, { walletDone: Boolean(session && session.wallet && !session.user && isFresh(session, now)) })
+    : () => ({ error: "no_account" }) } : null;
+  const r = await linkIdentity(env, session, provider, who, now, v2);
   if (r.error) return fail(r.error);
-  return redirect(r.to, r.cookie ? [clear, r.cookie] : [clear]);
+  const cookies = r.cookie ? [clear, r.cookie] : [clear];
+  // An existing person signed in: any half-done sign-up in this browser is over.
+  if (v2 && r.cookie && !r.recorded) cookies.push(...await endSignup(env, request));
+  return redirect(r.to, cookies);
 }
 
 /**
  * The shared "this login is verified" step: link it to the proven wallet (creating the
  * account), or sign a returning person straight in. Returns { to, cookie, isNew } or { error }.
+ *
+ * v2 = { onNew() } (the sign-up v2): an identity that belongs to nobody yet is handed to onNew() instead of creating an
+ * account here, so this function can only ever SIGN IN in v2 (the account is made by finish in src/signup.js, after
+ * the Terms and the location). With v2 === null (the switch off) it is exactly the original.
  */
-export async function linkIdentity(env, session, provider, who, now) {
+export async function linkIdentity(env, session, provider, who, now, v2 = null) {
   const linked = await env.DB.prepare("SELECT id, wallet FROM users WHERE provider = ? AND provider_id = ?").bind(provider, who.id).first();
   // Signing in with Google / e-mail alone doesn't prove the wallet: sensitive actions ask for it again.
   const start = async (userId, wallet, to, isNew) => {
@@ -323,6 +370,7 @@ export async function linkIdentity(env, session, provider, who, now) {
       return start(linked.id, linked.wallet, "/dashboard", false);
     }
     if (await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(session.wallet).first()) return { error: "wallet_taken" };
+    if (v2) return v2.onNew();
     // A handle can collide with the (case-insensitive) unique index when someone takes it between the check and the
     // INSERT: that is not the person's problem, so pick another name and go on. wallet / provider_id collisions are.
     for (let attempt = 0; ; attempt++) {
@@ -342,7 +390,7 @@ export async function linkIdentity(env, session, provider, who, now) {
 
   // No wallet proven in this browser: a returning person signs in with their login alone.
   if (linked) return start(linked.id, linked.wallet, "/dashboard", false);
-  return { error: "wallet_first" };
+  return v2 ? v2.onNew() : { error: "wallet_first" };
 }
 
 /** POST /api/auth/logout */
@@ -360,6 +408,10 @@ const CODE_MAX_SENDS = 5;           // sends per rolling hour, per address
 const CODE_MAX_ATTEMPTS = 5;        // wrong guesses before the code is thrown away
 const GLOBAL_MAX_SENDS = 2000;      // codes mailed per rolling hour across the whole site (override: EMAIL_MAX_PER_HOUR)
 const HOUR_MS = 3600_000;
+// v2 only (SIGNUP_FLOW=v2). Without these, five sends an hour times five guesses was 600 guesses a day at one address, for any
+// e-mail account, through the old sign-in routes (a right code signs the person in; no password is asked).
+const MAIL_PER_DAY = 20;                                  // mails per address per 24 hours, whatever the code is for
+const OLD_ROUTE = { start: { kind: "oes", max: 20 }, verify: { kind: "oev", max: 60 } };  // tries per connection per hour on the old routes
 
 const cleanEmail = (s) => String(s || "").trim().toLowerCase().slice(0, 254);
 // Loose shape check (the code that arrives is the real proof) that also refuses control characters and
@@ -402,29 +454,42 @@ function sixDigits() {
   return String(100000 + ((b[0] * 65536 + b[1] * 256 + b[2]) % 900000));
 }
 
-async function sendCodeEmail(env, to, code, fetchImpl, mailer = {}) {
-  const { subject, text, html } = verificationEmail(code);
+async function sendCodeEmail(env, to, code, fetchImpl, mailer = {}, kind = "signin") {
+  const { subject, text, html } = verificationEmail(code, kind);
   return sendMail(env, { to, subject, text, html }, { fetchImpl, smtpImpl: mailer.smtpImpl || null });
 }
 
 /**
- * POST /api/auth/email/start { email } → send a 6-digit code.
- * The send slot (one a minute, five an hour per address) is claimed by ONE atomic statement BEFORE the mail
- * goes out, so parallel requests can't all pass the checks and mail the same person dozens of times.
- * A site-wide hourly cap (EMAIL_MAX_PER_HOUR, default 2000) keeps one caller from burning the mail quota.
+ * Claim a send slot for this address and e-mail it a 6-digit code (shared by /api/auth/email/start and the v2 routes).
+ * The slot (one a minute, five an hour per address) is claimed by ONE atomic statement BEFORE the mail goes out, so
+ * parallel requests can't all pass the checks and mail the same person dozens of times. A site-wide hourly cap
+ * (EMAIL_MAX_PER_HOUR, default 2000) keeps one caller from burning the mail quota. If the mail never left, the slot is
+ * given back and the code is killed, so a mail-service hiccup doesn't lock the person out.
+ *   kind     what the e-mail says the code is for: "signin" (default), "signup" or "reset"
+ *   waitUntil  (optional) a function that keeps a promise alive after the answer is sent, like ctx.waitUntil: the mail is then
+ *            sent (and the slot given back on failure) in the background, so the answer does not wait for the mail server
+ *   noSend   (optional) claim the slot and write the code, but send nothing: the same database work as a real send
+ *   codeKey  (optional) the name the code is filed under (default: the address). The mail still goes to `email`. A code can
+ *            only be used under the name it was filed under, so a sign-in code can never serve as a password reset code
+ * Returns { ok: true } or { ok: false, error: "bad_email" | "email_unavailable" | "too_many" | "too_soon" | "slow_down", status }.
+ * ("slow_down" = v2 only: 20 mails to this address in the last 24 hours.)
  */
-export async function handleEmailStart(request, env, fetchImpl = fetch, now = Date.now(), mailer = {}) {
-  const blocked = await guard(request, env);
-  if (blocked) return blocked;
-  const body = await readJson(request);
-  const email = cleanEmail(body && body.email);
-  if (!validEmail(email)) return json({ ok: false, error: "bad_email" }, 400);
-  if (!emailConfigured(env)) return json({ ok: false, error: "email_unavailable" }, 503);
+export async function sendEmailCode(env, email, { fetchImpl = fetch, now = Date.now(), mailer = {}, kind = "signin", waitUntil = null, noSend = false, codeKey = email } = {}) {
+  if (!validEmail(email)) return { ok: false, error: "bad_email", status: 400 };
+  if (!emailConfigured(env)) return { ok: false, error: "email_unavailable", status: 503 };
 
   const hourAgo = iso(now - HOUR_MS);
   const cap = Number(env.EMAIL_MAX_PER_HOUR) > 0 ? Number(env.EMAIL_MAX_PER_HOUR) : GLOBAL_MAX_SENDS;
   const total = await env.DB.prepare("SELECT COALESCE(SUM(send_count), 0) AS n FROM email_codes WHERE window_start > ?").bind(hourAgo).first();
-  if (total && total.n >= cap) return json({ ok: false, error: "too_many" }, 429);
+  if (total && total.n >= cap) return { ok: false, error: "too_many", status: 429 };
+  // v2: 20 mails per address in 24 hours, for every kind of code. It counts mails that were really claimed (below), never tries that
+  // a minute or hour rule refused, so a stranger cannot use it up with a burst of requests. A refusal here touches no code.
+  let dayKey = null;
+  if (v2On(env)) {
+    await ensureSignupSchema(env.DB); // the counters live in the sign-up tables (the old routes only ensure the old ones)
+    dayKey = await limitKey(env, "mail", email);
+    if ((await peek(env, dayKey, 24 * HOUR_MS, now)) >= MAIL_PER_DAY) return { ok: false, error: "slow_down", status: 429 };
+  }
 
   const code = sixDigits();
   const hash = await sha256(code);
@@ -437,28 +502,76 @@ export async function handleEmailStart(request, env, fetchImpl = fetch, now = Da
         last_sent_at = excluded.last_sent_at
       WHERE (last_sent_at IS NULL OR last_sent_at <= ?) AND (window_start IS NULL OR window_start <= ? OR send_count < ?)
       RETURNING send_count`)
-    .bind(email, hash, iso(now), iso(now + CODE_SECONDS * 1000), iso(now), iso(now), hourAgo, hourAgo, iso(now - CODE_RESEND_SECONDS * 1000), hourAgo, CODE_MAX_SENDS).first();
+    .bind(codeKey, hash, iso(now), iso(now + CODE_SECONDS * 1000), iso(now), iso(now), hourAgo, hourAgo, iso(now - CODE_RESEND_SECONDS * 1000), hourAgo, CODE_MAX_SENDS).first();
   if (!claimed) {
-    const row = await env.DB.prepare("SELECT last_sent_at FROM email_codes WHERE email = ?").bind(email).first();
+    const row = await env.DB.prepare("SELECT last_sent_at FROM email_codes WHERE email = ?").bind(codeKey).first();
     const soon = row && row.last_sent_at && now - Date.parse(row.last_sent_at) < CODE_RESEND_SECONDS * 1000;
-    return json({ ok: false, error: soon ? "too_soon" : "too_many" }, 429);
+    return { ok: false, error: soon ? "too_soon" : "too_many", status: 429 };
   }
+  if (dayKey) await hits(env, [{ key: dayKey, windowMs: 24 * HOUR_MS }], now);
 
-  const sent = await sendCodeEmail(env, email, code, fetchImpl, mailer);
-  if (!sent.ok) {
-    // The mail never left: give the slot back (and kill the code nobody received) so a mail-service hiccup doesn't lock the person out.
-    await env.DB.prepare("UPDATE email_codes SET last_sent_at = NULL, send_count = MAX(send_count - 1, 0), expires_at = ? WHERE email = ? AND code_hash = ?").bind(iso(now), email, hash).run();
-    return json(sent, 503);
+  // The mail never left: give the slot back (and kill the code nobody received).
+  const giveBack = async () => {
+    await env.DB.prepare("UPDATE email_codes SET last_sent_at = NULL, send_count = MAX(send_count - 1, 0), expires_at = ? WHERE email = ? AND code_hash = ?").bind(iso(now), codeKey, hash).run();
+    if (dayKey) await refund(env, [dayKey]);
+  };
+  const deliver = async () => {
+    const sent = await sendCodeEmail(env, email, code, fetchImpl, mailer, kind);
+    if (!sent.ok) await giveBack();
+    return sent;
+  };
+  if (noSend) { /* nothing is sent */ }
+  else if (waitUntil) {
+    waitUntil(deliver().catch(async (e) => {
+      console.error("code e-mail failed", String((e && e.message) || e));
+      try { await giveBack(); } catch { /* the slot frees itself after a minute anyway */ }
+    }));
+  } else {
+    const sent = await deliver();
+    if (!sent.ok) return { ...sent, status: 503 };
   }
   // Tidy now and then: only rows whose code AND hourly counters are both over.
   if (Math.random() < 0.05) await env.DB.prepare("DELETE FROM email_codes WHERE expires_at < ? AND (window_start IS NULL OR window_start < ?)").bind(iso(now), hourAgo).run();
+  return { ok: true };
+}
+
+/**
+ * v2 only: the old e-mail routes (they only sign people in now) count tries per connection, like the new sign-up routes. Switch off:
+ * nothing is counted and nothing changes. Returns a Response to send, or null. `spec` is one of OLD_ROUTE.
+ */
+async function oldRouteLimit(env, request, spec, now) {
+  if (!v2On(env)) return null;
+  try { await ensureSignupSchema(env.DB); }
+  catch (e) {
+    console.error("sign-up tables unavailable", String((e && e.message) || e));
+    return json({ ok: false, error: "signup_unavailable" }, 503);
+  }
+  const r = await check(env, [{ key: await limitKey(env, spec.kind, clientKey(request)), windowMs: HOUR_MS, max: spec.max }], now);
+  return r.ok ? null : json({ ok: false, error: "slow_down" }, 429);
+}
+
+/** POST /api/auth/email/start { email } → send a 6-digit code. */
+export async function handleEmailStart(request, env, fetchImpl = fetch, now = Date.now(), mailer = {}) {
+  const blocked = await guard(request, env);
+  if (blocked) return blocked;
+  const slow = await oldRouteLimit(env, request, OLD_ROUTE.start, now);
+  if (slow) return slow;
+  const body = await readJson(request);
+  const r = await sendEmailCode(env, cleanEmail(body && body.email), { fetchImpl, now, mailer });
+  if (!r.ok) return json({ ok: false, error: r.error }, r.status);
   return json({ ok: true });
 }
 
-/** POST /api/auth/email/verify { email, code } → link the e-mail to the proven wallet, or sign in. */
+/**
+ * POST /api/auth/email/verify { email, code } → link the e-mail to the proven wallet, or sign in.
+ * v2: this route only signs existing e-mail accounts in. An unknown address answers "no_account" (the sign-up page
+ * has its own route, /api/signup/email/verify, which needs the Terms and the location first).
+ */
 export async function handleEmailVerify(request, env, fetchImpl = fetch, now = Date.now()) {
   const blocked = await guard(request, env);
   if (blocked) return blocked;
+  const slow = await oldRouteLimit(env, request, OLD_ROUTE.verify, now);
+  if (slow) return slow;
   const body = await readJson(request);
   const email = cleanEmail(body && body.email);
   const code = String((body && body.code) || "").replace(/\D/g, "").slice(0, 6);
@@ -469,8 +582,13 @@ export async function handleEmailVerify(request, env, fetchImpl = fetch, now = D
 
   await ensureSchema(env.DB);
   const session = await getSession(env, request, now);
-  const r = await linkIdentity(env, session, "email", { id: email, handle: null, name: "E-mail member" }, now);
+  const v2 = v2On(env) ? { onNew: () => ({ error: "no_account" }) } : null;
+  const r = await linkIdentity(env, session, "email", { id: email, handle: null, name: "E-mail member" }, now, v2);
   if (r.error) return json({ ok: false, error: r.error }, 400);
   const headers = r.cookie ? { "Set-Cookie": r.cookie } : {};
+  if (v2 && r.cookie) { // signed in as an existing person: a half-done sign-up in this browser is over
+    const clear = await endSignup(env, request);
+    if (clear.length) headers["Set-Cookie"] = [r.cookie, ...clear];
+  }
   return json({ ok: true, next: r.to, isNew: r.isNew }, 200, headers);
 }

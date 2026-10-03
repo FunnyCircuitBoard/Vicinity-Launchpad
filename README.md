@@ -41,13 +41,15 @@ src/seats.js        City founders · src/elections.js country managers · src/mo
 src/snapshot.js     Founding Supporters (Merkle proofs) · src/attest.js location attestations
 src/auth.js         Accounts: wallet sign-in, Google / e-mail codes, phone pairing, tiny-transfer proof, re-proving, sessions
 src/admin.js        The /admin console API (/api/admin/*): roles, content, snapshots, config; every change needs a fresh wallet proof and is logged
+src/signup.js       The new sign-up (only while SIGNUP_FLOW=v2): state, location, Terms, Google / e-mail + password, and the one atomic `finish` · src/signup-core.js its cookie and tidy-up · src/pwlogin.js password log-in
+src/password.js     Password hashing (PBKDF2-SHA256) and rules · src/limits.js atomic attempt counters · src/flags.js the SIGNUP_FLOW switch
 src/handoff.js      Location hand-off: the wallet app's browser can't share GPS, the phone's own browser does it (coordinates are never stored)
 src/tickers.js      City coin tickers, one per community everywhere, read from public/data/tickers.json (npm run tickers builds it)
 src/me.js           Dashboard data · src/social.js feeds · src/roles.js roles · src/access.js who may do what
 src/chain.js        Read-only Solana data: token facts, every holder + ranks, balances, transfer lookup
 src/community.js    Which community a point is in (or the three nearest) · src/cities.js + src/geo.js city data
 src/store.js        Database schema + migrations (Cloudflare D1; applied automatically) · src/blobs.js big stored values
-test/               Automated tests (npm test); the browser pages are checked by hand (see docs/AUDIT.md); helpers/world.js is a small test world with a clock tests can move
+test/               Automated tests (npm test); the browser pages are checked by hand (see docs/AUDIT.md); helpers/world.js is a small test world with a clock tests can move; helpers/fakedom.js runs the sign-up page's script (public/signup.js) without a browser
 wrangler.jsonc      Cloudflare settings (addresses, database, the 10-minute schedule, build = copy files + pages + tests)
 ```
 
@@ -61,8 +63,12 @@ Keys and passwords (`SOLANA_RPC_URL`, `GOOGLE_CLIENT_SECRET`, the mail keys) are
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in. Redirect URI: `https://vicinity.city/api/auth/google/callback` |
 | `SNAPSHOT_CUTOFF` | The Founding Supporter cutoff, always 00:00 UTC, e.g. `2026-10-08T00:00:00Z`. Announce it first. |
 | `ATTEST_KEY` | Optional: the key that signs location attestations (otherwise one is made once and kept in the database). |
+| `SIGNUP_FLOW` | `v2` switches on the new sign-up (see below); anything else or missing = today's sign-up. A plain dashboard variable, flipped without a deploy. |
+| `PASSWORD_PEPPER` | Secret for the new sign-up: mixed into every password hash. Create it before the first password exists and never change it. See [docs/DEPLOY.md](docs/DEPLOY.md). |
 
 The scheduled job and the full holder list need more CPU time than Cloudflare's free plan allows once there are many holders: use the Workers Paid plan.
+
+**The new sign-up (dark until `SIGNUP_FLOW=v2`).** Location first, then the account, then the wallet: a new person's location is checked with the same rules as `/api/locate` (only the community is kept, never the coordinates; a person in empty land picks one of the three nearest communities, or finishes the check in their phone's own browser), then they accept the Terms of Use and sign in with Google, or with an e-mail address, a password and the 6-digit code that proves the mailbox, then they prove their wallet; one atomic database step then creates the account (nothing is half-made if anything fails or two taps arrive together) and they land on the dashboard. Returning members log in with their wallet, Google, or e-mail + password and repeat nothing. Passwords are salted PBKDF2-SHA256 hashes (100,000 rounds, the most Cloudflare's runtime allows, which needs the Workers Paid plan: about 50 ms of CPU per check), plus an optional secret `PASSWORD_PEPPER`, a blocklist of common passwords and strict attempt counters (`src/password.js`, `src/limits.js`). While the switch is off the new routes answer `404 not_enabled`, the old sign-up is untouched and no new table exists; with it on, the old routes can only sign people in. Code: `src/signup.js` (the sign-up and its single `finish`), `src/signup-core.js`, `src/pwlogin.js`. How to flip it on and off, and what to do before: the "Sign-up v2 switch" section of [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## API
 | Route | What it does |
@@ -76,6 +82,7 @@ The scheduled job and the full holder list need more CPU time than Cloudflare's 
 | `GET /api/snapshots` · `/api/snapshots/:id/proof?wallet=` · `/api/snapshots/:id/data` | Founding Supporters, Merkle proofs, all inputs |
 | `POST /api/auth/wallet` · `/api/auth/transfer` (+`/check`) · `/api/auth/reprove` · `/api/pair` (+`/finish`) · `GET /api/pair?code=` | Prove a wallet |
 | `GET /api/auth/google/start` (and `/callback`) · `POST /api/auth/logout` | Google sign-in |
+| `/api/signup/*` (start, state, location, terms, email, finish ...) · `POST /api/auth/email/login` · `/api/auth/password/*` · `/api/me/password` | The new sign-up and password log-in: only while `SIGNUP_FLOW=v2`, otherwise `404 not_enabled` |
 | `GET /api/me` · `POST /api/home` · `POST /api/locate` | Dashboard data · home community · where a location is read |
 | `POST /api/locate/handoff` (+`/info`, `/complete`, `/claim`) | Location check finished in the phone's own browser, collected by the wallet app |
 | `GET\|POST /api/posts` · `POST /api/posts/vote` · `/api/posts/report` · `GET /api/media/:id` | Feeds |
@@ -129,7 +136,7 @@ The test suite runs the same check, so a build with overlapping areas can't depl
 Everything is launched from GitHub: a pull request is tested automatically (`.github/workflows/ci.yml`), and merging it into `main` deploys it (`.github/workflows/deploy.yml`: build, every test, `wrangler deploy`, then a check of the live security headers). One-time setup, the launch checklist and rollback: [docs/DEPLOY.md](docs/DEPLOY.md). Nothing should be deployed from anyone's computer.
 
 ## Security
-- One account per wallet and per login (Google account or e-mail address), enforced by the database. That makes fake accounts harder but does not prove one person: one inbox can have many addresses. What we keep: your wallet address; for Google sign-in only the Google account id and your first name; for e-mail sign-in the e-mail address itself (it is your account id) and a hash of the 6-digit code (codes expire after 10 minutes); a made-up username (changeable, 3 times a day at most); your home community; and, only if you add them, a contact e-mail and a phone number, which you can remove any time (the phone number is not verified and not used for anything yet). Check-in coordinates are never stored. No passwords. Only a hash of the session cookie is stored (HttpOnly, Secure, SameSite=Lax, 30 days); requests that change something must come from this site (Origin check).
+- One account per wallet and per login (Google account or e-mail address), enforced by the database. That makes fake accounts harder but does not prove one person: one inbox can have many addresses. What we keep: your wallet address; for Google sign-in only the Google account id and your first name; for e-mail sign-in the e-mail address itself (it is your account id) and a hash of the 6-digit code (codes expire after 10 minutes); a made-up username (changeable, 3 times a day at most); your home community; and, only if you add them, a contact e-mail and a phone number, which you can remove any time (the phone number is not verified and not used for anything yet). Check-in coordinates are never stored. Passwords: none today; when the new sign-up is switched on (`SIGNUP_FLOW=v2`), an e-mail account keeps a salted, deliberately slow hash of its password (never the password itself), and a half-finished sign-up keeps your community, your network provider and country, and the verified Google id or e-mail address for at most 3 hours. Only a hash of the session cookie is stored (HttpOnly, Secure, SameSite=Lax, 30 days); requests that change something must come from this site (Origin check).
 - Wallet proof is message signing (can't move funds; bound to this site; expires after 10 minutes), a phone approving a computer's sign-in (one-time code + 2-digit check number), or a tiny exact SOL transfer the wallet sends to itself (only the owner can send from a wallet).
 - Locations are never stored: they're used once to find a community, check in, claim, or request a town (requests keep a point rounded to about 5 km). VPNs, proxies and far-away connections are refused.
 - Feeds never show wallets; contract addresses can't be posted; pictures are checked (JPEG / PNG / WebP only) and served with a locked-down policy.

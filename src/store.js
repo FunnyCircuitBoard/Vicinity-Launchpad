@@ -540,3 +540,70 @@ export function ensureSchema(db) {
   if (!schemaReady.has(db)) schemaReady.set(db, migrate(db).catch((e) => { schemaReady.delete(db); throw e; }));
   return schemaReady.get(db);
 }
+
+/**
+ * Sign-up v2 (src/signup.js, src/pwlogin.js). Deliberately NOT in MIGRATIONS: those run on every request of
+ * every route, so a failure there takes the whole site down. This one runs only when SIGNUP_FLOW=v2 (see
+ * ensureSignupSchema), so with the switch off no new statement ever touches the database, and a failure
+ * here can only break the new sign-up. Every statement is safe to repeat. Rule: no semicolon inside a
+ * comment or a string in this SQL, because split() cuts on every semicolon.
+ *   signups     → one unfinished sign-up (community, terms, Google id or e-mail + password hash), at most 3 hours
+ *   auth_limits → one counter per anonymous key (keys are HMACs, never an address or a raw IP)
+ */
+export const SIGNUP_MIGRATION = {
+  id: "2026-10-03-signup-v2",
+  sql: `
+CREATE TABLE IF NOT EXISTS signups (
+  id            TEXT PRIMARY KEY,
+  terms_version TEXT,
+  terms_at      TEXT,
+  loc_city      TEXT,
+  loc_name      TEXT,
+  loc_country   TEXT,
+  loc_choices   TEXT,
+  loc_net       TEXT,
+  loc_at        TEXT,
+  provider      TEXT,
+  provider_id   TEXT,
+  identity_name TEXT,
+  identity_at   TEXT,
+  pending_email TEXT,
+  pending_pw_hash TEXT,
+  created_at    TEXT NOT NULL,
+  expires_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS signups_expires ON signups (expires_at);
+CREATE TABLE IF NOT EXISTS auth_limits (
+  key          TEXT PRIMARY KEY,
+  n            INTEGER NOT NULL,
+  window_start TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS auth_limits_window ON auth_limits (window_start);
+ALTER TABLE users ADD COLUMN password_hash TEXT;
+ALTER TABLE handoffs ADD COLUMN signup_id TEXT;
+CREATE INDEX IF NOT EXISTS handoffs_signup ON handoffs (signup_id)
+`,
+};
+
+const signupReady = new WeakMap();
+
+/**
+ * Create the sign-up v2 tables and columns the first time a v2 route needs them (safe to repeat, and to run
+ * from two servers at once: "duplicate column" is ignored). Rejects on any other failure and forgets that it
+ * tried, so the next v2 request retries. Callers answer 503 signup_unavailable and nothing else is affected.
+ */
+export function ensureSignupSchema(db) {
+  if (!signupReady.has(db)) {
+    signupReady.set(db, (async () => {
+      await ensureSchema(db); // users and handoffs exist (from the normal migrations)
+      const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(SIGNUP_MIGRATION.id).first();
+      if (done) return;
+      for (const s of split(SIGNUP_MIGRATION.sql)) {
+        try { await db.prepare(s).run(); }
+        catch (e) { if (!/duplicate column/i.test(String(e && e.message ? e.message : e))) throw e; }
+      }
+      await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(SIGNUP_MIGRATION.id, new Date().toISOString()).run();
+    })().catch((e) => { signupReady.delete(db); throw e; }));
+  }
+  return signupReady.get(db);
+}

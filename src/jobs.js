@@ -9,6 +9,8 @@ import { advanceSeats } from "./seats.js";
 import { advanceElections } from "./elections.js";
 import { expireModeration } from "./moderation.js";
 import { advanceSnapshots } from "./snapshot.js";
+import { cleanupSignups } from "./signup-core.js";
+import { v2On } from "./flags.js";
 import { DAY, HOUR, iso } from "./policy.js";
 
 export async function runJobs(env, now = Date.now(), fetchImpl = fetch, rand = Math.random) {
@@ -39,6 +41,7 @@ async function cleanup(env, now) {
     // sign-in codes: only rows whose code AND hourly send counters are both over (same rule as the tidy-up in handleEmailStart)
     db.prepare("DELETE FROM email_codes WHERE expires_at < ? AND (window_start IS NULL OR window_start < ?)").bind(iso(now), iso(now - HOUR)),
   ]);
+  if (v2On(env)) await cleanupSignups(env, now); // sign-up v2 leftovers. With the switch off no sign-up statement runs at all: those tables may not exist yet
   if (new Date(now).getUTCHours() === 3 && new Date(now).getUTCMinutes() < 10) await pruneLedger(env, now);
   return { ok: true };
 }

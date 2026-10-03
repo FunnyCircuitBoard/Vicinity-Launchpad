@@ -20,6 +20,7 @@ import { ensureSchema } from "./store.js";
 import { communityById } from "./community.js";
 import { tickerOf } from "./tickers.js";
 import { latestBalances } from "./ledger.js";
+import { v2On } from "./flags.js";
 
 const HOME_LOCK_DAYS = 7; // a home community can be changed once a week
 const mask = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
@@ -177,15 +178,19 @@ async function liveStatus(env, s, fetchImpl, now) {
 export async function handleMe(request, env, fetchImpl = fetch, now = Date.now()) {
   const s = await getSession(env, request, now);
   const prov = providers(env);
-  if (!s) return json({ signedIn: false, providers: prov });
+  // The new sign-up (SIGNUP_FLOW=v2) says so in every answer, and tells a signed-in person whether they have a password.
+  // With the switch off there is no new key at all: the answers are exactly what they have always been.
+  const v2 = v2On(env);
+  const flag = v2 ? { signupFlow: "v2" } : {};
+  if (!s) return json({ signedIn: false, providers: prov, ...flag });
   if (!s.user) {
     let proof = null;
     try { if (s.proof) { const p = JSON.parse(s.proof); proof = { address: p.address, lamports: p.lamports, sol: (p.lamports / 1e9).toFixed(6) }; } } catch {}
-    return json({ signedIn: false, providers: prov, pending: s.wallet ? { wallet: s.wallet } : null, proof });
+    return json({ signedIn: false, providers: prov, pending: s.wallet ? { wallet: s.wallet } : null, proof, ...flag });
   }
-  const user = publicUser(s.user);
-  if (new URL(request.url).searchParams.get("lite") === "1") return json({ signedIn: true, user, providers: prov, fresh: isFresh(s, now) });
-  return json({ signedIn: true, user, providers: prov, ...(await liveStatus(env, s, fetchImpl, now)) });
+  const user = v2 ? { ...publicUser(s.user), hasPassword: Boolean(s.user.password_hash) } : publicUser(s.user);
+  if (new URL(request.url).searchParams.get("lite") === "1") return json({ signedIn: true, user, providers: prov, fresh: isFresh(s, now), ...flag });
+  return json({ signedIn: true, user, providers: prov, ...flag, ...(await liveStatus(env, s, fetchImpl, now)) });
 }
 
 /**

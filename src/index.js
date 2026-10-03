@@ -13,6 +13,10 @@
  *   GET  /api/snapshots · /api/snapshots/:id/proof?wallet= · /api/snapshots/:id/data   Founding Supporters
  * Accounts (src/auth.js): /api/auth/wallet · /api/auth/transfer(/check) · /api/auth/reprove · /api/pair(/finish)
  *   · /api/auth/google/start|callback · /api/auth/email/{start,verify} · /api/auth/logout
+ * New sign-up, only while SIGNUP_FLOW=v2 (otherwise 404 not_enabled; src/signup.js, src/pwlogin.js):
+ *   /api/signup/{start,state,terms,finish} · /api/signup/location(/choice) · /api/signup/location/handoff(/info,/complete,/claim)
+ *   · /api/signup/account/reset · /api/signup/email(/verify) · /api/auth/google/start?signup=1
+ *   · /api/auth/email/login · /api/auth/password/reset(/start) · /api/me/password
  * Signed in: /api/me · /api/me/{terms,username,phone} · /api/me/contact/email/{verify,remove} · /api/home
  *   · /api/locate (the place a location is read, with /api/locate/handoff/* when a wallet app's browser can't
  *   share GPS: src/handoff.js) · /api/posts(/vote, /report)
@@ -49,6 +53,8 @@ import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots,
 import { managerOf } from "./roles.js";
 import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown } from "./coins.js";
 import { runJobs } from "./jobs.js";
+import { v2On } from "./flags.js";
+import { routeV2 } from "./signup.js";
 
 export { json, activeMint };
 
@@ -130,13 +136,22 @@ async function rankResponse(env, mint, address, fetchImpl) {
   }
 }
 
-export async function handleApi(request, env = {}, fetchImpl = fetch) {
+// Routes that exist only in the new sign-up (SIGNUP_FLOW=v2), besides everything under /api/signup/.
+const V2_EXACT = new Set(["/api/auth/email/login", "/api/auth/password/reset/start", "/api/auth/password/reset", "/api/me/password"]);
+
+export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null) {
   const url = new URL(request.url);
   const method = request.method;
   const only = (m) => (method === m ? null : json({ error: "method_not_allowed" }, 405));
   const path = url.pathname;
   const needsDb = () => (env.DB ? null : json({ ok: false, error: "unavailable" }, 503));
   const db = async (fn) => needsDb() || (await ensureSchema(env.DB), fn());
+
+  // the new sign-up and password log-in: with the switch off they are simply not there (before any method check, so nothing can be probed)
+  if (path.startsWith("/api/signup/") || V2_EXACT.has(path)) {
+    if (!v2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
+    return routeV2(request, env, fetchImpl, ctx);
+  }
 
   // paths with an id in them
   if (path.startsWith("/api/admin/")) return db(() => handleAdmin(request, env));
@@ -377,7 +392,7 @@ const isLocal = (request, url) =>
   LOCAL_HOST.test(url.hostname) || ["127.0.0.1", "::1"].includes(request.headers.get("cf-connecting-ip"));
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
       const insecure = url.protocol === "http:" && !isLocal(request, url);
@@ -386,7 +401,7 @@ export default {
         url.protocol = "https:"; url.port = "";
         return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
       }
-      if (url.pathname.startsWith("/api/")) return await handleApi(request, env);
+      if (url.pathname.startsWith("/api/")) return await handleApi(request, env, fetch, ctx);
       return withSecurityHeaders(await env.ASSETS.fetch(request));
     } catch (err) {
       console.error("Unhandled error:", err && err.stack ? err.stack : err);
