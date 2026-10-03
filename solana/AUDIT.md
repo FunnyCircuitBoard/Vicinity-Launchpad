@@ -202,33 +202,118 @@ minimum claim window is 14 days (the script prints the date after which
 `sweep_epoch(0)` works); the sweep path is proven by the test suite against a
 real 60-second deadline.
 
-### Current state (3 Oct 2026, 10:49 UTC)
+### Current state (3 Oct 2026, 17:15 UTC): deployed, registry created, demo run
 
-**Not deployed yet: the devnet faucet did not release enough SOL.** The
-throwaway deployer `9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa`
-(https://explorer.solana.com/address/9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa?cluster=devnet)
-holds 2 SOL, which is what the public faucet released during 123 `solana airdrop`
-requests between 06:38 and 10:48 UTC (two sessions, 1 and 2 SOL requests, the
-default RPC and the Alchemy demo endpoint, 90 s to 5 min apart); every other
-request was refused with "airdrop request failed ... rate limit" or HTTP 429.
-Deploying the production binary (505,864 bytes after the second review's
-fixes) needs 2.571 SOL of rent for the program data account alone (section 6),
-so the deploy was not attempted: it would have failed half way and locked the
-SOL in a buffer account. The second fixer retried the faucet twice more
-(11:31 UTC, both refused, logged outside the repository) with the same result.
+The deployer `9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa` was topped up by the
+owner from the public faucet (2 SOL, 4 SOL in total after the 2 SOL the faucet had
+released to the build machine between 06:38 and 10:48 UTC in 123 requests). The three
+commands above then ran in one go from the build machine, logged outside the
+repository, with the saved production binary (505,864 bytes,
+`f0fbc9d53ed092210eef3f97047644d6f796d634bf11c428795ff8b0b1e509a3`, hash-checked before
+the deploy) and the program keypair of `declare_id!`.
 
-The program id `Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi` therefore has no
-account on devnet yet
-(https://explorer.solana.com/address/Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi?cluster=devnet).
-The auditor's path is the local one in section 3: `npm run init-registry`,
-the full suite and `scripts/demo.ts` on a hand-started validator exercise every
-instruction, including sweep after a real deadline, against the same bytes
-(section 8 records that run). The devnet step is finished by running the three
-commands above once the deployer holds about 2.7 SOL (another faucet grant, or
-0.7 SOL sent to it from any devnet wallet) and pasting the JSON block that
-`devnet-demo` prints below this paragraph; nothing in the repository changes
-for that, because `declare_id!`, `Anchor.toml` and the IDL already carry the
-devnet program id.
+| Step | Result |
+|---|---|
+| `solana program deploy ... --use-rpc --max-len 505864` | program `Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi`, ProgramData `B4XTEHayYiGTHkrRwMSxduGsWAg6rHAXhMkwqbgFLUoa`, upgrade authority = the deployer, slot 507068536, data length 505,864 bytes, program account balance 2.57066796 SOL; signature `2udFL7bWE9XuFes6sWEKX2cb5jX1RAsVGYJPQbGpgsY9oR62RqJbh67rXpzxk6wJ3B8iyDcPgejYqhME6EtQ4zoC` |
+| `npm run init-registry` | registry PDA `2rKKwGGcJEDRJBhdHRPtHQpoxPmq9wPWWj3uMrcRaRg3`, admin = the deployer; signature `4AJAGEd5aMGQw42yZiuCLtiYJBHxC8yq7AJmYtZLvb4WEmvTwphbXWTDKE5dVuZE4AmqrrWkW6X8PY6BNcz66dgd` |
+| `npm run devnet-demo` | one city (Split 50/50) with a test reward mint, epoch 0 funded with a 3-leaf tree, one holder claimed 25 with a 2-hash proof (46,480 compute units), epoch 1 funded and cancelled (carry-over 10), accounting invariants OK; five signatures below |
+| deployer balance after | 1.39495484 SOL (2.571 SOL of it is now rent in the program account, recoverable with `solana program close` when the devnet copy is retired) |
+
+Explorer: https://explorer.solana.com/address/Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi?cluster=devnet
+(every address below takes the same `?cluster=devnet` suffix).
+
+Sweep is not shown: epoch 0's claim deadline is 2026-10-17T17:13:29Z (the production
+14-day minimum), so `sweep_epoch(0)` becomes possible on devnet from that moment;
+the sweep path is proven by the test suite against a real 60-second deadline
+(section 8). The upgrade authority stays with the throwaway deployer on devnet
+(SECURITY.md 3.6); on mainnet it moves to the owner's multisig and, after the
+audit, to none.
+
+The JSON block `devnet-demo` printed (amounts in base units of the 6-decimal test
+reward mint: 100000000 = 100):
+
+```json
+{
+  "cluster": "devnet",
+  "rpc": "https://api.devnet.solana.com",
+  "programId": "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi",
+  "transactions": {
+    "fundHolders": "2hrjK73YuixBQbFrXs4LaPWyxG3iaWB9iStNh5bbxKxWz3huo4g5wgeQw1dGZRmXfVhzNn3RsZeNTVGhVLoJh9o",
+    "fundEpoch0": "TAsJZPM8AUaLszRL9A8eRA4cCxmx94LZWbbFAVmi6TbgSoN5TyxhPji6kkMTn8cG3Tk5V46LhzYpE9P53KaddaK",
+    "claimHolderA": "3xgoAti1hdSH74b8WZo3irSAMK7mcNGjCpmapB4Ptb5qRyAbSpqwqdsprDeYZFEbxejYqZzAC32PbSFn5gcn2Ad9",
+    "fundEpoch1": "5EPeBymNo2MQ8Y1j3FbompK42NPHRmfATSaZZmmYRg1y1XWkhfxVVSehbBgB96c4rsMujJgaknNrQLPZ2Le4LPQv",
+    "cancelEpoch1": "2W45m9o576uFPwj3ZL73c7PyVDkFnyAe9aHwH8H85iwiiCYDAtA5sfuzP48N64b7LcDfDikDm2HrGtRR4mtA4iNW"
+  },
+  "registry": {
+    "address": "2rKKwGGcJEDRJBhdHRPtHQpoxPmq9wPWWj3uMrcRaRg3",
+    "admin": "9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa"
+  },
+  "city": {
+    "cityCoinMint": "4eTtu7mFTy3M7VHAhWxFL82pRX9UXBcke8itWf4rDntJ",
+    "rewardMint": "3nxbo2CKr9vjSfBDxBG4Au4fiXHJ1w2ETWrfRKapno4q",
+    "config": "5YpkCJKwVfCo7cR5An35Xhwm27pfcPxKsQHV6oT88JcL",
+    "vault": "ChHayzTTsv5mnpFbjcqmbUippm1MonzG2SLiaKwKAvJ6",
+    "authority": "9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa",
+    "founder": "4ae7WBDbmM4GNHpzZMBuYJQ47m7fFicfuRD7AiRmwuSf",
+    "rewardModel": "split",
+    "founderBps": 5000
+  },
+  "epoch0": {
+    "address": "3aXnRMYCg4srEj8BNCbwvwnpk1yN6SmwEaHEJDK5wiU6",
+    "merkleRoot": "538016065c13e7fcc22fcfb4fd729eea8f5b6503675bf9d34043932fd075eb09",
+    "snapshotHash": "32485e8f63d180c8e3f14c22d633c2d34922371fed8c738ce2e204f062a66e1c",
+    "snapshotFile": {
+      "slot": 507068602,
+      "mint": "4eTtu7mFTy3M7VHAhWxFL82pRX9UXBcke8itWf4rDntJ",
+      "amount": "50000000",
+      "leaves": [
+        {
+          "index": 0,
+          "claimant": "1DhVpTNXQNn8a3G6xwJ7NR5TLAfne2wdnmgmedjHavz",
+          "amount": "25000000"
+        },
+        {
+          "index": 1,
+          "claimant": "3UDZZFVMmbQDZXLgtX7mWWjmoRiy82CfhsPQQuju5Gqy",
+          "amount": "15000000"
+        },
+        {
+          "index": 2,
+          "claimant": "4okmmh6we5VSLZUVhEXuUeerp5zJFfvexgrsyAVd2EYA",
+          "amount": "10000000"
+        }
+      ]
+    },
+    "depositAmount": "100000000",
+    "founderAmount": "50000000",
+    "holdersAmount": "50000000",
+    "numLeaves": 3,
+    "claimDeadline": "2026-10-17T17:13:29.000Z"
+  },
+  "claim": {
+    "claimant": "1DhVpTNXQNn8a3G6xwJ7NR5TLAfne2wdnmgmedjHavz",
+    "claimStatus": "CLBwJPzPij5CSYM38AMSx7Key4PAC238X6fjDnCzmsmD",
+    "amount": "25000000",
+    "proofLength": 2,
+    "computeUnits": 46480
+  },
+  "epoch1": {
+    "address": "4tenzixQvfMraf7bU9DSq9aVDKMqzvrpjktKhxbmuxeQ",
+    "state": "cancelled",
+    "carryOver": "10000000"
+  },
+  "finalState": {
+    "vault": "35000000",
+    "founderBalance": "60000000",
+    "totalFunded": "120000000",
+    "totalToFounder": "60000000",
+    "totalToHolders": "60000000",
+    "totalClaimed": "25000000",
+    "carryOver": "10000000",
+    "locked": true
+  }
+}
+```
 
 ## 8. Final run of this branch (3 Oct 2026, build machine, Agave 4.3.0 test validator)
 
