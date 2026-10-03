@@ -175,14 +175,58 @@
     let agreed = null;
     try { agreed = localStorage.getItem(key); } catch { /* ignore */ }
     if (agreed === version) return;
+
+    // Keyboard and screen readers. While the gate is open the page behind it is inert (no Tab stops, hidden from
+    // screen readers), the keyboard starts on the dialog's heading, Tab and Shift+Tab go round the dialog's own
+    // controls, and Escape does nothing (agreeing is the only way in). The overlay already covers the whole page,
+    // so nothing changes for a mouse or a finger. The toast stays outside the inert part so it can still be read out.
+    const card = $(".termsgate__card", gate);
+    const heading = () => $("#termsgate-title", card);
+    const before = document.activeElement;
+    const behind = [...document.body.children].filter((e) => e !== gate && e.id !== "toast" && !e.inert);
+    const stops = () => $$("a[href], button, input, select, textarea, summary, [tabindex]", card)
+      .filter((e) => e.tabIndex >= 0 && !e.disabled && e.getClientRects().length);
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); return; }
+      if (e.key !== "Tab" || e.ctrlKey || e.altKey || e.metaKey) return; // Ctrl+Tab and friends belong to the browser
+      const list = stops(), at = list.indexOf(document.activeElement);
+      if (!list.length) { e.preventDefault(); return; }
+      // Only the ends need help: from the last stop (or from outside) Tab goes to the first, and from the first stop
+      // (or the heading, or outside) Shift+Tab goes to the last. Everything in between is the browser's own Tab.
+      const wrap = e.shiftKey ? at <= 0 : at === list.length - 1 || !card.contains(document.activeElement);
+      if (wrap) { e.preventDefault(); list[e.shiftKey ? list.length - 1 : 0].focus(); }
+    };
+    const focusHeading = () => { const h = heading(); h.tabIndex = -1; h.focus({ preventScroll: true }); };
+
     gate.hidden = false;
-    $("#termsgate-agree").addEventListener("click", () => { record(version); gate.hidden = true; });
+    behind.forEach((e) => (e.inert = true));
+    document.addEventListener("keydown", onKey, true);
+    focusHeading();
+
+    $("#termsgate-agree").addEventListener("click", () => {
+      record(version);
+      gate.hidden = true;
+      behind.forEach((e) => (e.inert = false));
+      document.removeEventListener("keydown", onKey, true);
+      // The keyboard goes back where it was before the gate opened or, on a first visit (nothing was focused yet),
+      // to the start of the page's content: the same place the "Skip to content" link goes.
+      if (before && before !== document.body && before.isConnected && before.getClientRects().length) { before.focus({ preventScroll: true }); return; }
+      const main = $("#main");
+      if (!main) return;
+      if (!main.hasAttribute("tabindex")) {
+        main.tabIndex = -1;
+        main.addEventListener("blur", () => main.removeAttribute("tabindex"), { once: true });
+      }
+      main.focus({ preventScroll: true });
+    });
     $("#termsgate-decline").addEventListener("click", () => {
-      gate.querySelector(".termsgate__card").innerHTML =
+      // The new heading keeps the dialog's name (aria-labelledby) and takes the keyboard, since the pressed button is gone.
+      card.innerHTML =
         '<div class="termsgate__done"><p class="kicker">No problem</p>' +
-        "<h2>You&rsquo;ll need to agree to enter</h2>" +
+        '<h2 id="termsgate-title">You&rsquo;ll need to agree to enter</h2>' +
         '<p class="muted">The Terms of Use keep everyone on the same page. You can read them any time and come back when you&rsquo;re ready.</p>' +
         '<p><a href="/terms">Read the Terms of Use</a></p></div>';
+      focusHeading();
     });
   })();
 

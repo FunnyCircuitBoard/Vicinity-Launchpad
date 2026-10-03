@@ -1101,6 +1101,9 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .termsgate__actions .btn { flex: 1 1 0; }
 .termsgate__done { text-align: center; padding: 12px 0; }
 .termsgate__done p { margin: .6em 0; }
+/* The gate moves the keyboard to its heading when it opens, and to the page's content when it closes. Neither is a
+   control (no Tab stop, nothing to press), so no ring: the first Tab lands on a link or button, which shows the usual one. */
+.termsgate__card h2:focus, main[tabindex="-1"]:focus { outline: none; }
 .terms .agreebox { margin-top: 28px; text-align: center; }
 .terms .agreebox .btn { margin-top: 6px; }
 
