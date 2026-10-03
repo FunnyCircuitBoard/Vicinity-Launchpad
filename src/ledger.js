@@ -119,6 +119,17 @@ export async function latestBalances(env, now, lookback = 2) {
   return null;
 }
 
+/**
+ * True when samples exist but the newest is older than twice the longest gap between samples (6 hours): the chain read has
+ * been failing. Founder windows and manager elections then wait instead of deciding on old balances and on founder clocks
+ * that nothing has checked meanwhile (fail closed, src/jobs.js). Before the very first sample this is false: those decisions
+ * then read the chain directly, as they always did.
+ */
+export async function samplesStale(env, now) {
+  const last = await env.DB.prepare("SELECT taken_at FROM balance_samples ORDER BY id DESC LIMIT 1").first();
+  return Boolean(last) && now - Date.parse(last.taken_at) > POLICY.sampling.maxGapMinutes * 60_000 * 2;
+}
+
 /** Health of the balance history (shown on /rules so anyone can see it's running). */
 export async function ledgerStatus(env, now) {
   if (!env.DB) return { running: false };

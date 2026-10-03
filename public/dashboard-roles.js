@@ -144,6 +144,7 @@
     bad_size: "A squad needs 3 to 5 members.", member_not_qualified: "Every member must have held their share for 7 days first.",
     below_threshold: "The squad's pooled holdings are below the bar.", squad_full: "That squad is full.", already_member: "You're already in this squad.",
     squad_exists: "Your city already has a squad forming: join it.", city_taken: "This city already has a founder or steward.",
+    window_closing: "This city's window has ended and is being decided. Try again in a few minutes.",
     not_local: "Only verified locals of this city can join.", not_in_city: "You're not inside the city right now.", not_launched: "Squads open when $VICINITY launches.",
     has_seat: "Someone in the squad already holds a seat.", not_member: "You're not in this squad.",
     needs_checkin: "Check in once from inside your city first (proof you're really here).", account_too_new: "Your account has to be 7+ days old.",
