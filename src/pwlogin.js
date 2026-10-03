@@ -69,6 +69,7 @@ const inputs = (x) => ({ fetchImpl: (x && x.fetchImpl) || fetch, ctx: (x && x.ct
  * The attempt counters for one address on one connection. `kinds` names them: log-in uses pwa/pwp, reset uses rsa/rsp (its own,
  * so a person who typed a wrong password five times can still use "e-mail me a code"); the connection counter pwi is shared.
  * The pair counter is `<kind>:<hash of address>:<hash of connection>`, so every pair of one address can be found by prefix.
+ * `own` are the counters of THIS connection (all of its tries, refused ones too), `shared` is the one all connections share.
  */
 async function attemptCounters(env, request, email, kinds) {
   const address = await limitKey(env, kinds.address, email);
@@ -76,13 +77,21 @@ async function attemptCounters(env, request, email, kinds) {
   const pair = `${kinds.pair}:${address.slice(kinds.address.length + 1)}:${connection.slice(4)}`;
   return {
     address, connection, pair,
-    specs: [
-      { key: connection, windowMs: WINDOW, max: MAX.connection },
-      { key: pair, windowMs: WINDOW, max: MAX.pair },
-      { key: address, windowMs: WINDOW, max: MAX.address },
-    ],
+    own: [{ key: connection, windowMs: WINDOW, max: MAX.connection }, { key: pair, windowMs: WINDOW, max: MAX.pair }],
+    shared: [{ key: address, windowMs: WINDOW, max: MAX.address }],
     keys: [connection, pair, address],
   };
+}
+/**
+ * Count one try, in two atomic steps. First this connection's own counters: a connection that is over its limit is refused
+ * right there and the address is NOT counted, so one connection hammering away cannot use up the address for its owner.
+ * Only a try that got through is counted on the address (all connections together). Each step is one atomic statement
+ * batch, so parallel tries still get distinct counts: at most MAX.pair per connection ever reach the address counter.
+ * Returns true when the try may go on.
+ */
+async function countTry(env, counters, now) {
+  if (!(await check(env, counters.own, now)).ok) return false;
+  return (await check(env, counters.shared, now)).ok;
 }
 const LOGIN_KINDS = { address: "pwa", pair: "pwp" }, RESET_KINDS = { address: "rsa", pair: "rsp" };
 
@@ -113,7 +122,7 @@ export async function handleEmailLogin(request, env, x) {
   if (!validEmail(email) || !plausible(password)) return badCredentials();
 
   const counters = await attemptCounters(env, request, email, LOGIN_KINDS);
-  if (!(await check(env, counters.specs, now)).ok) return slowDown(); // counted first, hashed never
+  if (!(await countTry(env, counters, now))) return slowDown(); // counted first, hashed never
 
   const user = await env.DB.prepare(EMAIL_USER).bind(email).first();
   const v = await verifyPassword(env, user && user.password_hash, password); // always exactly one hash
@@ -141,13 +150,13 @@ export async function handleResetStart(request, env, x) {
   if (!validEmail(email)) return json({ ok: false, error: "bad_email" }, 400);
   if (!emailConfigured(env)) return json({ ok: false, error: "email_unavailable" }, 503);
 
-  // These count known and unknown addresses alike, so being over one says nothing about an account.
-  const over = await check(env, [
-    { key: await limitKey(env, "rsi", clientKey(request)), windowMs: HOUR, max: RESET_START.connection },
+  // These count known and unknown addresses alike, so being over one says nothing about an account. This connection first:
+  // one that is over its limit is refused before the address is counted (as in countTry).
+  if (!(await check(env, [{ key: await limitKey(env, "rsi", clientKey(request)), windowMs: HOUR, max: RESET_START.connection }], now)).ok) return slowDown();
+  if (!(await check(env, [
     { key: await limitKey(env, "rss", email), windowMs: HOUR, max: RESET_START.address },
     { key: await limitKey(env, "mail", email), windowMs: DAY, max: RESET_START.mailPerDay },
-  ], now);
-  if (!over.ok) return slowDown();
+  ], now)).ok) return slowDown();
 
   // Both kinds of address do the same database work from here (sendEmailCode: site cap, send slot, code row). The only
   // difference is the mail itself, which for a real account goes out in the background, after the answer.
@@ -174,7 +183,7 @@ export async function handleReset(request, env, x) {
   if (bad) return json({ ok: false, error: bad }, 400);
 
   const counters = await attemptCounters(env, request, email, RESET_KINDS);
-  if (!(await check(env, counters.specs, now)).ok) return slowDown();
+  if (!(await countTry(env, counters, now))) return slowDown();
 
   const v = await consumeEmailCode(env.DB, resetKey(email), code, now);
   if (!v.ok) return json({ ok: false, error: v.error, ...(v.left != null ? { left: v.left } : {}) }, v.error === "too_many" ? 429 : 400);

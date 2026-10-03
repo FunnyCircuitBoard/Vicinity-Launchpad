@@ -172,6 +172,29 @@ test("five wrong tries from one connection lock that connection out for that add
   assert.equal((await login(browser(env, { ip: ip(40) }), ALICE, GOOD_PASSWORD)).status, 200);
 });
 
+test("an attacker who keeps hammering from ONE connection is refused without using up the address: the owner still gets in", async () => {
+  await member(env, box, { via: "email", email: ALICE });
+  const attacker = browser(env, { ip: ip(46) });
+  const { out: statuses, derives } = await derivesOf(async () => {
+    const out = [];
+    for (let i = 0; i < 100; i++) out.push((await login(attacker, ALICE, "wrong guess number " + i)).status);
+    return out;
+  });
+  assert.equal(statuses.filter((s) => s === 401).length, 5);
+  assert.equal(statuses.filter((s) => s === 429).length, 95);
+  assert.equal(derives, 5);
+  assert.deepEqual((await countersLike("pwa")).map((r) => r.n), [5], "only the five that got through were counted on the address");
+  assert.equal((await login(browser(env, { ip: ip(47) }), ALICE, GOOD_PASSWORD)).status, 200, "the owner is not shut out by one connection, however hard it hammers");
+  // the same for the reset route: wrong codes from one connection, then the owner resets
+  await startReset(browser(env, { ip: ip(48) }), ALICE);
+  await setResetCode(ALICE);
+  const guesser = browser(env, { ip: ip(49) });
+  for (let i = 0; i < 100; i++) await reset(guesser, ALICE, String(100000 + i), NEW_PASSWORD);
+  assert.deepEqual((await countersLike("rsa")).map((r) => r.n), [5]);
+  assert.equal((await one(env.DB, "SELECT attempts FROM email_codes WHERE email = ?", resetKey(ALICE))).attempts, 5, "and only five ever reached the code");
+  assert.equal((await reset(browser(env, { ip: ip(50) }), ALICE, "424242", NEW_PASSWORD)).status, 429, "the code itself is spent after five wrong tries (as for any e-mail code)");
+});
+
 test("an unknown address is locked exactly like a known one (the lock says nothing about the account)", async () => {
   await member(env, box, { via: "email", email: ALICE });
   const run = async (email, where) => {
@@ -402,6 +425,22 @@ test("reset start: the refusals do not depend on the account: bad address, no ma
   await env.DB.prepare("INSERT INTO auth_limits (key, n, window_start) VALUES (?, 20, ?)").bind(key, new Date(Date.now()).toISOString()).run();
   const daily = await startReset(browser(env, { ip: ip(102) }), "daily@example.com");
   assert.deepEqual([daily.status, (await daily.json()).error], [429, "slow_down"]);
+});
+
+test("reset start: 30 requests at once for one address send ONE mail, and a known and an unknown address are treated alike", async () => {
+  await member(env, box, { via: "email", email: ALICE });
+  const slow = { ...env, DB: slowDb(env.DB) };
+  const flood = async (email) => {
+    const before = box.sent.length;
+    const results = await Promise.all(Array.from({ length: 30 }, (_, i) => startReset(browser(slow, { ip: ip(170 + i) }), email)));
+    const tally = {};
+    for (const r of results) { const a = await answer(r); const k = a.status === 200 ? "ok" : a.body.error; tally[k] = (tally[k] || 0) + 1; }
+    return { tally, mails: box.sent.length - before };
+  };
+  const known = await flood(ALICE), unknown = await flood("nobody@example.com");
+  assert.deepEqual(known.tally, { ok: 1, too_soon: 4, slow_down: 25 }, "one claim, four tries inside the minute, the rest over the per-address cap of 5 an hour");
+  assert.deepEqual(unknown.tally, known.tally);
+  assert.deepEqual([known.mails, unknown.mails], [1, 0]);
 });
 
 test("reset: the code, a good password, and the person is signed in with a new session; the code works once", async () => {
