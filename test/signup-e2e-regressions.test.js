@@ -3,6 +3,8 @@ import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { V2, browser, realClock, useClock, wallet } from "./helpers/world.js";
 import { doLocation, doWallet, startSignup, stateOf } from "./helpers/signup.js";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 
 let env;
 beforeEach(() => { useClock("2026-10-01T12:00:00Z"); env = V2(); });
@@ -30,4 +32,16 @@ test("the state of a browser with no wallet proven and no sign-up is still the p
   const b = browser(env);
   const s = await stateOf(b);
   assert.deepEqual(s, { terms: { done: false, version: "2026-10-01" }, location: { done: false }, account: { done: false }, wallet: { done: false }, next: "location" });
+});
+
+test("the page does not say '0 tries left': the last wrong guess says the code is used up and what to do", () => {
+  const win = {};
+  vm.runInNewContext(readFileSync(new URL("../public/signup.js", import.meta.url), "utf8"), { window: win });
+  const P = win.VSignup.pure;
+  assert.equal(P.errText({ error: "code_wrong", left: 1 }), "That code doesn't match. 1 try left.");
+  const last = P.errText({ error: "code_wrong", left: 0 });
+  assert.doesNotMatch(last, /0 tries/);
+  assert.match(last, /Send a new code/);
+  assert.equal(P.errText({ error: "code_wrong", left: 0 }, "code"), last, "the same in the reset form");
+  assert.equal(P.errText({ error: "code_wrong" }), "That code doesn't match. Please check it and try again.");
 });

@@ -89,6 +89,7 @@
     too_soon: "A code was just sent. Wait a minute before asking for another.",
     too_many: "Too many tries. Wait an hour, then ask for a new code.",
     "too_many:code": "That code was tried too many times. Tap “Send a new code” and use the new one.",
+    "code_wrong:last": "That code doesn't match, and it can't be tried again. Tap “Send a new code” and use the new one.",
     bad_code: "Enter the 6-digit code from the e-mail.",
     code_wrong: "That code doesn't match. Please check it and try again.",
     code_expired: "That code expired. Send a new one.",
@@ -117,7 +118,7 @@
   /** One plain sentence for any server answer: errText({ error: "code_wrong", left: 4 }) or errText("bad_email", "login"). */
   function errText(d, ctx) {
     const code = typeof d === "string" ? d : d && d.error;
-    if (code === "code_wrong") { const n = d && d.left; return n == null ? ERR.code_wrong : `That code doesn't match. ${n} ${n === 1 ? "try" : "tries"} left.`; }
+    if (code === "code_wrong") { const n = d && d.left; return n == null ? ERR.code_wrong : n === 0 ? ERR["code_wrong:last"] : `That code doesn't match. ${n} ${n === 1 ? "try" : "tries"} left.`; }
     return (ctx && ERR[`${code}:${ctx}`]) || ERR[code] || ERR.generic;
   }
   /** Google (or the server) sent the person back to /connect?error=<code>: which tab to open, and what to say. */
