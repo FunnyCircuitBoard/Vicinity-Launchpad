@@ -397,3 +397,13 @@ test("the sign-up e-mail says 'verification code', and the same sender and subje
   assert.equal(box.last().kind, "signup");
   assert.equal(box.last().subject, `${box.last().code} is your Vicinity code`);
 });
+
+test("with the real password cost (100,000 rounds, no test setting) a whole sign-up still works, and the stored hash says so", async () => {
+  env = V2({ PASSWORD_ITERATIONS: undefined });
+  const b = browser(env);
+  const started = performance.now(); // (Date.now is the test clock)
+  const j = await journey(b, box, { via: "email" });
+  assert.equal(j.finish.ok, true, JSON.stringify(j.finish));
+  assert.ok((await one(env.DB, "SELECT password_hash FROM users")).password_hash.startsWith("pbkdf2-sha256$100000$"));
+  assert.ok(performance.now() - started < 5000, "one hash at full cost is well under a second");
+});
