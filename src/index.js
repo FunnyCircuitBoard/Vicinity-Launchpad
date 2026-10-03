@@ -20,6 +20,8 @@
  * Member profiles, only while PROFILES=on (otherwise 404 not_enabled; src/profiles.js):
  *   GET /api/profile?u= · /api/members/search?q= · POST /api/follow · GET /api/follows · POST /api/block · GET /api/me/blocks
  *   · POST /api/me/bio · POST /api/profile/report · GET /api/me/portfolio · POST /api/mod/bio/clear
+ * The Launchpad's coin list, only while LAUNCHPAD_V2=on (otherwise 404 not_enabled; src/launchpad.js, src/market.js):
+ *   GET /api/launchpad   every city coin and $VICINITY as cards with market data, holder and member counts, trade links
  * Signed in: /api/me · /api/me/{terms,username,phone} · /api/me/contact/email/{verify,remove} · /api/home
  *   · /api/locate (the place a location is read, with /api/locate/handoff/* when a wallet app's browser can't
  *   share GPS: src/handoff.js) · /api/posts(/vote, /report)
@@ -56,13 +58,15 @@ import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots,
 import { managerOf } from "./roles.js";
 import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown } from "./coins.js";
 import { runJobs } from "./jobs.js";
-import { profilesOn, v2On } from "./flags.js";
+import { launchpadV2On, profilesOn, v2On } from "./flags.js";
 import { routeV2 } from "./signup.js";
 import { PROFILE_PATHS, routeProfiles } from "./profiles.js";
+import { handleLaunchpad } from "./launchpad.js";
 
 export { json, activeMint };
 
-/** Cache small JSON answers for a short time so we don't hammer the blockchain. */
+/** Cache small JSON answers for a short time so we don't hammer the blockchain. An answer that names a shorter
+ *  max-age of its own (the Launchpad list after a failed market call) is kept only that long. */
 async function cached(key, seconds, produce) {
   const cache = typeof caches !== "undefined" ? caches.default : null;
   const req = new Request("https://cache.vicinity.internal/" + key);
@@ -70,7 +74,8 @@ async function cached(key, seconds, produce) {
   const res = await produce();
   if (cache && res.status === 200) {
     const copy = new Response(res.clone().body, res);
-    copy.headers.set("Cache-Control", `public, max-age=${seconds}`);
+    const own = /\bmax-age=(\d+)/.exec(res.headers.get("Cache-Control") || "");
+    copy.headers.set("Cache-Control", `public, max-age=${own ? Math.min(seconds, Number(own[1])) : seconds}`);
     await cache.put(req, copy);
   }
   return res;
@@ -161,6 +166,12 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   if (PROFILE_PATHS.has(path)) {
     if (!profilesOn(env)) return json({ ok: false, error: "not_enabled" }, 404);
     return routeProfiles(request, env, fetchImpl, ctx);
+  }
+
+  // the Launchpad's coin list (LAUNCHPAD_V2=on): same rule; one answer per region every 30 seconds (edge cache + a copy per server)
+  if (path === "/api/launchpad") {
+    if (!launchpadV2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
+    return only("GET") || needsDb() || cached("launchpad-" + (activeMint(env) || "pre"), 30, () => handleLaunchpad(env, fetchImpl));
   }
 
   // paths with an id in them
