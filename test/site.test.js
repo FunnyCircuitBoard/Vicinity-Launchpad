@@ -208,8 +208,8 @@ test("dashboard: onboarding, live rank + badges, founder race, local/national fe
   assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "dashboard-roles", "dashboard"], "the role panel script loads before the dashboard script");
   const roles = h.match(/<section class="section section--panel" id="roles">[\s\S]*?<\/section>/)[0];
   for (const r of ["holder", "founder", "manager", "admin"]) assert.ok(roles.includes(`data-role="${r}"`), r);
-  assert.equal((roles.match(/role-row__when">Now</g) || []).length, 4);
-  assert.equal((roles.match(/role-row__when">When Vicinity goes live</g) || []).length, 4);
+  assert.equal((roles.match(/role-row__when">Any time</g) || []).length, 4);
+  assert.equal((roles.match(/role-row__when">Since \$VICINITY launched</g) || []).length, 4);
 });
 
 test("locate: the phone's browser page for the location hand-off, and one shared location helper", () => {
@@ -315,4 +315,15 @@ test("home: the roadmap shows the October 3 launch as done and the Launchpad as 
   const home = read("home.js");
   assert.doesNotMatch(home, /claims open at launch/);
   assert.match(home, /"👑 City Founder: seat open · hold 7 days, then apply"/);
+});
+
+test("dashboard roles (public, signed out too) no longer present the rules in force since the launch as 'when Vicinity goes live'", () => {
+  // live 3 Oct 2026 after the launch: "Who does what, now and when Vicinity goes live." with holders-only posting and voting,
+  // founder applications (already enforced by src/social.js and src/seats.js once VICINITY_MINT is set) and "Publishes the
+  // only official contract address" all listed as future
+  const roles = html["dashboard.html"].match(/<section class="section section--panel" id="roles">[\s\S]*?<\/section>/)[0];
+  assert.doesNotMatch(roles, /goes live|after launch/);
+  assert.match(roles, /<h2>Who does what\.<\/h2>/);
+  assert.match(roles, /Published the only official contract address: it is on the <a href="\/token">Token page<\/a>\./);
+  assert.doesNotMatch(html["index.html"], /now and after launch/);
 });
