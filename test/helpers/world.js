@@ -79,8 +79,10 @@ export async function wallet() {
   const sign = async (text) => Buffer.from(await crypto.subtle.sign({ name: "Ed25519" }, kp.privateKey, new TextEncoder().encode(text))).toString("base64");
   return { address, sign };
 }
+/** A fresh signed login message, with a random nonce like the real page gets from /api/message (a signed message works once). */
 export const loginBody = async (w, pin) => {
-  const message = buildMessage({ host: HOST, address: w.address, nonce: "abcdefghijklmnop", issuedAt: new Date(Date.now()).toISOString(), statement: statementFor("login", { pin }) });
+  const nonce = base58Encode(crypto.getRandomValues(new Uint8Array(16)));
+  const message = buildMessage({ host: HOST, address: w.address, nonce, issuedAt: new Date(Date.now()).toISOString(), statement: statementFor("login", { pin }) });
   return { address: w.address, message, signature: await w.sign(message) };
 };
 

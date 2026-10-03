@@ -1,5 +1,5 @@
 // Launch-week hardening, sign-in side: attempt limits for the public chain-touching routes (src/guards.js) and the
-// counter table they need (src/store.js, created lazily like the sign-up one).
+// counter table they need (src/store.js, created lazily like the sign-up one); a signed message works once (src/signed.js).
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { d1 } from "./helpers/d1.js";
@@ -7,7 +7,9 @@ import { slowDb } from "./helpers/slowdb.js";
 import { prodDb, seedProd, PROD_TABLES, tablesOf, columnsOf, PROD_MIGRATION_IDS } from "./helpers/prod-schema.js";
 import { LIMITS_MIGRATION, SIGNUP_MIGRATION, MIGRATIONS, ensureSchema, ensureLimitsSchema, ensureSignupSchema } from "../src/store.js";
 import { PUBLIC_LIMITS, publicLimit } from "../src/guards.js";
-import { newWorld, realClock } from "./helpers/world.js";
+import { checkSigned, readSigned } from "../src/signed.js";
+import { buildMessage, statementFor } from "../src/solana.js";
+import { HOST, ORIGIN, advance, browser, loginBody, newWorld, person, realClock, tick, useClock, wallet } from "./helpers/world.js";
 
 after(() => realClock());
 
@@ -168,4 +170,121 @@ test("a database problem never blocks a public route: no database, a failing cou
   } finally { console.error = orig; }
   assert.equal(logged.length, 2);
   for (const l of logged) assert.match(l, /^public limit skipped (verify|rank) /);
+});
+
+/* ---------------- a signed message works once ---------------- */
+
+const nonces = (env) => env.DB.prepare("SELECT nonce, expires_at FROM used_nonces ORDER BY nonce").all().then((r) => r.results);
+
+test("wallet sign-in: the same signed message a second time is 409 replayed, a freshly signed one works; the row lives 11 minutes past signing", async () => {
+  useClock("2026-10-03T12:00:00Z");
+  const env = newWorld();
+  const w = await wallet(), body = await loginBody(w);
+  const first = await browser(env).send("/api/auth/wallet", { method: "POST", body });
+  assert.equal((await first.json()).ok, true);
+  const again = await browser(env).send("/api/auth/wallet", { method: "POST", body });
+  assert.equal(again.status, 409);
+  assert.deepEqual(await again.json(), { ok: false, error: "replayed" });
+  assert.equal(again.headers.get("set-cookie"), null, "no session for a replay");
+  assert.equal((await browser(env).post("/api/auth/wallet", await loginBody(w))).ok, true, "signing again is fine");
+  const rows = await nonces(env);
+  assert.equal(rows.length, 2);
+  for (const r of rows) {
+    assert.match(r.nonce, /^msg:[A-Za-z0-9_-]{43}$/, "a digest, not the message");
+    assert.equal(r.expires_at, "2026-10-03T12:11:00.000Z");
+    assert.ok(!r.nonce.includes(w.address.slice(0, 8)));
+  }
+});
+
+test("re-proving and approving a phone sign-in are one-time too", async () => {
+  useClock("2026-10-03T12:00:00Z");
+  const env = newWorld();
+  const a = await person(env);
+  advance(31 * MIN);
+  const body = await loginBody(a.w);
+  assert.equal((await a.post("/api/auth/reprove", body)).ok, true);
+  assert.equal((await a.post("/api/auth/reprove", body)).error, "replayed");
+  assert.equal((await a.get("/api/me?lite=1")).fresh, true, "the first proof stands");
+
+  const computer = browser(env), phone = browser(env);
+  const start = await computer.post("/api/pair");
+  const approve = { ...(await loginBody(a.w, start.pin)), pair: start.code };
+  assert.equal((await phone.post("/api/auth/wallet", approve)).paired, true);
+  assert.equal((await phone.post("/api/auth/wallet", approve)).error, "replayed");
+  assert.equal((await computer.post("/api/pair/finish", { code: start.code })).status, "done");
+});
+
+test("a replay of a message that only failed later (wrong wallet) is still a replay; a message too old is 'expired' and leaves no row", async () => {
+  useClock("2026-10-03T12:00:00Z");
+  const env = newWorld();
+  const a = await person(env), other = await wallet();
+  const body = await loginBody(other);
+  assert.equal((await a.post("/api/auth/reprove", body)).error, "wrong_wallet");
+  assert.equal((await a.post("/api/auth/reprove", body)).error, "replayed");
+  const old = await loginBody(other);
+  advance(11 * MIN);
+  const r = await browser(env).send("/api/auth/wallet", { method: "POST", body: old });
+  assert.equal(r.status, 400);
+  assert.equal((await r.json()).error, "expired");
+  assert.equal((await nonces(env)).length, 2, "the sign-in and the wrong-wallet message are remembered, the expired one is not");
+});
+
+test("the scheduled job sweeps used messages once they could not be replayed anyway", async () => {
+  useClock("2026-10-03T12:00:00Z");
+  const env = newWorld();
+  await browser(env).post("/api/auth/wallet", await loginBody(await wallet()));
+  assert.equal((await nonces(env)).length, 1);
+  advance(10 * MIN); await tick(env);
+  assert.equal((await nonces(env)).length, 1, "still inside the 11 minutes");
+  advance(2 * MIN); await tick(env);
+  assert.equal((await nonces(env)).length, 0);
+});
+
+test("readSigned (the verify route) is one-time once it is handed the database, and exactly as before without it", async () => {
+  useClock("2026-10-03T12:00:00Z");
+  const env = newWorld();
+  const w = await wallet();
+  const message = buildMessage({ host: HOST, address: w.address, nonce: "abcdefghijklmnop1234", issuedAt: new Date(Date.now()).toISOString(), statement: statementFor("verify") });
+  const body = JSON.stringify({ address: w.address, message, signature: await w.sign(message) });
+  const req = () => new Request(ORIGIN + "/api/verify", { method: "POST", body });
+  assert.equal((await readSigned(req(), Date.now(), ["verify"], "verified", undefined, env.DB)).parsed.action, "verify");
+  const again = await readSigned(req(), Date.now(), ["verify"], "verified", undefined, env.DB);
+  assert.equal(again.error.status, 409);
+  assert.deepEqual(await again.error.json(), { verified: false, error: "replayed" });
+  // without a database (today's wiring) nothing changes
+  assert.equal((await readSigned(req(), Date.now(), ["verify"], "verified")).parsed.action, "verify");
+  assert.equal((await readSigned(req(), Date.now(), ["verify"], "verified")).parsed.action, "verify");
+});
+
+test("two different messages that happen to share a nonce are both fine: it is the whole signed message that works once", async () => {
+  useClock("2026-10-03T12:00:00Z");
+  const env = newWorld();
+  const w1 = await wallet(), w2 = await wallet();
+  const mk = async (w) => { const message = buildMessage({ host: HOST, address: w.address, nonce: "samenoncesamenonce", issuedAt: new Date(Date.now()).toISOString(), statement: statementFor("login", {}) }); return { address: w.address, message, signature: await w.sign(message) }; };
+  assert.equal((await browser(env).post("/api/auth/wallet", await mk(w1))).ok, true);
+  assert.equal((await browser(env).post("/api/auth/wallet", await mk(w2))).ok, true);
+  advance(1000);
+  assert.equal((await browser(env).post("/api/auth/wallet", await mk(w1))).ok, true, "a second later: a different message");
+});
+
+test("when the used-message table cannot be written the message is accepted as before and a short code is logged (the session needs the same database anyway)", async () => {
+  useClock("2026-10-03T12:00:00Z");
+  const env = newWorld();
+  const w = await wallet(), body = await loginBody(w);
+  const bad = (error, status = 400) => ({ error: { error, status } });
+  const request = new Request(ORIGIN + "/api/auth/wallet", { method: "POST" });
+  const logged = [];
+  const orig = console.error;
+  console.error = (...a) => logged.push(a.join(" "));
+  try {
+    await ensureSchema(env.DB);
+    const flaky = { ...env.DB, prepare: (sql) => { if (/used_nonces/.test(sql)) throw new Error("D1_ERROR: lost " + body.message.slice(0, 20)); return env.DB.prepare(sql); } };
+    assert.equal((await checkSigned(body, request, Date.now(), ["login"], bad, flaky)).parsed.address, w.address);
+    assert.equal((await checkSigned(body, request, Date.now(), ["login"], bad, flaky)).parsed.address, w.address);
+  } finally { console.error = orig; }
+  assert.equal(logged.length, 2);
+  for (const l of logged) { assert.match(l, /^used message store failed /); assert.ok(!l.includes(w.address.slice(0, 6)), "never the address"); }
+  // the real table works: the next use is a replay
+  assert.equal((await checkSigned(body, request, Date.now(), ["login"], bad, env.DB)).parsed.address, w.address);
+  assert.deepEqual((await checkSigned(body, request, Date.now(), ["login"], bad, env.DB)).error, { error: "replayed", status: 409 });
 });

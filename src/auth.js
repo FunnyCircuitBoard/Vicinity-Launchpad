@@ -147,7 +147,7 @@ export async function handleReprove(request, env, now = Date.now()) {
   if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
-  const r = await checkSigned(body, request, now, ["login"], badSigned);
+  const r = await checkSigned(body, request, now, ["login"], badSigned, env.DB);
   if (r.error) return r.error;
   if (r.parsed.pin || r.parsed.address !== s.user.wallet) return json({ ok: false, error: "wrong_wallet" }, 403);
   await env.DB.prepare("UPDATE sessions SET proven_at = ? WHERE id = ?").bind(iso(now), s.id).run();
@@ -170,7 +170,7 @@ export async function handleWalletLogin(request, env, now = Date.now()) {
   if (blocked) return blocked;
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
-  const r = await checkSigned(body, request, now, ["login"], badSigned);
+  const r = await checkSigned(body, request, now, ["login"], badSigned, env.DB); // a signed message works once
   if (r.error) return r.error;
   const wallet = r.parsed.address;
 
