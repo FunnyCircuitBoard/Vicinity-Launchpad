@@ -51,11 +51,6 @@ const maskWallet = (w) => `${w.slice(0, 4)}…${w.slice(-4)}`;
 
 const parseChoices = (text) => { try { const a = JSON.parse(text); return Array.isArray(a) ? a : null; } catch { return null; } };
 
-/** The state of a sign-up that does not exist: nothing is done. Also what GET /api/signup/state answers without a cookie. */
-export const emptyState = () => ({
-  terms: { done: false, version: TERMS_VERSION }, location: { done: false }, account: { done: false }, wallet: { done: false }, next: "location",
-});
-
 /** Is a wallet proven in this browser (the pending `vs` session, 30 minutes) and still fresh? */
 const walletOf = (session, now) => (session && session.wallet && !session.user && isFresh(session, now) ? session.wallet : null);
 
@@ -129,8 +124,10 @@ async function handleStart(request, env, x) {
 
 async function handleState(request, env, x) {
   const row = await getSignup(env, request, x.now);
-  if (!row) return json({ ok: true, state: emptyState() });
-  return json({ ok: true, state: signupState(row, await getSession(env, request, x.now), x.now) });
+  const session = await getSession(env, request, x.now);
+  // No sign-up yet: nothing is done, except a wallet proven in this browser first (an old bookmark, or the Log in tab with a
+  // new wallet), which counts as done exactly as the answer of /start says. Still creates nothing.
+  return json({ ok: true, state: row ? signupState(row, session, x.now) : signupState({}, session, x.now) });
 }
 
 /* ---------------- 1. location ---------------- */
