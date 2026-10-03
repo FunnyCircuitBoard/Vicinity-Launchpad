@@ -203,6 +203,22 @@ export async function handleTakedown(request, env, fetchImpl = fetch, now = Date
   return json({ ok: true, coin: coinView(await coinOf(db, coin.city_id)) });
 }
 
+/**
+ * One Jupiter price call for up to 50 mints: Map(mint → US dollars, or null when Jupiter has no price). THROWS when the call
+ * fails (HTTP error, timeout, bad answer). The caller must pass only allow-listed mints: this function trusts its input.
+ */
+export async function jupiterPrices(mints, fetchImpl = fetch) {
+  const res = await fetchImpl(`https://lite-api.jup.ag/price/v3?ids=${mints.join(",")}`, { signal: AbortSignal.timeout(3000) });
+  if (!res.ok) throw new Error(`price_http_${res.status}`);
+  const d = await res.json();
+  return new Map(mints.map((m) => { const p = Number(d?.[m]?.usdPrice); return [m, Number.isFinite(p) && p > 0 ? p : null]; }));
+}
+
+/** The launched city coins (an admin recorded the contract): with the live $VICINITY mint, the only mints a portfolio may ask about. */
+export async function launchedCoins(db, limit = 300) {
+  return (await db.prepare("SELECT city_id, city_name, country, name, mint FROM city_coins WHERE mint IS NOT NULL ORDER BY launched_at, city_id LIMIT ?").bind(limit).all()).results;
+}
+
 /** Prices in US dollars for the tokens the swap panel shows (only those: $VICINITY, the pairs, launched city coins). */
 export async function handlePrices(request, env, fetchImpl = fetch) {
   const wanted = [...new Set(String(new URL(request.url).searchParams.get("mints") || "").split(",").filter(isSolanaAddress))].slice(0, 6);
@@ -215,11 +231,7 @@ export async function handlePrices(request, env, fetchImpl = fetch) {
   const prices = Object.fromEntries(mints.map((m) => [m, null]));
   if (mints.length) {
     try {
-      const res = await fetchImpl(`https://lite-api.jup.ag/price/v3?ids=${mints.join(",")}`, { signal: AbortSignal.timeout(3000) });
-      if (res.ok) {
-        const d = await res.json();
-        for (const m of mints) { const p = Number(d?.[m]?.usdPrice); if (Number.isFinite(p) && p > 0) prices[m] = p; }
-      }
+      for (const [m, p] of await jupiterPrices(mints, fetchImpl)) prices[m] = p;
     } catch { /* prices are a nice-to-have: the swap page always shows the exact amount */ }
   }
   return json({ prices }, 200, { "Cache-Control": "public, max-age=30" });
