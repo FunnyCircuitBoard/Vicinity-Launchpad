@@ -8,6 +8,11 @@ import { launchpadV2On } from "./flags.js";
 // The $VICINITY mint address. Paste it here the moment the token launches (one line change).
 export const VICINITY_MINT = null;
 
+// When each real $VICINITY contract went live: the block time of its creation transaction on Raydium LaunchLab (InitializeV2 and
+// the first buy, signature 5ctr2RXc…uCqUWbk, block time 1791046092). Keyed by the mint, so a test mint in VICINITY_MINT has none.
+export const VICINITY_LAUNCHED = { "2aVkhRfAEm44tMhFo8oamWvumGGvweFqnUwukRMBkray": "2026-10-03T16:48:12.000Z" };
+export const launchedAtOf = (mint) => (mint && Object.hasOwn(VICINITY_LAUNCHED, mint) ? VICINITY_LAUNCHED[mint] : null);
+
 // When the Vicinity Launchpad opens (the countdown on /launchpad). 10:10:10 AM New York time (EDT, UTC-4), Oct 10 2026.
 export const LAUNCHPAD_OPENS_AT = "2026-10-10T10:10:10-04:00";
 

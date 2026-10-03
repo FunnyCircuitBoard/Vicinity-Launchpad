@@ -287,6 +287,20 @@ test("DexScreener's pairs: null (a token with no pair yet, as $VICINITY right af
   assert.deepEqual(logged.filter((l) => /market data unavailable/.test(l)), [], "nothing logged as an outage");
 });
 
+test("the real $VICINITY carries its launch time (3 Oct 2026 16:48:12 UTC), so it counts as New for its first 7 days; a test mint has none", async () => {
+  // live 3 Oct 2026: stats {"live":1,"new":0}, vicinity.launchedAt null, and the New tab said "No coin went live in the last 7 days"
+  const REAL = "2aVkhRfAEm44tMhFo8oamWvumGGvweFqnUwukRMBkray";
+  useClock("2026-10-04T12:00:00Z");
+  const d = await (await browser(LP({ VICINITY_MINT: REAL })).send("/api/launchpad", { fetchImpl: dexMock().fetchImpl })).json();
+  assert.deepEqual([d.vicinity.status, d.vicinity.launchedAt, d.stats.new], ["live", "2026-10-03T16:48:12.000Z", 1]);
+  _resetLaunchpad();
+  useClock("2026-10-10T16:48:13Z");
+  assert.equal((await (await browser(LP({ VICINITY_MINT: REAL })).send("/api/launchpad", { fetchImpl: dexMock().fetchImpl })).json()).stats.new, 0, "7 days later it is no longer new");
+  _resetLaunchpad();
+  const test = await (await browser(LP({ VICINITY_MINT: MINT })).send("/api/launchpad", { fetchImpl: dexMock().fetchImpl })).json();
+  assert.equal(test.vicinity.launchedAt, null, "a mint without a recorded launch time stays null, as before");
+});
+
 test("one upstream round per server per 30 seconds: many viewers at once share it, and the edge cache keeps the same answer for everyone in a region", async () => {
   const env = LP({ VICINITY_MINT: MINT });
   await seedCoin(env.DB, { city: 5142056, name: "Utica", mint: CITY_COIN });

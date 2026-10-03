@@ -15,7 +15,7 @@
  *             shows nothing for it.
  */
 import { json } from "./http.js";
-import { activeMint, officialFor } from "./official.js";
+import { activeMint, launchedAtOf, officialFor } from "./official.js";
 import { PAIRS, handleCoins, launchedCoins } from "./coins.js";
 import { handleSeats } from "./seats.js";
 import { latestBalances } from "./ledger.js";
@@ -147,7 +147,7 @@ async function build(env, fetchImpl, now) {
   const vicinity = {
     kind: "vicinity", status: vicMint ? "live" : "upcoming", city: null, ticker: "VICINITY", name: "Vicinity",
     pitch: "One city. One coin. One community.", color: "gold", logo: null, pair: { symbol: "SOL", mint: SOL },
-    mint: vicMint, launchedAt: null, designedAt: null, founder: null, members: null,
+    mint: vicMint, launchedAt: launchedAtOf(vicMint), designedAt: null, founder: null, members: null, // "New" for its first 7 days, like any coin
     market: vicMint ? market.markets.get(vicMint) || null : null, holders: vicMint ? stats.counts.get(vicMint) || null : null,
     links: tradeLinks(vicMint, SOL), rewardModel: null, opensAt: official.launchpadOpensAt,
   };
