@@ -108,6 +108,31 @@ test("the person's identity voided in the split second after finish checked: no 
   assert.equal(await count("sessions", "user_id IS NULL"), 1, "the proven wallet is kept");
 });
 
+test("the transaction checks every condition itself: whatever changes in the split second after finish looked, nothing is created", async () => {
+  const cases = [
+    ["the community is forgotten", "UPDATE signups SET loc_city = NULL", "location_required", 400],
+    ["the Terms are replaced by an old version", "UPDATE signups SET terms_version = '2020-01-01'", "terms_required", 400],
+    ["the sign-up runs out", "UPDATE signups SET expires_at = '2000-01-01T00:00:00.000Z'", "no_signup", 401],
+    ["the wallet session is gone", "DELETE FROM sessions WHERE user_id IS NULL", "already_finished_or_wallet", null],
+    ["the wallet proof turns stale", "UPDATE sessions SET proven_at = '2000-01-01T00:00:00.000Z' WHERE user_id IS NULL", "wallet_expired", 403],
+    ["the identity is swapped for another", "UPDATE signups SET provider_id = 'someone-else'", "changed_retry", 409],
+  ];
+  for (const [name, sql, error, status] of cases) {
+    env = V2();
+    box = outbox();
+    const { b } = await ready();
+    const restore = afterChecks((db) => db.prepare(sql).run());
+    const r = await b.send("/api/signup/finish", { method: "POST", body: {} });
+    restore();
+    const answer = await r.json();
+    assert.equal(answer.ok, false, name + " " + JSON.stringify(answer));
+    if (status) assert.deepEqual([r.status, answer.error], [status, error], name);
+    else assert.ok(["wallet_required", "no_signup"].includes(answer.error), name + " " + JSON.stringify(answer));
+    assert.equal(await count("users"), 0, name + ": no account");
+    assert.equal(await count("sessions", "user_id IS NOT NULL"), 0, name + ": no session");
+  }
+});
+
 test("a username that collides at the INSERT (taken a moment earlier, any letter case) is replaced by another one, and nothing is burned", async () => {
   const { b } = await ready();
   await insertUser((await wallet()).address, "wallet", "w-old", "swiftharbor10");
