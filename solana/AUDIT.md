@@ -30,12 +30,13 @@ anchor build --verifiable          # needs Docker (image solanafoundation/anchor
 sha256sum target/verifiable/vicinity_rewards.so
 ```
 
-Production binary built here (plain `anchor build`, no features):
-see section 7 for the size and SHA-256 of the exact bytes that are on devnet.
-`anchor build --verifiable` could not be run on the build machine (no Docker
-daemon); the command above is what the owner runs on his machine in README step
-3, and `solana-verify verify-from-repo` reproduces it from the commit. Until
-then the hash in section 7 is the hash of the plain build.
+The production binary built here (plain `anchor build`, no features) is the
+first row of the table below; it is the binary the devnet step deploys
+(section 7). `anchor build --verifiable` could not be run on the build machine
+(no Docker daemon); the command above is what the owner runs on his machine in
+README step 3, and `solana-verify verify-from-repo` reproduces it from the
+commit. Until then the only measured production hash is that of the plain
+build.
 
 Hashes to record (the owner fills the last row on his machine, in this file,
 in the commit that also carries the mainnet `declare_id!`):

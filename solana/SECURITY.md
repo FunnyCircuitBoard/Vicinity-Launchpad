@@ -93,8 +93,9 @@ fails closed). PRODUCT DECISION: WSOL avoids the issuer risk; USDC accepts it.
 ### 3.6 Upgradeability
 While the upgrade authority exists, its holder can replace the code and drain
 every vault. The deployment steps move it to a multisig and, after the audit,
-to none (`--final`). The devnet deployment keeps the throwaway deployer as
-authority so the program can be redeployed if the audit finds something.
+to none (`--final`). On devnet the throwaway deployer stays the authority so
+the program can be redeployed if the audit finds something (`AUDIT.md`
+section 7 has the devnet state).
 
 ### 3.7 Logs
 Events are `emit!` logs. Solana truncates logs in large transactions, so an
