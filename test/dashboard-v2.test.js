@@ -273,3 +273,15 @@ test("the N-day clock the Founder tab shows is the server's: /api/me founder.ten
   assert.equal(typeof d.founder.tenure.days, "number");
 });
 
+/* ---------- the owner's runbook ---------- */
+test("docs/DEPLOY.md: an open dashboard follows a DASHBOARD_V2 flip on reload, not at its minute refresh (the page reads the key once, when it loads)", () => {
+  const deploy = readFileSync(new URL("../docs/DEPLOY.md", import.meta.url), "utf8");
+  const from = deploy.indexOf("## Dashboard v2 switch"), to = deploy.indexOf("\n## ", from + 1);
+  assert.ok(from > 0 && to > from, "the Dashboard v2 section");
+  const sec = deploy.slice(from, to);
+  assert.doesNotMatch(sec, /next refresh|a minute later/, "refresh() only re-renders what is open; it never swaps the layout");
+  assert.match(sec, /reload/, "the runbook says reload");
+  // and that is what the code does: the key is read in the start IIFE only, refresh() just renders, nobody reloads
+  assert.match(dash, /async function refresh\(\) \{\s*const d = await api\("\/api\/me"\);\s*if \(d\.signedIn && d\.user\.home\) render\(d\);\s*\}/);
+  assert.doesNotMatch(dash, /location\.reload/); assert.doesNotMatch(v2, /location\.reload/);
+});
