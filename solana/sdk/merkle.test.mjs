@@ -298,56 +298,50 @@ describe("hex / base58", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Fixtures. merkle-js.json is written by gen-fixtures.mjs (JS reference).
-// merkle.json is the PROGRAM agent's file (Rust reference) when it exists; both
-// must agree with this implementation. Supported shapes: this file's own format
-// ({trees:[{leaves,root,proofs}], leafVectors, nodeVectors}) or a bare array of
-// {leaves:[{index,claimant,amount}], root} entries.
+// Fixtures: two files, one shape (sdk/fixtures/README.md), one construction.
+// merkle.json is written by fixtures/generate.mjs, which shares no code with
+// this SDK or the program; merkle-js.json is written by gen-fixtures.mjs with
+// this SDK. The Rust unit test (merkle.rs::fixtures_match_the_sdk) reads the
+// same two files, so if any side drifts, one of the three disagrees.
 
-// Claimants may be 64 hex chars or base58 (the Rust side uses Pubkey::from_str).
-const claimantBytes = (c) => (typeof c === "string" && /^[0-9a-fA-F]{64}$/.test(c) ? fromHex(c) : typeof c === "string" ? fromBase58(c) : c);
+const FIXTURE_FILES = ["merkle.json", "merkle-js.json"];
 
 function checkFixture(file) {
   const data = JSON.parse(readFileSync(file, "utf8"));
-  const trees = Array.isArray(data) ? data : data.trees ?? data.vectors ?? [];
-  assert.ok(trees.length > 0, `${file}: no trees`);
-  let checked = 0;
-  for (const v of trees) {
-    const leaves = v.leaves.map((l) => ({ index: l.index, claimant: claimantBytes(l.claimant), amount: l.amount }));
-    const t = buildTree(leaves);
-    assert.equal(toHex(t.root), (v.root ?? "").replace(/^0x/, "").toLowerCase(), `${file} ${v.name ?? ""}: root`);
-    if (v.leafHashes) assert.deepEqual(t.leafHashes.map(toHex), v.leafHashes, `${file} ${v.name}: leaf hashes`);
-    // proofs: [{index, proof}] (JS shape) or {"index": [..]} (Rust shape)
-    const proofs = Array.isArray(v.proofs) ? v.proofs : Object.entries(v.proofs ?? {}).map(([i, proof]) => ({ index: Number(i), proof }));
-    for (const p of proofs) {
-      assert.deepEqual(getProof(t, p.index).map(toHex), p.proof, `${file} ${v.name}: proof ${p.index}`);
-      assert.ok(verifyProof(t.root, t.leafHashes[p.index], p.proof.map(fromHex)));
+  assert.equal(data.version, 1, `${file}: version`);
+  assert.ok(data.trees.length >= 20, `${file}: at least 20 trees`);
+  assert.ok(data.leaf_vectors.length >= 1, `${file}: has leaf vectors`);
+  for (const t of data.trees) {
+    const tree = buildTree(t.leaves.map((l) => ({ index: l.index, claimant: fromBase58(l.claimant), amount: l.amount })));
+    assert.equal(toHex(tree.root), t.root, `${file} ${t.name}: root`);
+    assert.equal(tree.depth, t.depth, `${file} ${t.name}: depth`);
+    const proofs = Object.entries(t.proofs);
+    assert.ok(proofs.length > 0, `${file} ${t.name}: at least one proof`);
+    for (const [i, proof] of proofs) {
+      const idx = Number(i);
+      assert.deepEqual(getProof(tree, idx).map(toHex), proof, `${file} ${t.name}: proof ${i}`);
+      const bytes = proof.map(fromHex);
+      assert.ok(verifyProof(tree.root, tree.leafHashes[idx], bytes), `${file} ${t.name}: verify ${i}`);
+      // the same proof must not work for a neighbouring leaf
+      if (tree.numLeaves > 1) assert.ok(!verifyProof(tree.root, tree.leafHashes[(idx + 1) % tree.numLeaves], bytes), `${file} ${t.name}: neighbour ${i}`);
     }
-    checked++;
   }
-  for (const lv of data.leafVectors ?? data.leaf_vectors ?? []) {
-    assert.equal(toHex(hashLeaf(lv.index, claimantBytes(lv.claimant), lv.amount)), lv.leafHash ?? lv.leaf, `${file}: leaf vector ${lv.index}`);
+  for (const v of data.leaf_vectors) {
+    assert.equal(toHex(hashLeaf(v.index, fromBase58(v.claimant), v.amount)), v.leaf, `${file}: leaf vector ${v.index}`);
   }
-  for (const nv of data.nodeVectors ?? []) {
+  for (const nv of data.node_vectors ?? []) {
     assert.equal(toHex(hashNode(fromHex(nv.a), fromHex(nv.b))), nv.node, `${file}: node vector`);
-    if (nv.nodeSwapped) assert.equal(nv.nodeSwapped, nv.node);
+    assert.equal(toHex(hashNode(fromHex(nv.b), fromHex(nv.a))), nv.node, `${file}: node vector (swapped)`);
   }
-  return checked;
+  return data.trees.length;
 }
 
 describe("fixtures", () => {
-  const js = join(here, "fixtures", "merkle-js.json");
-  test("merkle-js.json (JS reference, 20 trees) reproduces", { skip: !existsSync(js) && "run npm run sdk-fixtures" }, () => {
-    assert.equal(checkFixture(js), 20);
-  });
-  const rust = join(here, "fixtures", "merkle.json");
-  test("merkle.json (canonical file shared with the Rust unit test, 20 trees) reproduces", { skip: !existsSync(rust) && "missing" }, () => {
-    assert.ok(checkFixture(rust) >= 20, "at least 20 trees");
-    const data = JSON.parse(readFileSync(rust, "utf8"));
-    assert.ok((data.leaf_vectors ?? data.leafVectors ?? []).length >= 1, "has leaf vectors");
-    for (const t of data.trees) assert.ok(Object.keys(t.proofs).length > 0, `${t.name}: needs at least one proof per tree`);
-    if (data.trees.some((t) => t.depth !== undefined)) {
-      for (const t of data.trees) if (t.depth !== undefined) assert.equal(buildTree(t.leaves.map((l) => ({ index: l.index, claimant: claimantBytes(l.claimant), amount: l.amount }))).depth, t.depth, `${t.name}: depth`);
-    }
-  });
+  for (const name of FIXTURE_FILES) {
+    const file = join(here, "fixtures", name);
+    test(`${name} reproduces: 20 roots, every listed proof, depths, leaf vectors`, () => {
+      assert.ok(existsSync(file), `${file} is committed`);
+      assert.equal(checkFixture(file), 20);
+    });
+  }
 });

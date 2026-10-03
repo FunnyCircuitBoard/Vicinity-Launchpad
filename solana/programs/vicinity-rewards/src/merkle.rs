@@ -225,9 +225,17 @@ mod tests {
     }
 
     // ---- fixtures shared with the SDK ------------------------------------
+    //
+    // Two files, one shape (sdk/fixtures/README.md): merkle.json comes from an
+    // independent generator that shares no code with this crate or the SDK,
+    // merkle-js.json from the SDK's own builder. Both must reproduce here and
+    // in sdk/merkle.test.mjs, so a drift on any side shows up on both.
+
+    const FIXTURE_FILES: [&str; 2] = ["merkle.json", "merkle-js.json"];
 
     #[derive(serde::Deserialize)]
     struct FixtureFile {
+        version: u32,
         trees: Vec<FixtureTree>,
         leaf_vectors: Vec<LeafVector>,
     }
@@ -238,6 +246,7 @@ mod tests {
         name: String,
         leaves: Vec<FixtureLeaf>,
         root: String,
+        depth: usize,
         proofs: std::collections::BTreeMap<String, Vec<String>>,
     }
 
@@ -265,20 +274,24 @@ mod tests {
         out
     }
 
-    fn load_fixtures() -> FixtureFile {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../sdk/fixtures/merkle.json"
-        );
-        let text = std::fs::read_to_string(path).expect("sdk/fixtures/merkle.json");
-        serde_json::from_str(&text).expect("fixture json")
+    fn load_fixtures(name: &str) -> FixtureFile {
+        let path = format!("{}/../../sdk/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path}: {e}"))
     }
 
     #[test]
     fn fixtures_match_the_sdk() {
-        let fx = load_fixtures();
-        assert!(fx.trees.len() >= 20, "at least 20 fixture trees");
-        assert!(!fx.leaf_vectors.is_empty());
+        for name in FIXTURE_FILES {
+            check_fixture_file(name);
+        }
+    }
+
+    fn check_fixture_file(name: &str) {
+        let fx = load_fixtures(name);
+        assert_eq!(fx.version, 1, "{name}: version");
+        assert!(fx.trees.len() >= 20, "{name}: at least 20 fixture trees");
+        assert!(!fx.leaf_vectors.is_empty(), "{name}: has leaf vectors");
 
         for v in &fx.leaf_vectors {
             let claimant = Pubkey::from_str(&v.claimant).unwrap();
@@ -310,6 +323,7 @@ mod tests {
             let levels = build_levels(&leaves);
             let r = root(&levels);
             assert_eq!(r, hex32(&tree.root), "{}: root", tree.name);
+            assert_eq!(levels.len() - 1, tree.depth, "{}: depth", tree.name);
             assert!(!tree.proofs.is_empty(), "{}: has proofs", tree.name);
             for (index, proof_hex) in &tree.proofs {
                 let index: usize = index.parse().unwrap();
