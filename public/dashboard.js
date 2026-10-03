@@ -254,7 +254,7 @@
     $$(".role-row").forEach((r) => r.classList.toggle("is-you", r.dataset.role === d.level));
     $("#f-city").textContent = home ? home.name : "Local";
     $("#f-country").textContent = n ? countryName(n.country) : "National";
-    if (d.profilesFlag) { profilesSync(d); linkName($("#cc-founder"), c && c.seat && !c.seat.you ? c.seat.name : null); linkName($("#nc-manager"), n && n.manager && !n.manager.you ? n.manager.name : null); }
+    if (d.profilesFlag) { profilesSync(d); linkName($("#cc-founder"), c && c.seat && !c.seat.you ? c.seat : null); linkName($("#nc-manager"), n && n.manager && !n.manager.you ? n.manager : null); }
   }
 
   /* ---------- member profiles: the code is fetched ONLY when /api/me says profilesFlag, so with the switch off this page never asks for it ---------- */
@@ -270,17 +270,22 @@
     document.head.append(s);
   }
   const HANDLE = /^[A-Za-z][A-Za-z0-9_]{2,19}$/;
-  /** A member's name as a link to their profile page (only with the switch on and for a real username), else as plain text. */
-  const memberLink = (name, tag = "b") => {
-    if (!(me && me.profilesFlag && HANDLE.test(name))) return el(tag, null, name);
-    const a = el("a", "member-link", name); a.href = `/profile?u=${encodeURIComponent(name)}`;
+  /**
+   * A member's name as a link to their profile page, else as plain text. A link only with the switch on AND when the server
+   * said the name is that member's username (`handle`, sent next to `name` while profiles are on; null for a member without
+   * one): a display name that merely looks like a username would open a stranger's profile, or none.
+   */
+  const memberLink = (name, handle, tag = "b") => {
+    if (!(me && me.profilesFlag && typeof handle === "string" && HANDLE.test(handle))) return el(tag, null, name);
+    const a = el("a", "member-link", name); a.href = `/profile?u=${encodeURIComponent(handle)}`;
     if (tag === "b") { const b = el("b"); b.append(a); return b; }
     return a;
   };
-  function linkName(host, name) {
-    if (!host || !name || !(me && me.profilesFlag && HANDLE.test(name))) return;
-    const t = host.textContent, i = t.indexOf(name);
-    if (i >= 0) host.replaceChildren(t.slice(0, i), memberLink(name, "a"), t.slice(i + name.length));
+  /** Turn the name of `who` ({ name, handle }: a seat or a manager) inside the text of `host` into that link. */
+  function linkName(host, who) {
+    if (!host || !who || !who.name || !(me && me.profilesFlag && typeof who.handle === "string" && HANDLE.test(who.handle))) return;
+    const t = host.textContent, i = t.indexOf(who.name);
+    if (i >= 0) host.replaceChildren(t.slice(0, i), memberLink(who.name, who.handle, "a"), t.slice(i + who.name.length));
   }
 
   const actBtn = (label, fn, cls = "link-btn") => { const b = el("button", cls, label); b.type = "button"; b.addEventListener("click", fn); return b; };
@@ -604,7 +609,7 @@
       v.append(up, score); li.append(v);
     }
     const meta = el("div", "post__meta");
-    meta.append(memberLink(p.author.name));
+    meta.append(memberLink(p.author.name, p.author.handle));
     if (p.author.manager) meta.append(el("span", "tag tag--gold", "🛡️ Manager"));
     if (p.author.founder) meta.append(el("span", "tag tag--gold", `👑 ${p.author.founder}`));
     if (p.where && scope === "country") meta.append(el("span", "tag", `📍 ${p.where}`));
@@ -940,7 +945,7 @@
     const d = await api("/api/mod");
     if (!d.ok || !d.moderator) { $("#mod").hidden = true; return; }
     $("#mod").hidden = false;
-    window.VRole.queue({ posts: d.posts.length, proposals: d.proposals.filter((x) => x.canApprove).length, appeals: d.appeals.length, objections: d.objections.length, towns: d.towns.length });
+    window.VRole.queue({ posts: d.posts.length, proposals: d.proposals.filter((x) => x.canApprove).length, appeals: d.appeals.length, objections: d.objections.length, towns: d.towns.length, bios: d.bios ? d.bios.length : 0 });
     $("#mod-scope").textContent = `${LEVEL[d.role] || d.role} · ${d.scope}`;
     const sections = [];
     const section = (title, items) => { const s = el("div", "mod-section"); s.append(el("h3", null, title)); const ul = el("ul", "req-list"); ul.append(...items); s.append(ul); return s; };
@@ -980,8 +985,23 @@
       for (const [label, decision, cls] of choice) acts.append(decide(label, () => api("/api/towns/decide", { id: x.id, decision }), cls));
       li.append(acts); return li;
     }) : [empty("No requests waiting.")]));
+    // reported bios: the server sends `bios` only while member profiles are on; clearing one needs a reason and a fresh wallet proof, like a hide
+    if (d.bios) sections.push(section("Reported bios", d.bios.length ? d.bios.map((x) => {
+      const li = el("li");
+      const who = el("strong"); who.append(memberLink(x.handle, x.handle, "a"));
+      li.append(who, el("span", "muted", `“${x.bio}” · ${x.reports} report${x.reports === 1 ? "" : "s"} · last ${ago(x.lastAt)}`));
+      const acts = el("span", "req-actions");
+      acts.append(actBtn("Clear bio", () => reasonForm(li, "Clear the bio", async (reason, note) => {
+        const r = await sensitive(() => api("/api/mod/bio/clear", { handle: x.handle, reason, note }));
+        toast(r.ok ? "Bio cleared. The member can write a new one." : errText(BIO_MOD_ERR, r, "Couldn't clear it."));
+        if (r.ok) loadMod();
+      }), "btn btn--glass btn--sm"));
+      li.append(acts); return li;
+    }) : [empty("No reported bios.")]));
     $("#mod-sections").replaceChildren(...sections);
   }
+  const BIO_MOD_ERR = { no_bio: "That bio is already gone.", own_profile: "You can't clear your own bio here: edit it in your profile.", not_enabled: "Member profiles are switched off right now.",
+    profiles_unavailable: "Member profiles are having trouble right now. Please try again in a few minutes." };
 
   /* ---------- "add my town" ---------- */
   async function loadTowns() {

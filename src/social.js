@@ -20,6 +20,7 @@ import { check, limitKey } from "./limits.js";
 import { DAY, HOUR, POLICY, iso } from "./policy.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
 import { toBytes } from "./blobs.js";
+import { profilesOn } from "./flags.js";
 
 export { cleanText };
 const KINDS = ["meme", "checkin", "talk"];
@@ -69,7 +70,9 @@ export async function present(env, rows, me, pw, fetchImpl = fetch, now = Date.n
       reports: mod ? r.reports : undefined,
       where: r.kind === "checkin" ? r.author_home : undefined,
       voted: mine.has(r.id), mine: r.user_id === me.id, canModerate: mod,
-      author: { id: mod ? r.user_id : undefined, name: r.handle || r.name || "Member", founder: founders.get(r.user_id) || null, steward: stewards.has(r.user_id), manager: managers.has(r.user_id) },
+      // with member profiles on, `handle` says whether the name shown IS the author's username (null: a display name, never a profile link)
+      author: { id: mod ? r.user_id : undefined, name: r.handle || r.name || "Member", ...(profilesOn(env) ? { handle: r.handle || null } : {}),
+        founder: founders.get(r.user_id) || null, steward: stewards.has(r.user_id), manager: managers.has(r.user_id) },
     };
   });
 }
