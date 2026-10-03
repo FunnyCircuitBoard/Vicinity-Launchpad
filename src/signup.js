@@ -32,7 +32,7 @@ import { check, clientKey, limitKey } from "./limits.js";
 import { checkPassword, hashPassword } from "./password.js";
 import { DAY, HOUR, POLICY, iso } from "./policy.js";
 import { v2On } from "./flags.js";
-import { SIGNUP_COOKIE, TERMS_VERSION, endSignup, findHandoff, getSignup, guardV2, netOf, nextStep, startSignup, touchSignup } from "./signup-core.js";
+import { SIGNUP_COOKIE, TERMS_VERSION, asText, endSignup, findHandoff, getSignup, guardV2, netOf, nextStep, startSignup, touchSignup } from "./signup-core.js";
 import { handleEmailLogin, handleReset, handleResetStart, handleSetPassword } from "./pwlogin.js";
 
 const MINUTES = 10;                       // a phone hand-off link lives 10 minutes (like today's)
@@ -175,7 +175,7 @@ async function handleChoice(request, env, x) {
   if (!body) return badJson();
   const choices = c.row.loc_choices ? parseChoices(c.row.loc_choices) : null;
   if (!choices) return json({ ok: false, error: "no_choices" }, 409);
-  const pick = body.id != null && choices.find((n) => n.id === String(body.id));
+  const pick = (typeof body.id === "string" || typeof body.id === "number") && choices.find((n) => n.id === String(body.id));
   if (!pick) return json({ ok: false, error: "bad_choice" }, 400);
   let community;
   try { community = await communityById(env, c.row.loc_country, pick.id); }
@@ -299,7 +299,7 @@ async function handleEmail(request, env, x) {
   if (c.row.terms_version !== TERMS_VERSION) return json({ ok: false, error: "terms_required" }, 403);
   const body = await readJson(request);
   if (!body) return badJson();
-  const email = cleanEmail(body.email);
+  const email = cleanEmail(asText(body.email));
   if (!validEmail(email)) return json({ ok: false, error: "bad_email" }, 400);
   if (!emailConfigured(env)) return json({ ok: false, error: "email_unavailable" }, 503);
   const bad = checkPassword(body.password, email);
@@ -337,8 +337,8 @@ async function handleEmailVerify(request, env, x) {
   if (!body) return badJson();
   const email = c.row.pending_email;
   // The code is for the address of THIS sign-up: checked before the code is used up.
-  if (!email || (body.email != null && cleanEmail(body.email) !== email)) return json({ ok: false, error: "email_mismatch" }, 400);
-  const code = String(body.code || "").replace(/\D/g, "").slice(0, 6);
+  if (!email || (body.email != null && cleanEmail(asText(body.email)) !== email)) return json({ ok: false, error: "email_mismatch" }, 400);
+  const code = asText(body.code).replace(/\D/g, "").slice(0, 6);
   if (code.length !== 6) return json({ ok: false, error: "bad_code" }, 400);
   const over = await limited(env, x.now, [
     await perHour(env, "sves", c.row.id, LIMITS.verify.signup),

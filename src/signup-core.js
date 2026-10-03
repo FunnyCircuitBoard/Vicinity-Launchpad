@@ -34,6 +34,12 @@ export async function guardV2(request, env) {
   return null;
 }
 
+/**
+ * A request field as text: strings and numbers only. Anything else (null, an array, an object, even one whose toString is not a
+ * function, which makes String() throw) becomes "", so it fails the ordinary checks (bad_email, bad_code, bad_choice) and never a 500.
+ */
+export const asText = (v) => (typeof v === "string" || typeof v === "number" ? String(v) : "");
+
 /** Where the person's connection is, coarsely: country and network operator ("US|7922"). null off Cloudflare (local tests). */
 export const netOf = (cf) => (cf ? `${cf.country || ""}|${cf.asn || ""}` : null);
 
