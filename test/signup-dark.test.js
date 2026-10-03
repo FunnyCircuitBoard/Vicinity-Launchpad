@@ -125,13 +125,14 @@ test("SIGNUP_FLOW is read from the environment on every request, trimmed and in 
   assert.equal((await b.send("/api/signup/state")).status, 200);
 });
 
-test("the 4 password routes are wired but answer 501 not_implemented until pwlogin.js is filled in (switch on)", async () => {
+test("the 4 password routes are wired with the switch on: an empty call gets each route's own plain refusal (the real tests are in pwlogin.test.js)", async () => {
   const env = V2();
   const b = browser(env);
-  for (const path of ["/api/auth/email/login", "/api/auth/password/reset/start", "/api/auth/password/reset", "/api/me/password"]) {
+  const refusals = { "/api/auth/email/login": [401, "bad_credentials"], "/api/auth/password/reset/start": [400, "bad_email"], "/api/auth/password/reset": [400, "bad_email"], "/api/me/password": [401, "sign_in"] };
+  for (const [path, [status, error]] of Object.entries(refusals)) {
     const r = await b.send(path, { method: "POST", body: {} });
-    assert.equal(r.status, 501, path);
-    assert.deepEqual(await r.json(), { ok: false, error: "not_implemented" });
+    assert.equal(r.status, status, path);
+    assert.deepEqual(await r.json(), { ok: false, error });
   }
 });
 
