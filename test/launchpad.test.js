@@ -222,7 +222,7 @@ test("DexScreener down (5xx): every market is null, the answer is kept only 5 se
   assert.ok(logged.every((l) => !/[1-9A-HJ-NP-Za-km-z]{32,}/.test(l)), "no address in the log");
 });
 
-test("DexScreener timeout or network error: one retry, then null for every mint, never a throw; a bad body counts as down", async () => {
+test("DexScreener timeout or network error: one retry, then null for every mint, never a throw; a bad body counts as down (pairs: null does not)", async () => {
   const noisy = console.error; console.error = () => {};
   try {
     const hang = dexMock({}, { hang: true });
@@ -243,8 +243,8 @@ test("DexScreener timeout or network error: one retry, then null for every mint,
     const junk = { fetchImpl: async () => new Response("not json") };
     assert.equal((await marketFor([CITY_COIN], junk.fetchImpl, { now: clock.now })).ok, false);
     _resetMarket();
-    const noPairs = { fetchImpl: async () => new Response(JSON.stringify({ schemaVersion: "1.0.0", pairs: null })) };
-    assert.equal((await marketFor([CITY_COIN], noPairs.fetchImpl, { now: clock.now })).ok, false);
+    const noKey = { fetchImpl: async () => new Response(JSON.stringify({ schemaVersion: "1.0.0" })) };
+    assert.equal((await marketFor([CITY_COIN], noKey.fetchImpl, { now: clock.now })).ok, false, "no pairs field at all: a bad answer");
 
     // nothing to ask: no call, ok
     _resetMarket();
@@ -253,6 +253,38 @@ test("DexScreener timeout or network error: one retry, then null for every mint,
     assert.deepEqual(await marketFor(["not-a-mint", null], idle.fetchImpl), { markets: new Map(), ok: true });
     assert.deepEqual(idle.seen, []);
   } finally { console.error = noisy; }
+});
+
+test("DexScreener's pairs: null (a token with no pair yet, as $VICINITY right after launch) is an empty answer, not an outage: no error log, the 30-second copy", async () => {
+  // measured 3 Oct 2026: GET api.dexscreener.com/latest/dex/tokens/<the real mint> -> 200 {"schemaVersion":"1.0.0","pairs":null}
+  const nullPairs = (seen) => async (url, init) => {
+    if (!String(url).startsWith("https://api.dexscreener.com/")) return dexMock().fetchImpl(url, init);
+    seen.push(String(url));
+    return new Response(JSON.stringify({ schemaVersion: "1.0.0", pairs: null }), { headers: { "content-type": "application/json" } });
+  };
+  const noisy = console.error; const logged = [];
+  console.error = (...a) => { logged.push(a.join(" ")); };
+  try {
+    const seen = [];
+    const r = await marketFor([CITY_COIN, MINT], nullPairs(seen), { now: clock.now });
+    assert.deepEqual([r.ok, [...r.markets]], [true, [[CITY_COIN, null], [MINT, null]]]);
+    assert.equal(seen.length, 1);
+    assert.equal((await marketFor([MINT], nullPairs(seen), { now: clock.now + 1000 })).ok, true, "no 5-second negative window afterwards");
+    assert.equal(seen.length, 2);
+
+    _resetMarket();
+    const env = LP({ VICINITY_MINT: MINT });
+    const lp = [];
+    const res = await browser(env).send("/api/launchpad", { fetchImpl: nullPairs(lp) });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("cache-control"), "public, max-age=30", "the healthy 30-second copy, not the 5-second degraded one");
+    const d = await res.json();
+    assert.deepEqual([d.vicinity.status, d.vicinity.market], ["live", null], "the page still shows its dash for the price");
+    advance(10_000);
+    await browser(env).send("/api/launchpad", { fetchImpl: nullPairs(lp) });
+    assert.equal(lp.length, 1, "10 seconds later the answer is still the remembered copy");
+  } finally { console.error = noisy; }
+  assert.deepEqual(logged.filter((l) => /market data unavailable/.test(l)), [], "nothing logged as an outage");
 });
 
 test("one upstream round per server per 30 seconds: many viewers at once share it, and the edge cache keeps the same answer for everyone in a region", async () => {
