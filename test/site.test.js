@@ -327,3 +327,12 @@ test("dashboard roles (public, signed out too) no longer present the rules in fo
   assert.match(roles, /Published the only official contract address: it is on the <a href="\/token">Token page<\/a>\./);
   assert.doesNotMatch(html["index.html"], /now and after launch/);
 });
+
+test("README (the public repo's front page) names the live official contract, the same one the site uses, and no longer says no token exists", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const mint = /"VICINITY_MINT":\s*"([1-9A-HJ-NP-Za-km-z]{32,44})"/.exec(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"))?.[1];
+  assert.ok(mint, "the live mint is set in wrangler.jsonc");
+  assert.doesNotMatch(readme, /No token exists yet|has not launched|will be published in this README|the moment it launches/);
+  assert.ok(readme.split("\n").slice(0, 10).join("\n").includes(`\`${mint}\``), "the contract is at the top of the README, as promised there before the launch");
+  assert.doesNotMatch(readme, /why \$VICINITY launches on Raydium LaunchLab/);
+});
