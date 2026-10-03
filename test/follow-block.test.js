@@ -238,13 +238,14 @@ test("a member blocks at most 1,000 (too_many_blocks), also with parallel taps, 
   await seedUsers(env.DB, "T", 5);
   await phantomBlocks(env, a.id, 998);
   await follow(b, "Alice77"); await follow(a, "BobBrave");
-  const results = await Promise.all(Array.from({ length: 5 }, (_, i) => block(a, "T" + i).then(async (r) => [r.status, (await r.json()).error])));
+  const results = await Promise.all(Array.from({ length: 5 }, (_, i) => block(a, "T" + i).then(async (r) => [r.status, (await r.json()).error, i])));
   assert.equal(results.filter(([s]) => s === 200).length, 2);
   assert.ok(results.filter(([s]) => s !== 200).every(([s, e]) => s === 409 && e === "too_many_blocks"));
+  const blocked = results.find(([s]) => s === 200)[2]; // which two got in depends on who arrived first
   assert.equal((await rawCounts(env.DB, a.id)).blocking, 1000);
   await expectStatus(await block(a, "BobBrave"), 409, "too_many_blocks");
   assert.deepEqual(await followPairs(env.DB), ["Alice77>BobBrave", "BobBrave>Alice77"], "the follows are untouched by a block that was refused");
-  assert.equal((await block(a, "T0", false)).status, 200);
+  assert.equal((await block(a, "T" + blocked, false)).status, 200);
   assert.equal((await block(a, "BobBrave")).status, 200, "room again");
 });
 
