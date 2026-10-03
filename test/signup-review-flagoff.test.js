@@ -32,7 +32,8 @@ test("switch on: the job still removes expired sign-ups", async () => {
   await startSignup(b); await doTerms(b);
   const log = [];
   await tick(spy(env, log));
-  assert.ok(signupSql(log).some((s) => /^BATCH DELETE FROM signups .*DELETE FROM auth_limits/.test(s)), "the two DELETEs ran");
+  // one statement at a time (member profiles share the counters table, so a missing sign-up table must not stop the other delete)
+  assert.ok(signupSql(log).some((s) => /DELETE FROM signups/.test(s)) && signupSql(log).some((s) => /DELETE FROM auth_limits/.test(s)), "the two DELETEs ran");
   assert.equal((await one(env.DB, "SELECT COUNT(*) AS n FROM signups")).n, 1, "a live sign-up stays");
   clock.now += 4 * 3600_000; // past the three-hour cap
   await tick(env);

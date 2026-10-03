@@ -132,13 +132,17 @@ export async function findHandoff(env, code, now) {
  * two DELETEs in docs/DEPLOY.md. Stays silent when the tables were never created. Never throws.
  */
 export async function cleanupSignups(env, now) {
-  try {
-    await env.DB.batch([
-      env.DB.prepare("DELETE FROM signups WHERE expires_at < ?").bind(iso(now)),
-      env.DB.prepare("DELETE FROM auth_limits WHERE window_start < ?").bind(iso(now - DAY)),
-    ]);
-  } catch (e) {
-    const msg = String((e && e.message) || e);
-    if (!/no such table/i.test(msg)) console.error("signup cleanup failed", msg);
+  // One statement at a time: member profiles make `auth_limits` without making `signups`, and a table that is missing
+  // must never stop the other one from being tidied.
+  for (const stmt of [
+    env.DB.prepare("DELETE FROM signups WHERE expires_at < ?").bind(iso(now)),
+    env.DB.prepare("DELETE FROM auth_limits WHERE window_start < ?").bind(iso(now - DAY)),
+  ]) {
+    try {
+      await stmt.run();
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      if (!/no such table/i.test(msg)) console.error("signup cleanup failed", msg);
+    }
   }
 }

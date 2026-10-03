@@ -19,6 +19,9 @@ import { stillFounder } from "./seats.js";
 import { CITY_NAME_RE } from "./solana.js";
 import { cleanText } from "./text.js";
 import { COLS, FROM, present } from "./social.js";
+import { profilesOn } from "./flags.js";
+import { ensureProfilesSchema } from "./store.js";
+import { findMember, parseHandle } from "./profile-core.js";
 
 const MOD = POLICY.moderation;
 
@@ -93,6 +96,50 @@ export async function handleUnhide(request, env, fetchImpl = fetch, now = Date.n
     logAction(db, { actor: u.id, role, action: "unhide", type: "post", id: post.id, user: post.user_id, country: post.country, place: post.place, reason: "review", note: cleanText(body.note, 200) || null, at: iso(now) }),
   ]);
   return json({ ok: true, hidden: false });
+}
+
+/**
+ * POST /api/mod/bio/clear { handle, reason, note } (only while PROFILES=on): a moderator in scope removes a member's bio, with a
+ * reason from the same list as a hide, a fresh wallet proof, and a public line in /api/audit (the audit says that a bio was
+ * cleared and why, never whose it was or what it said). Scope is the member's home: their city's founder, their country's
+ * manager, or an admin. Like every removal it is one person's act and is in the open; the member can write a new bio.
+ */
+export async function handleClearBio(request, env, fetchImpl = fetch, now = Date.now()) {
+  const m = await moderator(request, env, now, fetchImpl);
+  if (m.error) return m.error;
+  try { await ensureProfilesSchema(env.DB); }
+  catch (e) { console.error("profile tables unavailable", String((e && e.message) || e).slice(0, 80)); return json({ ok: false, error: "profiles_unavailable" }, 503); }
+  const { u, pw } = m, db = env.DB;
+  const body = await readJson(request);
+  const handle = parseHandle(body && body.handle);
+  if (!handle) return json({ ok: false, error: "bad_request" }, 400);
+  const target = await findMember(db, handle, { any: true });
+  if (!target) return json({ ok: false, error: "not_found" }, 404);
+  if (!canModerate(pw, { scope: "city", place: target.home_city, country: target.home_country })) return json({ ok: false, error: "not_allowed" }, 403);
+  if (target.id === u.id) return json({ ok: false, error: "own_profile" }, 400);
+  const reason = reasonOf(body.reason);
+  if (!reason) return json({ ok: false, error: "reason_required" }, 400);
+  if (!target.bio) return json({ ok: false, error: "no_bio" }, 409);
+  await db.batch([
+    db.prepare("UPDATE users SET bio = NULL WHERE id = ?").bind(target.id),
+    db.prepare("DELETE FROM profile_reports WHERE user_id = ?").bind(target.id),
+    logAction(db, { actor: u.id, role: roleFor(pw, target.home_country), action: "clear_bio", type: "bio", user: target.id, country: target.home_country, place: target.home_city,
+      reason, note: cleanText(body.note, 200) || null, at: iso(now) }),
+  ]);
+  return json({ ok: true, cleared: true });
+}
+
+/** Bios that members reported (only while PROFILES=on): [{ handle, bio, reports, lastAt }], in the moderator's own area. */
+async function reportedBios(env, pw) {
+  try { await ensureProfilesSchema(env.DB); }
+  catch (e) { console.error("profile tables unavailable", String((e && e.message) || e).slice(0, 80)); return null; }
+  const [all, country, city] = pw.admin ? [1, "", ""] : pw.managerCountry ? [0, pw.managerCountry, ""] : [0, "", pw.founderCity || ""];
+  const rows = (await env.DB.prepare(
+    `SELECT u.handle, u.bio, COUNT(r.reporter_id) AS reports, MAX(r.created_at) AS last_at FROM profile_reports r JOIN users u ON u.id = r.user_id
+      WHERE u.bio IS NOT NULL AND u.bio != '' AND u.handle IS NOT NULL
+        AND (?1 = 1 OR (?2 != '' AND u.home_country = ?2) OR (?3 != '' AND u.home_city = ?3))
+      GROUP BY u.id ORDER BY reports DESC, last_at DESC LIMIT 50`).bind(all, country, city).all()).results;
+  return rows.map((r) => ({ handle: r.handle, bio: r.bio, reports: r.reports, lastAt: r.last_at }));
 }
 
 /** POST /api/mod/ban { postId | userId, reason, note, everywhere } — PROPOSE a 30-day ban. */
@@ -238,9 +285,10 @@ export async function handleModQueue(request, env, fetchImpl = fetch, now = Date
     .map((r) => ({ id: r.id, name: r.name, country: r.country, near: r.inside ? `inside ${r.near_name}` : r.near_name ? `about ${r.near_km} km from ${r.near_name}` : null, status: r.status, by: r.handle || r.by_name, at: r.created_at })) : [];
   const posts = await present(env, reported, u, pw, fetchImpl, now);
   for (const p of posts) p.pendingBy = pendingBy.has(p.id) ? (pendingBy.get(p.id) === u.id ? "you" : "another moderator") : null;
+  const bios = profilesOn(env) ? await reportedBios(env, pw) : null; // no new key (and no new SQL) while the switch is off
   return json({ ok: true, moderator: true, role: pw.admin ? "admin" : pw.managerCountry ? "manager" : "founder",
     scope: pw.admin ? "everywhere" : pw.managerCountry ? `country ${pw.managerCountry}` : `city ${pw.seat.city_name}`,
-    reasons: MOD.reasons, posts, proposals, appeals, objections, towns });
+    reasons: MOD.reasons, posts, proposals, appeals, objections, towns, ...(bios ? { bios } : {}) });
 }
 
 /** GET /api/audit?country=XX — every moderation and seat decision, public. */

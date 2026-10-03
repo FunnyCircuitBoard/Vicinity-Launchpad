@@ -16,11 +16,12 @@ import { DAY, HOUR, POLICY, iso } from "./policy.js";
 import { VOTE_WEIGHT, activeBan, adminWallets, amountsFor, liveSeatOfUser, managerOf } from "./roles.js";
 import { cityPicture, cooldownUntil, eligibility, squadPicture } from "./seats.js";
 import { countryPicture } from "./elections.js";
-import { ensureSchema } from "./store.js";
+import { ensureProfilesSchema, ensureSchema } from "./store.js";
 import { communityById } from "./community.js";
 import { tickerOf } from "./tickers.js";
 import { latestBalances } from "./ledger.js";
-import { v2On } from "./flags.js";
+import { profilesOn, v2On } from "./flags.js";
+import { countsOf } from "./profile-core.js";
 
 const HOME_LOCK_DAYS = 7; // a home community can be changed once a week
 const mask = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
@@ -35,7 +36,7 @@ export const publicUser = (u) => ({
 /** Badges that depend on holding: these can be lost by selling. */
 const HOLDING_BADGES = new Set(["holder", "founder_ready", "whale", "top100", "top10", "city_founder", "country_manager"]);
 
-function badgesFor({ u, launched, amount, position, seat, manager, admin, checkins, posts, tenure, threshold }) {
+export function badgesFor({ u, launched, amount, position, seat, manager, admin, checkins, posts, tenure, threshold }) {
   const pct = (v, of) => Math.max(0, Math.min(1, v / of));
   const T = threshold || POLICY.founder.ladder.base;
   const list = [
@@ -179,18 +180,30 @@ export async function handleMe(request, env, fetchImpl = fetch, now = Date.now()
   const s = await getSession(env, request, now);
   const prov = providers(env);
   // The new sign-up (SIGNUP_FLOW=v2) says so in every answer, and tells a signed-in person whether they have a password.
-  // With the switch off there is no new key at all: the answers are exactly what they have always been.
-  const v2 = v2On(env);
-  const flag = v2 ? { signupFlow: "v2" } : {};
+  // Member profiles (PROFILES=on) say so too: profilesFlag, and for a signed-in member their bio (and, in the full answer,
+  // their follower counts). With a switch off there is no new key at all: the answers are exactly what they have always been.
+  const v2 = v2On(env), pf = profilesOn(env);
+  const v2Flag = v2 ? { signupFlow: "v2" } : {};
+  const flag = pf ? { ...v2Flag, profilesFlag: true } : v2Flag;
   if (!s) return json({ signedIn: false, providers: prov, ...flag });
   if (!s.user) {
     let proof = null;
     try { if (s.proof) { const p = JSON.parse(s.proof); proof = { address: p.address, lamports: p.lamports, sol: (p.lamports / 1e9).toFixed(6) }; } } catch {}
     return json({ signedIn: false, providers: prov, pending: s.wallet ? { wallet: s.wallet } : null, proof, ...flag });
   }
-  const user = v2 ? { ...publicUser(s.user), hasPassword: Boolean(s.user.password_hash) } : publicUser(s.user);
-  if (new URL(request.url).searchParams.get("lite") === "1") return json({ signedIn: true, user, providers: prov, fresh: isFresh(s, now), ...flag });
-  return json({ signedIn: true, user, providers: prov, ...flag, ...(await liveStatus(env, s, fetchImpl, now)) });
+  // A signed-in member only gets the profile keys when the profile tables are there; if they cannot be made, the page
+  // simply sees a site without profiles (and the profile routes answer 503), never a broken dashboard.
+  let ready = false;
+  if (pf) {
+    try { await ensureProfilesSchema(env.DB); ready = true; }
+    catch (e) { console.error("profile tables unavailable", String((e && e.message) || e).slice(0, 80)); }
+  }
+  const myFlag = pf && !ready ? v2Flag : flag;
+  const base = v2 ? { ...publicUser(s.user), hasPassword: Boolean(s.user.password_hash) } : publicUser(s.user);
+  const user = ready ? { ...base, bio: s.user.bio || "" } : base;
+  if (new URL(request.url).searchParams.get("lite") === "1") return json({ signedIn: true, user, providers: prov, fresh: isFresh(s, now), ...myFlag });
+  const counts = ready ? { counts: await countsOf(env.DB, s.user.id, now) } : {};
+  return json({ signedIn: true, user, providers: prov, ...myFlag, ...counts, ...(await liveStatus(env, s, fetchImpl, now)) });
 }
 
 /**

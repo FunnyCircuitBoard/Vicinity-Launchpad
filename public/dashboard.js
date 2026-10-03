@@ -254,6 +254,33 @@
     $$(".role-row").forEach((r) => r.classList.toggle("is-you", r.dataset.role === d.level));
     $("#f-city").textContent = home ? home.name : "Local";
     $("#f-country").textContent = n ? countryName(n.country) : "National";
+    if (d.profilesFlag) { profilesSync(d); linkName($("#cc-founder"), c && c.seat && !c.seat.you ? c.seat.name : null); linkName($("#nc-manager"), n && n.manager && !n.manager.you ? n.manager.name : null); }
+  }
+
+  /* ---------- member profiles: the code is fetched ONLY when /api/me says profilesFlag, so with the switch off this page never asks for it ---------- */
+  let profiles = null, profilesAsked = false;
+  function profilesSync(d) {
+    if (profiles) return profiles.render(d);
+    if (profilesAsked) return;
+    profilesAsked = true;
+    const s = document.createElement("script");
+    s.src = "/profile.js";
+    s.onload = () => { profiles = window.VProfile.dashboard({ me: () => me, sensitive }); profiles.render(me); };
+    s.onerror = () => { profilesAsked = false; }; // the next refresh tries again
+    document.head.append(s);
+  }
+  const HANDLE = /^[A-Za-z][A-Za-z0-9_]{2,19}$/;
+  /** A member's name as a link to their profile page (only with the switch on and for a real username), else as plain text. */
+  const memberLink = (name, tag = "b") => {
+    if (!(me && me.profilesFlag && HANDLE.test(name))) return el(tag, null, name);
+    const a = el("a", "member-link", name); a.href = `/profile?u=${encodeURIComponent(name)}`;
+    if (tag === "b") { const b = el("b"); b.append(a); return b; }
+    return a;
+  };
+  function linkName(host, name) {
+    if (!host || !name || !(me && me.profilesFlag && HANDLE.test(name))) return;
+    const t = host.textContent, i = t.indexOf(name);
+    if (i >= 0) host.replaceChildren(t.slice(0, i), memberLink(name, "a"), t.slice(i + name.length));
   }
 
   const actBtn = (label, fn, cls = "link-btn") => { const b = el("button", cls, label); b.type = "button"; b.addEventListener("click", fn); return b; };
@@ -577,7 +604,7 @@
       v.append(up, score); li.append(v);
     }
     const meta = el("div", "post__meta");
-    meta.append(el("b", null, p.author.name));
+    meta.append(memberLink(p.author.name));
     if (p.author.manager) meta.append(el("span", "tag tag--gold", "🛡️ Manager"));
     if (p.author.founder) meta.append(el("span", "tag tag--gold", `👑 ${p.author.founder}`));
     if (p.where && scope === "country") meta.append(el("span", "tag", `📍 ${p.where}`));
@@ -1017,6 +1044,7 @@
     renderEmailView(u); renderPhoneView(u);
     $("#email-form").hidden = true; $("#email-code-form").hidden = true; $("#phone-form").hidden = true;
     $("#contact-err").hidden = true;
+    if (profiles) profiles.openModal(me);
     $("#profile-modal").hidden = false;
   }
   function closeProfile() { $("#profile-modal").hidden = true; }
@@ -1096,7 +1124,7 @@
   /* ---------- customizable card layout ---------- */
   // Drag-to-reorder (touch + mouse) with per-card column move, saved per user in
   // localStorage. Temporary scaffolding so the layout can be arranged by hand.
-  const LAYOUT_LABELS = { "role-home": "Your role", squad: "Squad founding", progress: "Founder path", coin: "City coin", feed: "Community feed", trade: "Buy & swap", community: "Your community", national: "Your country", badges: "Badges", mod: "Moderator tools", request: "Ask for your town" };
+  const LAYOUT_LABELS = { "role-home": "Your role", portfolio: "Portfolio", squad: "Squad founding", progress: "Founder path", coin: "City coin", feed: "Community feed", trade: "Buy & swap", community: "Your community", national: "Your country", badges: "Badges", mod: "Moderator tools", request: "Ask for your town" };
   let layoutDef = null, layoutEditing = false;
   const layoutKey = () => `vicinity:dash-layout:${me && me.user ? me.user.id : "anon"}`;
   // hidden cards (the role panel, squad, moderator tools) keep their slot too, so they appear in the right place when they show up

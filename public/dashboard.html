@@ -83,6 +83,11 @@
     <!-- the dashboard -->
     <section class="dash" id="dash-main" hidden>
       <div class="wrap">
+        <!-- member profiles (PROFILES=on only): shown once per browser to people who were here before -->
+        <div class="pf-notice" id="pf-notice" role="region" aria-label="New: member profiles" hidden>
+          <p><strong>New: member profiles.</strong> Other signed-in members can now open your profile and see your username, home community, bio, wallet address and your $VICINITY and city-coin balances. They can follow you, and you can block anyone. There is no messaging.</p>
+          <div class="pf-notice__actions"><a class="btn btn--glass btn--sm" id="pf-notice-open" href="/profile">See how others see you</a><button class="btn btn--primary btn--sm" type="button" id="pf-notice-ok">Got it</button></div>
+        </div>
         <div class="lost-alert" id="ban-notice" role="alert" hidden></div>
         <div class="lost-alert" id="lost-alert" role="alert" hidden></div>
         <div class="dash-top">
@@ -97,6 +102,7 @@
               <div class="pass__id">
                 <p class="pass__name"><strong data-me-name>—</strong></p>
                 <p class="pass__home">📍 <span id="me-home">—</span></p>
+                <p class="pass__bio" id="me-bio" hidden></p>
               </div>
               <div class="coin-disc pass__coin" aria-hidden="true"><span id="pass-coin">—</span></div>
             </div>
@@ -123,6 +129,18 @@
         <div class="dash-grid">
           <div class="dash-col" id="col-main">
             <section class="card role-home" id="role-home" aria-label="Your role" hidden></section>
+
+            <!-- member profiles (PROFILES=on only): only $VICINITY and city coins, with live values -->
+            <section class="card portfolio-card" id="portfolio" aria-labelledby="pf-title" hidden>
+              <div class="portfolio-card__head">
+                <div><p class="kicker">Portfolio · live values</p><h2 class="h2--sm" id="pf-title">Your Vicinity coins</h2></div>
+                <div class="pf__meta"><span class="tiny muted" id="pf-updated"></span><button class="link-btn pf__refresh" type="button" id="pf-refresh">Refresh</button></div>
+              </div>
+              <p class="small muted">Only $VICINITY and city coins are counted here. Anything else in your wallet is never shown.</p>
+              <div class="pf" id="pf-body"><p class="muted small">Loading your coins…</p></div>
+              <p class="inline-err" id="pf-msg" role="alert" hidden></p>
+              <p class="tiny muted pf__net"><span id="pf-net" hidden></span><a href="/profile" id="pf-net-me">Your profile page</a><a href="/profile" id="pf-net-find">Find members</a></p>
+            </section>
 
             <section class="card trade" id="trade" aria-labelledby="trade-title">
               <div class="trade__head"><p class="kicker">Buy &amp; swap</p><span class="tag" id="trade-state">Opens at launch</span></div>
@@ -334,6 +352,23 @@
           <p class="tiny muted">3–20 characters: letters, numbers and underscores, starting with a letter. Names that pass for the project or its staff are reserved; you can change it 3 times a day.</p>
         </section>
 
+        <section class="profile__sec" id="bio-sec" aria-labelledby="profile-bio-h" hidden>
+          <h3 id="profile-bio-h">Bio</h3>
+          <p class="small muted">One line about you, up to 100 characters. It shows on your Vicinity Pass and on your profile. No links, wallet addresses, e-mail addresses or phone numbers.</p>
+          <form id="bio-form" class="bio-form" novalidate>
+            <label class="sr-only" for="bio-input">Your bio</label>
+            <textarea id="bio-input" rows="2" autocomplete="off" spellcheck="true" placeholder="Say something about you" aria-describedby="bio-count bio-hint"></textarea>
+            <div class="bio-form__row"><span class="tiny muted" id="bio-count">0/100</span><span class="tiny muted bio-form__hint" id="bio-hint" role="status"></span><button class="btn btn--primary btn--sm" type="submit" id="bio-save">Save</button></div>
+          </form>
+          <p class="inline-err" id="bio-err" role="alert" hidden></p>
+        </section>
+
+        <section class="profile__sec" id="profile-net-sec" aria-labelledby="profile-net-h" hidden>
+          <h3 id="profile-net-h">Network</h3>
+          <p class="small" id="profile-net" hidden></p>
+          <ul class="link-list"><li><a href="/profile" id="profile-net-link">Open your profile page</a></li><li><a href="/profile">Find members</a></li></ul>
+        </section>
+
         <section class="profile__sec" aria-labelledby="profile-account-h">
           <h3 id="profile-account-h">Your account</h3>
           <dl class="kv">
@@ -368,6 +403,7 @@
             <button class="btn btn--glass btn--sm" type="submit">Save</button>
           </form>
           <p class="inline-err" id="contact-err" role="alert" hidden></p>
+          <p class="small callout" id="profile-public-note" hidden>Other signed-in members can see your username, community, bio, wallet address and your $VICINITY and city-coin balances.</p>
         </section>
 
         <section class="profile__sec" aria-labelledby="profile-help-h">

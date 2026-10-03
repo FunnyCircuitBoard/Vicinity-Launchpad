@@ -173,6 +173,53 @@ export async function getHoldings(env, owners, mint, fetchImpl = fetch) {
   return out;
 }
 
+/** What one token account holds, as a plain number: raw amount / 10^decimals, else the RPC's own uiAmountString / uiAmount. */
+function accountAmount(ta) {
+  if (!ta) return 0;
+  let n = NaN;
+  if (typeof ta.amount === "string" && /^\d{1,30}$/.test(ta.amount) && Number.isInteger(ta.decimals) && ta.decimals >= 0 && ta.decimals <= 30) n = uiAmount(ta.amount, ta.decimals);
+  if (!Number.isFinite(n)) n = Number(ta.uiAmountString ?? ta.uiAmount);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * What ONE wallet holds of a short list of SPECIFIC mints, and nothing else. One getTokenAccountsByOwner per mint with
+ * the {mint} filter (never a programId filter, which would list every token the wallet owns), JSON-RPC batched 25 per
+ * HTTP request like getHoldings. A mint filter finds Token and Token-2022 accounts alike; a wallet can have several
+ * accounts of one mint (they are summed); an account the RPC returns for a different mint is ignored.
+ * Returns Map(mint → amount) with an entry for EVERY asked mint (0 when the wallet has none). Unlike getHoldings it
+ * THROWS on anything odd (HTTP error, rate-limit answer that is not a list, an id missing from the answer, a per-call
+ * error), because a half answer would be shown as "you hold nothing". Read-only; nothing is stored.
+ */
+export async function getMintBalances(env, owner, mints, fetchImpl = fetch, { timeoutMs = 8000 } = {}) {
+  const url = (env && env.SOLANA_RPC_URL) || PUBLIC_RPC;
+  const list = [...new Set(mints)];
+  const out = new Map();
+  const chunks = [];
+  for (let i = 0; i < list.length; i += 25) chunks.push(list.slice(i, i + 25));
+  await Promise.all(chunks.map(async (chunk) => {
+    const body = chunk.map((mint, j) => ({ jsonrpc: "2.0", id: j, method: "getTokenAccountsByOwner", params: [owner, { mint }, { encoding: "jsonParsed" }] }));
+    const res = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) throw new Error(`rpc_http_${res.status}`);
+    const data = await res.json();
+    if (!Array.isArray(data)) throw new Error(data && data.error ? `rpc_${data.error.code || "error"}` : "rpc_bad_answer");
+    const byId = new Map(data.map((r) => [r && r.id, r]));
+    chunk.forEach((mint, j) => {
+      const r = byId.get(j);
+      if (!r) throw new Error("rpc_missing_answer");
+      if (r.error) throw new Error(`rpc_${r.error.code || "error"}`);
+      let amount = 0;
+      for (const acc of Array.isArray(r.result?.value) ? r.result.value : []) {
+        const info = acc?.account?.data?.parsed?.info;
+        if (info && info.mint && info.mint !== mint) continue;
+        amount += accountAmount(info?.tokenAmount);
+      }
+      out.set(mint, amount);
+    });
+  }));
+  return out;
+}
+
 const b64bytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
 /**

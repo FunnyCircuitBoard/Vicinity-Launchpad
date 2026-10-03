@@ -268,7 +268,7 @@ export const wantedMints = (request) => [...new Set(String(new URL(request.url).
  */
 export async function jupiterPrices(env, mints, fetchImpl = fetch, now = Date.now()) {
   const prices = Object.fromEntries(mints.map((m) => [m, null]));
-  if (!mints.length) return { prices, stale: false };
+  if (!mints.length) return { prices, stale: false, failed: false };
   const base = String((env && env.JUPITER_API_BASE) || JUPITER_BASE).replace(/\/+$/, "");
   const headers = env && env.JUPITER_API_KEY ? { "x-api-key": String(env.JUPITER_API_KEY) } : {};
   try {
@@ -282,14 +282,19 @@ export async function jupiterPrices(env, mints, fetchImpl = fetch, now = Date.no
       lastGood.delete(m); lastGood.set(m, { price: p, at: now });
     }
     while (lastGood.size > LAST_GOOD_MAX) lastGood.delete(lastGood.keys().next().value);
-    return { prices, stale: false };
+    return { prices, stale: false, failed: false };
   } catch { /* prices are a nice-to-have: the swap page always shows the exact amount */ }
   let stale = false;
   for (const m of mints) {
     const g = lastGood.get(m);
     if (g && now - g.at < LAST_GOOD_MS) { prices[m] = g.price; stale = true; }
   }
-  return { prices, stale };
+  return { prices, stale, failed: true }; // failed: the call itself did not succeed (callers may cache this answer only briefly)
+}
+
+/** The launched city coins (an admin recorded the contract): with the live $VICINITY mint, the only mints a portfolio may ask about. */
+export async function launchedCoins(db, limit = 300) {
+  return (await db.prepare("SELECT city_id, city_name, country, name, mint FROM city_coins WHERE mint IS NOT NULL ORDER BY launched_at, city_id LIMIT ?").bind(limit).all()).results;
 }
 
 /** Prices in US dollars for the tokens the swap panel shows (only those: $VICINITY, the pairs, launched city coins). */

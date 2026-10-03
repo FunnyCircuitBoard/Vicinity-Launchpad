@@ -1,0 +1,182 @@
+<!--{"title": "Member profiles", "description": "Look up a Vicinity member: their community, what they hold, and who they follow.", "page": "profile", "scripts": ["ticker", "profile"], "noindex": true, "standalone": true}-->
+    <section class="section section--tight prof" id="prof">
+      <div class="wrap">
+        <!-- signed out -->
+        <div class="prof-note card" id="pf-out" hidden>
+          <p class="kicker">Member profiles</p>
+          <h1 class="h2--sm">Log in to view member profiles.</h1>
+          <p class="muted">Profiles are for signed-in members only. Once you're in, you can look up any member, see their community and what they hold, and follow them.</p>
+          <a class="btn btn--primary" href="/connect?mode=login">Log in</a>
+        </div>
+
+        <!-- profiles are not switched on -->
+        <div class="prof-note card" id="pf-off" hidden>
+          <p class="kicker">Member profiles</p>
+          <h1 class="h2--sm">Member profiles aren't open yet.</h1>
+          <p class="muted">When they open, you'll be able to look up other members here. For now, your dashboard has everything about you.</p>
+          <a class="btn btn--glass" href="/dashboard">Go to my dashboard</a>
+        </div>
+
+        <!-- signed in -->
+        <div id="pf-main" hidden>
+          <header class="prof-head">
+            <p class="kicker">Members</p>
+            <h1 class="h2--sm" id="pf-title">Member profiles</h1>
+          </header>
+
+          <form class="prof-search" id="pf-search" role="search" novalidate>
+            <label class="sr-only" for="pf-q">Find a member by username</label>
+            <div class="prof-search__row">
+              <input id="pf-q" type="search" inputmode="search" maxlength="24" placeholder="Find a member by username" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="pf-search-status">
+              <button class="btn btn--glass" type="submit">Search</button>
+            </div>
+            <p class="tiny muted prof-status" id="pf-search-status" role="status"></p>
+            <ul class="prof-results" id="pf-results" aria-label="Members found" hidden></ul>
+          </form>
+
+          <p class="wallet__error" id="pf-error" role="alert" hidden></p>
+          <p class="sr-only" id="pf-live" role="status" aria-live="polite"></p>
+
+          <div class="prof-intro card" id="pf-intro" hidden>
+            <h2 class="h2--sm">Find a member</h2>
+            <p class="muted">Type at least 2 characters of a username. A profile shows a member's community, bio, wallet address and what they hold. There is no messaging.</p>
+            <p class="small muted">Everything on a profile is visible to signed-in members. Your own profile shows exactly what others see.</p>
+            <a class="btn btn--glass" id="pf-mine" href="/profile" hidden>View my profile</a>
+          </div>
+
+          <p class="muted prof-loading" id="pf-loading" hidden>Loading…</p>
+
+          <div id="pf-view" hidden>
+            <div class="prof-self card" id="pf-self" hidden>
+              <p><strong>This is how others see you.</strong> Everything below is visible to other signed-in members.</p>
+              <a class="btn btn--glass btn--sm" href="/dashboard#profile">Edit your bio</a>
+            </div>
+
+            <div class="prof-grid">
+              <div class="prof-col">
+                <article class="pass prof-pass" id="pf-pass" aria-labelledby="pf-handle">
+                  <span class="pass__shine" aria-hidden="true"></span>
+                  <div class="pass__top">
+                    <span class="pass__brand"><span class="pass__mark" aria-hidden="true"></span>Vicinity Pass</span>
+                    <span class="role-pill" id="pf-level">Member</span>
+                  </div>
+                  <div class="pass__who">
+                    <div class="idcard__avatar" id="pf-avatar" aria-hidden="true">V</div>
+                    <div class="pass__id">
+                      <h2 class="pass__name" id="pf-handle">—</h2>
+                      <p class="pass__home">📍 <span id="pf-home">—</span></p>
+                      <p class="pass__bio" id="pf-bio" hidden></p>
+                    </div>
+                    <div class="coin-disc pass__coin" aria-hidden="true"><span id="pf-coin">—</span></div>
+                  </div>
+                  <ul class="prof-badges" id="pf-badges" aria-label="Badges earned"></ul>
+                  <div class="pass__bottom">
+                    <span id="pf-since">—</span>
+                  </div>
+                </article>
+
+                <div class="prof-actions">
+                  <div class="prof-actions__row">
+                    <button class="btn btn--primary" type="button" id="pf-follow" aria-pressed="false">Follow</button>
+                    <button class="btn btn--glass" type="button" id="pf-unblock" hidden>Unblock</button>
+                    <div class="prof-menu" id="pf-menu-wrap">
+                      <button class="btn btn--glass prof-menu__btn" type="button" id="pf-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="pf-menu" aria-label="More actions"><span aria-hidden="true">…</span></button>
+                      <ul class="prof-menu__list" id="pf-menu" role="menu" aria-label="More actions" hidden>
+                        <li role="none"><button type="button" role="menuitem" id="pf-menu-block">Block</button></li>
+                        <li role="none"><button type="button" role="menuitem" id="pf-menu-report">Report bio</button></li>
+                      </ul>
+                    </div>
+                  </div>
+                  <p class="small muted" id="pf-blocked-note" hidden>You blocked this member. They can't follow you. They can still open your profile, as every member can.</p>
+                  <div class="prof-counts">
+                    <button class="prof-count" type="button" id="pf-followers-btn" aria-expanded="false" aria-controls="pf-lists"><strong id="pf-followers-n">0</strong><span id="pf-followers-l">followers</span></button>
+                    <button class="prof-count" type="button" id="pf-following-btn" aria-expanded="false" aria-controls="pf-lists"><strong id="pf-following-n">0</strong><span>following</span></button>
+                  </div>
+                </div>
+
+                <section class="card prof-posts" id="pf-posts" aria-labelledby="pf-posts-h" hidden>
+                  <h2 class="prof-h" id="pf-posts-h">Recent posts</h2>
+                  <ul class="prof-postlist" id="pf-posts-list"></ul>
+                  <p class="tiny muted">Posts from the city and country feeds you can see.</p>
+                </section>
+
+                <section class="card prof-wallet" aria-labelledby="pf-wallet-h">
+                  <h2 class="prof-h" id="pf-wallet-h">Wallet</h2>
+                  <p class="mono prof-wallet__addr" id="pf-wallet">—</p>
+                  <div class="prof-wallet__row">
+                    <button class="btn btn--glass btn--sm" type="button" id="pf-copy">Copy address</button>
+                    <a class="btn btn--glass btn--sm" id="pf-solscan" href="#" target="_blank" rel="noopener">View on Solscan ↗</a>
+                  </div>
+                </section>
+              </div>
+
+              <div class="prof-col">
+                <section class="card prof-hold" aria-labelledby="pf-hold-h">
+                  <h2 class="prof-h" id="pf-hold-h">$VICINITY</h2>
+                  <dl class="kv">
+                    <div><dt>Holds</dt><dd id="pf-hold-amount">—</dd></div>
+                    <div><dt>Rank</dt><dd id="pf-hold-rank">—</dd></div>
+                    <div><dt>Among holders</dt><dd id="pf-hold-pct">—</dd></div>
+                  </dl>
+                  <p class="small muted" id="pf-hold-note" hidden></p>
+                </section>
+
+                <section class="card portfolio-card" id="pf-portfolio" aria-labelledby="pf-pf-h">
+                  <div class="portfolio-card__head">
+                    <div><p class="kicker">Portfolio · live values</p><h2 class="prof-h" id="pf-pf-h">Vicinity coins</h2></div>
+                    <div class="pf__meta"><span class="tiny muted" id="pp-updated"></span><button class="link-btn pf__refresh" type="button" id="pp-refresh">Refresh</button></div>
+                  </div>
+                  <p class="small muted">Only $VICINITY and city coins are shown. Other tokens in a wallet never are.</p>
+                  <div class="pf" id="pp-body"><p class="muted small">Loading…</p></div>
+                  <p class="inline-err" id="pp-msg" role="alert" hidden></p>
+                </section>
+              </div>
+            </div>
+
+            <section class="card prof-lists" id="pf-lists" aria-labelledby="pf-list-title" hidden>
+              <div class="prof-lists__head">
+                <h2 class="prof-h" id="pf-list-title" tabindex="-1">Followers</h2>
+                <button class="link-btn" type="button" id="pf-list-close">Close</button>
+              </div>
+              <ul class="prof-people" id="pf-list"></ul>
+              <p class="muted small" id="pf-list-empty" hidden></p>
+              <p class="inline-err" id="pf-list-err" role="alert" hidden></p>
+              <button class="btn btn--glass btn--sm" type="button" id="pf-list-more" hidden>Load more</button>
+            </section>
+
+            <details class="card prof-blocks" id="pf-blocks" hidden>
+              <summary id="pf-blocks-sum">Members you've blocked</summary>
+              <ul class="prof-people prof-people--blocks" id="pf-blocks-list"></ul>
+              <p class="tiny muted">Only you can see this list.</p>
+            </details>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- confirm a block / send a report -->
+    <div class="modal" id="pf-dialog" role="dialog" aria-modal="true" aria-labelledby="pf-dialog-title" aria-describedby="pf-dialog-text" hidden>
+      <form class="modal__box card" id="pf-dialog-form" novalidate>
+        <h2 class="h2--sm" id="pf-dialog-title">Block</h2>
+        <p class="small muted" id="pf-dialog-text"></p>
+        <div class="prof-dialog__fields" id="pf-dialog-fields" hidden>
+          <label class="fieldset"><span>What's wrong?</span>
+            <select class="field" id="pf-report-reason">
+              <option value="spam">Spam</option>
+              <option value="scam">Scam or fake token</option>
+              <option value="abuse">Abuse or harassment</option>
+              <option value="illegal">Something illegal</option>
+              <option value="other">Something else</option>
+            </select>
+          </label>
+          <label class="fieldset"><span>Anything to add? (optional)</span>
+            <textarea class="field" id="pf-report-note" rows="2" maxlength="100"></textarea>
+          </label>
+        </div>
+        <p class="inline-err" id="pf-dialog-err" role="alert" hidden></p>
+        <div class="prof-dialog__actions">
+          <button class="btn btn--glass" type="button" id="pf-dialog-cancel">Cancel</button>
+          <button class="btn btn--primary" type="submit" id="pf-dialog-ok">Block</button>
+        </div>
+      </form>
+    </div>
