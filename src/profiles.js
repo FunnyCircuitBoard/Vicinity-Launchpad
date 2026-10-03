@@ -191,7 +191,8 @@ async function handleFollow(request, env, x) {
   const t = await target(request, "follow");
   if (t.error) return t.error;
   if (!(await within(env, "follow", u.id, now))) return slow();
-  const who = await findMember(db, t.h, { now, viewerId: u.id });
+  // following needs a member you can see; unfollowing works for anybody who exists (also one who is hidden since: you must be able to let go)
+  const who = await findMember(db, t.h, { now, viewerId: u.id, any: !t.on });
   if (!who) return notFound();
   if (who.id === u.id) return json({ ok: false, error: "self" }, 400);
 

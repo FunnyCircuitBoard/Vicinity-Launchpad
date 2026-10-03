@@ -90,6 +90,16 @@ test("test-lab rows and members under an active ban cannot be found or followed;
   void c;
 });
 
+test("you can always let go: unfollowing works for a member who has been hidden since (banned or test-lab), following them does not", async () => {
+  const { env, people: [a, b] } = await world();
+  await follow(a, "BobBrave");
+  await env.DB.prepare("INSERT INTO bans (user_id, country, by_user, reason, created_at, expires_at) VALUES (?, '*', 1, 'x', ?, ?)").bind(b.id, iso(clock.now), iso(clock.now + HOUR)).run();
+  assert.deepEqual((await a.get("/api/follows?list=following")).users, [], "hidden from the list");
+  await expectStatus(await follow(a, "BobBrave"), 404, "not_found");
+  assert.deepEqual(await (await follow(a, "BobBrave", false)).json(), { ok: true, following: false, counts: { followers: 0, following: 0 } });
+  assert.deepEqual(await followPairs(env.DB), [], "the row is gone");
+});
+
 test("a banned or test-lab follower is not in the counts or the lists (they are exact for what people can see); the rows stay", async () => {
   const { env, people: [a, b, c, d] } = await world(["Alice77", "BobBrave", "CarolCalm", "DanDry"]);
   for (const p of [b, c, d]) await follow(p, "Alice77");
