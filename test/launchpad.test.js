@@ -4,11 +4,13 @@
 // failed), trade links, country list and counts. One upstream round per server per 30 seconds, shared by every viewer.
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { IN_NYC, IN_UTICA, MINT, advance, browser, clock, person, realClock, setHolding, tick, useClock } from "./helpers/world.js";
 import { CITY_COIN, LP, PENDING, RAY, SOL, USDC, dexMock, fakeCaches, mintNo, pairFor, seedCoin, seedSeat } from "./helpers/launchpad.js";
 import { keysOf } from "./helpers/profiles.js";
 import { _resetLaunchpad, tradeLinks } from "../src/launchpad.js";
 import { _resetMarket, marketFor, marketOf, pickPair } from "../src/market.js";
+import { ensureSchema } from "../src/store.js";
 
 beforeEach(() => { useClock("2026-10-12T12:00:00Z"); _resetLaunchpad(); _resetMarket(); });
 after(() => realClock());
@@ -172,6 +174,25 @@ test("DexScreener through the route: 30 mints a call, a coin crowded out of a fu
   assert.deepEqual(crowded.mints(), [[MINT, CITY_COIN], [CITY_COIN]]);
   assert.equal(d2.vicinity.market.pairAddress, mintNo(129), "the most liquid of the 30");
   assert.equal(d2.coins[0].market.priceUsd, 0.0012);
+});
+
+test("the DexScreener request ceiling: a batch whose answers keep coming back full is asked at most three times, so a round is at most 3 x ceil(mints / 30) requests, and DEPLOY.md says so", async () => {
+  // every mint has 30 pairs: every answer is full and crowds the rest of its batch out, so the top-ups run to their limit
+  const table = {};
+  for (let i = 1; i <= 63; i++) table[mintNo(i)] = Array.from({ length: 30 }, (_, k) => pairFor(mintNo(i), { pairAddress: mintNo(200 + k) }));
+  const one = dexMock(table);
+  const r = await marketFor(Array.from({ length: 30 }, (_, i) => mintNo(i + 1)), one.fetchImpl, { now: clock.now });
+  assert.deepEqual(one.mints().map((m) => m.length), [30, 29, 28], "one batch: the request and two top-ups, then the batch is let go");
+  assert.deepEqual([r.ok, [...r.markets.values()].filter(Boolean).length], [true, 3], "each full answer gave exactly one coin its pair");
+  _resetMarket();
+  const three = dexMock(table);
+  await marketFor(Array.from({ length: 63 }, (_, i) => mintNo(i + 1)), three.fetchImpl, { now: clock.now });
+  assert.equal(three.seen.length, 9, "3 x ceil(63 / 30): the ceiling the operations guide must state");
+  // the guide sizes against DexScreener's 300 requests a minute from this sentence, so it must not undercount the top-ups
+  const deploy = readFileSync(new URL("../docs/DEPLOY.md", import.meta.url), "utf8");
+  assert.ok(!deploy.includes("at most one round of `ceil(coins / 30)` requests"), "the old sentence counted one request per batch and no top-ups");
+  assert.match(deploy, /at most one round every 30 seconds per server, a round being up to 3 × `ceil\(coins \/ 30\)` requests/);
+  assert.match(deploy, /retried once/, "the one retry after a network error or timeout is part of the count too");
 });
 
 test("DexScreener down (5xx): every market is null, the answer is kept only 5 seconds, and no new call is made for 5 seconds", async () => {
@@ -340,6 +361,29 @@ test("a founder without a username shows no handle (never a name made from the w
   await env.DB.prepare("UPDATE seats SET status = 'released', ended_at = ? WHERE city_id = '5142056'").bind(new Date(clock.now).toISOString()).run();
   _resetLaunchpad();
   assert.equal((await (await browser(env).send("/api/launchpad", { fetchImpl: dexMock().fetchImpl })).json()).coins.find((c) => c.city.id === "5142056").founder, null);
+});
+
+test("a coin's community outside the 300 largest (where the map's /api/members list stops) still gets its member and holder counts", async () => {
+  const env = LP({ VICINITY_MINT: MINT });
+  await ensureSchema(env.DB);
+  // 300 communities of three people, written straight into users (throwaway values): Utica, with two, is then not among the 300 the map lists
+  const t = new Date(clock.now).toISOString(), rows = [];
+  for (let i = 1; i <= 300; i++) for (let k = 0; k < 3; k++) {
+    rows.push(env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, name, home_city, home_name, home_country, home_at, created_at) VALUES (?, 'google', ?, 'Someone', ?, ?, 'US', ?, ?)")
+      .bind(`test-wallet-${i}-${k}`, `test-${i}-${k}`, `c${i}`, `Community ${i}`, t, t));
+  }
+  await env.DB.batch(rows);
+  await person(env, { home: IN_UTICA, holds: 50 });
+  await person(env, { home: IN_UTICA });
+  await seedCoin(env.DB, { city: 5142056, name: "Utica", mint: CITY_COIN });
+  await tick(env); // the balance sample the holder count is read from
+  const b = browser(env);
+  const mem = await b.get("/api/members");
+  assert.equal(mem.communities.length, 300);
+  assert.equal(mem.communities.some((c) => c.id === "5142056"), false, "the map's list stops at the 300 largest communities: Utica is not on it");
+  const d = await (await b.send("/api/launchpad", { fetchImpl: dexMock().fetchImpl })).json();
+  assert.deepEqual(d.coins[0].members, { members: 2, holders: 1 }, "counted for the coin's community itself, by the rule of /api/members, not read from its capped list");
+  assert.deepEqual(d.coins[0].city, { id: "5142056", name: "Utica", country: "US" });
 });
 
 test("holder counts come from the job: a coin launched after the last run shows no count until the next run", async () => {

@@ -16,7 +16,7 @@
  *
  * What other members see of a member: username, member since, level, badges, home community, bio, wallet address, exact
  * $VICINITY amount with rank and percentile, exact city-coin holdings with live dollar values, follower and following
- * counts, and the posts the feeds already show them. NEVER: real name, sign-in method, contact e-mail, phone, IP, location,
+ * counts and the lists behind them (usernames, 50 a page), and the posts the feeds already show them. NEVER: real name, sign-in method, contact e-mail, phone, IP, location,
  * sessions, anybody's block list, anything from the admin tools. Each answer is built field by field (no table row is ever
  * passed through), and test/profile-view.test.js scans every answer for what must not be in it.
  *
@@ -25,7 +25,8 @@
  *   - follow, unfollow, block and unblock are single statements (or one batch): parallel taps cannot break the rules
  *     (a block removes the follows both ways in the same transaction, a follow is refused inside its own INSERT when a
  *     block exists or 1,000 people are already followed), and the counts are counted from the rows
- *   - test-lab rows and members under an active ban are not found, not listed, not counted
+ *   - test-lab rows and members under an active ban are not found, not listed, not counted; and letting go of one
+ *     (unfollow, unblock) answers exactly like letting go of a username nobody has, so no route tells the two apart
  *   - a failure of the new tables only ever answers 503 profiles_unavailable on these routes
  */
 import { json, readJson } from "./http.js";
@@ -37,7 +38,7 @@ import { getHolding, holderSnapshot, rankOf } from "./chain.js";
 import { adminWallets, liveSeatOfUser, managerOf } from "./roles.js";
 import { badgesFor } from "./me.js";
 import { adminRoleOf } from "./admin.js";
-import { handlePortfolio, portfolioOf } from "./portfolio.js";
+import { portfolioOf } from "./portfolio.js";
 import { handleClearBio } from "./moderation.js";
 import { cleanText } from "./text.js";
 import { MAX_BLOCKS, MAX_FOLLOWING, PAGE, SEARCH_MAX, SHOWN, cleanBio, countsOf, countsStatement, findMember, memberById, parseHandle, within } from "./profile-core.js";
@@ -47,11 +48,12 @@ const slow = () => json({ ok: false, error: "slow_down" }, 429);
 const notFound = () => json({ ok: false, error: "not_found" }, 404);
 const home = (name, country) => (name ? { name, country } : null);
 
-/** A signed-in, real member (not a test-lab row) with the profile tables in place, or { error }. */
-async function member(request, env, now, { write }) {
+/** A signed-in, real member (not a test-lab row) with the profile tables in place (unless `tables: false`), or { error }. */
+async function member(request, env, now, { write, tables = true }) {
   const a = await access(request, env, now, { write });
   if (a.error) return a;
   if (a.u.provider === "testlab") return { error: json({ ok: false, error: "sign_in" }, 401) };
+  if (!tables) return a;
   try { await ensureProfilesSchema(env.DB); }
   catch (e) {
     console.error("profile tables unavailable", String((e && e.message) || e).slice(0, 80));
@@ -191,18 +193,19 @@ async function handleFollow(request, env, x) {
   const t = await target(request, "follow");
   if (t.error) return t.error;
   if (!(await within(env, "follow", u.id, now))) return slow();
-  // following needs a member you can see; unfollowing works for anybody who exists (also one who is hidden since: you must be able to let go)
-  const who = await findMember(db, t.h, { now, viewerId: u.id, any: !t.on });
-  if (!who) return notFound();
-  if (who.id === u.id) return json({ ok: false, error: "self" }, 400);
-
+  // Following needs a member you can see. Letting go works for anybody (you must be able to unfollow a member who has been
+  // hidden since), and answers exactly the same whether the username is shown, hidden (banned, test-lab) or nobody's: the
+  // row goes by username in one statement, and counts come back only for a member you can see. So unfollowing never tells
+  // you whether a username exists or is hidden, which GET /api/profile keeps from you as well.
+  const who = await findMember(db, t.h, { now, viewerId: u.id });
+  if (who && who.id === u.id) return json({ ok: false, error: "self" }, 400);
   if (!t.on) {
-    const [, counts] = await db.batch([
-      db.prepare("DELETE FROM follows WHERE follower_id = ?1 AND followee_id = ?2").bind(u.id, who.id),
-      countsStatement(db, who.id, now),
-    ]);
-    return json({ ok: true, following: false, counts: shapeCounts(counts) });
+    const stmts = [db.prepare(`DELETE FROM follows WHERE follower_id = ?1 AND followee_id IN (SELECT u.id FROM users u WHERE u.handle IS NOT NULL AND lower(u.handle) = lower(?2))`).bind(u.id, t.h)];
+    if (who) stmts.push(countsStatement(db, who.id, now));
+    const [, counts] = await db.batch(stmts);
+    return json({ ok: true, following: false, ...(who ? { counts: shapeCounts(counts) } : {}) });
   }
+  if (!who) return notFound();
   const [, state, counts] = await db.batch([
     db.prepare(FOLLOW).bind(u.id, who.id, iso(now), MAX_FOLLOWING),
     db.prepare(FOLLOW_STATE).bind(u.id, who.id),
@@ -211,9 +214,10 @@ async function handleFollow(request, env, x) {
   const s = state.results[0];
   if (!s.there) return notFound();
   if (s.following) return json({ ok: true, following: true, counts: shapeCounts(counts) });
-  // Refused. A block is never named: "cannot_follow" is all the other member's choice ever shows.
-  if (s.blocked_you) return json({ ok: false, error: "cannot_follow" }, 403);
+  // Refused. Your own block is always the explanation when there is one (so the answer never changes with the other side's
+  // choice); a block by the other member is never named: "cannot_follow" is all their choice ever shows.
   if (s.you_blocked) return json({ ok: false, error: "unblock_first" }, 409);
+  if (s.blocked_you) return json({ ok: false, error: "cannot_follow" }, 403);
   if (s.mine >= MAX_FOLLOWING) return json({ ok: false, error: "too_many_following" }, 409);
   return json({ ok: false, error: "unavailable" }, 503);
 }
@@ -221,7 +225,8 @@ const shapeCounts = (r) => ({ followers: Number(r.results[0]?.followers) || 0, f
 
 /* ---------------- lists ---------------- */
 
-const CURSOR = /^(\d{4}-\d{2}-\d{2}T[0-9:.]{8,16}Z)_(\d{1,12})$/;
+// "<time of the follow>_<username of that row>": the page's last row, nothing the list did not show already (never a member's id)
+const CURSOR = /^(\d{4}-\d{2}-\d{2}T[0-9:.]{8,16}Z)_([A-Za-z0-9_]{1,40})$/;
 
 /** GET /api/follows?u=<handle>&list=followers|following&after=<cursor> */
 async function handleFollows(request, env, x) {
@@ -241,14 +246,15 @@ async function handleFollows(request, env, x) {
   if (!who) return notFound();
 
   const [mine, theirs] = list === "followers" ? ["f.followee_id", "f.follower_id"] : ["f.follower_id", "f.followee_id"];
+  // newest first; follows of the same moment in a fixed order by username (the cursor must never carry a member's id)
   const rows = (await db.prepare(
-    `SELECT s.id AS uid, s.handle, s.home_name, s.home_country, f.created_at FROM follows f JOIN users s ON s.id = ${theirs}
-      WHERE ${mine} = ?1 AND ${SHOWN("s", "?2")}${cur ? ` AND (f.created_at, ${theirs}) < (?3, ?4)` : ""}
-      ORDER BY f.created_at DESC, ${theirs} DESC LIMIT ${PAGE + 1}`).bind(...[who.id, iso(now), ...(cur ? [cur[1], Number(cur[2])] : [])]).all()).results;
+    `SELECT s.handle, s.home_name, s.home_country, f.created_at FROM follows f JOIN users s ON s.id = ${theirs}
+      WHERE ${mine} = ?1 AND ${SHOWN("s", "?2")}${cur ? ` AND (f.created_at, lower(s.handle)) < (?3, lower(?4))` : ""}
+      ORDER BY f.created_at DESC, lower(s.handle) DESC LIMIT ${PAGE + 1}`).bind(...[who.id, iso(now), ...(cur ? [cur[1], cur[2]] : [])]).all()).results;
   const page = rows.slice(0, PAGE);
   const last = page[page.length - 1];
   return json({ ok: true, users: page.map((r) => ({ handle: r.handle, home: home(r.home_name, r.home_country) })),
-    next: rows.length > PAGE && last ? `${last.created_at}_${last.uid}` : null });
+    next: rows.length > PAGE && last ? `${last.created_at}_${last.handle}` : null });
 }
 
 /* ---------------- block ---------------- */
@@ -268,16 +274,17 @@ async function handleBlock(request, env, x) {
   const t = await target(request, "block");
   if (t.error) return t.error;
   if (!(await within(env, "block", u.id, now))) return slow();
-  // unblocking works for anybody who exists (also a member who is hidden since), blocking only for members you can see
-  const who = await findMember(db, t.h, { now, viewerId: u.id, any: !t.on });
-  if (!who) return notFound();
-  if (who.id === u.id) return json({ ok: false, error: "self" }, 400);
-
+  // Blocking needs a member you can see. Unblocking works for anybody (also a member who is hidden since) and answers the
+  // same whether the username is shown, hidden or nobody's: letting go is never a way to find out (see handleFollow).
+  const who = await findMember(db, t.h, { now, viewerId: u.id });
+  if (who && who.id === u.id) return json({ ok: false, error: "self" }, 400);
   if (!t.on) {
-    await db.prepare("DELETE FROM blocks WHERE blocker_id = ?1 AND blocked_id = ?2").bind(u.id, who.id).run();
+    await db.prepare("DELETE FROM blocks WHERE blocker_id = ?1 AND blocked_id IN (SELECT u.id FROM users u WHERE u.handle IS NOT NULL AND lower(u.handle) = lower(?2))").bind(u.id, t.h).run();
     return json({ ok: true, blocked: false });
   }
-  // admins and moderators answer to everybody: they cannot be blocked (and never learn who tried)
+  if (!who) return notFound();
+  // members with an admin-console role (the owner wallets, the /admin roles admin and moderator) answer to everybody: they cannot be
+  // blocked (and never learn who tried). A city founder or a country manager is a member like any other here: a block only stops follows.
   if (await adminRoleOf(env, who.wallet)) return json({ ok: false, error: "cannot_block" }, 409);
   const [, , , state] = await db.batch([
     db.prepare(BLOCK).bind(u.id, who.id, iso(now), MAX_BLOCKS),
@@ -341,6 +348,15 @@ async function handleReport(request, env, x) {
   return json({ ok: true });
 }
 
+/* ---------------- the portfolio ---------------- */
+
+/** GET /api/me/portfolio → your own portfolio (src/portfolio.js): the one entry rule of every profile route, but none of the new tables are needed (only the wallet). */
+async function handleOwnPortfolio(request, env, x) {
+  const g = await member(request, env, x.now, { write: false, tables: false });
+  if (g.error) return g.error;
+  return json({ ok: true, portfolio: await portfolioOf(env, g.u.wallet, { fetchImpl: x.fetchImpl, now: x.now }) });
+}
+
 /* ---------------- routes ---------------- */
 
 const ROUTES = {
@@ -352,7 +368,7 @@ const ROUTES = {
   "/api/block": ["POST", handleBlock],
   "/api/me/blocks": ["GET", handleBlocks],
   "/api/me/bio": ["POST", handleBio],
-  "/api/me/portfolio": ["GET", (request, env, x) => handlePortfolio(request, env, x.fetchImpl, x.now)],
+  "/api/me/portfolio": ["GET", handleOwnPortfolio],
   "/api/mod/bio/clear": ["POST", (request, env, x) => handleClearBio(request, env, x.fetchImpl, x.now)],
 };
 /** Every path that exists only while PROFILES=on (src/index.js answers 404 not_enabled for them otherwise). */

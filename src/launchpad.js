@@ -3,8 +3,9 @@
  * $VICINITY and one for every city coin a founder designed, so the Launchpad page can show Live | New | Upcoming | Trending,
  * search, sort and filter entirely in the browser from this one answer.
  *   Sources   the coin designs (src/coins.js: coinView), the live founder seats (src/seats.js), member and holder counts per
- *             community (src/me.js: handleMembers), tickers (src/tickers.js), market data from DexScreener (src/market.js) and
- *             holder counts the scheduled job wrote to coin_stats (refreshCoinStats below).
+ *             community (counted here for exactly the coins' communities, by the rule of /api/members: communityCounts below),
+ *             tickers (src/tickers.js), market data from DexScreener (src/market.js) and holder counts the scheduled job wrote
+ *             to coin_stats (refreshCoinStats below).
  *   Privacy   a founder appears as their username (or nothing) and a MASKED wallet, with the same mask as the dashboard; a
  *             contract still waiting for an admin's check is never in the answer (only status "waiting").
  *   Cost      one upstream round at most every 30 seconds per server (an in-memory copy of the answer), and the edge cache
@@ -17,7 +18,7 @@ import { json } from "./http.js";
 import { activeMint, officialFor } from "./official.js";
 import { PAIRS, handleCoins, launchedCoins } from "./coins.js";
 import { handleSeats } from "./seats.js";
-import { handleMembers } from "./me.js";
+import { latestBalances } from "./ledger.js";
 import { tickerOf } from "./tickers.js";
 import { ensureLaunchpadSchema } from "./store.js";
 import { marketFor } from "./market.js";
@@ -78,14 +79,37 @@ async function holderCounts(env) {
   }
 }
 
+/**
+ * Member and $VICINITY-holder counts for exactly the coins' communities, by the rule of /api/members (src/me.js: handleMembers):
+ * a member is a person who calls the community home (test-lab accounts are not people), a holder is a member whose wallet holds
+ * more than 0 in the latest balance sample (0 holders while there is no sample). Counted here rather than read from /api/members,
+ * whose list stops at the 300 largest communities: a coin's community can be smaller than that and must still show its count.
+ * Map(city id -> { members, holders }); a community nobody calls home has no entry.
+ */
+async function communityCounts(env, cityIds, now) {
+  const out = new Map();
+  if (!cityIds.size) return out;
+  const placed = (await env.DB.prepare("SELECT wallet, home_city FROM users WHERE home_city IS NOT NULL AND provider != 'testlab'").all()).results;
+  let balances = null;
+  try { balances = (await latestBalances(env, now))?.balances || null; } catch { balances = null; }
+  for (const u of placed) {
+    const id = String(u.home_city);
+    if (!cityIds.has(id)) continue;
+    const c = out.get(id) || { members: 0, holders: 0 };
+    c.members++;
+    if (balances && (balances[u.wallet] || 0) > 0) c.holders++;
+    out.set(id, c);
+  }
+  return out;
+}
+
 /** The whole answer, built from the sources. { body, degraded } (degraded: some source failed, keep it only briefly). */
 async function build(env, fetchImpl, now) {
   const official = officialFor(env);
   const vicMint = activeMint(env) || null;
-  // one source after the other: two of them run a batch, and batches must not overlap on one database
+  // one source after the other: some of them run a batch, and batches must not overlap on one database
   const coinsRes = await (await handleCoins(new Request("https://launchpad.internal/api/coins"), env, fetchImpl, now)).json();
   const seatsRes = await (await handleSeats(env, now)).json();
-  const membersRes = await (await handleMembers(env)).json();
   const stats = await holderCounts(env);
   const seats = new Map(seatsRes.seats.map((s) => [String(s.cityId), s]));
   // the founder's USERNAME only (users.handle): /api/seats falls back to a display name, which would read like a username here
@@ -95,8 +119,8 @@ async function build(env, fetchImpl, now) {
       WHERE s.status IN ('provisional', 'active', 'grace', 'steward')`).all();
     for (const r of rows.results) handles.set(String(r.city_id), r.handle || null);
   } catch (e) { console.error("founder handles unavailable", shortErr(e)); }
-  const members = new Map((membersRes.communities || []).map((c) => [String(c.id), { members: c.members, holders: c.holders }]));
   const coins = coinsRes.coins || [];
+  const members = await communityCounts(env, new Set(coins.map((c) => String(c.city))), now);
 
   // market data for allow-listed mints only: $VICINITY and the city coins an admin recorded
   const live = coins.filter((c) => c.mint).map((c) => c.mint);
