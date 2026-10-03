@@ -1301,7 +1301,7 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .lp-card__ticker { font-weight: 700; }
 .lp-card__name { font-weight: 500; color: var(--text-2); font-family: var(--body); font-size: .95rem; overflow-wrap: anywhere; }
 .lp-card__place { margin: 2px 0 0; }
-.lp-card__status { flex: none; white-space: nowrap; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.lp-card__status { flex: none; max-width: 56%; white-space: normal; text-align: center; margin-top: 2px; font-variant-numeric: tabular-nums; } /* a long tag wraps inside its pill rather than crushing the title */
 .lp-card__meta { margin: 0; display: flex; flex-wrap: wrap; gap: 0 4px; }
 .lp-stats { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; padding: 12px 0 0; border-top: 1px solid var(--line); }
 .lp-stat { min-width: 0; }
@@ -1332,5 +1332,10 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
   .lp-tabs button { padding: 7px 10px; font-size: .86rem; }
   .lp-card { padding: 16px 14px; }
   .lp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  /* narrow phones: the status tag sits under the title instead of beside it, so neither is squeezed */
+  .lp-card__head { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 6px 12px; align-items: start; }
+  .lp-card__status { grid-column: 2; justify-self: start; max-width: 100%; margin-top: 0; }
 }
 @media (max-width: 360px) { .lp-filters { grid-template-columns: minmax(0, 1fr); } .lp-filters .lp-field:last-child { grid-column: auto; } }
