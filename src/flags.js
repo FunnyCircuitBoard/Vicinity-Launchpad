@@ -13,3 +13,10 @@ export const v2On = (env) => signupFlow(env) === "v2";
  * follow and block). Exactly "on" (trimmed, any letter case); anything else, unset included, is the site as it has always been.
  */
 export const profilesOn = (env) => String((env && env.PROFILES) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * LAUNCHPAD_V2=on turns on the Launchpad's city-coin list (GET /api/launchpad, market data from DexScreener, holder counts
+ * from the scheduled job, and the key launchpadV2:true in /api/official that tells the page to show the list). Exactly "on"
+ * (trimmed, any letter case); anything else, unset included, is the Launchpad page as it has always been.
+ */
+export const launchpadV2On = (env) => String((env && env.LAUNCHPAD_V2) ?? "").trim().toLowerCase() === "on";
