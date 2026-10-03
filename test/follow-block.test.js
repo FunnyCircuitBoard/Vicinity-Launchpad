@@ -3,7 +3,7 @@
 // a block and a follow that meet cannot leave a follow behind a block, and the caps (1,000 followed, 1,000 blocked) hold.
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { HOUR, IN_UTICA, advance, browser, clock, loginBody, realClock, useClock, wallet } from "./helpers/world.js";
+import { HOUR, advance, browser, clock, loginBody, realClock, useClock, wallet } from "./helpers/world.js";
 import { PF, blockPairs, expectStatus, followPairs, one, quick, rawCounts, rows, seedUsers } from "./helpers/profiles.js";
 import { slowDb } from "./helpers/slowdb.js";
 import { countsOf } from "../src/profile-core.js";

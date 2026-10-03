@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { IN_UTICA, browser, clock, newWorld, person, wallet } from "./world.js";
 import { SESSION_COOKIE, SESSION_SECONDS, createSession } from "../../src/auth.js";
-import { ensureSchema } from "../../src/store.js";
+import { ensureProfilesSchema, ensureSchema } from "../../src/store.js";
 
 /** A test world with member profiles switched on. */
 export const PF = (extra = {}) => newWorld({ PROFILES: "on", ...extra });
@@ -109,7 +109,7 @@ export async function quick(env, handle, { home = UTICA, provider = "google", bi
     "INSERT INTO users (wallet, provider, provider_id, handle, name, home_city, home_name, home_country, home_at, early, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)")
     .bind(w.address, provider, "q-" + handle, handle, "Real Name of " + handle, home && home.id, home && home.name, home && home.country, home ? at : null, at).run();
   const id = r.meta.last_row_id;
-  if (bio !== null) await env.DB.prepare("UPDATE users SET bio = ? WHERE id = ?").bind(bio, id).run();
+  if (bio !== null) { await ensureProfilesSchema(env.DB); await env.DB.prepare("UPDATE users SET bio = ? WHERE id = ?").bind(bio, id).run(); }
   const b = browser(env);
   const [pair] = (await createSession(env, { wallet: w.address, userId: id, provenAt: at }, SESSION_SECONDS, clock.now)).split("; ");
   b.jar.set(SESSION_COOKIE, pair.slice(pair.indexOf("=") + 1));
