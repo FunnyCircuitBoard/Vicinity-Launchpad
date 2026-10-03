@@ -23,6 +23,7 @@ import {
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
+  createInitializeMintCloseAuthorityInstruction,
   createInitializeMintInstruction,
   createInitializeTransferFeeConfigInstruction,
   getAccount,
@@ -96,6 +97,16 @@ export async function send(ixs: TransactionInstruction[], signers: Keypair[]): P
   });
 }
 
+// A transaction WITHOUT the provider wallet: signers[0] pays the fee. Needed
+// wherever a test must prove that the provider wallet's signature is what
+// makes something possible (it is the registry admin and the upgrade authority).
+export async function sendAs(ixs: TransactionInstruction[], signers: Keypair[]): Promise<string> {
+  if (signers.length === 0) throw new Error("sendAs needs at least one signer (the fee payer)");
+  const tx = new Transaction().add(...ixs);
+  tx.feePayer = signers[0].publicKey;
+  return sendAndConfirmTransaction(connection, tx, signers, { commitment: "confirmed" });
+}
+
 export async function createMint(decimals = DECIMALS, tokenProgram: PublicKey = TOKEN_PROGRAM_ID): Promise<PublicKey> {
   const mint = Keypair.generate();
   const lamports = await connection.getMinimumBalanceForRentExemption(MINT_SIZE);
@@ -130,6 +141,28 @@ export async function createTransferFeeMint(feeBps = 100, maxFee = 1_000_000n, d
         programId: TOKEN_2022_PROGRAM_ID,
       }),
       createInitializeTransferFeeConfigInstruction(mint.publicKey, payer.publicKey, payer.publicKey, feeBps, maxFee, TOKEN_2022_PROGRAM_ID),
+      createInitializeMintInstruction(mint.publicKey, decimals, payer.publicKey, null, TOKEN_2022_PROGRAM_ID),
+    ],
+    [mint]
+  );
+  return mint.publicKey;
+}
+
+// Token-2022 mint with the MintCloseAuthority extension (closable while supply is 0).
+export async function createClosableMint(decimals = DECIMALS): Promise<PublicKey> {
+  const mint = Keypair.generate();
+  const len = getMintLen([ExtensionType.MintCloseAuthority]);
+  const lamports = await connection.getMinimumBalanceForRentExemption(len);
+  await send(
+    [
+      SystemProgram.createAccount({
+        fromPubkey: payer.publicKey,
+        newAccountPubkey: mint.publicKey,
+        space: len,
+        lamports,
+        programId: TOKEN_2022_PROGRAM_ID,
+      }),
+      createInitializeMintCloseAuthorityInstruction(mint.publicKey, payer.publicKey, TOKEN_2022_PROGRAM_ID),
       createInitializeMintInstruction(mint.publicKey, decimals, payer.publicKey, null, TOKEN_2022_PROGRAM_ID),
     ],
     [mint]
@@ -179,6 +212,30 @@ export async function nowOnChain(): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
+// registry (one per program; who may create cities)
+
+// The provider wallet is the validator's upgrade authority for the program
+// (Anchor.toml `[test] upgradeable = true`) and becomes the registry admin, so
+// it can create cities without an extra signer. Tests that need a different
+// admin use the two-step transfer and move it back afterwards.
+export const registryAdmin: Keypair = payer;
+
+let registryReady: Promise<void> | undefined;
+
+export function ensureRegistry(): Promise<void> {
+  registryReady ??= (async () => {
+    if (await client.fetchRegistry()) return;
+    try {
+      await client.initRegistry({ payer: payer.publicKey, upgradeAuthority: payer.publicKey, admin: registryAdmin.publicKey }).rpc();
+    } catch (e) {
+      // another test file may have created it in the same instant
+      if (!(await client.fetchRegistry())) throw e;
+    }
+  })();
+  return registryReady;
+}
+
+// ---------------------------------------------------------------------------
 // cities
 
 export interface City {
@@ -210,6 +267,8 @@ export interface CreateCityOptions {
   funder?: Keypair;
   funderBalance?: bigint;
   skipInit?: boolean;
+  // who signs as registry admin (default: the provider wallet, the real admin)
+  admin?: Keypair;
   overrides?: Record<string, PublicKey>;
 }
 
@@ -220,6 +279,7 @@ export function registeredCities(): City[] {
 }
 
 export async function createCity(o: CreateCityOptions): Promise<City> {
+  await ensureRegistry();
   const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
   const authority = o.authority ?? (await fundedKeypair(2));
   const founder = o.founder ?? (await fundedKeypair(0.5));
@@ -232,9 +292,11 @@ export async function createCity(o: CreateCityOptions): Promise<City> {
   const funderTokenAccount = await createTokenAccount(rewardMint, funder.publicKey, o.funderBalance ?? 1_000_000_000_000n, tokenProgram);
   const city: City = { name: o.name ?? tag, cityCoinMint, rewardMint, tokenProgram, config, vault, authority, founder, funder, funderTokenAccount, model: o.model, founderBps, tag };
   if (!o.skipInit) {
+    const admin = o.admin ?? registryAdmin;
     await client
       .initCity({
         payer: payer.publicKey,
+        admin: admin.publicKey,
         authority: authority.publicKey,
         founder: founder.publicKey,
         cityCoinMint,
@@ -245,16 +307,20 @@ export async function createCity(o: CreateCityOptions): Promise<City> {
         tokenProgram,
         overrides: o.overrides,
       })
-      .signers([authority])
+      .signers(admin.publicKey.equals(payer.publicKey) ? [authority] : [authority, admin])
       .rpc();
     registry.push(city);
   }
   return city;
 }
 
-export function initCityTx(city: City, extra: { founderBps?: number; model?: RewardModelName; tag?: string | number[]; founder?: PublicKey; rewardMint?: PublicKey; overrides?: Record<string, PublicKey> } = {}) {
+export function initCityTx(
+  city: City,
+  extra: { founderBps?: number; model?: RewardModelName; tag?: string | number[]; founder?: PublicKey; rewardMint?: PublicKey; admin?: PublicKey; payer?: PublicKey; overrides?: Record<string, PublicKey> } = {}
+) {
   return client.initCity({
-    payer: payer.publicKey,
+    payer: extra.payer ?? payer.publicKey,
+    admin: extra.admin ?? registryAdmin.publicKey,
     authority: city.authority.publicKey,
     founder: extra.founder ?? city.founder.publicKey,
     cityCoinMint: city.cityCoinMint,
@@ -323,6 +389,15 @@ export interface FundOptions {
   overrides?: Record<string, PublicKey>;
 }
 
+// The tests have no snapshot file; the hash of the root stands in for its
+// SHA-256 wherever a root is given (the program refuses an all-zero hash for
+// Holders/Split epochs). Creator epochs have neither root nor hash.
+function snapshotHashFor(o: { snapshotHash?: Uint8Array; root?: Uint8Array | number[]; tree?: Tree }): Uint8Array {
+  if (o.snapshotHash) return o.snapshotHash;
+  const root = o.root ?? o.tree?.root;
+  return root ? sha256(Uint8Array.from(root)) : new Uint8Array(32);
+}
+
 export async function fundEpochTx(city: City, o: FundOptions) {
   const authority = o.authority ?? city.authority;
   const funder = o.funder ?? city.funder;
@@ -335,13 +410,46 @@ export async function fundEpochTx(city: City, o: FundOptions) {
     merkleRoot: o.root ?? o.tree?.root,
     numLeaves: o.numLeaves ?? o.tree?.numLeaves ?? 0,
     snapshotSlot: o.snapshotSlot ?? (await connection.getSlot("confirmed")),
-    snapshotHash: o.snapshotHash ?? (o.tree ? sha256(o.tree.root) : new Uint8Array(32)),
+    snapshotHash: snapshotHashFor(o),
     claimWindowSecs: o.window ?? defaultWindow(),
     founder: o.founder,
     rewardMint: o.rewardMint,
     tokenProgram: o.tokenProgram ?? city.tokenProgram,
     overrides: o.overrides,
   });
+}
+
+// fund_epoch_from_vault: same inputs minus amount and funder; `payer` pays the
+// epoch rent (defaults to the authority).
+export type FundFromVaultOptions = Omit<FundOptions, "amount" | "funder" | "funderTokenAccount"> & { payer?: Keypair };
+
+export async function fundEpochFromVaultTx(city: City, o: FundFromVaultOptions) {
+  const authority = o.authority ?? city.authority;
+  const payerKp = o.payer ?? authority;
+  return client.fundEpochFromVault({
+    authority: authority.publicKey,
+    payer: payerKp.publicKey,
+    cityCoinMint: city.cityCoinMint,
+    merkleRoot: o.root ?? o.tree?.root,
+    numLeaves: o.numLeaves ?? o.tree?.numLeaves ?? 0,
+    snapshotSlot: o.snapshotSlot ?? (await connection.getSlot("confirmed")),
+    snapshotHash: snapshotHashFor(o),
+    claimWindowSecs: o.window ?? defaultWindow(),
+    founder: o.founder,
+    rewardMint: o.rewardMint,
+    tokenProgram: o.tokenProgram ?? city.tokenProgram,
+    overrides: o.overrides,
+  });
+}
+
+export async function fundEpochFromVault(city: City, o: FundFromVaultOptions): Promise<{ signature: string; index: bigint; epoch: PublicKey; config: CityConfigView; epochView: EpochView }> {
+  const before = await fetchConfig(city);
+  const authority = o.authority ?? city.authority;
+  const payerKp = o.payer ?? authority;
+  const signers = authority.publicKey.equals(payerKp.publicKey) ? [authority] : [authority, payerKp];
+  const signature = await (await fundEpochFromVaultTx(city, o)).signers(signers).rpc();
+  const epoch = epochAddress(city, before.epochCount);
+  return { signature, index: before.epochCount, epoch, config: await fetchConfig(city), epochView: await client.fetchEpoch(epoch) };
 }
 
 export async function fundEpoch(city: City, o: FundOptions): Promise<{ signature: string; index: bigint; epoch: PublicKey; config: CityConfigView; epochView: EpochView }> {
@@ -415,6 +523,9 @@ export function craftDeepProof(leafIndex: number, claimant: PublicKey, amount: b
 // errors
 
 export const ANCHOR = {
+  // a `Signer<'info>` account passed without a signature (error 3010)
+  AccountNotSigner: "AccountNotSigner",
+  ConstraintSigner: "ConstraintSigner",
   ConstraintSeeds: "ConstraintSeeds",
   ConstraintHasOne: "ConstraintHasOne",
   ConstraintTokenMint: "ConstraintTokenMint",
@@ -423,6 +534,7 @@ export const ANCHOR = {
   ConstraintMintTokenProgram: "ConstraintMintTokenProgram",
   ConstraintAssociated: "ConstraintAssociated",
   ConstraintAssociatedInit: "ConstraintAssociatedInit",
+  ConstraintAssociatedTokenTokenProgram: "ConstraintAssociatedTokenTokenProgram",
   ConstraintRaw: "ConstraintRaw",
   AccountNotInitialized: "AccountNotInitialized",
   AccountOwnedByWrongProgram: "AccountOwnedByWrongProgram",
@@ -508,6 +620,12 @@ export function errorText(err: any): string {
   return parts.join("\n");
 }
 
+// A code name matches only as a whole word, so "Paused" cannot be satisfied by
+// "AlreadyPaused" or "NotPaused".
+export function errorTextHasCode(text: string, code: string): boolean {
+  return new RegExp(`\\b${code}\\b`).test(text);
+}
+
 // Asserts that the promise rejects and that the failure names one of `codes`
 // (custom error names, Anchor constraint names, or regexes over the logs).
 export async function expectError(p: Promise<unknown> | (() => Promise<unknown>), ...codes: Array<string | RegExp>): Promise<any> {
@@ -520,7 +638,7 @@ export async function expectError(p: Promise<unknown> | (() => Promise<unknown>)
   if (!err) expect.fail(`expected a failure with ${codes.map(String).join(" | ")}, but the transaction succeeded`);
   if (codes.length === 0) return err;
   const text = errorText(err);
-  const hit = codes.some((c) => (typeof c === "string" ? text.includes(`Error Code: ${c}`) || text.includes(c) : c.test(text)));
+  const hit = codes.some((c) => (typeof c === "string" ? errorTextHasCode(text, c) : c.test(text)));
   if (!hit) expect.fail(`expected one of [${codes.map(String).join(", ")}], got:\n${text.slice(0, 2000)}`);
   return err;
 }
@@ -533,12 +651,18 @@ export function errorCode(err: any): string | undefined {
 // ---------------------------------------------------------------------------
 // accounting invariants (spec section 5: "hold after every test")
 
-export async function assertInvariants(city: City): Promise<void> {
+// `unaccounted` is money that reached the vault directly and that no epoch has
+// booked yet (a fee wallet pointed at the vault); it is 0 in every test except
+// the fund_epoch_from_vault ones, which state it explicitly before booking it.
+export async function assertInvariants(city: City, opts: { unaccounted?: bigint } = {}): Promise<void> {
+  const unaccounted = opts.unaccounted ?? 0n;
   const cfg = await fetchConfig(city);
-  const vault = await vaultBalance(city);
+  const vault = (await vaultBalance(city)) - unaccounted;
   expect(cfg.totalFunded, `${city.name}: total_funded == total_to_founder + total_to_holders`).to.equal(cfg.totalToFounder + cfg.totalToHolders);
   expect(cfg.totalClaimed <= cfg.totalToHolders, `${city.name}: total_claimed <= total_to_holders`).to.equal(true);
-  expect(vault, `${city.name}: vault == total_to_holders - total_claimed (no other outflow exists)`).to.equal(cfg.totalToHolders - cfg.totalClaimed);
+  expect(vault, `${city.name}: vault - unaccounted == total_to_holders - total_claimed (the only outflows are claim and the founder share of fund_epoch_from_vault, both booked)`).to.equal(
+    cfg.totalToHolders - cfg.totalClaimed
+  );
   let claimed = 0n;
   let openUnclaimed = 0n;
   let deposits = 0n;

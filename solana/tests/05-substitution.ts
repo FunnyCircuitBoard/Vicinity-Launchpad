@@ -19,6 +19,7 @@ import {
   createMint,
   createTokenAccount,
   createTransferFeeMint,
+  createClosableMint,
   epochAddress,
   expect,
   expectError,
@@ -197,15 +198,16 @@ describe("05 account substitution attacks", () => {
         ANCHOR.AccountOwnedByWrongProgram,
         ANCHOR.IncorrectProgramId
       );
-      // with an already existing ATA (no init needed) the program's own constraint is what fires
+      // with an already existing ATA (no init needed) the program's own constraint is what fires:
+      // the claimant ATA's associated_token::token_program (classic) does not match the passed Token-2022
       await createTokenAccount(A.rewardMint, hA.keypairs[1].publicKey, 0n);
       await expectError(
         claim(A, { epochIndex: 0, tree: hA.tree, leafIndex: 1, claimant: hA.keypairs[1], overrides: { tokenProgram: TOKEN_2022_PROGRAM_ID } }),
+        ANCHOR.ConstraintAssociatedTokenTokenProgram,
         ANCHOR.ConstraintMintTokenProgram,
         ANCHOR.ConstraintTokenTokenProgram,
         ANCHOR.InvalidProgramId,
         ANCHOR.AccountOwnedByWrongProgram,
-        ANCHOR.ConstraintAssociated,
         ANCHOR.IncorrectProgramId
       );
       await expectError(
@@ -307,6 +309,13 @@ describe("05 account substitution attacks", () => {
       await expectError(initCityTx(base).signers([base.authority]).rpc(), "UnsupportedRewardMint");
       expect(await accountExists(base.config)).to.equal(false);
       expect(await accountExists(base.vault)).to.equal(false);
+    });
+
+    it("a Token-2022 mint with a close authority is refused at init_city (it could vanish or be recreated with other extensions)", async () => {
+      const closable = await createClosableMint();
+      const base = await createCity({ model: "holders", rewardMint: closable, tokenProgram: TOKEN_2022_PROGRAM_ID, skipInit: true, name: "closable-mint" });
+      await expectError(initCityTx(base).signers([base.authority]).rpc(), "UnsupportedRewardMint");
+      expect(await accountExists(base.config)).to.equal(false);
     });
 
     it("a plain Token-2022 mint (no extensions) works end to end with exact amounts", async () => {

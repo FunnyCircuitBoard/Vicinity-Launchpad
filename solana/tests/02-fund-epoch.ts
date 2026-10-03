@@ -21,9 +21,11 @@ import {
   founderAta,
   founderBalance,
   fundEpoch,
+  fundEpochFromVault,
   fundEpochTx,
   fundedKeypair,
   makeHolders,
+  mintTo,
   nowOnChain,
   splitAmount,
   tokenBalance,
@@ -32,6 +34,8 @@ import {
   defaultWindow,
   big,
   bytesOf,
+  claim,
+  airdrop,
 } from "./helpers";
 
 describe("02 fund_epoch: amounts, rounding, carry-over, auto-lock, window, funder checks", () => {
@@ -117,6 +121,22 @@ describe("02 fund_epoch: amounts, rounding, carry-over, auto-lock, window, funde
     expect(big(ev.holdersDeposit)).to.equal(amount);
     expect(big(ev.holdersAmount)).to.equal(amount);
     expect(bytesOf(ev.merkleRoot).equals(bytesOf(h.tree.root))).to.equal(true);
+  });
+
+  it("Holders / Split: an all-zero snapshot_hash is rejected (the root must be recomputable); Creator epochs carry none", async () => {
+    const city = await createCity({ model: "holders" });
+    cities.push(city);
+    const h = makeHolders([1n, 2n]);
+    await expectError(fundEpoch(city, { amount: 100n, tree: h.tree, snapshotHash: new Uint8Array(32) }), "MissingSnapshotHash");
+    expect((await fetchConfig(city)).epochCount).to.equal(0n);
+    expect(await vaultBalance(city)).to.equal(0n);
+    const split = await createCity({ model: "split", founderBps: 2_500 });
+    cities.push(split);
+    await expectError(fundEpoch(split, { amount: 100n, tree: h.tree, snapshotHash: new Uint8Array(32) }), "MissingSnapshotHash");
+    const creator = await createCity({ model: "creator" });
+    cities.push(creator);
+    const r = await fundEpoch(creator, { amount: 100n, snapshotHash: new Uint8Array(32) });
+    expect(bytesOf(r.epochView.snapshotHash).equals(Buffer.alloc(32))).to.equal(true);
   });
 
   it("Holders / Split: zero root or zero leaves are rejected", async () => {
@@ -361,5 +381,149 @@ describe("02 fund_epoch: amounts, rounding, carry-over, auto-lock, window, funde
     const funderSolAfter = await client.connection.getBalance(city.funder.publicKey, "confirmed");
     // the founder ATA (rent about 0.002 SOL) was paid by the funder
     expect(funderSolBefore - funderSolAfter).to.be.greaterThan(1_000_000);
+  });
+
+  describe("fund_epoch_from_vault: money sent straight to the vault (a fee wallet pointed at it) can still be distributed", () => {
+    it("Split 50%: the unaccounted vault balance becomes an epoch; the founder share leaves the vault, the rest is booked for holders", async () => {
+      const city = await createCity({ model: "split", founderBps: 5_000 });
+      cities.push(city);
+      const h = makeHolders([200n, 300n]);
+      await mintTo(city.rewardMint, city.vault, 1_000n); // a fee wallet pointed at the vault
+      // before booking: the money is in the vault but no epoch knows it
+      await assertInvariants(city, { unaccounted: 1_000n });
+      expect((await fetchConfig(city)).epochCount).to.equal(0n);
+
+      const { signature, epochView: e, config: cfg } = await fundEpochFromVault(city, { tree: h.tree });
+      expect(e.index).to.equal(0n);
+      expect(e.depositAmount).to.equal(1_000n);
+      expect(e.founderAmount).to.equal(500n);
+      expect(e.holdersAmount).to.equal(500n);
+      expect(e.numLeaves).to.equal(2);
+      expect(bytesOf(e.merkleRoot).equals(bytesOf(h.tree.root))).to.equal(true);
+      expect(await founderBalance(city), "founder share paid out of the vault").to.equal(500n);
+      expect(await vaultBalance(city)).to.equal(500n);
+      expect(cfg.locked).to.equal(true);
+      expect(cfg.totalFunded).to.equal(1_000n);
+      expect(cfg.totalToFounder).to.equal(500n);
+      expect(cfg.totalToHolders).to.equal(500n);
+      const ev = expectEvent(await client.eventsOf(signature), "EpochFunded");
+      expect(ev.fromVault).to.equal(true);
+      expect(big(ev.depositAmount)).to.equal(1_000n);
+      expect(big(ev.founderAmount)).to.equal(500n);
+      expect(big(ev.holdersDeposit)).to.equal(500n);
+      // after booking every invariant holds with nothing unaccounted
+      await assertInvariants(city);
+      // and a holder can claim from it
+      await airdrop(h.keypairs[1].publicKey, 1);
+      await claim(city, { epochIndex: 0, tree: h.tree, leafIndex: 1, claimant: h.keypairs[1] });
+      expect(await vaultBalance(city)).to.equal(200n);
+    });
+
+    it("only the surplus counts: money owed to open epochs and carry-over is never distributed twice", async () => {
+      const city = await createCity({ model: "holders" });
+      cities.push(city);
+      const h1 = makeHolders([300n, 300n, 400n]);
+      await airdrop(h1.keypairs[0].publicKey, 1);
+      await fundEpoch(city, { amount: 1_000n, tree: h1.tree });
+      await claim(city, { epochIndex: 0, tree: h1.tree, leafIndex: 0, claimant: h1.keypairs[0] });
+      expect(await vaultBalance(city)).to.equal(700n); // owed to epoch 0's other holders
+      await expectError(fundEpochFromVault(city, { tree: h1.tree }), "NothingToDistribute");
+      await mintTo(city.rewardMint, city.vault, 250n);
+      await assertInvariants(city, { unaccounted: 250n });
+      const h2 = makeHolders([250n]);
+      const { epochView: e, config: cfg } = await fundEpochFromVault(city, { tree: h2.tree });
+      expect(e.index).to.equal(1n);
+      expect(e.depositAmount).to.equal(250n);
+      expect(e.founderAmount).to.equal(0n);
+      expect(e.holdersAmount).to.equal(250n);
+      expect(await vaultBalance(city)).to.equal(950n);
+      expect(cfg.totalToHolders).to.equal(1_250n);
+      expect(cfg.totalClaimed).to.equal(300n);
+      // epoch 0's remaining 700 are still owed to its holders
+      expect((await fetchEpoch(city, 0)).holdersAmount - (await fetchEpoch(city, 0)).claimedAmount).to.equal(700n);
+      await expectError(fundEpochFromVault(city, { tree: h2.tree }), "NothingToDistribute");
+    });
+
+    it("carry-over and surplus add up; a surplus of 0 with carry-over is a carry-only epoch", async () => {
+      const city = await createCity({ model: "split", founderBps: 2_500 });
+      cities.push(city);
+      const t1 = makeHolders([10n]);
+      await fundEpoch(city, { amount: 1_000n, tree: t1.tree }); // founder 250, holders 750
+      await client.cancelEpoch({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, epochIndex: 0 }).signers([city.authority]).rpc();
+      expect((await fetchConfig(city)).carryOver).to.equal(750n);
+      const founderBefore = await founderBalance(city);
+      // carry-only: nothing new in the vault, the founder gets nothing
+      const r1 = await fundEpochFromVault(city, { tree: t1.tree });
+      expect(r1.epochView.depositAmount).to.equal(0n);
+      expect(r1.epochView.founderAmount).to.equal(0n);
+      expect(r1.epochView.holdersAmount).to.equal(750n);
+      expect(await founderBalance(city)).to.equal(founderBefore);
+      await client.cancelEpoch({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, epochIndex: 1 }).signers([city.authority]).rpc();
+      // surplus 401 (founder floor 100, holders 301) plus carry 750
+      await mintTo(city.rewardMint, city.vault, 401n);
+      const r2 = await fundEpochFromVault(city, { tree: t1.tree });
+      expect(r2.epochView.depositAmount).to.equal(401n);
+      expect(r2.epochView.founderAmount).to.equal(100n);
+      expect(r2.epochView.holdersAmount).to.equal(301n + 750n);
+      expect(await founderBalance(city)).to.equal(founderBefore + 100n);
+      expect(await vaultBalance(city)).to.equal(1_051n);
+      expect(r2.config.carryOver).to.equal(0n);
+    });
+
+    it("Creator model: the whole surplus goes to the founder out of the vault; the epoch is recorded empty", async () => {
+      const city = await createCity({ model: "creator" });
+      cities.push(city);
+      await mintTo(city.rewardMint, city.vault, 777n);
+      const { epochView: e } = await fundEpochFromVault(city, {});
+      expect(e.depositAmount).to.equal(777n);
+      expect(e.founderAmount).to.equal(777n);
+      expect(e.holdersAmount).to.equal(0n);
+      expect(e.numLeaves).to.equal(0);
+      expect(await founderBalance(city)).to.equal(777n);
+      expect(await vaultBalance(city)).to.equal(0n);
+    });
+
+    it("same rules as fund_epoch: not paused, authority only, window bounds, root rules", async () => {
+      const city = await createCity({ model: "holders" });
+      cities.push(city);
+      const h = makeHolders([1n]);
+      await mintTo(city.rewardMint, city.vault, 100n);
+      const stranger = await fundedKeypair(1);
+      await expectError(fundEpochFromVault(city, { tree: h.tree, authority: stranger }), "Unauthorized");
+      await expectError(fundEpochFromVault(city, { tree: h.tree, window: windowBounds().min - 1 }), "ClaimWindowOutOfRange");
+      await expectError(fundEpochFromVault(city, { numLeaves: 1 }), "MissingMerkleRoot");
+      await expectError(fundEpochFromVault(city, { root: h.tree.root, numLeaves: 0 }), "MissingLeaves");
+      await expectError(fundEpochFromVault(city, { tree: h.tree, snapshotHash: new Uint8Array(32) }), "MissingSnapshotHash");
+      await client.pause({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint }).signers([city.authority]).rpc();
+      await expectError(fundEpochFromVault(city, { tree: h.tree }), "Paused");
+      await client.unpause({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint }).signers([city.authority]).rpc();
+      expect((await fetchConfig(city)).epochCount).to.equal(0n);
+      await assertInvariants(city, { unaccounted: 100n });
+      await fundEpochFromVault(city, { tree: h.tree });
+      expect(await vaultBalance(city)).to.equal(100n);
+    });
+
+    it("the founder share can only land in config.founder's ATA of the reward mint", async () => {
+      const city = await createCity({ model: "split", founderBps: 5_000 });
+      cities.push(city);
+      const h = makeHolders([1n]);
+      await mintTo(city.rewardMint, city.vault, 100n);
+      const stranger = await fundedKeypair(1);
+      const strangersAta = await createTokenAccount(city.rewardMint, stranger.publicKey, 0n);
+      await expectError(
+        fundEpochFromVault(city, { tree: h.tree, overrides: { founderTokenAccount: strangersAta } }),
+        ANCHOR.ConstraintAssociated,
+        ANCHOR.ConstraintTokenOwner,
+        ANCHOR.AccountNotAssociatedTokenAccount,
+        ANCHOR.ConstraintSeeds
+      );
+      await expectError(fundEpochFromVault(city, { tree: h.tree, founder: stranger.publicKey }), ANCHOR.ConstraintHasOne);
+      expect(await tokenBalance(strangersAta)).to.equal(0n);
+      expect(await vaultBalance(city)).to.equal(100n);
+      await assertInvariants(city, { unaccounted: 100n });
+      await fundEpochFromVault(city, { tree: h.tree });
+      expect(await tokenBalance(ata(city.rewardMint, city.founder.publicKey))).to.equal(50n);
+      expect(await vaultBalance(city)).to.equal(50n);
+    });
   });
 });

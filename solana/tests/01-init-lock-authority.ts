@@ -1,5 +1,6 @@
-// Spec 4.1-4.5 and 5: init_city, lock_config, set_founder, two-step authority,
-// pause/unpause, and the IDL-level proof that economics cannot change.
+// Spec 4.1-4.5 and 5: the registry (who may create cities), init_city,
+// lock_config, set_founder, two-step authority, pause/unpause, and the
+// IDL-level proof that economics cannot change.
 import { PublicKey, Keypair } from "@solana/web3.js";
 import { getAccount } from "@solana/spl-token";
 import {
@@ -11,6 +12,7 @@ import {
   connection,
   createCity,
   economicsOf,
+  ensureRegistry,
   expect,
   expectEvent,
   expectError,
@@ -18,9 +20,16 @@ import {
   fundedKeypair,
   initCityTx,
   payer,
+  registryAdmin,
+  send,
+  sendAs,
 } from "./helpers";
+import { ALLOWED_SPLIT_BPS, BPS_DENOMINATOR, CREATOR_BPS, HOLDERS_BPS } from "../sdk/client";
 
 const SPEC_INSTRUCTIONS = [
+  "initRegistry",
+  "proposeAdmin",
+  "acceptAdmin",
   "initCity",
   "lockConfig",
   "setFounder",
@@ -29,6 +38,7 @@ const SPEC_INSTRUCTIONS = [
   "pause",
   "unpause",
   "fundEpoch",
+  "fundEpochFromVault",
   "claim",
   "sweepEpoch",
   "cancelEpoch",
@@ -39,6 +49,11 @@ const SPEC_ERRORS = [
   "FounderBpsMismatch",
   "SplitBpsNotAllowed",
   "RewardMintIsCityCoin",
+  "FounderIsProgramAccount",
+  "NotUpgradeAuthority",
+  "NoPendingAdmin",
+  "NotPendingAdmin",
+  "MissingSnapshotHash",
   "Unauthorized",
   "AlreadyLocked",
   "NoPendingAuthority",
@@ -68,8 +83,21 @@ describe("01 init_city, lock_config, set_founder, authority transfer, pause", ()
   });
 
   describe("IDL surface: economics are immutable because no instruction can write them", () => {
-    it("exposes exactly the 12 instructions of the spec", () => {
+    it("exposes exactly the 16 instructions of the spec plus the registry and fund_epoch_from_vault additions", () => {
       expect(client.instructionNames().sort()).to.deep.equal([...SPEC_INSTRUCTIONS].sort());
+    });
+
+    it("the SDK's typed fallback constants equal the policy constants of the deployed IDL", () => {
+      const p = client.policy();
+      expect(p.fromIdl, "the IDL carries every policy constant").to.equal(true);
+      expect(p.allowedSplitBps).to.deep.equal(ALLOWED_SPLIT_BPS);
+      expect(p.bpsDenominator).to.equal(BPS_DENOMINATOR);
+      expect(p.creatorBps).to.equal(CREATOR_BPS);
+      expect(p.holdersBps).to.equal(HOLDERS_BPS);
+      expect(client.constant("MIN_CLAIM_WINDOW_SECS")).to.not.equal(undefined);
+      expect(client.constant("MAX_CLAIM_WINDOW_SECS")).to.equal(String(365 * 86_400));
+      expect(p.minClaimWindowSecs).to.be.greaterThan(0);
+      expect(p.maxClaimWindowSecs).to.equal(365 * 86_400);
     });
 
     it("has no withdraw, set_root, update_config or similar instruction", () => {
@@ -89,10 +117,10 @@ describe("01 init_city, lock_config, set_founder, authority transfer, pause", ()
       }
     });
 
-    it("the vault is writable only in init_city (creation), fund_epoch (deposit) and claim (payout)", () => {
+    it("the vault is writable only in init_city (creation), fund_epoch (deposit), fund_epoch_from_vault (founder share out) and claim (payout)", () => {
       for (const ix of client.idl.instructions) {
         const vault = (ix.accounts as Array<{ name: string; writable?: boolean }>).find((a) => a.name === "vault");
-        if (vault?.writable) expect(["init_city", "fund_epoch", "claim"], `${ix.name} writes the vault`).to.include(ix.name);
+        if (vault?.writable) expect(["init_city", "fund_epoch", "fund_epoch_from_vault", "claim"], `${ix.name} writes the vault`).to.include(ix.name);
       }
     });
 
@@ -101,13 +129,126 @@ describe("01 init_city, lock_config, set_founder, authority transfer, pause", ()
       for (const e of SPEC_ERRORS) expect(codes, `error ${e}`).to.include(e);
     });
 
-    it("stores PDAs with the spec's seeds (IDL pda metadata where present)", () => {
-      const init = client.instruction("init_city");
-      const config = (init.accounts as Array<{ name: string; pda?: { seeds: Array<{ kind: string; value?: number[] }> } }>).find((a) => a.name === "config");
-      if (config?.pda) {
-        const first = config.pda.seeds[0];
-        expect(Buffer.from(first.value ?? []).toString()).to.equal("city");
+    it("every PDA is derived with exactly the spec's seeds (IDL pda metadata, asserted unconditionally)", () => {
+      type Seed = { kind: string; value?: number[]; path?: string; account?: string };
+      const seedsOf = (ixName: string, accountName: string): Seed[] => {
+        const ix = client.instruction(ixName);
+        const acc = (ix.accounts as Array<{ name: string; pda?: { seeds: Seed[] } }>).find((a) => a.name === accountName);
+        expect(acc?.pda, `${ixName}.${accountName} carries pda metadata`).to.not.equal(undefined);
+        return acc!.pda!.seeds;
+      };
+      const constSeed = (text: string) => ({ kind: "const", value: Array.from(Buffer.from(text)) });
+      const acct = (path: string, account?: string) => (account ? { kind: "account", path, account } : { kind: "account", path });
+      const arg = (path: string) => ({ kind: "arg", path });
+      expect(seedsOf("init_registry", "registry")).to.deep.equal([constSeed("registry")]);
+      expect(seedsOf("init_city", "registry")).to.deep.equal([constSeed("registry")]);
+      expect(seedsOf("init_city", "config")).to.deep.equal([constSeed("city"), acct("city_coin_mint")]);
+      expect(seedsOf("init_city", "vault")).to.deep.equal([constSeed("vault"), acct("config")]);
+      expect(seedsOf("fund_epoch", "epoch")).to.deep.equal([constSeed("epoch"), acct("config"), acct("config.epoch_count", "CityConfig")]);
+      expect(seedsOf("fund_epoch_from_vault", "epoch")).to.deep.equal([constSeed("epoch"), acct("config"), acct("config.epoch_count", "CityConfig")]);
+      expect(seedsOf("claim", "epoch")).to.deep.equal([constSeed("epoch"), acct("config"), arg("epoch_index")]);
+      expect(seedsOf("claim", "claim_status")).to.deep.equal([constSeed("claim"), acct("epoch"), acct("claimant")]);
+      expect(seedsOf("claim", "vault")).to.deep.equal([constSeed("vault"), acct("config")]);
+      for (const ix of ["lock_config", "set_founder", "propose_authority", "accept_authority", "pause", "unpause", "fund_epoch", "claim", "sweep_epoch", "cancel_epoch", "close_claim_status"]) {
+        expect(seedsOf(ix, "config"), ix).to.deep.equal([constSeed("city"), acct("config.city_coin_mint", "CityConfig")]);
       }
+    });
+  });
+
+  describe("registry: only Vicinity can create a city's config", () => {
+    // This file runs first and nothing before this point touches the chain, so
+    // on the validator `anchor test` starts the registry does not exist yet:
+    // the only state in which the upgrade-authority check is observable (Anchor
+    // runs `init` before the other constraints, so afterwards every caller gets
+    // "already in use"). A reused ledger fails here on purpose instead of
+    // passing vacuously: run the suite against a fresh validator.
+    it("a key that is not the upgrade authority cannot create the registry (NotUpgradeAuthority)", async () => {
+      expect(await client.fetchRegistry(), "fresh validator required: the registry must not exist before this test").to.equal(null);
+      const stranger = await fundedKeypair(1);
+      const ix = await client.initRegistry({ payer: stranger.publicKey, upgradeAuthority: stranger.publicKey, admin: stranger.publicKey }).instruction();
+      await expectError(sendAs([ix], [stranger]), "NotUpgradeAuthority");
+      // naming the real upgrade authority without its signature is refused by the runtime check
+      const ix2 = await client.initRegistry({ payer: stranger.publicKey, upgradeAuthority: payer.publicKey, admin: stranger.publicKey }).instruction();
+      ix2.keys.find((k) => k.pubkey.equals(payer.publicKey))!.isSigner = false;
+      await expectError(sendAs([ix2], [stranger]), ANCHOR.AccountNotSigner, ANCHOR.ConstraintSigner);
+      // a program_data account that is not this program's is refused before anything else
+      await expectError(
+        client.initRegistry({ payer: payer.publicKey, upgradeAuthority: payer.publicKey, admin: payer.publicKey, overrides: { programData: Keypair.generate().publicKey } }).rpc(),
+        ANCHOR.AccountNotInitialized,
+        ANCHOR.AccountOwnedByWrongProgram,
+        "NotUpgradeAuthority"
+      );
+      expect(await client.fetchRegistry()).to.equal(null);
+    });
+
+    it("the upgrade authority creates it once (event); a second creation by anyone fails because the PDA exists", async () => {
+      await ensureRegistry();
+      const r = await client.fetchRegistry();
+      expect(r?.admin.equals(registryAdmin.publicKey)).to.equal(true);
+      expect(r?.pendingAdmin.equals(PublicKey.default)).to.equal(true);
+      expect(r?.address.equals(client.registryAddress())).to.equal(true);
+      const stranger = await fundedKeypair(1);
+      await expectError(client.initRegistry({ payer: payer.publicKey, upgradeAuthority: payer.publicKey, admin: stranger.publicKey }).rpc(), ANCHOR.AlreadyInUse);
+      const ix = await client.initRegistry({ payer: stranger.publicKey, upgradeAuthority: stranger.publicKey, admin: stranger.publicKey }).instruction();
+      await expectError(sendAs([ix], [stranger]), ANCHOR.AlreadyInUse);
+      expect((await client.fetchRegistry())?.admin.equals(registryAdmin.publicKey)).to.equal(true);
+    });
+
+    it("a stranger cannot create the config for a coin Vicinity has not configured (Unauthorized)", async () => {
+      const base = await createCity({ model: "holders", skipInit: true });
+      const squatter = await fundedKeypair(1);
+      base.authority = squatter;
+      const ix = await initCityTx(base, { admin: squatter.publicKey, payer: squatter.publicKey, founder: squatter.publicKey }).instruction();
+      await expectError(sendAs([ix], [squatter]), "Unauthorized");
+      expect(await accountExists(base.config)).to.equal(false);
+      expect(await accountExists(base.vault)).to.equal(false);
+    });
+
+    it("naming the real admin without its signature is refused by the runtime check (AccountNotSigner)", async () => {
+      const base = await createCity({ model: "holders", skipInit: true });
+      const squatter = await fundedKeypair(1);
+      base.authority = squatter;
+      const ix = await initCityTx(base, { payer: squatter.publicKey }).instruction();
+      const adminKey = ix.keys.find((k) => k.pubkey.equals(registryAdmin.publicKey))!;
+      adminKey.isSigner = false;
+      await expectError(sendAs([ix], [squatter]), ANCHOR.AccountNotSigner, ANCHOR.ConstraintSigner);
+      expect(await accountExists(base.config)).to.equal(false);
+    });
+
+    it("two-step admin transfer: propose, wrong accept, accept; the old admin loses the power and the new one has it", async () => {
+      const b = await fundedKeypair(2);
+      const stranger = await fundedKeypair(1);
+      await expectError(client.acceptAdmin({ newAdmin: b.publicKey }).signers([b]).rpc(), "NoPendingAdmin");
+      await expectError(client.proposeAdmin({ admin: stranger.publicKey, newAdmin: stranger.publicKey }).signers([stranger]).rpc(), "Unauthorized");
+      const sig = await client.proposeAdmin({ admin: registryAdmin.publicKey, newAdmin: b.publicKey }).rpc();
+      expect(expectEvent(await client.eventsOf(sig), "AdminProposed").pendingAdmin.equals(b.publicKey)).to.equal(true);
+      await expectError(client.acceptAdmin({ newAdmin: stranger.publicKey }).signers([stranger]).rpc(), "NotPendingAdmin");
+      const sig2 = await client.acceptAdmin({ newAdmin: b.publicKey }).signers([b]).rpc();
+      const ev = expectEvent(await client.eventsOf(sig2), "AdminAccepted");
+      expect(ev.oldAdmin.equals(registryAdmin.publicKey)).to.equal(true);
+      expect(ev.newAdmin.equals(b.publicKey)).to.equal(true);
+      expect((await client.fetchRegistry())?.pendingAdmin.equals(PublicKey.default)).to.equal(true);
+      try {
+        // the old admin (the provider wallet) can no longer create cities
+        const base = await createCity({ model: "holders", skipInit: true });
+        await expectError(initCityTx(base).signers([base.authority]).rpc(), "Unauthorized");
+        // the new admin can
+        const city = await createCity({ model: "holders", admin: b, tag: "by-new-admin" });
+        cities.push(city);
+        expect((await fetchConfig(city)).cityTag).to.equal("by-new-admin");
+      } finally {
+        // hand the registry back so the rest of the suite can create cities
+        await client.proposeAdmin({ admin: b.publicKey, newAdmin: registryAdmin.publicKey }).signers([b]).rpc();
+        await client.acceptAdmin({ newAdmin: registryAdmin.publicKey }).rpc();
+      }
+      expect((await client.fetchRegistry())?.admin.equals(registryAdmin.publicKey)).to.equal(true);
+    });
+
+    it("proposing the zero address cancels a pending admin transfer", async () => {
+      const b = await fundedKeypair(1);
+      await client.proposeAdmin({ admin: registryAdmin.publicKey, newAdmin: b.publicKey }).rpc();
+      await client.proposeAdmin({ admin: registryAdmin.publicKey, newAdmin: PublicKey.default }).rpc();
+      await expectError(client.acceptAdmin({ newAdmin: b.publicKey }).signers([b]).rpc(), "NoPendingAdmin");
     });
   });
 
@@ -196,6 +337,13 @@ describe("01 init_city, lock_config, set_founder, authority transfer, pause", ()
       await expectError(initCityTx(base, { founder: PublicKey.default }).signers([base.authority]).rpc(), "InvalidFounder");
     });
 
+    it("rejects the config PDA and the vault as founder (their token accounts could never be emptied)", async () => {
+      const base = await createCity({ model: "holders", skipInit: true });
+      await expectError(initCityTx(base, { founder: base.config }).signers([base.authority]).rpc(), "FounderIsProgramAccount");
+      await expectError(initCityTx(base, { founder: base.vault }).signers([base.authority]).rpc(), "FounderIsProgramAccount");
+      expect(await accountExists(base.config)).to.equal(false);
+    });
+
     it("rejects a city tag with non-ASCII bytes or a zero inside the text", async () => {
       const base = await createCity({ model: "holders", skipInit: true });
       const bad1 = new Array(32).fill(0);
@@ -237,11 +385,24 @@ describe("01 init_city, lock_config, set_founder, authority transfer, pause", ()
       );
     });
 
-    it("requires the authority signature", async () => {
+    it("requires the authority signature (the transaction reaches the program and is refused there)", async () => {
       const base = await createCity({ model: "holders", skipInit: true });
-      const stranger = await fundedKeypair(1);
-      // authority account says city.authority but only the stranger signs: the runtime rejects the missing signature
-      await expectError(initCityTx(base, { overrides: { authority: stranger.publicKey } }).signers([base.authority]).rpc(), /unknown signer|Signature verification failed|Missing signature|signer/i);
+      // the instruction names the authority but marks it as a non-signer, so the
+      // transaction is valid for the runtime and the program's Signer check answers
+      const ix = await initCityTx(base).instruction();
+      const key = ix.keys.find((k) => k.pubkey.equals(base.authority.publicKey))!;
+      key.isSigner = false;
+      await expectError(send([ix], []), ANCHOR.AccountNotSigner, ANCHOR.ConstraintSigner);
+      expect(await accountExists(base.config)).to.equal(false);
+    });
+
+    // Kept inside this describe on purpose: mocha runs a suite's own tests before
+    // its nested suites, and this one creates a city (and so the registry), which
+    // must not happen before the registry tests above.
+    it("the test wallet never needs to be the authority (payer and authority are separate signers)", async () => {
+      const city = await createCity({ model: "holders" });
+      cities.push(city);
+      expect((await fetchConfig(city)).authority.equals(payer.publicKey)).to.equal(false);
     });
   });
 
@@ -303,6 +464,16 @@ describe("01 init_city, lock_config, set_founder, authority transfer, pause", ()
         client.setFounder({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, newFounder: PublicKey.default }).signers([city.authority]).rpc(),
         "InvalidFounder"
       );
+    });
+
+    it("rejects the config PDA and the vault as founder", async () => {
+      for (const bad of [city.config, city.vault]) {
+        await expectError(
+          client.setFounder({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, newFounder: bad }).signers([city.authority]).rpc(),
+          "FounderIsProgramAccount"
+        );
+      }
+      expect((await fetchConfig(city)).founder.equals(city.founder.publicKey)).to.equal(true);
     });
 
     it("authority changes the founder and the event carries old and new", async () => {
@@ -428,9 +599,4 @@ describe("01 init_city, lock_config, set_founder, authority transfer, pause", ()
     });
   });
 
-  it("the test wallet never needs to be the authority (payer and authority are separate signers)", async () => {
-    const city = await createCity({ model: "holders" });
-    cities.push(city);
-    expect((await fetchConfig(city)).authority.equals(payer.publicKey)).to.equal(false);
-  });
 });

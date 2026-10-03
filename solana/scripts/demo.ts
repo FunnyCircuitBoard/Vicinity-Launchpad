@@ -71,7 +71,10 @@ async function main() {
   }
 
   // -------------------------------------------------------------------------
-  headline("Create the city coin, the reward mint and the people");
+  headline("Create the registry (once per deployment), the city coin, the reward mint and the people");
+  await H.ensureRegistry();
+  const reg = await client.fetchRegistry();
+  console.log(`registry PDA     ${reg!.address.toBase58()}  admin ${reg!.admin.toBase58()} (only this key may create city configs)`);
   const city = await H.createCity({ model: "split", founderBps: 5_000, tag: "demo-city", name: "demo", funderBalance: 10_000n * UNIT });
   console.log(`city coin mint   ${city.cityCoinMint.toBase58()}`);
   console.log(`reward mint      ${city.rewardMint.toBase58()}  (6 decimals, stands in for USDC)`);
@@ -150,7 +153,8 @@ async function main() {
       process.exitCode = 1;
     } catch (e: any) {
       const text = H.errorText(e);
-      const code = H.errorCode(e) ?? (/already in use/.test(text) ? "account already exists" : "rejected");
+      // raw transactions (no Anchor wrapper) carry the code only in the logs
+      const code = H.errorCode(e) ?? /Error Code: (\w+)/.exec(text)?.[1] ?? (/already in use/.test(text) ? "account already exists" : "rejected");
       const ok = typeof expected === "string" ? code === expected : expected.test(text);
       console.log(`  ${label.padEnd(44)} refused: ${code}${ok ? "" : `   <-- EXPECTED ${expected}`}`);
       if (!ok) process.exitCode = 1;
@@ -164,6 +168,14 @@ async function main() {
   await attempt("ops tries to sweep before the deadline", client.sweepEpoch({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, epochIndex: 0 }).signers([city.authority]).rpc(), "ClaimDeadlineNotPassed");
   await attempt("ops tries to cancel an epoch with claims", client.cancelEpoch({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, epochIndex: 0 }).signers([city.authority]).rpc(), "EpochHasClaims");
   await attempt("a stranger tries to pause", client.pause({ authority: thief.publicKey, cityCoinMint: city.cityCoinMint }).signers([thief]).rpc(), "Unauthorized");
+  const squatMint = await H.createMint();
+  const squat = await H.createCity({ model: "creator", cityCoinMint: squatMint, authority: thief, founder: thief, skipInit: true });
+  // sent as a raw transaction (the stranger pays), so the code is read from the logs
+  await attempt(
+    "a stranger tries to create a city config (squat)",
+    H.sendAs([await H.initCityTx(squat, { admin: thief.publicKey, payer: thief.publicKey }).instruction()], [thief]),
+    /Error Code: Unauthorized\b/
+  );
   await attempt("ops tries to lock again (auto-locked at fund)", client.lockConfig({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint }).signers([city.authority]).rpc(), "AlreadyLocked");
   console.log(`  vault before ${fmt(vaultBefore)} after ${fmt(await H.vaultBalance(city))}  (unchanged: ${vaultBefore === (await H.vaultBalance(city))})`);
   console.log(`  note: there is no withdraw instruction at all; the IDL lists: ${client.instructionNames().join(", ")}`);
@@ -197,6 +209,24 @@ async function main() {
   const sigDee = await H.claim(city, { epochIndex: 2, tree: tree2, leafIndex: 3, claimant: holders[3].kp });
   console.log(`Dee claims ${fmt(M.claimArgs(tree2, 3).amount)} from epoch 2  tx ${short(sigDee)}`);
   await table("fund_epoch(2) + Dee's claim");
+
+  // -------------------------------------------------------------------------
+  headline("A fee wallet sends 100 straight to the vault; fund_epoch_from_vault turns it into epoch 3 (50 to the founder, 50 for holders)");
+  const direct = 100n * UNIT;
+  await H.mintTo(city.rewardMint, city.vault, direct);
+  const cfgBefore3 = await H.fetchConfig(city);
+  const owed = cfgBefore3.totalToHolders - cfgBefore3.totalClaimed;
+  console.log(`vault now holds ${fmt(await H.vaultBalance(city))}; it owes ${fmt(owed)} to open epochs and carry-over, so ${fmt((await H.vaultBalance(city)) - owed)} is unaccounted`);
+  const split3 = H.splitAmount(direct, 5_000);
+  const alloc3 = M.allocateProRata(
+    holders.map((h) => ({ claimant: h.kp.publicKey.toBytes(), balance: h.balance })),
+    split3.holders
+  );
+  const tree3 = M.buildTree(alloc3.leaves);
+  const f3 = await H.fundEpochFromVault(city, { tree: tree3, window: normalWindow });
+  console.log(`epoch 3          deposit=${fmt(f3.epochView.depositAmount ?? 0n)} founder=${fmt(f3.epochView.founderAmount ?? 0n)} (paid out of the vault, signed by the config PDA) holders_amount=${fmt(f3.epochView.holdersAmount)}  tx ${short(f3.signature)}`);
+  await attempt("ops calls fund_epoch_from_vault again with nothing unaccounted", H.fundEpochFromVault(city, { tree: tree3, window: normalWindow }), "NothingToDistribute");
+  await table("fund_epoch_from_vault(3)");
 
   // -------------------------------------------------------------------------
   if (bounds.min <= 120) {

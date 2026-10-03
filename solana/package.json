@@ -12,7 +12,8 @@
     "sdk-test": "node --test sdk/*.test.mjs",
     "sdk-fixtures": "node sdk/fixtures/generate.mjs && node sdk/gen-fixtures.mjs",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "demo": "NODE_OPTIONS=--no-experimental-strip-types ts-node -P ./tsconfig.json --transpile-only scripts/demo.ts"
+    "demo": "NODE_OPTIONS=--no-experimental-strip-types ts-node -P ./tsconfig.json --transpile-only scripts/demo.ts",
+    "devnet-demo": "NODE_OPTIONS=--no-experimental-strip-types ts-node -P ./tsconfig.json --transpile-only scripts/devnet-demo.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",

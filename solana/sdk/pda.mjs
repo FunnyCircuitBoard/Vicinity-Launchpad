@@ -1,4 +1,5 @@
 // PDA derivation for vicinity_rewards (PROGRAM-SPEC.md section 2). Seeds are exact:
+//   Registry    ["registry"]                   (one per program: who may create cities)
 //   CityConfig  ["city",  city_coin_mint]
 //   vault       ["vault", config]              (SPL token account owned by config)
 //   Epoch       ["epoch", config, index u64 LE]
@@ -9,6 +10,7 @@
 
 import { PublicKey } from "@solana/web3.js";
 
+export const SEED_REGISTRY = Buffer.from("registry");
 export const SEED_CITY = Buffer.from("city");
 export const SEED_VAULT = Buffer.from("vault");
 export const SEED_EPOCH = Buffer.from("epoch");
@@ -31,6 +33,20 @@ export function u64le(value) {
 }
 
 const pk = (x) => (x instanceof PublicKey ? x : new PublicKey(x));
+
+// The BPF upgradeable loader; a program's ProgramData account is the PDA
+// [program_id] under it. `init_registry` reads the upgrade authority from it.
+export const BPF_LOADER_UPGRADEABLE_ID = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+
+export function deriveRegistry(programId = PROGRAM_ID) {
+  const [address, bump] = PublicKey.findProgramAddressSync([SEED_REGISTRY], pk(programId));
+  return { address, bump };
+}
+
+export function deriveProgramData(programId = PROGRAM_ID) {
+  const [address, bump] = PublicKey.findProgramAddressSync([pk(programId).toBuffer()], BPF_LOADER_UPGRADEABLE_ID);
+  return { address, bump };
+}
 
 export function deriveConfig(cityCoinMint, programId = PROGRAM_ID) {
   const [address, bump] = PublicKey.findProgramAddressSync([SEED_CITY, pk(cityCoinMint).toBuffer()], pk(programId));

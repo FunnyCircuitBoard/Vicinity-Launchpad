@@ -3,10 +3,25 @@
 ## `demo.ts`: the auditor's "see it working" run
 
 Runs the complete life cycle of one city coin's rewards against a local
-validator and prints every balance after every step: init (Split 50/50), fund,
-three Merkle claims, a block of attacks that must fail, a cancelled epoch whose
-money becomes carry-over, a carry-only epoch, the two-step authority transfer,
+validator and prints every balance after every step: registry, init (Split
+50/50), fund, three Merkle claims, a block of attacks that must fail (including
+a stranger trying to create a city config), a cancelled epoch whose money
+becomes carry-over, a carry-only epoch, money sent straight to the vault and
+distributed with `fund_epoch_from_vault`, the two-step authority transfer,
 pause/unpause, and the final accounting with the invariants checked.
+
+## `devnet-demo.ts`: the same story on devnet (what AUDIT.md records)
+
+```sh
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=<path to the devnet deployer keypair> npm run devnet-demo
+```
+
+Creates a test reward mint, the registry (the wallet must be the program's
+upgrade authority), one city config (Split 50/50), funds epoch 0 with a 3-leaf
+tree, lets one holder claim, funds epoch 1 and cancels it (carry-over), and
+prints every address with an explorer link plus a JSON block to paste into
+`AUDIT.md`. Sweep cannot be shown on devnet before the 14-day minimum window has
+passed; the script prints the date after which `sweep_epoch` for epoch 0 works.
 
 ```sh
 cd solana
@@ -27,8 +42,14 @@ Environment (all optional): `ANCHOR_PROVIDER_URL` (default `http://127.0.0.1:889
 `ANCHOR_WALLET` (default `~/.config/solana/id.json`; if the file does not exist
 a throwaway wallet is written to `.anchor/demo-wallet.json` and airdropped).
 
-The program id comes from `sdk/idl/vicinity_rewards.json` (`address`), which
-`anchor build` produces; keep it in sync with `declare_id!` and `Anchor.toml`.
+The program id comes from the IDL's `address`: `sdk/client.ts` loads
+`target/idl/vicinity_rewards.json` (the build you just made) first and falls
+back to the committed `sdk/idl/vicinity_rewards.json`; `VICINITY_IDL=<path>`
+overrides both. Keep the id in sync with `declare_id!` and `Anchor.toml`.
+
+The demo creates the registry first (`init_registry`, signed by the wallet,
+which is the validator's upgrade authority for the program) and uses the same
+wallet as registry admin; without a registry no city config can be created.
 
 What to look at in the output:
 

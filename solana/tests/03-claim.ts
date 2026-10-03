@@ -14,6 +14,7 @@ import {
   claimStatusAddress,
   claimantAta,
   claimantTransaction,
+  claimTx,
   client,
   createCity,
   createTokenAccount,
@@ -27,6 +28,7 @@ import {
   makeHolders,
   nowOnChain,
   rawClaimInstruction,
+  send,
   sendSigned,
   sha256,
   solBalance,
@@ -99,6 +101,17 @@ describe("03 claim: exact payouts, double claim, wrong proofs, cap, pause", () =
     expect(await tokenBalance(claimantAta(city, kp.publicKey))).to.equal(400n);
     expect((await fetchEpoch(city, epochIndex)).claimedAmount).to.equal(500n);
     expect((await fetchConfig(city)).totalClaimed).to.equal(500n);
+  });
+
+  it("the claimant must sign: a correct proof submitted without the leaf wallet's signature is refused by the program (AccountNotSigner)", async () => {
+    const kp = h.keypairs[1];
+    const ix = await (await claimTx(city, { epochIndex, tree: h.tree, leafIndex: 1, claimant: kp })).instruction();
+    const key = ix.keys.find((k) => k.pubkey.equals(kp.publicKey))!;
+    key.isSigner = false;
+    // the provider wallet pays the fee and is the only signer; the program sees an unsigned claimant
+    await expectError(send([ix], []), ANCHOR.AccountNotSigner, ANCHOR.ConstraintSigner);
+    expect(await accountExists(claimStatusAddress(city, epochIndex, kp.publicKey))).to.equal(false);
+    expect(await tokenBalance(claimantAta(city, kp.publicKey))).to.equal(0n);
   });
 
   it("double claim fails at account creation (ClaimStatus already exists)", async () => {

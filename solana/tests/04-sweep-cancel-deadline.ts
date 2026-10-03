@@ -35,6 +35,7 @@ import {
   windowBounds,
   big,
 } from "./helpers";
+import { effectiveDeadline } from "../sdk/client";
 
 const SHORT_WINDOW_LIMIT = 120;
 
@@ -160,6 +161,33 @@ describe("04 cancel, carry-over and (with a short window) deadline + sweep + clo
       await assertInvariants(c3);
     });
 
+    it("pause time is accounted: paused_at while paused, paused_total_secs grows at unpause, epochs record the total at funding", async () => {
+      const c4 = await createCity({ model: "holders", name: "pause-clock" });
+      const t = makeHolders([1n]);
+      const before = await fundEpoch(c4, { amount: 100n, tree: t.tree });
+      expect(before.epochView.pauseSecsAtFunding).to.equal(0);
+      const sig = await client.pause(auth(c4)).signers([c4.authority]).rpc();
+      let cfg = await fetchConfig(c4);
+      expect(cfg.paused).to.equal(true);
+      expect(cfg.pausedAt).to.be.greaterThan(0);
+      expect(cfg.pausedTotalSecs).to.equal(0);
+      expect(Number(expectEvent(await client.eventsOf(sig), "PauseChanged").pausedTotalSecs)).to.equal(0);
+      await sleep(2_500);
+      const sig2 = await client.unpause(auth(c4)).signers([c4.authority]).rpc();
+      cfg = await fetchConfig(c4);
+      expect(cfg.paused).to.equal(false);
+      expect(cfg.pausedAt).to.equal(0);
+      expect(cfg.pausedTotalSecs).to.be.greaterThanOrEqual(2);
+      expect(Number(expectEvent(await client.eventsOf(sig2), "PauseChanged").pausedTotalSecs)).to.equal(cfg.pausedTotalSecs);
+      // the open epoch's effective deadline moved by exactly the pause time; a new epoch starts from the current total
+      const e0 = await fetchEpoch(c4, 0);
+      expect(effectiveDeadline(e0, cfg, await nowOnChain())).to.equal(e0.claimDeadline + cfg.pausedTotalSecs);
+      const after = await fundEpoch(c4, { amount: 100n, tree: t.tree });
+      expect(after.epochView.pauseSecsAtFunding).to.equal(cfg.pausedTotalSecs);
+      expect(effectiveDeadline(after.epochView, cfg, await nowOnChain())).to.equal(after.epochView.claimDeadline);
+      await assertInvariants(c4);
+    });
+
     it("sweep/cancel need the epoch of this config: an epoch PDA of another index is refused", async () => {
       await expectError(client.cancelEpoch({ ...auth(city), epochIndex: 1, overrides: { epoch: client.epochAddress(city.config, 0) } }).signers([city.authority]).rpc(), ANCHOR.ConstraintSeeds);
       await expectError(client.sweepEpoch({ ...auth(city), epochIndex: 7 }).signers([city.authority]).rpc(), ANCHOR.AccountNotInitialized);
@@ -175,6 +203,11 @@ describe("04 cancel, carry-over and (with a short window) deadline + sweep + clo
 
     before(async function () {
       if (!short) {
+        // CI sets VICINITY_REQUIRE_SHORT_WINDOWS so a production IDL can never turn
+        // these 8 tests into "pending" and leave the workflow green.
+        if (process.env.VICINITY_REQUIRE_SHORT_WINDOWS) {
+          throw new Error(`short-windows test build required (VICINITY_REQUIRE_SHORT_WINDOWS is set) but the IDL says MIN_CLAIM_WINDOW_SECS=${min}`);
+        }
         console.warn(
           `\n  [04] SKIPPED deadline/sweep tests: MIN_CLAIM_WINDOW_SECS is ${min}s (${fromIdl ? "from IDL" : "spec default, not in IDL"}).` +
             ` Build the program with a short test window (<= ${SHORT_WINDOW_LIMIT}s) so these run under anchor test.\n`
@@ -182,6 +215,8 @@ describe("04 cancel, carry-over and (with a short window) deadline + sweep + clo
         this.skip();
         return;
       }
+      expect(fromIdl, "the short window must come from the IDL of the deployed binary").to.equal(true);
+      expect(client.constant("MIN_CLAIM_WINDOW_SECS"), "the short-windows feature sets exactly 60 s").to.equal("60");
       city = await createCity({ model: "holders", name: "sweep" });
       h = makeHolders([300n, 300n, 300n]);
       for (const kp of h.keypairs) await airdrop(kp.publicKey, 1);
@@ -212,7 +247,7 @@ describe("04 cancel, carry-over and (with a short window) deadline + sweep + clo
       await expectError(client.sweepEpoch({ authority: stranger.publicKey, cityCoinMint: city.cityCoinMint, epochIndex: 0 }).signers([stranger]).rpc(), "Unauthorized");
     });
 
-    it("sweep (even while paused): state Swept, carry_over += unclaimed, vault unchanged, event", async () => {
+    it("sweep (also while paused, because the deadline passed before the pause began): state Swept, carry_over += unclaimed, vault unchanged, event", async () => {
       await client.pause(auth(city)).signers([city.authority]).rpc();
       const sig = await client.sweepEpoch({ ...auth(city), epochIndex: 0 }).signers([city.authority]).rpc();
       await client.unpause(auth(city)).signers([city.authority]).rpc();
@@ -268,6 +303,42 @@ describe("04 cancel, carry-over and (with a short window) deadline + sweep + clo
       expect(e.holdersAmount).to.equal(700n);
       expect(cfg.carryOver).to.equal(0n);
       expect(await vaultBalance(city)).to.equal(700n);
+    });
+
+    it("a pause extends the deadline: holders lose no claim time and the authority cannot pause, wait and sweep", async function () {
+      this.timeout(10 * 60_000);
+      const c5 = await createCity({ model: "holders", name: "pause-deadline" });
+      const t = makeHolders([300n, 300n, 400n]);
+      for (const kp of t.keypairs) await airdrop(kp.publicKey, 1);
+      const r = await fundEpoch(c5, { amount: 1_000n, tree: t.tree, window: min });
+      const nominal = r.epochView.claimDeadline;
+      await client.pause(auth(c5)).signers([c5.authority]).rpc();
+      const pausedAt = (await fetchConfig(c5)).pausedAt;
+      // let the NOMINAL deadline pass while paused
+      await waitPastDeadline(nominal, min + 60);
+      // while paused: nobody can claim, and the authority cannot sweep either
+      await expectError(claim(c5, { epochIndex: 0, tree: t.tree, leafIndex: 0, claimant: t.keypairs[0] }), "Paused");
+      await expectError(client.sweepEpoch({ ...auth(c5), epochIndex: 0 }).signers([c5.authority]).rpc(), "ClaimDeadlineNotPassed");
+      await client.unpause(auth(c5)).signers([c5.authority]).rpc();
+      const cfg = await fetchConfig(c5);
+      expect(cfg.pausedTotalSecs).to.be.greaterThanOrEqual(nominal - pausedAt);
+      // the window was extended by the pause: a claim after the nominal deadline succeeds
+      expect(await nowOnChain()).to.be.greaterThan(nominal);
+      await claim(c5, { epochIndex: 0, tree: t.tree, leafIndex: 0, claimant: t.keypairs[0] });
+      expect(await tokenBalance(claimantAta(c5, t.keypairs[0].publicKey))).to.equal(300n);
+      await expectError(client.sweepEpoch({ ...auth(c5), epochIndex: 0 }).signers([c5.authority]).rpc(), "ClaimDeadlineNotPassed");
+      await assertInvariants(c5);
+      // once the EXTENDED deadline passes, the normal rules apply again
+      const e0 = await fetchEpoch(c5, 0);
+      const extended = effectiveDeadline(e0, cfg, await nowOnChain());
+      expect(extended).to.be.greaterThanOrEqual(nominal + (nominal - pausedAt));
+      await waitPastDeadline(extended, min + 60);
+      await expectError(claim(c5, { epochIndex: 0, tree: t.tree, leafIndex: 1, claimant: t.keypairs[1] }), "ClaimDeadlinePassed");
+      await client.sweepEpoch({ ...auth(c5), epochIndex: 0 }).signers([c5.authority]).rpc();
+      expect((await fetchEpoch(c5, 0)).state).to.equal("swept");
+      expect((await fetchConfig(c5)).carryOver).to.equal(700n);
+      expect(await vaultBalance(c5)).to.equal(700n);
+      await assertInvariants(c5);
     });
   });
 });

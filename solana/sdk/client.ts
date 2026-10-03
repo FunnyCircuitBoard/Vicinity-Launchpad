@@ -23,12 +23,16 @@ import {
 } from "@solana/spl-token";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { deriveClaim, deriveConfig, deriveEpoch, deriveVault, setProgramId } from "./pda.mjs";
+import { deriveClaim, deriveConfig, deriveEpoch, deriveProgramData, deriveRegistry, deriveVault, setProgramId } from "./pda.mjs";
 import { ZERO_ROOT, toClaimantBytes } from "./merkle.mjs";
 
 export type RewardModelName = "creator" | "holders" | "split";
 export type EpochStateName = "open" | "cancelled" | "swept";
 
+// Typed fallbacks for clients without an IDL at hand. The program's values are
+// the IDL `constants` section (VicinityClient.policy()), and tests/01 asserts
+// that these literals equal them, so the UI can never show a number the
+// deployed binary does not enforce.
 export const BPS_DENOMINATOR = 10_000;
 export const CREATOR_BPS = 10_000;
 export const HOLDERS_BPS = 0;
@@ -47,6 +51,12 @@ export const IDL_CANDIDATES = ["target/idl/vicinity_rewards.json", "sdk/idl/vici
 
 // Role -> candidate IDL account names (camelCase, as the Anchor TS client exposes them).
 const ROLE_NAMES: Record<string, string[]> = {
+  registry: ["registry"],
+  admin: ["admin"],
+  newAdmin: ["newAdmin", "pendingAdmin"],
+  upgradeAuthority: ["upgradeAuthority"],
+  program: ["program"],
+  programData: ["programData"],
   config: ["config", "cityConfig"],
   vault: ["vault"],
   cityCoinMint: ["cityCoinMint", "cityMint"],
@@ -190,8 +200,32 @@ export interface CityAddresses {
   vaultBump: number;
 }
 
+export interface InitRegistryParams {
+  payer: PublicKey;
+  upgradeAuthority: PublicKey;
+  admin: PublicKey;
+  overrides?: Record<string, PublicKey>;
+}
+
+export interface FundEpochFromVaultParams {
+  authority: PublicKey;
+  payer: PublicKey;
+  cityCoinMint: PublicKey;
+  merkleRoot?: Uint8Array | number[];
+  numLeaves?: number;
+  snapshotSlot?: bigint | number | BN;
+  snapshotHash?: Uint8Array | number[];
+  claimWindowSecs?: number | bigint | BN;
+  founder?: PublicKey;
+  rewardMint?: PublicKey;
+  tokenProgram?: PublicKey;
+  overrides?: Record<string, PublicKey>;
+}
+
 export interface InitCityParams {
   payer: PublicKey;
+  // must be registry.admin
+  admin: PublicKey;
   authority: PublicKey;
   founder: PublicKey;
   cityCoinMint: PublicKey;
@@ -257,6 +291,14 @@ export class VicinityClient {
 
   // ---- PDAs -------------------------------------------------------------
 
+  registryAddress(): PublicKey {
+    return deriveRegistry(this.programId).address;
+  }
+
+  programDataAddress(): PublicKey {
+    return deriveProgramData(this.programId).address;
+  }
+
   city(cityCoinMint: PublicKey): CityAddresses {
     const c = deriveConfig(cityCoinMint, this.programId);
     const v = deriveVault(c.address, this.programId);
@@ -305,6 +347,27 @@ export class VicinityClient {
     return { min: DEFAULT_MIN_CLAIM_WINDOW, max: DEFAULT_MAX_CLAIM_WINDOW, fromIdl: false };
   }
 
+  // Every policy number the program enforces, read from the IDL `constants`
+  // section of the deployed binary; the exported literals are only the fallback
+  // for a client without an IDL. This is what a UI must display.
+  policy(): { bpsDenominator: number; creatorBps: number; holdersBps: number; allowedSplitBps: number[]; minClaimWindowSecs: number; maxClaimWindowSecs: number; fromIdl: boolean } {
+    const num = (name: string, fallback: number) => {
+      const v = this.constant(name);
+      return v === undefined ? fallback : Number(v);
+    };
+    const splits = this.constant("ALLOWED_SPLIT_BPS");
+    const bounds = this.claimWindowBounds();
+    return {
+      bpsDenominator: num("BPS_DENOMINATOR", BPS_DENOMINATOR),
+      creatorBps: num("CREATOR_BPS", CREATOR_BPS),
+      holdersBps: num("HOLDERS_BPS", HOLDERS_BPS),
+      allowedSplitBps: splits === undefined ? ALLOWED_SPLIT_BPS.slice() : (JSON.parse(splits) as number[]),
+      minClaimWindowSecs: bounds.min,
+      maxClaimWindowSecs: bounds.max,
+      fromIdl: bounds.fromIdl && splits !== undefined,
+    };
+  }
+
   // Map roles to the IDL's account names; throw for anything required and missing.
   resolveAccounts(ixName: string, roles: Record<string, PublicKey | undefined>, overrides: Record<string, PublicKey> = {}) {
     const ix = this.instruction(ixName);
@@ -347,12 +410,42 @@ export class VicinityClient {
 
   // ---- builders -----------------------------------------------------------
 
+  initRegistry(p: InitRegistryParams) {
+    const accounts = this.resolveAccounts(
+      "init_registry",
+      {
+        payer: p.payer,
+        upgradeAuthority: p.upgradeAuthority,
+        admin: p.admin,
+        registry: this.registryAddress(),
+        program: this.programId,
+        programData: this.programDataAddress(),
+      },
+      p.overrides
+    );
+    return this.program.methods.initRegistry().accountsPartial(accounts);
+  }
+
+  proposeAdmin(p: { admin: PublicKey; newAdmin: PublicKey; overrides?: Record<string, PublicKey> }) {
+    return this.program.methods
+      .proposeAdmin(p.newAdmin)
+      .accountsPartial(this.resolveAccounts("propose_admin", { admin: p.admin, registry: this.registryAddress() }, p.overrides));
+  }
+
+  acceptAdmin(p: { newAdmin: PublicKey; overrides?: Record<string, PublicKey> }) {
+    return this.program.methods
+      .acceptAdmin()
+      .accountsPartial(this.resolveAccounts("accept_admin", { newAdmin: p.newAdmin, registry: this.registryAddress() }, p.overrides));
+  }
+
   initCity(p: InitCityParams) {
     const { config, vault } = this.city(p.cityCoinMint);
     const accounts = this.resolveAccounts(
       "init_city",
       {
         payer: p.payer,
+        admin: p.admin,
+        registry: this.registryAddress(),
         authority: p.authority,
         founder: p.founder,
         cityCoinMint: p.cityCoinMint,
@@ -448,6 +541,49 @@ export class VicinityClient {
       .accountsPartial(accounts);
   }
 
+  async fundEpochFromVault(p: FundEpochFromVaultParams) {
+    const { config, vault } = this.city(p.cityCoinMint);
+    let founder = p.founder;
+    let rewardMint = p.rewardMint;
+    let epochIndex: bigint;
+    if (!founder || !rewardMint || p.overrides?.epoch === undefined) {
+      const cfg = await this.fetchConfig(config);
+      founder = founder ?? cfg.founder;
+      rewardMint = rewardMint ?? cfg.rewardMint;
+      epochIndex = cfg.epochCount;
+    } else {
+      epochIndex = 0n;
+    }
+    const tokenProgram = p.tokenProgram ?? TOKEN_PROGRAM_ID;
+    const epoch = p.overrides?.epoch ?? this.epochAddress(config, epochIndex);
+    const accounts = this.resolveAccounts(
+      "fund_epoch_from_vault",
+      {
+        authority: p.authority,
+        payer: p.payer,
+        founder,
+        founderTokenAccount: this.ata(rewardMint!, founder!, tokenProgram),
+        rewardMint,
+        config,
+        vault,
+        epoch,
+        tokenProgram,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      },
+      p.overrides
+    );
+    const bounds = this.claimWindowBounds();
+    return this.program.methods
+      .fundEpochFromVault(
+        bytes32(p.merkleRoot ?? ZERO_ROOT),
+        p.numLeaves ?? 0,
+        bn(p.snapshotSlot ?? 0),
+        bytes32(p.snapshotHash ?? new Uint8Array(32)),
+        bn(p.claimWindowSecs ?? bounds.min)
+      )
+      .accountsPartial(accounts);
+  }
+
   async claim(p: ClaimParams) {
     const { config, vault } = this.city(p.cityCoinMint);
     const rewardMint = p.rewardMint ?? (await this.fetchConfig(config)).rewardMint;
@@ -500,6 +636,13 @@ export class VicinityClient {
 
   // ---- readers ------------------------------------------------------------
 
+  async fetchRegistry(): Promise<RegistryView | null> {
+    const addr = this.registryAddress();
+    const raw = (await (this.program.account as any).registry.fetchNullable(addr)) as Record<string, any> | null;
+    if (!raw) return null;
+    return { address: addr, admin: raw.admin, pendingAdmin: raw.pendingAdmin, bump: Number(raw.bump) };
+  }
+
   async fetchConfig(config: PublicKey): Promise<CityConfigView> {
     const raw = (await (this.program.account as any).cityConfig.fetch(config)) as Record<string, any>;
     return {
@@ -514,6 +657,8 @@ export class VicinityClient {
       founderBps: Number(raw.founderBps),
       locked: Boolean(raw.locked),
       paused: Boolean(raw.paused),
+      pausedAt: Number(raw.pausedAt.toString()),
+      pausedTotalSecs: Number(raw.pausedTotalSecs.toString()),
       epochCount: big(raw.epochCount),
       carryOver: big(raw.carryOver),
       totalFunded: big(raw.totalFunded),
@@ -548,6 +693,7 @@ export class VicinityClient {
       snapshotHash: Uint8Array.from(raw.snapshotHash),
       fundedAt: Number(raw.fundedAt.toString()),
       claimDeadline: Number(raw.claimDeadline.toString()),
+      pauseSecsAtFunding: Number(raw.pauseSecsAtFunding.toString()),
       state: epochStateName(raw.state),
       bump: Number(raw.bump),
       raw,
@@ -599,6 +745,13 @@ export function parseComputeUnits(logs: string[], programId: PublicKey): number 
   return undefined;
 }
 
+export interface RegistryView {
+  address: PublicKey;
+  admin: PublicKey;
+  pendingAdmin: PublicKey;
+  bump: number;
+}
+
 export interface CityConfigView {
   address: PublicKey;
   authority: PublicKey;
@@ -611,6 +764,8 @@ export interface CityConfigView {
   founderBps: number;
   locked: boolean;
   paused: boolean;
+  pausedAt: number;
+  pausedTotalSecs: number;
   epochCount: bigint;
   carryOver: bigint;
   totalFunded: bigint;
@@ -637,9 +792,18 @@ export interface EpochView {
   snapshotHash: Uint8Array;
   fundedAt: number;
   claimDeadline: number;
+  pauseSecsAtFunding: number;
   state: EpochStateName;
   bump: number;
   raw: Record<string, any>;
+}
+
+// The deadline a claim is measured against (mirrors math::effective_deadline):
+// nominal deadline plus the pause time accrued since the epoch was funded.
+export function effectiveDeadline(epoch: EpochView, cfg: CityConfigView, now: number): number {
+  const completed = cfg.pausedTotalSecs - epoch.pauseSecsAtFunding;
+  const running = cfg.paused ? Math.max(0, now - cfg.pausedAt) : 0;
+  return epoch.claimDeadline + completed + running;
 }
 
 export interface ClaimStatusView {
