@@ -40,6 +40,7 @@ import { LAUNCHPAD_OPENS_AT, activeMint } from "./official.js";
 import { countryCities } from "./cities.js";
 import { sha256hex } from "./blobs.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
+import { profilesOn } from "./flags.js";
 
 const F = POLICY.founder;
 const mask = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
@@ -971,7 +972,8 @@ export async function cityPicture(env, cityId, viewer, now = Date.now(), fetchIm
     quorum = { have: wallets.filter((w) => (amounts.get(w) || 0) > 0).length, need: F.stewardQuorum };
   }
   return {
-    seat: seat ? { id: seat.id, status: seat.status, name: seat.handle || seat.name || "Founder", wallet: mask(seat.wallet), since: seat.activated_at || seat.created_at,
+    // with member profiles on, `handle` says whether `name` is the founder's username (null: a display name, so the page never links it)
+    seat: seat ? { id: seat.id, status: seat.status, name: seat.handle || seat.name || "Founder", ...(profilesOn(env) ? { handle: seat.handle || null } : {}), wallet: mask(seat.wallet), since: seat.activated_at || seat.created_at,
       appealUntil: seat.appeal_until, graceUntil: seat.grace_until, probationUntil: seat.probation_until, you: Boolean(viewer && seat.user_id === viewer.id), openObjections: objections,
       threshold: seat.threshold, policy: seat.policy, cofounders: await cofoundersOf(db, seat), quorum } : null,
     window: windowView,

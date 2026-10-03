@@ -280,7 +280,12 @@ test("nothing is requested for anyone but members with the switch on", () => {
   assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "dashboard-roles", "dashboard"], "profile.js is not a script tag of the dashboard");
   assert.equal((dashJs.match(/\/profile\.js/g) || []).length, 1, "named once");
   assert.match(dashJs, /if \(d\.profilesFlag\) \{ profilesSync\(d\);/, "asked for only when /api/me says so");
-  assert.match(dashJs, /if \(!\(me && me\.profilesFlag && HANDLE\.test\(name\)\)\) return el\(tag, null, name\);/, "names stay plain text without the switch");
+  assert.match(dashJs, /const memberLink = \(name, handle, tag = "b"\) => \{\n\s+if \(!\(me && me\.profilesFlag && typeof handle === "string" && HANDLE\.test\(handle\)\)\) return el\(tag, null, name\);/,
+    "names stay plain text without the switch, and with it only the server's `handle` makes a link: a display name never does");
+  assert.match(dashJs, /a\.href = `\/profile\?u=\$\{encodeURIComponent\(handle\)\}`/, "the link goes to the username, not to the text shown");
+  assert.match(dashJs, /meta\.append\(memberLink\(p\.author\.name, p\.author\.handle\)\);/, "a feed author is linked by author.handle");
+  assert.match(dashJs, /linkName\(\$\("#cc-founder"\), c && c\.seat && !c\.seat\.you \? c\.seat : null\); linkName\(\$\("#nc-manager"\), n && n\.manager && !n\.manager\.you \? n\.manager : null\);/, "the founder and the manager by seat.handle / manager.handle");
+  assert.match(dashJs, /function linkName\(host, who\) \{\n\s+if \(!host \|\| !who \|\| !who\.name \|\| !\(me && me\.profilesFlag && typeof who\.handle === "string" && HANDLE\.test\(who\.handle\)\)\) return;/);
   assert.match(dashJs, /if \(profiles\) profiles\.openModal\(me\);/);
   // the /profile page asks for members only after /api/me said the viewer is signed in and the switch is on
   const start = between(pagePart, "    async function start() {", "    function landing()");

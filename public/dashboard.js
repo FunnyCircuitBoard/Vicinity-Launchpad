@@ -254,7 +254,7 @@
     $$(".role-row").forEach((r) => r.classList.toggle("is-you", r.dataset.role === d.level));
     $("#f-city").textContent = home ? home.name : "Local";
     $("#f-country").textContent = n ? countryName(n.country) : "National";
-    if (d.profilesFlag) { profilesSync(d); linkName($("#cc-founder"), c && c.seat && !c.seat.you ? c.seat.name : null); linkName($("#nc-manager"), n && n.manager && !n.manager.you ? n.manager.name : null); }
+    if (d.profilesFlag) { profilesSync(d); linkName($("#cc-founder"), c && c.seat && !c.seat.you ? c.seat : null); linkName($("#nc-manager"), n && n.manager && !n.manager.you ? n.manager : null); }
   }
 
   /* ---------- member profiles: the code is fetched ONLY when /api/me says profilesFlag, so with the switch off this page never asks for it ---------- */
@@ -270,17 +270,22 @@
     document.head.append(s);
   }
   const HANDLE = /^[A-Za-z][A-Za-z0-9_]{2,19}$/;
-  /** A member's name as a link to their profile page (only with the switch on and for a real username), else as plain text. */
-  const memberLink = (name, tag = "b") => {
-    if (!(me && me.profilesFlag && HANDLE.test(name))) return el(tag, null, name);
-    const a = el("a", "member-link", name); a.href = `/profile?u=${encodeURIComponent(name)}`;
+  /**
+   * A member's name as a link to their profile page, else as plain text. A link only with the switch on AND when the server
+   * said the name is that member's username (`handle`, sent next to `name` while profiles are on; null for a member without
+   * one): a display name that merely looks like a username would open a stranger's profile, or none.
+   */
+  const memberLink = (name, handle, tag = "b") => {
+    if (!(me && me.profilesFlag && typeof handle === "string" && HANDLE.test(handle))) return el(tag, null, name);
+    const a = el("a", "member-link", name); a.href = `/profile?u=${encodeURIComponent(handle)}`;
     if (tag === "b") { const b = el("b"); b.append(a); return b; }
     return a;
   };
-  function linkName(host, name) {
-    if (!host || !name || !(me && me.profilesFlag && HANDLE.test(name))) return;
-    const t = host.textContent, i = t.indexOf(name);
-    if (i >= 0) host.replaceChildren(t.slice(0, i), memberLink(name, "a"), t.slice(i + name.length));
+  /** Turn the name of `who` ({ name, handle }: a seat or a manager) inside the text of `host` into that link. */
+  function linkName(host, who) {
+    if (!host || !who || !who.name || !(me && me.profilesFlag && typeof who.handle === "string" && HANDLE.test(who.handle))) return;
+    const t = host.textContent, i = t.indexOf(who.name);
+    if (i >= 0) host.replaceChildren(t.slice(0, i), memberLink(who.name, who.handle, "a"), t.slice(i + who.name.length));
   }
 
   const actBtn = (label, fn, cls = "link-btn") => { const b = el("button", cls, label); b.type = "button"; b.addEventListener("click", fn); return b; };
@@ -604,7 +609,7 @@
       v.append(up, score); li.append(v);
     }
     const meta = el("div", "post__meta");
-    meta.append(memberLink(p.author.name));
+    meta.append(memberLink(p.author.name, p.author.handle));
     if (p.author.manager) meta.append(el("span", "tag tag--gold", "🛡️ Manager"));
     if (p.author.founder) meta.append(el("span", "tag tag--gold", `👑 ${p.author.founder}`));
     if (p.where && scope === "country") meta.append(el("span", "tag", `📍 ${p.where}`));
