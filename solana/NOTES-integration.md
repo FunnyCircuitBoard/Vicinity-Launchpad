@@ -161,3 +161,14 @@ ProofTooLong (see above).
 - SPEC GAP: tokens sent straight to the vault (not through `fund_epoch`) are
   stuck by design (there is no withdraw and no "fund from vault"); fee wallets
   must point at an ops token account that then calls `fund_epoch`.
+
+## Addendum by the finisher (3 Oct 2026, after the review fixes)
+
+The numbers above describe the branch before commits d48b194 and fa37658
+(registry, `fund_epoch_from_vault`, pause-extended deadlines). Current numbers
+live in `AUDIT.md`: the production binary is 505,088 bytes, the suite has 140
+tests, `cargo test` 29, and the account sizes are Registry 73, CityConfig 303,
+Epoch 182, ClaimStatus 57. Every open item of the list above is closed or
+recorded there: the docs exist, the devnet state is in `AUDIT.md` section 7,
+the verifiable build stays with the owner (Docker), the two SPEC GAPs are
+closed by the registry gate and by `fund_epoch_from_vault`.

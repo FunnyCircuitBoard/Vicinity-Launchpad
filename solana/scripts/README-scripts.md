@@ -10,7 +10,7 @@ becomes carry-over, a carry-only epoch, money sent straight to the vault and
 distributed with `fund_epoch_from_vault`, the two-step authority transfer,
 pause/unpause, and the final accounting with the invariants checked.
 
-## `devnet-demo.ts`: the same story on devnet (what AUDIT.md records)
+## `devnet-demo.ts`: the same story on devnet (what AUDIT.md section 7 records)
 
 ```sh
 ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=<path to the devnet deployer keypair> npm run devnet-demo
@@ -65,6 +65,20 @@ What to look at in the output:
   default it says so and the test suite covers sweep instead.
 
 The demo exits with code 1 if any "must fail" step succeeds.
+
+## `init-registry.ts`: the owner's one-time step after a deploy
+
+```sh
+ANCHOR_PROVIDER_URL=<rpc url> ANCHOR_WALLET=<upgrade authority keypair> REGISTRY_ADMIN=<admin public key> npm run init-registry
+```
+
+Creates the `["registry"]` PDA with `REGISTRY_ADMIN` as the only key that may
+create city configs (without the variable the wallet itself becomes admin).
+It reads the program's ProgramData account first and refuses when the wallet is
+not the upgrade authority, does nothing when the registry already exists, and
+prints the transaction with an explorer link. The devnet-demo creates the
+registry itself when it is missing, so on devnet either order works; on
+mainnet this script is step 5 of the README's deployment procedure.
 
 ## Devnet deployment and the real snapshot job
 
