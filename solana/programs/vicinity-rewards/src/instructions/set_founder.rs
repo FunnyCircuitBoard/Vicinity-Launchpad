@@ -1,0 +1,39 @@
+//! `set_founder`: point the founder share at another wallet.
+//!
+//! Allowed at any time, locked or not, because founder seats change under
+//! Vicinity's own rules (a founder can lose the seat). This is the one
+//! economic lever the authority keeps, which is why the authority should be a
+//! multisig: whoever controls it decides who receives every future founder
+//! share. It never touches money already paid or money in the vault.
+
+use anchor_lang::prelude::*;
+
+use crate::constants::CITY_SEED;
+use crate::errors::RewardsError;
+use crate::events::FounderChanged;
+use crate::state::CityConfig;
+
+#[derive(Accounts)]
+pub struct SetFounder<'info> {
+    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        has_one = authority @ RewardsError::Unauthorized,
+        seeds = [CITY_SEED, config.city_coin_mint.as_ref()],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, CityConfig>,
+}
+
+pub fn handle_set_founder(ctx: Context<SetFounder>, new_founder: Pubkey) -> Result<()> {
+    require_keys_neq!(new_founder, Pubkey::default(), RewardsError::InvalidFounder);
+    let config = &mut ctx.accounts.config;
+    let old_founder = config.founder;
+    config.founder = new_founder;
+    emit!(FounderChanged {
+        config: config.key(),
+        old_founder,
+        new_founder,
+    });
+    Ok(())
+}

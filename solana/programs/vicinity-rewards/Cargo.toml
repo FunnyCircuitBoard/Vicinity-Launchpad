@@ -1,0 +1,30 @@
+[package]
+name = "vicinity-rewards"
+version = "0.1.0"
+description = "Vicinity Rewards: per city coin reward vault and Merkle claim distributor"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "vicinity_rewards"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+# init-if-needed is used ONLY for the recipients' associated token accounts
+# (founder and claimant). Every program-owned account uses plain init.
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+anchor-spl = { version = "0.31.1", features = ["token", "associated_token"] }
+
+[dev-dependencies]
+# Only for reading sdk/fixtures/merkle.json in unit tests; never on chain.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
