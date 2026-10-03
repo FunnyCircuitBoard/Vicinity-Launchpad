@@ -23,6 +23,45 @@
       </div>
     </section>
 
+    <!-- City coins (LAUNCHPAD_V2=on). Stays hidden, and nothing below is requested, until /api/official says launchpadV2 is true. -->
+    <section class="section lp-coins" id="lp-coins" hidden>
+      <div class="wrap">
+        <div class="section-head lp-coins__head">
+          <p class="kicker">City coins</p>
+          <h2 class="h2--sm">Find a city coin.</h2>
+          <p class="muted">Every coin here is a city's one official coin, launched by its founder on Raydium LaunchLab and recorded by Vicinity. Live coins trade now; the others are designed and waiting.</p>
+        </div>
+
+        <div class="lp-tools">
+          <div class="seg lp-tabs" role="tablist" aria-label="City coin lists" id="lp-tabs">
+            <button type="button" role="tab" id="lp-tab-live" data-tab="live" aria-selected="true" aria-controls="lp-panel">Live <span class="lp-tabs__n" data-count="live">0</span></button>
+            <button type="button" role="tab" id="lp-tab-new" data-tab="new" aria-selected="false" aria-controls="lp-panel" tabindex="-1">New <span class="lp-tabs__n" data-count="new">0</span></button>
+            <button type="button" role="tab" id="lp-tab-upcoming" data-tab="upcoming" aria-selected="false" aria-controls="lp-panel" tabindex="-1">Upcoming <span class="lp-tabs__n" data-count="upcoming">0</span></button>
+            <button type="button" role="tab" id="lp-tab-trending" data-tab="trending" aria-selected="false" aria-controls="lp-panel" tabindex="-1">Trending <span class="lp-tabs__n" data-count="trending">0</span></button>
+          </div>
+          <form class="lp-search" id="lp-search" role="search" novalidate>
+            <label class="sr-only" for="lp-q">Search city coins by ticker, coin name, city or country</label>
+            <input id="lp-q" type="search" autocomplete="off" spellcheck="false" maxlength="60" placeholder="Search a ticker, coin, city or country">
+          </form>
+          <div class="lp-filters">
+            <label class="lp-field"><span>Country</span><select id="lp-country"><option value="">All countries</option></select></label>
+            <label class="lp-field"><span>Status</span><select id="lp-status"><option value="">Any status</option><option value="live">Live</option><option value="waiting">Contract being checked</option><option value="designed">Designed</option></select></label>
+            <label class="lp-field"><span>Sort</span><select id="lp-sort"><option value="">Default for this list</option><option value="volume">24 h volume</option><option value="mcap">Market cap</option><option value="liquidity">Liquidity</option><option value="holders">Holders</option><option value="newest">Newest</option><option value="change">24 h change</option><option value="name">Name A-Z</option></select></label>
+          </div>
+        </div>
+
+        <p class="small lp-meta"><span id="lp-count" role="status" aria-live="polite"></span> <span class="muted" id="lp-tabnote"></span> <span class="muted" id="lp-updated"></span></p>
+        <div id="lp-panel" role="tabpanel" aria-labelledby="lp-tab-live">
+          <ul class="lp-grid" id="lp-grid" aria-label="City coins"></ul>
+          <div class="card lp-empty" id="lp-empty" hidden>
+            <p id="lp-empty-text"></p>
+            <button class="btn btn--glass btn--sm" type="button" id="lp-retry" hidden>Try again</button>
+          </div>
+        </div>
+        <p class="tiny muted lp-honesty">Prices, liquidity and volumes come from DexScreener and can be up to a minute old. You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds.</p>
+      </div>
+    </section>
+
     <section class="section">
       <div class="wrap">
         <div class="section-head">

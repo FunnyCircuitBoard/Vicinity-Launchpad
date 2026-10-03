@@ -1266,3 +1266,76 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
   .pf-coin { max-width: calc(100% - 20px); }
   .pf-sub { font-size: .72rem; }
 }
+
+/* ---------- Launchpad city coins (LAUNCHPAD_V2=on): tabs, search, filters, cards. Every control is at least 44 px tall. ---------- */
+.lp-coins { padding: 48px 0 64px; border-top: 1px solid var(--line); }
+.lp-coins__head { margin-bottom: 22px; }
+.lp-coins__head h2 { margin-bottom: .3em; }
+.lp-tools { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 16px; align-items: start; }
+.lp-tabs { display: flex; flex-wrap: wrap; width: 100%; gap: 2px; }
+.lp-tabs button { flex: 1 1 auto; min-height: 44px; padding: 7px 14px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+.lp-tabs button:focus-visible { outline: 2px solid var(--pin-2); outline-offset: 2px; }
+.lp-tabs__n { font-size: .74rem; font-weight: 700; min-width: 1.6em; padding: 1px 7px; border-radius: 999px; background: rgba(var(--ink),.1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.lp-tabs button[aria-selected="true"] .lp-tabs__n { background: rgba(255,90,54,.16); color: var(--pin-2); }
+.lp-search { margin: 0; }
+.lp-search input { width: 100%; min-height: 48px; background: var(--card-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 0 18px; }
+.lp-search input:focus { outline: 2px solid var(--pin-2); outline-offset: 1px; }
+.lp-filters { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.lp-field { display: grid; gap: 4px; min-width: 0; }
+.lp-field > span { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 600; padding-left: 4px; }
+.lp-field select { width: 100%; min-height: 44px; background: var(--card-2); border: 1px solid var(--line-2); border-radius: 12px; padding: 0 12px; }
+.lp-field select:focus { outline: 2px solid var(--pin-2); outline-offset: 1px; }
+.lp-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 16px 4px 12px; min-height: 1.4em; }
+#lp-count { font-weight: 600; }
+.lp-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 14px; }
+.lp-card { display: grid; gap: 12px; padding: 18px; border-radius: 22px; min-width: 0; }
+.lp-card__head { display: flex; align-items: flex-start; gap: 12px; }
+.lp-card__disc { width: 56px; height: 56px; overflow: hidden; }
+.lp-card__disc[data-color] { background: radial-gradient(circle at 32% 28%, var(--c1), var(--c2) 45%, var(--c3) 100%); }
+.lp-card__disc span { font-size: .78rem; max-width: 92%; }
+.lp-card__disc[data-len="6"] span, .lp-card__disc[data-len="7"] span { font-size: .6rem; }
+.lp-card__disc[data-len="8"] span { font-size: .52rem; }
+.lp-card__disc img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.lp-card__id { flex: 1; min-width: 0; }
+.lp-card__title { margin: 0; font-size: 1.1rem; line-height: 1.25; display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; }
+.lp-card__ticker { font-weight: 700; }
+.lp-card__name { font-weight: 500; color: var(--text-2); font-family: var(--body); font-size: .95rem; overflow-wrap: anywhere; }
+.lp-card__place { margin: 2px 0 0; }
+.lp-card__status { flex: none; max-width: 56%; white-space: normal; text-align: center; margin-top: 2px; font-variant-numeric: tabular-nums; } /* a long tag wraps inside its pill rather than crushing the title */
+.lp-card__meta { margin: 0; display: flex; flex-wrap: wrap; gap: 0 4px; }
+.lp-stats { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; padding: 12px 0 0; border-top: 1px solid var(--line); }
+.lp-stat { min-width: 0; }
+.lp-stat dt { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+.lp-stat dd { margin: 0; font: 650 1rem/1.3 var(--display); letter-spacing: -.01em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.lp-stat:last-child { grid-column: 1 / -1; }
+.lp-stat:last-child dd { font: 600 .92rem/1.35 var(--body); }
+.lp-na { color: var(--faint); cursor: help; }
+.lp-chg { font-size: .8rem; font-weight: 600; color: var(--muted); }
+.lp-chg.is-up { color: var(--ok-text); }
+.lp-chg.is-down { color: var(--bad-text); }
+.lp-card__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding-top: 2px; }
+.lp-card__actions .btn { min-height: 44px; }
+.lp-card__actions .btn--primary { flex: 1 1 auto; }
+.lp-card__alt { min-height: 44px; display: inline-flex; align-items: center; padding: 0 6px; }
+.lp-card__wait { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; flex: 1 1 auto; }
+.lp-card__wait .tiny { margin: 0; flex: 1 1 160px; }
+.lp-empty { display: grid; justify-items: start; gap: 10px; padding: 22px; }
+.lp-empty p { margin: 0; max-width: 60ch; }
+.lp-empty .btn { min-height: 44px; }
+.lp-honesty { margin: 18px 4px 0; max-width: 78ch; }
+:root[data-theme="light"] .lp-tabs__n { background: rgba(11,22,38,.08); }
+@media (max-width: 900px) { .lp-tools { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) {
+  .lp-coins { padding: 36px 0 52px; }
+  .lp-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lp-filters .lp-field:last-child { grid-column: 1 / -1; }
+  .lp-tabs button { padding: 7px 10px; font-size: .86rem; }
+  .lp-card { padding: 16px 14px; }
+  .lp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  /* narrow phones: the status tag sits under the title instead of beside it, so neither is squeezed */
+  .lp-card__head { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 6px 12px; align-items: start; }
+  .lp-card__status { grid-column: 2; justify-self: start; max-width: 100%; margin-top: 0; }
+}
+@media (max-width: 360px) { .lp-filters { grid-template-columns: minmax(0, 1fr); } .lp-filters .lp-field:last-child { grid-column: auto; } }
