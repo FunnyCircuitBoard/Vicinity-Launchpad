@@ -5,12 +5,15 @@ import {
   ANCHOR,
   City,
   Holders,
+  MAX_LEGACY_TX_BYTES,
+  MAX_PROOF_DEPTH_LEGACY_TX,
   accountExists,
   airdrop,
   assertInvariants,
   claim,
   claimStatusAddress,
   claimantAta,
+  claimantTransaction,
   client,
   createCity,
   createTokenAccount,
@@ -23,6 +26,8 @@ import {
   fundedKeypair,
   makeHolders,
   nowOnChain,
+  rawClaimInstruction,
+  sendSigned,
   sha256,
   solBalance,
   tokenBalance,
@@ -136,16 +141,30 @@ describe("03 claim: exact payouts, double claim, wrong proofs, cap, pause", () =
     await expectError(claim(city, { epochIndex, leafIndex: 1, claimant: h.keypairs[1], amount: 200n, proof: [] }), "InvalidProof");
   });
 
-  it("overlong proof is rejected: one extra element (InvalidProof), 33 elements (ProofTooLong)", async () => {
+  it("overlong proof is rejected: one extra element, and the longest random proof a transaction can carry (InvalidProof)", async () => {
     const proof = getProof(h.tree, 1);
     await expectError(
       claim(city, { epochIndex, leafIndex: 1, claimant: h.keypairs[1], amount: 200n, proof: [...proof, sha256(Buffer.from("extra"))] }),
       "InvalidProof"
     );
-    const long = Array.from({ length: 33 }, (_, i) => sha256(Buffer.from(`x${i}`)));
-    await expectError(claim(city, { epochIndex, leafIndex: 1, claimant: h.keypairs[1], amount: 200n, proof: long }), "ProofTooLong");
-    const long32 = long.slice(0, 32);
-    await expectError(claim(city, { epochIndex, leafIndex: 1, claimant: h.keypairs[1], amount: 200n, proof: long32 }), "InvalidProof");
+    // 22 elements is the deepest proof that fits in a legacy transaction with the claimant as sole signer
+    const long = Array.from({ length: MAX_PROOF_DEPTH_LEGACY_TX }, (_, i) => sha256(Buffer.from(`x${i}`)));
+    const tx = await claimantTransaction([rawClaimInstruction(city, { claimant: h.keypairs[1], epochIndex, leafIndex: 1, amount: 200n, proof: long })], h.keypairs[1]);
+    expect(tx.serialize().length).to.be.at.most(MAX_LEGACY_TX_BYTES);
+    await expectError(sendSigned(tx), "InvalidProof");
+  });
+
+  it("a 33-element proof cannot even be put into a transaction (1232-byte runtime limit); on-chain ProofTooLong is defence in depth", async () => {
+    const long = Array.from({ length: 33 }, (_, i) => sha256(Buffer.from(`y${i}`)));
+    const ix = rawClaimInstruction(city, { claimant: h.keypairs[1], epochIndex, leafIndex: 1, amount: 200n, proof: long });
+    expect(ix.data.length).to.equal(32 + 33 * 32);
+    const tx = await claimantTransaction([ix], h.keypairs[1]);
+    expect(() => tx.serialize()).to.throw(ANCHOR.TransactionTooLarge);
+    // 23 elements is the first depth that no longer fits either
+    const d23 = Array.from({ length: MAX_PROOF_DEPTH_LEGACY_TX + 1 }, (_, i) => sha256(Buffer.from(`z${i}`)));
+    const tx23 = await claimantTransaction([rawClaimInstruction(city, { claimant: h.keypairs[1], epochIndex, leafIndex: 1, amount: 200n, proof: d23 })], h.keypairs[1]);
+    expect(() => tx23.serialize()).to.throw(ANCHOR.TransactionTooLarge);
+    expect(client.errorCodes()).to.include("ProofTooLong");
   });
 
   it("tampered sibling is rejected (InvalidProof)", async () => {

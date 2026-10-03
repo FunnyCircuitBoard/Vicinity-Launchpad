@@ -133,13 +133,26 @@ describe("05 account substitution attacks", () => {
       );
     });
 
-    it("the reward mint of another city is refused (has_one)", async () => {
+    it("the reward mint of another city is refused (has_one), with a consistent or an inconsistent destination", async () => {
+      // consistent attacker set: C's mint and the claimant's ATA for C's mint -> the config's has_one fires
+      await expectError(
+        claim(A, {
+          epochIndex: 0,
+          tree: hA.tree,
+          leafIndex: 0,
+          claimant: hA.keypairs[0],
+          overrides: { rewardMint: C.rewardMint, claimantTokenAccount: ata(C.rewardMint, hA.keypairs[0].publicKey) },
+        }),
+        ANCHOR.ConstraintHasOne
+      );
+      // inconsistent set (C's mint, ATA for A's mint): the ATA program refuses first (init_if_needed runs before has_one)
       await expectError(
         claim(A, { epochIndex: 0, tree: hA.tree, leafIndex: 0, claimant: hA.keypairs[0], overrides: { rewardMint: C.rewardMint } }),
         ANCHOR.ConstraintHasOne,
-        ANCHOR.ConstraintTokenMint,
-        ANCHOR.ConstraintAssociated
+        ANCHOR.UnknownAccount,
+        ANCHOR.IncorrectProgramId
       );
+      expect(await accountExists(ata(C.rewardMint, hA.keypairs[0].publicKey)), "the failed transaction left no ATA behind").to.equal(false);
     });
 
     it("a forged config account (random key, PDA of other seeds, another program's account) is refused", async () => {
@@ -174,21 +187,37 @@ describe("05 account substitution attacks", () => {
     });
 
     it("wrong token program: Token-2022 for a classic mint, or the system program", async () => {
+      // Token-2022 passed for a classic mint: the ATA program's CPI into Token-2022 refuses the classic mint
+      // (init_if_needed runs before Anchor's mint::token_program check), so the refusal comes from the token program.
       await expectError(
         claim(A, { epochIndex: 0, tree: hA.tree, leafIndex: 0, claimant: hA.keypairs[0], tokenProgram: TOKEN_2022_PROGRAM_ID }),
         ANCHOR.ConstraintMintTokenProgram,
         ANCHOR.ConstraintTokenTokenProgram,
         ANCHOR.InvalidProgramId,
         ANCHOR.AccountOwnedByWrongProgram,
-        ANCHOR.ConstraintAssociated
+        ANCHOR.IncorrectProgramId
+      );
+      // with an already existing ATA (no init needed) the program's own constraint is what fires
+      await createTokenAccount(A.rewardMint, hA.keypairs[1].publicKey, 0n);
+      await expectError(
+        claim(A, { epochIndex: 0, tree: hA.tree, leafIndex: 1, claimant: hA.keypairs[1], overrides: { tokenProgram: TOKEN_2022_PROGRAM_ID } }),
+        ANCHOR.ConstraintMintTokenProgram,
+        ANCHOR.ConstraintTokenTokenProgram,
+        ANCHOR.InvalidProgramId,
+        ANCHOR.AccountOwnedByWrongProgram,
+        ANCHOR.ConstraintAssociated,
+        ANCHOR.IncorrectProgramId
       );
       await expectError(
-        claim(A, { epochIndex: 0, tree: hA.tree, leafIndex: 0, claimant: hA.keypairs[0], overrides: { tokenProgram: SystemProgram.programId } }),
+        claim(A, { epochIndex: 0, tree: hA.tree, leafIndex: 1, claimant: hA.keypairs[1], overrides: { tokenProgram: SystemProgram.programId } }),
         ANCHOR.InvalidProgramId,
         ANCHOR.ConstraintMintTokenProgram,
         ANCHOR.ConstraintTokenTokenProgram,
-        ANCHOR.AccountOwnedByWrongProgram
+        ANCHOR.AccountOwnedByWrongProgram,
+        ANCHOR.IncorrectProgramId,
+        ANCHOR.UnknownAccount
       );
+      expect(await tokenBalance(claimantAta(A, hA.keypairs[1].publicKey))).to.equal(0n);
     });
 
     it("after all of the above the legitimate claim still works", async () => {
@@ -247,15 +276,27 @@ describe("05 account substitution attacks", () => {
     });
 
     it("claim status of another epoch or claimant cannot be closed", async () => {
-      const kp = hA.keypairs[0];
+      const kp = hA.keypairs[0]; // claimed from A's epoch 0 above
+      const realStatus = claimStatusAddress(A, 0, kp.publicKey);
+      expect(await accountExists(realStatus)).to.equal(true);
+      // real status, but B's epoch in the epoch slot: epoch seeds (config A, index 0) do not match
       await expectError(
         client
-          .closeClaimStatus({ claimant: kp.publicKey, cityCoinMint: A.cityCoinMint, epochIndex: 0, overrides: { epoch: epochAddress(B, 0) } })
+          .closeClaimStatus({ claimant: kp.publicKey, cityCoinMint: A.cityCoinMint, epochIndex: 0, overrides: { epoch: epochAddress(B, 0), claimStatus: realStatus } })
           .signers([kp])
           .rpc(),
         ANCHOR.ConstraintSeeds,
         "EpochStillOpen"
       );
+      // another wallet tries to close kp's status
+      const other = hA.keypairs[2];
+      await expectError(
+        client.closeClaimStatus({ claimant: other.publicKey, cityCoinMint: A.cityCoinMint, epochIndex: 0, overrides: { claimStatus: realStatus } }).signers([other]).rpc(),
+        ANCHOR.ConstraintSeeds,
+        ANCHOR.ConstraintHasOne,
+        "EpochStillOpen"
+      );
+      expect(await accountExists(realStatus)).to.equal(true);
     });
   });
 
@@ -281,15 +322,18 @@ describe("05 account substitution attacks", () => {
       await claim(city, { epochIndex: 0, tree: h.tree, leafIndex: 1, claimant: h.keypairs[1] });
       expect(await tokenBalance(claimantAta(city, h.keypairs[1].publicKey), TOKEN_2022_PROGRAM_ID)).to.equal(450n);
       expect(await vaultBalance(city)).to.equal(301n);
-      // the classic token program cannot be used for this city
+      // the classic token program cannot be used for this city (refused by the token program during the ATA CPI,
+      // or by Anchor's token_program constraints when the ATA already exists)
       await expectError(
         claim(city, { epochIndex: 0, tree: h.tree, leafIndex: 0, claimant: h.keypairs[0], tokenProgram: TOKEN_PROGRAM_ID }),
         ANCHOR.ConstraintMintTokenProgram,
         ANCHOR.ConstraintTokenTokenProgram,
         ANCHOR.InvalidProgramId,
         ANCHOR.AccountOwnedByWrongProgram,
-        ANCHOR.ConstraintAssociated
+        ANCHOR.ConstraintAssociated,
+        ANCHOR.IncorrectProgramId
       );
+      expect(await vaultBalance(city)).to.equal(301n);
       await assertInvariants(city);
     });
 

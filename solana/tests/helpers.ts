@@ -34,6 +34,7 @@ import {
 import { expect } from "chai";
 import {
   VicinityClient,
+  camel,
   loadIdl,
   splitAmount,
   type RewardModelName,
@@ -423,7 +424,69 @@ export const ANCHOR = {
   AlreadyInUse: /already in use|custom program error: 0x0\b/,
   // SPL token: insufficient funds (custom program error 0x1)
   InsufficientFunds: /insufficient funds|custom program error: 0x1\b/,
+  // Anchor runs init_if_needed CPIs before has_one/token_program constraints, so an
+  // inconsistent attacker set can fail inside the Token / ATA program first.
+  IncorrectProgramId: /incorrect program id|IncorrectProgramId/,
+  UnknownAccount: /unknown account|required by the instruction is missing/,
+  // web3.js refuses to serialize a legacy transaction above 1232 bytes
+  TransactionTooLarge: /Transaction too large/,
 };
+
+// Bytes of a legacy `claim` transaction with the claimant as the only signer:
+// 1 signature, 11 account keys, blockhash, instruction header and 32 bytes of
+// fixed args; every proof element adds 32. The runtime caps a transaction at
+// 1232 bytes, so the deepest proof that fits is floor((1232 - 500) / 32) = 22.
+export const CLAIM_TX_BASE_BYTES = 500;
+export const MAX_LEGACY_TX_BYTES = 1232;
+export const MAX_PROOF_DEPTH_LEGACY_TX = Math.floor((MAX_LEGACY_TX_BYTES - CLAIM_TX_BASE_BYTES) / 32);
+
+// Hand-encoded `claim` instruction (Anchor's TS coder has a 1000-byte buffer and
+// cannot encode proofs longer than 30 elements). Accounts in IDL order.
+export function rawClaimInstruction(
+  city: City,
+  o: { claimant: Keypair; epochIndex: bigint | number; leafIndex: number; amount: bigint; proof: Uint8Array[] }
+): TransactionInstruction {
+  const ix = client.instruction("claim") as unknown as { accounts: Array<{ name: string; writable?: boolean; signer?: boolean }>; discriminator: number[] };
+  const { config, vault } = client.city(city.cityCoinMint);
+  const epoch = epochAddress(city, o.epochIndex);
+  const accounts = client.resolveAccounts("claim", {
+    claimant: o.claimant.publicKey,
+    claimantTokenAccount: claimantAta(city, o.claimant.publicKey),
+    rewardMint: city.rewardMint,
+    config,
+    vault,
+    epoch,
+    claimStatus: client.claimAddress(epoch, o.claimant.publicKey),
+    tokenProgram: city.tokenProgram,
+    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+  });
+  const keys = ix.accounts.map((a) => ({ pubkey: accounts[camel(a.name)], isSigner: Boolean(a.signer), isWritable: Boolean(a.writable) }));
+  const data = Buffer.alloc(8 + 8 + 4 + 8 + 4 + 32 * o.proof.length);
+  Buffer.from(ix.discriminator).copy(data, 0);
+  data.writeBigUInt64LE(BigInt(o.epochIndex), 8);
+  data.writeUInt32LE(o.leafIndex, 16);
+  data.writeBigUInt64LE(o.amount, 20);
+  data.writeUInt32LE(o.proof.length, 28);
+  o.proof.forEach((p, i) => Buffer.from(p).copy(data, 32 + 32 * i));
+  return new TransactionInstruction({ programId: client.programId, keys, data });
+}
+
+// A legacy transaction with exactly one signer (the claimant pays the fee), as a
+// wallet would send it; returns the signed transaction without sending.
+export async function claimantTransaction(ixs: TransactionInstruction[], claimant: Keypair): Promise<Transaction> {
+  const tx = new Transaction().add(...ixs);
+  tx.feePayer = claimant.publicKey;
+  tx.recentBlockhash = (await connection.getLatestBlockhash("confirmed")).blockhash;
+  tx.sign(claimant);
+  return tx;
+}
+
+export async function sendSigned(tx: Transaction): Promise<string> {
+  const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });
+  const bh = await connection.getLatestBlockhash("confirmed");
+  await connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
+  return sig;
+}
 
 export function errorText(err: any): string {
   const parts: string[] = [];

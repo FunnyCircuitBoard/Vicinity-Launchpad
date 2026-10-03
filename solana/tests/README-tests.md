@@ -60,14 +60,31 @@ a substitution through different constraints depending on account order, the
 test lists every acceptable code; the point is that the transaction is refused
 and no balance moves, which is asserted separately.
 
-## Compute units
+## Compute units and transaction size
 
 `06-large-tree-compute.ts` prints lines like
 
 ```
-CU_RESULT claim depth=20 simulated=NNNNN executed=NNNNN limit=200000
+CU_RESULT claim depth=20 tx_bytes=1140 simulated=NNNNN executed=NNNNN limit=200000
 ```
 
-for depths 11 (real 2,000-leaf tree), 20 and 32 (crafted proofs with arbitrary
+for depths 11 (real 2,000-leaf tree), 20 and 22 (crafted proofs with arbitrary
 siblings; the root is valid for exactly that leaf). Copy the numbers into
 `AUDIT.md`.
+
+Why 22 and not 32: a legacy Solana transaction is capped at 1232 bytes. A
+`claim` with the claimant as the only signer is 500 bytes plus 32 per proof
+element (11 account keys, blockhash, instruction header, 32 bytes of fixed
+arguments), so the deepest proof that fits is 22, i.e. trees of up to 2^22 =
+4,194,304 leaves. Depth 23 fails at `Transaction.serialize()` with "Transaction
+too large" (tested). A 32- or 33-element proof cannot be put into any
+transaction, so the on-chain `ProofTooLong` check (cap 32) is defence in depth
+and unreachable; `03-claim.ts` proves the transaction-level refusal instead.
+When a second signer co-signs (the test harness's provider wallet), the limit
+drops to 19; the real claim flow has one signer. The snapshot job should keep
+the number of leaves per epoch at or below 2^22 (dedupe, apply eligibility, and
+if a city ever has more holders, split the epoch).
+
+Anchor's TypeScript instruction coder has a 1000-byte buffer and cannot encode
+proofs longer than 30 elements; `helpers.ts` has `rawClaimInstruction` for the
+oversize cases.
