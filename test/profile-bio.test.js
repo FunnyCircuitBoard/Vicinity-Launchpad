@@ -57,6 +57,10 @@ test("one line: line breaks and tabs become one space, runs of spaces become one
   assert.equal(cleanBio("a" + ch(0x2028, 0x2029, 0x85) + "b").bio, "a b", "other line separators");
   assert.equal(cleanBio("a" + ch(0x200b, 0x200c, 0x2060, 0xfeff, 0xad, 0x180e) + "b").bio, "ab", "zero-width characters");
   assert.equal(cleanBio(ch(0x200b) + ch(0x200b)).bio, "", "nothing but invisible characters is empty");
+  assert.equal(cleanBio("a" + ch(0x80, 0x8f, 0x9f) + "b" + ch(0x2061, 0x2062, 0x2063, 0x2064) + "c").bio, "abc", "C1 controls and the invisible operators");
+  const tagged = "just a bio" + [..."secret"].map((c) => ch(0xe0000 + c.codePointAt(0))).join("") + ch(0xe0001, 0xe007f); // hidden ASCII as TAG characters
+  assert.deepEqual(cleanBio(tagged), { ok: true, bio: "just a bio" }, "TAG characters show nothing in any browser: gone");
+  assert.equal([...cleanBio(tagged).bio].length, 10, "and they are not counted either");
   // a family emoji is joined with zero-width JOINERS: those stay, it is still one picture
   const family = ch(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467);
   assert.equal(cleanBio(family).bio, family);
@@ -89,6 +93,7 @@ test("no wallet addresses of any chain, alone or inside a sentence", () => {
   for (const address of [ADDRESS, "send to " + ADDRESS + " now", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA8", eth, "gm " + eth, "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", "A".repeat(26), fullwidth(ADDRESS)])
     assert.deepEqual(cleanBio(address), { ok: false, error: "bio_not_allowed" }, address);
   assert.equal(cleanBio("Supercalifragilistic is 20").ok, true, "a long word is not an address");
+  assert.deepEqual(cleanBio("Donaudampfschifffahrtsgesellschaft"), { ok: false, error: "bio_not_allowed" }, "an unbroken run of 26+ letters is refused as address-like (the page's hint and message say so)");
 });
 
 test("text that reads backwards, piles of stacked accents and broken characters are refused", () => {
