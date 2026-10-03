@@ -260,8 +260,37 @@ export async function getAllHolders(env, mint, fetchImpl = fetch) {
 }
 
 /**
+ * Every holder, read at most once a minute per data centre: the servers of one Cloudflare location share the last read through a
+ * private cache (caches.open, never seen by visitors). Before, each server read it for itself every minute it was busy, from
+ * /api/me, profiles, founder checks and votes too, with no cap (3 RPC calls each, one of them getProgramAccounts). A copy is used
+ * only while it is younger than maxAgeMs, so the list is as fresh as before; a cache hiccup just means a direct read.
+ */
+const SHARED_CACHE = "vicinity-holders", SHARED_URL = "https://cache.vicinity.internal/holders-snapshot/";
+async function sharedHolders(env, mint, fetchImpl, maxAgeMs) {
+  let cache = null;
+  try { cache = typeof caches !== "undefined" && typeof caches.open === "function" ? await caches.open(SHARED_CACHE) : null; } catch { cache = null; }
+  const key = SHARED_URL + mint;
+  if (cache) {
+    try {
+      const hit = await cache.match(key);
+      const d = hit ? await hit.json() : null;
+      if (d && Array.isArray(d.list) && Date.now() - d.builtAt < maxAgeMs) return { facts: d.facts, list: d.list, labels: new Map(d.labels), builtAt: d.builtAt };
+    } catch { /* unreadable copy: read the chain */ }
+  }
+  const fresh = await getAllHolders(env, mint, fetchImpl);
+  const builtAt = Date.now();
+  if (cache) {
+    try {
+      await cache.put(key, new Response(JSON.stringify({ facts: fresh.facts, list: fresh.list, labels: [...fresh.labels], builtAt }),
+        { headers: { "content-type": "application/json", "Cache-Control": `max-age=${Math.max(1, Math.ceil(maxAgeMs / 1000))}` } }));
+    } catch { /* not shared this time */ }
+  }
+  return { ...fresh, builtAt };
+}
+
+/**
  * The holder list, ranked. Pools and bonding curves are shown but not ranked: ranks are for people.
- * Kept for 60 seconds per server, so a busy dashboard doesn't hammer the blockchain.
+ * Kept for 60 seconds (per server, and per data centre through sharedHolders), so a busy dashboard doesn't hammer the blockchain.
  *   { facts, rows: [{ owner, amount, percent, rank|null, label }], byOwner: Map(owner → row), people, at }
  */
 const snaps = new Map();
@@ -271,16 +300,18 @@ const FAILED_FOR_MS = 5_000;
 export function holderSnapshot(env, mint, fetchImpl = fetch, maxAgeMs = 60_000) {
   const hit = snaps.get(mint);
   if (hit && Date.now() < (hit.failedAt == null ? hit.at + maxAgeMs : hit.failedAt + FAILED_FOR_MS)) return hit.promise;
-  const promise = getAllHolders(env, mint, fetchImpl).then(({ facts, list, labels }) => {
+  const entry = { at: Date.now(), promise: null, failedAt: null };
+  const promise = sharedHolders(env, mint, fetchImpl, maxAgeMs).then(({ facts, list, labels, builtAt }) => {
+    entry.at = builtAt; // a shared copy ages from when it was read, not from when this server picked it up
     let rank = 0;
     const rows = list.map(([owner, amount]) => {
       const label = labels.get(owner) || null;
       const pool = label && !label.startsWith("Team");
       return { owner, amount, percent: facts.supply ? (amount / facts.supply) * 100 : 0, rank: pool ? null : ++rank, label };
     });
-    return { facts, rows, byOwner: new Map(rows.map((r) => [r.owner, r])), people: rank, at: new Date().toISOString() };
+    return { facts, rows, byOwner: new Map(rows.map((r) => [r.owner, r])), people: rank, at: new Date(builtAt).toISOString() };
   });
-  const entry = { at: Date.now(), promise, failedAt: null };
+  entry.promise = promise;
   snaps.set(mint, entry);
   promise.catch(() => { if (snaps.get(mint) === entry) entry.failedAt = Date.now(); });
   return promise;
