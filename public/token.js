@@ -2,7 +2,7 @@
 // the official token list and the link checker. Everything comes from this site's /api (read live from Solana).
 (() => {
   "use strict";
-  const { $, $$, el, api, toast, copy, fmt, compact, mask, isAddr } = window.V;
+  const { $, $$, el, api, toast, copy, fmt, compact, mask, isAddr, official } = window.V;
   const FOUNDER_MAX = 1_000_000; // the top of the Stake Ladder (100K to 1M by city size, see /rules#ladder)
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
   const usd = (n) => (n >= 1 ? "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "$" + n.toPrecision(3));
@@ -46,6 +46,12 @@
     $("#st-supply").textContent = compact(f.supply);
     if (d.price) { $("#st-price").textContent = usd(d.price); $("#st-mcap").textContent = d.marketCap ? `market cap ${"$" + compact(d.marketCap)}` : ""; }
     else { $("#st-price").textContent = "—"; $("#st-mcap").textContent = "price not available yet"; }
+  }
+  /** "Team wallets public": say how many are actually listed (the official list is the one source), never just "Listed". */
+  function renderTeamCount(o) {
+    const e = $("#team-count"); if (!e) return;
+    const n = o && Array.isArray(o.teamWallets) ? o.teamWallets.length : 0;
+    e.textContent = n ? `${n} wallet${n === 1 ? "" : "s"} listed` : "No team wallets yet";
   }
 
   /* ---------- holders table ---------- */
@@ -153,6 +159,7 @@
 
   loadToken();
   loadHolders();
+  if (official && official.then) official.then(renderTeamCount, () => renderTeamCount(null));
   setInterval(() => { if (launched && !document.hidden) loadHolders(); }, 60_000);
   const q = new URLSearchParams(location.search).get("address");
   if (q) { $("#lookup-input").value = q; lookup(q); }
