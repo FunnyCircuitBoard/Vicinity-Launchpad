@@ -99,15 +99,10 @@ test("the report counter is the number of report rows: two first reports at the 
   assert.equal((await reportsOf(id)).reports, 2, "and does not count twice");
 });
 
-test("a stale counter is corrected by the next report (the rows are the truth), and five rows hide the post as before", async () => {
+test("five reports hide the post as before, logged as community reports", async () => {
   const author = await person(env, { home: IN_UTICA });
   const id = (await author.post("/api/posts", { scope: "city", kind: "talk", body: "spam spam" })).post.id;
-  const reporters = [];
-  for (let i = 0; i < 3; i++) { const p = await person(env, { home: IN_UTICA }); reporters.push(p); await p.post("/api/posts/report", { id, reason: "spam" }); }
-  assert.equal((await reportsOf(id)).reports, 3);
-  await env.DB.prepare("UPDATE posts SET reports = 0 WHERE id = ?").bind(id).run(); // as an unhide leaves it today
-  const fourth = await person(env, { home: IN_UTICA });
-  await fourth.post("/api/posts/report", { id, reason: "spam" });
+  for (let i = 0; i < 4; i++) { const p = await person(env, { home: IN_UTICA }); await p.post("/api/posts/report", { id, reason: "spam" }); }
   assert.deepEqual(await reportsOf(id), { reports: 4, hidden: 0 });
   const fifth = await person(env, { home: IN_UTICA });
   await fifth.post("/api/posts/report", { id, reason: "spam" });
@@ -116,19 +111,50 @@ test("a stale counter is corrected by the next report (the rows are the truth), 
   assert.deepEqual([log.actions[0].by, log.actions[0].action, log.actions[0].state], ["Community reports", "hide", "confirmed"]);
 });
 
-test("after a moderator unhides a post with five reports, one more report hides it again: the count never forgets who reported", async () => {
+test("a moderator's unhide stands: the same five cannot report again, one new report leaves the post visible, five new people hide it again", async () => {
   const author = await person(env, { home: IN_UTICA });
-  const id = (await author.post("/api/posts", { scope: "city", kind: "talk", body: "contested" })).post.id;
-  for (let i = 0; i < 5; i++) { const p = await person(env, { home: IN_UTICA }); await p.post("/api/posts/report", { id, reason: "spam" }); }
-  assert.equal((await reportsOf(id)).hidden, 1);
+  const id = (await author.post("/api/posts", { scope: "city", kind: "talk", body: "contested, but fine" })).post.id;
+  const first = [];
+  for (let i = 0; i < 5; i++) { const p = await person(env, { home: IN_UTICA }); first.push(p); await p.post("/api/posts/report", { id, reason: "spam" }); }
+  assert.deepEqual(await reportsOf(id), { reports: 5, hidden: 1 });
+
   const admin = await person(env, { home: IN_UTICA });
   env.ADMIN_WALLETS = admin.w.address;
   await reprove(admin);
-  assert.equal((await admin.post("/api/mod/unhide", { id, note: "it is fine" })).hidden, false);
+  assert.equal((await admin.post("/api/mod/unhide", { id, note: "reviewed: this is fine" })).hidden, false);
+  assert.deepEqual(await reportsOf(id), { reports: 0, hidden: 0 });
+  assert.equal(await env.DB.prepare("SELECT COUNT(*) AS n FROM reports WHERE post_id = ?").bind(id).first("n"), 5, "the old reports stay on record");
+
+  for (const p of first) assert.equal((await p.post("/api/posts/report", { id, reason: "spam" })).ok, true, "a quiet yes");
+  assert.deepEqual(await reportsOf(id), { reports: 0, hidden: 0 }, "the same five people cannot hide it a second time");
+  const sixth = await person(env, { home: IN_UTICA });
+  assert.equal((await sixth.post("/api/posts/report", { id, reason: "spam" })).ok, true);
+  assert.deepEqual(await reportsOf(id), { reports: 1, hidden: 0 }, "one new report does not undo the moderator (the review found a row count did)");
+  let log = await browser(env).get("/api/audit?country=US");
+  assert.equal(log.actions[0].action, "unhide", "nothing was logged after the moderator's decision");
+
+  for (let i = 0; i < 4; i++) { const p = await person(env, { home: IN_UTICA }); await p.post("/api/posts/report", { id, reason: "spam" }); }
+  assert.deepEqual(await reportsOf(id), { reports: 5, hidden: 1 }, "five new people: hidden again, for a moderator to look at");
+  log = await browser(env).get("/api/audit?country=US");
+  assert.deepEqual([log.actions[0].action, log.actions[0].by], ["hide", "Community reports"]);
+});
+
+test("an overturned appeal resets the count the same way: the next single report does not hide the post again", async () => {
+  const author = await person(env, { home: IN_UTICA });
+  const id = (await author.post("/api/posts", { scope: "city", kind: "talk", body: "appealed" })).post.id;
+  for (let i = 0; i < 5; i++) { const p = await person(env, { home: IN_UTICA }); await p.post("/api/posts/report", { id, reason: "spam" }); }
+  assert.equal((await reportsOf(id)).hidden, 1);
+  const actionId = await env.DB.prepare("SELECT id FROM mod_actions WHERE action = 'hide' AND target_id = ?").bind(id).first("id");
+  assert.equal((await author.post("/api/appeals", { actionId, text: "This is a normal post about the bakery." })).ok, true);
+  const appealId = await env.DB.prepare("SELECT id FROM appeals WHERE action_id = ?").bind(actionId).first("id");
+  const admin = await person(env, { home: IN_UTICA });
+  env.ADMIN_WALLETS = admin.w.address;
+  await reprove(admin);
+  assert.equal((await admin.post("/api/appeals/decide", { id: appealId, overturn: true, note: "fine" })).status, "overturned");
   assert.deepEqual(await reportsOf(id), { reports: 0, hidden: 0 });
   const sixth = await person(env, { home: IN_UTICA });
   await sixth.post("/api/posts/report", { id, reason: "spam" });
-  assert.deepEqual(await reportsOf(id), { reports: 6, hidden: 1 });
+  assert.deepEqual(await reportsOf(id), { reports: 1, hidden: 0 });
 });
 
 test("three reports still confirm a moderator's pending hide", async () => {

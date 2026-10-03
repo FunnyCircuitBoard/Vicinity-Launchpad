@@ -237,9 +237,11 @@ export async function handleReport(request, env, fetchImpl = fetch, now = Date.n
   const ins = await db.prepare("INSERT OR IGNORE INTO reports (post_id, user_id, reason, created_at) VALUES (?, ?, ?, ?)").bind(post.id, u.id, reason, iso(now)).run();
   if (!ins.meta.changes) return json({ ok: true });
   await noteEvent(env, u.id, "report", now);
-  // The counter is the number of report rows, set in one statement: two first reports at the same moment both land
-  // (neither writes a stale "0 + 1"), and the number moderators see is always the number of people who reported.
-  const counted = await db.prepare("UPDATE posts SET reports = (SELECT COUNT(*) FROM reports WHERE post_id = ?) WHERE id = ? RETURNING reports").bind(post.id, post.id).first();
+  // One statement adds one to the counter, so two first reports at the same moment both land (neither writes a stale
+  // "0 + 1"). It is NOT the number of report rows on purpose: a moderator who unhides a post sets the counter back to 0
+  // (src/moderation.js) and the old reports stay on record, so hiding it again takes five people who have not reported
+  // it before, as it always has. Counting rows would let one more report undo the moderator's decision.
+  const counted = await db.prepare("UPDATE posts SET reports = reports + 1 WHERE id = ? RETURNING reports").bind(post.id).first();
   const n = counted ? Number(counted.reports) : post.reports + 1;
   const stmts = [];
   const log = (action, state) => db.prepare(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, created_at, state)
