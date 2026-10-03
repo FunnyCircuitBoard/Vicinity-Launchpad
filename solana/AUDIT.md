@@ -193,13 +193,13 @@ minimum claim window is 14 days (the script prints the date after which
 `sweep_epoch(0)` works); the sweep path is proven by the test suite against a
 real 60-second deadline.
 
-### Current state (3 Oct 2026, 10:35 UTC)
+### Current state (3 Oct 2026, 10:49 UTC)
 
 **Not deployed yet: the devnet faucet did not release enough SOL.** The
 throwaway deployer `9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa`
 (https://explorer.solana.com/address/9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa?cluster=devnet)
-holds 2 SOL, which is what the public faucet released during 113 `solana airdrop`
-requests between 06:38 and 10:32 UTC (two sessions, 1 and 2 SOL requests, the
+holds 2 SOL, which is what the public faucet released during 123 `solana airdrop`
+requests between 06:38 and 10:48 UTC (two sessions, 1 and 2 SOL requests, the
 default RPC and the Alchemy demo endpoint, 90 s to 5 min apart); every other
 request was refused with "airdrop request failed ... rate limit" or HTTP 429.
 Deploying the 505,088-byte production binary needs 2.567 SOL of rent for the
