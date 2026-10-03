@@ -67,11 +67,22 @@ jobs:
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/v${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      # The npm package @coral-xyz/anchor-cli is deprecated ("broken cli build": its binary is not executable),
+      # so anchor-cli is built from the tagged source once and cached by version.
+      - name: Cache anchor-cli
+        id: anchor-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/anchor
+          key: anchor-cli-${{ env.ANCHOR_VERSION }}-${{ runner.os }}-rust-${{ env.RUST_VERSION }}
       - name: Install Anchor CLI
-        run: npm install -g @coral-xyz/anchor-cli@${ANCHOR_VERSION}
+        if: steps.anchor-cache.outputs.cache-hit != 'true'
+        run: cargo install --git https://github.com/coral-xyz/anchor --tag "v${ANCHOR_VERSION}" anchor-cli --locked
+      - name: Anchor CLI is the pinned version
+        run: anchor --version | grep -qx "anchor-cli ${ANCHOR_VERSION}"
       - name: Throwaway local wallet for the test validator
         run: solana-keygen new --no-bip39-passphrase --silent --outfile ~/.config/solana/id.json
-      - run: solana --version && anchor --version
+      - run: solana --version | grep -q "${AGAVE_VERSION}" && anchor --version
       - run: npm ci
       - run: npm run sdk-test
       - run: npm run typecheck
