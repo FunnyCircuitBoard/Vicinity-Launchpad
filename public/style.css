@@ -1313,6 +1313,9 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 /* 44px targets for every small control inside the panels */
 .dv2 .btn--sm { min-height: 44px; }
 .dv2 .role-tools .link-btn, .dv2 .fcard__link, .dv2 .subnav__link { min-height: 44px; display: inline-flex; align-items: center; }
+/* a long label wraps inside its pill: the site's .btn never wraps, so "Apply to found <city> (checks your location)" widened its
+   card past a 390px screen (the flag-off page has the same overflow; it is left as it is, this rule only reaches the panels) */
+.dv2 .dpanel .btn { white-space: normal; text-align: center; max-width: 100%; padding-top: 8px; padding-bottom: 8px; }
 
 /* Today: two to four next-step cards; a grid on desktop, one swipeable row on phones */
 .dv2 .today { display: grid; gap: 8px; }

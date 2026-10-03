@@ -94,6 +94,7 @@
   function go(tab, { push = true, scroll = true, replace = false } = {}) {
     if (!TABS.includes(tab)) tab = "home";
     if (tab === "moderate" && !modOn()) { pending = "moderate"; tab = "home"; push = false; replace = true; } // opens once /api/mod says so
+    else if (push) pending = null; // the person chose another tab meanwhile: a late /api/mod answer must not pull them away from it
     const was = active;
     active = tab;
     for (const t of $$(".dtab")) { const on = t.dataset.tab === tab; t.setAttribute("aria-selected", String(on)); t.setAttribute("tabindex", on ? "0" : "-1"); }
