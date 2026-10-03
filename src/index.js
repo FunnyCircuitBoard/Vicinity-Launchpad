@@ -17,6 +17,9 @@
  *   /api/signup/{start,state,terms,finish} · /api/signup/location(/choice) · /api/signup/location/handoff(/info,/complete,/claim)
  *   · /api/signup/account/reset · /api/signup/email(/verify) · /api/auth/google/start?signup=1
  *   · /api/auth/email/login · /api/auth/password/reset(/start) · /api/me/password
+ * Member profiles, only while PROFILES=on (otherwise 404 not_enabled; src/profiles.js):
+ *   GET /api/profile?u= · /api/members/search?q= · POST /api/follow · GET /api/follows · POST /api/block · GET /api/me/blocks
+ *   · POST /api/me/bio · POST /api/profile/report · GET /api/me/portfolio · POST /api/mod/bio/clear
  * Signed in: /api/me · /api/me/{terms,username,phone} · /api/me/contact/email/{verify,remove} · /api/home
  *   · /api/locate (the place a location is read, with /api/locate/handoff/* when a wallet app's browser can't
  *   share GPS: src/handoff.js) · /api/posts(/vote, /report)
@@ -53,8 +56,9 @@ import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots,
 import { managerOf } from "./roles.js";
 import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown } from "./coins.js";
 import { runJobs } from "./jobs.js";
-import { v2On } from "./flags.js";
+import { profilesOn, v2On } from "./flags.js";
 import { routeV2 } from "./signup.js";
+import { PROFILE_PATHS, routeProfiles } from "./profiles.js";
 
 export { json, activeMint };
 
@@ -151,6 +155,12 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   if (path.startsWith("/api/signup/") || V2_EXACT.has(path)) {
     if (!v2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
     return routeV2(request, env, fetchImpl, ctx);
+  }
+
+  // member profiles: with the switch off they are simply not there either (before any method check, so nothing can be probed)
+  if (PROFILE_PATHS.has(path)) {
+    if (!profilesOn(env)) return json({ ok: false, error: "not_enabled" }, 404);
+    return routeProfiles(request, env, fetchImpl, ctx);
   }
 
   // paths with an id in them
