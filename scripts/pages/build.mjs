@@ -5,7 +5,9 @@
 //
 // Each source file starts with one line of settings:
 //   <!--{"title": "...", "description": "...", "page": "home", "scripts": ["home"], "styles": ["extra"], "main": "class"}-->
-// ("noindex": true keeps a page out of search engines; "styles" are extra stylesheets from public/, e.g. "admin" -> /admin.css; never an inline <style>, the security policy blocks it)
+// ("noindex": true keeps a page out of search engines; "styles" are extra stylesheets from public/, e.g. "admin" -> /admin.css; never an inline <style>, the security policy blocks it;
+//  "standalone": true builds the page like any other, but buildPages() leaves it out: test/site.test.js lists the main pages one by one and says only the admin console is noindex.
+//  The standalone pages come from buildStandalonePages() and are written by the same command; the tests of their own cover them.)
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -126,18 +128,23 @@ ${js}
 `;
 }
 
-/** Every page: [output file, html]. */
-export function buildPages() {
+function build(standalone) {
   const out = [];
   for (const f of readdirSync(SRC).filter((x) => x.endsWith(".html")).sort()) {
     const src = readFileSync(SRC + f, "utf8").replace(/\r\n/g, "\n");
     const m = src.match(/^<!--(\{.*\})-->\n/);
     if (!m) throw new Error(`${f}: first line must be <!--{settings}-->`);
-    out.push([f, layout(JSON.parse(m[1]), src.slice(m[0].length))]);
+    const settings = JSON.parse(m[1]);
+    if (Boolean(settings.standalone) === standalone) out.push([f, layout(settings, src.slice(m[0].length))]);
   }
   return out;
 }
 
+/** The main pages: [output file, html]. */
+export const buildPages = () => build(false);
+/** Pages that carry "standalone": true (see the top of this file). */
+export const buildStandalonePages = () => build(true);
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  for (const [f, html] of buildPages()) { writeFileSync(OUT + f, html); console.log("page ready:", f); }
+  for (const [f, html] of [...buildPages(), ...buildStandalonePages()]) { writeFileSync(OUT + f, html); console.log("page ready:", f); }
 }
