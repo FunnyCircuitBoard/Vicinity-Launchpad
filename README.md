@@ -41,6 +41,8 @@ src/seats.js        City founders · src/elections.js country managers · src/mo
 src/snapshot.js     Founding Supporters (Merkle proofs) · src/attest.js location attestations
 src/auth.js         Accounts: wallet sign-in, Google / e-mail codes, phone pairing, tiny-transfer proof, re-proving, sessions
 src/admin.js        The /admin console API (/api/admin/*): roles, content, snapshots, config; every change needs a fresh wallet proof and is logged
+src/signup.js       The new sign-up (only while SIGNUP_FLOW=v2): state, location, Terms, Google / e-mail + password, and the one atomic `finish` · src/signup-core.js its cookie and tidy-up · src/pwlogin.js password log-in
+src/password.js     Password hashing (PBKDF2-SHA256) and rules · src/limits.js atomic attempt counters · src/flags.js the SIGNUP_FLOW switch
 src/handoff.js      Location hand-off: the wallet app's browser can't share GPS, the phone's own browser does it (coordinates are never stored)
 src/tickers.js      City coin tickers, one per community everywhere, read from public/data/tickers.json (npm run tickers builds it)
 src/me.js           Dashboard data · src/social.js feeds · src/roles.js roles · src/access.js who may do what
