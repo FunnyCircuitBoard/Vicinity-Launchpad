@@ -49,12 +49,22 @@ duplicated). Consequences, which the Rust `merkle.rs` MUST share:
 * `depth = ceil(log2(n))`; 2,000 leaves -> depth 11; a proof is never longer
   than `depth`.
 
-The INTEGRATOR must confirm the Rust builder (if it builds trees at all; the
-program only verifies) and the Rust unit test use the same rule. The quickest
-check: `cargo test` reads `sdk/fixtures/merkle-js.json` (roots of 20 trees of
-sizes 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 64, 100, 127, 128, 129, 257
-plus 5 leaf vectors and 5 node vectors) and `npm run sdk-test` reads the Rust
-side's `sdk/fixtures/merkle.json` when it exists.
+The Rust reference builder in `programs/vicinity-rewards/src/merkle.rs`
+(`reference::build_levels`, test-only; the program itself only verifies) uses the
+same rule, and two fixture files pin it:
+
+* `fixtures/merkle.json` (canonical, generated on the program side, format in
+  `fixtures/README.md`): 20 trees of 1 to 129 leaves plus leaf vectors. Read by
+  `cargo test` (`merkle.rs::fixtures_match_the_sdk`) AND by `npm run sdk-test`.
+* `fixtures/merkle-js.json` (this SDK's own vectors, `npm run sdk-fixtures`):
+  20 trees of sizes 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 64, 100, 127,
+  128, 129, 257 with leaf hashes for the small trees, 5 leaf vectors and 5 node
+  vectors. Read by `npm run sdk-test`.
+
+Both reproduce byte for byte with this implementation (47 node tests). One
+deliberate difference in validation only: `hashLeaf`/`encodeLeaf` are pure like
+the Rust `leaf_hash` (they encode an amount of 0; the canonical fixture has such
+a vector), while `buildTree` refuses amount 0, duplicates and bad indices.
 
 ### Fixture format (`fixtures/merkle-js.json`)
 
