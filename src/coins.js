@@ -21,6 +21,7 @@ import { isSolanaAddress } from "./solana.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
 import { readImage } from "./social.js";
 import { ensureSchema } from "./store.js";
+import { tickerOf } from "./tickers.js";
 
 const C = POLICY.coins;
 
@@ -220,6 +221,25 @@ export async function handleTakedown(request, env, fetchImpl = fetch, now = Date
   await log(db, { actor: a.u.id, role: "admin", action: `coin_${body.what}_removed`, user: coin.user_id, country: coin.country, place: coin.city_id,
     reason, note: `${coin.city_name}: ${note}`, at: iso(now) });
   return json({ ok: true, coin: coinView(await coinOf(db, coin.city_id)) });
+}
+
+/**
+ * For the link checker: the recorded city coin at this address, as an "official" answer with its city and ticker,
+ * or null when it is not one. A contract still waiting for an admin's check is not official yet.
+ */
+export async function officialCityCoin(env, address) {
+  if (!env.DB || !isSolanaAddress(address)) return null;
+  await ensureSchema(env.DB);
+  const row = await env.DB.prepare("SELECT city_id, city_name, country, name FROM city_coins WHERE mint = ?").bind(address).first();
+  if (!row) return null;
+  const ticker = (await tickerOf(env, row.city_id))?.ticker || null;
+  const where = `${row.city_name}${row.country ? `, ${row.country}` : ""}`;
+  return {
+    verdict: "official", kind: "city_coin", city: row.city_id, cityName: row.city_name, country: row.country, ticker, name: row.name,
+    message: ticker
+      ? `This is the official $${ticker}: the city coin of ${where}, recorded by Vicinity.`
+      : `This is the official city coin of ${where}, recorded by Vicinity.`,
+  };
 }
 
 /** Prices in US dollars for the tokens the swap panel shows (only those: $VICINITY, the pairs, launched city coins). */

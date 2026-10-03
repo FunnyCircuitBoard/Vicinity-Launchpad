@@ -113,3 +113,34 @@ test("rejecting still works as today without an address (the old page), and with
   assert.equal((await decide(adm, { city: UTICA, approve: false, mint: COIN_A, note: "not on LaunchLab" })).ok, true);
   assert.equal((await coinNow()).waiting, false);
 });
+
+test("the link checker knows recorded city coins: the real $UTICA is official for Utica, a contract still being checked is not", async () => {
+  const check = async (q) => browser(env).get("/api/check?q=" + encodeURIComponent(q));
+  const { adm } = await waiting(COIN_A);
+  let r = await check(COIN_A);
+  assert.deepEqual([r.verdict, r.kind], ["not_official", "address"], "waiting for the admin's check: not official yet");
+
+  assert.equal((await decide(adm, { city: UTICA, approve: true, mint: COIN_A, note: "Checked" })).ok, true);
+  r = await check(COIN_A);
+  assert.equal(r.verdict, "official");
+  assert.equal(r.kind, "city_coin");
+  assert.deepEqual([r.city, r.cityName, r.country, r.ticker], [UTICA, "Utica", "US", "UTICA"]);
+  assert.match(r.message, /official \$UTICA/);
+  assert.match(r.message, /Utica/);
+
+  r = await check(COIN_B);
+  assert.deepEqual([r.verdict, r.kind], ["not_official", "address"], "any other address is still not official");
+  r = await check(MINT);
+  assert.deepEqual([r.verdict, r.kind], ["official", "contract"], "$VICINITY itself is unchanged");
+  r = await check(` ${COIN_A} `);
+  assert.equal(r.kind, "city_coin", "spaces around the address are fine, like everywhere else in the checker");
+});
+
+test("the link checker names the one official X account instead of claiming there is none", async () => {
+  const r = await browser(env).get("/api/check?q=" + encodeURIComponent("@vicinity_official"));
+  assert.equal(r.verdict, "not_official");
+  assert.match(r.message, /@VicinityCitySOL/);
+  assert.doesNotMatch(r.message, /no official social accounts/);
+  const ok = await browser(env).get("/api/check?q=" + encodeURIComponent("@vicinitycitysol"));
+  assert.equal(ok.verdict, "official");
+});

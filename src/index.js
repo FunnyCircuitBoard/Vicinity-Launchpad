@@ -51,7 +51,7 @@ import { handleAppeal, handleAudit, handleBanDecision, handleDecideAppeal, handl
   handleTownDecision, handleTownRequest, handleUnhide } from "./moderation.js";
 import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots, snapshotCutoff } from "./snapshot.js";
 import { managerOf } from "./roles.js";
-import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown } from "./coins.js";
+import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown, officialCityCoin } from "./coins.js";
 import { runJobs } from "./jobs.js";
 import { v2On } from "./flags.js";
 import { routeV2 } from "./signup.js";
@@ -178,8 +178,18 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/policy":
       return only("GET") || json({ policy: POLICY, snapshotCutoff: snapshotCutoff(env), launched: Boolean(activeMint(env)),
         balanceHistory: env.DB ? await ledgerStatus(env, Date.now()) : { running: false } });
-    case "/api/check":
-      return only("GET") || json(checkOfficial(url.searchParams.get("q"), isSolanaAddress, env));
+    case "/api/check": {
+      const blocked = only("GET");
+      if (blocked) return blocked;
+      const q = url.searchParams.get("q");
+      const verdict = checkOfficial(q, isSolanaAddress, env);
+      // the list alone knows $VICINITY and the team wallets; a city coin an admin recorded is official for its city
+      if (verdict.verdict === "not_official" && verdict.kind === "address") {
+        const coin = await officialCityCoin(env, String(q || "").trim());
+        if (coin) return json(coin);
+      }
+      return json(verdict);
+    }
     case "/api/verify":
       return only("POST") || handleVerify(request, env, Date.now(), fetchImpl);
     case "/api/token": {
