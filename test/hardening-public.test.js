@@ -34,3 +34,17 @@ test("token page: the team-wallet proof says how many are listed, from the offic
   const src = readFileSync(new URL("../src/official.js", import.meta.url), "utf8");
   assert.match(src, /teamWallets: \[/, "the list the page counts is the one the checker uses");
 });
+
+/* ---------------- launchpad: which snapshot is "the" snapshot ---------------- */
+
+test("launchpad: the admin console's one-click test snapshot (root 'admin-manual', no holders) is never shown as the Founding Supporter list", () => {
+  const js = read("launchpad.js");
+  assert.match(js, /\.find\(\(s\) => s\.status !== "cancelled" && s\.merkleRoot !== "admin-manual" && s\.holders > 0\)/);
+  // the admin route really does write that marker, so the filter matches reality
+  const admin = readFileSync(new URL("../src/admin.js", import.meta.url), "utf8");
+  assert.match(admin, /'admin-manual'/);
+  // and the public answer carries the two fields the filter reads
+  const snap = readFileSync(new URL("../src/snapshot.js", import.meta.url), "utf8");
+  assert.match(snap, /holders: s\.holders/);
+  assert.match(snap, /merkleRoot: s\.merkle_root/);
+});
