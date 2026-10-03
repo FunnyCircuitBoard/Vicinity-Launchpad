@@ -6,15 +6,18 @@
  *   - signed in, with a home community, to read or post; after launch, only holders can post and vote
  *   - 12 posts an hour at most; one check-in a day, and only from inside your community (a location attestation)
  *   - no contract addresses in posts (the only real one is on the Token page): stops fake-token scams
- *   - votes: 1 for everyone, 2 for city founders, 3 for country managers; "top" = this week (from Monday, UTC)
+ *   - votes: 1 for everyone, 2 for city founders, 3 for country managers; "top" = this week (from Monday, UTC);
+ *     60 votes an hour, on posts only (not on replies), and not while banned
+ *   - replies are one level deep and never on a check-in
  *   - 3 reports confirm a moderator's hide; 5 reports hide a post until a moderator reviews it
  */
 import { json, readJson } from "./http.js";
 import { access } from "./access.js";
 import { useAttestation, countRecent, noteEvent } from "./attest.js";
 import { activeBan, canModerate, managerOf, powersOf } from "./roles.js";
-import { ensureSchema } from "./store.js";
-import { DAY, POLICY, iso } from "./policy.js";
+import { ensureLimitsSchema, ensureSchema } from "./store.js";
+import { check, limitKey } from "./limits.js";
+import { DAY, HOUR, POLICY, iso } from "./policy.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
 import { toBytes } from "./blobs.js";
 
@@ -23,6 +26,7 @@ const KINDS = ["meme", "checkin", "talk"];
 const LIMITS = { meme: 280, checkin: 140, talk: 1000, reply: 500 };
 const MAX_IMAGE = 200_000;
 const POSTS_PER_HOUR = 12;
+const VOTES_PER_HOUR = 60;
 
 /** Monday 00:00 UTC of this week: weekly votes start here. */
 export function weekStart(now = Date.now()) {
@@ -140,6 +144,7 @@ export async function handleNewPost(request, env, fetchImpl = fetch, now = Date.
   if (body.parent != null) {
     parent = await db.prepare("SELECT * FROM posts WHERE id = ? AND parent_id IS NULL AND hidden = 0").bind(Number(body.parent) || 0).first();
     if (!parent || !sees(u, parent, pw)) return json({ ok: false, error: "not_found" }, 404);
+    if (parent.kind === "checkin") return json({ ok: false, error: "no_checkin_replies" }, 400); // a check-in is a fact, not a thread
   }
   const kind = parent ? "reply" : KINDS.includes(body.kind) ? body.kind : null;
   if (!kind) return json({ ok: false, error: "bad_kind" }, 400);
@@ -193,8 +198,15 @@ export async function handleVote(request, env, fetchImpl = fetch, now = Date.now
   if (r.error) return r.error;
   const { u, post, pw } = r, db = env.DB;
   if (post.hidden) return json({ ok: false, error: "not_found" }, 404);
+  if (post.parent_id) return json({ ok: false, error: "no_reply_votes" }, 400); // the weekly board ranks posts, not replies
   if (post.user_id === u.id) return json({ ok: false, error: "own_post" }, 400);
+  if (await activeBan(db, u.id, post.country, now)) return json({ ok: false, error: "banned" }, 403);
   if (pw.launched && !pw.holder && !pw.admin) return json({ ok: false, error: "holders_only" }, 403);
+  // 60 an hour, counted by one atomic statement before anything is written (src/limits.js), so a flood of parallel
+  // votes cannot all read "59 so far" and pass. Taking a vote back counts too.
+  await ensureLimitsSchema(db);
+  const rate = await check(env, [{ key: await limitKey(env, "vote", String(u.id)), windowMs: HOUR, max: VOTES_PER_HOUR }], now);
+  if (!rate.ok) return json({ ok: false, error: "slow_down" }, 429);
   const had = await db.prepare("SELECT weight FROM votes WHERE post_id = ? AND user_id = ?").bind(post.id, u.id).first();
   if (had) {
     await db.batch([
@@ -225,8 +237,11 @@ export async function handleReport(request, env, fetchImpl = fetch, now = Date.n
   const ins = await db.prepare("INSERT OR IGNORE INTO reports (post_id, user_id, reason, created_at) VALUES (?, ?, ?, ?)").bind(post.id, u.id, reason, iso(now)).run();
   if (!ins.meta.changes) return json({ ok: true });
   await noteEvent(env, u.id, "report", now);
-  const n = post.reports + 1;
-  const stmts = [db.prepare("UPDATE posts SET reports = ? WHERE id = ?").bind(n, post.id)];
+  // The counter is the number of report rows, set in one statement: two first reports at the same moment both land
+  // (neither writes a stale "0 + 1"), and the number moderators see is always the number of people who reported.
+  const counted = await db.prepare("UPDATE posts SET reports = (SELECT COUNT(*) FROM reports WHERE post_id = ?) WHERE id = ? RETURNING reports").bind(post.id, post.id).first();
+  const n = counted ? Number(counted.reports) : post.reports + 1;
+  const stmts = [];
   const log = (action, state) => db.prepare(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, created_at, state)
     VALUES (NULL, 'community', ?, 'post', ?, ?, ?, ?, 'reports', ?, ?)`).bind(action, post.id, post.user_id, post.country, post.place, iso(now), state);
   const pending = await db.prepare("SELECT id FROM mod_actions WHERE target_type = 'post' AND target_id = ? AND action = 'hide' AND state = 'pending'").bind(post.id).first();
@@ -238,7 +253,7 @@ export async function handleReport(request, env, fetchImpl = fetch, now = Date.n
     stmts.push(db.prepare("UPDATE posts SET hidden = 1, hide_confirmed = 1, hidden_until = NULL WHERE id = ?").bind(post.id));
     stmts.push(log("hide", "confirmed"));
   }
-  await db.batch(stmts);
+  if (stmts.length) await db.batch(stmts);
   return json({ ok: true });
 }
 
