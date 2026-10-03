@@ -15,6 +15,7 @@
  *   balance_samples, streaks, blobs → balance history for fair eligibility (src/ledger.js)
  *   snapshots    → Founding Supporter lists (src/snapshot.js)
  *   town_requests → "add my town": the nearest community, never coordinates
+ *   follows, blocks, profile_reports, users.bio → member profiles (only while PROFILES=on, see PROFILES_MIGRATION below)
  *   claims, added_cities, requests → the first version (no longer written)
  * Locations of visitors are never saved. Wallets that only "verify" or look up a rank are never saved.
  *
