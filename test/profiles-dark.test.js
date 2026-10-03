@@ -3,7 +3,7 @@
 // not one new statement or object ever reaches the database. With the switch on, a failure of the new tables breaks only the new routes.
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { IN_NYC, IN_UTICA, MINT, ORIGIN, V2, browser, loginBody, newWorld, person, realClock, reprove, setHolding, tick, useClock, wallet } from "./helpers/world.js";
+import { IN_NYC, IN_UTICA, MINT, ORIGIN, V2, browser, clock, loginBody, newWorld, person, realClock, reprove, setHolding, tick, useClock, wallet } from "./helpers/world.js";
 import { PF, brokenProfilesDb, pfPerson, schemaOf, spyDb } from "./helpers/profiles.js";
 import { PROFILES_MIGRATION, MIGRATIONS, ensureProfilesSchema, ensureSignupSchema } from "../src/store.js";
 import { d1 } from "./helpers/d1.js";
@@ -246,4 +246,19 @@ test("sanity: the holder and chain helpers used by the other profile tests are w
   assert.ok(a.handle);
   setHolding(a.w.address, 7);
   assert.equal((await a.get("/api/me?lite=1")).user.handle, "Alice77");
+});
+
+test("switch on, sign-up off: the 10-minute job still clears old attempt counters (the sign-up table it also tidies does not exist)", async () => {
+  const env = PF();
+  const a = await pfPerson(env, "Alice77", { home: IN_UTICA });
+  await a.post("/api/me/bio", { bio: "hello" }); // makes this member's counter
+  assert.ok(!(await schemaOf(env.DB)).tables.includes("signups"), "no sign-up table in this world");
+  const old = new Date(clock.now - 3 * 86400_000).toISOString();
+  await env.DB.prepare("INSERT INTO auth_limits (key, n, window_start) VALUES ('pf-bio:stale', 3, ?)").bind(old).run();
+  assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM auth_limits").first()).n, 2);
+  const out = await tick(env, { sample: false });
+  assert.deepEqual(out.cleanup, { ok: true });
+  const left = (await env.DB.prepare("SELECT key FROM auth_limits").all()).results.map((r) => r.key);
+  assert.equal(left.length, 1, "the stale one is gone, today's counter stays: " + left);
+  assert.ok(!left.includes("pf-bio:stale"));
 });
