@@ -67,6 +67,12 @@ test("buttons inside the panels wrap long labels (no horizontal scroll at 390px 
   assert.match(flip.body, /width:\s*44px; height:\s*44px/); assert.ok(flip.selectors.includes(".dv2 .post__vote button"), "the vote arrow too");
   const tiny = list.find((x) => x.selectors.includes(".dv2 .link-btn--tiny"));
   assert.match(tiny.body, /padding:\s*15px 10px; margin:\s*-15px -10px/, "the tiny links grow their hit area without moving the pass's row");
+  // the coin studio's six colour swatches: the label is the control (its radio is hidden) and measured 34 x 34px, the one target left
+  // under 44px in the panels; inside them the label grows to 44px around the same 34px circle
+  const sw = list.find((x) => x.selectors.includes(".dv2 .swatches label"));
+  assert.ok(sw, "the .dv2 .swatches label rule");
+  assert.match(sw.body, /display:\s*grid/); assert.match(sw.body, /min-width:\s*44px; min-height:\s*44px/);
+  assert.match(css, /^\.swatch \{ display: block; width: 34px; height: 34px;/m, "the circle itself keeps its size (flag-off unchanged)");
 });
 
 test("the sticky strip and the router agree on the header height, and the deep-link highlight exists", () => {

@@ -1400,6 +1400,10 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .dv2 .swapbox__flip, .dv2 .post__vote button { width: 44px; height: 44px; }
 .dv2 .swapbox__amt, .dv2 .field, .dv2 .req-form input { min-height: 44px; }
 .dv2 .coin-launch summary { padding: 10px 0; }
+/* the coin studio's six colour swatches: the label is the control (its radio is hidden) and measured 34 x 34px, the one target left under
+   44px in the panels; the label grows to 44px around the same 34px circle, and the row's gap goes, so the circles sit 10px apart as before */
+.dv2 .swatches { gap: 0; }
+.dv2 .swatches label { display: grid; place-items: center; min-width: 44px; min-height: 44px; }
 
 /* Today: two to four next-step cards; a grid on desktop, one swipeable row on phones */
 .dv2 .today { display: grid; gap: 8px; }
