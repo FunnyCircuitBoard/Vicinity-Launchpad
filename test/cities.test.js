@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import { handleApi } from "../src/index.js";
 import { _resetCityCache, distanceKm, normName } from "../src/cities.js";
 import { networkCheck } from "../src/network.js";
@@ -86,4 +87,40 @@ test("city coin tickers are unique for every listed city, and same names are res
   assert.equal(of("London", "CA"), "LONDONCA");  // the other adds its country
   assert.equal(of("New York City", "US"), "NYC");
   assert.equal(globalThis.vicinityTicker.baseTicker("Łódź"), "LODZ");
+});
+
+test("map: a selected city shows the founder minimum: the Stake Ladder from /api/policy, or the bar a seat or window was opened under", async () => {
+  const js = readFileSync(new URL("../public/cities.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  // the page's ladder helper gives the server's founderAmount, number for number
+  const start = js.indexOf("  let ladder = "), end = js.indexOf("\n", js.indexOf("  const short = "));
+  assert.ok(start > 0 && end > start, "the ladder helpers sit together near the top of cities.js");
+  const h = vm.runInNewContext(`${js.slice(start, end)}\n({ ladder, ladderAmount, founderMin, short })`, {});
+  const founderMin = (...a) => ({ ...h.founderMin(...a) }); // plain objects: the vm context has its own Object.prototype
+  assert.deepEqual({ ...h.ladder }, POLICY.founder.ladder, "the published fallback is the policy's ladder");
+  for (const pop of [1_000, 10_000, 80_000, 10_000_000, 61_100, 144_000, 8_800_000, 0]) assert.equal(h.ladderAmount(pop, POLICY.founder.ladder), founderAmount(pop), `${pop} people`);
+  // a seat keeps the bar it was claimed under (when the API gives it), an open window shows the bar it opened with, otherwise the ladder
+  const utica = { pop: 61_100 };
+  assert.deepEqual(founderMin(utica, null, undefined), { amount: 180_000, seat: false });
+  assert.deepEqual(founderMin(utica, { status: "active", threshold: 170_000 }, undefined), { amount: 170_000, seat: true });
+  assert.deepEqual(founderMin(utica, { status: "active" }, undefined), { amount: 180_000, seat: false }, "a seat without a threshold falls back to the ladder");
+  assert.deepEqual(founderMin(utica, null, { applicants: 2, threshold: 190_000 }), { amount: 190_000, seat: false });
+  assert.ok(js.includes("status: s.status, founder: s.founder, threshold: s.threshold }));"), "the seat view keeps the threshold /api/seats may carry, so the seat path can fire");
+  assert.equal(h.short(180_000), "180K"); assert.equal(h.short(950_000), "950K"); assert.equal(h.short(1_000_000), "1M");
+  // the panel line (after "Holders: N") and the tooltip suffix (after the status + ticker, both unchanged)
+  assert.ok(js.includes("`Founder minimum: ${fmt(fm.amount)} $VICINITY · held ${qualifyingDays} days${fm.seat ? \" (the seat's bar)\" : \"\"}`"), "panel line");
+  assert.ok(js.indexOf("Founder minimum:") > js.indexOf("`Holders: ${fmt(holderCount.get(selected.id) || 0)}`"), "below the Holders line");
+  assert.ok(js.includes("el(\"span\", \"tip-ticker\", tk ? `  $${tk.ticker}` : \"\"),\n      el(\"span\", \"tip-area\", ` · min ${short(founderMin(c, cl, windows.get(c.id)).amount)}`)"), "tooltip suffix after the ticker");
+  assert.ok(js.includes(": windows.has(c.id) ? `Choosing its founder: ${windows.get(c.id).applicants} applying` : \"Open\")"), "the status strings are unchanged");
+  // the numbers come from /api/policy once per page load (never per city), and that route exposes them
+  assert.equal((js.match(/fetch\("\/api\/policy"\)/g) || []).length, 1);
+  assert.ok(js.includes("if (L && [\"base\", \"max\", \"refPop\", \"rung\"].every((key) => Number.isFinite(L[key]) && L[key] > 0)) ladder = "), "only sane numbers replace the published ones");
+  const r = await (await handleApi(new Request("https://vicinity.test/api/policy"))).json();
+  assert.deepEqual(r.policy.founder.ladder, POLICY.founder.ladder);
+  assert.equal(r.policy.founder.qualifyingDays, 7);
+  // the page builds its DOM with createElement/textContent and talks only to this site (the one outside link is unchanged)
+  assert.ok(!js.includes("innerHTML"));
+  assert.deepEqual([...new Set(js.match(/https?:\/\/[^/"'`\s)]+/g))], ["https://solscan.io"], "no new hosts");
+  // the legend says what a selected boundary shows
+  const html = readFileSync(new URL("../public/cities.html", import.meta.url), "utf8");
+  assert.match(html, /<span>Select a city: its City Founder, holders and founder minimum \(the \$VICINITY to hold for 7 days\)<\/span>/);
 });
