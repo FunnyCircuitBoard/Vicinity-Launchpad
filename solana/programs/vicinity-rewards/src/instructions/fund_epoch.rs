@@ -8,6 +8,10 @@
 //! for holders. `snapshot_slot` and `snapshot_hash` let anyone recompute the
 //! root from the published snapshot file and catch a wrong root; `cancel_epoch`
 //! exists for that case (while nothing has been claimed).
+//!
+//! The checks and the bookkeeping are shared with `fund_epoch_from_vault`
+//! (`plan_epoch` / `record_epoch` below); the two instructions differ only in
+//! where the money comes from and who signs the transfers.
 
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
@@ -74,7 +78,7 @@ pub struct FundEpoch<'info> {
     /// The founder's associated token account for `reward_mint`. The ATA
     /// derivation binds it to (founder, reward_mint, token_program), so a token
     /// account of someone else or of another mint is rejected. This is one of
-    /// the two places `init_if_needed` is used: the recipient may not have an
+    /// the places `init_if_needed` is used: the recipient may not have an
     /// account yet and creating it must not be a reason a payout fails.
     #[account(
         init_if_needed,
@@ -101,20 +105,39 @@ pub struct FundEpoch<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handle_fund_epoch(
-    ctx: Context<FundEpoch>,
-    amount: u64,
-    merkle_root: [u8; 32],
-    num_leaves: u32,
-    snapshot_slot: u64,
-    snapshot_hash: [u8; 32],
-    claim_window_secs: i64,
-) -> Result<()> {
-    // ---- checks (read only) ---------------------------------------------
-    let config = &ctx.accounts.config;
+/// The write-once inputs of an epoch, as passed by the caller.
+pub struct EpochInputs {
+    pub merkle_root: [u8; 32],
+    pub num_leaves: u32,
+    pub snapshot_slot: u64,
+    pub snapshot_hash: [u8; 32],
+    pub claim_window_secs: i64,
+}
+
+/// Everything `plan_epoch` computed; `record_epoch` writes it. Nothing in
+/// between may fail silently, so the numbers are carried instead of recomputed.
+pub struct EpochPlan {
+    pub amount: u64,
+    pub founder_amount: u64,
+    pub holders_deposit: u64,
+    pub carry_in: u64,
+    pub holders_amount: u64,
+    pub index: u64,
+    pub next_epoch_count: u64,
+    pub total_funded: u64,
+    pub total_to_founder: u64,
+    pub total_to_holders: u64,
+    pub now: i64,
+    pub claim_deadline: i64,
+}
+
+/// All checks of spec section 4.6, in order, with no side effect. `amount` is
+/// the money entering the distribution (a funder's deposit or the vault's
+/// unaccounted surplus).
+pub fn plan_epoch(config: &CityConfig, amount: u64, inputs: &EpochInputs) -> Result<EpochPlan> {
     require!(!config.paused, RewardsError::Paused);
     require!(
-        (MIN_CLAIM_WINDOW_SECS..=MAX_CLAIM_WINDOW_SECS).contains(&claim_window_secs),
+        (MIN_CLAIM_WINDOW_SECS..=MAX_CLAIM_WINDOW_SECS).contains(&inputs.claim_window_secs),
         RewardsError::ClaimWindowOutOfRange
     );
     require!(
@@ -137,19 +160,28 @@ pub fn handle_fund_epoch(
                 RewardsError::CreatorModelHasHolderFunds
             );
             require!(
-                num_leaves == 0 && merkle_root == ZERO_HASH,
+                inputs.num_leaves == 0 && inputs.merkle_root == ZERO_HASH,
                 RewardsError::CreatorModelHasTree
             );
         }
         RewardModel::Holders | RewardModel::Split => {
-            require!(merkle_root != ZERO_HASH, RewardsError::MissingMerkleRoot);
-            require!(num_leaves > 0, RewardsError::MissingLeaves);
+            require!(
+                inputs.merkle_root != ZERO_HASH,
+                RewardsError::MissingMerkleRoot
+            );
+            require!(inputs.num_leaves > 0, RewardsError::MissingLeaves);
+            // PRODUCT DECISION (recommended): a root without a published
+            // snapshot cannot be checked by anyone, so it is refused.
+            require!(
+                inputs.snapshot_hash != ZERO_HASH,
+                RewardsError::MissingSnapshotHash
+            );
         }
     }
 
     let now = Clock::get()?.unix_timestamp;
     let claim_deadline = now
-        .checked_add(claim_window_secs)
+        .checked_add(inputs.claim_window_secs)
         .ok_or(RewardsError::MathOverflow)?;
 
     let index = config.epoch_count;
@@ -166,11 +198,103 @@ pub fn handle_fund_epoch(
         .total_to_holders
         .checked_add(holders_deposit)
         .ok_or(RewardsError::MathOverflow)?;
+
+    Ok(EpochPlan {
+        amount,
+        founder_amount,
+        holders_deposit,
+        carry_in,
+        holders_amount,
+        index,
+        next_epoch_count,
+        total_funded,
+        total_to_founder,
+        total_to_holders,
+        now,
+        claim_deadline,
+    })
+}
+
+/// Writes the epoch, updates the config totals, locks the config and emits
+/// `EpochFunded`. Called after the transfers succeeded.
+pub fn record_epoch(
+    config: &mut Account<CityConfig>,
+    epoch: &mut Account<Epoch>,
+    epoch_bump: u8,
+    plan: &EpochPlan,
+    inputs: &EpochInputs,
+    from_vault: bool,
+) -> Result<()> {
     let config_key = config.key();
+
+    epoch.config = config_key;
+    epoch.index = plan.index;
+    epoch.merkle_root = inputs.merkle_root;
+    epoch.deposit_amount = plan.amount;
+    epoch.founder_amount = plan.founder_amount;
+    epoch.holders_amount = plan.holders_amount;
+    epoch.claimed_amount = 0;
+    epoch.num_leaves = inputs.num_leaves;
+    epoch.snapshot_slot = inputs.snapshot_slot;
+    epoch.snapshot_hash = inputs.snapshot_hash;
+    epoch.funded_at = plan.now;
+    epoch.claim_deadline = plan.claim_deadline;
+    // Funding while paused is refused, so no pause is running here.
+    epoch.pause_secs_at_funding = config.paused_total_secs;
+    epoch.state = EpochState::Open;
+    epoch.bump = epoch_bump;
+    let epoch_key = epoch.key();
+
+    config.epoch_count = plan.next_epoch_count;
+    config.carry_over = 0;
+    // Money has moved under this model and split: they are permanent now.
+    config.locked = true;
+    config.total_funded = plan.total_funded;
+    config.total_to_founder = plan.total_to_founder;
+    config.total_to_holders = plan.total_to_holders;
+
+    emit!(EpochFunded {
+        config: config_key,
+        epoch: epoch_key,
+        index: plan.index,
+        from_vault,
+        deposit_amount: plan.amount,
+        founder_amount: plan.founder_amount,
+        holders_deposit: plan.holders_deposit,
+        carry_in: plan.carry_in,
+        holders_amount: plan.holders_amount,
+        num_leaves: inputs.num_leaves,
+        merkle_root: inputs.merkle_root,
+        snapshot_slot: inputs.snapshot_slot,
+        snapshot_hash: inputs.snapshot_hash,
+        funded_at: plan.now,
+        claim_deadline: plan.claim_deadline,
+    });
+    Ok(())
+}
+
+pub fn handle_fund_epoch(
+    ctx: Context<FundEpoch>,
+    amount: u64,
+    merkle_root: [u8; 32],
+    num_leaves: u32,
+    snapshot_slot: u64,
+    snapshot_hash: [u8; 32],
+    claim_window_secs: i64,
+) -> Result<()> {
+    let inputs = EpochInputs {
+        merkle_root,
+        num_leaves,
+        snapshot_slot,
+        snapshot_hash,
+        claim_window_secs,
+    };
+    // ---- checks (read only) ---------------------------------------------
+    let plan = plan_epoch(&ctx.accounts.config, amount, &inputs)?;
     let decimals = ctx.accounts.reward_mint.decimals;
 
     // ---- transfers (funder signs both) ----------------------------------
-    if founder_amount > 0 {
+    if plan.founder_amount > 0 {
         token_interface::transfer_checked(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
@@ -181,11 +305,11 @@ pub fn handle_fund_epoch(
                     authority: ctx.accounts.funder.to_account_info(),
                 },
             ),
-            founder_amount,
+            plan.founder_amount,
             decimals,
         )?;
     }
-    if holders_deposit > 0 {
+    if plan.holders_deposit > 0 {
         token_interface::transfer_checked(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
@@ -196,53 +320,18 @@ pub fn handle_fund_epoch(
                     authority: ctx.accounts.funder.to_account_info(),
                 },
             ),
-            holders_deposit,
+            plan.holders_deposit,
             decimals,
         )?;
     }
 
     // ---- state ----------------------------------------------------------
-    let epoch = &mut ctx.accounts.epoch;
-    epoch.config = config_key;
-    epoch.index = index;
-    epoch.merkle_root = merkle_root;
-    epoch.deposit_amount = amount;
-    epoch.founder_amount = founder_amount;
-    epoch.holders_amount = holders_amount;
-    epoch.claimed_amount = 0;
-    epoch.num_leaves = num_leaves;
-    epoch.snapshot_slot = snapshot_slot;
-    epoch.snapshot_hash = snapshot_hash;
-    epoch.funded_at = now;
-    epoch.claim_deadline = claim_deadline;
-    epoch.state = EpochState::Open;
-    epoch.bump = ctx.bumps.epoch;
-    let epoch_key = epoch.key();
-
-    let config = &mut ctx.accounts.config;
-    config.epoch_count = next_epoch_count;
-    config.carry_over = 0;
-    // Money has moved under this model and split: they are permanent now.
-    config.locked = true;
-    config.total_funded = total_funded;
-    config.total_to_founder = total_to_founder;
-    config.total_to_holders = total_to_holders;
-
-    emit!(EpochFunded {
-        config: config_key,
-        epoch: epoch_key,
-        index,
-        deposit_amount: amount,
-        founder_amount,
-        holders_deposit,
-        carry_in,
-        holders_amount,
-        num_leaves,
-        merkle_root,
-        snapshot_slot,
-        snapshot_hash,
-        funded_at: now,
-        claim_deadline,
-    });
-    Ok(())
+    record_epoch(
+        &mut ctx.accounts.config,
+        &mut ctx.accounts.epoch,
+        ctx.bumps.epoch,
+        &plan,
+        &inputs,
+        false,
+    )
 }

@@ -43,7 +43,23 @@ declare_id!("Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi");
 pub mod vicinity_rewards {
     use super::*;
 
-    /// Create the config and the vault for one city coin.
+    /// One-time: create the registry that names who may create city configs.
+    /// Only the program's upgrade authority can call it.
+    pub fn init_registry(ctx: Context<InitRegistry>) -> Result<()> {
+        instructions::init_registry::handle_init_registry(ctx)
+    }
+
+    /// Step one of the registry admin transfer (zero address cancels).
+    pub fn propose_admin(ctx: Context<ProposeAdmin>, new_admin: Pubkey) -> Result<()> {
+        instructions::propose_admin::handle_propose_admin(ctx, new_admin)
+    }
+
+    /// Step two of the registry admin transfer, signed by the proposed key.
+    pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
+        instructions::accept_admin::handle_accept_admin(ctx)
+    }
+
+    /// Create the config and the vault for one city coin (registry admin only).
     pub fn init_city(
         ctx: Context<InitCity>,
         reward_model: RewardModel,
@@ -97,6 +113,28 @@ pub mod vicinity_rewards {
         instructions::fund_epoch::handle_fund_epoch(
             ctx,
             amount,
+            merkle_root,
+            num_leaves,
+            snapshot_slot,
+            snapshot_hash,
+            claim_window_secs,
+        )
+    }
+
+    /// Like `fund_epoch`, but the money is what already sits in the vault
+    /// unbooked (fee wallets pointed at the vault, direct transfers). The
+    /// founder share leaves the vault to the founder's ATA; the rest is booked
+    /// as the holders' deposit.
+    pub fn fund_epoch_from_vault(
+        ctx: Context<FundEpochFromVault>,
+        merkle_root: [u8; 32],
+        num_leaves: u32,
+        snapshot_slot: u64,
+        snapshot_hash: [u8; 32],
+        claim_window_secs: i64,
+    ) -> Result<()> {
+        instructions::fund_epoch_from_vault::handle_fund_epoch_from_vault(
+            ctx,
             merkle_root,
             num_leaves,
             snapshot_slot,

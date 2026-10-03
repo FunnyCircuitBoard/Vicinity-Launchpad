@@ -6,6 +6,28 @@ use anchor_lang::prelude::*;
 use crate::state::RewardModel;
 
 #[event]
+pub struct RegistryInitialized {
+    pub registry: Pubkey,
+    pub admin: Pubkey,
+    pub upgrade_authority: Pubkey,
+}
+
+#[event]
+pub struct AdminProposed {
+    pub registry: Pubkey,
+    pub admin: Pubkey,
+    /// Zero address means a pending transfer was cancelled.
+    pub pending_admin: Pubkey,
+}
+
+#[event]
+pub struct AdminAccepted {
+    pub registry: Pubkey,
+    pub old_admin: Pubkey,
+    pub new_admin: Pubkey,
+}
+
+#[event]
 pub struct CityInitialized {
     pub config: Pubkey,
     pub city_coin_mint: Pubkey,
@@ -49,6 +71,8 @@ pub struct AuthorityAccepted {
 pub struct PauseChanged {
     pub config: Pubkey,
     pub paused: bool,
+    /// Completed pause seconds so far (grows at every unpause).
+    pub paused_total_secs: i64,
 }
 
 #[event]
@@ -56,6 +80,9 @@ pub struct EpochFunded {
     pub config: Pubkey,
     pub epoch: Pubkey,
     pub index: u64,
+    /// True when the money came from the vault's unaccounted balance
+    /// (`fund_epoch_from_vault`), false when a funder deposited it (`fund_epoch`).
+    pub from_vault: bool,
     pub deposit_amount: u64,
     pub founder_amount: u64,
     pub holders_deposit: u64,

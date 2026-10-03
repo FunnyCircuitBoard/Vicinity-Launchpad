@@ -27,6 +27,19 @@ pub struct SetFounder<'info> {
 
 pub fn handle_set_founder(ctx: Context<SetFounder>, new_founder: Pubkey) -> Result<()> {
     require_keys_neq!(new_founder, Pubkey::default(), RewardsError::InvalidFounder);
+    // The founder share is paid to the founder's associated token account. If
+    // the founder were the config PDA or the vault, that account would be owned
+    // by a key no instruction ever signs for and the money would be lost.
+    require_keys_neq!(
+        new_founder,
+        ctx.accounts.config.key(),
+        RewardsError::FounderIsProgramAccount
+    );
+    require_keys_neq!(
+        new_founder,
+        ctx.accounts.config.vault,
+        RewardsError::FounderIsProgramAccount
+    );
     let config = &mut ctx.accounts.config;
     let old_founder = config.founder;
     config.founder = new_founder;

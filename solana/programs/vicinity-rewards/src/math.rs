@@ -52,6 +52,44 @@ pub fn validate_model_bps(model: RewardModel, founder_bps: u16) -> Result<()> {
     Ok(())
 }
 
+/// The deadline a claim is measured against: the nominal `claim_deadline`
+/// plus every second the city was paused since the epoch was funded.
+///
+/// `completed_pause_secs` is `config.paused_total_secs - epoch.pause_secs_at_funding`
+/// (pauses that began and ended after funding); while the city is paused the
+/// running pause (`now - paused_at`) counts as well. So a pause never shortens
+/// a claim window, and `sweep_epoch` (which needs `now > effective deadline`)
+/// cannot be reached by pausing and waiting: while paused the distance between
+/// `now` and the effective deadline does not change.
+pub fn effective_deadline(
+    claim_deadline: i64,
+    pause_secs_at_funding: i64,
+    paused_total_secs: i64,
+    paused: bool,
+    paused_at: i64,
+    now: i64,
+) -> Result<i64> {
+    let completed = paused_total_secs
+        .checked_sub(pause_secs_at_funding)
+        .ok_or(RewardsError::MathOverflow)?;
+    // Never negative: paused_total_secs only grows after an epoch is funded.
+    require!(completed >= 0, RewardsError::MathOverflow);
+    let running = if paused {
+        let r = now
+            .checked_sub(paused_at)
+            .ok_or(RewardsError::MathOverflow)?;
+        // A clock that moved backwards must not shorten the window.
+        r.max(0)
+    } else {
+        0
+    };
+    claim_deadline
+        .checked_add(completed)
+        .ok_or(RewardsError::MathOverflow)?
+        .checked_add(running)
+        .ok_or(RewardsError::MathOverflow.into())
+}
+
 /// `city_tag` is informational, but it is stored forever, so it must be clean:
 /// printable ASCII (0x20..=0x7e), then zero padding, nothing after the padding.
 pub fn validate_city_tag(tag: &[u8; CITY_TAG_LEN]) -> Result<()> {
@@ -161,6 +199,60 @@ mod tests {
         assert!(validate_model_bps(RewardModel::Split, 10_000).is_err());
         assert!(validate_model_bps(RewardModel::Split, 5_001).is_err());
         assert!(validate_model_bps(RewardModel::Split, 1).is_err());
+    }
+
+    #[test]
+    fn deadline_is_nominal_without_pauses() {
+        assert_eq!(
+            effective_deadline(1_000, 0, 0, false, 0, 500).unwrap(),
+            1_000
+        );
+        // pauses that ended before funding do not count
+        assert_eq!(
+            effective_deadline(1_000, 300, 300, false, 0, 500).unwrap(),
+            1_000
+        );
+    }
+
+    #[test]
+    fn completed_pauses_after_funding_extend_the_deadline() {
+        // funded when 300 s of pauses had accrued; 120 more s were paused since
+        assert_eq!(
+            effective_deadline(1_000, 300, 420, false, 0, 900).unwrap(),
+            1_120
+        );
+    }
+
+    #[test]
+    fn a_running_pause_extends_the_deadline_with_the_clock() {
+        // paused at 900, now 1_050: 150 s running, so the deadline is 1_150 > now
+        assert_eq!(
+            effective_deadline(1_000, 0, 0, true, 900, 1_050).unwrap(),
+            1_150
+        );
+        // the gap "now - deadline" is constant while paused: sweep cannot become
+        // possible by waiting
+        for now in [901, 1_000, 5_000, 1_000_000] {
+            let d = effective_deadline(1_000, 0, 0, true, 900, now).unwrap();
+            assert_eq!(d - now, 1_000 - 900);
+        }
+        // if the deadline had already passed when the pause began, sweep is still allowed
+        let d = effective_deadline(1_000, 0, 0, true, 1_200, 1_300).unwrap();
+        assert!(1_300 > d);
+    }
+
+    #[test]
+    fn clock_going_backwards_cannot_shorten_the_window() {
+        assert_eq!(
+            effective_deadline(1_000, 0, 0, true, 900, 800).unwrap(),
+            1_000
+        );
+    }
+
+    #[test]
+    fn inconsistent_pause_accounting_is_an_error_not_a_shorter_window() {
+        assert!(effective_deadline(1_000, 500, 400, false, 0, 0).is_err());
+        assert!(effective_deadline(i64::MAX, 0, 1, false, 0, 0).is_err());
     }
 
     fn tag(s: &str) -> [u8; CITY_TAG_LEN] {

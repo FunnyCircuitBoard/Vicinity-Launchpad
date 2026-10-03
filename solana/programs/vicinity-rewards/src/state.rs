@@ -23,6 +23,24 @@ pub enum EpochState {
     Swept,
 }
 
+/// One per program. Seeds: `["registry"]`.
+///
+/// Says who may create city configs. Without it `init_city` would be
+/// permissionless per mint and the first caller would own the `["city", mint]`
+/// PDA of a coin forever (there is no close instruction), so a bot could squat
+/// every new city coin. `init_registry` can only be called by the program's
+/// upgrade authority, once; afterwards the admin moves with a two-step transfer
+/// like the city authority.
+#[account]
+#[derive(InitSpace)]
+pub struct Registry {
+    /// The only key that may sign `init_city` (recommended: a Squads multisig).
+    pub admin: Pubkey,
+    /// Second step of an admin transfer. Zero address = nothing pending.
+    pub pending_admin: Pubkey,
+    pub bump: u8,
+}
+
 /// One per city coin. Seeds: `["city", city_coin_mint]`.
 #[account]
 #[derive(InitSpace)]
@@ -49,9 +67,19 @@ pub struct CityConfig {
     /// economics (model, bps, mints, vault) can never change: no instruction
     /// writes them.
     pub locked: bool,
-    /// Blocks `fund_epoch` and `claim`. Sweep and cancel keep working so a
-    /// paused city can still be wound down.
+    /// Blocks `fund_epoch`, `fund_epoch_from_vault` and `claim`. Cancel keeps
+    /// working so a paused city can still be wound down; sweep works only once
+    /// the pause-extended deadline has passed (see `paused_total_secs`).
     pub paused: bool,
+    /// Unix time the current pause began. 0 when not paused.
+    pub paused_at: i64,
+    /// Total seconds this city has spent paused (completed pauses only; the
+    /// running pause is added at `unpause`). Every epoch records this value
+    /// when it is funded; a claim deadline is extended by the pause time
+    /// accrued since then, so a pause can never eat into a claim window and
+    /// the authority cannot use pause + sweep to take back money a published
+    /// root promised to holders.
+    pub paused_total_secs: i64,
     /// Index of the next epoch.
     pub epoch_count: u64,
     /// Unclaimed holder money from swept or cancelled epochs, rolled into the
@@ -99,8 +127,13 @@ pub struct Epoch {
     /// SHA-256 of the published snapshot file, so anyone can recompute the root.
     pub snapshot_hash: [u8; 32],
     pub funded_at: i64,
-    /// Claims are accepted while `now <= claim_deadline`.
+    /// Nominal deadline: `funded_at + claim_window_secs`. The effective
+    /// deadline adds the pause time accrued since funding
+    /// (`math::effective_deadline`); claims are accepted while
+    /// `now <= effective deadline`, sweep only afterwards.
     pub claim_deadline: i64,
+    /// `config.paused_total_secs` when the epoch was funded.
+    pub pause_secs_at_funding: i64,
     pub state: EpochState,
     pub bump: u8,
 }

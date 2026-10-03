@@ -7,11 +7,11 @@ use anchor_spl::token_2022::spl_token_2022::extension::{
 use anchor_spl::token_2022::spl_token_2022::state::Mint as Token2022Mint;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
-use crate::constants::{CITY_SEED, CITY_TAG_LEN, VAULT_SEED};
+use crate::constants::{CITY_SEED, CITY_TAG_LEN, REGISTRY_SEED, VAULT_SEED};
 use crate::errors::RewardsError;
 use crate::events::CityInitialized;
 use crate::math::{validate_city_tag, validate_model_bps};
-use crate::state::{CityConfig, RewardModel};
+use crate::state::{CityConfig, Registry, RewardModel};
 
 #[derive(Accounts)]
 pub struct InitCity<'info> {
@@ -19,18 +19,28 @@ pub struct InitCity<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
+    /// Must be `registry.admin`. Only Vicinity can create a city's config, so
+    /// nobody can squat the `["city", mint]` PDA of a freshly created coin
+    /// (there is no close instruction; a squatted config would be permanent).
+    pub admin: Signer<'info>,
+
+    /// The one registry of this program (created by `init_registry`).
+    #[account(
+        has_one = admin @ RewardsError::Unauthorized,
+        seeds = [REGISTRY_SEED],
+        bump = registry.bump,
+    )]
+    pub registry: Account<'info, Registry>,
+
     /// Becomes `config.authority`. It must sign so that nobody can create a
-    /// config that names a key its owner never agreed to operate.
-    ///
-    /// TRUST ASSUMPTION: `init_city` is permissionless per mint (first caller
-    /// wins the PDA `["city", mint]`). Vicinity must create the config right
-    /// after the coin is created (ideally in the same transaction as the
-    /// LaunchLab create). See SECURITY.md "config squatting".
+    /// config that names a key its owner never agreed to operate. May be the
+    /// same key as `admin`.
     pub authority: Signer<'info>,
 
     /// CHECK: only the key is stored (`config.founder`). The founder's reward
     /// token account is derived from it later as an associated token account,
-    /// so any wallet or PDA works. Must not be the zero address.
+    /// so any wallet or PDA works. Must not be the zero address, the config or
+    /// the vault (money sent to their token accounts could never move again).
     pub founder: UncheckedAccount<'info>,
 
     /// The city coin. Identity of the config; this program never moves it.
@@ -81,6 +91,16 @@ pub fn handle_init_city(
         Pubkey::default(),
         RewardsError::InvalidFounder
     );
+    require_keys_neq!(
+        ctx.accounts.founder.key(),
+        ctx.accounts.config.key(),
+        RewardsError::FounderIsProgramAccount
+    );
+    require_keys_neq!(
+        ctx.accounts.founder.key(),
+        ctx.accounts.vault.key(),
+        RewardsError::FounderIsProgramAccount
+    );
     // PRODUCT DECISION (default no): rewards are not paid in the city coin.
     require_keys_neq!(
         ctx.accounts.reward_mint.key(),
@@ -100,6 +120,8 @@ pub fn handle_init_city(
     config.founder_bps = founder_bps;
     config.locked = false;
     config.paused = false;
+    config.paused_at = 0;
+    config.paused_total_secs = 0;
     config.epoch_count = 0;
     config.carry_over = 0;
     config.total_funded = 0;
@@ -125,13 +147,17 @@ pub fn handle_init_city(
 }
 
 /// The vault accounting assumes that transferring `amount` delivers exactly
-/// `amount` and that transfers can never be blocked by the mint. Classic SPL
-/// Token mints always satisfy this. For Token-2022 mints only extensions that
-/// do not touch transfer amounts or transferability are allowed; everything
+/// `amount`, that transfers can never be blocked by the mint, and that the
+/// mint account outlives the config. Classic SPL Token mints always satisfy
+/// this. For Token-2022 mints only extensions that do not touch transfer
+/// amounts, transferability or the mint's existence are allowed; everything
 /// else (transfer fee, transfer hook, permanent delegate, non-transferable,
-/// confidential transfers, default account state, and any extension this
-/// program does not know) is rejected at `init_city`, the only place the
-/// reward mint is chosen.
+/// confidential transfers, default account state, mint close authority, and
+/// any extension this program does not know) is rejected at `init_city`, the
+/// only place the reward mint is chosen. A closable mint is refused because
+/// its close authority could close it while the supply is 0 (before the first
+/// funding) and leave the config pointing at nothing, or recreate it at the
+/// same address with other extensions.
 pub fn ensure_supported_reward_mint(mint: &AccountInfo) -> Result<()> {
     if *mint.owner == anchor_spl::token::ID {
         return Ok(());
@@ -166,8 +192,7 @@ pub fn reward_mint_data_is_supported(data: &[u8]) -> Result<()> {
 fn extension_is_harmless(extension: ExtensionType) -> bool {
     matches!(
         extension,
-        ExtensionType::MintCloseAuthority
-            | ExtensionType::MetadataPointer
+        ExtensionType::MetadataPointer
             | ExtensionType::TokenMetadata
             | ExtensionType::GroupPointer
             | ExtensionType::GroupMemberPointer
@@ -182,6 +207,7 @@ mod tests {
     use super::*;
     use anchor_lang::solana_program::program_pack::Pack;
     use anchor_spl::token_2022::spl_token_2022::extension::metadata_pointer::MetadataPointer;
+    use anchor_spl::token_2022::spl_token_2022::extension::mint_close_authority::MintCloseAuthority;
     use anchor_spl::token_2022::spl_token_2022::extension::transfer_fee::TransferFeeConfig;
     use anchor_spl::token_2022::spl_token_2022::extension::{
         BaseStateWithExtensionsMut, StateWithExtensionsMut,
@@ -201,6 +227,9 @@ mod tests {
                     }
                     ExtensionType::MetadataPointer => {
                         state.init_extension::<MetadataPointer>(true).unwrap();
+                    }
+                    ExtensionType::MintCloseAuthority => {
+                        state.init_extension::<MintCloseAuthority>(true).unwrap();
                     }
                     other => panic!("test helper does not know {other:?}"),
                 }
@@ -238,6 +267,17 @@ mod tests {
     }
 
     #[test]
+    fn closable_mint_is_rejected() {
+        let data = mint_with(&[ExtensionType::MintCloseAuthority]);
+        assert!(reward_mint_data_is_supported(&data).is_err());
+        let data = mint_with(&[
+            ExtensionType::MetadataPointer,
+            ExtensionType::MintCloseAuthority,
+        ]);
+        assert!(reward_mint_data_is_supported(&data).is_err());
+    }
+
+    #[test]
     fn garbage_is_rejected() {
         assert!(reward_mint_data_is_supported(&[]).is_err());
         assert!(reward_mint_data_is_supported(&[0u8; 10]).is_err());
@@ -252,6 +292,7 @@ mod tests {
             ExtensionType::NonTransferable,
             ExtensionType::ConfidentialTransferMint,
             ExtensionType::DefaultAccountState,
+            ExtensionType::MintCloseAuthority,
         ] {
             assert!(!extension_is_harmless(ext), "{ext:?}");
         }

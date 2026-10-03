@@ -34,7 +34,10 @@ test = "npm run test"
 # The validator needs a moment before the first transaction on a loaded machine.
 startup_wait = 20000
 shutdown_wait = 2000
-upgradeable = false
+# The program is loaded through the upgradeable loader with the test wallet as
+# upgrade authority (`--upgradeable-program`), exactly like a real deploy:
+# `init_registry` is gated on the upgrade authority and the tests exercise it.
+upgradeable = true
 
 [test.validator]
 bind_address = "127.0.0.1"

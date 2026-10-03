@@ -8,6 +8,50 @@
   },
   "instructions": [
     {
+      "name": "accept_admin",
+      "docs": [
+        "Step two of the registry admin transfer, signed by the proposed key."
+      ],
+      "discriminator": [
+        112,
+        42,
+        45,
+        90,
+        116,
+        181,
+        13,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "new_admin",
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "accept_authority",
       "docs": [
         "Step two of the authority transfer, signed by the proposed key."
@@ -595,7 +639,7 @@
             "The founder's associated token account for `reward_mint`. The ATA",
             "derivation binds it to (founder, reward_mint, token_program), so a token",
             "account of someone else or of another mint is rejected. This is one of",
-            "the two places `init_if_needed` is used: the recipient may not have an",
+            "the places `init_if_needed` is used: the recipient may not have an",
             "account yet and creating it must not be a reason a payout fails."
           ],
           "writable": true,
@@ -734,9 +778,244 @@
       ]
     },
     {
+      "name": "fund_epoch_from_vault",
+      "docs": [
+        "Like `fund_epoch`, but the money is what already sits in the vault",
+        "unbooked (fee wallets pointed at the vault, direct transfers). The",
+        "founder share leaves the vault to the founder's ATA; the rest is booked",
+        "as the holders' deposit."
+      ],
+      "discriminator": [
+        67,
+        246,
+        182,
+        129,
+        176,
+        254,
+        183,
+        33
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The publisher of the root. Must be `config.authority`."
+          ],
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent of the epoch account and of the founder's token account",
+            "if it does not exist yet. May be the same key as `authority`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reward_mint",
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "Source of the founder share and home of the holders' part."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              }
+            ]
+          },
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "founder",
+          "docs": [
+            "of the associated token account below."
+          ],
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "founder_token_account",
+          "docs": [
+            "The founder's associated token account for `reward_mint` (see `fund_epoch`)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "founder"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "reward_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              },
+              {
+                "kind": "account",
+                "path": "config.epoch_count",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "merkle_root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "num_leaves",
+          "type": "u32"
+        },
+        {
+          "name": "snapshot_slot",
+          "type": "u64"
+        },
+        {
+          "name": "snapshot_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "claim_window_secs",
+          "type": "i64"
+        }
+      ]
+    },
+    {
       "name": "init_city",
       "docs": [
-        "Create the config and the vault for one city coin."
+        "Create the config and the vault for one city coin (registry admin only)."
       ],
       "discriminator": [
         178,
@@ -758,15 +1037,46 @@
           "signer": true
         },
         {
+          "name": "admin",
+          "docs": [
+            "Must be `registry.admin`. Only Vicinity can create a city's config, so",
+            "nobody can squat the `[\"city\", mint]` PDA of a freshly created coin",
+            "(there is no close instruction; a squatted config would be permanent)."
+          ],
+          "signer": true,
+          "relations": [
+            "registry"
+          ]
+        },
+        {
+          "name": "registry",
+          "docs": [
+            "The one registry of this program (created by `init_registry`)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "authority",
           "docs": [
             "Becomes `config.authority`. It must sign so that nobody can create a",
-            "config that names a key its owner never agreed to operate.",
-            "",
-            "TRUST ASSUMPTION: `init_city` is permissionless per mint (first caller",
-            "wins the PDA `[\"city\", mint]`). Vicinity must create the config right",
-            "after the coin is created (ideally in the same transaction as the",
-            "LaunchLab create). See SECURITY.md \"config squatting\"."
+            "config that names a key its owner never agreed to operate. May be the",
+            "same key as `admin`."
           ],
           "signer": true
         },
@@ -774,7 +1084,8 @@
           "name": "founder",
           "docs": [
             "token account is derived from it later as an associated token account,",
-            "so any wallet or PDA works. Must not be the zero address."
+            "so any wallet or PDA works. Must not be the zero address, the config or",
+            "the vault (money sent to their token accounts could never move again)."
           ]
         },
         {
@@ -873,6 +1184,93 @@
       ]
     },
     {
+      "name": "init_registry",
+      "docs": [
+        "One-time: create the registry that names who may create city configs.",
+        "Only the program's upgrade authority can call it."
+      ],
+      "discriminator": [
+        131,
+        22,
+        4,
+        103,
+        24,
+        94,
+        163,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent of the registry."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "upgrade_authority",
+          "docs": [
+            "Must be the program's current upgrade authority."
+          ],
+          "signer": true
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "sign because the upgrade authority vouches for it, and it is checked",
+            "against the zero address."
+          ]
+        },
+        {
+          "name": "program",
+          "docs": [
+            "This program's executable account; Anchor checks the address.",
+            "",
+            "Note on error order: Anchor runs every `init` before the other accounts'",
+            "constraints, so while the registry does not exist a wrong signer gets",
+            "`NotUpgradeAuthority`, and once it exists (the normal state) anyone,",
+            "including a wrong signer, gets the system program's \"already in use\".",
+            "Both refuse; the transaction never changes anything."
+          ],
+          "address": "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "The program's ProgramData account (BPF upgradeable loader), which",
+            "names the upgrade authority."
+          ]
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "lock_config",
       "docs": [
         "Make the economics permanent (also happens at the first `fund_epoch`)."
@@ -967,6 +1365,58 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "propose_admin",
+      "docs": [
+        "Step one of the registry admin transfer (zero address cancels)."
+      ],
+      "discriminator": [
+        121,
+        214,
+        199,
+        212,
+        87,
+        39,
+        117,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "registry"
+          ]
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_admin",
+          "type": "pubkey"
+        }
+      ]
     },
     {
       "name": "propose_authority",
@@ -1241,9 +1691,48 @@
         152,
         108
       ]
+    },
+    {
+      "name": "Registry",
+      "discriminator": [
+        47,
+        174,
+        110,
+        246,
+        184,
+        182,
+        252,
+        218
+      ]
     }
   ],
   "events": [
+    {
+      "name": "AdminAccepted",
+      "discriminator": [
+        174,
+        12,
+        76,
+        139,
+        158,
+        99,
+        110,
+        254
+      ]
+    },
+    {
+      "name": "AdminProposed",
+      "discriminator": [
+        129,
+        249,
+        226,
+        227,
+        199,
+        82,
+        110,
+        243
+      ]
+    },
     {
       "name": "AuthorityAccepted",
       "discriminator": [
@@ -1386,6 +1875,19 @@
         178,
         218
       ]
+    },
+    {
+      "name": "RegistryInitialized",
+      "discriminator": [
+        144,
+        138,
+        62,
+        105,
+        58,
+        38,
+        100,
+        177
+      ]
     }
   ],
   "errors": [
@@ -1397,7 +1899,7 @@
     {
       "code": 6001,
       "name": "SplitBpsNotAllowed",
-      "msg": "founder_bps for the Split model must be one of the allowed splits (2500, 5000, 7500)"
+      "msg": "founder_bps for the Split model must be one of ALLOWED_SPLIT_BPS (see the IDL constants)"
     },
     {
       "code": 6002,
@@ -1412,7 +1914,7 @@
     {
       "code": 6004,
       "name": "UnsupportedRewardMint",
-      "msg": "the reward mint uses a Token-2022 extension the vault cannot account for (transfer fee, transfer hook, permanent delegate, non-transferable, confidential transfers, default account state, or an unknown extension)"
+      "msg": "the reward mint uses a Token-2022 extension the vault cannot account for (transfer fee, transfer hook, permanent delegate, non-transferable, confidential transfers, default account state, mint close authority, or an unknown extension)"
     },
     {
       "code": 6005,
@@ -1426,131 +1928,204 @@
     },
     {
       "code": 6007,
-      "name": "Unauthorized",
-      "msg": "signer is not the config authority"
+      "name": "FounderIsProgramAccount",
+      "msg": "founder must not be the config PDA or the vault: nothing could ever move money out of their token accounts"
     },
     {
       "code": 6008,
+      "name": "Unauthorized",
+      "msg": "signer is not the config authority (or, for init_city, not the registry admin)"
+    },
+    {
+      "code": 6009,
+      "name": "NotUpgradeAuthority",
+      "msg": "signer is not the program's upgrade authority"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidAdmin",
+      "msg": "admin must not be the zero address"
+    },
+    {
+      "code": 6011,
+      "name": "NoPendingAdmin",
+      "msg": "no admin transfer is pending"
+    },
+    {
+      "code": 6012,
+      "name": "NotPendingAdmin",
+      "msg": "signer is not the pending admin"
+    },
+    {
+      "code": 6013,
       "name": "AlreadyLocked",
       "msg": "config is already locked"
     },
     {
-      "code": 6009,
+      "code": 6014,
       "name": "NoPendingAuthority",
       "msg": "no authority transfer is pending"
     },
     {
-      "code": 6010,
+      "code": 6015,
       "name": "NotPendingAuthority",
       "msg": "signer is not the pending authority"
     },
     {
-      "code": 6011,
+      "code": 6016,
       "name": "AlreadyPaused",
       "msg": "config is already paused"
     },
     {
-      "code": 6012,
+      "code": 6017,
       "name": "NotPaused",
       "msg": "config is not paused"
     },
     {
-      "code": 6013,
+      "code": 6018,
       "name": "Paused",
       "msg": "funding and claiming are paused for this city"
     },
     {
-      "code": 6014,
+      "code": 6019,
       "name": "ClaimWindowOutOfRange",
-      "msg": "claim_window_secs is outside the allowed range (14 to 365 days)"
+      "msg": "claim_window_secs is outside [MIN_CLAIM_WINDOW_SECS, MAX_CLAIM_WINDOW_SECS] (see the IDL constants)"
     },
     {
-      "code": 6015,
+      "code": 6020,
       "name": "NothingToDistribute",
-      "msg": "nothing to distribute: amount is 0 and there is no carry-over"
+      "msg": "nothing to distribute: the deposit (or the vault surplus) is 0 and there is no carry-over"
     },
     {
-      "code": 6016,
+      "code": 6021,
       "name": "CreatorModelHasHolderFunds",
       "msg": "Creator model: the holders amount must be 0 (no holder share and no carry-over)"
     },
     {
-      "code": 6017,
+      "code": 6022,
       "name": "CreatorModelHasTree",
       "msg": "Creator model: num_leaves must be 0 and merkle_root must be all zeros"
     },
     {
-      "code": 6018,
+      "code": 6023,
       "name": "MissingMerkleRoot",
       "msg": "Holders and Split models: merkle_root must not be all zeros"
     },
     {
-      "code": 6019,
+      "code": 6024,
       "name": "MissingLeaves",
       "msg": "Holders and Split models: num_leaves must be greater than 0"
     },
     {
-      "code": 6020,
+      "code": 6025,
+      "name": "MissingSnapshotHash",
+      "msg": "Holders and Split models: snapshot_hash must not be all zeros (the root must be recomputable from a published snapshot)"
+    },
+    {
+      "code": 6026,
       "name": "EpochIndexMismatch",
       "msg": "epoch index does not match the epoch account"
     },
     {
-      "code": 6021,
+      "code": 6027,
       "name": "EpochNotOpen",
       "msg": "epoch is not open"
     },
     {
-      "code": 6022,
+      "code": 6028,
       "name": "ClaimDeadlinePassed",
       "msg": "the claim deadline has passed"
     },
     {
-      "code": 6023,
+      "code": 6029,
       "name": "ClaimDeadlineNotPassed",
       "msg": "the claim deadline has not passed yet"
     },
     {
-      "code": 6024,
+      "code": 6030,
       "name": "LeafIndexOutOfRange",
       "msg": "leaf_index must be smaller than num_leaves"
     },
     {
-      "code": 6025,
+      "code": 6031,
       "name": "ZeroClaimAmount",
       "msg": "claim amount must be greater than 0"
     },
     {
-      "code": 6026,
+      "code": 6032,
       "name": "ProofTooLong",
       "msg": "proof is longer than 32 hashes"
     },
     {
-      "code": 6027,
+      "code": 6033,
       "name": "InvalidProof",
       "msg": "Merkle proof does not verify for this leaf (wrong index, wallet, amount or proof)"
     },
     {
-      "code": 6028,
+      "code": 6034,
       "name": "ClaimExceedsHoldersAmount",
       "msg": "claim would exceed the epoch's holders amount"
     },
     {
-      "code": 6029,
+      "code": 6035,
       "name": "EpochHasClaims",
       "msg": "epoch already has claims; it can only be swept after the deadline"
     },
     {
-      "code": 6030,
+      "code": 6036,
       "name": "EpochStillOpen",
       "msg": "epoch is still open; a claim status can be closed only after sweep or cancel"
     },
     {
-      "code": 6031,
+      "code": 6037,
       "name": "MathOverflow",
       "msg": "arithmetic overflow"
     }
   ],
   "types": [
+    {
+      "name": "AdminAccepted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "registry",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdminProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "registry",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_admin",
+            "docs": [
+              "Zero address means a pending transfer was cancelled."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
     {
       "name": "AuthorityAccepted",
       "type": {
@@ -1676,10 +2251,30 @@
           {
             "name": "paused",
             "docs": [
-              "Blocks `fund_epoch` and `claim`. Sweep and cancel keep working so a",
-              "paused city can still be wound down."
+              "Blocks `fund_epoch`, `fund_epoch_from_vault` and `claim`. Cancel keeps",
+              "working so a paused city can still be wound down; sweep works only once",
+              "the pause-extended deadline has passed (see `paused_total_secs`)."
             ],
             "type": "bool"
+          },
+          {
+            "name": "paused_at",
+            "docs": [
+              "Unix time the current pause began. 0 when not paused."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "paused_total_secs",
+            "docs": [
+              "Total seconds this city has spent paused (completed pauses only; the",
+              "running pause is added at `unpause`). Every epoch records this value",
+              "when it is funded; a claim deadline is extended by the pause time",
+              "accrued since then, so a pause can never eat into a claim window and",
+              "the authority cannot use pause + sweep to take back money a published",
+              "root promised to holders."
+            ],
+            "type": "i64"
           },
           {
             "name": "epoch_count",
@@ -1994,7 +2589,17 @@
           {
             "name": "claim_deadline",
             "docs": [
-              "Claims are accepted while `now <= claim_deadline`."
+              "Nominal deadline: `funded_at + claim_window_secs`. The effective",
+              "deadline adds the pause time accrued since funding",
+              "(`math::effective_deadline`); claims are accepted while",
+              "`now <= effective deadline`, sweep only afterwards."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "pause_secs_at_funding",
+            "docs": [
+              "`config.paused_total_secs` when the epoch was funded."
             ],
             "type": "i64"
           },
@@ -2057,6 +2662,14 @@
           {
             "name": "index",
             "type": "u64"
+          },
+          {
+            "name": "from_vault",
+            "docs": [
+              "True when the money came from the vault's unaccounted balance",
+              "(`fund_epoch_from_vault`), false when a funder deposited it (`fund_epoch`)."
+            ],
+            "type": "bool"
           },
           {
             "name": "deposit_amount",
@@ -2195,6 +2808,69 @@
           {
             "name": "paused",
             "type": "bool"
+          },
+          {
+            "name": "paused_total_secs",
+            "docs": [
+              "Completed pause seconds so far (grows at every unpause)."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Registry",
+      "docs": [
+        "One per program. Seeds: `[\"registry\"]`.",
+        "",
+        "Says who may create city configs. Without it `init_city` would be",
+        "permissionless per mint and the first caller would own the `[\"city\", mint]`",
+        "PDA of a coin forever (there is no close instruction), so a bot could squat",
+        "every new city coin. `init_registry` can only be called by the program's",
+        "upgrade authority, once; afterwards the admin moves with a two-step transfer",
+        "like the city authority."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "docs": [
+              "The only key that may sign `init_city` (recommended: a Squads multisig)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_admin",
+            "docs": [
+              "Second step of an admin transfer. Zero address = nothing pending."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RegistryInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "registry",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "upgrade_authority",
+            "type": "pubkey"
           }
         ]
       }

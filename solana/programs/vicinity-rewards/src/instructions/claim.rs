@@ -13,6 +13,7 @@ use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, Tran
 use crate::constants::{CITY_SEED, CLAIM_SEED, EPOCH_SEED, MAX_PROOF_LEN, VAULT_SEED};
 use crate::errors::RewardsError;
 use crate::events::Claimed;
+use crate::math::effective_deadline;
 use crate::merkle::{leaf_hash, verify};
 use crate::state::{CityConfig, ClaimStatus, Epoch, EpochState};
 
@@ -99,10 +100,17 @@ pub fn handle_claim(
     require!(epoch.index == epoch_index, RewardsError::EpochIndexMismatch);
     require!(epoch.state == EpochState::Open, RewardsError::EpochNotOpen);
     let now = Clock::get()?.unix_timestamp;
-    require!(
-        now <= epoch.claim_deadline,
-        RewardsError::ClaimDeadlinePassed
-    );
+    // The nominal deadline plus every second the city was paused since this
+    // epoch was funded: a pause can never cost holders claim time.
+    let deadline = effective_deadline(
+        epoch.claim_deadline,
+        epoch.pause_secs_at_funding,
+        config.paused_total_secs,
+        config.paused,
+        config.paused_at,
+        now,
+    )?;
+    require!(now <= deadline, RewardsError::ClaimDeadlinePassed);
     require!(
         leaf_index < epoch.num_leaves,
         RewardsError::LeafIndexOutOfRange

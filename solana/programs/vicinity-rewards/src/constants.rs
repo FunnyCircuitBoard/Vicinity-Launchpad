@@ -11,6 +11,8 @@
 
 use anchor_lang::prelude::*;
 
+/// Seed of the one `Registry` PDA: `["registry"]`.
+pub const REGISTRY_SEED: &[u8] = b"registry";
 /// Seed of a `CityConfig` PDA: `["city", city_coin_mint]`.
 pub const CITY_SEED: &[u8] = b"city";
 /// Seed of a city's reward vault (SPL token account): `["vault", config]`.

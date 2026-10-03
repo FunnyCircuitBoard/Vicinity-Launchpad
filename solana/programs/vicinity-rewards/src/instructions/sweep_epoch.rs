@@ -5,12 +5,18 @@
 //! for unclaimed money (founder, treasury) are not implemented; carry-over to
 //! the next holders epoch is the only behaviour, which keeps the "only claim
 //! moves vault money" rule intact.
+//!
+//! The deadline is the pause-extended one (`math::effective_deadline`): while
+//! the city is paused the time to the deadline does not shrink, so the
+//! authority cannot pause, wait, and sweep money that a published root
+//! promised to holders who were prevented from claiming.
 
 use anchor_lang::prelude::*;
 
 use crate::constants::{CITY_SEED, EPOCH_SEED};
 use crate::errors::RewardsError;
 use crate::events::EpochSwept;
+use crate::math::effective_deadline;
 use crate::state::{CityConfig, Epoch, EpochState};
 
 #[derive(Accounts)]
@@ -37,10 +43,16 @@ pub fn handle_sweep_epoch(ctx: Context<SweepEpoch>, epoch_index: u64) -> Result<
     require!(epoch.index == epoch_index, RewardsError::EpochIndexMismatch);
     require!(epoch.state == EpochState::Open, RewardsError::EpochNotOpen);
     let now = Clock::get()?.unix_timestamp;
-    require!(
-        now > epoch.claim_deadline,
-        RewardsError::ClaimDeadlineNotPassed
-    );
+    let config = &ctx.accounts.config;
+    let deadline = effective_deadline(
+        epoch.claim_deadline,
+        epoch.pause_secs_at_funding,
+        config.paused_total_secs,
+        config.paused,
+        config.paused_at,
+        now,
+    )?;
+    require!(now > deadline, RewardsError::ClaimDeadlineNotPassed);
 
     let unclaimed_amount = epoch
         .holders_amount

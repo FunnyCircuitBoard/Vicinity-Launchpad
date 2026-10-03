@@ -7,20 +7,32 @@ use anchor_lang::prelude::*;
 pub enum RewardsError {
     #[msg("founder_bps does not match the reward model (Creator = 10000, Holders = 0, Split = an allowed split)")]
     FounderBpsMismatch,
-    #[msg("founder_bps for the Split model must be one of the allowed splits (2500, 5000, 7500)")]
+    #[msg(
+        "founder_bps for the Split model must be one of ALLOWED_SPLIT_BPS (see the IDL constants)"
+    )]
     SplitBpsNotAllowed,
     #[msg("founder_bps is greater than 10000")]
     InvalidFounderBps,
     #[msg("the reward mint must not be the city coin itself")]
     RewardMintIsCityCoin,
-    #[msg("the reward mint uses a Token-2022 extension the vault cannot account for (transfer fee, transfer hook, permanent delegate, non-transferable, confidential transfers, default account state, or an unknown extension)")]
+    #[msg("the reward mint uses a Token-2022 extension the vault cannot account for (transfer fee, transfer hook, permanent delegate, non-transferable, confidential transfers, default account state, mint close authority, or an unknown extension)")]
     UnsupportedRewardMint,
     #[msg("city_tag must be printable ASCII followed by zero padding")]
     InvalidCityTag,
     #[msg("founder must not be the zero address")]
     InvalidFounder,
-    #[msg("signer is not the config authority")]
+    #[msg("founder must not be the config PDA or the vault: nothing could ever move money out of their token accounts")]
+    FounderIsProgramAccount,
+    #[msg("signer is not the config authority (or, for init_city, not the registry admin)")]
     Unauthorized,
+    #[msg("signer is not the program's upgrade authority")]
+    NotUpgradeAuthority,
+    #[msg("admin must not be the zero address")]
+    InvalidAdmin,
+    #[msg("no admin transfer is pending")]
+    NoPendingAdmin,
+    #[msg("signer is not the pending admin")]
+    NotPendingAdmin,
     #[msg("config is already locked")]
     AlreadyLocked,
     #[msg("no authority transfer is pending")]
@@ -33,9 +45,11 @@ pub enum RewardsError {
     NotPaused,
     #[msg("funding and claiming are paused for this city")]
     Paused,
-    #[msg("claim_window_secs is outside the allowed range (14 to 365 days)")]
+    #[msg("claim_window_secs is outside [MIN_CLAIM_WINDOW_SECS, MAX_CLAIM_WINDOW_SECS] (see the IDL constants)")]
     ClaimWindowOutOfRange,
-    #[msg("nothing to distribute: amount is 0 and there is no carry-over")]
+    #[msg(
+        "nothing to distribute: the deposit (or the vault surplus) is 0 and there is no carry-over"
+    )]
     NothingToDistribute,
     #[msg("Creator model: the holders amount must be 0 (no holder share and no carry-over)")]
     CreatorModelHasHolderFunds,
@@ -45,6 +59,8 @@ pub enum RewardsError {
     MissingMerkleRoot,
     #[msg("Holders and Split models: num_leaves must be greater than 0")]
     MissingLeaves,
+    #[msg("Holders and Split models: snapshot_hash must not be all zeros (the root must be recomputable from a published snapshot)")]
+    MissingSnapshotHash,
     #[msg("epoch index does not match the epoch account")]
     EpochIndexMismatch,
     #[msg("epoch is not open")]
