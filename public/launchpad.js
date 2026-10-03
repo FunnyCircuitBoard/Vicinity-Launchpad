@@ -126,10 +126,11 @@
     change: order(desc((c) => m(c, "priceChange24hPct"))),
     name: byName,
   };
+  const vicFirst = (a, b) => (b.kind === "vicinity") - (a.kind === "vicinity"); // the site's own token leads its list
   const DEFAULT_ORDER = {
-    live: SORT_FN.newest,
+    live: order(vicFirst, SORT_FN.newest), // $VICINITY has no recorded launch time: pinned first rather than sinking to the end
     new: SORT_FN.newest,
-    upcoming: order((a, b) => (b.kind === "vicinity") - (a.kind === "vicinity"), desc(designedMs)),
+    upcoming: order(vicFirst, desc(designedMs)),
     trending: order(desc((c) => m(c, "volume24hUsd")), desc((c) => m(c, "priceChange24hPct")), desc(holders)),
   };
   /** The cards of one tab, in the tab's own order (or the chosen sort), after the search box and the filters. */
@@ -170,6 +171,15 @@
   /** A count: 45.3K on the card, 45,312 in full. */
   const count = (v) => { const n = num(v); return n == null ? null : n >= 1000 ? compactFmt.format(n) : plainFmt.format(n); };
   const fullCount = (v) => { const n = num(v); return n == null ? null : plainFmt.format(n); };
+  /** The community line and its title: "1 member · 1 holds $VICINITY", "3 members · 2 hold $VICINITY"; null without a member count. */
+  function communityText(mem) {
+    const n = num(mem && mem.members), h = num(mem && mem.holders);
+    if (n == null) return null;
+    const members = (c) => `${c} ${n === 1 ? "member" : "members"}`;
+    const short = members(count(n)) + (h != null ? ` · ${count(h)} ${h === 1 ? "holds" : "hold"} $VICINITY` : "");
+    const full = members(fullCount(n)) + (h != null ? `, ${fullCount(h)} ${h === 1 ? "who holds" : "of them hold"} $VICINITY` : "");
+    return { short, full };
+  }
   /** A 24-hour change: +12.3% / -4.1% (always signed, one decimal). */
   const pct = (v) => { const n = num(v); return n == null ? null : `${n > 0 ? "+" : n < 0 ? "-" : ""}${Math.abs(n).toFixed(1)}%`; };
 
@@ -243,7 +253,7 @@
     return "/launchpad" + (s ? `?${s}` : "");
   }
 
-  const pure = { NEW_DAYS, TABS, SORTS, TAB_NOTE, norm, searchText, matches, inTab, isNew, counts, rowsFor, money, fullMoney, count, fullCount, pct,
+  const pure = { NEW_DAYS, TABS, SORTS, TAB_NOTE, norm, searchText, matches, inTab, isNew, counts, rowsFor, money, fullMoney, count, fullCount, pct, communityText,
     countdownText, ageSeconds, agoText, statusLabel, notLiveWhy, founderText, pairText, links, viewHref, logoSrc, colorOf, cardKey, stateFromUrl, urlFor };
   window.VLaunchpad = { pure };
   if (typeof document === "undefined" || !window.V) return; // node: the helpers are enough
@@ -292,8 +302,9 @@
     dl.append(stat("24 h volume", val(money(mk.volume24hUsd), fullMoney(mk.volume24hUsd)), chg));
     dl.append(stat("Holders", val(count(holders(c)), fullCount(holders(c)))));
     const mem = c.members || {};
-    const community = num(mem.members) == null ? na() : el("span", "lp-val", `${count(mem.members)} members${num(mem.holders) != null ? ` · ${count(mem.holders)} hold $VICINITY` : ""}`);
-    if (num(mem.members) != null) community.title = `${fullCount(mem.members)} members${num(mem.holders) != null ? `, ${fullCount(mem.holders)} of them hold $VICINITY` : ""}`;
+    const ct = communityText(mem);
+    const community = ct ? el("span", "lp-val", ct.short) : na();
+    if (ct) community.title = ct.full;
     dl.append(stat("Community", community));
 
     const acts = el("div", "lp-card__actions");

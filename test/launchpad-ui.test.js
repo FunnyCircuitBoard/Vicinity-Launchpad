@@ -73,6 +73,17 @@ test("rowsFor: each tab's own order, and nothing from another tab", () => {
   assert.equal(names({ tab: "live", sort: "name" }), "A,B,C,D,E", "a chosen sort replaces the tab's order");
 });
 
+test("rowsFor: a live $VICINITY leads the Live tab (it has no recorded launch time) but competes honestly in Trending and in a chosen sort", () => {
+  const a = city("A", mk(100, 1, 10)), b = city("B", { launchedAt: ago(0.5), ...mk(300, -2, 5) }), c = city("C", { launchedAt: ago(10), ...mk(300, 9, 1) });
+  const vic = { kind: "vicinity", status: "live", ticker: "VICINITY", name: "Vicinity", city: null, mint: MINT, launchedAt: null, designedAt: null, ...mk(200, 3, 50) };
+  const names = (o) => P.rowsFor([a, c, vic, b], { now: NOW, ...o }).map((x) => x.ticker).join(",");
+  assert.equal(names({ tab: "live" }), "VICINITY,B,A,C", "Live: $VICINITY first, then newest first");
+  assert.equal(names({ tab: "new" }), "B,A", "New: never $VICINITY (no recorded launch time)");
+  assert.equal(names({ tab: "trending" }), "C,B,VICINITY,A", "Trending: by volume, no pinning");
+  assert.equal(names({ tab: "live", sort: "newest" }), "B,A,C,VICINITY", "a chosen sort by newest: no launch time goes last");
+  assert.equal(names({ tab: "live", sort: "holders" }), "VICINITY,A,B,C", "a chosen sort by holders: by the numbers");
+});
+
 /* ---------- sorts ---------- */
 test("sorts: every key descending with unknown values last and ties by ticker; name A-Z", () => {
   // P and Q launched a day ago; R this morning; S nine days ago. Q knows nothing about its market.
@@ -131,6 +142,14 @@ test("count: 45.3K / 1.2M on the card, 45,312 in the title; a 24-hour change is 
   assert.equal(P.count(45_312), "45.3K"); assert.equal(P.count(1_204_560), "1.2M"); assert.equal(P.count(88), "88"); assert.equal(P.count(999), "999"); assert.equal(P.count(0), "0"); assert.equal(P.count(null), null); assert.equal(P.count("5"), null);
   assert.equal(P.fullCount(45_312), "45,312"); assert.equal(P.fullCount(1_204_560), "1,204,560"); assert.equal(P.fullCount(null), null);
   assert.equal(P.pct(12.34), "+12.3%"); assert.equal(P.pct(-4.06), "-4.1%"); assert.equal(P.pct(0), "0.0%"); assert.equal(P.pct(null), null); assert.equal(P.pct(NaN), null);
+});
+
+test("community line: singular and plural, the full numbers in the title, nothing without a member count", () => {
+  assert.deepEqual(plain(P.communityText({ members: 1, holders: 0 })), { short: "1 member · 0 hold $VICINITY", full: "1 member, 0 of them hold $VICINITY" });
+  assert.deepEqual(plain(P.communityText({ members: 1, holders: 1 })), { short: "1 member · 1 holds $VICINITY", full: "1 member, 1 who holds $VICINITY" });
+  assert.deepEqual(plain(P.communityText({ members: 4821, holders: 912 })), { short: "4.8K members · 912 hold $VICINITY", full: "4,821 members, 912 of them hold $VICINITY" });
+  assert.deepEqual(plain(P.communityText({ members: 3, holders: null })), { short: "3 members", full: "3 members" }, "no holder count: members only");
+  assert.equal(P.communityText(null), null); assert.equal(P.communityText({ members: null, holders: 2 }), null); assert.equal(P.communityText({ members: "3" }), null);
 });
 
 /* ---------- time ---------- */
