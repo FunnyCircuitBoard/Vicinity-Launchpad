@@ -34,7 +34,7 @@ import { POLICY } from "./policy.js";
 import { autoUsername } from "./text.js";
 import { v2On } from "./flags.js";
 import { check, clientKey, hits, limitKey, peek, refund } from "./limits.js";
-import { TERMS_VERSION, endSignup, getSignup, recordIdentity } from "./signup-core.js";
+import { TERMS_VERSION, asText, endSignup, getSignup, recordIdentity } from "./signup-core.js";
 
 export const SESSION_COOKIE = "vs";
 const OAUTH_COOKIE = "vo";
@@ -563,7 +563,7 @@ export async function handleEmailStart(request, env, fetchImpl = fetch, now = Da
   const slow = await oldRouteLimit(env, request, OLD_ROUTE.start, now);
   if (slow) return slow;
   const body = await readJson(request);
-  const r = await sendEmailCode(env, cleanEmail(body && body.email), { fetchImpl, now, mailer });
+  const r = await sendEmailCode(env, cleanEmail(asText(body && body.email)), { fetchImpl, now, mailer });
   if (!r.ok) return json({ ok: false, error: r.error }, r.status);
   return json({ ok: true });
 }
@@ -579,8 +579,9 @@ export async function handleEmailVerify(request, env, fetchImpl = fetch, now = D
   const slow = await oldRouteLimit(env, request, OLD_ROUTE.verify, now);
   if (slow) return slow;
   const body = await readJson(request);
-  const email = cleanEmail(body && body.email);
-  const code = String((body && body.code) || "").replace(/\D/g, "").slice(0, 6);
+  // asText: only strings and numbers count as text; anything else is "" (String() of {"toString":1} throws).
+  const email = cleanEmail(asText(body && body.email));
+  const code = asText((body && body.code) || "").replace(/\D/g, "").slice(0, 6);
   if (!validEmail(email) || code.length !== 6) return json({ ok: false, error: "bad_code" }, 400);
 
   const v = await consumeEmailCode(env.DB, email, code, now);
