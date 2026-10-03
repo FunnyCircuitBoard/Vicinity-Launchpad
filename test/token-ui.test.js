@@ -219,3 +219,34 @@ test("token.js: 'Show it in the holder list' appears when the looked-up wallet's
   assert.deepEqual(p.rows().filter((tr) => tr.classes.has("is-me")).map((tr) => tr.dataset.owner), [me], "the row is highlighted when it lands");
   assert.equal(p.$("#rank-show").hidden, false, "and the button that scrolls to it is showing");
 });
+
+test("token.js: a lookup never keeps the last wallet's values (a pool after a ranked wallet), and a wallet with nothing is told any amount enters", async () => {
+  // measured live 3 Oct 2026: after a ranked wallet, the pool showed the wallet's "128,768,512 to pass #1" and its half-full
+  // meter under "not ranked"; a wallet holding nothing was told "6,573,219 to enter at #5" when any amount enters at #5
+  const POOL = owner(9001), RANKED = owner(2), NOBODY = owner(9002), BUSY = owner(9003);
+  const answers = {
+    [RANKED]: { launched: true, full: true, amount: 48_497_309, rank: 2, total: 4, label: null, percent: 4.85, percentile: 50, next: { rank: 1, amount: 177_265_821, gap: 128_768_512 }, founderMin: 100_000 },
+    [POOL]: { launched: true, full: true, amount: 732_489_439, rank: null, total: 4, label: "Pool or program account", percent: 73.2, percentile: null, next: { rank: 4, amount: 6_573_218, gap: 6_573_218 }, founderMin: 100_000 },
+    [NOBODY]: { launched: true, full: true, amount: 0, rank: null, total: 4, label: null, percent: 0, percentile: null, next: { rank: 4, amount: 6_573_218.776691, gap: 6_573_218.776691 }, founderMin: 100_000 },
+    [BUSY]: { error: "chain_unavailable" },
+  };
+  const p = page({ answer: (path) => (path.startsWith("/api/rank") ? answers[new URL(path, "https://x").searchParams.get("address")] : { launched: false, holders: [] }) });
+  await p.settle();
+  const look = async (a) => { p.$("#lookup-input").value = a; await p.$("#lookup").fire("submit"); await p.settle(); p.flush(); };
+  const card = () => ["#rank-num", "#rank-of", "#rank-amount", "#rank-share", "#rank-next", "#rank-founder"].map((id) => p.$(id).textContent);
+
+  await look(RANKED);
+  assert.equal(p.$("#rank-next").textContent, "128,768,512 to pass #1");
+  assert.equal(p.$("#rank-meter").style.width, "50%");
+
+  await look(POOL);
+  assert.deepEqual(card(), ["Pool", "Pool or program account", "732,489,439 $VICINITY", "73.2%", "—", "—"], "no rank, nothing to pass, not a founder");
+  assert.equal(p.$("#rank-meter").style.width, "0%", "the meter is empty for a pool");
+
+  await look(NOBODY);
+  assert.equal(p.$("#rank-next").textContent, "Any amount enters at #5; 6,573,219 to pass #4");
+
+  await look(RANKED); await look(BUSY);
+  assert.deepEqual(card(), ["—", "", "—", "—", "—", "—"], "the blockchain is busy: nothing of the wallet before is shown under the new address");
+  assert.equal(p.$("#rank-meter").style.width, "0%");
+});

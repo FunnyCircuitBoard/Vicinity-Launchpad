@@ -169,6 +169,10 @@
     $("#rank-addr").textContent = addr;
     lastLookup = addr;
     const set = (id, t) => ($(id).textContent = t);
+    // every lookup starts from a blank card: nothing of the wallet looked up before may stay on it
+    set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "");
+    ["#rank-amount", "#rank-share", "#rank-next", "#rank-founder"].forEach((i) => set(i, "—"));
+    $("#rank-meter").style.width = "0%";
     if (d.error === "chain_unavailable") { set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "The blockchain is busy. Try again in a minute."); return; }
     // many checks from one shared connection (an office, a campus, a mobile network): say so, never "not launched"
     if (d.error === "slow_down") { set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "Too many checks from your network. Try again in a minute."); return; }
@@ -185,7 +189,10 @@
     const founderMin = d.founderMin || 100_000; // the smallest founder amount: the exact one depends on the city
     set("#rank-founder", amount >= FOUNDER_MAX ? "✓ Enough for any city (hold it 7 days)"
       : amount >= founderMin ? "✓ Enough for smaller cities (hold it 7 days)" : `${fmt(founderMin - amount)} to reach the smallest`);
-    if (d.label && !d.rank) { set("#rank-num", "Pool"); set("#rank-of", d.label); set("#rank-pct", "Pools and curves are listed but not ranked."); }
+    if (d.label && !d.rank) { // a pool or curve: no rank, no wallet to pass, not a founder
+      set("#rank-num", "Pool"); set("#rank-of", d.label); set("#rank-pct", "Pools and curves are listed but not ranked.");
+      set("#rank-founder", "—");
+    }
     else if (d.rank) {
       set("#rank-num", `#${fmt(d.rank)}`); set("#rank-of", `of ${fmt(d.total)} holders`);
       set("#rank-pct", d.rank === 1 ? "The biggest holder of all 🏆" : `Top ${pctText(d.percentile)}% of all holders`);
@@ -196,7 +203,8 @@
     } else {
       set("#rank-num", "—"); set("#rank-of", "not holding yet");
       set("#rank-pct", "This wallet doesn't hold $VICINITY yet.");
-      set("#rank-next", d.next ? `${fmt(Math.ceil(d.next.gap))} to enter at #${d.next.rank + 1}` : "Any amount");
+      // any amount above zero is ranked, right after the last ranked wallet (d.next); its whole amount is what passes it
+      set("#rank-next", d.next ? `Any amount enters at #${fmt(d.next.rank + 1)}; ${fmt(Math.ceil(d.next.gap))} to pass #${fmt(d.next.rank)}` : "Any amount");
       $("#rank-meter").style.width = "0%";
     }
     $("#rank-show").hidden = !mark(addr, false);
