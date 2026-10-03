@@ -119,7 +119,7 @@ test("home: the problem, the real New York City map, how it works, incentives, r
   const h = html["index.html"];
   for (const id of ["problem", "nyc", "nyc-map", "why-now", "how", "why", "get", "roles", "roadmap", "faq"]) assert.ok(h.includes(`id="${id}"`), id);
   assert.match(h, /Real map, real data · New York City/);
-  assert.match(h, /Why is \$VICINITY launching on Raydium LaunchLab and not on the Vicinity Launchpad\?/);
+  assert.match(h, /Why did \$VICINITY launch on Raydium LaunchLab and not on the Vicinity Launchpad\?/);
   assert.match(h, /<a class="hero-map__link" href="\/cities\?city=5128581"/, "the New York map opens the map page");
   assert.doesNotMatch(h, /stonkfun|stonfun/i, "launching on Raydium LaunchLab");
   assert.match(h, /How do I buy \$VICINITY\?/);
@@ -299,4 +299,20 @@ test("home: the Early member card no longer invites visitors to join for a badge
   assert.doesNotMatch(h, /Join before \$VICINITY launches/);
   assert.match(h, /<h3>Proof you were early<\/h3><p class="muted">Members who joined before \$VICINITY launched on October 3 carry the <strong>Early member<\/strong> badge for good\. Nobody can earn it any more\.<\/p>/);
   for (const f of ["../src/signup.js", "../src/auth.js"]) assert.match(readFileSync(new URL(f, import.meta.url), "utf8"), /activeMint\(env\) \? 0 : 1/, `${f}: the rule the card describes`);
+});
+
+test("home: the roadmap shows the October 3 launch as done and the Launchpad as next; the FAQ and the map speak of the launch as past", () => {
+  // live 3 Oct 2026 after the launch: the launch was still the pulsing "next" step, "the contract address is published on this
+  // site first", the FAQ said "it launches October 3", and the New York map said founder "claims open at launch"
+  const h = html["index.html"];
+  const items = [...h.matchAll(/<li class="timeline__item([^"]*)"><span class="timeline__status">([^<]+)<\/span><h3>([^<]+)<\/h3>/g)].map((m) => [m[1].trim(), m[2], m[3]]);
+  assert.deepEqual(items.slice(0, 4), [["is-done reveal", "Done", "The real map"], ["is-done reveal", "Done", "Accounts and dashboards"],
+    ["is-done reveal", "Done", "$VICINITY launched"], ["is-next reveal", "October 10", "Vicinity Launchpad"]]);
+  assert.equal((h.match(/timeline__item is-next/g) || []).length, 1, "one next step");
+  assert.doesNotMatch(h, /published on this site first/);
+  assert.doesNotMatch(h, /it launches October 3|so it launches a week earlier|Why is \$VICINITY launching/);
+  assert.match(h, /it launched on October 3 on Raydium LaunchLab/);
+  const home = read("home.js");
+  assert.doesNotMatch(home, /claims open at launch/);
+  assert.match(home, /"👑 City Founder: seat open · hold 7 days, then apply"/);
 });
