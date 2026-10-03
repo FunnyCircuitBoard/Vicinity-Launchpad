@@ -380,7 +380,7 @@ test("copy about what other members can see is in the pages, hidden until the sw
   // the sentences the older tests pin are all still there, word for word
   assert.match(index, /With Google sign-in, only your Google account id and first name/);
   assert.match(index, /A made-up username, which is the only name feeds show, never your wallet\./);
-  assert.match(rules, /No passwords, and check-in coordinates are never stored\./);
+  assert.match(rules, /We never keep a password anyone could read \(an e-mail account that has one keeps only a salted hash of it\), and check-in coordinates are never stored\./);
   for (const [name, html] of [["connect", connect], ["index", index], ["rules", rules]]) for (const tag of html.match(/<[a-z]+ [^>]*data-profiles-only[^>]*>/g)) assert.match(tag, /\bhidden\b/, `${name}: every switch-gated line starts hidden: ${tag}`);
   assert.match(site, /if \(d && d\.profilesFlag\) \$\$\("\[data-profiles-only\]"\)\.forEach\(\(e\) => \(e\.hidden = false\)\);/, "site.js shows them only when /api/me says profilesFlag");
   assert.equal((site.match(/profilesFlag/g) || []).length, 1, "the only thing site.js knows about profiles");

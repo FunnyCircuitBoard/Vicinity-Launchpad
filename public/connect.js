@@ -124,6 +124,7 @@
   /** The wallet is proven: straight to the dashboard (linked before) or on to Google / e-mail. */
   function after(d) {
     if (signup) return signup.walletProven(d); // v2: straight to the dashboard (account exists) or on to the sign-up steps
+    if (d.next === "signup") return location.reload(); // the new sign-up was switched on while this old page was open (or its /api/me answer was lost): the reloaded page is the new one
     if (String(d.next || "").startsWith("/dashboard")) {
       show("done");
       const r = panel.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 80);
@@ -286,7 +287,7 @@
     const a = $("#tp-addr").value.trim();
     if (!isAddr(a)) return setErr("That doesn't look like a Solana wallet address.");
     const d = await api("/api/auth/transfer", { address: a });
-    if (!d.ok) return setErr("Couldn't start. Please try again.");
+    if (!d.ok) return setErr(d.error === "slow_down" ? "Too many tries from your network right now. Wait a few minutes and try again." : "Couldn't start. Please try again.");
     showCode(d);
   });
   function showCode(d) {
@@ -302,8 +303,9 @@
       if (Date.now() - started > 30 * 60_000) { status.textContent = "This code expired. Go back and get a new one."; return; }
       const r = await api("/api/auth/transfer/check", {});
       if (r.ok) { toast("Transfer found ✓ Wallet verified"); return after(r); }
-      if (r.error === "no_proof") { status.textContent = "This code expired. Go back and get a new one."; return; }
-      timer = setTimeout(poll, 10_000);
+      if (r.error === "no_proof" || r.error === "expired") { status.textContent = "This code expired. Go back and get a new one."; return; }
+      // slow_down: the server wants fewer checks from this connection; ask every 30 seconds instead of 10
+      timer = setTimeout(poll, r.error === "slow_down" ? 30_000 : 10_000);
     };
     clearTimeout(timer); timer = setTimeout(poll, 8000);
   }

@@ -224,21 +224,29 @@ async function handleClaims(ctx) {
 /**
  * Approve / reject a founder claim (an application). Approve marks it valid for the normal
  * scoring flow; reject withdraws it. Seats themselves are decided by the site's own flow.
+ * A rejection thins a founder race, so it is also in the public log (/api/audit), like every
+ * other moderation decision: who (role and name), what, and the note. Approve changes nothing visible.
  */
 async function handleSeatDecide(request, ctx) {
   const body = await readJson(request);
   const app = body && await ctx.db.prepare(
-    "SELECT a.*, w.status AS window_status FROM applications a JOIN windows w ON w.id = a.window_id WHERE a.id = ?").bind(Number(body.id) || 0).first();
+    "SELECT a.*, w.status AS window_status, w.country AS window_country FROM applications a JOIN windows w ON w.id = a.window_id WHERE a.id = ?").bind(Number(body.id) || 0).first();
   if (!app) return json({ ok: false, error: "not_found" }, 404);
   // Only while the claim window is open: a decided window's result is already published.
   if (app.window_status !== "open") return json({ ok: false, error: "window_closed" }, 409);
   if (app.withdrawn) return json({ ok: false, error: "already_decided" }, 409);
   const decision = body.decision === "approve" ? "approve" : body.decision === "reject" ? "reject" : null;
   if (!decision) return json({ ok: false, error: "bad_decision" }, 400);
-  await ctx.db.batch([
+  const stmts = [
     ctx.db.prepare(decision === "approve" ? "UPDATE applications SET valid = 1 WHERE id = ?" : "UPDATE applications SET withdrawn = 1 WHERE id = ?").bind(app.id),
     logAudit(ctx.db, { actor: ctx.wallet, action: "seats/decide", target: `application:${app.id}`, detail: decision }, ctx.now),
-  ]);
+  ];
+  if (decision === "reject") {
+    stmts.push(ctx.db.prepare(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, note, created_at, state)
+      VALUES (?, 'admin', 'reject_application', 'application', ?, ?, ?, ?, 'review', ?, ?, 'done')`)
+      .bind(ctx.user.id, app.id, app.user_id, app.window_country, app.city_id, cleanText(body.note, 200) || null, iso(ctx.now)));
+  }
+  await ctx.db.batch(stmts);
   return json({ ok: true, decision });
 }
 

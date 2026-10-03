@@ -163,13 +163,19 @@ export function checkPassword(password, email) {
 
   const lower = nfkc.toLowerCase();
   const lowerChars = Array.from(lower);
-  if (repeated(lowerChars) || run(lowerChars)) return "password_common";
+  // Spaces, tabs and invisible characters make a guess no harder to try ("password  " is 10 characters), so the rules also look at the
+  // password without them. A passphrase with real words in it is not touched: "correct horse battery staple" stays one.
+  const bare = lower.replace(/[\p{Z}\p{C}]/gu, "");
+  const padded = bare !== lower && bare !== "";
+  const bareChars = padded ? Array.from(bare) : lowerChars;
+  if (repeated(lowerChars) || run(lowerChars) || (padded && (repeated(bareChars) || run(bareChars)))) return "password_common";
   for (const base of bases(lower)) if (base && COMMON.has(base)) return "password_common";
+  if (padded) for (const base of bases(bare)) if (COMMON.has(base)) return "password_common";
 
   if (typeof email === "string" && email) {
     const address = email.normalize("NFKC").trim().toLowerCase();
     const local = address.split("@")[0];
-    if (lower === address || (local && lower === local)) return "password_is_email";
+    if (lower === address || (local && lower === local) || (padded && (bare === address || (local && bare === local)))) return "password_is_email";
   }
   return null;
 }

@@ -33,6 +33,7 @@ import { activeMint } from "./official.js";
 import { POLICY } from "./policy.js";
 import { autoUsername } from "./text.js";
 import { v2On } from "./flags.js";
+import { check, clientKey, hits, limitKey, peek, refund } from "./limits.js";
 import { TERMS_VERSION, endSignup, getSignup, recordIdentity } from "./signup-core.js";
 
 export const SESSION_COOKIE = "vs";
@@ -147,7 +148,7 @@ export async function handleReprove(request, env, now = Date.now()) {
   if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
-  const r = await checkSigned(body, request, now, ["login"], badSigned);
+  const r = await checkSigned(body, request, now, ["login"], badSigned, env.DB);
   if (r.error) return r.error;
   if (r.parsed.pin || r.parsed.address !== s.user.wallet) return json({ ok: false, error: "wrong_wallet" }, 403);
   await env.DB.prepare("UPDATE sessions SET proven_at = ? WHERE id = ?").bind(iso(now), s.id).run();
@@ -170,7 +171,7 @@ export async function handleWalletLogin(request, env, now = Date.now()) {
   if (blocked) return blocked;
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
-  const r = await checkSigned(body, request, now, ["login"], badSigned);
+  const r = await checkSigned(body, request, now, ["login"], badSigned, env.DB); // a signed message works once
   if (r.error) return r.error;
   const wallet = r.parsed.address;
 
@@ -267,6 +268,12 @@ export async function handleTransferCheck(request, env, now = Date.now(), fetchI
   const s = await getSession(env, request, now);
   if (!s || !s.proof) return json({ ok: false, error: "no_proof" }, 400);
   const p = JSON.parse(s.proof);
+  // The amount was good for 30 minutes (the page said so). A re-proof rides on a 30-day session, so the proof itself
+  // has to run out: a stale one is dropped and the page starts over, instead of a blockchain look every 10 seconds for a month.
+  if (now - p.since > PENDING_SECONDS * 1000) {
+    await env.DB.prepare("UPDATE sessions SET proof = NULL WHERE id = ?").bind(s.id).run();
+    return json({ ok: false, error: "expired" }, 410);
+  }
   // at most one blockchain look every 8 seconds per person (the page asks every 10)
   if (p.lastCheck && now - p.lastCheck < 8000) return json({ ok: false, error: "not_found_yet" });
   await env.DB.prepare("UPDATE sessions SET proof = ? WHERE id = ?").bind(JSON.stringify({ ...p, lastCheck: now }), s.id).run();
@@ -407,6 +414,10 @@ const CODE_MAX_SENDS = 5;           // sends per rolling hour, per address
 const CODE_MAX_ATTEMPTS = 5;        // wrong guesses before the code is thrown away
 const GLOBAL_MAX_SENDS = 2000;      // codes mailed per rolling hour across the whole site (override: EMAIL_MAX_PER_HOUR)
 const HOUR_MS = 3600_000;
+// v2 only (SIGNUP_FLOW=v2). Without these, five sends an hour times five guesses was 600 guesses a day at one address, for any
+// e-mail account, through the old sign-in routes (a right code signs the person in; no password is asked).
+const MAIL_PER_DAY = 20;                                  // mails per address per 24 hours, whatever the code is for
+const OLD_ROUTE = { start: { kind: "oes", max: 20 }, verify: { kind: "oev", max: 60 } };  // tries per connection per hour on the old routes
 
 const cleanEmail = (s) => String(s || "").trim().toLowerCase().slice(0, 254);
 // Loose shape check (the code that arrives is the real proof) that also refuses control characters and
@@ -466,7 +477,8 @@ async function sendCodeEmail(env, to, code, fetchImpl, mailer = {}, kind = "sign
  *   noSend   (optional) claim the slot and write the code, but send nothing: the same database work as a real send
  *   codeKey  (optional) the name the code is filed under (default: the address). The mail still goes to `email`. A code can
  *            only be used under the name it was filed under, so a sign-in code can never serve as a password reset code
- * Returns { ok: true } or { ok: false, error: "bad_email" | "email_unavailable" | "too_many" | "too_soon", status }.
+ * Returns { ok: true } or { ok: false, error: "bad_email" | "email_unavailable" | "too_many" | "too_soon" | "slow_down", status }.
+ * ("slow_down" = v2 only: 20 mails to this address in the last 24 hours.)
  */
 export async function sendEmailCode(env, email, { fetchImpl = fetch, now = Date.now(), mailer = {}, kind = "signin", waitUntil = null, noSend = false, codeKey = email } = {}) {
   if (!validEmail(email)) return { ok: false, error: "bad_email", status: 400 };
@@ -476,6 +488,14 @@ export async function sendEmailCode(env, email, { fetchImpl = fetch, now = Date.
   const cap = Number(env.EMAIL_MAX_PER_HOUR) > 0 ? Number(env.EMAIL_MAX_PER_HOUR) : GLOBAL_MAX_SENDS;
   const total = await env.DB.prepare("SELECT COALESCE(SUM(send_count), 0) AS n FROM email_codes WHERE window_start > ?").bind(hourAgo).first();
   if (total && total.n >= cap) return { ok: false, error: "too_many", status: 429 };
+  // v2: 20 mails per address in 24 hours, for every kind of code. It counts mails that were really claimed (below), never tries that
+  // a minute or hour rule refused, so a stranger cannot use it up with a burst of requests. A refusal here touches no code.
+  let dayKey = null;
+  if (v2On(env)) {
+    await ensureSignupSchema(env.DB); // the counters live in the sign-up tables (the old routes only ensure the old ones)
+    dayKey = await limitKey(env, "mail", email);
+    if ((await peek(env, dayKey, 24 * HOUR_MS, now)) >= MAIL_PER_DAY) return { ok: false, error: "slow_down", status: 429 };
+  }
 
   const code = sixDigits();
   const hash = await sha256(code);
@@ -494,9 +514,13 @@ export async function sendEmailCode(env, email, { fetchImpl = fetch, now = Date.
     const soon = row && row.last_sent_at && now - Date.parse(row.last_sent_at) < CODE_RESEND_SECONDS * 1000;
     return { ok: false, error: soon ? "too_soon" : "too_many", status: 429 };
   }
+  if (dayKey) await hits(env, [{ key: dayKey, windowMs: 24 * HOUR_MS }], now);
 
   // The mail never left: give the slot back (and kill the code nobody received).
-  const giveBack = () => env.DB.prepare("UPDATE email_codes SET last_sent_at = NULL, send_count = MAX(send_count - 1, 0), expires_at = ? WHERE email = ? AND code_hash = ?").bind(iso(now), codeKey, hash).run();
+  const giveBack = async () => {
+    await env.DB.prepare("UPDATE email_codes SET last_sent_at = NULL, send_count = MAX(send_count - 1, 0), expires_at = ? WHERE email = ? AND code_hash = ?").bind(iso(now), codeKey, hash).run();
+    if (dayKey) await refund(env, [dayKey]);
+  };
   const deliver = async () => {
     const sent = await sendCodeEmail(env, email, code, fetchImpl, mailer, kind);
     if (!sent.ok) await giveBack();
@@ -517,10 +541,27 @@ export async function sendEmailCode(env, email, { fetchImpl = fetch, now = Date.
   return { ok: true };
 }
 
+/**
+ * v2 only: the old e-mail routes (they only sign people in now) count tries per connection, like the new sign-up routes. Switch off:
+ * nothing is counted and nothing changes. Returns a Response to send, or null. `spec` is one of OLD_ROUTE.
+ */
+async function oldRouteLimit(env, request, spec, now) {
+  if (!v2On(env)) return null;
+  try { await ensureSignupSchema(env.DB); }
+  catch (e) {
+    console.error("sign-up tables unavailable", String((e && e.message) || e));
+    return json({ ok: false, error: "signup_unavailable" }, 503);
+  }
+  const r = await check(env, [{ key: await limitKey(env, spec.kind, clientKey(request)), windowMs: HOUR_MS, max: spec.max }], now);
+  return r.ok ? null : json({ ok: false, error: "slow_down" }, 429);
+}
+
 /** POST /api/auth/email/start { email } → send a 6-digit code. */
 export async function handleEmailStart(request, env, fetchImpl = fetch, now = Date.now(), mailer = {}) {
   const blocked = await guard(request, env);
   if (blocked) return blocked;
+  const slow = await oldRouteLimit(env, request, OLD_ROUTE.start, now);
+  if (slow) return slow;
   const body = await readJson(request);
   const r = await sendEmailCode(env, cleanEmail(body && body.email), { fetchImpl, now, mailer });
   if (!r.ok) return json({ ok: false, error: r.error }, r.status);
@@ -535,6 +576,8 @@ export async function handleEmailStart(request, env, fetchImpl = fetch, now = Da
 export async function handleEmailVerify(request, env, fetchImpl = fetch, now = Date.now()) {
   const blocked = await guard(request, env);
   if (blocked) return blocked;
+  const slow = await oldRouteLimit(env, request, OLD_ROUTE.verify, now);
+  if (slow) return slow;
   const body = await readJson(request);
   const email = cleanEmail(body && body.email);
   const code = String((body && body.code) || "").replace(/\D/g, "").slice(0, 6);
