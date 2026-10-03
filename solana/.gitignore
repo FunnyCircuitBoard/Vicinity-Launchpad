@@ -1,0 +1,22 @@
+# Build output (includes target/deploy/*-keypair.json and target/idl; the IDL
+# that clients use is the committed copy under sdk/idl/).
+target/
+.anchor/
+test-ledger/
+node_modules/
+
+# Keypairs and wallets never enter git, wherever they are and whatever they
+# are called. The devnet deployer lives outside the repository
+# (see README.md, "Devnet").
+*-keypair.json
+**/*-keypair.json
+id.json
+*wallet*.json
+*deployer*.json
+*authority*.json
+*.key
+!sdk/idl/vicinity_rewards.json
+
+# Local tooling noise
+*.log
+.DS_Store

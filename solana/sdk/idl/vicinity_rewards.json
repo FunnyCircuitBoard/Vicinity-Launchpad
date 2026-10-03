@@ -1,0 +1,2979 @@
+{
+  "address": "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi",
+  "metadata": {
+    "name": "vicinity_rewards",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Vicinity Rewards: per city coin reward vault and Merkle claim distributor"
+  },
+  "instructions": [
+    {
+      "name": "accept_admin",
+      "docs": [
+        "Step two of the registry admin transfer, signed by the proposed key."
+      ],
+      "discriminator": [
+        112,
+        42,
+        45,
+        90,
+        116,
+        181,
+        13,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "new_admin",
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "accept_authority",
+      "docs": [
+        "Step two of the authority transfer, signed by the proposed key."
+      ],
+      "discriminator": [
+        107,
+        86,
+        198,
+        91,
+        33,
+        12,
+        107,
+        160
+      ],
+      "accounts": [
+        {
+          "name": "new_authority",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_epoch",
+      "docs": [
+        "Before any claim: withdraw a wrong root, money returns to carry-over."
+      ],
+      "discriminator": [
+        120,
+        226,
+        234,
+        25,
+        215,
+        85,
+        0,
+        155
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              },
+              {
+                "kind": "arg",
+                "path": "epoch_index"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "epoch_index",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "claim",
+      "docs": [
+        "Prove a leaf and receive its amount from the vault."
+      ],
+      "discriminator": [
+        62,
+        198,
+        214,
+        193,
+        213,
+        159,
+        108,
+        210
+      ],
+      "accounts": [
+        {
+          "name": "claimant",
+          "docs": [
+            "The wallet in the leaf. Pays the rent of its claim status (returned by",
+            "`close_claim_status`) and of its token account if it has none."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "docs": [
+            "Bound to this config and index by its seeds: an epoch of another city",
+            "cannot be passed."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              },
+              {
+                "kind": "arg",
+                "path": "epoch_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "claim_status",
+          "docs": [
+            "Plain `init`: this is the double-claim protection. If the account",
+            "already exists the transaction fails here, before any logic runs."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "epoch"
+              },
+              {
+                "kind": "account",
+                "path": "claimant"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reward_mint",
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              }
+            ]
+          },
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "claimant_token_account",
+          "docs": [
+            "The claimant's associated token account for `reward_mint`. The ATA",
+            "derivation binds it to the claimant, so the money can only land in the",
+            "leaf's wallet. Second and last use of `init_if_needed`: a holder who",
+            "never held the reward asset must still be able to claim."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "claimant"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "reward_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "epoch_index",
+          "type": "u64"
+        },
+        {
+          "name": "leaf_index",
+          "type": "u32"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "proof",
+          "type": {
+            "vec": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "close_claim_status",
+      "docs": [
+        "After sweep or cancel: the claimant takes its rent back."
+      ],
+      "discriminator": [
+        163,
+        214,
+        191,
+        165,
+        245,
+        188,
+        17,
+        185
+      ],
+      "accounts": [
+        {
+          "name": "claimant",
+          "docs": [
+            "Receives the rent. Must be the wallet the claim status belongs to."
+          ],
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "claim_status"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              },
+              {
+                "kind": "arg",
+                "path": "epoch_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "claim_status",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "epoch"
+              },
+              {
+                "kind": "account",
+                "path": "claimant"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "epoch_index",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "fund_epoch",
+      "docs": [
+        "Deposit reward money, pay the founder share, publish the root, open the",
+        "claim window."
+      ],
+      "discriminator": [
+        62,
+        200,
+        22,
+        58,
+        233,
+        83,
+        165,
+        196
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The publisher of the root. Must be `config.authority`."
+          ],
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "funder",
+          "docs": [
+            "Owner of `funder_token_account`; pays the rent of the epoch account and",
+            "of the founder's token account if it does not exist yet. May be the",
+            "same key as `authority`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reward_mint",
+          "docs": [
+            "Checked against `config.reward_mint` by `has_one`."
+          ],
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "funder_token_account",
+          "docs": [
+            "Source of the money. Must hold `reward_mint` and belong to `funder`."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "Checked against `config.vault` by `has_one` and re-derived from seeds."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              }
+            ]
+          },
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "founder",
+          "docs": [
+            "of the associated token account below. It must not be an account of",
+            "this program (registry, a config, an epoch, a claim status) and not the",
+            "epoch created here: nothing could ever sign a transfer out of such a",
+            "key's token account, so the share would be lost. `set_founder` only",
+            "sees a key, so the check belongs here, before any money moves; the",
+            "authority then fixes the founder with `set_founder` and funds again."
+          ],
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "founder_token_account",
+          "docs": [
+            "The founder's associated token account for `reward_mint`. The ATA",
+            "derivation binds it to (founder, reward_mint, token_program), so a token",
+            "account of someone else or of another mint is rejected. This is one of",
+            "the places `init_if_needed` is used: the recipient may not have an",
+            "account yet and creating it must not be a reason a payout fails."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "founder"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "reward_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "epoch",
+          "docs": [
+            "Plain `init`: the index is `config.epoch_count`, so the same index can",
+            "never be funded twice."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              },
+              {
+                "kind": "account",
+                "path": "config.epoch_count",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "merkle_root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "num_leaves",
+          "type": "u32"
+        },
+        {
+          "name": "snapshot_slot",
+          "type": "u64"
+        },
+        {
+          "name": "snapshot_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "claim_window_secs",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "fund_epoch_from_vault",
+      "docs": [
+        "Like `fund_epoch`, but the money is what already sits in the vault",
+        "unbooked (fee wallets pointed at the vault, direct transfers). The",
+        "founder share leaves the vault to the founder's ATA; the rest is booked",
+        "as the holders' deposit."
+      ],
+      "discriminator": [
+        67,
+        246,
+        182,
+        129,
+        176,
+        254,
+        183,
+        33
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The publisher of the root. Must be `config.authority`."
+          ],
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent of the epoch account and of the founder's token account",
+            "if it does not exist yet. May be the same key as `authority`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reward_mint",
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "Source of the founder share and home of the holders' part."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              }
+            ]
+          },
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "founder",
+          "docs": [
+            "of the associated token account below. Same rule as in `fund_epoch`: not",
+            "an account of this program and not the epoch created here."
+          ],
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "founder_token_account",
+          "docs": [
+            "The founder's associated token account for `reward_mint` (see `fund_epoch`)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "founder"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "reward_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              },
+              {
+                "kind": "account",
+                "path": "config.epoch_count",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "merkle_root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "num_leaves",
+          "type": "u32"
+        },
+        {
+          "name": "snapshot_slot",
+          "type": "u64"
+        },
+        {
+          "name": "snapshot_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "claim_window_secs",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "init_city",
+      "docs": [
+        "Create the config and the vault for one city coin (registry admin only)."
+      ],
+      "discriminator": [
+        178,
+        113,
+        156,
+        92,
+        100,
+        81,
+        140,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent of the config and the vault."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Must be `registry.admin`. Only Vicinity can create a city's config, so",
+            "nobody can squat the `[\"city\", mint]` PDA of a freshly created coin",
+            "(there is no close instruction; a squatted config would be permanent)."
+          ],
+          "signer": true,
+          "relations": [
+            "registry"
+          ]
+        },
+        {
+          "name": "registry",
+          "docs": [
+            "The one registry of this program (created by `init_registry`)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "Becomes `config.authority`. It must sign so that nobody can create a",
+            "config that names a key its owner never agreed to operate. May be the",
+            "same key as `admin`."
+          ],
+          "signer": true
+        },
+        {
+          "name": "founder",
+          "docs": [
+            "paid to this key's associated token account, so the key must be one that",
+            "can sign token transfers: a wallet, or a program address whose program",
+            "signs for it (a Squads vault does; this program's own PDAs never do).",
+            "The program cannot see whether anyone can sign for an arbitrary key, so",
+            "it refuses only what it can recognise: the zero address, the config,",
+            "the vault, and any account it owns itself (registry, another config, an",
+            "epoch, a claim status: `owner == this program`). `fund_epoch` and",
+            "`fund_epoch_from_vault` repeat the owner check at every funding, so a",
+            "later `set_founder` to such an account fails before any money moves."
+          ]
+        },
+        {
+          "name": "city_coin_mint",
+          "docs": [
+            "The city coin. Identity of the config; this program never moves it.",
+            "`InterfaceAccount<Mint>` proves it is a real Token or Token-2022 mint."
+          ]
+        },
+        {
+          "name": "reward_mint",
+          "docs": [
+            "The asset rewards are paid in. Must be owned by `token_program`."
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "city_coin_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "Ordinary SPL token account owned by the config PDA. Anyone can send",
+            "`reward_mint` to it, but only `claim` can take anything out."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token or Token-2022; must be the program that owns `reward_mint`."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "reward_model",
+          "type": {
+            "defined": {
+              "name": "RewardModel"
+            }
+          }
+        },
+        {
+          "name": "founder_bps",
+          "type": "u16"
+        },
+        {
+          "name": "city_tag",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "init_registry",
+      "docs": [
+        "One-time: create the registry that names who may create city configs.",
+        "Only the program's upgrade authority can call it."
+      ],
+      "discriminator": [
+        131,
+        22,
+        4,
+        103,
+        24,
+        94,
+        163,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent of the registry."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "upgrade_authority",
+          "docs": [
+            "Must be the program's current upgrade authority."
+          ],
+          "signer": true
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Becomes `registry.admin`, the only key that may create city configs.",
+            "It must sign, like `authority` in `init_city`: a key that never signed",
+            "could be one nobody holds, and nothing in the program could ever",
+            "replace it (see the module comment). Usually the deployer itself, which",
+            "then hands the role to the multisig with `propose_admin`."
+          ],
+          "signer": true
+        },
+        {
+          "name": "program",
+          "docs": [
+            "This program's executable account; Anchor checks the address.",
+            "",
+            "Note on error order: Anchor runs every `init` before the other accounts'",
+            "constraints, so while the registry does not exist a wrong signer gets",
+            "`NotUpgradeAuthority`, and once it exists (the normal state) anyone,",
+            "including a wrong signer, gets the system program's \"already in use\".",
+            "Both refuse; the transaction never changes anything."
+          ],
+          "address": "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "The program's ProgramData account (BPF upgradeable loader), which",
+            "names the upgrade authority."
+          ]
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "lock_config",
+      "docs": [
+        "Make the economics permanent (also happens at the first `fund_epoch`)."
+      ],
+      "discriminator": [
+        140,
+        30,
+        78,
+        170,
+        92,
+        132,
+        150,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "pause",
+      "docs": [
+        "Stop funding and claiming for this city."
+      ],
+      "discriminator": [
+        211,
+        22,
+        221,
+        251,
+        74,
+        121,
+        193,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "propose_admin",
+      "docs": [
+        "Step one of the registry admin transfer (zero address cancels)."
+      ],
+      "discriminator": [
+        121,
+        214,
+        199,
+        212,
+        87,
+        39,
+        117,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "registry"
+          ]
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_admin",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "propose_authority",
+      "docs": [
+        "Step one of the authority transfer (zero address cancels)."
+      ],
+      "discriminator": [
+        20,
+        148,
+        236,
+        198,
+        76,
+        119,
+        99,
+        142
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_authority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "set_founder",
+      "docs": [
+        "Change who receives the founder share from now on."
+      ],
+      "discriminator": [
+        160,
+        164,
+        27,
+        9,
+        30,
+        8,
+        85,
+        180
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_founder",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "sweep_epoch",
+      "docs": [
+        "After the deadline: roll unclaimed holder money into the next epoch."
+      ],
+      "discriminator": [
+        187,
+        9,
+        52,
+        111,
+        60,
+        24,
+        52,
+        28
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config"
+              },
+              {
+                "kind": "arg",
+                "path": "epoch_index"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "epoch_index",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "unpause",
+      "docs": [
+        "Resume funding and claiming."
+      ],
+      "discriminator": [
+        169,
+        144,
+        4,
+        38,
+        10,
+        141,
+        188,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.city_coin_mint",
+                "account": "CityConfig"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "CityConfig",
+      "discriminator": [
+        14,
+        136,
+        110,
+        28,
+        46,
+        68,
+        178,
+        115
+      ]
+    },
+    {
+      "name": "ClaimStatus",
+      "discriminator": [
+        22,
+        183,
+        249,
+        157,
+        247,
+        95,
+        150,
+        96
+      ]
+    },
+    {
+      "name": "Epoch",
+      "discriminator": [
+        93,
+        83,
+        120,
+        89,
+        151,
+        138,
+        152,
+        108
+      ]
+    },
+    {
+      "name": "Registry",
+      "discriminator": [
+        47,
+        174,
+        110,
+        246,
+        184,
+        182,
+        252,
+        218
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "AdminAccepted",
+      "discriminator": [
+        174,
+        12,
+        76,
+        139,
+        158,
+        99,
+        110,
+        254
+      ]
+    },
+    {
+      "name": "AdminProposed",
+      "discriminator": [
+        129,
+        249,
+        226,
+        227,
+        199,
+        82,
+        110,
+        243
+      ]
+    },
+    {
+      "name": "AuthorityAccepted",
+      "discriminator": [
+        166,
+        192,
+        219,
+        188,
+        41,
+        209,
+        195,
+        26
+      ]
+    },
+    {
+      "name": "AuthorityProposed",
+      "discriminator": [
+        244,
+        117,
+        94,
+        112,
+        53,
+        151,
+        35,
+        89
+      ]
+    },
+    {
+      "name": "CityInitialized",
+      "discriminator": [
+        42,
+        47,
+        128,
+        157,
+        20,
+        113,
+        147,
+        99
+      ]
+    },
+    {
+      "name": "ClaimStatusClosed",
+      "discriminator": [
+        47,
+        148,
+        200,
+        237,
+        136,
+        75,
+        227,
+        137
+      ]
+    },
+    {
+      "name": "Claimed",
+      "discriminator": [
+        217,
+        192,
+        123,
+        72,
+        108,
+        150,
+        248,
+        33
+      ]
+    },
+    {
+      "name": "ConfigLocked",
+      "discriminator": [
+        111,
+        41,
+        37,
+        92,
+        41,
+        202,
+        238,
+        59
+      ]
+    },
+    {
+      "name": "EpochCancelled",
+      "discriminator": [
+        207,
+        234,
+        62,
+        125,
+        97,
+        159,
+        190,
+        48
+      ]
+    },
+    {
+      "name": "EpochFunded",
+      "discriminator": [
+        195,
+        100,
+        72,
+        55,
+        149,
+        43,
+        110,
+        236
+      ]
+    },
+    {
+      "name": "EpochSwept",
+      "discriminator": [
+        11,
+        16,
+        10,
+        21,
+        155,
+        190,
+        75,
+        56
+      ]
+    },
+    {
+      "name": "FounderChanged",
+      "discriminator": [
+        199,
+        93,
+        111,
+        129,
+        24,
+        227,
+        11,
+        138
+      ]
+    },
+    {
+      "name": "PauseChanged",
+      "discriminator": [
+        238,
+        188,
+        213,
+        78,
+        134,
+        209,
+        178,
+        218
+      ]
+    },
+    {
+      "name": "RegistryInitialized",
+      "discriminator": [
+        144,
+        138,
+        62,
+        105,
+        58,
+        38,
+        100,
+        177
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "FounderBpsMismatch",
+      "msg": "founder_bps does not match the reward model (Creator = 10000, Holders = 0, Split = an allowed split)"
+    },
+    {
+      "code": 6001,
+      "name": "SplitBpsNotAllowed",
+      "msg": "founder_bps for the Split model must be one of ALLOWED_SPLIT_BPS (see the IDL constants)"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidFounderBps",
+      "msg": "founder_bps is greater than 10000"
+    },
+    {
+      "code": 6003,
+      "name": "RewardMintIsCityCoin",
+      "msg": "the reward mint must not be the city coin itself"
+    },
+    {
+      "code": 6004,
+      "name": "UnsupportedRewardMint",
+      "msg": "the reward mint uses a Token-2022 extension the vault cannot account for (transfer fee, transfer hook, permanent delegate, non-transferable, confidential transfers, default account state, mint close authority, or an unknown extension)"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidCityTag",
+      "msg": "city_tag must be printable ASCII followed by zero padding"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidFounder",
+      "msg": "founder must not be the zero address"
+    },
+    {
+      "code": 6007,
+      "name": "FounderIsProgramAccount",
+      "msg": "founder must not be an account of this program (config, vault, registry, epoch, claim status): nothing could ever move money out of its token account"
+    },
+    {
+      "code": 6008,
+      "name": "Unauthorized",
+      "msg": "signer is not the config authority (or, for init_city, not the registry admin)"
+    },
+    {
+      "code": 6009,
+      "name": "NotUpgradeAuthority",
+      "msg": "signer is not the program's upgrade authority"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidAdmin",
+      "msg": "admin must not be the zero address"
+    },
+    {
+      "code": 6011,
+      "name": "NoPendingAdmin",
+      "msg": "no admin transfer is pending"
+    },
+    {
+      "code": 6012,
+      "name": "NotPendingAdmin",
+      "msg": "signer is not the pending admin"
+    },
+    {
+      "code": 6013,
+      "name": "AlreadyLocked",
+      "msg": "config is already locked"
+    },
+    {
+      "code": 6014,
+      "name": "NoPendingAuthority",
+      "msg": "no authority transfer is pending"
+    },
+    {
+      "code": 6015,
+      "name": "NotPendingAuthority",
+      "msg": "signer is not the pending authority"
+    },
+    {
+      "code": 6016,
+      "name": "AlreadyPaused",
+      "msg": "config is already paused"
+    },
+    {
+      "code": 6017,
+      "name": "NotPaused",
+      "msg": "config is not paused"
+    },
+    {
+      "code": 6018,
+      "name": "Paused",
+      "msg": "funding and claiming are paused for this city"
+    },
+    {
+      "code": 6019,
+      "name": "ClaimWindowOutOfRange",
+      "msg": "claim_window_secs is outside [MIN_CLAIM_WINDOW_SECS, MAX_CLAIM_WINDOW_SECS] (see the IDL constants)"
+    },
+    {
+      "code": 6020,
+      "name": "NothingToDistribute",
+      "msg": "nothing to distribute: the deposit (or the vault surplus) is 0 and there is no carry-over"
+    },
+    {
+      "code": 6021,
+      "name": "CreatorModelHasHolderFunds",
+      "msg": "Creator model: the holders amount must be 0 (no holder share and no carry-over)"
+    },
+    {
+      "code": 6022,
+      "name": "CreatorModelHasTree",
+      "msg": "Creator model: num_leaves must be 0 and merkle_root must be all zeros"
+    },
+    {
+      "code": 6023,
+      "name": "MissingMerkleRoot",
+      "msg": "Holders and Split models: merkle_root must not be all zeros"
+    },
+    {
+      "code": 6024,
+      "name": "MissingLeaves",
+      "msg": "Holders and Split models: num_leaves must be greater than 0"
+    },
+    {
+      "code": 6025,
+      "name": "MissingSnapshotHash",
+      "msg": "Holders and Split models: snapshot_hash must not be all zeros (the root must be recomputable from a published snapshot)"
+    },
+    {
+      "code": 6026,
+      "name": "EpochIndexMismatch",
+      "msg": "epoch index does not match the epoch account"
+    },
+    {
+      "code": 6027,
+      "name": "EpochNotOpen",
+      "msg": "epoch is not open"
+    },
+    {
+      "code": 6028,
+      "name": "ClaimDeadlinePassed",
+      "msg": "the claim deadline has passed"
+    },
+    {
+      "code": 6029,
+      "name": "ClaimDeadlineNotPassed",
+      "msg": "the claim deadline has not passed yet"
+    },
+    {
+      "code": 6030,
+      "name": "LeafIndexOutOfRange",
+      "msg": "leaf_index must be smaller than num_leaves"
+    },
+    {
+      "code": 6031,
+      "name": "ZeroClaimAmount",
+      "msg": "claim amount must be greater than 0"
+    },
+    {
+      "code": 6032,
+      "name": "ProofTooLong",
+      "msg": "proof is longer than 32 hashes"
+    },
+    {
+      "code": 6033,
+      "name": "InvalidProof",
+      "msg": "Merkle proof does not verify for this leaf (wrong index, wallet, amount or proof)"
+    },
+    {
+      "code": 6034,
+      "name": "ClaimExceedsHoldersAmount",
+      "msg": "claim would exceed the epoch's holders amount"
+    },
+    {
+      "code": 6035,
+      "name": "EpochHasClaims",
+      "msg": "epoch already has claims; it can only be swept after the deadline"
+    },
+    {
+      "code": 6036,
+      "name": "EpochStillOpen",
+      "msg": "epoch is still open; a claim status can be closed only after sweep or cancel"
+    },
+    {
+      "code": 6037,
+      "name": "MathOverflow",
+      "msg": "arithmetic overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "AdminAccepted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "registry",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdminProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "registry",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_admin",
+            "docs": [
+              "Zero address means a pending transfer was cancelled."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuthorityAccepted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuthorityProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_authority",
+            "docs": [
+              "Zero address means a pending transfer was cancelled."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CityConfig",
+      "docs": [
+        "One per city coin. Seeds: `[\"city\", city_coin_mint]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Operator key (Vicinity ops; a Squads multisig is recommended). Publishes",
+              "epochs, pauses, changes the founder. Cannot change economics after lock",
+              "and can never move vault money: there is no withdraw instruction."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_authority",
+            "docs": [
+              "Second step of an authority transfer. Zero address = nothing pending."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "founder",
+            "docs": [
+              "Receives the founder share at every `fund_epoch`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "city_coin_mint",
+            "docs": [
+              "The city coin this config belongs to. Identity of the config."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_mint",
+            "docs": [
+              "The asset rewards are paid in (for example WSOL or USDC)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "docs": [
+              "SPL token account for `reward_mint`, owner = this PDA. Seeds `[\"vault\", config]`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_model",
+            "docs": [
+              "Permanent after lock."
+            ],
+            "type": {
+              "defined": {
+                "name": "RewardModel"
+              }
+            }
+          },
+          {
+            "name": "founder_bps",
+            "docs": [
+              "Founder share in basis points. Permanent after lock."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "locked",
+            "docs": [
+              "Set by `lock_config` or by the first `fund_epoch`. Once true the",
+              "economics (model, bps, mints, vault) can never change: no instruction",
+              "writes them."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "paused",
+            "docs": [
+              "Blocks `fund_epoch`, `fund_epoch_from_vault` and `claim`. Cancel keeps",
+              "working so a paused city can still be wound down; sweep works only once",
+              "the pause-extended deadline has passed (see `paused_total_secs`)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "paused_at",
+            "docs": [
+              "Unix time the current pause began. 0 when not paused."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "paused_total_secs",
+            "docs": [
+              "Total seconds this city has spent paused (completed pauses only; the",
+              "running pause is added at `unpause`). Every epoch records this value",
+              "when it is funded; a claim deadline is extended by the pause time",
+              "accrued since then, so a pause can never eat into a claim window and",
+              "the authority cannot use pause + sweep to take back money a published",
+              "root promised to holders."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "epoch_count",
+            "docs": [
+              "Index of the next epoch."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "carry_over",
+            "docs": [
+              "Unclaimed holder money from swept or cancelled epochs, rolled into the",
+              "next epoch's `holders_amount`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_funded",
+            "docs": [
+              "Lifetime amount distributed: `fund_epoch` deposits plus the vault",
+              "surpluses booked by `fund_epoch_from_vault`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_to_founder",
+            "docs": [
+              "Lifetime amount paid to founders. Invariant: total_funded == total_to_founder + total_to_holders."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_to_holders",
+            "docs": [
+              "Lifetime amount deposited into the vault for holders."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_claimed",
+            "docs": [
+              "Lifetime amount paid out by `claim`. Invariant: total_claimed <= total_to_holders."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "city_tag",
+            "docs": [
+              "ASCII, zero padded, informational only (for example `us-ny-utica`)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "vault_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CityInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "city_coin_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "founder",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_model",
+            "type": {
+              "defined": {
+                "name": "RewardModel"
+              }
+            }
+          },
+          {
+            "name": "founder_bps",
+            "type": "u16"
+          },
+          {
+            "name": "city_tag",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimStatus",
+      "docs": [
+        "Proof that a wallet has claimed from an epoch. Seeds: `[\"claim\", epoch, claimant]`.",
+        "",
+        "Created with `init` inside `claim`, so a second claim by the same wallet in",
+        "the same epoch fails at account creation, before any program logic runs.",
+        "Rent is paid by the claimant and returned by `close_claim_status` once the",
+        "epoch is finished."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "claimant",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "claimed_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimStatusClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "pubkey"
+          },
+          {
+            "name": "claimant",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Claimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u64"
+          },
+          {
+            "name": "claimant",
+            "type": "pubkey"
+          },
+          {
+            "name": "leaf_index",
+            "type": "u32"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "epoch_claimed_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigLocked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Epoch",
+      "docs": [
+        "One per funded distribution. Seeds: `[\"epoch\", config, index as u64 LE]`.",
+        "",
+        "`merkle_root`, `holders_amount`, `num_leaves`, `snapshot_*`, the amounts and",
+        "the deadline are write-once: they are set when the epoch is created and no",
+        "instruction updates them. Only `claimed_amount` and `state` change."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "docs": [
+              "The `CityConfig` this epoch belongs to (also bound by the PDA seeds; the",
+              "field lets indexers list a city's epochs with a memcmp filter)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u64"
+          },
+          {
+            "name": "merkle_root",
+            "docs": [
+              "Root of the snapshot tree. All zeros for Creator-model epochs."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "deposit_amount",
+            "docs": [
+              "Amount passed to `fund_epoch` (audit trail: founder + holders deposit)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "founder_amount",
+            "docs": [
+              "Part of `deposit_amount` paid to the founder."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "holders_amount",
+            "docs": [
+              "Distributable to holders in this epoch = holders deposit + carry-over taken."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "claimed_amount",
+            "docs": [
+              "Sum of all claims paid from this epoch. Never exceeds `holders_amount`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "num_leaves",
+            "type": "u32"
+          },
+          {
+            "name": "snapshot_slot",
+            "docs": [
+              "Slot at which the holder snapshot was taken."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "snapshot_hash",
+            "docs": [
+              "SHA-256 of the published snapshot file, so anyone can recompute the root."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "funded_at",
+            "type": "i64"
+          },
+          {
+            "name": "claim_deadline",
+            "docs": [
+              "Nominal deadline: `funded_at + claim_window_secs`. The effective",
+              "deadline adds the pause time accrued since funding",
+              "(`math::effective_deadline`); claims are accepted while",
+              "`now <= effective deadline`, sweep only afterwards."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "pause_secs_at_funding",
+            "docs": [
+              "`config.paused_total_secs` when the epoch was funded."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "EpochState"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpochCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u64"
+          },
+          {
+            "name": "returned_amount",
+            "type": "u64"
+          },
+          {
+            "name": "carry_over",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpochFunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u64"
+          },
+          {
+            "name": "from_vault",
+            "docs": [
+              "True when the money came from the vault's unaccounted balance",
+              "(`fund_epoch_from_vault`), false when a funder deposited it (`fund_epoch`)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "deposit_amount",
+            "type": "u64"
+          },
+          {
+            "name": "founder_amount",
+            "type": "u64"
+          },
+          {
+            "name": "holders_deposit",
+            "type": "u64"
+          },
+          {
+            "name": "carry_in",
+            "type": "u64"
+          },
+          {
+            "name": "holders_amount",
+            "type": "u64"
+          },
+          {
+            "name": "num_leaves",
+            "type": "u32"
+          },
+          {
+            "name": "merkle_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "snapshot_slot",
+            "type": "u64"
+          },
+          {
+            "name": "snapshot_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "funded_at",
+            "type": "i64"
+          },
+          {
+            "name": "claim_deadline",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpochState",
+      "docs": [
+        "Life cycle of an epoch. `Open` is the only state in which claims are paid."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Cancelled"
+          },
+          {
+            "name": "Swept"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpochSwept",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u64"
+          },
+          {
+            "name": "unclaimed_amount",
+            "type": "u64"
+          },
+          {
+            "name": "carry_over",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FounderChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_founder",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_founder",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PauseChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "paused_total_secs",
+            "docs": [
+              "Completed pause seconds so far (grows at every unpause)."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Registry",
+      "docs": [
+        "One per program. Seeds: `[\"registry\"]`.",
+        "",
+        "Says who may create city configs. Without it `init_city` would be",
+        "permissionless per mint and the first caller would own the `[\"city\", mint]`",
+        "PDA of a coin forever (there is no close instruction), so a bot could squat",
+        "every new city coin. `init_registry` can only be called by the program's",
+        "upgrade authority, once; afterwards the admin moves with a two-step transfer",
+        "like the city authority."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "docs": [
+              "The only key that may sign `init_city` (recommended: a Squads multisig)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_admin",
+            "docs": [
+              "Second step of an admin transfer. Zero address = nothing pending."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RegistryInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "registry",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "upgrade_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardModel",
+      "docs": [
+        "How the reward money of a city coin is divided. Permanent once the config",
+        "is locked (explicitly, or by the first funded epoch)."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Creator"
+          },
+          {
+            "name": "Holders"
+          },
+          {
+            "name": "Split"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "ALLOWED_SPLIT_BPS",
+      "docs": [
+        "Founder shares the Split model may use (PRODUCT DECISION: 25/50/75).",
+        "Arbitrary splits are deliberately not allowed until their economics are",
+        "reviewed; the UI offers exactly these choices."
+      ],
+      "type": {
+        "array": [
+          "u16",
+          3
+        ]
+      },
+      "value": "[2500, 5000, 7500]"
+    },
+    {
+      "name": "BPS_DENOMINATOR",
+      "docs": [
+        "Basis points denominator: 10000 bps = 100%."
+      ],
+      "type": "u64",
+      "value": "10000"
+    },
+    {
+      "name": "CREATOR_BPS",
+      "docs": [
+        "The Creator model sends everything to the founder."
+      ],
+      "type": "u16",
+      "value": "10000"
+    },
+    {
+      "name": "HOLDERS_BPS",
+      "docs": [
+        "The Holders model sends nothing to the founder."
+      ],
+      "type": "u16",
+      "value": "0"
+    },
+    {
+      "name": "MAX_CLAIM_WINDOW_SECS",
+      "docs": [
+        "Longest claim window an epoch may have (PRODUCT DECISION: 365 days)."
+      ],
+      "type": "i64",
+      "value": "31536000"
+    },
+    {
+      "name": "MIN_CLAIM_WINDOW_SECS",
+      "docs": [
+        "Shortest claim window an epoch may have (PRODUCT DECISION: 14 days).",
+        "",
+        "The `short-windows` Cargo feature (tests only, see Cargo.toml) lowers this",
+        "to 60 seconds so that the deadline, sweep and close_claim_status paths can",
+        "be exercised against a real clock. The IDL of such a build carries the short",
+        "value, so a client can tell the two apart."
+      ],
+      "type": "i64",
+      "value": "1209600"
+    }
+  ]
+}
