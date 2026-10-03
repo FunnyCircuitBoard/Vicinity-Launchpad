@@ -80,7 +80,10 @@ jobs:
       - name: Committed IDL matches the production build
         run: diff target/idl/vicinity_rewards.json sdk/idl/vicinity_rewards.json
       - name: Production IDL enforces the 14-day minimum window
-        run: grep -q '"name": "MIN_CLAIM_WINDOW_SECS"' target/idl/vicinity_rewards.json && python3 -c "import json,sys; c={x['name']:x['value'] for x in json.load(open('target/idl/vicinity_rewards.json'))['constants']}; sys.exit(0 if c['MIN_CLAIM_WINDOW_SECS']=='1209600' else 1)"
+        # (a block scalar: a plain YAML scalar may not contain the ': ' inside the grep pattern)
+        run: |
+          grep -q '"name": "MIN_CLAIM_WINDOW_SECS"' target/idl/vicinity_rewards.json
+          python3 -c "import json,sys; c={x['name']:x['value'] for x in json.load(open('target/idl/vicinity_rewards.json'))['constants']}; sys.exit(0 if c['MIN_CLAIM_WINDOW_SECS']=='1209600' else 1)"
       - name: Committed fixtures match their generators
         run: npm run sdk-fixtures && git diff --exit-code -- sdk/fixtures
       # The deadline, sweep and close_claim_status tests need an epoch whose
