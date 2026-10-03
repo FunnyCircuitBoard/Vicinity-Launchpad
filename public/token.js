@@ -57,10 +57,10 @@
   /* ---------- holders table ---------- */
   // The server answers 1,000 wallets at a time (/api/holders?offset=N, `more` says whether to ask again); the page keeps
   // asking until every holder is here. Rows go into the table 250 per animation frame, so a list of 10,000 wallets never
-  // freezes the page. The box itself has a fixed height and scrolls on its own (style.css .table-scroll), so the page
-  // stays the same length however many people hold the token.
+  // freezes the page. The box itself scrolls on its own and, once the live list is in it, has a fixed height (style.css
+  // .holders--live .table-scroll), so the page stays the same length however many people hold the token.
   const CHUNK = 250, MAX_PAGES = 200;
-  let queue = [], drawing = false, keepScroll = 0, load = 0;
+  let queue = [], drawing = false, restart = false, loading = false, keepScroll = 0, load = 0, lastSnap = null;
   function row(h) {
     const tr = el("tr"); tr.dataset.owner = h.owner;
     const w = el("td");
@@ -78,21 +78,31 @@
   function place(h) {
     const tr = row(h), q = query();
     tr.hidden = Boolean(q) && !h.owner.includes(q);
-    if (lastLookup && h.owner === lastLookup) tr.classList.add("is-me");
+    if (lastLookup && h.owner === lastLookup) { tr.classList.add("is-me"); $("#rank-show").hidden = false; } // its row can land after the lookup: the button follows it
     return tr;
   }
-  function draw() {
+  /** After a refresh, put the reader back where they were: once the rows reach that far, or at the end of the load as far as they go. */
+  function restore(final) {
+    if (!keepScroll) return;
     const box = $("#holders-scroll");
-    $("#holders-body").append(...queue.splice(0, CHUNK).map(place));
-    if (keepScroll) box.scrollTop = keepScroll; // a refresh keeps the reader's place in the list (the box clamps until the rows are back)
-    drawing = queue.length > 0;
-    if (drawing) requestAnimationFrame(draw); else keepScroll = 0;
+    if (final || box.scrollHeight - box.clientHeight >= keepScroll) { box.scrollTop = keepScroll; keepScroll = 0; }
   }
-  /** Queue rows for the table; `fresh` starts over (a new load) and remembers how far down the reader was. */
-  function show(rows, fresh) {
-    if (fresh) { queue = []; keepScroll = $("#holders-scroll").scrollTop; $("#holders-body").replaceChildren(); }
+  function draw() {
+    const body = $("#holders-body"), rows = queue.splice(0, CHUNK).map(place);
+    if (restart) { body.replaceChildren(...rows); restart = false; } else body.append(...rows); // a new load swaps the old rows for its first chunk: the table is never empty for a frame
+    drawing = queue.length > 0;
+    restore(!drawing && !loading);
+    if (drawing) requestAnimationFrame(draw);
+  }
+  /** Queue rows for the table; `first` starts over (a new load) and remembers how far down the reader was. */
+  function show(rows, first) {
+    if (first) {
+      queue = []; restart = true; loading = true;
+      if (!keepScroll) keepScroll = $("#holders-scroll").scrollTop; // a second refresh before the first put the reader back keeps the older place
+      $(".holders").classList.add("holders--live"); // from here on the box has its fixed height (style.css)
+    }
     queue.push(...rows);
-    if (!drawing && queue.length) { drawing = true; requestAnimationFrame(draw); }
+    if (!drawing && (queue.length || restart)) { drawing = true; requestAnimationFrame(draw); }
   }
   async function loadHolders() {
     const status = $("#holders-status");
@@ -102,6 +112,9 @@
     if (!d.launched) return;
     $("#holders-refresh").hidden = false;
     if (d.error || !Array.isArray(d.holders)) { status.textContent = "The blockchain is busy right now. Try Refresh in a minute."; return; }
+    // the snapshot already on screen (the server keeps one for a minute): no more pages to ask for, nothing to redraw
+    if (lastSnap && d.full && d.updatedAt === lastSnap.at && d.count === lastSnap.count) { status.textContent = lastSnap.text; return; }
+    lastSnap = null;
     holders = d.holders;
     show(holders, true);
     // the next pages, if any; a wallet seen twice (the server's snapshot moved on between two pages) is listed once
@@ -117,12 +130,15 @@
       holders = holders.concat(fresh);
       show(fresh, false);
     }
+    loading = false;
+    if (!drawing) restore(true); // every row is drawn already; otherwise draw() does this when its queue runs out
     const people = holders.filter((h) => h.rank);
     const total = d.total ?? people.length;
     const at = new Date(d.updatedAt).toLocaleTimeString();
     status.textContent = !d.full ? `Top ${holders.length} wallets · updated ${at}`
       : complete ? `${fmt(total)} holders · updated ${at}`
       : `${fmt(total)} holders · showing the top ${fmt(people.length)} · updated ${at}`;
+    if (complete && d.full) lastSnap = { at: d.updatedAt, count: d.count, text: status.textContent };
     $("#st-holders").textContent = d.full ? fmt(total) : `${people.length}+`;
     $("#st-top10").textContent = `${pctText(people.slice(0, 10).reduce((s, h) => s + h.percent, 0))}%`;
   }

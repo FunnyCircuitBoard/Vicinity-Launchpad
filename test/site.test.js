@@ -153,7 +153,7 @@ test("token page: live facts on top, verify a wallet, holders in a scrolling tab
   assert.match(h, /Buy on Raydium/);
   assert.doesNotMatch(h, /pump\.fun|stonkfun|stonfun/i, "launching on Raydium LaunchLab");
   assert.match(read("token.js"), /https:\/\/raydium\.io\/launchpad\/token\/\?mint=\$\{m\}/, "buy link goes to the real raydium.io");
-  assert.match(css, /\.table-scroll \{ height: clamp\(320px, 60vh, 640px\); overflow: auto;/, "the holder list is a box of fixed height that scrolls on its own");
+  assert.match(css, /\.holders--live \.table-scroll \{ height: clamp\(320px, 60vh, 640px\); \}/, "the live holder list is a box of fixed height that scrolls on its own");
   assert.match(css, /\.holders__table thead th \{ position: sticky;/);
 });
 

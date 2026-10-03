@@ -85,7 +85,7 @@ The scheduled job and the full holder list need more CPU time than Cloudflare's 
 | Route | What it does |
 |---|---|
 | `GET /api/health` · `/api/official` · `/api/check?q=` · `/api/policy` | Status · official links · is this link official? · the rules + job health |
-| `GET /api/token` · `/api/holders` · `/api/rank?address=` | Live token facts + price · every holder (top 1,000) · one wallet's rank |
+| `GET /api/token` · `/api/holders` · `/api/rank?address=` | Live token facts + price · every holder, 1,000 per page (`?offset=N`; `more`, `count`) · one wallet's rank |
 | `GET /api/message?address=&action=verify/login` · `POST /api/verify` | The text a wallet signs · check a signature (nothing stored) |
 | `GET /api/seats` (also `/api/claims`) · `/api/seats/results/:id` | Founder seats + open windows · a window's published result and hash |
 | `GET /api/moderator?country=` · `/api/elections/results/:id` | A country's manager · an election's published result |
