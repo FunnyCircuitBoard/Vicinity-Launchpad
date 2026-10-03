@@ -84,17 +84,28 @@ export const loginBody = async (w, pin) => {
   return { address: w.address, message, signature: await w.sign(message) };
 };
 
-/** A browser: keeps cookies, sends Origin like real browsers. */
-export function browser(env) {
+/**
+ * A browser: keeps cookies, sends Origin like real browsers.
+ *   { ip, cf }  the connection this browser comes from, like Cloudflare reports it: cf-connecting-ip, and request.cf
+ *               (country, asn, asOrganization, latitude, longitude). Both are changeable through `net` (a person who moves
+ *               from Wi-Fi to mobile data), and per call: send(path, { ip, cf }). Without them, requests look like local tests.
+ *   send(path, { method, body, fetchImpl, ctx, origin })  origin: null sends none, a string sends that one.
+ */
+export function browser(env, { ip, cf } = {}) {
   const jar = new Map();
-  const send = async (path, { method = "GET", body, fetchImpl = chain() } = {}) => {
-    const headers = new Headers({ origin: ORIGIN });
+  const net = { ip, cf };
+  const send = async (path, { method = "GET", body, fetchImpl = chain(), ctx = null, origin = ORIGIN, ip: ipNow = net.ip, cf: cfNow = net.cf } = {}) => {
+    const headers = new Headers();
+    if (origin) headers.set("origin", origin);
     if (jar.size) headers.set("cookie", [...jar].map(([k, v]) => `${k}=${v}`).join("; "));
-    const res = await handleApi(new Request(ORIGIN + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }), env, fetchImpl);
+    if (ipNow) headers.set("cf-connecting-ip", ipNow);
+    const request = new Request(ORIGIN + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    if (cfNow) Object.defineProperty(request, "cf", { value: cfNow });
+    const res = await handleApi(request, env, fetchImpl, ctx);
     for (const c of res.headers.getSetCookie()) { const [pair] = c.split("; "); const i = pair.indexOf("="); jar.set(pair.slice(0, i), pair.slice(i + 1)); }
     return res;
   };
-  return { send, jar, get: async (p) => (await send(p)).json(), post: async (p, body = {}) => (await send(p, { method: "POST", body })).json() };
+  return { send, jar, net, has: (name) => Boolean(jar.get(name)), get: async (p) => (await send(p)).json(), post: async (p, body = {}) => (await send(p, { method: "POST", body })).json() };
 }
 
 let nextId = 1;
@@ -132,3 +143,6 @@ export const tick = (env, { sample = true } = {}) => runJobs(env, clock.now, cha
 export async function passTime(env, ms, step = 6 * HOUR) {
   for (let t = 0; t < ms; t += step) { advance(Math.min(step, ms - t)); await tick(env); }
 }
+
+/** A world with the new sign-up switched on (SIGNUP_FLOW=v2), a mail sender, and a cheap password hash (1,000 rounds keeps hundreds of hashes fast). */
+export const V2 = (extra = {}) => newWorld({ SIGNUP_FLOW: "v2", RESEND_API_KEY: "rk-test", PASSWORD_ITERATIONS: "1000", ...extra });
