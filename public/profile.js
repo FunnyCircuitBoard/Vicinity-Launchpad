@@ -415,7 +415,7 @@
           });
           $("#portfolio").hidden = false;
           pv.start(null);
-        } else if (pv) pv.paint();
+        }
         $("#pf-notice").hidden = dismissed || seen();
       },
       /** The profile window opened: fill the bio field with what is saved. */
@@ -654,13 +654,13 @@
 
     async function toggleFollow() {
       if (busy || !cur) return;
-      busy = true; setErr("");
+      busy = true; setErr(""); $("#pf-follow").setAttribute("aria-disabled", "true"); // stays focusable (a disabled button would drop the keyboard's place); a second press waits for the answer
       const was = Boolean(cur.viewer.following), before = { ...cur.counts };
       cur.viewer.following = !was; // optimistic: shows at once, taken back if the server says no
       cur.counts = { ...cur.counts, followers: Math.max(0, (cur.counts.followers || 0) + (was ? -1 : 1)) };
       paintFollow(); paintCounts();
       const d = await api("/api/follow", { handle: cur.handle, follow: !was });
-      busy = false;
+      busy = false; $("#pf-follow").removeAttribute("aria-disabled");
       if (!d || !d.ok) {
         cur.viewer.following = was; cur.counts = before;
         paintFollow(); paintCounts();
@@ -671,7 +671,7 @@
       if (d.counts) cur.counts = d.counts;
       paintFollow(); paintCounts();
       say(d.following ? `You now follow ${cur.handle}.` : `You no longer follow ${cur.handle}.`);
-      if (list && list.kind === "followers") openList("followers", true);
+      if (list && list.kind === "followers" && !list.loading) openList("followers", true); // a list that is still loading already has the newest answer
     }
     async function setBlock(on) {
       if (busy || !cur) return;

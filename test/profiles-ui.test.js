@@ -255,6 +255,7 @@ test("only the endpoints of the contract are used (FEATURES.md)", () => {
   // the exact shapes of the calls
   assert.match(src, /api\("\/api\/follow", \{ handle: cur\.handle, follow: !was \}\)/);
   assert.match(src, /api\("\/api\/block", \{ handle: cur\.handle, block: (true|on) \}\)/);
+  assert.match(src, /setAttribute\("aria-disabled", "true"\)/, "a follow in flight marks the button busy without disabling it (the keyboard keeps its place)");
   assert.match(src, /api\("\/api\/me\/bio", \{ bio: c\.text \}\)/);
   assert.match(src, /api\("\/api\/profile\/report", \{ handle: cur\.handle, reason \}\)/, "a report is { handle, reason }: the server keeps up to 140 characters of it");
   assert.match(src, /\/\^\\\/api\\\/media\\\/\\d\+\$\/\.test\(x\.image\)/, "a post's picture is shown only from our own media route");

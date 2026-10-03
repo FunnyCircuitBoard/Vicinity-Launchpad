@@ -1152,11 +1152,11 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .pf-table th, .pf-table td { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: right; vertical-align: middle; font-weight: 500; font-variant-numeric: tabular-nums; }
 .pf-table thead th { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; padding-top: 0; }
 .pf-table .pf-c-coin { text-align: left; }
-.pf-table .pf-c-amt, .pf-table .pf-c-val { white-space: nowrap; }
+.pf-table .pf-c-amt, .pf-table .pf-c-val { overflow-wrap: normal; }
 .pf-table tbody th.pf-c-coin { font-weight: 500; }
 .pf-table tfoot th, .pf-table tfoot td { border-bottom: 0; padding-top: 10px; }
 .pf-table td strong, .pf-table th strong { display: block; font-weight: 650; }
-.pf-sub { display: block; font-size: .76rem; color: var(--muted); font-weight: 500; overflow-wrap: anywhere; }
+.pf-sub { display: block; font-size: .76rem; color: var(--muted); font-weight: 500; overflow-wrap: break-word; }
 .pf-sw { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 10px; vertical-align: middle; }
 .pf-sn { background: transparent; border: 2px solid var(--muted); }
 .pf-coin { display: inline-block; vertical-align: middle; max-width: calc(100% - 26px); }
@@ -1207,9 +1207,9 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .prof-loading { margin: 10px 4px; }
 .prof-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 14px; align-items: start; }
 @media (max-width: 900px) { .prof-grid { grid-template-columns: minmax(0, 1fr); } }
-.prof-col { display: grid; gap: 14px; min-width: 0; }
+.prof-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
 .prof-pass { min-height: 0; }
-.prof-pass .pass__name { margin: 0; }
+.prof-pass .pass__name { margin: 0; white-space: normal; overflow-wrap: anywhere; } /* a long username shows whole */
 .prof-badges { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .prof-badges:empty { display: none; }
 .prof-badges li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.28); font-size: .78rem; color: #fff; }
@@ -1257,3 +1257,12 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .prof-post__body { overflow-wrap: anywhere; }
 .prof-post__img { margin-top: 8px; width: 100%; max-height: 260px; object-fit: cover; border-radius: 12px; }
 .prof-posts .tiny { margin: 10px 0 0; }
+#pf-follow[aria-disabled="true"], #pf-unblock[aria-disabled="true"] { opacity: .7; cursor: progress; }
+@media (max-width: 380px) {
+  .prof .card, .dash-col > .portfolio-card { padding: 18px 14px; }
+  .pf-table { font-size: .84rem; }
+  .pf-table th, .pf-table td { padding: 8px 3px; }
+  .pf-sw { margin-right: 7px; }
+  .pf-coin { max-width: calc(100% - 20px); }
+  .pf-sub { font-size: .72rem; }
+}
