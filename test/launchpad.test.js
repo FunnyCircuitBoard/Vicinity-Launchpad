@@ -9,6 +9,7 @@ import { CITY_COIN, LP, PENDING, RAY, SOL, USDC, dexMock, fakeCaches, mintNo, pa
 import { keysOf } from "./helpers/profiles.js";
 import { _resetLaunchpad, tradeLinks } from "../src/launchpad.js";
 import { _resetMarket, marketFor, marketOf, pickPair } from "../src/market.js";
+import { ensureSchema } from "../src/store.js";
 
 beforeEach(() => { useClock("2026-10-12T12:00:00Z"); _resetLaunchpad(); _resetMarket(); });
 after(() => realClock());
@@ -340,6 +341,29 @@ test("a founder without a username shows no handle (never a name made from the w
   await env.DB.prepare("UPDATE seats SET status = 'released', ended_at = ? WHERE city_id = '5142056'").bind(new Date(clock.now).toISOString()).run();
   _resetLaunchpad();
   assert.equal((await (await browser(env).send("/api/launchpad", { fetchImpl: dexMock().fetchImpl })).json()).coins.find((c) => c.city.id === "5142056").founder, null);
+});
+
+test("a coin's community outside the 300 largest (where the map's /api/members list stops) still gets its member and holder counts", async () => {
+  const env = LP({ VICINITY_MINT: MINT });
+  await ensureSchema(env.DB);
+  // 300 communities of three people, written straight into users (throwaway values): Utica, with two, is then not among the 300 the map lists
+  const t = new Date(clock.now).toISOString(), rows = [];
+  for (let i = 1; i <= 300; i++) for (let k = 0; k < 3; k++) {
+    rows.push(env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, name, home_city, home_name, home_country, home_at, created_at) VALUES (?, 'google', ?, 'Someone', ?, ?, 'US', ?, ?)")
+      .bind(`test-wallet-${i}-${k}`, `test-${i}-${k}`, `c${i}`, `Community ${i}`, t, t));
+  }
+  await env.DB.batch(rows);
+  await person(env, { home: IN_UTICA, holds: 50 });
+  await person(env, { home: IN_UTICA });
+  await seedCoin(env.DB, { city: 5142056, name: "Utica", mint: CITY_COIN });
+  await tick(env); // the balance sample the holder count is read from
+  const b = browser(env);
+  const mem = await b.get("/api/members");
+  assert.equal(mem.communities.length, 300);
+  assert.equal(mem.communities.some((c) => c.id === "5142056"), false, "the map's list stops at the 300 largest communities: Utica is not on it");
+  const d = await (await b.send("/api/launchpad", { fetchImpl: dexMock().fetchImpl })).json();
+  assert.deepEqual(d.coins[0].members, { members: 2, holders: 1 }, "counted for the coin's community itself, by the rule of /api/members, not read from its capped list");
+  assert.deepEqual(d.coins[0].city, { id: "5142056", name: "Utica", country: "US" });
 });
 
 test("holder counts come from the job: a coin launched after the last run shows no count until the next run", async () => {
