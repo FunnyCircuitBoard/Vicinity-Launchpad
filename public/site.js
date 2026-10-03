@@ -109,6 +109,7 @@
     } else if (d.pending && b) {
       label.textContent = "Finish sign-in";
     }
+    if (d && d.profilesFlag) $$("[data-profiles-only]").forEach((e) => (e.hidden = false)); // copy about member profiles shows only while they are switched on
     document.dispatchEvent(new CustomEvent("vicinity:me", { detail: d }));
     return d;
   });
