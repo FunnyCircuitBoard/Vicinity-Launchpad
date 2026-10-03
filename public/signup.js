@@ -53,6 +53,9 @@
   }
   /** Which field a refused "send me a code" (reset) belongs to: the e-mail box while the first form shows, the code box once the second one does (its Send a new code button lives there). */
   const resetField = (form2Hidden) => (form2Hidden ? "rs-email" : "rs-code");
+  const PHONE_NOTE = "On a phone, “Open app” opens this page inside your wallet app, and the sign-up starts again from step 1 there. What you did here is not carried over.";
+  /** Step 3's opening text. `phone` = a phone with no wallet in this browser, where the only way on is to open the wallet app's own browser. */
+  const walletLead = (phone) => "Last step. Connect the wallet you hold $VICINITY in and sign a free message. It isn't a transaction and can't move funds. Your account is created the moment it is verified." + (phone ? " " + PHONE_NOTE : "");
   /** What the page says when "New here" with an e-mail that already has an account signs the person in instead (the typed password is thrown away). */
   const SAME_EMAIL = "That e-mail already has a Vicinity account, so we logged you in. The password you just typed was not saved: to set a new one, use “Forgot or never set a password?” on the Log in tab. Taking you to your dashboard…";
   /** Only ever follow the server to our own dashboard. */
@@ -150,7 +153,7 @@
     return { go: "stuck", text: errText(d), actions: ["retry"] };
   }
 
-  window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, resetField, SAME_EMAIL, ERR } };
+  window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, resetField, walletLead, SAME_EMAIL, ERR } };
 
   /* ================= the controller ================= */
   function start(ctx) {
@@ -296,6 +299,7 @@
       if (s === "pick") {
         hide("#login-block"); // today's log-in block never shows in v2
         hide("#lg-block", newTab); hide("#or-line", newTab); hide("#su-wallet-lead", !newTab);
+        if (newTab) text("#su-wallet-lead", walletLead(W.isMobile && !inApp() && !W.list().length)); // wallets turn up a moment after load: this runs again then
         text("#wallet-h", newTab ? "Connect your wallet" : "Log in with your wallet");
         if (!newTab) text("#or-line span", "Or log in with your wallet");
         const google = S.providers.google && !inApp();
@@ -603,8 +607,7 @@
     /* ================= step 3: the wallet (today's screens) ================= */
     function showWallet(steps) {
       drawSteps(steps);
-      text("#su-wallet-lead", "Last step. Connect the wallet you hold $VICINITY in and sign a free message. It isn't a transaction and can't move funds. Your account is created the moment it is verified.");
-      show("pick"); renderPick();
+      show("pick"); renderPick(); // renderPick -> onShow("pick") writes the lead
       stepAnnounce("wallet"); focusHeading("wallet");
     }
     /** connect.js: the wallet is proven. An existing account is signed in; a new wallet joins this sign-up. */
