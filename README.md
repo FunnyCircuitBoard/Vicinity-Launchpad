@@ -61,8 +61,12 @@ Keys and passwords (`SOLANA_RPC_URL`, `GOOGLE_CLIENT_SECRET`, the mail keys) are
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in. Redirect URI: `https://vicinity.city/api/auth/google/callback` |
 | `SNAPSHOT_CUTOFF` | The Founding Supporter cutoff, always 00:00 UTC, e.g. `2026-10-08T00:00:00Z`. Announce it first. |
 | `ATTEST_KEY` | Optional: the key that signs location attestations (otherwise one is made once and kept in the database). |
+| `SIGNUP_FLOW` | `v2` switches on the new sign-up (see below); anything else or missing = today's sign-up. A plain dashboard variable, flipped without a deploy. |
+| `PASSWORD_PEPPER` | Secret for the new sign-up: mixed into every password hash. Create it before the first password exists and never change it. See [docs/DEPLOY.md](docs/DEPLOY.md). |
 
 The scheduled job and the full holder list need more CPU time than Cloudflare's free plan allows once there are many holders: use the Workers Paid plan.
+
+**The new sign-up (dark until `SIGNUP_FLOW=v2`).** Location first, then the account, then the wallet: a new person's location is checked with the same rules as `/api/locate` (only the community is kept, never the coordinates; a person in empty land picks one of the three nearest communities, or finishes the check in their phone's own browser), then they accept the Terms of Use and sign in with Google, or with an e-mail address, a password and the 6-digit code that proves the mailbox, then they prove their wallet; one atomic database step then creates the account (nothing is half-made if anything fails or two taps arrive together) and they land on the dashboard. Returning members log in with their wallet, Google, or e-mail + password and repeat nothing. Passwords are salted PBKDF2-SHA256 hashes (100,000 rounds, the most Cloudflare's runtime allows, which needs the Workers Paid plan: about 50 ms of CPU per check), plus an optional secret `PASSWORD_PEPPER`, a blocklist of common passwords and strict attempt counters (`src/password.js`, `src/limits.js`). While the switch is off the new routes answer `404 not_enabled`, the old sign-up is untouched and no new table exists; with it on, the old routes can only sign people in. Code: `src/signup.js` (the sign-up and its single `finish`), `src/signup-core.js`, `src/pwlogin.js`. How to flip it on and off, and what to do before: the "Sign-up v2 switch" section of [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## API
 | Route | What it does |
@@ -76,6 +80,7 @@ The scheduled job and the full holder list need more CPU time than Cloudflare's 
 | `GET /api/snapshots` · `/api/snapshots/:id/proof?wallet=` · `/api/snapshots/:id/data` | Founding Supporters, Merkle proofs, all inputs |
 | `POST /api/auth/wallet` · `/api/auth/transfer` (+`/check`) · `/api/auth/reprove` · `/api/pair` (+`/finish`) · `GET /api/pair?code=` | Prove a wallet |
 | `GET /api/auth/google/start` (and `/callback`) · `POST /api/auth/logout` | Google sign-in |
+| `/api/signup/*` (start, state, location, terms, email, finish ...) · `POST /api/auth/email/login` · `/api/auth/password/*` · `/api/me/password` | The new sign-up and password log-in: only while `SIGNUP_FLOW=v2`, otherwise `404 not_enabled` |
 | `GET /api/me` · `POST /api/home` · `POST /api/locate` | Dashboard data · home community · where a location is read |
 | `POST /api/locate/handoff` (+`/info`, `/complete`, `/claim`) | Location check finished in the phone's own browser, collected by the wallet app |
 | `GET\|POST /api/posts` · `POST /api/posts/vote` · `/api/posts/report` · `GET /api/media/:id` | Feeds |
