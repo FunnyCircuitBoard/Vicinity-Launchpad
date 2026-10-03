@@ -3,7 +3,7 @@
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { EMPTY, IN_NYC, IN_UTICA, V2, advance, browser, realClock, useClock, wallet } from "./helpers/world.js";
-import { doEmail, doLocation, doTerms, doWallet, dumpAll, finish, journey, member, one, outbox, pickCommunity, rows, startSignup, stateOf } from "./helpers/signup.js";
+import { doEmail, doLocation, doTerms, doWallet, dumpAll, finish, journey, member, one, outbox, pickCommunity, recordAnswers, rows, startSignup, stateOf } from "./helpers/signup.js";
 import { communityOf } from "../src/attest.js";
 import { locate } from "../src/community.js";
 
@@ -78,14 +78,13 @@ test("the person must have a sign-up, must not be signed in, and the call must c
 
 test("coordinates are in no response and in no row of the database, at any step", async () => {
   const point = { lat: 43.1234567, lon: -75.2345678, accuracy: 31.5 };
-  const seen = [];
   const b = browser(env, NET);
-  const send = b.send;
-  b.send = async (...a) => { const r = await send(...a); seen.push(await r.clone().text()); return r; };
+  const seen = recordAnswers(b);
+  const phone = browser(env, NET);
+  const phoneSeen = recordAnswers(phone);
   await startSignup(b);
   assert.equal((await doLocation(b, point)).ok, true);
   const h = await b.post("/api/signup/location/handoff");
-  const phone = browser(env, NET);
   const done = await phone.post("/api/locate/handoff/complete", { code: h.code, location: point, country: "US" });
   assert.deepEqual(done, { ok: true, city: "Utica", nearby: null });
   await b.post("/api/signup/location/handoff/claim", { code: h.code });
@@ -93,7 +92,7 @@ test("coordinates are in no response and in no row of the database, at any step"
   await doEmail(b, box, "coords@example.com");
   await doWallet(b, await wallet());
   await finish(b);
-  const everything = seen.join("\n") + (await dumpAll(env.DB));
+  const everything = seen.join("\n") + phoneSeen.join("\n") + (await dumpAll(env.DB));
   for (const digits of ["43.1234567", "75.2345678", "1234567", "2345678", "31.5"]) assert.ok(!everything.includes(digits), digits);
 });
 

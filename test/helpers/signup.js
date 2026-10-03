@@ -120,3 +120,11 @@ export async function tablesAndColumns(db) {
   const cols = async (t) => (await db.prepare(`PRAGMA table_info(${t})`).all()).results.map((r) => r.name);
   return { tables, columns: { users: await cols("users"), handoffs: await cols("handoffs") } };
 }
+
+/** Remember the text of every answer a browser gets: returns the array it fills (and `.items`, the same with the path of each). */
+export function recordAnswers(b) {
+  const seen = [];
+  seen.items = [];
+  b.net.tap = async ({ path, response }) => { const text = await response.text(); seen.push(text); seen.items.push({ path, text }); };
+  return seen;
+}

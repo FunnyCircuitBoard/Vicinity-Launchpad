@@ -2,7 +2,7 @@
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { EMPTY, IN_UTICA, MINT, V2, browser, clock, loginBody, realClock, setHolding, useClock, wallet, advance, tick } from "./helpers/world.js";
-import { GOOD_PASSWORD, doEmail, doGoogle, doLocation, doTerms, doWallet, dumpAll, fakeGoogle, finish, journey, member, one, outbox, pickCommunity, rows, startSignup, stateOf } from "./helpers/signup.js";
+import { GOOD_PASSWORD, doEmail, doGoogle, doLocation, doTerms, doWallet, dumpAll, fakeGoogle, finish, journey, member, one, outbox, pickCommunity, recordAnswers, rows, startSignup, stateOf } from "./helpers/signup.js";
 import { verifyPassword } from "../src/password.js";
 import { cleanupSignups } from "../src/signup-core.js";
 import { runJobs } from "../src/jobs.js";
@@ -113,9 +113,7 @@ test("the steps can come in any order: the account is made once, whichever step 
 
 test("the state never carries coordinates, a full e-mail or wallet, a hash or a token (checked on every answer of a whole journey)", async () => {
   const b = browser(env), w = await wallet(), email = "private.person@example.com";
-  const seen = [];
-  const send = b.send;
-  b.send = async (...a) => { const r = await send(...a); seen.push(await r.clone().text()); return r; };
+  const seen = recordAnswers(b);
   const point = { lat: 43.1234567, lon: -75.2345678, accuracy: 30 };
   await startSignup(b);
   await doLocation(b, point);
@@ -125,9 +123,12 @@ test("the state never carries coordinates, a full e-mail or wallet, a hash or a 
   await stateOf(b);
   await finish(b);
   const text = seen.join("\n");
-  for (const secret of ["43.1234567", "75.2345678", "private.person", email, w.address, "pbkdf2", GOOD_PASSWORD, b.jar.get("vs")]) {
+  assert.ok(seen.items.length >= 8, "every answer of the journey was looked at");
+  for (const secret of ["43.1234567", "75.2345678", "private.person", email, "pbkdf2", GOOD_PASSWORD, b.jar.get("vs")]) {
     assert.ok(!text.includes(secret), `a response contains ${secret}`);
   }
+  // the sign-up's own answers never show the whole wallet either (the wallet routes themselves answer with the address that was just proven)
+  for (const { path, text: t } of seen.items.filter((x) => x.path.startsWith("/api/signup/"))) assert.ok(!t.includes(w.address), path);
   assert.ok(!(await dumpAll(env.DB)).includes("1234567"), "the coordinates are in no row");
 });
 

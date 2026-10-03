@@ -90,10 +90,11 @@ export const loginBody = async (w, pin) => {
  *               (country, asn, asOrganization, latitude, longitude). Both are changeable through `net` (a person who moves
  *               from Wi-Fi to mobile data), and per call: send(path, { ip, cf }). Without them, requests look like local tests.
  *   send(path, { method, body, fetchImpl, ctx, origin })  origin: null sends none, a string sends that one.
+ *   net.tap     set it to a function to see a copy of every answer this browser gets.
  */
 export function browser(env, { ip, cf } = {}) {
   const jar = new Map();
-  const net = { ip, cf };
+  const net = { ip, cf, tap: null }; // tap: async ({ path, method, response }) called with a copy of every answer (to look for what must never be in one)
   const send = async (path, { method = "GET", body, fetchImpl = chain(), ctx = null, origin = ORIGIN, ip: ipNow = net.ip, cf: cfNow = net.cf } = {}) => {
     const headers = new Headers();
     if (origin) headers.set("origin", origin);
@@ -102,6 +103,7 @@ export function browser(env, { ip, cf } = {}) {
     const request = new Request(ORIGIN + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     if (cfNow) Object.defineProperty(request, "cf", { value: cfNow });
     const res = await handleApi(request, env, fetchImpl, ctx);
+    if (net.tap) await net.tap({ path, method, response: res.clone() });
     for (const c of res.headers.getSetCookie()) { const [pair] = c.split("; "); const i = pair.indexOf("="); jar.set(pair.slice(0, i), pair.slice(i + 1)); }
     return res;
   };
