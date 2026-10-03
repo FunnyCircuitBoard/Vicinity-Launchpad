@@ -1266,3 +1266,178 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
   .pf-coin { max-width: calc(100% - 20px); }
   .pf-sub { font-size: .72rem; }
 }
+
+/* ---- dashboard v2 ---- */
+/* DASHBOARD_V2=on only. Every selector is scoped under .dv2 (the #dv2 wrapper that holds the tab strip and the panels) or
+   .dv2-skel (the loading placeholders), so nothing here can touch the flag-off layout. Tokens only; both themes; the
+   Founder card uses fixed light-on-dark colours like the pass. Spacing scale: 4, 8, 12, 14, 16, 24. */
+
+/* the tab strip: sticky under the site header (66px + 1px border), full-bleed inside .wrap, scrolls sideways on phones */
+.dv2 .dtabs { position: sticky; top: 67px; z-index: 40; margin: 0 -24px 14px; padding: 4px 24px; background: var(--glass); backdrop-filter: saturate(1.5) blur(14px); -webkit-backdrop-filter: saturate(1.5) blur(14px); border-bottom: 1px solid var(--line); }
+.dv2 .dtabs__list { display: flex; gap: 4px; padding: 4px 0; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; }
+.dv2 .dtabs__list::-webkit-scrollbar { display: none; }
+.dv2 .dtabs.is-scrollable::after { content: ""; position: absolute; top: 0; bottom: 0; right: 0; width: 48px; pointer-events: none; background: linear-gradient(90deg, transparent, var(--glass)); }
+.dv2 .dtab { position: relative; flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 999px; color: var(--muted); text-decoration: none; font: 600 .92rem var(--body); scroll-snap-align: center; }
+.dv2 .dtab:hover { color: var(--text); background: var(--card); }
+.dv2 .dtab[aria-selected="true"] { color: var(--text); background: var(--card-2); box-shadow: inset 0 -2px 0 var(--pin); }
+/* the list clips its overflow, so the focus ring sits inside the pill where it can be seen whole */
+.dv2 .dtab:focus-visible { outline-offset: -3px; }
+.dv2 .dtab.is-alert .dtab__text::after { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--pin); margin-left: 6px; vertical-align: middle; }
+.dv2 .dtab__badge { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; font: 700 .74rem var(--display); background: rgba(255,90,54,.18); color: var(--bad-text); }
+:root[data-theme="light"] .dv2 .dtab__badge { background: rgba(232,67,31,.1); } /* a paler tint keeps --bad-text above 4.5:1 on the light glass */
+@media (max-width: 480px) { .dv2 .dtabs { margin: 0 -16px 14px; padding: 4px 16px; } .dv2 .dtab { padding: 0 14px; } }
+
+/* the panels: one column of cards; Home is two-up on wide screens */
+.dv2 .dpanel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; width: 100%; max-width: 920px; margin: 0 auto; }
+.dv2 .dpanel > * { min-width: 0; }
+.dv2 #panel-home, .dv2 #panel-moderate { max-width: none; }
+@media (min-width: 1000px) {
+  .dv2 #panel-home { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .dv2 #panel-home > #pf-notice, .dv2 #panel-home > #ban-notice, .dv2 #panel-home > #lost-alert, .dv2 #panel-home > #dash-top, .dv2 #panel-home > #today { grid-column: 1 / -1; }
+}
+.dv2 .dpanel > .card { padding: 22px; }
+@media (max-width: 380px) { .dv2 .dpanel > .card { padding: 18px 14px; } }
+.dv2 .dpanel > .lost-alert, .dv2 .dpanel > .pf-notice, .dv2 #dash-top { margin-bottom: 0; } /* the grid gap replaces the old margins */
+
+/* one card-header rhythm: title block left, tag right; lead text one line */
+.dv2 .dv2-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.dv2 .dv2-head > div { min-width: 0; }
+.dv2 .dv2-head .kicker { margin-bottom: 4px; }
+.dv2 .dv2-head .h2--sm { margin: 0; font-size: 1.25rem; }
+.dv2 .dv2-head .tag { margin-top: 4px; }
+.dv2 .card > .kicker { margin-bottom: 6px; }
+.dv2 .card .h2--sm { font-size: 1.25rem; }
+.dv2 .progress-card__pct { font-size: 1.6rem; }
+.dv2 .dv2-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.dv2 .dv2-foot { margin: 0; padding: 0 6px; }
+/* 44px targets for every small control inside the panels */
+.dv2 .btn--sm { min-height: 44px; }
+.dv2 .role-tools .link-btn, .dv2 .fcard__link, .dv2 .subnav__link { min-height: 44px; display: inline-flex; align-items: center; }
+
+/* Today: two to four next-step cards; a grid on desktop, one swipeable row on phones */
+.dv2 .today { display: grid; gap: 8px; }
+.dv2 .today__kicker { margin: 0; }
+.dv2 .today__list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.dv2 .today__card { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 10px; align-items: center; min-height: 64px; padding: 12px 14px 12px 16px; border-radius: 16px; border: 1px solid var(--line); background: var(--card); color: var(--text); text-decoration: none; overflow: hidden; }
+.dv2 .today__card::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--blue); }
+.dv2 .today__card[data-tone="warn"]::before { background: var(--warn); }
+.dv2 .today__card[data-tone="ok"]::before { background: var(--moss); }
+.dv2 .today__card:hover { border-color: var(--line-2); background: var(--card-2); }
+.dv2 .today__title { font: 650 .98rem/1.3 var(--display); }
+.dv2 .today__sub { grid-column: 1; font-size: .82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv2 .today__go { grid-column: 2; grid-row: 1 / 3; color: var(--pin-2); font-weight: 700; }
+@media (max-width: 560px) {
+  /* padding above and below leaves room for the focus ring inside the scroll box */
+  .dv2 .today__list { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 10px; margin: -6px -16px -2px; padding: 6px 16px 8px; scrollbar-width: none; }
+  .dv2 .today__list::-webkit-scrollbar { display: none; }
+  .dv2 .today__card { flex: 0 0 82%; scroll-snap-align: start; }
+}
+
+/* stat tiles (Rankings): a big number, a small uppercase label, one line under it */
+.dv2 .tiles { display: grid; gap: 10px; margin-top: 8px; }
+.dv2 .tiles--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 760px) { .dv2 .tiles--3 { grid-template-columns: minmax(0, 1fr); } }
+.dv2 .tile { display: grid; gap: 2px; min-width: 0; padding: 14px 16px; border-radius: 18px; border: 1px solid var(--line); background: var(--card); }
+.dv2 .tile__label { font: 600 .74rem var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.dv2 .tile__num { font: 650 1.6rem/1.15 var(--display); letter-spacing: -.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv2 .tile__sub { font-size: .82rem; color: var(--muted); }
+.dv2 .tile__note { font-size: .78rem; color: var(--text-2); }
+.dv2 .tile.is-empty .tile__num { color: var(--muted); }
+
+/* the City header: a bigger disc, the status tag, the facts as tiles */
+.dv2 .city-head .community-card__head { gap: 16px; flex-wrap: wrap; }
+.dv2 .city-head .community-card__head > div:not(.coin-disc) { flex: 1 1 120px; min-width: 0; }
+.dv2 .city-head .community-card__head .coin-disc { width: 76px; height: 76px; }
+.dv2 .city-head .community-card__head .coin-disc span { font-size: 1rem; }
+.dv2 .city-head .community-card__head h2 { font-size: 1.5rem; }
+.dv2 .city-head .community-card__head > .tag { margin-left: auto; align-self: flex-start; }
+.dv2 .city-head .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin: 12px 0; }
+.dv2 .city-head .kv div { flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.dv2 .city-head .kv dt { font: 600 .72rem var(--body); text-transform: uppercase; letter-spacing: .08em; }
+.dv2 .city-head .kv dd { text-align: left; font: 650 1.15rem/1.2 var(--display); overflow-wrap: anywhere; }
+.dv2 .subnav { display: flex; flex-wrap: wrap; gap: 6px; }
+.dv2 .subnav__link { padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--muted); text-decoration: none; font: 600 .84rem var(--body); }
+.dv2 .subnav__link:hover, .dv2 .subnav__link:focus-visible { color: var(--text); background: var(--card-2); }
+.dv2 .kv dd .tiny { margin-top: 0; }
+
+/* Founder Status: the state pill, the current step, the informational rank line */
+.dv2 .fs-state { display: inline-block; margin-top: 6px; }
+.dv2 .psteps li.is-now > span:nth-child(2) { color: var(--text); font-weight: 600; }
+.dv2 .psteps li.is-now > .req__dot { border-color: var(--pin); box-shadow: 0 0 0 3px rgba(255,90,54,.18); }
+.dv2 .fs-rank { margin: 4px 0 12px; padding: 10px 12px; border-radius: 10px; border-left: 3px solid var(--blue); background: rgba(91,140,255,.08); font-size: .9rem; }
+.dv2 .fs-rank__note { display: block; margin-top: 4px; font-size: .78rem; color: var(--muted); }
+.dv2 #progress.is-done .bar span { background: linear-gradient(90deg, var(--moss), var(--ok-text)); }
+.dv2 #progress.is-done .progress-card__pct { color: var(--ok-text); }
+
+/* the Founder card: a premium pass, fixed colours in both themes. The glows are kept light enough for the white and
+   gold text to stay above 4.5:1 at the corners (the base gradient alone is above 7:1). */
+.dv2 .card.fcard { position: relative; overflow: hidden; isolation: isolate; color: #fff; display: grid; gap: 12px; padding: 22px 24px; border-radius: 26px; border: 1px solid rgba(255,255,255,.18); /* .card.fcard outranks the light theme's .card background */
+  background: radial-gradient(70% 90% at 0% 0%, rgba(255,200,87,.32), transparent 60%), radial-gradient(80% 100% at 100% 100%, rgba(122,92,255,.7), transparent 60%), linear-gradient(135deg, #1B1030, #0B1426);
+  box-shadow: 0 34px 80px -34px rgba(255,200,87,.45), inset 0 1px 0 rgba(255,255,255,.22); }
+.dv2 .fcard::before { display: none; } /* the dashboard card's gradient edge: this card has its own border */
+.dv2 .fcard::after { content: ""; position: absolute; inset: 0; z-index: -1; opacity: .2; pointer-events: none; background: repeating-linear-gradient(115deg, rgba(255,255,255,.06) 0 1px, transparent 1px 14px); }
+.dv2 .fcard[data-state="steward"] { background: radial-gradient(70% 90% at 0% 0%, rgba(55,194,154,.4), transparent 60%), radial-gradient(80% 100% at 100% 100%, rgba(122,92,255,.7), transparent 60%), linear-gradient(135deg, #1B1030, #0B1426); box-shadow: 0 34px 80px -34px rgba(55,194,154,.45), inset 0 1px 0 rgba(255,255,255,.22); }
+.dv2 .fcard[data-state="provisional"] { background: radial-gradient(70% 90% at 0% 0%, rgba(122,92,255,.55), transparent 60%), radial-gradient(80% 100% at 100% 100%, rgba(122,92,255,.7), transparent 60%), linear-gradient(135deg, #1B1030, #0B1426); box-shadow: 0 34px 80px -34px rgba(122,92,255,.5), inset 0 1px 0 rgba(255,255,255,.22); }
+.dv2 .fcard[data-state="grace"] { background: radial-gradient(70% 90% at 0% 0%, rgba(255,90,54,.45), transparent 60%), radial-gradient(80% 100% at 100% 100%, rgba(122,92,255,.7), transparent 60%), linear-gradient(135deg, #1B1030, #0B1426); box-shadow: 0 34px 80px -34px rgba(255,90,54,.55), inset 0 1px 0 rgba(255,255,255,.22); }
+/* a still gloss band, not the pass's moving one: everything after the profiles block is pinned to "nothing moves by itself" (test/profiles-ui.test.js) */
+.dv2 .fcard__shine { position: absolute; inset: -60% -30%; z-index: -1; pointer-events: none; background: linear-gradient(110deg, transparent 42%, rgba(255,255,255,.14) 50%, transparent 58%); transform: translateX(-18%); }
+.dv2 .fcard__top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dv2 .fcard__kicker { font: 700 .78rem var(--display); letter-spacing: .2em; text-transform: uppercase; color: #FFE3A3; }
+.dv2 .fcard .tag { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.3); color: #fff; }
+.dv2 .fcard .tag--ok { background: rgba(55,194,154,.22); border-color: rgba(55,194,154,.6); color: #9BF5D3; }
+.dv2 .fcard .tag--gold { background: rgba(255,200,87,.12); border-color: rgba(255,200,87,.55); color: #FFE3A3; }
+.dv2 .fcard .tag--warn { background: rgba(255,213,138,.16); border-color: rgba(255,213,138,.5); color: #FFD58A; }
+.dv2 .fcard .tag--no { background: rgba(255,90,54,.2); border-color: rgba(255,90,54,.55); color: #FF9D80; }
+.dv2 .fcard__title { margin: 0; max-width: none; font: 700 clamp(1.4rem, 3vw, 1.9rem)/1.1 var(--display); letter-spacing: -.02em; overflow-wrap: anywhere; }
+.dv2 .fcard__who { margin: 0; font-size: .95rem; color: rgba(255,255,255,.85); overflow-wrap: anywhere; }
+.dv2 .fcard__who .mono { color: #fff; }
+.dv2 .fcard__pick { color: #FFE3A3; }
+.dv2 .fcard__facts { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 16px; }
+.dv2 .fcard__facts div { display: grid; gap: 2px; }
+.dv2 .fcard__facts dt { font: 600 .72rem var(--body); text-transform: uppercase; letter-spacing: .08em; color: rgba(255,255,255,.78); }
+.dv2 .fcard__facts dd { margin: 0; font: 650 1rem var(--display); }
+.dv2 .fcard__note { margin: 0; font-size: .9rem; color: rgba(255,255,255,.88); }
+.dv2 .fcard__note:empty { display: none; }
+.dv2 .fcard__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.dv2 .fcard .btn--glass { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.3); color: #fff; }
+.dv2 .fcard .btn--glass:hover { background: rgba(255,255,255,.2); border-color: rgba(255,255,255,.45); }
+.dv2 .fcard__link { color: rgba(255,255,255,.85); }
+.dv2 .fcard__link:hover { color: #fff; }
+@media (max-width: 560px) { .dv2 .card.fcard { padding: 18px; } }
+
+/* the coin studio as one clean card with three labelled steps; Moderate and Profile blocks */
+.dv2 .studio-card #coin-studio { margin-top: 4px; padding-top: 0; border-top: 0; }
+.dv2 .studio-card #coin-studio > .kicker { display: none; } /* the card has its own head */
+.dv2 .studio-step { margin: 18px 0 8px; font: 700 .74rem var(--display); letter-spacing: .12em; text-transform: uppercase; color: var(--text-2); } /* text-2, not pin-2: the accent alone misses 4.5:1 at this size in light mode */
+.dv2 .studio-step::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--pin); margin-right: 8px; vertical-align: middle; }
+.dv2 #studio-step-1 { margin-top: 4px; }
+.dv2 .studio-step + .fieldset__label { margin-top: 0; }
+.dv2 #coin-admin-card .coin-admin { margin-top: 0; padding-top: 0; border-top: 0; }
+.dv2 .modal--panel { display: contents; }
+.dv2 .modal--panel .modal__box { width: 100%; min-width: 0; max-width: 640px; max-height: none; overflow: visible; margin: 0 auto; padding: 22px; } /* min-width: 0 — its DOM parent is the display: contents wrapper, not the grid */
+/* a text input's intrinsic width would otherwise widen these grids past a 320px screen (the old modal hid that behind overflow: auto) */
+.dv2 .modal--panel .modal__box, .dv2 .modal--panel .profile__sec { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 380px) { .dv2 .modal--panel .modal__box { padding: 18px 14px; } }
+.dv2 #roles { padding: 0; background: none; border: 0; }
+.dv2 #roles > .wrap { padding: 0; max-width: none; }
+.dv2 #roles .section-head { margin-bottom: 14px; }
+.dv2 #roles .section-head h2 { font-size: 1.35rem; max-width: none; }
+.dv2 #roles .section-head p.muted { font-size: .95rem; }
+
+/* loading placeholders (shown only to someone whose last visit was v2), and the deep-link highlight */
+.dv2-skel .wrap { display: grid; gap: 14px; }
+.dv2-skel .skel { border-radius: 18px; background: linear-gradient(90deg, var(--card) 0%, var(--card-2) 50%, var(--card) 100%); } /* still placeholders: no shimmer, see the note above the Founder card gloss */
+.dv2-skel .skel--tabs { height: 60px; border-radius: 999px; }
+.dv2-skel .skel-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 14px; }
+@media (max-width: 1100px) { .dv2-skel .skel-top { grid-template-columns: minmax(0, 1fr); } }
+.dv2-skel .skel--pass { min-height: 196px; border-radius: 26px; }
+.dv2-skel .skel-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.dv2-skel .skel--tile { height: 92px; }
+.dv2-skel .skel--card { height: 180px; border-radius: 24px; }
+.dv2 .is-target { outline: 3px solid var(--pin-2); outline-offset: 4px; border-radius: 12px; }
+
+/* hover transitions only for people who have not asked for less motion (keep this the last rule: nothing may follow it) */
+@media (prefers-reduced-motion: no-preference) {
+  .dv2 .dtab, .dv2 .subnav__link { transition: color .2s, background .2s; }
+  .dv2 .today__card { transition: border-color .2s, background .2s; }
+}
