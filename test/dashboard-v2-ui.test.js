@@ -58,6 +58,15 @@ test("buttons inside the panels wrap long labels (no horizontal scroll at 390px 
   assert.match(tab.body, /min-height:\s*44px/);
   const sm = list.find((r) => r.selectors.includes(".dv2 .btn--sm"));
   assert.match(sm.body, /min-height:\s*44px/);
+  // the older cards' controls reach 44px inside the panels too (measured at 15 to 38px before)
+  for (const sel of [".dv2 .seg button", ".dv2 .chips button", ".dv2 .link-btn", ".dv2 .swapbox__amt", ".dv2 .field"]) {
+    const r = list.find((x) => x.selectors.includes(sel));
+    assert.ok(r && /min-height:\s*44px/.test(r.body), `${sel} reaches 44px`);
+  }
+  const flip = list.find((x) => x.selectors.includes(".dv2 .swapbox__flip"));
+  assert.match(flip.body, /width:\s*44px; height:\s*44px/); assert.ok(flip.selectors.includes(".dv2 .post__vote button"), "the vote arrow too");
+  const tiny = list.find((x) => x.selectors.includes(".dv2 .link-btn--tiny"));
+  assert.match(tiny.body, /padding:\s*15px 10px; margin:\s*-15px -10px/, "the tiny links grow their hit area without moving the pass's row");
 });
 
 test("the sticky strip and the router agree on the header height, and the deep-link highlight exists", () => {

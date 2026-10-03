@@ -1316,6 +1316,15 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 /* a long label wraps inside its pill: the site's .btn never wraps, so "Apply to found <city> (checks your location)" widened its
    card past a 390px screen (the flag-off page has the same overflow; it is left as it is, this rule only reaches the panels) */
 .dv2 .dpanel .btn { white-space: normal; text-align: center; max-width: 100%; padding-top: 8px; padding-bottom: 8px; }
+/* the older cards' controls too (15 to 38px tall on the flag-off page, which keeps them): segmented pills, chips, text buttons,
+   the swap flip, inputs and the contract disclosure all reach 44px inside the panels */
+.dv2 .seg button, .dv2 .chips button { min-height: 44px; }
+.dv2 .seg { padding: 2px; }
+.dv2 .link-btn { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+.dv2 .link-btn--tiny { min-height: 0; min-width: 0; padding: 15px 10px; margin: -15px -10px; } /* the hit area grows; the pass's meta row keeps its height */
+.dv2 .swapbox__flip, .dv2 .post__vote button { width: 44px; height: 44px; }
+.dv2 .swapbox__amt, .dv2 .field, .dv2 .req-form input { min-height: 44px; }
+.dv2 .coin-launch summary { padding: 10px 0; }
 
 /* Today: two to four next-step cards; a grid on desktop, one swipeable row on phones */
 .dv2 .today { display: grid; gap: 8px; }
