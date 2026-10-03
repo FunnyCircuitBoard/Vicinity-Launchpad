@@ -59,6 +59,11 @@ async function main() {
   console.log(`wallet (payer) ${payer.publicKey.toBase58()}`);
   const bounds = client.claimWindowBounds();
   console.log(`claim window   ${bounds.min}s .. ${bounds.max}s ${bounds.fromIdl ? "(from IDL constants)" : "(spec defaults; IDL has no constants)"}`);
+  // Epoch 0 gets the shortest window the program allows so that, with a
+  // `short-windows` test build (60 s), the sweep step at the end can run on a
+  // real deadline. Every other epoch gets a normal 30-day window (clamped into
+  // the program's bounds) so it is still open when the demo claims from it.
+  const normalWindow = Math.min(bounds.max, Math.max(bounds.min, 30 * 86_400));
 
   if ((await connection.getBalance(payer.publicKey)) < 2e9) {
     console.log("airdropping 5 SOL to the wallet (localnet)");
@@ -136,25 +141,30 @@ async function main() {
   // -------------------------------------------------------------------------
   headline("Attacks that must fail (the vault balance does not move)");
   const vaultBefore = await H.vaultBalance(city);
-  const attempt = async (label: string, p: Promise<unknown>) => {
+  // Every attack must be refused for the specific reason the spec names; a
+  // refusal for another reason (or a success) fails the demo.
+  const attempt = async (label: string, p: Promise<unknown>, expected: string | RegExp) => {
     try {
       await p;
       console.log(`  ${label.padEnd(44)} UNEXPECTEDLY SUCCEEDED`);
       process.exitCode = 1;
     } catch (e: any) {
-      const code = H.errorCode(e) ?? (/already in use/.test(H.errorText(e)) ? "account already exists" : "rejected");
-      console.log(`  ${label.padEnd(44)} refused: ${code}`);
+      const text = H.errorText(e);
+      const code = H.errorCode(e) ?? (/already in use/.test(text) ? "account already exists" : "rejected");
+      const ok = typeof expected === "string" ? code === expected : expected.test(text);
+      console.log(`  ${label.padEnd(44)} refused: ${code}${ok ? "" : `   <-- EXPECTED ${expected}`}`);
+      if (!ok) process.exitCode = 1;
     }
   };
-  await attempt("Ana claims a second time", H.claim(city, { epochIndex: 0, tree: tree0, leafIndex: 0, claimant: holders[0].kp }));
-  await attempt("Dee claims with a bigger amount", H.claim(city, { epochIndex: 0, tree: tree0, leafIndex: 3, claimant: holders[3].kp, amount: M.claimArgs(tree0, 3).amount + 1n }));
+  await attempt("Ana claims a second time", H.claim(city, { epochIndex: 0, tree: tree0, leafIndex: 0, claimant: holders[0].kp }), H.ANCHOR.AlreadyInUse);
+  await attempt("Dee claims with a bigger amount", H.claim(city, { epochIndex: 0, tree: tree0, leafIndex: 3, claimant: holders[3].kp, amount: M.claimArgs(tree0, 3).amount + 1n }), "InvalidProof");
   const thief = await H.fundedKeypair(1);
-  await attempt("a stranger uses Dee's leaf", H.claim(city, { epochIndex: 0, leafIndex: 3, claimant: thief, amount: M.claimArgs(tree0, 3).amount, proof: M.claimArgs(tree0, 3).proof }));
-  await attempt("Dee claims with a truncated proof", H.claim(city, { epochIndex: 0, leafIndex: 3, claimant: holders[3].kp, amount: M.claimArgs(tree0, 3).amount, proof: M.claimArgs(tree0, 3).proof.slice(1) }));
-  await attempt("ops tries to sweep before the deadline", client.sweepEpoch({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, epochIndex: 0 }).signers([city.authority]).rpc());
-  await attempt("ops tries to cancel an epoch with claims", client.cancelEpoch({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, epochIndex: 0 }).signers([city.authority]).rpc());
-  await attempt("a stranger tries to pause", client.pause({ authority: thief.publicKey, cityCoinMint: city.cityCoinMint }).signers([thief]).rpc());
-  await attempt("ops tries to lock again (auto-locked at fund)", client.lockConfig({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint }).signers([city.authority]).rpc());
+  await attempt("a stranger uses Dee's leaf", H.claim(city, { epochIndex: 0, leafIndex: 3, claimant: thief, amount: M.claimArgs(tree0, 3).amount, proof: M.claimArgs(tree0, 3).proof }), "InvalidProof");
+  await attempt("Dee claims with a truncated proof", H.claim(city, { epochIndex: 0, leafIndex: 3, claimant: holders[3].kp, amount: M.claimArgs(tree0, 3).amount, proof: M.claimArgs(tree0, 3).proof.slice(1) }), "InvalidProof");
+  await attempt("ops tries to sweep before the deadline", client.sweepEpoch({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, epochIndex: 0 }).signers([city.authority]).rpc(), "ClaimDeadlineNotPassed");
+  await attempt("ops tries to cancel an epoch with claims", client.cancelEpoch({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, epochIndex: 0 }).signers([city.authority]).rpc(), "EpochHasClaims");
+  await attempt("a stranger tries to pause", client.pause({ authority: thief.publicKey, cityCoinMint: city.cityCoinMint }).signers([thief]).rpc(), "Unauthorized");
+  await attempt("ops tries to lock again (auto-locked at fund)", client.lockConfig({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint }).signers([city.authority]).rpc(), "AlreadyLocked");
   console.log(`  vault before ${fmt(vaultBefore)} after ${fmt(await H.vaultBalance(city))}  (unchanged: ${vaultBefore === (await H.vaultBalance(city))})`);
   console.log(`  note: there is no withdraw instruction at all; the IDL lists: ${client.instructionNames().join(", ")}`);
 
@@ -167,7 +177,7 @@ async function main() {
     split1.holders
   );
   const tree1 = M.buildTree(alloc1.leaves);
-  const f1 = await H.fundEpoch(city, { amount: deposit1, tree: tree1, window: bounds.min });
+  const f1 = await H.fundEpoch(city, { amount: deposit1, tree: tree1, window: normalWindow });
   console.log(`epoch 1 funded   founder +${fmt(split1.founder)}  holders_amount=${fmt(f1.epochView.holdersAmount)}  tx ${short(f1.signature)}`);
   const cancelSig = await client.cancelEpoch({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, epochIndex: 1 }).signers([city.authority]).rpc();
   const e1 = await H.fetchEpoch(city, 1);
@@ -182,7 +192,7 @@ async function main() {
     carry
   );
   const tree2 = M.buildTree(alloc2.leaves);
-  const f2 = await H.fundEpoch(city, { amount: 0n, tree: tree2, window: bounds.min });
+  const f2 = await H.fundEpoch(city, { amount: 0n, tree: tree2, window: normalWindow });
   console.log(`epoch 2          deposit=${fmt(f2.epochView.depositAmount ?? 0n)} holders_amount=${fmt(f2.epochView.holdersAmount)} (== carry-over) carry_over now ${fmt(f2.config.carryOver)}  tx ${short(f2.signature)}`);
   const sigDee = await H.claim(city, { epochIndex: 2, tree: tree2, leafIndex: 3, claimant: holders[3].kp });
   console.log(`Dee claims ${fmt(M.claimArgs(tree2, 3).amount)} from epoch 2  tx ${short(sigDee)}`);
@@ -196,7 +206,7 @@ async function main() {
     const sweepSig = await client.sweepEpoch({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint, epochIndex: 0 }).signers([city.authority]).rpc();
     const e0 = await H.fetchEpoch(city, 0);
     console.log(`epoch 0 swept    state=${e0.state} unclaimed=${fmt(e0.holdersAmount - e0.claimedAmount)} carry_over=${fmt((await H.fetchConfig(city)).carryOver)}  tx ${short(sweepSig)}`);
-    await attempt("Dee claims from the swept epoch 0", H.claim(city, { epochIndex: 0, tree: tree0, leafIndex: 3, claimant: holders[3].kp }));
+    await attempt("Dee claims from the swept epoch 0", H.claim(city, { epochIndex: 0, tree: tree0, leafIndex: 3, claimant: holders[3].kp }), "EpochNotOpen");
     const rentBefore = await H.solBalance(holders[0].kp.publicKey);
     await client.closeClaimStatus({ claimant: holders[0].kp.publicKey, cityCoinMint: city.cityCoinMint, epochIndex: 0 }).signers([holders[0].kp]).rpc();
     console.log(`Ana closes her claim status: rent back ${((await H.solBalance(holders[0].kp.publicKey)) - rentBefore) / 1e9} SOL`);
@@ -214,10 +224,10 @@ async function main() {
   console.log(`proposed         ${short(newOps.publicKey)} (pending; old authority still in charge)`);
   await client.acceptAuthority({ newAuthority: newOps.publicKey, cityCoinMint: city.cityCoinMint }).signers([newOps]).rpc();
   console.log(`accepted         authority is now ${short((await H.fetchConfig(city)).authority)}`);
-  await attempt("old authority tries to pause", client.pause({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint }).signers([city.authority]).rpc());
+  await attempt("old authority tries to pause", client.pause({ authority: city.authority.publicKey, cityCoinMint: city.cityCoinMint }).signers([city.authority]).rpc(), "Unauthorized");
   await client.pause({ authority: newOps.publicKey, cityCoinMint: city.cityCoinMint }).signers([newOps]).rpc();
   console.log(`paused           ${(await H.fetchConfig(city)).paused}`);
-  await attempt("Ben claims while paused (epoch 2)", H.claim(city, { epochIndex: 2, tree: tree2, leafIndex: 1, claimant: holders[1].kp }));
+  await attempt("Ben claims while paused (epoch 2)", H.claim(city, { epochIndex: 2, tree: tree2, leafIndex: 1, claimant: holders[1].kp }), "Paused");
   await client.unpause({ authority: newOps.publicKey, cityCoinMint: city.cityCoinMint }).signers([newOps]).rpc();
   console.log(`unpaused         ${(await H.fetchConfig(city)).paused}`);
   city.authority = newOps;
@@ -232,7 +242,7 @@ async function main() {
     console.log(`    #${e.index} state=${e.state.padEnd(9)} deposit=${fmt(e.depositAmount ?? 0n).padStart(10)} founder=${fmt(e.founderAmount ?? 0n).padStart(10)} holders=${fmt(e.holdersAmount).padStart(10)} claimed=${fmt(e.claimedAmount).padStart(10)} leaves=${e.numLeaves}`);
   }
   console.log(`\nexplorer (local): https://explorer.solana.com/address/${city.config.toBase58()}?cluster=custom&customUrl=${encodeURIComponent(connection.rpcEndpoint)}`);
-  console.log(process.exitCode ? "\nDEMO FINISHED WITH UNEXPECTED SUCCESSES (see above)" : "\nDEMO COMPLETE: every step behaved as specified.");
+  console.log(process.exitCode ? "\nDEMO FINISHED WITH UNEXPECTED RESULTS (see the lines marked UNEXPECTEDLY or EXPECTED above)" : "\nDEMO COMPLETE: every step behaved as specified.");
 }
 
 main().catch((e) => {
