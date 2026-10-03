@@ -109,17 +109,24 @@ async function tokenPrice(env, mint, fetchImpl) {
   return (await jupiterPrices(env, [mint], fetchImpl)).prices[mint];
 }
 
-/** Live holders: every holder from the one-minute snapshot, or the top 20 when the RPC can't list them all. */
-async function holdersResponse(env, mint, fetchImpl) {
+/**
+ * Live holders: every holder from the one-minute snapshot, 1,000 at a time (?offset=N; `more` says whether there is a next
+ * page, `count` how many rows there are in all), or the top 20 when the RPC can't list them all. The token page asks page
+ * after page until `more` is false, so every holder ends up in its table however many there are.
+ */
+const HOLDERS_PAGE = 1000;
+async function holdersResponse(env, mint, offset, fetchImpl) {
   try {
     const snap = await holderSnapshot(env, mint, fetchImpl);
-    return json({ launched: true, mint, supply: snap.facts.supply, total: snap.people, full: true, holders: snap.rows.slice(0, 1000), updatedAt: snap.at });
+    const end = offset + HOLDERS_PAGE;
+    return json({ launched: true, mint, supply: snap.facts.supply, total: snap.people, count: snap.rows.length, full: true,
+      holders: snap.rows.slice(offset, end), more: end < snap.rows.length, updatedAt: snap.at });
   } catch (e) {
     console.error("full holder list failed, using the top 20", String(e));
   }
   try {
     const { facts, holders } = await getTopHolders(env, mint, fetchImpl);
-    return json({ launched: true, mint, supply: facts.supply, total: null, full: false, holders, updatedAt: new Date().toISOString() });
+    return json({ launched: true, mint, supply: facts.supply, total: null, count: holders.length, full: false, holders: offset ? [] : holders, more: false, updatedAt: new Date().toISOString() });
   } catch (e) {
     console.error("holders failed", String(e));
     return json({ launched: true, error: "chain_unavailable" }, 503);
@@ -226,7 +233,9 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (blocked) return blocked;
       const mint = activeMint(env);
       if (!mint) return json({ launched: false, holders: [] });
-      return cached("holders-v2-" + mint, 60, () => holdersResponse(env, mint, fetchImpl));
+      // pages start at a multiple of 1,000, so the edge cache holds one answer per page and nothing else; the first page keeps its old key
+      const offset = Math.floor(Math.min(Math.max(0, Number(url.searchParams.get("offset")) || 0), 10_000_000) / HOLDERS_PAGE) * HOLDERS_PAGE;
+      return cached("holders-v2-" + mint + (offset ? "-" + offset : ""), 60, () => holdersResponse(env, mint, offset, fetchImpl));
     }
     case "/api/rank": {
       const blocked = only("GET");
