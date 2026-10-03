@@ -67,7 +67,7 @@ Keys and passwords (`SOLANA_RPC_URL`, `GOOGLE_CLIENT_SECRET`, the mail keys) are
 | `ATTEST_KEY` | Optional: the key that signs location attestations (otherwise one is made once and kept in the database). |
 | `JUPITER_API_BASE`, `JUPITER_API_KEY` | Optional: where prices come from and the key for it (`https://api.jup.ag` with a free key from portal.jup.ag). Unset = the keyless address Jupiter is retiring. See [docs/DEPLOY.md](docs/DEPLOY.md). |
 | `RPC_TIMEOUT_MS` | Optional: how long one blockchain call may take before the site gives up on it (default 8000). |
-| `SIGNUP_FLOW` | `v2` switches on the new sign-up (see below); anything else or missing = today's sign-up. A plain dashboard variable, flipped without a deploy. |
+| `SIGNUP_FLOW` | `v2` switches on the new sign-up (see below); anything else or missing = the old sign-up. Set to `v2` in `wrangler.jsonc` since 3 Oct 2026, so every deploy applies it; change it there to switch back. |
 | `PROFILES` | `on` switches on member profiles (see below); anything else or missing = no profiles, as today. A plain dashboard variable, flipped without a deploy. |
 | `LAUNCHPAD_V2` | `on` switches on the Launchpad's city-coin list (see below); anything else or missing = the Launchpad page as today. A plain dashboard variable, flipped without a deploy. |
 | `DASHBOARD_V2` | `on` switches on the tabbed dashboard (Home, City, Community, Rankings, Founder, Moderate, Profile; Founder Status against the real steps; the Founder card); anything else or missing = today's dashboard. Only `/api/me` says `dashboardV2: true`; the page then loads `public/dashboard-v2.js`. See "Dashboard v2 switch" in [docs/DEPLOY.md](docs/DEPLOY.md). |
