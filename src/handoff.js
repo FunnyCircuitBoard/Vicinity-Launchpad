@@ -16,6 +16,7 @@ import { json, randomToken, readJson, sameSite, sha256 } from "./http.js";
 import { getSession } from "./auth.js";
 import { PURPOSES, checkLocation, countRecent, makeAttestation, noteEvent } from "./attest.js";
 import { HOUR, POLICY, iso } from "./policy.js";
+import { handleSignupHandoffComplete } from "./signup.js";
 
 const MINUTES = 10;
 /** Where the person's connection is, coarsely: country and network operator. null off Cloudflare (local tests). */
@@ -60,6 +61,7 @@ export async function handleHandoffComplete(request, env, now = Date.now(), cf =
   const body = await readJson(request);
   const row = body && await find(env, body.code, now);
   if (!row) return json({ ok: false, error: "expired" }, 410);
+  if (row.signup_id) return handleSignupHandoffComplete(request, env, row, body, now, cf); // a link made by the v2 sign-up (no account yet)
   if (row.result) return json({ ok: false, error: "already_done" }, 409);
   // Same connection as the wallet app that asked: the phone's own network (one generic answer when it differs).
   if (cf && row.net && netOf(cf) !== row.net) return json({ ok: false, error: "location_unverified" }, 403);

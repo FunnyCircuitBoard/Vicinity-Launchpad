@@ -135,14 +135,22 @@ export async function sendMail(env, { to, subject, text, html }, deps = {}) {
 /** E-mail sign-in is on when either sender is configured. */
 export const emailConfigured = (env) => Boolean((env.GMAIL_USER && env.GMAIL_APP_PASSWORD) || env.RESEND_API_KEY);
 
-/** The verification-code e-mail, branded like the site. Returns { subject, text, html }. */
-export function verificationEmail(code) {
+/** What the code is for: the one phrase of the e-mail that changes. "signin" (the default) is the e-mail as it has always been. */
+const KINDS = {
+  signin: { name: "sign-in code", Name: "Your sign-in code", finish: "finish signing in" },
+  signup: { name: "verification code", Name: "Your verification code", finish: "finish creating your account" },
+  reset: { name: "password reset code", Name: "Your password reset code", finish: "set a new password" },
+};
+
+/** The verification-code e-mail, branded like the site. Returns { subject, text, html }. The subject is the same for every kind. */
+export function verificationEmail(code, kind = "signin") {
+  const k = KINDS[kind] || KINDS.signin;
   const subject = `${code} is your Vicinity code`;
-  const text = `Your Vicinity sign-in code is ${code}.\n\nEnter it at https://vicinity.city/connect — it expires in 10 minutes.\nIf you didn't ask for this, just ignore this email.\n\n— Vicinity · One city. One coin. One community.`;
+  const text = `Your Vicinity ${k.name} is ${code}.\n\nEnter it at https://vicinity.city/connect — it expires in 10 minutes.\nIf you didn't ask for this, just ignore this email.\n\n— Vicinity · One city. One coin. One community.`;
   const esc = String(code).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background-color:#060C17;">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Your Vicinity sign-in code is ${esc}. It expires in 10 minutes.</div>
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Your Vicinity ${k.name} is ${esc}. It expires in 10 minutes.</div>
 <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#060C17;padding:32px 16px;">
 <tr><td align="center">
 <table width="560" cellpadding="0" cellspacing="0" role="presentation" style="max-width:560px;width:100%;background-color:#0A1322;border:1px solid #1B2A44;border-radius:16px;">
@@ -151,7 +159,7 @@ export function verificationEmail(code) {
 <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:3px;color:#8A97AD;margin-top:10px;">ONE CITY &middot; ONE COIN &middot; ONE COMMUNITY</div>
 </td></tr>
 <tr><td align="center" style="padding:28px 32px 4px;">
-<div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;color:#E8EDF5;">Your sign-in code</div>
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;color:#E8EDF5;">${k.Name}</div>
 </td></tr>
 <tr><td align="center" style="padding:12px 32px;">
 <table cellpadding="0" cellspacing="0" role="presentation"><tr><td align="center" style="background-color:#0F1C31;border:1px solid #FFC857;border-radius:12px;padding:18px 36px;">
@@ -159,7 +167,7 @@ export function verificationEmail(code) {
 </td></tr></table>
 </td></tr>
 <tr><td align="center" style="padding:14px 48px 4px;">
-<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.7;color:#8A97AD;">Enter this code on vicinity.city to finish signing in.<br>It expires in <b style="color:#E8EDF5;">10 minutes</b>.</div>
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.7;color:#8A97AD;">Enter this code on vicinity.city to ${k.finish}.<br>It expires in <b style="color:#E8EDF5;">10 minutes</b>.</div>
 </td></tr>
 <tr><td align="center" style="padding:18px 32px 36px;">
 <a href="https://vicinity.city/connect" style="display:inline-block;background-color:#FF5A36;color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;text-decoration:none;padding:13px 40px;border-radius:999px;">Enter code</a>
