@@ -20,7 +20,7 @@ import { ensureProfilesSchema, ensureSchema } from "./store.js";
 import { communityById } from "./community.js";
 import { tickerOf } from "./tickers.js";
 import { latestBalances } from "./ledger.js";
-import { profilesOn, v2On } from "./flags.js";
+import { dashboardV2On, profilesOn, v2On } from "./flags.js";
 import { countsOf } from "./profile-core.js";
 
 const HOME_LOCK_DAYS = 7; // a home community can be changed once a week
@@ -181,9 +181,10 @@ export async function handleMe(request, env, fetchImpl = fetch, now = Date.now()
   const prov = providers(env);
   // The new sign-up (SIGNUP_FLOW=v2) says so in every answer, and tells a signed-in person whether they have a password.
   // Member profiles (PROFILES=on) say so too: profilesFlag, and for a signed-in member their bio (and, in the full answer,
-  // their follower counts). With a switch off there is no new key at all: the answers are exactly what they have always been.
-  const v2 = v2On(env), pf = profilesOn(env);
-  const v2Flag = v2 ? { signupFlow: "v2" } : {};
+  // their follower counts). The tabbed dashboard (DASHBOARD_V2=on) only says so: dashboardV2, and the page fetches its own code.
+  // With a switch off there is no new key at all: the answers are exactly what they have always been.
+  const v2 = v2On(env), pf = profilesOn(env), dv2 = dashboardV2On(env);
+  const v2Flag = { ...(v2 ? { signupFlow: "v2" } : {}), ...(dv2 ? { dashboardV2: true } : {}) };
   const flag = pf ? { ...v2Flag, profilesFlag: true } : v2Flag;
   if (!s) return json({ signedIn: false, providers: prov, ...flag });
   if (!s.user) {

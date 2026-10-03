@@ -13,3 +13,10 @@ export const v2On = (env) => signupFlow(env) === "v2";
  * follow and block). Exactly "on" (trimmed, any letter case); anything else, unset included, is the site as it has always been.
  */
 export const profilesOn = (env) => String((env && env.PROFILES) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * DASHBOARD_V2=on turns on the tabbed dashboard (Home, City, Community, Rankings, Founder, Moderate, Profile; the Founder
+ * Status checklist and the Founder card). The server only tells the page (/api/me carries dashboardV2: true); the page then
+ * asks for the extra code. Exactly "on" (trimmed, any letter case); anything else is the dashboard as it has always been.
+ */
+export const dashboardV2On = (env) => String((env && env.DASHBOARD_V2) ?? "").trim().toLowerCase() === "on";
