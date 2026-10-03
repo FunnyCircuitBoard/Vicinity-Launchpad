@@ -63,7 +63,8 @@
     }
     return () => {};
   }
-  window.addEventListener("wallet-standard:register-wallet", (e) => { try { e.detail({ register }); } catch {} });
+  // a wallet announcing itself late (in-app browsers often inject after our scripts ran) is also a moment to look for the older kind
+  window.addEventListener("wallet-standard:register-wallet", (e) => { try { e.detail({ register }); } catch {} scanLegacy(); });
   try { window.dispatchEvent(new CustomEvent("wallet-standard:app-ready", { detail: { register } })); } catch {}
 
   // Older wallets that only put an object on the page
@@ -97,6 +98,8 @@
   }
   setTimeout(scanLegacy, 350);
   window.addEventListener("load", () => setTimeout(scanLegacy, 200));
+  // coming back to the tab (after installing a wallet, or when a wallet app's browser finished injecting): look again, no reload needed
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) scanLegacy(); });
 
   /** The icon a wallet gave us (only safe data: images), or null. */
   const safeIcon = (src) => (typeof src === "string" && /^data:image\/(svg\+xml|png|webp|jpeg|gif);base64,/.test(src) ? src : null);

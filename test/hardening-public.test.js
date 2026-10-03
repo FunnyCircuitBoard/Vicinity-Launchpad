@@ -48,3 +48,13 @@ test("launchpad: the admin console's one-click test snapshot (root 'admin-manual
   assert.match(snap, /holders: s\.holders/);
   assert.match(snap, /merkleRoot: s\.merkle_root/);
 });
+
+/* ---------------- wallets: late-injecting in-app wallets ---------------- */
+
+test("wallets: the installed-wallet scan runs again when the tab comes back and when a wallet announces itself late, so in-app browsers do not need a reload", () => {
+  const js = read("wallets.js");
+  assert.match(js, /document\.addEventListener\("visibilitychange", \(\) => \{ if \(!document\.hidden\) scanLegacy\(\); \}\);/);
+  assert.match(js, /window\.addEventListener\("wallet-standard:register-wallet", \(e\) => \{ try \{ e\.detail\(\{ register \}\); \} catch \{\} scanLegacy\(\); \}\);/);
+  assert.ok(js.includes("rescan: scanLegacy"), "pages can still ask for a scan themselves");
+  assert.ok(js.includes("setTimeout(scanLegacy, 350)"), "the first scans are unchanged");
+});
