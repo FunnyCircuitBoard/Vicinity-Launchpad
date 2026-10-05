@@ -51,11 +51,45 @@
           <a class="btn btn--primary btn--lg" href="/connect">Connect &amp; sign in →</a>
           <p class="tiny muted">Takes about a minute. Signing is free and isn't a transaction.</p>
         </div>
-        <div class="teaser__preview" aria-hidden="true">
-          <div class="card blur-card"><span class="muted small">Your rank</span><strong>#???</strong><span class="muted small">of every holder</span></div>
-          <div class="card blur-card"><span class="muted small">Your city</span><strong>??? members</strong><span class="muted small">founder: ???</span></div>
-          <div class="card blur-card"><span class="muted small">This week's top meme</span><strong>▲ ???</strong><span class="muted small">locals only</span></div>
-          <span class="teaser__lock">🔒 Members only</span>
+        <!-- a snapshot of a member's Home tab with made-up sample values, drawn in HTML (sharp, themed, no image). Read as one picture.
+             No ids, no links and no classes the dashboard scripts look up: the real dashboard below never confuses it with its own cards. -->
+        <div class="teaser__preview dpv" role="img" aria-label="Example of a member's dashboard, with sample data: the Vicinity Pass, how much they hold and their rank among all holders, their city with the path to founding it, and what to do next.">
+          <div class="dpv__frame" aria-hidden="true">
+            <div class="dpv__top"><span class="dpv__tag">Preview · example data</span><span class="dpv__what">What members see</span></div>
+            <div class="dpv__tabs"><span class="is-on">Home</span><span>City</span><span>Community</span><span>Rankings</span><span>Founder</span></div>
+            <div class="dpv__pass">
+              <span class="dpv__shine"></span>
+              <div class="dpv__row"><span class="dpv__brand"><span class="dpv__mark"></span>Vicinity Pass</span><span class="dpv__pill">Holder</span></div>
+              <div class="dpv__who">
+                <span class="dpv__avatar">U</span>
+                <span class="dpv__id"><span class="dpv__name">@UticaSam</span><span class="dpv__home">📍 Utica, United States</span></span>
+                <span class="dpv__coin">UTICA</span>
+              </div>
+              <div class="dpv__row dpv__foot"><span>Google</span><span class="dpv__live"><span class="dpv__dot"></span>live</span></div>
+            </div>
+            <div class="dpv__stats">
+              <div class="dpv__stat"><span class="dpv__label">💰 You hold</span><span class="dpv__num" data-dpv-to="250000" data-dpv-fmt="compact">250K</span><span class="dpv__sub">250,000 $VICINITY</span></div>
+              <div class="dpv__stat"><span class="dpv__label">🏆 Rank · all holders</span><span class="dpv__num" data-dpv-from="4200" data-dpv-to="126" data-dpv-pre="#">#126</span><span class="dpv__sub">of 4,200 · top 3.00%</span></div>
+            </div>
+            <div class="dpv__city">
+              <div class="dpv__city-head">
+                <span class="dpv__disc">UTICA</span>
+                <span class="dpv__id"><span class="dpv__kicker">Your community</span><span class="dpv__city-name">Utica</span></span>
+                <span class="dpv__seat">Open seat 🔥</span>
+              </div>
+              <div class="dpv__kv"><span><span class="dpv__k">Members</span><span class="dpv__v" data-dpv-to="312">312</span></span><span><span class="dpv__k">Holders here</span><span class="dpv__v" data-dpv-to="148">148</span></span></div>
+              <div class="dpv__path"><span>Founder path</span><span class="dpv__pct" data-dpv-to="33" data-dpv-suf="%">33%</span></div>
+              <div class="dpv__bar"><span class="dpv__fill"></span></div>
+              <div class="dpv__step"><span>Hold 180,000+ for 7 days</span><span class="dpv__days">5 / 7 days</span></div>
+            </div>
+            <div class="dpv__next">
+              <span class="dpv__kicker">Next for you</span>
+              <div class="dpv__todos">
+                <span class="dpv__todo"><span class="dpv__todo-t">A squad is forming in Utica</span><span class="dpv__todo-s">3 of 5 members · join to pool holdings</span><span class="dpv__go">→</span></span>
+                <span class="dpv__todo"><span class="dpv__todo-t">Vote for your Country Manager</span><span class="dpv__todo-s">Election closes in 3 days</span><span class="dpv__go">→</span></span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>

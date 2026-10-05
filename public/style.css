@@ -801,15 +801,112 @@ select option { background: var(--bg-2); }
 
 /* ---------- dashboard ---------- */
 .dash-out { padding: 50px 0 80px; }
-.teaser { display: grid; grid-template-columns: 1.1fr .9fr; gap: 40px; align-items: center; }
-@media (max-width: 900px) { .teaser { grid-template-columns: 1fr; } }
-.teaser__preview { position: relative; display: grid; gap: 12px; }
-.blur-card { display: flex; flex-direction: column; gap: 4px; filter: blur(3px); opacity: .7; user-select: none; }
-/* the staggered cards stay inside the preview: each is narrowed by as much as it is shifted (on a phone the second card used to
-   reach 8px past the screen, which widened the whole page and pushed the bottom menu bar off its edge) */
-.blur-card:nth-child(2) { transform: translateX(24px); margin-right: 24px; } .blur-card:nth-child(3) { transform: translateX(-12px); margin-left: 12px; }
-.blur-card strong { font: 700 1.8rem var(--display); }
-.teaser__lock { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: var(--glass); border: 1px solid var(--line-2); border-radius: 999px; padding: 10px 18px; font-weight: 700; box-shadow: var(--shadow); }
+.teaser { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 40px; align-items: center; }
+@media (max-width: 900px) { .teaser { grid-template-columns: minmax(0, 1fr); gap: 34px; } }
+/* the signed-out preview: a member's Home tab with sample values, drawn in HTML so it stays sharp and follows the theme.
+   Nothing in it is shifted sideways or wider than its column (on 3 Oct 2026 the old staggered cards widened the page at 320px). */
+.dpv { position: relative; isolation: isolate; width: 100%; max-width: 540px; min-width: 0; justify-self: center; user-select: none; -webkit-user-select: none; cursor: default; }
+.dpv::before { content: ""; position: absolute; inset: 6% 0 0; z-index: -1; pointer-events: none; border-radius: 40px;
+  background: radial-gradient(55% 45% at 22% 18%, rgba(255,90,54,.30), transparent 70%), radial-gradient(55% 45% at 82% 82%, rgba(91,140,255,.24), transparent 70%); }
+:root[data-theme="light"] .dpv::before { opacity: .55; }
+.dpv__frame { position: relative; display: grid; gap: 10px; padding: 14px; border-radius: 28px; border: 1px solid var(--line-2);
+  background: linear-gradient(180deg, rgba(var(--ink),.05), rgba(var(--ink),.012)), var(--bg-2);
+  box-shadow: 0 40px 90px -42px rgba(0,0,0,.9), inset 0 1px 0 rgba(var(--ink),.08); }
+:root[data-theme="light"] .dpv__frame { box-shadow: 0 34px 70px -38px rgba(11,22,38,.45), inset 0 1px 0 #fff; }
+.dpv__frame > * { min-width: 0; }
+.dpv__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.dpv__tag { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font: 700 .68rem/1.4 var(--body); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--gold-text); background: rgba(255,200,87,.13); border: 1px dashed rgba(255,200,87,.6); white-space: nowrap; }
+:root[data-theme="light"] .dpv__tag { background: rgba(217,154,26,.1); border-color: rgba(217,154,26,.7); }
+.dpv__what { font-size: .74rem; color: var(--muted); }
+.dpv__tabs { display: flex; gap: 2px; overflow: hidden; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  -webkit-mask-image: linear-gradient(90deg, #000 78%, transparent); mask-image: linear-gradient(90deg, #000 78%, transparent); }
+.dpv__tabs span { flex: none; padding: 5px 12px; border-radius: 999px; font: 600 .76rem/1.4 var(--body); color: var(--muted); }
+.dpv__tabs .is-on { color: var(--text); background: var(--card-2); box-shadow: inset 0 -2px 0 var(--pin); }
+/* the pass: the real Vicinity Pass, smaller */
+.dpv__pass { position: relative; overflow: hidden; isolation: isolate; display: grid; gap: 12px; padding: 14px 16px 12px; border-radius: 20px; color: #fff; border: 1px solid rgba(255,255,255,.16);
+  background: radial-gradient(90% 120% at 0% 0%, rgba(255,106,61,.95), transparent 60%), radial-gradient(90% 120% at 100% 100%, rgba(122,92,255,.9), transparent 60%), linear-gradient(135deg, #1B1030, #0B1426);
+  box-shadow: 0 26px 50px -30px rgba(255,90,54,.65), inset 0 1px 0 rgba(255,255,255,.22); }
+.dpv__pass::after { content: ""; position: absolute; inset: 0; z-index: -1; opacity: .25; pointer-events: none; background: repeating-linear-gradient(115deg, rgba(255,255,255,.06) 0 1px, transparent 1px 14px); }
+.dpv__shine { position: absolute; inset: -60% -30%; z-index: -1; pointer-events: none; background: linear-gradient(110deg, transparent 42%, rgba(255,255,255,.22) 50%, transparent 58%); transform: translateX(-70%); }
+.dpv__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dpv__brand { display: inline-flex; align-items: center; gap: 8px; font: 700 .66rem var(--display); letter-spacing: .2em; text-transform: uppercase; color: rgba(255,255,255,.85); white-space: nowrap; }
+.dpv__mark { width: 14px; height: 14px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: linear-gradient(135deg, #FFD37A, #FF6A3D); box-shadow: 0 0 0 3px rgba(255,255,255,.18); }
+.dpv__pill { font: 800 .62rem/1.5 var(--body); letter-spacing: .08em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; color: #fff; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.3); }
+.dpv__who { display: flex; align-items: center; gap: 11px; }
+.dpv__avatar { flex: none; width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; font: 700 1.2rem var(--display); background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.3); }
+.dpv__id { flex: 1; min-width: 0; display: grid; }
+.dpv__name { font: 700 1.12rem/1.2 var(--display); letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dpv__home { font-size: .8rem; color: rgba(255,255,255,.82); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dpv__coin, .dpv__disc { flex: none; display: grid; place-items: center; border-radius: 50%; font: 800 .6rem/1 var(--display); color: #0B3B2C; letter-spacing: .02em; text-shadow: 0 1px 0 rgba(255,255,255,.45);
+  background: radial-gradient(circle at 32% 28%, #DBFFF1, #37C29A 45%, #0E7C5A 100%); border: 2px solid rgba(255,255,255,.7); box-shadow: inset 0 -3px 8px rgba(0,60,40,.4), inset 0 3px 6px rgba(255,255,255,.55), 0 8px 20px -8px rgba(55,194,154,.7); }
+.dpv__coin { width: 46px; height: 46px; }
+.dpv__foot { font-size: .72rem; color: rgba(255,255,255,.78); padding-top: 9px; border-top: 1px solid rgba(255,255,255,.16); }
+.dpv__live { display: inline-flex; align-items: center; gap: 7px; }
+.dpv__dot { position: relative; width: 7px; height: 7px; border-radius: 50%; background: #FF6A3D; }
+.dpv__dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: #FF8A5B; opacity: 0; }
+/* the two numbers */
+/* the tiles share their rows (subgrid), so the numbers line up when one label wraps on a phone */
+.dpv__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto auto auto; column-gap: 8px; }
+.dpv__stat { position: relative; overflow: hidden; display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: 2px; align-content: start; min-width: 0; padding: 12px 12px 11px; border-radius: 16px; border: 1px solid rgba(var(--ink),.1);
+  background: linear-gradient(180deg, rgba(var(--ink),.07), rgba(var(--ink),.02)); }
+.dpv__stat::before { content: ""; position: absolute; left: 12px; right: 12px; top: 0; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--pin), var(--gold), transparent); opacity: .8; }
+.dpv__label { font-size: .62rem; line-height: 1.35; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 700; }
+.dpv__num { font: 650 1.4rem/1.15 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dpv__sub { font-size: .7rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the city, with the path to founding it */
+.dpv__city { display: grid; gap: 9px; padding: 12px; border-radius: 18px; border: 1px solid var(--line); background: var(--card); }
+.dpv__city-head { display: flex; align-items: center; gap: 10px; }
+.dpv__disc { width: 38px; height: 38px; font-size: .52rem; }
+.dpv__kicker { display: block; font: 600 .62rem/1.4 var(--display); letter-spacing: .16em; text-transform: uppercase; color: var(--pin-2); }
+.dpv__city-name { font: 650 1.05rem/1.2 var(--display); }
+.dpv__seat { flex: none; font: 700 .68rem/1.5 var(--body); padding: 2px 9px; border-radius: 999px; color: var(--bad-text); background: rgba(255,90,54,.12); border: 1px solid rgba(255,90,54,.4); white-space: nowrap; }
+.dpv__kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.dpv__kv > span { display: grid; padding: 6px 10px; border-radius: 12px; background: rgba(var(--ink),.045); }
+.dpv__k { font-size: .62rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; }
+.dpv__v { font: 650 1.02rem/1.25 var(--display); font-variant-numeric: tabular-nums; }
+.dpv__path, .dpv__step { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.dpv__path { font-size: .76rem; font-weight: 600; color: var(--text-2); }
+.dpv__pct { font: 700 1rem var(--display); color: var(--gold-text); font-variant-numeric: tabular-nums; }
+.dpv__bar { height: 8px; border-radius: 6px; background: rgba(var(--ink),.08); overflow: hidden; }
+.dpv__fill { position: relative; display: block; width: 33%; height: 100%; border-radius: 6px; overflow: hidden; transform-origin: left center; background: linear-gradient(90deg, var(--moss), var(--gold), var(--pin)); }
+.dpv__fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent); transform: translateX(-100%); }
+.dpv__step { font-size: .72rem; color: var(--muted); }
+.dpv__days { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* Next for you */
+.dpv__next { display: grid; gap: 6px; }
+.dpv__todos { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.dpv__todo { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-items: center; min-width: 0; padding: 9px 12px 9px 15px; border-radius: 14px; border: 1px solid var(--line); background: var(--card); overflow: hidden; }
+.dpv__todo::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: var(--blue); }
+.dpv__todo-t { font: 650 .82rem/1.3 var(--display); }
+.dpv__todo-s { grid-column: 1; font-size: .7rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dpv__go { grid-column: 2; grid-row: 1 / 3; color: var(--pin-2); font-weight: 700; }
+@media (max-width: 360px) {
+  .dpv__frame { padding: 12px; } .dpv__pass { padding: 12px 13px 11px; } .dpv__what { display: none; }
+  .dpv__who { gap: 9px; } .dpv__avatar { width: 40px; height: 40px; } .dpv__coin { width: 40px; height: 40px; font-size: .54rem; } .dpv__home { font-size: .76rem; }
+  .dpv__num { font-size: 1.22rem; } .dpv__stat { padding: 11px 10px 10px; } .dpv__sub { white-space: normal; }
+  .dpv__disc { display: none; } /* the pass above already shows the city's coin */
+}
+/* alive: it rises in when the page shows, the shine sweeps, the dot pings; dashboard.js counts the numbers, fills the bar and slides the
+   next steps in once each is on screen (it only "arms" them when it is going to play them). Reduced motion: none of this, every value as written. */
+@media (prefers-reduced-motion: no-preference) {
+  .dpv__frame > * { animation: dpvRise .7s cubic-bezier(.2,.8,.2,1) both; }
+  .dpv__frame > :nth-child(2) { animation-delay: .06s; } .dpv__frame > :nth-child(3) { animation-delay: .12s; } .dpv__frame > :nth-child(4) { animation-delay: .2s; }
+  .dpv__frame > :nth-child(5) { animation-delay: .28s; } .dpv__frame > :nth-child(6) { animation-delay: .36s; }
+  .dpv__shine { animation: passShine 7s ease-in-out 1.2s infinite; }
+  .dpv__dot::after { animation: dpvPing 2.2s cubic-bezier(0,0,.2,1) infinite; }
+  .dpv__fill::after { animation: dpvSheen 3.2s ease-in-out 2.4s infinite; }
+  .dpv.is-armed .dpv__fill { transform: scaleX(0); }
+  .dpv.is-armed .dpv__bar.is-on .dpv__fill { transform: none; transition: transform 1.4s cubic-bezier(.2,.8,.2,1) .25s; }
+  .dpv.is-armed .dpv__todo { opacity: 0; transform: translateY(10px); }
+  .dpv.is-armed .dpv__todos.is-on .dpv__todo { opacity: 1; transform: none; transition: opacity .5s ease .1s, transform .6s cubic-bezier(.2,.8,.2,1) .1s; }
+  .dpv.is-armed .dpv__todos.is-on .dpv__todo:nth-child(2) { transition-delay: .26s; }
+}
+@media (prefers-reduced-motion: no-preference) and (min-width: 901px) { .dpv__frame { animation: dpvFloat 8s ease-in-out 1s infinite; } }
+@keyframes dpvRise { from { opacity: 0; transform: translateY(14px); } }
+@keyframes dpvPing { 0% { transform: scale(1); opacity: .7; } 80%, 100% { transform: scale(3); opacity: 0; } }
+@keyframes dpvSheen { 0% { transform: translateX(-100%); } 60%, 100% { transform: translateX(100%); } }
+@keyframes dpvFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 .onboard { max-width: 720px; margin: 0 auto; }
 .onboard__steps { list-style: none; padding: 0; margin: 18px 0; display: grid; gap: 16px; }
 .onboard__steps p { margin: 2px 0 8px; }

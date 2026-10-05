@@ -337,16 +337,23 @@ test("README (the public repo's front page) names the live official contract, th
   assert.doesNotMatch(readme, /why \$VICINITY launches on Raydium LaunchLab/);
 });
 
-test("dashboard teaser: each staggered preview card is narrowed by as much as it is shifted, so none reaches past the screen", () => {
-  // measured live 3 Oct 2026 on /dashboard (signed out) at 320px: the second card ran 40 to 328px, the page widened to 328px and the
-  // bottom menu bar was laid out 8px past the screen edge. Checked in Chromium after this change: 320/360/390/414 wide, no overflow.
-  const rules = [...css.matchAll(/\.blur-card:nth-child\((\d)\) \{([^}]*)\}/g)];
-  assert.ok(rules.length >= 2, "the staggered cards");
-  for (const [, n, body] of rules) {
-    const x = Number(/translateX\((-?\d+)px\)/.exec(body)?.[1] || 0);
-    if (!x) continue;
-    const side = x > 0 ? "right" : "left";
-    const margin = Number(new RegExp(`margin-${side}: (\\d+)px`).exec(body)?.[1] || 0);
-    assert.ok(margin >= Math.abs(x), `card ${n} moves ${x}px: needs margin-${side} of at least ${Math.abs(x)}px, has ${margin}`);
+test("dashboard teaser: nothing in the signed-out preview is shifted sideways or pushed past its column, so it never reaches past the screen", () => {
+  // measured live 3 Oct 2026 on /dashboard (signed out) at 320px: the second staggered card ran 40 to 328px, the page widened to 328px and
+  // the bottom menu bar was laid out 8px past the screen edge. The staggered blur cards were replaced on 5 Oct 2026 by an example
+  // dashboard (.dpv) that stays inside its column: no sideways shift, no negative side offset. Checked in Chromium at 320/390/1280 px.
+  assert.doesNotMatch(css, /\.blur-card|\.teaser__lock/, "the old staggered cards are gone");
+  const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(?<=^|[{}])(\s*)([^{}@]*\.dpv[^{}]*)\{([^}]*)\}/g)];
+  assert.ok(rules.length >= 20, "the preview's rules");
+  // the two light sweeps are larger than their card and slide across it, so their card clips them
+  const clipped = { ".dpv__shine": ".dpv__pass", ".dpv__fill::after": ".dpv__fill" };
+  for (const [sweep, box] of Object.entries(clipped)) {
+    const r = rules.find(([, , sel]) => sel.trim() === box);
+    assert.ok(r && /overflow:\s*hidden/.test(r[3]), `${box} clips ${sweep}`);
+  }
+  for (const [, , sel, body] of rules) {
+    if (sel.trim() in clipped) continue;
+    assert.doesNotMatch(body, /translateX\(/, `${sel.trim()}: no sideways shift`);
+    assert.doesNotMatch(body, /(margin|inset|left|right)[^;]*:\s*[^;]*-\d/, `${sel.trim()}: no negative side offset`);
+    assert.doesNotMatch(body, /(^|[;\s])(min-)?width:\s*\d{3,}px/, `${sel.trim()}: no fixed width wider than a phone (a max-width is fine)`);
   }
 });
