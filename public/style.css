@@ -131,7 +131,11 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 :root[data-theme="light"] .card { background: var(--card); }
 .kicker { font-family: var(--display); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .16em; color: var(--pin-2); margin-bottom: 12px; }
 .kicker--live { display: flex; align-items: center; gap: 8px; }
-.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--pin); box-shadow: 0 0 0 0 rgba(255,90,54,.6); animation: livePulse 1.8s infinite; vertical-align: middle; }
+/* the live dot pings with a ring that grows and fades (transform and opacity only: no repaint every frame); still with reduced motion */
+.live-dot { position: relative; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--pin); vertical-align: middle; }
+.live-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--pin); opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) { .live-dot::after { animation: livePing 1.8s cubic-bezier(0,0,.2,1) infinite; } }
+@keyframes livePing { 0% { transform: scale(1); opacity: .6; } 75%, 100% { transform: scale(3); opacity: 0; } }
 @keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(255,90,54,.55); } 70% { box-shadow: 0 0 0 9px rgba(255,90,54,0); } 100% { box-shadow: 0 0 0 0 rgba(255,90,54,0); } }
 .pill { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; border-radius: 999px; background: rgba(255,213,138,.12); border: 1px solid rgba(255,213,138,.3); color: var(--warn); font-weight: 600; font-size: .78rem; }
 .pill--live { background: rgba(255,90,54,.12); border-color: rgba(255,90,54,.35); color: var(--bad-text); }
@@ -149,8 +153,7 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 .section-head p.muted { max-width: 62ch; font-size: 1.05rem; }
 .lead { font-size: 1.15rem; color: var(--muted); max-width: 54ch; }
 .lead strong { color: var(--text); }
-.reveal { opacity: 0; transform: translateY(24px); transition: opacity .7s ease, transform .7s cubic-bezier(.2,.8,.2,1); }
-.reveal.is-in { opacity: 1; transform: none; }
+/* .reveal marks a block that rises in when it scrolls into view; it never hides anything by itself (see "Site-wide motion") */
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
 @media (max-width: 900px) { .grid-3 { grid-template-columns: 1fr; } }
 .bridge { margin-top: 28px; font-size: 1.1rem; color: var(--text-2); }
@@ -1045,10 +1048,72 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .role-row.is-you .role-row__head h3::after { content: " · you"; color: var(--gold-text); font-size: .85rem; }
 @media (max-width: 900px) { .role-row__body { grid-template-columns: 1fr; gap: 12px; } }
 
+/* =====================================================================
+   Site-wide motion: one layer for every page (site.js arms the parts that need a script).
+   Rules: only transform, opacity, filter and background-position move; nothing on screen at the start is hidden; nothing
+   here changes the layout; every animation and transition sits in a "no-preference" block, so with reduced motion
+   nothing moves and nothing waits (the block after this one also stops everything, and shows any armed block).
+   ===================================================================== */
+/* a soft glow behind each page's top section, like the home and Launchpad heroes' orbs. It stays still: a big layer drifting
+   all the time cost every page load about 40 ms of main-thread time on a 4-core test machine (measured 5 Oct 2026) */
+.connect, .dash-out { position: relative; }
+.page-hero::before, .connect::before, .dash-out::before, main > .section:first-child::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(42% 52% at 10% 0%, rgba(255,90,54,.15), transparent 70%), radial-gradient(38% 46% at 92% 6%, rgba(91,140,255,.13), transparent 70%),
+    radial-gradient(30% 36% at 55% 38%, rgba(255,200,87,.06), transparent 70%); }
+:root[data-theme="light"] .page-hero::before, :root[data-theme="light"] .connect::before, :root[data-theme="light"] .dash-out::before, :root[data-theme="light"] main > .section:first-child::before { opacity: .6; }
+/* the phone tab bar: the page you are on has a small bar over its icon */
+@media (max-width: 900px) {
+  .tabbar a { position: relative; }
+  .tabbar a[aria-current="page"]::before { content: ""; position: absolute; top: -7px; left: 50%; width: 22px; height: 3px; margin-left: -11px; border-radius: 0 0 4px 4px; background: linear-gradient(90deg, var(--pin), var(--gold)); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* every page eases in */
+  main { animation: moEnter .5s cubic-bezier(.2,.8,.2,1) backwards; }
+  /* blocks below the screen rise in when they scroll into view (site.js adds .mo-armed only to those, then .mo-in) */
+  .mo-armed { opacity: 0; transform: translateY(18px); }
+  .mo-armed.mo-in { opacity: 1; transform: none; transition: opacity .45s ease-out, transform .6s cubic-bezier(.2,.8,.2,1); }
+  /* the orange headline words shift their colours a few times, then rest as they were */
+  .accent { background-image: linear-gradient(100deg, var(--pin) 5%, var(--gold) 45%, var(--pin-2) 72%, var(--gold) 95%); background-size: 200% 100%; animation: moAccent 6s ease-in-out 4 alternate; }
+  /* buttons give a little when pressed; the big main buttons catch a shine now and then */
+  .btn:not([disabled]):active { transform: translateY(0) scale(.97); transition-duration: .08s; }
+  .btn--primary.btn--lg { position: relative; overflow: hidden; isolation: isolate; }
+  .btn--primary.btn--lg::after { content: ""; position: absolute; inset: 0 -40%; z-index: -1; pointer-events: none; transform: translateX(-100%);
+    background: linear-gradient(105deg, transparent 38%, rgba(255,255,255,.3) 50%, transparent 62%); animation: moShine 7s ease-in-out 2.2s infinite; }
+  /* a progress bar has a sheen running along it */
+  :is(.launch-progress, .meter, .bar) span { position: relative; overflow: hidden; }
+  :is(.launch-progress, .meter, .bar) span::after { content: ""; position: absolute; inset: 0; pointer-events: none; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent); animation: moSheen 3.6s ease-in-out 1.5s infinite; }
+  /* a step of the sign-up, a checker answer and a rank card fade in when they appear */
+  .cstate, .check-result, #rank-result { animation: moState .45s cubic-bezier(.2,.8,.2,1) backwards; }
+  /* while the top section is off screen its moving parts pause (site.js sets .mo-off) */
+  .mo-off .orb, .mo-off .stars, .mo-off .hero-chip, .mo-off .accent, .mo-off .m-pulse, .mo-off .m-official, .mo-off .btn::after { animation-play-state: paused; }
+}
+@media (prefers-reduced-motion: no-preference) and (max-width: 900px) {
+  /* the tab you are on settles in; a tapped tab gives a small bounce */
+  .tabbar a svg { transition: transform .35s cubic-bezier(.2,1.8,.4,1); }
+  .tabbar a:active svg { transform: scale(.8); transition-duration: .08s; }
+  .tabbar a[aria-current="page"] svg { animation: moTab .7s cubic-bezier(.2,1.8,.4,1) .12s backwards; }
+  .tabbar a[aria-current="page"]::before { animation: moTabBar .5s cubic-bezier(.2,.8,.2,1) .1s backwards; }
+}
+/* cards lift a little under a mouse (never on touch screens, where a lift would stick after a tap) */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  :is(.grid-3, .bento, .why-now, .buy-steps, .roles-grid, .proof-grid, .phases, .rules-grid) > .card, .lp-grid > .lp-card, .wanted > li, .flow__step { transition: transform .35s cubic-bezier(.2,.8,.2,1); }
+  :is(.grid-3, .bento, .why-now, .buy-steps, .roles-grid, .proof-grid, .phases, .rules-grid) > .card:hover, .lp-grid > .lp-card:hover, .wanted > li:hover, .flow__step:hover { transform: translateY(-4px); border-color: var(--line-2); }
+}
+@keyframes moEnter { from { opacity: .4; transform: translateY(8px); } }
+@keyframes moAccent { to { background-position: 100% 0; } }
+@keyframes moShine { 0% { transform: translateX(-100%); } 28%, 100% { transform: translateX(100%); } }
+@keyframes moSheen { 0% { transform: translateX(-100%); } 45%, 100% { transform: translateX(100%); } }
+@keyframes moState { from { opacity: .2; transform: translateY(8px); } }
+@keyframes moTab { from { transform: scale(.6) translateY(3px); } }
+@keyframes moTabBar { from { transform: scaleX(0); opacity: 0; } }
+/* printed pages show everything */
+@media print { .mo-armed { opacity: 1 !important; transform: none !important; } }
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
-  .reveal { opacity: 1; transform: none; }
+  .mo-armed { opacity: 1; transform: none; }
 }
 
 /* ---------- fair launch: founder path, windows, elections, moderation ---------- */

@@ -81,12 +81,169 @@
     });
   }
 
-  /* ---------- reveal on scroll ---------- */
-  const io = "IntersectionObserver" in window ? new IntersectionObserver((entries) => {
-    for (const e of entries) if (e.isIntersecting) { e.target.classList.add("is-in"); io.unobserve(e.target); }
-  }, { threshold: 0.1, rootMargin: "0px 0px -30px 0px" }) : null;
-  const reveal = (root = document) => $$(".reveal:not(.is-in)", root).forEach((e, i) => { e.style.transitionDelay = `${(i % 4) * 60}ms`; if (io && !reduced) io.observe(e); else e.classList.add("is-in"); });
-  reveal();
+  /* ---------- motion: blocks that rise in, numbers that count ---------- */
+  /* motion: start (test/motion.test.js runs this part on a pretend page) */
+  // One motion layer for every page. It never changes what a visitor can already see or what they read once it settles:
+  // * blocks (cards, section heads, stats) still BELOW the screen when the page starts are lowered and faded (style.css .mo-armed)
+  //   and rise in, a few at a time, as they scroll into view; blocks a page script adds later do the same. A block on screen at
+  //   the start, a hidden one, and every block without this script, without IntersectionObserver or with reduced motion just shows.
+  // * live numbers count up the first time they are on screen, and ease to a new value when the page's own script writes one
+  //   (with a short glow). What is left when a count ends is the script's own text, word for word; anything that is not a plain
+  //   number ("—", "Oct 10", "4d 18h", "<0.01%") is never touched. A count finishes at once when the tab is hidden.
+  // * the moving parts of a page's top section (orbs, stars, chips, the headline's colours) pause while it is off screen (.mo-off).
+  // No loop runs when nothing moves: a count asks for animation frames only while it lasts (1.3 s at most).
+  const NUM = /^([$#]?)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?([KMBT]?)(%|\+|×| [a-z][a-z ]*)?$/;
+  const UNIT = { "": 1, K: 1e3, M: 1e6, B: 1e9, T: 1e12 };
+  const numFormats = new Map(); // one formatter per (decimals, grouping): a count writes up to 60 numbers a second
+  const numFormat = (min, max, group) => {
+    const k = `${min}-${max}-${group}`;
+    if (!numFormats.has(k)) numFormats.set(k, new Intl.NumberFormat("en-US", { minimumFractionDigits: min, maximumFractionDigits: max, useGrouping: group }));
+    return numFormats.get(k);
+  };
+  /** The number n written the way the page wrote it: same prefix, decimals, unit, suffix and digit grouping (en-US, like V.fmt / V.compact).
+   *  `dec` (up to) more decimals while counting: "2M" passes "1.4M" (the page's own compact form, which drops a trailing ".0"). */
+  const numText = (p, n, dec = p.dec) => p.pre + numFormat(p.dec, Math.max(p.dec, dec), p.group).format(n) + p.unit + p.suf;
+  /** "8,008", "$0.000123", "12.3%", "250K", "#126", "73+", "7 days" → its parts; null for anything numText could not write back exactly. */
+  function numParse(text) {
+    const m = NUM.exec(text);
+    if (!m) return null;
+    const p = { pre: m[1], dec: m[3] ? m[3].length : 0, unit: m[4], suf: m[5] || "", group: m[2].includes(",") || m[2].length < 4, n: Number(m[2].replace(/,/g, "") + (m[3] ? "." + m[3] : "")) };
+    return numText(p, p.n) === text ? p : null;
+  }
+  const numValue = (p) => p.n * UNIT[p.unit];
+
+  function motionLayer(win, doc, still) {
+    const IO = win.IntersectionObserver, MO = win.MutationObserver;
+    let on = !still && Boolean(IO && MO);
+    if (!on) return { arm() {}, finish() {}, on };
+    const BLOCKS = "main .section-head, main .card, main .stat, main .reveal, main .city-stats > div, main .numbers__row > div, main .wanted > li, main .faq details, main .scam-note";
+    const QUIET = ".dpv, .termsgate, .modal, .cstate, [data-still]"; // its own motion, or shown and hidden by its page
+    const NUMS = ".hero__facts strong, .numbers__row strong, .why-now__big, .stat > strong, .city-stats strong, .tile__num";
+    const HEROES = ".hero, .launch-hero, .page-hero, .connect, .dash-out, main > .section:first-child";
+    const GLOW = [{ transform: "none", filter: "none" }, { transform: "translateY(-2px)", filter: "brightness(1.45) drop-shadow(0 0 10px rgba(255,138,91,.55))", offset: 0.3 }, { transform: "none", filter: "none" }];
+    const timer = (f, ms) => win.setTimeout(f, ms);
+
+    /* blocks */
+    const rise = new IO((entries) => {
+      let i = 0;
+      for (const en of entries) if (en.isIntersecting) { rise.unobserve(en.target); show(en.target, Math.min(i++, 4) * 60); }
+    }, { rootMargin: "0px 0px -8% 0px" });
+    function show(e, delay) {
+      if (delay) e.style.transitionDelay = `${delay}ms`;
+      e.classList.add("mo-in");
+      timer(() => { e.classList.remove("mo-armed", "mo-in"); e.style.transitionDelay = ""; }, delay + 700); // then the block is itself again (its own hover etc.)
+    }
+    /** Lowers the blocks in these roots that are below the screen right now: never one on screen, a hidden one, or one inside another block. */
+    function arm(...roots) {
+      if (!on) return;
+      const found = new Set();
+      for (const r of roots.length ? roots : [doc]) {
+        if (r !== doc && r.matches && r.matches(BLOCKS)) found.add(r);
+        if (r.querySelectorAll) for (const e of r.querySelectorAll(BLOCKS)) found.add(e);
+      }
+      const list = [...found].filter((e) => !e.classList.contains("mo-armed") && !e.closest(QUIET) && !(e.parentElement && e.parentElement.closest(BLOCKS)));
+      const h = win.innerHeight || doc.documentElement.clientHeight;
+      const rects = list.map((e) => e.getBoundingClientRect()); // every read first, then the writes: one layout
+      list.forEach((e, i) => { if (rects[i].height > 0 && rects[i].top > h) { e.classList.add("mo-armed"); rise.observe(e); } });
+    }
+    // blocks a page script adds (a list of cities, the Launchpad's cards...): the same, once per frame; table rows never
+    const added = new Set();
+    let addQ = 0;
+    const main = doc.querySelector("main");
+    if (main) new MO((recs) => {
+      for (const r of recs) for (const n of r.addedNodes) if (n.nodeType === 1 && !(r.target.closest && r.target.closest("table"))) added.add(n);
+      if (added.size && !addQ) addQ = win.requestAnimationFrame(() => { addQ = 0; const list = [...added].filter((n) => n.isConnected); added.clear(); if (list.length) arm(...list); });
+    }).observe(main, { childList: true, subtree: true });
+
+    /* numbers */
+    const nums = new Map(); // element → { p: its number (null while it shows words), seen: been on screen }
+    const runs = new Map(); // element → a count in progress
+    const live = new Map(); // aria-live region → counts running in it (it is aria-busy meanwhile, so a screen reader reads the end value once)
+    let frame = 0;
+    const numMo = new MO((recs) => {
+      const hit = new Set();
+      for (const r of recs) { let n = r.target; while (n && !nums.has(n)) n = n.parentNode; if (n) hit.add(n); }
+      hit.forEach(wrote);
+    });
+    const seen = new IO((entries) => { for (const en of entries) if (en.isIntersecting) { seen.unobserve(en.target); first(en.target); } }, { threshold: 0.5 });
+    /** On screen for the first time: it counts up from 0 to what it says (a rank never counts up from #0). */
+    function first(e) {
+      const s = nums.get(e); s.seen = true;
+      if (on && s.p && s.p.n > 0 && s.p.pre !== "#" && !doc.hidden) count(e, 0, s.p, e.textContent, false);
+    }
+    /** Starts following the live numbers; the ones on screen already start counting now, before the page is first drawn if we can. */
+    function watch(list) {
+      list = list.filter((e) => !nums.has(e) && !e.childElementCount && !e.closest(".dpv, [data-countdown-short], [data-still]"));
+      const h = win.innerHeight || doc.documentElement.clientHeight, rects = list.map((e) => e.getBoundingClientRect());
+      list.forEach((e, i) => {
+        nums.set(e, { p: numParse(e.textContent.trim()), seen: false });
+        numMo.observe(e, { childList: true, characterData: true, subtree: true });
+        const r = rects[i];
+        if (r.height > 0 && r.top < h * 0.92 && r.bottom > 0 && !doc.hidden) first(e); else seen.observe(e);
+      });
+    }
+    /** The page's script wrote new text into a number. */
+    function wrote(e) {
+      const s = nums.get(e), text = e.textContent, p = numParse(text.trim()), run = runs.get(e);
+      const was = run ? run.cur * UNIT[run.p.unit] : s.p ? numValue(s.p) : null;
+      s.p = p;
+      if (!p || !s.seen || doc.hidden || !on) { if (run) stop(e, false); return; } // words, not seen yet, a hidden tab: the text as written
+      if (was === null) { if (p.n > 0 && p.pre !== "#") count(e, 0, p, text, false); return; } // its first number while on screen
+      if (Math.abs(was - numValue(p)) <= Math.abs(numValue(p)) * 1e-9) { if (run) stop(e, false); return; } // the same value, maybe written another way ("1,000,000,000" → "1B")
+      count(e, was, p, text, !run); // a new value: ease to it, with a glow if the old one had settled
+    }
+    function count(e, wasValue, p, text, glow) {
+      const from = wasValue / UNIT[p.unit], to = p.n;
+      const dec = p.dec || (p.unit && Math.max(from, to) < 100 ? 1 : 0); // "1B" passes through "0.4B", then ends on the page's "1B"
+      if (!runs.has(e)) busy(e, 1);
+      runs.set(e, { p, text, from, to, dec, cur: from, t0: null, ms: glow ? 900 : 1300 });
+      put(e, numText(p, from, dec)); // at once, so the new text never flashes before its count
+      if (glow && e.animate) e.animate(GLOW, { duration: 1100, easing: "cubic-bezier(.2,.8,.2,1)" });
+      if (!frame) frame = win.requestAnimationFrame(tick);
+    }
+    function tick(now) {
+      frame = 0;
+      for (const [e, r] of runs) {
+        if (r.t0 === null) r.t0 = now; // its first frame
+        const k = Math.min(1, (now - r.t0) / r.ms);
+        if (k >= 1) { stop(e, true); continue; }
+        r.cur = r.from + (r.to - r.from) * (1 - (1 - k) ** 3);
+        put(e, numText(r.p, r.cur, r.dec));
+      }
+      if (runs.size) frame = win.requestAnimationFrame(tick);
+    }
+    /** Our own writes are never read back as the page's (their records are dropped right away). */
+    function put(e, text) { if (e.textContent !== text) e.textContent = text; numMo.takeRecords(); }
+    /** Ends a count; `write` puts the page's own text back (false: it is already there). */
+    function stop(e, write) { const r = runs.get(e); if (!r) return; runs.delete(e); if (write) put(e, r.text); busy(e, -1); }
+    function busy(e, d) {
+      const region = e.closest('[aria-live]:not([aria-live="off"])');
+      if (!region) return;
+      const n = (live.get(region) || 0) + d;
+      if (n > 0) { live.set(region, n); region.setAttribute("aria-busy", "true"); } else { live.delete(region); region.removeAttribute("aria-busy"); }
+    }
+    /** Everything to its end state at once: every count ends on the page's text, every armed block shows. */
+    function finish() {
+      for (const e of [...runs.keys()]) stop(e, true);
+      for (const e of doc.querySelectorAll(".mo-armed")) { rise.unobserve(e); e.classList.remove("mo-armed", "mo-in"); e.style.transitionDelay = ""; }
+    }
+
+    /* the top section's drifting parts pause while it is off screen */
+    const away = new IO((entries) => { for (const en of entries) en.target.classList.toggle("mo-off", !en.isIntersecting); });
+    for (const e of doc.querySelectorAll(HEROES)) away.observe(e);
+
+    doc.addEventListener("visibilitychange", () => { if (doc.hidden) for (const e of [...runs.keys()]) stop(e, true); });
+    const q = win.matchMedia ? win.matchMedia("(prefers-reduced-motion: reduce)") : null;
+    if (q && q.addEventListener) q.addEventListener("change", () => { if (q.matches) { on = false; finish(); } }); // asked for less motion meanwhile: stop now
+
+    arm();
+    watch([...doc.querySelectorAll(NUMS)]);
+    return { arm, finish, on };
+  }
+  /* motion: end */
+  const motion = motionLayer(window, document, reduced);
+  /** Lets a page's blocks rise in once its script has shown them (dashboard.js after the dashboard opens). */
+  const reveal = (root) => motion.arm(...(root ? [root] : []));
 
   /* ---------- who's signed in (header button) ---------- */
   let meLite = null;
