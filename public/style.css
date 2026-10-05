@@ -355,12 +355,83 @@ select option { background: var(--bg-2); }
 .footer-legal { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 16px; }
 
 /* ---------- token page ---------- */
-.contract { margin: 26px 0 0; padding: 20px 22px; }
-.contract__label { font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
-.contract__row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.contract__row code { font-size: 1rem; padding: 10px 14px; word-break: break-all; flex: 1; min-width: 0; }
-.contract__links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-.contract p.tiny { margin-bottom: 0; }
+/* the official contract card: a header (label + "Official" once the address is known), the address in one clean block with a
+   full-width copy button under it on phones (beside it on computers), Buy on Raydium as the main button, Jupiter / DEX Screener /
+   Solscan as three equal tiles, then the "only official" note. Phones first; a computer puts the buttons in a column on the right. */
+.contract { position: relative; margin: 26px 0 0; padding: 18px; display: grid; gap: 16px; isolation: isolate;
+  background: radial-gradient(120% 90% at 100% 0%, rgba(255,90,54,.10), transparent 55%), linear-gradient(180deg, rgba(var(--ink),.065), rgba(var(--ink),.02));
+  border-color: rgba(255,138,91,.22); }
+:root[data-theme="light"] .contract { background: radial-gradient(120% 90% at 100% 0%, rgba(232,67,31,.07), transparent 55%), var(--card); border-color: rgba(232,67,31,.22); }
+.contract::before { content: ""; position: absolute; top: 0; left: 22px; right: 22px; height: 1px; z-index: -1; pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--pin) 30%, var(--gold) 50%, var(--pin) 70%, transparent) 0 0 / 200% 100%; opacity: .85; }
+.contract__head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.contract__icon { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #fff;
+  background: linear-gradient(135deg, var(--pin), var(--gold)); box-shadow: 0 8px 22px -8px rgba(255,90,54,.7), inset 0 1px 0 rgba(255,255,255,.3); }
+.contract__title { flex: 1; min-width: 0; line-height: 1.25; }
+.contract__label { font: 600 1rem/1.25 var(--display); letter-spacing: -.01em; color: var(--text); }
+.contract__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 4px; }
+.contract__net { font-size: .72rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.contract__badge { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px 3px 7px; border-radius: 999px; font: 700 .72rem/1.2 var(--body); letter-spacing: .03em;
+  color: var(--ok-text); background: rgba(55,194,154,.13); border: 1px solid rgba(55,194,154,.42); }
+.contract__badge svg { flex: none; }
+/* the address: one block, monospace, wrapping evenly (two lines of 22 characters for a 44-character address on a phone) */
+.contract__addr { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; padding: 16px; border-radius: 16px;
+  background: var(--code-bg); border: 1px solid var(--line-2); box-shadow: inset 0 1px 0 rgba(var(--ink),.04); }
+.contract__addr code { display: block; flex: 1 1 100%; max-width: calc(22 * (1ch + .03em) + 2px); margin: 0 auto; padding: 0; background: none; border-radius: 0;
+  font: 500 clamp(15px, 4.3vw, 18px)/1.55 var(--mono); letter-spacing: .03em; color: var(--text); text-align: center; word-break: break-all; overflow-wrap: anywhere;
+  -webkit-user-select: all; user-select: all; }
+.contract__copy { flex: 1 1 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 18px; border-radius: 12px;
+  font: 600 .95rem var(--body); color: var(--text); background: var(--card-2); border: 1px solid var(--line-2); cursor: pointer;
+  transition: background .2s, border-color .2s, color .2s, transform .15s; }
+.contract__copy:hover { border-color: rgba(var(--ink),.3); background: rgba(var(--ink),.1); }
+.contract__copy:active { transform: scale(.98); }
+.contract__copy-icons { position: relative; width: 18px; height: 18px; flex: none; }
+.contract__copy-icons svg { position: absolute; inset: 0; }
+.contract__copy-check { opacity: 0; transform: scale(.4); }
+.contract__copy.is-copied { color: var(--ok-text); background: rgba(55,194,154,.14); border-color: rgba(55,194,154,.5); }
+.contract__copy.is-copied .contract__copy-icon { opacity: 0; }
+.contract__copy.is-copied .contract__copy-check { opacity: 1; transform: none; animation: checkPop .45s cubic-bezier(.2,1.5,.4,1); }
+@keyframes checkPop { 0% { transform: scale(.3) rotate(-20deg); opacity: 0; } 60% { transform: scale(1.25); opacity: 1; } 100% { transform: none; } }
+/* the trade links: Buy on Raydium across the card, then three equal tiles */
+.contract__links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; animation: contractIn .5s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes contractIn { from { opacity: 0; transform: translateY(6px); } }
+.contract__buy { grid-column: 1 / -1; position: relative; overflow: hidden; isolation: isolate; display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 52px; padding: 0 20px; border-radius: 14px; text-decoration: none; color: #fff; font: 700 1.02rem var(--body);
+  background: linear-gradient(135deg, var(--pin), #FF7A45); box-shadow: 0 12px 30px -12px rgba(255,90,54,.75), inset 0 1px 0 rgba(255,255,255,.25);
+  transition: transform .2s ease, box-shadow .2s ease; }
+.contract__buy::after { content: ""; position: absolute; inset: 0 -40%; z-index: -1; pointer-events: none; transform: translateX(-100%);
+  background: linear-gradient(105deg, transparent 38%, rgba(255,255,255,.32) 50%, transparent 62%); animation: buyShine 5.5s ease-in-out 1.2s infinite; }
+@keyframes buyShine { 0% { transform: translateX(-100%); } 35%, 100% { transform: translateX(100%); } }
+.contract__buy:hover { transform: translateY(-1px); box-shadow: 0 16px 38px -12px rgba(255,90,54,.9), inset 0 1px 0 rgba(255,255,255,.3); }
+.contract__buy svg { flex: none; }
+.contract__ext { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 66px; padding: 10px 2px;
+  border-radius: 14px; text-decoration: none; text-align: center; color: var(--text); font: 600 .78rem/1.15 var(--body); background: var(--card-2); border: 1px solid var(--line-2);
+  transition: transform .2s ease, border-color .2s, background .2s; }
+.contract__ext svg { color: var(--pin-2); }
+.contract__ext span { overflow-wrap: anywhere; }
+.contract__ext:hover { transform: translateY(-2px); border-color: rgba(255,90,54,.55); background: rgba(255,90,54,.08); }
+/* the note: set apart under a hairline */
+.contract__foot { display: flex; align-items: flex-start; gap: 10px; padding-top: 14px; border-top: 1px dashed var(--line-2); color: var(--muted); }
+.contract__foot svg { flex: none; margin-top: 1px; color: var(--gold); }
+.contract__foot p { margin: 0; font-size: .82rem; line-height: 1.5; }
+@media (prefers-reduced-motion: no-preference) { .contract::before { animation: contractGlow 7s linear infinite; } }
+@keyframes contractGlow { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .contract__buy::after { display: none; } .contract__links, .contract__copy-check { animation: none; } }
+@media (min-width: 640px) {
+  .contract { padding: 22px 24px; }
+  .contract__addr { justify-content: space-between; padding: 12px 12px 12px 18px; }
+  .contract__addr code { flex: 1 1 auto; max-width: none; margin: 0; text-align: left; font-size: .92rem; }
+  .contract__copy { flex: none; min-height: 44px; padding: 0 14px; font-size: .9rem; }
+  .contract__links { grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, 1fr)); }
+  .contract__buy { grid-column: auto; }
+  .contract__ext { flex-direction: row; gap: 8px; min-height: 52px; padding: 0 10px; font-size: .9rem; }
+}
+@media (min-width: 1180px) {
+  .contract:has(> .contract__links:not([hidden])) { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); column-gap: 28px; align-items: center; }
+  .contract:has(> .contract__links:not([hidden])) > .contract__links { grid-column: 2; grid-row: 1 / span 3; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .contract:has(> .contract__links:not([hidden])) .contract__buy { grid-column: 1 / -1; }
+  .contract:has(> .contract__links:not([hidden])) .contract__ext { flex-direction: column; gap: 6px; min-height: 66px; padding: 10px 4px; font-size: .84rem; }
+}
 .chip-link { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); text-decoration: none; font-size: .88rem; font-weight: 600; }
 .chip-link:hover { border-color: rgba(255,90,54,.6); }
 .proof-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
@@ -936,7 +1007,6 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .scam-note { margin: 18px 0 0; padding: 14px 18px; border-radius: 14px; border: 1px solid rgba(255,90,54,.35); background: rgba(255,90,54,.07); color: var(--text-2); font-size: .93rem; }
 .scam-note strong { color: var(--bad-text); }
 #get .hero__cta { margin: 26px 0 0; }
-.chip-link--buy { background: linear-gradient(135deg, var(--pin), var(--pin-2)); border-color: transparent; color: #fff; font-weight: 700; }
 @media (max-width: 960px) { .why-now, .buy-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .why-now, .buy-steps { grid-template-columns: minmax(0, 1fr); } .why-now__big { font-size: 1.8rem; } .hero__trust { margin-top: -18px; } }
 

@@ -1,0 +1,199 @@
+// The official contract card at the top of /token, redesigned for phones: a header (label, network, an "Official" mark once
+// the address is known), the address in one block with a full-width copy button under it, Buy on Raydium across the card,
+// Jupiter / DEX Screener / Solscan as three equal tiles, then the "only official" note set apart. Every id token.js relies on
+// is kept; the pre-launch state and the chain-busy (503) fallback behave as before. The motion (a slow shine on the buy
+// button, a hairline glow, a tick that pops in when copied) is CSS only and switches off with prefers-reduced-motion.
+// How it looks is checked in Chromium (320, 390, 1280 px, dark and light); this pins the markup, the rules and the script.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import { MINT } from "./helpers/world.js";
+
+const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const css = read("public/style.css"), js = read("public/token.js"), site = read("public/site.js");
+const both = [["public", read("public/token.html")], ["src", read("scripts/pages/src/token.html")]];
+/** The contract card's markup, from its opening tag to the stat row after it. */
+const cardOf = (h) => { const a = h.indexOf('<div class="contract card" id="contract">'), b = h.indexOf('<div class="stat-row"', a); assert.ok(a >= 0 && b > a, "the card is there"); return h.slice(a, b); };
+/** The declarations of the first rule whose selector is exactly `sel` (outside or inside a media block). */
+const rule = (sel) => { const i = css.indexOf(`${sel} {`); assert.ok(i >= 0, `rule ${sel}`); return css.slice(i + sel.length + 2, css.indexOf("}", i)); };
+/** The body of the first `@media <query> {` block that holds `needle` (balanced braces). */
+const media = (query, needle) => {
+  let from = 0;
+  for (;;) {
+    const at = css.indexOf(`@media ${query} {`, from); if (at < 0) return null;
+    let depth = 1, i = at + query.length + 9;
+    for (; i < css.length && depth; i++) depth += css[i] === "{" ? 1 : css[i] === "}" ? -1 : 0;
+    const body = css.slice(at + query.length + 9, i - 1);
+    if (body.includes(needle)) return body;
+    from = i;
+  }
+};
+
+/* ---------------- the markup ---------------- */
+
+test("contract card: header, address + copy, buy button, three tiles, note: in that order, every id token.js uses kept", () => {
+  for (const [where, h] of both) {
+    const c = cardOf(h);
+    const at = (needle) => { const i = c.indexOf(needle); assert.ok(i >= 0, `${where}: ${needle}`); return i; };
+    const order = [at('class="contract__head"'), at('id="ca-badge"'), at('class="contract__addr"'), at('<code id="ca-text">Loading…</code>'), at('id="ca-copy"'),
+      at('id="ca-links"'), at('id="lnk-raydium"'), at('id="lnk-jup"'), at('id="lnk-dex"'), at('id="lnk-solscan"'), at('class="contract__foot"'), at('id="ca-note"')];
+    assert.deepEqual(order, [...order].sort((a, b) => a - b), `${where}: top to bottom`);
+    assert.match(c, /<div class="contract__label">Contract address<\/div>/, `${where}: one short label that fits one line at 320 px`);
+    assert.match(c, /<span class="contract__net">Solana<\/span>/);
+    // before token.js knows the contract nothing claims anything: the mark, the copy button and the links wait hidden
+    assert.match(c, /<span class="contract__badge" id="ca-badge" hidden><svg[^>]*aria-hidden="true"[^>]*>[\s\S]*?<\/svg>Official<\/span>/, `${where}: the mark is hidden until the address is known`);
+    assert.match(c, /<button class="contract__copy" type="button" id="ca-copy" hidden>/, `${where}: a real button, hidden until there is something to copy`);
+    assert.match(c, /<span id="ca-copy-label">Copy address<\/span><\/button>/, `${where}: the copy button says what it copies`);
+    assert.match(c, /<div class="contract__links" id="ca-links" hidden>/);
+    assert.match(c, /<a class="contract__buy" id="lnk-raydium" href="#" rel="noopener" target="_blank"><span>Buy on Raydium<\/span><svg/, `${where}: the main button`);
+    for (const [id, name] of [["lnk-jup", "Jupiter"], ["lnk-dex", "DEX Screener"], ["lnk-solscan", "Solscan"]])
+      assert.match(c, new RegExp(`<a class="contract__ext" id="${id}" href="#" rel="noopener" target="_blank"><svg[^>]*aria-hidden="true"[^>]*>[\\s\\S]*?</svg><span>${name}</span></a>`), `${where}: ${name} tile`);
+    // the note keeps its no-script wording (token.js replaces it) and stays a paragraph with the id the script fills
+    assert.match(c, /<p id="ca-note">Only the address shown here is the official \$VICINITY\. Anything else using the name is fake\. <a href="#check">Check a link or address<\/a>\.<\/p>/);
+    assert.doesNotMatch(c, /chip-link|contract__row|btn--sm/, `${where}: the old pills are gone`);
+    // every icon is decoration: screen readers hear the words
+    const loose = c.replace(/<span class="(contract__icon|contract__copy-icons)" aria-hidden="true">[\s\S]*?<\/span>/g, "");
+    assert.equal((c.match(/<svg/g) || []).length - (loose.match(/<svg/g) || []).length, 3, `${where}: the shield and both copy icons sit in hidden wrappers`);
+    for (const svg of loose.match(/<svg[^>]*>/g)) assert.match(svg, /aria-hidden="true"/, `${where}: ${svg}`);
+  }
+});
+
+/* ---------------- the look: phone first ---------------- */
+
+test("contract card on a phone: the address wraps into two even lines, copy is full width, Buy across the card, three equal tiles; all at least 44 px", () => {
+  const addr = rule(".contract__addr code");
+  assert.match(addr, /max-width: calc\(22 \* \(1ch \+ \.03em\) \+ 2px\)/, "22 characters a line: a 44-character address is two even lines of 22");
+  assert.match(addr, /letter-spacing: \.03em/, "the width above counts this letter spacing");
+  assert.match(addr, /word-break: break-all/);
+  assert.match(addr, /user-select: all/, "one tap selects the whole address for copying by hand");
+  assert.match(addr, /text-align: center/);
+  assert.match(addr, /font: 500 clamp\(15px, 4\.3vw, 18px\)\/1\.55 var\(--mono\)/);
+  const copy = rule(".contract__copy");
+  assert.match(copy, /flex: 1 1 100%/, "full width under the address");
+  assert.match(copy, /min-height: 48px/);
+  const links = rule(".contract__links");
+  assert.match(links, /display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/, "three equal columns, never a ragged wrap");
+  const buy = rule(".contract__buy");
+  assert.match(buy, /grid-column: 1 \/ -1/, "Buy on Raydium spans the card");
+  assert.match(buy, /min-height: 52px/);
+  assert.match(buy, /color: #fff/);
+  const ext = rule(".contract__ext");
+  assert.match(ext, /min-height: 66px/, "the tiles are equal and tall enough to tap");
+  assert.match(ext, /flex-direction: column/, "icon over the name on a phone");
+  assert.match(rule(".contract__foot"), /border-top: 1px dashed var\(--line-2\)/, "the note is set apart under a hairline");
+  // the light theme has its own card colours
+  assert.match(css, /:root\[data-theme="light"\] \.contract \{ background: [^}]*var\(--card\); border-color: rgba\(232,67,31,\.22\); \}/);
+  // the old pill styles that only this card used are gone; .chip-link stays for connect.js
+  assert.doesNotMatch(css, /\.chip-link--buy|\.contract__row/);
+  assert.match(css, /\.chip-link \{/);
+  assert.match(read("public/connect.js"), /"chip-link"/);
+});
+
+test("contract card on a computer: the address on one line with Copy beside it, then a row of buttons; on wide screens the buttons take a column of their own", () => {
+  const tablet = media("(min-width: 640px)", ".contract__addr code");
+  assert.ok(tablet, "a 640 px block");
+  assert.match(tablet, /\.contract__addr code \{ flex: 1 1 auto; max-width: none; margin: 0; text-align: left;/);
+  assert.match(tablet, /\.contract__copy \{ flex: none; min-height: 44px;/);
+  assert.match(tablet, /\.contract__links \{ grid-template-columns: minmax\(0, 1\.5fr\) repeat\(3, minmax\(0, 1fr\)\); \}/);
+  assert.match(tablet, /\.contract__buy \{ grid-column: auto; \}/);
+  assert.match(tablet, /\.contract__ext \{ flex-direction: row;[^}]*min-height: 52px;/);
+  const wide = media("(min-width: 1180px)", ".contract:has(");
+  assert.ok(wide, "a 1180 px block");
+  // two columns only while the links are shown: before the launch (links hidden) the card stays one column
+  assert.match(wide, /\.contract:has\(> \.contract__links:not\(\[hidden\]\)\) \{ grid-template-columns: minmax\(0, 1\.4fr\) minmax\(0, 1fr\);/);
+  assert.match(wide, /> \.contract__links \{ grid-column: 2; grid-row: 1 \/ span 3;/);
+});
+
+test("contract card motion: only transform, opacity and background-position move, and nothing moves with reduced motion", () => {
+  for (const name of ["checkPop", "buyShine", "contractIn", "contractGlow"]) {
+    const i = css.indexOf(`@keyframes ${name} {`); assert.ok(i >= 0, name);
+    let depth = 0, j = i;
+    for (; j < css.length; j++) { if (css[j] === "{") depth++; else if (css[j] === "}" && --depth === 0) break; }
+    const props = [...css.slice(i, j).matchAll(/([a-z-]+):/g)].map((m) => m[1]);
+    assert.ok(props.length, `${name} animates something`);
+    for (const p of props) assert.ok(["transform", "opacity", "background-position"].includes(p), `${name} animates ${p}`);
+  }
+  assert.match(rule(".contract__buy::after"), /animation: buyShine 5\.5s ease-in-out 1\.2s infinite/, "a slow shine with a long rest");
+  assert.match(rule(".contract__buy::after"), /transform: translateX\(-100%\)/, "the shine waits off the button: with no animation it is never seen");
+  assert.match(rule(".contract__links"), /animation: contractIn \.5s/, "the buttons slide in when token.js shows them");
+  assert.match(css, /@keyframes contractIn \{ from \{ opacity: 0; transform: translateY\(6px\); \} \}/, "from hidden to the element's own look: with no animation it simply shows");
+  assert.match(css, /\.contract__copy\.is-copied \.contract__copy-check \{ opacity: 1; transform: none; animation: checkPop/, "the tick's resting state is visible; the pop is extra");
+  // the glow only runs for people who did not ask for less motion; the shine and the slide-in are switched off for those who did
+  assert.ok(media("(prefers-reduced-motion: no-preference)", ".contract::before { animation: contractGlow"), "the hairline glow is opt-in");
+  const reduce = media("(prefers-reduced-motion: reduce)", ".contract__buy::after");
+  assert.ok(reduce, "a reduced-motion block for the card");
+  assert.match(reduce, /\.contract__buy::after \{ display: none; \}/);
+  assert.match(reduce, /\.contract__links, \.contract__copy-check \{ animation: none; \}/);
+  // and the site-wide rule still stops every animation and transition
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  html \{ scroll-behavior: auto; \}\n  \*, \*::before, \*::after \{ animation: none !important; transition: none !important; \}/);
+});
+
+/* ---------------- token.js in node ---------------- */
+
+function page({ token, copyWorks = true }) {
+  const nodes = new Map(), timers = [], copies = [];
+  function node(sel) {
+    const n = { sel, hidden: false, _text: "", classes: new Set(), style: {}, dataset: {}, handlers: {}, children: [], value: "", offsetWidth: 0,
+      get textContent() { return n._text; }, set textContent(t) { n._text = String(t); },
+      append(...k) { n.children.push(...k); }, replaceChildren(...k) { n.children = k; }, addEventListener(t, f) { (n.handlers[t] ||= []).push(f); },
+      classList: { add: (c) => n.classes.add(c), remove: (c) => n.classes.delete(c), toggle: (c, on) => (on ? n.classes.add(c) : n.classes.delete(c)), contains: (c) => n.classes.has(c) } };
+    return n;
+  }
+  const $ = (sel) => { if (!nodes.has(sel)) nodes.set(sel, node(sel)); return nodes.get(sel); };
+  ["#ca-copy", "#ca-badge", "#ca-links"].forEach((s) => ($(s).hidden = true)); // as in the markup
+  $("#ca-text").textContent = "Loading…"; $("#ca-copy-label").textContent = "Copy address";
+  const el = (tag, cls, text) => { const n = node(tag); if (cls) n.classes.add(cls); if (text != null) n.textContent = text; return n; };
+  const V = { $, $$: () => [], el, toast() {}, fmt: String, compact: String, mask: (a) => a, isAddr: (a) => typeof a === "string" && a.length >= 32, official: null, reduced: false,
+    copy: async (text, label) => { copies.push([text, label]); return copyWorks; },
+    api: async (path) => (path === "/api/token" ? token : { launched: false, holders: [] }) };
+  vm.runInNewContext(js, { window: { V }, document: { hidden: false }, location: { search: "" }, URLSearchParams, Intl, Date,
+    setInterval: () => 0, setTimeout: (f, ms) => { timers.push([f, ms]); return timers.length; }, clearTimeout: () => {}, requestAnimationFrame: () => 0 });
+  const settle = () => new Promise((r) => setImmediate(r));
+  return { $, timers, copies, settle };
+}
+const LIVE = { launched: true, registry: [], facts: { mint: MINT, supply: 1e9, mintingDisabled: true, freezingDisabled: true }, price: null };
+
+test("token.js: once the contract is known the 'Official' mark shows (chain busy or not); before the launch it stays hidden", async () => {
+  const live = page({ token: LIVE }); await live.settle();
+  assert.equal(live.$("#ca-text").textContent, MINT);
+  assert.equal(live.$("#ca-badge").hidden, false);
+  assert.equal(live.$("#ca-copy").hidden, false);
+  assert.equal(live.$("#ca-links").hidden, false);
+
+  const busy = page({ token: { launched: true, error: "chain_unavailable", mint: MINT, registry: [], _status: 503 } }); await busy.settle();
+  assert.equal(busy.$("#ca-text").textContent, MINT, "the 503 fallback still shows the contract");
+  assert.equal(busy.$("#ca-badge").hidden, false, "it is the official address from the site's own settings");
+  assert.equal(busy.$("#lnk-raydium").href, `https://raydium.io/launchpad/token/?mint=${MINT}`);
+
+  const before = page({ token: { launched: false, registry: [] } }); await before.settle();
+  assert.equal(before.$("#ca-text").textContent, "Not published yet");
+  assert.equal(before.$("#ca-badge").hidden, true, "nothing is called official before there is a contract");
+  assert.equal(before.$("#ca-copy").hidden, true);
+  assert.equal(before.$("#ca-links").hidden, true);
+  assert.equal(before.$("#ca-copy").onclick, undefined, "nothing to copy");
+});
+
+test("token.js: Copy puts the address on the clipboard, the button says 'Copied' with a tick, then goes back; no clipboard, no 'Copied'", async () => {
+  const p = page({ token: LIVE }); await p.settle();
+  const b = p.$("#ca-copy"), label = p.$("#ca-copy-label");
+  await b.onclick();
+  assert.deepEqual(p.copies, [[MINT, "Contract address copied"]], "the toast still says so too");
+  assert.equal(label.textContent, "Copied");
+  assert.ok(b.classes.has("is-copied"));
+  const [revert, ms] = p.timers.at(-1);
+  assert.equal(ms, 1800);
+  revert();
+  assert.equal(label.textContent, "Copy address");
+  assert.ok(!b.classes.has("is-copied"));
+
+  const off = page({ token: LIVE, copyWorks: false }); await off.settle();
+  await off.$("#ca-copy").onclick();
+  assert.equal(off.$("#ca-copy-label").textContent, "Copy address", "the toast shows the address to copy by hand instead");
+  assert.ok(!off.$("#ca-copy").classes.has("is-copied"));
+});
+
+test("site.js copy answers whether the text reached the clipboard", () => {
+  assert.match(site, /const copy = async \(text, label = "Copied"\) => \{ try \{ await navigator\.clipboard\.writeText\(text\); toast\(label\); return true; \} catch \{ toast\(text\); return false; \} \};/);
+  assert.match(js, /if \(!\(await copy\(m, "Contract address copied"\)\)\) return;/);
+});
