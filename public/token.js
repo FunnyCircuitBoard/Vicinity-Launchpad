@@ -25,13 +25,24 @@
   function showContract(m) {
     $("#ca-text").textContent = m;
     $("#ca-copy").hidden = false;
-    $("#ca-copy").onclick = () => copy(m, "Contract address copied");
+    $("#ca-copy").onclick = () => copyContract(m);
+    $("#ca-badge").hidden = false; // the address comes from this site's own settings: it is the official one, chain busy or not
     $("#lnk-solscan").href = `https://solscan.io/token/${m}`;
     $("#lnk-jup").href = `https://jup.ag/tokens/${m}`;
     $("#lnk-raydium").href = `https://raydium.io/launchpad/token/?mint=${m}`;
     $("#lnk-dex").href = `https://dexscreener.com/solana/${m}`;
     $("#ca-links").hidden = false;
     $("#ca-note").textContent = "This is the only official $VICINITY. Anything else using the name is fake.";
+  }
+  /** Copy: the toast says so, and the button itself turns into "Copied" with a tick for a moment (the tick pops in unless motion is reduced). */
+  let copiedTimer = 0;
+  async function copyContract(m) {
+    if (!(await copy(m, "Contract address copied"))) return; // no clipboard: the toast shows the address to copy by hand
+    const b = $("#ca-copy"), label = $("#ca-copy-label");
+    b.classList.remove("is-copied"); void b.offsetWidth; // a second tap replays the tick
+    b.classList.add("is-copied"); label.textContent = "Copied";
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => { b.classList.remove("is-copied"); label.textContent = "Copy address"; }, 1800);
   }
   async function loadToken() {
     const d = await api("/api/token");

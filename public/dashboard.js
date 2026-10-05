@@ -1282,6 +1282,37 @@
     });
   }
 
+  /* ---------- signed out: the example dashboard (#dash-out .dpv) comes alive once ---------- */
+  // Its markup already holds every value, so with reduced motion, without IntersectionObserver or without this script it simply shows
+  // them. Otherwise it is "armed" just before #dash-out appears (numbers at their start, bar empty, next steps lowered) and each piece
+  // plays once when it is on screen: the numbers count (a 1.3 s animation frame loop that ends), the bar fills, the next steps slide in.
+  function preview() {
+    const box = $("#dash-out .dpv");
+    if (!box || window.V.reduced || !("IntersectionObserver" in window)) return;
+    const nums = $$("[data-dpv-to]", box);
+    const show = (n, v) => { n.textContent = (n.dataset.dpvPre || "") + (n.dataset.dpvFmt === "compact" ? compact(v) : fmt(v)) + (n.dataset.dpvSuf || ""); };
+    const count = (n) => {
+      const from = Number(n.dataset.dpvFrom || 0), to = Number(n.dataset.dpvTo), t0 = performance.now(), ms = 1300;
+      const step = (t) => {
+        const k = Math.min(1, Math.max(0, t - t0) / ms);
+        show(n, Math.round(from + (to - from) * (1 - (1 - k) ** 3)));
+        if (k < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
+    box.classList.add("is-armed");
+    for (const n of nums) show(n, Number(n.dataset.dpvFrom || 0));
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        io.unobserve(e.target);
+        if (e.target.dataset.dpvTo) setTimeout(() => count(e.target), 350);
+        else e.target.classList.add("is-on");
+      }
+    }, { threshold: 0.6 });
+    for (const n of [...nums, ...$$(".dpv__bar, .dpv__todos", box)]) io.observe(n);
+  }
+
   /* ---------- start ---------- */
   (async () => {
     // someone whose last visit was the tabbed dashboard sees placeholders while /api/me loads (the key only exists with the switch on)
@@ -1291,6 +1322,7 @@
     if (!tabbed) { $("#dash-skel").hidden = true; if (d.dashboardV2 !== true) { try { localStorage.removeItem(V2_KEY); } catch {} } }
     if (!d.signedIn) {
       if (d.pending || d.proof) { location.assign("/connect"); return; }
+      preview();
       $("#dash-out").hidden = false; return;
     }
     me = d;

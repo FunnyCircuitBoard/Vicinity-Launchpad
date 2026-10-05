@@ -29,7 +29,8 @@
       document.body.append(s); setTimeout(() => s.remove(), 950);
     }
   };
-  const copy = async (text, label = "Copied") => { try { await navigator.clipboard.writeText(text); toast(label); } catch { toast(text); } };
+  /** Copies text and says so in the toast; answers true when it reached the clipboard (false: the toast shows the text to copy by hand). */
+  const copy = async (text, label = "Copied") => { try { await navigator.clipboard.writeText(text); toast(label); return true; } catch { toast(text); return false; } };
 
   /** JSON from our own API. POSTs send JSON; errors come back as { ok:false, error } (never throws on HTTP status). */
   async function api(path, body, method) {

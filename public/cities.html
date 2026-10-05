@@ -43,19 +43,7 @@
   <main id="main">
     <section class="page-hero page-hero--map" id="cities">
       <div class="wrap">
-        <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Live map</p>
-        <h1 class="page-title">Claim your city.</h1>
-        <p class="lead">One wallet. One city. Chosen by locals. Every city has a real boundary. Hold your city's founder amount (100,000 to 1,000,000 $VICINITY, set by city size) for 7 days, apply from inside your city, and the people who live there decide. <a href="/rules#founders">How it works</a>.</p>
-
-        <div class="city-stats" aria-live="polite">
-          <div><strong id="cs-cities">…</strong><span>communities</span></div>
-          <div><strong id="cs-countries">…</strong><span>countries</span></div>
-          <div class="is-claimed"><strong id="cs-claimed">…</strong><span>founded</span></div>
-          <div class="is-open"><strong id="cs-open">…</strong><span>still open</span></div>
-          <div><strong id="cs-members">…</strong><span>verified members</span></div>
-          <div><strong id="cs-status">…</strong><span>claims</span></div>
-        </div>
-
+        <!-- the map comes first, then the numbers, then what this page is for -->
         <div class="citymap card">
           <div class="citymap__stage">
             <canvas id="city-canvas" width="1200" height="480" role="img" tabindex="0" aria-label="Zoomable world map of every listed city. Zoom into a country to see each city's boundary. Use arrow keys to move and + or − to zoom."></canvas>
@@ -75,6 +63,23 @@
             <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Latest founders · live</p>
             <ul class="claim-feed" id="claim-feed" aria-live="polite"><li class="claim-feed__empty">Loading…</li></ul>
           </div>
+        </div>
+
+        <div class="city-stats" aria-live="polite">
+          <div><strong id="cs-cities">…</strong><span>communities</span></div>
+          <div><strong id="cs-countries">…</strong><span>countries</span></div>
+          <div class="is-claimed"><strong id="cs-claimed">…</strong><span>founded</span></div>
+          <div class="is-open"><strong id="cs-open">…</strong><span>still open</span></div>
+          <div><strong id="cs-members">…</strong><span>verified members</span></div>
+          <div><strong id="cs-status">…</strong><span>claims</span></div>
+        </div>
+
+        <div class="cities-intro">
+          <div class="cities-intro__head">
+            <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Live map</p>
+            <h1 class="page-title">Claim your city.</h1>
+          </div>
+          <p class="lead">One wallet. One city. Chosen by locals. Every city has a real boundary. Hold your city's founder amount (100,000 to 1,000,000 $VICINITY, set by city size) for 7 days, apply from inside your city, and the people who live there decide. <a href="/rules#founders">How it works</a>.</p>
         </div>
       </div>
     </section>
