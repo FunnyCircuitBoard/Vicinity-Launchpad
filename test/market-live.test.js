@@ -365,3 +365,29 @@ test("logs: a failing source is logged as a short code, never an address or a UR
   assert.equal(codeOf(new SourceError("http_429")), "http_429");
   assert.equal(codeOf(null).length <= 40, true);
 });
+
+test("getJson reads at most 1 MB: a stated length over it is refused unread, a stream is cancelled the moment it passes it (review SEC-GETJSON-SIZE)", async () => {
+  // a source streaming 64 MiB of JSON in 64 KiB pieces; the test counts what was pulled from it
+  const flood = ({ stated = null } = {}) => {
+    const state = { pulled: 0, cancelled: false };
+    const piece = new TextEncoder().encode("[" + "0,".repeat(32767) + "\n");
+    const body = new ReadableStream({
+      pull(c) { if (state.pulled >= 64 * 1024 * 1024) { c.close(); return; } state.pulled += piece.byteLength; c.enqueue(piece); },
+      cancel() { state.cancelled = true; },
+    }, { highWaterMark: 0 });
+    const headers = { ...JSON_TYPE, ...(stated ? { "content-length": String(stated) } : {}) };
+    return { state, fetchImpl: async () => new Response(body, { headers }) };
+  };
+  const a = flood();
+  await assert.rejects(getJson("https://x.example/a", a.fetchImpl), (e) => e instanceof SourceError && e.code === "too_big");
+  assert.ok(a.state.pulled <= 1_000_000 + 2 * 65536, `read ${a.state.pulled} bytes, not 64 MiB`);
+  assert.equal(a.state.cancelled, true, "the rest is cancelled, not drained");
+  const b = flood({ stated: 64 * 1024 * 1024 });
+  await assert.rejects(getJson("https://x.example/b", b.fetchImpl), (e) => e.code === "too_big");
+  assert.equal(b.state.pulled, 0, "a stated length over the cap: nothing read");
+  // a normal answer (and one just under the cap, in pieces) still reads whole, multi-byte text intact
+  const ok = await getJson("https://x.example/c", async () => new Response(JSON.stringify({ name: "Zürich ✓", n: [1, 2, 3] }), { headers: JSON_TYPE }));
+  assert.deepEqual(ok, { name: "Zürich ✓", n: [1, 2, 3] });
+  const big = JSON.stringify({ pad: "é".repeat(450_000) }); // ~900 KB of 2-byte characters
+  assert.equal((await getJson("https://x.example/d", async () => new Response(big, { headers: JSON_TYPE }))).pad.length, 450_000);
+});

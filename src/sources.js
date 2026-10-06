@@ -4,8 +4,8 @@
  *
  * getJson    GET with our User-Agent (Raydium and Jupiter answer 403 to some default agents), a 3.5 s timeout, ONE retry
  *            after a network error or a timeout (never after an HTTP answer), a JSON content type required (a Cloudflare
- *            challenge page is HTML and is a failure, not data), at most 1 MB read. Failures throw a SourceError whose code is
- *            short and safe to log: it never carries a URL, an address or the body.
+ *            challenge page is HTML and is a failure, not data), at most 1 MB read (counted as it streams in, then cancelled).
+ *            Failures throw a SourceError whose code is short and safe to log: it never carries a URL, an address or the body.
  * Source     answers for many keys at once (mints, pools): a key asked within `ttlMs` is answered from memory; the rest go
  *            to the source in ONE call. When that call fails, nothing is asked again for `negativeMs` (5 s, longer when the
  *            source sent Retry-After, at most 60 s), and each key gets its last good value for up to `staleMs`, marked stale.
@@ -42,9 +42,38 @@ export async function getJson(url, fetchImpl = fetch, { timeoutMs = 3_500, heade
   if (res.status === 429) throw new SourceError("http_429", retryAfterMs(res.headers.get("retry-after")));
   if (!res.ok) throw new SourceError(`http_${res.status}`);
   if (!/\bjson\b/i.test(res.headers.get("content-type") || "")) throw new SourceError("not_json");
-  const text = await res.text();
-  if (text.length > MAX_BYTES) throw new SourceError("too_big");
+  const text = await readCapped(res, MAX_BYTES);
   try { return JSON.parse(text); } catch { throw new SourceError("bad_json"); }
+}
+
+/**
+ * The body as text, refused past `max` bytes WITHOUT reading the rest: a stated length over the cap is refused before reading,
+ * and a stream is read with a byte counter and cancelled the moment it passes the cap (a broken or hostile source streaming
+ * 64 MB must not push the Worker toward its memory limit).
+ */
+async function readCapped(res, max) {
+  const stated = Number(res.headers.get("content-length"));
+  // cancelling is never awaited: the cancel of a cloned (teed) body settles only once every copy is cancelled
+  const quietly = (p) => { try { Promise.resolve(p).catch(() => {}); } catch { /* already closed */ } };
+  if (Number.isFinite(stated) && stated > max) { quietly(res.body && res.body.cancel()); throw new SourceError("too_big"); }
+  if (!res.body || typeof res.body.getReader !== "function") {
+    const text = await res.text();
+    if (text.length > max) throw new SourceError("too_big");
+    return text;
+  }
+  const reader = res.body.getReader(), chunks = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > max) { quietly(reader.cancel()); throw new SourceError("too_big"); }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(n);
+  let at = 0;
+  for (const c of chunks) { all.set(c, at); at += c.byteLength; }
+  return new TextDecoder().decode(all);
 }
 
 export class Source {
