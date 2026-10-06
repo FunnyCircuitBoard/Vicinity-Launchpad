@@ -77,7 +77,10 @@ test("cities: public/cities.js finds everything by id, not by position", () => {
 test("cities CSS: the map right under the header, the stats a tidy grid, the description after, 44 px map buttons", () => {
   assert.match(css, /\.page-hero--map \{ padding: 28px 0 10px; \}/);
   assert.match(mediaWith(600, ".page-hero--map") || "", /\.page-hero--map \{ padding-top: 12px; \}/, "on a phone the map starts right under the header");
-  assert.match(mediaWith(600, ".citymap canvas") || "", /aspect-ratio: 1 \/ 1; max-height: 70vh; max-height: 70svh;/, "a square map on a phone that never fills the whole screen");
+  // the map is big (the owner, 6 Oct 2026: "make the map look bigger"): on a phone it runs edge to edge, from the header to just above the
+  // tab bar, with the legend's first line still showing under it (it was a 1:1 square at 70% of the screen before)
+  const phoneStage = mediaWith(600, ".citymap__stage") || "";
+  assert.match(phoneStage, /\.citymap__stage \{ margin-inline: calc\(-1 \* var\(--wrap-pad\)\); border-radius: 0; height: clamp\(420px, calc\(100vh - 206px\), 820px\); height: clamp\(420px, calc\(100svh - 206px - env\(safe-area-inset-bottom\)\), 820px\); \}/, "a phone map from edge to edge, nearly the whole screen");
   assert.match(css, /\.city-stats \{ display: grid; grid-template-columns: repeat\(6, minmax\(0, 1fr\)\);/);
   assert.match(mediaWith(900, ".city-stats") || "", /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/, "three by two on tablets and phones");
   assert.ok(!/repeat\(2, 1fr\)/.test(mediaWith(520, ".city-stats") || ""), "phones keep the three-column grid");

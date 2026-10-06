@@ -584,14 +584,28 @@ select option { background: var(--bg-2); }
 .cities-intro .page-title { margin: 6px 0 0; }
 .cities-intro .lead { margin: 0; }
 @media (max-width: 1100px) { .cities-intro { grid-template-columns: minmax(0, 1fr); gap: 14px; } }
-.citymap { position: relative; padding: 12px; margin-bottom: 14px; overflow: hidden; }
-.citymap__stage { position: relative; border-radius: 14px; overflow: hidden; }
-.citymap canvas { width: 100%; height: auto; aspect-ratio: 5 / 2; display: block; border-radius: 14px; background: var(--map-bg); cursor: grab; touch-action: pan-y; box-shadow: inset 0 0 80px rgba(0,0,0,.55); }
+/* The map stage (the owner, 6 Oct 2026: "make the map look bigger"): most of the screen. Computers: the wrap's width, as tall as the
+   window allows under the header; tablets: 70% of the window; phones: edge to edge (the stage leaves the wrap's side padding), from
+   the header to just above the tab bar, with the legend's first line still showing below. ⤢ puts it over the whole screen (.is-full). */
+.wrap { --wrap-pad: 24px; }
+@media (max-width: 480px) { .wrap { --wrap-pad: 16px; } }
+.citymap { position: relative; padding: 12px; margin-bottom: 14px; }
+.citymap__stage { position: relative; height: 560px; height: clamp(560px, calc(100vh - 186px), 780px); border-radius: 18px; overflow: hidden; isolation: isolate; background: var(--map-bg); }
+.citymap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#city-canvas { background: var(--map-bg); cursor: grab; touch-action: pan-y; box-shadow: inset 0 0 80px rgba(0,0,0,.55); transform-origin: 0 0; }
+.citymap__layer { pointer-events: none; }
 .citymap canvas.is-dragging { cursor: grabbing; }
 .citymap canvas.is-colored { background: radial-gradient(120% 90% at 55% 45%, #10345a, #081a30); }
 :root[data-theme="light"] .citymap canvas.is-colored { background: radial-gradient(120% 90% at 55% 45%, #cfe6f7, #aecfeb); }
-.citymap canvas:focus-visible { outline: 3px solid var(--pin-2); outline-offset: 2px; }
-@media (max-width: 600px) { .citymap canvas { aspect-ratio: 1 / 1; max-height: 70vh; max-height: 70svh; } }
+.citymap canvas:focus-visible { outline: 3px solid var(--pin-2); outline-offset: -3px; }
+@media (max-width: 1023px) { .citymap__stage { height: clamp(480px, 70vh, 760px); } }
+@media (max-width: 600px) {
+  .citymap { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+  .citymap__stage { margin-inline: calc(-1 * var(--wrap-pad)); border-radius: 0; height: clamp(420px, calc(100vh - 206px), 820px); height: clamp(420px, calc(100svh - 206px - env(safe-area-inset-bottom)), 820px); }
+  .citymap__legend { margin-inline: 0; }
+}
+.citymap__stage.is-full { position: fixed; inset: 0; z-index: 90; height: 100vh; height: 100dvh; margin: 0; border-radius: 0; }
+html.map-is-full, html.map-is-full body { overflow: hidden; }
 .citymap__tip { position: absolute; pointer-events: none; background: var(--glass); border: 1px solid var(--line-2); border-radius: 10px; padding: 6px 10px; font-size: .82rem; margin: 0; white-space: nowrap; transform: translate(-50%, calc(-100% - 10px)); line-height: 1.4; box-shadow: 0 10px 30px -10px rgba(0,0,0,.8); }
 .tip-claimed { color: var(--bad-text); font-weight: 600; } .tip-open { color: var(--ok-text); font-weight: 600; } .tip-ticker { color: var(--gold); font-weight: 700; }
 .tip-area { color: var(--muted); font-size: .76rem; }
@@ -601,17 +615,73 @@ select option { background: var(--bg-2); }
 .dot--open { background: #7FA3D6; } .dot--claimed { background: var(--pin); box-shadow: 0 0 8px var(--pin); } .dot--mine { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
 .line { display: inline-block; width: 22px; height: 0; vertical-align: middle; margin-right: 2px; border-top: 2px solid var(--map-area-line); }
 .line--near { border-top-style: dashed; }
-.map-ctrl { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.map-ctrl { position: absolute; right: 12px; top: 12px; z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.citymap__stage.is-full .map-ctrl { top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); }
 .map-ctrl button { width: 38px; height: 38px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--glass); color: var(--text); font: 600 1.15rem var(--body); cursor: pointer; backdrop-filter: blur(8px); transition: background .2s, transform .2s; }
 .map-ctrl button:hover { background: rgba(255,90,54,.25); transform: translateY(-1px); }
 .map-ctrl button { position: relative; }
 .map-ctrl button::after { content: ""; position: absolute; inset: -3px; border-radius: inherit; } /* a 44 px touch target without a bigger button */
-.map-ctrl span { font-size: .72rem; color: var(--muted); background: var(--glass); padding: 2px 6px; border-radius: 8px; }
+.map-ctrl span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } /* the zoom, for screen readers: the scale bar shows it */
 #map-locate.is-busy { animation: spin 1.2s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 600px) { .map-ctrl { gap: 8px; right: 10px; top: 10px; } .map-ctrl button { width: 36px; height: 36px; border-radius: 11px; font-size: 1rem; } .map-ctrl button::after { inset: -4px; } .citymap__how { display: none; } }
-.map-hint { position: absolute; left: 50%; bottom: 14px; transform: translate(-50%, 8px); margin: 0; background: var(--glass); border: 1px solid var(--line-2); border-radius: 999px; padding: 7px 14px; font-size: .82rem; opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; white-space: nowrap; }
+.map-hint { position: absolute; z-index: 3; left: 50%; top: 14px; transform: translate(-50%, 8px); margin: 0; background: var(--glass); border: 1px solid var(--line-2); border-radius: 999px; padding: 7px 14px; font-size: .82rem; opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; white-space: nowrap; }
 .map-hint.is-shown { opacity: 1; transform: translate(-50%, 0); }
+/* Map status colours (cities.js reads them): open, choosing its founder, founded, yours; the chips' background */
+:root { --st-open: #7FA3D6; --st-choosing: #FFC857; --st-founded: #FF5A36; --st-mine: #FFC857; --chip-bg: rgba(7,14,25,.82); }
+:root[data-theme="light"] { --st-open: #3F67A6; --st-choosing: #B57F00; --st-founded: #E8431F; --st-mine: #D99A1A; --chip-bg: rgba(255,255,255,.92); }
+/* ✕ (full screen only) and the scale bar (bottom left, above the city card) */
+.map-exit { position: absolute; z-index: 3; left: max(12px, env(safe-area-inset-left)); top: max(12px, env(safe-area-inset-top)); width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--glass); color: var(--text); font: 600 1.1rem var(--body); cursor: pointer; backdrop-filter: blur(8px); }
+.map-scale { position: absolute; z-index: 2; left: 14px; bottom: 136px; margin: 0; display: grid; gap: 2px; font: 600 11px/1.2 var(--body); color: var(--text-2); text-shadow: 0 0 3px var(--map-halo), 0 0 3px var(--map-halo); pointer-events: none; }
+.map-scale__bar { display: block; width: 80px; height: 6px; border: 1.5px solid currentColor; border-top: 0; }
+.citymap__stage.is-folded .map-scale { bottom: 72px; }
+/* The city in focus: the city under the crosshair, with everything the computer's hover card says, always shown (the owner: "no tapping
+   required for a city on mobile to see its stats"). Fixed height (no layout shift), glass, a 3 px bar in the city's status colour. */
+.map-focus { position: absolute; z-index: 2; left: 10px; right: 10px; bottom: 10px; height: 116px; display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 6px; align-items: stretch;
+  padding: 7px 6px 7px 15px; border-radius: 16px; background: var(--glass); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border: 1px solid var(--line-2); box-shadow: 0 14px 40px -18px rgba(0,0,0,.7); overflow: hidden; --focus: var(--st-open); }
+.map-focus::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--focus); pointer-events: none; }
+.map-focus[data-status="choosing"] { --focus: var(--st-choosing); } .map-focus[data-status="founded"] { --focus: var(--st-founded); } .map-focus[data-status="mine"] { --focus: var(--st-mine); } .map-focus[data-status="none"] { --focus: var(--line-2); }
+@media (min-width: 720px) { .map-focus { right: auto; left: 12px; bottom: 12px; width: 360px; } }
+.map-focus__body { min-width: 0; display: grid; align-content: center; transition: opacity .14s ease; }
+.map-focus.is-swapping .map-focus__body { opacity: 0; }
+.map-focus p { margin: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; line-height: 16.5px; color: var(--muted); }
+.map-focus .map-focus__r1 { display: flex; align-items: center; gap: 6px; height: 24px; color: var(--text); }
+.map-focus__dot { position: relative; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--focus); }
+.map-focus__dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--focus); opacity: 0; pointer-events: none; }
+.map-focus__name { flex: 0 0 auto; max-width: 66%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 17px/1.2 var(--display); letter-spacing: -.01em; }
+.map-focus__ticker { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gold-text); font: 700 13px/1 var(--body); letter-spacing: .01em; } /* a narrow card shortens the ticker before the name */
+.map-focus__mini { display: none; }
+.map-focus__status { flex: none; margin-left: auto; font-size: .7rem; padding: 1px 8px; }
+.map-focus .map-focus__amount { color: var(--text-2); font-size: 13px; }
+.map-focus__line a { color: var(--gold-text); font-weight: 600; }
+.map-focus__side { display: flex; flex-direction: column; justify-content: space-between; align-items: center; }
+.map-focus__btn { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card-2); color: var(--text); font: 600 1.25rem/1 var(--body); cursor: pointer; display: grid; place-items: center; padding: 0; }
+.map-focus__btn:disabled { opacity: .45; cursor: default; }
+.map-focus__fold { border-color: transparent; background: none; color: var(--muted); font-size: .85rem; }
+/* folded: one line (name, ticker, status, founder amount) */
+.map-focus.is-folded { height: 52px; grid-template-columns: minmax(0, 1fr) auto; padding: 3px 4px 3px 15px; }
+.map-focus.is-folded .map-focus__where, .map-focus.is-folded .map-focus__amount, .map-focus.is-folded .map-focus__area, .map-focus.is-folded .map-focus__line, .map-focus.is-folded .map-focus__status { display: none; }
+.map-focus.is-folded .map-focus__mini { display: block; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--text-2); }
+.map-focus.is-folded .map-focus__side { flex-direction: row; gap: 2px; }
+/* loading: grey lines where the facts will be */
+.map-focus.is-loading .map-focus__where, .map-focus.is-loading .map-focus__amount, .map-focus.is-loading .map-focus__area, .map-focus.is-loading .map-focus__line { height: 9px; margin: 3px 0 4px; border-radius: 6px; width: 70%;
+  background: linear-gradient(90deg, rgba(var(--ink),.06) 30%, rgba(var(--ink),.14) 50%, rgba(var(--ink),.06) 70%) 0 0 / 200% 100%; }
+.map-focus.is-loading .map-focus__amount { width: 55%; } .map-focus.is-loading .map-focus__area { width: 85%; } .map-focus.is-loading .map-focus__line { width: 45%; }
+/* the legend: small markers that move like the map's (an open city breathes, a choosing ring turns, a founded city pings, yours pulses) */
+.dot { position: relative; }
+.dot--open { background: var(--st-open); box-shadow: 0 0 6px var(--st-open); }
+.dot--claimed::after, .dot--mine::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit; opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .map-focus__dot::after { animation: livePing 2.4s cubic-bezier(0,0,.2,1) infinite var(--lb-play, running); }
+  .map-focus.is-loading .map-focus__where, .map-focus.is-loading .map-focus__amount, .map-focus.is-loading .map-focus__area, .map-focus.is-loading .map-focus__line { animation: shimmer 1.4s linear infinite var(--lb-play, running); }
+  .dot--open { animation: lbBreath 1.8s steps(12) infinite alternate var(--lb-play, running); }
+  .dot--choosing { animation: spin 4s linear infinite var(--lb-play, running); }
+  .dot--claimed::after { animation: livePing 2.4s cubic-bezier(0,0,.2,1) infinite var(--lb-play, running); }
+  .dot--mine::after { animation: livePing 1.6s cubic-bezier(0,0,.2,1) infinite var(--lb-play, running); }
+}
+@media (max-width: 600px) {
+  .citymap__legend { font-size: 12px; gap: 4px 10px; margin-top: 10px; }
+}
 .claim-feed-wrap { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 .claim-feed { list-style: none; margin: 0; padding: 0 0 4px; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: thin; }
 .claim-feed li { flex: none; background: var(--card-2); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: .84rem; white-space: nowrap; }

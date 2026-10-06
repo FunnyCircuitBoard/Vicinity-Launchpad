@@ -16,6 +16,8 @@
 // Output: public/data/bounds/XX.txt (one line per city; format described in src/geo.js)
 //         public/data/bounds/index.json (per country: bounding box and file size, for the map)
 //         public/data/world.json (simplified country outlines for the map background)
+// Then: npm run bounds:overview (public/data/bounds-overview.txt, every city's outline for the map's first view, made from these files;
+//       test/map-overview.test.js fails until it is rebuilt)
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import pc from "polygon-clipping";
 import { Delaunay } from "d3-delaunay";
