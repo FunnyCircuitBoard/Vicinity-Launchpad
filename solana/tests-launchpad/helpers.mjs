@@ -325,7 +325,7 @@ export class World {
   }
 
   // ------------------------------------------------ rewards
-  async initRewardsCity(coin, { model = { holders: {} }, founderBps = 0, rewardMint = coin.quoteMint, authority = this.admin, founder } = {}) {
+  async initRewardsCity(coin, { model = { Holders: {} }, founderBps = 0, rewardMint = coin.quoteMint, authority = this.admin, founder } = {}) {
     const cfg = R.city(coin.mint);
     await this.send([buildIx(IDL.rewards, 'init_city', { reward_model: model, founder_bps: founderBps, city_tag: Array(32).fill(0) }, {
       payer: this.payer.address, admin: this.admin.address, registry: R.registry(), authority: authority.address,

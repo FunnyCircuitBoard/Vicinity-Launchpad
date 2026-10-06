@@ -60,6 +60,11 @@ const camel = (s) => s.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
 export function buildIx(idl, name, args = {}, accounts = {}, overrides = {}) {
   const def = idl.instructions.find((i) => i.name === name);
   if (!def) throw new Error(`no instruction ${name} in ${idl.metadata?.name}`);
+  // BorshCoder silently encodes a missing argument as zero (for example a
+  // camelCase key for a snake_case argument), so insist on every argument.
+  for (const a of def.args) {
+    if (!(a.name in args)) throw new Error(`${name}: missing argument ${a.name}`);
+  }
   const programAddress = idl.address;
   const metas = def.accounts.map((a) => {
     let addr = accounts[a.name] ?? accounts[camel(a.name)];
@@ -72,11 +77,6 @@ export function buildIx(idl, name, args = {}, accounts = {}, overrides = {}) {
     if (o !== undefined) role = o;
     return { address: String(addr), role };
   });
-  // BorshCoder silently encodes a missing argument as zero (for example a
-  // camelCase key for a snake_case argument), so insist on every argument.
-  for (const a of def.args) {
-    if (!(a.name in args)) throw new Error(`${name}: missing argument ${a.name}`);
-  }
   const data = coderFor(idl).instruction.encode(name, args);
   return { programAddress, accounts: metas, data: new Uint8Array(data) };
 }
