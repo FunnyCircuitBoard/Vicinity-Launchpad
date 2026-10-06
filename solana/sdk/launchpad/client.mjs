@@ -107,6 +107,24 @@ export function forwardHoldersFees({ coin, rewardsProgram = PROGRAM_IDS.rewards,
   });
 }
 
+/**
+ * vicinity_rewards `init_city` for a launched coin, set up the only way
+ * `forward_holders_fees` accepts (LAUNCHPAD-DESIGN.md 12.1): reward token =
+ * the coin's quote token, model Holders, founder share 0, so the holders'
+ * share is never split with the founder. `registryAdmin` is the rewards
+ * registry admin; `authority` (a Squads multisig on mainnet) publishes each
+ * round's Merkle root and must sign too. Rewards configs cannot be changed
+ * later, so a wrong one strands that city's pot until a program upgrade.
+ */
+export function initRewardsForCoin({ payer, registryAdmin, authority, coin, cityTag = new Uint8Array(32), rewardsProgram = PROGRAM_IDS.rewards }) {
+  const R = rewardsPdas(rewardsProgram);
+  const config = R.city(coin.mint);
+  return buildIx(IDL.rewards, 'init_city', { reward_model: { Holders: {} }, founder_bps: 0, city_tag: Array.from(cityTag) }, {
+    payer, admin: registryAdmin, registry: R.registry(), authority, founder: coin.founder, city_coin_mint: coin.mint,
+    reward_mint: coin.quoteMint, config, vault: R.vault(config), token_program: TOKEN, system_program: PROGRAM_IDS.system,
+  });
+}
+
 // ---------------------------------------------------------------- founder
 export function claimFounderFees({ founder, coin, overrides = {} }) {
   const c = P.coin(coin.cityId);
