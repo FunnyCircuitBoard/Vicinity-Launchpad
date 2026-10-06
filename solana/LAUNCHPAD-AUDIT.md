@@ -18,11 +18,29 @@ work touched mainnet except read-only program dumps.
   set up a payout partner.
 * People pay in SOL by default. Coins graduate into a Meteora trading pool at
   85 SOL, with the pool's liquidity locked for good.
+* Graduation and holder rewards are finished:
+  * a **keeper** program (`scripts/launchpad/crank.mjs`) graduates each coin
+    as soon as its curve fills, sends the unsold dust to your dev wallet, and
+    every day moves the city's fees on to the holders' rewards vault. Anyone
+    could do these steps; the keeper just makes sure nobody has to wait. Its
+    wallet only pays small fees and can touch nobody's money;
+  * graduation cannot be blocked, cannot stop half way, and leaves nothing of
+    yours or the city's behind inside Meteora (section 5.5). One small change
+    from the design: the city now also collects its share of Meteora's
+    "rounding surplus" (section 7, point 10);
+  * a **snapshot tool** (`scripts/launchpad/snapshot.mjs`) picks the holders
+    for each rewards round (it leaves out pools, your dev wallet and the
+    founder), splits the money, and says to wait until a round can pay at
+    least 20 holders 0.01 SOL each;
+  * the tests now check, in every transaction, that the holders' money only
+    ever moves to where the design says, all the way to each holder's own
+    claim.
 * The tests run the real Meteora and Metaplex programs (copied from mainnet)
-  and the real rewards program, in one process: 84 launchpad tests, 7 SDK
+  and the real rewards program, in one process: 101 launchpad tests, 18 SDK
   tests, 25 Rust unit tests, plus the existing rewards suites, all green.
 * Not done yet: putting it on devnet (the test wallet needs about 1.5 to 2 more
-  devnet SOL; section 6), the helper scripts for running it, and the website
+  devnet SOL; section 6), the remaining helper scripts (config creation,
+  setup, the devnet demo, the dev wallet's batch fee claims), and the website
   pieces. An outside audit is needed before mainnet.
 
 ## 2. What was built
@@ -32,8 +50,9 @@ work touched mainnet except read-only program dumps.
 | the program (18 instructions) | `programs/vicinity-launchpad/src` (`lib.rs`, `instructions/*`, `validate.rs` = design 7.2, `math.rs` = split, URL, ProgramData header, rewards-config reader) |
 | Meteora interfaces it is compiled against | `idls/dynamic_bonding_curve.json` (DBC 0.2.1), `idls/cp_amm.json` (DAMM v2 0.2.4) |
 | committed program interface | `sdk/idl/vicinity_launchpad.json` |
-| SDK | `sdk/launchpad/`: `pda.mjs` (addresses), `config.mjs` (the Vicinity Meteora config via Meteora's `buildCurve`), `curve.mjs` (exact copy of DBC's swap maths for quotes), `client.mjs` (instruction builders: our 18, DBC `swap2` buy/sell exact in, exact out and partial fill, coin to coin, graduation, platform-fee claims, DAMM v2 swap and fee claim), `idl.mjs` |
-| in-process tests | `tests-launchpad/01..08-*.test.mjs`, `helpers.mjs` (`assertInvariants`), `README.md` |
+| SDK | `sdk/launchpad/`: `pda.mjs` (addresses), `config.mjs` (the Vicinity Meteora config via Meteora's `buildCurve`), `curve.mjs` (exact copy of DBC's swap maths for quotes, and of its surplus split), `client.mjs` (instruction builders: our 18, DBC `swap2` buy/sell exact in, exact out and partial fill, coin to coin, graduation, leftover, platform-fee and surplus claims, DAMM v2 swap and fee claim, `initRewardsForCoin`), `keeper.mjs` (the keeper's reading, planning and packing), `snapshot.mjs` (holder snapshot and rewards-round rules), `idl.mjs` |
+| scripts | `scripts/launchpad/crank.mjs` (the keeper; plan-only unless `--send`, refuses mainnet without `--mainnet`), `scripts/launchpad/snapshot.mjs` (read-only: writes a round's file and CSV) |
+| in-process tests | `tests-launchpad/01..11-*.test.mjs`, `helpers.mjs` (`assertInvariants`, `assertMoneyFlows`), `README.md` |
 | fixtures | `scripts/launchpad/fetch-fixtures.sh` (mainnet dumps, pinned SHA-256; the dumps are gitignored), `tests-launchpad/fixtures/accounts/` (the DAMM v2 customizable config) |
 | CI | `.github/workflows/solana.yml`: launchpad IDL diff, SDK tests, fixtures, in-process tests |
 
@@ -46,10 +65,10 @@ a fresh keypair (design section 20).
 | item | value |
 |---|---|
 | toolchain | anchor-cli 0.31.1 (anchor-lang/anchor-spl 0.31.2 from the lockfile), solana-cli 4.3.0, cargo-build-sbf 4.4.0 (platform-tools v1.57), rustc 1.97.0, node 22.22.0 |
-| `anchor build` (production, no features) | `target/deploy/vicinity_launchpad.so`, 427,176 bytes, SHA-256 `5b8ced5104c2b6ab26922147a311cb0da62f600aeed0f4a724393be1224aeb78`; rebuilt from a touched source: same hash |
-| IDL | 105,460 bytes, SHA-256 `538d0d5895451cf47f4010438a669c4fbcd83ceeee0c5111bbb8418a9ddb4a3d` (`target/idl` = `sdk/idl`) |
+| `anchor build` (production, no features) | `target/deploy/vicinity_launchpad.so`, 432,408 bytes, SHA-256 `a0fc828ce5a1147f1858ca47ee1b784cf9cd187818e6e154cd1df7bb0de7378b` (427,176 bytes, `5b8ced51…`, before the surplus collection of section 7, point 10) |
+| IDL | 106,277 bytes, SHA-256 `1bc0de298a6c7c055a26192356ac89edc0a016ab8db993eb8d653668c39c237c` (`target/idl` = `sdk/idl`) |
 | `vicinity_rewards` after this work | rebuilt: 505,864 bytes, SHA-256 `f0fbc9d53ed092210eef3f97047644d6f796d634bf11c428795ff8b0b1e509a3`, identical to the hash recorded in AUDIT.md; its IDL is unchanged; its `short-windows` test build also matches AUDIT.md (`add08669…ebf98`) |
-| rent for the program (devnet, `solana rent 427221`) | 2.17093292 SOL for the ProgramData account at `--max-len` = size, plus 0.00083312 SOL for the program account |
+| rent for the program (devnet, `solana rent 432453`) | 2.19751148 SOL for the ProgramData account at `--max-len` = size, plus 0.00083312 SOL for the program account |
 
 **Size.** The design targeted 300 KB or less. The production binary is 427 KB.
 What was done to get there from 586 KB:
@@ -72,8 +91,8 @@ in. Cost of the extra size: about 0.65 SOL of rent at deploy.
 |---|---|---|
 | Rust unit tests, both crates | `cargo test` | launchpad 25 passed (every rule of 7.2 broken one field at a time, the 50/50 split with a 200,000-case property loop and an additivity loop, names, tickers, the URL, the ProgramData header, the rewards-config reader, the token-account reader); rewards 29 passed |
 | clippy and fmt | `cargo clippy --all-targets -- -D warnings`, the same with `--features short-windows`, `cargo fmt --all -- --check` | clean |
-| launchpad in-process suite | `npm run launchpad:fixtures` once, then `npm run test:launchpad` | 84 passed, about 14 s; every invariant of design section 15 checked after every successful transaction |
-| launchpad SDK | `npm run sdk-test:launchpad` | 7 passed (includes 5,000 random trades per quote type on the maths alone) |
+| launchpad in-process suite | `npm run launchpad:fixtures` once, then `npm run test:launchpad` | 101 passed, about 15 s; every invariant of design section 15 checked after every successful transaction, invariant 8 from the token instructions that actually ran |
+| launchpad SDK | `npm run sdk-test:launchpad` | 18 passed (includes 5,000 random trades per quote type on the maths alone, the keeper's planning rules and the snapshot rules) |
 | existing SDK and types | `npm run sdk-test`, `npm run typecheck` | 47 passed; clean |
 | `vicinity_rewards` Anchor suite | see below | 144 passing, 0 failing, 0 pending (8 min) |
 
@@ -106,15 +125,18 @@ maths matching the real program to the raw unit after every trade.
 | DBC `swap2` buy, exact in, with the dev wallet referral | 32,994 | 731 |
 | DBC `swap2` sell, exact in | 28,151 | 699 |
 | coin to coin (two `swap2` in one transaction, with referral) | 64,033 | 934 (the limit is 1,232) |
-| `harvest_curve_fees` (first time, creates the coin's own account) | 70,616 | 723 |
-| `harvest_curve_fees` | 47,309 | 723 |
+| `harvest_curve_fees` (first time, creates the coin's own account) | 66,739 to 70,616 | 756 (723 before the `dbc_config` account) |
+| `harvest_curve_fees` (nothing to claim) | 41,334 | 756 |
+| `harvest_curve_fees` (the one that also collects the city's surplus) | 64,573 | 756 |
 | `forward_holders_fees` | 22,726 | 458 |
 | `claim_founder_fees` (creating the founder's account) | 33,388 | 555 |
 | `set_payout_config` / `set_pause` | 6,024 / 5,527 | 413 / 352 |
 | `opt_in_payout` / `revoke_payout_opt_in` | 24,005 / 9,331 | 520 / 391 |
 | `payout_founder_fees` (creating the payout wallet's account) | 45,048 | 558 |
 | DBC `swap2` partial fill up to graduation | 32,840 | 699 |
-| DBC `migration_damm_v2` (graduation crank) | 243,000 to 266,000 | 1,109 |
+| DBC `migration_damm_v2` (graduation crank) | 237,000 to 266,000 | 1,109 |
+| keeper, minute pass after a curve fills: graduation, then leftover + harvest + forward in one transaction | 243,185, then about 160,000 | 1,109, then 973 |
+| keeper, daily pass, ten coins' harvest + forward | 7 transactions | 878 to 1,170 each |
 
 ### 5.2 Money and rent
 
@@ -125,6 +147,9 @@ maths matching the real program to the raw unit after every trade.
   the metadata.
 * The graduation crank cost the cranker 0.0325 SOL (32,518,200 lamports, rent
   of the DAMM v2 accounts plus fees).
+* The keeper wallet spent 0.0468 SOL over the nine transactions of test
+  10-keeper (one graduation, the dev wallet's coin account, fees), in the test
+  VM's old rent rate.
 
 ### 5.3 What DBC stored for the default config (85 SOL)
 
@@ -153,11 +178,68 @@ maths matching the real program to the raw unit after every trade.
 * Leftover: 9.109297 coins went to the dev wallet with `withdraw_leftover`;
   the supply stayed exactly 10^15.
 
+### 5.5 Graduation defences and the keeper (tests TG09-TG14, TI01-TI06)
+
+* **Surplus.** A curve filled by one partial-fill buy from the start ends
+  exactly on its target (surplus 0). Every trade rounds a fraction of a
+  lamport in the curve's favour: 1 lamport after a few buys, 43 after 240
+  random trades (city 17, dev wallet 17, Meteora 9), 117 to 125 after about
+  600. `harvest_curve_fees` collects the city's share exactly once, before or
+  after graduation (TG09); a stranger posing as the creator is refused by DBC
+  (`Unauthorized`, TG12).
+* **Pre-funded addresses.** With 0.00089 SOL, 0.5 SOL and 0.002 SOL sent in
+  advance to the pool and its two vault addresses, graduation succeeded
+  (264,168 CU) and opened a pool identical, to the unit, to one graduated
+  without the donations (TG10, TG11).
+* **Atomic.** A graduation that ran out of compute at 120,000 CU, and one whose
+  payer held 0.02 SOL and could not repay DBC's rent loan ("insufficient
+  lamports 19985000, need 22606080"), each left no pool and no change in the
+  curve or its vaults; a retry by another wallet succeeded (TG11). A second
+  graduation is refused (`NotPermitToDoThisAction`), a second leftover too
+  (`LeftoverHasBeenWithdraw`).
+* **Nothing left behind.** After graduation, every claim, the leftover and the
+  city's harvest, forward and founder claim: DBC's quote vault held exactly
+  1.419892179 SOL and its base vault 413,800.004751 coins, both exactly
+  Meteora's own protocol fees, surplus share and 0.2% migration fee; the
+  city's pot, vault and coin account were empty (TG13). The dev wallet got its
+  17-lamport surplus share and 9.109366 coins of leftover (TG14).
+* **Keeper.** One minute pass graduated a coin, sent the leftover to the dev
+  wallet (creating its coin account), collected fees and surplus and forwarded
+  the holders' half, in two transactions; the next pass found nothing; a daily
+  pass then forwarded 0.0162 SOL of pool fees (TI02). It found the city's
+  position after a stranger ran the graduation with its own NFT keys (TI03).
+  It reported, and did not send, coins with no rewards config or a Split
+  config, and forwarded the waiting pot once the config was fixed (TI01).
+
+### 5.6 Where the holders' money can go (tests TE10-TE13)
+
+* Every successful transaction of the whole suite is checked from the token
+  instructions that actually ran (`assertMoneyFlows`): money left a holders
+  pot only to its founder vault or its city's checked rewards vault, a founder
+  vault only to the founder or the agreed payout wallet, and a Holders-only
+  rewards vault only inside a holder's own claim, to that holder.
+* All 21 token accounts of a busy test world, tried as the destination of a
+  forward, a harvest, a founder claim and a payout: 80 substitutions refused,
+  no balance moved, and the designed destinations then worked (TE11).
+* Every field of a city's rewards config changed one at a time: the 10 changes
+  to fields `forward_holders_fees` relies on (type, coin, reward token, vault,
+  model Creator/Split/invalid, founder share 1/2,500/10,000 bps) were refused
+  with `WrongRewardsConfig`; the 16 changes to the rewards authority's own
+  bookkeeping (authority, founder, pause, totals, tag, bumps) were accepted
+  (TE12).
+* End to end (TE13): nine holders, graduation, harvest and forward put
+  0.230898133 SOL in the city's rewards vault. The snapshot, through the
+  script's own code path, excluded the dev wallet, the founder and both
+  Meteora vault authorities; the default gate said to wait (nine holders, not
+  twenty); with the gate lowered to five, all nine were paid at least 0.01 SOL
+  by `fund_epoch_from_vault` and `claim`, 5 lamports of rounding stayed for the
+  next round, and the founder received nothing from the holders' round.
+
 ## 6. Devnet (not done in this step)
 
 The program is not deployed yet. The throwaway deployer
 `9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa` holds about 1.39 devnet SOL; the
-program needs 2.17 SOL of rent and, during the deploy, a buffer of the same
+program needs 2.20 SOL of rent and, during the deploy, a buffer of the same
 size (returned afterwards). **The owner should send about 2 devnet SOL to that
 address** (faucet.solana.com), or the deploy can use `--max-len` equal to the
 size and a fresh buffer keypair once the balance allows it. Design section 19
@@ -179,7 +261,7 @@ and compare them with the pinned mainnet hashes.
 4. **Unreachable checks kept on purpose.** The pool check after the launch CPI
    (`PoolCreatorMismatch`) cannot fail while DBC behaves, and `MathOverflow`
    cannot be reached with real token amounts; both are defence in depth.
-5. **Size** 427 KB instead of 300 KB (section 3).
+5. **Size** 432 KB instead of 300 KB (section 3).
 6. **The dev wallet in tests.** `FEE_RECIPIENT` is a constant and the tests
    have no key for it, so the few transactions it signs (platform-fee claims,
    a refused liquidity removal) run with litesvm's signature check off for
@@ -197,10 +279,32 @@ and compare them with the pinned mainnet hashes.
    the pool's favour, a round trip never profits) are therefore asserted on
    the real DBC program after every random trade in TD11, and on the SDK's
    copy of the maths in `sdk/launchpad/curve.test.mjs`.
-9. **Not built in this step** (design 18 and 20): `create-dbc-config.mjs`,
-   `init-launchpad.mjs`, `devnet-demo.mjs`, `crank.mjs`,
-   `claim-platform-fees.mjs`, `snapshot.mjs`, the pay-with-anything composer,
-   and all website work.
+9. **Not built yet** (design 18 and 20): `create-dbc-config.mjs`,
+   `init-launchpad.mjs`, `devnet-demo.mjs`, `claim-platform-fees.mjs` (the SDK
+   builds every claim it needs), the pay-with-anything composer, and all
+   website work (including the scheduled snapshot job and the claim page).
+10. **Design change: the city collects its graduation surplus.** The design
+    said the city's share of DBC's rounding surplus would stay in DBC ("a few
+    lamports"). Measured, it grows with trading (5.5), so `harvest_curve_fees`
+    now calls DBC `creator_withdraw_surplus` once, after the curve completes,
+    into the holders pot (design 10.5). This adds one CPI signed by the `Coin`
+    PDA, the coin's `dbc_config` account (owner and type checked, and pinned
+    to `coin.dbc_config`) and a `surplus` field in `FeesHarvested`. The
+    decision to call it reads DBC's own completion test and its once-only
+    flag; DBC enforces both again. 5,232 bytes of program.
+11. **Graduation is one instruction.** DBC 0.2.1's
+    `migration_damm_v2_create_metadata` is deprecated and does nothing, and
+    Vicinity configs have no locked vesting, so there is no `create_locker`
+    step: completion sets the curve straight to "ready to migrate" (progress 2)
+    and `migration_damm_v2` takes it to "pool created" (3) in one atomic step.
+12. **What can never move** (all dust or strangers' donations): 1 unit of
+    unlocked liquidity in the city's position; coins donated to the `Coin`
+    PDA's own coin account; quote tokens donated straight to a DBC vault.
+13. **Keeper limits.** It cannot tell in advance whether a DAMM v2 position has
+    fees waiting, so the daily pass always includes `harvest_pool_fees` for
+    graduated coins (a no-op when empty). Its compute allowance per step is
+    about twice what the tests measured, because address derivations cost
+    more for some addresses than others.
 
 ## 8. Reproduce
 
@@ -210,6 +314,6 @@ npm ci
 anchor build                       # both programs; hashes in section 3
 cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --check
 npm run launchpad:fixtures         # mainnet dumps, checked against pinned hashes
-npm run test:launchpad             # 84 tests, no validator
+npm run test:launchpad             # 101 tests, no validator
 npm run sdk-test:launchpad && npm run sdk-test && npm run typecheck
 ```
