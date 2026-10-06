@@ -1217,11 +1217,21 @@
   });
   showStyle();
   // ⤢: the map over the whole screen (no Fullscreen API: an iPhone has none for a page element). ✕, Escape or Back close it.
-  let full = false;
+  let full = false, inerted = [];
+  /** While the map covers the screen, everything outside it is inert: Tab stays on the map's own controls (it used to walk on to the
+   *  covered list, filters and feed, out of sight), and screen readers stay with the map. */
+  function isolate(on) {
+    for (const e of inerted) e.inert = false;
+    inerted = [];
+    if (!on) return;
+    for (let n = wrapEl; n.parentElement && n !== document.body; n = n.parentElement)
+      for (const sib of n.parentElement.children) if (sib !== n && !sib.inert && sib.tagName !== "SCRIPT") { sib.inert = true; inerted.push(sib); }
+  }
   function setFull(on, fromHistory = false) {
     if (on === full) return;
     full = on;
     wrapEl.classList.toggle("is-full", on); document.documentElement.classList.toggle("map-is-full", on);
+    isolate(on);
     const b = $("#map-full"); b.setAttribute("aria-pressed", String(on)); b.setAttribute("aria-label", on ? "Leave the full-screen map" : "Full-screen map"); b.title = b.getAttribute("aria-label"); b.textContent = on ? "⤡" : "⤢";
     $("#map-exit").hidden = !on;
     if (on && !fromHistory) { try { history.pushState({ vicinityMap: "full" }, ""); } catch {} }

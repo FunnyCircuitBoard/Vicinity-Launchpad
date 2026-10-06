@@ -369,3 +369,13 @@ test("map: a resize that leaves the stage as it was costs nothing, and coming ba
   assert.match(js, /const refreshAll = \(\) => \{ lastRefresh = Date\.now\(\); refreshClaims\(\); refreshMembers\(\); \};/);
   assert.match(js, /setInterval\(\(\) => \{ if \(!document\.hidden && onScreen && Date\.now\(\) - lastRefresh >= 25000\) refreshAll\(\); \}, 30000\);/, "still never while hidden or off screen");
 });
+
+test("map: while the map covers the screen, everything outside it is inert, and all of it comes back on leaving (review A11Y-FULLSCREEN-FOCUS)", () => {
+  const iso = js.slice(js.indexOf("  function isolate(on) {"), js.indexOf("  function setFull("));
+  assert.match(iso, /for \(const e of inerted\) e\.inert = false;\n    inerted = \[\];\n    if \(!on\) return;/, "only what it made inert is given back");
+  assert.match(iso, /for \(let n = wrapEl; n\.parentElement && n !== document\.body; n = n\.parentElement\)/, "every branch beside the stage, up to <body>");
+  assert.match(iso, /if \(sib !== n && !sib\.inert && sib\.tagName !== "SCRIPT"\) \{ sib\.inert = true; inerted\.push\(sib\); \}/);
+  const set = js.slice(js.indexOf("  function setFull("), js.indexOf('  $("#map-full").addEventListener'));
+  assert.match(set, /document\.documentElement\.classList\.toggle\("map-is-full", on\);\n    isolate\(on\);/);
+  assert.ok(set.indexOf("isolate(on);") < set.indexOf("(on ? $(\"#map-exit\") : b).focus("), "inert before the focus moves");
+});
