@@ -26,6 +26,7 @@ import * as C from '../sdk/launchpad/client.mjs';
 import { IDL, coderFor, decodeAccount, buildIx, Role } from '../sdk/launchpad/idl.mjs';
 import { ADDRESSES, PROGRAM_IDS, ata, dbc, damm, pdas, programDataAddress, rewardsPdas } from '../sdk/launchpad/pda.mjs';
 import { vicinityConfigParams, createConfigIx } from '../sdk/launchpad/config.mjs';
+import { surplusShares } from '../sdk/launchpad/curve.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const solanaDir = join(here, '..');
@@ -310,6 +311,9 @@ export class World {
       protocolQuoteFee: big(ps.protocol_quote_fee), partnerQuoteFee: big(ps.partner_quote_fee), creatorQuoteFee: big(ps.creator_quote_fee),
       protocolBaseFee: big(ps.protocol_base_fee), partnerBaseFee: big(ps.partner_base_fee), creatorBaseFee: big(ps.creator_base_fee),
       isMigrated: ps.is_migrated, migrationProgress: ps.migration_progress, isWithdrawLeftover: ps.is_withdraw_leftover,
+      isCreatorWithdrawSurplus: ps.is_creator_withdraw_surplus, isPartnerWithdrawSurplus: ps.is_partner_withdraw_surplus,
+      isProtocolWithdrawSurplus: ps.is_protocol_withdraw_surplus,
+      protocolMigrationBaseFee: big(ps.protocol_migration_base_fee_amount), protocolMigrationQuoteFee: big(ps.protocol_migration_quote_fee_amount),
     };
   }
   /** The decoded DBC config in the shape sdk/launchpad/curve.mjs expects. */
@@ -471,8 +475,12 @@ export function assertInvariants(w) {
     assert.equal(w.exists(P.approval(big(d.city_id))), false, 'inv7 approval and coin together');
     // 9 (before graduation; donations only add)
     if (pool.isMigrated === 0) {
+      // surplus shares already paid out (each side once, after completion) left the vault
+      const cfg = w.decodeConfig(d.dbc_config.toBase58());
+      const sh = surplusShares(pool.quoteReserve, BigInt(cfg.migration_quote_threshold.toString()), BigInt(cfg.creator_trading_fee_percentage));
+      const paid = (pool.isCreatorWithdrawSurplus ? sh.creator : 0n) + (pool.isPartnerWithdrawSurplus ? sh.partner : 0n) + (pool.isProtocolWithdrawSurplus ? sh.protocol : 0n);
       const qv = w.balance(pool.quoteVault);
-      assert.ok(qv >= pool.quoteReserve + pool.protocolQuoteFee + pool.partnerQuoteFee + pool.creatorQuoteFee, 'inv9 quote vault');
+      assert.ok(qv + paid >= pool.quoteReserve + pool.protocolQuoteFee + pool.partnerQuoteFee + pool.creatorQuoteFee, 'inv9 quote vault');
       assert.equal(pool.protocolBaseFee + pool.partnerBaseFee + pool.creatorBaseFee, 0n, 'inv9 no base fees');
       // 10
       const tokenAccounts = w.svm.getProgramAccounts(address(PROGRAM_IDS.token))
@@ -492,6 +500,40 @@ export function assertInvariants(w) {
     }
   }
   return coins.length;
+}
+
+/** Permissionless DBC graduation of `coin` by `cranker` (fresh position NFT mints); returns the DAMM v2 pool and NFT mints. */
+export async function graduate(w, coin, cranker, { cu = 400_000, label = 'migration_damm_v2' } = {}) {
+  const n1 = await generateKeyPairSigner(), n2 = await generateKeyPairSigner();
+  const ix = C.migrateToDammV2({ payer: cranker.address, dbcPool: coin.dbcPool, dbcConfig: coin.dbcConfig, coinMint: coin.mint, quoteMint: coin.quoteMint, firstNftMint: n1.address, secondNftMint: n2.address });
+  const res = await w.send([ix], [cranker, n1, n2], label, { feePayer: cranker, cu });
+  return { res, n1: n1.address, n2: n2.address, pool: damm.pool(ADDRESSES.dammCustomizableConfig, coin.mint, coin.quoteMint) };
+}
+
+/**
+ * Trade `coin` back and forth `trades` times with three traders (deterministic
+ * pseudo-random sizes), staying below the raise target. Every trade rounds in
+ * the pool's favour, which is what builds DBC's completion surplus.
+ */
+export async function churn(w, coin, { trades = 200, seed = 1, stopBelow = 80n * LAMPORTS } = {}) {
+  let x = seed;
+  const rnd = () => { x = (x * 1103515245 + 12345) % 2147483648; return x / 2147483648; };
+  const ts = [await w.signer(5_000n), await w.signer(5_000n), await w.signer(5_000n)];
+  for (let k = 0; k < trades; k++) {
+    const t = ts[k % 3];
+    if (w.pool(coin.dbcPool).quoteReserve > stopBelow) break;
+    const bal = w.exists(ata(t.address, coin.mint)) ? w.balance(ata(t.address, coin.mint)) : 0n;
+    if (rnd() < 0.6 || bal < 10n) await w.trade(t, coin, { side: 'buy', amount0: BigInt(Math.floor(rnd() * 3e9)) + 1n, amount1: 1n, label: 'churn buy' });
+    else await w.trade(t, coin, { side: 'sell', amount0: (bal * BigInt(Math.floor(rnd() * 100))) / 100n + 1n, amount1: 0n, label: 'churn sell' });
+  }
+  return ts;
+}
+
+/** Buy the rest of the curve with one partial-fill buy (it stops exactly at the graduation price). */
+export async function completeCurve(w, coin, buyer) {
+  buyer = buyer ?? await w.signer(500n);
+  await w.trade(buyer, coin, { side: 'buy', mode: 1, amount0: 200n * LAMPORTS, amount1: 1n, label: 'partial fill to graduation' });
+  return buyer;
 }
 
 /** Run a harvest and keep the invariant-3 counter in step. */
