@@ -130,6 +130,7 @@ export class World {
       this.config = await this.createDbcConfig(config);
       await this.send([C.addLaunchConfig({ admin: this.admin.address, dbcConfig: this.config, quoteMint: ADDRESSES.wsol })], [this.admin], 'add_launch_config');
     }
+    this.autoInvariants = process.env.INVARIANTS !== 'off';
   }
 
   // ------------------------------------------------ keys, accounts, clock
@@ -222,6 +223,15 @@ export class World {
     this.events.push(...events);
     this.lastCu = Number(res.computeUnitsConsumed());
     this.cu[label] = this.lastCu;
+    // invariant 3 counts non-empty harvests per coin
+    for (const e of events) {
+      if (e.name === 'FeesHarvested') {
+        const coin = P.coin(BigInt(e.data.city_id.toString()));
+        this.harvests.set(coin, (this.harvests.get(coin) ?? 0) + 1);
+      }
+    }
+    // LAUNCHPAD-DESIGN.md section 15: every invariant after every successful transaction
+    if (this.autoInvariants) assertInvariants(this);
     return { logs, events, cu: this.lastCu };
   }
   /** Same as send, with litesvm's signature check off for this one transaction (dev wallet steps). */
@@ -489,8 +499,5 @@ export async function harvest(w, coin, kind = 'curve', extra = {}) {
   const ix = kind === 'curve'
     ? C.harvestCurveFees({ payer: w.payer.address, coin, ...extra })
     : C.harvestPoolFees({ payer: w.payer.address, coin, ...extra });
-  const res = await w.send([ix], [], `harvest_${kind}_fees`);
-  const ev = eventsNamed(res, 'FeesHarvested');
-  if (ev.length) w.harvests.set(coin.address, (w.harvests.get(coin.address) ?? 0) + 1);
-  return res;
+  return w.send([ix], [], `harvest_${kind}_fees`);
 }

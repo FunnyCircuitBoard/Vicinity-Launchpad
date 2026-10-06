@@ -37,7 +37,6 @@ describe('05 fees and rewards', () => {
     assert.equal(creatorFee, 20_000_000n); // 0.5% of 4 SOL
     const stranger = await w.signer();
     const res = await w.send([C.harvestCurveFees({ payer: stranger.address, coin })], [stranger], 'harvest_curve_fees', { feePayer: stranger });
-    w.harvests.set(coin.address, 1);
     const ev = eventsNamed(res, 'FeesHarvested')[0].data;
     assert.deepEqual([ev.source, ev.claimed.toString(), ev.to_holders.toString(), ev.to_founder.toString()], [0, '20000000', '10000000', '10000000']);
     const c = w.coin(coin.cityId);
@@ -62,7 +61,6 @@ describe('05 fees and rewards', () => {
     await buy(w, busy, LAMPORTS);
     const res2 = await w.send([C.harvestCurveFees({ payer: w.payer.address, coin }), C.harvestCurveFees({ payer: w.payer.address, coin: busy })], [], 'batch harvest');
     assert.equal(eventsNamed(res2, 'FeesHarvested').length, 1);
-    w.harvests.set(busy.address, 1);
     assertInvariants(w);
   });
 

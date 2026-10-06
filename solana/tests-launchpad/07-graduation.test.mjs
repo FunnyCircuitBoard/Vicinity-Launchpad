@@ -20,6 +20,29 @@ async function migrate(w, coin, cranker) {
 }
 function nftHolder(w, nftMint) { return readKey(w.account(damm.positionNftAccount(nftMint)).data, 32); }
 
+/** A permissionless DAMM v2 "customizable" pool for (mintA, WSOL) created by `owner` (who must hold both). */
+async function customizablePool(w, owner, mintA) {
+  const nft = await generateKeyPairSigner();
+  const [hi, lo] = Buffer.compare(new web3.PublicKey(mintA).toBuffer(), new web3.PublicKey(WSOL).toBuffer()) > 0 ? [mintA, WSOL] : [WSOL, mintA];
+  const pool = web3.PublicKey.findProgramAddressSync([Buffer.from('cpool'), new web3.PublicKey(hi).toBuffer(), new web3.PublicKey(lo).toBuffer()], new web3.PublicKey(PROGRAM_IDS.damm))[0].toBase58();
+  const feeData = Buffer.alloc(27); feeData.writeBigUInt64LE(2_500_000n, 0); // 0.25% flat
+  const ix = buildIx(IDL.damm, 'initialize_customizable_pool', {
+    params: {
+      pool_fees: { base_fee: { data: Array.from(feeData) }, compounding_fee_bps: 0, padding: 0, dynamic_fee: null },
+      sqrt_min_price: new BN('4295048016'), sqrt_max_price: new BN('79226673521066979257578248091'), has_alpha_vault: false,
+      liquidity: new BN('100000000000000000000000'), sqrt_price: new BN(String(1n << 64n)), activation_type: 1, collect_fee_mode: 0, activation_point: null,
+    },
+  }, {
+    creator: owner.address, position_nft_mint: nft.address, position_nft_account: damm.positionNftAccount(nft.address), payer: owner.address,
+    pool, position: damm.position(nft.address), token_a_mint: mintA, token_b_mint: WSOL,
+    token_a_vault: damm.tokenVault(mintA, pool), token_b_vault: damm.tokenVault(WSOL, pool),
+    payer_token_a: ata(owner.address, mintA), payer_token_b: ata(owner.address, WSOL), token_a_program: PROGRAM_IDS.token,
+    token_b_program: PROGRAM_IDS.token, event_authority: damm.eventAuthority(), program: PROGRAM_IDS.damm,
+  });
+  await w.send([ix], [owner, nft], 'customizable pool', { cu: 400_000 });
+  return { pool, nft: nft.address };
+}
+
 describe('07 graduation', () => {
   let w, coin, g, founder, cranker;
   before(async () => {
@@ -67,30 +90,8 @@ describe('07 graduation', () => {
     const stranger = await w.signer();
     await w.trade(stranger, coin, { side: 'buy', amount0: LAMPORTS, amount1: 1n });
     w.fundToken(stranger.address, WSOL, LAMPORTS);
-    const nft = await generateKeyPairSigner();
-    const [hi, lo] = Buffer.compare(new web3.PublicKey(coin.mint).toBuffer(), new web3.PublicKey(WSOL).toBuffer()) > 0 ? [coin.mint, WSOL] : [WSOL, coin.mint];
-    const pool = web3.PublicKey.findProgramAddressSync([Buffer.from('cpool'), new web3.PublicKey(hi).toBuffer(), new web3.PublicKey(lo).toBuffer()], new web3.PublicKey(PROGRAM_IDS.damm))[0].toBase58();
-    const feeData = Buffer.alloc(27); feeData.writeBigUInt64LE(2_500_000n, 0); // 0.25% flat
-    const ix = buildIx(IDL.damm, 'initialize_customizable_pool', {
-      params: {
-        pool_fees: { base_fee: { data: Array.from(feeData) }, compounding_fee_bps: 0, padding: 0, dynamic_fee: null },
-        sqrt_min_price: new BN('4295048016'), sqrt_max_price: new BN('79226673521066979257578248091'), has_alpha_vault: false,
-        liquidity: new BN('100000000000000000000000'), sqrt_price: new BN(String(1n << 64n)), activation_type: 1, collect_fee_mode: 0, activation_point: null,
-      },
-    }, {
-      creator: stranger.address, position_nft_mint: nft.address, position_nft_account: damm.positionNftAccount(nft.address), payer: stranger.address,
-      pool, position: damm.position(nft.address), token_a_mint: coin.mint, token_b_mint: WSOL,
-      token_a_vault: damm.tokenVault(coin.mint, pool), token_b_vault: damm.tokenVault(WSOL, pool),
-      payer_token_a: ata(stranger.address, coin.mint), payer_token_b: ata(stranger.address, WSOL), token_a_program: PROGRAM_IDS.token,
-      token_b_program: PROGRAM_IDS.token, event_authority: damm.eventAuthority(), program: PROGRAM_IDS.damm,
-    });
-    try {
-      await w.send([ix], [stranger, nft], 'stranger customizable pool', { cu: 400_000 });
-      w.strangerPool = pool;
-    } catch (e) {
-      // if DAMM refuses these parameters the point still holds (no pool exists to interfere)
-      console.log(`TG06b stranger pool not created: ${e.logs.filter((l) => /Error|failed/.test(l)).slice(0, 2).join(' | ')}`);
-    }
+    const { pool } = await customizablePool(w, stranger, coin.mint);
+    w.strangerPool = pool;
     assert.notEqual(pool, damm.pool(ADDRESSES.dammCustomizableConfig, coin.mint, WSOL), 'a different address from the canonical pool');
   });
 
@@ -217,8 +218,16 @@ describe('07 graduation', () => {
     assert.ok(devClaim > 0n && claimed >= devClaim, 'the city position (with the dead liquidity) earns at least as much');
     // a position the Coin PDA does not hold is refused
     await expectFail(() => w.send([C.harvestPoolFees({ payer: w.payer.address, coin, dammPool: g.pool, positionNftMint: w.devNft })]), 'WrongPosition');
-    // a pool of another pair is refused
-    if (w.strangerPool) await expectFail(() => w.send([C.harvestPoolFees({ payer: w.payer.address, coin, dammPool: w.strangerPool, positionNftMint: w.coinNft })]), 'WrongPosition', 'WrongPool');
+    // the stranger's pool for the same pair: the Coin PDA's position is not in it
+    await expectFail(() => w.send([C.harvestPoolFees({ payer: w.payer.address, coin, dammPool: w.strangerPool, positionNftMint: w.coinNft })]), 'WrongPosition');
+    // a pool of another pair (a fresh token against SOL) is refused as such
+    const other = web3.Keypair.generate().publicKey.toBase58();
+    w.setRaw(other, (await import('./helpers.mjs')).mintData({ decimals: 6, supply: 10n ** 12n }), PROGRAM_IDS.token);
+    const maker = await w.signer();
+    w.fundToken(maker.address, other, 10n ** 12n);
+    w.fundToken(maker.address, WSOL, LAMPORTS);
+    const otherPool = await customizablePool(w, maker, other);
+    await expectFail(() => w.send([C.harvestPoolFees({ payer: w.payer.address, coin, dammPool: otherPool.pool, positionNftMint: w.coinNft })]), 'WrongPool');
     // nothing left: a no-op
     const res2 = await harvest(w, coin, 'pool', { dammPool: g.pool, positionNftMint: w.coinNft });
     assert.equal(eventsNamed(res2, 'FeesHarvested').length, 0);
