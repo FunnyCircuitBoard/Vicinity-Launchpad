@@ -59,7 +59,7 @@ function layout({ title, description, page, scripts = [], styles = [], main = ""
   <title>${fullTitle}</title>
   <meta name="description" content="${description}">
 ${noindex ? '  <meta name="robots" content="noindex, nofollow">\n' : ""}  <meta name="theme-color" content="#070E19">
-  <meta name="color-scheme" content="dark light">
+  <meta name="color-scheme" content="dark">
   <meta property="og:title" content="${fullTitle}">
   <meta property="og:description" content="${description}">
   <meta property="og:type" content="website">
@@ -98,6 +98,7 @@ ${body.trimEnd()}
         <div class="brand"><img src="/logo.svg" alt="" width="28" height="28"><span>Vicinity</span></div>
         <p class="muted">One city. One coin. One community.</p>
         <p class="muted small">System status: <span id="status">checking…</span></p>
+        <p class="muted small footer-motion"><button class="link-btn motion-toggle" type="button" data-motion-toggle>Pause animations</button></p>
       </div>
       <nav class="footer-links" aria-label="Footer">
         <p class="footer-title">Explore</p>

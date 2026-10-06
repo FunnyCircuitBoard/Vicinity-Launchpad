@@ -7,7 +7,7 @@ Live: https://vicinity.city (vicinitycity.net and the www addresses forward ther
 > **$VICINITY launched on October 3, 2026, on Raydium LaunchLab.** The one official contract address (Solana) is `2aVkhRfAEm44tMhFo8oamWvumGGvweFqnUwukRMBkray`, the same one as on https://vicinity.city/token. No presale, no airdrop. Any other token using the name is fake: use the site's "Is this link really Vicinity?" checker if in doubt.
 
 ## What's on the site
-Separate pages, one shared menu (top menu on computers, bottom menu bar on phones), dark / light theme:
+Separate pages, one shared menu (top menu on computers, bottom menu bar on phones), dark by default with a light theme on the header toggle (remembered on the device; the device's own setting is not followed), live buttons (glow and light passes, paused off screen) and a "Pause animations" switch in every footer:
 - **/** How it works: the problem, a step-by-step walkthrough on the real New York City boundaries (73 places, one coin), why joining early matters (straight from the rules), how the app works, incentives for holders and for the Launchpad, how to get $VICINITY, roles, roadmap, FAQ (including why $VICINITY launched on Raydium LaunchLab).
 - **/token** Token and holders: live facts from the blockchain (minting/freezing off, supply, price), every holder in a table that scrolls on its own, "where does this wallet stand?" (paste any address: rank, percentile, gap to the next wallet), the official token list and link checker.
 - **/cities** The live map: 8,000+ communities in 244 countries with real boundaries that never overlap; claimed vs open; the communities filling up. The claim button leads to the dashboard.
