@@ -5,6 +5,14 @@ keeps one vault, records the founder's chosen reward model permanently, pays the
 founder's share, lets qualifying holders claim their share against published,
 verifiable Merkle snapshots, and keeps exact accounting. Nothing else.
 
+**A second program lives in this folder:** `vicinity_launchpad`
+(`programs/vicinity-launchpad`), Vicinity's own launchpad on top of Meteora's
+bonding curve: one coin per city, platform fees to the dev wallet, the city's
+fee share split between holders (through this rewards program) and the
+founder, and an opt-in founder payout for X Money. `LAUNCHPAD-DESIGN.md` is its
+specification and `LAUNCHPAD-AUDIT.md` its build and test record. Everything
+below is about `vicinity_rewards`, which the launchpad work did not change.
+
 This file is for the owner and the auditor. `SECURITY.md` has the threat model
 and the list of risks with the mechanism and test that answers each.
 `AUDIT.md` has toolchain versions, the reproducible build, compute units, rent,
@@ -187,6 +195,12 @@ solana/
   scripts/demo.ts                  the auditor's local walk-through; scripts/devnet-demo.ts the devnet one;
   scripts/init-registry.ts         the owner's one-time init_registry after a deploy (npm run init-registry)
   README.md, SECURITY.md, AUDIT.md this documentation
+
+  programs/vicinity-launchpad/     the launchpad program (LAUNCHPAD-DESIGN.md, LAUNCHPAD-AUDIT.md)
+  idls/                            Meteora DBC and DAMM v2 interfaces the launchpad is compiled against
+  sdk/launchpad/                   launchpad SDK: addresses, Meteora config, curve maths, instruction builders
+  tests-launchpad/                 launchpad in-process tests (litesvm, no validator); README.md there
+  scripts/launchpad/               fetch-fixtures.sh (mainnet program dumps for the tests, pinned hashes)
 ```
 
 ## Build, test, demo
@@ -206,6 +220,7 @@ npm run typecheck
 anchor build                                 # production binary + IDL (target/idl must equal sdk/idl)
 VICINITY_REQUIRE_SHORT_WINDOWS=1 anchor test -- --features short-windows   # full suite (see tests/README-tests.md)
 anchor localnet & npm run demo               # the auditor's walk-through, see scripts/README-scripts.md
+npm run launchpad:fixtures && npm run test:launchpad && npm run sdk-test:launchpad   # the launchpad (no validator)
 ```
 
 `--features short-windows` is a test-only build with a 60-second minimum claim

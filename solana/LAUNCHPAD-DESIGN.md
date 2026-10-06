@@ -1,9 +1,11 @@
 # Vicinity Launchpad: design of `vicinity_launchpad`
 
-Status: design, 6 Oct 2026, revised the same day after the design review (the
-changes are listed right below). Branch `feat/launchpad-program`. The existing
-program `vicinity_rewards` is not changed by anything here; its build and its
-tests stay as they are.
+Status: built, not deployed (6 Oct 2026). The design was revised after the
+design review (changes listed right below), then the program, its SDK and its
+in-process tests were built from it on branch `feat/launchpad-program`;
+`LAUNCHPAD-AUDIT.md` records the build, the test results and the measurements.
+The existing program `vicinity_rewards` is not changed by anything here; it
+still builds to the same hash and its tests stay green.
 
 Who reads what:
 
@@ -107,7 +109,7 @@ curve money. The curve code has already been audited by three firms. Jupiter
 can route the coins from day one, with the caveats above. A safe devnet version
 takes about a week instead of 3 to 6 weeks. The cost is Meteora's cut.
 
-**What you need to do now:** top up the devnet test wallet with about 1 SOL
+**What you need to do now:** top up the devnet test wallet with about 2 SOL
 (section 19), and read the decisions in section 21. Every decision has a default,
 so building can start without waiting.
 
@@ -551,8 +553,8 @@ consumes it. Nobody else can create an approval or launch with someone else's.
   | network fee | tiny |
 
   The approval's rent goes back to the admin.
-* **Compute:** the DBC CPI measured 118,000 to 131,000 CU (research 2). Request
-  300,000. The site may append the founder's first buy in the same v0
+* **Compute:** measured 155,000 to 174,000 CU for the whole instruction
+  (LAUNCHPAD-AUDIT.md 5.1). Request 300,000. The site may append the founder's first buy in the same v0
   transaction (with the launchpad lookup table); if that is too large, it sends
   the buy straight after. Because DBC's initialize runs inside our program (a
   CPI), DBC's "first swap at the minimum fee" exemption can never apply to that
@@ -745,9 +747,10 @@ package our IDLs come from) instead of hand-written curve math, and
 | `sqrt_start_price` | 97539716077334678 | `buildCurve`, section 9.2 |
 | `curve` | `[{ sqrt_price: 373894382314756693, liquidity: 104662611932995410955326609817160 }, { sqrt_price: 79226673521066979257578248091, liquidity: 3405004168437416685648628 }]` | the first point is the pump.fun-shaped curve up to the graduation price; the second only holds coins above the graduation price, which buys can never reach |
 
-The values DBC computes and stores at `create_config` (`swap_base_amount`,
-`migration_base_threshold`, `migration_sqrt_price`) are read back and recorded
-in LAUNCHPAD-AUDIT.md by test TG01.
+The values DBC computes and stores at `create_config`, read back by the tests
+(LAUNCHPAD-AUDIT.md 5.3): `swap_base_amount` = 793,099,988.517386 coins,
+`migration_base_threshold` = 206,900,002.375753 coins, `migration_sqrt_price` =
+373894382314756693 (equal to `curve[0].sqrt_price`).
 
 Fallback: if test TG01 shows that the customizable migration does not produce a
 quote-only pool with a 1.25% fee, switch both the config script and rule 7.2(9)
@@ -1119,6 +1122,9 @@ covers this.
      small "dead liquidity" to the first position, which with equal shares is
      the `Coin` PDA's, so the city's position is slightly larger and the fee
      split is close to half, not exactly half; TG02 records both figures.
+     DBC rounds the lock down, so the `Coin` PDA's position keeps 1 unit of
+     unlocked liquidity (about 10^-32 of the pool); our program has no
+     instruction that removes liquidity, so it can never move.
    * Then `withdraw_leftover` (permissionless) sends the unsold dust to the dev wallet.
 4. **Anti-griefing.**
    * Our pool is created under a DAMM v2 config whose `pool_creator_authority`
@@ -1677,14 +1683,14 @@ Then:
   - a 1.25% fee, collected in quote only.
 
   The stored DBC config values are recorded, and DAMM v2's protocol share is recorded.
-- TG02 the dev wallet owns one position NFT and the `Coin` PDA the other; both are 100% permanently locked, `remove_liquidity` is refused for both, and each position's liquidity is recorded (the first, the `Coin` PDA's, includes DBC's dead liquidity).
+- TG02 the dev wallet owns one position NFT and the `Coin` PDA the other; both are permanently locked (at most 1 unit of rounding left unlocked), `remove_liquidity` is refused for both, and each position's liquidity is recorded (the first, the `Coin` PDA's, includes DBC's dead liquidity).
 - TG03 supply after migration is still 10^15; `withdraw_leftover` sends the dust to the fee recipient.
 - TG04 `harvest_pool_fees` after trades on the pool splits the quote fees; no base fees appear.
 - TG05 `harvest_curve_fees` after graduation collects the remaining curve fees.
 - TG06 griefing:
   - a stranger creating a pool under `A8gMrE…` for the pair is refused;
   - a stranger's pool for the pair under a public config does not stop our migration.
-- TG07 migrating before completion is refused (`PoolIsIncompleted`).
+- TG07 migrating before completion is refused by DBC (`NotPermitToDoThisAction` in 0.2.1).
 - TG08 the CU and the rent paid by the cranker are recorded.
 
 **08 attack classes** (Sealevel list, table-driven over every instruction)
@@ -1780,10 +1786,13 @@ solana/
   * `test:launchpad` runs `node --test tests-launchpad/`;
   * `sdk-test:launchpad` runs `node --test sdk/launchpad/`;
   * `launchpad:fixtures` runs the dump script.
-* Size target: 300 KB or less, which is about 1.53 SOL of rent at `--max-len` = size.
-  * The research probe with the DBC CPI was 181 KB.
-  * Avoid Anchor's `ProgramData` type (6.1).
-  * Use `Box` for large account structs to keep the stack frames small.
+* Size: the target was 300 KB or less; the built program is 427,176 bytes,
+  2.17 SOL of rent at `--max-len` = size (LAUNCHPAD-AUDIT.md section 3).
+  * Built with `opt-level = "z"` for this crate only, `anchor-spl` without
+    default features, and no Anchor `ProgramData` type (6.1).
+  * `Box` for large account structs keeps the stack frames small.
+  * The remaining size is the 18 account structs and Anchor's on-chain IDL
+    instructions, which Solscan needs (8.4), so they stay.
 * Effort, trimmed for "quick". v1 is: the program (18 instructions), its Rust
   and in-process tests, and the devnet demo, about 4 to 6 focused days.
   The pay-with-anything composer and lookup table, the batch fee-claim signing
@@ -1800,9 +1809,10 @@ pay-with-anything cannot be shown there.
 
 1. **SOL.** The throwaway deployer `9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa`
    holds 1.395 SOL. Airdrops from this machine are rate-limited.
-   * Need: about 1.5 SOL for the program, plus about 0.3 SOL for accounts, demo
-     wallets and fees, plus the demo curve's target.
-   * **Owner: send 1 devnet SOL to that address from faucet.solana.com.**
+   * Need: 2.17 SOL for the program (427 KB) and, during the deploy, a buffer
+     of the same size that is refunded afterwards; plus about 0.3 SOL for
+     accounts, demo wallets and fees, plus the demo curve's target.
+   * **Owner: send about 2 devnet SOL to that address from faucet.solana.com.**
    * The `vicinity_rewards` devnet deployment (2.57 SOL of rent) is the recorded
      audit deployment and is not closed.
 2. **Check Meteora's devnet binaries first.** Dump the devnet DBC and DAMM v2
@@ -1870,8 +1880,9 @@ pay-with-anything cannot be shown there.
    (README.md "Mainnet deployment"), with the registry admin moving to Squads.
    It must exist before step 5: `init_launchpad` refuses a rewards program
    that is not deployed, and the id it stores can never be changed.
-4. **Deploy `vicinity_launchpad`.** Rent is about 1.3 to 1.8 SOL at
-   `--max-len` = size (about 1.53 SOL for 300 KB), plus about 0.01 SOL of fees.
+4. **Deploy `vicinity_launchpad`.** Rent is about 2.2 SOL at `--max-len` =
+   size (427 KB), plus about 0.01 SOL of fees; the deploy briefly needs the
+   same again for its buffer, which is refunded.
 5. **Create the Vicinity DBC config** (about 0.006 SOL; any payer), then
    `init_launchpad` (the upgrade authority signs; admin = `13qRam…`; rewards
    program = the **mainnet** `vicinity_rewards` id) and `add_launch_config`.
