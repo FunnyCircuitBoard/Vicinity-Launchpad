@@ -126,14 +126,15 @@
   function motionLayer(win, doc, still) {
     const IO = win.IntersectionObserver, MO = win.MutationObserver;
     let on = !still && Boolean(IO && MO);
-    if (!on) return { arm() {}, finish() {}, on };
+    if (!on) return { arm() {}, finish() {}, watch() {}, on };
     const BLOCKS = "main .section-head, main .card, main .stat, main .reveal, main .city-stats > div, main .numbers__row > div, main .wanted > li, main .faq details, main .scam-note";
     const QUIET = ".dpv, .termsgate, .modal, .cstate, [data-still]"; // its own motion, or shown and hidden by its page
     const NUMS = ".hero__facts strong, .numbers__row strong, .why-now__big, .stat > strong, .city-stats strong, .tile__num";
     const HEROES = ".hero, .launch-hero, .page-hero, .connect, .dash-out, main > .section:first-child";
     const LOOPS = ".nyc, .timeline, .live-dot"; // further down a page, but moving for as long as it is open
     // every control with a loop of its own (style.css "Live buttons"); the ones that shine get a --sweep-delay of their own
-    const LIVE = ".btn, .contract__buy, .contract__ext, .chip-link, .map-open, .map-ctrl button, .chips button, .su-tab, a[role=tab], .nav a, .tabbar a, .seg__ind";
+    // (.lp-card, .coin-live: the Launchpad's live coin cards and the coin page's live parts, whose dots ping and lines glow)
+    const LIVE = ".btn, .contract__buy, .contract__ext, .chip-link, .map-open, .map-ctrl button, .chips button, .su-tab, a[role=tab], .nav a, .tabbar a, .seg__ind, .lp-card, .coin-live";
     const SHINES = ".btn--primary, .btn--glass, .btn--social, .account-btn, .contract__buy, .contract__ext, .chip-link, .map-open";
     const GLOW = [{ transform: "none", filter: "none" }, { transform: "translateY(-2px)", filter: "brightness(1.45) drop-shadow(0 0 10px rgba(255,138,91,.55))", offset: 0.3 }, { transform: "none", filter: "none" }];
     const timer = (f, ms) => win.setTimeout(f, ms);
@@ -283,7 +284,7 @@
 
     arm();
     watch([...doc.querySelectorAll(NUMS)]);
-    return { arm, finish, on };
+    return { arm, finish, watch, on };
   }
   /* motion: end */
 
@@ -323,6 +324,9 @@
   const motion = motionLayer(window, document, reduced);
   /** Lets a page's blocks rise in once its script has shown them (dashboard.js after the dashboard opens). */
   const reveal = (root) => motion.arm(...(root ? [root] : []));
+  /** Live numbers a page script made after the start (the Launchpad's cards, the coin page): from now on, a new value the script
+   *  writes eases from the old one (a price never counts from 0). Text-only elements; nothing happens with reduced motion. */
+  const liveNums = (els) => motion.watch([...els]);
 
   /* ---------- who's signed in (header button) ---------- */
   let meLite = null;
@@ -467,7 +471,7 @@
     });
   })();
 
-  window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, reveal,
+  window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, liveNums, reveal,
     get reduced() { return reducedNow(); }, // read when it is needed: the visitor may pause the animations while the page is open
     me: () => meLite, ready, official, opensAt: () => opensAt, siteMode: () => siteMode };
 })();

@@ -6,6 +6,7 @@
 // Each source file starts with one line of settings:
 //   <!--{"title": "...", "description": "...", "page": "home", "scripts": ["home"], "styles": ["extra"], "main": "class"}-->
 // ("noindex": true keeps a page out of search engines; "styles" are extra stylesheets from public/, e.g. "admin" -> /admin.css; never an inline <style>, the security policy blocks it;
+//  "nav": "launchpad" marks that menu entry as the current page for a page that is not in the menu itself (the coin page /coin);
 //  "standalone": true builds the page like any other, but buildPages() leaves it out: test/site.test.js lists the main pages one by one and says only the admin console is noindex.
 //  The standalone pages come from buildStandalonePages() and are written by the same command; the tests of their own cover them.)
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -25,9 +26,9 @@ const NAV = [
 const icon = (paths) => `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const current = (page, p) => (page === p ? ' aria-current="page"' : "");
 
-function layout({ title, description, page, scripts = [], styles = [], main = "", noindex = false }, body) {
-  const nav = NAV.map(([p, href, label]) => `        <a href="${href}"${current(page, p)}>${label}${p === "launchpad" ? ' <span class="nav__soon" data-nav-launch>Oct 10</span>' : ""}</a>`).join("\n");
-  const tabs = NAV.map(([p, href, , short, paths]) => `    <a href="${href}"${current(page, p)}>${icon(paths)}<span>${short}</span></a>`).join("\n");
+function layout({ title, description, page, nav: navPage = page, scripts = [], styles = [], main = "", noindex = false }, body) {
+  const nav = NAV.map(([p, href, label]) => `        <a href="${href}"${current(navPage, p)}>${label}${p === "launchpad" ? ' <span class="nav__soon" data-nav-launch>Oct 10</span>' : ""}</a>`).join("\n");
+  const tabs = NAV.map(([p, href, , short, paths]) => `    <a href="${href}"${current(navPage, p)}>${icon(paths)}<span>${short}</span></a>`).join("\n");
   const js = ["site", ...scripts].map((s) => `  <script src="/${s}.js" defer></script>`).join("\n");
   const fullTitle = page === "home" ? "Vicinity — One city. One coin. One community." : `${title} · Vicinity`;
   const gate = page === "terms" ? "" : `

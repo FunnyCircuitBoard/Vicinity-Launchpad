@@ -154,12 +154,15 @@ test("contract card motion: only transform and opacity move, the card's own moti
 
 /* ---------------- token.js in node ---------------- */
 
-function page({ token, copyWorks = true }) {
+function page({ token, copyWorks = true, official = null }) {
   const nodes = new Map(), timers = [], copies = [];
   function node(sel) {
     const n = { sel, hidden: false, _text: "", classes: new Set(), style: {}, dataset: {}, handlers: {}, children: [], value: "", offsetWidth: 0,
       get textContent() { return n._text; }, set textContent(t) { n._text = String(t); },
       append(...k) { n.children.push(...k); }, replaceChildren(...k) { n.children = k; }, addEventListener(t, f) { (n.handlers[t] ||= []).push(f); },
+      attrs: {}, setAttribute(k, v) { n.attrs[k] = String(v); }, removeAttribute(k) { delete n.attrs[k]; },
+      // the tiles' spans: their name (no class), the corner arrow and the new-tab words
+      querySelectorAll(q) { return n.children.filter((k) => q === "span" || q.split(", ").some((c) => c === "." + k.className)); },
       classList: { add: (c) => n.classes.add(c), remove: (c) => n.classes.delete(c), toggle: (c, on) => (on ? n.classes.add(c) : n.classes.delete(c)), contains: (c) => n.classes.has(c) } };
     return n;
   }
@@ -167,7 +170,10 @@ function page({ token, copyWorks = true }) {
   $("#ca-badge").hidden = true; $("#contract").classes.add("is-pending"); // as in the markup
   $("#ca-text").textContent = "Loading…"; $("#ca-copy-label").textContent = "Copy address";
   const el = (tag, cls, text) => { const n = node(tag); if (cls) n.classes.add(cls); if (text != null) n.textContent = text; return n; };
-  const V = { $, $$: () => [], el, toast() {}, fmt: String, compact: String, mask: (a) => a, isAddr: (a) => typeof a === "string" && a.length >= 32, official: null, reduced: false,
+  const span = (cls, text) => { const k = node("span"); k.className = cls; k.textContent = text; k.remove = () => { const p = $("#lnk-dex"); p.children = p.children.filter((x) => x !== k); }; return k; };
+  $("#lnk-dex").children.push(span("", "DEX Screener"), span("contract__out", "↗"), span("sr-only", " (opens in a new tab)")); // as in the markup
+  $("#lnk-dex").attrs = { target: "_blank", rel: "noopener" };
+  const V = { $, $$: () => [], el, toast() {}, fmt: String, compact: String, mask: (a) => a, isAddr: (a) => typeof a === "string" && a.length >= 32, official, reduced: false,
     copy: async (text, label) => { copies.push([text, label]); return copyWorks; },
     api: async (path) => (path === "/api/token" ? token : { launched: false, holders: [] }) };
   vm.runInNewContext(js, { window: { V }, document: { hidden: false }, location: { search: "" }, URLSearchParams, Intl, Date,
@@ -197,6 +203,19 @@ test("token.js: once the contract is known the 'Official' mark shows (chain busy
   assert.equal(before.$("#ca-links").hidden, true);
   assert.ok(!before.$("#contract").classes.has("is-pending"), "and the room they held is given back");
   assert.equal(before.$("#ca-copy").onclick, undefined, "nothing to copy");
+});
+
+test("token.js: with the coin pages on (LAUNCHPAD_V2), the third tile is our own chart, in this tab; with them off it stays as it was", async () => {
+  // DEX Screener lists no pool while $VICINITY is on its bonding curve: its tile led to an empty page (review of 6 Oct 2026)
+  const on = page({ token: LIVE, official: Promise.resolve({ launchpadV2: true }) }); await on.settle(); await on.settle();
+  const a = on.$("#lnk-dex");
+  assert.equal(a.href, `/coin?mint=${MINT}`);
+  assert.deepEqual(a.children.map((k) => k.textContent), ["Chart"], "the name says Chart; no new-tab arrow, no new-tab words");
+  assert.ok(!("target" in a.attrs) && !("rel" in a.attrs), "opens in this tab");
+  assert.equal(a.attrs["aria-label"], "Chart and live market of $VICINITY");
+  const off = page({ token: LIVE, official: Promise.resolve({ siteMode: "live" }) }); await off.settle(); await off.settle();
+  assert.equal(off.$("#lnk-dex").href, `https://dexscreener.com/solana/${MINT}`, "the switch off: today's tile, untouched");
+  assert.deepEqual(off.$("#lnk-dex").children.map((k) => k.textContent), ["DEX Screener", "↗", " (opens in a new tab)"]);
 });
 
 test("token.js: Copy puts the address on the clipboard, the button says 'Copied' with a tick, then goes back; no clipboard, no 'Copied'", async () => {
