@@ -2,7 +2,7 @@
   "name": "vicinity-rewards-solana",
   "private": true,
   "version": "0.1.0",
-  "description": "Vicinity Rewards: SDK (Merkle, PDAs, instruction builders), Anchor tests and the auditor demo for the vicinity_rewards Solana program.",
+  "description": "Vicinity on Solana: the vicinity_rewards and vicinity_launchpad programs, their SDK (Merkle, PDAs, instruction builders, curve quotes), tests and scripts.",
   "license": "MIT",
   "engines": {
     "node": ">=22.12"
@@ -14,18 +14,24 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "demo": "NODE_OPTIONS=--no-experimental-strip-types ts-node -P ./tsconfig.json --transpile-only scripts/demo.ts",
     "devnet-demo": "NODE_OPTIONS=--no-experimental-strip-types ts-node -P ./tsconfig.json --transpile-only scripts/devnet-demo.ts",
-    "init-registry": "NODE_OPTIONS=--no-experimental-strip-types ts-node -P ./tsconfig.json --transpile-only scripts/init-registry.ts"
+    "init-registry": "NODE_OPTIONS=--no-experimental-strip-types ts-node -P ./tsconfig.json --transpile-only scripts/init-registry.ts",
+    "test:launchpad": "node --test tests-launchpad/*.test.mjs",
+    "sdk-test:launchpad": "node --test sdk/launchpad/*.test.mjs",
+    "launchpad:fixtures": "bash scripts/launchpad/fetch-fixtures.sh"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",
+    "@meteora-ag/dynamic-bonding-curve-sdk": "1.5.13",
     "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.98.0"
   },
   "devDependencies": {
+    "@solana/kit": "8.4.0",
     "@types/chai": "^4.3.20",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.15.0",
     "chai": "^4.5.0",
+    "litesvm": "1.5.0",
     "mocha": "^10.8.2",
     "ts-mocha": "^11.1.0",
     "ts-node": "^10.9.2",

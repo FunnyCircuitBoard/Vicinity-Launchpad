@@ -16,7 +16,9 @@ id.json
 *authority*.json
 *.key
 !sdk/idl/vicinity_rewards.json
+!sdk/idl/vicinity_launchpad.json
 
 # Local tooling noise
 *.log
 .DS_Store
+tests-launchpad/fixtures/programs/
