@@ -17,7 +17,8 @@
     "init-registry": "NODE_OPTIONS=--no-experimental-strip-types ts-node -P ./tsconfig.json --transpile-only scripts/init-registry.ts",
     "test:launchpad": "node --test tests-launchpad/*.test.mjs",
     "sdk-test:launchpad": "node --test sdk/launchpad/*.test.mjs",
-    "launchpad:fixtures": "bash scripts/launchpad/fetch-fixtures.sh"
+    "launchpad:fixtures": "bash scripts/launchpad/fetch-fixtures.sh",
+    "launchpad:crank": "node scripts/launchpad/crank.mjs"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",
