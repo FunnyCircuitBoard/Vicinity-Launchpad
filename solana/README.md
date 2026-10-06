@@ -198,9 +198,11 @@ solana/
 
   programs/vicinity-launchpad/     the launchpad program (LAUNCHPAD-DESIGN.md, LAUNCHPAD-AUDIT.md)
   idls/                            Meteora DBC and DAMM v2 interfaces the launchpad is compiled against
-  sdk/launchpad/                   launchpad SDK: addresses, Meteora config, curve maths, instruction builders
+  sdk/launchpad/                   launchpad SDK: addresses, Meteora config, curve maths, instruction builders,
+                                   keeper (graduation and daily fee run), holder snapshot and rewards rounds
   tests-launchpad/                 launchpad in-process tests (litesvm, no validator); README.md there
-  scripts/launchpad/               fetch-fixtures.sh (mainnet program dumps for the tests, pinned hashes)
+  scripts/launchpad/               fetch-fixtures.sh (mainnet program dumps for the tests, pinned hashes),
+                                   crank.mjs (the keeper: npm run launchpad:crank), snapshot.mjs (rewards rounds, read-only)
 ```
 
 ## Build, test, demo
