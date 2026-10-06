@@ -90,7 +90,8 @@
   // * live numbers count up the first time they are on screen, and ease to a new value when the page's own script writes one
   //   (with a short glow). What is left when a count ends is the script's own text, word for word; anything that is not a plain
   //   number ("—", "Oct 10", "4d 18h", "<0.01%") is never touched. A count finishes at once when the tab is hidden.
-  // * the moving parts of a page's top section (orbs, stars, chips, the headline's colours) pause while it is off screen (.mo-off).
+  // * the moving parts of a page's top section (orbs, stars, chips, the headline's colours), of the home page's NYC map and timeline, and
+  //   every live dot's ping pause while they are off screen (.mo-off): an animation nobody can see never costs a frame.
   // No loop runs when nothing moves: a count asks for animation frames only while it lasts (1.3 s at most).
   const NUM = /^([$#]?)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?([KMBT]?)(%|\+|×| [a-z][a-z ]*)?$/;
   const UNIT = { "": 1, K: 1e3, M: 1e6, B: 1e9, T: 1e12 };
@@ -120,6 +121,7 @@
     const QUIET = ".dpv, .termsgate, .modal, .cstate, [data-still]"; // its own motion, or shown and hidden by its page
     const NUMS = ".hero__facts strong, .numbers__row strong, .why-now__big, .stat > strong, .city-stats strong, .tile__num";
     const HEROES = ".hero, .launch-hero, .page-hero, .connect, .dash-out, main > .section:first-child";
+    const LOOPS = ".nyc, .timeline, .live-dot"; // further down a page, but moving for as long as it is open
     const GLOW = [{ transform: "none", filter: "none" }, { transform: "translateY(-2px)", filter: "brightness(1.45) drop-shadow(0 0 10px rgba(255,138,91,.55))", offset: 0.3 }, { transform: "none", filter: "none" }];
     const timer = (f, ms) => win.setTimeout(f, ms);
 
@@ -228,9 +230,9 @@
       for (const e of doc.querySelectorAll(".mo-armed")) { rise.unobserve(e); e.classList.remove("mo-armed", "mo-in"); e.style.transitionDelay = ""; }
     }
 
-    /* the top section's drifting parts pause while it is off screen */
+    /* the top section's drifting parts, and the loops further down, pause while they are off screen */
     const away = new IO((entries) => { for (const en of entries) en.target.classList.toggle("mo-off", !en.isIntersecting); });
-    for (const e of doc.querySelectorAll(HEROES)) away.observe(e);
+    for (const e of doc.querySelectorAll(`${HEROES}, ${LOOPS}`)) away.observe(e);
 
     doc.addEventListener("visibilitychange", () => { if (doc.hidden) for (const e of [...runs.keys()]) stop(e, true); });
     const q = win.matchMedia ? win.matchMedia("(prefers-reduced-motion: reduce)") : null;

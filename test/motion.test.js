@@ -72,9 +72,25 @@ test("styles: the keyframes move only transform, opacity, filter or background-p
   for (const m of css.matchAll(/(?<=^|[{}])\s*([^{}@]*(?:page-hero|\.connect|\.dash-out|section:first-child|\.dash)::before[^{}]*)\{([^}]*)\}/g)) {
     assert.doesNotMatch(m[2], /animation|will-change/, `${m[1].trim()}: still`);
   }
-  // infinite animations of the layer are small: a shine across a big button, a sheen along a bar, the live dot
+  // nothing of the layer runs forever: the shine across a big button and the sheen along a bar pass twice, then rest (WCAG 2.2.2)
   const infinite = [...section.text.matchAll(/([^{};]+)\{[^}]*animation: (\w+)[^;}]*infinite/g)].map((m) => m[2]).sort();
-  assert.deepEqual(infinite, ["moSheen", "moShine"]);
+  assert.deepEqual(infinite, []);
+  assert.match(section.text, /animation: moShine 7s ease-in-out 2\.2s 2; \}/);
+  assert.match(section.text, /animation: moSheen 3\.6s ease-in-out 1\.5s 2; \}/);
+});
+
+test("styles: no decoration loops forever; only what says something live or busy does, and it was already so before the motion layer", () => {
+  // every endless animation in the whole style sheet, by keyframe name. The decorative ones the motion work added (the shines on the
+  // big buttons and on Buy on Raydium, the sheen on bars, the contract card's light, the example dashboard's shine, sheen, ping and
+  // float) play a few times and rest: a visitor cannot pause them, so they must stop by themselves (WCAG 2.2.2, review of 6 Oct 2026).
+  const LIVE_OR_BUSY = { livePing: "the live dot", nextPing: "the timeline's next step (a box-shadow pulse before)", drift: "the home and Launchpad heroes' orbs (since before)", float: "the hero chips (since before)",
+    march: "the official NYC boundary (since before)", ringOut: "the NYC map's rings (since before)", shimmer: "a loading row", spin: "a busy button",
+    twinkle: "the stars behind a hero (since before)", passShine: "a member's own Vicinity Pass (since before)" };
+  const endless = [...css.matchAll(/animation: (\w+)[^;}]*\binfinite\b/g)].map((m) => m[1]);
+  assert.ok(endless.length >= 8);
+  for (const name of endless) assert.ok(name in LIVE_OR_BUSY, `${name} loops forever`);
+  assert.doesNotMatch(css, /\.dpv__[\w-]+(::after)? \{ animation: [^;}]*infinite/, "the example dashboard's motion ends");
+  assert.doesNotMatch(css, /buyShine[^;}]*infinite|moShine[^;}]*infinite|moSheen[^;}]*infinite|contract\w*[^;}]*infinite/);
 });
 
 test("styles: a block is only ever hidden by the script's .mo-armed, only when motion is welcome; reduced motion and print show everything", () => {
@@ -439,4 +455,33 @@ test("site.js: V.reveal still lets a page's blocks rise in after its script show
   assert.doesNotMatch(block, /innerHTML|insertAdjacentHTML|document\.write|eval\(|new Function|cssText|setAttribute\(["']style/);
   assert.match(block, /takeRecords\(\)/, "its own writes are dropped before the page's are read");
   assert.match(block, /visibilitychange/, "a hidden tab finishes every count");
+});
+
+test("layer: the hero, the NYC map, the timeline and every live dot pause their loops while off screen (an unseen animation costs no frame)", () => {
+  const P = homePage(), { El } = P;
+  const nyc = new El("div", "nyc", { top: 2400, h: 500 }), timeline = new El("ol", "timeline", { top: 3200, h: 400 }), dot = new El("span", "live-dot", { top: 3300, h: 8 });
+  P.main.add(new El("section", "section", { top: 2300, h: 700 }).add(nyc), new El("section", "section", { top: 3100, h: 600 }).add(timeline, dot));
+  start(P);
+  const away = P.io((o) => !o.opts.rootMargin && !o.opts.threshold);
+  assert.ok(away, "one observer for the loops");
+  for (const e of [P.hero, nyc, timeline, dot]) assert.ok(away.els.has(e), e.cls.values().next().value);
+  away.fire([nyc, false], [timeline, false], [dot, false], [P.hero, true]);
+  assert.ok(nyc.cls.has("mo-off") && timeline.cls.has("mo-off") && dot.cls.has("mo-off") && !P.hero.cls.has("mo-off"));
+  away.fire([timeline, true]);
+  assert.ok(!timeline.cls.has("mo-off"), "running again once it is back on screen");
+  // what .mo-off pauses: the map's rings and boundary, the timeline's next-step ping, the dot's ping, the contract card's light
+  for (const sel of [".mo-off .m-pulse", ".mo-off .m-official", ".mo-off .timeline__item::after", ".live-dot.mo-off::after", ".mo-off .contract::after"]) {
+    const at = css.indexOf(sel); assert.ok(at > 0 && inNoPreference(at), sel);
+  }
+  assert.match(css, /\.live-dot\.mo-off::after \{ animation-play-state: paused; \}/);
+});
+
+test("styles: the timeline's next step pings with transform and opacity (no box-shadow pulse repainted every frame), still with reduced motion", () => {
+  assert.doesNotMatch(css, /livePulse/, "the box-shadow pulse is gone");
+  assert.match(css, /\.timeline__item\.is-next::before \{ background: var\(--pin\); border-color: var\(--pin\); \}/, "the dot itself is still");
+  const ping = css.indexOf(".timeline__item.is-next::after { animation: nextPing");
+  assert.ok(ping > 0 && inNoPreference(ping), "the ping exists only when motion is welcome");
+  const props = [...keyframes("nextPing").matchAll(/([a-z-]+)\s*:/g)].map((p) => p[1]);
+  assert.ok(props.length && props.every((p) => p === "transform" || p === "opacity"), `nextPing: ${props}`);
+  assert.match(css, /\.timeline__item\.is-next::after \{ content: ""; position: absolute; left: -34px; top: 4px; width: 16px; height: 16px; border-radius: 50%; background: var\(--pin\); opacity: 0; pointer-events: none; \}/, "over the dot, unseen at rest");
 });

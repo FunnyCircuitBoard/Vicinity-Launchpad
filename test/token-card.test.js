@@ -105,22 +105,29 @@ test("contract card on a computer: the address on one line with Copy beside it, 
   assert.match(wide, /> \.contract__links \{ grid-column: 2; grid-row: 1 \/ span 3;/);
 });
 
-test("contract card motion: only transform, opacity and background-position move, and nothing moves with reduced motion", () => {
-  for (const name of ["checkPop", "buyShine", "contractIn", "contractGlow"]) {
+test("contract card motion: only transform and opacity move, nothing loops forever, and nothing moves with reduced motion", () => {
+  for (const name of ["checkPop", "buyShine", "contractIn", "contractSweep"]) {
     const i = css.indexOf(`@keyframes ${name} {`); assert.ok(i >= 0, name);
     let depth = 0, j = i;
     for (; j < css.length; j++) { if (css[j] === "{") depth++; else if (css[j] === "}" && --depth === 0) break; }
     const props = [...css.slice(i, j).matchAll(/([a-z-]+):/g)].map((m) => m[1]);
     assert.ok(props.length, `${name} animates something`);
-    for (const p of props) assert.ok(["transform", "opacity", "background-position"].includes(p), `${name} animates ${p}`);
+    for (const p of props) assert.ok(["transform", "opacity"].includes(p), `${name} animates ${p}`);
   }
-  assert.match(rule(".contract__buy::after"), /animation: buyShine 5\.5s ease-in-out 1\.2s infinite/, "a slow shine with a long rest");
+  assert.match(rule(".contract__buy::after"), /animation: buyShine 5\.5s ease-in-out 1\.2s 2;/, "a slow shine, twice, then it rests (WCAG 2.2.2: no endless decoration)");
   assert.match(rule(".contract__buy::after"), /transform: translateX\(-100%\)/, "the shine waits off the button: with no animation it is never seen");
   assert.match(rule(".contract__links"), /animation: contractIn \.5s/, "the buttons slide in when token.js shows them");
   assert.match(css, /@keyframes contractIn \{ from \{ opacity: 0; transform: translateY\(6px\); \} \}/, "from hidden to the element's own look: with no animation it simply shows");
   assert.match(css, /\.contract__copy\.is-copied \.contract__copy-check \{ opacity: 1; transform: none; animation: checkPop/, "the tick's resting state is visible; the pop is extra");
-  // the glow only runs for people who did not ask for less motion; the shine and the slide-in are switched off for those who did
-  assert.ok(media("(prefers-reduced-motion: no-preference)", ".contract::before { animation: contractGlow"), "the hairline glow is opt-in");
+  // the hairline itself is still; a short light runs along it twice (transform and opacity: the compositor moves it, the main thread idles).
+  // On 6 Oct 2026 the old endless background-position glow kept /token restyling 60 times a second for as long as it was open.
+  assert.doesNotMatch(css, /contractGlow/, "the endless moving gradient is gone");
+  assert.doesNotMatch(rule(".contract::before"), /animation|background-size|\/ 200%/, "the hairline does not move");
+  assert.ok(media("(prefers-reduced-motion: no-preference)", ".contract::after { animation: contractSweep 6s ease-in-out 1.5s 2; }"), "the light along it is opt-in and runs twice");
+  assert.match(rule(".contract::after"), /left: 22px; width: 30%;[^}]*opacity: 0;/, "it starts at the hairline's left end and rests unseen");
+  assert.match(css, /@keyframes contractSweep \{[^\n]*60%, 100% \{ transform: translateX\(calc\(233\.33% - 44px\)\); opacity: 0; \} \}/, "and ends at its right end (30% of the card, minus both 22 px insets), faded out");
+  assert.match(css, /\.mo-off \.contract::after, \.mo-off \.contract__buy::after, [^{]*\{ animation-play-state: paused; \}/, "both pause while the top of the page is off screen");
+  // the shine and the slide-in are switched off for people who asked for less motion
   const reduce = media("(prefers-reduced-motion: reduce)", ".contract__buy::after");
   assert.ok(reduce, "a reduced-motion block for the card");
   assert.match(reduce, /\.contract__buy::after \{ display: none; \}/);
