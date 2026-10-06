@@ -20,21 +20,31 @@ test("dashboard: the 'live · checked …' note keeps the room of its longest te
   }
 });
 
-test("signed-out dashboard: while /api/me answers, #dash-out holds its place unseen, so the roles under it never drop (CLS 0.60 on a computer)", () => {
-  // 1280x900 signed out: #roles was at 67 px until /api/me answered, then 906 px (839 px down, under the taller example dashboard)
-  const js = read("public/dashboard.js");
-  const start = js.slice(js.indexOf("/* ---------- start ---------- */"));
-  const hold = start.indexOf('else { out.classList.add("is-pending"); out.hidden = false; }'), ask = start.indexOf('const d = await api("/api/me");');
-  assert.ok(hold > 0 && ask > hold, "held before /api/me is asked");
-  assert.match(start, /if \(skel\) \$\("#dash-skel"\)\.hidden = false;\n\s+else \{ out\.classList\.add\("is-pending"\); out\.hidden = false; \}/,
-    "not for someone whose last visit was the tabbed dashboard (they get its placeholders: almost surely signed in)");
-  assert.match(start, /preview\(\);\n\s+out\.hidden = false; out\.classList\.remove\("is-pending"\); return;/, "signed out: shown in the place it held");
-  assert.match(start, /out\.hidden = true; out\.classList\.remove\("is-pending"\);\n\s+me = d;/, "signed in: gone before the member's dashboard shows");
-  assert.match(css, /\n\.dash-out\.is-pending \{ visibility: hidden; \}\n/, "unseen and out of reach (no Tab stop, nothing read out) while it waits");
+test("signed-out dashboard: a guest's page holds the signed-out room from the first paint, so the roles under it never drop (CLS 0.60 on a computer)", () => {
+  // 1280x900 signed out: #roles was at 67 px until /api/me answered, then 906 px (839 px down, under the taller example dashboard).
+  // Holding the room from dashboard.js was too late (a deferred script runs after the first paint): theme.js, in <head>, marks a guest.
+  const theme = read("public/theme.js");
+  assert.match(theme, /try \{ if \(localStorage\.getItem\("vicinity-account"\) !== "1" && localStorage\.getItem\("vicinity:dash-v2"\) !== "1"\) root\.dataset\.guest = ""; \} catch \{\}/,
+    "a guest: no sign-in remembered in this browser (site.js's key) and no tabbed dashboard last time (dashboard.js's key)");
+  assert.match(read("public/site.js"), /localStorage\.setItem\("vicinity-account", "1"\)/, "the same key site.js sets for a signed-in visitor");
+  assert.match(read("public/dashboard.js"), /const V2_KEY = "vicinity:dash-v2";/, "the same key dashboard.js sets");
+  for (const f of ["scripts/pages/src/dashboard.html", "public/dashboard.html"]) {
+    const h = read(f);
+    assert.match(h, /<section class="dash-out is-pending" id="dash-out" hidden>/, `${f}: hidden without JavaScript, as before`);
+  }
+  assert.ok(read("public/dashboard.html").indexOf('<script src="/theme.js"></script>') < read("public/dashboard.html").indexOf("<body"), "theme.js runs in <head>, before the first paint");
+  assert.match(css, /\n:root\[data-guest\] \.dash-out\.is-pending\[hidden\] \{ display: block !important; visibility: hidden; \}\n/, "laid out but unseen: no Tab stop, nothing read out");
+  const js = read("public/dashboard.js"), start = js.slice(js.indexOf("/* ---------- start ---------- */"));
+  assert.match(start, /const unhold = \(\) => out\.classList\.remove\("is-pending"\);/);
+  assert.match(start, /unhold\(\);\n\s+preview\(\);\n\s+out\.hidden = false; return;/, "signed out: shown in the place it held, in the same task (no frame in between)");
+  // a member on a browser with no hint (the first visit after signing in): the room is held until something of theirs takes it, never
+  // given back first (that made #roles jump up, then down again: CLS 0.97 at 1280x900 instead of one shift)
+  assert.match(start, /if \(tabbed\) \{ \$\("#dash-skel"\)\.hidden = false; unhold\(\); \}/, "the tabbed dashboard's placeholders take it");
+  assert.match(start, /if \(!d\.user\.home\) \{ unhold\(\); onboard\(d\); return; \}/, "or the first steps");
+  assert.match(start, /unhold\(\);\n\s+\$\("#dash-main"\)\.hidden = false;/, "or the dashboard itself");
+  assert.equal((start.match(/unhold\(\)/g) || []).length, 4, "and nowhere else");
   assert.match(css, /@media \(prefers-reduced-motion: no-preference\) \{ \.dash-out\.is-pending \.dpv__frame, \.dash-out\.is-pending \.dpv__frame > \* \{ animation: none; \} \}/,
     "the example rises in when it shows, not behind the curtain");
-  // without the script nothing changes: it stays hidden as before (no empty room for a visitor without JavaScript)
-  for (const f of ["scripts/pages/src/dashboard.html", "public/dashboard.html"]) assert.match(read(f), /<section class="dash-out" id="dash-out" hidden>/, f);
 });
 
 test("the toast: one line when it fits (it wrapped 'Contract address copied' onto two lines over the trade tiles), never wider than the screen", () => {

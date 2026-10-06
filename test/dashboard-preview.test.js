@@ -15,7 +15,7 @@ const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").re
 const css = read("public/style.css"), js = read("public/dashboard.js"), site = read("public/site.js");
 const both = [["public", read("public/dashboard.html")], ["src", read("scripts/pages/src/dashboard.html")]];
 /** #dash-out's markup, from its opening tag to the section after it. */
-const outOf = (h) => { const a = h.indexOf('<section class="dash-out" id="dash-out" hidden>'), b = h.indexOf("</section>", a); assert.ok(a >= 0 && b > a, "#dash-out"); return h.slice(a, b); };
+const outOf = (h) => { const a = h.indexOf('<section class="dash-out is-pending" id="dash-out" hidden>'), b = h.indexOf("</section>", a); assert.ok(a >= 0 && b > a, "#dash-out"); return h.slice(a, b); };
 /** The preview's markup (balanced divs from its opening tag). */
 const previewOf = (h) => {
   const a = h.indexOf('<div class="teaser__preview dpv"'); assert.ok(a >= 0, "the preview");
@@ -168,8 +168,7 @@ test("preview(): arms the preview, then plays each piece once when it is on scre
 
 test("dashboard.js calls preview() only for someone signed out, just before #dash-out is shown (a member never gets it)", () => {
   assert.equal((js.match(/\bpreview\(\);/g) || []).length, 1, "called once");
-  assert.match(js, /if \(!d\.signedIn\) \{\n\s+if \(d\.pending \|\| d\.proof\) \{ location\.assign\("\/connect"\); return; \}\n\s+preview\(\);\n\s+out\.hidden = false; out\.classList\.remove\("is-pending"\); return;\n\s+\}\n\s+out\.hidden = true; out\.classList\.remove\("is-pending"\);\n\s+me = d;/,
-    "a member: the held place goes away before anything of theirs shows");
+  assert.match(js, /if \(!d\.signedIn\) \{\n\s+if \(d\.pending \|\| d\.proof\) \{ location\.assign\("\/connect"\); return; \}\n\s+unhold\(\);\n\s+preview\(\);\n\s+out\.hidden = false; return;\n\s+\}/);
   assert.match(js, /if \(!box \|\| window\.V\.reduced \|\| !\("IntersectionObserver" in window\)\) return;/);
 });
 

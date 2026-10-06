@@ -829,8 +829,9 @@ select option { background: var(--bg-2); }
 
 /* ---------- dashboard ---------- */
 .dash-out { padding: 50px 0 80px; }
-/* while /api/me answers, the signed-out page holds its place unseen (dashboard.js), so nothing under it moves when it shows */
-.dash-out.is-pending { visibility: hidden; }
+/* a guest (theme.js, before the first paint): while /api/me answers, the signed-out page holds its place unseen (no Tab stop, nothing
+   read out), so nothing under it moves when it shows; dashboard.js drops .is-pending on the answer. Without JavaScript it stays hidden. */
+:root[data-guest] .dash-out.is-pending[hidden] { display: block !important; visibility: hidden; }
 .teaser { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 40px; align-items: center; }
 @media (max-width: 900px) { .teaser { grid-template-columns: minmax(0, 1fr); gap: 34px; } }
 /* the signed-out preview: a member's Home tab with sample values, drawn in HTML so it stays sharp and follows the theme.
