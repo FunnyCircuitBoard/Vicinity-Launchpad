@@ -1315,16 +1315,23 @@
 
   /* ---------- start ---------- */
   (async () => {
-    // someone whose last visit was the tabbed dashboard sees placeholders while /api/me loads (the key only exists with the switch on)
-    try { if (localStorage.getItem(V2_KEY) === "1") $("#dash-skel").hidden = false; } catch {}
+    // someone whose last visit was the tabbed dashboard sees placeholders while /api/me loads (the key only exists with the switch on);
+    // anyone else gets the signed-out page's room held, unseen, so the roles under it never jump down when it shows (on a computer they
+    // used to drop 839 px once /api/me answered)
+    const out = $("#dash-out");
+    let skel = false;
+    try { skel = localStorage.getItem(V2_KEY) === "1"; } catch {}
+    if (skel) $("#dash-skel").hidden = false;
+    else { out.classList.add("is-pending"); out.hidden = false; }
     const d = await api("/api/me");
     const tabbed = d.dashboardV2 === true && d.signedIn && d.user && d.user.home;
     if (!tabbed) { $("#dash-skel").hidden = true; if (d.dashboardV2 !== true) { try { localStorage.removeItem(V2_KEY); } catch {} } }
     if (!d.signedIn) {
       if (d.pending || d.proof) { location.assign("/connect"); return; }
       preview();
-      $("#dash-out").hidden = false; return;
+      out.hidden = false; out.classList.remove("is-pending"); return;
     }
+    out.hidden = true; out.classList.remove("is-pending");
     me = d;
     identity(d);
     if (!d.user.home) { onboard(d); return; }
