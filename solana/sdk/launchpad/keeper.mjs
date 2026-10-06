@@ -40,8 +40,14 @@ const big = (x) => BigInt(x.toString());
 export const MigrationProgress = Object.freeze({ PreBondingCurve: 0, PostBondingCurve: 1, LockedVesting: 2, CreatedPool: 3 });
 /** Solana's packet limit for one transaction. */
 export const MAX_TX_BYTES = 1232;
-/** Compute budgets (measured in tests-launchpad, with headroom). */
-export const CU = Object.freeze({ migrate: 400_000, harvestCurve: 110_000, harvestPool: 110_000, forward: 40_000, leftover: 60_000, perTx: 1_200_000 });
+/**
+ * Compute budgets per step. Measured in tests-launchpad (harvest_curve_fees
+ * 47k to 90k, harvest_pool_fees about 50k, forward about 23k, leftover with its
+ * account about 40k, graduation 237k to 266k), with wide headroom: address
+ * derivations cost more for some addresses than others, and an unused
+ * allowance costs nothing.
+ */
+export const CU = Object.freeze({ migrate: 400_000, harvestCurve: 160_000, harvestPool: 160_000, forward: 60_000, leftover: 80_000, perTx: 1_400_000 });
 
 // ---------------------------------------------------------------- readers
 /**
@@ -295,7 +301,7 @@ export async function runKeeper({ reader, payer, newSigner, send, daily = true, 
         results.push({ label: tx.label, ok: true, result: await send(tx.instructions, tx.signers, { cu: tx.cu, label: tx.label }) });
       } catch (e) {
         // one failed transaction never stops the pass; the next pass retries it
-        results.push({ label: tx.label, ok: false, error: String(e.message ?? e).split('\n')[0] });
+        results.push({ label: tx.label, ok: false, error: String(e.message ?? e) });
       }
     }
   }
