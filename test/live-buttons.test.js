@@ -131,7 +131,7 @@ const noPreference = (() => {
   return out;
 })();
 const inNoPreference = (i) => noPreference.some(([a, b]) => i > a && i < b);
-const LB = ["lbGlow", "lbSweep", "lbBusy", "lbEdgeTop", "lbEdgeBottom", "lbBreath", "lbTab"];
+const LB = ["lbGlow", "lbSweep", "lbBusy", "lbEdgeTop", "lbEdgeBottom", "lbBreath", "lbTab", "lbRing"];
 /** Every rule of the section: { sel, body, at } (media blocks opened, their inner rules listed). */
 const rules = (() => {
   const out = [], text = section.replace(/\/\*[\s\S]*?\*\//g, (c) => " ".repeat(c.length));
@@ -289,4 +289,20 @@ test("segments: at once with reduced motion; a control in a hidden panel keeps t
   assert.match(css, /\.seg:not\(\.has-ind\) \.seg__ind \{ display: none; \}/);
   assert.match(css, /\.seg\.has-ind button\[aria-selected="true"\], \.seg\.has-ind button\[aria-pressed="true"\] \{ background: none; box-shadow: none; \}/, "the marker takes over the chosen look only once it is there");
   assert.match(segmentsSrc, /if \(!RO \|\| !MO\) return;/, "an old browser keeps the buttons' own look");
+});
+
+test("live buttons: icon buttons, toggles and segments move by themselves too, a ring every 6 s, each at its own moment (review OA-2: a phone has no hover)", () => {
+  // on a 390 px phone the map rail, the theme toggle, the city card's buttons, the chart's segments, the copy buttons and the
+  // Launchpad's list tabs had no running animation at all: their only motion was a hover ring and a press
+  const ring = rules.find((r) => /animation: lbRing /.test(r.body));
+  assert.ok(ring && inNoPreference(ring.at), "only when motion is welcome");
+  assert.match(ring.body, /animation: lbRing 6s ease-out var\(--sweep-delay, 1\.5s\) infinite var\(--lb-play, running\);/);
+  for (const sel of [".theme-toggle::before", '.map-ctrl button:not([aria-pressed="true"]):not(:disabled)::before', ".contract__copy::before", ".map-focus__btn:not(:disabled)::before",
+    '.seg button:not([aria-selected="true"]):not([aria-pressed="true"]):not(:disabled)::before']) assert.ok(ring.sel.split(/,\s*/).includes(sel), sel);
+  assert.match(section, /@keyframes lbRing \{ 0%, 76%, 100% \{ opacity: 0; transform: scale\(\.94\); \} 86% \{ opacity: \.9; transform: scale\(1\); \} 97% \{ opacity: 0; transform: scale\(1\.08\); \} \}/, "at rest unseen most of the cycle");
+  // under a mouse the ring simply shows (no loop fighting the hover)
+  assert.match(section, /\.map-focus__btn:hover::before, \.seg button:hover::before \{ opacity: 1; animation: none; \}/);
+  // site.js spreads their moments and pauses each one off screen, like every live button
+  assert.match(site, /const LIVE = "[^"]*\.theme-toggle, \.contract__copy, \.icon-btn, \.map-focus__btn, \.seg button, \.lp-card, \.coin-live";/);
+  assert.match(site, /const SHINES = "[^"]*\.map-open, \.theme-toggle, \.map-ctrl button, \.contract__copy, \.icon-btn, \.map-focus__btn, \.seg button";/);
 });

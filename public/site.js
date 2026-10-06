@@ -134,8 +134,8 @@
     const LOOPS = ".nyc, .timeline, .live-dot"; // further down a page, but moving for as long as it is open
     // every control with a loop of its own (style.css "Live buttons"); the ones that shine get a --sweep-delay of their own
     // (.lp-card, .coin-live: the Launchpad's live coin cards and the coin page's live parts, whose dots ping and lines glow)
-    const LIVE = ".btn, .contract__buy, .contract__ext, .chip-link, .map-open, .map-ctrl button, .chips button, .su-tab, a[role=tab], .nav a, .tabbar a, .seg__ind, .lp-card, .coin-live";
-    const SHINES = ".btn--primary, .btn--glass, .btn--social, .account-btn, .contract__buy, .contract__ext, .chip-link, .map-open";
+    const LIVE = ".btn, .contract__buy, .contract__ext, .chip-link, .map-open, .map-ctrl button, .chips button, .su-tab, a[role=tab], .nav a, .tabbar a, .seg__ind, .theme-toggle, .contract__copy, .icon-btn, .map-focus__btn, .seg button, .lp-card, .coin-live";
+    const SHINES = ".btn--primary, .btn--glass, .btn--social, .account-btn, .contract__buy, .contract__ext, .chip-link, .map-open, .theme-toggle, .map-ctrl button, .contract__copy, .icon-btn, .map-focus__btn, .seg button";
     const GLOW = [{ transform: "none", filter: "none" }, { transform: "translateY(-2px)", filter: "brightness(1.45) drop-shadow(0 0 10px rgba(255,138,91,.55))", offset: 0.3 }, { transform: "none", filter: "none" }];
     const timer = (f, ms) => win.setTimeout(f, ms);
 

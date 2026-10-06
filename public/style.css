@@ -1227,8 +1227,10 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
      button (.is-busy, aria-busy) runs the light every 1.1 s;
    * secondary buttons, pill links and link tiles (.btn--glass, the sign-in choices, .chip-link, .contract__ext): every 8 s a light
      travels along the border, the top edge left to right, then the bottom edge back;
-   * icon buttons and toggles (theme, map rail, copy, votes): nothing moves by itself; under a mouse a ring fades in, a press gives a
-     little. The chosen tab or segment breathes softly, and a segmented control's marker glides to a new choice (site.js .seg__ind);
+   * icon buttons, toggles and segments (theme, map rail, the map's city card, copy, votes, every segment of a tab list or a chart
+     control): every 6 s a thin ring lights up around the button and fades as it widens a little, each button at its own moment
+     (site.js spreads them like the lights); under a mouse the ring simply shows, a press gives a little. The chosen tab or segment
+     breathes softly instead, and a segmented control's marker glides to a new choice (site.js .seg__ind);
    * the phone tab bar: the glow under the current page's icon breathes;
    * a text button (.link-btn): its underline grows under a mouse.
    Battery and comfort: only transform and opacity move (the compositor's work; the page's own thread sleeps), and the slow loops
@@ -1259,13 +1261,15 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
   background: radial-gradient(closest-side, var(--lb-edge), rgba(255,178,130,0)); }
 .btn--glass::after, .btn--social::after, .account-btn.is-in::after, .contract__ext::after, .chip-link::after { top: auto; bottom: -2px; transform: translateX(150%); }
 
-/* icon buttons and toggles: a ring that fades in under a mouse (::before; the map rail's ::after is its 44 px touch target) */
-.theme-toggle, .contract__copy, .icon-btn, .layout-move, .post__vote button, .chips button, .su-tab, .nav a, a[role="tab"] { position: relative; }
-.theme-toggle::before, .map-ctrl button::before, .contract__copy::before, .icon-btn::before, .layout-move::before, .su-pw__toggle::before, .post__vote button::before {
+/* icon buttons and toggles: a ring (::before; the map rail's ::after is its 44 px touch target) that lights up now and then and shows
+   under a mouse; the segments of a tab list or a chart control get the same ring, just inside their pill */
+.theme-toggle, .contract__copy, .icon-btn, .layout-move, .post__vote button, .chips button, .su-tab, .nav a, a[role="tab"], .map-focus__btn, .seg button { position: relative; }
+.theme-toggle::before, .map-ctrl button::before, .contract__copy::before, .icon-btn::before, .layout-move::before, .su-pw__toggle::before, .post__vote button::before, .map-focus__btn::before, .seg button::before {
   content: ""; position: absolute; inset: -3px; border-radius: inherit; border: 1px solid var(--lb-ring); opacity: 0; pointer-events: none; }
+.seg button::before { inset: 1px; }
 @media (hover: hover) {
   .theme-toggle:hover::before, .map-ctrl button:hover::before, .contract__copy:hover::before, .icon-btn:hover::before, .layout-move:hover::before, .su-pw__toggle:hover::before,
-    .post__vote button:hover::before { opacity: 1; }
+    .post__vote button:hover::before, .map-focus__btn:hover::before, .seg button:hover::before { opacity: 1; animation: none; }
   .link-btn:hover { text-decoration-thickness: 2px; text-underline-offset: 4px; }
 }
 /* the chosen one: a ring (or an underline) that breathes */
@@ -1293,10 +1297,13 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
   .seg__ind::after, .chips button[aria-selected="true"]::after, .su-tab[aria-pressed="true"]::after, .map-ctrl button[aria-pressed="true"]::before,
     .nav a[aria-current="page"]::after, a[role="tab"][aria-selected="true"]::after { animation: lbBreath 4s steps(16) infinite alternate var(--lb-play, running); }
   .tabbar a[aria-current="page"]::after { animation: lbTab 4s steps(16) infinite alternate var(--lb-play, running); }
+  /* icon buttons and segments: their ring lights up every 6 s (the chosen, pressed or disabled ones keep still: they say so otherwise) */
+  .theme-toggle::before, .map-ctrl button:not([aria-pressed="true"]):not(:disabled)::before, .contract__copy::before, .icon-btn:not(:disabled)::before, .map-focus__btn:not(:disabled)::before,
+    .seg button:not([aria-selected="true"]):not([aria-pressed="true"]):not(:disabled)::before { animation: lbRing 6s ease-out var(--sweep-delay, 1.5s) infinite var(--lb-play, running); }
   /* a ring fades in, a press gives a little (the scale property: it adds to a button's own transform) */
   .theme-toggle::before, .map-ctrl button::before, .contract__copy::before, .icon-btn::before, .layout-move::before, .su-pw__toggle::before, .post__vote button::before { transition: opacity .2s ease; }
-  .theme-toggle, .map-ctrl button, .icon-btn, .layout-move, .su-pw__toggle, .post__vote button, .seg button, .chips button, .su-tab, .swapbox__flip { transition-property: background, color, border-color, transform, scale; transition-duration: .2s; }
-  .theme-toggle:active, .map-ctrl button:active, .icon-btn:active, .layout-move:active, .su-pw__toggle:active, .post__vote button:active, .seg button:active, .chips button:active,
+  .theme-toggle, .map-ctrl button, .icon-btn, .layout-move, .su-pw__toggle, .post__vote button, .seg button, .chips button, .su-tab, .swapbox__flip, .map-focus__btn { transition-property: background, color, border-color, transform, scale; transition-duration: .2s; }
+  .theme-toggle:active, .map-ctrl button:active, .icon-btn:active, .layout-move:active, .su-pw__toggle:active, .post__vote button:active, .seg button:active, .chips button:active, .map-focus__btn:active,
     .su-tab:active, .swapbox__flip:active { scale: .94; transition-duration: .08s; }
   .link-btn { transition: color .2s, text-decoration-thickness .2s, text-underline-offset .2s; }
 }
@@ -1307,6 +1314,7 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 @keyframes lbEdgeBottom { 0%, 15% { transform: translateX(150%); opacity: 0; } 17%, 28% { opacity: 1; } 30%, 100% { transform: translateX(0); opacity: 0; } }
 @keyframes lbBreath { from { opacity: .5; } to { opacity: 1; } }
 @keyframes lbTab { from { opacity: .4; } to { opacity: .8; } }
+@keyframes lbRing { 0%, 76%, 100% { opacity: 0; transform: scale(.94); } 86% { opacity: .9; transform: scale(1); } 97% { opacity: 0; transform: scale(1.08); } }
 /* "Pause animations" (footer): nothing loops, nothing waits; the main buttons keep their still glow */
 :root[data-motion="paused"] *, :root[data-motion="paused"] *::before, :root[data-motion="paused"] *::after { animation: none !important; }
 :root[data-motion="paused"] .mo-armed { opacity: 1; transform: none; }

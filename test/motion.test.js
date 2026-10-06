@@ -90,7 +90,7 @@ test("styles: no decoration loops forever unless a visitor can stop it; only wha
     twinkle: "the stars behind a hero (since before)", passShine: "a member's own Vicinity Pass (since before)",
     lbGlow: "a main button's glow", lbSweep: "the light along a main button", lbBusy: "a busy main button", lbEdgeTop: "the light along a secondary button",
     lbEdgeBottom: "the light along a secondary button", lbBreath: "the chosen tab or segment", lbTab: "the tab bar's current page",
-    fxRest: "the map's status glow once it rests (it replaced 15-30 redraws a second; review PM-2)" };
+    fxRest: "the map's status glow once it rests (it replaced 15-30 redraws a second; review PM-2)", lbRing: "an icon button's or a segment's ring (the owner: every button)" };
   const endless = [...css.matchAll(/animation: (\w+)[^;}]*\binfinite\b/g)].map((m) => m[1]);
   assert.ok(endless.length >= 8);
   for (const name of endless) assert.ok(name in LIVE_OR_BUSY, `${name} loops forever`);
@@ -583,14 +583,15 @@ test("layer: every live button pauses its loops off screen (buttons a page adds 
   const header = new El("header", "site-header").add(login);
   P.doc.kids.unshift(header); header.parent = P.doc;
   const cta = styled(new El("a", "btn btn--primary btn--lg", { top: 500, h: 56 })), glass = styled(new El("a", "btn btn--glass btn--lg", { top: 500, h: 56 }));
-  const copy = styled(new El("button", "contract__copy", { top: 600, h: 48 })); // an icon button: no loop, no light, not watched
+  const copy = styled(new El("button", "contract__copy", { top: 600, h: 48 })); // an icon button: its ring loops too (review OA-2), so it is watched
   P.hero.add(cta, glass, copy);
   const rootCls = new Set(); P.doc.documentElement.classList = { toggle: (c, on) => (on ? rootCls.add(c) : rootCls.delete(c)) };
   const winListeners = {}; P.win.addEventListener = (t, f) => (winListeners[t] ||= []).push(f);
   start(P);
   const away = P.io((o) => !o.opts.rootMargin && !o.opts.threshold);
   for (const e of [login, cta, glass]) assert.ok(away.els.has(e), [...e.cls].join(" "));
-  assert.ok(!away.els.has(copy), "an icon button has no loop to pause");
+  assert.ok(away.els.has(copy), "an icon button's ring pauses off screen like every live loop");
+  assert.match(copy.style.getPropertyValue("--sweep-delay"), /^\d+\.\d\ds$/, "and lights up at its own moment");
   const delays = [login, cta, glass].map((e) => e.style.getPropertyValue("--sweep-delay"));
   assert.ok(delays.every((d) => /^\d+\.\d\ds$/.test(d)) && new Set(delays).size === 3, `each one its own moment in the cycle: ${delays}`);
   const secs = delays.map(parseFloat).sort((a, b) => a - b);
