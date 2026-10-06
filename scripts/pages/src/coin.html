@@ -88,12 +88,12 @@
             </section>
 
             <!-- the bonding curve -->
-            <section class="card coin-curve" id="coin-curve" aria-labelledby="coin-curve-title" hidden>
+            <section class="card coin-curve" id="coin-curve" aria-labelledby="coin-curve-title">
               <h2 class="coin-card__title" id="coin-curve-title">Bonding curve <span class="muted">· Raydium LaunchLab</span></h2>
-              <p class="coin-curve__big"><strong id="coin-curve-pct">—</strong> <span class="muted" id="coin-curve-of"></span></p>
+              <p class="coin-curve__big"><strong id="coin-curve-pct">—</strong> <span class="muted" id="coin-curve-of">&nbsp;</span></p>
               <progress class="lp-bar coin-curve__bar" id="coin-curve-bar" max="100" value="0" aria-labelledby="coin-curve-title"></progress>
-              <p class="small" id="coin-curve-text"></p>
-              <p class="coin-foot" id="coin-curve-src"></p>
+              <p class="small coin-curve__text" id="coin-curve-text">Reading the bonding curve from the chain…</p>
+              <p class="coin-foot coin-curve__src" id="coin-curve-src">Source: Solana blockchain</p>
             </section>
 
             <!-- the contract -->
@@ -141,7 +141,7 @@
 
     <!-- a slim bar with the price once the price has scrolled away (every size), and Buy at the bottom of a phone -->
     <div class="coin-mini" id="coin-mini" aria-hidden="true" inert>
-      <div class="wrap coin-mini__inner"><span class="coin-disc coin-mini__disc" id="coin-mini-disc"><span id="coin-mini-disc-text"></span></span><strong class="coin-mini__ticker" id="coin-mini-ticker"></strong><span class="coin-mini__price" id="coin-mini-price"></span><span class="coin-chg" id="coin-mini-chg"></span></div>
+      <div class="wrap coin-mini__inner"><span class="coin-disc coin-mini__disc" id="coin-mini-disc"><span id="coin-mini-disc-text"></span></span><strong class="coin-mini__ticker" id="coin-mini-ticker"></strong><span class="coin-mini__price" id="coin-mini-price"></span><span class="coin-chg" id="coin-mini-chg"></span><a class="btn btn--primary btn--sm coin-mini__buy" id="coin-mini-buy" href="/launchpad" rel="noopener" target="_blank" hidden>Buy <span aria-hidden="true">↗</span><span class="sr-only"> on Raydium (opens in a new tab)</span></a></div>
     </div>
     <div class="coin-buybar" id="coin-buybar" inert>
       <a class="btn btn--primary coin-buybar__buy" id="coin-buybar-buy" href="/launchpad" rel="noopener" target="_blank">Buy on Raydium <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>

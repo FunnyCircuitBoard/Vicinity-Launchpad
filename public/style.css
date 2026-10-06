@@ -1624,6 +1624,7 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
   .coin-mini { transition: transform .22s cubic-bezier(.2,.8,.2,1), opacity .22s ease, visibility 0s linear .22s; }
   .coin-mini.is-on { transition: transform .22s cubic-bezier(.2,.8,.2,1), opacity .22s ease, visibility 0s; }
   .coin-buybar { transition: transform .22s cubic-bezier(.2,.8,.2,1), visibility 0s linear .22s; }
+  [data-page="coin"] .site-header { transition: transform .22s cubic-bezier(.2,.8,.2,1); }
   .coin-buybar.is-on { transition: transform .22s cubic-bezier(.2,.8,.2,1), visibility 0s; }
   .lp-card--live, .coin-trade__row { transition: border-color .2s ease, background-color .2s ease; }
 }
@@ -1879,7 +1880,7 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .lp-chg2.is-up, .coin-chg.is-up { color: var(--ok-text); background: rgba(55,194,154,.14); }
 .lp-chg2.is-down, .coin-chg.is-down { color: var(--bad-text); background: rgba(255,90,54,.12); }
 .lp-delayed { font-size: .7rem; }
-.lp-src { margin: 0; font-size: .7rem; line-height: 1.4; color: var(--faint); }
+.lp-src { margin: 0; font-size: .7rem; line-height: 1.4; color: var(--muted); }
 /* the sparkline: 44 px (120 on the featured card), a line and its fading area, a dot where it ends; dashed with words when there is none */
 .lp-spark { position: relative; height: 44px; color: var(--muted); }
 .lp-spark--lg { height: 120px; }
@@ -1943,7 +1944,7 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .coin-trades .coin-card__title { display: flex; align-items: center; gap: 8px; }
 .coin-card__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 12px; }
 .coin-card__head .coin-card__title { margin-right: auto; }
-.coin-foot { margin: 10px 0 0; font-size: .72rem; line-height: 1.45; color: var(--faint); }
+.coin-foot { margin: 10px 0 0; font-size: .72rem; line-height: 1.45; color: var(--muted); }
 .coin-card__head .coin-foot { margin: 0; }
 .coin-foot__link { display: inline-flex; align-items: center; min-height: 44px; color: var(--muted); }
 .coin-note { margin-top: 6px; padding: 24px; display: grid; gap: 6px; }
@@ -1995,7 +1996,7 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .coin-tile dd { margin: 4px 0 0; display: grid; gap: 2px; }
 .coin-tile__val { font: 600 1.0625rem/1.25 var(--display); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .coin-tile__sub { font-size: .75rem; line-height: 1.35; color: var(--text-2); }
-.coin-tile__src { font-size: .625rem; line-height: 1.35; color: var(--faint); overflow-wrap: anywhere; }
+.coin-tile__src { font-size: .625rem; line-height: 1.35; color: var(--muted); overflow-wrap: anywhere; }
 .coin-tile.is-na .coin-tile__val { color: var(--faint); }
 .coin-tile.is-stale .coin-tile__val { opacity: .7; }
 .coin-tile.is-up .coin-tile__val { color: var(--ok-text); } .coin-tile.is-down .coin-tile__val { color: var(--bad-text); }
@@ -2010,6 +2011,9 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .coin-curve__big strong { font: 600 1.75rem/1 var(--display); font-variant-numeric: tabular-nums; }
 .coin-curve__bar { height: 12px; margin-bottom: 10px; }
 .coin-curve p.small { margin: 0; color: var(--text-2); }
+/* the card is there from the first paint (it used to appear with the answer and push the contract card 363 px down): its text keeps
+   the room the curve's sentence takes in the side column */
+@media (min-width: 1024px) { .coin-curve__text { min-height: 9.9em; } .coin-curve__src { min-height: 2.9em; } }
 /* the contract */
 .coin-ca .contract__badge.is-plain { color: var(--muted); background: rgba(var(--ink),.06); border-color: var(--line-2); }
 .coin-ca__addr code { font-size: clamp(14px, 4vw, 16px); }
@@ -2027,7 +2031,7 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .coin-tside--sell { color: var(--bad-text); background: rgba(255,90,54,.12); }
 .coin-trade__amt { font: 600 .9375rem var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .coin-trade__tok { margin-left: auto; min-width: 0; font-size: .8rem; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.coin-trade__who { font-size: .75rem; color: var(--faint); overflow-wrap: anywhere; }
+.coin-trade__who { font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; }
 /* holders, about, sources */
 .coin-holders__n { margin: 6px 0 10px; display: flex; align-items: baseline; gap: 8px; }
 .coin-holders__n strong { font: 600 1.75rem/1 var(--display); font-variant-numeric: tabular-nums; }
@@ -2041,8 +2045,8 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .coin-holders .link-btn { min-height: 44px; display: inline-flex; align-items: center; }
 .coin-about__links { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
 .coin-about__link { min-height: 44px; display: inline-flex; align-items: center; }
-.coin-sources { margin: 18px 4px 0; font-size: .75rem; line-height: 1.6; color: var(--faint); }
-.coin-sources a { color: var(--muted); }
+.coin-sources { margin: 18px 4px 0; font-size: .75rem; line-height: 1.6; color: var(--muted); }
+.coin-sources a { color: var(--text-2); }
 /* the slim header (every size, once the price scrolls away) and the phone's Buy bar (once the header's Buy scrolls away) */
 .coin-mini { position: fixed; top: 66px; left: 0; right: 0; z-index: 45; height: 52px; background: var(--glass); -webkit-backdrop-filter: saturate(1.4) blur(14px); backdrop-filter: saturate(1.4) blur(14px);
   border-bottom: 1px solid var(--line); opacity: 0; transform: translateY(-100%); visibility: hidden; pointer-events: none; }
@@ -2051,8 +2055,22 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .coin-mini__disc { width: 28px; height: 28px; border-width: 2px; }
 .coin-mini__disc span { font-size: .38rem; }
 .coin-mini__ticker { font: 700 .95rem var(--display); }
-.coin-mini__price { margin-left: auto; font: 600 .95rem var(--display); font-variant-numeric: tabular-nums; }
+.coin-mini__price { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 .95rem var(--display); font-variant-numeric: tabular-nums; }
+.coin-mini__ticker { flex: none; }
+.coin-mini__buy { display: none; }
 .coin-buybar { display: none; }
+/* a hidden bar's buttons never loop (it sits behind the tab bar, translated, until it is on) */
+.coin-buybar:not(.is-on), .coin-mini:not(.is-on) { --lb-play: paused; }
+/* phones: the slim bar takes the site header's place while it is on (the header comes back with the price, or with the keyboard) */
+@media (max-width: 1023px) {
+  .coin-mini { top: 0; }
+  body.has-coin-mini .site-header:not(:focus-within) { transform: translateY(-100%); }
+}
+/* short screens: Buy rides in the slim bar instead of a third bar at the bottom */
+@media (max-width: 1023px) and (max-height: 700px) {
+  .coin-mini__buy:not([hidden]) { display: inline-flex; flex: none; min-height: 44px; padding: 0 14px; --rim-in: 14px; }
+  .coin-mini .coin-chg { display: none; }
+}
 @media (max-width: 1023px) {
   .coin-buybar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 55; display: flex; align-items: center; gap: 10px; height: calc(64px + env(safe-area-inset-bottom)); padding: 0 16px env(safe-area-inset-bottom);
     background: var(--glass); -webkit-backdrop-filter: saturate(1.4) blur(16px); backdrop-filter: saturate(1.4) blur(16px); border-top: 1px solid var(--line-2); transform: translateY(100%); visibility: hidden; }

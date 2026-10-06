@@ -296,7 +296,7 @@
       put($("#coin-price-sub"), priceLine(m, ageS));
       $("#coin-price").title = p ? `${p} · ${str(m.sources && m.sources.price)}` : "No price right now";
     }
-    put($("#coin-mini-price"), p || "—");
+    put($("#coin-mini-price"), p ? shortZeros(p) : "—"); // the short form ($0.0₅7577): the slim bar also carries Buy on a small phone
     const mc = $("#coin-mini-chg"); put(mc, ch.text.replace(" · 24h", "")); mc.className = `coin-chg ${ch.cls}`;
   }
   /** The crosshair is on a point: the price shows that value and the change since the range began. */
@@ -371,7 +371,7 @@
     const l = d.links || {};
     const set = (id, u) => { const a = $(id); if (u) { a.href = u; a.hidden = false; } else a.hidden = true; return a; };
     const ray = safeLink(l.raydium, "raydium.io");
-    for (const id of ["#coin-lnk-raydium", "#coin-head-buy", "#coin-buybar-buy"]) set(id, ray);
+    for (const id of ["#coin-lnk-raydium", "#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"]) set(id, ray);
     set("#coin-lnk-jup", safeLink(l.jupiter, "jup.ag"));
     const third = thirdLink(d);
     set("#coin-lnk-third", third && third.href);
@@ -559,14 +559,19 @@
   }
 
   /* ----- the slim header and the phone's Buy bar ----- */
+  // A phone keeps at most two bars over the page while it scrolls: the slim bar takes the site header's place (the header slides
+  // away and comes back with the price), and on a short screen (700 px or less) the slim bar carries Buy itself instead of a
+  // third bar at the bottom. (At 320 × 640 four bars covered 39% of the screen.)
   function wireBars() {
     const IO = window.IntersectionObserver; if (!IO) return;
     const mini = $("#coin-mini"), bar = $("#coin-buybar");
+    const phone = window.matchMedia("(max-width: 1023px)"), short = window.matchMedia("(max-height: 700px)");
     let priceOut = false, headBuyOut = false, buyCardIn = false;
     const apply = () => {
       const m = priceOut && Boolean(data);
       mini.classList.toggle("is-on", m); mini.inert = !m; mini.setAttribute("aria-hidden", String(!m));
-      const b = headBuyOut && !buyCardIn && Boolean(data) && !$("#coin-head-buy").hidden && window.matchMedia("(max-width: 1023px)").matches;
+      document.body.classList.toggle("has-coin-mini", m);
+      const b = headBuyOut && !buyCardIn && Boolean(data) && !$("#coin-head-buy").hidden && phone.matches && !short.matches;
       bar.classList.toggle("is-on", b); bar.inert = !b;
       document.body.classList.toggle("has-coin-buybar", b);
     };

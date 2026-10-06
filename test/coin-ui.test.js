@@ -169,7 +169,7 @@ test("the built page: built from scripts/pages, the Launch tab is current, every
   // every link of the page that opens another site says so
   const main = html.slice(html.indexOf("<main"), html.indexOf("</main>"));
   assert.equal((main.match(/target="_blank"/g) || []).length, (main.match(/\(opens in a new tab\)/g) || []).length);
-  assert.equal((main.match(/target="_blank"/g) || []).length, 6);
+  assert.equal((main.match(/target="_blank"/g) || []).length, 7, "and the slim bar's Buy on a short phone");
 });
 
 test("the script keeps the rules: only this site's API, no markup from text, outside links only to the sites they name, 30 s refresh only while looked at", () => {
@@ -222,4 +222,24 @@ test("the chart legend names its source and is written only when it changes (a p
   assert.doesNotMatch(draw, /leg\.textContent =|\$\("#coin-legend"\)\.textContent =|\$\("#coin-chart-foot"\)\.textContent =/, "no unconditional writes");
   assert.match(draw, /put\(leg, legendText\(s, c\.text, dom && dom\.short \? "the history shown" : RANGE_WORDS\[view\.range\]\)\);/);
   assert.match(draw, /if \(leg\.className !== cls\) leg\.className = cls;/);
+});
+
+test("phones keep at most two bars over the coin page while it scrolls, the curve card holds its place from the first paint, and a hidden bar never loops (review OA-4, PM-6, PM-9)", () => {
+  // at 320 × 640 the site header, the slim bar, the Buy bar and the tab bar covered 250 px (39%): the slim bar now takes the header's
+  // place, and on a short screen it carries Buy itself (measured: 119 px at 320 × 640, 183 px at 390 × 844)
+  const bars = src.slice(src.indexOf("  function wireBars() {"), src.indexOf("  /* ----- loading:"));
+  assert.match(bars, /const phone = window\.matchMedia\("\(max-width: 1023px\)"\), short = window\.matchMedia\("\(max-height: 700px\)"\);/);
+  assert.match(bars, /document\.body\.classList\.toggle\("has-coin-mini", m\);/);
+  assert.match(bars, /&& phone\.matches && !short\.matches;/, "no Buy bar on a short screen");
+  assert.match(css, /@media \(max-width: 1023px\) \{\n  \.coin-mini \{ top: 0; \}\n  body\.has-coin-mini \.site-header:not\(:focus-within\) \{ transform: translateY\(-100%\); \}\n\}/, "the header comes back for the keyboard");
+  assert.match(css, /@media \(max-width: 1023px\) and \(max-height: 700px\) \{\n  \.coin-mini__buy:not\(\[hidden\]\) \{ display: inline-flex;[^}]*min-height: 44px;/);
+  assert.match(html, /<a class="btn btn--primary btn--sm coin-mini__buy" id="coin-mini-buy" href="\/launchpad" rel="noopener" target="_blank" hidden>Buy <span aria-hidden="true">↗<\/span><span class="sr-only"> on Raydium \(opens in a new tab\)<\/span><\/a>/);
+  assert.match(src, /for \(const id of \["#coin-lnk-raydium", "#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"\]\) set\(id, ray\);/, "the same safe Raydium link");
+  assert.match(src, /put\(\$\("#coin-mini-price"\), p \? shortZeros\(p\) : "—"\);/);
+  assert.match(css, /\.coin-buybar:not\(\.is-on\), \.coin-mini:not\(\.is-on\) \{ --lb-play: paused; \}/);
+  // the curve card: there from the start with its room kept (CLS 0.068 on a computer when it appeared and pushed the contract card down)
+  assert.match(html, /<section class="card coin-curve" id="coin-curve" aria-labelledby="coin-curve-title">/, "not hidden until the answer");
+  assert.match(html, /id="coin-curve-text">Reading the bonding curve from the chain…<\/p>/);
+  assert.match(css, /@media \(min-width: 1024px\) \{ \.coin-curve__text \{ min-height: 9\.9em; \} \.coin-curve__src \{ min-height: 2\.9em; \} \}/);
+  assert.match(src, /function paintCurve\(d\) \{\n    const cv = curveOf\(d\);\n    show\("#coin-curve", Boolean\(cv\)\);/, "hidden only when the answer has no curve");
 });
