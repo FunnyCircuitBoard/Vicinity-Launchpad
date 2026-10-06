@@ -688,6 +688,7 @@ export function fakeConnection(w) {
         .map((a) => ({ pubkey: new web3.PublicKey(String(a.address)), account: info(a) }));
     },
     async getMultipleAccountsInfo(keys) { return keys.map((k) => { const a = w.account(k.toBase58()); return a ? info(a) : null; }); },
+    async getSlot() { return Number(w.svm.getClock().slot); },
   };
 }
 
