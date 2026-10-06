@@ -359,3 +359,13 @@ test("map stage CSS: big on every screen, full screen over the header and tab ba
   assert.match(css.slice(media, at), /^@media \(prefers-reduced-motion: no-preference\) \{\n$/);
   for (const m of block.matchAll(/animation: (\w+) [^;]*;/g)) { assert.match(m[0], /var\(--lb-play, running\);$/, m[0]); assert.ok(["livePing", "shimmer", "lbBreath", "spin"].includes(m[1]), m[1]); }
 });
+
+test("map: a resize that leaves the stage as it was costs nothing, and coming back to the tab catches up on founders and members (review PM-5, PM-10)", () => {
+  const size = js.slice(js.indexOf("  function size() {"), js.indexOf("  // the zoom, for screen readers"));
+  assert.match(size, /const nd = Math\.min\(window\.devicePixelRatio \|\| 1, 2\);\n    if \(W && r\.width === W && r\.height === H && nd === dpr\) return;/, "a phone's toolbar showing or hiding during a scroll used to redraw the whole world 3 canvases at a time");
+  assert.match(size, /if \(c\.width !== w\) c\.width = w; if \(c\.height !== h\) c\.height = h;/, "a canvas is reallocated only when its size changes");
+  assert.ok(size.indexOf("return;\n") < size.indexOf("ovPaths.clear();"), "before anything is thrown away");
+  assert.match(js, /document\.addEventListener\("visibilitychange", \(\) => \{ if \(!document\.hidden\) \{ dirty\.fx = true; kick\(\); if \(sec\.classList\.contains\("is-ready"\) && Date\.now\(\) - lastRefresh >= 30000\) refreshAll\(\); \} \}\);/);
+  assert.match(js, /const refreshAll = \(\) => \{ lastRefresh = Date\.now\(\); refreshClaims\(\); refreshMembers\(\); \};/);
+  assert.match(js, /setInterval\(\(\) => \{ if \(!document\.hidden && onScreen && Date\.now\(\) - lastRefresh >= 25000\) refreshAll\(\); \}, 30000\);/, "still never while hidden or off screen");
+});

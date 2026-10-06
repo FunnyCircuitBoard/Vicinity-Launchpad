@@ -432,14 +432,18 @@
   function size() {
     const r = wrapEl.getBoundingClientRect();
     if (!r.width || !r.height) return;
+    // a resize that left the stage as it was (a phone's toolbar showing or hiding during a scroll, the window's height on a
+    // computer): nothing to reallocate or redraw (each full redraw of the world costs about 300 ms on a slow phone)
+    const nd = Math.min(window.devicePixelRatio || 1, 2);
+    if (W && r.width === W && r.height === H && nd === dpr) return;
     // keep the same place under the crosshair when the box resizes; the first time, the visitor's part of the world
     const first = !W;
     let lon, lat;
     if (first) { let tz = ""; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch {} [lon, lat] = openingView(tz); }
     else [lon, lat] = toLonLat(fcx, fcy);
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    dpr = nd;
     W = r.width; H = r.height; s0 = Math.max(W / 360, H / 144);
-    for (const c of [canvas, fxCanvas, labCanvas]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+    for (const c of [canvas, fxCanvas, labCanvas]) { const w = Math.round(W * dpr), h = Math.round(H * dpr); if (c.width !== w) c.width = w; if (c.height !== h) c.height = h; }
     baseView = null;
     measureOverlays();
     tx = fcx - wx(lon) * k; ty = fcy - wy(lat) * k; clampView();
@@ -1248,7 +1252,8 @@
   const resized = () => { if (!loaded || sizing) return; sizing = requestAnimationFrame(() => { sizing = 0; size(); }); };
   window.addEventListener("resize", resized);
   if (window.ResizeObserver) new ResizeObserver(resized).observe(wrapEl);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { dirty.fx = true; kick(); } });
+  // back on the tab: the founders and members may have changed while it was hidden (the 30 s refresh skips a hidden tab)
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { dirty.fx = true; kick(); if (sec.classList.contains("is-ready") && Date.now() - lastRefresh >= 30000) refreshAll(); } });
   // on screen or not: the stage (the base canvas itself may be moved by the compositor for a moment)
   new IntersectionObserver((es) => { onScreen = es.some((x) => x.isIntersecting); if (onScreen) markAll(); }).observe(wrapEl);
 
@@ -1481,6 +1486,8 @@
     else tickers = window.vicinityTicker ? window.vicinityTicker.assign(cities.filter((c) => !parts.has(c.id))) : new Map();
   }
 
+  let lastRefresh = 0;
+  const refreshAll = () => { lastRefresh = Date.now(); refreshClaims(); refreshMembers(); };
   let firstClaims = true;
   let windows = new Map(); // cities choosing their founder right now
   /** Founder seats (founded, or chosen and in the objection period) and open application windows. */
@@ -1549,7 +1556,8 @@
       countryEl.append(...opts.filter((c) => counts[c]).map((c) => Object.assign(document.createElement("option"), { value: c, textContent: `${countries[c]} (${counts[c]})` })));
       sec.classList.add("is-ready");
       size(); renderList(); refreshPanel(); renderFeed(); refreshMembers();
-      setInterval(() => { if (!document.hidden && onScreen) { refreshClaims(); refreshMembers(); } }, 30000);
+      lastRefresh = Date.now();
+      setInterval(() => { if (!document.hidden && onScreen && Date.now() - lastRefresh >= 25000) refreshAll(); }, 30000);
       // arriving with ?city=<id> (from other pages): open that city; signed in with a home city: start there; else the city nearest the
       // crosshair, with the map centred on it (as far as the world's edges allow), before anything is drawn
       const want = new URLSearchParams(location.search).get("city");
