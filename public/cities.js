@@ -390,7 +390,7 @@
   // ---- status of a city, and the overlays that are not the map itself ----
   /** open | choosing | founded | mine */
   const statusOf = (c) => { const cl = claims.get(c.id); return cl ? (isMine(cl) ? "mine" : "founded") : windows.has(c.id) ? "choosing" : "open"; };
-  const isCommunity = (c) => !parts.has(c.id) && !outside.has(c.id);
+  const isCommunity = (c) => c.com ?? (c.com = !parts.has(c.id) && !outside.has(c.id)); // parts and outside never change once loaded
   const tickerOf = (c) => tickers.get(c.id)?.ticker || null;
 
   // the focus point (the crosshair): the middle of the part of the map the city card doesn't cover
@@ -666,25 +666,20 @@
     for (const c of shown) {
       if (!isCommunity(c)) continue;
       const x = sx(c.lon), y = sy(c.lat);
-      if (!inViewPx(x, y, 0)) continue;
-      const st = statusOf(c), win = windows.get(c.id);
-      const it = { id: c.id, c, x, y, st, mine: st === "mine", selected: c === selected, focus: c.id === focusId, status: st, holders: holderCount.get(c.id) || 0,
-        applicants: win ? win.applicants : 0, members: memberCount.get(c.id) || 0, pop: c.pop, shown: prev.has(c.id) };
-      it.rank = labelRank(it);
+      if (x < 0 || y < 0 || x > W || y > H) continue;
+      const st = statusOf(c), win = st === "choosing" ? windows.get(c.id) : null;
+      const it = { id: c.id, c, x, y, st, mine: st === "mine", selected: c === selected, focus: c.id === focusId, status: st, holders: st === "open" ? 0 : holderCount.get(c.id) || 0,
+        applicants: win ? win.applicants : 0, members: memberCount.size ? memberCount.get(c.id) || 0 : 0, pop: c.pop, shown: prev.has(c.id) };
+      const r = labelRank(it); it.key = r[0] * 1e13 + r[1]; // the same order as byRank, as one number
       cands.push(it);
     }
-    cands.sort((p, q) => p.rank[0] - q.rank[0] || p.rank[1] - q.rank[1] || (p.id < q.id ? -1 : p.id > q.id ? 1 : 0)); // = byRank, keys computed once
+    cands.sort((p, q) => p.key - q.key || (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
     const items = [];
     let a = 0;
     for (const x of cands.slice(0, 3 * (max.A + max.B + max.C))) { // enough to fill every slot; the rest would never be placed
-      const t = chipText(x.c, x.st);
+      const { t, size } = chipOf(x.c, x.st);
       const isA = (x.mine || x.selected || x.focus) && a < 3;
       if (isA) a++;
-      const size = {
-        A: [Math.ceil(Math.max(measure(FONT.A1, t.name), measure(FONT.A2, t.a2)) + 22), 36],
-        B: [Math.ceil(26 + measure(FONT.B, t.bName) + (t.bTicker ? measure(FONT.BT, " " + t.bTicker) : 0) + (t.bTail ? measure(FONT.B, t.bTail) : 0)), 22],
-        C: [Math.ceil(measure(FONT.C, x.c.name)) + 4, 14],
-      };
       items.push({ id: x.id, x: x.x, y: x.y, tierWish: isA ? "A" : "B", size, t, st: x.st, focus: x.focus });
     }
     const avoid = [grow(rects.rail, 8), grow(rects.card, 8), grow(rects.exit, 8), grow(rects.scale, 4)].filter(Boolean);
@@ -701,6 +696,23 @@
     fxItems = buildFxItems();
   }
   const popAt = new Map(); // city id → when its chip should pop (a new founder)
+  /** A city's chip texts and sizes at this zoom band, measured once (cleared when statuses, tickers or the screen width change). */
+  const chipCache = new Map();
+  function chipOf(c, st) {
+    const key = `${c.id}|${st}|${k >= 4 ? 2 : k >= 3 ? 1 : 0}|${W < 600 ? 1 : 0}`;
+    let v = chipCache.get(key);
+    if (!v) {
+      const t = chipText(c, st);
+      v = { t, size: {
+        A: [Math.ceil(Math.max(measure(FONT.A1, t.name), measure(FONT.A2, t.a2)) + 22), 36],
+        B: [Math.ceil(26 + measure(FONT.B, t.bName) + (t.bTicker ? measure(FONT.BT, " " + t.bTicker) : 0) + (t.bTail ? measure(FONT.B, t.bTail) : 0)), 22],
+        C: [Math.ceil(measure(FONT.C, c.name)) + 4, 14],
+      } };
+      if (chipCache.size > 5000) chipCache.clear();
+      chipCache.set(key, v);
+    }
+    return v;
+  }
   function drawChip(l, alpha, now) {
     const c = byId.get(l.id); if (!c) return;
     const ax = sx(c.lon), ay = sy(c.lat), x = ax + l.dx, y = ay + l.dy;
@@ -779,13 +791,10 @@
   /* ---------- the glow layer: status glow, rings, the marching boundary, ripples ---------- */
   let fxItems = [];
   function buildFxItems() {
-    const out = [], chips = new Set(labels.map((l) => l.id));
-    for (const c of shown) {
-      if (!isCommunity(c) && c !== selected) continue;
-      const st = statusOf(c);
-      if (st === "open" && !chips.has(c.id) && c !== selected) continue;
-      out.push({ c, st, ph: phase(c.id) });
-    }
+    const out = [], seen = new Set();
+    const add = (c) => { if (!c || seen.has(c.id) || parts.has(c.id) || !inViewPx(sx(c.lon), sy(c.lat), 30)) return; seen.add(c.id); out.push({ c, st: statusOf(c), ph: phase(c.id) }); };
+    for (const id of specialIds()) add(byId.get(id));
+    for (const l of labels) add(byId.get(l.id));
     return out;
   }
   const selectedInView = () => { if (!selected) return false; if (inViewPx(sx(selected.lon), sy(selected.lat), 20)) return true; const sh = shapeOf(selected.id); return Boolean(sh && boxInView(sh.box, view())); };
@@ -1001,7 +1010,7 @@
     }
     nearestGo = null;
     const st = statusOf(c), cl = claims.get(c.id), win = windows.get(c.id), t = tickerOf(c), a = areaFacts(c.id);
-    const amt = `${short(founderMin(c, win))} $VICINITY`, n = (members.get(c.id) || []).length;
+    const amt = `${compact.format(founderMin(c, win))} $VICINITY`, n = (members.get(c.id) || []).length;
     const m = memberCount.get(c.id) || 0, h = holderCount.get(c.id) || 0;
     let l4;
     if (st === "mine") l4 = `You founded ${c.name}`;
@@ -1021,7 +1030,7 @@
       name.textContent = c.name; where.textContent = placeOf(c);
       const [cls, word] = FOCUS_TAG[st];
       tag.className = `${cls} map-focus__status`; tag.textContent = word; // "Choosing": how many apply and when it closes are on the last line tag.hidden = false;
-      mini.textContent = `${word} · ${short(founderMin(c, win))}`;
+      mini.textContent = `${word} · ${compact.format(founderMin(c, win))}`;
       tk.textContent = t ? `$${t}` : ""; amount.textContent = `Founder amount ${amt}`;
       areaEl.textContent = r3;
       line.replaceChildren(document.createTextNode(l4));
@@ -1053,11 +1062,13 @@
   // Heard on the whole stage (the base canvas may be moved by the compositor mid-gesture), except on the controls and the city card.
   const pts = new Map();
   let drag = null, lastTap = null, wheelOK = false;
-  const local = (e) => { const r = wrapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  let stageRect = null; // the stage's place, read once per gesture (reading it on every move would force a layout each time)
+  const local = (e) => { const r = (pts.size && stageRect) || wrapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
   const onMap = (e) => !(e.target instanceof Element) || !e.target.closest(".map-ctrl, .map-focus, .map-exit, .map-hint");
   wrapEl.addEventListener("pointerdown", (e) => {
     if (!loaded || !onMap(e)) return;
     wrapEl.setPointerCapture(e.pointerId);
+    if (!pts.size) stageRect = wrapEl.getBoundingClientRect();
     const [x, y] = local(e);
     pts.set(e.pointerId, { x, y });
     cam = null; // a touch stops whatever the map was doing
@@ -1450,7 +1461,7 @@
       open = Boolean(d.launched);
       updateStats(); renderFeed(fresh);
       if (fresh.size) { renderList(); refreshPanel(); }
-      focusSig = ""; markAll();
+      focusSig = ""; chipCache.clear(); markAll();
     } catch {}
   }
 
@@ -1462,6 +1473,7 @@
       const L = pol?.policy?.founder?.ladder;
       if (L && ["base", "max", "refPop", "rung"].every((key) => Number.isFinite(L[key]) && L[key] > 0)) ladder = { base: L.base, max: L.max, refPop: L.refPop, rung: L.rung };
       if (Number.isFinite(pol?.policy?.founder?.qualifyingDays) && pol.policy.founder.qualifyingDays > 0) qualifyingDays = pol.policy.founder.qualifyingDays;
+      chipCache.clear(); focusSig = ""; markAll(); // the chips and the city card say the founder amount too
       if (sec.classList.contains("is-ready")) refreshPanel();
     }).catch(() => {});
     // every city's outline, for the first view: fetched with the rest, parsed in small steps once the city list is in
