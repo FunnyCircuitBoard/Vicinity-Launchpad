@@ -24,7 +24,11 @@ export const OFFICIAL = {
   github: [],             // code is private
   socials: ["@VicinityCitySOL"], // official X account (verified 2026-09-30)
   tokenContract: VICINITY_MINT,
-  teamWallets: [],        // every wallet the team controls, listed publicly
+  // Every wallet the team controls, listed publicly. 13qRam…sRiN is the owner's wallet: it created $VICINITY on Raydium
+  // LaunchLab on 3 Oct 2026 (its buy was in the creation transaction) and is the site's admin wallet; listed at the owner's
+  // request on 5 Oct 2026. Listed wallets are labelled "Team wallet (public)" in the holder list, the checker calls them
+  // official team wallets, and they are left out of the Founding Supporter snapshot.
+  teamWallets: ["13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN"],
   launchpadOpensAt: LAUNCHPAD_OPENS_AT,
   // Every official Vicinity token on every network. Anything not listed here is fake.
   tokens: [
