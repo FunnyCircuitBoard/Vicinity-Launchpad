@@ -31,6 +31,9 @@ export const PUBLIC_LIMITS = {
   transfer_check: { max: 90, windowMs: 10 * MIN, by: "session" },
   pair:           { max: 20, windowMs: 10 * MIN },  // POST /api/pair: one row each
   rank:           { max: 60, windowMs: MIN },       // GET /api/rank: an RPC call when the snapshot is down (a cache hit is not counted)
+  // GET /api/coin and /api/coin/chart (LAUNCHPAD_V2=on): outside sources and the database on an edge-cache miss (a hit is not counted)
+  coin:           { max: 60, windowMs: MIN },
+  coin_chart:     { max: 60, windowMs: MIN },
 };
 
 /**

@@ -15,7 +15,12 @@ test("map: founder lines show the masked wallet as text and link nobody's wallet
   assert.ok(js.includes("wallet: s.wallet"), "the map still takes the wallet from /api/seats (masked there)");
   // "Yours" still works although the seat's wallet is masked: the comparison is on the masked forms
   assert.match(js, /const isMine = \(cl\) => Boolean\(cl && me\(\) && \(cl\.wallet === me\(\) \|\| cl\.wallet === mask\(me\(\)\)\)\);/);
-  assert.equal((js.match(/isMine\(/g) || []).length, 4, "every place that decided 'mine' by the raw wallet uses it (areas, markers, the list, the panel)");
+  // every place that decides "mine" uses it: the map's status of a city (areas, markers, chips, the city-in-focus card all ask statusOf),
+  // the list and the panel. Three calls since the map's layers share statusOf (6 Oct 2026); four before, one per layer.
+  assert.equal((js.match(/isMine\(/g) || []).length, 3, "statusOf, the list, the panel");
+  assert.ok(js.includes('const statusOf = (c) => { const cl = claims.get(c.id); return cl ? (isMine(cl) ? "mine" : "founded")'), "the map's status of a city");
+  assert.ok(js.includes("mine = isMine(cl), parent = parts.has(c.id)") && js.includes("[...claims.entries()].find(([, v]) => isMine(v))"), "the list and the panel");
+  assert.doesNotMatch(js, /\.wallet === me\(\)(?!\s*\|\|)/, "no other comparison with the signed-in wallet");
   assert.ok(!/cl\.wallet === me\(\)(?!\s*\|\|)/.test(js.replace(/const isMine[^\n]*\n/, "")), "no raw comparison left");
   assert.ok(!js.includes("mask(cl.wallet)"), "the wallet is not masked twice");
 });

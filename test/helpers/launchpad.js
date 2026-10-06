@@ -53,15 +53,31 @@ export function pairFor(mint, over = {}) {
 }
 
 /**
+ * The other market sources of the Launchpad (src/marketlive.js) with nothing to say: Jupiter prices no token, its token search
+ * finds none, Raydium LaunchLab has no rows. Valid, healthy answers (so a list built from them is not "degraded"), or null for
+ * any other host. `others` collects the URLs.
+ */
+export function quietMarkets(others = []) {
+  const ok = (body) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+  return (url) => {
+    const u = new URL(String(url));
+    if (/(^|\.)jup\.ag$/.test(u.hostname)) { others.push(String(url)); return ok(u.pathname === "/tokens/v2/search" ? [] : {}); }
+    if (/^launch-(mint|history)-v1\.raydium\.io$/.test(u.host)) { others.push(String(url)); return ok({ success: true, data: { rows: [] } }); }
+    return null;
+  };
+}
+
+/**
  * A DexScreener stand-in. `table` maps a mint to its pairs (a mint not in it has none). The answer holds at most 30 pairs like
  * the real API. `status` answers an HTTP error; `fail` makes the call throw (a network error); `hang` never answers until the
- * caller's signal aborts. Everything else (the RPC) goes to the test chain. `seen` is every DexScreener URL asked, in order.
+ * caller's signal aborts. Jupiter and Raydium answer "nothing" (quietMarkets); everything else (the RPC) goes to the test
+ * chain. `seen` is every DexScreener URL asked, in order; `others` every Jupiter / Raydium URL.
  */
 export function dexMock(table = {}, { status = 200, fail = false, hang = false, cap = 30 } = {}) {
-  const seen = [], rpc = chain();
+  const seen = [], others = [], rpc = chain(), quiet = quietMarkets(others);
   const fetchImpl = async (url, init = {}) => {
     const u = String(url);
-    if (!u.startsWith("https://api.dexscreener.com/latest/dex/tokens/")) return rpc(url, init);
+    if (!u.startsWith("https://api.dexscreener.com/latest/dex/tokens/")) return quiet(url) || rpc(url, init);
     seen.push(u);
     if (fail) throw new TypeError("fetch failed");
     if (hang) return new Promise((_, reject) => { // answers only when the caller gives up (a timer keeps the test process alive until then)
@@ -73,7 +89,7 @@ export function dexMock(table = {}, { status = 200, fail = false, hang = false, 
     const pairs = mints.flatMap((m) => table[m] || []).slice(0, cap);
     return new Response(JSON.stringify({ schemaVersion: "1.0.0", pairs }), { headers: { "content-type": "application/json" } });
   };
-  return { fetchImpl, seen, mints: () => seen.map((u) => u.slice("https://api.dexscreener.com/latest/dex/tokens/".length).split(",")) };
+  return { fetchImpl, seen, others, mints: () => seen.map((u) => u.slice("https://api.dexscreener.com/latest/dex/tokens/".length).split(",")) };
 }
 
 /** The test chain, but the mint account of `badMint` cannot be read (HTTP 500), like a flaky RPC for one coin. Counts every call. */

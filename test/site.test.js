@@ -5,7 +5,7 @@ import { buildPages } from "../scripts/pages/build.mjs";
 import { cityAt } from "../src/geo.js";
 
 const read = (p) => readFileSync(new URL("../public/" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "connect.html", "locate.html", "dashboard.html", "rules.html", "terms.html", "404.html", "admin.html"];
+const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "coin.html", "connect.html", "locate.html", "dashboard.html", "rules.html", "terms.html", "404.html", "admin.html"];
 const html = Object.fromEntries(PAGES.map((p) => [p, read(p)]));
 const all = Object.values(html).join("\n");
 const css = read("style.css");

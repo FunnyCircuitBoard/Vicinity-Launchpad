@@ -54,13 +54,13 @@ const poolLabel = (owner, ownerProgram) => {
 const RPC_TIMEOUT_MS = 8000;
 const rpcTimeout = (env) => { const n = Number(env && env.RPC_TIMEOUT_MS); return n > 0 ? n : RPC_TIMEOUT_MS; };
 
-export async function rpc(env, method, params, fetchImpl = fetch) {
+export async function rpc(env, method, params, fetchImpl = fetch, { timeoutMs = null } = {}) {
   const url = (env && env.SOLANA_RPC_URL) || PUBLIC_RPC;
   const res = await fetchImpl(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    signal: AbortSignal.timeout(rpcTimeout(env)),
+    signal: AbortSignal.timeout(timeoutMs > 0 ? timeoutMs : rpcTimeout(env)),
   });
   if (!res.ok) throw new Error(`rpc_http_${res.status}`);
   const data = await res.json();

@@ -251,7 +251,11 @@ test("the built page: every id the script uses exists, the section starts hidden
   assert.match(sec, /<option value="waiting">Contract being checked<\/option>/);
   assert.match(sec, /<span id="lp-count" role="status" aria-live="polite">/);
   assert.match(sec, /<button class="btn btn--glass btn--sm" type="button" id="lp-retry" hidden>Try again<\/button>/);
-  assert.match(sec, /Prices, liquidity and volumes come from DexScreener and can be up to a minute old\. You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds\./);
+  // the line under the list names the real sources (DEX Screener lists nothing while a coin is on its curve); the script swaps in the
+  // answer's own attribution, Jupiter's "Powered by Jupiter" included
+  assert.match(sec, /<p class="tiny muted lp-honesty" id="lp-honesty">Every number says where it comes from: prices, market caps and 24 h volumes from Jupiter \(Powered by Jupiter\), each bonding curve read from the Solana chain, holders counted by vicinity\.city\. They refresh every 30 seconds\. You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds\.<\/p>/);
+  assert.doesNotMatch(sec, /DexScreener|DEX Screener/, "no claim about a site that lists nothing for a coin on its curve");
+  assert.match(sec, /<ul class="lp-featured" id="lp-featured" aria-label="Live now: the Vicinity token"><\/ul>/, "the featured strip: an empty list until the script fills it");
   assert.doesNotMatch(sec, /\sstyle="|<style|\son[a-z]+="|<script/);
   assert.ok(html.indexOf('id="lp-coins"') > html.indexOf('id="lp-cal"') && html.indexOf('id="lp-coins"') < html.indexOf("How it will work"), "between the hero and the phases");
 });
@@ -272,7 +276,12 @@ test("with the switch off the page is today's: every pinned id and the pre-launc
   assert.ok(before.includes("official.then(tick); tick(); setInterval(tick, 1000);") && before.includes("// Founding Supporter snapshot: status, and any wallet's amount + Merkle proof."));
   assert.match(part, /official\.then\(\(o\) => \{ if \(o && o\.launchpadV2 === true\) start\(\); \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true");
   assert.match(part, /if \(typeof document === "undefined" \|\| !window\.V\) return;/);
-  assert.deepEqual([...part.matchAll(/\bapi\(([^)]*)\)/g)].map((m) => m[1]), ['"/api/launchpad"'], "the one request, nothing else");
+  assert.deepEqual([...part.matchAll(/\bapi\(([^)]*)\)/g)].map((m) => m[1]).sort(), ['"/api/launchpad"', "`/api/coin/chart?mint=${encodeURIComponent(mint", "`/api/coin/chart?mint=${encodeURIComponent(mint"],
+    "the list, and each live coin's chart (its sparkline, 24 h then 7 d): nothing else");
+  assert.match(part, /api\(`\/api\/coin\/chart\?mint=\$\{encodeURIComponent\(mint\)\}&tf=24h`\)/); assert.match(part, /api\(`\/api\/coin\/chart\?mint=\$\{encodeURIComponent\(mint\)\}&tf=7d`\)/);
+  assert.match(part, /if \(!isAddr\(mint\) \|\| asking\.has\(mint\)\) return;/, "only a real address is ever asked about, once at a time");
+  assert.match(part, /SPARK_MS = 300000/, "a sparkline is asked again at most every 5 minutes");
+  assert.match(part, /new IntersectionObserver\(\(es\) => \{ for \(const e of es\) if \(e\.isIntersecting\) \{ sparkIO\.unobserve\(e\.target\); fetchSpark\(e\.target\.dataset\.mint\); \} \}, \{ rootMargin: "200px 0px" \}\)/, "and only once its card is near the screen");
   assert.doesNotMatch(part, /\bfetch\(|XMLHttpRequest|WebSocket|EventSource|navigator\.sendBeacon/);
   assert.match(part, /sec\.hidden = false;/); assert.equal((part.match(/\.hidden = false/g) || []).length, 2, "only the section and the retry button are ever shown by the script");
   assert.match(part, /const REFRESH_MS = 30000, BACKOFF = \[30000, 60000, 120000, 300000\];/, "30 s refresh, slower after a failure");
@@ -282,13 +291,15 @@ test("with the switch off the page is today's: every pinned id and the pre-launc
 test("the strict security policy holds in the new part: no markup from text, no style attributes, no logging, only our API and the four trading sites", () => {
   assert.doesNotMatch(part, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|\.style\.|cssText|setAttribute\(["']style/);
   assert.doesNotMatch(part, /console\.|localStorage|sessionStorage|document\.cookie|indexedDB/);
-  const hosts = [...new Set([...part.matchAll(/https?:\/\/([a-z0-9.-]+)/g)].map((m) => m[1]))].sort();
+  // (the SVG namespace of the sparklines is a name, never a request: it is left out)
+  const hosts = [...new Set([...part.replace(/"http:\/\/www\.w3\.org\/2000\/svg"/g, "").matchAll(/https?:\/\/([a-z0-9.-]+)/g)].map((m) => m[1]))].sort();
   assert.deepEqual(hosts, ["dexscreener.com", "jup.ag", "raydium.io", "solscan.io"], "no other website is named");
   assert.match(part, /target = "_blank"; a\.rel = "noopener";/, "outside links open in a new tab without handing over the window");
   assert.match(part, /img\.src = logo; img\.alt = "";/); assert.match(part, /\/\^\\\/api\\\/media\\\/\[A-Za-z0-9_-\]\{1,64\}\$\//, "a logo only from our own media route");
   assert.match(part, /\.textContent = /); assert.ok(!/\$\{[^}]*\}<\//.test(part), "no HTML strings built from values");
-  assert.match(part, /const na = \(\) => \{ const s = el\("span", "lp-na"\); s\.title = "No data yet";/, "a dash with a title where a value is unknown");
-  assert.match(part, /el\("span", "sr-only", "No data yet"\)/, "and words for a screen reader");
+  assert.match(part, /const na = \(why = "No data yet"\) => \{ const s = el\("span", "lp-na"\); s\.title = why;/, "a dash with a title (the server's reason) where a value is unknown");
+  assert.match(part, /el\("span", "sr-only", why\)/, "and the same words for a screen reader");
+  assert.match(part, /dd\.append\(s\.value == null \? na\(s\.title\) : el\("span", "lp-val lp-num", s\.value\)\);/, "a live card's missing number says why");
   assert.match(part, /\["Live", "tag--ok"\]/); assert.doesNotMatch(part, /"● Live"/);
 });
 
@@ -299,7 +310,7 @@ test("styles: one block, every control 44 px or taller, nothing moves by itself,
   assert.ok(block.length > 2000 && block.length < 9000, "a block, not a stylesheet: " + block.length);
   assert.match(block, /\.lp-tabs button \{[^}]*min-height: 44px/); assert.match(block, /\.lp-search input \{[^}]*min-height: 48px/);
   assert.match(block, /\.lp-field select \{[^}]*min-height: 44px/); assert.match(block, /\.lp-card__actions \.btn \{ min-height: 44px; \}/);
-  assert.match(block, /\.lp-card__alt \{ min-height: 44px;/); assert.match(block, /\.lp-empty \.btn \{ min-height: 44px; \}/);
+assert.match(block, /\.lp-empty \.btn \{ min-height: 44px; \}/);
   assert.doesNotMatch(block, /@keyframes|animation\s*:|transition\s*:/, "nothing moves by itself");
   assert.match(block, /\.lp-tabs button:focus-visible \{ outline: 2px solid var\(--pin-2\)/, "a visible focus ring on the tabs");
   assert.match(block, /:root\[data-theme="light"\] \.lp-tabs__n/, "a light-theme touch");
@@ -307,4 +318,149 @@ test("styles: one block, every control 44 px or taller, nothing moves by itself,
   assert.match(block, /@media \(max-width: 600px\) \{[\s\S]*\.lp-stats \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/, "two stat columns on phones");
   assert.match(block, /\.lp-card__disc\[data-color\] \{ background: radial-gradient\(circle at 32% 28%, var\(--c1\), var\(--c2\) 45%, var\(--c3\) 100%\); \}/, "the six coin colours of the dashboard");
   assert.equal((css.match(/Launchpad city coins \(LAUNCHPAD_V2=on\)/g) || []).length, 1);
+});
+
+/* ---------- the live card (6 Oct 2026: real live numbers, a sparkline, the curve, the whole card opens the coin page) ---------- */
+const CURVE = { poolId: MINT, stage: "curve", symbol: "SOL", raised: 14.795544124, target: 85, progressPct: 17.406522498823527, tokensSold: 354403438.2, tokensForSale: 793100000, supply: 1e9, slot: 1 };
+const LIVE_MARKET = {
+  priceUsd: 0.000007577217833193381, marketCapUsd: 7577.217833193381, fdvUsd: 7577.217833193381, liquidityUsd: 1787.13, volume24hUsd: 536.2005, priceChange24hPct: -0.7440200264703254,
+  liquidityKind: "bonding_curve", stage: "curve", curve: CURVE, stale: false,
+  sources: { price: "Jupiter (last trade)", marketCap: "Jupiter", fdv: "Jupiter", liquidity: "SOL in the bonding curve (on-chain) × SOL price (Jupiter)", volume24h: "Jupiter", change24h: "Jupiter", curve: "Solana blockchain, read by vicinity.city" },
+  missing: {},
+};
+test("live card: the whole card leads to the coin page once a mint is recorded; before that to its city or the token page", () => {
+  assert.equal(P.coinHref(city("A")), `/coin?mint=${MINT}`);
+  assert.equal(P.coinHref({ kind: "vicinity", status: "live", mint: MINT }), `/coin?mint=${MINT}`);
+  assert.equal(P.coinHref(city("A", { mint: "not-an-address" })), "/cities?city=1", "a bad mint never goes into an address");
+  assert.equal(P.coinHref(city("A", { status: "designed", mint: null })), "/cities?city=1");
+  assert.equal(P.coinHref({ kind: "vicinity", status: "upcoming", mint: null }), "/token");
+});
+test("live card: the 24-hour chip, the price's source and age, or why there is no price (never a 0)", () => {
+  assert.deepEqual(plain(P.chipOf(2.314)), { text: "▲ 2.31% 24h", cls: "is-up" });
+  assert.deepEqual(plain(P.chipOf(-0.7440200264703254)), { text: "▼ 0.74% 24h", cls: "is-down" });
+  assert.deepEqual(plain(P.chipOf(-12.34)), { text: "▼ 12.3% 24h", cls: "is-down" });
+  assert.deepEqual(plain(P.chipOf(0)), { text: "0.00% 24h", cls: "is-flat" });
+  for (const v of [null, undefined, NaN, "3"]) assert.deepEqual(plain(P.chipOf(v)), { text: "— 24h", cls: "is-flat" }, String(v));
+  assert.equal(P.priceSource(LIVE_MARKET, 2), "Jupiter (last trade) · just now");
+  assert.equal(P.priceSource(LIVE_MARKET, 12), "Jupiter (last trade) · 12 s ago");
+  assert.equal(P.priceSource(LIVE_MARKET, 190), "Jupiter (last trade) · 3 min ago");
+  assert.equal(P.priceSource({ priceUsd: null, missing: { price: "jupiter has no price for it (no trade in the last 7 days); no SOL price; no DEX Screener pool" } }, 3),
+    "No price right now: Jupiter has no price for it (no trade in the last 7 days)", "the server's first reason, as a sentence");
+  assert.equal(P.priceSource(null, 3), "No price right now: no source has one");
+  assert.equal(P.money(LIVE_MARKET.priceUsd), "$0.00000758"); assert.equal(P.fullMoney(LIVE_MARKET.priceUsd), "$0.00000757722");
+});
+test("live card: Market cap · 24h volume · Holders · Liquidity, each value titled with its full figure and source; on a curve the liquidity is starred and explained", () => {
+  const cells = P.statCells(city("A", { market: LIVE_MARKET, holders: { count: 37, asOf: ago(0) } }));
+  assert.deepEqual(plain(cells.map((c) => [c.key, c.label, c.value])), [["mcap", "Market cap", "$7.6K"], ["vol", "24h volume", "$536.20"], ["holders", "Holders", "37"], ["liq", "In the curve*", "$1.8K"]],
+    "the coin page's words for what the curve holds");
+  // on screen under each number (a phone has no tooltip: review OA-5, DATA-CARD-SOURCES-INVISIBLE): its source in a word or two
+  assert.deepEqual(plain(cells.map((c) => [c.src, c.why])), [["Jupiter", null], ["Jupiter", null], ["vicinity.city", null], ["Chain × Jupiter*", null]]);
+  assert.equal(P.curveFoot(city("A", { market: LIVE_MARKET })), "* In the curve: the SOL the bonding curve holds (on-chain) × the SOL price (Jupiter). It is not a trading pool.");
+  assert.equal(P.curveFoot(city("A", { market: { ...LIVE_MARKET, liquidityKind: "pool" } })), null, "no star, no footnote");
+  for (const [label, short] of [["Raydium LaunchLab", "Raydium"], ["Price × on-chain supply", "Price × supply"], ["On-chain curve × SOL price (Jupiter)", "Curve × Jupiter"], ["DEX Screener", "DEX Screener"], ["Jupiter (last trade)", "Jupiter"], ["", ""]]) assert.equal(P.shortSource(label), short, label);
+  assert.equal(cells[0].title, "$7,577.22 · Jupiter");
+  assert.equal(cells[2].title, "37 · Counted by vicinity.city (pools excluded)");
+  assert.match(cells[3].title, /^\$1,787\.13 · SOL in the bonding curve \(on-chain\) × SOL price \(Jupiter\)\. On the bonding curve this is what the curve holds, not a trading pool$/);
+  const none = P.statCells(city("B", { market: { liquidityKind: "pool", missing: { marketCap: "no price to multiply; Jupiter could not be reached", volume24h: "Jupiter could not be reached" } }, holders: null }));
+  assert.deepEqual(plain(none.map((c) => [c.label, c.value, c.title])), [["Market cap", null, "No price to multiply"], ["24h volume", null, "Jupiter could not be reached"],
+    ["Holders", null, "Not counted yet: vicinity.city counts every 10 minutes"], ["Liquidity", null, "No source has it right now"]], "every missing number says why");
+  assert.deepEqual(plain(none.map((c) => [c.src, c.why])), [[null, "No price to multiply"], [null, "Jupiter could not be reached"], [null, "Not counted yet: vicinity.city counts every 10 minutes"], [null, "No source has it right now"]],
+    "and says it on screen, under the dash");
+  const js = readFileSync(new URL("../public/launchpad.js", import.meta.url), "utf8");
+  assert.match(js, /const note = field\(el\("dd", `lp-stat__src\$\{s\.value == null \? " is-why" : ""\}`, s\.value == null \? s\.why : s\.src \|\| ""\), `n-\$\{s\.key\}`\);/);
+  assert.match(js, /if \(foot\) li\.append\(field\(el\("p", "lp-src lp-stats__foot", foot\), "stats-foot"\)\);/);
+  assert.equal(P.statCells(city("C", { market: null })).length, 4, "a card without a market still has its four places");
+});
+test("live card: the bonding curve is SOL raised against the target (the real migration rule), clamped, and graduation is said in words", () => {
+  const cv = P.curveView({ market: LIVE_MARKET });
+  assert.deepEqual(plain(cv), { graduated: false, value: 17.406522498823527, pct: "17.4%", text: "14.80 of 85.00 SOL raised · moves to a Raydium pool at 85.00 SOL · Solana chain" });
+  assert.equal(P.curveView({ market: { curve: { ...CURVE, progressPct: 4.5 } } }).pct, "4.50%");
+  assert.equal(P.curveView({ market: { curve: { ...CURVE, progressPct: 140 } } }).value, 100, "never past full");
+  assert.equal(P.curveView({ market: { curve: { ...CURVE, progressPct: null } } }).pct, "—");
+  assert.deepEqual(plain(P.curveView({ market: { curve: { ...CURVE, stage: "graduated" } } })), { graduated: true, value: 100, pct: "Graduated", text: "Graduated to a Raydium pool · Solana chain" });
+  assert.equal(P.curveView({ market: {} }), null); assert.equal(P.curveView(null), null);
+  assert.notEqual(P.shapeOf(city("A", { market: LIVE_MARKET })), P.shapeOf(city("A", { market: { ...LIVE_MARKET, curve: { ...CURVE, stage: "graduated" } } })), "a graduated coin is drawn anew");
+  assert.notEqual(P.shapeOf(city("A")), P.shapeOf(city("A", { status: "waiting", mint: null })));
+  assert.equal(P.shapeOf(city("A", { market: LIVE_MARKET })), P.shapeOf(city("A", { market: { ...LIVE_MARKET, priceUsd: 1 } })), "a new price is an update in place");
+});
+test("live card sparkline: vicinity.city's USD readings when there are 6, else Raydium's SOL candles run flat to now, else nothing (never a made-up line)", () => {
+  const now = 1_791_300_000;
+  const usd = (n) => Array.from({ length: n }, (_, i) => [now - (n - i) * 600, 0.0000075 + i * 1e-8, "j", 6e-8]);
+  const usdPick = P.sparkPick({ ok: true, line: { points: usd(8) }, candles: { interval: "15m", rows: [[now - 3600, 6e-8, 7e-8, 6e-8, 7e-8]] } }, now);
+  assert.equal(usdPick.unit, "USD"); assert.equal(usdPick.points.length, 8); assert.equal(usdPick.to, now);
+  const solPick = P.sparkPick({ ok: true, line: { points: usd(2) }, candles: { interval: "15m", rows: [[now - 7200, 6e-8, 6.5e-8, 6e-8, 6.4e-8], [now - 3600, 6.4e-8, 7e-8, 6.4e-8, 6.9e-8], [now - 1800, 6.9e-8, 7e-8, 6.8e-8, 6.8e-8]] } }, now);
+  assert.equal(solPick.unit, "SOL");
+  assert.deepEqual(plain(solPick.points), [[now - 7200, 6e-8], [now - 6300, 6.4e-8], [now - 3600, 6.4e-8], [now - 2700, 6.9e-8], [now - 1800, 6.9e-8], [now - 900, 6.8e-8], [now, 6.8e-8]],
+    "each candle opens where it starts and closes where it ends; after the last one the curve's price stays (nobody traded)");
+  assert.equal(P.sparkPick({ ok: true, line: { points: usd(3) }, candles: null }, now).unit, "USD", "fewer than 6 readings and no candles: the readings there are");
+  assert.equal(P.sparkPick({ ok: true, line: { points: [] }, candles: { rows: [] } }, now), null);
+  assert.equal(P.sparkPick({ ok: false, error: "chart_unavailable" }, now), null);
+  assert.equal(P.sparkPick({ ok: true, line: { points: [[now, null, null, null], ["x", 1], [now - 60, -1], [now - 30, Infinity]] }, candles: { rows: [["t", 1, 1, 1, 1], [now, 0, 1, 1, 1]] } }, now), null, "junk rows are dropped");
+  assert.equal(P.sparkWhy({ ok: true, candles: { rows: [] }, line: { points: [] } }), "No trades in 7 days", "only when Raydium's candles of a known curve say so");
+  assert.equal(P.sparkWhy({ ok: true, candles: null, line: { points: [] } }), "No price history recorded yet", "a coin without a curve: nothing recorded, not 'no trades'");
+  assert.equal(P.sparkWhy({ ok: false }), "Price history didn't load"); assert.equal(P.sparkWhy(null), "Price history didn't load");
+});
+test("live card sparkline: a polyline and its area in a 240 × 44 box, x by time, coloured by the way it went; a corner label with the span and unit", () => {
+  const g = P.sparkGeometry({ points: [[0, 1], [50, 3], [100, 2]], from: 0, to: 100 }, 240, 44);
+  assert.equal(g.line, "0,40 120,4 240,22"); assert.equal(g.area, "M0,44 L0,40 L120,4 L240,22 L240,44 Z"); assert.equal(g.endY, 22); assert.equal(g.dir, "up");
+  assert.equal(P.sparkGeometry({ points: [[0, 3], [100, 1]], from: 0, to: 100 }).dir, "down");
+  const flat = P.sparkGeometry({ points: [[0, 2], [100, 2]], from: 0, to: 100 });
+  assert.equal(flat.dir, "flat"); assert.equal(flat.line, "0,22 240,22", "a flat line sits in the middle");
+  assert.equal(P.sparkGeometry({ points: [[0, 1]], from: 0, to: 1 }), null); assert.equal(P.sparkGeometry(null), null);
+  assert.equal(P.sparkGeometry({ points: [[50, 1], [100, 2]], from: 50, to: 200 }).line, "0,40 80,4", "x is proportional to time up to now");
+  assert.equal(P.sparkLabel({ unit: "USD", from: 0, to: 86400 }, "24h"), "24h · USD");
+  assert.equal(P.sparkLabel({ unit: "SOL", from: 0, to: 5 * 3600 }, "24h"), "5h · SOL", "a shorter history says how short");
+  assert.equal(P.sparkLabel({ unit: "SOL", from: 0, to: 3 * 86400 }, "7d"), "3d · SOL");
+  assert.equal(P.sparkLabel(null, "24h"), "");
+});
+test("live card markup: price, chip, source, sparkline, four numbers, the curve as a native progress bar, Buy on Raydium and Chart & details; no DEX Screener on a card", () => {
+  const cardFn = part.slice(part.indexOf("  function card(c, now, featured) {"), part.indexOf("  function morph(old, fresh) {"));
+  assert.ok(cardFn.length > 2000);
+  assert.match(cardFn, /link\.href = coinHref\(c\); link\.dataset\.act = "view";/, "the title is the card's link");
+  assert.match(cardFn, /el\("a", "btn btn--primary btn--sm", "Buy on Raydium ↗"\)\); buy\.href = lk\.raydium;/);
+  assert.match(cardFn, /el\("a", "btn btn--glass btn--sm", "Chart & details →"\); more\.href = coinHref\(c\);/);
+  assert.doesNotMatch(cardFn, /dexscreener|DEX Screener|lk\.jupiter/, "Jupiter and DEX Screener live on the coin page (DEX Screener only once it lists a pool)");
+  assert.match(cardFn, /field\(el\("progress", "lp-bar"\), "curve-bar"\); bar\.max = 100; bar\.value = cv\.value;/, "a progress element: its width needs no style attribute");
+  assert.match(cardFn, /"lp-price__val lp-num"/); assert.match(cardFn, /"lp-val lp-num"/);
+  assert.match(part, /window\.V\.liveNums\(list\.querySelectorAll\("\.lp-num"\)\);/, "the numbers ease through the motion layer (a price never counts up from 0)");
+  assert.match(part, /if \(old\.dataset\.shape !== fresh\.dataset\.shape\) return fresh;/, "the 30-second refresh updates a card of the same shape in place");
+  // the whole card: a click anywhere opens the coin page, except on its own links and buttons, or while selecting text
+  assert.match(part, /const li = e\.target\.closest && e\.target\.closest\("\.lp-card--live"\);\n\s+if \(!li \|\| e\.target\.closest\("a, button, input, select, label, summary"\)\) return;/);
+  assert.match(part, /if \(window\.getSelection && String\(window\.getSelection\(\)\) !== ""\) return;/);
+  // the sparkline: inline SVG, its gradient inside it, no style attribute, the end dot drawn 1:1 so it stays round
+  assert.match(part, /svg\("svg", \{ class: "lp-spark__svg", viewBox: `0 0 240 \$\{h\}`, preserveAspectRatio: "none", focusable: "false" \}\)/);
+  assert.match(part, /svg\("polyline", \{ class: "lp-spark__line", points: g\.line, "vector-effect": "non-scaling-stroke" \}\)/);
+  assert.match(part, /box\.setAttribute\("aria-hidden", "true"\);/, "decoration: the numbers say it in words");
+});
+test("live card styles: still in the Launchpad block; the motion (pings, flash, shimmer) only in its own block before the profiles, with reduced motion nothing moves", () => {
+  const at = css.indexOf("Launchpad live market (LAUNCHPAD_V2=on): the live coin cards and the coin page");
+  const end = css.indexOf("/* ---- dashboard v2 ---- */");
+  assert.ok(at > css.indexOf("Member profiles (PROFILES=on)") && end > at, "the still part sits with the Launchpad block, before the dashboard v2 block");
+  const still = css.slice(at, end);
+  assert.doesNotMatch(still, /@keyframes|animation\s*:/, "nothing moves by itself there");
+  for (const m of still.matchAll(/transition\s*:/g)) assert.fail("a transition outside the motion block: " + still.slice(m.index - 60, m.index + 30));
+  assert.match(still, /\.lp-stats--live \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/); assert.match(still, /@container \(min-width: 400px\) \{ \.lp-stats--live \{ grid-template-columns: repeat\(4, minmax\(0, 1fr\)\); \} \}/);
+  assert.match(still, /\.lp-bar::-webkit-progress-value \{ background: linear-gradient\(90deg, #FF5A36, #FFC857\);/); assert.match(still, /\.lp-bar::-moz-progress-bar \{/);
+  assert.match(still, /:root\[data-theme="light"\] \{ --up: #1E9E78; --down: #E8431F;/, "a light theme of its own");
+  const mo = css.slice(css.indexOf("Launchpad live market: motion (LAUNCHPAD_V2=on"), css.indexOf("Member profiles (PROFILES=on)"));
+  assert.ok(mo.length > 500 && mo.length < 4000);
+  assert.match(mo, /@media \(prefers-reduced-motion: no-preference\) \{\n  \.lp-card__ping::after, \.coin-pill__dot::after \{ animation: livePing 1\.8s cubic-bezier\(0,0,\.2,1\) infinite var\(--lb-play, running\); \}/,
+    "the live dot pings, and pauses off screen or in a hidden tab (--lb-play)");
+  for (const m of mo.matchAll(/animation: (\w+)[^;}]*infinite([^;}]*)/g)) { assert.ok(["livePing", "shimmer"].includes(m[1]), m[1]); assert.match(m[2], /var\(--lb-play, running\)/, m[0]); }
+  for (const name of ["lpFlash", "coinTradeIn"]) {
+    const kf = css.slice(css.indexOf(`@keyframes ${name} {`), css.indexOf("\n", css.indexOf(`@keyframes ${name} {`)));
+    const props = [...kf.matchAll(/([a-z-]+)\s*:/g)].map((p) => p[1]);
+    assert.ok(props.length && props.every((p) => ["transform", "opacity"].includes(p)), `${name}: ${props}`);
+  }
+  assert.match(read("site.js"), /const LIVE = "[^"]*\.lp-card, \.coin-live";/, "the cards and the coin page's live parts are watched on and off screen");
+});
+
+test("honesty (review): a card names Raydium LaunchLab only when the chain found the coin's pool or Jupiter says it launched there", () => {
+  const coin = (market) => ({ kind: "city", status: "live", ticker: "UTICA", pair: { symbol: "SOL" }, market });
+  assert.equal(P.venueLine(coin({ curve: null, launchpad: null })), "SOL pair", "no LaunchLab curve on the chain: no venue");
+  assert.equal(P.venueLine(coin({ curve: null, launchpad: "raydium-launchlab" })), "Raydium LaunchLab · SOL pair");
+  assert.equal(P.venueLine(coin({ curve: { stage: "curve" } })), "Raydium LaunchLab · SOL pair");
+  assert.equal(P.venueLine({ kind: "city", status: "live", pair: { symbol: "USDC" }, market: null }), "USDC pair");
+  const js = readFileSync(new URL("../public/launchpad.js", import.meta.url), "utf8");
+  assert.doesNotMatch(js, /`Raydium LaunchLab · \$\{str\(c\.pair/, "never said unconditionally");
 });

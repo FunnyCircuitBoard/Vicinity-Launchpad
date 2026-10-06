@@ -4,13 +4,15 @@
  * search, sort and filter entirely in the browser from this one answer.
  *   Sources   the coin designs (src/coins.js: coinView), the live founder seats (src/seats.js), member and holder counts per
  *             community (counted here for exactly the coins' communities, by the rule of /api/members: communityCounts below),
- *             tickers (src/tickers.js), market data from DexScreener (src/market.js) and holder counts the scheduled job wrote
- *             to coin_stats (refreshCoinStats below).
+ *             tickers (src/tickers.js), market data (src/marketlive.js: the LaunchLab curve on the chain, Jupiter, Raydium
+ *             LaunchLab, DEX Screener; every number with its source, every missing one with a reason) and holder counts the
+ *             scheduled job wrote to coin_stats (refreshCoinStats below). `attribution` lists the sources the answer used.
  *   Privacy   a founder appears as their username (or nothing) and a MASKED wallet, with the same mask as the dashboard; a
  *             contract still waiting for an admin's check is never in the answer (only status "waiting").
  *   Cost      one upstream round at most every 30 seconds per server (an in-memory copy of the answer), and the edge cache
- *             in src/index.js on top, so every viewer in a region shares one round. When DexScreener fails the copy is kept
- *             only 5 seconds and the answer says max-age=5, so the next viewer retries soon.
+ *             in src/index.js on top, so every viewer in a region shares one round (each source also keeps its own answer
+ *             30-60 seconds, src/sources.js). When a source fails the copy is kept only 5 seconds and the answer says
+ *             max-age=5, so the next viewer retries soon.
  *   Honesty   rewardModel is always null: no reward model exists in the data yet (a product decision is pending). The page
  *             shows nothing for it.
  */
@@ -21,7 +23,8 @@ import { handleSeats } from "./seats.js";
 import { latestBalances } from "./ledger.js";
 import { tickerOf } from "./tickers.js";
 import { ensureLaunchpadSchema } from "./store.js";
-import { marketFor } from "./market.js";
+import { _resetMarketLive, attributionFor, liveMarkets } from "./marketlive.js";
+import { _resetLaunchlab } from "./launchlab.js";
 import { getAllHolders } from "./chain.js";
 import { DAY, iso } from "./policy.js";
 
@@ -62,7 +65,8 @@ async function countryName(env, cc) {
   }
   return typeof countryNames[cc] === "string" ? countryNames[cc] : cc;
 }
-export const _resetLaunchpad = () => { countryNames = null; memo = new WeakMap(); };
+/** Forget everything this server remembers for the Launchpad: the list, the country names, every market source's answers. */
+export const _resetLaunchpad = () => { countryNames = null; memo = new WeakMap(); _resetMarketLive(); _resetLaunchlab(); };
 
 /** Holder counts the job wrote: Map(mint -> { count, asOf }). Empty, and a note in the log, when the table cannot be made. */
 async function holderCounts(env) {
@@ -122,9 +126,10 @@ async function build(env, fetchImpl, now) {
   const coins = coinsRes.coins || [];
   const members = await communityCounts(env, new Set(coins.map((c) => String(c.city))), now);
 
-  // market data for allow-listed mints only: $VICINITY and the city coins an admin recorded
-  const live = coins.filter((c) => c.mint).map((c) => c.mint);
-  const market = await marketFor([vicMint, ...live].filter(Boolean), fetchImpl, { now });
+  // market data for allow-listed mints only: $VICINITY and the city coins an admin recorded (src/marketlive.js: the chain's
+  // LaunchLab curve, Jupiter, Raydium LaunchLab and DEX Screener, each number labelled with its source)
+  const live = coins.filter((c) => c.mint).map((c) => ({ mint: c.mint, pairMint: c.pairMint }));
+  const market = await liveMarkets(env, [...(vicMint ? [{ mint: vicMint, pairMint: SOL }] : []), ...live], fetchImpl, { now });
 
   const cards = [];
   for (const c of coins) {
@@ -163,6 +168,7 @@ async function build(env, fetchImpl, now) {
     ok: true, asOf: iso(now), opensAt: official.launchpadOpensAt, open: now >= Date.parse(official.launchpadOpensAt),
     vicinity, coins: cards, countries,
     stats: { live: all.filter((k) => k.status === "live").length, new: all.filter(isNew).length, upcoming: all.filter((k) => k.status !== "live").length },
+    attribution: attributionFor(market.used, { holders: all.some((k) => k.holders) }),
   };
   return { body, degraded: !market.ok || !stats.ok };
 }

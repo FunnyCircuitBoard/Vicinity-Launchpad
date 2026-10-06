@@ -4,7 +4,9 @@
   "use strict";
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // less motion: the device asks for it, or the visitor pressed "Pause animations" in the footer (theme.js, before the first paint)
+  const reducedNow = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "paused";
+  const reduced = reducedNow();
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const fmt = (n, max = 0) => Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: n > 0 && n < 1 ? 6 : max });
   const compact = (n) => Number(n || 0).toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 });
@@ -97,6 +99,9 @@
   //   were), and a fixed fact marked data-still (the token's supply) is never touched.
   // * the moving parts of a page's top section (orbs, stars, chips, the headline's colours), of the home page's NYC map and timeline, and
   //   every live dot's ping pause while they are off screen (.mo-off): an animation nobody can see never costs a frame.
+  // * live buttons (style.css "Live buttons"): each one pauses while it is off screen (.mo-off on the button itself, buttons a page
+  //   script adds later too) and every one of them while the tab is hidden (.mo-hidden on <html>). Their light passes are spread out
+  //   (--sweep-delay), so two buttons side by side never shine at the same moment.
   // No loop runs when nothing moves: a count asks for animation frames only while it lasts (1.3 s at most).
   const NUM = /^([$#]?)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?([KMBT]?)(%|\+|×| [a-z][a-z ]*)?$/;
   const UNIT = { "": 1, K: 1e3, M: 1e6, B: 1e9, T: 1e12 };
@@ -121,12 +126,16 @@
   function motionLayer(win, doc, still) {
     const IO = win.IntersectionObserver, MO = win.MutationObserver;
     let on = !still && Boolean(IO && MO);
-    if (!on) return { arm() {}, finish() {}, on };
+    if (!on) return { arm() {}, finish() {}, watch() {}, on };
     const BLOCKS = "main .section-head, main .card, main .stat, main .reveal, main .city-stats > div, main .numbers__row > div, main .wanted > li, main .faq details, main .scam-note";
     const QUIET = ".dpv, .termsgate, .modal, .cstate, [data-still]"; // its own motion, or shown and hidden by its page
     const NUMS = ".hero__facts strong, .numbers__row strong, .why-now__big, .stat > strong, .city-stats strong, .tile__num";
     const HEROES = ".hero, .launch-hero, .page-hero, .connect, .dash-out, main > .section:first-child";
     const LOOPS = ".nyc, .timeline, .live-dot"; // further down a page, but moving for as long as it is open
+    // every control with a loop of its own (style.css "Live buttons"); the ones that shine get a --sweep-delay of their own
+    // (.lp-card, .coin-live: the Launchpad's live coin cards and the coin page's live parts, whose dots ping and lines glow)
+    const LIVE = ".btn, .contract__buy, .contract__ext, .chip-link, .map-open, .map-ctrl button, .chips button, .su-tab, a[role=tab], .nav a, .tabbar a, .seg__ind, .theme-toggle, .contract__copy, .icon-btn, .map-focus__btn, .seg button, .lp-card, .coin-live";
+    const SHINES = ".btn--primary, .btn--glass, .btn--social, .account-btn, .contract__buy, .contract__ext, .chip-link, .map-open, .theme-toggle, .map-ctrl button, .contract__copy, .icon-btn, .map-focus__btn, .seg button";
     const GLOW = [{ transform: "none", filter: "none" }, { transform: "translateY(-2px)", filter: "brightness(1.45) drop-shadow(0 0 10px rgba(255,138,91,.55))", offset: 0.3 }, { transform: "none", filter: "none" }];
     const timer = (f, ms) => win.setTimeout(f, ms);
 
@@ -162,8 +171,11 @@
     let addQ = 0;
     const main = doc.querySelector("main");
     if (main) new MO((recs) => {
-      for (const r of recs) for (const n of r.addedNodes) if (n.nodeType === 1 && !(r.target.closest && r.target.closest("table"))) added.add(n);
-      if (added.size && !addQ) addQ = win.requestAnimationFrame(() => { addQ = 0; const list = [...added].filter((n) => n.isConnected); added.clear(); if (list.length) arm(...list); });
+      for (const r of recs) {
+        for (const n of r.addedNodes) if (n.nodeType === 1 && !(r.target.closest && r.target.closest("table"))) added.add(n);
+        for (const n of r.removedNodes || []) if (n.nodeType === 1) for (const e of liveIn(n)) away.unobserve(e); // a redrawn list lets its old buttons go
+      }
+      if (added.size && !addQ) addQ = win.requestAnimationFrame(() => { addQ = 0; const list = [...added].filter((n) => n.isConnected); added.clear(); if (list.length) { arm(...list); list.forEach(watchLive); } });
     }).observe(main, { childList: true, subtree: true });
 
     /* numbers */
@@ -246,22 +258,75 @@
     // the keyboard reaches a control inside a block still waiting (or still fading in): it shows now, never a focused control at opacity 0
     doc.addEventListener("focusin", (ev) => { const b = ev.target && ev.target.closest ? ev.target.closest(".mo-armed") : null; if (b) now(b); });
 
-    /* the top section's drifting parts, and the loops further down, pause while they are off screen */
+    /* the top section's drifting parts, the loops further down and every live button pause while they are off screen */
     const away = new IO((entries) => { for (const en of entries) en.target.classList.toggle("mo-off", !en.isIntersecting); });
     for (const e of doc.querySelectorAll(`${HEROES}, ${LOOPS}`)) away.observe(e);
+    let shine = 0;
+    /** The live buttons in (or at) n: watched on and off screen; each one that shines takes the next spot in the 7 s cycle. */
+    function liveIn(n) { return n.querySelectorAll ? [...(n.matches && n.matches(LIVE) ? [n] : []), ...n.querySelectorAll(LIVE)] : []; }
+    function watchLive(n) {
+      for (const e of liveIn(n)) {
+        away.observe(e);
+        if (e.matches(SHINES) && e.style.setProperty && !e.style.getPropertyValue("--sweep-delay")) {
+          e.style.setProperty("--sweep-delay", `${(0.8 + ((shine++ * 0.618) % 1) * 7).toFixed(2)}s`); // golden-ratio steps: a button and the next two never shine together
+        }
+      }
+    }
+    watchLive(doc);
 
-    doc.addEventListener("visibilitychange", () => { if (doc.hidden) for (const e of [...runs.keys()]) stop(e, true); });
+    const rootEl = doc.documentElement, hiddenMark = () => { if (rootEl.classList) rootEl.classList.toggle("mo-hidden", Boolean(doc.hidden)); };
+    hiddenMark();
+    doc.addEventListener("visibilitychange", () => { hiddenMark(); if (doc.hidden) for (const e of [...runs.keys()]) stop(e, true); });
     const q = win.matchMedia ? win.matchMedia("(prefers-reduced-motion: reduce)") : null;
     if (q && q.addEventListener) q.addEventListener("change", () => { if (q.matches) { on = false; finish(); } }); // asked for less motion meanwhile: stop now
+    // "Pause animations" pressed meanwhile (theme.js): the same. Played again: the page moves again from the next page on.
+    if (win.addEventListener) win.addEventListener("vicinity:motion", (ev) => { if (ev.detail === "paused") { on = false; finish(); } });
 
     arm();
     watch([...doc.querySelectorAll(NUMS)]);
-    return { arm, finish, on };
+    return { arm, finish, watch, on };
   }
   /* motion: end */
+
+  /* ---------- segmented controls: one marker under the chosen segment, sliding to a new choice ---------- */
+  // Each .seg (the Launchpad's lists, the dashboard's switches) gets one marker (.seg__ind, hidden from screen readers) that sits
+  // under the chosen button and glides to the next one (transform only, 240 ms; at once with reduced motion). Until it has measured
+  // the chosen button (a control in a hidden panel has no size yet) the button keeps its own look, and so it does without this script.
+  function segments(win, doc) {
+    const RO = win.ResizeObserver, MO = win.MutationObserver;
+    if (!RO || !MO) return;
+    const CHOSEN = 'button[aria-selected="true"], button[aria-pressed="true"]';
+    for (const seg of doc.querySelectorAll(".seg")) {
+      const ind = el("span", "seg__ind");
+      ind.setAttribute("aria-hidden", "true");
+      seg.append(ind);
+      let at = null; // where the marker is: { x, y, w }
+      const place = (glide) => {
+        const b = seg.querySelector(CHOSEN);
+        if (!b || !b.offsetWidth) return; // nothing chosen, or not laid out yet: the button's own look stays
+        const to = { x: b.offsetLeft, y: b.offsetTop, w: b.offsetWidth, h: b.offsetHeight };
+        if (at && at.x === to.x && at.y === to.y && at.w === to.w && at.h === to.h) return;
+        ind.style.width = `${to.w}px`; ind.style.height = `${to.h}px`; ind.style.transform = `translate(${to.x}px, ${to.y}px)`;
+        if (glide && at && !reducedNow() && ind.animate) {
+          ind.animate([{ transform: `translate(${at.x}px, ${at.y}px) scaleX(${at.w / to.w})` }, { transform: `translate(${to.x}px, ${to.y}px)` }],
+            { duration: 240, easing: "cubic-bezier(.2,.8,.2,1)" });
+        }
+        at = to;
+        seg.classList.add("has-ind");
+      };
+      new MO(() => place(true)).observe(seg, { subtree: true, attributes: true, attributeFilter: ["aria-selected", "aria-pressed"] });
+      const ro = new RO(() => place(false));
+      ro.observe(seg);
+      for (const b of seg.querySelectorAll("button")) ro.observe(b);
+    }
+  }
+  segments(window, document);
   const motion = motionLayer(window, document, reduced);
   /** Lets a page's blocks rise in once its script has shown them (dashboard.js after the dashboard opens). */
   const reveal = (root) => motion.arm(...(root ? [root] : []));
+  /** Live numbers a page script made after the start (the Launchpad's cards, the coin page): from now on, a new value the script
+   *  writes eases from the old one (a price never counts from 0). Text-only elements; nothing happens with reduced motion. */
+  const liveNums = (els) => motion.watch([...els]);
 
   /* ---------- who's signed in (header button) ---------- */
   let meLite = null;
@@ -406,6 +471,7 @@
     });
   })();
 
-  window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, reveal, reduced,
+  window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, liveNums, reveal,
+    get reduced() { return reducedNow(); }, // read when it is needed: the visitor may pause the animations while the page is open
     me: () => meLite, ready, official, opensAt: () => opensAt, siteMode: () => siteMode };
 })();

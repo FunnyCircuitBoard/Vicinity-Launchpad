@@ -34,3 +34,17 @@ test("the example dashboard's smallest text reads clearly: the light theme's 'Yo
   assert.match(css, /\.dpv__coin, \.dpv__disc \{[^}]*color: #062A1F;/);
   assert.ok(ratio("#062A1F", "#37C29A") >= 6, "on the coin's green, where the label sits");
 });
+
+test("the small text that carries each number's source, age and reason reads at 4.5:1 or more in both themes (review A11Y-CONTRAST-SOURCES)", () => {
+  // measured at 390 px: in var(--faint) these read 3.36 to 4.42:1 (light #7A869C, dark #6E7B92) on the tiles' surfaces
+  const SURFACES = { dark: ["#1B212A", "#141A24", "#060C17"], light: ["#F3F5F6", "#FFFFFF", "#F4F6FA"] }; // a tile, a card, the page
+  const [dark, light] = values("--muted");
+  for (const s of SURFACES.dark) assert.ok(ratio(dark, s) >= 4.5, `dark --muted ${dark} on ${s}: ${ratio(dark, s).toFixed(2)}:1`);
+  for (const s of SURFACES.light) assert.ok(ratio(light, s) >= 4.5, `light --muted ${light} on ${s}: ${ratio(light, s).toFixed(2)}:1`);
+  for (const sel of [".lp-src", ".coin-foot", ".coin-tile__src", ".coin-trade__who", ".coin-sources"]) {
+    const rule = new RegExp(`\\n${sel.replace(/[.]/g, "\\.")} \\{[^}]*\\}`).exec(css);
+    assert.ok(rule, sel);
+    assert.match(rule[0], /color: var\(--muted\);/, `${sel}: ${rule[0]}`);
+    assert.doesNotMatch(rule[0], /--faint/, sel);
+  }
+});

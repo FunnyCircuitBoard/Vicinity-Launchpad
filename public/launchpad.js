@@ -68,6 +68,10 @@
 // City coins (switched on with LAUNCHPAD_V2=on): Live | New | Upcoming | Trending over the one /api/launchpad answer, with
 // search, country/status filters and sorting done here in the page. Nothing below runs, and nothing is requested, unless
 // /api/official (which site.js already asks for) says launchpadV2 is true; with the switch off the section stays hidden.
+// Each live card (6 Oct 2026, the owner: "the $VICINITY coin does not have any real live data"): its price with the 24-hour change,
+// a sparkline (GET /api/coin/chart, asked once the card is near the screen, at most every 5 minutes), market cap, 24-hour volume,
+// holders, liquidity and its bonding curve, each with its source; the 30-second refresh updates the numbers in place (they ease,
+// their cell flashes once) and the whole card opens the coin's own page, /coin?mint=<mint> (public/coin.js).
 (() => {
   "use strict";
 
@@ -255,8 +259,136 @@
     return "/launchpad" + (s ? `?${s}` : "");
   }
 
+  /* ----- the live card: where it leads, the price line, the four numbers, the curve, the sparkline ----- */
+  /** The whole card leads to the coin's own page (/coin) once it has a recorded mint; before that to its city, or the token page. */
+  const coinHref = (c) => (isLive(c) && c && isAddr(c.mint) ? `/coin?mint=${c.mint}` : viewHref(c));
+  /** The 24-hour change chip: "▲ 2.3% 24h" / "▼ 0.7% 24h" / "— 24h". */
+  function chipOf(v) {
+    const n = num(v);
+    if (n == null) return { text: "— 24h", cls: "is-flat" };
+    return { text: `${n > 0 ? "▲ " : n < 0 ? "▼ " : ""}${Math.abs(n).toFixed(Math.abs(n) >= 10 ? 1 : 2)}% 24h`, cls: n > 0 ? "is-up" : n < 0 ? "is-down" : "is-flat" };
+  }
+  /** The first clause of a reason the server gave, as a sentence. */
+  const reason = (r) => { const s = str(r).split(";")[0].trim(); return s ? s[0].toUpperCase() + s.slice(1) : ""; };
+  /** What the line under the price says: its source and the answer's age, or why there is no price. */
+  function priceSource(mk, ageS) {
+    const m = mk || {};
+    if (num(m.priceUsd) == null) return `No price right now: ${reason(m.missing && m.missing.price) || "no source has one"}`;
+    const age = !(ageS >= 0) ? "" : ageS < 5 ? "just now" : ageS < 60 ? `${ageS} s ago` : ageS < 3600 ? `${Math.floor(ageS / 60)} min ago` : `${Math.floor(ageS / 3600)} h ago`;
+    return [str(m.sources && m.sources.price) || "Source not given", age].filter(Boolean).join(" · ");
+  }
+  /** A source in a word or two, for the line under a number on a card (the full label stays in the title and on the coin page). */
+  function shortSource(label) {
+    const t = str(label);
+    if (!t) return "";
+    if (/bonding curve/i.test(t)) return "Chain × Jupiter*";
+    if (/^On-chain curve ×/.test(t)) return "Curve × Jupiter";
+    if (/^Jupiter/.test(t)) return "Jupiter";
+    if (/^Raydium/.test(t)) return "Raydium";
+    if (/^DEX Screener/.test(t)) return "DEX Screener";
+    if (/^Price × on-chain supply/.test(t)) return "Price × supply";
+    if (/^Counted by vicinity\.city/.test(t)) return "vicinity.city";
+    return t;
+  }
+  /**
+   * The four numbers of a live card: Market cap · 24h volume · Holders · Liquidity (on a curve: what the curve holds, "In the curve*",
+   * the same words as the coin page). Each cell carries, on screen, its source in a word or two (`src`) or why it is "—" (`why`);
+   * a phone shows no tooltip, so nothing that matters lives only in the title. `foot`: the line that explains the star.
+   */
+  function statCells(c) {
+    const m = (c && c.market) || {}, src = m.sources || {}, why = m.missing || {}, h = holders(c);
+    const cell = (key, label, v, short, full, from, missing, note) => ({ key, label, v, value: short, src: short == null ? null : shortSource(from) || null, why: short == null ? missing : null,
+      title: short == null ? missing : [full, from].filter(Boolean).join(" · ") + (note ? `. ${note}` : "") });
+    const curve = m.liquidityKind === "bonding_curve";
+    return [
+      cell("mcap", "Market cap", num(m.marketCapUsd), money(m.marketCapUsd), fullMoney(m.marketCapUsd), src.marketCap, reason(why.marketCap) || "No source has it right now"),
+      cell("vol", "24h volume", num(m.volume24hUsd), money(m.volume24hUsd), fullMoney(m.volume24hUsd), src.volume24h, reason(why.volume24h) || "No source has it right now"),
+      cell("holders", "Holders", h, count(h), fullCount(h), h != null ? "Counted by vicinity.city (pools excluded)" : null, "Not counted yet: vicinity.city counts every 10 minutes"),
+      cell("liq", curve ? "In the curve*" : "Liquidity", num(m.liquidityUsd), money(m.liquidityUsd), fullMoney(m.liquidityUsd), src.liquidity, reason(why.liquidity) || "No source has it right now",
+        curve ? "On the bonding curve this is what the curve holds, not a trading pool" : null),
+    ];
+  }
+  /** Under a curve card's numbers: what the star means, on screen. */
+  const curveFoot = (c) => {
+    const m = (c && c.market) || {}, sym = str(m.curve && m.curve.symbol) || str(m.nativeSymbol) || "SOL";
+    return m.liquidityKind === "bonding_curve" ? `* In the curve: the ${sym} the bonding curve holds (on-chain) × the ${sym} price (Jupiter). It is not a trading pool.` : null;
+  };
+  /** The bonding curve on a card: { pct, value, text, graduated } or null (no LaunchLab curve known). */
+  function curveView(c) {
+    const cv = c && c.market && c.market.curve;
+    if (!cv || typeof cv !== "object") return null;
+    const sym = str(cv.symbol) || "SOL", raised = num(cv.raised), target = num(cv.target), p = num(cv.progressPct);
+    const amount = (v) => (v >= 100 ? plainFmt.format(v) : v.toFixed(2));
+    if (cv.stage !== "curve") return { graduated: true, value: 100, pct: "Graduated", text: "Graduated to a Raydium pool · Solana chain" };
+    return {
+      graduated: false, value: p == null ? 0 : Math.max(0, Math.min(100, p)), pct: p == null ? "—" : `${p >= 10 ? p.toFixed(1) : p.toFixed(2)}%`,
+      text: `${raised != null && target != null ? `${amount(raised)} of ${amount(target)} ${sym} raised · ` : ""}moves to a Raydium pool at ${target != null ? amount(target) : "its target"} ${sym} · Solana chain`,
+    };
+  }
+  /** The line under a live coin's name: "Raydium LaunchLab · SOL pair" only when the chain found its LaunchLab pool or Jupiter says it
+   *  launched there (server: market.launchpad); otherwise the pair alone, never a venue nobody confirmed. */
+  function venueLine(c) {
+    const m = (c && c.market) || {}, sym = str(c && c.pair && c.pair.symbol) || "SOL";
+    return `${m.launchpad === "raydium-launchlab" || (m.curve && typeof m.curve === "object") ? "Raydium LaunchLab · " : ""}${sym} pair`;
+  }
+  /** Is it a card that trades (a price block, a curve, a sparkline) or one that waits? Cards of another shape are redrawn whole. */
+  const shapeOf = (c) => [str(c && c.status), isLive(c) ? "live" : "wait", curveView(c) ? (curveView(c).graduated ? "grad" : "curve") : "nocurve"].join("|");
+
+  /**
+   * The sparkline of one /api/coin/chart answer: vicinity.city's USD readings when there are at least `min` of them, else
+   * Raydium's SOL candles (between two trades the curve's price stays where the last one left it, so the line runs flat to now),
+   * else whatever has two points. { points: [[t, v]], unit, from, to } or null (nothing to draw).
+   */
+  function sparkPick(answer, nowSec, min = 6) {
+    const a = answer && answer.ok === true ? answer : null;
+    if (!a) return null;
+    const usd = (a.line && Array.isArray(a.line.points) ? a.line.points : []).filter((p) => Array.isArray(p) && Number.isSafeInteger(p[0]) && num(p[1]) != null && p[1] > 0).map((p) => [p[0], p[1]]);
+    const rows = (a.candles && Array.isArray(a.candles.rows) ? a.candles.rows : []).filter((r) => Array.isArray(r) && Number.isSafeInteger(r[0]) && num(r[1]) > 0 && num(r[4]) > 0);
+    const iv = { "1m": 60, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 }[a.candles && a.candles.interval] || 900;
+    const solPts = [];
+    for (const r of rows) { solPts.push([r[0], r[1]], [r[0] + iv, r[4]]); }
+    if (solPts.length && solPts[solPts.length - 1][0] < nowSec) solPts.push([nowSec, solPts[solPts.length - 1][1]]);
+    const pick = usd.length >= min ? [usd, "USD"] : rows.length * 2 >= min ? [solPts, "SOL"] : usd.length >= 2 ? [usd, "USD"] : solPts.length >= 2 ? [solPts, "SOL"] : null;
+    if (!pick) return null;
+    const pts = pick[0].slice().sort((x, y) => x[0] - y[0]);
+    return { points: pts, unit: pick[1], from: pts[0][0], to: Math.max(nowSec, pts[pts.length - 1][0]) };
+  }
+  /** The sparkline's shape in a w × h box: a polyline, the area under it, where the line ends, and which way it went. */
+  function sparkGeometry(spark, w = 240, h = 44, pad = 4) {
+    const pts = spark && Array.isArray(spark.points) ? spark.points : [];
+    if (pts.length < 2) return null;
+    let lo = Infinity, hi = -Infinity;
+    for (const [, v] of pts) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    const t0 = spark.from, t1 = Math.max(spark.to, t0 + 1);
+    const X = (t) => Math.round(((t - t0) / (t1 - t0)) * w * 10) / 10;
+    const Y = (v) => Math.round((hi === lo ? h / 2 : pad + (1 - (v - lo) / (hi - lo)) * (h - 2 * pad)) * 10) / 10;
+    const xy = pts.map(([t, v]) => `${X(t)},${Y(v)}`);
+    const first = pts[0][1], last = pts[pts.length - 1][1];
+    return { line: xy.join(" "), area: `M${X(pts[0][0])},${h} L${xy.join(" L")} L${X(pts[pts.length - 1][0])},${h} Z`, endX: X(pts[pts.length - 1][0]), endY: Y(last),
+      dir: last > first ? "up" : last < first ? "down" : "flat", sig: `${pts.length}:${pts[0][0]}:${pts[pts.length - 1][0]}:${last}` };
+  }
+  /**
+   * Why a card has no sparkline, in words that stay true: "No trades in 7 days" only when Raydium's candles of a known curve say
+   * so; otherwise nothing is recorded yet (vicinity.city reads the price every 10 minutes from the day a coin is live), or the
+   * chart did not answer.
+   */
+  function sparkWhy(answer) {
+    if (!answer || answer.ok !== true) return "Price history didn't load";
+    const c = answer.candles;
+    if (c && typeof c === "object" && Array.isArray(c.rows) && !c.rows.length && !(answer.line && Array.isArray(answer.line.points) && answer.line.points.length)) return "No trades in 7 days";
+    return "No price history recorded yet";
+  }
+  /** The corner label: "24h · USD", or how far back the line goes when the history is shorter ("5h · SOL"). */
+  function sparkLabel(spark, range) {
+    if (!spark) return "";
+    const span = spark.to - spark.from, full = range === "7d" ? 7 * 86400 : 86400;
+    const words = span >= full * 0.95 ? range : span >= 2 * 86400 ? `${Math.round(span / 86400)}d` : `${Math.max(1, Math.round(span / 3600))}h`;
+    return `${words} · ${spark.unit}`;
+  }
+
   const pure = { NEW_DAYS, TABS, SORTS, TAB_NOTE, norm, searchText, matches, inTab, isNew, counts, rowsFor, money, fullMoney, count, fullCount, pct, communityText,
-    countdownText, ageSeconds, agoText, statusLabel, notLiveWhy, founderText, pairText, links, viewHref, logoSrc, colorOf, cardKey, stateFromUrl, urlFor };
+    countdownText, ageSeconds, agoText, statusLabel, notLiveWhy, founderText, pairText, links, viewHref, logoSrc, colorOf, cardKey, stateFromUrl, urlFor,
+    coinHref, chipOf, priceSource, shortSource, statCells, curveFoot, curveView, venueLine, shapeOf, sparkPick, sparkGeometry, sparkLabel, sparkWhy };
   window.VLaunchpad = { pure };
   if (typeof document === "undefined" || !window.V) return; // node: the helpers are enough
 
@@ -266,16 +398,94 @@
   const { $, $$, el, api, official, opensAt, reduced } = window.V;
   const sec = $("#lp-coins"); if (!sec) return;
   const REFRESH_MS = 30000, BACKOFF = [30000, 60000, 120000, 300000];
+  const SPARK_MS = 300000; // a sparkline is asked again at most every 5 minutes
   let data = null, receivedAt = 0, fails = 0, timer = 0, state = { tab: "live", q: "", country: "", status: "", sort: "" }, countryNames = {}, started = false;
+  const sparks = new Map(); // mint -> { at, spark, range } (null spark: nothing to draw), refreshed every 5 minutes
+  let gradients = 0;
 
   const tabs = () => $$("#lp-tabs [role=tab]");
-  const na = () => { const s = el("span", "lp-na"); s.title = "No data yet"; const dash = el("span", null, "—"); dash.setAttribute("aria-hidden", "true"); s.append(dash, el("span", "sr-only", "No data yet")); return s; };
-  const val = (short, full) => { if (short == null) return na(); const s = el("span", "lp-val", short); if (full) s.title = full; return s; };
-  const stat = (label, node, sub) => { const d = el("div", "lp-stat"); d.append(el("dt", null, label)); const dd = el("dd"); dd.append(node); if (sub) dd.append(sub); d.append(dd); return d; };
+  const na = (why = "No data yet") => { const s = el("span", "lp-na"); s.title = why; const dash = el("span", null, "—"); dash.setAttribute("aria-hidden", "true"); s.append(dash, el("span", "sr-only", why)); return s; };
   const newTab = (a) => { a.target = "_blank"; a.rel = "noopener"; a.append(el("span", "sr-only", " (opens in a new tab)")); return a; };
+  const svg = (tag, attrs) => { const e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v); return e; };
+  /** A field the 30-second refresh can update in place (data-f), with its number (data-v) to tell up from down. */
+  const field = (e, f, v) => { e.dataset.f = f; if (v != null) e.dataset.v = String(v); return e; };
 
-  function card(c, now) {
-    const li = el("li", "card lp-card"); li.dataset.key = cardKey(c); li.dataset.status = str(c.status);
+  /* ----- the sparkline: a line and the area under it, a dot where it ends; dashed and said in words when there is nothing ----- */
+  function sparkEl(c, featured) {
+    const h = featured ? 120 : 44, box = field(el("div", `lp-spark${featured ? " lp-spark--lg" : ""}`), "spark");
+    box.setAttribute("aria-hidden", "true");
+    if (!isLive(c)) {
+      box.classList.add("is-empty"); box.dataset.sig = "wait";
+      box.append(el("span", "lp-spark__dash"), el("span", "lp-spark__msg", "Not trading yet. Nothing is minted."));
+      return box;
+    }
+    const hit = sparks.get(c.mint);
+    if (!hit) { box.classList.add("is-loading"); box.dataset.sig = "loading"; box.dataset.mint = c.mint; return box; }
+    const g = sparkGeometry(hit.spark, 240, h);
+    if (!g) {
+      box.classList.add("is-empty"); box.dataset.sig = `none:${hit.why}`;
+      box.append(el("span", "lp-spark__dash"), el("span", "lp-spark__msg", hit.why || "No price history recorded yet"));
+      return box;
+    }
+    box.classList.add(`is-${g.dir}`); box.dataset.sig = g.sig;
+    const id = `lpg-${++gradients}`;
+    const s = svg("svg", { class: "lp-spark__svg", viewBox: `0 0 240 ${h}`, preserveAspectRatio: "none", focusable: "false" });
+    const grad = svg("linearGradient", { id, x1: "0", y1: "0", x2: "0", y2: "1" });
+    grad.append(svg("stop", { offset: "0", class: "lp-spark__stop0" }), svg("stop", { offset: "1", class: "lp-spark__stop1" }));
+    const defs = svg("defs"); defs.append(grad);
+    s.append(defs, svg("path", { class: "lp-spark__area", d: g.area, fill: `url(#${id})` }), svg("polyline", { class: "lp-spark__line", points: g.line, "vector-effect": "non-scaling-stroke" }));
+    // the end dot sits on the right edge (the line runs to now), drawn 1:1 so it stays round however wide the card is
+    const end = svg("svg", { class: "lp-spark__end", viewBox: `0 0 20 ${h}`, focusable: "false" });
+    end.append(svg("circle", { class: "lp-spark__ping", cx: "10", cy: String(g.endY), r: "3" }), svg("circle", { class: "lp-spark__dot", cx: "10", cy: String(g.endY), r: "3" }));
+    box.append(s, end, el("span", "lp-spark__label", sparkLabel(hit.spark, hit.range)));
+    return box;
+  }
+  /** Sparklines are asked for only once their card comes near the screen, at most every 5 minutes per coin. */
+  const sparkIO = window.IntersectionObserver ? new IntersectionObserver((es) => { for (const e of es) if (e.isIntersecting) { sparkIO.unobserve(e.target); fetchSpark(e.target.dataset.mint); } }, { rootMargin: "200px 0px" }) : null;
+  const asking = new Set();
+  async function fetchSpark(mint) {
+    if (!isAddr(mint) || asking.has(mint)) return;
+    const hit = sparks.get(mint); if (hit && Date.now() - hit.at < SPARK_MS) { paintSpark(mint); return; }
+    asking.add(mint);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const day = await api(`/api/coin/chart?mint=${encodeURIComponent(mint)}&tf=24h`);
+    let range = "24h", spark = sparkPick(day, nowSec), why = null;
+    if (!spark || spark.points.length < 6) { // a quiet day: the week tells more
+      const weekAnswer = await api(`/api/coin/chart?mint=${encodeURIComponent(mint)}&tf=7d`);
+      const week = sparkPick(weekAnswer, nowSec);
+      if (week && (!spark || week.points.length > spark.points.length)) { spark = week; range = "7d"; }
+      if (!spark) why = sparkWhy(weekAnswer && weekAnswer.ok === true ? weekAnswer : day);
+    }
+    asking.delete(mint);
+    // a chart that did not answer is asked again at the next refresh, not in 5 minutes
+    sparks.set(mint, { at: spark || (why && why !== "Price history didn't load") ? Date.now() : Date.now() - SPARK_MS + REFRESH_MS, spark, range, why });
+    paintSpark(mint);
+  }
+  function paintSpark(mint) {
+    for (const li of $$(`.lp-card[data-mint="${mint}"]`)) {
+      const old = li.querySelector('[data-f="spark"]'); if (!old) continue;
+      const c = cardsByKey.get(li.dataset.key); if (!c) continue;
+      const fresh = sparkEl(c, li.classList.contains("lp-card--featured"));
+      if (old.dataset.sig !== fresh.dataset.sig) old.replaceWith(fresh); // redrawn without animation
+    }
+  }
+  function wantSparks(root) {
+    for (const box of root.querySelectorAll('.lp-spark.is-loading[data-mint]')) {
+      const hit = sparks.get(box.dataset.mint);
+      if (hit && Date.now() - hit.at < SPARK_MS) continue;
+      if (sparkIO) sparkIO.observe(box); else fetchSpark(box.dataset.mint);
+    }
+    // a drawn sparkline older than 5 minutes is asked again when its card is redrawn
+    for (const li of root.querySelectorAll(".lp-card[data-mint]")) { const hit = sparks.get(li.dataset.mint); if (hit && Date.now() - hit.at >= SPARK_MS) fetchSpark(li.dataset.mint); }
+  }
+
+  /* ----- a card ----- */
+  const cardsByKey = new Map(); // card key -> its latest data (a sparkline that arrives later is drawn from it)
+  function card(c, now, featured) {
+    const live = isLive(c);
+    const li = el("li", `card lp-card${live ? " lp-card--live" : ""}${featured ? " lp-card--featured" : ""}`); li.dataset.key = cardKey(c); li.dataset.status = str(c.status); li.dataset.shape = shapeOf(c);
+    if (live && isAddr(c.mint)) li.dataset.mint = c.mint;
+    cardsByKey.set(cardKey(c), c);
     const head = el("div", "lp-card__head");
     const disc = el("div", "coin-disc lp-card__disc"); disc.dataset.color = colorOf(c);
     const logo = logoSrc(c);
@@ -283,54 +493,125 @@
     else { const tk = str(c.ticker).slice(0, 8); disc.dataset.len = String(Math.min(8, tk.length)); disc.append(el("span", null, tk)); } // longer tickers get smaller type
     disc.setAttribute("aria-hidden", "true");
     const id = el("div", "lp-card__id");
-    const h3 = el("h3", "lp-card__title"); h3.append(el("span", "lp-card__ticker", `$${str(c.ticker)}`), " ", el("span", "lp-card__name", str(c.name)));
+    // the title is the card's one link: its ::after covers the whole card, so a tap anywhere opens the coin (the buttons sit above it)
+    const h3 = el("h3", "lp-card__title"), link = el("a", "lp-card__link"); link.href = coinHref(c); link.dataset.act = "view";
+    link.append(el("span", "lp-card__ticker", `$${str(c.ticker)}`), " ", el("span", "lp-card__name", str(c.name)));
+    if (live) link.append(el("span", "sr-only", ": chart and details"));
+    h3.append(link);
     const place = c.kind === "vicinity" ? "The Vicinity token · every city" : [c.city && c.city.name, countryNames[c.city && c.city.country] || (c.city && c.city.country)].filter(Boolean).join(", ");
     id.append(h3, el("p", "small muted lp-card__place", place));
+    if (live) id.append(field(el("p", "lp-card__sub", venueLine(c)), "venue"));
     const [stText, stCls] = statusLabel(c, { now, opensAt: opensAt() });
-    const tag = el("span", `tag ${stCls} lp-card__status`, stText); tag.dataset.status = str(c.status);
+    const tag = field(el("span", `tag ${stCls} lp-card__status`), "status"); tag.dataset.status = str(c.status);
+    if (live) tag.append(el("span", "lp-card__ping"), stText); else tag.textContent = stText;
     head.append(disc, id, tag);
+    li.append(head);
 
-    const meta = el("p", "tiny muted lp-card__meta");
+    if (live) {
+      const mk = c.market || {}, ch = chipOf(mk.priceChange24hPct);
+      const box = el("div", `lp-price${mk.stale ? " is-stale" : ""}`);
+      const row = el("p", "lp-price__row");
+      const p = money(mk.priceUsd);
+      const val = field(el("span", "lp-price__val lp-num", p || "—"), "price", num(mk.priceUsd));
+      val.title = p ? `${fullMoney(mk.priceUsd)} · ${str(mk.sources && mk.sources.price)}` : priceSource(mk, 0);
+      const chg = field(el("span", `lp-chg2 ${ch.cls}`, ch.text), "chg");
+      chg.title = num(mk.priceChange24hPct) == null ? `No 24-hour change: ${reason(mk.missing && mk.missing.change24h) || "no source has it"}` : `24-hour change · ${str(mk.sources && mk.sources.change24h)}`;
+      row.append(val, chg);
+      const delayed = field(el("span", "tag tag--gold lp-delayed", "Delayed"), "delayed"); delayed.hidden = !mk.stale; delayed.title = "A source answered with its last good copy (at most a few minutes old)";
+      row.append(delayed);
+      box.append(row, field(el("p", "lp-src", priceSource(mk, ageSeconds({ asOf: data && data.asOf, receivedAt, now: Date.now() }))), "src"));
+      li.append(box, sparkEl(c, featured));
+      const dl = el("dl", "lp-stats lp-stats--live");
+      for (const s of statCells(c)) {
+        const d = el("div", "lp-stat"); d.dataset.cell = s.key;
+        const dd = field(el("dd"), `s-${s.key}`, s.v); dd.title = s.title || "";
+        dd.append(s.value == null ? na(s.title) : el("span", "lp-val lp-num", s.value));
+        // its source, or why it is "—", on screen (a phone has no tooltip)
+        const note = field(el("dd", `lp-stat__src${s.value == null ? " is-why" : ""}`, s.value == null ? s.why : s.src || ""), `n-${s.key}`);
+        d.append(el("dt", null, s.label), dd, note);
+        dl.append(d);
+      }
+      li.append(dl);
+      const foot = curveFoot(c);
+      if (foot) li.append(field(el("p", "lp-src lp-stats__foot", foot), "stats-foot"));
+      const cv = curveView(c);
+      if (cv) {
+        const cb = el("div", `lp-curve${cv.graduated ? " is-done" : ""}`);
+        const top = el("p", "lp-curve__row");
+        top.append(el("span", null, cv.graduated ? "✓ Graduated to Raydium" : "Bonding curve"), field(el("strong", "lp-curve__pct", cv.graduated ? "100%" : cv.pct), "curve-pct", cv.value));
+        const bar = field(el("progress", "lp-bar"), "curve-bar"); bar.max = 100; bar.value = cv.value; bar.setAttribute("aria-label", `Bonding curve ${cv.pct}`);
+        cb.append(top, bar, field(el("p", "lp-src", cv.text), "curve-src"));
+        li.append(cb);
+      }
+    } else li.append(sparkEl(c, featured));
+
+    const meta = field(el("p", "tiny muted lp-card__meta"), "meta");
     meta.append(el("span", null, pairText(c)), el("span", "lp-card__sep", " · "), el("span", "lp-card__founder", c.kind === "vicinity" ? "Launched by the Vicinity team" : founderText(c.founder)));
-
-    const dl = el("dl", "lp-stats");
-    const mk = c.market || {};
-    dl.append(stat("Price", val(money(mk.priceUsd), fullMoney(mk.priceUsd))));
-    dl.append(stat("Market cap", val(money(mk.marketCapUsd), fullMoney(mk.marketCapUsd))));
-    dl.append(stat("Liquidity", val(money(mk.liquidityUsd), fullMoney(mk.liquidityUsd))));
-    const change = pct(mk.priceChange24hPct);
-    const chg = change ? el("span", `lp-chg ${mk.priceChange24hPct > 0 ? "is-up" : mk.priceChange24hPct < 0 ? "is-down" : ""}`, ` ${change}`) : null;
-    if (chg) chg.title = "Price change over 24 hours";
-    dl.append(stat("24 h volume", val(money(mk.volume24hUsd), fullMoney(mk.volume24hUsd)), chg));
-    dl.append(stat("Holders", val(count(holders(c)), fullCount(holders(c)))));
-    const mem = c.members || {};
-    const ct = communityText(mem);
-    const community = ct ? el("span", "lp-val", ct.short) : na();
-    if (ct) community.title = ct.full;
-    dl.append(stat("Community", community));
+    const ct = communityText(c.members || {});
+    if (ct) { const com = el("span", "lp-card__community", ct.short); com.title = ct.full; meta.append(el("span", "lp-card__sep", " · "), com); }
+    li.append(meta);
 
     const acts = el("div", "lp-card__actions");
-    const view = el("a", "btn btn--glass btn--sm", c.kind === "vicinity" ? "View $VICINITY" : "View"); view.href = viewHref(c); view.dataset.act = "view";
-    if (c.kind !== "vicinity") view.setAttribute("aria-label", `View ${c.city && c.city.name ? c.city.name : str(c.name)}`);
-    acts.append(view);
-    const lk = isLive(c) ? links(c) : null;
+    const lk = live ? links(c) : null;
     if (lk) {
       const buy = newTab(el("a", "btn btn--primary btn--sm", "Buy on Raydium ↗")); buy.href = lk.raydium; buy.dataset.act = "buy";
-      const jup = newTab(el("a", "link-btn lp-card__alt", "or Jupiter ↗")); jup.href = lk.jupiter; jup.dataset.act = "jup";
-      acts.append(buy, jup);
+      const more = el("a", "btn btn--glass btn--sm", "Chart & details →"); more.href = coinHref(c); more.dataset.act = "chart";
+      more.setAttribute("aria-label", `Chart and details of $${str(c.ticker)}`);
+      acts.append(buy, more);
     } else {
       const wait = el("span", "lp-card__wait"); wait.append(el("span", "btn btn--glass btn--sm is-soft", "Not live yet"), el("span", "tiny muted", notLiveWhy(c)));
       wait.firstChild.setAttribute("aria-disabled", "true");
       acts.append(wait);
     }
-    li.append(head, meta, dl, acts);
+    li.append(acts);
     return li;
+  }
+  /**
+   * The 30-second refresh updates a card in place: each field (data-f) that changed gets its new words, so a new number eases
+   * from the old one (the site's motion layer) and its cell flashes up or down once. A card of another shape is drawn anew.
+   */
+  function morph(old, fresh) {
+    if (old.dataset.shape !== fresh.dataset.shape) return fresh; // (its classes are not compared: the motion layer adds its own)
+    const ob = old.querySelector(".lp-price"), nb = fresh.querySelector(".lp-price");
+    if (ob && nb) ob.classList.toggle("is-stale", nb.classList.contains("is-stale"));
+    for (const n of old.querySelectorAll("[data-f]")) {
+      const m = fresh.querySelector(`[data-f="${n.dataset.f}"]`);
+      if (!m) continue;
+      if (n.dataset.f === "spark") { if (n.dataset.sig !== m.dataset.sig) n.replaceWith(m); continue; }
+      if (n.tagName === "PROGRESS") { if (n.value !== m.value) n.value = m.value; n.setAttribute("aria-label", m.getAttribute("aria-label")); continue; }
+      if (n.className !== m.className) n.className = m.className;
+      if (n.title !== m.title) n.title = m.title;
+      if (n.hidden !== m.hidden) n.hidden = m.hidden;
+      const a = Number(n.dataset.v), b = Number(m.dataset.v);
+      if (m.dataset.v !== undefined) n.dataset.v = m.dataset.v;
+      if (n.textContent === m.textContent) continue;
+      const leaf = n.firstElementChild && m.firstElementChild && n.childElementCount === 1 && m.childElementCount === 1 && n.firstElementChild.className === m.firstElementChild.className && !n.firstElementChild.childElementCount;
+      if (leaf) n.firstElementChild.textContent = m.firstElementChild.textContent; // the number itself: the motion layer eases it
+      else if (!n.childElementCount && !m.childElementCount) n.textContent = m.textContent;
+      else n.replaceChildren(...m.childNodes);
+      if (Number.isFinite(a) && Number.isFinite(b) && a !== b && n.dataset.v !== undefined) flash(n.closest(".lp-stat, .lp-price") || n, b > a ? "up" : "down");
+    }
+    return old;
+  }
+  function flash(e, dir) {
+    if (reduced) return;
+    e.classList.remove("is-flash-up", "is-flash-down"); void e.offsetWidth;
+    e.classList.add(`is-flash-${dir}`);
+    setTimeout(() => e.classList.remove(`is-flash-${dir}`), 1000);
+  }
+  /** Puts these cards in the list, reusing the ones already there (same key, same shape). */
+  function place(list, rows, now, featured) {
+    const have = new Map([...list.children].map((li) => [li.dataset.key, li]));
+    const next = rows.map((c) => { const fresh = card(c, now, featured), old = have.get(cardKey(c)); return old ? morph(old, fresh) : fresh; });
+    if (next.length !== list.children.length || next.some((li, i) => list.children[i] !== li)) list.replaceChildren(...next);
+    window.V.liveNums(list.querySelectorAll(".lp-num")); // numbers it already follows are left as they are
+    wantSparks(list);
   }
 
   /* ----- drawing ----- */
   function focusKey() {
     const a = document.activeElement, li = a && a.closest && a.closest(".lp-card");
-    return li ? { key: li.dataset.key, act: a.dataset.act || "" } : null;
+    return li ? { key: li.dataset.key, act: a.dataset.act || "", featured: li.classList.contains("lp-card--featured") } : null;
   }
   function render() {
     const now = Date.now(), cards = data ? [data.vicinity, ...(data.coins || [])].filter(Boolean) : [];
@@ -340,7 +621,11 @@
     $("#lp-tabnote").textContent = TAB_NOTE[state.tab];
     const rows = rowsFor(cards, { ...state, now, countryNames });
     const keep = focusKey();
-    $("#lp-grid").replaceChildren(...rows.map((c) => card(c, now)));
+    // "Live now": the Vicinity token on top, the same card a little larger (on a phone it is the same card)
+    const vic = data && data.vicinity && isLive(data.vicinity) ? data.vicinity : null;
+    place($("#lp-featured"), vic ? [vic] : [], now, true);
+    $("#lp-featured").classList.toggle("is-on", Boolean(vic));
+    place($("#lp-grid"), rows, now, false);
     const empty = $("#lp-empty"), text = $("#lp-empty-text"), retry = $("#lp-retry");
     const filtered = norm(state.q) || state.country || state.status;
     if (!data && !fails) { text.textContent = "Loading city coins…"; retry.hidden = true; }
@@ -352,14 +637,32 @@
     else { text.textContent = "The first city coin appears here the moment its founder's contract is confirmed."; retry.hidden = true; }
     empty.hidden = Boolean(data && rows.length);
     $("#lp-count").textContent = data ? `${rows.length} ${rows.length === 1 ? "coin" : "coins"}${filtered ? " match" : ""}` : "";
-    if (keep) { const again = $(`#lp-grid [data-key="${keep.key}"] [data-act="${keep.act}"]`); if (again) again.focus(); }
+    if (keep) { const again = $(`${keep.featured ? "#lp-featured" : "#lp-grid"} [data-key="${keep.key}"] [data-act="${keep.act}"]`); if (again && again !== document.activeElement) again.focus(); }
     paintAge();
+    paintSources();
   }
   function paintAge() {
     const u = $("#lp-updated"); if (!u) return;
     if (!data) { u.textContent = ""; return; }
     const s = ageSeconds({ asOf: data.asOf, receivedAt, now: Date.now() });
     u.textContent = `${agoText(s)}${fails ? " · Couldn't refresh, showing the last numbers." : ""}`;
+    // each live card's price line says how old its numbers are
+    for (const li of $$(".lp-card--live")) {
+      const c = cardsByKey.get(li.dataset.key), src = li.querySelector('.lp-price [data-f="src"]');
+      if (c && src) { const t = priceSource(c.market, s); if (src.textContent !== t) src.textContent = t; }
+    }
+  }
+  /** The line under the list: the sources this answer used (Jupiter's terms ask for "Powered by Jupiter" wherever its data shows). */
+  function paintSources() {
+    const p = $("#lp-honesty"); if (!p || !data || !Array.isArray(data.attribution) || !data.attribution.length) return;
+    const parts = [];
+    for (const x of data.attribution) {
+      if (!x || typeof x.text !== "string") continue;
+      const u = typeof x.url === "string" && /^https:\/\/(jup\.ag|raydium\.io|dexscreener\.com)(\/|$)/.test(x.url) && !/[\s"'<>]/.test(x.url) ? x.url : null;
+      if (u) { const a = newTab(el("a", null, x.text)); a.href = u; parts.push(a); } else parts.push(el("span", null, x.text));
+    }
+    const words = parts.flatMap((n, i) => (i ? [" · ", n] : [n]));
+    p.replaceChildren(...words, ". Every card refreshes every 30 seconds and says how old its numbers are. You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds.");
   }
   function paintCountries() {
     const sel = $("#lp-country"), keep = state.country;
@@ -432,11 +735,22 @@
     $("#lp-search").addEventListener("submit", (e) => { e.preventDefault(); clearTimeout(t); state.q = q.value; pushUrl(); render(); });
     for (const k of ["country", "status", "sort"]) $(`#lp-${k}`).addEventListener("change", (e) => { state[k] = e.target.value; render(); });
     $("#lp-retry").addEventListener("click", () => { fails = 0; load(); });
-    // the $VICINITY card's "Opens in" tag and the "Updated" line keep time without redrawing the cards
+    // a live card opens its coin page wherever it is clicked (its title is the link the keyboard reaches); its own buttons and links
+    // do what they say, and selecting a number to copy it is not a click
+    sec.addEventListener("click", (e) => {
+      if (e.button !== 0 || e.defaultPrevented) return;
+      const li = e.target.closest && e.target.closest(".lp-card--live");
+      if (!li || e.target.closest("a, button, input, select, label, summary")) return;
+      if (window.getSelection && String(window.getSelection()) !== "") return;
+      const a = li.querySelector(".lp-card__title a"); if (!a) return;
+      if (e.metaKey || e.ctrlKey) window.open(a.href, "_blank", "noopener"); else location.assign(a.href);
+    });
+    // the $VICINITY card's "Opens in" tag and the "Updated" lines keep time without redrawing the cards
     setInterval(() => {
+      if (document.hidden) return;
       paintAge();
       const now = Date.now();
-      $$('#lp-grid .lp-card__status[data-status="upcoming"]').forEach((tag) => { tag.textContent = countdownText(opensAt() - now); });
+      $$('.lp-card__status[data-status="upcoming"]').forEach((tag) => { tag.textContent = countdownText(opensAt() - now); });
     }, reduced ? 10000 : 5000);
   }
   function start() {

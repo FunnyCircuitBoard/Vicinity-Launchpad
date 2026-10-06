@@ -26,6 +26,7 @@
     <!-- City coins (LAUNCHPAD_V2=on). Stays hidden, and nothing below is requested, until /api/official says launchpadV2 is true. -->
     <section class="section lp-coins" id="lp-coins" hidden>
       <div class="wrap">
+        <ul class="lp-featured" id="lp-featured" aria-label="Live now: the Vicinity token"></ul>
         <div class="section-head lp-coins__head">
           <p class="kicker">City coins</p>
           <h2 class="h2--sm">Find a city coin.</h2>
@@ -58,7 +59,7 @@
             <button class="btn btn--glass btn--sm" type="button" id="lp-retry" hidden>Try again</button>
           </div>
         </div>
-        <p class="tiny muted lp-honesty">Prices, liquidity and volumes come from DexScreener and can be up to a minute old. You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds.</p>
+        <p class="tiny muted lp-honesty" id="lp-honesty">Every number says where it comes from: prices, market caps and 24 h volumes from Jupiter (Powered by Jupiter), each bonding curve read from the Solana chain, holders counted by vicinity.city. They refresh every 30 seconds. You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds.</p>
       </div>
     </section>
 

@@ -7,7 +7,7 @@
   <title>Launchpad · Vicinity</title>
   <meta name="description" content="The Vicinity Launchpad opens October 10 at 10:10:10 AM New York time: one official coin per city. City Founders and $VICINITY holders go first.">
   <meta name="theme-color" content="#070E19">
-  <meta name="color-scheme" content="dark light">
+  <meta name="color-scheme" content="dark">
   <meta property="og:title" content="Launchpad · Vicinity">
   <meta property="og:description" content="The Vicinity Launchpad opens October 10 at 10:10:10 AM New York time: one official coin per city. City Founders and $VICINITY holders go first.">
   <meta property="og:type" content="website">
@@ -68,6 +68,7 @@
     <!-- City coins (LAUNCHPAD_V2=on). Stays hidden, and nothing below is requested, until /api/official says launchpadV2 is true. -->
     <section class="section lp-coins" id="lp-coins" hidden>
       <div class="wrap">
+        <ul class="lp-featured" id="lp-featured" aria-label="Live now: the Vicinity token"></ul>
         <div class="section-head lp-coins__head">
           <p class="kicker">City coins</p>
           <h2 class="h2--sm">Find a city coin.</h2>
@@ -100,7 +101,7 @@
             <button class="btn btn--glass btn--sm" type="button" id="lp-retry" hidden>Try again</button>
           </div>
         </div>
-        <p class="tiny muted lp-honesty">Prices, liquidity and volumes come from DexScreener and can be up to a minute old. You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds.</p>
+        <p class="tiny muted lp-honesty" id="lp-honesty">Every number says where it comes from: prices, market caps and 24 h volumes from Jupiter (Powered by Jupiter), each bonding curve read from the Solana chain, holders counted by vicinity.city. They refresh every 30 seconds. You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds.</p>
       </div>
     </section>
 
@@ -178,6 +179,7 @@
         <div class="brand"><img src="/logo.svg" alt="" width="28" height="28"><span>Vicinity</span></div>
         <p class="muted">One city. One coin. One community.</p>
         <p class="muted small">System status: <span id="status">checking…</span></p>
+        <p class="muted small footer-motion"><button class="link-btn motion-toggle" type="button" data-motion-toggle>Pause animations</button></p>
       </div>
       <nav class="footer-links" aria-label="Footer">
         <p class="footer-title">Explore</p>

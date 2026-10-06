@@ -33,8 +33,19 @@
     $("#lnk-jup").href = `https://jup.ag/tokens/${m}`;
     $("#lnk-raydium").href = `https://raydium.io/launchpad/token/?mint=${m}`;
     $("#lnk-dex").href = `https://dexscreener.com/solana/${m}`;
+    // With the Launchpad's coin pages on (LAUNCHPAD_V2), the third tile is our own live chart and details (/coin): DEX Screener lists
+    // no pool while $VICINITY is on its bonding curve, and the coin page links DEX Screener itself once it does.
+    if (official && typeof official.then === "function") official.then((o) => { if (o && o.launchpadV2 === true) chartTile(m); });
     $("#ca-links").hidden = false;
     $("#ca-note").textContent = "This is the only official $VICINITY. Anything else using the name is fake.";
+  }
+  /** The third tile becomes "Chart": this site's coin page, in the same tab (no new-tab arrow, nothing to say about one). */
+  function chartTile(m) {
+    const a = $("#lnk-dex"); if (!a || !isAddr(m)) return;
+    a.href = `/coin?mint=${m}`; a.removeAttribute("target"); a.removeAttribute("rel");
+    for (const s of a.querySelectorAll(".contract__out, .sr-only")) s.remove();
+    const name = [...a.querySelectorAll("span")].find((s) => !s.className); if (name) name.textContent = "Chart";
+    a.setAttribute("aria-label", "Chart and live market of $VICINITY");
   }
   /** Copy: the toast says so, and the button itself turns into "Copied" with a tick for a moment (the tick pops in unless motion is reduced). */
   let copiedTimer = 0;

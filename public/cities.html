@@ -7,7 +7,7 @@
   <title>Claim a city · Vicinity</title>
   <meta name="description" content="Every real city on one map, with real boundaries that never overlap. See which cities are claimed, which are open, and claim yours from your dashboard.">
   <meta name="theme-color" content="#070E19">
-  <meta name="color-scheme" content="dark light">
+  <meta name="color-scheme" content="dark">
   <meta property="og:title" content="Claim a city · Vicinity">
   <meta property="og:description" content="Every real city on one map, with real boundaries that never overlap. See which cities are claimed, which are open, and claim yours from your dashboard.">
   <meta property="og:type" content="website">
@@ -45,8 +45,10 @@
       <div class="wrap">
         <!-- the map comes first, then the numbers, then what this page is for -->
         <div class="citymap card">
-          <div class="citymap__stage">
-            <canvas id="city-canvas" width="1200" height="480" role="img" tabindex="0" aria-label="Zoomable world map of every listed city. Zoom into a country to see each city's boundary. Use arrow keys to move and + or − to zoom."></canvas>
+          <div class="citymap__stage" id="city-stage">
+            <canvas id="city-canvas" width="1200" height="480" role="img" tabindex="0" aria-label="Zoomable world map of every listed city. Every city's boundary shows from the first view; the card at the bottom always shows the city at the centre of the map. Use arrow keys to move and + or − to zoom."></canvas>
+            <canvas class="citymap__layer" id="city-fx" width="1200" height="480" aria-hidden="true"></canvas>
+            <canvas class="citymap__layer" id="city-labels" width="1200" height="480" aria-hidden="true"></canvas>
             <p class="citymap__tip" id="city-tip" hidden></p>
             <div class="map-ctrl" role="group" aria-label="Map controls">
               <button type="button" id="map-in" aria-label="Zoom in">+</button>
@@ -54,11 +56,28 @@
               <button type="button" id="map-reset" aria-label="Show the whole world">⟲</button>
               <button type="button" id="map-locate" aria-label="Find the city I'm in" title="Find the city I'm in">◎</button>
               <button type="button" id="map-style" aria-label="Show the coloured map" aria-pressed="false" title="Show the coloured map">🎨</button>
+              <button type="button" id="map-full" aria-label="Full-screen map" aria-pressed="false" title="Full-screen map">⤢</button>
               <span id="map-zoom-level" aria-live="polite">1.0×</span>
             </div>
+            <button type="button" class="map-exit" id="map-exit" aria-label="Close the full-screen map" hidden>✕</button>
+            <p class="map-scale" id="map-scale" aria-hidden="true"><span class="map-scale__bar" id="map-scale-bar"></span><span id="map-scale-text">1,000 km</span></p>
+            <div class="map-focus is-loading" id="map-focus" role="group" aria-label="The city at the centre of the map">
+              <div class="map-focus__body">
+                <p class="map-focus__r1"><span class="map-focus__dot" aria-hidden="true"></span><strong class="map-focus__name" id="mf-name">Loading the map…</strong><span class="map-focus__ticker" id="mf-ticker"></span><span class="map-focus__mini" id="mf-mini"></span><span class="tag map-focus__status" id="mf-status" hidden></span></p>
+                <p class="map-focus__where" id="mf-where"></p>
+                <p class="map-focus__amount" id="mf-amount"></p>
+                <p class="map-focus__area" id="mf-area"></p>
+                <p class="map-focus__line" id="mf-line"></p>
+              </div>
+              <div class="map-focus__side">
+                <button type="button" class="map-focus__btn" id="mf-open" aria-label="Show this city's full details" disabled>›</button>
+                <button type="button" class="map-focus__btn map-focus__fold" id="mf-fold" aria-expanded="true" aria-label="Fold the city card">▾</button>
+              </div>
+            </div>
+            <p class="sr-only" id="mf-say" aria-live="polite"></p>
             <p class="map-hint" id="map-hint">Click the map first, then scroll to zoom (or use + and −)</p>
           </div>
-          <p class="citymap__legend"><span><span class="dot dot--open"></span> Open</span><span><span class="dot dot--choosing"></span> Choosing its founder</span><span><span class="dot dot--claimed"></span> Founded</span><span><span class="dot dot--mine"></span> Yours</span><span><span class="line line--real"></span> Official city boundary + the land nearest to it</span><span><span class="line line--near"></span> No official boundary: the land nearest the city</span><span class="citymap__how">Tap a city for its City Founder, holders and founder amount</span><span class="citymap__how">Drag to move · scroll, pinch or double-tap to zoom · tap a country or a city · ◎ finds yours · 🎨 colours</span></p>
+          <p class="citymap__legend"><span><span class="dot dot--open" aria-hidden="true"></span> Open</span><span><span class="dot dot--choosing" aria-hidden="true"></span> Choosing its founder</span><span><span class="dot dot--claimed" aria-hidden="true"></span> Founded</span><span><span class="dot dot--mine" aria-hidden="true"></span> Yours</span><span><span class="line line--real"></span> Official city boundary + the land nearest to it</span><span><span class="line line--near"></span> No official boundary: the land nearest the city</span><span class="citymap__how">Tap a city for its City Founder, holders and founder amount</span><span class="citymap__how">Drag to move · scroll, pinch or double-tap to zoom · tap a country or a city · ◎ finds yours · 🎨 colours</span></p>
           <div class="claim-feed-wrap">
             <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Latest founders · live</p>
             <ul class="claim-feed" id="claim-feed" aria-live="polite"><li class="claim-feed__empty">Loading…</li></ul>
@@ -152,6 +171,7 @@
         <div class="brand"><img src="/logo.svg" alt="" width="28" height="28"><span>Vicinity</span></div>
         <p class="muted">One city. One coin. One community.</p>
         <p class="muted small">System status: <span id="status">checking…</span></p>
+        <p class="muted small footer-motion"><button class="link-btn motion-toggle" type="button" data-motion-toggle>Pause animations</button></p>
       </div>
       <nav class="footer-links" aria-label="Footer">
         <p class="footer-title">Explore</p>

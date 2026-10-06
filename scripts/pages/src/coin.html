@@ -1,0 +1,149 @@
+<!--{"title": "Coin: live price, chart and holders", "description": "A coin listed on the Vicinity Launchpad: its live price, an interactive chart, the bonding curve, recent trades, holders and where to buy. Every number with its source.", "page": "coin", "nav": "launchpad", "scripts": ["coinchart", "coin"]}-->
+    <section class="coin-page" id="coin" aria-busy="true">
+      <div class="wrap">
+        <a class="coin-back" href="/launchpad"><span aria-hidden="true">‹</span> Launchpad</a>
+
+        <!-- not listed, switched off, not launched, or the first answer failed: one card says which (coin.js) -->
+        <div class="card coin-note" id="coin-note" role="status" hidden>
+          <h1 class="coin-note__title" id="coin-note-title">Loading…</h1>
+          <p class="muted" id="coin-note-text"></p>
+          <p class="coin-note__actions"><a class="btn btn--glass" id="coin-note-link" href="/launchpad">Back to the Launchpad</a> <button class="btn btn--primary" type="button" id="coin-note-retry" hidden>Try again</button></p>
+        </div>
+
+        <div class="coin-grid" id="coin-main">
+          <div class="coin-main">
+            <!-- the coin and its price -->
+            <header class="card coin-head" id="coin-head">
+              <div class="coin-head__top">
+                <div class="coin-disc coin-head__disc" id="coin-disc" aria-hidden="true"><span id="coin-disc-text"></span></div>
+                <div class="coin-head__id">
+                  <h1 class="coin-head__ticker"><span id="coin-ticker" class="skel skel--w140">&nbsp;</span></h1>
+                  <p class="coin-head__name" id="coin-name">&nbsp;</p>
+                </div>
+              </div>
+              <p class="coin-pills" id="coin-pills"></p>
+              <div class="coin-price" id="coin-price-box">
+                <p class="coin-price__row"><strong class="coin-price__val" id="coin-price">—</strong><strong class="coin-price__val coin-price__scrub" id="coin-price-scrub" hidden></strong> <span class="coin-chg" id="coin-chg">—</span></p>
+                <p class="coin-price__sub" id="coin-price-sub">Loading the live price…</p>
+              </div>
+              <a class="btn btn--primary coin-head__buy" id="coin-head-buy" href="/launchpad" rel="noopener" target="_blank" hidden>Buy on Raydium <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
+            </header>
+
+            <!-- the chart -->
+            <section class="card coin-chart" id="coin-chart" aria-labelledby="coin-chart-title">
+              <div class="coin-chart__head">
+                <h2 class="coin-card__title" id="coin-chart-title">Price chart</h2>
+                <p class="coin-chart__legend" id="coin-legend" aria-live="polite"></p>
+              </div>
+              <div class="coin-chart__controls">
+                <div class="seg coin-seg coin-seg--range" role="group" aria-label="Time range" id="coin-range">
+                  <button type="button" data-range="1h" aria-pressed="false">1H</button>
+                  <button type="button" data-range="24h" aria-pressed="false">24H</button>
+                  <button type="button" data-range="7d" aria-pressed="true">7D</button>
+                  <button type="button" data-range="30d" aria-pressed="false">30D</button>
+                  <button type="button" data-range="all" aria-pressed="false">ALL</button>
+                </div>
+                <div class="coin-chart__row2">
+                  <div class="seg coin-seg" role="group" aria-label="Show the price in" id="coin-unit">
+                    <button type="button" data-unit="USD" aria-pressed="true">USD</button>
+                    <button type="button" data-unit="SOL" aria-pressed="false">SOL</button>
+                    <button type="button" data-unit="MCAP" aria-pressed="false">Mkt cap</button>
+                  </div>
+                  <div class="seg coin-seg coin-seg--style" role="group" aria-label="Chart style" id="coin-style">
+                    <button type="button" data-style="line" aria-pressed="true" aria-label="Line" title="Line"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 5-6 4 3 4-6 5 4"/></svg></button>
+                    <button type="button" data-style="candles" aria-pressed="false" aria-label="Candles (SOL)" title="Candles (in SOL)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 3v4M7 15v6M17 3v6M17 17v4"/><rect x="5" y="7" width="4" height="8" rx="1"/><rect x="15" y="9" width="4" height="8" rx="1"/></svg></button>
+                  </div>
+                </div>
+              </div>
+              <div class="coin-chart__stage">
+                <canvas class="coin-chart__canvas" id="coin-canvas" tabindex="0" role="img" aria-label="Price chart"></canvas>
+                <div class="coin-chart__state" id="coin-chart-state">
+                  <div class="skel skel--chart" id="coin-chart-skel" aria-hidden="true"></div>
+                  <p class="coin-chart__msg" id="coin-chart-msg" hidden></p>
+                  <p class="coin-chart__act"><button class="btn btn--glass btn--sm" type="button" id="coin-chart-retry" hidden>Retry</button> <button class="btn btn--glass btn--sm" type="button" id="coin-chart-alt" hidden></button></p>
+                </div>
+              </div>
+              <p class="coin-foot" id="coin-chart-foot"></p>
+              <p class="sr-only" id="coin-chart-live" aria-live="polite"></p>
+            </section>
+
+            <!-- every number, with where it comes from -->
+            <section class="card coin-stats" aria-labelledby="coin-stats-title">
+              <div class="coin-card__head"><h2 class="coin-card__title" id="coin-stats-title">Market</h2><span class="coin-foot coin-card__age" id="coin-tiles-age"></span><span class="tag tag--gold" id="coin-stale" hidden>Delayed</span></div>
+              <dl class="coin-tiles" id="coin-tiles"></dl>
+            </section>
+          </div>
+
+          <aside class="coin-side" aria-label="Buy, bonding curve and contract">
+            <!-- buy and sell -->
+            <section class="card coin-buy" id="coin-buy" aria-labelledby="coin-buy-title">
+              <h2 class="coin-card__title" id="coin-buy-title">Buy &amp; sell</h2>
+              <div class="contract__links coin-buy__links" id="coin-links">
+                <a class="contract__buy" id="coin-lnk-raydium" href="/launchpad" rel="noopener" target="_blank"><span>Buy on Raydium</span><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg><span class="sr-only"> (opens in a new tab)</span></a>
+                <a class="contract__ext" id="coin-lnk-jup" href="/launchpad" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-3.5-3.5M20 16H6l3.5 3.5"/></svg><span>Jupiter</span><span class="contract__out" aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
+                <a class="contract__ext" id="coin-lnk-third" href="/launchpad" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5h16"/><path d="m4.5 15 4.5-4.5 3.5 3.5 7-7.5"/><path d="M15 6.5h4.5V11"/></svg><span id="coin-lnk-third-name">GeckoTerminal</span><span class="contract__out" aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
+                <a class="contract__ext" id="coin-lnk-solscan" href="/launchpad" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></svg><span>Solscan</span><span class="contract__out" aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
+              </div>
+              <p class="coin-foot">You trade in your own wallet. Vicinity never touches your funds.</p>
+            </section>
+
+            <!-- the bonding curve -->
+            <section class="card coin-curve" id="coin-curve" aria-labelledby="coin-curve-title">
+              <h2 class="coin-card__title" id="coin-curve-title">Bonding curve <span class="muted">· Raydium LaunchLab</span></h2>
+              <p class="coin-curve__big"><strong id="coin-curve-pct">—</strong> <span class="muted" id="coin-curve-of">&nbsp;</span></p>
+              <progress class="lp-bar coin-curve__bar" id="coin-curve-bar" max="100" value="0" aria-labelledby="coin-curve-title"></progress>
+              <p class="small coin-curve__text" id="coin-curve-text">Reading the bonding curve from the chain…</p>
+              <p class="coin-foot coin-curve__src" id="coin-curve-src">Source: Solana blockchain</p>
+            </section>
+
+            <!-- the contract -->
+            <section class="card coin-ca" aria-labelledby="coin-ca-title">
+              <div class="coin-card__head"><h2 class="coin-card__title" id="coin-ca-title">Contract address</h2><span class="contract__badge" id="coin-ca-badge" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg><span id="coin-ca-badge-text">Official</span></span></div>
+              <div class="contract__addr coin-ca__addr">
+                <code id="coin-ca-text">—</code>
+                <button class="contract__copy" type="button" id="coin-ca-copy" hidden><span class="contract__copy-icons" aria-hidden="true"><svg class="contract__copy-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 8.5V6A1.5 1.5 0 0 0 14 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></svg><svg class="contract__copy-check" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span><span id="coin-ca-copy-label">Copy address</span></button>
+              </div>
+              <p class="coin-foot" id="coin-ca-note">Check the address before you buy: only this one is the coin shown here.</p>
+            </section>
+          </aside>
+        </div>
+
+        <div class="coin-grid coin-grid--lower" id="coin-lower">
+          <!-- recent trades -->
+          <section class="card coin-trades" aria-labelledby="coin-trades-title">
+            <div class="coin-card__head"><h2 class="coin-card__title" id="coin-trades-title"><span class="live-dot coin-live" aria-hidden="true"></span> Recent trades</h2><span class="coin-foot" id="coin-trades-n"></span></div>
+            <ol class="coin-trades__list" id="coin-trades" aria-live="off"></ol>
+            <p class="coin-foot" id="coin-trades-foot"></p>
+          </section>
+
+          <div class="coin-side coin-side--lower">
+            <!-- holders -->
+            <section class="card coin-holders" aria-labelledby="coin-holders-title">
+              <h2 class="coin-card__title" id="coin-holders-title">Holders</h2>
+              <p class="coin-holders__n"><strong id="coin-holders-n">—</strong> <span class="muted" id="coin-holders-word">holders</span></p>
+              <ol class="coin-holders__list" id="coin-holders"></ol>
+              <p class="coin-foot" id="coin-holders-src"></p>
+              <p><a class="link-btn" id="coin-holders-more" href="/token#holders">See every holder on the token page →</a></p>
+            </section>
+
+            <!-- about -->
+            <section class="card coin-about" aria-labelledby="coin-about-title">
+              <h2 class="coin-card__title" id="coin-about-title">About</h2>
+              <p class="small" id="coin-about-text"></p>
+              <p class="coin-about__links" id="coin-about-links"></p>
+            </section>
+          </div>
+        </div>
+
+        <p class="coin-sources" id="coin-sources"></p>
+      </div>
+    </section>
+
+    <!-- a slim bar with the price once the price has scrolled away (every size), and Buy at the bottom of a phone -->
+    <div class="coin-mini" id="coin-mini" aria-hidden="true" inert>
+      <div class="wrap coin-mini__inner"><span class="coin-disc coin-mini__disc" id="coin-mini-disc"><span id="coin-mini-disc-text"></span></span><strong class="coin-mini__ticker" id="coin-mini-ticker"></strong><span class="coin-mini__price" id="coin-mini-price"></span><span class="coin-chg" id="coin-mini-chg"></span><a class="btn btn--primary btn--sm coin-mini__buy" id="coin-mini-buy" href="/launchpad" rel="noopener" target="_blank" hidden>Buy <span aria-hidden="true">↗</span><span class="sr-only"> on Raydium (opens in a new tab)</span></a></div>
+    </div>
+    <div class="coin-buybar" id="coin-buybar" inert>
+      <a class="btn btn--primary coin-buybar__buy" id="coin-buybar-buy" href="/launchpad" rel="noopener" target="_blank">Buy on Raydium <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
+      <button class="btn btn--glass coin-buybar__copy" type="button" id="coin-buybar-copy" aria-label="Copy the contract address"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 8.5V6A1.5 1.5 0 0 0 14 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></svg></button>
+    </div>
