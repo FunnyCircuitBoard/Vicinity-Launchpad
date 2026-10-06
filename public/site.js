@@ -90,6 +90,9 @@
   // * live numbers count up the first time they are on screen, and ease to a new value when the page's own script writes one
   //   (with a short glow). What is left when a count ends is the script's own text, word for word; anything that is not a plain
   //   number ("—", "Oct 10", "4d 18h", "<0.01%") is never touched. A count finishes at once when the tab is hidden.
+  //   A number the browser has already drawn (this script is deferred: on a slow phone connection the page is painted first) is
+  //   never reset to count up again, a price ($) or a rank (#) never counts up from 0 (it would show prices and ranks that never
+  //   were), and a fixed fact marked data-still (the token's supply) is never touched.
   // * the moving parts of a page's top section (orbs, stars, chips, the headline's colours), of the home page's NYC map and timeline, and
   //   every live dot's ping pause while they are off screen (.mo-off): an animation nobody can see never costs a frame.
   // No loop runs when nothing moves: a count asks for animation frames only while it lasts (1.3 s at most).
@@ -168,20 +171,25 @@
       hit.forEach(wrote);
     });
     const seen = new IO((entries) => { for (const en of entries) if (en.isIntersecting) { seen.unobserve(en.target); first(en.target); } }, { threshold: 0.5 });
-    /** On screen for the first time: it counts up from 0 to what it says (a rank never counts up from #0). */
-    function first(e) {
+    /** A plain count (not a price, not a rank) above zero: the only kind that ever counts up from 0. */
+    const fromZero = (p) => Boolean(p && p.n > 0 && p.pre === "");
+    /** Has the browser drawn the page yet? (Paint Timing; a browser without it counts as not yet.) */
+    const painted = () => { try { return win.performance.getEntriesByType("paint").length > 0; } catch { return false; } };
+    /** On screen for the first time: it counts up from 0 to what it says, unless `drawn` (the visitor already sees the real number). */
+    function first(e, drawn) {
       const s = nums.get(e); s.seen = true;
-      if (on && s.p && s.p.n > 0 && s.p.pre !== "#" && !doc.hidden) count(e, 0, s.p, e.textContent, false);
+      if (on && !drawn && fromZero(s.p) && !doc.hidden) count(e, 0, s.p, e.textContent, false);
     }
-    /** Starts following the live numbers; the ones on screen already start counting now, before the page is first drawn if we can. */
+    /** Starts following the live numbers. The ones on screen count now if the page is not drawn yet (their 0 is the first thing
+     *  seen); once it is drawn, they stay exactly as they are and only a later change eases. */
     function watch(list) {
       list = list.filter((e) => !nums.has(e) && !e.childElementCount && !e.closest(".dpv, [data-countdown-short], [data-still]"));
-      const h = win.innerHeight || doc.documentElement.clientHeight, rects = list.map((e) => e.getBoundingClientRect());
+      const h = win.innerHeight || doc.documentElement.clientHeight, rects = list.map((e) => e.getBoundingClientRect()), drawn = painted();
       list.forEach((e, i) => {
         nums.set(e, { p: numParse(e.textContent.trim()), seen: false });
         numMo.observe(e, { childList: true, characterData: true, subtree: true });
         const r = rects[i];
-        if (r.height > 0 && r.top < h * 0.92 && r.bottom > 0 && !doc.hidden) first(e); else seen.observe(e);
+        if (r.height > 0 && r.top < h * 0.92 && r.bottom > 0 && !doc.hidden) first(e, drawn); else seen.observe(e);
       });
     }
     /** The page's script wrote new text into a number. */
@@ -190,7 +198,7 @@
       const was = run ? run.cur * UNIT[run.p.unit] : s.p ? numValue(s.p) : null;
       s.p = p;
       if (!p || !s.seen || doc.hidden || !on) { if (run) stop(e, false); return; } // words, not seen yet, a hidden tab: the text as written
-      if (was === null) { if (p.n > 0 && p.pre !== "#") count(e, 0, p, text, false); return; } // its first number while on screen
+      if (was === null) { if (fromZero(p)) count(e, 0, p, text, false); return; } // its first number while on screen (a price or rank: as written)
       if (Math.abs(was - numValue(p)) <= Math.abs(numValue(p)) * 1e-9) { if (run) stop(e, false); return; } // the same value, maybe written another way ("1,000,000,000" → "1B")
       count(e, was, p, text, !run); // a new value: ease to it, with a glow if the old one had settled
     }

@@ -188,7 +188,7 @@ test("numbers: the steps of a count are written in the page's own style (groupin
 /* ---------------- the layer on a pretend page ---------------- */
 
 /** A small pretend page: elements with classes, attributes, a box and text; observers, frames and timers that the test drives. */
-function page({ height = 800, hidden = false, reduce = false, noIO = false } = {}) {
+function page({ height = 800, hidden = false, reduce = false, noIO = false, painted = false } = {}) {
   const mos = [], ios = [], frames = [], timers = [], listeners = {};
   const mq = { matches: reduce, listeners: [], addEventListener(t, f) { this.listeners.push(f); } }; // one query the test can flip
   const parseSel = (s) => s.trim().split(/\s*(>)\s*|\s+/).filter(Boolean).reduce((acc, t) => { if (t === ">") acc.push(">"); else acc.push(t); return acc; }, []);
@@ -252,7 +252,7 @@ function page({ height = 800, hidden = false, reduce = false, noIO = false } = {
     flush() { const q = this.takeRecords(); if (q.length) this.cb(q); } }
   const win = { innerHeight: height, MutationObserver: MO, IntersectionObserver: noIO ? undefined : IO,
     requestAnimationFrame: (f) => frames.push(f), setTimeout: (f, ms) => timers.push([f, ms]),
-    matchMedia: () => mq };
+    matchMedia: () => mq, performance: { getEntriesByType: (t) => (t === "paint" && painted ? [{ name: "first-paint" }] : []) } };
   return {
     El, doc, win, mos, ios, frames, timers, listeners, mq,
     /** the microtask checkpoint after a page script wrote something: every observer gets its records */
@@ -484,4 +484,55 @@ test("styles: the timeline's next step pings with transform and opacity (no box-
   const props = [...keyframes("nextPing").matchAll(/([a-z-]+)\s*:/g)].map((p) => p[1]);
   assert.ok(props.length && props.every((p) => p === "transform" || p === "opacity"), `nextPing: ${props}`);
   assert.match(css, /\.timeline__item\.is-next::after \{ content: ""; position: absolute; left: -34px; top: 4px; width: 16px; height: 16px; border-radius: 50%; background: var\(--pin\); opacity: 0; pointer-events: none; \}/, "over the dot, unseen at rest");
+});
+
+test("layer: a number the browser has already drawn is never reset to 0 to count again (a slow phone connection paints before site.js runs)", () => {
+  // 6 Oct 2026, 400 kbps: the home page showed 8,008 / 244 at first paint, then 0, then counted back up; /token did the same to its supply
+  const P = homePage({ painted: true }); start(P);
+  assert.deepEqual([P.f1.textContent, P.f2.textContent], ["8,008", "244"], "as drawn");
+  assert.equal(P.f1.writes, undefined, "never written");
+  assert.equal(P.frames.length, 0, "no count, no frame");
+  // a later real change still eases from the value on screen, with its glow
+  P.f1.textContent = "8,029"; P.flush();
+  assert.equal(P.f1.textContent, "8,008", "it starts from the value on screen");
+  assert.equal(P.f1.anims.length, 1);
+  P.runFrames(0);
+  assert.equal(P.f1.textContent, "8,029");
+  // below the screen it still counts up the first time it comes into view (nobody has seen it yet)
+  P.s1.textContent = "1,234"; P.flush();
+  assert.equal(P.s1.textContent, "1,234", "not seen yet: as written");
+  P.io((o) => o.opts.threshold === 0.5).fire([P.s1, true]);
+  assert.equal(P.s1.textContent, "0");
+  P.runFrames(2000);
+  assert.equal(P.s1.textContent, "1,234");
+});
+
+test("layer: a price never counts up from $0 (no made-up interim prices), on screen or when it scrolls into view; a later price eases", () => {
+  const P = page(), { El, doc } = P;
+  const main = new El("main"), row = new El("div", "stat-row", { top: 100, h: 80 });
+  const price = new El("strong", "", { top: 110, h: 30, text: "—" }), low = new El("strong", "", { top: 1900, h: 30, text: "$0.000420" });
+  row.add(new El("div", "stat", { top: 100, h: 80 }).add(price), new El("div", "stat", { top: 1880, h: 80 }).add(low));
+  main.add(row); doc.kids.push(main); main.parent = doc;
+  load().motionLayer(P.win, doc, false);
+  price.textContent = "$0.000420"; P.flush();
+  assert.equal(price.textContent, "$0.000420", "its first price is shown as written");
+  assert.equal(P.frames.length, 0);
+  P.io((o) => o.opts.threshold === 0.5).fire([low, true]);
+  assert.equal(low.textContent, "$0.000420", "below the screen, then in view: as written");
+  assert.equal(P.frames.length, 0);
+  // the next real price: from the old one to the new one, never through $0
+  price.textContent = "$0.000500"; P.flush();
+  assert.equal(price.textContent, "$0.000420");
+  const seen = []; P.frame(0); for (let t = 100; t < 1000; t += 150) { P.frame(t); seen.push(price.textContent); }
+  assert.ok(seen.every((t) => { const n = Number(t.slice(1)); return n >= 0.00042 && n <= 0.0005; }), `between the two real prices: ${seen}`);
+  P.runFrames(1000);
+  assert.equal(price.textContent, "$0.000500");
+});
+
+test("token page: the supply is a fixed fact and never counts (data-still)", () => {
+  for (const f of ["scripts/pages/src/token.html", "public/token.html"]) assert.match(read(f), /<strong id="st-supply" data-still>1,000,000,000<\/strong>/, f);
+  assert.match(block, /\[data-still\]/, "the layer leaves data-still numbers alone");
+  // and the layer says what it does
+  assert.match(block, /const painted = \(\) => \{ try \{ return win\.performance\.getEntriesByType\("paint"\)\.length > 0; \} catch \{ return false; \} \};/);
+  assert.match(block, /const fromZero = \(p\) => Boolean\(p && p\.n > 0 && p\.pre === ""\);/);
 });
