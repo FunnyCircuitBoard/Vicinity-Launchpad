@@ -17,6 +17,7 @@ import { tradeLinks } from "./launchpad.js";
 import { attributionFor, liveMarkets, maskWallet, raydiumTradesFor } from "./marketlive.js";
 import { chartFor, minTimeOf, samplesSummary } from "./pricehistory.js";
 import { codeOf } from "./sources.js";
+import { poolAddress } from "./launchlab.js";
 import { isSolanaAddress } from "./solana.js";
 import { iso } from "./policy.js";
 
@@ -68,27 +69,32 @@ async function build(env, coin, fetchImpl, now) {
   } catch (e) { holdersOk = false; console.error("coin holders unavailable", codeOf(e)); }
   const f = await factsOf(env, coin.mint, fetchImpl, now);
 
-  // recent trades: Raydium LaunchLab's own list for the pool the chain confirmed (none after graduation: the curve is closed)
+  // recent trades: Raydium LaunchLab's own list for the pool the chain confirmed (none after graduation: the curve is closed). When
+  // the chain could not be read, the pool's address is still known (pure math from the mint and its pair), so Raydium is asked anyway
   let trades;
-  const pool = market.curve?.poolId || null;
+  const unread = !market.curve && market.codes?.chain === "unreadable" && market.stage == null;
+  const guessed = unread ? await poolAddress(coin.mint, coin.pairMint) : null;
+  const pool = market.curve?.poolId || guessed;
   if (pool) {
     const r = await raydiumTradesFor(pool, fetchImpl, { now, minT: minTimeOf(coin) });
     const list = r.values.get(pool);
+    const symbol = market.curve?.symbol || coin.pair || "SOL";
     trades = { source: "Raydium LaunchLab", rows: Array.isArray(list) ? list.map((t) => ({ txid: t.txid, at: iso(t.at * 1000), side: t.side, tokens: t.tokens,
-      amount: t.amount, symbol: market.curve.symbol, wallet: maskWallet(t.owner), url: `https://solscan.io/tx/${t.txid}` })) : [] };
-    if (!Array.isArray(list)) trades.missing = "Raydium could not be reached";
-    else if (!list.length) trades.missing = "No trades yet";
-    if (market.curve.stage !== "curve") trades.note = "Trades on the bonding curve, before graduation";
+      amount: t.amount, symbol, wallet: maskWallet(t.owner), url: `https://solscan.io/tx/${t.txid}` })) : [] };
+    if (!Array.isArray(list)) trades.missing = guessed ? "The chain could not be read, and Raydium could not be reached" : "Raydium could not be reached";
+    else if (!list.length) trades.missing = guessed ? "The chain could not be read, and Raydium lists no trades for this coin's LaunchLab pool" : "No trades yet";
+    if (market.curve && market.curve.stage !== "curve") trades.note = "Trades on the bonding curve, before graduation";
     if (r.stale) trades.stale = true;
     if (!r.ok) live.ok = false;
-  } else trades = { source: null, rows: [], missing: market.stage === "pool" ? "Trades after graduation are on the AMM pool: see DEX Screener" : "No LaunchLab curve known for this coin" };
+  } else trades = { source: null, rows: [], missing: market.stage === "graduated" || market.stage === "migrating" ? "Trades after graduation are on the AMM pool: see DEX Screener"
+    : market.stage === "pool" ? "Its trades are on its DEX pool: see DEX Screener" : "No LaunchLab curve known for this coin" };
 
   let samples = null;
   try { samples = await samplesSummary(env, coin, now); } catch (e) { console.error("coin samples unavailable", codeOf(e)); }
 
   const links = tradeLinks(coin.mint, coin.pairMint);
   if (market.stage === "curve" || (!market.pairAddress && market.stage !== "pool")) links.dexscreener = null; // DEX Screener lists nothing before migration
-  if (pool) links.pool = `https://solscan.io/account/${pool}`;
+  if (market.curve?.poolId || (guessed && trades.rows.length)) links.pool = `https://solscan.io/account/${pool}`; // a pool the chain or Raydium knows
   const body = {
     ok: true, asOf: iso(now), mint: coin.mint,
     coin: { kind: coin.kind, ticker: coin.ticker, name: coin.name, city: coin.city, pair: { symbol: coin.pair, mint: coin.pairMint }, launchedAt: coin.launchedAt, color: coin.color, logo: coin.logo },

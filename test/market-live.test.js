@@ -160,7 +160,7 @@ test("Jupiter's shapes: a missing mint, a string, a negative, an absurd value or
   const t = jupTokenOf(fixture("jup_tok.json")[0]);
   assert.deepEqual(t, { usdPrice: 0.000007577217833193381, mcapUsd: 7577.217833193381, fdvUsd: 7577.217833193381, liquidityUsd: 1779.9587242136834, circSupply: 1e9, totalSupply: 1e9,
     stats24h: { volumeUsd: 221.02457715972727 + 315.17594188232897, buyVolumeUsd: 221.02457715972727, sellVolumeUsd: 315.17594188232897, traders: 18, changePct: -0.7440200264703254 },
-    graduatedPool: null, graduatedAt: null });
+    graduatedPool: null, graduatedAt: null, launchlab: true });
   assert.equal(jupTokenOf({ ...fixture("jup_tok.json")[0], stats24h: undefined }).stats24h, null, "no stats24h: no volume (a dash, not 0)");
   assert.equal(jupTokenOf({ ...fixture("jup_tok.json")[0], stats24h: { buyVolume: 5 } }).stats24h.volumeUsd, null, "half the volume is no volume");
   assert.equal(jupTokenOf({ ...fixture("jup_tok.json")[0], stats24h: { buyVolume: 0, sellVolume: 0 } }).stats24h.volumeUsd, 0, "a real 0 stays 0");
@@ -168,6 +168,7 @@ test("Jupiter's shapes: a missing mint, a string, a negative, an absurd value or
   const g = jupTokenOf(fixture("jup_tok_graduated.json")[0]);
   assert.deepEqual([g.graduatedPool, g.graduatedAt], ["9gJHwbyEn3U7eZyf61sTX31mqPNNhwnyDoA9Fn3pMqdq", "2026-10-05T17:57:19.000Z"]);
   assert.equal(jupTokenOf({ graduatedPool: "<script>", graduatedAt: "yesterday" }).graduatedPool, null);
+  assert.equal(jupTokenOf({ metaLaunchpad: "pump.fun", launchpad: "<b>raydium-launchlab</b>" }).launchlab, false, "only Jupiter's exact LaunchLab value counts");
 });
 
 test("Raydium's shapes: the launch-mint row must carry OUR pool; trades and candles are checked row by row", () => {

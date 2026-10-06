@@ -443,3 +443,13 @@ test("live card styles: still in the Launchpad block; the motion (pings, flash, 
   }
   assert.match(read("site.js"), /const LIVE = "[^"]*\.lp-card, \.coin-live";/, "the cards and the coin page's live parts are watched on and off screen");
 });
+
+test("honesty (review): a card names Raydium LaunchLab only when the chain found the coin's pool or Jupiter says it launched there", () => {
+  const coin = (market) => ({ kind: "city", status: "live", ticker: "UTICA", pair: { symbol: "SOL" }, market });
+  assert.equal(P.venueLine(coin({ curve: null, launchpad: null })), "SOL pair", "no LaunchLab curve on the chain: no venue");
+  assert.equal(P.venueLine(coin({ curve: null, launchpad: "raydium-launchlab" })), "Raydium LaunchLab · SOL pair");
+  assert.equal(P.venueLine(coin({ curve: { stage: "curve" } })), "Raydium LaunchLab · SOL pair");
+  assert.equal(P.venueLine({ kind: "city", status: "live", pair: { symbol: "USDC" }, market: null }), "USDC pair");
+  const js = readFileSync(new URL("../public/launchpad.js", import.meta.url), "utf8");
+  assert.doesNotMatch(js, /`Raydium LaunchLab · \$\{str\(c\.pair/, "never said unconditionally");
+});

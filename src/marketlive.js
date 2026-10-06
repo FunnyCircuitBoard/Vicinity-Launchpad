@@ -76,6 +76,8 @@ export function jupTokenOf(t) {
     liquidityUsd: nonNegative(t.liquidity, MAX.liquidity), circSupply: positive(t.circSupply, MAX.tokens), totalSupply: positive(t.totalSupply, MAX.tokens),
     stats24h: s ? { volumeUsd: buy != null && sell != null ? buy + sell : null, buyVolumeUsd: buy, sellVolumeUsd: sell, traders: count(s.numTraders, MAX.traders), changePct: percent(s.priceChange) } : null,
     graduatedPool: isSolanaAddress(t.graduatedPool) ? t.graduatedPool : null, graduatedAt: isoOrNull(t.graduatedAt),
+    // where Jupiter says the coin was launched (its own field; only this one known value is kept)
+    launchlab: t.metaLaunchpad === "raydium-launchlab" || t.launchpad === "raydium-launchlab",
   };
 }
 
@@ -220,6 +222,7 @@ export const ATTRIBUTION = {
   raydium: { text: "Chart & trades: Raydium LaunchLab", url: "https://raydium.io/launchpad/" },
   chain: { text: "Bonding curve & SOL raised: Solana blockchain, read by vicinity.city", url: null },
   dexscreener: { text: "Pool data after graduation: DEX Screener", url: "https://dexscreener.com" },
+  dexscreenerPool: { text: "Pool data: DEX Screener", url: "https://dexscreener.com" },
   holders: { text: "Holders: counted by vicinity.city", url: null },
 };
 const LABEL = {
@@ -231,27 +234,37 @@ const LABEL = {
 /** The empty market of a coin (every number null), the shape src/launchpad.js puts on a card. */
 const blank = () => ({
   priceUsd: null, marketCapUsd: null, fdvUsd: null, liquidityUsd: null, volume24hUsd: null, priceChange24hPct: null, pairAddress: null, dex: null, url: null,
-  priceNative: null, nativeSymbol: null, liquidityKind: null, traders24h: null, stage: null, curve: null, sources: {}, missing: {}, stale: false,
+  priceNative: null, nativeSymbol: null, liquidityKind: null, traders24h: null, stage: null, curve: null, sources: {}, missing: {}, stale: false, launchpad: null,
 });
 
 /**
  * One coin's market from what each source said. `s` holds, for this coin: curve, jp (its Jupiter price), pairUsd, jt (Jupiter
- * tokens), dx (DEX Screener market), rm (Raydium mint) and for each the state (undefined = could not be asked). `staleOf` says
- * which sources answered from a last good copy. Pure: no network, no clock.
+ * tokens), dx (DEX Screener market), rm (Raydium mint) and for each the state (undefined = could not be asked; curveState
+ * undefined = the chain could not be read, null = the chain says there is no LaunchLab pool). `staleOf` says which sources
+ * answered from a last good copy. Pure: no network, no clock.
+ *
+ * The stage comes from the chain, else from Jupiter's or Raydium's graduation record; a DEX Screener pair alone says "pool" only
+ * when the chain confirmed there is no LaunchLab curve. DEX Screener's numbers are used only past the curve (graduated, or a coin
+ * that never had one): before graduation, or while the chain cannot be read, a pair there can only be someone else's pool, at any
+ * price its creator chose, so its market cap, volume, change, liquidity and price are never shown next to the curve's.
  */
 export function combine(coin, s, staleOf = {}) {
   const m = blank();
   const used = new Set(), codes = {};
   const take = (field, value, label, src) => { m[field] = value; m.sources[fieldName(field)] = label; codes[fieldName(field)] = src; used.add(src); if (staleOf[src]) m.stale = true; };
-  const { curve, jp, jt, dx, rm, pairUsd } = s;
-  if (dx) { m.pairAddress = dx.pairAddress; m.dex = dx.dex; m.url = dx.url; }
+  const { curve, jp, jt, rm, pairUsd } = s;
+  const chainUnread = !curve && s.curveState === undefined;
   if (curve) {
     m.curve = { poolId: curve.poolId, stage: curve.stage, symbol: curve.symbol, raised: curve.raised, target: curve.target, progressPct: curve.progressPct,
       tokensSold: curve.tokensSold, tokensForSale: curve.tokensForSale, supply: curve.supply, slot: curve.slot };
     m.sources.curve = LABEL.chain; used.add("chain");
     if (curve.stage === "curve") { m.priceNative = curve.priceNative; m.nativeSymbol = curve.symbol; }
   }
-  m.stage = curve ? curve.stage : jt?.graduatedPool || rm?.migrateAmmId ? "graduated" : dx ? "pool" : null;
+  m.stage = curve ? curve.stage : jt?.graduatedPool || rm?.migrateAmmId ? "graduated" : chainUnread ? null : s.dx ? "pool" : null;
+  const dexOk = Boolean(s.dx) && (m.stage === "graduated" || m.stage === "migrating" || m.stage === "pool");
+  const dx = dexOk ? s.dx : null; // DEX Screener, only where its pool is the coin's market
+  if (dx) { m.pairAddress = dx.pairAddress; m.dex = dx.dex; m.url = dx.url; }
+  if (curve || jt?.launchlab) m.launchpad = "raydium-launchlab"; // the chain found its LaunchLab pool, or Jupiter says it launched there
   if (!m.url && curve) m.url = `https://raydium.io/launchpad/token/?mint=${coin.mint}`;
   const onCurve = curve && curve.stage === "curve";
 
@@ -290,15 +303,18 @@ export function combine(coin, s, staleOf = {}) {
 
   // why a number is "—"
   const jupWhy = s.jpState === undefined ? "Jupiter could not be reached" : "Jupiter has no price for it (no trade in the last 7 days)";
-  const chainWhy = s.curveState === undefined ? "the chain could not be read" : !curve ? "no LaunchLab curve on the chain" : curve.stage !== "curve" ? "the curve has graduated" : pairUsd == null ? `no ${curve.symbol} price` : null;
-  const dexWhy = s.dxAsked ? (s.dxState === undefined ? "DEX Screener could not be reached" : "no DEX Screener pool") : null;
+  const chainWhy = chainUnread ? "the chain could not be read" : !curve ? "no LaunchLab curve on the chain" : curve.stage !== "curve" ? "the curve has graduated" : pairUsd == null ? `no ${curve.symbol} price` : null;
+  const dexWhy = !s.dxAsked ? null : s.dxState === undefined ? "DEX Screener could not be reached" : !s.dx ? "no DEX Screener pool"
+    : dx ? null : onCurve ? "a DEX Screener pool before graduation is not the coin's market" : "DEX Screener is not used while the chain cannot be read";
   const why = (...parts) => parts.filter(Boolean).join("; ");
   if (m.priceUsd == null) m.missing.price = why(jupWhy, chainWhy, dexWhy);
   if (m.marketCapUsd == null) m.missing.marketCap = why("no price to multiply", s.jtState === undefined ? "Jupiter could not be reached" : null);
   if (m.liquidityUsd == null) m.missing.liquidity = onCurve ? `no ${curve.symbol} price` : why(chainWhy, dexWhy) || "no source has it";
   if (m.volume24hUsd == null) m.missing.volume24h = why(s.jtState === undefined ? "Jupiter could not be reached" : "Jupiter has no 24 h trades for it", curve ? (s.rmState === undefined ? "Raydium could not be reached" : "Raydium has no 24 h volume") : null, dexWhy);
   if (m.priceChange24hPct == null) m.missing.change24h = why(jupWhy, dexWhy);
-  Object.defineProperty(m, "codes", { value: { ...codes, used: [...used] }, enumerable: false }); // for the job and the caller, never in an answer
+  // which DEX Screener line the sources say: after graduation, or a coin that trades on a DEX pool only
+  if (used.has("dexscreener")) used.add(m.stage === "pool" ? "dexscreener_pool" : "dexscreener_graduated");
+  Object.defineProperty(m, "codes", { value: { ...codes, used: [...used], chain: chainUnread ? "unreadable" : "read" }, enumerable: false }); // for the job and the caller, never in an answer
   return m;
 }
 const fieldName = (f) => ({ priceUsd: "price", marketCapUsd: "marketCap", fdvUsd: "fdv", liquidityUsd: "liquidity", volume24hUsd: "volume24h", priceChange24hPct: "change24h" })[f] || f;
@@ -323,10 +339,10 @@ export async function liveMarkets(env, coins, fetchImpl = fetch, { now = Date.no
     jupiterTokensFor(env, mints, fetchImpl, now),
     dex ? dexFor(mints, fetchImpl, now) : Promise.resolve(null),
   ]);
-  // Raydium's volume, only for curve coins the others left without one
+  // Raydium's volume, only for curve coins the others left without one (on the curve DEX Screener's volume is never used: see combine)
   const needRaydium = list.filter((c) => {
     const curve = cv.curves.get(c.mint), t = jt.values.get(c.mint), d = dx?.values.get(c.mint);
-    return curve && t?.stats24h?.volumeUsd == null && d?.volume24hUsd == null;
+    return curve && t?.stats24h?.volumeUsd == null && (curve.stage === "curve" || d?.volume24hUsd == null);
   }).map((c) => ({ mint: c.mint, poolId: cv.curves.get(c.mint).poolId }));
   const rm = needRaydium.length ? await raydiumMintFor(needRaydium, fetchImpl, now) : null;
 
@@ -338,7 +354,7 @@ export async function liveMarkets(env, coins, fetchImpl = fetch, { now = Date.no
   for (const c of list) {
     const curve = cv.curves.get(c.mint);
     const m = combine(c, {
-      curve: curve || null, curveState: curve, jp: jp.values.get(c.mint) || null, jpState: jp.values.get(c.mint),
+      curve: curve || null, curveState: c.pairMint ? curve : null, jp: jp.values.get(c.mint) || null, jpState: jp.values.get(c.mint), // no pair: no LaunchLab pool to read
       pairUsd: c.pairMint ? jp.values.get(c.pairMint)?.usdPrice ?? null : null, jt: jt.values.get(c.mint) || null, jtState: jt.values.get(c.mint),
       dx: dx?.values.get(c.mint) || null, dxState: dx ? dx.values.get(c.mint) : null, dxAsked: Boolean(dx),
       rm: rm?.values.get(c.mint) || null, rmState: rm ? rm.values.get(c.mint) : null,
@@ -356,7 +372,8 @@ export function attributionFor(used, { holders = false, trades = false } = {}) {
   if (used.has("jupiter") || used.has("jupiter_pair")) out.push(ATTRIBUTION.jupiter);
   if (trades || used.has("raydium")) out.push(ATTRIBUTION.raydium);
   if (used.has("chain")) out.push(ATTRIBUTION.chain);
-  if (used.has("dexscreener")) out.push(ATTRIBUTION.dexscreener);
+  if (used.has("dexscreener_graduated") || (used.has("dexscreener") && !used.has("dexscreener_pool"))) out.push(ATTRIBUTION.dexscreener);
+  if (used.has("dexscreener_pool")) out.push(ATTRIBUTION.dexscreenerPool);
   if (holders) out.push(ATTRIBUTION.holders);
   return out;
 }

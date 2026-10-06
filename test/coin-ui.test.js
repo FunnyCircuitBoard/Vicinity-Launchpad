@@ -191,3 +191,17 @@ test("styles: the page's still part with the Launchpad block, every control at l
   const mo = css.slice(css.indexOf("Launchpad live market: motion (LAUNCHPAD_V2=on"), css.indexOf("Member profiles (PROFILES=on)"));
   assert.match(mo, /\.coin-buybar \{ transition: transform \.22s cubic-bezier\(\.2,\.8,\.2,1\), visibility 0s linear \.22s; \}/, "the bar slides (transform), only when motion is welcome");
 });
+
+test("honesty (review): each figure in the header line names its own source, and a city coin is called a LaunchLab coin only when the chain or Jupiter says so", () => {
+  // the curve's price with a market cap from the same source family, each named
+  const d = answer({ market: { priceUsd: 7.53e-6, marketCapUsd: 7530, sources: { price: "On-chain curve × SOL price (Jupiter)", marketCap: "Price × on-chain supply" } } });
+  assert.equal(P.priceLine(d.market, 8), "On-chain curve × SOL price (Jupiter) · Market cap $7.53K (Price × on-chain supply) · updated 8 s ago");
+  assert.equal(P.priceLine({ priceUsd: null, missing: { price: "jupiter could not be reached; the chain could not be read" } }, 3), "No price right now: Jupiter could not be reached");
+  assert.doesNotMatch(src, /sub\.push\(`Market cap \$\{money\(m\.marketCapUsd\)\}`\)/, "no market cap without its source next to it");
+  // a city coin: no curve on the chain and no word from Jupiter: no venue named
+  const city = (market) => answer({ top: { coin: { kind: "city", ticker: "UTICA", name: "Utica Coin", city: { id: "5142056", name: "Utica", country: "US" }, pair: { symbol: "SOL" } } }, market });
+  assert.equal(P.cityAbout(city({ curve: null, launchpad: null })), "$UTICA is the one official coin of Utica, US: launched by its founder, paired with SOL, and recorded by Vicinity.");
+  assert.match(P.cityAbout(city({ launchpad: "raydium-launchlab" })), /launched by its founder on Raydium LaunchLab, paired with SOL/);
+  assert.match(P.cityAbout(city({})), /on Raydium LaunchLab/, "the curve the chain found is enough");
+  assert.equal(P.onLaunchLab(city({ curve: null, launchpad: null })), false);
+});

@@ -141,6 +141,20 @@
     return out;
   }
 
+  /** Did the chain find the coin's LaunchLab pool, or does Jupiter say it launched there? (only then is "Raydium LaunchLab" said) */
+  const onLaunchLab = (d) => Boolean(d && d.market && (d.market.launchpad === "raydium-launchlab" || (d.market.curve && typeof d.market.curve === "object")));
+  /** The line under the price: the price's source, the market cap with ITS source, the answer's age; or why there is no price. */
+  function priceLine(m, ageS) {
+    const s = (m && m.sources) || {};
+    if (!price(m && m.priceUsd)) return `No price right now: ${firstReason(m && m.missing && m.missing.price) || "no source has one"}`;
+    const mc = money(m.marketCapUsd);
+    return [str(s.price), mc ? `Market cap ${mc}${str(s.marketCap) ? ` (${s.marketCap})` : ""}` : "", `updated ${ago(ageS)}`].filter(Boolean).join(" · ");
+  }
+  /** The About text of a city coin. */
+  function cityAbout(d) {
+    const c = d.coin, city = c.city && c.city.name ? c.city.name : "its city", pair = c.pair && c.pair.symbol ? c.pair.symbol : "SOL";
+    return `${c.ticker ? "$" + c.ticker : "This coin"} is the one official coin of ${city}${c.city && c.city.country ? `, ${c.city.country}` : ""}: launched by its founder${onLaunchLab(d) ? " on Raydium LaunchLab" : ""}, paired with ${pair}, and recorded by Vicinity.`;
+  }
   /** The bonding curve in words: { pct, of, text, graduated } or null when the coin has no LaunchLab curve. */
   function curveOf(d) {
     const c = d && d.market && d.market.curve; if (!c || typeof c !== "object") return null;
@@ -199,7 +213,7 @@
   }
   const fmtDate = (iso) => { const t = Date.parse(str(iso)); return Number.isFinite(t) ? new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""; };
 
-  const pure = { isAddr, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, RANGES, UNITS, STYLES };
+  const pure = { isAddr, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, onLaunchLab, priceLine, cityAbout, RANGES, UNITS, STYLES };
   window.VCoin = { pure };
   if (typeof document === "undefined" || !window.V || !window.VChart || !window.VChart.create) return; // node: the helpers are enough
 
@@ -276,13 +290,7 @@
     if (!scrub) {
       const c = $("#coin-chg"); put(c, ch.text); c.className = `coin-chg ${ch.cls}`;
       c.title = num(m.priceChange24hPct) == null ? `No 24-hour change: ${firstReason(m.missing && m.missing.change24h) || "no source has it"}` : `24-hour change · ${str(m.sources && m.sources.change24h)}`;
-      const sub = [];
-      if (p) {
-        if (money(m.marketCapUsd)) sub.push(`Market cap ${money(m.marketCapUsd)}`);
-        sub.push(str(m.sources && m.sources.price));
-        sub.push(`updated ${ago(ageS)}`);
-      } else sub.push(`No price right now: ${firstReason(m.missing && m.missing.price) || "no source has one"}`);
-      put($("#coin-price-sub"), sub.filter(Boolean).join(" · "));
+      put($("#coin-price-sub"), priceLine(m, ageS));
       $("#coin-price").title = p ? `${p} · ${str(m.sources && m.sources.price)}` : "No price right now";
     }
     put($("#coin-mini-price"), p || "—");
@@ -446,10 +454,7 @@
       const team = offi && Array.isArray(offi.teamWallets) && isAddr(offi.teamWallets[0]) ? ` (team wallet ${mask(offi.teamWallets[0])})` : "";
       const when = Date.parse(str(c.launchedAt));
       p.textContent = `$VICINITY is the key to the Vicinity map: hold it to found and back your city. One official token${facts.length ? `, ${facts.join(", ")}` : ""}. Launched on Raydium LaunchLab${Number.isFinite(when) ? ` on ${new Date(when).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })}` : ""} by the Vicinity team${team}.`;
-    } else {
-      const city = c.city && c.city.name ? c.city.name : "its city";
-      p.textContent = `${c.ticker ? "$" + c.ticker : "This coin"} is the one official coin of ${city}${c.city && c.city.country ? `, ${c.city.country}` : ""}: launched by its founder on Raydium LaunchLab, paired with ${c.pair && c.pair.symbol ? c.pair.symbol : "SOL"}, and recorded by Vicinity.`;
-    }
+    } else p.textContent = cityAbout(d);
     const links = $("#coin-about-links"), out = [];
     const a = (text, href, ext) => { const x = el("a", "chip-link coin-about__link", text); x.href = href; if (ext) newTab(x); return x; };
     if (c.kind === "city" && c.city && /^[A-Za-z0-9_-]{1,40}$/.test(str(c.city.id))) out.push(a(`${c.city.name || "The city"} on the map`, `/cities?city=${encodeURIComponent(c.city.id)}`));

@@ -17,7 +17,7 @@ after(() => realClock());
 
 const CARD_KEYS = ["kind", "status", "city", "ticker", "name", "pitch", "color", "logo", "pair", "mint", "launchedAt", "designedAt", "founder", "members", "market", "holders", "links", "rewardModel"];
 const MARKET_KEYS = ["priceUsd", "marketCapUsd", "fdvUsd", "liquidityUsd", "volume24hUsd", "priceChange24hPct", "pairAddress", "dex", "url",
-  "priceNative", "nativeSymbol", "liquidityKind", "traders24h", "stage", "curve", "sources", "missing", "stale"];
+  "priceNative", "nativeSymbol", "liquidityKind", "traders24h", "stage", "curve", "sources", "missing", "stale", "launchpad"];
 const NUMBERS = ["priceUsd", "marketCapUsd", "fdvUsd", "liquidityUsd", "volume24hUsd", "priceChange24hPct"];
 /** A live coin no source could price: every number null (the page's dash), and a short reason for each one the page shows. */
 function noNumbers(m, why = /./) {
@@ -56,7 +56,8 @@ test("the aggregation: statuses, tickers, founder by username + masked wallet, m
   const text = await res.text(), d = JSON.parse(text);
 
   assert.deepEqual(Object.keys(d), ["ok", "asOf", "opensAt", "open", "vicinity", "coins", "countries", "stats", "attribution"]);
-  assert.deepEqual(d.attribution.map((a) => a.text), ["Pool data after graduation: DEX Screener", "Holders: counted by vicinity.city"], "only the sources this answer used");
+  // Utica's coin has no LaunchLab pool on the chain: its DEX pool is its market (not "after graduation": it never had a curve)
+  assert.deepEqual(d.attribution.map((a) => a.text), ["Pool data: DEX Screener", "Holders: counted by vicinity.city"], "only the sources this answer used");
   assert.deepEqual([d.ok, d.asOf, d.opensAt, d.open], [true, "2026-10-12T12:00:00.000Z", "2026-10-10T10:10:10-04:00", true]);
   assert.deepEqual(d.coins.map((c) => [c.city.name, c.status]), [["Syracuse", "waiting"], ["Utica", "live"], ["Albany", "designed"]], "most recently updated first, as /api/coins");
   for (const c of [d.vicinity, ...d.coins]) {
@@ -78,7 +79,7 @@ test("the aggregation: statuses, tickers, founder by username + masked wallet, m
   assert.deepEqual(utica.market, { priceUsd: 0.0012, marketCapUsd: 1200000, fdvUsd: 1200000, liquidityUsd: 45000, volume24hUsd: 12345.6, priceChange24hPct: 12.5,
     pairAddress: mintNo(999), dex: "raydium", url: `https://dexscreener.com/solana/${CITY_COIN.toLowerCase()}`,
     priceNative: null, nativeSymbol: null, liquidityKind: "pool", traders24h: null, stage: "pool", curve: null,
-    sources: { price: DS, marketCap: DS, fdv: DS, liquidity: DS, volume24h: DS, change24h: DS }, missing: {}, stale: false });
+    sources: { price: DS, marketCap: DS, fdv: DS, liquidity: DS, volume24h: DS, change24h: DS }, missing: {}, stale: false, launchpad: null });
   assert.deepEqual(utica.links, {
     raydium: `https://raydium.io/launchpad/token/?mint=${CITY_COIN}`, jupiter: `https://jup.ag/swap/SOL-${CITY_COIN}`,
     dexscreener: `https://dexscreener.com/solana/${CITY_COIN}`, solscan: `https://solscan.io/token/${CITY_COIN}`,

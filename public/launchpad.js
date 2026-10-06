@@ -302,6 +302,12 @@
       text: `${raised != null && target != null ? `${amount(raised)} of ${amount(target)} ${sym} raised · ` : ""}moves to a Raydium pool at ${target != null ? amount(target) : "its target"} ${sym} · Solana chain`,
     };
   }
+  /** The line under a live coin's name: "Raydium LaunchLab · SOL pair" only when the chain found its LaunchLab pool or Jupiter says it
+   *  launched there (server: market.launchpad); otherwise the pair alone, never a venue nobody confirmed. */
+  function venueLine(c) {
+    const m = (c && c.market) || {}, sym = str(c && c.pair && c.pair.symbol) || "SOL";
+    return `${m.launchpad === "raydium-launchlab" || (m.curve && typeof m.curve === "object") ? "Raydium LaunchLab · " : ""}${sym} pair`;
+  }
   /** Is it a card that trades (a price block, a curve, a sparkline) or one that waits? Cards of another shape are redrawn whole. */
   const shapeOf = (c) => [str(c && c.status), isLive(c) ? "live" : "wait", curveView(c) ? (curveView(c).graduated ? "grad" : "curve") : "nocurve"].join("|");
 
@@ -359,7 +365,7 @@
 
   const pure = { NEW_DAYS, TABS, SORTS, TAB_NOTE, norm, searchText, matches, inTab, isNew, counts, rowsFor, money, fullMoney, count, fullCount, pct, communityText,
     countdownText, ageSeconds, agoText, statusLabel, notLiveWhy, founderText, pairText, links, viewHref, logoSrc, colorOf, cardKey, stateFromUrl, urlFor,
-    coinHref, chipOf, priceSource, statCells, curveView, shapeOf, sparkPick, sparkGeometry, sparkLabel, sparkWhy };
+    coinHref, chipOf, priceSource, statCells, curveView, venueLine, shapeOf, sparkPick, sparkGeometry, sparkLabel, sparkWhy };
   window.VLaunchpad = { pure };
   if (typeof document === "undefined" || !window.V) return; // node: the helpers are enough
 
@@ -471,7 +477,7 @@
     h3.append(link);
     const place = c.kind === "vicinity" ? "The Vicinity token · every city" : [c.city && c.city.name, countryNames[c.city && c.city.country] || (c.city && c.city.country)].filter(Boolean).join(", ");
     id.append(h3, el("p", "small muted lp-card__place", place));
-    if (live) id.append(el("p", "lp-card__sub", `Raydium LaunchLab · ${str(c.pair && c.pair.symbol) || "SOL"} pair`));
+    if (live) id.append(field(el("p", "lp-card__sub", venueLine(c)), "venue"));
     const [stText, stCls] = statusLabel(c, { now, opensAt: opensAt() });
     const tag = field(el("span", `tag ${stCls} lp-card__status`), "status"); tag.dataset.status = str(c.status);
     if (live) tag.append(el("span", "lp-card__ping"), stText); else tag.textContent = stText;
