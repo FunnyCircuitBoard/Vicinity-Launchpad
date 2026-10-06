@@ -142,7 +142,16 @@ export async function reprove(p) {
 }
 
 /** Run the scheduled job. sample: true = take a balance sample this time. */
-export const tick = (env, { sample = true } = {}) => runJobs(env, clock.now, chain(), () => (sample ? 0 : 0.99));
+// Jupiter and Raydium LaunchLab (the Launchpad's market step, LAUNCHPAD_V2=on) answer "nothing" here, so a run of the job never
+// leaves a failed source behind for the next request; the RPC is the test chain.
+const quietOr = (rpc) => async (url, init) => {
+  const u = new URL(String(url));
+  const ok = (body) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+  if (/(^|\.)jup\.ag$/.test(u.hostname)) return ok(u.pathname === "/tokens/v2/search" ? [] : {});
+  if (/^launch-(mint|history)-v1\.raydium\.io$/.test(u.host)) return ok({ success: true, data: { rows: [] } });
+  return rpc(url, init);
+};
+export const tick = (env, { sample = true } = {}) => runJobs(env, clock.now, quietOr(chain()), () => (sample ? 0 : 0.99));
 /** Move time forward in steps, running the job (with a sample) at every step. */
 export async function passTime(env, ms, step = 6 * HOUR) {
   for (let t = 0; t < ms; t += step) { advance(Math.min(step, ms - t)); await tick(env); }

@@ -16,7 +16,17 @@ beforeEach(() => { useClock("2026-10-12T12:00:00Z"); _resetLaunchpad(); _resetMa
 after(() => realClock());
 
 const CARD_KEYS = ["kind", "status", "city", "ticker", "name", "pitch", "color", "logo", "pair", "mint", "launchedAt", "designedAt", "founder", "members", "market", "holders", "links", "rewardModel"];
-const MARKET_KEYS = ["priceUsd", "marketCapUsd", "fdvUsd", "liquidityUsd", "volume24hUsd", "priceChange24hPct", "pairAddress", "dex", "url"];
+const MARKET_KEYS = ["priceUsd", "marketCapUsd", "fdvUsd", "liquidityUsd", "volume24hUsd", "priceChange24hPct", "pairAddress", "dex", "url",
+  "priceNative", "nativeSymbol", "liquidityKind", "traders24h", "stage", "curve", "sources", "missing", "stale"];
+const NUMBERS = ["priceUsd", "marketCapUsd", "fdvUsd", "liquidityUsd", "volume24hUsd", "priceChange24hPct"];
+/** A live coin no source could price: every number null (the page's dash), and a short reason for each one the page shows. */
+function noNumbers(m, why = /./) {
+  assert.ok(m && typeof m === "object", "a market object, with its reasons");
+  for (const k of NUMBERS) assert.equal(m[k], null, k);
+  assert.deepEqual(m.sources, {}, "no number, no source");
+  assert.deepEqual(Object.keys(m.missing).sort(), ["change24h", "liquidity", "marketCap", "price", "volume24h"]);
+  for (const r of Object.values(m.missing)) assert.match(r, why);
+}
 
 /** Utica live (founder with a username), Syracuse waiting for the admin's check, Albany designed; the token live; holders counted. */
 async function threeStates(env) {
@@ -45,7 +55,8 @@ test("the aggregation: statuses, tickers, founder by username + masked wallet, m
   assert.equal(res.headers.get("content-security-policy").includes("connect-src 'self'"), true);
   const text = await res.text(), d = JSON.parse(text);
 
-  assert.deepEqual(Object.keys(d), ["ok", "asOf", "opensAt", "open", "vicinity", "coins", "countries", "stats"]);
+  assert.deepEqual(Object.keys(d), ["ok", "asOf", "opensAt", "open", "vicinity", "coins", "countries", "stats", "attribution"]);
+  assert.deepEqual(d.attribution.map((a) => a.text), ["Pool data after graduation: DEX Screener", "Holders: counted by vicinity.city"], "only the sources this answer used");
   assert.deepEqual([d.ok, d.asOf, d.opensAt, d.open], [true, "2026-10-12T12:00:00.000Z", "2026-10-10T10:10:10-04:00", true]);
   assert.deepEqual(d.coins.map((c) => [c.city.name, c.status]), [["Syracuse", "waiting"], ["Utica", "live"], ["Albany", "designed"]], "most recently updated first, as /api/coins");
   for (const c of [d.vicinity, ...d.coins]) {
@@ -63,8 +74,11 @@ test("the aggregation: statuses, tickers, founder by username + masked wallet, m
   assert.deepEqual(utica.founder, { handle: "uticafounder", wallet: `${f.w.address.slice(0, 5)}*****${f.w.address.slice(-3)}`, status: "active" });
   assert.deepEqual(utica.members, { members: 3, holders: 2 }, "three people call Utica home, two of them hold (from the balance sample)");
   assert.deepEqual(utica.holders, { count: 3, asOf: "2026-10-12T12:00:00.000Z" }, "every wallet holding anything (the test chain gives every coin the same holders)");
+  const DS = "DEX Screener";
   assert.deepEqual(utica.market, { priceUsd: 0.0012, marketCapUsd: 1200000, fdvUsd: 1200000, liquidityUsd: 45000, volume24hUsd: 12345.6, priceChange24hPct: 12.5,
-    pairAddress: mintNo(999), dex: "raydium", url: `https://dexscreener.com/solana/${CITY_COIN.toLowerCase()}` });
+    pairAddress: mintNo(999), dex: "raydium", url: `https://dexscreener.com/solana/${CITY_COIN.toLowerCase()}`,
+    priceNative: null, nativeSymbol: null, liquidityKind: "pool", traders24h: null, stage: "pool", curve: null,
+    sources: { price: DS, marketCap: DS, fdv: DS, liquidity: DS, volume24h: DS, change24h: DS }, missing: {}, stale: false });
   assert.deepEqual(utica.links, {
     raydium: `https://raydium.io/launchpad/token/?mint=${CITY_COIN}`, jupiter: `https://jup.ag/swap/SOL-${CITY_COIN}`,
     dexscreener: `https://dexscreener.com/solana/${CITY_COIN}`, solscan: `https://solscan.io/token/${CITY_COIN}`,
@@ -116,7 +130,9 @@ test("$VICINITY before its mint: an upcoming card with the opening time, no link
   // the token launches
   env.VICINITY_MINT = MINT; _resetLaunchpad();
   const live = await (await browser(env).send("/api/launchpad", { fetchImpl: dex.fetchImpl })).json();
-  assert.deepEqual([live.vicinity.status, live.vicinity.mint, live.vicinity.market, live.vicinity.links.raydium], ["live", MINT, null, `https://raydium.io/launchpad/token/?mint=${MINT}`]);
+  assert.deepEqual([live.vicinity.status, live.vicinity.mint, live.vicinity.links.raydium], ["live", MINT, `https://raydium.io/launchpad/token/?mint=${MINT}`]);
+  noNumbers(live.vicinity.market);
+  assert.equal(live.vicinity.market.missing.price, "Jupiter has no price for it (no trade in the last 7 days); no LaunchLab curve on the chain; no DEX Screener pool");
   assert.deepEqual(live.stats, { live: 1, new: 0, upcoming: 1 });
   assert.deepEqual(dex.mints(), [[MINT]]);
   // in preview mode the site pretends it opened yesterday
@@ -206,7 +222,9 @@ test("DexScreener down (5xx): every market is null, the answer is kept only 5 se
     assert.equal(res.status, 200, "the list still answers");
     assert.equal(res.headers.get("cache-control"), "public, max-age=5");
     const d = await res.json();
-    assert.deepEqual([d.ok, d.coins[0].market, d.vicinity.market, d.coins[0].status], [true, null, null, "live"]);
+    assert.deepEqual([d.ok, d.coins[0].status], [true, "live"]);
+    noNumbers(d.coins[0].market); noNumbers(d.vicinity.market);
+    assert.match(d.vicinity.market.missing.price, /DEX Screener could not be reached/);
     assert.equal(down.seen.length, 1);
     advance(2_000);
     await browser(env).send("/api/launchpad", { fetchImpl: down.fetchImpl });
@@ -279,7 +297,9 @@ test("DexScreener's pairs: null (a token with no pair yet, as $VICINITY right af
     assert.equal(res.status, 200);
     assert.equal(res.headers.get("cache-control"), "public, max-age=30", "the healthy 30-second copy, not the 5-second degraded one");
     const d = await res.json();
-    assert.deepEqual([d.vicinity.status, d.vicinity.market], ["live", null], "the page still shows its dash for the price");
+    assert.equal(d.vicinity.status, "live");
+    noNumbers(d.vicinity.market); // the page still shows its dash for the price, with the reason
+    assert.match(d.vicinity.market.missing.price, /no DEX Screener pool/);
     advance(10_000);
     await browser(env).send("/api/launchpad", { fetchImpl: nullPairs(lp) });
     assert.equal(lp.length, 1, "10 seconds later the answer is still the remembered copy");

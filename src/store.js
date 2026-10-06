@@ -737,6 +737,68 @@ export function ensureLaunchpadSchema(db) {
   return launchpadReady.get(db);
 }
 
+/**
+ * The Launchpad's price history (src/pricehistory.js), also only while LAUNCHPAD_V2=on and only from the routes and the job
+ * step that use it (GET /api/coin, GET /api/coin/chart, the job's "market" step): the Launchpad list itself never creates
+ * these. Safe to repeat. Same rule: no semicolon inside a comment or a string in this SQL.
+ *   price_samples  one row per coin per 10-minute run of the job: the curve's spot price in the pair token (price_native),
+ *                  the pair's USD price, the USD price the page shows (price_usd, and usd_src: jupiter, curve or dexscreener),
+ *                  what the curve holds (raised), its stage and the slot it was read at. at = unix seconds, on the 10-minute grid.
+ *   price_candles  OHLC in the pair token from Raydium LaunchLab's kline (src = raydium): tf 15m, rolled into 4h after 30 days.
+ *   market_meta    per coin: its LaunchLab pool, when its kline was backfilled and last read, when the job saw it graduate.
+ */
+export const MARKET_MIGRATION = {
+  id: "2026-10-06-launchpad-market",
+  sql: `
+CREATE TABLE IF NOT EXISTS price_samples (
+  mint         TEXT NOT NULL,
+  at           INTEGER NOT NULL,
+  slot         INTEGER,
+  stage        TEXT,
+  price_native REAL,
+  pair_usd     REAL,
+  price_usd    REAL,
+  usd_src      TEXT,
+  raised       REAL,
+  PRIMARY KEY (mint, at)
+);
+CREATE TABLE IF NOT EXISTS price_candles (
+  mint TEXT NOT NULL,
+  tf   TEXT NOT NULL,
+  t    INTEGER NOT NULL,
+  o    REAL NOT NULL,
+  h    REAL NOT NULL,
+  l    REAL NOT NULL,
+  c    REAL NOT NULL,
+  src  TEXT NOT NULL,
+  PRIMARY KEY (mint, tf, t)
+);
+CREATE TABLE IF NOT EXISTS market_meta (
+  mint          TEXT PRIMARY KEY,
+  pool          TEXT,
+  backfilled_at TEXT,
+  kline_at      TEXT,
+  graduated_at  TEXT
+)
+`,
+};
+
+const marketReady = new WeakMap();
+
+/** Create the price-history tables the first time they are needed (after coin_stats). Same failure rule as ensureLaunchpadSchema. */
+export function ensureMarketSchema(db) {
+  if (!marketReady.has(db)) {
+    marketReady.set(db, (async () => {
+      await ensureLaunchpadSchema(db);
+      const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(MARKET_MIGRATION.id).first();
+      if (done) return;
+      for (const s of split(MARKET_MIGRATION.sql)) await db.prepare(s).run();
+      await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(MARKET_MIGRATION.id, new Date().toISOString()).run();
+    })().catch((e) => { marketReady.delete(db); throw e; }));
+  }
+  return marketReady.get(db);
+}
+
 const limitsReady = new WeakMap();
 
 /**

@@ -20,8 +20,10 @@
  * Member profiles, only while PROFILES=on (otherwise 404 not_enabled; src/profiles.js):
  *   GET /api/profile?u= · /api/members/search?q= · POST /api/follow · GET /api/follows · POST /api/block · GET /api/me/blocks
  *   · POST /api/me/bio · POST /api/profile/report · GET /api/me/portfolio · POST /api/mod/bio/clear
- * The Launchpad's coin list, only while LAUNCHPAD_V2=on (otherwise 404 not_enabled; src/launchpad.js, src/market.js):
+ * The Launchpad's coin list, only while LAUNCHPAD_V2=on (otherwise 404 not_enabled; src/launchpad.js, src/marketlive.js):
  *   GET /api/launchpad   every city coin and $VICINITY as cards with market data, holder and member counts, trade links
+ *   GET /api/coin?mint=  one allow-listed coin: facts, live market, holders, recent trades, links, sources (src/coin.js)
+ *   GET /api/coin/chart?mint=&tf=1h|24h|7d|30d|all   its price history (src/pricehistory.js)
  * Signed in: /api/me · /api/me/{terms,username,phone} · /api/me/contact/email/{verify,remove} · /api/home
  *   · /api/locate (the place a location is read, with /api/locate/handoff/* when a wallet app's browser can't
  *   share GPS: src/handoff.js) · /api/posts(/vote, /report)
@@ -62,6 +64,8 @@ import { launchpadV2On, profilesOn, v2On } from "./flags.js";
 import { routeV2 } from "./signup.js";
 import { PROFILE_PATHS, routeProfiles } from "./profiles.js";
 import { handleLaunchpad } from "./launchpad.js";
+import { CHART_TTL, handleCoin, handleCoinChart } from "./coin.js";
+import { CHART_TFS } from "./pricehistory.js";
 import { publicLimit } from "./guards.js";
 
 export { json, activeMint, cached as _cached };
@@ -195,6 +199,18 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   if (path === "/api/launchpad") {
     if (!launchpadV2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
     return only("GET") || needsDb() || cached("launchpad-" + (activeMint(env) || "pre"), 30, () => handleLaunchpad(env, fetchImpl));
+  }
+  // one coin's page and chart (LAUNCHPAD_V2=on): allow-listed mints only (src/coin.js), edge-cached, counted on a cache miss
+  if (path === "/api/coin" || path === "/api/coin/chart") {
+    if (!launchpadV2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
+    const blocked = only("GET") || needsDb();
+    if (blocked) return blocked;
+    const mint = url.searchParams.get("mint");
+    if (!isSolanaAddress(mint)) return json({ ok: false, error: "bad_mint" }, 400);
+    if (path === "/api/coin") return cached(`coin-${mint}`, 30, async () => (await publicLimit(env, request, "coin")) || handleCoin(env, mint, fetchImpl));
+    const tf = url.searchParams.get("tf") || "24h";
+    if (!CHART_TFS.includes(tf)) return json({ ok: false, error: "bad_tf" }, 400);
+    return cached(`coin-chart-${mint}-${tf}`, CHART_TTL[tf], async () => (await publicLimit(env, request, "coin_chart")) || handleCoinChart(env, mint, tf, fetchImpl));
   }
 
   // paths with an id in them
