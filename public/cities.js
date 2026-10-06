@@ -1025,7 +1025,8 @@
       : ov.failed ? "Boundary shows when you zoom in" : "Boundary loading…";
     const sig = [c.id, st, t, amt, r3, l4].join("|");
     if (sig === focusSig) return;
-    const swap = focusSig && !reduced;
+    // the card fades only when another city comes into focus; new numbers for the same city (the countdown, a member) go in at once
+    const swap = Boolean(focusSig) && !reduced && focusSig.split("|")[0] !== c.id;
     focusSig = sig;
     const fill = () => {
       focusEl.dataset.status = st;
@@ -1040,8 +1041,12 @@
       go.disabled = false; go.textContent = "›"; go.setAttribute("aria-label", `Show ${c.name}'s full details`);
     };
     const turn = ++swapping; // only the latest city fills the card (a quick pan can ask for several within 140 ms)
-    if (swap) { focusEl.classList.add("is-swapping"); setTimeout(() => { if (turn !== swapping) return; fill(); focusEl.classList.remove("is-swapping"); }, 140); } else fill();
-    announce(`In focus: ${c.name}, ${placeOf(c)}. ${st === "choosing" ? `Choosing its founder, ${win.applicants} applying` : STATUS_WORD[st]}.${t ? ` $${t}.` : ""} Founder amount ${amt}.${a ? ` ${areaNote(a, c)}.` : ""} ${l4}.`);
+    // every path that fills the card ends the fade: a refresh of the numbers (focusSig reset) fills at once and must not leave a
+    // fade that an older turn started (its timer sees a newer turn and returns), or the card stays blank
+    if (swap) { focusEl.classList.add("is-swapping"); setTimeout(() => { if (turn !== swapping) return; fill(); focusEl.classList.remove("is-swapping"); }, 140); }
+    else { fill(); focusEl.classList.remove("is-swapping"); }
+    // said once per city and status: the countdown stays on the card only (re-reading the whole sentence every minute is noise)
+    announce(`In focus: ${c.name}, ${placeOf(c)}. ${st === "choosing" ? `Choosing its founder, ${win.applicants} applying` : STATUS_WORD[st]}.${t ? ` $${t}.` : ""} Founder amount ${amt}.${a ? ` ${areaNote(a, c)}.` : ""}${st === "choosing" ? "" : ` ${l4}.`}`);
   }
   /** Screen readers hear the city in focus once the map rests (not on every step of a pan). */
   function announce(text) { clearTimeout(sayTimer); sayTimer = setTimeout(() => { const s = $("#mf-say"); if (s.textContent !== text) s.textContent = text; }, 600); }
