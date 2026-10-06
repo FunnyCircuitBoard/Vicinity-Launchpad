@@ -22,6 +22,7 @@ import {
   getBase64EncodedWireTransaction,
 } from '@solana/kit';
 import web3 from '@solana/web3.js';
+import anchorPkg from '@coral-xyz/anchor';
 import * as C from '../sdk/launchpad/client.mjs';
 import { IDL, coderFor, decodeAccount, buildIx, Role } from '../sdk/launchpad/idl.mjs';
 import { ADDRESSES, PROGRAM_IDS, ata, dbc, damm, pdas, programDataAddress, rewardsPdas } from '../sdk/launchpad/pda.mjs';
@@ -534,6 +535,40 @@ export async function completeCurve(w, coin, buyer) {
   buyer = buyer ?? await w.signer(500n);
   await w.trade(buyer, coin, { side: 'buy', mode: 1, amount0: 200n * LAMPORTS, amount1: 1n, label: 'partial fill to graduation' });
   return buyer;
+}
+
+// ---------------------------------------------------------------- keeper readers over the test VM
+const bs58 = anchorPkg.utils.bytes.bs58;
+const memcmpOk = (data, { offset, bytes }) => {
+  const b = Buffer.from(typeof bytes === 'string' ? bs58.decode(bytes) : bytes);
+  return data.length >= offset + b.length && Buffer.from(data.subarray(offset, offset + b.length)).equals(b);
+};
+/** The keeper's reader interface (sdk/launchpad/keeper.mjs) over the in-process VM. */
+export function svmReader(w) {
+  const toAcc = (addr, a) => ({ address: String(addr), owner: String(a.programAddress), lamports: BigInt(a.lamports), data: Buffer.from(a.data) });
+  return {
+    async getProgramAccounts(programId, { memcmp = [], dataSize } = {}) {
+      return w.svm.getProgramAccounts(address(String(programId))).map((a) => toAcc(a.address, a))
+        .filter((a) => (dataSize === undefined || a.data.length === dataSize) && memcmp.every((m) => memcmpOk(a.data, m)));
+    },
+    async getMultipleAccounts(addrs) { return addrs.map((x) => { const a = w.account(x); return a ? toAcc(x, a) : null; }); },
+  };
+}
+/**
+ * The two @solana/web3.js `Connection` methods the keeper uses, answered from
+ * the in-process VM, so tests also run `connectionReader` (the code path of
+ * scripts/launchpad/crank.mjs) including its RPC filter encoding.
+ */
+export function fakeConnection(w) {
+  const info = (a) => ({ owner: new web3.PublicKey(String(a.programAddress)), lamports: Number(a.lamports), data: Buffer.from(a.data), executable: false });
+  return {
+    async getProgramAccounts(programId, { filters = [] } = {}) {
+      return w.svm.getProgramAccounts(address(programId.toBase58()))
+        .filter((a) => filters.every((f) => (f.dataSize !== undefined ? a.data.length === f.dataSize : memcmpOk(Buffer.from(a.data), f.memcmp))))
+        .map((a) => ({ pubkey: new web3.PublicKey(String(a.address)), account: info(a) }));
+    },
+    async getMultipleAccountsInfo(keys) { return keys.map((k) => { const a = w.account(k.toBase58()); return a ? info(a) : null; }); },
+  };
 }
 
 /** Run a harvest and keep the invariant-3 counter in step. */
