@@ -6,15 +6,17 @@ package_manager = "npm"
 resolution = true
 skip-lint = false
 
-# The localnet id below is the throwaway program keypair generated on the build
-# machine (target/deploy/vicinity_rewards-keypair.json, not committed). For
-# mainnet the owner generates a fresh keypair on his own machine and updates
-# this value together with declare_id! in programs/vicinity-rewards/src/lib.rs.
+# The localnet ids below are throwaway program keypairs generated on the build
+# machine (target/deploy/<program>-keypair.json, not committed). For mainnet
+# the owner generates fresh keypairs on his own machine and updates these
+# values together with declare_id! in programs/<program>/src/lib.rs.
 [programs.localnet]
 vicinity_rewards = "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi"
+vicinity_launchpad = "Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7"
 
 [programs.devnet]
 vicinity_rewards = "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi"
+vicinity_launchpad = "Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7"
 
 [registry]
 url = "https://api.apr.dev"
