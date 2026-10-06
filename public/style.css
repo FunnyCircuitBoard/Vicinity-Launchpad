@@ -380,7 +380,7 @@ select option { background: var(--bg-2); }
   background: linear-gradient(135deg, var(--pin), var(--gold)); box-shadow: 0 8px 22px -8px rgba(255,90,54,.7), inset 0 1px 0 rgba(255,255,255,.3); }
 .contract__title { flex: 1; min-width: 0; line-height: 1.25; }
 .contract__label { font: 600 1rem/1.25 var(--display); letter-spacing: -.01em; color: var(--text); }
-.contract__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 4px; }
+.contract__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 4px; min-height: calc(.864rem + 8px); } /* the "Official" badge's height, before it shows */
 .contract__net { font-size: .72rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 .contract__badge { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px 3px 7px; border-radius: 999px; font: 700 .72rem/1.2 var(--body); letter-spacing: .03em;
   color: var(--ok-text); background: rgba(55,194,154,.13); border: 1px solid rgba(55,194,154,.42); }
@@ -404,7 +404,16 @@ select option { background: var(--bg-2); }
 .contract__copy.is-copied .contract__copy-check { opacity: 1; transform: none; animation: checkPop .45s cubic-bezier(.2,1.5,.4,1); }
 @keyframes checkPop { 0% { transform: scale(.3) rotate(-20deg); opacity: 0; } 60% { transform: scale(1.25); opacity: 1; } 100% { transform: none; } }
 /* the trade links: Buy on Raydium across the card, then three equal tiles */
-.contract__links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; animation: contractIn .5s cubic-bezier(.2,.8,.2,1) both; }
+.contract__links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+/* until /api/token answers (token.js removes .is-pending), the copy button and the trade links hold their room unseen (no Tab stop,
+   nothing read out), and on a phone the address its two lines: the card is its final height from the first paint. On 6 Oct 2026 it
+   grew 214 px when the answer came, pushing everything down, and /token#holders, #verify and #check landed 79 px too low. */
+.contract.is-pending .contract__copy, .contract.is-pending > .contract__links { visibility: hidden; }
+@media (max-width: 639px) { .contract.is-pending .contract__addr code { min-height: 3.1em; } }
+/* then they slide in */
+@media (prefers-reduced-motion: no-preference) {
+  .contract:not(.is-pending) > .contract__links, .contract:not(.is-pending) .contract__copy { animation: contractIn .5s cubic-bezier(.2,.8,.2,1) backwards; }
+}
 @keyframes contractIn { from { opacity: 0; transform: translateY(6px); } }
 .contract__buy { grid-column: 1 / -1; position: relative; overflow: hidden; isolation: isolate; display: flex; align-items: center; justify-content: center; gap: 8px;
   min-height: 52px; padding: 0 20px; border-radius: 14px; text-decoration: none; color: #fff; font: 700 1.02rem var(--body);
@@ -415,11 +424,14 @@ select option { background: var(--bg-2); }
 @keyframes buyShine { 0% { transform: translateX(-100%); } 35%, 100% { transform: translateX(100%); } }
 .contract__buy:hover { transform: translateY(-1px); box-shadow: 0 16px 38px -12px rgba(255,90,54,.9), inset 0 1px 0 rgba(255,255,255,.3); }
 .contract__buy svg { flex: none; }
-.contract__ext { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 66px; padding: 10px 2px;
+/* the tiles: icon over name, top-aligned so the three icons share one line even when "DEX Screener" takes two (320 px) */
+.contract__ext { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 6px; min-height: 66px; padding: 12px 2px 10px;
   border-radius: 14px; text-decoration: none; text-align: center; color: var(--text); font: 600 .78rem/1.15 var(--body); background: var(--card-2); border: 1px solid var(--line-2);
   transition: transform .2s ease, border-color .2s, background .2s; }
 .contract__ext svg { color: var(--pin-2); }
 .contract__ext span { overflow-wrap: anywhere; }
+/* a small arrow in the corner: it opens another site, in a new tab (said to screen readers by the hidden text) */
+.contract__ext .contract__out { position: absolute; top: 5px; right: 7px; font: 600 .66rem/1 var(--body); color: var(--muted); overflow-wrap: normal; }
 .contract__ext:hover { transform: translateY(-2px); border-color: rgba(255,90,54,.55); background: rgba(255,90,54,.08); }
 /* the note: set apart under a hairline */
 .contract__foot { display: flex; align-items: flex-start; gap: 10px; padding-top: 14px; border-top: 1px dashed var(--line-2); color: var(--muted); }
@@ -428,7 +440,7 @@ select option { background: var(--bg-2); }
 @media (prefers-reduced-motion: no-preference) { .contract::after { animation: contractSweep 6s ease-in-out 1.5s 2; } }
 /* from the hairline's left end to its right end: 30% of the card wide, so 233.33% of its own width minus the two 22 px insets */
 @keyframes contractSweep { 0% { transform: translateX(0); opacity: 0; } 12%, 46% { opacity: 1; } 60%, 100% { transform: translateX(calc(233.33% - 44px)); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .contract__buy::after { display: none; } .contract__links, .contract__copy-check { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .contract__buy::after { display: none; } .contract__copy-check { animation: none; } }
 @media (min-width: 640px) {
   .contract { padding: 22px 24px; }
   .contract__addr { justify-content: space-between; padding: 12px 12px 12px 18px; }
@@ -436,13 +448,13 @@ select option { background: var(--bg-2); }
   .contract__copy { flex: none; min-height: 44px; padding: 0 14px; font-size: .9rem; }
   .contract__links { grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, 1fr)); }
   .contract__buy { grid-column: auto; }
-  .contract__ext { flex-direction: row; gap: 8px; min-height: 52px; padding: 0 10px; font-size: .9rem; }
+  .contract__ext { flex-direction: row; justify-content: center; gap: 8px; min-height: 52px; padding: 0 14px; font-size: .9rem; }
 }
 @media (min-width: 1180px) {
   .contract:has(> .contract__links:not([hidden])) { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); column-gap: 28px; align-items: center; }
   .contract:has(> .contract__links:not([hidden])) > .contract__links { grid-column: 2; grid-row: 1 / span 3; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .contract:has(> .contract__links:not([hidden])) .contract__buy { grid-column: 1 / -1; }
-  .contract:has(> .contract__links:not([hidden])) .contract__ext { flex-direction: column; gap: 6px; min-height: 66px; padding: 10px 4px; font-size: .84rem; }
+  .contract:has(> .contract__links:not([hidden])) .contract__ext { flex-direction: column; justify-content: flex-start; gap: 6px; min-height: 66px; padding: 12px 4px 10px; font-size: .84rem; }
 }
 .chip-link { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); text-decoration: none; font-size: .88rem; font-weight: 600; }
 .chip-link:hover { border-color: rgba(255,90,54,.6); }

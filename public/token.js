@@ -21,6 +21,8 @@
       return tr;
     }));
   }
+  /** No address to show (before the launch): the copy button and the trade links go; the room they held is given back. */
+  function hideContract() { $("#ca-copy").hidden = true; $("#ca-links").hidden = true; }
   /** The official contract, its copy button and its trade links: from the chain's answer, or from the settings while the chain is busy. */
   function showContract(m) {
     $("#ca-text").textContent = m;
@@ -48,14 +50,17 @@
     const d = await api("/api/token");
     renderRegistry(d.registry);
     launched = Boolean(d.launched);
+    // until now the card held the room of the address and its buttons, unseen (the page never jumps, and /token#holders lands where it aims)
+    $("#contract").classList.remove("is-pending");
     if (!d.launched) { // before the launch (VICINITY_MINT not set): say so, never a date or a guess
+      hideContract();
       $("#ca-text").textContent = "Not published yet";
       $("#ca-note").textContent = "Until it's published here, any \"$VICINITY\" you see is fake.";
       $$('[data-live="mint"], [data-live="freeze"], [data-live="supply2"]').forEach((e) => { e.textContent = "Checked live at launch"; });
       return;
     }
     const m = d.facts ? d.facts.mint : d.mint;
-    if (isAddr(m)) showContract(m);
+    if (isAddr(m)) showContract(m); else hideContract();
     if (!d.facts) { // the chain is busy: the contract is known, the live checks wait for the next visit
       $$('[data-live="mint"], [data-live="freeze"], [data-live="supply2"]').forEach((e) => { e.textContent = "The blockchain is busy: check again in a minute"; e.classList.add("is-wait"); });
       return;
