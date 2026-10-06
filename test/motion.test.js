@@ -536,3 +536,35 @@ test("token page: the supply is a fixed fact and never counts (data-still)", () 
   assert.match(block, /const painted = \(\) => \{ try \{ return win\.performance\.getEntriesByType\("paint"\)\.length > 0; \} catch \{ return false; \} \};/);
   assert.match(block, /const fromZero = \(p\) => Boolean\(p && p\.n > 0 && p\.pre === ""\);/);
 });
+
+test("layer: the keyboard never lands on something unseen: a block holding the focus is never lowered, and a block that receives it shows at once", () => {
+  // 6 Oct 2026: the Launchpad's 30 s refresh redrew the cards and put the focus back on "Buy on Raydium" in a card the layer then hid
+  // (opacity 0 for about 0.65 s); a Tab into a block below the screen focused a control still at opacity 0 for up to 0.5 s
+  const P = homePage(), { El } = P;
+  start(P);
+  const card = new El("li", "card lp-card", { top: 2600, h: 200 }), link = new El("a", "btn", { top: 2700, h: 44 });
+  card.add(link);
+  P.main.append(card);
+  P.doc.activeElement = link; // the page script's again.focus(), in the same task as its redraw
+  P.flush(); P.frame(0);
+  assert.ok(!card.cls.has("mo-armed"), "the card with the focus in it stays as it is");
+  const other = new El("li", "card lp-card", { top: 2900, h: 200 }); P.main.append(other); P.flush(); P.frame(16);
+  assert.ok(other.cls.has("mo-armed"), "its neighbour without the focus still rises in");
+  // Tab into a block still waiting below the screen: it shows now, with no fade, and is no longer watched
+  const rise = P.io((o) => o.opts.rootMargin);
+  const inner = new El("a", "", { top: 1220, h: 20 }); P.cards[0].add(inner);
+  assert.ok(P.cards[0].cls.has("mo-armed") && rise.els.has(P.cards[0]));
+  P.listeners.focusin.forEach((f) => f({ target: inner }));
+  assert.ok(!P.cards[0].cls.has("mo-armed") && !P.cards[0].cls.has("mo-in"), "shown at once");
+  assert.ok(!rise.els.has(P.cards[0]), "not watched any more");
+  // a block in the middle of its fade-in: the fade is cut short
+  rise.fire([P.cards[1], true]);
+  assert.ok(P.cards[1].cls.has("mo-in"));
+  const b = new El("button", "", { top: 1450, h: 30 }); P.cards[1].add(b);
+  P.listeners.focusin.forEach((f) => f({ target: b }));
+  assert.ok(!P.cards[1].cls.has("mo-armed") && !P.cards[1].cls.has("mo-in"));
+  assert.equal(P.cards[1].style.transitionDelay, "");
+  // focus anywhere else changes nothing
+  P.listeners.focusin.forEach((f) => f({ target: P.card0 }));
+  assert.ok(P.cards[2].cls.has("mo-armed") && P.head.cls.has("mo-armed"));
+});

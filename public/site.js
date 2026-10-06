@@ -87,6 +87,8 @@
   // * blocks (cards, section heads, stats) still BELOW the screen when the page starts are lowered and faded (style.css .mo-armed)
   //   and rise in, a few at a time, as they scroll into view; blocks a page script adds later do the same. A block on screen at
   //   the start, a hidden one, and every block without this script, without IntersectionObserver or with reduced motion just shows.
+  //   The keyboard never lands on something unseen: a block holding the focus is never lowered, and one that receives it (Tab, or
+  //   a page script's focus()) shows at once.
   // * live numbers count up the first time they are on screen, and ease to a new value when the page's own script writes one
   //   (with a short glow). What is left when a count ends is the script's own text, word for word; anything that is not a plain
   //   number ("—", "Oct 10", "4d 18h", "<0.01%") is never touched. A count finishes at once when the tab is hidden.
@@ -138,7 +140,10 @@
       e.classList.add("mo-in");
       timer(() => { e.classList.remove("mo-armed", "mo-in"); e.style.transitionDelay = ""; }, delay + 700); // then the block is itself again (its own hover etc.)
     }
-    /** Lowers the blocks in these roots that are below the screen right now: never one on screen, a hidden one, or one inside another block. */
+    /** Shows a block at once, with no transition: the keyboard is in it. */
+    function now(e) { rise.unobserve(e); e.classList.remove("mo-armed", "mo-in"); e.style.transitionDelay = ""; }
+    /** Lowers the blocks in these roots that are below the screen right now: never one on screen, a hidden one, one inside another
+     *  block, or one that holds the keyboard focus (the Launchpad puts it back on the card it just redrew). */
     function arm(...roots) {
       if (!on) return;
       const found = new Set();
@@ -146,7 +151,8 @@
         if (r !== doc && r.matches && r.matches(BLOCKS)) found.add(r);
         if (r.querySelectorAll) for (const e of r.querySelectorAll(BLOCKS)) found.add(e);
       }
-      const list = [...found].filter((e) => !e.classList.contains("mo-armed") && !e.closest(QUIET) && !(e.parentElement && e.parentElement.closest(BLOCKS)));
+      const act = doc.activeElement, focused = (e) => Boolean(act && act !== doc.body && e.contains(act));
+      const list = [...found].filter((e) => !e.classList.contains("mo-armed") && !e.closest(QUIET) && !(e.parentElement && e.parentElement.closest(BLOCKS)) && !focused(e));
       const h = win.innerHeight || doc.documentElement.clientHeight;
       const rects = list.map((e) => e.getBoundingClientRect()); // every read first, then the writes: one layout
       list.forEach((e, i) => { if (rects[i].height > 0 && rects[i].top > h) { e.classList.add("mo-armed"); rise.observe(e); } });
@@ -235,8 +241,10 @@
     /** Everything to its end state at once: every count ends on the page's text, every armed block shows. */
     function finish() {
       for (const e of [...runs.keys()]) stop(e, true);
-      for (const e of doc.querySelectorAll(".mo-armed")) { rise.unobserve(e); e.classList.remove("mo-armed", "mo-in"); e.style.transitionDelay = ""; }
+      for (const e of doc.querySelectorAll(".mo-armed")) now(e);
     }
+    // the keyboard reaches a control inside a block still waiting (or still fading in): it shows now, never a focused control at opacity 0
+    doc.addEventListener("focusin", (ev) => { const b = ev.target && ev.target.closest ? ev.target.closest(".mo-armed") : null; if (b) now(b); });
 
     /* the top section's drifting parts, and the loops further down, pause while they are off screen */
     const away = new IO((entries) => { for (const en of entries) en.target.classList.toggle("mo-off", !en.isIntersecting); });
