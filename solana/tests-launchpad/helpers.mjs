@@ -40,8 +40,15 @@ export const LAMPORTS = 1_000_000_000n;
 export const DAY = 86_400n;
 const FIX = join(here, 'fixtures');
 
+/**
+ * Where the Meteora and Metaplex dumps come from. Default: the pinned mainnet
+ * dumps. LAUNCHPAD_PROGRAMS_DIR points at another set, e.g. the devnet
+ * binaries (`scripts/launchpad/fetch-fixtures.sh` with NETWORK=devnet), to
+ * check that the devnet programs behave the same before a devnet demo.
+ */
+const PROGRAMS_DIR = process.env.LAUNCHPAD_PROGRAMS_DIR || join(FIX, 'programs');
 function programPath(name) {
-  const p = join(FIX, 'programs', name);
+  const p = join(PROGRAMS_DIR, name);
   if (!existsSync(p)) {
     throw new Error(`missing ${p}: run "npm run launchpad:fixtures" (dumps Meteora and Metaplex from mainnet and checks their pinned hashes)`);
   }

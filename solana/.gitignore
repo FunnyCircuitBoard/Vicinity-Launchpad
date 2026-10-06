@@ -22,3 +22,4 @@ id.json
 *.log
 .DS_Store
 tests-launchpad/fixtures/programs/
+tests-launchpad/fixtures/programs-devnet/
