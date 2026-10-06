@@ -14,14 +14,14 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
 
+use super::read_dbc_pool;
 use crate::constants::{
     APPROVAL_SEED, COIN_SEED, DBC_POOL_AUTHORITY, FOUNDER_VAULT_SEED, HOLDERS_POT_SEED,
     LAUNCHPAD_SEED, LAUNCH_CONFIG_SEED, METAPLEX_PROGRAM_ID,
 };
 use crate::dynamic_bonding_curve::{
-    self, accounts::PoolConfig, accounts::VirtualPool,
-    cpi::accounts::InitializeVirtualPoolWithSplToken, program::DynamicBondingCurve,
-    types::InitializePoolParameters,
+    self, accounts::PoolConfig, cpi::accounts::InitializeVirtualPoolWithSplToken,
+    program::DynamicBondingCurve, types::InitializePoolParameters,
 };
 use crate::errors::LaunchpadError;
 use crate::events::CoinLaunched;
@@ -133,23 +133,6 @@ pub struct Launch<'info> {
     pub dbc_program: Program<'info, DynamicBondingCurve>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
-}
-
-/// Read a DBC `VirtualPool` (owner DBC, its discriminator, then the bytes copied
-/// out, so no alignment assumption is made about the account buffer).
-fn read_dbc_pool(info: &AccountInfo) -> Result<VirtualPool> {
-    require_keys_eq!(
-        *info.owner,
-        dynamic_bonding_curve::ID,
-        LaunchpadError::PoolCreatorMismatch
-    );
-    let data = info.try_borrow_data()?;
-    let size = core::mem::size_of::<VirtualPool>();
-    require!(
-        data.len() >= 8 + size && data[..8] == *VirtualPool::DISCRIMINATOR,
-        LaunchpadError::PoolCreatorMismatch
-    );
-    Ok(bytemuck::pod_read_unaligned(&data[8..8 + size]))
 }
 
 pub fn handle_launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {

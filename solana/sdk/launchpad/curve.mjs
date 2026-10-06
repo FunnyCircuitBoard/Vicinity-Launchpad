@@ -76,6 +76,22 @@ export function splitPartnerCreator(trading, creatorPercent) {
   return { creator, partner: trading - creator };
 }
 
+/** DBC's partner-and-creator share of the completion surplus (state/virtual_pool.rs). */
+export const PARTNER_AND_CREATOR_SURPLUS_PERCENT = 80n;
+/**
+ * How DBC splits the completion surplus (quote reserve above the raise target,
+ * rounding dust the curve collected): 20% Meteora, the rest split between the
+ * partner (dev wallet) and the creator (the Coin PDA, i.e. the city) like the
+ * trading fee. Each side withdraws its share once. Mirrors DBC 0.2.1
+ * get_total_surplus / get_creator_surplus / get_partner_surplus / get_protocol_surplus.
+ */
+export function surplusShares(quoteReserve, migrationQuoteThreshold, creatorPercent) {
+  const total = quoteReserve > migrationQuoteThreshold ? quoteReserve - migrationQuoteThreshold : 0n;
+  const pc = (total * PARTNER_AND_CREATOR_SURPLUS_PERCENT) / 100n;
+  const creator = (pc * BigInt(creatorPercent)) / 100n;
+  return { total, creator, partner: pc - creator, protocol: total - pc };
+}
+
 // ---- curve walks (virtual_pool.rs) ----
 function segments(config) {
   return config.curve.filter((p) => p.sqrtPrice !== 0n && p.liquidity !== 0n);

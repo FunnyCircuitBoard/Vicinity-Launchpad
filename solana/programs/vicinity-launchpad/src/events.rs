@@ -85,7 +85,11 @@ pub struct FeesHarvested {
     pub city_id: u64,
     /// 0 = curve (DBC), 1 = graduated pool (DAMM v2).
     pub source: u8,
+    /// Everything that reached the pot in this harvest (fees plus surplus).
     pub claimed: u64,
+    /// The part of `claimed` that was the city's share of DBC's completion
+    /// surplus (paid once per coin, after the curve completes; else 0).
+    pub surplus: u64,
     pub to_holders: u64,
     pub to_founder: u64,
 }

@@ -44,7 +44,26 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
 use crate::constants::COIN_SEED;
+use crate::dynamic_bonding_curve::{self, accounts::VirtualPool};
+use crate::errors::LaunchpadError;
 use crate::state::Coin;
+
+/// Read a DBC `VirtualPool` (owner DBC, its discriminator, then the bytes copied
+/// out, so no alignment assumption is made about the account buffer).
+pub(crate) fn read_dbc_pool(info: &AccountInfo) -> Result<VirtualPool> {
+    require_keys_eq!(
+        *info.owner,
+        dynamic_bonding_curve::ID,
+        LaunchpadError::PoolCreatorMismatch
+    );
+    let data = info.try_borrow_data()?;
+    let size = core::mem::size_of::<VirtualPool>();
+    require!(
+        data.len() >= 8 + size && data[..8] == *VirtualPool::DISCRIMINATOR,
+        LaunchpadError::PoolCreatorMismatch
+    );
+    Ok(bytemuck::pod_read_unaligned(&data[8..8 + size]))
+}
 
 /// SPL transfer out of one of the coin's two token accounts (holders pot or
 /// founder vault), signed by the `Coin` PDA. Every caller pins `to` with

@@ -70,11 +70,14 @@ export function launch({ founder, payer = founder, baseMint, cityId, dbcConfig, 
 }
 
 // ---------------------------------------------------------------- fees
-/** `coin` = { cityId, mint, quoteMint, dbcPool } (the decoded Coin account works). */
+/**
+ * `coin` = { cityId, mint, quoteMint, dbcPool, dbcConfig }. Collects the city's
+ * curve fees and, once the curve is complete, its share of DBC's surplus.
+ */
 export function harvestCurveFees({ payer, coin, overrides = {} }) {
   const c = P.coin(coin.cityId);
   return buildIx(IDL.launchpad, 'harvest_curve_fees', { city_id: bn(coin.cityId) }, {
-    payer, coin: c, dbc_pool_authority: ADDRESSES.dbcPoolAuthority, dbc_pool: coin.dbcPool,
+    payer, coin: c, dbc_pool_authority: ADDRESSES.dbcPoolAuthority, dbc_pool: coin.dbcPool, dbc_config: coin.dbcConfig,
     dbc_base_vault: dbc.tokenVault(coin.mint, coin.dbcPool), dbc_quote_vault: dbc.tokenVault(coin.quoteMint, coin.dbcPool),
     base_mint: coin.mint, quote_mint: coin.quoteMint, coin_base_account: ata(c, coin.mint),
     holders_pot: P.holdersPot(c), founder_vault: P.founderVault(c), token_program: TOKEN,
@@ -199,6 +202,35 @@ export function withdrawLeftover({ dbcPool, dbcConfig, coinMint, receiverAccount
     config: dbcConfig, virtual_pool: dbcPool, token_base_account: receiverAccount, base_vault: dbc.tokenVault(coinMint, dbcPool),
     base_mint: coinMint, leftover_receiver: leftoverReceiver, token_base_program: TOKEN, event_authority: dbc.eventAuthority(), program: PROGRAM_IDS.dbc,
   });
+}
+/**
+ * The dev wallet's share of DBC's completion surplus (once per pool, after the
+ * curve completes). Only the config's fee_claimer (the dev wallet) can sign.
+ */
+export function partnerWithdrawSurplus({ feeClaimer = ADDRESSES.feeRecipient, dbcPool, dbcConfig, quoteMint, quoteAccount }) {
+  return buildIx(IDL.dbc, 'partner_withdraw_surplus', {}, {
+    config: dbcConfig, virtual_pool: dbcPool, token_quote_account: quoteAccount, quote_vault: dbc.tokenVault(quoteMint, dbcPool),
+    quote_mint: quoteMint, fee_claimer: feeClaimer, token_quote_program: TOKEN, event_authority: dbc.eventAuthority(), program: PROGRAM_IDS.dbc,
+  });
+}
+/** DBC's own creator surplus instruction (our program calls it inside harvest_curve_fees; only the Coin PDA can sign it). */
+export function creatorWithdrawSurplus({ creator, dbcPool, dbcConfig, quoteMint, quoteAccount }) {
+  return buildIx(IDL.dbc, 'creator_withdraw_surplus', {}, {
+    config: dbcConfig, virtual_pool: dbcPool, token_quote_account: quoteAccount, quote_vault: dbc.tokenVault(quoteMint, dbcPool),
+    quote_mint: quoteMint, creator, token_quote_program: TOKEN, event_authority: dbc.eventAuthority(), program: PROGRAM_IDS.dbc,
+  });
+}
+/** Associated Token program "create idempotent": makes `owner`'s ATA for `mint` if missing, else does nothing. */
+export function createAtaIdempotent({ payer, owner, mint, tokenProgram = TOKEN }) {
+  return {
+    programAddress: PROGRAM_IDS.ata,
+    accounts: [
+      { address: String(payer), role: Role.WS }, { address: ata(owner, mint, tokenProgram), role: Role.W },
+      { address: String(owner), role: Role.R }, { address: String(mint), role: Role.R },
+      { address: PROGRAM_IDS.system, role: Role.R }, { address: tokenProgram, role: Role.R },
+    ],
+    data: new Uint8Array([1]),
+  };
 }
 /** The dev wallet claims its (partner) trading fees from one DBC pool. */
 export function claimPartnerTradingFee({ feeClaimer = ADDRESSES.feeRecipient, dbcPool, dbcConfig, coinMint, quoteMint, baseAccount, quoteAccount }) {

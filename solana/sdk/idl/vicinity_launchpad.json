@@ -619,8 +619,9 @@
     {
       "name": "harvest_curve_fees",
       "docs": [
-        "Permissionless: claim the city's half of the curve trading fees and",
-        "split it into the holders pot and the founder vault."
+        "Permissionless: claim the city's half of the curve trading fees (and,",
+        "once the curve is complete, the city's share of DBC's rounding surplus)",
+        "and split it into the holders pot and the founder vault."
       ],
       "discriminator": [
         118,
@@ -669,6 +670,13 @@
         {
           "name": "dbc_pool",
           "writable": true
+        },
+        {
+          "name": "dbc_config",
+          "docs": [
+            "This coin's DBC config (owner DBC and type checked): its raise target",
+            "tells whether the curve is complete, and DBC needs it for the surplus."
+          ]
         },
         {
           "name": "dbc_base_vault",
@@ -3045,9 +3053,9 @@
         "",
         "This PDA is the DBC pool creator, so the creator half of the trading fee",
         "belongs to the city. It signs only: the DBC launch, DBC",
-        "`claim_creator_trading_fee`, DAMM v2 `claim_position_fee`, and SPL transfers",
-        "out of its holders pot and founder vault to the destinations each",
-        "instruction pins."
+        "`claim_creator_trading_fee` and `creator_withdraw_surplus` (both paying into",
+        "the holders pot), DAMM v2 `claim_position_fee`, and SPL transfers out of its",
+        "holders pot and founder vault to the destinations each instruction pins."
       ],
       "type": {
         "kind": "struct",
@@ -3335,6 +3343,17 @@
           },
           {
             "name": "claimed",
+            "docs": [
+              "Everything that reached the pot in this harvest (fees plus surplus)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "surplus",
+            "docs": [
+              "The part of `claimed` that was the city's share of DBC's completion",
+              "surplus (paid once per coin, after the curve completes; else 0)."
+            ],
             "type": "u64"
           },
           {

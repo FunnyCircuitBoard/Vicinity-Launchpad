@@ -171,6 +171,7 @@ pub fn handle_harvest_pool_fees(mut ctx: Context<HarvestPoolFees>, city_id: u64)
         city_id,
         source: 1,
         claimed,
+        surplus: 0,
         to_holders,
         to_founder,
     });

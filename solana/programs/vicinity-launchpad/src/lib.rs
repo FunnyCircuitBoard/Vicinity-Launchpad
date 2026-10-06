@@ -125,8 +125,9 @@ pub mod vicinity_launchpad {
         instructions::launch::handle_launch(ctx, city_id)
     }
 
-    /// Permissionless: claim the city's half of the curve trading fees and
-    /// split it into the holders pot and the founder vault.
+    /// Permissionless: claim the city's half of the curve trading fees (and,
+    /// once the curve is complete, the city's share of DBC's rounding surplus)
+    /// and split it into the holders pot and the founder vault.
     pub fn harvest_curve_fees(ctx: Context<HarvestCurveFees>, city_id: u64) -> Result<()> {
         instructions::harvest_curve_fees::handle_harvest_curve_fees(ctx, city_id)
     }

@@ -75,9 +75,9 @@ pub struct Approval {
 ///
 /// This PDA is the DBC pool creator, so the creator half of the trading fee
 /// belongs to the city. It signs only: the DBC launch, DBC
-/// `claim_creator_trading_fee`, DAMM v2 `claim_position_fee`, and SPL transfers
-/// out of its holders pot and founder vault to the destinations each
-/// instruction pins.
+/// `claim_creator_trading_fee` and `creator_withdraw_surplus` (both paying into
+/// the holders pot), DAMM v2 `claim_position_fee`, and SPL transfers out of its
+/// holders pot and founder vault to the destinations each instruction pins.
 #[account]
 #[derive(InitSpace)]
 pub struct Coin {
