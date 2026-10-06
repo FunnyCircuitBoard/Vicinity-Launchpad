@@ -277,19 +277,42 @@
     const age = !(ageS >= 0) ? "" : ageS < 5 ? "just now" : ageS < 60 ? `${ageS} s ago` : ageS < 3600 ? `${Math.floor(ageS / 60)} min ago` : `${Math.floor(ageS / 3600)} h ago`;
     return [str(m.sources && m.sources.price) || "Source not given", age].filter(Boolean).join(" · ");
   }
-  /** The four numbers of a live card: Market cap · 24h volume · Holders · Liquidity (on a curve: what the curve holds, starred). */
+  /** A source in a word or two, for the line under a number on a card (the full label stays in the title and on the coin page). */
+  function shortSource(label) {
+    const t = str(label);
+    if (!t) return "";
+    if (/bonding curve/i.test(t)) return "Chain × Jupiter*";
+    if (/^On-chain curve ×/.test(t)) return "Curve × Jupiter";
+    if (/^Jupiter/.test(t)) return "Jupiter";
+    if (/^Raydium/.test(t)) return "Raydium";
+    if (/^DEX Screener/.test(t)) return "DEX Screener";
+    if (/^Price × on-chain supply/.test(t)) return "Price × supply";
+    if (/^Counted by vicinity\.city/.test(t)) return "vicinity.city";
+    return t;
+  }
+  /**
+   * The four numbers of a live card: Market cap · 24h volume · Holders · Liquidity (on a curve: what the curve holds, "In the curve*",
+   * the same words as the coin page). Each cell carries, on screen, its source in a word or two (`src`) or why it is "—" (`why`);
+   * a phone shows no tooltip, so nothing that matters lives only in the title. `foot`: the line that explains the star.
+   */
   function statCells(c) {
     const m = (c && c.market) || {}, src = m.sources || {}, why = m.missing || {}, h = holders(c);
-    const cell = (key, label, v, short, full, from, missing, note) => ({ key, label, v, value: short, title: short == null ? missing : [full, from].filter(Boolean).join(" · ") + (note ? `. ${note}` : "") });
+    const cell = (key, label, v, short, full, from, missing, note) => ({ key, label, v, value: short, src: short == null ? null : shortSource(from) || null, why: short == null ? missing : null,
+      title: short == null ? missing : [full, from].filter(Boolean).join(" · ") + (note ? `. ${note}` : "") });
     const curve = m.liquidityKind === "bonding_curve";
     return [
       cell("mcap", "Market cap", num(m.marketCapUsd), money(m.marketCapUsd), fullMoney(m.marketCapUsd), src.marketCap, reason(why.marketCap) || "No source has it right now"),
       cell("vol", "24h volume", num(m.volume24hUsd), money(m.volume24hUsd), fullMoney(m.volume24hUsd), src.volume24h, reason(why.volume24h) || "No source has it right now"),
       cell("holders", "Holders", h, count(h), fullCount(h), h != null ? "Counted by vicinity.city (pools excluded)" : null, "Not counted yet: vicinity.city counts every 10 minutes"),
-      cell("liq", curve ? "Liquidity*" : "Liquidity", num(m.liquidityUsd), money(m.liquidityUsd), fullMoney(m.liquidityUsd), src.liquidity, reason(why.liquidity) || "No source has it right now",
+      cell("liq", curve ? "In the curve*" : "Liquidity", num(m.liquidityUsd), money(m.liquidityUsd), fullMoney(m.liquidityUsd), src.liquidity, reason(why.liquidity) || "No source has it right now",
         curve ? "On the bonding curve this is what the curve holds, not a trading pool" : null),
     ];
   }
+  /** Under a curve card's numbers: what the star means, on screen. */
+  const curveFoot = (c) => {
+    const m = (c && c.market) || {}, sym = str(m.curve && m.curve.symbol) || str(m.nativeSymbol) || "SOL";
+    return m.liquidityKind === "bonding_curve" ? `* In the curve: the ${sym} the bonding curve holds (on-chain) × the ${sym} price (Jupiter). It is not a trading pool.` : null;
+  };
   /** The bonding curve on a card: { pct, value, text, graduated } or null (no LaunchLab curve known). */
   function curveView(c) {
     const cv = c && c.market && c.market.curve;
@@ -365,7 +388,7 @@
 
   const pure = { NEW_DAYS, TABS, SORTS, TAB_NOTE, norm, searchText, matches, inTab, isNew, counts, rowsFor, money, fullMoney, count, fullCount, pct, communityText,
     countdownText, ageSeconds, agoText, statusLabel, notLiveWhy, founderText, pairText, links, viewHref, logoSrc, colorOf, cardKey, stateFromUrl, urlFor,
-    coinHref, chipOf, priceSource, statCells, curveView, venueLine, shapeOf, sparkPick, sparkGeometry, sparkLabel, sparkWhy };
+    coinHref, chipOf, priceSource, shortSource, statCells, curveFoot, curveView, venueLine, shapeOf, sparkPick, sparkGeometry, sparkLabel, sparkWhy };
   window.VLaunchpad = { pure };
   if (typeof document === "undefined" || !window.V) return; // node: the helpers are enough
 
@@ -503,10 +526,14 @@
         const d = el("div", "lp-stat"); d.dataset.cell = s.key;
         const dd = field(el("dd"), `s-${s.key}`, s.v); dd.title = s.title || "";
         dd.append(s.value == null ? na(s.title) : el("span", "lp-val lp-num", s.value));
-        d.append(el("dt", null, s.label), dd);
+        // its source, or why it is "—", on screen (a phone has no tooltip)
+        const note = field(el("dd", `lp-stat__src${s.value == null ? " is-why" : ""}`, s.value == null ? s.why : s.src || ""), `n-${s.key}`);
+        d.append(el("dt", null, s.label), dd, note);
         dl.append(d);
       }
       li.append(dl);
+      const foot = curveFoot(c);
+      if (foot) li.append(field(el("p", "lp-src lp-stats__foot", foot), "stats-foot"));
       const cv = curveView(c);
       if (cv) {
         const cb = el("div", `lp-curve${cv.graduated ? " is-done" : ""}`);

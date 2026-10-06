@@ -351,13 +351,24 @@ test("live card: the 24-hour chip, the price's source and age, or why there is n
 });
 test("live card: Market cap · 24h volume · Holders · Liquidity, each value titled with its full figure and source; on a curve the liquidity is starred and explained", () => {
   const cells = P.statCells(city("A", { market: LIVE_MARKET, holders: { count: 37, asOf: ago(0) } }));
-  assert.deepEqual(plain(cells.map((c) => [c.key, c.label, c.value])), [["mcap", "Market cap", "$7.6K"], ["vol", "24h volume", "$536.20"], ["holders", "Holders", "37"], ["liq", "Liquidity*", "$1.8K"]]);
+  assert.deepEqual(plain(cells.map((c) => [c.key, c.label, c.value])), [["mcap", "Market cap", "$7.6K"], ["vol", "24h volume", "$536.20"], ["holders", "Holders", "37"], ["liq", "In the curve*", "$1.8K"]],
+    "the coin page's words for what the curve holds");
+  // on screen under each number (a phone has no tooltip: review OA-5, DATA-CARD-SOURCES-INVISIBLE): its source in a word or two
+  assert.deepEqual(plain(cells.map((c) => [c.src, c.why])), [["Jupiter", null], ["Jupiter", null], ["vicinity.city", null], ["Chain × Jupiter*", null]]);
+  assert.equal(P.curveFoot(city("A", { market: LIVE_MARKET })), "* In the curve: the SOL the bonding curve holds (on-chain) × the SOL price (Jupiter). It is not a trading pool.");
+  assert.equal(P.curveFoot(city("A", { market: { ...LIVE_MARKET, liquidityKind: "pool" } })), null, "no star, no footnote");
+  for (const [label, short] of [["Raydium LaunchLab", "Raydium"], ["Price × on-chain supply", "Price × supply"], ["On-chain curve × SOL price (Jupiter)", "Curve × Jupiter"], ["DEX Screener", "DEX Screener"], ["Jupiter (last trade)", "Jupiter"], ["", ""]]) assert.equal(P.shortSource(label), short, label);
   assert.equal(cells[0].title, "$7,577.22 · Jupiter");
   assert.equal(cells[2].title, "37 · Counted by vicinity.city (pools excluded)");
   assert.match(cells[3].title, /^\$1,787\.13 · SOL in the bonding curve \(on-chain\) × SOL price \(Jupiter\)\. On the bonding curve this is what the curve holds, not a trading pool$/);
   const none = P.statCells(city("B", { market: { liquidityKind: "pool", missing: { marketCap: "no price to multiply; Jupiter could not be reached", volume24h: "Jupiter could not be reached" } }, holders: null }));
   assert.deepEqual(plain(none.map((c) => [c.label, c.value, c.title])), [["Market cap", null, "No price to multiply"], ["24h volume", null, "Jupiter could not be reached"],
     ["Holders", null, "Not counted yet: vicinity.city counts every 10 minutes"], ["Liquidity", null, "No source has it right now"]], "every missing number says why");
+  assert.deepEqual(plain(none.map((c) => [c.src, c.why])), [[null, "No price to multiply"], [null, "Jupiter could not be reached"], [null, "Not counted yet: vicinity.city counts every 10 minutes"], [null, "No source has it right now"]],
+    "and says it on screen, under the dash");
+  const js = readFileSync(new URL("../public/launchpad.js", import.meta.url), "utf8");
+  assert.match(js, /const note = field\(el\("dd", `lp-stat__src\$\{s\.value == null \? " is-why" : ""\}`, s\.value == null \? s\.why : s\.src \|\| ""\), `n-\$\{s\.key\}`\);/);
+  assert.match(js, /if \(foot\) li\.append\(field\(el\("p", "lp-src lp-stats__foot", foot\), "stats-foot"\)\);/);
   assert.equal(P.statCells(city("C", { market: null })).length, 4, "a card without a market still has its four places");
 });
 test("live card: the bonding curve is SOL raised against the target (the real migration rule), clamped, and graduation is said in words", () => {

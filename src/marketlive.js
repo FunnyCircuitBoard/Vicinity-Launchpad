@@ -220,6 +220,7 @@ export const _sources = { jupPrices, jupTokens, raydiumMints, trades, liveKline,
 export const ATTRIBUTION = {
   jupiter: { text: "Price, market cap, 24 h volume & change: Jupiter · Powered by Jupiter", url: "https://jup.ag" },
   raydium: { text: "Chart & trades: Raydium LaunchLab", url: "https://raydium.io/launchpad/" },
+  raydiumVolume: { text: "Chart, trades & 24 h volume: Raydium LaunchLab", url: "https://raydium.io/launchpad/" },
   chain: { text: "Bonding curve & SOL raised: Solana blockchain, read by vicinity.city", url: null },
   dexscreener: { text: "Pool data after graduation: DEX Screener", url: "https://dexscreener.com" },
   dexscreenerPool: { text: "Pool data: DEX Screener", url: "https://dexscreener.com" },
@@ -370,7 +371,7 @@ export async function liveMarkets(env, coins, fetchImpl = fetch, { now = Date.no
 export function attributionFor(used, { holders = false, trades = false } = {}) {
   const out = [];
   if (used.has("jupiter") || used.has("jupiter_pair")) out.push(ATTRIBUTION.jupiter);
-  if (trades || used.has("raydium")) out.push(ATTRIBUTION.raydium);
+  if (trades || used.has("raydium")) out.push(used.has("raydium") ? ATTRIBUTION.raydiumVolume : ATTRIBUTION.raydium); // the volume it gave is credited too
   if (used.has("chain")) out.push(ATTRIBUTION.chain);
   if (used.has("dexscreener_graduated") || (used.has("dexscreener") && !used.has("dexscreener_pool"))) out.push(ATTRIBUTION.dexscreener);
   if (used.has("dexscreener_pool")) out.push(ATTRIBUTION.dexscreenerPool);

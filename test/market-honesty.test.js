@@ -120,3 +120,8 @@ test("a city coin with no LaunchLab pool on the chain is not called a LaunchLab 
   assert.equal(utica.market.launchpad, null);
   assert.equal(lp.vicinity.market.launchpad, "raydium-launchlab", "$VICINITY's pool is on the chain");
 });
+
+test("the sources line credits Raydium with the 24 h volume when the volume came from it", async () => {
+  assert.deepEqual(attributionFor(new Set(["raydium"])).map((a) => a.text), ["Chart, trades & 24 h volume: Raydium LaunchLab"]);
+  assert.deepEqual(attributionFor(new Set(["jupiter"]), { trades: true }).map((a) => a.text), ["Price, market cap, 24 h volume & change: Jupiter · Powered by Jupiter", "Chart & trades: Raydium LaunchLab"]);
+});
