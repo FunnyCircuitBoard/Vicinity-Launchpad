@@ -16,7 +16,9 @@
     "devnet-demo": "NODE_OPTIONS=--no-experimental-strip-types ts-node -P ./tsconfig.json --transpile-only scripts/devnet-demo.ts",
     "init-registry": "NODE_OPTIONS=--no-experimental-strip-types ts-node -P ./tsconfig.json --transpile-only scripts/init-registry.ts",
     "test:launchpad": "node --test tests-launchpad/*.test.mjs",
-    "sdk-test:launchpad": "node --test sdk/launchpad/*.test.mjs",
+    "sdk-test:launchpad": "node --test sdk/launchpad/*.test.mjs sdk/launchpad/*.test.mts",
+    "typecheck:launchpad": "tsc -p sdk/launchpad/tsconfig.json",
+    "test:jupiter-live": "JUPITER_LIVE=1 node --test sdk/launchpad/jupiter.live.test.mts",
     "launchpad:fixtures": "bash scripts/launchpad/fetch-fixtures.sh",
     "launchpad:crank": "node scripts/launchpad/crank.mjs"
   },

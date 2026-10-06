@@ -1,0 +1,20 @@
+{
+  "//": "Type check of the TypeScript launchpad SDK (sdk/launchpad/*.mts). Node 22 runs these files directly (type stripping), so only erasable TypeScript is allowed and imports name the .mts/.mjs file. Run: npm run typecheck:launchpad",
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["es2022", "dom"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  "include": ["*.mts"]
+}

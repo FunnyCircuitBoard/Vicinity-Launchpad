@@ -682,7 +682,7 @@ export function svmReader(w) {
   };
 }
 /**
- * The two @solana/web3.js `Connection` methods the keeper uses, answered from
+ * The @solana/web3.js `Connection` read methods the SDK uses, answered from
  * the in-process VM, so tests also run `connectionReader` (the code path of
  * scripts/launchpad/crank.mjs) including its RPC filter encoding.
  */
@@ -695,6 +695,7 @@ export function fakeConnection(w) {
         .map((a) => ({ pubkey: new web3.PublicKey(String(a.address)), account: info(a) }));
     },
     async getMultipleAccountsInfo(keys) { return keys.map((k) => { const a = w.account(k.toBase58()); return a ? info(a) : null; }); },
+    async getAccountInfo(k) { const a = w.account(k.toBase58()); return a ? info(a) : null; },
     async getSlot() { return Number(w.svm.getClock().slot); },
   };
 }

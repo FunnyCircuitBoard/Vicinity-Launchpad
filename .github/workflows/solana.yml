@@ -103,6 +103,8 @@ jobs:
       - name: Launchpad committed IDL matches the production build
         run: diff target/idl/vicinity_launchpad.json sdk/idl/vicinity_launchpad.json
       - run: npm run sdk-test:launchpad
+      - name: Launchpad TypeScript SDK type check
+        run: npm run typecheck:launchpad
       - name: Launchpad fixtures (mainnet program dumps, pinned hashes)
         run: npm run launchpad:fixtures
       - name: Launchpad in-process tests
