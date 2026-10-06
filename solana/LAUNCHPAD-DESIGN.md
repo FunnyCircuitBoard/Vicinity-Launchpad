@@ -1,12 +1,14 @@
 # Vicinity Launchpad: design of `vicinity_launchpad`
 
-Status: design only, 6 Oct 2026. Nothing in this file is built or deployed yet.
-Branch `feat/launchpad-program`. The existing program `vicinity_rewards` is not
-changed by anything here; its build and its tests stay as they are.
+Status: design, 6 Oct 2026, revised the same day after the design review (the
+changes are listed right below). Branch `feat/launchpad-program`. The existing
+program `vicinity_rewards` is not changed by anything here; its build and its
+tests stay as they are.
 
 Who reads what:
 
 * **The owner**: sections 1, 2, 11, 12, 13 and 21 (the decisions list, in plain English).
+  Decisions D2 (what people pay with) and D21 (one coin per city, forever) need you first.
 * **Implementers**: everything. When this file and the code disagree, the code is
   wrong or this file must be updated in the same commit.
 * **The outside auditor**: sections 3 to 18.
@@ -14,20 +16,61 @@ Who reads what:
 Words used throughout:
 
 * **coin** or **city coin**: the token launched for one city.
-* **quote token**: what people pay with on the curve. The default is $VICINITY
-  (`2aVkhRfAEm44tMhFo8oamWvumGGvweFqnUwukRMBkray`, classic SPL, 6 decimals).
+* **quote token**: what people pay with on the curve. The default is SOL, held
+  as wrapped SOL (WSOL, `So11111111111111111111111111111111111111112`, classic
+  SPL, 9 decimals). A second launch config priced in $VICINITY
+  (`2aVkhRfAEm44tMhFo8oamWvumGGvweFqnUwukRMBkray`, classic SPL, 6 decimals) can
+  be added later; decision D2 lists what that would mean.
 * **curve**: the bonding curve. The price rises as people buy and falls as they sell.
 * **graduation**: when the curve has raised its target, it closes and all its
   money plus a reserve of coins moves into a normal trading pool.
 * **dev wallet**: `13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN`, the owner's
-  wallet, which receives every platform fee.
-* **raw units**: the smallest unit of a token. 1 VICINITY = 1,000,000 raw units.
-  1 SOL = 1,000,000,000 lamports.
+  wallet, which receives every platform fee. It is written into the program as
+  the constant `FEE_RECIPIENT`; no key can change it without a program upgrade.
+* **raw units**: the smallest unit of a token. 1 SOL = 1,000,000,000 lamports.
+  1 coin = 1,000,000 raw units. 1 VICINITY = 1,000,000 raw units.
 * **DBC**: Meteora's Dynamic Bonding Curve program
   `dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN`, which is audited and has the
   same address on mainnet and devnet.
 * **DAMM v2**: Meteora's trading-pool program
   `cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG`. Graduated coins trade here.
+* **Test ids** start with `T` (`TA01`, `TB02` …) so they never clash with the
+  decision ids `D1` … `D21` of section 21.
+
+### Changes after the design review (6 Oct 2026)
+
+1. **The default quote token is SOL**, not $VICINITY. A VICINITY config stays
+   possible as a second config; D2 lists the facts to weigh first (a VICINITY
+   target is a raise of about $189 today).
+2. **The dev wallet is a constant in the program** (`FEE_RECIPIENT`).
+   `set_fee_recipient`, `Launchpad.fee_recipient` and `FeeRecipientChanged` are
+   gone. A stolen admin key can no longer send future platform fees elsewhere.
+3. **`forward_holders_fees` checks the city's rewards config** before moving
+   money: model Holders, 0% founder share, reward token = the coin's quote
+   token, vault = the derived vault. Sections 12.1 and 14 now say plainly that
+   the rewards authority decides who receives the holders' money.
+4. **Rule 7.2(9) is complete**: after graduation there must be no dynamic fee,
+   no market-cap fee scheduler and no compounding fee, so the 2% cap holds.
+5. **Mainnet checklist order**: `vicinity_rewards` is deployed before
+   `init_launchpad`, which checks that the rewards program exists.
+6. **Harvests no longer burn coins.** Fees are paid in the quote token only, so
+   nothing ever needs burning. The city's share of DBC's rounding "surplus" at
+   completion stays in DBC (a few lamports; section 10, point 5).
+7. **Jupiter and "one transaction" claims carry their caveats** (sections 1, 2
+   and 9.6).
+8. **The metadata URL is keyed by the coin's mint**
+   (`https://vicinity.city/coin-meta/<mint>.json`), so nobody can copy it
+   before the real coin exists.
+9. **`set_payout_config`** also refuses a payout wallet equal to the payout key
+   or the admin.
+10. **Harvest, forward, claim and payout succeed and do nothing when there is
+    nothing to move**, so a keeper can batch many coins in one transaction.
+11. **`Launchpad.coin_count` is gone** (it made every launch lock the global
+    account; an indexer can count coins).
+12. **Smaller fixes**: D11 wording, the letsbonk.fun comparison, the surplus
+    contradiction between 9.4 and 11.3, test ids renamed.
+13. **New owner decision D21**: one coin per city, forever. D15 now asks for
+    the admin multisig before the first public approval.
 
 ---
 
@@ -35,12 +78,12 @@ Words used throughout:
 
 | You asked for | What gets built |
 |---|---|
-| "our own launchpad … launching token making it available onchain, and swapping between token" | A small Vicinity program, `vicinity_launchpad`, decides **who** may launch **which** city's coin (one coin per city, ever) and collects the city's share of fees. Under it, the coin, its price curve, buying, selling and graduation into a normal pool run on Meteora's audited bonding-curve code, which our program calls. Coins can be bought, sold and swapped coin to coin from the first second, and Jupiter can route them. |
+| "our own launchpad … launching token making it available onchain, and swapping between token" | A small Vicinity program, `vicinity_launchpad`, decides **who** may launch **which** city's coin (one coin per city, ever) and collects the city's share of fees. Under it, the coin, its price curve, buying, selling and graduation into a normal pool run on Meteora's audited bonding-curve code, which our program calls. Coins can be bought and sold on vicinity.city from the first second, and swapped coin to coin in one transaction when both are priced in the same token. Jupiter already routes coins on Meteora curves, with caveats: it drops a curve coin that has not graduated within 30 days, and it re-runs a $500 liquidity test every 30 minutes, so a thin curve can drop out. |
 | "show as Vicinity using Vicinity logo and network Solana" | Every coin carries its own name, the city's ticker and a metadata file hosted on vicinity.city that says "Launched on Vicinity", with the Vicinity logo, `createdOn: https://vicinity.city` and network Solana. The metadata can never be changed on chain. The "Vicinity" launchpad label that Jupiter and others show must be requested from them; section 8.4 lists the requests. |
-| "paid with tokenized stock like stonk and btc, ethereum and solana" | On the website a buyer picks what to pay with (SOL, USDC, BTC, ETH, tokenized stocks such as xStocks, $STONK, $VICINITY). Jupiter swaps it into the curve's quote token, and the buy happens in the **same transaction** that the buyer signs once. Nobody holds the buyer's money in between. "Stonk" is StonkFun, a launchpad whose coins are priced in tokenized stocks. Tokenized stocks are only ever paid **with**; they never sit inside a curve, because their issuer can freeze or move them. |
-| "a way to send the token reward to holders" | The holders' share of every trade collects in a per-coin pot. It moves into the existing `vicinity_rewards` vault, where holders claim their share with the Merkle claim already built and audited. There is also a tool that sends tokens straight to every holder from your own wallet, in batches you sign. |
+| "paid with tokenized stock like stonk and btc, ethereum and solana" | On the website a buyer picks what to pay with (SOL, USDC, BTC, ETH, tokenized stocks such as xStocks, $STONK, $VICINITY). Jupiter swaps it into SOL and the buy follows in the **same transaction**, signed once, whenever both fit into one Solana transaction (they usually do for SOL-priced coins); otherwise the site sends two transactions, swap then buy. Selling works the other way round. Nobody holds the buyer's money in between. "Stonk" is StonkFun, a launchpad whose coins are priced in tokenized stocks. Tokenized stocks are only ever paid **with**; they never sit inside a curve, because their issuer can freeze or move them. |
+| "a way to send the token reward to holders" | The holders' share of every trade collects in a per-coin pot. It moves into the existing `vicinity_rewards` vault, where holders claim their share with the Merkle claim already built and audited. Who receives how much in each round is set by that city's rewards authority from a published snapshot, so that key must be a multisig (section 12.1). To send tokens straight to every holder from your own wallet, the standard Solana tool `solana-tokens` does it in batches you sign, with a dry run first. |
 | "the X money" (like UsePaid: founder's fees paid in US dollars to X Money) | The founder's 0.25% collects in a per-coin founder vault. The founder can claim it in crypto at any time. They can also **opt in**: they sign on chain, can withdraw at any time, and then a Vicinity payout key can send their fees only to one payout account fixed in the settings, so a payout service can turn them into dollars and send them to the founder's X Money account. X Money has no public API and no business accounts, so the dollar leg needs a licensed off-ramp partner and legal advice. The on-chain part is built now and **switched off** until you set that up (section 13). |
-| "fee … should go to my dev wallet" | Every platform fee goes to the dev wallet: 0.5% of every trade, the launch fee, half of the trading-pool fees after graduation, the dust left over at graduation, and a referral share of Meteora's cut on trades made on vicinity.city. Before our program accepts any launch settings, it checks on chain that their fee receiver is the dev wallet. |
+| "fee … should go to my dev wallet" | Every platform fee goes to the dev wallet: 0.5% of every trade, the launch fee, half of the trading-pool fees after graduation, the dust left over at graduation, and a referral share of Meteora's cut on trades made on vicinity.city. The dev wallet's address is written into the program, so no key can redirect it; changing it needs a program upgrade. Before our program accepts any launch settings, it checks on chain that their fee receiver is that wallet. |
 
 **Fees on every buy and sell** (default; you confirmed the three-way split):
 
@@ -50,15 +93,19 @@ Words used throughout:
 | that city's holder rewards | 0.25% | our program moves it to the city's holders pot, then into `vicinity_rewards` for claims |
 | that city's founder | 0.25% | our program moves it to the city's founder vault; the founder claims it, or opts in to dollar payouts |
 | Meteora (protocol) | 0.25% | Meteora's fixed cut: always 20% of the trading fee. On trades made on vicinity.city, a fifth of it (0.05% of the trade) comes back to the dev wallet as a referral fee |
-| **total paid by the trader** | **1.25%** | the same total as LaunchLab platforms and letsbonk.fun |
+| **total paid by the trader** | **1.25%** | within what LaunchLab platforms charge (1.0% to 1.5% including Raydium's 0.25%; letsbonk.fun is 1.5%); pump.fun charges about 1% |
 
 The alternative is a 1.00% total, where Meteora's 20% comes out of your three
 shares (0.40% / 0.20% / 0.20% / 0.20%). See decision D3.
 
+With the default target of 85 SOL, a coin that fills its curve has paid about
+1.08 SOL of fees by graduation: about 0.43 SOL to the dev wallet, 0.215 SOL to
+its holders, 0.215 SOL to its founder and 0.215 SOL to Meteora (section 9.5).
+
 **Why Meteora underneath instead of our own curve:** our code never holds anyone's
-curve money. The curve code has already been audited by three firms. Coins can
-be traded through Jupiter from day one. A safe devnet version takes about
-3 days instead of 3 to 6 weeks. The cost is Meteora's cut.
+curve money. The curve code has already been audited by three firms. Jupiter
+can route the coins from day one, with the caveats above. A safe devnet version
+takes about a week instead of 3 to 6 weeks. The cost is Meteora's cut.
 
 **What you need to do now:** top up the devnet test wallet with about 1 SOL
 (section 19), and read the decisions in section 21. Every decision has a default,
@@ -79,9 +126,9 @@ Research 2 compared two options:
 |---|---|---|
 | Who holds buyers' money on the curve | our code | Meteora's code (audited by OtterSec, Offside Labs and Zenith; live on mainnet) |
 | Size of our audit | custody-level: curve math, rounding, migration CPI | small: approvals, fee splitting, two token accounts per coin |
-| Tradable on Jupiter before graduation | no, until Jupiter integrates us case by case (audit plus traction needed) | yes: Jupiter already routes DBC coins from SOL, USDC, xStocks and cbBTC |
+| Tradable on Jupiter before graduation | no, until Jupiter integrates us case by case (audit plus traction needed) | yes for SOL-priced coins: Jupiter already routes DBC curve coins from SOL, USDC, xStocks and cbBTC. Caveats: curve coins that have not graduated within 30 days are dropped; a $500 liquidity test runs every 30 minutes; a route from VICINITY's own curve into a VICINITY-priced curve coin has never been observed |
 | Graduation | our CPI into Raydium CPMM, with pool-pre-creation griefing to defend against | built into DBC and permissionless; only DBC can create the target pool (section 10.4) |
-| Time to a safe devnet version | 3 to 6 weeks | about 3 days |
+| Time to a safe devnet version | 3 to 6 weeks | about a week (program, in-process tests, devnet demo) |
 | Cost | none | Meteora takes 20% of the trading fee, plus 0.2% of the liquidity at graduation |
 | Proven here | no | yes: research 2 launched, bought, filled and graduated a DBC coin from an Anchor 0.31 program in litesvm |
 
@@ -110,6 +157,9 @@ Research 2 compared two options:
    get a Vicinity `Coin` record, so our program and the website ignore them, and
    their platform fees still go to the dev wallet. The on-chain `Coin` registry
    is the only source of truth for "this is a Vicinity coin".
+8. **The dev wallet is fixed in the program.** It is a constant, not a
+   setting, so a stolen admin key cannot redirect platform fees. Changing it
+   needs a program upgrade, which sits with the upgrade multisig.
 
 ---
 
@@ -122,12 +172,13 @@ It does:
   coin, forever.
 * **Accept only launch settings shaped the Vicinity way.** Before a Meteora
   config can be used, the program reads it on chain and checks that:
-  * every platform fee goes to the dev wallet;
+  * every platform fee goes to the dev wallet (the program constant `FEE_RECIPIENT`);
   * the coin's metadata is immutable;
   * the supply is 1,000,000,000 coins at 6 decimals;
   * the pool's liquidity is locked forever;
   * the quote token is plain SPL with no freeze or mint authority;
-  * the fee is within its cap.
+  * the fee is within its cap, and after graduation the pool keeps a flat fee
+    in the quote token, with no extra dynamic or compounding fee.
 
   It checks the same things again at every launch.
 * **Create each coin** through DBC by CPI, with the coin's own program address as
@@ -137,7 +188,8 @@ It does:
   both from the curve and, after graduation, from the trading pool. It splits
   that amount 50/50 into the coin's **holders pot** and **founder vault**.
 * **Forward the holders pot** to that city's `vicinity_rewards` vault. Anyone
-  can trigger this.
+  can trigger this. It first checks that the city's rewards config pays holders
+  only (model Holders, 0% founder share) in the coin's quote token.
 * **Let the founder claim**, and run the **opt-in payout** (X Money / UsePaid
   style) under strict limits.
 
@@ -146,7 +198,7 @@ It does not:
 * hold, price or move any curve money, run swaps, or do the graduation (DBC
   does; graduation is permissionless);
 * hold the platform fees (they go from DBC straight to the dev wallet);
-* mint coins, change metadata, or freeze anything;
+* mint, burn or freeze coins, or change metadata;
 * have **any** instruction that sends money to the admin. Nothing can move the
   holders pot except toward that city's rewards vault, and nothing can move the
   founder vault except toward that founder or their opted-in payout account;
@@ -158,10 +210,10 @@ It does not:
 
 ```
                          BEFORE GRADUATION (Meteora DBC curve)
- trader pays 1.25% on each buy/sell, always in the quote token ($VICINITY)
+ trader pays 1.25% on each buy/sell, always in the quote token (SOL by default, held as WSOL)
    |
    +-- 0.25% Meteora protocol --------------------------------> Meteora
-   |      (0.05% of it -> dev wallet's VICINITY account when the trade carries the vicinity.city referral)
+   |      (0.05% of it -> dev wallet's WSOL account when the trade carries the vicinity.city referral)
    +-- 0.50% partner share  -- earmarked in the DBC pool -----> dev wallet 13qRam... (claims by signing)
    +-- 0.50% creator share  -- earmarked in the DBC pool for the creator = Coin PDA
                                    |
@@ -170,19 +222,21 @@ It does not:
                  +-----------------+-----------------+
                  | holders pot (half, odd unit here) | founder vault (half, rounded down)
                  v                                   v
-     forward_holders_fees (anyone)        claim_founder_fees (founder)   or
-                 v                        payout_founder_fees (payout key, only if the
-   vicinity_rewards vault ["vault", city]   founder opted in; only to the fixed payout account)
+     forward_holders_fees (anyone; checks         claim_founder_fees (founder)   or
+     Holders model, 0% founder, quote token)     payout_founder_fees (payout key, only if the
+                 v                                founder opted in; only to the fixed payout account)
+   vicinity_rewards vault ["vault", city]
                  v
-   fund_epoch_from_vault (rewards authority) -> Merkle claims by holders
+   fund_epoch_from_vault (rewards authority, a multisig) -> Merkle claims by holders
 
  launch fee (default 0.05 SOL, paid by the founder at launch): 90% dev wallet, 10% Meteora
 
                          AT GRADUATION (anyone may crank)
  curve completes when the raised quote reaches the target -> DBC creates a DAMM v2 pool at the
  curve's last price with the reserved coins + all raised quote (minus Meteora's 0.2%);
- liquidity 100% permanently locked: 50% in a position owned by the dev wallet, 50% in a position
- owned by the Coin PDA. Unsold dust (a few raw units) -> dev wallet.
+ liquidity 100% permanently locked: about half in a position owned by the dev wallet, about half
+ in a position owned by the Coin PDA. Unsold dust (a few raw units) -> dev wallet.
+ Rounding surplus (a few lamports): dev wallet's part claimable; the city's part stays in DBC.
 
                          AFTER GRADUATION (DAMM v2 pool, fee 1.25%, fees in the quote token)
  pool fees -> the dev wallet's position (claims by signing) and the Coin PDA's position
@@ -200,13 +254,13 @@ to make a decision.
 
 | account | seeds (program `vicinity_launchpad`) | bytes | rent (lamports) | one per | paid by |
 |---|---|---|---|---|---|
-| `Launchpad` | `["launchpad"]` | 211 | 1,722,120 | program | deployer, once |
+| `Launchpad` | `["launchpad"]` | 171 | 1,518,920 | program | deployer, once |
 | `LaunchConfig` | `["launch_config", dbc_config]` | 106 | 1,188,720 | allowed Meteora config | admin |
 | `Approval` | `["approval", city_id as u64 LE]` | 179 | 1,559,560 | pending approval (closed at launch or revoke) | admin; refunded to it |
 | `Coin` | `["coin", city_id as u64 LE]` | 243 | 1,884,680 | city, forever | founder at launch |
 | holders pot (SPL token account) | `["holders_pot", coin]` | 165 | 1,488,440 | coin | founder at launch |
 | founder vault (SPL token account) | `["founder_vault", coin]` | 165 | 1,488,440 | coin | founder at launch |
-| coin's city-coin account (ATA of the `Coin` PDA for the coin mint) | associated token address | 165 | 1,488,440 | coin | first harvester |
+| coin's city-coin account (ATA of the `Coin` PDA for the coin mint; DBC and DAMM v2 need it as the base-fee account, but base fees are always 0) | associated token address | 165 | 1,488,440 | coin | first harvester |
 | `PayoutOptIn` | `["payout_opt_in", coin]` | 145 | 1,386,840 | coin, while opted in | founder; refunded on revoke |
 
 `city_id` is the site's GeoNames id (`public/data/tickers.json`, 8,030 cities,
@@ -216,16 +270,17 @@ ids up to 13,680,586), as a `u64`. Example: New York City is `5128581`, ticker `
 
 | field | type | meaning |
 |---|---|---|
-| `admin` | Pubkey | approves launches, allow-lists configs, sets fees and pauses. Starts as the deployer (devnet) or the dev wallet (mainnet), then a Squads multisig |
+| `admin` | Pubkey | approves launches, allow-lists configs, sets the payout key and pauses. Starts as the deployer (devnet) or the dev wallet (mainnet), and moves to a Squads multisig before the first public approval (D15) |
 | `pending_admin` | Pubkey | second step of an admin transfer; zero means none |
-| `fee_recipient` | Pubkey | default `13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN`. Every allowed Meteora config must name it as `fee_claimer` and `leftover_receiver` |
 | `payout_authority` | Pubkey | key allowed to run opted-in founder payouts; zero means payouts are off (the default) |
 | `payout_destination` | Pubkey | wallet whose quote-token account receives opted-in payouts; zero means off |
 | `rewards_program` | Pubkey | the `vicinity_rewards` program id, set once at init and never changeable (devnet `Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi`) |
 | `launches_paused` | bool | blocks `launch` |
 | `payouts_paused` | bool | blocks `payout_founder_fees` |
-| `coin_count` | u64 | number of coins launched |
 | `bump` | u8 | |
+
+The dev wallet is not stored here: it is the program constant `FEE_RECIPIENT`.
+There is no coin counter; an indexer counts `Coin` accounts.
 
 ### 5.2 `LaunchConfig` (allow-list entry; one per Meteora DBC config)
 
@@ -253,9 +308,12 @@ ids up to 13,680,586), as a `u64`. Example: New York City is `5128581`, ticker `
 | `approved_at`, `expires_at` | i64 | at most 30 days apart |
 | `bump` | u8 | |
 
-There is no `uri` argument. The program builds the metadata URL itself:
-`https://vicinity.city/coin-meta/<city_id>.json` (section 8). A typo is
-impossible, and every coin points at vicinity.city.
+There is no `uri` argument. The program builds the metadata URL itself from
+the new coin's mint: `https://vicinity.city/coin-meta/<mint>.json` (about 81
+characters; Metaplex allows 200). A typo is impossible, every coin points at
+vicinity.city, and the URL cannot be known before the coin exists, so nobody
+watching `approve_launch` can create a look-alike coin under our config with
+the same name, symbol and URL first (section 8.2).
 
 ### 5.4 `Coin` (one per city, permanent; there is no close instruction)
 
@@ -282,8 +340,10 @@ The `Coin` PDA signs exactly these CPIs and nothing else:
 * the DBC launch;
 * DBC `claim_creator_trading_fee`;
 * DAMM v2 `claim_position_fee`;
-* SPL transfers out of its two token accounts, to the destinations named in section 6;
-* an SPL `burn` of any city coins that land in its own city-coin account.
+* SPL transfers out of its two token accounts, to the destinations named in section 6.
+
+It never burns, never transfers its city-coin account and never calls DBC's
+`transfer_pool_creator` or `creator_withdraw_surplus`.
 
 ### 5.5 `PayoutOptIn` (one per coin while the founder is opted in)
 
@@ -300,6 +360,7 @@ The `Coin` PDA signs exactly these CPIs and nothing else:
 
 | constant | value | meaning |
 |---|---|---|
+| `FEE_RECIPIENT` | `13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN` | the dev wallet; every allowed Meteora config must name it as `fee_claimer` and `leftover_receiver`. Devnet uses the same wallet |
 | `COIN_SUPPLY_RAW` | 1,000,000,000,000,000 | 1,000,000,000 coins at 6 decimals |
 | `COIN_DECIMALS` | 6 | |
 | `MAX_TRADE_FEE_NUMERATOR` | 20,000,000 | 2.00% cap (DBC denominator 1,000,000,000); DBC's own minimum is 0.25% |
@@ -309,20 +370,20 @@ The `Coin` PDA signs exactly these CPIs and nothing else:
 | `MAX_POOL_CREATION_FEE_LAMPORTS` | 500,000,000 | 0.5 SOL cap on the launch fee |
 | `APPROVAL_MAX_SECS` | 2,592,000 | approvals last at most 30 days |
 | `PAYOUT_COOLDOWN_SECS` | 86,400 | at most one opted-in payout per coin per 24 hours |
-| `METADATA_URI_PREFIX` | `https://vicinity.city/coin-meta/` | |
+| `METADATA_URI_PREFIX` | `https://vicinity.city/coin-meta/` | followed by the mint and `.json` |
 | `MAX_NAME_LEN` / `MAX_SYMBOL_LEN` | 32 / 10 | bytes |
 
 ---
 
 ## 6. Instructions
 
-There are 19 instructions. The format for each: who must sign, the accounts
+There are 18 instructions. The format for each: who must sign, the accounts
 (PDAs are checked by seeds), the arguments, the checks, the effects, the event.
 All arithmetic is checked: every add and subtract uses `checked_*`, and
 `overflow-checks = true` stays on in the workspace release profile. Every
 counter is a u64. No quote mint's supply can approach u64's maximum: $VICINITY
 is 10^15 raw units and SOL about 6×10^17 lamports, both below 1.8×10^19. The
-only division is the fee split (section 11.2).
+only division is the fee split (section 9.4, "Our split").
 
 Token accounts are always classic SPL Token, checked with
 `Program<'info, Token>`. External programs are checked by address:
@@ -335,7 +396,7 @@ No sysvar account is passed in; the time comes from `Clock::get()`.
 
 ### 6.1 Setup and admin
 
-**`init_launchpad(fee_recipient: Pubkey)`**
+**`init_launchpad()`**
 
 * **Signers:** `payer`, `admin`, `upgrade_authority`.
 * **Accounts:** `launchpad` (init), `program_data`, `rewards_program`, `system_program`.
@@ -345,10 +406,11 @@ No sysvar account is passed in; the time comes from `Clock::get()`.
     (`u32` tag = 3, `u64` slot, `u8` = 1, 32-byte authority) rather than with
     Anchor's `ProgramData` type: that codec added about 120 KB to
     `vicinity_rewards` (AUDIT.md limitation 10).
-  * `fee_recipient` is not zero.
-  * `rewards_program` is executable.
-* **Effects:** stores `admin`, `fee_recipient` and `rewards_program`, with payouts
-  off and nothing paused.
+  * `rewards_program` is executable (`InvalidAddress`). It can never be changed
+    later, so this catches a typo; it also means `vicinity_rewards` must be
+    deployed first (section 20).
+* **Effects:** stores `admin` and `rewards_program`, with payouts off and
+  nothing paused.
 * **Event:** `LaunchpadInitialized`.
 * **Errors:** `NotUpgradeAuthority`, `InvalidAddress`.
 * **Why:** nobody can race the deployer to the global account, and the admin
@@ -361,25 +423,23 @@ No sysvar account is passed in; the time comes from `Clock::get()`.
 * **Events:** `AdminProposed`, `AdminChanged`.
 * **Errors:** `Unauthorized`, `NoPendingAdmin`, `NotPendingAdmin`.
 
-**`set_fee_recipient(new: Pubkey)`**
-
-* **Signer:** the admin. `new` must not be zero.
-* **Effect:** only Meteora configs added from now on must name `new`. Each
-  existing config keeps naming the old recipient for ever, because Meteora
-  configs are immutable.
-* **Event:** `FeeRecipientChanged { old, new }`.
-* The setup script refuses any `new` that is not a System-owned, on-curve
-  wallet, and on mainnet asks for confirmation unless `new` is `13qRam…`.
-
 **`set_payout_config(payout_authority: Pubkey, payout_destination: Pubkey)`**
 
 * **Signer:** the admin.
-* **Checks:** either both are zero (payouts off), or both are non-zero, and
-  `payout_authority` is neither `admin` nor `fee_recipient`.
+* **Checks:** either both are zero (payouts off), or both are non-zero and:
+  * `payout_authority` is neither `admin` nor `FEE_RECIPIENT`;
+  * `payout_destination` is neither `payout_authority` nor `admin`, so a stolen
+    payout key is never also the wallet that receives the money.
 * **Effect:** stores both. Existing opt-ins whose `agreed_destination` differs
   stop working until the founder signs again; they are never redirected.
 * **Event:** `PayoutConfigChanged { old_authority, new_authority, old_destination, new_destination }`.
-* **Error:** `PayoutKeyNotSeparate`.
+* **Errors:** `PayoutKeyNotSeparate`, `InvalidAddress` (only one of the two is zero).
+* **Deliberately not built:** a per-payout maximum and a global daily cap.
+  Caps would be in raw units of the quote token, and configs can use different
+  quote tokens (SOL now, maybe VICINITY later), so one number would mean very
+  different amounts. The 24-hour cooldown per coin, the fixed destination, the
+  payout key's own pause and the founder's direct claim bound the damage
+  instead, and the payout service enforces dollar caps off chain.
 
 **`set_pause(launches: Option<bool>, payouts: Option<bool>)`**
 
@@ -396,8 +456,8 @@ No sysvar account is passed in; the time comes from `Clock::get()`.
 * **Accounts:** `launchpad`, `dbc_config` (`AccountLoader` of DBC `PoolConfig`:
   the owner must be DBC and the discriminator must match), `quote_mint`
   (`Account<Mint>` of classic SPL Token), `launch_config` (init).
-* **Checks:** `dbc_config.quote_mint == quote_mint`, plus every rule in
-  section 7.2 (`validate_vicinity_config`).
+* **Checks:** `dbc_config.quote_mint == quote_mint` (`LaunchConfigMismatch`),
+  plus every rule in section 7.2 (`validate_vicinity_config`).
 * **Effects:** creates the entry with `enabled = true`.
 * **Event:** `LaunchConfigAdded { dbc_config, quote_mint, migration_quote_threshold, trade_fee_numerator, pool_creation_fee }`.
 
@@ -423,6 +483,10 @@ No sysvar account is passed in; the time comes from `Clock::get()`.
 * **Effect:** stores the approval. A second approval for the same city fails at
   `init` until the first is revoked or used.
 * **Event:** `LaunchApproved { city_id, founder, dbc_config, name, symbol, expires_at }`.
+* **Why the admin must be a multisig before the first public approval:** a
+  stolen admin key could approve itself as founder of every city that has no
+  coin yet and launch them all. `Coin` accounts are permanent, so those cities
+  would be squatted for good (D15, D21).
 
 **`revoke_approval(city_id: u64)`**
 
@@ -465,7 +529,7 @@ consumes it. Nobody else can create an approval or launch with someone else's.
   1. CPI `initialize_virtual_pool_with_spl_token`:
      * `creator` = the `coin` PDA (signed with its seeds), `payer` = `payer`;
      * `params = { name, symbol, uri }`, with `uri` built from
-       `METADATA_URI_PREFIX + city_id + ".json"`.
+       `METADATA_URI_PREFIX + base58(base_mint) + ".json"`.
 
      DBC creates the mint (6 decimals, no freeze authority), mints exactly
      1,000,000,000 coins into its base vault, removes the mint authority,
@@ -474,7 +538,7 @@ consumes it. Nobody else can create an approval or launch with someone else's.
      `payer`.
   2. Load the DBC pool and require `creator == coin`, `config == dbc_config`
      and `base_mint == base_mint` (`PoolCreatorMismatch`).
-  3. Fill in `Coin`; `coin_count += 1`.
+  3. Fill in `Coin`.
 * **Event:** `CoinLaunched { city_id, founder, mint, dbc_pool, dbc_config, quote_mint }`.
 * **Cost to the founder:** about 0.075 SOL in total:
 
@@ -490,7 +554,10 @@ consumes it. Nobody else can create an approval or launch with someone else's.
 * **Compute:** the DBC CPI measured 118,000 to 131,000 CU (research 2). Request
   300,000. The site may append the founder's first buy in the same v0
   transaction (with the launchpad lookup table); if that is too large, it sends
-  the buy straight after.
+  the buy straight after. Because DBC's initialize runs inside our program (a
+  CPI), DBC's "first swap at the minimum fee" exemption can never apply to that
+  first buy (DBC only grants it when its initialize sits at the top level of the
+  transaction). With the default flat fee this changes nothing.
 
 ### 6.4 Fees
 
@@ -511,14 +578,16 @@ consumes it. Nobody else can create an approval or launch with someone else's.
   2. CPI `claim_creator_trading_fee(max_base = u64::MAX, max_quote = u64::MAX)`,
      with `creator` = `coin` (signed), `token_a_account` = `coin_base_account`
      and `token_b_account` = `holders_pot`.
-  3. Reload. `c = holders_pot.amount - b0`. If `c == 0`, fail with `NothingToHarvest`.
+  3. Reload. `c = holders_pot.amount - b0`. If `c == 0`, stop here: nothing
+     moves, no event, and the instruction still succeeds (so one keeper
+     transaction can harvest many coins).
   4. `to_founder = c / 2` (rounded down) and `to_holders = c - to_founder`. Move
      `to_founder` from the pot to `founder_vault` (signed by `coin`).
   5. `holders_accrued += to_holders`; `founder_accrued += to_founder`.
-  6. If `coin_base_account.amount > 0`, burn it (signed by `coin`). This cannot
-     happen with quote-only fees, but it stops city coins ever piling up in a
-     place nothing can spend.
-* **Event:** `FeesHarvested { city_id, source: 0, claimed: c, to_holders, to_founder, base_burned }`.
+* `coin_base_account` only exists because DBC asks for a base-token account. It
+  would receive base-token fees, and those are always 0: rule 7.2(4) forces
+  every fee into the quote token. Nothing ever moves it.
+* **Event:** `FeesHarvested { city_id, source: 0, claimed: c, to_holders, to_founder }`.
 * Money that strangers send into the pot or vault beforehand is not counted in
   `c`; it stays where it is and goes out with the next forward or claim.
 
@@ -535,7 +604,9 @@ consumes it. Nobody else can create an approval or launch with someone else's.
   and `damm_program`.
 * **Effect:** CPI `claim_position_fee`, with `signer` = `coin`, `token_a_account` =
   `coin_base_account` and `token_b_account` = `holders_pot`. Then the same delta,
-  split, burn and event as above, with `source: 1`.
+  split and event as above, with `source: 1`. (DBC creates the pool with
+  "fees in token B only", and token B is the quote token, so no base fee
+  appears here either.)
 * Only positions owned by the `Coin` PDA can be claimed. If someone sends that
   PDA another position, its quote fees simply go to the same city. That is
   harmless.
@@ -551,11 +622,29 @@ consumes it. Nobody else can create an approval or launch with someone else's.
     `launchpad.rewards_program`, with `token::mint = quote_mint`,
     `token::authority = rewards_city_config` and `token::token_program = token_program`;
   * `token_program`.
+* **Checks** on `rewards_city_config`, read by hand from its bytes
+  (`vicinity_rewards` `CityConfig` layout) before any money moves:
+  * the first 8 bytes are the Anchor discriminator of `CityConfig`;
+  * `city_coin_mint == coin.mint`;
+  * `reward_model == Holders` and `founder_bps == 0`;
+  * `reward_mint == coin.quote_mint`;
+  * `vault == rewards_vault`.
+
+  Any failure is `WrongRewardsConfig`. Why: under the Creator or Split model,
+  `fund_epoch_from_vault` pays 25% to 100% of what lands in the vault to
+  `config.founder`, and the rewards authority can change that founder with
+  `set_founder`. Without the check, a city set up with the wrong model would let
+  that authority take the holders' share.
 * **Effects:** moves the pot's **whole** balance `a` to `rewards_vault`, signed
-  by `coin`; `holders_forwarded += a`. Fails with `NothingToForward` if `a == 0`.
+  by `coin`; `holders_forwarded += a`. If `a == 0`, nothing happens and the
+  instruction still succeeds.
 * **Event:** `HoldersFeesForwarded { city_id, amount, rewards_vault }`.
-* **Errors:** `WrongRewardsVault`, or Anchor's seeds, owner and mint errors.
+* **Errors:** `WrongRewardsConfig`, `WrongRewardsVault`, or Anchor's seeds, owner
+  and mint errors.
 * This works while launches or payouts are paused.
+* If a city's rewards config fails the checks, its pot simply keeps collecting.
+  Rewards configs cannot be closed or changed, so freeing that pot needs a
+  program upgrade (section 12.1).
 
 ### 6.5 Founder
 
@@ -565,7 +654,7 @@ consumes it. Nobody else can create an approval or launch with someone else's.
 * **Accounts:** `coin`, `founder_vault`, `quote_mint`, and `founder_token_account`
   (the founder's ATA for the quote token, `init_if_needed`, paid by the founder).
 * **Effects:** moves the vault's whole balance; `founder_claimed += amount`.
-  Fails with `NothingToClaim` when it is zero.
+  When the vault is empty, nothing happens and the instruction still succeeds.
 * **Event:** `FounderFeesClaimed { city_id, founder, amount }`.
 * This works while anything is paused and whether or not the founder has opted in.
 
@@ -609,29 +698,33 @@ consumes it. Nobody else can create an approval or launch with someone else's.
   * `!payouts_paused` (`PayoutsPaused`);
   * `opt_in.founder == coin.founder` (`OptInFounderMismatch`);
   * `opt_in.agreed_destination == launchpad.payout_destination` (`DestinationMismatch`);
-  * `now >= coin.last_payout_at + PAYOUT_COOLDOWN_SECS` (`PayoutTooSoon`);
-  * the amount is not zero (`NothingToClaim`).
+  * `now >= coin.last_payout_at + PAYOUT_COOLDOWN_SECS` (`PayoutTooSoon`).
 * **Effects:** moves the vault's whole balance; `founder_paid_out += amount`;
-  `payout_seq += 1`; `last_payout_at = now`.
+  `payout_seq += 1`; `last_payout_at = now`. When the vault is empty, nothing
+  happens (no transfer, no sequence number, no cooldown) and the instruction
+  still succeeds.
 * **Event:** `FounderPaidOut { city_id, founder, destination, amount, seq, ref_hash }`.
 
 ---
 
 ## 7. The Vicinity launch config (Meteora DBC `PoolConfig`)
 
-### 7.1 Default parameters (mainnet, quote $VICINITY, target 25,000,000 VICINITY)
+### 7.1 Default parameters (mainnet, quote SOL, target 85 SOL)
 
 Anyone can create the config with DBC `create_config`: the config is a fresh
 keypair and only the payer signs. `fee_claimer` and `leftover_receiver` do not
-sign. The script `solana/scripts/launchpad/create-dbc-config.mjs` builds it.
+sign. `solana/sdk/launchpad/config.mjs` builds the parameters with Meteora's own
+curve helper `buildCurve` (npm `@meteora-ag/dynamic-bonding-curve-sdk` 1.5.13, the
+package our IDLs come from) instead of hand-written curve math, and
+`solana/scripts/launchpad/create-dbc-config.mjs` sends it.
 
 | `ConfigParameters` field | value | why |
 |---|---|---|
-| `quote_mint` (account) | $VICINITY (devnet: the stand-in `tVIC`, section 19) | your default quote token |
-| `fee_claimer` / `leftover_receiver` (accounts) | `13qRam…` | every platform fee and the leftover dust go to the dev wallet |
+| `quote_mint` (account) | WSOL `So11111111111111111111111111111111111111112` (the same on devnet) | people pay SOL |
+| `fee_claimer` / `leftover_receiver` (accounts) | `FEE_RECIPIENT` = `13qRam…` | every platform fee and the leftover dust go to the dev wallet |
 | `pool_fees.base_fee` | `cliff_fee_numerator = 12,500,000` (1.25%), `first_factor = 0`, `second_factor = 0`, `third_factor = 0`, `base_fee_mode = 0` | a flat fee, with no anti-sniper schedule |
 | `pool_fees.dynamic_fee` | `None` | |
-| `collect_fee_mode` | 0 (quote token) | all fees are paid in VICINITY |
+| `collect_fee_mode` | 0 (quote token) | all fees are paid in SOL |
 | `migration_option` | 1 (DAMM v2) | DAMM v1 is deprecated in DBC |
 | `activation_type` | 1 (timestamp) | trading opens at launch |
 | `token_type` / `token_decimal` | 0 (classic SPL) / 6 | |
@@ -640,40 +733,41 @@ sign. The script `solana/scripts/launchpad/create-dbc-config.mjs` builds it.
 | `partner_liquidity_vesting_info` / `creator_liquidity_vesting_info` | all zero | |
 | `locked_vesting` | all zero | no team allocation |
 | `migration_fee_option` | 6 (customizable) | |
-| `migrated_pool_fee` | `{ collect_fee_mode: 0, dynamic_fee: 0, pool_fee_bps: 125 }` | after graduation: a 1.25% fee, collected in VICINITY only |
-| `migrated_pool_base_fee_mode` / scheduler params / `compounding_fee_bps` | 0 / all zero / 0 | flat |
+| `migrated_pool_fee` | `{ collect_fee_mode: 0, dynamic_fee: 0, pool_fee_bps: 125 }` | after graduation: a 1.25% fee, collected in SOL only |
+| `migrated_pool_base_fee_mode` / market-cap scheduler params / `compounding_fee_bps` | 0 / all zero / 0 | flat |
 | `token_supply` | `{ pre_migration_token_supply: 10^15, post_migration_token_supply: 10^15 }` | exactly 1,000,000,000 coins, never more |
 | `creator_trading_fee_percentage` | 50 | the city's half |
 | `token_update_authority` | 1 (immutable) | metadata can never change |
 | `migration_fee` | `{ fee_percentage: 0, creator_fee_percentage: 0 }` | no graduation fee (D6) |
 | `pool_creation_fee` | 50,000,000 lamports (0.05 SOL; devnet 10,000,000) | the launch fee: 90% to the dev wallet, 10% to Meteora |
 | `enable_first_swap_with_min_fee` | false | |
-| `migration_quote_threshold` | 25,000,000,000,000 (25,000,000 VICINITY) | the raise target F (D4) |
-| `sqrt_start_price` | 1672792306129566942 | section 9.2 |
-| `curve` | `[{ sqrt_price: 6412235756362019951, liquidity: 1794948977101144712646741675965146 }]` | one segment, the same shape as pump.fun's curve (section 9.2) |
+| `migration_quote_threshold` | 85,000,000,000 lamports (85 SOL) | the raise target F (D4) |
+| `sqrt_start_price` | 97539716077334678 | `buildCurve`, section 9.2 |
+| `curve` | `[{ sqrt_price: 373894382314756693, liquidity: 104662611932995410955326609817160 }, { sqrt_price: 79226673521066979257578248091, liquidity: 3405004168437416685648628 }]` | the first point is the pump.fun-shaped curve up to the graduation price; the second only holds coins above the graduation price, which buys can never reach |
 
-Values the DBC should compute and store, as replicated in section 9.2; test
-G01 confirms them against the real program:
+The values DBC computes and stores at `create_config` (`swap_base_amount`,
+`migration_base_threshold`, `migration_sqrt_price`) are read back and recorded
+in LAUNCHPAD-AUDIT.md by test TG01.
 
-* `swap_base_amount` = 793,099,999.903315 coins;
-* `migration_base_threshold` = 206,900,000.096627 coins;
-* `migration_sqrt_price` = 6412235756362019950.
-
-Fallback: if test G01 shows that the customizable migration does not produce a
+Fallback: if test TG01 shows that the customizable migration does not produce a
 quote-only pool with a 1.25% fee, switch both the config script and rule 7.2(9)
 to fixed option 2 (DAMM v2 config `Hv8Lmzmnju6m7kcokVKvwqz7QPmdX9XfKjJsXz8RXcjp`,
 1%) and record the change in this file.
+
+**Optional second config, priced in $VICINITY.** The same parameters with quote
+$VICINITY (6 decimals) and a target in VICINITY (table 9.3). It passes every
+rule in 7.2. Read decision D2 before adding it.
 
 ### 7.2 What `validate_vicinity_config` requires (on chain, at `add_launch_config` and at every `launch`)
 
 This is a pure function over the loaded `PoolConfig`, unit-tested rule by rule.
 Each rule has its own error, so tests can name the rule they hit.
 
-1. `fee_claimer == launchpad.fee_recipient` (`ConfigFeeClaimer`) and
-   `leftover_receiver == launchpad.fee_recipient` (`ConfigLeftoverReceiver`).
+1. `fee_claimer == FEE_RECIPIENT` (`ConfigFeeClaimer`) and
+   `leftover_receiver == FEE_RECIPIENT` (`ConfigLeftoverReceiver`).
 2. The quote mint is owned by the classic SPL Token program, with
    `freeze_authority == None`, `mint_authority == None` and 6 to 9 decimals
-   (`QuoteMintNotAllowed`). $VICINITY and WSOL pass. USDC (freeze and mint
+   (`QuoteMintNotAllowed`). WSOL and $VICINITY pass. USDC (freeze and mint
    authority), every Token-2022 mint and every xStock fail. A Token-2022 quote
    is therefore impossible, and none of its extensions (permanent delegate,
    pause, transfer hook, transfer fee) can reach a curve.
@@ -689,9 +783,19 @@ Each rule has its own error, so tests can name the rule they hit.
 7. `token_update_authority == 1` (`ConfigMetadataMutable`).
 8. Partner and creator liquidity are 0 / 0 withdrawable, 50 / 50 permanently
    locked and 0 / 0 vesting (`ConfigLiquidityLock`).
-9. `migration_option == 1`, `migration_fee_option == 6`,
-   `migrated_collect_fee_mode == 0` and `migrated_pool_fee_bps <= 200`
-   (`ConfigMigration`).
+9. After graduation the pool keeps a flat fee in the quote token of at most 2%
+   (`ConfigMigration`):
+   * `migration_option == 1` (DAMM v2) and `migration_fee_option == 6`;
+   * `migrated_collect_fee_mode == 0` (DBC's "quote token", which DBC turns
+     into DAMM v2's "fees in token B only");
+   * `migrated_pool_fee_bps <= 200`;
+   * `migrated_dynamic_fee == 0`: DBC's dynamic-fee option would add a
+     volatility fee on top of `migrated_pool_fee_bps`;
+   * `migrated_pool_base_fee_mode == 0` and all 16 bytes of
+     `migrated_pool_base_fee_bytes` are zero: no market-cap fee scheduler;
+   * `migrated_compounding_fee_bps == 0`.
+
+   Without the last three, the "2% after graduation" cap would not be true.
 10. `migration_fee_percentage == 0` and `creator_migration_fee_percentage == 0`
     (`ConfigMigrationFee`).
 11. The locked vesting amounts are all zero (`ConfigVesting`).
@@ -712,13 +816,15 @@ are DBC's own validation.
 * Freeze authority: none, never set.
 * Metaplex metadata with `name` = the founder's coin name (32 bytes at most),
   `symbol` = the city ticker, and
-  `uri` = `https://vicinity.city/coin-meta/<city_id>.json`. `is_mutable = false`,
+  `uri` = `https://vicinity.city/coin-meta/<mint>.json`. `is_mutable = false`,
   the update authority is the System program, and there are no `creators`.
   RugCheck's "mutable metadata" warning therefore never fires.
-* Supply split for the default curve:
-  * 793,099,999.90 coins can be bought on the curve;
-  * 206,900,000.10 coins go into the trading pool at graduation (Meteora keeps 0.2% of them);
-  * a few raw units of dust go to the dev wallet.
+* Supply split for the default curve (85 SOL):
+  * about 793,100,000 coins can be bought on the curve (filling it in one buy
+    gives 793,099,988.517385 coins, section 9.5);
+  * about 206,900,000 coins go into the trading pool at graduation (Meteora
+    keeps 0.2% of them);
+  * the rest, a few coins at most, is leftover that goes to the dev wallet.
 
 ### 8.2 Hosted metadata JSON (served later by the site at the URI above)
 
@@ -727,7 +833,7 @@ are DBC's own validation.
   "name": "New York City Coin",
   "symbol": "NYC",
   "description": "The city coin of New York City. Launched on Vicinity (https://vicinity.city) on Solana.",
-  "image": "https://vicinity.city/coin-meta/5128581.png",
+  "image": "https://vicinity.city/coin-meta/<mint>.png",
   "external_url": "https://vicinity.city/c/5128581",
   "createdOn": "https://vicinity.city",
   "launchpad": "Vicinity",
@@ -748,8 +854,8 @@ the scheme.
 
 | path | content |
 |---|---|
-| `https://vicinity.city/coin-meta/<city_id>.json` | the JSON above, generated from the city's coin design. `name` and `symbol` must equal the on-chain values for ever |
-| `https://vicinity.city/coin-meta/<city_id>.png` | the coin's icon, square, at least 512 px: the founder's approved logo if there is one, otherwise the Vicinity logo (D12) |
+| `https://vicinity.city/coin-meta/<mint>.json` | the JSON above, generated from the city's coin design. `name` and `symbol` must equal the on-chain values for ever. Served **only** for mints that have an on-chain `Coin` record, so a copy made under our config gets no Vicinity metadata |
+| `https://vicinity.city/coin-meta/<mint>.png` | the coin's icon, square, at least 512 px: the founder's approved logo if there is one, otherwise the Vicinity logo (D12) |
 | `https://vicinity.city/brand/vicinity-512.png` | the Vicinity logo as a PNG on a solid background, rendered from `public/logo.svg` (research 3 made a test render, `lpc-research/logo/vicinity-logo-512.png`). Wallets do not render SVG |
 | `https://vicinity.city/c/<city_id>` | the coin page |
 
@@ -768,11 +874,15 @@ change, and the image changes only to fix a broken logo.
   launchpad `met-dbc`. A named label ("Vicinity") is requested through the
   Meteora team (section 8.4). Jupiter keys labels by config, not by on-chain
   names, so coins that strangers create under our config directly would get
-  the label too (section 2, point 7).
+  the label too (section 2, point 7). Two things tell real coins apart: the
+  on-chain `Coin` registry, and Jupiter's free token verification
+  (verified.jup.ag), which should be requested for every real coin.
 
 ### 8.4 Listing requests the owner files after the first mainnet launch (decision D17)
 
-* Meteora: Vicinity label for the config(s) on Jupiter.
+* Meteora: Vicinity label for the config(s) on Jupiter. Labels are keyed by
+  config address, so every new DBC config (a fee or target change, or a
+  VICINITY config) needs its own label request.
 * Jupiter: token verification. The free standard route is verified.jup.ag; VRFD
   Express costs 1000 JUP per coin and is optional.
 * DEX Screener: Discord request. Coins on a curve do not appear there; graduated
@@ -809,61 +919,45 @@ the pool, and raise target F:
 A concentrated-liquidity segment with constant liquidity L between two prices is
 exactly a virtual-reserve constant-product curve. DBC stores square-root prices
 as Q64.64 (√price × 2^64) and liquidity scaled by 2^64, both computed on raw
-units. For a quote token with 6 decimals the raw price equals the displayed
-price; for SOL (9 decimals) the raw price = displayed price × 1000. The builder,
-`solana/sdk/launchpad/curve.mjs`, works in exact integer (BigInt) arithmetic:
+units. For SOL (9 decimals) and a 6-decimal coin, the raw price is the displayed
+price × 1000.
 
-```
-s0 = floor( sqrt(y0 · 2^128 / x0) )                         sqrt_start_price
-s1 = ceil ( sqrt((y0 + F) · 2^128 / (x0 − T)) )             curve[0].sqrt_price
-L  = ceil ( F · 2^128 / (s1 − s0) )                         curve[0].liquidity
-```
+`sdk/launchpad/config.mjs` calls Meteora's `buildCurve` with
+`percentageSupplyOnMigration = 20.69` (R/S) and `migrationQuoteThreshold = F`.
+It returns:
 
-DBC then checks, at `create_config`, that the coins sold up to the migration
-price plus the coins needed for the full-range DAMM v2 pool fit inside the
-supply. The full-range pool needs a hair more coins than F/price; for
-F = 25M VICINITY that is about 0.12 coin. The builder therefore solves for an
-effective supply `S_eff` slightly under 10^15:
+* `sqrt_start_price`, the start of the curve;
+* `curve[0]`: one segment from the start price to the graduation price, holding
+  the coins sold on the curve: the pump.fun shape of 9.1;
+* `curve[1]`: a point at DBC's maximum price whose liquidity only accounts for
+  the rest of the fixed supply. Buys stop at the graduation price, so it is
+  never traded.
 
-1. Start with `S_eff = 10^15`, `T = S_eff·0.7931`, `R = S_eff − T`.
-2. Compute `x0`, `y0`, `s0`, `s1` and `L`, then DBC's own values with DBC's
-   rounding:
+DBC then checks at `create_config` that the coins sold up to the graduation
+price, plus the coins the full-range DAMM v2 pool needs, fit in the fixed
+supply. For F = 85 SOL the values are in the 7.1 table. The values DBC stores
+(`swap_base_amount`, `migration_base_threshold`, `migration_sqrt_price`) are
+recorded by test TG01; test TD10 checks that `config.mjs` reproduces the table.
 
-   ```
-   s_mig = s0 + floor(F·2^128/L)                      (or s1 when the curve holds exactly F)
-   swap  = ceil(L·(s1−s0)/(s0·s1))
-   Lp    = floor(F·2^128/(s_mig − MIN_SQRT_PRICE))
-   mig   = ceil(Lp·(MAX_SQRT_PRICE − s_mig)/(s_mig·MAX_SQRT_PRICE))
-   ```
-3. If `swap + mig > 10^15`, lower `S_eff` by the excess and repeat (one to three rounds).
+(The first version of this file solved for an "effective supply" by hand with
+DBC's rounding. Meteora's helper does the same job and is what Meteora's own
+launchpads use, so that hand-written iteration was dropped.)
 
-For F = 25,000,000 VICINITY this gives (the scratch replication is in
-`lpc-design/dbcexact2.py`):
-
-* `S_eff` = 999,999,999.878161;
-* `sqrt_start_price` = 1672792306129566942;
-* `curve[0]` = { sqrt_price 6412235756362019951, liquidity 1794948977101144712646741675965146 };
-* expected DBC values: swap base 793,099,999.903315 coins, migration base
-  206,900,000.096627 coins;
-* spare: 58 raw units, which go to the dev wallet as leftover after graduation.
-
-Test G01 must find exactly these stored values, or the builder is corrected to
-match DBC and this paragraph is updated.
-
-### 9.3 Raise targets (decision D4). Prices use $VICINITY = $0.000007577 and SOL = $120.83 (Jupiter, 6 Oct 2026)
+### 9.3 Raise targets (decision D4). Prices use SOL = $120.83 and $VICINITY = $0.000007577 (Jupiter, 6 Oct 2026)
 
 | target F | start market cap | end market cap | pool opens with |
 |---|---|---|---|
-| 10,000,000 VICINITY | 3.29M VIC ($25) | 48.33M VIC ($366) | 206.5M coins + 9.98M VIC |
-| **25,000,000 VICINITY (default)** | **8.22M VIC ($62)** | **120.83M VIC ($916)** | **206.5M coins + 24.95M VIC** |
-| 50,000,000 VICINITY | 16.45M VIC ($125) | 241.66M VIC ($1,831) | 206.5M coins + 49.9M VIC |
-| 100,000,000 VICINITY | 32.89M VIC ($249) | 483.33M VIC ($3,662) | 206.5M coins + 99.8M VIC |
-| 85 SOL (pump.fun size, if a SOL config is added) | 27.96 SOL ($3,378) | 410.83 SOL ($49,640) | 206.5M coins + 84.83 SOL |
+| **85 SOL (default, pump.fun size)** | **27.96 SOL ($3,378)** | **410.83 SOL ($49,640)** | **206.5M coins + 84.83 SOL** |
+| 40 SOL | 13.16 SOL ($1,590) | 193.33 SOL ($23,360) | 206.5M coins + 39.92 SOL |
+| 20 SOL | 6.58 SOL ($795) | 96.67 SOL ($11,680) | 206.5M coins + 19.96 SOL |
+| 25,000,000 VICINITY (only with the optional VICINITY config, D2) | 8.22M VIC ($62) | 120.83M VIC ($916) | 206.5M coins + 24.95M VIC |
+| 100,000,000 VICINITY (same) | 32.89M VIC ($249) | 483.33M VIC ($3,662) | 206.5M coins + 99.8M VIC |
 
 The "pool opens with" figures are after Meteora's 0.2% migration fee on both
-sides. 25,000,000 VICINITY is 2.5% of VICINITY's supply and about 7% of the
-roughly 354M now circulating. If VICINITY's own LaunchLab curve graduates
-(price about 6.55× today's), the default's end market cap is about $6,000.
+sides. Meteora's keepers migrate mainnet pools whose target meets their
+minimum (research 2: 10 SOL, 750 USDC, 1,500 JUP, or about $750), so every SOL
+row above is graduated by Meteora as well as by our own keeper; VICINITY rows
+are graduated only by our keeper.
 
 ### 9.4 Exact rounding (DBC's, applied to every trade; DBC computes in 256-bit integers)
 
@@ -885,32 +979,36 @@ roughly 354M now circulating. If VICINITY's own LaunchLab curve graduates
   DBC vault change nothing.
 * **Our split:** `to_founder = floor(c / 2)`, `to_holders = c − to_founder`.
 
-### 9.5 Worked examples (default config: F = 25,000,000 VICINITY, curve at its start)
+### 9.5 Worked examples (default config: F = 85 SOL, curve at its start)
 
-All of these are reproduced by test D01–D04. The scratch script is
-`lpc-design/nums.py`.
+All of these are reproduced to the raw unit by tests TD01–TD04 against the real
+DBC program. The numbers come from `sdk/launchpad/curve.mjs`, an exact BigInt
+mirror of DBC's swap math.
 
-* **Buy 100,000 VICINITY, exact in.** Fee 1,250 VICINITY:
-  * Meteora 200;
-  * referral 50 to the dev wallet's VICINITY account (on-site trade);
-  * dev wallet (partner) 500;
-  * city (creator) 500, which later splits 250 to holders and 250 to the founder.
+* **Buy 1 SOL, exact in.** Fee 0.0125 SOL:
+  * Meteora 0.002;
+  * referral 0.0005 to the dev wallet's WSOL account (on-site trade);
+  * dev wallet (partner) 0.005;
+  * city (creator) 0.005, which later splits 0.0025 to holders and 0.0025 to the founder.
 
-  The remaining 98,750 VICINITY buys `floor(x0 · 98,750 / (y0 + 98,750))` =
-  **11,875,698.398335 coins**. The average price is 0.0084206 VIC per coin
-  against a start price of 0.0082233, so the price impact is 2.40%.
-
-  With 1% slippage the site sends `minimum_amount_out` = 11,756,941.414351 coins.
-* **Sell those 11,875,698.398335 coins straight back.** Gross out 98,749.999999
-  VICINITY, fee 1,234.375 VICINITY, net **97,515.624999 VICINITY**. The round
-  trip costs 2.484% (two fees).
-* **Buy exactly 10,000,000 coins (exact out).** It needs 83,006.28163 VICINITY
-  before the fee and **84,056.994056 VICINITY** with it. The site sends
-  `maximum_amount_in` = that × (1 + slippage).
-* **Fill the whole curve.** Net 25,000,000 VICINITY plus fees = 25,316,455.70
-  VICINITY in total.
-* **Fee split per 1,000 VICINITY of trading volume:** dev wallet 5 (+0.5
-  referral on site trades), holders 2.5, founder 2.5, Meteora 2.5 (−0.5 referral).
+  The remaining 0.9875 SOL buys **34,193,903.663504 coins**. The average price
+  is 2.8879e-8 SOL per coin against a start price of 2.7959e-8, so the price
+  impact is 3.3%. With 1% slippage the site sends `minimum_amount_out` =
+  33,851,964.626868 coins.
+* **Sell those 34,193,903.663504 coins straight back.** Gross out 0.987499999
+  SOL, fee 0.01234375 SOL, net **0.975156249 SOL**. The round trip costs 2.48%
+  (two fees).
+* **Buy exactly 10,000,000 coins (exact out).** It needs 0.282221366 SOL before
+  the fee and **0.285793789 SOL** with it. The site sends `maximum_amount_in` =
+  that × (1 + slippage).
+* **Fill the whole curve** (partial fill). Net 85 SOL plus fees = **86.075949368
+  SOL** in total, for 793,099,988.517385 coins.
+* **Fee split per 1 SOL of trading volume:** dev wallet 0.005 (+0.0005 referral
+  on site trades), holders 0.0025, founder 0.0025, Meteora 0.0025 (−0.0005 referral).
+* **All fees up to graduation, per coin** (curve filled in one buy, no
+  referral): 1.0759 SOL, of which 0.4304 to the dev wallet, 0.2152 to holders,
+  0.2152 to the founder and 0.2152 to Meteora. Trading back and forth before
+  graduation adds more.
 
 ### 9.6 Trading paths (SDK `solana/sdk/launchpad/client.mjs`; our program is not involved)
 
@@ -926,51 +1024,66 @@ The swap modes all use DBC `swap2` with `SwapParameters2 { amount_0, amount_1, s
   would reach the graduation price. Zero amounts are refused (`AmountIsZero`),
   and so are slippage misses (`ExceededSlippage`).
 * **Referral.** Every swap built by the site passes the dev wallet's ATA for the
-  quote token as `referral_token_account`, worth 0.05% of each trade to the
-  dev wallet.
+  quote token (its WSOL account) as `referral_token_account`, worth 0.05% of
+  each trade to the dev wallet.
 * **Graduated coin.** The SDK routes through Jupiter (mainnet) or a direct DAMM v2 `swap`.
-* **Coin to coin, while both coins are on curves with the same quote.** One
-  transaction:
+* **Coin to coin (v1: both coins priced in the same quote token).** One transaction:
   1. sell A, exact in, with `minimum_amount_out = q_min`;
   2. buy B, exact in, with `amount_in = q_min` and `minimum_amount_out = b_min`.
 
   Any quote above `q_min` stays in the user's quote account. If B's minimum is
-  missed, the whole transaction fails and A is untouched (test D06). Jupiter
+  missed, the whole transaction fails and A is untouched (test TD06). Jupiter
   returns "No routes found" between two curve coins, which is why this is
-  built by hand. If the quotes differ, a Jupiter leg goes in the middle.
+  built by hand. If the two coins use different quote tokens, the site sends two
+  transactions (sell A; then Jupiter from A's quote to B's quote plus buy B),
+  because a DBC sell, a Jupiter route and a DBC buy do not fit in 1,232 bytes.
 * **Pay with anything** (mainnet only; Jupiter does not exist on devnet). This
-  is website and SDK code only; the program only ever sees the quote token.
+  is website and SDK code only, built after v1; the program only ever sees the
+  quote token.
   1. If Jupiter has a direct route from the user's asset into the coin with
-     acceptable price impact, use it as is.
+     acceptable price impact, use it as is (only while Jupiter lists the curve,
+     see section 1).
   2. Otherwise build one v0 transaction:
      * `GET https://api.jup.ag/swap/v2/build`: ExactIn, from the user's asset
-       to VICINITY, `maxAccounts=40` (then 32, then 24),
-       `wrapAndUnwrapSol=true`, `taker` = the user, the user's slippage;
+       to the coin's quote token, `wrapAndUnwrapSol=true`, `taker` = the user,
+       the user's slippage. For SOL-priced coins ask for `maxAccounts=40` (then
+       32, then 24). For a VICINITY-priced coin Jupiter routes into VICINITY
+       only at `maxAccounts=64` (the saved quotes at 20 and 30 say "No routes
+       found"), and any such route plus the DBC buy overflows 1,232 bytes, so
+       the SDK asks for 64 and plans two transactions from the start;
      * then DBC `swap2` buying the coin with
        `amount_in = Jupiter's otherAmountThreshold` (the guaranteed minimum) and
        the user's `minimum_amount_out`;
      * then Jupiter's `cleanupInstruction`.
-  3. Use the launchpad address lookup table, which holds the static accounts:
+  3. Any amount Jupiter delivers above its guaranteed minimum stays in the
+     buyer's wallet: as SOL for a SOL-priced coin (the cleanup unwraps it), but
+     **as VICINITY** for a VICINITY-priced coin.
+  4. Use the launchpad address lookup table, which holds the static accounts:
      the DBC program, its event and pool authorities, the Vicinity configs, the
-     VICINITY mint, the token, ATA and system programs, and the dev wallet's
+     WSOL mint, the token, ATA and system programs, and the dev wallet's
      referral ATA. Drop no-op ATA setup instructions.
-  4. Simulate and set the compute limit to 1.2× the simulation.
-  5. If the transaction is still over 1,232 bytes, fall back to two
+  5. Simulate and set the compute limit to 1.2× the simulation.
+  6. If the transaction is still over 1,232 bytes, fall back to two
      transactions: swap, then buy.
-  6. A Jupiter API key goes in a Worker secret, because keyless access allows
+  7. A Jupiter API key goes in a Worker secret, because keyless access allows
      only 0.5 requests per second.
 
   Pay-with list on the site: SOL, USDC, USDT, cbBTC, WBTC, ETH (Wormhole),
   xStocks, STONK and $VICINITY. Stock tokens are hidden for visitors from the
   US, UK, Canada and Australia (`request.cf.country`), with a "no shareholder
   rights" note (decision D13).
+* **Sell into anything** (the other direction): DBC sell, exact in, into the
+  quote token, then Jupiter ExactIn from the quote token into what the seller
+  wants (BTC, ETH, a stock token), in one transaction when it fits, else two.
 * **MEV.** Slippage bounds are always set. The SDK may add Jito's
   `jitodontfront` account on mainnet; it does not work on devnet.
 
-Caution for the owner: VICINITY's own liquidity is thin (about $1,800). Paying
-with SOL, BTC or stocks for a VICINITY-priced coin routes through VICINITY's
-LaunchLab pool, where a $1,000 purchase moves VICINITY's price by about 40%.
-Section 21, D2, covers this.
+Caution for the owner, only if you add a VICINITY config: VICINITY's own
+liquidity is thin (about $1,800). Paying with SOL, BTC or stocks for a
+VICINITY-priced coin routes through VICINITY's LaunchLab pool, where a $1,000
+purchase moves VICINITY's price by about 40%. A route from VICINITY's curve into
+a VICINITY-priced curve coin has never been observed on Jupiter. Section 21, D2,
+covers this.
 
 ---
 
@@ -984,23 +1097,28 @@ Section 21, D2, covers this.
    DBC `migration_damm_v2_create_metadata`, then `migration_damm_v2`, with the
    customizable DAMM v2 config `A8gMrEPJkacWkcb3DGwtJwTe16HktSEfvwtuDh2MCtck`
    as the remaining account and a 400,000 CU limit. Research 2 measured
-   246,700 CU. Meteora's own keepers only migrate pools with SOL, USDC or JUP
-   targets, so Vicinity runs `scripts/launchpad/crank.mjs` from a keeper wallet:
+   246,700 CU. Meteora's own keepers migrate the default 85 SOL coins (section
+   9.3); Vicinity also runs `scripts/launchpad/crank.mjs` from a keeper wallet,
+   as a backup and for any VICINITY-priced config, whose targets Meteora's
+   keepers ignore:
    * it watches for complete pools and migrates them within a minute;
    * it also calls `harvest_*` and `forward_holders_fees` on every coin daily.
 
    The cranker pays the DAMM v2 accounts' rent. DBC borrows it from its pool
    authority, which holds 68 SOL on mainnet, and makes the payer repay it; the
-   cost is estimated at 0.03 SOL and test G08 records the real figure.
+   cost is estimated at 0.03 SOL and test TG08 records the real figure.
 3. **The pool.**
-   * DAMM v2 full range; `token_a` = the coin, `token_b` = VICINITY.
-   * It opens at the curve's last price with about 206.5M coins and 24.95M
-     VICINITY. Meteora keeps 0.2% of each side.
-   * Fee 1.25%, collected in VICINITY only. DAMM v2's protocol share comes off
-     that; test G01 records it.
-   * Liquidity: 50% in a permanently locked position whose NFT belongs to the
-     dev wallet, and 50% in a permanently locked position whose NFT belongs to
-     the `Coin` PDA. Nobody can ever remove it (test G02).
+   * DAMM v2 full range; `token_a` = the coin, `token_b` = SOL (WSOL).
+   * It opens at the curve's last price with about 206.5M coins and 84.83 SOL.
+     Meteora keeps 0.2% of each side.
+   * Fee 1.25%, collected in SOL only. DAMM v2's protocol share comes off
+     that; test TG01 records it.
+   * Liquidity: half in a permanently locked position whose NFT belongs to the
+     dev wallet, and half in a permanently locked position whose NFT belongs to
+     the `Coin` PDA. Nobody can ever remove it (test TG02). DBC adds the pool's
+     small "dead liquidity" to the first position, which with equal shares is
+     the `Coin` PDA's, so the city's position is slightly larger and the fee
+     split is close to half, not exactly half; TG02 records both figures.
    * Then `withdraw_leftover` (permissionless) sends the unsold dust to the dev wallet.
 4. **Anti-griefing.**
    * Our pool is created under a DAMM v2 config whose `pool_creator_authority`
@@ -1009,11 +1127,19 @@ Section 21, D2, covers this.
      `migrate_damm_v2_initialize_pool.rs`, so nobody else can create or
      pre-create that pool.
    * Someone could open a *different* pool for the same pair before graduation.
-     It cannot block or skew ours (test G06); the site lists only the canonical
+     It cannot block or skew ours (test TG06); the site lists only the canonical
      pool.
    * The pool price is set from the curve, not from any balance, so donations
      do nothing.
    * There is no flash-loan or oracle path: the only price is the curve's own.
+5. **Rounding surplus.** If the final buy leaves the quote reserve a few raw
+   units above the target, DBC keeps that "surplus": 80% of it is split between
+   partner and creator like the trading fee, 20% goes to Meteora. The dev wallet
+   can claim its part with `partner_withdraw_surplus`. The city's part could
+   only be withdrawn with the `Coin` PDA's signature (`creator_withdraw_surplus`);
+   no instruction of ours calls it, so it stays in DBC for ever. In DBC 0.2.1
+   buys stop exactly at the graduation price, so this is a few lamports at most,
+   and keeping one CPI fewer keeps the audit smaller.
 
 ---
 
@@ -1029,8 +1155,9 @@ Section 21, D2, covers this.
 | from it: Meteora | 0.25% (20% of the fee, set by Meteora) | | Meteora; on site trades 0.05% of the trade comes back as a referral | DBC, at swap time |
 | launch fee | 0.05 SOL | 0.5 SOL | 90% dev wallet, 10% Meteora | dev wallet signs `claim_partner_pool_creation_fee` |
 | graduation fee | 0 | must be 0 (rule 7.2(10)) | n/a | n/a |
-| post-graduation pool fee | 1.25% | 2.00% | 50% dev wallet position, 50% Coin PDA position (then 25/25 holders/founder), less DAMM v2's protocol share | dev wallet signs DAMM v2 `claim_position_fee`; `harvest_pool_fees` |
+| post-graduation pool fee | 1.25% | 2.00% (rule 7.2(9): flat, no dynamic or compounding fee) | about half to the dev wallet's position, about half to the Coin PDA's position (then split equally between holders and founder), less DAMM v2's protocol share | dev wallet signs DAMM v2 `claim_position_fee`; `harvest_pool_fees` |
 | leftover dust | a few raw units | | dev wallet | `withdraw_leftover` (anyone) |
+| rounding surplus at completion | a few lamports | | dev wallet's share; the city's share stays in DBC (section 10, point 5) | dev wallet signs `partner_withdraw_surplus` |
 
 ### 11.2 Changing fees
 
@@ -1039,8 +1166,10 @@ Section 21, D2, covers this.
   `add_launch_config` (validated against the caps, `LaunchConfigAdded` event)
   and disables the old one (`LaunchConfigEnabled`).
 * Each coin keeps the fees it launched with, for ever.
-* To change the recipient for future configs, call `set_fee_recipient`
-  (`FeeRecipientChanged` event).
+* The recipient is the program constant `FEE_RECIPIENT`. Changing it needs a
+  program upgrade (the upgrade multisig), and every config is checked against
+  it at `add_launch_config` and again at every `launch`.
+* Every new config needs its own Jupiter label request (section 8.4).
 
 ### 11.3 How the dev wallet collects (it is the only key that can)
 
@@ -1052,7 +1181,8 @@ Section 21, D2, covers this.
    * `claim_trading_fee` (max = all);
    * `claim_partner_pool_creation_fee`;
    * DAMM v2 `claim_position_fee` for the dev wallet's positions;
-   * `partner_withdraw_surplus` where a final buy overshot.
+   * `partner_withdraw_surplus` for the rounding dust left when a curve
+     completes (section 10, point 5; buys never overshoot in DBC 0.2.1).
 3. Writes a plan file. Then it either signs with `--keypair <path>`, or emits
    base64 transactions for a signing page that calls Phantom's
    `signAllTransactions`.
@@ -1072,38 +1202,57 @@ The flow, per coin:
 1. **Once, right after the launch** (an admin click on the site; the
    `vicinity_rewards` registry admin signs): `vicinity_rewards.init_city` with:
    * `city_coin_mint` = the coin;
-   * `reward_mint` = the quote token (VICINITY), which is allowed because it is
-     not the coin;
+   * `reward_mint` = the coin's quote token (WSOL for the default config), which
+     is allowed because it is not the coin;
    * model **Holders** (`founder_bps = 0`), so the holders' 0.25% is never split
      with the founder (decision D10);
-   * `authority` = the Vicinity ops key.
+   * `authority` = the Vicinity ops multisig.
 
-   The SDK helper `initRewardsForCoin` builds exactly this. A wrong reward mint
-   would make forwarding impossible for that coin for ever, because a rewards
-   config is permanent.
+   The SDK helper `initRewardsForCoin` builds exactly this.
+   `forward_holders_fees` refuses any other model, founder share, reward token
+   or vault (`WrongRewardsConfig`). A rewards config is permanent, so a wrong
+   `init_city` strands that city's pot (it keeps collecting, nothing is lost)
+   until a program upgrade adds a way out.
 2. Daily, by the keeper or anyone: `harvest_curve_fees` / `harvest_pool_fees`,
-   then `forward_holders_fees`.
+   then `forward_holders_fees`. Coins with nothing to move are skipped without
+   failing the batch.
 3. Per epoch, every 30 days by default: the snapshot job (12.3) publishes the
    file, then `fund_epoch_from_vault(root, leaves, slot, hash, window)` books the
    vault's surplus into the epoch. Holders claim on the site with the existing
    proof API and `claim`. Unclaimed money carries over, as `vicinity_rewards`
-   already does. The holders' money is held either in our pot (until it is
-   forwarded) or in the rewards vault; nobody can take it out.
+   already does. Fund an epoch only when the vault can pay at least 20 eligible
+   holders the minimum payout (0.01 SOL each, so 0.2 SOL); otherwise wait,
+   instead of spending epoch rent (about 0.0016 SOL) and fees to send cents.
+
+**Who controls the holders' money, plainly.** Until it is forwarded, it sits in
+our pot, and the pot can only move to the city's checked rewards vault. Once it
+is in the rewards vault, **it goes wherever the city's rewards authority says**:
+that key publishes each epoch's Merkle root, and a root can list any wallet,
+including its own (`vicinity_rewards` SECURITY.md 3.1). Therefore:
+
+* the rewards authority must be a Squads multisig, never one person's wallet;
+* every snapshot file and its SHA-256 (`snapshot_hash`) must be published, so
+  anyone can recompute the root and check that only real holders are in it.
 
 ### 12.2 "Send to all holders" (push; promotional, from the admin's own wallet)
 
-`scripts/launchpad/airdrop-holders.mjs --mint <coin> --token <mint> --total <amount> [--slot <s>] --dry-run | --keypair <path> | --emit-unsigned`
+Use the standard Solana tool `solana-tokens distribute-spl-tokens` (installed
+with Agave 4.3.0) instead of a custom script. It has a dry run and a tracking
+database, so a rerun never pays anyone twice.
 
-* The snapshot follows 12.3. Amounts are pro rata, rounded down, and the dust
-  stays with the sender.
-* Batches hold 18 `transfer_checked` instructions to existing ATAs, or 9 when
-  ATAs must be created. Creating a missing ATA costs 0.00149 SOL per holder,
-  shown in the dry run.
+1. `scripts/launchpad/snapshot.mjs --mint <coin> --total <amount> [--slot <s>]`
+   applies the 12.3 rules and writes `holders-<mint>-<slot>.csv`
+   (`recipient,amount`). Amounts are pro rata, rounded down; the dust stays with
+   the sender.
+2. `solana-tokens distribute-spl-tokens --input-csv holders-<mint>-<slot>.csv
+   --db-path airdrop-<mint>-<slot>.db --from <your token account>
+   --owner <keypair> --fee-payer <keypair> --dry-run` prints the totals; run it
+   again without `--dry-run` to send.
+
+* Creating a missing token account costs about 0.0015 SOL per holder; the dry
+  run shows how many are missing.
 * Every transfer comes from the admin's own token account. The rewards vault
   cannot push, because claims need the holder's signature.
-* A tracking file (`airdrop-<mint>-<slot>.json`) records confirmed batches, so a
-  rerun never pays anyone twice. `--dry-run` prints the totals, costs and
-  batches without sending.
 
 ### 12.3 Snapshot rules (both paths; published with every file)
 
@@ -1154,9 +1303,9 @@ never expires and is never swept.
   * events are recorded on chain;
   * no personal data goes on chain, only a hash.
 * `payout_founder_fees`. Only the payout key can call it, and only:
-  * into the quote-token account of the **one payout wallet fixed in
-    `Launchpad.payout_destination`**, which must also equal the destination
-    the founder agreed to;
+  * into the quote-token account (WSOL by default) of the **one payout wallet
+    fixed in `Launchpad.payout_destination`**, which must also equal the
+    destination the founder agreed to;
   * at most once per 24 hours per coin;
   * when not paused. Pausing: the admin or the payout key can pause; only the
     admin can resume.
@@ -1164,7 +1313,8 @@ never expires and is never swept.
   Each payout carries a sequence number for matching off-chain receipts.
 * If the admin changes the payout wallet, every existing opt-in **stops**; it is
   never redirected. A founder handover also stops it.
-* The payout key must differ from the admin and the dev wallet.
+* The payout key must differ from the admin and the dev wallet, and the payout
+  wallet must differ from the payout key and the admin.
 * Worst case if the payout key is stolen: opted-in founders' balances move early
   into Vicinity's payout wallet, at most once a day per coin. They can never go
   anywhere else.
@@ -1182,8 +1332,10 @@ never expires and is never swept.
    `ref_hash = sha256(partner_customer_id ‖ salt)`.
 3. Once a day the payout service:
    * calls `payout_founder_fees` for every opted-in coin above a minimum
-     (suggested: $50, like UsePaid). The VICINITY lands in Vicinity's payout wallet;
-   * swaps it to USDC through Jupiter with a slippage limit;
+     (suggested: $50, like UsePaid). The SOL (as WSOL) lands in Vicinity's
+     payout wallet;
+   * swaps it to USDC through Jupiter with a slippage limit (SOL/USDC is one of
+     the deepest markets on Solana);
    * sends the USDC to the partner, naming the founder's registered bank
      account. The partner sends the dollars by ACH (1 to 3 business days; slow
      over weekends) into the founder's X Money balance.
@@ -1201,6 +1353,9 @@ never expires and is never swept.
     is generally money transmission under US rules (FinCEN guidance
     FIN-2019-G001), which means registration and state licences unless a
     licensed partner carries it. The owner's home country may add its own rules.
+  * Tax paperwork: in this custodial model Vicinity itself pays US founders, so
+    it will likely need a W-9 from each and have to file 1099s. Ask an
+    accountant before the first payout.
 * **Partner.** Bridge (owned by Stripe) is the strongest candidate:
   * per-customer "liquidation addresses" take Solana USDC in and send dollars
     by bank transfer, with a $1 minimum and daily batches;
@@ -1219,7 +1374,8 @@ never expires and is never swept.
   * The payout wallet, which is where custody risk sits.
   * A Jupiter API key, monitoring, and the public ledger page.
 * **Costs and timing.**
-  * Jupiter price impact on VICINITY, which is thin.
+  * The SOL-to-USDC swap (small: deep liquidity). If a VICINITY config is ever
+    added, its payouts would sell VICINITY through about $1,800 of liquidity.
   * The partner's fees.
   * 1 to 3 business days for ACH.
   * Kraken charges 0.15% if an exchange is used instead.
@@ -1246,12 +1402,13 @@ into the opt-in.
 
 | key | can | cannot |
 |---|---|---|
-| **program upgrade authority** (devnet: throwaway deployer; mainnet: owner-generated, then Squads) | replace the program, and with it take whatever sits in holders pots and founder vaults | touch curve money or pool liquidity (Meteora's programs hold those), or platform fees waiting in DBC |
-| **admin** (devnet: deployer; mainnet: `13qRam…`, then Squads) | approve or revoke launches; add or enable configs (only Vicinity-shaped ones); set the fee recipient for future configs; set the payout key and wallet (existing opt-ins then stop); pause or resume launches and payouts | move any token, change any existing coin, its founder or its fees, redirect an opted-in founder, or create a second coin for a city |
-| **fee recipient** (`13qRam…`) | claim platform fees from every Vicinity DBC pool and its own DAMM v2 positions | anything in our program |
+| **program upgrade authority** (devnet: throwaway deployer; mainnet: owner-generated, then Squads) | replace the program, and with it take whatever sits in holders pots and founder vaults, or change the `FEE_RECIPIENT` constant | touch curve money or pool liquidity (Meteora's programs hold those), or platform fees waiting in DBC |
+| **admin** (devnet: deployer; mainnet: `13qRam…`, then Squads **before the first public approval**) | approve or revoke launches; add or enable configs (only Vicinity-shaped ones that pay the fixed dev wallet); set the payout key and wallet (existing opt-ins then stop); pause or resume launches and payouts | move any token, change the dev wallet, change any existing coin, its founder or its fees, redirect an opted-in founder, or create a second coin for a city. **But** a stolen admin key could approve itself as founder of every city that has no coin yet and launch them, permanently (hence the multisig first) |
+| **fee recipient** (`13qRam…`, the program constant `FEE_RECIPIENT`) | claim platform fees from every Vicinity DBC pool and its own DAMM v2 positions | anything in our program |
+| **rewards city authority** (`vicinity_rewards`, one per city; Vicinity ops, must be a Squads multisig) | publish each epoch's Merkle root, which decides who receives the holders' money in the rewards vault, **including itself**; pause the city's claims | touch our pot or founder vault; change the city's model, founder share or reward token after `init_city` |
 | **payout key** (off by default) | move an opted-in founder's vault to the fixed payout wallet, once a day per coin; pause payouts | resume payouts, pay anywhere else, or touch the holders pot |
 | **founder** (per coin) | claim the founder vault; opt in or out of payouts; hand the seat to a key that co-signs | touch the holders pot or anything of another coin |
-| **anyone** | harvest, forward, crank graduation, trade, and create a coin directly under the Vicinity config (which never becomes a Vicinity `Coin`) | everything else |
+| **anyone** | harvest, forward (only to a checked Holders-model vault), crank graduation, trade, and create a coin directly under the Vicinity config (which never becomes a Vicinity `Coin`) | everything else |
 
 **Pause.**
 
@@ -1259,22 +1416,28 @@ into the opt-in.
   pay-with-anything flows.
 * Sells, every harvest, forward, claim, revoke and graduation keep working.
 * `payouts_paused` stops only `payout_founder_fees`.
-* There is no admin withdrawal of anything, ever (test H12).
+* There is no admin withdrawal of anything, ever (test TH12).
 
 **Remaining trust, stated plainly.**
 
 * Whoever holds our program's upgrade authority could ship new code that takes
-  the money waiting in holders pots and founder vaults. The keeper forwards
-  daily and founders can claim any time, so that waiting balance stays small.
+  the money waiting in holders pots and founder vaults, or points
+  `FEE_RECIPIENT` elsewhere for future configs. The keeper forwards daily and
+  founders can claim any time, so that waiting balance stays small.
   Mitigation: a Squads multisig before mainnet launches, a verified build, and
   later `--final`.
+* Each city's rewards authority decides, through its Merkle roots, who receives
+  the holders' money once it reaches the rewards vault. Mitigation: a Squads
+  multisig, and every snapshot file and its hash published so anyone can
+  recompute the root (section 12.1).
 * Meteora can upgrade DBC and DAMM v2 (mainnet upgrade authority `JADaUV8k…`),
   and that is where curve money and liquidity live. Mitigation:
   * pinned binary hashes in the test fixtures, so a vendor upgrade shows up as
     a failing fixture check and the tests are rerun;
   * re-validating the config at every launch.
 * The dev wallet is admin, fee recipient and $VICINITY creator in one phone
-  wallet. Move the admin to a Squads multisig after setup (D15).
+  wallet. Move the admin to a Squads multisig before the first public approval
+  (D15).
 
 ---
 
@@ -1285,9 +1448,11 @@ For every `Coin`:
 1. `holders_pot.amount >= holders_accrued − holders_forwarded`. (Donations can
    only make the left side larger.)
 2. `founder_vault.amount >= founder_accrued − founder_claimed − founder_paid_out`.
-3. Over all harvests, `to_founder = floor(c/2)` and `to_holders = c − to_founder`,
-   so `founder_accrued <= holders_accrued <= founder_accrued + number_of_harvests`.
-4. `coin_base_account.amount == 0` after every harvest.
+3. Over all non-empty harvests, `to_founder = floor(c/2)` and
+   `to_holders = c − to_founder`, so
+   `founder_accrued <= holders_accrued <= founder_accrued + number_of_non_empty_harvests`.
+4. Harvests never move base tokens: `coin_base_account.amount` changes only by
+   outside donations (base fees are always 0 under rule 7.2(4)).
 5. DBC `pool.creator == coin PDA`, `pool.config == coin.dbc_config` and
    `pool.base_mint == coin.mint`.
 6. The coin mint's supply is 10^15 with no mint or freeze authority, and its
@@ -1295,11 +1460,14 @@ For every `Coin`:
 7. At most one `Coin` exists per `city_id`; an `Approval` and a `Coin` never
    exist for the same city at once.
 8. Every token movement out of the holders pot goes to the founder vault (inside
-   a harvest, exactly `floor(c/2)`) or to the derived rewards vault. Every
-   movement out of the founder vault goes to `ATA(coin.founder)` or to
-   `ATA(launchpad.payout_destination)` when a matching opt-in exists. No
+   a harvest, exactly `floor(c/2)`) or to the derived rewards vault of a
+   rewards config that passed the Holders / 0% founder / quote token / vault
+   check. Every movement out of the founder vault goes to `ATA(coin.founder)` or
+   to `ATA(launchpad.payout_destination)` when a matching opt-in exists. No
    instruction has the admin, the fee recipient or the payout key as a
-   destination (the payout key is only a signer).
+   destination (the payout key is only a signer). What happens after money
+   reaches the rewards vault is decided by the rewards authority's Merkle roots
+   (section 14); this invariant does not cover it.
 
 For every DBC pool in tests (Meteora's properties, checked so that a vendor
 change is caught):
@@ -1312,8 +1480,10 @@ change is caught):
 
 Global:
 
-12. `Launchpad.rewards_program` never changes, and `payout_authority` is never
-    `admin` or `fee_recipient` at the moment it is set.
+12. `Launchpad.rewards_program` never changes. Whenever payouts are configured,
+    `payout_authority` is neither `admin` nor `FEE_RECIPIENT`, and
+    `payout_destination` is neither `payout_authority` nor `admin` (checked at
+    the moment they are set).
 
 ---
 
@@ -1322,13 +1492,14 @@ Global:
 **Events** (Anchor `emit!`; indexers must also reconcile from account state,
 because logs can be cut short):
 
-* `LaunchpadInitialized`, `AdminProposed`, `AdminChanged`, `FeeRecipientChanged`
+* `LaunchpadInitialized`, `AdminProposed`, `AdminChanged`
 * `PayoutConfigChanged`, `PauseChanged`, `LaunchConfigAdded`, `LaunchConfigEnabled`
 * `LaunchApproved`, `ApprovalRevoked`, `CoinLaunched`
 * `FeesHarvested`, `HoldersFeesForwarded`, `FounderFeesClaimed`, `FounderTransferred`
 * `PayoutOptedIn`, `PayoutOptInRevoked`, `FounderPaidOut`
 
-Fields are as named in section 6. Every event carries `city_id` where there is one.
+Fields are as named in section 6. Every event carries `city_id` where there is
+one. Instructions that find nothing to move emit nothing.
 
 **Errors** (`LaunchpadError`):
 
@@ -1344,9 +1515,9 @@ Fields are as named in section 6. Every event carries `city_id` where there is o
   `ConfigMigrationFee`, `ConfigVesting`, `ConfigLaunchFee`.
 * **Approvals and launch:** `BadName`, `BadSymbol`, `BadExpiry`,
   `ApprovalExpired`, `CoinAlreadyLaunched`, `WrongFounder`, `PoolCreatorMismatch`.
-* **Fees, claims and payouts:** `NothingToHarvest`, `NothingToForward`,
-  `NothingToClaim`, `WrongPool`, `WrongPosition`, `WrongRewardsVault`,
-  `DestinationMismatch`, `OptInFounderMismatch`, `PayoutTooSoon`.
+* **Fees, claims and payouts:** `WrongPool`, `WrongPosition`,
+  `WrongRewardsConfig`, `WrongRewardsVault`, `DestinationMismatch`,
+  `OptInFounderMismatch`, `PayoutTooSoon`.
 * **Arithmetic:** `MathOverflow`.
 
 ---
@@ -1357,10 +1528,11 @@ All tests run **in process**, with no validator and no ports:
 
 * Node's `node:test` with npm `litesvm` 1.5 and `@solana/kit` 8, the setup
   research 2 proved (`lpc-research/r2/lsvm/probe-grad.mjs`).
-* Instruction data is encoded from our IDL with `@coral-xyz/anchor`'s
+* Instruction data is encoded from the IDLs with `@coral-xyz/anchor`'s
   `BorshCoder`, which makes no network calls.
 * Loaded programs:
-  * our `vicinity_launchpad.so`;
+  * our `vicinity_launchpad.so`, through the upgradeable loader with a test key
+    as upgrade authority (so `init_launchpad` is tested for real);
   * the real `vicinity_rewards.so` from `target/deploy`;
   * mainnet dumps of DBC, DAMM v2 and Metaplex, fetched by
     `scripts/launchpad/fetch-fixtures.sh` with `solana program dump -u m` into
@@ -1375,177 +1547,198 @@ All tests run **in process**, with no validator and no ports:
     A mismatch means Meteora upgraded: stop, review their changelog, re-pin.
 * Fixture accounts:
   * the customizable DAMM v2 config `A8gMrE…` as JSON;
-  * a stand-in quote mint created in the test (6 decimals, classic SPL, no
-    mint or freeze authority after minting);
+  * the WSOL mint (litesvm's native mint);
+  * a stand-in VICINITY-like quote mint created in the test (6 decimals, classic
+    SPL, no mint or freeze authority after minting) for the optional config;
   * the DBC pool authority funded with 2 SOL for flash rent;
   * the clock set to real time.
+* The dev wallet `13qRam…` is a program constant, and the tests have no key for
+  it. The few steps where it must sign (TE09, TG02 claims) run with litesvm's
+  signature check switched off for that one transaction; every other
+  transaction is signature-checked.
 
 `assertInvariants` (section 15) runs after every step. File `tests-launchpad/NN-*.test.mjs`:
 
 **01 admin**
-- A01 `init_launchpad` refuses a signer that is not the upgrade authority (`NotUpgradeAuthority`).
-- A02 `init_launchpad` refuses another program's real ProgramData.
-- A03 `init_launchpad` requires the admin's signature; a second init fails.
-- A04 propose and accept admin: a stranger cannot accept; zero cancels.
-- A05 `set_fee_recipient` is admin-only and emits its event.
-- A06 `set_payout_config` is admin-only; refuses a payout key equal to the admin or the fee recipient, and an authority without a destination.
-- A07 `set_pause`: the admin sets both flags; the payout key can only pause payouts; its attempt to resume is refused; a stranger is refused.
+- TA01 `init_launchpad` refuses a signer that is not the upgrade authority (`NotUpgradeAuthority`).
+- TA02 `init_launchpad` refuses another program's real ProgramData.
+- TA03 `init_launchpad` requires the admin's signature, refuses a rewards program that is not executable; a second init fails.
+- TA04 propose and accept admin: a stranger cannot accept; zero cancels.
+- TA05 the IDL constant `FEE_RECIPIENT` is `13qRam…`, and the IDL has no instruction that changes it (no `set_fee_recipient`) and no withdraw.
+- TA06 `set_payout_config` is admin-only; refuses a payout key equal to the admin or the fee recipient, a payout wallet equal to the payout key or the admin, and an authority without a destination.
+- TA07 `set_pause`: the admin sets both flags; the payout key can only pause payouts; its attempt to resume is refused; a stranger is refused.
 
-**02 launch configs**: the default config is accepted (B01). Each of rules
+**02 launch configs**: the default config is accepted (TB01). Each of rules
 7.2(1) to (12) is broken by exactly one field and refused with its own error:
-- B02 fee claimer;
-- B03 leftover receiver;
-- B04 creator fee percentage ≠ 50;
-- B05 fee above 2%, a non-flat scheduler, or the dynamic fee on;
-- B06 mutable metadata;
-- B07 Token-2022 base;
-- B08 Token-2022 quote mint with a permanent delegate (xStock-like);
-- B09 quote mint with a freeze authority (USDC-like), or with a live mint authority;
-- B10 LP not 50/50 permanently locked;
-- B11 migration fee or locked vesting;
-- B12 supply ≠ 10^15, or not fixed;
-- B13 launch fee above 0.5 SOL;
-- B14 not DAMM v2 customizable with quote-only fees.
+- TB02 fee claimer;
+- TB03 leftover receiver;
+- TB04 creator fee percentage ≠ 50;
+- TB05 fee above 2%, a non-flat scheduler, or the dynamic fee on;
+- TB06 mutable metadata;
+- TB07 Token-2022 base;
+- TB08 Token-2022 quote mint with a permanent delegate (xStock-like);
+- TB09 quote mint with a freeze authority (USDC-like), or with a live mint authority;
+- TB10 LP not 50/50 permanently locked;
+- TB11 migration fee or locked vesting;
+- TB12 supply ≠ 10^15, or not fixed;
+- TB13 launch fee above 0.5 SOL;
+- TB14 not DAMM v2 customizable with quote-only fees, plus one case each for
+  `migrated_dynamic_fee = 1`, `migrated_pool_base_fee_mode ≠ 0`, a non-zero
+  byte in `migrated_pool_base_fee_bytes`, and `migrated_compounding_fee_bps ≠ 0`.
+
+Rules that DBC itself refuses at `create_config` are tested on hand-edited
+config bytes (a real config account with one field changed), which is exactly
+what the on-chain check sees.
 
 Then:
-- B15 type cosplay: a byte-identical config owned by another program, and a DBC pool passed as a config.
-- B16 a disabled config blocks `approve_launch` and `launch`.
+- TB15 type cosplay: a byte-identical config owned by another program, and a DBC pool passed as a config.
+- TB16 a disabled config blocks `approve_launch` and `launch`.
 
 **03 city gate and launch**
-- C01 `approve_launch` is admin-only and stores its fields.
-- C02 refuses a bad expiry, a lower-case or over-long symbol, and a 33-byte name.
-- C03 refuses a city that already has a coin.
-- C04 `revoke_approval` closes it and refunds the rent; `launch` afterwards fails.
-- C05 a non-founder launch is refused (`WrongFounder`).
-- C06 a launch after expiry is refused.
-- C07 `launch` is refused while launches are paused; approving still works.
-- C08 a successful launch:
+- TC01 `approve_launch` is admin-only and stores its fields.
+- TC02 refuses a bad expiry, a lower-case or over-long symbol, and a 33-byte name.
+- TC03 refuses a city that already has a coin.
+- TC04 `revoke_approval` closes it and refunds the rent; `launch` afterwards fails.
+- TC05 a non-founder launch is refused (`WrongFounder`).
+- TC06 a launch after expiry is refused.
+- TC07 `launch` is refused while launches are paused; approving still works.
+- TC08 a successful launch:
   - the pool creator is the `Coin` PDA;
   - supply 10^15, 6 decimals, mint and freeze authority none;
-  - metadata name, symbol and URI exact, `is_mutable = false`, update authority `11111111111111111111111111111111`;
+  - metadata name, symbol and URI (`https://vicinity.city/coin-meta/<mint>.json`)
+    exact, `is_mutable = false`, update authority `11111111111111111111111111111111`;
   - pot and vault owned by `Coin`;
   - approval closed, rent back to the admin;
   - the launch fee reached the pool account.
-- C09 a second launch for the same city fails.
-- C10 a launch with a config other than the approval's is refused.
-- C11 a stranger creates a pool directly under the Vicinity config:
+- TC09 a second launch for the same city fails.
+- TC10 a launch with a config other than the approval's is refused.
+- TC11 a stranger creates a pool directly under the Vicinity config:
   - DBC accepts it;
   - no `Coin` exists;
   - `harvest_curve_fees` for it is impossible (`PoolCreatorMismatch` / seeds);
   - the SDK's `listCoins` leaves it out.
 
 **04 trading** (SDK against the real DBC)
-- D01 an exact-in buy gives the section 9.5 numbers to the unit (11,875,698.398335 coins).
-- D02 the fee split of that buy (protocol 200, referral 50 into the referral ATA, partner 500, creator 500) is read from the pool fields.
-- D03 the sell-back gives 97,515.624999.
-- D04 an exact-out buy for 10,000,000 coins costs 84,056.994056; with `maximum_amount_in` too low it is refused (`ExceededSlippage`).
-- D05 a missed minimum out and a zero amount are refused.
-- D06 coin-to-coin in one transaction; when B's minimum is missed, everything reverts and A's balance is unchanged.
-- D07 a partial-fill buy at the end completes the curve exactly at the graduation price; the next swap is refused (`PoolIsCompleted`).
-- D08 invariants 9 and 10 hold after every trade.
-- D09 donating quote tokens to the DBC quote vault changes neither the price nor completion.
-- D10 the `curve.mjs` builder reproduces section 9.2's parameters and section 9.3's table.
+- TD01 an exact-in buy gives the section 9.5 numbers to the unit (34,193,903.663504 coins for 1 SOL).
+- TD02 the fee split of that buy (protocol 0.002, referral 0.0005 into the referral ATA, partner 0.005, creator 0.005 SOL) is read from the pool fields.
+- TD03 the sell-back gives 0.975156249 SOL.
+- TD04 an exact-out buy for 10,000,000 coins costs 0.285793789 SOL; with `maximum_amount_in` too low it is refused (`ExceededSlippage`).
+- TD05 a missed minimum out and a zero amount are refused.
+- TD06 coin-to-coin in one transaction; when B's minimum is missed, everything reverts and A's balance is unchanged.
+- TD07 a partial-fill buy at the end completes the curve exactly at the graduation price; the next swap is refused (`PoolIsCompleted`).
+- TD08 invariants 9 and 10 hold after every trade.
+- TD09 donating quote tokens to the DBC quote vault changes neither the price nor completion.
+- TD10 `config.mjs` (Meteora's `buildCurve`) reproduces the 7.1 parameters and the 9.3 table.
+- TD11 property test: random sequences of buys and sells (exact in, exact out,
+  partial fill) against the real DBC. After every trade: the `curve.mjs` mirror
+  matches DBC to the raw unit; the curve stays solvent (the quote reserve covers
+  the curve's integral from the start price, and the coins sold never exceed
+  what the curve owes at that price); a buy followed by selling the same coins
+  never returns more than was paid; every fee equals `ceil(amount × rate)` and
+  splits exactly; every rounding favours the pool against exact rational math.
 
 **05 fees and rewards**
-- E01 `harvest_curve_fees` is permissionless; its split and counters match; it emits its event.
-- E02 a harvest with nothing to claim is refused.
-- E03 an odd claim of 1,001 units gives founder 500 and holders 501.
-- E04 donations to the pot or vault leave the counters unchanged, and the forward or claim moves the full balance.
-- E05 forward to the derived `vicinity_rewards` vault, then (with the real rewards program, Holders model) `fund_epoch_from_vault` books it, and a holder claims it.
-- E06 forward refuses another city's vault, a fake program's vault, and a token account with the wrong mint or authority.
-- E07 harvest, forward and claim all work while launches and payouts are paused.
-- E08 coin A cannot claim coin B's DBC fees, and B's pot cannot be passed to A.
-- E09 the fee-recipient stand-in claims the partner trading fee and 90% of the launch fee; a stranger's claim is refused by DBC.
+- TE01 `harvest_curve_fees` is permissionless; its split and counters match; it emits its event.
+- TE02 a harvest with nothing to claim succeeds and changes nothing (no event).
+- TE03 an odd claim of 1,001 units gives founder 500 and holders 501.
+- TE04 donations to the pot or vault leave the counters unchanged, and the forward or claim moves the full balance.
+- TE05 forward to the derived `vicinity_rewards` vault, then (with the real rewards program, Holders model) `fund_epoch_from_vault` books it, and a holder claims it.
+- TE06 forward refuses another city's vault, a fake program's vault, a token
+  account with the wrong mint or authority, and a rewards config with model
+  Split or Creator, or another reward token (`WrongRewardsConfig`).
+- TE07 harvest, forward and claim all work while launches and payouts are paused.
+- TE08 coin A cannot claim coin B's DBC fees, and B's pot cannot be passed to A.
+- TE09 the dev wallet claims the partner trading fee and 90% of the launch fee; a stranger's claim is refused by DBC.
 
 **06 founder and payout**
-- F01 `claim_founder_fees` works only for the founder, moves the full balance, and emits its event.
-- F02 a claim of zero is refused.
-- F03 `transfer_founder` needs both signatures; afterwards the old founder is refused and the new one can claim.
-- F04 `opt_in_payout`:
+- TF01 `claim_founder_fees` works only for the founder, moves the full balance, and emits its event.
+- TF02 a claim of zero succeeds and moves nothing.
+- TF03 `transfer_founder` needs both signatures; afterwards the old founder is refused and the new one can claim.
+- TF04 `opt_in_payout`:
   - refused while payouts are not configured;
   - refused when `expected_destination` differs;
   - stores the copied destination and the hash.
-- F05 a payout:
+- TF05 a payout:
   - works only for the payout key;
   - pays only the ATA of the destination;
   - moves the full balance;
   - increments `seq` and emits its event.
-- F06 a second payout within 24 hours is refused, including after revoking and opting in again.
-- F07 the admin changes the destination: the old opt-in's payout is refused (`DestinationMismatch`); after the founder opts in again, it works.
-- F08 after a founder handover, the stale opt-in is refused (`OptInFounderMismatch`), and the new founder can close it.
-- F09 while payouts are paused, a payout is refused and the founder's own claim still works.
-- F10 the founder can claim directly while opted in.
-- F11 `revoke_payout_opt_in` closes the opt-in and refunds the rent; no payout works afterwards.
+- TF06 a second payout within 24 hours is refused, including after revoking and opting in again.
+- TF07 the admin changes the destination: the old opt-in's payout is refused (`DestinationMismatch`); after the founder opts in again, it works.
+- TF08 after a founder handover, the stale opt-in is refused (`OptInFounderMismatch`), and the new founder can close it.
+- TF09 while payouts are paused, a payout is refused and the founder's own claim still works.
+- TF10 the founder can claim directly while opted in.
+- TF11 `revoke_payout_opt_in` closes the opt-in and refunds the rent; no payout works afterwards.
 
 **07 graduation**
-- G01 the crank migrates permissionlessly. The DAMM v2 pool has:
-  - `token_a` = the coin and `token_b` = VICINITY;
+- TG01 the crank migrates permissionlessly. The DAMM v2 pool has:
+  - `token_a` = the coin and `token_b` = SOL (WSOL);
   - a price equal to the curve's end price within rounding;
   - a 1.25% fee, collected in quote only.
 
-  The stored DBC config values equal section 9.2's, and DAMM v2's protocol share is recorded.
-- G02 the dev-wallet stand-in owns the partner position NFT and the `Coin` PDA owns the creator position NFT; both are 100% permanently locked, and `remove_liquidity` is refused for both.
-- G03 supply after migration is still 10^15; `withdraw_leftover` sends the dust to the fee recipient.
-- G04 `harvest_pool_fees` after trades on the pool splits the quote fees; no base fees appear.
-- G05 `harvest_curve_fees` after graduation collects the remaining curve fees.
-- G06 griefing:
+  The stored DBC config values are recorded, and DAMM v2's protocol share is recorded.
+- TG02 the dev wallet owns one position NFT and the `Coin` PDA the other; both are 100% permanently locked, `remove_liquidity` is refused for both, and each position's liquidity is recorded (the first, the `Coin` PDA's, includes DBC's dead liquidity).
+- TG03 supply after migration is still 10^15; `withdraw_leftover` sends the dust to the fee recipient.
+- TG04 `harvest_pool_fees` after trades on the pool splits the quote fees; no base fees appear.
+- TG05 `harvest_curve_fees` after graduation collects the remaining curve fees.
+- TG06 griefing:
   - a stranger creating a pool under `A8gMrE…` for the pair is refused;
   - a stranger's pool for the pair under a public config does not stop our migration.
-- G07 migrating before completion is refused (`PoolIsIncompleted`).
-- G08 the CU and the rent paid by the cranker are recorded.
+- TG07 migrating before completion is refused (`PoolIsIncompleted`).
+- TG08 the CU and the rent paid by the cranker are recorded.
 
 **08 attack classes** (Sealevel list, table-driven over every instruction)
-- H01 signer authorization.
-- H02 account data matching (wrong mint, quote, pool, config, vault, position).
-- H03 owner checks.
-- H04 type cosplay (a `Coin` passed as an `Approval`, a `LaunchConfig` or a `PayoutOptIn`).
-- H05 re-initialisation.
-- H06 arbitrary CPI (fake DBC, DAMM v2 or token program ids).
-- H07 duplicate mutable accounts (pot = vault; vault = destination).
-- H08 non-canonical bumps.
-- H09 PDA sharing (one coin's PDA cannot act for another).
-- H10 closed-account revival (a closed approval, a closed opt-in).
-- H11 no sysvar accounts are accepted.
-- H12 no instruction can pay the admin. Two parts:
+- TH01 signer authorization.
+- TH02 account data matching (wrong mint, quote, pool, config, vault, position).
+- TH03 owner checks.
+- TH04 type cosplay (a `Coin` passed as an `Approval`, a `LaunchConfig` or a `PayoutOptIn`).
+- TH05 re-initialisation.
+- TH06 arbitrary CPI (fake DBC, DAMM v2 or token program ids).
+- TH07 duplicate mutable accounts (pot = vault; vault = destination).
+- TH08 non-canonical bumps.
+- TH09 PDA sharing (one coin's PDA cannot act for another).
+- TH10 closed-account revival (a closed approval, a closed opt-in).
+- TH11 no sysvar accounts are accepted.
+- TH12 no instruction can pay the admin. Two parts:
   - a review table over the IDL: every token transfer our program signs (as
     `coin`) has a destination constrained to the founder vault, the derived
-    rewards vault, `ATA(coin.founder)` or `ATA(launchpad.payout_destination)`;
-    the only other signed token action is the burn of the coin's own
-    city-coin account;
+    rewards vault of a checked config, `ATA(coin.founder)` or
+    `ATA(launchpad.payout_destination)`; there is no other signed token action;
   - a negative test per instruction with the admin's ATA (and the fee
     recipient's) substituted for each destination, which must be refused.
 
 **Rust unit tests** (`cargo test`):
-- `validate_vicinity_config` table (one case per rule);
-- `split_fee`;
+- `validate_vicinity_config` table (one case per rule, including each 7.2(9) gap);
+- `split_fee`, with a property loop over random and edge amounts;
 - name and symbol checks;
 - the URI builder;
-- the ProgramData header parser.
+- the ProgramData header parser;
+- the `vicinity_rewards` `CityConfig` reader and its checks.
 
 **SDK tests** (`node --test sdk/launchpad/*.test.mjs`):
-- `curve.mjs` against the 9.2 values;
-- quote functions against the DBC results recorded in D01 to D04;
-- the pay-with-anything composer with recorded Jupiter responses
-  (`lpc-research/q*.json`): it chooses one transaction when it fits in 1,232
-  bytes and the fallback otherwise;
-- snapshot rules;
-- the airdrop planner: batching, deduplication, dry run, resume.
+- `config.mjs` against the 7.1 values;
+- `curve.mjs`: properties on its own (fees exact, rounding towards the pool,
+  round trips never profit, solvency), and the 9.5 numbers;
+- PDA derivations against the program's seeds.
+
+Later, with the website work: the pay-with-anything composer with recorded
+Jupiter responses (`lpc-research/q*.json`), and the snapshot rules.
 
 **Research 1 risks and where each is answered:**
 
 | risk | answer |
 |---|---|
-| privileged withdraw (pump.fun, May 2024) | none exists (H12) |
-| stolen admin key (Raydium, 2022) | the admin has no money powers; Squads (D15) |
-| balances instead of counters | E04, D09 |
-| rounding | DBC's (D01–D04), our split E03 |
-| completion on all tokens sold | D07 |
-| griefable migration | G06 |
-| quote allow-list | B08, B09 |
-| hostile Token-2022 | B07–B09 |
-| donations and rent changes | E04 and D09; no lamport-based logic anywhere |
-| sniping | D11 and the founder's first buy |
-| sandwiches | D05 slippage, optional Jito |
+| privileged withdraw (pump.fun, May 2024) | none exists (TH12) |
+| stolen admin key (Raydium, 2022) | the admin has no money powers and cannot change the dev wallet; Squads before the first approval (D15) |
+| balances instead of counters | TE04, TD09 |
+| rounding | DBC's (TD01–TD04, TD11), our split TE03 |
+| completion on all tokens sold | TD07 |
+| griefable migration | TG06 |
+| quote allow-list | TB08, TB09 |
+| hostile Token-2022 | TB07–TB09 |
+| donations and rent changes | TE04 and TD09; no lamport-based logic anywhere |
+| sniping | decision D11 and the founder's first buy in the launch transaction |
+| sandwiches | TD05 slippage, optional Jito |
 | oracles and flash loans | no oracle; the price comes only from the curve |
 | accidental `program close` (OptiFi) | mainnet checklist: never run `solana program close` on mainnet; the program becomes immutable after the audit |
 
@@ -1568,12 +1761,12 @@ solana/
   programs/vicinity-launchpad/
     Cargo.toml                                anchor-lang 0.31.1 (init-if-needed), anchor-spl 0.31.1 (token, associated_token),
                                               bytemuck 1 (derive, min_const_generics) for the zero-copy DBC/DAMM accounts
-    src/lib.rs, constants.rs, state.rs, errors.rs, events.rs, validate.rs (7.2), math.rs (split)
+    src/lib.rs, constants.rs, state.rs, errors.rs, events.rs, validate.rs (7.2), math.rs (split, URI, headers)
     src/instructions/<one file per instruction>.rs
-  sdk/launchpad/                              pda.mjs, curve.mjs, client.mjs, jupiter.mjs, snapshot.mjs, airdrop.mjs, *.test.mjs
+  sdk/launchpad/                              pda.mjs, config.mjs, curve.mjs, client.mjs, *.test.mjs
   sdk/idl/vicinity_launchpad.json             committed production IDL (CI diff, like vicinity_rewards)
-  scripts/launchpad/                          fetch-fixtures.sh, create-dbc-config.mjs, init-launchpad.mjs, devnet-demo.mjs,
-                                              crank.mjs, claim-platform-fees.mjs, airdrop-holders.mjs
+  scripts/launchpad/                          fetch-fixtures.sh now; create-dbc-config.mjs, init-launchpad.mjs, devnet-demo.mjs,
+                                              crank.mjs, claim-platform-fees.mjs and snapshot.mjs with the devnet step
   tests-launchpad/                            NN-*.test.mjs, helpers.mjs (assertInvariants), fixtures/ (accounts JSON; programs/ gitignored)
   LAUNCHPAD-DESIGN.md (this file), LAUNCHPAD-AUDIT.md (build hashes, CU, rent, devnet record; written by implementers)
 ```
@@ -1581,19 +1774,21 @@ solana/
 * `declare_program!(dynamic_bonding_curve)` and `declare_program!(cp_amm)` read
   the IDLs from `solana/idls/`. Research 2 compiled both with Anchor 0.31.2 and
   cargo-build-sbf 4.4.0.
-* The program's own keypair is generated with `solana-keygen new --no-bip39-passphrase --silent --outfile <scratch solana-keys>/vicinity_launchpad-keypair.json`,
-  copied to `target/deploy/` (gitignored) and never printed.
+* The program's own keypair is generated with `solana-keygen new --no-bip39-passphrase --silent --outfile <scratch solana-keys>/vicinity_launchpad-program-keypair.json`,
+  copied to `target/deploy/vicinity_launchpad-keypair.json` (gitignored) and never printed.
 * npm scripts:
   * `test:launchpad` runs `node --test tests-launchpad/`;
+  * `sdk-test:launchpad` runs `node --test sdk/launchpad/`;
   * `launchpad:fixtures` runs the dump script.
 * Size target: 300 KB or less, which is about 1.53 SOL of rent at `--max-len` = size.
   * The research probe with the DBC CPI was 181 KB.
   * Avoid Anchor's `ProgramData` type (6.1).
   * Use `Box` for large account structs to keep the stack frames small.
-* Effort: about 3 focused days to a working devnet version.
-  * Day 1: program plus the Rust tests.
-  * Day 2: the litesvm suite and the SDK.
-  * Day 3: devnet, then docs and the audit pack.
+* Effort, trimmed for "quick". v1 is: the program (18 instructions), its Rust
+  and in-process tests, and the devnet demo, about 4 to 6 focused days.
+  The pay-with-anything composer and lookup table, the batch fee-claim signing
+  page, the snapshot job and the stock-token geo-gating are website work for
+  afterwards; none of them can be shown on devnet anyway (no Jupiter there).
 
 ---
 
@@ -1601,40 +1796,44 @@ solana/
 
 Devnet has the same DBC, DAMM v2 and Metaplex addresses, and the customizable
 DAMM v2 config `A8gMrE…` exists there. Jupiter does not exist on devnet, so
-pay-with-anything is shown only with recorded mainnet responses in the SDK tests.
+pay-with-anything cannot be shown there.
 
 1. **SOL.** The throwaway deployer `9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa`
    holds 1.395 SOL. Airdrops from this machine are rate-limited.
    * Need: about 1.5 SOL for the program, plus about 0.3 SOL for accounts, demo
-     wallets and fees.
+     wallets and fees, plus the demo curve's target.
    * **Owner: send 1 devnet SOL to that address from faucet.solana.com.**
    * The `vicinity_rewards` devnet deployment (2.57 SOL of rent) is the recorded
      audit deployment and is not closed.
-2. Build. Record the size and SHA-256 in LAUNCHPAD-AUDIT.md. Check
+2. **Check Meteora's devnet binaries first.** Dump the devnet DBC and DAMM v2
+   programs and compare their SHA-256 with the pinned mainnet hashes (17). The
+   devnet DBC has a different upgrade authority and deploy slot (503,167,099)
+   and may not be 0.2.1. If they differ, run the in-process suite against the
+   devnet dumps too before the demo, or stop and report.
+3. Build. Record the size and SHA-256 in LAUNCHPAD-AUDIT.md. Check
    `solana rent <size> -u devnet`.
-3. Deploy with an explicit buffer keypair created beforehand:
+4. Deploy with an explicit buffer keypair created beforehand:
 
    ```
    solana program deploy target/deploy/vicinity_launchpad.so \
-     --program-id <keys>/vicinity_launchpad-keypair.json \
+     --program-id <keys>/vicinity_launchpad-program-keypair.json \
      --buffer <keys>/launchpad-buffer-keypair.json \
      -k <keys>/devnet-deployer.json -u devnet --max-len <size> --use-rpc \
      > <keys>/launchpad-deploy.log 2>&1
    ```
 
    Report only the signature and addresses; never show the log.
-4. Create the `tVIC` stand-in: classic SPL, 6 decimals, no freeze authority.
-   Mint 1,000,000,000 to the deployer, then remove the mint authority, so it
-   mirrors $VICINITY and passes rule 7.2(2).
 5. `create-dbc-config.mjs`:
-   * quote `tVIC`, target F = 25,000,000 tVIC;
-   * fee claimer and leftover receiver = `13qRam…` (the real dev wallet; its
+   * quote WSOL;
+   * a demo target of 1 SOL (a devnet wallet cannot fill 85 SOL; our crank
+     graduates it, since Meteora's keepers do not run on devnet);
+   * fee claimer and leftover receiver = `13qRam…` (the program constant; its
      devnet fees build up and the owner can claim them with his own wallet on
      devnet);
    * launch fee 0.01 SOL.
 
-   Then `init-launchpad.mjs`: admin = deployer, fee recipient = `13qRam…`,
-   rewards program = `Hm14pFPAB…`. Then `add_launch_config`.
+   Then `init-launchpad.mjs`: admin = deployer, rewards program = `Hm14pFPAB…`.
+   Then `add_launch_config`.
 6. `devnet-demo.mjs`, using throwaway founder, trader and payout keys from the
    scratch `solana-keys` folder:
    * approve and launch two demo cities (`city_id` 999000001 "Demo City" DEMO,
@@ -1644,7 +1843,7 @@ pay-with-anything is shown only with recorded mainnet responses in the SDK tests
    * trade on the DAMM v2 pool;
    * `harvest_curve_fees` and `harvest_pool_fees`;
    * on the devnet rewards registry, where the deployer is admin, call
-     `init_city` with reward mint `tVIC` and the Holders model;
+     `init_city` with reward mint WSOL and the Holders model;
    * forward, `fund_epoch_from_vault` with a 2-leaf tree, and one holder's claim;
    * `claim_founder_fees`;
    * `set_payout_config` with a throwaway payout key and payout wallet;
@@ -1664,32 +1863,35 @@ pay-with-anything is shown only with recorded mainnet responses in the SDK tests
 1. **Outside audit** of `vicinity_launchpad`: a small scope, plus a review of
    the config script and the SDK's transaction composition. DBC and DAMM v2
    are already audited. Rerun the tests on freshly dumped binaries first.
-2. **Program keypair** generated by the owner. Update `declare_id!` and
+2. **Program keypairs** generated by the owner. Update `declare_id!` and
    `Anchor.toml`. Build with `anchor build --verifiable`, record the hash, and
    publish the IDL on chain. Add `security.txt` (`solana-security-txt`).
-3. **Deploy.** Rent is about 1.3 to 1.8 SOL at `--max-len` = size (about
-   1.53 SOL for 300 KB), plus about 0.01 SOL of fees.
-4. **Create the Vicinity DBC config** (about 0.006 SOL; any payer), then
-   `init_launchpad` (the upgrade authority signs; admin = `13qRam…`; fee
-   recipient = `13qRam…`; rewards program = the **mainnet** `vicinity_rewards`
-   id) and `add_launch_config`.
-5. **The dev wallet signs `create_partner_metadata`** once ("Vicinity",
+3. **Deploy `vicinity_rewards` to mainnet first** and run its registry steps
+   (README.md "Mainnet deployment"), with the registry admin moving to Squads.
+   It must exist before step 5: `init_launchpad` refuses a rewards program
+   that is not deployed, and the id it stores can never be changed.
+4. **Deploy `vicinity_launchpad`.** Rent is about 1.3 to 1.8 SOL at
+   `--max-len` = size (about 1.53 SOL for 300 KB), plus about 0.01 SOL of fees.
+5. **Create the Vicinity DBC config** (about 0.006 SOL; any payer), then
+   `init_launchpad` (the upgrade authority signs; admin = `13qRam…`; rewards
+   program = the **mainnet** `vicinity_rewards` id) and `add_launch_config`.
+6. **The dev wallet signs `create_partner_metadata`** once ("Vicinity",
    website, logo; about 0.002 SOL).
-6. **Deploy `vicinity_rewards` to mainnet** and run its registry steps
-   (README.md "Mainnet deployment"). Until then the holders' share simply
-   collects in each coin's pot.
 7. **Keys.**
    * Upgrade authority to a Squads multisig (suggested 2-of-3) before public
      launches.
-   * Admin to Squads with `propose_admin` / `accept_admin` once setup is done.
+   * Admin to Squads with `propose_admin` / `accept_admin` **before the first
+     public approval** (D15).
+   * Each city's rewards authority is the ops Squads multisig.
    * After the audit and a quiet period, make the program immutable with `--final`.
    * Never run `solana program close` on mainnet.
-8. **Fund a keeper wallet** (about 0.5 SOL) for graduation cranks (about 0.03
-   SOL each) and daily harvests and forwards.
+8. **Fund a keeper wallet** (about 0.5 SOL) for daily harvests and forwards and
+   for any graduation Meteora's keepers miss (about 0.03 SOL each).
 9. **Website** (separate work):
    * "Approve on chain" for founders who have a saved design and no recorded mint;
    * the founder launch wizard;
-   * metadata, image and coin pages at the URLs in 8.2;
+   * metadata, image and coin pages at the URLs in 8.2, served only for
+     registry mints;
    * buy and sell, coin-to-coin and pay-with-anything panels, with the
      referral account;
    * reading `launches_paused`;
@@ -1699,7 +1901,7 @@ pay-with-anything is shown only with recorded mainnet responses in the SDK tests
    * the stock-token geo-gate;
    * retiring the old "launch on LaunchLab, then record the mint" path for
      new cities.
-10. **Listing requests** (8.4).
+10. **Listing requests** (8.4), one Jupiter label request per config.
 
 ---
 
@@ -1708,25 +1910,26 @@ pay-with-anything is shown only with recorded mainnet responses in the SDK tests
 | # | Question | Default (built) | Your other options |
 |---|---|---|---|
 | D1 | Build on Meteora's curve, or write our own? | **Meteora's curve plus our small Vicinity program.** Your city coins, your fees, your rules; Meteora's audited code holds the money. | Our own curve: 3 to 6 weeks, a big audit, and invisible to Jupiter until it graduates. |
-| D2 | What do people pay with on the curve? | **$VICINITY.** Every city coin creates demand for VICINITY. Warning: VICINITY has only about $1,800 of liquidity, so people paying with SOL, BTC or stocks move VICINITY's price a lot (about 40% for a $1,000 buy), and targets are small in dollars. | SOL: deep liquidity and bigger targets, but no VICINITY demand. You can also offer both: a SOL config is one admin click, and each city's approval picks one. |
+| D2 | What do people pay with on the curve? | **SOL.** Deep liquidity, Meteora's keepers graduate the coins, paying with BTC, ETH or stocks fits in one transaction, and the X Money payout can sell SOL for dollars easily. | **$VICINITY** as an optional second config (each city's approval picks one config). It creates demand for VICINITY, but weigh these facts first, at today's prices: a 25M VICINITY target is a total raise of about $189, and filling the whole curve costs about $192, so one wallet (or the founder in the launch transaction) can take 79% of a coin's supply for under $200. All fees up to graduation total about $2.40 per coin ($0.96 to you, $0.48 to holders, $0.48 to the founder); the holders' share is far below the 0.01 SOL minimum payout, so no holders' payout round could ever pay anyone. Our own graduation crank costs about 0.03 SOL (about $3.60) per coin, because Meteora's keepers ignore targets under about $750. Jupiter routes into VICINITY only at its largest route size, so paying with BTC, ETH or stocks always needs two transactions, and a route from VICINITY's own curve into a VICINITY-priced coin has never been seen. Jupiter's $500 test trade would fill a $189 curve, so its liquidity test likely fails. The X Money payout would sell VICINITY through about $1,800 of liquidity every day. |
 | D3 | Fee per trade | **1.25%: 0.5% you, 0.25% holders, 0.25% founder, 0.25% Meteora.** On trades made on vicinity.city, 0.05% of Meteora's part comes back to you. | 1.00% in total, with Meteora's cut taken from your three shares (0.4/0.2/0.2/0.2). |
-| D4 | Graduation target per coin | **25,000,000 VICINITY** (end market cap about $916 at today's VICINITY price, about $6,000 if VICINITY's own curve graduates). | 10M, 50M or 100M VICINITY (table 9.3). Can differ per city by adding configs. |
+| D4 | Graduation target per coin | **85 SOL** (pump.fun size): start market cap about 28 SOL ($3,378), end about 411 SOL ($49,640). | 20 or 40 SOL for small cities (table 9.3), or a VICINITY target if you add that config (D2). Can differ per city by adding configs. |
 | D5 | Launch fee | **0.05 SOL per launch**: 0.045 to you, 0.005 to Meteora. It also makes spam launches under our config cost money. | 0, or anything up to 0.5 SOL (the cap in code). |
 | D6 | Graduation fee | **None**, so the pool opens at exactly the curve's last price. | A percentage of the raise to you, but it would make the pool smaller. |
 | D7 | Liquidity after graduation | **Locked forever**: half of its fees to you, half to the city (holders and founder); pool fee 1.25%. | Burned (no more fees to anyone), or a different pool fee up to 2%. |
 | D8 | Who approves launches | **The admin wallet** (your 13qRam… wallet now, a Squads multisig later), clicking "Approve on chain" for the city's active founder. Approvals expire after at most 30 days. | Another ops key as admin. |
 | D9 | If a city's founder seat changes on the site | **The founder share stays with the wallet that launched the coin** unless that wallet hands it over itself. You cannot reassign it, so nobody can take a founder's money. | Let the admin reassign future founder fees. This needs a program change and gives the admin a money lever. |
-| D10 | Holder rewards | **Holders' 0.25% goes to holders only** (rewards model "Holders"). An epoch is paid every 30 days by Merkle claim, with the snapshot rules in 12.3. | Split some with the founder (Split model 25/50/75%). Monthly or weekly epochs. |
-| D11 | Anti-sniper launch fee | **None** (flat 1.25%). The founder can make the first buy in the launch transaction. | A decaying launch fee (for example 10% falling to 1.25% over 60 seconds). The extra goes to you and the city. Needs a validator change. |
+| D10 | Holder rewards | **Holders' 0.25% goes to holders only** (rewards model "Holders"; our program refuses to forward to any other model). An epoch is paid every 30 days by Merkle claim, with the snapshot rules in 12.3, once the pot can pay at least 20 holders 0.01 SOL each. | Monthly or weekly epochs. Splitting with the founder (Split model) would need a program change, because forwarding now requires the Holders model. |
+| D11 | Anti-sniper launch fee | **None** (flat 1.25%). The founder can make the first buy in the launch transaction, at the normal fee. | A decaying launch fee (for example 10% falling to 1.25% over 60 seconds); the extra goes to you and the city. Needs a change to our config rules (rule 7.2(5) requires a flat fee). Because our program creates the pool by CPI, DBC's "first swap at the minimum fee" exemption never applies, so with a decaying fee the founder's own first buy would pay the high fee too. |
 | D12 | Coin icon and name | **Name = the founder's coin name, symbol = the city ticker.** The icon is the founder's logo, or the Vicinity logo if none. "Launched on Vicinity" with the Vicinity logo appears in the metadata and, after the label requests, on Jupiter and elsewhere. | The Vicinity logo on every coin, or the city name as the coin name. |
 | D13 | Paying with tokenized stocks | **Allowed through Jupiter on mainnet; hidden for US, UK, Canada and Australia visitors**, with a "no shareholder rights" note. Get a lawyer's view before advertising it. | Not offered at all. |
 | D14 | Founder paid in dollars to X Money | **The on-chain part is built and switched off.** Founders claim crypto, and the site shows a "cash out to X Money" guide. Switch it on after: a lawyer's opinion, a licensed partner (Bridge suggested), a payout key and wallet, and US-only eligibility (section 13.4). | Run it like UsePaid (Kraken, then personal X Money payments). Not recommended: no API, against X Money's rules, and paused for UsePaid since 27 Sep. |
-| D15 | Keys | **Upgrade authority to a Squads multisig before public launches; admin to Squads after setup; immutable after the audit.** | Keep the single phone wallet (not recommended). |
-| D16 | Graduation crank | **A Vicinity keeper wallet with about 0.5 SOL**, which also harvests and forwards daily. | Rely on anyone calling it (it is permissionless), which is slower. |
+| D15 | Keys | **Upgrade authority to a Squads multisig before public launches; admin to Squads before the first public approval; immutable after the audit.** | Keep the single phone wallet (not recommended: a stolen admin key could approve itself for every city that has no coin yet and launch them, and those cities would be taken for good). |
+| D16 | Graduation crank | **A Vicinity keeper wallet with about 0.5 SOL**, which harvests and forwards daily and graduates any coin Meteora's keepers miss. | Rely on Meteora's keepers and anyone else calling it (it is permissionless). |
 | D17 | Labels | **File the requests in 8.4** after the first mainnet launch. | Also Jupiter VRFD Express (1000 JUP per coin). |
 | D18 | Old launch path | **Retire "launch on LaunchLab and record the mint" for new cities** once this is live. | Keep both (risk: two coins recorded for one city off chain). |
 | D19 | Vanity coin addresses ending in "city" | **Off for v1.** | On: a server grinds key pools. |
-| D20 | Coins created around our program under our Meteora config | **Accept.** They cannot be blocked on chain, and their fees still reach you. The site lists only registry coins. | None available on Meteora today. |
+| D20 | Coins created around our program under our Meteora config | **Accept.** They cannot be blocked on chain, and their fees still reach you. The site lists only registry coins, serves metadata only for them, and they get Jupiter verification. | None available on Meteora today. |
+| D21 | One coin per city, forever? | **Yes.** Each city id gets one coin record that can never be closed or replaced, even if the coin dies or its founder walks away. Nobody can ever launch a second "official" coin for a city. | Allow a replacement (for example after a year without trading, or by a vote). That needs a program change, and it gives whoever controls it the power to retire a live coin. |
 
 ---
 
@@ -1745,9 +1948,10 @@ reports 1 to 4). The primary sources used here:
     position owners, `pool_creator_authority`, completion checks;
   * `instructions/swap/*.rs`: swap modes, buys capped at the migration price;
   * `instructions/initialize_pool/process_create_token_metadata.rs`: immutable metadata.
-* **IDLs:** DBC 0.2.1 and DAMM v2 0.2.4 from npm
-  `@meteora-ag/dynamic-bonding-curve-sdk@1.5.13`; local copies in
+* **IDLs and curve helper:** DBC 0.2.1 and DAMM v2 0.2.4 IDLs and `buildCurve`
+  from npm `@meteora-ag/dynamic-bonding-curve-sdk@1.5.13` (MIT); local copies in
   `lpc-research/r2/idl/`.
+* **Design review** (6 Oct 2026): the changes listed at the top of this file.
 * **Mainnet read (6 Oct 2026, read-only):** DAMM v2 config
   `A8gMrEPJkacWkcb3DGwtJwTe16HktSEfvwtuDh2MCtck`: owner `cpamdp…`, 328 bytes,
   `pool_creator_authority` = `FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM`,
@@ -1755,7 +1959,9 @@ reports 1 to 4). The primary sources used here:
 * **Repository:** `solana/README.md`, `AUDIT.md`, `SECURITY.md`,
   `NOTES-integration.md`, and `programs/vicinity-rewards/src/{state.rs,constants.rs,instructions/fund_epoch_from_vault.rs}`.
 * **Scratch calculations**, in this session's scratch folder `lpc-design/`:
-  * `nums.py`: worked examples, start/end prices and market caps;
-  * `dbcexact2.py`: the DBC config parameters with DBC's integer rounding.
+  * `nums.py`: worked examples, start/end prices and market caps (VICINITY);
+  * `dbcexact2.py`: the first, hand-written DBC config parameters (superseded
+    by `buildCurve`, 9.2). The SOL figures in 7.1 and 9.5 come from
+    `sdk/launchpad/curve.mjs` and `config.mjs`.
 
   Research tools are in `lpc-research/tools/curve.py` and `curve-params.txt`.
