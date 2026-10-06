@@ -4,8 +4,14 @@
 npm run launchpad:fixtures   # once: dumps Meteora DBC, DAMM v2 and Metaplex from mainnet, checks pinned SHA-256
 anchor build                 # the tests load target/deploy/vicinity_launchpad.so and vicinity_rewards.so
 npm run test:launchpad       # every *.test.mjs here, about 15 seconds
-npm run sdk-test:launchpad   # sdk/launchpad/*.test.mjs (no chain)
+npm run sdk-test:launchpad   # sdk/launchpad/*.test.mjs and *.test.mts (no chain)
+npm run typecheck:launchpad  # the TypeScript SDK (sdk/launchpad/*.mts)
+npm run test:jupiter-live    # optional: read-only calls to Jupiter's mainnet API (quotes, one composed plan)
 ```
+
+Before a devnet demo, run the suite on Meteora's devnet builds too:
+`NETWORK=devnet npm run launchpad:fixtures` then
+`LAUNCHPAD_PROGRAMS_DIR=tests-launchpad/fixtures/programs-devnet npm run test:launchpad`.
 
 Each test builds its own `World` (`helpers.mjs`): one litesvm instance with our
 program and `vicinity_rewards` loaded through the upgradeable loader (the test
@@ -28,6 +34,8 @@ ports are opened and nothing touches the network.
 | `09-graduation-defences.test.mjs` | TG09-TG14 (surplus, pre-funded addresses, atomic graduation, nothing twice, nothing left behind) |
 | `10-keeper.test.mjs` | TI01-TI06 (the keeper of `scripts/launchpad/crank.mjs`) |
 | `11-holders-pot.test.mjs` | TE10-TE13 (where the holders' money can go, end to end to each holder's claim) |
+| `12-client-sdk.test.mjs` | TJ01-TJ09: the TypeScript client SDK (`sdk/launchpad/*.mts`) against the real programs: decoders and fetchers, launch with a first buy, quote parity over many random trades (`CLIENT_PARITY_STEPS`, `CLIENT_PARITY_SEED`), the harvest split, SOL wrapping, coin to coin, pay with anything and sell into anything (a real DBC swap standing in for Jupiter's), graduation and DAMM v2 trades from the builders |
+| `13-rewards-payout-tools.test.mjs` | TK01-TK04: unsigned "send to all holders" batches, a rewards round funded and claimed through the SDK, the founder payout hooks and the payout planner |
 
 **Invariants.** `assertInvariants` (design section 15) runs after every
 successful transaction in every test. So does `assertMoneyFlows` (invariant
