@@ -89,7 +89,8 @@ test("styles: no decoration loops forever unless a visitor can stop it; only wha
     march: "the official NYC boundary (since before)", ringOut: "the NYC map's rings (since before)", shimmer: "a loading row", spin: "a busy button",
     twinkle: "the stars behind a hero (since before)", passShine: "a member's own Vicinity Pass (since before)",
     lbGlow: "a main button's glow", lbSweep: "the light along a main button", lbBusy: "a busy main button", lbEdgeTop: "the light along a secondary button",
-    lbEdgeBottom: "the light along a secondary button", lbBreath: "the chosen tab or segment", lbTab: "the tab bar's current page" };
+    lbEdgeBottom: "the light along a secondary button", lbBreath: "the chosen tab or segment", lbTab: "the tab bar's current page",
+    fxRest: "the map's status glow once it rests (it replaced 15-30 redraws a second; review PM-2)" };
   const endless = [...css.matchAll(/animation: (\w+)[^;}]*\binfinite\b/g)].map((m) => m[1]);
   assert.ok(endless.length >= 8);
   for (const name of endless) assert.ok(name in LIVE_OR_BUSY, `${name} loops forever`);

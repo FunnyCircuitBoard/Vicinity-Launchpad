@@ -339,7 +339,49 @@ test("map: the glow is drawn from sprites, at most 30 frames a second, only when
   assert.doesNotMatch(js, /setInterval\([^)]*draw/, "no timer-driven drawing");
   // the base layer is never drawn by the animation: only when the view changed (crisp at most every 100 ms while it moves)
   assert.match(js, /if \(dirty\.base\) \{ drawBase\(now\); dirty\.base = false; \}/);
-  assert.match(js, /if \(moving && baseView && now - lastCrisp < 100\) \{/);
+  assert.match(js, /if \(moving && baseView && performance\.now\(\) - lastCrisp < Math\.max\(100, 3 \* baseCost\)\) \{/);
+});
+
+test("map: panning the world view stays smooth on a slow phone: the world is one picture, and a slow drawing is never repeated on every frame (review PM-1)", () => {
+  // measured on the real Worker, 390 px phone, CPU 4x (pan.cjs): world pan p50 267 / p95 367 ms a frame before, 16.7 / 66.7 after;
+  // world→continent pinch p95 317 → 67; continent pan p95 217 → 67; zoom out to the world p95 367 → 67
+  const draw = js.slice(js.indexOf("  function drawBase(now) {"), js.indexOf("  function renderBase() {"));
+  assert.match(draw, /const t0 = performance\.now\(\);\n    renderBase\(\);\n    lastCrisp = performance\.now\(\); baseCost = lastCrisp - t0;/, "the interval is measured from the end of the last drawing, three times what it took");
+  // the picture: land, borders and every city outline of the whole world at zoom 1, built in idle time, at most ~6 million pixels
+  const build = js.slice(js.indexOf("  const OV_CACHE_K = 1.6"), js.indexOf("  function ovAreaPath(id) {"));
+  assert.match(build, /const OV_CACHE_K = 1\.6, OV_MOVING_K = 3;/);
+  assert.match(build, /const ovCacheKey = \(\) => \[pal\.land, pal\.landLine, pal\.area, pal\.openLine, mapStyle, s0\.toFixed\(5\), dpr, world\.length, ov\.byId\.size\]\.join\("\|"\);/, "built again for a new theme, style, size or overview");
+  assert.match(build, /const px = Math\.min\(dpr, Math\.sqrt\(6e6 \/ \(360 \* s0 \* 144 \* s0\)\)\), sc = s0 \* px;/);
+  assert.match(build, /const todo = \[\.\.\.world\.map\(\(w\) => \["land", w\]\), \.\.\.world\.map\(\(w\) => \["border", w\]\), \.\.\.boundsList\.filter/, "the same layers in the same order as the direct drawing");
+  assert.match(build, /if \(job !== ovCache\.job\) return;/, "a newer build takes over");
+  assert.match(build, /do \{[\s\S]*\} while \(todo\.length && dl\.timeRemaining\(\) > 2\);/, "each slice draws at least one country (a timed-out idle callback has no time left)");
+  assert.match(js, /const idleSlice = \(f\) => \(window\.requestIdleCallback \? window\.requestIdleCallback\(f, \{ timeout: 1000 \}\)\n    : setTimeout\(\(\) => \{ const end = performance\.now\(\) \+ 8; f\(\{ timeRemaining: \(\) => Math\.max\(0, end - performance\.now\(\)\) \}\); \}, 40\)\);/, "Safari (no requestIdleCallback): 8 ms slices, not everything at once");
+  for (const at of ["    buildOvCache();\n    markAll();\n  }", "ovPaths.clear(); buildOvCache();", "ov.failed = true; buildOvCache();", 'canvas.classList.toggle("is-colored", colored);\n    buildOvCache();']) assert.ok(js.includes(at.replace(/\\n/g, "\n")), at);
+  // renderBase: the part in view of the picture below zoom 1.6, and during a gesture up to zoom 3; drawn crisp when it stops
+  const base = js.slice(js.indexOf("  function renderBase() {"), js.indexOf("  /* ---------- labels and chips"));
+  assert.match(base, /const pic = \(k < OV_CACHE_K \|\| \(moving && k < OV_MOVING_K\)\) && ovCache\.ready && ovCache\.key === ovCacheKey\(\);/);
+  assert.match(base, /if \(x1 > x0 && y1 > y0\) ctx\.drawImage\(ovCache\.canvas, x0, y0, x1 - x0, y1 - y0, x0 \/ sc, y0 \/ sc, \(x1 - x0\) \/ sc, \(y1 - y0\) \/ sc\);/);
+  assert.match(base, /if \(!pic\) for \(const \[cc, info\] of boundsList\) \{/, "boundaries from the very first view either way");
+  assert.match(js, /function settle\(\) \{ if \(cam\) \{ crispTimer = setTimeout\(settle, 90\); return; \} moving = false;/);
+});
+
+test("map: the glow rests 6 s after the last thing that happened, then breathes on the compositor; a refresh with nothing new does not wake it (review PM-2)", () => {
+  // measured (idle.cjs, 390 px phone, CPU 4x, 10 s with nothing touched): 442 rAF and 6.6 s of main-thread work before; 0 and 12 ms once at rest
+  assert.match(js, /const FX_AWAKE_MS = 6000;/);
+  assert.match(js, /function kick\(\) \{ dirty\.fx = true; lastActive = performance\.now\(\);/, "every change, move, hover or tap wakes it");
+  const frame = js.slice(js.indexOf("  function frame(now) {"), js.indexOf("  function kick()"));
+  assert.match(frame, /const anim = fxAnimating\(\), awake = anim && now - lastActive < FX_AWAKE_MS;/);
+  assert.match(frame, /else if \(anim && !awake && !fxResting\) \{ drawFx\(now, true\); lastFx = now; \}/, "one still frame to rest on");
+  assert.match(frame, /setResting\(anim && !awake\);/);
+  assert.match(frame, /else if \(awake\) \{ lastFrame = 0; clearTimeout\(idleTimer\);/, "no timer and no frame at all once it rests");
+  assert.match(js, /function drawFx\(now, rest = false\) \{[^\n]*\n[^\n]*\n    const lightA = pal\.light \? 0\.6 : 1, still = reduced \|\| rest;/);
+  assert.match(js, /fxCanvas\.classList\.toggle\("mo-off", !onScreen\);/, "the breathing pauses off screen (--lb-play)");
+  assert.match(css, /  \.citymap #city-fx\.is-resting \{ animation: fxRest 3\.6s steps\(18\) infinite alternate var\(--lb-play, running\); \}\n\}\n@keyframes fxRest \{ from \{ opacity: \.6; \} to \{ opacity: 1; \} \}/, "opacity only, a few steps a second, only when motion is welcome");
+  const at = css.indexOf(".citymap #city-fx.is-resting"), media = css.lastIndexOf("@media", at);
+  assert.match(css.slice(media, at), /^@media \(prefers-reduced-motion: no-preference\) \{\n/);
+  // the 30-second refresh: new numbers on the card, the map left alone when nothing changed
+  assert.match(js, /if \(same\) \{ renderFocus\(\); return; \} \/\/ nothing new/);
+  assert.match(js, /if \(same\) renderFocus\(\); else \{ dirty\.focus = true; kick\(\); \}/);
 });
 
 test("map stage CSS: big on every screen, full screen over the header and tab bar, the city card a fixed size; legend markers move only when welcome", () => {

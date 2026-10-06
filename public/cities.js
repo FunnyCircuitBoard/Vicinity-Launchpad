@@ -7,10 +7,12 @@
 //   as each file arrives, so there is never a blank moment;
 // * the stats show without a tap: chips on the map (name, status, ticker; the founder amount closer in) and the "city in focus"
 //   card at the bottom of the map, for the city under the crosshair, which follows the map as it moves;
-// * three canvases: the base (graticule, land, borders, boundaries, dots: drawn when the view changes; during a gesture at most every
-//   100 ms, the compositor moving the last drawing in between), the glow layer (status glow and rings: at most 30 frames a second,
-//   only while something that moves is on screen, the tab is visible and motion is welcome) and the label layer (chips, crosshair:
-//   when the view changes).
+// * three canvases: the base (graticule, land, borders, boundaries, dots: drawn when the view changes; below zoom 1.6 the land, the
+//   borders and the boundaries come from one picture of the world built in idle time; during a gesture at most every 100 ms, or
+//   three times what the last drawing took, the compositor moving the last drawing in between), the glow layer (status glow and
+//   rings: at most 30 frames a second, only while something that moves is on screen, the tab is visible and motion is welcome, and
+//   only for 6 s after the last thing that happened: then it rests on a still frame that breathes through CSS) and the label layer
+//   (chips, crosshair: when the view changes).
 (() => {
   "use strict";
   const sec = document.getElementById("cities");
@@ -250,6 +252,7 @@
       a: light ? 0.8 : 1 };
     sprites = {};
     for (const s of ["open", "choosing", "founded", "mine"]) sprites[s] = glowSprite(pal[s]);
+    buildOvCache();
     markAll();
   }
   /** One soft glow per status colour, drawn once per theme (never a canvas blur on every frame): .9 in the middle, .35 at 20%, nothing from 50%. */
@@ -353,7 +356,7 @@
         dirty.focus = true; markAll();
       };
       idle(step);
-    }).catch(() => { ov.failed = true; markAll(); });
+    }).catch(() => { ov.failed = true; buildOvCache(); markAll(); });
   }
   const ovRingPath = (p, r) => { for (let i = 0; i < r.length; i += 2) { const x = r[i] * OV_UNIT + 180, y = 84 - r[i + 1] * OV_UNIT; if (i) p.lineTo(x, y); else p.moveTo(x, y); } p.closePath(); };
   /** One country's overview outlines at this level of detail, one Path2D per kind (official + nearest land, nearest land only). */
@@ -367,13 +370,55 @@
     }
     return p;
   }
+  /** Work in idle time, a slice at a time: f(deadline) gets at least one item done per call (a callback that timed out has no time left,
+   *  and Safari has no requestIdleCallback: there, 8 ms slices between frames). */
+  const idleSlice = (f) => (window.requestIdleCallback ? window.requestIdleCallback(f, { timeout: 1000 })
+    : setTimeout(() => { const end = performance.now() + 8; f({ timeRemaining: () => Math.max(0, end - performance.now()) }); }, 40));
   /** Once the overview is in: the outlines of every country at the levels of detail zooming in will need, built in idle time (a zoom never waits for them). */
   function prebuild() {
-    const idle = window.requestIdleCallback ? (f) => window.requestIdleCallback(f, { timeout: 500 }) : (f) => setTimeout(() => f({ timeRemaining: () => 8 }), 30);
     const todo = [];
     for (const thin of [...new Set([thinFor(s0 * k), 2, 1])]) for (const cc of ov.byCC.keys()) todo.push([cc, thin]);
-    const step = (dl) => { while (todo.length && dl.timeRemaining() > 2) { const [cc, thin] = todo.shift(); ovPathsFor(cc, thin); } if (todo.length) idle(step); };
-    idle(step);
+    const step = (dl) => { do { const [cc, thin] = todo.shift(); ovPathsFor(cc, thin); } while (todo.length && dl.timeRemaining() > 2); if (todo.length) idleSlice(step); else buildOvCache(); };
+    if (todo.length) idleSlice(step); else buildOvCache();
+  }
+  /*
+   * The world view as one picture. Below zoom OV_CACHE_K the land, the country borders and every city's outline (8,000 of them,
+   * filled and stroked) are drawn once, for the whole world at zoom 1, into a bitmap built in idle time a few countries at a time;
+   * every redraw of the base then copies the part in view (one drawImage) instead of filling and stroking all of it again (about
+   * 300 ms a redraw on a slow phone: a pan at world zoom ran at 3 frames a second). Built again when the theme, the map style, the
+   * map's size or the overview changes; until it is ready, everything is drawn as before. At most about 6 million pixels (24 MB).
+   */
+  const OV_CACHE_K = 1.6, OV_MOVING_K = 3;
+  const ovCache = { key: "", canvas: null, scale: 1, ready: false, job: 0 };
+  const ovCacheKey = () => [pal.land, pal.landLine, pal.area, pal.openLine, mapStyle, s0.toFixed(5), dpr, world.length, ov.byId.size].join("|");
+  function buildOvCache() {
+    if (!(ov.ready || ov.failed) || !W || !pal.area || !world.length) return;
+    const key = ovCacheKey();
+    if (ovCache.key === key) return;
+    ovCache.key = key; ovCache.ready = false;
+    const job = ++ovCache.job;
+    const px = Math.min(dpr, Math.sqrt(6e6 / (360 * s0 * 144 * s0))), sc = s0 * px;
+    const c = document.createElement("canvas");
+    c.width = Math.ceil(360 * sc); c.height = Math.ceil(144 * sc);
+    const g = c.getContext("2d");
+    if (!g) return;
+    g.setTransform(sc, 0, 0, sc, 0, 0); g.lineJoin = "round";
+    const thin = thinFor(s0), lineW = 0.6 / s0, area = pal.area, line = pal.openLine, colors = COUNTRY_COLORS[pal.light ? "light" : "dark"], colored = mapStyle === "colored";
+    // the same layers, in the same order, as renderBase draws them: land, borders, then each country's city outlines
+    const todo = [...world.map((w) => ["land", w]), ...world.map((w) => ["border", w]), ...boundsList.filter(([cc]) => ov.byCC.has(cc)).map(([cc]) => ["areas", cc])];
+    const step = (dl) => {
+      if (job !== ovCache.job) return; // the theme, the style or the size changed meanwhile: a newer build took over
+      do {
+        const [what, x] = todo.shift();
+        if (what === "land") { g.fillStyle = colored ? colors[x.color ?? 0] : pal.land; g.fill(x.path, "evenodd"); }
+        else if (what === "border") { g.strokeStyle = pal.landLine; g.lineWidth = 1 / s0; g.stroke(x.path); }
+        else { const p = ovPathsFor(x, thin); g.fillStyle = area; g.fill(p.r, "evenodd"); g.fill(p.n, "evenodd"); g.strokeStyle = line; g.lineWidth = lineW; g.stroke(p.r); g.stroke(p.n); }
+      } while (todo.length && dl.timeRemaining() > 2);
+      if (todo.length) { idleSlice(step); return; }
+      ovCache.canvas = c; ovCache.scale = sc; ovCache.ready = true;
+      if (k < OV_CACHE_K) markAll();
+    };
+    idleSlice(step);
   }
   function ovAreaPath(id) {
     let p = ovAreaPaths.get(id);
@@ -447,7 +492,7 @@
     baseView = null;
     measureOverlays();
     tx = fcx - wx(lon) * k; ty = fcy - wy(lat) * k; clampView();
-    ovPaths.clear();
+    ovPaths.clear(); buildOvCache();
     zoomLabel(); zoomReadout(); markAll();
   }
   // the zoom, for screen readers, once the map rests (the scale bar shows it on screen)
@@ -557,17 +602,21 @@
   let shown = [];      // the cities with a marker in view (after the last base drawing)
 
   /* ---------- the base layer ---------- */
-  // While the view moves, the base is drawn crisp at most every 100 ms; in between, the compositor moves and scales the last drawing
-  // (a CSS transform on the canvas: no drawing, no copy), and 90 ms after the last move it is drawn crisp where it ends.
+  // While the view moves, the base is drawn crisp at most every 100 ms, and never more often than three times what the last drawing
+  // took (a slow phone that needs 150 ms for one would otherwise draw on every frame of a gesture and never let the compositor
+  // help); in between, the compositor moves and scales the last drawing (a CSS transform on the canvas: no drawing, no copy), and
+  // 90 ms after the last move it is drawn crisp where it ends.
   let baseView = null; // the view the base canvas was last drawn at: { k, tx, ty }
+  let baseCost = 0;    // ms the last drawing took
   function drawBase(now) {
-    if (moving && baseView && now - lastCrisp < 100) {
+    if (moving && baseView && performance.now() - lastCrisp < Math.max(100, 3 * baseCost)) {
       const r = k / baseView.k;
       canvas.style.transform = `matrix(${r},0,0,${r},${(tx - baseView.tx * r).toFixed(2)},${(ty - baseView.ty * r).toFixed(2)})`;
       return;
     }
+    const t0 = performance.now();
     renderBase();
-    lastCrisp = now; baseView = { k, tx, ty };
+    lastCrisp = performance.now(); baseCost = lastCrisp - t0; baseView = { k, tx, ty };
     if (canvas.style.transform) canvas.style.transform = "";
   }
   function renderBase() {
@@ -586,17 +635,27 @@
     // land (one colour, or each country its own on the coloured map) and country borders
     ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * tx, dpr * ty);
     ctx.lineJoin = "round";
-    const countryColors = COUNTRY_COLORS[pal.light ? "light" : "dark"];
-    for (const w of world) if (boxInView(w.box, v)) { ctx.fillStyle = colored ? countryColors[w.color ?? 0] : pal.land; ctx.fill(w.path, "evenodd"); }
-    ctx.strokeStyle = pal.landLine; ctx.lineWidth = 1 / s;
-    for (const w of world) if (boxInView(w.box, v)) ctx.stroke(w.path);
+    // the picture below zoom 1.6; while a gesture is under way, up to zoom 3 too (a little soft for a moment, drawn crisp when it stops)
+    const pic = (k < OV_CACHE_K || (moving && k < OV_MOVING_K)) && ovCache.ready && ovCache.key === ovCacheKey();
+    if (pic) {
+      // the world view: the part in view of the world's picture (buildOvCache: land, borders, city outlines), in degree space
+      const sc = ovCache.scale, cw = ovCache.canvas.width, ch = ovCache.canvas.height;
+      const x0 = Math.max(0, Math.floor((v[0] + 180) * sc)), y0 = Math.max(0, Math.floor((84 - v[3]) * sc));
+      const x1 = Math.min(cw, Math.ceil((v[2] + 180) * sc)), y1 = Math.min(ch, Math.ceil((84 - v[1]) * sc));
+      if (x1 > x0 && y1 > y0) ctx.drawImage(ovCache.canvas, x0, y0, x1 - x0, y1 - y0, x0 / sc, y0 / sc, (x1 - x0) / sc, (y1 - y0) / sc);
+    } else {
+      const countryColors = COUNTRY_COLORS[pal.light ? "light" : "dark"];
+      for (const w of world) if (boxInView(w.box, v)) { ctx.fillStyle = colored ? countryColors[w.color ?? 0] : pal.land; ctx.fill(w.path, "evenodd"); }
+      ctx.strokeStyle = pal.landLine; ctx.lineWidth = 1 / s;
+      for (const w of world) if (boxInView(w.box, v)) ctx.stroke(w.path);
+    }
 
     // city boundaries: the overview below zoom 5, the detailed files above, cross-fading country by country as each file is in
     const fade = Math.max(0, Math.min(1, (k - (AREA_K - 0.5)) / 1));
     if (fade > 0) loadVisible();
     const thin = thinFor(s), dash = k >= 2;
     const openW = (k < 2 ? 0.6 : 0.8) / s;
-    for (const [cc, info] of boundsList) {
+    if (!pic) for (const [cc, info] of boundsList) {
       if (!boxInView(info.box, v)) continue;
       const detail = fade > 0 && boundsDone.has(cc);
       const ovAlpha = detail ? 1 - fade : 1;
@@ -835,12 +894,19 @@
   const selectedInView = () => { if (!selected) return false; if (inViewPx(sx(selected.lon), sy(selected.lat), 20)) return true; const sh = shapeOf(selected.id); return Boolean(sh && boxInView(sh.box, view())); };
   /** Is anything on the glow layer moving? (no frames at all otherwise) */
   const fxAnimating = () => !reduced && (fxItems.length > 0 || ripples.length > 0 || selectedInView());
+  // The glow is drawn frame by frame for FX_AWAKE_MS after the last thing that happened (a move, a tap, a hover, new data), then it
+  // rests: one still frame, and the whole layer breathes through a CSS opacity animation (#city-fx.is-resting, the compositor's
+  // work: no script, no drawing) until something happens again. It used to redraw 15 to 30 times a second for as long as the map
+  // was on screen.
+  const FX_AWAKE_MS = 6000;
+  let lastActive = 0, fxResting = false;
+  function setResting(on) { if (fxResting === on) return; fxResting = on; fxCanvas.classList.toggle("is-resting", on); }
   // Only what moves is redrawn: the rectangles drawn last time and this time are cleared and drawn again (a few dozen small squares,
   // not the whole layer); when the view itself moved, the whole layer.
   let fxDamage = null, fxAt = "";
-  function drawFx(now) {
+  function drawFx(now, rest = false) {
     const g = fctx, t = now / 1000, s = s0 * k, v = view();
-    const lightA = pal.light ? 0.6 : 1, still = reduced;
+    const lightA = pal.light ? 0.6 : 1, still = reduced || rest;
     const wave = (period, ph) => 0.5 + 0.5 * Math.sin(2 * Math.PI * (t / period + ph));
     const glows = [], rings = [], over = [];
     for (const it of fxItems) {
@@ -927,16 +993,19 @@
     if (dirty.layout && (!moving || now - lastLayout >= 100)) { layoutLabels(now); lastLayout = now; dirty.layout = false; dirty.labels = true; }
     if (dirty.focus && (!moving || now - lastFocusAt >= 100)) { updateFocus(); lastFocusAt = now; dirty.focus = false; }
     if (dirty.labels || labelsBusy) { labelsBusy = drawLabels(now); dirty.labels = false; }
-    const anim = fxAnimating();
-    if (dirty.fx || camMoving || moving || (anim && now - lastFx >= fxStep - 4)) { drawFx(now); lastFx = now; dirty.fx = false; }
+    const anim = fxAnimating(), awake = anim && now - lastActive < FX_AWAKE_MS;
+    if (dirty.fx || camMoving || moving || (awake && now - lastFx >= fxStep - 4)) { drawFx(now, anim && !awake); lastFx = now; dirty.fx = false; }
+    else if (anim && !awake && !fxResting) { drawFx(now, true); lastFx = now; } // the still frame the layer rests on
+    setResting(anim && !awake);
     if (raf) return;
     if (camMoving || moving || dirty.base || dirty.layout || dirty.focus || dirty.labels || labelsBusy) raf = requestAnimationFrame(frame);
-    // only the glow is moving: wake up 30 (or 15) times a second, not 60, and not at all off screen, in a hidden tab or with less motion
-    else if (anim) { lastFrame = 0; clearTimeout(idleTimer); idleTimer = setTimeout(() => { idleTimer = 0; if (!raf) raf = requestAnimationFrame(frame); }, Math.max(0, fxStep - 12 - (performance.now() - lastFx))); }
+    // only the glow is moving: wake up 30 (or 15) times a second, not 60, and not at all off screen, in a hidden tab, with less motion
+    // or once it rests
+    else if (awake) { lastFrame = 0; clearTimeout(idleTimer); idleTimer = setTimeout(() => { idleTimer = 0; if (!raf) raf = requestAnimationFrame(frame); }, Math.max(0, fxStep - 12 - (performance.now() - lastFx))); }
     else lastFrame = 0;
   }
   let idleTimer = 0;
-  function kick() { dirty.fx = true; if (idleTimer) { clearTimeout(idleTimer); idleTimer = 0; } if (!raf && loaded && W) raf = requestAnimationFrame(frame); }
+  function kick() { dirty.fx = true; lastActive = performance.now(); if (idleTimer) { clearTimeout(idleTimer); idleTimer = 0; } if (!raf && loaded && W) raf = requestAnimationFrame(frame); }
   const ripple = (c, col = "255,200,87") => { if (reduced) return; ripples.push({ lon: c.lon, lat: c.lat, t0: performance.now(), col }); kick(); };
 
   function nearest(px, py, maxPx = 16) {
@@ -1208,6 +1277,7 @@
     b.title = colored ? "Show the plain map" : "Show the coloured map";
     b.setAttribute("aria-label", b.title);
     canvas.classList.toggle("is-colored", colored);
+    buildOvCache();
     markAll();
   }
   $("#map-style").addEventListener("click", () => {
@@ -1265,7 +1335,7 @@
   // back on the tab: the founders and members may have changed while it was hidden (the 30 s refresh skips a hidden tab)
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { dirty.fx = true; kick(); if (sec.classList.contains("is-ready") && Date.now() - lastRefresh >= 30000) refreshAll(); } });
   // on screen or not: the stage (the base canvas itself may be moved by the compositor for a moment)
-  new IntersectionObserver((es) => { onScreen = es.some((x) => x.isIntersecting); if (onScreen) markAll(); }).observe(wrapEl);
+  new IntersectionObserver((es) => { onScreen = es.some((x) => x.isIntersecting); fxCanvas.classList.toggle("mo-off", !onScreen); if (onScreen) markAll(); }).observe(wrapEl);
 
   /* =================== search list =================== */
   function renderList() {
@@ -1452,6 +1522,7 @@
     $("#cs-members").textContent = fmt(totalMembers);
     $("#cs-status").textContent = open ? "Open" : "At launch";
   }
+  let membersSig = "";
   /** Where verified members call home (public counts only), and the communities filling up fastest. */
   async function refreshMembers() {
     const d = await V().api?.("/api/members");
@@ -1459,7 +1530,10 @@
     totalMembers = d.members || 0;
     memberCount = new Map(d.communities.map((c) => [String(c.id), c.members]));
     holderCount = new Map(d.communities.map((c) => [String(c.id), c.holders || 0]));
-    membersKnown = true; focusSig = ""; dirty.focus = true; kick();
+    // nothing new: the card is written again (its countdown) but the map is not woken (its glow may be resting)
+    const sig = JSON.stringify([d.members, d.communities]), same = membersKnown && sig === membersSig;
+    membersSig = sig; membersKnown = true; focusSig = "";
+    if (same) renderFocus(); else { dirty.focus = true; kick(); }
     updateStats();
     const list = $("#wanted-list");
     if (!d.communities.length) { list.replaceChildren(el("li", "muted", "No members yet. Sign in and set your home community to put your city on this list.")); return; }
@@ -1498,13 +1572,15 @@
 
   let lastRefresh = 0;
   const refreshAll = () => { lastRefresh = Date.now(); refreshClaims(); refreshMembers(); };
-  let firstClaims = true;
+  let firstClaims = true, claimsSig = "";
   let windows = new Map(); // cities choosing their founder right now
   /** Founder seats (founded, or chosen and in the objection period) and open application windows. */
   async function refreshClaims() {
     try {
       const d = await (await fetch("/api/seats", { cache: "no-store" })).json();
       if (!Array.isArray(d.seats)) return;
+      const sig = JSON.stringify([d.seats, d.windows, d.launched]), same = !firstClaims && sig === claimsSig;
+      claimsSig = sig;
       const list = d.seats.map((s) => ({ city_id: s.cityId, wallet: s.wallet, city_name: s.city, country: s.country, claimed_at: s.since, status: s.status, founder: s.founder }));
       const fresh = new Set();
       if (!firstClaims) for (const c of list) if (!claims.has(c.city_id)) {
@@ -1517,7 +1593,9 @@
       open = Boolean(d.launched);
       updateStats(); renderFeed(fresh);
       if (fresh.size) { renderList(); refreshPanel(); }
-      focusSig = ""; chipCache.clear(); markAll();
+      focusSig = "";
+      if (same) { renderFocus(); return; } // nothing new: the card's countdown moves on, the map (and its resting glow) is left alone
+      chipCache.clear(); markAll();
     } catch {}
   }
 
