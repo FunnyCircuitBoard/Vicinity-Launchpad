@@ -93,3 +93,14 @@ test("cities CSS: the map right under the header, the stats a tidy grid, the des
   // nothing new moves: the blocks added here carry no animation (the global reduced-motion block covers the rest)
   for (const sel of [".cities-intro", ".city-stats"]) for (const m of css.matchAll(new RegExp(`\\${sel}[^{]*\\{([^}]*)\\}`, "g"))) assert.doesNotMatch(m[1], /animation|opacity: 0/, sel);
 });
+
+test("phones: the city stats keep their labels inside the cards and both rows even; the closing buttons on Home reach both edges", () => {
+  // review of 6 Oct 2026 at 320 and 390 px: "communities" ran into its card's padding, "verified members" (two lines) made the second
+  // row taller than the first, and "Get $VICINITY →" / "My Dashboard" at the bottom of Home stopped 16 px short of the right edge
+  const phone = css.slice(css.indexOf("@media (max-width: 520px) {\n  .city-stats {"));
+  assert.match(phone, /^@media \(max-width: 520px\) \{\n  \.city-stats \{ gap: 8px; margin-bottom: 24px; grid-auto-rows: 1fr; \}/, "rows as tall as the tallest");
+  assert.match(phone, /\n  \.city-stats div \{ padding: 10px 9px; border-radius: 14px; \}/, "a little less side padding");
+  assert.match(css, /@media \(max-width: 360px\) \{ \.city-stats span \{ font-size: \.7rem; \} \}/, "and slightly smaller labels on the smallest phones");
+  assert.match(css, /@media \(max-width: 480px\) \{ \.cta-band \.hero__cta--end \{ flex: 1 1 100%; \} \}/);
+  assert.match(css, /@media \(max-width: 480px\) \{ \.hero__cta \.btn--lg \{ flex: 1 1 auto;/, "the buttons inside it share the full width");
+});

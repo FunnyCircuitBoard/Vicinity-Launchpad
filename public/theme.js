@@ -18,6 +18,10 @@
   }
 
   apply(saved === "light" || saved === "dark" ? saved : system());
+
+  // A guest: this browser has never shown a signed-in page here (site.js remembers one, and so does the tabbed dashboard). Set before
+  // the first paint, so a page can hold the room of what a guest will see while it asks the server (style.css: the signed-out dashboard).
+  try { if (localStorage.getItem("vicinity-account") !== "1" && localStorage.getItem("vicinity:dash-v2") !== "1") root.dataset.guest = ""; } catch {}
   matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
     let pinned = null;
     try { pinned = localStorage.getItem(KEY); } catch {}

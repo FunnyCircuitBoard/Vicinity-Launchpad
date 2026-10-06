@@ -14,7 +14,7 @@ const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").re
 const css = read("public/style.css"), js = read("public/token.js"), site = read("public/site.js");
 const both = [["public", read("public/token.html")], ["src", read("scripts/pages/src/token.html")]];
 /** The contract card's markup, from its opening tag to the stat row after it. */
-const cardOf = (h) => { const a = h.indexOf('<div class="contract card" id="contract">'), b = h.indexOf('<div class="stat-row"', a); assert.ok(a >= 0 && b > a, "the card is there"); return h.slice(a, b); };
+const cardOf = (h) => { const a = h.indexOf('<div class="contract card is-pending" id="contract">'), b = h.indexOf('<div class="stat-row"', a); assert.ok(a >= 0 && b > a, "the card is there"); return h.slice(a, b); };
 /** The declarations of the first rule whose selector is exactly `sel` (outside or inside a media block). */
 const rule = (sel) => { const i = css.indexOf(`${sel} {`); assert.ok(i >= 0, `rule ${sel}`); return css.slice(i + sel.length + 2, css.indexOf("}", i)); };
 /** The body of the first `@media <query> {` block that holds `needle` (balanced braces). */
@@ -41,14 +41,18 @@ test("contract card: header, address + copy, buy button, three tiles, note: in t
     assert.deepEqual(order, [...order].sort((a, b) => a - b), `${where}: top to bottom`);
     assert.match(c, /<div class="contract__label">Contract address<\/div>/, `${where}: one short label that fits one line at 320 px`);
     assert.match(c, /<span class="contract__net">Solana<\/span>/);
-    // before token.js knows the contract nothing claims anything: the mark, the copy button and the links wait hidden
+    // before token.js knows the contract nothing claims anything: the mark is hidden, and the copy button and the links hold their room
+    // unseen (the card is .is-pending: visibility hidden, so no Tab stop and nothing read out) until /api/token answers
     assert.match(c, /<span class="contract__badge" id="ca-badge" hidden><svg[^>]*aria-hidden="true"[^>]*>[\s\S]*?<\/svg>Official<\/span>/, `${where}: the mark is hidden until the address is known`);
-    assert.match(c, /<button class="contract__copy" type="button" id="ca-copy" hidden>/, `${where}: a real button, hidden until there is something to copy`);
+    assert.match(c, /<button class="contract__copy" type="button" id="ca-copy">/, `${where}: a real button (unseen while the card is pending)`);
     assert.match(c, /<span id="ca-copy-label">Copy address<\/span><\/button>/, `${where}: the copy button says what it copies`);
-    assert.match(c, /<div class="contract__links" id="ca-links" hidden>/);
-    assert.match(c, /<a class="contract__buy" id="lnk-raydium" href="#" rel="noopener" target="_blank"><span>Buy on Raydium<\/span><svg/, `${where}: the main button`);
+    assert.match(c, /<div class="contract__links" id="ca-links">/);
+    // each link opens another site in a new tab, and says so: the Buy button's arrow and the tiles' corner arrow to the eye, hidden text to a screen reader
+    const NEWTAB = '<span class="sr-only"> \\(opens in a new tab\\)</span>';
+    assert.match(c, new RegExp(`<a class="contract__buy" id="lnk-raydium" href="#" rel="noopener" target="_blank"><span>Buy on Raydium</span><svg[^>]*aria-hidden="true"[^>]*><path d="M7 17 17 7M9 7h8v8"/></svg>${NEWTAB}</a>`), `${where}: the main button`);
     for (const [id, name] of [["lnk-jup", "Jupiter"], ["lnk-dex", "DEX Screener"], ["lnk-solscan", "Solscan"]])
-      assert.match(c, new RegExp(`<a class="contract__ext" id="${id}" href="#" rel="noopener" target="_blank"><svg[^>]*aria-hidden="true"[^>]*>[\\s\\S]*?</svg><span>${name}</span></a>`), `${where}: ${name} tile`);
+      assert.match(c, new RegExp(`<a class="contract__ext" id="${id}" href="#" rel="noopener" target="_blank"><svg[^>]*aria-hidden="true"[^>]*>[\\s\\S]*?</svg><span>${name}</span><span class="contract__out" aria-hidden="true">↗</span>${NEWTAB}</a>`), `${where}: ${name} tile`);
+    assert.equal((c.match(/target="_blank"/g) || []).length, (c.match(/\(opens in a new tab\)/g) || []).length, `${where}: every new-tab link says so`);
     // the note keeps its no-script wording (token.js replaces it) and stays a paragraph with the id the script fills
     assert.match(c, /<p id="ca-note">Only the address shown here is the official \$VICINITY\. Anything else using the name is fake\. <a href="#check">Check a link or address<\/a>\.<\/p>/);
     assert.doesNotMatch(c, /chip-link|contract__row|btn--sm/, `${where}: the old pills are gone`);
@@ -105,26 +109,35 @@ test("contract card on a computer: the address on one line with Copy beside it, 
   assert.match(wide, /> \.contract__links \{ grid-column: 2; grid-row: 1 \/ span 3;/);
 });
 
-test("contract card motion: only transform, opacity and background-position move, and nothing moves with reduced motion", () => {
-  for (const name of ["checkPop", "buyShine", "contractIn", "contractGlow"]) {
+test("contract card motion: only transform and opacity move, nothing loops forever, and nothing moves with reduced motion", () => {
+  for (const name of ["checkPop", "buyShine", "contractIn", "contractSweep"]) {
     const i = css.indexOf(`@keyframes ${name} {`); assert.ok(i >= 0, name);
     let depth = 0, j = i;
     for (; j < css.length; j++) { if (css[j] === "{") depth++; else if (css[j] === "}" && --depth === 0) break; }
     const props = [...css.slice(i, j).matchAll(/([a-z-]+):/g)].map((m) => m[1]);
     assert.ok(props.length, `${name} animates something`);
-    for (const p of props) assert.ok(["transform", "opacity", "background-position"].includes(p), `${name} animates ${p}`);
+    for (const p of props) assert.ok(["transform", "opacity"].includes(p), `${name} animates ${p}`);
   }
-  assert.match(rule(".contract__buy::after"), /animation: buyShine 5\.5s ease-in-out 1\.2s infinite/, "a slow shine with a long rest");
+  assert.match(rule(".contract__buy::after"), /animation: buyShine 5\.5s ease-in-out 1\.2s 2;/, "a slow shine, twice, then it rests (WCAG 2.2.2: no endless decoration)");
   assert.match(rule(".contract__buy::after"), /transform: translateX\(-100%\)/, "the shine waits off the button: with no animation it is never seen");
-  assert.match(rule(".contract__links"), /animation: contractIn \.5s/, "the buttons slide in when token.js shows them");
+  assert.doesNotMatch(rule(".contract__links"), /animation/, "nothing plays while the links wait unseen");
+  assert.ok(media("(prefers-reduced-motion: no-preference)", ".contract:not(.is-pending) > .contract__links, .contract:not(.is-pending) .contract__copy { animation: contractIn .5s cubic-bezier(.2,.8,.2,1) backwards; }"),
+    "the buttons slide in when token.js reveals them (backwards fill: afterwards the button's own :active and hover transforms work)");
   assert.match(css, /@keyframes contractIn \{ from \{ opacity: 0; transform: translateY\(6px\); \} \}/, "from hidden to the element's own look: with no animation it simply shows");
   assert.match(css, /\.contract__copy\.is-copied \.contract__copy-check \{ opacity: 1; transform: none; animation: checkPop/, "the tick's resting state is visible; the pop is extra");
-  // the glow only runs for people who did not ask for less motion; the shine and the slide-in are switched off for those who did
-  assert.ok(media("(prefers-reduced-motion: no-preference)", ".contract::before { animation: contractGlow"), "the hairline glow is opt-in");
+  // the hairline itself is still; a short light runs along it twice (transform and opacity: the compositor moves it, the main thread idles).
+  // On 6 Oct 2026 the old endless background-position glow kept /token restyling 60 times a second for as long as it was open.
+  assert.doesNotMatch(css, /contractGlow/, "the endless moving gradient is gone");
+  assert.doesNotMatch(rule(".contract::before"), /animation|background-size|\/ 200%/, "the hairline does not move");
+  assert.ok(media("(prefers-reduced-motion: no-preference)", ".contract::after { animation: contractSweep 6s ease-in-out 1.5s 2; }"), "the light along it is opt-in and runs twice");
+  assert.match(rule(".contract::after"), /left: 22px; width: 30%;[^}]*opacity: 0;/, "it starts at the hairline's left end and rests unseen");
+  assert.match(css, /@keyframes contractSweep \{[^\n]*60%, 100% \{ transform: translateX\(calc\(233\.33% - 44px\)\); opacity: 0; \} \}/, "and ends at its right end (30% of the card, minus both 22 px insets), faded out");
+  assert.match(css, /\.mo-off \.contract::after, \.mo-off \.contract__buy::after, [^{]*\{ animation-play-state: paused; \}/, "both pause while the top of the page is off screen");
+  // the shine and the slide-in are switched off for people who asked for less motion
   const reduce = media("(prefers-reduced-motion: reduce)", ".contract__buy::after");
   assert.ok(reduce, "a reduced-motion block for the card");
   assert.match(reduce, /\.contract__buy::after \{ display: none; \}/);
-  assert.match(reduce, /\.contract__links, \.contract__copy-check \{ animation: none; \}/);
+  assert.match(reduce, /\.contract__copy-check \{ animation: none; \}/);
   // and the site-wide rule still stops every animation and transition
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  html \{ scroll-behavior: auto; \}\n  \*, \*::before, \*::after \{ animation: none !important; transition: none !important; \}/);
 });
@@ -141,7 +154,7 @@ function page({ token, copyWorks = true }) {
     return n;
   }
   const $ = (sel) => { if (!nodes.has(sel)) nodes.set(sel, node(sel)); return nodes.get(sel); };
-  ["#ca-copy", "#ca-badge", "#ca-links"].forEach((s) => ($(s).hidden = true)); // as in the markup
+  $("#ca-badge").hidden = true; $("#contract").classes.add("is-pending"); // as in the markup
   $("#ca-text").textContent = "Loading…"; $("#ca-copy-label").textContent = "Copy address";
   const el = (tag, cls, text) => { const n = node(tag); if (cls) n.classes.add(cls); if (text != null) n.textContent = text; return n; };
   const V = { $, $$: () => [], el, toast() {}, fmt: String, compact: String, mask: (a) => a, isAddr: (a) => typeof a === "string" && a.length >= 32, official: null, reduced: false,
@@ -160,6 +173,7 @@ test("token.js: once the contract is known the 'Official' mark shows (chain busy
   assert.equal(live.$("#ca-badge").hidden, false);
   assert.equal(live.$("#ca-copy").hidden, false);
   assert.equal(live.$("#ca-links").hidden, false);
+  assert.ok(!live.$("#contract").classes.has("is-pending"), "the room it held is filled: the buttons show");
 
   const busy = page({ token: { launched: true, error: "chain_unavailable", mint: MINT, registry: [], _status: 503 } }); await busy.settle();
   assert.equal(busy.$("#ca-text").textContent, MINT, "the 503 fallback still shows the contract");
@@ -171,6 +185,7 @@ test("token.js: once the contract is known the 'Official' mark shows (chain busy
   assert.equal(before.$("#ca-badge").hidden, true, "nothing is called official before there is a contract");
   assert.equal(before.$("#ca-copy").hidden, true);
   assert.equal(before.$("#ca-links").hidden, true);
+  assert.ok(!before.$("#contract").classes.has("is-pending"), "and the room they held is given back");
   assert.equal(before.$("#ca-copy").onclick, undefined, "nothing to copy");
 });
 
@@ -196,4 +211,25 @@ test("token.js: Copy puts the address on the clipboard, the button says 'Copied'
 test("site.js copy answers whether the text reached the clipboard", () => {
   assert.match(site, /const copy = async \(text, label = "Copied"\) => \{ try \{ await navigator\.clipboard\.writeText\(text\); toast\(label\); return true; \} catch \{ toast\(text\); return false; \} \};/);
   assert.match(js, /if \(!\(await copy\(m, "Contract address copied"\)\)\) return;/);
+});
+
+test("contract card: until /api/token answers it holds its final room unseen, so nothing jumps and /token#holders lands where it aims", () => {
+  // 390x844, 6 Oct 2026: the card grew 214 px when the answer came; #holders, #verify and #check landed 79 px lower than intended
+  assert.match(css, /\.contract\.is-pending \.contract__copy, \.contract\.is-pending > \.contract__links \{ visibility: hidden; \}/, "unseen, but in the layout");
+  assert.match(css, /@media \(max-width: 639px\) \{ \.contract\.is-pending \.contract__addr code \{ min-height: 3\.1em; \} \}/, "the address's two lines on a phone (line height 1.55)");
+  // the wide layout (buttons in a column on the right) already applies while pending: the links are not [hidden]
+  assert.match(css, /\.contract:has\(> \.contract__links:not\(\[hidden\]\)\)/);
+  assert.match(js, /\$\("#contract"\)\.classList\.remove\("is-pending"\);\n\s+if \(!d\.launched\) \{[^\n]*\n\s+hideContract\(\);/, "removed on the answer, before anything else is decided");
+  assert.match(js, /if \(isAddr\(m\)\) showContract\(m\); else hideContract\(\);/, "no address: no links to '#'");
+  assert.match(js, /function hideContract\(\) \{ \$\("#ca-copy"\)\.hidden = true; \$\("#ca-links"\)\.hidden = true; \}/);
+});
+
+test("contract card tiles: the three icons share one line even when 'DEX Screener' takes two (320 px), and each tile shows its new-tab arrow", () => {
+  const ext = rule(".contract__ext");
+  assert.match(ext, /flex-direction: column; align-items: center; justify-content: flex-start;[^}]*padding: 12px 2px 10px;/, "top-aligned on a phone");
+  assert.match(rule(".contract__ext .contract__out"), /position: absolute; top: 5px; right: 7px;/, "the arrow sits in the corner, out of the label's way");
+  const tablet = media("(min-width: 640px)", ".contract__ext");
+  assert.match(tablet, /\.contract__ext \{ flex-direction: row; justify-content: center;[^}]*padding: 0 14px;/, "one row of icon and name on a computer, room for the arrow");
+  const wide = media("(min-width: 1180px)", ".contract__ext");
+  assert.match(wide, /\.contract__ext \{ flex-direction: column; justify-content: flex-start;/, "top-aligned again in the wide column");
 });

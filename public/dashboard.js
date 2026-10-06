@@ -1315,19 +1315,26 @@
 
   /* ---------- start ---------- */
   (async () => {
-    // someone whose last visit was the tabbed dashboard sees placeholders while /api/me loads (the key only exists with the switch on)
+    // someone whose last visit was the tabbed dashboard sees placeholders while /api/me loads (the key only exists with the switch on);
+    // for a guest (no sign-in remembered in this browser: theme.js marks the page before its first paint) style.css already holds the
+    // signed-out page's room, unseen, so the roles under it never jump down when it shows (on a computer they dropped 839 px)
+    const out = $("#dash-out");
     try { if (localStorage.getItem(V2_KEY) === "1") $("#dash-skel").hidden = false; } catch {}
     const d = await api("/api/me");
+    const unhold = () => out.classList.remove("is-pending"); // the held room gives way, in the same task as what takes its place
     const tabbed = d.dashboardV2 === true && d.signedIn && d.user && d.user.home;
     if (!tabbed) { $("#dash-skel").hidden = true; if (d.dashboardV2 !== true) { try { localStorage.removeItem(V2_KEY); } catch {} } }
     if (!d.signedIn) {
       if (d.pending || d.proof) { location.assign("/connect"); return; }
+      unhold();
       preview();
-      $("#dash-out").hidden = false; return;
+      out.hidden = false; return;
     }
+    // a member: the tabbed dashboard's placeholders while its code loads (in the room a guest's page held: a first visit after signing in)
+    if (tabbed) { $("#dash-skel").hidden = false; unhold(); }
     me = d;
     identity(d);
-    if (!d.user.home) { onboard(d); return; }
+    if (!d.user.home) { unhold(); onboard(d); return; }
     if (tabbed) {
       // the tabbed dashboard's code is fetched now, before the page shows, so the old layout never flashes; if it fails, today's dashboard
       v2 = await new Promise((done) => {
@@ -1340,6 +1347,7 @@
       $("#dash-skel").hidden = true;
       if (v2) v2.init({ me: () => me, coin: () => ({ coin: coinData, vicMint, pairs: coinPairs }), openProfile, refresh: () => refresh(), countryName });
     }
+    unhold();
     $("#dash-main").hidden = false;
     render(d);
     if (!v2) layoutInit();
