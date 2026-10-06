@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path';
 import assert from 'node:assert/strict';
 import { LiteSVM } from 'litesvm';
 import {
-  address, generateKeyPairSigner, lamports, pipe, createTransactionMessage,
+  address, generateKeyPairSigner, lamports, pipe, createTransactionMessage, getCompiledTransactionMessageDecoder,
   setTransactionMessageFeePayerSigner, appendTransactionMessageInstructions,
   signTransactionMessageWithSigners, addSignersToTransactionMessage,
   getBase64EncodedWireTransaction,
@@ -101,6 +101,7 @@ export class World {
     this.svm = new LiteSVM();
     this.events = [];
     this.harvests = new Map(); // coin -> number of non-empty harvests
+    this.flows = []; // every token movement out of a watched account (assertMoneyFlows)
     this.cu = {};
     const svm = this.svm;
     svm.addProgramFromFile(address(PROGRAM_IDS.dbc), programPath('dbc.so'));
@@ -213,6 +214,7 @@ export class World {
       (m) => addSignersToTransactionMessage(all, m),
     );
     const tx = await signTransactionMessageWithSigners(msg);
+    const flowPre = this.autoInvariants ? flowState(this) : null;
     this.lastTxBytes = Buffer.from(getBase64EncodedWireTransaction(tx), 'base64').length;
     const res = this.svm.sendTransaction(tx);
     this.svm.expireBlockhash();
@@ -233,7 +235,12 @@ export class World {
       }
     }
     // LAUNCHPAD-DESIGN.md section 15: every invariant after every successful transaction
-    if (this.autoInvariants) assertInvariants(this);
+    if (this.autoInvariants) {
+      // invariant 8, per transaction: every token movement out of a pot, a
+      // founder vault or a Holders rewards vault went where the design says
+      this.flows.push(...assertMoneyFlows(this, tx.messageBytes, res.innerInstructions(), [flowPre, flowState(this)], label));
+      assertInvariants(this);
+    }
     return { logs, events, cu: this.lastCu };
   }
   /** Same as send, with litesvm's signature check off for this one transaction (dev wallet steps). */
@@ -501,6 +508,119 @@ export function assertInvariants(w) {
     }
   }
   return coins.length;
+}
+
+// ---------------------------------------------------------------- invariant 8: where money may go
+//
+// LAUNCHPAD-DESIGN.md section 15, invariant 8, checked on every successful
+// transaction of every test from the token instructions that actually ran
+// (top level and inside CPIs), not from what the program says it did:
+//   holders pot of a coin   -> that coin's founder vault (the founder's half in a harvest),
+//                              or the derived vicinity_rewards vault of a config that passes
+//                              the Holders-only / 0% founder / quote token / vault check;
+//   founder vault of a coin -> ATA(coin.founder), or ATA(payout_destination) while an opt-in
+//                              signed by the current founder agrees to that destination;
+//   rewards vault of a Holders-only city -> only inside vicinity_rewards `claim`, to that
+//                              claim's claimant_token_account.
+// Any other transfer, or any approve, set-authority, burn, close, freeze or thaw on those
+// accounts, fails the test. Zero-amount transfers move nothing and are ignored.
+const TOKEN_PROGRAMS = new Set([PROGRAM_IDS.token, PROGRAM_IDS.token2022]);
+const FORBIDDEN_TOKEN_IX = new Map([[4, 'Approve'], [5, 'Revoke'], [6, 'SetAuthority'], [8, 'Burn'], [9, 'CloseAccount'], [10, 'FreezeAccount'], [11, 'ThawAccount'], [13, 'ApproveChecked'], [15, 'BurnChecked']]);
+const disc8 = (idl, kind, name) => Buffer.from(idl[kind].find((a) => a.name === name).discriminator);
+
+/** The launchpad state that decides allowed destinations (read before and after each transaction). */
+export function flowState(w) {
+  const coinDisc = disc8(IDL.launchpad, 'accounts', 'Coin'), optDisc = disc8(IDL.launchpad, 'accounts', 'PayoutOptIn');
+  const coins = [], optIns = new Map();
+  for (const a of w.svm.getProgramAccounts(address(PROGRAM_IDS.launchpad))) {
+    const d = Buffer.from(a.data);
+    try {
+      if (d.subarray(0, 8).equals(coinDisc)) {
+        const c = decodeAccount(IDL.launchpad, 'Coin', d);
+        coins.push({ address: String(a.address), founder: c.founder.toBase58(), mint: c.mint.toBase58(), quoteMint: c.quote_mint.toBase58() });
+      } else if (d.subarray(0, 8).equals(optDisc)) {
+        const o = decodeAccount(IDL.launchpad, 'PayoutOptIn', d);
+        optIns.set(o.coin.toBase58(), { founder: o.founder.toBase58(), agreed: o.agreed_destination.toBase58() });
+      }
+    } catch { /* a forged or truncated account planted by an attack test: not a real coin */ }
+  }
+  const lp = w.exists(P.launchpad()) ? w.launchpad() : null;
+  return { coins, optIns, payoutDestination: lp ? lp.payout_destination.toBase58() : null };
+}
+
+/** The program's own rewards-config rule (math.rs check_rewards_config) on raw bytes. */
+export function rewardsConfigPasses(data, coin, vault) {
+  const d = Buffer.from(data);
+  return d.length >= 203 && d.subarray(0, 8).equals(disc8(IDL.rewards, 'accounts', 'CityConfig'))
+    && readKey(d, 104) === coin.mint && readKey(d, 136) === coin.quoteMint && readKey(d, 168) === vault
+    && d[200] === 1 && d.readUInt16LE(201) === 0;
+}
+
+/** Allowed (source -> destinations) and the Holders rewards vaults, from the given states. */
+export function allowedFlows(w, states) {
+  const allow = new Map();
+  const holdersVaults = new Set();
+  const add = (src, dst) => { if (!allow.has(src)) allow.set(src, new Set()); if (dst) allow.get(src).add(dst); };
+  for (const st of states.filter(Boolean)) {
+    for (const c of st.coins) {
+      const pot = P.holdersPot(c.address), vault = P.founderVault(c.address);
+      add(pot, vault);
+      const cfg = R.city(c.mint), rv = R.vault(cfg), acc = w.account(cfg);
+      if (acc && String(acc.programAddress) === PROGRAM_IDS.rewards && rewardsConfigPasses(acc.data, c, rv)) { add(pot, rv); holdersVaults.add(rv); }
+      add(vault, ata(c.founder, c.quoteMint));
+      const o = st.optIns.get(c.address);
+      if (o && st.payoutDestination && st.payoutDestination !== PROGRAM_IDS.system && o.founder === c.founder && o.agreed === st.payoutDestination) add(vault, ata(st.payoutDestination, c.quoteMint));
+    }
+  }
+  return { allow, holdersVaults };
+}
+
+/**
+ * Check every token movement of one transaction. `messageBytes` is the
+ * compiled message (no lookup tables in tests) and `inner` litesvm's inner
+ * instructions per top-level instruction. Returns the watched movements.
+ */
+export function assertMoneyFlows(w, messageBytes, inner, states, label = 'tx') {
+  const msg = getCompiledTransactionMessageDecoder().decode(messageBytes);
+  const keys = msg.staticAccounts.map(String);
+  const top = msg.instructions.map((ix) => ({ program: keys[ix.programAddressIndex], accounts: (ix.accountIndices ?? []).map((i) => keys[i]), data: Buffer.from(ix.data ?? []) }));
+  const moves = [];
+  top.forEach((t, i) => {
+    moves.push({ ...t, top: t });
+    for (const ii of inner[i] ?? []) {
+      const c = ii.instruction();
+      moves.push({ program: keys[c.programIdIndex()], accounts: Array.from(c.accounts()).map((k) => keys[k]), data: Buffer.from(c.data()), top: t });
+    }
+  });
+  return checkTokenMoves(allowedFlows(w, states), moves, label);
+}
+
+const CLAIM_DISC = disc8(IDL.rewards, 'instructions', 'claim');
+const CLAIMANT_TOKEN_ACCOUNT_AT = IDL.rewards.instructions.find((i) => i.name === 'claim').accounts.findIndex((a) => a.name === 'claimant_token_account');
+
+/** The rule itself, separated so a test can feed it forbidden movements directly. */
+export function checkTokenMoves({ allow, holdersVaults }, moves, label = 'tx') {
+  const seen = [];
+  for (const m of moves) {
+    if (!TOKEN_PROGRAMS.has(m.program) || m.data.length === 0) continue;
+    const tag = m.data[0];
+    const src = m.accounts[0];
+    const watched = allow.has(src) || holdersVaults.has(src);
+    if (!watched) continue;
+    if (FORBIDDEN_TOKEN_IX.has(tag)) assert.fail(`${label}: ${FORBIDDEN_TOKEN_IX.get(tag)} on watched account ${src}`);
+    if (tag !== 3 && tag !== 12) continue; // InitializeAccount, SyncNative and the like move nothing
+    const dst = tag === 3 ? m.accounts[1] : m.accounts[2];
+    const amount = m.data.readBigUInt64LE(1);
+    if (amount === 0n) continue;
+    if (holdersVaults.has(src)) {
+      const inClaim = m.top.program === PROGRAM_IDS.rewards && m.top.data.subarray(0, 8).equals(CLAIM_DISC);
+      assert.ok(inClaim && m.top.accounts[CLAIMANT_TOKEN_ACCOUNT_AT] === dst, `${label}: rewards vault ${src} paid ${amount} to ${dst} outside a holder's claim`);
+    } else {
+      assert.ok(allow.get(src).has(dst), `${label}: ${amount} moved from ${src} to ${dst}, which the design does not allow`);
+    }
+    seen.push({ label, source: src, destination: dst, amount });
+  }
+  return seen;
 }
 
 /** Permissionless DBC graduation of `coin` by `cranker` (fresh position NFT mints); returns the DAMM v2 pool and NFT mints. */
