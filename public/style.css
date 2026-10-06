@@ -937,6 +937,9 @@ select option { background: var(--bg-2); }
 .role-pill[data-level="founder"] { color: var(--gold-text); border-color: rgba(255,200,87,.55); background: rgba(255,200,87,.14); }
 .role-pill[data-level="manager"], .role-pill[data-level="admin"] { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--pin), var(--gold)); }
 .live-note { white-space: nowrap; }
+/* "live" becomes "live · checked 59m ago" (dashboard.js, every 5 s): the note keeps the room of its longest text from the start, so the
+   pass's bottom row never re-wraps and the stats under it never jump (a 0.19 layout shift on a phone, 6 Oct 2026) */
+#me-checked { display: inline-block; min-width: 11.5em; }
 .stat-row--dash .stat strong { font-size: 1.45rem; }
 .lost-alert { margin-bottom: 14px; padding: 14px 18px; border-radius: 16px; border: 1px solid rgba(255,90,54,.5); background: rgba(255,90,54,.1); color: var(--text); font-weight: 500; }
 .dash-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 14px; align-items: start; }
