@@ -695,6 +695,8 @@
     // the glow layer breathes for the open cities that carry a chip or a name
     fxItems = buildFxItems();
   }
+  // text widths measured before the site's fonts arrive are the fallback font's: measure again once they are in
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { textW.clear(); chipCache.clear(); if (loaded) markAll(); }).catch(() => {});
   const popAt = new Map(); // city id → when its chip should pop (a new founder)
   /** A city's chip texts and sizes at this zoom band, measured once (cleared when statuses, tickers or the screen width change). */
   const chipCache = new Map();
@@ -973,7 +975,7 @@
   }
 
   /* ---------- the city in focus: the card at the bottom of the map, for the city under the crosshair ---------- */
-  let focusSig = "", sayTimer = 0, nearestGo = null;
+  let focusSig = "", sayTimer = 0, nearestGo = null, swapping = 0;
   /** Which city the card shows: pinned (your city, a ?city= link, the biggest in view, a pick) until the person moves the map, then the one under the crosshair. */
   function updateFocus() {
     if (!cities.length) return;
@@ -999,7 +1001,7 @@
       const [lon, lat] = toLonLat(fcx, fcy), near = nearestCommunities(lon, lat, 1)[0];
       const sig = "none|" + (near ? near[0].id + "|" + Math.round(near[1]) : "");
       if (sig === focusSig) return;
-      focusSig = sig; nearestGo = near ? near[0] : null;
+      focusSig = sig; nearestGo = near ? near[0] : null; swapping++; focusEl.classList.remove("is-swapping"); // a city still fading in is dropped
       focusEl.dataset.status = "none";
       name.textContent = "No community here"; tk.textContent = ""; mini.textContent = ""; tag.hidden = true;
       where.textContent = "Nothing at the crosshair"; amount.textContent = near ? `Nearest: ${near[0].name}, ${near[1] < 10 ? near[1].toFixed(1) : fmt(near[1])} km` : "";
@@ -1029,7 +1031,7 @@
       focusEl.dataset.status = st;
       name.textContent = c.name; where.textContent = placeOf(c);
       const [cls, word] = FOCUS_TAG[st];
-      tag.className = `${cls} map-focus__status`; tag.textContent = word; // "Choosing": how many apply and when it closes are on the last line tag.hidden = false;
+      tag.className = `${cls} map-focus__status`; tag.textContent = word; tag.hidden = false; // "Choosing": how many apply and when it closes are on the last line
       mini.textContent = `${word} · ${compact.format(founderMin(c, win))}`;
       tk.textContent = t ? `$${t}` : ""; amount.textContent = `Founder amount ${amt}`;
       areaEl.textContent = r3;
@@ -1037,7 +1039,8 @@
       if (st === "mine") { const d = el("a", null, "dashboard ›"); d.href = "/dashboard"; line.append(document.createTextNode(" · "), d); }
       go.disabled = false; go.textContent = "›"; go.setAttribute("aria-label", `Show ${c.name}'s full details`);
     };
-    if (swap) { focusEl.classList.add("is-swapping"); setTimeout(() => { fill(); focusEl.classList.remove("is-swapping"); }, 140); } else fill();
+    const turn = ++swapping; // only the latest city fills the card (a quick pan can ask for several within 140 ms)
+    if (swap) { focusEl.classList.add("is-swapping"); setTimeout(() => { if (turn !== swapping) return; fill(); focusEl.classList.remove("is-swapping"); }, 140); } else fill();
     announce(`In focus: ${c.name}, ${placeOf(c)}. ${st === "choosing" ? `Choosing its founder, ${win.applicants} applying` : STATUS_WORD[st]}.${t ? ` $${t}.` : ""} Founder amount ${amt}.${a ? ` ${areaNote(a, c)}.` : ""} ${l4}.`);
   }
   /** Screen readers hear the city in focus once the map rests (not on every step of a pan). */

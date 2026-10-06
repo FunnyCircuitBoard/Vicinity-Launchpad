@@ -268,6 +268,8 @@ test("map: on a phone the stats show with no tap: chips from the first view and 
   // the card follows the crosshair and says what the computer's hover card says
   const card = js.slice(js.indexOf("  function renderFocus() {"), js.indexOf("  /** Screen readers hear"));
   for (const t of ["Founder amount ${amt}", "Official boundary + nearest land", "Includes ${n} listed place", "No founder yet", "applying · closes in", "You founded ${c.name}", "No community here", "Nearest: "]) assert.ok(card.includes(t), t);
+  assert.match(card, /tag\.className = `\$\{cls\} map-focus__status`; tag\.textContent = word; tag\.hidden = false;/, "the status pill shows (it is hidden only while no city is in focus)");
+  assert.match(card, /setTimeout\(\(\) => \{ if \(turn !== swapping\) return; fill\(\);/, "a city that is no longer in focus never fills the card late");
   assert.match(js, /sayTimer = setTimeout\(\(\) => \{ const s = \$\("#mf-say"\);[^\n]*\}, 600\);/, "debounced to 600 ms");
   // chips from the first view: no zoom gate in front of the labels (they used to wait for zoom 2.5)
   assert.doesNotMatch(js, /if \(k >= 2\.5\)/);
