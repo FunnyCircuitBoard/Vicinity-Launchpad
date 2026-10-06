@@ -97,6 +97,16 @@ jobs:
           python3 -c "import json,sys; c={x['name']:x['value'] for x in json.load(open('target/idl/vicinity_rewards.json'))['constants']}; sys.exit(0 if c['MIN_CLAIM_WINDOW_SECS']=='1209600' else 1)"
       - name: Committed fixtures match their generators
         run: npm run sdk-fixtures && git diff --exit-code -- sdk/fixtures
+      # vicinity_launchpad: committed IDL, SDK tests, then the in-process suite
+      # (litesvm, no validator) against Meteora DBC, DAMM v2 and Metaplex as
+      # dumped from mainnet; the dump script checks their pinned SHA-256.
+      - name: Launchpad committed IDL matches the production build
+        run: diff target/idl/vicinity_launchpad.json sdk/idl/vicinity_launchpad.json
+      - run: npm run sdk-test:launchpad
+      - name: Launchpad fixtures (mainnet program dumps, pinned hashes)
+        run: npm run launchpad:fixtures
+      - name: Launchpad in-process tests
+        run: npm run test:launchpad
       # The deadline, sweep and close_claim_status tests need an epoch whose
       # claim window passes during the run: the test-only `short-windows`
       # feature lowers MIN_CLAIM_WINDOW_SECS to 60 s. This rebuilds the program

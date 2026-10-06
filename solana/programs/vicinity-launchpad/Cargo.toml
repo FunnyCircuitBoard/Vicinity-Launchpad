@@ -17,6 +17,10 @@ no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+# Accepted and ignored: vicinity_rewards' full test run builds the whole
+# workspace with `anchor test -- --features short-windows`, and every program
+# must accept that flag. It changes nothing in this program.
+short-windows = []
 
 [dependencies]
 # init-if-needed is used ONLY for associated token accounts of wallets this
