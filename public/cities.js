@@ -110,6 +110,16 @@
     const ms = Math.round(Math.min(1600, Math.max(600, 450 + 260 * Math.abs(Math.log2(k1 / k0)) + 3 * distDeg)));
     return { ms, dip: distDeg > 25 ? Math.max(1, Math.min(k0, k1) / 2.5) : null };
   }
+  /**
+   * The zoom of a fly-to at eased time e (0…1): from k0 to k1 in log space, pulled out toward `dip` mid-way on a long trip. Never
+   * below the dip, never below the whole world (1) nor above maxK: a flight from the world view used to sink to 0.65× and a touch
+   * mid-flight froze it there (the world shrank into a corner).
+   */
+  function flyK(k0, k1, dip, e, maxK = 900) {
+    let lk = Math.log(k0) + (Math.log(k1) - Math.log(k0)) * e;
+    if (dip) { const mid = (Math.log(k0) + Math.log(k1)) / 2, depth = Math.max(0, mid - Math.log(dip)); lk = Math.max(Math.log(dip), lk - depth * 4 * e * (1 - e)); }
+    return Math.min(maxK, Math.max(1, Math.exp(lk)));
+  }
   /** Label priority, smaller first: yours, selected, in focus, founded (by holders), choosing (by applicants), members, population. Shown last time: ahead of its own tier (no flicker). */
   function labelRank(x) {
     const tier = x.mine ? 1 : x.selected ? 2 : x.focus ? 3 : x.status === "founded" ? 4 : x.status === "choosing" ? 5 : x.members > 0 ? 6 : 7;
@@ -121,18 +131,19 @@
    * Greedy placement of chips and labels, in priority order (sort with byRank first). Each item: { id, x, y (marker, px), tierWish: "A"|"B"|"C",
    * size: { A: [w, h], B: [w, h], C: [w, h] } }. A chip tries the right of its marker, then the left, above and below, then the same a little
    * farther out (with a leader line); a B chip that fits nowhere tries again as a plain name (C). Boxes keep 4 px apart and stay out of the
-   * `avoid` rectangles ([x, y, w, h]: controls, the focus card) and 6 px inside the map; `soft` ones (the crosshair) are avoided by every
-   * chip but the one of the city in focus (item.focus), which sits right by it. Deterministic.
+   * `avoid` rectangles ([x, y, w, h]: controls, the focus card) and 6 px inside the map; `soft` ones (the room around the crosshair) are
+   * avoided by every chip but the one of the city in focus (item.focus), which sits right by it; `core` ones (the crosshair's own ring
+   * and ticks) are covered by no chip at all, the focus chip included. Deterministic.
    * Returns [{ id, tier, x, y, w, h, ax, ay, leader }] (x, y: the box's top left).
    */
-  function placeLabels(items, { W, H, avoid = [], soft = [], max = { A: 3, B: 10, C: 20 }, pad = 4, edge = 6 }) {
+  function placeLabels(items, { W, H, avoid = [], soft = [], core = [], max = { A: 3, B: 10, C: 20 }, pad = 4, edge = 6 }) {
     const CELL = 64, grid = new Map(), out = [], used = { A: 0, B: 0, C: 0 };
     const cells = (x, y, w, h, f) => { for (let i = Math.floor(x / CELL); i <= Math.floor((x + w) / CELL); i++) for (let j = Math.floor(y / CELL); j <= Math.floor((y + h) / CELL); j++) f(i + "," + j); };
     const hit = (a, b) => a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
     const free = (bx, focus) => {
       if (bx[0] < edge || bx[1] < edge || bx[0] + bx[2] > W - edge || bx[1] + bx[3] > H - edge) return false;
       const p = [bx[0] - pad, bx[1] - pad, bx[2] + 2 * pad, bx[3] + 2 * pad];
-      if (avoid.some((r) => hit(p, r)) || (!focus && soft.some((r) => hit(p, r)))) return false;
+      if (avoid.some((r) => hit(p, r)) || (!focus && soft.some((r) => hit(p, r))) || core.some((r) => hit(bx, r))) return false;
       let ok = true;
       cells(p[0], p[1], p[2], p[3], (key) => { if (ok) for (const o of grid.get(key) || []) if (hit(p, o)) { ok = false; break; } });
       return ok;
@@ -171,6 +182,19 @@
     for (const c of cands) if (c.d <= radius && (!best || c.d < best.d || (c.d === best.d && c.id < best.id))) best = c;
     const cur = current != null ? cands.find((c) => c.id === current) : null;
     if (cur && cur.d <= radius && (!best || best.d > cur.d - keep)) return current;
+    return best ? best.id : null;
+  }
+  /**
+   * The city the card opens on when no link, pick or home city says which: the one nearest the crosshair (fx, fy), a bigger one
+   * first at the same distance. cands: [{ id, x, y, pop }] (px). The map then centres on it, so the card and the crosshair agree
+   * from the first view (it used to show the biggest city in view, up to 480 px away from the crosshair). null: no candidate.
+   */
+  function openingFocus(cands, fx, fy) {
+    let best = null, bd = Infinity;
+    for (const c of cands) {
+      const d = Math.hypot(c.x - fx, c.y - fy);
+      if (d < bd - 1e-9 || (Math.abs(d - bd) <= 1e-9 && best && ((c.pop || 0) > (best.pop || 0) || ((c.pop || 0) === (best.pop || 0) && c.id < best.id)))) { best = c; bd = d; }
+    }
     return best ? best.id : null;
   }
   /** "1d 4h", "3h 20m", "12m": how long until an ISO time (a window's close). */
@@ -434,6 +458,7 @@
   function viewMoved(interactive = false) {
     dirty.base = dirty.labels = dirty.layout = dirty.focus = true;
     if (interactive) { moving = true; clearTimeout(crispTimer); crispTimer = setTimeout(settle, 90); }
+    else zoomReadout(); // a move that is not a gesture (the opening on your city, a fold) is already at rest: say its zoom now
     zoomLabel(); kick();
   }
   function settle() { if (cam) { crispTimer = setTimeout(settle, 90); return; } moving = false; zoomReadout(); dirty.base = dirty.layout = dirty.focus = dirty.labels = true; kick(); }
@@ -468,9 +493,7 @@
     const c = cam;
     if (c.kind === "fly") {
       const t = Math.min(1, (now - c.t0) / c.ms), e = easeInOut(t);
-      let lk = Math.log(c.k0) + (Math.log(c.k1) - Math.log(c.k0)) * e;
-      if (c.dip) { const mid = (Math.log(c.k0) + Math.log(c.k1)) / 2, depth = Math.max(0, mid - Math.log(c.dip)); lk -= depth * 4 * e * (1 - e); }
-      k = Math.exp(lk);
+      k = t >= 1 ? c.k1 : flyK(c.k0, c.k1, c.dip, e, MAXK);
       tx = fcx - (c.cx0 + (c.cx1 - c.cx0) * e) * k; ty = fcy - (c.cy0 + (c.cy1 - c.cy0) * e) * k; clampView();
       if (t >= 1) cam = null;
     } else if (c.kind === "zoom") {
@@ -490,14 +513,20 @@
     viewMoved(true);
     return true;
   }
-  /** Fly so the box [west, south, east, north] fills most of the map. */
+  /** The zoom at which the box [west, south, east, north] fits the free part of the map around the crosshair (left of the control
+   *  rail, above the city card on a phone), with a margin. */
+  function fitK(b) {
+    const right = rects.rail && rects.rail[0] > fcx ? rects.rail[0] - 6 : W;
+    const halfW = Math.max(30, Math.min(fcx, right - fcx) - 10), halfH = Math.max(30, fcy - 10);
+    return Math.min((2 * halfW) / Math.max(0.0002, (b[2] - b[0]) * s0), (2 * halfH) / Math.max(0.0002, (b[3] - b[1]) * s0)) * 0.92;
+  }
+  /** Fly so the box [west, south, east, north] fills most of the free part of the map. */
   function flyToBox(b, minK = 1) {
-    const fit = Math.min(W / Math.max(0.02, (b[2] - b[0]) * s0), (fcy * 2) / Math.max(0.02, (b[3] - b[1]) * s0)) * 0.72;
-    flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.min(MAXK, Math.max(minK, fit)));
+    flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.min(MAXK, Math.max(minK, fitK(b))));
   }
   function flyToCity(c) {
     const a = areas.get(c.id) || ov.byId.get(c.id);
-    if (a) return flyToBox(a.box, AREA_K + 0.5);
+    if (a) return flyToBox(a.box, Math.min(AREA_K + 0.5, fitK(a.box))); // the whole boundary in view (closer than zoom 5.5 when it fits)
     const r = radiusOf(c);
     flyTo(c.lon, c.lat, Math.min(MAXK, Math.max(AREA_K + 0.5, (Math.min(W, H) * 0.3) / ((r / 111.32) * s0))));
   }
@@ -637,7 +666,7 @@
 
   /* ---------- labels and chips (layout only when the view changes; drawing when the view or a fade changes) ---------- */
   const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }); // short(), with one formatter for the hundreds of chips
-  let labels = [], leaving = [], focusId = null, focusPinned = null, pinnedBy = null; // pinnedBy: "link" | "pick" | "home" | "biggest"
+  let labels = [], leaving = [], focusId = null, focusPinned = null, pinnedBy = null; // pinnedBy: "link" | "pick" | "home" | "nearest"
   const textW = new Map();
   const measure = (font, t) => { const key = font + "|" + t; let w = textW.get(key); if (w == null) { lctx.font = font; w = lctx.measureText(t).width; textW.set(key, w); } return w; };
   const FONT = { A1: "700 12px Inter, system-ui, sans-serif", A2: "600 11px Inter, system-ui, sans-serif", B: "600 11px Inter, system-ui, sans-serif", BT: "700 11px Inter, system-ui, sans-serif", C: "600 11px Inter, system-ui, sans-serif" };
@@ -683,7 +712,7 @@
       items.push({ id: x.id, x: x.x, y: x.y, tierWish: isA ? "A" : "B", size, t, st: x.st, focus: x.focus });
     }
     const avoid = [grow(rects.rail, 8), grow(rects.card, 8), grow(rects.exit, 8), grow(rects.scale, 4)].filter(Boolean);
-    const placed = placeLabels(items, { W, H, avoid, soft: [[fcx - 20, fcy - 20, 40, 40]], max });
+    const placed = placeLabels(items, { W, H, avoid, soft: [[fcx - 20, fcy - 20, 40, 40]], core: [[fcx - 16, fcy - 16, 32, 32]], max });
     const info = new Map(items.map((i) => [i.id, i]));
     const next = placed.map((p) => {
       const old = prev.get(p.id), it = info.get(p.id);
@@ -976,7 +1005,7 @@
 
   /* ---------- the city in focus: the card at the bottom of the map, for the city under the crosshair ---------- */
   let focusSig = "", sayTimer = 0, nearestGo = null, swapping = 0;
-  /** Which city the card shows: pinned (your city, a ?city= link, the biggest in view, a pick) until the person moves the map, then the one under the crosshair. */
+  /** Which city the card shows: pinned (your city, a ?city= link, the one nearest the crosshair at the start, a pick) until the person moves the map, then the one under the crosshair. */
   function updateFocus() {
     if (!cities.length) return;
     let id = null;
@@ -1079,7 +1108,8 @@
     if (!pts.size) stageRect = wrapEl.getBoundingClientRect();
     const [x, y] = local(e);
     pts.set(e.pointerId, { x, y });
-    cam = null; // a touch stops whatever the map was doing
+    cam = null; // a touch stops whatever the map was doing (and the zoom it stopped at is always a real one)
+    if (!(k >= 1 && k <= MAXK)) { zoomTo(fcx, fcy, k); viewMoved(true); }
     drag = { x, y, tx, ty, moved: false, pinch: pts.size === 2 ? pinchInfo() : null, hist: [[performance.now(), x, y]] };
     wheelOK = true; $("#map-hint").classList.remove("is-shown");
   });
@@ -1384,14 +1414,15 @@
     refreshPanel(); renderList(); renderCoin(c); renderModerator(c);
     if (fly) flyToCity(c);
     // the boundary may still be loading: show it (and re-frame the map) once it's here
-    if (!areas.has(c.id)) loadBounds(c.cc).then(() => { if (selected !== c) return; refreshPanel(); if (fly && areas.has(c.id) && !cam) flyToCity(c); });
+    // (even mid-flight: a flight framed on a guess would end with the boundary cut off at both sides; never once the person moved the map)
+    if (!areas.has(c.id)) loadBounds(c.cc).then(() => { if (selected !== c) return; refreshPanel(); if (fly && areas.has(c.id) && !userMoved && focusPinned === c.id) flyToCity(c); });
     markAll();
   }
   document.addEventListener("vicinity:me", () => { if (loaded) { refreshPanel(); renderList(); goHome(); markAll(); } });
   /** A signed-in person with a home city who arrived without ?city=: the map opens on their city, and the card shows it. */
   function goHome() {
     const h = myHome(), c = h && byId.get(String(h));
-    if (!c || userMoved || selected || (focusPinned && pinnedBy !== "biggest")) return;
+    if (!c || userMoved || selected || (focusPinned && pinnedBy !== "nearest")) return;
     focusPinned = c.id; pinnedBy = "home";
     k = 4; tx = fcx - wx(c.lon) * k; ty = fcy - wy(c.lat) * k; clampView(); viewMoved();
   }
@@ -1519,11 +1550,22 @@
       sec.classList.add("is-ready");
       size(); renderList(); refreshPanel(); renderFeed(); refreshMembers();
       setInterval(() => { if (!document.hidden && onScreen) { refreshClaims(); refreshMembers(); } }, 30000);
-      // arriving with ?city=<id> (from other pages): open that city; signed in with a home city: start there; else the biggest city in view
+      // arriving with ?city=<id> (from other pages): open that city; signed in with a home city: start there; else the city nearest the
+      // crosshair, with the map centred on it (as far as the world's edges allow), before anything is drawn
       const want = new URLSearchParams(location.search).get("city");
       if (want && byId.get(want)) select(byId.get(want), true);
       else goHome();
-      if (!focusPinned) { const v = view(); const big = cities.find((c) => isCommunity(c) && inBox(c.lon, c.lat, v) && inViewPx(sx(c.lon), sy(c.lat), -40)); if (big) { focusPinned = big.id; pinnedBy = "biggest"; } }
+      if (!focusPinned) {
+        const minPop = dotMinPop(), bottom = rects.card && rects.card[2] > W * 0.6 ? rects.card[1] : H, cands = [];
+        for (const c of cities) {
+          if (c.pop < minPop) break;
+          if (!isCommunity(c)) continue;
+          const x = sx(c.lon), y = sy(c.lat);
+          if (x > 24 && x < W - 24 && y > 24 && y < bottom - 24) cands.push({ id: c.id, x, y, pop: c.pop });
+        }
+        const id = openingFocus(cands, fcx, fcy), c = id && byId.get(id);
+        if (c) { focusPinned = c.id; pinnedBy = "nearest"; tx = fcx - wx(c.lon) * k; ty = fcy - wy(c.lat) * k; clampView(); viewMoved(); }
+      }
       markAll();
     } catch {
       loaded = false;

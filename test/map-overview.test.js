@@ -23,10 +23,10 @@ const overview = readFileSync(OVERVIEW_FILE, "utf8");
 const H = (() => {
   const a = js.indexOf("  /* map helpers: start"), b = js.indexOf("  /* map helpers: end */");
   assert.ok(a > 0 && b > a, "the map helpers sit together in one block of cities.js");
-  const raw = vm.runInNewContext(`${js.slice(a, b)}\n({ OV_UNIT, AREA_K, parseOverviewLine, inOverview, thinRing, thinFor, openingView, scaleBar, flightPlan, labelRank, byRank, placeLabels, chooseFocus, until })`, {});
+  const raw = vm.runInNewContext(`${js.slice(a, b)}\n({ OV_UNIT, AREA_K, parseOverviewLine, inOverview, thinRing, thinFor, openingView, scaleBar, flightPlan, flyK, labelRank, byRank, placeLabels, chooseFocus, openingFocus, until })`, {});
   const here = (v) => (v == null || typeof v !== "object" ? v : ArrayBuffer.isView(v) ? [...v] : JSON.parse(JSON.stringify(v, (_, x) => (ArrayBuffer.isView(x) ? [...x] : x))));
   const out = { OV_UNIT: raw.OV_UNIT, AREA_K: raw.AREA_K, byRank: raw.byRank, inOverview: raw.inOverview };
-  for (const f of ["parseOverviewLine", "thinRing", "thinFor", "openingView", "scaleBar", "flightPlan", "labelRank", "placeLabels", "chooseFocus", "until"]) out[f] = (...args) => here(raw[f](...args));
+  for (const f of ["parseOverviewLine", "thinRing", "thinFor", "openingView", "scaleBar", "flightPlan", "flyK", "labelRank", "placeLabels", "chooseFocus", "openingFocus", "until"]) out[f] = (...args) => here(raw[f](...args));
   out.raw = raw;
   return out;
 })();
@@ -164,6 +164,47 @@ test("helpers: fly-to takes 0.6 to 1.6 s and dips out on a long trip", () => {
   assert.equal(H.flightPlan(1, 60, 80).dip, 1, "never below the whole world");
 });
 
+test("helpers: a fly-to's zoom never sinks below the whole world or the dip, and ends exactly where it was asked (review PM-3)", () => {
+  // the review: from the world view (k0 = 1) to Paris (k1 = 30), the dip formula went to 30^(-1/8) = 0.65 mid-flight and a touch froze it
+  for (const [k0, k1, dist] of [[1, 30, 80], [1, 60, 200], [6, 60, 80], [40, 2, 120], [3, 3, 50], [1, 900, 300]]) {
+    const plan = H.flightPlan(k0, k1, dist);
+    let low = Infinity;
+    for (let i = 0; i <= 200; i++) { const kk = H.flyK(k0, k1, plan.dip, i / 200); low = Math.min(low, kk); assert.ok(kk >= 1 && kk <= 900, `${k0}→${k1} at ${i / 200}: ${kk}`); }
+    assert.ok(low >= Math.max(1, plan.dip || 1) - 1e-9, `${k0}→${k1}: lowest ${low}`);
+    assert.ok(Math.abs(H.flyK(k0, k1, plan.dip, 0) - k0) < 1e-9 && Math.abs(H.flyK(k0, k1, plan.dip, 1) - k1) < 1e-9, "starts and ends where asked");
+  }
+  // a long trip still pulls out on the way (the dip is a real dip when there is room for one)
+  assert.ok(H.flyK(20, 20, H.flightPlan(20, 20, 90).dip, 0.5) < 12);
+  // the page uses it, and a touch that stops the camera keeps a real zoom
+  assert.match(js, /k = t >= 1 \? c\.k1 : flyK\(c\.k0, c\.k1, c\.dip, e, MAXK\);/);
+  assert.match(js, /cam = null; \/\/ a touch stops whatever the map was doing[^\n]*\n    if \(!\(k >= 1 && k <= MAXK\)\) \{ zoomTo\(fcx, fcy, k\); viewMoved\(true\); \}/);
+});
+
+test("helpers: the first view's card shows the city nearest the crosshair, and the map centres on it (review OA-7)", () => {
+  const c = (id, x, y, pop) => ({ id, x, y, pop });
+  assert.equal(H.openingFocus([c("kinshasa", 1115, 545, 7e6), c("kc", 650, 470, 5e5)], 640, 465), "kc", "not the biggest far away: the nearest");
+  assert.equal(H.openingFocus([c("a", 110, 100, 10), c("b", 90, 100, 20)], 100, 100), "b", "same distance: the bigger one");
+  assert.equal(H.openingFocus([c("b", 110, 100, 5), c("a", 90, 100, 5)], 100, 100), "a", "and the same way every time");
+  assert.equal(H.openingFocus([], 1, 1), null);
+  const load = js.slice(js.indexOf("  async function load() {"));
+  assert.match(load, /const id = openingFocus\(cands, fcx, fcy\), c = id && byId\.get\(id\);\n        if \(c\) \{ focusPinned = c\.id; pinnedBy = "nearest"; tx = fcx - wx\(c\.lon\) \* k; ty = fcy - wy\(c\.lat\) \* k; clampView\(\); viewMoved\(\); \}/);
+  assert.doesNotMatch(js, /pinnedBy = "biggest"/);
+});
+
+test("camera: the zoom readout follows a move that is not a gesture, and a city link frames the whole boundary (review OA-6, OA-11)", () => {
+  // the opening on your own city (goHome: k = 4, then viewMoved()) left the screen readers' readout at 1.0× while the map showed 4×
+  const vm2 = js.slice(js.indexOf("  function viewMoved(interactive = false) {"), js.indexOf("  function settle()"));
+  assert.match(vm2, /if \(interactive\) \{ moving = true; clearTimeout\(crispTimer\); crispTimer = setTimeout\(settle, 90\); \}\n    else zoomReadout\(\);/);
+  // a ?city= link: the boundary is fitted into the free part of the map (left of the rail, above the card), and when it arrives
+  // after the flight began (the guess was a 25 km circle at 118×) the map is framed again, unless the person moved it
+  const fit = js.slice(js.indexOf("  function fitK(b) {"), js.indexOf("  function flyToCountry(cc) {"));
+  assert.match(fit, /const right = rects\.rail && rects\.rail\[0\] > fcx \? rects\.rail\[0\] - 6 : W;/);
+  assert.match(fit, /const halfW = Math\.max\(30, Math\.min\(fcx, right - fcx\) - 10\), halfH = Math\.max\(30, fcy - 10\);/);
+  assert.match(fit, /if \(a\) return flyToBox\(a\.box, Math\.min\(AREA_K \+ 0\.5, fitK\(a\.box\)\)\);/);
+  assert.match(js, /if \(fly && areas\.has\(c\.id\) && !userMoved && focusPinned === c\.id\) flyToCity\(c\);/);
+  assert.doesNotMatch(js, /if \(fly && areas\.has\(c\.id\) && !cam\) flyToCity\(c\);/);
+});
+
 test("helpers: the city in focus is the area under the crosshair, else the nearest city within 56 px, and it does not flicker", () => {
   const c = (id, d) => ({ id, d });
   assert.equal(H.chooseFocus([c("a", 3)], "z", "a"), "z", "the area holding the crosshair wins");
@@ -223,6 +264,11 @@ test("chips: a chip that fits nowhere as a chip becomes a plain name; farther sp
   assert.ok(x && !overlap(x, { x: 160, y: 80, w: 40, h: 40 }, 4) && x.x + x.w < 150, "a city by the crosshair gets its chip on the other side");
   const focus = H.placeLabels([item("f", 150, 100, { tierWish: "A", focus: true, size: { A: [100, 36] } })], { W, H: Hh, soft: [[140, 90, 20, 20], [100, 60, 100, 80]], max: { A: 3, B: 10, C: 20 } });
   assert.equal(focus.length, 1, "the city in focus keeps its chip right by the crosshair");
+  // the crosshair's own ring and ticks stay visible: the focus chip moves out a little (a leader line) instead of covering them (review OA-8)
+  const core = [134, 84, 32, 32], [fc] = H.placeLabels([item("f", 150, 100, { tierWish: "A", focus: true, size: { A: [100, 36] } })], { W, H: Hh, soft: [[130, 80, 40, 40]], core: [core], max: { A: 3, B: 10, C: 20 } });
+  assert.ok(fc && !overlap(fc, { x: 134, y: 84, w: 32, h: 32 }, 0), JSON.stringify(fc));
+  assert.equal(fc.leader, true);
+  assert.match(js, /core: \[\[fcx - 16, fcy - 16, 32, 32\]\]/, "the page passes the crosshair as a core");
   const full = H.placeLabels([item("big", 150, 100, { size: { B: [400, 22], C: [40, 14] } })], { W, H: Hh, max: { A: 3, B: 10, C: 20 } });
   assert.deepEqual(full.map((p) => p.tier), ["C"], "too wide for a chip: its name");
 });
