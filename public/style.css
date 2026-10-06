@@ -159,7 +159,7 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
 @media (max-width: 900px) { .grid-3 { grid-template-columns: 1fr; } }
 .bridge { margin-top: 28px; font-size: 1.1rem; color: var(--text-2); }
-.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 90; padding: 12px 18px; border-radius: 12px; background: var(--bg-3); border: 1px solid var(--line-2); box-shadow: 0 20px 50px -20px rgba(0,0,0,.8); font-weight: 500; animation: pop .3s ease; max-width: calc(100vw - 32px); }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 90; padding: 12px 18px; border-radius: 12px; background: var(--bg-3); border: 1px solid var(--line-2); box-shadow: 0 20px 50px -20px rgba(0,0,0,.8); font-weight: 500; animation: pop .3s ease; width: max-content; max-width: calc(100vw - 32px); overflow-wrap: anywhere; } /* one line when it fits: a fixed box centred with left: 50% would otherwise shrink to half the screen and wrap */
 @keyframes pop { from { transform: translateX(-50%) scale(.9); opacity: 0; } }
 .burst { position: fixed; pointer-events: none; z-index: 80; font-size: 20px; animation: burst .9s ease-out forwards; }
 @keyframes burst { to { transform: translate(var(--bx), var(--by)) scale(.4); opacity: 0; } }
@@ -576,11 +576,12 @@ select option { background: var(--bg-2); }
 .city-stats .is-claimed strong { color: var(--bad-text); } .city-stats .is-open strong { color: var(--ok-text); }
 @media (max-width: 900px) { .city-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 520px) {
-  .city-stats { gap: 8px; margin-bottom: 24px; }
-  .city-stats div { padding: 10px 11px; border-radius: 14px; }
+  .city-stats { gap: 8px; margin-bottom: 24px; grid-auto-rows: 1fr; } /* both rows as tall as the taller one ("verified members" takes two lines) */
+  .city-stats div { padding: 10px 9px; border-radius: 14px; } /* "communities" and "verified members" keep inside their cards */
   .city-stats strong { font-size: clamp(1.05rem, 4.8vw, 1.3rem); }
   .city-stats span { font-size: .74rem; }
 }
+@media (max-width: 360px) { .city-stats span { font-size: .7rem; } }
 .cities-intro { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 56px; align-items: end; padding-bottom: 14px; }
 .cities-intro .page-title { margin: 6px 0 0; }
 .cities-intro .lead { margin: 0; }
@@ -1189,6 +1190,7 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .hero__trust li { font-size: .8rem; font-weight: 600; color: var(--text-2); padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); }
 .hero__trust li::before { content: "✓"; color: var(--ok-text); font-weight: 800; margin-right: 6px; }
 .hero__cta--end { margin: 0; }
+@media (max-width: 480px) { .cta-band .hero__cta--end { flex: 1 1 100%; } } /* the closing buttons reach both edges on a phone, like the hero's */
 .why-now { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
 .why-now .card { padding: 24px 22px; }
 .why-now p { margin: 0; }

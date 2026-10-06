@@ -36,3 +36,9 @@ test("signed-out dashboard: while /api/me answers, #dash-out holds its place uns
   // without the script nothing changes: it stays hidden as before (no empty room for a visitor without JavaScript)
   for (const f of ["scripts/pages/src/dashboard.html", "public/dashboard.html"]) assert.match(read(f), /<section class="dash-out" id="dash-out" hidden>/, f);
 });
+
+test("the toast: one line when it fits (it wrapped 'Contract address copied' onto two lines over the trade tiles), never wider than the screen", () => {
+  const t = /\n\.toast \{([^}]*)\}/.exec(css)[1];
+  assert.match(t, /left: 50%; bottom: 24px; transform: translateX\(-50%\);/);
+  assert.match(t, /width: max-content; max-width: calc\(100vw - 32px\); overflow-wrap: anywhere;/, "as wide as its words, within the gutters; a bare address still breaks");
+});
