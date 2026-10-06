@@ -135,10 +135,19 @@ test("chart words: the unit it opens in, and a footnote that says where the seri
   const chart = { candles: { interval: "1h", rows: [[1791200000, 6e-8, 7e-8, 6e-8, 7e-8]] }, line: { interval: "1h", points: pts(14), recordingSince: "2026-10-04T06:20:00.000Z" } };
   const usd = C.seriesFrom(chart, { unit: "USD" });
   const foot = P.chartFoot(usd, "7d", { x0: 1000, x1: 9000, short: true }, chart, "Europe/Paris");
-  assert.match(foot, /^Price in USD: read by vicinity\.city \(Jupiter's last trade, or the on-chain curve × SOL\), a reading every 1 hour · recorded since Oct 4, \d\d:20 · history in this range starts /);
+  assert.match(foot, /^Price in USD: read by vicinity\.city \(Jupiter's last trade, or the on-chain curve × SOL\), a reading every hour · recorded since Oct 4, \d\d:20 · history in this range starts /);
   assert.match(foot, / · times in your time zone \(Europe\/Paris\)$/);
   assert.match(P.chartFoot(C.seriesFrom(chart, { unit: "SOL", style: "candles" }), "7d", null, chart, ""), /^Price in SOL: Raydium LaunchLab \(the curve's price after each trade\), 1-hour candles · times in your time zone$/);
-  assert.match(P.chartFoot(C.seriesFrom(chart, { unit: "MCAP", supply: 1e9 }), "7d", null, chart, ""), /^Market cap = price × 1,000,000,000 \(the supply is fixed: minting is disabled on the chain\)\./);
+  assert.match(P.chartFoot(C.seriesFrom(chart, { unit: "MCAP", supply: 1e9 }), "7d", null, chart, "", 1e9), /^Market cap = price × 1,000,000,000 \(the supply is fixed: minting is disabled on the chain\)\./);
+  // the footnote names the supply the chart really multiplied by (a city coin with 500,000,000 said 1,000,000,000: review DATA-MCAP-FOOTNOTE)
+  assert.match(P.chartFoot(C.seriesFrom(chart, { unit: "MCAP", supply: 5e8 }), "7d", null, chart, "", 5e8), /^Market cap = price × 500,000,000 \(/);
+  assert.match(src, /const used = view\.unit === "MCAP" \? supply : SUPPLY;[^\n]*\n    const s = window\.VChart\.pure\.seriesFrom\(d, \{ unit: view\.unit, style: view\.unit === "SOL" \? view\.style : "line", supply: used \}\);/);
+  assert.match(src, /chartFoot\(s, view\.range, dom, d, tz, used\)/, "the same number in the series and in its footnote");
+  // plain words for every interval ("a reading every 4 hour" on the 30-day range: review OA-9)
+  for (const [iv, words] of [["4h", "4 hours"], ["1d", "day"], ["1h", "hour"], ["10m", "10 minutes"]]) {
+    const fake = { kind: "line", unit: "USD", interval: C.INTERVALS[iv], empty: null };
+    assert.match(P.chartFoot(fake, "30d", null, {}, ""), new RegExp(`a reading every ${words} ·`), iv);
+  }
   assert.doesNotMatch(P.chartFoot(C.seriesFrom({ candles: { rows: [] } }, { unit: "SOL" }), "24h", null, {}, ""), /candles as a line|minute/, "an empty range names no interval");
 });
 
@@ -204,4 +213,13 @@ test("honesty (review): each figure in the header line names its own source, and
   assert.match(P.cityAbout(city({ launchpad: "raydium-launchlab" })), /launched by its founder on Raydium LaunchLab, paired with SOL/);
   assert.match(P.cityAbout(city({})), /on Raydium LaunchLab/, "the curve the chain found is enough");
   assert.equal(P.onLaunchLab(city({ curve: null, launchpad: null })), false);
+});
+
+test("the chart legend names its source and is written only when it changes (a polite live region re-read it every 30 s: review A11Y-LEGEND-LIVE, OA-10)", () => {
+  assert.equal(P.legendText({ unit: "USD" }, "▼ 3.16%", "24 hours"), "vicinity.city readings: ▼ 3.16% over 24 hours", "not to be mistaken for Jupiter's 24 h change in the header");
+  assert.equal(P.legendText({ unit: "SOL" }, "▲ 1.20%", "7 days"), "Raydium LaunchLab: ▲ 1.20% over 7 days");
+  const draw = src.slice(src.indexOf("  function drawChart(animate) {"), src.indexOf("  async function loadChart("));
+  assert.doesNotMatch(draw, /leg\.textContent =|\$\("#coin-legend"\)\.textContent =|\$\("#coin-chart-foot"\)\.textContent =/, "no unconditional writes");
+  assert.match(draw, /put\(leg, legendText\(s, c\.text, dom && dom\.short \? "the history shown" : RANGE_WORDS\[view\.range\]\)\);/);
+  assert.match(draw, /if \(leg\.className !== cls\) leg\.className = cls;/);
 });

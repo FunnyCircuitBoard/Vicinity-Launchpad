@@ -2,7 +2,7 @@
 // recorded), from this site's own GET /api/coin and /api/coin/chart (src/coin.js). Nothing here talks to another site; the
 // links to Raydium, Jupiter, GeckoTerminal / DEX Screener and Solscan are plain links people click.
 // Honesty: every number says where it comes from, the answer's age is shown, a missing number is "—" with the server's reason,
-// nothing is estimated here (the chart's market cap is price × the fixed 1,000,000,000, and it says so).
+// nothing is estimated here (the chart's market cap is price × the supply the chain reports, fixed, and it says which).
 // Live: the numbers refresh every 30 s while the page is looked at (slower after a failure, never while the tab is hidden), and a
 // new value eases through the site's motion layer (V.liveNums; a price never counts up from 0).
 // An address that is not listed never reaches the page: the server answers 404 and the page says the coin is not listed, without
@@ -20,6 +20,7 @@
   const RANGES = ["1h", "24h", "7d", "30d", "all"], UNITS = ["USD", "SOL", "MCAP"], STYLES = ["line", "candles"];
   const RANGE_WORDS = { "1h": "1 hour", "24h": "24 hours", "7d": "7 days", "30d": "30 days", all: "all of its history" };
   const INTERVAL_WORDS = { "1m": "1-minute", "10m": "10-minute", "15m": "15-minute", "1h": "1-hour", "4h": "4-hour", "1d": "1-day" };
+  const EVERY_WORDS = { "1m": "minute", "10m": "10 minutes", "15m": "15 minutes", "1h": "hour", "4h": "4 hours", "1d": "day" }; // "a reading every …"
   const SUPPLY = 1_000_000_000;
 
   /** The mint in the address bar, or null (anything that is not an address is never used, never shown). */
@@ -197,23 +198,25 @@
     const rows = chart && chart.candles && Array.isArray(chart.candles.rows) ? chart.candles.rows.length : 0;
     return pts >= 12 ? "USD" : rows >= 2 ? "SOL" : "USD";
   }
-  /** The line under the chart: where the series comes from and what span it covers. */
-  function chartFoot(series, range, dom, chart, tzName) {
+  /** The line under the chart: where the series comes from and what span it covers. `supply`: what a market cap was multiplied by. */
+  function chartFoot(series, range, dom, chart, tzName, supply = null) {
     if (!series) return "";
     const iv = Object.keys(window.VChart ? window.VChart.pure.INTERVALS : {}).find((k) => window.VChart.pure.INTERVALS[k] === series.interval);
-    const what = series.kind === "candles" ? `${INTERVAL_WORDS[iv] || ""} candles` : series.unit === "SOL" ? `${INTERVAL_WORDS[iv] || ""} candles as a line` : `a reading every ${iv === "10m" ? "10 minutes" : (INTERVAL_WORDS[iv] || "").replace(/-/, " ")}`;
+    const what = series.kind === "candles" ? `${INTERVAL_WORDS[iv] || ""} candles` : series.unit === "SOL" ? `${INTERVAL_WORDS[iv] || ""} candles as a line` : `a reading every ${EVERY_WORDS[iv] || "few minutes"}`;
     const parts = [], how = series.empty ? "" : `, ${what}`; // an empty range names no interval
     if (series.unit === "SOL") parts.push(`Price in SOL: Raydium LaunchLab (the curve's price after each trade)${how}`);
-    else if (series.unit === "MCAP") parts.push(`Market cap = price × 1,000,000,000 (the supply is fixed: minting is disabled on the chain). Price: vicinity.city readings${how}`);
+    else if (series.unit === "MCAP") parts.push(`Market cap = price × ${num(supply) ? intFmt.format(supply) : "the supply"} (the supply is fixed: minting is disabled on the chain). Price: vicinity.city readings${how}`);
     else parts.push(`Price in USD: read by vicinity.city (Jupiter's last trade, or the on-chain curve × SOL)${how}`);
     if (series.unit !== "SOL" && chart && chart.line && chart.line.recordingSince) parts.push(`recorded since ${fmtDate(chart.line.recordingSince)}`);
     if (dom && dom.short) parts.push(`history in this range starts ${fmtDate(new Date(dom.x0 * 1000).toISOString())}`);
     parts.push(tzName ? `times in your time zone (${tzName})` : "times in your time zone");
     return parts.join(" · ");
   }
+  /** The chart's legend: "vicinity.city readings: ▼ 3.16% over 24 hours" (USD and market cap), "Raydium LaunchLab: …" (SOL). */
+  const legendText = (series, change, span) => `${series && series.unit === "SOL" ? "Raydium LaunchLab" : "vicinity.city readings"}: ${change} over ${span}`;
   const fmtDate = (iso) => { const t = Date.parse(str(iso)); return Number.isFinite(t) ? new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""; };
 
-  const pure = { isAddr, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, onLaunchLab, priceLine, cityAbout, RANGES, UNITS, STYLES };
+  const pure = { isAddr, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, priceLine, cityAbout, RANGES, UNITS, STYLES };
   window.VCoin = { pure };
   if (typeof document === "undefined" || !window.V || !window.VChart || !window.VChart.create) return; // node: the helpers are enough
 
@@ -498,13 +501,15 @@
     const d = hit.d;
     if (!unitDecided) { view.unit = defaultUnit(d); unitDecided = true; paintControls(); }
     const supply = data && data.facts && data.facts.mintingDisabled && num(data.facts.supply) ? data.facts.supply : null;
-    const s = window.VChart.pure.seriesFrom(d, { unit: view.unit, style: view.unit === "SOL" ? view.style : "line", supply: view.unit === "MCAP" ? supply : SUPPLY });
+    const used = view.unit === "MCAP" ? supply : SUPPLY; // the market cap is the chain's own supply × the price, and the footnote says which
+    const s = window.VChart.pure.seriesFrom(d, { unit: view.unit, style: view.unit === "SOL" ? view.style : "line", supply: used });
+    const leg = $("#coin-legend");
     if (s.empty) {
       chart.clear();
       const other = view.unit !== "SOL" ? window.VChart.pure.seriesFrom(d, { unit: "SOL" }) : null;
       chartMsg(`${s.empty}.`, { alt: other && !other.empty ? { text: "Show the SOL price (since launch)", go: () => setUnit("SOL") } : null });
-      $("#coin-chart-foot").textContent = chartFoot(s, view.range, null, d, tz);
-      $("#coin-legend").textContent = "";
+      put($("#coin-chart-foot"), chartFoot(s, view.range, null, d, tz, used));
+      put(leg, "");
       return;
     }
     chartMsg("");
@@ -514,10 +519,12 @@
     if (animate === "ping" && key === chartKey) animate = false;
     chartKey = key;
     const dom = chart.set(s, { range: view.range, nowSec: Math.floor(Date.now() / 1000), animate });
-    $("#coin-chart-foot").textContent = chartFoot(s, view.range, dom, d, tz);
-    const c = chip(window.VChart.pure.changePct(s.first, s.last));
-    const leg = $("#coin-legend"); leg.className = `coin-chart__legend ${c.cls}`;
-    leg.textContent = `${c.text} over ${dom && dom.short ? "the history shown" : RANGE_WORDS[view.range]}`;
+    put($("#coin-chart-foot"), chartFoot(s, view.range, dom, d, tz, used));
+    const c = chip(window.VChart.pure.changePct(s.first, s.last)), cls = `coin-chart__legend ${c.cls}`;
+    if (leg.className !== cls) leg.className = cls;
+    // written only when it changes (a polite live region re-reads a replaced text node), and it names its source: the header's
+    // 24 h change is Jupiter's, this one is the chart's own series
+    put(leg, legendText(s, c.text, dom && dom.short ? "the history shown" : RANGE_WORDS[view.range]));
     $("#coin-canvas").setAttribute("aria-label", `Price chart, ${RANGE_WORDS[view.range]}, ${s.unit === "MCAP" ? "market cap" : s.unit}: from ${window.VChart.pure.fmtValue(s.first, s.unit === "SOL" ? "SOL" : "USD")} to ${window.VChart.pure.fmtValue(s.last, s.unit === "SOL" ? "SOL" : "USD")} (${c.text}). Arrow keys read each point.`);
   }
   async function loadChart(animate, force) {
