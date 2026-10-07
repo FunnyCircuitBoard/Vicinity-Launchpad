@@ -119,6 +119,10 @@ function impactBps(sqrtBefore: bigint, quoteAmount: bigint, coinAmount: bigint, 
 }
 
 type RawQuote = ReturnType<typeof quoteSwap>;
+/** DBC accepts a trade that returns nothing (a 1-lamport buy gives 0 coins for a 1-lamport fee); the SDK refuses to quote it. */
+function refuseNothingOut(q: RawQuote): void {
+  if (q.out === 0n) throw new CurveError('AmountIsZero', 'this trade would return nothing; trade a larger amount');
+}
 function feesOf(q: RawQuote): FeeBreakdown {
   const { toHolders, toFounder } = splitHarvest(q.creator);
   return { total: q.fee, meteora: q.protocol, referral: q.referral, devWallet: q.partner, city: q.creator, holders: toHolders, founder: toFounder };
@@ -142,7 +146,9 @@ export interface QuoteOptions { slippageBps?: number; /** the trade carries the 
  * Buy with an exact amount of the quote token (fee included). If that amount
  * would push the price past the graduation price, the quote switches to DBC's
  * partial fill: the curve takes only what it needs to reach its target and the
- * rest stays with the buyer (`refund`).
+ * rest stays with the buyer (`refund`). (buildBuy sends every buy as a partial
+ * fill, which below the graduation price is the same trade.) A buy or sell
+ * that would return nothing is refused (CurveError AmountIsZero).
  */
 export function quoteBuy(pool: PoolLike, config: CurveLike, { amountIn, slippageBps = 100, referral = true }: QuoteOptions & { amountIn: bigint }): TradeQuote {
   const amount = BigInt(amountIn);
@@ -155,6 +161,7 @@ export function quoteBuy(pool: PoolLike, config: CurveLike, { amountIn, slippage
     mode = SwapMode.PartialFill;
     q = quoteSwap(pool, config, { direction: Direction.Buy, mode, amount0: amount, hasReferral: referral });
   }
+  refuseNothingOut(q);
   const minOut = minOutWithSlippage(q.out, slippageBps);
   return finish('buy', mode, q, pool, config, amount, minOut, minOut, null);
 }
@@ -170,6 +177,7 @@ export function quoteBuyExactOut(pool: PoolLike, config: CurveLike, { amountOut,
 export function quoteSell(pool: PoolLike, config: CurveLike, { amountIn, slippageBps = 100, referral = true }: QuoteOptions & { amountIn: bigint }): TradeQuote {
   const amount = BigInt(amountIn);
   const q = quoteSwap(pool, config, { direction: Direction.Sell, mode: SwapMode.ExactIn, amount0: amount, hasReferral: referral });
+  refuseNothingOut(q);
   const minOut = minOutWithSlippage(q.out, slippageBps);
   return finish('sell', SwapMode.ExactIn, q, pool, config, amount, minOut, minOut, null);
 }

@@ -60,6 +60,17 @@ test('design 9.5: filling the whole curve costs 86.075949368 SOL for 793,099,988
   assert.throws(() => quoteBuy(q.poolAfter, cfg, { amountIn: SOL }), (e: unknown) => e instanceof CurveError && /PoolIsCompleted/.test((e as Error).message));
 });
 
+test('a trade that would return nothing is refused before it is built (review nit N6: DBC accepts a 1-lamport buy for 0 coins)', () => {
+  assert.throws(() => quoteBuy(start, cfg, { amountIn: 1n }), (e: unknown) => e instanceof CurveError && /return nothing/.test((e as Error).message));
+  const q = quoteBuy(start, cfg, { amountIn: SOL });
+  assert.throws(() => quoteSell(q.poolAfter, cfg, { amountIn: 1n }), /return nothing/);
+  // the smallest buy that returns a coin unit is quoted normally
+  let n = 1n;
+  for (;;) { try { quoteBuy(start, cfg, { amountIn: n }); break; } catch { n += 1n; } }
+  assert.ok(n > 1n && n < 1_000n, `smallest buy ${n} lamports`);
+  assert.ok(quoteBuy(start, cfg, { amountIn: n }).amountOut > 0n);
+});
+
 test('sells: exact in and exact out agree with each other', () => {
   const b = quoteBuy(start, cfg, { amountIn: 10n * SOL });
   const s = quoteSell(b.poolAfter, cfg, { amountIn: b.amountOut / 3n });
