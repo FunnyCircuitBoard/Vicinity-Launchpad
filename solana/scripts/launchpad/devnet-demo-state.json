@@ -110,6 +110,626 @@
       ],
       "lookupTable": "5tPTizNodKvKEo8k7a9NjRDucMNVQsQvHrqjEmwXCXhe",
       "addresses": 25
+    },
+    "preflight": {
+      "done": true,
+      "at": "2026-10-07T15:36:29.548Z",
+      "deployerSpent": "0",
+      "deployerBalance": "4158068320",
+      "rewardsRegistry": "2rKKwGGcJEDRJBhdHRPtHQpoxPmq9wPWWj3uMrcRaRg3"
+    },
+    "fund-wallets": {
+      "done": true,
+      "at": "2026-10-07T15:36:30.697Z",
+      "deployerSpent": "445005000",
+      "txs": [
+        {
+          "label": "fund demo wallets",
+          "signature": "5ENXSHNiR4XAaW2sUh2apHCZVR2RGBTwnY3NHr7PXPBXRsMAdiXGrZAxFXPJLfeyE1F23UGE1zM88fcnE8iK7Fr8",
+          "bytes": 453,
+          "explorer": "https://explorer.solana.com/tx/5ENXSHNiR4XAaW2sUh2apHCZVR2RGBTwnY3NHr7PXPBXRsMAdiXGrZAxFXPJLfeyE1F23UGE1zM88fcnE8iK7Fr8?cluster=devnet"
+        }
+      ],
+      "amounts": {
+        "3oXqUyBGGe9gfPX3TPAeU9byD9WJ9LdskcpP2gmUTr9m": "120000000",
+        "91WeAyurya1sKGLmLoAbCyD7o5cRhh5UGm24xKvxwGgr": "200000000",
+        "AAMTJL8EUMJq8noHmgaahN57hXio5iMZCjZa3dPew1Th": "60000000",
+        "2ZouHQPoP6HRzdG5K64DGb6VChgEqDnH3MXdxCLwgL94": "50000000",
+        "C66UDS1ghGHmrUbmfeDymtDtFGRqbQcXyDQMqyKa6sAL": "15000000"
+      }
+    },
+    "init-launchpad": {
+      "done": true,
+      "at": "2026-10-07T15:36:31.669Z",
+      "deployerSpent": "1523920",
+      "txs": [
+        {
+          "label": "init_launchpad",
+          "signature": "x7W6dE47JLdXHTrDVdj7fLpv41aPHhQNoSbB685AKuyUevKvPobr8bRUKERfqwgoeXgJixXokyH4QEHQSJCgxKD",
+          "bytes": 354,
+          "explorer": "https://explorer.solana.com/tx/x7W6dE47JLdXHTrDVdj7fLpv41aPHhQNoSbB685AKuyUevKvPobr8bRUKERfqwgoeXgJixXokyH4QEHQSJCgxKD?cluster=devnet"
+        }
+      ]
+    },
+    "add-configs": {
+      "done": true,
+      "at": "2026-10-07T15:36:36.090Z",
+      "deployerSpent": "2387440",
+      "txs": [
+        {
+          "label": "add_launch_config 4ZLtvU1zieGwbexVScEpEyrPV4uz53ZXVaT6fQoonrD7",
+          "signature": "4kESa4SpXZgumNPBjoRRGgzyLENwqAP6fGFzz9y3c7LpwcQWnBswjVmmfAov19yc6THEzbRSvymwMrHgirQdda7",
+          "bytes": 386,
+          "explorer": "https://explorer.solana.com/tx/4kESa4SpXZgumNPBjoRRGgzyLENwqAP6fGFzz9y3c7LpwcQWnBswjVmmfAov19yc6THEzbRSvymwMrHgirQdda7?cluster=devnet"
+        },
+        {
+          "label": "add_launch_config 8ZcsWij7BWkhrkvoJuGULN3XreHT9De4dj4ZEVgRMi8J",
+          "signature": "495yKfuo2FNufpPLvYrFcSEaUyhN8QWAFkdUL9dVcXRNm33H66WfTiAkSaNEHxNxw14PJLN48PwVWWwboHsCBEHJ",
+          "bytes": 386,
+          "explorer": "https://explorer.solana.com/tx/495yKfuo2FNufpPLvYrFcSEaUyhN8QWAFkdUL9dVcXRNm33H66WfTiAkSaNEHxNxw14PJLN48PwVWWwboHsCBEHJ?cluster=devnet"
+        }
+      ]
+    },
+    "approve": {
+      "done": true,
+      "at": "2026-10-07T15:36:42.720Z",
+      "deployerSpent": "4693680",
+      "txs": [
+        {
+          "label": "approve_launch DEMO",
+          "signature": "4Ho5yDv4JzC2HL2TFPqhqhShEpNCpJpP39ddH9HcGzUNKLTni8oL1ygF6UTHSA9BQnPmctLA8Vjj8HzGSupGEkAK",
+          "bytes": 454,
+          "explorer": "https://explorer.solana.com/tx/4Ho5yDv4JzC2HL2TFPqhqhShEpNCpJpP39ddH9HcGzUNKLTni8oL1ygF6UTHSA9BQnPmctLA8Vjj8HzGSupGEkAK?cluster=devnet"
+        },
+        {
+          "label": "approve_launch DEMOT",
+          "signature": "4f7NgSBApqDdpNxZFcqHNfYJoDpEpvF61kVuKudFRLDxSnFxPxrF4W2PeAtMgMLsYTxMYsSmePX9Z4AmZ8HUXqrG",
+          "bytes": 455,
+          "explorer": "https://explorer.solana.com/tx/4f7NgSBApqDdpNxZFcqHNfYJoDpEpvF61kVuKudFRLDxSnFxPxrF4W2PeAtMgMLsYTxMYsSmePX9Z4AmZ8HUXqrG?cluster=devnet"
+        },
+        {
+          "label": "approve_launch DEMOV",
+          "signature": "4VW2nMkqHr7E6TesgW1zdWBHrC1kKwDMkuqMDmHk4P9hTS9ftCwErGx3qp5DUsJvfjRfgqnVieRuFfCrCT3zXWeC",
+          "bytes": 458,
+          "explorer": "https://explorer.solana.com/tx/4VW2nMkqHr7E6TesgW1zdWBHrC1kKwDMkuqMDmHk4P9hTS9ftCwErGx3qp5DUsJvfjRfgqnVieRuFfCrCT3zXWeC?cluster=devnet"
+        }
+      ]
+    },
+    "launch-a": {
+      "done": true,
+      "at": "2026-10-07T15:36:49.812Z",
+      "deployerSpent": "-1559560",
+      "txs": [
+        {
+          "label": "launch + first buy DEMO",
+          "signature": "3xJahVRHCSVwguFhByafAAAmWj4sA6wCoY2j7e7NNuYC3vFTAKszFUJAih9QSQVCqWNGxkvVLAGP2gzzNj1dTfW",
+          "bytes": 869,
+          "explorer": "https://explorer.solana.com/tx/3xJahVRHCSVwguFhByafAAAmWj4sA6wCoY2j7e7NNuYC3vFTAKszFUJAih9QSQVCqWNGxkvVLAGP2gzzNj1dTfW?cluster=devnet"
+        }
+      ],
+      "coin": "Aqr67SzZQ9uiekxa5yrnm7cD4dmHxaX2cfZ73yx7cusb",
+      "mint": "LcYadjDTuhsbR2ASAxPTsgeArXAkk1iDmvQJTJ89f5B",
+      "dbcPool": "b1cdZq6rSh3q72L5Ne4KoCJjuV3gWbf7Pmb6WumdqyW",
+      "quoteMint": "HFFBwqSde8ehdE3AuoPjYZWbiaVdXJ25Su5QhhpWhBBX",
+      "holdersPot": "AbhatuozdcDKp1DewZgm8q2rkY6uXpdgYFrQCGs7Lp9P",
+      "founderVault": "FJvzjeDsNXVKaWgnGnK2c5yxtoh41QTTBkzXkwpGtw9Y",
+      "metadata": {
+        "address": "Fsed63GXJ5MPmq1fhVbtWnPSY9cR8zAL7mni3ZoAWXQR",
+        "name": "Demo City",
+        "symbol": "DEMO",
+        "uri": "https://vicinity.city/coin-meta/LcYadjDTuhsbR2ASAxPTsgeArXAkk1iDmvQJTJ89f5B.json",
+        "isMutable": false,
+        "updateAuthority": "11111111111111111111111111111111",
+        "problems": []
+      },
+      "firstBuy": {
+        "amountIn": "1000000000000",
+        "quotedCoins": "107999440831799",
+        "received": "107999440831799"
+      }
+    },
+    "launch-b": {
+      "done": true,
+      "at": "2026-10-07T15:36:54.887Z",
+      "deployerSpent": "-1559560",
+      "txs": [
+        {
+          "label": "launch DEMOT",
+          "signature": "5XSqyprDm4bkWf4gpA5cfL5Fav16f1Bv5aBDTguiNG8SGeuBg79Po8bCUdXp8kbJpvDEH374o4Nb8JoZHk7rokht",
+          "bytes": 677,
+          "explorer": "https://explorer.solana.com/tx/5XSqyprDm4bkWf4gpA5cfL5Fav16f1Bv5aBDTguiNG8SGeuBg79Po8bCUdXp8kbJpvDEH374o4Nb8JoZHk7rokht?cluster=devnet"
+        }
+      ],
+      "coin": "BWsfpRwKrU8YseoWNoa2vMgh3hxy8e8e3fuN6xp2hjUz",
+      "mint": "8b5vSRvgqgaedww5x45FCVZrMyiRQCLYPVzVeuUYTBPc",
+      "dbcPool": "HJVpXo55geGFZu2KiRmjWj79vzNy6jeCnsTCuUK51dqw",
+      "quoteMint": "HFFBwqSde8ehdE3AuoPjYZWbiaVdXJ25Su5QhhpWhBBX",
+      "holdersPot": "9rV5eBQFM3HUMXYE6BBVLAUrUnvUsugxAJzkozYQ9oSC",
+      "founderVault": "57hauUhzfXHu3ZbXHQRh11q1Ro7upeEC1dwSmrWVnSKC",
+      "metadata": {
+        "address": "CrgwXc7AMcWzh97noXsTWtwXgCSRHmvTr3NhA9AnCbJL",
+        "name": "Demo Town",
+        "symbol": "DEMOT",
+        "uri": "https://vicinity.city/coin-meta/8b5vSRvgqgaedww5x45FCVZrMyiRQCLYPVzVeuUYTBPc.json",
+        "isMutable": false,
+        "updateAuthority": "11111111111111111111111111111111",
+        "problems": []
+      },
+      "firstBuy": null
+    },
+    "launch-c": {
+      "done": true,
+      "at": "2026-10-07T15:37:00.449Z",
+      "deployerSpent": "-1559560",
+      "txs": [
+        {
+          "label": "launch + first buy DEMOV",
+          "signature": "2VzWghJZrNmcbkKLyeNzNW7dGNSQLsJxa1XmkTwJucF1DToCc4q4aM2i98NgaAFQjWdct24NvWoJPEEKghMj6AL7",
+          "bytes": 970,
+          "explorer": "https://explorer.solana.com/tx/2VzWghJZrNmcbkKLyeNzNW7dGNSQLsJxa1XmkTwJucF1DToCc4q4aM2i98NgaAFQjWdct24NvWoJPEEKghMj6AL7?cluster=devnet"
+        }
+      ],
+      "coin": "DcCDswmYyzh4ZXkXHLenxGGcjq1WGSXpEgiuPc4pwZCw",
+      "mint": "EAXzD7eEJuFr8kfmqrrPBVuUNsd53PWHfsHuYFD8nPby",
+      "dbcPool": "GCr3j1bQXJapUQFjxmnVCoPc7ciE1L2UxvKKRwtHpinA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "holdersPot": "3YTiQiHkEiNgX7NZuDqMBiksfTBT7G569xdHKLKhDTZe",
+      "founderVault": "B95saAytFerNYFvFn6QgNvGk5TUmrXByJHf5KjNgWKYy",
+      "metadata": {
+        "address": "7EwefSSNCqeGKQJpyPNLrXmSrhYs2GLYM2YwkxWwcq1G",
+        "name": "Demo Village",
+        "symbol": "DEMOV",
+        "uri": "https://vicinity.city/coin-meta/EAXzD7eEJuFr8kfmqrrPBVuUNsd53PWHfsHuYFD8nPby.json",
+        "isMutable": false,
+        "updateAuthority": "11111111111111111111111111111111",
+        "problems": []
+      },
+      "firstBuy": {
+        "amountIn": "20000000",
+        "quotedCoins": "56861232583158",
+        "received": "56861232583158"
+      }
+    },
+    "trades": {
+      "done": true,
+      "at": "2026-10-07T15:37:19.292Z",
+      "deployerSpent": "0",
+      "txs": [
+        {
+          "label": "buy DEMO with 2,000,000 tVIC (exact in)",
+          "signature": "3TVThFqi9a66BW7ziF6ttPw3SPeTJrT1ipFc49PNQqVVA5XbPLBG4eh4xGuj9mxKLC9Lu2fJWLu1wLsQ2QdkL4An",
+          "bytes": 537,
+          "explorer": "https://explorer.solana.com/tx/3TVThFqi9a66BW7ziF6ttPw3SPeTJrT1ipFc49PNQqVVA5XbPLBG4eh4xGuj9mxKLC9Lu2fJWLu1wLsQ2QdkL4An?cluster=devnet",
+          "kind": "buy",
+          "quoteIn": "2000000000000",
+          "quoteOut": "161707224647297",
+          "fee": "25000000000",
+          "devWallet": "10000000000",
+          "city": "10000000000",
+          "meteora": "4000000000",
+          "referral": "1000000000",
+          "matchesQuote": true
+        },
+        {
+          "label": "sell half of it (exact in)",
+          "signature": "2C9KUSh2e6hFLVDhpidCqRrgFbmZgY6iAxpPVgRJs5m2vBzdNnm1wkMQ1UgTYTJvpCLuTbqSZygeVaBhXxYaZaPy",
+          "bytes": 537,
+          "explorer": "https://explorer.solana.com/tx/2C9KUSh2e6hFLVDhpidCqRrgFbmZgY6iAxpPVgRJs5m2vBzdNnm1wkMQ1UgTYTJvpCLuTbqSZygeVaBhXxYaZaPy?cluster=devnet",
+          "kind": "sell",
+          "quoteIn": "80853612323648",
+          "quoteOut": "1064329913240",
+          "fee": "13472530548",
+          "devWallet": "5389012220",
+          "city": "5389012219",
+          "meteora": "2155604888",
+          "referral": "538901221",
+          "matchesQuote": true
+        },
+        {
+          "label": "buy exactly 5,000,000 DEMO (exact out)",
+          "signature": "aRwAq54L7RTz5416Lwo87asydVuveUWp9GHszLayjsgfzPawamWuvFn9kMKPr1AsYY1eRkRvsciWdYXGu8eygMQ",
+          "bytes": 537,
+          "explorer": "https://explorer.solana.com/tx/aRwAq54L7RTz5416Lwo87asydVuveUWp9GHszLayjsgfzPawamWuvFn9kMKPr1AsYY1eRkRvsciWdYXGu8eygMQ?cluster=devnet",
+          "kind": "buyExactOut",
+          "quoteIn": "61671785440",
+          "quoteOut": "5000000000000",
+          "fee": "770897318",
+          "devWallet": "308358928",
+          "city": "308358927",
+          "meteora": "123343571",
+          "referral": "30835892",
+          "matchesQuote": true
+        },
+        {
+          "label": "buy DEMOV with 0.01 SOL (SOL wrapped and unwrapped)",
+          "signature": "3gt2Q794nUuYYvkcwPNQae7wvWqxsch428NuAoDA8g1hZjF6XrsdX2fnuwE4B2V3znkBf1ebrzao2mEVGKc4V83i",
+          "bytes": 638,
+          "explorer": "https://explorer.solana.com/tx/3gt2Q794nUuYYvkcwPNQae7wvWqxsch428NuAoDA8g1hZjF6XrsdX2fnuwE4B2V3znkBf1ebrzao2mEVGKc4V83i?cluster=devnet",
+          "kind": "buy",
+          "quoteIn": "10000000",
+          "quoteOut": "26229076199394",
+          "fee": "125000",
+          "devWallet": "50000",
+          "city": "50000",
+          "meteora": "20000",
+          "referral": "5000",
+          "matchesQuote": true
+        },
+        {
+          "label": "sell all DEMOV back to SOL",
+          "signature": "646Ao32X7RS3QfCHgQT6JtR8J1HikASBzop6Tnzpdd8LaNiPg4LWJ3jaxxQQhb3PCLjjTZMcoE5LmAX9cY1nRmmP",
+          "bytes": 575,
+          "explorer": "https://explorer.solana.com/tx/646Ao32X7RS3QfCHgQT6JtR8J1HikASBzop6Tnzpdd8LaNiPg4LWJ3jaxxQQhb3PCLjjTZMcoE5LmAX9cY1nRmmP?cluster=devnet",
+          "kind": "sell",
+          "quoteIn": "26229076199394",
+          "quoteOut": "9751561",
+          "fee": "123438",
+          "devWallet": "49376",
+          "city": "49375",
+          "meteora": "19750",
+          "referral": "4937",
+          "matchesQuote": true
+        }
+      ]
+    },
+    "coin-to-coin": {
+      "done": true,
+      "at": "2026-10-07T15:37:24.121Z",
+      "deployerSpent": "0",
+      "txs": [
+        {
+          "label": "coin to coin: DEMO -> DEMOT in one transaction",
+          "signature": "5y3GWNPTEeHM4Aq9PoU1V9BEhXxnzEBqjvbYRvJ1Vr4otZWjfsM6kbiWiNCYukDW2EJW7X6hxadVY7aLWuUg4Bs2",
+          "bytes": 750,
+          "explorer": "https://explorer.solana.com/tx/5y3GWNPTEeHM4Aq9PoU1V9BEhXxnzEBqjvbYRvJ1Vr4otZWjfsM6kbiWiNCYukDW2EJW7X6hxadVY7aLWuUg4Bs2?cluster=devnet"
+        }
+      ],
+      "sold": "21463403080912",
+      "quoteMin": "250906695135",
+      "demotReceived": "29307441722557"
+    },
+    "rewards-init": {
+      "done": true,
+      "at": "2026-10-07T15:37:32.509Z",
+      "deployerSpent": "7365840",
+      "txs": [
+        {
+          "label": "vicinity_rewards init_city for DEMO (Holders, 0% founder, paid in tVIC)",
+          "signature": "24unaQFR3wJshyjAtEJgMuTaViH8Q7NzNKE8zmawU4UsY3Tirca5yZCmHqKsDxbBocJebPUe9T2xR1BCvj1AfGLU",
+          "bytes": 521,
+          "explorer": "https://explorer.solana.com/tx/24unaQFR3wJshyjAtEJgMuTaViH8Q7NzNKE8zmawU4UsY3Tirca5yZCmHqKsDxbBocJebPUe9T2xR1BCvj1AfGLU?cluster=devnet"
+        },
+        {
+          "label": "vicinity_rewards init_city for DEMOT (Holders, 0% founder, paid in tVIC)",
+          "signature": "4mSmp1Q4RDjtyMtADXH6k8iUqqGdb6A98LGtaFRuZTk7Adbt6zgfkYqwQchh1W5DKJ9TbgWHJy6E7BxxRXxKSmub",
+          "bytes": 521,
+          "explorer": "https://explorer.solana.com/tx/4mSmp1Q4RDjtyMtADXH6k8iUqqGdb6A98LGtaFRuZTk7Adbt6zgfkYqwQchh1W5DKJ9TbgWHJy6E7BxxRXxKSmub?cluster=devnet"
+        }
+      ],
+      "config": "6F7QSvGssCv5yk3uV6krVj2JQ3a5i1Qxtvvnt5gxHpFN",
+      "vault": "FvgQrLpbrXyQuYjc7nxpVKiZ1Hp6sdiTvvbBygY1qzAd",
+      "model": "Holders",
+      "founderBps": 0
+    },
+    "graduate-a": {
+      "done": true,
+      "at": "2026-10-07T15:37:42.177Z",
+      "deployerSpent": "26725480",
+      "txs": [
+        {
+          "label": "fill the DEMO curve (partial fill, the rest refunded)",
+          "signature": "2uZjHxSBvueo8DifRMhQtiVRF4pTNmPnqo1haPejzm9pbokp2X2xLH41JrZCp76b7hbfnSVDKcRciwTibaap3rm8",
+          "bytes": 537,
+          "explorer": "https://explorer.solana.com/tx/2uZjHxSBvueo8DifRMhQtiVRF4pTNmPnqo1haPejzm9pbokp2X2xLH41JrZCp76b7hbfnSVDKcRciwTibaap3rm8?cluster=devnet"
+        },
+        {
+          "label": "harvest_curve_fees DEMO (fees + the city's surplus share)",
+          "signature": "3xmaeCd3EfrCZkJTNqbX11vZS6aDCwXf2k1BiChMDqHLz3TuA3HvzdtfaJdeuB558PThm2BSGgAHB5Froq1Rpnq3",
+          "bytes": 756,
+          "explorer": "https://explorer.solana.com/tx/3xmaeCd3EfrCZkJTNqbX11vZS6aDCwXf2k1BiChMDqHLz3TuA3HvzdtfaJdeuB558PThm2BSGgAHB5Froq1Rpnq3?cluster=devnet"
+        },
+        {
+          "label": "graduate DEMO: Meteora migration_damm_v2 (permissionless)",
+          "signature": "5uYQfsWSfEPXfMwYSZbQkYZR7Tr8codBieQd9hYUPUJ2v8bt7AM6JkzsmXdYfFeF48AzbePRJjfeW3WjaQv4WjTd",
+          "bytes": 1109,
+          "explorer": "https://explorer.solana.com/tx/5uYQfsWSfEPXfMwYSZbQkYZR7Tr8codBieQd9hYUPUJ2v8bt7AM6JkzsmXdYfFeF48AzbePRJjfeW3WjaQv4WjTd?cluster=devnet"
+        },
+        {
+          "label": "withdraw_leftover: unsold dust to the dev wallet",
+          "signature": "5pmb9HQwnq5jTJpatKHLbkNsLpygbiGd1j189BcTczL2231NEoaibm6wAovtQpu2NNY7byzNHu71yzikwvr3v5KW",
+          "bytes": 591,
+          "explorer": "https://explorer.solana.com/tx/5pmb9HQwnq5jTJpatKHLbkNsLpygbiGd1j189BcTczL2231NEoaibm6wAovtQpu2NNY7byzNHu71yzikwvr3v5KW?cluster=devnet"
+        }
+      ],
+      "dammPool": "FZxV5nGGVeXrU45pKFY636XHZELMBKboEGQ73JxRmYrB",
+      "poolCoins": "206486200121590",
+      "poolTvic": "24950000000000",
+      "firstPosition": "CWFWFdqmXtCgRNZWazWjhngGhqS5vfuYE2aP6VbR5sNA",
+      "secondPosition": "4fo2BubU2NqAZ96C4ZZwTyffiLAw73zhs9arzgJdtJ3V",
+      "leftoverToDevWallet": "467056"
+    },
+    "pool-trades": {
+      "done": true,
+      "at": "2026-10-07T15:37:46.576Z",
+      "deployerSpent": "0",
+      "txs": [
+        {
+          "label": "buy DEMO on its DAMM v2 pool (1,000,000 tVIC)",
+          "signature": "5LfjMebZwXhwgYqCcX5RScAek7kbem6hquBj9pAgV5AnLjsYJHjkS63TSbbjaUXH4G5xTuRgNWw4b9Kf7vXEPz8s",
+          "bytes": 643,
+          "explorer": "https://explorer.solana.com/tx/5LfjMebZwXhwgYqCcX5RScAek7kbem6hquBj9pAgV5AnLjsYJHjkS63TSbbjaUXH4G5xTuRgNWw4b9Kf7vXEPz8s?cluster=devnet"
+        },
+        {
+          "label": "sell some DEMO on the pool",
+          "signature": "3PRUx9bZj5FcnLAaR1rrxbSJFoKCeLXBsaEQwmeMdSE5oDRQSUCee6X9AxgCJCJ2kkMtbVzgdF63KSGASfbKJ4jK",
+          "bytes": 643,
+          "explorer": "https://explorer.solana.com/tx/3PRUx9bZj5FcnLAaR1rrxbSJFoKCeLXBsaEQwmeMdSE5oDRQSUCee6X9AxgCJCJ2kkMtbVzgdF63KSGASfbKJ4jK?cluster=devnet"
+        }
+      ],
+      "dammPool": "FZxV5nGGVeXrU45pKFY636XHZELMBKboEGQ73JxRmYrB"
+    },
+    "keeper": {
+      "done": true,
+      "at": "2026-10-07T15:41:17.050Z",
+      "deployerSpent": "2991880",
+      "txs": [
+        {
+          "label": "keeper: city 999000001 harvestPool, city 999000001 forward",
+          "signature": "4uB8dKedKeUkwV772sK9BsRwudrKDpX4HkomytiZ6u2HJrRQm15MQ8xj5wXTW1qjyDhZNXJ87hybQedpwu1SbfSZ",
+          "bytes": 911,
+          "explorer": "https://explorer.solana.com/tx/4uB8dKedKeUkwV772sK9BsRwudrKDpX4HkomytiZ6u2HJrRQm15MQ8xj5wXTW1qjyDhZNXJ87hybQedpwu1SbfSZ?cluster=devnet"
+        },
+        {
+          "label": "keeper: city 999000002 harvestCurve, city 999000002 forward",
+          "signature": "43msHDAtpkRxeoP3LPNqWyZG3jwv4FG83ogJjagqdLHg7zdmCJhJzpHSKWBprsWknaSXHhWjn1g93Ru3maMSw12G",
+          "bytes": 878,
+          "explorer": "https://explorer.solana.com/tx/43msHDAtpkRxeoP3LPNqWyZG3jwv4FG83ogJjagqdLHg7zdmCJhJzpHSKWBprsWknaSXHhWjn1g93Ru3maMSw12G?cluster=devnet"
+        },
+        {
+          "label": "keeper: city 999000003 harvestCurve",
+          "signature": "51RfarDPSexPF5VvK5gvoY4Ft7kXEmXtYR3hKuKgXvgsrVUGfpbrzP2h4J5V7QnrGkJQRnqJNSCDTS3P5ipKk32K",
+          "bytes": 756,
+          "explorer": "https://explorer.solana.com/tx/51RfarDPSexPF5VvK5gvoY4Ft7kXEmXtYR3hKuKgXvgsrVUGfpbrzP2h4J5V7QnrGkJQRnqJNSCDTS3P5ipKk32K?cluster=devnet"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "harvestPool",
+          "cityId": "999000001"
+        },
+        {
+          "kind": "forward",
+          "cityId": "999000001"
+        },
+        {
+          "kind": "harvestCurve",
+          "cityId": "999000002"
+        },
+        {
+          "kind": "forward",
+          "cityId": "999000002"
+        },
+        {
+          "kind": "harvestCurve",
+          "cityId": "999000003"
+        }
+      ],
+      "notes": [
+        {
+          "cityId": "999000003",
+          "note": "holders pot not forwarded: no rewards config yet (vicinity_rewards init_city has not run for this coin)"
+        }
+      ],
+      "failed": []
+    },
+    "rewards-round": {
+      "done": true,
+      "at": "2026-10-07T15:41:20.225Z",
+      "deployerSpent": "1579800",
+      "txs": [
+        {
+          "label": "forward the holders pot + fund_epoch_from_vault (a rewards round)",
+          "signature": "4LyFEYw2KpJNjZo6x7DmLGCxH7sFLD4TVUw7kpu6noC5zU8uJ21LK4FhxJE4e7mf9D9GFSU2kmxQgAaXbyRjUnke",
+          "bytes": 756,
+          "explorer": "https://explorer.solana.com/tx/4LyFEYw2KpJNjZo6x7DmLGCxH7sFLD4TVUw7kpu6noC5zU8uJ21LK4FhxJE4e7mf9D9GFSU2kmxQgAaXbyRjUnke?cluster=devnet"
+        },
+        {
+          "label": "claim leaf 0 by 2ZouHQ…",
+          "signature": "3cUZav2x4WxP8heE6y22fbvzTQb1AG94Da2Fh1pC2FTz5PsqS28jNduNA69ARNSzPXDXdddnD5xg6ztRbhnQFy7B",
+          "bytes": 573,
+          "explorer": "https://explorer.solana.com/tx/3cUZav2x4WxP8heE6y22fbvzTQb1AG94Da2Fh1pC2FTz5PsqS28jNduNA69ARNSzPXDXdddnD5xg6ztRbhnQFy7B?cluster=devnet"
+        },
+        {
+          "label": "claim leaf 1 by AAMTJL…",
+          "signature": "2haXP3XGXvkmDYfHXRUSaJxfyTApKys3VUnDCLPCn39MWEruYtvk12ssc3hk1TY9z7RRseoCg9BnWkFXbZisUjrE",
+          "bytes": 573,
+          "explorer": "https://explorer.solana.com/tx/2haXP3XGXvkmDYfHXRUSaJxfyTApKys3VUnDCLPCn39MWEruYtvk12ssc3hk1TY9z7RRseoCg9BnWkFXbZisUjrE?cluster=devnet"
+        }
+      ],
+      "epochIndex": "0",
+      "epoch": "GQaCoM13jVQkEX42NNV4dfee6xpxFXsoYpTDX9MV8ojQ",
+      "total": "74781588368",
+      "leaves": [
+        {
+          "claimant": "2ZouHQPoP6HRzdG5K64DGb6VChgEqDnH3MXdxCLwgL94",
+          "amount": "67690265212"
+        },
+        {
+          "claimant": "AAMTJL8EUMJq8noHmgaahN57hXio5iMZCjZa3dPew1Th",
+          "amount": "7091323155"
+        }
+      ],
+      "merkleRoot": "19eb56d0f0d24b17ed9a0c80c903c47a1fb0bbe39dec0a136cc9f3cea6de1692",
+      "snapshotHash": "98406a8afdc30d4c594b2d5e16bc82412583ba963a8927394799fb8b22c5058e",
+      "slot": 508503149,
+      "excluded": [
+        {
+          "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+          "reason": "program address (curve or pool vault, coin PDA, or a multisig vault not on the include list)"
+        },
+        {
+          "owner": "13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN",
+          "reason": "excluded wallet (team or founder)"
+        },
+        {
+          "owner": "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC",
+          "reason": "program address (curve or pool vault, coin PDA, or a multisig vault not on the include list)"
+        },
+        {
+          "owner": "3oXqUyBGGe9gfPX3TPAeU9byD9WJ9LdskcpP2gmUTr9m",
+          "reason": "excluded wallet (team or founder)"
+        }
+      ]
+    },
+    "push-to-holders": {
+      "done": true,
+      "at": "2026-10-07T15:41:28.894Z",
+      "deployerSpent": "5000",
+      "txs": [
+        {
+          "label": "push batch 1/1 (2 holders)",
+          "signature": "66PW1jAohBrG7d35ssBFpK94BBEoLaprG6a9pXwpAZgVeA1FYpxSjVG5Y1VfVpYyWyMpRam96v7pFpaPBjRzFEqH",
+          "bytes": 518,
+          "explorer": "https://explorer.solana.com/tx/66PW1jAohBrG7d35ssBFpK94BBEoLaprG6a9pXwpAZgVeA1FYpxSjVG5Y1VfVpYyWyMpRam96v7pFpaPBjRzFEqH?cluster=devnet"
+        }
+      ],
+      "recipients": [
+        {
+          "owner": "2ZouHQPoP6HRzdG5K64DGb6VChgEqDnH3MXdxCLwgL94",
+          "amount": "1000000000"
+        },
+        {
+          "owner": "AAMTJL8EUMJq8noHmgaahN57hXio5iMZCjZa3dPew1Th",
+          "amount": "1000000000"
+        }
+      ],
+      "batches": 1
+    },
+    "founder-claim": {
+      "done": true,
+      "at": "2026-10-07T15:41:29.776Z",
+      "deployerSpent": "0",
+      "txs": [
+        {
+          "label": "claim_founder_fees DEMO (founder A, paid in tVIC)",
+          "signature": "5dDayedwKmy3dQe5sRMttcJT3BGZCyx4wbJQRxrAtJ2REAWr4n5ZvyaVmnHYSabA9vqw3Ua2VyrQFyV5rY5kZFtN",
+          "bytes": 459,
+          "explorer": "https://explorer.solana.com/tx/5dDayedwKmy3dQe5sRMttcJT3BGZCyx4wbJQRxrAtJ2REAWr4n5ZvyaVmnHYSabA9vqw3Ua2VyrQFyV5rY5kZFtN?cluster=devnet"
+        }
+      ],
+      "claimed": "74781588368"
+    },
+    "payout": {
+      "done": true,
+      "at": "2026-10-07T15:41:35.449Z",
+      "deployerSpent": "15000",
+      "txs": [
+        {
+          "label": "harvest_curve_fees DEMOT",
+          "signature": "3PeRagxNRx5QzFNS5zQyoNVEWb3Kb8P5vEMyo8s22r4RjgvpgTJFdARNFZ3ELyA3FErgA7VcvE8gqEbDvgYoVnDM",
+          "bytes": 756,
+          "explorer": "https://explorer.solana.com/tx/3PeRagxNRx5QzFNS5zQyoNVEWb3Kb8P5vEMyo8s22r4RjgvpgTJFdARNFZ3ELyA3FErgA7VcvE8gqEbDvgYoVnDM?cluster=devnet"
+        },
+        {
+          "label": "set_payout_config (payout key + the one payout wallet)",
+          "signature": "5MNRqqogQkB7oipkRCzjivtcieuYy4oC6bt5kocZYv7swPsDmnU1E8vrwMbdKjBmG51E2wc7FAdmTvfruUPBsmgM",
+          "bytes": 317,
+          "explorer": "https://explorer.solana.com/tx/5MNRqqogQkB7oipkRCzjivtcieuYy4oC6bt5kocZYv7swPsDmnU1E8vrwMbdKjBmG51E2wc7FAdmTvfruUPBsmgM?cluster=devnet"
+        },
+        {
+          "label": "opt_in_payout (founder B, signed, revocable)",
+          "signature": "2ovik2Got6o3bEGYPSJPk7dUTpQ3bfS1Q9K8fCMFWZ5CSYKXmz3uUxvYWNhpQto3MkYTqDMpW43m1kToSQQ849nj",
+          "bytes": 424,
+          "explorer": "https://explorer.solana.com/tx/2ovik2Got6o3bEGYPSJPk7dUTpQ3bfS1Q9K8fCMFWZ5CSYKXmz3uUxvYWNhpQto3MkYTqDMpW43m1kToSQQ849nj?cluster=devnet"
+        },
+        {
+          "label": "payout_founder_fees (payout key -> the fixed payout wallet only)",
+          "signature": "2WZgjWN9hBFhJKx4wmbMAuHidyFQi1jR3ffsc7s9wnQgYSe7xu34qsAgYEBghsog5iMFce2YmiZ4gCR5HBaCFwsc",
+          "bytes": 558,
+          "explorer": "https://explorer.solana.com/tx/2WZgjWN9hBFhJKx4wmbMAuHidyFQi1jR3ffsc7s9wnQgYSe7xu34qsAgYEBghsog5iMFce2YmiZ4gCR5HBaCFwsc?cluster=devnet"
+        },
+        {
+          "label": "revoke_payout_opt_in (founder B)",
+          "signature": "3i73bVocw1koSmKoYCs8ZJVS2m12jzrSW8jZZk7r5tczhP6r9PPeouvAhFNbT3qaDorzuCwEYDPcDnHhysuyEKXt",
+          "bytes": 295,
+          "explorer": "https://explorer.solana.com/tx/3i73bVocw1koSmKoYCs8ZJVS2m12jzrSW8jZZk7r5tczhP6r9PPeouvAhFNbT3qaDorzuCwEYDPcDnHhysuyEKXt?cluster=devnet"
+        },
+        {
+          "label": "set_payout_config(zero, zero): payouts switched off again",
+          "signature": "46QUjoFPUeBYDMJcJf5KgZD8PWApsjfmipxzcAwrGxZNzCEMvXBgxJ57YA51eRBWeiEdVN7ysp7XmjhjZH1okUWS",
+          "bytes": 317,
+          "explorer": "https://explorer.solana.com/tx/46QUjoFPUeBYDMJcJf5KgZD8PWApsjfmipxzcAwrGxZNzCEMvXBgxJ57YA51eRBWeiEdVN7ysp7XmjhjZH1okUWS?cluster=devnet"
+        }
+      ],
+      "planned": [
+        {
+          "cityId": "999000002",
+          "mint": "8b5vSRvgqgaedww5x45FCVZrMyiRQCLYPVzVeuUYTBPc",
+          "founder": "91WeAyurya1sKGLmLoAbCyD7o5cRhh5UGm24xKvxwGgr",
+          "amount": "627266738",
+          "pay": true,
+          "reason": "pay 627266738 to FbsE5UjWhT2CGFtWCDwkRvoGCgezdGnJg3WP2zcgmkkK"
+        }
+      ],
+      "vaultPaid": "627266738",
+      "payoutWalletReceived": "627266738",
+      "refHash": "05d61e41e191ad66c3c120df02b7d1b49a01d91d89dedd2fd2a4039f12f7f6b3",
+      "secondPayoutWithin24h": {
+        "err": {
+          "InstructionError": [
+            1,
+            {
+              "Custom": 6038
+            }
+          ]
+        },
+        "logs": [
+          "Program ComputeBudget111111111111111111111111111111 success",
+          "Program Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7 invoke [1]",
+          "Program log: Instruction: PayoutFounderFees",
+          "Program log: AnchorError thrown in programs/vicinity-launchpad/src/instructions/payout_founder_fees.rs:100. Error Code: PayoutTooSoon. Error Number: 6038. Error Message: the last payout for this coin was less than 24 hours ago.",
+          "Program Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7 consumed 21286 of 199850 compute units",
+          "Program Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7 failed: custom program error: 0x1796"
+        ]
+      }
+    },
+    "sweep": {
+      "done": true,
+      "at": "2026-10-07T15:41:46.656Z",
+      "deployerSpent": "-305993281",
+      "txs": [
+        {
+          "label": "return leftover SOL from 3oXqUy… to the deployer",
+          "signature": "4MuJiJxUz5x46jgNnSWxrqs9wL3X7UimSAHTtJY7tZCnRWzy2DWxWD1gTkzVTUGB1LHRKjrkDZWGb9hu2GHhwuRT",
+          "bytes": 257,
+          "explorer": "https://explorer.solana.com/tx/4MuJiJxUz5x46jgNnSWxrqs9wL3X7UimSAHTtJY7tZCnRWzy2DWxWD1gTkzVTUGB1LHRKjrkDZWGb9hu2GHhwuRT?cluster=devnet"
+        },
+        {
+          "label": "return leftover SOL from 91WeAy… to the deployer",
+          "signature": "UPhHHrDSjtAeTGBaLkxR7y6uTBKFnaWyFjKYi3gmyGYAq36LUSuVwirFmDRkUKhdUgd8uELBa7DLWUx6VWDDKho",
+          "bytes": 257,
+          "explorer": "https://explorer.solana.com/tx/UPhHHrDSjtAeTGBaLkxR7y6uTBKFnaWyFjKYi3gmyGYAq36LUSuVwirFmDRkUKhdUgd8uELBa7DLWUx6VWDDKho?cluster=devnet"
+        },
+        {
+          "label": "return leftover SOL from AAMTJL… to the deployer",
+          "signature": "4BhigQsFZpbw2Lc9d7wUDAeeKzNv62Hps7prXPE4VxjLCJ32FrseTBDedR3Tddxn73q4qMkmT8yxDqcXCu3WfkoD",
+          "bytes": 257,
+          "explorer": "https://explorer.solana.com/tx/4BhigQsFZpbw2Lc9d7wUDAeeKzNv62Hps7prXPE4VxjLCJ32FrseTBDedR3Tddxn73q4qMkmT8yxDqcXCu3WfkoD?cluster=devnet"
+        },
+        {
+          "label": "return leftover SOL from 2ZouHQ… to the deployer",
+          "signature": "1v5LnJ2SZno4g5NgAnEZ1bdGmmFkUAvQhifwQVfVnyUxKo7LX5G3b1Q4EZyvSyKeq831zaukZNMrbSQErJ5WN5C",
+          "bytes": 257,
+          "explorer": "https://explorer.solana.com/tx/1v5LnJ2SZno4g5NgAnEZ1bdGmmFkUAvQhifwQVfVnyUxKo7LX5G3b1Q4EZyvSyKeq831zaukZNMrbSQErJ5WN5C?cluster=devnet"
+        },
+        {
+          "label": "return leftover SOL from C66UDS… to the deployer",
+          "signature": "5yAt3R6o3pNU38Fr5ae7gCxtCVghAvJaCyn7e6tZBwgsaqeS4HhKvU3dHE6gPpSomh5YGHn36U1TbbyppbX4KCHV",
+          "bytes": 257,
+          "explorer": "https://explorer.solana.com/tx/5yAt3R6o3pNU38Fr5ae7gCxtCVghAvJaCyn7e6tZBwgsaqeS4HhKvU3dHE6gPpSomh5YGHn36U1TbbyppbX4KCHV?cluster=devnet"
+        }
+      ],
+      "deployerBalance": "3976447241"
     }
   },
   "addresses": {

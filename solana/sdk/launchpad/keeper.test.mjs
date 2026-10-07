@@ -2,7 +2,9 @@
 // runs against the real programs in tests-launchpad/10-keeper.test.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planKeeper, MigrationProgress } from './keeper.mjs';
+import web3 from '@solana/web3.js';
+import { planKeeper, MigrationProgress, findCityPositions, MAX_POSITIONS_READ } from './keeper.mjs';
+import { PROGRAM_IDS } from './pda.mjs';
 
 const T = 85_000_000_000n;
 function coin(id, { quoteReserve = 0n, creatorQuoteFee = 0n, isMigrated = 0, progress = 0, leftover = 0, surplusTaken = 0, creatorSurplus = 0n, pot = 0n, rewardsProblem = null, positions = [] } = {}) {
@@ -74,4 +76,29 @@ test('positions outside the coin\'s own pool are reported, never harvested (revi
   const p = planKeeper(s, { daily: true });
   assert.deepEqual(kinds(p, 1), []);
   assert.match(p.notes[0].note, /3 position NFT\(s\).*ignored/);
+});
+
+test('NFTs past the read limit are reported, never skipped silently (review: a flood of NFTs sent to the Coin PDA)', async () => {
+  const coinAddr = web3.Keypair.generate().publicKey.toBase58();
+  const nft = (address) => {
+    const d = Buffer.alloc(165);
+    web3.Keypair.generate().publicKey.toBuffer().copy(d, 0); // its mint
+    new web3.PublicKey(coinAddr).toBuffer().copy(d, 32); // owner: the Coin PDA
+    d.writeBigUInt64LE(1n, 64); // amount 1
+    d[108] = 1; // initialized
+    return { address, owner: PROGRAM_IDS.token2022, lamports: 2_074_080n, data: d };
+  };
+  const held = Array.from({ length: MAX_POSITIONS_READ + 3 }, () => nft(web3.Keypair.generate().publicKey.toBase58()));
+  let read = 0;
+  const reader = {
+    async getTokenAccountsByOwner(owner, programId) { assert.equal(owner, coinAddr); assert.equal(programId, PROGRAM_IDS.token2022); return held; },
+    async getMultipleAccounts(addrs) { read += addrs.length; return addrs.map(() => null); }, // no pool, no positions
+  };
+  const coinRec = { address: coinAddr, mint: web3.Keypair.generate().publicKey.toBase58(), quoteMint: 'So11111111111111111111111111111111111111112' };
+  const r = await findCityPositions(reader, coinRec);
+  assert.equal(r.unread, 3);
+  assert.equal(r.ignored, MAX_POSITIONS_READ);
+  assert.equal(read, MAX_POSITIONS_READ + 1, 'the pool plus at most MAX_POSITIONS_READ positions are read');
+  const s = { coins: [{ ...coin(1, { quoteReserve: T, isMigrated: 1, progress: MigrationProgress.CreatedPool, leftover: 1, surplusTaken: 1 }), unreadPositions: r.unread }] };
+  assert.match(planKeeper(s, { daily: true }).notes[0].note, /3 position NFT\(s\) beyond the first 1000.*not read/);
 });

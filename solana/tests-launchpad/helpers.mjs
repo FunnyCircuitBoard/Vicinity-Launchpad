@@ -695,6 +695,10 @@ export function svmReader(w) {
       return w.svm.getProgramAccounts(address(String(programId))).map((a) => toAcc(a.address, a))
         .filter((a) => (dataSize === undefined || a.data.length === dataSize) && memcmp.every((m) => memcmpOk(a.data, m)));
     },
+    async getTokenAccountsByOwner(owner, programId) {
+      return w.svm.getProgramAccounts(address(String(programId))).map((a) => toAcc(a.address, a))
+        .filter((a) => a.data.length >= 64 && new web3.PublicKey(a.data.subarray(32, 64)).toBase58() === String(owner));
+    },
     async getMultipleAccounts(addrs) { return addrs.map((x) => { const a = w.account(x); return a ? toAcc(x, a) : null; }); },
   };
 }
@@ -703,13 +707,31 @@ export function svmReader(w) {
  * the in-process VM, so tests also run `connectionReader` (the code path of
  * scripts/launchpad/crank.mjs) including its RPC filter encoding.
  */
-export function fakeConnection(w) {
+export function fakeConnection(w, { publicRpc = false } = {}) {
   const info = (a) => ({ owner: new web3.PublicKey(String(a.programAddress)), lamports: Number(a.lamports), data: Buffer.from(a.data), executable: false });
   return {
     async getProgramAccounts(programId, { filters = [] } = {}) {
+      // { publicRpc: true } answers like api.devnet/mainnet-beta.solana.com (Agave with the token programs
+      // excluded from the program index): a token-program scan is served only through the mint or owner
+      // index, i.e. with dataSize 165 (or the token-account-state filter) plus a 32-byte memcmp at offset 0 or 32
+      if (publicRpc && [PROGRAM_IDS.token, PROGRAM_IDS.token2022].includes(programId.toBase58())) {
+        const sized = filters.some((f) => f.dataSize === 165 || f.tokenAccountState !== undefined);
+        const indexed = filters.some((f) => f.memcmp && [0, 32].includes(f.memcmp.offset) && bs58.decode(f.memcmp.bytes).length === 32);
+        if (!(sized && indexed)) {
+          const e = new Error(`failed to get accounts owned by program ${programId.toBase58()}: ${programId.toBase58()} excluded from account secondary indexes; this RPC method unavailable for key`);
+          e.code = -32010;
+          throw e;
+        }
+      }
       return w.svm.getProgramAccounts(address(programId.toBase58()))
         .filter((a) => filters.every((f) => (f.dataSize !== undefined ? a.data.length === f.dataSize : memcmpOk(Buffer.from(a.data), f.memcmp))))
         .map((a) => ({ pubkey: new web3.PublicKey(String(a.address)), account: info(a) }));
+    },
+    async getTokenAccountsByOwner(owner, { programId }) {
+      const value = w.svm.getProgramAccounts(address(programId.toBase58()))
+        .filter((a) => a.data.length >= 64 && new web3.PublicKey(Buffer.from(a.data).subarray(32, 64)).equals(owner))
+        .map((a) => ({ pubkey: new web3.PublicKey(String(a.address)), account: info(a) }));
+      return { context: { slot: Number(w.svm.getClock().slot) }, value };
     },
     async getMultipleAccountsInfo(keys) { return keys.map((k) => { const a = w.account(k.toBase58()); return a ? info(a) : null; }); },
     async getAccountInfo(k) { const a = w.account(k.toBase58()); return a ? info(a) : null; },
