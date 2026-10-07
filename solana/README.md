@@ -9,9 +9,11 @@ verifiable Merkle snapshots, and keeps exact accounting. Nothing else.
 (`programs/vicinity-launchpad`), Vicinity's own launchpad on top of Meteora's
 bonding curve: one coin per city, platform fees to the dev wallet, the city's
 fee share split between holders (through this rewards program) and the
-founder, and an opt-in founder payout for X Money. `LAUNCHPAD-DESIGN.md` is its
-specification and `LAUNCHPAD-AUDIT.md` its build and test record. Everything
-below is about `vicinity_rewards`, which the launchpad work did not change.
+founder, and an opt-in founder payout for X Money. Start with `LAUNCHPAD.md`
+(the owner's guide and the auditor's notes); `LAUNCHPAD-DESIGN.md` is its
+specification, `LAUNCHPAD-AUDIT.md` its build and test record and
+`LAUNCHPAD-DEVNET.md` its devnet deployment. Everything below is about
+`vicinity_rewards`, which the launchpad work did not change.
 
 This file is for the owner and the auditor. `SECURITY.md` has the threat model
 and the list of risks with the mechanism and test that answers each.
@@ -196,13 +198,18 @@ solana/
   scripts/init-registry.ts         the owner's one-time init_registry after a deploy (npm run init-registry)
   README.md, SECURITY.md, AUDIT.md this documentation
 
-  programs/vicinity-launchpad/     the launchpad program (LAUNCHPAD-DESIGN.md, LAUNCHPAD-AUDIT.md)
+  programs/vicinity-launchpad/     the launchpad program (LAUNCHPAD.md, LAUNCHPAD-DESIGN.md, LAUNCHPAD-AUDIT.md, LAUNCHPAD-DEVNET.md)
   idls/                            Meteora DBC and DAMM v2 interfaces the launchpad is compiled against
   sdk/launchpad/                   launchpad SDK: addresses, Meteora config, curve maths, instruction builders,
-                                   keeper (graduation and daily fee run), holder snapshot and rewards rounds
+                                   keeper (graduation and daily fee run), holder snapshot and rewards rounds (JavaScript),
+                                   and the typed layer the website uses (index.mts: accounts, quotes, launch/buy/sell/
+                                   coin-to-coin/graduate builders, metadata, pay with anything via Jupiter, holder
+                                   airdrops, rewards rounds, founder payout hooks, platform-fee claims)
   tests-launchpad/                 launchpad in-process tests (litesvm, no validator); README.md there
-  scripts/launchpad/               fetch-fixtures.sh (mainnet program dumps for the tests, pinned hashes),
-                                   crank.mjs (the keeper: npm run launchpad:crank), snapshot.mjs (rewards rounds, read-only)
+  scripts/launchpad/               fetch-fixtures.sh (program dumps for the tests, pinned hashes), crank.mjs (the keeper:
+                                   npm run launchpad:crank), snapshot.mjs (rewards rounds, read-only), setup.mjs
+                                   (config, init, allow-list), claim-platform-fees.mjs (the dev wallet's fees),
+                                   devnet-demo.mjs (the whole flow on devnet)
 ```
 
 ## Build, test, demo
@@ -223,6 +230,7 @@ anchor build                                 # production binary + IDL (target/i
 VICINITY_REQUIRE_SHORT_WINDOWS=1 anchor test -- --features short-windows   # full suite (see tests/README-tests.md)
 anchor localnet & npm run demo               # the auditor's walk-through, see scripts/README-scripts.md
 npm run launchpad:fixtures && npm run test:launchpad && npm run sdk-test:launchpad   # the launchpad (no validator)
+npm run typecheck:launchpad                  # the launchpad's TypeScript SDK
 ```
 
 `--features short-windows` is a test-only build with a 60-second minimum claim
