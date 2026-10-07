@@ -177,16 +177,19 @@ export function swap({ trader, pool, config, baseMint, quoteMint, side, mode = S
 
 /**
  * Coin to coin on two curves priced in the same quote token, in one
- * transaction: sell A exact in for at least `quoteMin`, then buy B exact in
- * with exactly `quoteMin` for at least `minOut`. Anything above `quoteMin`
+ * transaction: sell A exact in for at least `quoteMin`, then buy B with
+ * exactly `quoteMin` for at least `minOut` (partial fill by default: below B's
+ * graduation price that is an exact-in buy; at the end of B's curve the rest
+ * stays as the quote token instead of failing). Anything above `quoteMin`
  * stays in the trader's quote account. If B's minimum is missed the whole
- * transaction fails and A is untouched.
+ * transaction fails and A is untouched. (The TypeScript buildCoinToCoin also
+ * creates the accounts and the referral account; prefer it.)
  */
-export function coinToCoin({ trader, from, to, amountIn, quoteMin, minOut, referral }) {
+export function coinToCoin({ trader, from, to, amountIn, quoteMin, minOut, referral, buyMode = SwapMode.PartialFill }) {
   if (from.quoteMint !== to.quoteMint) throw new Error('coinToCoin: both coins must use the same quote token (otherwise use two transactions with a Jupiter leg)');
   return [
     swap({ trader, pool: from.dbcPool, config: from.dbcConfig, baseMint: from.mint, quoteMint: from.quoteMint, side: 'sell', amount0: amountIn, amount1: quoteMin, referral }),
-    swap({ trader, pool: to.dbcPool, config: to.dbcConfig, baseMint: to.mint, quoteMint: to.quoteMint, side: 'buy', amount0: quoteMin, amount1: minOut, referral }),
+    swap({ trader, pool: to.dbcPool, config: to.dbcConfig, baseMint: to.mint, quoteMint: to.quoteMint, side: 'buy', mode: buyMode, amount0: quoteMin, amount1: minOut, referral }),
   ];
 }
 

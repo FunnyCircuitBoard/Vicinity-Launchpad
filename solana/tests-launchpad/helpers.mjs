@@ -384,6 +384,23 @@ function writePrim(buf, at, ty, v) {
   for (let i = 0; i < size; i++) buf[at + i] = Number((n >> BigInt(8 * i)) & 0xffn);
 }
 /** A Proxy over `buf` laid out as IDL type `name` (bytemuck, explicit padding) starting at `base`. */
+/**
+ * Tests only: read a DBC swap2 (the stand-in for Jupiter's swap in TJ07, TJ08
+ * and TJ10) the way checkJupiterBuild reads Jupiter's own swap: who signs,
+ * where the input comes from and the output goes, the amount in and the
+ * minimum out it enforces. Passed as `swapDecoder` with `jupiterProgram: dbc`.
+ */
+export function dbcSwapAsJupiter(ix) {
+  const d = coderFor(IDL.dbc).instruction.decode(Buffer.from(ix.data, 'base64'));
+  if (!d || d.name !== 'swap2') throw new Error('stand-in: not a DBC swap2');
+  const names = IDL.dbc.instructions.find((i) => i.name === 'swap2').accounts.map((a) => a.name);
+  const acc = (n) => ix.accounts[names.indexOf(n)].pubkey;
+  return {
+    kind: 'dbc-swap2-stand-in', authority: acc('payer'), source: acc('input_token_account'), destinations: [acc('output_token_account')],
+    inAmount: BigInt(d.data.params.amount_0.toString()), minOut: BigInt(d.data.params.amount_1.toString()), platformFeeBps: 0, positiveSlippageBps: 0,
+  };
+}
+
 export function byteView(idl, name, buf, base) {
   const def = idl.types.find((x) => x.name === name);
   const offsets = {};

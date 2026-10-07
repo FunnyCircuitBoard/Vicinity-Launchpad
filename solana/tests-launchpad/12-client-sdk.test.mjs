@@ -15,10 +15,15 @@
 //        SOL; the two-transaction fallback gives the same result
 //   TJ08 sell into anything, the other direction
 //   TJ09 graduation and leftover builders, then trading on the DAMM v2 pool
+//   TJ10 pay with anything near and after graduation: the buy is a partial
+//        fill, a full curve is refused before the buyer's asset is sold, and
+//        the two-transaction buy is rebuilt from the live pool
+//   TJ11 the dev wallet's referral account: after the dev wallet closes it
+//        (unwraps its WSOL), every SDK trade recreates it instead of failing
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSigner } from '@solana/kit';
-import { World, C, ADDRESSES, PROGRAM_IDS, LAMPORTS, P, R, ata, damm, expectFail, harvest, fakeConnection } from './helpers.mjs';
+import { World, C, ADDRESSES, PROGRAM_IDS, LAMPORTS, P, R, ata, damm, expectFail, harvest, fakeConnection, dbcSwapAsJupiter, completeCurve } from './helpers.mjs';
 import * as S from '../sdk/launchpad/index.mts';
 
 const WSOL = ADDRESSES.wsol;
@@ -32,6 +37,27 @@ function rng(seed) {
 const market = (w, coin) => ({ pool: S.decodeDbcPool(w.account(coin.dbcPool).data), config: S.decodeDbcConfig(w.account(coin.dbcConfig).data) });
 const toApi = (ix) => ({ programId: ix.programAddress, accounts: ix.accounts.map((a) => ({ pubkey: a.address, isSigner: (a.role & 2) !== 0, isWritable: (a.role & 1) !== 0 })), data: Buffer.from(ix.data).toString('base64') });
 const rent165 = (w) => w.svm.minimumBalanceForRentExemption(165n);
+const standInOpts = { jupiterProgram: PROGRAM_IDS.dbc, swapDecoder: dbcSwapAsJupiter };
+/** A Jupiter-shaped answer "pay with coin X" for trader t: a real DBC sell of X into t's WSOL account (t first buys X with `solIn`). */
+async function standInPayWith(w, x, t, solIn) {
+  let m = market(w, x);
+  const qx = S.quoteBuy(m.pool, m.config, { amountIn: solIn });
+  await w.send(S.buildBuy({ trader: t.address, coin: x, amountIn: solIn, minOut: qx.minOut }), [t], 'get X', { feePayer: t });
+  const payWith = w.balance(ata(t.address, x.mint));
+  m = market(w, x);
+  const sq = S.quoteSell(m.pool, m.config, { amountIn: payWith, slippageBps: 100, referral: false });
+  return {
+    payWith, sq,
+    build: {
+      inputMint: x.mint, outputMint: WSOL, inAmount: String(payWith), outAmount: String(sq.amountOut), otherAmountThreshold: String(sq.minOut),
+      swapMode: 'ExactIn', slippageBps: 100, routePlan: [{ swapInfo: { ammKey: x.dbcPool, label: 'stand-in (DBC sell)', inputMint: x.mint, outputMint: WSOL, inAmount: String(payWith), outAmount: String(sq.amountOut) } }],
+      computeBudgetInstructions: [], setupInstructions: [toApi(S.createAta(t.address, t.address, WSOL))],
+      swapInstruction: toApi(C.swap({ trader: t.address, pool: x.dbcPool, config: x.dbcConfig, baseMint: x.mint, quoteMint: WSOL, side: 'sell', amount0: payWith, amount1: sq.minOut })),
+      cleanupInstruction: toApi(S.unwrapSol(t.address)), otherInstructions: [], tipInstruction: null,
+      addressesByLookupTableAddress: {}, blockhashWithMetadata: { blockhash: Array(32).fill(7), lastValidBlockHeight: 1 },
+    },
+  };
+}
 const FEE = 5_000n; // one signature
 
 describe('12 client SDK (TypeScript) against the real programs', () => {
@@ -299,7 +325,7 @@ describe('12 client SDK (TypeScript) against the real programs', () => {
       };
       const mt = market(w, target);
       const expected = S.quoteBuy(mt.pool, mt.config, { amountIn: sq.minOut, slippageBps: 100 });
-      const plan = S.composePayWithAnything({ build, trader: t.address, coin: target, minCoinsOut: expected.minOut, jupiterProgram: PROGRAM_IDS.dbc, maxBytes });
+      const plan = S.composePayWithAnything({ build, trader: t.address, coin: target, minCoinsOut: expected.minOut, maxBytes, inAmount: payWith, pool: mt.pool, config: mt.config, ...standInOpts });
       assert.equal(plan.buyAmountIn, sq.minOut);
       assert.equal(plan.expectedSurplus, sq.amountOut - sq.minOut);
       assert.equal(plan.surplusKept, 'SOL');
@@ -343,7 +369,7 @@ describe('12 client SDK (TypeScript) against the real programs', () => {
       swapInstruction: toApi(C.swap({ trader: t.address, pool: other.dbcPool, config: other.dbcConfig, baseMint: other.mint, quoteMint: WSOL, side: 'buy', amount0: sq.minOut, amount1: bq.minOut })),
       cleanupInstruction: null, otherInstructions: [], tipInstruction: null, addressesByLookupTableAddress: {}, blockhashWithMetadata: { blockhash: Array(32).fill(3), lastValidBlockHeight: 1 },
     };
-    const plan = S.composeSellIntoAnything({ build, trader: t.address, coin: a, coinAmountIn: held, minQuoteOut: sq.minOut, jupiterProgram: PROGRAM_IDS.dbc });
+    const plan = S.composeSellIntoAnything({ build, trader: t.address, coin: a, coinAmountIn: held, minQuoteOut: sq.minOut, ...standInOpts });
     assert.equal(plan.mode, 'one-transaction');
     const l0 = w.lamportsOf(t.address);
     await w.send(plan.transactions[0].instructions, [t], 'sell into anything', { feePayer: t });
@@ -352,7 +378,110 @@ describe('12 client SDK (TypeScript) against the real programs', () => {
     assert.equal(w.exists(ata(t.address, WSOL)), false);
     assert.equal(w.lamportsOf(t.address) - l0, sq.amountOut - sq.minOut - FEE - rent165(w), 'the sell surplus above the minimum came back as SOL (less the new coin account and the fee)');
     // a Jupiter response for another amount than the sell guarantees is refused
-    assert.throws(() => S.composeSellIntoAnything({ build: { ...build, inAmount: String(sq.minOut + 1n) }, trader: t.address, coin: a, coinAmountIn: held, minQuoteOut: sq.minOut, jupiterProgram: PROGRAM_IDS.dbc }), /in amount/);
+    assert.throws(() => S.composeSellIntoAnything({ build: { ...build, inAmount: String(sq.minOut + 1n) }, trader: t.address, coin: a, coinAmountIn: held, minQuoteOut: sq.minOut, ...standInOpts }), /in amount/);
+  });
+
+  it('TJ10 pay with anything near and after graduation: partial fill, a full curve refused before the swap, the second transaction rebuilt from the live pool', async () => {
+    const x = await w.launchCoin({ cityId: 120020n, name: 'Paycoin Two', symbol: 'PAYB' });
+    // (a) about 1 SOL left on the target curve, the buyer brings about 3.9 SOL worth of X (the reviewer's R3a)
+    const near = await w.launchCoin({ cityId: 120021n, name: 'Nearly', symbol: 'NEAR' });
+    const whale = await w.signer(500n);
+    await w.trade(whale, near, { side: 'buy', amount0: 85n * LAMPORTS, amount1: 1n, label: 'whale' });
+    const left = 85n * LAMPORTS - w.pool(near.dbcPool).quoteReserve;
+    assert.ok(left > 0n && left < 3n * LAMPORTS, `${left} left`);
+    let t = await w.signer(100n);
+    let s = await standInPayWith(w, x, t, 4n * LAMPORTS);
+    let m = market(w, near);
+    const q = S.quoteBuy(m.pool, m.config, { amountIn: s.sq.minOut, slippageBps: 100 });
+    assert.equal(q.mode, 1, 'the quote is a partial fill');
+    const plan = S.composePayWithAnything({ build: s.build, trader: t.address, coin: near, minCoinsOut: q.minOut, inAmount: s.payWith, pool: m.pool, config: m.config, ...standInOpts });
+    assert.ok(plan.buyAmountIn > left, 'the guaranteed SOL is more than the curve can still take');
+    assert.equal(plan.buyMode, 1);
+    let l0 = w.lamportsOf(t.address);
+    await w.send(plan.transactions[0].instructions, [t], 'pay with X near graduation', { feePayer: t, cu: plan.transactions[0].cuLimit });
+    assert.equal(w.balance(ata(t.address, near.mint)), q.amountOut, 'the coins the partial-fill quote promised');
+    assert.equal(w.balance(ata(t.address, x.mint)), 0n);
+    assert.equal(w.lamportsOf(t.address) - l0, s.sq.amountOut - q.amountIn - rent165(w) - FEE, 'everything the curve did not take came back as SOL');
+    m = market(w, near);
+    assert.ok(m.pool.quoteReserve >= m.config.migrationQuoteThreshold, 'the curve is full');
+    // (b) the curve is full: a new plan is refused before the buyer's X is sold (the reviewer's R3b)
+    t = await w.signer(100n);
+    s = await standInPayWith(w, x, t, 2n * LAMPORTS);
+    assert.throws(() => S.composePayWithAnything({ build: s.build, trader: t.address, coin: near, minCoinsOut: 1n, pool: m.pool, config: m.config, maxBytes: 700, ...standInOpts }), /full/);
+    assert.equal(w.balance(ata(t.address, x.mint)), s.payWith, 'X is still the buyer\'s');
+    // (c) two transactions, and the curve fills between the swap and the buy: step 2 is rebuilt from the live pool and refused; the buyer keeps SOL
+    const racing = await w.launchCoin({ cityId: 120022n, name: 'Racing', symbol: 'RACE' });
+    m = market(w, racing);
+    const two = S.composePayWithAnything({ build: s.build, trader: t.address, coin: racing, minCoinsOut: S.quoteBuy(m.pool, m.config, { amountIn: s.sq.minOut }).minOut, pool: m.pool, config: m.config, maxBytes: 700, ...standInOpts });
+    assert.equal(two.mode, 'two-transactions');
+    l0 = w.lamportsOf(t.address);
+    await w.send(two.transactions[0].instructions, [t], 'tx1 swap', { feePayer: t, cu: two.transactions[0].cuLimit });
+    await completeCurve(w, racing);
+    m = market(w, racing);
+    assert.throws(() => S.buildBuyAfterSwap({ trader: t.address, coin: racing, pool: m.pool, config: m.config, amountIn: two.buyAmountIn }), /full/);
+    assert.equal(w.lamportsOf(t.address) - l0, s.sq.amountOut - FEE, 'the buyer holds the swap\'s SOL, nothing was lost');
+    // (d) two transactions, the curve did not fill: step 2 rebuilt from the live pool succeeds
+    const calm = await w.launchCoin({ cityId: 120023n, name: 'Calm', symbol: 'CALM' });
+    t = await w.signer(100n);
+    s = await standInPayWith(w, x, t, 2n * LAMPORTS);
+    m = market(w, calm);
+    const two2 = S.composePayWithAnything({ build: s.build, trader: t.address, coin: calm, minCoinsOut: 1n, pool: m.pool, config: m.config, maxBytes: 700, ...standInOpts });
+    await w.send(two2.transactions[0].instructions, [t], 'tx1 swap', { feePayer: t, cu: two2.transactions[0].cuLimit });
+    await w.trade(whale, calm, { side: 'buy', amount0: LAMPORTS, amount1: 1n, label: 'someone else buys in between' });
+    m = market(w, calm);
+    const step2 = S.buildBuyAfterSwap({ trader: t.address, coin: calm, pool: m.pool, config: m.config, amountIn: two2.buyAmountIn, slippageBps: 0 });
+    await w.send(step2.instructions, [t], 'tx2 rebuilt buy', { feePayer: t });
+    assert.equal(w.balance(ata(t.address, calm.mint)), step2.expectedCoins, 'exactly what the live re-quote promised');
+  });
+
+  it('TJ11 after the dev wallet closes its referral (WSOL) account, every SDK trade recreates it instead of failing', async () => {
+    const a = await w.launchCoin({ cityId: 120030n, name: 'Ref A', symbol: 'REFA' });
+    const b = await w.launchCoin({ cityId: 120031n, name: 'Ref B', symbol: 'REFB' });
+    const x = await w.launchCoin({ cityId: 120032n, name: 'Ref X', symbol: 'REFX' });
+    const t = await w.signer(200n);
+    const close = async () => {
+      if (!w.exists(referral)) return;
+      // the owner "unwraps" the WSOL his referral share landed in: SPL CloseAccount of his WSOL account
+      await w.sendAsDevWallet([{ programAddress: PROGRAM_IDS.token, accounts: [{ address: referral, role: 1 }, { address: ADDRESSES.feeRecipient, role: 1 }, { address: ADDRESSES.feeRecipient, role: 2 }], data: new Uint8Array([9]) }], 'dev wallet unwraps its WSOL');
+      assert.equal(w.exists(referral), false);
+    };
+    const check = async (label, ixs, signers = [t]) => {
+      await close();
+      const ref0 = 0n;
+      await w.send(ixs, signers, label, { feePayer: t });
+      assert.equal(w.exists(referral), true, `${label}: the referral account is back`);
+      assert.ok(w.balance(referral) > ref0, `${label}: and it earned the referral share`);
+    };
+    let m = market(w, a);
+    await check('buy', S.buildBuy({ trader: t.address, coin: a, amountIn: 2n * LAMPORTS, minOut: S.quoteBuy(m.pool, m.config, { amountIn: 2n * LAMPORTS }).minOut }));
+    const held = w.balance(ata(t.address, a.mint));
+    m = market(w, a);
+    await check('sell', S.buildSell({ trader: t.address, coin: a, amountIn: held / 4n, minOut: S.quoteSell(m.pool, m.config, { amountIn: held / 4n }).minOut }));
+    m = market(w, a);
+    await check('buy exact out', S.buildBuyExactOut({ trader: t.address, coin: a, amountOut: 1_000_000_000n, maxIn: S.quoteBuyExactOut(m.pool, m.config, { amountOut: 1_000_000_000n }).maxIn }));
+    const q = S.quoteCoinToCoin(market(w, a), market(w, b), { amountIn: held / 4n });
+    await check('coin to coin', S.buildCoinToCoin({ trader: t.address, from: a, to: b, amountIn: held / 4n, quoteMin: q.quoteMin, minOut: q.minOut }));
+    const s = await standInPayWith(w, x, t, LAMPORTS);
+    m = market(w, b);
+    const plan = S.composePayWithAnything({ build: s.build, trader: t.address, coin: b, minCoinsOut: S.quoteBuy(m.pool, m.config, { amountIn: s.sq.minOut }).minOut, pool: m.pool, config: m.config, ...standInOpts });
+    await check('pay with anything', plan.transactions[0].instructions);
+    // a launch with the founder's first buy
+    const founder = await w.signer(50n);
+    await w.approve({ cityId: 120033n, founder, name: 'Ref Launch', symbol: 'REFL' });
+    const mint = await generateKeyPairSigner();
+    const cfg0 = S.decodeDbcConfig(w.account(w.config).data);
+    const fb = S.quoteBuy({ sqrtPrice: cfg0.sqrtStartPrice, quoteReserve: 0n, baseReserve: 0n }, cfg0, { amountIn: LAMPORTS });
+    const [launchTx] = S.planLaunch({ founder: founder.address, baseMint: mint.address, cityId: 120033n, dbcConfig: w.config, quoteMint: WSOL, rentPayer: w.admin.address, firstBuy: { amountIn: LAMPORTS, minOut: fb.minOut } });
+    await close();
+    await w.send(launchTx.instructions, [founder, mint], 'launch + first buy', { feePayer: founder, cu: launchTx.cuLimit });
+    assert.equal(w.exists(referral), true, 'launch + first buy: the referral account is back');
+    // opting out of the referral still works without the account
+    await close();
+    m = market(w, a);
+    await w.send(S.buildBuy({ trader: t.address, coin: a, amountIn: LAMPORTS, minOut: 1n, referral: null }), [t], 'buy without referral', { feePayer: t });
+    assert.equal(w.exists(referral), false);
+    // put it back for the rest of the file
+    await w.send([S.createReferralAccount(t.address, WSOL)], [t], 'recreate', { feePayer: t });
   });
 
   it('TJ09 graduation and leftover from the builders, then buy and sell on the DAMM v2 pool', async () => {

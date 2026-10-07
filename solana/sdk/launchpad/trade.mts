@@ -4,7 +4,14 @@
 // Each builder returns @solana/kit-shaped instructions (see idl.mjs: address
 // strings and numeric roles), including the small setup steps a wallet needs:
 // creating the trader's token accounts if they are missing, wrapping SOL into
-// WSOL before a buy and unwrapping what is left afterwards. `toV0Transaction`
+// WSOL before a buy and unwrapping what is left afterwards. Every trade that
+// carries the vicinity.city referral first (re)creates the dev wallet's
+// referral account if it is missing (an idempotent step that costs nothing
+// when the account exists): Meteora refuses a trade whose referral account
+// does not exist, and the dev wallet closes it whenever it unwraps its WSOL.
+// Every curve buy is sent as DBC's partial fill: below the graduation price it
+// is exactly an exact-in buy, and the last buy of a curve takes what the curve
+// can still sell and refunds the rest instead of failing. `toV0Transaction`
 // turns a list into an unsigned versioned transaction (with lookup tables) and
 // `txBytes` measures it against Solana's 1,232-byte limit.
 //
@@ -25,6 +32,16 @@ export const MAX_TX_BYTES = 1232;
 export const COMPUTE_BUDGET_PROGRAM = 'ComputeBudget111111111111111111111111111111';
 /** Compute limits measured in tests-launchpad (LAUNCHPAD-AUDIT.md 5.1), with headroom. */
 export const CU = Object.freeze({ launch: 300_000, launchWithBuy: 400_000, swap: 120_000, coinToCoin: 200_000, graduate: 400_000, leftover: 80_000 });
+/** Most priority fee a transaction built here may carry: 0.01 SOL (compute-unit price x limit). */
+export const MAX_PRIORITY_FEE_LAMPORTS = 10_000_000n;
+/** What a priority fee costs: price (micro-lamports per compute unit) x limit, rounded up. */
+export function priorityFeeLamports(microLamportsPerCu: bigint, cuLimit: number): bigint {
+  return (microLamportsPerCu * BigInt(cuLimit) + 999_999n) / 1_000_000n;
+}
+/** The highest compute-unit price that keeps the priority fee within `maxFee` at `cuLimit`. */
+export function maxCuPrice(cuLimit: number, maxFee: bigint = MAX_PRIORITY_FEE_LAMPORTS): bigint {
+  return (maxFee * 1_000_000n) / BigInt(Math.max(1, cuLimit));
+}
 
 /** A @solana/kit-shaped instruction: role 0 read-only, 1 writable, 2 read-only signer, 3 writable signer. */
 export interface Ix { programAddress: Address; accounts: { address: Address; role: number }[]; data: Uint8Array }
@@ -68,9 +85,26 @@ export function unwrapSol(owner: Address): Ix {
 export function referralAccount(quoteMint: Address): Address {
   return ata(ADDRESSES.feeRecipient, quoteMint);
 }
-/** Create the dev wallet's referral account for a quote token (anyone may pay; run once per quote token). */
+/**
+ * Create the dev wallet's referral account for a quote token if it is missing
+ * (idempotent: nothing happens when it exists). Anyone may pay. Every trade
+ * builder here prepends it by default; setup.mjs and the keeper create it too.
+ */
 export function createReferralAccount(payer: Address, quoteMint: Address): Ix {
   return createAta(payer, ADDRESSES.feeRecipient, quoteMint);
+}
+/**
+ * The referral account a trade uses (undefined = none) and the setup step that
+ * makes sure it exists. `referral`: undefined = the dev wallet's account for
+ * the quote token, null = no referral, or another account. `ensure` defaults
+ * to true for the dev wallet's account (the only one we know how to create).
+ */
+export function referralFor(quoteMint: Address, payer: Address, referral?: Address | null, ensure?: boolean): { referral: Address | undefined; setup: Ix[] } {
+  if (referral === null) return { referral: undefined, setup: [] };
+  const ref = referral ?? referralAccount(quoteMint);
+  const isDevWallets = ref === referralAccount(quoteMint);
+  if (ensure && !isDevWallets) throw new Error('ensureReferralAccount only knows how to create the dev wallet\'s referral account');
+  return { referral: ref, setup: (ensure ?? isDevWallets) && isDevWallets ? [createReferralAccount(payer, quoteMint)] : [] };
 }
 
 // ---------------------------------------------------------------- trading
@@ -81,13 +115,19 @@ export interface TradeCommon {
   referral?: Address | null;
   /** wrap/unwrap SOL around the trade when the quote token is WSOL (default true) */
   handleSol?: boolean;
-  /** prepend the creation of the referral account (default false: it is created once by operations) */
+  /**
+   * prepend the idempotent creation of the dev wallet's referral account
+   * (default true whenever the trade uses it: a missing referral account makes
+   * Meteora refuse the trade, and the dev wallet closes it when it unwraps SOL)
+   */
   ensureReferralAccount?: boolean;
 }
 const isWsol = (m: Address) => m === ADDRESSES.wsol;
 function referralOf(t: TradeCommon): Address | undefined {
-  if (t.referral === null) return undefined;
-  return t.referral ?? referralAccount(t.coin.quoteMint);
+  return referralFor(t.coin.quoteMint, t.trader, t.referral, false).referral;
+}
+function referralSetup(t: TradeCommon): Ix[] {
+  return referralFor(t.coin.quoteMint, t.trader, t.referral, t.ensureReferralAccount).setup;
 }
 // client.mjs is JavaScript; its swap builder takes the mode as a plain number.
 const dbcSwap2 = C.swap as unknown as (args: Record<string, unknown>) => Ix;
@@ -99,26 +139,30 @@ function swapIx(t: TradeCommon, side: 'buy' | 'sell', mode: number, amount0: big
 }
 
 /**
- * Buy coins. Exact in (mode 0) or partial fill (mode 1): `amountIn` quote,
- * at least `minOut` coins. With SOL as the quote token the SOL is wrapped
- * first and whatever is left (a partial-fill refund) is unwrapped afterwards;
- * with another quote token the trader's account for it must already hold it.
+ * Buy coins: `amountIn` quote, at least `minOut` coins. Partial fill (mode 1,
+ * the default) is exactly an exact-in buy below the graduation price; for the
+ * last buy of a curve it takes only what the curve can still sell and leaves
+ * the rest with the buyer instead of failing. Mode 0 (strict exact in) is
+ * still available. With SOL as the quote token the SOL is wrapped first and
+ * whatever is left (a partial-fill refund) is unwrapped afterwards; with
+ * another quote token the trader's account for it must already hold it.
  */
 export function buildBuy(t: TradeCommon & { amountIn: bigint; minOut: bigint; mode?: 0 | 1 }): Ix[] {
+  if (t.amountIn <= 0n) throw new RangeError('amountIn must be positive');
+  if (t.minOut <= 0n) throw new RangeError('minOut must be positive: a buy that may return 0 coins is refused');
   const sol = (t.handleSol ?? true) && isWsol(t.coin.quoteMint);
-  const ixs: Ix[] = [];
-  if (t.ensureReferralAccount) ixs.push(createReferralAccount(t.trader, t.coin.quoteMint));
+  const ixs: Ix[] = [...referralSetup(t)];
   if (sol) ixs.push(...wrapSol(t.trader, t.amountIn));
   ixs.push(createAta(t.trader, t.trader, t.coin.mint));
-  ixs.push(swapIx(t, 'buy', t.mode ?? SwapMode.ExactIn, t.amountIn, t.minOut));
+  ixs.push(swapIx(t, 'buy', t.mode ?? SwapMode.PartialFill, t.amountIn, t.minOut));
   if (sol) ixs.push(unwrapSol(t.trader));
   return ixs;
 }
 /** Buy exactly `amountOut` coins, paying at most `maxIn` quote (fee included). */
 export function buildBuyExactOut(t: TradeCommon & { amountOut: bigint; maxIn: bigint }): Ix[] {
+  if (t.amountOut <= 0n) throw new RangeError('amountOut must be positive');
   const sol = (t.handleSol ?? true) && isWsol(t.coin.quoteMint);
-  const ixs: Ix[] = [];
-  if (t.ensureReferralAccount) ixs.push(createReferralAccount(t.trader, t.coin.quoteMint));
+  const ixs: Ix[] = [...referralSetup(t)];
   if (sol) ixs.push(...wrapSol(t.trader, t.maxIn));
   ixs.push(createAta(t.trader, t.trader, t.coin.mint));
   ixs.push(swapIx(t, 'buy', SwapMode.ExactOut, t.amountOut, t.maxIn));
@@ -127,9 +171,9 @@ export function buildBuyExactOut(t: TradeCommon & { amountOut: bigint; maxIn: bi
 }
 /** Sell `amountIn` coins for at least `minOut` quote (exact in), or (mode 2) exactly `amountOut` quote for at most `maxIn` coins. */
 export function buildSell(t: TradeCommon & ({ amountIn: bigint; minOut: bigint; mode?: 0 } | { amountOut: bigint; maxIn: bigint; mode: 2 })): Ix[] {
+  if ('amountOut' in t ? t.amountOut <= 0n : t.minOut <= 0n) throw new RangeError('a sell that may return nothing is refused (minOut or amountOut must be positive)');
   const sol = (t.handleSol ?? true) && isWsol(t.coin.quoteMint);
-  const ixs: Ix[] = [];
-  if (t.ensureReferralAccount) ixs.push(createReferralAccount(t.trader, t.coin.quoteMint));
+  const ixs: Ix[] = [...referralSetup(t)];
   ixs.push(createAta(t.trader, t.trader, t.coin.quoteMint));
   if ('amountOut' in t) ixs.push(swapIx(t, 'sell', SwapMode.ExactOut, t.amountOut, t.maxIn));
   else ixs.push(swapIx(t, 'sell', SwapMode.ExactIn, t.amountIn, t.minOut));
@@ -140,12 +184,15 @@ export function buildSell(t: TradeCommon & ({ amountIn: bigint; minOut: bigint; 
  * Coin A to coin B (both priced in the same quote token) in one transaction:
  * sell A for at least `quoteMin`, buy B with exactly `quoteMin` for at least
  * `minOut`. If B's minimum is missed, everything reverts. Use quoteCoinToCoin
- * for the numbers. `buyMode` 1 lets the buy stop at B's graduation price.
+ * for the numbers. The buy is a partial fill by default (`buyMode` 1): it
+ * stops at B's graduation price and the rest stays as the quote token.
  */
-export function buildCoinToCoin({ trader, from, to, amountIn, quoteMin, minOut, referral, handleSol = true, buyMode = 0 }: { trader: Address; from: CoinRef; to: CoinRef; amountIn: bigint; quoteMin: bigint; minOut: bigint; referral?: Address | null; handleSol?: boolean; buyMode?: 0 | 1 }): Ix[] {
+export function buildCoinToCoin({ trader, from, to, amountIn, quoteMin, minOut, referral, handleSol = true, buyMode = SwapMode.PartialFill, ensureReferralAccount }: { trader: Address; from: CoinRef; to: CoinRef; amountIn: bigint; quoteMin: bigint; minOut: bigint; referral?: Address | null; handleSol?: boolean; buyMode?: 0 | 1; ensureReferralAccount?: boolean }): Ix[] {
   if (from.quoteMint !== to.quoteMint) throw new Error('coin to coin in one transaction needs both coins priced in the same quote token; otherwise sell, then pay with anything');
+  if (amountIn <= 0n || quoteMin <= 0n || minOut <= 0n) throw new RangeError('amountIn, quoteMin and minOut must be positive');
   const sol = handleSol && isWsol(from.quoteMint);
   return [
+    ...referralFor(from.quoteMint, trader, referral, ensureReferralAccount).setup,
     createAta(trader, trader, from.quoteMint),
     createAta(trader, trader, to.mint),
     swapIx({ trader, coin: from, referral }, 'sell', SwapMode.ExactIn, amountIn, quoteMin),
@@ -166,7 +213,7 @@ export interface LaunchParams {
   quoteMint: Address;
   /** the approval's rent_payer (the admin who approved), refunded when the approval closes */
   rentPayer: Address;
-  /** the founder's first buy in the same transaction (exact in, partial fill if it would complete the curve) */
+  /** the founder's first buy in the same transaction (partial fill by default) */
   firstBuy?: { amountIn: bigint; minOut: bigint; mode?: 0 | 1 };
 }
 /**
@@ -235,9 +282,16 @@ export const MEASURE_BLOCKHASH = '11111111111111111111111111111111';
 /**
  * An unsigned v0 transaction. A compute limit is prepended when `cuLimit` is
  * given (and a price when `cuPrice` is). Lookup tables shrink it; signatures
- * are left empty for the wallet to fill.
+ * are left empty for the wallet to fill. Refuses a priority fee above
+ * `maxPriorityFee` (default 0.01 SOL), counting `cuPrice` and any
+ * compute-unit price instruction in `instructions`.
  */
-export function toV0Transaction({ payer, instructions, blockhash = MEASURE_BLOCKHASH, lookupTables = [], cuLimit, cuPrice }: { payer: Address; instructions: Ix[]; blockhash?: string; lookupTables?: AddressLookupTableAccount[]; cuLimit?: number; cuPrice?: bigint }): VersionedTransactionT {
+export function toV0Transaction({ payer, instructions, blockhash = MEASURE_BLOCKHASH, lookupTables = [], cuLimit, cuPrice, maxPriorityFee = MAX_PRIORITY_FEE_LAMPORTS }: { payer: Address; instructions: Ix[]; blockhash?: string; lookupTables?: AddressLookupTableAccount[]; cuLimit?: number; cuPrice?: bigint; maxPriorityFee?: bigint }): VersionedTransactionT {
+  const prices = [...(cuPrice ? [cuPrice] : []), ...instructions.filter((i) => i.programAddress === COMPUTE_BUDGET_PROGRAM && i.data[0] === 3).map((i) => Buffer.from(i.data).readBigUInt64LE(1))];
+  for (const p of prices) {
+    const fee = priorityFeeLamports(p, cuLimit ?? 1_400_000);
+    if (fee > maxPriorityFee) throw new Error(`priority fee ${fee} lamports is above the ${maxPriorityFee}-lamport cap`);
+  }
   const all = [...(cuLimit ? [setComputeUnitLimit(cuLimit)] : []), ...(cuPrice ? [setComputeUnitPrice(cuPrice)] : []), ...instructions];
   const msg = new TransactionMessage({ payerKey: new PublicKey(payer), recentBlockhash: blockhash, instructions: all.map(toWeb3Instruction) }).compileToV0Message(lookupTables);
   return new VersionedTransaction(msg);
