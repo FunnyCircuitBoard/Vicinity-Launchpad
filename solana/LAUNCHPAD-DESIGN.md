@@ -12,7 +12,8 @@ still builds to the same hash and its tests stay green.
 Who reads what:
 
 * **The owner**: sections 1, 2, 11, 12, 13 and 21 (the decisions list, in plain English).
-  Decisions D2 (what people pay with) and D21 (one coin per city, forever) need you first.
+  D1 (Meteora), D2 (SOL) and D3 (1.25%) were decided by the owner on 7 Oct 2026;
+  D21 (one coin per city, forever) still needs you first.
 * **Implementers**: everything. When this file and the code disagree, the code is
   wrong or this file must be updated in the same commit.
 * **The outside auditor**: sections 3 to 18.
@@ -2290,11 +2291,15 @@ pay-with-anything cannot be shown there.
 
 ## 21. OWNER DECISIONS (plain English; the default is what gets built)
 
+Decided by the owner on 7 Oct 2026: D1 (Meteora's curve plus our program),
+D2 (SOL) and D3 (1.25%: 0.5% dev wallet, 0.25% holders, 0.25% founder,
+0.25% Meteora). Each matches the built default, so no code changed.
+
 | # | Question | Default (built) | Your other options |
 |---|---|---|---|
-| D1 | Build on Meteora's curve, or write our own? | **Meteora's curve plus our small Vicinity program.** Your city coins, your fees, your rules; Meteora's audited code holds the money. | Our own curve: 3 to 6 weeks, a big audit, and invisible to Jupiter until it graduates. |
-| D2 | What do people pay with on the curve? | **SOL.** Deep liquidity, Meteora's keepers graduate the coins, paying with BTC, ETH or stocks fits in one transaction, and the X Money payout can sell SOL for dollars easily. | **$VICINITY** as an optional second config (each city's approval picks one config). It creates demand for VICINITY, but weigh these facts first, at today's prices: a 25M VICINITY target is a total raise of about $189, and filling the whole curve costs about $192, so one wallet (or the founder in the launch transaction) can take 79% of a coin's supply for under $200. All fees up to graduation total about $2.40 per coin ($0.96 to you, $0.48 to holders, $0.48 to the founder); the holders' share is far below the 0.01 SOL minimum payout, so no holders' payout round could ever pay anyone. Our own graduation crank costs about 0.03 SOL (about $3.60) per coin, because Meteora's keepers ignore targets under about $750. Jupiter routes into VICINITY only at its largest route size, so paying with BTC, ETH or stocks always needs two transactions, and a route from VICINITY's own curve into a VICINITY-priced coin has never been seen. Jupiter's $500 test trade would fill a $189 curve, so its liquidity test likely fails. The X Money payout would sell VICINITY through about $1,800 of liquidity every day. |
-| D3 | Fee per trade | **1.25%: 0.5% you, 0.25% holders, 0.25% founder, 0.25% Meteora.** On trades made on vicinity.city, 0.05% of Meteora's part comes back to you. | 1.00% in total, with Meteora's cut taken from your three shares (0.4/0.2/0.2/0.2). |
+| D1 | Build on Meteora's curve, or write our own? | **Meteora's curve plus our small Vicinity program.** *Decided 7 Oct 2026.* Your city coins, your fees, your rules; Meteora's audited code holds the money. | Our own curve: 3 to 6 weeks, a big audit, and invisible to Jupiter until it graduates. |
+| D2 | What do people pay with on the curve? | **SOL.** *Decided 7 Oct 2026.* Deep liquidity, Meteora's keepers graduate the coins, paying with BTC, ETH or stocks fits in one transaction, and the X Money payout can sell SOL for dollars easily. | **$VICINITY** as an optional second config (each city's approval picks one config). It creates demand for VICINITY, but weigh these facts first, at today's prices: a 25M VICINITY target is a total raise of about $189, and filling the whole curve costs about $192, so one wallet (or the founder in the launch transaction) can take 79% of a coin's supply for under $200. All fees up to graduation total about $2.40 per coin ($0.96 to you, $0.48 to holders, $0.48 to the founder); the holders' share is far below the 0.01 SOL minimum payout, so no holders' payout round could ever pay anyone. Our own graduation crank costs about 0.03 SOL (about $3.60) per coin, because Meteora's keepers ignore targets under about $750. Jupiter routes into VICINITY only at its largest route size, so paying with BTC, ETH or stocks always needs two transactions, and a route from VICINITY's own curve into a VICINITY-priced coin has never been seen. Jupiter's $500 test trade would fill a $189 curve, so its liquidity test likely fails. The X Money payout would sell VICINITY through about $1,800 of liquidity every day. |
+| D3 | Fee per trade | **1.25%: 0.5% you, 0.25% holders, 0.25% founder, 0.25% Meteora.** *Decided 7 Oct 2026.* On trades made on vicinity.city, 0.05% of Meteora's part comes back to you. | 1.00% in total, with Meteora's cut taken from your three shares (0.4/0.2/0.2/0.2). |
 | D4 | Graduation target per coin | **85 SOL** (pump.fun size): start market cap about 28 SOL ($3,378), end about 411 SOL ($49,640). | 20 or 40 SOL for small cities (table 9.3), or a VICINITY target if you add that config (D2). Can differ per city by adding configs. |
 | D5 | Launch fee | **0.05 SOL per launch**: 0.045 to you, 0.005 to Meteora. It also makes spam launches under our config cost money. | 0, or anything up to 0.5 SOL (the cap in code). |
 | D6 | Graduation fee | **None**, so the pool opens at exactly the curve's last price. | A percentage of the raise to you, but it would make the pool smaller. |

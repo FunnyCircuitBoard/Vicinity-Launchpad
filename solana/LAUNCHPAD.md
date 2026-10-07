@@ -350,10 +350,13 @@ Per launch, the founder pays about 0.076 SOL (0.05 SOL launch fee, Metaplex's
 
 ## 10. OWNER DECISIONS (each has a default, already built)
 
+Decided by the owner on 7 Oct 2026: build on Meteora (D1), coins priced in
+SOL (D2), and a 1.25% fee per trade (D3). These are what is built.
+
 | # | question | default | other options |
 |---|---|---|---|
-| D2 | What do people pay with on the curve? | SOL | an extra config priced in $VICINITY (read design D2 first: a 25M VICINITY target is a raise of about $189 today) |
-| D3 | Fee per trade | 1.25%: 0.5% you, 0.25% holders, 0.25% founder, 0.25% Meteora | 1.00% total, with Meteora's cut taken from the three shares |
+| D2 | What do people pay with on the curve? | SOL (**decided 7 Oct 2026**) | an extra config priced in $VICINITY (read design D2 first: a 25M VICINITY target is a raise of about $189 today) |
+| D3 | Fee per trade | 1.25%: 0.5% you, 0.25% holders, 0.25% founder, 0.25% Meteora (**decided 7 Oct 2026**) | 1.00% total, with Meteora's cut taken from the three shares |
 | D4 | Graduation target | 85 SOL | 20 or 40 SOL for small cities (one config each) |
 | D5 | Launch fee | 0.05 SOL | 0 to 0.5 SOL |
 | D7 | Liquidity after graduation | locked forever, fees split between you and the city | burned |
