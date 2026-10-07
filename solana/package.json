@@ -20,7 +20,10 @@
     "typecheck:launchpad": "tsc -p sdk/launchpad/tsconfig.json",
     "test:jupiter-live": "JUPITER_LIVE=1 node --test sdk/launchpad/jupiter.live.test.mts",
     "launchpad:fixtures": "bash scripts/launchpad/fetch-fixtures.sh",
-    "launchpad:crank": "node scripts/launchpad/crank.mjs"
+    "launchpad:crank": "node scripts/launchpad/crank.mjs",
+    "launchpad:claim-fees": "node scripts/launchpad/claim-platform-fees.mjs",
+    "launchpad:setup": "node scripts/launchpad/setup.mjs",
+    "launchpad:devnet-demo": "node scripts/launchpad/devnet-demo.mjs"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",
