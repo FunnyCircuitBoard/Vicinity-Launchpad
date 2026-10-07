@@ -371,7 +371,8 @@ Client-side properties the SDK tests assert:
 | SDK unit tests | `npm run sdk-test:launchpad` | config, curve, keeper and snapshot rules; quote numbers of design 9.5; metadata; Jupiter composition from recorded answers; airdrop batching; payout planning; lookup table |
 | types | `npm run typecheck:launchpad` | the TypeScript SDK |
 | live, read-only | `npm run test:jupiter-live` | three live Jupiter quotes and one live pay-with plan (no transaction sent) |
-| devnet | `scripts/launchpad/devnet-demo.mjs` | the whole flow on a public cluster (`LAUNCHPAD-DEVNET.md`) |
+| live, read-only, devnet | `npm run test:devnet-accounts` (file 14) | TL: the devnet demo's test token and Vicinity configs, read from devnet and replayed through our program on Meteora's devnet builds: config rules, launch, trades, fees, graduation (no transaction sent) |
+| devnet | `scripts/launchpad/deploy-devnet.sh`, then `scripts/launchpad/devnet-demo.mjs` | the whole flow on a public cluster (`LAUNCHPAD-DEVNET.md`; the program deploy waits for devnet SOL) |
 
 ## E. Client-side notes for the review
 

@@ -209,7 +209,9 @@ solana/
   scripts/launchpad/               fetch-fixtures.sh (program dumps for the tests, pinned hashes), crank.mjs (the keeper:
                                    npm run launchpad:crank), snapshot.mjs (rewards rounds, read-only), setup.mjs
                                    (config, init, allow-list), claim-platform-fees.mjs (the dev wallet's fees),
-                                   devnet-demo.mjs (the whole flow on devnet)
+                                   deploy-devnet.sh (guarded devnet deploy), devnet-demo.mjs (the whole flow on
+                                   devnet, resumable from devnet-demo-state.json), devnet-record.mjs (the tables
+                                   of LAUNCHPAD-DEVNET.md)
 ```
 
 ## Build, test, demo
