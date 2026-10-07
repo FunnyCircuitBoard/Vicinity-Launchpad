@@ -16,9 +16,10 @@ import anchor from '@coral-xyz/anchor';
 import { address } from '@solana/kit';
 import {
   World, C, IDL, R, ADDRESSES, PROGRAM_IDS, LAMPORTS, DAY, expectFail, assertInvariants, harvest, ata, buildIx,
-  flowState, allowedFlows, checkTokenMoves, graduate, completeCurve, fakeConnection,
+  flowState, allowedFlows, checkTokenMoves, graduate, completeCurve, fakeConnection, mintData,
 } from './helpers.mjs';
-import { prepareRound, ROUND_RULES } from '../sdk/launchpad/snapshot.mjs';
+import web3 from '@solana/web3.js';
+import { prepareRound, sampleBalances, ROUND_RULES } from '../sdk/launchpad/snapshot.mjs';
 import { claimArgs } from '../sdk/merkle.mjs';
 
 const WSOL = ADDRESSES.wsol;
@@ -165,10 +166,16 @@ describe('11 holders pot', () => {
     // the snapshot, through the code path of scripts/launchpad/snapshot.mjs (a
     // web3.js Connection, answered here from the VM), at the default rules first
     const conn = fakeConnection(w);
-    const dflt = await prepareRound(conn, city.mint);
+    // balance samples taken during the epoch (here: nothing changes between them)
+    const samples = [];
+    for (let i = 0; i < ROUND_RULES.minSamples; i++) samples.push(await sampleBalances(conn, city.mint));
+    const dflt = await prepareRound(conn, city.mint, { samples });
     assert.equal(dflt.total, pot, 'the round total is what the vault can pay');
     assert.equal(dflt.round.fundable, false, 'nine holders: the default gate (20 holders at 0.01 SOL) says wait');
-    const r = await prepareRound(conn, city.mint, { rules: { ...ROUND_RULES, minHolders: 5 } });
+    const unsampled = await prepareRound(conn, city.mint, { rules: { ...ROUND_RULES, minHolders: 5 } });
+    assert.equal(unsampled.round.fundable, false, 'without balance samples a round is never fundable');
+    assert.match(unsampled.round.reason, /balance sample/);
+    const r = await prepareRound(conn, city.mint, { rules: { ...ROUND_RULES, minHolders: 5 }, samples });
     const reasons = new Map(r.excluded.map((e) => [e.owner, e.reason]));
     assert.match(reasons.get(ADDRESSES.feeRecipient), /team or founder/, 'the dev wallet (leftover) is out');
     assert.match(reasons.get(founder.address), /team or founder/, 'the founder is out');
@@ -213,5 +220,61 @@ describe('11 holders pot', () => {
     assert.equal(w.balance(vault), round.dust, 'only rounding dust stays for the next round');
     assert.equal(w.balance(ata(founder.address, WSOL)), founderBefore, 'the founder got nothing from the holders\' round');
     console.log(`TE13 holders' pot ${pot} lamports paid to ${round.leaves.length} of ${r.eligible.length} holders (min ${ROUND_RULES.minPayout}); dust ${round.dust}; excluded ${r.excluded.length} owners; snapshot hash ${Buffer.from(file.hash).toString('hex').slice(0, 16)}...`);
+  });
+
+  it('TE14 a wallet that holds only at the snapshot gets nothing; one that sold half mid-epoch counts with its average (review R3)', async () => {
+    const city = await w.launchCoin({ cityId: 110010n, name: 'Flash Town', symbol: 'FLASH' });
+    const conn = fakeConnection(w);
+    const honest = [];
+    for (let i = 0; i < 4; i++) { const h = await w.signer(5n); await w.trade(h, city, { side: 'buy', amount0: LAMPORTS, amount1: 1n }); honest.push(h); }
+    const samples = [];
+    for (let i = 0; i < 3; i++) samples.push(await sampleBalances(conn, city.mint));
+    // one honest holder sells half in the middle of the epoch
+    const half = w.balance(ata(honest[0].address, city.mint)) / 2n;
+    await w.trade(honest[0], city, { side: 'sell', amount0: half, amount1: 1n });
+    for (let i = 0; i < 3; i++) samples.push(await sampleBalances(conn, city.mint));
+    // a flash holder buys big right before the cutoff (and would sell right after)
+    const flash = await w.signer(50n);
+    await w.trade(flash, city, { side: 'buy', amount0: 20n * LAMPORTS, amount1: 1n });
+    const rules = { ...ROUND_RULES, minHolders: 1, minPayout: 1n };
+    const weighted = await prepareRound(conn, city.mint, { total: 4n * LAMPORTS, rules, samples });
+    const single = await prepareRound(conn, city.mint, { total: 4n * LAMPORTS, rules: { ...rules, minSamples: 0 } });
+    const leafOf = (r, who) => r.round.leaves.find((l) => String(l.claimant) === who.address)?.amount ?? 0n;
+    assert.ok(leafOf(single, flash) > 2n * LAMPORTS, `one slot only: the flash holder takes ${leafOf(single, flash)} of 4 SOL`);
+    assert.equal(leafOf(weighted, flash), 0n, 'time-weighted: nothing for a wallet that was not there');
+    assert.ok(!weighted.eligible.some((e) => e.owner === flash.address));
+    // the half-seller counts with min(balance now, average) = its balance now; the others with their full balance
+    const b0 = weighted.eligible.find((e) => e.owner === honest[0].address).balance;
+    assert.equal(b0, w.balance(ata(honest[0].address, city.mint)));
+    for (const h of honest.slice(1)) assert.equal(weighted.eligible.find((e) => e.owner === h.address).balance, w.balance(ata(h.address, city.mint)));
+    assert.equal(weighted.round.allocated + weighted.round.dust, 4n * LAMPORTS, 'the whole pot goes to the honest holders');
+    assert.ok(weighted.round.fundable);
+    assert.deepEqual(JSON.parse(weighted.file.text).sampleSlots.length, 6);
+    // a sample of another coin is refused
+    const other = await w.launchCoin({ cityId: 110011n, name: 'Other', symbol: 'OTHER' });
+    await assert.rejects(prepareRound(conn, other.mint, { total: 1n, rules, samples }), /balance sample of/);
+    console.log(`TE14 flash holder: ${leafOf(single, flash)} lamports from a single-slot snapshot, ${leafOf(weighted, flash)} time-weighted`);
+  });
+
+  it('TE15 the airdrop CSV uses the reward token\'s own decimals, and a non-SOL reward needs its own minimum payout (review R4, N2)', async () => {
+    // a 9-decimal classic SPL quote token with no authorities that is not WSOL passes rule 7.2(2)
+    const Q = web3.Keypair.generate().publicKey.toBase58();
+    w.setRaw(Q, mintData({ supply: 10n ** 18n, decimals: 9 }), PROGRAM_IDS.token);
+    const cfg = await w.createDbcConfig({ quoteDecimals: 9 }, { quoteMint: Q });
+    await w.send([C.addLaunchConfig({ admin: w.admin.address, dbcConfig: cfg, quoteMint: Q })], [w.admin], 'add_launch_config (9-decimal quote)');
+    const city = await w.launchCoin({ cityId: 110012n, dbcConfig: cfg, quoteMint: Q, name: 'Nine', symbol: 'NINE' });
+    for (let i = 0; i < 25; i++) await w.trade(await w.signer(1n), city, { side: 'buy', amount0: 1_000_000_000n, amount1: 1n });
+    const conn = fakeConnection(w);
+    const total = 25_000_000_000n; // 25 Q
+    await assert.rejects(prepareRound(conn, city.mint, { total }), /minimum payout/, 'the 0.01 SOL default does not apply to Q');
+    const r = await prepareRound(conn, city.mint, { total, minPayout: 100_000_000n, rules: { ...ROUND_RULES, minSamples: 0 } });
+    assert.equal(r.rewardDecimals, 9);
+    const leaf = r.round.leaves[0];
+    const line = r.csv.split('\n').find((l) => l.startsWith(String(leaf.claimant)));
+    const whole = line.split(',')[1];
+    assert.equal(BigInt(whole.replace('.', '').padEnd(whole.includes('.') ? whole.indexOf('.') + 9 : whole.length + 9, '0')), BigInt(leaf.amount), `CSV ${whole} for ${leaf.amount} raw (9 decimals)`);
+    const csvTotal = r.csv.trim().split('\n').slice(1).reduce((s, l) => s + Number(l.split(',')[1]), 0);
+    assert.ok(Math.abs(csvTotal - Number(r.round.allocated) / 1e9) < 1e-6, `CSV total ${csvTotal}`);
+    assert.equal(JSON.parse(r.file.text).rules.minPayout, '100000000');
   });
 });

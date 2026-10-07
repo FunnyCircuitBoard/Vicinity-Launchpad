@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import web3 from '@solana/web3.js';
-import { holderBalances, planRound, roundFile, solanaTokensCsv, ROUND_RULES } from './snapshot.mjs';
+import { holderBalances, planRound, roundFile, solanaTokensCsv, timeWeighted, minPayoutFor, ROUND_RULES } from './snapshot.mjs';
 import { buildTree, toHex } from '../merkle.mjs';
 
 const wallet = () => web3.Keypair.generate().publicKey.toBase58();
@@ -57,4 +57,33 @@ test('the round file rebuilds the same Merkle root, and its hash changes with an
 test('CSV for solana-tokens is in whole tokens', () => {
   const a = wallet();
   assert.equal(solanaTokensCsv([{ claimant: a, amount: 1_500_000_000n }, { claimant: a, amount: 7n }], 9), `recipient,amount\n${a},1.5\n${a},0.000000007\n`);
+});
+
+test('time-weighting: min(balance at the cutoff, average of the samples); a cutoff-only holder gets nothing (review R3)', () => {
+  const [a, b, flash] = [wallet(), wallet(), wallet()];
+  const steady = [{ owner: a, amount: 100n }, { owner: b, amount: 100n }];
+  const samples = [steady, steady, [{ owner: a, amount: 100n }, { owner: b, amount: 40n }], [{ owner: a, amount: 50n }, { owner: a, amount: 50n }]];
+  const final = [{ owner: a, amount: 300n }, { owner: b, amount: 40n }, { owner: flash, amount: 10_000n }];
+  const w = timeWeighted(final, samples);
+  assert.equal(w.get(a), 100n, 'bought more at the end: counts with its average');
+  assert.equal(w.get(b), 40n, 'sold: counts with what it holds now');
+  assert.equal(w.has(flash), false, 'held only at the cutoff');
+  const r = holderBalances(final, { samples, minBalanceBps: 1n });
+  assert.deepEqual(r.eligible.map((e) => e.owner), [a, b]);
+  // without samples the old single-slot rule applies (and prepareRound refuses to fund it)
+  assert.equal(holderBalances(final).eligible[0].owner, flash);
+});
+
+test('multisig vaults (program addresses) are left out unless put on the include list (review N4, N7)', () => {
+  const vault = pda();
+  const accounts = [{ owner: vault, amount: 500n }, { owner: wallet(), amount: 500n }];
+  assert.equal(holderBalances(accounts).eligible.length, 1);
+  assert.equal(holderBalances(accounts, { includeOwners: [vault] }).eligible.length, 2);
+});
+
+test('the minimum payout: 0.01 SOL for SOL rewards; any other reward token must set its own (review N2, N4)', () => {
+  assert.equal(minPayoutFor('So11111111111111111111111111111111111111112'), 10_000_000n);
+  assert.throws(() => minPayoutFor(wallet()), /minimum payout/);
+  assert.equal(minPayoutFor(wallet(), ROUND_RULES, 5n), 5n);
+  assert.equal(minPayoutFor(wallet(), { ...ROUND_RULES, minPayout: 7n }), 7n);
 });

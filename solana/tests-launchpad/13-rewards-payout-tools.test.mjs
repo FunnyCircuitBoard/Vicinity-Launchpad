@@ -76,7 +76,9 @@ describe('13 rewards and payout tools (TypeScript SDK)', () => {
     // the snapshot tool plans the round from the chain (as scripts/launchpad/snapshot.mjs does);
     // the vault is still empty (the forward happens in the same transaction as the funding), so the total is the pot
     const { prepareRound } = S.snapshot;
-    const r = await prepareRound(conn, coin.mint, { total: pot, rules: { ...S.snapshot.ROUND_RULES, minPayout: 100_000n, minHolders: 5 } });
+    const samples = [];
+    for (let i = 0; i < S.snapshot.ROUND_RULES.minSamples; i++) samples.push(await S.snapshot.sampleBalances(conn, coin.mint));
+    const r = await prepareRound(conn, coin.mint, { total: pot, samples, rules: { ...S.snapshot.ROUND_RULES, minPayout: 100_000n, minHolders: 5 } });
     assert.ok(r.round.fundable, r.round.reason);
     const rw = await S.fetchRewards(conn, coin);
     const ixs = S.buildFundRound({ authority: w.admin.address, payer: w.payer.address, coin, rewardsConfig: rw.config, round: { root: r.file.tree.root, numLeaves: r.round.leaves.length, slot: BigInt(r.slot), snapshotHash: r.file.hash } });

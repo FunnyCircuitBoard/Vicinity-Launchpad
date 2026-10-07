@@ -35,7 +35,7 @@ import { vicinityConfigParams, createConfigIx } from '../../sdk/launchpad/config
 import { buildIx, IDL } from '../../sdk/launchpad/idl.mjs';
 import { ADDRESSES, PROGRAM_IDS, ata, dbc, damm, pdas, rewardsPdas } from '../../sdk/launchpad/pda.mjs';
 import { connectionReader, runKeeper } from '../../sdk/launchpad/keeper.mjs';
-import { prepareRound, ROUND_RULES } from '../../sdk/launchpad/snapshot.mjs';
+import { prepareRound, sampleBalances, ROUND_RULES } from '../../sdk/launchpad/snapshot.mjs';
 import { connect, loadKeypair, send, simulate, stateFile, explorer, json } from './lib.mjs';
 
 const { PublicKey, SystemProgram } = web3;
@@ -335,8 +335,10 @@ def('rewards-round', async () => {
   const rw = await S.fetchRewards(connection, A);
   const pot = await tokenBal(A.holdersPot);
   const total = rw.vaultBalance - (rw.config.totalToHolders - rw.config.totalClaimed) + rw.config.carryOver + pot;
-  const rules = { ...ROUND_RULES, minPayout: TVIC, minHolders: 1 }; // devnet: 1 tVIC minimum, any number of holders
-  const r = await prepareRound(connection, A.mint, { total, rules });
+  // devnet demo: 1 tVIC minimum, any number of holders, and one balance sample (mainnet: at least
+  // ROUND_RULES.minSamples samples taken at random times during the epoch, design 12.3)
+  const rules = { ...ROUND_RULES, minPayout: TVIC, minHolders: 1, minSamples: 1 };
+  const r = await prepareRound(connection, A.mint, { total, rules, samples: [await sampleBalances(connection, A.mint)] });
   if (!r.round.fundable) throw new Error(r.round.reason);
   const ixs = S.buildFundRound({ authority: addr(deployer), coin: A, rewardsConfig: rw.config, round: { root: r.file.tree.root, numLeaves: r.round.leaves.length, slot: BigInt(r.slot), snapshotHash: r.file.hash } });
   const t1 = await tx('forward the holders pot + fund_epoch_from_vault (a rewards round)', { payer: deployer, ixs, cuLimit: 200_000 });
@@ -358,7 +360,7 @@ def('rewards-round', async () => {
 def('push-to-holders', async () => {
   // "send to all holders": 1,000 tVIC to every holder of DEMO the snapshot counts, from the deployer's own account
   const A = await coinOf(CITIES.A);
-  const r = await prepareRound(connection, A.mint, { total: 1_000_000n * TVIC, rules: { ...ROUND_RULES, minPayout: 1n, minHolders: 0 } }); // only the holder list is used
+  const r = await prepareRound(connection, A.mint, { total: 1_000_000n * TVIC, rules: { ...ROUND_RULES, minPayout: 1n, minHolders: 0, minSamples: 0 } }); // only the holder list is used
   const recipients = r.eligible.map((e) => ({ owner: e.owner, amount: 1_000n * TVIC }));
   const plan = S.buildAirdropBatches({ sender: addr(deployer), mint: TVIC_MINT, decimals: 6, recipients });
   const txs = [];
