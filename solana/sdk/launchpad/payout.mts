@@ -105,7 +105,10 @@ export async function loadPayoutCandidates(conn: ReadConnection, programId: Addr
   const launchpad = decodeLaunchpad(Buffer.from(lpInfo.data));
   const coins = coinAccs.map((a) => decodeCoin(Buffer.from(a.account.data), a.pubkey.toBase58(), programId));
   const optIns = new Map(optAccs.map((a) => { const o = decodePayoutOptIn(Buffer.from(a.account.data)); return [o.coin, o]; }));
-  const vaults = await conn.getMultipleAccountsInfo(coins.map((c) => new PublicKey(c.founderVault)), 'confirmed');
+  const vaults: Awaited<ReturnType<ReadConnection['getMultipleAccountsInfo']>> = [];
+  for (let i = 0; i < coins.length; i += 100) { // RPC nodes answer at most 100 accounts per call
+    vaults.push(...await conn.getMultipleAccountsInfo(coins.slice(i, i + 100).map((c) => new PublicKey(c.founderVault)), 'confirmed'));
+  }
   return {
     launchpad,
     candidates: coins

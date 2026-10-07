@@ -56,6 +56,7 @@ export async function planPlatformFeeClaims(reader: Reader, { feeRecipient = ADD
   const configs = (await reader.getProgramAccounts(launchpadProgram, { memcmp: [{ offset: 0, bytes: DISCRIMINATORS.LaunchConfig }] }))
     .map((a) => decodeLaunchConfig(a.data));
   const claims: PlatformClaim[] = [];
+  const positionsByPair = new Map<string, { nftAccount: Address; nftMint: Address; position: Address; pool: Address }[]>();
   for (const lc of configs) {
     const [cfgAcc] = await reader.getMultipleAccounts([lc.dbcConfig]);
     if (!cfgAcc) continue;
@@ -80,8 +81,9 @@ export async function planPlatformFeeClaims(reader: Reader, { feeRecipient = ADD
         claims.push({ kind: 'surplus', pool: pa.address, mint, quoteMint: quote, amount: surplus, unit: 'quote', cu: CU.surplus, instructions: [createAta(feeRecipient, feeRecipient, quote), C.partnerWithdrawSurplus({ feeClaimer: feeRecipient, dbcPool: pa.address, dbcConfig: lc.dbcConfig, quoteMint: quote, quoteAccount: ata(feeRecipient, quote) }) as Ix] });
       }
       if (p.isMigrated) {
-        const positions = await findCityPositions(reader, { address: feeRecipient, mint, quoteMint: quote });
-        for (const pos of positions) {
+        const key = `${mint}/${quote}`;
+        if (!positionsByPair.has(key)) positionsByPair.set(key, await findCityPositions(reader, { address: feeRecipient, mint, quoteMint: quote }));
+        for (const pos of positionsByPair.get(key)!) {
           claims.push({ kind: 'poolPositionFee', pool: pos.pool, mint, quoteMint: quote, amount: 0n, unit: 'quote', cu: CU.poolPositionFee, instructions: [...accounts, C.dammClaimPositionFee({ owner: feeRecipient, pool: pos.pool, nftMint: pos.nftMint, mintA: mint, mintB: quote, accountA: ata(feeRecipient, mint), accountB: ata(feeRecipient, quote) }) as Ix] });
         }
       }

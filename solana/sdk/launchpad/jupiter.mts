@@ -257,7 +257,10 @@ export function composeSellIntoAnything({ build, trader, coin, coinAmountIn, min
   const sellIx = swap({ trader, pool: coin.dbcPool, config: coin.dbcConfig, baseMint: coin.mint, quoteMint: coin.quoteMint, side: 'sell', mode: SwapMode.ExactIn, amount0: coinAmountIn, amount1: minQuoteOut, referral: ref });
   const sellPart: Ix[] = [createAta(trader, trader, coin.quoteMint), sellIx];
   const jupPart: Ix[] = [...build.setupInstructions.map(jupiterIx), jupiterIx(build.swapInstruction), ...(build.cleanupInstruction ? [jupiterIx(build.cleanupInstruction)] : []), ...build.otherInstructions.map(jupiterIx)];
-  const tail: Ix[] = sol ? [unwrapSol(trader)] : [];
+  // unwrap what the sell delivered above the minimum, unless Jupiter's own cleanup already closes that WSOL account
+  const wsolAta = ata(trader, ADDRESSES.wsol);
+  const jupiterCloses = !!build.cleanupInstruction && Buffer.from(build.cleanupInstruction.data, 'base64')[0] === 9 && build.cleanupInstruction.accounts[0]?.pubkey === wsolAta;
+  const tail: Ix[] = sol && !jupiterCloses ? [unwrapSol(trader)] : [];
   const route = build.routePlan.map((r) => r.swapInfo.label).join(' > ');
   const minAssetOut = BigInt(build.otherAmountThreshold);
   const all = [...cuPriceOnly(build), ...sellPart, ...jupPart, ...tail];
