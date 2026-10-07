@@ -27,6 +27,7 @@ import type { Address } from './accounts.mts';
 /** The keeper's reader interface (keeper.mjs connectionReader, or the test VM's). */
 export interface Reader {
   getProgramAccounts(programId: Address, opts?: { memcmp?: { offset: number; bytes: string | Uint8Array }[]; dataSize?: number }): Promise<{ address: Address; owner: Address; lamports: bigint; data: Buffer }[]>;
+  getTokenAccountsByOwner(owner: Address, programId: Address): Promise<{ address: Address; owner: Address; lamports: bigint; data: Buffer }[]>;
   getMultipleAccounts(addresses: Address[]): Promise<({ address: Address; owner: Address; lamports: bigint; data: Buffer } | null)[]>;
 }
 /** `amount` is what is waiting (0 for a DAMM v2 position: its fees are only known when claimed); `unit` says in what. */

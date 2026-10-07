@@ -43,8 +43,13 @@ import { ADDRESSES, PROGRAM_IDS, ata, damm, pdas, rewardsPdas } from './pda.mjs'
 import { surplusShares } from './curve.mjs';
 
 const { PublicKey, TransactionMessage, VersionedTransaction, TransactionInstruction, ComputeBudgetProgram } = web3;
-/** At most this many position NFTs held by one Coin PDA are looked at (anyone can send it more). */
-export const MAX_POSITIONS_READ = 16;
+/**
+ * At most this many position NFTs held by one Coin PDA are looked at (anyone can
+ * send it more): 10 getMultipleAccounts calls at most, and pushing the city's own
+ * position past it costs an attacker 1,000 rent-paying accounts (about 2 SOL).
+ * Anything past it is reported as a note, never skipped silently.
+ */
+export const MAX_POSITIONS_READ = 1000;
 const bs58 = anchor.utils.bytes.bs58;
 const big = (x) => BigInt(x.toString());
 
@@ -73,6 +78,12 @@ export function connectionReader(connection, { commitment = 'confirmed' } = {}) 
       if (dataSize !== undefined) filters.push({ dataSize });
       const res = await connection.getProgramAccounts(new PublicKey(programId), { commitment, filters });
       return res.map(({ pubkey, account }) => ({ address: pubkey.toBase58(), owner: account.owner.toBase58(), lamports: BigInt(account.lamports), data: Buffer.from(account.data) }));
+    },
+    // Public RPCs refuse getProgramAccounts on the token programs ("excluded from
+    // account secondary indexes"), but answer getTokenAccountsByOwner.
+    async getTokenAccountsByOwner(owner, programId) {
+      const res = await connection.getTokenAccountsByOwner(new PublicKey(owner), { programId: new PublicKey(programId) }, commitment);
+      return res.value.map(({ pubkey, account }) => ({ address: pubkey.toBase58(), owner: account.owner.toBase58(), lamports: BigInt(account.lamports), data: Buffer.from(account.data) }));
     },
     async getMultipleAccounts(addresses) {
       const out = [];
@@ -150,9 +161,10 @@ export async function loadState(reader, { launchpadProgram = PROGRAM_IDS.launchp
     const pot = byAddr.get(c.holdersPot);
     c.potBalance = pot ? u64At(pot.data, 64) : 0n;
     c.rewardsProblem = checkRewardsConfig(c, byAddr.get(R.city(c.mint)), byAddr.get(R.vault(R.city(c.mint))), rewardsProgram);
-    const found = c.pool.isMigrated ? await findCityPositions(reader, c) : { positions: [], ignored: 0 };
+    const found = c.pool.isMigrated ? await findCityPositions(reader, c) : { positions: [], ignored: 0, unread: 0 };
     c.positions = found.positions;
     c.ignoredPositions = found.ignored;
+    c.unreadPositions = found.unread;
   }
   // the dev wallet's referral account per quote token: every site trade needs it
   const missingReferrals = quoteMints.filter((m, i) => !byAddr.get(referrals[i]));
@@ -166,24 +178,29 @@ export function canonicalPool(coin) {
 
 /**
  * The DAMM v2 positions the city owns in its own graduated pool: Token-2022
- * accounts held by the Coin PDA with exactly one position NFT, whose position
+ * accounts held by the Coin PDA (read with getTokenAccountsByOwner, which public
+ * RPCs answer; they refuse getProgramAccounts on the token programs) with
+ * exactly one position NFT, whose position
  * is in the coin's canonical pool. Found by owner, so it works whoever ran the
  * graduation and whatever NFT mints they used. Anyone can open another pool
  * for the same pair and send its position NFTs to the Coin PDA; those are
- * counted in `ignored` and never harvested, and at most MAX_POSITIONS_READ
- * NFTs are read per coin, so a flood of them cannot grow the keeper's work.
- * Returns { positions, ignored }.
+ * counted in `ignored` and never harvested. At most MAX_POSITIONS_READ NFTs are
+ * read per coin, so a flood of them cannot grow the keeper's work without
+ * bound; any beyond it are counted in `unread` and reported.
+ * Returns { positions, ignored, unread }.
  */
 export async function findCityPositions(reader, coin) {
   const pool = canonicalPool(coin);
-  const nftAccounts = await reader.getProgramAccounts(PROGRAM_IDS.token2022, { memcmp: [{ offset: 32, bytes: new PublicKey(coin.address).toBytes() }] });
+  const nftAccounts = (await reader.getTokenAccountsByOwner(coin.address, PROGRAM_IDS.token2022))
+    .filter((a) => a.owner === PROGRAM_IDS.token2022 && a.data.length >= 64 && keyAt(a.data, 32) === coin.address);
   const allHeld = nftAccounts.filter((a) => a.data.length >= 165 && a.data[108] === 1 && u64At(a.data, 64) === 1n)
     .map((a) => ({ nftAccount: a.address, nftMint: keyAt(a.data, 0) }))
     .sort((x, y) => (x.nftAccount < y.nftAccount ? -1 : 1));
-  if (allHeld.length === 0) return { positions: [], ignored: 0 };
+  if (allHeld.length === 0) return { positions: [], ignored: 0, unread: 0 };
   const held = allHeld.slice(0, MAX_POSITIONS_READ);
+  const unread = allHeld.length - held.length;
   const [poolAcc, ...positions] = await reader.getMultipleAccounts([pool, ...held.map((h) => damm.position(h.nftMint))]);
-  if (!poolAcc || poolAcc.owner !== PROGRAM_IDS.damm) return { positions: [], ignored: allHeld.length };
+  if (!poolAcc || poolAcc.owner !== PROGRAM_IDS.damm) return { positions: [], ignored: held.length, unread };
   const out = [];
   for (let i = 0; i < held.length; i++) {
     const p = positions[i];
@@ -192,7 +209,7 @@ export async function findCityPositions(reader, coin) {
     if (pos.nft_mint.toBase58() !== held[i].nftMint || pos.pool.toBase58() !== pool) continue;
     out.push({ ...held[i], position: damm.position(held[i].nftMint), pool });
   }
-  return { positions: out, ignored: allHeld.length - out.length };
+  return { positions: out, ignored: held.length - out.length, unread };
 }
 
 // ---------------------------------------------------------------- plan
@@ -206,6 +223,7 @@ export function planKeeper(state, { daily = true } = {}) {
   for (const quoteMint of state.missingReferrals ?? []) steps.push({ kind: 'referralAccount', quoteMint, coin: null });
   for (const c of state.coins) {
     if (c.ignoredPositions > 0) notes.push({ cityId: c.cityId, note: `${c.ignoredPositions} position NFT(s) held by the coin are not in its own graduated pool; ignored` });
+    if (c.unreadPositions > 0) notes.push({ cityId: c.cityId, note: `${c.unreadPositions} position NFT(s) beyond the first ${MAX_POSITIONS_READ} held by the coin were not read; check its pool positions by hand` });
     const p = c.pool;
     if (c.complete && !p.isMigrated) {
       if (p.migrationProgress === MigrationProgress.LockedVesting) steps.push({ kind: 'migrate', coin: c });

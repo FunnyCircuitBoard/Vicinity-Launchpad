@@ -169,6 +169,10 @@ describe('11 holders pot', () => {
     // balance samples taken during the epoch (here: nothing changes between them)
     const samples = [];
     for (let i = 0; i < ROUND_RULES.minSamples; i++) samples.push(await sampleBalances(conn, city.mint));
+    // a public RPC serves token-program scans only through the mint or owner index: the snapshot's query must keep
+    // using it (dataSize 165 + the mint at offset 0), so it reads the same balances there
+    const sorted = (s) => [...s.balances].sort((x, y) => (x.owner < y.owner ? -1 : 1));
+    assert.deepEqual(sorted(await sampleBalances(fakeConnection(w, { publicRpc: true }), city.mint)), sorted(samples[0]));
     const dflt = await prepareRound(conn, city.mint, { samples });
     assert.equal(dflt.total, pot, 'the round total is what the vault can pay');
     assert.equal(dflt.round.fundable, false, 'nine holders: the default gate (20 holders at 0.01 SOL) says wait');

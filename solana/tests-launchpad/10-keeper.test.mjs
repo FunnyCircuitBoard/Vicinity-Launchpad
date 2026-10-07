@@ -1,4 +1,4 @@
-// TI01-TI06: the keeper (scripts/launchpad/crank.mjs, sdk/launchpad/keeper.mjs)
+// TI01-TI08: the keeper (scripts/launchpad/crank.mjs, sdk/launchpad/keeper.mjs)
 // against the real Meteora programs and the real rewards program.
 //
 //   TI01 it plans only what is due; a coin whose rewards config would make
@@ -11,6 +11,10 @@
 //        fresh position-NFT keys of a graduation) and receives nothing
 //   TI05 many coins are packed into few transactions, each within 1,232 bytes
 //   TI06 the RPC code path the script uses plans exactly the same
+//   TI07 it recreates the dev wallet's referral account and ignores positions
+//        outside the coin's own pool
+//   TI08 on a public RPC, which refuses to scan the token programs, it finds
+//        the same pool positions and plans the same
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSigner } from '@solana/kit';
@@ -235,5 +239,20 @@ describe('10 keeper', () => {
     const p = planKeeper(st, { daily: true });
     assert.equal(p.steps.filter((s) => s.kind === 'harvestPool' && s.coin.cityId === 100006n).length, 1);
     assert.match(p.notes.find((n) => n.cityId === 100006n).note, /1 position NFT\(s\).*ignored/);
+  });
+
+  it('TI08 on a public RPC, which refuses to scan the token programs, the keeper finds the city\'s pool positions and plans the same', async () => {
+    const pub = fakeConnection(w, { publicRpc: true });
+    await assert.rejects(pub.getProgramAccounts(new web3.PublicKey(PROGRAM_IDS.token2022)), /secondary indexes/);
+    // the keeper's old query (owner memcmp only, no size or state filter) is exactly what the public RPC refuses
+    const someCoin = (await loadState(svmReader(w))).coins[0].address;
+    await assert.rejects(pub.getProgramAccounts(new web3.PublicKey(PROGRAM_IDS.token2022), { filters: [{ memcmp: { offset: 32, bytes: someCoin } }] }), /secondary indexes/);
+    const a = await loadState(svmReader(w));
+    const b = await loadState(connectionReader(pub));
+    const positions = (st) => st.coins.map((c) => `${c.cityId}:${c.positions.map((p) => p.nftMint).join(',')}:${c.ignoredPositions}`);
+    assert.deepEqual(positions(b), positions(a));
+    assert.ok(a.coins.some((c) => c.positions.length > 0), 'a graduated coin holds its locked pool position');
+    const view = (p) => ({ steps: p.steps.map((s) => `${s.coin ? s.coin.cityId : s.quoteMint}:${s.kind}:${s.position?.nftMint ?? ''}`), notes: p.notes.map((n) => `${n.cityId}:${n.note}`) });
+    assert.deepEqual(view(planKeeper(b, { daily: true })), view(planKeeper(a, { daily: true })));
   });
 });
