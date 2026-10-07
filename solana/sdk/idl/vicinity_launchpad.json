@@ -2691,7 +2691,7 @@
     {
       "code": 6008,
       "name": "PayoutKeyNotSeparate",
-      "msg": "the payout key must differ from the admin and the dev wallet, and the payout wallet from the payout key and the admin"
+      "msg": "the admin, the payout key and the payout wallet must be three different keys, and neither payout key nor payout wallet may be the dev wallet"
     },
     {
       "code": 6009,
@@ -2776,7 +2776,7 @@
     {
       "code": 6025,
       "name": "BadName",
-      "msg": "name must be 1 to 32 bytes with no control characters"
+      "msg": "name must be 1 to 32 bytes with no control or invisible formatting characters"
     },
     {
       "code": 6026,
@@ -2847,6 +2847,11 @@
       "code": 6039,
       "name": "MathOverflow",
       "msg": "arithmetic overflow"
+    },
+    {
+      "code": 6040,
+      "name": "ConfigLeftover",
+      "msg": "config must leave at most MAX_LEFTOVER_RAW coins over after graduation (supply minus curve sale minus pool share)"
     }
   ],
   "types": [
@@ -4806,6 +4811,19 @@
       ],
       "type": "pubkey",
       "value": "13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN"
+    },
+    {
+      "name": "MAX_LEFTOVER_RAW",
+      "docs": [
+        "Most coins a config may leave over after graduation (DBC's \"leftover\":",
+        "supply minus coins sold on the curve minus coins kept for the pool), in raw",
+        "units: 1,000 coins, 0.0001% of the supply. DBC sends the leftover to the dev",
+        "wallet, so without this cap a config could hand the dev wallet a share of",
+        "every coin to sell into the pool the buyers funded. The default config",
+        "leaves about 9 coins of rounding."
+      ],
+      "type": "u64",
+      "value": "1000000000"
     },
     {
       "name": "MAX_MIGRATED_POOL_FEE_BPS",

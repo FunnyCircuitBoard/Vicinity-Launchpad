@@ -28,16 +28,50 @@ pub fn metadata_uri(mint: &Pubkey) -> String {
     s
 }
 
-/// 1 to 32 bytes, no control characters (UTF-8 is otherwise allowed: city
-/// names such as "São Paulo" are real).
+/// 1 to 32 bytes, no control characters and no invisible formatting
+/// characters (UTF-8 is otherwise allowed: city names such as "São Paulo" are
+/// real). The name becomes a permanent Metaplex name, so a right-to-left
+/// override or a zero-width space could never be removed again.
 pub fn check_name(name: &str) -> Result<()> {
     require!(
         !name.is_empty()
             && name.len() <= MAX_NAME_LEN as usize
-            && !name.chars().any(|c| c.is_control()),
+            && !name.chars().any(|c| c.is_control() || is_format_char(c)),
         LaunchpadError::BadName
     );
     Ok(())
+}
+
+/// Unicode "format" characters (category Cf) that change direction or are
+/// invisible: soft hyphen, Arabic and Syriac marks, the Mongolian vowel
+/// separator, zero-width spaces and joiners, left-to-right and right-to-left
+/// marks, embeddings, overrides and isolates, invisible operators, the
+/// byte-order mark, interlinear annotation marks and tag characters.
+pub fn is_format_char(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x00AD
+            | 0x0600..=0x0605
+            | 0x061C
+            | 0x06DD
+            | 0x070F
+            | 0x0890..=0x0891
+            | 0x08E2
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x202A..=0x202E
+            | 0x2060..=0x2064
+            | 0x2066..=0x206F
+            | 0xFEFF
+            | 0xFFF9..=0xFFFB
+            | 0x110BD
+            | 0x110CD
+            | 0x13430..=0x1343F
+            | 0x1BCA0..=0x1BCA3
+            | 0x1D173..=0x1D17A
+            | 0xE0001
+            | 0xE0020..=0xE007F
+    )
 }
 
 /// The admin, the payout key and the payout wallet are three different keys,
@@ -252,6 +286,30 @@ mod tests {
         assert!(check_name("bad\u{0}").is_err());
         // 32 bytes is the limit, not 32 characters
         assert!(check_name(&"é".repeat(17)).is_err());
+        // invisible or direction-changing characters (review nit N3)
+        for bad in [
+            "evil\u{202E}nioc",
+            "New\u{200B}York",
+            "\u{200F}Cairo",
+            "Paris\u{2066}",
+            "\u{FEFF}Rome",
+            "Lima\u{00AD}",
+            "Oslo\u{E0041}",
+            "Kyiv\u{2069}",
+        ] {
+            assert!(check_name(bad).is_err(), "{bad:?}");
+        }
+        // real city names with accents and non-Latin scripts stay allowed
+        for ok in [
+            "Zürich",
+            "Kraków",
+            "東京",
+            "القاهرة",
+            "Тбилиси",
+            "Reykjavík",
+        ] {
+            assert!(check_name(ok).is_ok(), "{ok}");
+        }
     }
 
     #[test]

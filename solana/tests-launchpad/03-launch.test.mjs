@@ -49,6 +49,12 @@ describe('03 city gate and launch', () => {
     await expectFail(() => send({ name: 'x'.repeat(33) }), 'BadName');
     await expectFail(() => send({ name: '' }), 'BadName');
     await expectFail(() => send({ name: 'bad\nname' }), 'BadName');
+    // invisible or direction-changing characters would be permanent in the Metaplex name (review nit N3)
+    for (const name of ['evil\u202Enioc', 'New\u200BYork', '\u200FCairo', 'Paris\u2066', '\uFEFFRome', 'Lima\u00AD']) {
+      await expectFail(() => send({ name }), 'BadName');
+    }
+    await send({ name: 'Zürich 東京' }); // accents and other scripts stay allowed
+    await w.send([C.revokeApproval({ admin: w.admin.address, cityId: 77n })], [w.admin]);
     await expectFail(() => send({ founder: ZERO }), 'InvalidAddress');
     await send({ expiresAt: w.now() + 30n * DAY, name: 'x'.repeat(32), symbol: 'ABCDEFGHIJ' }); // the limits themselves are fine
     await w.send([C.revokeApproval({ admin: w.admin.address, cityId: 77n })], [w.admin]);

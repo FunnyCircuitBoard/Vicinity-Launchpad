@@ -62,7 +62,7 @@ pub enum LaunchpadError {
     #[msg("config launch fee is above MAX_POOL_CREATION_FEE_LAMPORTS")]
     ConfigLaunchFee,
     // ---- approvals and launch ----
-    #[msg("name must be 1 to 32 bytes with no control characters")]
+    #[msg("name must be 1 to 32 bytes with no control or invisible formatting characters")]
     BadName,
     #[msg("symbol must be 1 to 10 characters of A-Z and 0-9")]
     BadSymbol,
