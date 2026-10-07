@@ -23,7 +23,7 @@ pub enum LaunchpadError {
     PayoutsPaused,
     #[msg("opted-in payouts are not configured")]
     PayoutsNotConfigured,
-    #[msg("the payout key must differ from the admin and the dev wallet, and the payout wallet from the payout key and the admin")]
+    #[msg("the admin, the payout key and the payout wallet must be three different keys, and neither payout key nor payout wallet may be the dev wallet")]
     PayoutKeyNotSeparate,
     // ---- launch configs ----
     #[msg("this launch config is disabled")]

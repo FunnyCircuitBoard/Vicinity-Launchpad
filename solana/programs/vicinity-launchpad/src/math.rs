@@ -4,7 +4,7 @@
 
 use anchor_lang::prelude::*;
 
-use crate::constants::{MAX_NAME_LEN, MAX_SYMBOL_LEN, METADATA_URI_PREFIX};
+use crate::constants::{FEE_RECIPIENT, MAX_NAME_LEN, MAX_SYMBOL_LEN, METADATA_URI_PREFIX};
 use crate::errors::LaunchpadError;
 
 /// Split a harvested amount `c` between the founder vault and the holders pot.
@@ -36,6 +36,31 @@ pub fn check_name(name: &str) -> Result<()> {
             && name.len() <= MAX_NAME_LEN as usize
             && !name.chars().any(|c| c.is_control()),
         LaunchpadError::BadName
+    );
+    Ok(())
+}
+
+/// The admin, the payout key and the payout wallet are three different keys,
+/// and neither payout key nor payout wallet is the dev wallet (design 6.1 and
+/// 13.2). Checked whenever one of them changes: `set_payout_config`, and both
+/// steps of an admin transfer. Nothing to check while payouts are off (both
+/// payout settings zero).
+pub fn check_payout_keys_separate(
+    admin: &Pubkey,
+    payout_authority: &Pubkey,
+    payout_destination: &Pubkey,
+) -> Result<()> {
+    let zero = Pubkey::default();
+    if *payout_authority == zero && *payout_destination == zero {
+        return Ok(());
+    }
+    require!(
+        payout_authority != admin
+            && *payout_authority != FEE_RECIPIENT
+            && payout_destination != payout_authority
+            && payout_destination != admin
+            && *payout_destination != FEE_RECIPIENT,
+        LaunchpadError::PayoutKeyNotSeparate
     );
     Ok(())
 }
@@ -227,6 +252,31 @@ mod tests {
         assert!(check_name("bad\u{0}").is_err());
         // 32 bytes is the limit, not 32 characters
         assert!(check_name(&"é".repeat(17)).is_err());
+    }
+
+    #[test]
+    fn payout_keys_separate() {
+        let admin = Pubkey::new_unique();
+        let key = Pubkey::new_unique();
+        let wallet = Pubkey::new_unique();
+        let zero = Pubkey::default();
+        assert!(check_payout_keys_separate(&admin, &key, &wallet).is_ok());
+        // payouts off: nothing to keep apart
+        assert!(check_payout_keys_separate(&admin, &zero, &zero).is_ok());
+        assert!(check_payout_keys_separate(&FEE_RECIPIENT, &zero, &zero).is_ok());
+        // the dev wallet may be the admin (the owner's wallet), never a payout key or wallet
+        assert!(check_payout_keys_separate(&FEE_RECIPIENT, &key, &wallet).is_ok());
+        for (a, k, w) in [
+            (admin, admin, wallet),
+            (admin, FEE_RECIPIENT, wallet),
+            (admin, key, key),
+            (admin, key, admin),
+            (admin, key, FEE_RECIPIENT),
+            (key, key, wallet),
+            (wallet, key, wallet),
+        ] {
+            assert!(check_payout_keys_separate(&a, &k, &w).is_err());
+        }
     }
 
     #[test]

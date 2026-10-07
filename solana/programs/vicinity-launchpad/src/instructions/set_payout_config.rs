@@ -3,15 +3,17 @@
 //!
 //! Existing opt-ins whose `agreed_destination` differs from the new wallet stop
 //! working until the founder signs again; they are never redirected
-//! (`payout_founder_fees` checks both). The keys must be separate: the payout
-//! key is neither the admin nor the dev wallet, and the payout wallet is
-//! neither the payout key nor the admin.
+//! (`payout_founder_fees` checks both). The keys must be separate
+//! (`math::check_payout_keys_separate`): the payout key is neither the admin
+//! nor the dev wallet, and the payout wallet is neither the payout key, the
+//! admin nor the dev wallet. Both steps of an admin transfer check the same.
 
 use anchor_lang::prelude::*;
 
-use crate::constants::{FEE_RECIPIENT, LAUNCHPAD_SEED};
+use crate::constants::LAUNCHPAD_SEED;
 use crate::errors::LaunchpadError;
 use crate::events::PayoutConfigChanged;
+use crate::math::check_payout_keys_separate;
 use crate::state::Launchpad;
 
 #[derive(Accounts)]
@@ -40,13 +42,7 @@ pub fn handle_set_payout_config(
             payout_authority != zero && payout_destination != zero,
             LaunchpadError::InvalidAddress
         );
-        require!(
-            payout_authority != lp.admin
-                && payout_authority != FEE_RECIPIENT
-                && payout_destination != payout_authority
-                && payout_destination != lp.admin,
-            LaunchpadError::PayoutKeyNotSeparate
-        );
+        check_payout_keys_separate(&lp.admin, &payout_authority, &payout_destination)?;
     }
     emit!(PayoutConfigChanged {
         old_authority: lp.payout_authority,

@@ -1,4 +1,5 @@
-// TA01-TA07: init, admin transfer, the dev-wallet constant, payout settings, pause.
+// TA01-TA08: init, admin transfer, the dev-wallet constant, payout settings, pause,
+// and the three keys (admin, payout key, payout wallet) kept apart through an admin transfer.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import web3 from '@solana/web3.js';
@@ -98,6 +99,8 @@ describe('01 admin', () => {
     await expectFail(() => set(ADDRESSES.feeRecipient, wallet.address), 'PayoutKeyNotSeparate');
     await expectFail(() => set(key.address, key.address), 'PayoutKeyNotSeparate');
     await expectFail(() => set(key.address, w.admin.address), 'PayoutKeyNotSeparate');
+    // founders' dollar payouts never mix with platform fees (review LP-ACPI-2, optional hardening)
+    await expectFail(() => set(key.address, ADDRESSES.feeRecipient), 'PayoutKeyNotSeparate');
     await expectFail(() => set(key.address, ZERO), 'InvalidAddress');
     await expectFail(() => set(ZERO, wallet.address), 'InvalidAddress');
     const res = await set(key.address, wallet.address);
@@ -110,6 +113,46 @@ describe('01 admin', () => {
     await set(ZERO, ZERO); // off again
     assert.equal(w.launchpad().payout_authority.toBase58(), ZERO);
     assert.equal(w.launchpad().payout_destination.toBase58(), ZERO);
+  });
+
+  it('TA08 an admin transfer cannot make the payout key or the payout wallet the admin, whichever comes first', async () => {
+    const w = await World.create({ addConfig: false, initRewards: false });
+    const key = await w.signer();
+    const wallet = await w.signer();
+    const next = await w.signer();
+    const setPayouts = (a, d, admin = w.admin) => w.send([C.setPayoutConfig({ admin: admin.address, payoutAuthority: a, payoutDestination: d })], [admin]);
+    const propose = (k, admin = w.admin) => w.send([C.proposeAdmin({ admin: admin.address, newAdmin: k.address ?? k })], [admin]);
+    const accept = (k) => w.send([C.acceptAdmin({ newAdmin: k.address })], [k]);
+    await setPayouts(key.address, wallet.address);
+    // payouts set first: proposing the payout wallet or the payout key is refused
+    await expectFail(() => propose(wallet), 'PayoutKeyNotSeparate');
+    await expectFail(() => propose(key), 'PayoutKeyNotSeparate');
+    // proposal first, payout settings changed afterwards: the accept is refused (the reviewer's R2a and R2b)
+    await setPayouts(ZERO, ZERO);
+    await propose(wallet);
+    await setPayouts(key.address, wallet.address);
+    await expectFail(() => accept(wallet), 'PayoutKeyNotSeparate');
+    await setPayouts(ZERO, ZERO);
+    await propose(key);
+    await setPayouts(key.address, wallet.address);
+    await expectFail(() => accept(key), 'PayoutKeyNotSeparate');
+    assert.equal(w.launchpad().admin.toBase58(), w.admin.address, 'nothing changed');
+    // cancelling still works, and a separate key can take over
+    await propose(ZERO);
+    await propose(next);
+    await accept(next);
+    const lp = w.launchpad();
+    assert.equal(lp.admin.toBase58(), next.address);
+    assert.ok(![lp.payout_authority.toBase58(), lp.payout_destination.toBase58()].includes(lp.admin.toBase58()));
+    // the payout key still cannot lift a payout pause it did not set as admin
+    await w.send([C.setPause({ authority: key.address, payouts: true })], [key]);
+    await expectFail(() => w.send([C.setPause({ authority: key.address, payouts: false })], [key]), 'Unauthorized');
+    // with payouts off, any key may become admin again
+    await setPayouts(ZERO, ZERO, next);
+    await propose(wallet, next);
+    await accept(wallet);
+    assert.equal(w.launchpad().admin.toBase58(), wallet.address);
+    assertInvariants(w);
   });
 
   it('TA07 set_pause: admin sets both flags; the payout key may only pause payouts', async () => {

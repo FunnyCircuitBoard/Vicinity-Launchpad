@@ -511,7 +511,7 @@ export function assertInvariants(w) {
     const pa = lp.payout_authority.toBase58(), pd = lp.payout_destination.toBase58(), admin = lp.admin.toBase58();
     if (pa !== zero) {
       assert.ok(pa !== admin && pa !== ADDRESSES.feeRecipient, 'inv12 payout key separate');
-      assert.ok(pd !== pa && pd !== admin, 'inv12 payout wallet separate');
+      assert.ok(pd !== pa && pd !== admin && pd !== ADDRESSES.feeRecipient, 'inv12 payout wallet separate');
     }
   }
   return coins.length;
