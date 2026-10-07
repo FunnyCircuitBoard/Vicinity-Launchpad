@@ -55,6 +55,28 @@ export function buildCreateLookupTable({ authority, payer = authority, recentSlo
   return { lookupTable: table.toBase58(), create: fromWeb3Instruction(create), extends: ext };
 }
 
+/** The two RPC calls `recentSlotForLookupTable` needs (a web3.js Connection has both). */
+export interface SlotReader {
+  getSlot(commitment?: 'finalized'): Promise<number>;
+  getBlocks(startSlot: number, endSlot?: number, commitment?: 'finalized'): Promise<number[]>;
+}
+
+/**
+ * A slot to derive a new lookup table from. The lookup-table program accepts
+ * only a slot listed in the SlotHashes sysvar of the bank that runs the
+ * transaction: a slot that was produced (not skipped) and is older than that
+ * bank. On devnet (7 Oct 2026) the 'finalized' slot is often the very tip, so
+ * the preflight simulation refused it ("<slot> is not a recent slot"). This
+ * returns the newest produced slot at least `lag` slots behind the finalized
+ * tip, which every node lists for the next ~500 slots.
+ */
+export async function recentSlotForLookupTable(rpc: SlotReader, lag = 8): Promise<number> {
+  const tip = await rpc.getSlot('finalized');
+  const blocks = await rpc.getBlocks(Math.max(0, tip - lag - 64), Math.max(0, tip - lag), 'finalized');
+  if (!blocks.length) throw new Error(`no produced slot between ${tip - lag - 64} and ${tip - lag}`);
+  return blocks[blocks.length - 1];
+}
+
 /** A lookup table object from known contents (for measuring and compiling without an RPC call). */
 export function lookupTableFrom(address: Address, addresses: Address[]): AltT {
   return new AddressLookupTableAccount({

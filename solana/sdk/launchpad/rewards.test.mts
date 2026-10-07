@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import web3 from '@solana/web3.js';
 import { buildAirdropBatches, airdropTransactions, airdropPlanJson, recipientsFromLeaves, buildFundRound, buildClaim, MIN_NATIVE_PUSH, TOKEN_ACCOUNT_RENT } from './rewards.mts';
 import { planPayouts, refHash, buildOptIn, PAYOUT_COOLDOWN_SECS } from './payout.mts';
-import { launchpadLookupTableAddresses, buildCreateLookupTable, EXTEND_CHUNK } from './lookup-table.mts';
+import { launchpadLookupTableAddresses, buildCreateLookupTable, recentSlotForLookupTable, EXTEND_CHUNK } from './lookup-table.mts';
 import { MAX_TX_BYTES, toV0Transaction, txBytes } from './trade.mts';
 import { ADDRESSES, PROGRAM_IDS, pdas, ata } from './pda.mjs';
 import { buildTree } from '../merkle.mjs';
@@ -128,4 +128,15 @@ test('the Vicinity lookup table: the shared static accounts, filled in extend tr
   assert.equal(t.extends.length, Math.ceil(list.length / EXTEND_CHUNK));
   for (const e of t.extends) assert.ok(txBytes(toV0Transaction({ payer: SENDER, instructions: [e] })) <= MAX_TX_BYTES);
   assert.equal(t.create.programAddress, 'AddressLookupTab1e1111111111111111111111111');
+});
+
+test('the lookup table slot: a produced slot behind the tip, never the tip itself (devnet finding)', async () => {
+  const produced = new Set([900, 950, 991, 992, 995]); // 993, 994 and 996-1000 were skipped
+  const rpc = {
+    async getSlot() { return 1_000; },
+    async getBlocks(start: number, end?: number) { return [...produced].filter((s) => s >= start && s <= (end ?? start)).sort((a, b) => a - b); },
+  };
+  assert.equal(await recentSlotForLookupTable(rpc), 992); // newest produced slot <= 1000 - 8
+  assert.equal(await recentSlotForLookupTable(rpc, 4), 995);
+  await assert.rejects(recentSlotForLookupTable({ async getSlot() { return 1_000; }, async getBlocks() { return []; } }), /no produced slot/);
 });

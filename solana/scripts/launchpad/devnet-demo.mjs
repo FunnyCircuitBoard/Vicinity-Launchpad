@@ -184,7 +184,7 @@ def('referral-accounts', async () => {
 });
 
 def('lookup-table', async () => {
-  const slot = await connection.getSlot('finalized');
+  const slot = await S.recentSlotForLookupTable(connection); // a produced slot a few behind the tip (devnet refuses the tip)
   const addresses = S.launchpadLookupTableAddresses({ dbcConfigs: [addr(k.cfgSol), addr(k.cfgTvic)], quoteMints: [WSOL, TVIC_MINT] });
   const t = S.buildCreateLookupTable({ authority: addr(deployer), recentSlot: slot, addresses });
   const txs = [await tx('create the Vicinity lookup table', { payer: deployer, ixs: [t.create] })];
