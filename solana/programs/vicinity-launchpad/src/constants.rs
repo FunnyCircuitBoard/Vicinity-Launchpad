@@ -43,6 +43,14 @@ pub const MAX_MIGRATED_POOL_FEE_BPS: u16 = 200;
 /// Highest launch fee (DBC `pool_creation_fee`): 0.5 SOL.
 #[constant]
 pub const MAX_POOL_CREATION_FEE_LAMPORTS: u64 = 500_000_000;
+/// Most coins a config may leave over after graduation (DBC's "leftover":
+/// supply minus coins sold on the curve minus coins kept for the pool), in raw
+/// units: 1,000 coins, 0.0001% of the supply. DBC sends the leftover to the dev
+/// wallet, so without this cap a config could hand the dev wallet a share of
+/// every coin to sell into the pool the buyers funded. The default config
+/// leaves about 9 coins of rounding.
+#[constant]
+pub const MAX_LEFTOVER_RAW: u64 = 1_000_000_000;
 /// Lowest and highest decimals an allowed quote token may have (WSOL has 9,
 /// $VICINITY 6).
 #[constant]

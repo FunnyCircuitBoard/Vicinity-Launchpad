@@ -1,9 +1,9 @@
-// TB01-TB16: only Vicinity-shaped Meteora configs are accepted (design 7.2).
+// TB01-TB17: only Vicinity-shaped Meteora configs are accepted (design 7.2).
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import web3 from '@solana/web3.js';
 import anchor from '@coral-xyz/anchor';
-import { World, C, IDL, P, ADDRESSES, PROGRAM_IDS, expectFail, assertInvariants, eventsNamed, mintData, decodeAccount } from './helpers.mjs';
+import { World, C, IDL, P, ADDRESSES, PROGRAM_IDS, SUPPLY, byteView, expectFail, assertInvariants, eventsNamed, mintData, decodeAccount } from './helpers.mjs';
 import { vicinityConfigParams } from '../sdk/launchpad/config.mjs';
 
 const { BN } = anchor;
@@ -63,6 +63,8 @@ describe('02 launch configs', () => {
     await refuse((c) => { c.pool_fees.base_fee.third_factor = new BN(1000); }, 'ConfigFee');
     await refuse((c) => { c.pool_fees.base_fee.base_fee_mode = 2; }, 'ConfigFee');
     await refuse((c) => { c.pool_fees.dynamic_fee.initialized = 1; }, 'ConfigFee');
+    // a cheaper first buy (review nit N1): no effect with a flat fee today, refused anyway
+    await refuse((c) => { c.enable_first_swap_with_min_fee = 1; }, 'ConfigFee');
     // exactly 2% is allowed
     await add(await w.cloneConfig((c) => { c.pool_fees.base_fee.cliff_fee_numerator = new BN(20_000_000); }));
   });
@@ -154,6 +156,40 @@ describe('02 launch configs', () => {
     const s = await w.signer();
     await expectFail(() => add(s.address), 'AccountOwnedByWrongProgram', 'AccountNotInitialized');
   });
+  it('TB17 a config that leaves coins over for the dev wallet (a hidden allocation) is refused; rounding dust is fine', async () => {
+    const MAX = BigInt(IDL.launchpad.constants.find((k) => k.name === 'MAX_LEFTOVER_RAW').value.replace(/_/g, ''));
+    assert.equal(MAX, 1_000_000_000n, '1,000 coins');
+    const leftoverOf = (cfg) => {
+      const d = w.decodeConfig(cfg);
+      return SUPPLY - BigInt(d.swap_base_amount.toString()) - BigInt(d.migration_base_threshold.toString());
+    };
+    // the default config: a few coins of rounding, accepted (TB01)
+    assert.ok(leftoverOf(w.config) <= MAX, `default leftover ${leftoverOf(w.config)}`);
+    // real DBC create_config with half the supply left over (the reviewer's R1 config) and with 1,001 coins
+    for (const coins of [500_000_000, 1_001]) {
+      const cfg = await w.createDbcConfig({ leftover: coins });
+      assert.ok(leftoverOf(cfg) > MAX, `${coins} coins: leftover ${leftoverOf(cfg)}`);
+      await expectFail(() => add(cfg), 'ConfigLeftover');
+      assert.equal(w.exists(P.launchConfig(cfg)), false);
+    }
+    // edited bytes: exactly the cap passes, one raw unit more is refused, more than the supply cannot underflow into a pass
+    const mig = BigInt(w.decodeConfig().migration_base_threshold.toString());
+    await add(await w.cloneConfig((c) => { c.swap_base_amount = new BN((SUPPLY - mig - MAX).toString()); }));
+    await refuse((c) => { c.swap_base_amount = new BN((SUPPLY - mig - MAX - 1n).toString()); }, 'ConfigLeftover');
+    await refuse((c) => { c.swap_base_amount = new BN(SUPPLY.toString()); }, 'ConfigLeftover');
+    await refuse((c) => { c.swap_base_amount = new BN(0); c.migration_base_threshold = new BN(0); }, 'ConfigLeftover');
+    // and launch checks again: a listed config whose bytes changed afterwards is refused at launch
+    const listed = await w.cloneConfig(() => {});
+    await add(listed);
+    const founder = await w.signer();
+    await w.approve({ cityId: 7171n, founder, dbcConfig: listed });
+    const buf = Buffer.from(w.account(listed).data);
+    byteView(IDL.dbc, 'PoolConfig', buf, 8).swap_base_amount = new BN(0);
+    w.setRaw(listed, buf, PROGRAM_IDS.dbc);
+    await expectFail(() => w.launchCoin({ cityId: 7171n, founder, dbcConfig: listed, approved: true }), 'ConfigLeftover');
+    assertInvariants(w);
+  });
+
   it('TB16 a disabled config blocks approve_launch and launch; re-enabling restores it', async () => {
     const founder = await w.signer();
     await w.approve({ cityId: 7001n, founder });

@@ -49,7 +49,9 @@ export function vicinityConfigParams(opts = {}) {
       tokenQuoteDecimal: o.quoteDecimals,
       tokenAuthorityOption: 1, // immutable metadata
       totalTokenSupply: o.totalTokenSupply,
-      leftover: 0,
+      // whole coins neither sold on the curve nor kept for the pool; DBC sends
+      // them to the dev wallet, so our rule 7.2(13) refuses more than 1,000
+      leftover: o.leftover ?? 0,
     },
     fee: {
       baseFeeParams: {

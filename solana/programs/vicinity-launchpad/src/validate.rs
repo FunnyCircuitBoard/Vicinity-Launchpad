@@ -33,7 +33,7 @@ pub fn validate_quote_mint(
     Ok(())
 }
 
-/// Rules 1 and 3 to 12, plus the config half of rule 2.
+/// Rules 1 and 3 to 13, plus the config half of rule 2.
 pub fn validate_vicinity_config(c: &PoolConfig) -> Result<()> {
     // (1) every platform fee and the leftover go to the dev wallet
     require_keys_eq!(
@@ -63,7 +63,10 @@ pub fn validate_vicinity_config(c: &PoolConfig) -> Result<()> {
         c.collect_fee_mode == 0,
         LaunchpadError::ConfigCollectFeeMode
     );
-    // (5) a flat fee scheduler (mode 0 or 1 with no decay), no dynamic fee, capped
+    // (5) a flat fee scheduler (mode 0 or 1 with no decay), no dynamic fee,
+    // capped, and no cheaper "minimum fee" for the first buy (with a flat fee
+    // that flag changes nothing today; refusing it keeps a future fee mode or
+    // Meteora upgrade from quietly lowering the founder's first-buy fee)
     let base = &c.pool_fees.base_fee;
     require!(
         base.base_fee_mode <= 1
@@ -71,7 +74,8 @@ pub fn validate_vicinity_config(c: &PoolConfig) -> Result<()> {
             && base.second_factor == 0
             && base.third_factor == 0
             && base.cliff_fee_numerator <= MAX_TRADE_FEE_NUMERATOR
-            && c.pool_fees.dynamic_fee.initialized == 0,
+            && c.pool_fees.dynamic_fee.initialized == 0
+            && c.enable_first_swap_with_min_fee == 0,
         LaunchpadError::ConfigFee
     );
     // (6) the city's half
@@ -137,7 +141,24 @@ pub fn validate_vicinity_config(c: &PoolConfig) -> Result<()> {
         c.pool_creation_fee <= MAX_POOL_CREATION_FEE_LAMPORTS,
         LaunchpadError::ConfigLaunchFee
     );
+    // (13) no hidden allocation through the leftover: DBC sends whatever is
+    // neither sold on the curve nor kept for the graduated pool to the
+    // leftover receiver (the dev wallet, rule 1). Only rounding dust may be left.
+    require!(
+        config_leftover(c)? <= MAX_LEFTOVER_RAW as u128,
+        LaunchpadError::ConfigLeftover
+    );
     Ok(())
+}
+
+/// Rule 13: coins a config leaves over after graduation, in raw units:
+/// supply - swap_base_amount - migration_base_threshold, in u128 with checked
+/// subtraction. A config that sells or keeps more than the supply is refused.
+pub fn config_leftover(c: &PoolConfig) -> Result<u128> {
+    (c.pre_migration_token_supply as u128)
+        .checked_sub(c.swap_base_amount as u128)
+        .and_then(|x| x.checked_sub(c.migration_base_threshold as u128))
+        .ok_or_else(|| LaunchpadError::ConfigLeftover.into())
 }
 
 #[cfg(test)]
@@ -168,6 +189,9 @@ mod tests {
         c.post_migration_token_supply = COIN_SUPPLY_RAW;
         c.migrated_pool_fee_bps = 125;
         c.pool_creation_fee = 50_000_000;
+        // buildCurve's split for an 85 SOL target: about 9.1 coins of rounding left over
+        c.swap_base_amount = 793_099_990_000_000;
+        c.migration_base_threshold = 206_900_000_900_000;
         c
     }
 
@@ -252,6 +276,7 @@ mod tests {
         assert_rule(|c| c.pool_fees.base_fee.second_factor = 1, E::ConfigFee);
         assert_rule(|c| c.pool_fees.base_fee.third_factor = 1, E::ConfigFee);
         assert_rule(|c| c.pool_fees.dynamic_fee.initialized = 1, E::ConfigFee);
+        assert_rule(|c| c.enable_first_swap_with_min_fee = 1, E::ConfigFee);
     }
 
     #[test]
@@ -362,6 +387,48 @@ mod tests {
         assert_rule(
             |c| c.pool_creation_fee = MAX_POOL_CREATION_FEE_LAMPORTS + 1,
             E::ConfigLaunchFee,
+        );
+    }
+
+    #[test]
+    fn rule_13_leftover() {
+        assert_eq!(config_leftover(&good()).unwrap(), 9_100_000);
+        // exactly the cap passes, one raw unit more is refused
+        let mut c = good();
+        c.swap_base_amount = COIN_SUPPLY_RAW - c.migration_base_threshold - MAX_LEFTOVER_RAW;
+        assert_eq!(config_leftover(&c).unwrap(), MAX_LEFTOVER_RAW as u128);
+        assert!(validate_vicinity_config(&c).is_ok());
+        assert_rule(
+            |c| {
+                c.swap_base_amount =
+                    COIN_SUPPLY_RAW - c.migration_base_threshold - MAX_LEFTOVER_RAW - 1
+            },
+            E::ConfigLeftover,
+        );
+        // the reviewer's config: half the supply left over for the dev wallet
+        assert_rule(
+            |c| {
+                c.swap_base_amount = 293_099_994_000_000;
+                c.migration_base_threshold = 206_900_002_000_000;
+            },
+            E::ConfigLeftover,
+        );
+        // nothing sold or kept at all
+        assert_rule(
+            |c| {
+                c.swap_base_amount = 0;
+                c.migration_base_threshold = 0;
+            },
+            E::ConfigLeftover,
+        );
+        // selling or keeping more than the supply cannot underflow into a pass
+        assert_rule(|c| c.swap_base_amount = COIN_SUPPLY_RAW, E::ConfigLeftover);
+        assert_rule(
+            |c| {
+                c.swap_base_amount = u64::MAX;
+                c.migration_base_threshold = u64::MAX;
+            },
+            E::ConfigLeftover,
         );
     }
 

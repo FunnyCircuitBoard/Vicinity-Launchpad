@@ -94,4 +94,7 @@ pub enum LaunchpadError {
     // ---- arithmetic ----
     #[msg("arithmetic overflow")]
     MathOverflow,
+    // ---- added after the first review (kept last so earlier codes never move) ----
+    #[msg("config must leave at most MAX_LEFTOVER_RAW coins over after graduation (supply minus curve sale minus pool share)")]
+    ConfigLeftover,
 }
