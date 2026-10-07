@@ -8,9 +8,14 @@
 //        the RPC reader, the payout key's payout into the fixed wallet, the
 //        cooldown, revoke; the founder's own claim keeps working throughout
 //   TK04 the planner never proposes a payout the program would refuse
+//   TK05 the dev wallet's platform-fee claims: everything waiting for it in
+//        every Vicinity pool (trading fees, launch fees, surplus, its DAMM v2
+//        position), claimed in packed transactions; nothing left afterwards
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { World, C, ADDRESSES, PROGRAM_IDS, LAMPORTS, DAY, R, ata, harvest, expectFail, fakeConnection, graduate, completeCurve } from './helpers.mjs';
+import { World, C, ADDRESSES, PROGRAM_IDS, LAMPORTS, DAY, R, ata, harvest, expectFail, fakeConnection, graduate, completeCurve, churn, svmReader } from './helpers.mjs';
+import { surplusShares } from '../sdk/launchpad/curve.mjs';
+import { address, lamports } from '@solana/kit';
 import * as S from '../sdk/launchpad/index.mts';
 
 const WSOL = ADDRESSES.wsol;
@@ -149,5 +154,37 @@ describe('13 rewards and payout tools (TypeScript SDK)', () => {
     plan = S.planPayouts({ ...(await S.loadPayoutCandidates(conn)), now: w.now(), payoutAuthority: payoutKey.address });
     assert.match(plan[0].reason, /payout wallet changed/);
     await expectFail(() => w.send([S.buildPayout({ payoutAuthority: payoutKey.address, coin, destination: other.address })], [payoutKey], 'redirected', { feePayer: payoutKey }), 'DestinationMismatch');
+  });
+
+  it('TK05 the dev wallet claims every platform fee waiting for it, in packed transactions', async () => {
+    // a second coin that graduates, so every kind of claim exists
+    const g = await w.launchCoin({ cityId: 130002n, name: 'Fee City', symbol: 'FEES' });
+    const t = await w.signer(300n);
+    await churn(w, g, { trades: 120, seed: 5 }); // many trades build DBC's rounding surplus
+    await completeCurve(w, g);
+    assert.ok(surplusShares(w.pool(g.dbcPool).quoteReserve, 85n * LAMPORTS, 50n).partner > 0n, 'a surplus share is waiting for the dev wallet');
+    const { pool: gp } = await graduate(w, g, await w.signer(5n));
+    await w.send(S.buildPoolSwap({ trader: t.address, coin: g, dammPool: gp, side: 'buy', amountIn: 2n * LAMPORTS, minOut: 1n }), [t], 'pool buy', { feePayer: t });
+    const reader = svmReader(w);
+    const plan = await S.planPlatformFeeClaims(reader);
+    const kinds = plan.claims.map((c) => `${c.kind}:${c.mint === g.mint ? 'g' : 'coin'}`).sort();
+    assert.deepEqual(kinds, ['poolCreationFee:coin', 'poolCreationFee:g', 'poolPositionFee:g', 'surplus:g', 'tradingFee:coin', 'tradingFee:g'].sort());
+    const pg = w.pool(g.dbcPool), pc = w.pool(coin.dbcPool);
+    const cfg = w.curveConfig(g.dbcConfig);
+    const expectQuote = pg.partnerQuoteFee + pc.partnerQuoteFee + surplusShares(pg.quoteReserve, cfg.migrationQuoteThreshold, cfg.creatorTradingFeePercentage).partner;
+    assert.equal(plan.totals.quoteByMint[ADDRESSES.wsol], String(expectQuote));
+    const devWsol = ata(ADDRESSES.feeRecipient, ADDRESSES.wsol);
+    w.svm.airdrop(address(ADDRESSES.feeRecipient), lamports(LAMPORTS)); // the real dev wallet holds SOL for new accounts' rent
+    const w0 = w.balance(devWsol), l0 = w.lamportsOf(ADDRESSES.feeRecipient);
+    for (const tx of plan.transactions) {
+      assert.ok(tx.bytes <= S.MAX_TX_BYTES, `${tx.label}: ${tx.bytes}`);
+      await w.sendAsDevWallet(tx.instructions, `dev wallet: ${tx.label}`);
+    }
+    const got = w.balance(devWsol) - w0;
+    assert.ok(got > expectQuote, `trading fees, surplus and the DAMM v2 position fees: ${got} > ${expectQuote}`);
+    assert.ok(w.lamportsOf(ADDRESSES.feeRecipient) - l0 > BigInt(plan.totals.lamports) - 4n * 2_100_000n, 'the launch fees arrived (less at most four new accounts\' rent)');
+    console.log(`TK05 ${plan.claims.length} claims in ${plan.transactions.length} transactions (${plan.transactions.map((x) => x.bytes).join(', ')} bytes): ${got} lamports of WSOL and ${plan.totals.lamports} lamports of launch fees`);
+    const again = await S.planPlatformFeeClaims(reader);
+    assert.deepEqual(again.claims.map((c) => c.kind), ['poolPositionFee'], 'only the position remains listed (its fees are only known when claimed)');
   });
 });

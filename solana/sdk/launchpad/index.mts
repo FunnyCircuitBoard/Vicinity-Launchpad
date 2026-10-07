@@ -9,6 +9,7 @@
 //   jupiter       pay with anything / sell into anything through Jupiter
 //   rewards       holder airdrop batches (unsigned), funding a rewards round, claims
 //   payout        founder claim, opt-in, revoke, payout key planning
+//   platform-fees what the dev wallet can claim, packed into transactions for it to sign
 //
 // The lower-level JavaScript modules (pda, idl, curve, client, config, keeper,
 // snapshot) are re-exported under their own names.
@@ -21,6 +22,7 @@ export * from './pay-assets.mts';
 export * from './jupiter.mts';
 export * from './rewards.mts';
 export * from './payout.mts';
+export * from './platform-fees.mts';
 export * as pda from './pda.mjs';
 export * as client from './client.mjs';
 export * as curve from './curve.mjs';
