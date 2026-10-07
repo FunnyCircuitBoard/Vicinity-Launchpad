@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import web3 from '@solana/web3.js';
 import { coderFor, IDL } from './idl.mjs';
 import { ADDRESSES, PROGRAM_IDS, ata, dbc, pdas } from './pda.mjs';
-import { composePayWithAnything, composeSellIntoAnything, checkJupiterBuild, jupiterBuildUrl, planPayWithAnything, jupiterBlockhash, JUPITER_PROGRAM } from './jupiter.mts';
+import { composePayWithAnything, composeSellIntoAnything, checkJupiterBuild, jupiterBuildUrl, planPayWithAnything, jupiterBlockhash, simulatedCuLimit, JUPITER_PROGRAM, DEFAULT_PAY_CU } from './jupiter.mts';
 import type { JupiterBuild } from './jupiter.mts';
 import { launchpadLookupTableAddresses, lookupTableFrom } from './lookup-table.mts';
 import { MAX_TX_BYTES } from './trade.mts';
@@ -143,4 +143,14 @@ test('the pay-with list: verified mainnet mints, stocks hidden in the US, UK, Ca
   assert.equal(mayOffer(payAsset('cbBTC'), null), true);
   assert.equal(payAsset('VICINITY').minMaxAccounts, 64);
   assert.throws(() => payAsset('DOGE'), /not on the Vicinity pay-with list/);
+});
+
+test('compute limit: 1.2x what a simulation used, capped at 1,400,000; a failed simulation is reported', async () => {
+  const build = load('jupiter-build-cbBTC-to-SOL-max40.json');
+  const plan = composePayWithAnything({ build, trader: TAKER, coin: coinFor(WSOL), minCoinsOut: 1n });
+  assert.equal(plan.transactions[0].cuLimit, DEFAULT_PAY_CU, 'without a simulation, the default limit');
+  const fake = (unitsConsumed: number, err: unknown = null) => ({ simulateTransaction: async () => ({ context: { slot: 1 }, value: { err, logs: ['Program log: x'], unitsConsumed, accounts: null, returnData: null } }) });
+  assert.equal(await simulatedCuLimit(fake(250_001) as never, plan.transactions[0].tx), 300_002);
+  assert.equal(await simulatedCuLimit(fake(1_300_000) as never, plan.transactions[0].tx), 1_400_000);
+  await assert.rejects(simulatedCuLimit(fake(0, { InstructionError: [4, { Custom: 6017 }] }) as never, plan.transactions[0].tx), /simulation failed/);
 });
