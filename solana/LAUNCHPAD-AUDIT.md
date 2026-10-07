@@ -374,3 +374,32 @@ npm run test:jupiter-live          # optional: read-only calls to Jupiter's main
   the retry; `lib.mjs` now re-signs and resends a transaction whose blockhash
   expired without it landing (safe: an expired transaction can never land).
 
+
+### 9.3 Devnet (7 Oct 2026, 00:47-01:00 UTC)
+
+Recorded in full in `LAUNCHPAD-DEVNET.md`.
+
+* **Re-run before touching devnet** (after a container restart): 112/112
+  in-process tests, 44/48 SDK tests (4 are the opt-in live Jupiter tests), 47
+  rewards SDK tests, 25 + 29 Rust unit tests, both typechecks, and the 4 live
+  Jupiter tests (read-only): all green. The production binary is unchanged
+  (`a0fc828c…7378b`), and the `vicinity_rewards` binary dumped from devnet is
+  byte-identical to today's build (`f0fbc9d5…09a3`).
+* **On devnet:** the tVIC test token (no mint or freeze authority), both
+  Vicinity DBC configs (fee claimer and leftover receiver = the dev wallet,
+  1.25%, launch fee 0.01 SOL), the dev wallet's referral accounts and the
+  Vicinity lookup table: nine transactions, 0.0285 SOL.
+* **Replayed:** new opt-in test file 14 (TL01-TL02) reads those accounts from
+  devnet and runs them through `add_launch_config`, launches, trades, a full
+  curve, a harvest and a graduation in process, on Meteora's devnet builds
+  and on the mainnet builds: 2/2 pass on each, invariants checked after
+  every transaction.
+* **Found:** devnet refused `CreateLookupTable` with the finalized slot ("is
+  not a recent slot"); the SDK's new `recentSlotForLookupTable` picks a
+  produced slot a few behind the tip.
+* **Not deployed:** `vicinity_launchpad` needs 2.2183 SOL (checked by
+  `scripts/launchpad/deploy-devnet.sh`, which refused cleanly: "needs
+  2.218344600 SOL, the deployer has 1.366462080 SOL"); the rest of the demo
+  about 0.50 SOL at its peak. The faucet refused all 23 requests from this
+  machine between 6 Oct 23:30 and 7 Oct 00:57 UTC. Pending: about 1.35 SOL
+  (1.5 requested from the owner).

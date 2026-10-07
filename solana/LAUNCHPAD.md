@@ -252,10 +252,20 @@ to the founder's own wallet.
 
 ## 8. What is on devnet
 
-See `LAUNCHPAD-DEVNET.md`: the program address, the settings, the test token
-standing in for $VICINITY, the demo coins with their Vicinity metadata, every
-trade, the graduation, the rewards round, the founder payout, and a link to
-the explorer for each step.
+See `LAUNCHPAD-DEVNET.md`, with an explorer link for every address and
+transaction.
+
+* **On devnet now (7 Oct 2026):** the test token tVIC standing in for
+  $VICINITY, the two Vicinity Meteora configs (priced in SOL and in tVIC,
+  every platform fee to your dev wallet) and the Vicinity lookup table. A
+  test replays those exact accounts through our program and Meteora's devnet
+  programs: launch, trades, fees and graduation all work.
+* **Waiting for devnet SOL:** our program itself, then the demo coins with
+  their Vicinity metadata, the trades, coin to coin, graduation, the rewards
+  round and the founder payout. The free faucet refuses the build machine for
+  today. **Please send 1.5 devnet SOL** (free, from https://faucet.solana.com)
+  to `9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa`; the rest then takes
+  about ten minutes.
 
 ## 9. What mainnet needs, and what it costs
 
