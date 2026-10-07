@@ -19,6 +19,7 @@
     "sdk-test:launchpad": "node --test sdk/launchpad/*.test.mjs sdk/launchpad/*.test.mts",
     "typecheck:launchpad": "tsc -p sdk/launchpad/tsconfig.json",
     "test:jupiter-live": "JUPITER_LIVE=1 node --test sdk/launchpad/jupiter.live.test.mts",
+    "test:devnet-accounts": "DEVNET_LIVE=1 LAUNCHPAD_PROGRAMS_DIR=tests-launchpad/fixtures/programs-devnet node --test tests-launchpad/14-devnet-accounts.test.mjs",
     "launchpad:fixtures": "bash scripts/launchpad/fetch-fixtures.sh",
     "launchpad:crank": "node scripts/launchpad/crank.mjs",
     "launchpad:claim-fees": "node scripts/launchpad/claim-platform-fees.mjs",

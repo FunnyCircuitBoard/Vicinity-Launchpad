@@ -7,6 +7,7 @@ npm run test:launchpad       # every *.test.mjs here, about 15 seconds
 npm run sdk-test:launchpad   # sdk/launchpad/*.test.mjs and *.test.mts (no chain)
 npm run typecheck:launchpad  # the TypeScript SDK (sdk/launchpad/*.mts)
 npm run test:jupiter-live    # optional: read-only calls to Jupiter's mainnet API (quotes, one composed plan)
+npm run test:devnet-accounts # optional: the devnet demo's configs and test token, read from devnet and replayed here
 ```
 
 Before a devnet demo, run the suite on Meteora's devnet builds too:
@@ -36,6 +37,7 @@ ports are opened and nothing touches the network.
 | `11-holders-pot.test.mjs` | TE10-TE13 (where the holders' money can go, end to end to each holder's claim) |
 | `12-client-sdk.test.mjs` | TJ01-TJ09: the TypeScript client SDK (`sdk/launchpad/*.mts`) against the real programs: decoders and fetchers, launch with a first buy, quote parity over many random trades (`CLIENT_PARITY_STEPS`, `CLIENT_PARITY_SEED`), the harvest split, SOL wrapping, coin to coin, pay with anything and sell into anything (a real DBC swap standing in for Jupiter's), graduation and DAMM v2 trades from the builders |
 | `13-rewards-payout-tools.test.mjs` | TK01-TK04: unsigned "send to all holders" batches, a rewards round funded and claimed through the SDK, the founder payout hooks and the payout planner |
+| `14-devnet-accounts.test.mjs` | TL01-TL02 (opt-in, `npm run test:devnet-accounts`, reads devnet, sends nothing): the test token and the two Vicinity Meteora configs the devnet demo created, read from devnet and replayed through our program on Meteora's devnet builds: every config rule passes, a coin on each trades, and the tVIC coin fills, pays its fees and graduates (LAUNCHPAD-DEVNET.md) |
 
 **Invariants.** `assertInvariants` (design section 15) runs after every
 successful transaction in every test. So does `assertMoneyFlows` (invariant
