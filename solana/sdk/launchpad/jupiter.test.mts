@@ -15,7 +15,7 @@ import { composePayWithAnything, composeSellIntoAnything, checkJupiterBuild, jup
 import type { JupiterBuild } from './jupiter.mts';
 import { launchpadLookupTableAddresses, lookupTableFrom } from './lookup-table.mts';
 import { MAX_TX_BYTES } from './trade.mts';
-import { VICINITY_MINT, payAsset, payAssetsFor, mayOffer, PAY_ASSETS } from './pay-assets.mts';
+import { VICINITY_MINT, payAsset, payAssetsFor, mayOffer, PAY_ASSETS, STOCK_ALLOWED_COUNTRIES } from './pay-assets.mts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const load = (f: string): JupiterBuild => JSON.parse(readFileSync(join(here, 'fixtures', f), 'utf8'));
@@ -134,14 +134,20 @@ test('planPayWithAnything: smaller routes until it fits; paying with the quote t
   assert.deepEqual(Object.fromEntries(u.searchParams), { inputMint: 'a', outputMint: 'b', amount: '5', taker: TAKER, slippageBps: '50', maxAccounts: '64', wrapAndUnwrapSol: 'true' });
 });
 
-test('the pay-with list: verified mainnet mints, stocks hidden in the US, UK, Canada and Australia (and when unknown)', () => {
+test('the pay-with list: verified mainnet mints; stocks only on the allow-list, never where blocked or unknown (review F3)', () => {
   for (const a of PAY_ASSETS) assert.doesNotThrow(() => new web3.PublicKey(a.mint), a.symbol);
   assert.equal(new Set(PAY_ASSETS.map((a) => a.mint)).size, PAY_ASSETS.length);
   assert.deepEqual(PAY_ASSETS.filter((a) => a.kind === 'stock').map((a) => a.tokenProgram), Array(10).fill('token2022'));
-  for (const c of ['US', 'gb', 'CA', 'AU', null, '']) assert.equal(payAssetsFor(c).some((a) => a.kind === 'stock'), false, String(c));
-  assert.equal(payAssetsFor('DE').filter((a) => a.kind === 'stock').length, 10);
+  // the reviewer's list: sanctioned and other non-approved countries no longer see stocks (it used to be only US, UK, CA, AU)
+  for (const c of ['US', 'gb', 'CA', 'AU', 'RU', 'IR', 'KP', 'CU', 'SY', 'BY', 'SG', 'HK', 'JP', 'IN', 'NG', 'BR', 'XX', 'T1', 'zz', null, '', ' ']) {
+    assert.equal(payAssetsFor(c).some((a) => a.kind === 'stock'), false, String(c));
+  }
+  for (const c of ['DE', 'fr', 'CH', 'NO']) assert.equal(payAssetsFor(c).filter((a) => a.kind === 'stock').length, 10, c);
+  assert.equal(STOCK_ALLOWED_COUNTRIES.length, 31);
+  // everything that is not a stock stays on offer everywhere
   assert.equal(mayOffer(payAsset('cbBTC'), null), true);
-  assert.equal(payAsset('VICINITY').minMaxAccounts, 64);
+  assert.equal(payAssetsFor('US').length, PAY_ASSETS.length - 10);
+  assert.equal(payAsset('VICINITY').minMaxAccounts, 40);
   assert.throws(() => payAsset('DOGE'), /not on the Vicinity pay-with list/);
 });
 
