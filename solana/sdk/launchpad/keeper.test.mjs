@@ -11,7 +11,7 @@ function coin(id, { quoteReserve = 0n, creatorQuoteFee = 0n, isMigrated = 0, pro
     config: { migrationQuoteThreshold: T }, complete: quoteReserve >= T, creatorSurplus, potBalance: pot, rewardsProblem, positions,
   };
 }
-const kinds = (plan, id) => plan.steps.filter((s) => s.coin.cityId === BigInt(id)).map((s) => s.kind);
+const kinds = (plan, id) => plan.steps.filter((s) => s.coin?.cityId === BigInt(id)).map((s) => s.kind);
 
 test('a fresh coin with nothing waiting plans nothing', () => {
   const p = planKeeper({ coins: [coin(1)] });
@@ -58,4 +58,20 @@ test('a complete curve stuck in another migration stage is reported, not cranked
   const p = planKeeper({ coins: [coin(1, { quoteReserve: T, progress: MigrationProgress.PostBondingCurve })] }, { daily: false });
   assert.deepEqual(kinds(p, 1), []);
   assert.match(p.notes[0].note, /migration progress is 1/);
+});
+
+test('a missing referral account of the dev wallet is recreated first, in every pass (review F1)', () => {
+  const W = 'So11111111111111111111111111111111111111112';
+  for (const daily of [true, false]) {
+    const p = planKeeper({ coins: [coin(1)], missingReferrals: [W] }, { daily });
+    assert.deepEqual(p.steps.map((s) => [s.kind, s.quoteMint]), [['referralAccount', W]]);
+  }
+  assert.deepEqual(planKeeper({ coins: [coin(1)], missingReferrals: [] }).steps, []);
+});
+
+test('positions outside the coin\'s own pool are reported, never harvested (review nit N5)', () => {
+  const s = { coins: [{ ...coin(1, { quoteReserve: T, isMigrated: 1, progress: MigrationProgress.CreatedPool, leftover: 1, surplusTaken: 1 }), ignoredPositions: 3 }] };
+  const p = planKeeper(s, { daily: true });
+  assert.deepEqual(kinds(p, 1), []);
+  assert.match(p.notes[0].note, /3 position NFT\(s\).*ignored/);
 });

@@ -10,13 +10,23 @@
 //   1. read every `Coin` of our program and the Meteora and rewards accounts
 //      it depends on (through a `reader`, so the same code runs against a real
 //      RPC node and against the in-process test VM);
-//   2. plan, per coin:
+//   2. plan, first for the platform:
+//        referralAccount  the dev wallet's account for a quote token is
+//                         missing (the dev wallet closes it whenever it
+//                         unwraps its WSOL), and every site trade names it as
+//                         Meteora's referral account: recreate it (anyone may
+//                         pay; about 0.002 SOL of rent that goes to the dev
+//                         wallet when it is closed again)
+//      then per coin:
 //        migrate          the curve is complete and not yet graduated
 //        withdrawLeftover graduated and the unsold dust is still in DBC
 //                         (it can only go to the dev wallet)
 //        harvestCurve     the city has curve fees waiting, or its share of
 //                         the completion surplus
-//        harvestPool      graduated: the city's DAMM v2 position (daily pass)
+//        harvestPool      graduated: the city's DAMM v2 position (daily pass),
+//                         only in the coin's own graduated pool; positions in
+//                         other pools that someone sent to the Coin PDA are
+//                         reported and ignored
 //        forward          the holders pot has (or will have) money and the
 //                         city's rewards config passes the program's checks;
 //                         otherwise the coin is reported, never sent, so one
@@ -33,6 +43,8 @@ import { ADDRESSES, PROGRAM_IDS, ata, damm, pdas, rewardsPdas } from './pda.mjs'
 import { surplusShares } from './curve.mjs';
 
 const { PublicKey, TransactionMessage, VersionedTransaction, TransactionInstruction, ComputeBudgetProgram } = web3;
+/** At most this many position NFTs held by one Coin PDA are looked at (anyone can send it more). */
+export const MAX_POSITIONS_READ = 16;
 const bs58 = anchor.utils.bytes.bs58;
 const big = (x) => BigInt(x.toString());
 
@@ -113,9 +125,11 @@ export async function loadState(reader, { launchpadProgram = PROGRAM_IDS.launchp
   }).sort((x, y) => (x.cityId < y.cityId ? -1 : x.cityId > y.cityId ? 1 : 0));
 
   const configs = [...new Set(coins.map((c) => c.dbcConfig))];
+  const quoteMints = [...new Set(coins.map((c) => c.quoteMint))].sort();
+  const referrals = quoteMints.map((m) => ata(ADDRESSES.feeRecipient, m));
   const want = [
     ...coins.map((c) => c.dbcPool), ...configs, ...coins.map((c) => c.holdersPot),
-    ...coins.map((c) => R.city(c.mint)), ...coins.map((c) => R.vault(R.city(c.mint))),
+    ...coins.map((c) => R.city(c.mint)), ...coins.map((c) => R.vault(R.city(c.mint))), ...referrals,
   ];
   const got = await reader.getMultipleAccounts(want);
   const byAddr = new Map(want.map((a, i) => [a, got[i]]));
@@ -136,36 +150,49 @@ export async function loadState(reader, { launchpadProgram = PROGRAM_IDS.launchp
     const pot = byAddr.get(c.holdersPot);
     c.potBalance = pot ? u64At(pot.data, 64) : 0n;
     c.rewardsProblem = checkRewardsConfig(c, byAddr.get(R.city(c.mint)), byAddr.get(R.vault(R.city(c.mint))), rewardsProgram);
-    c.positions = c.pool.isMigrated ? await findCityPositions(reader, c) : [];
+    const found = c.pool.isMigrated ? await findCityPositions(reader, c) : { positions: [], ignored: 0 };
+    c.positions = found.positions;
+    c.ignoredPositions = found.ignored;
   }
-  return { coins, launchpadProgram, rewardsProgram };
+  // the dev wallet's referral account per quote token: every site trade needs it
+  const missingReferrals = quoteMints.filter((m, i) => !byAddr.get(referrals[i]));
+  return { coins, launchpadProgram, rewardsProgram, missingReferrals };
+}
+
+/** The coin's own graduated pool: DBC migrates into the DAMM v2 pool of (customizable config, coin, quote token). */
+export function canonicalPool(coin) {
+  return damm.pool(ADDRESSES.dammCustomizableConfig, coin.mint, coin.quoteMint);
 }
 
 /**
- * The DAMM v2 positions the city owns: Token-2022 accounts held by the Coin
- * PDA with exactly one position NFT, whose position is in a pool of this
- * coin's pair. Found by owner, so it works whoever ran the graduation and
- * whatever NFT mints they used.
+ * The DAMM v2 positions the city owns in its own graduated pool: Token-2022
+ * accounts held by the Coin PDA with exactly one position NFT, whose position
+ * is in the coin's canonical pool. Found by owner, so it works whoever ran the
+ * graduation and whatever NFT mints they used. Anyone can open another pool
+ * for the same pair and send its position NFTs to the Coin PDA; those are
+ * counted in `ignored` and never harvested, and at most MAX_POSITIONS_READ
+ * NFTs are read per coin, so a flood of them cannot grow the keeper's work.
+ * Returns { positions, ignored }.
  */
 export async function findCityPositions(reader, coin) {
+  const pool = canonicalPool(coin);
   const nftAccounts = await reader.getProgramAccounts(PROGRAM_IDS.token2022, { memcmp: [{ offset: 32, bytes: new PublicKey(coin.address).toBytes() }] });
-  const held = nftAccounts.filter((a) => a.data.length >= 165 && a.data[108] === 1 && u64At(a.data, 64) === 1n)
-    .map((a) => ({ nftAccount: a.address, nftMint: keyAt(a.data, 0) }));
-  if (held.length === 0) return [];
-  const positions = await reader.getMultipleAccounts(held.map((h) => damm.position(h.nftMint)));
+  const allHeld = nftAccounts.filter((a) => a.data.length >= 165 && a.data[108] === 1 && u64At(a.data, 64) === 1n)
+    .map((a) => ({ nftAccount: a.address, nftMint: keyAt(a.data, 0) }))
+    .sort((x, y) => (x.nftAccount < y.nftAccount ? -1 : 1));
+  if (allHeld.length === 0) return { positions: [], ignored: 0 };
+  const held = allHeld.slice(0, MAX_POSITIONS_READ);
+  const [poolAcc, ...positions] = await reader.getMultipleAccounts([pool, ...held.map((h) => damm.position(h.nftMint))]);
+  if (!poolAcc || poolAcc.owner !== PROGRAM_IDS.damm) return { positions: [], ignored: allHeld.length };
   const out = [];
   for (let i = 0; i < held.length; i++) {
     const p = positions[i];
     if (!p || p.owner !== PROGRAM_IDS.damm) continue;
     const pos = decodeAccount(IDL.damm, 'Position', p.data);
-    if (pos.nft_mint.toBase58() !== held[i].nftMint) continue;
-    const [poolAcc] = await reader.getMultipleAccounts([pos.pool.toBase58()]);
-    if (!poolAcc || poolAcc.owner !== PROGRAM_IDS.damm) continue;
-    const pool = decodeAccount(IDL.damm, 'Pool', poolAcc.data);
-    if (pool.token_a_mint.toBase58() !== coin.mint || pool.token_b_mint.toBase58() !== coin.quoteMint) continue;
-    out.push({ ...held[i], position: damm.position(held[i].nftMint), pool: pos.pool.toBase58() });
+    if (pos.nft_mint.toBase58() !== held[i].nftMint || pos.pool.toBase58() !== pool) continue;
+    out.push({ ...held[i], position: damm.position(held[i].nftMint), pool });
   }
-  return out;
+  return { positions: out, ignored: allHeld.length - out.length };
 }
 
 // ---------------------------------------------------------------- plan
@@ -176,7 +203,9 @@ export async function findCityPositions(reader, coin) {
 export function planKeeper(state, { daily = true } = {}) {
   const steps = [];
   const notes = [];
+  for (const quoteMint of state.missingReferrals ?? []) steps.push({ kind: 'referralAccount', quoteMint, coin: null });
   for (const c of state.coins) {
+    if (c.ignoredPositions > 0) notes.push({ cityId: c.cityId, note: `${c.ignoredPositions} position NFT(s) held by the coin are not in its own graduated pool; ignored` });
     const p = c.pool;
     if (c.complete && !p.isMigrated) {
       if (p.migrationProgress === MigrationProgress.LockedVesting) steps.push({ kind: 'migrate', coin: c });
@@ -226,6 +255,8 @@ export function transactionSize(ixs, payer) {
 function stepInstructions(step, payer) {
   const c = step.coin;
   switch (step.kind) {
+    case 'referralAccount':
+      return [C.createAtaIdempotent({ payer, owner: ADDRESSES.feeRecipient, mint: step.quoteMint })];
     case 'withdrawLeftover':
       return [
         C.createAtaIdempotent({ payer, owner: ADDRESSES.feeRecipient, mint: c.mint }),
@@ -241,7 +272,8 @@ function stepInstructions(step, payer) {
       throw new Error(`no instructions for ${step.kind}`);
   }
 }
-const stepCu = { withdrawLeftover: CU.leftover, harvestCurve: CU.harvestCurve, harvestPool: CU.harvestPool, forward: CU.forward };
+const stepCu = { referralAccount: CU.leftover, withdrawLeftover: CU.leftover, harvestCurve: CU.harvestCurve, harvestPool: CU.harvestPool, forward: CU.forward };
+const stepLabel = (s) => (s.coin ? `city ${s.coin.cityId} ${s.kind}` : `dev wallet referral account for ${s.quoteMint}`);
 
 /**
  * Turn a plan into transactions. Each graduation is its own transaction (two
@@ -267,7 +299,7 @@ export async function buildTransactions(plan, { payer, newSigner, maxBytes = MAX
   for (const s of plan.steps.filter((x) => x.kind !== 'migrate')) {
     const ixs = stepInstructions(s, payer);
     const cu = stepCu[s.kind];
-    const label = `city ${s.coin.cityId} ${s.kind}`;
+    const label = stepLabel(s);
     if (cur) {
       const both = [...cur.instructions, ...ixs];
       const bytes = transactionSize(both, payer);
@@ -305,5 +337,5 @@ export async function runKeeper({ reader, payer, newSigner, send, daily = true, 
       }
     }
   }
-  return { coins: state.coins.length, steps: plan.steps.map((s) => ({ kind: s.kind, cityId: s.coin.cityId })), notes: plan.notes, transactions: txs, results };
+  return { coins: state.coins.length, steps: plan.steps.map((s) => ({ kind: s.kind, cityId: s.coin ? s.coin.cityId : null, ...(s.quoteMint ? { quoteMint: s.quoteMint } : {}) })), notes: plan.notes, transactions: txs, results };
 }

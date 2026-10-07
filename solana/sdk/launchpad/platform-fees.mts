@@ -82,7 +82,7 @@ export async function planPlatformFeeClaims(reader: Reader, { feeRecipient = ADD
       }
       if (p.isMigrated) {
         const key = `${mint}/${quote}`;
-        if (!positionsByPair.has(key)) positionsByPair.set(key, await findCityPositions(reader, { address: feeRecipient, mint, quoteMint: quote }));
+        if (!positionsByPair.has(key)) positionsByPair.set(key, (await findCityPositions(reader, { address: feeRecipient, mint, quoteMint: quote })).positions);
         for (const pos of positionsByPair.get(key)!) {
           claims.push({ kind: 'poolPositionFee', pool: pos.pool, mint, quoteMint: quote, amount: 0n, unit: 'quote', cu: CU.poolPositionFee, instructions: [...accounts, C.dammClaimPositionFee({ owner: feeRecipient, pool: pos.pool, nftMint: pos.nftMint, mintA: mint, mintB: quote, accountA: ata(feeRecipient, mint), accountB: ata(feeRecipient, quote) }) as Ix] });
         }

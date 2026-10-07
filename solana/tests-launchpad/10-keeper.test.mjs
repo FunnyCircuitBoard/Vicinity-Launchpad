@@ -14,8 +14,9 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSigner } from '@solana/kit';
-import { World, C, ADDRESSES, PROGRAM_IDS, LAMPORTS, R, assertInvariants, ata, damm, graduate, churn, completeCurve, svmReader, fakeConnection, readKey } from './helpers.mjs';
-import { runKeeper, loadState, planKeeper, connectionReader, MAX_TX_BYTES } from '../sdk/launchpad/keeper.mjs';
+import web3 from '@solana/web3.js';
+import { World, C, IDL, ADDRESSES, PROGRAM_IDS, LAMPORTS, R, assertInvariants, ata, damm, graduate, churn, completeCurve, svmReader, fakeConnection, readKey, byteView, tokenAccountData } from './helpers.mjs';
+import { runKeeper, loadState, planKeeper, connectionReader, canonicalPool, MAX_TX_BYTES } from '../sdk/launchpad/keeper.mjs';
 
 const WSOL = ADDRESSES.wsol;
 
@@ -193,7 +194,7 @@ describe('10 keeper', () => {
     await completeCurve(w, G);
     const a = planKeeper(await loadState(svmReader(w)), { daily: true });
     const b = planKeeper(await loadState(connectionReader(fakeConnection(w))), { daily: true });
-    const view = (p) => ({ steps: p.steps.map((s) => `${s.coin.cityId}:${s.kind}:${s.position?.nftMint ?? ''}`), notes: p.notes.map((n) => `${n.cityId}:${n.note}`) });
+    const view = (p) => ({ steps: p.steps.map((s) => `${s.coin ? s.coin.cityId : s.quoteMint}:${s.kind}:${s.position?.nftMint ?? ''}`), notes: p.notes.map((n) => `${n.cityId}:${n.note}`) });
     assert.deepEqual(view(b), view(a));
     assert.ok(view(a).steps.includes('100007:migrate:'));
     assert.ok(view(a).steps.includes('100002:harvestCurve:'));
@@ -201,5 +202,38 @@ describe('10 keeper', () => {
     const r = await pass(true, connectionReader(fakeConnection(w)));
     assert.ok(r.results.length > 0);
     assert.equal(w.pool(G.dbcPool).isMigrated, 1);
+  });
+
+  it('TI07 the keeper recreates the dev wallet\'s referral account, and ignores positions that are not in the coin\'s own pool', async () => {
+    // (a) the dev wallet closed (unwrapped) its WSOL account: every site trade would fail until it is back
+    const ref = ata(ADDRESSES.feeRecipient, WSOL);
+    if (!w.exists(ref)) await w.send([C.createAtaIdempotent({ payer: keeper.address, owner: ADDRESSES.feeRecipient, mint: WSOL })], [keeper], 'make it exist first', { feePayer: keeper });
+    await w.sendAsDevWallet([{ programAddress: PROGRAM_IDS.token, accounts: [{ address: ref, role: 1 }, { address: ADDRESSES.feeRecipient, role: 1 }, { address: ADDRESSES.feeRecipient, role: 2 }], data: new Uint8Array([9]) }], 'dev wallet unwraps its WSOL');
+    assert.equal(w.exists(ref), false);
+    let r = await pass(false); // even the minute pass
+    assert.ok(r.steps.some((s) => s.kind === 'referralAccount' && s.quoteMint === WSOL));
+    assert.equal(w.exists(ref), true, 'recreated');
+    r = await pass(false);
+    assert.ok(!r.steps.some((s) => s.kind === 'referralAccount'), 'nothing to do once it exists');
+    // (b) someone opens another pool for the same pair and sends its position NFT to the Coin PDA (simulated by copying accounts)
+    const F = coins.F;
+    const real = (await loadState(svmReader(w))).coins.find((c) => c.cityId === 100006n).positions[0];
+    assert.equal(real.pool, canonicalPool(F));
+    const strangersPool = web3.Keypair.generate().publicKey;
+    w.setRaw(strangersPool.toBase58(), Buffer.from(w.account(real.pool).data), PROGRAM_IDS.damm);
+    const nft = web3.Keypair.generate().publicKey;
+    w.setRaw(web3.Keypair.generate().publicKey.toBase58(), tokenAccountData({ mint: nft.toBase58(), owner: F.address, amount: 1n }), PROGRAM_IDS.token2022);
+    const posBuf = Buffer.from(w.account(real.position).data);
+    const v = byteView(IDL.damm, 'Position', posBuf, 8);
+    v.nft_mint = nft;
+    v.pool = strangersPool;
+    w.setRaw(damm.position(nft.toBase58()), posBuf, PROGRAM_IDS.damm);
+    const st = await loadState(svmReader(w));
+    const f = st.coins.find((c) => c.cityId === 100006n);
+    assert.deepEqual(f.positions.map((p) => p.nftMint), [real.nftMint], 'only the city\'s position in its own pool');
+    assert.equal(f.ignoredPositions, 1);
+    const p = planKeeper(st, { daily: true });
+    assert.equal(p.steps.filter((s) => s.kind === 'harvestPool' && s.coin.cityId === 100006n).length, 1);
+    assert.match(p.notes.find((n) => n.cityId === 100006n).note, /1 position NFT\(s\).*ignored/);
   });
 });
