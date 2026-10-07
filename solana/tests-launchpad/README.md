@@ -24,8 +24,8 @@ ports are opened and nothing touches the network.
 
 | file | design section 17 ids |
 |---|---|
-| `01-admin.test.mjs` | TA01-TA07 |
-| `02-configs.test.mjs` | TB01-TB16 |
+| `01-admin.test.mjs` | TA01-TA08 (TA08: an admin hand-over never merges the admin with the payout key or wallet) |
+| `02-configs.test.mjs` | TB01-TB17 (TB17: the leftover rule 7.2(13)) |
 | `03-launch.test.mjs` | TC01-TC11 |
 | `04-trading.test.mjs` | TD01-TD11 (TD11: random trades, `PROP_SEED` and `PROP_STEPS` env) |
 | `05-fees-rewards.test.mjs` | TE01-TE09 |
@@ -33,9 +33,9 @@ ports are opened and nothing touches the network.
 | `07-graduation.test.mjs` | TG01-TG08 |
 | `08-attacks.test.mjs` | TH01-TH12 |
 | `09-graduation-defences.test.mjs` | TG09-TG14 (surplus, pre-funded addresses, atomic graduation, nothing twice, nothing left behind) |
-| `10-keeper.test.mjs` | TI01-TI06 (the keeper of `scripts/launchpad/crank.mjs`) |
-| `11-holders-pot.test.mjs` | TE10-TE13 (where the holders' money can go, end to end to each holder's claim) |
-| `12-client-sdk.test.mjs` | TJ01-TJ09: the TypeScript client SDK (`sdk/launchpad/*.mts`) against the real programs: decoders and fetchers, launch with a first buy, quote parity over many random trades (`CLIENT_PARITY_STEPS`, `CLIENT_PARITY_SEED`), the harvest split, SOL wrapping, coin to coin, pay with anything and sell into anything (a real DBC swap standing in for Jupiter's), graduation and DAMM v2 trades from the builders |
+| `10-keeper.test.mjs` | TI01-TI07 (the keeper of `scripts/launchpad/crank.mjs`; TI07: it recreates the dev wallet's referral account and ignores positions outside the coin's own pool) |
+| `11-holders-pot.test.mjs` | TE10-TE15 (where the holders' money can go, end to end to each holder's claim; TE14 time-weighted snapshots against a flash holder; TE15 the reward token's own decimals and minimum payout) |
+| `12-client-sdk.test.mjs` | TJ01-TJ11: the TypeScript client SDK (`sdk/launchpad/*.mts`) against the real programs: decoders and fetchers, launch with a first buy, quote parity over many random trades (`CLIENT_PARITY_STEPS`, `CLIENT_PARITY_SEED`), the harvest split, SOL wrapping, coin to coin, pay with anything and sell into anything (a real DBC swap standing in for Jupiter's), graduation and DAMM v2 trades from the builders, pay with anything near and after graduation (TJ10), the dev wallet's referral account recreated by every builder (TJ11) |
 | `13-rewards-payout-tools.test.mjs` | TK01-TK04: unsigned "send to all holders" batches, a rewards round funded and claimed through the SDK, the founder payout hooks and the payout planner |
 | `14-devnet-accounts.test.mjs` | TL01-TL02 (opt-in, `npm run test:devnet-accounts`, reads devnet, sends nothing): the test token and the two Vicinity Meteora configs the devnet demo created, read from devnet and replayed through our program on Meteora's devnet builds: every config rule passes, a coin on each trades, and the tVIC coin fills, pays its fees and graduates (LAUNCHPAD-DEVNET.md) |
 
