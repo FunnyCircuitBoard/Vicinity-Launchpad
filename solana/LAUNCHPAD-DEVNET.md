@@ -2,7 +2,7 @@
 
 The record of what runs on Solana **devnet** (the free public test network;
 its SOL has no value). Nothing here is mainnet. Last updated 7 October 2026,
-01:00 UTC.
+02:20 UTC.
 
 ## In one minute (for the owner)
 
@@ -17,8 +17,15 @@ its SOL has no value). Nothing here is mainnet. Last updated 7 October 2026,
   holder rewards and the founder's payout.
 * **Why:** the free devnet faucet refuses this build machine for today
   ("You've either reached your airdrop limit today or the airdrop faucet has
-  run dry"). The throwaway devnet wallet holds 1.37 SOL; the program alone
-  needs 2.22 SOL of deposit, and the rest of the demo about 0.5 SOL more.
+  run dry"; 4 more requests between 02:05 and 02:20 UTC were refused too).
+  The throwaway devnet wallet holds 1.37 SOL; the program alone needs 2.23 SOL
+  of deposit and fees, and the rest of the demo about 0.5 SOL more.
+* **Rebuilt after the first code review (7 Oct, 01:47 UTC).** The program
+  that waits for devnet now carries the review fixes (the leftover limit, the
+  three separate payout keys through an admin hand-over, the name rule):
+  433,960 bytes, SHA-256 `8706e3bf…27f0`. Nothing of the program was on
+  devnet before, so this is a first deploy, not an upgrade. The SDK and tools
+  the demo uses were fixed too (section 8, point 4).
 * **What you do:** send **1.5 devnet SOL** to
   `9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa`. Open
   https://faucet.solana.com, sign in with GitHub, paste that address, choose
@@ -128,7 +135,9 @@ them into an in-process copy of the chain running **Meteora's devnet builds**
 
 Every invariant of design section 15, including where each token may go, is
 checked after each of those transactions. Result on 7 October 2026: 2 of 2
-pass, on both Meteora's devnet and mainnet builds.
+pass, on both Meteora's devnet and mainnet builds; re-run at 02:20 UTC with
+the rebuilt program (whose new leftover rule both configs pass: they leave
+about 84 and 0.5 coins over, the limit is 1,000): 2 of 2 pass.
 
 Also already done before devnet (LAUNCHPAD-AUDIT.md section 9.2): the
 complete demo of section 6 ran on a local validator loaded with the devnet
@@ -153,11 +162,11 @@ own keepers do not run on devnet).
 
 | step | SOL |
 |---|---|
-| deploy `vicinity_launchpad` (432,408 bytes, SHA-256 `a0fc828c…7378b`): program data deposit 2.19751148 + program account 0.00083312 + about 450 write transactions (`deploy-devnet.sh` asks for 0.02 of margin) | **2.2183** |
+| deploy `vicinity_launchpad` (433,960 bytes, SHA-256 `8706e3bf…27f0`): program data deposit 2.20539564 + program account + about 450 write transactions; `deploy-devnet.sh` computed and refused at 02:16 UTC: "needs 2.226228760 SOL, the deployer has 1.366462080 SOL" | **2.2262** |
 | the rest of the demo at its peak: 0.445 lent to the demo wallets (returned at the end) plus accounts and fees (measured 0.503 on the local rehearsal, less on devnet whose rent is lower) | **0.50** |
-| **total needed** | **about 2.72** |
-| the deployer holds (7 Oct 2026, 00:55 UTC) | 1.3665 |
-| **shortfall** | **about 1.35: please send 1.5** |
+| **total needed** | **about 2.73** |
+| the deployer holds (7 Oct 2026, 02:16 UTC) | 1.3665 |
+| **shortfall** | **about 1.36 (0.86 for the program alone): please send 1.5** |
 
 After the demo, about 2.42 SOL stays locked as deposits (2.198 in the program,
 the rest in demo accounts); `solana program close` returns the program's
@@ -248,8 +257,12 @@ The metadata file the website must serve for Demo City
 * **Paying with BTC, ETH, stocks or USDC.** Jupiter runs on mainnet only. It
   is shown instead by unit tests on recorded Jupiter answers and by read-only
   live quotes (`npm run test:jupiter-live`, 7 October 2026): cbBTC, ETH and
-  SPYx all routed into SOL, and a cbBTC purchase of a SOL-priced coin was
-  planned as one 1,080-byte transaction. Nothing was sent.
+  SPYx all routed into SOL. At 02:10 UTC, with the stricter checks of the
+  review (every Jupiter instruction allow-listed), live answers for cbBTC,
+  ETH, SPYx, USDC, STONK, WBTC and VICINITY all passed and each planned as
+  one transaction with the Vicinity lookup table (1,041 to 1,223 bytes; the
+  size changes with Jupiter's route of the moment, and without the table a
+  second transaction is usually needed). Nothing was sent.
 * **The "Vicinity" label on Jupiter, DEX Screener, Birdeye and wallets.**
   Those are mainnet listings that you request after the first mainnet launch
   (LAUNCHPAD.md section 4). On devnet the explorer shows the coin's name,
@@ -274,6 +287,13 @@ The metadata file the website must serve for Demo City
    suite and TL01-TL02 pass on both, so the demo's results carry over; still,
    re-run `npm run launchpad:fixtures` (both networks) and the suites before
    mainnet and after any Meteora upgrade.
+4. **Code review (7 Oct).** The program and SDK were fixed after the first
+   code review (`LAUNCHPAD-AUDIT.md` section 10) before anything of the
+   program reached devnet. For the demo this means: every trade first makes
+   sure the dev wallet's referral account exists (it does on devnet:
+   `FGdoiY…` and `Bh7NGU…` above), every curve buy is a partial fill, and the
+   rewards round uses balance samples (the demo takes one; mainnet needs at
+   least six taken at random times).
 
 ## 9. Safety notes
 

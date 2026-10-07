@@ -8,6 +8,13 @@ work touched mainnet except read-only program dumps.
 
 ## 1. In plain English (for the owner)
 
+* **7 October: three reviewers checked the work; everything they confirmed is
+  fixed** (section 10). The most important: a price-curve setting could have
+  given the dev wallet a hidden share of every coin (now impossible, the
+  program refuses it); the website's trades depended on one account of your
+  dev wallet that unwrapping SOL closes (now recreated automatically); and a
+  dishonest answer from Jupiter could have drained a buyer (now every
+  instruction in it is checked). All tests pass again (section 10.3).
 * The launchpad program is written and passes all of its tests. It is a small
   Vicinity program on top of Meteora's audited bonding curve, exactly as the
   design describes: one coin per city, launched only by the founder you
@@ -65,10 +72,10 @@ a fresh keypair (design section 20).
 | item | value |
 |---|---|
 | toolchain | anchor-cli 0.31.1 (anchor-lang/anchor-spl 0.31.2 from the lockfile), solana-cli 4.3.0, cargo-build-sbf 4.4.0 (platform-tools v1.57), rustc 1.97.0, node 22.22.0 |
-| `anchor build` (production, no features) | `target/deploy/vicinity_launchpad.so`, 432,408 bytes, SHA-256 `a0fc828ce5a1147f1858ca47ee1b784cf9cd187818e6e154cd1df7bb0de7378b` (427,176 bytes, `5b8ced51…`, before the surplus collection of section 7, point 10) |
-| IDL | 106,277 bytes, SHA-256 `1bc0de298a6c7c055a26192356ac89edc0a016ab8db993eb8d653668c39c237c` (`target/idl` = `sdk/idl`) |
+| `anchor build` (production, no features) | `target/deploy/vicinity_launchpad.so`, 433,960 bytes, SHA-256 `8706e3bfb1dc7b39a5790586144327267cdb5336ed34a541504723811e0e27f0` after the review fixes of section 10 (before them: 432,408 bytes, `a0fc828c…7378b`; before the surplus collection of section 7, point 10: 427,176 bytes, `5b8ced51…`) |
+| IDL | 107,109 bytes, SHA-256 `e5ee932049723d60c7e6d3d9729f5cd26a6ff39a10ad05bf77b4e432485291ec` (`target/idl` = `sdk/idl`; before the review fixes 106,277 bytes, `1bc0de29…237c`) |
 | `vicinity_rewards` after this work | rebuilt: 505,864 bytes, SHA-256 `f0fbc9d53ed092210eef3f97047644d6f796d634bf11c428795ff8b0b1e509a3`, identical to the hash recorded in AUDIT.md; its IDL is unchanged; its `short-windows` test build also matches AUDIT.md (`add08669…ebf98`) |
-| rent for the program (devnet, `solana rent 432453`) | 2.19751148 SOL for the ProgramData account at `--max-len` = size, plus 0.00083312 SOL for the program account |
+| rent for the program (devnet, `solana rent 434005`) | 2.20539564 SOL for the ProgramData account at `--max-len` = size, plus the program account; `deploy-devnet.sh` asks for 2.22622876 SOL in all, with 0.02 SOL of fee margin |
 
 **Size.** The design targeted 300 KB or less. The production binary is 427 KB.
 What was done to get there from 586 KB:
@@ -89,10 +96,10 @@ in. Cost of the extra size: about 0.65 SOL of rent at deploy.
 
 | suite | command (from `solana/`) | result |
 |---|---|---|
-| Rust unit tests, both crates | `cargo test` | launchpad 25 passed (every rule of 7.2 broken one field at a time, the 50/50 split with a 200,000-case property loop and an additivity loop, names, tickers, the URL, the ProgramData header, the rewards-config reader, the token-account reader); rewards 29 passed |
+| Rust unit tests, both crates | `cargo test` | launchpad 27 passed (every rule of 7.2 broken one field at a time, including rule 13, the 50/50 split with a 200,000-case property loop and an additivity loop, names (with the formatting characters), tickers, the URL, the ProgramData header, the rewards-config reader, the token-account reader, the three separate payout keys); rewards 29 passed |
 | clippy and fmt | `cargo clippy --all-targets -- -D warnings`, the same with `--features short-windows`, `cargo fmt --all -- --check` | clean |
-| launchpad in-process suite | `npm run launchpad:fixtures` once, then `npm run test:launchpad` | 112 passed, about 40 s (101 for the program, 11 for the client SDK, section 9); every invariant of design section 15 checked after every successful transaction, invariant 8 from the token instructions that actually ran. Also 112 passed on Meteora's devnet builds |
-| launchpad SDK | `npm run sdk-test:launchpad` | 43 passed, 4 skipped (the live Jupiter tests, opt-in with `npm run test:jupiter-live`: 4 passed); includes 5,000 random trades per quote type on the maths alone, the keeper's planning rules, the snapshot rules, the design 9.5 numbers through `quote.mts`, the metadata file, Jupiter composition from recorded answers, airdrop batching and payout planning |
+| launchpad in-process suite | `npm run launchpad:fixtures` once, then `npm run test:launchpad` | 119 passed, about 55 s (106 for the program, 13 for the client SDK; 112 before the review fixes of section 10); every invariant of design section 15 checked after every successful transaction, invariant 8 from the token instructions that actually ran. Also 119 passed on Meteora's devnet builds |
+| launchpad SDK | `npm run sdk-test:launchpad` | 55 passed, 4 skipped (the live Jupiter tests, opt-in with `npm run test:jupiter-live`: 4 passed); includes 5,000 random trades per quote type on the maths alone, the keeper's planning rules, the snapshot rules (time-weighting, per-token minimum), the design 9.5 numbers through `quote.mts`, the metadata file, Jupiter composition from recorded answers and 26 hostile Jupiter answers, airdrop batching and payout planning |
 | launchpad TypeScript SDK | `npm run typecheck:launchpad` | clean |
 | existing SDK and types | `npm run sdk-test`, `npm run typecheck` | 47 passed; clean |
 | `vicinity_rewards` Anchor suite | see below | 144 passing, 0 failing, 0 pending (8 min) |
@@ -316,7 +323,7 @@ npm ci
 anchor build                       # both programs; hashes in section 3
 cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --check
 npm run launchpad:fixtures         # mainnet dumps, checked against pinned hashes
-npm run test:launchpad             # 112 tests, no validator
+npm run test:launchpad             # 119 tests, no validator
 npm run sdk-test:launchpad && npm run sdk-test && npm run typecheck && npm run typecheck:launchpad
 NETWORK=devnet npm run launchpad:fixtures && LAUNCHPAD_PROGRAMS_DIR=tests-launchpad/fixtures/programs-devnet npm run test:launchpad
 npm run test:jupiter-live          # optional: read-only calls to Jupiter's mainnet API
@@ -403,3 +410,79 @@ Recorded in full in `LAUNCHPAD-DEVNET.md`.
   about 0.50 SOL at its peak. The faucet refused all 23 requests from this
   machine between 6 Oct 23:30 and 7 Oct 00:57 UTC. Pending: about 1.35 SOL
   (1.5 requested from the owner).
+
+## 10. First code review and its fixes (7 Oct 2026)
+
+Three reviewers looked at the branch: the maths and economics, the accounts
+and CPIs, and the owner's journey end to end. Their confirmed findings and
+the nits that were plainly right are fixed below; each fix has a test that
+fails on the code before it and passes after (checked by running the new
+tests against the earlier binary or the earlier SDK files). The program was
+rebuilt; `vicinity_rewards` is unchanged (same hash).
+
+### 10.1 Confirmed findings
+
+| finding | what was wrong | fix | regression test | commit |
+|---|---|---|---|---|
+| math-econ R1 (high) | rule 7.2 put no limit on DBC's leftover, so a config could hand the dev wallet half of every coin (measured: 500,000,003 coins, sold for 70% of the pool's SOL) | rule 7.2(13): `supply - swap_base_amount - migration_base_threshold` (checked u128) must be at most `MAX_LEFTOVER_RAW` = 1,000 coins; new error `ConfigLeftover` (last in the enum, so earlier codes keep their numbers); checked at `add_launch_config` and at every `launch` | Rust `rule_13_leftover`; TB17 (real configs with 500,000,000 and 1,001 coins left over refused; exact cap passes, one unit more fails; underflow refused; re-checked at launch) | `85cac45` |
+| math-econ R2 (medium), owner-e2e F1 (high) | every site trade failed while the dev wallet's quote-token (referral) account was missing; nothing created it on mainnet, and unwrapping SOL in the dev wallet closes it | every builder prepends an idempotent create of the dev wallet's account (buy, buy exact out, sell, coin to coin, launch with first buy, pay with anything in both modes, sell into anything); `setup.mjs referral-accounts`; the keeper recreates it on every pass; owner guide and checklist say never to close it | TJ11 (the dev wallet closes it, then every builder succeeds and brings it back; `referral: null` still works); TI07(a); keeper unit test | `1075b4f`, `268690f` |
+| math-econ R3 (low) | holder rewards came from one slot's balances, so a flash holder at the snapshot slot took part of the pot at a profit | each holder counts with min(balance at the cutoff, average of samples taken at random times; `snapshot.mjs --sample`); fewer than 6 samples: not fundable; the file records the sample slots | TE14 (a flash holder's 3,076,693,262-lamport share of a 4 SOL pot becomes 0; a half-seller counts with what it holds; a sample of another coin refused); unit tests | `2092df1` |
+| math-econ R4 (low) | the airdrop CSV used 9 decimals for WSOL and 6 for everything else | the reward token's decimals are read from its mint | TE15 (a 9-decimal, authority-free quote token: the CSV now matches the leaves) | `2092df1` |
+| accounts-cpi LP-ACPI-1 (medium) | `checkJupiterBuild` allowed any System, Token or Token-2022 instruction and checked the output by membership, so a hostile answer could send SOL away, approve a stranger, close the WSOL account to a stranger, redirect the output, or set a 600-SOL priority fee | the swap must be `route_v2` or `shared_accounts_route_v2`, decoded by position (authority, source, destinations, mints, token programs, `in_amount`, `quoted_out_amount`, `slippage_bps`, no platform fee or positive-slippage cut) and must match the JSON and the buyer's amount; helpers allow-listed by opcode and accounts; the priority fee capped at 0.01 SOL, also in `toV0Transaction`; the sell path accepts Jupiter's close only back to the trader | 26 hostile cases in `jupiter.test.mts` (each of the reviewer's: SOL to a stranger, Approve, ApproveChecked, Transfer, SetAuthority, Token-2022, close to a stranger, output redirected with a decoy, input from a stranger, wrong mints, changed amounts, slippage, platform fee, exact-out route, ...); the priority-fee cap; live answers for cbBTC, ETH, SPYx, USDC, STONK, WBTC and VICINITY all still pass (read-only) | `1075b4f` |
+| accounts-cpi LP-ACPI-2 (low) | the "three separate keys" rule could be broken through an admin hand-over | `propose_admin` and `accept_admin` apply the same check as `set_payout_config` (`math::check_payout_keys_separate`); the payout wallet may also not be the dev wallet (optional hardening, now in design 6.1 and 13.2) | TA08 (both orders, cancel, a separate key, payouts off); a TA06 case; invariant 12 extended; Rust unit test | `b094132` |
+| owner-e2e F2 (medium) | pay with anything always bought exact in and never looked at the curve: refused near graduation; in two-transaction mode the asset could be sold and the buy then fail | every curve buy is a partial fill; a full or graduated curve is refused before Jupiter is asked; step 2 of the two-transaction mode is rebuilt from the live pool (`buildBuyAfterSwap`) | TJ10 (near graduation the buy fills and refunds; a full curve is refused before the swap; the curve fills between the two transactions and the buyer keeps the SOL; a calm curve's rebuilt buy gets exactly the re-quote); `jupiter.test.mts` | `1075b4f` |
+| owner-e2e F3 (low) | stock tokens were hidden in only four countries | an allow-list that fails closed (default EEA and Switzerland, pending a lawyer) plus a block-list of the issuer's excluded and sanctioned countries | the pay-with list test (the reviewer's 13 countries, unknown, `XX`, `T1`) | `372c74e` |
+| owner-e2e F4 (low) | the owner guide omitted X Premium and the New York / Massachusetts gap | documented (LAUNCHPAD.md section 7, design 13.4) | (documentation) | docs commit |
+
+### 10.2 Nits
+
+| nit | outcome |
+|---|---|
+| math-econ N1 (exact-in buys fail at the end of a curve) | fixed with F2: every curve buy is a partial fill (also the JavaScript `coinToCoin`) |
+| math-econ N2, owner-e2e N4 (raw 0.01 SOL minimum for every token) | fixed: an explicit minimum is required for reward tokens other than SOL (TE15, unit test) |
+| math-econ N3 ("half of the pool fees") | reworded: half of the fees earned by the locked graduation liquidity |
+| math-econ N4, owner-e2e N7 (program-address owners never get rewards) | documented in the published rules and the owner guide; `--include` adds a multisig vault by hand |
+| math-econ N5 (8.1 claimed an unenforced leftover) | fixed by rule 13; 8.1 names it |
+| math-econ N6 (a 1-lamport buy for 0 coins) | fixed: quotes and builders refuse a trade that returns nothing (`4c62e3c`) |
+| accounts-cpi N1 (`enable_first_swap_with_min_fee`) | fixed in rule 5 (TB05 case, unit test) |
+| accounts-cpi N2 (surplus bundled with the fee harvest) | **skipped.** A separate `collect_curve_surplus` instruction is a program and keeper change for a risk that needs a Meteora upgrade to appear: the surplus call only runs once a curve is complete and while DBC's own flag says it is unpaid, and any Meteora upgrade must be re-tested before use anyway (design section 20, step 1; the fixtures pin DBC's hash). If it ever failed, an upgrade of our program could split it out without any state change. Recorded here for the auditor |
+| accounts-cpi N3 (invisible characters in names) | fixed (`2ffe2f0`, TC02 cases, unit test) |
+| accounts-cpi N4 (payout record only in logs) | documented: the payout service reconciles from `Coin.payout_seq`, `Coin.founder_paid_out` and each payout's token transfer, not from logs. `emit_cpi!` was not used because it adds two accounts to three instructions and changes their interface for a record the accounts already hold |
+| accounts-cpi N5 (keeper harvests strangers' positions) | fixed: only the coin's own pool, at most 16 NFTs read per coin, the rest reported (TI07, unit test) |
+| accounts-cpi N6 (Meteora per-pool metadata) | documented as deliberately left out (design 8.3); an upgrade can add it later because the `Coin` PDA stays the creator |
+| owner-e2e N1 (Jupiter label also on look-alike coins) | documented (LAUNCHPAD.md section 4) |
+| owner-e2e N2 (the site cannot serve coin metadata yet) | listed as a launch blocker (design 20 step 9, LAUNCHPAD.md sections 4 and 9); the website change itself is website work |
+| owner-e2e N3 (deploy SOL overstated) | corrected: about 2.23 SOL at the peak |
+| owner-e2e N5 (inconsistent byte counts) | replaced by "usually one transaction with the Vicinity lookup table, two without it" |
+| owner-e2e N6 (VICINITY routes only at 64) | fixed: every pay-with tries 40, 32, 24, then 64; a live VICINITY payment planned at 40 as one transaction (1,126 bytes) |
+| owner-e2e N8 (a lost founder key loses the 0.25%) | documented (LAUNCHPAD.md section 7, design 13.2) |
+
+### 10.3 Build and results after the fixes
+
+* `anchor build`: `vicinity_launchpad.so` 433,960 bytes (1,552 more), SHA-256
+  `8706e3bfb1dc7b39a5790586144327267cdb5336ed34a541504723811e0e27f0`; IDL
+  107,109 bytes, SHA-256 `e5ee9320…91ec` (`target/idl` = `sdk/idl`);
+  `vicinity_rewards.so` unchanged (`f0fbc9d5…09a3`).
+* Rust: launchpad 27 and rewards 29 unit tests pass; `cargo clippy
+  --all-targets -- -D warnings` (with and without `short-windows`) and
+  `cargo fmt --all -- --check` are clean.
+* In process: 119 of 119 on Meteora's mainnet builds and 119 of 119 on its
+  devnet builds (TA08, TB17, TE14, TE15, TI07, TJ10 and TJ11 are new), every
+  invariant checked after every transaction.
+* SDK: 55 passed and 4 opt-in live tests skipped (`npm run
+  sdk-test:launchpad`); `npm run sdk-test` 47 passed; both typechecks clean.
+* Read-only live checks: `npm run test:jupiter-live` 4 of 4 (a live cbBTC
+  plan: one transaction, 1,124 bytes with the Vicinity lookup table), and live
+  Jupiter answers for ETH, SPYx, USDC, STONK, WBTC and VICINITY all pass the
+  stricter checks and plan as one transaction (1,041 to 1,223 bytes);
+  `npm run test:devnet-accounts` 2 of 2 (the devnet configs pass the new rule
+  13: they leave about 84 and 0.5 coins over).
+* `vicinity_rewards` Anchor suite on a local validator (short-windows test
+  build, ports 18899/19900/18001/18002-18040, ledger deleted afterwards):
+  144 passing, 0 failing, 0 pending (8 min); the production binary was rebuilt afterwards with the
+  same hash.
+* Devnet: still not deployed. `deploy-devnet.sh` (now pinned to the new hash)
+  refused cleanly: "needs 2.226228760 SOL, the deployer has 1.366462080 SOL";
+  four more faucet requests between 02:05 and 02:20 UTC were refused.
+  Pending: about 1.36 devnet SOL (0.86 for the program, 0.50 for the demo);
+  `LAUNCHPAD-DEVNET.md` section 4.

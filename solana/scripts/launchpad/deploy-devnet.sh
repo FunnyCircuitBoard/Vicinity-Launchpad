@@ -21,7 +21,7 @@ set -euo pipefail
 KEYS=${1:?usage: bash scripts/launchpad/deploy-devnet.sh <keys dir>}
 RPC=${RPC:-https://api.devnet.solana.com}
 SO=target/deploy/vicinity_launchpad.so
-EXPECTED_SHA256=${EXPECTED_SHA256:-a0fc828ce5a1147f1858ca47ee1b784cf9cd187818e6e154cd1df7bb0de7378b}
+EXPECTED_SHA256=${EXPECTED_SHA256:-8706e3bfb1dc7b39a5790586144327267cdb5336ed34a541504723811e0e27f0}
 DEVNET_GENESIS=EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG
 DEPLOYER=$KEYS/devnet-deployer.json
 PROGRAM_KP=$KEYS/vicinity_launchpad-program-keypair.json
