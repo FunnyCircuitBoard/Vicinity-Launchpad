@@ -1,0 +1,133 @@
+{
+  "steps": {
+    "quote-mint": {
+      "done": true,
+      "at": "2026-10-07T00:47:27.693Z",
+      "deployerSpent": "8529000",
+      "txs": [
+        {
+          "label": "create tVIC mint",
+          "signature": "3WZHhuTGmVcMwEwH1CYQkBrkQs7vksFywcYqJQfPif4cWeJgLaG8YqZaxCFuQyhsGEGDCaYy7a7b73rmvQiYtSpH",
+          "bytes": 432,
+          "explorer": "https://explorer.solana.com/tx/3WZHhuTGmVcMwEwH1CYQkBrkQs7vksFywcYqJQfPif4cWeJgLaG8YqZaxCFuQyhsGEGDCaYy7a7b73rmvQiYtSpH?cluster=devnet"
+        },
+        {
+          "label": "mint 1,000,000,000 tVIC to the demo wallets",
+          "signature": "4kokA689Wo9pYJpWtXYBxUw3D1LrRD8RZL55MCc2EsUjPwSru8LJurmsiRva5uD6dag4pV5s2hJZouf8HqZAfQwG",
+          "bytes": 717,
+          "explorer": "https://explorer.solana.com/tx/4kokA689Wo9pYJpWtXYBxUw3D1LrRD8RZL55MCc2EsUjPwSru8LJurmsiRva5uD6dag4pV5s2hJZouf8HqZAfQwG?cluster=devnet"
+        },
+        {
+          "label": "remove the tVIC mint authority",
+          "signature": "49HBQhJh4y73NdB6jfWnKiZGk9SZHTzCpnYSTSuSLyuFaDvRaCsGMtEmzbfZFAkJFHjXEsQczYUX9d8djPSdTtic",
+          "bytes": 248,
+          "explorer": "https://explorer.solana.com/tx/49HBQhJh4y73NdB6jfWnKiZGk9SZHTzCpnYSTSuSLyuFaDvRaCsGMtEmzbfZFAkJFHjXEsQczYUX9d8djPSdTtic?cluster=devnet"
+        }
+      ],
+      "mint": "HFFBwqSde8ehdE3AuoPjYZWbiaVdXJ25Su5QhhpWhBBX",
+      "supply": "1000000000000000",
+      "decimals": 6
+    },
+    "dbc-configs": {
+      "done": true,
+      "at": "2026-10-07T00:47:29.633Z",
+      "deployerSpent": "11968160",
+      "txs": [
+        {
+          "label": "Meteora DBC config: SOL, target 1 SOL",
+          "signature": "4et9azRJjshp6BzcSbB5D4YKVXTAD8YCLwbYQpTxrpR5W1buPUqzMPgvsm2xAGZoMBhDniaZHciyVuun2y3fHb8D",
+          "bytes": 703,
+          "explorer": "https://explorer.solana.com/tx/4et9azRJjshp6BzcSbB5D4YKVXTAD8YCLwbYQpTxrpR5W1buPUqzMPgvsm2xAGZoMBhDniaZHciyVuun2y3fHb8D?cluster=devnet"
+        },
+        {
+          "label": "Meteora DBC config: tVIC, target 25,000,000 tVIC",
+          "signature": "4ZJMWaEWBknMCMHgYQBZ5jyRZkEsLBXr8rbcTN5bDXQyw1bWq2Rw3cw3snoWurB8FFDf61d6pUcWcv42JYYpjwrx",
+          "bytes": 703,
+          "explorer": "https://explorer.solana.com/tx/4ZJMWaEWBknMCMHgYQBZ5jyRZkEsLBXr8rbcTN5bDXQyw1bWq2Rw3cw3snoWurB8FFDf61d6pUcWcv42JYYpjwrx?cluster=devnet"
+        }
+      ],
+      "sol": {
+        "address": "4ZLtvU1zieGwbexVScEpEyrPV4uz53ZXVaT6fQoonrD7",
+        "quoteMint": "So11111111111111111111111111111111111111112",
+        "feeClaimer": "13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN",
+        "leftoverReceiver": "13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN",
+        "target": "1000000000",
+        "feeBps": 125,
+        "launchFeeLamports": "10000000",
+        "swapBaseAmount": "793099894092564",
+        "migrationBaseThreshold": "206900021912251"
+      },
+      "tvic": {
+        "address": "8ZcsWij7BWkhrkvoJuGULN3XreHT9De4dj4ZEVgRMi8J",
+        "quoteMint": "HFFBwqSde8ehdE3AuoPjYZWbiaVdXJ25Su5QhhpWhBBX",
+        "feeClaimer": "13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN",
+        "leftoverReceiver": "13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN",
+        "target": "25000000000000",
+        "feeBps": 125,
+        "launchFeeLamports": "10000000",
+        "swapBaseAmount": "793099999411112",
+        "migrationBaseThreshold": "206900000121841"
+      }
+    },
+    "referral-accounts": {
+      "done": true,
+      "at": "2026-10-07T00:47:30.487Z",
+      "deployerSpent": "2981880",
+      "txs": [
+        {
+          "label": "dev wallet referral accounts (WSOL, tVIC)",
+          "signature": "t8PXehnu5zuW5BHfefZ3iGyVx3pGrZNXE9FyF5TZoJ1vnrKdKXB3Xz6eNCVMmJt6dJtMArKEaL7978ErsubJWHL",
+          "bytes": 452,
+          "explorer": "https://explorer.solana.com/tx/t8PXehnu5zuW5BHfefZ3iGyVx3pGrZNXE9FyF5TZoJ1vnrKdKXB3Xz6eNCVMmJt6dJtMArKEaL7978ErsubJWHL?cluster=devnet"
+        }
+      ],
+      "wsol": "FGdoiYmovw4J7sAy8a657kWH2QUSBLxup59kkfUeMHa",
+      "tvic": "Bh7NGUbZcisjDTV2YDxbLwjLCYz4kYyHGJ6ABtBNYrKt"
+    },
+    "lookup-table": {
+      "done": true,
+      "at": "2026-10-07T00:48:42.154Z",
+      "deployerSpent": "5013720",
+      "txs": [
+        {
+          "label": "create the Vicinity lookup table",
+          "signature": "3pdfWv3t1R8iCTyA8mQZCBUe3ZDbUmTWzpqqxy3T6prPAkfXEaAiC5YXKEBiTxuinPE2CcwHg62pgbDbW7dTUYBN",
+          "bytes": 292,
+          "explorer": "https://explorer.solana.com/tx/3pdfWv3t1R8iCTyA8mQZCBUe3ZDbUmTWzpqqxy3T6prPAkfXEaAiC5YXKEBiTxuinPE2CcwHg62pgbDbW7dTUYBN?cluster=devnet"
+        },
+        {
+          "label": "extend the lookup table (1/2)",
+          "signature": "L1kYD4RB1LWoBdxvnZxADMu8s5KKomiucH53K8xU3vh9o7SkwqApvjET5p4T9oYBdPtx3iEyHnowW2AgGmr5GoQ",
+          "bytes": 932,
+          "explorer": "https://explorer.solana.com/tx/L1kYD4RB1LWoBdxvnZxADMu8s5KKomiucH53K8xU3vh9o7SkwqApvjET5p4T9oYBdPtx3iEyHnowW2AgGmr5GoQ?cluster=devnet"
+        },
+        {
+          "label": "extend the lookup table (2/2)",
+          "signature": "2gJS7AWWYu6FfdKrVvoBu9RHN7X8KFuDiiCsk9v4xPaooRiVGiEK5KCgkSshBeDLFxL7rxP8evCGWsZW1YFj2TU1",
+          "bytes": 452,
+          "explorer": "https://explorer.solana.com/tx/2gJS7AWWYu6FfdKrVvoBu9RHN7X8KFuDiiCsk9v4xPaooRiVGiEK5KCgkSshBeDLFxL7rxP8evCGWsZW1YFj2TU1?cluster=devnet"
+        }
+      ],
+      "lookupTable": "5tPTizNodKvKEo8k7a9NjRDucMNVQsQvHrqjEmwXCXhe",
+      "addresses": 25
+    }
+  },
+  "addresses": {
+    "launchpadProgram": "Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7",
+    "rewardsProgram": "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi",
+    "launchpad": "ppX3a7oUKmZg2aAmxct8LnKdxNAcoGFDowcyzvbTsbw",
+    "deployer": "9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa",
+    "devWallet": "13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN",
+    "testQuoteMint": "HFFBwqSde8ehdE3AuoPjYZWbiaVdXJ25Su5QhhpWhBBX",
+    "dbcConfigSol": "4ZLtvU1zieGwbexVScEpEyrPV4uz53ZXVaT6fQoonrD7",
+    "dbcConfigTvic": "8ZcsWij7BWkhrkvoJuGULN3XreHT9De4dj4ZEVgRMi8J",
+    "founderA": "3oXqUyBGGe9gfPX3TPAeU9byD9WJ9LdskcpP2gmUTr9m",
+    "founderB": "91WeAyurya1sKGLmLoAbCyD7o5cRhh5UGm24xKvxwGgr",
+    "trader1": "AAMTJL8EUMJq8noHmgaahN57hXio5iMZCjZa3dPew1Th",
+    "trader2": "2ZouHQPoP6HRzdG5K64DGb6VChgEqDnH3MXdxCLwgL94",
+    "payoutAuthority": "C66UDS1ghGHmrUbmfeDymtDtFGRqbQcXyDQMqyKa6sAL",
+    "payoutWallet": "FbsE5UjWhT2CGFtWCDwkRvoGCgezdGnJg3WP2zcgmkkK"
+  },
+  "cluster": "devnet",
+  "rpc": "https://api.devnet.solana.com"
+}

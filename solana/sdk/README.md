@@ -1,5 +1,8 @@
 # Vicinity Rewards SDK
 
+(The launchpad's SDK lives in `launchpad/`: start at `launchpad/index.mts`,
+and see `../LAUNCHPAD.md`. This file is about the rewards program's SDK.)
+
 Small, dependency-light helpers shared by the Anchor tests, the demo script and
 (later) the Cloudflare Worker that serves claim proofs.
 

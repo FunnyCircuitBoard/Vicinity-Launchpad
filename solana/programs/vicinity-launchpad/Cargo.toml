@@ -1,0 +1,37 @@
+[package]
+name = "vicinity-launchpad"
+version = "0.1.0"
+description = "Vicinity Launchpad: one coin per city, launched on Meteora's Dynamic Bonding Curve, with the city's fee share routed to holders and founder"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "vicinity_launchpad"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+# Accepted and ignored: vicinity_rewards' full test run builds the whole
+# workspace with `anchor test -- --features short-windows`, and every program
+# must accept that flag. It changes nothing in this program.
+short-windows = []
+
+[dependencies]
+# init-if-needed is used ONLY for associated token accounts of wallets this
+# program does not own (founder, payout wallet) and for the Coin PDA's own
+# city-coin account. Every program-owned account uses plain init.
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+# default-features = false keeps the Token-2022 extension helpers out of the
+# binary ("token_2022" stays because Anchor's `init` of token accounts uses its
+# interface). This program only handles classic SPL Token accounts, plus one
+# Token-2022 position NFT account that it reads by hand (harvest_pool_fees).
+anchor-spl = { version = "0.31.1", default-features = false, features = ["token", "token_2022", "associated_token"] }
+# Needed by declare_program! for Meteora's zero-copy accounts (PoolConfig,
+# VirtualPool, DAMM v2 Pool and Position).
+bytemuck = { version = "1", features = ["derive", "min_const_generics"] }
