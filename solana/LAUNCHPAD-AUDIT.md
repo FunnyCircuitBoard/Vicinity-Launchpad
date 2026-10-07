@@ -91,8 +91,9 @@ in. Cost of the extra size: about 0.65 SOL of rent at deploy.
 |---|---|---|
 | Rust unit tests, both crates | `cargo test` | launchpad 25 passed (every rule of 7.2 broken one field at a time, the 50/50 split with a 200,000-case property loop and an additivity loop, names, tickers, the URL, the ProgramData header, the rewards-config reader, the token-account reader); rewards 29 passed |
 | clippy and fmt | `cargo clippy --all-targets -- -D warnings`, the same with `--features short-windows`, `cargo fmt --all -- --check` | clean |
-| launchpad in-process suite | `npm run launchpad:fixtures` once, then `npm run test:launchpad` | 101 passed, about 15 s; every invariant of design section 15 checked after every successful transaction, invariant 8 from the token instructions that actually ran |
-| launchpad SDK | `npm run sdk-test:launchpad` | 18 passed (includes 5,000 random trades per quote type on the maths alone, the keeper's planning rules and the snapshot rules) |
+| launchpad in-process suite | `npm run launchpad:fixtures` once, then `npm run test:launchpad` | 112 passed, about 40 s (101 for the program, 11 for the client SDK, section 9); every invariant of design section 15 checked after every successful transaction, invariant 8 from the token instructions that actually ran. Also 112 passed on Meteora's devnet builds |
+| launchpad SDK | `npm run sdk-test:launchpad` | 43 passed, 4 skipped (the live Jupiter tests, opt-in with `npm run test:jupiter-live`: 4 passed); includes 5,000 random trades per quote type on the maths alone, the keeper's planning rules, the snapshot rules, the design 9.5 numbers through `quote.mts`, the metadata file, Jupiter composition from recorded answers, airdrop batching and payout planning |
+| launchpad TypeScript SDK | `npm run typecheck:launchpad` | clean |
 | existing SDK and types | `npm run sdk-test`, `npm run typecheck` | 47 passed; clean |
 | `vicinity_rewards` Anchor suite | see below | 144 passing, 0 failing, 0 pending (8 min) |
 
@@ -279,10 +280,11 @@ and compare them with the pinned mainnet hashes.
    the pool's favour, a round trip never profits) are therefore asserted on
    the real DBC program after every random trade in TD11, and on the SDK's
    copy of the maths in `sdk/launchpad/curve.test.mjs`.
-9. **Not built yet** (design 18 and 20): `create-dbc-config.mjs`,
-   `init-launchpad.mjs`, `devnet-demo.mjs`, `claim-platform-fees.mjs` (the SDK
-   builds every claim it needs), the pay-with-anything composer, and all
-   website work (including the scheduled snapshot job and the claim page).
+9. **Built since** (section 9): the setup script (`setup.mjs`, in place of
+   `create-dbc-config.mjs` and `init-launchpad.mjs`), `devnet-demo.mjs`,
+   `claim-platform-fees.mjs` and the pay-with-anything composer. **Still not
+   built:** all website work (including the scheduled snapshot job, the claim
+   page and the signing pages).
 10. **Design change: the city collects its graduation surplus.** The design
     said the city's share of DBC's rounding surplus would stay in DBC ("a few
     lamports"). Measured, it grows with trading (5.5), so `harvest_curve_fees`
@@ -314,6 +316,61 @@ npm ci
 anchor build                       # both programs; hashes in section 3
 cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --check
 npm run launchpad:fixtures         # mainnet dumps, checked against pinned hashes
-npm run test:launchpad             # 101 tests, no validator
-npm run sdk-test:launchpad && npm run sdk-test && npm run typecheck
+npm run test:launchpad             # 112 tests, no validator
+npm run sdk-test:launchpad && npm run sdk-test && npm run typecheck && npm run typecheck:launchpad
+NETWORK=devnet npm run launchpad:fixtures && LAUNCHPAD_PROGRAMS_DIR=tests-launchpad/fixtures/programs-devnet npm run test:launchpad
+npm run test:jupiter-live          # optional: read-only calls to Jupiter's mainnet API
 ```
+
+## 9. Client SDK, scripts and devnet (7 Oct 2026)
+
+### 9.1 What was added
+
+| part | where |
+|---|---|
+| typed SDK (TypeScript, run directly by Node 22; `index.mts` exports all) | `sdk/launchpad/accounts.mts` (decoders and fetchers), `quote.mts` (quotes, slippage bounds, the 50/50 split, prices), `trade.mts` (launch with first buy, buy, sell, exact out, coin to coin, graduation, DAMM v2 trades, SOL wrapping, v0 transactions, sizes), `metadata.mts` (design 8.2 JSON, Meteora partner metadata), `lookup-table.mts`, `pay-assets.mts` and `jupiter.mts` (pay with anything, sell into anything), `rewards.mts` (unsigned airdrop batches, funding a round, claims), `payout.mts` (founder claim, opt-in, revoke, payout, planner), `platform-fees.mts` (the dev wallet's claims); `pda.d.mts` and `curve.d.mts` type the JavaScript; `tsconfig.json` (`npm run typecheck:launchpad`, in CI) |
+| recorded Jupiter answers | `sdk/launchpad/fixtures/jupiter-build-*.json` (mainnet `/swap/v2/build`, 6 Oct 2026, taker = the throwaway devnet deployer's public address) |
+| scripts | `scripts/launchpad/setup.mjs`, `claim-platform-fees.mjs`, `devnet-demo.mjs`, `lib.mjs` |
+| tests | `tests-launchpad/12-client-sdk.test.mjs` (TJ01-TJ09), `13-rewards-payout-tools.test.mjs` (TK01-TK05), `sdk/launchpad/*.test.mts`, `jupiter.live.test.mts` (opt-in) |
+| devnet fixtures | `NETWORK=devnet npm run launchpad:fixtures` with pinned devnet hashes; `LAUNCHPAD_PROGRAMS_DIR` in `helpers.mjs` |
+
+### 9.2 Results
+
+* In process, 112 tests pass (101 before, plus 7 in file 12 and 4 in file
+  13), with every invariant checked after every transaction as before.
+* **Quote parity** (TJ03): 240 random trades over three curves (102 exact-in
+  buys, 2 partial fills, 35 exact-out buys, 72 exact-in sells, 29 exact-out
+  sells), quoted by `quote.mts` from the decoded chain state and sent with the
+  `trade.mts` builders: coins, quote, new price, Meteora's share, the dev
+  wallet's share, the city's share and the referral matched the real program
+  to the raw unit every time. 68 trades were also sent one unit tighter than
+  the SDK's 0-slippage bound and Meteora refused every one
+  (`ExceededSlippage`). 22 harvests split exactly as `splitHarvest` predicted,
+  including the city's surplus share after each curve filled.
+* **Sizes** (bytes of 1,232): launch with the founder's first buy 1,173
+  without the Vicinity lookup table, 959 with it (one transaction either way
+  for a SOL-priced coin); coin to coin 929; pay with anything with a stand-in
+  swap 929; from the recorded Jupiter answers: cbBTC to SOL to a coin 1,102
+  (981 with the Vicinity table), a coin to SOL to cbBTC 1,220, cbBTC to
+  VICINITY to a VICINITY-priced coin two transactions (1,034 + 526), as the
+  design expected. Live (6-7 Oct 2026): cbBTC, ETH and SPYx quotes into SOL
+  all routed; a live cbBTC plan fitted one transaction at route size 40
+  (1,112 bytes with the Vicinity table).
+* **Airdrop batches**: nine recipients per transaction (1,155 bytes) when
+  every recipient needs a new token account.
+* **Platform fees** (TK05): six claims (two trading-fee claims, two
+  launch-fee claims, a surplus share and a DAMM v2 position) in two
+  transactions (971 and 702 bytes); nothing claimable afterwards.
+* **Meteora's devnet programs differ from mainnet's** (DBC 1,983,568 bytes,
+  SHA-256 `f5ccbb01…`, deployed in slot 503,167,099; DAMM v2 `82bb9375…`;
+  Metaplex `bb0842f6…`). The whole suite, including files 12 and 13, passes
+  on both the mainnet and the devnet builds.
+* **Local rehearsal.** Before touching devnet, `devnet-demo.mjs` ran end to end
+  on a local validator (ports 18899/19900/18001/18002-18040) loaded with the
+  devnet builds of Meteora's and Metaplex's programs and our two programs:
+  all 23 steps passed; the deployer spent 0.258 SOL net (0.55 SOL at the
+  peak, before the demo wallets returned their SOL). The ledger was deleted.
+  One transaction was dropped by the local validator once and confirmed on
+  the retry; `lib.mjs` now re-signs and resends a transaction whose blockhash
+  expired without it landing (safe: an expired transaction can never land).
+

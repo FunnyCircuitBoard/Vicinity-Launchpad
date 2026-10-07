@@ -1088,8 +1088,12 @@ The swap modes all use DBC `swap2` with `SwapParameters2 { amount_0, amount_1, s
   transactions (sell A; then Jupiter from A's quote to B's quote plus buy B),
   because a DBC sell, a Jupiter route and a DBC buy do not fit in 1,232 bytes.
 * **Pay with anything** (mainnet only; Jupiter does not exist on devnet). This
-  is website and SDK code only, built after v1; the program only ever sees the
-  quote token.
+  is SDK code (`sdk/launchpad/jupiter.mts`, the list of assets in
+  `pay-assets.mts`); the program only ever sees the quote token. Before
+  composing, the SDK refuses any Jupiter answer that is not ExactIn between the
+  expected mints, adds a signer other than the buyer, swaps through another
+  program than Jupiter's, calls an unexpected helper program, adds a tip, or
+  pays its output anywhere but the buyer's own account.
   1. If Jupiter has a direct route from the user's asset into the coin with
      acceptable price impact, use it as is (only while Jupiter lists the curve,
      see section 1).
@@ -1287,10 +1291,10 @@ covers this.
    * `partner_withdraw_surplus` for the dev wallet's share of the rounding
      surplus a curve collects (section 10, point 5).
 
-The script itself is not written yet (website and operations work); the SDK
-already builds every one of these claims (`claimPartnerTradingFee`,
-`claimPartnerPoolCreationFee`, `partnerWithdrawSurplus`, `dammClaimPositionFee`)
-and test TG13/TG14 runs them against the real programs.
+The planner is `sdk/launchpad/platform-fees.mts` (`planPlatformFeeClaims`)
+and the script `scripts/launchpad/claim-platform-fees.mjs`; test TK05 claims
+all four kinds in two packed transactions against the real programs and
+finds nothing claimable afterwards.
 3. Writes a plan file. Then it either signs with `--keypair <path>`, or emits
    base64 transactions for a signing page that calls Phantom's
    `signAllTransactions`.
@@ -1892,8 +1896,14 @@ Then:
 - `snapshot.mjs` rules: exclusions, minimum balance, pro rata with the minimum
   payout, the 20-holder gate, the round file and the CSV.
 
-Later, with the website work: the pay-with-anything composer with recorded
-Jupiter responses (`lpc-research/q*.json`).
+**12 client SDK** and **13 rewards and payout tools** (added with the
+TypeScript SDK; `tests-launchpad/README.md` lists TJ01-TJ09 and TK01-TK05):
+decoders, quote parity over random trades, every builder, pay with anything
+and sell into anything with a real swap standing in for Jupiter's, airdrop
+batches, rewards rounds, payout hooks and platform-fee claims. The SDK's own
+unit tests compose with recorded Jupiter answers
+(`sdk/launchpad/fixtures/jupiter-build-*.json`), and `npm run
+test:jupiter-live` asks Jupiter for live quotes (read only).
 
 **Research 1 risks and where each is answered:**
 
@@ -1934,13 +1944,22 @@ solana/
                                               bytemuck 1 (derive, min_const_generics) for the zero-copy DBC/DAMM accounts
     src/lib.rs, constants.rs, state.rs, errors.rs, events.rs, validate.rs (7.2), math.rs (split, URI, headers)
     src/instructions/<one file per instruction>.rs
-  sdk/launchpad/                              pda.mjs, config.mjs, curve.mjs, client.mjs, keeper.mjs, snapshot.mjs, *.test.mjs
+  sdk/launchpad/                              JavaScript core: pda.mjs, idl.mjs, config.mjs, curve.mjs, client.mjs, keeper.mjs, snapshot.mjs
+                                              TypeScript layer (Node 22 runs it as is; index.mts exports all):
+                                              accounts.mts (decode, fetch), quote.mts (quotes, slippage, split),
+                                              trade.mts (launch, buy, sell, exact out, coin to coin, graduate, v0 transactions),
+                                              metadata.mts (8.2 JSON, partner metadata), lookup-table.mts,
+                                              pay-assets.mts + jupiter.mts (pay with anything, sell into anything),
+                                              rewards.mts (airdrop batches, funding a round, claims), payout.mts (13.2 hooks, planner),
+                                              platform-fees.mts (11.3); *.d.mts types for the JavaScript; tsconfig.json; tests *.test.m[jt]s;
+                                              fixtures/ (recorded Jupiter answers)
   sdk/idl/vicinity_launchpad.json             committed production IDL (CI diff, like vicinity_rewards)
-  scripts/launchpad/                          fetch-fixtures.sh, crank.mjs (the keeper), snapshot.mjs (rewards rounds);
-                                              create-dbc-config.mjs, init-launchpad.mjs, devnet-demo.mjs and
-                                              claim-platform-fees.mjs with the devnet step
+  scripts/launchpad/                          fetch-fixtures.sh (NETWORK=devnet for devnet builds), crank.mjs (the keeper), snapshot.mjs
+                                              (rewards rounds), setup.mjs (config, init, allow-list), claim-platform-fees.mjs (11.3),
+                                              devnet-demo.mjs (section 19), lib.mjs (keys by path, mainnet guard, sending)
   tests-launchpad/                            NN-*.test.mjs, helpers.mjs (assertInvariants, assertMoneyFlows), fixtures/ (accounts JSON; programs/ gitignored)
-  LAUNCHPAD-DESIGN.md (this file), LAUNCHPAD-AUDIT.md (build hashes, CU, rent, devnet record; written by implementers)
+  LAUNCHPAD.md (owner guide, auditor notes), LAUNCHPAD-DESIGN.md (this file), LAUNCHPAD-AUDIT.md (build and test record),
+  LAUNCHPAD-DEVNET.md (the devnet deployment: every address and signature)
 ```
 
 * `declare_program!(dynamic_bonding_curve)` and `declare_program!(cp_amm)` read
