@@ -359,7 +359,7 @@ test("live card: Market cap · 24h volume · Holders · Liquidity, each value ti
   assert.equal(P.curveFoot(city("A", { market: { ...LIVE_MARKET, liquidityKind: "pool" } })), null, "no star, no footnote");
   for (const [label, short] of [["Raydium LaunchLab", "Raydium"], ["Price × on-chain supply", "Price × supply"], ["On-chain curve × SOL price (Jupiter)", "Curve × Jupiter"], ["DEX Screener", "DEX Screener"], ["Jupiter (last trade)", "Jupiter"], ["", ""]]) assert.equal(P.shortSource(label), short, label);
   assert.equal(cells[0].title, "$7,577.22 · Jupiter");
-  assert.equal(cells[2].title, "37 · Counted by vicinity.city (pools excluded)");
+  assert.equal(cells[2].title, "37 · Counted by vicinity.city (pools and team wallets excluded)");
   assert.match(cells[3].title, /^\$1,787\.13 · SOL in the bonding curve \(on-chain\) × SOL price \(Jupiter\)\. On the bonding curve this is what the curve holds, not a trading pool$/);
   const none = P.statCells(city("B", { market: { liquidityKind: "pool", missing: { marketCap: "no price to multiply; Jupiter could not be reached", volume24h: "Jupiter could not be reached" } }, holders: null }));
   assert.deepEqual(plain(none.map((c) => [c.label, c.value, c.title])), [["Market cap", null, "No price to multiply"], ["24h volume", null, "Jupiter could not be reached"],

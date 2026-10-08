@@ -551,8 +551,8 @@
       // holdings
       const h = p.holding;
       $("#pf-hold-amount").textContent = h ? `${fmt(h.amount)} $VICINITY` : "—";
-      $("#pf-hold-rank").textContent = h && h.rank ? `#${fmt(h.rank)} of ${fmt(h.total)}` : "—";
-      $("#pf-hold-pct").textContent = h && h.rank ? `Top ${pctText(h.percentile)}%` : "—";
+      $("#pf-hold-rank").textContent = h && h.rank ? `#${fmt(h.rank)} of ${fmt(h.total)}` : h && h.team ? "Team wallet" : "—";
+      $("#pf-hold-pct").textContent = h && h.rank ? `Top ${pctText(h.percentile)}%` : h && h.team ? "Not ranked" : "—";
       $("#pf-hold-note").textContent = !h ? "No $VICINITY figures to show right now. They appear once $VICINITY is live." : h.amount > 0 ? "" : "Doesn't hold $VICINITY yet.";
       $("#pf-hold-note").hidden = !$("#pf-hold-note").textContent;
 
@@ -617,8 +617,8 @@
     function paintLive(p) {
       const h = p.holding;
       $("#pf-hold-amount").textContent = h ? `${fmt(h.amount)} $VICINITY` : "—";
-      $("#pf-hold-rank").textContent = h && h.rank ? `#${fmt(h.rank)} of ${fmt(h.total)}` : "—";
-      $("#pf-hold-pct").textContent = h && h.rank ? `Top ${pctText(h.percentile)}%` : "—";
+      $("#pf-hold-rank").textContent = h && h.rank ? `#${fmt(h.rank)} of ${fmt(h.total)}` : h && h.team ? "Team wallet" : "—";
+      $("#pf-hold-pct").textContent = h && h.rank ? `Top ${pctText(h.percentile)}%` : h && h.team ? "Not ranked" : "—";
       paintCounts();
     }
     async function loadTickers() {

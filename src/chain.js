@@ -42,6 +42,9 @@ export function isOnCurve(bytes) {
   const vx2 = (((v * x) % P) * x) % P;
   return vx2 === u || vx2 === modP(-u);
 }
+/** Every wallet the team publishes (src/official.js) is labelled with this in the holder list and, like a pool, never ranked. */
+const TEAM_LABEL = "Team wallet (public)";
+export const isTeamWallet = (owner) => (OFFICIAL.teamWallets || []).includes(owner);
 /** A label for a big holder: a known pool program, or any program-controlled (off-curve) address. */
 const poolLabel = (owner, ownerProgram) => {
   if (PROGRAM_LABELS[ownerProgram]) return PROGRAM_LABELS[ownerProgram];
@@ -107,7 +110,7 @@ export async function mintInfo(env, mint, fetchImpl = fetch) {
   return { program: v.owner === TOKEN_2022 ? "Token-2022" : "SPL Token", supply: uiAmount(raw, decimals), decimals, mintAuthority: i.mintAuthority || null, freezeAuthority: i.freezeAuthority || null };
 }
 
-/** Top holders (up to 20), with owner wallets and labels for pools/curves/team. */
+/** Top holders (up to 20), with owner wallets and labels for pools/curves/team. Labelled wallets are not ranked: ranks are for people. */
 export async function getTopHolders(env, mint, fetchImpl) {
   const facts = await getTokenFacts(env, mint, fetchImpl);
   const largest = await rpc(env, "getTokenLargestAccounts", [mint], fetchImpl);
@@ -129,16 +132,13 @@ export async function getTopHolders(env, mint, fetchImpl) {
     byOwner.set(owner, (byOwner.get(owner) || 0) + amt);
   });
 
-  const team = new Set(OFFICIAL.teamWallets || []);
+  let rank = 0;
   const holders = [...byOwner.entries()]
     .sort((x, y) => y[1] - x[1])
-    .map(([owner, amount], i) => ({
-      rank: i + 1,
-      owner,
-      amount,
-      percent: facts.supply ? (amount / facts.supply) * 100 : 0,
-      label: team.has(owner) ? "Team wallet (public)" : poolLabel(owner, ownerProgram[owner]),
-    }));
+    .map(([owner, amount]) => {
+      const label = isTeamWallet(owner) ? TEAM_LABEL : poolLabel(owner, ownerProgram[owner]);
+      return { rank: label ? null : ++rank, owner, amount, percent: facts.supply ? (amount / facts.supply) * 100 : 0, label };
+    });
   return { facts, holders };
 }
 
@@ -255,7 +255,7 @@ export async function getAllHolders(env, mint, fetchImpl = fetch) {
     const acc = await rpc(env, "getMultipleAccounts", [top, { encoding: "base64", dataSlice: { offset: 0, length: 0 } }], fetchImpl);
     top.forEach((o, i) => { const l = poolLabel(o, acc?.value?.[i]?.owner); if (l) labels.set(o, l); });
   }
-  for (const w of OFFICIAL.teamWallets || []) labels.set(w, "Team wallet (public)");
+  for (const w of OFFICIAL.teamWallets || []) labels.set(w, TEAM_LABEL);
   return { facts, list, labels, slot };
 }
 
@@ -289,7 +289,8 @@ async function sharedHolders(env, mint, fetchImpl, maxAgeMs) {
 }
 
 /**
- * The holder list, ranked. Pools and bonding curves are shown but not ranked: ranks are for people.
+ * The holder list, ranked. Pools, bonding curves and team wallets are shown and labelled but not ranked: ranks are for people,
+ * and `people` (the "of N holders" of every rank) counts only them.
  * Kept for 60 seconds (per server, and per data centre through sharedHolders), so a busy dashboard doesn't hammer the blockchain.
  *   { facts, rows: [{ owner, amount, percent, rank|null, label }], byOwner: Map(owner → row), people, at }
  */
@@ -305,9 +306,8 @@ export function holderSnapshot(env, mint, fetchImpl = fetch, maxAgeMs = 60_000) 
     entry.at = builtAt; // a shared copy ages from when it was read, not from when this server picked it up
     let rank = 0;
     const rows = list.map(([owner, amount]) => {
-      const label = labels.get(owner) || null;
-      const pool = label && !label.startsWith("Team");
-      return { owner, amount, percent: facts.supply ? (amount / facts.supply) * 100 : 0, rank: pool ? null : ++rank, label };
+      const label = labels.get(owner) || (isTeamWallet(owner) ? TEAM_LABEL : null);
+      return { owner, amount, percent: facts.supply ? (amount / facts.supply) * 100 : 0, rank: label ? null : ++rank, label };
     });
     return { facts, rows, byOwner: new Map(rows.map((r) => [r.owner, r])), people: rank, at: new Date(builtAt).toISOString() };
   });
@@ -319,18 +319,18 @@ export function holderSnapshot(env, mint, fetchImpl = fetch, maxAgeMs = 60_000) 
 export const _resetSnapshots = () => snaps.clear();
 
 /**
- * Where does this wallet stand? Rank among people (pools excluded), how many hold more,
- * and how much more it takes to pass the wallet just above.
+ * Where does this wallet stand? Rank among people (pools and team wallets excluded), how many hold more,
+ * and how much more it takes to pass the wallet just above. A team wallet (`team: true`) has no rank and nothing to pass.
  */
 export function rankOf(snap, owner) {
-  const row = snap.byOwner.get(owner);
+  const row = snap.byOwner.get(owner), team = isTeamWallet(owner);
   const out = { amount: row ? row.amount : 0, rank: row ? row.rank : null, total: snap.people, label: row ? row.label : null,
-    percent: row ? row.percent : 0, percentile: null, next: null };
+    percent: row ? row.percent : 0, percentile: null, next: null, team };
   if (row && row.rank) {
     out.percentile = Math.max(0.01, (row.rank / Math.max(1, snap.people)) * 100);
     const above = snap.rows.find((r) => r.rank === row.rank - 1);
     if (above) out.next = { rank: above.rank, amount: above.amount, gap: Math.max(0, above.amount - row.amount) };
-  } else {
+  } else if (!team) {
     const last = [...snap.rows].reverse().find((r) => r.rank);
     if (last) out.next = { rank: last.rank, amount: last.amount, gap: last.amount };
   }

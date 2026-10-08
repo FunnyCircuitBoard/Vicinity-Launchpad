@@ -41,10 +41,13 @@ test("token page: hero, holders (live, with the rank check), no rug pull, offici
 });
 
 test("token page: the hero is word for word what it was (Live from the Solana blockchain, $VICINITY, the contract card, the buttons, the stats)", () => {
-  // origin/main 07fe1d5's hero, from <section class="page-hero" id="token"> to its </section>, hashed: any change to it fails here
+  // origin/main 07fe1d5's hero, from <section class="page-hero" id="token"> to its </section>, hashed: any change to it fails here. The one
+  // change since (the owner, 8 Oct 2026): team wallets are not ranked or counted either, so the Holders stat's line under it says so.
+  const sub = (t) => `<span class="stat__sub" id="st-holders-sub">${t}</span>`;
   for (const h of [html, src]) {
-    const a = h.indexOf('<section class="page-hero" id="token">'), b = h.indexOf("</section>", a) + "</section>".length;
-    assert.equal(createHash("sha256").update(h.slice(a, b)).digest("hex"), HERO_SHA256);
+    const a = h.indexOf('<section class="page-hero" id="token">'), b = h.indexOf("</section>", a) + "</section>".length, hero = h.slice(a, b);
+    assert.ok(hero.includes(sub("people; pools and team wallets not counted")));
+    assert.equal(createHash("sha256").update(hero.replace(sub("people; pools and team wallets not counted"), sub("people, pools not counted"))).digest("hex"), HERO_SHA256);
   }
 });
 
@@ -655,10 +658,85 @@ test("token page on phones: the holder list and the official list are re-laid ou
   // list 356 in 252-346 (% of supply cut). Checked in Chromium after this change: scrollWidth = clientWidth at 320, 360, 390 and 414.
   const block = (() => { const i = css.indexOf("@media (max-width: 480px) {\n  .holders {"); assert.ok(i >= 0, "the phone block exists"); return css.slice(i, css.indexOf("\n}\n", i)); })();
   assert.match(block, /\.holders__table tr \{ display: grid; grid-template-columns: 2\.8em minmax\(0, 1fr\) auto;/);
+  // 8 Oct 2026: "Team" (a team wallet, not ranked) ran into the wallet at 320-390 ("Team13qRa*****RiN", 1.6px apart). A label's size for
+  // "Team" and "Pool", the column as it was: checked in Chromium at 320, 360, 390 and 414, "Team" ends 8.6px before the wallet ("Pool" 13.6px),
+  // every wallet stays on one line (a 3.4em column put the curve's on two at 320) and no row is wider than its card
+  assert.match(block, /\.holders__table td\.is-unranked \{ font-size: \.7rem; line-height: 2; \}/);
   assert.match(block, /\.holders__table thead \{ position: sticky; top: 0;/, "the header row stays put while the rows scroll");
   assert.match(block, /\.holders__table :is\(th, td\):nth-child\(4\) \{ grid-column: 3; grid-row: 2;/, "% of supply under the amount");
   assert.match(block, /\.registry__table tr \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto;/);
   assert.match(block, /\.registry__table td:nth-child\(4\) \{ grid-column: 2;/, "the status (Live) at the right of the row");
   assert.match(block, /\.registry__table td:nth-child\(3\) \{ grid-column: 1 \/ -1;/, "the contract on a line of its own");
   assert.match(block, /\.registry__table thead \{ position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect\(0 0 0 0\);/, "column names stay for screen readers");
+});
+
+test("token.js: a published team wallet is listed and labelled but never ranked: 'Team' in the # column (a pool keeps 'Pool'), people only in the hero", async () => {
+  // the owner, 8 Oct 2026: the team wallet was "Rank #1 of 36 holders · The biggest holder of all 🏆" under "ranks are for people only"
+  const TEAM = owner(7001), POOL = owner(7002);
+  const people = Array.from({ length: 12 }, (_, i) => ({ owner: owner(i), amount: 1_000 - i, percent: 2, rank: i + 1, label: null }));
+  const all = [{ owner: TEAM, amount: 300_000_000, percent: 30, rank: null, label: "Team wallet (public)" },
+    { owner: POOL, amount: 200_000_000, percent: 20, rank: null, label: "PumpSwap liquidity pool" }, ...people];
+  const p = page({ answer: () => pageOf(all, 0) });
+  await p.settle(); p.flush();
+  const cells = (i) => [p.rows()[i].children[0].textContent, p.rows()[i].children[1].children.slice(1).map((t) => t.textContent).join()];
+  assert.deepEqual([cells(0), cells(1), cells(2), cells(13)], [["Team", "Team wallet (public)"], ["Pool", "PumpSwap liquidity pool"], ["1", ""], ["12", ""]]);
+  assert.deepEqual([0, 1, 2, 13].map((i) => p.rows()[i].children[0].classes.has("is-unranked")), [true, true, false, false], "'Team' and 'Pool' take the label size on phones (style.css)");
+  assert.equal(p.$("#st-holders").textContent, "12", "the hero counts the 12 people, not the pool or the team wallet");
+  assert.equal(p.$("#st-top10").textContent, "20.0%", "the top 10 people (2% each), not the team wallet's 30%");
+  assert.match(p.statuses.at(-1), /^12 holders · updated /);
+  // the server's top-20 fallback (full: false): the same rows, people counted the same way
+  const top = page({ answer: () => ({ ...pageOf(all, 0), full: false, total: null }) });
+  await top.settle(); top.flush();
+  assert.deepEqual([top.rows()[0].children[0].textContent, top.$("#st-holders").textContent, top.$("#st-top10").textContent], ["Team", "12+", "20.0%"]);
+});
+
+test("token.js: the rank check on a team wallet: what it holds and its share, a clear message, no rank, no meter, nothing to pass, no founder amount", async () => {
+  const TEAM = owner(7001), FIRST = owner(0);
+  const answers = {
+    [TEAM]: { launched: true, full: true, address: TEAM, amount: 300_000_000, rank: null, total: 35, label: "Team wallet (public)", percent: 30, percentile: null, next: null, team: true, founderMin: 100_000 },
+    [FIRST]: { launched: true, full: true, address: FIRST, amount: 48_497_309, rank: 1, total: 35, label: null, percent: 4.85, percentile: 2.86, next: null, team: false, founderMin: 100_000 },
+  };
+  const all = [{ owner: TEAM, amount: 300_000_000, percent: 30, rank: null, label: "Team wallet (public)" }, { owner: FIRST, amount: 48_497_309, percent: 4.85, rank: 1, label: null }];
+  const p = page({ answer: (path) => (path.startsWith("/api/rank") ? answers[new URL(path, "https://x").searchParams.get("address")] : pageOf(all, 0)) });
+  await p.settle(); p.flush();
+  const look = async (a) => { p.$("#holders-find").value = a; await p.$("#lookup").fire("submit"); await p.settle(); p.flush(); };
+  const shown = (id) => !p.$(id).hidden;
+
+  const MESSAGE = "Team wallet: published by Vicinity and labeled in the list. Ranks are for people only.";
+  await look(TEAM);
+  assert.deepEqual(["#rank-num", "#rank-of", "#rank-pct", "#rank-amount", "#rank-share"].map((id) => p.$(id).textContent),
+    ["—", "", MESSAGE, "300,000,000 $VICINITY", "30.0%"]);
+  assert.ok(!/#\d|🏆|biggest|of 35 holders/.test(["#rank-num", "#rank-of", "#rank-pct"].map((id) => p.$(id).textContent).join(" ")), "no rank, no trophy");
+  // no "Rank Team · Team wallet (public)" line over the message (the 8 Oct review): the message says what it is, once, and a screen reader hears only it
+  assert.deepEqual(["#rank-big", "#rank-facts", "#rank-bar", "#rank-next-row", "#rank-founder-row", "#rank-show"].map(shown), [false, true, false, false, false, true],
+    "its holdings and its row in the list; no Rank line, no meter, no 'to pass the next wallet', no founder amount");
+  assert.equal(p.pop.getAttribute("aria-describedby"), "rank-pct");
+  assert.equal(p.$("#rank-founder").textContent, "—", "nothing of a founder's amount even out of sight");
+
+  await look(FIRST); // the new #1: every part of the card is back, and nobody above it to pass
+  assert.deepEqual(["#rank-num", "#rank-of", "#rank-pct", "#rank-next"].map((id) => p.$(id).textContent), ["#1", "of 35 holders", "The biggest holder of all 🏆", "You're #1 🏆"]);
+  assert.deepEqual(["#rank-big", "#rank-bar", "#rank-next-row", "#rank-founder-row"].map(shown), [true, true, true, true]);
+  assert.equal(p.pop.getAttribute("aria-describedby"), "rank-big rank-pct");
+
+  // the chain cannot list every holder: the balance alone still says it is a team wallet; it has no share in it, so none is made up
+  answers[TEAM] = { launched: true, full: false, address: TEAM, amount: 300_000_000, rank: null, total: null, team: true, founderMin: 100_000 };
+  await look(TEAM);
+  assert.deepEqual(["#rank-num", "#rank-of", "#rank-pct", "#rank-amount", "#rank-share"].map((id) => p.$(id).textContent), ["—", "", MESSAGE, "300,000,000 $VICINITY", "—"]);
+  assert.deepEqual(["#rank-big", "#rank-next-row", "#rank-founder-row"].map(shown), [false, false, false]);
+});
+
+test("token.js: the balance-only rank answer has no share of supply: a dash, not '<0.01%' (a person's too)", async () => {
+  const A = owner(1);
+  const p = page({ answer: (path) => (path.startsWith("/api/rank") ? { launched: true, full: false, address: A, amount: 91_600_000, rank: null, total: null, team: false, founderMin: 100_000 } : pageOf(fakeHolders(3), 0)) });
+  await p.settle(); p.flush();
+  p.$("#holders-find").value = A; await p.$("#lookup").fire("submit"); await p.settle();
+  assert.deepEqual(["#rank-amount", "#rank-share", "#rank-pct"].map((id) => p.$(id).textContent), ["91,600,000 $VICINITY", "—", "Holds $VICINITY. The full ranking is loading; try again in a minute."]);
+});
+
+test("token page: the words match the rule (team wallets are listed and labelled, never ranked or counted)", () => {
+  for (const h of [html, src]) {
+    assert.ok(h.includes("Pools, curves and team wallets are listed and labeled but not ranked."), "the FAQ's 'How is my rank worked out?'");
+    assert.ok(h.includes("Pools and team wallets are labeled; ranks are for people only."), "the holder list's line, as before");
+    assert.ok(h.includes('<div id="rank-next-row"><dt>To pass the next wallet</dt>') && h.includes('<div id="rank-founder-row"><dt>Founder amount</dt>'));
+  }
 });
