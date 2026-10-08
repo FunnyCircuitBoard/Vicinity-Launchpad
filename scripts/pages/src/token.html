@@ -39,21 +39,7 @@
       </div>
     </section>
 
-    <!-- ============ HOW TO BUY ============ -->
-    <section class="section section--tight" id="buy">
-      <div class="wrap">
-        <div class="section-head"><p class="kicker">How to get $VICINITY</p><h2 class="h2--sm">Four steps, about five minutes.</h2></div>
-        <ol class="buy-steps">
-          <li class="card"><span class="buy-steps__n">1</span><h3>Get a Solana wallet</h3><p class="muted">Phantom, Solflare or Backpack, on your phone or in your browser. Write the recovery phrase down on paper and never share it.</p></li>
-          <li class="card"><span class="buy-steps__n">2</span><h3>Add SOL</h3><p class="muted">Buy SOL in the wallet app or on an exchange and send it to your wallet. Keep a little extra for network fees.</p></li>
-          <li class="card"><span class="buy-steps__n">3</span><h3>Buy on Raydium</h3><p class="muted">Use the <strong>Buy on Raydium</strong> button at the top of this page. It opens the official $VICINITY on Raydium LaunchLab (raydium.io); the contract address there must match the one here.</p></li>
-          <li class="card"><span class="buy-steps__n">4</span><h3>Claim your spot</h3><p class="muted"><a href="/connect">Connect here</a> and set your home city. That starts your 7-day clock towards founding it, and your rank and badges go live.</p></li>
-        </ol>
-        <p class="scam-note"><strong>The only real Raydium is raydium.io.</strong> Look-alike addresses copy it to empty wallets. Never type your recovery phrase into any website, and check any link with the <a href="#check">checker below</a> first.</p>
-      </div>
-    </section>
-
-    <!-- ============ HOLDERS ============ -->
+    <!-- ============ HOLDERS (with the rank check: one box finds a wallet in the list and checks where any wallet stands) ============ -->
     <section id="holders" class="section">
       <div class="wrap">
         <div class="section-head">
@@ -63,11 +49,17 @@
         </div>
         <div class="holders card">
           <div class="holders__head">
-            <span id="holders-status" role="status" aria-live="polite">Loading the live holder list…</span>
-            <div class="holders__tools">
-              <label class="sr-only" for="holders-find">Find a wallet in the list</label>
-              <input id="holders-find" type="search" placeholder="Find a wallet" autocomplete="off" spellcheck="false" maxlength="60">
+            <div class="holders__meta">
+              <span id="holders-status" role="status" aria-live="polite">Loading the live holder list…</span>
               <button class="link-btn" type="button" id="holders-refresh" hidden>Refresh</button>
+            </div>
+            <div class="holders__find" id="verify" tabindex="-1">
+              <form class="find-box" id="lookup" role="search" novalidate>
+                <label class="sr-only" for="holders-find">Find a wallet in the list, or paste a full address to check its rank</label>
+                <input id="holders-find" type="search" placeholder="Find a wallet" autocomplete="off" spellcheck="false" maxlength="60" aria-describedby="holders-hint">
+                <button class="btn btn--primary find-box__go" type="submit">Check rank</button>
+              </form>
+              <p class="holders__hint" id="holders-hint">Paste any Solana wallet address to see its rank. We compare it with every holder, live. Nothing is saved.</p>
             </div>
           </div>
           <div class="table-scroll" id="holders-scroll" tabindex="0" aria-label="Holder list (scrolls)">
@@ -83,42 +75,27 @@
             </table>
           </div>
         </div>
-      </div>
-    </section>
-
-    <!-- ============ VERIFY: WHERE DOES A WALLET STAND ============ -->
-    <section class="section section--glow" id="verify">
-      <div class="wrap verify-grid">
-        <div>
-          <p class="kicker">Verify a holder</p>
-          <h2>Where do you stand?</h2>
-          <p class="muted">Paste any Solana wallet address. We compare it with every holder, live, and show its rank, how much it holds, and how far it is from the next spot. Nothing is saved.</p>
-          <form class="lookup card" id="lookup" novalidate>
-            <label class="sr-only" for="lookup-input">Solana wallet address</label>
-            <input id="lookup-input" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="60" placeholder="Paste a wallet address">
-            <button class="btn btn--primary" type="submit">Check rank</button>
-          </form>
-          <p class="tiny muted">Want your own dashboard, badges and city? <a href="/connect">Connect your wallet</a>: signing is free and isn't a transaction.</p>
-        </div>
-        <div class="rank-card card" id="rank-card" aria-live="polite">
-          <div class="rank-card__empty" id="rank-empty">
-            <div class="gauge" aria-hidden="true"><span></span></div>
-            <p class="muted">Your rank shows up here.</p>
-          </div>
-          <div id="rank-result" hidden>
-            <p class="rank-card__addr mono" id="rank-addr"></p>
-            <div class="rank-card__big"><span class="muted">Rank</span><strong id="rank-num">—</strong><span class="muted" id="rank-of"></span></div>
-            <div class="meter" aria-hidden="true"><span id="rank-meter"></span></div>
-            <p class="rank-card__pct" id="rank-pct"></p>
-            <dl class="rank-facts">
+        <p class="tiny muted">Want your own dashboard, badges and city? <a href="/connect">Connect your wallet</a>: signing is free and isn't a transaction.</p>
+        <!-- the rank check's answer: a little pop-up over the page (closed, it takes no room); token.js fills and opens it -->
+        <dialog class="rank-pop" id="rank-pop" aria-labelledby="rank-pop-title" aria-describedby="rank-big rank-pct">
+          <div class="rank-pop__card">
+            <div class="rank-pop__head">
+              <h3 class="rank-pop__title" id="rank-pop-title">Where this wallet stands</h3>
+              <button class="rank-pop__close" type="button" id="rank-close" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            </div>
+            <p class="rank-pop__addr mono" id="rank-addr"></p>
+            <p class="rank-pop__big" id="rank-big"><span class="muted">Rank</span> <strong id="rank-num">—</strong> <span class="muted" id="rank-of"></span></p>
+            <div class="meter" id="rank-bar" aria-hidden="true"><span id="rank-meter"></span></div>
+            <p class="rank-pop__pct" id="rank-pct"></p>
+            <dl class="rank-facts" id="rank-facts">
               <div><dt>Holds</dt><dd id="rank-amount">—</dd></div>
               <div><dt>Share of supply</dt><dd id="rank-share">—</dd></div>
               <div><dt>To pass the next wallet</dt><dd id="rank-next">—</dd></div>
-              <div><dt>Founder amount (100K to 1M by city size, held 7 days)</dt><dd id="rank-founder">—</dd></div>
+              <div><dt>Founder amount</dt><dd id="rank-founder">—</dd></div>
             </dl>
-            <button class="link-btn" type="button" id="rank-show">Show it in the holder list ↑</button>
+            <button class="link-btn" type="button" id="rank-show">Show it in the holder list</button>
           </div>
-        </div>
+        </dialog>
       </div>
     </section>
 
@@ -161,4 +138,24 @@
         </form>
         <div class="check-result" id="check-result" aria-live="polite" hidden></div>
       </div>
+    </section>
+
+    <!-- ============ FAQ (How to get $VICINITY lives here: /token#buy opens it) ============ -->
+    <section class="section" id="faq">
+      <div class="wrap"><div class="faq">
+        <div class="section-head"><p class="kicker">FAQ</p><h2>Frequently asked questions</h2></div>
+        <details id="buy"><summary>How do I get $VICINITY?</summary>
+          <p>Four steps, about five minutes.</p>
+          <ol class="faq__steps">
+            <li><strong>Get a Solana wallet.</strong> Phantom, Solflare or Backpack, on your phone or in your browser. Write the recovery phrase down on paper and never share it.</li>
+            <li><strong>Add SOL.</strong> Buy SOL in the wallet app or on an exchange and send it to your wallet. Keep a little extra for network fees.</li>
+            <li><strong>Buy on Raydium.</strong> Use the <strong>Buy on Raydium</strong> button at the top of this page. It opens the official $VICINITY on Raydium LaunchLab (raydium.io); the contract address there must match the one here.</li>
+            <li><strong>Claim your spot.</strong> <a href="/connect">Connect here</a> and set your home city. That starts your 7-day clock towards founding it, and your rank and badges go live.</li>
+          </ol>
+          <p class="scam-note"><strong>The only real Raydium is raydium.io.</strong> Look-alike addresses copy it to empty wallets. Never type your recovery phrase into any website, and check any link with the <a href="#check">checker above</a> first.</p>
+        </details>
+        <details><summary>Is this the only official $VICINITY?</summary><p>Yes. Only the contract address at the top of this page is the official $VICINITY; anything else using the name is fake. If a token isn't on the <a href="#check">official list</a>, it isn't Vicinity: paste any link, token address or @handle into the checker to check it.</p></details>
+        <details><summary>How is my rank worked out?</summary><p>Straight from the blockchain: a wallet is compared with every holder, live, and the list is refreshed every minute. Pools and curves are listed but not ranked; team wallets are labeled. Paste any wallet address into the <a href="#verify">box above the holder list</a> and press <strong>Check rank</strong> to see its rank, how much it holds and how far it is from the next spot. Nothing is saved.</p></details>
+        <details><summary>What is the founder amount?</summary><p>How much $VICINITY you need to hold to found your city: 100K to 1M by city size, held for 7 days. The rank check shows whether a wallet holds enough, or how much it still needs to reach the smallest amount.</p></details>
+      </div></div>
     </section>
