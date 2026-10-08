@@ -53,11 +53,21 @@
   }
   /** Which field a refused "send me a code" (reset) belongs to: the e-mail box while the first form shows, the code box once the second one does (its Send a new code button lives there). */
   const resetField = (form2Hidden) => (form2Hidden ? "rs-email" : "rs-code");
-  const PHONE_NOTE = "On a phone, “Open app” takes this sign-up into your wallet app: you carry on there at this step, with your location and login already done.";
+  const PHONE_NOTE = "On a phone, “Open app” takes this sign-up into your wallet app (or, if it can't, asks you to approve there and finish here). Your location and login are already done.";
   /** What the wallet app's page says about a sign-up it was asked to take over (POST /api/signup/carry/info), before the person confirms. */
   const loginLabel = (l) => (!l ? "Your login" : l.provider === "google" ? `Google account ${l.name}` : l.provider === "email" ? `E-mail ${l.name}` : l.name);
   /** Step 3's opening text. `phone` = a phone with no wallet in this browser, where the only way on is to open the wallet app's own browser. */
   const walletLead = (phone) => "Last step. Connect the wallet you hold $VICINITY in and sign a free message. It isn't a transaction and can't move funds. Your account is created the moment it is verified." + (phone ? " " + PHONE_NOTE : "");
+  /**
+   * Why the pairing screen ("approve in the wallet app, finish here") shows instead of "Open app": the connection is hidden behind a
+   * relay, so the sign-up can't move. `name` = the wallet the person tapped (null: "your wallet app"); `iphone` = Safari on an iPhone,
+   * where the relay is iCloud Private Relay; `qr` = the screen shows a QR code for a phone (a tablet), not the wallet apps below.
+   */
+  function relayWhy(name, iphone, qr) {
+    const w = name || "your wallet app";
+    const lead = `${iphone ? "Your iPhone hides its connection (iCloud Private Relay)" : "This browser hides its connection (a VPN or a private relay)"}, so the sign-up can't move into ${w}`;
+    return qr ? `${lead} here. Instead, scan the code below with your phone and approve there, then finish here.` : `${lead}. Instead, approve in ${w} below, then come back here to finish.`;
+  }
   /** What the page says when "New here" with an e-mail that already has an account signs the person in instead (the typed password is thrown away). */
   const SAME_EMAIL = "That e-mail already has a Vicinity account, so we logged you in. The password you just typed was not saved: to set a new one, use “Forgot or never set a password?” on the Log in tab. Taking you to your dashboard…";
   /** Only ever follow the server to our own dashboard. */
@@ -81,8 +91,8 @@
     handoff_expired: "That link expired. Tap “Get a new link” to try again.",
     // "Open app" on a phone: the sign-up goes on in the wallet app's browser
     carry_expired: "That “Open app” link was already used or has run out (it works once, for 10 minutes). Go back to Safari or Chrome, where you started, and tap Open app again.",
-    carry_network: "That “Open app” link only works on the phone and internet connection where you started (a VPN or iCloud Private Relay counts as a different one). Go back to Safari or Chrome and tap “Didn't work? Sign in your wallet app and finish here instead”.",
-    carry_relay: "This browser uses iCloud Private Relay or a VPN, so your wallet app can't take this sign-up over. Do it the other way round: sign in your wallet app as shown below, then come back here to finish.",
+    carry_network: "That “Open app” link only works on the phone and internet connection where you started (a VPN or iCloud Private Relay counts as a different one). Go back to Safari or Chrome and tap “Didn't work?” there: you approve in your wallet app, then finish in Safari or Chrome.",
+    carry_relay: "This browser hides its connection (a VPN or a private relay), so the sign-up can't move into your wallet app. Instead, approve in your wallet app below, then come back here to finish.", // (relayWhy() names the wallet)
     carry_replaced: "This link stopped working: a newer one was made (in another tab?). Get a new link here.",
     carry_elsewhere: "That “Open app” link only works inside your wallet app, on the phone where you started. Nothing was changed.",
     carry_declined: "OK, nothing was taken over. If you want an account, start your own sign-up here.",
@@ -165,7 +175,7 @@
     return { go: "stuck", text: errText(d), actions: ["retry"] };
   }
 
-  window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, resetField, walletLead, loginLabel, SAME_EMAIL, ERR } };
+  window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, resetField, walletLead, relayWhy, loginLabel, SAME_EMAIL, ERR } };
 
   /* ================= the controller ================= */
   function start(ctx) {
@@ -184,7 +194,8 @@
       carry: null,          // phones: an "Open app" link made here and not used yet { k, name, link, pin, ref, until, replaced }
       carryTimer: null,     // asking the server whether the wallet app took the sign-up over (or finished it)
       offer: null,          // the wallet app's browser: a sign-up that "Open app" brought here, waiting for the person to confirm { code, info }
-      pairWhy: null,        // why the pairing screen is shown instead of "Open app" (Safari behind iCloud Private Relay)
+      pairRelay: false,     // the pairing screen is shown instead of "Open app" because of a relay (Safari behind iCloud Private Relay)
+      pairName: null,       // the wallet app the person tapped before the pairing screen (its heading names it)
     };
     const text = (sel, t) => { $(sel).textContent = t; };
     const hide = (sel, h = true) => { $(sel).hidden = h; };
@@ -328,7 +339,6 @@
       }
       if (s === "su-account") drawProviders();
       if (s === "sign") { text("#sign-h", newTab ? "Verify this wallet" : "Sign in with this wallet"); $("#c-sign").textContent = signLabel(); }
-      if (s === "phone") { text("#pair-why", S.pairWhy || ""); hide("#pair-why", !S.pairWhy); S.pairWhy = null; } // why the pairing (and not "Open app")
       if (["sign", "phone", "app"].includes(s) && S.noteView) notice("");
       if (["sign", "phone", "app"].includes(s) && !S.first) { // today's wallet sub-screens: the keyboard follows the person to the new heading
         const h = $(`.cstate[data-state="${s}"] h2`);
@@ -375,7 +385,7 @@
     }
     function setTab(tab) {
       if (S.tab === tab && !S.reset) return;
-      S.tab = tab; S.reset = false; stopHandoff(); stopCarry();
+      S.tab = tab; S.reset = false; stopHandoff(); stopCarry(); pairStarted(); // (a wallet tapped on the other tab is not this tab's)
       render();
     }
 
@@ -675,8 +685,8 @@
         if (r._handled) return;
         if (!r.ok) {
           if (r.error === "not_ready") { await refresh(); render(); return notice(errText(r)); }
-          // Behind iCloud Private Relay the wallet app can't take it over: straight to the other way round (sign there, finish here)
-          if (r.error === "carry_relay") { S.pairWhy = errText(r); return $("#alt-phone").click(); }
+          // Behind iCloud Private Relay the wallet app can't take it over: straight to the other way round (approve there, finish here)
+          if (r.error === "carry_relay") return pairInstead(k.name, true);
           return setErr(errText(r), $("#more-wallets"));
         }
         S.carry = carryOf(k, r);
@@ -698,7 +708,7 @@
       text("#carry-h", `Continue in ${name}`);
       text("#carry-lead", `${name} opens this sign-up at the wallet step, with your location and login already done. Check that ${name} shows the same number, connect your wallet there, sign the free message, and your account is ready.`);
       text("#carry-pin", c.pin || "--");
-      text("#carry-pair", `Didn't work? Sign in ${name} and finish here instead`);
+      text("#carry-pair", `Didn't work? Approve in ${name} and finish here instead`);
       const a = $("#carry-open"); a.href = c.link; a.textContent = `Open ${name}`;
       const expired = Date.now() > c.until, dead = expired || c.replaced;
       hide("#carry-open", dead); hide("#carry-pinrow", dead || !c.pin); hide("#carry-status", dead); hide("#carry-renew", !dead);
@@ -766,12 +776,54 @@
         const r = await call("/api/signup/carry", {});
         if (r._handled) return;
         if (!r.ok) {
-          if (r.error === "carry_relay") { stopCarry(); S.pairWhy = errText(r); render(); return $("#alt-phone").click(); }
+          if (r.error === "carry_relay") { stopCarry(); render(); return pairInstead(k.name, true); }
           text("#carry-error", errText(r)); return;
         }
         S.carry = carryOf(k, r);
         render();
       });
+    }
+    /** The other way round on a phone: approve in the wallet app `name`, finish here (connect.js's pairing screen). relay = why. */
+    function pairInstead(name, relay) {
+      S.pairName = name || null;
+      S.pairRelay = Boolean(relay);
+      $("#alt-phone").click();
+    }
+    const iphone = () => /iPhone|iPod/i.test(String(navigator.userAgent || ""));
+    /**
+     * connect.js asks as the pairing starts: what it is for (this sign-up's wallet step, or the Log in tab), the wallet the person
+     * tapped (or none) and whether a relay is the reason. Used up once the pairing has started (pairStarted): a later "Wallet on my
+     * phone" starts plain, but a start that failed ("Couldn't start") keeps them for the next try.
+     */
+    function pairContext() {
+      return { for: S.tab === "login" ? "login" : "signup", name: S.pairName, relay: S.pairRelay };
+    }
+    function pairStarted() { S.pairName = null; S.pairRelay = false; }
+    /**
+     * This tab was reloaded (or iOS threw it away while the person was in the wallet app) during a pairing it kept (connect.js,
+     * sessionStorage): may it carry on here? Only where it was started: the Log in tab, or this sign-up still at its wallet step.
+     * "resume" shows the pairing screen again; "later" = this page isn't showing the sign-up yet (it didn't load): keep it for the
+     * next load; "forget" = the sign-up went on (or another way is open), nothing to finish here.
+     */
+    function resumePair(saved) {
+      if (!S.srv || S.cur === "loading") return "later";
+      if (S.leaving || S.offer || S.ho || S.carry || S.srv.carried) return "forget";
+      if (saved.for === "login") { if (S.tab !== "login" || S.reset) { S.tab = "login"; S.reset = false; render(); } return "resume"; }
+      return saved.for === "signup" && S.tab === "new" && S.view === "wallet" && S.cur === "pick" ? "resume" : "forget";
+    }
+    /**
+     * connect.js: the pairing on screen is gone (used, or run out). When another tab of this browser used it (a duplicated tab keeps
+     * the same pairing), carry on from where that tab got to: it proved the wallet (the account is made here, or the server says it
+     * was), or it made the account already. Returns true when this page moved on (or the person left the pairing screen meanwhile).
+     */
+    async function pairGone() {
+      const d = await refresh();
+      if (d._handled || S.leaving || S.cur !== "phone") return true;
+      if (d.ok && S.srv && S.srv.wallet && S.srv.wallet.done) { S.tab = "new"; S.hold = null; S.forceWallet = false; S.lost = false; render(); return true; }
+      const me = await api("/api/me?lite=1");
+      if (S.leaving || S.cur !== "phone") return true;
+      if (me.signedIn) { signedIn("This was finished in another tab. Taking you to your dashboard…", "/dashboard"); return true; }
+      return false;
     }
     /** "Start again in this browser": a new sign-up here (the one in the wallet app, if any, stays there). */
     async function startHere() {
@@ -972,7 +1024,7 @@
       document.addEventListener("visibilitychange", () => { if (!document.hidden && (S.carry || (S.srv && S.srv.carried && S.srv.carried.live))) pollCarry(); });
       $("#carry-back").addEventListener("click", () => { stopCarry(); render(); });
       // the other way on a phone: sign in the wallet app, finish here (the pairing: no cookie or connection has to match)
-      $("#carry-pair").addEventListener("click", () => { stopCarry(); render(); $("#alt-phone").click(); });
+      $("#carry-pair").addEventListener("click", () => { const name = S.carry && S.carry.name; stopCarry(); render(); pairInstead(name, false); });
       $("#carry-renew").addEventListener("click", renewCarry);
       $("#carry-restart").addEventListener("click", startHere);
       $("#carry-again").addEventListener("click", startHere);
@@ -1017,6 +1069,7 @@
     }
 
     /* ================= start ================= */
+    /** Resolves true once the page shows the sign-up (its state loaded), false when it could not load it ("Reload the page"). */
     function init(me, err, carry) {
       S.me = me; S.providers = me.providers || S.providers;
       panel.classList.add("su-on"); panel.removeAttribute("aria-live"); // the panel changes a lot: announcements go through #su-live and the error lines
@@ -1025,9 +1078,9 @@
       wire(); // wallet errors (#c-error) sit under the step bar, or right under the control that failed (connect.js setErr)
       return (async () => {
         const brought = carry != null ? await offerCarry(carry) : {}; // "Open app" brought a sign-up here: ask before taking it over
-        if (S.leaving) return;
+        if (S.leaving) return true; // signed in: off to the dashboard
         const d = await refresh();
-        if (!d.ok || !S.srv) { show("loading"); text("#su-loading-text", `The sign-up didn't load. ${errText(d)}`); hide("#su-reload", false); $("#su-reload").onclick = () => location.reload(); return; }
+        if (!d.ok || !S.srv) { show("loading"); text("#su-loading-text", `The sign-up didn't load. ${errText(d)}`); hide("#su-reload", false); $("#su-reload").onclick = () => location.reload(); return false; }
         try { sessionStorage.removeItem("su-reload"); } catch { /* ignore */ }
         const st = S.srv, bounce = err ? bounceFor(err) : null;
         const mid = Boolean(hasProgress(st) || st.wallet.done || me.pending || st.carried);
@@ -1036,15 +1089,17 @@
         if (bounce && bounce.tab) S.tab = bounce.tab;
         if (params.get("step")) { history.replaceState(null, "", location.pathname); if (st.account.done && !st.wallet.done) S.hold = "account"; }
         if (bounce && bounce.hold && viewFor(st).steps.find((x) => x.key === bounce.hold).editable) S.hold = bounce.hold;
-        if (brought.offer) { S.offer = brought.offer; S.tab = "new"; return render(); }
+        if (brought.offer) { S.offer = brought.offer; S.tab = "new"; render(); return true; }
         // a transfer for an app wallet was started before this page was reloaded: carry on waiting for it
         if (me.proof && S.tab === "new" && viewFor(st).view === "wallet") { setIntro(); drawSteps(viewFor(st).steps); showProof(me.proof); }
         else render();
         if (bounce) { setErr(bounce.text); announce(bounce.text); }
         if (brought.note) notice(brought.note);
+        return true;
       })();
     }
 
-    return { init, onShow, walletProven, signLabel, carrier };
+    return { init, onShow, walletProven, signLabel, carrier, pairContext, pairStarted, resumePair, pairGone, say: notice,
+      relayWhy: (name, qr) => relayWhy(name, iphone(), qr) };
   }
 })();

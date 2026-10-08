@@ -60,6 +60,7 @@
   const cancelled = (e) => /reject|cancel|denied|declin|closed/i.test(String(e?.message || e)) || e?.code === 4001;
 
   function show(s) {
+    if (state === "phone" && s !== "phone") { pairPoll = null; forgetPair(); } // the pairing was used, or the person left it (Back, another way)
     state = s; screenGen++;
     $$(".cstate", panel).forEach((x) => (x.hidden = x.dataset.state !== s));
     setErr("");
@@ -117,6 +118,8 @@
     $("#wallets-known").replaceChildren(...order.map((k) => knownTile(k, location.origin + "/connect", carry)));
     $("#wallets-known").classList.toggle("wallet-grid--apps", Boolean(W.isMobile && !list.length)); // a phone's only way on: full rows that say "Open app"
     $("#more-label").textContent = W.isMobile && !list.length ? "Open Vicinity in your wallet app" : list.length ? "More wallets" : "Get a wallet";
+    // "Wallet on my phone" on the phone itself: no code to scan, its wallet apps open the approval (openPair)
+    $("#alt-phone em").textContent = samePhone() ? "Approve in your wallet app, then finish here." : "Scan a code with your phone, sign there, continue here.";
     $("#more-wallets").open = list.length === 0;
     if (signup) signup.onShow("pick"); // a wallet turning up changes whether this is a wallet app (Google hidden)
   }
@@ -195,7 +198,8 @@
       const body = { address: addr, message: msg, signature: btoa(String.fromCharCode(...sig)) };
       if (pair) body.pair = pair;
       const d = await api("/api/auth/wallet", body);
-      if (!d.ok) throw ours(d.error === "expired" ? "That message expired. Please sign again." : d.error === "pair_expired" ? "That code expired. Start again on your computer." : d.error === "pin_mismatch" ? "The check number doesn't match. Start again on your computer." : d.error === "offline" ? "Couldn't reach Vicinity. Check your connection and try again." : "Sign-in failed. Please try again.");
+      // (pairing: "where you started" is a computer, or Safari / Chrome on this same phone)
+      if (!d.ok) throw ours(d.error === "expired" ? "That message expired. Please sign again." : d.error === "pair_expired" ? "That code expired. Go back to where you started and try again." : d.error === "pin_mismatch" ? "The check number doesn't match. Go back to where you started and try again." : d.error === "offline" ? "Couldn't reach Vicinity. Check your connection and try again." : "Sign-in failed. Please try again.");
       return d;
     } finally { if (message === msg) message = null; }
   }
@@ -345,47 +349,147 @@
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
   }
   let pairPoll = null; // the running "has the phone approved?" question, asked again at once when this page comes back on screen
+  // The pairing waiting here is kept in this tab's sessionStorage (never localStorage, the address bar or a log): iOS often throws a
+  // Safari tab away while the person is in the wallet app, and the reloaded page must still find the approval just given there.
+  // { code, pin, until, for: "signup" | "login" (the v2 tab it was started on) | "connect" (today's page), name, relay }. Forgotten
+  // only on a definite answer: it was used, it ran out, the person left the pairing screen (Back, another way), or the page loaded
+  // fine and is somewhere else now. A request that fails while the reloaded page starts (a phone's network waking up after the
+  // app switch) keeps it for the next load.
+  const PAIR_KEY = "vicinity-pair";
+  // While one is kept, the browser does not put a reloaded tab back where the old page was scrolled to (it would scroll the pairing
+  // screen's heading away again, after resumePair brought it into view): history.scrollRestoration is "manual" until it is forgotten.
+  const restoreScroll = (how) => { try { if ("scrollRestoration" in history) history.scrollRestoration = how; } catch { /* ignore */ } };
+  const savePair = (p) => { try { sessionStorage.setItem(PAIR_KEY, JSON.stringify(p)); restoreScroll("manual"); } catch { /* private mode: it works without */ } };
+  const forgetPair = () => { try { sessionStorage.removeItem(PAIR_KEY); } catch { /* ignore */ } restoreScroll("auto"); };
+  function savedPair() {
+    let p = null;
+    try { p = JSON.parse(sessionStorage.getItem(PAIR_KEY) || "null"); } catch { return null; }
+    return p && typeof p.code === "string" && /^[A-Za-z0-9_-]{16,64}$/.test(p.code) && Number.isFinite(p.until) && typeof p.pin === "string" ? p : null;
+  }
+  /** On a phone the code can't be scanned by the phone itself: its wallet apps open the link instead. A tablet keeps the QR code. */
+  function samePhone() { return W.isPhone && !W.inWalletApp(); }
+  /** A kept pairing ran out before the person came back (it lasts 10 minutes): one calm line where it was started. */
+  function ranOut(p) {
+    const m = `That approval ran out (it lasts 10 minutes). Tap ${p.relay && p.name ? p.name : "“Wallet on my phone”"} again for a new check number.`;
+    if (signup) signup.say(m); else setErr(m);
+  }
+  /**
+   * Brings the top of the panel (the step bar and the heading) into view just under the sticky header, when it is hidden above it
+   * (or, `always`, wherever it is: a reloaded page that shows the pairing again starts at the top, above the old hero).
+   */
+  function panelInView(always = false) {
+    const head = $(".site-header"), below = head ? head.getBoundingClientRect().bottom : 0;
+    const top = panel.getBoundingClientRect().top;
+    if ((always ? Math.abs(top - below - 12) < 4 : top >= below) || typeof window.scrollTo !== "function") return;
+    window.scrollTo({ top: Math.max(0, top + (window.scrollY || 0) - below - 12), behavior: window.V.reduced ? "auto" : "smooth" });
+  }
   $("#alt-phone").addEventListener("click", async () => {
     setErr("");
+    const ctx = signup ? signup.pairContext() : { for: "connect", name: null, relay: false };
     const d = await api("/api/pair", {});
-    if (!d.ok) return setErr("Couldn't start. Please try again.", $("#alt-phone"));
+    if (!d.ok) return setErr("Couldn't start. Please try again.", $("#alt-phone")); // (the wallet tapped and the reason stay for the next try)
+    if (signup) signup.pairStarted();
+    const p = { code: d.code, pin: d.pin, until: Date.parse(d.expiresAt), for: ctx.for, name: ctx.name || null, relay: Boolean(ctx.relay) };
+    savePair(p);
+    openPair(p, d.url);
+  });
+  /**
+   * The pairing screen for a code: a new one, or (`resumed`) one this tab kept before it was reloaded, which asks the server at once.
+   */
+  function openPair(p, url = `${location.origin}/connect?pair=${p.code}`, resumed = false) {
     show("phone");
-    $("#pair-pin").textContent = d.pin;
-    // On a phone the code can't be scanned by the phone itself: its wallet apps open the link instead (it works on any connection,
-    // and the sign-in comes back here: the way through when "Open app" can't carry the sign-up, e.g. behind iCloud Private Relay).
-    // A tablet keeps the QR code: "Wallet on my phone" there means the phone next to it.
-    const samePhone = W.isPhone && !W.inWalletApp();
-    $("#pair-h").textContent = samePhone ? "Sign in your wallet app" : "Scan with your phone";
-    $("#pair-qr").hidden = samePhone; $("#pair-howto").hidden = samePhone;
-    $("#pair-howto-phone").hidden = !samePhone; $("#pair-apps").hidden = !samePhone;
-    $("#pair-apps").replaceChildren(...(samePhone ? W.KNOWN.filter((k) => k.open).map((k) => knownTile(k, d.url)) : []));
-    if (!samePhone) drawQR($("#qr"), d.url);
-    const until = Date.parse(d.expiresAt);
+    $("#pair-pin").textContent = p.pin;
+    // On a phone its wallet apps open the link (it works on any connection, and the sign-in comes back here: the way through when
+    // "Open app" can't carry the sign-up, e.g. behind iCloud Private Relay). A tablet keeps the QR code for the phone next to it.
+    const phone = samePhone();
+    const why = p.relay && signup ? signup.relayWhy(p.name || null, !phone) : null; // why the pairing (and not "Open app")
+    $("#pair-h").textContent = phone ? `Approve in ${p.name || "your wallet app"}, then finish here` : "Scan with your phone";
+    $("#pair-why").textContent = why || ""; $("#pair-why").hidden = !why;
+    $("#pair-qr").hidden = phone; $("#pair-howto").hidden = phone;
+    $("#pair-howto-phone").hidden = !phone; $("#pair-apps").hidden = !phone;
+    $("#pair-apps").replaceChildren(...(phone ? W.KNOWN.filter((k) => k.open).map((k) => knownTile(k, url)) : []));
+    if (!phone) drawQR($("#qr"), url);
     const status = $("#pair-status");
     const dot = el("span", "live-dot"); dot.setAttribute("aria-hidden", "true");
-    status.replaceChildren(dot, samePhone ? " Waiting for your wallet app…" : " Waiting for your phone…");
+    status.replaceChildren(dot, phone ? " Waiting for your wallet app…" : " Waiting for your phone…");
+    let first = resumed; // the first answer after a reload: a code that ran out meanwhile goes back to where it was started
+    /**
+     * The code is gone: used, or run out. Used by another tab of this browser (a duplicated tab keeps the same pairing, and the
+     * faster one finishes it): carry on from where that tab got to, never "expired" to a person who is in. Otherwise it ran out.
+     */
+    const gone = async (onLoad) => {
+      pairPoll = null; forgetPair(); clearTimeout(timer);
+      // Look twice, 1.5 s apart: the other tab's answer (and the cookie it sets) may still be on its way.
+      for (let look = 0; look < 2; look++) {
+        if (look) await new Promise((r) => setTimeout(r, 1500));
+        if (state !== "phone") return; // the person left meanwhile (Back)
+        if (await usedElsewhere()) return;
+      }
+      if (state !== "phone") return;
+      if (onLoad) { show("pick"); renderPick(); return ranOut(p); }
+      status.textContent = "The code expired. Go back and try again.";
+    };
     const poll = async () => {
       clearTimeout(timer);
       if (state !== "phone" || pairPoll !== poll) return;
-      if (Date.now() > until) { status.textContent = "The code expired. Go back and try again."; return; }
-      const s = await api(`/api/pair?code=${encodeURIComponent(d.code)}`);
-      if (s.status === "expired") { status.textContent = "The code expired. Go back and try again."; return; }
+      if (Date.now() > p.until) return gone(first);
+      const s = await api(`/api/pair?code=${encodeURIComponent(p.code)}`);
+      if (state !== "phone" || pairPoll !== poll) return; // the person left meanwhile (Back): nothing more
+      const onLoad = first && Boolean(s.status); first = first && !s.status; // (no answer at all is not an answer: offline)
+      if (s.status === "expired") return gone(onLoad);
       if (s.status === "ready") {
-        const f = await api("/api/pair/finish", { code: d.code });
-        if (f.ok) { pairPoll = null; toast(samePhone ? "Wallet approved ✓" : "Phone approved ✓"); address = f.wallet; return after(f); }
+        const f = await api("/api/pair/finish", { code: p.code });
+        if (state !== "phone" || pairPoll !== poll) return;
+        if (f.ok) { pairPoll = null; forgetPair(); toast(phone ? "Wallet approved ✓" : "Phone approved ✓"); address = f.wallet; return after(f); }
+        if (f.status === "expired") return gone(false); // someone was faster: another tab of this browser, a moment ago
       }
       timer = setTimeout(poll, 2000);
     };
     pairPoll = poll;
-    timer = setTimeout(poll, 2000);
-  });
+    clearTimeout(timer);
+    if (resumed) poll(); else timer = setTimeout(poll, 2000);
+    if (phone) panelInView(resumed); // the person tapped far down the page: the heading and the step bar must not sit under the header
+  }
+  /** The pairing on screen is gone: did another tab of this browser use it? Then this page carries on from there (true). */
+  async function usedElsewhere() {
+    if (signup) return signup.pairGone();
+    const me = await api("/api/me?lite=1");
+    if (state !== "phone") return true;
+    if (me.signedIn) { show("done"); setTimeout(() => location.assign("/dashboard"), 900); return true; }
+    if (me.pending) { showSocial(me.pending.wallet); return true; } // that tab is at step 2 (Google or e-mail): so is this one
+    return false;
+  }
+  /**
+   * The page loaded fine (its state is known): a pairing this tab kept is picked up again where it was started, and finished at once
+   * if the wallet app approved it meanwhile. Not called when the page could not load its state: then the pairing stays kept.
+   */
+  function resumePair() {
+    const p = savedPair();
+    if (!p) return;
+    if ((p.for === "connect") === Boolean(signup)) return forgetPair(); // made by the other sign-up (switched on or off meanwhile)
+    const may = signup ? signup.resumePair(p) : "resume";
+    if (may === "later") return; // the sign-up isn't on screen yet: kept for the next load
+    if (may !== "resume") return forgetPair(); // the sign-up went on (or another way is open): nothing to finish here
+    if (Date.now() > p.until) { forgetPair(); return ranOut(p); }
+    openPair(p, undefined, true);
+  }
   document.addEventListener("visibilitychange", () => { if (!document.hidden && state === "phone" && pairPoll) pairPoll(); });
 
   /* ---------- the phone's side: approve the computer's sign-in ---------- */
+  // Sign-up v2: the wallet app's browser shows only the approve card, at the top (today's hero and its 1-2-3 steps are the old
+  // sign-up's), and says plainly what to do with the wallet tile. The card shows at once, in the new sign-up's look (never today's
+  // pick screen, and nothing that moves the tile, while /api/me is on its way); today's look comes back only when /api/me answers
+  // that the new sign-up is off.
+  let approveV2 = true;
   async function startApprove() {
     show("approve");
+    $(".connect__intro").hidden = true;
+    window.V.ready.then((me) => {
+      if (!me || me.ok === false || me.signupFlow === "v2") return;
+      approveV2 = false; $(".connect__intro").hidden = false; $("#approve-tap").hidden = true; // today's sign-up: its hero and 1-2-3 steps, as before
+    });
     const s = await api(`/api/pair?code=${encodeURIComponent(pairCode)}`);
-    if (s.status !== "waiting") { $("#approve-wallets").hidden = true; return setErr(s.status === "ready" ? "This code was already used." : "This code has expired. Start again on your computer.", $("#approve-pin").parentNode); }
+    if (s.status !== "waiting") { $("#approve-wallets").hidden = true; return setErr(s.status === "ready" ? "This code was already used." : "This code has expired. Go back to where you started and try again.", $("#approve-pin").parentNode); }
     pairPin = s.pin;
     $("#approve-pin").textContent = s.pin;
     renderApprove();
@@ -396,6 +500,7 @@
     $("#approve-wallets").replaceChildren(...list.map((a) => walletButton(a, approveWith)));
     $("#approve-open").hidden = list.length > 0;
     $("#approve-links").replaceChildren(...W.KNOWN.filter((k) => k.open).map((k) => knownTile(k, location.href)));
+    if (approveV2) { $("#approve-tap").textContent = `Tap ${list.length === 1 ? list[0].name : "your wallet"} below and sign. Nothing is paid or moved.`; $("#approve-tap").hidden = !list.length; }
   }
   async function approveWith(adapter) {
     forget(); setErr("");
@@ -409,7 +514,7 @@
       if (my !== attempt) return;
       stopWaits();
       if (d.paired) {
-        $("#approve-wallets").hidden = true; $("#approve-open").hidden = true; $("#approve-done").hidden = false;
+        $("#approve-wallets").hidden = true; $("#approve-open").hidden = true; $("#approve-tap").hidden = true; $("#approve-done").hidden = false;
         toast("Approved ✓ Go back to where you started");
       }
     } catch (e) {
@@ -459,17 +564,22 @@
   }
   async function startV2(me, err) {
     show("loading"); // hides today's half-drawn pick screen while the sign-up loads
+    let loaded = false;
     try {
       await loadScript("/signup.js");
       signup = window.VSignup.start({ panel, params, show, setErr, renderPick, drawQR, showProof: (proof) => { show("app"); showCode(proof); } });
-      await signup.init(me, err, carryCode);
+      loaded = await signup.init(me, err, carryCode);
     } catch {
-      signup = null; show("loading"); gateNow();
+      signup = null; show("loading"); gateNow(); // (a pairing kept by this tab stays kept: the reload picks it up)
       $("#su-loading-text").textContent = "The sign-up didn't load.";
       $("#su-reload").hidden = false;
       $("#su-reload").onclick = () => location.reload();
       setErr("Please reload the page. If it keeps happening, try again in a few minutes.");
+      return;
     }
+    // reloaded during a pairing (iOS put this tab away while the person was in the wallet app). The sign-up didn't load (a request
+    // failed): kept, and its "Reload the page" picks it up.
+    if (loaded) resumePair();
   }
 
   /** A carried sign-up's code that this page can't use (signed in already, the switch is off...): the Terms gate opens as usual. */
@@ -483,12 +593,16 @@
     const me = await window.V.ready;
     providers = me.providers || providers;
     if (params.get("mode") === "login" || hasAccount()) welcomeBack();
-    if (me.signedIn) { gateNow(); show("done"); setTimeout(() => location.assign("/dashboard"), 900); return; }
+    if (me.signedIn) { forgetPair(); gateNow(); show("done"); setTimeout(() => location.assign("/dashboard"), 900); return; }
     if (me.signupFlow === "v2") return startV2(me, err);
     gateNow();
-    if (me.pending) showSocial(me.pending.wallet);
-    else if (me.proof) { show("app"); showCode(me.proof); }
-    else { show("pick"); renderPick(); }
+    if (me.pending) { forgetPair(); showSocial(me.pending.wallet); }
+    else if (me.proof) { forgetPair(); show("app"); showCode(me.proof); }
+    else {
+      show("pick"); renderPick();
+      if (me.ok !== false) resumePair();
+      else if ((savedPair() || { until: 0 }).until >= Date.now()) setErr("Couldn't reach Vicinity to finish. Check your connection, then reload this page."); // /api/me failed: the pairing stays kept
+    }
     if (err && ERR[err]) setErr(ERR[err]);
   })();
 })();

@@ -544,15 +544,31 @@ function bindFor(db, sql, values) {
 }
 
 /**
- * The location must still look like the one that was proven: the same country and network operator as when it was checked,
- * and not Tor, a VPN or a hosting network. For a community that contains the person, also within 500 km of its centre (the
- * checks of /api/locate, applied to the connection that finishes). The point itself was never kept, so a community chosen
- * from the "three nearest" skips the distance part (it can be hundreds of km from the person by design).
+ * Is the connection that finishes on the network the location was proven from (`stored` = loc_net, "country|asn")?
+ * The same country and network operator; or, when BOTH are relays (iCloud Private Relay...: src/network.js isRelayNetwork) in the
+ * same country, any relay: Private Relay leaves through Fastly, Cloudflare or Akamai and may switch between them while the person
+ * stands still (in the wallet app between the location step and the finish), and the operator of a relay says nothing about where
+ * the person is anyway. The stored value has only the ASN (no organisation name), so it counts as a relay only when that ASN is one
+ * of RELAY_ASNS (the relays' own networks): a relay recognised by its name alone, a relay against an ordinary network, or another
+ * country, still has to match exactly, as before. No new column: rows written before this change read the same way.
+ */
+export function sameLocationNetwork(stored, cf) {
+  if (!stored || netOf(cf) === stored) return true;
+  const [country, asn] = String(stored).split("|");
+  return Boolean(country) && country === String(cf.country || "") && isRelayNetwork({ asn }) && isRelayNetwork(cf);
+}
+
+/**
+ * The location must still look like the one that was proven: the same country and network operator as when it was checked
+ * (a relay may hand over to another relay: sameLocationNetwork), and not Tor, a VPN or a hosting network. For a community that
+ * contains the person, also within 500 km of its centre (the checks of /api/locate, applied to the connection that finishes).
+ * The point itself was never kept, so a community chosen from the "three nearest" skips the distance part (it can be hundreds
+ * of km from the person by design).
  * Only where Cloudflare tells us the connection (cf): in local tests there is none.
  */
 async function recheckLocation(env, row, cf) {
   if (!cf) return true;
-  if (row.loc_net && netOf(cf) !== row.loc_net) return false;
+  if (!sameLocationNetwork(row.loc_net, cf)) return false;
   let centre = null;
   if (!row.loc_choices) {
     try {

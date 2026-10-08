@@ -58,14 +58,19 @@ export function fakeWallet(name = "Phantom") {
 }
 
 /**
- * openConnect({ ua, search, api, me, state, storage, agreed, geolocation }) → the page and the controls a test needs.
+ * openConnect({ ua, search, api, me, state, storage, session, agreed, geolocation }) → the page and the controls a test needs.
  *   api(path, body)  the server's answer to anything but /api/me, /api/health, /api/official and GET /api/signup/state (default { ok: true })
- *   me               merged into the /api/me answer (default: a visitor, sign-up v2, Google and e-mail on)
+ *   me               merged into the /api/me answer (default: a visitor, sign-up v2, Google and e-mail on); a function: asked each time
  *   state            GET /api/signup/state's state (a value, or a function called each time)
  *   agreed           the Terms version already agreed in this browser (null: a first visit, the gate shows)
+ *   session          what this tab's sessionStorage already holds (a reloaded tab keeps it), or "throws" (storage blocked: every call throws)
+ *   setup            ({ doc, win }) => void, run before the page's scripts (e.g. to give elements a layout, which this DOM has none of)
+ *   net(path)        the network itself, asked before any request is answered: undefined = answer as usual, "offline" = the request fails
+ *                    (fetch throws, as with no connection), a promise = the answer waits until it resolves (a slow phone network)
+ *   noSignupJs       true: /signup.js does not load (its <script> fails)
  */
-export async function openConnect({ ua = UA.desktop, search = "", api = async () => ({ ok: true }), me = {}, state = STATE.wallet(), storage = {},
-  agreed = "2026-10-01", geolocation, wallets = [], touchPoints } = {}) {
+export async function openConnect({ ua = UA.desktop, search = "", api = async () => ({ ok: true }), me = {}, state = STATE.wallet(), storage = {}, session: sessionStore = {},
+  agreed = "2026-10-01", geolocation, wallets = [], touchPoints, setup, net, noSignupJs = false } = {}) {
   const doc = new Doc();
   doc.append(...parse(doc, read("connect.html")));
   // time: only what the test lets pass
@@ -75,8 +80,9 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
   const clearTimeout_ = (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); };
   const calls = [], assigned = [];
   const local = new Map(Object.entries({ ...(agreed ? { vicinity_terms: agreed } : {}), ...storage }));
-  const session = new Map();
+  const session = new Map(sessionStore === "throws" ? [] : sessionStore instanceof Map ? sessionStore : Object.entries(sessionStore));
   const store = (m) => ({ getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) });
+  const blocked = { getItem() { throw new Error("SecurityError"); }, setItem() { throw new Error("SecurityError"); }, removeItem() { throw new Error("SecurityError"); } };
   const loc = {
     origin: "https://vicinity.test", protocol: "https:", host: "vicinity.test", pathname: "/connect", search: search ? `?${search}` : "", hash: "",
     get href() { return this.origin + this.pathname + this.search + this.hash; },
@@ -85,20 +91,23 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
   const addressBar = [loc.href];
   Object.defineProperty(doc, "hidden", { get: () => hidden, configurable: true });
   const win = new Target();
-  const meAnswer = { ok: true, signedIn: false, signupFlow: "v2", providers: { google: true, email: true }, ...me };
+  const meAnswer = () => ({ ok: true, signedIn: false, signupFlow: "v2", providers: { google: true, email: true }, ...(typeof me === "function" ? me() : me) });
   Object.assign(win, {
     document: doc, location: loc,
     history: { state: null, replaceState: (st, title, url) => { const u = new URL(url, loc.origin); loc.pathname = u.pathname; loc.search = u.search; loc.hash = u.hash; addressBar.push(loc.href); } },
     navigator: { userAgent: ua, maxTouchPoints: touchPoints ?? (/iPhone|Android/.test(ua) ? 5 : 0), ...(geolocation ? { geolocation } : {}) },
-    localStorage: store(local), sessionStorage: store(session),
+    localStorage: store(local), sessionStorage: sessionStore === "throws" ? blocked : store(session),
     matchMedia: () => ({ matches: true, addEventListener() {} }), // reduced motion: nothing animates
     fetch: async (path, init = {}) => {
       path = String(path);
       const body = init.body ? JSON.parse(init.body) : undefined;
       calls.push({ path, method: init.method || "GET", body, at: now, addressBar: loc.href });
       await null;
+      const wire = net ? net(path) : undefined;
+      if (wire === "offline") throw new TypeError("Failed to fetch");
+      if (wire) await wire;
       let d;
-      if (path === "/api/me" || path.startsWith("/api/me?")) d = meAnswer;
+      if (path === "/api/me" || path.startsWith("/api/me?")) d = meAnswer();
       else if (path === "/api/health" || path === "/api/official") d = { ok: true };
       else if (path === "/api/signup/state") d = { ok: true, state: typeof state === "function" ? state() : state };
       else d = (await api(path, body)) ?? { ok: true };
@@ -120,7 +129,7 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
   // connect.js loads /signup.js with a <script> it appends to <head>: run it here
   const head = doc.querySelector("head");
   head.append = (s) => {
-    if (s.src === "/signup.js") { vm.runInContext(read("signup.js"), ctx, { filename: "public/signup.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
+    if (s.src === "/signup.js" && !noSignupJs) { vm.runInContext(read("signup.js"), ctx, { filename: "public/signup.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
     else Promise.resolve().then(() => s.onerror && s.onerror(new Error("not here")));
   };
   Object.defineProperty(doc, "head", { value: head });
@@ -137,6 +146,7 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
     }
     now = until; await flush();
   }
+  if (setup) setup({ doc, win });
   for (const f of ["site.js", "wallets.js", "connect.js"]) vm.runInContext(read(f), ctx, { filename: `public/${f}` });
   const register = (w) => { for (const l of win.listeners.filter((x) => x.type === "wallet-standard:register-wallet")) l.fn({ detail: (a) => a.register(w) }); };
   for (const w of wallets) register(w);

@@ -14,7 +14,8 @@ export const MAX_NETWORK_KM = 500;
  * Relays that hide a browser's own internet connection behind theirs: iCloud Private Relay (Safari on an iPhone or a Mac) leaves
  * through Cloudflare, Akamai and Fastly, and Cloudflare's WARP through Cloudflare. They are fine for the location (above), but a
  * page behind one does not share its connection with the other apps of the same phone, so a sign-up can't be carried from it into
- * a wallet app's own browser (src/signup.js, "carry": that is bound to the connection).
+ * a wallet app's own browser (src/signup.js, "carry": that is bound to the connection). And one relay may hand a person over to
+ * another between the location step and the finish: the finish takes relay for relay in the same country (sameLocationNetwork).
  */
 export const RELAY_ASNS = new Set([13335, 209242, 36183, 54113]);
 export const RELAY_NETWORK_RE = /\b(cloudflare|akamai|fastly|apple)\b/i;
