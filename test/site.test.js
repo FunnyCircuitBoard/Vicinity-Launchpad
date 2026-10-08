@@ -146,9 +146,9 @@ test("Long Island has a coin everywhere people live (no empty land from Hicksvil
   for (const [name, [lon, lat]] of Object.entries(spots)) assert.ok(cityAt(us, lon, lat), `${name} has no community`);
 });
 
-test("token page: live facts on top, verify a wallet, holders in a scrolling table, official list", () => {
+test("token page: live facts on top, holders in a scrolling table with the rank check in its find box, official list, FAQ", () => {
   const h = html["token.html"];
-  for (const id of ["token", "contract", "buy", "lnk-raydium", "verify", "lookup", "rank-card", "holders", "holders-scroll", "holders-table", "check", "checker"]) assert.ok(h.includes(`id="${id}"`), id);
+  for (const id of ["token", "contract", "buy", "lnk-raydium", "verify", "lookup", "rank-pop", "holders", "holders-scroll", "holders-table", "check", "checker", "faq"]) assert.ok(h.includes(`id="${id}"`), id);
   assert.match(h, /No rug pull/);
   assert.match(h, /Buy on Raydium/);
   assert.doesNotMatch(h, /pump\.fun|stonkfun|stonfun/i, "launching on Raydium LaunchLab");

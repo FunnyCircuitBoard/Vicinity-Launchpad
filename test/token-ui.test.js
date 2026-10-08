@@ -1,9 +1,10 @@
-// The token page: the order of its sections (the owner, 8 Oct 2026: the hero, then "Holders · live", and "How to get $VICINITY" moved
-// into a FAQ at the bottom), the holder list as a box that scrolls on its own (of fixed height once the live list is in it), and
-// public/token.js run in node (no browser): every holder is fetched page by page and drawn 250 rows per animation frame, the find box
-// covers every row, a Refresh during a load wins, a refresh keeps the reader's place and is skipped when the server hands back the
-// snapshot already on screen, the looked-up wallet's row is found when it lands, and the old link /token#buy still lands.
-// The server side of the paging (/api/holders?offset=N) is in test/holders-pages.test.js.
+// The token page: the order of its sections (the owner, 8 Oct 2026: hero, then "Holders · live" with the rank check merged into its
+// "Find a wallet" box, the answer in a little pop-up instead of a card on the page, and "How to get $VICINITY" moved into a FAQ at the
+// bottom), the holder list as a box that scrolls on its own (of fixed height once the live list is in it), and public/token.js run in
+// node (no browser): every holder is fetched page by page and drawn 250 rows per animation frame, the find box covers every row, a
+// Refresh during a load wins, a refresh keeps the reader's place and is skipped when the server hands back the snapshot already on
+// screen, the looked-up wallet's row is found when it lands, Check rank opens the pop-up and its three ways out give the keyboard back
+// to the box, and the old links /token#buy and /token#verify still land. The server side of the paging is in test/holders-pages.test.js.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -17,27 +18,26 @@ const html = read("token.html"), src = readFileSync(new URL("../scripts/pages/sr
 
 /* ---------------- the page ---------------- */
 
-test("token page: hero, holders (live), verify a holder, no rug pull, official tokens, FAQ: in that order; no How to get section", () => {
+test("token page: hero, holders (live, with the rank check), no rug pull, official tokens, FAQ: in that order; no How to get or Verify section", () => {
   for (const h of [html, src]) {
     const at = (needle) => { const i = h.indexOf(needle); assert.ok(i >= 0, needle); return i; };
-    const order = [at('<section class="page-hero" id="token">'), at('<section id="holders" class="section">'), at('id="verify"'), at('<p class="kicker">No rug pull</p>'), at('<section class="section section--panel" id="check">'), at('<section class="section" id="faq">')];
-    assert.deepEqual(order, [...order].sort((a, b) => a - b), "sections top to bottom: token, holders, verify, no rug pull, check, faq");
-    const kicker = h.indexOf('<p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Holders · live</p>');
-    assert.ok(kicker > h.indexOf('id="holders"') && kicker < h.indexOf('id="verify"'), "the live kicker is the holders section's own");
+    const order = [at('<section class="page-hero" id="token">'), at('<section id="holders" class="section">'), at('<p class="kicker">No rug pull</p>'), at('<section class="section section--panel" id="check">'), at('<section class="section" id="faq">')];
+    assert.deepEqual(order, [...order].sort((a, b) => a - b), "sections top to bottom: token, holders, no rug pull, check, faq");
+    assert.ok(h.indexOf('id="holders"') < h.indexOf('<p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Holders · live</p>'), "the live kicker is the holders section's own");
     assert.ok(h.indexOf("Every real Vicinity token, on every network.") > h.indexOf("No rug pull"), "what followed the proof still follows it");
-    // gone from the page body: the How to get section (its id lives on in the FAQ: see the deep-link test)
-    assert.doesNotMatch(h, /<section[^>]*id="buy"/);
-    assert.doesNotMatch(h, /How to get \$VICINITY<\/p>|class="buy-steps"/);
-    for (const id of ["token", "contract", "buy", "verify", "lookup", "rank-card", "rank-show", "holders", "holders-status", "holders-find", "holders-refresh", "holders-scroll", "holders-table", "holders-body", "team-count", "check", "checker", "faq"]) assert.equal(h.split(`id="${id}"`).length - 1, 1, id);
+    // gone from the page body: the How to get section and the Verify a holder section (their ids live on: see the deep-link tests)
+    assert.doesNotMatch(h, /<section[^>]*id="(buy|verify)"/);
+    assert.doesNotMatch(h, /How to get \$VICINITY<\/p>|Verify a holder|Where do you stand\?|class="buy-steps"|verify-grid|rank-card|rank-empty|lookup-input/);
+    assert.equal((h.match(/<section\b/g) || []).length, 5, "five sections");
+    for (const id of ["token", "contract", "buy", "verify", "lookup", "rank-pop", "rank-show", "holders", "holders-status", "holders-find", "holders-refresh", "holders-scroll", "holders-table", "holders-body", "team-count", "check", "checker", "faq"]) assert.equal(h.split(`id="${id}"`).length - 1, 1, id);
     assert.ok(h.includes('<span id="holders-status" role="status" aria-live="polite">'), "the status line is the live region: a screen reader hears the progress, not every 250-row chunk");
     assert.doesNotMatch(h, /<div class="holders card"[^>]*aria-live/, "the card around the table is not a live region");
   }
   // the section looks alternate as before: no two identical panels next to each other
   const classes = [...html.matchAll(/<section class="([^"]+)"|<section id="holders" class="([^"]+)"/g)].map((m) => m[1] || m[2]);
-  assert.deepEqual(classes, ["page-hero", "section", "section section--glow", "section section--tight", "section section--panel", "section"]);
-  // the holder list is above the verify card, so its button points up
-  assert.match(html, /<button class="link-btn" type="button" id="rank-show">Show it in the holder list ↑<\/button>/);
-  assert.doesNotMatch(html, /holder list ↓/);
+  assert.deepEqual(classes, ["page-hero", "section", "section section--tight", "section section--panel", "section"]);
+  // the pop-up's button scrolls the list (below the box): no arrow pointing anywhere
+  assert.match(html, /<button class="link-btn" type="button" id="rank-show">Show it in the holder list<\/button>/);
 });
 
 test("token page: the hero is word for word what it was (Live from the Solana blockchain, $VICINITY, the contract card, the buttons, the stats)", () => {
@@ -46,6 +46,27 @@ test("token page: the hero is word for word what it was (Live from the Solana bl
     const a = h.indexOf('<section class="page-hero" id="token">'), b = h.indexOf("</section>", a) + "</section>".length;
     assert.equal(createHash("sha256").update(h.slice(a, b)).digest("hex"), HERO_SHA256);
   }
+});
+
+test("token page: one box in the holders section finds a wallet and checks its rank (Check rank inside it), the old #verify lands on it", () => {
+  for (const h of [html, src]) {
+    const sec = h.slice(h.indexOf('<section id="holders"'), h.indexOf("</section>", h.indexOf('<section id="holders"')));
+    const head = sec.slice(sec.indexOf('<div class="holders__head">'), sec.indexOf('id="holders-scroll"'));
+    assert.ok(head.length > 0, "the head of the holder card");
+    // one input and its button, in one form, in the head: the button sits in the box (the same row as the field)
+    assert.equal((sec.match(/<input\b/g) || []).length, 1, "one input in the holders section");
+    assert.match(head, /<div class="holders__find" id="verify" tabindex="-1">\s*<form class="find-box" id="lookup" role="search" novalidate>\s*<label class="sr-only" for="holders-find">[^<]+<\/label>\s*<input id="holders-find" type="search" placeholder="Find a wallet" autocomplete="off" spellcheck="false" maxlength="60" aria-describedby="holders-hint">\s*<button class="btn btn--primary find-box__go" type="submit">Check rank<\/button>\s*<\/form>/);
+    assert.match(head, /<p class="holders__hint" id="holders-hint">Paste any Solana wallet address to see its rank\. We compare it with every holder, live\. Nothing is saved\.<\/p>/, "the helper sentence, short, under the box");
+    assert.match(head, /<div class="holders__meta">\s*<span id="holders-status"[^>]*>[^<]*<\/span>\s*<button class="link-btn" type="button" id="holders-refresh" hidden>Refresh<\/button>/, "status and Refresh above it");
+    assert.match(sec, /Want your own dashboard, badges and city\? <a href="\/connect">Connect your wallet<\/a>: signing is free and isn't a transaction\./);
+    // the answer is a pop-up in the same section, not a card on the page: a <dialog> (role dialog), named by its title, described by the rank
+    assert.match(sec, /<dialog class="rank-pop" id="rank-pop" aria-labelledby="rank-pop-title" aria-describedby="rank-big rank-pct">/);
+    assert.match(sec, /<h3 class="rank-pop__title" id="rank-pop-title">Where this wallet stands<\/h3>/);
+    assert.match(sec, /<button class="rank-pop__close" type="button" id="rank-close" aria-label="Close">/);
+    for (const id of ["rank-addr", "rank-big", "rank-num", "rank-of", "rank-bar", "rank-meter", "rank-pct", "rank-facts", "rank-amount", "rank-share", "rank-next", "rank-founder", "rank-show"]) assert.ok(sec.includes(`id="${id}"`), id);
+    for (const dt of ["Holds", "Share of supply", "To pass the next wallet", "Founder amount (100K to 1M by city size, held 7 days)"]) assert.ok(sec.includes(`<dt>${dt}</dt>`), dt);
+  }
+  assert.doesNotMatch(css, /\.holders__tools|\.lookup\b|\.rank-card|\.gauge\b|#rank-result/, "the old box, form and rank card styles are gone");
 });
 
 test("token page: the FAQ at the bottom, How do I get $VICINITY? first (id buy): the four steps in order, the raydium.io warning; at most three more questions", () => {
@@ -64,10 +85,26 @@ test("token page: the FAQ at the bottom, How do I get $VICINITY? first (id buy):
     // word for word, except where the checker is: it is above the FAQ now
     assert.match(buy, /<p class="scam-note"><strong>The only real Raydium is raydium\.io\.<\/strong> Look-alike addresses copy it to empty wallets\. Never type your recovery phrase into any website, and check any link with the <a href="#check">checker above<\/a> first\.<\/p>\s*<\/details>/);
     const questions = [...faq.matchAll(/<summary>([^<]+)<\/summary>/g)].map((m) => m[1]);
-    assert.deepEqual(questions, ["How do I get $VICINITY?", "Is this the only official $VICINITY?", "What is the founder amount?"]);
+    assert.deepEqual(questions, ["How do I get $VICINITY?", "Is this the only official $VICINITY?", "How is my rank worked out?", "What is the founder amount?"]);
     assert.ok(faq.indexOf("</section>") === faq.lastIndexOf("</section>"), "the FAQ is the last section");
   }
   assert.match(css, /\.faq \.scam-note strong \{ color: var\(--bad-text\); \}/, "the warning keeps its red, inside an answer too");
+});
+
+test("token page: the pop-up is a little sheet on a phone and hangs from the box on a computer; it scales and fades in only when motion is welcome", () => {
+  const rule = (sel) => { const i = css.indexOf(`${sel} {`); assert.ok(i >= 0, sel); return css.slice(i, css.indexOf("}", i)); };
+  assert.match(rule(".rank-pop"), /position: absolute; inset: auto; top: var\(--pop-y, 20vh\); left: var\(--pop-x, 16px\);/, "absolute in the top layer: it scrolls with the page, by the box");
+  assert.match(css, /@media \(max-width: 600px\) \{\n  \.rank-pop \{ position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: 100%; \}/, "a sheet at the bottom of a phone's screen");
+  assert.match(css, /@media \(max-width: 600px\) \{ \.find-box input \{ font-size: 16px; \}/, "16 px: iOS never zooms the page in when the box takes the keyboard");
+  const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference) {\n  .rank-pop[open] .rank-pop__card"));
+  assert.match(motion, /^@media \(prefers-reduced-motion: no-preference\) \{\n  \.rank-pop\[open\] \.rank-pop__card \{ animation: rankPopIn \.22s cubic-bezier\(\.2,\.8,\.2,1\) both; \}/, "220 ms, only when motion is welcome");
+  assert.match(motion, /\.rank-pop\.is-closing \.rank-pop__card \{ animation: rankPopOut \.14s ease-in both; \}/);
+  assert.doesNotMatch(css.slice(css.indexOf(".rank-pop {"), css.indexOf("@media (prefers-reduced-motion: no-preference) {\n  .rank-pop[open]")), /animation|transition/, "no motion outside the no-preference block");
+  for (const name of ["rankPopIn", "rankPopOut", "rankSheetIn", "rankSheetOut", "rankFade"]) {
+    const kf = css.slice(css.indexOf(`@keyframes ${name} {`), css.indexOf("\n", css.indexOf(`@keyframes ${name} {`)));
+    const props = [...kf.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]);
+    assert.ok(props.length && props.every((p) => p === "transform" || p === "opacity"), `${name}: compositor only (${props})`);
+  }
 });
 
 test("token page: the holder list is a box that scrolls inside, of fixed height once the live list is in it, header pinned, status line and find box outside it", () => {
@@ -252,7 +289,7 @@ test("token.js: 'Show it in the holder list' appears when the looked-up wallet's
   } });
   await p.settle(); p.flush();
   assert.equal(p.rows().length, 1000, "the first page is drawn, the second is on its way");
-  p.$("#lookup-input").value = me; await p.$("#lookup").fire("submit"); await p.settle();
+  p.$("#holders-find").value = me; await p.$("#lookup").fire("submit"); await p.settle();
   assert.equal(p.$("#rank-num").textContent, "#4,799");
   assert.equal(p.$("#rank-show").hidden, true, "the row isn't in the table yet");
   hold(); await p.settle(); p.flush();
@@ -273,7 +310,7 @@ test("token.js: a lookup never keeps the last wallet's values (a pool after a ra
   };
   const p = page({ answer: (path) => (path.startsWith("/api/rank") ? answers[new URL(path, "https://x").searchParams.get("address")] : { launched: false, holders: [] }) });
   await p.settle();
-  const look = async (a) => { p.$("#lookup-input").value = a; await p.$("#lookup").fire("submit"); await p.settle(); p.flush(); };
+  const look = async (a) => { p.$("#holders-find").value = a; await p.$("#lookup").fire("submit"); await p.settle(); p.flush(); };
   const card = () => ["#rank-num", "#rank-of", "#rank-amount", "#rank-share", "#rank-next", "#rank-founder"].map((id) => p.$(id).textContent);
 
   await look(RANKED);
@@ -290,9 +327,79 @@ test("token.js: a lookup never keeps the last wallet's values (a pool after a ra
   await look(RANKED); await look(BUSY);
   assert.deepEqual(card(), ["—", "", "—", "—", "—", "—"], "the blockchain is busy: nothing of the wallet before is shown under the new address");
   assert.equal(p.$("#rank-meter").style.width, "0%");
+  assert.equal(p.$("#rank-pct").textContent, "The blockchain is busy. Try again in a minute.");
+  assert.ok(p.$("#rank-facts").hidden && p.$("#rank-bar").hidden && p.$("#rank-big").hidden, "a message alone in the pop-up: no blank facts, no 'Rank —'");
+  await look(RANKED);
+  assert.ok(!p.$("#rank-facts").hidden && !p.$("#rank-bar").hidden && !p.$("#rank-big").hidden, "and they are back for the next wallet");
 });
 
-test("token.js: the old link /token#buy opens How do I get $VICINITY? in the FAQ (again once what loads above has moved it)", async () => {
+test("token.js: Check rank (or Enter) in the find box opens the pop-up with the rank; a partial address opens it with what a check needs, asking nothing", async () => {
+  const all = fakeHolders(300), me = owner(57);
+  const p = page({ answer: (path) => path.startsWith("/api/rank")
+    ? { launched: true, full: true, address: me, amount: all[57].amount, rank: 58, total: 300, label: null, percent: all[57].percent, percentile: 19.33, next: { rank: 57, amount: all[56].amount, gap: 10 }, founderMin: 100_000 }
+    : pageOf(all, 0) });
+  await p.settle(); p.flush();
+  // typing filters the list as before; nothing is asked of /api/rank
+  p.$("#holders-find").value = me.slice(0, 5); await p.$("#holders-find").fire("input");
+  assert.deepEqual(p.visible().map((r) => r.dataset.owner), Array.from({ length: 10 }, (_, i) => owner(50 + i)), "part of an address filters the list, as before");
+  assert.ok(!p.calls.some((c) => c.startsWith("/api/rank")));
+  // a partial address + Check rank: the pop-up says what is needed; the list stays filtered; no request
+  await p.$("#lookup").fire("submit"); await p.settle();
+  assert.equal(p.pop.open, true, "the pop-up opened");
+  assert.equal(p.$("#rank-pct").textContent, "Paste a full wallet address to check its rank.");
+  assert.ok(p.$("#rank-big").hidden && p.$("#rank-facts").hidden && p.$("#rank-bar").hidden && p.$("#rank-show").hidden, "a message alone");
+  assert.equal(p.$("#rank-addr").textContent, "");
+  assert.equal(p.pop.getAttribute("aria-describedby"), "rank-pct", "it is described by the message alone");
+  assert.equal(p.focused.at(-1), "#rank-close", "the keyboard moved into it");
+  assert.ok(!p.calls.some((c) => c.startsWith("/api/rank")), "nothing was asked of the server");
+  // Escape: the browser's cancel, handled as a close (with the quick fade), and the keyboard goes back to the box's button
+  const esc = await p.pop.fire("cancel");
+  assert.ok(esc.defaultPrevented, "the page closes it itself");
+  assert.equal(p.pop.open, false, "closed");
+  assert.equal(p.focused.at(-1), "#lookup button", "the keyboard is back on the box");
+  // the full address + Check rank: one request, then the pop-up with the rank of how many, the meter and the facts
+  p.$("#holders-find").value = me; await p.$("#holders-find").fire("input");
+  await p.$("#lookup").fire("submit"); await p.settle(); p.flush();
+  assert.deepEqual(p.calls.filter((c) => c.startsWith("/api/rank")), [`/api/rank?address=${me}`]);
+  assert.equal(p.pop.open, true); assert.equal(p.pop.shown, 2);
+  assert.deepEqual(["#rank-addr", "#rank-num", "#rank-of", "#rank-pct", "#rank-amount", "#rank-next", "#rank-founder"].map((id) => p.$(id).textContent),
+    [me, "#58", "of 300 holders", "Top 19.3% of all holders", `${all[57].amount.toLocaleString("en-US")} $VICINITY`, "10 to pass #57", "97,570 to reach the smallest"]);
+  assert.equal(p.$("#rank-meter").style.width, "80.67%");
+  assert.ok(!p.$("#rank-big").hidden && !p.$("#rank-facts").hidden && !p.$("#rank-show").hidden, "rank, facts, and the row is in the list");
+  assert.equal(p.pop.getAttribute("aria-describedby"), "rank-big rank-pct", "announced with its rank and the line under it");
+  assert.equal(p.$("#lookup button").textContent, "Check rank"); assert.equal(p.$("#lookup button").disabled, false);
+  // a tap outside it (on the dialog itself, around its card) closes it; a tap inside does not
+  await p.pop.fire("click", { target: p.$("#rank-big") });
+  assert.equal(p.pop.open, true, "a tap on the card keeps it");
+  await p.pop.fire("click", { target: p.pop });
+  assert.equal(p.pop.open, false, "a tap outside closes it");
+  // the close button
+  await p.$("#lookup").fire("submit"); await p.settle();
+  assert.equal(p.pop.open, true);
+  await p.$("#rank-close").fire("click");
+  assert.equal(p.pop.open, false);
+  assert.equal(p.focused.at(-1), "#lookup button");
+});
+
+test("token.js: 'Show it in the holder list' closes the pop-up, brings the table into view and scrolls it to the wallet's row, highlighted among every row", async () => {
+  const all = fakeHolders(300), me = owner(120);
+  const p = page({ answer: (path) => path.startsWith("/api/rank")
+    ? { launched: true, full: true, address: me, amount: all[120].amount, rank: 121, total: 300, label: null, percent: all[120].percent, percentile: 40.33, next: { rank: 120, gap: 10 }, founderMin: 100_000 }
+    : pageOf(all, 0) });
+  await p.settle(); p.flush();
+  p.$("#holders-find").value = me; await p.$("#holders-find").fire("input"); await p.$("#lookup").fire("submit"); await p.settle(); p.flush();
+  assert.deepEqual(p.rows().filter((tr) => tr.classes.has("is-me")).map((tr) => tr.dataset.owner), [me], "the looked-up row is highlighted");
+  assert.deepEqual(p.visible().map((tr) => tr.dataset.owner), [me], "the box filters the list down to it meanwhile");
+  p.scrolled.length = 0;
+  await p.$("#rank-show").fire("click");
+  assert.equal(p.pop.open, false, "the pop-up is closed");
+  assert.equal(p.$("#holders-find").value, "", "the box is cleared...");
+  assert.equal(p.visible().length, 300, "...so the row shows among every holder");
+  assert.deepEqual(p.scrolled, ["#holders-scroll", "#holders-scroll to a row"], "the table into view, then the table itself to the row");
+  assert.deepEqual(p.rows().filter((tr) => tr.classes.has("is-me")).map((tr) => tr.dataset.owner), [me]);
+});
+
+test("token.js: the old links land: /token#buy opens How do I get $VICINITY? in the FAQ, /token#verify focuses the box (again once what loads above has moved them)", async () => {
   const all = fakeHolders(300);
   const buy = page({ hash: "#buy", answer: () => pageOf(all, 0) });
   assert.equal(buy.$("#buy").open, true, "the answer is open");
@@ -301,14 +408,43 @@ test("token.js: the old link /token#buy opens How do I get $VICINITY? in the FAQ
   assert.ok(buy.scrolled.filter((s) => s === "#buy").length >= 2, "the live list (fixed height) moved the FAQ: the reader is put back on it");
   const n = buy.scrolled.length;
   buy.win.onwheel.forEach((f) => f()); // the reader scrolls: from then on the page is theirs
-  await buy.$("#holders-refresh").fire("click"); await buy.settle(); buy.flush(); buy.win.onload.forEach((f) => f()); buy.flush();
+  await buy.$("#holders-refresh").fire("click"); await buy.settle(); buy.flush();
   assert.equal(buy.scrolled.filter((s) => s === "#buy").length, buy.scrolled.slice(0, n).filter((s) => s === "#buy").length, "never moved again");
 
+  const verify = page({ hash: "#verify", answer: () => pageOf(all, 0) });
+  assert.deepEqual(verify.scrolled, ["#verify"], "the box, in the holders section");
+  assert.deepEqual(verify.focused, ["#holders-find"], "and the keyboard in it");
+  // the browser focuses the link's target itself (on load, or a #verify link clicked while the hash is #verify already): on into the field
+  await verify.$("#verify").fire("focus");
+  assert.deepEqual(verify.focused, ["#holders-find", "#holders-find"]);
+  // the contract card's answer and the live list move what is below them: put back on the box (and the field) until the reader moves
+  await verify.settle(); verify.flush(); verify.win.onload.forEach((f) => f()); verify.flush();
+  assert.ok(verify.scrolled.filter((s) => s === "#verify").length >= 3, "landed again after the token facts, the live list and the page's load");
+  assert.ok(verify.focused.every((f) => f === "#holders-find"));
+  assert.notEqual(verify.$("#buy").open, true, "the FAQ answer stays closed");
+
   const plain = page({ answer: () => pageOf(all, 0) });
-  await plain.settle(); plain.flush();
   assert.deepEqual([plain.scrolled, plain.focused], [[], []], "no hash: nothing moves, nothing is focused");
+  // a link inside the page (the FAQ's "box above the holder list") lands the same way
   plain.win.onhashchange.forEach((f) => f());
   assert.deepEqual(plain.scrolled, [], "a hash the page doesn't know: nothing");
+});
+
+test("token.js: /token?address=... fills the box, filters the list and opens the answer; on a first visit it waits for the terms", async () => {
+  const all = fakeHolders(300), me = owner(9);
+  const p = page({ search: `?address=${me}`, answer: (path) => path.startsWith("/api/rank") ? { launched: true, full: true, address: me, amount: all[9].amount, rank: 10, total: 300, percentile: 3.33, next: { rank: 9, gap: 10 }, founderMin: 100_000 } : pageOf(all, 0) });
+  await p.settle(); p.flush();
+  assert.equal(p.$("#holders-find").value, me);
+  assert.deepEqual(p.visible().map((r) => r.dataset.owner), [me], "the list shows that wallet");
+  assert.equal(p.pop.open, true); assert.equal(p.$("#rank-num").textContent, "#10");
+  // the gate is open: nothing opens over it until the visitor agrees
+  const q = page({ search: `?address=${me}`, answer: (path) => path.startsWith("/api/rank") ? { launched: true, full: true, amount: 0, rank: null, total: 300, next: { rank: 299, gap: 3 }, founderMin: 100_000 } : pageOf(all, 0) });
+  q.$("#termsgate").hidden = false; // a first visit: the terms gate is up when the answer comes back
+  await q.settle();
+  assert.equal(q.pop.open, false, "not over the terms gate");
+  q.$("#termsgate").hidden = true; await q.$("#termsgate-agree").fire("click");
+  assert.equal(q.pop.open, true, "it opens once the terms are agreed");
+  assert.equal(q.$("#rank-of").textContent, "not holding yet");
 });
 
 test("token page after launch: no 'the moment it launches' copy, and nothing in the page before its script runs names a date instead of the contract", () => {

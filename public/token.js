@@ -1,9 +1,9 @@
-// Token page: live token facts, every holder (the table scrolls, not the page; it is loaded in pages and drawn in chunks), "where does this wallet stand?",
-// the official token list, the link checker and the FAQ (old links to /token#buy open its "How do I get $VICINITY?"). Everything comes from
-// this site's /api (read live from Solana).
+// Token page: live token facts, every holder (the table scrolls, not the page; it is loaded in pages and drawn in chunks) with one box that
+// finds a wallet in the list and checks where any wallet stands (the answer pops up over the page), the official token list, the link
+// checker and the FAQ (old links to /token#buy open its "How do I get $VICINITY?"). Everything comes from this site's /api (read live from Solana).
 (() => {
   "use strict";
-  const { $, $$, el, api, toast, copy, fmt, compact, mask, isAddr, official } = window.V;
+  const { $, $$, el, api, copy, fmt, compact, mask, isAddr, official } = window.V;
   const FOUNDER_MAX = 1_000_000; // the top of the Stake Ladder (100K to 1M by city size, see /rules#ladder)
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
   const usd = (n) => (n >= 1 ? "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "$" + n.toPrecision(3));
@@ -201,30 +201,38 @@
     return found;
   }
 
-  /* ---------- where does a wallet stand? ---------- */
+  /* ---------- where does a wallet stand? Check rank in the find box; the answer pops up over the page ---------- */
   let lastLookup = null;
+  const pop = $("#rank-pop");
   async function lookup(addr) {
-    if (!isAddr(addr)) { toast("That doesn't look like a Solana wallet address."); return; }
-    const btn = $("#lookup button"); btn.disabled = true; btn.textContent = "Checking…";
+    const set = (id, t) => ($(id).textContent = t);
+    const btn = $("#lookup button"); if (btn.disabled) return; // one check at a time (Enter while the last one is on its way)
+    // every lookup starts from a blank card: nothing of the wallet looked up before may stay on it
+    const blank = () => {
+      set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "");
+      ["#rank-amount", "#rank-share", "#rank-next", "#rank-founder"].forEach((i) => set(i, "—"));
+      $("#rank-meter").style.width = "0%";
+    };
+    /** Only a message to give (no wallet's facts): the meter and the facts step aside. */
+    const only = (text) => { set("#rank-pct", text); $("#rank-bar").hidden = true; $("#rank-facts").hidden = true; $("#rank-show").hidden = true; };
+    if (!isAddr(addr)) { // part of an address only filters the list
+      blank(); set("#rank-addr", ""); only("Paste a full wallet address to check its rank."); openPop(); return;
+    }
+    btn.disabled = true; btn.textContent = "Checking…";
     const d = await api(`/api/rank?address=${encodeURIComponent(addr)}`);
     btn.disabled = false; btn.textContent = "Check rank";
-    $("#rank-empty").hidden = true; $("#rank-result").hidden = false;
     $("#rank-addr").textContent = addr;
     lastLookup = addr;
-    const set = (id, t) => ($(id).textContent = t);
-    // every lookup starts from a blank card: nothing of the wallet looked up before may stay on it
-    set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "");
-    ["#rank-amount", "#rank-share", "#rank-next", "#rank-founder"].forEach((i) => set(i, "—"));
-    $("#rank-meter").style.width = "0%";
-    if (d.error === "chain_unavailable") { set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "The blockchain is busy. Try again in a minute."); return; }
+    blank(); $("#rank-bar").hidden = false; $("#rank-facts").hidden = false;
+    if (d.error === "chain_unavailable") { only("The blockchain is busy. Try again in a minute."); openPop(); return; }
     // many checks from one shared connection (an office, a campus, a mobile network): say so, never "not launched"
-    if (d.error === "slow_down") { set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "Too many checks from your network. Try again in a minute."); return; }
+    if (d.error === "slow_down") { only("Too many checks from your network. Try again in a minute."); openPop(); return; }
     if (!d.launched) {
       set("#rank-num", "—"); set("#rank-of", "");
       set("#rank-pct", "Ranks go live the moment $VICINITY launches. Save this page and check back.");
       ["#rank-amount", "#rank-share", "#rank-next", "#rank-founder"].forEach((i) => set(i, "At launch"));
       $("#rank-meter").style.width = "0%"; $("#rank-show").hidden = true;
-      return;
+      openPop(); return;
     }
     const amount = d.amount || 0;
     set("#rank-amount", `${fmt(amount)} $VICINITY`);
@@ -251,18 +259,73 @@
       $("#rank-meter").style.width = "0%";
     }
     $("#rank-show").hidden = !mark(addr, false);
+    openPop();
   }
-  $("#lookup").addEventListener("submit", (e) => { e.preventDefault(); lookup($("#lookup-input").value.trim()); });
-  $("#rank-show").addEventListener("click", () => { $("#holders").scrollIntoView({ behavior: window.V.reduced ? "auto" : "smooth" }); setTimeout(() => mark(lastLookup), 400); });
 
-  /* ---------- old links: /token#buy opens "How do I get $VICINITY?" in the FAQ ---------- */
+  /* the pop-up: a modal <dialog> (the page behind it is inert: Tab never reaches it). It scales and fades in from the box (style.css; at once
+     with reduced motion), says its answer when it takes the keyboard (named by its title, described by the rank and the line under it),
+     and closes with its button, Escape or a tap outside it; the keyboard then goes back to the box's Check rank button. Closed, it takes
+     no room on the page. */
+  let popTimer = 0;
+  function openPop() {
+    const gate = $("#termsgate");
+    // a first visit straight to /token?address=...: the answer waits for the terms (the page behind the gate is inert)
+    if (gate && !gate.hidden) { $("#termsgate-agree").addEventListener("click", openPop, { once: true }); return; }
+    const big = $("#rank-big");
+    big.hidden = $("#rank-num").textContent === "—" && !$("#rank-of").textContent; // a message alone: no "Rank —" above it
+    pop.setAttribute("aria-describedby", big.hidden ? "rank-pct" : "rank-big rank-pct");
+    clearTimeout(popTimer); pop.classList.remove("is-closing");
+    const x = window.scrollX, y = window.scrollY;
+    if (!pop.open) pop.showModal(); // its own first focus scrolls to where it was before it is placed: the page goes back, then shows it whole
+    anchorPop();
+    if (window.scrollX !== x || window.scrollY !== y) window.scrollTo({ left: x, top: y, behavior: "instant" });
+    $("#rank-close").focus({ preventScroll: true });
+    if (pop.scrollIntoView) pop.scrollIntoView({ block: "nearest", behavior: window.V.reduced ? "auto" : "smooth" });
+  }
+  /** On a computer it hangs from the box: under it, right edges lined up (above it when only there is room); on a phone it is a sheet
+   *  at the bottom of the screen (style.css). Absolute in the top layer, so it scrolls with the page and stays by the box. */
+  function anchorPop() {
+    if (!pop.open || !window.matchMedia || window.matchMedia("(max-width: 600px)").matches) return;
+    const r = $("#lookup").getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    const vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    const above = r.bottom + 8 + h > vh - 8 && r.top - 8 - h >= 8;
+    pop.style.setProperty("--pop-x", `${Math.round(Math.max(16, Math.min(r.right - w, vw - w - 16)) + window.scrollX)}px`);
+    pop.style.setProperty("--pop-y", `${Math.round((above ? r.top - 8 - h : r.bottom + 8) + window.scrollY)}px`);
+    pop.classList.toggle("is-above", above);
+  }
+  function closePop() {
+    if (!pop.open || pop.classList.contains("is-closing")) return;
+    if (window.V.reduced) { pop.close(); return; }
+    pop.classList.add("is-closing"); // a quick fade (style.css), then it is gone
+    popTimer = setTimeout(() => pop.close(), 140);
+  }
+  pop.addEventListener("close", () => { clearTimeout(popTimer); pop.classList.remove("is-closing"); $("#lookup button").focus({ preventScroll: true }); });
+  pop.addEventListener("cancel", (e) => { e.preventDefault(); closePop(); }); // Escape: the same quick fade
+  pop.addEventListener("click", (e) => { if (e.target === pop) closePop(); }); // the card fills the dialog: a click on the dialog itself is outside it
+  $("#rank-close").addEventListener("click", closePop);
+  window.addEventListener("resize", anchorPop);
+  $("#lookup").addEventListener("submit", (e) => { e.preventDefault(); lookup($("#holders-find").value.trim()); });
+  // closes the pop-up, brings the list into view and scrolls the table (not the page) to the wallet's row, highlighted among its
+  // neighbours: the address typed in the box would otherwise have filtered the list down to that one row
+  $("#rank-show").addEventListener("click", () => {
+    const addr = lastLookup; closePop();
+    $("#holders-find").value = ""; filter();
+    $("#holders-scroll").scrollIntoView({ block: "nearest", behavior: window.V.reduced ? "auto" : "smooth" });
+    mark(addr);
+  });
+
+  /* ---------- old links: /token#buy opens "How do I get $VICINITY?" in the FAQ, /token#verify lands on the box (and focuses it) ---------- */
+  // the browser itself focuses a link's target (#verify can take the focus: tabindex -1), also when the hash was #verify already;
+  // the keyboard goes on into the field
+  $("#verify").addEventListener("focus", () => $("#holders-find").focus({ preventScroll: true }));
   function land(smooth) {
     const behavior = smooth && !window.V.reduced ? "smooth" : "instant";
     if (location.hash === "#buy") { $("#buy").open = true; $("#buy").scrollIntoView({ behavior }); }
+    else if (location.hash === "#verify") { $("#verify").scrollIntoView({ behavior }); $("#holders-find").focus({ preventScroll: true }); }
   }
-  // what loads above it moves the FAQ (the contract card when the token facts come, the live list's fixed height, the browser's own
-  // pass at the link when the page has loaded), so until the reader moves the page themselves, the visit is put back on it
-  let landing = location.hash === "#buy";
+  // what loads above them moves both (the contract card when the token facts come, the live list's fixed height above the FAQ, the
+  // browser's own pass at the link when the page has loaded), so until the reader moves the page themselves, the visit is put back on it
+  let landing = location.hash === "#buy" || location.hash === "#verify";
   function reland() { if (landing) requestAnimationFrame(() => { if (landing) land(false); }); }
   for (const t of ["wheel", "touchstart", "keydown", "pointerdown"]) window.addEventListener(t, () => { landing = false; }, { passive: true });
   window.addEventListener("hashchange", () => { landing = false; land(true); });
@@ -287,5 +350,5 @@
   if (official && official.then) official.then(renderTeamCount, () => renderTeamCount(null));
   setInterval(() => { if (launched && !document.hidden) loadHolders(); }, 60_000);
   const q = new URLSearchParams(location.search).get("address");
-  if (q) { $("#lookup-input").value = q; lookup(q); }
+  if (q) { $("#holders-find").value = q; lookup(q); } // the rows are filtered as they land
 })();

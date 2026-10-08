@@ -164,9 +164,9 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 .burst { position: fixed; pointer-events: none; z-index: 80; font-size: 20px; animation: burst .9s ease-out forwards; }
 @keyframes burst { to { transform: translate(var(--bx), var(--by)) scale(.4); opacity: 0; } }
 input, select, textarea { font: 500 .98rem var(--body); color: var(--text); }
-.field, .lookup input, .checker input, .tp-form input, .req-form input, .city-search input, .city-search select, .holders__tools input, .composer textarea {
+.field, .checker input, .tp-form input, .req-form input, .city-search input, .city-search select, .composer textarea {
   background: var(--card-2); border: 1px solid var(--line-2); border-radius: 12px; padding: 11px 12px; outline: none; min-width: 0; }
-.lookup input:focus, .checker input:focus, .tp-form input:focus, .req-form input:focus, .city-search input:focus, .city-search select:focus, .holders__tools input:focus, .composer textarea:focus { border-color: var(--pin-2); }
+.checker input:focus, .tp-form input:focus, .req-form input:focus, .city-search input:focus, .city-search select:focus, .composer textarea:focus { border-color: var(--pin-2); }
 select option { background: var(--bg-2); }
 
 /* ---------- page heroes ---------- */
@@ -478,33 +478,87 @@ select option { background: var(--bg-2); }
 .is-bad { color: var(--bad-text) !important; }
 .verify-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
 @media (max-width: 900px) { .verify-grid { grid-template-columns: 1fr; } }
-.lookup { display: flex; gap: 10px; padding: 10px; margin-top: 8px; }
-.lookup input { flex: 1; font-family: var(--mono); font-size: .92rem; }
-@media (max-width: 520px) { .lookup { flex-direction: column; } }
-.rank-card { min-height: 330px; display: grid; align-content: center; position: relative; overflow: hidden; }
-.rank-card__empty { text-align: center; display: grid; justify-items: center; gap: 14px; }
-.gauge { width: 150px; height: 75px; border-radius: 150px 150px 0 0; background: conic-gradient(from 270deg at 50% 100%, var(--pin), var(--gold), var(--moss) 50%, transparent 50%); opacity: .35; position: relative; }
-.gauge span { position: absolute; inset: 16px 16px 0; border-radius: 150px 150px 0 0; background: var(--bg); }
-.rank-card__addr { color: var(--muted); margin: 0 0 8px; word-break: break-all; font-size: .82rem; }
-.rank-card__big { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.rank-card__big strong { font: 700 3.6rem/1 var(--display); letter-spacing: -.04em; background: linear-gradient(100deg, var(--text), var(--pin-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .meter { height: 10px; border-radius: 6px; background: rgba(var(--ink),.08); overflow: hidden; margin: 16px 0 8px; }
 .meter span { display: block; height: 100%; width: 0; border-radius: 6px; background: linear-gradient(90deg, var(--moss), var(--gold), var(--pin)); transition: width 1s cubic-bezier(.2,.8,.2,1); }
-.rank-card__pct { font-weight: 600; color: var(--text-2); }
 .rank-facts { margin: 12px 0 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .rank-facts div { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
 .rank-facts dt { font-size: .74rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .rank-facts dd { margin: 2px 0 0; font-weight: 650; font-variant-numeric: tabular-nums; }
 .holders { padding: 16px; }
-.holders__head { display: flex; justify-content: space-between; gap: 12px; align-items: center; color: var(--muted); margin: 0 4px 10px; flex-wrap: wrap; font-size: .92rem; }
-.holders__tools { display: flex; gap: 10px; align-items: center; }
-.holders__tools input { width: 220px; padding: 8px 12px; font-size: .88rem; }
+/* the holder list's head: the status line and Refresh, then ONE box that finds a wallet in the list as you type and, with Check rank
+   inside it (its right end), checks where any wallet stands; the answer pops up over the page (.rank-pop). On a computer the status
+   sits at the left and the box at the right; on a phone they stack, and the box still fits at 320 px. */
+.holders__head { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 0 4px 12px; color: var(--muted); font-size: .92rem; }
+.holders__meta { display: flex; justify-content: space-between; align-items: center; gap: 4px 12px; flex-wrap: wrap; min-width: 0; }
+@media (min-width: 761px) {
+  .holders__head { grid-template-columns: minmax(0, 1fr) minmax(0, 460px); gap: 24px; align-items: start; }
+  .holders__meta { justify-content: flex-start; min-height: 48px; }
+}
+.find-box { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 14px; border-radius: 14px; background: var(--card-2); border: 1px solid var(--line-2); }
+.find-box:focus-within { border-color: var(--pin-2); }
+.find-box input { flex: 1 1 auto; width: 0; min-width: 0; padding: 8px 0; border: 0; background: none; outline: none; color: var(--text); font: 500 .88rem var(--mono); }
+.find-box input::placeholder { font-family: var(--body); color: var(--muted); opacity: 1; }
+.find-box .find-box__go { flex: none; min-height: 38px; padding: 0 14px; border-radius: 10px; font-size: .9rem; --rim-in: 12px; }
+.holders__hint { margin: 6px 2px 0; font-size: .8rem; line-height: 1.45; color: var(--muted); }
+/* phones: 16 px in the box, so iOS doesn't zoom the page in when it takes the keyboard (the answer's sheet would sit off screen) */
+@media (max-width: 600px) { .find-box input { font-size: 16px; } .find-box .find-box__go { padding: 0 12px; } }
+/* the rank check's answer: a little pop-up (a modal <dialog>, token.js). On a computer it hangs from the box (token.js sets --pop-x and
+   --pop-y; absolute in the top layer, so it scrolls with the page and stays by the box); on a phone it is a compact sheet at the bottom
+   of the screen. It scales and fades in from the box in 220 ms and fades out in 140 ms (transform and opacity only); with reduced motion
+   it just appears. Closed, it takes no room. */
+.rank-pop { position: absolute; inset: auto; top: var(--pop-y, 20vh); left: var(--pop-x, 16px); width: min(420px, calc(100vw - 32px)); max-width: none; max-height: none;
+  margin: 0; padding: 0; border: 0; background: none; color: var(--text); overflow: visible; }
+.rank-pop::backdrop { background: rgba(3,7,14,.4); }
+:root[data-theme="light"] .rank-pop::backdrop { background: rgba(11,22,38,.22); }
+.rank-pop__card { padding: 12px 16px 14px 20px; border-radius: 20px; border: 1px solid var(--line-2); background: linear-gradient(180deg, rgba(var(--ink),.06), rgba(var(--ink),.02)), var(--bg-2);
+  box-shadow: 0 30px 70px -24px rgba(0,0,0,.75), inset 0 1px 0 rgba(var(--ink),.06); transform-origin: calc(100% - 50px) 0; }
+.rank-pop.is-above .rank-pop__card { transform-origin: calc(100% - 50px) 100%; }
+.rank-pop__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-right: -6px; }
+.rank-pop__title { margin: 0; font: 600 .78rem/1.2 var(--display); text-transform: uppercase; letter-spacing: .14em; color: var(--pin-2); }
+.rank-pop__close { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; }
+.rank-pop__close:hover { color: var(--text); background: var(--card-2); }
+.rank-pop__addr { margin: 0 0 8px; color: var(--muted); font-size: .78rem; line-height: 1.45; word-break: break-all; }
+.rank-pop__addr:empty { display: none; }
+.rank-pop__big { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; margin: 0; }
+.rank-pop__big strong { font: 700 2.6rem/1.05 var(--display); letter-spacing: -.04em; background: linear-gradient(100deg, var(--text), var(--pin-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.rank-pop .meter { margin: 12px 0 8px; }
+.rank-pop__pct { margin: 0; font-weight: 600; color: var(--text-2); }
+/* the facts: one compact list (name at the left, value at the right; a long one wraps under its name) */
+.rank-pop .rank-facts { grid-template-columns: minmax(0, 1fr); gap: 0; margin: 12px 0 4px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.rank-pop .rank-facts div { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; padding: 8px 12px; border: 0; border-radius: 0; background: none; }
+.rank-pop .rank-facts div + div { border-top: 1px solid var(--line); }
+.rank-pop .rank-facts dt { font-size: .68rem; }
+.rank-pop .rank-facts dd { margin: 0 0 0 auto; font-size: .92rem; text-align: right; }
+.rank-pop #rank-show { min-height: 44px; padding: 0; }
+@media (max-width: 600px) {
+  .rank-pop { position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: 100%; }
+  .rank-pop__card { max-height: calc(100vh - 24px); overflow-y: auto; overscroll-behavior: contain; border-radius: 20px 20px 0 0; border-bottom: 0;
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom)) 16px; transform-origin: 50% 100%; }
+  .rank-pop__big strong { font-size: 2.2rem; }
+  .rank-pop .meter { margin: 10px 0 6px; }
+  .rank-pop .rank-facts { margin-top: 10px; }
+  .rank-pop .rank-facts div { padding: 7px 12px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rank-pop[open] .rank-pop__card { animation: rankPopIn .22s cubic-bezier(.2,.8,.2,1) both; }
+  .rank-pop[open]::backdrop { animation: rankFade .22s ease-out both; }
+  .rank-pop.is-closing .rank-pop__card { animation: rankPopOut .14s ease-in both; }
+  .rank-pop.is-closing::backdrop { animation: rankFade .14s ease-in reverse both; }
+}
+@media (prefers-reduced-motion: no-preference) and (max-width: 600px) {
+  .rank-pop[open] .rank-pop__card { animation-name: rankSheetIn; }
+  .rank-pop.is-closing .rank-pop__card { animation-name: rankSheetOut; }
+}
+@keyframes rankPopIn { from { opacity: 0; transform: scale(.9); } }
+@keyframes rankPopOut { to { opacity: 0; transform: scale(.96); } }
+@keyframes rankSheetIn { from { opacity: 0; transform: translateY(28px) scale(.98); } }
+@keyframes rankSheetOut { to { opacity: 0; transform: translateY(20px); } }
+@keyframes rankFade { from { opacity: 0; } }
 /* the holder list: a box that scrolls on its own. Once the live list is in it (token.js adds .holders--live) it has a fixed height (about
    60% of the screen, never under 320px or over 640px), so the page stays the same length whether 50 or 50,000 wallets hold the token;
    before launch it is only as tall as its few placeholder rows. The table header stays put while the rows scroll. */
 .table-scroll { max-height: clamp(320px, 60vh, 640px); overflow: auto; border-radius: 14px; border: 1px solid var(--line); overscroll-behavior: contain; }
 .holders--live .table-scroll { height: clamp(320px, 60vh, 640px); }
-@media (max-width: 600px) { .holders__tools input { width: 100%; } .holders__tools { width: 100%; } }
 .holders__table, .registry__table { width: 100%; border-collapse: collapse; font-size: .94rem; }
 .holders__table th, .registry__table th { text-align: left; font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 11px 10px; border-bottom: 1px solid var(--line); }
 .holders__table thead th { position: sticky; top: 0; background: var(--bg-3); z-index: 1; }
@@ -1190,8 +1244,8 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
   :is(.launch-progress, .meter, .bar) span { position: relative; overflow: hidden; }
   :is(.launch-progress, .meter, .bar) span::after { content: ""; position: absolute; inset: 0; pointer-events: none; transform: translateX(-100%);
     background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent); animation: moSheen 3.6s ease-in-out 1.5s 2; }
-  /* a step of the sign-up, a checker answer and a rank card fade in when they appear */
-  .cstate, .check-result, #rank-result { animation: moState .45s cubic-bezier(.2,.8,.2,1) backwards; }
+  /* a step of the sign-up and a checker answer fade in when they appear (the rank check's answer has its own pop-up: .rank-pop) */
+  .cstate, .check-result { animation: moState .45s cubic-bezier(.2,.8,.2,1) backwards; }
   /* while the top section, the NYC map, the timeline or a live dot is off screen, its moving parts pause (site.js sets .mo-off) */
   .mo-off .orb, .mo-off .stars, .mo-off .hero-chip, .mo-off .accent, .mo-off .m-pulse, .mo-off .m-official,
     .mo-off .contract::after, .mo-off .timeline__item::after, .live-dot.mo-off::after { animation-play-state: paused; }
