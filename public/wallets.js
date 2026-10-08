@@ -4,13 +4,17 @@
 (() => {
   "use strict";
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+  // A phone (not a tablet): an iPhone, or Android with "Mobile" in its user agent. A tablet can still scan nothing with itself
+  // but usually has a phone nearby, so it keeps the QR code where a phone gets app links instead.
+  const isPhone = /iPhone|iPod/i.test(navigator.userAgent) || (/Android/i.test(navigator.userAgent) && /Mobile/i.test(navigator.userAgent));
   const enc = encodeURIComponent;
   const webView = Boolean(window.V && window.V.webView); // a wallet app's own browser (detected once, in site.js)
 
   // Popular Solana wallets. open(url) = link that opens a page inside the wallet app's browser (phones).
   const KNOWN = [
+    // phantom.com: Phantom's current universal-link domain (phantom.app only redirects, and its Android app-link file is gone)
     { id: "phantom", name: "Phantom", color: "#AB9FF2", match: /phantom/i, site: "https://phantom.com/download",
-      open: (u) => `https://phantom.app/ul/browse/${enc(u)}?ref=${enc(location.origin)}` },
+      open: (u) => `https://phantom.com/ul/browse/${enc(u)}?ref=${enc(location.origin)}` },
     { id: "solflare", name: "Solflare", color: "#FC7227", match: /solflare/i, site: "https://solflare.com/download",
       open: (u) => `https://solflare.com/ul/v1/browse/${enc(u)}?ref=${enc(location.origin)}` },
     { id: "backpack", name: "Backpack", color: "#E33E3F", match: /backpack/i, site: "https://backpack.app/downloads",
@@ -37,6 +41,14 @@
   const listeners = new Set();
   const changed = () => listeners.forEach((f) => { try { f(); } catch {} });
   const toBytes = (sig) => (sig instanceof Uint8Array ? sig : sig?.signature ? toBytes(sig.signature) : new Uint8Array(sig));
+  /** A wallet's answer to "sign this": the 64-byte signature, or an error the page can put in plain words (never a raw one). */
+  function signatureOf(out) {
+    const first = Array.isArray(out) ? out[0] : out; // the standard answers [{ signedMessage, signature }]; some wallets give the object itself
+    let sig = null;
+    try { sig = first == null ? null : toBytes(first); } catch { sig = null; }
+    if (!sig || sig.length !== 64) throw Object.assign(new Error("The wallet gave back no signature."), { code: "no_signature" });
+    return sig;
+  }
 
   // Wallet Standard wallets
   function standard(w) {
@@ -49,8 +61,7 @@
         this.account = acc; return acc.address;
       },
       async signMessage(bytes) {
-        const [out] = await w.features["solana:signMessage"].signMessage({ account: this.account, message: bytes });
-        return toBytes(out.signature);
+        return signatureOf(await w.features["solana:signMessage"].signMessage({ account: this.account, message: bytes }));
       },
       async disconnect() { try { await w.features["standard:disconnect"]?.disconnect(); } catch {} },
     };
@@ -77,7 +88,7 @@
         if (!pk) throw new Error("No account was shared.");
         return pk.toString();
       },
-      async signMessage(bytes) { return toBytes(await p.signMessage(bytes, "utf8")); },
+      async signMessage(bytes) { return signatureOf(await p.signMessage(bytes, "utf8")); },
       async disconnect() { try { await p.disconnect(); } catch {} },
     };
   }
@@ -88,8 +99,10 @@
       ["Bitget Wallet", window.bitkeep?.solana], ["Exodus", window.exodus?.solana], ["Brave Wallet", window.braveSolana],
       ["Solana wallet", window.solana],
     ];
-    for (const [name, p] of cands) {
+    for (let [name, p] of cands) {
       if (!p || typeof p.connect !== "function" || typeof p.signMessage !== "function") continue;
+      // window.solana is usually a wallet listed already under its own name (Phantom sets both): one tile per wallet, not two
+      if (name === "Solana wallet") name = p.isPhantom ? "Phantom" : p.isSolflare ? "Solflare" : p.isBackpack ? "Backpack" : name;
       const known = KNOWN.find((k) => k.match.test(name));
       const taken = [...found.keys()].some((n) => (known ? known.match.test(n) : n === name));
       if (!taken && ![...found.values()].some((a) => a._p === p)) { const a = legacy(name, p); a._p = p; found.set(name, a); }
@@ -115,7 +128,7 @@
   const inWalletApp = () => webView || (isMobile && found.size > 0);
 
   window.VW = {
-    KNOWN, isMobile, inWalletApp, safeIcon, mark,
+    KNOWN, isMobile, isPhone, inWalletApp, safeIcon, mark,
     list: () => [...found.values()],
     onChange: (f) => { listeners.add(f); return () => listeners.delete(f); },
     knownFor: (name) => KNOWN.find((k) => k.match.test(name)) || null,

@@ -13,7 +13,8 @@ after(() => realClock());
 
 const POST_ROUTES = ["/api/signup/start", "/api/signup/location", "/api/signup/location/choice", "/api/signup/location/handoff", "/api/signup/location/handoff/info",
   "/api/signup/location/handoff/complete", "/api/signup/location/handoff/claim", "/api/signup/terms", "/api/signup/account/reset", "/api/signup/email",
-  "/api/signup/email/verify", "/api/signup/finish", "/api/auth/email/login", "/api/auth/password/reset/start", "/api/auth/password/reset", "/api/me/password"];
+  "/api/signup/email/verify", "/api/signup/finish", "/api/auth/email/login", "/api/auth/password/reset/start", "/api/auth/password/reset", "/api/me/password",
+  "/api/signup/carry", "/api/signup/carry/claim"];
 
 test("the sign-up cookie: random, HttpOnly, Secure, SameSite=Lax, an hour, and only its hash is stored", async () => {
   const b = browser(env);

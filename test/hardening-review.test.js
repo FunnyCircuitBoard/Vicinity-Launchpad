@@ -68,7 +68,8 @@ test("transfer proof: 30 starts per connection in 10 minutes, the 31st is 429 sl
   assert.equal((await browser(env, { ip: "198.51.100.8" }).post("/api/auth/transfer", { address: (await wallet()).address })).ok, true);
   advance(10 * 60_000);
   assert.equal((await browser(env, { ip: "198.51.100.7" }).post("/api/auth/transfer", { address: (await wallet()).address })).ok, true, "ten minutes later");
-  assert.match(read("connect.js"), /api\("\/api\/auth\/transfer", \{ address: a \}\);\s*if \(!d\.ok\) return setErr\(d\.error === "slow_down" \? "Too many tries from your network right now\. Wait a few minutes and try again\." : "Couldn't start\. Please try again\."\)/);
+  // (the line is shown right under the form that was sent: connect.js setErr's second argument)
+  assert.match(read("connect.js"), /api\("\/api\/auth\/transfer", \{ address: a \}\);\s*if \(!d\.ok\) return setErr\(d\.error === "slow_down" \? "Too many tries from your network right now\. Wait a few minutes and try again\." : "Couldn't start\. Please try again\.", \$\("#tp-form"\)\)/);
   assert.match(read("dashboard.js"), /reprove: true \}\);\s*if \(!r\.ok\) return proofErr\(r\.error === "slow_down" \? "Too many tries from your network right now\. Wait a few minutes and try again\." : "Couldn't start\. Try again\."\)/);
 });
 

@@ -127,14 +127,22 @@
 
           <!-- 1c. wallet on a phone: QR code -->
           <div class="cstate" data-state="phone" hidden>
-            <h2 class="h2--sm">Scan with your phone</h2>
-            <div class="qr"><canvas id="qr" width="232" height="232" aria-label="QR code to open Vicinity on your phone"></canvas></div>
+            <h2 class="h2--sm" id="pair-h">Scan with your phone</h2>
+            <p class="callout small" id="pair-why" hidden></p>
+            <div class="qr" id="pair-qr"><canvas id="qr" width="232" height="232" aria-label="QR code to open Vicinity on your phone"></canvas></div>
             <p class="pin-row">Check number: <strong class="pin" id="pair-pin">--</strong></p>
-            <ol class="howto small">
+            <ol class="howto small" id="pair-howto">
               <li>Scan the code with your phone's camera.</li>
               <li>Open it in your wallet app (Phantom, Solflare, Backpack…).</li>
               <li>Make sure your phone shows the same check number, then sign.</li>
             </ol>
+            <!-- on a phone the code can't be scanned by the same phone: its wallet apps open the link instead -->
+            <ol class="howto small" id="pair-howto-phone" hidden>
+              <li>Tap your wallet app below. It opens a page to sign.</li>
+              <li>Check that it shows the same number, then sign there.</li>
+              <li>Come back here. This page carries on by itself.</li>
+            </ol>
+            <div class="wallet-grid wallet-grid--apps" id="pair-apps" hidden></div>
             <p class="muted small" id="pair-status"><span class="live-dot" aria-hidden="true"></span> Waiting for your phone…</p>
             <button class="link-btn" type="button" data-back>Back</button>
           </div>
@@ -161,15 +169,15 @@
 
           <!-- the phone's side of "wallet on my phone" -->
           <div class="cstate" data-state="approve" hidden>
-            <h2 class="h2--sm">Approve sign-in on your computer</h2>
-            <p>Does your computer show <strong class="pin" id="approve-pin">--</strong>?</p>
-            <p class="muted small">Only continue if you started this yourself, on your own computer. Never sign for a code someone sent you.</p>
+            <h2 class="h2--sm">Approve the sign-in you started</h2>
+            <p>Does the page where you started show <strong class="pin" id="approve-pin">--</strong>?</p>
+            <p class="muted small">Only continue if you started this yourself, on your own computer or in your phone's browser. Never sign for a code someone sent you.</p>
             <div class="wallet-list" id="approve-wallets"></div>
             <div id="approve-open" hidden>
               <p class="muted small">Open this page in your wallet app:</p>
               <div class="wallet-grid" id="approve-links"></div>
             </div>
-            <div class="approve-done" id="approve-done" hidden><div class="verified-badge" aria-hidden="true">✓</div><p><strong>Approved.</strong> Go back to your computer.</p></div>
+            <div class="approve-done" id="approve-done" hidden><div class="verified-badge" aria-hidden="true">✓</div><p><strong>Approved.</strong> Go back to where you started (your computer, or Safari or Chrome on this phone).</p></div>
           </div>
 
           <!-- 2. Google or e-mail -->
@@ -284,6 +292,55 @@
             <p class="su-err" id="su-acc-error" role="alert"></p>
           </div>
 
+          <!-- v2 step 3 on a phone without a wallet in the browser: "Open app" carries this sign-up into the wallet app's own browser -->
+          <div class="cstate" data-state="carry" hidden>
+            <h2 class="h2--sm" id="carry-h" tabindex="-1">Continue in your wallet app</h2>
+            <div class="su-carry" id="carry-go">
+              <p class="muted small" id="carry-lead"></p>
+              <p class="pin-row" id="carry-pinrow">Check number: <strong class="pin" id="carry-pin">--</strong></p>
+              <a class="btn btn--primary btn--block btn--lg" id="carry-open" href="/connect" rel="noreferrer" referrerpolicy="no-referrer">Open your wallet app</a>
+              <p class="tiny muted">The link works once, for 10 minutes, and only from this phone's own internet connection. Never send it to anyone.</p>
+              <p class="muted small" id="carry-status"><span class="live-dot" aria-hidden="true"></span> <span id="carry-status-text">Waiting for your wallet app…</span></p>
+              <p class="su-err" id="carry-error" role="alert"></p>
+              <button class="btn btn--primary btn--block" type="button" id="carry-renew" hidden>Get a new link</button>
+              <button class="link-btn" type="button" id="carry-pair">Didn't work? Sign in your wallet app and finish here instead</button>
+              <button class="link-btn" type="button" id="carry-back">Choose another way</button>
+            </div>
+            <div class="su-done" id="carry-away" hidden>
+              <p class="muted" id="carry-away-text"></p>
+              <p class="muted small"><span class="live-dot" aria-hidden="true"></span> This page will say when it's done.</p>
+              <button class="link-btn" type="button" id="carry-restart">Can't finish there? Start again in this browser</button>
+            </div>
+            <div class="su-done" id="carry-done" hidden>
+              <div class="verified-badge" aria-hidden="true">✓</div>
+              <p class="muted" id="carry-done-text"></p>
+              <a class="btn btn--social btn--google" href="/api/auth/google/start" id="carry-login-google" hidden><span class="social-mark" aria-hidden="true">G</span> Log in here with Google</a>
+              <button class="btn btn--primary btn--block" type="button" id="carry-login" hidden>Log in here</button>
+            </div>
+            <div class="su-done" id="carry-lost" hidden>
+              <p class="muted" id="carry-lost-text"></p>
+              <button class="btn btn--primary btn--block" type="button" id="carry-again">Start again</button>
+            </div>
+          </div>
+
+          <!-- v2, the wallet app's browser opened by "Open app": nothing is taken over until the person confirms it is their own sign-up -->
+          <div class="cstate" data-state="carry-in" hidden>
+            <h2 class="h2--sm" id="carry-in-h" tabindex="-1">Continue the sign-up you started?</h2>
+            <div class="su-carry">
+              <p class="pin-row">Check number: <strong class="pin" id="carry-in-pin">--</strong></p>
+              <p class="muted small">Safari or Chrome, where you started, shows the same number next to its “Open” button.</p>
+              <p class="su-chips">
+                <span class="su-chip"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span id="carry-in-city">—</span></span>
+                <span class="su-chip"><span aria-hidden="true">✓</span> <span id="carry-in-login">—</span></span>
+              </p>
+              <p class="callout small">Only continue if you started this sign-up yourself, on this phone, a moment ago. Never continue from a link someone sent you: your wallet would join their account.</p>
+              <p class="tiny muted">You agreed to the <a href="/terms">Terms of Use</a> in that sign-up. Continuing confirms them here too.</p>
+              <button class="btn btn--primary btn--block" type="button" id="carry-in-yes">Yes, it's mine: continue</button>
+              <p class="su-err" id="carry-in-error" role="alert"></p>
+              <button class="link-btn" type="button" id="carry-in-no">No, that's not mine</button>
+            </div>
+          </div>
+
           <!-- v2 step 3 is today's wallet screens (pick, sign, phone, app), then: -->
           <div class="cstate" data-state="su-finish" hidden>
             <h2 class="h2--sm" id="su-fin-title" tabindex="-1">Creating your account…</h2>
@@ -341,6 +398,7 @@
           </div>
 
           <p class="wallet__error" id="c-error" role="alert" hidden></p>
+          <p class="muted small wallet__wait" id="c-wait" role="status" hidden></p>
         </div>
       </div>
     </section>

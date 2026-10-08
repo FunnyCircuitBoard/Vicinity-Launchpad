@@ -15,6 +15,7 @@ const NEW_ROUTES = [
   ["POST", "/api/signup/start"], ["GET", "/api/signup/state"], ["POST", "/api/signup/location"], ["POST", "/api/signup/location/choice"],
   ["POST", "/api/signup/location/handoff"], ["POST", "/api/signup/location/handoff/claim"], ["POST", "/api/signup/terms"],
   ["POST", "/api/signup/email"], ["POST", "/api/signup/email/verify"], ["POST", "/api/signup/account/reset"], ["POST", "/api/signup/finish"],
+  ["POST", "/api/signup/carry"], ["POST", "/api/signup/carry/claim"],
   ["GET", "/api/signup/nothing-here"], ["GET", "/api/signup/"],
 ];
 

@@ -884,6 +884,11 @@ html.map-is-full, html.map-is-full body { overflow: hidden; }
 .wallet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
 .wallet-grid .wallet-option { padding: 10px 12px; font-size: .9rem; }
 .wallet-grid .wallet-option .go { display: none; }
+/* a phone with no wallet in the browser: the wallet apps are the way on, one full row each that says "Open app" */
+.wallet-grid--apps { grid-template-columns: 1fr; }
+.wallet-grid--apps .wallet-option .go { display: inline; }
+#pair-apps { justify-self: stretch; }
+.wallet-option[aria-busy="true"] { border-color: rgba(255,90,54,.6); cursor: progress; }
 .more-wallets summary { cursor: pointer; color: var(--text-2); font-weight: 600; }
 .login-block { display: grid; gap: 10px; }
 .login-block[hidden] { display: none; }
@@ -906,6 +911,7 @@ html.map-is-full, html.map-is-full body { overflow: hidden; }
 .verified-badge.is-gold { color: #3A2A0A; background: radial-gradient(circle at 30% 30%, #FFE9A8, #FFC857); box-shadow: 0 0 0 10px rgba(255,200,87,.15), 0 20px 50px -10px rgba(255,200,87,.6); }
 @keyframes popIn { from { transform: scale(.3); opacity: 0; } }
 .wallet__error { color: var(--bad-text); font-size: .92rem; margin: 10px 0 0; }
+.wallet__wait { margin: 10px 0 0; }
 .qr { background: #fff; padding: 12px; border-radius: 18px; box-shadow: var(--shadow); }
 .qr canvas { width: 232px; height: 232px; image-rendering: pixelated; }
 .pin-row { margin: 0; }
@@ -964,6 +970,8 @@ html.map-is-full, html.map-is-full body { overflow: hidden; }
 #su-code-to, #rs-sent-to { overflow-wrap: anywhere; }
 .su-chip svg { width: 18px; height: 18px; flex: none; color: var(--pin-2); }
 .su-actions { display: grid; gap: 10px; }
+.su-carry { display: grid; gap: 12px; }
+.su-carry .link-btn { justify-self: center; }
 .cstate[data-state="su-location"] .qr { justify-self: center; }
 /* phone-sized touch targets (44px) for everything in the v2 panel */
 .connect__panel.su-on .link-btn { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; text-align: center; padding: 6px 4px; }
