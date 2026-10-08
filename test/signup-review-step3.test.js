@@ -27,7 +27,7 @@ test("step 3 on a phone with no wallet in the browser says 'Open app' takes the 
   assert.equal(lead.hidden, false);
   assert.match(lead.textContent, /Last step\./);
   assert.match(lead.textContent, /Open app[^]*takes this sign-up into your wallet app/);
-  assert.match(lead.textContent, /location and login already done/);
+  assert.match(lead.textContent, /Your location and login are already done\./);
   assert.doesNotMatch(lead.textContent, /starts again|not carried over/);
 });
 

@@ -37,7 +37,7 @@ const phantomTile = (p) => p.$("#wallets-known").children.find((t) => /Phantom/.
 test("phone, no wallet in Safari: the wallet apps are full rows that say 'Open app', and the page says the sign-up goes along", async () => {
   const { p } = await safari();
   assert.equal(p.screen(), "pick");
-  assert.match(p.$("#su-wallet-lead").textContent, /“Open app” takes this sign-up into your wallet app, or asks you to approve there and finish here, with your location and login already done\./);
+  assert.match(p.$("#su-wallet-lead").textContent, /“Open app” takes this sign-up into your wallet app \(or, if it can't, asks you to approve there and finish here\)\. Your location and login are already done\./);
   assert.doesNotMatch(p.$("#su-wallet-lead").textContent, /starts again|not carried over/);
   assert.equal(p.$("#more-label").textContent, "Open Vicinity in your wallet app");
   assert.ok(p.$("#wallets-known").classList.contains("wallet-grid--apps"));

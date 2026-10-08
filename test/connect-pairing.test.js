@@ -107,6 +107,7 @@ test("(1) a kept pairing that was used or ran out on the server is forgotten: th
   await a.p.flush();
   const b = await safari({ pair: "expired", session: a.p.session });
   await b.p.flush();
+  await b.p.advance(1600); // (was it used by another tab of this browser? looked at twice, 1.5 s apart)
   assert.equal(b.p.screen(), "pick");
   assert.equal(b.world.finished.length, 0);
   assert.equal(kept(b.p), null);
@@ -175,7 +176,7 @@ test("(1) the code runs out while the page waits: said, and forgotten", async ()
   await p.tap(phantomTile(p));
   await p.flush();
   world.pair = "expired";
-  await p.advance(2000);
+  await p.advance(2000 + 1600);
   assert.equal(p.$("#pair-status").textContent, "The code expired. Go back and try again.");
   assert.equal(kept(p), null);
 });
@@ -250,9 +251,9 @@ test("(3) the carry_network message quotes the button exactly as Safari shows it
   assert.match(said, /approve in your wallet app, then finish in Safari or Chrome\./);
 });
 
-test("(3) the wallet step's lead promises nothing a relay user won't get", async () => {
+test("(3) the wallet step's lead promises nothing a relay user won't get, and says what is already done in a sentence of its own", async () => {
   const { p } = await safari();
-  assert.match(p.$("#su-wallet-lead").textContent, /“Open app” takes this sign-up into your wallet app, or asks you to approve there and finish here/);
+  assert.match(p.$("#su-wallet-lead").textContent, /On a phone, “Open app” takes this sign-up into your wallet app \(or, if it can't, asks you to approve there and finish here\)\. Your location and login are already done\.$/);
 });
 
 /* ---------------- (4) the wallet app's approve page ---------------- */
