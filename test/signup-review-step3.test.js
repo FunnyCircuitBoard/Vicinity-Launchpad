@@ -1,5 +1,6 @@
 // Found by the independent review of sign-up v2 (each test fails without its fix): on a phone with no wallet in the browser, step 3's
-// "Open app" starts the sign-up again inside the wallet app (its browser keeps its own cookies), and the page did not say so; an old
+// "Open app" opens the wallet app's own browser (it keeps its own cookies). Since 8 Oct 2026 the sign-up is carried there (a one-time
+// code, test/signup-carry.test.js), and the page says so, instead of warning that everything starts again from step 1; an old
 // /connect page that was open (or whose first answer was lost) when the switch went to v2 ended at "Sign-in is being switched on";
 // and a long e-mail address at the code step widened the whole page.
 import { test } from "node:test";
@@ -21,12 +22,13 @@ const atWallet = () => ({ ...atAccount(), terms: { done: true, version: "2026-10
 
 const leadOf = async (opts) => (await page({ state: atWallet(), ...opts, api: serverFor({}) })).$("#su-wallet-lead");
 
-test("step 3 on a phone with no wallet in the browser warns that 'Open app' starts the sign-up again", async () => {
+test("step 3 on a phone with no wallet in the browser says 'Open app' takes the sign-up into the wallet app (nothing starts again)", async () => {
   const lead = await leadOf({ isMobile: true });
   assert.equal(lead.hidden, false);
   assert.match(lead.textContent, /Last step\./);
-  assert.match(lead.textContent, /Open app[^]*starts again from step 1/);
-  assert.match(lead.textContent, /not carried over/);
+  assert.match(lead.textContent, /Open app[^]*takes this sign-up into your wallet app/);
+  assert.match(lead.textContent, /location and login already done/);
+  assert.doesNotMatch(lead.textContent, /starts again|not carried over/);
 });
 
 test("step 3 does not give that warning on a computer, inside a wallet app, or when a wallet is there", async () => {

@@ -6,6 +6,8 @@
   const W = window.VW;
   const params = new URLSearchParams(location.search);
   const pairCode = params.get("pair");
+  // "Open app" on a phone brought a sign-up here from Safari / Chrome: its one-time code (site.js already took it out of the address bar)
+  const carryCode = window.V.takeCarry ? window.V.takeCarry() : null;
   const panel = $("#connect-panel");
   let state = "pick", active = null, address = null, message = null, pairPin = null, providers = { google: false, email: false };
   let signup = null; // the v2 sign-up controller (public/signup.js): stays null unless /api/me says signupFlow is "v2", so today's page runs untouched
@@ -19,7 +21,32 @@
     login_failed: "The sign-in didn't go through. Please try again.",
     login_expired: "That sign-in took too long or was opened in another tab. Please try again.",
   };
-  const setErr = (m) => { const e = $("#c-error"); e.textContent = m || ""; e.hidden = !m; };
+  /**
+   * The wallet error line. `near` = the control that failed: the line moves right under it, so the person sees it where they
+   * pressed (a phone can be scrolled far from the top of the panel), and it is brought into view and read out (role="alert").
+   * Without `near` it sits in its usual place: under the step bar in the new sign-up, at the end of the panel otherwise.
+   */
+  function setErr(m, near) {
+    const e = $("#c-error");
+    if (!m) { e.textContent = ""; e.hidden = true; return; }
+    if (shown(near)) near.after(e); else (signup ? $("#su-top") : panel).append(e);
+    e.textContent = m; e.hidden = false;
+    reveal(e);
+  }
+  /** A calm "still waiting" line under a control (not an error: read out politely, role="status"). */
+  function setWait(m, near) {
+    const w = $("#c-wait");
+    if (!m) { w.textContent = ""; w.hidden = true; return; }
+    if (shown(near)) near.after(w); else (signup ? $("#su-top") : panel).append(w);
+    w.textContent = m; w.hidden = false;
+    reveal(w);
+  }
+  const shown = (x) => Boolean(x && x.isConnected && (!x.getClientRects || x.getClientRects().length));
+  /** Scrolls a message into view when it is off screen (or under the phone's bottom menu bar). */
+  function reveal(e) {
+    const r = e.getBoundingClientRect(), h = window.innerHeight || document.documentElement.clientHeight;
+    if (r.top < 8 || r.bottom > h - 90) e.scrollIntoView({ block: "center", behavior: window.V.reduced ? "auto" : "smooth" });
+  }
   // The e-mail form moves between the log-in block and the sign-up step, so its errors live INSIDE the form (right next to the input).
   const setEmailErr = (m) => { const e = $("#email-error"); e.textContent = m || ""; e.hidden = !m; };
   const hasAccount = () => { try { return localStorage.getItem("vicinity-account") === "1"; } catch { return false; } };
@@ -36,6 +63,7 @@
     state = s;
     $$(".cstate", panel).forEach((x) => (x.hidden = x.dataset.state !== s));
     setErr("");
+    forget(); // a wallet request still open belongs to the screen being left: a late answer to it counts for nothing
     const step = s === "social" ? 2 : s === "done" ? 3 : 1;
     $$("#stepper li").forEach((li) => { const n = Number(li.dataset.s); li.classList.toggle("is-active", n === step); li.classList.toggle("is-done", n < step); });
     if (signup) signup.onShow(s);
@@ -47,11 +75,20 @@
     const icon = W.safeIcon(adapter.icon);
     if (icon) { const img = el("img"); img.alt = ""; img.src = icon; b.append(img); } else b.append(W.mark(adapter.name));
     b.append(el("span", null, adapter.name), el("span", "detected", "Detected"));
-    b.addEventListener("click", () => onClick(adapter));
+    b.addEventListener("click", () => onClick(adapter, b));
     return b;
   }
-  /** Phones: open this page inside the wallet app. Computers: get the wallet. */
-  function knownTile(k, target) {
+  /**
+   * Phones: open this page inside the wallet app. Computers: get the wallet. `carry` (the new sign-up at its wallet step on a
+   * phone): the tile first makes a one-time code, so the wallet app's browser carries on with THIS sign-up (public/signup.js).
+   */
+  function knownTile(k, target, carry) {
+    if (carry && W.isMobile && k.open) {
+      const b = el("button", "wallet-option"); b.type = "button";
+      b.append(W.mark(k.name), el("span", null, k.name), el("span", "go", "Open app"));
+      b.addEventListener("click", () => carry(k, b));
+      return b;
+    }
     const a = el("a", "wallet-option");
     a.append(W.mark(k.name), el("span", null, k.name));
     if (W.isMobile && k.open) { a.href = k.open(target); a.append(el("span", "go", "Open app")); }
@@ -76,22 +113,61 @@
     $("#wallets-none").hidden = list.length > 0;
     const rest = W.KNOWN.filter((k) => !list.some((a) => k.match.test(a.name)));
     const order = W.isMobile ? rest.filter((k) => k.open).concat(rest.filter((k) => !k.open)) : rest;
-    $("#wallets-known").replaceChildren(...order.map((k) => knownTile(k, location.origin + "/connect")));
+    const carry = signup ? signup.carrier() : null;
+    $("#wallets-known").replaceChildren(...order.map((k) => knownTile(k, location.origin + "/connect", carry)));
+    $("#wallets-known").classList.toggle("wallet-grid--apps", Boolean(W.isMobile && !list.length)); // a phone's only way on: full rows that say "Open app"
     $("#more-label").textContent = W.isMobile && !list.length ? "Open Vicinity in your wallet app" : list.length ? "More wallets" : "Get a wallet";
     $("#more-wallets").open = list.length === 0;
     if (signup) signup.onShow("pick"); // a wallet turning up changes whether this is a wallet app (Google hidden)
   }
   W.onChange(() => { if (state === "pick") renderPick(); if (state === "approve") renderApprove(); });
 
-  async function connectWith(adapter) {
-    setErr("");
+  /* ---------- waiting for the wallet: never in silence ---------- */
+  // A wallet can leave a request unanswered (its window closed with the X, hidden behind the browser, the app switched away):
+  // after HINT_MS the page says where to look; after GIVE_UP_MS the button works again with a plain message. An answer that
+  // comes later still counts, unless the person pressed again (a newer attempt) or left the screen.
+  const HINT_MS = 8000, GIVE_UP_MS = 30000;
+  let attempt = 0, waits = [];
+  const later = (fn, ms) => waits.push(setTimeout(fn, ms));
+  function stopWaits() { waits.forEach(clearTimeout); waits = []; setWait(""); }
+  function forget() { attempt++; stopWaits(); resetSign(); }
+  const signLabel = () => (signup ? signup.signLabel() : "Sign in");
+  function resetSign() { const b = $("#c-sign"); b.disabled = false; b.removeAttribute("aria-busy"); b.textContent = signLabel(); }
+  const nameOf = (a) => (a && a.name) || "your wallet";
+  /** Where a wallet's request shows: computers keep it behind the wallet's icon in the browser's toolbar. */
+  const lookFor = (name) => (W.isMobile ? `Look for the ${name} request on your screen.` : `No ${name} window? Click the ${name} icon in your browser's toolbar (top right).`);
+  const busyTile = (tile, on) => {
+    if (!tile) return;
+    tile.dataset.at = String(Date.now());
+    if (on) tile.setAttribute("aria-busy", "true"); else tile.removeAttribute("aria-busy");
+    const t = tile.querySelector(".detected");
+    if (t) t.textContent = on ? "Waiting…" : "Detected";
+  };
+
+  async function connectWith(adapter, tile) {
+    if (tile && tile.getAttribute("aria-busy") === "true" && Date.now() - Number(tile.dataset.at || 0) < 1500) return; // a double tap
+    forget(); setErr("");
+    const my = attempt, name = nameOf(adapter), near = $("#wallets-detected");
+    busyTile(tile, true);
+    later(() => { if (my === attempt) setWait(`Waiting for ${name} to connect. ${lookFor(name)}`, near); }, HINT_MS);
+    later(() => {
+      if (my !== attempt) return;
+      setWait(""); busyTile(tile, false);
+      setErr(`${name} hasn't answered yet. ${lookFor(name)} Or tap ${name} again.`, near);
+    }, GIVE_UP_MS);
     try {
-      address = await adapter.connect(); active = adapter;
+      const addr = await adapter.connect();
+      if (my !== attempt) return; // the person moved on (another wallet, another screen)
+      address = addr; active = adapter;
       $("#c-addr").textContent = short(address);
       $("#c-wallet").textContent = adapter.name;
       show("sign");
       await loadMessage();
-    } catch (e) { setErr(cancelled(e) ? "Connection cancelled in your wallet." : "Couldn't connect. Please try again."); }
+    } catch (e) {
+      if (my !== attempt) return;
+      forget(); busyTile(tile, false);
+      setErr(cancelled(e) ? "Connection cancelled in your wallet." : `Couldn't connect to ${name}. Please try again.`, near);
+    }
   }
 
   async function loadMessage(pin) {
@@ -101,24 +177,54 @@
     else $("#c-msg").textContent = "Couldn't load the message. Try again.";
     return message;
   }
-  async function signIn(pair) {
+  /** Our own sentences (they are shown as they are); anything else a wallet throws gets a plain one (signError). */
+  const ours = (text) => Object.assign(new Error(text), { ours: true });
+  /** The wallet signs the message, the server checks it. isCurrent() false = the person moved on: nothing is sent. */
+  async function signIn(pair, isCurrent = () => true) {
+    const wallet = active, addr = address;
+    const msg = message || await loadMessage(pair ? pairPin : null);
     try {
-      if (!message) await loadMessage(pair ? pairPin : null);
-      if (!message) throw new Error("Couldn't prepare the message. Please try again.");
-      const sig = await active.signMessage(new TextEncoder().encode(message));
-      const body = { address, message, signature: btoa(String.fromCharCode(...sig)) };
+      if (!msg) throw ours("Couldn't prepare the message. Please try again.");
+      const sig = await wallet.signMessage(new TextEncoder().encode(msg));
+      if (!isCurrent()) throw Object.assign(new Error("moved on"), { stale: true });
+      const body = { address: addr, message: msg, signature: btoa(String.fromCharCode(...sig)) };
       if (pair) body.pair = pair;
       const d = await api("/api/auth/wallet", body);
-      if (!d.ok) throw new Error(d.error === "expired" ? "That message expired. Please sign again." : d.error === "pair_expired" ? "That code expired. Start again on your computer." : d.error === "pin_mismatch" ? "The check number doesn't match. Start again on your computer." : "Sign-in failed. Please try again.");
+      if (!d.ok) throw ours(d.error === "expired" ? "That message expired. Please sign again." : d.error === "pair_expired" ? "That code expired. Start again on your computer." : d.error === "pin_mismatch" ? "The check number doesn't match. Start again on your computer." : d.error === "offline" ? "Couldn't reach Vicinity. Check your connection and try again." : "Sign-in failed. Please try again.");
       return d;
-    } finally { message = null; }
+    } finally { if (message === msg) message = null; }
+  }
+  function signError(err, name) {
+    if (err && err.ours) return err.message;
+    if (cancelled(err)) return "Signing cancelled in your wallet. Nothing happened.";
+    return `${name} couldn't sign the message. Please try again, or use another wallet.`;
+  }
+  /** Hint, then a plain message, while a wallet request is open (see HINT_MS). `again` = what to press to ask once more. */
+  function watchWallet(my, name, near, again, onGiveUp) {
+    later(() => { if (my === attempt) setWait(`Waiting for ${name} to sign. ${lookFor(name)}`, near); }, HINT_MS);
+    later(() => {
+      if (my !== attempt) return;
+      setWait(""); onGiveUp();
+      setErr(`${name} hasn't answered yet. ${W.isMobile ? `Approve the request in ${name}` : `Open ${name} (its icon in your browser's toolbar) and approve the request`}, or ${again} to ask again.`, near);
+    }, GIVE_UP_MS);
   }
   $("#c-sign").addEventListener("click", async (e) => {
-    setErr("");
-    const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Check your wallet…";
-    try { after(await signIn()); }
-    catch (err) { setErr(cancelled(err) ? "Signing cancelled in your wallet. Nothing happened." : err.message); loadMessage(); }
-    finally { btn.disabled = false; btn.textContent = signup ? signup.signLabel() : "Sign in"; }
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
+    forget(); setErr("");
+    const my = attempt, name = nameOf(active);
+    btn.disabled = true; btn.setAttribute("aria-busy", "true"); btn.textContent = "Check your wallet…";
+    watchWallet(my, name, btn, `press ${signLabel()}`, resetSign);
+    try {
+      const d = await signIn(null, () => my === attempt);
+      if (my !== attempt) return;
+      stopWaits(); after(d); // the button stays busy while the page moves on
+    } catch (err) {
+      if (my !== attempt) return;
+      forget();
+      setErr(signError(err, name), btn);
+      loadMessage();
+    }
   });
 
   /** The wallet is proven: straight to the dashboard (linked before) or on to Google / e-mail. */
@@ -214,7 +320,7 @@
   $("#email-verify").addEventListener("click", emailVerify);
   $("#email-resend").addEventListener("click", emailSend);
   $("#email-code").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); emailVerify(); } });
-  $$("[data-back]").forEach((b) => b.addEventListener("click", () => { clearTimeout(timer); show("pick"); renderPick(); }));
+  $$("[data-back]").forEach((b) => b.addEventListener("click", () => { clearTimeout(timer); show("pick"); renderPick(); })); // show() also drops a request still open
 
   /* ---------- wallet on a phone: the computer shows a QR code ---------- */
   let timer = null;
@@ -228,34 +334,47 @@
     ctx.fillStyle = "#0B1626";
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
   }
+  let pairPoll = null; // the running "has the phone approved?" question, asked again at once when this page comes back on screen
   $("#alt-phone").addEventListener("click", async () => {
     setErr("");
     const d = await api("/api/pair", {});
-    if (!d.ok) return setErr("Couldn't start. Please try again.");
+    if (!d.ok) return setErr("Couldn't start. Please try again.", $("#alt-phone"));
     show("phone");
     $("#pair-pin").textContent = d.pin;
-    drawQR($("#qr"), d.url);
+    // On a phone the code can't be scanned by the phone itself: its wallet apps open the link instead (it works on any connection,
+    // and the sign-in comes back here: the way through when "Open app" can't carry the sign-up, e.g. behind iCloud Private Relay).
+    const samePhone = W.isMobile && !W.inWalletApp();
+    $("#pair-h").textContent = samePhone ? "Sign in your wallet app" : "Scan with your phone";
+    $("#pair-qr").hidden = samePhone; $("#pair-howto").hidden = samePhone;
+    $("#pair-howto-phone").hidden = !samePhone; $("#pair-apps").hidden = !samePhone;
+    $("#pair-apps").replaceChildren(...(samePhone ? W.KNOWN.filter((k) => k.open).map((k) => knownTile(k, d.url)) : []));
+    if (!samePhone) drawQR($("#qr"), d.url);
     const until = Date.parse(d.expiresAt);
     const status = $("#pair-status");
+    const dot = el("span", "live-dot"); dot.setAttribute("aria-hidden", "true");
+    status.replaceChildren(dot, samePhone ? " Waiting for your wallet app…" : " Waiting for your phone…");
     const poll = async () => {
-      if (state !== "phone") return;
+      clearTimeout(timer);
+      if (state !== "phone" || pairPoll !== poll) return;
       if (Date.now() > until) { status.textContent = "The code expired. Go back and try again."; return; }
       const s = await api(`/api/pair?code=${encodeURIComponent(d.code)}`);
       if (s.status === "expired") { status.textContent = "The code expired. Go back and try again."; return; }
       if (s.status === "ready") {
         const f = await api("/api/pair/finish", { code: d.code });
-        if (f.ok) { toast("Phone approved ✓"); address = f.wallet; return after(f); }
+        if (f.ok) { pairPoll = null; toast(samePhone ? "Wallet approved ✓" : "Phone approved ✓"); address = f.wallet; return after(f); }
       }
       timer = setTimeout(poll, 2000);
     };
+    pairPoll = poll;
     timer = setTimeout(poll, 2000);
   });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && state === "phone" && pairPoll) pairPoll(); });
 
   /* ---------- the phone's side: approve the computer's sign-in ---------- */
   async function startApprove() {
     show("approve");
     const s = await api(`/api/pair?code=${encodeURIComponent(pairCode)}`);
-    if (s.status !== "waiting") { $("#approve-wallets").hidden = true; return setErr(s.status === "ready" ? "This code was already used." : "This code has expired. Start again on your computer."); }
+    if (s.status !== "waiting") { $("#approve-wallets").hidden = true; return setErr(s.status === "ready" ? "This code was already used." : "This code has expired. Start again on your computer.", $("#approve-pin").parentNode); }
     pairPin = s.pin;
     $("#approve-pin").textContent = s.pin;
     renderApprove();
@@ -268,16 +387,25 @@
     $("#approve-links").replaceChildren(...W.KNOWN.filter((k) => k.open).map((k) => knownTile(k, location.href)));
   }
   async function approveWith(adapter) {
-    setErr("");
+    forget(); setErr("");
+    const my = attempt, name = nameOf(adapter), near = $("#approve-wallets");
+    watchWallet(my, name, near, `tap ${name} again`, () => {});
     try {
       address = await adapter.connect(); active = adapter;
+      if (my !== attempt) return;
       await loadMessage(pairPin);
-      const d = await signIn(pairCode);
+      const d = await signIn(pairCode, () => my === attempt);
+      if (my !== attempt) return;
+      stopWaits();
       if (d.paired) {
         $("#approve-wallets").hidden = true; $("#approve-open").hidden = true; $("#approve-done").hidden = false;
-        toast("Approved ✓ Go back to your computer");
+        toast("Approved ✓ Go back to where you started");
       }
-    } catch (e) { setErr(cancelled(e) ? "Signing cancelled in your wallet. Nothing happened." : e.message || "Couldn't approve. Please try again."); }
+    } catch (e) {
+      if (my !== attempt) return;
+      forget();
+      setErr(cancelled(e) ? "Signing cancelled in your wallet. Nothing happened." : signError(e, name), near);
+    }
   }
 
   /* ---------- app wallets (FOMO…): a tiny exact transfer ---------- */
@@ -285,9 +413,9 @@
   $("#tp-form").addEventListener("submit", async (e) => {
     e.preventDefault(); setErr("");
     const a = $("#tp-addr").value.trim();
-    if (!isAddr(a)) return setErr("That doesn't look like a Solana wallet address.");
+    if (!isAddr(a)) return setErr("That doesn't look like a Solana wallet address.", $("#tp-form"));
     const d = await api("/api/auth/transfer", { address: a });
-    if (!d.ok) return setErr(d.error === "slow_down" ? "Too many tries from your network right now. Wait a few minutes and try again." : "Couldn't start. Please try again.");
+    if (!d.ok) return setErr(d.error === "slow_down" ? "Too many tries from your network right now. Wait a few minutes and try again." : "Couldn't start. Please try again.", $("#tp-form"));
     showCode(d);
   });
   function showCode(d) {
@@ -323,9 +451,9 @@
     try {
       await loadScript("/signup.js");
       signup = window.VSignup.start({ panel, params, show, setErr, renderPick, drawQR, showProof: (proof) => { show("app"); showCode(proof); } });
-      await signup.init(me, err);
+      await signup.init(me, err, carryCode);
     } catch {
-      signup = null; show("loading");
+      signup = null; show("loading"); gateNow();
       $("#su-loading-text").textContent = "The sign-up didn't load.";
       $("#su-reload").hidden = false;
       $("#su-reload").onclick = () => location.reload();
@@ -333,16 +461,20 @@
     }
   }
 
+  /** A carried sign-up's code that this page can't use (signed in already, the switch is off...): the Terms gate opens as usual. */
+  const gateNow = () => { if (carryCode !== null && window.V.termsGate) window.V.termsGate.open(); };
+
   /* ---------- start ---------- */
   (async () => {
     const err = params.get("error");
     if (err) history.replaceState(null, "", location.pathname + (pairCode ? `?pair=${pairCode}` : ""));
-    if (pairCode) return startApprove();
+    if (pairCode) { gateNow(); return startApprove(); }
     const me = await window.V.ready;
     providers = me.providers || providers;
     if (params.get("mode") === "login" || hasAccount()) welcomeBack();
-    if (me.signedIn) { show("done"); setTimeout(() => location.assign("/dashboard"), 900); return; }
+    if (me.signedIn) { gateNow(); show("done"); setTimeout(() => location.assign("/dashboard"), 900); return; }
     if (me.signupFlow === "v2") return startV2(me, err);
+    gateNow();
     if (me.pending) showSocial(me.pending.wallet);
     else if (me.proof) { show("app"); showCode(me.proof); }
     else { show("pick"); renderPick(); }

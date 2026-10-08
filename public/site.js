@@ -16,6 +16,22 @@
   const isAddr = (a) => typeof a === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a);
   const initials = (name) => (String(name || "V").replace(/^@/, "").match(/[\p{L}\p{N}]/u) || ["V"])[0].toUpperCase();
 
+  // "Open app" on a phone opened /connect?carry=CODE inside a wallet app's browser: a one-time code that carries a sign-up here.
+  // It leaves the address bar before anything else runs or asks the server (no history entry or Referer keeps it); connect.js
+  // redeems it through takeCarry(), once.
+  let carryCode = null;
+  try {
+    if (document.body.dataset.page === "connect") {
+      const q = new URLSearchParams(location.search);
+      if (q.has("carry")) {
+        carryCode = q.get("carry") || "";
+        q.delete("carry");
+        history.replaceState(history.state, "", location.pathname + (String(q) ? `?${q}` : "") + location.hash);
+      }
+    }
+  } catch { /* no address bar to tidy (tests) */ }
+  const takeCarry = () => { const c = carryCode; carryCode = null; return c; };
+
   const toast = (msg) => {
     const t = $("#toast"); if (!t) return;
     t.textContent = msg; t.hidden = false;
@@ -62,6 +78,7 @@
    * and whose .inApp says whether this is a wallet app's browser (pages then offer to finish in the phone's browser).
    * GPS first; if it doesn't answer, a network-based position (the server accepts anything within 20 km).
    */
+  const LOCATION_GIVE_UP_MS = 40000; // both tries (12 s + 15 s) plus time to answer the browser's question
   function getLocation() {
     const fail = (code) => {
       const text = {
@@ -74,11 +91,17 @@
     };
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) return reject(fail("unsupported"));
-      const ok = (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: Math.round(p.coords.accuracy || 0) });
+      // Some wallet apps' browsers never answer at all (no prompt, no error): the page must not wait forever on "Checking your location…".
+      let over = false;
+      const guard = setTimeout(() => { over = true; reject(fail("timeout")); }, LOCATION_GIVE_UP_MS);
+      const settle = (f) => (x) => { if (!over) { over = true; clearTimeout(guard); f(x); } };
+      const ok = settle((p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: Math.round(p.coords.accuracy || 0) }));
+      const no = settle(reject);
       const why = (e) => (e && e.code === 1 ? "denied" : e && e.code === 3 ? "timeout" : "unavailable");
       navigator.geolocation.getCurrentPosition(ok, (e) => {
-        if (e && e.code === 1) return reject(fail("denied"));
-        navigator.geolocation.getCurrentPosition(ok, (e2) => reject(fail(why(e2))), { enableHighAccuracy: false, timeout: 15000, maximumAge: 30000 });
+        if (over) return;
+        if (e && e.code === 1) return no(fail("denied"));
+        navigator.geolocation.getCurrentPosition(ok, (e2) => no(fail(why(e2))), { enableHighAccuracy: false, timeout: 15000, maximumAge: 30000 });
       }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
     });
   }
@@ -393,6 +416,17 @@
   })();
 
   /* ---------- terms gate: agree before entry ---------- */
+  let gateLater = null; // { version, open }: the gate waiting for connect.js (a carried sign-up, see takeCarry)
+  const termsGate = {
+    open() { const g = gateLater; gateLater = null; if (g) g.open(); },
+    agreed(version) {
+      const g = gateLater;
+      if (!g) return;
+      if (version !== g.version) return termsGate.open(); // the sign-up holds another version: this one must be agreed to here
+      gateLater = null;
+      try { localStorage.setItem("vicinity_terms", version); } catch { /* private mode: the gate shows on the next page */ }
+    },
+  };
   (() => {
     const key = "vicinity_terms";
     const record = (version) => {
@@ -417,61 +451,68 @@
     try { agreed = localStorage.getItem(key); } catch { /* ignore */ }
     if (agreed === version) return;
 
-    // Keyboard and screen readers. While the gate is open the page behind it is inert (no Tab stops, hidden from
-    // screen readers), the keyboard starts on the dialog's heading, Tab and Shift+Tab go round the dialog's own
-    // controls, and Escape does nothing (agreeing is the only way in). The overlay already covers the whole page,
-    // so nothing changes for a mouse or a finger. The toast stays outside the inert part so it can still be read out.
-    const card = $(".termsgate__card", gate);
-    const heading = () => $("#termsgate-title", card);
-    const before = document.activeElement;
-    const behind = [...document.body.children].filter((e) => e !== gate && e.id !== "toast" && !e.inert);
-    const stops = () => $$("a[href], button, input, select, textarea, summary, [tabindex]", card)
-      .filter((e) => e.tabIndex >= 0 && !e.disabled && e.getClientRects().length);
-    const onKey = (e) => {
-      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); return; }
-      if (e.key !== "Tab" || e.ctrlKey || e.altKey || e.metaKey) return; // Ctrl+Tab and friends belong to the browser
-      const list = stops(), at = list.indexOf(document.activeElement);
-      if (!list.length) { e.preventDefault(); return; }
-      // Only the ends need help: from the last stop (or from outside) Tab goes to the first, and from the first stop
-      // (or the heading, or outside) Shift+Tab goes to the last. Everything in between is the browser's own Tab.
-      const wrap = e.shiftKey ? at <= 0 : at === list.length - 1 || !card.contains(document.activeElement);
-      if (wrap) { e.preventDefault(); list[e.shiftKey ? list.length - 1 : 0].focus(); }
-    };
-    const focusHeading = () => { const h = heading(); h.tabIndex = -1; h.focus({ preventScroll: true }); };
+    // A sign-up carried here from Safari / Chrome ("Open app" on a phone, /connect?carry=) has its Terms on record already. The gate
+    // waits for connect.js: termsGate.agreed(version) when the code worked (that version is noted here too), termsGate.open() when not.
+    if (carryCode !== null) { gateLater = { version, open: openGate }; return; }
+    openGate();
 
-    gate.hidden = false;
-    behind.forEach((e) => (e.inert = true));
-    document.addEventListener("keydown", onKey, true);
-    focusHeading();
+    function openGate() {
+      // Keyboard and screen readers. While the gate is open the page behind it is inert (no Tab stops, hidden from
+      // screen readers), the keyboard starts on the dialog's heading, Tab and Shift+Tab go round the dialog's own
+      // controls, and Escape does nothing (agreeing is the only way in). The overlay already covers the whole page,
+      // so nothing changes for a mouse or a finger. The toast stays outside the inert part so it can still be read out.
+      const card = $(".termsgate__card", gate);
+      const heading = () => $("#termsgate-title", card);
+      const before = document.activeElement;
+      const behind = [...document.body.children].filter((e) => e !== gate && e.id !== "toast" && !e.inert);
+      const stops = () => $$("a[href], button, input, select, textarea, summary, [tabindex]", card)
+        .filter((e) => e.tabIndex >= 0 && !e.disabled && e.getClientRects().length);
+      const onKey = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); return; }
+        if (e.key !== "Tab" || e.ctrlKey || e.altKey || e.metaKey) return; // Ctrl+Tab and friends belong to the browser
+        const list = stops(), at = list.indexOf(document.activeElement);
+        if (!list.length) { e.preventDefault(); return; }
+        // Only the ends need help: from the last stop (or from outside) Tab goes to the first, and from the first stop
+        // (or the heading, or outside) Shift+Tab goes to the last. Everything in between is the browser's own Tab.
+        const wrap = e.shiftKey ? at <= 0 : at === list.length - 1 || !card.contains(document.activeElement);
+        if (wrap) { e.preventDefault(); list[e.shiftKey ? list.length - 1 : 0].focus(); }
+      };
+      const focusHeading = () => { const h = heading(); h.tabIndex = -1; h.focus({ preventScroll: true }); };
 
-    $("#termsgate-agree").addEventListener("click", () => {
-      record(version);
-      gate.hidden = true;
-      behind.forEach((e) => (e.inert = false));
-      document.removeEventListener("keydown", onKey, true);
-      // The keyboard goes back where it was before the gate opened or, on a first visit (nothing was focused yet),
-      // to the start of the page's content: the same place the "Skip to content" link goes.
-      if (before && before !== document.body && before.isConnected && before.getClientRects().length) { before.focus({ preventScroll: true }); return; }
-      const main = $("#main");
-      if (!main) return;
-      if (!main.hasAttribute("tabindex")) {
-        main.tabIndex = -1;
-        main.addEventListener("blur", () => main.removeAttribute("tabindex"), { once: true });
-      }
-      main.focus({ preventScroll: true });
-    });
-    $("#termsgate-decline").addEventListener("click", () => {
-      // The new heading keeps the dialog's name (aria-labelledby) and takes the keyboard, since the pressed button is gone.
-      card.innerHTML =
-        '<div class="termsgate__done"><p class="kicker">No problem</p>' +
-        '<h2 id="termsgate-title">You&rsquo;ll need to agree to enter</h2>' +
-        '<p class="muted">The Terms of Use keep everyone on the same page. You can read them any time and come back when you&rsquo;re ready.</p>' +
-        '<p><a href="/terms">Read the Terms of Use</a></p></div>';
+      gate.hidden = false;
+      behind.forEach((e) => (e.inert = true));
+      document.addEventListener("keydown", onKey, true);
       focusHeading();
-    });
+
+      $("#termsgate-agree").addEventListener("click", () => {
+        record(version);
+        gate.hidden = true;
+        behind.forEach((e) => (e.inert = false));
+        document.removeEventListener("keydown", onKey, true);
+        // The keyboard goes back where it was before the gate opened or, on a first visit (nothing was focused yet),
+        // to the start of the page's content: the same place the "Skip to content" link goes.
+        if (before && before !== document.body && before.isConnected && before.getClientRects().length) { before.focus({ preventScroll: true }); return; }
+        const main = $("#main");
+        if (!main) return;
+        if (!main.hasAttribute("tabindex")) {
+          main.tabIndex = -1;
+          main.addEventListener("blur", () => main.removeAttribute("tabindex"), { once: true });
+        }
+        main.focus({ preventScroll: true });
+      });
+      $("#termsgate-decline").addEventListener("click", () => {
+        // The new heading keeps the dialog's name (aria-labelledby) and takes the keyboard, since the pressed button is gone.
+        card.innerHTML =
+          '<div class="termsgate__done"><p class="kicker">No problem</p>' +
+          '<h2 id="termsgate-title">You&rsquo;ll need to agree to enter</h2>' +
+          '<p class="muted">The Terms of Use keep everyone on the same page. You can read them any time and come back when you&rsquo;re ready.</p>' +
+          '<p><a href="/terms">Read the Terms of Use</a></p></div>';
+        focusHeading();
+      });
+    }
   })();
 
-  window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, liveNums, reveal,
+  window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, takeCarry, termsGate, liveNums, reveal,
     get reduced() { return reducedNow(); }, // read when it is needed: the visitor may pause the animations while the page is open
     me: () => meLite, ready, official, opensAt: () => opensAt, siteMode: () => siteMode };
 })();

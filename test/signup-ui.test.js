@@ -217,6 +217,7 @@ test("only the endpoints of the contract are used (PLAN.md 3.3)", () => {
   const contract = new Set([
     "/api/signup/start", "/api/signup/state", "/api/signup/location", "/api/signup/location/choice", "/api/signup/location/handoff", "/api/signup/location/handoff/claim",
     "/api/signup/terms", "/api/signup/account/reset", "/api/signup/email", "/api/signup/email/verify", "/api/signup/finish",
+    "/api/signup/carry", "/api/signup/carry/claim",
     "/api/auth/google/start?signup=1", "/api/auth/email/login", "/api/auth/password/reset/start", "/api/auth/password/reset",
     "/api/auth/logout", "/api/me?lite=1",
   ]);

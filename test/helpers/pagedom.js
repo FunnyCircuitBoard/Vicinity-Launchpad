@@ -17,7 +17,7 @@ const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ",
 const decode = (s) => s.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (all, n) =>
   n[0] === "#" ? String.fromCodePoint(n[1].toLowerCase() === "x" ? parseInt(n.slice(2), 16) : Number(n.slice(1))) : ENTITIES[n] ?? all);
 
-function newEvent(type, init = {}) {
+export function newEvent(type, init = {}) {
   return {
     type, bubbles: !["focus", "blur"].includes(type), defaultPrevented: false, stopped: false, target: null, currentTarget: null,
     preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.stopped = true; }, stopImmediatePropagation() { this.stopped = true; },
@@ -25,7 +25,7 @@ function newEvent(type, init = {}) {
   };
 }
 
-class Target {
+export class Target {
   constructor() { this.listeners = []; }
   addEventListener(type, fn, opts) {
     const capture = opts === true || Boolean(opts && opts.capture), once = Boolean(opts && opts.once);
@@ -38,7 +38,7 @@ class Target {
 }
 
 /** Capture from the window down, the target itself, then bubble back up (for events that bubble). */
-function dispatch(target, ev, win) {
+export function dispatch(target, ev, win) {
   const path = [];
   for (let x = target; x; x = x.parentNode) path.push(x);
   path.push(win);
@@ -63,7 +63,7 @@ class Text {
   get textContent() { return this.data; }
 }
 
-class El extends Target {
+export class El extends Target {
   constructor(doc, tag) {
     super();
     this.ownerDocument = doc;
@@ -123,6 +123,18 @@ class El extends Target {
   prepend(...nodes) { const rest = this.childNodes; this.childNodes = []; this.append(...nodes); for (const n of rest) this.childNodes.push(n); }
   replaceChildren(...nodes) { for (const n of this.childNodes) n.parentNode = null; this.childNodes = []; this.append(...nodes); }
   remove() { if (this.parentNode) { this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 1); this.parentNode = null; } }
+  /** Puts `node` right after this element (moving it from wherever it was). */
+  after(node) {
+    const p = this.parentNode;
+    if (!p) return;
+    node.remove();
+    node.parentNode = p;
+    p.childNodes.splice(p.childNodes.indexOf(this) + 1, 0, node);
+  }
+  closest(selector) { const test = selectorList(selector); for (let x = this; x && x instanceof El && !(x instanceof Doc); x = x.parentNode) if (test(x)) return x; return null; }
+  /** No layout here: every element reads as at the top of the screen with no size; scrollIntoView is recorded on the document. */
+  getBoundingClientRect() { return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }; }
+  scrollIntoView(opts) { (this.ownerDocument.scrolled ||= []).push({ el: this, opts }); }
   get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n === this.ownerDocument; }
   contains(n) { for (let x = n; x; x = x.parentNode) if (x === this) return true; return false; }
   /** Drawn on screen: in the page, and neither it nor a parent is hidden. */
@@ -141,7 +153,7 @@ class El extends Target {
   click() { this.dispatchEvent(newEvent("click")); }
 }
 
-class Doc extends El {
+export class Doc extends El {
   constructor() { super(null, "#document"); this.ownerDocument = this; this.focused = null; this.defaultView = null; }
   get body() { return this.querySelector("body"); }
   get documentElement() { return this.children[0] || null; }
@@ -199,7 +211,7 @@ function complex(src) {
 const selectorList = (s) => { const all = s.split(",").map(complex); return (e) => all.some((t) => t(e)); };
 
 /* ---------- HTML ---------- */
-function parse(doc, html) {
+export function parse(doc, html) {
   const top = [], stack = [];
   const add = (n) => (stack.length ? stack[stack.length - 1].append(n) : top.push(n));
   const token = /<!--[\s\S]*?-->|<!doctype[^>]*>|<\/([a-z][\w-]*)\s*>|<([a-z][\w-]*)((?:\s+[^\s=>/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>|[^<]+|</gi;
