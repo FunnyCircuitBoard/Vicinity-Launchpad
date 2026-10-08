@@ -107,6 +107,7 @@ export class El extends Target {
     return new Proxy({}, {
       get: (_, k) => (typeof k === "string" && this.hasAttribute(attr(k)) ? this.getAttribute(attr(k)) : undefined),
       set: (_, k, v) => { this.setAttribute(attr(k), v); return true; },
+      deleteProperty: (_, k) => { this.removeAttribute(attr(k)); return true; }, // `delete el.dataset.x`, as in a browser
     });
   }
   get textContent() { return this.childNodes.map((n) => n.textContent).join(""); }

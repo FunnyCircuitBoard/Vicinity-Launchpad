@@ -4,6 +4,9 @@
 (() => {
   "use strict";
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+  // A phone (not a tablet): an iPhone, or Android with "Mobile" in its user agent. A tablet can still scan nothing with itself
+  // but usually has a phone nearby, so it keeps the QR code where a phone gets app links instead.
+  const isPhone = /iPhone|iPod/i.test(navigator.userAgent) || (/Android/i.test(navigator.userAgent) && /Mobile/i.test(navigator.userAgent));
   const enc = encodeURIComponent;
   const webView = Boolean(window.V && window.V.webView); // a wallet app's own browser (detected once, in site.js)
 
@@ -125,7 +128,7 @@
   const inWalletApp = () => webView || (isMobile && found.size > 0);
 
   window.VW = {
-    KNOWN, isMobile, inWalletApp, safeIcon, mark,
+    KNOWN, isMobile, isPhone, inWalletApp, safeIcon, mark,
     list: () => [...found.values()],
     onChange: (f) => { listeners.add(f); return () => listeners.delete(f); },
     knownFor: (name) => KNOWN.find((k) => k.match.test(name)) || null,

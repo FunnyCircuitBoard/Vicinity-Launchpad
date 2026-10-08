@@ -12,6 +12,8 @@ export const UA = {
   desktop: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36",
   iphone: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1",
   phantomApp: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148", // an app's WKWebView: no "Safari/"
+  ipad: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15", // iPadOS asks for the desktop site (+ touch)
+  androidTablet: "Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36", // no "Mobile": a tablet
 };
 export const ADDR = "7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2";
 export const MESSAGE = "vicinity.test wants you to sign in with your Solana account:\n" + ADDR + "\n\nNonce: n1";
@@ -63,7 +65,7 @@ export function fakeWallet(name = "Phantom") {
  *   agreed           the Terms version already agreed in this browser (null: a first visit, the gate shows)
  */
 export async function openConnect({ ua = UA.desktop, search = "", api = async () => ({ ok: true }), me = {}, state = STATE.wallet(), storage = {},
-  agreed = "2026-10-01", geolocation, wallets = [] } = {}) {
+  agreed = "2026-10-01", geolocation, wallets = [], touchPoints } = {}) {
   const doc = new Doc();
   doc.append(...parse(doc, read("connect.html")));
   // time: only what the test lets pass
@@ -87,7 +89,7 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
   Object.assign(win, {
     document: doc, location: loc,
     history: { state: null, replaceState: (st, title, url) => { const u = new URL(url, loc.origin); loc.pathname = u.pathname; loc.search = u.search; loc.hash = u.hash; addressBar.push(loc.href); } },
-    navigator: { userAgent: ua, maxTouchPoints: /iPhone|Android/.test(ua) ? 5 : 0, ...(geolocation ? { geolocation } : {}) },
+    navigator: { userAgent: ua, maxTouchPoints: touchPoints ?? (/iPhone|Android/.test(ua) ? 5 : 0), ...(geolocation ? { geolocation } : {}) },
     localStorage: store(local), sessionStorage: store(session),
     matchMedia: () => ({ matches: true, addEventListener() {} }), // reduced motion: nothing animates
     fetch: async (path, init = {}) => {

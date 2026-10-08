@@ -170,6 +170,7 @@
           <!-- 1c. wallet on a phone: QR code -->
           <div class="cstate" data-state="phone" hidden>
             <h2 class="h2--sm" id="pair-h">Scan with your phone</h2>
+            <p class="callout small" id="pair-why" hidden></p>
             <div class="qr" id="pair-qr"><canvas id="qr" width="232" height="232" aria-label="QR code to open Vicinity on your phone"></canvas></div>
             <p class="pin-row">Check number: <strong class="pin" id="pair-pin">--</strong></p>
             <ol class="howto small" id="pair-howto">
@@ -338,8 +339,9 @@
             <h2 class="h2--sm" id="carry-h" tabindex="-1">Continue in your wallet app</h2>
             <div class="su-carry" id="carry-go">
               <p class="muted small" id="carry-lead"></p>
+              <p class="pin-row" id="carry-pinrow">Check number: <strong class="pin" id="carry-pin">--</strong></p>
               <a class="btn btn--primary btn--block btn--lg" id="carry-open" href="/connect" rel="noreferrer" referrerpolicy="no-referrer">Open your wallet app</a>
-              <p class="tiny muted">The link works once, for 10 minutes, on this phone and internet connection.</p>
+              <p class="tiny muted">The link works once, for 10 minutes, and only from this phone's own internet connection. Never send it to anyone.</p>
               <p class="muted small" id="carry-status"><span class="live-dot" aria-hidden="true"></span> <span id="carry-status-text">Waiting for your wallet app…</span></p>
               <p class="su-err" id="carry-error" role="alert"></p>
               <button class="btn btn--primary btn--block" type="button" id="carry-renew" hidden>Get a new link</button>
@@ -360,6 +362,24 @@
             <div class="su-done" id="carry-lost" hidden>
               <p class="muted" id="carry-lost-text"></p>
               <button class="btn btn--primary btn--block" type="button" id="carry-again">Start again</button>
+            </div>
+          </div>
+
+          <!-- v2, the wallet app's browser opened by "Open app": nothing is taken over until the person confirms it is their own sign-up -->
+          <div class="cstate" data-state="carry-in" hidden>
+            <h2 class="h2--sm" id="carry-in-h" tabindex="-1">Continue the sign-up you started?</h2>
+            <div class="su-carry">
+              <p class="pin-row">Check number: <strong class="pin" id="carry-in-pin">--</strong></p>
+              <p class="muted small">Safari or Chrome, where you started, shows the same number next to its “Open” button.</p>
+              <p class="su-chips">
+                <span class="su-chip"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span id="carry-in-city">—</span></span>
+                <span class="su-chip"><span aria-hidden="true">✓</span> <span id="carry-in-login">—</span></span>
+              </p>
+              <p class="callout small">Only continue if you started this sign-up yourself, on this phone, a moment ago. Never continue from a link someone sent you: your wallet would join their account.</p>
+              <p class="tiny muted">You agreed to the <a href="/terms">Terms of Use</a> in that sign-up. Continuing confirms them here too.</p>
+              <button class="btn btn--primary btn--block" type="button" id="carry-in-yes">Yes, it's mine: continue</button>
+              <p class="su-err" id="carry-in-error" role="alert"></p>
+              <button class="link-btn" type="button" id="carry-in-no">No, that's not mine</button>
             </div>
           </div>
 

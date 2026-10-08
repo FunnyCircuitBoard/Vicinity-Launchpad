@@ -60,7 +60,7 @@
   const cancelled = (e) => /reject|cancel|denied|declin|closed/i.test(String(e?.message || e)) || e?.code === 4001;
 
   function show(s) {
-    state = s;
+    state = s; screenGen++;
     $$(".cstate", panel).forEach((x) => (x.hidden = x.dataset.state !== s));
     setErr("");
     forget(); // a wallet request still open belongs to the screen being left: a late answer to it counts for nothing
@@ -128,6 +128,11 @@
   // comes later still counts, unless the person pressed again (a newer attempt) or left the screen.
   const HINT_MS = 8000, GIVE_UP_MS = 30000;
   let attempt = 0, waits = [];
+  // The sign screen: which wallet requests are still open (by attempt), and the screen they belong to. A late signature counts as
+  // long as the person is still on that screen, nothing went through yet, and no NEWER request is still open in the wallet: so an
+  // approval given after the 30 s message still counts even if the person pressed again and the wallet refused that second one.
+  let screenGen = 0, signedOn = -1;
+  const openSigns = new Set();
   const later = (fn, ms) => waits.push(setTimeout(fn, ms));
   function stopWaits() { waits.forEach(clearTimeout); waits = []; setWait(""); }
   function forget() { attempt++; stopWaits(); resetSign(); }
@@ -212,15 +217,20 @@
     const btn = e.currentTarget;
     if (btn.disabled) return;
     forget(); setErr("");
-    const my = attempt, name = nameOf(active);
+    const my = attempt, scr = screenGen, name = nameOf(active);
+    openSigns.add(my);
+    const live = () => scr === screenGen && signedOn !== scr && ![...openSigns].some((a) => a > my);
     btn.disabled = true; btn.setAttribute("aria-busy", "true"); btn.textContent = "Check your wallet…";
     watchWallet(my, name, btn, `press ${signLabel()}`, resetSign);
     try {
-      const d = await signIn(null, () => my === attempt);
-      if (my !== attempt) return;
-      stopWaits(); after(d); // the button stays busy while the page moves on
+      const d = await signIn(null, () => { openSigns.delete(my); return live(); });
+      if (!live()) return; // the person left this screen meanwhile
+      signedOn = scr;
+      stopWaits(); setErr(""); after(d); // the button stays busy while the page moves on
     } catch (err) {
-      if (my !== attempt) return;
+      openSigns.delete(my);
+      if (err && err.stale) return;
+      if (my !== attempt && !live()) return; // a newer request owns the button and the message line
       forget();
       setErr(signError(err, name), btn);
       loadMessage();
@@ -343,7 +353,8 @@
     $("#pair-pin").textContent = d.pin;
     // On a phone the code can't be scanned by the phone itself: its wallet apps open the link instead (it works on any connection,
     // and the sign-in comes back here: the way through when "Open app" can't carry the sign-up, e.g. behind iCloud Private Relay).
-    const samePhone = W.isMobile && !W.inWalletApp();
+    // A tablet keeps the QR code: "Wallet on my phone" there means the phone next to it.
+    const samePhone = W.isPhone && !W.inWalletApp();
     $("#pair-h").textContent = samePhone ? "Sign in your wallet app" : "Scan with your phone";
     $("#pair-qr").hidden = samePhone; $("#pair-howto").hidden = samePhone;
     $("#pair-howto-phone").hidden = !samePhone; $("#pair-apps").hidden = !samePhone;

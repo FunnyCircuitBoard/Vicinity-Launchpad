@@ -96,6 +96,37 @@ test("pressing again asks the wallet again, and the first (late) answer is throw
   assert.equal(sent[0].body.message, ctl.messages[1], "the message of the request that was answered (still unused: it was never sent)");
 });
 
+test("review F6: the person pressed again after the 30 s message and the wallet refused that one; the FIRST request is then approved: it counts", async () => {
+  const { p, ctl } = await atSign({ sign: "hang" });
+  await p.tap(p.$("#c-sign"));
+  await p.advance(31000);
+  const first = ctl.answerSign;
+  ctl.sign = "reject"; // e.g. a wallet that refuses a second request while the first one is still open
+  await p.tap(p.$("#c-sign"));
+  assert.equal(ctl.signs, 2);
+  assert.equal(p.$("#c-error").textContent, "Signing cancelled in your wallet. Nothing happened.");
+  first(); await p.flush();
+  const sent = p.callsTo("/api/auth/wallet");
+  assert.equal(sent.length, 1, "the approval the person gave is sent, not dropped");
+  assert.equal(sent[0].body.message, ctl.messages[0], "the message that first request signed");
+  assert.equal(p.visible(p.$("#c-error")), false, "the old 'cancelled' message is gone");
+  await p.advance(1000);
+  assert.equal(p.callsTo("/api/signup/finish").length, 1, "the account is made");
+});
+
+test("review F6: an old request refused while a newer one is still open says nothing (the newer one owns the button)", async () => {
+  const { p, ctl } = await atSign({ sign: "hang" });
+  await p.tap(p.$("#c-sign"));
+  await p.advance(31000);
+  const firstAnswer = ctl.answerSign;
+  await p.tap(p.$("#c-sign")); // a second request, still open
+  const btn = p.$("#c-sign");
+  assert.equal(btn.textContent, "Check your wallet…");
+  firstAnswer(); await p.flush();
+  assert.equal(p.callsTo("/api/auth/wallet").length, 0, "a newer request is open: the old answer waits for nothing");
+  assert.equal(btn.textContent, "Check your wallet…", "the button still belongs to the newer request");
+});
+
 test("'Use another wallet' while the wallet is silent: the next sign screen has a working button (it stayed on 'Check your wallet…' forever)", async () => {
   const { p, ctl } = await atSign({ sign: "hang" });
   await p.tap(p.$("#c-sign"));
