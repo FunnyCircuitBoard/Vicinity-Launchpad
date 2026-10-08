@@ -925,6 +925,9 @@ html.map-is-full, html.map-is-full body { overflow: hidden; }
 .big-amount strong { font: 700 2.4rem var(--display); letter-spacing: -.02em; color: var(--gold-text); }
 .tp-copy { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
 .approve-done { text-align: center; }
+/* sign-up v2, the wallet app's approve view: connect.js hides the old hero, so the card stands alone at the top */
+.connect__grid:has(> .connect__intro[hidden]) { grid-template-columns: minmax(0, 560px); justify-content: center; }
+.approve-tap { margin: 0; font-weight: 700; color: var(--text); }
 
 /* ---------- connect: sign-up v2 (hidden unless public/signup.js turns it on: SIGNUP_FLOW = "v2") ---------- */
 .su-top { display: grid; gap: 14px; margin-bottom: 18px; }

@@ -214,6 +214,7 @@
             <h2 class="h2--sm">Approve the sign-in you started</h2>
             <p>Does the page where you started show <strong class="pin" id="approve-pin">--</strong>?</p>
             <p class="muted small">Only continue if you started this yourself, on your own computer or in your phone's browser. Never sign for a code someone sent you.</p>
+            <p class="approve-tap" id="approve-tap" hidden></p>
             <div class="wallet-list" id="approve-wallets"></div>
             <div id="approve-open" hidden>
               <p class="muted small">Open this page in your wallet app:</p>
@@ -345,7 +346,7 @@
               <p class="muted small" id="carry-status"><span class="live-dot" aria-hidden="true"></span> <span id="carry-status-text">Waiting for your wallet app…</span></p>
               <p class="su-err" id="carry-error" role="alert"></p>
               <button class="btn btn--primary btn--block" type="button" id="carry-renew" hidden>Get a new link</button>
-              <button class="link-btn" type="button" id="carry-pair">Didn't work? Sign in your wallet app and finish here instead</button>
+              <button class="link-btn" type="button" id="carry-pair">Didn't work? Approve in your wallet app and finish here instead</button>
               <button class="link-btn" type="button" id="carry-back">Choose another way</button>
             </div>
             <div class="su-done" id="carry-away" hidden>

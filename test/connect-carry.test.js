@@ -37,7 +37,7 @@ const phantomTile = (p) => p.$("#wallets-known").children.find((t) => /Phantom/.
 test("phone, no wallet in Safari: the wallet apps are full rows that say 'Open app', and the page says the sign-up goes along", async () => {
   const { p } = await safari();
   assert.equal(p.screen(), "pick");
-  assert.match(p.$("#su-wallet-lead").textContent, /“Open app” takes this sign-up into your wallet app: you carry on there at this step, with your location and login already done\./);
+  assert.match(p.$("#su-wallet-lead").textContent, /“Open app” takes this sign-up into your wallet app, or asks you to approve there and finish here, with your location and login already done\./);
   assert.doesNotMatch(p.$("#su-wallet-lead").textContent, /starts again|not carried over/);
   assert.equal(p.$("#more-label").textContent, "Open Vicinity in your wallet app");
   assert.ok(p.$("#wallets-known").classList.contains("wallet-grid--apps"));
@@ -166,15 +166,16 @@ test("a refused code (too many) is said right under the wallet apps, and the til
   assert.equal(tile.disabled, false);
 });
 
-test("'Didn't work?' on a phone: sign in the wallet app and finish here (the pairing), with app links instead of a QR code the phone can't scan", async () => {
+test("'Didn't work?' on a phone: approve in the wallet app and finish here (the pairing), with app links instead of a QR code the phone can't scan", async () => {
   const PAIR = "Pp41r_Pp41r_Pp41r_Pp41r_";
   const { p } = await safari({ api: async (path) => (path === "/api/signup/carry" ? { ok: true, code: CODE, url: `https://vicinity.test/connect?carry=${CODE}`, expiresAt: inMinutes(10) }
     : path === "/api/pair" ? { ok: true, code: PAIR, pin: "42", url: `https://vicinity.test/connect?pair=${PAIR}`, expiresAt: inMinutes(10) } : { ok: true }) });
   await p.tap(phantomTile(p));
-  assert.equal(p.$("#carry-pair").textContent, "Didn't work? Sign in Phantom and finish here instead");
+  assert.equal(p.$("#carry-pair").textContent, "Didn't work? Approve in Phantom and finish here instead");
   await p.tap(p.$("#carry-pair"));
   assert.equal(p.screen(), "phone");
-  assert.equal(p.$("#pair-h").textContent, "Sign in your wallet app");
+  assert.equal(p.$("#pair-h").textContent, "Approve in Phantom, then finish here");
+  assert.equal(p.visible(p.$("#pair-why")), false, "no relay here: no reason to give");
   assert.equal(p.$("#pair-qr").hidden, true, "no QR code: this phone can't scan itself");
   assert.equal(p.$("#pair-howto-phone").hidden, false);
   assert.equal(p.$("#pair-pin").textContent, "42");
@@ -260,7 +261,7 @@ test("F7: the wallet in the app already had an account: Safari says the person w
   assert.equal(q.$("#tab-login").getAttribute("aria-pressed"), "true");
 });
 
-test("COR-1: Safari behind iCloud Private Relay is never sent to Phantom to be refused: it goes straight to 'sign in Phantom, finish here'", async () => {
+test("COR-1: Safari behind iCloud Private Relay is never sent to Phantom to be refused: it goes straight to 'approve in Phantom, finish here'", async () => {
   const PAIR = "Pp41r_Pp41r_Pp41r_Pp41r_";
   const { p } = await safari({ api: async (path) => (path === "/api/signup/carry" ? { ok: false, error: "carry_relay", _status: 409 }
     : path === "/api/pair" ? { ok: true, code: PAIR, pin: "42", url: `https://vicinity.test/connect?pair=${PAIR}`, expiresAt: inMinutes(10) } : { ok: true }) });
@@ -268,9 +269,9 @@ test("COR-1: Safari behind iCloud Private Relay is never sent to Phantom to be r
   await p.flush();
   assert.equal(p.callsTo("/api/pair").length, 1);
   assert.equal(p.screen(), "phone");
-  assert.equal(p.$("#pair-h").textContent, "Sign in your wallet app");
+  assert.equal(p.$("#pair-h").textContent, "Approve in Phantom, then finish here");
   assert.equal(p.visible(p.$("#pair-why")), true);
-  assert.equal(p.$("#pair-why").textContent, "This browser uses iCloud Private Relay or a VPN, so your wallet app can't take this sign-up over. Do it the other way round: sign in your wallet app as shown below, then come back here to finish.");
+  assert.equal(p.$("#pair-why").textContent, "Your iPhone hides its connection (iCloud Private Relay), so the sign-up can't move into Phantom. Instead, approve in Phantom below, then come back here to finish.");
   assert.equal(p.$("#pair-apps").children[0].href, `https://phantom.com/ul/browse/${encodeURIComponent(`https://vicinity.test/connect?pair=${PAIR}`)}?ref=${encodeURIComponent("https://vicinity.test")}`);
   // "Back", then the ordinary "Wallet on my phone": no relay note left over
   await p.tap(p.$('.cstate[data-state="phone"] [data-back]'));
@@ -289,7 +290,7 @@ test("F3: tablets keep the QR code for 'Wallet on my phone' (only a phone gets a
     p.win.qrcode = () => ({ addData() {}, make() {}, getModuleCount: () => 21, isDark: () => false });
     await p.tap(p.$("#alt-phone"));
     assert.equal(p.screen(), "phone");
-    assert.equal(p.$("#pair-h").textContent, phone ? "Sign in your wallet app" : "Scan with your phone", ua);
+    assert.equal(p.$("#pair-h").textContent, phone ? "Approve in your wallet app, then finish here" : "Scan with your phone", ua);
     assert.equal(p.$("#pair-qr").hidden, phone, ua);
     assert.equal(p.$("#pair-apps").hidden, !phone, ua);
   }
@@ -399,7 +400,7 @@ test("SEC-1: a code opened outside a phone's wallet app (a computer, or Safari) 
 
 test("Phantom's browser with a used or expired code (or another connection): the gate, a plain way back to Safari, and today's page", async () => {
   for (const [error, words] of [["carry_expired", /already used or has run out \(it works once, for 10 minutes\)\. Go back to Safari or Chrome, where you started, and tap Open app again\./],
-    ["carry_network", /only works on the phone and internet connection where you started \(a VPN or iCloud Private Relay counts as a different one\)\. Go back to Safari or Chrome and tap “Didn't work\? Sign in your wallet app and finish here instead”\./]]) {
+    ["carry_network", /only works on the phone and internet connection where you started \(a VPN or iCloud Private Relay counts as a different one\)\. Go back to Safari or Chrome and tap “Didn't work\?” there: you approve in your wallet app, then finish in Safari or Chrome\./]]) {
     const { p } = await inPhantom({ info: () => ({ ok: false, error, _status: error === "carry_expired" ? 410 : 403 }) });
     assert.equal(p.$("#termsgate").hidden, false, `${error}: the Terms gate shows as for anyone new here`);
     assert.match(p.$("#su-note").textContent, words, error);

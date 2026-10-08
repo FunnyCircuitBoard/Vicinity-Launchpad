@@ -58,14 +58,16 @@ export function fakeWallet(name = "Phantom") {
 }
 
 /**
- * openConnect({ ua, search, api, me, state, storage, agreed, geolocation }) → the page and the controls a test needs.
+ * openConnect({ ua, search, api, me, state, storage, session, agreed, geolocation }) → the page and the controls a test needs.
  *   api(path, body)  the server's answer to anything but /api/me, /api/health, /api/official and GET /api/signup/state (default { ok: true })
  *   me               merged into the /api/me answer (default: a visitor, sign-up v2, Google and e-mail on)
  *   state            GET /api/signup/state's state (a value, or a function called each time)
  *   agreed           the Terms version already agreed in this browser (null: a first visit, the gate shows)
+ *   session          what this tab's sessionStorage already holds (a reloaded tab keeps it), or "throws" (storage blocked: every call throws)
+ *   setup            ({ doc, win }) => void, run before the page's scripts (e.g. to give elements a layout, which this DOM has none of)
  */
-export async function openConnect({ ua = UA.desktop, search = "", api = async () => ({ ok: true }), me = {}, state = STATE.wallet(), storage = {},
-  agreed = "2026-10-01", geolocation, wallets = [], touchPoints } = {}) {
+export async function openConnect({ ua = UA.desktop, search = "", api = async () => ({ ok: true }), me = {}, state = STATE.wallet(), storage = {}, session: sessionStore = {},
+  agreed = "2026-10-01", geolocation, wallets = [], touchPoints, setup } = {}) {
   const doc = new Doc();
   doc.append(...parse(doc, read("connect.html")));
   // time: only what the test lets pass
@@ -75,8 +77,9 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
   const clearTimeout_ = (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); };
   const calls = [], assigned = [];
   const local = new Map(Object.entries({ ...(agreed ? { vicinity_terms: agreed } : {}), ...storage }));
-  const session = new Map();
+  const session = new Map(sessionStore === "throws" ? [] : sessionStore instanceof Map ? sessionStore : Object.entries(sessionStore));
   const store = (m) => ({ getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) });
+  const blocked = { getItem() { throw new Error("SecurityError"); }, setItem() { throw new Error("SecurityError"); }, removeItem() { throw new Error("SecurityError"); } };
   const loc = {
     origin: "https://vicinity.test", protocol: "https:", host: "vicinity.test", pathname: "/connect", search: search ? `?${search}` : "", hash: "",
     get href() { return this.origin + this.pathname + this.search + this.hash; },
@@ -90,7 +93,7 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
     document: doc, location: loc,
     history: { state: null, replaceState: (st, title, url) => { const u = new URL(url, loc.origin); loc.pathname = u.pathname; loc.search = u.search; loc.hash = u.hash; addressBar.push(loc.href); } },
     navigator: { userAgent: ua, maxTouchPoints: touchPoints ?? (/iPhone|Android/.test(ua) ? 5 : 0), ...(geolocation ? { geolocation } : {}) },
-    localStorage: store(local), sessionStorage: store(session),
+    localStorage: store(local), sessionStorage: sessionStore === "throws" ? blocked : store(session),
     matchMedia: () => ({ matches: true, addEventListener() {} }), // reduced motion: nothing animates
     fetch: async (path, init = {}) => {
       path = String(path);
@@ -137,6 +140,7 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
     }
     now = until; await flush();
   }
+  if (setup) setup({ doc, win });
   for (const f of ["site.js", "wallets.js", "connect.js"]) vm.runInContext(read(f), ctx, { filename: `public/${f}` });
   const register = (w) => { for (const l of win.listeners.filter((x) => x.type === "wallet-standard:register-wallet")) l.fn({ detail: (a) => a.register(w) }); };
   for (const w of wallets) register(w);
