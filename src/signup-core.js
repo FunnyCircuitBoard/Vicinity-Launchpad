@@ -43,7 +43,10 @@ export const asText = (v) => (typeof v === "string" || typeof v === "number" ? S
 /** Where the person's connection is, coarsely: country and network operator ("US|7922"). null off Cloudflare (local tests). */
 export const netOf = (cf) => (cf ? `${cf.country || ""}|${cf.asn || ""}` : null);
 
-const expiryFor = (now, createdMs) => Math.min(now + SLIDE_SECONDS * 1000, createdMs + CAP_SECONDS * 1000);
+/** When a sign-up made at `createdMs` runs out if it is used at `now`: an hour later, and never more than three hours after it was made. */
+export const expiryFor = (now, createdMs) => Math.min(now + SLIDE_SECONDS * 1000, createdMs + CAP_SECONDS * 1000);
+/** The latest a sign-up made at `createdMs` can ever live. */
+export const capFor = (createdMs) => createdMs + CAP_SECONDS * 1000;
 
 /** The live sign-up of this browser (its `vsu` cookie), or null. Callers have run ensureSignupSchema. */
 export async function getSignup(env, request, now = Date.now()) {
@@ -117,6 +120,25 @@ export async function recordIdentity(env, request, provider, who, now, { walletD
   if (!r.meta.changes) return { error: "login_expired" };
   const next = nextStep({ ...row, provider, provider_id: who.id, identity_at: iso(now) }, walletDone);
   return { recorded: true, to: `/connect?step=${next}`, cookie: await touchSignup(env, row, request, now) };
+}
+
+/**
+ * A sign-up that this browser carried into a wallet app's own browser (src/signup.js, "carry"): the browser's `vsu` cookie no
+ * longer opens the sign-up (it moved), but it can still learn what became of it. Returns null when nothing was carried from here,
+ * or { done, provider, live }: done = the account was created there, live = it is still going on there.
+ */
+export async function carriedFrom(env, request, now = Date.now()) {
+  const token = getCookie(request, SIGNUP_COOKIE);
+  if (!token || token.length > 100) return null;
+  const h = await env.DB.prepare("SELECT result, user_id, expires_at FROM handoffs WHERE kind = 'carry' AND signup_id = ? AND result IS NOT NULL")
+    .bind(await sha256(token)).first();
+  if (!h || Date.parse(h.expires_at) <= now) return null;
+  if (h.user_id != null) {
+    const u = await env.DB.prepare("SELECT provider FROM users WHERE id = ?").bind(h.user_id).first();
+    return { done: true, live: false, provider: u ? u.provider : null };
+  }
+  const s = await env.DB.prepare("SELECT provider, expires_at FROM signups WHERE id = ?").bind(h.result).first();
+  return { done: false, live: Boolean(s && Date.parse(s.expires_at) > now), provider: s ? s.provider : null };
 }
 
 /** A phone-browser hand-off row by its code (the same lookup src/handoff.js does, without importing it). */

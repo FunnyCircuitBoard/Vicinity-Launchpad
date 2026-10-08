@@ -8,6 +8,8 @@
  *   POST /api/signup/location/choice { id }      one of the three nearest, when the person is in empty land
  *   POST /api/signup/location/handoff            a one-time link so a phone's own browser can read the location
  *        .../handoff/info | /complete (the phone's browser, no cookie) | /claim (the wallet app collects the result)
+ *   POST /api/signup/carry                       phones: a one-time code that carries this sign-up (at its wallet step) into a wallet app's browser
+ *        .../carry/claim { code } (the wallet app's browser, no cookie: it gets its own one for the same sign-up)
  *   POST /api/signup/terms { version }           accept the Terms of Use (before ANY account step)
  *   POST /api/signup/account/reset               forget the account step only (to pick another Google / e-mail)
  *   POST /api/signup/email { email, password }   a 6-digit code to that address (the same answer for known and unknown ones)
@@ -32,10 +34,10 @@ import { check, clientKey, limitKey } from "./limits.js";
 import { checkPassword, hashPassword } from "./password.js";
 import { HOUR, POLICY, iso } from "./policy.js";
 import { v2On } from "./flags.js";
-import { SIGNUP_COOKIE, TERMS_VERSION, asText, endSignup, findHandoff, getSignup, guardV2, netOf, nextStep, startSignup, touchSignup } from "./signup-core.js";
+import { SIGNUP_COOKIE, TERMS_VERSION, asText, capFor, carriedFrom, endSignup, expiryFor, findHandoff, getSignup, guardV2, netOf, nextStep, startSignup, touchSignup } from "./signup-core.js";
 import { handleEmailLogin, handleReset, handleResetStart, handleSetPassword } from "./pwlogin.js";
 
-const MINUTES = 10;                       // a phone hand-off link lives 10 minutes (like today's)
+const MINUTES = 10;                       // a phone hand-off link and an "Open app" code live 10 minutes (like today's)
 // How many tries, per window (counted BEFORE the work, atomically: src/limits.js).
 const LIMITS = {
   start: { ip: 20, site: 5000 },          // new sign-ups per hour: per connection, whole site (the site's can be raised: SIGNUP_MAX_PER_HOUR)
@@ -44,6 +46,8 @@ const LIMITS = {
   email: { signup: 5, ip: 20 },           // codes asked for per hour (per sign-up, per connection). The 20 a day per address is counted in sendEmailCode
   verify: { signup: 20, ip: 60 },         // codes tried per hour
   finish: { signup: 10 },
+  carry: { signup: 10, ip: 30 },          // "Open app" codes made per hour (per sign-up, per connection)
+  claim: { ip: 30 },                      // codes tried per hour, per connection (a code is 192 random bits: this only keeps the noise down)
 };
 
 /** The whole site's ceiling on new sign-ups per hour. A launch-day crowd can raise it in the dashboard (SIGNUP_MAX_PER_HOUR) without a deploy, like EMAIL_MAX_PER_HOUR. */
@@ -128,9 +132,14 @@ async function handleStart(request, env, x) {
 async function handleState(request, env, x) {
   const row = await getSignup(env, request, x.now);
   const session = await getSession(env, request, x.now);
+  if (row) return json({ ok: true, state: signupState(row, session, x.now) });
   // No sign-up yet: nothing is done, except a wallet proven in this browser first (an old bookmark, or the Log in tab with a
   // new wallet), which counts as done exactly as the answer of /start says. Still creates nothing.
-  return json({ ok: true, state: row ? signupState(row, session, x.now) : signupState({}, session, x.now) });
+  const state = signupState({}, session, x.now);
+  // ... or this browser's sign-up went on in a wallet app's browser ("Open app" on a phone): say what became of it there.
+  const carried = await carriedFrom(env, request, x.now);
+  if (carried) state.carried = carried;
+  return json({ ok: true, state });
 }
 
 /* ---------------- 1. location ---------------- */
@@ -270,6 +279,77 @@ async function handleHandoffClaim(request, env, x) {
   return c.reply(locationAnswer(await reload(env, c.row.id)));
 }
 
+/* ---------------- 3b. phones: carry the sign-up into the wallet app's own browser ---------------- */
+
+/**
+ * On a phone, Safari or Chrome has no wallet in it, and "Open app" opens the page inside the wallet app (Phantom, Solflare...),
+ * whose browser has its own cookies: without help the sign-up would start again there, where Google can't run. So "Open app"
+ * carries it over, like the location hand-off, the other way round:
+ *   1. Safari / Chrome (its sign-up cookie):  POST /api/signup/carry → a one-time code in the "Open app" link (only its hash is kept)
+ *   2. the wallet app's browser (no cookie):  POST /api/signup/carry/claim { code } → its own sign-up cookie for THE SAME sign-up,
+ *      which moves there: Safari's cookie no longer opens it, so exactly one browser can carry on with it
+ *   3. Safari / Chrome again:                 GET /api/signup/state → { carried: { done, live, provider } }: it went on there, and finished
+ * Only a sign-up whose location, Terms and account are all done can be carried, so the wallet app's browser starts at the wallet
+ * step and nothing can be skipped. The code is 192 random bits, lives 10 minutes, works once, and only on the same internet
+ * connection (country and network operator) as the browser that made it. It is never logged and never stored in clear.
+ */
+const findCarry = async (env, code, now) => {
+  if (typeof code !== "string" || !/^[A-Za-z0-9_-]{32,64}$/.test(code)) return null;
+  const row = await env.DB.prepare("SELECT * FROM handoffs WHERE id = ? AND kind = 'carry' AND result IS NULL").bind(await sha256(code)).first();
+  return row && Date.parse(row.expires_at) > now ? row : null;
+};
+
+async function handleCarryStart(request, env, x) {
+  const c = await needSignup(request, env, x.now);
+  if (c.error) return c.error;
+  // Only the wallet step can go on elsewhere: every step before it must be done here (nobody skips one by changing browsers).
+  if (nextStep(c.row, false) !== "wallet") return json({ ok: false, error: "not_ready", state: signupState(c.row, c.session, x.now) }, 409);
+  const over = await limited(env, x.now, [
+    await perHour(env, "cars", c.row.id, LIMITS.carry.signup),
+    await perHour(env, "cari", clientKey(request), LIMITS.carry.ip),
+  ]);
+  if (over) return over;
+  const code = randomToken(24), until = x.now + MINUTES * 60_000;
+  await env.DB.batch([
+    // one live code per sign-up: a new tap replaces the one before (a code already used stays: it tells Safari what happened)
+    env.DB.prepare("DELETE FROM handoffs WHERE kind = 'carry' AND ((signup_id = ? AND result IS NULL) OR expires_at < ?)").bind(c.row.id, iso(x.now)),
+    env.DB.prepare("INSERT INTO handoffs (id, kind, user_id, signup_id, purpose, net, created_at, expires_at) VALUES (?, 'carry', NULL, ?, 'carry', ?, ?, ?)")
+      .bind(await sha256(code), c.row.id, netOf(x.cf), iso(x.now), iso(until)),
+  ]);
+  return c.reply({ ok: true, code, url: `${new URL(request.url).origin}/connect?carry=${code}`, expiresAt: iso(until) });
+}
+
+async function handleCarryClaim(request, env, x) {
+  const session = await getSession(env, request, x.now);
+  if (session && session.user) return json({ ok: false, error: "already_signed_in" }, 409); // signed in here already: the dashboard, the code stays unused
+  const body = await readJson(request);
+  if (!body) return badJson();
+  const over = await limited(env, x.now, [await perHour(env, "carc", clientKey(request), LIMITS.claim.ip)]);
+  if (over) return over;
+  const row = await findCarry(env, body.code, x.now);
+  if (!row) return json({ ok: false, error: "carry_expired" }, 410);
+  // The same phone: the same internet connection as the browser that made the code (a link sent to someone else is useless).
+  if (x.cf && row.net && netOf(x.cf) !== row.net) return json({ ok: false, error: "carry_network" }, 403);
+  const sig = await env.DB.prepare("SELECT created_at FROM signups WHERE id = ?").bind(row.signup_id).first();
+  if (!sig) return json({ ok: false, error: "carry_expired" }, 410);
+  const token = randomToken(32), id = await sha256(token);
+  const created = Date.parse(sig.created_at), exp = expiryFor(x.now, created);
+  const r = await env.DB.batch([
+    // 1. the code is used, once, and only while its sign-up is still alive with location, Terms and account done. From now on the
+    //    row only remembers where the sign-up went (result = its new id), for Safari's questions, as long as the sign-up could live.
+    env.DB.prepare(`UPDATE handoffs SET result = ?, expires_at = ? WHERE id = ? AND kind = 'carry' AND result IS NULL AND expires_at > ?
+        AND EXISTS (SELECT 1 FROM signups s WHERE s.id = handoffs.signup_id AND s.expires_at > ? AND s.loc_city IS NOT NULL
+                    AND s.terms_version = ? AND s.identity_at IS NOT NULL)`)
+      .bind(id, iso(capFor(created)), row.id, iso(x.now), iso(x.now), TERMS_VERSION),
+    // 2. the sign-up itself moves to the new token (another hour, never past its three hours): Safari's old cookie opens nothing now
+    env.DB.prepare("UPDATE signups SET id = ?, expires_at = ? WHERE id = ? AND EXISTS (SELECT 1 FROM handoffs WHERE id = ? AND kind = 'carry' AND result = ?)")
+      .bind(id, iso(exp), row.signup_id, row.id, id),
+  ]);
+  if (r[0].meta.changes !== 1 || r[1].meta.changes !== 1) return json({ ok: false, error: "carry_expired" }, 410); // used a moment ago, or the sign-up ran out
+  return json({ ok: true, state: signupState(await reload(env, id), session, x.now) }, 200,
+    { "Set-Cookie": cookie(SIGNUP_COOKIE, token, Math.floor((exp - x.now) / 1000)) });
+}
+
 /* ---------------- 2. terms and account ---------------- */
 
 async function handleTerms(request, env, x) {
@@ -360,7 +440,7 @@ async function handleEmailVerify(request, env, x) {
 /* ---------------- 4. finish: the one atomic step that creates the account ---------------- */
 
 /**
- * Seven statements, one database transaction (D1 batch). Nothing is created unless EVERYTHING is still true at that moment;
+ * Eight statements, one database transaction (D1 batch). Nothing is created unless EVERYTHING is still true at that moment;
  * on any failure nothing at all changed, so nothing the person proved is burned. The values, in order: ?1 a one-time marker,
  * ?2 the pending session, ?3 its wallet, ?4 now, ?5 the oldest wallet proof still fresh, ?6 the sign-up, ?7 the Terms version,
  * ?8 provider, ?9 provider id, ?10 the username, ?11 early member (0 or 1), ?12 the new session id, ?13 its end.
@@ -368,7 +448,8 @@ async function handleEmailVerify(request, env, x) {
  *      are all still good and neither the wallet nor the identity has an account
  *   2  the account, built ONLY from database rows (the pending session's wallet, the sign-up), never from the request
  *   3  the full 30-day session for the user statement 2 just made, carrying the wallet proof time
- *   4-7 clean up, only if statement 3 happened
+ *   4  a sign-up that came here from another browser ("Open app" on a phone) notes the new account, so that browser can say it is done
+ *   5-8 clean up, only if statement 3 happened
  */
 const FINISH = [
   `UPDATE sessions SET proof = ?1
@@ -387,6 +468,7 @@ const FINISH = [
   `INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at)
    SELECT ?12, u.wallet, u.id, NULL, ?4, ?13, p.proven_at
      FROM sessions p JOIN users u ON u.wallet = p.wallet WHERE p.id = ?2 AND p.proof = ?1`,
+  "UPDATE handoffs SET user_id = (SELECT user_id FROM sessions WHERE id = ?12) WHERE kind = 'carry' AND result = ?6 AND EXISTS (SELECT 1 FROM sessions WHERE id = ?12)",
   "DELETE FROM handoffs WHERE signup_id = ?6 AND EXISTS (SELECT 1 FROM sessions WHERE id = ?12)",
   "DELETE FROM signups WHERE id = ?6 AND EXISTS (SELECT 1 FROM sessions WHERE id = ?12)",
   "DELETE FROM sessions WHERE id = ?2 AND proof = ?1 AND EXISTS (SELECT 1 FROM sessions WHERE id = ?12)",
@@ -503,6 +585,8 @@ const ROUTES = {
   "/api/signup/location/handoff/info": ["POST", handleHandoffInfo],
   "/api/signup/location/handoff/complete": ["POST", handleHandoffCompleteAlias],
   "/api/signup/location/handoff/claim": ["POST", handleHandoffClaim],
+  "/api/signup/carry": ["POST", handleCarryStart],
+  "/api/signup/carry/claim": ["POST", handleCarryClaim],
   "/api/signup/terms": ["POST", handleTerms],
   "/api/signup/account/reset": ["POST", handleAccountReset],
   "/api/signup/email": ["POST", handleEmail],

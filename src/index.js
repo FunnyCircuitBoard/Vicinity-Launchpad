@@ -15,6 +15,7 @@
  *   · /api/auth/google/start|callback · /api/auth/email/{start,verify} · /api/auth/logout
  * New sign-up, only while SIGNUP_FLOW=v2 (otherwise 404 not_enabled; src/signup.js, src/pwlogin.js):
  *   /api/signup/{start,state,terms,finish} · /api/signup/location(/choice) · /api/signup/location/handoff(/info,/complete,/claim)
+ *   · /api/signup/carry(/claim) (phones: "Open app" carries the sign-up into the wallet app's browser)
  *   · /api/signup/account/reset · /api/signup/email(/verify) · /api/auth/google/start?signup=1
  *   · /api/auth/email/login · /api/auth/password/reset(/start) · /api/me/password
  * Member profiles, only while PROFILES=on (otherwise 404 not_enabled; src/profiles.js):
