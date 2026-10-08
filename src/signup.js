@@ -9,7 +9,8 @@
  *   POST /api/signup/location/handoff            a one-time link so a phone's own browser can read the location
  *        .../handoff/info | /complete (the phone's browser, no cookie) | /claim (the wallet app collects the result)
  *   POST /api/signup/carry                       phones: a one-time code that carries this sign-up (at its wallet step) into a wallet app's browser
- *        .../carry/claim { code } (the wallet app's browser, no cookie: it gets its own one for the same sign-up)
+ *        .../carry/info { code } (what the wallet app's page shows before the person confirms: check number, community, masked login)
+ *        .../carry/claim { code } (the wallet app's browser, after the person confirmed: it gets its own cookie for the same sign-up)
  *   POST /api/signup/terms { version }           accept the Terms of Use (before ANY account step)
  *   POST /api/signup/account/reset               forget the account step only (to pick another Google / e-mail)
  *   POST /api/signup/email { email, password }   a 6-digit code to that address (the same answer for known and unknown ones)
@@ -24,7 +25,7 @@
 import { clearCookie, cookie, json, randomToken, readJson, sha256 } from "./http.js";
 import { SESSION_COOKIE, SESSION_SECONDS, cleanEmail, consumeEmailCode, getSession, isFresh, linkIdentity, sendEmailCode, validEmail } from "./auth.js";
 import { checkLocation, communityOf } from "./attest.js";
-import { networkCheck } from "./network.js";
+import { isRelayNetwork, networkCheck } from "./network.js";
 import { communityById } from "./community.js";
 import { countryCities } from "./cities.js";
 import { activeMint } from "./official.js";
@@ -48,6 +49,7 @@ const LIMITS = {
   finish: { signup: 10 },
   carry: { signup: 10, ip: 30 },          // "Open app" codes made per hour (per sign-up, per connection)
   claim: { ip: 30 },                      // codes tried per hour, per connection (a code is 192 random bits: this only keeps the noise down)
+  carryInfo: { ip: 60 },                  // codes looked at per hour, per connection (the wallet app's page asks once before the person confirms)
 };
 
 /** The whole site's ceiling on new sign-ups per hour. A launch-day crowd can raise it in the dashboard (SIGNUP_MAX_PER_HOUR) without a deploy, like EMAIL_MAX_PER_HOUR. */
@@ -55,6 +57,8 @@ const siteStarts = (env) => (Number(env.SIGNUP_MAX_PER_HOUR) > 0 ? Number(env.SI
 
 const maskEmail = (e) => { const [local, domain] = String(e).split("@"); return `${local.slice(0, 1)}***@${domain}`; };
 const maskWallet = (w) => `${w.slice(0, 4)}…${w.slice(-4)}`;
+/** A first name as the wallet app's page may show it before the person confirms: enough to recognise their own ("Sa•••"), no more. */
+const maskName = (n) => { const a = Array.from(String(n || "").trim()); return a.length ? `${a.slice(0, a.length > 3 ? 2 : 1).join("")}•••` : "•••"; };
 
 const parseChoices = (text) => { try { const a = JSON.parse(text); return Array.isArray(a) ? a : null; } catch { return null; } };
 
@@ -132,7 +136,13 @@ async function handleStart(request, env, x) {
 async function handleState(request, env, x) {
   const row = await getSignup(env, request, x.now);
   const session = await getSession(env, request, x.now);
-  if (row) return json({ ok: true, state: signupState(row, session, x.now) });
+  if (row) {
+    const state = signupState(row, session, x.now);
+    // An "Open app" link of this sign-up that can still be used: the page that shows a link knows when another tab replaced it
+    const live = await env.DB.prepare("SELECT id FROM handoffs WHERE kind = 'carry' AND signup_id = ? AND result IS NULL AND expires_at > ?").bind(row.id, iso(x.now)).first();
+    if (live) state.carry = { ref: carryRef(live.id) };
+    return json({ ok: true, state });
+  }
   // No sign-up yet: nothing is done, except a wallet proven in this browser first (an old bookmark, or the Log in tab with a
   // new wallet), which counts as done exactly as the answer of /start says. Still creates nothing.
   const state = signupState({}, session, x.now);
@@ -285,38 +295,82 @@ async function handleHandoffClaim(request, env, x) {
  * On a phone, Safari or Chrome has no wallet in it, and "Open app" opens the page inside the wallet app (Phantom, Solflare...),
  * whose browser has its own cookies: without help the sign-up would start again there, where Google can't run. So "Open app"
  * carries it over, like the location hand-off, the other way round:
- *   1. Safari / Chrome (its sign-up cookie):  POST /api/signup/carry → a one-time code in the "Open app" link (only its hash is kept)
- *   2. the wallet app's browser (no cookie):  POST /api/signup/carry/claim { code } → its own sign-up cookie for THE SAME sign-up,
- *      which moves there: Safari's cookie no longer opens it, so exactly one browser can carry on with it
- *   3. Safari / Chrome again:                 GET /api/signup/state → { carried: { done, live, provider } }: it went on there, and finished
+ *   1. Safari / Chrome (its sign-up cookie):  POST /api/signup/carry → a one-time code in the "Open app" link (only its hash is kept),
+ *      and a two-digit check number Safari shows next to the link
+ *   2. the wallet app's browser (no cookie):  POST /api/signup/carry/info { code } → the same check number, the community and the
+ *      masked login, so the person can see it is THEIR sign-up. Nothing is taken over yet.
+ *   3. the person confirms there:             POST /api/signup/carry/claim { code } → its own sign-up cookie for THE SAME sign-up,
+ *      which moves there: Safari's cookie no longer opens it, so exactly one browser can carry on with it. A wallet proven in that
+ *      browser BEFORE the claim never counts for it (its pending session is dropped, and finish wants a proof made after the claim).
+ *   4. Safari / Chrome again:                 GET /api/signup/state → { carried: { done, live, provider, login? } }: what became of it
  * Only a sign-up whose location, Terms and account are all done can be carried, so the wallet app's browser starts at the wallet
- * step and nothing can be skipped. The code is 192 random bits, lives 10 minutes, works once, and only on the same internet
- * connection (country and network operator) as the browser that made it. It is never logged and never stored in clear.
+ * step and nothing can be skipped. The code is 192 random bits, lives 10 minutes, works once, and only from the very connection of
+ * the browser that made it (the same IPv4 address, or the same IPv6 /64: Safari and the wallet app of one phone share it; a
+ * neighbour on the same internet provider does not). Behind iCloud Private Relay (or another relay) Safari has no such connection
+ * in common with the wallet app, so no code is made: the page offers the pairing instead (sign in the wallet app, finish in Safari).
+ * The code is never logged and never stored in clear; the connection is kept only as a salted hash.
  */
 const findCarry = async (env, code, now) => {
   if (typeof code !== "string" || !/^[A-Za-z0-9_-]{32,64}$/.test(code)) return null;
   const row = await env.DB.prepare("SELECT * FROM handoffs WHERE id = ? AND kind = 'carry' AND result IS NULL").bind(await sha256(code)).first();
   return row && Date.parse(row.expires_at) > now ? row : null;
 };
+/** The connection a code is bound to: a salted hash of the IPv4 address or of the IPv6 /64 (src/limits.js clientKey), never the address. */
+const carryNet = (env, request) => limitKey(env, "carryip", clientKey(request));
+/** The two-digit check number of a code (the same on both screens, derived from the code: nothing more to store). */
+async function carryPin(code) {
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`carry-pin\n${code}`)));
+  return String(10 + (((h[0] << 8) | h[1]) % 90));
+}
+/** A short handle on a live code (a prefix of its stored hash), so a page can tell when another tab replaced its link. */
+const carryRef = (id) => String(id).slice(0, 12);
 
 async function handleCarryStart(request, env, x) {
   const c = await needSignup(request, env, x.now);
   if (c.error) return c.error;
   // Only the wallet step can go on elsewhere: every step before it must be done here (nobody skips one by changing browsers).
   if (nextStep(c.row, false) !== "wallet") return json({ ok: false, error: "not_ready", state: signupState(c.row, c.session, x.now) }, 409);
+  // Behind a relay (iCloud Private Relay...) the wallet app's browser can't share this connection: no code, the page pairs instead.
+  if (isRelayNetwork(x.cf)) return json({ ok: false, error: "carry_relay" }, 409);
   const over = await limited(env, x.now, [
     await perHour(env, "cars", c.row.id, LIMITS.carry.signup),
     await perHour(env, "cari", clientKey(request), LIMITS.carry.ip),
   ]);
   if (over) return over;
-  const code = randomToken(24), until = x.now + MINUTES * 60_000;
+  const code = randomToken(24), until = x.now + MINUTES * 60_000, id = await sha256(code);
   await env.DB.batch([
     // one live code per sign-up: a new tap replaces the one before (a code already used stays: it tells Safari what happened)
     env.DB.prepare("DELETE FROM handoffs WHERE kind = 'carry' AND ((signup_id = ? AND result IS NULL) OR expires_at < ?)").bind(c.row.id, iso(x.now)),
     env.DB.prepare("INSERT INTO handoffs (id, kind, user_id, signup_id, purpose, net, created_at, expires_at) VALUES (?, 'carry', NULL, ?, 'carry', ?, ?, ?)")
-      .bind(await sha256(code), c.row.id, netOf(x.cf), iso(x.now), iso(until)),
+      .bind(id, c.row.id, await carryNet(env, request), iso(x.now), iso(until)),
   ]);
-  return c.reply({ ok: true, code, url: `${new URL(request.url).origin}/connect?carry=${code}`, expiresAt: iso(until) });
+  return c.reply({ ok: true, code, pin: await carryPin(code), ref: carryRef(id), url: `${new URL(request.url).origin}/connect?carry=${code}`, expiresAt: iso(until) });
+}
+
+/** A live code that this connection may use: { row } or { error } (the code is unknown, used or old; or it is another connection's). */
+async function usableCarry(env, request, code, now) {
+  const row = await findCarry(env, code, now);
+  if (!row) return { error: json({ ok: false, error: "carry_expired" }, 410) };
+  // The same phone: the very connection of the browser that made the code (a link that reaches anyone else is useless).
+  if (row.net !== await carryNet(env, request)) return { error: json({ ok: false, error: "carry_network" }, 403) };
+  return { row };
+}
+
+/**
+ * What the wallet app's page shows BEFORE anything is taken over, so the person can tell it is their own sign-up: the check number
+ * Safari shows, the community and the login, masked. Changes nothing (the code stays unused).
+ */
+async function handleCarryInfo(request, env, x) {
+  const body = await readJson(request);
+  if (!body) return badJson();
+  const over = await limited(env, x.now, [await perHour(env, "carv", clientKey(request), LIMITS.carryInfo.ip)]);
+  if (over) return over;
+  const u = await usableCarry(env, request, body.code, x.now);
+  if (u.error) return u.error;
+  const s = await env.DB.prepare("SELECT * FROM signups WHERE id = ? AND expires_at > ?").bind(u.row.signup_id, iso(x.now)).first();
+  if (!s || nextStep(s, false) !== "wallet") return json({ ok: false, error: "carry_expired" }, 410);
+  const login = s.provider === "email" ? { provider: "email", name: maskEmail(s.provider_id) } : { provider: s.provider, name: maskName(s.identity_name) };
+  return json({ ok: true, pin: await carryPin(body.code), community: { name: s.loc_name, country: s.loc_country }, login, expiresAt: u.row.expires_at });
 }
 
 async function handleCarryClaim(request, env, x) {
@@ -326,28 +380,33 @@ async function handleCarryClaim(request, env, x) {
   if (!body) return badJson();
   const over = await limited(env, x.now, [await perHour(env, "carc", clientKey(request), LIMITS.claim.ip)]);
   if (over) return over;
-  const row = await findCarry(env, body.code, x.now);
-  if (!row) return json({ ok: false, error: "carry_expired" }, 410);
-  // The same phone: the same internet connection as the browser that made the code (a link sent to someone else is useless).
-  if (x.cf && row.net && netOf(x.cf) !== row.net) return json({ ok: false, error: "carry_network" }, 403);
+  const u = await usableCarry(env, request, body.code, x.now);
+  if (u.error) return u.error;
+  const row = u.row;
   const sig = await env.DB.prepare("SELECT created_at FROM signups WHERE id = ?").bind(row.signup_id).first();
   if (!sig) return json({ ok: false, error: "carry_expired" }, 410);
   const token = randomToken(32), id = await sha256(token);
   const created = Date.parse(sig.created_at), exp = expiryFor(x.now, created);
   const r = await env.DB.batch([
     // 1. the code is used, once, and only while its sign-up is still alive with location, Terms and account done. From now on the
-    //    row only remembers where the sign-up went (result = its new id), for Safari's questions, as long as the sign-up could live.
-    env.DB.prepare(`UPDATE handoffs SET result = ?, expires_at = ? WHERE id = ? AND kind = 'carry' AND result IS NULL AND expires_at > ?
+    //    row only remembers where the sign-up went (result = its new id) and WHEN (created_at = the claim: finish wants a wallet
+    //    proven after it), for Safari's questions, as long as the sign-up could live.
+    env.DB.prepare(`UPDATE handoffs SET result = ?, created_at = ?, expires_at = ? WHERE id = ? AND kind = 'carry' AND result IS NULL AND expires_at > ?
         AND EXISTS (SELECT 1 FROM signups s WHERE s.id = handoffs.signup_id AND s.expires_at > ? AND s.loc_city IS NOT NULL
                     AND s.terms_version = ? AND s.identity_at IS NOT NULL)`)
-      .bind(id, iso(capFor(created)), row.id, iso(x.now), iso(x.now), TERMS_VERSION),
+      .bind(id, iso(x.now), iso(capFor(created)), row.id, iso(x.now), iso(x.now), TERMS_VERSION),
     // 2. the sign-up itself moves to the new token (another hour, never past its three hours): Safari's old cookie opens nothing now
     env.DB.prepare("UPDATE signups SET id = ?, expires_at = ? WHERE id = ? AND EXISTS (SELECT 1 FROM handoffs WHERE id = ? AND kind = 'carry' AND result = ?)")
       .bind(id, iso(exp), row.signup_id, row.id, id),
+    // 3. a wallet this browser proved BEFORE (its pending session) never counts for the sign-up it just took over: the person
+    //    connects and signs again, after seeing whose sign-up it is
+    env.DB.prepare("DELETE FROM sessions WHERE id = ? AND user_id IS NULL AND EXISTS (SELECT 1 FROM handoffs WHERE id = ? AND kind = 'carry' AND result = ?)")
+      .bind(session ? session.id : "", row.id, id),
   ]);
   if (r[0].meta.changes !== 1 || r[1].meta.changes !== 1) return json({ ok: false, error: "carry_expired" }, 410); // used a moment ago, or the sign-up ran out
-  return json({ ok: true, state: signupState(await reload(env, id), session, x.now) }, 200,
-    { "Set-Cookie": cookie(SIGNUP_COOKIE, token, Math.floor((exp - x.now) / 1000)) });
+  const cookies = [cookie(SIGNUP_COOKIE, token, Math.floor((exp - x.now) / 1000))];
+  if (session) cookies.push(clearCookie(SESSION_COOKIE));
+  return json({ ok: true, state: signupState(await reload(env, id), null, x.now) }, 200, { "Set-Cookie": cookies });
 }
 
 /* ---------------- 2. terms and account ---------------- */
@@ -445,7 +504,8 @@ async function handleEmailVerify(request, env, x) {
  * ?2 the pending session, ?3 its wallet, ?4 now, ?5 the oldest wallet proof still fresh, ?6 the sign-up, ?7 the Terms version,
  * ?8 provider, ?9 provider id, ?10 the username, ?11 early member (0 or 1), ?12 the new session id, ?13 its end.
  *   1  marks the pending wallet session with a one-time value, only if the session, the sign-up (Terms, community, identity)
- *      are all still good and neither the wallet nor the identity has an account
+ *      are all still good, neither the wallet nor the identity has an account, and, for a sign-up carried here from another
+ *      browser ("Open app"), the wallet was proven AFTER it arrived (never a proof this browser held before)
  *   2  the account, built ONLY from database rows (the pending session's wallet, the sign-up), never from the request
  *   3  the full 30-day session for the user statement 2 just made, carrying the wallet proof time
  *   4  a sign-up that came here from another browser ("Open app" on a phone) notes the new account, so that browser can say it is done
@@ -457,7 +517,8 @@ const FINISH = [
       AND EXISTS (SELECT 1 FROM signups s WHERE s.id = ?6 AND s.expires_at > ?4 AND s.terms_version = ?7
                   AND s.loc_city IS NOT NULL AND s.identity_at IS NOT NULL AND s.provider = ?8 AND s.provider_id = ?9)
       AND NOT EXISTS (SELECT 1 FROM users WHERE wallet = ?3)
-      AND NOT EXISTS (SELECT 1 FROM users WHERE provider = ?8 AND provider_id = ?9)`,
+      AND NOT EXISTS (SELECT 1 FROM users WHERE provider = ?8 AND provider_id = ?9)
+      AND NOT EXISTS (SELECT 1 FROM handoffs c WHERE c.kind = 'carry' AND c.result = ?6 AND c.created_at > sessions.proven_at)`,
   `INSERT INTO users (wallet, provider, provider_id, handle, name, early, created_at,
                       terms_version, terms_agreed_at, home_city, home_name, home_country, home_at, password_hash)
    SELECT p.wallet, s.provider, s.provider_id, ?10, s.identity_name, ?11, ?4,
@@ -502,6 +563,12 @@ async function recheckLocation(env, row, cf) {
   return !networkCheck(centre ? cf : { ...cf, latitude: null, longitude: null }, centre || {}, row.loc_country); // no centre: no distance part
 }
 
+/** A sign-up carried into this browser ("Open app") counts only a wallet proven after it arrived (the claim time is on its carry row). */
+async function provenBeforeCarry(env, signupId, session) {
+  const c = await env.DB.prepare("SELECT created_at FROM handoffs WHERE kind = 'carry' AND result = ?").bind(signupId).first();
+  return Boolean(c && !(session.proven_at >= c.created_at));
+}
+
 /** Why a finish changed nothing: the first thing that is no longer true, in plain codes. */
 async function whyNotFinished(env, row, session, now) {
   const sig = await env.DB.prepare("SELECT * FROM signups WHERE id = ? AND expires_at > ?").bind(row.id, iso(now)).first();
@@ -513,6 +580,7 @@ async function whyNotFinished(env, row, session, now) {
   const s = await env.DB.prepare("SELECT expires_at, proven_at FROM sessions WHERE id = ? AND user_id IS NULL AND wallet = ?").bind(session.id, session.wallet).first();
   if (!s || Date.parse(s.expires_at) <= now) return json({ ok: false, error: "wallet_required" }, 400);
   if (!isFresh(s, now)) return json({ ok: false, error: "wallet_expired" }, 403);
+  if (await provenBeforeCarry(env, row.id, s)) return json({ ok: false, error: "wallet_required" }, 400);
   if (await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(session.wallet).first()) return json({ ok: false, error: "wallet_taken" }, 409);
   if (await env.DB.prepare("SELECT id FROM users WHERE provider = ? AND provider_id = ?").bind(row.provider, row.provider_id).first()) return json({ ok: false, error: "social_taken" }, 409);
   if (sig.terms_version !== TERMS_VERSION) return json({ ok: false, error: "terms_required" }, 400);
@@ -533,6 +601,7 @@ export async function handleSignupFinish(request, env, now = Date.now(), cf = re
   // These checks only give precise answers: the transaction below checks everything again.
   if (!session || !session.wallet) return json({ ok: false, error: "wallet_required" }, 400);
   if (!isFresh(session, now)) return json({ ok: false, error: "wallet_expired" }, 403);
+  if (await provenBeforeCarry(env, row.id, session)) return json({ ok: false, error: "wallet_required" }, 400);
   if (row.terms_version !== TERMS_VERSION) return json({ ok: false, error: "terms_required" }, 400);
   if (!row.loc_city) return json({ ok: false, error: "location_required" }, 400);
   if (!row.identity_at) return json({ ok: false, error: "account_required", ...(row.pending_email ? { pending: true } : {}) }, 400);
@@ -586,6 +655,7 @@ const ROUTES = {
   "/api/signup/location/handoff/complete": ["POST", handleHandoffCompleteAlias],
   "/api/signup/location/handoff/claim": ["POST", handleHandoffClaim],
   "/api/signup/carry": ["POST", handleCarryStart],
+  "/api/signup/carry/info": ["POST", handleCarryInfo],
   "/api/signup/carry/claim": ["POST", handleCarryClaim],
   "/api/signup/terms": ["POST", handleTerms],
   "/api/signup/account/reset": ["POST", handleAccountReset],

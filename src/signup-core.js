@@ -73,8 +73,11 @@ export async function touchSignup(env, row, request, now = Date.now()) {
 }
 
 /**
- * Throw away this browser's half-done sign-up (and any hand-off bound to it). Returns the Set-Cookie values that clear the
- * `vsu` cookie ([] when the request carried none). Never throws: a person who just signed in must not fail on tidying up.
+ * Throw away this browser's half-done sign-up (and any hand-off bound to it): the person just signed in to an account they
+ * already had. A sign-up that was carried here from another browser ("Open app") leaves a note on its carry row, so that
+ * browser can say what happened (the wallet already had an account) instead of "it ran out". Returns the Set-Cookie values
+ * that clear the `vsu` cookie ([] when the request carried none). Never throws: a person who just signed in must not fail on
+ * tidying up.
  */
 export async function endSignup(env, request) {
   const token = getCookie(request, SIGNUP_COOKIE);
@@ -84,6 +87,7 @@ export async function endSignup(env, request) {
       await ensureSignupSchema(env.DB);
       const id = await sha256(token);
       await env.DB.batch([
+        env.DB.prepare("UPDATE handoffs SET purpose = 'login' WHERE kind = 'carry' AND result = ? AND EXISTS (SELECT 1 FROM signups WHERE id = ?)").bind(id, id),
         env.DB.prepare("DELETE FROM handoffs WHERE signup_id = ?").bind(id),
         env.DB.prepare("DELETE FROM signups WHERE id = ?").bind(id),
       ]);
@@ -125,18 +129,20 @@ export async function recordIdentity(env, request, provider, who, now, { walletD
 /**
  * A sign-up that this browser carried into a wallet app's own browser (src/signup.js, "carry"): the browser's `vsu` cookie no
  * longer opens the sign-up (it moved), but it can still learn what became of it. Returns null when nothing was carried from here,
- * or { done, provider, live }: done = the account was created there, live = it is still going on there.
+ * or { done, provider, live } (+ login: true): done = the account was created there, live = it is still going on there, login =
+ * it ended there because the person signed in to an account they already had (a wallet that was a member's already).
  */
 export async function carriedFrom(env, request, now = Date.now()) {
   const token = getCookie(request, SIGNUP_COOKIE);
   if (!token || token.length > 100) return null;
-  const h = await env.DB.prepare("SELECT result, user_id, expires_at FROM handoffs WHERE kind = 'carry' AND signup_id = ? AND result IS NOT NULL")
+  const h = await env.DB.prepare("SELECT result, user_id, purpose, expires_at FROM handoffs WHERE kind = 'carry' AND signup_id = ? AND result IS NOT NULL")
     .bind(await sha256(token)).first();
   if (!h || Date.parse(h.expires_at) <= now) return null;
   if (h.user_id != null) {
     const u = await env.DB.prepare("SELECT provider FROM users WHERE id = ?").bind(h.user_id).first();
     return { done: true, live: false, provider: u ? u.provider : null };
   }
+  if (h.purpose === "login") return { done: false, live: false, provider: null, login: true };
   const s = await env.DB.prepare("SELECT provider, expires_at FROM signups WHERE id = ?").bind(h.result).first();
   return { done: false, live: Boolean(s && Date.parse(s.expires_at) > now), provider: s ? s.provider : null };
 }

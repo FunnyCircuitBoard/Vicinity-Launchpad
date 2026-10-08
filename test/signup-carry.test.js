@@ -143,8 +143,27 @@ test("the same phone only: another internet connection can't use the code (and d
   assert.equal(r.status, 403);
   assert.deepEqual(await r.json(), { ok: false, error: "carry_network" });
   assert.equal(friend.has("vsu"), false);
+  // review F1: another customer of the SAME internet provider (same country and network operator, another address) is not this phone
+  const neighbour = browser(env, { ip: "203.0.113.200", cf: comcast() });
+  assert.equal((await claim(neighbour, code)).error, "carry_network");
+  assert.equal((await neighbour.post("/api/signup/carry/info", { code })).error, "carry_network", "and can't even read whose sign-up it is");
+  assert.equal(neighbour.has("vsu"), false);
   assert.equal((await stateOf(safari)).next, "wallet", "Safari still has it");
   assert.equal((await claim(phantom(), code)).ok, true, "the phone itself still can");
+});
+
+test("IPv6: the code is bound to the phone's /64 (Safari and the wallet app may use different addresses in it), never to the provider", async () => {
+  const net6 = (ip) => ({ ip, cf: comcast() });
+  const safari = browser(env, net6("2001:db8:44:7:1111:2222:3333:4444"));
+  const j = await journey(safari, box, { via: "google", sub: "g-v6", until: "account" });
+  assert.equal(j.account.to, "/connect?step=wallet");
+  const { code } = await carry(safari);
+  assert.equal((await claim(browser(env, net6("2001:db8:44:8::9")), code)).error, "carry_network", "another /64 of the same provider");
+  assert.equal((await claim(browser(env, net6("203.0.113.9")), code)).error, "carry_network", "IPv4 is another connection too");
+  assert.equal((await claim(browser(env, net6("2001:db8:44:7:abcd::9")), code)).ok, true, "the same /64: the same phone");
+  const stored = await rows(env.DB, "SELECT net FROM handoffs WHERE kind = 'carry'");
+  assert.ok(stored.every((h) => /^carryip:[A-Za-z0-9_-]{22}$/.test(h.net)), "kept only as a salted hash, never the address");
+  assert.ok(!(await dumpAll(env.DB)).includes("2001:db8:44:7"), "the address is in no row");
 });
 
 test("made-up, wrong-kind and malformed codes open nothing; claims are counted per connection", async () => {
@@ -229,4 +248,109 @@ test("the code is in exactly one answer (the one that made it), and in no log li
     assert.equal(seenApp.filter((t) => t.includes(code)).length, 0);
     assert.ok(!lines.some((l) => l.includes(code)), "never logged");
   } finally { Object.assign(console, orig); }
+});
+
+/* ---------------- review fixes: whose sign-up it is, before anything is taken over (SEC-1, F1, F2, F5, F7, COR-1) ---------------- */
+
+test("info: the wallet app's page sees the check number Safari shows, the community and the login (masked), and nothing is taken over", async () => {
+  const safari = await safariAtWallet("g-sakib");
+  const made = await carry(safari);
+  assert.match(made.pin, /^[1-9]\d$/, "two digits");
+  assert.match(made.ref, /^[A-Za-z0-9_-]{12}$/);
+  const app = phantom();
+  const info = await app.post("/api/signup/carry/info", { code: made.code });
+  assert.deepEqual(info, { ok: true, pin: made.pin, community: { name: "Utica", country: "US" }, login: { provider: "google", name: "Gg•••" }, expiresAt: made.expiresAt });
+  assert.equal(app.has("vsu"), false, "no sign-up cookie: nothing moved");
+  assert.equal((await stateOf(safari)).next, "wallet", "Safari still has it");
+  assert.equal((await stateOf(safari)).carry.ref, made.ref, "and its live link is the one it made");
+  assert.equal((await claim(app, made.code)).ok, true, "the code still works after being looked at");
+  assert.equal((await app.post("/api/signup/carry/info", { code: made.code })).error, "carry_expired", "a used code shows nothing");
+  for (const code of [undefined, 7, "short", "x".repeat(32)]) assert.equal((await app.post("/api/signup/carry/info", { code })).error, "carry_expired");
+});
+
+test("info for an e-mail sign-up shows the masked address, never the whole one", async () => {
+  const safari = browser(env, PHONE_NET);
+  await journey(safari, box, { via: "email", email: "owner@example.com", until: "account" });
+  const { code } = await carry(safari);
+  const info = await phantom().post("/api/signup/carry/info", { code });
+  assert.deepEqual(info.login, { provider: "email", name: "o***@example.com" });
+});
+
+test("SEC-1: a browser that proved a wallet BEFORE it claims someone's code can't finish with that proof (no zero-click account)", async () => {
+  // the attacker's own sign-up, carried; the victim's browser proved a NEW wallet a minute earlier (a pending session, no account)
+  const attacker = await safariAtWallet("g-attacker");
+  const { code } = await carry(attacker);
+  const victim = phantom(), vw = await wallet();
+  assert.equal((await doWallet(victim, vw)).next, "signup");
+  const pending = victim.jar.get("vs");
+  advance(60_000);
+  const got = await victim.send("/api/signup/carry/claim", { method: "POST", body: { code } });
+  assert.equal(got.status, 200);
+  assert.ok(got.headers.getSetCookie().some((c) => /^vs=; /.test(c)), "the earlier wallet session is cleared...");
+  assert.equal(await one(env.DB, "SELECT id FROM sessions WHERE id = ?", await sha256(pending)), null, "...and deleted");
+  const st = (await got.json()).state;
+  assert.equal(st.wallet.done, false, "the wallet step is open again");
+  assert.equal(st.next, "wallet", "nothing finishes by itself");
+  assert.equal((await stateOf(victim)).next, "wallet");
+  assert.equal((await finish(victim)).error, "wallet_required");
+  assert.equal((await rows(env.DB, "SELECT * FROM users")).length, 0);
+});
+
+test("SEC-1: finish wants a wallet proven AFTER the claim, even with a session the claim did not see", async () => {
+  const safari = await safariAtWallet("g-guard");
+  const { code } = await carry(safari);
+  // a wallet proven a minute BEFORE the claim, in another jar (the claim can't drop it), then handed to the claiming browser
+  const other = phantom(), w = await wallet();
+  assert.equal((await doWallet(other, w)).next, "signup");
+  advance(60_000);
+  const app = phantom();
+  assert.equal((await claim(app, code)).ok, true);
+  app.jar.set("vs", other.jar.get("vs"));
+  const r = await app.send("/api/signup/finish", { method: "POST", body: {} });
+  assert.equal(r.status, 400);
+  assert.equal((await r.json()).error, "wallet_required");
+  assert.equal((await rows(env.DB, "SELECT * FROM users")).length, 0, "nothing was created");
+  // signing now (after the claim) is what counts
+  advance(1000);
+  assert.equal((await doWallet(app, w)).next, "signup");
+  assert.equal((await finish(app)).ok, true);
+  assert.equal((await one(env.DB, "SELECT provider_id FROM users WHERE wallet = ?", w.address)).provider_id, "g-guard");
+});
+
+test("COR-1: Safari behind iCloud Private Relay (or another relay) gets no code: the page pairs instead", async () => {
+  for (const cf of [comcast({ asn: 13335, asOrganization: "Cloudflare, Inc." }), comcast({ asn: 36183, asOrganization: "Akamai Technologies, Inc." }),
+    comcast({ asn: 54113, asOrganization: "Fastly, Inc." }), comcast({ asn: 209242, asOrganization: "Cloudflare London, LLC" })]) {
+    const safari = browser(env, { ip: "172.16.4.4", cf });
+    const j = await journey(safari, box, { via: "google", sub: `g-relay-${cf.asn}`, until: "account" });
+    assert.equal(j.account.to, "/connect?step=wallet", "the location and the account work behind a relay");
+    const r = await safari.send("/api/signup/carry", { method: "POST", body: {} });
+    assert.equal(r.status, 409, cf.asOrganization);
+    assert.deepEqual(await r.json(), { ok: false, error: "carry_relay" });
+  }
+  assert.equal((await rows(env.DB, "SELECT * FROM handoffs WHERE kind = 'carry'")).length, 0, "no code was made");
+});
+
+test("F5: the state names the live link (a newer tap replaces it, a used one is gone), so a tab can tell its link was replaced", async () => {
+  const safari = await safariAtWallet();
+  assert.equal((await stateOf(safari)).carry, undefined, "no link yet");
+  const first = await carry(safari);
+  assert.equal((await stateOf(safari)).carry.ref, first.ref);
+  const second = await carry(safari);
+  assert.notEqual(second.ref, first.ref);
+  assert.equal((await stateOf(safari)).carry.ref, second.ref, "the first tab's link is no longer the live one");
+  assert.equal((await claim(phantom(), second.code)).ok, true);
+  const st = await stateOf(safari);
+  assert.equal(st.carry, undefined);
+  assert.equal(st.carried.live, true);
+});
+
+test("F7: a carried sign-up that ends because the wallet already has an account: Safari learns it was a log-in, not that it ran out", async () => {
+  const m = await journey(browser(env, PHONE_NET), box, { via: "google", sub: "g-member" });
+  assert.equal(m.finish.ok, true);
+  const safari = await safariAtWallet("g-newcomer");
+  const app = phantom();
+  assert.equal((await claim(app, (await carry(safari)).code)).ok, true);
+  assert.equal((await doWallet(app, m.w)).next, "/dashboard", "the member's wallet signs that member in");
+  assert.deepEqual((await stateOf(safari)).carried, { done: false, live: false, provider: null, login: true });
+  assert.equal((await rows(env.DB, "SELECT * FROM signups")).length, 0);
 });
