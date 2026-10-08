@@ -168,6 +168,7 @@
     li.classList.add("is-ok");
     if (!d.launched) t.textContent = "Ranks go live the moment $VICINITY launches. You joined before launch: 🌱 Early member badge unlocked.";
     else if (h.rank) t.textContent = `#${fmt(h.rank)} of ${fmt(h.total)} holders · top ${pctText(h.percentile)}% · ${fmt(h.amount)} $VICINITY`;
+    else if (h.team) t.textContent = `${fmt(h.amount)} $VICINITY · team wallet, not ranked`;
     else if (h.amount > 0) t.textContent = `${fmt(h.amount)} $VICINITY`;
     else t.textContent = "This wallet doesn't hold $VICINITY yet. You can still join your city; holding unlocks posting, voting and your rank.";
     $("#ob-locate").addEventListener("click", findHome);

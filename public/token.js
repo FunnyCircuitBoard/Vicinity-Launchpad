@@ -114,7 +114,7 @@
     const max = holders[0]?.percent || 1;
     const pct = el("td", "num", `${pctText(h.percent)}%`);
     const bar = el("span", "pct-bar"), fill = el("span"); fill.style.width = `${Math.max(2, (h.percent / max) * 100)}%`; bar.append(fill); pct.append(bar);
-    tr.append(el("td", null, h.rank ? String(h.rank) : isTeam(h) ? "Team" : "Pool"), w, el("td", "num", fmt(h.amount)), pct);
+    tr.append(el("td", h.rank ? null : "is-unranked", h.rank ? String(h.rank) : isTeam(h) ? "Team" : "Pool"), w, el("td", "num", fmt(h.amount)), pct);
     return tr;
   }
   const query = () => $("#holders-find").value.trim();
@@ -210,6 +210,8 @@
   const pop = $("#rank-pop");
   async function lookup(addr) {
     const set = (id, t) => ($(id).textContent = t);
+    /** "To pass the next wallet" and "Founder amount": shown, or not (a team wallet). Guarded: a page from before them still checks a rank. */
+    const extraFacts = (on) => ["#rank-next-row", "#rank-founder-row"].forEach((id) => { const e = $(id); if (e) e.hidden = !on; });
     const btn = $("#lookup button"); if (btn.disabled) return; // one check at a time (Enter while the last one is on its way)
     lastLookup = null; // set again only when the pop-up shows a wallet's facts: a message alone has no row to show, after a refresh too
     // every lookup starts from a blank card: nothing of the wallet looked up before may stay on it
@@ -217,7 +219,7 @@
       set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "");
       ["#rank-amount", "#rank-share", "#rank-next", "#rank-founder"].forEach((i) => set(i, "—"));
       $("#rank-meter").style.width = "0%";
-      $("#rank-next-row").hidden = false; $("#rank-founder-row").hidden = false; // a team wallet hides them
+      extraFacts(true); // a team wallet hides them
     };
     /** Only a message to give (no wallet's facts): the meter and the facts step aside. */
     const only = (text) => { set("#rank-pct", text); $("#rank-bar").hidden = true; $("#rank-facts").hidden = true; $("#rank-show").hidden = true; };
@@ -247,14 +249,14 @@
     lastLookup = addr;
     const amount = d.amount || 0;
     set("#rank-amount", `${fmt(amount)} $VICINITY`);
-    set("#rank-share", amount ? `${pctText(d.percent || 0)}%` : "0%");
+    // the balance-only answer (the full list is out of reach) has no share: a dash, not "<0.01%" for a wallet holding 9%
+    set("#rank-share", !amount ? "0%" : typeof d.percent === "number" ? `${pctText(d.percent)}%` : "—");
     const founderMin = d.founderMin || 100_000; // the smallest founder amount: the exact one depends on the city
     set("#rank-founder", amount >= FOUNDER_MAX ? "✓ Enough for any city (hold it 7 days)"
       : amount >= founderMin ? "✓ Enough for smaller cities (hold it 7 days)" : `${fmt(founderMin - amount)} to reach the smallest`);
-    if (d.team === true && !d.rank) { // a published team wallet: what it holds, but no rank, no meter, no wallet to pass, no founder amount
-      set("#rank-num", "Team"); set("#rank-of", d.label || "Team wallet (public)");
+    if (d.team === true && !d.rank) { // a published team wallet: what it holds, but no rank (no "Rank" line at all), no meter, no wallet to pass, no founder amount
       set("#rank-pct", "Team wallet: published by Vicinity and labeled in the list. Ranks are for people only.");
-      set("#rank-founder", "—"); $("#rank-bar").hidden = true; $("#rank-next-row").hidden = true; $("#rank-founder-row").hidden = true;
+      set("#rank-founder", "—"); $("#rank-bar").hidden = true; extraFacts(false);
     }
     else if (d.label && !d.rank) { // a pool or curve: no rank, no wallet to pass, not a founder
       set("#rank-num", "Pool"); set("#rank-of", d.label); set("#rank-pct", "Pools and curves are listed but not ranked.");
@@ -263,7 +265,7 @@
     else if (d.rank) {
       set("#rank-num", `#${fmt(d.rank)}`); set("#rank-of", `of ${fmt(d.total)} holders`);
       set("#rank-pct", d.rank === 1 ? "The biggest holder of all 🏆" : `Top ${pctText(d.percentile)}% of all holders`);
-      set("#rank-next", d.next ? (d.rank === 1 ? "You're #1 🏆" : `${fmt(Math.ceil(d.next.gap))} to pass #${d.next.rank}`) : "—");
+      set("#rank-next", d.rank === 1 ? "You're #1 🏆" : d.next ? `${fmt(Math.ceil(d.next.gap))} to pass #${d.next.rank}` : "—");
       requestAnimationFrame(() => ($("#rank-meter").style.width = `${Math.max(2, 100 - d.percentile)}%`));
     } else if (!d.full && amount > 0) {
       set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "Holds $VICINITY. The full ranking is loading; try again in a minute.");

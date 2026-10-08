@@ -25,7 +25,7 @@ import { tickerOf } from "./tickers.js";
 import { ensureLaunchpadSchema } from "./store.js";
 import { _resetMarketLive, attributionFor, liveMarkets } from "./marketlive.js";
 import { _resetLaunchlab } from "./launchlab.js";
-import { getAllHolders } from "./chain.js";
+import { getAllHolders, isTeamWallet } from "./chain.js";
 import { DAY, iso } from "./policy.js";
 
 const SOL = PAIRS.SOL.mint;
@@ -86,7 +86,7 @@ async function holderCounts(env) {
 /**
  * Member and $VICINITY-holder counts for exactly the coins' communities, by the rule of /api/members (src/me.js: handleMembers):
  * a member is a person who calls the community home (test-lab accounts are not people), a holder is a member whose wallet holds
- * more than 0 in the latest balance sample (0 holders while there is no sample). Counted here rather than read from /api/members,
+ * more than 0 in the latest balance sample (0 holders while there is no sample) and is not a team wallet (not one of the people). Counted here rather than read from /api/members,
  * whose list stops at the 300 largest communities: a coin's community can be smaller than that and must still show its count.
  * Map(city id -> { members, holders }); a community nobody calls home has no entry.
  */
@@ -101,7 +101,7 @@ async function communityCounts(env, cityIds, now) {
     if (!cityIds.has(id)) continue;
     const c = out.get(id) || { members: 0, holders: 0 };
     c.members++;
-    if (balances && (balances[u.wallet] || 0) > 0) c.holders++;
+    if (balances && (balances[u.wallet] || 0) > 0 && !isTeamWallet(u.wallet)) c.holders++;
     out.set(id, c);
   }
   return out;

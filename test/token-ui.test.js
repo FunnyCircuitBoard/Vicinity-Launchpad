@@ -658,6 +658,10 @@ test("token page on phones: the holder list and the official list are re-laid ou
   // list 356 in 252-346 (% of supply cut). Checked in Chromium after this change: scrollWidth = clientWidth at 320, 360, 390 and 414.
   const block = (() => { const i = css.indexOf("@media (max-width: 480px) {\n  .holders {"); assert.ok(i >= 0, "the phone block exists"); return css.slice(i, css.indexOf("\n}\n", i)); })();
   assert.match(block, /\.holders__table tr \{ display: grid; grid-template-columns: 2\.8em minmax\(0, 1fr\) auto;/);
+  // 8 Oct 2026: "Team" (a team wallet, not ranked) ran into the wallet at 320-390 ("Team13qRa*****RiN", 1.6px apart). A label's size for
+  // "Team" and "Pool", the column as it was: checked in Chromium at 320, 360, 390 and 414, "Team" ends 8.6px before the wallet ("Pool" 13.6px),
+  // every wallet stays on one line (a 3.4em column put the curve's on two at 320) and no row is wider than its card
+  assert.match(block, /\.holders__table td\.is-unranked \{ font-size: \.7rem; line-height: 2; \}/);
   assert.match(block, /\.holders__table thead \{ position: sticky; top: 0;/, "the header row stays put while the rows scroll");
   assert.match(block, /\.holders__table :is\(th, td\):nth-child\(4\) \{ grid-column: 3; grid-row: 2;/, "% of supply under the amount");
   assert.match(block, /\.registry__table tr \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto;/);
@@ -676,6 +680,7 @@ test("token.js: a published team wallet is listed and labelled but never ranked:
   await p.settle(); p.flush();
   const cells = (i) => [p.rows()[i].children[0].textContent, p.rows()[i].children[1].children.slice(1).map((t) => t.textContent).join()];
   assert.deepEqual([cells(0), cells(1), cells(2), cells(13)], [["Team", "Team wallet (public)"], ["Pool", "PumpSwap liquidity pool"], ["1", ""], ["12", ""]]);
+  assert.deepEqual([0, 1, 2, 13].map((i) => p.rows()[i].children[0].classes.has("is-unranked")), [true, true, false, false], "'Team' and 'Pool' take the label size on phones (style.css)");
   assert.equal(p.$("#st-holders").textContent, "12", "the hero counts the 12 people, not the pool or the team wallet");
   assert.equal(p.$("#st-top10").textContent, "20.0%", "the top 10 people (2% each), not the team wallet's 30%");
   assert.match(p.statuses.at(-1), /^12 holders · updated /);
@@ -697,22 +702,35 @@ test("token.js: the rank check on a team wallet: what it holds and its share, a 
   const look = async (a) => { p.$("#holders-find").value = a; await p.$("#lookup").fire("submit"); await p.settle(); p.flush(); };
   const shown = (id) => !p.$(id).hidden;
 
+  const MESSAGE = "Team wallet: published by Vicinity and labeled in the list. Ranks are for people only.";
   await look(TEAM);
   assert.deepEqual(["#rank-num", "#rank-of", "#rank-pct", "#rank-amount", "#rank-share"].map((id) => p.$(id).textContent),
-    ["Team", "Team wallet (public)", "Team wallet: published by Vicinity and labeled in the list. Ranks are for people only.", "300,000,000 $VICINITY", "30.0%"]);
+    ["—", "", MESSAGE, "300,000,000 $VICINITY", "30.0%"]);
   assert.ok(!/#\d|🏆|biggest|of 35 holders/.test(["#rank-num", "#rank-of", "#rank-pct"].map((id) => p.$(id).textContent).join(" ")), "no rank, no trophy");
-  assert.deepEqual(["#rank-big", "#rank-facts", "#rank-bar", "#rank-next-row", "#rank-founder-row", "#rank-show"].map(shown), [true, true, false, false, false, true],
-    "its holdings and its row in the list; no meter, no 'to pass the next wallet', no founder amount");
+  // no "Rank Team · Team wallet (public)" line over the message (the 8 Oct review): the message says what it is, once, and a screen reader hears only it
+  assert.deepEqual(["#rank-big", "#rank-facts", "#rank-bar", "#rank-next-row", "#rank-founder-row", "#rank-show"].map(shown), [false, true, false, false, false, true],
+    "its holdings and its row in the list; no Rank line, no meter, no 'to pass the next wallet', no founder amount");
+  assert.equal(p.pop.getAttribute("aria-describedby"), "rank-pct");
   assert.equal(p.$("#rank-founder").textContent, "—", "nothing of a founder's amount even out of sight");
 
-  await look(FIRST); // the new #1: every part of the card is back
-  assert.deepEqual(["#rank-num", "#rank-of", "#rank-pct", "#rank-next"].map((id) => p.$(id).textContent), ["#1", "of 35 holders", "The biggest holder of all 🏆", "—"]);
-  assert.deepEqual(["#rank-bar", "#rank-next-row", "#rank-founder-row"].map(shown), [true, true, true]);
+  await look(FIRST); // the new #1: every part of the card is back, and nobody above it to pass
+  assert.deepEqual(["#rank-num", "#rank-of", "#rank-pct", "#rank-next"].map((id) => p.$(id).textContent), ["#1", "of 35 holders", "The biggest holder of all 🏆", "You're #1 🏆"]);
+  assert.deepEqual(["#rank-big", "#rank-bar", "#rank-next-row", "#rank-founder-row"].map(shown), [true, true, true, true]);
+  assert.equal(p.pop.getAttribute("aria-describedby"), "rank-big rank-pct");
 
-  // the chain cannot list every holder: the balance alone still says it is a team wallet
+  // the chain cannot list every holder: the balance alone still says it is a team wallet; it has no share in it, so none is made up
   answers[TEAM] = { launched: true, full: false, address: TEAM, amount: 300_000_000, rank: null, total: null, team: true, founderMin: 100_000 };
   await look(TEAM);
-  assert.deepEqual(["#rank-num", "#rank-of", "#rank-pct"].map((id) => p.$(id).textContent), ["Team", "Team wallet (public)", "Team wallet: published by Vicinity and labeled in the list. Ranks are for people only."]);
+  assert.deepEqual(["#rank-num", "#rank-of", "#rank-pct", "#rank-amount", "#rank-share"].map((id) => p.$(id).textContent), ["—", "", MESSAGE, "300,000,000 $VICINITY", "—"]);
+  assert.deepEqual(["#rank-big", "#rank-next-row", "#rank-founder-row"].map(shown), [false, false, false]);
+});
+
+test("token.js: the balance-only rank answer has no share of supply: a dash, not '<0.01%' (a person's too)", async () => {
+  const A = owner(1);
+  const p = page({ answer: (path) => (path.startsWith("/api/rank") ? { launched: true, full: false, address: A, amount: 91_600_000, rank: null, total: null, team: false, founderMin: 100_000 } : pageOf(fakeHolders(3), 0)) });
+  await p.settle(); p.flush();
+  p.$("#holders-find").value = A; await p.$("#lookup").fire("submit"); await p.settle();
+  assert.deepEqual(["#rank-amount", "#rank-share", "#rank-pct"].map((id) => p.$(id).textContent), ["91,600,000 $VICINITY", "—", "Holds $VICINITY. The full ranking is loading; try again in a minute."]);
 });
 
 test("token page: the words match the rule (team wallets are listed and labelled, never ranked or counted)", () => {

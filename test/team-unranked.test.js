@@ -4,8 +4,10 @@
 // position, badges and community boards, profiles) treats it as one of them.
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { IN_UTICA, MINT, browser, chain, newWorld, person, realClock, setHolding, useClock } from "./helpers/world.js";
+import { IN_UTICA, MINT, browser, chain, newWorld, person, realClock, setHolding, tick, useClock } from "./helpers/world.js";
 import { PF, quick } from "./helpers/profiles.js";
+import { CITY_COIN, LP, dexMock, seedCoin } from "./helpers/launchpad.js";
+import { _resetLaunchpad } from "../src/launchpad.js";
 import { OFFICIAL } from "../src/official.js";
 import { _resetSnapshots, getTopHolders, holderSnapshot, isOnCurve, isTeamWallet, rankOf } from "../src/chain.js";
 import { ensureProfilesSchema } from "../src/store.js";
@@ -120,6 +122,28 @@ test("/api/me for a member whose wallet is a team wallet: no rank, no Top 10 / T
   assert.deepEqual([after.holding.rank, after.holding.total], [2, 5], "the same wallet unlisted is a person again: a check that the test changed only the list");
 });
 
+test("a city's holder count leaves the team wallet out everywhere: the map's 'Holders' (/api/members), the Launchpad's 'hold $VICINITY' and the dashboard's 'Holders here'", async () => {
+  // the 8 Oct review: the dashboard's count left the team wallet's account out, the map's and the Launchpad's still counted it (one apart)
+  useClock("2026-10-12T12:00:00Z"); _resetLaunchpad();
+  const lp = LP({ VICINITY_MINT: MINT });
+  const owner = await person(lp, { home: IN_UTICA, holds: 9_000_000 });
+  const local = await person(lp, { home: IN_UTICA, holds: 2_000 });
+  await person(lp, { home: IN_UTICA }); // a member who holds nothing
+  await seedCoin(lp.DB, { city: 5142056, name: "Utica", mint: CITY_COIN });
+  await tick(lp); // the balance sample both counts read
+  const counts = async () => {
+    _resetLaunchpad();
+    const map = (await browser(lp).get("/api/members")).communities.find((c) => c.id === "5142056");
+    const coin = (await (await browser(lp).send("/api/launchpad", { fetchImpl: dexMock().fetchImpl })).json()).coins.find((c) => c.city.id === "5142056");
+    const here = (await local.get("/api/me")).community;
+    return { members: [map.members, coin.members.members], holders: [map.holders, coin.members.holders, here.holders] };
+  };
+  await asTeam(owner.w.address, async () => {
+    assert.deepEqual(await counts(), { members: [3, 3], holders: [1, 1, 1] }, "three members; one person holds: the team wallet is a member, not a holder in the count");
+  });
+  assert.deepEqual(await counts(), { members: [3, 3], holders: [2, 2, 2] }, "the same wallet unlisted is counted again: the test changed only the list");
+});
+
 test("a profile of a team wallet: its holdings, no rank, team: true", async () => {
   const pf = PF({ VICINITY_MINT: MINT });
   await ensureProfilesSchema(pf.DB);
@@ -147,4 +171,10 @@ test("the pages that show a rank say 'team wallet' where a team wallet has none,
   assert.equal((prof.match(/h && h\.team \? "Team wallet" : "—"/g) || []).length, 2, "a profile's Rank, drawn and refreshed");
   assert.ok(coin.includes('x.rank ? `#${x.rank}` : /^Team wallet/.test(str(x.label)) ? "Team" : "Pool"'), "the coin page's top five");
   assert.ok(lp.includes('"Counted by vicinity.city (pools and team wallets excluded)"'));
+  assert.ok(dash.includes('else if (h.team) t.textContent = `${fmt(h.amount)} $VICINITY · team wallet, not ranked`;'), "the first visit's 'Your position among all holders'");
+  // the rules page's count is every holding wallet (the balance sample's list.length): it says so, and is not read as people
+  assert.ok(read("rules.js").includes("${fmt(h.lastSample.holders)} holding wallets, pools and team wallets included)"));
+  const { badgesFor } = await import("../src/me.js");
+  const details = Object.fromEntries(badgesFor({ u: {}, launched: true, amount: 0, position: null }).map((b) => [b.id, b.detail]));
+  assert.deepEqual([details.top10, details.top100], ["One of the 10 biggest holders (pools and team wallets not counted).", "One of the 100 biggest holders (pools and team wallets not counted)."]);
 });

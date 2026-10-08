@@ -48,7 +48,7 @@ export function badgesFor({ u, launched, amount, position, seat, manager, admin,
       earned: Boolean(tenure && tenure.qualified && amount >= T), progress: tenure ? pct(tenure.days, tenure.needed) : 0 },
     { id: "whale", icon: "🐋", name: "Big holder", detail: "Hold 10,000,000+ $VICINITY.", earned: amount >= 10_000_000, progress: pct(amount, 10_000_000) },
     { id: "top100", icon: "💯", name: "Top 100", detail: "One of the 100 biggest holders (pools and team wallets not counted).", earned: Boolean(position?.rank && position.rank <= 100) },
-    { id: "top10", icon: "🏆", name: "Top 10", detail: "One of the 10 biggest holders.", earned: Boolean(position?.rank && position.rank <= 10) },
+    { id: "top10", icon: "🏆", name: "Top 10", detail: "One of the 10 biggest holders (pools and team wallets not counted).", earned: Boolean(position?.rank && position.rank <= 10) },
     { id: "city_founder", icon: "👑", name: seat && seat.status === "steward" ? "Seed Steward" : "City Founder",
       detail: seat && seat.status === "grace" ? "In grace: hold the founder amount again to keep the seat."
         : seat && seat.status === "steward" ? "Founded your city first and is on probation: confirmed after 90 days or when 50 verified local holders back it."
@@ -389,13 +389,14 @@ export async function handleMembers(env) {
     env.DB.prepare("SELECT home_city AS id, home_name AS name, home_country AS country, COUNT(*) AS members FROM users WHERE home_city IS NOT NULL AND provider != 'testlab' GROUP BY home_city ORDER BY members DESC LIMIT 300"),
     env.DB.prepare("SELECT wallet, home_city FROM users WHERE home_city IS NOT NULL AND provider != 'testlab'"),
   ]);
-  // Holders per city: members whose wallet holds > 0 in the latest balance sample.
+  // Holders per city: members whose wallet holds > 0 in the latest balance sample. A team wallet is not one of the people
+  // (as on the token page and the dashboard's "Holders here"), so it is not counted.
   let balances = null;
   try { balances = (await latestBalances(env, Date.now()))?.balances || null; } catch { balances = null; }
   const holders = new Map();
   if (balances) {
     for (const u of placed.results) {
-      if ((balances[u.wallet] || 0) > 0) holders.set(u.home_city, (holders.get(u.home_city) || 0) + 1);
+      if ((balances[u.wallet] || 0) > 0 && !isTeamWallet(u.wallet)) holders.set(u.home_city, (holders.get(u.home_city) || 0) + 1);
     }
   }
   return json({ members: total.results[0]?.n || 0,
