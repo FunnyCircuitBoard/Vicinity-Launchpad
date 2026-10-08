@@ -349,6 +349,7 @@ select option { background: var(--bg-2); }
 .faq__steps { margin: 12px 0 0; padding-left: 1.4em; display: grid; gap: 8px; color: var(--muted); }
 .faq__steps strong { color: var(--text); }
 .faq__steps li::marker { color: var(--pin-2); font-weight: 700; }
+:root[data-theme="light"] .faq__steps li::marker { color: var(--bad-text); } /* small orange text: --pin-2 is under 4.5:1 on the light FAQ */
 .faq .scam-note { margin-top: 16px; color: var(--text-2); }
 .faq .scam-note strong { color: var(--bad-text); }
 
@@ -498,7 +499,7 @@ select option { background: var(--bg-2); }
 .find-box:focus-within { border-color: var(--pin-2); }
 .find-box input { flex: 1 1 auto; width: 0; min-width: 0; padding: 8px 0; border: 0; background: none; outline: none; color: var(--text); font: 500 .88rem var(--mono); }
 .find-box input::placeholder { font-family: var(--body); color: var(--muted); opacity: 1; }
-.find-box .find-box__go { flex: none; min-height: 38px; padding: 0 14px; border-radius: 10px; font-size: .9rem; --rim-in: 12px; }
+.find-box .find-box__go { flex: none; min-height: 44px; padding: 0 14px; border-radius: 10px; font-size: .9rem; --rim-in: 12px; }
 .holders__hint { margin: 6px 2px 0; font-size: .8rem; line-height: 1.45; color: var(--muted); }
 /* phones: 16 px in the box, so iOS doesn't zoom the page in when it takes the keyboard (the answer's sheet would sit off screen) */
 @media (max-width: 600px) { .find-box input { font-size: 16px; } .find-box .find-box__go { padding: 0 12px; } }
@@ -515,12 +516,14 @@ select option { background: var(--bg-2); }
 .rank-pop.is-above .rank-pop__card { transform-origin: calc(100% - 50px) 100%; }
 .rank-pop__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-right: -6px; }
 .rank-pop__title { margin: 0; font: 600 .78rem/1.2 var(--display); text-transform: uppercase; letter-spacing: .14em; color: var(--pin-2); }
+:root[data-theme="light"] .rank-pop__title { color: var(--bad-text); } /* small orange text: --pin-2 is under 4.5:1 on the light card */
 .rank-pop__close { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; }
 .rank-pop__close:hover { color: var(--text); background: var(--card-2); }
 .rank-pop__addr { margin: 0 0 8px; color: var(--muted); font-size: .78rem; line-height: 1.45; word-break: break-all; }
 .rank-pop__addr:empty { display: none; }
 .rank-pop__big { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; margin: 0; }
 .rank-pop__big strong { font: 700 2.6rem/1.05 var(--display); letter-spacing: -.04em; background: linear-gradient(100deg, var(--text), var(--pin-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.rank-pop__big strong.is-none { background: none; color: var(--muted); } /* no rank (a wallet holding nothing): a plain dash, not a coloured bar */
 .rank-pop .meter { margin: 12px 0 8px; }
 .rank-pop__pct { margin: 0; font-weight: 600; color: var(--text-2); }
 /* the facts: one compact list (name at the left, value at the right; a long one wraps under its name) */
@@ -530,14 +533,22 @@ select option { background: var(--bg-2); }
 .rank-pop .rank-facts dt { font-size: .68rem; }
 .rank-pop .rank-facts dd { margin: 0 0 0 auto; font-size: .92rem; text-align: right; }
 .rank-pop #rank-show { min-height: 44px; padding: 0; }
-@media (max-width: 600px) {
-  .rank-pop { position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: 100%; }
-  .rank-pop__card { max-height: calc(100vh - 24px); overflow-y: auto; overscroll-behavior: contain; border-radius: 20px 20px 0 0; border-bottom: 0;
-    padding: 10px 12px calc(12px + env(safe-area-inset-bottom)) 16px; transform-origin: 50% 100%; }
+/* a phone, or a screen too short for it by the box (a phone on its side; token.js asks the same question): a compact sheet at the bottom
+   of the screen (at most 600 px wide, centred), its facts two by two, the name over the value */
+@media (max-width: 600px), (max-height: 500px) {
+  .rank-pop { position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: auto; max-width: 600px; margin: 0 auto; }
+  .rank-pop__card { max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain; border-radius: 20px 20px 0 0; border-bottom: 0;
+    padding: 8px 12px calc(10px + env(safe-area-inset-bottom)) 16px; transform-origin: 50% 100%; }
+  .rank-pop__head { margin-right: 0; } /* the card scrolls, so it clips: the close button's focus ring stays inside it */
+  .rank-pop__addr { margin-bottom: 4px; }
   .rank-pop__big strong { font-size: 2.2rem; }
-  .rank-pop .meter { margin: 10px 0 6px; }
-  .rank-pop .rank-facts { margin-top: 10px; }
-  .rank-pop .rank-facts div { padding: 7px 12px; }
+  .rank-pop .meter { margin: 8px 0 6px; }
+  .rank-pop .rank-facts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); margin-top: 8px; }
+  .rank-pop .rank-facts div { display: block; padding: 6px 10px; }
+  .rank-pop .rank-facts div + div { border-top: 0; }
+  .rank-pop .rank-facts div:nth-child(even) { border-left: 1px solid var(--line); }
+  .rank-pop .rank-facts div:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .rank-pop .rank-facts dd { margin: 1px 0 0; text-align: left; font-size: .88rem; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .rank-pop[open] .rank-pop__card { animation: rankPopIn .22s cubic-bezier(.2,.8,.2,1) both; }
@@ -545,7 +556,7 @@ select option { background: var(--bg-2); }
   .rank-pop.is-closing .rank-pop__card { animation: rankPopOut .14s ease-in both; }
   .rank-pop.is-closing::backdrop { animation: rankFade .14s ease-in reverse both; }
 }
-@media (prefers-reduced-motion: no-preference) and (max-width: 600px) {
+@media (prefers-reduced-motion: no-preference) and (max-width: 600px), (prefers-reduced-motion: no-preference) and (max-height: 500px) {
   .rank-pop[open] .rank-pop__card { animation-name: rankSheetIn; }
   .rank-pop.is-closing .rank-pop__card { animation-name: rankSheetOut; }
 }
@@ -554,6 +565,7 @@ select option { background: var(--bg-2); }
 @keyframes rankSheetIn { from { opacity: 0; transform: translateY(28px) scale(.98); } }
 @keyframes rankSheetOut { to { opacity: 0; transform: translateY(20px); } }
 @keyframes rankFade { from { opacity: 0; } }
+:root[data-motion="paused"] .rank-pop::backdrop { animation: none !important; } /* "Pause animations": the page-wide rule doesn't reach ::backdrop */
 /* the holder list: a box that scrolls on its own. Once the live list is in it (token.js adds .holders--live) it has a fixed height (about
    60% of the screen, never under 320px or over 640px), so the page stays the same length whether 50 or 50,000 wallets hold the token;
    before launch it is only as tall as its few placeholder rows. The table header stays put while the rows scroll. */

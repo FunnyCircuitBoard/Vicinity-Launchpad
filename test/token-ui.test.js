@@ -64,9 +64,11 @@ test("token page: one box in the holders section finds a wallet and checks its r
     assert.match(sec, /<h3 class="rank-pop__title" id="rank-pop-title">Where this wallet stands<\/h3>/);
     assert.match(sec, /<button class="rank-pop__close" type="button" id="rank-close" aria-label="Close">/);
     for (const id of ["rank-addr", "rank-big", "rank-num", "rank-of", "rank-bar", "rank-meter", "rank-pct", "rank-facts", "rank-amount", "rank-share", "rank-next", "rank-founder", "rank-show"]) assert.ok(sec.includes(`id="${id}"`), id);
-    for (const dt of ["Holds", "Share of supply", "To pass the next wallet", "Founder amount (100K to 1M by city size, held 7 days)"]) assert.ok(sec.includes(`<dt>${dt}</dt>`), dt);
+    // the four facts; the founder amount's long name (100K to 1M by city size, held 7 days) is the FAQ's answer, not a 2-line label
+    assert.deepEqual([...sec.matchAll(/<dt>([^<]+)<\/dt>/g)].map((m) => m[1]), ["Holds", "Share of supply", "To pass the next wallet", "Founder amount"]);
   }
   assert.doesNotMatch(css, /\.holders__tools|\.lookup\b|\.rank-card|\.gauge\b|#rank-result/, "the old box, form and rank card styles are gone");
+  assert.match(css, /\.find-box \.find-box__go \{ flex: none; min-height: 44px;/, "Check rank is a 44 px tap target, as the old button was 48");
 });
 
 test("token page: the FAQ at the bottom, How do I get $VICINITY? first (id buy): the four steps in order, the raydium.io warning; at most three more questions", () => {
@@ -89,12 +91,24 @@ test("token page: the FAQ at the bottom, How do I get $VICINITY? first (id buy):
     assert.ok(faq.indexOf("</section>") === faq.lastIndexOf("</section>"), "the FAQ is the last section");
   }
   assert.match(css, /\.faq \.scam-note strong \{ color: var\(--bad-text\); \}/, "the warning keeps its red, inside an answer too");
+  assert.match(src, /<summary>What is the founder amount\?<\/summary><p>How much \$VICINITY you need to hold to found your city: 100K to 1M by city size, held for 7 days\./);
+  // small orange text on the light theme: --pin-2 measured 3.91:1 (step numbers) and 3.78:1 (the pop-up's title); --bad-text is 5.5:1
+  assert.match(css, /:root\[data-theme="light"\] \.faq__steps li::marker \{ color: var\(--bad-text\); \}/);
+  assert.match(css, /:root\[data-theme="light"\] \.rank-pop__title \{ color: var\(--bad-text\); \}/);
 });
 
 test("token page: the pop-up is a little sheet on a phone and hangs from the box on a computer; it scales and fades in only when motion is welcome", () => {
   const rule = (sel) => { const i = css.indexOf(`${sel} {`); assert.ok(i >= 0, sel); return css.slice(i, css.indexOf("}", i)); };
   assert.match(rule(".rank-pop"), /position: absolute; inset: auto; top: var\(--pop-y, 20vh\); left: var\(--pop-x, 16px\);/, "absolute in the top layer: it scrolls with the page, by the box");
-  assert.match(css, /@media \(max-width: 600px\) \{\n  \.rank-pop \{ position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: 100%; \}/, "a sheet at the bottom of a phone's screen");
+  // a sheet at the bottom of a phone's screen, and of a short one (a phone on its side: 844x390 got the 462 px pop-up, cut off); token.js asks the same
+  assert.match(css, /@media \(max-width: 600px\), \(max-height: 500px\) \{\n  \.rank-pop \{ position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: auto; max-width: 600px; margin: 0 auto; \}/);
+  assert.ok(js.includes('window.matchMedia("(max-width: 600px), (max-height: 500px)")'), "the script's sheet is the style's sheet");
+  const sheet = css.slice(css.indexOf("@media (max-width: 600px), (max-height: 500px) {"), css.indexOf("\n}\n", css.indexOf("@media (max-width: 600px), (max-height: 500px) {")));
+  assert.match(sheet, /max-height: calc\(100dvh - 16px\)/, "the visible height on iOS (100vh is the tall one)");
+  assert.match(sheet, /\.rank-pop \.rank-facts \{ grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/, "the facts two by two: a little sheet (499 of 640 px at 320 before)");
+  assert.match(sheet, /\.rank-pop__head \{ margin-right: 0; \}/, "the close button's focus ring is not clipped at the sheet's edge");
+  assert.match(css, /@media \(prefers-reduced-motion: no-preference\) and \(max-width: 600px\), \(prefers-reduced-motion: no-preference\) and \(max-height: 500px\) \{\n  \.rank-pop\[open\] \.rank-pop__card \{ animation-name: rankSheetIn; \}/);
+  assert.match(css, /:root\[data-motion="paused"\] \.rank-pop::backdrop \{ animation: none !important; \}/, "Pause animations stills the backdrop's fade too");
   assert.match(css, /@media \(max-width: 600px\) \{ \.find-box input \{ font-size: 16px; \}/, "16 px: iOS never zooms the page in when the box takes the keyboard");
   const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference) {\n  .rank-pop[open] .rank-pop__card"));
   assert.match(motion, /^@media \(prefers-reduced-motion: no-preference\) \{\n  \.rank-pop\[open\] \.rank-pop__card \{ animation: rankPopIn \.22s cubic-bezier\(\.2,\.8,\.2,1\) both; \}/, "220 ms, only when motion is welcome");
@@ -129,13 +143,15 @@ const fakeHolders = (n) => Array.from({ length: n }, (_, i) => ({ owner: owner(i
 let minute = 0; const tick = () => ++minute;
 const pageOf = (all, offset) => ({ launched: true, mint: MINT, supply: 1e9, total: all.filter((h) => h.rank).length, count: all.length, full: true, holders: all.slice(offset, offset + 1000), more: offset + 1000 < all.length, updatedAt: `2026-10-03T12:${String(minute).padStart(2, "0")}:00Z` });
 
-function page({ answer, token = { launched: false, registry: [] }, hash = "", search = "" }) {
-  const nodes = new Map(), frames = [], calls = [], focused = [], scrolled = [], win = {};
+/** `desktop` ({ vw, vh, boxY, scrollY }): a computer's window, the box at page y boxY, the page scrolled to scrollY; the pop-up hangs
+ *  from the box there. showModal() then does what Chromium's does: its first focus scrolls the page towards the dialog (here, to the top). */
+function page({ answer, token = { launched: false, registry: [] }, hash = "", search = "", desktop = null, isAddr = (a) => typeof a === "string" && a.length >= 32 && a.length <= 44 }) {
+  const nodes = new Map(), frames = [], calls = [], focused = [], scrolled = [], win = {}, docEl = { clientWidth: 1280, style: {} };
   function node(tag = "div", sel = "") {
     const n = { tagName: tag.toUpperCase(), sel, children: [], dataset: {}, style: { setProperty(k, v) { n.style[k] = v; } }, attrs: {}, hidden: false, value: "", scrollTop: 0, _text: "", handlers: {}, classes: new Set(),
       get textContent() { return n._text; }, set textContent(t) { n._text = String(t); n.children = []; },
       append(...k) { n.children.push(...k); }, replaceChildren(...k) { n.children = k; }, scrollTo() { scrolled.push(`${n.sel} to a row`); }, offsetTop: 0, clientHeight: 400,
-      scrollIntoView(o) { scrolled.push(n.sel); }, focus() { focused.push(n.sel); }, setAttribute(k, v) { n.attrs[k] = String(v); }, getAttribute(k) { return n.attrs[k] ?? null; },
+      scrollIntoView(o) { scrolled.push(n.sel); }, focus() { focused.push(n.sel); }, contains(o) { return o === n; }, setAttribute(k, v) { n.attrs[k] = String(v); }, getAttribute(k) { return n.attrs[k] ?? null; },
       addEventListener(t, f, o) { (n.handlers[t] ||= []).push(f); }, fire(t, ev = {}) { const e = { preventDefault() { e.defaultPrevented = true; }, target: null, ...ev }; return Promise.all((n.handlers[t] || []).map((f) => f(e))).then(() => e); },
       classList: { add: (c) => n.classes.add(c), remove: (...c) => c.forEach((x) => n.classes.delete(x)), toggle: (c, on) => (on ? n.classes.add(c) : n.classes.delete(c)), contains: (c) => n.classes.has(c) } };
     return n;
@@ -144,10 +160,11 @@ function page({ answer, token = { launched: false, registry: [] }, hash = "", se
   $("#termsgate").hidden = true; // agreed already (the gate is site.js's)
   // the pop-up: a <dialog> as far as token.js uses one (showModal/close fire as the browser's do; "close" is an event of its own)
   const pop = $("#rank-pop"); pop.open = false; pop.shown = 0;
-  pop.showModal = () => { pop.open = true; pop.shown++; }; pop.close = () => { if (!pop.open) return; pop.open = false; pop.fire("close"); };
+  pop.showModal = () => { pop.open = true; pop.shown++; pop.atShow = { scrollBehavior: docEl.style.scrollBehavior, popY: pop.style["--pop-y"] }; if (desktop) win.scrollY = 0; };
+  pop.close = () => { if (!pop.open) return; pop.open = false; pop.fire("close"); };
   const $$ = (sel) => (sel === "#holders-body tr" ? $("#holders-body").children.filter((c) => c.tagName === "TR") : []);
   const el = (tag, cls, text) => { const n = node(tag); if (cls) n.classes.add(cls); if (text != null) n.textContent = text; return n; };
-  const V = { $, $$, el, toast() {}, copy() {}, fmt: (x) => Number(x).toLocaleString("en-US"), compact: (x) => String(x), mask: MASK, isAddr: (a) => typeof a === "string" && a.length >= 32 && a.length <= 44, official: null, reduced: true, // the fake owners are 44 characters
+  const V = { $, $$, el, toast() {}, copy() {}, fmt: (x) => Number(x).toLocaleString("en-US"), compact: (x) => String(x), mask: MASK, isAddr, official: null, reduced: true, // by default any 32 to 44 characters: the fake owners are 44 characters with 0s
     api: async (path) => { calls.push(path); await null; return path === "/api/token" ? token : answer(path); } };
   const statuses = []; const status = $("#holders-status"); Object.defineProperty(status, "textContent", { get: () => statuses[statuses.length - 1] || "", set: (t) => statuses.push(String(t)) });
   // the box: rows 46px tall, 400px of them in view; scrollTop clamps to the rows there are, as a browser's does, and stays clamped once rows go
@@ -156,12 +173,20 @@ function page({ answer, token = { launched: false, registry: [] }, hash = "", se
   Object.defineProperty(box, "scrollHeight", { get: () => $("#holders-body").children.length * ROW });
   Object.defineProperty(box, "scrollTop", { get: () => (top = Math.min(top, maxTop())), set: (v) => { top = Math.min(Math.max(0, Number(v)), maxTop()); } });
   Object.assign(win, { V, scrollX: 0, scrollY: 0, scrollTo() {}, addEventListener(t, f) { (win[`on${t}`] ||= []).push(f); } });
-  vm.runInNewContext(js, { window: win, document: { hidden: false, documentElement: { clientWidth: 1280 } }, location: { search, hash }, URLSearchParams, Intl, Date, setInterval: () => 0, setTimeout: (f) => f(), clearTimeout() {}, requestAnimationFrame: (f) => frames.push(f) });
+  if (desktop) { // the box is 52 px tall and ends 64 px from the right; the header's bottom is at 67 px; the pop-up is 420 x 444 once open
+    Object.assign(win, { innerHeight: desktop.vh, scrollY: desktop.scrollY, matchMedia: () => ({ matches: false }), scrollTo(o) { scrolled.push(`page to ${o.top}`); win.scrollY = o.top; } });
+    docEl.clientWidth = desktop.vw;
+    Object.assign($("#lookup"), { offsetTop: desktop.boxY, offsetLeft: desktop.vw - 64 - 460, offsetWidth: 460, offsetHeight: 52, offsetParent: null, clientTop: 0, clientLeft: 0 }); // as laid out
+    $(".site-header").getBoundingClientRect = () => ({ bottom: 67 });
+    $("#verify").scrollIntoView = (o) => { scrolled.push(`#verify ${o && o.behavior}`); win.scrollY = desktop.boxY - 84; }; // html's scroll-padding-top
+    Object.defineProperty(pop, "offsetWidth", { get: () => (pop.open ? 420 : 0) }); Object.defineProperty(pop, "offsetHeight", { get: () => (pop.open ? 444 : 0) });
+  }
+  vm.runInNewContext(js, { window: win, document: { hidden: false, documentElement: docEl }, location: { search, hash }, URLSearchParams, Intl, Date, setInterval: () => 0, setTimeout: (f) => f(), clearTimeout() {}, requestAnimationFrame: (f) => frames.push(f) });
   const settle = () => new Promise((r) => setImmediate(r));
   const frame = () => { const f = frames.shift(); if (f) f(); return Boolean(f); };
   const flush = () => { let n = 0; while (frame()) n++; return n; };
   const rows = () => $$("#holders-body tr"), visible = () => rows().filter((r) => !r.hidden);
-  return { $, box, rows, visible, settle, frame, flush, frames, calls, statuses, pop, focused, scrolled, win };
+  return { $, box, rows, visible, settle, frame, flush, frames, calls, statuses, pop, focused, scrolled, win, docEl };
 }
 
 test("token.js: 5,000 holders arrive in pages of 1,000 with progress in the status line, go into the table 250 per frame, every one of them, masked as before", async () => {
@@ -369,9 +394,12 @@ test("token.js: Check rank (or Enter) in the find box opens the pop-up with the 
   assert.equal(p.pop.getAttribute("aria-describedby"), "rank-big rank-pct", "announced with its rank and the line under it");
   assert.equal(p.$("#lookup button").textContent, "Check rank"); assert.equal(p.$("#lookup button").disabled, false);
   // a tap outside it (on the dialog itself, around its card) closes it; a tap inside does not
-  await p.pop.fire("click", { target: p.$("#rank-big") });
+  await p.pop.fire("pointerdown", { target: p.$("#rank-big") }); await p.pop.fire("click", { target: p.$("#rank-big") });
   assert.equal(p.pop.open, true, "a tap on the card keeps it");
-  await p.pop.fire("click", { target: p.pop });
+  // selecting the address with the mouse and letting go outside the card: the click lands on the dialog, but it began on the card
+  await p.pop.fire("pointerdown", { target: p.$("#rank-addr") }); await p.pop.fire("click", { target: p.pop });
+  assert.equal(p.pop.open, true, "a drag that ends outside keeps it");
+  await p.pop.fire("pointerdown", { target: p.pop }); await p.pop.fire("click", { target: p.pop });
   assert.equal(p.pop.open, false, "a tap outside closes it");
   // the close button
   await p.$("#lookup").fire("submit"); await p.settle();
@@ -445,6 +473,148 @@ test("token.js: /token?address=... fills the box, filters the list and opens the
   q.$("#termsgate").hidden = true; await q.$("#termsgate-agree").fire("click");
   assert.equal(q.pop.open, true, "it opens once the terms are agreed");
   assert.equal(q.$("#rank-of").textContent, "not holding yet");
+});
+
+test("token.js: one check at a time: Check rank or Enter again while the first check is on its way sends nothing", async () => {
+  const all = fakeHolders(300), me = owner(57);
+  let release = null;
+  const p = page({ answer: (path) => path.startsWith("/api/rank")
+    ? new Promise((r) => (release = () => r({ launched: true, full: true, address: me, amount: all[57].amount, rank: 58, total: 300, percent: all[57].percent, percentile: 19.33, next: { rank: 57, gap: 10 }, founderMin: 100_000 })))
+    : pageOf(all, 0) });
+  await p.settle(); p.flush();
+  p.$("#holders-find").value = me;
+  p.$("#lookup").fire("submit"); await p.settle();
+  assert.equal(p.$("#lookup button").disabled, true); assert.equal(p.$("#lookup button").textContent, "Checking…");
+  p.$("#lookup").fire("submit"); p.$("#lookup").fire("submit"); await p.settle();
+  assert.equal(p.calls.filter((c) => c.startsWith("/api/rank")).length, 1, "the second and third press asked nothing");
+  assert.equal(p.pop.open, false, "nothing opens before the answer");
+  release(); await p.settle();
+  assert.equal(p.pop.open, true); assert.equal(p.$("#rank-num").textContent, "#58");
+  assert.equal(p.$("#lookup button").disabled, false); assert.equal(p.$("#lookup button").textContent, "Check rank");
+});
+
+test("token.js: a mistyped address, no connection, a server error or too many checks: each its own message in the pop-up, never 'Ranks go live' on a live token", async () => {
+  // measured on the branch before this fix: all three of a 43-character typo (the server's 400 bad_address), a 500 and a dropped
+  // connection said "Ranks go live the moment $VICINITY launches" with every fact "At launch"
+  const B58 = (c) => c.padEnd(44, "y"); // 44 base58 characters: the page's own check passes them, as site.js's would
+  const answers = { [B58("T")]: { error: "bad_address", ok: false, _status: 400 }, [B58("W")]: { ok: false, error: "offline", _status: 0 },
+    [B58("F")]: { ok: false, _status: 500 }, [B58("S")]: { error: "slow_down", ok: false, _status: 429 }, [B58("N")]: { launched: false, address: B58("N"), founderMin: 100_000 } };
+  const p = page({ isAddr: (a) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a), answer: (path) => (path.startsWith("/api/rank") ? answers[new URL(path, "https://x").searchParams.get("address")] : { launched: false, holders: [] }) });
+  await p.settle();
+  const check = async (a) => { p.$("#holders-find").value = a; await p.$("#lookup").fire("submit"); await p.settle();
+    const out = { text: p.$("#rank-pct").textContent, alone: p.$("#rank-facts").hidden && p.$("#rank-bar").hidden && p.$("#rank-big").hidden && p.$("#rank-show").hidden, open: p.pop.open };
+    await p.pop.fire("cancel"); return out; };
+  const alone = (text) => ({ text, alone: true, open: true });
+  assert.deepEqual(await check(B58("T")), alone("That doesn't look like a Solana wallet address."), "the server's 400 bad_address");
+  assert.deepEqual(await check(B58("W")), alone("Couldn't check right now. Try again in a minute."), "no connection");
+  assert.deepEqual(await check(B58("F")), alone("Couldn't check right now. Try again in a minute."), "a server error (no JSON)");
+  assert.deepEqual(await check(B58("S")), alone("Too many checks from your network. Try again in a minute."));
+  const calls = p.calls.filter((c) => c.startsWith("/api/rank")).length;
+  // the page's own check: a whole address that isn't Solana's (an Ethereum one), part of one, nothing at all; no request for any
+  assert.deepEqual(await check("0x52908400098527886E0F7030069857D2E4169EE7"), alone("That doesn't look like a Solana wallet address."));
+  assert.deepEqual(await check("B58yy"), alone("Paste a full wallet address to check its rank."));
+  assert.deepEqual(await check(""), alone("Paste a full wallet address to check its rank."));
+  assert.equal(p.calls.filter((c) => c.startsWith("/api/rank")).length, calls, "the page's own check asked the server nothing");
+  // before the launch (the server says launched: false), and only then: the facts say when
+  await check(B58("N"));
+  assert.equal(p.$("#rank-pct").textContent, "Ranks go live the moment $VICINITY launches. Save this page and check back.");
+  assert.equal(p.$("#rank-amount").textContent, "At launch");
+});
+
+test("token.js: after the minute refresh, a pop-up that shows a message keeps 'Show it in the holder list' hidden (it would point at the wallet checked before)", async () => {
+  const all = fakeHolders(300), me = owner(57);
+  let busy = false;
+  const p = page({ answer: (path) => path.startsWith("/api/rank")
+    ? (busy ? { launched: true, error: "chain_unavailable", _status: 503 } : { launched: true, full: true, address: me, amount: all[57].amount, rank: 58, total: 300, percent: all[57].percent, percentile: 19.33, next: { rank: 57, gap: 10 }, founderMin: 100_000 })
+    : pageOf(all, 0) });
+  await p.settle(); p.flush();
+  const check = async (a) => { p.$("#holders-find").value = a; await p.$("#holders-find").fire("input"); await p.$("#lookup").fire("submit"); await p.settle(); p.flush(); };
+  const refresh = async () => { tick(); await p.$("#holders-refresh").fire("click"); await p.settle(); p.flush(); };
+  await check(me);
+  assert.equal(p.$("#rank-show").hidden, false, "a holder: the button");
+  await p.$("#rank-close").fire("click");
+  await check("abc"); // part of an address
+  assert.equal(p.$("#rank-pct").textContent, "Paste a full wallet address to check its rank.");
+  await refresh();
+  assert.equal(p.pop.open, true);
+  assert.equal(p.$("#rank-show").hidden, true, "still hidden after the refresh");
+  await p.$("#rank-close").fire("click");
+  busy = true; await check(me); // the same holder, the chain busy: a message, and the wallet's row is in the list
+  assert.equal(p.$("#rank-pct").textContent, "The blockchain is busy. Try again in a minute.");
+  await refresh();
+  assert.equal(p.$("#rank-show").hidden, true, "a message about a listed wallet: still no button");
+  await p.$("#rank-close").fire("click");
+  busy = false; await check(me);
+  assert.equal(p.$("#rank-show").hidden, false, "its facts again: the button again");
+  await refresh();
+  assert.equal(p.$("#rank-show").hidden, false);
+});
+
+test("token.js: on a computer the first pop-up of a visit opens under the box, where the reader is: placed before it opens, its own focus scroll undone at once", async () => {
+  // measured on the branch before this fix (1920x1080 and 8 other sizes): the first Check rank of a visit scrolled the page smoothly to
+  // the top (showModal's focus scroll towards the dialog's unplaced spot, too late to undo) and the pop-up opened off screen
+  const all = fakeHolders(300), me = owner(57);
+  const rank = { launched: true, full: true, address: me, amount: all[57].amount, rank: 58, total: 300, percent: all[57].percent, percentile: 19.33, next: { rank: 57, gap: 10 }, founderMin: 100_000 };
+  const p = page({ desktop: { vw: 1920, vh: 1080, boxY: 1100, scrollY: 700 }, answer: (path) => (path.startsWith("/api/rank") ? rank : pageOf(all, 0)) });
+  await p.settle(); p.flush();
+  p.$("#holders-find").value = me; await p.$("#lookup").fire("submit"); await p.settle();
+  assert.equal(p.pop.open, true);
+  assert.deepEqual(p.pop.atShow, { scrollBehavior: "auto", popY: "1160px" }, "already by the box (8 px under it), and its focus scroll instant");
+  assert.equal(p.win.scrollY, 700, "the page is back where the reader was");
+  assert.ok(p.scrolled.includes("page to 700"), "the jump was undone");
+  assert.ok(!p.docEl.style.scrollBehavior, "the page's own smooth scrolling is back");
+  assert.equal(p.pop.style["--pop-y"], "1160px", "placed from where the page is (not from the top it jumped to)");
+  assert.ok(!p.pop.classes.has("is-above"), "under the box: there is room");
+  assert.ok(!p.scrolled.some((s) => s.startsWith("#verify")), "the box was in view: nothing else moved");
+  // a box near the bottom of the window: the pop-up goes above it, measured at its real size once open
+  const q = page({ desktop: { vw: 1280, vh: 900, boxY: 1400, scrollY: 700 }, answer: (path) => (path.startsWith("/api/rank") ? rank : pageOf(all, 0)) });
+  await q.settle(); q.flush();
+  q.$("#holders-find").value = me; await q.$("#lookup").fire("submit"); await q.settle();
+  assert.equal(q.win.scrollY, 700);
+  assert.ok(q.pop.classes.has("is-above"));
+  assert.equal(q.pop.style["--pop-y"], `${1400 - 8 - 444}px`, "its bottom 8 px over the box");
+});
+
+test("token.js: /token?address=... on a computer brings the box into view first and opens the pop-up under it, never over the hero", async () => {
+  const all = fakeHolders(300), me = owner(9);
+  const p = page({ search: `?address=${me}`, desktop: { vw: 1280, vh: 900, boxY: 1057, scrollY: 0 },
+    answer: (path) => path.startsWith("/api/rank") ? { launched: true, full: true, address: me, amount: all[9].amount, rank: 10, total: 300, percentile: 3.33, next: { rank: 9, gap: 10 }, founderMin: 100_000 } : pageOf(all, 0) });
+  await p.settle(); p.flush();
+  assert.equal(p.pop.open, true);
+  assert.ok(p.scrolled.includes("#verify instant"), "the box below the fold came into view, at once");
+  assert.deepEqual(p.focused, ["#holders-find", "#rank-close"], "the field first (the card shows at once, not rising in), then the pop-up");
+  assert.equal(p.win.scrollY, 1057 - 84);
+  assert.equal(p.pop.style["--pop-y"], `${1057 + 52 + 8}px`, "under the box");
+  assert.ok(!p.pop.classes.has("is-above"));
+});
+
+test("token.js: /token#verify and /token#buy land while the page loads, then never again: the minute refresh moves neither the page nor the keyboard", async () => {
+  // measured on the branch before this fix: with no wheel, touch, key or pointer (a screen reader's reading cursor), every refresh with a
+  // new snapshot scrolled the page back to #verify (and the keyboard into the box) or to #buy, for as long as the page was open
+  for (const hash of ["#verify", "#buy"]) {
+    const all = fakeHolders(300);
+    const p = page({ hash, answer: (path) => pageOf(all, Number(new URL(path, "https://x").searchParams.get("offset")) || 0) });
+    await p.settle(); p.flush(); p.win.onload.forEach((f) => f()); p.flush();
+    assert.ok(p.scrolled.filter((s) => s === hash).length >= 3, `${hash}: landed, and again after the token facts, the live list and the load`);
+    const scrolled = p.scrolled.length, focused = p.focused.length;
+    for (let i = 0; i < 3; i++) { tick(); await p.$("#holders-refresh").fire("click"); await p.settle(); p.flush(); }
+    assert.equal(p.rows().length, 300, "three new snapshots were drawn");
+    assert.equal(p.scrolled.length, scrolled, `${hash}: the page stayed where the reader took it`);
+    assert.equal(p.focused.length, focused, `${hash}: the keyboard too`);
+  }
+});
+
+test("token.js: a click or tap on the line under the box leaves the keyboard out of the field; a #verify link sends it in", async () => {
+  const p = page({ answer: () => ({ launched: false, holders: [] }) });
+  await p.settle();
+  const verify = p.$("#verify"), hint = p.$("#holders-hint");
+  verify.contains = (t) => t === verify || t === hint; // the hint is inside #verify (tabindex -1: a click on it focuses #verify)
+  p.win.onpointerdown.forEach((f) => f({ target: hint })); await verify.fire("focus");
+  assert.deepEqual(p.focused, [], "a tap on the text: no keyboard on a phone, the text can be selected");
+  p.win.onpointerdown.forEach((f) => f({ target: p.$("#faq") })); await verify.fire("focus");
+  assert.deepEqual(p.focused, ["#holders-find"], "a click on a link to #verify (in the FAQ): on into the field");
+  p.win.onpointerdown.forEach((f) => f({ target: hint })); p.win.onkeydown.forEach((f) => f({})); await verify.fire("focus");
+  assert.deepEqual(p.focused, ["#holders-find", "#holders-find"], "Enter on such a link: the same");
 });
 
 test("token page after launch: no 'the moment it launches' copy, and nothing in the page before its script runs names a date instead of the contract", () => {
