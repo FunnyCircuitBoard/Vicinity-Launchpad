@@ -176,7 +176,7 @@ function page({ token, copyWorks = true, official = null }) {
   const V = { $, $$: () => [], el, toast() {}, fmt: String, compact: String, mask: (a) => a, isAddr: (a) => typeof a === "string" && a.length >= 32, official, reduced: false,
     copy: async (text, label) => { copies.push([text, label]); return copyWorks; },
     api: async (path) => (path === "/api/token" ? token : { launched: false, holders: [] }) };
-  vm.runInNewContext(js, { window: { V }, document: { hidden: false }, location: { search: "" }, URLSearchParams, Intl, Date,
+  vm.runInNewContext(js, { window: { V, addEventListener() {} }, document: { hidden: false }, location: { search: "" }, URLSearchParams, Intl, Date,
     setInterval: () => 0, setTimeout: (f, ms) => { timers.push([f, ms]); return timers.length; }, clearTimeout: () => {}, requestAnimationFrame: () => 0 });
   const settle = () => new Promise((r) => setImmediate(r));
   return { $, timers, copies, settle };

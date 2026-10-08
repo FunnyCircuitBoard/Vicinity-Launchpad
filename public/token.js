@@ -1,5 +1,6 @@
 // Token page: live token facts, every holder (the table scrolls, not the page; it is loaded in pages and drawn in chunks), "where does this wallet stand?",
-// the official token list and the link checker. Everything comes from this site's /api (read live from Solana).
+// the official token list, the link checker and the FAQ (old links to /token#buy open its "How do I get $VICINITY?"). Everything comes from
+// this site's /api (read live from Solana).
 (() => {
   "use strict";
   const { $, $$, el, api, toast, copy, fmt, compact, mask, isAddr, official } = window.V;
@@ -141,6 +142,7 @@
       queue = []; restart = true; loading = true;
       if (!keepScroll) keepScroll = $("#holders-scroll").scrollTop; // a second refresh before the first put the reader back keeps the older place
       $(".holders").classList.add("holders--live"); // from here on the box has its fixed height (style.css)
+      reland(); // the FAQ below moved down by the difference
     }
     queue.push(...rows);
     if (!drawing && (queue.length || restart)) { drawing = true; requestAnimationFrame(draw); }
@@ -253,6 +255,20 @@
   $("#lookup").addEventListener("submit", (e) => { e.preventDefault(); lookup($("#lookup-input").value.trim()); });
   $("#rank-show").addEventListener("click", () => { $("#holders").scrollIntoView({ behavior: window.V.reduced ? "auto" : "smooth" }); setTimeout(() => mark(lastLookup), 400); });
 
+  /* ---------- old links: /token#buy opens "How do I get $VICINITY?" in the FAQ ---------- */
+  function land(smooth) {
+    const behavior = smooth && !window.V.reduced ? "smooth" : "instant";
+    if (location.hash === "#buy") { $("#buy").open = true; $("#buy").scrollIntoView({ behavior }); }
+  }
+  // what loads above it moves the FAQ (the contract card when the token facts come, the live list's fixed height, the browser's own
+  // pass at the link when the page has loaded), so until the reader moves the page themselves, the visit is put back on it
+  let landing = location.hash === "#buy";
+  function reland() { if (landing) requestAnimationFrame(() => { if (landing) land(false); }); }
+  for (const t of ["wheel", "touchstart", "keydown", "pointerdown"]) window.addEventListener(t, () => { landing = false; }, { passive: true });
+  window.addEventListener("hashchange", () => { landing = false; land(true); });
+  window.addEventListener("load", reland);
+  land(false);
+
   /* ---------- official link checker ---------- */
   $("#checker").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -266,7 +282,7 @@
     result.replaceChildren(el("span", "check-result__icon", icon), body); result.hidden = false;
   });
 
-  loadToken();
+  loadToken().then(reland);
   loadHolders();
   if (official && official.then) official.then(renderTeamCount, () => renderTeamCount(null));
   setInterval(() => { if (launched && !document.hidden) loadHolders(); }, 60_000);

@@ -346,6 +346,11 @@ select option { background: var(--bg-2); }
 .faq details[open] summary::after { transform: rotate(45deg); }
 .faq details p { color: var(--muted); margin: 12px 0 0; }
 .faq details p strong { color: var(--text); }
+.faq__steps { margin: 12px 0 0; padding-left: 1.4em; display: grid; gap: 8px; color: var(--muted); }
+.faq__steps strong { color: var(--text); }
+.faq__steps li::marker { color: var(--pin-2); font-weight: 700; }
+.faq .scam-note { margin-top: 16px; color: var(--text-2); }
+.faq .scam-note strong { color: var(--bad-text); }
 
 .cta-band { padding: 70px 0; background: radial-gradient(70% 120% at 100% 0%, rgba(255,90,54,.25), transparent 60%), var(--bg-2); border-top: 1px solid var(--line); }
 .cta-band__inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
