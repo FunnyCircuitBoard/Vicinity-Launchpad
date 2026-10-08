@@ -7,6 +7,8 @@
   const FOUNDER_MAX = 1_000_000; // the top of the Stake Ladder (100K to 1M by city size, see /rules#ladder)
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
   const usd = (n) => (n >= 1 ? "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "$" + n.toPrecision(3));
+  /** A published team wallet (labelled "Team wallet (public)" by the server): shown and labelled, never ranked, like a pool. */
+  const isTeam = (h) => !h.rank && /^Team wallet/.test(h.label || "");
   let holders = [], launched = false;
 
   /* ---------- token facts ---------- */
@@ -112,7 +114,7 @@
     const max = holders[0]?.percent || 1;
     const pct = el("td", "num", `${pctText(h.percent)}%`);
     const bar = el("span", "pct-bar"), fill = el("span"); fill.style.width = `${Math.max(2, (h.percent / max) * 100)}%`; bar.append(fill); pct.append(bar);
-    tr.append(el("td", null, h.rank ? String(h.rank) : "Pool"), w, el("td", "num", fmt(h.amount)), pct);
+    tr.append(el("td", null, h.rank ? String(h.rank) : isTeam(h) ? "Team" : "Pool"), w, el("td", "num", fmt(h.amount)), pct);
     return tr;
   }
   const query = () => $("#holders-find").value.trim();
@@ -215,6 +217,7 @@
       set("#rank-num", "—"); set("#rank-of", ""); set("#rank-pct", "");
       ["#rank-amount", "#rank-share", "#rank-next", "#rank-founder"].forEach((i) => set(i, "—"));
       $("#rank-meter").style.width = "0%";
+      $("#rank-next-row").hidden = false; $("#rank-founder-row").hidden = false; // a team wallet hides them
     };
     /** Only a message to give (no wallet's facts): the meter and the facts step aside. */
     const only = (text) => { set("#rank-pct", text); $("#rank-bar").hidden = true; $("#rank-facts").hidden = true; $("#rank-show").hidden = true; };
@@ -248,7 +251,12 @@
     const founderMin = d.founderMin || 100_000; // the smallest founder amount: the exact one depends on the city
     set("#rank-founder", amount >= FOUNDER_MAX ? "✓ Enough for any city (hold it 7 days)"
       : amount >= founderMin ? "✓ Enough for smaller cities (hold it 7 days)" : `${fmt(founderMin - amount)} to reach the smallest`);
-    if (d.label && !d.rank) { // a pool or curve: no rank, no wallet to pass, not a founder
+    if (d.team === true && !d.rank) { // a published team wallet: what it holds, but no rank, no meter, no wallet to pass, no founder amount
+      set("#rank-num", "Team"); set("#rank-of", d.label || "Team wallet (public)");
+      set("#rank-pct", "Team wallet: published by Vicinity and labeled in the list. Ranks are for people only.");
+      set("#rank-founder", "—"); $("#rank-bar").hidden = true; $("#rank-next-row").hidden = true; $("#rank-founder-row").hidden = true;
+    }
+    else if (d.label && !d.rank) { // a pool or curve: no rank, no wallet to pass, not a founder
       set("#rank-num", "Pool"); set("#rank-of", d.label); set("#rank-pct", "Pools and curves are listed but not ranked.");
       set("#rank-founder", "—");
     }

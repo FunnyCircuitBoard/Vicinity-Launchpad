@@ -303,7 +303,7 @@
     return [
       cell("mcap", "Market cap", num(m.marketCapUsd), money(m.marketCapUsd), fullMoney(m.marketCapUsd), src.marketCap, reason(why.marketCap) || "No source has it right now"),
       cell("vol", "24h volume", num(m.volume24hUsd), money(m.volume24hUsd), fullMoney(m.volume24hUsd), src.volume24h, reason(why.volume24h) || "No source has it right now"),
-      cell("holders", "Holders", h, count(h), fullCount(h), h != null ? "Counted by vicinity.city (pools excluded)" : null, "Not counted yet: vicinity.city counts every 10 minutes"),
+      cell("holders", "Holders", h, count(h), fullCount(h), h != null ? "Counted by vicinity.city (pools and team wallets excluded)" : null, "Not counted yet: vicinity.city counts every 10 minutes"),
       cell("liq", curve ? "In the curve*" : "Liquidity", num(m.liquidityUsd), money(m.liquidityUsd), fullMoney(m.liquidityUsd), src.liquidity, reason(why.liquidity) || "No source has it right now",
         curve ? "On the bonding curve this is what the curve holds, not a trading pool" : null),
     ];

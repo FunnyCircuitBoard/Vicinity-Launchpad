@@ -439,7 +439,7 @@
     if (!r || !Array.isArray(r.holders) || r.mint !== d.mint) return;
     $("#coin-holders").replaceChildren(...r.holders.slice(0, 5).map((x) => {
       const li = el("li", "coin-holder");
-      const who = el("span", "coin-holder__who"); who.append(el("span", "coin-holder__rank", x.rank ? `#${x.rank}` : "Pool"), " ", el("code", null, mask(x.owner)));
+      const who = el("span", "coin-holder__who"); who.append(el("span", "coin-holder__rank", x.rank ? `#${x.rank}` : /^Team wallet/.test(str(x.label)) ? "Team" : "Pool"), " ", el("code", null, mask(x.owner)));
       if (x.label) who.append(" ", el("span", "tag coin-holder__tag", str(x.label)));
       const pct = num(x.percent);
       li.append(who, el("span", "coin-holder__pct", pct == null ? "—" : `${pct >= 10 ? pct.toFixed(1) : pct >= 0.01 ? pct.toFixed(2) : "<0.01"}%`));

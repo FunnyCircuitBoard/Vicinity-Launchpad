@@ -11,7 +11,7 @@ import { cleanEmail, consumeEmailCode, getSession, isFresh, providers, validEmai
 import { access } from "./access.js";
 import { countRecent, noteEvent, useAttestation } from "./attest.js";
 import { activeMint } from "./official.js";
-import { getHolding, holderSnapshot, rankOf } from "./chain.js";
+import { getHolding, holderSnapshot, isTeamWallet, rankOf } from "./chain.js";
 import { DAY, HOUR, POLICY, iso } from "./policy.js";
 import { VOTE_WEIGHT, activeBan, adminWallets, amountsFor, liveSeatOfUser, managerOf } from "./roles.js";
 import { cityPicture, cooldownUntil, eligibility, squadPicture } from "./seats.js";
@@ -47,7 +47,7 @@ export function badgesFor({ u, launched, amount, position, seat, manager, admin,
     { id: "founder_ready", icon: "🔑", name: "Founder-ready", detail: `Held ${T.toLocaleString("en-US")}+ $VICINITY for ${POLICY.founder.qualifyingDays} days: may apply to found your city.`,
       earned: Boolean(tenure && tenure.qualified && amount >= T), progress: tenure ? pct(tenure.days, tenure.needed) : 0 },
     { id: "whale", icon: "🐋", name: "Big holder", detail: "Hold 10,000,000+ $VICINITY.", earned: amount >= 10_000_000, progress: pct(amount, 10_000_000) },
-    { id: "top100", icon: "💯", name: "Top 100", detail: "One of the 100 biggest holders (pools not counted).", earned: Boolean(position?.rank && position.rank <= 100) },
+    { id: "top100", icon: "💯", name: "Top 100", detail: "One of the 100 biggest holders (pools and team wallets not counted).", earned: Boolean(position?.rank && position.rank <= 100) },
     { id: "top10", icon: "🏆", name: "Top 10", detail: "One of the 10 biggest holders.", earned: Boolean(position?.rank && position.rank <= 10) },
     { id: "city_founder", icon: "👑", name: seat && seat.status === "steward" ? "Seed Steward" : "City Founder",
       detail: seat && seat.status === "grace" ? "In grace: hold the founder amount again to keep the seat."
@@ -64,7 +64,8 @@ export function badgesFor({ u, launched, amount, position, seat, manager, admin,
 
 
 /**
- * A community's (or country's) holders, ranked. Building it reads every member and looks up every balance, so it's
+ * A community's (or country's) holders, ranked (team wallets are not ranked: ranks are for people, as on the token page).
+ * Building it reads every member and looks up every balance, so it's
  * built once per holder snapshot (about a minute) and shared by everyone's dashboard: a launch-week crowd asking every
  * minute costs one ranking, not one per person. The member count is asked every time (cheap), and a change in it
  * (someone joined) builds a fresh ranking.
@@ -80,7 +81,7 @@ async function leaderboard(env, column, value, snap, fetchImpl) {
     if (!byKey.has(key)) {
       const wallets = (await env.DB.prepare(`SELECT wallet FROM users WHERE ${column} = ? AND provider != 'testlab' LIMIT 20000`).bind(value).all()).results.map((r) => r.wallet);
       const amounts = await amountsFor(env, wallets, fetchImpl);
-      byKey.set(key, wallets.map((w) => [w, amounts.get(w) || 0]).filter(([, a]) => a > 0).sort((a, b) => b[1] - a[1]));
+      byKey.set(key, wallets.map((w) => [w, amounts.get(w) || 0]).filter(([w, a]) => a > 0 && !isTeamWallet(w)).sort((a, b) => b[1] - a[1]));
     }
     list = byKey.get(key);
   }
@@ -89,7 +90,7 @@ async function leaderboard(env, column, value, snap, fetchImpl) {
 
 async function liveStatus(env, s, fetchImpl, now) {
   const u = s.user, db = env.DB;
-  const mint = activeMint(env), launched = Boolean(mint), wallet = u.wallet;
+  const mint = activeMint(env), launched = Boolean(mint), wallet = u.wallet, team = isTeamWallet(wallet);
   let snap = null, chain = launched ? "live" : "prelaunch";
   if (launched) { try { snap = await holderSnapshot(env, mint, fetchImpl); } catch { chain = "partial"; } }
   let amount = 0, position = null;
@@ -142,6 +143,7 @@ async function liveStatus(env, s, fetchImpl, now) {
   const earned = badges.filter((b) => b.earned).map((b) => b.id);
   let lost = [];
   try { lost = JSON.parse(u.badges || "[]").filter((id) => HOLDING_BADGES.has(id) && !earned.includes(id)); } catch {}
+  if (team) lost = lost.filter((id) => id !== "top10" && id !== "top100"); // not ranked, so not a top holder: nothing was sold
   if (JSON.stringify(earned) !== (u.badges || "")) await db.prepare("UPDATE users SET badges = ? WHERE id = ?").bind(JSON.stringify(earned), u.id).run();
 
   // progress towards founding your home city
@@ -169,7 +171,7 @@ async function liveStatus(env, s, fetchImpl, now) {
     roles: { admin, manager: isManager, founder: founderLive, steward: Boolean(seat && seat.status === "steward"), holder: amount > 0,
       weight: VOTE_WEIGHT[isManager ? "manager" : founderLive ? "founder" : "member"] }, // the same weight powersOf gives for feed votes
     holding: { amount, rank: position ? position.rank : null, total: position ? position.total : null, percent: position ? position.percent : null,
-      percentile: position ? position.percentile : null, next: position ? position.next : null },
+      percentile: position ? position.percentile : null, next: position ? position.next : null, team },
     founder, badges, lost, community, national, squad: await squadPicture(env, u, now, fetchImpl),
     ban: ban ? { country: ban.country, until: ban.expires_at, actionId: ban.action_id, appealed: Boolean(appealed) } : null,
     progress: { percent: Math.round((done / steps.length) * 100), steps },

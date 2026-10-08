@@ -34,7 +34,7 @@ import { access } from "./access.js";
 import { ensureProfilesSchema } from "./store.js";
 import { iso } from "./policy.js";
 import { activeMint } from "./official.js";
-import { getHolding, holderSnapshot, rankOf } from "./chain.js";
+import { getHolding, holderSnapshot, isTeamWallet, rankOf } from "./chain.js";
 import { adminWallets, liveSeatOfUser, managerOf } from "./roles.js";
 import { badgesFor } from "./me.js";
 import { adminRoleOf } from "./admin.js";
@@ -127,9 +127,9 @@ async function handleProfile(request, env, x) {
     if (snap) {
       position = rankOf(snap, m.wallet);
       amount = position.amount;
-      holding = { amount, rank: position.rank, total: position.total, percentile: position.percentile };
+      holding = { amount, rank: position.rank, total: position.total, percentile: position.percentile, team: position.team };
     } else {
-      try { amount = await getHolding(env, m.wallet, mint, x.fetchImpl); holding = { amount, rank: null, total: null, percentile: null }; }
+      try { amount = await getHolding(env, m.wallet, mint, x.fetchImpl); holding = { amount, rank: null, total: null, percentile: null, team: isTeamWallet(m.wallet) }; }
       catch { holding = null; }
     }
   }

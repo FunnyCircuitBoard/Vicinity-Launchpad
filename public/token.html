@@ -73,7 +73,7 @@
         </div>
 
         <div class="stat-row" aria-live="polite">
-          <div class="stat"><span class="stat__label">Holders</span><strong id="st-holders">—</strong><span class="stat__sub" id="st-holders-sub">people, pools not counted</span></div>
+          <div class="stat"><span class="stat__label">Holders</span><strong id="st-holders">—</strong><span class="stat__sub" id="st-holders-sub">people; pools and team wallets not counted</span></div>
           <div class="stat"><span class="stat__label">Price</span><strong id="st-price">—</strong><span class="stat__sub" id="st-mcap">market cap —</span></div>
           <div class="stat"><span class="stat__label">Supply</span><strong id="st-supply" data-still>1,000,000,000</strong><span class="stat__sub" data-live="supply">fixed forever</span></div>
           <div class="stat"><span class="stat__label">Top 10 hold</span><strong id="st-top10">—</strong><span class="stat__sub">of the supply (people)</span></div>
@@ -132,8 +132,8 @@
             <dl class="rank-facts" id="rank-facts">
               <div><dt>Holds</dt><dd id="rank-amount">—</dd></div>
               <div><dt>Share of supply</dt><dd id="rank-share">—</dd></div>
-              <div><dt>To pass the next wallet</dt><dd id="rank-next">—</dd></div>
-              <div><dt>Founder amount</dt><dd id="rank-founder">—</dd></div>
+              <div id="rank-next-row"><dt>To pass the next wallet</dt><dd id="rank-next">—</dd></div>
+              <div id="rank-founder-row"><dt>Founder amount</dt><dd id="rank-founder">—</dd></div>
             </dl>
             <button class="link-btn" type="button" id="rank-show">Show it in the holder list</button>
           </div>
@@ -197,7 +197,7 @@
           <p class="scam-note"><strong>The only real Raydium is raydium.io.</strong> Look-alike addresses copy it to empty wallets. Never type your recovery phrase into any website, and check any link with the <a href="#check">checker above</a> first.</p>
         </details>
         <details><summary>Is this the only official $VICINITY?</summary><p>Yes. Only the contract address at the top of this page is the official $VICINITY; anything else using the name is fake. If a token isn't on the <a href="#check">official list</a>, it isn't Vicinity: paste any link, token address or @handle into the checker to check it.</p></details>
-        <details><summary>How is my rank worked out?</summary><p>Straight from the blockchain: a wallet is compared with every holder, live, and the list is refreshed every minute. Pools and curves are listed but not ranked; team wallets are labeled. Paste any wallet address into the <a href="#verify">box above the holder list</a> and press <strong>Check rank</strong> to see its rank, how much it holds and how far it is from the next spot. Nothing is saved.</p></details>
+        <details><summary>How is my rank worked out?</summary><p>Straight from the blockchain: a wallet is compared with every holder, live, and the list is refreshed every minute. Pools, curves and team wallets are listed and labeled but not ranked. Paste any wallet address into the <a href="#verify">box above the holder list</a> and press <strong>Check rank</strong> to see its rank, how much it holds and how far it is from the next spot. Nothing is saved.</p></details>
         <details><summary>What is the founder amount?</summary><p>How much $VICINITY you need to hold to found your city: 100K to 1M by city size, held for 7 days. The rank check shows whether a wallet holds enough, or how much it still needs to reach the smallest amount.</p></details>
       </div></div>
     </section>

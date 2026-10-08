@@ -49,8 +49,8 @@ export function tradeLinks(mint, pairMint) {
   };
 }
 
-/** How many wallets hold a coin, by the rule of the token page: every owner except pools and program accounts. */
-export const peopleOf = ({ list, labels }) => list.filter(([owner]) => { const l = labels.get(owner); return !l || l.startsWith("Team"); }).length;
+/** How many people hold a coin, by the rule of the token page: every owner except pools, program accounts and team wallets (the labelled ones). */
+export const peopleOf = ({ list, labels }) => list.filter(([owner]) => !labels.get(owner)).length;
 
 /** Country names from the city list (the same file the map uses), read once per server. */
 let countryNames = null;

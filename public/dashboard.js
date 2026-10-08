@@ -219,7 +219,7 @@
     $("#d-amount").textContent = d.launched ? compact(h.amount) : "—";
     $("#d-amount-sub").textContent = d.launched ? `${fmt(h.amount)} $VICINITY` : "live at launch";
     $("#d-rank").textContent = h.rank ? `#${fmt(h.rank)}` : "—";
-    $("#d-rank-sub").textContent = h.rank ? `of ${fmt(h.total)} · top ${pctText(h.percentile)}%` : d.launched ? (h.amount > 0 ? "ranking…" : "not holding yet") : "live at launch";
+    $("#d-rank-sub").textContent = h.rank ? `of ${fmt(h.total)} · top ${pctText(h.percentile)}%` : d.launched ? (h.team ? "team wallet, not ranked" : h.amount > 0 ? "ranking…" : "not holding yet") : "live at launch";
     $("#d-city-label").textContent = home ? home.name : "your city";
     $("#d-country-label").textContent = n ? countryName(n.country) : "your country";
     $("#d-crank").textContent = c && c.rank ? `#${c.rank}` : "—";
