@@ -265,14 +265,14 @@
   function rankings(d) {
     const h = d.holding || {}, c = d.community, n = d.national, launched = d.launched, st = $("#rk-state");
     st.textContent = launched ? "● Live" : "Live at launch"; st.className = launched ? "tag tag--ok" : "tag";
-    const fallback = launched ? (h.amount > 0 ? "ranking…" : "not holding yet") : "live at launch";
+    const fallback = launched ? (h.team ? "team wallet, not ranked" : h.amount > 0 ? "ranking…" : "not holding yet") : "live at launch";
     tile("rk-global", h.rank ? `#${fmt(h.rank)}` : "—", h.rank ? `of ${fmt(h.total)} · top ${pctText(h.percentile)}%` : fallback);
     const gap = $("#rk-global-gap");
     gap.hidden = !(h.next && h.next.gap > 0);
     if (!gap.hidden) gap.textContent = `${fmt(h.next.gap)} $VICINITY to catch #${h.next.rank}`;
     board("rk-country", n, n ? countryName(n.country) : "Your country", fallback);
     board("rk-city", c, c ? c.name : "Your city", fallback);
-    $("#rk-note").textContent = launched ? "Ranks count people, not pools or program accounts. Refreshed about every minute."
+    $("#rk-note").textContent = launched ? "Ranks count people, not pools, program accounts or team wallets. Refreshed about every minute."
       : "Every rank goes live the moment $VICINITY launches. Your Early member badge is already yours.";
   }
 

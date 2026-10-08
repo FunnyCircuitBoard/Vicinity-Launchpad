@@ -40,7 +40,7 @@ ties: lowest sha256("vicinity-seat|window|wallet")`;
     $("#cutoff").textContent = d.snapshotCutoff ? new Date(d.snapshotCutoff).toUTCString() : "not scheduled yet";
     const h = d.balanceHistory || {};
     $("#health-text").textContent = !d.launched ? "Balance checks start the moment $VICINITY launches."
-      : h.lastSample ? `Balance checks running: last check ${ago(h.lastSample.taken_at)} (slot ${h.lastSample.slot ?? "—"}, ${fmt(h.lastSample.holders)} holders), ${h.samplesLast24h} in the last 24 hours.`
+      : h.lastSample ? `Balance checks running: last check ${ago(h.lastSample.taken_at)} (slot ${h.lastSample.slot ?? "—"}, ${fmt(h.lastSample.holders)} holding wallets, pools and team wallets included), ${h.samplesLast24h} in the last 24 hours.`
       : "Balance checks haven't recorded anything yet.";
   })();
 })();

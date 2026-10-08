@@ -190,7 +190,7 @@ test("a holder's profile: exact $VICINITY, rank among people, percentile, level 
   assert.equal(p.badges.find((b) => b.id === "whale").earned, false);
 
   const none = (await (await view(alice, n, "DanDry")).json()).profile;
-  assert.deepEqual(none.holding, { amount: 0, rank: null, total: 3, percentile: null }, "a member who holds nothing");
+  assert.deepEqual(none.holding, { amount: 0, rank: null, total: 3, percentile: null, team: false }, "a member who holds nothing");
   assert.equal(none.level, "member");
   assert.equal(none.badges.find((b) => b.id === "holder").earned, false);
   void dan;

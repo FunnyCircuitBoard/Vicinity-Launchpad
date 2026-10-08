@@ -65,7 +65,7 @@ async function build(env, coin, fetchImpl, now) {
   try {
     await ensureLaunchpadSchema(env.DB);
     const r = await env.DB.prepare("SELECT holders, updated_at FROM coin_stats WHERE mint = ?").bind(coin.mint).first();
-    if (r && r.holders != null) holders = { count: Number(r.holders), asOf: r.updated_at, source: "Counted by vicinity.city (pools excluded)" };
+    if (r && r.holders != null) holders = { count: Number(r.holders), asOf: r.updated_at, source: "Counted by vicinity.city (pools and team wallets excluded)" };
   } catch (e) { holdersOk = false; console.error("coin holders unavailable", codeOf(e)); }
   const f = await factsOf(env, coin.mint, fetchImpl, now);
 

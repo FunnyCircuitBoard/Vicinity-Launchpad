@@ -90,7 +90,7 @@ test("GET /api/coin for $VICINITY: facts, the live market with a source per numb
   assert.deepEqual([m.priceUsd, m.marketCapUsd, m.volume24hUsd, m.priceChange24hPct, m.traders24h], [JUP_PRICE, 7577.217833193381, 221.02457715972727 + 315.17594188232897, -0.7440200264703254, 18]);
   assert.equal(m.liquidityUsd, 14.795544124 * SOL_USD);
   assert.deepEqual([m.stage, m.liquidityKind, m.curve.raised, m.curve.target, m.curve.progressPct.toFixed(4), m.priceNative], ["curve", "bonding_curve", 14.795544124, 85, "17.4065", 6.233650881956076e-8]);
-  assert.deepEqual(d.holders, { count: 37, asOf: "2026-10-06T15:50:00.000Z", source: "Counted by vicinity.city (pools excluded)" });
+  assert.deepEqual(d.holders, { count: 37, asOf: "2026-10-06T15:50:00.000Z", source: "Counted by vicinity.city (pools and team wallets excluded)" });
   assert.equal(d.trades.source, "Raydium LaunchLab");
   assert.equal(d.trades.rows.length, 20);
   const t0 = fixture("trade.json").data.rows[0];

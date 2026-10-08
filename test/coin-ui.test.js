@@ -30,7 +30,7 @@ const answer = (o = {}) => ({
     sources: { curve: "Solana blockchain, read by vicinity.city", price: "Jupiter (last trade)", marketCap: "Jupiter", fdv: "Jupiter", liquidity: "SOL in the bonding curve (on-chain) × SOL price (Jupiter)", volume24h: "Jupiter", change24h: "Jupiter" },
     missing: {}, stale: false, ...(o.market || {}),
   },
-  holders: { count: 37, asOf: "2026-10-06T18:30:00.000Z", source: "Counted by vicinity.city (pools excluded)" },
+  holders: { count: 37, asOf: "2026-10-06T18:30:00.000Z", source: "Counted by vicinity.city (pools and team wallets excluded)" },
   trades: { source: "Raydium LaunchLab", rows: [{ txid: TX, at: "2026-10-06T18:13:31.000Z", side: "buy", tokens: 158764.265017, amount: 0.009999621, symbol: "SOL", wallet: "DEBQR*****Q9R", url: `https://solscan.io/tx/${TX}` }] },
   samples: { since: "2026-10-04T06:20:00.000Z", change24hNativePct: -3.602423547901734, source: "vicinity.city samples" },
   links: { raydium: `https://raydium.io/launchpad/token/?mint=${MINT}`, jupiter: `https://jup.ag/swap/SOL-${MINT}`, dexscreener: null, solscan: `https://solscan.io/token/${MINT}`, pool: `https://solscan.io/account/${POOL}` },
@@ -91,7 +91,7 @@ test("tiles: every number with its source, the curve's holdings starred and expl
   assert.deepEqual(plain([by.traders.value, by.traders.src]), ["18", "Jupiter"]);
   assert.deepEqual(plain([by.native.label, by.native.value, by.native.title, by.native.src]), ["Price in SOL", "0.0₇6234 SOL", "0.00000006234 SOL", "On-chain curve (Solana)"]);
   assert.deepEqual(plain([by["change-native"].value, by["change-native"].src]), ["▼ 3.60%", "vicinity.city samples"]);
-  assert.deepEqual(plain([by.holders.value, by.holders.src]), ["37", "Counted by vicinity.city (pools excluded)"]);
+  assert.deepEqual(plain([by.holders.value, by.holders.src]), ["37", "Counted by vicinity.city (pools and team wallets excluded)"]);
   assert.deepEqual(plain([by.supply.value, by.supply.sub]), ["1,000,000,000", "Fixed: no one can mint more"]);
   assert.equal(by.mintauth.value, "Disabled ✓"); assert.equal(by.freeze.value, "Disabled ✓");
   for (const t of tiles) assert.equal(t.missing, null, t.key);
