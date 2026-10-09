@@ -42,7 +42,9 @@
       const tidy = q.has("link") || q.has("carry");
       if (q.has("link")) { linkCode = q.get("link") || ""; q.delete("link"); }
       if (q.has("carry")) { carryCode = q.get("carry") || ""; q.delete("carry"); }
-      if (linkCode === null && carryCode === null && !q.has("pair")) linkCode = keptLink();
+      // only a reload of the bare page (the code already left the address bar) shows the kept code again; anything else in the address
+      // bar is a new intent ("Sign in with Phantom", a pairing, Log in) and the kept code is forgotten: it never hides what was asked for
+      if (linkCode === null && carryCode === null) { if (!String(q)) linkCode = keptLink(); else try { sessionStorage.removeItem(LINK_KEY); } catch { /* blocked: nothing kept */ } }
       deferGate = linkCode !== null || carryCode !== null || q.has("pair") || q.has("with");
       if (tidy) history.replaceState(history.state, "", location.pathname + (String(q) ? `?${q}` : "") + location.hash);
       // a phone opening a link code: the sign-up's hero never flashes before the question (onboard.css hides it until signup.js decides)

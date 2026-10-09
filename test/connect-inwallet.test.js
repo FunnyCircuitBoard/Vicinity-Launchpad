@@ -158,6 +158,27 @@ test("a link_done dead screen inside the wallet app: Sign in with Phantom (one t
   assert.equal(p.session.get("vicinity-link"), undefined);
 });
 
+test("a dead link this tab kept never hides what the address bar asks for next ('Sign in with Phantom' after another way linked it); a bare reload still shows it", async () => {
+  const { wallet } = fakeWallet("Phantom");
+  const dead = async (path) => (path === "/api/me/wallet/carry/info" ? { ok: false, error: "carry_network", relay: true, _status: 403 } : { ok: true });
+  const p = await openConnect({ ua: UA.phantomApp, search: `link=${CODE}`, agreed: null, wallets: [wallet], api: dead });
+  assert.equal(p.screen(), "link-dead");
+  assert.equal(JSON.parse(p.session.get("vicinity-link")).code, CODE, "kept: a reload shows the same screen");
+  const again = await openConnect({ ua: UA.phantomApp, search: "", agreed: null, wallets: [fakeWallet("Phantom").wallet], session: p.session, api: dead });
+  assert.equal(again.screen(), "link-dead");
+  // the same tab, later: Safari's "Open Phantom" (/connect?mode=login&with=phantom) after the pairing linked the wallet
+  const { wallet: w2, ctl } = fakeWallet("Phantom");
+  let signed = false;
+  const q = await openConnect({ ua: UA.phantomApp, search: "mode=login&with=phantom", agreed: null, wallets: [w2], session: p.session,
+    api: async (path, body) => (path.startsWith("/api/message") ? { message: MESSAGE } : path === "/api/auth/wallet" ? ((signed = true), { ok: true, wallet: body.address, next: "/dashboard" }) : { ok: true }),
+    me: () => (signed ? { signedIn: true, user: { id: 1, wallet: ADDR, handle: "Sam" }, termsVersion: "2026-10-01" } : {}) });
+  await q.flush();
+  assert.equal(q.callsTo("/api/me/wallet/carry/info").length, 0, "the kept code is not offered again");
+  assert.equal(q.session.get("vicinity-link"), undefined, "and it is forgotten");
+  assert.deepEqual([ctl.connects, ctl.signs], [1, 1], "the sign-in starts by itself");
+  assert.equal(q.screen(), "done");
+});
+
 test("a link code's page never shows the sign-up's hero first (site.js marks it); the ordinary page gets it back", async () => {
   const { wallet } = fakeWallet("Phantom");
   const p = await openConnect({ ua: UA.phantomApp, search: `link=${CODE}`, agreed: null, wallets: [wallet], api: async (path) => (path === "/api/me/wallet/carry/info" ? { ok: true, pin: "47", owner: {}, terms: "2026-10-01" } : { ok: true }) });
