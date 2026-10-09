@@ -1,4 +1,4 @@
-<!--{"title": "Claim a city", "description": "Every real city on one map, with real boundaries that never overlap. See which cities are claimed, which are open, and claim yours from your dashboard.", "page": "cities", "scripts": ["ticker", "cities"]}-->
+<!--{"title": "Claim a city", "description": "Every real city on one map, with real boundaries that never overlap. See which cities are claimed, which are open, and claim yours from your dashboard.", "page": "cities", "scripts": ["ticker", "cities"], "styles": ["polish-map"]}-->
     <section class="page-hero page-hero--map" id="cities">
       <div class="wrap">
         <!-- the map comes first, then the numbers, then what this page is for -->
@@ -35,7 +35,7 @@
             <p class="sr-only" id="mf-say" aria-live="polite"></p>
             <p class="map-hint" id="map-hint">Click the map first, then scroll to zoom (or use + and −)</p>
           </div>
-          <p class="citymap__legend"><span><span class="dot dot--open" aria-hidden="true"></span> Open</span><span><span class="dot dot--choosing" aria-hidden="true"></span> Choosing its founder</span><span><span class="dot dot--claimed" aria-hidden="true"></span> Founded</span><span><span class="dot dot--mine" aria-hidden="true"></span> Yours</span><span><span class="line line--real"></span> Official city boundary + the land nearest to it</span><span><span class="line line--near"></span> No official boundary: the land nearest the city</span><span class="citymap__how">Tap a city for its City Founder, holders and founder amount</span><span class="citymap__how">Drag to move · scroll, pinch or double-tap to zoom · tap a country or a city · ◎ finds yours · 🎨 colours</span></p>
+          <p class="citymap__legend"><span><span class="dot dot--open" aria-hidden="true"></span> Open</span><span><span class="dot dot--active" aria-hidden="true"></span> Active: verified holders, no founder yet</span><span><span class="dot dot--choosing" aria-hidden="true"></span> Choosing its founder</span><span><span class="dot dot--claimed" aria-hidden="true"></span> Founded</span><span><span class="dot dot--mine" aria-hidden="true"></span> Yours</span><span><span class="line line--real"></span> Official city boundary + the land nearest to it</span><span><span class="line line--near"></span> No official boundary: the land nearest the city</span><span class="citymap__how">Tap a city for its City Founder, holders and founder amount</span><span class="citymap__how">Drag to move · scroll, pinch or double-tap to zoom · tap a country or a city · names show once you zoom in on a city · ◎ finds yours · 🎨 colours</span></p>
           <div class="claim-feed-wrap">
             <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Latest founders · live</p>
             <ul class="claim-feed" id="claim-feed" aria-live="polite"><li class="claim-feed__empty">Loading…</li></ul>

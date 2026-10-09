@@ -112,7 +112,7 @@ test("map: a selected city shows the founder amount: the Stake Ladder from /api/
   // the panel line (after "Holders: N") and the tooltip line (its own line, so the status line is no wider than before and the tooltip still fits a 390px phone)
   assert.ok(js.includes("`Founder amount: ${fmt(founderMin(selected, win))} $VICINITY · held ${qualifyingDays} days`"), "panel line");
   assert.ok(js.indexOf("`Founder amount: ${fmt(") > js.indexOf("`Holders: ${fmt(holderCount.get(selected.id) || 0)}`"), "below the Holders line");
-  assert.ok(js.includes(": windows.has(c.id) ? `Choosing its founder: ${windows.get(c.id).applicants} applying` : \"Open\"), el(\"span\", \"tip-ticker\", tk ? `  $${tk.ticker}` : \"\"));"), "the status + ticker line is unchanged");
+  assert.ok(js.includes(": windows.has(c.id) ? `Choosing its founder: ${windows.get(c.id).applicants} applying` : st === \"active\" ? `Active: ${fmt(h)} verified holder${h === 1 ? \"\" : \"s\"}, no founder yet` : \"Open\"), el(\"span\", \"tip-ticker\", tk ? `  $${tk.ticker}` : \"\"));"), "the status + ticker line: founder, choosing, active (9 Oct 2026), open");
   assert.ok(js.includes("tip.append(document.createElement(\"br\"), el(\"span\", \"tip-area\", `Founder amount: ${short(founderMin(c, windows.get(c.id)))} $VICINITY`));"), "tooltip: the founder amount on its own line");
   // the numbers come from /api/policy once per page load (never per city), applied when they land: that route is a database round
   // trip, so the map's first paint waits for the static files only, and a policy that lands later re-renders the panel
