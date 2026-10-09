@@ -51,6 +51,7 @@ function jwtPayload(token) {
   return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))));
 }
 
+const OAUTH_TIMEOUT_MS = 8_000;
 export const PROVIDERS = {
   google: {
     configured: (env) => Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
@@ -59,11 +60,15 @@ export const PROVIDERS = {
       state, code_challenge: challenge, code_challenge_method: "S256", prompt: "select_account",
     }),
     async identity(env, { code, redirectUri, verifier }, fetchImpl) {
-      const res = await fetchImpl("https://oauth2.googleapis.com/token", {
-        method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ code, client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
-          redirect_uri: redirectUri, grant_type: "authorization_code", code_verifier: verifier }),
-      });
+      let res;
+      try { // 8 s, like every other outbound call: a stuck Google must not hold the request (and the person) for a minute
+        res = await fetchImpl("https://oauth2.googleapis.com/token", {
+          method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ code, client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+            redirect_uri: redirectUri, grant_type: "authorization_code", code_verifier: verifier }),
+          signal: AbortSignal.timeout(OAUTH_TIMEOUT_MS),
+        });
+      } catch (e) { throw new Error("oauth_unavailable"); }
       const tok = await res.json().catch(() => ({}));
       if (!res.ok || !tok.id_token) throw new Error("google_token_" + res.status);
       // The token comes straight from Google over https, so its contents can be trusted as is.
@@ -335,7 +340,7 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
 
   let who;
   try { who = await p.identity(env, { code, redirectUri: `${url.origin}/api/auth/${provider}/callback`, verifier }, fetchImpl); }
-  catch (e) { console.error("login failed", provider, String(e)); return fail("login_failed"); }
+  catch (e) { console.error("login failed", provider, String(e)); return fail(e && e.message === "oauth_unavailable" ? "login_unavailable" : "login_failed"); }
 
   await ensureSchema(env.DB);
   const session = await getSession(env, request, now);

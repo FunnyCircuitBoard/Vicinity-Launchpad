@@ -9,6 +9,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # a promise nobody awaits that rejects fails the run instead of being a warning in a log nobody reads
+      NODE_OPTIONS: --unhandled-rejections=strict
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

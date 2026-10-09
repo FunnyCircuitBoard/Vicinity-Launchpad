@@ -98,7 +98,8 @@ async function cached(key, seconds, produce) {
   const cache = typeof caches !== "undefined" ? caches.default : null;
   const req = new Request("https://cache.vicinity.internal/" + key);
   if (cache) {
-    const hit = await cache.match(req);
+    let hit = null;
+    try { hit = await cache.match(req); } catch (e) { console.error("cache read failed", String((e && e.message) || e)); } // the cache is a convenience: a failure means a miss
     if (hit) {
       const kept = Number(hit.headers.get(KEEP_HEADER));
       return withMaxAge(hit, Number.isInteger(kept) && kept > 0 && kept <= seconds ? kept : seconds);
@@ -110,9 +111,11 @@ async function cached(key, seconds, produce) {
   const maxAge = own ? Math.min(seconds, Number(own[1])) : seconds;
   const out = withMaxAge(res, maxAge);
   if (cache) {
-    const copy = new Response(out.clone().body, out);
-    copy.headers.set(KEEP_HEADER, String(maxAge));
-    await cache.put(req, copy);
+    try {
+      const copy = new Response(out.clone().body, out);
+      copy.headers.set(KEEP_HEADER, String(maxAge));
+      await cache.put(req, copy);
+    } catch (e) { console.error("cache write failed", String((e && e.message) || e)); }
   }
   return out;
 }

@@ -15,7 +15,7 @@ const ids = async (db) => (await db.prepare("SELECT id FROM schema_migrations OR
 test("the frozen production schema matches src/store.js (a new migration must update test/helpers/prod-schema.js on purpose)", async () => {
   assert.deepEqual(MIGRATIONS.map((m) => m.id), PROD_MIGRATION_IDS,
     "src/store.js MIGRATIONS changed: record the new id in PROD_MIGRATION_IDS (and the new tables/columns) in test/helpers/prod-schema.js");
-  assert.equal(MIGRATIONS.length, 7);
+  assert.equal(MIGRATIONS.length, 8);
   assert.ok(!MIGRATIONS.some((m) => m.id === SIGNUP_MIGRATION.id), "the sign-up v2 migration must never be in MIGRATIONS (it runs only when SIGNUP_FLOW=v2)");
   const db = await prodDb();
   assert.deepEqual(await tablesOf(db), PROD_TABLES);
