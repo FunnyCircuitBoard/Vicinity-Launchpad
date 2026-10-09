@@ -16,21 +16,37 @@
   const isAddr = (a) => typeof a === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a);
   const initials = (name) => (String(name || "V").replace(/^@/, "").match(/[\p{L}\p{N}]/u) || ["V"])[0].toUpperCase();
 
-  // "Open app" on a phone opened /connect?carry=CODE inside a wallet app's browser: a one-time code that carries a sign-up here.
-  // It leaves the address bar before anything else runs or asks the server (no history entry or Referer keeps it); connect.js
-  // redeems it through takeCarry(), once.
-  let carryCode = null;
+  // "Open app" on a phone opened /connect?link=CODE inside a wallet app's browser: a one-time code that links the wallet there to
+  // the account that made it (connect.js, the wallet link). The old sign-up's /connect?carry=CODE is read the same way for a week
+  // (such a link is now only a calm line). The code leaves the address bar before anything else runs or asks the server (no
+  // history entry or Referer keeps it); connect.js redeems it through takeLink() / takeCarry(), once. A pairing (/connect?pair=)
+  // stays in the address bar (it is what the wallet app opened), but like the codes it holds the Terms gate back (below).
+  // A link code this tab KEPT (sessionStorage, written by signup.js while its screen is up, for an hour at most) is read the same
+  // way when the address bar holds none: a reload inside the wallet app (pull-to-refresh) offers the same link again, and never
+  // the sign-up (the owner's rule: nothing asks for a location or Google at the wallet stage).
+  const LINK_KEY = "vicinity-link";
+  const keptLink = () => {
+    try {
+      const k = JSON.parse(sessionStorage.getItem(LINK_KEY) || "null");
+      if (k && typeof k.code === "string" && /^[A-Za-z0-9_-]{32,64}$/.test(k.code) && Date.now() - Number(k.at) < 60 * 60_000) return k.code;
+      if (k) sessionStorage.removeItem(LINK_KEY);
+    } catch { /* storage blocked: a reload is an ordinary visit */ }
+    return null;
+  };
+  let carryCode = null, linkCode = null, deferGate = false;
   try {
     if (document.body.dataset.page === "connect") {
       const q = new URLSearchParams(location.search);
-      if (q.has("carry")) {
-        carryCode = q.get("carry") || "";
-        q.delete("carry");
-        history.replaceState(history.state, "", location.pathname + (String(q) ? `?${q}` : "") + location.hash);
-      }
+      const tidy = q.has("link") || q.has("carry");
+      if (q.has("link")) { linkCode = q.get("link") || ""; q.delete("link"); }
+      if (q.has("carry")) { carryCode = q.get("carry") || ""; q.delete("carry"); }
+      if (linkCode === null && carryCode === null && !q.has("pair")) linkCode = keptLink();
+      deferGate = linkCode !== null || carryCode !== null || q.has("pair");
+      if (tidy) history.replaceState(history.state, "", location.pathname + (String(q) ? `?${q}` : "") + location.hash);
     }
   } catch { /* no address bar to tidy (tests) */ }
   const takeCarry = () => { const c = carryCode; carryCode = null; return c; };
+  const takeLink = () => { const c = linkCode; linkCode = null; return c; };
 
   const toast = (msg) => {
     const t = $("#toast"); if (!t) return;
@@ -416,7 +432,7 @@
   })();
 
   /* ---------- terms gate: agree before entry ---------- */
-  let gateLater = null; // { version, open }: the gate waiting for connect.js (a carried sign-up, see takeCarry)
+  let gateLater = null; // { version, open }: the gate waiting for connect.js (a link code or a pairing, see takeLink)
   const termsGate = {
     open() { const g = gateLater; gateLater = null; if (g) g.open(); },
     agreed(version) {
@@ -451,9 +467,10 @@
     try { agreed = localStorage.getItem(key); } catch { /* ignore */ }
     if (agreed === version) return;
 
-    // A sign-up carried here from Safari / Chrome ("Open app" on a phone, /connect?carry=) has its Terms on record already. The gate
-    // waits for connect.js: termsGate.agreed(version) when the code worked (that version is noted here too), termsGate.open() when not.
-    if (carryCode !== null) { gateLater = { version, open: openGate }; return; }
+    // A link code or a pairing opened here from Safari / Chrome ("Open app" on a phone: /connect?link=, /connect?pair=) belongs to an
+    // account that accepted the Terms already. The gate waits for connect.js: termsGate.agreed(version) when the code is good (that
+    // version is noted here too), termsGate.open() when not (an old /connect?carry= link, a login pairing, a code that ran out).
+    if (deferGate) { gateLater = { version, open: openGate }; return; }
     openGate();
 
     function openGate() {
@@ -512,7 +529,7 @@
     }
   })();
 
-  window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, takeCarry, termsGate, liveNums, reveal,
+  window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, takeCarry, takeLink, termsGate, liveNums, reveal,
     get reduced() { return reducedNow(); }, // read when it is needed: the visitor may pause the animations while the page is open
     me: () => meLite, ready, official, opensAt: () => opensAt, siteMode: () => siteMode };
 })();

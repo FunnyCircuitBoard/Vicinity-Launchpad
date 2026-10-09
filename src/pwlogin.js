@@ -33,7 +33,7 @@
  * still asks the wallet to sign. Nothing here logs an address, a password, a code or a hash, and none is ever in an answer.
  */
 import { cookie, json, randomToken, readJson, sha256 } from "./http.js";
-import { SESSION_COOKIE, SESSION_SECONDS, cleanEmail, consumeEmailCode, createSession, dropCurrent, isFresh, sendEmailCode, validEmail } from "./auth.js";
+import { SESSION_COOKIE, SESSION_SECONDS, cleanEmail, consumeEmailCode, createSession, dropCurrent, isFresh, isProven, sendEmailCode, validEmail } from "./auth.js";
 import { access } from "./access.js";
 import { emailConfigured } from "./mail.js";
 import { check, clientKey, limitKey, refund } from "./limits.js";
@@ -218,12 +218,14 @@ export async function handleSetPassword(request, env, x) {
   const bad = checkPassword(body.password, u.provider_id);
   if (bad) return json({ ok: false, error: bad }, 400);
 
-  // Who may change it: the person who knows the current password, or whoever just proved the wallet (a stolen session has neither).
-  // A first password (none yet) can only come from a fresh wallet proof.
+  // Who may change it: the person who knows the current password, or whoever just proved the WALLET in this session (a stolen
+  // session has neither). The 30 minutes an account without a wallet counts as fresh after its login (isFresh) never replace an
+  // existing password: that login is what a stolen session IS. A first password (none yet) can come from any fresh session: a
+  // wallet proof, or, without a wallet, the login itself.
   const typed = body.current == null || body.current === "" ? null : body.current;
   if (typed !== null && typeof typed !== "string") return badCredentials();
   const useCurrent = Boolean(u.password_hash) && typed !== null;
-  if (!useCurrent && !isFresh(s, now)) return json({ ok: false, error: "reprove" }, 403);
+  if (!useCurrent && !(u.password_hash ? isProven(s, now) : isFresh(s, now))) return json({ ok: false, error: "reprove" }, 403);
 
   const keys = [await limitKey(env, "pwu", String(u.id)), await limitKey(env, "pwi", clientKey(request))];
   const specs = [{ key: keys[0], windowMs: WINDOW, max: MAX.user }, { key: keys[1], windowMs: WINDOW, max: MAX.connection }];

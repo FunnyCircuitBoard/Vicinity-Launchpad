@@ -165,7 +165,7 @@ test("sign in on a computer with the wallet on your phone (code + 2-digit check 
   assert.match(start.pin, /^[0-9]{2}$/);
 
   const seen = await (await phone.send(`/api/pair?code=${start.code}`)).json();
-  assert.deepEqual(seen, { status: "waiting", pin: start.pin });
+  assert.deepEqual(seen, { status: "waiting", pin: start.pin, purpose: "login" });
   const wrongPin = start.pin === "42" ? "43" : "42";
   let r = await phone.send("/api/auth/wallet", { method: "POST", body: { ...(await loginBody(w, { pin: wrongPin })), pair: start.code } });
   assert.equal((await r.json()).error, "pin_mismatch");

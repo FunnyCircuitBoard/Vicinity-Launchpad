@@ -110,7 +110,7 @@ export async function verifiedLocalHolders(db, cityId, balanceOf) {
 export async function checkedInWallets(db, cityId) {
   return (await db.prepare(
     `SELECT DISTINCT u.wallet FROM users u JOIN posts p ON p.user_id = u.id AND p.kind = 'checkin' AND p.hidden = 0 AND p.place = u.home_city
-     WHERE u.home_city = ? LIMIT 5000`).bind(cityId).all()).results.map((r) => r.wallet);
+     WHERE u.home_city = ? AND u.wallet IS NOT NULL LIMIT 5000`).bind(cityId).all()).results.map((r) => r.wallet);
 }
 
 export async function eligibility(env, u, now = Date.now(), fetchImpl = fetch, target = null, opts = {}) {
@@ -124,6 +124,7 @@ export async function eligibility(env, u, now = Date.now(), fetchImpl = fetch, t
   const city = target && target.id ? target
     : u.home_city ? { id: u.home_city, name: u.home_name, country: u.home_country } : null;
   if (!city) return { ...out, error: "no_home" };
+  if (!u.wallet) return { ...out, error: "no_wallet" }; // onboarding v3: the founder path starts with a linked wallet
   out.cityId = city.id; out.cityName = city.name; out.country = city.country;
   out.darkAdoption = city.id !== u.home_city;
   out.threshold = await thresholdFor(env, city.country, city.id);
@@ -706,6 +707,7 @@ export async function handleSquadCreate(request, env, now = Date.now()) {
   const a = await access(request, env, now);
   if (a.error) return a.error;
   const u = a.u, db = env.DB;
+  if (!u.wallet) return json({ ok: false, error: "no_wallet" }, 400); // a squad pools wallets: link one first
   if (!activeMint(env)) return json({ ok: false, error: "not_launched" }, 403);
   if (!u.home_city) return json({ ok: false, error: "no_home" }, 403);
   if (await liveSeatOfCity(db, u.home_city)) return json({ ok: false, error: "city_taken" }, 409);
@@ -727,6 +729,7 @@ export async function handleSquadJoin(request, env, now = Date.now()) {
   const a = await access(request, env, now);
   if (a.error) return a.error;
   const u = a.u, db = env.DB;
+  if (!u.wallet) return json({ ok: false, error: "no_wallet" }, 400); // a squad pools wallets: link one first
   const body = await readJson(request);
   const squad = body && await getSquad(db, Number(body.squadId) || 0);
   if (!squad || squad.status !== "forming") return json({ ok: false, error: "not_found" }, 404);
@@ -806,6 +809,7 @@ export async function handleSquadApply(request, env, fetchImpl = fetch, now = Da
   const a = await access(request, env, now, { fresh: true });
   if (a.error) return a.error;
   const u = a.u, db = env.DB;
+  if (!u.wallet) return json({ ok: false, error: "no_wallet" }, 400); // the designated founder's wallet takes the seat
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
   const squad = body && await getSquad(db, Number(body.squadId) || 0);

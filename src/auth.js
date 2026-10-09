@@ -7,11 +7,20 @@
  *      exact amount of SOL; or sign on your phone for this computer by scanning a code)
  *   2. sign in with Google or verify an e-mail address with a code → the two are linked for
  *      good → dashboard
- * New person (SIGNUP_FLOW=v2, src/signup.js): location → Terms + Google or e-mail with a password →
- *   wallet → one atomic step creates the account. In v2 this file can no longer create an account:
- *   an unknown Google id or e-mail answers "no_account" here, and only signs people in.
+ * New person (SIGNUP_FLOW=v2, src/signup.js): location → Terms + Google or e-mail with a password → the account
+ *   is created in one atomic step the moment the login is verified (src/signup-finish.js, called from the Google
+ *   callback here), with no wallet: the wallet is linked later from the dashboard (src/walletlink.js). In v2 this
+ *   file itself never creates an account: an unknown Google id or e-mail answers "no_account" here, and only signs
+ *   people in.
  * Returning person: either the wallet OR the linked Google login / verified e-mail signs them
  * straight in (and, in v2, an e-mail account may also use its password: src/pwlogin.js).
+ * THE ONE RULE for a proven wallet in v2 (walletProven, below): a proof made FOR THE LINK (a signed LINK statement that names
+ *   the account, a link pairing a phone approved, or a tiny transfer started with { link: true }) by a browser logged in to an
+ *   account WITHOUT a wallet links that wallet (src/walletlink.js); a plain LOGIN proof by such a browser links nothing
+ *   (400 use_link: a signature that promised a sign-in never binds a wallet to an account); logged in WITH the same wallet any
+ *   proof re-proves; WITH another wallet → wrong_wallet; not logged in → a linked wallet signs its owner in, an unknown one
+ *   gets "no_account" (nothing is made, no cookie). A member's session is never dropped by a proof. With the switch off
+ *   everything here is as it always was (pending sessions, next "social").
  *
  * Only a hash of the session cookie is stored. From Google we keep the account id and first
  * name; from e-mail we keep the address (a code proves it). A password exists only in v2, only
@@ -27,7 +36,7 @@ import { b64url, clearCookie, cookie, getCookie, json, randomToken, readJson, re
 import { checkSigned } from "./signed.js";
 import { isSolanaAddress } from "./solana.js";
 import { emailConfigured, sendMail, verificationEmail } from "./mail.js";
-import { ensureSchema, ensureSignupSchema } from "./store.js";
+import { ensureOnboardSchema, ensureSchema, ensureSignupSchema } from "./store.js";
 import { findTransfer } from "./chain.js";
 import { activeMint } from "./official.js";
 import { POLICY } from "./policy.js";
@@ -35,10 +44,12 @@ import { autoUsername } from "./text.js";
 import { v2On } from "./flags.js";
 import { check, clientKey, hits, limitKey, peek, refund } from "./limits.js";
 import { TERMS_VERSION, asText, endSignup, getSignup, recordIdentity } from "./signup-core.js";
+import { finishCore } from "./signup-finish.js";
+import { SESSION_COOKIE, SESSION_SECONDS } from "./session.js";
+import { accountName, linkWallet, maskName } from "./walletlink.js";
 
-export const SESSION_COOKIE = "vs";
+export { SESSION_COOKIE, SESSION_SECONDS };
 const OAUTH_COOKIE = "vo";
-export const SESSION_SECONDS = 30 * 86400;  // signed in for 30 days
 export const PENDING_SECONDS = 30 * 60;     // wallet proven, Google / e-mail still to link: 30 minutes
 const PAIR_SECONDS = 10 * 60;        // "sign in with my phone" codes: 10 minutes
 
@@ -104,7 +115,7 @@ export async function getSession(env, request, now = Date.now()) {
   const token = getCookie(request, SESSION_COOKIE);
   if (!token || token.length > 100) return null;
   await ensureSchema(env.DB);
-  const s = await env.DB.prepare("SELECT id, wallet, user_id, proof, expires_at, proven_at FROM sessions WHERE id = ?").bind(await sha256(token)).first();
+  const s = await env.DB.prepare("SELECT id, wallet, user_id, proof, created_at, expires_at, proven_at FROM sessions WHERE id = ?").bind(await sha256(token)).first();
   if (!s || Date.parse(s.expires_at) <= now) return null;
   const user = s.user_id ? await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(s.user_id).first() : null;
   if (s.user_id && !user) return null;
@@ -138,9 +149,60 @@ async function walletCookies(env, request, c, next) {
   return clear.length ? [c, ...clear] : c;
 }
 
-/** Was the wallet proven in this session within the last 30 minutes? Sensitive actions need that. */
-export const isFresh = (session, now = Date.now()) =>
-  Boolean(session && session.proven_at && now - Date.parse(session.proven_at) <= POLICY.freshProofMinutes * 60_000);
+/**
+ * THE ONE RULE: what a proven wallet does, with the switch on. `session` is this browser's session (or null), `wallet` the
+ * address that was just proven (a signed message checked, a pairing collected, a transfer found), `link` whether that proof
+ * was made FOR THE LINK: a signed LINK statement naming this account (handleWalletLogin checks the name), a link pairing
+ * (handlePairFinish), a transfer started with { link: true } (handleTransferCheck). A plain login proof carries no such intent.
+ * Returns { status, body, cookies? }: the answer to send.
+ *   logged in, no wallet, a link proof       → the wallet is linked (src/walletlink.js linkWallet) and this session is proven:
+ *                                              { ok, linked: true, wallet, next: "/dashboard?linked=1" } (409 wallet_taken | has_wallet)
+ *   logged in, no wallet, a login proof      → 400 use_link: nothing is linked. The signer saw "Sign in to Vicinity", not a binding
+ *                                              to an account, so a phished login signature can never capture a wallet this way
+ *   logged in, the same wallet               → re-proven (any proof): { ok, wallet, reproven: true, next: "/dashboard" }
+ *   logged in, another wallet                → 403 wrong_wallet (log out first: one account, one wallet)
+ *   not logged in, the wallet has an account → signs in (a 30-day session; a half-done sign-up in this browser ends)
+ *   not logged in, nobody has it             → 404 no_account, no cookie, no pending session (the page says how to join)
+ * With the switch off: today's behaviour (a pending 30-minute session and next "social" for a new wallet).
+ */
+export async function walletProven(env, request, wallet, now, session, { link = false } = {}) {
+  if (!v2On(env)) {
+    await dropCurrent(env, request);
+    const { cookie: c, next } = await signInWallet(env, wallet, now);
+    return { status: 200, body: { ok: true, wallet, next }, cookies: c };
+  }
+  const s = session === undefined ? await getSession(env, request, now) : session;
+  if (s && s.user) {
+    if (s.user.wallet && s.user.wallet !== wallet) return { status: 403, body: { ok: false, error: "wrong_wallet" } };
+    if (!s.user.wallet && !link) return { status: 400, body: { ok: false, error: "use_link" } }; // a sign-in promise binds nothing
+    const r = await linkWallet(env, s, wallet, now);
+    if (r.error) return { status: r.status, body: { ok: false, error: r.error, ...(r.wallet ? { wallet: r.wallet } : {}) } };
+    if (r.already) return { status: 200, body: { ok: true, wallet, reproven: true, next: "/dashboard", provenAt: iso(now) } };
+    return { status: 200, body: { ok: true, linked: true, wallet, next: "/dashboard?linked=1", provenAt: iso(now), fresh: true } };
+  }
+  const user = await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(wallet).first();
+  if (!user) return { status: 404, body: { ok: false, error: "no_account" } };
+  await dropCurrent(env, request);
+  const c = await createSession(env, { wallet, userId: user.id, provenAt: iso(now) }, SESSION_SECONDS, now);
+  return { status: 200, body: { ok: true, wallet, next: "/dashboard" }, cookies: await walletCookies(env, request, c, "/dashboard") };
+}
+const answer = (out) => json(out.body, out.status, out.cookies ? { "Set-Cookie": out.cookies } : {});
+
+/**
+ * Is this session fresh enough for a sensitive action (username, password, apply, endorse, vote, moderate)? The wallet was proven in
+ * this session within the last 30 minutes. For an account WITHOUT a wallet (onboarding v3: Google or e-mail first, the wallet linked
+ * later from the dashboard) the Google / e-mail login itself IS the identity, and such an account holds nothing a wallet proof would
+ * protect (no holdings, no rank, no seat, no squad): its session counts as fresh for the 30 minutes after it was made (the login).
+ * The moment a wallet is linked, only a proof by that wallet counts again.
+ */
+export const isFresh = (session, now = Date.now()) => {
+  if (!session) return false;
+  if (isProven(session, now)) return true;
+  const window = POLICY.freshProofMinutes * 60_000;
+  return Boolean(session.user && !session.user.wallet && session.created_at && now - Date.parse(session.created_at) <= window);
+};
+/** The stricter half of isFresh: the WALLET was proven in this session within the last 30 minutes (the login alone never counts). */
+export const isProven = (session, now = Date.now()) => Boolean(session && session.proven_at && now - Date.parse(session.proven_at) <= POLICY.freshProofMinutes * 60_000);
 
 /**
  * POST /api/auth/reprove { address, message, signature } → "it's still me": the signed-in person signs
@@ -151,6 +213,7 @@ export async function handleReprove(request, env, now = Date.now()) {
   if (blocked) return blocked;
   const s = await getSession(env, request, now);
   if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
+  if (!s.user.wallet) return json({ ok: false, error: "no_wallet" }, 403); // nothing to re-prove: link a wallet from the dashboard first
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
   const r = await checkSigned(body, request, now, ["login"], badSigned, env.DB);
@@ -170,73 +233,125 @@ const badSigned = (error, status = 400) => ({ error: json({ ok: false, error }, 
 
 /* ---------------- 1. prove the wallet ---------------- */
 
-/** POST /api/auth/wallet { address, message, signature, pair? } — a signed "login" message. */
+/**
+ * POST /api/auth/wallet { address, message, signature, pair? } — a signed "login" message, or (v2, signed in without a wallet)
+ * a signed "link" message that names the account. With `pair`, a wallet app approving for another device: a login statement
+ * with the check number for a login pairing, a link statement with it (and the owner's account) for a link pairing.
+ */
 export async function handleWalletLogin(request, env, now = Date.now()) {
   const blocked = await guard(request, env);
   if (blocked) return blocked;
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
-  const r = await checkSigned(body, request, now, ["login"], badSigned, env.DB); // a signed message works once
+  const r = await checkSigned(body, request, now, v2On(env) ? ["login", "link"] : ["login"], badSigned, env.DB); // a signed message works once
   if (r.error) return r.error;
   const wallet = r.parsed.address;
 
   if (body.pair != null) {
-    // a phone approving the sign-in of another device (the computer that showed the code)
+    // a phone approving for another device (the computer, or Safari, that showed the code)
     if (typeof body.pair !== "string" || body.pair.length > 64) return json({ ok: false, error: "bad_pair" }, 400);
-    const pair = await env.DB.prepare("SELECT id, pin, wallet, expires_at FROM pairs WHERE id = ?").bind(await sha256(body.pair)).first();
+    const pair = await env.DB.prepare("SELECT * FROM pairs WHERE id = ?").bind(await sha256(body.pair)).first();
     if (!pair || pair.wallet || Date.parse(pair.expires_at) <= now) return json({ ok: false, error: "pair_expired" }, 410);
     if (r.parsed.pin !== pair.pin) return json({ ok: false, error: "pin_mismatch" }, 400);
+    if (pair.purpose === "link") {
+      // a link pairing is approved with the link statement that names the account it is for: a login signature cannot approve it
+      const owner = pair.user_id ? await env.DB.prepare("SELECT id, handle FROM users WHERE id = ?").bind(pair.user_id).first() : null;
+      if (!owner || r.parsed.action !== "link" || r.parsed.handle !== accountName(owner)) return json({ ok: false, error: "bad_message" }, 400);
+    } else if (r.parsed.action !== "login") return json({ ok: false, error: "bad_message" }, 400);
     await env.DB.prepare("UPDATE pairs SET wallet = ? WHERE id = ? AND wallet IS NULL").bind(wallet, pair.id).run();
     return json({ ok: true, paired: true });
   }
   if (r.parsed.pin) return json({ ok: false, error: "bad_message" }, 400);
-
-  await dropCurrent(env, request);
-  const { cookie: c, next } = await signInWallet(env, wallet, now);
-  return json({ ok: true, wallet, next }, 200, { "Set-Cookie": await walletCookies(env, request, c, next) });
+  const session = await getSession(env, request, now);
+  if (r.parsed.action === "link") {
+    // the statement names an account: only that account's own, signed-in browser may use it (the rule below does the rest)
+    if (!session || !session.user) return json({ ok: false, error: "sign_in" }, 401);
+    if (r.parsed.handle !== accountName(session.user)) return json({ ok: false, error: "bad_message" }, 400);
+  }
+  return answer(await walletProven(env, request, wallet, now, session, { link: r.parsed.action === "link" }));
 }
 
-/** POST /api/pair → a code for the phone (shown as a QR code) and a 2-digit check number. */
+/**
+ * POST /api/pair { purpose? } → a code for the other device (shown as a QR code or opened in the wallet app) and a 2-digit check
+ * number. purpose "login" (default): the device that shows the code signs in with the wallet the phone approves. purpose "link"
+ * (v2, signed in without a wallet): the account of the device that shows the code gets the wallet the phone approves; such a
+ * pairing can never sign anyone in, and a login pairing can never link.
+ */
 export async function handlePairStart(request, env, now = Date.now()) {
   const blocked = await guard(request, env);
   if (blocked) return blocked;
+  const body = (await readJson(request)) || {};
+  let purpose = "login", userId = null;
+  if (body.purpose === "link") {
+    if (!v2On(env)) return json({ ok: false, error: "bad_request" }, 400);
+    const s = await getSession(env, request, now);
+    if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
+    if (s.user.wallet) return json({ ok: false, error: "has_wallet" }, 409);
+    try { await ensureOnboardSchema(env.DB); }
+    catch (e) { console.error("wallet link tables unavailable", String((e && e.message) || e)); return json({ ok: false, error: "link_unavailable" }, 503); }
+    purpose = "link";
+    userId = s.user.id;
+  } else if (body.purpose != null && body.purpose !== "login") return json({ ok: false, error: "bad_request" }, 400);
   const code = randomToken(18);
   const pin = String(10 + (crypto.getRandomValues(new Uint8Array(1))[0] % 90));
-  await env.DB.prepare("INSERT INTO pairs (id, pin, created_at, expires_at) VALUES (?, ?, ?, ?)")
-    .bind(await sha256(code), pin, iso(now), iso(now + PAIR_SECONDS * 1000)).run();
+  if (purpose === "link") {
+    await env.DB.prepare("INSERT INTO pairs (id, pin, created_at, expires_at, purpose, user_id) VALUES (?, ?, ?, ?, 'link', ?)")
+      .bind(await sha256(code), pin, iso(now), iso(now + PAIR_SECONDS * 1000), userId).run();
+  } else {
+    await env.DB.prepare("INSERT INTO pairs (id, pin, created_at, expires_at) VALUES (?, ?, ?, ?)")
+      .bind(await sha256(code), pin, iso(now), iso(now + PAIR_SECONDS * 1000)).run();
+  }
   if (Math.random() < 0.05) await env.DB.prepare("DELETE FROM pairs WHERE expires_at < ?").bind(iso(now)).run();
   const origin = new URL(request.url).origin;
-  return json({ ok: true, code, pin, url: `${origin}/connect?pair=${code}`, expiresAt: iso(now + PAIR_SECONDS * 1000) });
+  return json({ ok: true, code, pin, purpose, url: `${origin}/connect?pair=${code}`, expiresAt: iso(now + PAIR_SECONDS * 1000) });
 }
 
 async function findPair(env, code, now) {
   if (typeof code !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(code)) return null;
-  const p = await env.DB.prepare("SELECT id, pin, wallet, expires_at FROM pairs WHERE id = ?").bind(await sha256(code)).first();
+  const p = await env.DB.prepare("SELECT * FROM pairs WHERE id = ?").bind(await sha256(code)).first(); // (purpose, user_id exist only after the onboarding migration: a login pairing either way)
   return p && Date.parse(p.expires_at) > now ? p : null;
 }
 
-/** GET /api/pair?code= → { status: waiting | ready | expired, pin } (no side effects: the phone reads the pin here). */
+/**
+ * GET /api/pair?code= → { status: waiting | ready | expired, pin, purpose } (no side effects: the phone reads the pin here). A link
+ * pairing also says whose account it is for, masked ("Sa•••"), its community, and that the Terms are already accepted on that
+ * account (so the wallet app's page asks nothing else).
+ */
 export async function handlePairStatus(request, env, now = Date.now()) {
   if (!env.DB) return json({ status: "expired" });
   await ensureSchema(env.DB);
   const p = await findPair(env, new URL(request.url).searchParams.get("code"), now);
   if (!p) return json({ status: "expired" });
-  return json({ status: p.wallet ? "ready" : "waiting", pin: p.pin });
+  const out = { status: p.wallet ? "ready" : "waiting", pin: p.pin, purpose: p.purpose === "link" ? "link" : "login" };
+  if (p.purpose === "link" && p.user_id) {
+    const o = await env.DB.prepare("SELECT handle, name, home_name, home_country FROM users WHERE id = ?").bind(p.user_id).first();
+    if (o) Object.assign(out, { name: maskName(o.name || o.handle), handle: maskName(o.handle), community: o.home_name ? { name: o.home_name, country: o.home_country } : null, terms: TERMS_VERSION });
+  }
+  return json(out);
 }
 
-/** POST /api/pair/finish { code } → the computer takes over the sign-in the phone approved. */
+/**
+ * POST /api/pair/finish { code } → the device that showed the code collects what the phone approved: a login pairing signs it in
+ * (the one rule: not while signed in), a link pairing links the wallet to the account that made it (only that account's own
+ * browser, signed in). A login pairing can never link and a link pairing can never sign anyone in. The row is used once.
+ */
 export async function handlePairFinish(request, env, now = Date.now()) {
   const blocked = await guard(request, env);
   if (blocked) return blocked;
   const body = await readJson(request);
   const p = await findPair(env, body && body.code, now);
   if (!p) return json({ ok: false, status: "expired" }, 410);
+  let session;
+  if (v2On(env)) {
+    session = await getSession(env, request, now);
+    const mine = session && session.user ? p.purpose === "link" && p.user_id === session.user.id : p.purpose !== "link";
+    if (!mine) return json({ ok: false, status: "expired" }, 410);
+  }
   if (!p.wallet) return json({ ok: false, status: "waiting" });
   const del = await env.DB.prepare("DELETE FROM pairs WHERE id = ? AND wallet IS NOT NULL").bind(p.id).run();
   if (!del.meta?.changes) return json({ ok: false, status: "expired" }, 410); // someone was faster
-  await dropCurrent(env, request);
-  const { cookie: c, next } = await signInWallet(env, p.wallet, now);
-  return json({ ok: true, status: "done", wallet: p.wallet, next }, 200, { "Set-Cookie": await walletCookies(env, request, c, next) });
+  const out = await walletProven(env, request, p.wallet, now, session, { link: p.purpose === "link" }); // a login pairing never links
+  return answer({ ...out, body: out.body.ok ? { ...out.body, status: "done" } : out.body });
 }
 
 /**
@@ -254,12 +369,15 @@ export async function handleTransferStart(request, env, now = Date.now()) {
   const lamports = (1001 + (r % 8999)) * 1000; // 0.001001 – 0.009999 SOL, six decimals
   const proof = JSON.stringify({ address, lamports, since: now });
   const out = { ok: true, address, lamports, sol: (lamports / 1e9).toFixed(6), expiresAt: iso(now + PENDING_SECONDS * 1000) };
-  // Already signed in and proving "it's still me" (app wallets can't sign): keep the session, add the proof.
-  const current = body.reprove ? await getSession(env, request, now) : null;
+  // Already signed in and proving "it's still me" (app wallets can't sign), or (v2, no wallet on the account yet) linking the
+  // wallet that sends the transfer: keep the session, add the proof. The check (below) applies the one rule to what it finds.
+  const current = body.reprove || body.link ? await getSession(env, request, now) : null;
   if (current && current.user) {
-    if (address !== current.user.wallet) return json({ ok: false, error: "wrong_wallet" }, 403);
-    await env.DB.prepare("UPDATE sessions SET proof = ? WHERE id = ?").bind(proof, current.id).run();
-    return json({ ...out, reprove: true });
+    if (current.user.wallet ? address !== current.user.wallet : !(v2On(env) && body.link)) return json({ ok: false, error: "wrong_wallet" }, 403);
+    // the proof remembers what it is for: a found transfer links the wallet only when the person asked for the link (the one rule)
+    const mine = current.user.wallet ? proof : JSON.stringify({ address, lamports, since: now, link: true });
+    await env.DB.prepare("UPDATE sessions SET proof = ? WHERE id = ?").bind(mine, current.id).run();
+    return json({ ...out, reprove: Boolean(current.user.wallet), link: !current.user.wallet });
   }
   await dropCurrent(env, request);
   const c = await createSession(env, { proof }, PENDING_SECONDS, now);
@@ -287,12 +405,15 @@ export async function handleTransferCheck(request, env, now = Date.now(), fetchI
   catch (e) { console.error("transfer check failed", String(e)); return json({ ok: false, error: "chain_unavailable" }, 503); }
   if (!found) return json({ ok: false, error: "not_found_yet" });
   if (s.user) {
-    await env.DB.prepare("UPDATE sessions SET proven_at = ?, proof = NULL WHERE id = ?").bind(iso(now), s.id).run();
-    return json({ ok: true, wallet: p.address, reproven: true });
+    if (!v2On(env)) {
+      await env.DB.prepare("UPDATE sessions SET proven_at = ?, proof = NULL WHERE id = ?").bind(iso(now), s.id).run();
+      return json({ ok: true, wallet: p.address, reproven: true });
+    }
+    await env.DB.prepare("UPDATE sessions SET proof = NULL WHERE id = ?").bind(s.id).run(); // the proof is spent either way
+    return answer(await walletProven(env, request, p.address, now, s, { link: Boolean(p.link) })); // links (asked for), re-proves, or wrong_wallet
   }
-  await dropSession(env, s.id);
-  const { cookie: c, next } = await signInWallet(env, p.address, now);
-  return json({ ok: true, wallet: p.address, next }, 200, { "Set-Cookie": await walletCookies(env, request, c, next) });
+  await dropSession(env, s.id); // the pending proof is spent: what follows is the rule for a wallet proven by a browser that is not logged in
+  return answer(await walletProven(env, request, p.address, now, null));
 }
 
 /* ---------------- 2. Google ---------------- */
@@ -322,9 +443,12 @@ export async function handleOAuthStart(request, env, provider) {
 }
 
 /**
- * GET /api/auth/google/callback → link the login to the proven wallet (or sign a returning person in).
- * v2: it never creates an account. A known Google id signs in; an unknown one is recorded in the sign-up (when the person
- * started from the sign-up page) or refused with "no_account" (a login attempt).
+ * GET /api/auth/google/callback → link the login to the proven wallet (v1), or sign a returning person in.
+ * v2: a known Google id signs in; an unknown one is recorded in the sign-up (when the person started from the sign-up page)
+ * and the account is made right here, in the same request (finishCore), landing on /dashboard?welcome=1; a refusal of the
+ * finish lands on /connect?error=<code> (location_unverified, social_taken, terms_required: the page shows the right step) or
+ * /connect?step=finish (anything else: the page runs the finish once more and shows the precise reason). A login attempt
+ * (no sign-up marker) with an unknown id is refused with "no_account".
  */
 export async function handleOAuthCallback(request, env, provider, fetchImpl = fetch, now = Date.now()) {
   const url = new URL(request.url);
@@ -344,14 +468,20 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
 
   await ensureSchema(env.DB);
   const session = await getSession(env, request, now);
-  const v2 = v2On(env) ? { onNew: marker === "s"
-    ? () => recordIdentity(env, request, provider, who, now, { walletDone: Boolean(session && session.wallet && !session.user && isFresh(session, now)) })
-    : () => ({ error: "no_account" }) } : null;
+  const v2 = v2On(env) ? { onNew: marker === "s" ? () => recordIdentity(env, request, provider, who, now) : () => ({ error: "no_account" }) } : null;
   const r = await linkIdentity(env, session, provider, who, now, v2);
   if (r.error) return fail(r.error);
+  if (r.recorded) {
+    // the login is verified and in the sign-up: the account is made now, in this very request
+    const fin = await finishCore(env, r.row, request, now, request.cf);
+    if (fin.ok) return redirect("/dashboard?welcome=1", [clear, ...fin.cookies]);
+    const shown = ["location_unverified", "social_taken", "terms_required"].includes(fin.error);
+    // (a missing community: the page's location step; anything else: the finish step, which names what it waits for)
+    return redirect(shown ? `/connect?error=${fin.error}` : `/connect?step=${fin.error === "location_required" ? "location" : "finish"}`, [clear, r.cookie]);
+  }
   const cookies = r.cookie ? [clear, r.cookie] : [clear];
   // An existing person signed in: any half-done sign-up in this browser is over.
-  if (v2 && r.cookie && !r.recorded) cookies.push(...await endSignup(env, request));
+  if (v2 && r.cookie) cookies.push(...await endSignup(env, request));
   return redirect(r.to, cookies);
 }
 
@@ -404,11 +534,28 @@ export async function linkIdentity(env, session, provider, who, now, v2 = null) 
   return v2 ? v2.onNew() : { error: "wallet_first" };
 }
 
-/** POST /api/auth/logout */
-export async function handleLogout(request, env) {
+/**
+ * POST /api/auth/logout. In v2 a deliberate sign-out also kills the person's pending "Open app" link codes (src/walletlink.js: a code
+ * is bound to the person and the connection, not to a session, so without this a code made a minute ago would still link a wallet
+ * and mint a session in the wallet app's browser after the person logged out of Safari on a shared phone).
+ */
+export async function handleLogout(request, env, now = Date.now()) {
   if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
-  if (env.DB) { await ensureSchema(env.DB); await dropCurrent(env, request); }
+  if (env.DB) {
+    await ensureSchema(env.DB);
+    if (v2On(env)) await dropCarryCodes(env, request, now);
+    await dropCurrent(env, request);
+  }
   return json({ ok: true }, 200, { "Set-Cookie": clearCookie(SESSION_COOKIE) });
+}
+/** The live link codes of the person signing out (unused or opened): gone, so the wallet app's claim answers carry_expired. */
+async function dropCarryCodes(env, request, now) {
+  const s = await getSession(env, request, now);
+  if (!s || !s.user) return;
+  try {
+    await ensureSignupSchema(env.DB); // handoffs lives in the sign-up tables (the first v2 request made them)
+    await env.DB.prepare("DELETE FROM handoffs WHERE kind = 'carry' AND user_id = ? AND (result IS NULL OR result = 'opened')").bind(s.user.id).run();
+  } catch (e) { console.error("link codes not cleared on logout", String((e && e.message) || e).slice(0, 120)); }
 }
 
 /* ---------------- 3. e-mail codes ---------------- */

@@ -8,7 +8,7 @@
 // Where every element of dashboard.html lives (one place each; test/dashboard-v2.test.js checks the built page against ORDER):
 //   GLOBAL (never moved)  #dash-skel, #dash-out, #dash-onboard, #proof-modal, #locate-modal, #toast, #termsgate
 //   RETIRED (hidden)      #dash-main .dash-tools (#layout-edit, #layout-reset), #dash-main .dash-grid (#col-main, #col-side, emptied)
-//   home      -> #panel-home       #pf-notice, #ban-notice, #lost-alert, #dash-top, #today, #role-home, #portfolio, #badges, #trade
+//   home      -> #panel-home       #pf-notice, #ban-notice, #lost-alert, #welcome, #dash-top, #wallet-card, #today, #role-home, #portfolio, #badges, #trade
 //   city      -> #panel-city       #city-subnav, #community, #coin, #city-about, #request
 //   community -> #panel-community  #feed, #national
 //   rankings  -> #panel-rankings   #rankings-card
@@ -25,7 +25,7 @@
   const LABEL = { home: "Home", city: "City", community: "Community", rankings: "Rankings", founder: "Founder", moderate: "Moderate", profile: "Profile" };
   // the cards, in the order they stand in each panel (the static v2 blocks are listed too, so the order is one list)
   const ORDER = Object.freeze({
-    home: ["#pf-notice", "#ban-notice", "#lost-alert", "#dash-top", "#today", "#role-home", "#portfolio", "#badges", "#trade"],
+    home: ["#pf-notice", "#ban-notice", "#lost-alert", "#welcome", "#dash-top", "#wallet-card", "#today", "#role-home", "#portfolio", "#badges", "#trade"],
     city: ["#city-subnav", "#community", "#coin", "#city-about", "#request"],
     community: ["#feed", "#national"],
     rankings: ["#rankings-card"],
@@ -35,7 +35,7 @@
   });
   // a link to a card by its old hash (#progress, #coin, ...) opens the card's tab, then scrolls to the card
   const ALIAS = { progress: "founder", squad: "founder", "coin-studio": "founder", coin: "city", "cc-top": "city", request: "city", "city-about": "city",
-    feed: "community", national: "community", mod: "moderate", roles: "profile", trade: "home", badges: "home", portfolio: "home", "role-home": "home" };
+    feed: "community", national: "community", mod: "moderate", roles: "profile", trade: "home", badges: "home", portfolio: "home", "role-home": "home", "wallet-card": "home", welcome: "home" };
   const HEADER = 67; // the site header: 66px plus its 1px border
   const QUEUE = [["posts", "reported post", "reported posts"], ["proposals", "ban proposal", "ban proposals"], ["appeals", "appeal", "appeals"],
     ["objections", "objection", "objections"], ["towns", "town request", "town requests"], ["coins", "coin contract to check", "coin contracts to check"]];
@@ -217,6 +217,8 @@
     const city = u.home ? u.home.name : "your city", seated = Boolean(seat && (seat.status === "active" || seat.status === "steward"));
     const rows = [];
     const add = (title, sub, tone, tab, go, exact) => rows.push({ title, sub, tone, href: tab[0] === "/" ? tab : "#" + tab, go, exact });
+    // an account without a wallet (onboarding v3): the link comes first; holdings, rank and the founder path wait for it
+    if (!u.wallet) add("Link your wallet", "Free, one signature. Unlocks your holdings, rank, badges and the founder path.", "ok", "home", "#wallet-card", true);
     if (seat && (seat.status === "grace" || (seat.status === "steward" && seat.graceUntil))) add("Top up your holding", `Hold ${fmt(seat.threshold)} $VICINITY again before ${when(seat.graceUntil)}`, "warn", "home", "#trade");
     if (seat && seat.status === "provisional") add("Objection period", `${seat.city} chose you · ends ${when(seat.appealUntil)}`, "info", "founder", "#progress");
     if (!seat && f.application) add(`You applied to found ${city}`, `Window closes ${when(f.application.closesAt)} (${left(f.application.closesAt)})`, "info", "founder", "#progress");
@@ -233,7 +235,7 @@
     if (sq && sq.joinable && !sq.joinable.full) add(`A squad is forming in ${city}`, `${sq.joinable.members.length} of ${sq.joinable.max} members · join to pool holdings`, "info", "founder", "#squad");
     if (sq && sq.mine && sq.mine.ready && sq.mine.status !== "applied") add("Your squad is ready", "Apply as a squad from inside the city.", "ok", "founder", "#squad");
     if (!u.handle) add("Pick a username", "Your public name everywhere on Vicinity.", "info", "profile", "#username-input");
-    if (d.launched && h.amount === 0 && !seat) add("Get $VICINITY", "Holding any amount unlocks posting, voting and your rank.", "info", "home", "#trade");
+    if (d.launched && h.amount === 0 && !seat && u.wallet) add("Get $VICINITY", "Holding any amount unlocks posting, voting and your rank.", "info", "home", "#trade");
     if (!d.launched) {
       const soon = opensIn();
       add(soon ? `Launch in ${soon}` : "Launching now", soon ? "$VICINITY launches on Raydium LaunchLab. The Launchpad has the countdown." : "The contract is published on the Token page first.", "info", soon ? "/launchpad" : "/token", null);
@@ -265,7 +267,7 @@
   function rankings(d) {
     const h = d.holding || {}, c = d.community, n = d.national, launched = d.launched, st = $("#rk-state");
     st.textContent = launched ? "● Live" : "Live at launch"; st.className = launched ? "tag tag--ok" : "tag";
-    const fallback = launched ? (h.team ? "team wallet, not ranked" : h.amount > 0 ? "ranking…" : "not holding yet") : "live at launch";
+    const fallback = !d.user.wallet ? "link a wallet" : launched ? (h.team ? "team wallet, not ranked" : h.amount > 0 ? "ranking…" : "not holding yet") : "live at launch";
     tile("rk-global", h.rank ? `#${fmt(h.rank)}` : "—", h.rank ? `of ${fmt(h.total)} · top ${pctText(h.percentile)}%` : fallback);
     const gap = $("#rk-global-gap");
     gap.hidden = !(h.next && h.next.gap > 0);

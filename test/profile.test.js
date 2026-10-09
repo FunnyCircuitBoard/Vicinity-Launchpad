@@ -85,7 +85,8 @@ test("username: names that pass for the project or its staff are refused, whatev
   const a = await person(env);
   for (const bad of ["Admin", "vicinity", "Vicinity_Official", "V1c1n1ty", "VICINITY", "TeamVicinity", "Team_Vicinity", "MyVicinity", "admin_", "Administrator1",
     "Moderator", "M0derator", "Support", "SupportTeam", "Official", "TheOfficial", "Staff", "Owner", "System", "Security", "Mod", "MODS", "Help", "Founder", "r00t", "Root",
-    "Admin_Sakib", "Sakib_Admin", "Supp0rt", "AdminSakib", "Support_Desk"]) {
+    "Admin_Sakib", "Sakib_Admin", "Supp0rt", "AdminSakib", "Support_Desk",
+    "member5", "Member12", "MEMBER007"]) { // member<digits>: the name the wallet link statement gives an account without a username
     const r = await a.post("/api/me/username", { username: bad });
     assert.equal(r.error, "username_reserved", bad);
   }
@@ -93,7 +94,8 @@ test("username: names that pass for the project or its staff are refused, whatev
   // ordinary names that merely contain or start like those are fine
   // (a person may change their name three times a day, so check the plain-name rule directly for the long list)
   const { reservedUsername } = await import("../src/me.js");
-  for (const ok of ["Modest77", "Helpful77", "Rootsy77", "Staffan", "Supporter", "Supportive", "Homeowner", "Ecosystem", "Sysadmin", "Madmin", "Teamster", "Greenroot", "Officially", "Security_Sam", "Aaron", "Anna"])
+  for (const ok of ["Modest77", "Helpful77", "Rootsy77", "Staffan", "Supporter", "Supportive", "Homeowner", "Ecosystem", "Sysadmin", "Madmin", "Teamster", "Greenroot", "Officially", "Security_Sam", "Aaron", "Anna",
+    "Member", "Membership", "Member_12", "Remember9", "Members"])
     assert.equal(reservedUsername(ok), false, ok);
   assert.equal((await a.post("/api/me/username", { username: "Modest77" })).ok, true);
 });

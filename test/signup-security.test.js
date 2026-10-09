@@ -4,7 +4,7 @@ import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { V2, advance, browser, realClock, useClock, wallet } from "./helpers/world.js";
-import { GOOD_PASSWORD, doEmail, doLocation, doTerms, dumpAll, finish, journey, member, one, outbox, recordAnswers, rows, startSignup, stateOf, tablesAndColumns } from "./helpers/signup.js";
+import { GOOD_PASSWORD, doEmail, doLocation, doTerms, dumpAll, finish, journey, linkDirect, member, one, outbox, recordAnswers, rows, startSignup, stateOf, tablesAndColumns } from "./helpers/signup.js";
 import { sha256 } from "../src/http.js";
 
 let env, box;
@@ -13,8 +13,7 @@ after(() => realClock());
 
 const POST_ROUTES = ["/api/signup/start", "/api/signup/location", "/api/signup/location/choice", "/api/signup/location/handoff", "/api/signup/location/handoff/info",
   "/api/signup/location/handoff/complete", "/api/signup/location/handoff/claim", "/api/signup/terms", "/api/signup/account/reset", "/api/signup/email",
-  "/api/signup/email/verify", "/api/signup/finish", "/api/auth/email/login", "/api/auth/password/reset/start", "/api/auth/password/reset", "/api/me/password",
-  "/api/signup/carry", "/api/signup/carry/claim"];
+  "/api/signup/email/verify", "/api/signup/finish", "/api/auth/email/login", "/api/auth/password/reset/start", "/api/auth/password/reset", "/api/me/password"];
 
 test("the sign-up cookie: random, HttpOnly, Secure, SameSite=Lax, an hour, and only its hash is stored", async () => {
   const b = browser(env);
@@ -151,6 +150,7 @@ test("passwords and hashes never leave the server: not in /api/me, the state, th
   const bodies = recordAnswers(b);
   const j = await journey(b, box, { via: "email", w });
   assert.equal(j.finish.ok, true);
+  await linkDirect(env, j); // the owner's wallet is on the account: the admin list opens for it
   for (const p of ["/api/me", "/api/me?lite=1", "/api/signup/state", "/api/members", "/api/policy"]) await b.get(p);
   const admin = await b.send("/api/admin/users?q=");
   assert.equal(admin.status, 200, "the admin list works for the owner (and is scanned)");
@@ -241,7 +241,7 @@ test("the source never writes an e-mail, password, code or coordinate into a log
   }
   assert.ok(logged.length > 20, "the scan really looked at the log calls (" + logged.length + ")");
 
-  const allowed = new Set(["auth.js", "store.js", "me.js", "password.js", "pwlogin.js", "signup.js", "signup-core.js", "common-passwords.js"]);
+  const allowed = new Set(["auth.js", "store.js", "me.js", "password.js", "pwlogin.js", "signup.js", "signup-core.js", "signup-finish.js", "common-passwords.js"]);
   for (const f of files) {
     if (!/password_hash/.test(readFileSync(new URL(`../src/${f}`, import.meta.url), "utf8"))) continue;
     assert.ok(allowed.has(f), `${f} handles password_hash: it must not (it would be one step from an answer)`);

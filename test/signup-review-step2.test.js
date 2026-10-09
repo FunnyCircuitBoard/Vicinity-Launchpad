@@ -89,13 +89,10 @@ test("a normal sign-in still leaves after 1.2 seconds", async () => {
   assert.ok(p.delays.includes(1200), p.delays.join());
 });
 
-test("inside a wallet app the sign-up page no longer sends a new account to Safari for Google (that loops: a wallet cannot be proven there)", () => {
+test("inside a wallet app the account step says to use e-mail here, or Safari or Chrome for Google (an account needs no wallet now, so nothing loops)", () => {
   const callout = (html.match(/<p class="callout small" id="su-inapp"[^>]*>([^]*?)<\/p>/) || [])[1];
   assert.ok(callout, "the callout is there");
-  assert.match(callout, /Google can't sign you in here, so use e-mail/);
-  assert.doesNotMatch(callout, /Safari|Chrome|Copy the link/);
-  assert.doesNotMatch(html, /id="su-copy"/);
-  assert.doesNotMatch(read("signup.js"), /su-copy/);
-  for (const id of ["lg-inapp", "login-inapp"]) assert.match(html, new RegExp(`id="${id}"[^>]*>[^]*?Safari or Chrome`), `${id}: on the Log in tab that advice is true (an existing account needs no wallet in Safari)`);
+  assert.match(callout, /Google cannot sign you in inside a wallet app\. Use e-mail here, or open <strong>vicinity\.city\/connect<\/strong> in Safari or Chrome\./);
+  assert.match(callout, /id="su-copy"/, "one tap copies the link for Safari");
+  for (const id of ["lg-inapp", "login-inapp"]) assert.match(html, new RegExp(`id="${id}"[^>]*>[^]*?Safari or Chrome`), `${id}: on the Log in tab the same advice`);
 });
-

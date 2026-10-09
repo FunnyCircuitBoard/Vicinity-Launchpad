@@ -82,6 +82,11 @@
       p.lead = d.founder.eligible ? `You qualify to found ${city}. Apply from inside the city below.` : `You can post, vote and endorse. Your road to founding ${city} is below.`;
       p.meters.push(meter("Founder path", d.progress.percent, `${d.progress.percent}%`));
       p.tools.push(jump("Founder path", "#progress", "btn btn--primary btn--sm"), jump("Post to your city", "#feed"), invite);
+    } else if (!d.user.wallet) {
+      // onboarding v3: the account exists, the wallet is linked later (from the dashboard's link card, or here)
+      p.tag = { text: "You are in", cls: "tag--ok" };
+      p.lead = `Member of ${city}. You are in. Link a wallet to see your $VICINITY, your rank and your road to founding ${city}.`;
+      p.tools.push(link("Link my wallet", "/connect?mode=link", "btn btn--primary btn--sm"), invite);
     } else {
       p.tag = { text: d.launched ? "Not holding yet" : "Early member", cls: d.launched ? "tag--warn" : "tag--ok" };
       p.lead = d.launched ? "You're signed in and local, but this wallet holds no $VICINITY yet. Holding any amount unlocks posting, voting and your rank."
@@ -149,6 +154,7 @@
     has_seat: "Someone in the squad already holds a seat.", not_member: "You're not in this squad.",
     needs_checkin: "Check in once from inside your city first (proof you're really here).", account_too_new: "Your account has to be 7+ days old.",
     home_too_new: "Your home community has to be set 7+ days first.", banned: "You can't do this while banned.", sign_in: "Your session ended. Please sign in again.",
+    no_wallet: "Link a wallet first.",
   };
   const WHY_MEMBER = { not_local: "not from this city", has_seat: "already holds a seat", banned: "banned", no_balance: "holds nothing yet", not_qualified: "hasn't held their share for 7 days yet" };
 
@@ -163,7 +169,10 @@
       const r = await api(path, body);
       toast(r.ok ? okText : ctx.errText(SQUAD_ERR, r, "Couldn't do that.")); if (r.ok) ctx.refresh();
     };
-    if (sq.canCreate) parts.push(tool("Start a squad", () => act("/api/seats/squad/create", {}, "Squad started. Invite friends from your city."), "btn btn--primary btn--sm"));
+    if (sq.canCreate && !d.user.wallet) { // a squad pools wallets (the server answers no_wallet): say so instead of a button that can only fail
+      const a = el("a", "btn btn--glass btn--sm", "Link my wallet"); a.href = "#wallet-card";
+      parts.push(el("p", "small muted", "A squad pools wallets, so link yours first: free, one signature."), a);
+    } else if (sq.canCreate) parts.push(tool("Start a squad", () => act("/api/seats/squad/create", {}, "Squad started. Invite friends from your city."), "btn btn--primary btn--sm"));
     if (sq.joinable) {
       parts.push(el("p", "small", `A squad is forming in ${home.name}: ${sq.joinable.members.join(", ")} (${sq.joinable.members.length}/${sq.joinable.max}).`));
       if (!sq.joinable.full) parts.push(tool("Join this squad", () => act("/api/seats/squad/join", { squadId: sq.joinable.id }, "You joined the squad."), "btn btn--primary btn--sm"));

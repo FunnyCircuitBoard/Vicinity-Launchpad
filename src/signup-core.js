@@ -4,12 +4,13 @@
  *
  * A sign-up is ONE row in `signups`, found through the `vsu` cookie (a random token: only its SHA-256 is stored).
  * It holds what the person has proven so far: Terms version, community (never coordinates), a verified Google id or
- * e-mail (+ the password hash), and nothing else. The account itself is only created at the very end, in one
- * atomic step (finish in src/signup.js). The row lives 60 minutes from the last request, and never longer than
- * 3 hours in all, and is deleted when the account is made or when the person signs in to an existing account.
+ * e-mail (+ the password hash), and nothing else. The account itself is created in one atomic step the moment the
+ * login is verified (finishCore in src/signup-finish.js), with no wallet: the wallet is linked later, from the dashboard.
+ * The row lives 60 minutes from the last request, and never longer than 3 hours in all, and is deleted when the account
+ * is made or when the person signs in to an existing account.
  */
 import { clearCookie, cookie, getCookie, json, randomToken, sameSite, sha256 } from "./http.js";
-import { ensureSignupSchema } from "./store.js";
+import { ensureOnboardSchema } from "./store.js";
 import { DAY, iso } from "./policy.js";
 
 export const SIGNUP_COOKIE = "vsu";
@@ -20,13 +21,14 @@ const CAP_SECONDS = 3 * 3600;      // ... and never more than three hours from t
 
 /**
  * What every v2 route checks first: a request that changes something must come from this site (Origin), the database
- * must be there, and the sign-up tables must exist (they are created the first time they are needed: a failure there
- * answers 503 and breaks only the new sign-up, never the rest of the site). Returns a Response to send, or null.
+ * must be there, and the sign-up tables must exist (they are created the first time they are needed, and users.wallet
+ * made nullable once, ensureOnboardSchema: a failure there answers 503 and breaks only the new sign-up and the wallet
+ * link, never the rest of the site). Returns a Response to send, or null.
  */
 export async function guardV2(request, env) {
   if (request.method !== "GET" && !sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
   if (!env.DB) return json({ ok: false, error: "accounts_unavailable" }, 503);
-  try { await ensureSignupSchema(env.DB); }
+  try { await ensureOnboardSchema(env.DB); }
   catch (e) {
     console.error("sign-up tables unavailable", String((e && e.message) || e));
     return json({ ok: false, error: "signup_unavailable" }, 503);
@@ -74,20 +76,17 @@ export async function touchSignup(env, row, request, now = Date.now()) {
 
 /**
  * Throw away this browser's half-done sign-up (and any hand-off bound to it): the person just signed in to an account they
- * already had. A sign-up that was carried here from another browser ("Open app") leaves a note on its carry row, so that
- * browser can say what happened (the wallet already had an account) instead of "it ran out". Returns the Set-Cookie values
- * that clear the `vsu` cookie ([] when the request carried none). Never throws: a person who just signed in must not fail on
- * tidying up.
+ * already had. Returns the Set-Cookie values that clear the `vsu` cookie ([] when the request carried none). Never throws: a
+ * person who just signed in must not fail on tidying up.
  */
 export async function endSignup(env, request) {
   const token = getCookie(request, SIGNUP_COOKIE);
   if (!token) return [];
   if (token.length <= 100) {
     try {
-      await ensureSignupSchema(env.DB);
+      await ensureOnboardSchema(env.DB);
       const id = await sha256(token);
       await env.DB.batch([
-        env.DB.prepare("UPDATE handoffs SET purpose = 'login' WHERE kind = 'carry' AND result = ? AND EXISTS (SELECT 1 FROM signups WHERE id = ?)").bind(id, id),
         env.DB.prepare("DELETE FROM handoffs WHERE signup_id = ?").bind(id),
         env.DB.prepare("DELETE FROM signups WHERE id = ?").bind(id),
       ]);
@@ -97,22 +96,22 @@ export async function endSignup(env, request) {
 }
 
 /**
- * The first step still open, in the order the page asks for them: location, then terms + account, then the wallet,
- * then "finish". `walletDone` = a wallet was proven in this browser in the last 30 minutes (the pending `vs` session).
+ * The first step still open, in the order the page asks for them: location, then terms + account, then "finish" (the
+ * account is made the moment the login is verified; "finish" is only ever seen by a page that reloads or retries).
  */
-export function nextStep(row, walletDone) {
+export function nextStep(row) {
   if (!row.loc_city) return "location";
   if (!(row.terms_version === TERMS_VERSION && row.identity_at)) return "account";
-  return walletDone ? "finish" : "wallet";
+  return "finish";
 }
 
 /**
- * A verified Google login belongs to this sign-up now. No account is made here. Needs the Terms to be accepted
- * first. Returns { recorded, to, cookie } (to = the /connect step the page continues with) or { error }.
+ * A verified Google login belongs to this sign-up now. Needs the Terms to be accepted first. Returns { recorded, to, cookie, row }
+ * (to = the /connect step the page continues with; row = the sign-up as it is now, for finishCore) or { error }.
  * Errors are the /connect?error= codes of the Google callback, so a sign-up that ran out of time reads "expired".
  */
-export async function recordIdentity(env, request, provider, who, now, { walletDone = false } = {}) {
-  try { await ensureSignupSchema(env.DB); }
+export async function recordIdentity(env, request, provider, who, now) {
+  try { await ensureOnboardSchema(env.DB); } // the sign-up tables, and users.wallet nullable: the account is made right after
   catch (e) { console.error("sign-up tables unavailable", String((e && e.message) || e)); return { error: "login_unavailable" }; }
   const row = await getSignup(env, request, now);
   if (!row) return { error: "login_expired" };
@@ -122,29 +121,9 @@ export async function recordIdentity(env, request, provider, who, now, { walletD
       WHERE id = ? AND terms_version = ? AND expires_at > ?`)
     .bind(provider, who.id, who.name, iso(now), row.id, TERMS_VERSION, iso(now)).run();
   if (!r.meta.changes) return { error: "login_expired" };
-  const next = nextStep({ ...row, provider, provider_id: who.id, identity_at: iso(now) }, walletDone);
-  return { recorded: true, to: `/connect?step=${next}`, cookie: await touchSignup(env, row, request, now) };
-}
-
-/**
- * A sign-up that this browser carried into a wallet app's own browser (src/signup.js, "carry"): the browser's `vsu` cookie no
- * longer opens the sign-up (it moved), but it can still learn what became of it. Returns null when nothing was carried from here,
- * or { done, provider, live } (+ login: true): done = the account was created there, live = it is still going on there, login =
- * it ended there because the person signed in to an account they already had (a wallet that was a member's already).
- */
-export async function carriedFrom(env, request, now = Date.now()) {
-  const token = getCookie(request, SIGNUP_COOKIE);
-  if (!token || token.length > 100) return null;
-  const h = await env.DB.prepare("SELECT result, user_id, purpose, expires_at FROM handoffs WHERE kind = 'carry' AND signup_id = ? AND result IS NOT NULL")
-    .bind(await sha256(token)).first();
-  if (!h || Date.parse(h.expires_at) <= now) return null;
-  if (h.user_id != null) {
-    const u = await env.DB.prepare("SELECT provider FROM users WHERE id = ?").bind(h.user_id).first();
-    return { done: true, live: false, provider: u ? u.provider : null };
-  }
-  if (h.purpose === "login") return { done: false, live: false, provider: null, login: true };
-  const s = await env.DB.prepare("SELECT provider, expires_at FROM signups WHERE id = ?").bind(h.result).first();
-  return { done: false, live: Boolean(s && Date.parse(s.expires_at) > now), provider: s ? s.provider : null };
+  const cookie = await touchSignup(env, row, request, now);
+  const updated = await env.DB.prepare("SELECT * FROM signups WHERE id = ?").bind(row.id).first();
+  return { recorded: true, to: `/connect?step=${nextStep(updated || row)}`, cookie, row: updated || row };
 }
 
 /** A phone-browser hand-off row by its code (the same lookup src/handoff.js does, without importing it). */
