@@ -1,0 +1,87 @@
+/* The swap panel (public/swap.js): the Buy & swap box on /token, the dashboard, /coin and the Launchpad cards, and its bottom
+   sheet on phones. Tokens of style.css only; 44 px targets; no horizontal scroll; motion only when the person allows it. */
+.swap { display: grid; gap: 12px; min-width: 0; }
+.swap__head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.swap__head .kicker { margin: 0; }
+.swap__box { position: relative; display: grid; gap: 6px; }
+.swap__row { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 18px; background: rgba(var(--ink),.05); border: 1px solid var(--line); transition: border-color .2s; }
+.swap__row:focus-within { border-color: var(--line-2); }
+.swap.is-warn .swap__row--out { border-color: rgba(255,213,138,.5); }
+.swap.is-bad .swap__row--out { border-color: rgba(255,90,54,.6); }
+.swap__label { font-size: .76rem; font-weight: 600; color: var(--muted); }
+.swap__line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.swap__amt { flex: 1 1 0; width: 0; min-width: 0; min-height: 44px; font: 650 clamp(1.15rem, 6vw, 1.55rem)/1.2 var(--display); letter-spacing: -.02em; color: var(--text); background: none; border: 0; padding: 0; outline: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swap__amt:disabled { opacity: .55; }
+.swap__amt--out { display: block; }
+.swap__token { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 8px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card-2); color: var(--text); font: 700 .92rem var(--body); cursor: pointer; max-width: 55%; }
+.swap__token span:not(.swap__mark) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swap__token:disabled { cursor: default; padding-right: 14px; }
+.swap__token:not(:disabled):hover { border-color: rgba(var(--ink),.3); }
+.swap__caret { font-size: .7rem; color: var(--muted); }
+.swap__mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font: 800 .78rem var(--display); color: #fff; flex: none; }
+.swap__sub { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 1.4em; font-size: .76rem; color: var(--muted); }
+.swap__max { min-height: 44px; padding: 0 10px; font-size: .76rem; }
+.swap__flip { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--text); font-size: 1.1rem; cursor: pointer; display: grid; place-items: center; }
+.swap__flip:hover { border-color: var(--pin-2); }
+.swap__flip:disabled { opacity: .5; cursor: default; }
+.swap__slip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .8rem; color: var(--muted); }
+.swap__slip-label { margin-right: 4px; font-weight: 600; }
+.swap__chip { min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 600 .8rem var(--body); cursor: pointer; }
+.swap__chip[aria-pressed="true"] { background: rgba(255,90,54,.14); border-color: rgba(255,90,54,.5); color: var(--text); }
+.swap__chip--custom { width: 7.5em; cursor: text; }
+.swap__details { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; padding: 10px 14px; border-radius: 14px; background: var(--card); font-size: .82rem; }
+.swap__details dt { color: var(--muted); }
+.swap__details dd { margin: 0; text-align: right; color: var(--text-2); overflow-wrap: anywhere; }
+.swap__details dd.is-warn { color: var(--warn); font-weight: 600; }
+.swap__details dd.is-bad { color: var(--bad-text); font-weight: 700; }
+.swap__warn { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 14px; background: rgba(255,90,54,.1); border: 1px solid rgba(255,90,54,.4); font-size: .85rem; color: var(--text); }
+.swap__warn input { width: 22px; height: 22px; margin: 2px 0 0; flex: none; accent-color: var(--pin); }
+.swap__help { margin: -4px 0 0; line-height: 1.45; }
+.swap__status { margin: 0; min-height: 1.4em; font-size: .88rem; color: var(--text-2); }
+.swap__status.is-bad { color: var(--bad-text); }
+.swap__status.is-ok { color: var(--ok-text); font-weight: 600; }
+.swap__status.is-moved { color: var(--warn); font-weight: 600; }
+.swap__go { margin-top: 2px; }
+.swap__links { margin: 0; font-size: .82rem; color: var(--muted); min-height: 0; }
+.swap__links:empty { display: none; }
+.swap__foot { margin: 0; }
+.swap__picker, .swap__wallets { display: grid; gap: 8px; padding: 12px; border-radius: 16px; background: var(--bg-2); border: 1px solid var(--line-2); }
+.swap__picker-head { display: flex; justify-content: space-between; align-items: center; }
+.swap__search { width: 100%; min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 500 16px var(--body); }
+.swap__picker-list { display: grid; gap: 6px; max-height: 280px; overflow: auto; }
+.swap__opt { min-height: 48px; }
+.swap__deeplinks { display: grid; gap: 8px; }
+.swap__wallets-close { justify-self: end; min-height: 44px; }
+.swap__ca code { overflow-wrap: anywhere; }
+.swap__ca .link-btn, .swap__picker-head .link-btn { min-height: 44px; }
+.swap .wallet-option { min-height: 48px; }
+/* the bottom sheet (open() on /coin and the Launchpad): a centred dialog on a computer, a sheet from the bottom on a phone */
+.swap-sheet { position: fixed; inset: 0; width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; padding: 0; border: 0; background: transparent; display: none; }
+.swap-sheet[open] { display: grid; place-items: center; }
+.swap-sheet::backdrop { background: rgba(3,7,14,.55); }
+:root[data-theme="light"] .swap-sheet::backdrop { background: rgba(11,22,38,.3); }
+.swap-sheet__card { position: relative; width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 18px 16px 16px; border-radius: 22px; background: var(--bg-2); border: 1px solid var(--line-2); box-shadow: var(--shadow); }
+.swap-sheet__close { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: none; color: var(--muted); font-size: 1rem; cursor: pointer; }
+.swap-sheet__close:hover { color: var(--text); background: var(--card-2); }
+.swap-sheet__body { padding-top: 6px; }
+@media (max-width: 600px) {
+  .swap-sheet[open] { place-items: end center; }
+  .swap-sheet__card { width: 100vw; max-height: calc(100dvh - 24px); border-radius: 22px 22px 0 0; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .swap__details { grid-template-columns: 1fr; gap: 2px; }
+  .swap__details dd { text-align: left; margin-bottom: 4px; }
+}
+/* the smallest phones (320-360 px): the amount keeps at least 110 px, the token pill drops its mark and caret so a full quote fits */
+@media (max-width: 360px) {
+  .swap__amt { min-width: 110px; font-size: 1.15rem; }
+  .swap__token { max-width: 46%; padding: 0 10px; gap: 0; }
+  .swap__token .swap__mark, .swap__token .swap__caret { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .swap-sheet[open] .swap-sheet__card { animation: swapSheetIn .28s cubic-bezier(.2,.8,.2,1); }
+  @keyframes swapSheetIn { from { transform: translateY(18px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
+/* the token page's Buy tile becomes "Buy here" (scrolls to the panel); the dashboard's old links disappear once the panel is in */
+.contract__buy.is-here svg { display: none; }
+.trade .swapbox.is-swap-mounted { margin-bottom: 0; }
+.trade #tr-go.is-gone, .trade #tr-go-2.is-gone, .trade #tr-note.is-gone { display: none; }
+#buy-slot.swap { margin-top: 14px; padding: 16px; border-radius: 20px; border: 1px solid var(--line-2); background: var(--card); }

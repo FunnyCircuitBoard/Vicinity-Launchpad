@@ -290,7 +290,7 @@ test("the moderator tools list reported bios with a way to clear one, and count 
 test("nothing is requested for anyone but members with the switch on", () => {
   // the dashboard fetches profile.js in one place, behind the flag; it is not one of the page's scripts
   const order = [...dashHtml.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "dashboard-roles", "dashboard", "feedback"], "profile.js is not a script tag of the dashboard (feedback.js is the site-wide widget, on every page)");
+  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "swap", "dashboard-roles", "dashboard", "feedback"], "profile.js is not a script tag of the dashboard");
   assert.equal((dashJs.match(/\/profile\.js/g) || []).length, 1, "named once");
   assert.match(dashJs, /if \(d\.profilesFlag\) \{ profilesSync\(d\);/, "asked for only when /api/me says so");
   assert.match(dashJs, /const memberLink = \(name, handle, tag = "b"\) => \{\n\s+if \(!\(me && me\.profilesFlag && typeof handle === "string" && HANDLE\.test\(handle\)\)\) return el\(tag, null, name\);/,

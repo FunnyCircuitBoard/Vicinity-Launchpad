@@ -376,3 +376,47 @@ The metadata file the website must serve for Demo City
   the devnet fees waiting for the dev wallet (read-only); claiming them is
   the same phone-wallet signing step as on mainnet, once the signing page
   exists (website work). Never export the dev wallet's key to a file for this.
+
+## 10. Trades built by the website's Worker (9 October 2026)
+
+The website now builds curve trades itself (`src/lptrade.js` and `src/sol/*`,
+no web3.js in the Worker): `/api/launchpad/trade/quote` and `/tx` give the
+unsigned transaction, the person's wallet signs it, `/api/swap/send` relays
+it and `/api/swap/status` watches it. `scripts/launchpad/worker-devnet-trade.mjs`
+(`npm run launchpad:worker-trade -- --keys <dir>`) runs exactly that against
+devnet with the throwaway trader 1 key (`AAMTJL8EUMJq8noHmgaahN57hXio5iMZCjZa3dPew1Th`)
+signing where a wallet would, then reads the landed transaction back from the
+chain and compares it with the quote to the raw unit. Three runs on 9 October
+2026 (devnet SOL, no value; the trader was topped up with 0.03 SOL from the
+throwaway deployer first, signature `5rT598Tm…K7Qf`):
+
+| run | step | signature (devnet) | bytes | CU used | fee | quoted | landed |
+|---|---|---|---|---|---|---|---|
+| 1 | buy 0.005 SOL | [`Zqw498xv…cqNK`](https://solscan.io/tx/Zqw498xvbWrCjVJoMrRNMh6L2DnGbFRuyaXwixk8Hi69DerP3JmLpucpMP5M7kiRWQ5WRQ4RQTD6xEPcxwZcqNK?cluster=devnet) | 638 (v0, lookup table) | 60,654 | 5,000 | 13,286,006.275533 DEMOV | 13,286,006.275533 DEMOV, −0.005005 SOL — exact |
+| 2 | buy 0.005 SOL | [`2JzEoCd6…5SFn`](https://solscan.io/tx/2JzEoCd6az3vqvXoJiLDubYHhDRM4voTrde1CeDFHe9kya3JUpGXEDC5idcuvmwLjzgXFYbsAbNx3zaB41uS5SFn?cluster=devnet) | 638 | 60,663 | 5,000 | 12,943,069.92386 DEMOV | 12,943,069.92386 DEMOV — exact |
+| 2 | sell 26,229,076.199393 DEMOV | [`4LEKTnPQ…si8v`](https://solscan.io/tx/4LEKTnPQhtVbJGAmDKZ5QvacoCndA3qshcgUSwTm3nPDhNwYr1ceQyd7yypSkrwFoU1SZesu3vaPV8Euuznesi8v?cluster=devnet) | 575 | 54,139 | 5,000 | 0.009504647 SOL (min 0.0094096) | 0.009751561 SOL — more than quoted, see the finding |
+| 3 | buy 0.005 SOL | [`231Cm2Bo…aNtB`](https://solscan.io/tx/231Cm2BowsvtVR8TDXeKhRjFJ9XtWbrwHDeuTrU4rcEus9gznuVNYoE2n65MNXcLvtStfG4QfhhVWDXKayREaNtB?cluster=devnet) | 638 | 60,648 | 5,000 | 13,286,006.275533 DEMOV | 13,286,006.275533 DEMOV — exact |
+| 3 | sell 13,286,006.275533 DEMOV | [`UFdUaSNZ…Hhbe`](https://solscan.io/tx/UFdUaSNZG64sjJ2aZdG2jbZahzdrckbTQEEuCquDqeeuNHuH9dYctAbdK2VWSuAeTTWZQSGcPuaFuZUVqXvHhbe?cluster=devnet) | 575 | 54,134 | 5,000 | 0.00487578 SOL (min 0.004827022) | 0.00487578 SOL — exact |
+| 4 (final code, 06:18 UTC) | buy 0.005 SOL | [`45ovA8Yb…WojG`](https://solscan.io/tx/45ovA8Yba4YmLdHohgXWFxDqBsdJbwx2NQ6oXNF3atm3p611rLRov9K3WkBmQFcZgH5pzVUaEKf9zcEnMt9UWojG?cluster=devnet) | 638 | 60,657 | 5,000 | 13,286,006.275533 DEMOV | 13,286,006.275533 DEMOV, −0.005005 SOL — exact |
+| 4 | sell 13,286,006.275533 DEMOV | [`SjzF4SSP…JNed`](https://solscan.io/tx/SjzF4SSPFY5ASfZEqS1omAhKe6eVGbJKdvisS71VaZZE96dv1DEfqDokzEokiYhRpi29WzQjJFa17mBqsB3JNed?cluster=devnet) | 575 | 54,149 | 5,000 | 0.00487578 SOL (min 0.004827022) | 0.00487578 SOL — exact |
+
+Every transaction was simulated by the Worker before the wallet's turn (the
+compute-unit limit is 1.2 × the simulated units: 72,778 to 72,789 for the buys,
+64,961 to 64,979 for the sells) and confirmed through `/api/swap/status` with
+`via=curve`. Run 4 was made with the final code of the branch, after the
+robustness sweep, the preflight and the copy changes.
+
+**Finding (fixed in the same change).** The sell of run 2 received 2.6 % more
+SOL than its quote. The Worker keeps a 5-second copy of each pool so a page
+full of quotes costs one read; the sell was quoted a few seconds after the
+buy of run 2 had landed, from the copy taken before that buy. Now a built
+trade forgets its pool's copy, so the next quote of that pool reads the chain
+again (test "a built trade forgets the pool's 5 s copy" in
+`test/lptrade.test.js`); run 3's sell, quoted right after its buy, matched to
+the lamport. A quote can still be up to 5 seconds behind other people's
+trades, which is why the page re-quotes every 12 seconds and the simulation
+turns a stale, too-optimistic quote into the plain slippage message before
+anything is signed.
+
+What this does not show: mainnet (section 7 still applies; the Worker's
+mainnet settings are checked by `npm run mainnet:preflight`, docs/MAINNET.md).

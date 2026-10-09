@@ -16,9 +16,24 @@ import { pruneFeedback } from "./feedback.js";
 import { v2On, profilesOn, launchpadV2On } from "./flags.js";
 import { DAY, HOUR, iso } from "./policy.js";
 
+/** How long one run may hold the lease: the cron fires every 10 minutes, a run takes seconds. A crashed run's lease simply expires. */
+export const JOB_LEASE_MS = 8 * 60_000;
+/** Take the lease for this run (an atomic conditional upsert: taken only when no live lease exists). True = ours. */
+export async function takeJobLease(db, now) {
+  const r = await db.prepare("INSERT INTO settings (key, value) VALUES ('job_lease', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE value < ?").bind(iso(now + JOB_LEASE_MS), iso(now)).run();
+  return Boolean(r && r.meta && r.meta.changes === 1);
+}
+const releaseJobLease = (db) => db.prepare("UPDATE settings SET value = '' WHERE key = 'job_lease'").run();
+
 export async function runJobs(env, now = Date.now(), fetchImpl = fetch, rand = Math.random) {
   if (!env.DB) return { skipped: "no database" };
   await ensureSchema(env.DB);
+  // two overlapping firings (a slow run, a retry, a manual run next to the cron) must not sample or advance seats twice
+  if (!(await takeJobLease(env.DB, now))) return { skipped: "another run holds the lease" };
+  try { return await runSteps(env, now, fetchImpl, rand); }
+  finally { await releaseJobLease(env.DB).catch((e) => console.error("job lease release failed", String(e))); }
+}
+async function runSteps(env, now, fetchImpl, rand) {
   const out = {};
   const step = async (name, fn) => {
     try { out[name] = await fn(); }

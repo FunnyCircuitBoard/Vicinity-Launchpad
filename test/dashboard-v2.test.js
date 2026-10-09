@@ -147,7 +147,7 @@ test("flag off: the built page keeps every pinned id, the strip and the skeleton
   }
   assert.match(html, /<div class="dash-top" id="dash-top">/);
   const order = [...html.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "dashboard-roles", "dashboard", "feedback"], "dashboard-v2.js is not a script tag of the page (feedback.js is the site-wide widget, on every page)");
+  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "swap", "dashboard-roles", "dashboard", "feedback"], "dashboard-v2.js is not a script tag of the page");
   assert.doesNotMatch(html, /\sstyle="/); assert.doesNotMatch(html, /\son[a-z]+="/); assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/);
   // the roles accordion is still the whole section the site test reads
   assert.match(html, /<section class="section section--panel" id="roles">/);

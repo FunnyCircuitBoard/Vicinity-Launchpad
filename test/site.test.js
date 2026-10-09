@@ -205,7 +205,7 @@ test("dashboard: onboarding, live rank + badges, founder race, local/national fe
   for (const k of ["meme", "checkin", "talk"]) assert.ok(h.includes(`data-kind="${k}"`), k);
   for (const s of ["city", "country"]) assert.ok(h.includes(`data-scope="${s}"`), s);
   const order = [...h.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "dashboard-roles", "dashboard", "feedback"], "the role panel script loads before the dashboard script");
+  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "swap", "dashboard-roles", "dashboard", "feedback"], "the role panel script loads before the dashboard script; swap.js (the in-app swap) after wallets.js");
   const roles = h.match(/<section class="section section--panel" id="roles">[\s\S]*?<\/section>/)[0];
   for (const r of ["holder", "founder", "manager", "admin"]) assert.ok(roles.includes(`data-role="${r}"`), r);
   assert.equal((roles.match(/role-row__when">Any time</g) || []).length, 4);

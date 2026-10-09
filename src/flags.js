@@ -28,3 +28,10 @@ export const launchpadV2On = (env) => String((env && env.LAUNCHPAD_V2) ?? "").tr
  * asks for the extra code. Exactly "on" (trimmed, any letter case); anything else is the dashboard as it has always been.
  */
 export const dashboardV2On = (env) => String((env && env.DASHBOARD_V2) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * SWAP=on turns on the in-app swap (the Jupiter-routed panel and /api/swap/*); LAUNCHPAD_TRADING=on the curve trades of city
+ * coins (/api/launchpad/trade/*). Both live in src/cluster.js with the cluster settings they need; re-exported here so every
+ * switch is listed in one place. Exactly "on"; anything else, unset included, is the site as it has always been.
+ */
+export { swapOn, launchpadTradingOn } from "./cluster.js";

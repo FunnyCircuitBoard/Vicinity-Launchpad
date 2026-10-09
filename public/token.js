@@ -39,9 +39,24 @@
     $("#lnk-dex").href = `https://dexscreener.com/solana/${m}`;
     // With the Launchpad's coin pages on (LAUNCHPAD_V2), the third tile is our own live chart and details (/coin): DEX Screener lists
     // no pool while $VICINITY is on its bonding curve, and the coin page links DEX Screener itself once it does.
-    if (official && typeof official.then === "function") official.then((o) => { if (o && o.launchpadV2 === true) chartTile(m); });
+    if (official && typeof official.then === "function") official.then((o) => { if (o && o.launchpadV2 === true) chartTile(m); if (o && o.swap === true) buyHere(m); });
     $("#ca-links").hidden = false;
     $("#ca-note").textContent = "This is the only official $VICINITY. Anything else using the name is fake.";
+  }
+  /** With the in-app swap on (SWAP=on): the Buy panel (public/swap.js) sits under the contract card and the Buy tile scrolls to it. Nobody is sent to raydium.io. */
+  function buyHere(m) {
+    if (!window.VSwap || !isAddr(m)) return;
+    let slot = $("#buy-slot");
+    if (!slot) { slot = el("div"); slot.id = "buy-slot"; const links = $("#ca-links"); (links && links.parentNode ? links : $("#ca-text")).after(slot); }
+    slot.dataset.swap = ""; slot.dataset.out = m; slot.dataset.in = "SOL"; slot.dataset.mode = "buy"; slot.dataset.title = "Buy $VICINITY";
+    window.VSwap.mount(slot);
+    // the Jupiter tile next to "Buy here" is the token's INFORMATION page on jup.ag (its href already), labelled so nobody takes it for a place to buy
+    const j = $("#lnk-jup"); if (j && !j.dataset.swapHere) { j.dataset.swapHere = "1"; const jl = j.querySelector("span:not(.contract__out):not(.sr-only)"); if (jl) jl.textContent = "Jupiter · token info"; }
+    const a = $("#lnk-raydium"); if (!a) return;
+    a.href = "#buy-slot"; a.removeAttribute("target"); a.removeAttribute("rel"); a.classList.add("is-here");
+    for (const x of a.querySelectorAll(".sr-only")) x.remove();
+    const name = a.querySelector("span"); if (name) name.textContent = "Buy here";
+    a.addEventListener("click", (e) => { e.preventDefault(); slot.scrollIntoView({ behavior: "smooth", block: "center" }); const i = slot.querySelector(".swap__amt"); if (i) i.focus({ preventScroll: true }); });
   }
   /** The third tile becomes "Chart": this site's coin page, in the same tab (no new-tab arrow, nothing to say about one). */
   function chartTile(m) {

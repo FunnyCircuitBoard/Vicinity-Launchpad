@@ -17,8 +17,9 @@
  * Cost           one getMultipleAccounts for up to 100 pools, kept 30 seconds per server; after a failed read nothing is asked
  *                for 5 seconds (src/sources.js).
  */
-import { isOnCurve, rpc } from "./chain.js";
+import { rpc } from "./chain.js";
 import { base58Decode, base58Encode, isSolanaAddress } from "./solana.js";
+import { findProgramAddress } from "./sol/pda.js";
 import { Source } from "./sources.js";
 
 export const LAUNCHLAB_PROGRAM = "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj";
@@ -33,17 +34,8 @@ export const PAIR_DECIMALS = {
 };
 const STAGES = { 0: "curve", 1: "migrating", 2: "graduated" };
 
-const concat = (parts) => { const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out; };
-
-/** Solana's findProgramAddress: the first bump from 255 down whose hash is OFF the ed25519 curve. [address, bump]. */
-export async function findProgramAddress(seeds, programId) {
-  const tail = concat([base58Decode(programId), new TextEncoder().encode("ProgramDerivedAddress")]);
-  for (let bump = 255; bump >= 0; bump--) {
-    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", concat([...seeds, Uint8Array.of(bump), tail])));
-    if (!isOnCurve(hash)) return [base58Encode(hash), bump];
-  }
-  throw new Error("no_program_address");
-}
+// findProgramAddress lives in src/sol/pda.js now (memoised, shared by the swap and the curve trades); the export is kept for its callers
+export { findProgramAddress };
 
 const pools = new Map(); // "mint|pair" -> pool address (pure math, kept for the life of the server)
 /** The LaunchLab pool of a coin and its pair, or null when either is not an address. */

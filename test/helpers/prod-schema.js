@@ -15,6 +15,7 @@ export const PROD_MIGRATION_IDS = [
   "2026-10-01-terms-agree",
   "2026-10-01-profile",
   "2026-10-02-handoffs",
+  "2026-10-09-expiry-indexes",
 ];
 
 export const PROD_TABLES = [

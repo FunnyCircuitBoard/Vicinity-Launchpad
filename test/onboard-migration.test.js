@@ -46,8 +46,8 @@ const picture = (db) => ({
 });
 const recorded = async (db) => Number((await db.prepare("SELECT COUNT(*) AS n FROM schema_migrations WHERE id = ?").bind(ONBOARD_MIGRATION.id).first()).n);
 
-test("the frozen production schema is untouched by this change: MIGRATIONS still has the 7 shipped entries, the onboarding one is lazy", () => {
-  assert.equal(MIGRATIONS.length, 7);
+test("the frozen production schema is untouched by this change: MIGRATIONS still has the 8 shipped entries (the expiry indexes of 9 Oct are the eighth), the onboarding one is lazy", () => {
+  assert.equal(MIGRATIONS.length, 8);
   assert.deepEqual(MIGRATIONS.map((m) => m.id), PROD_MIGRATION_IDS);
   assert.ok(!MIGRATIONS.some((m) => m.id === ONBOARD_MIGRATION.id), "never in MIGRATIONS: it must only run on a v2 sign-up / wallet-link request");
   assert.equal(ONBOARD_MIGRATION.id, "2026-10-09-wallet-optional");

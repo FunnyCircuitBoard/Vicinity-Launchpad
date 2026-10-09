@@ -270,11 +270,12 @@ test("with the switch off the page is today's: every pinned id and the pre-launc
   assert.equal((srcHtml.match(/<section/g) || []).length, 6, "one section was added to the five");
   const hiddenOnes = [...srcHtml.matchAll(/<[a-z]+ [^>]*?id="([a-z-]+)"[^>]*?\shidden(?=\s|>)/g)].map((m) => m[1]);
   assert.deepEqual(hiddenOnes, ["lp-coins", "lp-empty", "lp-retry"], "the section, the empty card and the retry button start hidden; nothing else gained the attribute");
-  assert.deepEqual([...html.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]), ["theme", "site", "launchpad", "feedback"], "no new script file for the list: nothing extra is requested (feedback.js is the site-wide widget, on every page)");
+  assert.deepEqual([...html.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]), ["theme", "site", "wallets", "swap", "launchpad", "feedback"], "wallets.js and swap.js (the in-app swap, dark until SWAP=on) are the only additions");
   // the script: the old parts come first and are intact, the new part asks /api/official (already fetched by site.js) and nothing else until the switch says on
   assert.ok(before.startsWith("// Launchpad page: live countdown to the opening, and an \"add to my calendar\" file.\n"));
   assert.ok(before.includes("official.then(tick); tick(); setInterval(tick, 1000);") && before.includes("// Founding Supporter snapshot: status, and any wallet's amount + Merkle proof."));
-  assert.match(part, /official\.then\(\(o\) => \{ if \(o && o\.launchpadV2 === true\) start\(\); \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true");
+  // the swap switch is read in the same breath (swapOn decides what the card's Buy does), but the only way IN is still launchpadV2 === true
+  assert.match(part, /let swapOn = false;\s*official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); if \(o && o\.launchpadV2 === true\) start\(\); \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true");
   assert.match(part, /if \(typeof document === "undefined" \|\| !window\.V\) return;/);
   assert.deepEqual([...part.matchAll(/\bapi\(([^)]*)\)/g)].map((m) => m[1]).sort(), ['"/api/launchpad"', "`/api/coin/chart?mint=${encodeURIComponent(mint", "`/api/coin/chart?mint=${encodeURIComponent(mint"],
     "the list, and each live coin's chart (its sparkline, 24 h then 7 d): nothing else");

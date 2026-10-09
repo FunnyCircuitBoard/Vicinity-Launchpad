@@ -520,6 +520,16 @@ CREATE TABLE IF NOT EXISTS handoffs (
 CREATE INDEX IF NOT EXISTS handoffs_user ON handoffs (user_id, kind);
 `,
   },
+  {
+    // the 10-minute cleanup deletes expired sessions, pairs and hand-offs by expires_at: with thousands of rows that is a full
+    // scan each time without these. CREATE INDEX IF NOT EXISTS is safe to repeat and touches no data.
+    id: "2026-10-09-expiry-indexes",
+    sql: `
+CREATE INDEX IF NOT EXISTS sessions_expires ON sessions (expires_at);
+CREATE INDEX IF NOT EXISTS pairs_expires ON pairs (expires_at);
+CREATE INDEX IF NOT EXISTS handoffs_expires ON handoffs (expires_at);
+`,
+  },
 ];
 
 const split = (sql) => sql.split(";").map((s) => s.trim()).filter(Boolean);

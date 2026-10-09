@@ -106,7 +106,7 @@ async function sendViaGmail(env, { to, subject, text, html }, smtpImpl) {
   finally { if (conn) conn.close(); }
 }
 
-async function sendViaResend(env, { to, subject, text, html }, fetchImpl) {
+export async function sendViaResend(env, { to, subject, text, html }, fetchImpl) {
   if (!env.RESEND_API_KEY) return { ok: false, error: "email_unavailable" };
   const from = env.EMAIL_FROM || "Vicinity <noreply@vicinity.city>";
   const body = { from, to: [to], subject, text };
@@ -117,6 +117,7 @@ async function sendViaResend(env, { to, subject, text, html }, fetchImpl) {
       method: "POST",
       headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(8_000), // a stuck mail service answers "email_unavailable" in 8 s instead of holding the request
     });
   } catch (e) { console.error("code e-mail failed", String(e)); return { ok: false, error: "email_unavailable" }; }
   if (!res.ok) { console.error("code e-mail failed", res.status); return { ok: false, error: "email_unavailable" }; }

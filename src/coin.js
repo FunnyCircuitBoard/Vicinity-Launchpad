@@ -13,7 +13,7 @@ import { PAIRS, coinOf, coinView } from "./coins.js";
 import { getTokenFacts } from "./chain.js";
 import { tickerOf } from "./tickers.js";
 import { ensureLaunchpadSchema, ensureSchema } from "./store.js";
-import { tradeLinks } from "./launchpad.js";
+import { buyHereLink, tradeLinks } from "./launchpad.js";
 import { attributionFor, liveMarkets, maskWallet, raydiumTradesFor } from "./marketlive.js";
 import { chartFor, minTimeOf, samplesSummary } from "./pricehistory.js";
 import { codeOf } from "./sources.js";
@@ -92,7 +92,7 @@ async function build(env, coin, fetchImpl, now) {
   let samples = null;
   try { samples = await samplesSummary(env, coin, now); } catch (e) { console.error("coin samples unavailable", codeOf(e)); }
 
-  const links = tradeLinks(coin.mint, coin.pairMint);
+  const links = tradeLinks(coin.mint, coin.pairMint, buyHereLink(env, coin.mint));
   if (market.stage === "curve" || (!market.pairAddress && market.stage !== "pool")) links.dexscreener = null; // DEX Screener lists nothing before migration
   if (market.curve?.poolId || (guessed && trades.rows.length)) links.pool = `https://solscan.io/account/${pool}`; // a pool the chain or Raydium knows
   const body = {

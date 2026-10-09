@@ -10,6 +10,7 @@
     "deploy": "wrangler deploy",
     "test": "node --test test/*.test.js",
     "check:live": "node scripts/check-live.mjs",
+    "mainnet:preflight": "node scripts/mainnet-preflight.mjs",
     "check:boundaries": "node scripts/boundaries/check-overlaps.mjs",
     "bounds:overview": "node scripts/boundaries/overview.mjs",
     "pages": "node scripts/pages/build.mjs",

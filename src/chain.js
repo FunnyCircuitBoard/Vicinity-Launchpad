@@ -8,6 +8,7 @@
  */
 import { OFFICIAL } from "./official.js";
 import { base58Decode, base58Encode } from "./solana.js";
+import { isOnCurve } from "./sol/oncurve.js";
 
 const PUBLIC_RPC = "https://api.mainnet-beta.solana.com";
 const TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
@@ -24,24 +25,8 @@ const PROGRAM_LABELS = {
 };
 const PROGRAM_ACCOUNT = "Pool or program account";
 
-/* A normal wallet address is an ed25519 public key: a point on the curve. Addresses controlled by a
- * program (pools, bonding curves, vaults, lockers, on any exchange, Raydium LaunchLab's included)
- * are made off the curve on purpose, so no private key can exist for them. Same test as Solana's
- * PublicKey.isOnCurve: does y decode to a curve point, i.e. is (y² − 1) / (d·y² + 1) a square? */
-const P = (1n << 255n) - 19n;
-const modP = (a) => ((a % P) + P) % P;
-const powP = (b, e) => { let r = 1n; b = modP(b); for (; e > 0n; e >>= 1n, b = (b * b) % P) if (e & 1n) r = (r * b) % P; return r; };
-const D = modP(-121665n * powP(121666n, P - 2n));
-export function isOnCurve(bytes) {
-  if (!bytes || bytes.length !== 32) return false;
-  let y = 0n;
-  for (let i = 31; i >= 0; i--) y = (y << 8n) | BigInt(bytes[i]);
-  y = modP(y & ((1n << 255n) - 1n));
-  const y2 = (y * y) % P, u = modP(y2 - 1n), v = modP(D * y2 + 1n);
-  const x = (((u * powP(v, 3n)) % P) * powP(u * powP(v, 7n), (P - 5n) / 8n)) % P; // RFC 8032 §5.1.3
-  const vx2 = (((v * x) % P) * x) % P;
-  return vx2 === u || vx2 === modP(-u);
-}
+// isOnCurve lives in src/sol/oncurve.js (shared with the swap modules without an import cycle); kept exported from here for its callers
+export { isOnCurve };
 /** Every wallet the team publishes (src/official.js) is labelled with this in the holder list and, like a pool, never ranked. */
 const TEAM_LABEL = "Team wallet (public)";
 export const isTeamWallet = (owner) => (OFFICIAL.teamWallets || []).includes(owner);
@@ -57,8 +42,9 @@ const poolLabel = (owner, ownerProgram) => {
 const RPC_TIMEOUT_MS = 8000;
 const rpcTimeout = (env) => { const n = Number(env && env.RPC_TIMEOUT_MS); return n > 0 ? n : RPC_TIMEOUT_MS; };
 
-export async function rpc(env, method, params, fetchImpl = fetch, { timeoutMs = null } = {}) {
-  const url = (env && env.SOLANA_RPC_URL) || PUBLIC_RPC;
+export async function rpc(env, method, params, fetchImpl = fetch, { timeoutMs = null, url: urlOverride = null } = {}) {
+  // `url` overrides the RPC for one call: the launchpad's curve trades read their own cluster (src/cluster.js), everything else SOLANA_RPC_URL
+  const url = urlOverride || (env && env.SOLANA_RPC_URL) || PUBLIC_RPC;
   const res = await fetchImpl(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -195,6 +181,7 @@ export async function getMintBalances(env, owner, mints, fetchImpl = fetch, { ti
   const url = (env && env.SOLANA_RPC_URL) || PUBLIC_RPC;
   const list = [...new Set(mints)];
   const out = new Map();
+  out.accounts = new Set();
   const chunks = [];
   for (let i = 0; i < list.length; i += 25) chunks.push(list.slice(i, i + 25));
   await Promise.all(chunks.map(async (chunk) => {
@@ -208,13 +195,15 @@ export async function getMintBalances(env, owner, mints, fetchImpl = fetch, { ti
       const r = byId.get(j);
       if (!r) throw new Error("rpc_missing_answer");
       if (r.error) throw new Error(`rpc_${r.error.code || "error"}`);
-      let amount = 0;
+      let amount = 0, accounts = 0;
       for (const acc of Array.isArray(r.result?.value) ? r.result.value : []) {
         const info = acc?.account?.data?.parsed?.info;
         if (info && info.mint && info.mint !== mint) continue;
         amount += accountAmount(info?.tokenAmount);
+        accounts++;
       }
       out.set(mint, amount);
+      if (accounts) out.accounts.add(mint); // the mints the wallet has a token account for, even an empty one (the swap panel's rent note)
     });
   }));
   return out;

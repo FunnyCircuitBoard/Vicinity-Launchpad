@@ -366,6 +366,25 @@
     $("#coin-curve-src").textContent = `Source: ${str(d.market.sources && d.market.sources.curve) || "Solana blockchain"}${d.market.curve && num(d.market.curve.slot) ? ` · slot ${intFmt.format(d.market.curve.slot)}` : ""}`;
   }
 
+  /** With the in-app swap on (SWAP=on): every Buy button opens the swap panel (public/swap.js) as a sheet over this page; nobody is sent to raydium.io. */
+  let swapOn = false;
+  if (official && typeof official.then === "function") official.then((o) => { swapOn = Boolean(o && o.swap === true); if (swapOn && data) buyHere(data); });
+  function buyHere(d) {
+    if (!swapOn || !window.VSwap || !d || !isAddr(d.mint)) return;
+    const ticker = d.coin && d.coin.ticker ? `$${d.coin.ticker}` : "this coin";
+    for (const id of ["#coin-lnk-raydium", "#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"]) {
+      const a = $(id); if (!a || a.dataset.swapHere) continue;
+      a.dataset.swapHere = "1"; a.href = "#coin-buy"; a.removeAttribute("target"); a.removeAttribute("rel"); a.hidden = false;
+      for (const x of a.querySelectorAll(".sr-only, [aria-hidden]")) x.remove();
+      const label = a.querySelector("span") || a; label.textContent = id === "#coin-mini-buy" ? "Buy" : `Buy ${ticker}`;
+      if (id === "#coin-lnk-raydium") { a.classList.add("is-here"); label.textContent = "Buy here"; }
+      a.addEventListener("click", (e) => { e.preventDefault(); window.VSwap.open({ out: d.mint, title: `Buy ${ticker}` }); });
+    }
+    // the Jupiter tile is an INFORMATION link now (the coin's page on jup.ag, never its swap page), and says so next to "Buy here"
+    const j = $("#coin-lnk-jup");
+    // (its href is the server's links.jupiter, which is the token page once the switch is on: src/launchpad.js tradeLinks)
+    if (j && !j.dataset.swapHere) { j.dataset.swapHere = "1"; const label = j.querySelector("span:not(.contract__out):not(.sr-only)"); if (label) label.textContent = "Jupiter · token info"; }
+  }
   /* ----- buy & sell, the contract ----- */
   function paintLinks(d) {
     const l = d.links || {};
@@ -373,6 +392,7 @@
     const ray = safeLink(l.raydium, "raydium.io");
     for (const id of ["#coin-lnk-raydium", "#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"]) set(id, ray);
     set("#coin-lnk-jup", safeLink(l.jupiter, "jup.ag"));
+    buyHere(d); // after the links: with the swap on it turns the Buy links into openers and the Jupiter tile into the info page
     const third = thirdLink(d);
     set("#coin-lnk-third", third && third.href);
     if (third) $("#coin-lnk-third-name").textContent = third.name;

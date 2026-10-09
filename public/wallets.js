@@ -50,10 +50,19 @@
     return sig;
   }
 
-  // Wallet Standard wallets
+  const versionsOf = (feature) => { const v = feature && feature.supportedTransactionVersions; return v ? [...v] : ["legacy"]; };
+  /** The first answer of a Wallet Standard call ([{ ... }] by the standard; some wallets give the object itself). */
+  const firstOf = (out) => (Array.isArray(out) ? out[0] : out);
+  // Wallet Standard wallets. Besides connect and signMessage (what signing in needs), the swap panel (public/swap.js) uses
+  // "solana:signAndSendTransaction" (serialized bytes + chain in, the signature out: the wallet broadcasts itself) and, for wallets
+  // that only sign, "solana:signTransaction" (the signed bytes out; our Worker relays them). canSend / canSign / txVersions say
+  // which a wallet offers, chains which networks its account is on. Nothing here ever needs a page library.
   function standard(w) {
+    const send = w.features["solana:signAndSendTransaction"], sign = w.features["solana:signTransaction"];
     return {
-      name: w.name, icon: w.icon, kind: "standard",
+      name: w.name, icon: w.icon, kind: "standard", chains: [...(w.chains || [])],
+      canSend: Boolean(send && typeof send.signAndSendTransaction === "function"), canSign: Boolean(sign && typeof sign.signTransaction === "function"),
+      txVersions: versionsOf(send || sign),
       async connect() {
         const { accounts } = await w.features["standard:connect"].connect();
         const acc = accounts.find((a) => (a.chains || []).some((c) => String(c).startsWith("solana:"))) || accounts[0];
@@ -62,6 +71,22 @@
       },
       async signMessage(bytes) {
         return signatureOf(await w.features["solana:signMessage"].signMessage({ account: this.account, message: bytes }));
+      },
+      /** Sign and broadcast serialized transaction bytes on `chain` ("solana:mainnet" | "solana:devnet"); answers the 64-byte signature. */
+      async signAndSendTransaction(bytes, chain, options) {
+        if (!send) throw Object.assign(new Error("This wallet cannot send transactions from here."), { code: "no_send" });
+        const out = firstOf(await send.signAndSendTransaction({ account: this.account, transaction: bytes, chain, options }));
+        const sig = out && out.signature ? toBytes(out.signature) : null;
+        if (!sig || sig.length !== 64) throw Object.assign(new Error("The wallet gave back no signature."), { code: "no_signature" });
+        return sig;
+      },
+      /** Sign serialized transaction bytes on `chain` without sending; answers the signed transaction bytes. */
+      async signTransaction(bytes, chain) {
+        if (!sign) throw Object.assign(new Error("This wallet cannot sign transactions from here."), { code: "no_sign" });
+        const out = firstOf(await sign.signTransaction({ account: this.account, transaction: bytes, chain }));
+        const signed = out && out.signedTransaction ? toBytes(out.signedTransaction) : null;
+        if (!signed || signed.length < 100) throw Object.assign(new Error("The wallet gave back no transaction."), { code: "no_signature" });
+        return signed;
       },
       async disconnect() { try { await w.features["standard:disconnect"]?.disconnect(); } catch {} },
     };
@@ -79,9 +104,10 @@
   try { window.dispatchEvent(new CustomEvent("wallet-standard:app-ready", { detail: { register } })); } catch {}
 
   // Older wallets that only put an object on the page
+  // Their transaction methods want a web3.js object the page does not have: the swap panel tells them to open the page in a Wallet Standard wallet.
   function legacy(name, p) {
     return {
-      name, icon: null, kind: "legacy",
+      name, icon: null, kind: "legacy", chains: ["solana:mainnet"], canSend: false, canSign: false, txVersions: [],
       async connect() {
         const r = await p.connect();
         const pk = r?.publicKey || p.publicKey;
