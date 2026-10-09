@@ -212,6 +212,17 @@ test("lptrade: the 21st /tx from one connection answers 429 slow_down, and so do
   assert.deepEqual([last.status, last.data.error], [429, "slow_down"], "one wallet cannot burn the launchpad RPC from many connections");
 });
 
+test("lptrade: the panel's own curve builds before the tap (?auto=1) are counted apart: 60 automatic ones from one connection leave the taps' 20 untouched; the 61st automatic one is a 429", async () => {
+  const { call } = await tradeWorld();
+  const crowd = ["CnQMR167gRRXcPYrDZkwbW6moYKmxd7gZNGSN6BNzz6p", "47ugnHuxsmgNZu8KEv1VXW7wPVVwMWti8vVrK4ADDxWa", "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin", "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T", "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"];
+  let last;
+  for (let i = 0; i < 60; i++) { last = await call("/api/launchpad/trade/tx?auto=1", buy({ taker: crowd[i % 5], amount: (0.005 + i / 10000).toFixed(4) }), { ip: "172.224.226.6" }); assert.notEqual(last.status, 429, `automatic build ${i + 1}`); }
+  last = await call("/api/launchpad/trade/tx?auto=1", buy({ taker: crowd[0], amount: "0.007" }), { ip: "172.224.226.6" });
+  assert.deepEqual([last.status, last.data.error], [429, "slow_down"]);
+  last = await call("/api/launchpad/trade/tx", buy({ taker: TRADER, amount: "0.0051" }), { ip: "172.224.226.6" });
+  assert.notEqual(last.status, 429, "a tap behind the same address still builds");
+});
+
 test("lptrade: the fee-recipient check no longer throws at import time: it is false today (CI catches a reorder), and the routes would answer 503 misconfigured", async () => {
   assert.equal(launchpadMisconfigured(), false, "the program constant, src/sol/pda.js and a published team wallet agree");
   assert.ok(OFFICIAL.teamWallets.includes(ADDRESSES.feeRecipient));

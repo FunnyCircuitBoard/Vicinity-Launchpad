@@ -300,6 +300,31 @@ test("swap: attempt limits: the 21st /tx from one connection and the 16th from o
   assert.equal(PUBLIC_LIMITS.swap_quote.max, 180, "a dozen phones behind one carrier address, each re-quoting every 12 s, fit in a minute");
 });
 
+test("swap: the panel's own builds before the tap (?auto=1) are counted apart: a crowd's automatic builds never use up a Buy tap's 20 a minute per connection or a wallet's 15; the 61st automatic one from one connection and the 16th of one wallet answer 429", async () => {
+  const { call } = world();
+  const crowd = [TAKER2, "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin", "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T", "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1", "E1JXiiJ9zHpn4LP5rs3hqEbeT9fznKtGUEvs2fpxEvke"];
+  let last;
+  // five neighbours behind one address (iCloud Private Relay), 12 automatic builds each: 60, all answered
+  for (let i = 0; i < 60; i++) { last = await call("/api/swap/tx?auto=1", { body: quoteBody({ taker: crowd[i % 5], amount: String(1 + i / 100) }), ip: "172.224.226.5" }); assert.notEqual(last.status, 429, `automatic build ${i + 1}`); }
+  last = await call("/api/swap/tx?auto=1", { body: quoteBody({ taker: crowd[0], amount: "3" }), ip: "172.224.226.5" });
+  assert.deepEqual([last.status, last.data.error, last.headers.get("Retry-After")], [429, "slow_down", "60"], "the 61st automatic build from one connection");
+  // the same people (and the buyer) behind that address tap: the taps' own 20 are untouched, and so is each wallet's own 15
+  for (let i = 0; i < 20; i++) { last = await call("/api/swap/tx", { body: quoteBody({ taker: i % 2 ? TAKER : crowd[i % 5], amount: String(4 + i / 100) }), ip: "172.224.226.5" }); assert.notEqual(last.status, 429, `tap ${i + 1} after the crowd's automatic builds`); }
+  last = await call("/api/swap/tx", { body: quoteBody({ taker: crowd[1], amount: "5" }), ip: "172.224.226.5" });
+  assert.equal(last.status, 429, "taps keep their own limit: the 21st tap from one connection");
+  // one wallet: 15 automatic builds a minute (two tabs, two devices) never touch its 15 taps; the 16th automatic one is refused
+  const W2 = "GjJyeC1r2RgkuoCWMyPYkCWSGSGLcz266EaAkLA27AhL"; // a wallet with no builds yet this minute
+  for (let i = 0; i < 15; i++) { last = await call("/api/swap/tx?auto=1", { body: quoteBody({ taker: W2, amount: String(6 + i / 100) }), ip: `10.2.0.${i + 1}` }); assert.notEqual(last.status, 429); }
+  last = await call("/api/swap/tx?auto=1", { body: quoteBody({ taker: W2, amount: "7" }), ip: "10.2.1.1" });
+  assert.deepEqual([last.status, last.data.error], [429, "slow_down"], "the 16th automatic build of one wallet");
+  last = await call("/api/swap/tx", { body: quoteBody({ taker: W2, amount: "7.5" }), ip: "10.2.1.2" });
+  assert.notEqual(last.status, 429, "that wallet's tap still builds");
+  // ?auto=anything else is a tap (counted as one, never as free)
+  for (let i = 0; i < 20; i++) await call("/api/swap/tx?auto=yes", { body: quoteBody({ taker: crowd[2], amount: String(8 + i / 100) }), ip: "10.3.0.1" });
+  last = await call("/api/swap/tx", { body: quoteBody({ taker: crowd[3], amount: "9" }), ip: "10.3.0.1" });
+  assert.equal(last.status, 429);
+});
+
 test("swap: with the switch on the trade links of /api/launchpad and /api/coin carry `here` (this site's own Buy), without it nothing changes", async () => {
   const { buyHereLink, tradeLinks } = await import("../src/launchpad.js");
   assert.equal(buyHereLink({ SWAP: "on", VICINITY_MINT: REAL_VIC }, REAL_VIC), "/token#buy-slot");
