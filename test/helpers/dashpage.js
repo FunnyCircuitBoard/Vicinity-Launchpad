@@ -154,6 +154,8 @@ export async function openDashboard({ ua = UA.desktop, search = "", me = memberM
   const visible = (e) => Boolean(e && e.getClientRects().length);
   return {
     doc, win, $, $$: (s) => doc.querySelectorAll(s), calls, assigned, replaced, addressBar, local, session, timers, flush, confirms,
+    /** A Wallet Standard wallet registers now (a wallet app's browser injects it a moment late). */
+    register: async (w) => { register(w); await flush(); noteToast(); },
     advance: async (ms) => { await advance(ms); noteToast(); },
     get now() { return now; },
     get toasts() { noteToast(); return toasts; },

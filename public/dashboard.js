@@ -17,13 +17,21 @@
   const WA = window.V.walletApp || { here: () => null, remembered: () => null, remember() {} };
   const appNamed = (id) => (id && W.KNOWN.find((k) => k.id === id)) || null;
   /** The link that opens Vicinity inside the wallet app `k`, signed in there or one signature away (/connect?mode=login&with=<id>). */
-  const openIn = (k) => k.open(`${location.origin}/connect?mode=login&with=${k.id}`);
+  /** `next` = where to land there: a tab of this dashboard (/dashboard#profile), else the dashboard's home. */
+  const openIn = (k, next = null) => k.open(`${location.origin}/connect?mode=login&with=${k.id}${next ? `&next=${encodeURIComponent(next)}` : ""}`);
+  /** This page as a "next" for openIn: the dashboard and its tab (#profile), when that is what the address bar holds. */
+  const hereNext = () => (location.pathname === "/dashboard" && /^#[a-z][a-z0-9-]{0,24}$/.test(location.hash) ? `/dashboard${location.hash}` : null);
   /** A phone's Safari or Chrome: no wallet in it, not a wallet app's own browser (the wallet app is where this person signs and buys). */
   const phoneBrowser = () => W.isMobile && !WA.here() && W.list().length === 0;
-  /** One chip per wallet app that can open this site (a tap remembers it): for a phone that has not said which one it uses. */
-  const appChips = (host) => host.replaceChildren(...W.KNOWN.filter((k) => k.open).map((k) => {
-    const a = el("a", "chip-link", k.name); a.href = openIn(k); a.addEventListener("click", () => WA.remember(k.id)); return a;
-  }));
+  /**
+   * One chip per wallet app that can open this site (a tap remembers it), the three with real app links first (Phantom, Solflare,
+   * Backpack), without `skip` (the app the main button already opens). For a phone that has not said which one it uses, or another one.
+   */
+  const UL_FIRST = ["phantom", "solflare", "backpack"];
+  const appChips = (host, skip = null, next = null) => host.replaceChildren(...W.KNOWN.filter((k) => k.open && k.id !== skip)
+    .sort((a, b) => (UL_FIRST.includes(b.id) ? 1 : 0) - (UL_FIRST.includes(a.id) ? 1 : 0)).map((k) => {
+      const a = el("a", "chip-link", k.name); a.href = openIn(k, next); a.addEventListener("click", () => WA.remember(k.id)); return a;
+    }));
   const params = new URLSearchParams(location.search);
   const LEVEL = { admin: "Admin", manager: "Country Manager", founder: "City Founder", holder: "Holder", member: "Member" };
   const REASONS = { spam: "Spam", scam: "Scam / fake token", abuse: "Abuse", illegal: "Illegal", off_topic: "Off topic", other: "Other" };
@@ -49,7 +57,7 @@
     founder_home_locked: "You can't move while you hold or are applying for a founder seat.",
     sign_in: "Your session ended. Please sign in again.",
     reprove: "Please confirm it's you with your wallet first.",
-    link_new: "For your safety this waits a few days: a wallet joined your account from another app. Use the browser you first logged in with.",
+    link_new: (d) => `For your safety, for 7 days after connecting ${appWord(d.app)}, you do this in Safari or Chrome, where you logged in before.`,
     no_wallet: "Link a wallet first.",
     wallet_required: "Link a wallet first.",
     in_grace: "Your founder seat is in grace: hold the founder amount again to use moderation.",
@@ -61,6 +69,8 @@
     not_found: "That's gone.",
   };
   const errText = (map, d, fallback) => { const f = map[d.error] || COMMON_ERR[d.error]; return typeof f === "function" ? f(d) : f || fallback; };
+  /** "Phantom" for a KNOWN id, else "a wallet app" (the words of link_new). */
+  function appWord(id) { const k = id && W.KNOWN.find((x) => x.id === id); return k ? k.name : "a wallet app"; }
 
   /* ---------- "confirm it's you" (sensitive actions) ---------- */
   let proofDone = null, proofTimer = null;
@@ -69,22 +79,29 @@
     $("#proof-modal").hidden = true;
     if (proofDone) { const d = proofDone; proofDone = null; d(ok); }
   }
-  function askProof() {
+  /**
+   * `hint` = the server's "reprove" answer. relogin: true (the 7 days after a wallet joined from another app, this browser was logged in
+   * before: src/walletlink.js ownerFresh): logging in again here confirms it, and the wallet app is NOT offered (its sessions are the
+   * ones locked for this, it would refuse).
+   */
+  function askProof(hint = {}) {
     return new Promise((resolve) => {
       proofDone = resolve;
       $("#proof-error").hidden = true;
       $("#proof-code").hidden = true; $("#proof-start").hidden = false;
       // an account without a wallet has nothing to sign with: its login IS its identity, so the person logs in again to confirm it
-      const linked = Boolean(me && me.user && me.user.wallet);
-      $("#proof-login").hidden = linked; $("#proof-transfer").hidden = !linked;
+      const linked = Boolean(me && me.user && me.user.wallet), relogin = Boolean(linked && hint && hint.relogin);
+      $("#proof-login").hidden = linked && !relogin; $("#proof-transfer").hidden = !linked || relogin;
+      $("#proof-login").textContent = relogin ? "Log in again" : "Log in again to confirm it's you";
       const list = linked ? W.list() : [];
       // a phone's Safari / Chrome: the wallet app confirms (it opens this page there, signed in); without a remembered app, one chip each
-      const phone = linked && phoneBrowser(), k = phone ? WA.remembered() || appNamed(me.user.walletApp) : null;
-      $("#proof-app").hidden = !k; $("#proof-app-line").hidden = !phone; $("#proof-apps").hidden = !(phone && !k);
-      if (k) { $("#proof-app").textContent = `Open ${k.name}`; $("#proof-app").href = openIn(k); $("#proof-app").dataset.app = k.id; } // remembered on the tap (below)
-      $("#proof-app-line").textContent = k ? `On this phone you confirm in ${k.name}. It opens this page there, logged in.` : "On this phone you confirm in your wallet app. Pick it: it opens this page there, logged in.";
-      if (phone && !k) appChips($("#proof-apps"));
-      $("#proof-none").hidden = (linked && list.length > 0) || phone;
+      const phone = linked && phoneBrowser(), k = phone && !relogin ? WA.remembered() || appNamed(me.user.walletApp) : null;
+      $("#proof-app").hidden = !k; $("#proof-app-line").hidden = !phone && !relogin; $("#proof-apps").hidden = !(phone && !k && !relogin);
+      if (k) { $("#proof-app").textContent = `Open ${k.name}`; $("#proof-app").href = openIn(k, hereNext()); $("#proof-app").dataset.app = k.id; } // remembered on the tap (below)
+      $("#proof-app-line").textContent = relogin ? `For 7 days after connecting ${appWord(me.user.walletApp)}, you confirm this here: log in again, then try once more.`
+        : k ? `On this phone you confirm in ${k.name}. It opens this page there, logged in.` : "On this phone you confirm in your wallet app. Pick it: it opens this page there, logged in.";
+      if (phone && !k && !relogin) appChips($("#proof-apps"), null, hereNext());
+      $("#proof-none").hidden = (linked && list.length > 0) || phone || relogin;
       $("#proof-none").textContent = linked ? "No wallet found in this browser. Open this page in your wallet app, or use the tiny transfer below."
         : "Your account has no wallet yet, so there is nothing to sign with. Log in again to confirm it's you.";
       $("#proof-wallets").replaceChildren(...list.map((w) => {
@@ -127,11 +144,14 @@
     proofTimer = setTimeout(poll, 8000);
   });
   $("#proof-cancel").addEventListener("click", () => closeProof(false));
-  $("#proof-login").addEventListener("click", async () => { closeProof(false); await api("/api/auth/logout", {}); location.assign("/connect?mode=login"); });
+  $("#proof-login").addEventListener("click", async () => {
+    const again = Boolean(me && me.user && me.user.wallet); // (the 7 days after a wallet joined from another app: say why on the Log in tab)
+    closeProof(false); await api("/api/auth/logout", {}); location.assign(again ? "/connect?mode=login&error=relogin_confirm" : "/connect?mode=login");
+  });
   /** Run a sensitive call; if the server asks, confirm with the wallet and try once more. An answer that needs a wallet points at the link card. */
   async function sensitive(call) {
     let r = await call();
-    if (r && r.error === "reprove" && (await askProof())) r = await call();
+    if (r && r.error === "reprove" && (await askProof(r))) r = await call();
     if (r && (r.error === "no_wallet" || r.error === "wallet_required")) linkFirst();
     return r;
   }
@@ -252,8 +272,11 @@
   const carryName = () => { const k = WA.remembered(); if (k) return k.name; try { return sessionStorage.getItem("su-carry") || ""; } catch { return ""; } };
   const TIP_OK = "vicinity:inapp-tip"; // this viewer put the "next time" tip away, inside the wallet app (localStorage: a convenience, never state)
   const tipDone = () => { try { return localStorage.getItem(TIP_OK) === "1"; } catch { return false; } };
-  /** "Connected 5m ago in Phantom." / "... from a wallet app." for a wallet that joined from another browser (/api/me walletNew). */
-  const connectedLine = (wn) => { const k = appNamed(wn.app); return `Connected ${ago(wn.at)}${k ? ` in ${k.name}` : " from a wallet app"}.`; };
+  /**
+   * "Connected 5m ago in Phantom (wallet Abcd…wxyz)." for a wallet that joined from another browser (/api/me walletNew). The app is what
+   * the claiming browser SAID it was (a display hint): the masked wallet is what tells the owner whether it is theirs.
+   */
+  const connectedLine = (wn) => { const k = appNamed(wn.app); return `Connected ${ago(wn.at)}${k ? ` in ${k.name}` : " from a wallet app"} (wallet ${wn.wallet}).`; };
   /** The card's optional pieces start hidden on every draw; each way of the card shows its own. */
   function cardReset(card) {
     for (const id of ["#wcard-note", "#wcard-tip", "#wcard-apps", "#wcard-another", "#wcard-other", "#wcard-wait"]) $(id).hidden = true;
@@ -305,14 +328,15 @@
   function buyCard(card, u, wn) {
     const k = WA.remembered() || appNamed(u.walletApp), go = $("#wcard-go");
     cardReset(card); card.classList.add("is-done"); card.classList.remove("wcard--folded");
-    $("#wcard-kicker").textContent = wn ? `${k ? k.name : "Wallet"} connected ✓` : "Your wallet app";
+    // ("Phantom connected ✓" only when nobody needs to ask "was this you?": while the notice shows, the kicker names the wallet itself)
+    $("#wcard-kicker").textContent = wn && wn.notMe ? `Wallet ${wn.wallet} connected` : wn ? `${k ? k.name : "Wallet"} connected ✓` : "Your wallet app";
     $("#wcard-title").textContent = k ? `On this phone you buy in ${k.name}` : "On this phone you buy in your wallet app";
     $("#wcard-lead").textContent = k ? `Opens Vicinity inside ${k.name}, logged in. You buy there.` : "Pick the wallet app you use: it opens Vicinity there, logged in. You buy there.";
     $("#wcard-perks").hidden = true; $("#wcard-tiny").hidden = true; $("#wcard-skip").hidden = true; $("#wcard-actions").hidden = false;
     go.hidden = !k;
     if (k) { go.textContent = `Connect ${k.name}`; go.href = openIn(k); go.dataset.app = k.id; }
     $("#wcard-another").hidden = !k; $("#wcard-another").setAttribute("aria-expanded", "false");
-    appChips($("#wcard-apps")); $("#wcard-apps").hidden = Boolean(k);
+    appChips($("#wcard-apps"), k ? k.id : null); $("#wcard-apps").hidden = Boolean(k);
     if (wn && wn.notMe) noteLine(wn);
   }
   /** Inside the wallet app: connected, who is logged in, and how to come back here next time (until the person puts the tip away). */
@@ -327,9 +351,8 @@
   }
   /** A computer (or any older browser of the account) after a wallet joined from a wallet app: what joined, when, and "Remove it". */
   function noticeCard(card, wn) {
-    const k = appNamed(wn.app);
     cardReset(card); card.classList.add("is-done", "wcard--folded");
-    $("#wcard-kicker").textContent = `${k ? k.name : "Wallet"} connected ✓`;
+    $("#wcard-kicker").textContent = "New on your account";
     $("#wcard-title").textContent = `Wallet ${wn.wallet} joined your account`;
     $("#wcard-lead").hidden = true; $("#wcard-perks").hidden = true; $("#wcard-actions").hidden = true; $("#wcard-tiny").hidden = true;
     noteLine(wn);
@@ -364,7 +387,7 @@
     const k = appNamed(appId); if (k) WA.remember(k.id); // the app that really linked it
     if (me) { me.user.wallet = wallet; me.setup = { percent: 100, steps: SETUP_DEFAULT.steps.map((x) => ({ ...x, done: true })) }; }
     if (!$("#welcome").hidden) ringSet($("#welcome-ring"), me && me.setup, true);
-    toast(k ? `${k.name} connected ✓` : `Wallet ${short(wallet)} linked ✓`);
+    toast(k ? `Wallet ${short(wallet)} connected in ${k.name} ✓` : `Wallet ${short(wallet)} linked ✓`); // (the wallet itself: the app is only what the other side said)
     const r = $("#wallet-card").getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 40);
     await refresh();
   }
@@ -383,15 +406,17 @@
     too_late: "It's been more than 7 days. Tap Feedback and we'll help.",
     seat_or_application: "A seat or an application from before depends on this wallet. Tap Feedback and we'll help.",
   };
-  $("#wcard-remove").addEventListener("click", async () => {
+  $("#wcard-remove").addEventListener("click", () => removeWallet());
+  /** "Remove it" (the card's link, and Profile's Unlink during those 7 days, from a browser that may: walletNew.notMe). */
+  async function removeWallet() {
     const wn = me && me.walletNew; if (!wn) return;
     const k = appNamed(wn.app);
-    if (!confirm(`Remove this wallet from your account? ${k ? k.name : "The wallet app"} will be logged out of Vicinity.`)) return;
+    if (!confirm(`Remove this wallet (${wn.wallet}) from your account? ${k ? k.name : "The wallet app"} will be logged out of Vicinity.`)) return;
     const r = await api("/api/me/wallet/disown", {});
     if (r.ok) { toast(r.passwordCleared ? "Wallet removed. Other browsers are logged out. Set a new password with “Forgot password”." : "Wallet removed. Other browsers are logged out."); linkedNow = false; await refresh(); return; }
     if (r.error === "relogin") { await api("/api/auth/logout", {}); location.assign("/connect?mode=login&error=relogin"); return; } // a fresh login first (a stolen old cookie can't)
     toast(DISOWN_ERR[r.error] || errText({}, r, "Couldn't remove it. Tap Feedback and we'll help."));
-  });
+  }
 
   /* ---------- first visit ---------- */
   function onboard(d) {
@@ -1323,7 +1348,7 @@
     slow_down: "You can change your username 3 times a day. Try again tomorrow.",
     reprove: "Please confirm it's you with your wallet first, then try again.",
     sign_in: "Your session ended. Please sign in again.",
-    link_new: "For your safety this waits a few days: a wallet joined your account from another app. Use the browser you first logged in with.",
+    link_new: (d) => COMMON_ERR.link_new(d),
   };
   function openProfile() {
     if (!me) return;
@@ -1383,6 +1408,9 @@
   // Unlink: a fresh proof by that wallet (the server asks, askProof answers), refused while a seat, an application or a squad place depends on it
   $("#profile-unlink").addEventListener("click", async () => {
     if (!me || !me.user.wallet) return;
+    // the 7 days after a wallet joined from another app, in a browser logged in before: that wallet's own proof is not the way (on a
+    // phone it lives in the wallet app, whose sessions may not unlink then): "Remove it" is, and it logs that app out too
+    if (me.walletNew && me.walletNew.notMe) { closeProfile(); return removeWallet(); }
     if (!confirm("Unlink this wallet? Your rank, badges and founder eligibility go with it until you link one again.")) return;
     const r = await sensitive(() => api("/api/me/wallet/unlink", {}));
     if (!r || !r.ok) return toast(r && r.error === "seat_or_application" ? "Resign or withdraw first." : errText({ reprove: "Please confirm it's you with your wallet first." }, r || {}, "Couldn't unlink. Try again."));
@@ -1395,7 +1423,7 @@
     e.preventDefault();
     const err = $("#username-err"); err.hidden = true;
     const r = await sensitive(() => api("/api/me/username", { username: $("#username-input").value.trim() }));
-    if (!r || !r.ok) { err.textContent = USERNAME_ERR[r && r.error] || "Couldn't save that. Try again."; err.hidden = false; return; }
+    if (!r || !r.ok) { err.textContent = errText(USERNAME_ERR, r || {}, "Couldn't save that. Try again."); err.hidden = false; return; }
     me.user.handle = r.username; identity(me);
     $("#username-input").value = r.username; toast("Username updated ✓");
   });
@@ -1628,6 +1656,9 @@
       try { history.replaceState(null, "", location.pathname + (q ? `?${q}` : "") + location.hash); } catch {}
     }
     if (linked && d.user.wallet) linkedNow = true;
+    // a wallet app's wallet can turn up a few seconds after the page drew: the card is chosen again then (inside Phantom it is the "next
+    // time" tip, never Safari's "Connect Phantom", which would leave for phantom.com)
+    W.onChange(() => { if (me && me.signedIn && me.user) walletCard(me); });
     if (welcome) document.body.dataset.welcome = "1"; // the parameter is gone from the address bar: profile.js reads this (the profiles notice waits)
     identity(d);
     if (!d.user.home) { unhold(); onboard(d); return; }
