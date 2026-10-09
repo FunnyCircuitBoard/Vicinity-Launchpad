@@ -387,18 +387,24 @@ export async function handleMembers(env) {
   const [total, top, placed] = await env.DB.batch([
     env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE provider != 'testlab'"),
     env.DB.prepare("SELECT home_city AS id, home_name AS name, home_country AS country, COUNT(*) AS members FROM users WHERE home_city IS NOT NULL AND provider != 'testlab' GROUP BY home_city ORDER BY members DESC LIMIT 300"),
-    env.DB.prepare("SELECT wallet, home_city FROM users WHERE home_city IS NOT NULL AND provider != 'testlab'"),
+    env.DB.prepare("SELECT wallet, home_city, home_name, home_country FROM users WHERE home_city IS NOT NULL AND provider != 'testlab'"),
   ]);
   // Holders per city: members whose wallet holds > 0 in the latest balance sample. A team wallet is not one of the people
-  // (as on the token page and the dashboard's "Holders here"), so it is not counted.
+  // (as on the token page and the dashboard's "Holders here"), so it is not counted. No sample to count from (none taken yet, or
+  // unreadable): holders is null on every row, "unknown", never 0, so the map keeps the counts it saw last instead of turning
+  // every active city open until the next answer.
   let balances = null;
   try { balances = (await latestBalances(env, Date.now()))?.balances || null; } catch { balances = null; }
-  const holders = new Map();
-  if (balances) {
-    for (const u of placed.results) {
-      if ((balances[u.wallet] || 0) > 0 && !isTeamWallet(u.wallet)) holders.set(u.home_city, (holders.get(u.home_city) || 0) + 1);
-    }
+  const holders = balances ? new Map() : null, counts = new Map();
+  for (const u of placed.results) {
+    const c = counts.get(u.home_city) || { id: u.home_city, name: u.home_name, country: u.home_country, members: 0 };
+    c.members++; counts.set(u.home_city, c);
+    if (holders && (balances[u.wallet] || 0) > 0 && !isTeamWallet(u.wallet)) holders.set(u.home_city, (holders.get(u.home_city) || 0) + 1);
   }
+  // The 300 largest communities, then every smaller one with a holder (most holders first): the map paints those "active", and a town
+  // with its first holder must show whatever its size.
+  const list = top.results.slice(), listed = new Set(list.map((c) => c.id));
+  if (holders) for (const id of [...holders.keys()].sort((a, b) => holders.get(b) - holders.get(a) || (a < b ? -1 : a > b ? 1 : 0))) if (!listed.has(id) && counts.has(id)) { listed.add(id); list.push(counts.get(id)); }
   return json({ members: total.results[0]?.n || 0,
-    communities: top.results.map((c) => ({ ...c, holders: holders.get(c.id) || 0 })) });
+    communities: list.map((c) => ({ ...c, holders: holders ? holders.get(c.id) || 0 : null })) });
 }
