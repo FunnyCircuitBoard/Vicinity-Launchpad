@@ -1,0 +1,22 @@
+/* The city map's polish of 9 Oct 2026 (loaded by /cities after style.css; cities.js reads --st-active).
+   "Active": a community with verified holders ($VICINITY in a member's linked wallet) and no founder yet. Teal, 7.2:1 on the dark
+   map's land (#1b2e4d) and 9.3:1 on its water, 5.1:1 on the light map's land (white) and 4.1:1 on its water; and never colour alone:
+   a thin solid ring around the marker (founded pings, choosing turns a dashed ring, open has no ring), in the legend's dot, on the
+   map and in the city card's dot. */
+:root { --st-active: #2ED3B7; }
+:root[data-theme="light"] { --st-active: #0E7C63; }
+.dot--active { background: var(--st-active); box-shadow: 0 0 6px var(--st-active); }
+.dot--active::before, .map-focus[data-status="active"] .map-focus__dot::before { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--st-active); pointer-events: none; }
+.map-focus[data-status="active"] { --focus: var(--st-active); }
+.tag--active { background: rgba(46,211,183,.14); border-color: var(--st-active); color: var(--st-active); }
+:root[data-theme="light"] .tag--active { background: rgba(14,124,99,.1); }
+.tip-active { color: var(--st-active); font-weight: 600; }
+/* The status pills wear the legend's colours, so Open (steel blue), Active (teal), Choosing (gold) and Founded (orange) read apart on the
+   city card, in the list and in Most wanted: Open used to wear the green of "Seat open" / "Join" (.tag--ok), 7° from the new teal. The
+   Active pill also carries a small ring, the marker's own shape, so it is never the colour alone. */
+.tag--open { background: rgba(127,163,214,.14); border-color: rgba(127,163,214,.5); color: var(--st-open); }
+:root[data-theme="light"] .tag--open { background: rgba(63,103,166,.1); border-color: rgba(63,103,166,.45); }
+.tag--open, .tag--active { white-space: nowrap; } /* a Most wanted row on a phone squeezes its pill: the glyph and the word stay on one line */
+.tag--active::before { content: ""; display: inline-block; box-sizing: border-box; width: 8px; height: 8px; margin: 0 5px 0 -2px; vertical-align: -1px; border-radius: 50%; border: 1.5px solid currentColor; background: radial-gradient(circle, currentColor 1.2px, transparent 1.8px); }
+/* Most wanted: style.css paints every span of a row muted (.wanted span); the pills keep their own colour there too */
+.wanted li > .tag--open { color: var(--st-open); } .wanted li > .tag--active { color: var(--st-active); } .wanted li > .tag--gold { color: var(--gold-text); } .wanted li > .tag--no { color: var(--bad-text); }

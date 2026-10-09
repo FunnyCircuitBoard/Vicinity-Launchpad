@@ -241,7 +241,7 @@ test("chips: never overlapping, never on the controls, the city card or the cros
     const count = (t) => placed.filter((p) => p.tier === t).length;
     assert.ok(count("A") <= 3 && count("B") <= max.B && count("C") <= max.C, `${W}: ${count("A")}/${count("B")}/${count("C")}`);
     if (W >= 390) assert.ok(count("B") === max.B && count("C") === max.C, `${W}: a busy map fills every slot`);
-    else assert.ok(count("B") >= 5 && count("C") === max.C, `${W}: the smallest phone still shows ${count("B")} chips and ${count("C")} names`);
+    else assert.ok(count("B") >= 5 && count("C") >= 10, `${W}: the smallest phone still shows ${count("B")} chips and ${count("C")} names`); // 8 and 11 since chips try the corners too (9 Oct 2026): fewer gaps left for names
     for (const p of placed) {
       assert.ok(p.x >= 6 && p.y >= 6 && p.x + p.w <= W - 6 && p.y + p.h <= Hh - 6, `${W}: ${p.id} inside the map`);
       for (const r of [rail, card]) assert.ok(!overlap(p, { x: r[0], y: r[1], w: r[2], h: r[3] }, 4), `${W}: ${p.id} clear of the controls and the card`);
@@ -268,7 +268,7 @@ test("chips: a chip that fits nowhere as a chip becomes a plain name; farther sp
   const core = [134, 84, 32, 32], [fc] = H.placeLabels([item("f", 150, 100, { tierWish: "A", focus: true, size: { A: [100, 36] } })], { W, H: Hh, soft: [[130, 80, 40, 40]], core: [core], max: { A: 3, B: 10, C: 20 } });
   assert.ok(fc && !overlap(fc, { x: 134, y: 84, w: 32, h: 32 }, 0), JSON.stringify(fc));
   assert.equal(fc.leader, true);
-  assert.match(js, /core: \[\[fcx - 16, fcy - 16, 32, 32\]\]/, "the page passes the crosshair as a core");
+  assert.match(js, /core: \[\[fcx - 16, fcy - 16, 32, 32\], \.\.\.markers\]/, "the page passes the crosshair as a core, and every status marker in view (test/map-labels.test.js)");
   const full = H.placeLabels([item("big", 150, 100, { size: { B: [400, 22], C: [40, 14] } })], { W, H: Hh, max: { A: 3, B: 10, C: 20 } });
   assert.deepEqual(full.map((p) => p.tier), ["C"], "too wide for a chip: its name");
 });
@@ -300,7 +300,7 @@ test("map: every city's boundary from the first view (the overview loads with th
   for (const t of ["rgba(${pal.choosing},${0.18 * pal.a})", "rgba(${pal.founded},${0.32 * pal.a})", "rgba(${pal.mine},${0.3 * pal.a})", "dash: [3, 2]"]) assert.ok(base.includes(t), t);
 });
 
-test("map: on a phone the stats show with no tap: chips from the first view and the city-in-focus card, announced politely", () => {
+test("map: on a phone the stats show with no tap: the city-in-focus card, announced politely (the chips wait for a zoom on a city since 9 Oct 2026)", () => {
   for (const h of [page, src]) {
     const stage = h.slice(h.indexOf('<div class="citymap__stage"'), h.indexOf('<p class="citymap__legend">'));
     for (const id of ["city-fx", "city-labels", "map-focus", "mf-name", "mf-where", "mf-ticker", "mf-status", "mf-amount", "mf-area", "mf-line", "mf-open", "mf-fold", "mf-say", "map-full", "map-exit", "map-scale"]) assert.ok(stage.includes(`id="${id}"`), id);
@@ -317,9 +317,10 @@ test("map: on a phone the stats show with no tap: chips from the first view and 
   assert.match(card, /tag\.className = `\$\{cls\} map-focus__status`; tag\.textContent = word; tag\.hidden = false;/, "the status pill shows (it is hidden only while no city is in focus)");
   assert.match(card, /setTimeout\(\(\) => \{ if \(turn !== swapping\) return; fill\(\);/, "a city that is no longer in focus never fills the card late");
   assert.match(js, /sayTimer = setTimeout\(\(\) => \{ const s = \$\("#mf-say"\);[^\n]*\}, 600\);/, "debounced to 600 ms");
-  // chips from the first view: no zoom gate in front of the labels (they used to wait for zoom 2.5)
-  assert.doesNotMatch(js, /if \(k >= 2\.5\)/);
-  assert.match(js, /const max = \{ A: 3, B: phone \? 10 : 24, C: phone \? 20 : 60 \};/);
+  // the chips: none zoomed out, the city in focus and a few around the crosshair once zoomed in on a city (the owner, 9 Oct 2026;
+  // the rule and its budgets: labelFilter, test/map-labels.test.js). The stats without a tap come from the card.
+  assert.match(js, /const \{ ids, max \} = labelFilter\(cands, k, \{ phone, fx: fcx, fy: fcy, W, H \}\);/);
+  assert.doesNotMatch(js, /const max = \{ A: 3, B: phone \? 10 : 24, C: phone \? 20 : 60 \};/, "no fixed budget of 24 chips and 60 names any more");
   // a tap still picks a city, but nothing needs one: the desktop hover card is unchanged
   assert.match(js, /if \(e\.pointerType === "mouse"\) \{/);
 });
