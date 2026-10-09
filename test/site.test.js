@@ -170,7 +170,7 @@ test("cities page: live map, claimed vs open, claiming sends you to the dashboar
   assert.match(h, /id="map-style"[^>]*aria-pressed="false"/);
   assert.doesNotMatch(h, /satellite/i);
   const order = [...h.matchAll(/<script src="\/([a-z/]+)\.js"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ["theme", "site", "ticker", "cities"]);
+  assert.deepEqual(order, ["theme", "site", "ticker", "cities", "feedback"]);
 });
 
 test("launchpad: countdown to October 10, 10:10:10 AM New York time, and who gets in first", () => {
@@ -194,7 +194,7 @@ test("connect: every popular wallet, phone QR, app wallets like FOMO, then Googl
   assert.match(h, /never ask for your recovery phrase/);
   assert.match(h, /One account per wallet and per Google login or verified e-mail/);
   const order = [...h.matchAll(/<script src="\/([a-z/]+)\.js"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ["theme", "site", "vendor/qrcode", "wallets", "connect"]);
+  assert.deepEqual(order, ["theme", "site", "vendor/qrcode", "wallets", "connect", "feedback"]);
   const wallets = read("wallets.js");
   for (const w of ["Phantom", "Solflare", "Backpack", "OKX Wallet", "Coinbase Wallet", "Trust Wallet", "Bitget Wallet", "Magic Eden", "Exodus", "Jupiter", "Binance Wallet"]) assert.ok(wallets.includes(`name: "${w}"`), w);
 });
@@ -205,7 +205,7 @@ test("dashboard: onboarding, live rank + badges, founder race, local/national fe
   for (const k of ["meme", "checkin", "talk"]) assert.ok(h.includes(`data-kind="${k}"`), k);
   for (const s of ["city", "country"]) assert.ok(h.includes(`data-scope="${s}"`), s);
   const order = [...h.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "swap", "dashboard-roles", "dashboard"], "the role panel script loads before the dashboard script; swap.js (the in-app swap) after wallets.js");
+  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "swap", "dashboard-roles", "dashboard", "feedback"], "the role panel script loads before the dashboard script; swap.js (the in-app swap) after wallets.js");
   const roles = h.match(/<section class="section section--panel" id="roles">[\s\S]*?<\/section>/)[0];
   for (const r of ["holder", "founder", "manager", "admin"]) assert.ok(roles.includes(`data-role="${r}"`), r);
   assert.equal((roles.match(/role-row__when">Any time</g) || []).length, 4);
@@ -217,7 +217,7 @@ test("locate: the phone's browser page for the location hand-off, and one shared
   for (const id of ["l-go", "l-purpose", "l-error"]) assert.ok(h.includes(`id="${id}"`), id);
   assert.match(h, /never saved/);
   const order = [...h.matchAll(/<script src="\/([a-z/]+)\.js"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ["theme", "site", "locate"]);
+  assert.deepEqual(order, ["theme", "site", "locate", "feedback"]);
   assert.ok(html["dashboard.html"].includes('id="locate-modal"'), "the dashboard can start a hand-off");
   const geo = ["site.js", "cities.js", "dashboard.js", "locate.js", "connect.js"].filter((f) => /navigator\.geolocation/.test(read(f)));
   assert.deepEqual(geo, ["site.js"], "only site.js talks to the browser's geolocation");

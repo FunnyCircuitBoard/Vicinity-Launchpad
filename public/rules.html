@@ -15,6 +15,8 @@
   <link rel="preload" href="/fonts/space-grotesk.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/polish.css">
+  <link rel="stylesheet" href="/feedback.css">
   <script src="/theme.js"></script>
 </head>
 <body data-page="rules">
@@ -47,14 +49,17 @@
         <h1 class="page-title">Fair by design.<br><span class="accent">Checked by anyone.</span></h1>
         <p class="lead">No races, no single-person power, and no whale takeovers. Leadership is earned over time and chosen by locals. Every decision is published with a hash you can check, and every rule change is a new version, announced first.</p>
         <div class="health card" id="health" aria-live="polite"><span class="live-dot" aria-hidden="true"></span><span id="health-text">Checking the balance history…</span></div>
+        <nav class="rules-toc" aria-label="Rules">
+          <a href="#founders">Founders</a><a href="#ladder">Stake Ladder</a><a href="#steward">Seed Steward</a><a href="#squads">Squads</a><a href="#managers">Managers</a><a href="#moderation">Moderation</a><a href="#supporters">Supporters</a><a href="#privacy">Location &amp; accounts</a><a href="#never">Never</a>
+        </nav>
       </div>
     </section>
 
     <section class="section section--tight">
       <div class="wrap rules-grid">
-        <article class="card" id="founders">
-          <p class="kicker">City founders</p>
-          <h3>Earned over time, chosen by locals</h3>
+        <details class="card" id="founders">
+          <summary><span class="kicker">City founders</span><h3>Earned over time, chosen by locals</h3></summary>
+          <div class="rule-body">
           <ol>
             <li><strong>Qualify:</strong> hold <b data-rule="founderAmount">100K–1M by city size</b> $VICINITY in <em>every</em> balance check for <b data-rule="qualifyingDays">7</b> days. Checks happen at random times, about once an hour, so borrowing tokens for a few minutes doesn't work.</li>
             <li><strong>Be local:</strong> your home community is set by a location check at least <b data-rule="localDays">7</b> days before you apply.</li>
@@ -71,19 +76,21 @@ ties: lowest sha256("vicinity-seat|window|wallet")</p>
             <li><strong>Released:</strong> the city reopens; the former founder waits <b data-rule="cooldownDays">30</b> days before applying anywhere.</li>
             <li id="coins"><strong>The city's coin:</strong> the active founder designs it: its name, a short pitch, a colour, a logo, and what it's paired with on Raydium LaunchLab (SOL, USDC or RAY). The ticker is the city's own, so nobody can copy it. Every design is public and every change is in the log. Once it launches, the founder sends its contract, someone else (an admin) checks and records it, and the design is locked for good.</li>
           </ol>
-        </article>
+          </div>
+        </details>
 
-        <article class="card" id="ladder">
-          <p class="kicker">The Stake Ladder</p>
-          <h3>Big city, bigger stake</h3>
+        <details class="card" id="ladder">
+          <summary><span class="kicker">The Stake Ladder</span><h3>Big city, bigger stake</h3></summary>
+          <div class="rule-body">
           <p>The founder's holding bar is set by city size — a hamlet shouldn't demand a metropolis-sized stake, and a metropolis shouldn't be claimable with pocket change. Your bar is fixed when you claim; founders already seated keep theirs, and bars are re-tiered quarterly.</p>
           <p class="formula" id="ladder-formula">stake = 100,000 × (population ÷ 10,000)^(1/3), clamped 100,000–1,000,000, rounded down to 10,000
 rule of eight: 8× the people → 2× the stake</p>
-        </article>
+          </div>
+        </details>
 
-        <article class="card" id="steward">
-          <p class="kicker">Seed Steward</p>
-          <h3>Claim it, prove it, keep it</h3>
+        <details class="card" id="steward">
+          <summary><span class="kicker">Seed Steward</span><h3>Claim it, prove it, keep it</h3></summary>
+          <div class="rule-body">
           <ul>
             <li><strong>Immediate:</strong> the first qualified claimer of an unclaimed city becomes Seed Steward on the spot and can mint the city's coin as a trial founder.</li>
             <li><strong>Probation:</strong> <b data-rule="stewardProbationDays">90</b> days bonded. Confirmed automatically at 90 days of good behavior, or earlier once <b data-rule="stewardQuorum">50</b> verified local holders back the city.</li>
@@ -91,21 +98,23 @@ rule of eight: 8× the people → 2× the stake</p>
             <li><strong>Resign:</strong> walk away any time; the bond is released and the city reopens.</li>
             <li><strong>Dark cities:</strong> a city with no founder for <b data-rule="darkCityDays">30</b> days can be adopted by any holder — but a verified local challenger keeps priority.</li>
           </ul>
-        </article>
+          </div>
+        </details>
 
-        <article class="card" id="squads">
-          <p class="kicker">Squad Founding</p>
-          <h3>Found it together</h3>
+        <details class="card" id="squads">
+          <summary><span class="kicker">Squad Founding</span><h3>Found it together</h3></summary>
+          <div class="rule-body">
           <ul>
             <li><b data-rule="squadMin">3</b>–<b data-rule="squadMax">5</b> verified locals can pool their holdings to meet the bar — the 7-day tenure applies to the pooled sum.</li>
             <li>One wallet is designated the founder and mints the coin; every member is recorded as a co-founder.</li>
             <li>The seat's balance is the squad's combined holdings: if the pool drops below the bar, the whole seat goes to grace.</li>
           </ul>
-        </article>
+          </div>
+        </details>
 
-        <article class="card" id="managers">
-          <p class="kicker">Country managers</p>
-          <h3>Elected for a term, not handed to the richest</h3>
+        <details class="card" id="managers">
+          <summary><span class="kicker">Country managers</span><h3>Elected for a term, not handed to the richest</h3></summary>
+          <div class="rule-body">
           <ul>
             <li><strong>Candidates:</strong> founders active for <b data-rule="minFounderDays">30</b>+ days, not banned, not just finishing a second term in a row.</li>
             <li><strong>Voters:</strong> verified locals of the country, one vote each.</li>
@@ -115,11 +124,12 @@ rule of eight: 8× the people → 2× the stake</p>
           <p class="formula">score = 50% × vote share + 30% × service + 20% × holdings (capped at 2×)
 service = time as founder (up to 180 days) + confirmed moderation − overturned decisions</p>
           <p class="small muted"><strong>Who may vote or endorse:</strong> an account and a home community set at least 7 days before the vote opened, and at least one check-in there (being physically present). One vote per person.</p>
-        </article>
+          </div>
+        </details>
 
-        <article class="card" id="moderation">
-          <p class="kicker">Moderation</p>
-          <h3>Nobody moderates alone</h3>
+        <details class="card" id="moderation">
+          <summary><span class="kicker">Moderation</span><h3>Nobody moderates alone</h3></summary>
+          <div class="rule-body">
           <ul>
             <li><strong>Hide:</strong> a founder (their city), a manager (their country) or an admin, always with a reason. It comes back after <b data-rule="hideHours">24</b> hours unless a second moderator confirms it or <b data-rule="reportsToConfirm">3</b> people reported it.</li>
             <li><strong>Reports:</strong> <b data-rule="reportsToAutoHide">5</b> reports hide a post until a moderator reviews it.</li>
@@ -127,11 +137,12 @@ service = time as founder (up to 180 days) + confirmed moderation − overturned
             <li><strong>Appeals:</strong> once per decision, judged by someone who wasn't involved.</li>
             <li><strong>Public log:</strong> every action, with who (role and name), why and what happened. <a href="/api/audit" target="_blank" rel="noopener">See the log ↗</a></li>
           </ul>
-        </article>
+          </div>
+        </details>
 
-        <article class="card" id="supporters">
-          <p class="kicker">Founding Supporters</p>
-          <h3>Counted fairly, with no sign-up</h3>
+        <details class="card" id="supporters">
+          <summary><span class="kicker">Founding Supporters</span><h3>Counted fairly, with no sign-up</h3></summary>
+          <div class="rule-body">
           <p class="formula">eligible = the lower of (balance at the cutoff) and (average of the last 14 days)
 pools, bonding curves and team wallets are excluded</p>
           <ul>
@@ -139,11 +150,12 @@ pools, bonding curves and team wallets are excluded</p>
             <li>Published with a Merkle root and a hash of every input, then <b data-rule="challengeHours">48</b> hours to challenge before it's final.</li>
             <li>Check any wallet and get its proof on the <a href="/launchpad#supporters">Launchpad page</a>.</li>
           </ul>
-        </article>
+          </div>
+        </details>
 
-        <article class="card" id="privacy">
-          <p class="kicker">Location &amp; accounts</p>
-          <h3>Private, and hard to fake</h3>
+        <details class="card" id="privacy">
+          <summary><span class="kicker">Location &amp; accounts</span><h3>Private, and hard to fake</h3></summary>
+          <div class="rule-body">
           <ul>
             <li>Your location is read in exactly one place. It returns a signed note naming your community (valid <b data-rule="attestationMinutes">5</b> minutes, usable once), and the coordinates are thrown away.</li>
             <li>VPNs, proxies and far-away connections are refused, with one generic answer, so nobody can probe which check they tripped.</li>
@@ -152,16 +164,18 @@ pools, bonding curves and team wallets are excluded</p>
             <li data-profiles-only hidden>Member profiles: other signed-in members can open your profile and see your username, home community, bio, wallet address, member-since date, badges and your $VICINITY and city-coin balances. They never see your real name, how you signed in, your e-mail or phone, or your location. You can block anyone, and there is no messaging.</li>
             <li>Sensitive actions (applying, endorsing, voting, moderating) need your wallet proven in the last <b data-rule="freshProofMinutes">30</b> minutes.</li>
           </ul>
-        </article>
+          </div>
+        </details>
 
-        <article class="card" id="never">
-          <p class="kicker">Never</p>
-          <h3>What nobody can ever do</h3>
+        <details class="card" id="never">
+          <summary><span class="kicker">Never</span><h3>What nobody can ever do</h3></summary>
+          <div class="rule-body">
           <ul class="never" id="never-list">
             <li>Move, freeze or take anyone's tokens.</li>
           </ul>
           <p class="small muted">Rules change only as a new, published version. Seats, elections and snapshots keep the version they were decided under.</p>
-        </article>
+          </div>
+        </details>
       </div>
     </section>
   </main>
@@ -170,23 +184,24 @@ pools, bonding curves and team wallets are excluded</p>
     <div class="wrap footer-grid">
       <div class="footer-brand">
         <div class="brand"><img src="/logo.svg" alt="" width="28" height="28"><span>Vicinity</span></div>
-        <p class="muted">One city. One coin. One community.</p>
-        <p class="muted small">System status: <span id="status">checking…</span></p>
-        <p class="muted small footer-motion"><button class="link-btn motion-toggle" type="button" data-motion-toggle>Pause animations</button></p>
+        <div class="footer-meta">
+          <p class="muted small footer-status">System status: <span id="status">checking…</span></p>
+          <p class="muted small footer-motion"><button class="link-btn motion-toggle" type="button" data-motion-toggle>Pause animations</button></p>
+        </div>
       </div>
-      <nav class="footer-links" aria-label="Footer">
+      <nav class="footer-links footer-links--explore" aria-label="Footer">
         <p class="footer-title">Explore</p>
         <a href="/">How it works</a><a href="/token">Token &amp; holders</a><a href="/token#verify">Check a wallet's rank</a><a href="/cities">Claim a city</a><a href="/launchpad">Launchpad</a><a href="/dashboard">Dashboard</a>
       </nav>
-      <nav class="footer-links" aria-label="Safety">
+      <nav class="footer-links footer-links--safe" aria-label="Safety">
         <p class="footer-title">Stay safe</p>
-        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/terms">Terms of Use</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
+        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/terms">Terms of Use</a>
         <p class="tiny muted">Vicinity will never ask for your recovery phrase or private key.</p>
       </nav>
-      <div class="footer-links">
-        <p class="footer-title">Data</p>
+      <details class="footer-data">
+        <summary class="footer-title">Data credits</summary>
         <p class="tiny muted">Places: <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> (CC BY 4.0). City boundaries: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL). Country outlines: Natural Earth.</p>
-      </div>
+      </details>
     </div>
     <p class="wrap tiny muted footer-legal">vicinity.city · Nothing here is financial advice. Meme coins are very risky: only use money you can afford to lose.</p>
   </footer>
@@ -222,5 +237,6 @@ pools, bonding curves and team wallets are excluded</p>
   </div>
   <script src="/site.js" defer></script>
   <script src="/rules.js" defer></script>
+  <script src="/feedback.js" defer></script>
 </body>
 </html>

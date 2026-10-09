@@ -431,7 +431,7 @@ test("a founder without a username shows no handle (never a name made from the w
   assert.equal((await (await browser(env).send("/api/launchpad", { fetchImpl: dexMock().fetchImpl })).json()).coins.find((c) => c.city.id === "5142056").founder, null);
 });
 
-test("a coin's community outside the 300 largest (where the map's /api/members list stops) still gets its member and holder counts", async () => {
+test("a coin's community outside the 300 largest gets member and holder counts of its own (not read from the map's /api/members list)", async () => {
   const env = LP({ VICINITY_MINT: MINT });
   await ensureSchema(env.DB);
   // 300 communities of three people, written straight into users (throwaway values): Utica, with two, is then not among the 300 the map lists
@@ -447,8 +447,8 @@ test("a coin's community outside the 300 largest (where the map's /api/members l
   await tick(env); // the balance sample the holder count is read from
   const b = browser(env);
   const mem = await b.get("/api/members");
-  assert.equal(mem.communities.length, 300);
-  assert.equal(mem.communities.some((c) => c.id === "5142056"), false, "the map's list stops at the 300 largest communities: Utica is not on it");
+  assert.equal(mem.communities.length, 301);
+  assert.deepEqual(mem.communities.at(-1), { id: "5142056", name: "Utica", country: "US", members: 2, holders: 1 }, "the map's list: the 300 largest communities, then every smaller one with a holder (Utica, 9 Oct 2026)");
   const d = await (await b.send("/api/launchpad", { fetchImpl: dexMock().fetchImpl })).json();
   assert.deepEqual(d.coins[0].members, { members: 2, holders: 1 }, "counted for the coin's community itself, by the rule of /api/members, not read from its capped list");
   assert.deepEqual(d.coins[0].city, { id: "5142056", name: "Utica", country: "US" });

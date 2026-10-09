@@ -1,0 +1,316 @@
+// The Feedback / Support widget on the pages (public/feedback.js, public/feedback.css, built in by scripts/pages/build.mjs):
+// where it sits in every page, what it builds, how it opens and closes for a finger and for the keyboard, what it sends and
+// what it says afterwards, and that it stays inert while the Terms gate is open. Runs the real script on the real built pages
+// in the just-enough DOM of test/helpers/pagedom.js; how it looks is checked in real Chromium (the end-to-end run).
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import vm from "node:vm";
+import { readFileSync, readdirSync } from "node:fs";
+import { dispatch, newEvent, openPage } from "./helpers/pagedom.js";
+
+const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const FEEDBACK_JS = read("public/feedback.js"), FEEDBACK_CSS = read("public/feedback.css"), BUILD = read("scripts/pages/build.mjs");
+const PAGES = readdirSync(new URL("../public/", import.meta.url)).filter((f) => f.endsWith(".html"));
+const tick = async (n = 6) => { for (let i = 0; i < n; i++) await new Promise((r) => setImmediate(r)); };
+
+/**
+ * A built page with site.js and then feedback.js running on it. `answer(body)` is what POST /api/feedback replies
+ * (default { ok: true, id: 1 }); every request is recorded in `calls`.
+ */
+async function widget(file = "index.html", { agreed = "2026-10-01", answer = () => ({ ok: true }), at = { pathname: "/cities", search: "?city=5128581" }, phone = false } = {}) {
+  const page = await openPage(file, { agreed });
+  const win = page.window;
+  const calls = [];
+  win.location = at;
+  if (phone) win.matchMedia = () => ({ matches: true, addEventListener() {} }); // the widget asks once, when it starts
+  win.fetch = async (path, init = {}) => {
+    const body = String(path).startsWith("/api/me") ? { ok: true, signedIn: false } : answer(init.body ? JSON.parse(init.body) : null);
+    calls.push({ path, method: init.method || "GET", body: init.body ? JSON.parse(init.body) : null });
+    const status = body.ok === false ? body._status || 400 : 200;
+    return { ok: status < 400, status, json: async () => body };
+  };
+  vm.runInContext(FEEDBACK_JS, win, { filename: "public/feedback.js" });
+  await tick();
+  return { ...page, calls };
+}
+const submit = (form, win) => dispatch(form, newEvent("submit"), win);
+
+test("every built page loads feedback.css after the site's stylesheet and runs feedback.js last, after site.js", () => {
+  assert.ok(PAGES.length >= 12);
+  for (const f of PAGES) {
+    const h = read("public/" + f);
+    assert.match(h, /<link rel="stylesheet" href="\/style\.css">\n(?:  <link rel="stylesheet" href="\/polish\.css">\n)?  <link rel="stylesheet" href="\/feedback\.css">/, `${f}: the widget's stylesheet after the site's (polish.css may sit between)`);
+    const scripts = [...h.matchAll(/<script src="\/([a-z/-]+)\.js" defer><\/script>/g)].map((m) => m[1]);
+    assert.equal(scripts[0], "site", f);
+    assert.equal(scripts.at(-1), "feedback", `${f}: feedback.js runs last`);
+    assert.equal(scripts.filter((s) => s === "feedback").length, 1, f);
+  }
+  assert.match(BUILD, /\["site", \.\.\.scripts, "feedback"\]/, "the build puts it there, not the page sources");
+  assert.match(BUILD, /<link rel="stylesheet" href="\/feedback\.css">/);
+});
+
+test("the widget: a round button in the corner with a name, state and the panel it controls; the panel is a named dialog, closed at first", async () => {
+  const { $, doc } = await widget();
+  const root = $("#fb");
+  assert.ok(root && root.parentNode === doc.body, "a child of the body");
+  assert.equal(doc.body.children.at(-1), root, "the last thing in the page");
+  const btn = $("#fb-open");
+  assert.equal(btn.tagName, "BUTTON");
+  assert.equal(btn.getAttribute("aria-label"), "Feedback and support");
+  assert.equal(btn.getAttribute("aria-expanded"), "false");
+  assert.equal(btn.getAttribute("aria-haspopup"), "dialog");
+  assert.equal(btn.getAttribute("aria-controls"), "fb-panel");
+  assert.ok(btn.querySelector("svg"), "an icon, not words, on the round button");
+  const panel = $("#fb-panel");
+  assert.equal(panel.hidden, true);
+  assert.equal(panel.getAttribute("role"), "dialog");
+  assert.equal(panel.getAttribute("aria-labelledby"), "fb-title");
+  assert.equal($("#fb-title").textContent, "Talk to us");
+  // the three kinds are one tab stop (a tablist with roving tabindex), Question first
+  const tabs = $("#fb-kinds").querySelectorAll("[role=tab]");
+  assert.deepEqual(tabs.map((t) => [t.dataset.kind, t.textContent, t.getAttribute("aria-selected"), t.tabIndex]),
+    [["question", "Question", "true", 0], ["bug", "Report a bug", "false", -1], ["city", "Request a city", "false", -1]]);
+  assert.equal($("#fb-city-row").hidden, true, "city and country only for a city request");
+  assert.equal($("#fb-msg").tagName, "TEXTAREA");
+  assert.equal($("#fb-left").textContent, "1000");
+  assert.equal($("#fb-email").getAttribute("type"), "email");
+  // the honeypot: out of the tab order and hidden from screen readers
+  const hp = $("#fb-hp");
+  assert.equal(hp.getAttribute("name"), "website");
+  assert.equal(hp.tabIndex, -1);
+  assert.equal(hp.getAttribute("aria-hidden"), "true");
+  assert.ok(!doc.tabStops().includes(hp));
+  assert.equal($("#fb-send").textContent, "Send");
+  assert.match($("#fb-meta").textContent, /^We'll also see this page's address \(\/cities\?city=5128581\) and your browser type\. You're not signed in\.$/);
+  // the three kinds and the form are a tablist and its tabpanel, named by the chosen tab
+  assert.deepEqual(tabs.map((t) => t.id), ["fb-tab-question", "fb-tab-bug", "fb-tab-city"]);
+  assert.equal($("#fb-form").getAttribute("role"), "tabpanel");
+  assert.equal($("#fb-form").getAttribute("aria-labelledby"), "fb-tab-question");
+  tabs[2].click();
+  assert.equal($("#fb-form").getAttribute("aria-labelledby"), "fb-tab-city");
+});
+
+test("the page's address travels without anything secret: only a city, a coin, a chart range, a profile or a tab; a sign-in code or a looked-up wallet never leaves the browser", async () => {
+  const cases = [
+    [{ pathname: "/connect", search: "?carry=K7Q2M9ZP&pair=X9Y8&error=login_failed&mode=login" }, "/connect", "(/connect)"],
+    [{ pathname: "/locate", search: "?code=ab12cd34ef" }, "/locate", "(/locate)"],
+    [{ pathname: "/token", search: "?address=7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU" }, "/token", "(/token)"],
+    [{ pathname: "/coin", search: "?x=1&tf=24h&mint=DmsT8fDJx5KuToivsKUwFErpSWosdWHRBfNyRTugYKiw&claim=1" }, "/coin?mint=DmsT8fDJx5KuToivsKUwFErpSWosdWHRBfNyRTugYKiw&tf=24h", "(/coin?mint=DmsT8fDJx5KuToivsKUwFErpSWosdWHRBfNyRTugYKiw&tf=24h)"],
+    [{ pathname: "/", search: "" }, "/", "(the home page)"],
+  ];
+  for (const [at, page, said] of cases) {
+    const { $, calls, window: win } = await widget("index.html", { at });
+    assert.ok($("#fb-meta").textContent.includes(said), `${at.pathname}${at.search}: ${$("#fb-meta").textContent}`);
+    $("#fb-open").click();
+    $("#fb-msg").value = "The page was blank after I came back from the app";
+    submit($("#fb-form"), win); await tick();
+    const [sent] = calls.filter((c) => c.path === "/api/feedback");
+    assert.equal(sent.body.page, page, at.pathname + at.search);
+    assert.ok(!/carry|code|pair|address|error|claim|mode/.test(sent.body.page));
+  }
+  assert.match(FEEDBACK_JS, /const PAGE_KEYS = \["city", "mint", "tf", "u", "tab", "step", "welcome"\]/, "the same list as src/feedback.js PAGE_KEYS");
+});
+
+test("on a phone the button slides out of the way while the page scrolls down and comes back on the first scroll up, near the top, on focus, and while the panel is open", async () => {
+  const { $, window: win } = await widget("index.html", { phone: true });
+  const { $: $d, window: wd } = await widget("token.html");            // a desktop (matchMedia says false)
+  const scroll = (w, y) => { w.scrollY = y; for (const l of w.listeners.filter((x) => x.type === "scroll")) l.fn.call(w, newEvent("scroll")); };
+  const away = () => $("#fb").classList.contains("fb--away");
+  assert.ok(win.listeners.some((l) => l.type === "scroll"), "listens to the page's scroll");
+  scroll(win, 10); scroll(win, 40); assert.equal(away(), false, "near the top: shown");
+  scroll(win, 100); assert.equal(away(), true, "60 px down from 40: out of the way");
+  scroll(win, 60); assert.equal(away(), false, "40 px up, but still 60 from the top: back");
+  scroll(win, 200); assert.equal(away(), true, "down again");
+  scroll(win, 230); assert.equal(away(), true);
+  scroll(win, 240); assert.equal(away(), true);
+  scroll(win, 236); assert.equal(away(), true, "4 px up: a tremor, not a scroll up");
+  scroll(win, 222); assert.equal(away(), false, "18 px up in all: back");
+  scroll(win, 300); scroll(win, 340); assert.equal(away(), true);
+  scroll(win, 50); assert.equal(away(), false, "back near the top: shown");
+  scroll(win, 300); scroll(win, 340); assert.equal(away(), true);
+  $("#fb-open").focus(); assert.equal(away(), false, "the keyboard brings it back");
+  scroll(win, 400); scroll(win, 440); assert.equal(away(), true);
+  $("#fb-open").click(); assert.equal(away(), false, "open: never away");
+  scroll(win, 500); scroll(win, 560); assert.equal(away(), false, "and it stays while the panel is open");
+  // a desktop never hides it (the content column ends left of the button)
+  scroll(wd, 300); scroll(wd, 400); assert.equal($d("#fb").classList.contains("fb--away"), false);
+});
+
+test("open and close: a tap opens the panel and puts the keyboard on the chosen kind; Escape, the close button or the round button close it and give the keyboard back", async () => {
+  const { $, doc, press, window: win } = await widget();
+  const btn = $("#fb-open"), panel = $("#fb-panel");
+  btn.click();
+  assert.equal(panel.hidden, false);
+  assert.equal(btn.getAttribute("aria-expanded"), "true");
+  assert.equal(btn.getAttribute("aria-label"), "Close feedback");
+  assert.equal(doc.activeElement.dataset.kind, "question", "the keyboard is on the first kind");
+  press("Escape");
+  assert.equal(panel.hidden, true);
+  assert.equal(btn.getAttribute("aria-expanded"), "false");
+  assert.equal(btn.getAttribute("aria-label"), "Feedback and support");
+  assert.equal(doc.activeElement, btn, "the keyboard is back on the button");
+  btn.click();
+  $("#fb-close").click();
+  assert.equal(panel.hidden, true);
+  assert.equal(doc.activeElement, btn);
+  btn.click(); btn.click();
+  assert.equal(panel.hidden, true, "the round button toggles");
+  // a tap anywhere else closes it without stealing the keyboard
+  btn.click();
+  dispatch(doc.body, newEvent("pointerdown"), win);
+  assert.equal(panel.hidden, true);
+  assert.notEqual(doc.activeElement, btn);
+});
+
+test("kinds: a tap or the arrow keys pick one; a city request shows city and country and makes the message optional", async () => {
+  const { $, doc, press } = await widget();
+  $("#fb-open").click();
+  const tabs = $("#fb-kinds").querySelectorAll("[role=tab]");
+  press("ArrowRight");
+  assert.equal(doc.activeElement, tabs[1]);
+  assert.equal(tabs[1].getAttribute("aria-selected"), "true");
+  assert.equal(tabs[0].getAttribute("aria-selected"), "false");
+  assert.equal(tabs[0].tabIndex, -1); assert.equal(tabs[1].tabIndex, 0);
+  assert.match($("#fb-lead").textContent, /what you did, what you expected/);
+  press("ArrowLeft"); press("ArrowLeft");
+  assert.equal(doc.activeElement, tabs[2], "the arrows wrap round");
+  assert.equal($("#fb-city-row").hidden, false);
+  assert.equal($("#fb-msg").required, false);
+  assert.match($("#fb-msg").placeholder, /optional/);
+  press("Home");
+  assert.equal(doc.activeElement, tabs[0]);
+  assert.equal($("#fb-city-row").hidden, true);
+  assert.equal($("#fb-msg").required, true);
+  tabs[2].click();
+  assert.equal(tabs[2].getAttribute("aria-selected"), "true");
+  assert.equal(doc.activeElement, tabs[2]);
+});
+
+test("sending a question: one POST to /api/feedback with the kind, the message, the page and an empty honeypot; then the thank-you, and 'Send another' starts afresh", async () => {
+  const { $, doc, calls, window: win } = await widget();
+  $("#fb-open").click();
+  const msg = $("#fb-msg");
+  msg.value = "Where do I see who founded my city?  ";
+  dispatch(msg, newEvent("input"), win);
+  assert.equal($("#fb-left").textContent, String(1000 - msg.value.length));
+  submit($("#fb-form"), win);
+  await tick();
+  const sent = calls.filter((c) => c.path === "/api/feedback");
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].method, "POST");
+  assert.deepEqual(sent[0].body, { kind: "question", message: "Where do I see who founded my city?", page: "/cities?city=5128581", website: "" });
+  assert.equal($("#fb-form").hidden, true);
+  assert.equal($("#fb-kinds").hidden, true);
+  assert.equal($("#fb-done").hidden, false);
+  assert.equal($("#fb-done").querySelector(".fb__done-title").textContent, "Thanks, we read every message.");
+  assert.match($("#fb-done-note").textContent, /Leave an e-mail next time/);
+  assert.equal(doc.activeElement, $("#fb-done").querySelector(".fb__done-title"), "the thank-you is read out");
+  assert.equal($("#fb-err").hidden, true);
+  $("#fb-again").click();
+  assert.equal($("#fb-form").hidden, false);
+  assert.equal($("#fb-done").hidden, true);
+  assert.equal(msg.value, "");
+  assert.equal($("#fb-left").textContent, "1000");
+  assert.equal(doc.activeElement.dataset.kind, "question");
+});
+
+test("sending with an e-mail and a city request: the optional fields travel only when given", async () => {
+  const { $, calls, window: win } = await widget();
+  $("#fb-open").click();
+  $("#fb-kinds").querySelectorAll("[role=tab]")[2].click();
+  $("#fb-city").value = " Little Falls ";
+  $("#fb-country").value = "United States";
+  $("#fb-email").value = " jo@example.com ";
+  submit($("#fb-form"), win);
+  await tick();
+  const [sent] = calls.filter((c) => c.path === "/api/feedback");
+  assert.deepEqual(sent.body, { kind: "city", message: "", page: "/cities?city=5128581", website: "", email: "jo@example.com", city: "Little Falls", country: "United States" });
+  assert.match($("#fb-done-note").textContent, /We'll look at Little Falls and get back to you at jo@example\.com/);
+});
+
+test("what is checked before anything is sent: a message of a few words, a city with its country, a plausible e-mail; the error is spoken and the keyboard goes to the field", async () => {
+  const { $, doc, calls, window: win } = await widget();
+  $("#fb-open").click();
+  const form = $("#fb-form"), err = $("#fb-err");
+  assert.equal(err.getAttribute("role"), "alert");
+  $("#fb-msg").value = "hi";
+  submit(form, win); await tick();
+  assert.equal(err.hidden, false); assert.equal(err.textContent, "Please write at least a few words.");
+  assert.equal(doc.activeElement, $("#fb-msg"));
+  $("#fb-msg").value = "The holder table never loads for me";
+  $("#fb-email").value = "not an address";
+  submit(form, win); await tick();
+  assert.equal(err.textContent, "That e-mail address doesn't look right.");
+  assert.equal(doc.activeElement, $("#fb-email"));
+  $("#fb-email").value = "";
+  $("#fb-kinds").querySelectorAll("[role=tab]")[2].click();
+  submit(form, win); await tick();
+  assert.equal(err.textContent, "Please give the city and its country.");
+  assert.equal(doc.activeElement, $("#fb-city"));
+  assert.equal(calls.filter((c) => c.path === "/api/feedback").length, 0, "nothing was sent");
+});
+
+test("the server's answers: too many messages, a bad e-mail, an outage, offline; the form stays so nothing typed is lost", async () => {
+  for (const [answer, text] of [
+    [{ ok: false, error: "slow_down", retryAfter: 3600, _status: 429 }, "That's plenty for now. Please try again in an hour."],
+    [{ ok: false, error: "slow_down", retryAfter: 86400, _status: 429 }, "That's plenty for today. Please try again tomorrow."],
+    [{ ok: false, error: "slow_down", _status: 429 }, "That's plenty for now. Please try again in an hour."],
+    [{ ok: false, error: "bad_email", _status: 400 }, "That e-mail address doesn't look right."],
+    [{ ok: false, error: "unavailable", _status: 503 }, "Couldn't send right now. Please try again in a minute."],
+    [{ ok: false, error: "wrong_origin", _status: 403 }, "Couldn't send. Please reload the page and try again."],
+  ]) {
+    const { $, window: win } = await widget("token.html", { answer: () => answer });
+    $("#fb-open").click();
+    $("#fb-msg").value = "Something I typed with care";
+    submit($("#fb-form"), win); await tick();
+    assert.equal($("#fb-err").textContent, text, answer.error);
+    assert.equal($("#fb-form").hidden, false, answer.error);
+    assert.equal($("#fb-done").hidden, true, answer.error);
+    assert.equal($("#fb-msg").value, "Something I typed with care", answer.error);
+    assert.equal($("#fb-send").textContent, "Send", "the button is itself again");
+    assert.equal($("#fb-send").disabled, false);
+  }
+  // the network is down: site.js's api() answers offline
+  const { $, window: win } = await widget();
+  win.fetch = async () => { throw new TypeError("Failed to fetch"); };
+  $("#fb-open").click();
+  $("#fb-msg").value = "Something I typed with care";
+  submit($("#fb-form"), win); await tick();
+  assert.equal($("#fb-err").textContent, "You seem to be offline. Check the connection and try again.");
+});
+
+test("the Terms gate: while it is open the whole widget is inert (no Tab stop, nothing to tap); a visitor who agreed before gets it live", async () => {
+  const first = await widget("index.html", { agreed: null });
+  assert.equal(first.$("#termsgate").hidden, false, "the gate is open for a first visit");
+  assert.equal(first.$("#fb").inert, true);
+  assert.ok(!first.doc.tabStops().includes(first.$("#fb-open")));
+  const back = await widget("index.html", { agreed: "2026-10-01" });
+  assert.equal(back.$("#fb").inert, false);
+  assert.ok(back.doc.tabStops().includes(back.$("#fb-open")));
+});
+
+test("security policy and hygiene: no inline style or script, the only innerHTML is the two fixed icons, nothing leaves the page, the stylesheet keeps clear of the phone bars", () => {
+  const inner = [...FEEDBACK_JS.matchAll(/\.innerHTML\s*=\s*([^;]+);/g)].map((m) => m[1].trim());
+  assert.deepEqual(inner, ["ICON_CHAT + ICON_X"], "static icons only, never data");
+  assert.doesNotMatch(FEEDBACK_JS, /\.style\.|setAttribute\("style"|eval\(|new Function|document\.write/);
+  assert.doesNotMatch(FEEDBACK_JS, /https?:\/\//, "no outside address");
+  assert.doesNotMatch(FEEDBACK_JS, /window\.open|location\.(assign|href\s*=)/, "nothing opens or leaves the page: it must work inside wallet apps' browsers");
+  assert.match(FEEDBACK_JS, /api\("\/api\/feedback", body\)/, "one call, through site.js's api()");
+  assert.match(FEEDBACK_CSS, /\.fb \{ position: fixed; right: max\(16px, env\(safe-area-inset-right\)\); bottom: max\(20px, env\(safe-area-inset-bottom\)\); z-index: 70;[^}]*--fb-below: 82px; \}/);
+  assert.match(FEEDBACK_CSS, /@media \(max-width: 900px\) \{ \.fb \{ right: max\(10px, env\(safe-area-inset-right\)\); bottom: calc\(82px \+ env\(safe-area-inset-bottom\)\); --fb-below: 138px; \} \.fb__btn \{ width: 46px; height: 46px; \}/, "above the phone menu bar, a 46 px button nearer the edge");
+  assert.match(FEEDBACK_CSS, /body\.has-coin-buybar \.fb \{ bottom: calc\(150px \+ env\(safe-area-inset-bottom\)\); --fb-below: 206px; \}/, "above the coin page's Buy bar");
+  assert.match(FEEDBACK_CSS, /\.fb__btn \{[^}]*width: 52px; height: 52px;/, "a 44+ px target");
+  // the panel is capped by the room above the button, not by the screen, so its title and Close never go off the top (keyboard open, landscape)
+  assert.match(FEEDBACK_CSS, /\.fb__panel \{[^}]*max-height: min\(600px, calc\(100vh - var\(--fb-below\) - 12px - env\(safe-area-inset-bottom\)\)\);\s*max-height: min\(600px, calc\(100dvh - var\(--fb-below\) - 12px - env\(safe-area-inset-bottom\)\)\)/);
+  assert.doesNotMatch(FEEDBACK_CSS, /72d?vh/);
+  // out of the way on phones: a transform on the button only (the panel never moves), undone by the keyboard
+  assert.match(FEEDBACK_CSS, /\.fb--away \.fb__btn \{ transform: translateX\(calc\(100% \+ 24px\)\);/);
+  assert.match(FEEDBACK_CSS, /\.fb--away \.fb__btn:focus-visible \{ transform: none; \}/);
+  assert.doesNotMatch(FEEDBACK_CSS, /\.fb--away \.fb__panel/);
+  // the small print reads at 4.5:1 in both themes: --muted, never --faint
+  assert.doesNotMatch(FEEDBACK_CSS, /--faint/);
+  assert.match(FEEDBACK_CSS, /\.fb__count \{[^}]*color: var\(--muted\)/); assert.match(FEEDBACK_CSS, /\.fb__meta \{[^}]*color: var\(--muted\)/);
+  assert.match(FEEDBACK_CSS, /\.fb__hp \{ position: absolute; left: -9999px;/, "the honeypot is off screen, not display: none (some bots skip those)");
+  assert.match(FEEDBACK_CSS, /@media \(prefers-reduced-motion: no-preference\)/, "motion only for those who want it");
+  assert.doesNotMatch(FEEDBACK_CSS, /#[0-9a-fA-F]{6}\b/, "colours come from the site's variables (both themes), no fixed hex colour");
+});

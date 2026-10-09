@@ -93,7 +93,7 @@ test("flag off: a whole v1 journey (wallet, Google, an e-mail account, a hand-of
 test("flag off: the scheduled job answers as before and does not mind that the sign-up tables do not exist", async () => {
   const env = newWorld();
   const out = await tick(env);
-  assert.deepEqual(Object.keys(out), ["sample", "seats", "elections", "moderation", "snapshot", "cleanup"]);
+  assert.deepEqual(Object.keys(out), ["sample", "seats", "elections", "moderation", "snapshot", "cleanup", "feedback"]); // "feedback" is the Feedback / Support retention step: no switch, runs on every site (src/feedback.js pruneFeedback)
   assert.deepEqual(out.cleanup, { ok: true });
   assert.ok(!(await tablesAndColumns(env.DB)).tables.includes("signups"));
 });

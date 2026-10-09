@@ -35,7 +35,8 @@
  *   share GPS: src/handoff.js) · /api/posts(/vote, /report)
  *   · /api/seats/{apply,withdraw,endorse,object,resign} · /api/elections/vote · /api/appeals · /api/towns
  *   · /api/seats/squad/{create,join,leave,apply} · /api/seats/squad/:id (readiness)
- * Admins: /api/admin/* (src/admin.js: fresh wallet proof on every change)
+ * Feedback / Support (the floating widget on every page, no login needed): POST /api/feedback (src/feedback.js)
+ * Admins: /api/admin/* (src/admin.js: fresh wallet proof on every change; /api/admin/feedback is the Inbox)
  * Moderators: /api/mod · /api/mod/{hide,unhide,ban,ban/approve,ban/reject} · /api/appeals/decide
  *   · /api/towns/decide · /api/seats/objections/decide · /api/snapshots/cancel
  *
@@ -78,6 +79,7 @@ import { handleSwapConfig, handleSwapQuote, handleSwapTokens, handleSwapTx } fro
 import { handleBalances, handleSend, handleStatus } from "./relay.js";
 import { handleTradeQuote, handleTradeTx } from "./lptrade.js";
 import { sameSite } from "./http.js";
+import { handleFeedback } from "./feedback.js";
 
 export { json, activeMint, cached as _cached };
 
@@ -493,6 +495,10 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       return only("GET") || handleMyTowns(request, env);
     case "/api/towns/decide":
       return only("POST") || handleTownDecision(request, env, fetchImpl);
+
+    // the Feedback / Support widget (every page, no login needed)
+    case "/api/feedback":
+      return only("POST") || handleFeedback(request, env);
 
     // Founding Supporters
     case "/api/snapshots":

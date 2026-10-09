@@ -1,5 +1,5 @@
-// Home page: the real New York City example (hero + step-by-step map), live numbers, and
-// redirects for old links (/#cities → /cities ...).
+// Home page: the real New York City example (hero + step-by-step map), live numbers, the two tab lists (what $VICINITY gets you,
+// the FAQ), the "+N more" of the member chips, and redirects for old links (/#cities → /cities ...).
 (() => {
   "use strict";
   const { $, $$, fmt, api, reduced } = window.V;
@@ -104,14 +104,16 @@
 
     // labels
     const label = (x, y, text, cls = "m-label", group) => { const t = svgEl("text", { x: x.toFixed(0), y: y.toFixed(0), "text-anchor": "middle" }, cls); t.textContent = text; (group || svg).append(t); return t; };
-    /** Keep a group's labels only where they fit: inside the map and not on top of each other (first come, first kept). */
-    const declutter = (group) => {
-      const kept = [];
+    /** Keep a group's labels only where they fit: inside the map, not on top of each other (first come, first kept) and not on the coin.
+     *  A label with a second place (data-alt: under its dot instead of over it) is moved there first, and dropped only if that is taken too. */
+    const declutter = (group, taken = []) => {
+      const kept = [...taken];
+      const boxOf = (t) => { const b = t.getBBox(); return [b.x - 4, b.y - 2, b.x + b.width + 4, b.y + b.height + 2]; };
+      const blocked = (box) => box[0] < 0 || box[2] > 1000 || box[1] < 0 || box[3] > P.h || kept.some((k) => box[0] < k[2] && k[0] < box[2] && box[1] < k[3] && k[1] < box[3]);
       for (const t of [...group.querySelectorAll("text")]) {
-        let b; try { b = t.getBBox(); } catch { continue; }
-        const box = [b.x - 4, b.y - 2, b.x + b.width + 4, b.y + b.height + 2];
-        const out = box[0] < 0 || box[2] > 1000 || box[1] < 0 || box[3] > P.h;
-        if (out || kept.some((k) => box[0] < k[2] && k[0] < box[2] && box[1] < k[3] && k[1] < box[3])) t.remove(); else kept.push(box);
+        let box; try { box = boxOf(t); } catch { continue; }
+        if (blocked(box) && t.dataset.alt) { t.setAttribute("y", t.dataset.alt); try { box = boxOf(t); } catch { continue; } }
+        if (blocked(box)) t.remove(); else kept.push(box);
       }
     };
     const nbLabels = svgEl("g", {}, "m-nb");
@@ -122,10 +124,11 @@
     svg.append(nbLabels);
     const memberLabels = svgEl("g", {}, "m-link");
     for (const [name, lon, lat] of data.members.filter((m) => ["Manhattan", "Brooklyn", "Queens", "The Bronx", "Staten Island"].includes(m[0]))) {
-      label(P.x(lon), P.y(lat) - 12, name, "m-label", memberLabels);
+      label(P.x(lon), P.y(lat) - 14, name, "m-label", memberLabels).dataset.alt = (P.y(lat) + 34).toFixed(0); // over its dot, or under it if the coin is there
     }
     svg.append(memberLabels);
-    const tidy = () => { declutter(nbLabels); declutter(memberLabels); };
+    const coinBox = [cx - 34, cy - 34, cx + 34, cy + 34]; // the $NYC disc (r 34): no label on it (the label boxes carry their own margin)
+    const tidy = () => { declutter(nbLabels, [coinBox]); declutter(memberLabels, [coinBox]); };
     tidy();
     const ob = boxOf(data.official);
     label(P.x((ob[0] + ob[2]) / 2), P.y(ob[3]) - 16, "New York City · official boundary", "m-label m-label--big m-official-label");
@@ -150,7 +153,17 @@
     const fit = () => lead.querySelectorAll(".m-flag").forEach((g) => { try { g.querySelector("rect").setAttribute("width", (g.querySelector("text").getBBox().width + 28).toFixed(0)); } catch {} });
     fit(); window.addEventListener("resize", fit);
 
-    $("#nyc-members").replaceChildren(...data.members.map(([name, , , pop], i) => { const li = document.createElement("li"); li.textContent = name; if (i < 12 || pop > 150_000) li.className = "is-big"; return li; }));
+    // the member chips: the five boroughs, then one "+N more" that unfolds the rest in place
+    const SHOWN = 5;
+    const cloud = $("#nyc-members"), chips = data.members.map(([name, , , pop], i) => { const li = document.createElement("li"); li.textContent = name; if (i < SHOWN) li.className = "is-big"; else li.className = "is-more"; return li; });
+    const hidden = chips.filter((li) => li.className === "is-more").length;
+    cloud.replaceChildren(...chips);
+    if (hidden) {
+      const li = document.createElement("li"), more = document.createElement("button");
+      more.type = "button"; more.className = "member-cloud__more"; more.textContent = `+${fmt(hidden)} more`; more.setAttribute("aria-expanded", "false");
+      more.addEventListener("click", () => { const open = cloud.classList.toggle("is-open"); more.setAttribute("aria-expanded", String(open)); more.textContent = open ? "Show fewer" : `+${fmt(hidden)} more`; });
+      li.append(more); cloud.append(li);
+    }
 
     // stepping
     const steps = $$("#nyc-steps button");
@@ -174,4 +187,41 @@
 
   fetch("/data/demo-nyc.json").then((r) => r.json()).then((data) => { hero(data); walkthrough(data); })
     .catch(() => { const m = $("#nyc-members"); if (m) m.replaceChildren(Object.assign(document.createElement("li"), { textContent: "Couldn't load the map. Refresh to try again." })); });
+
+  /* ---------- tabs: the incentives block and the FAQ (role=tablist; the panels carry hidden until their tab is chosen) ---------- */
+  // Arrow keys move between tabs (Home/End to the ends), the chosen tab is the only Tab stop of its list (WAI-ARIA tabs), and a link
+  // to something inside a panel that is not showing (/#why-launchlab, /#roles) opens that panel first, then lands on the target.
+  const lists = $$('[role="tablist"]').map((list) => {
+    const tabs = $$('[role="tab"]', list);
+    const panelOf = (t) => document.getElementById(t.getAttribute("aria-controls"));
+    const choose = (tab, focus) => {
+      for (const t of tabs) {
+        const on = t === tab, panel = panelOf(t);
+        t.setAttribute("aria-selected", String(on)); t.tabIndex = on ? 0 : -1;
+        if (panel) { const was = !panel.hidden; panel.hidden = !on; panel.classList.toggle("is-shown", on && !was && !reduced); }
+      }
+      if (focus) tab.focus();
+    };
+    tabs.forEach((t, i) => {
+      t.addEventListener("click", () => choose(t, false));
+      t.addEventListener("keydown", (e) => {
+        const n = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : null;
+        if (n === null) return;
+        e.preventDefault(); choose(tabs[(n + tabs.length) % tabs.length], true);
+      });
+    });
+    return { tabs, panelOf, choose };
+  });
+  function openFor(hash) {
+    if (!hash || hash.length < 2) return;
+    let target; try { target = document.getElementById(decodeURIComponent(hash.slice(1))); } catch { return; }
+    if (!target) return;
+    for (const { tabs, panelOf, choose } of lists) {
+      const tab = tabs.find((t) => { const p = panelOf(t); return p && (p === target || p.contains(target)); });
+      if (tab && tab.getAttribute("aria-selected") !== "true") { choose(tab, false); requestAnimationFrame(() => target.scrollIntoView({ behavior: reduced ? "auto" : "smooth" })); }
+    }
+    if (target.tagName === "DETAILS") target.open = true;
+  }
+  openFor(location.hash);
+  window.addEventListener("hashchange", () => openFor(location.hash));
 })();

@@ -20,7 +20,8 @@
     // Always stated in New York time; the line below gives the visitor's own time.
     const ny = { timeZone: "America/New_York" };
     $("#lp-date").textContent = `${d.toLocaleDateString("en-US", { ...ny, month: "long", day: "numeric", year: "numeric" })} · ${d.toLocaleTimeString("en-US", { ...ny, hour: "numeric", minute: "2-digit", second: "2-digit" })} New York time`;
-    $("#lp-local").textContent = ms === 0 ? "The Launchpad is open." : `Opens ${d.toLocaleString(undefined, { dateStyle: "full", timeStyle: "medium" })} (your time).`;
+    // the date is already in the sentence: this is just its translation into the visitor's clock ("Saturday 2:10:10 PM where you are"; the weekday moves with the zone)
+    $("#lp-local").textContent = ms === 0 ? "The Launchpad is open." : `That is ${d.toLocaleString(undefined, { weekday: "long", hour: "numeric", minute: "2-digit", second: "2-digit" })} where you are.`;
   }
   official.then(tick); tick(); setInterval(tick, 1000);
 
@@ -50,8 +51,9 @@
     // snapshot (Merkle root "admin-manual", no holders) must never read as the Founding Supporter list.
     snap = (d.snapshots || []).find((s) => s.status !== "cancelled" && s.merkleRoot !== "admin-manual" && s.holders > 0) || null;
     const st = $("#snap-status"); if (!st) return;
+    const form = $("#snap-form"); if (form) form.hidden = !snap; // nothing to check against until a snapshot is published: the status line says so
     if (snap) st.textContent = `Snapshot #${snap.id} (cutoff ${new Date(snap.cutoff).toUTCString()}): ${snap.status === "active" ? "final" : `challenge period until ${new Date(snap.activatesAt).toLocaleString()}`} · ${fmt(snap.holders)} wallets · Merkle root ${snap.merkleRoot.slice(0, 16)}…`;
-    else st.textContent = d.scheduledCutoff ? `Cutoff scheduled for ${new Date(d.scheduledCutoff).toUTCString()}.` : "The cutoff hasn't been announced yet. It will be, here, well ahead of time.";
+    else st.textContent = d.scheduledCutoff ? `Cutoff scheduled for ${new Date(d.scheduledCutoff).toUTCString()}. The checker appears here once the snapshot is published.` : "The cutoff hasn't been announced yet. It will be, here, well ahead of time; the checker appears once the snapshot is published.";
   })();
   $("#snap-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -618,14 +620,17 @@
   }
   function render() {
     const now = Date.now(), cards = data ? [data.vicinity, ...(data.coins || [])].filter(Boolean) : [];
-    const n = counts(cards, now);
+    // "Live now": the Vicinity token on top, the same card a little larger (on a phone it is the same card); it is then left out of
+    // the list below (it was drawn twice, 9 Oct 2026: once in "Live now" and again as the first card of the Live list) and out of
+    // the tab counts (they said "Live 6" over "5 coins")
+    const vic = data && data.vicinity && isLive(data.vicinity) ? data.vicinity : null;
+    const listed = vic ? cards.filter((c) => c !== vic) : cards;
+    const n = counts(listed, now);
     tabs().forEach((b) => { const on = b.dataset.tab === state.tab; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; const c = b.querySelector("[data-count]"); if (c) c.textContent = String(n[b.dataset.tab] || 0); });
     $("#lp-panel").setAttribute("aria-labelledby", `lp-tab-${state.tab}`);
     $("#lp-tabnote").textContent = TAB_NOTE[state.tab];
-    const rows = rowsFor(cards, { ...state, now, countryNames });
+    const rows = rowsFor(listed, { ...state, now, countryNames });
     const keep = focusKey();
-    // "Live now": the Vicinity token on top, the same card a little larger (on a phone it is the same card)
-    const vic = data && data.vicinity && isLive(data.vicinity) ? data.vicinity : null;
     place($("#lp-featured"), vic ? [vic] : [], now, true);
     $("#lp-featured").classList.toggle("is-on", Boolean(vic));
     place($("#lp-grid"), rows, now, false);

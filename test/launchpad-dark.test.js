@@ -70,7 +70,7 @@ test("flag off: a full run of the job, with launched coins and the token live, r
   await seedCoin(env.DB, { city: 5106834, name: "Albany" });
   const out = await tick(env);
   await tick(env, { sample: false });
-  assert.deepEqual(Object.keys(out), ["sample", "seats", "elections", "moderation", "snapshot", "cleanup"], "the job's answer has no new step");
+  assert.deepEqual(Object.keys(out), ["sample", "seats", "elections", "moderation", "snapshot", "cleanup", "feedback"], "the job's answer has no new Launchpad step (feedback is the switch-less Feedback / Support retention step)");
   assert.ok(env.DB.log.length > 20, "the spy really saw the run");
   assert.ok(!env.DB.log.some((x) => /coin_stats/i.test(x.sql)), "no statement names coin_stats");
   const all = await schemaOf(env.DB);
