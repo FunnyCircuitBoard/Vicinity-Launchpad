@@ -104,3 +104,16 @@
 .wcard--folded .wcard__actions { grid-template-columns: auto 1fr; align-items: center; justify-items: start; }
 .wcard--folded .wcard__actions .btn { width: auto; padding: 10px 16px; font-size: .95rem; }
 .wcard.is-done h2 { color: var(--ok-text); }
+
+/* ---- phones live inside the wallet app (owner decision F4): the wallet card's app chips, "Wasn't you? Remove it", the next-time tip ---- */
+.wcard__apps { margin: 0; }
+/* a wallet-app chip is a full touch target (44 px, like the site's other buttons on a phone) */
+.wcard__apps .chip-link, #proof-apps .chip-link { min-height: 44px; display: inline-flex; align-items: center; }
+.wcard__note { margin: 0; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card); color: var(--text-2); font-size: .92rem; }
+.wcard__tip { margin: 0; color: var(--text-2); font-size: .92rem; line-height: 1.45; }
+.wcard__note .link-btn, .wcard__tip .link-btn { white-space: nowrap; }
+
+/* ---- the wallet app's confirm screen: the warning in large type; a link code's page never flashes the sign-up's hero first ---- */
+.link-in__warn { font-size: 1rem; line-height: 1.45; }
+.link-in__warn strong { color: var(--text); }
+.has-link .connect__intro { display: none; }

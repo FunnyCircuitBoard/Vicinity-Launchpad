@@ -16,8 +16,10 @@ const html = read("dashboard.html"), css = read("onboard.css"), dash = read("das
 test("the dashboard page holds the welcome card, the link card, the two rings, the pass link and the profile row, all hidden markup, nothing inline", () => {
   for (const id of ["welcome", "welcome-title", "welcome-line", "welcome-ring", "welcome-ring-num", "welcome-ring-tick-location", "welcome-ring-tick-account", "welcome-ring-tick-wallet", "welcome-close",
     "pass-ring", "pass-ring-num", "me-link", "wallet-card", "wcard-kicker", "wcard-title", "wcard-lead", "wcard-perks", "wcard-city", "wcard-go", "wcard-other", "wcard-skip", "wcard-wait", "wcard-wait-text", "wcard-tiny",
-    "profile-link", "profile-unlink", "proof-login", "ob-wallet", "ob-wallet-title"]) assert.equal((html.match(new RegExp(`\\bid="${id}"`, "g")) || []).length, 1, id);
-  for (const id of ["welcome", "wallet-card", "pass-ring", "me-link", "profile-link", "profile-unlink", "proof-login", "wcard-wait", "wcard-other"]) {
+    "profile-link", "profile-unlink", "proof-login", "ob-wallet", "ob-wallet-title",
+    "wcard-another", "wcard-apps", "wcard-note", "wcard-note-text", "wcard-remove", "wcard-tip", "wcard-tip-text", "wcard-tip-ok", "proof-app", "proof-app-line", "proof-apps", "out-cta", "out-cta-note"]) assert.equal((html.match(new RegExp(`\\bid="${id}"`, "g")) || []).length, 1, id);
+  for (const id of ["welcome", "wallet-card", "pass-ring", "me-link", "profile-link", "profile-unlink", "proof-login", "wcard-wait", "wcard-other",
+    "wcard-another", "wcard-apps", "wcard-note", "wcard-tip", "proof-app", "proof-app-line", "proof-apps"]) {
     assert.match(html, new RegExp(`<[a-z]+ [^>]*id="${id}"[^>]* hidden>`), `${id} is hidden until a member needs it`);
   }
   assert.doesNotMatch(html, /\sstyle="/); assert.doesNotMatch(html, /\son[a-z]+="/); assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/); assert.doesNotMatch(html, /<style/);
@@ -29,19 +31,20 @@ test("the dashboard page holds the welcome card, the link card, the two rings, t
   assert.doesNotMatch(dash, /innerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function/);
   // the card's words
   assert.match(html, /<p class="kicker" id="wcard-kicker">Complete your profile · 2 of 3<\/p>/);
-  assert.match(html, /<h2 id="wcard-title">Link your wallet<\/h2>/);
+  assert.match(html, /<h2 id="wcard-title">Connect your wallet<\/h2>/);
   assert.match(html, /Free: one signature, not a transaction\. Vicinity never asks for your recovery phrase or private key\./);
   assert.match(html, /<li>Your \$VICINITY balance and your rank among all holders<\/li>/);
   assert.match(html, /<li>The founder path for <span id="wcard-city">your city<\/span> and your city coin<\/li>/);
   assert.match(html, /<li>Badges and holder rewards<\/li>/);
-  assert.match(html, /<a class="btn btn--primary btn--lg" id="wcard-go" href="\/connect\?mode=link">Link my wallet<\/a>/);
+  assert.match(html, /<a class="btn btn--primary btn--lg" id="wcard-go" href="\/connect\?mode=link">Connect wallet<\/a>/);
+  assert.match(html, /<button class="link-btn link-btn--tiny" type="button" id="wcard-remove">Remove it<\/button>/);
   assert.match(html, /<button class="link-btn" type="button" id="wcard-skip">Skip for now<\/button>/);
   assert.match(html, /You can unlink it any time from Profile\./);
   assert.match(html, /<a class="link-btn link-btn--tiny" id="me-link" href="\/connect\?mode=link" hidden>Link<\/a>/);
   assert.match(html, /<button class="btn btn--primary btn--block" type="button" id="proof-login" hidden>Log in again to confirm it's you<\/button>/);
   // the signed-out teaser no longer says the wallet comes first
   assert.doesNotMatch(html, /Connect your wallet to see your live rank/);
-  assert.match(html, /<a class="btn btn--primary btn--lg" href="\/connect">Join or log in →<\/a>/);
+  assert.match(html, /<a class="btn btn--primary btn--lg" href="\/connect" id="out-cta">Join or log in →<\/a>/);
 });
 
 test("onboard.css is loaded by /connect and /dashboard only, and every rule in it is scoped to the new pieces", () => {
@@ -51,7 +54,7 @@ test("onboard.css is loaded by /connect and /dashboard only, and every rule in i
   }
   const rules = css.split("\n").filter((l) => /^\.[a-z]/.test(l));
   assert.ok(rules.length > 30);
-  for (const l of rules) assert.match(l, /^\.(su-later|su-alt|su-why|link-top|link-skip|link-in|no-account|welcome|ring|wcard|stepper--two|alt-ways|more-wallets--inner|cstate\[data-state="su-account"\])/, l.slice(0, 60));
+  for (const l of rules) assert.match(l, /^\.(su-later|su-alt|su-why|link-top|link-skip|link-in|no-account|welcome|ring|wcard|stepper--two|alt-ways|more-wallets--inner|has-link|cstate\[data-state="su-account"\])/, l.slice(0, 60));
   for (const sel of [".wcard", ".wcard--folded", ".wcard.is-done", ".ring", ".ring--sm", ".ring--pass", ".ring-row", ".welcome", ".welcome__ring", ".welcome__close"]) assert.ok(css.includes(sel + " "), `${sel} is styled`);
   // colours come from the site's tokens (the light theme follows by itself); no hard-coded text colour on the card
   const wcard = css.slice(css.indexOf("\n.wcard {")); // the card's own block (the row-span rule above names .wcard too)
@@ -77,8 +80,10 @@ test("a member without a wallet: the link card, the pass says No wallet linked �
   assert.equal(card.hidden, false);
   assert.equal(p.text("#wcard-kicker"), "Complete your profile · 2 of 3");
   assert.equal(p.text("#wcard-city"), "Utica");
-  assert.equal(p.text("#wcard-go"), "Link my wallet"); assert.equal(p.$("#wcard-go").getAttribute("href"), "/connect?mode=link");
+  assert.equal(p.text("#wcard-go"), "Connect wallet"); assert.equal(p.$("#wcard-go").getAttribute("href"), "/connect?mode=link");
+  assert.equal(p.text("#wcard-title"), "Connect your wallet");
   assert.equal(p.$("#wcard-other").hidden, true); assert.equal(p.$("#wcard-wait").hidden, true, "nothing is waited for");
+  for (const id of ["#wcard-note", "#wcard-tip", "#wcard-apps", "#wcard-another"]) assert.equal(p.$(id).hidden, true, id);
   assert.equal(card.classList.contains("wcard--folded"), false);
   // the pass
   assert.equal(p.$("[data-me-wallet]").textContent, "No wallet linked"); assert.equal(p.$("#pass .pass__bottom [data-me-wallet]").classList.contains("mono"), false);
@@ -204,7 +209,7 @@ test("a link started in this tab: the card says it is waiting for the wallet app
   wallet = ADDR;
   const meBefore = p.callsTo("/api/me").filter((c) => c.path === "/api/me").length;
   await p.advance(4000);
-  assert.ok(p.toasts.includes("Wallet linked ✓"), JSON.stringify(p.toasts));
+  assert.ok(p.toasts.includes("Wallet 7Np4…T4K2 linked ✓"), JSON.stringify(p.toasts));
   assert.equal(p.session.has("vl-started"), false, "the start note is spent");
   assert.ok(p.callsTo("/api/me").filter((c) => c.path === "/api/me").length > meBefore, "everything is drawn again from /api/me");
   const card = p.$("#wallet-card");
@@ -237,7 +242,7 @@ test("Skip for now folds the card to one line for this viewer (localStorage), th
   const card = p.$("#wallet-card");
   assert.equal(card.hidden, false); assert.ok(card.classList.contains("wcard--folded"));
   assert.equal(p.$("#wcard-perks").hidden, true); assert.equal(p.$("#wcard-skip").hidden, true); assert.equal(p.$("#wcard-tiny").hidden, true);
-  assert.equal(p.text("#wcard-kicker"), "Your profile · 2 of 3"); assert.equal(p.text("#wcard-go"), "Link my wallet");
+  assert.equal(p.text("#wcard-kicker"), "Your profile · 2 of 3"); assert.equal(p.text("#wcard-go"), "Connect wallet");
   assert.equal(p.local.get("vicinity:wcard-skip"), "1");
   assert.equal(p.$("#me-link").hidden, false); assert.equal(p.$("[data-me-wallet]").textContent, "No wallet linked");
   assert.ok(p.toasts.some((t) => /Link is on your pass/.test(t)));
@@ -254,12 +259,16 @@ test("/dashboard?linked=1 (back from /connect's link mode): the card stays as Pr
   assert.equal(p.$("#welcome").hidden, true);
 });
 
-test("a phone's Safari (no wallet in the browser): the button names the wallet app chosen before and opens it from /connect; else 'your wallet app'", async () => {
-  const p = await openDashboard({ ua: UA.iphone, me: memberMe(), session: { "su-carry": "Phantom" } });
-  assert.equal(p.text("#wcard-go"), "Link with Phantom"); assert.equal(p.$("#wcard-go").getAttribute("href"), "/connect?mode=link&app=phantom");
+test("a phone's Safari (no wallet in the browser): 'Connect Phantom' for the wallet app this phone uses (localStorage vicinity.walletApp) and opens it from /connect; else 'Connect wallet'", async () => {
+  const p = await openDashboard({ ua: UA.iphone, me: memberMe(), storage: { "vicinity.walletApp": "phantom" } });
+  assert.equal(p.text("#wcard-go"), "Connect Phantom"); assert.equal(p.$("#wcard-go").getAttribute("href"), "/connect?mode=link&app=phantom");
+  assert.equal(p.text("#wcard-lead"), "Phantom opens. Approve once, and you stay there, logged in.");
   assert.equal(p.$("#wcard-other").hidden, false); assert.equal(p.text("#wcard-other"), "Other wallet apps"); assert.equal(p.$("#wcard-other").getAttribute("href"), "/connect?mode=link");
   const q = await openDashboard({ ua: UA.iphone, me: memberMe() });
-  assert.equal(q.text("#wcard-go"), "Link with your wallet app"); assert.equal(q.$("#wcard-go").getAttribute("href"), "/connect?mode=link"); assert.equal(q.$("#wcard-other").hidden, true);
+  assert.equal(q.text("#wcard-go"), "Connect wallet"); assert.equal(q.$("#wcard-go").getAttribute("href"), "/connect?mode=link"); assert.equal(q.$("#wcard-other").hidden, true);
+  assert.equal(q.text("#wcard-lead"), "Your wallet app opens. Approve once, and you stay there, logged in.");
+  const r = await openDashboard({ ua: UA.iphone, me: memberMe(), storage: { "vicinity.walletApp": "<script>" } });
+  assert.equal(r.text("#wcard-go"), "Connect wallet", "only a known wallet app is remembered");
 });
 
 test("the Profile tab: No wallet linked · Link without a wallet; the masked address with Copy and Unlink with one; Unlink asks, needs the server's yes, and refuses plainly", async () => {

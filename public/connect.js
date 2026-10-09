@@ -97,10 +97,14 @@
     }
     const a = el("a", "wallet-option");
     a.append(W.mark(k.name), el("span", null, k.name));
-    if (W.isMobile && k.open) { a.href = k.open(target); a.append(el("span", "go", "Open app")); }
-    else { a.href = k.site; a.target = "_blank"; a.rel = "noopener"; a.append(el("span", "go", "Get")); }
+    if (W.isMobile && k.open) {
+      a.href = k.open(typeof target === "function" ? target(k) : target); a.append(el("span", "go", "Open app"));
+      a.addEventListener("click", () => window.V.walletApp.remember(k.id)); // the app this person uses on this phone (the Buy panel lists it first)
+    } else { a.href = k.site; a.target = "_blank"; a.rel = "noopener"; a.append(el("span", "go", "Get")); }
     return a;
   }
+  /** Inside a known wallet app's own browser (not Instagram's): one tap on a wallet connects AND asks for the signature (the sign-up v2 only). */
+  const quickHere = () => Boolean(signup && window.V.walletApp.here());
   /** The "Already a member? Log in" block: Google or e-mail. Google can't run inside wallet apps. */
   function renderLogin() {
     if (signup) return; // v2 draws its own Log in block
@@ -115,7 +119,7 @@
   function renderPick() {
     renderLogin();
     const list = W.list();
-    $("#wallets-detected").replaceChildren(...list.map((a) => walletButton(a, connectWith)));
+    $("#wallets-detected").replaceChildren(...list.map((a) => walletButton(a, (ad, b) => connectWith(ad, b, quickHere()))));
     $("#wallets-none").hidden = list.length > 0;
     const rest = W.KNOWN.filter((k) => !list.some((a) => k.match.test(a.name)));
     // a phone (the new sign-up): the wallet apps that can open this page come first; the ones still to install wait behind a second
@@ -124,7 +128,9 @@
     const order = split ? rest.filter((k) => k.open) : W.isMobile ? rest.filter((k) => k.open).concat(rest.filter((k) => !k.open)) : rest;
     const others = split ? rest.filter((k) => !k.open) : [];
     const carry = signup ? signup.carrier() : null;
-    $("#wallets-known").replaceChildren(...order.map((k) => knownTile(k, location.origin + "/connect", carry)));
+    // the Log in tab on a phone (the sign-up v2): a wallet app opens Vicinity signed in already, or signs in with ONE tap there
+    const target = signup && !signup.linkMode() ? (k) => `${location.origin}/connect?mode=login&with=${k.id}` : location.origin + "/connect";
+    $("#wallets-known").replaceChildren(...order.map((k) => knownTile(k, target, carry)));
     const more = $("#wallets-more");
     if (more) { more.hidden = !others.length; $("#wallets-rest").replaceChildren(...others.map((k) => knownTile(k, location.origin + "/connect", null))); }
     $("#wallets-known").classList.toggle("wallet-grid--apps", Boolean(W.isMobile && !list.length)); // a phone's only way on: full rows that say "Open app"
@@ -163,7 +169,8 @@
     if (t) t.textContent = on ? "Waiting…" : "Detected";
   };
 
-  async function connectWith(adapter, tile) {
+  /** `quick` (inside a known wallet app): the signature is asked for right after the connection, without the "Sign in" tap; on a computer the sign screen waits for it. */
+  async function connectWith(adapter, tile, quick = false) {
     if (tile && tile.getAttribute("aria-busy") === "true" && Date.now() - Number(tile.dataset.at || 0) < 1500) return; // a double tap
     forget(); setErr("");
     const my = attempt, name = nameOf(adapter), near = $("#wallets-detected");
@@ -181,11 +188,14 @@
       $("#c-addr").textContent = short(address);
       $("#c-wallet").textContent = adapter.name;
       show("sign");
-      await loadMessage();
+      const onSign = attempt, scr = screenGen; // (show() moved the attempt on: a newer tap or another screen counts from here)
+      const ready = await loadMessage();
+      if (quick && ready && onSign === attempt && scr === screenGen) $("#c-sign").click(); // any failure leaves today's Sign in button there
     } catch (e) {
       if (my !== attempt) return;
       forget(); busyTile(tile, false);
       setErr(cancelled(e) ? "Connection cancelled in your wallet." : `Couldn't connect to ${name}. Please try again.`, near);
+      if (signup) signup.walletFailed();
     }
   }
 
@@ -214,6 +224,7 @@
       if (!isCurrent()) throw Object.assign(new Error("moved on"), { stale: true });
       const body = { address: addr, message: msg, signature: btoa(String.fromCharCode(...sig)) };
       if (pair) body.pair = pair;
+      else if (W.inWalletApp()) body.inApp = true; // a wallet app's own browser on a phone: its session is renewed while used (src/auth.js renewSession); a computer's is not
       const d = await api("/api/auth/wallet", body);
       if (!d.ok && signup && signup.handles(d.error)) return d; // no account for this wallet, a wallet already linked...: the sign-up page says what to do
       // (pairing: "where you started" is a computer, or Safari / Chrome on this same phone)
@@ -256,6 +267,7 @@
       forget();
       setErr(signError(err, name), btn);
       loadMessage();
+      if (signup) signup.walletFailed();
     }
   });
 
@@ -424,7 +436,8 @@
     $("#pair-why").textContent = why || ""; $("#pair-why").hidden = !why;
     $("#pair-qr").hidden = phone; $("#pair-howto").hidden = phone;
     $("#pair-howto-phone").hidden = !phone; $("#pair-apps").hidden = !phone;
-    $("#pair-apps").replaceChildren(...(phone ? W.KNOWN.filter((k) => k.open).map((k) => knownTile(k, url)) : []));
+    // (on=phone: the wallet app that approves knows the person goes back to Safari or Chrome on this phone, not to a computer)
+    $("#pair-apps").replaceChildren(...(phone ? W.KNOWN.filter((k) => k.open).map((k) => knownTile(k, `${url}&on=phone`)) : []));
     if (!phone) drawQR($("#qr"), url);
     const status = $("#pair-status");
     const dot = el("span", "live-dot"); dot.setAttribute("aria-hidden", "true");
@@ -517,10 +530,14 @@
       $("#approve-owner").textContent = `@${s.handle || "•••"}`;
       $("#approve-city").textContent = s.community ? `📍 ${s.community.name}, ${s.community.country}` : ""; $("#approve-city").hidden = !s.community;
       $("#approve-who").hidden = false;
-      $("#approve-ask").replaceChildren("Does Safari (or your computer), where you started, show check number ", $("#approve-pin"), "?");
+      // where the person started: Safari or Chrome on this phone (the link said on=phone), or a computer / tablet (its QR code)
+      const onPhone = params.get("on") === "phone", k = window.V.walletApp.here();
+      $("#approve-ask").replaceChildren(onPhone ? "Does Safari or Chrome, where you started, show check number " : "Does your computer (or tablet), where you started, show check number ", $("#approve-pin"), "?");
       $("#approve-warn").textContent = "Only continue if you started this yourself. Never sign for a code someone sent you.";
       $("#approve-terms").hidden = false;
-      $("#approve-done-text").replaceChildren(el("strong", null, "Approved."), " Go back to where you started: your dashboard finishes the link, or says why it can't.");
+      $("#approve-done-text").replaceChildren(el("strong", null, "Approved."), onPhone
+        ? ` Go back to Safari or Chrome. It finishes the link, then tap “Open ${k ? k.name : "your wallet app"}” there to come back and sign in here.`
+        : " Go back to your computer (or tablet): it finishes the link by itself.");
     }
     renderApprove();
   }
@@ -598,7 +615,8 @@
     let loaded = false;
     try {
       await loadScript("/signup.js");
-      signup = window.VSignup.start({ panel, params, show, setErr, renderPick, drawQR, showProof: (proof) => { show("app"); showCode(proof); } });
+      signup = window.VSignup.start({ panel, params, show, setErr, renderPick, drawQR, showProof: (proof) => { show("app"); showCode(proof); },
+        quickSignIn: (a, b) => connectWith(a, b, true) });
       loaded = await signup.init(me, err, { carry: carryCode, link: linkCode });
     } catch {
       signup = null; show("loading"); gateNow(); // (a pairing kept by this tab stays kept: the reload picks it up)
@@ -626,6 +644,12 @@
     if (params.get("mode") === "login" || hasAccount()) welcomeBack();
     // the new sign-up: a link code (the wallet app's browser), or a member whose account has no wallet yet (the link mode, whatever the address said)
     if (me.signupFlow === "v2" && (linkCode !== null || (me.signedIn && me.user && !me.user.wallet))) return startV2(me, err);
+    if (me.signedIn && params.has("with")) { // "Connect Phantom" opened a wallet app that is signed in already: straight to the dashboard
+      forgetPair(); if (window.V.termsGate) window.V.termsGate.agreed(me.termsVersion || "");
+      // (&next=: the page the person was on in Safari, "/dashboard#profile" for "confirm it's you": only a tab of our own dashboard)
+      const next = params.get("next");
+      location.replace(/^\/dashboard#[a-z][a-z0-9-]{0,24}$/.test(String(next)) ? next : "/dashboard"); return;
+    }
     if (me.signedIn) { forgetPair(); gateNow(); show("done"); setTimeout(() => location.assign("/dashboard"), 900); return; }
     if (me.signupFlow === "v2") return startV2(me, err);
     gateNow();

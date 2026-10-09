@@ -7,7 +7,8 @@
  *   POST /api/home        → set your home community from a location attestation (never the location)
  */
 import { json, readJson } from "./http.js";
-import { cleanEmail, consumeEmailCode, getSession, isFresh, providers, validEmail } from "./auth.js";
+import { cleanEmail, consumeEmailCode, getSession, isFresh, providers, renewSession, validEmail } from "./auth.js";
+import { linkLocked, linkWindow, lockedAnswer, mayDisown, ownerCould, ownerFresh } from "./walletlink.js";
 import { access } from "./access.js";
 import { countRecent, noteEvent, useAttestation } from "./attest.js";
 import { activeMint } from "./official.js";
@@ -211,11 +212,21 @@ export async function handleMe(request, env, fetchImpl = fetch, now = Date.now()
     catch (e) { console.error("profile tables unavailable", String((e && e.message) || e).slice(0, 80)); }
   }
   const myFlag = pf && !ready ? v2Flag : flag;
-  const base = v2 ? { ...publicUser(s.user), hasPassword: Boolean(s.user.password_hash) } : publicUser(s.user);
+  // v2 also says which wallet app the wallet was linked in ("phantom": the dashboard names it) and the Terms version the account agreed
+  // to (a wallet app's browser whose storage was wiped records it instead of showing the gate again)
+  const base = v2 ? { ...publicUser(s.user), hasPassword: Boolean(s.user.password_hash), walletApp: s.user.wallet_app || null } : publicUser(s.user);
   const user = ready ? { ...base, bio: s.user.bio || "" } : base;
-  if (new URL(request.url).searchParams.get("lite") === "1") return json({ signedIn: true, user, providers: prov, fresh: isFresh(s, now), ...myFlag });
+  const terms = v2 ? { termsVersion: s.user.terms_version || null } : {};
+  // a session a wallet made is renewed while it is used (src/auth.js renewSession): the wallet app's browser stays signed in
+  const renewed = v2 ? await renewSession(env, request, s, now) : null;
+  const headers = renewed ? { "Set-Cookie": renewed } : {};
+  if (new URL(request.url).searchParams.get("lite") === "1") return json({ signedIn: true, user, providers: prov, fresh: isFresh(s, now), ...myFlag, ...terms }, 200, headers);
   const counts = ready ? { counts: await countsOf(env.DB, s.user.id, now) } : {};
-  return json({ signedIn: true, user, providers: prov, ...myFlag, ...counts, ...(await liveStatus(env, s, fetchImpl, now)) });
+  // the 7 days after a wallet joined from ANOTHER browser (a wallet app, a pairing): when, in which app, and whether THIS browser may say
+  // "that wasn't me" (src/walletlink.js handleDisown). The wallet itself only masked.
+  const u = s.user;
+  const wnew = v2 && linkWindow(u, now) ? { walletNew: { wallet: `${u.wallet.slice(0, 4)}…${u.wallet.slice(-4)}`, via: u.wallet_via, app: u.wallet_app || null, at: u.wallet_at, notMe: mayDisown(s, u) } } : {};
+  return json({ signedIn: true, user, providers: prov, ...myFlag, ...terms, ...counts, ...wnew, ...(await liveStatus(env, s, fetchImpl, now)) }, 200, headers);
 }
 
 /**
@@ -277,11 +288,15 @@ export const reservedUsername = (s) => {
  * POST /api/me/username { username } → change the public username.
  * First come, first served: it must not match any existing username (any casing), nor look like one
  * (I / l / 1, O / 0, underscores), nor pass for the project or its staff. At most 3 changes a day.
- * Needs a fresh wallet proof, like other identity changes.
+ * Needs a fresh wallet proof, like other identity changes. In the 7 days after a wallet joined from another app: never from the sessions
+ * that wallet made (link_new), and an older browser of the account may instead have logged in within 30 minutes (src/walletlink.js
+ * ownerFresh); its "reprove" then says relogin: true (the page offers "Log in again" rather than the wallet app, which would refuse).
  */
 export async function handleUsername(request, env, now = Date.now()) {
-  const a = await access(request, env, now, { fresh: true });
+  const a = await access(request, env, now);
   if (a.error) return a.error;
+  if (linkLocked(a.s, now)) return lockedAnswer(a.u); // the 7 days after a link from another app: not from that wallet's sessions
+  if (!isFresh(a.s, now) && !ownerFresh(a.s, now)) return json({ ok: false, error: "reprove", ...(ownerCould(a.s, now) ? { relogin: true } : {}) }, 403);
   const body = await readJson(request);
   const username = typeof body?.username === "string" ? body.username.trim() : "";
   if (!validUsername(username)) return json({ ok: false, error: "bad_username" }, 400);
@@ -316,6 +331,7 @@ export async function handleUsername(request, env, now = Date.now()) {
 export async function handleContactEmailVerify(request, env, now = Date.now()) {
   const a = await access(request, env, now);
   if (a.error) return a.error;
+  if (linkLocked(a.s, now)) return lockedAnswer(a.u); // the 7 days after a link from another app: not from that wallet's sessions
   const body = await readJson(request);
   const email = cleanEmail(body && body.email);
   const code = String((body && body.code) || "").replace(/\D/g, "").slice(0, 6);
@@ -333,6 +349,7 @@ export async function handleContactEmailVerify(request, env, now = Date.now()) {
 export async function handleContactEmailRemove(request, env, now = Date.now()) {
   const a = await access(request, env, now);
   if (a.error) return a.error;
+  if (linkLocked(a.s, now)) return lockedAnswer(a.u);
   await env.DB.prepare("UPDATE users SET contact_email = NULL WHERE id = ?").bind(a.u.id).run();
   return json({ ok: true, email: null });
 }
@@ -361,11 +378,14 @@ export async function handlePhone(request, env, now = Date.now()) {
 /**
  * POST /api/home { attestation, choice? }
  * Inside a community → that's home. In empty land → pick one of the three nearest (send `choice`).
- * Locked for a week after setting it, and while you hold or are applying for a founder seat.
+ * Locked for a week after setting it, and while you hold or are applying for a founder seat. In the 7 days after a wallet joined from
+ * another app, not from the sessions that wallet made (link_new): a stranger with a forwarded link could otherwise move the owner's home
+ * (which also resets the owner's week and their "home for 7 days" vote rule), and "Remove it" does not move it back.
  */
 export async function handleHome(request, env, now = Date.now()) {
   const a = await access(request, env, now);
   if (a.error) return a.error;
+  if (linkLocked(a.s, now)) return lockedAnswer(a.u);
   const u = a.u, db = env.DB;
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);

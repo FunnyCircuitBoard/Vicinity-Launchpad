@@ -209,7 +209,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   // the dashboard's wallet link (onboarding v3): the same rule
   if (path.startsWith("/api/me/wallet/")) {
     if (!v2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
-    return routeWalletLink(request, env);
+    return routeWalletLink(request, env, Date.now(), request.cf, ctx, fetchImpl); // ctx: the link e-mail goes out after the answer
   }
 
   // member profiles: with the switch off they are simply not there either (before any method check, so nothing can be probed)
@@ -447,7 +447,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (method === "POST") return (await publicLimit(env, request, "pair")) || handlePairStart(request, env);
       return only("GET") || handlePairStatus(request, env);
     case "/api/pair/finish":
-      return only("POST") || handlePairFinish(request, env);
+      return only("POST") || handlePairFinish(request, env, Date.now(), ctx, fetchImpl);
 
     // dashboard
     case "/api/me":

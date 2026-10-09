@@ -29,6 +29,10 @@
  *     session of that person ends and their attempt counters are cleared.
  *   - A stolen session changing the password. /api/me/password needs the current password or a fresh wallet proof; setting a first
  *     password needs the wallet proof (the e-mail account that was made with a code has none). Other sessions end.
+ *   - A stranger's wallet, linked with a forwarded "Connect wallet" link, setting a password to lock the owner out. For 7 days after a
+ *     link from another app, the sessions that wallet made may set a password only with the current one (src/walletlink.js
+ *     linkLocked: 403 link_new), and every password records when it was set (users.password_at): the owner's "Remove it" clears a
+ *     password set since the link.
  * A password never proves the wallet: a session made by a password has no wallet proof (proven_at NULL), so anything sensitive
  * still asks the wallet to sign. Nothing here logs an address, a password, a code or a hash, and none is ever in an answer.
  */
@@ -40,6 +44,8 @@ import { check, clientKey, limitKey, refund } from "./limits.js";
 import { PASSWORD_MAX, checkPassword, hashPassword, verifyPassword } from "./password.js";
 import { HOUR, iso } from "./policy.js";
 import { asText, endSignup } from "./signup-core.js";
+import { ensureOnboardSchema } from "./store.js";
+import { linkLocked, lockedAnswer } from "./walletlink.js";
 
 const WINDOW = 15 * 60_000;     // attempt counters: fixed 15-minute windows
 const MAX = {
@@ -188,13 +194,14 @@ export async function handleReset(request, env, x) {
   if (!user) return json({ ok: false, error: "no_account" }, 404);
 
   const hash = await hashPassword(env, body.password);
+  await ensureOnboardSchema(env.DB); // users.password_at
   const session = await newSessionStatement(env, user, now);
   const loginAddress = await limitKey(env, "pwa", email);
   // One transaction: the new password, every old session gone, one new session, and the attempt counters of this address
   // cleared (both kinds, every connection: the person gets the password route back). A password change that did not end
   // the other sessions, or sessions ended without the new password, can not happen.
   await env.DB.batch([
-    env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(hash, user.id),
+    env.DB.prepare("UPDATE users SET password_hash = ?, password_at = ? WHERE id = ?").bind(hash, iso(now), user.id),
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id),
     session.statement,
     env.DB.prepare(`DELETE FROM auth_limits WHERE key = ?1 OR key = ?2 OR substr(key, 1, length(?3)) = ?3 OR substr(key, 1, length(?4)) = ?4`)
@@ -203,6 +210,18 @@ export async function handleReset(request, env, x) {
   await dropCurrent(env, request); // a wallet that was proven here while signing up, or a session of someone else in this browser
   return json({ ok: true, next: "/dashboard" }, 200, { "Set-Cookie": [session.cookie, ...(await endSignup(env, request))] });
 }
+
+/* ---------------- "Wasn't you? Remove it" (src/walletlink.js handleDisown) ---------------- */
+
+/** Was the account's password set at or after `since` (an ISO time: when a wallet joined from another app)? */
+export const passwordSetSince = (u, since) => Boolean(u && u.password_hash && u.password_at && u.password_at >= since);
+/**
+ * The statement that clears a password set at or after `since`, for the owner's "Remove it" batch: a stranger who linked their wallet
+ * could have set it (the lock makes that need the current password, this is the second wall). Only while the account still has `wallet`
+ * from that very link (?2, ?3), so a batch that lost a race changes nothing. The owner logs in with Google, the e-mail code or a reset.
+ */
+export const clearPasswordSince = (db, userId, wallet, since) => db.prepare(`UPDATE users SET password_hash = NULL, password_at = NULL
+    WHERE id = ?1 AND wallet = ?2 AND wallet_at = ?3 AND password_at IS NOT NULL AND password_at >= ?3`).bind(userId, wallet, since);
 
 /* ---------------- change it, or set the first one ---------------- */
 
@@ -225,6 +244,7 @@ export async function handleSetPassword(request, env, x) {
   const typed = body.current == null || body.current === "" ? null : body.current;
   if (typed !== null && typeof typed !== "string") return badCredentials();
   const useCurrent = Boolean(u.password_hash) && typed !== null;
+  if (!useCurrent && linkLocked(s, now)) return lockedAnswer(u); // the wallet a link from another app brought in: only with the current password
   if (!useCurrent && !(u.password_hash ? isProven(s, now) : isFresh(s, now))) return json({ ok: false, error: "reprove" }, 403);
 
   const keys = [await limitKey(env, "pwu", String(u.id)), await limitKey(env, "pwi", clientKey(request))];
@@ -233,8 +253,9 @@ export async function handleSetPassword(request, env, x) {
 
   if (useCurrent && !(await verifyPassword(env, u.password_hash, typed)).ok) return badCredentials();
   const hash = await hashPassword(env, body.password);
+  await ensureOnboardSchema(env.DB); // users.password_at
   await env.DB.batch([
-    env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(hash, u.id),
+    env.DB.prepare("UPDATE users SET password_hash = ?, password_at = ? WHERE id = ?").bind(hash, iso(now), u.id),
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND id != ?").bind(u.id, s.id),
   ]);
   await refund(env, keys);

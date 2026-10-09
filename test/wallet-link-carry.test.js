@@ -1,6 +1,8 @@
 // The "Open app" link on a phone (src/walletlink.js, the carry): Safari / Chrome, signed in to an account without a wallet, makes a
 // one-time code that opens the link inside the wallet app's browser; that browser shows whose account it is, the person signs the
 // link statement there, the account has the wallet, Safari's dashboard sees it, and the wallet app's browser is signed in too.
+// Since 10 Oct 2026 (the owner's "phones live inside the wallet app") the FIRST browser that opens a code is its only opener: only it
+// gets the statement and may claim (test/wallet-link-relay.test.js has the relay codes, the opener race and "here").
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { V2, advance, browser, linkBody, loginBody, realClock, useClock, wallet } from "./helpers/world.js";
@@ -45,16 +47,28 @@ test("the whole way: Safari makes the code, the wallet app's browser sees whose 
   assert.ok(!row.id.includes(made.code) && row.id.length >= 40 && made.ref === row.id.slice(0, 12), "only a hash of the code is kept");
   assert.ok(!row.net.includes(PHONE.ip), "the connection is kept as a salted hash, never the address");
 
-  // the wallet app's browser: own cookies, no session, same phone
+  // the wallet app's browser: own cookies, no session, same phone. The first browser that opens the code becomes its opener.
   const app = browser(env, PHONE);
   const seen = await info(app, made.code);
   const shown = await seen.json();
   assert.equal(seen.status, 200);
-  assert.deepEqual(shown, { ok: true, pin: made.pin, owner: { name: `${m.u.name.slice(0, 2)}•••`, handle: `${m.u.handle.slice(0, 2)}•••`, initial: m.u.name[0] }, community: { name: "Utica", country: "US" }, terms: "2026-10-01", expiresAt: made.expiresAt });
-  assert.ok(!JSON.stringify(shown).includes(m.u.handle) && !JSON.stringify(shown).includes(m.w.address), "masked, and no address anywhere");
+  assert.match(shown.opener, /^[A-Za-z0-9_-]{32}$/, "the opener nonce, for a wallet browser that drops cookies");
+  assert.deepEqual(shown, { ok: true, pin: made.pin, owner: { name: `${m.u.name.slice(0, 2)}•••`, handle: m.u.handle, initial: m.u.name[0] }, community: { name: "Utica", country: "US" }, terms: "2026-10-01", expiresAt: made.expiresAt,
+    relay: false, here: null, opener: shown.opener });
+  // (MOVED, owner decision F4: the @username is shown in full on the confirm screen, as the signed statement names it; it reaches ONLY
+  // the opener, which is the one browser that can get that statement anyway: a second browser gets nothing, below)
+  assert.ok(!JSON.stringify(shown).includes(m.u.name) && !JSON.stringify(shown).includes(m.w.address), "the name masked, and no address anywhere");
+  const vlo = seen.headers.getSetCookie().find((c) => c.startsWith("__Host-vlo="));
+  assert.match(vlo, /^__Host-vlo=[A-Za-z0-9_-]{32}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=600$/, "HttpOnly, Secure, host-only (no Domain)");
+  assert.equal(vlo.split(";")[0].slice(11), shown.opener);
+  const row1 = await one(env.DB, "SELECT opener, result FROM handoffs");
+  assert.ok(row1.opener && !row1.opener.includes(shown.opener), "only a hash of the opener nonce is kept");
+  assert.equal(row1.result, "opened");
   assert.deepEqual(await status(m.b, made.ref), { ok: true, status: "opened" }, "Safari knows the link was opened");
-  assert.equal(((await info(app, made.code)).status), 200, "looking twice is fine: nothing was used");
-  // the statement the app signs names the owner (the server gives it to the code holder, no cookie needed)
+  assert.equal(((await info(app, made.code)).status), 200, "looking twice from the same browser is fine: nothing was used");
+  // (TIGHTENED: the statement used to go to anyone on the connection; now only to the opener) a second browser on the very same
+  // connection gets nothing (statement and claim refused), and its try kills the code: it is tested on its own in wallet-link-relay
+  // the statement the app signs names the owner (the server gives it to the opener: its cookie)
   const msg = parseMessage((await app.get(`/api/message?address=${m.w.address}&action=link&code=${made.code}`)).message);
   assert.equal(msg.statement, statementFor("link", { handle: m.u.handle }));
   const message = buildMessage({ ...msg, issuedAt: new Date(Date.now()).toISOString() }); // (rebuilt on the test clock: /api/message dates it with the real one)
@@ -62,6 +76,9 @@ test("the whole way: Safari makes the code, the wallet app's browser sees whose 
   const body = await r.json();
   assert.deepEqual([r.status, body], [200, { ok: true, wallet: m.w.address, next: "/dashboard?linked=1" }]);
   assert.match(r.headers.getSetCookie().find((c) => c.startsWith("vs=")), /^vs=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000$/, "the wallet app's browser is signed in for 30 days");
+  assert.ok(r.headers.getSetCookie().includes("__Host-vlo=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0"), "the opener cookie is cleared");
+  const how = await one(env.DB, "SELECT wallet_at, wallet_via, wallet_app FROM users WHERE id = ?", m.u.id);
+  assert.deepEqual(how, { wallet_at: new Date(Date.now()).toISOString(), wallet_via: "app", wallet_app: null }, "when and how (no app named in this claim)");
   // the account has the wallet; Safari's session carries it (no proof there), the app's session is proven
   assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", m.u.id)).wallet, m.w.address);
   const ss = await rows(env.DB, "SELECT wallet, proven_at FROM sessions WHERE user_id = ? ORDER BY created_at", m.u.id);
@@ -76,7 +93,7 @@ test("the whole way: Safari makes the code, the wallet app's browser sees whose 
   assert.equal(await count("sessions WHERE user_id IS NULL"), 0);
 });
 
-test("only a signed-in member without a wallet gets a code; behind a relay there is none (carry_relay); a new code replaces the old one", async () => {
+test("only a signed-in member without a wallet gets a code; behind a relay only a RELAY code, for an app-link wallet with a known country (else carry_relay); a new code replaces the old one", async () => {
   assert.equal((await carry(browser(env, PHONE))).status, 401);
   const m = await safariMember();
   const r = await (await carry(m.b)).json();
@@ -87,9 +104,23 @@ test("only a signed-in member without a wallet gets a code; behind a relay there
   assert.equal(await count("handoffs"), 1, "one live code per person");
   assert.equal((await info(browser(env, PHONE), r.code)).status, 410, "the replaced code is dead");
   assert.equal((await m.b.send("/api/me/wallet/carry/status?ref=nope")).status, 400);
+  // MOVED (owner decision F4, 10 Oct 2026): behind a relay (iCloud Private Relay, WARP) there used to be no code at all; now there is a
+  // RELAY code (first opener + the same country + opened within 2 minutes: test/wallet-link-relay.test.js), only for a wallet app with a
+  // real app link and a known country. Every other relay case still answers carry_relay (the page pairs, as before).
   const relay = await safariMember(RELAY, { sub: "g-relay" });
-  const no = await carry(relay.b);
-  assert.deepEqual([no.status, (await no.json()).error], [409, "carry_relay"]);
+  for (const body of [{}, { app: "okx" }, { app: "nope" }]) {
+    const no = await relay.b.send("/api/me/wallet/carry", { method: "POST", body });
+    assert.deepEqual([no.status, (await no.json()).error], [409, "carry_relay"], JSON.stringify(body));
+  }
+  for (const country of ["XX", "T1", undefined, ""]) {
+    const no = await relay.b.send("/api/me/wallet/carry", { method: "POST", body: { app: "phantom" }, cf: { ...RELAY.cf, country } });
+    assert.deepEqual([no.status, (await no.json()).error], [409, "carry_relay"], `country ${country}`);
+  }
+  const vps = await relay.b.send("/api/me/wallet/carry", { method: "POST", body: { app: "phantom" }, cf: { ...RELAY.cf, asn: 63949, asOrganization: "Akamai Connected Cloud" } });
+  assert.deepEqual([vps.status, (await vps.json()).error], [409, "carry_relay"], "a cloud server named Akamai is no relay for this: no unbound code from it");
+  const yes = await (await relay.b.send("/api/me/wallet/carry", { method: "POST", body: { app: "phantom" } })).json();
+  assert.deepEqual([yes.ok, yes.relay, yes.openBy], [true, true, new Date(Date.now() + 2 * 60_000).toISOString()]);
+  assert.deepEqual(await one(env.DB, "SELECT net, country FROM handoffs WHERE user_id = ?", relay.u.id), { net: "relay", country: "US" });
   await linkDirect(env, m);
   const has = await carry(m.b);
   assert.deepEqual([has.status, (await has.json()).error], [409, "has_wallet"]);
@@ -102,8 +133,10 @@ test("the code works only from the connection that made it (the same IPv4 addres
   const elsewhere = browser(env, ELSEWHERE);
   assert.deepEqual([(await info(elsewhere, made.code)).status, (await (await info(elsewhere, made.code)).json()).error], [403, "carry_network"]);
   assert.deepEqual([(await claim(elsewhere, made.code, m.w, m.u.handle)).status], [403]);
+  assert.deepEqual(await status(m.b, made.ref), { ok: true, status: "refused" }, "Safari: the wallet app opened it on another connection (Wi-Fi vs mobile data?)");
   const same64 = browser(env, PHONE6B);
   assert.equal((await info(same64, made.code)).status, 200, "the phone rotated inside its /64: still the same phone");
+  assert.deepEqual(await status(m.b, made.ref), { ok: true, status: "opened" });
   const made4 = await (await carry((await safariMember(PHONE, { sub: "g-v4" })).b)).json();
   assert.equal((await info(same64, made4.code)).status, 403, "an IPv4 code is not an IPv6 one");
   // made-up and malformed codes
@@ -118,8 +151,19 @@ test("the code works only from the connection that made it (the same IPv4 addres
 
 test("the claim needs the link statement with the owner's name and a real signature; a login statement, another name, a replay, a stranger's session are refused; nothing changes on a refusal", async () => {
   const m = await safariMember();
+  // a browser signed in as somebody else opens the code and claims: refused BEFORE the signature is used, the code untouched
+  const other = await member(env, box, { via: "email", net: PHONE });
+  const first = await (await carry(m.b)).json();
+  assert.equal((await info(other.b, first.code)).status, 200);
+  const asOther = await claim(other.b, first.code, m.w, m.u.handle);
+  assert.deepEqual([asOther.status, (await asOther.json()).error], [409, "already_signed_in"]);
+  assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", m.u.id)).wallet, null);
+  assert.equal(await count("sessions"), 2);
+  assert.equal(await count("handoffs WHERE result = 'opened' AND wallet IS NULL"), 1, "the code is still unused");
+  // (the claim needs the opener since 10 Oct 2026: the wallet app's browser opens the new code first)
   const made = await (await carry(m.b)).json();
   const app = browser(env, PHONE);
+  assert.equal((await info(app, made.code)).status, 200);
   const refused = async (body, error, status = 400) => {
     const r = await app.send("/api/me/wallet/carry/claim", { method: "POST", body: { code: made.code, ...body } });
     assert.deepEqual([r.status, (await r.json()).error], [status, error], error);
@@ -129,13 +173,8 @@ test("the claim needs the link statement with the owner's name and a real signat
   await refused(await linkBody(m.w, m.u.handle, "47"), "bad_message");
   const good = await linkBody(m.w, m.u.handle);
   await refused({ ...good, signature: good.signature.slice(0, -4) + "AAAA" }, "signature_mismatch", 401);
-  // a browser signed in as somebody else cannot claim for this account
-  const other = await member(env, box, { via: "email", net: PHONE });
-  const asOther = await claim(other.b, made.code, m.w, m.u.handle);
-  assert.deepEqual([asOther.status, (await asOther.json()).error], [409, "already_signed_in"]);
   assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", m.u.id)).wallet, null);
-  assert.equal(await count("sessions"), 2);
-  assert.equal(await count("handoffs WHERE result IS NULL"), 1, "the code is still unused");
+  assert.equal(await count("handoffs WHERE result = 'opened'"), 1, "the code is still unused");
   // a wallet that already belongs to another account: wallet_taken, the code stays usable
   const owner = await member(env, box, { via: "email", email: "owner@example.com" });
   await linkDirect(env, owner);
@@ -167,6 +206,7 @@ test("the owner linked a wallet meanwhile (another browser): link_done, and the 
   const app2 = browser(env, PHONE);
   assert.equal((await app2.post("/api/auth/email/login", { email: "x@example.com", password: GOOD_PASSWORD })).ok, false);
   app2.jar.set("vs", n.b.jar.get("vs")); // the very same session cookie copied over (same person)
+  assert.equal((await (await info(app2, code2)).json()).here, null, "signed in as the owner: nothing to warn about");
   const before = await count("sessions WHERE user_id = ?", n.u.id);
   const ok = await claim(app2, code2, n.w, n.u.handle);
   assert.equal(ok.status, 200);

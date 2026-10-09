@@ -34,7 +34,7 @@ test("signed-out dashboard: the blurred cards and the 'Members only' lock are re
   for (const [where, h] of both) {
     const out = outOf(h);
     assert.doesNotMatch(out, /blur-card|teaser__lock|Members only|\?\?\?|🔒/, `${where}: nothing of the old lock screen is left`);
-    const cta = out.indexOf('<a class="btn btn--primary btn--lg" href="/connect">Join or log in →</a>'), pv = out.indexOf('class="teaser__preview dpv"');
+    const cta = out.indexOf('<a class="btn btn--primary btn--lg" href="/connect" id="out-cta">Join or log in →</a>'), pv = out.indexOf('class="teaser__preview dpv"');
     assert.ok(cta > 0 && pv > cta, `${where}: "Join or log in" stays the main action, before the preview`);
     assert.equal((out.match(/btn--primary/g) || []).length, 1, `${where}: the only primary button is the call to action`);
   }
