@@ -328,8 +328,9 @@
   function buyCard(card, u, wn) {
     const k = WA.remembered() || appNamed(u.walletApp), go = $("#wcard-go");
     cardReset(card); card.classList.add("is-done"); card.classList.remove("wcard--folded");
-    // ("Phantom connected ✓" only when nobody needs to ask "was this you?": while the notice shows, the kicker names the wallet itself)
-    $("#wcard-kicker").textContent = wn && wn.notMe ? `Wallet ${wn.wallet} connected` : wn ? `${k ? k.name : "Wallet"} connected ✓` : "Your wallet app";
+    // ("Phantom connected ✓" only when nobody needs to ask "was this you?": while the notice shows, a neutral kicker; the note under the
+    // button names the wallet itself. Never the wallet in the kicker: it is set in capitals, and a wallet address is case-sensitive.)
+    $("#wcard-kicker").textContent = wn && wn.notMe ? "New wallet on your account" : wn ? `${k ? k.name : "Wallet"} connected ✓` : "Your wallet app";
     $("#wcard-title").textContent = k ? `On this phone you buy in ${k.name}` : "On this phone you buy in your wallet app";
     $("#wcard-lead").textContent = k ? `Opens Vicinity inside ${k.name}, logged in. You buy there.` : "Pick the wallet app you use: it opens Vicinity there, logged in. You buy there.";
     $("#wcard-perks").hidden = true; $("#wcard-tiny").hidden = true; $("#wcard-skip").hidden = true; $("#wcard-actions").hidden = false;
@@ -352,7 +353,7 @@
   /** A computer (or any older browser of the account) after a wallet joined from a wallet app: what joined, when, and "Remove it". */
   function noticeCard(card, wn) {
     cardReset(card); card.classList.add("is-done", "wcard--folded");
-    $("#wcard-kicker").textContent = "New on your account";
+    $("#wcard-kicker").textContent = "New wallet on your account";
     $("#wcard-title").textContent = `Wallet ${wn.wallet} joined your account`;
     $("#wcard-lead").hidden = true; $("#wcard-perks").hidden = true; $("#wcard-actions").hidden = true; $("#wcard-tiny").hidden = true;
     noteLine(wn);

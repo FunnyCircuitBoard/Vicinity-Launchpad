@@ -133,7 +133,7 @@ test("a computer logged in before a wallet joined from Phantom: what joined, whe
   });
   assert.equal(p.$("#wallet-card").hidden, false);
   // (review finding safety-F5: never "Phantom connected ✓" while asking "was this you?", and the line names the wallet itself)
-  assert.equal(p.text("#wcard-kicker"), "New on your account");
+  assert.equal(p.text("#wcard-kicker"), "New wallet on your account");
   assert.equal(p.text("#wcard-title"), `Wallet ${MASKED} joined your account`);
   assert.equal(p.text("#wcard-note-text"), `Connected 5m ago in Phantom (wallet ${MASKED}). Wasn't you?`);
   assert.equal(p.$("#wcard-note").hidden, false); assert.equal(p.text("#wcard-remove"), "Remove it");
@@ -168,7 +168,7 @@ test("'Remove it': said no in the confirm sends nothing; a stale login logs in a
 
 test("the note sits on the phone's buy card too; a browser the wallet made (notMe false) or a wallet app (no app named) words it plainly", async () => {
   const p = await openDashboard({ ua: UA.iphone, me: linkedMe({ walletApp: "phantom" }, NEW({ at: minutesAgo(120) })) });
-  assert.equal(p.text("#wcard-kicker"), `Wallet ${MASKED} connected`, "while it asks, the wallet itself: not the app the claim reported");
+  assert.equal(p.text("#wcard-kicker"), "New wallet on your account", "while it asks: not the app the claim reported (and never the wallet: the kicker is in capitals)");
   assert.equal(p.text("#wcard-title"), "On this phone you buy in Phantom");
   assert.equal(p.text("#wcard-note-text"), `Connected 2h ago in Phantom (wallet ${MASKED}). Wasn't you?`);
   // the browser the wallet made (or one that may not ask): "Phantom connected ✓", nothing to ask
@@ -177,7 +177,7 @@ test("the note sits on the phone's buy card too; a browser the wallet made (notM
   const q = await openDashboard({ ua: UA.desktop, me: linkedMe({}, NEW({ notMe: false })) });
   assert.equal(q.$("#wallet-card").hidden, true, "the browser the wallet made has nothing to remove");
   const r = await openDashboard({ ua: UA.desktop, me: linkedMe({}, NEW({ app: null, via: "pair" })) });
-  assert.equal(r.text("#wcard-kicker"), "New on your account");
+  assert.equal(r.text("#wcard-kicker"), "New wallet on your account");
   assert.equal(r.text("#wcard-note-text"), `Connected 5m ago from a wallet app (wallet ${MASKED}). Wasn't you?`);
   await r.tap(r.$("#wcard-remove"));
   assert.deepEqual(r.confirms, [`Remove this wallet (${MASKED}) from your account? The wallet app will be logged out of Vicinity.`]);
