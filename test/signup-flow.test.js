@@ -1,8 +1,9 @@
-// The new sign-up from end to end through the real API: location, Terms + account (e-mail or Google), wallet, finish.
+// The new sign-up (onboarding v3) from end to end through the real API: location, Terms + account (e-mail or Google). The account
+// exists the moment the login is verified; there is no wallet step (the wallet is linked later, from the dashboard).
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { EMPTY, IN_UTICA, MINT, V2, browser, clock, loginBody, realClock, setHolding, useClock, wallet, advance, tick } from "./helpers/world.js";
-import { GOOD_PASSWORD, doEmail, doGoogle, doLocation, doTerms, doWallet, dumpAll, fakeGoogle, finish, journey, member, one, outbox, pickCommunity, recordAnswers, rows, startSignup, stateOf } from "./helpers/signup.js";
+import { EMPTY, MINT, V2, browser, clock, loginBody, realClock, setHolding, useClock, wallet, advance, tick } from "./helpers/world.js";
+import { GOOD_PASSWORD, doEmail, doGoogle, doLocation, doTerms, doWallet, dumpAll, finish, journey, linkDirect, member, memberWithWallet, one, outbox, pickCommunity, recordAnswers, rows, startSignup, stateOf } from "./helpers/signup.js";
 import { verifyPassword } from "../src/password.js";
 import { cleanupSignups } from "../src/signup-core.js";
 import { runJobs } from "../src/jobs.js";
@@ -13,11 +14,12 @@ after(() => realClock());
 
 const cookiesOf = (res) => res.headers.getSetCookie();
 const count = async (table) => (await one(env.DB, `SELECT COUNT(*) AS n FROM ${table}`)).n;
+const EMPTY_STATE = { terms: { done: false, version: "2026-10-01" }, location: { done: false }, account: { done: false }, next: "location" };
 
-test("e-mail path: every step moves 'next' on, and the finish makes the account", async () => {
-  const b = browser(env), w = await wallet(), email = "ada@example.com";
+test("e-mail path: every step moves 'next' on, and the verified code makes the account and signs the browser in", async () => {
+  const b = browser(env), email = "ada@example.com";
   let s = (await startSignup(b)).state;
-  assert.deepEqual(s, { terms: { done: false, version: "2026-10-01" }, location: { done: false }, account: { done: false }, wallet: { done: false }, next: "location" });
+  assert.deepEqual(s, EMPTY_STATE);
 
   const loc = await doLocation(b);
   assert.deepEqual(loc, { ok: true, community: { id: "5142056", name: "Utica", country: "US" } });
@@ -35,114 +37,106 @@ test("e-mail path: every step moves 'next' on, and the finish makes the account"
   s = await stateOf(b);
   assert.deepEqual(s.account, { done: false, pending: { email: "a***@example.com" } });
   assert.equal(s.next, "account");
+  assert.equal(await count("users"), 0, "a typed address is not an account");
 
   const code = box.codeFor(email);
-  const verified = await (await b.send("/api/signup/email/verify", { method: "POST", body: { code }, fetchImpl: box.fetch })).json();
-  assert.equal(verified.ok, true);
-  assert.equal(verified.existing, false);
-  assert.deepEqual(verified.state.account, { done: true, provider: "email", email: "a***@example.com" });
-  assert.equal(verified.state.next, "wallet");
-
-  const w1 = await doWallet(b, w);
-  assert.equal(w1.next, "signup", "a new wallet is told to finish the sign-up");
-  s = await stateOf(b);
-  assert.deepEqual(s.wallet, { done: true, address: `${w.address.slice(0, 4)}…${w.address.slice(-4)}` });
-  assert.equal(s.next, "finish");
-
-  const done = await finish(b);
-  assert.deepEqual(done, { ok: true, next: "/dashboard?welcome=1", isNew: true });
+  const res = await b.send("/api/signup/email/verify", { method: "POST", body: { code }, fetchImpl: box.fetch });
+  const verified = await res.json();
+  assert.deepEqual(verified, { ok: true, existing: false, isNew: true, next: "/dashboard?welcome=1", welcome: { name: null, city: "Utica", memberNumber: 1 } });
+  assert.equal(cookiesOf(res).filter((c) => c.startsWith("vs=") && !/Max-Age=0/.test(c)).length, 1, "signed in by the very same answer");
+  assert.ok(!b.has("vsu"), "the sign-up cookie is cleared");
   const me = await b.get("/api/me?lite=1");
   assert.equal(me.signedIn, true);
-  assert.equal(me.user.wallet, w.address);
+  assert.equal(me.user.wallet, null, "no wallet: that comes later, from the dashboard");
   assert.equal(me.user.home.name, "Utica");
+  assert.deepEqual(await stateOf(b), EMPTY_STATE, "the sign-up is over");
 });
 
-test("Google path: the callback records the identity (no account yet) and sends the person on to the next step", async () => {
-  const b = browser(env), w = await wallet();
+test("Google path: the callback makes the account in the same request (with the first name) and lands on the welcome", async () => {
+  const b = browser(env);
   await startSignup(b);
   await doLocation(b);
   await doTerms(b);
   const g = await doGoogle(b, "google-sub-77", { name: "Gina" });
-  assert.equal(g.to, "/connect?step=wallet", "location and Terms are done, so the wallet is next");
-  assert.equal(await count("users"), 0, "recording the Google login creates no account");
-  const s = await stateOf(b);
-  assert.deepEqual(s.account, { done: true, provider: "google" });
-  assert.equal(s.next, "wallet");
-
-  await doWallet(b, w);
-  assert.equal((await finish(b)).ok, true);
-  const u = await one(env.DB, "SELECT provider, provider_id, name, password_hash FROM users");
-  assert.deepEqual({ ...u }, { provider: "google", provider_id: "google-sub-77", name: "Gina", password_hash: null });
+  assert.equal(g.to, "/dashboard?welcome=1");
+  assert.equal(await count("users"), 1, "the account exists the moment Google answered");
+  const u = await one(env.DB, "SELECT provider, provider_id, name, password_hash, wallet, home_name FROM users");
+  assert.deepEqual({ ...u }, { provider: "google", provider_id: "google-sub-77", name: "Gina", password_hash: null, wallet: null, home_name: "Utica" });
+  assert.equal((await b.get("/api/me?lite=1")).signedIn, true);
+  assert.equal(await count("signups"), 0);
+  assert.equal((await one(env.DB, "SELECT proven_at FROM sessions")).proven_at, null, "no wallet proof on the session");
 });
 
-test("the Google callback says where to go: location first when the community is still missing, finish when only the account was missing", async () => {
-  const b = browser(env), w = await wallet();
+test("the Google callback says where to go when the community is still missing: the login is recorded, the location step is next, then the finish", async () => {
+  const b = browser(env);
   await startSignup(b);
   await doTerms(b);
   assert.equal((await doGoogle(b, "g-early")).to, "/connect?step=location");
-  await b.post("/api/signup/account/reset");
+  assert.equal(await count("users"), 0, "no community, no account");
+  let s = await stateOf(b);
+  assert.deepEqual(s.account, { done: true, provider: "google" }, "the login is kept");
+  assert.equal(s.next, "location");
   await doLocation(b);
-  await doWallet(b, w);
-  assert.equal((await doGoogle(b, "g-last")).to, "/connect?step=finish", "everything else is done");
+  s = await stateOf(b);
+  assert.equal(s.next, "finish");
+  const done = await finish(b);
+  assert.deepEqual([done.ok, done.next, done.isNew], [true, "/dashboard?welcome=1", true]);
+  assert.equal(await count("users"), 1);
 });
 
-test("the steps can come in any order: the account is made once, whichever step was last", async () => {
-  const steps = {
-    location: (b) => doLocation(b),
-    account: async (b, ctx) => { await doTerms(b); return doEmail(b, box, ctx.email); },
-    wallet: (b, ctx) => doWallet(b, ctx.w),
-  };
-  const orders = [["location", "account", "wallet"], ["location", "wallet", "account"], ["account", "location", "wallet"],
-    ["account", "wallet", "location"], ["wallet", "location", "account"], ["wallet", "account", "location"]];
-  let n = 0;
-  for (const order of orders) {
-    const b = browser(env), ctx = { w: await wallet(), email: `order${n++}@example.com` };
-    if (order[0] === "wallet") await doWallet(b, ctx.w); // an old bookmark: the wallet came first, before any sign-up exists
-    await startSignup(b);
-    for (const step of order) {
-      if (step === "wallet" && order[0] === "wallet") continue;
-      await steps[step](b, ctx);
-      if (step !== order[order.length - 1]) assert.notEqual((await stateOf(b)).next, "finish", order.join() + " after " + step);
-    }
-    assert.equal((await stateOf(b)).next, "finish", order.join());
-    const done = await finish(b);
-    assert.equal(done.ok, true, order.join() + " " + JSON.stringify(done));
-  }
-  assert.equal(await count("users"), 6);
+test("the two steps can come in either order: the account is made once, by whichever step was last", async () => {
+  // location first: the verified code is the end
+  const a = browser(env);
+  await startSignup(a);
+  await doLocation(a);
+  await doTerms(a);
+  const first = await doEmail(a, box, "order0@example.com");
+  assert.equal(first.verify.isNew, true, JSON.stringify(first.verify));
+  // account first: the verified code is recorded, the finish waits for the community, and the location step is the end
+  const b = browser(env);
+  await startSignup(b);
+  await doTerms(b);
+  const second = await doEmail(b, box, "order1@example.com");
+  assert.deepEqual([second.verify.ok, second.verify.existing, second.verify.finishError], [true, false, "location_required"], JSON.stringify(second.verify));
+  assert.equal(second.verify.state.next, "location");
+  assert.equal(await count("users"), 1);
+  await doLocation(b);
+  assert.equal((await stateOf(b)).next, "finish");
+  const done = await finish(b);
+  assert.equal(done.ok, true, JSON.stringify(done));
+  assert.equal(await count("users"), 2);
+  for (const x of [a, b]) assert.equal((await x.get("/api/me?lite=1")).signedIn, true);
 });
 
-test("the state never carries coordinates, a full e-mail or wallet, a hash or a token (checked on every answer of a whole journey)", async () => {
-  const b = browser(env), w = await wallet(), email = "private.person@example.com";
+test("the state never carries coordinates, a full e-mail, a hash or a token (checked on every answer of a whole journey)", async () => {
+  const b = browser(env), email = "private.person@example.com";
   const seen = recordAnswers(b);
   const point = { lat: 43.1234567, lon: -75.2345678, accuracy: 30 };
   await startSignup(b);
   await doLocation(b, point);
   await doTerms(b);
-  await doEmail(b, box, email);
-  await doWallet(b, w);
   await stateOf(b);
-  await finish(b);
+  await doEmail(b, box, email);
+  await b.get("/api/me");
   const text = seen.join("\n");
-  assert.ok(seen.items.length >= 8, "every answer of the journey was looked at");
+  assert.ok(seen.items.length >= 7, "every answer of the journey was looked at");
   for (const secret of ["43.1234567", "75.2345678", "private.person", email, "pbkdf2", GOOD_PASSWORD, b.jar.get("vs")]) {
     assert.ok(!text.includes(secret), `a response contains ${secret}`);
   }
-  // the sign-up's own answers never show the whole wallet either (the wallet routes themselves answer with the address that was just proven)
-  for (const { path, text: t } of seen.items.filter((x) => x.path.startsWith("/api/signup/"))) assert.ok(!t.includes(w.address), path);
   assert.ok(!(await dumpAll(env.DB)).includes("1234567"), "the coordinates are in no row");
 });
 
-test("after the finish: the user row is complete, the session is a 30-day cookie, and every trace of the sign-up is gone", async () => {
+test("after the finish: the user row is complete (no wallet), the session is a 30-day cookie with no wallet proof, and every trace of the sign-up is gone", async () => {
   env = V2({ VICINITY_MINT: MINT });
-  const b = browser(env), w = await wallet(), email = "full@example.com";
-  const j = await journey(b, box, { via: "email", email, w });
+  const b = browser(env), email = "full@example.com";
+  const j = await journey(b, box, { via: "email", email });
   assert.equal(j.finish.ok, true);
   const u = await one(env.DB, "SELECT * FROM users");
   const at = new Date(clock.now).toISOString();
-  assert.equal(u.wallet, w.address);
+  assert.equal(u.wallet, null);
   assert.equal(u.provider, "email");
   assert.equal(u.provider_id, email);
-  assert.match(u.handle, /^[A-Z][a-z]+[A-Z][a-z]+\d{2}$/, "an auto username: nobody's wallet is their name");
+  assert.match(u.handle, /^[A-Z][a-z]+[A-Z][a-z]+\d{2}$/, "an auto username");
   assert.equal(u.name, "E-mail member");
   assert.equal(u.early, 0, "the coin is already launched: not an early member");
   assert.equal(u.created_at, at);
@@ -153,51 +147,63 @@ test("after the finish: the user row is complete, the session is a 30-day cookie
   assert.ok((await verifyPassword(env, u.password_hash, GOOD_PASSWORD)).ok);
   assert.deepEqual([u.contact_email, u.phone, u.badges], [null, null, null]);
 
-  // the cookies: a 30-day session, the sign-up cookie cleared
-  // (the journey's own responses are gone: run a second one to look at the headers)
-  const b2 = browser(env), w2 = await wallet();
-  await journey(b2, box, { via: "email", w: w2, until: "wallet" });
-  const res = await b2.send("/api/signup/finish", { method: "POST", body: {} });
+  // the cookies of the answer that made the account: a 30-day session, the sign-up cookie cleared
+  const b2 = browser(env);
+  await journey(b2, box, { via: "email", until: "terms" });
+  await b2.send("/api/signup/email", { method: "POST", body: { email: "second@example.com", password: GOOD_PASSWORD }, fetchImpl: box.fetch });
+  const res = await b2.send("/api/signup/email/verify", { method: "POST", body: { code: box.codeFor("second@example.com") }, fetchImpl: box.fetch });
   const sc = cookiesOf(res);
   const vs = sc.find((c) => c.startsWith("vs="));
-  assert.match(vs, /; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000$/);
+  assert.match(vs, /^vs=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000$/);
   assert.match(sc.find((c) => c.startsWith("vsu=")), /^vsu=; .*Max-Age=0$/);
 
-  // nothing is left: the sign-up row, its hand-offs, the pending session
+  // nothing is left: the sign-up rows, their hand-offs; one full session per person, none pending, none proven
   assert.equal(await count("signups"), 0);
   assert.equal(await count("handoffs"), 0);
-  assert.equal((await rows(env.DB, "SELECT id FROM sessions WHERE user_id IS NULL")).length, 0, "the pending wallet session is gone");
-  assert.equal((await rows(env.DB, "SELECT id FROM sessions WHERE user_id IS NOT NULL")).length, 2, "one full session per person");
+  assert.equal((await rows(env.DB, "SELECT id FROM sessions WHERE user_id IS NULL")).length, 0, "no pending session");
+  const full = await rows(env.DB, "SELECT wallet, proven_at FROM sessions WHERE user_id IS NOT NULL");
+  assert.equal(full.length, 2, "one full session per person");
+  assert.deepEqual(full.map((r) => [r.wallet, r.proven_at]), [[null, null], [null, null]]);
 });
 
-test("after the finish /api/me shows the home community, the holdings and the new fields, and the community counts one member", async () => {
-  env = V2({ VICINITY_MINT: MINT }); // launched: holdings are real
+test("after the finish /api/me shows the home community, no wallet (setup 67 %), a fresh login, and the community counts one member; a linked wallet completes it", async () => {
+  env = V2({ VICINITY_MINT: MINT }); // launched: holdings are real once a wallet is linked
   const b = browser(env), w = await wallet();
   const j = await journey(b, box, { via: "google", w });
   assert.equal(j.finish.ok, true);
   setHolding(w.address, 1234);
-  const me = await b.get("/api/me");
+  let me = await b.get("/api/me");
   assert.equal(me.signedIn, true);
   assert.equal(me.signupFlow, "v2");
   assert.equal(me.user.hasPassword, false, "a Google account has no password");
+  assert.equal(me.user.wallet, null);
   assert.equal(me.user.home.name, "Utica");
   assert.equal(me.community.name, "Utica");
-  assert.equal(me.holding.amount, 1234);
-  assert.equal(me.fresh, true, "the wallet proof of the sign-up carries over");
+  assert.equal(me.community.memberNumber, 1);
+  assert.equal(me.holding.amount, 0, "no wallet, nothing to count yet");
+  assert.equal(me.fresh, true, "a login without a wallet counts as fresh for 30 minutes");
+  assert.deepEqual(me.setup.percent, 67);
+  assert.deepEqual(me.setup.steps.map((s) => [s.id, s.done]), [["location", true], ["account", true], ["wallet", false]]);
   const members = await (await b.send("/api/members")).json();
   assert.deepEqual(members.communities.map((c) => [c.name, c.members]), [["Utica", 1]]);
+
+  await linkDirect(env, j, { proven: false });
+  me = await b.get("/api/me");
+  assert.equal(me.user.wallet, w.address);
+  assert.equal(me.holding.amount, 1234);
+  assert.equal(me.setup.percent, 100);
+  assert.equal(me.fresh, false, "with a wallet, only a wallet proof is fresh");
+  advance(31 * 60_000);
+  const later = browser(env);
+  const k = await journey(later, box, { via: "email" });
+  assert.equal(k.finish.ok, true);
+  advance(31 * 60_000);
+  assert.equal((await later.get("/api/me?lite=1")).fresh, false, "and the login's 30 minutes run out");
 });
 
-test("/api/me says signupFlow v2 in all four shapes, and hasPassword for the person who has one", async () => {
+test("/api/me says signupFlow v2 for the signed-out and the signed-in shapes, and hasPassword for the person who has one", async () => {
   const out = browser(env);
   assert.deepEqual(await out.get("/api/me"), { signedIn: false, providers: { google: true, email: true }, signupFlow: "v2" });
-  const pend = browser(env);
-  await doWallet(pend, await wallet());
-  const p = await pend.get("/api/me");
-  assert.equal(p.signupFlow, "v2");
-  assert.equal(p.signedIn, false);
-  assert.ok(p.pending.wallet && !("hasPassword" in p));
-
   const m = await member(env, box, { via: "email" });
   for (const url of ["/api/me", "/api/me?lite=1"]) {
     const me = await m.b.get(url);
@@ -209,7 +215,7 @@ test("/api/me says signupFlow v2 in all four shapes, and hasPassword for the per
 });
 
 test("empty land: three nearest to choose from, the choice stays changeable until the end, and the chosen one becomes home", async () => {
-  const b = browser(env), w = await wallet();
+  const b = browser(env);
   await startSignup(b);
   const loc = await b.post("/api/signup/location", { location: EMPTY, country: "US" });
   assert.equal(loc.ok, true);
@@ -237,28 +243,27 @@ test("empty land: three nearest to choose from, the choice stays changeable unti
   assert.equal(second.community.id, loc.choices[2].id, "changed their mind");
 
   await doTerms(b);
-  await doEmail(b, box, "wild@example.com");
-  await doWallet(b, w);
-  assert.equal((await finish(b)).ok, true);
+  const made = await doEmail(b, box, "wild@example.com");
+  assert.equal(made.verify.isNew, true, JSON.stringify(made.verify));
+  assert.equal(made.verify.welcome.city, loc.choices[2].name);
   const u = await one(env.DB, "SELECT home_city, home_name, home_country FROM users");
   assert.deepEqual({ ...u }, { home_city: loc.choices[2].id, home_name: loc.choices[2].name, home_country: "US" });
 });
 
 test("GET /api/signup/state with no cookie, a made-up cookie or an expired sign-up answers the empty state and creates nothing", async () => {
-  const empty = { terms: { done: false, version: "2026-10-01" }, location: { done: false }, account: { done: false }, wallet: { done: false }, next: "location" };
   const b = browser(env);
   const r = await b.send("/api/signup/state");
-  assert.deepEqual(await r.json(), { ok: true, state: empty });
+  assert.deepEqual(await r.json(), { ok: true, state: EMPTY_STATE });
   assert.deepEqual(cookiesOf(r), [], "no cookie is set by a read");
   b.jar.set("vsu", "made-up-token");
-  assert.deepEqual((await b.get("/api/signup/state")), { ok: true, state: empty });
+  assert.deepEqual((await b.get("/api/signup/state")), { ok: true, state: EMPTY_STATE });
   assert.equal(await count("signups"), 0);
 
   const real = browser(env);
   await startSignup(real);
   await doTerms(real);
   advance(61 * 60_000);
-  assert.deepEqual(await real.get("/api/signup/state"), { ok: true, state: empty }, "expired: back to the start, not an error");
+  assert.deepEqual(await real.get("/api/signup/state"), { ok: true, state: EMPTY_STATE }, "expired: back to the start, not an error");
 });
 
 test("start twice gives the same sign-up (and no second row); after it expired a start makes a fresh one with a new token", async () => {
@@ -278,8 +283,8 @@ test("start twice gives the same sign-up (and no second row); after it expired a
 });
 
 test("signing in as an existing person during 'New here' ends the half-done sign-up: wallet, Google, e-mail code and the phone-QR way", async () => {
-  const mem = await member(env, box, { via: "email", email: "member@example.com" });
-  const memGoogle = await member(env, box, { via: "google", sub: "member-google" });
+  const mem = await memberWithWallet(env, box, { via: "email", email: "member@example.com" });
+  const memGoogle = await memberWithWallet(env, box, { via: "google", sub: "member-google" });
 
   const startHalf = async () => {
     const b = browser(env);
@@ -294,7 +299,7 @@ test("signing in as an existing person during 'New here' ends the half-done sign
     assert.equal((await b.get("/api/me?lite=1")).signedIn, true, label + ": signed in");
   };
 
-  // 1. wallet that already has an account
+  // 1. a wallet that is linked to an account
   let b = await startHalf();
   const r = await b.post("/api/auth/wallet", await loginBody(mem.w));
   assert.equal(r.next, "/dashboard");
@@ -334,13 +339,14 @@ test("signing in as an existing person during 'New here' ends the half-done sign
   assert.equal(await count("users"), 2, "and nobody got a second account");
 });
 
-test("an unknown wallet in v2 never gets an account from a wallet login alone (pending only), whatever it does next", async () => {
+test("an unknown wallet in v2 never gets an account from a wallet login alone, whatever it does next", async () => {
   const b = browser(env);
   const w = await wallet();
   const r = await doWallet(b, w);
-  assert.equal(r.next, "signup");
+  assert.notEqual(r.next, "/dashboard");
   assert.equal((await b.get("/api/me")).signedIn, false);
   assert.equal(await count("users"), 0);
+  assert.deepEqual(await stateOf(b), EMPTY_STATE, "and no sign-up was started by it");
 });
 
 test("fault injection: while the new tables cannot be made, start answers 503 signup_unavailable and the rest of the site is untouched; then it recovers", async () => {
@@ -362,7 +368,7 @@ test("fault injection: while the new tables cannot be made, start answers 503 si
   assert.equal((await b.send("/api/signup/state")).status, 503);
   // the old routes do not need the new tables
   assert.equal((await b.send("/api/members")).status, 200);
-  assert.equal((await doWallet(b, await wallet())).ok, true, "a wallet login still works");
+  assert.equal((await b.send("/api/me?lite=1")).status, 200);
   armed = false;
   assert.equal((await startSignup(b)).ok, true, "the next request makes the tables and goes on");
 });

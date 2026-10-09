@@ -1,5 +1,6 @@
-// Helpers for the sign-up v2 tests: a mail sender that remembers the codes, a Google stand-in, and the steps of the
-// journey (start, location, terms, e-mail or Google, wallet, finish) as small functions that go through the real API.
+// Helpers for the sign-up tests (v2, onboarding v3): a mail sender that remembers the codes, a Google stand-in, and the steps of
+// the journey (start, location, terms, e-mail or Google: the account exists the moment the login is verified) as small functions
+// that go through the real API. The wallet is no part of the sign-up any more: doWallet is a wallet LOG-IN (an existing member).
 import assert from "node:assert/strict";
 import { IN_UTICA, browser, chain, loginBody, wallet } from "./world.js";
 
@@ -62,14 +63,18 @@ export async function doGoogle(b, sub, { name } = {}) {
   return { start, cb, to: cb.headers.get("location") };
 }
 
-/** Prove a wallet the normal way (a signed message). Returns the API answer. */
+/** Sign in with a wallet (a signed login message): a member's wallet signs in, an unknown one is refused (no_account). Returns the API answer. */
 export const doWallet = async (b, w) => b.post("/api/auth/wallet", await loginBody(w));
+/** POST /api/signup/finish: the same atomic step the account step runs itself, for a page that reloads or retries. */
 export const finish = (b) => b.post("/api/signup/finish");
 
 let nextSub = 1;
 /**
- * The whole journey for a new person, in the order the page asks. via: "email" | "google". Returns everything a test may need.
- * Set `until` to stop early: "location" | "terms" | "account" | "wallet" (the last one done) | "finish" (default: finish).
+ * The whole journey for a new person, in the order the page asks. via: "email" | "google". Returns everything a test may need:
+ * `finish` is what the account step answered about the account ({ ok, next } from the e-mail code, or { ok, next } read off the
+ * Google callback's redirect), since the account is made the moment the login is verified.
+ * Set `until` to stop early: "location" | "terms" (the last one done) | "finish" (default: the whole journey).
+ * `w` is only kept on the result (tests that link or log in with a wallet afterwards): the sign-up itself never sees a wallet.
  */
 export async function journey(b, box, { via = "email", email, sub, point = IN_UTICA, password = GOOD_PASSWORD, w, until = "finish" } = {}) {
   const out = { w: w || (await wallet()), via };
@@ -84,24 +89,41 @@ export async function journey(b, box, { via = "email", email, sub, point = IN_UT
   if (via === "email") {
     out.email = email || `new${nextSub++}@example.com`;
     out.account = await doEmail(b, box, out.email, { password });
+    const v = out.account.verify || {};
+    out.finish = v.ok && v.isNew ? { ok: true, next: v.next, welcome: v.welcome } : { ok: false, error: v.error || v.finishError || (v.existing ? "existing" : "unverified"), verify: v };
   } else {
     out.sub = sub || "g-new-" + nextSub++;
     out.account = await doGoogle(b, out.sub);
+    const to = out.account.to || "";
+    out.finish = to === "/dashboard?welcome=1" ? { ok: true, next: to } : { ok: false, error: to, to };
   }
-  if (stop("account")) return out;
-  out.wallet = await doWallet(b, out.w);
-  if (stop("wallet")) return out;
-  out.finish = await finish(b);
   return out;
 }
 
-/** A finished member made through the v2 journey (the old callbacks can no longer create accounts in v2). */
+/** A finished member made through the journey (the old callbacks can no longer create accounts in v2): no wallet linked yet. */
 export async function member(env, box, opts = {}) {
   const b = browser(env, opts.net);
   const j = await journey(b, box, opts);
   assert.equal(j.finish && j.finish.ok, true, JSON.stringify(j.finish));
   return { b, ...j };
 }
+
+/**
+ * Link the member's wallet (m.w) to their account the way the dashboard's link does (users.wallet set, every session of the user
+ * carries it; this browser's session gets the proof time when `proven`): the tests of what a member WITH a wallet can do. Written
+ * straight into the database, so these tests do not depend on the link routes (test/wallet-link.test.js covers those).
+ */
+export async function linkDirect(env, m, { proven = false } = {}) {
+  const now = new Date(Date.now()).toISOString();
+  const u = await env.DB.prepare("SELECT id FROM users WHERE provider = ? AND provider_id = ?").bind(m.via === "google" ? "google" : "email", m.via === "google" ? m.sub : m.email).first();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE users SET wallet = ? WHERE id = ? AND wallet IS NULL").bind(m.w.address, u.id),
+    env.DB.prepare("UPDATE sessions SET wallet = ?, proven_at = CASE WHEN ? THEN ? ELSE proven_at END WHERE user_id = ?").bind(m.w.address, proven ? 1 : 0, now, u.id),
+  ]);
+  return m;
+}
+/** A member whose wallet is linked (and, by default, freshly proven in their browser): what every member was before onboarding v3. */
+export const memberWithWallet = async (env, box, opts = {}) => linkDirect(env, await member(env, box, opts), { proven: opts.proven !== false });
 
 /** Every row of every table, as text: for "this number / this address is nowhere in the database". */
 export async function dumpAll(db) {

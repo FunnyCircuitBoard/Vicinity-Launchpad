@@ -7,9 +7,11 @@
  *      exact amount of SOL; or sign on your phone for this computer by scanning a code)
  *   2. sign in with Google or verify an e-mail address with a code → the two are linked for
  *      good → dashboard
- * New person (SIGNUP_FLOW=v2, src/signup.js): location → Terms + Google or e-mail with a password →
- *   wallet → one atomic step creates the account. In v2 this file can no longer create an account:
- *   an unknown Google id or e-mail answers "no_account" here, and only signs people in.
+ * New person (SIGNUP_FLOW=v2, src/signup.js): location → Terms + Google or e-mail with a password → the account
+ *   is created in one atomic step the moment the login is verified (src/signup-finish.js, called from the Google
+ *   callback here), with no wallet: the wallet is linked later from the dashboard (src/walletlink.js). In v2 this
+ *   file itself never creates an account: an unknown Google id or e-mail answers "no_account" here, and only signs
+ *   people in.
  * Returning person: either the wallet OR the linked Google login / verified e-mail signs them
  * straight in (and, in v2, an e-mail account may also use its password: src/pwlogin.js).
  *
@@ -35,10 +37,11 @@ import { autoUsername } from "./text.js";
 import { v2On } from "./flags.js";
 import { check, clientKey, hits, limitKey, peek, refund } from "./limits.js";
 import { TERMS_VERSION, asText, endSignup, getSignup, recordIdentity } from "./signup-core.js";
+import { finishCore } from "./signup-finish.js";
+import { SESSION_COOKIE, SESSION_SECONDS } from "./session.js";
 
-export const SESSION_COOKIE = "vs";
+export { SESSION_COOKIE, SESSION_SECONDS };
 const OAUTH_COOKIE = "vo";
-export const SESSION_SECONDS = 30 * 86400;  // signed in for 30 days
 export const PENDING_SECONDS = 30 * 60;     // wallet proven, Google / e-mail still to link: 30 minutes
 const PAIR_SECONDS = 10 * 60;        // "sign in with my phone" codes: 10 minutes
 
@@ -328,9 +331,12 @@ export async function handleOAuthStart(request, env, provider) {
 }
 
 /**
- * GET /api/auth/google/callback → link the login to the proven wallet (or sign a returning person in).
- * v2: it never creates an account. A known Google id signs in; an unknown one is recorded in the sign-up (when the person
- * started from the sign-up page) or refused with "no_account" (a login attempt).
+ * GET /api/auth/google/callback → link the login to the proven wallet (v1), or sign a returning person in.
+ * v2: a known Google id signs in; an unknown one is recorded in the sign-up (when the person started from the sign-up page)
+ * and the account is made right here, in the same request (finishCore), landing on /dashboard?welcome=1; a refusal of the
+ * finish lands on /connect?error=<code> (location_unverified, social_taken, terms_required: the page shows the right step) or
+ * /connect?step=finish (anything else: the page runs the finish once more and shows the precise reason). A login attempt
+ * (no sign-up marker) with an unknown id is refused with "no_account".
  */
 export async function handleOAuthCallback(request, env, provider, fetchImpl = fetch, now = Date.now()) {
   const url = new URL(request.url);
@@ -350,14 +356,20 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
 
   await ensureSchema(env.DB);
   const session = await getSession(env, request, now);
-  const v2 = v2On(env) ? { onNew: marker === "s"
-    ? () => recordIdentity(env, request, provider, who, now, { walletDone: Boolean(session && session.wallet && !session.user && isFresh(session, now)) })
-    : () => ({ error: "no_account" }) } : null;
+  const v2 = v2On(env) ? { onNew: marker === "s" ? () => recordIdentity(env, request, provider, who, now) : () => ({ error: "no_account" }) } : null;
   const r = await linkIdentity(env, session, provider, who, now, v2);
   if (r.error) return fail(r.error);
+  if (r.recorded) {
+    // the login is verified and in the sign-up: the account is made now, in this very request
+    const fin = await finishCore(env, r.row, request, now, request.cf);
+    if (fin.ok) return redirect("/dashboard?welcome=1", [clear, ...fin.cookies]);
+    const shown = ["location_unverified", "social_taken", "terms_required"].includes(fin.error);
+    // (a missing community: the page's location step; anything else: the finish step, which names what it waits for)
+    return redirect(shown ? `/connect?error=${fin.error}` : `/connect?step=${fin.error === "location_required" ? "location" : "finish"}`, [clear, r.cookie]);
+  }
   const cookies = r.cookie ? [clear, r.cookie] : [clear];
   // An existing person signed in: any half-done sign-up in this browser is over.
-  if (v2 && r.cookie && !r.recorded) cookies.push(...await endSignup(env, request));
+  if (v2 && r.cookie) cookies.push(...await endSignup(env, request));
   return redirect(r.to, cookies);
 }
 

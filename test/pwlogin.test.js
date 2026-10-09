@@ -6,7 +6,7 @@
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { V2, advance, browser, realClock, reprove, useClock, wallet } from "./helpers/world.js";
-import { GOOD_PASSWORD, dumpAll, journey, member, one, outbox, recordAnswers, rows, startSignup, doWallet } from "./helpers/signup.js";
+import { GOOD_PASSWORD, dumpAll, journey, memberWithWallet as member, one, outbox, recordAnswers, rows, startSignup, doWallet } from "./helpers/signup.js";
 import { slowDb } from "./helpers/slowdb.js";
 import { _stats, verifyPassword } from "../src/password.js";
 import { limitKey } from "../src/limits.js";
@@ -743,7 +743,7 @@ test("change: a fresh wallet proof alone is enough; an empty current counts as n
 });
 
 test("change: a wallet proof that has run out (30 minutes) is not a proof", async () => {
-  const alice = await member(env, box, { via: "email", email: ALICE }); // the journey's session still carries its wallet proof
+  const alice = await member(env, box, { via: "email", email: ALICE }); // the wallet was linked and proven in this browser a moment ago
   assert.equal((await alice.b.get("/api/me")).fresh, true);
   advance(31 * 60_000);
   assert.equal((await alice.b.get("/api/me")).fresh, false);

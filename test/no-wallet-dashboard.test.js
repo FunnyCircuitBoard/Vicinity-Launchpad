@@ -258,7 +258,7 @@ test("drift guard: the files that read users.wallet are the ones this change rev
   // Every source file that touches a member's wallet column had to learn that NULL means "no wallet linked". A new file reading it must be
   // reviewed the same way (and added here on purpose).
   const reviewed = new Set(["admin.js", "attest.js", "auth.js", "coins.js", "elections.js", "launchpad.js", "me.js", "moderation.js", "profiles.js", "portfolio.js", "pwlogin.js",
-    "roles.js", "seats.js", "signup.js", "snapshot.js", "social.js", "walletlink.js", "handoff.js", "signup-core.js", "profile-core.js"]);
+    "roles.js", "seats.js", "signup.js", "signup-finish.js", "snapshot.js", "social.js", "walletlink.js", "handoff.js", "signup-core.js", "profile-core.js"]);
   const dir = new URL("../src/", import.meta.url);
   const offenders = readdirSync(dir).filter((f) => f.endsWith(".js") && !reviewed.has(f)).filter((f) => {
     const src = readFileSync(new URL(f, dir), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
