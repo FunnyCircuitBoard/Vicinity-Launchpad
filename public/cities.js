@@ -797,7 +797,7 @@
       const x = sx(c.lon), y = sy(c.lat);
       if (x < 0 || y < 0 || x > W || y > H) continue;
       const st = statusOf(c), win = st === "choosing" ? windows.get(c.id) : null;
-      if (st !== "open") markers.push([x - 8, y - 8, 16, 16]); // a status marker (its dot and its ring) is covered by no chip
+      if (st !== "open") markers.push([x - 10, y - 10, 20, 20]); // a status marker (its dot and its ring: choosing ends at r 9, active at 8.25) is covered by no chip
       const it = { id: c.id, c, x, y, st, span: spanOf(c), mine: st === "mine", selected: c === selected, focus: c.id === focusId, status: st, holders: st === "open" ? 0 : holderCount.get(c.id) || 0,
         applicants: win ? win.applicants : 0, members: memberCount.size ? memberCount.get(c.id) || 0 : 0, pop: c.pop, shown: prev.has(c.id) };
       const r = labelRank(it); it.key = r[0] * 1e13 + r[1]; // the same order as byRank, as one number
@@ -1141,7 +1141,7 @@
     if (id !== focusId) { focusId = id; dirty.labels = dirty.layout = dirty.base = true; kick(); }
     renderFocus();
   }
-  const FOCUS_TAG = { open: ["tag tag--ok", "Open"], active: ["tag tag--active", "Active"], choosing: ["tag tag--gold", "Choosing"], founded: ["tag tag--no", "Founded"], mine: ["tag tag--warn", "Yours"] };
+  const FOCUS_TAG = { open: ["tag tag--open", "Open"], active: ["tag tag--active", "Active"], choosing: ["tag tag--gold", "Choosing"], founded: ["tag tag--no", "Founded"], mine: ["tag tag--warn", "Yours"] }; // the legend's colours: open steel blue, active teal (polish-map.css)
   function renderFocus() {
     const c = focusId ? byId.get(focusId) : null;
     const name = $("#mf-name"), where = $("#mf-where"), mini = $("#mf-mini"), tag = $("#mf-status"), tk = $("#mf-ticker"), amount = $("#mf-amount"), areaEl = $("#mf-area"), line = $("#mf-line"), go = $("#mf-open");
@@ -1168,7 +1168,7 @@
     if (st === "mine") l4 = `You founded ${c.name}`;
     else if (st === "founded") l4 = `${cl.status === "provisional" ? "Founder chosen" : "Founder"} ${cl.founder ? "@" + cl.founder : cl.wallet || ""}${membersKnown ? ` · ${fmt(h)} holder${h === 1 ? "" : "s"}` : ""}`;
     else if (st === "choosing") l4 = `${win.applicants} applying · closes in ${until(win.closesAt, Date.now())}`;
-    else if (st === "active") l4 = `No founder yet · ${fmt(h)} verified holder${h === 1 ? "" : "s"} · ${fmt(m)} member${m === 1 ? "" : "s"}`;
+    else if (st === "active") l4 = `${fmt(h)} holder${h === 1 ? "" : "s"} · ${fmt(m)} member${m === 1 ? "" : "s"} · no founder yet`; // the numbers first: a 320 px card cuts the end of this line
     else l4 = `No founder yet${membersKnown ? ` · ${fmt(m)} member${m === 1 ? "" : "s"}` : ""}`;
     // the area first, so a narrow screen that cuts the line keeps the number
     const plus = (members.get(c.id) || []).some((x) => joined.has(x.id)) ? " + nearby towns" : "";
@@ -1408,7 +1408,7 @@
       const cl = claims.get(c.id), mine = isMine(cl), parent = parts.has(c.id) && byId.get(parts.get(c.id));
       b.append(nm, parent ? el("span", "tag", `Part of ${parent.name}`)
         : outside.has(c.id) ? el("span", "tag", "No community yet")
-        : el("span", mine ? "tag tag--warn" : cl ? "tag tag--no" : windows.has(c.id) ? "tag tag--gold" : activeIds.has(c.id) ? "tag tag--active" : "tag tag--ok", mine ? "Yours" : cl ? "Founded" : windows.has(c.id) ? "Choosing" : activeIds.has(c.id) ? "Active" : "Open"));
+        : el("span", mine ? "tag tag--warn" : cl ? "tag tag--no" : windows.has(c.id) ? "tag tag--gold" : activeIds.has(c.id) ? "tag tag--active" : "tag tag--open", mine ? "Yours" : cl ? "Founded" : windows.has(c.id) ? "Choosing" : activeIds.has(c.id) ? "Active" : "Open"));
       b.addEventListener("click", () => select(c, true));
       li.append(b); return li;
     }));
@@ -1571,27 +1571,36 @@
     $("#cs-members").textContent = fmt(totalMembers);
     $("#cs-status").textContent = open ? "Open" : "At launch";
   }
-  let membersSig = "";
+  let membersSig = "", activeSig = "";
   /** Where verified members call home (public counts only), and the communities filling up fastest. */
   async function refreshMembers() {
     const d = await V().api?.("/api/members");
     if (!d || !Array.isArray(d.communities)) return;
     totalMembers = d.members || 0;
     memberCount = new Map(d.communities.map((c) => [String(c.id), c.members]));
-    holderCount = new Map(d.communities.map((c) => [String(c.id), c.holders || 0]));
-    activeIds = new Set(d.communities.filter((c) => c.holders > 0).map((c) => String(c.id))); // "active" on the map, unless founded or choosing (statusOf)
-    // nothing new: the card is written again (its countdown) but the map is not woken (its glow may be resting)
+    // holders null on every row: the server had no balance sample to count from (unknown, not 0). The counts seen last stay, so an
+    // active city does not turn open for a while and teal again.
+    if (d.communities.some((c) => typeof c.holders === "number")) {
+      holderCount = new Map(d.communities.map((c) => [String(c.id), c.holders || 0]));
+      activeIds = new Set(d.communities.filter((c) => c.holders > 0).map((c) => String(c.id))); // "active" on the map, unless founded or choosing (statusOf)
+    }
     const sig = JSON.stringify([d.members, d.communities]), same = membersKnown && sig === membersSig;
-    membersSig = sig; membersKnown = true; focusSig = "";
-    if (same) renderFocus(); else { dirty.focus = true; kick(); }
+    const act = [...activeIds].sort().join(","), activeChanged = act !== activeSig;
+    membersSig = sig; activeSig = act; membersKnown = true; focusSig = "";
+    // The set of active cities changed (the first answer with holders, a city's first holder, its last one gone): the teal cores are on the
+    // base layer, the rings on the glow layer, the chips say the status, the list rows and the panel too, so everything is drawn again,
+    // as refreshClaims does for a new founder (it used to mark the card alone: the markers waited for the next gesture). Otherwise
+    // nothing new: the card is written again (its countdown) but the map is not woken (its glow may be resting).
+    if (activeChanged) { chipCache.clear(); markAll(); renderList(); refreshPanel(); }
+    else if (same) renderFocus(); else { dirty.focus = true; kick(); }
     updateStats();
     const list = $("#wanted-list");
     if (!d.communities.length) { list.replaceChildren(el("li", "muted", "No members yet. Sign in and set your home community to put your city on this list.")); return; }
     list.replaceChildren(...d.communities.slice(0, 24).map((c) => {
-      const li = el("li"), city = byId.get(String(c.id)), cl = claims.get(String(c.id)), win = windows.has(String(c.id)), h = c.holders || 0, act = !cl && !win && h > 0; // the map's order: founded, choosing, active
+      const li = el("li"), city = byId.get(String(c.id)), cl = claims.get(String(c.id)), win = windows.has(String(c.id)), h = holderCount.get(String(c.id)) || 0, act = !cl && !win && h > 0; // the map's order: founded, choosing, active
       const txt = el("div");
       txt.append(el("strong", null, c.name), el("span", null, `${countries[c.country] || c.country} · ${fmt(c.members)} member${c.members === 1 ? "" : "s"}${h ? ` · ${fmt(h)} holder${h === 1 ? "" : "s"}` : ""}`));
-      li.append(txt, el("span", cl ? "tag tag--no" : win ? "tag tag--gold" : act ? "tag tag--active" : "tag tag--ok", cl ? "Founded" : win ? "Choosing" : act ? "Active" : "Seat open"));
+      li.append(txt, el("span", cl ? "tag tag--no" : win ? "tag tag--gold" : act ? "tag tag--active" : "tag tag--open", cl ? "Founded" : win ? "Choosing" : act ? "Active" : "Seat open"));
       if (city) {
         li.tabIndex = 0; li.style.cursor = "pointer";
         li.addEventListener("click", () => { select(city, true); sec.scrollIntoView({ behavior: reduced ? "auto" : "smooth" }); });

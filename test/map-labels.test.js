@@ -13,6 +13,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { IN_NYC, IN_UTICA, MINT, browser, clock, newWorld, person, realClock, tick, useClock } from "./helpers/world.js";
+import { ensureSchema } from "../src/store.js";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const js = read("public/cities.js"), css = read("public/style.css"), polish = read("public/polish-map.css"), page = read("public/cities.html"), src = read("scripts/pages/src/cities.html");
@@ -78,14 +80,14 @@ test("labels: a wall of 600 cities around the crosshair comes out as a handful o
   const want = items.filter((it) => ids.has(it.id)).sort(H.byRank);
   assert.equal(want[0].id, "c0", "the city in focus first");
   assert.ok(want.slice(1, 10).every((it) => it.status === "active" || it.status === "founded"), "then the cities with a status");
-  const markers = items.filter((it) => it.status !== "open").map((it) => [it.x - 8, it.y - 8, 16, 16]);
+  const markers = items.filter((it) => it.status !== "open").map((it) => [it.x - 10, it.y - 10, 20, 20]);
   const placed = H.placeLabels(want.map((it) => ({ id: it.id, x: it.x, y: it.y, tierWish: it.focus ? "A" : "B", focus: it.focus, size: { A: [120, 36], B: [90, 22], C: [50, 14] } })),
     { W, H: Hh, core: [[640 - 16, 350 - 16, 32, 32], ...markers], max });
   const count = (t) => placed.filter((p) => p.tier === t).length;
   assert.equal(count("A"), 1); assert.ok(count("B") <= max.B && count("C") <= max.C, `${count("B")} chips, ${count("C")} names (budget ${max.B} + ${max.C})`);
   assert.ok(count("B") + count("C") >= 8, "the budget is used");
   const hit = (p, r) => p.x < r[0] + r[2] && r[0] < p.x + p.w && p.y < r[1] + r[3] && r[1] < p.y + p.h;
-  for (const p of placed) for (const m of markers) assert.ok(!hit(p, m), `${p.id} covers a status marker at ${m[0] + 8},${m[1] + 8}`);
+  for (const p of placed) for (const m of markers) assert.ok(!hit(p, m), `${p.id} covers a status marker at ${m[0] + 10},${m[1] + 10}`);
   for (let i = 0; i < placed.length; i++) for (let j = i + 1; j < placed.length; j++) assert.ok(!hit(placed[i], [placed[j].x - 4, placed[j].y - 4, placed[j].w + 8, placed[j].h + 8]), `${placed[i].id} × ${placed[j].id}`);
   assert.deepEqual(plain({ ...H.labelFilter(items, 64, DESK), ids: [...ids] }), plain({ ...H.labelFilter(items, 64, DESK), ids: [...H.labelFilter(items, 64, DESK).ids] }), "deterministic");
 });
@@ -123,7 +125,7 @@ test("labels: the page applies the rule: the stage's size, the crosshair, the ph
   const layout = js.slice(js.indexOf("  function layoutLabels(now) {"), js.indexOf("  // text widths measured before the site's fonts arrive"));
   assert.match(layout, /const \{ ids, max \} = labelFilter\(cands, k, \{ phone, fx: fcx, fy: fcy, W, H \}\);/);
   assert.match(layout, /const want = cands\.filter\(\(it\) => ids\.has\(it\.id\)\)\.sort\(/, "only the cities the rule allows, in priority order");
-  assert.match(layout, /if \(st !== "open"\) markers\.push\(\[x - 8, y - 8, 16, 16\]\);/, "active, choosing, founded, yours: 16 px around the dot and its ring");
+  assert.match(layout, /if \(st !== "open"\) markers\.push\(\[x - 10, y - 10, 20, 20\]\);/, "active, choosing, founded, yours: 20 px around the dot, the whole ring (choosing ends at r 9, active at 8.25: a 16 px core let a chip touch the ring's outer pixel)");
   assert.match(layout, /const placed = items\.length \? placeLabels\(items, \{ W, H, avoid, soft: \[\[fcx - 20, fcy - 20, 40, 40\]\], core: \[\[fcx - 16, fcy - 16, 32, 32\], \.\.\.markers\], max \}\) : \[\];/);
   assert.match(layout, /span: spanOf\(c\)/);
   assert.match(js, /const spanOf = \(c\) => \{ const a = ov\.byId\.get\(c\.id\) \|\| areas\.get\(c\.id\); return \(a \? Math\.max\(a\.box\[2\] - a\.box\[0\], a\.box\[3\] - a\.box\[1\]\) : \(2 \* radiusOf\(c\)\) \/ 111\.32\) \* s0 \* k; \};/, "the boundary's longer side in pixels (the overview's box from the first view, the detailed one later, a 25/50 km circle for a city with no outline)");
@@ -157,8 +159,8 @@ test("active: verified holders and no founder yet; a founder or an open window c
   // where the ids come from: /api/members' per-city holders (members whose linked wallet holds $VICINITY; src/me.js leaves team wallets out)
   assert.match(js, /activeIds = new Set\(d\.communities\.filter\(\(c\) => c\.holders > 0\)\.map\(\(c\) => String\(c\.id\)\)\);/);
   const me = read("src/me.js");
-  assert.match(me, /if \(\(balances\[u\.wallet\] \|\| 0\) > 0 && !isTeamWallet\(u\.wallet\)\) holders\.set\(u\.home_city/, "the server's count: a positive balance, never a team wallet");
-  assert.match(me, /communities: top\.results\.map\(\(c\) => \(\{ \.\.\.c, holders: holders\.get\(c\.id\) \|\| 0 \}\)\)/);
+  assert.match(me, /if \(holders && \(balances\[u\.wallet\] \|\| 0\) > 0 && !isTeamWallet\(u\.wallet\)\) holders\.set\(u\.home_city/, "the server's count: a positive balance, never a team wallet");
+  assert.match(me, /communities: list\.map\(\(c\) => \(\{ \.\.\.c, holders: holders \? holders\.get\(c\.id\) \|\| 0 : null \}\)\)/, "null, unknown, while there is no balance sample (never 0)");
 });
 
 test("active: the marker always shows, has its own core dot, boundary fill, glow and a solid ring that stays with reduced motion (the shape, not the colour alone)", () => {
@@ -196,6 +198,9 @@ test("active: its colour comes from --st-active (polish-map.css, both themes), r
   assert.equal(dark[1].toUpperCase(), "#2ED3B7"); assert.equal(light[1].toUpperCase(), "#0E7C63");
   assert.match(js, /activeText: light \? "#0E7C63" : "#7CF0C5"/);
   assert.ok(ratio("#7CF0C5", "#070E19") >= 4.5 && ratio("#0E7C63", "#FFFFFF") >= 4.5, "on the chips' backgrounds");
+  // the Open pill's text (--st-open, style.css) on the dark card and the light one, and apart from the Active pill's: the two used to be 7° and 1.2:1 apart
+  assert.ok(ratio("#7FA3D6", "#0B1A2E") >= 4.5 && ratio("#3F67A6", "#FFFFFF") >= 4.5, `open pill text: ${ratio("#7FA3D6", "#0B1A2E").toFixed(1)}:1 dark, ${ratio("#3F67A6", "#FFFFFF").toFixed(1)}:1 light`);
+  for (const [a, b] of [["#7FA3D6", "#2ED3B7"], ["#3F67A6", "#0E7C63"]]) { const d = Math.abs(hue(a) - hue(b)); assert.ok(Math.min(d, 360 - d) >= 40, `open vs active: ${a} ${hue(a).toFixed(0)}° vs ${b} ${hue(b).toFixed(0)}°`); }
   for (const t of ['l.st === "active" ? pal.activeText : pal.choosingText; g.fillText(l.t.name', 'l.st === "active" ? pal.activeText : pal.choosingText; g.fillText(l.t.a2']) assert.ok(js.includes(t), t);
   // the page loads the sheet after style.css (built from scripts/pages/src, where the setting lives)
   assert.match(src, /^<!--\{[^\n]*"styles": \["polish-map"\]\}-->/);
@@ -212,18 +217,27 @@ test("active: the legend, the city card, the tags and the tooltip carry the colo
   assert.match(css, /\.dot \{ position: relative; \}/); assert.match(css, /\.map-focus__dot \{ position: relative;/);
   assert.match(polish, /\.map-focus\[data-status="active"\] \{ --focus: var\(--st-active\); \}/, "the card's 3 px bar and dot");
   assert.match(polish, /\.tag--active \{ background: rgba\(46,211,183,\.14\); border-color: var\(--st-active\); color: var\(--st-active\); \}/);
+  // the pills wear the legend's colours: Open steel blue (it shared the green of "Seat open" / "Join", 7° from the teal), and the Active pill carries the marker's ring as a glyph
+  assert.match(polish, /^\.tag--open \{ background: rgba\(127,163,214,\.14\); border-color: rgba\(127,163,214,\.5\); color: var\(--st-open\); \}$/m);
+  assert.match(polish, /^:root\[data-theme="light"\] \.tag--open \{ background: rgba\(63,103,166,\.1\); border-color: rgba\(63,103,166,\.45\); \}$/m);
+  assert.match(polish, /^\.tag--active::before \{ content: ""; display: inline-block; box-sizing: border-box; width: 8px; height: 8px; [^\n]*border-radius: 50%; border: 1\.5px solid currentColor; background: radial-gradient\(circle, currentColor 1\.2px, transparent 1\.8px\); \}$/m, "a ring with a dot, in the pill's own colour");
+  assert.match(polish, /^\.tag--open, \.tag--active \{ white-space: nowrap; \}/m, "a Most wanted row on a phone squeezes its pill: the glyph and the word stay on one line (the glyph is a break opportunity)");
+  // Most wanted: style.css's `.wanted span { color: var(--muted) }` (0,1,1) used to grey every pill there; `.wanted li > .tag--x` (0,2,1) keeps their colour
+  assert.match(css, /^\.wanted span \{ font-size: \.82rem; color: var\(--muted\); \}$/m);
+  assert.match(polish, /^\.wanted li > \.tag--open \{ color: var\(--st-open\); \} \.wanted li > \.tag--active \{ color: var\(--st-active\); \} \.wanted li > \.tag--gold \{ color: var\(--gold-text\); \} \.wanted li > \.tag--no \{ color: var\(--bad-text\); \}$/m);
   assert.match(polish, /\.tip-active \{ color: var\(--st-active\); font-weight: 600; \}/);
   // the card
-  assert.match(js, /const FOCUS_TAG = \{ open: \["tag tag--ok", "Open"\], active: \["tag tag--active", "Active"\], choosing:/);
-  assert.match(js, /else if \(st === "active"\) l4 = `No founder yet · \$\{fmt\(h\)\} verified holder\$\{h === 1 \? "" : "s"\} · \$\{fmt\(m\)\} member\$\{m === 1 \? "" : "s"\}`;/);
+  assert.match(js, /const FOCUS_TAG = \{ open: \["tag tag--open", "Open"\], active: \["tag tag--active", "Active"\], choosing:/, "the card's pills: open in the open marker's blue, not the green of tag--ok");
+  assert.match(js, /else if \(st === "active"\) l4 = `\$\{fmt\(h\)\} holder\$\{h === 1 \? "" : "s"\} · \$\{fmt\(m\)\} member\$\{m === 1 \? "" : "s"\} · no founder yet`;/, "the numbers first: a 320 px card cut the members count off the end of the old line");
+  assert.doesNotMatch(js, /"tag tag--ok", mine \? "Yours"|"tag tag--ok", cl \? "Founded"|open: \["tag tag--ok"/, "no status pill is green any more (the nearby list's Join is an action, it keeps tag--ok)");
   assert.match(js, /const STATUS_WORD = \{ open: "Open", active: "Active", choosing: "Choosing its founder", founded: "Founded", mine: "Yours" \};/, "the chips and the announcement");
   // the tooltip, the panel, the list, Most wanted
   assert.match(js, /el\("span", cl \? "tip-claimed" : st === "active" \? "tip-active" : "tip-open",/);
   assert.ok(js.includes('st === "active" ? `Active: ${fmt(h)} verified holder${h === 1 ? "" : "s"}, no founder yet` : "Open")'));
   assert.ok(js.includes('activeIds.has(selected.id) ? "Active · verified holders, no founder yet" : "Open city"'), "the panel's kicker");
-  assert.ok(js.includes('activeIds.has(c.id) ? "tag tag--active" : "tag tag--ok", mine ? "Yours" : cl ? "Founded" : windows.has(c.id) ? "Choosing" : activeIds.has(c.id) ? "Active" : "Open"'), "the list's rows");
-  assert.ok(js.includes('cl ? "tag tag--no" : win ? "tag tag--gold" : act ? "tag tag--active" : "tag tag--ok", cl ? "Founded" : win ? "Choosing" : act ? "Active" : "Seat open"'), "Most wanted: Active instead of Seat open, in the map's order (founded, choosing, active)");
-  assert.match(js, /win = windows\.has\(String\(c\.id\)\), h = c\.holders \|\| 0, act = !cl && !win && h > 0;/);
+  assert.ok(js.includes('activeIds.has(c.id) ? "tag tag--active" : "tag tag--open", mine ? "Yours" : cl ? "Founded" : windows.has(c.id) ? "Choosing" : activeIds.has(c.id) ? "Active" : "Open"'), "the list's rows");
+  assert.ok(js.includes('cl ? "tag tag--no" : win ? "tag tag--gold" : act ? "tag tag--active" : "tag tag--open", cl ? "Founded" : win ? "Choosing" : act ? "Active" : "Seat open"'), "Most wanted: Active instead of Seat open, in the map's order (founded, choosing, active)");
+  assert.match(js, /win = windows\.has\(String\(c\.id\)\), h = holderCount\.get\(String\(c\.id\)\) \|\| 0, act = !cl && !win && h > 0;/, "Most wanted reads the counts the map keeps (the last known ones while the server has no sample), not the row's own");
   assert.ok(js.includes("${h ? ` · ${fmt(h)} holder${h === 1 ? \"\" : \"s\"}` : \"\"}"), "Most wanted: the holders next to the members");
 });
 
@@ -240,7 +254,7 @@ test("active: the card's fourth line for an active city, and a founded city's li
     byId: new Map([[city.id, city]]), claims: new Map(), windows: new Map(), members: new Map(), memberCount: new Map([[city.id, 12]]), holderCount: new Map([[city.id, 7]]), joined: new Set(),
     ov: { failed: false }, compact: new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }), fmt: (n) => Number(n).toLocaleString("en-US"), placeOf: () => "New York, United States",
     tickerOf: () => "SYRACUSE", founderMin: () => 240000, until: () => "1h", toLonLat: () => [0, 0], nearestCommunities: () => [], fcx: 0, fcy: 0,
-    FOCUS_TAG: { open: ["tag tag--ok", "Open"], active: ["tag tag--active", "Active"], founded: ["tag tag--no", "Founded"] }, STATUS_WORD: { open: "Open", active: "Active", founded: "Founded" },
+    FOCUS_TAG: { open: ["tag tag--open", "Open"], active: ["tag tag--active", "Active"], founded: ["tag tag--no", "Founded"] }, STATUS_WORD: { open: "Open", active: "Active", founded: "Founded" },
     setTimeout: (f) => { f(); return 1; }, clearTimeout() {}, Date: { now: () => 0 } };
   vm.createContext(ctx);
   vm.runInContext(`let focusId = "5140405", focusSig = "", nearestGo = null, swapping = 0, sayTimer = 0, reduced = true, membersKnown = true, st0 = "active";
@@ -250,10 +264,116 @@ test("active: the card's fourth line for an active city, and a founded city's li
   ctx.api.renderFocus();
   assert.equal(focusEl.dataset.status, "active");
   assert.equal(els["#mf-status"].className, "tag tag--active map-focus__status"); assert.equal(els["#mf-status"].textContent, "Active");
-  assert.equal(els["#mf-line"].textContent, "No founder yet · 7 verified holders · 12 members");
-  assert.match(els["#mf-say"].textContent, /^In focus: Syracuse, New York, United States\. Active\. \$SYRACUSE\. Founder amount 240K \$VICINITY\. No founder yet · 7 verified holders · 12 members\.$/);
+  assert.equal(els["#mf-line"].textContent, "7 holders · 12 members · no founder yet", "the numbers first (a 320 px card cuts the end of the line); the pill above says Active");
+  assert.match(els["#mf-say"].textContent, /^In focus: Syracuse, New York, United States\. Active\. \$SYRACUSE\. Founder amount 240K \$VICINITY\. 7 holders · 12 members · no founder yet\.$/);
+  assert.equal(els["#mf-line"].textContent.length, 39, "fits a 320 px card at 12 px (the old 47-character line was cut after 'members' there)");
   ctx.api.set("open"); ctx.api.renderFocus();
   assert.equal(els["#mf-line"].textContent, "No founder yet · 12 members");
   ctx.claims.set("5140405", { status: "active", founder: "Sam" }); ctx.api.set("founded"); ctx.api.renderFocus();
   assert.equal(els["#mf-line"].textContent, "Founder @Sam · 7 holders");
+});
+
+/* ---------------- new data: the map says "active" the moment /api/members says so (M1 / F1 of the review, 9 Oct 2026) ---------------- */
+
+/** refreshMembers, run with the page's state and stubs that record what it asks for. */
+function membersPage() {
+  const SLICE = js.slice(js.indexOf('  let membersSig = "", activeSig = "";'), js.indexOf("  function renderFeed(fresh = new Set()) {"));
+  assert.ok(SLICE.includes("async function refreshMembers()") && SLICE.length < 4000, "the refreshMembers block");
+  const ctx = { calls: [], tags: [], answer: null, $: () => ({ replaceChildren() {} }), byId: new Map(), claims: new Map(), windows: new Map(), countries: { US: "United States" }, fmt: (n) => String(n), sec: {}, reduced: true, select() {} };
+  ctx.el = (tag, cls, txt) => { if (cls && /\btag\b/.test(cls)) ctx.tags.push(`${cls}|${txt}`); return { className: cls || "", textContent: txt || "", style: {}, append() {}, addEventListener() {} }; };
+  ctx.V = () => ({ api: async () => ctx.answer });
+  vm.createContext(ctx);
+  vm.runInContext(`
+    let memberCount = new Map(), holderCount = new Map(), activeIds = new Set(), totalMembers = 0, membersKnown = false, focusSig = "x";
+    const dirty = { base: false, labels: false, layout: false, focus: false, fx: false };
+    const log = (n) => () => calls.push(n);
+    const kick = () => { dirty.fx = true; calls.push("kick"); };
+    function markAll() { dirty.base = dirty.labels = dirty.layout = dirty.focus = true; calls.push("markAll"); kick(); }
+    const renderFocus = log("renderFocus"), renderList = log("renderList"), refreshPanel = log("refreshPanel"), updateStats = log("updateStats");
+    const chipCache = { clear: log("chipCache.clear") };
+    ${SLICE}
+    this.api = { refreshMembers, dirty, state: () => JSON.stringify({ active: [...activeIds].sort(), holders: Object.fromEntries(holderCount), members: Object.fromEntries(memberCount), total: totalMembers, known: membersKnown }), // a string: parsed in this realm (deepEqual minds the prototypes)
+      reset: () => { for (const key of Object.keys(dirty)) dirty[key] = false; calls.length = 0; tags.length = 0; } };`, ctx);
+  const run = async (communities, members = 100) => { ctx.api.reset(); ctx.answer = { members, communities }; await ctx.api.refreshMembers(); return { dirty: JSON.parse(JSON.stringify(ctx.api.dirty)), calls: ctx.calls.slice(), tags: ctx.tags.slice(), ...JSON.parse(ctx.api.state()) }; };
+  return { run, ctx };
+}
+const SYR = { id: 5140405, name: "Syracuse", country: "US", members: 12, holders: 7 }, BUF = { id: 5110629, name: "Buffalo", country: "US", members: 5, holders: 0 };
+const ALL = { base: true, labels: true, layout: true, focus: true, fx: true }, NONE = { base: false, labels: false, layout: false, focus: false, fx: false };
+
+test("active: the first answer with holders marks the base (teal cores), the layout (rings, chips), the labels and the card dirty, clears the chip cache and re-renders the list and the panel: nothing waits for a gesture", async () => {
+  const { run } = membersPage();
+  const r = await run([SYR, BUF]);
+  assert.deepEqual(r.active, ["5140405"]); assert.deepEqual(r.holders, { 5140405: 7, 5110629: 0 }); assert.equal(r.known, true);
+  assert.deepEqual(r.dirty, ALL, "the same path refreshClaims takes for a new founder (markAll)");
+  assert.deepEqual(r.calls.slice(0, 5), ["chipCache.clear", "markAll", "kick", "renderList", "refreshPanel"]);
+  assert.ok(!r.calls.includes("renderFocus"), "the card is drawn by the frame (dirty.focus), not twice");
+  assert.deepEqual(r.tags, ["tag tag--active|Active", "tag tag--open|Seat open"], "Most wanted: Syracuse active, Buffalo open, in the legend's colours");
+});
+
+test("active: the same answer again leaves the map alone (its glow may be resting): the card alone is written; new member counts with the same active cities wake the card only", async () => {
+  const { run } = membersPage();
+  await run([SYR, BUF]);
+  const same = await run([SYR, BUF]);
+  assert.deepEqual(same.dirty, NONE, "no kick: the resting glow stays asleep");
+  assert.deepEqual(same.calls, ["renderFocus", "updateStats"]);
+  const grew = await run([{ ...SYR, members: 13 }, { ...BUF, members: 6 }]);
+  assert.deepEqual(grew.dirty, { ...NONE, focus: true, fx: true }, "the card follows the numbers; the base is not drawn again for a member count");
+  assert.deepEqual(grew.calls, ["kick", "updateStats"]);
+  assert.deepEqual(grew.members, { 5140405: 13, 5110629: 6 });
+});
+
+test("active: a city's first holder (the page's 30 s refresh) and the last one gone both redraw everything, as the data says", async () => {
+  const { run } = membersPage();
+  await run([SYR, BUF]);
+  const buffalo = await run([SYR, { ...BUF, holders: 3 }]);
+  assert.deepEqual(buffalo.active, ["5110629", "5140405"]); assert.deepEqual(buffalo.dirty, ALL);
+  assert.ok(buffalo.calls.includes("markAll") && buffalo.calls.includes("renderList") && buffalo.calls.includes("refreshPanel"));
+  assert.deepEqual(buffalo.tags, ["tag tag--active|Active", "tag tag--active|Active"]);
+  const gone = await run([{ ...SYR, holders: 0 }, { ...BUF, holders: 0 }]);
+  assert.deepEqual(gone.active, []); assert.deepEqual(gone.dirty, ALL, "back to open: the teal cores and rings must go too");
+  assert.deepEqual(gone.tags, ["tag tag--open|Seat open", "tag tag--open|Seat open"]);
+});
+
+test("active: an answer with holders null on every row (the server had no balance sample) keeps the counts seen last: no city turns open, the map is not redrawn, Most wanted agrees with the map", async () => {
+  const { run } = membersPage();
+  const first = await run([{ ...SYR, holders: null }, { ...BUF, holders: null }]);
+  assert.deepEqual(first.active, []); assert.deepEqual(first.holders, {}); assert.deepEqual(first.dirty, { ...NONE, focus: true, fx: true }, "nothing known yet: nothing active, the card alone");
+  assert.deepEqual(first.tags, ["tag tag--open|Seat open", "tag tag--open|Seat open"]);
+  await run([SYR, { ...BUF, holders: 3 }]);
+  const unknown = await run([{ ...SYR, holders: null }, { ...BUF, holders: null }]);
+  assert.deepEqual(unknown.active, ["5110629", "5140405"], "kept"); assert.deepEqual(unknown.holders, { 5140405: 7, 5110629: 3 });
+  assert.deepEqual(unknown.dirty, { ...NONE, focus: true, fx: true }, "the set did not change: no redraw of the base");
+  assert.deepEqual(unknown.tags, ["tag tag--active|Active", "tag tag--active|Active"], "Most wanted reads the kept counts, not the row's null");
+  const back = await run([SYR, { ...BUF, holders: 3 }]);
+  assert.deepEqual(back.dirty, { ...NONE, focus: true, fx: true }, "the sample is back with the same cities: still no redraw");
+});
+
+test("active: /api/members (the Worker) lists every community with a holder beyond the 300 largest, and says holders null (unknown) while there is no balance sample", async () => {
+  useClock();
+  try {
+    const env = newWorld({ VICINITY_MINT: MINT });
+    await ensureSchema(env.DB);
+    // 300 communities of three people, written straight into users (throwaway values), as test/launchpad.test.js does
+    const t = new Date(clock.now).toISOString(), rows = [];
+    for (let i = 1; i <= 300; i++) for (let k = 0; k < 3; k++) {
+      rows.push(env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, name, home_city, home_name, home_country, home_at, created_at) VALUES (?, 'google', ?, 'Someone', ?, ?, 'US', ?, ?)")
+        .bind(`test-wallet-${i}-${k}`, `test-${i}-${k}`, `c${i}`, `Community ${i}`, t, t));
+    }
+    await env.DB.batch(rows);
+    await person(env, { home: IN_UTICA, holds: 50 }); // Utica: two members, one holder
+    await person(env, { home: IN_UTICA });
+    await person(env, { home: IN_NYC });               // one member, no holder
+    const b = browser(env);
+    let m = await b.get("/api/members");
+    assert.equal(m.members, 903);
+    assert.equal(m.communities.length, 300, "no sample yet: the 300 largest alone");
+    assert.ok(m.communities.every((c) => c.holders === null), "holders unknown, not 0");
+    assert.deepEqual(m.communities[0], { id: "c1", name: "Community 1", country: "US", members: 3, holders: null });
+    await tick(env); // the balance sample
+    m = await b.get("/api/members");
+    assert.equal(m.communities.length, 301);
+    assert.ok(m.communities.slice(0, 300).every((c) => c.members === 3 && c.holders === 0), "the 300 largest first, as before");
+    assert.deepEqual(m.communities[300], { id: "5142056", name: "Utica", country: "US", members: 2, holders: 1 }, "then the small community with a holder: the map paints it active");
+    assert.equal(m.communities.some((c) => c.members === 1), false, "a small community without a holder is still not listed");
+  } finally { realClock(); }
 });
