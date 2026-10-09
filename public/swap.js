@@ -25,19 +25,41 @@
   }
   const fromB64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
   const toB64 = (b) => btoa(String.fromCharCode(...b));
-  const num = (v, max = 6) => Number(v).toLocaleString("en-US", { maximumFractionDigits: v > 0 && Math.abs(v) < 1 ? Math.min(9, Math.max(max, 6)) : max });
+  /** A token amount by magnitude: thousands get 2 decimals (178,332.44 fits a phone), units up to 4, fractions 6 significant digits (0.00474993, 0.000005). */
+  const num = (v, max = 6) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    const a = Math.abs(n);
+    return a >= 1000 ? n.toLocaleString("en-US", { maximumFractionDigits: 2 }) : a >= 1 ? n.toLocaleString("en-US", { maximumFractionDigits: Math.min(max, 4) }) : n.toLocaleString("en-US", { maximumSignificantDigits: 6 });
+  };
   const usd = (v) => (v == null ? "" : v >= 1000 ? "$" + Math.round(v).toLocaleString("en-US") : v >= 1 ? "$" + v.toFixed(2) : "$" + Number(v.toPrecision(3)));
+  const sol = (lamports) => num(Number(lamports || 0) / 1e9, 6);
+  /**
+   * Did the build the wallet is about to sign come out WORSE than the quote on the screen? By the raw amounts (more than 0.5 %
+   * less out, or a lower minimum) or by the price impact crossing the 3 % / 10 % lines. A better price never stops anyone.
+   */
+  function worseThan(prev, next) {
+    if (!prev || !next) return null;
+    const drop = (a, b) => { try { const A = BigInt(a), B = BigInt(b); return A > 0n ? Number(((A - B) * 10000n) / A) / 100 : 0; } catch { return 0; } };
+    const impactOf = (q) => { const v = q && q.priceImpactPct != null ? Number(q.priceImpactPct) : 0; return Number.isFinite(v) ? v : 0; };
+    const band = (v) => (v > 10 ? 2 : v > 3 ? 1 : 0);
+    const outDrop = drop(prev.outAmount, next.outAmount), minDrop = drop(prev.minOut, next.minOut), crossed = band(impactOf(next)) > band(impactOf(prev));
+    return { worse: outDrop > 0.5 || minDrop > 0.5 || crossed, outDrop, minDrop, crossed };
+  }
   const shortAddr = (a) => (a && a.length > 10 ? `${a.slice(0, 4)}…${a.slice(-4)}` : a || "");
   const COLORS = { [SOL]: "#9945FF", [USDC]: "#2775CA", [USDT]: "#26A17B" };
 
   /** Plain words for every code the routes or a wallet can answer with. */
   const WORDS = {
     rejected: "Cancelled in your wallet. Nothing was sent.",
-    insufficient_sol: "Not enough SOL for this plus the network fee (about 0.000005 SOL, plus about 0.002 SOL once to create a token account).",
+    insufficient_sol: "Not enough SOL for this plus the network fee, the priority fee (up to 0.01 SOL) and about 0.002 SOL of rent for each token account that does not exist yet.",
     insufficient_balance: "You do not hold that much of this token.",
     slippage: "The price moved more than your slippage allows. Nothing was spent. Try again or raise slippage.",
     expired: "The network didn't include it in time. Nothing was spent. Try again.",
     blockhash_expired: "The network didn't include it in time. Nothing was spent. Try again.",
+    unconfirmed: "We could not confirm it in time. Open the Solscan link or check your wallet: if it went through, your balance already shows it; if not, nothing was spent.",
+    bad_ticket: "This transaction was not built here, or its ticket expired. Press Swap again.",
+    misconfigured: "Curve trading is paused: a setting on our side does not match. Nothing was sent.",
     no_route: "No market can trade this pair right now.",
     jupiter_busy: "The price service is busy. Try again in a few seconds.",
     jupiter_unavailable: "The price service could not be reached. Try again in a minute.",
@@ -54,7 +76,7 @@
     stage_graduated: "This coin has graduated: it trades on a pool now.",
     curve_not_found: "This coin is not listed for trading here.",
     curve_quote_only: "This coin is still on its bonding curve: it trades against its own pair token only.",
-    needs_v0: "This route needs a version-0 transaction, which this wallet cannot sign. Try Phantom, Solflare or Backpack.",
+    needs_v0: "This route needs a version-0 transaction, which this wallet does not support here. Update the wallet, or use one that supports version-0 transactions.",
     not_enabled: "Swapping is switched off right now.",
     rejected_by_network: "The network refused this transaction. Nothing was spent.",
     program_error: "The market refused this trade. Nothing was spent.",
@@ -76,6 +98,7 @@
   const decimalsOf = (mint) => { const t = tokenOf(mint); return t ? t.decimals : 6; };
   const wallet = { adapter: null, address: null, listeners: new Set() };
   const onWallet = (f) => { wallet.listeners.add(f); return () => wallet.listeners.delete(f); };
+  let helpIds = 0;
   function setWallet(adapter, address) { wallet.adapter = adapter; wallet.address = address; for (const f of wallet.listeners) { try { f(); } catch { /* one panel's trouble is its own */ } } }
   const panels = new Set();
 
@@ -98,12 +121,24 @@
         quote: null, curve: null, error: null, sig: null, lvbh: null, cluster: "mainnet", chain: "solana:mainnet", understood: false, balances: null, picker: null, search: "", found: [],
       };
       this.title = opts.title || root.dataset.title || (this.mode === "buy" ? `Buy ${symbolOf(this.s.out, "this coin")}` : "Swap");
-      this.timer = 0; this.refresh = 0; this.abort = null; this.poll = 0; this.seq = 0;
+      this.timer = 0; this.refresh = 0; this.abort = null; this.poll = 0; this.seq = 0; this.dead = false;
       this.build(); this.render();
-      onWallet(() => { this.render(); this.loadBalances(); if (this.s.amount && ["quoted", "failed", "idle"].includes(this.s.phase)) { this.phase("quoting"); this.quote(); } });
+      this.offWallet = onWallet(() => { this.render(); this.loadBalances(); if (this.s.amount && ["quoted", "failed", "idle"].includes(this.s.phase)) { this.phase("quoting"); this.quote(); } });
       panels.add(this);
       if (!this.s.out && config) this.s.out = config.tokens.find((t) => t.kind === "vicinity")?.mint || null;
       this.loadBalances();
+    }
+    /** Retire the panel: timers, the in-flight quote, the status poll, the wallet and visibility listeners (a sheet opened on five cards leaves no five live panels behind). */
+    destroy() {
+      if (this.dead) return;
+      this.dead = true;
+      clearTimeout(this.timer); clearTimeout(this.refresh); clearTimeout(this.poll);
+      if (this.abort) { this.abort.abort(); this.abort = null; }
+      this.seq++; this.s.sig = null;
+      if (this.offWallet) this.offWallet();
+      document.removeEventListener("visibilitychange", this.onVisibility);
+      panels.delete(this);
+      if (this.root && this.root._swap === this) this.root._swap = null;
     }
     /* ----- markup ----- */
     build() {
@@ -141,10 +176,14 @@
       const custom = el("input", "swap__chip swap__chip--custom"); custom.inputMode = "decimal"; custom.placeholder = "custom %"; custom.setAttribute("aria-label", "Custom slippage in percent"); custom.maxLength = 5;
       custom.addEventListener("change", () => { const p = Number(String(custom.value).replace(",", ".")); if (Number.isFinite(p) && p > 0) this.setSlippage(Math.min(5000, Math.max(1, Math.round(p * 100)))); else custom.value = ""; });
       slip.append(custom); this.customSlip = custom;
+      // the three words a first-time buyer meets, in one sentence
+      const help = el("p", "tiny muted swap__help", "Slippage is how much worse than this quote you still accept. If the price moves past Min received, the trade stops and nothing is spent; Price impact is how much your own trade moves the price."); help.setAttribute("id", `swap-help-${++helpIds}`);
+      custom.setAttribute("aria-describedby", help.getAttribute("id"));
       // details
       const dl = el("dl", "swap__details");
       const kv = (k) => { const dt = el("dt", null, k), dd = el("dd", null, "—"); dl.append(dt, dd); return dd; };
       this.dMin = kv("Min received"); this.dImpact = kv("Price impact"); this.dFee = kv("Fee"); this.dRoute = kv("Route");
+      this.rentDt = el("dt", null, "Account rent"); this.dRent = el("dd", null, ""); dl.append(this.rentDt, this.dRent); this.rentDt.hidden = this.dRent.hidden = true; // shown only when a trade will ask for rent
       // warnings, status, action
       const warn = el("label", "swap__warn"); warn.hidden = true;
       const cb = el("input"); cb.type = "checkbox"; this.understand = cb;
@@ -158,11 +197,12 @@
       const foot = el("p", "tiny muted swap__foot"); this.foot = foot;
       const picker = el("div", "swap__picker"); picker.hidden = true; this.picker = picker;
       const walletBox = el("div", "swap__wallets"); walletBox.hidden = true; this.walletBox = walletBox;
-      r.append(head, box, slip, dl, warn, status, go, links, foot, picker, walletBox);
+      r.append(head, box, slip, help, dl, warn, status, go, links, foot, picker, walletBox);
       this.inAmt.addEventListener("input", () => this.onAmount());
       this.inAmt.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); this.primary(); } });
-      // the 12-second refresh while the page is looked at
-      document.addEventListener("visibilitychange", () => { if (document.hidden) clearTimeout(this.refresh); else if (this.s.phase === "quoted") this.scheduleRefresh(); });
+      // the 12-second refresh while the page is looked at (removed again by destroy())
+      this.onVisibility = () => { if (document.hidden) clearTimeout(this.refresh); else if (this.s.phase === "quoted") this.scheduleRefresh(); };
+      document.addEventListener("visibilitychange", this.onVisibility);
     }
     /* ----- state ----- */
     phase(p, extra = {}) { Object.assign(this.s, { phase: p }, extra); this.render(); }
@@ -193,11 +233,12 @@
       if (v <= 0) { toast(this.s.in === SOL ? `Keep at least ${KEEP_SOL} SOL for fees` : "Nothing to swap"); return; }
       this.inAmt.value = String(Number(v.toFixed(Math.min(9, decimalsOf(this.s.in))))); this.onAmount();
     }
-    async loadBalances() {
-      if (!this.connected || !config) { this.s.balances = null; this.render(); return; }
+    async loadBalances(fresh = false) {
+      if (!this.connected || !config || this.dead) { this.s.balances = null; this.render(); return; }
       const mints = [this.s.in, this.s.out].filter((m) => m && m !== SOL).slice(0, 2);
-      const d = await api(`/api/swap/balances?owner=${encodeURIComponent(wallet.address)}&mints=${mints.join(",")}&cluster=${this.s.cluster}`).catch(() => null);
-      if (d && d.ok) { this.s.balances = d; this.render(); }
+      // fresh: right after a confirmed trade the chain is read again instead of the Worker's 10-second memo
+      const d = await api(`/api/swap/balances?owner=${encodeURIComponent(wallet.address)}&mints=${mints.join(",")}&cluster=${this.s.cluster}${fresh ? "&fresh=1" : ""}`).catch(() => null);
+      if (d && d.ok && !this.dead) { this.s.balances = d; this.render(); }
     }
     /* ----- quotes ----- */
     async quote(silent = false) {
@@ -214,7 +255,7 @@
       } else this.s.curve = null;
       if (!d || !d.ok) { this.s.quote = null; this.phase("failed", { error: d || { error: "swap_unavailable" }, soft: true }); return; }
       this.s.quote = d; this.s.cluster = d.cluster || "mainnet"; this.s.chain = d.chain || "solana:mainnet";
-      this.phase("quoted", { error: null });
+      this.phase("quoted", { error: null, moved: false });
       this.scheduleRefresh();
     }
     /* ----- the trade ----- */
@@ -229,14 +270,22 @@
       if (this.s.quote.expiresAt && Date.parse(this.s.quote.expiresAt) < Date.now()) { await this.quote(true); if (this.s.phase !== "quoted") return; }
       const chain = this.s.chain;
       if (chain !== "solana:mainnet" && this.accountChains.length && !this.accountChains.includes(chain)) return this.phase("failed", { error: { error: "wallet_devnet" }, soft: true });
-      this.phase("building", { error: null, sig: null });
+      this.phase("building", { error: null, sig: null, moved: false });
       const legacy = !(wallet.adapter.txVersions || []).some((v) => v === 0 || v === "0");
       const body = this.s.curve
         ? { mint: this.s.curve.mint, side: this.s.curve.side, amount: this.s.amount, slippageBps: this.s.slippage, taker: wallet.address, quoteId: this.s.quote.quoteId, ...(legacy ? { v: "legacy" } : {}) }
         : { inputMint: this.s.in, outputMint: this.s.out, amount: this.s.amount, slippageBps: this.s.slippage, taker: wallet.address, quoteId: this.s.quote.quoteId, ...(legacy ? { v: "legacy" } : {}) };
       const t = await post(this.s.curve ? "/api/launchpad/trade/tx" : "/api/swap/tx", body);
+      if (this.dead) return;
       if (!t || !t.ok) return this.phase("failed", { error: t || { error: "swap_unavailable" }, soft: true });
+      // The quote of the build the wallet is about to sign is the truth, never the preview (the preview may be an estimate, or
+      // its build may have expired and been made again): show THAT, and when it came out worse than what was on the screen, stop
+      // here and let the person read it and press again (the 10 % guard is judged on it too).
+      const built = t.quote && t.quote.outAmount ? { ...t.quote, fees: { ...(t.quote.fees || {}), ...(t.fees || {}) } } : null;
+      const change = built ? worseThan(this.s.quote, built) : null;
+      if (built) { this.s.quote = built; this.s.chain = t.chain || this.s.chain; }
       this.s.lvbh = t.lastValidBlockHeight; this.s.cluster = t.cluster || this.s.cluster;
+      if (change && change.worse) { this.s.understood = false; this.understand.checked = false; this.phase("quoted", { error: null, moved: true }); this.scheduleRefresh(); return; }
       const bytes = fromB64(t.tx);
       let signature;
       try {
@@ -247,28 +296,37 @@
         } else {
           const signed = await wallet.adapter.signTransaction(bytes, t.chain || chain);
           this.phase("sending");
-          const r = await post("/api/swap/send", { tx: toB64(signed), lastValidBlockHeight: t.lastValidBlockHeight, cluster: this.s.cluster });
+          const r = await post("/api/swap/send", { tx: toB64(signed), ticket: t.ticket, lastValidBlockHeight: t.lastValidBlockHeight, cluster: this.s.cluster });
           if (!r || !r.ok) return this.phase("failed", { error: r || { error: "rpc_unavailable" } });
           signature = r.signature;
         }
       } catch (e) {
         return this.phase("failed", { error: { error: isReject(e) ? "rejected" : e && e.code === "no_send" ? "no_send" : /devnet|chain|network/i.test(String(e && e.message)) && chain !== "solana:mainnet" ? "wallet_devnet" : "rejected_by_network" }, soft: isReject(e) });
       }
-      this.phase("confirming", { sig: signature });
+      this.phase("confirming", { sig: signature, checking: false });
       this.watch(signature, t.lastValidBlockHeight);
     }
+    /**
+     * Poll the status every 2 s. A refused poll (429 from a crowded network address) is not silence: the line says "Still
+     * checking…", the next poll waits for Retry-After (at most 15 s) and that wait never counts against the 90 s; only the
+     * chain saying "expired" (the block height passed) or a failure ends it badly. After 90 s of real answers that are still
+     * pending the words say "could not confirm", never "nothing was spent".
+     */
     watch(sig, lvbh) {
       clearTimeout(this.poll);
-      const started = Date.now();
+      let deadline = Date.now() + POLL_MAX_MS;
       const tick = async () => {
-        if (this.s.sig !== sig) return;
-        const d = await api(`/api/swap/status?sig=${sig}&lvbh=${lvbh || ""}&cluster=${this.s.cluster}&via=${this.s.curve ? "curve" : "jupiter"}`).catch(() => null);
-        if (this.s.sig !== sig) return;
-        if (d && d.ok && (d.status === "confirmed" || d.status === "finalized")) { this.phase("done"); this.loadBalances(); try { const r = this.go.getBoundingClientRect(); burst(r.left + r.width / 2, r.top); } catch { /* no burst */ } return; }
+        if (this.s.sig !== sig || this.dead) return;
+        const d = await req(`/api/swap/status?sig=${sig}&lvbh=${lvbh || ""}&cluster=${this.s.cluster}&via=${this.s.curve ? "curve" : "jupiter"}`);
+        if (this.s.sig !== sig || this.dead) return;
+        if (d && d.ok && (d.status === "confirmed" || d.status === "finalized")) { this.phase("done"); setTimeout(() => this.loadBalances(true), 1000); try { const r = this.go.getBoundingClientRect(); burst(r.left + r.width / 2, r.top); } catch { /* no burst */ } return; }
         if (d && d.ok && d.status === "failed") return this.phase("failed", { error: { error: d.err || "rejected_by_network", name: d.name } });
         if (d && d.ok && d.status === "expired") return this.phase("failed", { error: { error: "expired" } });
-        if (Date.now() - started > POLL_MAX_MS) return this.phase("failed", { error: { error: "expired" }, pending: true });
-        this.poll = setTimeout(tick, POLL_MS);
+        let wait = POLL_MS;
+        if (d && d._status === 429) { wait = Math.min(15_000, Math.max(POLL_MS * 2, Number(d.retryAfterS || 0) * 1000)); deadline += wait; if (!this.s.checking) this.phase("confirming", { checking: true }); }
+        else if (!d || !d.ok) wait = Math.min(10_000, POLL_MS * 2);
+        if (Date.now() > deadline) return this.phase("failed", { error: { error: "unconfirmed" }, pending: true });
+        this.poll = setTimeout(tick, wait);
       };
       this.poll = setTimeout(tick, 1200);
     }
@@ -372,8 +430,22 @@
       this.dMin.textContent = q ? `${num(Number(q.minOutUi), 6)} ${sym(s.out)}` : "—";
       this.dImpact.textContent = q ? (q.priceImpactPct == null ? "unknown" : `${impact < 0.01 ? "<0.01" : impact.toFixed(2)}%`) : "—";
       this.dImpact.className = impact > 10 ? "is-bad" : impact > 3 ? "is-warn" : "";
-      this.dFee.textContent = q ? (q.fees && q.fees.curveFeeBps != null ? `${(q.fees.curveFeeBps / 100).toFixed(2)}% curve fee · network ≈ ${num((q.fees.networkLamports || 5000) / 1e9, 6)} SOL` : `network ≈ ${num(((q.fees && q.fees.networkLamports) || 5000) / 1e9, 6)} SOL${q.fees && q.fees.platformFeeBps ? ` · ${q.fees.platformFeeBps / 100}% platform` : " · no platform fee"}`) : "—";
+      // the fee line names every lamport the trade can cost: the network fee, the priority fee (the exact one once the
+      // transaction is built, else the most the Worker allows), the curve or platform fee
+      const f = q && q.fees ? q.fees : null;
+      const prio = !f ? "" : f.priorityLamports != null ? (f.priorityLamports > 0 ? `priority ${sol(f.priorityLamports)} SOL` : "no priority fee") : f.priorityLamportsMax > 0 ? `priority ≤ ${sol(f.priorityLamportsMax)} SOL` : "";
+      const net = f ? `network ≈ ${sol(f.networkLamports || 5000)} SOL${prio ? ` · ${prio}` : ""}` : "";
+      const platform = f && f.platformFeeBps > 0 ? ` · ${(f.platformFeeBps / 100).toString()}% platform fee` : " · no platform fee";
+      this.dFee.textContent = q ? (f && f.curveFeeBps != null ? `${(f.curveFeeBps / 100).toFixed(2)}% curve fee · ${net}` : `${net}${platform}`) : "—";
       this.dRoute.textContent = q ? (q.source === "curve" ? "Executed on the Meteora bonding curve" : q.routeText || "Routed by Jupiter") : "—";
+      // rent: a token account of the person's that does not exist yet (returned when closed), and on a curve the platform's
+      // referral account when it is missing (that one is not returned): said before the wallet opens, not after
+      const rentBits = [];
+      const outAcct = b && this.connected && s.out !== SOL && b.tokens && b.tokens[s.out] ? b.tokens[s.out].hasAccount : null;
+      if (q && outAcct === false) rentBits.push(`about ${sol((f && f.rentLamports) || 2039280)} SOL once creates your ${sym(s.out)} account (returned when you close it)`);
+      if (q && f && f.referralRentLamports > 0) rentBits.push(f.referralNote || `about ${sol(f.referralRentLamports)} SOL re-creates the platform's fee account (not returned)`);
+      this.dRent.textContent = rentBits.join("; ");
+      this.dRent.hidden = this.rentDt.hidden = !rentBits.length;
       this.root.classList.toggle("is-warn", impact > 3 && impact <= 10);
       this.root.classList.toggle("is-bad", impact > 10);
       this.warn.hidden = !(q && impact > 10 && s.phase === "quoted");
@@ -382,20 +454,21 @@
       const [cls, text] = tags[s.phase] || ["", ""];
       this.state.className = `tag swap__state ${cls}`; this.state.textContent = text;
       // the status line
-      const sol = (lam) => num(lam / 1e9, 6);
+      const intro = this.mode === "buy" && !s.flipped ? `You pay ${sym(s.in)}, the market gives you ${sym(s.out)}; your own wallet asks you to confirm.` : "Pick the pair and an amount; your own wallet asks you to confirm.";
       const lines = {
-        idle: this.connected ? `Connected ${shortAddr(wallet.address)}${wallet.adapter && !this.canSendHere ? " · " + WORDS.no_send : ""}` : "",
+        idle: this.connected ? `Connected ${shortAddr(wallet.address)}${wallet.adapter && !this.canSendHere ? " · " + WORDS.no_send : ""}` : intro,
         quoting: "Getting the best price…",
-        quoted: (q ? `${q.estimate ? "Estimate: the exact amount is fixed when you press Swap. " : ""}${q.partialFill ? `The curve takes only what it can still sell; the rest (${num(Number(q.refund) / 10 ** (q.decimals ? q.decimals.in : 9), 6)} ${sym(s.in)}) comes back. ` : ""}${impact > 3 ? `Price impact ${impact.toFixed(2)}%: a smaller amount gets a better price. ` : ""}` : "") || (this.connected ? `Connected ${shortAddr(wallet.address)}` : "Connect a wallet to swap."),
+        quoted: s.moved && q ? `The price moved since your quote: you would now get ${num(Number(q.outUi), 6)} ${sym(s.out)} (at least ${num(Number(q.minOutUi), 6)}). Nothing was sent. Review it and press the button again.`
+          : (q ? `${q.estimate ? "Estimate: the exact amount is fixed when you press Swap. " : ""}${q.partialFill ? `The curve takes only what it can still sell; the rest (${num(Number(q.refund) / 10 ** (q.decimals ? q.decimals.in : 9), 6)} ${sym(s.in)}) comes back. ` : ""}${impact > 3 ? `Price impact ${impact.toFixed(2)}%: a smaller amount gets a better price. ` : ""}` : "") || (this.connected ? `Connected ${shortAddr(wallet.address)}` : "Connect a wallet to swap."),
         building: "Preparing your transaction…",
         signing: "Confirm in your wallet.",
         sending: "Sending to the network…",
-        confirming: "Waiting for the network to confirm…",
+        confirming: s.checking ? "Still checking with the network… this can take a moment. Nothing more to sign." : "Waiting for the network to confirm…",
         done: q ? `Swapped ✓ ${num(Number(q.inUi), 6)} ${sym(s.in)} → ${num(Number(q.outUi), 6)} ${sym(s.out)}` : "Swapped ✓",
-        failed: words(s.error) + (s.pending ? " If it did go through, it will show in your wallet." : ""),
+        failed: words(s.error),
       };
       this.status.textContent = lines[s.phase] || "";
-      this.status.className = `swap__status${s.phase === "failed" ? " is-bad" : s.phase === "done" ? " is-ok" : ""}`;
+      this.status.className = `swap__status${s.phase === "failed" ? " is-bad" : s.phase === "done" ? " is-ok" : s.phase === "quoted" && s.moved ? " is-moved" : ""}`;
       // links: the signature
       this.links.replaceChildren();
       if (s.sig) { const a = el("a", null, "View on Solscan ↗"); a.setAttribute("href", `https://solscan.io/tx/${s.sig}${s.cluster !== "mainnet" ? `?cluster=${s.cluster}` : ""}`); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener"); this.links.append(el("span", "mono tiny", shortAddr(s.sig)), " · ", a); }
@@ -407,27 +480,34 @@
       this.go.classList.toggle("is-busy", busy);
       this.flipBtn.disabled = busy;
       this.inAmt.disabled = busy;
-      // the footer: attribution, where it executes, honesty
-      const net = s.cluster === "devnet" ? " · Devnet test coin: this trade uses test SOL with no value." : "";
-      this.foot.textContent = (q && q.source === "curve") ? `Prices by the Meteora bonding curve, exactly as the chain computes them. You sign in your own wallet; Vicinity never touches your funds.${net}` : `Powered by Jupiter. You sign in your own wallet; Vicinity never touches your funds and takes no fee.${net}`;
+      // the footer: attribution, where it executes, honesty (the fee sentence follows the setting, never a fixed "no fee")
+      const testNet = s.cluster === "devnet" ? " · Devnet test coin: this trade uses test SOL with no value." : "";
+      const feeBps = config && config.platformFeeBps > 0 ? config.platformFeeBps : 0;
+      this.foot.textContent = (q && q.source === "curve") ? `Prices by the Meteora bonding curve, exactly as the chain computes them. You sign in your own wallet; Vicinity never touches your funds.${testNet}` : `Powered by Jupiter. You sign in your own wallet; Vicinity never touches your funds${feeBps ? ` and takes a ${(feeBps / 100).toString()}% platform fee` : " and takes no fee"}.${testNet}`;
     }
   }
   const norm = (m) => (m === "SOL" ? SOL : m === "USDC" ? USDC : m === "USDT" ? USDT : isAddr(m) ? m : null);
-  async function post(path, body, signal) {
+  /** One request to this site: GET without a body, POST with one. The answer carries _status and, from a Retry-After header, retryAfterS. */
+  async function req(path, body, signal) {
     try {
-      const r = await fetch(path, { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal });
+      const r = await fetch(path, { method: body === undefined ? "GET" : "POST", credentials: "same-origin", cache: "no-store", headers: body === undefined ? {} : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal });
       const d = await r.json().catch(() => ({}));
       if (!r.ok && d.ok === undefined) d.ok = false;
       if (!r.ok && !d.error) d.error = r.status === 429 ? "slow_down" : "swap_unavailable";
+      d._status = r.status;
+      const ra = r.headers && typeof r.headers.get === "function" ? Number(r.headers.get("retry-after")) : NaN;
+      if (Number.isFinite(ra) && ra > 0 && d.retryAfterS == null) d.retryAfterS = ra;
       return d;
-    } catch (e) { if (e && e.name === "AbortError") return null; return { ok: false, error: "swap_unavailable" }; }
+    } catch (e) { if (e && e.name === "AbortError") return null; return { ok: false, error: "swap_unavailable", _status: 0 }; }
   }
+  const post = (path, body, signal) => req(path, body === undefined ? {} : body, signal);
 
   /* ---------------------------------------------------------------- mounting and the bottom sheet */
   async function mount(root, opts = {}) {
     if (!root || root.getAttribute("data-swap-mounted")) return root && root._swap;
     await loadConfig();
     if (!config || config.swap === false) { root.hidden = true; return null; }
+    if (root._swap) root._swap.destroy(); // a slot mounted again with another pair (the dashboard's routes) retires its old panel first
     const p = new Panel(root, opts); root._swap = p; return p;
   }
   let sheet = null;
@@ -445,9 +525,11 @@
       const body = el("div", "swap-sheet__body"); body.dataset.swap = "";
       card.append(close, body); sheet.append(card);
       sheet.addEventListener("click", (e) => { if (e.target === sheet) closeSheet(); }); // a tap outside the card
+      sheet.addEventListener("close", () => { const b = sheet.querySelector(".swap-sheet__body"); if (b && b._swap) b._swap.destroy(); }); // a closed sheet keeps no panel alive
       document.body.append(sheet);
     }
     const body = sheet.querySelector(".swap-sheet__body");
+    if (body._swap) body._swap.destroy(); // the previous card's panel: its timers, poll and listeners go with it
     body.replaceChildren(); body.removeAttribute("data-swap-mounted"); body.className = "swap-sheet__body";
     const p = new Panel(body, { mode: opts.mode || "buy", in: opts.in || "SOL", out: opts.out, title: opts.title || `Buy ${symbolOf(norm(opts.out), "this coin")}` });
     body._swap = p;
@@ -485,7 +567,7 @@
       }
     }
   }
-  window.VSwap = { mount, open, close: closeSheet, refresh, words, base58, copySweep, tradeSentence: NEW_TRADE_SENTENCE, get config() { return config; }, get wallet() { return { address: wallet.address, adapter: wallet.adapter }; }, _panels: panels };
+  window.VSwap = { mount, open, close: closeSheet, refresh, words, base58, num, worseThan, copySweep, tradeSentence: NEW_TRADE_SENTENCE, get config() { return config; }, get wallet() { return { address: wallet.address, adapter: wallet.adapter }; }, _panels: panels };
   // Self-mount every [data-swap] on the page once the switch is known. Every page already reads /api/official (site.js), so the
   // switch costs no extra request: off = the slots are hidden and nothing else is asked; on = the words change and the panels mount.
   const start = async () => {

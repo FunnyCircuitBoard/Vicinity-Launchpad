@@ -49,6 +49,8 @@
     if (!slot) { slot = el("div"); slot.id = "buy-slot"; const links = $("#ca-links"); (links && links.parentNode ? links : $("#ca-text")).after(slot); }
     slot.dataset.swap = ""; slot.dataset.out = m; slot.dataset.in = "SOL"; slot.dataset.mode = "buy"; slot.dataset.title = "Buy $VICINITY";
     window.VSwap.mount(slot);
+    // the Jupiter tile next to "Buy here" is the token's INFORMATION page on jup.ag (its href already), labelled so nobody takes it for a place to buy
+    const j = $("#lnk-jup"); if (j && !j.dataset.swapHere) { j.dataset.swapHere = "1"; const jl = j.querySelector("span:not(.contract__out):not(.sr-only)"); if (jl) jl.textContent = "Jupiter · token info"; }
     const a = $("#lnk-raydium"); if (!a) return;
     a.href = "#buy-slot"; a.removeAttribute("target"); a.removeAttribute("rel"); a.classList.add("is-here");
     for (const x of a.querySelectorAll(".sr-only")) x.remove();

@@ -10,7 +10,7 @@
 .swap.is-bad .swap__row--out { border-color: rgba(255,90,54,.6); }
 .swap__label { font-size: .76rem; font-weight: 600; color: var(--muted); }
 .swap__line { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.swap__amt { flex: 1 1 0; width: 0; min-width: 0; min-height: 44px; font: 650 1.55rem/1.2 var(--display); letter-spacing: -.02em; color: var(--text); background: none; border: 0; padding: 0; outline: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swap__amt { flex: 1 1 0; width: 0; min-width: 0; min-height: 44px; font: 650 clamp(1.15rem, 6vw, 1.55rem)/1.2 var(--display); letter-spacing: -.02em; color: var(--text); background: none; border: 0; padding: 0; outline: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .swap__amt:disabled { opacity: .55; }
 .swap__amt--out { display: block; }
 .swap__token { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 8px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card-2); color: var(--text); font: 700 .92rem var(--body); cursor: pointer; max-width: 55%; }
@@ -36,9 +36,11 @@
 .swap__details dd.is-bad { color: var(--bad-text); font-weight: 700; }
 .swap__warn { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 14px; background: rgba(255,90,54,.1); border: 1px solid rgba(255,90,54,.4); font-size: .85rem; color: var(--text); }
 .swap__warn input { width: 22px; height: 22px; margin: 2px 0 0; flex: none; accent-color: var(--pin); }
+.swap__help { margin: -4px 0 0; line-height: 1.45; }
 .swap__status { margin: 0; min-height: 1.4em; font-size: .88rem; color: var(--text-2); }
 .swap__status.is-bad { color: var(--bad-text); }
 .swap__status.is-ok { color: var(--ok-text); font-weight: 600; }
+.swap__status.is-moved { color: var(--warn); font-weight: 600; }
 .swap__go { margin-top: 2px; }
 .swap__links { margin: 0; font-size: .82rem; color: var(--muted); min-height: 0; }
 .swap__links:empty { display: none; }
@@ -65,9 +67,14 @@
 @media (max-width: 600px) {
   .swap-sheet[open] { place-items: end center; }
   .swap-sheet__card { width: 100vw; max-height: calc(100dvh - 24px); border-radius: 22px 22px 0 0; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
-  .swap__amt { font-size: 1.35rem; }
   .swap__details { grid-template-columns: 1fr; gap: 2px; }
   .swap__details dd { text-align: left; margin-bottom: 4px; }
+}
+/* the smallest phones (320-360 px): the amount keeps at least 110 px, the token pill drops its mark and caret so a full quote fits */
+@media (max-width: 360px) {
+  .swap__amt { min-width: 110px; font-size: 1.15rem; }
+  .swap__token { max-width: 46%; padding: 0 10px; gap: 0; }
+  .swap__token .swap__mark, .swap__token .swap__caret { display: none; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .swap-sheet[open] .swap-sheet__card { animation: swapSheetIn .28s cubic-bezier(.2,.8,.2,1); }

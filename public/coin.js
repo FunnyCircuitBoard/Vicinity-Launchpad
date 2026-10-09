@@ -380,6 +380,10 @@
       if (id === "#coin-lnk-raydium") { a.classList.add("is-here"); label.textContent = "Buy here"; }
       a.addEventListener("click", (e) => { e.preventDefault(); window.VSwap.open({ out: d.mint, title: `Buy ${ticker}` }); });
     }
+    // the Jupiter tile is an INFORMATION link now (the coin's page on jup.ag, never its swap page), and says so next to "Buy here"
+    const j = $("#coin-lnk-jup");
+    // (its href is the server's links.jupiter, which is the token page once the switch is on: src/launchpad.js tradeLinks)
+    if (j && !j.dataset.swapHere) { j.dataset.swapHere = "1"; const label = j.querySelector("span:not(.contract__out):not(.sr-only)"); if (label) label.textContent = "Jupiter · token info"; }
   }
   /* ----- buy & sell, the contract ----- */
   function paintLinks(d) {
@@ -387,8 +391,8 @@
     const set = (id, u) => { const a = $(id); if (u) { a.href = u; a.hidden = false; } else a.hidden = true; return a; };
     const ray = safeLink(l.raydium, "raydium.io");
     for (const id of ["#coin-lnk-raydium", "#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"]) set(id, ray);
-    buyHere(d);
     set("#coin-lnk-jup", safeLink(l.jupiter, "jup.ag"));
+    buyHere(d); // after the links: with the swap on it turns the Buy links into openers and the Jupiter tile into the info page
     const third = thirdLink(d);
     set("#coin-lnk-third", third && third.href);
     if (third) $("#coin-lnk-third-name").textContent = third.name;
