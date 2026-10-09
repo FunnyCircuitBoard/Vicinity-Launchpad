@@ -15,6 +15,7 @@
   <link rel="preload" href="/fonts/space-grotesk.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/polish-map.css">
   <script src="/theme.js"></script>
 </head>
 <body data-page="cities">
@@ -77,7 +78,7 @@
             <p class="sr-only" id="mf-say" aria-live="polite"></p>
             <p class="map-hint" id="map-hint">Click the map first, then scroll to zoom (or use + and −)</p>
           </div>
-          <p class="citymap__legend"><span><span class="dot dot--open" aria-hidden="true"></span> Open</span><span><span class="dot dot--choosing" aria-hidden="true"></span> Choosing its founder</span><span><span class="dot dot--claimed" aria-hidden="true"></span> Founded</span><span><span class="dot dot--mine" aria-hidden="true"></span> Yours</span><span><span class="line line--real"></span> Official city boundary + the land nearest to it</span><span><span class="line line--near"></span> No official boundary: the land nearest the city</span><span class="citymap__how">Tap a city for its City Founder, holders and founder amount</span><span class="citymap__how">Drag to move · scroll, pinch or double-tap to zoom · tap a country or a city · ◎ finds yours · 🎨 colours</span></p>
+          <p class="citymap__legend"><span><span class="dot dot--open" aria-hidden="true"></span> Open</span><span><span class="dot dot--active" aria-hidden="true"></span> Active: verified holders, no founder yet</span><span><span class="dot dot--choosing" aria-hidden="true"></span> Choosing its founder</span><span><span class="dot dot--claimed" aria-hidden="true"></span> Founded</span><span><span class="dot dot--mine" aria-hidden="true"></span> Yours</span><span><span class="line line--real"></span> Official city boundary + the land nearest to it</span><span><span class="line line--near"></span> No official boundary: the land nearest the city</span><span class="citymap__how">Tap a city for its City Founder, holders and founder amount</span><span class="citymap__how">Drag to move · scroll, pinch or double-tap to zoom · tap a country or a city · names show once you zoom in on a city · ◎ finds yours · 🎨 colours</span></p>
           <div class="claim-feed-wrap">
             <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Latest founders · live</p>
             <ul class="claim-feed" id="claim-feed" aria-live="polite"><li class="claim-feed__empty">Loading…</li></ul>

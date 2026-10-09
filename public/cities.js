@@ -13,6 +13,16 @@
 //   rings: at most 30 frames a second, only while something that moves is on screen, the tab is visible and motion is welcome, and
 //   only for 6 s after the last thing that happened: then it rests on a still frame that breathes through CSS) and the label layer
 //   (chips, crosshair: when the view changes).
+// Labels and the "active" status (the owner, 9 Oct 2026: "city text labels must remain hidden when zoomed out so they do not obstruct
+// status indicators; text labels should only render when a user zooms in directly on a specific city; a distinct colour for cities that
+// have verified holders, even if a city founder has not been designated yet"):
+// * no text label below zoom LABEL_K; from there the city in focus (and yours, the selected one) once its boundary spans half of
+//   LABEL_PX on screen, and the cities whose boundary spans LABEL_PX within the middle of the map, a handful at a time, never on a
+//   status marker (labelFilter + placeLabels); the stats still show without a tap: the city card at the bottom follows the crosshair;
+// * "active": verified holders (members whose wallet holds $VICINITY, the per-city count /api/members sends; team wallets never count)
+//   and no founder yet. Teal (--st-active in polish-map.css) and, so it is never colour alone, a thin solid ring around the marker
+//   (founded pings, choosing turns a dashed ring, open has none), in the legend, on the map, in the city card, the tooltip, the panel
+//   and the list. Founded and choosing come first: a founded city with holders is founded.
 (() => {
   "use strict";
   const sec = document.getElementById("cities");
@@ -122,17 +132,40 @@
     if (dip) { const mid = (Math.log(k0) + Math.log(k1)) / 2, depth = Math.max(0, mid - Math.log(dip)); lk = Math.max(Math.log(dip), lk - depth * 4 * e * (1 - e)); }
     return Math.min(maxK, Math.max(1, Math.exp(lk)));
   }
-  /** Label priority, smaller first: yours, selected, in focus, founded (by holders), choosing (by applicants), members, population. Shown last time: ahead of its own tier (no flicker). */
+  /** Label priority, smaller first: yours, selected, in focus, founded (by holders), choosing (by applicants), active (by holders), members, population. Shown last time: ahead of its own tier (no flicker). */
   function labelRank(x) {
-    const tier = x.mine ? 1 : x.selected ? 2 : x.focus ? 3 : x.status === "founded" ? 4 : x.status === "choosing" ? 5 : x.members > 0 ? 6 : 7;
-    const metric = tier === 4 ? x.holders || 0 : tier === 5 ? x.applicants || 0 : tier === 6 ? x.members : x.pop || 0;
+    const tier = x.mine ? 1 : x.selected ? 2 : x.focus ? 3 : x.status === "founded" ? 4 : x.status === "choosing" ? 5 : x.status === "active" ? 6 : x.members > 0 ? 7 : 8;
+    const metric = tier === 4 || tier === 6 ? x.holders || 0 : tier === 5 ? x.applicants || 0 : tier === 7 ? x.members : x.pop || 0;
     return [tier - (x.shown ? 0.5 : 0), -metric];
+  }
+  const LABEL_K = 8;   // below this zoom (the world, a continent, a country) no city carries a text label: the markers and their rings stay clear
+  const LABEL_PX = 56; // a city is the one you zoomed in on once its boundary spans this many pixels on screen
+  /**
+   * Which cities may carry a text label at zoom k (the owner, 9 Oct 2026: hidden when zoomed out, only when you zoom in on a city):
+   * none below LABEL_K; from there the city in focus, yours and the selected one once their boundary spans LABEL_PX / 2 px, and the
+   * cities within `radius` px of the crosshair (fx, fy: the middle of the map, wider the closer you are) whose boundary spans LABEL_PX
+   * px, or half of it for a city with a status (founded, choosing, active: the names worth reading first).
+   * items: [{ id, x, y (marker, px), span (the boundary's longer side, px), status, focus, mine, selected }].
+   * Returns { ids: Set, max: { A, B, C }, radius }: a budget of a few chips on a phone and a dozen on a computer, growing with the
+   * zoom (from 1 + 1 names at LABEL_K to 4 + 6 on a phone, 2 + 2 to 8 + 12 on a computer), never a wall of text.
+   */
+  function labelFilter(items, k, { phone, fx, fy, W, H }) {
+    if (!(k >= LABEL_K)) return { ids: new Set(), max: { A: 0, B: 0, C: 0 }, radius: 0 };
+    const t = Math.min(1, Math.log2(k / LABEL_K) / 4); // 0 at LABEL_K, 1 from 16× closer
+    const radius = Math.min(W, H) * (0.25 + 0.2 * t), ids = new Set();
+    for (const it of items) {
+      if (it.focus || it.mine || it.selected) { if (it.span >= LABEL_PX / 2) ids.add(it.id); }
+      else if (it.span >= (it.status && it.status !== "open" ? LABEL_PX / 2 : LABEL_PX) && Math.hypot(it.x - fx, it.y - fy) <= radius) ids.add(it.id);
+    }
+    return { ids, max: { A: 3, B: Math.round(phone ? 1 + 3 * t : 2 + 6 * t), C: Math.round(phone ? 1 + 5 * t : 2 + 10 * t) }, radius };
   }
   const byRank = (a, b) => { const p = labelRank(a), q = labelRank(b); return p[0] - q[0] || p[1] - q[1] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0); };
   /**
    * Greedy placement of chips and labels, in priority order (sort with byRank first). Each item: { id, x, y (marker, px), tierWish: "A"|"B"|"C",
    * size: { A: [w, h], B: [w, h], C: [w, h] } }. A chip tries the right of its marker, then the left, above and below, then the same a little
-   * farther out (with a leader line); a B chip that fits nowhere tries again as a plain name (C). Boxes keep 4 px apart and stay out of the
+   * farther out (with a leader line) and the four corners; an A chip (the city in focus, yours, the selected one) tries farther still: on a
+   * phone its sides are often off the stage or under the controls and its near spots on the crosshair. A B chip that fits nowhere tries
+   * again as a plain name (C). Boxes keep 4 px apart and stay out of the
    * `avoid` rectangles ([x, y, w, h]: controls, the focus card) and 6 px inside the map; `soft` ones (the room around the crosshair) are
    * avoided by every chip but the one of the city in focus (item.focus), which sits right by it; `core` ones (the crosshair's own ring
    * and ticks) are covered by no chip at all, the focus chip included. Deterministic.
@@ -150,9 +183,10 @@
       cells(p[0], p[1], p[2], p[3], (key) => { if (ok) for (const o of grid.get(key) || []) if (hit(p, o)) { ok = false; break; } });
       return ok;
     };
-    const spots = (x, y, w, h, far) => {
-      const g = far ? 22 : 8;
-      return [[x + g, y - h / 2], [x - g - w, y - h / 2], [x - w / 2, y - g - h], [x - w / 2, y + g]];
+    const spots = (x, y, w, h, g) => {
+      const out = [[x + g, y - h / 2], [x - g - w, y - h / 2], [x - w / 2, y - g - h], [x - w / 2, y + g]];
+      if (g > 8) out.push([x + g, y - g - h], [x - g - w, y - g - h], [x + g, y + g], [x - g - w, y + g]); // farther out: the corners too
+      return out;
     };
     for (const it of items) {
       if (used.A >= (max.A ?? 0) && used.B >= (max.B ?? 0) && used.C >= (max.C ?? 0)) break; // every slot is taken
@@ -161,8 +195,8 @@
         if (used[tier] >= (max[tier] ?? 0) || !it.size[tier]) continue;
         const [w, h] = it.size[tier];
         let at = null, leader = false;
-        for (const far of tier === "C" ? [false] : [false, true]) {
-          for (const [bx, by] of spots(it.x, it.y, w, h, far)) { const b = [Math.round(bx), Math.round(by), w, h]; if (free(b, it.focus)) { at = b; leader = far; break; } }
+        for (const g of tier === "C" ? [8] : tier === "A" ? [8, 22, 40] : [8, 22]) {
+          for (const [bx, by] of spots(it.x, it.y, w, h, g)) { const b = [Math.round(bx), Math.round(by), w, h]; if (free(b, it.focus)) { at = b; leader = g > 8; break; } }
           if (at) break;
         }
         if (!at) continue;
@@ -211,7 +245,7 @@
   const listEl = $("#city-list"), qEl = $("#city-q"), countryEl = $("#city-country"), filterEl = $("#city-filter");
   const btn = $("#claim-btn");
   let cities = [], byId = new Map(), countries = {}, admin = {}, claims = new Map(), tickers = new Map(), open = false, loaded = false;
-  let selected = null, mode = "claim", memberCount = new Map(), holderCount = new Map(), totalMembers = 0, membersKnown = false;
+  let selected = null, mode = "claim", memberCount = new Map(), holderCount = new Map(), activeIds = new Set(), totalMembers = 0, membersKnown = false; // activeIds: communities with a verified holder (from /api/members)
   // the signed-in person's wallet (to show "Yours"), from site.js
   const me = () => V().me?.()?.user?.wallet || null;
   const myHome = () => V().me?.()?.user?.home?.id || null;
@@ -247,11 +281,12 @@
       tagBg: light ? "rgba(255,255,255,.95)" : "rgba(7,14,25,.9)", tagText: light ? "#8A5A00" : "#FFE3A3", grid: light ? "rgba(11,22,38,.06)" : "rgba(149,162,184,.07)",
       // status colours (rgb triplets, for rgba()), the chips' background and texts
       open: st("--st-open", light ? "#3F67A6" : "#7FA3D6"), choosing: st("--st-choosing", light ? "#B57F00" : "#FFC857"), founded: st("--st-founded", light ? "#E8431F" : "#FF5A36"), mine: st("--st-mine", light ? "#D99A1A" : "#FFC857"),
+      active: st("--st-active", light ? "#0E7C63" : "#2ED3B7"), // verified holders, no founder yet (polish-map.css): 7.2:1 on the dark land, 5.1:1 on the light
       openLine: light ? "rgba(30,70,160,.3)" : "rgba(160,190,235,.45)", chipBg: v("--chip-bg") || (light ? "rgba(255,255,255,.92)" : "rgba(7,14,25,.82)"),
-      goldText: v("--gold-text") || (light ? "#8A5A00" : "#FFE3A3"), foundedText: light ? "#C23A1C" : "#FFB39C", choosingText: light ? "#8A5A00" : "#FFE3A3", ink: light ? "11,22,38" : "255,255,255",
+      goldText: v("--gold-text") || (light ? "#8A5A00" : "#FFE3A3"), foundedText: light ? "#C23A1C" : "#FFB39C", choosingText: light ? "#8A5A00" : "#FFE3A3", activeText: light ? "#0E7C63" : "#7CF0C5", ink: light ? "11,22,38" : "255,255,255",
       a: light ? 0.8 : 1 };
     sprites = {};
-    for (const s of ["open", "choosing", "founded", "mine"]) sprites[s] = glowSprite(pal[s]);
+    for (const s of ["open", "choosing", "founded", "mine", "active"]) sprites[s] = glowSprite(pal[s]);
     buildOvCache();
     markAll();
   }
@@ -457,8 +492,8 @@
   }
 
   // ---- status of a city, and the overlays that are not the map itself ----
-  /** open | choosing | founded | mine */
-  const statusOf = (c) => { const cl = claims.get(c.id); return cl ? (isMine(cl) ? "mine" : "founded") : windows.has(c.id) ? "choosing" : "open"; };
+  /** open | active (verified holders, no founder yet) | choosing | founded | mine: a founder or an open window comes first */
+  const statusOf = (c) => { const cl = claims.get(c.id); return cl ? (isMine(cl) ? "mine" : "founded") : windows.has(c.id) ? "choosing" : activeIds.has(c.id) ? "active" : "open"; };
   const isCommunity = (c) => c.com ?? (c.com = !parts.has(c.id) && !outside.has(c.id)); // parts and outside never change once loaded
   const tickerOf = (c) => tickers.get(c.id)?.ticker || null;
 
@@ -592,9 +627,9 @@
   const dotMinPop = () => (k < 2 ? 150_000 : k < 4 ? 50_000 : k < 8 ? 15_000 : k < 20 ? 5_000 : 0);
   const MARGIN = 60;
   const inViewPx = (x, y, m = MARGIN) => x > -m && x < W + m && y > -m && y < H + m;
-  /** Cities that always show, whatever their size: founded, choosing, yours, selected, in focus. */
+  /** Cities that always show, whatever their size: founded, choosing, active (verified holders), yours, selected, in focus. */
   function specialIds() {
-    const s = new Set([...claims.keys(), ...windows.keys()]);
+    const s = new Set([...claims.keys(), ...windows.keys(), ...activeIds]);
     if (selected) s.add(selected.id);
     if (focusId) s.add(focusId);
     return s;
@@ -681,8 +716,9 @@
       }
     }
     ctx.globalAlpha = 1;
-    // cities with a status, on top: choosing (gold, dashed), founded (orange), yours (gold), the selected one (gold)
+    // cities with a status, on top: active (teal), choosing (gold, dashed), founded (orange), yours (gold), the selected one (gold)
     const STYLE = {
+      active: { fill: `rgba(${pal.active},${0.2 * pal.a})`, line: `rgba(${pal.active},${0.85 * pal.a})`, w: 1 },
       choosing: { fill: `rgba(${pal.choosing},${0.18 * pal.a})`, line: `rgba(${pal.choosing},${0.85 * pal.a})`, w: 1, dash: [3, 2] },
       founded: { fill: `rgba(${pal.founded},${0.32 * pal.a})`, line: `rgba(${pal.founded},${0.85 * pal.a})`, w: 1 },
       mine: { fill: `rgba(${pal.mine},${0.3 * pal.a})`, line: `rgb(${pal.mine})`, w: 1.2 },
@@ -721,7 +757,7 @@
       const x = sx(c.lon), y = sy(c.lat);
       if (!inViewPx(x, y)) continue;
       shown.push(c);
-      const st = statusOf(c), r = st === "mine" ? 4.5 : st === "founded" ? 3.6 : st === "choosing" ? 3 : d / 2 + 0.6;
+      const st = statusOf(c), r = st === "mine" ? 4.5 : st === "founded" ? 3.6 : st === "choosing" ? 3 : st === "active" ? 3.2 : d / 2 + 0.6;
       ctx.fillStyle = `rgb(${pal[st]})`;
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
     }
@@ -733,7 +769,7 @@
   const textW = new Map();
   const measure = (font, t) => { const key = font + "|" + t; let w = textW.get(key); if (w == null) { lctx.font = font; w = lctx.measureText(t).width; textW.set(key, w); } return w; };
   const FONT = { A1: "700 12px Inter, system-ui, sans-serif", A2: "600 11px Inter, system-ui, sans-serif", B: "600 11px Inter, system-ui, sans-serif", BT: "700 11px Inter, system-ui, sans-serif", C: "600 11px Inter, system-ui, sans-serif" };
-  const STATUS_WORD = { open: "Open", choosing: "Choosing its founder", founded: "Founded", mine: "Yours" };
+  const STATUS_WORD = { open: "Open", active: "Active", choosing: "Choosing its founder", founded: "Founded", mine: "Yours" };
   const ellipsis = (font, t, max) => {
     if (measure(font, t) <= max) return t;
     let lo = 1, hi = t.length - 1; // the longest start of the name that fits with "…"
@@ -750,32 +786,37 @@
     if (bTail && 26 + nameW + tickW + measure(FONT.B, bTail) > maxW) bTail = "";
     return { name: c.name, a2: `${STATUS_WORD[st]}${tk ? ` · $${tk}` : ""}${k >= 3 ? ` · ${amount}` : ""}`, bName: ellipsis(FONT.B, c.name, Math.max(48, maxW - 26 - tickW)), bTicker, bTail };
   }
+  /** The longer side of a city's boundary on screen (px): the overview's box, the detailed one, else the circle drawn for a city with no outline yet. */
+  const spanOf = (c) => { const a = ov.byId.get(c.id) || areas.get(c.id); return (a ? Math.max(a.box[2] - a.box[0], a.box[3] - a.box[1]) : (2 * radiusOf(c)) / 111.32) * s0 * k; };
   function layoutLabels(now) {
     const phone = W < 600;
     const prev = new Map(labels.map((l) => [l.id, l]));
-    const max = { A: 3, B: phone ? 10 : 24, C: phone ? 20 : 60 };
-    const cands = [];
+    const cands = [], markers = [];
     for (const c of shown) {
       if (!isCommunity(c)) continue;
       const x = sx(c.lon), y = sy(c.lat);
       if (x < 0 || y < 0 || x > W || y > H) continue;
       const st = statusOf(c), win = st === "choosing" ? windows.get(c.id) : null;
-      const it = { id: c.id, c, x, y, st, mine: st === "mine", selected: c === selected, focus: c.id === focusId, status: st, holders: st === "open" ? 0 : holderCount.get(c.id) || 0,
+      if (st !== "open") markers.push([x - 8, y - 8, 16, 16]); // a status marker (its dot and its ring) is covered by no chip
+      const it = { id: c.id, c, x, y, st, span: spanOf(c), mine: st === "mine", selected: c === selected, focus: c.id === focusId, status: st, holders: st === "open" ? 0 : holderCount.get(c.id) || 0,
         applicants: win ? win.applicants : 0, members: memberCount.size ? memberCount.get(c.id) || 0 : 0, pop: c.pop, shown: prev.has(c.id) };
       const r = labelRank(it); it.key = r[0] * 1e13 + r[1]; // the same order as byRank, as one number
       cands.push(it);
     }
-    cands.sort((p, q) => p.key - q.key || (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
+    // which of them may carry a label at this zoom: none zoomed out (the markers and their rings stay clear); zoomed in on a city, that
+    // city and a few around the crosshair
+    const { ids, max } = labelFilter(cands, k, { phone, fx: fcx, fy: fcy, W, H });
+    const want = cands.filter((it) => ids.has(it.id)).sort((p, q) => p.key - q.key || (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
     const items = [];
     let a = 0;
-    for (const x of cands.slice(0, 3 * (max.A + max.B + max.C))) { // enough to fill every slot; the rest would never be placed
+    for (const x of want.slice(0, 3 * (max.A + max.B + max.C))) { // enough to fill every slot; the rest would never be placed
       const { t, size } = chipOf(x.c, x.st);
       const isA = (x.mine || x.selected || x.focus) && a < 3;
       if (isA) a++;
       items.push({ id: x.id, x: x.x, y: x.y, tierWish: isA ? "A" : "B", size, t, st: x.st, focus: x.focus });
     }
     const avoid = [grow(rects.rail, 8), grow(rects.card, 8), grow(rects.exit, 8), grow(rects.scale, 4)].filter(Boolean);
-    const placed = placeLabels(items, { W, H, avoid, soft: [[fcx - 20, fcy - 20, 40, 40]], core: [[fcx - 16, fcy - 16, 32, 32]], max });
+    const placed = items.length ? placeLabels(items, { W, H, avoid, soft: [[fcx - 20, fcy - 20, 40, 40]], core: [[fcx - 16, fcy - 16, 32, 32], ...markers], max }) : [];
     const info = new Map(items.map((i) => [i.id, i]));
     const next = placed.map((p) => {
       const old = prev.get(p.id), it = info.get(p.id);
@@ -784,6 +825,8 @@
     const keep = new Set(next.map((l) => l.id));
     if (!reduced) for (const l of labels) if (!keep.has(l.id)) leaving.push({ ...l, died: now });
     labels = next;
+    const n = String(labels.length); // the stage says how many labels it carries (a check in Chromium reads it; the canvas itself is a picture)
+    if (wrapEl.dataset.labels !== n) wrapEl.dataset.labels = n;
     // the glow layer breathes for the open cities that carry a chip or a name
     fxItems = buildFxItems();
   }
@@ -824,7 +867,7 @@
     if (l.tier === "C") {
       g.font = FONT.C; g.textBaseline = "middle"; g.lineJoin = "round";
       g.strokeStyle = pal.halo; g.lineWidth = 3; g.strokeText(l.t.name, x + 2, y + l.h / 2);
-      g.fillStyle = l.st === "founded" ? pal.foundedText : l.st === "open" ? pal.label : pal.choosingText; g.fillText(l.t.name, x + 2, y + l.h / 2);
+      g.fillStyle = l.st === "founded" ? pal.foundedText : l.st === "open" ? pal.label : l.st === "active" ? pal.activeText : pal.choosingText; g.fillText(l.t.name, x + 2, y + l.h / 2);
     } else {
       const A = l.tier === "A";
       g.fillStyle = pal.chipBg; g.strokeStyle = `rgba(${col},${A ? 0.9 : 0.55})`; g.lineWidth = A ? 1.5 : 1;
@@ -832,7 +875,7 @@
       g.textBaseline = "middle";
       if (A) {
         g.font = FONT.A1; g.fillStyle = pal.label; g.fillText(l.t.name, x + 11, y + 12);
-        g.font = FONT.A2; g.fillStyle = l.st === "founded" ? pal.foundedText : l.st === "open" ? `rgb(${pal.open})` : pal.choosingText; g.fillText(l.t.a2, x + 11, y + 26);
+        g.font = FONT.A2; g.fillStyle = l.st === "founded" ? pal.foundedText : l.st === "open" ? `rgb(${pal.open})` : l.st === "active" ? pal.activeText : pal.choosingText; g.fillText(l.t.a2, x + 11, y + 26);
       } else {
         g.fillStyle = `rgb(${col})`; g.beginPath(); g.arc(x + 9, y + 11, 3, 0, Math.PI * 2); g.fill();
         let cx = x + 18;
@@ -916,12 +959,17 @@
       if (it.st === "open") { const w = still ? 0.5 : wave(3.6, it.ph); a = 0.25 + 0.3 * w; size = 26 * (1 + 0.35 * w); }
       else if (it.st === "choosing") { a = 0.5; size = 34; }
       else if (it.st === "founded") { a = still ? 0.75 : 0.6 + 0.3 * wave(2.8, it.ph); size = 40; }
+      else if (it.st === "active") { a = still ? 0.6 : 0.45 + 0.3 * wave(3.2, it.ph); size = 34; }
       else { a = 0.8; size = 46; }
-      const R = Math.max(size / 2, it.st === "mine" ? 24 : it.st === "founded" ? 20 : it.st === "choosing" ? 11 : 0) + 2;
+      const R = Math.max(size / 2, it.st === "mine" ? 24 : it.st === "founded" ? 20 : it.st === "choosing" ? 11 : it.st === "active" ? 10 : 0) + 2;
       glows.push([x - R, y - R, 2 * R, 2 * R, () => { g.globalAlpha = a * lightA; g.drawImage(sprites[it.st], x - size / 2, y - size / 2, size, size); }]);
       if (it.st === "choosing") rings.push([0, 0, 0, 0, () => {
         g.strokeStyle = `rgba(${pal.choosing},.95)`; g.lineWidth = 2; g.setLineDash([3.5, 3]); g.lineDashOffset = still ? 0 : -((t / 4) % 1) * 2 * Math.PI * 8;
         g.beginPath(); g.arc(x, y, 8, 0, Math.PI * 2); g.stroke(); g.setLineDash([]); g.lineDashOffset = 0;
+      }]);
+      // active: a thin solid ring, still or not (the shape that tells it from founded and choosing without the colour)
+      else if (it.st === "active") rings.push([0, 0, 0, 0, () => {
+        g.strokeStyle = `rgba(${pal.active},.95)`; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y, 7.5, 0, Math.PI * 2); g.stroke();
       }]);
       else if (it.st === "founded" && !still) rings.push([0, 0, 0, 0, () => {
         const p = (t / 2.4 + it.ph) % 1, e = 1 - Math.pow(1 - p, 2);
@@ -1059,9 +1107,9 @@
   };
   function showTip(c, px, py) {
     if (!c) { tip.hidden = true; return; }
-    const cl = claims.get(c.id), tk = tickers.get(c.id), a = areaFacts(c.id);
+    const cl = claims.get(c.id), tk = tickers.get(c.id), a = areaFacts(c.id), st = statusOf(c), h = holderCount.get(c.id) || 0;
     tip.replaceChildren(el("strong", null, c.name), el("span", null, ` ${placeOf(c)}`), document.createElement("br"),
-      el("span", cl ? "tip-claimed" : "tip-open", cl ? `Founder: ${cl.founder || cl.wallet}${cl.status === "active" ? "" : ` (${cl.status})`}` : windows.has(c.id) ? `Choosing its founder: ${windows.get(c.id).applicants} applying` : "Open"), el("span", "tip-ticker", tk ? `  $${tk.ticker}` : ""));
+      el("span", cl ? "tip-claimed" : st === "active" ? "tip-active" : "tip-open", cl ? `Founder: ${cl.founder || cl.wallet}${cl.status === "active" ? "" : ` (${cl.status})`}` : windows.has(c.id) ? `Choosing its founder: ${windows.get(c.id).applicants} applying` : st === "active" ? `Active: ${fmt(h)} verified holder${h === 1 ? "" : "s"}, no founder yet` : "Open"), el("span", "tip-ticker", tk ? `  $${tk.ticker}` : ""));
     tip.append(document.createElement("br"), el("span", "tip-area", `Founder amount: ${short(founderMin(c, windows.get(c.id)))} $VICINITY`));
     if (a) tip.append(document.createElement("br"), el("span", "tip-area", areaNote(a, c)));
     const n = (members.get(c.id) || []).length;
@@ -1093,7 +1141,7 @@
     if (id !== focusId) { focusId = id; dirty.labels = dirty.layout = dirty.base = true; kick(); }
     renderFocus();
   }
-  const FOCUS_TAG = { open: ["tag tag--ok", "Open"], choosing: ["tag tag--gold", "Choosing"], founded: ["tag tag--no", "Founded"], mine: ["tag tag--warn", "Yours"] };
+  const FOCUS_TAG = { open: ["tag tag--ok", "Open"], active: ["tag tag--active", "Active"], choosing: ["tag tag--gold", "Choosing"], founded: ["tag tag--no", "Founded"], mine: ["tag tag--warn", "Yours"] };
   function renderFocus() {
     const c = focusId ? byId.get(focusId) : null;
     const name = $("#mf-name"), where = $("#mf-where"), mini = $("#mf-mini"), tag = $("#mf-status"), tk = $("#mf-ticker"), amount = $("#mf-amount"), areaEl = $("#mf-area"), line = $("#mf-line"), go = $("#mf-open");
@@ -1120,6 +1168,7 @@
     if (st === "mine") l4 = `You founded ${c.name}`;
     else if (st === "founded") l4 = `${cl.status === "provisional" ? "Founder chosen" : "Founder"} ${cl.founder ? "@" + cl.founder : cl.wallet || ""}${membersKnown ? ` · ${fmt(h)} holder${h === 1 ? "" : "s"}` : ""}`;
     else if (st === "choosing") l4 = `${win.applicants} applying · closes in ${until(win.closesAt, Date.now())}`;
+    else if (st === "active") l4 = `No founder yet · ${fmt(h)} verified holder${h === 1 ? "" : "s"} · ${fmt(m)} member${m === 1 ? "" : "s"}`;
     else l4 = `No founder yet${membersKnown ? ` · ${fmt(m)} member${m === 1 ? "" : "s"}` : ""}`;
     // the area first, so a narrow screen that cuts the line keeps the number
     const plus = (members.get(c.id) || []).some((x) => joined.has(x.id)) ? " + nearby towns" : "";
@@ -1359,7 +1408,7 @@
       const cl = claims.get(c.id), mine = isMine(cl), parent = parts.has(c.id) && byId.get(parts.get(c.id));
       b.append(nm, parent ? el("span", "tag", `Part of ${parent.name}`)
         : outside.has(c.id) ? el("span", "tag", "No community yet")
-        : el("span", mine ? "tag tag--warn" : cl ? "tag tag--no" : windows.has(c.id) ? "tag tag--gold" : "tag tag--ok", mine ? "Yours" : cl ? "Founded" : windows.has(c.id) ? "Choosing" : "Open"));
+        : el("span", mine ? "tag tag--warn" : cl ? "tag tag--no" : windows.has(c.id) ? "tag tag--gold" : activeIds.has(c.id) ? "tag tag--active" : "tag tag--ok", mine ? "Yours" : cl ? "Founded" : windows.has(c.id) ? "Choosing" : activeIds.has(c.id) ? "Active" : "Open"));
       b.addEventListener("click", () => select(c, true));
       li.append(b); return li;
     }));
@@ -1451,7 +1500,7 @@
       sub.append(ul, el("span", "tiny muted", "Is your town missing? Ask for it from your dashboard, standing in it; your Country Manager approves new communities."));
     } else if (selected) {
       const cl = claims.get(selected.id);
-      $("#claim-kicker").textContent = cl ? (cl.status === "provisional" ? "Founder chosen · objection period" : "Founded") : windows.has(selected.id) ? "Choosing its founder now" : "Open city";
+      $("#claim-kicker").textContent = cl ? (cl.status === "provisional" ? "Founder chosen · objection period" : "Founded") : windows.has(selected.id) ? "Choosing its founder now" : activeIds.has(selected.id) ? "Active · verified holders, no founder yet" : "Open city";
       $("#claim-title").textContent = selected.name;
       sub.textContent = `${placeOf(selected)}${selected.pop ? " · " + fmt(selected.pop) + " people" : ""}`;
       const a = areaFacts(selected.id);
@@ -1530,6 +1579,7 @@
     totalMembers = d.members || 0;
     memberCount = new Map(d.communities.map((c) => [String(c.id), c.members]));
     holderCount = new Map(d.communities.map((c) => [String(c.id), c.holders || 0]));
+    activeIds = new Set(d.communities.filter((c) => c.holders > 0).map((c) => String(c.id))); // "active" on the map, unless founded or choosing (statusOf)
     // nothing new: the card is written again (its countdown) but the map is not woken (its glow may be resting)
     const sig = JSON.stringify([d.members, d.communities]), same = membersKnown && sig === membersSig;
     membersSig = sig; membersKnown = true; focusSig = "";
@@ -1538,10 +1588,10 @@
     const list = $("#wanted-list");
     if (!d.communities.length) { list.replaceChildren(el("li", "muted", "No members yet. Sign in and set your home community to put your city on this list.")); return; }
     list.replaceChildren(...d.communities.slice(0, 24).map((c) => {
-      const li = el("li"), city = byId.get(String(c.id)), cl = claims.get(String(c.id));
+      const li = el("li"), city = byId.get(String(c.id)), cl = claims.get(String(c.id)), win = windows.has(String(c.id)), h = c.holders || 0, act = !cl && !win && h > 0; // the map's order: founded, choosing, active
       const txt = el("div");
-      txt.append(el("strong", null, c.name), el("span", null, `${countries[c.country] || c.country} · ${fmt(c.members)} member${c.members === 1 ? "" : "s"}`));
-      li.append(txt, el("span", cl ? "tag tag--no" : "tag tag--ok", cl ? "Founded" : "Seat open"));
+      txt.append(el("strong", null, c.name), el("span", null, `${countries[c.country] || c.country} · ${fmt(c.members)} member${c.members === 1 ? "" : "s"}${h ? ` · ${fmt(h)} holder${h === 1 ? "" : "s"}` : ""}`));
+      li.append(txt, el("span", cl ? "tag tag--no" : win ? "tag tag--gold" : act ? "tag tag--active" : "tag tag--ok", cl ? "Founded" : win ? "Choosing" : act ? "Active" : "Seat open"));
       if (city) {
         li.tabIndex = 0; li.style.cursor = "pointer";
         li.addEventListener("click", () => { select(city, true); sec.scrollIntoView({ behavior: reduced ? "auto" : "smooth" }); });
