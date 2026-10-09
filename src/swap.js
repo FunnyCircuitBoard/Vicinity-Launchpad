@@ -27,7 +27,7 @@ import { activeMint } from "./official.js";
 import { PAIRS, launchedCoins } from "./coins.js";
 import { jupiterPriceFor } from "./marketlive.js";
 import { ensureSchema } from "./store.js";
-import { publicLimit, walletLimit } from "./guards.js";
+import { buildKind, publicLimit, walletLimit } from "./guards.js";
 import { jupiterConfig, launchpadCluster, launchpadTradingOn, swapCluster, swapOn } from "./cluster.js";
 import { ADDRESSES } from "./sol/pda.js";
 import { decodeLookupTable } from "./sol/dbc.js";
@@ -247,13 +247,14 @@ async function verifiedTables(env, build, fetchImpl, now) {
 
 /** POST /api/swap/tx: the unsigned Jupiter transaction for `taker`, checked, simulated, with our compute budget. */
 export async function handleSwapTx(request, env, fetchImpl = fetch, now = Date.now()) {
-  const slow = await publicLimit(env, request, "swap_tx");
+  const kind = buildKind(request, "swap_tx"); // a Buy tap, or the panel's own build before the tap (?auto=1): counted apart
+  const slow = await publicLimit(env, request, kind);
   if (slow) return slow;
   const p = await prepare(request, env, fetchImpl, now, { takerRequired: true });
   if (p.error) return p.error;
   if (p.curve) return curveAnswer(p.curve);
   const { input, inDec, outDec, amountRaw } = p;
-  const slowWallet = await walletLimit(env, "swap_tx", input.taker, now);
+  const slowWallet = await walletLimit(env, kind, input.taker, now);
   if (slowWallet) return slowWallet;
   const params = { inputMint: input.inputMint, outputMint: input.outputMint, amountRaw, slippageBps: input.slippageBps, taker: input.taker };
   const jc = jupiterConfig(env);

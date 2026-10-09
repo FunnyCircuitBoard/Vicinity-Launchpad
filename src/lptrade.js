@@ -29,7 +29,7 @@ import { bad, checkSlippage, checkTaker, formatAmount, parseAmount } from "./sol
 import { simulate, simulationError } from "./relay.js";
 import { launchedCoins } from "./coins.js";
 import { ensureSchema } from "./store.js";
-import { publicLimit, walletLimit } from "./guards.js";
+import { buildKind, publicLimit, walletLimit } from "./guards.js";
 import { OFFICIAL } from "./official.js";
 import { issueTicket } from "./relay.js";
 
@@ -252,13 +252,14 @@ export async function handleTradeQuote(request, env, fetchImpl = fetch, now = Da
 
 /** POST /api/launchpad/trade/tx: the unsigned transaction of a curve trade for `taker`, simulated first. */
 export async function handleTradeTx(request, env, fetchImpl = fetch, now = Date.now()) {
-  const slow = await publicLimit(env, request, "lp_tx");
+  const kind = buildKind(request, "lp_tx"); // a Buy tap, or the panel's own build before the tap (?auto=1): counted apart
+  const slow = await publicLimit(env, request, kind);
   if (slow) return slow;
   const p = await prepare(request, env, fetchImpl, { takerRequired: true, now });
   if (p.error) return p.error;
   const { quote, st, input, amountRaw } = p;
   const cl = st.cluster, taker = input.taker;
-  const slowWallet = await walletLimit(env, "lp_tx", taker, now); // one wallet from many connections cannot burn the launchpad RPC (a blockhash + a simulation per build)
+  const slowWallet = await walletLimit(env, kind, taker, now); // one wallet from many connections cannot burn the launchpad RPC (a blockhash + a simulation per build)
   if (slowWallet) return slowWallet;
   const cuPriceSetting = BigInt(/^\d{1,12}$/.test(String(env.LAUNCHPAD_CU_PRICE || "")) ? env.LAUNCHPAD_CU_PRICE : 0);
   let ixs, blockhash, table = null;
