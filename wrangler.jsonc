@@ -41,7 +41,12 @@
     // "launch everything live"). Any other value than "on" (change it, do not delete the line: keep_vars) turns one off.
     "PROFILES": "on",
     "LAUNCHPAD_V2": "on",
-    "DASHBOARD_V2": "on"
+    "DASHBOARD_V2": "on",
+    // Buy and swap inside the site (the Buy panel on /token, the dashboard, /coin and the Launchpad cards; /api/swap/*): on
+    // since 9 Oct 2026, by the owner ("turn the swap on"). Routed by Jupiter, signed in the person's own wallet, no platform
+    // fee. Any other value than "on" (change it, do not delete the line: keep_vars) hides the panel and brings the old
+    // "Buy on Raydium" links back at the next deploy. City coins on their bonding curve stay off (LAUNCHPAD_TRADING unset).
+    "SWAP": "on"
   },
   "assets": {
     "directory": "./public",
