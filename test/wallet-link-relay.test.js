@@ -5,6 +5,7 @@
 // nothing and kills it. Here: the whole relay journey, the clocks, the country, the opener race, a browser signed in as someone else.
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { V2, advance, browser, linkBody, realClock, useClock, wallet } from "./helpers/world.js";
 import { member, one, outbox, userOf } from "./helpers/signup.js";
 import { buildMessage, parseMessage } from "../src/solana.js";
@@ -159,6 +160,15 @@ test("CARRY_RELAY=off (an emergency switch in the Cloudflare dashboard): relay c
   assert.equal((await carry(p.b)).ok, true);
   env.CARRY_RELAY = "on";
   assert.equal((await carry(m.b)).relay, true, "anything but off is on");
+});
+
+test("the owner can find the CARRY_RELAY emergency switch: docs/DEPLOY.md names it, where it lives (the Cloudflare dashboard, never wrangler.jsonc) and what `off` does", () => {
+  const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+  const row = read("docs/DEPLOY.md").split("\n").find((l) => l.startsWith("| `CARRY_RELAY`"));
+  assert.ok(row, "a row in 'Where each setting lives'");
+  assert.match(row, /\| Cloudflare dashboard \(plain variable\), never `wrangler\.jsonc` \|/);
+  assert.match(row, /`CARRY_RELAY` = `off`: those phones go back to "approve in the wallet app, then finish in Safari"/);
+  assert.doesNotMatch(read("wrangler.jsonc"), /CARRY_RELAY/, "on by default: the switch is never set in the repo");
 });
 
 test("first opener wins (relay and ordinary codes): a second browser gets 403 carry_opened on info, the statement and the claim, the code dies (Safari: contested), and the first opener's claim is refused too", async () => {
