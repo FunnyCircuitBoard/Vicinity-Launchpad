@@ -100,14 +100,31 @@ test("relay: the code must be OPENED within 2 minutes (1:59 opens, 2:00 does not
   assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", n.u.id)).wallet, null);
 });
 
-test("relay: the bind and the 2-minute window are ONE statement: an info at 2:01 binds nothing even if it raced one at 1:59 that did not happen", async () => {
+test("relay: at 2:01 nobody binds: two looks at once are both refused, and the bind statement repeats the 2-minute window itself (a check that read a stale row still binds nothing)", async () => {
   const m = await safari();
   const made = await carry(m.b);
-  // two looks at the very same moment, at 2:01: neither binds
+  // two looks at the very same moment, at 2:01: neither binds (usableCarry's own check)
   advance(121_000);
   const both = await Promise.all([info(browser(env, CARRIER), made.code), info(browser(env, CARRIER), made.code)]);
   assert.deepEqual(both.map((r) => r.status), [410, 410]);
   assert.equal((await one(env.DB, "SELECT opener, result FROM handoffs")).opener, null);
+  // the statement's own window (review finding ux-TEST-1: the test above never reached it): the check is handed a row that looks
+  // 1:59 old (a stale or raced read), so only the UPDATE's own "created within 2 minutes" can refuse the bind at 2:01
+  const n = await safari(RELAY, { sub: "g-stale" });
+  const code = (await carry(n.b)).code;
+  advance(121_000);
+  const real = env.DB.prepare.bind(env.DB);
+  env.DB.prepare = (sql) => {
+    const st = real(sql);
+    if (!/^SELECT \* FROM handoffs WHERE id = \? AND kind = 'carry'/.test(sql)) return st;
+    return { bind: (...a) => { const b = st.bind(...a); return { run: () => b.run(), all: () => b.all(),
+      first: async () => { const row = await b.first(); return row && { ...row, created_at: new Date(Date.now() - 119_000).toISOString() }; } }; } };
+  };
+  let r;
+  try { r = await info(browser(env, CARRIER), code); } finally { env.DB.prepare = real; }
+  assert.deepEqual([r.status, (await r.json()).error], [410, "carry_expired"]);
+  assert.deepEqual(r.headers.getSetCookie(), [], "no opener cookie");
+  assert.equal((await one(env.DB, "SELECT opener FROM handoffs WHERE user_id = ?", n.u.id)).opener, null, "nothing bound");
 });
 
 test("relay: the wallet app's connection must be in Safari's country: from Germany it gets carry_network and NOTHING is bound (a later US opener still opens and claims); a relay with no country still pairs", async () => {

@@ -326,7 +326,8 @@ async function handleCarryInfo(request, env, x) {
   const mine = nonces[0] || randomToken(24);
   if (!u.row.opener) {
     const h = await openerHash(mine);
-    // the bind and the open window in ONE statement: a call at 2:01 can never bind, whatever raced it
+    // the bind repeats the checks in its own WHERE (no opener yet, still live, a relay code within its 2 minutes): usableCarry checked them
+    // with this same clock, so this only matters if that read was stale (a racing call, a read replica): then nothing is bound
     const bound = await env.DB.prepare(`UPDATE handoffs SET opener = ?1, result = COALESCE(result, 'opened') WHERE id = ?2 AND opener IS NULL AND (result IS NULL OR result = 'opened')
         AND expires_at > ?3 AND (net <> 'relay' OR created_at > ?4)`).bind(h, u.row.id, iso(x.now), iso(x.now - RELAY_OPEN_MS)).run();
     if (bound.meta.changes !== 1) {
