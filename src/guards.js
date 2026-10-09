@@ -34,13 +34,39 @@ export const PUBLIC_LIMITS = {
   // GET /api/coin and /api/coin/chart (LAUNCHPAD_V2=on): outside sources and the database on an edge-cache miss (a hit is not counted)
   coin:           { max: 60, windowMs: MIN },
   coin_chart:     { max: 60, windowMs: MIN },
+  // the in-app swap (SWAP=on, src/swap.js, src/relay.js): a Jupiter call (quote, tx), an RPC call (send, status, balances), a token search
+  swap_quote:     { max: 60, windowMs: MIN },
+  swap_tx:        { max: 20, windowMs: MIN },
+  swap_send:      { max: 20, windowMs: MIN },
+  swap_status:    { max: 240, windowMs: MIN },
+  swap_balances:  { max: 60, windowMs: MIN },
+  swap_tokens:    { max: 30, windowMs: MIN },
+  // curve trades on our launchpad (LAUNCHPAD_TRADING=on, src/lptrade.js): the launchpad RPC on every call
+  lp_quote:       { max: 60, windowMs: MIN },
+  lp_tx:          { max: 20, windowMs: MIN },
 };
+/** A per-WALLET counter on top of the per-connection one (src/swap.js, src/lptrade.js): one wallet cannot burn the Jupiter or RPC budget from many connections. */
+export const WALLET_LIMIT = { max: 15, windowMs: MIN };
 
 /**
  * Count one attempt of `kind` for this connection (or, for a kind counted by session, for this session). Returns a 429
  * { ok: false, error: "slow_down" } Response when it is over its limit, otherwise null (go on). Null too without a
  * database, or when counting itself failed.
  */
+export async function walletLimit(env, kind, wallet, now = Date.now()) {
+  if (!env || !env.DB || !wallet) return null;
+  try {
+    await ensureLimitsSchema(env.DB);
+    const key = await limitKey(env, "pub:" + kind + "_wallet", wallet);
+    const r = await check(env, [{ key, windowMs: WALLET_LIMIT.windowMs, max: WALLET_LIMIT.max }], now);
+    if (r.ok) return null;
+    return json({ ok: false, error: "slow_down" }, 429, { "Retry-After": String(Math.ceil(WALLET_LIMIT.windowMs / 1000)) });
+  } catch (e) {
+    console.error("wallet limit skipped", kind, String((e && e.message) || e).slice(0, 80));
+    return null;
+  }
+}
+
 export async function publicLimit(env, request, kind, now = Date.now()) {
   const spec = PUBLIC_LIMITS[kind];
   if (!spec) throw new Error("unknown public limit: " + kind);

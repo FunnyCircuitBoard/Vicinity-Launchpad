@@ -21,6 +21,11 @@
  * Member profiles, only while PROFILES=on (otherwise 404 not_enabled; src/profiles.js):
  *   GET /api/profile?u= · /api/members/search?q= · POST /api/follow · GET /api/follows · POST /api/block · GET /api/me/blocks
  *   · POST /api/me/bio · POST /api/profile/report · GET /api/me/portfolio · POST /api/mod/bio/clear
+ * The in-app swap, only while SWAP=on (otherwise 404 not_enabled; src/swap.js, src/relay.js, src/jupswap.js, src/sol/*):
+ *   GET /api/swap/config · GET /api/swap/tokens?q= · POST /api/swap/quote · POST /api/swap/tx (Jupiter Swap V2, checked and compiled here)
+ *   · POST /api/swap/send (relay for wallets that sign but do not send) · GET /api/swap/status?sig= · GET /api/swap/balances?owner=&mints=
+ * Curve trades of city coins on our launchpad, only while LAUNCHPAD_TRADING=on (src/lptrade.js, src/cluster.js):
+ *   POST /api/launchpad/trade/quote · POST /api/launchpad/trade/tx (Meteora DBC swap2, built here, signed in the wallet)
  * The Launchpad's coin list, only while LAUNCHPAD_V2=on (otherwise 404 not_enabled; src/launchpad.js, src/marketlive.js):
  *   GET /api/launchpad   every city coin and $VICINITY as cards with market data, holder and member counts, trade links
  *   GET /api/coin?mint=  one allow-listed coin: facts, live market, holders, recent trades, links, sources (src/coin.js)
@@ -36,7 +41,7 @@
  *
  * Everything else is served from /public by Cloudflare's static asset handler.
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
- * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional).
+ * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional); the swap and launchpad cluster settings in src/cluster.js.
  */
 import { activeMint, checkOfficial, marketLink, officialFor, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
@@ -68,6 +73,11 @@ import { handleLaunchpad } from "./launchpad.js";
 import { CHART_TTL, handleCoin, handleCoinChart } from "./coin.js";
 import { CHART_TFS } from "./pricehistory.js";
 import { publicLimit } from "./guards.js";
+import { launchpadTradingOn, swapOn } from "./cluster.js";
+import { handleSwapConfig, handleSwapQuote, handleSwapTokens, handleSwapTx } from "./swap.js";
+import { handleBalances, handleSend, handleStatus } from "./relay.js";
+import { handleTradeQuote, handleTradeTx } from "./lptrade.js";
+import { sameSite } from "./http.js";
 
 export { json, activeMint, cached as _cached };
 
@@ -212,6 +222,32 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     const tf = url.searchParams.get("tf") || "24h";
     if (!CHART_TFS.includes(tf)) return json({ ok: false, error: "bad_tf" }, 400);
     return cached(`coin-chart-${mint}-${tf}`, CHART_TTL[tf], async () => (await publicLimit(env, request, "coin_chart")) || handleCoinChart(env, mint, tf, fetchImpl));
+  }
+
+  // the in-app swap (SWAP=on) and the launchpad's curve trades (LAUNCHPAD_TRADING=on): with a switch off they are simply not there.
+  // POST bodies must come from this site's own pages (Origin); every route counts its own attempt limit (src/guards.js) first.
+  if (path.startsWith("/api/swap/")) {
+    if (!swapOn(env) && !(launchpadTradingOn(env) && ["/api/swap/send", "/api/swap/status", "/api/swap/balances", "/api/swap/config"].includes(path))) return json({ ok: false, error: "not_enabled" }, 404);
+    const post = (fn) => only("POST") || (sameSite(request) ? fn() : json({ ok: false, error: "bad_origin" }, 403));
+    switch (path) {
+      case "/api/swap/config": return only("GET") || cached("swap-config-" + (activeMint(env) || "pre"), 60, () => handleSwapConfig(env, fetchImpl));
+      case "/api/swap/tokens": return only("GET") || cached("swap-tokens-" + encodeURIComponent(String(url.searchParams.get("q") || "").slice(0, 44).toLowerCase()), 300, () => handleSwapTokens(request, env, fetchImpl));
+      case "/api/swap/quote": return post(() => handleSwapQuote(request, env, fetchImpl));
+      case "/api/swap/tx": return post(() => handleSwapTx(request, env, fetchImpl));
+      case "/api/swap/send": return post(() => handleSend(request, env, fetchImpl));
+      case "/api/swap/status": return only("GET") || handleStatus(request, env, fetchImpl);
+      case "/api/swap/balances": return only("GET") || handleBalances(request, env, fetchImpl);
+      default: return json({ error: "not_found" }, 404);
+    }
+  }
+  if (path.startsWith("/api/launchpad/trade/")) {
+    if (!launchpadTradingOn(env)) return json({ ok: false, error: "not_enabled" }, 404);
+    const blocked = only("POST") || needsDb();
+    if (blocked) return blocked;
+    if (!sameSite(request)) return json({ ok: false, error: "bad_origin" }, 403);
+    if (path === "/api/launchpad/trade/quote") return handleTradeQuote(request, env, fetchImpl);
+    if (path === "/api/launchpad/trade/tx") return handleTradeTx(request, env, fetchImpl);
+    return json({ error: "not_found" }, 404);
   }
 
   // paths with an id in them

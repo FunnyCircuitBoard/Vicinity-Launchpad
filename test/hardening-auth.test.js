@@ -95,10 +95,13 @@ test("a failure is not remembered: the next call runs the migration again; from 
 
 /* ---------------- publicLimit ---------------- */
 
-test("the numbers: verify 30, transfer 30 and pair 20 per 10 minutes per connection; transfer check 90 per 10 minutes per session; rank, coin and coin chart 60 per minute", () => {
+test("the numbers: verify 30, transfer 30 and pair 20 per 10 minutes per connection; transfer check 90 per 10 minutes per session; rank, coin and coin chart 60 per minute; the swap and curve-trade routes", () => {
   assert.deepEqual(PUBLIC_LIMITS, {
     verify: { max: 30, windowMs: 10 * MIN }, transfer: { max: 30, windowMs: 10 * MIN }, transfer_check: { max: 90, windowMs: 10 * MIN, by: "session" },
     pair: { max: 20, windowMs: 10 * MIN }, rank: { max: 60, windowMs: MIN }, coin: { max: 60, windowMs: MIN }, coin_chart: { max: 60, windowMs: MIN },
+    // the in-app swap (SWAP=on) and the launchpad's curve trades (LAUNCHPAD_TRADING=on): docs/DEPLOY.md's WAF table carries the same numbers
+    swap_quote: { max: 60, windowMs: MIN }, swap_tx: { max: 20, windowMs: MIN }, swap_send: { max: 20, windowMs: MIN }, swap_status: { max: 240, windowMs: MIN },
+    swap_balances: { max: 60, windowMs: MIN }, swap_tokens: { max: 30, windowMs: MIN }, lp_quote: { max: 60, windowMs: MIN }, lp_tx: { max: 20, windowMs: MIN },
   });
   assert.rejects(publicLimit({ DB: d1() }, req("1.2.3.4"), "nothing"), /unknown public limit/);
 });

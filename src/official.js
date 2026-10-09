@@ -4,6 +4,7 @@
  * Change it only by a public commit so everyone can see the history.
  */
 import { launchpadV2On } from "./flags.js";
+import { launchpadCluster, launchpadTradingOn, swapOn } from "./cluster.js";
 
 // The $VICINITY mint address. Paste it here the moment the token launches (one line change).
 export const VICINITY_MINT = null;
@@ -157,7 +158,11 @@ export function officialFor(env) {
       launchpadOpensAt: new Date(Date.now() - 86400000).toISOString(), // "opened yesterday"
     }
     : { ...OFFICIAL, siteMode: "live" };
-  return launchpadV2On(env) ? { ...out, launchpadV2: true } : out;
+  const withV2 = launchpadV2On(env) ? { ...out, launchpadV2: true } : out;
+  // the in-app swap and the launchpad's curve trades (src/cluster.js): the pages render Buy here instead of a link to raydium.io
+  // only when a switch is on; with both off these keys do not exist and the answer is exactly as it always was
+  const withSwap = swapOn(env) ? { ...withV2, swap: true } : withV2;
+  return launchpadTradingOn(env) ? { ...withSwap, launchpadTrading: { cluster: launchpadCluster(env).cluster } } : withSwap;
 }
 
 // Founding Supporter snapshot cutoff (always 00:00 UTC), announced ahead of time. The setting
