@@ -409,7 +409,8 @@
         for (const sel of ["#bio-sec", "#profile-net-sec", "#profile-public-note"]) $(sel).hidden = false;
         if (!started) {
           started = true;
-          if (new URLSearchParams(location.search).get("welcome")) { markSeen(); dismissed = true; } // someone who just signed up read it on the sign-up page
+          // someone who just signed up read it on the sign-up page (dashboard.js takes ?welcome=1 off the address bar before this runs and leaves the mark on <body>)
+          if (new URLSearchParams(location.search).get("welcome") || document.body.dataset.welcome === "1") { markSeen(); dismissed = true; }
           pv = livePortfolio({
             body: $("#pf-body"), updated: $("#pf-updated"), msg: $("#pf-msg"), refresh: $("#pf-refresh"), who: "you",
             load: () => api("/api/me/portfolio"), pick: (r) => r.portfolio, launched: () => Boolean(ctx.me().launched),

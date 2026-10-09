@@ -169,7 +169,10 @@
       const r = await api(path, body);
       toast(r.ok ? okText : ctx.errText(SQUAD_ERR, r, "Couldn't do that.")); if (r.ok) ctx.refresh();
     };
-    if (sq.canCreate) parts.push(tool("Start a squad", () => act("/api/seats/squad/create", {}, "Squad started. Invite friends from your city."), "btn btn--primary btn--sm"));
+    if (sq.canCreate && !d.user.wallet) { // a squad pools wallets (the server answers no_wallet): say so instead of a button that can only fail
+      const a = el("a", "btn btn--glass btn--sm", "Link my wallet"); a.href = "#wallet-card";
+      parts.push(el("p", "small muted", "A squad pools wallets, so link yours first: free, one signature."), a);
+    } else if (sq.canCreate) parts.push(tool("Start a squad", () => act("/api/seats/squad/create", {}, "Squad started. Invite friends from your city."), "btn btn--primary btn--sm"));
     if (sq.joinable) {
       parts.push(el("p", "small", `A squad is forming in ${home.name}: ${sq.joinable.members.join(", ")} (${sq.joinable.members.length}/${sq.joinable.max}).`));
       if (!sq.joinable.full) parts.push(tool("Join this squad", () => act("/api/seats/squad/join", { squadId: sq.joinable.id }, "You joined the squad."), "btn btn--primary btn--sm"));

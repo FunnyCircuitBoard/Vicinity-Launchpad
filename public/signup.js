@@ -306,7 +306,7 @@
       };
       tick();
     }
-    const SHOW_FOCUS = { location: "#su-loc-title", account: "#su-acc-title", finish: "#su-fin-title", login: "#lg-title", reset: "#rs-title", carry: "#carry-h", carryIn: "#carry-in-h", link: "#link-title", noAccount: "#na-h" };
+    const SHOW_FOCUS = { location: "#su-loc-title", account: "#su-acc-title", finish: "#su-fin-title", login: "#lg-title", reset: "#rs-title", carry: "#carry-h", carryIn: "#carry-in-h", link: "#link-title", noAccount: "#na-h", linkDead: "#ld-h" };
     /** Moving to another screen: focus its heading (not on the very first draw, so the page still starts at the top for keyboard users). */
     function focusHeading(key) {
       const h = $(SHOW_FOCUS[key]);
@@ -336,9 +336,11 @@
     function onShow(s) {
       S.cur = s;
       const newTab = S.tab === "new" && S.mode === "signup";
+      // a phone in the link modes: the panel's own "Almost done · Link your wallet." is the heading, so the hero (the same words) goes
+      const hero = $(".connect__intro"); if (hero) hero.hidden = (S.mode === "link" || S.mode === "linkin") && W.isMobile;
       $("#su-top").hidden = s === "approve" || s === "done" || s === "loading" || (S.mode !== "signup" && !S.noteView);
       $(".su-tabs").hidden = !["pick", "su-location", "su-account", "su-reset", "no-account"].includes(s) || S.mode !== "signup";
-      $("#su-steps").hidden = !newTab || ["su-reset", "approve", "done", "loading", "carry-in", "no-account", "carry"].includes(s);
+      $("#su-steps").hidden = !newTab || ["su-reset", "approve", "done", "loading", "carry-in", "no-account", "link-dead", "carry"].includes(s);
       $("#tab-new").setAttribute("aria-pressed", String(newTab));
       $("#tab-login").setAttribute("aria-pressed", String(!newTab && S.mode === "signup"));
       if (s === "pick") {
@@ -348,6 +350,7 @@
         hide("#alt-skip", !link); hide("#alt-check", link);
         text("#wallet-h", link ? "Choose your wallet" : "Log in with your wallet");
         if (link) text("#su-wallet-lead", W.isMobile && !inApp() && !W.list().length ? `Tap your wallet app: it opens Vicinity there to link this account. Check that it shows the same number, then sign. Your dashboard here updates by itself.` : "Pick the wallet you want on your account. One free signature, nothing is paid or moved.");
+        if (link && W.isMobile && !inApp()) hide("#wallets-none"); // a phone's browser never holds a wallet: the lead above says what to tap, "use your phone" would be odd
         if (!link) text("#or-line span", "Or log in with your wallet");
         const google = S.providers.google && !inApp();
         hide("#lg-google", !google); hide("#lg-inapp", !(inApp() && S.providers.google));
@@ -372,6 +375,8 @@
     const signLabel = () => (linkMode() ? "Link wallet" : "Sign in");
     function setIntro() {
       const title = $(".connect__intro .page-title"), accent = el("span", "accent");
+      const bullet = $(".connect__intro .safety li");
+      if (bullet) bullet.textContent = S.mode === "link" || S.mode === "linkin" ? "Linking is free. It isn't a transaction and can't move funds." : "Signing in is free. It isn't a transaction and can't move funds.";
       if (S.mode === "link" || S.mode === "linkin") {
         text(".connect__intro .kicker", "Almost done");
         accent.textContent = "One signature."; title.replaceChildren("Link your wallet.", el("br"), accent);
@@ -436,7 +441,7 @@
     /** The wallet is linked to the account: the gold badge, then the dashboard (`viaApp`: the wallet app's browser stays on its words). */
     function linkDone(wallet, viaApp) {
       if (S.leaving) return;
-      S.leaving = true; stopCarry();
+      S.leaving = true; stopCarry(); forgetLink();
       try { sessionStorage.removeItem("vl-started"); } catch { /* ignore */ }
       show("done");
       text("#done-badge", "🔗"); text("#done-h", "Wallet linked.");
@@ -889,20 +894,41 @@
         t = setTimeout(() => { off(); resolve(inApp()); }, ms);
       });
     }
+    // The link code this tab is showing (the confirm screen, or the plain screen for a dead one) is kept in sessionStorage, so a reload
+    // inside the wallet app (pull-to-refresh) offers it again (site.js reads it back for an hour at most) instead of the sign-up.
+    // Forgotten when the link went through, the person said it is not them, or they chose the ordinary page.
+    const LINK_KEY = "vicinity-link";
+    const keepLink = (code) => { try { sessionStorage.setItem(LINK_KEY, JSON.stringify({ code, at: Date.now() })); } catch { /* private mode: a reload starts over */ } };
+    const forgetLink = () => { try { sessionStorage.removeItem(LINK_KEY); } catch { /* ignore */ } };
     /**
      * This browser was opened with a link code (/connect?link=). NOTHING happens on load: only a wallet app's browser on a phone even
      * looks at it, and the person first sees whose account it is (the check number of the page where they started, the username
-     * masked, the community) and confirms, then signs (claimLink). Returns { offer } to show that, or { note } (+ the Terms gate opens
-     * as usual). Never asks for a location, the Terms or a Google login.
+     * masked, the community) and confirms, then signs (claimLink). Returns { offer } to show that; { dead } when the server refused
+     * the code (used, run out, another connection, the account got its wallet): inside the wallet app that is ONE plain screen and
+     * the Terms gate stays shut (never step 1 of the sign-up here); or { note } on a computer or in Safari, where the link is simply
+     * not looked at (+ the Terms gate opens as usual). Never asks for a location, the Terms or a Google login.
      */
     async function offerLink(code) {
       const gate = window.V.termsGate;
-      const plain = (msg) => { if (gate) gate.open(); return { note: msg }; };
+      const plain = (msg) => { forgetLink(); if (gate) gate.open(); return { note: msg }; };
       if (!W.isMobile || !(await inAppSoon())) return plain(errText("carry_elsewhere"));
       const info = await call("/api/me/wallet/carry/info", { code });
       if (info._handled) return {};
-      if (!info.ok) return plain(errText(info));
+      keepLink(code); // whatever the answer: a reload here shows this same screen again, not the sign-up
+      if (!info.ok) return { dead: info };
       return { offer: { code, info } }; // (the Terms were accepted on that account: the gate waits; noted here once the person says it is theirs)
+    }
+    /** F1: inside the wallet app's browser, a link that is dead (used, run out, another connection, or already done): one plain screen, nothing else. */
+    function showLinkDead(r) {
+      const code = r && r.error;
+      const known = { carry_expired: "That link was used or ran out", carry_network: "That link is for another connection", link_done: "A wallet is already linked" }[code];
+      S.offer = null; S.mode = "linkin"; // no tabs, no step bar, no hero on a phone: this browser is the wallet app's
+      show("link-dead");
+      text("#ld-h", known || "Couldn't check your link");
+      text("#ld-body", errText(r));
+      hide("#ld-copy", !known); hide("#ld-retry", Boolean(known)); // a dead code: back to Safari; no answer at all: try again
+      announce(`${$("#ld-h").textContent}. ${$("#ld-body").textContent}`);
+      S.first = false; focusHeading("linkDead");
     }
     /** S8: "Link this wallet to Sa•••'s Vicinity account?" in the wallet app's browser. */
     function drawOffer() {
@@ -968,15 +994,22 @@
     /** The code is dead (used, run out, another connection) or the account got a wallet meanwhile: say so, nothing else to do here. */
     async function linkRefused(r) {
       S.offer = null;
-      await leaveOffer("login");
-      notice(errText(r));
+      const me = S.me || {};
+      if (me.signedIn && me.user && !me.user.wallet) { forgetLink(); await leaveOffer("login"); return notice(errText(r)); } // the account's own browser: its link mode
+      showLinkDead(r);
     }
     /** "No, that is not me": nothing happens, the code stays unused, and this is an ordinary first visit (the Terms gate). */
     async function declineLink() {
-      S.offer = null;
+      S.offer = null; forgetLink();
       if (window.V.termsGate) window.V.termsGate.open();
       await leaveOffer("new");
       notice(errText("carry_declined"));
+    }
+    /** The dead-link screen's "log in here instead": the ordinary Log in tab, and the Terms gate as for anyone new in this browser. */
+    async function leaveDead() {
+      forgetLink();
+      if (window.V.termsGate) window.V.termsGate.open();
+      await leaveOffer("login");
     }
     /** Off the confirm screen: the ordinary page for whoever this browser is (a member without a wallet: the link mode; else the tabs). */
     async function leaveOffer(tab) {
@@ -1106,6 +1139,10 @@
       $("#carry-renew").addEventListener("click", renewCarry);
       $("#carry-in-yes").addEventListener("click", acceptLink);
       $("#carry-in-no").addEventListener("click", declineLink);
+      // the dead-link screen (the wallet app's browser)
+      $("#ld-copy").addEventListener("click", () => copy(`${location.origin}/connect`, "Paste it in Safari or Chrome"));
+      $("#ld-retry").addEventListener("click", () => location.reload());
+      $("#ld-login").addEventListener("click", leaveDead);
       // the no-account screen
       $("#na-create").addEventListener("click", () => { S.mode = "signup"; S.tab = "new"; S.hold = null; render(); });
       $("#na-another").addEventListener("click", () => { S.mode = "signup"; S.tab = "login"; render(); });
@@ -1162,9 +1199,14 @@
           const o = await offerLink(brought.link);
           if (S.leaving) return true;
           if (o.offer) { S.offer = o.offer; S.mode = "linkin"; render(); return true; }
-          if (o.note) { S.tab = me.signedIn ? "login" : "new"; }
-          if (me.signedIn && me.user && !me.user.wallet) { S.mode = "link"; render(); if (o.note) notice(o.note); return true; }
-          if (me.signedIn) { signedIn("You're already set. Taking you to your dashboard…", "/dashboard"); return true; }
+          const said = o.dead ? errText(o.dead) : o.note;
+          if (me.signedIn && me.user && !me.user.wallet) { // this browser is the account's own (logged in here before): its link mode, with the reason
+            forgetLink(); if (o.dead && window.V.termsGate) window.V.termsGate.agreed(me.termsVersion || "2026-10-01");
+            S.mode = "link"; render(); if (said) notice(said); return true;
+          }
+          if (me.signedIn) { forgetLink(); signedIn("You're already set. Taking you to your dashboard…", "/dashboard"); return true; }
+          if (o.dead) { showLinkDead(o.dead); return true; } // the wallet app's browser: one plain screen, the gate stays shut, never step 1
+          if (o.note) S.tab = "new";
           const d = await refresh();
           if (!d.ok || !S.srv) return failedLoad(d);
           render(); if (o.note) notice(o.note);

@@ -69,8 +69,11 @@ test("step 2: 'Agree and continue with Google' is one tap: it ticks the box, rec
   const google = p.$("#su-google");
   assert.equal(p.visible(google), true);
   assert.equal(google.disabled, false, "enabled although the box is not ticked yet");
-  assert.equal(p.$("#su-terms").checked, false, "not ticked yet");
+  assert.equal(p.$("#su-terms").checked, true, "ticked from the start: the button says Agree and continue, the box only records it (untick it to hold the buttons)");
   assert.equal(p.visible(p.$("#su-google-note")), true);
+  assert.equal(p.$("label[for=\"su-terms\"]").textContent.replace(/\s+/g, " ").trim(), "I agree to the Terms of Use. Version 2026-10-01.");
+  assert.ok(p.$("label[for=\"su-terms\"] .sr-only"), "the version is for screen readers, not noise on a phone");
+  assert.equal(p.callsTo("/api/signup/terms").length, 0, "ticked or not, nothing is recorded before the tap");
   assert.equal(p.visible(p.$("#su-terms-hint")), false);
   assert.equal(p.$("#su-email-alt").open, true, "on a computer the e-mail way is open as well (the page opens the details)");
   await p.tap(google);
@@ -218,7 +221,10 @@ test("the link mode on a computer: 'Almost done · Link your wallet.', the detec
   assert.equal(p.screen(), "pick");
   assert.equal(p.$(".connect__intro .kicker").textContent, "Almost done");
   assert.equal(p.$(".connect__intro .page-title").textContent, "Link your wallet.One signature.");
+  assert.equal(p.visible(p.$(".connect__intro")), true, "a computer keeps the hero beside the panel");
+  assert.equal(p.$(".connect__intro .safety li").textContent, "Linking is free. It isn't a transaction and can't move funds.");
   assert.equal(p.visible(p.$("#link-top")), true);
+  assert.equal(p.$("#wallets-more").hidden, true, "one list on a computer");
   assert.equal(p.visible(p.$(".su-tabs")), false);
   assert.equal(p.visible(p.$("#su-steps")), false);
   assert.equal(p.visible(p.$("#su-top")), false, "no empty top above the panel");
@@ -268,5 +274,5 @@ test("the strict security policy holds on the new pieces: no inline style or scr
   assert.doesNotMatch(html, /<style/);
   assert.match(html, /<link rel="stylesheet" href="\/onboard\.css">/);
   for (const sel of [".su-later", ".link-top", ".link-in", ".no-account", ".wcard", ".ring", ".welcome"]) assert.ok(css.includes(sel), `${sel} is styled`);
-  assert.ok(css.split("\n").filter((l) => /^\.[a-z]/.test(l)).every((l) => /^\.(su-later|su-alt|su-why|link-top|link-skip|link-in|no-account|welcome|ring|wcard|stepper--two|alt-ways|cstate\[data-state="su-account"\])/.test(l)), "every rule is scoped to the new pieces");
+  assert.ok(css.split("\n").filter((l) => /^\.[a-z]/.test(l)).every((l) => /^\.(su-later|su-alt|su-why|link-top|link-skip|link-in|no-account|welcome|ring|wcard|stepper--two|alt-ways|more-wallets--inner|cstate\[data-state="su-account"\])/.test(l)), "every rule is scoped to the new pieces");
 });

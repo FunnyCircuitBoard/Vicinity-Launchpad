@@ -21,14 +21,28 @@
   // (such a link is now only a calm line). The code leaves the address bar before anything else runs or asks the server (no
   // history entry or Referer keeps it); connect.js redeems it through takeLink() / takeCarry(), once. A pairing (/connect?pair=)
   // stays in the address bar (it is what the wallet app opened), but like the codes it holds the Terms gate back (below).
+  // A link code this tab KEPT (sessionStorage, written by signup.js while its screen is up, for an hour at most) is read the same
+  // way when the address bar holds none: a reload inside the wallet app (pull-to-refresh) offers the same link again, and never
+  // the sign-up (the owner's rule: nothing asks for a location or Google at the wallet stage).
+  const LINK_KEY = "vicinity-link";
+  const keptLink = () => {
+    try {
+      const k = JSON.parse(sessionStorage.getItem(LINK_KEY) || "null");
+      if (k && typeof k.code === "string" && /^[A-Za-z0-9_-]{32,64}$/.test(k.code) && Date.now() - Number(k.at) < 60 * 60_000) return k.code;
+      if (k) sessionStorage.removeItem(LINK_KEY);
+    } catch { /* storage blocked: a reload is an ordinary visit */ }
+    return null;
+  };
   let carryCode = null, linkCode = null, deferGate = false;
   try {
     if (document.body.dataset.page === "connect") {
       const q = new URLSearchParams(location.search);
+      const tidy = q.has("link") || q.has("carry");
       if (q.has("link")) { linkCode = q.get("link") || ""; q.delete("link"); }
       if (q.has("carry")) { carryCode = q.get("carry") || ""; q.delete("carry"); }
+      if (linkCode === null && carryCode === null && !q.has("pair")) linkCode = keptLink();
       deferGate = linkCode !== null || carryCode !== null || q.has("pair");
-      if (linkCode !== null || carryCode !== null) history.replaceState(history.state, "", location.pathname + (String(q) ? `?${q}` : "") + location.hash);
+      if (tidy) history.replaceState(history.state, "", location.pathname + (String(q) ? `?${q}` : "") + location.hash);
     }
   } catch { /* no address bar to tidy (tests) */ }
   const takeCarry = () => { const c = carryCode; carryCode = null; return c; };

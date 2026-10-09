@@ -312,7 +312,7 @@ test("(4) a LINK pairing: the approve page names the account the wallet joins, a
   assert.equal(asked[0], `/api/message?address=${ADDR}&action=link&pin=42&pair=${PAIR}`, "the LINK statement with the check number, for the owner of this pairing");
   assert.equal(asked[1].pair, PAIR);
   assert.equal(p.visible(p.$("#approve-done")), true);
-  assert.equal(p.$("#approve-done-text").textContent, "Approved. Go back to where you started: your dashboard finishes the link.");
+  assert.equal(p.$("#approve-done-text").textContent, "Approved. Go back to where you started: your dashboard finishes the link, or says why it can't.");
   assert.equal(p.visible(p.$("#approve-tap")), false);
   assert.equal(p.calls.filter((c) => c.path.startsWith("/api/signup/") || c.path.startsWith("/api/auth/google")).length, 0, "no sign-up, no Google: nothing can loop back to a sign-in screen here");
 });

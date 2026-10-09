@@ -51,7 +51,7 @@ test("onboard.css is loaded by /connect and /dashboard only, and every rule in i
   }
   const rules = css.split("\n").filter((l) => /^\.[a-z]/.test(l));
   assert.ok(rules.length > 30);
-  for (const l of rules) assert.match(l, /^\.(su-later|su-alt|su-why|link-top|link-skip|link-in|no-account|welcome|ring|wcard|stepper--two|alt-ways|cstate\[data-state="su-account"\])/, l.slice(0, 60));
+  for (const l of rules) assert.match(l, /^\.(su-later|su-alt|su-why|link-top|link-skip|link-in|no-account|welcome|ring|wcard|stepper--two|alt-ways|more-wallets--inner|cstate\[data-state="su-account"\])/, l.slice(0, 60));
   for (const sel of [".wcard", ".wcard--folded", ".wcard.is-done", ".ring", ".ring--sm", ".ring--pass", ".ring-row", ".welcome", ".welcome__ring", ".welcome__close"]) assert.ok(css.includes(sel + " "), `${sel} is styled`);
   // colours come from the site's tokens (the light theme follows by itself); no hard-coded text colour on the card
   const wcard = css.slice(css.indexOf("\n.wcard {")); // the card's own block (the row-span rule above names .wcard too)
@@ -129,14 +129,62 @@ test("/dashboard?welcome=1: the welcome card once (city, first name, member numb
   assert.equal(p.text("#welcome-ring-num"), "2/3");
   assert.equal(p.$("#welcome-ring").style.getPropertyValue("--ring-done"), "0.667", "reduced motion in this DOM: set at once (a 600 ms sweep otherwise)");
   assert.equal(p.$("#welcome-ring").getAttribute("aria-label"), "Profile 2 of 3 complete: location and account done, wallet not linked");
-  assert.deepEqual(p.$$("#welcome-ring .ring__ticks li").map((li) => [li.textContent, li.classList.contains("is-done")]), [["Location done", true], ["Account done", true], ["Wallet open", false]]);
+  assert.deepEqual(p.$$("#welcome-ring .ring__ticks li").map((li) => [li.textContent, li.classList.contains("is-done")]), [["Location done", true], ["Account done", true], ["Wallet not linked yet", false]]);
   assert.ok(p.addressBar.includes("https://vicinity.test/dashboard"), "the parameter was taken off the address bar");
   assert.ok(!p.addressBar.slice(1).some((u) => u.includes("welcome=1")));
+  assert.equal(p.doc.body.dataset.welcome, "1", "F7: the mark profile.js reads (it cannot see the parameter any more), so the profiles notice stays away from the welcome");
+  assert.match(read("profile.js"), /get\("welcome"\) \|\| document\.body\.dataset\.welcome === "1"\) \{ markSeen\(\); dismissed = true; \}/);
   assert.equal(p.$("#wallet-card").hidden, false, "the link card follows the welcome");
   await p.tap(p.$("#welcome-close"));
   assert.equal(w.hidden, true);
   // the old toast is gone: the card is the welcome
   assert.ok(!p.toasts.some((t) => /Welcome to Vicinity/.test(t)), JSON.stringify(p.toasts));
+});
+
+test("/dashboard?welcome=1 for an e-mail account: the card greets the city alone (the server has no first name, only 'E-mail member')", async () => {
+  const me = memberMe(); me.user = { ...me.user, provider: "email", name: "E-mail member" };
+  const p = await openDashboard({ search: "welcome=1", me });
+  assert.equal(p.text("#welcome-title"), "Welcome to Utica.");
+  assert.equal(p.text("#welcome-line"), "You are member #12 here. Two of three steps done: link a wallet whenever you like.");
+  assert.equal(p.doc.body.dataset.welcome, "1");
+});
+
+test("with the old sign-up back (no signupFlow in /api/me) a member without a wallet sees no link card and no Link on the pass or the profile row: the old /connect cannot link one", async () => {
+  const me = memberMe(); delete me.signupFlow;
+  const p = await openDashboard({ me, session: { "vl-started": "1" } });
+  assert.equal(p.$("#dash-main").hidden, false);
+  assert.equal(p.$("#wallet-card").hidden, true);
+  assert.equal(p.$("#me-link").hidden, true);
+  assert.equal(p.text("#pass [data-me-wallet]"), "No wallet linked");
+  assert.equal(p.$("#pass-ring").hidden, false, "the ring still says 2 of 3: that much is true");
+  const asked = p.callsTo("/api/me?lite=1").length; // (the header's account button asks once on every page)
+  await p.advance(9000);
+  assert.equal(p.callsTo("/api/me?lite=1").length - asked, 0, "no poll for a wallet that cannot arrive");
+  p.win.V.openProfile(); await p.flush();
+  assert.equal(p.$("#profile-link").hidden, true);
+});
+
+test("the squad box for a member without a wallet: no 'Start a squad' button that can only fail, a line and a link to the card instead", async () => {
+  const me = memberMe({ launched: true }); me.squad = { mine: null, joinable: null, canCreate: true };
+  const p = await openDashboard({ me });
+  const box = p.$("#squad");
+  assert.equal(box.hidden, false);
+  assert.ok(!box.querySelectorAll("button").some((b) => /Start a squad/.test(b.textContent)), "no dead-end tap");
+  assert.match(box.textContent, /A squad pools wallets, so link yours first: free, one signature\./);
+  const a = box.querySelectorAll("a").find((x) => /Link my wallet/.test(x.textContent));
+  assert.equal(a.getAttribute("href"), "#wallet-card");
+  const linked = memberMe({ launched: true, wallet: ADDR }); linked.squad = { mine: null, joinable: null, canCreate: true };
+  const q = await openDashboard({ me: linked });
+  assert.ok(q.$("#squad").querySelectorAll("button").some((b) => /Start a squad/.test(b.textContent)), "with a wallet the button is back");
+});
+
+test("the pre-home checklist (an account without a home: not what the new sign-up makes, but reachable) says the rank waits for a wallet instead of 'This wallet doesn't hold'", async () => {
+  const me = memberMe({ launched: true }); me.user = { ...me.user, home: null };
+  const p = await openDashboard({ me });
+  assert.equal(p.$("#dash-onboard").hidden, false);
+  assert.equal(p.$("#ob-rank").classList.contains("is-ok"), false);
+  assert.equal(p.text("#ob-rank-text"), "Link a wallet from your dashboard to see your position among all holders. Free, one signature.");
+  assert.equal(p.text("#ob-wallet-title"), "Wallet: link it later, from your dashboard");
 });
 
 test("a link started in this tab: the card says it is waiting for the wallet app and asks /api/me?lite=1 every 4 s while on screen, at once when the tab comes back, then the wallet arrives", async () => {

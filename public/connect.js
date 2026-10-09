@@ -118,9 +118,15 @@
     $("#wallets-detected").replaceChildren(...list.map((a) => walletButton(a, connectWith)));
     $("#wallets-none").hidden = list.length > 0;
     const rest = W.KNOWN.filter((k) => !list.some((a) => k.match.test(a.name)));
-    const order = W.isMobile ? rest.filter((k) => k.open).concat(rest.filter((k) => !k.open)) : rest;
+    // a phone (the new sign-up): the wallet apps that can open this page come first; the ones still to install wait behind a second
+    // "More wallets" (#wallets-more), so "Wallet on my phone" and "Skip for now" are not 17 rows down. Today's page keeps its one list.
+    const split = Boolean(signup) && W.isMobile;
+    const order = split ? rest.filter((k) => k.open) : W.isMobile ? rest.filter((k) => k.open).concat(rest.filter((k) => !k.open)) : rest;
+    const others = split ? rest.filter((k) => !k.open) : [];
     const carry = signup ? signup.carrier() : null;
     $("#wallets-known").replaceChildren(...order.map((k) => knownTile(k, location.origin + "/connect", carry)));
+    const more = $("#wallets-more");
+    if (more) { more.hidden = !others.length; $("#wallets-rest").replaceChildren(...others.map((k) => knownTile(k, location.origin + "/connect", null))); }
     $("#wallets-known").classList.toggle("wallet-grid--apps", Boolean(W.isMobile && !list.length)); // a phone's only way on: full rows that say "Open app"
     $("#more-label").textContent = W.isMobile && !list.length ? "Open Vicinity in your wallet app" : list.length ? "More wallets" : "Get a wallet";
     // "Wallet on my phone" on the phone itself: no code to scan, its wallet apps open the approval (openPair)
@@ -514,7 +520,7 @@
       $("#approve-ask").replaceChildren("Does Safari (or your computer), where you started, show check number ", $("#approve-pin"), "?");
       $("#approve-warn").textContent = "Only continue if you started this yourself. Never sign for a code someone sent you.";
       $("#approve-terms").hidden = false;
-      $("#approve-done-text").replaceChildren(el("strong", null, "Approved."), " Go back to where you started: your dashboard finishes the link.");
+      $("#approve-done-text").replaceChildren(el("strong", null, "Approved."), " Go back to where you started: your dashboard finishes the link, or says why it can't.");
     }
     renderApprove();
   }

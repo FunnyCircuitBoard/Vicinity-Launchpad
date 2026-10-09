@@ -179,7 +179,7 @@
     // the pass shows the sign-in method only — never the real name (privacy)
     $$("[data-me-login]").forEach((e) => (e.textContent = PROVIDER_LABEL[u.provider] || "Google"));
     $("#me-avatar").textContent = initials(name);
-    $("#me-copy").hidden = !linked; $("#me-link").hidden = linked;
+    $("#me-copy").hidden = !linked; $("#me-link").hidden = linked || d.signupFlow !== "v2"; // (Link only while the new sign-up's link routes are on)
     $("#pass-ring").hidden = linked;
     if (!linked) ringSet($("#pass-ring"), d.setup, false);
     $("#ob-wallet").classList.toggle("is-ok", linked);
@@ -198,7 +198,7 @@
     const num = host.querySelector(".ring__num"); if (num) num.textContent = `${done.length}/${steps.length}`;
     for (const x of steps) {
       const li = host.querySelector(`#${host.id}-tick-${x.id}`); if (!li) continue;
-      li.classList.toggle("is-done", x.done); li.textContent = `${RING_LABEL[x.id] || x.id} ${x.done ? "done" : "open"}`;
+      li.classList.toggle("is-done", x.done); li.textContent = `${RING_LABEL[x.id] || x.id} ${x.done ? "done" : x.id === "wallet" ? "not linked yet" : "to do"}`;
     }
     const low = (x) => (RING_LABEL[x.id] || x.id).toLowerCase();
     host.setAttribute("aria-label", `Profile ${done.length} of ${steps.length} complete: ${listOf(done.map(low))} done${open.length ? `, ${listOf(open.map(low))} not linked` : ""}`);
@@ -210,7 +210,8 @@
   /* ---------- the welcome moment (/dashboard?welcome=1, once) ---------- */
   const firstName = (u) => String(u.name || "").trim().split(/\s+/)[0] || (u.handle ? `@${u.handle}` : "");
   function showWelcome(d) {
-    const u = d.user, c = d.community, box = $("#welcome"), who = firstName(u);
+    // an e-mail account has no name yet (the server calls it "E-mail member"): the card greets the city alone
+    const u = d.user, c = d.community, box = $("#welcome"), who = u.provider === "email" ? "" : firstName(u);
     $("#welcome-title").textContent = `Welcome to ${u.home ? u.home.name : "Vicinity"}${who ? `, ${who}` : ""}.`;
     $("#welcome-line").textContent = (c && c.memberNumber ? `You are member #${fmt(c.memberNumber)} here. ` : "Your dashboard is live. ")
       + (u.wallet ? "Your profile is complete." : "Two of three steps done: link a wallet whenever you like.");
@@ -229,6 +230,8 @@
   const carryName = () => { try { return sessionStorage.getItem("su-carry") || ""; } catch { return ""; } }; // the wallet app chosen on /connect ("Phantom")
   function walletCard(d) {
     const card = $("#wallet-card"), u = d.user;
+    // the old sign-up is back (SIGNUP_FLOW off): its /connect cannot link a wallet to an existing account, so no card that leads there
+    if (!u.wallet && d.signupFlow !== "v2") { stopLinkPoll(); card.hidden = true; return; }
     if (u.wallet) {
       stopLinkPoll();
       if (!linkedNow) { card.hidden = true; return; }
@@ -299,8 +302,9 @@
   function onboard(d) {
     $("#dash-onboard").hidden = false;
     const li = $("#ob-rank"), t = $("#ob-rank-text"), h = d.holding;
-    li.classList.add("is-ok");
-    if (!d.launched) t.textContent = "Ranks go live the moment $VICINITY launches. You joined before launch: 🌱 Early member badge unlocked.";
+    li.classList.toggle("is-ok", Boolean(d.user.wallet));
+    if (!d.user.wallet) t.textContent = "Link a wallet from your dashboard to see your position among all holders. Free, one signature.";
+    else if (!d.launched) t.textContent = "Ranks go live the moment $VICINITY launches. You joined before launch: 🌱 Early member badge unlocked.";
     else if (h.rank) t.textContent = `#${fmt(h.rank)} of ${fmt(h.total)} holders · top ${pctText(h.percentile)}% · ${fmt(h.amount)} $VICINITY`;
     else if (h.team) t.textContent = `${fmt(h.amount)} $VICINITY · team wallet, not ranked`;
     else if (h.amount > 0) t.textContent = `${fmt(h.amount)} $VICINITY`;
@@ -1208,7 +1212,7 @@
     const linked = Boolean(u.wallet);
     $("#profile-wallet").textContent = linked ? mask(u.wallet) : "No wallet linked";
     $("#profile-wallet").classList.toggle("mono", linked);
-    $("#profile-copy").hidden = !linked; $("#profile-link").hidden = linked; $("#profile-unlink").hidden = !linked;
+    $("#profile-copy").hidden = !linked; $("#profile-link").hidden = linked || !(me && me.signupFlow === "v2"); $("#profile-unlink").hidden = !linked;
     $("#profile-provider").textContent = PROVIDER_LABEL[u.provider] || "Google";
     $("#profile-home").textContent = u.home ? `${u.home.name}, ${countryName(u.home.country)}` : "No home community yet";
     $("#username-input").value = u.handle || "";
@@ -1494,6 +1498,7 @@
       try { history.replaceState(null, "", location.pathname + (q ? `?${q}` : "") + location.hash); } catch {}
     }
     if (linked && d.user.wallet) linkedNow = true;
+    if (welcome) document.body.dataset.welcome = "1"; // the parameter is gone from the address bar: profile.js reads this (the profiles notice waits)
     identity(d);
     if (!d.user.home) { unhold(); onboard(d); return; }
     if (tabbed) {

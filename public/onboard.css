@@ -35,7 +35,11 @@
 .link-in__who strong { font-size: 1.05rem; overflow-wrap: anywhere; }
 .link-in #carry-in-wallets { margin-top: 4px; }
 
-/* ---- a wallet nobody owns (one screen, never step 1 by surprise) ---- */
+/* ---- the link mode on a phone: the wallet apps first, the ones to install behind a second "More wallets" ---- */
+.more-wallets--inner { margin-top: 10px; }
+.more-wallets--inner > summary { font-size: .92rem; }
+
+/* ---- a wallet nobody owns, or a dead link inside the wallet app (one screen, never step 1 by surprise) ---- */
 .no-account { justify-items: center; text-align: center; }
 .no-account .verified-badge.is-plain { color: var(--muted); background: var(--card-2); box-shadow: 0 0 0 10px var(--card); }
 .no-account .btn { width: 100%; }

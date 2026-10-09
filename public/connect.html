@@ -156,6 +156,11 @@
             <details class="more-wallets" id="more-wallets">
               <summary><span id="more-label">More wallets</span></summary>
               <div class="wallet-grid" id="wallets-known"></div>
+              <!-- v2 on a phone: the wallets still to install (connect.js renderPick); hidden everywhere else -->
+              <details class="more-wallets more-wallets--inner" id="wallets-more" hidden>
+                <summary><span>More wallets</span></summary>
+                <div class="wallet-grid" id="wallets-rest"></div>
+              </details>
               <p class="tiny muted">Ledger? Connect it through Phantom or Solflare.</p>
             </details>
             <div class="alt-ways">
@@ -300,9 +305,10 @@
                 <p class="tiny muted" id="su-google-note" hidden>By continuing you agree to the Terms of Use.</p>
                 <p class="callout small" id="su-inapp" hidden>Google cannot sign you in inside a wallet app. Use e-mail here, or open <strong>vicinity.city/connect</strong> in Safari or Chrome. <button class="link-btn" type="button" id="su-copy">Copy the link</button></p>
               </div>
+              <!-- ticked from the start: the button above already says "Agree and continue", so the box only records it (untick it to hold the buttons) -->
               <div class="su-check">
-                <input type="checkbox" id="su-terms" name="terms" aria-describedby="su-terms-error su-terms-hint">
-                <label for="su-terms">I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Use</a> <span class="su-nowrap">(version <span id="su-terms-version">2026-10-01</span>)</span>.</label>
+                <input type="checkbox" id="su-terms" name="terms" checked aria-describedby="su-terms-error su-terms-hint">
+                <label for="su-terms">I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Use</a>. <span class="sr-only">Version <span id="su-terms-version">2026-10-01</span>.</span></label>
               </div>
               <p class="su-hint" id="su-terms-hint" hidden>Tick the box to continue.</p>
               <p class="su-err" id="su-terms-error" role="alert"></p>
@@ -398,6 +404,16 @@
             <button class="btn btn--primary btn--block btn--lg" type="button" id="na-copy" hidden>Copy vicinity.city/connect</button>
             <p class="tiny muted" id="na-tiny" hidden>Already a member? <button class="link-btn link-btn--tiny" type="button" id="na-login">Log in with the wallet on your account, or with your e-mail and password.</button></p>
             <button class="link-btn" type="button" id="na-another">Try another wallet</button>
+          </div>
+
+          <!-- v2, the wallet app's browser opened a link that is used, run out, for another connection or already done: ONE plain screen (never the sign-up) -->
+          <div class="cstate no-account link-dead" data-state="link-dead" hidden>
+            <div class="verified-badge is-plain" aria-hidden="true">!</div>
+            <h2 class="h2--sm" id="ld-h" tabindex="-1">That link was used or ran out</h2>
+            <p class="muted small" id="ld-body">Go back to Safari or Chrome and tap Link again.</p>
+            <button class="btn btn--primary btn--block btn--lg" type="button" id="ld-copy">Copy vicinity.city/connect</button>
+            <button class="btn btn--primary btn--block btn--lg" type="button" id="ld-retry" hidden>Try again</button>
+            <p class="tiny muted">Or <button class="link-btn link-btn--tiny" type="button" id="ld-login">log in here with your e-mail and password</button> and link the wallet from your dashboard.</p>
           </div>
 
           <!-- v2: the account is created the moment the login is verified; this screen is only ever seen by a page that retries -->
