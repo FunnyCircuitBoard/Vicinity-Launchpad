@@ -1,4 +1,4 @@
-// Home: the second hero button is "My Dashboard" (to /dashboard). Cities: the map comes first, then the numbers, then
+// Home: one hero button (Get $VICINITY, to the Token page's buy slot). Cities: the map comes first, then the numbers, then
 // the page's title and description, with every id, aria attribute and text kept, and a tidy phone layout.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -18,19 +18,16 @@ const mediaWith = (px, needle) => {
   return null;
 };
 
-test("home: both 'Find my city' buttons are now 'My Dashboard' and open /dashboard", () => {
+test("home: one hero button, Get $VICINITY, straight to the buy slot of the Token page; no second button and no closing band (the header has Log in)", () => {
+  // the mobile polish of 9 Oct 2026: the hero had "Get $VICINITY" + "My Dashboard" and the page closed with the same pair again
   for (const [where, h] of both("index")) {
-    assert.doesNotMatch(h, /Find my city/i, `${where}: the old label is gone`);
+    assert.doesNotMatch(h, /Find my city|>My Dashboard</, `${where}: the old second button is gone`);
     const ctas = [...h.matchAll(/<div class="hero__cta[^"]*">([\s\S]*?)<\/div>/g)].map((m) => m[1]);
-    const withDash = ctas.filter((c) => c.includes("My Dashboard"));
-    assert.equal(withDash.length, 2, `${where}: the hero and the closing band`);
-    for (const c of withDash) {
-      assert.match(c, /<a class="btn btn--glass btn--lg" href="\/dashboard">My Dashboard<\/a>/, `${where}: a plain link to the dashboard`);
-      assert.ok(c.indexOf("Get $VICINITY") < c.indexOf("My Dashboard"), `${where}: buying stays the first button`);
-    }
-    assert.equal((h.match(/>My Dashboard</g) || []).length, 2, `${where}: no third copy`);
+    assert.equal(ctas.length, 1, `${where}: one row of hero buttons`);
+    assert.match(ctas[0], /^\s*<a class="btn btn--primary btn--lg" href="\/token#buy-slot">Get \$VICINITY <span aria-hidden="true">→<\/span><\/a>\s*$/, `${where}: one button, to the buy slot`);
+    assert.doesNotMatch(h, /cta-band|class="numbers"/, `${where}: no closing band, no numbers band`);
+    assert.equal((h.match(/Get \$VICINITY/g) || []).length, 1, `${where}: the call to buy is made once`);
   }
-  // no script renames the button afterwards (a signed-in visitor also lands on their dashboard through /dashboard)
   for (const f of ["site.js", "home.js"]) assert.doesNotMatch(read(`public/${f}`), /Find my city|My Dashboard/, f);
 });
 
@@ -61,7 +58,8 @@ test("cities: the map first, then the numbers, then the description; every id, a
       assert.equal((h.match(new RegExp(`id="${id}"`, "g")) || []).length, 1, `${where}: #${id} once`);
     }
     for (const a of ['role="img" tabindex="0" aria-label="Zoomable world map of every listed city.', 'role="group" aria-label="Map controls"', 'aria-label="Find the city I\'m in" title="Find the city I\'m in"', 'aria-label="Show the coloured map" aria-pressed="false"', '<span id="map-zoom-level" aria-live="polite">', '<ul class="claim-feed" id="claim-feed" aria-live="polite">']) assert.ok(sec.includes(a), `${where}: ${a}`);
-    for (const t of ["communities", "countries", "founded", "still open", "verified members", "claims", "100,000 to 1,000,000 $VICINITY", '<a href="/rules#founders">How it works</a>']) assert.ok(sec.includes(t), `${where}: ${t}`);
+    for (const t of ["communities", "countries", "founded", "still open", "verified members", "claims", "founder amount", '<a href="/rules#founders">How it works</a>']) assert.ok(sec.includes(t), `${where}: ${t}`);
+    assert.doesNotMatch(sec, /100,000 to 1,000,000/, `${where}: the Stake Ladder's numbers are stated once on the page, in the Pick-a-city checklist (9 Oct 2026)`);
     assert.doesNotMatch(sec, /\breveal\b/, `${where}: nothing at the top waits for a script to become visible`);
   }
 });
@@ -97,13 +95,13 @@ test("cities CSS: the map right under the header, the stats a tidy grid, the des
   for (const sel of [".cities-intro", ".city-stats"]) for (const m of css.matchAll(new RegExp(`\\${sel}[^{]*\\{([^}]*)\\}`, "g"))) assert.doesNotMatch(m[1], /animation|opacity: 0/, sel);
 });
 
-test("phones: the city stats keep their labels inside the cards and both rows even; the closing buttons on Home reach both edges", () => {
+test("phones: the city stats keep their labels inside the cards and both rows even; the hero button on Home reaches both edges", () => {
   // review of 6 Oct 2026 at 320 and 390 px: "communities" ran into its card's padding, "verified members" (two lines) made the second
   // row taller than the first, and "Get $VICINITY →" / "My Dashboard" at the bottom of Home stopped 16 px short of the right edge
   const phone = css.slice(css.indexOf("@media (max-width: 520px) {\n  .city-stats {"));
   assert.match(phone, /^@media \(max-width: 520px\) \{\n  \.city-stats \{ gap: 8px; margin-bottom: 24px; grid-auto-rows: 1fr; \}/, "rows as tall as the tallest");
   assert.match(phone, /\n  \.city-stats div \{ padding: 10px 9px; border-radius: 14px; \}/, "a little less side padding");
   assert.match(css, /@media \(max-width: 360px\) \{ \.city-stats span \{ font-size: \.7rem; \} \}/, "and slightly smaller labels on the smallest phones");
-  assert.match(css, /@media \(max-width: 480px\) \{ \.cta-band \.hero__cta--end \{ flex: 1 1 100%; \} \}/);
-  assert.match(css, /@media \(max-width: 480px\) \{ \.hero__cta \.btn--lg \{ flex: 1 1 auto;/, "the buttons inside it share the full width");
+  assert.doesNotMatch(css, /\.cta-band/, "the closing band and its rules are gone (9 Oct 2026)");
+  assert.match(css, /@media \(max-width: 480px\) \{ \.hero__cta \.btn--lg \{ flex: 1 1 auto;/, "the hero button takes the full width");
 });

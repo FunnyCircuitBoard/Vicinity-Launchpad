@@ -39,7 +39,7 @@ test("every built page loads feedback.css after the site's stylesheet and runs f
   assert.ok(PAGES.length >= 12);
   for (const f of PAGES) {
     const h = read("public/" + f);
-    assert.match(h, /<link rel="stylesheet" href="\/style\.css">\n  <link rel="stylesheet" href="\/feedback\.css">/, `${f}: the widget's stylesheet right after the site's`);
+    assert.match(h, /<link rel="stylesheet" href="\/style\.css">\n(?:  <link rel="stylesheet" href="\/polish\.css">\n)?  <link rel="stylesheet" href="\/feedback\.css">/, `${f}: the widget's stylesheet after the site's (polish.css may sit between)`);
     const scripts = [...h.matchAll(/<script src="\/([a-z/-]+)\.js" defer><\/script>/g)].map((m) => m[1]);
     assert.equal(scripts[0], "site", f);
     assert.equal(scripts.at(-1), "feedback", `${f}: feedback.js runs last`);

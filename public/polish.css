@@ -1,0 +1,463 @@
+/* Vicinity — the mobile-first polish of 9 Oct 2026. Loaded after style.css on every page (scripts/pages/build.mjs); nothing here
+   needs a change in style.css, so the branches built at the same time (onboarding, the in-app swap, the feedback button) merge cleanly.
+   What it does, in order: a bottom-bar variable for anything fixed in a corner; 44 px targets and 12 px text everywhere; tighter
+   sections on phones; the compact footer; the home page (one hero, the New York map first, tabs instead of card walls); the token page
+   (one buy slot, a tighter card, compact proofs); cities, launchpad, coin, rules and terms. Both themes; motion only under
+   prefers-reduced-motion: no-preference, like style.css. */
+
+/* ---------- the bars at the bottom of a phone, published for anything that floats in a corner (the feedback button) ---------- */
+:root { --tabbar-h: 67px; --bottom-bars: 0px; }
+@media (max-width: 900px) {
+  body { --bottom-bars: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); padding-bottom: calc(var(--bottom-bars) + 8px); }
+  body.has-coin-buybar { --bottom-bars: calc(var(--tabbar-h) + 64px + env(safe-area-inset-bottom)); }
+  /* the tab bar is exactly --tabbar-h tall (plus the safe area), whatever its labels' line height */
+  .tabbar { height: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); padding: 4px 4px calc(2px + env(safe-area-inset-bottom)); align-items: center; }
+  .tabbar a { font-size: .75rem; line-height: 1.25; gap: 3px; padding: 5px 2px; min-height: 44px; justify-content: center; }
+}
+
+/* ---------- 44 px targets, 12 px text (header, footer, the small controls every page shares) ---------- */
+.brand { min-height: 44px; padding: 0 4px; margin-left: -4px; border-radius: 10px; }
+.theme-toggle { width: 44px; height: 44px; }
+.account-btn.btn--sm { min-height: 44px; }
+.btn--sm { min-height: 44px; }
+.link-btn { min-height: 44px; display: inline-flex; align-items: center; }
+p > .link-btn, .tiny .link-btn, .holders__meta .link-btn { min-height: 44px; padding: 10px 0; }
+.faq summary { min-height: 44px; align-items: center; padding: 2px 0; }
+.faq details { padding: 8px 0; }
+.faq details p { margin-top: 6px; }
+.tag { font-size: .75rem; }
+.kicker { font-size: .78rem; }
+.tiny { font-size: .8rem; }
+input, select, textarea { min-height: 44px; }
+.find-box input, .composer textarea, .swapbox__amt, .su-check input { min-height: 0; }
+.checker, .snap-lookup { padding: 8px; }
+.checker .btn, .snap-lookup .btn { min-height: 44px; font-size: .9rem; }
+.find-box .find-box__go { border-radius: 999px; } /* the token page's two search buttons: the same pill, the same 44 px, the same .9rem */
+
+/* ---------- tighter rhythm: every page (72 px between sections on a computer, 40 on a phone) ---------- */
+.section { padding: 72px 0; }
+.section-head { margin-bottom: 28px; }
+.nav a { min-height: 44px; }
+.nav__soon, .nav__open { font-size: .75rem; }
+@media (max-width: 600px) {
+  .section { padding: 26px 0; }
+  .section--tight { padding: 22px 0 32px; }
+  .section-head { margin-bottom: 14px; }
+  .kicker { margin-bottom: 6px; }
+  h2 { margin-bottom: .35em; }
+  .section-head p.muted { font-size: .95rem; margin-bottom: .6em; }
+  h2, .h2--sm { font-size: clamp(1.4rem, 6vw, 1.75rem); max-width: none; } /* one title size on a phone (three before: 20.8, 21.6 and 27.3 px) */
+  .page-hero { padding: 28px 0 20px; }
+  .page-title { font-size: clamp(2.2rem, 11vw, 3rem); margin: 4px 0 10px; }
+  .lead { font-size: 1rem; }
+  .card { padding: 18px 16px; border-radius: 18px; }
+  .bridge { margin-top: 16px; font-size: 1rem; }
+  .ticks { gap: 8px; }
+  .ticks li { font-size: .95rem; }
+}
+
+/* ---------- the footer: one row of links (two columns on a phone), status and Pause side by side, data credits folded, the legal line kept ---------- */
+.site-footer { padding: 26px 0 20px; }
+.footer-grid { grid-template-columns: 1.3fr 1fr 1fr; gap: 16px 28px; align-items: start; }
+.footer-brand p { margin: 6px 0 0; }
+.footer-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px; }
+.footer-meta p { margin: 0; }
+.footer-status { min-height: 44px; display: inline-flex; align-items: center; }
+.footer-status #status { margin-left: .3em; }
+.footer-motion { margin-top: 0 !important; }
+.footer-links { gap: 0; }
+.footer-links a { min-height: 44px; display: flex; align-items: center; }
+.footer-links .tiny { margin-top: 6px; }
+.footer-data { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 4px; }
+.footer-data summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin: 0 !important; }
+.footer-data summary::-webkit-details-marker { display: none; }
+.footer-data summary::after { content: "+"; color: var(--pin); font-size: 1.1rem; line-height: 1; }
+.footer-data[open] summary::after { content: "−"; }
+.footer-data p { margin: 0 0 6px; }
+.footer-legal { margin-top: 14px; padding-top: 12px; }
+@media (max-width: 900px) {
+  .footer-grid { grid-template-columns: 1fr 1fr; gap: 8px 20px; }
+  .footer-brand { grid-column: 1 / -1; }
+  /* the Explore links are the tab bar's five pages: one menu per screen */
+  .footer-links--explore { display: none; }
+  .footer-links--safe { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .footer-links--safe .footer-title, .footer-links--safe .tiny, .footer-links--safe a:first-of-type { grid-column: 1 / -1; } /* three links: one, then two side by side */
+  .footer-links a { min-height: 44px; }
+  .footer-brand .brand { min-height: 0; margin: 0; padding: 0; }
+}
+
+/* =====================================================================
+   Home: one hero (copy, one button, one row of facts), the New York map first on a phone, then the problem in three lines,
+   one tabbed block for everything $VICINITY gets you, five steps, a horizontal roadmap, a tabbed FAQ. No closing band.
+   ===================================================================== */
+.hero { padding: 44px 0 40px; }
+.hero__grid { gap: 36px; }
+.hero__grid > * { min-width: 0; } /* the facts strip scrolls inside its column instead of widening it */
+.hero__title { margin: 14px 0 16px; }
+.hero__cta { margin: 20px 0 22px; }
+.hero__cta--one .btn { min-width: 220px; }
+/* the trust line: one muted sentence, not three pills */
+.hero__trust { display: block; margin: -10px 0 22px; font-size: .86rem; color: var(--muted); }
+.hero__trust li { display: inline; padding: 0; border: 0; background: none; font-weight: 500; color: var(--muted); }
+.hero__trust li::before { content: none; }
+.hero__trust li + li::before { content: " · "; color: var(--faint); margin: 0 2px; }
+/* the facts: one strip of five, scrolling sideways on a phone */
+.hero__facts { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding-top: 16px; }
+.hero__facts li { font-size: .75rem; min-width: 0; }
+.hero__facts li span { line-height: 1.3; margin-top: 2px; }
+.hero__facts strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.hero-map .map-open { display: none; } /* the map itself is the link (aria-label); the one "Open on the live map" is in the walkthrough */
+@media (min-width: 961px) { .hero__title { font-size: clamp(3rem, 7vw, 5.5rem); } .hero__grid { grid-template-columns: 1.2fr .8fr; } } /* "One community." on one line at 1280 (it broke after "One") */
+@media (max-width: 960px) {
+  .hero { padding: 16px 0 22px; }
+  .hero-map { display: none; } /* the same city, bigger and stepped through, starts right under the hero on a phone */
+  .hero__grid { gap: 0; }
+  .eyebrow { font-size: .84rem; }
+  .hero__title { font-size: clamp(2.1rem, 9.6vw, 3.2rem); margin: 10px 0 12px; }
+  .hero__title br:first-of-type { display: none; } /* "One city. One coin." on one line */
+  .hero__cta { margin: 14px 0 16px; }
+  .hero__trust { margin: -6px 0 16px; }
+}
+@media (max-width: 600px) {
+  .hero__cta--one .btn { flex: 1 1 auto; }
+  .hero__facts { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; gap: 8px; margin: 0 -16px; padding: 12px 16px 4px; border-top: 0; scrollbar-width: none; }
+  .hero__facts::-webkit-scrollbar { display: none; }
+  .hero__facts li { flex: 0 0 auto; min-width: 124px; scroll-snap-align: start; padding: 10px 12px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
+  .hero__facts strong { font-size: 1.25rem; }
+}
+
+/* the New York walkthrough: the map, one step caption with its three controls, the member chips */
+#nyc .section-head p.muted { margin-bottom: 0; }
+.nyc__ctrl { gap: 8px; margin-bottom: 12px; align-items: center; }
+#nyc-map { cursor: pointer; }
+@media (max-width: 600px) { .nyc__ctrl { gap: 6px; } .nyc__ctrl .btn--primary { flex: 1 1 auto; padding: 0 10px; font-size: .88rem; } .nyc__ctrl #nyc-play { padding: 0 12px; } }
+.nyc__ctrl .btn--sm { min-height: 44px; min-width: 44px; }
+.nyc__credit { font-size: .75rem; }
+.nyc__facts { padding: 14px 16px; }
+.nyc__facts .kicker { margin-bottom: 8px; }
+.member-cloud { max-height: none; overflow: visible; }
+.member-cloud li { font-size: .78rem; min-height: 28px; display: inline-flex; align-items: center; }
+.member-cloud li.is-more { display: none; }
+.member-cloud.is-open li.is-more { display: inline-flex; }
+.member-cloud__more { font: 600 .78rem var(--body); color: var(--pin-2); background: none; border: 1px dashed rgba(255,138,91,.5); border-radius: 999px; padding: 3px 10px; min-height: 28px; cursor: pointer; position: relative; }
+.member-cloud__more::after { content: ""; position: absolute; inset: -8px 0; } /* a 44 px hit area in a 28 px chip */
+.member-cloud__more:hover { border-style: solid; }
+.member-cloud li:has(> .member-cloud__more) { padding: 0; border: 0; background: none; }
+@media (min-width: 900px) { .member-cloud li.is-more { display: inline-flex; } .member-cloud li:has(> .member-cloud__more) { display: none; } }
+@media (max-width: 960px) {
+  /* the kicker and the title stay above the map (a reader meets the title first); the hint under them goes: Previous · Pause · Next say it */
+  #nyc .section-head { margin-bottom: 10px; }
+  #nyc .section-head p.muted { display: none; }
+  #nyc .section-head .kicker { margin-bottom: 6px; }
+  #nyc { padding-top: 22px; }
+  /* the four steps become one caption: the step playing now, with Previous · Pause · Next under it */
+  .steps { gap: 0; margin-bottom: 10px; }
+  .steps li:not(:has(button[aria-current="step"])) { display: none; }
+  .steps button { padding: 12px 14px; }
+  .steps button[aria-current="step"] em { max-height: none; }
+  .steps strong { font-size: 1rem; }
+  .steps em { font-size: .9rem; }
+}
+
+/* the problem: three lines and a bridge */
+.problems { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.problems li { display: flex; gap: 12px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 1rem; color: var(--text); }
+.problems li:last-child { border-bottom: 0; }
+.problems .problem__num { margin: 0; flex: none; font-size: .82rem; }
+.problems strong { color: var(--text); font-weight: 600; }
+#problem .section-head { margin-bottom: 10px; }
+@media (max-width: 600px) { #problem { padding: 22px 0 24px; } .problems li { padding: 7px 0; font-size: .95rem; } .bridge { font-size: .95rem; margin-top: 12px; } }
+@media (min-width: 900px) {
+  .problems { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+  .problems li { display: block; border-bottom: 0; border-top: 2px solid var(--line-2); padding: 14px 0 0; }
+  .problems .problem__num { display: block; margin-bottom: 6px; }
+}
+
+/* tabs: the site's segmented control as a tab list, full width; each panel one list */
+.seg--tabs { display: flex; width: 100%; margin: 0 0 18px; }
+.seg--tabs button { flex: 1 1 0; min-height: 44px; padding: 0 10px; font-size: .9rem; white-space: nowrap; }
+.seg--tabs button:focus-visible { outline: 2px solid var(--pin-2); outline-offset: 2px; }
+@media (max-width: 380px) { .seg--tabs button { font-size: .84rem; padding: 0 6px; } }
+.tabpanel[hidden] { display: none; }
+.facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.facts li { display: flex; gap: 14px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.facts li:last-child { border-bottom: 0; }
+.facts h3 { margin: 0 0 2px; font-size: 1rem; }
+.facts p { margin: 0; font-size: .92rem; }
+.facts .role__icon { font-size: 1.4rem; margin: 0; flex: none; width: 32px; text-align: center; line-height: 1.3; }
+.facts > li > div { min-width: 0; flex: 1; }
+.why-panel .early { padding: 0 0 10px; margin: 0; }
+@media (max-width: 600px) { .why-panel .early { display: none; } } /* the decorative coin stack: the facts under it are the point on a phone */
+.why-panel .early__coins { padding: 4px 0 10px; }
+.why-panel .early__coins .coin-disc { width: 46px; height: 46px; }
+.why-panel .early__coins .coin-disc--lg { width: 64px; height: 64px; }
+.why-panel .early__coins .coin-disc span { font-size: .7rem; }
+.why-panel .early__coins .coin-disc--lg span { font-size: .9rem; }
+.why-panel .bridge { margin-top: 12px; font-size: .95rem; }
+.why-panel .ticks { margin: 0 0 14px; }
+.why-panel .btn { margin-top: 4px; }
+.compare-details { margin: 0 0 16px; border: 1px solid var(--line); border-radius: 16px; padding: 0 14px; }
+.compare-details summary { cursor: pointer; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font: 600 .95rem var(--body); list-style: none; }
+.compare-details summary::-webkit-details-marker { display: none; }
+.compare-details summary::after { content: "+"; color: var(--pin); font-size: 1.4rem; line-height: 1; flex: none; }
+.compare-details[open] summary::after { content: "−"; }
+.compare-details .compare-card { margin: 0 -14px; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 16px 16px; box-shadow: none; padding: 6px 14px 10px; }
+.compare { font-size: .9rem; }
+.compare th, .compare td { padding: 9px 6px; }
+@media (min-width: 900px) {
+  .why-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px 40px; align-items: start; }
+  .why-panel > .facts { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  .why-panel > .facts li { display: block; border-bottom: 0; border-top: 2px solid var(--line-2); padding-top: 14px; }
+  .why-panel > .facts--roles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .why-panel > .facts--roles li { display: block; }
+  .why-panel > .facts .role__icon { margin-bottom: 8px; text-align: left; }
+  .why-panel > .early { grid-column: 1 / -1; }
+  .why-panel > .bridge { grid-column: 1 / -1; }
+  .why-panel .compare-details { margin: 0; }
+}
+
+/* five steps, one line each; the live checks folded; the one-line pointer to the Token page */
+.flow--compact { gap: 8px; }
+.flow--compact::before { left: 25px; top: 24px; bottom: 24px; }
+.flow--compact .flow__step { padding: 10px 12px 10px 8px; gap: 12px; border-radius: 14px; }
+.flow--compact .flow__step h3 { margin: 2px 0 1px; font-size: 1rem; }
+.flow--compact .flow__step p { font-size: .88rem; }
+.flow--compact .flow__icon { width: 30px; height: 30px; font-size: .95rem; }
+@media (max-width: 600px) {
+  /* a plain numbered list on a phone: the line runs down the icons, no card around each step */
+  .flow--compact { gap: 0; }
+  .flow--compact::before { left: 15px; top: 20px; bottom: 20px; }
+  .flow--compact .flow__step { padding: 7px 0; gap: 12px; border: 0; background: none; border-radius: 0; }
+  .flow--compact .flow__step h3, .flow--compact .flow__step p { display: inline; }
+  .flow--compact .flow__step h3::after { content: ": "; }
+  .flow--compact .flow__step p { font-size: .88rem; }
+  .flow--compact .flow__step > div { line-height: 1.5; padding-top: 3px; }
+  .checks-details { margin-top: 10px; }
+}
+.checks-details { margin-top: 14px; border: 1px solid var(--line); border-radius: 16px; padding: 0 16px; background: var(--card); }
+.checks-details summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; min-height: 48px; font: 600 .95rem var(--body); }
+.checks-details summary::-webkit-details-marker { display: none; }
+.checks-details summary::after { content: "+"; margin-left: auto; color: var(--pin); font-size: 1.4rem; line-height: 1; }
+.checks-details[open] summary::after { content: "−"; }
+.checks-details .checks { padding: 4px 0 16px; }
+.flow--compact .flow__step p a { font-weight: 600; } /* step 5's pointer to the Token page: the one secondary way to the token after the hero's button */
+/* light theme: the small orange texts this polish added read at 4.5:1 or more (--pin-2 is 4.2:1 on white there, --pin 3.7:1) */
+:root[data-theme="light"] .member-cloud__more, :root[data-theme="light"] .problems .problem__num, :root[data-theme="light"] .flow--compact .flow__step p a { color: #B8430F; }
+@media (min-width: 900px) {
+  .flow-wrap--compact { grid-template-columns: minmax(0, 1fr); }
+  .flow--compact { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
+  .flow--compact::before { display: none; }
+  .flow--compact .flow__step { flex-direction: column; gap: 10px; padding: 16px; }
+}
+
+/* the roadmap: five stops in a row (a sideways swipe on a phone), the next one pinging */
+.timeline { display: flex; gap: 10px; padding: 12px 0 4px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; scrollbar-width: none; margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+.timeline::-webkit-scrollbar { display: none; }
+.timeline::before { left: 16px; right: 16px; top: 12px; bottom: auto; width: auto; height: 2px; background: linear-gradient(90deg, var(--moss), var(--moss) 50%, var(--pin) 70%, var(--line-2)); }
+.timeline__item { flex: 0 0 min(72vw, 250px); scroll-snap-align: start; padding: 20px 0 0; }
+.timeline__item::before, .timeline__item.is-next::after { left: 2px; top: -7px; }
+.timeline__item h3 { font-size: 1rem; margin: 0 0 4px; }
+.timeline__item p { font-size: .88rem; }
+.timeline__status { margin-bottom: 2px; font-size: .75rem; }
+@media (min-width: 900px) {
+  .timeline { margin: 0; padding-left: 0; padding-right: 0; overflow: visible; gap: 24px; }
+  .timeline::before { left: 0; right: 0; }
+  .timeline__item { flex: 1 1 0; }
+}
+
+/* the FAQ in three tabs; the answers as before */
+.faq .seg--tabs { margin-bottom: 4px; }
+.faq .tabpanel details:first-child { border-top: 0; }
+.faq summary { font-size: .98rem; }
+@media (max-width: 600px) { .faq details { padding: 4px 0; } .faq summary { font-size: .95rem; min-height: 44px; } }
+@media (min-width: 900px) { .faq { max-width: 900px; } }
+
+/* =====================================================================
+   Token: a sharper hero (one line of lead, the card, one buy slot, four facts in a row), the holder list with 44 px rows, compact proofs,
+   the official list without the address printed twice, the FAQ.
+   ===================================================================== */
+#token .lead { max-width: 60ch; margin-bottom: 0; }
+#token .page-title { margin-bottom: 10px; }
+.contract { margin-top: 20px; gap: 14px; }
+/* the buy slot: where the Buy control lives (the in-app swap goes here); it takes the main button's place in the grid */
+.contract__slot { grid-column: 1 / -1; display: grid; min-width: 0; }
+@media (min-width: 640px) { .contract__slot { grid-column: auto; } }
+@media (min-width: 1180px) { .contract:has(> .contract__links:not([hidden])) .contract__slot { grid-column: 1 / -1; } }
+/* the three outside links: one row of compact text links on a phone (icon + name), tiles from 640 px */
+@media (max-width: 639px) {
+  .contract__ext { flex-direction: row; justify-content: center; gap: 6px; min-height: 44px; padding: 0 6px 0 4px; font-size: .78rem; }
+  .contract__ext svg { width: 16px; height: 16px; }
+  .contract__ext .contract__out { position: static; font-size: .75rem; }
+  .contract__ext span { overflow-wrap: normal; } /* "Jupiter" and "Solscan" never break mid-word; a two-word name wraps at its space */
+}
+@media (max-width: 360px) { .contract__ext { gap: 4px; padding: 0 4px; } .contract__ext svg { display: none; } } /* 320 px: three 79 px links; the ↗ already says "outside" */
+.contract__net { font-size: .75rem; }
+.contract__ext .contract__out { font-size: .75rem; }
+.contract__foot p { font-size: .84rem; }
+/* the four facts: two by two on a phone, labels 12 px, numbers in the display face */
+.stat-row { margin-top: 16px; gap: 10px; }
+.stat { padding: 12px 14px; border-radius: 16px; gap: 1px; }
+.stat__label { font-size: .75rem; letter-spacing: .08em; }
+.stat strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.stat__sub { font-size: .76rem; line-height: 1.35; }
+.proof__live, .stat__sub[data-live] { font-size: .75rem; }
+@media (max-width: 800px) { .stat strong { font-size: 1.25rem; } .stat-row { gap: 8px; } .stat { padding: 10px 12px; } }
+/* the holder list: the head on one row, a 44 px hit area on every wallet, 12 px headers and tags */
+#holders .section-head p.muted { margin-bottom: 0; }
+.holders__hint { font-size: .8rem; }
+.holders__table th, .registry__table th { font-size: .75rem; }
+.holders__table a { display: inline-block; padding: 12px 0; margin: -12px 0; }
+.holders__table .tag { font-size: .75rem; }
+@media (max-width: 480px) { .holders__table .tag { font-size: .75rem; white-space: nowrap; } .holders__table td.is-unranked { font-size: .75rem; } } /* "PumpSwap liquidity pool" on one line under the address, not two */
+/* a keyboard skips the holder list (300 wallet links) with one Tab: the link shows where it sits once it has focus */
+.holders__skip { position: absolute; left: -999px; }
+.holders__skip:focus { position: static; display: inline-flex; align-items: center; min-height: 44px; margin: 0 0 8px; padding: 0 14px; border-radius: 999px; background: var(--pin); color: #fff; text-decoration: none; }
+.registry__table td { font-size: .9rem; }
+.contract__badge { font-size: .75rem; }
+@media (max-width: 480px) { .registry__table td:nth-child(1) { font-size: .75rem; } }
+@media (max-width: 520px) { .checker { flex-direction: row; gap: 8px; } .checker input { flex: 1 1 auto; min-width: 0; } .checker .btn { flex: none; padding: 0 16px; } }
+/* no rug pull: a compact list of proofs on a phone (a tick, the claim, its on-chain status), cards from 560 px */
+.proof { gap: 4px; padding: 16px 18px; }
+.proof h3 { margin: 4px 0 0; font-size: 1rem; }
+.proof p { font-size: .9rem; }
+.proof__icon { width: 28px; height: 28px; font-size: .9rem; }
+.proof__live { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; }
+.proof__live.is-live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok-text); }
+@media (max-width: 560px) {
+  .proof-grid { gap: 0; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .proof { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 12px; padding: 12px 14px; border: 0; border-radius: 0; box-shadow: none; background: none; }
+  .proof + .proof { border-top: 1px solid var(--line); }
+  .proof__icon { grid-row: 1 / span 3; margin-top: 1px; }
+  .proof h3 { margin: 0; }
+  .proof p { font-size: .86rem; }
+  .proof__live { margin-top: 4px; }
+}
+@media (min-width: 561px) and (max-width: 900px) { .proof:last-child { grid-column: 1 / -1; } } /* five proofs two by two: the fifth spans its row */
+@media (min-width: 901px) { .proof-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } .proof { grid-column: span 2; } .proof:nth-child(4), .proof:nth-child(5) { grid-column: span 3; } } /* three, then two: both rows full */
+#check .section-head p.muted { margin-bottom: 0; }
+.registry { margin-bottom: 12px; }
+.check-result { padding: 14px 16px; }
+#token-faq-note { margin: 0; }
+
+/* =====================================================================
+   Cities: four facts in a row on a phone (the derived ones from 600 px), a shorter lead, the search card tidy
+   ===================================================================== */
+.city-stats { margin-bottom: 18px; }
+.city-stats span { font-size: .75rem; }
+@media (max-width: 600px) {
+  .city-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
+  .city-stats .is-open, .city-stats .city-stats__claims { display: none; } /* "still open" = communities − founded; "claims: Open" is a word */
+  .city-stats div { padding: 10px 6px 8px; border-radius: 12px; text-align: center; }
+  .city-stats strong { font-size: clamp(1rem, 4.6vw, 1.2rem); }
+  .city-stats span { font-size: .75rem; }
+}
+.cities-intro { padding-bottom: 8px; }
+.cities-intro .lead { margin: 0; }
+.map-ctrl button { width: 44px; height: 44px; border-radius: 12px; }
+.map-ctrl { gap: 8px; }
+@media (max-width: 600px) { .map-ctrl { gap: 6px; } .map-ctrl button { width: 44px; height: 44px; } .map-ctrl button::after { inset: 0; } }
+.map-scale { font-size: 12px; }
+.citymap__legend { font-size: .78rem; }
+.claim-feed li { min-height: 44px; display: inline-flex; align-items: center; font-size: .82rem; padding: 4px 12px; }
+.claim-feed__city { min-height: 44px; padding: 4px 0; }
+.city-search { padding: 14px; }
+.city-list { margin: 10px 0 4px; }
+.city-row { min-height: 48px; }
+.city-search .link-btn { padding: 10px 0; }
+@media (max-width: 600px) { .city-list { max-height: 240px; } }
+.claim .reqs { margin: 14px 0; gap: 10px; }
+.claim .reqs p { font-size: .82rem; }
+.claim h3 { font-size: 1.3rem; }
+.wanted li { padding: 8px 12px; min-height: 52px; }
+.wanted span, .city-row__name span { font-size: .8rem; }
+@media (max-width: 600px) { .wanted { gap: 6px; } .wanted strong { display: inline; } .wanted strong::after { content: " · "; color: var(--faint); font-weight: 400; } .wanted li > div { min-width: 0; flex: 1; } }
+
+/* =====================================================================
+   Launchpad: a smaller hero (one date line, a 2-row countdown, one button), compact cards and explainers on a phone
+   ===================================================================== */
+.launch-hero { padding: 40px 0 44px; }
+.countdown { margin: 22px auto 12px; gap: 10px; }
+.countdown__unit { padding: 14px 6px 10px; border-radius: 16px; }
+.countdown__unit strong { font-size: clamp(1.8rem, 7vw, 3.2rem); }
+.countdown__unit span { font-size: .75rem; }
+.launch-hero .hero__cta--center { margin: 18px 0 10px; }
+.lp-cal-link { color: var(--muted); font: 600 .9rem var(--body); }
+.lp-local { margin: 8px 0 0; }
+.lp-stat dt, .coin-tile dt { font-size: .75rem; }
+.lp-stats--live .lp-stat dd.lp-stat__src, .lp-src, .lp-delayed, .lp-spark__msg, .coin-tile__src, .coin-foot { font-size: .75rem; }
+.lp-tabs__n { font-size: .75rem; }
+.lp-spark__label { font-size: .75rem; }
+.lp-card__sub { font-size: .8rem; }
+.link-btn.lp-honesty-link { min-height: 44px; }
+.phases { gap: 10px; }
+.phase__n { margin-bottom: 8px; }
+@media (max-width: 600px) {
+  .launch-hero { padding: 26px 0 30px; }
+  .launch-hero .lead { font-size: .98rem; }
+  .countdown { gap: 6px; margin: 16px auto 8px; }
+  .countdown__unit { padding: 10px 4px 8px; }
+  .countdown__unit strong { font-size: 1.7rem; }
+  .lp-coins { padding: 30px 0 40px; }
+  .lp-card { gap: 10px; padding: 14px; }
+  .lp-spark.is-empty, .lp-spark.is-loading { display: none; } /* a sparkline with no history yet says nothing on a phone */
+  .lp-stats--live .lp-stat__src.is-why { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* a number nobody has yet: its reason on one line, so the four tiles stay two by two (hiding the tile left a hole) */
+  /* the four lists on one row: the strip never wraps (it scrolls on the narrowest phones), smaller words and counts */
+  .lp-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .lp-tabs::-webkit-scrollbar { display: none; }
+  .lp-tabs button { flex: 1 1 auto; padding: 0 6px; gap: 4px; font-size: .8rem; }
+  .lp-tabs__n { min-width: 0; padding: 1px 6px; }
+  .lp-card__actions .btn { min-height: 44px; padding: 0 14px; font-size: .88rem; }
+  .phases, .grid-3 { gap: 8px; }
+  .phases .card, .grid-3 .perk { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 0 12px; padding: 14px 14px; align-items: start; }
+  .phases .card h3, .grid-3 .perk h3 { margin: 0 0 2px; font-size: 1rem; }
+  .phases .card p, .grid-3 .perk p { margin: 0; font-size: .88rem; grid-column: 2; }
+  .phase__n { margin: 0; width: 30px; height: 30px; font-size: .9rem; }
+  .perk__icon { font-size: 1.4rem; margin: 0; line-height: 1.2; }
+  .perk .link-btn { grid-column: 2; margin-top: 4px; }
+  .verify-grid { gap: 14px; }
+  .coin-stack { display: none; } /* a decorative stack of sample tickers: the real coins are listed above */
+}
+
+/* =====================================================================
+   Coin page: 12 px sources (the Buy controls are coin.js's: the header's, the bar once it scrolls, the card's while the card is on screen)
+   ===================================================================== */
+.coin-tile__src { font-size: .75rem; }
+.coin-sources { font-size: .78rem; }
+.coin-holder__tag { font-size: .72rem; }
+
+/* =====================================================================
+   Rules: a chip row to jump to any rule, each rule a fold (open on a computer, closed on a phone: rules.js); Terms: a contents fold
+   ===================================================================== */
+.rules-toc { display: flex; gap: 8px; overflow-x: auto; margin: 16px -16px 0; padding: 4px 16px 8px; scrollbar-width: none; }
+.rules-toc::-webkit-scrollbar { display: none; }
+.rules-toc a { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); text-decoration: none; font: 600 .84rem var(--body); white-space: nowrap; }
+.rules-toc a:hover { border-color: rgba(255,90,54,.6); }
+@media (min-width: 900px) { .rules-toc { flex-wrap: wrap; overflow: visible; margin: 16px 0 0; padding: 0; } }
+.rules-grid details.card { padding: 0 22px; }
+.rules-grid details.card > summary { cursor: pointer; list-style: none; display: block; padding: 18px 0; }
+.rules-grid details.card > summary::-webkit-details-marker { display: none; }
+.rules-grid details.card > summary .kicker { margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rules-grid details.card > summary .kicker::after { content: "+"; color: var(--pin); font-size: 1.3rem; line-height: 1; }
+.rules-grid details.card[open] > summary .kicker::after { content: "−"; }
+.rules-grid details.card > summary h3 { margin: 0; }
+.rules-grid details.card > .rule-body { padding: 0 0 20px; }
+.rules-grid details.card .rule-body > :first-child { margin-top: 0; }
+@media (max-width: 600px) { .rules-grid details.card { padding: 0 16px; } .rules-grid details.card > summary { padding: 14px 0; } }
+.terms-toc { margin: 18px 0 0; border: 1px solid var(--line); border-radius: 16px; padding: 0 16px; background: var(--card); }
+.terms-toc summary { cursor: pointer; list-style: none; min-height: 48px; display: flex; align-items: center; justify-content: space-between; font: 600 .95rem var(--body); }
+.terms-toc summary::-webkit-details-marker { display: none; }
+.terms-toc summary::after { content: "+"; color: var(--pin); font-size: 1.4rem; line-height: 1; }
+.terms-toc[open] summary::after { content: "−"; }
+.terms-toc ol { margin: 0; padding: 0 0 12px 1.4em; columns: 2; column-gap: 24px; }
+.terms-toc li { margin: 0; font-size: .9rem; line-height: 1.5; }
+.terms-toc a { display: block; padding: 6px 0; text-decoration: none; color: var(--text-2); } /* block, so a wrapped entry's number sits on its first line */
+.terms-toc a:hover { color: var(--pin-2); }
+@media (max-width: 600px) { .terms-toc ol { columns: 1; } }
+.terms .agreebox .btn { min-height: 48px; }
+
+/* ---------- motion for the new parts: the tab panel settles in; nothing else moves by itself (reduced motion: nothing here applies) ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .tabpanel.is-shown { animation: polishIn .32s cubic-bezier(.2,.8,.2,1) backwards; }
+  .member-cloud__more, .footer-data summary, .compare-details summary, .checks-details summary { transition: color .2s, border-color .2s; }
+}
+@keyframes polishIn { from { opacity: 0; transform: translateY(6px); } }

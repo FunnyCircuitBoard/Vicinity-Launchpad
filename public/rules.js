@@ -2,6 +2,11 @@
 (() => {
   "use strict";
   const { $, $$, el, api, fmt, ago } = window.V;
+  // each rule is a fold: open on a computer, closed on a phone (one card at a time); a link to a rule (/rules#founders) opens its fold
+  const folds = $$(".rules-grid details");
+  if (window.matchMedia && window.matchMedia("(min-width: 800px)").matches) folds.forEach((d) => (d.open = true));
+  const openTarget = () => { let t = null; try { t = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null; } catch {} const d = t && t.closest ? t.closest("details") : null; if (d) d.open = true; };
+  openTarget(); window.addEventListener("hashchange", openTarget);
   (async () => {
     const d = await api("/api/policy");
     if (!d.policy) return;

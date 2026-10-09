@@ -229,15 +229,6 @@ select option { background: var(--bg-2); }
 .m-flag rect { fill: var(--glass); stroke: var(--line-2); }
 .m-flag text { font: 600 18px var(--body); fill: var(--text); }
 
-/* numbers strip */
-.numbers { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--bg-2); }
-.numbers__row { display: grid; grid-template-columns: repeat(5, 1fr); }
-.numbers__row div { padding: 22px 16px; display: flex; flex-direction: column; border-left: 1px solid var(--line); }
-.numbers__row div:first-child { border-left: 0; }
-.numbers__row strong { font: 650 1.7rem/1.1 var(--display); letter-spacing: -.02em; }
-.numbers__row span { color: var(--muted); font-size: .84rem; }
-@media (max-width: 900px) { .numbers__row { grid-template-columns: repeat(2, 1fr); } .numbers__row div { border-left: 0; border-top: 1px solid var(--line); } .numbers__row div:nth-child(-n+2) { border-top: 0; } .numbers__row div:last-child { grid-column: 1 / -1; } }
-
 /* problem cards */
 .problem__num { font: 700 .9rem var(--display); color: var(--pin); letter-spacing: .12em; display: block; margin-bottom: 12px; }
 .problem p { margin: 0; }
@@ -288,16 +279,6 @@ select option { background: var(--bg-2); }
 .checks li::before { content: "✓"; position: absolute; left: 0; top: 1px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: .72rem; font-weight: 800; background: rgba(55,194,154,.2); color: var(--ok-text); }
 .checks span { color: var(--muted); font-size: .9rem; }
 
-/* incentives */
-.bento { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
-.bento .card { padding: 22px; }
-.bento p { margin: 0; }
-.bento__big { grid-column: span 2; grid-row: span 2; display: flex; flex-direction: column; justify-content: flex-end; background: radial-gradient(120% 80% at 0% 0%, rgba(255,90,54,.22), transparent 60%), linear-gradient(180deg, rgba(var(--ink),.06), rgba(var(--ink),.02)) !important; }
-.bento__big h3 { font-size: 1.8rem; }
-.bento__wide { grid-column: span 2; }
-.bento__icon { font-size: 1.6rem; display: block; margin-bottom: 10px; }
-@media (max-width: 960px) { .bento { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 600px) { .bento { grid-template-columns: 1fr; } .bento__big, .bento__wide { grid-column: auto; grid-row: auto; } }
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; align-items: center; margin-top: 70px; }
 .section > .split:first-child, .wrap.split { margin-top: 0; }
 @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
@@ -314,10 +295,8 @@ select option { background: var(--bg-2); }
 .compare .yes { color: var(--ok-text); font-weight: 800; font-size: 1.1rem; }
 .compare .no { color: var(--faint); font-size: 1.05rem; }
 
-/* roles */
-.roles-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
-@media (max-width: 960px) { .roles-grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 520px) { .roles-grid { grid-template-columns: 1fr; } }
+
+/* roles (the dashboard's role panel and the home tabs share the icon) */
 .role__icon { font-size: 1.7rem; display: block; margin-bottom: 10px; }
 .role p { margin: 0; }
 
@@ -352,10 +331,6 @@ select option { background: var(--bg-2); }
 :root[data-theme="light"] .faq__steps li::marker { color: var(--bad-text); } /* small orange text: --pin-2 is under 4.5:1 on the light FAQ */
 .faq .scam-note { margin-top: 16px; color: var(--text-2); }
 .faq .scam-note strong { color: var(--bad-text); }
-
-.cta-band { padding: 70px 0; background: radial-gradient(70% 120% at 100% 0%, rgba(255,90,54,.25), transparent 60%), var(--bg-2); border-top: 1px solid var(--line); }
-.cta-band__inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
-.cta-band h2 { margin-bottom: 8px; }
 
 /* ---------- footer ---------- */
 .site-footer { border-top: 1px solid var(--line); padding: 44px 0 28px; font-size: .92rem; background: var(--bg-2); }
@@ -1442,27 +1417,12 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 @media (max-width: 520px) { .snap-lookup { flex-direction: column; } }
 .dot--choosing { background: transparent; border: 2px dashed var(--gold); }
 
-/* ---------- home: trust line, why now, get $VICINITY (also on the token page) ---------- */
+/* ---------- home: trust line; the scam note (token page) ---------- */
 .hero__trust { list-style: none; margin: -16px 0 30px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .hero__trust li { font-size: .8rem; font-weight: 600; color: var(--text-2); padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); }
 .hero__trust li::before { content: "✓"; color: var(--ok-text); font-weight: 800; margin-right: 6px; }
-.hero__cta--end { margin: 0; }
-@media (max-width: 480px) { .cta-band .hero__cta--end { flex: 1 1 100%; } } /* the closing buttons reach both edges on a phone, like the hero's */
-.why-now { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
-.why-now .card { padding: 24px 22px; }
-.why-now p { margin: 0; }
-.why-now h3 { margin: 0 0 8px; }
-.why-now__big { display: block; margin-bottom: 14px; font: 700 2.1rem/1 var(--display); letter-spacing: -.03em; background: linear-gradient(100deg, var(--pin) 10%, var(--gold) 90%); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.buy-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
-.buy-steps .card { padding: 22px 20px; }
-.buy-steps h3 { margin: 0 0 6px; font-size: 1.05rem; }
-.buy-steps p { margin: 0; font-size: .93rem; }
-.buy-steps__n { width: 34px; height: 34px; margin-bottom: 14px; border-radius: 50%; display: grid; place-items: center; font: 700 .95rem var(--display); color: #fff; background: linear-gradient(135deg, var(--pin), var(--gold)); box-shadow: 0 6px 18px rgba(255,90,54,.3); }
 .scam-note { margin: 18px 0 0; padding: 14px 18px; border-radius: 14px; border: 1px solid rgba(255,90,54,.35); background: rgba(255,90,54,.07); color: var(--text-2); font-size: .93rem; }
 .scam-note strong { color: var(--bad-text); }
-#get .hero__cta { margin: 26px 0 0; }
-@media (max-width: 960px) { .why-now, .buy-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 560px) { .why-now, .buy-steps { grid-template-columns: minmax(0, 1fr); } .why-now__big { font-size: 1.8rem; } .hero__trust { margin-top: -18px; } }
 
 /* ---------- home: the New York maps open the live map; "Get in first" shows what it means ---------- */
 .hero-map__link { display: block; color: inherit; text-decoration: none; border-radius: 28px; }
