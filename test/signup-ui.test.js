@@ -101,6 +101,7 @@ const CONTRACT_CODES = [
   "bad_code", "code_wrong", "code_expired", "email_mismatch", "no_account", "social_taken", "wallet_taken",
   "account_required", "changed_retry",
   "has_wallet", "wrong_wallet", "link_done", "use_link", "carry_expired", "carry_network", "carry_relay", "carry_replaced", "carry_elsewhere", "carry_old", "sign_in",
+  "carry_opened", "relogin",
   "bad_credentials", "no_email_login", "reprove",
   "login_unavailable", "login_cancelled", "login_failed", "login_expired",
   "offline",
@@ -131,6 +132,30 @@ test("errText: tries left, and the places where one code needs another sentence"
   assert.match(P.errText("location_unverified", "finish"), /Your login is saved/, "at the end the person is told the login is not lost");
   assert.equal(P.errText({ error: "has_wallet", wallet: "7Np4…T4K2" }), "Your account already has a wallet (7Np4…T4K2).", "the masked wallet when the server names it");
   assert.equal(P.errText("bad_email", "login"), P.errText("bad_email"), "an unknown context falls back to the plain sentence");
+});
+
+test("phones live inside the wallet app (owner decision F4): the words of the link, plain and short", () => {
+  assert.equal(P.carryLead("Phantom"), "Phantom opens Vicinity and asks to connect this wallet to your account. Check the number, connect, and sign the free message. Then you stay in Phantom, logged in.");
+  assert.equal(P.linkLead(), "Tap your wallet app. It opens Vicinity there: check the number, then sign once. You stay in the app, logged in.");
+  assert.equal(P.carrySmall(false), "This link works once, for 10 minutes, only on this phone. Never send it to anyone.");
+  assert.equal(P.carrySmall(true), "This link works once, only on this phone. Never send it to anyone.", "the 2-minute rule is the server's: the page renews a relay link by itself");
+  assert.equal(P.carryHint("Phantom", true), "Phantom didn't open Vicinity? Press and hold “Open Phantom”, then choose “Open in Phantom”. No Phantom yet? Get it first.");
+  assert.equal(P.carryHint("Phantom", false), "Phantom didn't open Vicinity? Make sure Phantom is installed, or open this page in Chrome and try again.");
+  // the dead-link screen and its causes, in the wallet app
+  assert.equal(P.errText("carry_expired", "app"), "This link is old. Go back to Safari or Chrome and tap “Connect wallet” again.");
+  assert.equal(P.errText("carry_opened"), "For your safety it no longer works. Go back to Safari or Chrome and tap “Get a new link”. That stops the old one.");
+  assert.match(P.errText({ error: "carry_network" }), /^Your wallet app and Safari are on different internet connections \(Wi-Fi and mobile data\?\)\./);
+  assert.equal(P.errText({ error: "carry_network", relay: true }), "Your wallet app and Safari seem to be in different countries (travelling?). Go back to Safari or Chrome and tap “Didn't work?”.");
+  assert.equal(P.ERR.carry_contested, "Someone else opened your link. It no longer works. Get a new link.");
+  assert.equal(P.ERR.carry_ranout, "That link ran out (open it within 2 minutes). Get a new link.");
+  // a wallet with no account inside the wallet app: more than one wallet in the app is the usual reason
+  assert.match(P.noAccountCopy(true, "Phantom").body, / More than one wallet in Phantom\? Switch to the one you linked, then try again\.$/);
+  assert.doesNotMatch(P.noAccountCopy(false, "Phantom").body, /More than one wallet/);
+  // the done screen: in the wallet app, on a phone's Safari (keep going in the app), on a computer
+  assert.deepEqual({ ...P.linkedCopy("app", "7Np4…T4K2", "Phantom") }, { h: "Phantom connected ✓", sub: "Wallet 7Np4…T4K2 is on your account. Opening your dashboard…", go: "Open my dashboard", auto: true });
+  assert.deepEqual({ ...P.linkedCopy("phone", "7Np4…T4K2", "Phantom") }, { h: "Phantom connected ✓", sub: "Wallet 7Np4…T4K2 is on your account. Keep going in Phantom: you're logged in there.", go: "Open Phantom", auto: false });
+  assert.deepEqual({ ...P.linkedCopy("here", "7Np4…T4K2", null) }, { h: "Wallet linked.", sub: "Wallet 7Np4…T4K2 is on your account. Taking you to your dashboard…", go: "Open my dashboard", auto: true });
+  for (const t of [P.carryLead("Phantom"), P.linkLead(), P.carrySmall(true), P.carryHint("Phantom", true)]) assert.ok(t.length < 200 && !/\bwalletProven|undefined/.test(t), t);
 });
 
 test("no sentence leaks a password, a code, an address or a stack trace, and none is an emoji or markup", () => {
@@ -216,6 +241,7 @@ test("only the endpoints of the contract are used", () => {
     "/api/me/wallet/carry", "/api/me/wallet/carry/info", "/api/me/wallet/carry/claim", "/api/me/wallet/carry/status?ref=", "/api/message?address=",
     "/api/auth/google/start?signup=1", "/api/auth/email/login", "/api/auth/password/reset/start", "/api/auth/password/reset",
     "/api/me?lite=1",
+    "/api/auth/logout", // "Yes, log out Jo••• and link": the wallet app's browser leaves another account on an explicit tap (owner decision F4)
   ]);
   const used = new Set([...src.matchAll(/["'`](\/api\/[^"'`]+)["'`]/g)].map((m) => m[1]));
   assert.ok(used.size >= 14);

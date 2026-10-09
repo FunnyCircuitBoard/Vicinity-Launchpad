@@ -66,13 +66,32 @@
     const lead = `${iphone ? "Your iPhone hides its connection (iCloud Private Relay)" : "This browser hides its connection (a VPN or a private relay)"}, so the link can't move into ${w}`;
     return qr ? `${lead} here. Instead, scan the code below with your phone and approve there, then come back here: this page finishes the link by itself.` : `${lead}. Approve there instead, then come back here: this page finishes the link by itself.`;
   }
-  /** The "Open app" screen's lead on a phone: what happens in the wallet app `name`. */
-  const carryLead = (name) => `${name} opens Vicinity on a page that asks you to link the wallet to your account. Check that it shows the same number, connect, sign the free message, and you are done. Your dashboard here updates by itself.`;
-  /** The three ways a wallet with no account is told where to go. `inApp` = a wallet app's own browser (Google can't run there). */
-  function noAccountCopy(inApp) {
+  /** The "Open app" screen's lead on a phone: what happens in the wallet app `name` (owner decision F4: the person stays there, signed in). */
+  const carryLead = (name) => `${name} opens Vicinity and asks to connect this wallet to your account. Check the number, connect, and sign the free message. Then you stay in ${name}, logged in.`;
+  /** The small print under "Open <app>": a relay code also has to be OPENED within 2 minutes, but the page renews it by itself, so the words don't say so. */
+  const carrySmall = (relay) => (relay ? "This link works once, only on this phone. Never send it to anyone." : "This link works once, for 10 minutes, only on this phone. Never send it to anyone.");
+  /** The link page's lead on a phone (the wallet apps as rows). */
+  const linkLead = () => "Tap your wallet app. It opens Vicinity there: check the number, then sign once. You stay in the app, logged in.";
+  /** Back in Safari and the wallet app never opened the link (a universal link that fell back to the web, an app not installed). */
+  const carryHint = (name, iphone) => (iphone
+    ? `${name} didn't open Vicinity? Press and hold “Open ${name}”, then choose “Open in ${name}”. No ${name} yet? Get it first.`
+    : `${name} didn't open Vicinity? Make sure ${name} is installed, or open this page in Chrome and try again.`);
+  /** The three ways a wallet with no account is told where to go. `inApp` = a wallet app's own browser (Google can't run there), `name` its name. */
+  function noAccountCopy(inApp, name) {
+    const many = name ? ` More than one wallet in ${name}? Switch to the one you linked, then try again.` : " More than one wallet in your app? Switch to the one you linked, then try again.";
     return inApp
-      ? { title: "No account for this wallet yet", body: "Vicinity accounts start with Google or e-mail. Create yours in Safari or Chrome (it takes a minute), then link this wallet from your dashboard, one tap.", primary: "copy" }
-      : { title: "No account for this wallet yet", body: "Create one with Google in a minute, then link this wallet from your dashboard.", primary: "create" };
+      ? { title: "No account for this wallet yet", body: `Vicinity accounts start with Google or e-mail. Create yours in Safari or Chrome (it takes a minute), then connect this wallet from your dashboard, one tap.${many}`, primary: "copy" }
+      : { title: "No account for this wallet yet", body: "Create one with Google in a minute, then connect this wallet from your dashboard.", primary: "create" };
+  }
+  /**
+   * The wallet is linked: what the done screen says and does. `where` = "app" (the wallet app's own browser: it stays there, on the
+   * dashboard), "phone" (Safari / Chrome on a phone: the person keeps going in the wallet app, `app` its name) or "here" (a computer).
+   */
+  function linkedCopy(where, wallet, app) {
+    const w = `Wallet ${wallet} is on your account.`, who = app || "Your wallet";
+    if (where === "app") return { h: `${who} connected ✓`, sub: `${w} Opening your dashboard…`, go: "Open my dashboard", auto: true };
+    if (where === "phone") return { h: `${who} connected ✓`, sub: app ? `${w} Keep going in ${app}: you're logged in there.` : `${w} Keep going in your wallet app: you're logged in there.`, go: app ? `Open ${app}` : "Open my dashboard", auto: false };
+    return { h: "Wallet linked.", sub: `${w} Taking you to your dashboard…`, go: "Open my dashboard", auto: true };
   }
   /** What the page says when "New here" with an e-mail that already has an account signs the person in instead (the typed password is thrown away). */
   const SAME_EMAIL = "That e-mail already has a Vicinity account, so we logged you in. The password you just typed was not saved: to set a new one, use “Forgot or never set a password?” on the Log in tab. Taking you to your dashboard…";
@@ -96,8 +115,13 @@
     "slow_down:reset": "Too many codes were asked for that address just now. Wait a little while and try again. You can always log in with your wallet.",
     handoff_expired: "That link expired. Tap “Get a new link” to try again.",
     // "Open app" on a phone: the wallet link goes on in the wallet app's browser
-    carry_expired: "That link was already used or has run out (it works once, for 10 minutes). Go back to Safari or Chrome and tap Link again.",
-    carry_network: "That link only works on the phone and internet connection where you started (a VPN or iCloud Private Relay counts as a different one). Go back to Safari or Chrome and tap “Didn't work?” there.",
+    carry_expired: "That link was already used or has run out (it works once, for 10 minutes). Go back to Safari or Chrome and tap Connect wallet again.",
+    "carry_expired:app": "This link is old. Go back to Safari or Chrome and tap “Connect wallet” again.",
+    carry_network: "Your wallet app and Safari are on different internet connections (Wi-Fi and mobile data?). Go back to Safari or Chrome and tap “Didn't work?”: that way works on any connection.",
+    "carry_network:relay": "Your wallet app and Safari seem to be in different countries (travelling?). Go back to Safari or Chrome and tap “Didn't work?”.",
+    carry_opened: "For your safety it no longer works. Go back to Safari or Chrome and tap “Get a new link”. That stops the old one.",
+    carry_contested: "Someone else opened your link. It no longer works. Get a new link.",
+    carry_ranout: "That link ran out (open it within 2 minutes). Get a new link.",
     carry_relay: "This browser hides its connection (a VPN or a private relay), so the link can't move into your wallet app. Approve there instead, then come back here: this page finishes the link by itself.", // (relayWhy() names the wallet)
     carry_replaced: "A newer link was made (another tab?). Get a new link here.",
     carry_elsewhere: "That link only works inside your wallet app, on the phone where you started. Nothing was changed.",
@@ -108,7 +132,7 @@
     has_wallet: "Your account already has a wallet.",
     wrong_wallet: "That is not the wallet on your account. Use the one you linked, or unlink it first from your Profile tab.",
     no_account: "No Vicinity account uses this wallet yet. Accounts start with Google or e-mail; the wallet is linked from the dashboard.",
-    use_link: "That signature was for a sign-in, so nothing was linked. To add this wallet to your account, use Link my wallet on your dashboard.",
+    use_link: "That signature was for a sign-in, so nothing was linked. To add this wallet to your account, use Connect wallet on your dashboard.",
     // the sign-up itself
     no_signup: "Your sign-up was open too long, so we cleared it. Please start again.",
     already_signed_in: "You're already signed in. Taking you to your dashboard…",
@@ -138,6 +162,7 @@
     email_mismatch: "That code was sent to a different e-mail. Tap “Use a different e-mail” to start that part again.",
     social_taken: "That login already has a Vicinity account. Log in with it instead, or choose another login.",
     wallet_taken: "This wallet already belongs to another Vicinity account. Choose a different wallet, or log in to that account with it.",
+    "wallet_taken:app": "This wallet already has a Vicinity account. Pick another wallet in your app, or sign in to that account with it.",
     // finishing
     account_required: "Your login isn't confirmed yet. Please finish the account step.",
     changed_retry: "Something changed while we were creating your account. Please try again.",
@@ -145,6 +170,7 @@
     bad_credentials: "That e-mail and password don't match. Signed up with Google? Use the Google button. Forgot your password, or never set one? Use “E-mail me a code” below.",
     no_email_login: "Only accounts created with an e-mail address can use a password.",
     reprove: "Please connect your wallet and sign once more first.",
+    relogin: "For your safety, log in again here, then tap “Remove it” on your dashboard again.",
     sign_in: "Please log in first.",
     // Google bounce-backs (/connect?error=...)
     login_unavailable: "Log in with Google is being switched on. Please check back soon, or use e-mail or your wallet.",
@@ -158,6 +184,7 @@
   /** One plain sentence for any server answer: errText({ error: "code_wrong", left: 4 }) or errText("bad_email", "login"). */
   function errText(d, ctx) {
     const code = typeof d === "string" ? d : d && d.error;
+    if (code === "carry_network" && d && d.relay) return ERR["carry_network:relay"];
     if (code === "code_wrong") { const n = d && d.left; return n == null ? ERR.code_wrong : n === 0 ? ERR["code_wrong:last"] : `That code doesn't match. ${n} ${n === 1 ? "try" : "tries"} left.`; }
     if (code === "has_wallet" && d && d.wallet) return `Your account already has a wallet (${d.wallet}).`;
     return (ctx && ERR[`${code}:${ctx}`]) || ERR[code] || ERR.generic;
@@ -186,14 +213,21 @@
   /** The wallet answers the sign-up page deals with itself (connect.js hands them to walletProven instead of showing a plain error). */
   const HANDLED = ["no_account", "wallet_taken", "has_wallet", "wrong_wallet", "link_done", "use_link"];
 
-  window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, resetField, relayWhy, carryLead, noAccountCopy, SAME_EMAIL, ERR, HANDLED } };
+  window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, resetField, relayWhy, carryLead, carrySmall, linkLead, carryHint, noAccountCopy, linkedCopy, SAME_EMAIL, ERR, HANDLED } };
 
   /* ================= the controller ================= */
   function start(ctx) {
     const { $, $$, el, api, toast, copy, burst, getLocation, short } = window.V;
     const W = window.VW;
-    const { panel, params, show, setErr, renderPick, drawQR, showProof } = ctx;
+    const { panel, params, show, setErr, renderPick, drawQR, showProof, quickSignIn } = ctx;
     const inApp = () => W.inWalletApp();
+    // owner decision F4 (phones live inside the wallet app): the KNOWN wallet app whose own browser this is (null in Safari, Chrome, on a
+    // computer, and in Instagram's or Facebook's browser), and the one this person uses on this phone (site.js V.walletApp)
+    const WA = window.V.walletApp || { here: () => null, remembered: () => null, remember() {} };
+    const here = () => WA.here();
+    const knownApp = (id) => (id && W.KNOWN.find((k) => k.id === id)) || null;
+    /** The link that opens Vicinity inside the wallet app `k`, signed in (or signing in with one tap there): /connect?mode=login&with=<id>. */
+    const openIn = (k) => k.open(`${location.origin}/connect?mode=login&with=${k.id}`);
     const shortAddr = (a) => (short ? short(a) : `${String(a).slice(0, 4)}…${String(a).slice(-4)}`);
     const S = {
       mode: "signup",       // "signup" (New here / Log in) | "link" (a member without a wallet links one) | "linkin" (the wallet app's browser, /connect?link=)
@@ -209,6 +243,7 @@
       offer: null,          // the wallet app's browser: a link code that brought it here, waiting for the person to confirm { code, info }
       pairRelay: false,     // the pairing screen is shown instead of "Open app" because of a relay (Safari behind iCloud Private Relay)
       pairName: null,       // the wallet app the person tapped before the pairing screen (its heading names it)
+      gatePending: false,   // "Sign in with Phantom" opened this page in the wallet app: the Terms gate waits for the sign-in (agreed on the account)
     };
     const text = (sel, t) => { $(sel).textContent = t; };
     const hide = (sel, h = true) => { $(sel).hidden = h; };
@@ -349,8 +384,14 @@
         hide("#lg-block", link || newTab); hide("#link-top", !link); hide("#or-line", link || newTab); hide("#su-wallet-lead", !link);
         hide("#alt-skip", !link); hide("#alt-check", link);
         text("#wallet-h", link ? "Choose your wallet" : "Log in with your wallet");
-        if (link) text("#su-wallet-lead", W.isMobile && !inApp() && !W.list().length ? `Tap your wallet app: it opens Vicinity there to link this account. Check that it shows the same number, then sign. Your dashboard here updates by itself.` : "Pick the wallet you want on your account. One free signature, nothing is paid or moved.");
+        const phoneLink = link && W.isMobile && !inApp() && !W.list().length; // Safari / Chrome on a phone: the wallet apps open the link
+        if (link) text("#su-wallet-lead", phoneLink ? linkLead() : "Pick the wallet you want on your account. One free signature, nothing is paid or moved.");
         if (link && W.isMobile && !inApp()) hide("#wallets-none"); // a phone's browser never holds a wallet: the lead above says what to tap, "use your phone" would be odd
+        hide("#link-noapp", !phoneLink); // "No wallet app yet? Get Phantom (free) ..." (a new tab: this page stays)
+        // the Log in tab inside a known wallet app: ONE button signs in (connect + one signature); New here stays one tap away
+        const k = here(), only = W.list().length === 1 ? W.list()[0] : null, inLogin = !link && !newTab;
+        hide("#lg-wallet", !(inLogin && k && only)); hide("#lg-wallet-note", !(inLogin && k && only)); hide("#lg-join", !(inLogin && k));
+        if (inLogin && k && only) text("#lg-wallet", `Sign in with ${only.name}`);
         if (!link) text("#or-line span", "Or log in with your wallet");
         const google = S.providers.google && !inApp();
         hide("#lg-google", !google); hide("#lg-inapp", !(inApp() && S.providers.google));
@@ -379,7 +420,7 @@
       if (bullet) bullet.textContent = S.mode === "link" || S.mode === "linkin" ? "Linking is free. It isn't a transaction and can't move funds." : "Signing in is free. It isn't a transaction and can't move funds.";
       if (S.mode === "link" || S.mode === "linkin") {
         text(".connect__intro .kicker", "Almost done");
-        accent.textContent = "One signature."; title.replaceChildren("Link your wallet.", el("br"), accent);
+        accent.textContent = "One signature."; title.replaceChildren("Connect your wallet.", el("br"), accent);
         text(".connect__intro .lead", "One free signature proves the wallet is yours. Nothing is paid or moved. Then your dashboard shows how much $VICINITY you hold and your rank.");
       } else if (S.tab === "login") {
         text(".connect__intro .kicker", "Welcome back");
@@ -394,6 +435,8 @@
 
     /* ---------- one render() decides what is on screen ---------- */
     function render() {
+      const root = document.documentElement; // site.js hid the hero for a link code: the ordinary page has it
+      if (S.mode === "signup" && root && root.classList) root.classList.remove("has-link");
       setIntro();
       if (S.offer) return drawOffer();                              // the wallet app's browser: "link this wallet to your account?"
       if (S.mode === "link") {
@@ -429,6 +472,11 @@
     function signedIn(sub, next, ms = 1200) {
       if (S.leaving) return;
       S.leaving = true; stopHandoff(); stopCarry();
+      const k = here(); if (k) WA.remember(k.id); // signed in inside a wallet app: that is the app this person uses on this phone
+      if (S.gatePending) { // the account agreed to the Terms: noted here so the gate never shows in this wallet app (asked once, before leaving)
+        S.gatePending = false;
+        api("/api/me?lite=1").then((me) => { const g = window.V.termsGate; if (g) { if (me && me.termsVersion) g.agreed(me.termsVersion); else g.open(); } });
+      }
       show("done");
       text("#done-h", "You're in."); text("#done-badge", "📍");
       text("#done-sub", sub);
@@ -438,21 +486,30 @@
       const r = panel.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 80);
       setTimeout(() => location.assign(to), ms);
     }
-    /** The wallet is linked to the account: the gold badge, then the dashboard (`viaApp`: the wallet app's browser stays on its words). */
-    function linkDone(wallet, viaApp) {
+    /**
+     * The wallet is linked to the account: the gold badge, then (owner decision F4) wherever the person shops on this device.
+     *   viaApp  this IS the wallet app's browser (it claimed the code): "Phantom connected ✓", and its own dashboard opens here, logged in
+     *   a phone's Safari / Chrome (Phantom finished it, or approved a pairing): "Keep going in Phantom" with Open Phantom (signed in there,
+     *           or one signature) and Stay here; nothing moves by itself
+     *   a computer: "Wallet linked.", then the dashboard
+     * `appId` = the wallet app that linked it (the server's answer), else the one tapped here. Remembered for the Buy panel and the dashboard.
+     */
+    function linkDone(wallet, viaApp, appId) {
       if (S.leaving) return;
-      S.leaving = true; stopCarry(); forgetLink();
+      S.leaving = true; stopCarry(); forgetLink(); forgetCarry();
       try { sessionStorage.removeItem("vl-started"); } catch { /* ignore */ }
+      const k = knownApp(appId) || (viaApp ? here() : WA.remembered());
+      if (k) WA.remember(k.id);
+      const phone = !viaApp && W.isMobile && !here() && !W.list().length, away = Boolean(phone && k && k.open);
+      const c = linkedCopy(viaApp ? "app" : away ? "phone" : "here", shortAddr(wallet), k ? k.name : null);
       show("done");
-      text("#done-badge", "🔗"); text("#done-h", "Wallet linked.");
-      const sub = viaApp
-        ? `${shortAddr(wallet)} is now the wallet of your account, and you're logged in here too. Back in Safari your dashboard already knows.`
-        : "Taking you to your dashboard…";
-      text("#done-sub", sub);
-      $("#done-go").setAttribute("href", "/dashboard?linked=1"); text("#done-go", "Open my dashboard");
-      announce(`Wallet linked. ${sub}`);
+      text("#done-badge", "🔗"); text("#done-h", c.h); text("#done-sub", c.sub);
+      $("#done-go").setAttribute("href", away ? openIn(k) : "/dashboard?linked=1"); text("#done-go", c.go);
+      hide("#done-stay", !away);
+      announce(`${c.h} ${c.sub}`);
       const r = panel.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 80);
-      if (!viaApp) setTimeout(() => location.assign("/dashboard?linked=1"), 1200);
+      // replace: Back from the dashboard must not land on this page again (it would bounce to the dashboard)
+      if (!away) setTimeout(() => location.replace("/dashboard?linked=1"), viaApp ? 1500 : 1200);
     }
     /** A link attempt started in this tab: the dashboard (same tab, later) polls for the wallet while this is set. */
     function linkStarted() { try { sessionStorage.setItem("vl-started", "1"); } catch { /* ignore */ } }
@@ -725,12 +782,13 @@
     /** connect.js: the wallet is proven (or the server refused it with a code the page knows: HANDLED). */
     async function walletProven(d) {
       if (!d.ok) {
+        walletFailed(); // ("Sign in with Phantom" opened this page: the person is not in, so this browser is a first visit: the Terms gate)
         if (d.error === "no_account") return showNoAccount();
         if (d.error === "link_done" || (d.error === "has_wallet" && S.mode === "link")) { const me = await api("/api/me?lite=1"); if (me.user && me.user.wallet) return linkDone(me.user.wallet); }
         show("pick"); renderPick();
         return setErr(errText(d), $("#wallets-detected"));
       }
-      if (d.linked) return linkDone(d.wallet);
+      if (d.linked) return linkDone(d.wallet, false, (WA.remembered() || {}).id);
       if (String(d.next || "").startsWith("/dashboard")) {
         return signedIn(S.mode === "link" ? "Your wallet is on your account. Taking you to your dashboard…" : "This wallet already has a Vicinity account, so we logged you in. Taking you to your dashboard…", d.next);
       }
@@ -739,7 +797,7 @@
     const handles = (code) => HANDLED.includes(code);
     /** S10: a wallet nobody owns. Never step 1 by surprise, no location, no Terms, no Google: one screen that says where to go. */
     function showNoAccount() {
-      const app = inApp(), c = noAccountCopy(app);
+      const app = inApp(), k = here(), c = noAccountCopy(app, k ? k.name : null);
       show("no-account");
       text("#na-h", c.title); text("#na-body", c.body);
       hide("#na-create", c.primary !== "create"); hide("#na-copy", c.primary !== "copy"); hide("#na-tiny", !app);
@@ -756,23 +814,41 @@
     function carrier() {
       return S.mode === "link" && W.isMobile && !inApp() ? carryTo : null;
     }
-    const carryOf = (k, r) => ({ k, name: k.name, link: k.open(r.url), pin: r.pin, ref: r.ref, until: Date.parse(r.expiresAt), replaced: false, expired: false, opened: false });
+    // A relay code (iCloud Private Relay) must be OPENED within 2 minutes: while its screen is on show and nobody opened it, it is renewed
+    // quietly 15 s before, at most 3 times a visit (the person reading slowly never meets "ran out"; the server keeps the 2-minute rule).
+    const RENEW_EARLY = 15_000, RENEW_MAX = 3;
+    const carryOf = (k, r, more = {}) => ({ k, name: k.name, url: r.url, link: k.open(r.url), pin: r.pin, ref: r.ref, until: Date.parse(r.expiresAt),
+      relay: Boolean(r.relay), openBy: r.openBy ? Date.parse(r.openBy) : null, replaced: false, expired: false, opened: false, contested: false, renewals: 0, ...more });
+    // The link on screen is kept in this tab (sessionStorage, like a pairing): when "Open Phantom" fell back to phantom.com in this very
+    // tab (no app, or app links off) and the person comes Back, or the tab reloads, the same screen comes back, with a fresh link.
+    const CARRY_KEY = "vicinity-carry";
+    const keepCarry = (c) => { try { sessionStorage.setItem(CARRY_KEY, JSON.stringify({ id: c.k.id, url: c.url, pin: c.pin, ref: c.ref, until: c.until, relay: c.relay, openBy: c.openBy })); } catch { /* private mode: a reload starts at the wallets */ } };
+    const forgetCarry = () => { try { sessionStorage.removeItem(CARRY_KEY); } catch { /* ignore */ } };
+    function keptCarry() {
+      let c = null;
+      try { c = JSON.parse(sessionStorage.getItem(CARRY_KEY) || "null"); } catch { return null; }
+      const k = c && knownApp(c.id);
+      if (!k || !k.open || typeof c.url !== "string" || !/^https?:\/\/[^/]+\/connect\?link=[A-Za-z0-9_-]{32,64}$/.test(c.url) || !/^[A-Za-z0-9_-]{12}$/.test(String(c.ref)) || !(c.until > Date.now() - 3600_000)) { forgetCarry(); return null; }
+      return carryOf(k, { url: c.url, pin: String(c.pin), ref: c.ref, expiresAt: new Date(c.until).toISOString(), relay: c.relay, openBy: c.openBy ? new Date(c.openBy).toISOString() : null }, { restored: true });
+    }
     async function carryTo(k, tile) {
       if (tile && tile.disabled) return;
       const go = tile ? tile.querySelector(".go") : null;
       setErr(""); if (S.noteView) notice("");
       if (tile) { tile.disabled = true; tile.setAttribute("aria-busy", "true"); } if (go) go.textContent = "Getting your link…";
       try {
-        const r = await call("/api/me/wallet/carry", {});
+        const r = await call("/api/me/wallet/carry", { app: k.id });
         if (r._handled) return;
+        WA.remember(k.id); // for now: the app that really links it is remembered when it does (the status names it)
         if (!r.ok) {
-          // Behind iCloud Private Relay the wallet app can't share this connection: straight to the other way round (approve there, finish here)
+          // Behind a relay the server could not make a link for this app (no country, another app...): the other way round (approve there, finish here)
           if (r.error === "carry_relay") return pairInstead(k.name, true);
           if (r.error === "has_wallet") return walletProven(r);
           if (r.error === "sign_in") return location.assign("/connect?mode=login");
           return setErr(errText(r), $("#more-wallets"));
         }
         S.carry = carryOf(k, r);
+        keepCarry(S.carry);
         try { sessionStorage.setItem("su-carry", k.name); } catch { /* the name is only for the words on this page */ }
         linkStarted();
         render();
@@ -792,24 +868,36 @@
       const tile = $$("#wallets-known .wallet-option").find((b) => b.tagName === "BUTTON" && b.textContent.includes(k.name)) || null;
       carryTo(k, tile);
     }
-    function stopCarry() { clearTimeout(S.carryTimer); S.carryTimer = null; S.carry = null; }
+    function stopCarry() { clearTimeout(S.carryTimer); clearTimeout(S.renewTimer); S.carryTimer = null; S.renewTimer = null; S.carry = null; }
     function pollSoon(ms) { clearTimeout(S.carryTimer); S.carryTimer = setTimeout(pollCarry, ms); }
     /** The "Open <wallet>" screen: the check number, and one tap opens the wallet app on this account's link. */
     function drawCarry() {
       const c = S.carry, name = c.name;
       show("carry");
-      text("#carry-h", `Link your wallet in ${name}`);
+      text("#carry-h", `Connect your wallet in ${name}`);
       text("#carry-lead", carryLead(name));
       text("#carry-pin", c.pin || "--");
+      text("#carry-small", carrySmall(c.relay));
+      const get = $("#carry-get"); get.href = c.k.site; text("#carry-get", `No ${name} on this phone? Get it first.`);
       text("#carry-pair", `Didn't work? Approve in ${name} and finish here instead`);
       const a = $("#carry-open"); a.href = c.link; a.textContent = `Open ${name}`;
-      const dead = c.expired || c.replaced;
-      hide("#carry-open", dead); hide("#carry-pinrow", dead || !c.pin); hide("#carry-status", dead); hide("#carry-renew", !dead);
-      text("#carry-status-text", c.opened ? `${name} opened your link…` : `Waiting for ${name}…`);
-      text("#carry-error", c.replaced ? errText("carry_replaced") : c.expired ? "That link ran out (links work for 10 minutes). Get a new link." : "");
-      announce(dead ? $("#carry-error").textContent : `Link your wallet in ${name}: check number ${c.pin}. Tap Open ${name}.`);
+      const dead = c.expired || c.replaced || c.contested;
+      hide("#carry-open", dead); hide("#carry-pinrow", dead || !c.pin); hide("#carry-status", dead); hide("#carry-renew", !dead); hide("#carry-get", dead);
+      hide("#carry-hint", dead || !c.hint); text("#carry-hint", c.hint ? carryHint(name, iphone()) : "");
+      text("#carry-status-text", c.opened ? `${name} opened your link…` : c.fresh ? `New link ready. Waiting for ${name}…` : `Waiting for ${name}…`);
+      text("#carry-error", c.contested ? errText("carry_contested") : c.replaced ? errText("carry_replaced") : c.expired ? (c.relay && !c.opened ? errText("carry_ranout") : "That link ran out (links work for 10 minutes). Get a new link.") : "");
+      announce(dead ? $("#carry-error").textContent : c.fresh ? `New link ready: check number ${c.pin}. Tap Open ${name}.` : `Connect your wallet in ${name}: check number ${c.pin}. Tap Open ${name}.`);
       focusHeading("carry");
-      if (!dead) pollSoon(3000);
+      if (!dead) { pollSoon(c.restored ? 0 : 3000); planRenew(c); }
+    }
+    /** A relay code on screen that nobody opened: a new one 15 s before its 2 minutes are up (never while the person is in the wallet app). */
+    function planRenew(c) {
+      clearTimeout(S.renewTimer); S.renewTimer = null;
+      if (!c.relay || c.opened || !c.openBy || c.renewals >= RENEW_MAX) return;
+      S.renewTimer = setTimeout(() => {
+        if (S.carry !== c || c.opened || S.leaving || S.cur !== "carry" || document.hidden) return;
+        renewCarry({ quiet: true });
+      }, Math.max(0, c.openBy - RENEW_EARLY - Date.now()));
     }
     /** While this page is on screen: did the wallet app open the link, link the wallet, or is the link dead? (Asked again the moment the page comes back.) */
     async function pollCarry() {
@@ -824,26 +912,36 @@
         if (me.user && me.user.wallet) return linkDone(me.user.wallet);
         return pollSoon(5000);
       }
-      if (d.status === "linked") { text("#carry-status-text", "Linked ✓"); return linkDone(d.wallet); }
-      if (d.status === "expired" || Date.now() > c.until) { c.expired = true; return render(); }
-      if (d.status === "replaced") { c.replaced = true; return render(); }
-      if (d.status === "opened" && !c.opened) { c.opened = true; text("#carry-status-text", `${c.name} opened your link…`); announce(`${c.name} opened your link.`); }
+      if (d.status === "linked") { text("#carry-status-text", "Linked ✓"); return linkDone(d.wallet, false, d.app || c.k.id); }
+      // a link this tab kept and showed again (Back from phantom.com, a reload): nobody opened it, so it may have been seen on the way
+      // (a download page has its address): a new one at once, never "ran out" to a person who just came back
+      if (c.restored) { c.restored = false; if (d.status === "waiting" || d.status === "expired") return renewCarry({ quiet: true, hint: d.status === "waiting" }); }
+      if (d.status === "contested") { c.contested = true; forgetCarry(); return render(); }
+      if (d.status === "expired" || Date.now() > c.until) { c.expired = true; forgetCarry(); return render(); }
+      if (d.status === "replaced") { c.replaced = true; forgetCarry(); return render(); }
+      if (d.status === "opened" && !c.opened) { c.opened = true; c.fresh = false; clearTimeout(S.renewTimer); text("#carry-status-text", `${c.name} opened your link…`); announce(`${c.name} opened your link.`); }
+      if (d.status === "waiting" && c.back && !c.hint) { c.hint = true; hide("#carry-hint", false); text("#carry-hint", carryHint(c.name, iphone())); announce($("#carry-hint").textContent); }
       pollSoon(3000);
     }
-    async function renewCarry() {
-      const k = S.carry && S.carry.k;
+    /** A new code for the same wallet app: by a tap ("Get a new link"), or quietly (a relay code about to run out, a kept one shown again). */
+    async function renewCarry({ quiet = false, hint = false } = {}) {
+      const old = S.carry, k = old && old.k;
       if (!k) return render();
-      await busy($("#carry-renew"), "Getting your link…", async () => {
-        const r = await call("/api/me/wallet/carry", {});
-        if (r._handled) return;
+      const go = async () => {
+        const r = await call("/api/me/wallet/carry", { app: k.id });
+        if (S.carry !== old || S.leaving || r._handled) return;
         if (!r.ok) {
-          if (r.error === "carry_relay") { stopCarry(); render(); return pairInstead(k.name, true); }
+          if (r.error === "carry_relay") { stopCarry(); forgetCarry(); render(); return pairInstead(k.name, true); }
           if (r.error === "has_wallet") return walletProven(r);
+          if (quiet) { old.expired = true; forgetCarry(); return render(); }
           text("#carry-error", errText(r)); return;
         }
-        S.carry = carryOf(k, r);
+        S.carry = carryOf(k, r, { renewals: old.renewals + (quiet ? 1 : 0), fresh: quiet, hint: hint || old.hint, back: old.back });
+        keepCarry(S.carry);
         render();
-      });
+      };
+      if (quiet) return go();
+      await busy($("#carry-renew"), "Getting your link…", go);
     }
     /** The other way round on a phone: approve in the wallet app `name`, finish here (connect.js's pairing screen). relay = why. */
     function pairInstead(name, relay) {
@@ -898,8 +996,10 @@
     // inside the wallet app (pull-to-refresh) offers it again (site.js reads it back for an hour at most) instead of the sign-up.
     // Forgotten when the link went through, the person said it is not them, or they chose the ordinary page.
     const LINK_KEY = "vicinity-link";
-    const keepLink = (code) => { try { sessionStorage.setItem(LINK_KEY, JSON.stringify({ code, at: Date.now() })); } catch { /* private mode: a reload starts over */ } };
+    // (with the opener nonce the server handed this browser: a wallet browser that drops cookies still proves it opened the code)
+    const keepLink = (code, opener) => { try { sessionStorage.setItem(LINK_KEY, JSON.stringify({ code, at: Date.now(), ...(opener ? { opener } : {}) })); } catch { /* private mode: a reload starts over */ } };
     const forgetLink = () => { try { sessionStorage.removeItem(LINK_KEY); } catch { /* ignore */ } };
+    const keptOpener = (code) => { try { const k = JSON.parse(sessionStorage.getItem(LINK_KEY) || "null"); return k && k.code === code && typeof k.opener === "string" ? k.opener : null; } catch { return null; } };
     /**
      * This browser was opened with a link code (/connect?link=). NOTHING happens on load: only a wallet app's browser on a phone even
      * looks at it, and the person first sees whose account it is (the check number of the page where they started, the username
@@ -912,21 +1012,24 @@
       const gate = window.V.termsGate;
       const plain = (msg) => { forgetLink(); if (gate) gate.open(); return { note: msg }; };
       if (!W.isMobile || !(await inAppSoon())) return plain(errText("carry_elsewhere"));
-      const info = await call("/api/me/wallet/carry/info", { code });
+      const kept = keptOpener(code);
+      const info = await call("/api/me/wallet/carry/info", kept ? { code, opener: kept } : { code });
       if (info._handled) return {};
-      keepLink(code); // whatever the answer: a reload here shows this same screen again, not the sign-up
+      keepLink(code, info.opener || kept); // whatever the answer: a reload here shows this same screen again, not the sign-up
       if (!info.ok) return { dead: info };
-      return { offer: { code, info } }; // (the Terms were accepted on that account: the gate waits; noted here once the person says it is theirs)
+      return { offer: { code, info, opener: info.opener || kept } }; // (the Terms were accepted on that account: the gate waits; noted here once the person says it is theirs)
     }
     /** F1: inside the wallet app's browser, a link that is dead (used, run out, another connection, or already done): one plain screen, nothing else. */
     function showLinkDead(r) {
-      const code = r && r.error;
-      const known = { carry_expired: "That link was used or ran out", carry_network: "That link is for another connection", link_done: "A wallet is already linked" }[code];
+      const code = r && r.error, app = inApp(), k = here();
+      const known = { carry_expired: app ? "Almost there" : "That link was used or ran out", carry_network: "That link can't be used here", carry_opened: "That link was opened in another app", link_done: "A wallet is already linked" }[code];
       S.offer = null; S.mode = "linkin"; // no tabs, no step bar, no hero on a phone: this browser is the wallet app's
       show("link-dead");
       text("#ld-h", known || "Couldn't check your link");
-      text("#ld-body", errText(r));
-      hide("#ld-copy", !known); hide("#ld-retry", Boolean(known)); // a dead code: back to Safari; no answer at all: try again
+      text("#ld-body", code === "carry_expired" && app ? errText(code, "app") : code === "link_done" && k ? `This account has its wallet. If it is the one in ${k.name}, sign in with it here.` : errText(r));
+      // a button only where there is something to do here: sign in with the linked wallet, or try again when there was no answer at all
+      hide("#ld-retry", Boolean(known)); hide("#ld-signin", !(code === "link_done" && k));
+      if (k) { text("#ld-signin", `Sign in with ${k.name}`); $("#ld-signin").dataset.app = k.id; }
       announce(`${$("#ld-h").textContent}. ${$("#ld-body").textContent}`);
       S.first = false; focusHeading("linkDead");
     }
@@ -940,16 +1043,35 @@
       text("#carry-in-city", c ? `📍 ${c.name}, ${c.country}` : "");
       text("#carry-in-pin", i.pin);
       text("#carry-in-error", "");
-      hide("#carry-in-yes", false); hide("#carry-in-wallets"); hide("#carry-in-tap");
+      // this wallet app's browser is logged in to SOMEONE ELSE's account: said before anything is signed; "Yes" logs it out here first
+      hide("#carry-in-here", !i.here); text("#carry-in-here", i.here ? `This app is logged in to ${i.here}'s account. Linking logs it out here.` : "");
+      text("#carry-in-yes", i.here ? `Yes, log out ${i.here} and link` : "Yes, link my wallet");
+      hide("#carry-in-yes", false); hide("#carry-in-wallets"); hide("#carry-in-tap"); hide("#carry-in-signin");
       announce(`Link this wallet to ${o.name || "someone"}'s Vicinity account? Check number ${i.pin}. Only continue if you started this yourself, on this phone.`);
       S.first = false; focusHeading("carryIn"); // the question is why the person is here: bring it on screen at once (the intro sits above it)
     }
-    /** "Yes, link my wallet": the wallet tiles (the wallet app's own; re-drawn when the injection is late). The account's Terms count here too. */
-    function acceptLink() {
-      if (!S.offer) return;
-      if (window.V.termsGate) window.V.termsGate.agreed(S.offer.info.terms);
-      hide("#carry-in-yes"); hide("#carry-in-wallets", false);
-      drawOfferWallets();
+    /**
+     * "Yes, link my wallet": the account's Terms count here too. With exactly one wallet in this app (the usual case) its connect sheet and
+     * then its sign sheet follow at once (no tile to tap); with several, or none yet, the tiles (re-drawn when the injection is late).
+     * "Yes, log out Jo••• and link": this browser leaves the other account first (the server would refuse the claim otherwise).
+     */
+    let accepting = false;
+    async function acceptLink() {
+      if (!S.offer || accepting) return;
+      accepting = true;
+      try {
+        if (window.V.termsGate) window.V.termsGate.agreed(S.offer.info.terms);
+        if (S.offer.info.here) {
+          const out = await api("/api/auth/logout", {});
+          if (!out.ok) return text("#carry-in-error", errText(out.error === "offline" ? "offline" : "generic"));
+          S.offer.info.here = null; S.me = { ...(S.me || {}), signedIn: false, user: null }; hide("#carry-in-here");
+        }
+        hide("#carry-in-yes");
+        const list = W.list();
+        if (list.length === 1) { text("#carry-in-tap", `Check ${list[0].name}: connect, then sign. Nothing is paid or moved.`); hide("#carry-in-tap", false); return claimLink(list[0], null); }
+        hide("#carry-in-wallets", false);
+        drawOfferWallets();
+      } finally { accepting = false; }
     }
     function drawOfferWallets() {
       if (!S.offer || $("#carry-in-wallets").hidden) return;
@@ -966,31 +1088,46 @@
       hide("#carry-in-tap", false);
     }
     let claiming = false;
-    /** Connect, sign the link statement that names the owner, and the server links the wallet to that account and signs this browser in. */
+    /**
+     * Connect, sign the link statement that names the owner, and the server links the wallet to that account and signs this browser in
+     * (the person stays in the wallet app). `tile` is null when "Yes" went straight on (one wallet): a failure then shows the tiles to retry.
+     */
     async function claimLink(adapter, tile) {
       const o = S.offer; if (!o || claiming) return;
-      claiming = true; text("#carry-in-error", "");
-      tile.setAttribute("aria-busy", "true"); const tag = tile.querySelector(".detected"); if (tag) tag.textContent = "Waiting…";
+      claiming = true; text("#carry-in-error", ""); hide("#carry-in-signin");
+      const tag = tile ? tile.querySelector(".detected") : null;
+      if (tile) { tile.setAttribute("aria-busy", "true"); if (tag) tag.textContent = "Waiting…"; }
+      const k = here() || W.knownFor(adapter.name), opener = o.opener ? `&opener=${encodeURIComponent(o.opener)}` : "";
       try {
         const address = await adapter.connect();
-        const m = await api("/api/message?address=" + encodeURIComponent(address) + "&action=link&code=" + encodeURIComponent(o.code));
+        const m = await api("/api/message?address=" + encodeURIComponent(address) + "&action=link&code=" + encodeURIComponent(o.code) + opener);
         if (!m.message) { if (m.error && handles(m.error)) return linkRefused(m); return text("#carry-in-error", /^carry_/.test(String(m.error)) ? errText(m) : errText(m.error ? m : "offline")); }
         const sig = await adapter.signMessage(new TextEncoder().encode(m.message));
-        const r = await call("/api/me/wallet/carry/claim", { code: o.code, address, message: m.message, signature: btoa(String.fromCharCode(...sig)) });
+        const r = await call("/api/me/wallet/carry/claim", { code: o.code, address, message: m.message, signature: btoa(String.fromCharCode(...sig)),
+          ...(o.opener ? { opener: o.opener } : {}), ...(k ? { app: k.id } : {}) });
         if (r._handled) return;
         if (!r.ok) {
-          if (r.error === "already_signed_in") return text("#carry-in-error", "This browser is logged in to another Vicinity account. Log out of it first, then open the link again.");
+          if (r.error === "already_signed_in") return text("#carry-in-error", "This app is logged in to another Vicinity account. Open the link again from Safari or Chrome: it offers to log it out here.");
+          if (r.error === "wallet_taken") { // this wallet signs in to its own account: one tap away
+            text("#carry-in-error", `This wallet already has a Vicinity account. Pick another wallet in ${k ? k.name : "your app"}, or sign in to that account with it.`);
+            if (k) { text("#carry-in-signin", `Sign in with ${k.name}`); $("#carry-in-signin").dataset.app = k.id; hide("#carry-in-signin", false); }
+            return;
+          }
           if (/^carry_/.test(String(r.error)) || r.error === "link_done") return linkRefused(r);
           return text("#carry-in-error", errText(r));
         }
         S.offer = null;
-        linkDone(r.wallet, true);
+        linkDone(r.wallet, true, r.app || (k && k.id));
       } catch (e) {
         text("#carry-in-error", /reject|cancel|denied|declin|closed/i.test(String((e && e.message) || e)) || (e && e.code === 4001) ? "Signing cancelled in your wallet. Nothing happened." : `${adapter.name || "Your wallet"} couldn't sign. Please try again.`);
       } finally {
-        claiming = false; tile.removeAttribute("aria-busy"); if (tag) tag.textContent = "Detected";
+        claiming = false;
+        if (tile) { tile.removeAttribute("aria-busy"); if (tag) tag.textContent = "Detected"; }
+        else if (S.offer && !S.leaving && S.cur === "carry-in") { hide("#carry-in-tap"); hide("#carry-in-wallets", false); drawOfferWallets(); } // to try again: the tile
       }
     }
+    /** The wallet app's "Sign in with Phantom" (a dead link for an account that has its wallet, a wallet that is another account's): one tap, one signature. */
+    function signInHere(id) { forgetLink(); location.assign(`/connect?mode=login&with=${encodeURIComponent(id)}`); }
     /** The code is dead (used, run out, another connection) or the account got a wallet meanwhile: say so, nothing else to do here. */
     async function linkRefused(r) {
       S.offer = null;
@@ -1131,16 +1268,20 @@
       $("#su-recap-redo").addEventListener("click", () => { S.redo = true; S.hold = "location"; locError(""); render(); });
       // coming back to the wallet app: the timers slept while it was in the background, so ask right away
       document.addEventListener("visibilitychange", () => { if (!document.hidden && S.ho) { clearTimeout(S.ho.timer); pollHandoff(); } });
-      // "Open app" (phones): back from the wallet app, ask at once what happened there
-      document.addEventListener("visibilitychange", () => { if (!document.hidden && S.carry) pollCarry(); });
+      // "Open app" (phones): back from the wallet app, ask at once what happened there (and say what to do if it never opened the link)
+      document.addEventListener("visibilitychange", () => { if (!document.hidden && S.carry) { S.carry.back = true; pollCarry(); } });
       $("#carry-back").addEventListener("click", () => { stopCarry(); render(); });
       // the other way on a phone: approve in the wallet app, finish here (the pairing: no cookie or connection has to match)
       $("#carry-pair").addEventListener("click", () => { const name = S.carry && S.carry.name; stopCarry(); render(); pairInstead(name, false); });
-      $("#carry-renew").addEventListener("click", renewCarry);
+      $("#carry-renew").addEventListener("click", () => renewCarry());
+      $("#carry-in-signin").addEventListener("click", (e) => signInHere(e.currentTarget.dataset.app));
+      $("#ld-signin").addEventListener("click", (e) => signInHere(e.currentTarget.dataset.app));
+      // the Log in tab inside a wallet app: one tap signs in (connect + one signature); "New here? Join" is the other tab
+      $("#lg-wallet").addEventListener("click", () => { const a = W.list()[0]; if (a && quickSignIn) quickSignIn(a, null); });
+      $("#lg-join").addEventListener("click", () => setTab("new"));
       $("#carry-in-yes").addEventListener("click", acceptLink);
       $("#carry-in-no").addEventListener("click", declineLink);
       // the dead-link screen (the wallet app's browser)
-      $("#ld-copy").addEventListener("click", () => copy(`${location.origin}/connect`, "Paste it in Safari or Chrome"));
       $("#ld-retry").addEventListener("click", () => location.reload());
       $("#ld-login").addEventListener("click", leaveDead);
       // the no-account screen
@@ -1190,6 +1331,9 @@
      */
     function init(me, err, brought = {}) {
       S.me = me; S.providers = me.providers || S.providers;
+      // "Connect Phantom" / "Sign in with Phantom" (/connect?mode=login&with=phantom), opened inside the wallet app: read once, then gone
+      const withId = params.get("with");
+      if (withId !== null) { params.delete("with"); try { history.replaceState(null, "", location.pathname + (String(params) ? `?${params}` : "")); } catch { /* ignore */ } }
       panel.classList.add("su-on"); panel.removeAttribute("aria-live"); // the panel changes a lot: announcements go through #su-live and the error lines
       hide("#stepper");
       hide("#login-block"); // today's log-in block never shows in v2
@@ -1214,10 +1358,13 @@
         }
         if (me.signedIn && me.user && !me.user.wallet) { // the link mode: the account exists, the wallet does not
           S.mode = "link";
-          if (brought.carry != null && window.V.termsGate) window.V.termsGate.agreed(me.termsVersion || "2026-10-01");
+          if ((brought.carry != null || withId !== null) && window.V.termsGate) window.V.termsGate.agreed(me.termsVersion || "2026-10-01");
+          // a link this tab showed before (Back from phantom.com, a reload): the same screen, with a fresh link if nobody opened it
+          const kept = W.isMobile && !inApp() ? keptCarry() : null;
+          if (kept) S.carry = kept;
           render();
           if (err) { const b = bounceFor(err); setErr(b.text); announce(b.text); }
-          openApp(params.get("app"));
+          if (!kept) openApp(params.get("app"));
           return true;
         }
         if (brought.carry != null && window.V.termsGate) window.V.termsGate.open(); // an old sign-up's link: one calm line, the ordinary tabs
@@ -1227,7 +1374,8 @@
         const st = S.srv, bounce = err ? bounceFor(err) : null;
         const mid = hasProgress(st);
         let remembered = false; try { remembered = localStorage.getItem("vicinity-account") === "1"; } catch { /* ignore */ }
-        S.tab = params.get("mode") === "login" ? "login" : mid ? "new" : remembered ? "login" : "new";
+        // inside a known wallet app a visitor most likely signs in with its wallet (a sign-up's location rarely works there): Log in first
+        S.tab = params.get("mode") === "login" ? "login" : mid ? "new" : remembered || here() ? "login" : "new";
         if (bounce && bounce.tab) S.tab = bounce.tab;
         if (params.get("step")) history.replaceState(null, "", location.pathname);
         if (bounce && bounce.stuck) S.finishFailed = finishPlan({ error: err });
@@ -1236,15 +1384,37 @@
         else render();
         if (bounce && !bounce.stuck) { if (bounce.tab === "new" && viewFor(st).view !== "finish") notice(bounce.text); else { setErr(bounce.text); announce(bounce.text); } }
         if (brought.carry != null) notice(errText("carry_old"));
+        if (withId !== null) quickFromLink(withId);
         return true;
       })();
     }
+    /**
+     * /connect?mode=login&with=<id> for a visitor: inside that wallet app (its wallet turns up within 3 s), the sign-in starts by itself,
+     * once: its connect sheet, then ONE signature, then the dashboard (the owner's "tap Connect wallet, go to the wallet, buy there").
+     * The account's Terms are noted on the way in; anywhere else (Safari, a computer, another app) the page is the ordinary Log in tab
+     * and the Terms gate opens as for any first visit.
+     */
+    async function quickFromLink(id) {
+      const gate = window.V.termsGate;
+      const wanted = () => W.list().find((a) => { const k = W.knownFor(a.name); return k && k.id === id; }) || null;
+      if (W.isMobile && !wanted()) await new Promise((resolve) => {
+        const off = W.onChange(() => { if (wanted()) { off(); clearTimeout(t); resolve(); } });
+        const t = setTimeout(() => { off(); resolve(); }, 3000);
+      });
+      const a = wanted();
+      if (!a || !here() || !quickSignIn || S.leaving || S.mode !== "signup") { if (gate) gate.open(); return; }
+      S.gatePending = true;
+      if (S.tab !== "login" || S.reset) { S.tab = "login"; S.reset = false; render(); }
+      quickSignIn(a, null);
+    }
+    /** connect.js: the wallet said no (cancelled, failed) during a sign-in this page started for a "with" link: a first visit after all (the gate). */
+    function walletFailed() { if (!S.gatePending) return; S.gatePending = false; if (window.V.termsGate) window.V.termsGate.open(); }
     function failedLoad(d) {
       show("loading"); text("#su-loading-text", `The sign-up didn't load. ${errText(d)}`); hide("#su-reload", false); $("#su-reload").onclick = () => location.reload();
       return false;
     }
 
-    return { init, onShow, walletProven, handles, signLabel, linkMode, carrier, pairContext, pairStarted, resumePair, pairGone, say: notice,
+    return { init, onShow, walletProven, walletFailed, handles, signLabel, linkMode, carrier, pairContext, pairStarted, resumePair, pairGone, say: notice,
       relayWhy: (name, qr) => relayWhy(name, iphone(), qr) };
   }
 })();

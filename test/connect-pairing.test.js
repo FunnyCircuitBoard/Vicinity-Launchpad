@@ -195,8 +195,12 @@ test("(1) without sessionStorage (blocked) the pairing still works in the open p
   world.pair = "ready";
   await p.advance(2000);
   assert.deepEqual(world.finished, [{ code: PAIR }]);
+  // MOVED (owner decision F4): a phone's Safari that finished a link pairing sends the person on to the wallet app they tapped
+  assert.equal(p.$("#done-h").textContent, "Phantom connected ✓");
+  assert.equal(p.$("#done-go").textContent, "Open Phantom");
+  assert.equal(p.$("#done-go").getAttribute("href"), `https://phantom.com/ul/browse/${encodeURIComponent("https://vicinity.test/connect?mode=login&with=phantom")}?ref=${encodeURIComponent("https://vicinity.test")}`);
   await p.advance(1300);
-  assert.deepEqual(p.assigned, ["/dashboard?linked=1"]);
+  assert.deepEqual(p.assigned, [], "nothing moves by itself (Open Phantom, or Stay here)");
 });
 
 test("(1) a pairing started on the Log in tab comes back on the Log in tab, and signs that wallet in", async () => {
@@ -271,7 +275,7 @@ test("(3) the carry_network message quotes the button exactly as Safari shows it
 
 test("(3) the link screen's lead on a phone says what the wallet app does, in one sentence each", async () => {
   const { p } = await safari();
-  assert.equal(p.$("#su-wallet-lead").textContent, "Tap your wallet app: it opens Vicinity there to link this account. Check that it shows the same number, then sign. Your dashboard here updates by itself.");
+  assert.equal(p.$("#su-wallet-lead").textContent, "Tap your wallet app. It opens Vicinity there: check the number, then sign once. You stay in the app, logged in.");
 });
 
 /* ---------------- (4) the wallet app's approve page ---------------- */
@@ -312,7 +316,7 @@ test("(4) a LINK pairing: the approve page names the account the wallet joins, a
   assert.equal(asked[0], `/api/message?address=${ADDR}&action=link&pin=42&pair=${PAIR}`, "the LINK statement with the check number, for the owner of this pairing");
   assert.equal(asked[1].pair, PAIR);
   assert.equal(p.visible(p.$("#approve-done")), true);
-  assert.equal(p.$("#approve-done-text").textContent, "Approved. Go back to where you started: your dashboard finishes the link, or says why it can't.");
+  assert.equal(p.$("#approve-done-text").textContent, "Approved. Go back to Safari: it finishes in a second and brings you back here.");
   assert.equal(p.visible(p.$("#approve-tap")), false);
   assert.equal(p.calls.filter((c) => c.path.startsWith("/api/signup/") || c.path.startsWith("/api/auth/google")).length, 0, "no sign-up, no Google: nothing can loop back to a sign-in screen here");
 });

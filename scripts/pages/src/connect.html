@@ -46,6 +46,10 @@
             <section class="login-block" id="lg-block" aria-labelledby="lg-title" hidden>
               <h2 class="h2--sm" id="lg-title" tabindex="-1">Welcome back</h2>
               <p class="muted small">Log in the way you signed up. Nothing else to repeat.</p>
+              <!-- inside a wallet app (its wallet on the page): one tap signs in with it (signup.js onShow) -->
+              <button class="btn btn--primary btn--block btn--lg" type="button" id="lg-wallet" hidden>Sign in with your wallet</button>
+              <p class="tiny muted" id="lg-wallet-note" hidden>One free signature. Nothing is paid or moved.</p>
+              <button class="link-btn" type="button" id="lg-join" hidden>New here? Join</button>
               <a class="btn btn--social btn--google" href="/api/auth/google/start" id="lg-google" hidden><span class="social-mark" aria-hidden="true">G</span> Log in with Google</a>
               <p class="callout small" id="lg-inapp" hidden>You're inside a wallet app's browser. Google doesn't allow log-in here, so use your e-mail or your wallet. To use Google, open <strong>vicinity.city/connect</strong> in Safari or Chrome. <button class="link-btn" type="button" id="lg-copy">Copy the link</button></p>
               <p class="or-line" id="lg-or"><span>or with your e-mail</span></p>
@@ -101,12 +105,13 @@
             <!-- v2, a member without a wallet (link mode): the top of the panel -->
             <div class="link-top" id="link-top" hidden>
               <p class="kicker">Almost done</p>
-              <h2 class="h2--sm" id="link-title" tabindex="-1">Link your wallet.</h2>
+              <h2 class="h2--sm" id="link-title" tabindex="-1">Connect your wallet.</h2>
               <p class="muted small">One free signature proves the wallet is yours. Nothing is paid or moved.</p>
             </div>
             <p class="or-line" id="or-line"><span>New here, or logging in with your wallet</span></p>
             <h2 class="h2--sm" id="wallet-h">Choose your wallet</h2>
             <p class="muted small" id="su-wallet-lead" hidden></p>
+            <p class="muted small" id="link-noapp" hidden>No wallet app yet? <a href="https://phantom.com/download" target="_blank" rel="noopener">Get Phantom (free)</a>, set it up, then come back here and tap Phantom.</p>
             <div class="wallet-list" id="wallets-detected"></div>
             <p class="muted small" id="wallets-none" hidden>No wallet found in this browser. Pick one below, or use your phone.</p>
             <details class="more-wallets" id="more-wallets">
@@ -321,8 +326,10 @@
               <p class="muted small" id="carry-lead"></p>
               <p class="pin-row" id="carry-pinrow">Check number: <strong class="pin" id="carry-pin">--</strong></p>
               <a class="btn btn--primary btn--block btn--lg" id="carry-open" href="/connect" rel="noreferrer" referrerpolicy="no-referrer">Open your wallet app</a>
-              <p class="tiny muted">This link works for 10 minutes, once, and only from this phone's own internet connection. Never send it to anyone.</p>
+              <p class="tiny muted" id="carry-small">This link works once, for 10 minutes, only on this phone. Never send it to anyone.</p>
+              <a class="link-btn" id="carry-get" href="https://phantom.com/download" target="_blank" rel="noopener">No wallet app on this phone? Get it first.</a>
               <p class="muted small" id="carry-status"><span class="live-dot" aria-hidden="true"></span> <span id="carry-status-text">Waiting for your wallet app…</span></p>
+              <p class="callout small" id="carry-hint" role="status" hidden></p>
               <p class="su-err" id="carry-error" role="alert"></p>
               <button class="btn btn--primary btn--block" type="button" id="carry-renew" hidden>Get a new link</button>
               <button class="link-btn" type="button" id="carry-pair">Didn't work? Approve in your wallet app and finish here instead</button>
@@ -341,12 +348,14 @@
               </div>
               <p class="pin-row">Check number: <strong class="pin" id="carry-in-pin">--</strong></p>
               <p class="muted small">Safari, where you started, shows the same number.</p>
-              <p class="callout small">Only continue if you started this yourself, in Safari or Chrome on this phone, a moment ago, and the number matches. Never continue from a link someone sent you: your wallet would join THEIR account.</p>
+              <p class="callout link-in__warn"><strong>Only continue if YOU just tapped Connect wallet on this phone.</strong> If someone sent you this link, stop: your wallet would join THEIR account.</p>
+              <p class="callout small" id="carry-in-here" hidden></p>
               <p class="tiny muted">The Terms of Use were accepted on that account.</p>
               <button class="btn btn--primary btn--block btn--lg" type="button" id="carry-in-yes">Yes, link my wallet</button>
               <p class="approve-tap" id="carry-in-tap" hidden></p>
               <div class="wallet-list" id="carry-in-wallets" hidden></div>
               <p class="su-err" id="carry-in-error" role="alert"></p>
+              <button class="btn btn--primary btn--block" type="button" id="carry-in-signin" hidden>Sign in with your wallet</button>
               <button class="link-btn" type="button" id="carry-in-no">No, that is not me</button>
             </div>
           </div>
@@ -366,8 +375,8 @@
           <div class="cstate no-account link-dead" data-state="link-dead" hidden>
             <div class="verified-badge is-plain" aria-hidden="true">!</div>
             <h2 class="h2--sm" id="ld-h" tabindex="-1">That link was used or ran out</h2>
-            <p class="muted small" id="ld-body">Go back to Safari or Chrome and tap Link again.</p>
-            <button class="btn btn--primary btn--block btn--lg" type="button" id="ld-copy">Copy vicinity.city/connect</button>
+            <p class="muted small" id="ld-body">Go back to Safari or Chrome and tap Connect wallet again.</p>
+            <button class="btn btn--primary btn--block btn--lg" type="button" id="ld-signin" hidden>Sign in with your wallet</button>
             <button class="btn btn--primary btn--block btn--lg" type="button" id="ld-retry" hidden>Try again</button>
             <p class="tiny muted">Or <button class="link-btn link-btn--tiny" type="button" id="ld-login">log in here with your e-mail and password</button> and link the wallet from your dashboard.</p>
           </div>
@@ -425,6 +434,7 @@
             <h2 class="h2--sm" id="done-h">You're in.</h2>
             <p class="muted" id="done-sub">Taking you to your dashboard…</p>
             <a class="btn btn--primary" href="/dashboard" id="done-go">Open my dashboard →</a>
+            <a class="link-btn" href="/dashboard?linked=1" id="done-stay" hidden>Stay here</a>
           </div>
 
           <p class="wallet__error" id="c-error" role="alert" hidden></p>

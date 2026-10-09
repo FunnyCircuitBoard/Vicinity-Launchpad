@@ -258,7 +258,7 @@ test("Log in tab: a wallet nobody owns is one plain screen (no account), never s
   await p.tap(p.$("#c-sign"));
   assert.equal(p.screen(), "no-account");
   assert.equal(p.$("#na-h").textContent, "No account for this wallet yet");
-  assert.equal(p.$("#na-body").textContent, "Create one with Google in a minute, then link this wallet from your dashboard.");
+  assert.equal(p.$("#na-body").textContent, "Create one with Google in a minute, then connect this wallet from your dashboard.");
   assert.equal(p.visible(p.$("#na-create")), true);
   assert.equal(p.visible(p.$("#na-copy")), false);
   assert.equal(p.callsTo("/api/signup/location").length, 0);

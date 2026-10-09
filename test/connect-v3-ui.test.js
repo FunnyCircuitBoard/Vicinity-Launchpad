@@ -200,10 +200,10 @@ test("S10 inside a wallet app: a wallet with no account gets the copy-the-link s
   const api = async (path) => (path.startsWith("/api/message") ? { message: MESSAGE + ++n } : path === "/api/auth/wallet" ? { ok: false, error: "no_account", _status: 404 } : { ok: true });
   const geolocation = { getCurrentPosition: () => { geolocation.asked = true; } };
   const p = await openConnect({ ua: UA.phantomApp, search: "mode=login", wallets: [wallet], api, state: STATE.empty(), geolocation });
-  await p.tap(p.$("#wallets-detected").children[0]);
-  await p.tap(p.$("#c-sign"));
+  await p.tap(p.$("#wallets-detected").children[0]); // inside a wallet app ONE tap connects and signs (owner decision F4): no "Sign in" tap
+  await p.flush();
   assert.equal(p.screen(), "no-account");
-  assert.equal(p.$("#na-body").textContent, "Vicinity accounts start with Google or e-mail. Create yours in Safari or Chrome (it takes a minute), then link this wallet from your dashboard, one tap.");
+  assert.equal(p.$("#na-body").textContent, "Vicinity accounts start with Google or e-mail. Create yours in Safari or Chrome (it takes a minute), then connect this wallet from your dashboard, one tap. More than one wallet in Phantom? Switch to the one you linked, then try again.");
   assert.equal(p.visible(p.$("#na-copy")), true);
   assert.equal(p.$("#na-copy").textContent, "Copy vicinity.city/connect");
   assert.equal(p.visible(p.$("#na-create")), false);
@@ -220,7 +220,7 @@ test("the link mode on a computer: 'Almost done · Link your wallet.', the detec
   const p = await openConnect({ me: LINK_ME, wallets: [wallet] });
   assert.equal(p.screen(), "pick");
   assert.equal(p.$(".connect__intro .kicker").textContent, "Almost done");
-  assert.equal(p.$(".connect__intro .page-title").textContent, "Link your wallet.One signature.");
+  assert.equal(p.$(".connect__intro .page-title").textContent, "Connect your wallet.One signature.");
   assert.equal(p.visible(p.$(".connect__intro")), true, "a computer keeps the hero beside the panel");
   assert.equal(p.$(".connect__intro .safety li").textContent, "Linking is free. It isn't a transaction and can't move funds.");
   assert.equal(p.visible(p.$("#link-top")), true);
@@ -274,5 +274,5 @@ test("the strict security policy holds on the new pieces: no inline style or scr
   assert.doesNotMatch(html, /<style/);
   assert.match(html, /<link rel="stylesheet" href="\/onboard\.css">/);
   for (const sel of [".su-later", ".link-top", ".link-in", ".no-account", ".wcard", ".ring", ".welcome"]) assert.ok(css.includes(sel), `${sel} is styled`);
-  assert.ok(css.split("\n").filter((l) => /^\.[a-z]/.test(l)).every((l) => /^\.(su-later|su-alt|su-why|link-top|link-skip|link-in|no-account|welcome|ring|wcard|stepper--two|alt-ways|more-wallets--inner|cstate\[data-state="su-account"\])/.test(l)), "every rule is scoped to the new pieces");
+  assert.ok(css.split("\n").filter((l) => /^\.[a-z]/.test(l)).every((l) => /^\.(su-later|su-alt|su-why|link-top|link-skip|link-in|no-account|welcome|ring|wcard|stepper--two|alt-ways|more-wallets--inner|has-link|cstate\[data-state="su-account"\])/.test(l)), "every rule is scoped to the new pieces");
 });
