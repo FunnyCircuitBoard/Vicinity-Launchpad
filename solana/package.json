@@ -24,7 +24,8 @@
     "launchpad:crank": "node scripts/launchpad/crank.mjs",
     "launchpad:claim-fees": "node scripts/launchpad/claim-platform-fees.mjs",
     "launchpad:setup": "node scripts/launchpad/setup.mjs",
-    "launchpad:devnet-demo": "node scripts/launchpad/devnet-demo.mjs"
+    "launchpad:devnet-demo": "node scripts/launchpad/devnet-demo.mjs",
+    "launchpad:worker-trade": "node scripts/launchpad/worker-devnet-trade.mjs"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",

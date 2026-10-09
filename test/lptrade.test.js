@@ -207,3 +207,23 @@ test("lptrade: the 21st /tx from one connection answers 429 slow_down", async ()
   for (let i = 0; i < 21; i++) last = await call("/api/launchpad/trade/tx", buy({ taker: TRADER, amount: String(0.005 + i / 10000) }), { ip: "9.9.9.9" });
   assert.deepEqual([last.status, last.data.error], [429, "slow_down"]);
 });
+
+test("lptrade: a built trade forgets the pool's 5 s copy, so the next quote reads the chain again (the person who just traded sees the true numbers)", async () => {
+  const { W, call } = await tradeWorld();
+  const reads = () => W.rpc.log.filter((e) => e.methods.includes("getAccountInfo")).length;
+  assert.equal((await call("/api/launchpad/trade/quote", buy())).status, 200);
+  const afterFirst = reads();
+  assert.equal((await call("/api/launchpad/trade/quote", buy())).status, 200);
+  assert.equal(reads(), afterFirst, "a second quote within 5 s is served from the copy (no read)");
+  const tx = await call("/api/launchpad/trade/tx", buy({ taker: TRADER }));
+  assert.equal(tx.status, 200, JSON.stringify(tx.data));
+  // the pool graduates on the chain right after the trade was built: a quote that read the copy would still say "curve"
+  const b = fromBase64(dev.accounts[DEMOV_POOL].data); b[LAYOUT.VirtualPool.fields.is_migrated.at] = 1;
+  W.rpc.accounts[DEMOV_POOL] = { ...W.rpc.accounts[DEMOV_POOL], data: [toBase64(b), "base64"] };
+  const afterTx = reads();
+  const q = await call("/api/launchpad/trade/quote", buy());
+  assert.deepEqual([q.status, q.data.error], [409, "stage_graduated"], "the quote after a built trade read the chain again");
+  assert.equal(reads(), afterTx + 1, "exactly one read: the pool (the config, the table and the decimals keep their long copies)");
+  assert.equal((await call("/api/launchpad/trade/quote", buy())).status, 409);
+  assert.equal(reads(), afterTx + 1, "and the fresh copy serves the next 5 s again");
+});

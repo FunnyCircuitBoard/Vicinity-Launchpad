@@ -262,6 +262,9 @@ export async function handleTradeTx(request, env, fetchImpl = fetch, now = Date.
   }
   const cuPrice = cuPriceSetting > 0n ? (cuPriceSetting < maxCuPrice(cuLimit) ? cuPriceSetting : maxCuPrice(cuLimit)) : 0n;
   const id = await quoteId(["curve", input.mint, input.side, amountRaw.toString(), input.slippageBps, st.pool.sqrtPrice.toString()]);
+  // this trade is about to move the curve: the next quote of this pool reads the chain again instead of the copy of the last
+  // 5 seconds, so the person who just traded (and sells or buys again at once) sees the true numbers, not those from before
+  pools.forget([st.coin.dbcPool]);
   return json({
     ok: true, quoteId: id, tx: toBase64(tx), version: useV0 ? 0 : "legacy", bytes: tx.length, blockhash: blockhash.blockhash, lastValidBlockHeight: blockhash.lastValidBlockHeight,
     chain: cl.chain, cluster: cl.cluster, taker, quote: { ...quote, coin: coinInfo(st), expiresAt: new Date(now + QUOTE_TTL_MS).toISOString() },

@@ -82,6 +82,8 @@ export class Source {
     this.reset();
   }
   reset() { this.entries = new Map(); this.failedUntil = 0; this.lastError = null; this.inflight = null; this.calls = 0; }
+  /** Forget these keys: the next get() reads them again, whatever their age (for a value the caller knows is about to change). */
+  forget(keys) { for (const k of keys) this.entries.delete(k); }
 
   /**
    * Values for `keys`: { values: Map(key -> value | null | undefined), ok, stale, error, at: Map(key -> ms the value was got) }.
