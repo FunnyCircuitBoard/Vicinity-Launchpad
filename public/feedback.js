@@ -1,8 +1,10 @@
 // Vicinity: the floating "Feedback / Support" widget on every page (built in by scripts/pages/build.mjs, after site.js).
 // A round button in the bottom-right corner opens a small panel: a question, a bug report or a request for a city, with an
 // optional e-mail for a reply. One tap sends it to POST /api/feedback (src/feedback.js). No login needed and nothing opens in
-// another window, so it works inside wallet apps' browsers too. The page's path travels with the message; a signed-in member's
-// account and the browser type are read by the server from the request itself, never from here.
+// another window, so it works inside wallet apps' browsers too. The page's path travels with the message (only the few query keys
+// that name a public thing, never a sign-in code or a looked-up wallet: pagePath); a signed-in member's account and the browser
+// type are read by the server from the request itself, never from here. On phones the button slides out to the right while the
+// page scrolls down (it would sit over the right end of full-width rows) and comes back on the first scroll up.
 // Keyboard and screen readers: the button says what it does and whether the panel is open, Escape closes the panel, the keyboard
 // lands on the chosen kind when it opens and goes back to the button when it closes, the three kinds are one tab stop with the
 // arrow keys moving inside it, and while the Terms gate is open the whole widget is inert, like the rest of the page.
@@ -19,11 +21,14 @@
     ["bug", "Report a bug", "Tell us what you did, what you expected and what happened instead.", "What went wrong, and on which page?"],
     ["city", "Request a city", "Your city isn't on the map? Give us its name and country and we'll check its boundaries.", "Anything else we should know? (optional)"],
   ];
+  // the query keys of this site's addresses that may travel with a message (the server keeps the same list, src/feedback.js PAGE_KEYS)
+  const PAGE_KEYS = ["city", "mint", "tf", "u", "tab", "step", "welcome"];
   const ERRORS = {
     bad_message: "Please write at least a few words.",
     bad_email: "That e-mail address doesn't look right.",
     bad_city: "Please give the city and its country.",
     slow_down: "That's plenty for now. Please try again in an hour.",
+    slow_down_day: "That's plenty for today. Please try again tomorrow.",
     offline: "You seem to be offline. Check the connection and try again.",
     unavailable: "Couldn't send right now. Please try again in a minute.",
   };
@@ -47,13 +52,13 @@
 
   const kinds = el("div", "fb__kinds"); kinds.id = "fb-kinds"; kinds.setAttribute("role", "tablist"); kinds.setAttribute("aria-label", "What is it about?");
   const tabs = KINDS.map(([kind, label]) => {
-    const t = el("button", null, label); t.type = "button"; t.dataset.kind = kind;
+    const t = el("button", null, label); t.type = "button"; t.dataset.kind = kind; t.id = "fb-tab-" + kind;
     t.setAttribute("role", "tab"); t.setAttribute("aria-selected", "false"); t.tabIndex = -1;
     kinds.append(t);
     return t;
   });
 
-  const form = el("form", "fb__form"); form.id = "fb-form"; form.noValidate = true;
+  const form = el("form", "fb__form"); form.id = "fb-form"; form.noValidate = true; form.setAttribute("role", "tabpanel");
   const two = el("div", "fb__two"); two.id = "fb-city-row"; two.hidden = true;
   const field = (id, labelText, control) => { const f = el("label", "fb__field"); control.id = id; f.append(el("span", null, labelText), control); return f; };
   const city = el("input"); city.value = ""; city.maxLength = 80; city.autocomplete = "off"; city.placeholder = "City";
@@ -87,10 +92,23 @@
   /* ---------- state ---------- */
   let kind = "question", isOpen = false, sending = false, me = null;
   const setErr = (text) => { err.textContent = text || ""; err.hidden = !text; };
-  const pagePath = () => { try { return location.pathname + location.search; } catch { return "/"; } };
+  /**
+   * This page's address as the message carries it: the path plus the query keys that name a public thing (a city, a coin, a chart
+   * range, a profile, a tab) and nothing else. Some of this site's addresses carry a one-time sign-in code (/connect?carry=,
+   * /locate?code=, /connect?pair=) or a wallet someone only looked up (/token?address=): those never leave the browser.
+   */
+  const pagePath = () => {
+    try {
+      const q = new URLSearchParams(location.search), kept = new URLSearchParams();
+      for (const k of PAGE_KEYS) if (q.get(k)) kept.set(k, q.get(k));
+      const tail = String(kept);
+      return location.pathname + (tail ? "?" + tail : "");
+    } catch { return "/"; }
+  };
   const whoLine = () => {
-    const who = me && me.signedIn && me.user ? `signed in as ${me.user.handle ? "@" + me.user.handle.replace(/^@/, "") : "a member"}` : "not signed in";
-    return `Sent with the page you're on (${pagePath()}) and your browser type, ${who}.`;
+    const who = me && me.signedIn && me.user ? `You're signed in as ${me.user.handle ? "@" + me.user.handle.replace(/^@/, "") : "a member"}.` : "You're not signed in.";
+    const p = pagePath();
+    return `We'll also see this page's address (${p === "/" ? "the home page" : p}) and your browser type. ${who}`;
   };
   const refreshMeta = () => { meta.textContent = whoLine(); };
   if (V.ready && typeof V.ready.then === "function") V.ready.then((d) => { me = d; refreshMeta(); }).catch(() => {});
@@ -100,6 +118,7 @@
     kind = next;
     const row = KINDS.find((k) => k[0] === kind);
     tabs.forEach((t) => { const on = t.dataset.kind === kind; t.setAttribute("aria-selected", on ? "true" : "false"); t.tabIndex = on ? 0 : -1; if (on && focus) t.focus(); });
+    form.setAttribute("aria-labelledby", "fb-tab-" + kind);
     lead.textContent = row[2];
     msg.placeholder = row[3];
     two.hidden = kind !== "city";
@@ -111,6 +130,7 @@
   function open() {
     if (isOpen) return;
     isOpen = true;
+    setAway(false);
     panel.hidden = false;
     btn.setAttribute("aria-expanded", "true"); btn.setAttribute("aria-label", "Close feedback");
     const current = tabs.find((t) => t.getAttribute("aria-selected") === "true") || tabs[0];
@@ -152,7 +172,8 @@
     sending = false; send.disabled = false; send.textContent = "Send";
     if (!r || !r.ok) {
       const code = r && r.error;
-      setErr(ERRORS[code] || (r && r._status === 0 ? ERRORS.offline : code === "wrong_origin" || code === "bad_kind" || code === "bad_json" ? "Couldn't send. Please reload the page and try again." : ERRORS.unavailable));
+      setErr(code === "slow_down" && Number(r.retryAfter) > 3600 ? ERRORS.slow_down_day
+        : ERRORS[code] || (r && r._status === 0 ? ERRORS.offline : code === "wrong_origin" || code === "bad_kind" || code === "bad_json" ? "Couldn't send. Please reload the page and try again." : ERRORS.unavailable));
       return;
     }
     form.hidden = true; kinds.hidden = true; lead.hidden = true; done.hidden = false;
@@ -179,6 +200,23 @@
   root.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen) { e.preventDefault(); e.stopPropagation(); close(); } });
   // a tap or click anywhere else closes the panel without stealing the keyboard
   document.addEventListener("pointerdown", (e) => { if (isOpen && !root.contains(e.target)) close({ refocus: false }); });
+
+  /* ---------- phones: out of the way while the page scrolls down ---------- */
+  // On a phone the button sits over the right end of every full-width row (a holder table, a list's sort control). So it slides out
+  // to the right after 24 px of scrolling down and comes back after 12 px of scrolling up, near the top of the page, while the
+  // panel is open, or when it gets the keyboard (feedback.css .fb--away; the panel itself is never moved).
+  const narrow = typeof matchMedia === "function" ? matchMedia("(max-width: 900px)") : null;
+  let away = false, lastY = 0, run = 0;
+  function setAway(v) { if (v !== away) { away = v; root.classList.toggle("fb--away", v); } }
+  function onScroll() {
+    const y = Math.max(0, Number(window.scrollY) || 0);
+    const dy = y - lastY; lastY = y;
+    if (isOpen || !(narrow && narrow.matches) || y < 80) { run = 0; setAway(false); return; }
+    run = (dy > 0) === (run > 0) ? run + dy : dy;   // one run of scrolling in the same direction
+    if (run > 24) setAway(true); else if (run < -12) setAway(false);
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  btn.addEventListener("focus", () => setAway(false));
 
   // the Terms gate (site.js) makes the rest of the page inert while it is open; this widget is added after the gate took its
   // list, so it keeps itself inert as long as the gate shows

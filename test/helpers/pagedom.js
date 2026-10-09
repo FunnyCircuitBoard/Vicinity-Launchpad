@@ -248,6 +248,7 @@ export async function openPage(file, { agreed = null, focus = null } = {}) {
     navigator: { userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36", maxTouchPoints: 0 },
     localStorage: { getItem: (k) => (storage.has(k) ? storage.get(k) : null), setItem: (k, v) => storage.set(k, String(v)), removeItem: (k) => storage.delete(k) },
     matchMedia: () => ({ matches: false, addEventListener() {} }),
+    URLSearchParams,
     fetch: async (path) => {
       const body = String(path).startsWith("/api/me") ? { ok: true, signedIn: false } : { ok: true };
       return { ok: true, status: 200, json: async () => body };
