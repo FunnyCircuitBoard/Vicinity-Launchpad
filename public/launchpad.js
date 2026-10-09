@@ -554,7 +554,10 @@
     const acts = el("div", "lp-card__actions");
     const lk = live ? links(c) : null;
     if (lk) {
-      const buy = newTab(el("a", "btn btn--primary btn--sm", "Buy on Raydium ↗")); buy.href = lk.raydium; buy.dataset.act = "buy";
+      // with the in-app swap on (SWAP=on) Buy opens the swap panel here (public/swap.js); otherwise the Raydium LaunchLab page
+      let buy;
+      if (swapOn && window.VSwap) { buy = el("button", "btn btn--primary btn--sm", "Buy"); buy.type = "button"; buy.dataset.act = "buy"; buy.dataset.mint = c.mint; buy.setAttribute("aria-label", `Buy $${str(c.ticker)} here`); buy.addEventListener("click", () => window.VSwap.open({ out: c.mint, title: `Buy $${str(c.ticker)}` })); }
+      else { buy = newTab(el("a", "btn btn--primary btn--sm", "Buy on Raydium ↗")); buy.href = lk.raydium; buy.dataset.act = "buy"; }
       const more = el("a", "btn btn--glass btn--sm", "Chart & details →"); more.href = coinHref(c); more.dataset.act = "chart";
       more.setAttribute("aria-label", `Chart and details of $${str(c.ticker)}`);
       acts.append(buy, more);
@@ -762,5 +765,6 @@
     render(); // the controls show at once; the first answer fills them
     load();
   }
-  official.then((o) => { if (o && o.launchpadV2 === true) start(); });
+  let swapOn = false;
+  official.then((o) => { swapOn = Boolean(o && o.swap === true); if (o && o.launchpadV2 === true) start(); });
 })();

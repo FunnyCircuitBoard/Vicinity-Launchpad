@@ -366,12 +366,28 @@
     $("#coin-curve-src").textContent = `Source: ${str(d.market.sources && d.market.sources.curve) || "Solana blockchain"}${d.market.curve && num(d.market.curve.slot) ? ` · slot ${intFmt.format(d.market.curve.slot)}` : ""}`;
   }
 
+  /** With the in-app swap on (SWAP=on): every Buy button opens the swap panel (public/swap.js) as a sheet over this page; nobody is sent to raydium.io. */
+  let swapOn = false;
+  if (official && typeof official.then === "function") official.then((o) => { swapOn = Boolean(o && o.swap === true); if (swapOn && data) buyHere(data); });
+  function buyHere(d) {
+    if (!swapOn || !window.VSwap || !d || !isAddr(d.mint)) return;
+    const ticker = d.coin && d.coin.ticker ? `$${d.coin.ticker}` : "this coin";
+    for (const id of ["#coin-lnk-raydium", "#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"]) {
+      const a = $(id); if (!a || a.dataset.swapHere) continue;
+      a.dataset.swapHere = "1"; a.href = "#coin-buy"; a.removeAttribute("target"); a.removeAttribute("rel"); a.hidden = false;
+      for (const x of a.querySelectorAll(".sr-only, [aria-hidden]")) x.remove();
+      const label = a.querySelector("span") || a; label.textContent = id === "#coin-mini-buy" ? "Buy" : `Buy ${ticker}`;
+      if (id === "#coin-lnk-raydium") { a.classList.add("is-here"); label.textContent = "Buy here"; }
+      a.addEventListener("click", (e) => { e.preventDefault(); window.VSwap.open({ out: d.mint, title: `Buy ${ticker}` }); });
+    }
+  }
   /* ----- buy & sell, the contract ----- */
   function paintLinks(d) {
     const l = d.links || {};
     const set = (id, u) => { const a = $(id); if (u) { a.href = u; a.hidden = false; } else a.hidden = true; return a; };
     const ray = safeLink(l.raydium, "raydium.io");
     for (const id of ["#coin-lnk-raydium", "#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"]) set(id, ray);
+    buyHere(d);
     set("#coin-lnk-jup", safeLink(l.jupiter, "jup.ag"));
     const third = thirdLink(d);
     set("#coin-lnk-third", third && third.href);

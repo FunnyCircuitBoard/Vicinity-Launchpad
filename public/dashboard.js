@@ -896,11 +896,36 @@
     return { a, b, missing, tk };
   }
   const swapSide = (m) => (m === SOL_MINT ? "SOL" : m);
+  /**
+   * With the in-app swap on (SWAP=on, /api/official.swap): the Buy & swap card holds the swap panel (public/swap.js) instead of
+   * links to jup.ag / raydium.io. One panel per route; a route whose coin is not live yet keeps the old copy. True when the
+   * panel took the card over (the rest of renderTrade is skipped).
+   */
+  let swapOn = null;
+  if (window.V.official) window.V.official.then((o) => { swapOn = Boolean(o && o.swap === true); if (swapOn) renderTrade(); });
+  function mountSwap(a, b, missing) {
+    if (!swapOn || !window.VSwap) return false;
+    const box = $("#trade .swapbox"); if (!box) return false;
+    let slot = $("#tr-swap");
+    if (!slot) { slot = el("div"); slot.id = "tr-swap"; box.after(slot); }
+    const live = !missing && a[1] && b[1];
+    box.hidden = Boolean(live); slot.hidden = !live;
+    for (const id of ["#tr-go", "#tr-go-2", "#tr-note"]) $(id).classList.toggle("is-gone", Boolean(live));
+    if (!live) return false;
+    const key = `${route}|${a[1]}|${b[1]}`;
+    if (slot.dataset.key !== key) {
+      slot.dataset.key = key; slot.replaceChildren(); slot.removeAttribute("data-swap-mounted");
+      window.VSwap.mount(slot, { mode: route === "swap" ? "swap" : "buy", in: a[1], out: b[1], title: route === "swap" ? `Swap ${a[0]} and ${b[0]}` : `Buy ${b[0]}` });
+    }
+    $("#trade-state").className = "tag tag--ok"; $("#trade-state").textContent = "● Live";
+    return true;
+  }
   function renderTrade() {
     if (!me || !me.community) return;
     const { a, b, missing, tk } = routeInfo();
     $$("[data-city-tk]").forEach((e) => (e.textContent = tk));
     $$("#trade [data-route]").forEach((x) => x.setAttribute("aria-selected", String(x.dataset.route === route)));
+    if (mountSwap(a, b, missing)) return;
     $("#tr-in").lastElementChild.textContent = a[0];
     $("#tr-outk").lastElementChild.textContent = b[0];
     $("#tr-in").dataset.token = a[0].startsWith("$") ? (a[0] === "$VICINITY" ? "vic" : "city") : a[0].toLowerCase();
