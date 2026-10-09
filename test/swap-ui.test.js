@@ -105,7 +105,7 @@ test("swap panel: a wallet that only signs goes through our relay; a wallet with
   click(P.$(".swap__go"));
   assert.deepEqual(w.calls.find((c) => c[0] === "sign"), ["sign", 300, "solana:mainnet"], "signTransaction inside the tap");
   await P.flush(60);
-  assert.equal(P.calls.find((c) => c.path === "/api/swap/tx").body.v, "legacy");
+  assert.equal(P.calls.find((c) => c.path && c.path.split("?")[0] === "/api/swap/tx").body.v, "legacy");
   assert.deepEqual(w.calls.find((c) => c[0] === "sign"), ["sign", 300, "solana:mainnet"]);
   const send = P.calls.find((c) => c.path === "/api/swap/send");
   assert.deepEqual([send.body.lastValidBlockHeight, send.body.cluster, send.body.tx.length > 300, send.body.ticket], [4321, "mainnet", true, "1791900000000.relay-ticket-of-build"], "the relay gets the ticket of the build that was signed");
@@ -152,7 +152,7 @@ test("swap panel: plain words for every way it stops: cancelled, slippage, not e
 test("swap panel: a phone with no wallet gets Open in Phantom / Solflare / Backpack with this very page and its trade, and the address to copy; no sign-up", async () => {
   const P = await page({ isMobile: true, answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE({ estimate: true, source: "jupiter_quote" }) }, href: "https://vicinity.test/token#buy-slot" });
   click(P.$(".swap__go")); await P.flush();
-  assert.equal(text(P.$(".swap__lead")), "Buying happens in your wallet app. Tap it: Vicinity opens there.", "no amount yet: no promise of one");
+  assert.equal(text(P.$(".swap__lead")), "Buying happens in your wallet app. Tap yours: Vicinity opens there.", "no amount yet: no promise of one");
   const links = P.$$(".swap__deeplinks a");
   assert.deepEqual(links.map(text), ["POpen in Phantom↗", "SOpen in Solflare↗", "BOpen in Backpack↗"]);
   assert.equal(links[0].getAttribute("href"), `https://phantom.com/ul/browse/${encodeURIComponent(`https://vicinity.test/token?swap_in=SOL&swap_out=${VIC}&swap_slip=100#buy-slot`)}`, "this page, with the pair and slippage (no amount typed yet), its hash kept");
@@ -178,7 +178,7 @@ test("swap panel: a city coin on its curve is quoted and built by the launchpad 
   const Q = await page({ wallets: [both], answers, slot: `<div id="buy-slot" data-swap data-out="${CITY}" data-in="SOL" data-mode="buy"></div>` });
   click(Q.$(".swap__go")); await Q.flush(); click(Q.$(".swap__wallets .wallet-option")); await Q.flush();
   await type(Q, "0.005");
-  assert.deepEqual(Q.calls.find((c) => c.path === "/api/launchpad/trade/tx").body, { mint: CITY, side: "buy", amount: "0.005", slippageBps: 100, taker: TAKER, quoteId: "c1" }, "built before the tap by the launchpad route");
+  assert.deepEqual(Q.calls.find((c) => c.path && c.path.split("?")[0] === "/api/launchpad/trade/tx").body, { mint: CITY, side: "buy", amount: "0.005", slippageBps: 100, taker: TAKER, quoteId: "c1" }, "built before the tap by the launchpad route");
   assert.ok(!paths(Q.calls).includes("/api/swap/tx"), "never the Jupiter route for a coin on its curve");
   assert.deepEqual([text(Q.$(".swap__go")), text(Q.$(".swap__state"))], ["Buy $DEMOV", "Devnet test coin"]);
   assert.equal(text(Q.$(".swap__status")), "You pay 0.005 SOL → you get 13,286,006.28 $DEMOV (at least 13,153,146.21).");
@@ -267,7 +267,7 @@ test("swap panel: the build the wallet signs is the truth: the panel shows the /
   click(P.$(".swap__go"));
   assert.ok(w.calls.some((c) => c[0] === "signAndSend"));
   await P.flush(60);
-  assert.equal(P.calls.filter((c) => c.path === "/api/swap/tx").length, 1, "the tap built nothing new: the build on the screen is the one signed");
+  assert.equal(P.calls.filter((c) => c.path && c.path.split("?")[0] === "/api/swap/tx").length, 1, "the tap built nothing new: the build on the screen is the one signed");
   assert.equal(text(P.$(".swap__status")), "Swapped ✓ 0.25 SOL → 52,470 $VICINITY");
   // a better build never stops anyone
   const w2 = walletOf();

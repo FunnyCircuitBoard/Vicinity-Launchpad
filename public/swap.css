@@ -61,6 +61,10 @@
 .swap__links:empty { display: none; }
 .swap__foot { margin: 0; }
 .swap__picker, .swap__wallets { display: grid; gap: 8px; padding: 12px; border-radius: 16px; background: var(--bg-2); border: 1px solid var(--line-2); }
+/* scrolled into view by the tap that opened it (the wallet apps, the QR code) or by a link that filled the panel: clear of the
+   sticky header and of the phone's bottom bar */
+.swap__wallets, .swap { scroll-margin-top: 84px; scroll-margin-bottom: calc(var(--bottom-bars, 0px) + 12px); }
+.swap__lead:focus, .swap__wallets > p:focus { outline: none; } /* a landing spot for the keyboard and a screen reader, not a control */
 .swap__picker-head { display: flex; justify-content: space-between; align-items: center; }
 .swap__search { width: 100%; min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 500 16px var(--body); }
 .swap__picker-list { display: grid; gap: 6px; max-height: 280px; overflow: auto; }
@@ -79,6 +83,7 @@
 .swap-sheet__close { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: none; color: var(--muted); font-size: 1rem; cursor: pointer; }
 .swap-sheet__close:hover { color: var(--text); background: var(--card-2); }
 .swap-sheet__body { padding-top: 6px; }
+.swap-sheet .swap__head { padding-right: 44px; } /* the close button sits over the head's right end: the state tag keeps clear of it */
 @media (max-width: 600px) {
   .swap-sheet[open] { place-items: end center; }
   .swap-sheet__card { width: 100vw; max-height: calc(100dvh - 24px); border-radius: 22px 22px 0 0; padding-bottom: max(16px, env(safe-area-inset-bottom)); }

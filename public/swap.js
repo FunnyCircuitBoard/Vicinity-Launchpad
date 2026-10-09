@@ -24,12 +24,16 @@
   // The exact price before the tap. A quote that settled (the amount unchanged SETTLE_MS) is built at once; a build is good for
   // READY_MS from its arrival (its blockhash lives ~60-90 s: the rest is for the wallet), then built again by itself at most
   // MAX_REBUILDS times while the page is looked at and nobody touches the panel; a rebuild that came out worse keeps the button
-  // off HOLD_MS, so nobody taps numbers they did not see. The whole page builds by itself at most AUTO_MAX times per AUTO_WINDOW_MS
-  // (every panel together), well under the Worker's limits (swap_tx and lp_tx: 20 a minute per connection, 15 per wallet,
-  // src/guards.js); past that, or after a 429, the person taps for the price ("Tap Buy to get your price").
+  // off HOLD_MS, so nobody taps numbers they did not see. Builds made by themselves ask the route with ?auto=1: the Worker counts
+  // them apart from the taps (src/guards.js: swap_tx_auto / lp_tx_auto, 60 a minute per connection and 15 per wallet), so they
+  // can never use up the builds a Buy tap needs, not even for a crowd behind one address. This browser builds by itself at most
+  // AUTO_MAX times per AUTO_WINDOW_MS, every panel and every tab together (the log is kept in localStorage when it can be);
+  // past that, or after a 429, the person taps for the price ("Tap Buy to get your price").
   const SETTLE_MS = 600, READY_MS = 40_000, MAX_REBUILDS = 3, HOLD_MS = 1500, AUTO_MAX = 8, AUTO_WINDOW_MS = 60_000, SLOW_MS = 60_000;
   const BASES = [SOL, USDC, USDT];
+  const TOUCH = ["click", "input", "keydown", "change"]; // what tells a panel somebody is there
   const APP_KEY = "vicinity.walletApp"; // the wallet app (a VW.KNOWN id) this person opened last: offered first
+  const AUTO_KEY = "vicinity.swapAuto"; // this browser's automatic builds of the last minute, shared by its tabs
   const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   /** Bytes to base58 (a signature, 64 bytes). */
   function base58(bytes) {
@@ -118,10 +122,21 @@
   let helpIds = 0;
   function setWallet(adapter, address) { wallet.adapter = adapter; wallet.address = address; for (const f of wallet.listeners) { try { f(); } catch { /* one panel's trouble is its own */ } } }
   const panels = new Set();
-  // the page's automatic builds (every panel together): when each started, and no automatic build at all until slowUntil (a 429)
-  const autoLog = [];
-  let slowUntil = 0;
-  const autoAllowed = (now = Date.now()) => { while (autoLog.length && now - autoLog[0] >= AUTO_WINDOW_MS) autoLog.shift(); return now >= slowUntil && autoLog.length < AUTO_MAX; };
+  // this browser's automatic builds (every panel, every tab): when each started, and none at all until slowUntil (after a 429).
+  // Read from localStorage before every use (another tab may have built meanwhile) and written back after; storage that is off
+  // (a private tab) or junk leaves this page counting alone, as before.
+  const autoBook = { log: [], slowUntil: 0 };
+  function autoSync(now) {
+    try {
+      const v = JSON.parse(window.localStorage.getItem(AUTO_KEY) || "null");
+      if (v && Array.isArray(v.log)) { autoBook.log = v.log.filter((t) => Number.isFinite(t) && t <= now + 1000).slice(-AUTO_MAX); autoBook.slowUntil = Math.min(Number(v.slowUntil) || 0, now + 5 * SLOW_MS); }
+    } catch { /* storage off: this page's own count */ }
+    while (autoBook.log.length && now - autoBook.log[0] >= AUTO_WINDOW_MS) autoBook.log.shift();
+  }
+  const autoSave = () => { try { window.localStorage.setItem(AUTO_KEY, JSON.stringify(autoBook)); } catch { /* storage off */ } };
+  const autoAllowed = (now = Date.now()) => { autoSync(now); return now >= autoBook.slowUntil && autoBook.log.length < AUTO_MAX; };
+  const autoSpend = (now = Date.now()) => { autoSync(now); autoBook.log.push(now); autoSave(); };
+  const autoPause = (until) => { autoSync(Date.now()); autoBook.slowUntil = Math.max(autoBook.slowUntil, until); autoSave(); };
   /** The wallet app this person opened last (a VW.KNOWN id), or null; storage may be off (a private tab): then nothing is remembered. */
   const lastApp = () => { try { const v = window.localStorage.getItem(APP_KEY); return typeof v === "string" && /^[a-z0-9]{2,24}$/.test(v) ? v : null; } catch { return null; } };
   const rememberApp = (id) => { try { window.localStorage.setItem(APP_KEY, id); } catch { /* storage off: nothing remembered */ } };
@@ -133,16 +148,19 @@
     s.style.background = COLORS[mint] || (t && t.kind === "vicinity" ? "linear-gradient(135deg,#FF5A36,#FFC857)" : t && t.kind === "city" ? "#5B8CFF" : "#445");
     return s;
   }
-  /** Phantom's own token page in its app, with its own Buy and Swap (docs.phantom.com, deeplinks, "fungible": a CAIP-19 token, URL-encoded). */
+  /** Phantom's own token page in its app (docs.phantom.com, deeplinks, "fungible": "opens a fungible token detail page"; a CAIP-19 token, URL-encoded). */
   const phantomFungible = (mint) => `https://phantom.com/ul/v1/fungible?token=${encodeURIComponent(`solana:101/address:${mint}`)}`;
 
   /* ---------------------------------------------------------------- a trade carried in a link */
   // "Open in Phantom" (a phone) and the QR code (a computer) carry the panel's pair, amount and slippage in the page's own address:
   // swap_in, swap_out (a mint, or SOL / USDC / USDT), swap_amt, swap_slip (basis points) and swap_open=1 (the panel was the bottom
-  // sheet). Read ONCE on load, checked against the verified list before anything is filled in, never built or bought by itself;
-  // then only the swap_* params leave the address bar (its other params and the hash stay).
+  // sheet, or the dashboard: another browser has no session there, so the sheet opens at once over whatever the page shows).
+  // Read ONCE on load, checked against the verified list before anything is filled in, never built or bought by itself; then
+  // only the swap_* params leave the address bar (its other params and the hash stay). Anyone can post such a link, so a link
+  // may LOWER the slippage but never raise it past the default 1% (more is the person's own choice, typed or tapped here).
   const LINK_KEYS = ["swap_in", "swap_out", "swap_amt", "swap_slip", "swap_open"];
   const LINK_NOTE = "Filled in from your link. Check the amount.";
+  const LINK_SLIP_MAX = 100; // basis points: the default 1%
   const LINK_WAIT_MS = 2500; // how long a page's own panel (the token page, the dashboard) may take to mount before the sheet opens instead
   const linkParams = (() => {
     try { const u = new URL(String(location.href)); if (!LINK_KEYS.some((k) => u.searchParams.has(k))) return null; const o = {}; for (const k of LINK_KEYS) o[k] = u.searchParams.get(k); return o; }
@@ -156,8 +174,8 @@
     const mint = (v) => (v === "SOL" || v === "USDC" || v === "USDT" ? norm(v) : typeof v === "string" && isAddr(v) && tokenOf(v) ? v : null);
     const a = mint(p.swap_in), b = mint(p.swap_out);
     if (!a || !b || a === b) return null;
-    const slip = /^\d{1,4}$/.test(p.swap_slip || "") && Number(p.swap_slip) >= 1 && Number(p.swap_slip) <= 5000 ? Number(p.swap_slip) : null;
-    return { in: a, out: b, amt: validAmount(p.swap_amt) ? p.swap_amt : null, slip, open: p.swap_open === "1" };
+    const asked = /^\d{1,4}$/.test(p.swap_slip || "") && Number(p.swap_slip) >= 1 && Number(p.swap_slip) <= 5000 ? Number(p.swap_slip) : null;
+    return { in: a, out: b, amt: validAmount(p.swap_amt) ? p.swap_amt : null, slip: asked && asked <= LINK_SLIP_MAX ? asked : null, slipRefused: asked > LINK_SLIP_MAX, open: p.swap_open === "1" };
   }
   /** Takes the swap_* params out of the address bar (a reload or a copied link does not fill the panel again). */
   function forgetLink() {
@@ -169,10 +187,15 @@
   function offerLink(p) {
     if (linkUsed) return;
     const t = linkTrade(); if (!t) return forgetLink();
-    if (t.open && !p.inSheet) return; // the trade was in the bottom sheet: it opens there
+    if (t.open && !p.inSheet) return; // the trade was in the bottom sheet (or on the dashboard): it opens there
     if (!p.canTake(t)) return;
     forgetLink(); p.prefill(t);
+    if (!p.inSheet) p.reveal(); // a panel on the page itself may sit below the fold: brought into view
   }
+  /** A token a link can carry: SOL / USDC / USDT or one on the verified list (what linkTrade() accepts on the other side). */
+  const linkable = (m) => BASES.includes(m) || Boolean(tokenOf(m));
+  /** The dashboard: another browser (the wallet app's) has no session there, so its links open the sheet at once. */
+  const signedInPage = () => Boolean(document.body && document.body.dataset && document.body.dataset.page === "dashboard");
   /** After the page's own panels had their chance: swap_open=1 (or no panel that fits) opens the sheet with the pair. */
   async function settleLink() {
     await loadConfig();
@@ -258,6 +281,7 @@
       this.seq++; this.s.sig = null;
       if (this.offWallet) this.offWallet();
       document.removeEventListener("visibilitychange", this.onVisibility);
+      for (const type of TOUCH) this.root.removeEventListener(type, this.onTouch);
       panels.delete(this);
       if (this.root && this.root._swap === this) this.root._swap = null;
     }
@@ -322,8 +346,10 @@
       r.append(head, note, box, slip, help, dl, warn, status, go, links, foot, picker, walletBox);
       this.inAmt.addEventListener("input", () => { this.note.hidden = true; this.onAmount(); });
       this.inAmt.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); this.primary(); } });
-      // somebody is here: any tap, key or change in the panel starts the quiet rebuilds' count again
-      for (const type of ["click", "input", "keydown", "change"]) r.addEventListener(type, () => { this.s.rebuilds = 0; });
+      // somebody is here: any tap, key or change in the panel starts the quiet rebuilds' count again (removed by destroy(): a
+      // sheet body or a dashboard slot mounted again keeps no listener of a retired panel)
+      this.onTouch = () => { this.s.rebuilds = 0; };
+      for (const type of TOUCH) r.addEventListener(type, this.onTouch);
       // the 12-second refresh while the page is looked at; a price that ran out while nobody looked is built again once they do
       // (removed again by destroy())
       this.onVisibility = () => {
@@ -335,7 +361,16 @@
       document.addEventListener("visibilitychange", this.onVisibility);
     }
     /* ----- state ----- */
-    phase(p, extra = {}) { Object.assign(this.s, { phase: p }, extra); this.render(); }
+    phase(p, extra = {}) {
+      Object.assign(this.s, { phase: p }, extra); this.render();
+      // a trade that ended (done, failed) while the keyboard was in the panel: it lands on the button ("Swap again", "Try again"),
+      // never on the page's body, so Enter goes on working
+      if (this.refocus && !this.locked) {
+        this.refocus = false;
+        const a = document.activeElement;
+        if (!a || a === document.body || (this.root.contains(a) && a.disabled)) { try { this.go.focus({ preventScroll: true }); } catch { /* no focus */ } } // lost, never taken from elsewhere
+      }
+    }
     get ready() { return Boolean(config && config.swap !== false && this.s.in && this.s.out && this.s.in !== this.s.out); }
     get connected() { return Boolean(wallet.adapter && wallet.address); }
     get canSendHere() { const a = wallet.adapter; return Boolean(a && (a.canSend || a.canSign)); }
@@ -349,6 +384,7 @@
     /** What the button does: Buy $X, Sell $X (a flipped Buy panel, a curve sale) or Swap. */
     get action() { const s = this.s; return s.curve ? (s.curve.side === "buy" ? `Buy ${symbolOf(s.out)}` : `Sell ${symbolOf(s.in)}`) : this.mode === "buy" ? (s.flipped ? `Sell ${symbolOf(s.in)}` : `Buy ${symbolOf(s.out)}`) : "Swap"; }
     onAmount() {
+      if (this.locked) { this.inAmt.value = this.s.amount; return; } // the trade on its way keeps its amount (and its watch)
       const v = String(this.inAmt.value).replace(",", ".").replace(/[^\d.]/g, "");
       if (v !== this.inAmt.value) this.inAmt.value = v;
       this.s.amount = v; this.s.understood = false; this.understand.checked = false; this.typedAt = Date.now();
@@ -361,12 +397,14 @@
     }
     setSlippage(bps) {
       if (this.locked) return;
+      this.note.hidden = true; // "Filled in from your link" is about the link's trade, not this one any more
       this.dropBuild(); this.s.hold = null; if (this.s.phase === "ready" || this.s.phase === "building") this.s.phase = "quoted";
       this.s.slippage = bps; this.s.understood = false; this.understand.checked = false; this.render();
       if (this.s.amount) { this.phase("quoting", { moved: false }); clearTimeout(this.timer); this.timer = setTimeout(() => this.quote(), 100); }
     }
     flip() {
       if (this.locked) return;
+      this.note.hidden = true;
       this.dropBuild(); this.s.hold = null; this.seq++; if (this.abort) { this.abort.abort(); this.abort = null; }
       clearTimeout(this.timer); clearTimeout(this.refresh);
       if (this.fixedOut && this.mode === "buy" && !this.s.flipped) { this.s.flipped = true; } else if (this.fixedOut && this.s.flipped) this.s.flipped = false;
@@ -382,26 +420,41 @@
       else { s.in = t.in; s.out = t.out; }
       if (t.slip) s.slippage = t.slip;
       s.quote = null; s.curve = null;
-      this.note.textContent = LINK_NOTE; this.note.hidden = false;
+      this.note.textContent = t.slipRefused ? `${LINK_NOTE} Slippage stays ${s.slippage / 100}%: a link cannot raise it.` : LINK_NOTE; this.note.hidden = false;
       if (t.amt) { this.inAmt.value = t.amt; this.onAmount(); } else this.render();
       this.loadBalances();
     }
+    /** Brings a panel filled from a link into view (it may sit screens below the top) and puts the keyboard on its amount. */
+    reveal() {
+      setTimeout(() => {
+        if (this.dead) return;
+        // its top (the note, the amount) just under the sticky header (scroll-margin-top): a phone is shorter than the panel
+        try { this.root.scrollIntoView({ block: "start" }); } catch { /* an old browser: the note still says it */ }
+        // a computer's keyboard goes to the amount; a phone's is left shut (it would cover the price the person came for)
+        if (!(W() && W().isMobile)) { try { this.inAmt.focus({ preventScroll: true }); } catch { /* no focus */ } }
+      }, 60); // after the page's own first layout
+    }
+    /** Does a link from this panel carry its trade (both tokens verified, an amount)? The lead line and the QR caption say so only then. */
+    carries() { const s = this.s; return Boolean(s.in && s.out && s.in !== s.out && linkable(s.in) && linkable(s.out) && validAmount(s.amount)); }
     /** This page's address with the panel's trade in it (see linkTrade): what "Open in Phantom" and the phone QR code carry. */
     shareUrl() {
       const s = this.s, side = (m) => (m === SOL ? "SOL" : m === USDC ? "USDC" : m === USDT ? "USDT" : m);
       try {
         const u = new URL(String(location.href));
         for (const k of LINK_KEYS) u.searchParams.delete(k);
-        if (s.in && s.out && s.in !== s.out) { u.searchParams.set("swap_in", side(s.in)); u.searchParams.set("swap_out", side(s.out)); }
-        if (validAmount(s.amount)) u.searchParams.set("swap_amt", s.amount);
-        if (Number.isInteger(s.slippage) && s.slippage >= 1 && s.slippage <= 5000) u.searchParams.set("swap_slip", String(s.slippage));
-        if (this.inSheet) u.searchParams.set("swap_open", "1");
+        // a token the other side would not accept (one found by search, not on the verified list) is not carried at all
+        if (s.in && s.out && s.in !== s.out && linkable(s.in) && linkable(s.out)) {
+          u.searchParams.set("swap_in", side(s.in)); u.searchParams.set("swap_out", side(s.out));
+          if (validAmount(s.amount)) u.searchParams.set("swap_amt", s.amount);
+          if (Number.isInteger(s.slippage) && s.slippage >= 1 && s.slippage <= 5000) u.searchParams.set("swap_slip", String(s.slippage));
+        }
+        if (this.inSheet || signedInPage()) u.searchParams.set("swap_open", "1");
         return u.toString();
       } catch { return String(location.href); }
     }
     scheduleRefresh() { clearTimeout(this.refresh); this.refresh = setTimeout(() => { if (!document.hidden && this.s.phase === "quoted" && this.s.amount && this.s.hold !== "refresh") this.quote(true); }, REFRESH_MS); }
     async setMax() {
-      const b = this.s.balances; if (!b) return;
+      const b = this.s.balances; if (!b || this.locked) return; // MAX is off while a trade is in the wallet's or the network's hands
       let v;
       if (this.s.in === SOL) v = Math.max(0, (b.sol ? b.sol.ui : 0) - KEEP_SOL);
       else v = (b.tokens && b.tokens[this.s.in] && b.tokens[this.s.in].ui) || 0;
@@ -430,7 +483,7 @@
       return { d, curve };
     }
     async quote(silent = false) {
-      if (!this.ready || !this.s.amount) return;
+      if (!this.ready || !this.s.amount || this.locked) return;
       const seq = ++this.seq;
       const ctrl = new AbortController(); if (this.abort) this.abort.abort(); this.abort = ctrl;
       if (!silent) this.phase("quoting", { error: null });
@@ -451,6 +504,7 @@
     afterQuote() {
       clearTimeout(this.buildT);
       const s = this.s;
+      if (this.locked) return; // never a build (nor the signature's watch cleared) while a trade is on its way
       if (this.connected && this.canSendHere && !this.wrongChain && s.quote && s.hold === null) {
         if (!autoAllowed()) { s.hold = "manual"; this.render(); return this.scheduleRefresh(); }
         this.phase("building", { error: null, sig: null, moved: false, refreshed: false });
@@ -473,7 +527,7 @@
      */
     async prepare(why) {
       const s = this.s;
-      if (this.dead || !this.connected || !s.quote || (why === "auto" && s.phase !== "building")) return;
+      if (this.dead || this.locked || !this.connected || !s.quote || (why === "auto" && s.phase !== "building")) return;
       const seq = ++this.bseq, live = () => !this.dead && seq === this.bseq;
       clearTimeout(this.buildT); clearTimeout(this.expireT); clearTimeout(this.holdT); clearTimeout(this.timer); clearTimeout(this.refresh);
       this.seq++; if (this.abort) { this.abort.abort(); this.abort = null; } // a quote still on its way must not overwrite the build
@@ -482,7 +536,8 @@
       const hadFocus = this.root.contains(document.activeElement); // a tap's button goes disabled while building: the keyboard comes back to it
       const shown = s.quote; // what is on the screen now: a build that comes out worse than THIS says so
       if (why === "rebuild") { s.refreshing = true; s.holding = false; this.render(); } else this.phase("building", { error: null, sig: null, moved: false, refreshed: false, hold: null, holding: false });
-      autoLog.push(Date.now());
+      const auto = why === "auto" || why === "rebuild"; // nobody tapped: the browser's budget, and the Worker's own counters (?auto=1)
+      if (auto) autoSpend();
       let q = s.quote, curve = s.curve;
       const stale = q.expiresAt && Date.parse(q.expiresAt) < Date.now();
       if (why !== "auto" || stale) {
@@ -496,7 +551,7 @@
       const body = curve
         ? { mint: curve.mint, side: curve.side, amount: s.amount, slippageBps: s.slippage, taker: wallet.address, quoteId: q.quoteId, ...(legacy ? { v: "legacy" } : {}) }
         : { inputMint: s.in, outputMint: s.out, amount: s.amount, slippageBps: s.slippage, taker: wallet.address, quoteId: q.quoteId, ...(legacy ? { v: "legacy" } : {}) };
-      const t = await post(curve ? "/api/launchpad/trade/tx" : "/api/swap/tx", body, ctrl.signal);
+      const t = await post((curve ? "/api/launchpad/trade/tx" : "/api/swap/tx") + (auto ? "?auto=1" : ""), body, ctrl.signal);
       if (!live()) return; // dropped meanwhile: a new amount, slippage or pair, the flip, another wallet
       this.babort = null;
       if (!t || !t.ok) return this.stopBuild(why, shown, t);
@@ -517,7 +572,7 @@
      */
     stopBuild(why, shown, d) {
       this.dropBuild();
-      if (isSlow(d)) slowUntil = Date.now() + Math.min(5 * SLOW_MS, Math.max(SLOW_MS, Number(d.retryAfterS || 0) * 1000));
+      if (isSlow(d)) autoPause(Date.now() + Math.min(5 * SLOW_MS, Math.max(SLOW_MS, Number(d.retryAfterS || 0) * 1000)));
       if (isSlow(d) && (why === "auto" || why === "rebuild")) { this.phase("quoted", { quote: shown, hold: "manual", error: null, refreshing: false, moved: false }); return this.scheduleRefresh(); }
       return this.phase("failed", { error: d || { error: "swap_unavailable" }, soft: true, refreshing: false });
     }
@@ -567,7 +622,9 @@
       if (this.impact() > 10 && !s.understood) return this.render();
       if (Date.now() - b.at >= READY_MS) { s.rebuilds = 0; return this.prepare("late"); }
       const bytes = fromB64(b.tx);
+      this.refocus = this.root.contains(document.activeElement); // the amount goes off while the wallet is open: the keyboard comes back to the button after
       this.dropBuild(); // one build, one tap
+      this.picker.hidden = true; s.picker = null; // a token list left open would change a trade already on its way
       this.phase("signing", { moved: false, refreshed: false });
       return this.sign(a, bytes, b);
     }
@@ -626,20 +683,21 @@
         if (w.isMobile) {
           // a phone with no wallet on the page: buying happens inside the wallet app, this very page opened there with the trade
           // filled in (no sign-up, no login); the app this person opened last comes first
-          const lead = el("p", "small swap__lead", "");
-          this.share.push(() => { lead.textContent = `Buying happens in your wallet app. Tap it: Vicinity opens there${validAmount(this.s.amount) ? " with this amount filled in" : ""}.`; });
+          const lead = el("p", "small swap__lead", ""); lead.setAttribute("tabindex", "-1"); // where the keyboard and a screen reader land
+          this.share.push(() => { lead.textContent = `Buying happens in your wallet app. Tap yours: Vicinity opens there${this.carries() ? " with this amount filled in" : ""}.`; });
           box.append(lead, this.appLinks());
           const ph = this.phantomBuy(); if (ph) box.append(ph);
           if (this.s.out) { const ca = el("p", "tiny muted swap__ca"); ca.append("Contract: ", el("code", null, this.s.out), " "); const c = el("button", "link-btn", "Copy"); c.type = "button"; c.addEventListener("click", () => copy(this.s.out, "Address copied")); ca.append(c); box.append(ca); }
         } else {
-          box.append(el("p", "small muted", "No Solana wallet found in this browser. Install Phantom, Solflare or Backpack, then reload."));
+          const none = el("p", "small muted", "No Solana wallet found in this browser. Install Phantom, Solflare or Backpack, then reload."); none.setAttribute("tabindex", "-1");
+          box.append(none);
           const row = el("div", "swap__deeplinks");
           for (const k of w.KNOWN.slice(0, 3)) { const a = el("a", "wallet-option", null); a.setAttribute("href", k.site); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener"); a.append(w.mark(k.name), el("span", null, `Get ${k.name}`), el("span", "go", "↗")); row.append(a); }
           box.append(row, this.phoneQR(true));
         }
         this.syncShare(true);
         box.append(this.closeBtn());
-        return;
+        return this.showBox(box.firstElementChild);
       }
       box.append(el("p", "small muted", "Choose the wallet that will sign:"));
       for (const a of list) {
@@ -648,7 +706,11 @@
         if (icon) { const img = el("img"); img.alt = ""; img.src = icon; b.append(img); } else b.append(w.mark(a.name));
         b.append(el("span", null, a.name), el("span", a.canSend || a.canSign ? "detected" : "go", a.canSend ? "Connect" : a.canSign ? "Signs" : "No transactions"));
         b.addEventListener("click", async () => {
-          try { const address = await a.connect(); box.hidden = true; this.share = []; setWallet(a, address); toast(`Connected ${shortAddr(address)}`); }
+          try {
+            const keys = box.contains(document.activeElement) && !w.isMobile; // a keyboard on a computer (a phone would pop its keyboard over the price)
+            const address = await a.connect(); box.hidden = true; this.share = []; setWallet(a, address); toast(`Connected ${shortAddr(address)}`);
+            if (keys && !this.dead) { try { this.inAmt.focus({ preventScroll: true }); } catch { /* no focus */ } } // the box that had the keyboard is gone: on to the amount (Enter there = the button)
+          }
           catch (e) { this.phase("failed", { error: { error: isReject(e) ? "rejected" : "rejected_by_network" }, soft: true }); }
         });
         box.append(b);
@@ -660,8 +722,18 @@
         box.append(p);
       }
       box.append(this.closeBtn());
+      this.showBox(box.querySelector("button.wallet-option"));
     }
-    closeBtn() { const close = el("button", "link-btn swap__wallets-close", "Close"); close.type = "button"; close.addEventListener("click", () => { this.walletBox.hidden = true; this.share = []; }); return close; }
+    /**
+     * The box opens under the footer, which may be below the screen (the button sits just above the bottom bar, or in the sheet):
+     * it is scrolled into view and the keyboard (and a screen reader) moves to its first line or option, so a tap always shows
+     * something happening.
+     */
+    showBox(first) {
+      try { this.walletBox.scrollIntoView({ block: "nearest" }); } catch { /* an old browser */ }
+      if (first) { try { first.focus({ preventScroll: true }); } catch { /* no focus */ } }
+    }
+    closeBtn() { const close = el("button", "link-btn swap__wallets-close", "Close"); close.type = "button"; close.addEventListener("click", () => { this.walletBox.hidden = true; this.share = []; try { this.go.focus({ preventScroll: true }); } catch { /* no focus */ } }); return close; }
     /** Open in Phantom / Solflare / Backpack: this page, with the trade in it, inside the wallet app's own browser; the app opened last first. */
     appLinks() {
       const w = W(), row = el("div", "swap__deeplinks");
@@ -677,18 +749,22 @@
       return row;
     }
     /**
-     * "Buy $X inside the Phantom app": Phantom's own token page and swap, for a phone with no wallet on this page. Only while this
-     * panel buys a mainnet coin (never a devnet test coin, never a sale, never SOL / USDC / USDT), and said plainly to be Phantom's.
+     * "See $X in the Phantom app": Phantom's own token page (Phantom's docs promise a token detail page, nothing more, so the words
+     * promise no more either), for a phone with no wallet on this page. Only while this panel buys a coin that is surely on
+     * MAINNET (the link names Solana mainnet, "solana:101"): $VICINITY, a token found by search (Jupiter's verified list), or a city
+     * coin that trades on Jupiter while the launchpad itself is on mainnet. Never a launchpad coin on devnet whatever its stage
+     * (curve, full, graduated or a stage that could not be read), never a sale, never SOL / USDC / USDT.
      */
     phantomBuy() {
-      const s = this.s, m = s.out, t = tokenOf(m);
-      const devnet = s.cluster === "devnet" || s.chain === "solana:devnet" || Boolean(t && t.kind === "city" && t.stage === "curve" && config && config.launchpad && config.launchpad.cluster === "devnet");
-      if (!m || BASES.includes(m) || s.flipped || (s.curve && s.curve.side === "sell") || devnet) return null;
+      const s = this.s, m = s.out, t = tokenOf(m), lp = config && config.launchpad;
+      const mainnetCoin = !t ? s.cluster === "mainnet" && s.chain === "solana:mainnet"
+        : t.kind === "vicinity" || (t.kind === "city" && Boolean(lp && lp.cluster === "mainnet") && (t.stage === "jupiter" || t.stage === "graduated"));
+      if (!m || BASES.includes(m) || s.flipped || (s.curve && s.curve.side === "sell") || !mainnetCoin || s.cluster === "devnet" || s.chain === "solana:devnet") return null;
       const wrap = el("div", "swap__phantom");
       const a = el("a", "wallet-option swap__phantom-link", null); a.setAttribute("href", phantomFungible(m)); a.setAttribute("rel", "noopener");
-      a.append(W().mark("Phantom"), el("span", null, `Buy ${symbolOf(m)} inside the Phantom app`), el("span", "go", "↗"));
+      a.append(W().mark("Phantom"), el("span", null, `See ${symbolOf(m)} in the Phantom app`), el("span", "go", "↗"));
       a.addEventListener("click", () => rememberApp("phantom"));
-      wrap.append(a, el("p", "tiny muted", "Phantom's own swap. Vicinity is not involved."));
+      wrap.append(a, el("p", "tiny muted", "Phantom's own page: buy it there with Phantom's swap. Vicinity is not involved."));
       return wrap;
     }
     /**
@@ -701,7 +777,7 @@
       wrap.append(say, spot);
       let want = "";
       this.share.push((url) => {
-        say.textContent = `${none ? "No wallet here? " : ""}Scan with your phone's camera: Vicinity opens there${validAmount(this.s.amount) ? " with this amount filled in" : ""}.`;
+        say.textContent = `${none ? "No wallet here? " : ""}Scan with your phone's camera: Vicinity opens there${this.carries() ? " with this amount filled in" : ""}.`;
         if (url === want) return;
         want = url;
         loadQR().then((ok) => {
@@ -739,6 +815,8 @@
           const b = el("button", "wallet-option swap__opt"); b.type = "button"; b.setAttribute("role", "option");
           b.append(mark(t.mint, t.symbol || t.name), el("span", null, t.kind === "vicinity" ? "$VICINITY" : t.kind === "city" ? `${t.name}` : t.symbol), el("span", "go", t.kind === "city" ? (t.city ? t.city.name : "city coin") : t.name));
           b.addEventListener("click", () => {
+            if (this.locked) return; // a trade on its way: its pair stays
+            this.note.hidden = true;
             this.dropBuild(); this.s.hold = null; if (this.s.phase === "ready" || this.s.phase === "building") this.s.phase = "quoted";
             this.s[which] = t.mint; if (this.s.in === this.s.out) this.s[which === "in" ? "out" : "in"] = t.mint === SOL ? USDC : SOL; p.hidden = true; this.s.picker = null; this.s.quote = null; this.render(); this.loadBalances(); if (this.s.amount) this.onAmount();
             if (!this.walletBox.hidden) this.connect();
@@ -850,6 +928,7 @@
       // already in the wallet's or the network's hands locks them
       this.flipBtn.disabled = this.locked;
       this.inAmt.disabled = this.locked;
+      this.maxBtn.disabled = this.locked;
       this.syncShare();
       // the footer: attribution, where it executes, honesty (the fee sentence follows the setting, never a fixed "no fee")
       const testNet = s.cluster === "devnet" ? " · Devnet test coin: this trade uses test SOL with no value." : "";
@@ -908,7 +987,9 @@
     const p = new Panel(body, { mode: opts.mode || "buy", in: opts.in || "SOL", out: opts.out, title: opts.title || `Buy ${symbolOf(norm(opts.out), "this coin")}` });
     body._swap = p;
     if (typeof sheet.showModal === "function") sheet.showModal(); else sheet.setAttribute("open", "");
-    setTimeout(() => { try { p.inAmt.focus(); } catch { /* no focus */ } }, 50);
+    // the keyboard to the amount, unless something in the panel already has it (a tap on Connect wallet within these 50 ms: the
+    // wallet box it opened keeps the keyboard and stays in view)
+    setTimeout(() => { if (p.dead || p.root.contains(document.activeElement)) return; try { p.inAmt.focus(); } catch { /* no focus */ } }, 50);
     return p;
   }
   const refresh = () => { for (const p of panels) { p.loadBalances(); if (p.s.phase === "quoted") p.quote(true); } };

@@ -19,10 +19,11 @@ const LINK = (q) => `https://vicinity.test/token?ref=abc&${q}#buy-slot`;
 
 /* ---------------------------------------------------------------- a link that carries a trade, opened (in the wallet app) */
 test("link: swap_in / swap_out / swap_amt / swap_slip fill the page's panel once (never built or bought by itself), say so, and leave the address bar (its other params and hash kept)", async () => {
-  const P = await swapPage({ clock: true, answers: base(), href: LINK(`swap_in=SOL&swap_out=${VIC}&swap_amt=0.5&swap_slip=250`) });
+  const P = await swapPage({ clock: true, answers: base(), href: LINK(`swap_in=SOL&swap_out=${VIC}&swap_amt=0.5&swap_slip=50`) });
   await P.advance(500);
-  assert.deepEqual([P.$(".swap__amt").value, P.$(".swap__chip--custom").value, text(P.$(".swap__note")), P.$(".swap__note").hidden], ["0.5", "2.5", "Filled in from your link. Check the amount.", false]);
-  assert.deepEqual(byPath(P.calls, "/api/swap/quote")[0].body, { inputMint: SOL, outputMint: VIC, amount: "0.5", slippageBps: 250 });
+  assert.deepEqual([P.$(".swap__amt").value, P.$(".swap__chip--custom").value, text(P.$(".swap__note")), P.$(".swap__note").hidden], ["0.5", "", "Filled in from your link. Check the amount.", false]);
+  assert.deepEqual(P.$$(".swap__chip").filter((c) => c.getAttribute("aria-pressed") === "true").map((c) => c.dataset.bps), ["50"], "a link may lower the slippage (0.5%)");
+  assert.deepEqual(byPath(P.calls, "/api/swap/quote")[0].body, { inputMint: SOL, outputMint: VIC, amount: "0.5", slippageBps: 50 });
   assert.deepEqual(P.calls.filter((c) => c.replace).map((c) => c.replace), ["/token?ref=abc#buy-slot"], "only the swap_* params went");
   assert.equal(P.location.href, "https://vicinity.test/token?ref=abc#buy-slot");
   assert.equal(txCalls(P), 0, "nothing is built without a wallet");
@@ -59,6 +60,7 @@ test("link: anything not on the verified list, a bad amount or slippage, or the 
     [`swap_in=SOL&swap_out=SOL&swap_amt=1`, "", null, "the same token twice"],
     [`swap_in=USDC&swap_out=${VIC}&swap_amt=1e9&swap_slip=0`, "", "USDC", "a bad amount and slippage are dropped, the pair stays"],
     [`swap_in=SOL&swap_out=${VIC}&swap_amt=12345678901234567&swap_slip=5001`, "", "SOL", "17 characters is too long; 5001 bps too much"],
+    [`swap_in=SOL&swap_out=${VIC}&swap_amt=x&swap_slip=300`, "", "SOL", "a link never raises the slippage, not even to a chip (3%)"],
     [`swap_in=SOL&swap_out=${VIC}&swap_amt=-1&swap_slip=2.5`, "", "SOL", "no sign, no fraction of a basis point"],
     [`swap_in=SOL&swap_out=${VIC}&swap_amt=0&swap_slip=50`, "", "SOL", "zero is no amount"],
   ];
@@ -103,12 +105,71 @@ test("link: no panel on the page that fits (or swap_open=1) opens the bottom she
   assert.deepEqual([text(R.$(".swap__title")), R.$(".swap__amt").value, R.location.href], ["Swap", "2", "https://vicinity.test/launchpad"]);
 });
 
+test("link: a link can lower the slippage but never raise it: swap_slip=5000 (50%) is not applied, the note says so, and the quote, the build and the one tap all go out at 1%; 3% is still the person's own tap", async () => {
+  const w = walletOf({ name: "Phantom" });
+  const P = await swapPage({ clock: true, isMobile: true, wallets: [w], answers: base(), href: LINK(`swap_in=SOL&swap_out=${VIC}&swap_amt=1.5&swap_slip=5000`) });
+  await P.advance(500);
+  assert.deepEqual([P.$(".swap__amt").value, text(P.$(".swap__note")), P.$(".swap__chip--custom").value], ["1.5", "Filled in from your link. Check the amount. Slippage stays 1%: a link cannot raise it.", ""]);
+  assert.deepEqual(P.$$(".swap__chip").filter((c) => c.getAttribute("aria-pressed") === "true").map((c) => c.dataset.bps), ["100"]);
+  click(go(P)); await P.flush();
+  click(P.$(".swap__wallets .wallet-option")); await P.advance(1000);
+  assert.equal(text(go(P)), "Buy $VICINITY");
+  click(go(P));
+  assert.equal(w.calls[1][0], "signAndSend");
+  assert.deepEqual([...new Set(P.calls.filter((c) => c.body && c.body.slippageBps != null).map((c) => c.body.slippageBps))], [100], "50% never reached a quote or a build");
+  // the person can still choose more, themselves
+  const Q = await swapPage({ clock: true, answers: base(), href: LINK(`swap_in=SOL&swap_out=${VIC}&swap_amt=1&swap_slip=101`) });
+  await Q.advance(500);
+  assert.match(text(Q.$(".swap__note")), /Slippage stays 1%: a link cannot raise it\.$/, "even 1.01% is more than a link may set");
+  click(Q.$$(".swap__chip")[2]); await Q.advance(500);
+  assert.equal(byPath(Q.calls, "/api/swap/quote").pop().body.slippageBps, 300, "a tap on 3% is the person's choice");
+  assert.equal(Q.$(".swap__note").hidden, true, "the note was about the link's trade: a change of slippage hides it");
+});
+
+test("link: the filled panel on the page itself is scrolled into view (it may sit screens below the top); on a computer the keyboard goes to its amount, on a phone it stays shut (it would cover the price)", async () => {
+  const P = await swapPage({ clock: true, answers: base(), href: LINK(`swap_in=SOL&swap_out=${VIC}&swap_amt=0.5`) });
+  await P.advance(100);
+  const scrolled = (P.doc.scrolled || []).filter((x) => x.el === P.slot);
+  assert.deepEqual(scrolled.map((x) => JSON.stringify(x.opts)), ['{"block":"start"}']);
+  assert.equal(P.doc.activeElement, P.$(".swap__amt"));
+  const M = await swapPage({ clock: true, isMobile: true, answers: base(), href: LINK(`swap_in=SOL&swap_out=${VIC}&swap_amt=0.5`) });
+  await M.advance(100);
+  assert.equal((M.doc.scrolled || []).filter((x) => x.el === M.slot).length, 1, "scrolled on a phone too");
+  assert.equal(M.doc.activeElement, M.doc.body, "no keyboard popped over the price");
+  // the sheet is its own view: nothing on the page is scrolled for it
+  const S = await swapPage({ clock: true, answers: base(), href: LINK(`swap_in=SOL&swap_out=${VIC}&swap_amt=0.1&swap_open=1`), head: '<link rel="stylesheet" href="/swap.css">' });
+  await S.advance(100);
+  assert.equal((S.doc.scrolled || []).filter((x) => x.el === S.slot).length, 0);
+});
+
+test("dashboard: the Buy & swap card's links (and QR code) open the sheet at once (swap_open=1): the wallet app's browser has no session there, so the trade is shown over whatever the dashboard shows, never in a panel screens below or behind a sign-in", async () => {
+  const dash = `<div id="tr-swap" data-swap data-out="${VIC}" data-in="SOL" data-mode="buy" data-title="Buy $VICINITY"></div>`;
+  const P = await swapPage({ clock: true, isMobile: true, answers: base(), slot: dash, href: "https://vicinity.test/dashboard#home" });
+  P.doc.body.dataset.page = "dashboard";
+  const panel = [...P.VSwap._panels][0];
+  P.$(".swap__amt").value = "0.1"; P.$(".swap__amt").dispatchEvent(newEvent("input")); await P.advance(1000);
+  panel.connect(); await P.flush();
+  const inner = decodeURIComponent(P.$(".swap__deeplinks a").getAttribute("href").replace("https://phantom.com/ul/browse/", ""));
+  assert.equal(inner, `https://vicinity.test/dashboard?swap_in=SOL&swap_out=${VIC}&swap_amt=0.1&swap_slip=100&swap_open=1#home`);
+  // opened in the wallet app: the sheet at once, filled; the dashboard's own panel is left alone
+  const Q = await swapPage({ clock: true, answers: base(), slot: dash, href: inner, head: '<link rel="stylesheet" href="/swap.css">' });
+  await Q.flush();
+  const sheet = Q.$(".swap-sheet");
+  assert.ok(sheet && sheet.hasAttribute("open"), "the sheet opened without waiting");
+  assert.deepEqual([sheet.querySelector(".swap__amt").value, text(sheet.querySelector(".swap__note")), Q.$("#tr-swap .swap__amt").value, Q.location.href], ["0.1", "Filled in from your link. Check the amount.", "", "https://vicinity.test/dashboard#home"]);
+  // the token page keeps its own panel (near the top), no sheet
+  const T = await swapPage({ clock: true, isMobile: true, answers: base(), href: "https://vicinity.test/token" });
+  T.$(".swap__amt").value = "0.1"; T.$(".swap__amt").dispatchEvent(newEvent("input")); await T.advance(1000);
+  click(go(T)); await T.flush();
+  assert.doesNotMatch(decodeURIComponent(T.$(".swap__deeplinks a").getAttribute("href")), /swap_open/);
+});
+
 /* ---------------------------------------------------------------- a phone without a wallet: the wallet apps, with the trade */
 test("phone: Connect wallet says buying happens in the wallet app and offers Open in Phantom / Solflare / Backpack carrying the trade (swap_open=1 from the sheet); the links follow the amount", async () => {
   const P = await swapPage({ clock: true, isMobile: true, answers: base(), href: "https://vicinity.test/token?ref=abc#top" });
   await type(P, "0.25");
   click(go(P)); await P.flush();
-  assert.equal(text(P.$(".swap__lead")), "Buying happens in your wallet app. Tap it: Vicinity opens there with this amount filled in.");
+  assert.equal(text(P.$(".swap__lead")), "Buying happens in your wallet app. Tap yours: Vicinity opens there with this amount filled in.");
   const href = P.$(".swap__deeplinks a").getAttribute("href");
   assert.equal(href, `https://phantom.com/ul/browse/${encodeURIComponent(`https://vicinity.test/token?ref=abc&swap_in=SOL&swap_out=${VIC}&swap_amt=0.25&swap_slip=100#top`)}`);
   assert.equal(txCalls(P), 0, "no wallet here: nothing is built");
@@ -117,7 +178,7 @@ test("phone: Connect wallet says buying happens in the wallet app and offers Ope
   assert.match(decodeURIComponent(P.$(".swap__deeplinks a").getAttribute("href")), /swap_amt=0\.4&/);
   // cleared: the lead line no longer promises an amount
   await type(P, "");
-  assert.equal(text(P.$(".swap__lead")), "Buying happens in your wallet app. Tap it: Vicinity opens there.");
+  assert.equal(text(P.$(".swap__lead")), "Buying happens in your wallet app. Tap yours: Vicinity opens there.");
   assert.doesNotMatch(decodeURIComponent(P.$(".swap__deeplinks a").getAttribute("href")), /swap_amt/);
   // in the sheet: swap_open=1
   const sp = await P.VSwap.open({ out: VIC }); await P.flush();
@@ -128,6 +189,44 @@ test("phone: Connect wallet says buying happens in the wallet app and offers Ope
   click(F.$(".swap__flip")); await F.flush(); await type(F, "1200");
   click(go(F)); await F.flush();
   assert.match(decodeURIComponent(F.$(".swap__deeplinks a").getAttribute("href")), new RegExp(`swap_in=${VIC}&swap_out=SOL&swap_amt=1200`));
+});
+
+test("phone: a token found by search (not on the verified list) is not carried: the other side would drop it, so the links leave the trade out and the lead line promises no amount", async () => {
+  const BONK = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263";
+  const P = await swapPage({ clock: true, isMobile: true, answers: base({ "/api/swap/tokens": { ok: true, tokens: [{ mint: BONK, symbol: "Bonk", name: "Bonk", decimals: 5 }] } }) });
+  click(P.$$(".swap__token")[0]); await P.flush();
+  const search = P.$(".swap__search"); search.value = "bonk"; search.dispatchEvent(newEvent("input")); await P.advance(400);
+  click(P.$$(".swap__picker .swap__opt").find((b) => /Bonk/.test(text(b)))); await P.flush();
+  await type(P, "50000");
+  click(go(P)); await P.flush();
+  assert.equal(text(P.$(".swap__lead")), "Buying happens in your wallet app. Tap yours: Vicinity opens there.");
+  const inner = decodeURIComponent(P.$(".swap__deeplinks a").getAttribute("href"));
+  assert.doesNotMatch(inner, /swap_in|swap_out|swap_amt|swap_slip/, "nothing the wallet app would silently drop");
+  // a verified pair again: carried, promised
+  click(P.$$(".swap__token")[0]); await P.flush();
+  click(P.$$(".swap__picker .swap__opt").find((b) => /^.SOL/.test(text(b)))); await P.flush();
+  await type(P, "0.2");
+  assert.equal(text(P.$(".swap__lead")), "Buying happens in your wallet app. Tap yours: Vicinity opens there with this amount filled in.");
+  assert.match(decodeURIComponent(P.$(".swap__deeplinks a").getAttribute("href")), new RegExp(`swap_in=SOL&swap_out=${VIC}&swap_amt=0\\.2`));
+});
+
+test("chooser: a tap on Connect wallet always shows something: the box (below the footer, maybe below the screen) is scrolled into view and the keyboard / screen reader lands on its first line (a phone's lead, a computer's 'No wallet' line) or its first wallet", async () => {
+  for (const [isMobile, wallets, first] of [[true, [], ".swap__lead"], [false, [], ".swap__wallets > p"], [true, "one", ".swap__wallets button.wallet-option"], [false, "one", ".swap__wallets button.wallet-option"]]) {
+    const P = await swapPage({ clock: true, isMobile, wallets: wallets === "one" ? [walletOf()] : [], canvas: true, qrcode: () => ({ addData() {}, make() {}, getModuleCount: () => 21, isDark: () => true }), answers: base() });
+    click(go(P)); await P.flush();
+    const box = P.$(".swap__wallets");
+    assert.deepEqual((P.doc.scrolled || []).filter((x) => x.el === box).map((x) => JSON.stringify(x.opts)), ['{"block":"nearest"}'], `${isMobile ? "phone" : "computer"} ${wallets.length ? "with" : "without"} a wallet: scrolled`);
+    assert.equal(P.doc.activeElement, P.$(first), `${isMobile ? "phone" : "computer"}: focus on ${first}`);
+  }
+  // the sheet puts the keyboard on its amount 50 ms after opening: a tap on Connect wallet before that keeps the box's focus (the
+  // amount's focus would scroll the card back up, away from the wallet apps)
+  const S = await swapPage({ clock: true, isMobile: true, answers: base(), slot: "" });
+  const sp = await S.VSwap.open({ out: VIC });
+  click(sp.go); await S.advance(100);
+  assert.ok(S.doc.activeElement === sp.walletBox.querySelector(".swap__lead"), "the sheet's late focus did not take the keyboard away from the wallet box");
+  const S2 = await swapPage({ clock: true, isMobile: true, answers: base(), slot: "" });
+  const sp2 = await S2.VSwap.open({ out: VIC }); await S2.advance(100);
+  assert.ok(S2.doc.activeElement === sp2.inAmt, "otherwise the sheet opens with the keyboard on its amount");
 });
 
 test("phone: the wallet app this person opened last comes first (vicinity.walletApp); tapping an Open-in link remembers it; storage that is off or full of junk changes nothing", async () => {
@@ -153,26 +252,35 @@ test("phone: the wallet app this person opened last comes first (vicinity.wallet
   }
 });
 
-test("phone: 'Buy $X inside the Phantom app' (Phantom's documented fungible link) only while buying a mainnet coin: not a sale, not a devnet test coin, not SOL/USDC; tapping it remembers Phantom", async () => {
+test("phone: 'See $X in the Phantom app' (Phantom's documented fungible link: its token page, said to be Phantom's) only while buying a coin surely on mainnet: not a sale, not SOL/USDC, never a launchpad coin on devnet whatever its stage; tapping it remembers Phantom", async () => {
   const store = {};
   const P = await swapPage({ clock: true, isMobile: true, answers: base(), storage: store });
   click(go(P)); await P.flush();
   const a = P.$(".swap__phantom a");
   assert.equal(a.getAttribute("href"), `https://phantom.com/ul/v1/fungible?token=solana%3A101%2Faddress%3A${VIC}`);
-  assert.equal(text(a), "PBuy $VICINITY inside the Phantom app↗");
-  assert.equal(text(P.$(".swap__phantom p")), "Phantom's own swap. Vicinity is not involved.");
+  assert.equal(text(a), "PSee $VICINITY in the Phantom app↗", "Phantom's docs promise a token page, so the words promise no more");
+  assert.equal(text(P.$(".swap__phantom p")), "Phantom's own page: buy it there with Phantom's swap. Vicinity is not involved.");
   const kids = P.$(".swap__wallets").children.map((e) => e.className);
   assert.ok(kids.indexOf("swap__phantom") === kids.indexOf("swap__deeplinks") + 1, "right under the Open-in-wallet links");
   click(a);
   assert.equal(store["vicinity.walletApp"], "phantom");
   click(P.$(".swap__flip")); await P.flush();
   assert.equal(P.$(".swap__phantom"), null, "selling: no link");
-  const D = await swapPage({ clock: true, isMobile: true, answers: base(), slot: `<div id="buy-slot" data-swap data-out="${CITY}" data-in="SOL" data-mode="buy"></div>` });
-  click(go(D)); await D.flush();
-  assert.ok(D.$(".swap__deeplinks") && D.$(".swap__phantom") === null, "a devnet test coin: no link");
   const S = await swapPage({ clock: true, isMobile: true, answers: base(), slot: `<div id="buy-slot" data-swap data-out="${USDC}" data-in="SOL" data-mode="swap"></div>` });
   click(go(S)); await S.flush();
   assert.equal(S.$(".swap__phantom"), null, "buying USDC: no link");
+  // a city coin: the link names Solana MAINNET, so a launchpad on devnet never gets it, whatever stage the coin's pool read gave
+  // (curve, full, graduated, unknown); on a mainnet launchpad only a coin that trades on Jupiter (or has graduated) does
+  const cityPage = async (stage, cluster) => {
+    const cfg = { ...CONFIG, launchpad: { enabled: true, cluster }, tokens: CONFIG.tokens.map((t) => (t.mint === CITY ? { ...t, stage } : t)) };
+    const D = await swapPage({ clock: true, isMobile: true, answers: base({ "/api/swap/config": cfg }), slot: `<div id="buy-slot" data-swap data-out="${CITY}" data-in="SOL" data-mode="buy"></div>` });
+    click(go(D)); await D.flush();
+    assert.ok(D.$(".swap__deeplinks"), "the wallet apps are always offered");
+    return D.$(".swap__phantom a");
+  };
+  for (const stage of ["curve", "full", "graduated", "unknown", "jupiter"]) assert.equal(await cityPage(stage, "devnet"), null, `a devnet launchpad, stage ${stage}: no link`);
+  for (const stage of ["curve", "full", "unknown"]) assert.equal(await cityPage(stage, "mainnet"), null, `a mainnet launchpad, stage ${stage}: still on its curve or unread: no link`);
+  for (const stage of ["jupiter", "graduated"]) assert.equal((await cityPage(stage, "mainnet")).getAttribute("href"), `https://phantom.com/ul/v1/fungible?token=solana%3A101%2Faddress%3A${CITY}`, `a mainnet launchpad, stage ${stage}`);
   // a computer never gets it (it has the QR code)
   const C = await swapPage({ clock: true, answers: base() });
   click(go(C)); await C.flush();

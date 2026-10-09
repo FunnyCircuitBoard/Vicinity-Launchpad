@@ -367,3 +367,148 @@ test("ready: destroy() clears every timer (the settle wait, the 40 s, the 1.5 s 
   await Q.advance(60_000);
   assert.equal(txCalls(Q), 0);
 });
+
+test("ready: a trade in the wallet's or the network's hands keeps its watch: MAX is off, a token list left open closes and its options do nothing, so the trade still ends in 'Swapped ✓' with its Solscan link and a second tap never reaches the wallet", async () => {
+  // MAX while the network confirms
+  let polls = 0;
+  const w = walletOf();
+  const P = await connected({ wallet: w, answers: { "/api/swap/balances": { ok: true, sol: { lamports: 2e9, ui: 2 }, tokens: { [VIC]: { ui: 0, hasAccount: true } } }, "/api/swap/status": () => (++polls < 3 ? { ok: true, status: "pending" } : { ok: true, status: "confirmed" }) } });
+  await type(P, "0.25");
+  click(go(P)); await P.flush();
+  assert.equal(text(P.$(".swap__state")), "Confirming…");
+  assert.deepEqual([P.$(".swap__max").disabled, P.$(".swap__flip").disabled, P.$(".swap__amt").disabled], [true, true, true], "nothing on the panel changes a trade on its way");
+  click(P.$(".swap__max")); await P.advance(2000);
+  assert.deepEqual([text(P.$(".swap__state")), P.$(".swap__amt").value, txCalls(P)], ["Confirming…", "0.25", 1], "MAX did nothing: no new quote, no build");
+  await P.advance(4000);
+  assert.deepEqual([text(P.$(".swap__state")), /View on Solscan/.test(text(P.$(".swap__links")))], ["Swapped ✓", true], "the trade that was sent is still watched to the end");
+  // MAX while the wallet is still open, then a second tap
+  let release;
+  const w2 = walletOf();
+  w2.signAndSendTransaction = (bytes, chain) => { w2.calls.push(["signAndSend", bytes.length, chain]); return new Promise((r) => { release = () => r(new Uint8Array(64).fill(3)); }); };
+  const Q = await connected({ wallet: w2, answers: { "/api/swap/balances": { ok: true, sol: { lamports: 2e9, ui: 2 }, tokens: {} } } });
+  await type(Q, "0.25");
+  click(go(Q)); await Q.flush();
+  click(Q.$(".swap__max")); await Q.advance(2000);
+  click(go(Q)); Q.$(".swap__amt").dispatchEvent(newEvent("keydown", { key: "Enter" })); await Q.flush();
+  assert.deepEqual(w2.calls.map((c) => c[0]), ["connect", "signAndSend"], "one wallet request at a time");
+  assert.deepEqual([text(Q.$(".swap__state")), Q.$(".swap__amt").value], ["Confirm in wallet", "0.25"]);
+  release(); await Q.flush(); await Q.advance(1500);
+  assert.equal(text(Q.$(".swap__state")), "Swapped ✓");
+  // a token list opened before the tap: closed by the tap; an option tapped anyway changes nothing
+  const S = await connected({ slot: `<div id="buy-slot" data-swap data-in="SOL" data-out="${USDC}" data-mode="swap"></div>`, answers: { "/api/swap/tx": () => TX({ quote: QUOTE({ outputMint: USDC, expiresAt: LATER() }) }), "/api/swap/status": { ok: true, status: "pending" } } });
+  await type(S, "0.25");
+  click(S.$$(".swap__token")[0]); await S.flush();
+  const opt = S.$$(".swap__picker .swap__opt").find((b) => /USDC/.test(text(b)));
+  assert.equal(S.$(".swap__picker").hidden, false);
+  click(go(S)); await S.flush();
+  assert.equal(S.$(".swap__picker").hidden, true, "the tap closed the token list");
+  click(opt); await S.advance(5000);
+  assert.deepEqual([text(S.$(".swap__state")), text(S.$$(".swap__token")[0]).replace(/▾/, "").slice(1).trim(), byPath(S.calls, "/api/swap/status").length > 1], ["Confirming…", "SOL", true], "the pair stayed and the watch goes on");
+});
+
+test("ready: automatic builds ask the route with ?auto=1 (the Worker counts them apart from taps), a tap never does; the budget of 8 a minute is this browser's, shared by its tabs and kept over a reload; a 429 in one tab pauses them in the others", async () => {
+  const store = {};
+  const P = await connected({ storage: store });
+  await type(P, "0.25");
+  click(go(P)); await P.flush(); await P.advance(1500); // bought: Swapped ✓
+  click(go(P)); await P.flush(); // Swap again
+  await type(P, "0.3");
+  await P.advance(40_000); // a quiet rebuild
+  P.setHidden(true); await P.advance(45_000); P.setHidden(false); await P.flush(); // back with the price run out
+  const urls = byPath(P.calls, "/api/swap/tx").map((c) => c.path);
+  assert.deepEqual(urls, ["/api/swap/tx?auto=1", "/api/swap/tx?auto=1", "/api/swap/tx?auto=1", "/api/swap/tx?auto=1"], "built by itself, after a settle, a rebuild, a return");
+  const Q = await connected({ storage: {}, answers: { "/api/swap/tx": () => ({ ok: false, error: "slow_down", _status: 429 }) } });
+  await type(Q, "0.25");
+  click(go(Q)); await Q.flush(); // "Tap Buy to get your price": the tap
+  assert.deepEqual(byPath(Q.calls, "/api/swap/tx").map((c) => c.path), ["/api/swap/tx?auto=1", "/api/swap/tx"], "the tap is a tap");
+  // two tabs (two pages on one storage): 5 automatic builds in one, then only 3 more in the other within the minute
+  const shared = {};
+  const A = await connected({ storage: shared });
+  for (let i = 1; i <= 5; i++) await type(A, `0.${i}`);
+  assert.equal(txCalls(A), 5);
+  // (each page here has its own fake clock: a later tab's starts where the earlier one's is, like one computer's clock)
+  const sameClock = async (X, Y) => { const d = Y.now() - X.now(); if (d > 0) await X.advance(d); };
+  const B = await connected({ storage: shared });
+  await sameClock(B, A);
+  for (let i = 1; i <= 4; i++) await type(B, `1.${i}`);
+  assert.deepEqual([txCalls(B), text(B.$(".swap__status"))], [3, "Tap Buy to get your price."], "8 for the browser, not 8 per tab");
+  // a reload (a new page on the same storage) starts with what is already spent
+  const R = await connected({ storage: shared });
+  await sameClock(R, B);
+  await type(R, "2");
+  assert.deepEqual([txCalls(R), text(R.$(".swap__status"))], [0, "Tap Buy to get your price."]);
+  // junk in storage is ignored; storage that throws leaves each page counting alone
+  const J = await connected({ storage: { "vicinity.swapAuto": "{not json" } });
+  await type(J, "0.25");
+  assert.equal(text(J.$(".swap__state")), "Price ready");
+  const T = await connected({ storage: "throws" });
+  for (let i = 1; i <= 9; i++) await type(T, `0.${i}`);
+  assert.equal(txCalls(T), 8);
+});
+
+test("ready: a 429 seen in one tab pauses the automatic builds of the other tabs too (they wait for a tap)", async () => {
+  const shared = {};
+  const A = await connected({ storage: shared, answers: { "/api/swap/tx": () => ({ ok: false, error: "slow_down", _status: 429, retryAfterS: 60 }) } });
+  await type(A, "0.25");
+  assert.equal(text(A.$(".swap__status")), "Tap Buy to get your price.");
+  const B = await connected({ storage: shared });
+  const d = A.now() - B.now(); if (d > 0) await B.advance(d);
+  await type(B, "0.25");
+  assert.deepEqual([txCalls(B), text(B.$(".swap__status"))], [0, "Tap Buy to get your price."]);
+});
+
+test("ready: a retired panel leaves no listener on a reused element (the sheet's body, a dashboard slot mounted again)", async () => {
+  const P = await swapPage({ answers: base(), slot: "<div></div>" });
+  for (let i = 1; i <= 20; i++) { await P.VSwap.open({ out: i % 2 ? VIC : CITY }); await P.flush(); }
+  const body = P.doc.querySelector(".swap-sheet__body");
+  const count = (e) => { const c = {}; for (const l of e.listeners) c[l.type] = (c[l.type] || 0) + 1; return JSON.stringify(c); };
+  assert.equal(count(body), JSON.stringify({ click: 1, input: 1, keydown: 1, change: 1 }), "one live panel's own four");
+  assert.equal(P.VSwap._panels.size, 1);
+  const slot = P.doc.createElement("div"); P.doc.body.append(slot);
+  for (let i = 1; i <= 10; i++) { slot.removeAttribute("data-swap-mounted"); slot.replaceChildren(); await P.VSwap.mount(slot, { mode: "buy", in: "SOL", out: i % 2 ? VIC : USDC }); await P.flush(); }
+  assert.equal(count(slot), JSON.stringify({ click: 1, input: 1, keydown: 1, change: 1 }));
+});
+
+test("ready: the keyboard is never lost: after picking a wallet with it (a computer) it is on the amount; after a trade by Enter it is on the button, so Enter again is 'Swap again'", async () => {
+  const w = walletOf();
+  const P = await swapPage({ clock: true, wallets: [w], answers: base() });
+  click(go(P)); await P.flush();
+  const opt = P.$(".swap__wallets .wallet-option");
+  assert.equal(P.doc.activeElement, opt, "the box opened with the keyboard on its first wallet");
+  click(opt); await P.flush();
+  assert.equal(P.doc.activeElement, P.$(".swap__amt"), "the box is gone: the keyboard is on the amount");
+  P.$(".swap__amt").value = "0.25"; P.$(".swap__amt").dispatchEvent(newEvent("input")); await P.advance(1000);
+  P.$(".swap__amt").dispatchEvent(newEvent("keydown", { key: "Enter" }));
+  assert.equal(w.calls[1][0], "signAndSend");
+  await P.flush(); await P.advance(1500);
+  assert.deepEqual([text(P.$(".swap__state")), P.doc.activeElement], ["Swapped ✓", go(P)], "the amount was off while the wallet was open: the keyboard is back on the button");
+  P.doc.activeElement.dispatchEvent(newEvent("click")); await P.flush(); // Enter on a focused button is its click
+  assert.deepEqual([text(P.$(".swap__state")), P.$(".swap__amt").value], ["Ready", ""], "Swap again");
+  // a keyboard elsewhere on the page is never taken back
+  const Q = await connected();
+  await type(Q, "0.25");
+  click(go(Q));
+  const other = Q.doc.createElement("button"); Q.doc.body.append(other); other.focus();
+  await Q.flush(); await Q.advance(1500);
+  assert.equal(Q.doc.activeElement, other);
+  // a phone: connecting does not pop the keyboard
+  const M = await swapPage({ clock: true, isMobile: true, wallets: [walletOf()], answers: base() });
+  click(M.$(".swap__go")); await M.flush();
+  click(M.$(".swap__wallets .wallet-option")); await M.flush();
+  assert.notEqual(M.doc.activeElement, M.$(".swap__amt"));
+});
+
+test("link note: 'Filled in from your link' goes once the trade is not the link's any more (typing, the flip, slippage, another token)", async () => {
+  const href = `https://vicinity.test/token?swap_in=SOL&swap_out=${VIC}&swap_amt=0.5`;
+  const P = await swapPage({ clock: true, answers: base(), href });
+  await P.advance(500);
+  assert.equal(P.$(".swap__note").hidden, false);
+  click(P.$(".swap__flip")); await P.flush();
+  assert.equal(P.$(".swap__note").hidden, true, "the flip");
+  const S = await swapPage({ clock: true, answers: base(), slot: `<div id="buy-slot" data-swap data-in="SOL" data-out="${USDC}" data-mode="swap"></div>`, href: `https://vicinity.test/token?swap_in=SOL&swap_out=USDC&swap_amt=1` });
+  await S.advance(500);
+  assert.equal(S.$(".swap__note").hidden, false);
+  click(S.$$(".swap__token")[1]); await S.flush();
+  click(S.$$(".swap__picker .swap__opt").find((b) => /VICINITY/.test(text(b)))); await S.flush();
+  assert.equal(S.$(".swap__note").hidden, true, "another token");
+});
