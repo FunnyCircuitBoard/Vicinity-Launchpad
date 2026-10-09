@@ -6,8 +6,8 @@
  *   owner      → a wallet in the ADMIN_WALLETS setting (or granted in admin_roles). Everything,
  *                including roles, the test lab and anything destructive.
  *   admin      → everything except granting/revoking roles and test-lab reset.
- *   moderator  → content moderation (read + hide/dismiss reports). Wallets are masked and
- *                names left out of the lists it can read.
+ *   moderator  → content moderation (read + hide/dismiss reports) and the Inbox (the Feedback / Support
+ *                messages, without the reply e-mails). Wallets are masked and names left out of the lists it can read.
  *
  * Sign-in is the site's own wallet session (the vs cookie, src/auth.js). Every state-changing
  * (POST) route needs a fresh wallet proof (last 30 min) on top of the role, because a Google
@@ -24,7 +24,8 @@
 import { getSession, isFresh, SESSION_COOKIE } from "./auth.js";
 import { adminWallets } from "./roles.js";
 import { clearCookie, cookie, getCookie, json, readJson, sameSite, sha256 } from "./http.js";
-import { ensureSchema } from "./store.js";
+import { ensureFeedbackSchema, ensureSchema } from "./store.js";
+import { KINDS as FEEDBACK_KINDS, STATUSES as FEEDBACK_STATUSES } from "./feedback.js";
 import { autoUsername, cleanText } from "./text.js";
 import { isSolanaAddress } from "./solana.js";
 import { POLICY, DAY, iso } from "./policy.js";
@@ -583,6 +584,84 @@ async function handlePreviewRole(request, ctx) {
   return json({ ok: true, previewRole: role }, 200, { "Set-Cookie": set });
 }
 
+/* ---------------- inbox: the Feedback / Support messages (src/feedback.js) ---------------- */
+
+/** The lowest role reads the messages without the reply e-mail (a contact detail), like it reads wallets masked elsewhere. */
+const inboxRow = (ctx, r) => (limited(ctx) ? (({ email, ...rest }) => ({ ...rest, email: email ? "(hidden)" : null }))(r) : r);
+const inboxCounts = async (db) => {
+  const rows = (await db.prepare("SELECT status, COUNT(*) AS n FROM feedback GROUP BY status").all()).results;
+  const counts = { new: 0, seen: 0, done: 0 };
+  for (const r of rows) if (r.status in counts) counts[r.status] = r.n;
+  return counts;
+};
+/** The table is made on first use (like the widget does); when that fails, only the Inbox says so. */
+async function inboxReady(ctx) {
+  try { await ensureFeedbackSchema(ctx.db); return null; }
+  catch (e) { console.error("inbox unavailable", String((e && e.message) || e).slice(0, 80)); return json({ ok: false, error: "unavailable" }, 503); }
+}
+
+/**
+ * GET /api/admin/feedback?status=open|new|seen|done|all&kind=question|bug|city&before=<id>&limit=
+ * Newest first, 50 a page (`more` + the last id for the next page). `open` (the default) = new and seen.
+ */
+async function handleInbox(ctx, url) {
+  const blocked = await inboxReady(ctx);
+  if (blocked) return blocked;
+  const status = q(url, "status", 10) || "open";
+  const kind = q(url, "kind", 10);
+  const before = Math.floor(Number(url.searchParams.get("before"))) || 0;
+  const limit = limitOf(url, 50, 200);
+  const where = [], args = [];
+  if (status === "open") where.push("f.status IN ('new', 'seen')");
+  else if (FEEDBACK_STATUSES.includes(status)) { where.push("f.status = ?"); args.push(status); }
+  else if (status !== "all") return json({ ok: false, error: "bad_status" }, 400);
+  if (kind) { if (!FEEDBACK_KINDS.includes(kind)) return json({ ok: false, error: "bad_kind" }, 400); where.push("f.kind = ?"); args.push(kind); }
+  if (before) { where.push("f.id < ?"); args.push(before); }
+  const rows = (await ctx.db.prepare(
+    `SELECT f.id, f.kind, f.message, f.email, f.city, f.country, f.user_id, f.page, f.ua, f.status, f.admin_note, f.created_at, f.updated_at, u.handle
+     FROM feedback f LEFT JOIN users u ON u.id = f.user_id
+     ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY f.id DESC LIMIT ?`).bind(...args, limit + 1).all()).results;
+  const more = rows.length > limit;
+  const items = rows.slice(0, limit).map((r) => inboxRow(ctx, r));
+  return json({ ok: true, items, more, counts: await inboxCounts(ctx.db) });
+}
+
+/** GET /api/admin/feedback/count → how many messages are new (the badge polls this every 20 seconds). */
+async function handleInboxCount(ctx) {
+  const blocked = await inboxReady(ctx);
+  if (blocked) return blocked;
+  const counts = await inboxCounts(ctx.db);
+  return json({ ok: true, new: counts.new, counts });
+}
+
+/**
+ * POST /api/admin/feedback/update { id, status?, note? }: set the status (new, seen, done) and/or the admin's note (at most 500
+ * characters, "" clears it). Logged in admin_audit like every change (the note's text stays in the row, not in the log).
+ */
+async function handleInboxUpdate(request, ctx) {
+  const blocked = await inboxReady(ctx);
+  if (blocked) return blocked;
+  const body = await readJson(request);
+  const id = Math.floor(Number(body && body.id)) || 0;
+  const row = id && await ctx.db.prepare("SELECT * FROM feedback WHERE id = ?").bind(id).first();
+  if (!row) return json({ ok: false, error: "not_found" }, 404);
+  const status = body.status === undefined ? null : body.status;
+  if (status !== null && !FEEDBACK_STATUSES.includes(status)) return json({ ok: false, error: "bad_status" }, 400);
+  const hasNote = Object.prototype.hasOwnProperty.call(body, "note");
+  const note = hasNote ? cleanText(body.note, 500) : null;
+  if (hasNote && note === null) return json({ ok: false, error: "bad_note" }, 400);
+  if (status === null && !hasNote) return json({ ok: false, error: "bad_request" }, 400);
+  const detail = [status && status !== row.status ? `${row.status} → ${status}` : null, hasNote ? (note ? "note updated" : "note cleared") : null].filter(Boolean).join("; ") || "no change";
+  await ctx.db.batch([
+    ctx.db.prepare("UPDATE feedback SET status = ?, admin_note = ?, updated_at = ? WHERE id = ?")
+      .bind(status || row.status, hasNote ? (note || null) : row.admin_note, iso(ctx.now), id),
+    logAudit(ctx.db, { actor: ctx.wallet, action: "feedback/update", target: `feedback:${id}`, detail }, ctx.now),
+  ]);
+  const fresh = await ctx.db.prepare(
+    "SELECT f.*, u.handle FROM feedback f LEFT JOIN users u ON u.id = f.user_id WHERE f.id = ?").bind(id).first();
+  return json({ ok: true, item: inboxRow(ctx, fresh) });
+}
+
 /* ---------------- router ---------------- */
 
 export async function handleAdmin(request, env, now = Date.now()) {
@@ -621,6 +700,9 @@ export async function handleAdmin(request, env, now = Date.now()) {
     case "roles/grant": { const b = only("POST"); return b || run(await needPost("owner"), (c) => handleRoleGrant(request, c)); }
     case "roles/revoke": { const b = only("POST"); return b || run(await needPost("owner"), (c) => handleRoleRevoke(request, c)); }
     case "audit": { const b = only("GET"); return b || run(need("moderator"), (c) => handleAudit(c, url)); }
+    case "feedback": { const b = only("GET"); return b || run(need("moderator"), (c) => handleInbox(c, url)); }
+    case "feedback/count": { const b = only("GET"); return b || run(need("moderator"), handleInboxCount); }
+    case "feedback/update": { const b = only("POST"); return b || run(await needPost("moderator"), (c) => handleInboxUpdate(request, c)); }
     case "test/seed": { const b = only("POST"); return b || run(await needPost("owner"), handleTestSeed); }
     case "test/reset": { const b = only("POST"); return b || run(await needPost("owner"), (c) => handleTestReset(request, c)); }
     case "test/preview-role": { const b = only("POST"); return b || run(await needPost("owner"), (c) => handlePreviewRole(request, c)); }

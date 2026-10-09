@@ -153,7 +153,7 @@ test("chart words: the unit it opens in, and a footnote that says where the seri
 
 test("the built page: built from scripts/pages, the Launch tab is current, every id the script uses exists, its two scripts in order, nothing inline", () => {
   assert.equal(new Map(buildPages()).get("coin.html"), html, "public/coin.html is built from scripts/pages/src/coin.html (npm run pages)");
-  assert.deepEqual([...html.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]), ["theme", "site", "coinchart", "coin"]);
+  assert.deepEqual([...html.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]), ["theme", "site", "coinchart", "coin", "feedback"]);
   assert.match(html.match(/<nav class="nav"[\s\S]*?<\/nav>/)[0], /<a href="\/launchpad" aria-current="page">Launchpad/, "the coin page sits under the Launchpad");
   assert.match(html.match(/<nav class="tabbar"[\s\S]*?<\/nav>/)[0], /<a href="\/launchpad" aria-current="page">/);
   assert.doesNotMatch(html, /\sstyle="|<style[\s>]|\son[a-z]+="/);

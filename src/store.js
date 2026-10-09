@@ -16,6 +16,8 @@
  *   snapshots    → Founding Supporter lists (src/snapshot.js)
  *   town_requests → "add my town": the nearest community, never coordinates
  *   follows, blocks, profile_reports, users.bio → member profiles (only while PROFILES=on, see PROFILES_MIGRATION below)
+ *   feedback     → the "Feedback / Support" widget: questions, bug reports and city requests, with an optional reply e-mail
+ *                  (made on first use, see FEEDBACK_MIGRATION below; src/feedback.js)
  *   claims, added_cities, requests → the first version (no longer written)
  * Locations of visitors are never saved. Wallets that only "verify" or look up a rank are never saved.
  *
@@ -817,4 +819,54 @@ export function ensureLimitsSchema(db) {
     })().catch((e) => { limitsReady.delete(db); throw e; }));
   }
   return limitsReady.get(db);
+}
+
+/**
+ * The "Feedback / Support" widget (src/feedback.js, the admin console's Inbox in src/admin.js). Like the others, deliberately NOT
+ * in MIGRATIONS: the table is made the first time a message is sent or the Inbox is opened (ensureFeedbackSchema), so nothing
+ * runs on every request and a failure here can only make the widget and the Inbox say "unavailable". Safe to repeat. Same rule:
+ * no semicolon inside a comment or a string in this SQL, because split() cuts on every semicolon.
+ *   feedback → one row per message: kind (question, bug, city), the message, the reply e-mail if given, city and country for a
+ *              city request, the sender's user id if signed in, the page it was sent from, a coarse browser description,
+ *              status (new, seen, done) and the admin's note
+ */
+export const FEEDBACK_MIGRATION = {
+  id: "2026-10-09-feedback",
+  sql: `
+CREATE TABLE IF NOT EXISTS feedback (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind       TEXT NOT NULL,
+  message    TEXT NOT NULL,
+  email      TEXT,
+  city       TEXT,
+  country    TEXT,
+  user_id    INTEGER,
+  page       TEXT,
+  ua         TEXT,
+  status     TEXT NOT NULL DEFAULT 'new',
+  admin_note TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS feedback_status ON feedback (status, id)
+`,
+};
+
+const feedbackReady = new WeakMap();
+
+/**
+ * Create the feedback table the first time a message is sent or the Inbox is opened (safe to repeat, and to run from two servers
+ * at once). Rejects on failure and forgets that it tried, so the next call retries. Callers answer 503 unavailable.
+ */
+export function ensureFeedbackSchema(db) {
+  if (!feedbackReady.has(db)) {
+    feedbackReady.set(db, (async () => {
+      await ensureSchema(db); // schema_migrations and users exist
+      const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(FEEDBACK_MIGRATION.id).first();
+      if (done) return;
+      for (const s of split(FEEDBACK_MIGRATION.sql)) await db.prepare(s).run();
+      await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(FEEDBACK_MIGRATION.id, new Date().toISOString()).run();
+    })().catch((e) => { feedbackReady.delete(db); throw e; }));
+  }
+  return feedbackReady.get(db);
 }

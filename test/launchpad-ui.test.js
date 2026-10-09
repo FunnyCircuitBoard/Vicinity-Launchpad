@@ -270,7 +270,7 @@ test("with the switch off the page is today's: every pinned id and the pre-launc
   assert.equal((srcHtml.match(/<section/g) || []).length, 6, "one section was added to the five");
   const hiddenOnes = [...srcHtml.matchAll(/<[a-z]+ [^>]*?id="([a-z-]+)"[^>]*?\shidden(?=\s|>)/g)].map((m) => m[1]);
   assert.deepEqual(hiddenOnes, ["lp-coins", "lp-empty", "lp-retry"], "the section, the empty card and the retry button start hidden; nothing else gained the attribute");
-  assert.deepEqual([...html.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]), ["theme", "site", "launchpad"], "no new script file: nothing extra is requested");
+  assert.deepEqual([...html.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]), ["theme", "site", "launchpad", "feedback"], "no new script file for the list: nothing extra is requested (feedback.js is the site-wide widget, on every page)");
   // the script: the old parts come first and are intact, the new part asks /api/official (already fetched by site.js) and nothing else until the switch says on
   assert.ok(before.startsWith("// Launchpad page: live countdown to the opening, and an \"add to my calendar\" file.\n"));
   assert.ok(before.includes("official.then(tick); tick(); setInterval(tick, 1000);") && before.includes("// Founding Supporter snapshot: status, and any wallet's amount + Merkle proof."));

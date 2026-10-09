@@ -81,6 +81,7 @@ export class El extends Target {
   removeAttribute(k) { this.attrs.delete(k); }
   flag(k, on) { if (on) this.attrs.set(k, ""); else this.attrs.delete(k); }
   get id() { return this.getAttribute("id") || ""; }
+  set id(v) { this.setAttribute("id", String(v)); }
   get className() { return this.getAttribute("class") || ""; }
   set className(v) { this.setAttribute("class", v); }
   get classList() {
