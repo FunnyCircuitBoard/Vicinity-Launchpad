@@ -207,7 +207,7 @@
     window_closed: "That claim window is closed.",
   };
   const okMsg = (r, what) => { if (r && r.ok) { toast(`${what} ✓`); refresh(); } else toast(r && ERRORS[r.error] ? ERRORS[r.error] : `Failed: ${r && r.error ? r.error : "unknown"}`); };
-  const walletOf = (w) => (w && w.includes("*") ? w : short(w));
+  const walletOf = (w) => (!w ? "no wallet" : w.includes("*") ? w : short(w)); // an account may have no wallet yet (it links one from its dashboard)
 
   /* ---------- tab: overview ---------- */
   async function tabOverview(p) {
@@ -345,11 +345,12 @@
           td(tr, u.created_at ? ago(u.created_at) : "—");
           td(tr, u.banned ? "banned" : "—");
           const act = el("td");
-          if (can(2) && u.banned) act.append(btn("Unban", async () => { if (sure("Lift this ban?")) okMsg(await post("/api/admin/users/unban", { wallet: u.wallet }), "Unbanned"); }));
+          const who = u.wallet ? { wallet: u.wallet } : { userId: u.id }; // a member without a wallet is named by id
+          if (can(2) && u.banned) act.append(btn("Unban", async () => { if (sure("Lift this ban?")) okMsg(await post("/api/admin/users/unban", who), "Unbanned"); }));
           if (can(2) && !u.banned) act.append(btn("Ban", async () => {
             const reason = prompt(`Ban ${u.handle || "this user"} for 30 days? Reason:`, "spam");
             if (reason === null || !reason.trim()) return; // Cancel (or an empty reason) bans nobody
-            okMsg(await post("/api/admin/users/ban", { wallet: u.wallet, reason: reason.trim() }), "Banned");
+            okMsg(await post("/api/admin/users/ban", { ...who, reason: reason.trim() }), "Banned");
           }));
           tr.append(act);
         }));

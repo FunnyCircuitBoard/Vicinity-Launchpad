@@ -18,13 +18,14 @@ export const UA = {
 export const ADDR = "7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2";
 export const MESSAGE = "vicinity.test wants you to sign in with your Solana account:\n" + ADDR + "\n\nNonce: n1";
 
-/** States of GET /api/signup/state the tests need. */
+/** States of GET /api/signup/state the tests need (onboarding v3: two steps, no wallet). */
 export const STATE = {
-  wallet: () => ({ terms: { done: true, version: "2026-10-01" }, location: { done: true, community: { id: "5142056", name: "Utica", country: "US" } },
-    account: { done: true, provider: "google" }, wallet: { done: false }, next: "wallet" }),
-  finish: () => ({ ...STATE.wallet(), wallet: { done: true, address: "7Np4…T4K2" }, next: "finish" }),
-  empty: () => ({ terms: { done: false, version: "2026-10-01" }, location: { done: false }, account: { done: false }, wallet: { done: false }, next: "location" }),
+  empty: () => ({ terms: { done: false, version: "2026-10-01" }, location: { done: false }, account: { done: false }, next: "location" }),
+  account: () => ({ terms: { done: false, version: "2026-10-01" }, location: { done: true, community: { id: "5142056", name: "Utica", country: "US" } }, account: { done: false }, next: "account" }),
+  finish: () => ({ ...STATE.account(), terms: { done: true, version: "2026-10-01" }, account: { done: true, provider: "google" }, next: "finish" }),
 };
+/** /api/me of a member whose account has no wallet yet: the page lands in the link mode. */
+export const LINK_ME = { signedIn: true, user: { id: 12, handle: "SwiftHarbor10", name: "Sa", wallet: null, home: { id: "5142056", name: "Utica", country: "US" } }, fresh: true };
 
 /**
  * A Wallet Standard wallet. ctl.connect / ctl.sign: "ok" | "hang" (never answers) | "reject" (the person said no) | a function that
@@ -69,7 +70,7 @@ export function fakeWallet(name = "Phantom") {
  *                    (fetch throws, as with no connection), a promise = the answer waits until it resolves (a slow phone network)
  *   noSignupJs       true: /signup.js does not load (its <script> fails)
  */
-export async function openConnect({ ua = UA.desktop, search = "", api = async () => ({ ok: true }), me = {}, state = STATE.wallet(), storage = {}, session: sessionStore = {},
+export async function openConnect({ ua = UA.desktop, search = "", api = async () => ({ ok: true }), me = {}, state = STATE.empty(), storage = {}, session: sessionStore = {},
   agreed = "2026-10-01", geolocation, wallets = [], touchPoints, setup, net, noSignupJs = false } = {}) {
   const doc = new Doc();
   doc.append(...parse(doc, read("connect.html")));

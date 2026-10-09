@@ -159,7 +159,7 @@ test("active: verified holders and no founder yet; a founder or an open window c
   // where the ids come from: /api/members' per-city holders (members whose linked wallet holds $VICINITY; src/me.js leaves team wallets out)
   assert.match(js, /activeIds = new Set\(d\.communities\.filter\(\(c\) => c\.holders > 0\)\.map\(\(c\) => String\(c\.id\)\)\);/);
   const me = read("src/me.js");
-  assert.match(me, /if \(holders && \(balances\[u\.wallet\] \|\| 0\) > 0 && !isTeamWallet\(u\.wallet\)\) holders\.set\(u\.home_city/, "the server's count: a positive balance, never a team wallet");
+  assert.match(me, /if \(holders && u\.wallet && \(balances\[u\.wallet\] \|\| 0\) > 0 && !isTeamWallet\(u\.wallet\)\) holders\.set\(u\.home_city/, "the server's count: a linked wallet with a positive balance, never a team wallet (a member without a wallet still counts as a member)");
   assert.match(me, /communities: list\.map\(\(c\) => \(\{ \.\.\.c, holders: holders \? holders\.get\(c\.id\) \|\| 0 : null \}\)\)/, "null, unknown, while there is no balance sample (never 0)");
 });
 

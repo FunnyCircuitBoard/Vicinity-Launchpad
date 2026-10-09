@@ -101,7 +101,7 @@ async function communityCounts(env, cityIds, now) {
     if (!cityIds.has(id)) continue;
     const c = out.get(id) || { members: 0, holders: 0 };
     c.members++;
-    if (balances && (balances[u.wallet] || 0) > 0 && !isTeamWallet(u.wallet)) c.holders++;
+    if (balances && u.wallet && (balances[u.wallet] || 0) > 0 && !isTeamWallet(u.wallet)) c.holders++; // a member without a wallet is counted, never a holder
     out.set(id, c);
   }
   return out;

@@ -3,7 +3,7 @@
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { EMPTY, IN_NYC, IN_UTICA, V2, advance, browser, realClock, useClock, wallet } from "./helpers/world.js";
-import { doEmail, doLocation, doTerms, doWallet, dumpAll, finish, journey, member, one, outbox, pickCommunity, recordAnswers, rows, startSignup, stateOf } from "./helpers/signup.js";
+import { doEmail, doLocation, doTerms, dumpAll, finish, journey, member, one, outbox, pickCommunity, recordAnswers, rows, startSignup, stateOf } from "./helpers/signup.js";
 import { communityOf } from "../src/attest.js";
 import { locate } from "../src/community.js";
 
@@ -89,9 +89,8 @@ test("coordinates are in no response and in no row of the database, at any step"
   assert.deepEqual(done, { ok: true, city: "Utica", nearby: null });
   await b.post("/api/signup/location/handoff/claim", { code: h.code });
   await doTerms(b);
-  await doEmail(b, box, "coords@example.com");
-  await doWallet(b, await wallet());
-  await finish(b);
+  const made = await doEmail(b, box, "coords@example.com");
+  assert.equal(made.verify.isNew, true, JSON.stringify(made.verify));
   const everything = seen.join("\n") + phoneSeen.join("\n") + (await dumpAll(env.DB));
   for (const digits of ["43.1234567", "75.2345678", "1234567", "2345678", "31.5"]) assert.ok(!everything.includes(digits), digits);
 });
@@ -257,17 +256,23 @@ test("limits: 20 location checks an hour per sign-up and 60 per connection, coun
   assert.equal((await last.json()).error, "slow_down");
 });
 
-test("finish checks the location again: same network is fine; another operator, country, a VPN or a far-away connection clears ONLY the location", async () => {
-  const setup = async (cf = comcast(), point = IN_UTICA, pick = false) => {
-    const b = browser(env, { ip: "203.0.113.9", cf });
-    const j = await journey(b, box, { via: "email", point, until: "wallet" });
-    if (pick) assert.equal((await pickCommunity(b, j.location.choices[0].id)).ok, true);
-    return { b, j };
+test("the finish checks the location again: same network is fine; another operator, country, a VPN or a far-away connection clears ONLY the location", async () => {
+  // location, Terms and the e-mail typed from the home connection; the code (which makes the account) arrives from `cf`
+  let n = 0;
+  const setup = async () => {
+    const b = browser(env, { ip: "203.0.113.9", cf: comcast() });
+    const j = await journey(b, box, { via: "email", until: "terms" });
+    assert.equal(j.terms.ok, true);
+    const email = `recheck${++n}@example.com`;
+    assert.equal((await (await b.send("/api/signup/email", { method: "POST", body: { email, password: "correct horse battery staple" }, fetchImpl: box.fetch })).json()).ok, true);
+    return { b, email };
   };
+  const codeFrom = (b, email, cf) => b.send("/api/signup/email/verify", { method: "POST", body: { code: box.codeFor(email) }, fetchImpl: box.fetch, cf }).then((r) => r.json());
 
-  // the same connection: fine
-  let { b } = await setup();
-  assert.equal((await finish(b)).ok, true);
+  // the same connection: the account is made by the code itself
+  let { b, email } = await setup();
+  let made = await codeFrom(b, email, comcast());
+  assert.deepEqual([made.ok, made.isNew, made.next], [true, true, "/dashboard?welcome=1"], JSON.stringify(made));
 
   const attempts = {
     "another network operator": comcast({ asn: 701 }),
@@ -277,34 +282,35 @@ test("finish checks the location again: same network is fine; another operator, 
     "a connection 500+ km from the community": comcast({ latitude: 51.5, longitude: -0.12 }),
   };
   for (const [name, cf] of Object.entries(attempts)) {
-    ({ b } = await setup());
-    const before = await b.get("/api/signup/state");
-    assert.equal(before.state.next, "finish", name);
-    const r = await b.send("/api/signup/finish", { method: "POST", body: {}, cf });
-    assert.equal(r.status, 403, name);
-    assert.deepEqual(await r.json(), { ok: false, error: "location_unverified" }, name);
+    ({ b, email } = await setup());
+    const r = await codeFrom(b, email, cf);
+    assert.deepEqual([r.ok, r.existing, r.finishError], [true, false, "location_unverified"], name + " " + JSON.stringify(r));
     const s = await stateOf(b);
     assert.equal(s.location.done, false, name + ": the location is forgotten");
     assert.equal(s.terms.done, true, name + ": the Terms stay");
-    assert.equal(s.account.done, true, name + ": the account stays");
-    assert.equal(s.wallet.done, true, name + ": the proven wallet stays");
+    assert.equal(s.account.done, true, name + ": the account step stays (the mailbox is proven)");
     assert.equal(s.next, "location", name);
-    assert.equal((await b.get("/api/me")).pending.wallet.length > 20, true, name + ": still signed in with the wallet only");
+    assert.equal((await b.get("/api/me?lite=1")).signedIn, false, name + ": no account, nobody signed in");
+    // a retry from that connection is the same refusal, with the plain code
+    const again = await b.send("/api/signup/finish", { method: "POST", body: {}, cf });
+    assert.deepEqual([again.status, (await again.json()).error], [400, "location_required"], name + ": the location has to be redone first");
     // one tap to redo it from the real connection, then the account is made
     assert.equal((await doLocation(b)).ok, true, name);
     assert.equal((await finish(b)).ok, true, name);
+    assert.equal((await b.get("/api/me?lite=1")).signedIn, true, name);
   }
 });
 
 test("a community picked from the three nearest only needs the same network and country at the end (the person is not at its centre)", async () => {
   const b = browser(env, { ip: "203.0.113.9", cf: comcast() });
-  const j = await journey(b, box, { via: "email", point: EMPTY, until: "account" });
+  const j = await journey(b, box, { via: "email", point: EMPTY, until: "terms" });
   assert.equal(j.location.choices.length, 3);
   assert.equal((await pickCommunity(b, j.location.choices[0].id)).ok, true);
-  await doWallet(b, j.w);
+  const email = "picked@example.com";
+  assert.equal((await (await b.send("/api/signup/email", { method: "POST", body: { email, password: "correct horse battery staple" }, fetchImpl: box.fetch })).json()).ok, true);
   const far = comcast({ latitude: 48.0, longitude: -75.0 }); // the same operator, the geo-guess of the IP is far from every candidate
-  const r = await (await b.send("/api/signup/finish", { method: "POST", body: {}, cf: far })).json();
-  assert.equal(r.ok, true, JSON.stringify(r));
+  const r = await (await b.send("/api/signup/email/verify", { method: "POST", body: { code: box.codeFor(email) }, fetchImpl: box.fetch, cf: far })).json();
+  assert.equal(r.isNew, true, JSON.stringify(r));
 });
 
 test("communityOf is exactly what an attestation says (inside a community, and in empty land)", async () => {

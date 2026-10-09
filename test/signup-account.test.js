@@ -1,9 +1,10 @@
 // The account step: Terms before anything, e-mail + password (with the code), Google, and the closed doors of v2
-// (the old routes can only sign people in; an account is only ever made by finish).
+// (the old routes can only sign people in; an account is only ever made by the finish, which the account step runs itself the
+// moment the login is verified: onboarding v3, no wallet step).
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { V2, advance, browser, loginBody, realClock, useClock, wallet } from "./helpers/world.js";
-import { GOOD_PASSWORD, doEmail, doGoogle, doLocation, doTerms, doWallet, fakeGoogle, finish, journey, member, one, outbox, rows, startSignup, stateOf } from "./helpers/signup.js";
+import { GOOD_PASSWORD, doEmail, doGoogle, doLocation, doTerms, fakeGoogle, finish, journey, linkDirect, member, one, outbox, rows, startSignup, stateOf } from "./helpers/signup.js";
 import { slowDb } from "./helpers/slowdb.js";
 import { _stats, verifyPassword } from "../src/password.js";
 import { limitKey } from "../src/limits.js";
@@ -124,10 +125,12 @@ test("a code for one address can never finish another: a wrong address is refuse
   // Bob's code with Alice's address (typed or implied) is just a wrong code
   assert.equal((await (await verify(a, { email: "alice@example.com", code: codeB })).json()).error, "code_wrong");
   assert.equal((await (await verify(a, { code: codeB })).json()).error, "code_wrong");
-  // Alice's own code was not burned by any of that, Bob's is still his
-  assert.equal((await (await verify(a, { code: codeA })).json()).ok, true);
+  // Alice's own code was not burned by any of that, Bob's is still his: each verified mailbox makes its account on the spot
+  const madeA = await (await verify(a, { code: codeA })).json();
+  assert.deepEqual([madeA.ok, madeA.isNew, madeA.next], [true, true, "/dashboard?welcome=1"], JSON.stringify(madeA));
   assert.equal((await (await verify(other, { code: codeB })).json()).ok, true);
-  assert.equal((await stateOf(a)).account.provider, "email");
+  assert.deepEqual((await rows(env.DB, "SELECT provider, provider_id FROM users ORDER BY id")).map((u) => [u.provider, u.provider_id]), [["email", "alice@example.com"], ["email", "bob@example.com"]]);
+  assert.equal((await a.get("/api/me?lite=1")).signedIn, true);
   // a sign-up with no address typed has nothing to verify
   const none = await ready();
   assert.equal((await (await verify(none, { code: "123456" })).json()).error, "email_mismatch");
@@ -164,39 +167,41 @@ test("two parallel requests with the right code: exactly one wins", async () => 
   assert.equal(answers.filter((a) => a.ok).length, 1, JSON.stringify(answers));
   // the others find the code already used up (or, being a sixth guess at a live code, are turned away)
   assert.ok(answers.filter((a) => !a.ok).every((a) => ["code_expired", "too_many"].includes(a.error)), JSON.stringify(answers));
-  assert.equal((await stateOf(b)).account.done, true);
+  assert.equal(await count("users"), 1, "the winner's mailbox made exactly one account");
+  assert.equal((await b.get("/api/me?lite=1")).signedIn, true);
 });
 
-test("changing the e-mail forgets the verified one, and only the LAST password typed is the one the account gets", async () => {
+test("changing the e-mail before the code forgets the earlier address, and only the LAST password typed is the one the account gets", async () => {
   const b = await ready();
   await typed(b, { email: "first@example.com", password: "first password here" });
-  await verify(b, { code: box.codeFor("first@example.com") });
-  assert.equal((await stateOf(b)).account.done, true);
+  let s = await stateOf(b);
+  assert.deepEqual(s.account, { done: false, pending: { email: "f***@example.com" } });
 
   await typed(b, { email: "second@example.com", password: "second password here" });
-  let s = await stateOf(b);
-  assert.deepEqual(s.account, { done: false, pending: { email: "s***@example.com" } }, "the earlier identity is void");
+  s = await stateOf(b);
+  assert.deepEqual(s.account, { done: false, pending: { email: "s***@example.com" } }, "the earlier address is void");
   assert.equal(s.next, "account");
   // the first address' code no longer belongs to this sign-up
   assert.equal((await (await verify(b, { email: "first@example.com", code: box.codeFor("first@example.com") })).json()).error, "email_mismatch");
-  assert.equal((await (await verify(b, { code: box.codeFor("second@example.com") })).json()).ok, true);
 
-  // typing the same address again later (after the minute) and a new password: the new one is kept
+  // typing the same address again (after the minute) with a new password: the new one is kept, and the code makes the account
   advance(61_000);
   await typed(b, { email: "second@example.com", password: "third password here" });
-  await verify(b, { code: box.codeFor("second@example.com") });
-  await doWallet(b, await wallet());
-  assert.equal((await finish(b)).ok, true);
-  const u = await one(env.DB, "SELECT provider_id, password_hash FROM users");
+  const made = await (await verify(b, { code: box.codeFor("second@example.com") })).json();
+  assert.equal(made.ok, true, JSON.stringify(made));
+  assert.equal(made.isNew, true);
+  const u = await one(env.DB, "SELECT provider_id, password_hash, wallet FROM users");
   assert.equal(u.provider_id, "second@example.com");
+  assert.equal(u.wallet, null, "no wallet: it is linked later, from the dashboard");
   assert.equal((await verifyPassword(env, u.password_hash, "third password here")).ok, true);
   assert.equal((await verifyPassword(env, u.password_hash, "second password here")).ok, false);
+  assert.equal(await count("users"), 1);
 });
 
-test("the person can forget the account step and choose again (the Terms and the community stay)", async () => {
+test("the person can forget the account step (an e-mail typed, no code yet) and choose again (the Terms and the community stay)", async () => {
   const b = await ready();
-  await doEmail(b, box, "undecided@example.com");
-  assert.equal((await stateOf(b)).account.done, true);
+  await doEmail(b, box, "undecided@example.com", { verify: false });
+  assert.deepEqual((await stateOf(b)).account, { done: false, pending: { email: "u***@example.com" } });
   const r = await b.post("/api/signup/account/reset");
   assert.equal(r.ok, true);
   assert.deepEqual(r.state.account, { done: false });
@@ -204,14 +209,17 @@ test("the person can forget the account step and choose again (the Terms and the
   assert.equal(r.state.location.done, true);
   assert.deepEqual({ ...await one(env.DB, "SELECT provider, provider_id, identity_name, identity_at, pending_email, pending_pw_hash FROM signups") },
     { provider: null, provider_id: null, identity_name: null, identity_at: null, pending_email: null, pending_pw_hash: null });
+  // Google instead: the callback records the login and makes the account in the same request
   const g = await doGoogle(b, "changed-my-mind");
-  assert.equal(g.to, "/connect?step=wallet");
-  assert.equal((await stateOf(b)).account.provider, "google");
+  assert.equal(g.to, "/dashboard?welcome=1");
+  assert.deepEqual({ ...await one(env.DB, "SELECT provider, provider_id, password_hash FROM users") }, { provider: "google", provider_id: "changed-my-mind", password_hash: null });
   assert.equal((await browser(env).send("/api/signup/account/reset", { method: "POST", body: {} })).status, 401, "needs a sign-up");
+  // the typed e-mail's code is worth nothing to anyone now
+  assert.equal(await count("signups"), 0);
 });
 
 test("an address that is already an account signs that person in, ignores the typed password, and ends the sign-up", async () => {
-  const mem = await member(env, box, { via: "email", email: "back@example.com" });
+  const mem = await linkDirect(env, await member(env, box, { via: "email", email: "back@example.com" }));
   const hashBefore = (await one(env.DB, "SELECT password_hash FROM users")).password_hash;
   const b = await ready();
   const res = await typed(b, { email: "back@example.com", password: "a completely different one" });
@@ -229,7 +237,7 @@ test("an address that is already an account signs that person in, ignores the ty
   assert.equal(await count("users"), 1);
 });
 
-test("Google: a known id signs in, a new id is only recorded (no account), and the first name is what the account will carry", async () => {
+test("Google: a known id signs in; a new id makes the account in the callback itself, with the first name, and lands on the welcome", async () => {
   await member(env, box, { via: "google", sub: "known-sub" });
   const users = await count("users");
   const b = await ready();
@@ -237,42 +245,50 @@ test("Google: a known id signs in, a new id is only recorded (no account), and t
   assert.equal(known.to, "/dashboard");
   assert.equal(known.cb.headers.getSetCookie().some((c) => c.startsWith("vs=") && !/Max-Age=0/.test(c)), true);
   assert.equal(await count("users"), users);
+  assert.equal(await count("signups"), 0, "the half-done sign-up that signed in as a member is gone");
 
   const c = await ready();
   const fresh = await doGoogle(c, "fresh-sub", { name: "Fiona" });
-  assert.equal(fresh.to, "/connect?step=wallet");
-  assert.equal(await count("users"), users, "recording a new Google login creates nobody");
-  assert.deepEqual({ ...await one(env.DB, "SELECT provider, provider_id, identity_name FROM signups") }, { provider: "google", provider_id: "fresh-sub", identity_name: "Fiona" });
+  assert.equal(fresh.to, "/dashboard?welcome=1");
+  const names = fresh.cb.headers.getSetCookie().map((x) => x.split("=")[0]);
+  assert.deepEqual(names, ["vo", "vs", "vsu"], "the OAuth cookie cleared, the 30-day session set, the sign-up cookie cleared");
+  assert.match(fresh.cb.headers.getSetCookie()[1], /^vs=[A-Za-z0-9_-]{43}; .*Max-Age=2592000$/);
+  assert.match(fresh.cb.headers.getSetCookie()[2], /^vsu=; .*Max-Age=0$/);
+  assert.equal(await count("users"), users + 1, "the account exists the moment Google answered");
+  assert.deepEqual({ ...await one(env.DB, "SELECT provider, provider_id, name, wallet, home_name FROM users WHERE provider_id = 'fresh-sub'") },
+    { provider: "google", provider_id: "fresh-sub", name: "Fiona", wallet: null, home_name: "Utica" });
+  assert.equal((await c.get("/api/me?lite=1")).signedIn, true);
+  assert.equal(await count("signups"), 0);
 });
 
-test("S1: with v2 on the OLD e-mail route can only sign people in. An unknown address with a proven wallet creates no account", async () => {
-  const b = browser(env), w = await wallet();
-  await doWallet(b, w);
+test("S1: with v2 on the OLD e-mail route can only sign people in. An unknown address creates no account", async () => {
+  const b = browser(env);
   await b.send("/api/auth/email/start", { method: "POST", body: { email: "sneaky@example.com" }, fetchImpl: box.fetch });
   const r = await b.send("/api/auth/email/verify", { method: "POST", body: { email: "sneaky@example.com", code: box.codeFor("sneaky@example.com") }, fetchImpl: box.fetch });
   assert.equal(r.status, 400);
   assert.deepEqual(await r.json(), { ok: false, error: "no_account" });
   assert.equal(await count("users"), 0, "no account without the Terms and the location");
-  assert.equal((await b.get("/api/me")).pending.wallet, w.address, "the wallet is still proven");
-  // and nobody without a wallet gets anything either
-  const c = browser(env);
-  await c.send("/api/auth/email/start", { method: "POST", body: { email: "nowallet@example.com" }, fetchImpl: box.fetch });
-  const r2 = await c.send("/api/auth/email/verify", { method: "POST", body: { email: "nowallet@example.com", code: box.codeFor("nowallet@example.com") }, fetchImpl: box.fetch });
+  assert.equal((await b.get("/api/me?lite=1")).signedIn, false);
+  // the same with a half-done sign-up open in the browser: the OLD route still makes nothing of it
+  const c = await ready();
+  await c.send("/api/auth/email/start", { method: "POST", body: { email: "halfway@example.com" }, fetchImpl: box.fetch });
+  const r2 = await c.send("/api/auth/email/verify", { method: "POST", body: { email: "halfway@example.com", code: box.codeFor("halfway@example.com") }, fetchImpl: box.fetch });
   assert.equal((await r2.json()).error, "no_account", "no 'connect your wallet first' text in v2");
+  assert.equal(await count("users"), 0);
+  assert.equal((await stateOf(c)).account.done, false, "and the sign-up did not record the address either");
 });
 
 test("S1: the Google callback without the sign-up marker only signs in, and a forged marker needs a live sign-up with the Terms", async () => {
-  const b = browser(env), w = await wallet();
-  await doWallet(b, w);
+  const b = browser(env);
   const start = await b.send("/api/auth/google/start");
   const state = new URL(start.headers.get("location")).searchParams.get("state");
   const cb = await b.send(`/api/auth/google/callback?code=c&state=${state}`, { fetchImpl: fakeGoogle("sneaky-sub") });
   assert.equal(cb.headers.get("location"), "/connect?error=no_account");
   assert.equal(await count("users"), 0);
+  assert.ok(!b.has("vsu"), "and no sign-up was made out of it");
 
   // forge the marker: no sign-up at all -> expired, nothing recorded
   const f = browser(env);
-  await doWallet(f, await wallet());
   const s2 = await f.send("/api/auth/google/start");
   const st2 = new URL(s2.headers.get("location")).searchParams.get("state");
   f.jar.set("vo", f.jar.get("vo") + ".s");
@@ -290,6 +306,7 @@ test("S1: the Google callback without the sign-up marker only signs in, and a fo
   const cb3 = await g.send(`/api/auth/google/callback?code=c&state=${st3}`, { fetchImpl: fakeGoogle("forged-2") });
   assert.equal(cb3.headers.get("location"), "/connect?error=terms_required");
   assert.equal((await stateOf(g)).account.done, false);
+  assert.equal(await count("users"), 0);
 });
 
 test("Google callback problems come back as /connect?error=: cancelled, bad state, a Google that fails", async () => {
@@ -306,45 +323,47 @@ test("Google callback problems come back as /connect?error=: cancelled, bad stat
   assert.equal((await stateOf(b)).account.done, false);
 });
 
-test("a login that belongs to another wallet is social_taken, whichever way it comes in (Google or e-mail), and nothing changes", async () => {
+test("a login that already has an account signs that person in (Google and e-mail alike), and a login whose account appears before the finish is social_taken", async () => {
   await member(env, box, { via: "google", sub: "owned-sub" });
   await member(env, box, { via: "email", email: "owned@example.com" });
-  const b = browser(env), w2 = await wallet();
+  const b = browser(env);
   await startSignup(b);
   await doLocation(b);
   await doTerms(b);
-  await doWallet(b, w2);
-
+  // the known logins sign in (linkIdentity finds the account): that is the "I already have an account" way through New here
   const g = await doGoogle(b, "owned-sub");
-  assert.equal(g.to, "/connect?error=social_taken");
-  await typed(b, { email: "owned@example.com", password: GOOD_PASSWORD });
-  const r = await verify(b, { code: box.codeFor("owned@example.com") });
-  assert.equal(r.status, 409);
-  assert.equal((await r.json()).error, "social_taken");
+  assert.equal(g.to, "/dashboard");
   assert.equal(await count("users"), 2);
-  assert.equal((await b.get("/api/me")).pending.wallet, w2.address, "the proven wallet is untouched");
-  assert.ok(b.has("vsu"), "so is the sign-up");
-});
-
-test("a wallet that got its account while this sign-up was open is wallet_taken for Google and e-mail alike", async () => {
-  const w = await wallet();
-  const slow = browser(env);
-  await startSignup(slow);
-  await doLocation(slow);
-  await doTerms(slow);
-  await doWallet(slow, w);
-  // somebody finishes an account for the same wallet in another browser
-  const fast = browser(env);
-  await journey(fast, box, { via: "email", w });
-  assert.equal(await count("users"), 1);
-
-  const g = await doGoogle(slow, "late-google");
-  assert.equal(g.to, "/connect?error=wallet_taken");
-  await typed(slow, { email: "late@example.com", password: GOOD_PASSWORD });
-  const r = await verify(slow, { code: box.codeFor("late@example.com") });
-  assert.equal(r.status, 409);
-  assert.equal((await r.json()).error, "wallet_taken");
-  assert.equal(await count("users"), 1);
+  assert.equal(await count("signups"), 0, "the sign-up is ended by the sign-in");
+  const e = browser(env);
+  await startSignup(e);
+  await doLocation(e);
+  await doTerms(e);
+  await typed(e, { email: "owned@example.com", password: GOOD_PASSWORD });
+  const known = await verify(e, { code: box.codeFor("owned@example.com") });
+  assert.deepEqual(await known.json(), { ok: true, existing: true, isNew: false, next: "/dashboard" });
+  assert.ok(known.headers.getSetCookie().some((c) => c.startsWith("vs=") && !/Max-Age=0/.test(c)), "signed in");
+  assert.equal(await count("users"), 2);
+  // social_taken proper: the login was recorded on the sign-up (its finish did not go through, say the network moved) and the
+  // account for that identity appears before the finish is tried again: the transaction refuses, nothing is created
+  const c = browser(env);
+  await startSignup(c);
+  await doLocation(c);
+  await doTerms(c);
+  await env.DB.prepare("UPDATE signups SET provider = 'email', provider_id = 'racer@example.com', identity_name = 'Racer', identity_at = loc_at WHERE provider IS NULL").run();
+  assert.equal((await stateOf(c)).account.done, true);
+  await env.DB.prepare("INSERT INTO users (wallet, provider, provider_id, handle, created_at) VALUES (NULL, 'email', 'racer@example.com', 'Racer9', ?)").bind(new Date(Date.now()).toISOString()).run();
+  const fin = await c.send("/api/signup/finish", { method: "POST", body: {} });
+  assert.deepEqual([fin.status, (await fin.json()).error], [409, "social_taken"]);
+  assert.equal(await count("users"), 3, "nothing was created for the racer");
+  assert.ok(c.has("vsu"), "the sign-up stays, so the page can offer another login");
+  assert.equal((await c.get("/api/me?lite=1")).signedIn, false);
+  // another login on the same sign-up goes through (the account step records over the taken one)
+  await typed(c, { email: "racer2@example.com", password: GOOD_PASSWORD });
+  const r = await verify(c, { code: box.codeFor("racer2@example.com") });
+  const body = await r.json();
+  assert.deepEqual([r.status, body.ok, body.isNew, body.next], [200, true, true, "/dashboard?welcome=1"], JSON.stringify(body));
+  assert.equal(await count("users"), 4);
 });
 
 test("sending the code is limited: once a minute per address, five a sign-up an hour, and a failed mail gives the slot back", async () => {

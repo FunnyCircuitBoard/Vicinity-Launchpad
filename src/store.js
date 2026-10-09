@@ -822,6 +822,101 @@ export function ensureLimitsSchema(db) {
 }
 
 /**
+ * Onboarding v3 (src/signup.js, src/walletlink.js): accounts without a wallet. Like the lazy migrations above, deliberately NOT in
+ * MIGRATIONS: it runs only on the first sign-up or wallet-link request (SIGNUP_FLOW=v2), so with the switch off no statement here
+ * ever touches the database, and a failure here can only break the new sign-up and the wallet link (callers answer 503
+ * signup_unavailable). It is in two parts:
+ *   A. two nullable columns on pairs (purpose: 'login' | 'link', user_id): plain ALTERs, "duplicate column" ignored. Old rows read as
+ *      login pairs.
+ *   B. users.wallet becomes nullable. SQLite cannot drop a NOT NULL constraint in place, so the table is rebuilt ONCE, in ONE D1 batch
+ *      (= one transaction): the same CREATE TABLE text with `wallet TEXT UNIQUE` instead of `wallet TEXT NOT NULL UNIQUE`, every row
+ *      and every id copied (and the AUTOINCREMENT counter carried over, so no id a deleted account once had is ever given out again:
+ *      old sessions and posts keep pointing at nobody), the old table dropped, the new one renamed, the three indexes made again
+ *      (users_home, users_country, users_handle_unique: nothing else references users, no trigger, no view, no foreign key), and the
+ *      migration recorded. A failure anywhere leaves the old table exactly as it was and nothing recorded, so the next request tries
+ *      again. The live users table is read from sqlite_master and must have exactly the shape this expects (wallet TEXT NOT NULL
+ *      UNIQUE), else nothing is touched and the error says so: this never guesses. SCHEMA's CREATE TABLE IF NOT EXISTS users on the
+ *      next cold start is a no-op (the table exists), so wallet stays nullable.
+ * Switching back to v1 needs no schema change: v1 always writes a wallet.
+ */
+export const ONBOARD_MIGRATION = {
+  id: "2026-10-09-wallet-optional",
+  pairs: ["ALTER TABLE pairs ADD COLUMN purpose TEXT", "ALTER TABLE pairs ADD COLUMN user_id INTEGER"],
+  /** The exact piece of the live CREATE TABLE users that changes (and must be there). */
+  walletRe: /\bwallet\s+TEXT\s+NOT NULL\s+UNIQUE\b/,
+  indexes: [
+    "CREATE INDEX IF NOT EXISTS users_home ON users (home_city)",
+    "CREATE INDEX IF NOT EXISTS users_country ON users (home_country)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users (lower(handle)) WHERE handle IS NOT NULL",
+  ],
+};
+
+const onboardReady = new WeakMap();
+const isDuplicateColumn = (e) => /duplicate column/i.test(String(e && e.message ? e.message : e));
+
+/** The statements of part B for a users table whose CREATE TABLE text is `sql` and whose columns are `cols` (in order). Exported for the test. */
+export function walletOptionalStatements(sql, cols, now) {
+  const RE = ONBOARD_MIGRATION.walletRe;
+  if (!/^CREATE TABLE (IF NOT EXISTS )?["`]?users["`]?\b/.test(sql) || !RE.test(sql)) throw new Error("unexpected users shape");
+  const createNew = sql.replace(/^CREATE TABLE (IF NOT EXISTS )?["`]?users["`]?\b/, "CREATE TABLE users_new").replace(RE, "wallet TEXT UNIQUE");
+  const list = cols.join(", ");
+  return [
+    createNew,
+    `INSERT INTO users_new (${list}) SELECT ${list} FROM users`,
+    // the AUTOINCREMENT counter goes with the rows: an id that was handed out once (and deleted since) is never handed out again
+    "INSERT INTO sqlite_sequence (name, seq) SELECT 'users_new', s.seq FROM sqlite_sequence s WHERE s.name = 'users' AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'users_new')",
+    "UPDATE sqlite_sequence SET seq = (SELECT MAX(seq) FROM sqlite_sequence WHERE name IN ('users', 'users_new')) WHERE name = 'users_new'",
+    "DROP TABLE users",
+    "ALTER TABLE users_new RENAME TO users",
+    ...ONBOARD_MIGRATION.indexes,
+    { sql: "INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)", params: [ONBOARD_MIGRATION.id, now] },
+  ];
+}
+
+async function onboardMigrate(db) {
+  await ensureSignupSchema(db); // users.password_hash and handoffs.signup_id exist, and schema_migrations
+  const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(ONBOARD_MIGRATION.id).first();
+  if (done) return;
+  // A. pairs: purpose and user_id (safe to repeat, and from two servers at once)
+  for (const s of ONBOARD_MIGRATION.pairs) {
+    try { await db.prepare(s).run(); }
+    catch (e) { if (!isDuplicateColumn(e)) throw e; }
+  }
+  // B. users.wallet nullable
+  const now = new Date().toISOString();
+  const info = (await db.prepare("PRAGMA table_info(users)").all()).results;
+  const walletCol = info.find((c) => c.name === "wallet");
+  if (!walletCol) throw new Error("unexpected users shape");
+  if (Number(walletCol.notnull) === 0) { // already nullable (a fresh database after a later SCHEMA change, or a re-run): only the record was missing
+    await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(ONBOARD_MIGRATION.id, now).run();
+    return;
+  }
+  const row = await db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").first();
+  const before = Number((await db.prepare("SELECT COUNT(*) AS n FROM users").first()).n);
+  const statements = walletOptionalStatements(String(row && row.sql ? row.sql : ""), info.map((c) => c.name), now);
+  await db.batch(statements.map((s) => (typeof s === "string" ? db.prepare(s) : db.prepare(s.sql).bind(...s.params))));
+  // Advisory (the batch has committed and is recorded): a mismatch here means a human must look, so it is loud.
+  const after = (await db.prepare("PRAGMA table_info(users)").all()).results.find((c) => c.name === "wallet");
+  const count = Number((await db.prepare("SELECT COUNT(*) AS n FROM users").first()).n);
+  if (!after || Number(after.notnull) !== 0 || count !== before) {
+    const msg = `users rebuilt but the check failed: wallet notnull=${after ? after.notnull : "?"} rows before=${before} after=${count}`;
+    console.error("ONBOARD MIGRATION CHECK FAILED", msg);
+    throw new Error(msg);
+  }
+  console.log("users rebuilt: wallet optional", `rows=${count}`);
+}
+
+/**
+ * Create the onboarding v3 schema (pairs.purpose/user_id, users.wallet nullable) the first time a v2 sign-up or wallet-link route needs
+ * it (safe to repeat, and to run from two servers at once: a second rebuild finds the migration recorded or wallet already nullable).
+ * Rejects on any other failure and forgets that it tried, so the next request retries. Callers answer 503 signup_unavailable.
+ */
+export function ensureOnboardSchema(db) {
+  if (!onboardReady.has(db)) onboardReady.set(db, onboardMigrate(db).catch((e) => { onboardReady.delete(db); throw e; }));
+  return onboardReady.get(db);
+}
+
+/**
  * The "Feedback / Support" widget (src/feedback.js, the admin console's Inbox in src/admin.js). Like the others, deliberately NOT
  * in MIGRATIONS: the table is made the first time a message is sent or the Inbox is opened (ensureFeedbackSchema), so nothing
  * runs on every request and a failure here can only make the widget and the Inbox say "unavailable". Safe to repeat. Same rule:

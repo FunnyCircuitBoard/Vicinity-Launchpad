@@ -39,7 +39,7 @@ test("dashboard before launch: early member, verified, local; the founder path w
   assert.equal(me.signedIn, true);
   assert.equal(me.launched, false);
   assert.equal(me.level, "member");
-  assert.deepEqual(me.badges.filter((b) => b.earned).map((b) => b.id), ["early", "verified", "local"]);
+  assert.deepEqual(me.badges.filter((b) => b.earned).map((b) => b.id), ["early", "verified", "wallet", "local"]);
   assert.equal(me.community.name, "Utica");
   assert.equal(me.community.ticker, "UTICA", "the server hands the dashboard the one official ticker");
   assert.equal(me.community.members, 1);

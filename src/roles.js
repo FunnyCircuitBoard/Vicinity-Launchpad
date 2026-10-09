@@ -42,8 +42,9 @@ export async function managerOf(env, cc, now = Date.now()) {
  */
 export async function powersOf(env, user, fetchImpl = fetch, now = Date.now()) {
   const launched = Boolean(activeMint(env));
-  const admin = adminWallets(env).includes(user.wallet);
-  const amount = launched ? (await amountsFor(env, [user.wallet], fetchImpl)).get(user.wallet) || 0 : 0;
+  // an account without a wallet (onboarding v3) holds nothing and is nobody's admin: no blockchain look for it
+  const admin = Boolean(user.wallet) && adminWallets(env).includes(user.wallet);
+  const amount = launched && user.wallet ? (await amountsFor(env, [user.wallet], fetchImpl)).get(user.wallet) || 0 : 0;
   const seat = await liveSeatOfUser(env.DB, user.id);
   const founderCity = seat && (seat.status === "active" || seat.status === "steward") ? seat.city_id : null;
   let managerCountry = null;

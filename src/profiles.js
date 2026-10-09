@@ -67,7 +67,7 @@ async function member(request, env, now, { write, tables = true }) {
 /** Level and badges as the Vicinity pass computes them, from the viewed member's own data. */
 async function standing(env, m, { launched, position, amount, now }) {
   const db = env.DB;
-  const admin = adminWallets(env).includes(m.wallet);
+  const admin = Boolean(m.wallet) && adminWallets(env).includes(m.wallet);
   const seat = await liveSeatOfUser(db, m.id);
   const mgr = seat && seat.status === "active" ? await managerOf(env, seat.country, now) : null;
   const isManager = Boolean(mgr && mgr.userId === m.id);
@@ -110,9 +110,10 @@ async function handleProfile(request, env, x) {
   }
   if (!m) return notFound();
 
-  const mint = activeMint(env), launched = Boolean(mint);
+  // a member without a wallet (onboarding v3) holds nothing: no blockchain look, holding and portfolio are null, walletLinked says why
+  const mint = activeMint(env), launched = Boolean(mint) && Boolean(m.wallet);
   const snapP = launched ? holderSnapshot(env, mint, x.fetchImpl).catch(() => null) : Promise.resolve(null);
-  const portP = portfolioOf(env, m.wallet, { fetchImpl: x.fetchImpl, now });
+  const portP = m.wallet ? portfolioOf(env, m.wallet, { fetchImpl: x.fetchImpl, now }) : Promise.resolve(null);
   const [counts, rel, posts, snap] = await Promise.all([
     countsOf(db, m.id, now),
     db.prepare(`SELECT EXISTS(SELECT 1 FROM follows WHERE follower_id = ?1 AND followee_id = ?2) AS following,
@@ -133,10 +134,10 @@ async function handleProfile(request, env, x) {
       catch { holding = null; }
     }
   }
-  const { level, badges } = await standing(env, m, { launched, position, amount, now });
+  const { level, badges } = await standing(env, m, { launched: Boolean(mint), position, amount, now });
   return json({ ok: true, profile: {
     handle: m.handle, since: m.created_at, level, badges, home: m.home_city ? { id: m.home_city, name: m.home_name, country: m.home_country } : null,
-    bio: m.bio || "", wallet: m.wallet, holding, portfolio: await portP, counts, posts,
+    bio: m.bio || "", wallet: m.wallet || null, walletLinked: Boolean(m.wallet), holding, portfolio: await portP, counts, posts,
     // blockedBy is always false: a member who was blocked is never told (a follow is simply refused with cannot_follow)
     viewer: { self: m.id === u.id, following: Boolean(rel?.following), followedBy: Boolean(rel?.followed_by), blocked: Boolean(rel?.blocked), blockedBy: false },
   } });

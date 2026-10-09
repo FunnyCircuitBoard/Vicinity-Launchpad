@@ -71,10 +71,12 @@ export class El extends Target {
     this.attrs = new Map();
     this.childNodes = [];
     this.parentNode = null;
-    this.style = { setProperty() {} };
+    // inline styles a script sets (el.style.width, el.style.setProperty("--x", v)): remembered so a test can read them back
+    this.style = Object.create({ setProperty(k, v) { this[k] = String(v); }, getPropertyValue(k) { return this[k] === undefined ? "" : this[k]; }, removeProperty(k) { delete this[k]; } });
   }
   get children() { return this.childNodes.filter((n) => n instanceof El); }
   get firstElementChild() { return this.children[0] || null; }
+  get lastElementChild() { const c = this.children; return c[c.length - 1] || null; }
   getAttribute(k) { return this.attrs.has(k) ? this.attrs.get(k) : null; }
   setAttribute(k, v) { this.attrs.set(k.toLowerCase(), String(v)); }
   hasAttribute(k) { return this.attrs.has(k); }
@@ -93,6 +95,16 @@ export class El extends Target {
       toggle: (c, on = !list().includes(c)) => { set(on ? [...new Set([...list(), c])] : list().filter((x) => x !== c)); return on; },
     };
   }
+  // attributes a script sets as properties (a.href = "#home", input.placeholder = "..."): kept as the attribute, like a browser does
+  get href() { return this.getAttribute("href") || ""; }
+  set href(v) { this.setAttribute("href", String(v)); }
+  get placeholder() { return this.getAttribute("placeholder") || ""; }
+  set placeholder(v) { this.setAttribute("placeholder", String(v)); }
+  // form controls: a value and a checked state a script sets, else what the markup says ("" / unchecked)
+  get value() { return this._value !== undefined ? this._value : this.getAttribute("value") || ""; }
+  set value(v) { this._value = String(v); }
+  get checked() { return this._checked !== undefined ? this._checked : this.hasAttribute("checked"); }
+  set checked(v) { this._checked = Boolean(v); }
   get hidden() { return this.hasAttribute("hidden"); }
   set hidden(v) { this.flag("hidden", v); }
   get inert() { return this.hasAttribute("inert"); }
@@ -133,9 +145,14 @@ export class El extends Target {
     node.parentNode = p;
     p.childNodes.splice(p.childNodes.indexOf(this) + 1, 0, node);
   }
+  matches(selector) { return selectorList(selector)(this); }
   closest(selector) { const test = selectorList(selector); for (let x = this; x && x instanceof El && !(x instanceof Doc); x = x.parentNode) if (test(x)) return x; return null; }
   /** No layout here: every element reads as at the top of the screen with no size; scrollIntoView is recorded on the document. */
   getBoundingClientRect() { return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }; }
+  // no layout here: a scroller is never scrollable and nothing has a size
+  scrollTo() {}
+  get scrollLeft() { return 0; } set scrollLeft(v) { /* no layout */ }
+  get scrollWidth() { return 0; } get clientWidth() { return 0; } get offsetHeight() { return 0; } get offsetWidth() { return 0; }
   scrollIntoView(opts) { (this.ownerDocument.scrolled ||= []).push({ el: this, opts }); }
   get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n === this.ownerDocument; }
   contains(n) { for (let x = n; x; x = x.parentNode) if (x === this) return true; return false; }
@@ -147,7 +164,11 @@ export class El extends Target {
   }
   /** Every element under this one, in document order. */
   descendants() { const out = []; const walk = (e) => { for (const c of e.children) { out.push(c); walk(c); } }; walk(this); return out; }
-  querySelectorAll(selector) { const test = selectorList(selector); return this.descendants().filter(test); }
+  querySelectorAll(selector) {
+    const scoped = selector.match(/^:scope\s*>\s*(.+)$/); // ":scope > x": the element's own children (the one form the pages use)
+    if (scoped) { const test = selectorList(scoped[1]); return this.children.filter(test); }
+    const test = selectorList(selector); return this.descendants().filter(test);
+  }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   dispatchEvent(ev) { return dispatch(this, ev, this.ownerDocument.defaultView); }
   focus() { this.ownerDocument.moveFocus(this); }
@@ -201,13 +222,20 @@ function compound(src) {
   }
   return (e) => e instanceof El && !(e instanceof Doc) && tests.every((t) => t(e));
 }
+/** A compound selector list joined by the descendant (space) or the child (>) combinator. */
 function complex(src) {
-  const parts = src.trim().split(/\s+/).map(compound);
+  const toks = src.trim().split(/(\s*>\s*|\s+)/);
+  const parts = [], combs = []; // combs[i]: how parts[i] relates to parts[i + 1]
+  toks.forEach((t, i) => { if (i % 2 === 0) parts.push(compound(t)); else combs.push(t.includes(">") ? ">" : " "); });
   return (e) => {
     if (!parts[parts.length - 1](e)) return false;
-    let i = parts.length - 2;
-    for (let x = e.parentNode; x && i >= 0; x = x.parentNode) if (parts[i](x)) i--;
-    return i < 0;
+    let i = parts.length - 2, x = e.parentNode;
+    while (i >= 0) {
+      if (combs[i] === ">") { if (!(x && parts[i](x))) return false; }
+      else { while (x && !parts[i](x)) x = x.parentNode; if (!x) return false; }
+      x = x.parentNode; i--;
+    }
+    return true;
   };
 }
 const selectorList = (s) => { const all = s.split(",").map(complex); return (e) => all.some((t) => t(e)); };

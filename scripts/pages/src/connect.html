@@ -1,4 +1,4 @@
-<!--{"title": "Connect", "description": "Connect any Solana wallet, sign in with Google or e-mail, and get your Vicinity dashboard: live rank, your city, your people.", "page": "connect", "scripts": ["vendor/qrcode", "wallets", "connect"]}-->
+<!--{"title": "Connect", "description": "Join Vicinity in two quick steps: where you are, then who you are. Your dashboard opens right after; link a Solana wallet there whenever you like.", "page": "connect", "scripts": ["vendor/qrcode", "wallets", "connect"], "styles": ["onboard"]}-->
     <section class="connect">
       <div class="wrap connect__grid">
         <div class="connect__intro">
@@ -24,10 +24,11 @@
               <button class="su-tab" type="button" id="tab-new" aria-pressed="true">New here</button>
               <button class="su-tab" type="button" id="tab-login" aria-pressed="false">Log in</button>
             </div>
-            <ol class="stepper stepper--bar" id="su-steps" aria-label="Sign-up steps">
+            <!-- two steps; the wallet is not one of them (it comes later, from the dashboard): a muted chip says so -->
+            <ol class="stepper stepper--bar stepper--two" id="su-steps" aria-label="Sign-up steps">
               <li data-step="location"><button class="stepper__btn" type="button" id="su-step-location" disabled><span class="stepper__n" aria-hidden="true">1</span><span>Location</span><span class="sr-only" data-step-state></span></button></li>
               <li data-step="account"><button class="stepper__btn" type="button" id="su-step-account" disabled><span class="stepper__n" aria-hidden="true">2</span><span>Account</span><span class="sr-only" data-step-state></span></button></li>
-              <li data-step="wallet"><button class="stepper__btn" type="button" id="su-step-wallet" disabled><span class="stepper__n" aria-hidden="true">3</span><span>Wallet</span><span class="sr-only" data-step-state></span></button></li>
+              <li class="su-later" id="su-later" title="Your wallet comes later, from your dashboard. Free, one signature."><span class="su-later__chip">Wallet · later</span><span class="sr-only">: your wallet comes later, from your dashboard. Free, one signature.</span></li>
             </ol>
             <p class="callout small su-note" id="su-note" hidden></p>
           </div>
@@ -39,7 +40,7 @@
             <button class="link-btn" type="button" id="su-reload" hidden>Reload the page</button>
           </div>
 
-          <!-- 1. log in, or choose a wallet -->
+          <!-- 1. log in, choose a wallet, or (a member without a wallet) link one -->
           <div class="cstate" data-state="pick">
             <!-- v2 "Log in" tab: shown instead of #login-block (today's block, which stays as it is) -->
             <section class="login-block" id="lg-block" aria-labelledby="lg-title" hidden>
@@ -67,7 +68,7 @@
                 <button class="link-btn" type="button" id="lg-forgot">Forgot or never set a password? E-mail me a code</button>
               </form>
               <p class="muted small" id="lg-off" hidden>Log in with Google or e-mail is being switched on. Use your wallet below for now.</p>
-              <p class="tiny muted">Logging in with Google or e-mail doesn't prove your wallet. You'll sign once with it before you apply, vote or moderate.</p>
+              <p class="tiny muted">Logging in with Google or e-mail does not prove a wallet. Before you apply, vote or moderate you sign once with the wallet on your account.</p>
             </section>
             <section class="login-block" id="login-block" aria-labelledby="login-title">
               <h2 class="h2--sm" id="login-title">Already a member? Log in</h2>
@@ -97,6 +98,12 @@
               <p class="callout small" id="login-inapp" hidden>You're inside a wallet app's browser. Google doesn't allow log-in here, so use e-mail or your wallet. To use Google, open <strong>vicinity.city/connect</strong> in Safari or Chrome. <button class="link-btn" type="button" id="login-copy">Copy the link</button></p>
               <p class="tiny muted">Logging in with Google or e-mail doesn't prove your wallet. You'll sign once with it before you apply, vote or moderate.</p>
             </section>
+            <!-- v2, a member without a wallet (link mode): the top of the panel -->
+            <div class="link-top" id="link-top" hidden>
+              <p class="kicker">Almost done</p>
+              <h2 class="h2--sm" id="link-title" tabindex="-1">Link your wallet.</h2>
+              <p class="muted small">One free signature proves the wallet is yours. Nothing is paid or moved.</p>
+            </div>
             <p class="or-line" id="or-line"><span>New here, or logging in with your wallet</span></p>
             <h2 class="h2--sm" id="wallet-h">Choose your wallet</h2>
             <p class="muted small" id="su-wallet-lead" hidden></p>
@@ -105,27 +112,33 @@
             <details class="more-wallets" id="more-wallets">
               <summary><span id="more-label">More wallets</span></summary>
               <div class="wallet-grid" id="wallets-known"></div>
+              <!-- v2 on a phone: the wallets still to install (connect.js renderPick); hidden everywhere else -->
+              <details class="more-wallets more-wallets--inner" id="wallets-more" hidden>
+                <summary><span>More wallets</span></summary>
+                <div class="wallet-grid" id="wallets-rest"></div>
+              </details>
               <p class="tiny muted">Ledger? Connect it through Phantom or Solflare.</p>
             </details>
             <div class="alt-ways">
               <button type="button" class="alt" id="alt-phone"><span class="alt__icon" aria-hidden="true">📱</span><span><strong>Wallet on my phone</strong><em>Scan a code with your phone, sign there, continue here.</em></span></button>
               <button type="button" class="alt" id="alt-app"><span class="alt__icon" aria-hidden="true">💸</span><span><strong>App wallet (FOMO, exchanges…)</strong><em>Can't connect to websites? Send yourself a tiny, exact amount instead.</em></span></button>
-              <a class="alt" href="/token#verify"><span class="alt__icon" aria-hidden="true">🔎</span><span><strong>Just check a wallet's rank</strong><em>Paste any address. No sign-in needed.</em></span></a>
+              <a class="alt" href="/token#verify" id="alt-check"><span class="alt__icon" aria-hidden="true">🔎</span><span><strong>Just check a wallet's rank</strong><em>Paste any address. No sign-in needed.</em></span></a>
+              <a class="link-btn link-skip" href="/dashboard" id="alt-skip" hidden>Skip for now</a>
             </div>
           </div>
 
-          <!-- 1b. sign the login message -->
+          <!-- 1b. sign the message (a log-in, or the link of a wallet to the account) -->
           <div class="cstate" data-state="sign" hidden>
             <div class="wallet__icon" aria-hidden="true"><img src="/logo.svg" alt="" width="44" height="44"></div>
             <h2 class="h2--sm" id="sign-h">Sign in with this wallet</h2>
             <div class="addr"><span class="addr__dot" aria-hidden="true"></span><span id="c-addr">—</span></div>
-            <p class="muted small">Connected with <span id="c-wallet">your wallet</span>. Signing is free and isn't a transaction.</p>
+            <p class="muted small" id="c-lead">Connected with <span id="c-wallet">your wallet</span>. Signing is free and isn't a transaction.</p>
             <button class="btn btn--primary btn--block" type="button" id="c-sign">Sign in</button>
-            <details class="msg-preview"><summary>See the message you'll sign</summary><pre id="c-msg">Loading…</pre></details>
+            <details class="msg-preview"><summary id="c-msg-label">See the message you'll sign</summary><pre id="c-msg">Loading…</pre></details>
             <button class="link-btn" type="button" data-back>Use another wallet</button>
           </div>
 
-          <!-- 1c. wallet on a phone: QR code -->
+          <!-- 1c. wallet on a phone: QR code (a computer), or the wallet apps of this phone -->
           <div class="cstate" data-state="phone" hidden>
             <h2 class="h2--sm" id="pair-h">Scan with your phone</h2>
             <p class="callout small" id="pair-why" hidden></p>
@@ -149,7 +162,7 @@
 
           <!-- 1d. app wallets that can't connect: tiny transfer -->
           <div class="cstate" data-state="app" hidden>
-            <h2 class="h2--sm">Prove it with a tiny transfer</h2>
+            <h2 class="h2--sm" id="tp-h">Prove it with a tiny transfer</h2>
             <p class="muted small">For wallets inside apps (FOMO, exchanges…) that can't connect to websites. Only a wallet's owner can send from it, so one tiny transfer proves it's yours.</p>
             <form class="tp-form" id="tp-form" novalidate>
               <label for="tp-addr">Your wallet address</label>
@@ -167,21 +180,23 @@
             <button class="link-btn" type="button" data-back>Back</button>
           </div>
 
-          <!-- the phone's side of "wallet on my phone" -->
+          <!-- the phone's side of "wallet on my phone": approve a sign-in, or (v2) the link of this wallet to an account -->
           <div class="cstate" data-state="approve" hidden>
-            <h2 class="h2--sm">Approve the sign-in you started</h2>
-            <p>Does the page where you started show <strong class="pin" id="approve-pin">--</strong>?</p>
-            <p class="muted small">Only continue if you started this yourself, on your own computer or in your phone's browser. Never sign for a code someone sent you.</p>
+            <h2 class="h2--sm" id="approve-h">Approve the sign-in you started</h2>
+            <p class="su-chips" id="approve-who" hidden><span class="su-chip" id="approve-owner">—</span><span class="su-chip" id="approve-city" hidden>—</span></p>
+            <p id="approve-ask">Does the page where you started show <strong class="pin" id="approve-pin">--</strong>?</p>
+            <p class="muted small" id="approve-warn">Only continue if you started this yourself, on your own computer or in your phone's browser. Never sign for a code someone sent you.</p>
+            <p class="tiny muted" id="approve-terms" hidden>The Terms of Use were accepted on that account.</p>
             <p class="approve-tap" id="approve-tap" hidden></p>
             <div class="wallet-list" id="approve-wallets"></div>
             <div id="approve-open" hidden>
               <p class="muted small">Open this page in your wallet app:</p>
               <div class="wallet-grid" id="approve-links"></div>
             </div>
-            <div class="approve-done" id="approve-done" hidden><div class="verified-badge" aria-hidden="true">✓</div><p><strong>Approved.</strong> Go back to where you started (your computer, or Safari or Chrome on this phone).</p></div>
+            <div class="approve-done" id="approve-done" hidden><div class="verified-badge" aria-hidden="true">✓</div><p id="approve-done-text"><strong>Approved.</strong> Go back to where you started (your computer, or Safari or Chrome on this phone).</p></div>
           </div>
 
-          <!-- 2. Google or e-mail -->
+          <!-- 2. Google or e-mail (today's sign-up, SIGNUP_FLOW unset) -->
           <div class="cstate" data-state="social" hidden>
             <div class="verified-badge" aria-hidden="true">✓</div>
             <h2 class="h2--sm">Wallet verified. Now, who are you?</h2>
@@ -198,11 +213,11 @@
             <button class="link-btn" type="button" id="s-restart">Use a different wallet</button>
           </div>
 
-          <!-- v2 step 1: location -->
+          <!-- v2 step 1 of 2: location -->
           <div class="cstate" data-state="su-location" hidden>
             <h2 class="h2--sm" id="su-loc-title" tabindex="-1">Where are you?</h2>
             <div id="su-loc-ask">
-              <p class="muted small">Vicinity is built around real places. Your phone or computer shares where you are once, so we can find your community. We never save your location, only the community.</p>
+              <p class="muted small">Your phone shares where you are once, so we can find your community. We never save your location, only the community.</p>
               <button class="btn btn--primary btn--block btn--lg" type="button" id="su-loc-go">Share my location</button>
               <p class="muted small" id="su-loc-status" hidden><span class="live-dot" aria-hidden="true"></span> <span id="su-loc-status-text">Waiting for your browser. If it asks, choose Allow.</span></p>
               <p class="su-err" id="su-loc-error" role="alert"></p>
@@ -234,23 +249,28 @@
             </div>
           </div>
 
-          <!-- v2 step 2: account (the terms box comes first, then Google or e-mail + password) -->
+          <!-- v2 step 2 of 2: the account. One tap agrees to the Terms and goes to Google; e-mail and a password are the other way. -->
           <div class="cstate" data-state="su-account" hidden>
             <h2 class="h2--sm" id="su-acc-title" tabindex="-1">Create your account</h2>
             <p class="su-chips">
-              <span class="su-chip" id="su-recap" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span id="su-recap-city">—</span></span>
-              <span class="su-chip" id="su-recap-wallet" hidden><span aria-hidden="true">✓</span> Wallet verified: <span class="mono" id="su-recap-wallet-addr">—</span></span>
+              <span class="su-chip" id="su-recap" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span id="su-recap-city">—</span> · <button class="link-btn link-btn--tiny" type="button" id="su-recap-redo">Not right? Check again</button></span>
             </p>
             <div id="su-acc-choose">
-              <div class="su-check">
-                <input type="checkbox" id="su-terms" name="terms" aria-describedby="su-terms-error">
-                <label for="su-terms">I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Use</a> <span class="su-nowrap">(version <span id="su-terms-version">2026-10-01</span>)</span>.</label>
-              </div>
-              <p class="su-err" id="su-terms-error" role="alert"></p>
               <div class="su-ident">
-                <button class="btn btn--social btn--google" type="button" id="su-google" disabled hidden><span class="social-mark" aria-hidden="true">G</span> Continue with Google</button>
-                <p class="callout small" id="su-inapp" hidden>You're inside a wallet app's browser. Google can't sign you in here, so use e-mail.</p>
-                <p class="or-line" id="su-or" hidden><span>or with e-mail and a password</span></p>
+                <button class="btn btn--primary btn--block btn--lg" type="button" id="su-google" hidden><span class="social-mark" aria-hidden="true">G</span> Agree and continue with Google</button>
+                <p class="tiny muted" id="su-google-note" hidden>By continuing you agree to the Terms of Use.</p>
+                <p class="callout small" id="su-inapp" hidden>Google cannot sign you in inside a wallet app. Use e-mail here, or open <strong>vicinity.city/connect</strong> in Safari or Chrome. <button class="link-btn" type="button" id="su-copy">Copy the link</button></p>
+              </div>
+              <!-- ticked from the start: the button above already says "Agree and continue", so the box only records it (untick it to hold the buttons) -->
+              <div class="su-check">
+                <input type="checkbox" id="su-terms" name="terms" checked aria-describedby="su-terms-error su-terms-hint">
+                <label for="su-terms">I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Use</a>. <span class="sr-only">Version <span id="su-terms-version">2026-10-01</span>.</span></label>
+              </div>
+              <p class="su-hint" id="su-terms-hint" hidden>Tick the box to continue.</p>
+              <p class="su-err" id="su-terms-error" role="alert"></p>
+              <p class="tiny muted su-why" id="su-why">One account per login keeps fake accounts out. No wallet needed to join.</p>
+              <details class="su-alt" id="su-email-alt">
+                <summary id="su-email-summary">Use e-mail and a password instead</summary>
                 <form class="su-form" id="su-email-form" method="post" action="/api/signup/email" novalidate>
                   <div class="su-field">
                     <label for="su-email">E-mail</label>
@@ -266,15 +286,15 @@
                     <p class="su-hint" id="su-pw-hint">At least 10 characters. A few random words work well.</p>
                     <p class="su-err" id="su-pw-error" role="alert"></p>
                   </div>
-                  <button class="btn btn--primary btn--block" type="submit" id="su-email-send" disabled>Send me a code</button>
+                  <button class="btn btn--primary btn--block" type="submit" id="su-email-send">Agree and send me a code</button>
                 </form>
-                <p class="muted small" id="su-off" hidden>Sign-up with Google or e-mail is being switched on. Please check back soon.</p>
-              </div>
+              </details>
+              <p class="muted small" id="su-off" hidden>Sign-up with Google or e-mail is being switched on. Please check back soon.</p>
               <p class="tiny muted">With Google we keep only your Google account id and first name. With e-mail we keep your address and a scrambled (hashed) copy of your password. Nobody can read your password, not even us.</p>
               <p class="tiny muted" id="su-profiles-note" data-profiles-only hidden>Other signed-in members can see your username, community, bio, wallet address and your $VICINITY and city-coin balances.</p>
             </div>
             <form class="su-form" id="su-code-form" method="post" action="/api/signup/email/verify" hidden novalidate>
-              <p class="small">We sent a 6-digit code to <strong id="su-code-to">—</strong>. It works for 10 minutes. Check your spam folder too.</p>
+              <p class="small">We sent a 6-digit code to <strong id="su-code-to">—</strong>. It works for 10 minutes. Check spam too.</p>
               <div class="su-field">
                 <label for="su-code">6-digit code</label>
                 <input id="su-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" spellcheck="false" maxlength="6" placeholder="••••••" aria-describedby="su-code-error">
@@ -287,62 +307,72 @@
             <div class="su-done" id="su-acc-done" hidden>
               <div class="verified-badge" aria-hidden="true">✓</div>
               <p class="su-chip" id="su-acc-who">—</p>
+              <p class="muted small" id="su-acc-done-note">Your login is confirmed.</p>
               <button class="btn btn--primary btn--block" type="button" id="su-acc-continue">Continue</button>
               <button class="link-btn" type="button" id="su-acc-redo">Use a different login</button>
             </div>
             <p class="su-err" id="su-acc-error" role="alert"></p>
           </div>
 
-          <!-- v2 step 3 on a phone without a wallet in the browser: "Open app" carries this sign-up into the wallet app's own browser -->
+          <!-- v2, a member without a wallet on a phone: "Open app" opens the link inside the wallet app's own browser -->
           <div class="cstate" data-state="carry" hidden>
-            <h2 class="h2--sm" id="carry-h" tabindex="-1">Continue in your wallet app</h2>
+            <h2 class="h2--sm" id="carry-h" tabindex="-1">Link your wallet in your wallet app</h2>
             <div class="su-carry" id="carry-go">
               <p class="muted small" id="carry-lead"></p>
               <p class="pin-row" id="carry-pinrow">Check number: <strong class="pin" id="carry-pin">--</strong></p>
               <a class="btn btn--primary btn--block btn--lg" id="carry-open" href="/connect" rel="noreferrer" referrerpolicy="no-referrer">Open your wallet app</a>
-              <p class="tiny muted">The link works once, for 10 minutes, and only from this phone's own internet connection. Never send it to anyone.</p>
+              <p class="tiny muted">This link works for 10 minutes, once, and only from this phone's own internet connection. Never send it to anyone.</p>
               <p class="muted small" id="carry-status"><span class="live-dot" aria-hidden="true"></span> <span id="carry-status-text">Waiting for your wallet app…</span></p>
               <p class="su-err" id="carry-error" role="alert"></p>
               <button class="btn btn--primary btn--block" type="button" id="carry-renew" hidden>Get a new link</button>
               <button class="link-btn" type="button" id="carry-pair">Didn't work? Approve in your wallet app and finish here instead</button>
               <button class="link-btn" type="button" id="carry-back">Choose another way</button>
-            </div>
-            <div class="su-done" id="carry-away" hidden>
-              <p class="muted" id="carry-away-text"></p>
-              <p class="muted small"><span class="live-dot" aria-hidden="true"></span> This page will say when it's done.</p>
-              <button class="link-btn" type="button" id="carry-restart">Can't finish there? Start again in this browser</button>
-            </div>
-            <div class="su-done" id="carry-done" hidden>
-              <div class="verified-badge" aria-hidden="true">✓</div>
-              <p class="muted" id="carry-done-text"></p>
-              <a class="btn btn--social btn--google" href="/api/auth/google/start" id="carry-login-google" hidden><span class="social-mark" aria-hidden="true">G</span> Log in here with Google</a>
-              <button class="btn btn--primary btn--block" type="button" id="carry-login" hidden>Log in here</button>
-            </div>
-            <div class="su-done" id="carry-lost" hidden>
-              <p class="muted" id="carry-lost-text"></p>
-              <button class="btn btn--primary btn--block" type="button" id="carry-again">Start again</button>
+              <a class="link-btn link-skip" href="/dashboard" id="carry-skip">Skip for now</a>
             </div>
           </div>
 
-          <!-- v2, the wallet app's browser opened by "Open app": nothing is taken over until the person confirms it is their own sign-up -->
-          <div class="cstate" data-state="carry-in" hidden>
-            <h2 class="h2--sm" id="carry-in-h" tabindex="-1">Continue the sign-up you started?</h2>
+          <!-- v2, the wallet app's browser opened by "Open app" (/connect?link=CODE): nothing happens until the person confirms it is their own account -->
+          <div class="cstate link-in" data-state="carry-in" hidden>
+            <h2 class="h2--sm" id="carry-in-h" tabindex="-1">Link this wallet to your Vicinity account?</h2>
             <div class="su-carry">
+              <div class="link-in__pass" id="carry-in-pass">
+                <span class="link-in__avatar" id="carry-in-avatar" aria-hidden="true">•</span>
+                <span class="link-in__who"><strong id="carry-in-handle">@•••</strong><span class="muted small" id="carry-in-city">—</span></span>
+              </div>
               <p class="pin-row">Check number: <strong class="pin" id="carry-in-pin">--</strong></p>
-              <p class="muted small">Safari or Chrome, where you started, shows the same number next to its “Open” button.</p>
-              <p class="su-chips">
-                <span class="su-chip"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span id="carry-in-city">—</span></span>
-                <span class="su-chip"><span aria-hidden="true">✓</span> <span id="carry-in-login">—</span></span>
-              </p>
-              <p class="callout small">Only continue if you started this sign-up yourself, on this phone, a moment ago. Never continue from a link someone sent you: your wallet would join their account.</p>
-              <p class="tiny muted">You agreed to the <a href="/terms">Terms of Use</a> in that sign-up. Continuing confirms them here too.</p>
-              <button class="btn btn--primary btn--block" type="button" id="carry-in-yes">Yes, it's mine: continue</button>
+              <p class="muted small">Safari, where you started, shows the same number.</p>
+              <p class="callout small">Only continue if you started this yourself, in Safari or Chrome on this phone, a moment ago, and the number matches. Never continue from a link someone sent you: your wallet would join THEIR account.</p>
+              <p class="tiny muted">The Terms of Use were accepted on that account.</p>
+              <button class="btn btn--primary btn--block btn--lg" type="button" id="carry-in-yes">Yes, link my wallet</button>
+              <p class="approve-tap" id="carry-in-tap" hidden></p>
+              <div class="wallet-list" id="carry-in-wallets" hidden></div>
               <p class="su-err" id="carry-in-error" role="alert"></p>
-              <button class="link-btn" type="button" id="carry-in-no">No, that's not mine</button>
+              <button class="link-btn" type="button" id="carry-in-no">No, that is not me</button>
             </div>
           </div>
 
-          <!-- v2 step 3 is today's wallet screens (pick, sign, phone, app), then: -->
+          <!-- v2: a wallet that has no account (a wallet alone makes none any more) -->
+          <div class="cstate no-account" data-state="no-account" hidden>
+            <div class="verified-badge is-plain" aria-hidden="true">?</div>
+            <h2 class="h2--sm" id="na-h" tabindex="-1">No account for this wallet yet</h2>
+            <p class="muted small" id="na-body">Create one with Google in a minute, then link this wallet from your dashboard.</p>
+            <button class="btn btn--primary btn--block btn--lg" type="button" id="na-create">Create my account</button>
+            <button class="btn btn--primary btn--block btn--lg" type="button" id="na-copy" hidden>Copy vicinity.city/connect</button>
+            <p class="tiny muted" id="na-tiny" hidden>Already a member? <button class="link-btn link-btn--tiny" type="button" id="na-login">Log in with the wallet on your account, or with your e-mail and password.</button></p>
+            <button class="link-btn" type="button" id="na-another">Try another wallet</button>
+          </div>
+
+          <!-- v2, the wallet app's browser opened a link that is used, run out, for another connection or already done: ONE plain screen (never the sign-up) -->
+          <div class="cstate no-account link-dead" data-state="link-dead" hidden>
+            <div class="verified-badge is-plain" aria-hidden="true">!</div>
+            <h2 class="h2--sm" id="ld-h" tabindex="-1">That link was used or ran out</h2>
+            <p class="muted small" id="ld-body">Go back to Safari or Chrome and tap Link again.</p>
+            <button class="btn btn--primary btn--block btn--lg" type="button" id="ld-copy">Copy vicinity.city/connect</button>
+            <button class="btn btn--primary btn--block btn--lg" type="button" id="ld-retry" hidden>Try again</button>
+            <p class="tiny muted">Or <button class="link-btn link-btn--tiny" type="button" id="ld-login">log in here with your e-mail and password</button> and link the wallet from your dashboard.</p>
+          </div>
+
+          <!-- v2: the account is created the moment the login is verified; this screen is only ever seen by a page that retries -->
           <div class="cstate" data-state="su-finish" hidden>
             <h2 class="h2--sm" id="su-fin-title" tabindex="-1">Creating your account…</h2>
             <p class="muted" id="su-fin-sub"><span class="live-dot" aria-hidden="true"></span> Putting it all together. This takes a few seconds.</p>
@@ -350,7 +380,6 @@
             <div class="su-actions" id="su-fin-actions" hidden>
               <button class="btn btn--primary btn--block" type="button" id="su-fin-retry" hidden>Try again</button>
               <button class="btn btn--glass btn--block" type="button" id="su-fin-login" hidden>Log in instead</button>
-              <button class="btn btn--glass btn--block" type="button" id="su-fin-wallet" hidden>Use a different wallet</button>
               <button class="btn btn--glass btn--block" type="button" id="su-fin-ident" hidden>Use a different login</button>
             </div>
           </div>
@@ -390,12 +419,12 @@
             <button class="link-btn" type="button" id="rs-back">Back to log in</button>
           </div>
 
-          <!-- 3. done -->
+          <!-- 3. done: signed in, or the wallet linked -->
           <div class="cstate" data-state="done" hidden>
-            <div class="verified-badge is-gold" aria-hidden="true">📍</div>
-            <h2 class="h2--sm">You're in.</h2>
+            <div class="verified-badge is-gold" aria-hidden="true" id="done-badge">📍</div>
+            <h2 class="h2--sm" id="done-h">You're in.</h2>
             <p class="muted" id="done-sub">Taking you to your dashboard…</p>
-            <a class="btn btn--primary" href="/dashboard">Open my dashboard →</a>
+            <a class="btn btn--primary" href="/dashboard" id="done-go">Open my dashboard →</a>
           </div>
 
           <p class="wallet__error" id="c-error" role="alert" hidden></p>

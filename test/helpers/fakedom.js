@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 
 const SIGNUP_JS = readFileSync(new URL("../../public/signup.js", import.meta.url), "utf8");
 
-export const EMPTY_STATE = () => ({ terms: { done: false, version: "2026-10-01" }, location: { done: false }, account: { done: false }, wallet: { done: false }, next: "location" });
+export const EMPTY_STATE = () => ({ terms: { done: false, version: "2026-10-01" }, location: { done: false }, account: { done: false }, next: "location" });
 
 /**
  * page({ api, mode, providers, isMobile, inApp, wallets, state }) -> { $, ctrl, doc, calls, shown, flush, ready }

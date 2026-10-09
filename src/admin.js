@@ -80,7 +80,7 @@ async function adminCaller(request, env, now = Date.now()) {
     const token = getCookie(request, SESSION_COOKIE);
     if (token && token.length <= 100) await db.prepare("UPDATE sessions SET user_id = ? WHERE id = ?").bind(user.id, await sha256(token)).run();
   }
-  if (!user) return null;
+  if (!user || !user.wallet) return null; // an account without a wallet (onboarding v3) has no admin standing: roles are wallets
   return { s, user, wallet: user.wallet };
 }
 
@@ -169,21 +169,25 @@ async function handleUsers(ctx, url) {
   return json({ ok: true, users: low ? rows.map((r) => ({ ...r, wallet: maskWallet(r.wallet) })) : rows });
 }
 
+/** Ban / unban by wallet, or by user id (a member without a wallet has only an id). */
 async function handleBan(request, ctx, unban) {
   const body = await readJson(request);
   const wallet = body && body.wallet;
-  if (!isSolanaAddress(wallet)) return json({ ok: false, error: "bad_wallet" }, 400);
-  const target = await ctx.db.prepare("SELECT id FROM users WHERE wallet = ?").bind(wallet).first();
+  const userId = body && Number.isInteger(body.userId) && body.userId > 0 ? body.userId : null;
+  if (!userId && !isSolanaAddress(wallet)) return json({ ok: false, error: "bad_wallet" }, 400);
+  const target = userId
+    ? await ctx.db.prepare("SELECT id, wallet FROM users WHERE id = ?").bind(userId).first()
+    : await ctx.db.prepare("SELECT id, wallet FROM users WHERE wallet = ?").bind(wallet).first();
   if (!target) return json({ ok: false, error: "not_found" }, 404);
   if (target.id === ctx.user.id) return json({ ok: false, error: "own_account" }, 400);
-  // The caller must outrank the target; an ADMIN_WALLETS wallet is out of reach for everyone.
-  const blocked = await outranks(ctx, wallet);
+  // The caller must outrank the target; an ADMIN_WALLETS wallet is out of reach for everyone. (No wallet: no role to outrank.)
+  const blocked = target.wallet ? await outranks(ctx, target.wallet) : null;
   if (blocked) return json({ ok: false, error: blocked }, 403);
-  const now = ctx.now;
+  const now = ctx.now, label = target.wallet || `user:${target.id}`;
   if (unban) {
     await ctx.db.batch([
       ctx.db.prepare("DELETE FROM bans WHERE user_id = ? AND country = '*'").bind(target.id),
-      logAudit(ctx.db, { actor: ctx.wallet, action: "users/unban", target: wallet }, now),
+      logAudit(ctx.db, { actor: ctx.wallet, action: "users/unban", target: label }, now),
     ]);
     return json({ ok: true, unbanned: true });
   }
@@ -191,7 +195,7 @@ async function handleBan(request, ctx, unban) {
   await ctx.db.batch([
     ctx.db.prepare("INSERT OR REPLACE INTO bans (user_id, country, by_user, reason, created_at, expires_at) VALUES (?, '*', ?, ?, ?, ?)")
       .bind(target.id, ctx.user.id, reason, iso(now), iso(now + BAN_DAYS * DAY)),
-    logAudit(ctx.db, { actor: ctx.wallet, action: "users/ban", target: wallet, detail: reason }, now),
+    logAudit(ctx.db, { actor: ctx.wallet, action: "users/ban", target: label, detail: reason }, now),
   ]);
   return json({ ok: true, banned: true, days: BAN_DAYS });
 }
