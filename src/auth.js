@@ -128,12 +128,13 @@ export const dropSession = (env, id) => env.DB.prepare("DELETE FROM sessions WHE
 /** However much a session is used, it ends this long after it was made (the person signs in again: one signature in the wallet app). */
 export const SESSION_MAX_DAYS = 90;
 /**
- * A session a WALLET made in this very browser (sessions.made_by = 'wallet': the wallet app's claim of a link code, a wallet's own
- * sign-in) is renewed while it is used: once it has less than 15 of its 30 days left, the next /api/me (v2) pushes it back to 30 days
- * (never past 90 days from when it was made) and sends the same cookie again with a fresh Max-Age. So a person who shops inside Phantom
- * every week signs in there again only every 90 days. Every other session keeps its 30 days, whatever it proves later: a Google, e-mail or
- * password login (also once it re-proves the wallet or links one on the page), a pairing finished on another device. Only while the
- * session carries the account's wallet. Returns the Set-Cookie value, or null.
+ * A session a WALLET made inside a wallet app's own browser on a phone (sessions.made_by = 'wallet': the wallet app's claim of a link code,
+ * a wallet's sign-in there, which the page marks { inApp: true }) is renewed while it is used: once it has less than 15 of its 30 days
+ * left, the next /api/me (v2) pushes it back to 30 days (never past 90 days from when it was made) and sends the same cookie again with a
+ * fresh Max-Age. So a person who shops inside Phantom every week signs in there again only every 90 days. Every other session keeps its 30
+ * days, whatever it proves later: a computer's sign-in with a browser extension (a shared or public computer must not stay signed in
+ * longer than it always did: audit SEC-3), a Google, e-mail or password login (also once it re-proves the wallet or links one on the
+ * page), a pairing finished on another device. Only while the session carries the account's wallet. Returns the Set-Cookie value, or null.
  */
 export async function renewSession(env, request, s, now = Date.now()) {
   if (!s || !s.user || !s.proven_at || !s.wallet || s.wallet !== s.user.wallet) return null;
@@ -210,7 +211,8 @@ export async function walletProven(env, request, wallet, now, session, { link = 
   if (!user) return { status: 404, body: { ok: false, error: "no_account" } };
   await dropCurrent(env, request);
   if (here) await ensureOnboardSchema(env.DB); // sessions.made_by
-  // `here`: the wallet signed in THIS browser (a wallet app's own, or an extension), not a pairing or a transfer finished elsewhere
+  // `here`: the wallet signed in THIS browser, and that browser is a wallet app's own on a phone (renewed while used: renewSession); not
+  // a computer's extension, a pairing or a transfer finished elsewhere
   const c = await createSession(env, { wallet, userId: user.id, provenAt: iso(now), madeBy: here ? "wallet" : null }, SESSION_SECONDS, now);
   return { status: 200, body: { ok: true, wallet, next: "/dashboard" }, cookies: await walletCookies(env, request, c, "/dashboard") };
 }
@@ -262,7 +264,7 @@ const badSigned = (error, status = 400) => ({ error: json({ ok: false, error }, 
 /* ---------------- 1. prove the wallet ---------------- */
 
 /**
- * POST /api/auth/wallet { address, message, signature, pair? } — a signed "login" message, or (v2, signed in without a wallet)
+ * POST /api/auth/wallet { address, message, signature, pair?, inApp? } — a signed "login" message, or (v2, signed in without a wallet)
  * a signed "link" message that names the account. With `pair`, a wallet app approving for another device: a login statement
  * with the check number for a login pairing, a link statement with it (and the owner's account) for a link pairing.
  */
@@ -296,7 +298,9 @@ export async function handleWalletLogin(request, env, now = Date.now()) {
     if (!session || !session.user) return json({ ok: false, error: "sign_in" }, 401);
     if (r.parsed.handle !== accountName(session.user)) return json({ ok: false, error: "bad_message" }, 400);
   }
-  return answer(await walletProven(env, request, wallet, now, session, { link: r.parsed.action === "link", via: "page", here: true }));
+  // { inApp: true }: the page is a wallet app's own browser on a phone (public/connect.js, VW.inWalletApp()). The page's word only: it can
+  // only lengthen the requester's own new session (renewSession), never anyone else's
+  return answer(await walletProven(env, request, wallet, now, session, { link: r.parsed.action === "link", via: "page", here: body.inApp === true }));
 }
 
 /**

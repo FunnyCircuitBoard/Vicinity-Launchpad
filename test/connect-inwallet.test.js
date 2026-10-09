@@ -39,6 +39,7 @@ test("inside a wallet app one tile tap connects AND signs (no 'Sign in' tap); on
   await p.tap(p.$("#wallets-detected").children[0]); await p.flush();
   assert.deepEqual([ctl.connects, ctl.signs], [1, 1], "the connect sheet, then the sign sheet");
   assert.equal(p.callsTo("/api/auth/wallet").length, 1);
+  assert.equal(p.callsTo("/api/auth/wallet")[0].body.inApp, true, "a wallet app's own browser says so: its session is renewed while used (src/auth.js renewSession)");
   assert.equal(p.screen(), "done");
   assert.equal(p.local.get("vicinity.walletApp"), "phantom", "signed in inside Phantom: the app this phone uses");
   // a computer with the extension: today's two steps
@@ -48,6 +49,10 @@ test("inside a wallet app one tile tap connects AND signs (no 'Sign in' tap); on
   assert.equal(q.screen(), "sign");
   assert.deepEqual([c2.connects, c2.signs], [1, 0], "the computer waits for the person's 'Sign in'");
   assert.equal(q.local.get("vicinity.walletApp"), undefined, "a computer is no wallet app");
+  await q.tap(q.$("#c-sign")); await q.flush();
+  const sent = q.callsTo("/api/auth/wallet");
+  assert.equal(sent.length, 1);
+  assert.equal("inApp" in sent[0].body, false, "a computer's extension sign-in never asks for a renewed session (audit SEC-3)");
 });
 
 test("the Log in tab inside a wallet app leads with ONE 'Sign in with Phantom' button (connect + one signature); several wallets: the tiles", async () => {

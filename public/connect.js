@@ -224,6 +224,7 @@
       if (!isCurrent()) throw Object.assign(new Error("moved on"), { stale: true });
       const body = { address: addr, message: msg, signature: btoa(String.fromCharCode(...sig)) };
       if (pair) body.pair = pair;
+      else if (W.inWalletApp()) body.inApp = true; // a wallet app's own browser on a phone: its session is renewed while used (src/auth.js renewSession); a computer's is not
       const d = await api("/api/auth/wallet", body);
       if (!d.ok && signup && signup.handles(d.error)) return d; // no account for this wallet, a wallet already linked...: the sign-up page says what to do
       // (pairing: "where you started" is a computer, or Safari / Chrome on this same phone)
