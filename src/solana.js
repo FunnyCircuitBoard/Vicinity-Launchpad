@@ -66,12 +66,17 @@ export const CITY_NAME_RE = /^[\p{L}\p{M}][\p{L}\p{M} .'’-]{0,58}[\p{L}\p{M}.]
  *   claim  → claim a listed city (by id)
  *   add    → add a missing city and claim it
  *   login  → sign in to your dashboard (with a 2-digit check number when a phone signs in for a computer)
+ *   link   → link this wallet to the account named in the statement (onboarding v3: the account exists first, the wallet comes
+ *            later; with a check number when a wallet app approves for another device). A login statement never links and a
+ *            link statement never signs anyone in: the two are different sentences.
  */
-export function statementFor(action = "verify", { cityId, name, country, pin } = {}) {
+export function statementFor(action = "verify", { cityId, name, country, pin, handle } = {}) {
   if (action === "claim") return `Claim city #${cityId} (${country}) for this wallet on Vicinity. ${FREE}`;
   if (action === "add") return `Add the city "${name}" (${country}) and claim it for this wallet on Vicinity. ${FREE}`;
   if (action === "login" && pin) return `Sign in to Vicinity on my other device (check number ${pin}). ${FREE}`;
   if (action === "login") return `Sign in to Vicinity with this wallet. ${FREE}`;
+  if (action === "link" && pin) return `Link this wallet to my Vicinity account @${handle} on my other device (check number ${pin}). ${FREE}`;
+  if (action === "link") return `Link this wallet to my Vicinity account @${handle}. ${FREE}`;
   return MESSAGE_STATEMENT;
 }
 
@@ -80,6 +85,8 @@ function parseStatement(line) {
   if (line === statementFor("login")) return { action: "login" };
   const pin = line.match(/^Sign in to Vicinity on my other device \(check number ([0-9]{2})\)\. /);
   if (pin && line === statementFor("login", { pin: pin[1] })) return { action: "login", pin: pin[1] };
+  const link = line.match(/^Link this wallet to my Vicinity account @([A-Za-z][A-Za-z0-9_]{0,39})(?: on my other device \(check number ([0-9]{2})\))?\. /);
+  if (link && line === statementFor("link", { handle: link[1], pin: link[2] })) return { action: "link", handle: link[1], ...(link[2] ? { pin: link[2] } : {}) };
   let m = line.match(/^Claim city #([0-9]{1,10}|c[0-9]{1,9}) \(([A-Z]{2})\) for this wallet on Vicinity\. /);
   if (m && line === statementFor("claim", { cityId: m[1], country: m[2] })) return { action: "claim", cityId: m[1], country: m[2] };
   m = line.match(/^Add the city "(.+)" \(([A-Z]{2})\) and claim it for this wallet on Vicinity\. /);

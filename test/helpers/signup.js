@@ -108,6 +108,9 @@ export async function member(env, box, opts = {}) {
   return { b, ...j };
 }
 
+/** The users row of a member made by journey()/member(). */
+export const userOf = (env, m) => env.DB.prepare("SELECT * FROM users WHERE provider = ? AND provider_id = ?").bind(m.via === "google" ? "google" : "email", m.via === "google" ? m.sub : m.email).first();
+
 /**
  * Link the member's wallet (m.w) to their account the way the dashboard's link does (users.wallet set, every session of the user
  * carries it; this browser's session gets the proof time when `proven`): the tests of what a member WITH a wallet can do. Written

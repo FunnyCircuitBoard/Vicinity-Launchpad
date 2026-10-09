@@ -140,15 +140,17 @@ test("log in: signing in from a browser that holds a half-done sign-up ends it, 
   const oldId = await sha256(alice.b.jar.get("vs"));
   const b = browser(env);
   await startSignup(b);
-  await doWallet(b, await wallet()); // a pending wallet session as well
+  const stray = await doWallet(b, await wallet()); // an unknown wallet signed in this browser: no account, so no session at all (no fixation)
+  assert.deepEqual([stray.ok, stray.error, b.has("vs")], [false, "no_account", false]);
+  b.jar.set("vs", "C".repeat(43)); // a made-up session cookie carried in
   assert.ok(b.has("vsu") && b.has("vs"));
-  const pendingId = await sha256(b.jar.get("vs"));
   const r = await login(b, ALICE, GOOD_PASSWORD);
   assert.equal(r.status, 200);
   assert.match(r.headers.getSetCookie().find((c) => c.startsWith("vsu=")), /Max-Age=0$/);
   assert.equal(b.has("vsu"), false);
+  assert.notEqual(b.jar.get("vs"), "C".repeat(43), "the login makes its own token, never adopts the one carried in");
   assert.equal((await rows(env.DB, "SELECT id FROM signups")).length, 0);
-  assert.equal(await one(env.DB, "SELECT id FROM sessions WHERE id = ?", pendingId), null, "the pending wallet session is gone, no fixation");
+  assert.equal(await one(env.DB, "SELECT id FROM sessions WHERE id = ?", await sha256("C".repeat(43))), null, "the carried-in token opens nothing");
   assert.ok(await one(env.DB, "SELECT id FROM sessions WHERE id = ?", oldId), "another device's session is not touched");
   assert.equal((await b.get("/api/me")).user.hasPassword, true);
 });
@@ -651,18 +653,18 @@ test("reset: an e-mail account that was made with a code and has no password yet
   assert.equal((await (await codeLogin(old.email, { ip: ip(143) })).get("/api/me")).signedIn, true);
 });
 
-test("reset: a half-done sign-up in the same browser ends, with its pending wallet session", async () => {
+test("reset: a half-done sign-up in the same browser ends (an unknown wallet signed there left nothing behind)", async () => {
   await member(env, box, { via: "email", email: ALICE });
   const b = browser(env, { ip: ip(144) });
   await startSignup(b);
-  await doWallet(b, await wallet());
-  const pending = await sha256(b.jar.get("vs"));
+  assert.equal((await doWallet(b, await wallet())).error, "no_account");
+  assert.equal(b.has("vs"), false, "no pending session for an unknown wallet");
   await startReset(b, ALICE);
   const r = await reset(b, ALICE, box.codeFor(ALICE), NEW_PASSWORD);
   assert.equal(r.status, 200);
   assert.equal(b.has("vsu"), false);
   assert.equal((await rows(env.DB, "SELECT id FROM signups")).length, 0);
-  assert.equal(await one(env.DB, "SELECT id FROM sessions WHERE id = ?", pending), null);
+  assert.equal((await rows(env.DB, "SELECT id FROM sessions WHERE user_id IS NULL")).length, 0);
   assert.equal((await b.get("/api/me")).signedIn, true);
 });
 

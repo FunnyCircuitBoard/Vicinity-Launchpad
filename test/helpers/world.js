@@ -85,6 +85,12 @@ export const loginBody = async (w, pin) => {
   const message = buildMessage({ host: HOST, address: w.address, nonce, issuedAt: new Date(Date.now()).toISOString(), statement: statementFor("login", { pin }) });
   return { address: w.address, message, signature: await w.sign(message) };
 };
+/** A fresh signed LINK message naming the account (@handle), with the check number when a wallet app approves for another device. */
+export const linkBody = async (w, handle, pin) => {
+  const nonce = base58Encode(crypto.getRandomValues(new Uint8Array(16)));
+  const message = buildMessage({ host: HOST, address: w.address, nonce, issuedAt: new Date(Date.now()).toISOString(), statement: statementFor("link", { handle, pin }) });
+  return { address: w.address, message, signature: await w.sign(message) };
+};
 
 /**
  * A browser: keeps cookies, sends Origin like real browsers.

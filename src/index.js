@@ -15,8 +15,9 @@
  *   · /api/auth/google/start|callback · /api/auth/email/{start,verify} · /api/auth/logout
  * New sign-up, only while SIGNUP_FLOW=v2 (otherwise 404 not_enabled; src/signup.js, src/pwlogin.js):
  *   /api/signup/{start,state,terms,finish} · /api/signup/location(/choice) · /api/signup/location/handoff(/info,/complete,/claim)
- *   · /api/signup/carry(/info,/claim) (phones: "Open app" carries the sign-up into the wallet app's browser)
  *   · /api/signup/account/reset · /api/signup/email(/verify) · /api/auth/google/start?signup=1
+ *   · /api/me/wallet/{link,unlink} · /api/me/wallet/carry(/info,/claim,/status) (the dashboard's wallet link, src/walletlink.js)
+ *   · /api/pair { purpose: "link" } · GET /api/message?action=link(&code|&pair)
  *   · /api/auth/email/login · /api/auth/password/reset(/start) · /api/me/password
  * Member profiles, only while PROFILES=on (otherwise 404 not_enabled; src/profiles.js):
  *   GET /api/profile?u= · /api/members/search?q= · POST /api/follow · GET /api/follows · POST /api/block · GET /api/me/blocks
@@ -62,6 +63,7 @@ import { managerOf } from "./roles.js";
 import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown, jupiterPrices, officialCityCoin, wantedMints } from "./coins.js";
 import { runJobs } from "./jobs.js";
 import { launchpadV2On, profilesOn, v2On } from "./flags.js";
+import { linkAccountFor, routeWalletLink } from "./walletlink.js";
 import { routeV2 } from "./signup.js";
 import { PROFILE_PATHS, routeProfiles } from "./profiles.js";
 import { handleLaunchpad } from "./launchpad.js";
@@ -189,6 +191,11 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     if (!v2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
     return routeV2(request, env, fetchImpl, ctx);
   }
+  // the dashboard's wallet link (onboarding v3): the same rule
+  if (path.startsWith("/api/me/wallet/")) {
+    if (!v2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
+    return routeWalletLink(request, env);
+  }
 
   // member profiles: with the switch off they are simply not there either (before any method check, so nothing can be probed)
   if (PROFILE_PATHS.has(path)) {
@@ -300,9 +307,17 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (!isSolanaAddress(address)) return json({ error: "bad_address" }, 400);
       const action = q.get("action") || "verify";
       let statement;
+      const pin = q.get("pin") || undefined;
       if (action === "verify") statement = statementFor("verify");
-      else if (action === "login" && (!q.get("pin") || /^[0-9]{2}$/.test(q.get("pin")))) statement = statementFor("login", { pin: q.get("pin") || undefined });
-      else return json({ error: "bad_request" }, 400);
+      else if (action === "login" && (!pin || /^[0-9]{2}$/.test(pin))) statement = statementFor("login", { pin });
+      else if (action === "link" && (!pin || /^[0-9]{2}$/.test(pin))) {
+        // the statement names the account the wallet is linked to: the signed-in person's own, or the owner of a live code / link pairing
+        if (!env.DB) return json({ error: "unavailable" }, 503);
+        const a = await linkAccountFor(request, env);
+        if (a.response) return a.response;
+        if (a.error) return json({ error: a.error }, a.status);
+        statement = statementFor("link", { handle: a.handle, pin });
+      } else return json({ error: "bad_request" }, 400);
       const nonce = base58Encode(crypto.getRandomValues(new Uint8Array(16)));
       return json({ message: buildMessage({ host: url.host, address, nonce, issuedAt: new Date().toISOString(), statement }) });
     }
