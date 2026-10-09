@@ -33,6 +33,8 @@
     } catch { /* storage blocked: a reload is an ordinary visit */ }
     return null;
   };
+  // "Connect Phantom" / "Sign in with Phantom" (/connect?mode=login&with=phantom, opened inside the wallet app): the account behind it
+  // agreed to the Terms already, so the gate waits for the sign-in too (signup.js: agreed once it is in, open if it is not).
   let carryCode = null, linkCode = null, deferGate = false;
   try {
     if (document.body.dataset.page === "connect") {
@@ -41,8 +43,10 @@
       if (q.has("link")) { linkCode = q.get("link") || ""; q.delete("link"); }
       if (q.has("carry")) { carryCode = q.get("carry") || ""; q.delete("carry"); }
       if (linkCode === null && carryCode === null && !q.has("pair")) linkCode = keptLink();
-      deferGate = linkCode !== null || carryCode !== null || q.has("pair");
+      deferGate = linkCode !== null || carryCode !== null || q.has("pair") || q.has("with");
       if (tidy) history.replaceState(history.state, "", location.pathname + (String(q) ? `?${q}` : "") + location.hash);
+      // a phone opening a link code: the sign-up's hero never flashes before the question (onboard.css hides it until signup.js decides)
+      if (linkCode !== null) document.documentElement.classList.add("has-link");
     }
   } catch { /* no address bar to tidy (tests) */ }
   const takeCarry = () => { const c = carryCode; carryCode = null; return c; };
@@ -88,6 +92,28 @@
   const isPhone = /Android|iPhone|iPad|iPod/i.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));
   const webView = (/Android/i.test(ua) && /; wv\)|\bwv\b/.test(ua)) || (/iPhone|iPad|iPod/i.test(ua) && !/Safari\//.test(ua)) ||
     (isPhone && /Phantom|Solflare|Backpack|OKX|TokenPocket|Trust\/|Coinbase|Bitget|BitKeep|MetaMask|imToken|Binance|Exodus/i.test(ua));
+
+  /**
+   * The wallet app this person uses ON THIS PHONE (owner decision F4: on phones people live inside the wallet app). Pages that need it
+   * (signup.js, connect.js, dashboard.js; the Buy panel reads the same key) go through here once wallets.js has set window.VW.
+   *   remember(id)  keeps a public/wallets.js KNOWN id in localStorage "vicinity.walletApp" (a convenience for this browser, never state)
+   *   remembered()  that KNOWN entry, or null
+   *   here()        the KNOWN entry of the wallet app whose OWN browser this is: a phone with a known wallet on the page, or a wallet app
+   *                 that names itself in the user agent. null in Safari / Chrome, on a computer, and in Instagram's or Facebook's browser
+   *                 (a web view, but no wallet: those must keep the ordinary sign-up, not "Sign in with your wallet")
+   */
+  const WALLET_APP = "vicinity.walletApp";
+  const knownApp = (id) => (window.VW && typeof id === "string" && window.VW.KNOWN.find((k) => k.id === id)) || null;
+  const walletApp = {
+    remember(id) { if (knownApp(id)) { try { localStorage.setItem(WALLET_APP, id); } catch { /* private mode: the page asks again next time */ } } },
+    remembered() { let id = null; try { id = localStorage.getItem(WALLET_APP); } catch { /* ignore */ } return knownApp(id); },
+    here() {
+      const W = window.VW;
+      if (!W || !W.isMobile) return null;
+      for (const a of W.list()) { const k = W.knownFor(a.name); if (k) return k; }
+      return webView ? W.KNOWN.find((k) => k.open && k.match.test(ua)) || null : null;
+    },
+  };
 
   /**
    * The person's position, once. Rejects with an Error whose .code is "unsupported" | "denied" | "timeout" | "unavailable"
@@ -529,7 +555,7 @@
     }
   })();
 
-  window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, takeCarry, takeLink, termsGate, liveNums, reveal,
+  window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, takeCarry, takeLink, walletApp, termsGate, liveNums, reveal,
     get reduced() { return reducedNow(); }, // read when it is needed: the visitor may pause the animations while the page is open
     me: () => meLite, ready, official, opensAt: () => opensAt, siteMode: () => siteMode };
 })();

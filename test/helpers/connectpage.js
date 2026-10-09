@@ -79,6 +79,7 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
   const timers = [];
   const setTimeout_ = (fn, ms = 0) => { const id = ++seq; timers.push({ id, at: now + Math.max(0, Number(ms) || 0), fn }); return id; };
   const clearTimeout_ = (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); };
+  const replaced = [];
   const calls = [], assigned = [];
   const local = new Map(Object.entries({ ...(agreed ? { vicinity_terms: agreed } : {}), ...storage }));
   const session = new Map(sessionStore === "throws" ? [] : sessionStore instanceof Map ? sessionStore : Object.entries(sessionStore));
@@ -88,6 +89,7 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
     origin: "https://vicinity.test", protocol: "https:", host: "vicinity.test", pathname: "/connect", search: search ? `?${search}` : "", hash: "",
     get href() { return this.origin + this.pathname + this.search + this.hash; },
     assign: (u) => assigned.push(u), reload: () => assigned.push("reload"),
+    replace: (u) => { assigned.push(u); replaced.push(u); }, // a navigation that leaves no history entry (Back skips it): in `assigned` too, and in `replaced`
   };
   const addressBar = [loc.href];
   Object.defineProperty(doc, "hidden", { get: () => hidden, configurable: true });
@@ -157,7 +159,7 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
   const $ = (s) => doc.querySelector(s);
   const visible = (e) => Boolean(e && e.getClientRects().length);
   return {
-    doc, win, $, $$: (s) => doc.querySelectorAll(s), calls, assigned, addressBar, local, session, timers, flush, advance, register,
+    doc, win, $, $$: (s) => doc.querySelectorAll(s), calls, assigned, replaced, addressBar, local, session, timers, flush, advance, register,
     get now() { return now; },
     /** The tab goes to the background (another app is in front) or comes back. */
     setHidden: async (h) => { hidden = h; if (!h) for (const l of doc.listeners.filter((x) => x.type === "visibilitychange")) l.fn.call(doc, newEvent("visibilitychange")); await flush(); },

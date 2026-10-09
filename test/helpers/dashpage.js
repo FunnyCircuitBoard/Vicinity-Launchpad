@@ -66,6 +66,7 @@ export async function openDashboard({ ua = UA.desktop, search = "", me = memberM
   const clearTimeout_ = (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); };
   // an interval is a timer that puts itself back when it runs (so advance() drives the page's polls)
   const setInterval_ = (fn, ms = 1000) => { const id = ++seq; const t = { id, at: now + Math.max(1, Number(ms) || 1), fn: () => { fn(); t.at = now + Math.max(1, Number(ms) || 1); timers.push(t); } }; timers.push(t); return id; };
+  const replaced = [];
   const calls = [], assigned = [], toasts = [], confirms = [];
   // the page's clock follows page time (advance), so "15 minutes later" in a test is 15 minutes to the page too
   const base = Date.now();
@@ -77,6 +78,7 @@ export async function openDashboard({ ua = UA.desktop, search = "", me = memberM
     origin: "https://vicinity.test", protocol: "https:", host: "vicinity.test", pathname: "/dashboard", search: search ? `?${search}` : "", hash: "",
     get href() { return this.origin + this.pathname + this.search + this.hash; },
     assign: (u) => assigned.push(u), reload: () => assigned.push("reload"),
+    replace: (u) => { assigned.push(u); replaced.push(u); }, // a navigation that leaves no history entry (Back skips it): in `assigned` too, and in `replaced`
   };
   const addressBar = [loc.href];
   Object.defineProperty(doc, "hidden", { get: () => hidden, configurable: true });
@@ -151,7 +153,7 @@ export async function openDashboard({ ua = UA.desktop, search = "", me = memberM
   const $ = (s) => doc.querySelector(s);
   const visible = (e) => Boolean(e && e.getClientRects().length);
   return {
-    doc, win, $, $$: (s) => doc.querySelectorAll(s), calls, assigned, addressBar, local, session, timers, flush, confirms,
+    doc, win, $, $$: (s) => doc.querySelectorAll(s), calls, assigned, replaced, addressBar, local, session, timers, flush, confirms,
     advance: async (ms) => { await advance(ms); noteToast(); },
     get now() { return now; },
     get toasts() { noteToast(); return toasts; },
