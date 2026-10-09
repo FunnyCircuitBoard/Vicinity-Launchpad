@@ -52,8 +52,8 @@
           <p class="kicker">Your dashboard</p>
           <h1 class="page-title">Your city is talking.<br><span class="accent">You're not in it yet.</span></h1>
           <p class="lead">Two quick steps, where you are and who you are, and you're in: who's applying to found your city, local memes, and who's checking in near you. Link a wallet whenever you like for your live rank among every holder.</p>
-          <a class="btn btn--primary btn--lg" href="/connect">Join or log in →</a>
-          <p class="tiny muted">Takes a minute, with Google or e-mail. Your wallet comes later, from your dashboard: free, one signature.</p>
+          <a class="btn btn--primary btn--lg" href="/connect" id="out-cta">Join or log in →</a>
+          <p class="tiny muted" id="out-cta-note">Takes a minute, with Google or e-mail. Your wallet comes later, from your dashboard: free, one signature.</p>
         </div>
         <!-- a snapshot of a member's Home tab with made-up sample values, drawn in HTML (sharp, themed, no image). Read as one picture.
              No ids, no links and no classes the dashboard scripts look up: the real dashboard below never confuses it with its own cards. -->
@@ -189,10 +189,13 @@
           </div>
         </div>
 
-        <!-- the link card: only for a member whose account has no wallet yet (onboarding v3); folds to one line on "Skip for now", stays as "Profile complete" once linked -->
+        <!-- the wallet card: a member whose account has no wallet yet connects one here (onboarding v3; folds to one line on "Skip for now",
+             stays as "Profile complete" once linked). On a phone's Safari / Chrome with a linked wallet it is where they shop: "On this phone
+             you buy in Phantom" (owner decision F4); inside the wallet app, the "next time" tip; after a wallet joined from another app, the
+             "Wasn't you? Remove it" line (dashboard.js walletCard) -->
         <section class="wcard" id="wallet-card" aria-labelledby="wcard-title" hidden>
           <p class="kicker" id="wcard-kicker">Complete your profile · 2 of 3</p>
-          <h2 id="wcard-title">Link your wallet</h2>
+          <h2 id="wcard-title">Connect your wallet</h2>
           <p class="wcard__lead" id="wcard-lead">Free: one signature, not a transaction. Vicinity never asks for your recovery phrase or private key.</p>
           <ul class="wcard__perks" id="wcard-perks">
             <li>Your $VICINITY balance and your rank among all holders</li>
@@ -200,11 +203,15 @@
             <li>Badges and holder rewards</li>
           </ul>
           <div class="wcard__actions" id="wcard-actions">
-            <a class="btn btn--primary btn--lg" id="wcard-go" href="/connect?mode=link">Link my wallet</a>
+            <a class="btn btn--primary btn--lg" id="wcard-go" href="/connect?mode=link">Connect wallet</a>
             <a class="link-btn wcard__other" id="wcard-other" href="/connect?mode=link" hidden>Other wallet apps</a>
+            <button class="link-btn wcard__other" type="button" id="wcard-another" aria-expanded="false" aria-controls="wcard-apps" hidden>Use another wallet app</button>
             <button class="link-btn" type="button" id="wcard-skip">Skip for now</button>
           </div>
+          <div class="su-chips wcard__apps" id="wcard-apps" hidden></div>
+          <p class="wcard__note" id="wcard-note" hidden><span id="wcard-note-text"></span> <button class="link-btn link-btn--tiny" type="button" id="wcard-remove">Remove it</button></p>
           <p class="wcard__wait" id="wcard-wait" role="status" hidden><span class="live-dot" aria-hidden="true"></span> <span id="wcard-wait-text">Waiting for your wallet app…</span></p>
+          <p class="wcard__tip" id="wcard-tip" hidden><span id="wcard-tip-text"></span> <button class="link-btn link-btn--tiny" type="button" id="wcard-tip-ok">Got it</button></p>
           <p class="wcard__tiny" id="wcard-tiny">You can unlink it any time from Profile.</p>
         </section>
 
@@ -615,6 +622,10 @@
         <h2 class="h2--sm" id="proof-title">Confirm it's you</h2>
         <p class="small muted">Sensitive actions (applying, endorsing, voting, moderating) need your wallet to sign once every 30 minutes. It's free and isn't a transaction. This stops anyone who gets hold of your login from acting as you.</p>
         <div class="wallet-list" id="proof-wallets"></div>
+        <!-- a phone's Safari / Chrome has no wallet in it: the wallet app confirms, signed in there (owner decision F4) -->
+        <a class="btn btn--primary btn--block" id="proof-app" href="/connect?mode=login" hidden>Open your wallet app</a>
+        <p class="small muted" id="proof-app-line" hidden>On this phone you confirm in your wallet app. It opens this page there, logged in.</p>
+        <div class="su-chips" id="proof-apps" hidden></div>
         <p class="small muted" id="proof-none" hidden>No wallet found in this browser. Open this page in your wallet app, or use the tiny transfer below.</p>
         <button class="btn btn--primary btn--block" type="button" id="proof-login" hidden>Log in again to confirm it's you</button>
         <details class="more-wallets" id="proof-transfer">
@@ -636,7 +647,7 @@
     <div class="modal" id="locate-modal" role="dialog" aria-modal="true" aria-labelledby="locate-title" hidden>
       <div class="modal__box card">
         <h2 class="h2--sm" id="locate-title">Share your location in your browser</h2>
-        <p class="small muted">This wallet app's browser can't share your location. Do that step in Safari or Chrome instead. It takes a few seconds, and this page continues by itself.</p>
+        <p class="small muted">Location checks happen in Safari or Chrome: copy this link, open it there, then come back. It takes a few seconds, and this page continues by itself.</p>
         <ol class="howto small">
           <li>Copy the link below.</li>
           <li>Paste it in Safari or Chrome and tap <strong>Share my location</strong>.</li>
