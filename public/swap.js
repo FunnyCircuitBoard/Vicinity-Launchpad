@@ -37,6 +37,15 @@
   const AUTO_KEY = "vicinity.swapAuto"; // this browser's automatic builds of the last minute, shared by its tabs
   const TAB_KEY = "vicinity.swapWallet"; // sessionStorage: the wallet this tab connected with a tap (a wallet app's next page starts connected)
   const APP_WAIT_MS = 3000; // a wallet app's browser may put its wallet on the page this late (site.js / signup.js wait as long)
+  // after the first wallet is on the page, how long the page waits before it asks it anything: a second wallet in that time (one injected
+  // a moment later, or an older wallet wallets.js finds 350 ms after it starts) means the person chooses; and the longest the Buy button
+  // says "Checking your wallet…" (still) instead of an active "Connect wallet" while the wallet app's answer may still connect the panel
+  const WALLET_SETTLE_MS = 400, CHECK_MAX_MS = 4000;
+  const CHECKING = "Checking your wallet…";
+  // the pages that show a Buy to anyone (a panel, or the sheet a card's Buy opens), and the dashboard (its Buy card is a signed-in
+  // person's): there the wallet app is asked as soon as the switch is known on, so a sheet opens connected; any other page (the home
+  // page only changes its words), or the dashboard of somebody signed out, asks only if a panel mounts after all
+  const BUY_PAGES = ["token", "launchpad", "coin"], SIGNED_IN_BUY_PAGES = ["dashboard"];
   const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   /** Bytes to base58 (a signature, 64 bytes). */
   function base58(bytes) {
@@ -121,11 +130,13 @@
   const symbolOf = (mint, fallback) => { const t = tokenOf(mint); return t ? (t.kind === "vicinity" ? "$VICINITY" : t.kind === "city" ? `$${(t.symbol || t.name || "COIN").toUpperCase().replace(/^\$/, "")}` : t.symbol) : fallback || shortAddr(mint); };
   const decimalsOf = (mint) => { const t = tokenOf(mint); return t ? t.decimals : 6; };
   // silent: connected by the page itself inside a wallet app (connectSilently below), not by a tap on this page
-  const wallet = { adapter: null, address: null, silent: false, listeners: new Set() };
+  // checking: the wallet app is being asked silently and may still connect the panels (the button says CHECKING, still)
+  const wallet = { adapter: null, address: null, silent: false, checking: false, listeners: new Set() };
   const onWallet = (f) => { wallet.listeners.add(f); return () => wallet.listeners.delete(f); };
   let helpIds = 0;
   function setWallet(adapter, address, silent = false) { wallet.adapter = adapter; wallet.address = address; wallet.silent = silent; for (const f of wallet.listeners) { try { f(); } catch { /* one panel's trouble is its own */ } } }
   const panels = new Set();
+  function setChecking(on) { on = Boolean(on); if (wallet.checking === on) return; wallet.checking = on; for (const p of panels) { try { p.render(); } catch { /* one panel's trouble is its own */ } } }
   // this browser's automatic builds (every panel, every tab): when each started, and none at all until slowUntil (after a 429).
   // Read from localStorage before every use (another tab may have built meanwhile) and written back after; storage that is off
   // (a private tab) or junk leaves this page counting alone, as before.
@@ -147,42 +158,73 @@
 
   /* ---------------------------------------------------------------- inside a wallet app: connected from the start */
   // In a wallet app's own browser (Phantom, Solflare, Backpack...: site.js's walletApp.here()) a person signed in to Vicinity with that
-  // wallet does not tap "Connect wallet" and then the only wallet of a one-line list on every page: once per page, when the first panel
-  // mounts, and only when exactly one wallet is on the page (it may come up to APP_WAIT_MS late) and it is that app's own, the wallet
-  // is asked SILENTLY for the account it already shares with this site (wallets.js connectSilently: never a question to the person).
-  // Its answer is taken only when it is the signed-in person's wallet (/api/me?lite=1, which site.js reads on every page anyway: no
-  // extra request) or the wallet this tab connected with a tap before (sessionStorage); otherwise nothing changes ("Connect wallet").
-  // Taken, every panel is connected (setWallet) and the exact price is built as usual once a typed amount settles; buying is still
-  // the person's own tap, confirmed in the wallet's own sheet. Never asked: a computer, a phone's Safari or Chrome (no wallet on the
-  // page), two wallets, a person with no account here and no tap in this tab. Dropped: an answer that comes after the person tapped
-  // Connect wallet themselves (their choice is on the screen) or after another wallet was connected.
+  // wallet does not tap "Connect wallet" and then the only wallet of a one-line list on every page: once per page (as soon as the switch
+  // is known on, on a page that shows a Buy; else when the first panel mounts) the wallet is asked SILENTLY for the account it already
+  // shares with this site (wallets.js connectSilently: never a question to the person), and only when:
+  //   - exactly one wallet is on the page (it may come up to APP_WAIT_MS late), and it stayed alone for WALLET_SETTLE_MS: a second
+  //     wallet, even one that comes a moment later or while the page waits for its answers, means the person chooses;
+  //   - it is a known wallet app's wallet, and that app's own when the browser names its app (the user agent): Phantom's browser
+  //     with a wallet that calls itself Solflare is not asked;
+  //   - somebody is there to recognise: the signed-in person's wallet (/api/me?lite=1, which site.js reads on every page anyway: no
+  //     extra request) or the wallet this tab connected with a tap before (sessionStorage); a visitor's wallet is not even asked.
+  // Its answer is taken only when it is one of those addresses and the page still has that one wallet; otherwise nothing changes
+  // ("Connect wallet"). Taken, every panel is connected (setWallet) and the exact price is built as usual once a typed amount settles;
+  // buying is still the person's own tap, confirmed in the wallet's own sheet. While the answer may still connect, the button says
+  // "Checking your wallet…" and does nothing (at most CHECK_MAX_MS), so a tap in those moments never opens the one-wallet list.
+  // Never asked: a computer, a phone's Safari or Chrome (no wallet on the page), two wallets, the swap switched off. Dropped: an answer
+  // that comes after the person tapped Connect wallet themselves (their choice is on the screen) or after another wallet was connected.
+  // A connection the page made itself lasts only while that wallet is the page's only one (see the onChange at the end).
   const tabWallet = () => { try { const v = JSON.parse(window.sessionStorage.getItem(TAB_KEY) || "null"); return v && typeof v.address === "string" && isAddr(v.address) ? v.address : null; } catch { return null; } };
   const keepTabWallet = (a, address) => { try { window.sessionStorage.setItem(TAB_KEY, JSON.stringify({ address, name: a.name })); } catch { /* storage off: the next page asks again */ } };
+  /** A wallet is connected, or the person is choosing one on a panel: the page then never connects one by itself. */
+  const choosing = () => Boolean(wallet.adapter) || [...panels].some((p) => !p.walletBox.hidden);
   let silentP = null;
   const autoConnect = () => (silentP ||= connectInApp().catch(() => null));
   /** The wallet app's account, connected without a tap when it is recognised (see above); the address, or null. */
   async function connectInApp() {
-    const w = W(), wa = window.V.walletApp;
+    const w = W(), V = window.V, wa = V.walletApp;
     if (!w || !w.isMobile || !wa || typeof wa.here !== "function" || typeof w.knownFor !== "function") return null;
-    if (!w.list().length) {
-      await new Promise((resolve) => {
-        let off = null;
-        const t = setTimeout(() => { if (typeof off === "function") off(); resolve(); }, APP_WAIT_MS);
-        off = w.onChange(() => { if (!w.list().length) return; if (typeof off === "function") off(); clearTimeout(t); resolve(); });
-      });
+    const ua = (window.navigator && window.navigator.userAgent) || "";
+    const named = V.webView && Array.isArray(w.KNOWN) ? w.KNOWN.find((k) => k.open && k.match.test(ua)) || null : null; // the app this browser says it is
+    const only = () => { const l = w.list(); return l.length === 1 ? l[0] : null; };
+    let me; // what /api/me?lite=1 said; undefined while it is on its way
+    const meP = V.ready && typeof V.ready.then === "function" ? V.ready.then((d) => d, () => null) : Promise.resolve(null);
+    const want = () => new Set([me && me.signedIn && me.user ? me.user.wallet : null, tabWallet()].filter((x) => typeof x === "string" && isAddr(x)));
+    // "Checking your wallet…" while the answer may still connect: somebody to recognise (or /api/me not back yet), nobody choosing, and
+    // one wallet on the page (or none yet, in a browser that names its wallet app); never past CHECK_MAX_MS
+    let live = true;
+    const update = () => setChecking(live && !choosing() && (me === undefined || want().size > 0) && (w.list().length === 1 || (!w.list().length && Boolean(named))));
+    const off = w.onChange(update);
+    const cap = setTimeout(() => { live = false; update(); }, CHECK_MAX_MS);
+    meP.then((d) => { me = d; update(); });
+    update();
+    try {
+      if (!w.list().length) {
+        await new Promise((resolve) => {
+          let stop = null;
+          const t = setTimeout(() => { if (typeof stop === "function") stop(); resolve(); }, APP_WAIT_MS);
+          stop = w.onChange(() => { if (!w.list().length) return; if (typeof stop === "function") stop(); clearTimeout(t); resolve(); });
+        });
+      }
+      if (!w.list().length) return null;
+      const seen = Date.now();
+      me = await meP;
+      if (!want().size || choosing()) return null; // nobody to recognise: the wallet is not even asked
+      const rest = seen + WALLET_SETTLE_MS - Date.now();
+      if (rest > 0) await new Promise((resolve) => setTimeout(resolve, rest)); // a second wallet in this time: the person chooses
+      const a = only();
+      if (!a || !wa.here() || !w.inWalletApp() || typeof a.connectSilently !== "function") return null;
+      const own = w.knownFor(a.name);
+      if (!own || (named && named.id !== own.id)) return null; // not a known wallet app's wallet, or not the app this browser names
+      await loadConfig();
+      if (!config || config.swap === false || !want().size || choosing() || only() !== a) return null; // no Buy here, or things changed
+      const address = await a.connectSilently();
+      if (typeof address !== "string" || !want().has(address) || choosing() || only() !== a) return null;
+      setWallet(a, address, true);
+      return address;
+    } finally {
+      live = false; clearTimeout(cap); if (typeof off === "function") off(); update();
     }
-    const list = w.list(), app = wa.here(), a = list.length === 1 ? list[0] : null;
-    if (!a || !app || !w.inWalletApp() || typeof a.connectSilently !== "function") return null;
-    const own = w.knownFor(a.name);
-    if (!own || own.id !== app.id) return null; // the wallet on the page is not this wallet app's own
-    const me = window.V.ready && typeof window.V.ready.then === "function" ? await window.V.ready.catch(() => null) : null;
-    const want = new Set([me && me.signedIn && me.user ? me.user.wallet : null, tabWallet()].filter((x) => typeof x === "string" && isAddr(x)));
-    const choosing = () => wallet.adapter || [...panels].some((p) => !p.walletBox.hidden);
-    if (!want.size || choosing()) return null; // nobody to recognise: the wallet is not even asked
-    const address = await a.connectSilently();
-    if (typeof address !== "string" || !want.has(address) || choosing()) return null;
-    setWallet(a, address, true);
-    return address;
   }
 
   /** A coloured mark with the token's first letter (no outside images: the security policy allows only this site). */
@@ -421,6 +463,8 @@
     }
     get ready() { return Boolean(config && config.swap !== false && this.s.in && this.s.out && this.s.in !== this.s.out); }
     get connected() { return Boolean(wallet.adapter && wallet.address); }
+    /** Not connected yet, and the wallet app's silent answer may still connect it (the button says CHECKING and is still). */
+    get checkingWallet() { return !this.connected && wallet.checking && (this.s.phase === "idle" || this.s.phase === "quoted"); }
     get canSendHere() { const a = wallet.adapter; return Boolean(a && (a.canSend || a.canSign)); }
     get accountChains() { const a = wallet.adapter; return (a && a.account && a.account.chains) || (a && a.chains) || []; }
     /** A devnet test coin, and a wallet whose account says it is not on devnet: told to switch, never built for. */
@@ -660,7 +704,7 @@
       if (s.phase === "ready") return this.buy(); // first, before anything is awaited: the wallet opens inside this tap
       if (s.phase === "building" || this.locked) return; // a second tap while busy is ignored
       if (s.phase === "done" || (s.phase === "failed" && !s.soft)) { s.sig = null; this.inAmt.value = ""; s.amount = ""; s.quote = null; this.phase("idle", { error: null }); this.inAmt.focus(); return; }
-      if (!this.connected) return this.connect();
+      if (!this.connected) return this.checkingWallet ? undefined : this.connect(); // the wallet app is still answering: the button is still
       if (s.phase === "failed" && s.soft && s.quote && s.amount) s.phase = "quoted"; // Try again: the price is built again
       if (s.phase !== "quoted" || !s.quote) return this.inAmt.focus();
       if (!this.canSendHere) return this.phase("failed", { error: { error: "no_send" }, soft: true });
@@ -977,11 +1021,12 @@
       if (s.sig) { const a = el("a", null, "View on Solscan ↗"); a.setAttribute("href", `https://solscan.io/tx/${s.sig}${s.cluster !== "mainnet" ? `?cluster=${s.cluster}` : ""}`); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener"); this.links.append(el("span", "mono tiny", shortAddr(s.sig)), " · ", a); }
       // the button
       const busy = s.phase === "building" || this.locked;
-      const labels = { idle: this.connected ? action : "Connect wallet", quoting: "Quoting…", quoted: !this.connected ? "Connect wallet" : s.hold === "refresh" ? "Refresh price" : action, building: "Preparing…", ready: action, signing: "Confirm in your wallet…", sending: "Sending…", confirming: "Confirming…", done: "Swap again", failed: s.soft ? (this.connected ? "Try again" : "Connect wallet") : "Start over" };
+      const connectLabel = this.checkingWallet ? CHECKING : "Connect wallet";
+      const labels = { idle: this.connected ? action : connectLabel, quoting: "Quoting…", quoted: !this.connected ? connectLabel : s.hold === "refresh" ? "Refresh price" : action, building: "Preparing…", ready: action, signing: "Confirm in your wallet…", sending: "Sending…", confirming: "Confirming…", done: "Swap again", failed: s.soft ? (this.connected ? "Try again" : "Connect wallet") : "Start over" };
       this.go.textContent = labels[s.phase] || "Swap";
-      this.go.disabled = busy || !this.ready || (s.phase === "quoting") || (s.phase === "quoted" && (!this.connected ? false : impact > 10 && !s.understood)) || (s.phase === "idle" && this.connected && !s.amount)
+      this.go.disabled = busy || !this.ready || this.checkingWallet || (s.phase === "quoting") || (s.phase === "quoted" && (!this.connected ? false : impact > 10 && !s.understood)) || (s.phase === "idle" && this.connected && !s.amount)
         || (s.phase === "ready" && (s.refreshing || s.holding || (impact > 10 && !s.understood)));
-      this.go.classList.toggle("is-busy", busy || (s.phase === "ready" && s.refreshing));
+      this.go.classList.toggle("is-busy", busy || this.checkingWallet || (s.phase === "ready" && s.refreshing));
       // the amount, the flip and the pair stay open while the price is being built (typing on simply starts again): only a trade
       // already in the wallet's or the network's hands locks them
       this.flipBtn.disabled = this.locked;
@@ -1089,12 +1134,22 @@
     const on = o === undefined ? null : Boolean(o && o.swap === true);
     if (on === false) { for (const e of slots) e.hidden = true; return; }
     if (on === true) copySweep();
-    if (on === true && !slots.length && !linkParams) return; // a page that only needed its words changed (the home page)
+    // inside a wallet app: asked now, not when the first panel mounts, so the panels and a sheet opened later start connected
+    const page = document.body && document.body.dataset ? document.body.dataset.page : "";
+    if (on === true && (BUY_PAGES.includes(page) || linkParams)) autoConnect();
+    else if (on === true && SIGNED_IN_BUY_PAGES.includes(page) && window.V.ready && typeof window.V.ready.then === "function") window.V.ready.then((me) => { if (me && me.signedIn) autoConnect(); }, () => {});
+    if (on === true && !slots.length && !linkParams) return; // a page that only needed its words changed, or whose script mounts its panel (or opens the sheet) itself
     await loadConfig();
     for (const e of slots) { if (!config || config.swap === false) e.hidden = true; else mount(e); }
     if (linkParams) settleLink(); // a link that carries a trade: the panel that fits takes it, else the sheet
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
-  // the connected wallet is remembered across panels; wallets.js may register late (in-app browsers)
-  if (W()) W().onChange(() => { for (const p of panels) p.render(); });
+  // the connected wallet is remembered across panels; wallets.js may register late (in-app browsers). A connection the page made by
+  // itself (the wallet app's silent answer) lasts only while that wallet is the page's only one: a second wallet turning up later
+  // means the person chooses ("Connect wallet" again; a price built for it goes), unless a trade is already in the wallet's hands.
+  if (W()) W().onChange(() => {
+    const l = W().list();
+    if (wallet.silent && wallet.adapter && (l.length !== 1 || l[0] !== wallet.adapter) && ![...panels].some((p) => p.locked)) setWallet(null, null);
+    for (const p of panels) p.render();
+  });
 })();

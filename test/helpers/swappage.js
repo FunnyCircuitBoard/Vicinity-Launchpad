@@ -56,15 +56,17 @@ export const KNOWN = [{ id: "phantom", name: "Phantom", color: "#AB9FF2", match:
  *             browser with site data blocked), or undefined (no localStorage at all); session: the same for window.sessionStorage
  *   here      inside a wallet app (site.js's V.walletApp.here()): the VW.KNOWN id of the app whose browser this is, null for none;
  *             left out: no V.walletApp at all (the panel's tests before wallet apps). inWalletApp: what VW.inWalletApp() says
- *   me        what site.js's V.ready (/api/me?lite=1) resolves to (left out: no V.ready)
+ *   me        what site.js's V.ready (/api/me?lite=1) resolves to, or a promise (left out: no V.ready)
+ *   official  what site.js's V.official (/api/official) resolves to, or a promise (left out: no V.official: the panels mount only when
+ *             a page's script mounts them); page: the body's data-page (token, dashboard, launchpad, coin, home)
  *   walletsJs { ua, touchPoints, webView, standard }: the REAL public/wallets.js runs (instead of the fake VW and `wallets`) in a
  *             browser with this user agent, and V.walletApp.here() is site.js's rule; `standard` = the Wallet Standard wallets already
  *             on the page when the scripts run; register(wallet) injects one later
  * Returns { doc, win, $, $$, calls, flush, advance, timers, pending, slot, VSwap, listeners, setHidden, location }.
  */
-export async function swapPage({ answers = {}, wallets = [], isMobile = false, slot = `<div id="buy-slot" data-swap data-out="${VIC}" data-in="SOL" data-mode="buy" data-title="Buy $VICINITY"></div>`, href = "https://vicinity.test/token", clock = false, canvas = false, qrcode = undefined, head = "", storage = undefined, session = undefined, here = undefined, inWalletApp = false, me = undefined, walletsJs = null } = {}) {
+export async function swapPage({ answers = {}, wallets = [], isMobile = false, slot = `<div id="buy-slot" data-swap data-out="${VIC}" data-in="SOL" data-mode="buy" data-title="Buy $VICINITY"></div>`, href = "https://vicinity.test/token", clock = false, canvas = false, qrcode = undefined, head = "", storage = undefined, session = undefined, here = undefined, inWalletApp = false, me = undefined, official = undefined, page = null, walletsJs = null } = {}) {
   const doc = new Doc();
-  doc.append(...parse(doc, `<html><body>${head}<div id="ca-links"></div>${slot}</body></html>`));
+  doc.append(...parse(doc, `<html><body${page ? ` data-page="${page}"` : ""}>${head}<div id="ca-links"></div>${slot}</body></html>`));
   const calls = [], timers = [], listeners = [];
   const answer = async (path, body) => { calls.push({ path, body }); const key = path.split("?")[0]; const a = answers[key] ?? answers[path]; if (a === undefined) return { ok: false, error: "not_found", _status: 404 }; return typeof a === "function" ? a(body, path) : a; };
   const el = (tag, cls, text) => { const e = doc.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -95,6 +97,7 @@ export async function swapPage({ answers = {}, wallets = [], isMobile = false, s
   if (qrcode !== undefined) win.qrcode = qrcode;
   if (here !== undefined) win.V.walletApp = { here: () => (here ? KNOWN.find((k) => k.id === here) || null : null), remembered: () => null, remember() {} };
   if (me !== undefined) win.V.ready = me instanceof Promise ? me : Promise.resolve(me);
+  if (official !== undefined) win.V.official = official instanceof Promise ? official : Promise.resolve(official);
   const storageOf = (name, items) => {
     if (items === "throws") Object.defineProperty(win, name, { get() { throw new Error("SecurityError: the operation is insecure"); } });
     else if (items) win[name] = { getItem: (k) => (Object.prototype.hasOwnProperty.call(items, k) ? items[k] : null), setItem: (k, v) => { items[k] = String(v); }, removeItem: (k) => { delete items[k]; } };

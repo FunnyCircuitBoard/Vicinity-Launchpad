@@ -15,6 +15,8 @@ const WALLETS_JS = readFileSync(new URL("../public/wallets.js", import.meta.url)
 const ADDR = "CnQMR167gRRXcPYrDZkwbW6moYKmxd7gZNGSN6BNzz6p", OTHER = "7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2";
 const UA = {
   phantomIos: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Phantom/ios",
+  solflareIos: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Solflare",
+  iosWebView: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148", // an app's browser that names no app
   desktop: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36",
 };
 
@@ -170,10 +172,14 @@ test("older wallets: connected already → that account; Phantom / Backpack are 
 const LATER = () => new Date(Date.now() + 3_600_000).toISOString();
 const answers = () => ({ "/api/swap/config": CONFIG, "/api/swap/quote": () => QUOTE({ expiresAt: LATER() }), "/api/swap/balances": { ok: true, sol: { lamports: 1e9, ui: 1 }, tokens: {} }, "/api/swap/tx": () => TX({ quote: QUOTE({ expiresAt: LATER() }) }), "/api/swap/status": { ok: true, status: "confirmed" } });
 const ME = (wallet) => ({ signedIn: true, user: { id: 7, wallet, walletApp: "phantom" } });
+const CHECKING = "Checking your wallet…";
+const SETTLE = 450; // past the page's short wait (400 ms) after the first wallet is on the page
 
 test("real wallets.js + swap.js in Phantom's browser, signed in with that wallet: connected on load (one silent connect), amount → price ready → ONE tap → the wallet sends", async () => {
   const { wallet, ctl } = standardWallet({ trust: "yes" });
   const P = await swapPage({ clock: true, me: ME(ADDR), answers: answers(), walletsJs: { ua: UA.phantomIos, webView: true, standard: [wallet] } });
+  assert.deepEqual([text(P.$(".swap__go")), P.$(".swap__go").disabled, ctl.inputs], [CHECKING, true, []], "a moment for a second wallet first");
+  await P.advance(SETTLE);
   assert.deepEqual([text(P.$(".swap__go")), text(P.$(".swap__status"))], ["Buy $VICINITY", "Connected CnQM…zz6p"]);
   assert.deepEqual(ctl.inputs, [{ silent: true }]);
   const i = P.$(".swap__amt"); i.value = "0.25"; i.dispatchEvent(newEvent("input"));
@@ -188,9 +194,15 @@ test("real wallets.js + swap.js: the wallet comes late (injected after the scrip
   // late, allowed: connected once it is there
   const late = standardWallet({ trust: "yes" });
   const L = await swapPage({ clock: true, me: ME(ADDR), answers: answers(), walletsJs: { ua: UA.phantomIos, webView: true } });
-  assert.equal(text(L.$(".swap__go")), "Connect wallet");
+  assert.deepEqual([text(L.$(".swap__go")), L.$(".swap__go").disabled], [CHECKING, true], "Phantom's browser (it says so) before its wallet is on the page: a still button");
   await L.advance(1500); L.register(late.wallet); await L.flush();
+  assert.deepEqual([text(L.$(".swap__go")), late.ctl.inputs], [CHECKING, []]);
+  await L.advance(SETTLE);
   assert.deepEqual([text(L.$(".swap__go")), late.ctl.inputs], ["Buy $VICINITY", [{ silent: true }]]);
+  // the wallet never comes: today's button once the page stops waiting (3 s)
+  const E = await swapPage({ clock: true, me: ME(ADDR), answers: answers(), walletsJs: { ua: UA.phantomIos, webView: true } });
+  await E.advance(3100);
+  assert.deepEqual([text(E.$(".swap__go")), E.$(".swap__go").disabled], ["Connect wallet", false]);
   // never allowed: nothing shared, nothing prompted; the tap connects as today
   const no = standardWallet({ trust: "no" });
   const N = await swapPage({ clock: true, me: ME(ADDR), answers: answers(), walletsJs: { ua: UA.phantomIos, webView: true, standard: [no.wallet] } });
@@ -209,4 +221,42 @@ test("real wallets.js + swap.js: the wallet comes late (injected after the scrip
   const C = await swapPage({ clock: true, me: ME(ADDR), answers: answers(), walletsJs: { ua: UA.desktop, standard: [ext.wallet] } });
   await C.advance(5000);
   assert.deepEqual([text(C.$(".swap__go")), ext.ctl.inputs], ["Connect wallet", []]);
+});
+
+test("real wallets.js + swap.js: two wallets injected a moment apart, or the second while /api/me is on its way: neither is asked, 'Connect wallet', the person chooses", async () => {
+  // both after the scripts ran, 100 ms apart
+  const a = standardWallet({ name: "Phantom" }), b = standardWallet({ name: "Solflare" });
+  const P = await swapPage({ clock: true, me: ME(ADDR), answers: answers(), walletsJs: { ua: UA.phantomIos, webView: true } });
+  await P.advance(500); P.register(a.wallet); await P.flush(); await P.advance(100); P.register(b.wallet); await P.flush(); await P.advance(3000);
+  assert.deepEqual([[...P.win.VW.list().map((x) => x.name)], text(P.$(".swap__go")), P.VSwap.wallet.address, a.ctl.inputs, b.ctl.inputs], [["Phantom", "Solflare"], "Connect wallet", null, [], []]);
+  // one there from the start, the second while /api/me is still on its way
+  let answerMe; const me = new Promise((r) => { answerMe = r; });
+  const c = standardWallet({ name: "Phantom" }), d = standardWallet({ name: "Solflare" });
+  const Q = await swapPage({ clock: true, me, answers: answers(), walletsJs: { ua: UA.phantomIos, webView: true, standard: [c.wallet] } });
+  await Q.advance(200); Q.register(d.wallet); await Q.flush();
+  answerMe(ME(ADDR)); await Q.flush(); await Q.advance(3000);
+  assert.deepEqual([text(Q.$(".swap__go")), Q.VSwap.wallet.address, c.ctl.inputs, d.ctl.inputs], ["Connect wallet", null, [], []]);
+  // an older wallet wallets.js finds 350 ms after it starts, next to a Wallet Standard one of another app: not asked either
+  const e = standardWallet({ name: "Phantom" }), { p } = legacyProvider({ flags: { isSolflare: true } });
+  const R = await swapPage({ clock: true, me: ME(ADDR), answers: answers(), walletsJs: { ua: UA.iosWebView, webView: true, standard: [e.wallet] } });
+  R.win.solflare = p; await R.advance(3000);
+  assert.deepEqual([[...R.win.VW.list().map((x) => x.name)], text(R.$(".swap__go")), e.ctl.inputs], [["Phantom", "Solflare"], "Connect wallet", []]);
+});
+
+test("real wallets.js + swap.js + site.js's rule: the one wallet must be the wallet app's own when the browser names its app (Phantom's browser with a wallet calling itself Solflare is not asked); a browser that names no app takes any known wallet app's", async () => {
+  const s = standardWallet({ name: "Solflare" });
+  const P = await swapPage({ clock: true, me: ME(ADDR), answers: answers(), walletsJs: { ua: UA.phantomIos, webView: true, standard: [s.wallet] } });
+  await P.advance(3000);
+  assert.equal(P.win.V.walletApp.here().id, "solflare", "site.js's here() names the wallet on the page");
+  assert.deepEqual([text(P.$(".swap__go")), P.VSwap.wallet.address, s.ctl.inputs], ["Connect wallet", null, []], "the user agent says Phantom: not asked");
+  for (const [ua, name] of [[UA.solflareIos, "Solflare"], [UA.iosWebView, "Solflare"], [UA.phantomIos, "Phantom"]]) {
+    const w = standardWallet({ name });
+    const Q = await swapPage({ clock: true, me: ME(ADDR), answers: answers(), walletsJs: { ua, webView: true, standard: [w.wallet] } });
+    await Q.advance(SETTLE);
+    assert.deepEqual([text(Q.$(".swap__go")), w.ctl.inputs], ["Buy $VICINITY", [{ silent: true }]], `${name} in ${ua.slice(-20)}`);
+  }
+  const u = standardWallet({ name: "Some Wallet" });
+  const U = await swapPage({ clock: true, me: ME(ADDR), answers: answers(), walletsJs: { ua: UA.iosWebView, webView: true, standard: [u.wallet] } });
+  await U.advance(3000);
+  assert.deepEqual([text(U.$(".swap__go")), u.ctl.inputs], ["Connect wallet", []], "not a known wallet app's wallet");
 });

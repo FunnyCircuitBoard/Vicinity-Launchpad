@@ -1,11 +1,14 @@
 // public/swap.js inside a wallet app's own browser (integration finding INT-1): a person signed in to Vicinity with the wallet of the
 // app they are in finds the Buy panel ALREADY connected, so the flow is: type the amount → "Getting your exact price…" → the price is
 // ready → ONE tap on Buy → the wallet's own sheet. The panel asks the wallet SILENTLY (wallets.js connectSilently: never a prompt)
-// once per page, only when exactly one wallet is on the page and it is that wallet app's own (site.js V.walletApp.here()), and takes
-// the answer only when it is the signed-in person's wallet (V.ready, the /api/me?lite=1 every page reads) or the wallet this tab
-// connected with a tap before (sessionStorage). Everything else keeps today's "Connect wallet": a computer, two wallets, another
-// account's wallet, a wallet that shares nothing or fails, a person with no account and no tap in this tab, the switch off. A trade a
-// link filled in is still never built by itself. The adapter side (wallets.js) is in test/wallets-silent.test.js.
+// once per page (as soon as the switch is known on, on a page that shows a Buy), only when exactly one wallet is on the page and it
+// stayed alone for a moment (a second one, even a moment later, means the person chooses), and takes the answer only when it is the
+// signed-in person's wallet (V.ready, the /api/me?lite=1 every page reads) or the wallet this tab connected with a tap before
+// (sessionStorage). While the answer may still connect, the button says "Checking your wallet…" and does nothing (never an active
+// "Connect wallet" that a tap would turn into the one-wallet list). Everything else keeps today's "Connect wallet": a computer, two
+// wallets, another account's wallet, a wallet that shares nothing or fails, a person with no account and no tap in this tab, the switch
+// off. A trade a link filled in is still never built by itself. The adapter side (wallets.js), the real site.js rule for "this app's own
+// wallet" and the real wallets.js timing are in test/wallets-silent.test.js.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { newEvent } from "./helpers/pagedom.js";
@@ -22,8 +25,14 @@ const go = (P) => P.$(".swap__go");
 const txCalls = (P) => byPath(P.calls, "/api/swap/tx").length;
 const kinds = (w) => w.calls.map((c) => c[0]);
 const type = async (P, value) => { const i = P.$(".swap__amt"); i.value = value; i.dispatchEvent(newEvent("input")); await P.advance(1000); };
-/** Inside Phantom's own browser (a phone; site.js says this is Phantom's), signed in as `me`. */
-const inPhantom = (o = {}) => swapPage({ clock: true, isMobile: true, inWalletApp: true, here: "phantom", me: ME(), answers: base(), ...o });
+const CHECKING = "Checking your wallet…";
+const SETTLE = 450; // past the page's wait (400 ms) after the first wallet is on the page
+/** Inside Phantom's own browser (a phone; site.js says this is Phantom's), signed in as `me`, at the very first moment. */
+const inPhantomNow = (o = {}) => swapPage({ clock: true, isMobile: true, inWalletApp: true, here: "phantom", me: ME(), answers: base(), ...o });
+/** The same, once the page's short wait after the wallet appeared is over (the silent answer has come, if the wallet answers at once). */
+const inPhantom = async (o = {}) => { const P = await inPhantomNow(o); await P.advance(SETTLE); return P; };
+/** The wallet app's listeners after a wallet was added to `list` (wallets.js tells the page). */
+const announce = (P) => { for (const f of [...P.listeners]) f(); };
 
 test("in the wallet app, signed in with that wallet: the panel opens CONNECTED (asked silently, once, never a prompt), and the Buy is the first tap: amount → price ready → one tap → the wallet's own sheet → Swapped", async () => {
   const w = walletOf({ name: "Phantom", silent: "trusted" });
@@ -87,10 +96,15 @@ test("in the wallet app, a wallet that shares nothing, refuses, or throws: today
   assert.deepEqual([text(go(O)), old.calls], ["Connect wallet", []]);
 });
 
-test("in the wallet app, a silent answer that comes after the person tapped Connect wallet is dropped (their choice is on the screen); one after their own connect changes nothing", async () => {
+test("in the wallet app, while the silent answer is on its way the button says 'Checking your wallet…' and a tap does nothing; with no answer within 4 s it is today's 'Connect wallet', and an answer after the person tapped it is dropped", async () => {
   const w = walletOf({ name: "Phantom", silent: "hang" });
   const P = await inPhantom({ wallets: [w] });
-  assert.equal(text(go(P)), "Connect wallet", "no answer yet: today's button");
+  assert.deepEqual([text(go(P)), go(P).disabled, kinds(w)], [CHECKING, true, ["connectSilently"]], "the wallet is answering: a still button, not an active Connect wallet");
+  click(go(P)); await P.flush();
+  const enter = newEvent("keydown"); enter.key = "Enter"; P.$(".swap__amt").dispatchEvent(enter); await P.flush();
+  assert.deepEqual([P.$(".swap__wallets").hidden, kinds(w)], [true, ["connectSilently"]], "a tap (or Enter) in those moments opens no wallet list");
+  await P.advance(4000);
+  assert.deepEqual([text(go(P)), go(P).disabled], ["Connect wallet", false], "no answer within 4 s: today's button");
   click(go(P)); await P.flush();
   assert.equal(P.$(".swap__wallets").hidden, false, "the person is choosing");
   w.answerSilent("trusted"); await P.flush();
@@ -100,10 +114,38 @@ test("in the wallet app, a silent answer that comes after the person tapped Conn
   // the person connected first (the box closed again), then the silent answer: nothing changes
   const v = walletOf({ name: "Phantom", silent: "hang" });
   const Q = await inPhantom({ wallets: [v] });
+  await Q.advance(4000);
   click(go(Q)); await Q.flush(); click(Q.$(".swap__wallets .wallet-option")); await Q.flush();
   const before = Q.calls.length;
   v.answerSilent("trusted"); await Q.flush();
   assert.deepEqual([kinds(v), Q.calls.length], [["connectSilently", "connect"], before], "no second connect, no new request");
+});
+
+test("in the wallet app, the first moments: 'Checking your wallet…' (still) while /api/me is on its way and while the wallet answers, then 'Buy' as soon as it is connected; an answer of nothing, or a visitor, is today's 'Connect wallet' at once", async () => {
+  // /api/me still on its way
+  let answerMe; const me = new Promise((r) => { answerMe = r; });
+  const w = walletOf({ name: "Phantom", silent: "trusted" });
+  const P = await inPhantomNow({ wallets: [w], me });
+  assert.deepEqual([text(go(P)), go(P).disabled, go(P).classList.contains("is-busy"), w.calls], [CHECKING, true, true, []], "who is here is not known yet: not asked, a still button");
+  click(go(P)); await P.flush();
+  assert.equal(P.$(".swap__wallets").hidden, true);
+  answerMe(ME()); await P.flush();
+  assert.deepEqual([text(go(P)), w.calls], [CHECKING, []], "the page still waits a moment for a second wallet");
+  await P.advance(SETTLE);
+  assert.deepEqual([text(go(P)), text(P.$(".swap__status")), w.calls], ["Buy $VICINITY", "Connected CnQM…zz6p", [["connectSilently"]]], "never an active Connect wallet on the way");
+  // the wallet shares nothing: today's button as soon as it says so
+  const n = walletOf({ name: "Phantom", silent: null });
+  const N = await inPhantomNow({ wallets: [n] });
+  assert.equal(text(go(N)), CHECKING);
+  await N.advance(SETTLE);
+  assert.deepEqual([text(go(N)), go(N).disabled, go(N).classList.contains("is-busy")], ["Connect wallet", false, false]);
+  // a visitor (no account, no tap in this tab): never 'Checking', not even for a moment
+  const v = walletOf({ name: "Phantom", silent: "trusted" });
+  const V = await inPhantomNow({ wallets: [v], me: VISITOR });
+  assert.deepEqual([text(go(V)), go(V).disabled, v.calls], ["Connect wallet", false, []]);
+  // a phone's Safari (no wallet on the page, no wallet app named): today's button from the start
+  const S = await swapPage({ clock: true, isMobile: true, inWalletApp: false, here: null, me: ME(), answers: base() });
+  assert.deepEqual([text(go(S)), go(S).disabled], ["Connect wallet", false]);
 });
 
 test("a computer (an extension wallet), even one that says it is a wallet app: no silent connect, today's 'Connect wallet'", async () => {
@@ -115,15 +157,11 @@ test("a computer (an extension wallet), even one that says it is a wallet app: n
   assert.equal(text(P.$(".swap__phone")), "Use my phone instead", "the computer's wallet list, as today");
 });
 
-test("in the wallet app: two wallets on the page, a wallet that is not this app's own, or a page that is not a wallet app: nothing is asked", async () => {
+test("in the wallet app: two wallets on the page, a wallet that is not a known wallet app's, or a page that is not a wallet app: nothing is asked", async () => {
   const a = walletOf({ name: "Phantom", silent: "trusted" }), b = walletOf({ name: "Solflare", silent: "trusted" });
   const P = await inPhantom({ wallets: [a, b] });
   await P.advance(5000);
   assert.deepEqual([text(go(P)), a.calls, b.calls], ["Connect wallet", [], []], "two wallets: the person chooses");
-  const s = walletOf({ name: "Solflare", silent: "trusted" });
-  const S = await inPhantom({ wallets: [s] }); // Phantom's browser (site.js), but the wallet on the page is Solflare's
-  await S.advance(5000);
-  assert.deepEqual([text(go(S)), s.calls], ["Connect wallet", []]);
   const u = walletOf({ name: "Unknown Wallet", silent: "trusted" });
   const U = await inPhantom({ wallets: [u] });
   await U.advance(5000);
@@ -149,15 +187,17 @@ test("a phone's Safari (no wallet on the page): nothing is asked, the chooser of
   const L = await inPhantom({ wallets });
   await L.advance(2000);
   const w = walletOf({ name: "Phantom", silent: "trusted" });
-  wallets.push(w); for (const f of [...L.listeners]) f();
+  wallets.push(w); announce(L);
   await L.flush();
+  assert.deepEqual([text(go(L)), w.calls], [CHECKING, []], "the page waits a moment for a second wallet before it asks");
+  await L.advance(SETTLE);
   assert.deepEqual([text(go(L)), w.calls], ["Buy $VICINITY", [["connectSilently"]]]);
   // 4 s late: the page gave up at 3 s
   const later = [];
   const T = await inPhantom({ wallets: later });
   await T.advance(4000);
   const v = walletOf({ name: "Phantom", silent: "trusted" });
-  later.push(v); for (const f of [...T.listeners]) f();
+  later.push(v); announce(T);
   await T.advance(5000);
   assert.deepEqual([text(go(T)), v.calls], ["Connect wallet", []]);
 });
@@ -219,4 +259,106 @@ test("the swap switched off: no panel, and the wallet is never asked", async () 
   const P = await inPhantom({ wallets: [w], answers: { "/api/swap/config": { ...CONFIG, swap: false } } });
   await P.advance(5000);
   assert.deepEqual([P.slot.hidden, P.$(".swap__go"), w.calls], [true, null, []]);
+});
+
+test("two wallets, even when the second comes a moment after the first: never connected by itself (the person chooses between both)", async () => {
+  // the second wallet a moment after the first (within the page's short wait)
+  const list = [], a = walletOf({ name: "Phantom", silent: "trusted" }), b = walletOf({ name: "Solflare", silent: "trusted" });
+  const P = await inPhantomNow({ wallets: list });
+  await P.advance(1800); list.push(a); announce(P); await P.flush();
+  await P.advance(150); list.push(b); announce(P); await P.flush();
+  assert.equal(text(go(P)), "Connect wallet", "two wallets: no 'Checking' either");
+  await P.advance(5000);
+  assert.deepEqual([text(go(P)), P.VSwap.wallet.address, a.calls, b.calls], ["Connect wallet", null, [], []], "neither wallet asked");
+  click(go(P)); await P.flush();
+  assert.deepEqual(Array.from(P.$$(".swap__wallets .wallet-option")).map((o) => text(o).slice(1).replace(/(Connect|Signs)$/, "")), ["Phantom", "Solflare"], "the person's tap offers both"); // (each option: the mark's letter, the name, what it does)
+  // the second wallet while /api/me is still on its way
+  let answerMe; const me = new Promise((r) => { answerMe = r; });
+  const c = walletOf({ name: "Phantom", silent: "trusted" }), d = walletOf({ name: "Solflare", silent: "trusted" });
+  const two = [c];
+  const Q = await inPhantomNow({ wallets: two, me });
+  await Q.advance(200); two.push(d); announce(Q); await Q.flush();
+  answerMe(ME()); await Q.advance(5000);
+  assert.deepEqual([text(go(Q)), Q.VSwap.wallet.address, c.calls, d.calls], ["Connect wallet", null, [], []]);
+  // the second wallet while the first is answering silently: its answer is not taken
+  const e = walletOf({ name: "Phantom", silent: "hang" }), f = walletOf({ name: "Solflare", silent: "trusted" });
+  const late = [e];
+  const R = await inPhantom({ wallets: late });
+  assert.deepEqual(kinds(e), ["connectSilently"]);
+  late.push(f); announce(R); await R.flush();
+  assert.equal(text(go(R)), "Connect wallet", "no longer 'Checking': the person will choose");
+  e.answerSilent("trusted"); await R.advance(5000);
+  assert.deepEqual([text(go(R)), R.VSwap.wallet.address, f.calls], ["Connect wallet", null, []]);
+});
+
+test("a connection the page made by itself lasts only while that wallet is the page's only one: a second wallet turning up later means 'Connect wallet' again (the built price goes), but never in the middle of a trade", async () => {
+  const list = [], a = walletOf({ name: "Phantom", silent: "trusted" });
+  list.push(a);
+  const P = await inPhantom({ wallets: list });
+  await type(P, "0.25");
+  assert.deepEqual([text(P.$(".swap__state")), text(go(P))], ["Price ready", "Buy $VICINITY"]);
+  list.push(walletOf({ name: "Solflare", silent: "trusted" })); announce(P); await P.flush();
+  assert.deepEqual([P.VSwap.wallet.address, text(go(P)), go(P).disabled], [null, "Connect wallet", false], "the person chooses now; nothing is signed");
+  assert.deepEqual(kinds(a), ["connectSilently"]);
+  // the same, with the trade already in the wallet's hands: it goes on
+  const two = [], b = walletOf({ name: "Phantom", silent: "trusted" });
+  two.push(b);
+  const Q = await inPhantom({ wallets: two });
+  await type(Q, "0.25");
+  click(go(Q));
+  assert.deepEqual(kinds(b), ["connectSilently", "signAndSend"]);
+  two.push(walletOf({ name: "Solflare", silent: "trusted" })); announce(Q);
+  await Q.flush(); await Q.advance(1500);
+  assert.deepEqual([Q.VSwap.wallet.address, text(Q.$(".swap__state"))], [TAKER, "Swapped ✓"]);
+  // a wallet the person connected with their own tap stays, whatever turns up
+  const three = [], c = walletOf({ name: "Phantom", silent: null });
+  three.push(c);
+  const R = await inPhantom({ wallets: three });
+  click(go(R)); await R.flush(); click(R.$(".swap__wallets .wallet-option")); await R.flush();
+  three.push(walletOf({ name: "Solflare" })); announce(R); await R.flush();
+  assert.equal(R.VSwap.wallet.address, TAKER);
+});
+
+test("as soon as the switch is known on, a page that shows a Buy asks the wallet app (once): a Launchpad or /coin sheet opened later is CONNECTED on its very first render, so is the dashboard's card of a signed-in person; the home page, a signed-out dashboard and the switch off never ask", async () => {
+  for (const page of ["launchpad", "coin"]) {
+    const w = walletOf({ name: "Phantom", silent: "trusted" });
+    const P = await inPhantom({ wallets: [w], official: { swap: true }, page, slot: "", href: `https://vicinity.test/${page}` });
+    assert.deepEqual(w.calls, [["connectSilently"]], `${page}: asked before any panel exists`);
+    const sheet = await P.VSwap.open({ out: VIC }); // no flush: what the sheet shows the moment it opens
+    assert.deepEqual([text(sheet.go), text(sheet.status), sheet.connected], ["Buy $VICINITY", "Connected CnQM…zz6p", true], `${page}: the sheet's first render`);
+    assert.deepEqual(w.calls, [["connectSilently"]], `${page}: once per page`);
+  }
+  // /token with its panel: connected at its first render too, and the panel's own mount asks nothing more
+  const t = walletOf({ name: "Phantom", silent: "trusted" });
+  const T = await inPhantom({ wallets: [t], official: { swap: true }, page: "token" });
+  assert.deepEqual([text(go(T)), t.calls], ["Buy $VICINITY", [["connectSilently"]]]);
+  // the dashboard (its Buy card is a signed-in person's, mounted by dashboard.js): signed in, asked before the card mounts; signed out
+  // (a visitor with this tab's note), not asked by the page itself, only once a panel does mount
+  const d = walletOf({ name: "Phantom", silent: "trusted" });
+  const D = await inPhantom({ wallets: [d], official: { swap: true }, page: "dashboard", slot: "", href: "https://vicinity.test/dashboard" });
+  assert.deepEqual(d.calls, [["connectSilently"]], "signed in: asked before the card exists");
+  const card = D.doc.createElement("div"); D.doc.body.append(card);
+  const p = await D.VSwap.mount(card, { mode: "buy", in: "SOL", out: VIC });
+  assert.deepEqual([text(p.go), d.calls.length], ["Buy $VICINITY", 1], "the card's first render is connected");
+  const session = { "vicinity.swapWallet": JSON.stringify({ address: TAKER, name: "Phantom" }) };
+  const g = walletOf({ name: "Phantom", silent: "trusted" });
+  const G = await inPhantom({ wallets: [g], me: VISITOR, session, official: { swap: true }, page: "dashboard", slot: "", href: "https://vicinity.test/dashboard" });
+  await G.advance(5000);
+  assert.deepEqual(g.calls, [], "signed out: no Buy card, the wallet is not asked");
+  const sheet = await G.VSwap.open({ out: VIC }); await G.advance(SETTLE);
+  assert.deepEqual([g.calls, text(sheet.go)], [[["connectSilently"]], "Buy $VICINITY"], "a panel that mounts after all (a link's sheet): asked then, as before");
+  // the home page (its words only): never asked, even signed in with the app's wallet
+  const h = walletOf({ name: "Phantom", silent: "trusted" });
+  const H = await inPhantom({ wallets: [h], official: { swap: true }, page: "home", slot: "", href: "https://vicinity.test/" });
+  await H.advance(5000);
+  assert.deepEqual(h.calls, []);
+  // the switch off (/api/official, or the swap's own config): no panel, never asked
+  const o = walletOf({ name: "Phantom", silent: "trusted" });
+  const O = await inPhantom({ wallets: [o], official: { swap: false }, page: "launchpad", slot: "" });
+  await O.advance(5000);
+  assert.deepEqual([o.calls, await O.VSwap.open({ out: VIC }) === null || o.calls.length === 0], [[], true]);
+  const c = walletOf({ name: "Phantom", silent: "trusted" });
+  const C = await inPhantom({ wallets: [c], official: { swap: true }, page: "launchpad", slot: "", answers: base({ "/api/swap/config": { ...CONFIG, swap: false } }) });
+  await C.advance(5000);
+  assert.deepEqual(c.calls, []);
 });
