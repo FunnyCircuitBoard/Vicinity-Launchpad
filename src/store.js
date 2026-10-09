@@ -939,24 +939,40 @@ export const WALLETAPP_MIGRATION = {
     "ALTER TABLE users ADD COLUMN password_at TEXT",
   ],
 };
-async function walletAppMigrate(db) {
-  const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(WALLETAPP_MIGRATION.id).first();
+/**
+ * Two more, under their own record (after the one above), so a database that already has the wallet-app columns still gets them:
+ *   sessions.made_by     'wallet' for a session a WALLET made in this very browser (the wallet app's claim of a link code, a wallet's own
+ *                        sign-in): only such a session is renewed while it is used (src/auth.js renewSession). NULL for every other one
+ *                        (Google, the e-mail code, a password, a pairing finished on another device), even after it proves a wallet.
+ *   handoffs.refused_at  when a browser on ANOTHER connection (another country, for a relay code) presented a link code nobody had opened:
+ *                        nothing is bound and the code still works from the right one, but Safari can say "Phantom opened your link but
+ *                        can't use it there" and offer the pairing (src/walletlink.js handleCarryStatus: status "refused")
+ */
+export const WALLETAPP_MIGRATION_2 = {
+  id: "2026-10-11-wallet-app-2",
+  columns: ["ALTER TABLE sessions ADD COLUMN made_by TEXT", "ALTER TABLE handoffs ADD COLUMN refused_at TEXT"],
+};
+async function columnsMigrate(db, m) {
+  const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(m.id).first();
   if (done) return;
-  for (const s of WALLETAPP_MIGRATION.columns) {
+  for (const s of m.columns) {
     try { await db.prepare(s).run(); }
     catch (e) { if (!isDuplicateColumn(e)) throw e; }
   }
-  await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(WALLETAPP_MIGRATION.id, new Date().toISOString()).run();
+  await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(m.id, new Date().toISOString()).run();
 }
 
 /**
- * Create the onboarding v3 schema (pairs.purpose/user_id, users.wallet nullable, then the wallet-app columns above) the first time a v2
- * sign-up or wallet-link route needs it (safe to repeat, and to run from two servers at once: a second rebuild finds the migration
- * recorded or wallet already nullable). Rejects on any other failure and forgets that it tried, so the next request retries. Callers
- * answer 503 signup_unavailable.
+ * Create the onboarding v3 schema (pairs.purpose/user_id, users.wallet nullable, then the wallet-app columns above, then the two after)
+ * the first time a v2 sign-up or wallet-link route needs it (safe to repeat, and to run from two servers at once: a second rebuild finds
+ * the migration recorded or wallet already nullable). Rejects on any other failure and forgets that it tried, so the next request retries.
+ * Callers answer 503 signup_unavailable.
  */
 export function ensureOnboardSchema(db) {
-  if (!onboardReady.has(db)) onboardReady.set(db, onboardMigrate(db).then(() => walletAppMigrate(db)).catch((e) => { onboardReady.delete(db); throw e; }));
+  if (!onboardReady.has(db)) {
+    onboardReady.set(db, onboardMigrate(db).then(() => columnsMigrate(db, WALLETAPP_MIGRATION)).then(() => columnsMigrate(db, WALLETAPP_MIGRATION_2))
+      .catch((e) => { onboardReady.delete(db); throw e; }));
+  }
   return onboardReady.get(db);
 }
 

@@ -16,7 +16,7 @@
  *   POST /api/me/wallet/carry/claim { code, address, message, signature, opener?, app? }   that browser links the wallet and gets its
  *                                                               own session: the person stays in the wallet app, on the dashboard
  *   GET  /api/me/wallet/carry/status?ref=                       Safari asks what became of its code: waiting | opened | linked |
- *                                                               expired | replaced | contested
+ *                                                               expired | replaced | contested | refused
  *   POST /api/me/wallet/unlink                                  take the wallet off the account (a fresh proof by that wallet; not with a live seat)
  *   POST /api/me/wallet/disown                                  "Wasn't you? Remove it": the older browser takes a wallet linked from
  *                                                               another app off the account, and logs out every other browser (7 days)
@@ -186,15 +186,20 @@ const findCarry = async (env, code, now) => {
 /**
  * A live code that this browser may use, and the account it links to: { row, owner, relay } or { error: Response }. In order: the code is
  * unknown, used, contested or old → carry_expired (410); another connection's (another country's, for a relay code) → carry_network
- * (403, relay: true for the country); the owner linked a wallet meanwhile → link_done (409); then the opener: a code another browser
- * opened → carry_opened (403), and that browser's code dies (contested); `mode` "use" (the statement, the claim) needs a code this very
- * browser opened (carry_opened otherwise); "open" (info) of a relay code nobody opened within 2 minutes → carry_expired.
+ * (403, relay: true for the country): nothing is bound, the code stays usable from the right connection, and a code nobody opened yet is
+ * marked (refused_at) so Safari can say the wallet app opened it but could not use it there, and offer the way that works on any
+ * connection; the owner linked a wallet meanwhile → link_done (409); then the opener: a code another browser opened → carry_opened (403),
+ * and that browser's code dies (contested); `mode` "use" (the statement, the claim) needs a code this very browser opened (carry_opened
+ * otherwise); "open" (info) of a relay code nobody opened within 2 minutes → carry_expired.
  */
 async function usableCarry(env, request, code, now, cf, mode, nonces) {
   const row = await findCarry(env, code, now);
   if (!row) return { error: json({ ok: false, error: "carry_expired" }, 410) };
   const relay = row.net === "relay";
-  if (relay ? relayCountry(cf) !== row.country : row.net !== await carryNet(env, request)) return { error: json({ ok: false, error: "carry_network", ...(relay ? { relay: true } : {}) }, 403) };
+  if (relay ? relayCountry(cf) !== row.country : row.net !== await carryNet(env, request)) {
+    if (!row.opener && !row.refused_at) await env.DB.prepare("UPDATE handoffs SET refused_at = ? WHERE id = ? AND opener IS NULL AND refused_at IS NULL").bind(iso(now), row.id).run();
+    return { error: json({ ok: false, error: "carry_network", ...(relay ? { relay: true } : {}) }, 403) };
+  }
   const owner = await env.DB.prepare("SELECT id, handle, name, wallet, home_name, home_country, provider, provider_id, contact_email FROM users WHERE id = ?").bind(row.user_id).first();
   if (!owner) return { error: json({ ok: false, error: "carry_expired" }, 410) };
   if (owner.wallet) return { error: json({ ok: false, error: "link_done" }, 409) };
@@ -368,9 +373,9 @@ async function handleCarryClaim(request, env, x) {
           AND EXISTS (SELECT 1 FROM handoffs WHERE id = ?3 AND result = 'linked' AND wallet = ?1)`).bind(wallet, u.owner.id, u.row.id, at, app),
       // 3. every session of the owner carries the wallet; none of them is a proof (only the browser that signed gets one: 4)
       env.DB.prepare("UPDATE sessions SET wallet = ?1 WHERE user_id = ?2 AND EXISTS (SELECT 1 FROM users WHERE id = ?2 AND wallet = ?1)").bind(wallet, u.owner.id),
-      // 4. this browser's own 30-day session, proven now
-      env.DB.prepare(`INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at)
-          SELECT ?1, ?2, ?3, NULL, ?4, ?5, ?4 WHERE EXISTS (SELECT 1 FROM users WHERE id = ?3 AND wallet = ?2)`)
+      // 4. this browser's own 30-day session, proven now, made by the wallet (renewed while it is used: src/auth.js renewSession)
+      env.DB.prepare(`INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at, made_by)
+          SELECT ?1, ?2, ?3, NULL, ?4, ?5, ?4, 'wallet' WHERE EXISTS (SELECT 1 FROM users WHERE id = ?3 AND wallet = ?2)`)
         .bind(sid, wallet, u.owner.id, at, iso(x.now + SESSION_SECONDS * 1000)),
     ]);
   } catch (e) {
@@ -398,7 +403,7 @@ async function handleCarryStatus(request, env, x) {
   const ref = String(new URL(request.url).searchParams.get("ref") || "");
   if (!/^[A-Za-z0-9_-]{12}$/.test(ref)) return json({ ok: false, error: "bad_ref" }, 400);
   if (s.user.wallet) return json({ ok: true, status: "linked", wallet: s.user.wallet, ...(s.user.wallet_app ? { app: s.user.wallet_app } : {}) });
-  const row = await env.DB.prepare("SELECT id, result, wallet, net, opener, created_at, expires_at FROM handoffs WHERE kind = 'carry' AND user_id = ? AND substr(id, 1, 12) = ?").bind(s.user.id, ref).first();
+  const row = await env.DB.prepare("SELECT id, result, wallet, net, opener, refused_at, created_at, expires_at FROM handoffs WHERE kind = 'carry' AND user_id = ? AND substr(id, 1, 12) = ?").bind(s.user.id, ref).first();
   if (!row) {
     const newer = await env.DB.prepare("SELECT id FROM handoffs WHERE kind = 'carry' AND user_id = ? AND (result IS NULL OR result = 'opened') AND expires_at > ?").bind(s.user.id, iso(x.now)).first();
     return json({ ok: true, status: newer ? "replaced" : "expired" });
@@ -407,6 +412,9 @@ async function handleCarryStatus(request, env, x) {
   if (row.result === "contested") return json({ ok: true, status: "contested" });
   if (Date.parse(row.expires_at) <= x.now) return json({ ok: true, status: "expired" });
   if (row.net === "relay" && !row.opener && x.now - Date.parse(row.created_at) >= RELAY_OPEN_MS) return json({ ok: true, status: "expired", relay: true });
+  // the wallet app opened it, but on another connection (Wi-Fi vs mobile data) or, behind a relay, from another country: still waiting,
+  // and Safari says why and offers the pairing (it works on any connection) instead of "Phantom didn't open?"
+  if (!row.opener && row.refused_at) return json({ ok: true, status: "refused", ...(row.net === "relay" ? { relay: true } : {}) });
   return json({ ok: true, status: row.result === "opened" ? "opened" : "waiting" });
 }
 

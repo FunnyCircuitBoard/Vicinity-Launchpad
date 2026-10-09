@@ -133,8 +133,10 @@ test("the code works only from the connection that made it (the same IPv4 addres
   const elsewhere = browser(env, ELSEWHERE);
   assert.deepEqual([(await info(elsewhere, made.code)).status, (await (await info(elsewhere, made.code)).json()).error], [403, "carry_network"]);
   assert.deepEqual([(await claim(elsewhere, made.code, m.w, m.u.handle)).status], [403]);
+  assert.deepEqual(await status(m.b, made.ref), { ok: true, status: "refused" }, "Safari: the wallet app opened it on another connection (Wi-Fi vs mobile data?)");
   const same64 = browser(env, PHONE6B);
   assert.equal((await info(same64, made.code)).status, 200, "the phone rotated inside its /64: still the same phone");
+  assert.deepEqual(await status(m.b, made.ref), { ok: true, status: "opened" });
   const made4 = await (await carry((await safariMember(PHONE, { sub: "g-v4" })).b)).json();
   assert.equal((await info(same64, made4.code)).status, 403, "an IPv4 code is not an IPv6 one");
   // made-up and malformed codes

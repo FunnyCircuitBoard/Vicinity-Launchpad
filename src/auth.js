@@ -39,7 +39,7 @@ import { emailConfigured, sendMail, verificationEmail } from "./mail.js";
 import { ensureOnboardSchema, ensureSchema, ensureSignupSchema } from "./store.js";
 import { findTransfer } from "./chain.js";
 import { activeMint } from "./official.js";
-import { POLICY } from "./policy.js";
+import { DAY, POLICY } from "./policy.js";
 import { autoUsername } from "./text.js";
 import { v2On } from "./flags.js";
 import { check, clientKey, hits, limitKey, peek, refund } from "./limits.js";
@@ -96,10 +96,13 @@ export const providers = (env) => ({
 
 /* ---------------- sessions ---------------- */
 
-export async function createSession(env, { wallet = null, userId = null, proof = null, provenAt = null }, seconds, now) {
+/** `madeBy` "wallet" (v2 only, after ensureOnboardSchema: sessions.made_by): a wallet signed in in this very browser, so it is renewed while used. */
+export async function createSession(env, { wallet = null, userId = null, proof = null, provenAt = null, madeBy = null }, seconds, now) {
   const token = randomToken(32);
-  await env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .bind(await sha256(token), wallet, userId, proof, iso(now), iso(now + seconds * 1000), provenAt).run();
+  const values = [await sha256(token), wallet, userId, proof, iso(now), iso(now + seconds * 1000), provenAt];
+  await (madeBy
+    ? env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at, made_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(...values, madeBy)
+    : env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(...values)).run();
   if (Math.random() < 0.02) { // tidy up now and then
     await env.DB.batch([
       env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(iso(now)),
@@ -122,19 +125,26 @@ export async function getSession(env, request, now = Date.now()) {
   return { ...s, user };
 }
 export const dropSession = (env, id) => env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(id).run();
+/** However much a session is used, it ends this long after it was made (the person signs in again: one signature in the wallet app). */
+export const SESSION_MAX_DAYS = 90;
 /**
- * A session a WALLET made (the wallet app's browser after "Connect Phantom", a wallet sign-in) is renewed while it is used: once it has
- * less than 15 of its 30 days left, the next /api/me pushes it back to 30 days and sends the same cookie again with a fresh Max-Age. So a
- * person who shops inside Phantom every week never has to sign in there again; one who stops for 30 days does. A Google, e-mail or
- * password session is never renewed (it keeps its 30 days). Returns the Set-Cookie value, or null.
+ * A session a WALLET made in this very browser (sessions.made_by = 'wallet': the wallet app's claim of a link code, a wallet's own
+ * sign-in) is renewed while it is used: once it has less than 15 of its 30 days left, the next /api/me (v2) pushes it back to 30 days
+ * (never past 90 days from when it was made) and sends the same cookie again with a fresh Max-Age. So a person who shops inside Phantom
+ * every week signs in there again only every 90 days. Every other session keeps its 30 days, whatever it proves later: a Google, e-mail or
+ * password login (also once it re-proves the wallet or links one on the page), a pairing finished on another device. Only while the
+ * session carries the account's wallet. Returns the Set-Cookie value, or null.
  */
 export async function renewSession(env, request, s, now = Date.now()) {
   if (!s || !s.user || !s.proven_at || !s.wallet || s.wallet !== s.user.wallet) return null;
   if (Date.parse(s.expires_at) - now > SESSION_SECONDS * 500) return null; // more than half (15 days) left
   const token = getCookie(request, SESSION_COOKIE);
   if (!token || token.length > 100) return null;
-  const r = await env.DB.prepare("UPDATE sessions SET expires_at = ? WHERE id = ? AND user_id = ?").bind(iso(now + SESSION_SECONDS * 1000), s.id, s.user.id).run();
-  return r.meta.changes === 1 ? cookie(SESSION_COOKIE, token, SESSION_SECONDS) : null;
+  const until = Math.min(now + SESSION_SECONDS * 1000, Date.parse(s.created_at) + SESSION_MAX_DAYS * DAY);
+  if (until <= Date.parse(s.expires_at)) return null; // at its 90 days already
+  await ensureOnboardSchema(env.DB); // sessions.made_by (the marker is read inside the statement: a session not made by a wallet changes nothing)
+  const r = await env.DB.prepare("UPDATE sessions SET expires_at = ? WHERE id = ? AND user_id = ? AND made_by = 'wallet'").bind(iso(until), s.id, s.user.id).run();
+  return r.meta.changes === 1 ? cookie(SESSION_COOKIE, token, Math.round((until - now) / 1000)) : null;
 }
 export async function dropCurrent(env, request) {
   const token = getCookie(request, SESSION_COOKIE);
@@ -181,7 +191,7 @@ async function walletCookies(env, request, c, next) {
  *   not logged in, nobody has it             → 404 no_account, no cookie, no pending session (the page says how to join)
  * With the switch off: today's behaviour (a pending 30-minute session and next "social" for a new wallet).
  */
-export async function walletProven(env, request, wallet, now, session, { link = false, via = "page" } = {}) {
+export async function walletProven(env, request, wallet, now, session, { link = false, via = "page", here = false } = {}) {
   if (!v2On(env)) {
     await dropCurrent(env, request);
     const { cookie: c, next } = await signInWallet(env, wallet, now);
@@ -199,7 +209,9 @@ export async function walletProven(env, request, wallet, now, session, { link = 
   const user = await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(wallet).first();
   if (!user) return { status: 404, body: { ok: false, error: "no_account" } };
   await dropCurrent(env, request);
-  const c = await createSession(env, { wallet, userId: user.id, provenAt: iso(now) }, SESSION_SECONDS, now);
+  if (here) await ensureOnboardSchema(env.DB); // sessions.made_by
+  // `here`: the wallet signed in THIS browser (a wallet app's own, or an extension), not a pairing or a transfer finished elsewhere
+  const c = await createSession(env, { wallet, userId: user.id, provenAt: iso(now), madeBy: here ? "wallet" : null }, SESSION_SECONDS, now);
   return { status: 200, body: { ok: true, wallet, next: "/dashboard" }, cookies: await walletCookies(env, request, c, "/dashboard") };
 }
 const answer = (out) => json(out.body, out.status, out.cookies ? { "Set-Cookie": out.cookies } : {});
@@ -284,7 +296,7 @@ export async function handleWalletLogin(request, env, now = Date.now()) {
     if (!session || !session.user) return json({ ok: false, error: "sign_in" }, 401);
     if (r.parsed.handle !== accountName(session.user)) return json({ ok: false, error: "bad_message" }, 400);
   }
-  return answer(await walletProven(env, request, wallet, now, session, { link: r.parsed.action === "link", via: "page" }));
+  return answer(await walletProven(env, request, wallet, now, session, { link: r.parsed.action === "link", via: "page", here: true }));
 }
 
 /**

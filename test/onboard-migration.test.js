@@ -3,7 +3,7 @@
 // two lazy migrations live has run (sign-up v2, profiles), seeded with real-looking members, their sessions, a seat, posts and badges.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MIGRATIONS, ONBOARD_MIGRATION, PROFILES_MIGRATION, SCHEMA, SIGNUP_MIGRATION, WALLETAPP_MIGRATION, ensureOnboardSchema, ensureSchema, ensureSignupSchema, walletOptionalStatements } from "../src/store.js";
+import { MIGRATIONS, ONBOARD_MIGRATION, PROFILES_MIGRATION, SCHEMA, SIGNUP_MIGRATION, WALLETAPP_MIGRATION, WALLETAPP_MIGRATION_2, ensureOnboardSchema, ensureSchema, ensureSignupSchema, walletOptionalStatements } from "../src/store.js";
 import { PROD_MIGRATION_IDS, PROD_USERS_COLUMNS, columnsOf, prodDb, seedProd } from "./helpers/prod-schema.js";
 import { d1 } from "./helpers/d1.js";
 import { slowDb } from "./helpers/slowdb.js";
@@ -30,10 +30,12 @@ async function liveDb() {
   return db;
 }
 const raw = (db) => db._raw;
-// The wallet-app migration (10 Oct 2026) runs right after the rebuild, in the same ensureOnboardSchema: it only ADDS nullable columns
-// (users.wallet_at / wallet_via / wallet_app / password_at, handoffs.opener / country). The pictures below leave those out, so every
-// assertion about the rebuild keeps comparing exactly what it always did; the new columns are checked on their own.
+// The wallet-app migrations (10 and 11 Oct 2026) run right after the rebuild, in the same ensureOnboardSchema: they only ADD nullable
+// columns (users.wallet_at / wallet_via / wallet_app / password_at, handoffs.opener / country / refused_at, sessions.made_by). The pictures
+// below leave those out, so every assertion about the rebuild keeps comparing exactly what it always did; the new columns are checked on
+// their own.
 const WA_USERS = ["wallet_at", "wallet_via", "wallet_app", "password_at"], WA_HANDOFFS = ["opener", "country"];
+const WA2_HANDOFFS = ["refused_at"], WA2_SESSIONS = ["made_by"];
 const without = (rows, cols) => rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !cols.includes(k))));
 const picture = (db) => ({
   usersSql: raw(db).prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get().sql.replace(/, (wallet_at|wallet_via|wallet_app|password_at) TEXT/g, ""),
@@ -42,12 +44,12 @@ const picture = (db) => ({
   seq: raw(db).prepare("SELECT seq FROM sqlite_sequence WHERE name = 'users'").get(),
   cols: raw(db).prepare("PRAGMA table_info(users)").all().map((c) => c.name).filter((c) => !WA_USERS.includes(c)),
   notnull: raw(db).prepare("PRAGMA table_info(users)").all().find((c) => c.name === "wallet").notnull,
-  sessions: raw(db).prepare("SELECT * FROM sessions ORDER BY id").all(),
+  sessions: without(raw(db).prepare("SELECT * FROM sessions ORDER BY id").all(), WA2_SESSIONS),
   seats: raw(db).prepare("SELECT * FROM seats ORDER BY id").all(),
   posts: raw(db).prepare("SELECT * FROM posts ORDER BY id").all(),
-  handoffs: without(raw(db).prepare("SELECT * FROM handoffs ORDER BY id").all(), WA_HANDOFFS),
+  handoffs: without(raw(db).prepare("SELECT * FROM handoffs ORDER BY id").all(), [...WA_HANDOFFS, ...WA2_HANDOFFS]),
   pairs: raw(db).prepare("SELECT id, pin, wallet, created_at, expires_at FROM pairs ORDER BY id").all(),
-  migrations: raw(db).prepare("SELECT id FROM schema_migrations WHERE id <> ? ORDER BY id").all(WALLETAPP_MIGRATION.id).map((r) => r.id),
+  migrations: raw(db).prepare("SELECT id FROM schema_migrations WHERE id NOT IN (?, ?) ORDER BY id").all(WALLETAPP_MIGRATION.id, WALLETAPP_MIGRATION_2.id).map((r) => r.id),
 });
 const recorded = async (db) => Number((await db.prepare("SELECT COUNT(*) AS n FROM schema_migrations WHERE id = ?").bind(ONBOARD_MIGRATION.id).first()).n);
 
@@ -87,7 +89,10 @@ test("live: users is rebuilt once with wallet nullable: every row, id, column, i
   assert.equal(await recorded(db), 1);
   // then the wallet-app columns, added at the end, empty, and recorded once
   assert.deepEqual((await columnsOf(db, "users")).slice(-4), WA_USERS);
-  assert.deepEqual((await columnsOf(db, "handoffs")).slice(-2), WA_HANDOFFS);
+  assert.deepEqual((await columnsOf(db, "handoffs")).slice(-3), [...WA_HANDOFFS, ...WA2_HANDOFFS]);
+  assert.deepEqual((await columnsOf(db, "sessions")).slice(-1), WA2_SESSIONS);
+  assert.ok(raw(db).prepare("SELECT * FROM sessions").all().every((x) => x.made_by === null), "no existing session becomes a renewed one");
+  assert.equal(raw(db).prepare("SELECT COUNT(*) AS n FROM schema_migrations WHERE id = ?").get(WALLETAPP_MIGRATION_2.id).n, 1);
   assert.ok(raw(db).prepare("SELECT * FROM users").all().every((u) => WA_USERS.every((c) => u[c] === null)), "nothing filled in for existing members");
   assert.equal(raw(db).prepare("SELECT COUNT(*) AS n FROM schema_migrations WHERE id = ?").get(WALLETAPP_MIGRATION.id).n, 1);
   assert.match(after.usersSql, /\bwallet\s+TEXT\s+UNIQUE\b/);
@@ -319,4 +324,29 @@ test("the wallet-app columns (10 Oct 2026): added on a fresh database and on one
   await ensureOnboardSchema(flaky);
   assert.deepEqual(await cols(live), { users: WA_USERS, handoffs: WA_HANDOFFS });
   assert.equal(count(live), 1);
+});
+
+test("the second wallet-app record (11 Oct 2026: sessions.made_by, handoffs.refused_at) comes to a database that already ran the first one, once, and a failure is retried", async () => {
+  const count = (db) => raw(db).prepare("SELECT COUNT(*) AS n FROM schema_migrations WHERE id = ?").get(WALLETAPP_MIGRATION_2.id).n;
+  assert.equal(WALLETAPP_MIGRATION_2.id, "2026-10-11-wallet-app-2");
+  assert.ok(!MIGRATIONS.some((m) => m.id === WALLETAPP_MIGRATION_2.id), "lazy too");
+  const live = await liveDb();
+  await ensureOnboardSchema(live);
+  // a database that recorded the first wallet-app migration before this one existed
+  raw(live).prepare("DELETE FROM schema_migrations WHERE id = ?").run(WALLETAPP_MIGRATION_2.id);
+  raw(live).exec("ALTER TABLE sessions DROP COLUMN made_by");
+  raw(live).exec("ALTER TABLE handoffs DROP COLUMN refused_at");
+  const before = picture(live);
+  let broken = true;
+  const flaky = { ...live, prepare: (sql) => { if (broken && /ADD COLUMN refused_at/.test(sql)) throw new Error("D1_ERROR: network"); return live.prepare(sql); } };
+  await assert.rejects(ensureOnboardSchema(flaky), /network/);
+  assert.equal(count(live), 0, "not recorded");
+  broken = false;
+  await ensureOnboardSchema(flaky);
+  assert.deepEqual((await columnsOf(live, "sessions")).slice(-1), ["made_by"]);
+  assert.deepEqual((await columnsOf(live, "handoffs")).slice(-1), ["refused_at"]);
+  assert.deepEqual(picture(live), before, "nothing else changed");
+  assert.equal(count(live), 1);
+  await ensureOnboardSchema({ ...live });
+  assert.equal(count(live), 1, "recorded once");
 });

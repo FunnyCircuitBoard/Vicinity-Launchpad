@@ -279,3 +279,43 @@ test("a session a wallet made is renewed while it is used (15 of its 30 days lef
   assert.equal((await m.b.get("/api/me?lite=1")).signedIn, false, "it ran out after its 30 days");
   assert.equal((await app.get("/api/me?lite=1")).signedIn, true, "the wallet app's is still good");
 });
+
+test("only a session a WALLET made in this browser is renewed (review finding safety-F3): a Google session that linked on the page or re-proved keeps its 30 days, and so does a pairing's; a renewed one ends 90 days after it was made", async () => {
+  // a computer: Google, then the wallet linked on the page, then a re-proof (proven_at set both times): never renewed
+  const c = await safari({ sub: "g-desk", net: ELSEWHERE });
+  assert.equal((await c.b.post("/api/me/wallet/link", await linkBody(c.w, c.u.handle))).ok, true);
+  advance(10 * DAY);
+  assert.equal((await c.b.post("/api/auth/reprove", await loginBody(c.w))).ok, true);
+  advance(6 * DAY);
+  const r1 = await c.b.send("/api/me?lite=1");
+  assert.deepEqual(r1.headers.getSetCookie(), [], "a Google login stays a 30-day session, whatever it proved since");
+  assert.equal((await one(env.DB, "SELECT made_by FROM sessions WHERE user_id = ?", c.u.id)).made_by, null);
+  advance(15 * DAY);
+  assert.equal((await c.b.get("/api/me?lite=1")).signedIn, false, "it ran out 30 days after the login");
+  // a wallet's own sign-in (the extension, or a wallet app's browser) is marked and renewed; a login pairing finished elsewhere is not
+  const w = await safari({ sub: "g-w" });
+  await linkInApp(w);
+  const own = browser(env, ELSEWHERE);
+  assert.equal((await own.post("/api/auth/wallet", await loginBody(w.w))).ok, true);
+  const desk = browser(env, ELSEWHERE);
+  const p = await desk.post("/api/pair", {});
+  const phone = browser(env, PHONE);
+  assert.equal((await phone.post("/api/auth/wallet", { ...(await loginBody(w.w, p.pin)), pair: p.code })).paired, true);
+  assert.equal((await desk.post("/api/pair/finish", { code: p.code })).ok, true);
+  const marks = (await env.DB.prepare("SELECT made_by, COUNT(*) AS n FROM sessions WHERE user_id = ? GROUP BY made_by ORDER BY made_by").bind(w.u.id).all()).results;
+  assert.deepEqual(marks, [{ made_by: null, n: 2 }, { made_by: "wallet", n: 2 }], "Safari's Google login and the computer's pairing: no; the claim and the wallet's own sign-in: yes");
+  advance(16 * DAY);
+  assert.equal((await own.send("/api/me?lite=1")).headers.getSetCookie().length, 1, "the wallet's own sign-in is renewed");
+  assert.deepEqual((await desk.send("/api/me?lite=1")).headers.getSetCookie(), [], "the pairing's session is not");
+  // the 90-day end: used every 16 days, the wallet app's session still ends 90 days after it was made
+  const app = await linkInApp(await safari({ sub: "g-90" }));
+  const made = Date.now();
+  let lastOk = 0;
+  for (let i = 0; i < 7; i++) {
+    advance(16 * DAY);
+    const r = await app.send("/api/me?lite=1");
+    if ((await r.json()).signedIn) lastOk = Date.now();
+  }
+  assert.ok(lastOk - made <= 90 * DAY && lastOk - made > 75 * DAY, `signed in until day ${(lastOk - made) / DAY}`);
+  assert.equal((await app.get("/api/me?lite=1")).signedIn, false, "after 90 days: one signature again");
+});

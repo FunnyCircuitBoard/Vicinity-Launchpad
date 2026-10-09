@@ -119,8 +119,11 @@ test("relay: the wallet app's connection must be in Safari's country: from Germa
   assert.deepEqual(await r.json(), { ok: false, error: "carry_network", relay: true });
   assert.deepEqual(r.headers.getSetCookie(), []);
   assert.deepEqual(await one(env.DB, "SELECT opener, result FROM handoffs"), { opener: null, result: null });
+  // Safari learns why (review finding ux-UX-2): the wallet app opened it but can't use it there; the pairing works on any connection
+  assert.deepEqual(await status(m.b, made.ref), { ok: true, status: "refused", relay: true });
   const app = browser(env, CARRIER);
   assert.equal((await info(app, made.code)).status, 200);
+  assert.deepEqual(await status(m.b, made.ref), { ok: true, status: "opened" }, "the right connection still opens it");
   assert.equal((await claimWith(app, made.code, m.w)).status, 200);
   // the old answer stays for a relay whose country Cloudflare doesn't know: the page pairs (approve in Phantom, finish in Safari)
   const n = await safari(RELAY, { sub: "g-xx" });
