@@ -20,7 +20,8 @@
     // Always stated in New York time; the line below gives the visitor's own time.
     const ny = { timeZone: "America/New_York" };
     $("#lp-date").textContent = `${d.toLocaleDateString("en-US", { ...ny, month: "long", day: "numeric", year: "numeric" })} · ${d.toLocaleTimeString("en-US", { ...ny, hour: "numeric", minute: "2-digit", second: "2-digit" })} New York time`;
-    $("#lp-local").textContent = ms === 0 ? "The Launchpad is open." : `Opens ${d.toLocaleString(undefined, { dateStyle: "full", timeStyle: "medium" })} (your time).`;
+    // the date is already in the sentence: this is just its translation into the visitor's clock ("Saturday 2:10:10 PM where you are"; the weekday moves with the zone)
+    $("#lp-local").textContent = ms === 0 ? "The Launchpad is open." : `That is ${d.toLocaleString(undefined, { weekday: "long", hour: "numeric", minute: "2-digit", second: "2-digit" })} where you are.`;
   }
   official.then(tick); tick(); setInterval(tick, 1000);
 
@@ -616,14 +617,16 @@
   }
   function render() {
     const now = Date.now(), cards = data ? [data.vicinity, ...(data.coins || [])].filter(Boolean) : [];
-    const n = counts(cards, now);
+    // "Live now": the Vicinity token on top, the same card a little larger (on a phone it is the same card); it is then left out of
+    // the list below (it was drawn twice, 9 Oct 2026: once in "Live now" and again as the first card of the Live list) and out of
+    // the tab counts (they said "Live 6" over "5 coins")
+    const vic = data && data.vicinity && isLive(data.vicinity) ? data.vicinity : null;
+    const listed = vic ? cards.filter((c) => c !== vic) : cards;
+    const n = counts(listed, now);
     tabs().forEach((b) => { const on = b.dataset.tab === state.tab; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; const c = b.querySelector("[data-count]"); if (c) c.textContent = String(n[b.dataset.tab] || 0); });
     $("#lp-panel").setAttribute("aria-labelledby", `lp-tab-${state.tab}`);
     $("#lp-tabnote").textContent = TAB_NOTE[state.tab];
-    // "Live now": the Vicinity token on top, the same card a little larger (on a phone it is the same card); it is then left out of
-    // the list below (it was drawn twice, 9 Oct 2026: once in "Live now" and again as the first card of the Live list)
-    const vic = data && data.vicinity && isLive(data.vicinity) ? data.vicinity : null;
-    const rows = rowsFor(vic ? cards.filter((c) => c !== vic) : cards, { ...state, now, countryNames });
+    const rows = rowsFor(listed, { ...state, now, countryNames });
     const keep = focusKey();
     place($("#lp-featured"), vic ? [vic] : [], now, true);
     $("#lp-featured").classList.toggle("is-on", Boolean(vic));

@@ -104,14 +104,16 @@
 
     // labels
     const label = (x, y, text, cls = "m-label", group) => { const t = svgEl("text", { x: x.toFixed(0), y: y.toFixed(0), "text-anchor": "middle" }, cls); t.textContent = text; (group || svg).append(t); return t; };
-    /** Keep a group's labels only where they fit: inside the map and not on top of each other (first come, first kept). */
-    const declutter = (group) => {
-      const kept = [];
+    /** Keep a group's labels only where they fit: inside the map, not on top of each other (first come, first kept) and not on the coin.
+     *  A label with a second place (data-alt: under its dot instead of over it) is moved there first, and dropped only if that is taken too. */
+    const declutter = (group, taken = []) => {
+      const kept = [...taken];
+      const boxOf = (t) => { const b = t.getBBox(); return [b.x - 4, b.y - 2, b.x + b.width + 4, b.y + b.height + 2]; };
+      const blocked = (box) => box[0] < 0 || box[2] > 1000 || box[1] < 0 || box[3] > P.h || kept.some((k) => box[0] < k[2] && k[0] < box[2] && box[1] < k[3] && k[1] < box[3]);
       for (const t of [...group.querySelectorAll("text")]) {
-        let b; try { b = t.getBBox(); } catch { continue; }
-        const box = [b.x - 4, b.y - 2, b.x + b.width + 4, b.y + b.height + 2];
-        const out = box[0] < 0 || box[2] > 1000 || box[1] < 0 || box[3] > P.h;
-        if (out || kept.some((k) => box[0] < k[2] && k[0] < box[2] && box[1] < k[3] && k[1] < box[3])) t.remove(); else kept.push(box);
+        let box; try { box = boxOf(t); } catch { continue; }
+        if (blocked(box) && t.dataset.alt) { t.setAttribute("y", t.dataset.alt); try { box = boxOf(t); } catch { continue; } }
+        if (blocked(box)) t.remove(); else kept.push(box);
       }
     };
     const nbLabels = svgEl("g", {}, "m-nb");
@@ -122,10 +124,11 @@
     svg.append(nbLabels);
     const memberLabels = svgEl("g", {}, "m-link");
     for (const [name, lon, lat] of data.members.filter((m) => ["Manhattan", "Brooklyn", "Queens", "The Bronx", "Staten Island"].includes(m[0]))) {
-      label(P.x(lon), P.y(lat) - 12, name, "m-label", memberLabels);
+      label(P.x(lon), P.y(lat) - 14, name, "m-label", memberLabels).dataset.alt = (P.y(lat) + 34).toFixed(0); // over its dot, or under it if the coin is there
     }
     svg.append(memberLabels);
-    const tidy = () => { declutter(nbLabels); declutter(memberLabels); };
+    const coinBox = [cx - 34, cy - 34, cx + 34, cy + 34]; // the $NYC disc (r 34): no label on it (the label boxes carry their own margin)
+    const tidy = () => { declutter(nbLabels, [coinBox]); declutter(memberLabels, [coinBox]); };
     tidy();
     const ob = boxOf(data.official);
     label(P.x((ob[0] + ob[2]) / 2), P.y(ob[3]) - 16, "New York City · official boundary", "m-label m-label--big m-official-label");

@@ -21,7 +21,7 @@
       if (isAddr(t.contract)) { const a = el("a", "registry__above", "Shown above ↑"); a.href = "#contract"; a.title = t.contract; ca.append(a); } else ca.textContent = "—";
       const st = el("td");
       st.append(el("span", t.contract ? "tag tag--ok" : /^launching/i.test(t.status || "") ? "tag tag--warn" : "tag", t.contract ? "Live" : t.status));
-      tr.append(el("td", null, t.network), el("td", null, `${t.name} (${t.symbol.startsWith("e.g.") ? t.symbol : "$" + t.symbol})`), ca, st);
+      tr.append(el("td", null, t.network), el("td", null, t.symbol.startsWith("e.g.") ? `${t.name}, ${t.symbol}` : `${t.name} ($${t.symbol})`), ca, st); // "City coins (one per city), e.g. $UTICA": not two brackets in a row
       return tr;
     }));
   }

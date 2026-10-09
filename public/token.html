@@ -105,6 +105,7 @@
               <p class="holders__hint" id="holders-hint">Paste any Solana wallet address to see its rank. We compare it with every holder, live. Nothing is saved.</p>
             </div>
           </div>
+          <a class="holders__skip" href="#proof">Skip the holder list</a>
           <div class="table-scroll" id="holders-scroll" tabindex="0" aria-label="Holder list (scrolls)">
             <table class="holders__table" id="holders-table">
               <thead><tr><th>#</th><th>Wallet</th><th class="num">Amount</th><th class="num">% of supply</th></tr></thead>
@@ -142,7 +143,7 @@
     </section>
 
     <!-- ============ NO RUG PULL ============ -->
-    <section class="section section--tight">
+    <section class="section section--tight" id="proof" tabindex="-1">
       <div class="wrap">
         <div class="section-head"><p class="kicker">No rug pull</p><h2 class="h2--sm">Here's the proof, checked on-chain.</h2></div>
         <div class="proof-grid">
@@ -174,7 +175,7 @@
         </div>
         <form class="checker card" id="checker" novalidate>
           <label for="check-input" class="sr-only">Link, address or handle to check</label>
-          <input id="check-input" name="q" type="text" autocomplete="off" spellcheck="false" maxlength="300" placeholder="Paste a link, token address or @handle">
+          <input id="check-input" name="q" type="text" autocomplete="off" spellcheck="false" maxlength="300" placeholder="Link, address or @handle">
           <button class="btn btn--primary" type="submit">Check</button>
         </form>
         <div class="check-result" id="check-result" aria-live="polite" hidden></div>
