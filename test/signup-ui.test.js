@@ -85,7 +85,8 @@ test("safeNext only ever leaves for our own dashboard", () => {
   assert.equal(P.safeNext("/dashboard?welcome=1"), "/dashboard?welcome=1");
   assert.equal(P.safeNext("/dashboard?linked=1"), "/dashboard?linked=1");
   assert.equal(P.safeNext("/dashboard"), "/dashboard");
-  for (const bad of ["//evil.example/x", "https://evil.example", "javascript:alert(1)", "/dashboard?welcome=2", "/connect", "", null, undefined, "/dashboard/../x"]) assert.equal(P.safeNext(bad), "/dashboard", String(bad));
+  assert.equal(P.safeNext("/dashboard#profile"), "/dashboard#profile", "a tab of our own dashboard (\"Open Phantom\" from Safari's 'confirm it's you')");
+  for (const bad of ["//evil.example/x", "https://evil.example", "javascript:alert(1)", "/dashboard?welcome=2", "/connect", "", null, undefined, "/dashboard/../x", "/dashboard#x y", "/dashboard#Profile", "/dashboard#a/b", "/dashboard#"]) assert.equal(P.safeNext(bad), "/dashboard", String(bad));
 });
 
 test("validEmail: the same loose shape check as the server", () => {
@@ -139,23 +140,31 @@ test("phones live inside the wallet app (owner decision F4): the words of the li
   assert.equal(P.linkLead(), "Tap your wallet app. It opens Vicinity there: check the number, then sign once. You stay in the app, logged in.");
   assert.equal(P.carrySmall(false), "This link works once, for 10 minutes, only on this phone. Never send it to anyone.");
   assert.equal(P.carrySmall(true), "This link works once, only on this phone. Never send it to anyone.", "the 2-minute rule is the server's: the page renews a relay link by itself");
-  assert.equal(P.carryHint("Phantom", true), "Phantom didn't open Vicinity? Press and hold “Open Phantom”, then choose “Open in Phantom”. No Phantom yet? Get it first.");
-  assert.equal(P.carryHint("Phantom", false), "Phantom didn't open Vicinity? Make sure Phantom is installed, or open this page in Chrome and try again.");
+  assert.equal(P.carryHint("Phantom", "iphone"), "Phantom didn't open Vicinity? Press and hold “Open Phantom”, then choose “Open in Phantom”. No Phantom yet? Get it first.");
+  assert.equal(P.carryHint("Phantom", "chrome"), "Phantom didn't open Vicinity? Make sure Phantom is installed, then tap “Open Phantom” again. Or tap “Didn't work?” below.");
+  assert.equal(P.carryHint("Phantom", "other"), "Phantom didn't open Vicinity? Make sure Phantom is installed, or open this page in Chrome and try again.");
+  // the wallet app DID open it, but on another connection / from another country: the pairing is the way (review finding ux-UX-2)
+  assert.equal(P.carryRefused("Phantom", false), "Phantom opened your link, but it is on another internet connection (Wi-Fi and mobile data?), so the link can't be used there. Approve in Phantom instead: that way works on any connection.");
+  assert.equal(P.carryRefused("Phantom", true), "Phantom opened your link, but it seems to be in another country (travelling?), so the link can't be used there. Approve in Phantom instead: that way works anywhere.");
   // the dead-link screen and its causes, in the wallet app
   assert.equal(P.errText("carry_expired", "app"), "This link is old. Go back to Safari or Chrome and tap “Connect wallet” again.");
   assert.equal(P.errText("carry_opened"), "For your safety it no longer works. Go back to Safari or Chrome and tap “Get a new link”. That stops the old one.");
   assert.match(P.errText({ error: "carry_network" }), /^Your wallet app and Safari are on different internet connections \(Wi-Fi and mobile data\?\)\./);
   assert.equal(P.errText({ error: "carry_network", relay: true }), "Your wallet app and Safari seem to be in different countries (travelling?). Go back to Safari or Chrome and tap “Didn't work?”.");
   assert.equal(P.ERR.carry_contested, "Someone else opened your link. It no longer works. Get a new link.");
-  assert.equal(P.ERR.carry_ranout, "That link ran out (open it within 2 minutes). Get a new link.");
-  // a wallet with no account inside the wallet app: more than one wallet in the app is the usual reason
-  assert.match(P.noAccountCopy(true, "Phantom").body, / More than one wallet in Phantom\? Switch to the one you linked, then try again\.$/);
-  assert.doesNotMatch(P.noAccountCopy(false, "Phantom").body, /More than one wallet/);
+  assert.equal(P.ERR.carry_ranout, "That link ran out. Get a new link.", "(review finding ux-UX-7: the 2-minute rule is the server's, never in the words)");
+  // a wallet with no account inside the wallet app: for a RETURNING member, more than one wallet in the app is the usual reason; a
+  // brand-new person never linked anything (review finding ux-COPY-1)
+  assert.match(P.noAccountCopy(true, "Phantom", true).body, / More than one wallet in Phantom\? Switch to the one you linked, then try again\.$/);
+  assert.doesNotMatch(P.noAccountCopy(true, "Phantom").body, /More than one wallet|you linked/);
+  assert.doesNotMatch(P.noAccountCopy(false, "Phantom", true).body, /More than one wallet/);
   // the done screen: in the wallet app, on a phone's Safari (keep going in the app), on a computer
   assert.deepEqual({ ...P.linkedCopy("app", "7Np4…T4K2", "Phantom") }, { h: "Phantom connected ✓", sub: "Wallet 7Np4…T4K2 is on your account. Opening your dashboard…", go: "Open my dashboard", auto: true });
-  assert.deepEqual({ ...P.linkedCopy("phone", "7Np4…T4K2", "Phantom") }, { h: "Phantom connected ✓", sub: "Wallet 7Np4…T4K2 is on your account. Keep going in Phantom: you're logged in there.", go: "Open Phantom", auto: false });
+  // a phone's Safari: logged in there only when that app claimed this page's link code (review finding safety-F6: a pairing gives it none)
+  assert.deepEqual({ ...P.linkedCopy("phone", "7Np4…T4K2", "Phantom", true) }, { h: "Phantom connected ✓", sub: "Wallet 7Np4…T4K2 is on your account. Keep going in Phantom: you're logged in there.", go: "Open Phantom", auto: false });
+  assert.deepEqual({ ...P.linkedCopy("phone", "7Np4…T4K2", "Phantom") }, { h: "Phantom connected ✓", sub: "Wallet 7Np4…T4K2 is on your account. Keep going in Phantom: sign in there with one free signature.", go: "Open Phantom", auto: false });
   assert.deepEqual({ ...P.linkedCopy("here", "7Np4…T4K2", null) }, { h: "Wallet linked.", sub: "Wallet 7Np4…T4K2 is on your account. Taking you to your dashboard…", go: "Open my dashboard", auto: true });
-  for (const t of [P.carryLead("Phantom"), P.linkLead(), P.carrySmall(true), P.carryHint("Phantom", true)]) assert.ok(t.length < 200 && !/\bwalletProven|undefined/.test(t), t);
+  for (const t of [P.carryLead("Phantom"), P.linkLead(), P.carrySmall(true), P.carryHint("Phantom", "iphone"), P.carryHint("Phantom", "chrome")]) assert.ok(t.length < 200 && !/\bwalletProven|undefined/.test(t), t);
 });
 
 test("no sentence leaks a password, a code, an address or a stack trace, and none is an emoji or markup", () => {

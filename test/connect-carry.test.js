@@ -196,7 +196,7 @@ test("a refused code (too many) is said right under the wallet apps, and the til
   assert.deepEqual(world.pairs, [{ purpose: "link" }], "a link pairing, not a login one");
   assert.equal(p.$("#pair-h").textContent, "Approve in Phantom, then finish here");
   assert.equal(p.$("#pair-why").textContent, "Your iPhone hides its connection (iCloud Private Relay), so the link can't move into Phantom. Approve there instead, then come back here: this page finishes the link by itself.");
-  assert.equal(p.$("#pair-apps").children[0].href, `https://phantom.com/ul/browse/${encodeURIComponent("https://vicinity.test/connect?pair=Pp41r_Pp41r_Pp41r_Pp41r_")}?ref=${encodeURIComponent("https://vicinity.test")}`);
+  assert.equal(p.$("#pair-apps").children[0].href, `https://phantom.com/ul/browse/${encodeURIComponent("https://vicinity.test/connect?pair=Pp41r_Pp41r_Pp41r_Pp41r_&on=phone")}?ref=${encodeURIComponent("https://vicinity.test")}`, "(on=phone: the approve page says back to Safari or Chrome)");
 });
 
 test("'Didn't work?' on the link screen: approve in the wallet app and finish here (a link pairing), app links instead of a QR code", async () => {
@@ -212,6 +212,24 @@ test("'Didn't work?' on the link screen: approve in the wallet app and finish he
   const n = p.callsTo("/api/pair").length;
   await p.setHidden(true); await p.setHidden(false);
   assert.equal(p.callsTo("/api/pair").length, n + 1, "back from the wallet app: asked at once");
+});
+
+test("Safari finished a PAIRING (the 'Didn't work?' way): 'Keep going in Phantom' says one signature signs in there, never 'you're logged in there' (a pairing gives the wallet app no session: review finding safety-F6)", async () => {
+  const { p, world } = await safari();
+  const api0 = p.win.fetch;
+  p.win.fetch = async (path, init) => {
+    if (String(path).startsWith("/api/pair?code=")) return { ok: true, status: 200, json: async () => ({ ok: true, status: "ready" }) };
+    if (String(path) === "/api/pair/finish") { world.linked = ADDR; return { ok: true, status: 200, json: async () => ({ ok: true, linked: true, wallet: ADDR, status: "done", next: "/dashboard?linked=1" }) }; }
+    return api0(path, init);
+  };
+  await p.tap(phantomTile(p));
+  await p.tap(p.$("#carry-pair"));
+  assert.equal(p.screen(), "phone");
+  await p.setHidden(true); await p.setHidden(false); await p.flush(); await p.advance(100);
+  assert.equal(p.screen(), "done");
+  assert.equal(p.$("#done-h").textContent, "Phantom connected ✓");
+  assert.equal(p.$("#done-sub").textContent, "Wallet 7Np4…T4K2 is on your account. Keep going in Phantom: sign in there with one free signature.");
+  assert.equal(p.$("#done-go").textContent, "Open Phantom");
 });
 
 test("a member whose account already has a wallet never sees the link mode: straight to the dashboard", async () => {

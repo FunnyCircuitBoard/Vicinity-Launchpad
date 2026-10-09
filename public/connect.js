@@ -435,7 +435,8 @@
     $("#pair-why").textContent = why || ""; $("#pair-why").hidden = !why;
     $("#pair-qr").hidden = phone; $("#pair-howto").hidden = phone;
     $("#pair-howto-phone").hidden = !phone; $("#pair-apps").hidden = !phone;
-    $("#pair-apps").replaceChildren(...(phone ? W.KNOWN.filter((k) => k.open).map((k) => knownTile(k, url)) : []));
+    // (on=phone: the wallet app that approves knows the person goes back to Safari or Chrome on this phone, not to a computer)
+    $("#pair-apps").replaceChildren(...(phone ? W.KNOWN.filter((k) => k.open).map((k) => knownTile(k, `${url}&on=phone`)) : []));
     if (!phone) drawQR($("#qr"), url);
     const status = $("#pair-status");
     const dot = el("span", "live-dot"); dot.setAttribute("aria-hidden", "true");
@@ -528,10 +529,14 @@
       $("#approve-owner").textContent = `@${s.handle || "•••"}`;
       $("#approve-city").textContent = s.community ? `📍 ${s.community.name}, ${s.community.country}` : ""; $("#approve-city").hidden = !s.community;
       $("#approve-who").hidden = false;
-      $("#approve-ask").replaceChildren("Does Safari (or your computer), where you started, show check number ", $("#approve-pin"), "?");
+      // where the person started: Safari or Chrome on this phone (the link said on=phone), or a computer / tablet (its QR code)
+      const onPhone = params.get("on") === "phone", k = window.V.walletApp.here();
+      $("#approve-ask").replaceChildren(onPhone ? "Does Safari or Chrome, where you started, show check number " : "Does your computer (or tablet), where you started, show check number ", $("#approve-pin"), "?");
       $("#approve-warn").textContent = "Only continue if you started this yourself. Never sign for a code someone sent you.";
       $("#approve-terms").hidden = false;
-      $("#approve-done-text").replaceChildren(el("strong", null, "Approved."), " Go back to Safari: it finishes in a second and brings you back here.");
+      $("#approve-done-text").replaceChildren(el("strong", null, "Approved."), onPhone
+        ? ` Go back to Safari or Chrome. It finishes the link, then tap “Open ${k ? k.name : "your wallet app"}” there to come back and sign in here.`
+        : " Go back to your computer (or tablet): it finishes the link by itself.");
     }
     renderApprove();
   }
@@ -640,7 +645,9 @@
     if (me.signupFlow === "v2" && (linkCode !== null || (me.signedIn && me.user && !me.user.wallet))) return startV2(me, err);
     if (me.signedIn && params.has("with")) { // "Connect Phantom" opened a wallet app that is signed in already: straight to the dashboard
       forgetPair(); if (window.V.termsGate) window.V.termsGate.agreed(me.termsVersion || "");
-      location.replace("/dashboard"); return;
+      // (&next=: the page the person was on in Safari, "/dashboard#profile" for "confirm it's you": only a tab of our own dashboard)
+      const next = params.get("next");
+      location.replace(/^\/dashboard#[a-z][a-z0-9-]{0,24}$/.test(String(next)) ? next : "/dashboard"); return;
     }
     if (me.signedIn) { forgetPair(); gateNow(); show("done"); setTimeout(() => location.assign("/dashboard"), 900); return; }
     if (me.signupFlow === "v2") return startV2(me, err);

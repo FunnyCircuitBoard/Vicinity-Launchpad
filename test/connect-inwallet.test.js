@@ -11,6 +11,7 @@ const UAS = {
   ...UA,
   android: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
   instagram: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 350.0.0.0.0", // a web view, no wallet
+  firefoxAndroid: "Mozilla/5.0 (Android 14; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0",
 };
 const CODE = "Cc0de_Cc0de_Cc0de_Cc0de_Cc0de_Cc";
 const inMinutes = (m) => new Date(Date.now() + m * 60_000).toISOString();
@@ -112,6 +113,52 @@ test("with=phantom in a wallet app that is signed in already: straight to the da
   assert.equal(p.$("#termsgate").hidden, true);
 });
 
+test("'Open Phantom' from Safari's 'confirm it's you' lands where the person was (next=/dashboard#profile), signed in already or after the one signature; anything else in next= is the dashboard (review finding ux-UX-3)", async () => {
+  const { p } = await inApp({ search: `mode=login&with=phantom&next=${encodeURIComponent("/dashboard#profile")}`, me: { signedIn: true, user: { id: 1, wallet: ADDR, handle: "Sam" }, termsVersion: "2026-10-01" } });
+  assert.deepEqual(p.replaced, ["/dashboard#profile"]);
+  let signed = false;
+  const { p: q, ctl } = await inApp({
+    search: `mode=login&with=phantom&next=${encodeURIComponent("/dashboard#city")}`,
+    signIn: (b) => { signed = true; return { ok: true, wallet: b.address, next: "/dashboard" }; },
+    me: () => (signed ? { signedIn: true, user: { id: 1, wallet: ADDR, handle: "Sam" }, termsVersion: "2026-10-01" } : {}),
+  });
+  await q.flush();
+  assert.deepEqual([ctl.connects, ctl.signs], [1, 1]);
+  assert.ok(!q.addressBar.at(-1).includes("next="), "next= leaves the address bar with with=");
+  await q.advance(1300);
+  assert.deepEqual(q.assigned, ["/dashboard#city"]);
+  for (const bad of ["https://evil.example/x", "//evil.example", "/connect", "/dashboard#x y", "/dashboard?welcome=2", "/dashboard#Profile"]) {
+    const { p: r } = await inApp({ search: `mode=login&with=phantom&next=${encodeURIComponent(bad)}`, me: { signedIn: true, user: { id: 1, wallet: ADDR, handle: "Sam" }, termsVersion: "2026-10-01" } });
+    assert.deepEqual(r.replaced, ["/dashboard"], bad);
+  }
+});
+
+test("a wallet app whose wallet turns up a few seconds late (review finding ux-UX-4): a visitor who has not touched the page gets the Log in tab and 'Sign in with Phantom' after all; someone already on New here is never moved", async () => {
+  const late = fakeWallet("Phantom");
+  const p = await openConnect({ ua: UA.phantomApp, state: STATE.empty(), agreed: "2026-10-01" });
+  assert.equal(p.$("#tab-new").getAttribute("aria-pressed"), "true", "no wallet yet: New here, as for anyone");
+  await p.advance(2000);
+  p.register(late.wallet); await p.flush();
+  assert.equal(p.$("#tab-login").getAttribute("aria-pressed"), "true");
+  assert.equal(p.screen(), "pick");
+  assert.equal(p.visible(p.$("#lg-wallet")), true);
+  assert.equal(p.$("#lg-wallet").textContent, "Sign in with Phantom");
+  // touched first: stays
+  const q = await openConnect({ ua: UA.phantomApp, state: STATE.empty(), agreed: "2026-10-01" });
+  q.$("#connect-panel").click(); await q.flush();
+  q.register(fakeWallet("Phantom").wallet); await q.flush();
+  assert.equal(q.$("#tab-new").getAttribute("aria-pressed"), "true");
+  // on the Log in tab already, a late wallet shows its button
+  const r = await openConnect({ ua: UA.phantomApp, search: "mode=login", state: STATE.empty(), agreed: "2026-10-01" });
+  assert.equal(r.visible(r.$("#lg-wallet")), false);
+  r.register(fakeWallet("Phantom").wallet); await r.flush();
+  assert.equal(r.visible(r.$("#lg-wallet")), true);
+  // Safari: a wallet never turns up, nothing moves
+  const s = await openConnect({ ua: UA.iphone, state: STATE.empty(), agreed: "2026-10-01" });
+  await s.advance(6000);
+  assert.equal(s.$("#tab-new").getAttribute("aria-pressed"), "true");
+});
+
 test("Instagram's (or Facebook's) in-app browser is not a wallet app: New here first, no 'Sign in with' button, Google is still hidden there", async () => {
   const p = await openConnect({ ua: UAS.instagram, state: STATE.empty() });
   assert.equal(p.win.V.walletApp.here(), null);
@@ -208,7 +255,7 @@ async function safari(opts = {}) {
       const ref = decodeURIComponent(path.split("ref=")[1]);
       if (world.linked) return { ok: true, status: "linked", wallet: world.linked, app: "phantom" };
       if (ref !== world.live) return { ok: true, status: "replaced" };
-      return { ok: true, status: world.status, ...(world.status === "expired" && world.relay ? { relay: true } : {}) };
+      return { ok: true, status: world.status, ...((world.status === "expired" || world.status === "refused") && world.relay ? { relay: true } : {}) };
     }
     return { ok: true };
   };
@@ -233,7 +280,8 @@ test("relay link (iCloud Private Relay): the plain small print, and while it is 
   world.status = "expired";
   await p.advance(120_000);
   assert.equal(world.codes, 4, "no fourth");
-  assert.equal(p.$("#carry-error").textContent, "That link ran out (open it within 2 minutes). Get a new link.");
+  // (review finding ux-UX-7: no "(open it within 2 minutes)": the small print deliberately never mentions that rule)
+  assert.equal(p.$("#carry-error").textContent, "That link ran out. Get a new link.");
   assert.equal(p.visible(p.$("#carry-renew")), true);
 });
 
@@ -263,9 +311,11 @@ test("someone else opened the link (contested): said plainly, the dead link is g
   assert.equal(world.codes, 2); assert.equal(p.visible(p.$("#carry-open")), true);
 });
 
-test("back in Safari and Phantom never opened the link: what to do, on an iPhone (press and hold) and on Android", async () => {
+test("back in Safari and Phantom never opened the link: what to do, on an iPhone (press and hold), in Chrome on Android, and in another Android browser", async () => {
+  // (review finding ux-UX-6: Chrome on Android was told to "open this page in Chrome": that line is for the other Android browsers)
   for (const [ua, words] of [[UA.iphone, "Phantom didn't open Vicinity? Press and hold “Open Phantom”, then choose “Open in Phantom”. No Phantom yet? Get it first."],
-    [UAS.android, "Phantom didn't open Vicinity? Make sure Phantom is installed, or open this page in Chrome and try again."]]) {
+    [UAS.android, "Phantom didn't open Vicinity? Make sure Phantom is installed, then tap “Open Phantom” again. Or tap “Didn't work?” below."],
+    [UAS.firefoxAndroid, "Phantom didn't open Vicinity? Make sure Phantom is installed, or open this page in Chrome and try again."]]) {
     const { p } = await safari({ ua });
     await p.tap(tile(p));
     assert.equal(p.visible(p.$("#carry-hint")), false);
@@ -294,6 +344,53 @@ test("'Open Phantom' fell back to phantom.com in this tab (no app, app links off
   await again.flush(); await again.advance(10);
   assert.equal(w3.codes, 5);
   assert.equal(again.$("#carry-status-text").textContent, "Phantom opened your link…");
+});
+
+test("back in Safari after installing the app (the tab stayed, minutes went by): a link nobody opened that ran out is replaced at once, quietly, never 'ran out'; at most 3 times a visit", async () => {
+  // review finding ux-UX-7: only a RELOADED tab got this; the usual path ("Get it first" opens a new tab, this one stays) met "ran out"
+  const { p, world } = await safari();
+  world.relay = true;
+  await p.tap(tile(p));
+  await p.setHidden(true);
+  world.status = "expired"; // 3 minutes in the App Store
+  await p.setHidden(false); await p.flush();
+  assert.equal(world.codes, 2, "a new link, no tap");
+  assert.equal(p.$("#carry-status-text").textContent, "New link ready. Waiting for Phantom…");
+  assert.equal(p.visible(p.$("#carry-open")), true);
+  assert.equal(p.$("#carry-error").textContent, "");
+  for (let i = 0; i < 4; i++) { await p.setHidden(true); world.status = "expired"; await p.setHidden(false); await p.flush(); }
+  assert.equal(world.codes, 4, "three such renewals a visit, then the plain 'ran out' with its button");
+  assert.equal(p.visible(p.$("#carry-renew")), true);
+  // a link Phantom DID open and that ran out is not replaced behind the person's back
+  const { p: q, world: w } = await safari();
+  await q.tap(tile(q));
+  w.status = "opened"; await q.advance(3000);
+  await q.setHidden(true); w.status = "expired"; await q.setHidden(false); await q.flush();
+  assert.equal(w.codes, 1);
+});
+
+test("Phantom opened the link but on another connection (status 'refused', review finding ux-UX-2): Safari says why, hides 'press and hold', and the pairing becomes THE button", async () => {
+  for (const [relay, words] of [[false, "Phantom opened your link, but it is on another internet connection (Wi-Fi and mobile data?), so the link can't be used there. Approve in Phantom instead: that way works on any connection."],
+    [true, "Phantom opened your link, but it seems to be in another country (travelling?), so the link can't be used there. Approve in Phantom instead: that way works anywhere."]]) {
+    const { p, world } = await safari();
+    world.relay = relay;
+    await p.tap(tile(p));
+    await p.setHidden(true);
+    world.status = "refused";
+    await p.setHidden(false); await p.flush();
+    assert.equal(p.$("#carry-error").textContent, words);
+    assert.equal(p.visible(p.$("#carry-hint")), false, "never 'press and hold': Phantom DID open it");
+    assert.equal(p.visible(p.$("#carry-open")), false);
+    assert.equal(p.$("#carry-pair").className, "btn btn--primary btn--block");
+    assert.equal(p.$("#carry-pair").textContent, "Approve in Phantom instead");
+    await p.advance(130_000);
+    assert.equal(world.codes, 1, "a refused relay link is not renewed away");
+    // ...and if the right connection opens it after all, the ordinary screen comes back
+    world.status = "opened"; await p.advance(3000);
+    assert.equal(p.$("#carry-status-text").textContent, "Phantom opened your link…");
+    assert.equal(p.$("#carry-pair").className, "link-btn");
+    world.status = "refused"; // (a later refusal of an opened link changes nothing on screen)
+  }
 });
 
 test("the link this tab kept is forgotten when it is linked, and a bad or foreign one is never shown", async () => {

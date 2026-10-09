@@ -203,7 +203,8 @@ test("S10 inside a wallet app: a wallet with no account gets the copy-the-link s
   await p.tap(p.$("#wallets-detected").children[0]); // inside a wallet app ONE tap connects and signs (owner decision F4): no "Sign in" tap
   await p.flush();
   assert.equal(p.screen(), "no-account");
-  assert.equal(p.$("#na-body").textContent, "Vicinity accounts start with Google or e-mail. Create yours in Safari or Chrome (it takes a minute), then connect this wallet from your dashboard, one tap. More than one wallet in Phantom? Switch to the one you linked, then try again.");
+  // (a brand-new person in Phantom never linked a wallet: no "the one you linked" sentence, review finding ux-COPY-1)
+  assert.equal(p.$("#na-body").textContent, "Vicinity accounts start with Google or e-mail. Create yours in Safari or Chrome (it takes a minute), then connect this wallet from your dashboard, one tap.");
   assert.equal(p.visible(p.$("#na-copy")), true);
   assert.equal(p.$("#na-copy").textContent, "Copy vicinity.city/connect");
   assert.equal(p.visible(p.$("#na-create")), false);
@@ -213,6 +214,11 @@ test("S10 inside a wallet app: a wallet with no account gets the copy-the-link s
   await p.tap(p.$("#na-login"));
   assert.equal(p.screen(), "pick");
   assert.equal(p.$("#tab-login").getAttribute("aria-pressed"), "true");
+  // a browser that knows this person (logged in here before, or a remembered wallet app): the "more than one wallet" sentence too
+  const q = await openConnect({ ua: UA.phantomApp, search: "mode=login", wallets: [fakeWallet("Phantom").wallet], api, state: STATE.empty(), storage: { "vicinity-account": "1" } });
+  await q.tap(q.$("#wallets-detected").children[0]); await q.flush();
+  assert.equal(q.screen(), "no-account");
+  assert.match(q.$("#na-body").textContent, / More than one wallet in Phantom\? Switch to the one you linked, then try again\.$/);
 });
 
 test("the link mode on a computer: 'Almost done · Link your wallet.', the detected wallet, the phone and app-wallet ways, Skip for now; the intro follows", async () => {

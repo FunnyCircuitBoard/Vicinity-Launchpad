@@ -15,7 +15,8 @@ import { ADDR, LINK_ME, MESSAGE, STATE, UA, fakeWallet, openConnect } from "./he
 const PAIR = "Pp41r_Pp41r_Pp41r_Pp41r_"; // 24 characters, like the server's
 const KEY = "vicinity-pair";
 const inMinutes = (m) => new Date(Date.now() + m * 60_000).toISOString();
-const appLink = (code) => `https://phantom.com/ul/browse/${encodeURIComponent(`https://vicinity.test/connect?pair=${code}`)}?ref=${encodeURIComponent("https://vicinity.test")}`;
+// (on=phone: the pairing was started on this phone, so the wallet app's approve page says "go back to Safari or Chrome", not "your computer")
+const appLink = (code) => `https://phantom.com/ul/browse/${encodeURIComponent(`https://vicinity.test/connect?pair=${code}&on=phone`)}?ref=${encodeURIComponent("https://vicinity.test")}`;
 const ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36";
 const RELAY_WHY = "Your iPhone hides its connection (iCloud Private Relay), so the link can't move into Phantom. Approve there instead, then come back here: this page finishes the link by itself.";
 
@@ -280,7 +281,7 @@ test("(3) the link screen's lead on a phone says what the wallet app does, in on
 
 /* ---------------- (4) the wallet app's approve page ---------------- */
 
-async function approvePage({ wallets, me = {}, sign, purpose = "link" } = {}) {
+async function approvePage({ wallets, me = {}, sign, purpose = "link", on = null } = {}) {
   const ws = (wallets || ["Phantom"]).map((n) => fakeWallet(n));
   if (sign) ws[0].ctl.sign = sign;
   const asked = [];
@@ -290,7 +291,7 @@ async function approvePage({ wallets, me = {}, sign, purpose = "link" } = {}) {
     if (path === "/api/auth/wallet") { asked.push(body); return { ok: true, paired: true }; }
     return { ok: true };
   };
-  const p = await openConnect({ ua: UA.phantomApp, search: `pair=${PAIR}`, me, api, agreed: null, wallets: ws.map((w) => w.wallet) });
+  const p = await openConnect({ ua: UA.phantomApp, search: `pair=${PAIR}${on ? `&on=${on}` : ""}`, me, api, agreed: null, wallets: ws.map((w) => w.wallet) });
   await p.flush();
   return { p, asked };
 }
@@ -304,7 +305,8 @@ test("(4) a LINK pairing: the approve page names the account the wallet joins, a
   assert.equal(p.$("#approve-h").textContent, "Link this wallet to Sa•••'s Vicinity account?");
   assert.equal(p.$("#approve-owner").textContent, "@Sw•••");
   assert.equal(p.$("#approve-city").textContent, "📍 Utica, US");
-  assert.equal(p.$("#approve-ask").textContent, "Does Safari (or your computer), where you started, show check number 42?");
+  // (a computer's or tablet's QR code: the link has no on=phone. Review finding ux-UX-5: the phone wording was shown here too)
+  assert.equal(p.$("#approve-ask").textContent, "Does your computer (or tablet), where you started, show check number 42?");
   assert.equal(p.$("#approve-warn").textContent, "Only continue if you started this yourself. Never sign for a code someone sent you.");
   assert.equal(p.visible(p.$("#approve-terms")), true);
   assert.equal(p.$("#termsgate").hidden, true, "no gate: the Terms were accepted on that account");
@@ -316,9 +318,17 @@ test("(4) a LINK pairing: the approve page names the account the wallet joins, a
   assert.equal(asked[0], `/api/message?address=${ADDR}&action=link&pin=42&pair=${PAIR}`, "the LINK statement with the check number, for the owner of this pairing");
   assert.equal(asked[1].pair, PAIR);
   assert.equal(p.visible(p.$("#approve-done")), true);
-  assert.equal(p.$("#approve-done-text").textContent, "Approved. Go back to Safari: it finishes in a second and brings you back here.");
+  assert.equal(p.$("#approve-done-text").textContent, "Approved. Go back to your computer (or tablet): it finishes the link by itself.");
   assert.equal(p.visible(p.$("#approve-tap")), false);
   assert.equal(p.calls.filter((c) => c.path.startsWith("/api/signup/") || c.path.startsWith("/api/auth/google")).length, 0, "no sign-up, no Google: nothing can loop back to a sign-in screen here");
+});
+
+test("(4) a LINK pairing started on this phone (Safari's app tiles say on=phone): back to Safari or Chrome, then Open Phantom there to come back and sign in", async () => {
+  const { p } = await approvePage({ on: "phone" });
+  assert.equal(p.$("#approve-ask").textContent, "Does Safari or Chrome, where you started, show check number 42?");
+  await p.tap(p.$("#approve-wallets").children[0]);
+  await p.flush();
+  assert.equal(p.$("#approve-done-text").textContent, "Approved. Go back to Safari or Chrome. It finishes the link, then tap “Open Phantom” there to come back and sign in here.");
 });
 
 test("(4) a LOGIN pairing keeps today's words and the Terms gate (a first visit like any other); its statement is the login one", async () => {
