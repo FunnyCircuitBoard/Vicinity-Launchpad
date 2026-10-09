@@ -108,6 +108,7 @@
     has_wallet: "Your account already has a wallet.",
     wrong_wallet: "That is not the wallet on your account. Use the one you linked, or unlink it first from your Profile tab.",
     no_account: "No Vicinity account uses this wallet yet. Accounts start with Google or e-mail; the wallet is linked from the dashboard.",
+    use_link: "That signature was for a sign-in, so nothing was linked. To add this wallet to your account, use Link my wallet on your dashboard.",
     // the sign-up itself
     no_signup: "Your sign-up was open too long, so we cleared it. Please start again.",
     already_signed_in: "You're already signed in. Taking you to your dashboard…",
@@ -183,7 +184,7 @@
     return { go: "stuck", text: errText(d), actions: ["retry"] };
   }
   /** The wallet answers the sign-up page deals with itself (connect.js hands them to walletProven instead of showing a plain error). */
-  const HANDLED = ["no_account", "wallet_taken", "has_wallet", "wrong_wallet", "link_done"];
+  const HANDLED = ["no_account", "wallet_taken", "has_wallet", "wrong_wallet", "link_done", "use_link"];
 
   window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, resetField, relayWhy, carryLead, noAccountCopy, SAME_EMAIL, ERR, HANDLED } };
 

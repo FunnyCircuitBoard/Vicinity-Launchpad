@@ -100,7 +100,7 @@ const CONTRACT_CODES = [
   "bad_email", "bad_password", "password_short", "password_long", "password_common", "password_is_email", "email_unavailable", "too_soon", "too_many",
   "bad_code", "code_wrong", "code_expired", "email_mismatch", "no_account", "social_taken", "wallet_taken",
   "account_required", "changed_retry",
-  "has_wallet", "wrong_wallet", "link_done", "carry_expired", "carry_network", "carry_relay", "carry_replaced", "carry_elsewhere", "carry_old", "sign_in",
+  "has_wallet", "wrong_wallet", "link_done", "use_link", "carry_expired", "carry_network", "carry_relay", "carry_replaced", "carry_elsewhere", "carry_old", "sign_in",
   "bad_credentials", "no_email_login", "reprove",
   "login_unavailable", "login_cancelled", "login_failed", "login_expired",
   "offline",

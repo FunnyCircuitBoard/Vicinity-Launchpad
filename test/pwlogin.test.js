@@ -6,7 +6,7 @@
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { V2, advance, browser, realClock, reprove, useClock, wallet } from "./helpers/world.js";
-import { GOOD_PASSWORD, dumpAll, journey, memberWithWallet as member, one, outbox, recordAnswers, rows, startSignup, doWallet } from "./helpers/signup.js";
+import { GOOD_PASSWORD, dumpAll, journey, member as memberNoWallet, memberWithWallet as member, one, outbox, recordAnswers, rows, startSignup, doWallet } from "./helpers/signup.js";
 import { slowDb } from "./helpers/slowdb.js";
 import { _stats, verifyPassword } from "../src/password.js";
 import { limitKey } from "../src/limits.js";
@@ -742,6 +742,18 @@ test("change: a fresh wallet proof alone is enough; an empty current counts as n
   const r = await derivesOf(async () => answer(await change(b, { current: "", password: NEW_PASSWORD })));
   assert.deepEqual([r.out.status, r.out.body, r.derives], [200, { ok: true }, 1]);
   assert.equal((await login(browser(env, { ip: ip(156) }), ALICE, NEW_PASSWORD)).status, 200);
+});
+
+test("change: an account without a wallet (onboarding v3) is fresh for 30 minutes after its login, but that never replaces its password without the current one", async () => {
+  const alice = await memberNoWallet(env, box, { via: "email", email: ALICE });
+  assert.equal((await alice.b.get("/api/me")).fresh, true, "the login counts as fresh (a username change would work)...");
+  const hash = (await userOf(ALICE)).password_hash;
+  const nothing = await derivesOf(async () => answer(await change(alice.b, { password: NEW_PASSWORD })));
+  assert.deepEqual([nothing.out.status, nothing.out.body, nothing.derives], [403, { ok: false, error: "reprove" }, 0], "...but a stolen session IS that login: the current password is needed");
+  assert.equal((await userOf(ALICE)).password_hash, hash);
+  const ok = await derivesOf(async () => answer(await change(alice.b, { current: GOOD_PASSWORD, password: NEW_PASSWORD })));
+  assert.deepEqual([ok.out.status, ok.out.body, ok.derives], [200, { ok: true }, 2], "the current one checked, the new one hashed");
+  assert.equal((await login(browser(env, { ip: ip(159) }), ALICE, NEW_PASSWORD)).status, 200);
 });
 
 test("change: a wallet proof that has run out (30 minutes) is not a proof", async () => {

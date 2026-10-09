@@ -122,11 +122,17 @@ test("GET /api/message?action=link gives the signed-in person the statement with
   assert.equal((await m.b.post("/api/me/wallet/link", { address: m.w.address, message, signature: await m.w.sign(message) })).ok, true);
 });
 
-test("the one rule on /api/auth/wallet: signed in without a wallet, a login OR a link signature links it and the session stays; the same wallet re-proves; another wallet is wrong_wallet", async () => {
+test("the one rule on /api/auth/wallet: signed in without a wallet, a LOGIN signature links nothing (use_link); a LINK signature links it and the session stays; the same wallet re-proves; another wallet is wrong_wallet", async () => {
   const m = await member(env, box, { via: "email" });
   const u = await userOf(env, m);
   const token = m.b.jar.get("vs");
-  const r = await m.b.send("/api/auth/wallet", { method: "POST", body: await loginBody(m.w) });
+  // a login statement promised a sign-in, not a binding to an account: it links nothing, whoever submits it
+  const asLogin = await m.b.send("/api/auth/wallet", { method: "POST", body: await loginBody(m.w) });
+  assert.deepEqual([asLogin.status, await asLogin.json()], [400, { ok: false, error: "use_link" }]);
+  assert.deepEqual(asLogin.headers.getSetCookie(), []);
+  assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", u.id)).wallet, null, "nothing linked");
+  assert.equal((await m.b.get("/api/me?lite=1")).signedIn, true, "and the member is still signed in");
+  const r = await m.b.send("/api/auth/wallet", { method: "POST", body: await linkBody(m.w, u.handle) });
   const body = await r.json();
   assert.deepEqual([r.status, body.ok, body.linked, body.wallet, body.next, body.fresh], [200, true, true, m.w.address, "/dashboard?linked=1", true], JSON.stringify(body));
   assert.deepEqual(r.headers.getSetCookie(), [], "no new session");
@@ -155,6 +161,26 @@ test("the one rule on /api/auth/wallet: signed in without a wallet, a login OR a
   const anon = await browser(env).send("/api/auth/wallet", { method: "POST", body: await linkBody(await wallet(), nu.handle) });
   assert.deepEqual([anon.status, (await anon.json()).error], [401, "sign_in"]);
   assert.equal(await count("users WHERE wallet IS NOT NULL"), 2);
+});
+
+test("a phished login signature cannot capture a wallet: submitted from an attacker's own wallet-less account it is use_link, the wallet stays free, and later links to its real owner", async () => {
+  // the attacker: a member without a wallet, logged in; the victim's wallet signed "Sign in to Vicinity with this wallet." somewhere
+  const attacker = await member(env, box, { via: "google" });
+  const victim = await wallet();
+  const r = await attacker.b.send("/api/auth/wallet", { method: "POST", body: await loginBody(victim) });
+  assert.deepEqual([r.status, (await r.json()).error], [400, "use_link"]);
+  assert.equal(await count("users WHERE wallet = ?", victim.address), 0, "the wallet belongs to nobody");
+  // the same signature cannot be replayed as a link either (a link needs the LINK statement with the attacker's own name, which the victim never signed)
+  assert.equal((await attacker.b.send("/api/auth/wallet", { method: "POST", body: await loginBody(victim) })).status, 400);
+  // the victim keeps the wallet: their own account links it with the link statement; the attacker's account is still wallet-less
+  const owner = await member(env, box, { via: "email" });
+  const ou = await userOf(env, owner);
+  assert.equal((await owner.b.post("/api/auth/wallet", await linkBody(victim, ou.handle))).linked, true);
+  assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", (await userOf(env, attacker)).id)).wallet, null);
+  // and that wallet alone now signs in as the owner, nobody else
+  const anon = browser(env);
+  assert.equal((await anon.post("/api/auth/wallet", await loginBody(victim))).next, "/dashboard");
+  assert.equal((await anon.get("/api/me?lite=1")).user.id, ou.id);
 });
 
 test("a link pairing: Safari (or a computer) asks with purpose link, the wallet app approves with the link statement and the check number, Safari finishes and the account has the wallet; the app gets no session", async () => {

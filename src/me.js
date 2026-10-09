@@ -257,12 +257,14 @@ export function nameSkeleton(s) {
 //   · exactly one of these words, with or without trailing digits (Admin, admin_, Support77, r00t)
 //   · one of the staff words as the first or last WORD of the name (Admin_Sakib, SupportTeam, TheOfficial)
 //   · starting with admin / administrator / moderator
+//   · member followed by digits only (member12): the name the wallet link statement gives an account without a username
 const STAFF_WORDS = ["admin", "administrator", "moderator", "mod", "mods", "support", "official", "staff", "owner", "system", "security", "help", "founder", "root", "team"];
 const STAFF_AS_WORD = ["admin", "administrator", "moderator", "mod", "mods", "support", "official", "staff"].map(nameSkeleton);
 const STAFF_SKELETONS = STAFF_WORDS.map(nameSkeleton);
 const STAFF_PREFIXES = ["admin", "administrator", "moderator"].map(nameSkeleton);
 const STAFF_EXACT = new RegExp(`^(${STAFF_WORDS.join("|")})[0-9]*$`);
 export const reservedUsername = (s) => {
+  if (/^member\d+$/i.test(String(s))) return true; // "member<id>" is how the wallet link statement names an account that has no username (src/walletlink.js accountName)
   const k = nameSkeleton(s);
   if (k.includes(nameSkeleton("vicinity"))) return true;
   if (STAFF_EXACT.test(String(s).toLowerCase().replace(/[^a-z0-9]/g, "")) || STAFF_SKELETONS.includes(k)) return true;

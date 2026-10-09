@@ -17,7 +17,8 @@
  *   POST /api/me/wallet/unlink                                  take the wallet off the account (a fresh proof by that wallet; not with a live seat)
  *
  * The statement a wallet signs names the account ("Link this wallet to my Vicinity account @handle", src/solana.js), so a
- * signature made for one account can never link the wallet to another, and a login statement never links. A code is 192
+ * signature made for one account can never link the wallet to another, and a login statement never links (src/auth.js
+ * walletProven answers use_link to one while signed in without a wallet). A code is 192
  * random bits, kept only as a hash, bound to the connection that made it (the IPv4 address or the IPv6 /64, as a salted
  * hash: src/limits.js clientKey), and works once. Nothing here logs an address, a code or a hash in clear.
  */
@@ -216,7 +217,8 @@ async function handleCarryInfo(request, env, x) {
  * signed the link statement that names the owner's account. ONE transaction: the code is used (only while the owner still has no
  * wallet and nobody has this one), the account takes the wallet, every session of the owner carries it (Safari's dashboard
  * updates by itself), and this browser gets its own 30-day session, proven now. A browser signed in as somebody else is refused
- * (already_signed_in); the owner's own earlier session in this browser is replaced.
+ * (already_signed_in); the owner's own earlier session in this browser is replaced, but only once the link went through: a refused
+ * claim (wallet_taken, link_done, carry_expired) leaves this browser exactly as it was.
  */
 async function handleCarryClaim(request, env, x) {
   const session = await getSession(env, request, x.now);
@@ -231,7 +233,6 @@ async function handleCarryClaim(request, env, x) {
   if (r.error) return r.error;
   if (r.parsed.pin || r.parsed.handle !== accountName(u.owner)) return json({ ok: false, error: "bad_message" }, 400);
   const wallet = r.parsed.address;
-  if (session) await dropSession(env, session.id); // the owner's own earlier session here, or a pending proof: replaced by the one made below
   const token = randomToken(32), sid = await sha256(token);
   let res;
   try {
@@ -261,6 +262,7 @@ async function handleCarryClaim(request, env, x) {
     if (await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(wallet).first()) return json({ ok: false, error: "wallet_taken" }, 409);
     return json({ ok: false, error: "carry_expired" }, 410);
   }
+  if (session) await dropSession(env, session.id); // the owner's own earlier session here, or a pending proof: replaced by the one just made
   console.log("wallet linked", maskWallet(wallet), "(wallet app)");
   return json({ ok: true, wallet, next: "/dashboard?linked=1" }, 200, { "Set-Cookie": cookie(SESSION_COOKIE, token, SESSION_SECONDS) });
 }

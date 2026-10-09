@@ -67,8 +67,8 @@ export const CITY_NAME_RE = /^[\p{L}\p{M}][\p{L}\p{M} .'’-]{0,58}[\p{L}\p{M}.]
  *   add    → add a missing city and claim it
  *   login  → sign in to your dashboard (with a 2-digit check number when a phone signs in for a computer)
  *   link   → link this wallet to the account named in the statement (onboarding v3: the account exists first, the wallet comes
- *            later; with a check number when a wallet app approves for another device). A login statement never links and a
- *            link statement never signs anyone in: the two are different sentences.
+ *            later; with a check number when a wallet app approves for another device). A login statement never links (src/auth.js
+ *            walletProven: use_link) and a link statement never signs anyone in: the two are different sentences.
  */
 export function statementFor(action = "verify", { cityId, name, country, pin, handle } = {}) {
   if (action === "claim") return `Claim city #${cityId} (${country}) for this wallet on Vicinity. ${FREE}`;

@@ -175,6 +175,48 @@ test("the owner linked a wallet meanwhile (another browser): link_done, and the 
   assert.equal((await n.b.get("/api/me?lite=1")).signedIn, false, "Safari held the replaced token: it logs in again (a cookie copied between browsers is not the normal way)");
 });
 
+test("logging out in Safari kills a pending code: the wallet app's claim is refused (carry_expired), nothing linked, no session there; the next login starts clean", async () => {
+  const m = await safariMember();
+  const made = await (await carry(m.b)).json();
+  const app = browser(env, PHONE);
+  assert.equal((await info(app, made.code)).status, 200, "opened in the wallet app...");
+  assert.equal((await m.b.send("/api/auth/logout", { method: "POST", body: {} })).status, 200, "...then the person signs out of Safari");
+  assert.equal(await count("handoffs WHERE user_id = ? AND (result IS NULL OR result = 'opened')", m.u.id), 0, "the live code died with the session");
+  const r = await claim(app, made.code, m.w, m.u.handle);
+  assert.deepEqual([r.status, (await r.json()).error], [410, "carry_expired"]);
+  assert.equal(app.has("vs"), false, "no session was minted in the wallet app");
+  assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", m.u.id)).wallet, null);
+  assert.equal(await count("sessions WHERE user_id = ?", m.u.id), 0);
+  // a code that was never opened dies the same way
+  const again = await safariMember(PHONE6);
+  const made2 = await (await carry(again.b)).json();
+  await again.b.send("/api/auth/logout", { method: "POST", body: {} });
+  assert.deepEqual([(await info(browser(env, PHONE6), made2.code)).status, await count("handoffs WHERE user_id = ?", again.u.id)], [410, 0]);
+});
+
+test("a refused claim leaves the wallet app's browser as it was: the owner's own session there survives wallet_taken, and is replaced only by a claim that went through", async () => {
+  const owner = await linkDirect(env, await member(env, box, { via: "google", net: ELSEWHERE })); // owner.w belongs to another account
+  const m = await safariMember(PHONE, { via: "email" });
+  const made = await (await carry(m.b)).json();
+  const app = browser(env, PHONE);
+  assert.equal((await app.post("/api/auth/email/login", { email: m.email, password: GOOD_PASSWORD })).ok, true, "the same person is logged in inside the wallet app already");
+  const token = app.jar.get("vs");
+  assert.equal((await info(app, made.code)).status, 200);
+  const taken = await claim(app, made.code, owner.w, m.u.handle);
+  assert.deepEqual([taken.status, (await taken.json()).error], [409, "wallet_taken"]);
+  assert.deepEqual(taken.headers.getSetCookie(), [], "no cookie change on a refusal");
+  assert.equal(app.jar.get("vs"), token);
+  assert.equal((await app.get("/api/me?lite=1")).signedIn, true, "still logged in there");
+  assert.equal(await count("sessions WHERE user_id = ?", m.u.id), 2, "Safari's and the app's: nothing dropped");
+  assert.equal((await one(env.DB, "SELECT result FROM handoffs WHERE user_id = ?", m.u.id)).result, "opened", "the code is still usable");
+  // the right wallet goes through: the app gets a new session and its earlier one is gone
+  const ok = await claim(app, made.code, m.w, m.u.handle);
+  assert.equal(ok.status, 200);
+  assert.notEqual(app.jar.get("vs"), token);
+  assert.equal(await count("sessions WHERE user_id = ?", m.u.id), 2, "Safari's and the app's new one; the app's earlier session was replaced");
+  assert.equal((await app.get("/api/me?lite=1")).user.wallet, m.w.address);
+});
+
 test("limits: ten codes an hour per person, sixty looks and thirty claims an hour per connection; the old sign-up carry routes are gone", async () => {
   const m = await safariMember();
   let last;
