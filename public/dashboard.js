@@ -326,7 +326,10 @@
   }
   /** A phone's Safari / Chrome, the wallet linked: this is where the person shops, inside the wallet app. One card, one habit: Connect Phantom. */
   function buyCard(card, u, wn) {
-    const k = WA.remembered() || appNamed(u.walletApp), go = $("#wcard-go");
+    const kept = WA.remembered(), k = kept || appNamed(u.walletApp), go = $("#wcard-go");
+    // Safari lost what it remembered (7 days without a visit, a new phone): the app the account was linked in, kept again, so the Buy
+    // panel's list of wallet apps (public/swap.js reads the same key) names the same app first as this card
+    if (!kept && k) WA.remember(k.id);
     cardReset(card); card.classList.add("is-done"); card.classList.remove("wcard--folded");
     // ("Phantom connected ✓" only when nobody needs to ask "was this you?": while the notice shows, a neutral kicker; the note under the
     // button names the wallet itself. Never the wallet in the kicker: it is set in capitals, and a wallet address is case-sensitive.)

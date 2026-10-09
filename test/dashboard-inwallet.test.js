@@ -56,8 +56,14 @@ test("Safari that never remembered an app: the server's (the app that linked the
   const p = await openDashboard({ ua: UA.iphone, me: linkedMe({ walletApp: "solflare" }) });
   assert.equal(p.text("#wcard-title"), "On this phone you buy in Solflare");
   assert.equal(p.text("#wcard-go"), "Connect Solflare"); assert.equal(p.$("#wcard-go").getAttribute("href"), openInApp(p, "solflare"));
+  // (integration finding INT-2: the Buy panel's list of wallet apps reads the same key, so it names Solflare first too, before any tap)
+  assert.equal(p.local.get("vicinity.walletApp"), "solflare", "kept again as soon as the card says it");
   await p.tap(p.$("#wcard-go"));
   assert.equal(p.local.get("vicinity.walletApp"), "solflare", "the tap remembers it");
+  // what Safari remembered itself wins over the account's (another app on this phone)
+  const s = await openDashboard({ ua: UA.iphone, me: linkedMe({ walletApp: "solflare" }), storage: { "vicinity.walletApp": "backpack" } });
+  assert.equal(s.text("#wcard-title"), "On this phone you buy in Backpack");
+  assert.equal(s.local.get("vicinity.walletApp"), "backpack");
   const q = await openDashboard({ ua: UAS.android, me: linkedMe() });
   assert.equal(q.text("#wcard-title"), "On this phone you buy in your wallet app");
   assert.equal(q.text("#wcard-lead"), "Pick the wallet app you use: it opens Vicinity there, logged in. You buy there.");
