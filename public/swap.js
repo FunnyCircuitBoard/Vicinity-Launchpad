@@ -3,9 +3,13 @@
 // through this site's /api/swap/* (and /api/launchpad/trade/* for a city coin still on its bonding curve); the page never talks to
 // Jupiter or a blockchain node itself, never needs a login, and never sees a key: the connected wallet signs the transaction the
 // Worker built, and sends it itself ("solana:signAndSendTransaction") or hands the signed bytes to our relay.
-// Two taps: "Review" asks this site to build the exact transaction and shows what will be signed (held 40 s, refreshed by itself
-// while the page is looked at); "Approve in <wallet>" calls the wallet straight from that tap, nothing awaited first (a phone only
-// lets a page open its wallet app from a tap, and nobody signs numbers they did not see).
+// One tap buys. Once a wallet is connected and the amount has settled, this site builds the exact transaction in the background
+// ("Getting your exact price…") and the panel shows THAT build's numbers ("You pay X → you get Y (at least Z)."); the Buy tap
+// hands those very bytes to the wallet straight away, nothing awaited first (a phone's browser opens the wallet app only straight
+// from a tap). A build is good for 40 s, then made again by itself while the page is looked at (at most 3 times while nobody
+// touches the panel; then "Refresh price"). A phone without a wallet opens this page inside its wallet app with the trade filled
+// in (swap_in / swap_out / swap_amt / swap_slip / swap_open in the address, read once, never bought by itself); a computer shows
+// the same address as a QR code for the phone's camera.
 //   window.VSwap = { mount(el, opts), open(opts), refresh() }; every element with data-swap mounts itself
 //   (data-in / data-out = mints or "SOL"; data-mode = buy | trade | swap; data-title).
 // Needs window.V (site.js) and window.VW (wallets.js). Nothing here runs when the switch is off (/api/official has no swap key).
@@ -17,11 +21,15 @@
   const SOL = "So11111111111111111111111111111111111111112", USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
   const KEEP_SOL = 0.01; // MAX keeps this much SOL for fees and rent
   const QUOTE_MS = 450, REFRESH_MS = 12_000, POLL_MS = 2_000, POLL_MAX_MS = 90_000;
-  // A built transaction is offered for review for REVIEW_MS from its arrival (its blockhash lives ~60-90 s: the rest is for the
-  // wallet), then built again by itself at most MAX_REBUILDS times while the page is looked at; a rebuild that came out worse keeps
-  // Approve off for HOLD_MS, so nobody approves numbers they did not see.
-  const REVIEW_MS = 40_000, MAX_REBUILDS = 3, HOLD_MS = 1500;
+  // The exact price before the tap. A quote that settled (the amount unchanged SETTLE_MS) is built at once; a build is good for
+  // READY_MS from its arrival (its blockhash lives ~60-90 s: the rest is for the wallet), then built again by itself at most
+  // MAX_REBUILDS times while the page is looked at and nobody touches the panel; a rebuild that came out worse keeps the button
+  // off HOLD_MS, so nobody taps numbers they did not see. The whole page builds by itself at most AUTO_MAX times per AUTO_WINDOW_MS
+  // (every panel together), well under the Worker's limits (swap_tx and lp_tx: 20 a minute per connection, 15 per wallet,
+  // src/guards.js); past that, or after a 429, the person taps for the price ("Tap Buy to get your price").
+  const SETTLE_MS = 600, READY_MS = 40_000, MAX_REBUILDS = 3, HOLD_MS = 1500, AUTO_MAX = 8, AUTO_WINDOW_MS = 60_000, SLOW_MS = 60_000;
   const BASES = [SOL, USDC, USDT];
+  const APP_KEY = "vicinity.walletApp"; // the wallet app (a VW.KNOWN id) this person opened last: offered first
   const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   /** Bytes to base58 (a signature, 64 bytes). */
   function base58(bytes) {
@@ -66,7 +74,7 @@
     expired: "The network didn't include it in time. Nothing was spent. Try again.",
     blockhash_expired: "The network didn't include it in time. Nothing was spent. Try again.",
     unconfirmed: "We could not confirm it in time. Open the Solscan link or check your wallet: if it went through, your balance already shows it; if not, nothing was spent.",
-    bad_ticket: "This transaction was not built here, or its ticket expired. Start over and tap Review again.",
+    bad_ticket: "This transaction was not built here, or its ticket expired. Press Swap again.",
     misconfigured: "Curve trading is paused: a setting on our side does not match. Nothing was sent.",
     no_route: "No market can trade this pair right now.",
     jupiter_busy: "The price service is busy. Try again in a few seconds.",
@@ -94,12 +102,10 @@
     bad_origin: "Please open vicinity.city directly and try again.",
     wallet_devnet: "Switch your wallet to devnet for this test coin.",
     no_send: "This wallet can sign messages here but not transactions: open this page in Phantom, Solflare or Backpack.",
-    // a phone's own wallet apps, asked from Chrome (wallets.js): nobody answered, or Chrome kept the page from reaching the app
-    wallet_not_found: "No wallet app answered on this phone. Open this page in your wallet app instead:",
-    local_network_blocked: "Chrome blocked the link to your wallet app. Allow it in Chrome's site settings, or open this page in your wallet app:",
   };
   const words = (d) => (d && d.error === "program_error" && d.name ? `The market refused this trade (${d.name}). Nothing was spent.` : WORDS[d && d.error] || WORDS[d] || "Something went wrong. Nothing was spent. Try again.");
   const isReject = (e) => /reject|cancel|denied|declin|closed|dismiss/i.test(String((e && (e.message || e.code)) || e));
+  const isSlow = (d) => Boolean(d && (d.error === "slow_down" || d._status === 429));
 
   /* ---------------------------------------------------------------- shared: the config, the connected wallet */
   let configP = null, config = null;
@@ -112,6 +118,13 @@
   let helpIds = 0;
   function setWallet(adapter, address) { wallet.adapter = adapter; wallet.address = address; for (const f of wallet.listeners) { try { f(); } catch { /* one panel's trouble is its own */ } } }
   const panels = new Set();
+  // the page's automatic builds (every panel together): when each started, and no automatic build at all until slowUntil (a 429)
+  const autoLog = [];
+  let slowUntil = 0;
+  const autoAllowed = (now = Date.now()) => { while (autoLog.length && now - autoLog[0] >= AUTO_WINDOW_MS) autoLog.shift(); return now >= slowUntil && autoLog.length < AUTO_MAX; };
+  /** The wallet app this person opened last (a VW.KNOWN id), or null; storage may be off (a private tab): then nothing is remembered. */
+  const lastApp = () => { try { const v = window.localStorage.getItem(APP_KEY); return typeof v === "string" && /^[a-z0-9]{2,24}$/.test(v) ? v : null; } catch { return null; } };
+  const rememberApp = (id) => { try { window.localStorage.setItem(APP_KEY, id); } catch { /* storage off: nothing remembered */ } };
 
   /** A coloured mark with the token's first letter (no outside images: the security policy allows only this site). */
   function mark(mint, label) {
@@ -120,17 +133,14 @@
     s.style.background = COLORS[mint] || (t && t.kind === "vicinity" ? "linear-gradient(135deg,#FF5A36,#FFC857)" : t && t.kind === "city" ? "#5B8CFF" : "#445");
     return s;
   }
-  /** "Approve in Phantom"; a long or made-up name ("Mobile Wallet Adapter", "Solana wallet") says "your wallet" instead. */
-  const GENERIC_NAME = /^(solana |your |my |a )?wallet$|adapter|wallet app|installed|injected|browser|default|standard/i;
-  const walletName = (a) => { const n = String((a && a.name) || "").trim(); return n && n.length <= 18 && !GENERIC_NAME.test(n) ? n : "your wallet"; };
-  /** Phantom's own token page and swap in its app (docs.phantom.com, deeplinks, "fungible": a CAIP-19 token, URL-encoded). */
+  /** Phantom's own token page in its app, with its own Buy and Swap (docs.phantom.com, deeplinks, "fungible": a CAIP-19 token, URL-encoded). */
   const phantomFungible = (mint) => `https://phantom.com/ul/v1/fungible?token=${encodeURIComponent(`solana:101/address:${mint}`)}`;
 
   /* ---------------------------------------------------------------- a trade carried in a link */
   // "Open in Phantom" (a phone) and the QR code (a computer) carry the panel's pair, amount and slippage in the page's own address:
   // swap_in, swap_out (a mint, or SOL / USDC / USDT), swap_amt, swap_slip (basis points) and swap_open=1 (the panel was the bottom
-  // sheet). Read ONCE on load, checked against the verified list before anything is filled in, never reviewed or approved by
-  // itself; then only the swap_* params leave the address bar (its other params and the hash stay).
+  // sheet). Read ONCE on load, checked against the verified list before anything is filled in, never built or bought by itself;
+  // then only the swap_* params leave the address bar (its other params and the hash stay).
   const LINK_KEYS = ["swap_in", "swap_out", "swap_amt", "swap_slip", "swap_open"];
   const LINK_NOTE = "Filled in from your link. Check the amount.";
   const LINK_WAIT_MS = 2500; // how long a page's own panel (the token page, the dashboard) may take to mount before the sheet opens instead
@@ -155,7 +165,7 @@
     try { const u = new URL(String(location.href)); for (const k of LINK_KEYS) u.searchParams.delete(k); window.history.replaceState(window.history.state, "", u.pathname + u.search + u.hash); }
     catch { /* an old browser keeps them in the address bar: harmless, they are read once */ }
   }
-  /** A new panel takes the link's trade when its pair can (a Buy panel with a fixed coin only that coin, bought or sold). */
+  /** A new panel takes the link's trade when its pair can (a Buy panel with a fixed coin only that coin, bought or sold: flipped). */
   function offerLink(p) {
     if (linkUsed) return;
     const t = linkTrade(); if (!t) return forgetLink();
@@ -179,8 +189,8 @@
   }
 
   /* ---------------------------------------------------------------- the QR code for a phone (computers) */
-  // /vendor/qrcode.js (qrcode-generator, copied in at build time) is loaded only when a QR code is shown: a same-origin script,
-  // which the security policy (script-src 'self') allows. Missing, the address is shown as a link instead.
+  // /vendor/qrcode.js (qrcode-generator, copied in at build time by scripts/copy-assets.mjs) is loaded only when a QR code is
+  // shown: a same-origin script, which the security policy (script-src 'self') allows. Missing, the address is shown as a link.
   let qrP = null;
   function loadQR() {
     if (typeof window.qrcode === "function") return Promise.resolve(true);
@@ -217,16 +227,18 @@
       this.s = {
         in: norm(opts.in || root.dataset.in || "SOL"), out: norm(opts.out || root.dataset.out || null), amount: "", slippage: 100, phase: "idle",
         quote: null, curve: null, error: null, sig: null, lvbh: null, cluster: "mainnet", chain: "solana:mainnet", understood: false, balances: null, picker: null, search: "", found: [],
-        // the review: the build on the screen { tx, ticket, lvbh, chain, at }, how often it was rebuilt by itself, a rebuild running,
-        // Approve held after a worse rebuild, and the lines that say what happened (moved, refreshed, timedOut)
-        build: null, rebuilds: 0, refreshing: false, holding: false, refreshed: false, timedOut: false,
+        // the exact price: the build on the screen { tx, ticket, lvbh, chain, at }, its quiet rebuilds since the person last touched
+        // the panel, a rebuild running, the button held after a worse one, what the line says (moved, refreshed), and why nothing
+        // is built by itself right now (hold: "refresh" after MAX_REBUILDS, "manual" after a 429 or past the page's budget)
+        build: null, rebuilds: 0, refreshing: false, holding: false, moved: false, refreshed: false, hold: null,
       };
       this.title = opts.title || root.dataset.title || (this.mode === "buy" ? `Buy ${symbolOf(this.s.out, "this coin")}` : "Swap");
       this.timer = 0; this.refresh = 0; this.abort = null; this.poll = 0; this.seq = 0; this.dead = false;
-      this.bseq = 0; this.babort = null; this.expireT = 0; this.tickT = 0; this.holdT = 0; this.share = [];
+      this.bseq = 0; this.babort = null; this.buildT = 0; this.expireT = 0; this.holdT = 0; this.typedAt = 0; this.share = [];
       this.build(); this.render();
       this.offWallet = onWallet(() => {
-        if (this.s.phase === "review" || this.s.phase === "building") { this.dropBuild(); this.s.phase = "quoted"; } // another wallet signs: that build is not its
+        if (this.s.phase === "ready" || this.s.phase === "building") { this.dropBuild(); this.s.phase = "quoted"; } // another wallet signs: that build is not its
+        this.s.hold = null;
         this.render(); this.loadBalances(); if (this.s.amount && ["quoted", "failed", "idle"].includes(this.s.phase)) { this.phase("quoting"); this.quote(); }
       });
       panels.add(this);
@@ -236,7 +248,7 @@
     }
     /** In the bottom sheet (VSwap.open), not on the page itself. */
     get inSheet() { return Boolean(this.root.closest && this.root.closest(".swap-sheet")); }
-    /** Retire the panel: timers, the in-flight quote and build, the review's clocks, the status poll, the wallet and visibility listeners (a sheet opened on five cards leaves no five live panels behind). */
+    /** Retire the panel: timers, the in-flight quote and build, the price's clocks, the status poll, the wallet and visibility listeners (a sheet opened on five cards leaves no five live panels behind). */
     destroy() {
       if (this.dead) return;
       this.dead = true;
@@ -302,27 +314,23 @@
       const status = el("p", "swap__status"); status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite"); this.status = status;
       const go = el("button", "btn btn--primary btn--block swap__go", "Connect wallet"); go.type = "button"; this.go = go;
       go.addEventListener("click", () => this.primary());
-      // under Approve: how long the reviewed price is held (read on demand, never announced every second) and the way back
-      const rev = el("div", "swap__review"); rev.hidden = true; this.reviewBar = rev;
-      const held = el("span", "tiny muted swap__held", ""); held.setAttribute("aria-live", "off"); this.held = held;
-      const change = el("button", "link-btn swap__change", "Change"); change.type = "button"; change.addEventListener("click", () => this.change());
-      rev.append(held, change);
       const note = el("p", "swap__note", ""); note.hidden = true; this.note = note; // "Filled in from your link"
       const links = el("p", "swap__links"); this.links = links;
       const foot = el("p", "tiny muted swap__foot"); this.foot = foot;
       const picker = el("div", "swap__picker"); picker.hidden = true; this.picker = picker;
       const walletBox = el("div", "swap__wallets"); walletBox.hidden = true; this.walletBox = walletBox;
-      r.append(head, note, box, slip, help, dl, warn, status, go, rev, links, foot, picker, walletBox);
+      r.append(head, note, box, slip, help, dl, warn, status, go, links, foot, picker, walletBox);
       this.inAmt.addEventListener("input", () => { this.note.hidden = true; this.onAmount(); });
       this.inAmt.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); this.primary(); } });
-      // Escape while reviewing = Change (also inside the sheet, which would otherwise close)
-      r.addEventListener("keydown", (e) => { if (e.key === "Escape" && this.s.phase === "review") { e.preventDefault(); e.stopPropagation(); this.change(); } });
-      // the 12-second refresh while the page is looked at; a review that ran out while nobody looked is built again when they do
+      // somebody is here: any tap, key or change in the panel starts the quiet rebuilds' count again
+      for (const type of ["click", "input", "keydown", "change"]) r.addEventListener(type, () => { this.s.rebuilds = 0; });
+      // the 12-second refresh while the page is looked at; a price that ran out while nobody looked is built again once they do
       // (removed again by destroy())
       this.onVisibility = () => {
         if (document.hidden) { clearTimeout(this.refresh); return; }
-        if (this.s.phase === "quoted") this.scheduleRefresh();
-        else if (this.s.phase === "review" && this.s.build && !this.s.refreshing && Date.now() - this.s.build.at >= REVIEW_MS) this.autoRebuild();
+        const s = this.s;
+        if (s.phase === "quoted" && s.hold !== "refresh") this.scheduleRefresh();
+        else if (s.phase === "ready" && s.build && !s.refreshing && Date.now() - s.build.at >= READY_MS) this.autoRebuild();
       };
       document.addEventListener("visibilitychange", this.onVisibility);
     }
@@ -332,24 +340,42 @@
     get connected() { return Boolean(wallet.adapter && wallet.address); }
     get canSendHere() { const a = wallet.adapter; return Boolean(a && (a.canSend || a.canSign)); }
     get accountChains() { const a = wallet.adapter; return (a && a.account && a.account.chains) || (a && a.chains) || []; }
+    /** A devnet test coin, and a wallet whose account says it is not on devnet: told to switch, never built for. */
+    get wrongChain() { const c = this.s.chain; return c !== "solana:mainnet" && this.accountChains.length > 0 && !this.accountChains.includes(c); }
+    /** Signing, sending, confirming: the trade is out of the panel's hands, nothing on it changes. */
+    get locked() { return ["signing", "sending", "confirming"].includes(this.s.phase); }
     /** The quote's amounts in whole tokens, from the route's own strings (never recomputed from floats). */
     get outUi() { return this.s.quote ? this.s.quote.outUi : null; }
+    /** What the button does: Buy $X, Sell $X (a flipped Buy panel, a curve sale) or Swap. */
+    get action() { const s = this.s; return s.curve ? (s.curve.side === "buy" ? `Buy ${symbolOf(s.out)}` : `Sell ${symbolOf(s.in)}`) : this.mode === "buy" ? (s.flipped ? `Sell ${symbolOf(s.in)}` : `Buy ${symbolOf(s.out)}`) : "Swap"; }
     onAmount() {
       const v = String(this.inAmt.value).replace(",", ".").replace(/[^\d.]/g, "");
       if (v !== this.inAmt.value) this.inAmt.value = v;
-      this.s.amount = v; this.s.understood = false; this.understand.checked = false;
+      this.s.amount = v; this.s.understood = false; this.understand.checked = false; this.typedAt = Date.now();
       clearTimeout(this.timer); clearTimeout(this.refresh);
-      if (this.abort) { this.abort.abort(); this.abort = null; }
-      this.dropBuild(); // a new amount is a new trade: the build under review (or on its way) is dropped
-      if (!/^\d*\.?\d+$/.test(v) || Number(v) <= 0) { this.s.quote = null; this.s.curve = null; this.phase("idle", { error: null }); return; }
-      this.phase("quoting", { error: null });
+      if (this.abort) { this.abort.abort(); this.abort = null; this.seq++; } // the quote on its way is for the old amount: its answer is dropped
+      this.dropBuild(); this.s.hold = null; // a new amount is a new trade: the price built (or being built) goes
+      if (!/^\d*\.?\d+$/.test(v) || Number(v) <= 0) { this.s.quote = null; this.s.curve = null; this.phase("idle", { error: null, moved: false }); return; }
+      this.phase("quoting", { error: null, moved: false });
       this.timer = setTimeout(() => this.quote(), QUOTE_MS);
     }
-    setSlippage(bps) { this.dropBuild(); if (this.s.phase === "review") this.s.phase = "quoted"; this.s.slippage = bps; this.s.understood = false; this.understand.checked = false; this.render(); if (this.s.amount) { this.phase("quoting"); clearTimeout(this.timer); this.timer = setTimeout(() => this.quote(), 100); } }
-    flip() { this.dropBuild(); if (this.fixedOut && this.mode === "buy" && !this.s.flipped) { this.s.flipped = true; } else if (this.fixedOut && this.s.flipped) this.s.flipped = false; [this.s.in, this.s.out] = [this.s.out, this.s.in]; this.s.quote = null; this.s.curve = null; this.s.amount = ""; this.inAmt.value = ""; this.phase("idle", { error: null }); this.loadBalances(); if (!this.walletBox.hidden) this.connect(); }
+    setSlippage(bps) {
+      if (this.locked) return;
+      this.dropBuild(); this.s.hold = null; if (this.s.phase === "ready" || this.s.phase === "building") this.s.phase = "quoted";
+      this.s.slippage = bps; this.s.understood = false; this.understand.checked = false; this.render();
+      if (this.s.amount) { this.phase("quoting", { moved: false }); clearTimeout(this.timer); this.timer = setTimeout(() => this.quote(), 100); }
+    }
+    flip() {
+      if (this.locked) return;
+      this.dropBuild(); this.s.hold = null; this.seq++; if (this.abort) { this.abort.abort(); this.abort = null; }
+      clearTimeout(this.timer); clearTimeout(this.refresh);
+      if (this.fixedOut && this.mode === "buy" && !this.s.flipped) { this.s.flipped = true; } else if (this.fixedOut && this.s.flipped) this.s.flipped = false;
+      [this.s.in, this.s.out] = [this.s.out, this.s.in]; this.s.quote = null; this.s.curve = null; this.s.amount = ""; this.inAmt.value = ""; this.phase("idle", { error: null, moved: false }); this.loadBalances();
+      if (!this.walletBox.hidden) this.connect(); // the wallet apps and the QR code follow the new direction
+    }
     /** Can this panel take a link's trade? A Buy panel with a fixed coin takes only that coin (bought, or sold: flipped). */
     canTake(t) { return !this.fixedOut || t.out === this.fixedOut || t.in === this.fixedOut; }
-    /** Fills in a link's trade (never reviews or approves it) and says so on the panel. */
+    /** Fills in a link's trade (never builds or buys it by itself) and says so on the panel. */
     prefill(t) {
       const s = this.s;
       if (this.fixedOut) { const sell = t.in === this.fixedOut; s.flipped = sell; s.in = sell ? this.fixedOut : t.in; s.out = sell ? t.out : this.fixedOut; }
@@ -373,7 +399,7 @@
         return u.toString();
       } catch { return String(location.href); }
     }
-    scheduleRefresh() { clearTimeout(this.refresh); this.refresh = setTimeout(() => { if (!document.hidden && this.s.phase === "quoted" && this.s.amount) this.quote(true); }, REFRESH_MS); }
+    scheduleRefresh() { clearTimeout(this.refresh); this.refresh = setTimeout(() => { if (!document.hidden && this.s.phase === "quoted" && this.s.amount && this.s.hold !== "refresh") this.quote(true); }, REFRESH_MS); }
     async setMax() {
       const b = this.s.balances; if (!b) return;
       let v;
@@ -390,126 +416,159 @@
       if (d && d.ok && !this.dead) { this.s.balances = d; this.render(); }
     }
     /* ----- quotes ----- */
+    /** The quote for the panel's trade: /api/swap/quote, then the launchpad's for a coin still on its curve. Touches nothing; null once `live()` says it was overtaken. */
+    async ask(signal, live) {
+      const s = this.s;
+      let d = await post("/api/swap/quote", { inputMint: s.in, outputMint: s.out, amount: s.amount, slippageBps: s.slippage, taker: wallet.address || undefined }, signal);
+      if (!live()) return null;
+      let curve = null;
+      if (d && d.ok && d.source === "curve") {
+        curve = { mint: d.mint, side: d.side, chain: d.chain, cluster: d.cluster, quoteMint: d.quoteMint };
+        d = await post("/api/launchpad/trade/quote", { mint: d.mint, side: d.side, amount: s.amount, slippageBps: s.slippage, taker: wallet.address || undefined }, signal);
+        if (!live()) return null;
+      }
+      return { d, curve };
+    }
     async quote(silent = false) {
       if (!this.ready || !this.s.amount) return;
       const seq = ++this.seq;
       const ctrl = new AbortController(); if (this.abort) this.abort.abort(); this.abort = ctrl;
       if (!silent) this.phase("quoting", { error: null });
-      let d = await post("/api/swap/quote", { inputMint: this.s.in, outputMint: this.s.out, amount: this.s.amount, slippageBps: this.s.slippage, taker: wallet.address || undefined }, ctrl.signal);
-      if (seq !== this.seq) return; // a newer amount took over
-      if (d && d.ok && d.source === "curve") {
-        this.s.curve = { mint: d.mint, side: d.side, chain: d.chain, cluster: d.cluster, quoteMint: d.quoteMint };
-        d = await post("/api/launchpad/trade/quote", { mint: d.mint, side: d.side, amount: this.s.amount, slippageBps: this.s.slippage, taker: wallet.address || undefined }, ctrl.signal);
-        if (seq !== this.seq) return;
-      } else this.s.curve = null;
+      const r = await this.ask(ctrl.signal, () => seq === this.seq && !this.dead);
+      if (!r) return; // a newer amount took over
+      if (this.abort === ctrl) this.abort = null;
+      const d = r.d; this.s.curve = r.curve;
       if (!d || !d.ok) { this.s.quote = null; this.phase("failed", { error: d || { error: "swap_unavailable" }, soft: true }); return; }
       this.s.quote = d; this.s.cluster = d.cluster || "mainnet"; this.s.chain = d.chain || "solana:mainnet";
       this.phase("quoted", { error: null, moved: false });
-      this.scheduleRefresh();
-    }
-    /* ----- the trade: Review (build it, show it), then Approve (the wallet, straight from the tap) ----- */
-    async primary() {
-      if (this.s.phase === "review") return this.approve(); // first, before anything is awaited: the wallet opens inside this tap
-      if (this.s.phase === "building" || this.s.phase === "signing" || this.s.phase === "sending" || this.s.phase === "confirming") return; // a second click while busy is ignored
-      if (this.s.phase === "done" || (this.s.phase === "failed" && !this.s.soft)) { this.s.sig = null; this.inAmt.value = ""; this.s.amount = ""; this.s.quote = null; this.phase("idle", { error: null }); this.inAmt.focus(); return; }
-      if (!this.connected) return this.connect();
-      if (this.s.phase === "failed" && this.s.soft && this.s.quote && this.s.amount) this.s.phase = "quoted"; // Try again: the same quote, reviewed again
-      if (this.s.phase !== "quoted" || !this.s.quote) return this.inAmt.focus();
-      if (!this.canSendHere) return this.phase("failed", { error: { error: "no_send" }, soft: true });
-      if (this.impact() > 10 && !this.s.understood) return this.render();
-      if (this.s.quote.expiresAt && Date.parse(this.s.quote.expiresAt) < Date.now()) { await this.quote(true); if (this.s.phase !== "quoted") return; }
-      const chain = this.s.chain;
-      if (chain !== "solana:mainnet" && this.accountChains.length && !this.accountChains.includes(chain)) return this.phase("failed", { error: { error: "wallet_devnet" }, soft: true });
-      this.s.rebuilds = 0;
-      return this.review();
+      this.afterQuote();
     }
     /**
-     * Review: this site builds the exact transaction (the same route and body as always: /api/swap/tx, or the launchpad's for a coin
-     * on its curve; legacy for a wallet without version 0) and the panel shows the BUILD's own quote, the truth, never the preview.
-     * `why`: null (the Review tap: "Preparing…"), "auto" (the hold ran out: built again quietly, Approve off meanwhile), "tap"
-     * (Approve on a build that had run out: never a stale one to the wallet). A build that came out worse than what was on the
-     * screen says so and holds Approve for HOLD_MS; the 10 % guard is judged on it too.
+     * A quote landed. With a wallet that can trade here, the exact transaction is built next ("Getting your exact price…" at once,
+     * the build itself SETTLE_MS after the last keystroke); past the page's budget, or after a 429, the person taps for it instead.
+     * Without a wallet (or with one that cannot sign, or is on the wrong chain) the preview refreshes every 12 s as before.
      */
-    async review(why = null) {
-      const s = this.s, chain = s.chain;
-      const seq = ++this.bseq;
-      clearTimeout(this.timer); clearTimeout(this.refresh); clearTimeout(this.expireT); clearTimeout(this.tickT);
-      this.seq++; if (this.abort) { this.abort.abort(); this.abort = null; } // a quote still on its way must not overwrite the review
+    afterQuote() {
+      clearTimeout(this.buildT);
+      const s = this.s;
+      if (this.connected && this.canSendHere && !this.wrongChain && s.quote && s.hold === null) {
+        if (!autoAllowed()) { s.hold = "manual"; this.render(); return this.scheduleRefresh(); }
+        this.phase("building", { error: null, sig: null, moved: false, refreshed: false });
+        this.buildT = setTimeout(() => this.prepare("auto"), Math.max(0, this.typedAt + SETTLE_MS - Date.now()));
+        return;
+      }
+      this.scheduleRefresh();
+    }
+    /* ----- the exact price, built before the tap ----- */
+    /**
+     * Build the exact transaction (the same route and body as always: /api/swap/tx, or the launchpad's for a coin on its curve;
+     * legacy for a wallet without version 0) and show the BUILD's own quote, the truth, never the preview. `why`:
+     *   auto     a quote just settled (built on that quote)
+     *   rebuild  the price ran out while the page is looked at: quietly (the line and the details stay until the new numbers come)
+     *   tap      the person asked for the price (Tap Buy to get your price, Refresh price, Try again)
+     *   late     a Buy tap on a price that had run out (a phone that slept): built again, the wallet stays shut
+     * Every one but `auto` (on a fresh quote) asks for a fresh quote first: the Worker then reuses that quote's Jupiter build (12 s)
+     * for the transaction, so no extra Jupiter call is spent. A build that came out worse than what was on the screen says so and
+     * holds the button HOLD_MS; the 10 % guard is judged on it too.
+     */
+    async prepare(why) {
+      const s = this.s;
+      if (this.dead || !this.connected || !s.quote || (why === "auto" && s.phase !== "building")) return;
+      const seq = ++this.bseq, live = () => !this.dead && seq === this.bseq;
+      clearTimeout(this.buildT); clearTimeout(this.expireT); clearTimeout(this.holdT); clearTimeout(this.timer); clearTimeout(this.refresh);
+      this.seq++; if (this.abort) { this.abort.abort(); this.abort = null; } // a quote still on its way must not overwrite the build
       if (this.babort) this.babort.abort();
       const ctrl = new AbortController(); this.babort = ctrl;
-      const hadFocus = this.root.contains(document.activeElement); // the button (or the amount field) goes disabled while building: the keyboard comes back to Approve
-      if (why) { s.refreshing = true; this.render(); } else this.phase("building", { error: null, sig: null, moved: false, refreshed: false, timedOut: false });
+      const hadFocus = this.root.contains(document.activeElement); // a tap's button goes disabled while building: the keyboard comes back to it
+      const shown = s.quote; // what is on the screen now: a build that comes out worse than THIS says so
+      if (why === "rebuild") { s.refreshing = true; s.holding = false; this.render(); } else this.phase("building", { error: null, sig: null, moved: false, refreshed: false, hold: null, holding: false });
+      autoLog.push(Date.now());
+      let q = s.quote, curve = s.curve;
+      const stale = q.expiresAt && Date.parse(q.expiresAt) < Date.now();
+      if (why !== "auto" || stale) {
+        const r = await this.ask(ctrl.signal, live);
+        if (!r) return;
+        if (!r.d || !r.d.ok) return this.stopBuild(why, shown, r.d);
+        q = r.d; curve = r.curve;
+      }
+      const chain = q.chain || s.chain;
       const legacy = !(wallet.adapter.txVersions || []).some((v) => v === 0 || v === "0");
-      const body = s.curve
-        ? { mint: s.curve.mint, side: s.curve.side, amount: s.amount, slippageBps: s.slippage, taker: wallet.address, quoteId: s.quote.quoteId, ...(legacy ? { v: "legacy" } : {}) }
-        : { inputMint: s.in, outputMint: s.out, amount: s.amount, slippageBps: s.slippage, taker: wallet.address, quoteId: s.quote.quoteId, ...(legacy ? { v: "legacy" } : {}) };
-      const t = await post(s.curve ? "/api/launchpad/trade/tx" : "/api/swap/tx", body, ctrl.signal);
-      if (this.dead || seq !== this.bseq) return; // dropped meanwhile: Change, a new amount, slippage or pair, another wallet
+      const body = curve
+        ? { mint: curve.mint, side: curve.side, amount: s.amount, slippageBps: s.slippage, taker: wallet.address, quoteId: q.quoteId, ...(legacy ? { v: "legacy" } : {}) }
+        : { inputMint: s.in, outputMint: s.out, amount: s.amount, slippageBps: s.slippage, taker: wallet.address, quoteId: q.quoteId, ...(legacy ? { v: "legacy" } : {}) };
+      const t = await post(curve ? "/api/launchpad/trade/tx" : "/api/swap/tx", body, ctrl.signal);
+      if (!live()) return; // dropped meanwhile: a new amount, slippage or pair, the flip, another wallet
       this.babort = null;
-      if (!t || !t.ok) { this.dropBuild(); return this.phase("failed", { error: t || { error: "swap_unavailable" }, soft: true }); }
+      if (!t || !t.ok) return this.stopBuild(why, shown, t);
       const built = t.quote && t.quote.outAmount ? { ...t.quote, fees: { ...(t.quote.fees || {}), ...(t.fees || {}) } } : null;
-      const change = built ? worseThan(s.quote, built) : null;
-      if (built) { s.quote = built; s.chain = t.chain || s.chain; }
-      s.lvbh = t.lastValidBlockHeight; s.cluster = t.cluster || s.cluster;
+      const change = built ? worseThan(shown, built) : null;
+      s.quote = built || q; s.curve = curve; s.chain = t.chain || chain; s.lvbh = t.lastValidBlockHeight; s.cluster = t.cluster || q.cluster || s.cluster;
       s.build = { tx: t.tx, ticket: t.ticket, lvbh: t.lastValidBlockHeight, chain: t.chain || chain, at: Date.now() };
       const worse = Boolean(change && change.worse);
-      if (worse) { s.understood = false; this.understand.checked = false; s.holding = true; clearTimeout(this.holdT); this.holdT = setTimeout(() => { s.holding = false; this.render(); }, HOLD_MS); }
-      this.phase("review", { refreshing: false, moved: worse, refreshed: why === "tap" && !worse });
-      this.expireT = setTimeout(() => this.expired(), REVIEW_MS);
+      if (worse) { s.understood = false; this.understand.checked = false; s.holding = true; this.holdT = setTimeout(() => { s.holding = false; this.render(); }, HOLD_MS); }
+      this.phase("ready", { refreshing: false, moved: worse, refreshed: why === "late" && !worse, hold: null });
+      this.expireT = setTimeout(() => this.expired(), READY_MS);
       if (hadFocus && (!document.activeElement || document.activeElement === document.body)) { try { this.go.focus({ preventScroll: true }); } catch { /* no focus */ } }
     }
-    /** The hold ran out: built again by itself while the page is looked at; a hidden page waits until it is looked at again (onVisibility). */
+    /**
+     * A build (or the quote before it) that did not come: today's plain words, the price dropped. A 429 stops every panel's
+     * automatic builds for a while (Retry-After, at least a minute); one nobody asked for then simply waits for a tap ("Tap Buy to
+     * get your price", the numbers on the screen kept), never an error for something the person did not do.
+     */
+    stopBuild(why, shown, d) {
+      this.dropBuild();
+      if (isSlow(d)) slowUntil = Date.now() + Math.min(5 * SLOW_MS, Math.max(SLOW_MS, Number(d.retryAfterS || 0) * 1000));
+      if (isSlow(d) && (why === "auto" || why === "rebuild")) { this.phase("quoted", { quote: shown, hold: "manual", error: null, refreshing: false, moved: false }); return this.scheduleRefresh(); }
+      return this.phase("failed", { error: d || { error: "swap_unavailable" }, soft: true, refreshing: false });
+    }
+    /** The price ran out: built again by itself while the page is looked at; a hidden page waits until it is looked at again (onVisibility). */
     expired() {
-      if (this.dead || this.s.phase !== "review" || !this.s.build || this.s.refreshing) return;
-      if (document.hidden) return this.render();
+      if (this.dead || this.s.phase !== "ready" || !this.s.build || this.s.refreshing) return;
+      if (document.hidden) return;
       this.autoRebuild();
     }
-    /** One of at most MAX_REBUILDS quiet rebuilds per review; after those the review ends (nobody seems to be there). */
+    /** One of at most MAX_REBUILDS quiet rebuilds since the person last touched the panel; after those, "Refresh price" (nobody seems to be there). */
     autoRebuild() {
-      if (this.s.rebuilds >= MAX_REBUILDS) { this.dropBuild(); return this.phase("quoted", { timedOut: true, moved: false, error: null }); }
+      if (this.s.rebuilds >= MAX_REBUILDS) { this.dropBuild(); return this.phase("quoted", { hold: "refresh", moved: false, error: null }); }
+      if (!autoAllowed()) { this.dropBuild(); this.phase("quoted", { hold: "manual", moved: false, error: null }); return this.scheduleRefresh(); }
       this.s.rebuilds++;
-      return this.review("auto");
+      return this.prepare("rebuild");
     }
-    /** Change (or Escape): back to the quote, the build dropped. The keyboard on Change (hidden now) moves to Review, never to the amount field (a phone's keyboard would pop up). */
-    change() {
-      if (this.s.phase !== "review") return;
-      const fromChange = document.activeElement === this.reviewBar.querySelector(".swap__change");
-      this.dropBuild();
-      this.phase("quoted", { moved: false, timedOut: false, error: null });
-      this.scheduleRefresh();
-      if (fromChange) { try { this.go.focus({ preventScroll: true }); } catch { /* no focus */ } }
-    }
-    /** Forget the build under review or on its way, with its clocks (the hold, the countdown, Approve's pause). */
+    /** Forget the price built (or being built), with its clocks: the settle wait, the 40 s, the hold after a worse one. */
     dropBuild() {
       this.bseq++;
       if (this.babort) { this.babort.abort(); this.babort = null; }
-      clearTimeout(this.expireT); clearTimeout(this.tickT); clearTimeout(this.holdT);
+      clearTimeout(this.buildT); clearTimeout(this.expireT); clearTimeout(this.holdT);
       Object.assign(this.s, { build: null, refreshing: false, holding: false, refreshed: false, rebuilds: 0 });
     }
-    /** "Price held 0:38" under Approve, once a second while reviewing. */
-    countdown() {
-      clearTimeout(this.tickT);
-      const b = this.s.build, on = this.s.phase === "review" && Boolean(b) && !this.dead;
-      if (!on) { this.held.textContent = ""; return; }
-      const left = Math.max(0, b.at + REVIEW_MS - Date.now()), sec = Math.ceil(left / 1000);
-      const text = `Price held ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
-      if (this.held.textContent !== text) this.held.textContent = text;
-      if (left > 0) this.tickT = setTimeout(() => this.countdown(), left % 1000 || 1000);
+    /* ----- the trade ----- */
+    primary() {
+      const s = this.s;
+      if (s.phase === "ready") return this.buy(); // first, before anything is awaited: the wallet opens inside this tap
+      if (s.phase === "building" || this.locked) return; // a second tap while busy is ignored
+      if (s.phase === "done" || (s.phase === "failed" && !s.soft)) { s.sig = null; this.inAmt.value = ""; s.amount = ""; s.quote = null; this.phase("idle", { error: null }); this.inAmt.focus(); return; }
+      if (!this.connected) return this.connect();
+      if (s.phase === "failed" && s.soft && s.quote && s.amount) s.phase = "quoted"; // Try again: the price is built again
+      if (s.phase !== "quoted" || !s.quote) return this.inAmt.focus();
+      if (!this.canSendHere) return this.phase("failed", { error: { error: "no_send" }, soft: true });
+      if (this.impact() > 10 && !s.understood) return this.render();
+      if (this.wrongChain) return this.phase("failed", { error: { error: "wallet_devnet" }, soft: true });
+      s.rebuilds = 0;
+      return this.prepare("tap");
     }
     /**
-     * Approve: the wallet is called INSIDE this tap, nothing awaited before it (a phone lets a page open its wallet app only straight
-     * from a tap; an await first can lose that, and Android Chrome then blocks the launch). Only checks that need no network: still
-     * reviewing, not rebuilding, no changed price being held, the 10 % box, and a build that has not run out (that one is built
-     * again instead and the wallet stays shut).
+     * Buy: the wallet is called INSIDE this tap, nothing awaited before it (a phone lets a page open its wallet app only straight
+     * from a tap; an await first can lose that). Only checks that need no network: a price is ready, it is not being refreshed or
+     * held after a change, the 10 % box, and it has not run out (that one is built again instead and the wallet stays shut).
      */
-    approve() {
-      const s = this.s, b = s.build;
-      if (s.phase !== "review" || !b || s.refreshing || s.holding) return;
+    buy() {
+      const s = this.s, b = s.build, a = wallet.adapter;
+      if (!b || !a || s.refreshing || s.holding) return;
       if (this.impact() > 10 && !s.understood) return this.render();
-      if (Date.now() - b.at >= REVIEW_MS) { s.rebuilds = 0; return this.review("tap"); }
-      const a = wallet.adapter, bytes = fromB64(b.tx);
-      this.dropBuild(); // one build, one approval
-      this.phase("signing");
+      if (Date.now() - b.at >= READY_MS) { s.rebuilds = 0; return this.prepare("late"); }
+      const bytes = fromB64(b.tx);
+      this.dropBuild(); // one build, one tap
+      this.phase("signing", { moved: false, refreshed: false });
       return this.sign(a, bytes, b);
     }
     /** The wallet signs and sends (signAndSendTransaction), or signs and our relay sends with the build's ticket; then the watch. */
@@ -565,8 +624,11 @@
       const box = this.walletBox; box.replaceChildren(); box.hidden = false; this.share = [];
       if (!list.length) {
         if (w.isMobile) {
-          // a phone with no wallet on the page: open this very page inside a wallet app, the trade filled in (no sign-up, no login)
-          box.append(el("p", "small muted", "Open this page in your wallet app to buy here:"), this.appLinks());
+          // a phone with no wallet on the page: buying happens inside the wallet app, this very page opened there with the trade
+          // filled in (no sign-up, no login); the app this person opened last comes first
+          const lead = el("p", "small swap__lead", "");
+          this.share.push(() => { lead.textContent = `Buying happens in your wallet app. Tap it: Vicinity opens there${validAmount(this.s.amount) ? " with this amount filled in" : ""}.`; });
+          box.append(lead, this.appLinks());
           const ph = this.phantomBuy(); if (ph) box.append(ph);
           if (this.s.out) { const ca = el("p", "tiny muted swap__ca"); ca.append("Contract: ", el("code", null, this.s.out), " "); const c = el("button", "link-btn", "Copy"); c.type = "button"; c.addEventListener("click", () => copy(this.s.out, "Address copied")); ca.append(c); box.append(ca); }
         } else {
@@ -575,6 +637,7 @@
           for (const k of w.KNOWN.slice(0, 3)) { const a = el("a", "wallet-option", null); a.setAttribute("href", k.site); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener"); a.append(w.mark(k.name), el("span", null, `Get ${k.name}`), el("span", "go", "↗")); row.append(a); }
           box.append(row, this.phoneQR(true));
         }
+        this.syncShare(true);
         box.append(this.closeBtn());
         return;
       }
@@ -586,45 +649,45 @@
         b.append(el("span", null, a.name), el("span", a.canSend || a.canSign ? "detected" : "go", a.canSend ? "Connect" : a.canSign ? "Signs" : "No transactions"));
         b.addEventListener("click", async () => {
           try { const address = await a.connect(); box.hidden = true; this.share = []; setWallet(a, address); toast(`Connected ${shortAddr(address)}`); }
-          catch (e) {
-            if (e && (e.code === "wallet_not_found" || e.code === "local_network_blocked")) return this.noWalletApp(e.code);
-            this.phase("failed", { error: { error: isReject(e) ? "rejected" : "rejected_by_network" }, soft: true });
-          }
+          catch (e) { this.phase("failed", { error: { error: isReject(e) ? "rejected" : "rejected_by_network" }, soft: true }); }
         });
         box.append(b);
       }
-      // a computer with a wallet can still finish on the phone: the same QR code, on request
-      if (!w.isMobile) { const p = el("button", "link-btn swap__phone", "Use my phone instead"); p.type = "button"; p.addEventListener("click", () => { p.after(this.phoneQR(false)); p.remove(); }); box.append(p); }
+      // a computer with a wallet can still buy on the phone: the same QR code, on request
+      if (!w.isMobile) {
+        const p = el("button", "link-btn swap__phone", "Use my phone instead"); p.type = "button";
+        p.addEventListener("click", () => { const qr = this.phoneQR(false); p.after(qr); p.remove(); this.syncShare(true); try { qr.focus({ preventScroll: true }); } catch { /* no focus */ } });
+        box.append(p);
+      }
       box.append(this.closeBtn());
     }
     closeBtn() { const close = el("button", "link-btn swap__wallets-close", "Close"); close.type = "button"; close.addEventListener("click", () => { this.walletBox.hidden = true; this.share = []; }); return close; }
-    /** Open in Phantom / Solflare / Backpack: this page, with the trade in it, inside the wallet app's own browser. */
+    /** Open in Phantom / Solflare / Backpack: this page, with the trade in it, inside the wallet app's own browser; the app opened last first. */
     appLinks() {
       const w = W(), row = el("div", "swap__deeplinks");
-      for (const k of w.KNOWN.filter((x) => ["phantom", "solflare", "backpack"].includes(x.id))) {
-        const a = el("a", "wallet-option", null); a.append(w.mark(k.name), el("span", null, `Open in ${k.name}`), el("span", "go", "↗")); row.append(a);
+      const ids = [...new Set([lastApp(), "phantom", "solflare", "backpack"].filter(Boolean))];
+      for (const id of ids) {
+        const k = w.KNOWN.find((x) => x.id === id && typeof x.open === "function"); if (!k) continue;
+        const a = el("a", "wallet-option", null); a.dataset.app = k.id;
+        a.append(w.mark(k.name), el("span", null, `Open in ${k.name}`), el("span", "go", "↗"));
+        a.addEventListener("click", () => rememberApp(k.id));
+        row.append(a);
         this.share.push((url) => a.setAttribute("href", k.open(url)));
       }
-      this.syncShare(true);
       return row;
-    }
-    /** A wallet app on this phone did not answer (wallets.js says which way): the plain reason, then the same app links. */
-    noWalletApp(code) {
-      const box = this.walletBox; box.replaceChildren(); box.hidden = false; this.share = [];
-      const why = el("p", "small swap__why", WORDS[code]); why.setAttribute("role", "alert");
-      box.append(why, this.appLinks(), this.closeBtn());
     }
     /**
      * "Buy $X inside the Phantom app": Phantom's own token page and swap, for a phone with no wallet on this page. Only while this
-     * panel buys a mainnet coin (never a devnet test coin, never a sale), and said plainly to be Phantom's, not ours.
+     * panel buys a mainnet coin (never a devnet test coin, never a sale, never SOL / USDC / USDT), and said plainly to be Phantom's.
      */
     phantomBuy() {
       const s = this.s, m = s.out, t = tokenOf(m);
       const devnet = s.cluster === "devnet" || s.chain === "solana:devnet" || Boolean(t && t.kind === "city" && t.stage === "curve" && config && config.launchpad && config.launchpad.cluster === "devnet");
-      if (!m || BASES.includes(m) || s.flipped || devnet) return null;
+      if (!m || BASES.includes(m) || s.flipped || (s.curve && s.curve.side === "sell") || devnet) return null;
       const wrap = el("div", "swap__phantom");
       const a = el("a", "wallet-option swap__phantom-link", null); a.setAttribute("href", phantomFungible(m)); a.setAttribute("rel", "noopener");
       a.append(W().mark("Phantom"), el("span", null, `Buy ${symbolOf(m)} inside the Phantom app`), el("span", "go", "↗"));
+      a.addEventListener("click", () => rememberApp("phantom"));
       wrap.append(a, el("p", "tiny muted", "Phantom's own swap. Vicinity is not involved."));
       return wrap;
     }
@@ -633,12 +696,12 @@
      * instead"). The library comes only now; without it, the address as a link.
      */
     phoneQR(none) {
-      const wrap = el("div", "swap__qr");
+      const wrap = el("div", "swap__qr"); wrap.setAttribute("tabindex", "-1");
       const say = el("p", "small muted", ""), spot = el("div", "swap__qr-spot");
       wrap.append(say, spot);
       let want = "";
       this.share.push((url) => {
-        say.textContent = `${none ? "No wallet here? " : ""}Scan with your phone's camera to finish there${validAmount(this.s.amount) ? ", with this amount filled in" : ""}.`;
+        say.textContent = `${none ? "No wallet here? " : ""}Scan with your phone's camera: Vicinity opens there${validAmount(this.s.amount) ? " with this amount filled in" : ""}.`;
         if (url === want) return;
         want = url;
         loadQR().then((ok) => {
@@ -648,10 +711,9 @@
           const a = el("a", "swap__qr-link", url); a.setAttribute("href", url); spot.replaceChildren(a);
         });
       });
-      this.syncShare(true);
       return wrap;
     }
-    /** Keeps the app links and the QR code on the panel's current trade (the amount may change while they are open). */
+    /** Keeps the app links, their lead line and the QR code on the panel's current trade (the amount may change while they are open). */
     syncShare(force = false) {
       if (!this.share.length) return;
       const url = this.shareUrl(), key = `${url}|${this.s.amount}`;
@@ -663,6 +725,7 @@
     openPicker(which) {
       if (which === "out" && this.fixedOut && !this.s.flipped) return;
       if (which === "in" && this.fixedOut && this.s.flipped) return;
+      if (this.locked) return;
       const p = this.picker; p.replaceChildren(); p.hidden = false; this.s.picker = which;
       const head = el("div", "swap__picker-head");
       head.append(el("strong", null, which === "in" ? "You pay with" : "You get"));
@@ -675,7 +738,11 @@
         list.replaceChildren(...rows.map((t) => {
           const b = el("button", "wallet-option swap__opt"); b.type = "button"; b.setAttribute("role", "option");
           b.append(mark(t.mint, t.symbol || t.name), el("span", null, t.kind === "vicinity" ? "$VICINITY" : t.kind === "city" ? `${t.name}` : t.symbol), el("span", "go", t.kind === "city" ? (t.city ? t.city.name : "city coin") : t.name));
-          b.addEventListener("click", () => { this.dropBuild(); if (this.s.phase === "review") this.s.phase = "quoted"; this.s[which] = t.mint; if (this.s.in === this.s.out) this.s[which === "in" ? "out" : "in"] = t.mint === SOL ? USDC : SOL; p.hidden = true; this.s.picker = null; this.s.quote = null; this.render(); this.loadBalances(); if (this.s.amount) this.onAmount(); if (!this.walletBox.hidden) this.connect(); });
+          b.addEventListener("click", () => {
+            this.dropBuild(); this.s.hold = null; if (this.s.phase === "ready" || this.s.phase === "building") this.s.phase = "quoted";
+            this.s[which] = t.mint; if (this.s.in === this.s.out) this.s[which === "in" ? "out" : "in"] = t.mint === SOL ? USDC : SOL; p.hidden = true; this.s.picker = null; this.s.quote = null; this.render(); this.loadBalances(); if (this.s.amount) this.onAmount();
+            if (!this.walletBox.hidden) this.connect();
+          });
           return b;
         }));
         if (!rows.length) list.append(el("p", "small muted", "No verified token matches."));
@@ -738,24 +805,28 @@
       this.dRent.hidden = this.rentDt.hidden = !rentBits.length;
       this.root.classList.toggle("is-warn", impact > 3 && impact <= 10);
       this.root.classList.toggle("is-bad", impact > 10);
-      this.warn.hidden = !(q && impact > 10 && (s.phase === "quoted" || s.phase === "review"));
+      this.warn.hidden = !(q && impact > 10 && (s.phase === "quoted" || s.phase === "ready"));
       // the state tag
-      const tags = { idle: ["", this.ready ? "Ready" : "Loading…"], quoting: ["", "Quoting…"], quoted: ["tag--ok", q && q.estimate ? "Estimate" : s.curve ? (s.cluster === "devnet" ? "Devnet test coin" : "Live · curve") : "Live"], building: ["tag--warn", "Preparing…"], review: ["tag--ok", s.refreshing ? "Refreshing…" : "Ready to approve"], signing: ["tag--warn", "Confirm in wallet"], sending: ["tag--warn", "Sending…"], confirming: ["tag--warn", "Confirming…"], done: ["tag--ok", "Swapped ✓"], failed: ["tag--no", "Stopped"] };
+      const tags = { idle: ["", this.ready ? "Ready" : "Loading…"], quoting: ["", "Quoting…"], quoted: ["tag--ok", q && q.estimate ? "Estimate" : s.curve ? (s.cluster === "devnet" ? "Devnet test coin" : "Live · curve") : "Live"], building: ["", "Preparing…"], ready: ["tag--ok", s.refreshing ? "Refreshing…" : s.cluster === "devnet" ? "Devnet test coin" : "Price ready"], signing: ["tag--warn", "Confirm in wallet"], sending: ["tag--warn", "Sending…"], confirming: ["tag--warn", "Confirming…"], done: ["tag--ok", "Swapped ✓"], failed: ["tag--no", "Stopped"] };
       const [cls, text] = tags[s.phase] || ["", ""];
       this.state.className = `tag swap__state ${cls}`; this.state.textContent = text;
-      // the status line
+      // the status line (said once per state: the same words are never written again, so a screen reader is not told twice)
+      const action = this.action, verb = action.split(" ")[0];
       const intro = this.mode === "buy" && !s.flipped ? `You pay ${sym(s.in)}, the market gives you ${sym(s.out)}; your own wallet asks you to confirm.` : "Pick the pair and an amount; your own wallet asks you to confirm.";
+      const extra = q ? `${q.partialFill ? `The curve takes only what it can still sell; the rest (${num(Number(q.refund) / 10 ** (q.decimals ? q.decimals.in : 9), 6)} ${sym(s.in)}) comes back. ` : ""}${impact > 3 ? `Price impact ${impact.toFixed(2)}%: a smaller amount gets a better price. ` : ""}` : "";
       const lines = {
         idle: this.connected ? `Connected ${shortAddr(wallet.address)}${wallet.adapter && !this.canSendHere ? " · " + WORDS.no_send : ""}` : intro,
         quoting: "Getting the best price…",
-        quoted: s.timedOut ? "The review timed out. Nothing was sent. Tap Review again."
-          : (q ? `${q.estimate ? "Estimate: the exact amount is fixed when you tap Review. " : ""}${q.partialFill ? `The curve takes only what it can still sell; the rest (${num(Number(q.refund) / 10 ** (q.decimals ? q.decimals.in : 9), 6)} ${sym(s.in)}) comes back. ` : ""}${impact > 3 ? `Price impact ${impact.toFixed(2)}%: a smaller amount gets a better price. ` : ""}` : "") || (this.connected ? `Connected ${shortAddr(wallet.address)}` : "Connect a wallet to swap."),
-        building: "Preparing your transaction…",
-        // the review says once what will be signed (the countdown under Approve is never announced)
-        review: !q ? "" : s.refreshing ? "Refreshing the price…"
+        quoted: s.hold === "refresh" ? "Prices change, so this one has run out. Tap Refresh price for a new one."
+          : s.hold === "manual" && this.connected ? `${extra}Tap ${verb} to get your price.`
+          : (q ? `${q.estimate ? "Estimate: the exact amount is shown before your wallet opens. " : ""}${extra}` : "") || (this.connected ? `Connected ${shortAddr(wallet.address)}` : "Connect a wallet to swap."),
+        building: "Getting your exact price…",
+        // what one tap will do, from the build itself (a quiet rebuild leaves the line alone until its numbers come)
+        ready: s.refreshing ? this.status.textContent
+          : !q ? ""
           : s.moved ? `The price changed: you would now get ${num(Number(q.outUi), 6)} ${sym(s.out)} (at least ${num(Number(q.minOutUi), 6)}). Nothing was sent.`
-          : s.refreshed ? "Price refreshed. Tap Approve again."
-          : `You pay ${num(Number(q.inUi), 6)} ${sym(s.in)} → you get ${num(Number(q.outUi), 6)} ${sym(s.out)} (at least ${num(Number(q.minOutUi), 6)}). ${q.partialFill ? `The rest (${num(Number(q.refund) / 10 ** (q.decimals ? q.decimals.in : 9), 6)} ${sym(s.in)}) comes back. ` : ""}Check it, then approve in your wallet.`,
+          : s.refreshed ? `Price refreshed. Tap ${verb} again.`
+          : `You pay ${num(Number(q.inUi), 6)} ${sym(s.in)} → you get ${num(Number(q.outUi), 6)} ${sym(s.out)} (at least ${num(Number(q.minOutUi), 6)}).${extra ? " " + extra.trim() : ""}`,
         signing: "Confirm in your wallet.",
         sending: "Sending to the network…",
         confirming: s.checking ? "Still checking with the network… this can take a moment. Nothing more to sign." : "Waiting for the network to confirm…",
@@ -763,23 +834,22 @@
         failed: words(s.error),
       };
       const line = lines[s.phase] || "";
-      if (this.status.textContent !== line) this.status.textContent = line; // the same words are not announced twice
-      this.status.className = `swap__status${s.phase === "failed" ? " is-bad" : s.phase === "done" ? " is-ok" : s.phase === "review" && s.moved && !s.refreshing ? " is-moved" : ""}`;
+      if (this.status.textContent !== line) this.status.textContent = line;
+      this.status.className = `swap__status${s.phase === "failed" ? " is-bad" : s.phase === "done" ? " is-ok" : s.phase === "ready" && s.moved ? " is-moved" : ""}`;
       // links: the signature
       this.links.replaceChildren();
       if (s.sig) { const a = el("a", null, "View on Solscan ↗"); a.setAttribute("href", `https://solscan.io/tx/${s.sig}${s.cluster !== "mainnet" ? `?cluster=${s.cluster}` : ""}`); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener"); this.links.append(el("span", "mono tiny", shortAddr(s.sig)), " · ", a); }
       // the button
-      const busy = ["building", "signing", "sending", "confirming"].includes(s.phase);
-      const labels = { idle: this.connected ? (this.mode === "buy" && !s.flipped ? `Buy ${sym(s.out)}` : this.mode === "buy" ? `Sell ${sym(s.in)}` : "Swap") : "Connect wallet", quoting: "Quoting…", quoted: this.connected ? (s.curve ? (s.curve.side === "buy" ? "Review buy" : "Review sale") : this.mode === "buy" ? (s.flipped ? "Review sale" : "Review buy") : "Review swap") : "Connect wallet", building: "Preparing…", review: `Approve in ${walletName(wallet.adapter)}`, signing: "Confirm in your wallet…", sending: "Sending…", confirming: "Confirming…", done: "Swap again", failed: s.soft ? (this.connected ? "Try again" : "Connect wallet") : "Start over" };
+      const busy = s.phase === "building" || this.locked;
+      const labels = { idle: this.connected ? action : "Connect wallet", quoting: "Quoting…", quoted: !this.connected ? "Connect wallet" : s.hold === "refresh" ? "Refresh price" : action, building: "Preparing…", ready: action, signing: "Confirm in your wallet…", sending: "Sending…", confirming: "Confirming…", done: "Swap again", failed: s.soft ? (this.connected ? "Try again" : "Connect wallet") : "Start over" };
       this.go.textContent = labels[s.phase] || "Swap";
       this.go.disabled = busy || !this.ready || (s.phase === "quoting") || (s.phase === "quoted" && (!this.connected ? false : impact > 10 && !s.understood)) || (s.phase === "idle" && this.connected && !s.amount)
-        || (s.phase === "review" && (s.refreshing || s.holding || (impact > 10 && !s.understood)));
-      this.go.classList.toggle("is-busy", busy || (s.phase === "review" && s.refreshing));
-      this.flipBtn.disabled = busy;
-      this.inAmt.disabled = busy;
-      // under Approve: the countdown and Change
-      this.reviewBar.hidden = s.phase !== "review";
-      this.countdown();
+        || (s.phase === "ready" && (s.refreshing || s.holding || (impact > 10 && !s.understood)));
+      this.go.classList.toggle("is-busy", busy || (s.phase === "ready" && s.refreshing));
+      // the amount, the flip and the pair stay open while the price is being built (typing on simply starts again): only a trade
+      // already in the wallet's or the network's hands locks them
+      this.flipBtn.disabled = this.locked;
+      this.inAmt.disabled = this.locked;
       this.syncShare();
       // the footer: attribution, where it executes, honesty (the fee sentence follows the setting, never a fixed "no fee")
       const testNet = s.cluster === "devnet" ? " · Devnet test coin: this trade uses test SOL with no value." : "";
@@ -829,8 +899,6 @@
       const body = el("div", "swap-sheet__body"); body.dataset.swap = "";
       card.append(close, body); sheet.append(card);
       sheet.addEventListener("click", (e) => { if (e.target === sheet) closeSheet(); }); // a tap outside the card
-      // Escape while a trade is under review means Change, wherever the keyboard is: the sheet stays open
-      sheet.addEventListener("cancel", (e) => { const b = sheet.querySelector(".swap-sheet__body"); if (b && b._swap && b._swap.s.phase === "review") { e.preventDefault(); b._swap.change(); } });
       sheet.addEventListener("close", () => { const b = sheet.querySelector(".swap-sheet__body"); if (b && b._swap) b._swap.destroy(); }); // a closed sheet keeps no panel alive
       document.body.append(sheet);
     }

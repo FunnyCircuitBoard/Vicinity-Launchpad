@@ -42,10 +42,6 @@
 .swap__status.is-ok { color: var(--ok-text); font-weight: 600; }
 .swap__status.is-moved { color: var(--warn); font-weight: 600; }
 .swap__go { margin-top: 2px; }
-/* under Approve: how long the price is held (steady digits) and Change */
-.swap__review { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: -6px; }
-.swap__held { font-variant-numeric: tabular-nums; }
-.swap__change { min-height: 44px; padding: 0 2px; }
 /* "Filled in from your link" */
 .swap__note { margin: 0; padding: 8px 12px; border-radius: 12px; background: rgba(91,140,255,.12); border: 1px solid rgba(91,140,255,.35); font-size: .84rem; color: var(--text); }
 /* a computer: the QR code for the phone's camera (always dark on white, whatever the theme) */
@@ -54,11 +50,13 @@
 .swap__qr-spot { display: grid; place-items: center; min-height: 44px; max-width: 100%; }
 .swap__qr-code { display: block; width: 184px; height: 184px; border-radius: 12px; background: #fff; image-rendering: pixelated; }
 .swap__qr-link { font-size: .8rem; overflow-wrap: anywhere; }
+.swap__qr:focus:not(:focus-visible) { outline: none; }
 .swap__phone { justify-self: start; min-height: 44px; }
+/* a phone without a wallet: where buying happens, said first and in full colour */
+.swap__lead { margin: 0; color: var(--text); }
 /* a phone without a wallet: Phantom's own swap, said to be Phantom's */
 .swap__phantom { display: grid; gap: 4px; margin-top: 6px; }
 .swap__phantom p { margin: 0 2px; }
-.swap__why { margin: 0; color: var(--text); }
 .swap__links { margin: 0; font-size: .82rem; color: var(--muted); min-height: 0; }
 .swap__links:empty { display: none; }
 .swap__foot { margin: 0; }

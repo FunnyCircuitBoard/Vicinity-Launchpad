@@ -2,9 +2,10 @@
 // (signAndSendTransaction, signTransaction + our relay, a wallet that can do neither), the legacy-version flag, a phone with no
 // wallet (deep links that carry the trade, no sign-up), curve coins handed over to the launchpad routes with the devnet chain, the
 // price-impact guards, a stale quote refreshed before building, the bottom sheet, and that the panel never calls a session route.
-// Every trade goes Review (the build, shown) then Approve (the wallet); the review's own clock, the links that carry a trade and
-// the phone QR code are in test/swap-review.test.js. The real pages are checked in Chromium by the all-e2e harness; this is for
-// regressions in what the controller DOES.
+// With a wallet connected the exact transaction is built as soon as the amount settles, and ONE tap hands it to the wallet; the
+// clock of that price (40 s, quiet rebuilds, the hold after a worse one, 429s) is in test/swap-ready.test.js, the links that carry
+// a trade, the wallet apps and the phone QR code in test/swap-links.test.js. The real pages are checked in Chromium by the e2e
+// harness; this is for regressions in what the controller DOES.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -38,7 +39,7 @@ test("swap panel: mounts from data-swap, quotes while typing (no taker before a 
   assert.deepEqual(dds.slice(0, 4), ["88,274.56 $VICINITY", "0.12%", "network ≈ 0.000005 SOL · priority ≤ 0.0000003 SOL · no platform fee", "Routed by Jupiter · executed on Raydium Launchlab"], "the priority fee is in the fee line, as the most the Worker allows for this quote");
   assert.equal(P.$$(".swap__details dd")[4].hidden, true, "no rent row while nothing says a token account is missing");
   assert.match(text(P.$(".swap__help")), /^Slippage is how much worse than this quote you still accept\. If the price moves past Min received, the trade stops and nothing is spent; Price impact is how much your own trade moves the price\.$/, "the three words are explained in one sentence");
-  assert.match(text(P.$(".swap__status")), /Estimate: the exact amount is fixed when you tap Review/);
+  assert.match(text(P.$(".swap__status")), /^Estimate: the exact amount is shown before your wallet opens\.$/);
   assert.ok(P.$(".swap__usd") && /≈ \$37\.56/.test(text(P.$(".swap__usd"))));
   // a changed amount re-quotes after the debounce; garbage is cleaned out of the field
   await type(P, "0,5abc");
@@ -59,7 +60,7 @@ test("swap panel: connect, quote with the taker, balances and MAX, then the whol
   assert.equal(text(opts[0]), "TTest WalletConnect");
   click(opts[0]); await P.flush();
   assert.deepEqual(w.calls, [["connect"]]);
-  assert.match(text(P.$(".swap__status")), /Connected CnQM…zz6p|Getting the best price|Price impact/);
+  assert.match(text(P.$(".swap__status")), /^You pay 0\.25 SOL → you get 89,166\.22 \$VICINITY \(at least 88,274\.56\)\.$/, "connected: the amount typed before is quoted again with the taker and built at once");
   assert.equal(P.$(".swap__wallets").hidden, true);
   const bal = byPath(P.calls, "/api/swap/balances")[0];
   assert.match(bal.path, new RegExp(`owner=${TAKER}&mints=${VIC}&cluster=mainnet`));
@@ -67,20 +68,21 @@ test("swap panel: connect, quote with the taker, balances and MAX, then the whol
   await type(P, "0.25");
   const last = P.calls.filter((c) => c.path === "/api/swap/quote").pop();
   assert.equal(last.body.taker, TAKER);
-  assert.equal(text(P.$(".swap__state")), "Live");
+  assert.equal(text(P.$(".swap__state")), "Price ready");
   assert.equal(P.$(".swap__max").hidden, false);
   assert.equal(text(P.$(".swap__max")), "MAX · 1.5 SOL");
   assert.equal(text(P.$(".swap__bal")), "You hold 12.5");
   click(P.$(".swap__max")); await P.flush();
   assert.equal(P.$(".swap__amt").value, "1.49", "MAX keeps 0.01 SOL for fees");
+  assert.equal(byPath(P.calls, "/api/swap/tx").pop().body.amount, "1.49", "MAX's amount was built too");
   await type(P, "0.25");
-  assert.equal(text(P.$(".swap__go")), "Review buy");
-  click(P.$(".swap__go")); await P.flush();
-  const tx = P.calls.find((c) => c.path === "/api/swap/tx");
-  assert.deepEqual(tx.body, { inputMint: SOL, outputMint: VIC, amount: "0.25", slippageBps: 100, taker: TAKER, quoteId: "q1" }, "no v: legacy for a wallet with version 0");
-  assert.deepEqual(w.calls, [["connect"]], "Review only builds: the wallet is not asked yet");
-  assert.deepEqual([text(P.$(".swap__state")), text(P.$(".swap__go")), P.$(".swap__go").disabled], ["Ready to approve", "Approve in Test Wallet", false]);
-  click(P.$(".swap__go")); // Approve
+  const tx = byPath(P.calls, "/api/swap/tx").pop();
+  assert.deepEqual(tx.body, { inputMint: SOL, outputMint: VIC, amount: "0.25", slippageBps: 100, taker: TAKER, quoteId: "q1" }, "built before the tap, with today's body: no v: legacy for a wallet with version 0");
+  assert.deepEqual(w.calls, [["connect"]], "the price is built before the tap: the wallet is not asked yet");
+  assert.deepEqual([text(P.$(".swap__state")), text(P.$(".swap__go")), P.$(".swap__go").disabled], ["Price ready", "Buy $VICINITY", false]);
+  const txs = byPath(P.calls, "/api/swap/tx").length;
+  click(P.$(".swap__go")); // one tap: the wallet, at once
+  assert.equal(byPath(P.calls, "/api/swap/tx").length, txs, "the tap builds nothing: the transaction on the screen is the one signed");
   const sent = w.calls.find((c) => c[0] === "signAndSend");
   assert.deepEqual(JSON.parse(JSON.stringify(sent)), ["signAndSend", 300, "solana:mainnet", { preflightCommitment: "confirmed", maxRetries: 3 }], "the bytes of the Worker's transaction, the chain, the options");
   await P.flush(60);
@@ -100,12 +102,13 @@ test("swap panel: a wallet that only signs goes through our relay; a wallet with
   const P = await page({ wallets: [w], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE(), "/api/swap/balances": { ok: true, sol: { lamports: 0, ui: 0 }, tokens: {} }, "/api/swap/tx": TX({ version: "legacy", ticket: "1791900000000.relay-ticket-of-build" }), "/api/swap/send": { ok: true, signature: "5ctr2RXcTzQ4XfHfFmjTaFPYxSMBw1Zp2WgVgXnvwDeMb7Yg7nE1xWxXq2k4mbKTrDJDDWJnBHe3bDB7uCqUWbk", solscan: "x" }, "/api/swap/status": { ok: true, status: "finalized" } } });
   click(P.$(".swap__go")); await P.flush(); click(P.$(".swap__wallets .wallet-option")); await P.flush();
   await type(P, "0.25");
-  click(P.$(".swap__go")); await P.flush(); // Review
-  click(P.$(".swap__go")); await P.flush(60); // Approve
+  click(P.$(".swap__go"));
+  assert.deepEqual(w.calls.find((c) => c[0] === "sign"), ["sign", 300, "solana:mainnet"], "signTransaction inside the tap");
+  await P.flush(60);
   assert.equal(P.calls.find((c) => c.path === "/api/swap/tx").body.v, "legacy");
   assert.deepEqual(w.calls.find((c) => c[0] === "sign"), ["sign", 300, "solana:mainnet"]);
   const send = P.calls.find((c) => c.path === "/api/swap/send");
-  assert.deepEqual([send.body.lastValidBlockHeight, send.body.cluster, send.body.tx.length > 300, send.body.ticket], [4321, "mainnet", true, "1791900000000.relay-ticket-of-build"], "the relay gets the ticket of the build that was reviewed");
+  assert.deepEqual([send.body.lastValidBlockHeight, send.body.cluster, send.body.tx.length > 300, send.body.ticket], [4321, "mainnet", true, "1791900000000.relay-ticket-of-build"], "the relay gets the ticket of the build that was signed");
   assert.equal(text(P.$(".swap__state")), "Swapped ✓");
 });
 
@@ -115,10 +118,9 @@ test("swap panel: plain words for every way it stops: cancelled, slippage, not e
   let quoteAnswer = QUOTE();
   const P = await page({ wallets: [w], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": () => quoteAnswer, "/api/swap/balances": { ok: true, sol: { lamports: 0, ui: 0 }, tokens: {} }, "/api/swap/tx": () => txAnswer } });
   click(P.$(".swap__go")); await P.flush(); click(P.$(".swap__wallets .wallet-option")); await P.flush();
-  await type(P, "0.25"); click(P.$(".swap__go")); await P.flush(30); // Review
-  click(P.$(".swap__go")); await P.flush(30); // Approve, cancelled in the wallet
+  await type(P, "0.25"); click(P.$(".swap__go")); await P.flush(30); // Buy, cancelled in the wallet
   assert.deepEqual([text(P.$(".swap__state")), text(P.$(".swap__status")), text(P.$(".swap__go"))], ["Stopped", "Cancelled in your wallet. Nothing was sent.", "Try again"]);
-  // Try again builds and shows it again (a build that fails says why, before any wallet)
+  // Try again builds the price again (a build that fails says why, before any wallet)
   txAnswer = { ok: false, error: "slippage", name: "SlippageToleranceExceeded", _status: 409 };
   click(P.$(".swap__go")); await P.flush(30);
   assert.equal(text(P.$(".swap__status")), "The price moved more than your slippage allows. Nothing was spent. Try again or raise slippage.");
@@ -150,6 +152,7 @@ test("swap panel: plain words for every way it stops: cancelled, slippage, not e
 test("swap panel: a phone with no wallet gets Open in Phantom / Solflare / Backpack with this very page and its trade, and the address to copy; no sign-up", async () => {
   const P = await page({ isMobile: true, answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE({ estimate: true, source: "jupiter_quote" }) }, href: "https://vicinity.test/token#buy-slot" });
   click(P.$(".swap__go")); await P.flush();
+  assert.equal(text(P.$(".swap__lead")), "Buying happens in your wallet app. Tap it: Vicinity opens there.", "no amount yet: no promise of one");
   const links = P.$$(".swap__deeplinks a");
   assert.deepEqual(links.map(text), ["POpen in Phantom↗", "SOpen in Solflare↗", "BOpen in Backpack↗"]);
   assert.equal(links[0].getAttribute("href"), `https://phantom.com/ul/browse/${encodeURIComponent(`https://vicinity.test/token?swap_in=SOL&swap_out=${VIC}&swap_slip=100#buy-slot`)}`, "this page, with the pair and slippage (no amount typed yet), its hash kept");
@@ -175,12 +178,13 @@ test("swap panel: a city coin on its curve is quoted and built by the launchpad 
   const Q = await page({ wallets: [both], answers, slot: `<div id="buy-slot" data-swap data-out="${CITY}" data-in="SOL" data-mode="buy"></div>` });
   click(Q.$(".swap__go")); await Q.flush(); click(Q.$(".swap__wallets .wallet-option")); await Q.flush();
   await type(Q, "0.005");
-  assert.equal(text(Q.$(".swap__go")), "Review buy");
-  click(Q.$(".swap__go")); await Q.flush(); // Review
-  assert.deepEqual(Q.calls.find((c) => c.path === "/api/launchpad/trade/tx").body, { mint: CITY, side: "buy", amount: "0.005", slippageBps: 100, taker: TAKER, quoteId: "c1" });
-  assert.equal(text(Q.$(".swap__status")), "You pay 0.005 SOL → you get 13,286,006.28 $DEMOV (at least 13,153,146.21). Check it, then approve in your wallet.");
-  click(Q.$(".swap__go")); await Q.flush(60); // Approve
-  assert.deepEqual(both.calls.find((c) => c[0] === "signAndSend").slice(0, 3), ["signAndSend", 300, "solana:devnet"]);
+  assert.deepEqual(Q.calls.find((c) => c.path === "/api/launchpad/trade/tx").body, { mint: CITY, side: "buy", amount: "0.005", slippageBps: 100, taker: TAKER, quoteId: "c1" }, "built before the tap by the launchpad route");
+  assert.ok(!paths(Q.calls).includes("/api/swap/tx"), "never the Jupiter route for a coin on its curve");
+  assert.deepEqual([text(Q.$(".swap__go")), text(Q.$(".swap__state"))], ["Buy $DEMOV", "Devnet test coin"]);
+  assert.equal(text(Q.$(".swap__status")), "You pay 0.005 SOL → you get 13,286,006.28 $DEMOV (at least 13,153,146.21).");
+  click(Q.$(".swap__go"));
+  assert.deepEqual(both.calls.find((c) => c[0] === "signAndSend").slice(0, 3), ["signAndSend", 300, "solana:devnet"], "the devnet chain, inside the tap");
+  await Q.flush(60);
   assert.match(byPath(Q.calls, "/api/swap/status").pop().path, /cluster=devnet/);
   assert.match(Q.$(".swap__links a").getAttribute("href"), /\?cluster=devnet$/);
   assert.equal(text(Q.$(".swap__state")), "Swapped ✓");
@@ -190,22 +194,25 @@ test("swap panel: price impact above 3% tints, above 10% needs 'I understand'; s
   let impact = "4.5";
   const w = walletOf();
   let quotes = 0;
-  const P = await page({ wallets: [w], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": () => { quotes++; return QUOTE({ priceImpactPct: impact, expiresAt: new Date(Date.now() - 1000).toISOString() }); }, "/api/swap/balances": { ok: true, sol: { lamports: 0, ui: 0 }, tokens: {} }, "/api/swap/tx": TX(), "/api/swap/status": { ok: true, status: "confirmed" } } });
+  const P = await page({ wallets: [w], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": () => { quotes++; return QUOTE({ priceImpactPct: impact, expiresAt: new Date(Date.now() - 1000).toISOString() }); }, "/api/swap/balances": { ok: true, sol: { lamports: 0, ui: 0 }, tokens: {} }, "/api/swap/tx": () => TX({ quote: QUOTE({ priceImpactPct: impact }) }), "/api/swap/status": { ok: true, status: "confirmed" } } });
   click(P.$(".swap__go")); await P.flush(); click(P.$(".swap__wallets .wallet-option")); await P.flush();
   await type(P, "2");
   assert.ok(P.slot.classList.contains("is-warn") && !P.slot.classList.contains("is-bad"));
   assert.equal(P.$(".swap__warn").hidden, true);
   impact = "12";
+  const before = quotes, builds = byPath(P.calls, "/api/swap/tx").length;
   await type(P, "20");
+  assert.equal(quotes, before + 2, "the quote had already run out when its price was built: it was asked again first");
+  assert.equal(byPath(P.calls, "/api/swap/tx").length, builds + 1);
   assert.ok(P.slot.classList.contains("is-bad"));
-  assert.deepEqual([P.$(".swap__warn").hidden, P.$(".swap__go").disabled], [false, true], "the button waits for the checkbox");
+  assert.deepEqual([text(P.$(".swap__state")), P.$(".swap__warn").hidden, P.$(".swap__go").disabled], ["Price ready", false, true], "the price is ready, the button waits for the checkbox");
+  click(P.$(".swap__go"));
+  assert.ok(!w.calls.some((c) => c[0] === "signAndSend"), "no wallet before the box is ticked");
   const cb = P.$(".swap__warn input"); cb.checked = true; cb.dispatchEvent(newEvent("change")); await P.flush();
   assert.equal(P.$(".swap__go").disabled, false);
-  const before = quotes;
-  click(P.$(".swap__go")); await P.flush(60); // Review
-  assert.equal(quotes, before + 1, "the expired quote was refreshed before building");
-  assert.ok(P.calls.some((c) => c.path === "/api/swap/tx"));
-  click(P.$(".swap__go")); await P.flush(60); // Approve
+  click(P.$(".swap__go"));
+  assert.ok(w.calls.some((c) => c[0] === "signAndSend"), "ticked: the tap opens the wallet");
+  await P.flush(60);
   assert.equal(text(P.$(".swap__state")), "Swapped ✓");
   // slippage chips
   const chips = P.$$(".swap__chip:not(.swap__chip--custom)");
@@ -238,7 +245,7 @@ test("swap panel: open() shows the panel in a sheet over the page and closes on 
   assert.equal(sheet.hasAttribute("open"), false, "a tap on the backdrop closes it");
 });
 
-test("swap panel: the build the wallet signs is the truth: Review shows the /tx quote, one that came out worse says 'The price changed' with no wallet call; Approve signs exactly that build and the done line shows the BUILD's numbers", async () => {
+test("swap panel: the build the wallet signs is the truth: the panel shows the /tx quote, one that came out worse than the preview says 'The price changed' and no tap reaches the wallet unseen; the tap signs exactly that build and the done line shows the BUILD's numbers", async () => {
   const w = walletOf();
   let txAnswer = TX({ quote: QUOTE({ outAmount: "52470000000", minOut: "51945300000", outUi: "52470", minOutUi: "51945.3", priceImpactPct: "35" }), fees: { computeUnitLimit: 200000, computeUnitPrice: "1000", priorityLamports: 200, networkLamports: 5000, rentLamports: 2039280 } });
   const P = await page({ wallets: [w], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE(), "/api/swap/balances": { ok: true, sol: { lamports: 1e9, ui: 1 }, tokens: { [VIC]: { ui: 0, hasAccount: false } } }, "/api/swap/tx": () => txAnswer, "/api/swap/status": { ok: true, status: "confirmed" } } });
@@ -246,28 +253,28 @@ test("swap panel: the build the wallet signs is the truth: Review shows the /tx 
   await type(P, "0.25");
   assert.equal(text(P.$$(".swap__details dd")[4]), "about 0.00203928 SOL once creates your $VICINITY account (returned when you close it)", "the rent of a missing token account is said before the wallet opens");
   assert.equal(P.$$(".swap__details dd")[4].hidden, false);
-  click(P.$(".swap__go")); await P.flush(60); // Review
   assert.ok(!w.calls.some((c) => c[0] === "signAndSend"), "the wallet was NOT opened for a build worse than the preview");
-  assert.deepEqual([text(P.$(".swap__state")), text(P.$(".swap__amt--out")), P.$$(".swap__details dd").map(text)[0], P.$$(".swap__details dd").map(text)[1]], ["Ready to approve", "52,470", "51,945.3 $VICINITY", "35.00%"], "the panel now shows the build's own numbers, not the preview's");
+  assert.deepEqual([text(P.$(".swap__state")), text(P.$(".swap__amt--out")), P.$$(".swap__details dd").map(text)[0], P.$$(".swap__details dd").map(text)[1]], ["Price ready", "52,470", "51,945.3 $VICINITY", "35.00%"], "the panel shows the build's own numbers, not the preview's");
   assert.equal(text(P.$(".swap__status")), "The price changed: you would now get 52,470 $VICINITY (at least 51,945.3). Nothing was sent.");
   assert.ok(P.$(".swap__status").classList.contains("is-moved"));
-  assert.ok(P.slot.classList.contains("is-bad") && P.$(".swap__warn").hidden === false && P.$(".swap__go").disabled === true, "the 10 % guard is judged on the build: the checkbox is back and Approve waits for it");
+  assert.ok(P.slot.classList.contains("is-bad") && P.$(".swap__warn").hidden === false && P.$(".swap__go").disabled === true, "the 10 % guard is judged on the build: the checkbox is back and the button waits for it");
   click(P.$(".swap__go")); await P.flush();
-  assert.ok(!w.calls.some((c) => c[0] === "signAndSend"), "Approve does nothing while the box is not ticked");
+  assert.ok(!w.calls.some((c) => c[0] === "signAndSend"), "a tap does nothing while the box is not ticked");
   assert.equal(P.$$(".swap__details dd").map(text)[2], "network ≈ 0.000005 SOL · priority 0.0000002 SOL · no platform fee", "after /tx the fee line carries the exact priority fee of the transaction");
   const cb = P.$(".swap__warn input"); cb.checked = true; cb.dispatchEvent(newEvent("change")); await P.flush();
-  // ticked (and the 1.5 s pause after a changed price over): Approve signs exactly the build on the screen; the done line reads it
+  // ticked (and the 1.5 s pause after a changed price over): the tap signs exactly the build on the screen; the done line reads it
   assert.equal(P.$(".swap__go").disabled, false);
-  click(P.$(".swap__go")); await P.flush(60);
-  assert.equal(P.calls.filter((c) => c.path === "/api/swap/tx").length, 1, "Approve built nothing new: the reviewed build is the one signed");
+  click(P.$(".swap__go"));
   assert.ok(w.calls.some((c) => c[0] === "signAndSend"));
+  await P.flush(60);
+  assert.equal(P.calls.filter((c) => c.path === "/api/swap/tx").length, 1, "the tap built nothing new: the build on the screen is the one signed");
   assert.equal(text(P.$(".swap__status")), "Swapped ✓ 0.25 SOL → 52,470 $VICINITY");
   // a better build never stops anyone
   const w2 = walletOf();
   const Q = await page({ wallets: [w2], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE(), "/api/swap/balances": { ok: true, sol: { lamports: 1e9, ui: 1 }, tokens: {} }, "/api/swap/tx": TX({ quote: QUOTE({ outAmount: "89600000000", outUi: "89600", minOut: "88704000000", minOutUi: "88704" }) }), "/api/swap/status": { ok: true, status: "confirmed" } } });
   click(Q.$(".swap__go")); await Q.flush(); click(Q.$(".swap__wallets .wallet-option")); await Q.flush();
-  await type(Q, "0.25"); click(Q.$(".swap__go")); await Q.flush(60);
-  assert.equal(text(Q.$(".swap__status")), "You pay 0.25 SOL → you get 89,600 $VICINITY (at least 88,704). Check it, then approve in your wallet.", "a better build just updates");
+  await type(Q, "0.25");
+  assert.equal(text(Q.$(".swap__status")), "You pay 0.25 SOL → you get 89,600 $VICINITY (at least 88,704).", "a better build just updates");
   assert.equal(Q.$(".swap__go").disabled, false);
   click(Q.$(".swap__go")); await Q.flush(60);
   assert.equal(text(Q.$(".swap__status")), "Swapped ✓ 0.25 SOL → 89,600 $VICINITY");
@@ -284,8 +291,7 @@ test("swap panel: a 429 on the status poll says 'Still checking…', waits Retry
   const statuses = [{ ok: false, error: "slow_down", _status: 429, retryAfterS: 3 }, { ok: false, error: "slow_down", _status: 429, retryAfterS: 3 }, { ok: true, status: "confirmed" }];
   const P = await page({ wallets: [w], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE(), "/api/swap/balances": { ok: true, sol: { lamports: 1e9, ui: 1 }, tokens: {} }, "/api/swap/tx": TX(), "/api/swap/status": () => statuses.shift() || { ok: true, status: "confirmed" } } });
   click(P.$(".swap__go")); await P.flush(); click(P.$(".swap__wallets .wallet-option")); await P.flush();
-  await type(P, "0.25"); click(P.$(".swap__go")); await P.flush(); // Review
-  click(P.$(".swap__go")); // Approve
+  await type(P, "0.25"); click(P.$(".swap__go")); // the price was ready: one tap
   // the timers are stepped by hand here: the poll's waits are the point of the test
   const settle = async () => { for (let i = 0; i < 12; i++) await new Promise((r) => setImmediate(r)); };
   const runNext = async (ms) => { await settle(); const idx = P.timers.findIndex((t) => t && t.ms === ms); assert.ok(idx >= 0, `a ${ms} ms timer is pending (pending: ${JSON.stringify(P.timers.filter(Boolean).map((t) => t.ms))})`); const t = P.timers[idx]; P.timers[idx] = null; t.fn(); await settle(); };

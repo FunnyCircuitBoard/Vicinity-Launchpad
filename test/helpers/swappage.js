@@ -1,10 +1,10 @@
-// public/swap.js in node, for test/swap-ui.test.js and test/swap-review.test.js: the recorded shapes of the routes' answers, a
-// wallet adapter as public/wallets.js shapes it, and a page with a [data-swap] slot running swap.js against canned answers.
-// Timers come in two kinds:
+// public/swap.js in node, for test/swap-ui.test.js, test/swap-ready.test.js and test/swap-links.test.js: the recorded shapes of
+// the routes' answers, a wallet adapter as public/wallets.js shapes it, and a page with a [data-swap] slot running swap.js
+// against canned answers. Timers come in two kinds:
 //   queue (default)  every setTimeout is queued; flush() runs the short ones (< 10 s) in order and drops the rest, like a page
-//                    nobody waits on (the 12 s refresh, the 40 s review hold)
+//                    nobody waits on (the 12 s refresh, the 40 s life of a built price)
 //   clock: true      a fake clock: Date.now() and new Date() read it, timers fire when advance(ms) moves it past them, in time
-//                    order; flush() only lets promises settle (the review's countdown, hold and rebuilds are about time)
+//                    order; flush() only lets promises settle (the price's 40 s, its quiet rebuilds and the 1.5 s hold are about time)
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import { Doc, Target, newEvent, parse } from "./pagedom.js";
@@ -39,9 +39,11 @@ export const KNOWN = [{ id: "phantom", name: "Phantom", color: "#AB9FF2", match:
  *   wallets   the adapters wallets.js would list; isMobile: a phone
  *   href      the page's address (history.replaceState changes it; every replace is recorded in calls as { replace })
  *   clock     a fake clock (see above); canvas: canvases get a 2D context that records fillRect calls; qrcode: window.qrcode
+ *   storage   window.localStorage: an object of its items (read and written in place), "throws" (every access throws, like a
+ *             browser with site data blocked), or undefined (no localStorage at all)
  * Returns { doc, win, $, $$, calls, flush, advance, timers, pending, slot, VSwap, listeners, setHidden, location }.
  */
-export async function swapPage({ answers = {}, wallets = [], isMobile = false, slot = `<div id="buy-slot" data-swap data-out="${VIC}" data-in="SOL" data-mode="buy" data-title="Buy $VICINITY"></div>`, href = "https://vicinity.test/token", clock = false, canvas = false, qrcode = undefined, head = "" } = {}) {
+export async function swapPage({ answers = {}, wallets = [], isMobile = false, slot = `<div id="buy-slot" data-swap data-out="${VIC}" data-in="SOL" data-mode="buy" data-title="Buy $VICINITY"></div>`, href = "https://vicinity.test/token", clock = false, canvas = false, qrcode = undefined, head = "", storage = undefined } = {}) {
   const doc = new Doc();
   doc.append(...parse(doc, `<html><body>${head}<div id="ca-links"></div>${slot}</body></html>`));
   const calls = [], timers = [], listeners = [];
@@ -72,6 +74,8 @@ export async function swapPage({ answers = {}, wallets = [], isMobile = false, s
     AbortController, atob, btoa, Uint8Array, TextEncoder, Number, Math, JSON, Date: DateFor, Promise, Array, Object, String, Boolean, Error,
   });
   if (qrcode !== undefined) win.qrcode = qrcode;
+  if (storage === "throws") Object.defineProperty(win, "localStorage", { get() { throw new Error("SecurityError: the operation is insecure"); } });
+  else if (storage) win.localStorage = { getItem: (k) => (Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null), setItem: (k, v) => { storage[k] = String(v); }, removeItem: (k) => { delete storage[k]; } };
   win.window = win;
   doc.defaultView = win;
   vm.runInContext(SWAP_JS, vm.createContext(win), { filename: "public/swap.js" });
