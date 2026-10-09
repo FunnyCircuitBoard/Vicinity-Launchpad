@@ -6,7 +6,7 @@
  * is proven in solana/tests-launchpad/15-worker-builder.test.mjs; the recorded devnet accounts are decoded in test/lptrade.test.js.
  */
 import { base58Encode } from "../solana.js";
-import { readI64, readU128, readU16, readU64 } from "./bytes.js";
+import { readI64, readU128, readU16, readU32, readU64 } from "./bytes.js";
 import { LAYOUT } from "./layout.js";
 import { PROGRAM_IDS } from "./pda.js";
 
@@ -93,6 +93,23 @@ export function decodeTokenAccount(account) {
   const a = accountBytes(account);
   if (!a || a.bytes.length < 165) return null;
   return { mint: base58Encode(a.bytes.subarray(0, 32)), owner: base58Encode(a.bytes.subarray(32, 64)), amount: readU64(a.bytes, 64) };
+}
+/**
+ * The upgradeable loader's accounts (what `solana program show` reads): a Program account (36 bytes: state 2, then the
+ * ProgramData address) and a ProgramData account (state 3, the last deploy slot, Option<upgrade authority>, then the ELF).
+ * Only the first 45 bytes of ProgramData matter here, so a caller may fetch them with dataSlice. null when it is not that account.
+ */
+export function decodeProgramAccount(account) {
+  const a = accountBytes(account);
+  if (!a || (a.owner && a.owner !== PROGRAM_IDS.upgradeableLoader) || a.bytes.length !== 36 || readU32(a.bytes, 0) !== 2) return null;
+  return { programData: base58Encode(a.bytes.subarray(4, 36)) };
+}
+export function decodeProgramData(account) {
+  const a = accountBytes(account);
+  if (!a || (a.owner && a.owner !== PROGRAM_IDS.upgradeableLoader) || a.bytes.length < 13 || readU32(a.bytes, 0) !== 3) return null;
+  const hasAuthority = a.bytes[12] === 1;
+  if (hasAuthority && a.bytes.length < 45) return null;
+  return { slot: readU64(a.bytes, 4), upgradeAuthority: hasAuthority ? base58Encode(a.bytes.subarray(13, 45)) : null };
 }
 /** The name of a DBC error code, or null. */
 export const dbcErrorName = (code) => LAYOUT.dbcErrors[String(code)] || null;
