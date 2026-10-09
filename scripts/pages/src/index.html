@@ -1,25 +1,26 @@
 <!--{"title": "How it works", "description": "Vicinity puts every real city on one map with real boundaries. One official coin per community, local leaders, local memes, check-ins and votes. $VICINITY holders get in first.", "page": "home", "scripts": ["ticker", "home"]}-->
-    <!-- ============ HERO ============ -->
+    <!-- ============ HERO: the copy, one button, the facts; the New York map beside it on a computer (on a phone the walkthrough below is the map) ============ -->
     <section class="hero" id="hero">
       <div class="hero__bg" aria-hidden="true"><div class="orb orb--a"></div><div class="orb orb--b"></div><div class="grid-floor"></div></div>
       <div class="wrap hero__grid">
         <div class="hero__copy">
           <p class="eyebrow"><span class="pill pill--live"><span class="live-dot" aria-hidden="true"></span>Map live</span> Every real city on Earth, one map</p>
           <h1 class="hero__title">One city.<br>One coin.<br><span class="accent">One community.</span></h1>
-          <p class="lead">Every real city gets <strong>one official coin</strong>, run by the people who live there. <strong>$VICINITY</strong> is the key to all of them: early access to city coins, a shot at your city's founder seat, and a louder voice in your community.</p>
-          <div class="hero__cta">
-            <a class="btn btn--primary btn--lg" href="/token#buy">Get $VICINITY <span aria-hidden="true">→</span></a>
-            <a class="btn btn--glass btn--lg" href="/dashboard">My Dashboard</a>
+          <p class="lead">Every real city gets <strong>one official coin</strong>, run by the people who live there. <strong>$VICINITY</strong> is the key to all of them: you get into city coins first, and a shot at your city's founder seat.</p>
+          <div class="hero__cta hero__cta--one">
+            <a class="btn btn--primary btn--lg" href="/token#buy-slot">Get $VICINITY <span aria-hidden="true">→</span></a>
           </div>
           <ul class="hero__trust" aria-label="Why you can trust it">
-            <li>Fair launch on Raydium LaunchLab</li>
             <li>No presale</li>
-            <li>Leaders chosen by locals, not whales</li>
+            <li>Fixed supply</li>
+            <li>Locals choose the leaders</li>
           </ul>
           <ul class="hero__facts" aria-label="Vicinity in numbers">
             <li><strong data-stat="communities">8,008</strong><span>communities mapped</span></li>
+            <li><strong data-countdown-short>Oct 10</strong><span>until the Launchpad opens</span></li>
+            <li><strong data-stat="members">…</strong><span>verified members</span></li>
             <li><strong data-stat="countries">244</strong><span>countries</span></li>
-            <li><strong data-countdown-short>Oct 10</strong><span>Launchpad opens</span></li>
+            <li><strong data-stat="officialBoundaries">5,831</strong><span>official city boundaries</span></li>
           </ul>
         </div>
         <figure class="hero-map" aria-label="New York City's real community boundary">
@@ -35,66 +36,26 @@
       </div>
     </section>
 
-    <!-- ============ NUMBERS ============ -->
-    <section class="numbers" aria-label="Vicinity in numbers">
-      <div class="wrap numbers__row">
-        <div><strong data-stat="places">13,152</strong><span>places listed</span></div>
-        <div><strong data-stat="officialBoundaries">5,831</strong><span>official city boundaries</span></div>
-        <div><strong data-stat="communities">8,008</strong><span>communities, zero overlaps</span></div>
-        <div><strong data-stat="members">…</strong><span>verified members</span></div>
-        <div><strong data-countdown-short>Oct 10</strong><span>until the Launchpad</span></div>
-      </div>
-    </section>
-
-    <!-- ============ PROBLEM ============ -->
-    <section class="section" id="problem">
-      <div class="wrap">
-        <div class="section-head">
-          <p class="kicker">The problem</p>
-          <h2>Meme coins have no home. City coins have no owner.</h2>
-        </div>
-        <div class="grid-3">
-          <article class="card problem reveal">
-            <span class="problem__num">01</span>
-            <h3>Thousands of coins a day, no reason to stay</h3>
-            <p class="muted">Most launch, spike and vanish within hours. Once people buy, there's nothing to do, so they sell.</p>
-          </article>
-          <article class="card problem reveal">
-            <span class="problem__num">02</span>
-            <h3>Ten "$NYC" coins. Which one is real?</h3>
-            <p class="muted">Anyone can launch a coin with a city's name. Copycats split the community and make scams easy.</p>
-          </article>
-          <article class="card problem reveal">
-            <span class="problem__num">03</span>
-            <h3>Local communities live in a hundred group chats</h3>
-            <p class="muted">A city's inside jokes are scattered. Nobody owns them, and nobody rewards the people who build them.</p>
-          </article>
-        </div>
-        <p class="bridge reveal">Vicinity fixes all three with <strong>a real map</strong>: one official community per place, verified locals, and a reason to stay.</p>
-      </div>
-    </section>
-
-    <!-- ============ NYC, REAL DATA ============ -->
+    <!-- ============ NYC, REAL DATA: the map first on a phone, one step at a time ============ -->
     <section class="section section--panel" id="nyc">
       <div class="wrap">
         <div class="section-head">
           <p class="kicker">Real map, real data · New York City</p>
           <h2>How one city becomes one coin.</h2>
-          <p class="muted">These are the actual boundaries on the Vicinity map, not a mock-up. Step through it, or let it play.</p>
+          <p class="muted">Step through it, or let it play.</p>
         </div>
         <div class="nyc" data-step="1">
           <div class="nyc__map">
             <svg id="nyc-map" viewBox="0 0 1000 925" role="img" aria-label="Map of New York City and its neighbours on the Vicinity map"></svg>
             <p class="nyc__tip" id="nyc-tip" hidden></p>
-            <a class="map-open map-open--corner" href="/cities?city=5128581">Open on the live map <span aria-hidden="true">→</span></a>
-            <p class="nyc__credit tiny">Boundaries © OpenStreetMap contributors · places: GeoNames · coastline: Natural Earth</p>
+            <p class="nyc__credit tiny">© OpenStreetMap contributors · GeoNames · Natural Earth</p>
           </div>
           <div class="nyc__steps">
             <ol class="steps" id="nyc-steps">
               <li><button type="button" data-go="1" aria-current="step"><span class="steps__n">1</span><span><strong>The official boundary</strong><em>We start from the city's own boundary on OpenStreetMap: New York City's five boroughs.</em></span></button></li>
               <li><button type="button" data-go="2"><span class="steps__n">2</span><span><strong><b data-stat="nycMembers">73</b> places, one coin</strong><em>Manhattan, Brooklyn, Queens, the Bronx, Staten Island and the neighbourhoods inside them (Harlem, Astoria, Flatbush…) all sit inside that boundary. Instead of <b data-stat="nycMembers">73</b> coins fighting each other, they share one: <b>$NYC</b>.</em></span></button></li>
               <li><button type="button" data-go="3"><span class="steps__n">3</span><span><strong>Neighbours keep their own</strong><em>Nobody's city is folded into New York. Newark (with Jersey City and Hoboken right next door), Yonkers, Paterson and Hempstead each have their own coin, and borders never overlap.</em></span></button></li>
-              <li><button type="button" data-go="4"><span class="steps__n">4</span><span><strong>Locals take the lead</strong><em>People inside the boundary verify with their wallet and location. The first local who has held the city's founder amount (100,000 to 1,000,000 $VICINITY, by city size) for 7 days becomes Seed Steward, and locals can challenge them or choose between rivals. No single whale decides.</em></span></button></li>
+              <li><button type="button" data-go="4"><span class="steps__n">4</span><span><strong>Locals take the lead</strong><em>People inside the boundary verify with their location and wallet. The first local who has held the city's founder amount for 7 days becomes Seed Steward, and locals can challenge them or choose between rivals. No single whale decides.</em></span></button></li>
             </ol>
             <div class="nyc__ctrl">
               <button class="btn btn--glass btn--sm" type="button" id="nyc-prev" aria-label="Previous step">←</button>
@@ -111,161 +72,126 @@
       </div>
     </section>
 
-    <!-- ============ WHY NOW ============ -->
-    <section class="section section--glow" id="why-now">
+    <!-- ============ THE PROBLEM: three lines ============ -->
+    <section class="section" id="problem">
       <div class="wrap">
         <div class="section-head">
-          <p class="kicker">Why now</p>
-          <h2>Early is an advantage. Here's exactly why.</h2>
-          <p class="muted">No hype, just the rules. Each of these rewards the people who show up first and stay.</p>
+          <p class="kicker">The problem</p>
+          <h2 class="h2--sm">Meme coins have no home. City coins have no owner.</h2>
         </div>
-        <div class="why-now">
-          <article class="card reveal"><span class="why-now__big" data-stat="communities">8,008</span><h3>One founder seat per city</h3><p class="muted">Every community has exactly one. Once locals pick their founder, the seat is taken for as long as that founder keeps earning it.</p></article>
-          <article class="card reveal"><span class="why-now__big">7 days</span><h3>Your home clock starts today</h3><p class="muted">Founders need their home city set 7 days before they apply. Set yours now and you're ready the day applications open.</p></article>
-          <article class="card reveal"><span class="why-now__big">14 days</span><h3>Early holders count more</h3><p class="muted">Founding Supporters are measured by the lower of your balance at the snapshot and your 14-day average. Holding early counts; buying at the last minute doesn't.</p></article>
-          <article class="card reveal"><span class="why-now__big" data-countdown-short>Oct 10</span><h3>Then city coins go live</h3><p class="muted">The Launchpad opens October 10 at 10:10:10 AM New York time. Founders and Founding Supporters go first.</p></article>
-        </div>
+        <ol class="problems">
+          <li><span class="problem__num">01</span><strong>Thousands of coins a day, no reason to stay.</strong></li>
+          <li><span class="problem__num">02</span><strong>Ten "$NYC" coins. Which one is real?</strong></li>
+          <li><span class="problem__num">03</span><strong>A city's community lives in a hundred group chats.</strong></li>
+        </ol>
+        <p class="bridge">Vicinity fixes all three with <strong>a real map</strong>: one official community per place, verified locals, and a reason to stay.</p>
       </div>
     </section>
 
-    <!-- ============ HOW THE APP WORKS ============ -->
-    <section class="section" id="how">
-      <div class="wrap">
-        <div class="section-head">
-          <p class="kicker">How the app works</p>
-          <h2>From wallet to city leader in five steps.</h2>
-        </div>
-        <div class="flow-wrap">
-          <ol class="flow">
-            <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🔗</span><div><h3>Connect a wallet</h3><p class="muted">Phantom, Solflare, Backpack, OKX, Coinbase, Trust and more. Wallet on your phone? Scan a code. Using FOMO? Prove it with a tiny transfer to yourself.</p></div></li>
-            <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🪪</span><div><h3>Sign in with Google or e-mail</h3><p class="muted">One account per wallet and per login, so fake accounts and spam get harder (it does not prove one person).</p></div></li>
-            <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">⚡</span><div><h3>Checked automatically</h3><p class="muted">We read the blockchain for your rank among all holders, and find the community you're standing in (location used once, never saved).</p></div></li>
-            <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🏙️</span><div><h3>Your dashboard</h3><p class="muted">Local and national feeds: memes, check-ins, discussions and weekly votes. Your badges update live.</p></div></li>
-            <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🚀</span><div><h3>Launchpad, October 10</h3><p class="muted">City coins launch on the Vicinity Launchpad. Founders and $VICINITY holders go first.</p></div></li>
-          </ol>
-          <aside class="live-panel card reveal" aria-label="What is checked live">
-            <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Checked live, all the time</p>
-            <ul class="checks">
-              <li><strong>Holdings</strong><span>Checked at random times, about every hour: borrowed tokens don't count.</span></li>
-              <li><strong>Badges and roles</strong><span>Sell below the line and badges go on the next check; founders get 7 days of grace.</span></li>
-              <li><strong>Location</strong><span>Must be inside the real boundary. Used once, never stored.</span></li>
-              <li><strong>Connection</strong><span>VPNs, proxies and far-away networks are refused.</span></li>
-              <li><strong>Scam guard</strong><span>Contract addresses can't be posted in feeds.</span></li>
-              <li><strong>Two-person rule</strong><span>No hide lasts, and no ban happens, on one moderator's word.</span></li>
-            </ul>
-          </aside>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ INCENTIVES ============ -->
+    <!-- ============ INCENTIVES: one tabbed block (get in first · who runs what · for cities) ============ -->
     <section class="section section--glow" id="why">
       <div class="wrap">
         <div class="section-head">
           <p class="kicker">Incentives</p>
           <h2>Why people hold $VICINITY.</h2>
-          <p class="muted">$VICINITY is the key to the whole map. What it gets you:</p>
         </div>
-        <div class="bento">
-          <article class="card bento__big reveal">
-            <div class="early" aria-hidden="true">
-              <div class="early__coins">
-                <span class="coin-disc"><span>LONDON</span></span>
-                <span class="coin-disc"><span>TOKYO</span></span>
-                <span class="coin-disc coin-disc--lg"><span>NYC</span></span>
-                <span class="coin-disc"><span>PARIS</span></span>
-                <span class="coin-disc"><span>LAGOS</span></span>
-              </div>
-              <ol class="early__steps">
-                <li><b>Now</b><span>Hold $VICINITY</span></li>
-                <li><b>Snapshot</b><span>Date announced ahead</span></li>
-                <li><b data-countdown-short>Oct 10</b><span>City coins open, you first</span></li>
-              </ol>
+        <div class="seg seg--tabs" role="tablist" aria-label="What $VICINITY gets you" id="why-tabs">
+          <button type="button" role="tab" id="tab-why-now" aria-selected="true" aria-controls="why-now">Get in first</button>
+          <button type="button" role="tab" id="tab-roles" aria-selected="false" aria-controls="roles" tabindex="-1">Who runs what</button>
+          <button type="button" role="tab" id="tab-cities" aria-selected="false" aria-controls="for-cities" tabindex="-1">For cities</button>
+        </div>
+        <div class="tabpanel why-panel" id="why-now" role="tabpanel" aria-labelledby="tab-why-now">
+          <div class="early" aria-hidden="true">
+            <div class="early__coins">
+              <span class="coin-disc"><span>LONDON</span></span>
+              <span class="coin-disc"><span>TOKYO</span></span>
+              <span class="coin-disc coin-disc--lg"><span>NYC</span></span>
+              <span class="coin-disc"><span>PARIS</span></span>
+              <span class="coin-disc"><span>LAGOS</span></span>
             </div>
-            <span class="bento__icon" aria-hidden="true">🚀</span>
-            <h3>Get in first</h3>
-            <p class="muted">Holders at the Launchpad snapshot are <strong>Founding Supporters</strong>: early access to city coins before the public.</p>
-          </article>
-          <article class="card reveal"><span class="bento__icon" aria-hidden="true">👑</span><h3>Lead your city</h3><p class="muted">Hold your city's founder amount (100K to 1M, by city size) for 7 days and apply: you become Seed Steward at once, confirmed by your locals. First right to launch its coin, moderation powers.</p></article>
-          <article class="card reveal"><span class="bento__icon" aria-hidden="true">🛡️</span><h3>Run your country</h3><p class="muted">Founders can be elected <strong>Country Manager</strong> by their country's locals for 90 days: advises on new towns, fights scams.</p></article>
-          <article class="card reveal"><span class="bento__icon" aria-hidden="true">🗳️</span><h3>A louder vote</h3><p class="muted">Weekly meme votes: founders count 2×, country managers 3×.</p></article>
-          <article class="card reveal"><span class="bento__icon" aria-hidden="true">🏅</span><h3>Status that's real</h3><p class="muted">A live rank among every holder, plus badges your city can see. Hold and climb; sell and they're gone.</p></article>
-          <article class="card bento__wide reveal"><span class="bento__icon" aria-hidden="true">🌱</span><h3>Proof you were early</h3><p class="muted">Members who joined before $VICINITY launched on October 3 carry the <strong>Early member</strong> badge for good. Nobody can earn it any more.</p></article>
-          <article class="card bento__wide reveal"><span class="bento__icon" aria-hidden="true">🏙️</span><h3>Something to do after you buy</h3><p class="muted">Your city's memes, check-ins, discussions and votes, and your country's. It's a reason to stay, not just a chart to watch.</p></article>
+          </div>
+          <ul class="facts">
+            <li><div><h3>Founding Supporters go first</h3><p class="muted">Hold $VICINITY at the Launchpad snapshot (counted as the lower of your balance then and your 14-day average) and you buy new city coins before the public.</p></div></li>
+            <li><div><h3>Every city gets one coin</h3><p class="muted">City coins launch on the Vicinity Launchpad, right here on vicinity.city. City Founders and Founding Supporters go first.</p></div></li>
+            <li><div><h3>Proof you were early</h3><p class="muted">Members who joined before $VICINITY launched on October 3 carry the <strong>Early member</strong> badge for good. Nobody can earn it any more.</p></div></li>
+          </ul>
         </div>
-
-        <div class="split">
-          <div>
-            <p class="kicker">For cities &amp; creators</p>
-            <h2 class="h2--sm">Why launch on the Vicinity Launchpad.</h2>
-            <ul class="ticks">
-              <li><strong>One official coin per city.</strong> The name belongs to the real community, so copycats have nowhere to hide.</li>
-              <li><strong>Verified locals from day one.</strong> Wallet + location + one login per person means your holders are real people who live there.</li>
-              <li><strong>Moderation built in.</strong> City founders and country managers keep spam and fake contract addresses out.</li>
-              <li><strong>Fair and on-chain.</strong> Same rules and the same launch time for everyone; holdings are read from the blockchain, not taken on trust.</li>
-            </ul>
-            <a class="btn btn--primary" href="/launchpad">See the Launchpad →</a>
-          </div>
-          <div class="card compare-card">
-            <table class="compare">
-              <caption class="sr-only">A random city coin compared with a Vicinity city coin</caption>
-              <thead><tr><th></th><th>Random city coin</th><th>Vicinity city coin</th></tr></thead>
-              <tbody>
-                <tr><th scope="row">Only one per city</th><td class="no">✕</td><td class="yes">✓</td></tr>
-                <tr><th scope="row">Real, non-overlapping boundary</th><td class="no">✕</td><td class="yes">✓</td></tr>
-                <tr><th scope="row">Holders verified as locals</th><td class="no">✕</td><td class="yes">✓</td></tr>
-                <tr><th scope="row">Leaders chosen by locals, not the biggest wallet</th><td class="no">✕</td><td class="yes">✓</td></tr>
-                <tr><th scope="row">Something to do after buying</th><td class="no">✕</td><td class="yes">✓</td></tr>
-                <tr><th scope="row">Fake contract addresses blocked</th><td class="no">✕</td><td class="yes">✓</td></tr>
-              </tbody>
-            </table>
-          </div>
+        <div class="tabpanel why-panel" id="roles" role="tabpanel" aria-labelledby="tab-roles" hidden>
+          <ul class="facts facts--roles">
+            <li><span class="role__icon" aria-hidden="true">🏅</span><div><h3>Holder</h3><p class="muted">Hold any $VICINITY: post, vote and check in with your city and country, with a live rank and badges your city can see. Sell and they're gone.</p></div></li>
+            <li><span class="role__icon" aria-hidden="true">👑</span><div><h3>City Founder</h3><p class="muted">Hold your city's founder amount (100K to 1M $VICINITY, by city size) for 7 days, apply from inside the city and get confirmed by locals: you become Seed Steward at once, moderate the city and launch its coin first. Your votes count 2×.</p></div></li>
+            <li><span class="role__icon" aria-hidden="true">🛡️</span><div><h3>Country Manager</h3><p class="muted">A founder elected by the country's locals for 90 days: advises on new towns and proposes bans (a second person approves). Votes count 3×.</p></div></li>
+            <li><span class="role__icon" aria-hidden="true">⚙️</span><div><h3>Admin</h3><p class="muted">The Vicinity team: decides objections and appeals it wasn't part of. Can never touch anyone's tokens.</p></div></li>
+          </ul>
+          <p class="bridge"><a href="/rules">Every rule, and how to check it →</a></p>
+        </div>
+        <div class="tabpanel why-panel" id="for-cities" role="tabpanel" aria-labelledby="tab-cities" hidden>
+          <ul class="ticks">
+            <li><strong>One official coin per city.</strong> The name belongs to the real community, so copycats have nowhere to hide.</li>
+            <li><strong>Verified locals from day one.</strong> Location + one login per person means your holders are real people who live there.</li>
+            <li><strong>Moderation built in.</strong> City founders and country managers keep spam and fake contract addresses out.</li>
+            <li><strong>Fair and on-chain.</strong> Same rules and the same launch time for everyone; holdings are read from the blockchain, not taken on trust.</li>
+          </ul>
+          <details class="compare-details">
+            <summary>Random city coin vs Vicinity city coin</summary>
+            <div class="card compare-card">
+              <table class="compare">
+                <caption class="sr-only">A random city coin compared with a Vicinity city coin</caption>
+                <thead><tr><th></th><th>Random city coin</th><th>Vicinity city coin</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row">Only one per city</th><td class="no">✕</td><td class="yes">✓</td></tr>
+                  <tr><th scope="row">Real, non-overlapping boundary</th><td class="no">✕</td><td class="yes">✓</td></tr>
+                  <tr><th scope="row">Holders verified as locals</th><td class="no">✕</td><td class="yes">✓</td></tr>
+                  <tr><th scope="row">Leaders chosen by locals, not the biggest wallet</th><td class="no">✕</td><td class="yes">✓</td></tr>
+                  <tr><th scope="row">Something to do after buying</th><td class="no">✕</td><td class="yes">✓</td></tr>
+                  <tr><th scope="row">Fake contract addresses blocked</th><td class="no">✕</td><td class="yes">✓</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+          <a class="btn btn--primary" href="/launchpad">See the Launchpad →</a>
         </div>
       </div>
     </section>
 
-    <!-- ============ GET $VICINITY ============ -->
-    <section class="section section--panel" id="get">
+    <!-- ============ HOW THE APP WORKS: five steps, the live checks folded, one line to the Token page ============ -->
+    <section class="section" id="how">
       <div class="wrap">
         <div class="section-head">
-          <p class="kicker">Get $VICINITY</p>
-          <h2>In four steps, about five minutes.</h2>
+          <p class="kicker">How the app works</p>
+          <h2 class="h2--sm">From your phone to city leader in five steps.</h2>
         </div>
-        <ol class="buy-steps">
-          <li class="card reveal"><span class="buy-steps__n">1</span><h3>Get a Solana wallet</h3><p class="muted">Phantom, Solflare or Backpack, on your phone or in your browser.</p></li>
-          <li class="card reveal"><span class="buy-steps__n">2</span><h3>Add SOL</h3><p class="muted">Buy SOL in the wallet app or on an exchange. Keep a little extra for network fees.</p></li>
-          <li class="card reveal"><span class="buy-steps__n">3</span><h3>Buy on Raydium</h3><p class="muted">On Raydium LaunchLab, only through the <strong>Buy on Raydium</strong> button on our <a href="/token#buy">Token page</a>, so you get the real $VICINITY.</p></li>
-          <li class="card reveal"><span class="buy-steps__n">4</span><h3>Claim your spot</h3><p class="muted"><a href="/connect">Connect here</a>, set your home city and watch your live rank and badges.</p></li>
-        </ol>
-        <p class="scam-note"><strong>The only real Raydium is raydium.io.</strong> Look-alike addresses copy it to empty wallets. Never type your recovery phrase into a website, and <a href="/token#check">check any link</a> first.</p>
-        <div class="hero__cta"><a class="btn btn--primary btn--lg" href="/token#buy">Get $VICINITY <span aria-hidden="true">→</span></a><a class="btn btn--glass btn--lg" href="/token">See live token facts</a></div>
+        <div class="flow-wrap flow-wrap--compact">
+          <ol class="flow flow--compact">
+            <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">📍</span><div><h3>Find your community</h3><p class="muted">Share your location once (never saved): we find the city you're standing in.</p></div></li>
+            <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🪪</span><div><h3>Sign in with Google</h3><p class="muted">One account per login keeps fake accounts and spam out.</p></div></li>
+            <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🏙️</span><div><h3>Your dashboard</h3><p class="muted">Local and national feeds: memes, check-ins, discussions and weekly votes.</p></div></li>
+            <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🔗</span><div><h3>Connect a wallet when you like</h3><p class="muted">A free signature, not a transaction: your live rank and badges switch on.</p></div></li>
+            <li class="flow__step reveal"><span class="flow__icon" aria-hidden="true">🚀</span><div><h3>City coins on the Launchpad</h3><p class="muted">Founders and $VICINITY holders go first.</p></div></li>
+          </ol>
+        </div>
+        <details class="checks-details">
+          <summary><span class="live-dot" aria-hidden="true"></span>Checked live, all the time</summary>
+          <ul class="checks">
+            <li><strong>Holdings</strong><span>Checked at random times, about every hour: borrowed tokens don't count.</span></li>
+            <li><strong>Badges and roles</strong><span>Sell below the line and badges go on the next check; founders get 7 days of grace.</span></li>
+            <li><strong>Location</strong><span>Must be inside the real boundary. Used once, never stored.</span></li>
+            <li><strong>Connection</strong><span>VPNs, proxies and far-away networks are refused.</span></li>
+            <li><strong>Scam guard</strong><span>Contract addresses can't be posted in feeds.</span></li>
+            <li><strong>Two-person rule</strong><span>No hide lasts, and no ban happens, on one moderator's word.</span></li>
+          </ul>
+        </details>
+        <p class="get-line" id="get"><strong>Need $VICINITY?</strong> Four steps, about five minutes: <a href="/token#buy">see how on the Token page</a>.</p>
       </div>
     </section>
 
-    <!-- ============ ROLES ============ -->
-    <section class="section" id="roles">
-      <div class="wrap">
-        <div class="section-head">
-          <p class="kicker">Who runs what</p>
-          <h2>Four roles. Earned, and checked live.</h2>
-        </div>
-        <div class="roles-grid">
-          <article class="card role reveal"><span class="role__icon" aria-hidden="true">🏅</span><h3>Holder</h3><p class="muted">Hold any $VICINITY. Post, vote and check in with your city and country.</p></article>
-          <article class="card role reveal"><span class="role__icon" aria-hidden="true">👑</span><h3>City Founder</h3><p class="muted">Held the city's founder amount (100K to 1M, by city size) for 7 days, applied from inside the city, backed by locals. Moderates the city, launches its coin first.</p></article>
-          <article class="card role reveal"><span class="role__icon" aria-hidden="true">🛡️</span><h3>Country Manager</h3><p class="muted">Elected by the country's locals for 90 days. Advises on new towns, proposes bans (a second person approves).</p></article>
-          <article class="card role reveal"><span class="role__icon" aria-hidden="true">⚙️</span><h3>Admin</h3><p class="muted">The Vicinity team: decides objections and appeals it wasn't part of. Can never touch anyone's tokens.</p></article>
-        </div>
-        <p class="bridge"><a href="/dashboard#roles">Full roles and responsibilities →</a> · <a href="/rules">Every rule, and how to check it →</a></p>
-      </div>
-    </section>
-
-    <!-- ============ ROADMAP ============ -->
+    <!-- ============ ROADMAP: five stops in a row ============ -->
     <section id="roadmap" class="section section--panel">
       <div class="wrap">
-        <div class="section-head"><p class="kicker">Roadmap</p><h2>Where Vicinity is going.</h2></div>
+        <div class="section-head"><p class="kicker">Roadmap</p><h2 class="h2--sm">Where Vicinity is going.</h2></div>
         <ol class="timeline" id="timeline">
           <li class="timeline__item is-done reveal"><span class="timeline__status">Done</span><h3>The real map</h3><p>Real city boundaries in 244 countries with zero overlaps, wallet verification, live holder tools, the official-link checker.</p></li>
-          <li class="timeline__item is-done reveal"><span class="timeline__status">Done</span><h3>Accounts and dashboards</h3><p>One wallet + one Google login or verified e-mail per account, live ranks and badges, local and national feeds, moderation.</p></li>
+          <li class="timeline__item is-done reveal"><span class="timeline__status">Done</span><h3>Accounts and dashboards</h3><p>One account per Google login, live ranks and badges, local and national feeds, moderation.</p></li>
           <li class="timeline__item is-done reveal"><span class="timeline__status">Done</span><h3>$VICINITY launched</h3><p>Fair launch on Raydium LaunchLab (raydium.io) on Saturday, October 3. The one official contract address is on the <a href="/token">Token page</a>.</p></li>
           <li class="timeline__item is-next reveal"><span class="timeline__status">October 10</span><h3>Vicinity Launchpad</h3><p>Every city can launch its one official coin. Founders and Founding Supporters go first.</p></li>
           <li class="timeline__item reveal"><span class="timeline__status">Then</span><h3>Vicinity Passport</h3><p>Collect stamps for visiting local places and other communities.</p></li>
@@ -273,40 +199,40 @@
       </div>
     </section>
 
-    <!-- ============ FAQ ============ -->
+    <!-- ============ FAQ: every question, in three tabs ============ -->
     <section id="faq" class="section">
       <div class="wrap"><div class="faq">
-        <div class="section-head"><p class="kicker">FAQ</p><h2>Questions</h2></div>
-        <details><summary>What is Vicinity?</summary><p>A map of every real city, where each community gets one official coin, local leaders and its own feed for memes, check-ins, discussions and weekly votes. $VICINITY is the token that gets you in first — it launched on October 3 on Raydium LaunchLab. From October 10 the Vicinity Launchpad lets each city launch its coin.</p></details>
-        <details id="buy-faq"><summary>How do I buy $VICINITY?</summary><p>Get a Solana wallet (Phantom, Solflare or Backpack), add SOL, then use the <strong>Buy on Raydium</strong> button on the <a href="/token#buy">Token page</a>. It opens the official $VICINITY on Raydium LaunchLab (raydium.io). Look-alike sites that copy Raydium are scams that empty wallets.</p></details>
-        <details id="why-launchlab"><summary>Why did $VICINITY launch on Raydium LaunchLab and not on the Vicinity Launchpad?</summary>
-          <p><strong>Trust.</strong> LaunchLab is Raydium's own launchpad on Solana: no presale or private sale, and everyone buys on the same public curve. Minting and freezing are already switched off for good: the full supply was created with the token and nobody can add to it. When the curve fills, the coin moves into a Raydium pool and the pool's liquidity is burned or locked permanently. Launching our own token on our own brand-new launchpad would mean asking you to trust code we wrote and control. We'd be the player and the referee.</p>
-          <p><strong>Timing.</strong> The Launchpad opens on October 10 at 10:10:10 AM New York time, and $VICINITY is what gets people in first — so it launched a week earlier, on October 3, on Raydium LaunchLab.</p>
-          <p><strong>Room to grow.</strong> LaunchLab lets projects run their own launchpads on the same Raydium infrastructure. Starting $VICINITY there keeps it on the rails the Vicinity Launchpad can build on.</p>
-          <p><strong>Focus.</strong> The Launchpad is built for city coins: one official coin per city, verified locals, founders and managers. $VICINITY is the key to that map, not a city coin, so it stays where it launched.</p>
-        </details>
-        <details><summary>How do I get my dashboard?</summary><p>Connect a Solana wallet (you sign one free message, it isn't a transaction) and sign in with Google or an e-mail address. Your rank and your city are checked automatically, and you're in. One account per wallet and per login.</p></details>
-        <details><summary>I use FOMO (or another app wallet). How do I connect?</summary><p>If the app can't connect to websites, choose "App wallet (FOMO…)" on the connect page. We'll show a tiny, exact amount of SOL to send <em>to yourself</em>. It costs only the network fee, and since only the wallet's owner can send from it, it proves the wallet is yours. You can also open this site inside a wallet app's browser, or scan a code with a wallet app on your phone.</p></details>
-        <details><summary>What if I don't live inside any city?</summary><p>Then you pick one of the three nearest communities to join. You can also ask for your town to become its own community; your Country Manager approves it.</p></details>
-        <details><summary>What happens if I sell?</summary><p>Badges that need a balance go on the next check. A City Founder who drops below their city's founder amount loses moderation powers at once and has 7 days to hold again (48 hours for a Seed Steward); after that (or after a third grace within 90 days) the seat reopens, and they wait 30 days before applying again.</p></details>
-        <details><summary>How do I become a City Founder?</summary><p>Hold enough $VICINITY for your city's size (100K–1M on the Stake Ladder) for 7 days in a row (balances are checked at random times), have your home set in the city for 7+ days, and apply from inside its boundary. The first qualified claimer becomes Seed Steward at once — a trial founder on a 90-day probation. If 10 verified locals disagree, they force an election you run in; otherwise you're confirmed at 90 days (or 50 local holders). A squad of 3–5 locals can also pool holdings to found together. Locals have 48 hours to object to any new seat. One person, one city.</p></details>
-        <details><summary>Who is the Country Manager?</summary><p>A City Founder elected by the country's verified locals for 90 days (50% votes, 30% service, 20% capped holdings), at most two terms in a row. Until a country has one, the admin covers it.</p></details>
-        <details><summary>Can a whale take over?</summary><p>No. Holdings only count up to 2× the founder amount, founders are chosen mostly by local endorsements, managers are elected, and every vote is one person, one vote. Balances are checked at random times, so renting tokens for a day doesn't work either. <a href="/rules">See every rule</a>.</p></details>
-        <details><summary>Is this a rug pull?</summary><p>No. There's no presale, minting and freezing are already switched off for good, and when the LaunchLab curve fills, Raydium burns or locks the pool's liquidity. Every team wallet is listed on this site. The <a href="/token">Token page</a> shows, live from the blockchain, whether minting and freezing are switched off.</p></details>
-        <details><summary>Which contract address is real?</summary><p>Only the one on the <a href="/token">Token page</a>. Paste any address into the <a href="/token#check">checker</a> to confirm. Contract addresses can't be posted in Vicinity feeds, so a fake can't spread there.</p></details>
-        <details><summary>What do you store about me?</summary><p>Your wallet address. With Google sign-in, only your Google account id and first name. With e-mail sign-in, the e-mail address itself (it is your account id) and a hash of the 6-digit code, which expires in 10 minutes. A made-up username, which is the only name feeds show, never your wallet. The name of your home community. Optionally a contact e-mail and a phone number: you can remove them any time, and the phone number is not verified and not used for anything yet. Never your location: it's used once to find your community, then thrown away. We never keep a password anyone could read: if an e-mail account has one, only a salted hash of it is stored. <span data-profiles-only hidden>Member profiles: other signed-in members can open your profile and see your username, home community, bio, wallet address, member-since date, badges and your $VICINITY and city-coin balances. They never see your real name, how you signed in, your e-mail or phone, or your location. You can block anyone, and there is no messaging.</span></p></details>
-        <details><summary>Can someone fake their location?</summary><p>We make it hard: GPS must be inside the real boundary, and the internet connection must be in the same country and nearby. VPNs, proxies, cloud servers and Tor are refused. Country Managers can flag anything suspicious.</p></details>
-        <details><summary>Is this financial advice?</summary><p>No. Meme coins are very risky and can go to zero. Only use money you can afford to lose.</p></details>
-      </div></div>
-    </section>
-
-    <!-- ============ CTA ============ -->
-    <section class="cta-band">
-      <div class="wrap cta-band__inner">
-        <div>
-          <h2>Your city is on the map. Claim your place in it.</h2>
-          <p class="muted">Get $VICINITY, connect in a minute, and see who from your city is already here.</p>
+        <div class="section-head"><p class="kicker">FAQ</p><h2 class="h2--sm">Questions</h2></div>
+        <div class="seg seg--tabs" role="tablist" aria-label="Questions" id="faq-tabs">
+          <button type="button" role="tab" id="tab-faq-basics" aria-selected="true" aria-controls="faq-basics">Basics</button>
+          <button type="button" role="tab" id="tab-faq-founders" aria-selected="false" aria-controls="faq-founders" tabindex="-1">Founders</button>
+          <button type="button" role="tab" id="tab-faq-safety" aria-selected="false" aria-controls="faq-safety" tabindex="-1">Safety</button>
         </div>
-        <div class="hero__cta hero__cta--end"><a class="btn btn--primary btn--lg" href="/token#buy">Get $VICINITY →</a><a class="btn btn--glass btn--lg" href="/dashboard">My Dashboard</a></div>
-      </div>
+        <div class="tabpanel" id="faq-basics" role="tabpanel" aria-labelledby="tab-faq-basics">
+          <details><summary>What is Vicinity?</summary><p>A map of every real city, where each community gets one official coin, local leaders and its own feed for memes, check-ins, discussions and weekly votes. $VICINITY is the token that gets you in first — it launched on October 3 on Raydium LaunchLab. The Vicinity Launchpad then lets each city launch its coin.</p></details>
+          <details id="buy-faq"><summary>How do I buy $VICINITY?</summary><p>Get a Solana wallet, add SOL, then use the one official Buy button on the <a href="/token">Token page</a>. Buy nowhere else: look-alikes are scams.</p></details>
+          <details id="why-launchlab"><summary>Why did $VICINITY launch on Raydium LaunchLab and not on the Vicinity Launchpad?</summary>
+            <p><strong>Trust.</strong> LaunchLab is Raydium's own launchpad on Solana: no presale or private sale, and everyone buys on the same public curve. Minting and freezing are already switched off for good: the full supply was created with the token and nobody can add to it. When the curve fills, the coin moves into a Raydium pool and the pool's liquidity is burned or locked permanently. Launching our own token on our own brand-new launchpad would mean asking you to trust code we wrote and control. We'd be the player and the referee.</p>
+            <p><strong>Timing.</strong> The Launchpad opens on October 10 at 10:10:10 AM New York time, and $VICINITY is what gets people in first — so it launched a week earlier, on October 3, on Raydium LaunchLab.</p>
+            <p><strong>Room to grow.</strong> LaunchLab lets projects run their own launchpads on the same Raydium infrastructure. Starting $VICINITY there keeps it on the rails the Vicinity Launchpad can build on.</p>
+            <p><strong>Focus.</strong> The Launchpad is built for city coins: one official coin per city, verified locals, founders and managers. $VICINITY is the key to that map, not a city coin, so it stays where it launched.</p>
+          </details>
+          <details><summary>How do I get my dashboard?</summary><p>Share your location once (it finds your community and is never saved) and sign in with Google or an e-mail address: you're in. Connect a Solana wallet from your dashboard whenever you like: you sign one free message, it isn't a transaction, and your rank and badges switch on. One account per wallet and per login.</p></details>
+          <details><summary>I use FOMO (or another app wallet). How do I connect?</summary><p>If the app can't connect to websites, choose "App wallet (FOMO…)" when you connect. We'll show a tiny, exact amount of SOL to send <em>to yourself</em>. It costs only the network fee, and since only the wallet's owner can send from it, it proves the wallet is yours. You can also open this site inside a wallet app's browser, or scan a code with a wallet app on your phone.</p></details>
+        </div>
+        <div class="tabpanel" id="faq-founders" role="tabpanel" aria-labelledby="tab-faq-founders" hidden>
+          <details><summary>How do I become a City Founder?</summary><p>Hold your city's founder amount for 7 days in a row (balances are checked at random times), have your home set in the city for 7+ days, and apply from inside its boundary. The first qualified claimer becomes Seed Steward at once — a trial founder on a 90-day probation. If 10 verified locals disagree, they force an election you run in; otherwise you're confirmed at 90 days (or 50 local holders). A squad of 3–5 locals can also pool holdings to found together. Locals have 48 hours to object to any new seat. One person, one city.</p></details>
+          <details><summary>Who is the Country Manager?</summary><p>A City Founder elected by the country's verified locals for 90 days (50% votes, 30% service, 20% capped holdings), at most two terms in a row. Until a country has one, the admin covers it.</p></details>
+          <details><summary>Can a whale take over?</summary><p>No. Holdings only count up to 2× the founder amount, founders are chosen mostly by local endorsements, managers are elected, and every vote is one person, one vote. Balances are checked at random times, so renting tokens for a day doesn't work either. <a href="/rules">See every rule</a>.</p></details>
+          <details><summary>What happens if I sell?</summary><p>Badges that need a balance go on the next check. A City Founder who drops below their city's founder amount loses moderation powers at once and has 7 days to hold again (48 hours for a Seed Steward); after that (or after a third grace within 90 days) the seat reopens, and they wait 30 days before applying again.</p></details>
+          <details><summary>What if I don't live inside any city?</summary><p>Then you pick one of the three nearest communities to join. You can also ask for your town to become its own community; your Country Manager approves it.</p></details>
+        </div>
+        <div class="tabpanel" id="faq-safety" role="tabpanel" aria-labelledby="tab-faq-safety" hidden>
+          <details><summary>Is this a rug pull?</summary><p>No. There's no presale, minting and freezing are already switched off for good, the pool's liquidity is locked, and every team wallet is listed: the <a href="/token">Token page</a> shows the proof live from the blockchain.</p></details>
+          <details><summary>Which contract address is real?</summary><p>Only the one on the <a href="/token">Token page</a>. Paste any address into the <a href="/token#check">checker</a> to confirm. Contract addresses can't be posted in Vicinity feeds, so a fake can't spread there.</p></details>
+          <details><summary>What do you store about me?</summary><p>Your wallet address. With Google sign-in, only your Google account id and first name. With e-mail sign-in, the e-mail address itself (it is your account id) and a hash of the 6-digit code, which expires in 10 minutes. A made-up username, which is the only name feeds show, never your wallet. The name of your home community. Optionally a contact e-mail and a phone number: you can remove them any time, and the phone number is not verified and not used for anything yet. Never your location: it's used once to find your community, then thrown away. We never keep a password anyone could read: if an e-mail account has one, only a salted hash of it is stored. <span data-profiles-only hidden>Member profiles: other signed-in members can open your profile and see your username, home community, bio, wallet address, member-since date, badges and your $VICINITY and city-coin balances. They never see your real name, how you signed in, your e-mail or phone, or your location. You can block anyone, and there is no messaging.</span></p></details>
+          <details><summary>Can someone fake their location?</summary><p>We make it hard: GPS must be inside the real boundary, and the internet connection must be in the same country and nearby. VPNs, proxies, cloud servers and Tor are refused. Country Managers can flag anything suspicious.</p></details>
+          <details><summary>Is this financial advice?</summary><p>No. Meme coins are very risky and can go to zero. Only use money you can afford to lose.</p></details>
+        </div>
+      </div></div>
     </section>

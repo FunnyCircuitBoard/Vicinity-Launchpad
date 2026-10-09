@@ -1,5 +1,5 @@
-// Home page: the real New York City example (hero + step-by-step map), live numbers, and
-// redirects for old links (/#cities → /cities ...).
+// Home page: the real New York City example (hero + step-by-step map), live numbers, the two tab lists (what $VICINITY gets you,
+// the FAQ), the "+N more" of the member chips, and redirects for old links (/#cities → /cities ...).
 (() => {
   "use strict";
   const { $, $$, fmt, api, reduced } = window.V;
@@ -150,7 +150,17 @@
     const fit = () => lead.querySelectorAll(".m-flag").forEach((g) => { try { g.querySelector("rect").setAttribute("width", (g.querySelector("text").getBBox().width + 28).toFixed(0)); } catch {} });
     fit(); window.addEventListener("resize", fit);
 
-    $("#nyc-members").replaceChildren(...data.members.map(([name, , , pop], i) => { const li = document.createElement("li"); li.textContent = name; if (i < 12 || pop > 150_000) li.className = "is-big"; return li; }));
+    // the member chips: the five boroughs, then one "+N more" that unfolds the rest in place
+    const SHOWN = 5;
+    const cloud = $("#nyc-members"), chips = data.members.map(([name, , , pop], i) => { const li = document.createElement("li"); li.textContent = name; if (i < SHOWN) li.className = "is-big"; else li.className = "is-more"; return li; });
+    const hidden = chips.filter((li) => li.className === "is-more").length;
+    cloud.replaceChildren(...chips);
+    if (hidden) {
+      const li = document.createElement("li"), more = document.createElement("button");
+      more.type = "button"; more.className = "member-cloud__more"; more.textContent = `+${fmt(hidden)} more`; more.setAttribute("aria-expanded", "false");
+      more.addEventListener("click", () => { const open = cloud.classList.toggle("is-open"); more.setAttribute("aria-expanded", String(open)); more.textContent = open ? "Show fewer" : `+${fmt(hidden)} more`; });
+      li.append(more); cloud.append(li);
+    }
 
     // stepping
     const steps = $$("#nyc-steps button");
@@ -174,4 +184,41 @@
 
   fetch("/data/demo-nyc.json").then((r) => r.json()).then((data) => { hero(data); walkthrough(data); })
     .catch(() => { const m = $("#nyc-members"); if (m) m.replaceChildren(Object.assign(document.createElement("li"), { textContent: "Couldn't load the map. Refresh to try again." })); });
+
+  /* ---------- tabs: the incentives block and the FAQ (role=tablist; the panels carry hidden until their tab is chosen) ---------- */
+  // Arrow keys move between tabs (Home/End to the ends), the chosen tab is the only Tab stop of its list (WAI-ARIA tabs), and a link
+  // to something inside a panel that is not showing (/#why-launchlab, /#roles) opens that panel first, then lands on the target.
+  const lists = $$('[role="tablist"]').map((list) => {
+    const tabs = $$('[role="tab"]', list);
+    const panelOf = (t) => document.getElementById(t.getAttribute("aria-controls"));
+    const choose = (tab, focus) => {
+      for (const t of tabs) {
+        const on = t === tab, panel = panelOf(t);
+        t.setAttribute("aria-selected", String(on)); t.tabIndex = on ? 0 : -1;
+        if (panel) { const was = !panel.hidden; panel.hidden = !on; panel.classList.toggle("is-shown", on && !was && !reduced); }
+      }
+      if (focus) tab.focus();
+    };
+    tabs.forEach((t, i) => {
+      t.addEventListener("click", () => choose(t, false));
+      t.addEventListener("keydown", (e) => {
+        const n = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : null;
+        if (n === null) return;
+        e.preventDefault(); choose(tabs[(n + tabs.length) % tabs.length], true);
+      });
+    });
+    return { tabs, panelOf, choose };
+  });
+  function openFor(hash) {
+    if (!hash || hash.length < 2) return;
+    let target; try { target = document.getElementById(decodeURIComponent(hash.slice(1))); } catch { return; }
+    if (!target) return;
+    for (const { tabs, panelOf, choose } of lists) {
+      const tab = tabs.find((t) => { const p = panelOf(t); return p && (p === target || p.contains(target)); });
+      if (tab && tab.getAttribute("aria-selected") !== "true") { choose(tab, false); requestAnimationFrame(() => target.scrollIntoView({ behavior: reduced ? "auto" : "smooth" })); }
+    }
+    if (target.tagName === "DETAILS") target.open = true;
+  }
+  openFor(location.hash);
+  window.addEventListener("hashchange", () => openFor(location.hash));
 })();

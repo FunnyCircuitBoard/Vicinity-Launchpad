@@ -1,5 +1,6 @@
 // Builds the site's pages: public/<name>.html = the shared layout (head, header, phone menu bar,
-// footer) + the page's own content from scripts/pages/src/<name>.html.
+// footer) + the page's own content from scripts/pages/src/<name>.html. Every page loads style.css and then
+// polish.css (the mobile-first polish of 9 Oct 2026: tighter spacing, 44 px targets, the compact footer, the home and token page layouts).
 //   npm run pages
 // Edit the files in scripts/pages/, never the generated public/*.html (a test checks they match).
 //
@@ -67,7 +68,8 @@ ${noindex ? '  <meta name="robots" content="noindex, nofollow">\n' : ""}  <meta 
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/space-grotesk.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/style.css">${styles.map((c) => `\n  <link rel="stylesheet" href="/${c}.css">`).join("")}
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/polish.css">${styles.map((c) => `\n  <link rel="stylesheet" href="/${c}.css">`).join("")}
   <script src="/theme.js"></script>
 </head>
 <body data-page="${page}">
@@ -97,23 +99,24 @@ ${body.trimEnd()}
     <div class="wrap footer-grid">
       <div class="footer-brand">
         <div class="brand"><img src="/logo.svg" alt="" width="28" height="28"><span>Vicinity</span></div>
-        <p class="muted">One city. One coin. One community.</p>
-        <p class="muted small">System status: <span id="status">checking…</span></p>
-        <p class="muted small footer-motion"><button class="link-btn motion-toggle" type="button" data-motion-toggle>Pause animations</button></p>
+        <div class="footer-meta">
+          <p class="muted small footer-status">System status: <span id="status">checking…</span></p>
+          <p class="muted small footer-motion"><button class="link-btn motion-toggle" type="button" data-motion-toggle>Pause animations</button></p>
+        </div>
       </div>
-      <nav class="footer-links" aria-label="Footer">
+      <nav class="footer-links footer-links--explore" aria-label="Footer">
         <p class="footer-title">Explore</p>
         <a href="/">How it works</a><a href="/token">Token &amp; holders</a><a href="/token#verify">Check a wallet's rank</a><a href="/cities">Claim a city</a><a href="/launchpad">Launchpad</a><a href="/dashboard">Dashboard</a>
       </nav>
-      <nav class="footer-links" aria-label="Safety">
+      <nav class="footer-links footer-links--safe" aria-label="Safety">
         <p class="footer-title">Stay safe</p>
-        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/terms">Terms of Use</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
+        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/terms">Terms of Use</a>
         <p class="tiny muted">Vicinity will never ask for your recovery phrase or private key.</p>
       </nav>
-      <div class="footer-links">
-        <p class="footer-title">Data</p>
+      <details class="footer-data">
+        <summary class="footer-title">Data credits</summary>
         <p class="tiny muted">Places: <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> (CC BY 4.0). City boundaries: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL). Country outlines: Natural Earth.</p>
-      </div>
+      </details>
     </div>
     <p class="wrap tiny muted footer-legal">vicinity.city · Nothing here is financial advice. Meme coins are very risky: only use money you can afford to lose.</p>
   </footer>
