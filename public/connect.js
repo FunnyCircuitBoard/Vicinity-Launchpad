@@ -1,4 +1,7 @@
-// Connect page: 1. prove the wallet (sign a message / phone QR / tiny transfer)  2. Google or e-mail  3. dashboard.
+// Connect page. Today's sign-up (SIGNUP_FLOW unset): 1. prove the wallet (sign a message / phone QR / tiny transfer)  2. Google or
+// e-mail  3. dashboard. With the new sign-up on (/api/me says signupFlow "v2") this file loads public/signup.js, which runs the
+// two-step sign-up, the Log in tab and the LINK MODE (a member without a wallet links one); the wallet screens here (pick, sign,
+// phone, app, approve) serve all of them, and hand the wallet's answer to signup.walletProven().
 // Needs site.js (window.V), wallets.js (window.VW) and vendor/qrcode.js (window.qrcode).
 (() => {
   "use strict";
@@ -6,10 +9,12 @@
   const W = window.VW;
   const params = new URLSearchParams(location.search);
   const pairCode = params.get("pair");
-  // "Open app" on a phone brought a sign-up here from Safari / Chrome: its one-time code (site.js already took it out of the address bar)
+  // "Open app" on a phone brought a one-time code here from Safari / Chrome (site.js already took it out of the address bar): a link
+  // code (the wallet app links this wallet to the account that made it), or an old sign-up's carry code (only a calm line now)
   const carryCode = window.V.takeCarry ? window.V.takeCarry() : null;
+  const linkCode = window.V.takeLink ? window.V.takeLink() : null;
   const panel = $("#connect-panel");
-  let state = "pick", active = null, address = null, message = null, pairPin = null, providers = { google: false, email: false };
+  let state = "pick", active = null, address = null, message = null, pairPin = null, pairPurpose = "login", providers = { google: false, email: false };
   let signup = null; // the v2 sign-up controller (public/signup.js): stays null unless /api/me says signupFlow is "v2", so today's page runs untouched
 
   const ERR = {
@@ -178,9 +183,15 @@
     }
   }
 
+  /**
+   * The exact text the wallet signs. A login statement, or (the link mode, and the approval of a link pairing) the LINK statement that
+   * names the account the wallet joins: the server hands it out for the signed-in person, or for the owner of the pairing (&pair=).
+   */
   async function loadMessage(pin) {
     message = null; $("#c-msg").textContent = "Loading…";
-    const d = await api(`/api/message?address=${encodeURIComponent(address)}&action=login${pin ? "&pin=" + pin : ""}`);
+    const link = (signup && signup.linkMode()) || (pin && pairPurpose === "link");
+    const q = `address=${encodeURIComponent(address)}&action=${link ? "link" : "login"}${pin ? "&pin=" + pin : ""}${pin && link ? "&pair=" + encodeURIComponent(pairCode) : ""}`;
+    const d = await api(`/api/message?${q}`);
     if (d.message) { message = d.message; $("#c-msg").textContent = d.message; }
     else $("#c-msg").textContent = "Couldn't load the message. Try again.";
     return message;
@@ -198,6 +209,7 @@
       const body = { address: addr, message: msg, signature: btoa(String.fromCharCode(...sig)) };
       if (pair) body.pair = pair;
       const d = await api("/api/auth/wallet", body);
+      if (!d.ok && signup && signup.handles(d.error)) return d; // no account for this wallet, a wallet already linked...: the sign-up page says what to do
       // (pairing: "where you started" is a computer, or Safari / Chrome on this same phone)
       if (!d.ok) throw ours(d.error === "expired" ? "That message expired. Please sign again." : d.error === "pair_expired" ? "That code expired. Go back to where you started and try again." : d.error === "pin_mismatch" ? "The check number doesn't match. Go back to where you started and try again." : d.error === "offline" ? "Couldn't reach Vicinity. Check your connection and try again." : "Sign-in failed. Please try again.");
       return d;
@@ -241,10 +253,9 @@
     }
   });
 
-  /** The wallet is proven: straight to the dashboard (linked before) or on to Google / e-mail. */
+  /** The wallet is proven: straight to the dashboard (linked before) or on to Google / e-mail. v2: the sign-up page decides (link, sign in, no account). */
   function after(d) {
-    if (signup) return signup.walletProven(d); // v2: straight to the dashboard (account exists) or on to the sign-up steps
-    if (d.next === "signup") return location.reload(); // the new sign-up was switched on while this old page was open (or its /api/me answer was lost): the reloaded page is the new one
+    if (signup) return signup.walletProven(d);
     if (String(d.next || "").startsWith("/dashboard")) {
       show("done");
       const r = panel.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 80);
@@ -385,8 +396,8 @@
   }
   $("#alt-phone").addEventListener("click", async () => {
     setErr("");
-    const ctx = signup ? signup.pairContext() : { for: "connect", name: null, relay: false };
-    const d = await api("/api/pair", {});
+    const ctx = signup ? signup.pairContext() : { for: "connect", purpose: "login", name: null, relay: false };
+    const d = await api("/api/pair", ctx.purpose === "link" ? { purpose: "link" } : {}); // a link pairing joins the wallet to this account; a login one signs the device in
     if (!d.ok) return setErr("Couldn't start. Please try again.", $("#alt-phone")); // (the wallet tapped and the reason stay for the next try)
     if (signup) signup.pairStarted();
     const p = { code: d.code, pin: d.pin, until: Date.parse(d.expiresAt), for: ctx.for, name: ctx.name || null, relay: Boolean(ctx.relay) };
@@ -441,6 +452,7 @@
         const f = await api("/api/pair/finish", { code: p.code });
         if (state !== "phone" || pairPoll !== poll) return;
         if (f.ok) { pairPoll = null; forgetPair(); toast(phone ? "Wallet approved ✓" : "Phone approved ✓"); address = f.wallet; return after(f); }
+        if (signup && signup.handles(f.error)) { pairPoll = null; forgetPair(); address = f.wallet || address; return after(f); } // no account for that wallet, or it is taken: said on screen
         if (f.status === "expired") return gone(false); // someone was faster: another tab of this browser, a moment ago
       }
       timer = setTimeout(poll, 2000);
@@ -475,11 +487,12 @@
   }
   document.addEventListener("visibilitychange", () => { if (!document.hidden && state === "phone" && pairPoll) pairPoll(); });
 
-  /* ---------- the phone's side: approve the computer's sign-in ---------- */
+  /* ---------- the phone's side: approve the computer's sign-in, or the link of this wallet to an account ---------- */
   // Sign-up v2: the wallet app's browser shows only the approve card, at the top (today's hero and its 1-2-3 steps are the old
   // sign-up's), and says plainly what to do with the wallet tile. The card shows at once, in the new sign-up's look (never today's
   // pick screen, and nothing that moves the tile, while /api/me is on its way); today's look comes back only when /api/me answers
-  // that the new sign-up is off.
+  // that the new sign-up is off. A LINK pairing (the owner's dashboard asked for it) names the account the wallet joins, and its
+  // Terms are on record there: no Terms gate here. A login pairing is a first visit like any other: the gate shows.
   let approveV2 = true;
   async function startApprove() {
     show("approve");
@@ -489,9 +502,20 @@
       approveV2 = false; $(".connect__intro").hidden = false; $("#approve-tap").hidden = true; // today's sign-up: its hero and 1-2-3 steps, as before
     });
     const s = await api(`/api/pair?code=${encodeURIComponent(pairCode)}`);
+    if (s.purpose === "link" && s.status === "waiting" && window.V.termsGate) window.V.termsGate.agreed(s.terms || "2026-10-01"); else gateNow();
     if (s.status !== "waiting") { $("#approve-wallets").hidden = true; return setErr(s.status === "ready" ? "This code was already used." : "This code has expired. Go back to where you started and try again.", $("#approve-pin").parentNode); }
-    pairPin = s.pin;
+    pairPin = s.pin; pairPurpose = s.purpose === "link" ? "link" : "login";
     $("#approve-pin").textContent = s.pin;
+    if (pairPurpose === "link") {
+      $("#approve-h").textContent = `Link this wallet to ${s.name || "•••"}'s Vicinity account?`;
+      $("#approve-owner").textContent = `@${s.handle || "•••"}`;
+      $("#approve-city").textContent = s.community ? `📍 ${s.community.name}, ${s.community.country}` : ""; $("#approve-city").hidden = !s.community;
+      $("#approve-who").hidden = false;
+      $("#approve-ask").replaceChildren("Does Safari (or your computer), where you started, show check number ", $("#approve-pin"), "?");
+      $("#approve-warn").textContent = "Only continue if you started this yourself. Never sign for a code someone sent you.";
+      $("#approve-terms").hidden = false;
+      $("#approve-done-text").replaceChildren(el("strong", null, "Approved."), " Go back to where you started: your dashboard finishes the link.");
+    }
     renderApprove();
   }
   function renderApprove() {
@@ -530,7 +554,7 @@
     e.preventDefault(); setErr("");
     const a = $("#tp-addr").value.trim();
     if (!isAddr(a)) return setErr("That doesn't look like a Solana wallet address.", $("#tp-form"));
-    const d = await api("/api/auth/transfer", { address: a });
+    const d = await api("/api/auth/transfer", signup && signup.linkMode() ? { address: a, link: true } : { address: a }); // link: the signed-in account takes the wallet the transfer proves
     if (!d.ok) return setErr(d.error === "slow_down" ? "Too many tries from your network right now. Wait a few minutes and try again." : "Couldn't start. Please try again.", $("#tp-form"));
     showCode(d);
   });
@@ -547,6 +571,7 @@
       if (Date.now() - started > 30 * 60_000) { status.textContent = "This code expired. Go back and get a new one."; return; }
       const r = await api("/api/auth/transfer/check", {});
       if (r.ok) { toast("Transfer found ✓ Wallet verified"); return after(r); }
+      if (signup && signup.handles(r.error)) return after(r); // found, but no account for that wallet (or it is taken): said on screen
       if (r.error === "no_proof" || r.error === "expired") { status.textContent = "This code expired. Go back and get a new one."; return; }
       // slow_down: the server wants fewer checks from this connection; ask every 30 seconds instead of 10
       timer = setTimeout(poll, r.error === "slow_down" ? 30_000 : 10_000);
@@ -568,7 +593,7 @@
     try {
       await loadScript("/signup.js");
       signup = window.VSignup.start({ panel, params, show, setErr, renderPick, drawQR, showProof: (proof) => { show("app"); showCode(proof); } });
-      loaded = await signup.init(me, err, carryCode);
+      loaded = await signup.init(me, err, { carry: carryCode, link: linkCode });
     } catch {
       signup = null; show("loading"); gateNow(); // (a pairing kept by this tab stays kept: the reload picks it up)
       $("#su-loading-text").textContent = "The sign-up didn't load.";
@@ -582,17 +607,19 @@
     if (loaded) resumePair();
   }
 
-  /** A carried sign-up's code that this page can't use (signed in already, the switch is off...): the Terms gate opens as usual. */
-  const gateNow = () => { if (carryCode !== null && window.V.termsGate) window.V.termsGate.open(); };
+  /** The Terms gate site.js held back for a code or a pairing this page can't vouch for (the switch is off, an old link...): it opens as usual. */
+  const gateNow = () => { if (window.V.termsGate) window.V.termsGate.open(); };
 
   /* ---------- start ---------- */
   (async () => {
     const err = params.get("error");
     if (err) history.replaceState(null, "", location.pathname + (pairCode ? `?pair=${pairCode}` : ""));
-    if (pairCode) { gateNow(); return startApprove(); }
+    if (pairCode) return startApprove(); // (the gate: startApprove decides, once it knows what the pairing is for)
     const me = await window.V.ready;
     providers = me.providers || providers;
     if (params.get("mode") === "login" || hasAccount()) welcomeBack();
+    // the new sign-up: a link code (the wallet app's browser), or a member whose account has no wallet yet (the link mode, whatever the address said)
+    if (me.signupFlow === "v2" && (linkCode !== null || (me.signedIn && me.user && !me.user.wallet))) return startV2(me, err);
     if (me.signedIn) { forgetPair(); gateNow(); show("done"); setTimeout(() => location.assign("/dashboard"), 900); return; }
     if (me.signupFlow === "v2") return startV2(me, err);
     gateNow();
