@@ -33,7 +33,8 @@ export const dashboardV2On = (env) => String((env && env.DASHBOARD_V2) ?? "").tr
  * CARRY_RELAY is an EMERGENCY switch, on by default: unset (or anything but "off") = behind iCloud Private Relay (or Cloudflare WARP) a
  * phone's "Connect wallet" still opens the wallet app on a one-time link bound to the first browser that opens it and to the country
  * (src/walletlink.js). CARRY_RELAY=off (trimmed, any letter case), set in the Cloudflare dashboard and never in wrangler.jsonc, sends
- * relay connections back to the pairing ("approve in Phantom, finish in Safari") as before 10 Oct 2026, from the next request on.
+ * relay connections back to the pairing ("approve in Phantom, finish in Safari") as before 10 Oct 2026, from the next request on: a
+ * relay link handed out before the switch stops working too (opened or not), and Safari's next tap pairs.
  */
 export const carryRelayOn = (env) => String((env && env.CARRY_RELAY) ?? "").trim().toLowerCase() !== "off";
 

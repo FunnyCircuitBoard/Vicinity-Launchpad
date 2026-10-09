@@ -162,6 +162,38 @@ test("CARRY_RELAY=off (an emergency switch in the Cloudflare dashboard): relay c
   assert.equal((await carry(m.b)).relay, true, "anything but off is on");
 });
 
+test("CARRY_RELAY=off stops the relay links already handed out (audit SEC-1): one the wallet app had opened can't be claimed, one nobody opened can't be opened, Safari hears 'expired'; ordinary links are untouched", async () => {
+  const m = await safari();
+  const opened = await carry(m.b);
+  const app = browser(env, CARRIER);
+  assert.equal((await info(app, opened.code)).status, 200, "opened while the switch was on");
+  const n = await safari(RELAY, { sub: "g-off2" });
+  const fresh = await carry(n.b);
+  const p = await safari(PHONE, { sub: "g-plain-off" });
+  const plain = await carry(p.b);
+  // the owner adds CARRY_RELAY = off in the Cloudflare dashboard: from the next request on
+  env.CARRY_RELAY = "off";
+  advance(60_000);
+  const before = (await rows("SELECT id FROM sessions")).length;
+  const c = await claimWith(app, opened.code, m.w, { app: "phantom" });
+  assert.deepEqual([c.status, c.body.error], [0, "carry_expired"], "not even the statement");
+  // (the claim itself, with a statement signed while the switch was on: refused too)
+  const r = await app.send("/api/me/wallet/carry/claim", { method: "POST", body: { code: opened.code, ...(await linkBody(m.w, m.u.handle)) } });
+  assert.deepEqual(await r.json(), { ok: false, error: "carry_expired", relay: true });
+  assert.equal(r.status, 410);
+  assert.ok(!r.headers.getSetCookie().some((x) => x.startsWith("vs=")), "no session");
+  assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", m.u.id)).wallet, null, "nothing linked");
+  assert.equal((await rows("SELECT id FROM sessions")).length, before);
+  assert.deepEqual(await status(m.b, opened.ref), { ok: true, status: "expired", relay: true }, "Safari: that link ran out (a new tap pairs)");
+  assert.deepEqual(await err(await info(browser(env, CARRIER), fresh.code)), [410, "carry_expired"]);
+  assert.deepEqual(await status(n.b, fresh.ref), { ok: true, status: "expired", relay: true });
+  assert.deepEqual(await err(await n.b.send("/api/me/wallet/carry", { method: "POST", body: { app: "phantom" } })), [409, "carry_relay"]);
+  // an ordinary link (Safari and Phantom on the same connection) goes on as before
+  const pa = browser(env, PHONE);
+  assert.equal((await info(pa, plain.code)).status, 200);
+  assert.equal((await claimWith(pa, plain.code, p.w, { app: "phantom" })).status, 200);
+});
+
 test("the owner can find the CARRY_RELAY emergency switch: docs/DEPLOY.md names it, where it lives (the Cloudflare dashboard, never wrangler.jsonc) and what `off` does", () => {
   const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
   const row = read("docs/DEPLOY.md").split("\n").find((l) => l.startsWith("| `CARRY_RELAY`"));

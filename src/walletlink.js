@@ -34,7 +34,8 @@
  *     Private Relay (and Cloudflare WARP) hides Safari's connection and Phantom's browser is not on it, so nothing could match: such a
  *     code (net = 'relay') is bound instead to Safari's COUNTRY (a relay keeps it: a speed bump, not a proof) and must be OPENED within
  *     2 minutes. Only a relay network's own ASN qualifies (src/network.js RELAY_ASNS; a cloud server named "Akamai" does not), only for
- *     wallet apps with real app links (Phantom, Solflare, Backpack), and CARRY_RELAY=off (src/flags.js) switches it back to pairing.
+ *     wallet apps with real app links (Phantom, Solflare, Backpack), and CARRY_RELAY=off (src/flags.js) switches it back to pairing,
+ *     the relay codes already handed out included.
  * What nothing can prove behind a relay: that Safari and the wallet app are the same phone. Someone talked into forwarding their own
  * fresh link to a person in the same country, who opens it within 2 minutes, can link THEIR wallet to the account. So for 7 days an
  * older browser of the account (Safari) sees "Connected in Phantom. Wasn't you? Remove it" (handleDisown), e-mail accounts get an
@@ -197,10 +198,10 @@ const findCarry = async (env, code, now) => {
 
 /**
  * A live code that this browser may use, and the account it links to: { row, owner, relay } or { error: Response }. In order: the code is
- * unknown, used, contested or old → carry_expired (410); another connection's (another country's, for a relay code) → carry_network
- * (403, relay: true for the country): nothing is bound, the code stays usable from the right connection, and a code nobody opened yet is
- * marked (refused_at) so Safari can say the wallet app opened it but could not use it there, and offer the way that works on any
- * connection; the owner linked a wallet meanwhile → link_done (409); then the opener: a code another browser opened → carry_opened (403),
+ * unknown, used, contested or old, or a relay code while CARRY_RELAY=off → carry_expired (410); another connection's (another country's,
+ * for a relay code) → carry_network (403, relay: true for the country): nothing is bound, the code stays usable from the right connection,
+ * and a code nobody opened yet is marked (refused_at) so Safari can say the wallet app opened it but could not use it there, and offer
+ * the way that works on any connection; the owner linked a wallet meanwhile → link_done (409); then the opener: a code another browser opened → carry_opened (403),
  * and that browser's code dies (contested); `mode` "use" (the statement, the claim) needs a code this very browser opened (carry_opened
  * otherwise); "open" (info) of a relay code nobody opened within 2 minutes → carry_expired.
  */
@@ -208,6 +209,9 @@ async function usableCarry(env, request, code, now, cf, mode, nonces) {
   const row = await findCarry(env, code, now);
   if (!row) return { error: json({ ok: false, error: "carry_expired" }, 410) };
   const relay = row.net === "relay";
+  // CARRY_RELAY=off is the emergency stop: a relay code handed out before the switch is dead from the next request too, opened or not
+  // (its look, its statement and its claim); Safari's status says it ran out, and a new tap pairs (handleCarryStart)
+  if (relay && !carryRelayOn(env)) return { error: json({ ok: false, error: "carry_expired", relay: true }, 410) };
   if (relay ? relayCountry(cf) !== row.country : row.net !== await carryNet(env, request)) {
     if (!row.opener && !row.refused_at) await env.DB.prepare("UPDATE handoffs SET refused_at = ? WHERE id = ? AND opener IS NULL AND refused_at IS NULL").bind(iso(now), row.id).run();
     return { error: json({ ok: false, error: "carry_network", ...(relay ? { relay: true } : {}) }, 403) };
@@ -424,7 +428,7 @@ async function handleCarryStatus(request, env, x) {
   if (row.result === "linked") return json({ ok: true, status: "linked", wallet: row.wallet });
   if (row.result === "contested") return json({ ok: true, status: "contested" });
   if (Date.parse(row.expires_at) <= x.now) return json({ ok: true, status: "expired" });
-  if (row.net === "relay" && !row.opener && x.now - Date.parse(row.created_at) >= RELAY_OPEN_MS) return json({ ok: true, status: "expired", relay: true });
+  if (row.net === "relay" && (!carryRelayOn(env) || (!row.opener && x.now - Date.parse(row.created_at) >= RELAY_OPEN_MS))) return json({ ok: true, status: "expired", relay: true }); // (CARRY_RELAY=off: usableCarry)
   // the wallet app opened it, but on another connection (Wi-Fi vs mobile data) or, behind a relay, from another country: still waiting,
   // and Safari says why and offers the pairing (it works on any connection) instead of "Phantom didn't open?"
   if (!row.opener && row.refused_at) return json({ ok: true, status: "refused", ...(row.net === "relay" ? { relay: true } : {}) });
