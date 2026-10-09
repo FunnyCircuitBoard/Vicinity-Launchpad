@@ -246,14 +246,14 @@ const INFO = { ok: true, pin: "47", owner: { name: "Sa•••", handle: "Sw•
  * Phantom's in-app browser opened by the link: no cookies, the Terms never agreed in this browser, Phantom injected.
  * `info(body)` and `claim(body)` play POST /api/me/wallet/carry/info and /claim.
  */
-async function inPhantom({ info = () => INFO, claim = () => ({ ok: true, wallet: ADDR, next: "/dashboard?linked=1" }), ua = UA.phantomApp, wallets, me, search = `link=${CODE}`, session } = {}) {
+async function inPhantom({ info = () => INFO, claim = () => ({ ok: true, wallet: ADDR, next: "/dashboard?linked=1" }), message = null, ua = UA.phantomApp, wallets, me, search = `link=${CODE}`, session } = {}) {
   const { wallet, ctl } = fakeWallet("Phantom");
   let n = 0;
   const asked = [];
   const api = async (path, body) => {
     if (path === "/api/me/wallet/carry/info") return info(body);
     if (path === "/api/me/wallet/carry/claim") return claim(body);
-    if (path.startsWith("/api/message")) { asked.push(path); return { message: MESSAGE + ++n }; }
+    if (path.startsWith("/api/message")) { asked.push(path); return message ? message(path) : { message: MESSAGE + ++n }; }
     return { ok: true };
   };
   const geolocation = { getCurrentPosition: () => { geolocation.asked = true; } };
@@ -474,6 +474,23 @@ test("S8: the claim fails after the person signed: used meanwhile (back to Safar
   await p.tap(p.$("#carry-in-wallets").children[0]); await p.flush();
   assert.equal(p.screen(), "done");
   assert.equal(p.$("#carry-in-error").textContent, "");
+});
+
+test("S8: the link died while the question was on screen (it ran out, or someone else opened it): the statement is refused, so the same one plain screen as a refused claim, nothing signed, no tile that could never work", async () => {
+  for (const [error, status, h, body] of [
+    ["carry_expired", 410, "Almost there", /^This link is old\. Go back to Safari or Chrome and tap “Connect wallet” again\.$/],
+    ["carry_opened", 403, "That link was opened in another app", /^For your safety it no longer works\./],
+    ["carry_network", 403, "That link can't be used here", /different internet connections/],
+  ]) {
+    const { p, ctl } = await inPhantom({ message: () => ({ ok: false, error, _status: status }) });
+    await p.tap(p.$("#carry-in-yes")); await p.flush();
+    assert.equal(p.screen(), "link-dead", error);
+    assert.equal(p.$("#ld-h").textContent, h, error);
+    assert.match(p.$("#ld-body").textContent, body, error);
+    assert.equal(ctl.signs, 0, `${error}: nothing signed`);
+    assert.equal(p.callsTo("/api/me/wallet/carry/claim").length, 0, error);
+    assert.equal(p.$("#termsgate").hidden, true, `${error}: the gate stays shut (the person said the account was theirs)`);
+  }
 });
 
 test("S8: signing cancelled in the wallet: said on the question, nothing sent, the tile works again", async () => {

@@ -1154,7 +1154,9 @@
       try {
         const address = await adapter.connect();
         const m = await api("/api/message?address=" + encodeURIComponent(address) + "&action=link&code=" + encodeURIComponent(o.code) + opener);
-        if (!m.message) { if (m.error && handles(m.error)) return linkRefused(m); return text("#carry-in-error", /^carry_/.test(String(m.error)) ? errText(m) : errText(m.error ? m : "offline")); }
+        // the code died while the question was on screen (it ran out, someone else opened it, another connection): the same one plain
+        // screen as a refused claim, never a tile to try again that could not work
+        if (!m.message) { if (m.error && (handles(m.error) || /^carry_/.test(String(m.error)))) return linkRefused(m); return text("#carry-in-error", errText(m.error ? m : "offline")); }
         const sig = await adapter.signMessage(new TextEncoder().encode(m.message));
         const r = await call("/api/me/wallet/carry/claim", { code: o.code, address, message: m.message, signature: btoa(String.fromCharCode(...sig)),
           ...(o.opener ? { opener: o.opener } : {}), ...(k ? { app: k.id } : {}) });
