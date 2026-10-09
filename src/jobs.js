@@ -12,6 +12,7 @@ import { advanceSnapshots } from "./snapshot.js";
 import { cleanupSignups } from "./signup-core.js";
 import { refreshCoinStats } from "./launchpad.js";
 import { recordMarket } from "./pricehistory.js";
+import { pruneFeedback } from "./feedback.js";
 import { v2On, profilesOn, launchpadV2On } from "./flags.js";
 import { DAY, HOUR, iso } from "./policy.js";
 
@@ -29,6 +30,8 @@ export async function runJobs(env, now = Date.now(), fetchImpl = fetch, rand = M
   await step("moderation", () => expireModeration(env, now));
   await step("snapshot", () => advanceSnapshots(env, now));
   await step("cleanup", () => cleanup(env, now));
+  // the Feedback / Support messages: contact details go 30 days after "done", the row 180 days after (nothing when the table does not exist yet)
+  await step("feedback", () => pruneFeedback(env.DB, now));
   // holder counts for the Launchpad list: only while its switch is on (with it off this run is exactly as it always was)
   if (launchpadV2On(env)) await step("coinStats", () => refreshCoinStats(env, now, fetchImpl));
   // the Launchpad's price history: one sample per coin, Raydium's 15-minute candles, the 03:00 pruning (same switch)

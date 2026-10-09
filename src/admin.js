@@ -600,16 +600,20 @@ async function inboxReady(ctx) {
   catch (e) { console.error("inbox unavailable", String((e && e.message) || e).slice(0, 80)); return json({ ok: false, error: "unavailable" }, 503); }
 }
 
+/** A row id from a query string or a body: a positive whole number, else 0 (so "1e400", "Infinity" and "1; DROP" all read as none). */
+const rowId = (v) => { const n = Number(v); return Number.isSafeInteger(n) && n > 0 ? n : 0; };
+
 /**
  * GET /api/admin/feedback?status=open|new|seen|done|all&kind=question|bug|city&before=<id>&limit=
  * Newest first, 50 a page (`more` + the last id for the next page). `open` (the default) = new and seen.
+ * A status or kind that is not one of those words, however long, is 400 (never quietly the default).
  */
 async function handleInbox(ctx, url) {
   const blocked = await inboxReady(ctx);
   if (blocked) return blocked;
-  const status = q(url, "status", 10) || "open";
-  const kind = q(url, "kind", 10);
-  const before = Math.floor(Number(url.searchParams.get("before"))) || 0;
+  const status = url.searchParams.get("status") || "open";
+  const kind = url.searchParams.get("kind") || "";
+  const before = rowId(url.searchParams.get("before"));
   const limit = limitOf(url, 50, 200);
   const where = [], args = [];
   if (status === "open") where.push("f.status IN ('new', 'seen')");
@@ -642,7 +646,7 @@ async function handleInboxUpdate(request, ctx) {
   const blocked = await inboxReady(ctx);
   if (blocked) return blocked;
   const body = await readJson(request);
-  const id = Math.floor(Number(body && body.id)) || 0;
+  const id = rowId(body && body.id);
   const row = id && await ctx.db.prepare("SELECT * FROM feedback WHERE id = ?").bind(id).first();
   if (!row) return json({ ok: false, error: "not_found" }, 404);
   const status = body.status === undefined ? null : body.status;
@@ -660,6 +664,25 @@ async function handleInboxUpdate(request, ctx) {
   const fresh = await ctx.db.prepare(
     "SELECT f.*, u.handle FROM feedback f LEFT JOIN users u ON u.id = f.user_id WHERE f.id = ?").bind(id).first();
   return json({ ok: true, item: inboxRow(ctx, fresh) });
+}
+
+/**
+ * POST /api/admin/feedback/delete { id }: remove one message for good, texts and e-mail included (someone asked for their message
+ * to be erased, or it should never have been kept). Admins and the owner; logged in admin_audit with the kind and status only.
+ * The 10-minute job removes done messages by itself after RETENTION.deleteDays (src/feedback.js pruneFeedback).
+ */
+async function handleInboxDelete(request, ctx) {
+  const blocked = await inboxReady(ctx);
+  if (blocked) return blocked;
+  const body = await readJson(request);
+  const id = rowId(body && body.id);
+  const row = id && await ctx.db.prepare("SELECT id, kind, status FROM feedback WHERE id = ?").bind(id).first();
+  if (!row) return json({ ok: false, error: "not_found" }, 404);
+  await ctx.db.batch([
+    ctx.db.prepare("DELETE FROM feedback WHERE id = ?").bind(id),
+    logAudit(ctx.db, { actor: ctx.wallet, action: "feedback/delete", target: `feedback:${id}`, detail: `${row.kind}, was ${row.status}` }, ctx.now),
+  ]);
+  return json({ ok: true, deleted: id });
 }
 
 /* ---------------- router ---------------- */
@@ -703,6 +726,7 @@ export async function handleAdmin(request, env, now = Date.now()) {
     case "feedback": { const b = only("GET"); return b || run(need("moderator"), (c) => handleInbox(c, url)); }
     case "feedback/count": { const b = only("GET"); return b || run(need("moderator"), handleInboxCount); }
     case "feedback/update": { const b = only("POST"); return b || run(await needPost("moderator"), (c) => handleInboxUpdate(request, c)); }
+    case "feedback/delete": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleInboxDelete(request, c)); }
     case "test/seed": { const b = only("POST"); return b || run(await needPost("owner"), handleTestSeed); }
     case "test/reset": { const b = only("POST"); return b || run(await needPost("owner"), (c) => handleTestReset(request, c)); }
     case "test/preview-role": { const b = only("POST"); return b || run(await needPost("owner"), (c) => handlePreviewRole(request, c)); }
