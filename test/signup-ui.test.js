@@ -184,7 +184,7 @@ const locateJs = read("locate.js");
 
 test("flag off: connect.html never loads signup.js, connect.js fetches it only when the server says v2", () => {
   const order = [...html.matchAll(/<script src="\/([a-z/]+)\.js"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ["theme", "site", "vendor/qrcode", "wallets", "connect"], "signup.js is not one of the page's scripts");
+  assert.deepEqual(order, ["theme", "site", "vendor/qrcode", "wallets", "connect", "feedback"], "signup.js is not one of the page's scripts (feedback.js is the site-wide widget, on every page)");
   assert.doesNotMatch(html, /<script[^>]*signup/, "no script tag for it, whatever the comments say");
   assert.equal((connectJs.match(/loadScript\("\/signup\.js"\)/g) || []).length, 1, "fetched in one place only, the loader");
   assert.match(connectJs, /if \(me\.signupFlow === "v2"\) return startV2\(me, err\);/);
