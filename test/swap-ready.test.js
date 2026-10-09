@@ -115,6 +115,29 @@ test("ready: a wallet that only signs: the tap calls signTransaction synchronous
   assert.equal(text(P.$(".swap__state")), "Swapped ✓");
 });
 
+test("ready: a Cancel in the wallet ('Try again') never carries over to a later trade: one the network could not confirm, or that failed on the chain, says 'Start over' and a tap clears the amount; no second build, no second wallet request", async () => {
+  for (const status of [{ ok: true, status: "pending" }, { ok: true, status: "failed", err: "slippage" }]) {
+    const w = walletOf();
+    let cancel = true;
+    const send = w.signAndSendTransaction.bind(w);
+    w.signAndSendTransaction = (...a) => { if (cancel) { cancel = false; w.calls.push(["cancelled"]); return Promise.reject(new Error("User rejected the request")); } return send(...a); };
+    const P = await connected({ wallet: w, answers: { "/api/swap/status": status } });
+    await type(P, "0.25");
+    click(go(P)); await P.flush();
+    assert.deepEqual([text(go(P)), text(P.$(".swap__status"))], ["Try again", "Cancelled in your wallet. Nothing was sent."], "a Cancel is soft: Try again");
+    click(go(P)); await P.advance(1000); // Try again: the price is built again
+    click(go(P)); await P.flush(); // the tap: this time the wallet sends
+    assert.deepEqual(w.calls.map((c) => c[0]), ["connect", "cancelled", "signAndSend"]);
+    await P.advance(100_000); // past the 90 s watch (pending), or the chain's "failed" at the first poll
+    const words = status.status === "pending" ? /^We could not confirm it in time\./ : /^The price moved more than your slippage allows\./;
+    assert.match(text(P.$(".swap__status")), words);
+    assert.equal(text(go(P)), "Start over", `${status.status}: the earlier Cancel does not turn this into 'Try again' (which would buy the same amount a second time)`);
+    const builds = txCalls(P);
+    click(go(P)); await P.advance(1000);
+    assert.deepEqual([P.$(".swap__amt").value, text(P.$(".swap__state")), txCalls(P), w.calls.length], ["", "Ready", builds, 3], "Start over clears the amount: nothing built, the wallet not asked again");
+  }
+});
+
 test("ready: at 40 s the price is built again quietly (a fresh quote, then the build; the line stays, the button off and busy), at most 3 times without anyone touching the panel; then 'Refresh price' (tap = a new price, the next tap buys); nothing is asked for an absent person", async () => {
   const w = walletOf();
   const g = gated(() => TX({ quote: QUOTE({ expiresAt: LATER() }) }));

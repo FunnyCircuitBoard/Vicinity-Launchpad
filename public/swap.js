@@ -362,7 +362,9 @@
     }
     /* ----- state ----- */
     phase(p, extra = {}) {
-      Object.assign(this.s, { phase: p }, extra); this.render();
+      // a failure is soft ("Try again": the price is built again) only when it says so: a Cancel earlier on must never turn a later
+      // trade's "could not confirm" or the chain's refusal into "Try again", which would buy the same amount a second time
+      Object.assign(this.s, { phase: p }, p === "failed" ? { soft: false } : null, extra); this.render();
       // a trade that ended (done, failed) while the keyboard was in the panel: it lands on the button ("Swap again", "Try again"),
       // never on the page's body, so Enter goes on working
       if (this.refocus && !this.locked) {
