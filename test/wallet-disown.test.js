@@ -1,11 +1,12 @@
 // "Wasn't you? Remove it" (src/walletlink.js handleDisown) and the safety net around a link made in ANOTHER browser (a wallet app's
 // claim, or a pairing a wallet app approved): for 7 days an older browser of the account may take the wallet off WITHOUT that wallet's
 // proof, and with it every browser that wallet signed in and everything it did since; meanwhile the sessions that wallet made may not
-// change the password, the e-mail, the username, or unlink (linkLocked). E-mail accounts get a short e-mail. Plus: a session a wallet
-// made is renewed while it is used (src/auth.js renewSession).
+// change the password, the e-mail, the username or the home, or unlink (linkLocked), while the owner's own fresh login may change the
+// username (ownerFresh). E-mail accounts get a short e-mail. Plus: a session a wallet made in that browser is renewed while it is used,
+// up to 90 days (src/auth.js renewSession).
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { DAY, HOUR, V2, advance, browser, linkBody, loginBody, realClock, useClock } from "./helpers/world.js";
+import { DAY, HOUR, IN_NYC, V2, advance, attest, browser, linkBody, loginBody, realClock, useClock, wallet } from "./helpers/world.js";
 import { GOOD_PASSWORD, member, one, outbox, userOf } from "./helpers/signup.js";
 import { buildMessage, parseMessage } from "../src/solana.js";
 import { walletLinkedEmail } from "../src/mail.js";
@@ -17,6 +18,7 @@ after(() => realClock());
 const near = { country: "US", latitude: 43.1, longitude: -75.2 };
 const PHONE = { ip: "198.51.100.7", cf: { ...near, asn: 21928, asOrganization: "T-Mobile USA, Inc." } };
 const ELSEWHERE = { ip: "203.0.113.9", cf: { ...near, asn: 7922, asOrganization: "Comcast Cable" } };
+const THIEF_PHONE = { ip: "203.0.113.77", cf: { ...near, asn: 7922, asOrganization: "Comcast Cable" } };
 const NEW_PASSWORD = "another long passphrase here";
 
 async function safari(opts = {}) {
@@ -41,6 +43,14 @@ async function linkInApp(m, w = m.w, { app = "phantom", fetchImpl } = {}) {
   return b;
 }
 const disown = (b) => b.send("/api/me/wallet/disown", { method: "POST", body: {} });
+/** The owner logs out of browser `b` and logs in to the same Google account again there (a new session, never proven by a wallet). */
+async function googleLogin(b, sub) {
+  await b.send("/api/auth/logout", { method: "POST", body: {} });
+  const st = await b.send("/api/auth/google/start");
+  const state = new URL(st.headers.get("location")).searchParams.get("state");
+  const google = async () => new Response(JSON.stringify({ id_token: "x." + Buffer.from(JSON.stringify({ iss: "accounts.google.com", aud: "gid", sub, given_name: "Sam" })).toString("base64url") + ".y" }));
+  await b.send(`/api/auth/google/callback?code=c&state=${state}`, { fetchImpl: google });
+}
 const err = async (r) => [r.status, (await r.clone().json()).error];
 const count = async (sql, ...p) => (await one(env.DB, `SELECT COUNT(*) AS n FROM ${sql}`, ...p)).n;
 function capture() {
@@ -117,8 +127,9 @@ test("who may: an older session or a never-proven login made after the link (Goo
   assert.deepEqual(await err(await disown(q.b)), [409, "no_wallet"]);
 });
 
-test("a pairing a wallet app approved (via 'pair') gets the same: Safari may remove it; the browser that finished the pairing itself is not asked", async () => {
+test("a pairing a wallet app approved (via 'pair') gets the same: Safari may remove it, also the very browser that finished the pairing (finishing proves nothing about whose wallet approved)", async () => {
   const m = await safari();
+  advance(60_000); // (Safari was logged in before it started the pairing)
   const p = await m.b.post("/api/pair", { purpose: "link" });
   const phone = browser(env, PHONE); // the wallet app approving
   const approve = await phone.post("/api/auth/wallet", { ...(await linkBody(m.w, m.u.handle, p.pin)), pair: p.code });
@@ -126,7 +137,10 @@ test("a pairing a wallet app approved (via 'pair') gets the same: Safari may rem
   const fin = await m.b.post("/api/pair/finish", { code: p.code });
   assert.equal(fin.linked, true);
   assert.equal((await one(env.DB, "SELECT wallet_via FROM users WHERE id = ?", m.u.id)).wallet_via, "pair");
-  assert.equal((await m.b.get("/api/me")).walletNew.notMe, false, "Safari finished the link itself (its proof IS the link): it is not asked 'was this you?'");
+  // (moved on purpose, review finding safety-F1: this was false, "its proof IS the link". It is not: whoever held the pair code could
+  // have approved first, and on a phone's pairing fallback this Safari is the owner's only older browser. It keeps "Remove it".)
+  const saf = await m.b.get("/api/me");
+  assert.deepEqual([saf.walletNew.notMe, saf.walletNew.via, saf.walletNew.wallet], [true, "pair", `${m.w.address.slice(0, 4)}…${m.w.address.slice(-4)}`]);
   // a computer that was logged in before (another older session) is asked, and may remove it
   const g = await m.b.send("/api/auth/google/start"); // (a second login of the same Google account, on a computer)
   const comp = browser(env, ELSEWHERE);
@@ -138,6 +152,39 @@ test("a pairing a wallet app approved (via 'pair') gets the same: Safari may rem
   assert.equal((await comp.get("/api/me")).walletNew.notMe, true);
   assert.equal((await disown(comp)).status, 200);
   assert.equal(await count("pairs WHERE user_id = ? AND purpose = 'link'", m.u.id), 0);
+});
+
+test("the pairing swap (review finding safety-F1): a stranger who got the pair code approves FIRST with their own wallet; Safari's poll finishes the link, names the wallet, and may remove it; the stranger's wallet sign-ins go with it", async () => {
+  const m = await safari();
+  advance(60_000);
+  const p = await m.b.post("/api/pair", { purpose: "link" });
+  const thiefWallet = await wallet();
+  const thief = browser(env, ELSEWHERE);
+  const pin = (await thief.get(`/api/pair?code=${p.code}`)).pin; // the check number is no secret
+  assert.equal((await thief.post("/api/auth/wallet", { ...(await linkBody(thiefWallet, m.u.handle, pin)), pair: p.code })).paired, true);
+  assert.equal((await m.b.post("/api/pair/finish", { code: p.code })).linked, true, "Safari's poll links whatever wallet approved");
+  assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", m.u.id)).wallet, thiefWallet.address);
+  const saf = await m.b.get("/api/me");
+  assert.deepEqual([saf.walletNew.notMe, saf.walletNew.wallet], [true, `${thiefWallet.address.slice(0, 4)}…${thiefWallet.address.slice(-4)}`], "the wallet that joined, masked: not the owner's");
+  const signedIn = browser(env, THIEF_PHONE);
+  assert.equal((await signedIn.post("/api/auth/wallet", await loginBody(thiefWallet))).ok, true, "the stranger signs in with it");
+  assert.equal((await disown(signedIn)).status, 403, "never from the wallet's own sessions");
+  // Safari, within its 30 minutes: Remove it
+  assert.equal((await disown(m.b)).status, 200);
+  assert.equal((await signedIn.get("/api/me?lite=1")).signedIn, false, "the stranger is out");
+  assert.deepEqual(await err(await browser(env, ELSEWHERE).send("/api/auth/wallet", { method: "POST", body: await loginBody(thiefWallet) })), [404, "no_account"], "and can't sign in again");
+  // an older Safari (more than 30 minutes) logs in again first, as for any Remove it
+  const n = await safari({ sub: "g-swap2" });
+  advance(60_000);
+  const p2 = await n.b.post("/api/pair", { purpose: "link" });
+  const t2 = await wallet();
+  await thief.post("/api/auth/wallet", { ...(await linkBody(t2, n.u.handle, (await thief.get(`/api/pair?code=${p2.code}`)).pin)), pair: p2.code });
+  await n.b.post("/api/pair/finish", { code: p2.code });
+  advance(31 * 60_000);
+  assert.deepEqual(await err(await disown(n.b)), [403, "relogin"]);
+  await googleLogin(n.b, n.sub);
+  assert.equal((await disown(n.b)).status, 200);
+  assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", n.u.id)).wallet, null);
 });
 
 test("the attack the lock stops: the wallet app's session (a stranger with a forwarded link) can't set a password, change the e-mail or the username, or unlink; the owner's Remove it then clears a password set since the link and logs out every other browser", async () => {
@@ -152,6 +199,11 @@ test("the attack the lock stops: the wallet app's session (a stranger with a for
   assert.deepEqual(await err(await thief.send("/api/me/contact/email/remove", { method: "POST", body: {} })), [403, "link_new"]);
   assert.deepEqual(await err(await thief.send("/api/me/contact/email/verify", { method: "POST", body: { email: "x@example.com", code: "123456" } })), [403, "link_new"]);
   assert.deepEqual(await err(await thief.send("/api/me/wallet/unlink", { method: "POST", body: {} })), [403, "link_new"]);
+  // nor move the owner's home community (review finding safety-F2: Remove it does not move it back, and a move restarts the owner's week)
+  const home0 = await one(env.DB, "SELECT home_city, home_at FROM users WHERE id = ?", m.u.id);
+  const moved = await thief.send("/api/home", { method: "POST", body: { attestation: await attest(thief, IN_NYC, "home") } });
+  assert.deepEqual(await err(moved), [403, "link_new"]);
+  assert.deepEqual(await one(env.DB, "SELECT home_city, home_at FROM users WHERE id = ?", m.u.id), home0, "the home is untouched");
   assert.equal((await m.b.get("/api/me?lite=1")).signedIn, true, "the owner is still in");
   // with the CURRENT password (only the owner knows it) a change is fine, and is recorded as set since the link
   const known = await thief.send("/api/me/password", { method: "POST", body: { current: GOOD_PASSWORD, password: NEW_PASSWORD } });
@@ -194,8 +246,14 @@ test("whatever the wallet joined since the link goes with it: a seat taken since
   const seat = await db.prepare("INSERT INTO seats (city_id, city_name, country, user_id, wallet, policy, threshold, status, created_at) VALUES ('5106834', 'Albany', 'US', ?, ?, 5, 1, 'steward', ?) RETURNING id").bind(m.u.id, m.w.address, at).first();
   assert.equal((await disown(m.b)).status, 200, "a seat or squad place made with that wallet never blocks Remove it");
   assert.deepEqual(await one(env.DB, "SELECT status, end_reason FROM seats WHERE id = ?", seat.id), { status: "void", end_reason: "wallet_disowned" });
-  const rec = await one(env.DB, "SELECT action, target_type, target_id, reason FROM mod_actions WHERE target_id = ?", seat.id);
-  assert.deepEqual(rec, { action: "void_seat", target_type: "seat", target_id: seat.id, reason: "wallet_disowned" });
+  const rec = await one(env.DB, "SELECT actor_id, actor_role, action, target_type, target_id, reason, note FROM mod_actions WHERE target_id = ?", seat.id);
+  // (moved on purpose, review finding safety-F4: the record named the owner as its actor, so the PUBLIC log said whose account was taken
+  // over and src/elections.js credited the owner with a "good" moderation action. Now a neutral record: no actor, plain words.)
+  assert.deepEqual(rec, { actor_id: null, actor_role: "system", action: "void_seat", target_type: "seat", target_id: seat.id, reason: "wallet_removed", note: "Seat ended: the wallet was removed from the account." });
+  const audit = await browser(env).get("/api/audit");
+  const shown = audit.actions.find((a) => a.action === "void_seat");
+  assert.ok(shown && !JSON.stringify(shown).includes(m.u.handle) && !/disown|owner|another app/i.test(JSON.stringify(shown)), JSON.stringify(shown));
+  assert.equal((await one(env.DB, "SELECT COUNT(CASE WHEN state IN ('confirmed', 'approved', 'done') THEN 1 END) AS good FROM mod_actions WHERE actor_id = ?", m.u.id)).good, 0, "no moderation service credit");
   assert.equal((await one(env.DB, "SELECT withdrawn FROM applications WHERE user_id = ?", m.u.id)).withdrawn, 1);
   assert.equal(await count("squad_members WHERE user_id = ?", m.u.id), 0);
   assert.equal((await one(env.DB, "SELECT status FROM squads WHERE id = ?", sq.id)).status, "disbanded");
@@ -318,4 +376,30 @@ test("only a session a WALLET made in this browser is renewed (review finding sa
   }
   assert.ok(lastOk - made <= 90 * DAY && lastOk - made > 75 * DAY, `signed in until day ${(lastOk - made) / DAY}`);
   assert.equal((await app.get("/api/me?lite=1")).signedIn, false, "after 90 days: one signature again");
+});
+
+test("the owner's way through the lock (review finding ux-UX-1): Safari, logged in again within 30 minutes, changes the username without the wallet (which lives in the wallet app, whose sessions are locked); before that it is told to log in again, never sent to the wallet app", async () => {
+  const m = await safari();
+  advance(60_000);
+  const app = await linkInApp(m);
+  assert.deepEqual(await err(await app.send("/api/me/username", { method: "POST", body: { username: "TakenByApp1" } })), [403, "link_new"], "the wallet app's session: still locked");
+  advance(31 * 60_000);
+  const old = await m.b.send("/api/me/username", { method: "POST", body: { username: "MyOwnName1" } });
+  assert.equal(old.status, 403);
+  assert.deepEqual(await old.json(), { ok: false, error: "reprove", relogin: true }, "Safari's old login: log in again (the page offers that, not Phantom)");
+  await googleLogin(m.b, m.sub);
+  const ok = await m.b.send("/api/me/username", { method: "POST", body: { username: "MyOwnName1" } });
+  assert.equal(ok.status, 200, await ok.clone().text());
+  assert.equal((await one(env.DB, "SELECT handle FROM users WHERE id = ?", m.u.id)).handle, "MyOwnName1");
+  assert.deepEqual(await err(await app.send("/api/me/username", { method: "POST", body: { username: "TakenByApp2" } })), [403, "link_new"], "the claim session still can't");
+  // after the 7 days: the usual rule again (a wallet proof), no "log in again" hint
+  advance(7 * DAY);
+  await googleLogin(m.b, m.sub);
+  const after = await m.b.send("/api/me/username", { method: "POST", body: { username: "MyOwnName2" } });
+  assert.deepEqual(await after.json(), { ok: false, error: "reprove" });
+  // an account whose wallet was linked on the page (no window): unchanged
+  const p = await safari({ sub: "g-page2", net: ELSEWHERE });
+  await p.b.post("/api/me/wallet/link", await linkBody(p.w, p.u.handle));
+  advance(31 * 60_000);
+  assert.deepEqual(await (await p.b.send("/api/me/username", { method: "POST", body: { username: "PageName1" } })).json(), { ok: false, error: "reprove" });
 });

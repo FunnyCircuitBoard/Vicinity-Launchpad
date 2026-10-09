@@ -38,7 +38,8 @@
  * What nothing can prove behind a relay: that Safari and the wallet app are the same phone. Someone talked into forwarding their own
  * fresh link to a person in the same country, who opens it within 2 minutes, can link THEIR wallet to the account. So for 7 days an
  * older browser of the account (Safari) sees "Connected in Phantom. Wasn't you? Remove it" (handleDisown), e-mail accounts get an
- * e-mail, and the sessions that wallet made may not change the password, e-mail, username or unlink (linkLocked) meanwhile.
+ * e-mail, and the sessions that wallet made may not change the password, e-mail, username or home community, or unlink (linkLocked)
+ * meanwhile; the owner's own logins can (a username change from an older browser needs only a fresh login then: ownerFresh).
  *
  * The statement a wallet signs names the account ("Link this wallet to my Vicinity account @handle", src/solana.js), so a
  * signature made for one account can never link the wallet to another, and a login statement never links (src/auth.js
@@ -97,17 +98,28 @@ async function limited(env, now, specs) {
 export const linkWindow = (u, now) => Boolean(u && u.wallet && (u.wallet_via === "app" || u.wallet_via === "pair") && u.wallet_at && now - Date.parse(u.wallet_at) < NOTE_MS);
 /**
  * May this session say "that wasn't me" about the account's wallet? A session made BEFORE the link, or never proven by a wallet (a Google,
- * e-mail or password login), and not the very browser that finished the link (a computer that finished a pairing: its proof IS the link).
+ * e-mail or password login). That includes the browser that FINISHED a pairing (Safari's poll, a computer's QR screen): finishing proves
+ * nothing about whose wallet approved it (whoever held the pair code could have approved first), and on a phone's pairing fallback that
+ * Safari is the owner's only older browser: it keeps "Wasn't you? Remove it" (the masked wallet says which one).
  */
-export const mayDisown = (s, u) => Boolean(s && u && u.wallet_at && (s.created_at < u.wallet_at || !s.proven_at) && s.proven_at !== u.wallet_at);
+export const mayDisown = (s, u) => Boolean(s && u && u.wallet_at && (s.created_at < u.wallet_at || !s.proven_at));
 /**
  * During those 7 days, the sessions the linked wallet made (the wallet app's claim session, and any wallet sign-in since) may not change
- * the password (without the current one), the e-mail, the username, or unlink: so a stranger who linked their wallet with a forwarded
- * link can't lock the owner out before the owner sees "Remove it". A session made since the link by Google, e-mail or a password (never
- * proven by a wallet) is the owner's own: not locked. Answers 403 link_new where it applies (src/me.js, src/pwlogin.js, handleUnlink).
+ * the password (without the current one), the e-mail, the username or the home community, or unlink: so a stranger who linked their
+ * wallet with a forwarded link can't lock the owner out, take their name or move their home before the owner sees "Remove it" (and
+ * can't unlink to hide the notice and link again quietly). A session made since the link by Google, e-mail or a password (never proven by
+ * a wallet) is the owner's own: not locked. Answers 403 link_new where it applies (src/me.js, src/pwlogin.js, handleUnlink).
  */
 export const linkLocked = (s, now) => Boolean(s && s.user && linkWindow(s.user, now) && s.created_at >= s.user.wallet_at && s.proven_at);
-export const lockedAnswer = (u) => json({ ok: false, error: "link_new", until: iso(Date.parse(u.wallet_at) + NOTE_MS) }, 403);
+export const lockedAnswer = (u) => json({ ok: false, error: "link_new", until: iso(Date.parse(u.wallet_at) + NOTE_MS), ...(u.wallet_app ? { app: u.wallet_app } : {}) }, 403);
+/**
+ * The owner's way through those 7 days: an older browser of the account (mayDisown: Safari, where the person was logged in before) can't
+ * prove the linked wallet (it may be a stranger's, and on a phone it lives in the wallet app, whose sessions are the locked ones), so a
+ * login made there in the last 30 minutes (Google, the e-mail code or a password: the same rule as "Remove it") counts as fresh for a
+ * username change instead. ownerCould: this browser could, once it logs in again (the page offers "Log in again", not the wallet app).
+ */
+export const ownerCould = (s, now) => Boolean(s && s.user && linkWindow(s.user, now) && mayDisown(s, s.user));
+export const ownerFresh = (s, now) => ownerCould(s, now) && now - Date.parse(s.created_at) <= POLICY.freshProofMinutes * 60_000;
 
 /**
  * Link `wallet` to the account of session `s`: ONE transaction. The account takes the wallet only while it has none and nobody
@@ -445,10 +457,12 @@ async function handleUnlink(request, env, x) {
 /**
  * POST /api/me/wallet/disown: "Wasn't you? Remove it". In the 7 days after a wallet joined the account from ANOTHER browser (a wallet
  * app's claim, or a pairing), an older browser of the account (made before the link, or by Google, e-mail or a password) takes it off
- * WITHOUT that wallet's proof, and everything a stranger could have done with it goes: every other session of the account (the wallet
- * app's, any wallet sign-in, a password login made with a password set meanwhile), a password set since the link, the live link codes and
- * link pairings, and whatever the account joined since the link (a seat is voided with a public moderation record and no cooldown, an
- * application withdrawn, a squad place left; a squad left empty is disbanded). Only from a login made in the last 30 minutes (a stolen
+ * WITHOUT that wallet's proof, and with it what would let a stranger stay in or keep a hold on the account: every other session of the
+ * account (the wallet app's, any wallet sign-in, a password login made with a password set meanwhile), a password set since the link, the
+ * live link codes and link pairings, and whatever the account joined since the link (a seat is voided with a neutral public record and no
+ * cooldown, an application withdrawn, a squad place left; a squad left empty is disbanded). What such a session merely SAID or did in
+ * public meanwhile stays (posts, check-ins, votes, endorsements: the owner can delete their posts); the lock (linkLocked) is what keeps
+ * the password, the e-mail, the home community and the wallet itself out of its reach. Only from a login made in the last 30 minutes (a stolen
  * old cookie can't): 403 relogin otherwise, and the page logs in again. Refused: too_late (more than 7 days, or the link was made in this
  * very way of the account's own: page or transfer), not_allowed (this session is the wallet's own), seat_or_application (a seat,
  * application or squad place from BEFORE the link: never on an account that had no wallet). Logs the masked wallet only.
@@ -474,9 +488,11 @@ async function handleDisown(request, env, x) {
   const now = iso(x.now);
   const q = (sql, ...more) => env.DB.prepare(sql).bind(u.id, u.wallet, wa, ...more);
   const res = await env.DB.batch([
-    // a seat taken since the link: voided (no cooldown for the owner), with a public moderation record like any ended seat
+    // a seat taken since the link: voided (no cooldown for the owner), with a public record like any ended seat. A NEUTRAL one: no actor
+    // (the public log, /api/audit, never names the member as the victim of anything, and src/elections.js credits moderation service
+    // by actor: nobody gains from it), and words that say only what happened to the seat
     q(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, note, created_at, state)
-        SELECT ?1, 'member', 'void_seat', 'seat', id, ?1, country, city_id, 'wallet_disowned', 'The account owner removed a wallet linked from another app.', ?4, 'done'
+        SELECT NULL, 'system', 'void_seat', 'seat', id, ?1, country, city_id, 'wallet_removed', 'Seat ended: the wallet was removed from the account.', ?4, 'done'
         FROM seats WHERE user_id = ?1 AND status IN ('provisional', 'active', 'grace', 'steward') AND created_at >= ?3 AND ${still}`, now),
     q(`UPDATE squads SET status = 'disbanded' WHERE status = 'seated' AND id IN (SELECT a.squad_id FROM seats st JOIN applications a ON a.id = st.application_id
         WHERE st.user_id = ?1 AND st.status IN ('provisional', 'active', 'grace', 'steward') AND st.created_at >= ?3) AND ${still}`),

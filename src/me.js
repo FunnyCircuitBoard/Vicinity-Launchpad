@@ -8,7 +8,7 @@
  */
 import { json, readJson } from "./http.js";
 import { cleanEmail, consumeEmailCode, getSession, isFresh, providers, renewSession, validEmail } from "./auth.js";
-import { linkLocked, linkWindow, lockedAnswer, mayDisown } from "./walletlink.js";
+import { linkLocked, linkWindow, lockedAnswer, mayDisown, ownerCould, ownerFresh } from "./walletlink.js";
 import { access } from "./access.js";
 import { countRecent, noteEvent, useAttestation } from "./attest.js";
 import { activeMint } from "./official.js";
@@ -288,12 +288,15 @@ export const reservedUsername = (s) => {
  * POST /api/me/username { username } → change the public username.
  * First come, first served: it must not match any existing username (any casing), nor look like one
  * (I / l / 1, O / 0, underscores), nor pass for the project or its staff. At most 3 changes a day.
- * Needs a fresh wallet proof, like other identity changes.
+ * Needs a fresh wallet proof, like other identity changes. In the 7 days after a wallet joined from another app: never from the sessions
+ * that wallet made (link_new), and an older browser of the account may instead have logged in within 30 minutes (src/walletlink.js
+ * ownerFresh); its "reprove" then says relogin: true (the page offers "Log in again" rather than the wallet app, which would refuse).
  */
 export async function handleUsername(request, env, now = Date.now()) {
-  const a = await access(request, env, now, { fresh: true });
+  const a = await access(request, env, now);
   if (a.error) return a.error;
   if (linkLocked(a.s, now)) return lockedAnswer(a.u); // the 7 days after a link from another app: not from that wallet's sessions
+  if (!isFresh(a.s, now) && !ownerFresh(a.s, now)) return json({ ok: false, error: "reprove", ...(ownerCould(a.s, now) ? { relogin: true } : {}) }, 403);
   const body = await readJson(request);
   const username = typeof body?.username === "string" ? body.username.trim() : "";
   if (!validUsername(username)) return json({ ok: false, error: "bad_username" }, 400);
@@ -375,11 +378,14 @@ export async function handlePhone(request, env, now = Date.now()) {
 /**
  * POST /api/home { attestation, choice? }
  * Inside a community → that's home. In empty land → pick one of the three nearest (send `choice`).
- * Locked for a week after setting it, and while you hold or are applying for a founder seat.
+ * Locked for a week after setting it, and while you hold or are applying for a founder seat. In the 7 days after a wallet joined from
+ * another app, not from the sessions that wallet made (link_new): a stranger with a forwarded link could otherwise move the owner's home
+ * (which also resets the owner's week and their "home for 7 days" vote rule), and "Remove it" does not move it back.
  */
 export async function handleHome(request, env, now = Date.now()) {
   const a = await access(request, env, now);
   if (a.error) return a.error;
+  if (linkLocked(a.s, now)) return lockedAnswer(a.u);
   const u = a.u, db = env.DB;
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
