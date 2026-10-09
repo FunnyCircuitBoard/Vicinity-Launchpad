@@ -203,7 +203,7 @@ test("public: member counts per community, live holder list and anyone's rank (n
   await person(env, { home: IN_UTICA }); await person(env, { home: IN_UTICA }); await person(env, { home: IN_NYC });
   const m = await browser(env).get("/api/members");
   assert.equal(m.members, 3);
-  assert.deepEqual(m.communities[0], { id: "5142056", name: "Utica", country: "US", members: 2, holders: 0 });
+  assert.deepEqual(m.communities[0], { id: "5142056", name: "Utica", country: "US", members: 2, holders: null }, "no balance sample yet: holders unknown (null), not 0");
 
   const x = await wallet(), y = await wallet();
   assert.equal((await browser(env).get(`/api/rank?address=${x.address}`)).launched, false);

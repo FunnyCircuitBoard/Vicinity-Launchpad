@@ -5,13 +5,18 @@
   const W = window.VW;
   const LVL = { moderator: 1, admin: 2, owner: 3 };
   const TABS = [
-    ["overview", "Overview", 1], ["users", "Users", 1], ["seats", "Seats", 1],
+    ["overview", "Overview", 1], ["inbox", "Inbox", 1], ["users", "Users", 1], ["seats", "Seats", 1],
     ["elections", "Elections", 1], ["tokens", "Tokens", 1], ["content", "Content", 1],
     ["snapshots", "Snapshots", 1], ["config", "Config", 2], ["roles", "Roles", 3],
     ["audit", "Audit", 1], ["testlab", "Test lab", 3],
   ];
   let me = null, config = null, activeTab = "overview";
   let adapter = null, address = null, message = null;
+  // the Inbox: how many messages are new (the badge on its tab and the browser title), refreshed every 20 seconds while the page is open
+  const INBOX_POLL_MS = 20_000;
+  let inboxNew = 0, inboxTimer = null;
+  let inboxReload = null; // the Inbox tab's own reload while that tab is open: the poll calls it when the count moved, so the list is live too
+  const baseTitle = document.title;
 
   const errBox = $("#admin-error");
   const setErr = (m) => { errBox.textContent = m || ""; errBox.hidden = !m; };
@@ -124,23 +129,48 @@
     if (config && config.ok && config.siteMode === "preview") $("#admin-banner").hidden = false;
     renderTabs();
     showTab("overview");
+    startInboxPolling();
+  }
+
+  /* ---------- the Inbox badge: new messages, every 20 seconds while this page is open ---------- */
+  function setInboxNew(n) {
+    if (n === inboxNew) return;
+    inboxNew = n;
+    const badge = $("#inbox-badge");
+    if (badge) { badge.textContent = String(n); badge.hidden = !n; badge.setAttribute("aria-label", `${n} new`); }
+    document.title = n ? `(${n}) ${baseTitle}` : baseTitle;
+  }
+  async function pollInbox() {
+    if (!me || document.visibilityState === "hidden") return; // a hidden tab asks again when it comes back
+    const d = await api("/api/admin/feedback/count");
+    if (!d || !d.ok) return;
+    const n = Number(d.new) || 0, moved = n !== inboxNew;
+    setInboxNew(n);
+    if (moved && activeTab === "inbox" && inboxReload) inboxReload();
+  }
+  function startInboxPolling() {
+    if (inboxTimer) return;
+    pollInbox();
+    inboxTimer = setInterval(pollInbox, INBOX_POLL_MS);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") pollInbox(); });
   }
 
   /* ---------- tabs ---------- */
   function renderTabs() {
     $("#admin-tabs").replaceChildren(...TABS.filter(([, , n]) => can(n)).map(([id, label]) => {
       const b = el("button", null, label); b.type = "button";
+      if (id === "inbox") { const badge = el("span", "tab-badge", String(inboxNew)); badge.id = "inbox-badge"; badge.hidden = !inboxNew; badge.setAttribute("aria-label", `${inboxNew} new`); b.append(badge); }
       b.setAttribute("role", "tab"); b.setAttribute("aria-selected", id === activeTab ? "true" : "false");
       b.addEventListener("click", () => showTab(id));
       return b;
     }));
   }
   function showTab(id) {
-    activeTab = id; renderTabs();
-    const p = $("#admin-panel"); p.replaceChildren(el("p", "muted", "Loading…"));
-    ({ overview: tabOverview, users: tabUsers, seats: tabSeats, elections: tabElections, tokens: tabTokens,
+    activeTab = id; renderTabs(); inboxReload = null;
+    const p = $("#admin-panel"), loading = el("p", "muted", "Loading…"); p.replaceChildren(loading);
+    ({ overview: tabOverview, inbox: tabInbox, users: tabUsers, seats: tabSeats, elections: tabElections, tokens: tabTokens,
        content: tabContent, snapshots: tabSnapshots, config: tabConfig, roles: tabRoles,
-       audit: tabAudit, testlab: tabTestlab })[id](p).catch((e) => p.replaceChildren(el("p", null, `Couldn't load: ${e.message}`)));
+       audit: tabAudit, testlab: tabTestlab })[id](p).then(() => loading.remove()).catch((e) => p.replaceChildren(el("p", null, `Couldn't load: ${e.message}`)));
   }
   const h2 = (t) => el("h2", null, t);
   const refresh = () => showTab(activeTab);
@@ -194,6 +224,106 @@
     const sg = el("div", "admin-grid");
     Object.entries(d.seats).forEach(([st, n]) => { const s = el("div", "stat"); s.append(el("b", null, String(n)), el("span", null, st)); sg.append(s); });
     p.append(sg);
+  }
+
+  /* ---------- tab: inbox (the Feedback / Support messages, src/feedback.js) ---------- */
+  const KIND_LABEL = { question: "Question", bug: "Bug report", city: "City request" };
+  const kindTag = (kind) => el("span", `inbox-kind inbox-kind--${kind}`, KIND_LABEL[kind] || kind);
+  const fromOf = (x) => (x.handle ? `@${String(x.handle).replace(/^@/, "")}` : x.user_id ? `member #${x.user_id}` : "visitor (not signed in)");
+  async function tabInbox(p) {
+    p.append(h2("Inbox"));
+    p.append(el("p", "muted", "Questions, bug reports and city requests sent with the Feedback button on every page, newest first. Open one to read it, mark it seen or done, copy the e-mail and leave a note for the team. The list refreshes by itself when a new message arrives."));
+    const row = el("div", "admin-row");
+    const status = el("select");
+    [["open", "new & seen"], ["new", "new"], ["seen", "seen"], ["done", "done"], ["all", "all"]].forEach(([v, l]) => { const o = el("option", null, l); o.value = v; status.append(o); });
+    const kind = el("select");
+    [["", "all kinds"], ["question", "questions"], ["bug", "bug reports"], ["city", "city requests"]].forEach(([v, l]) => { const o = el("option", null, l); o.value = v; kind.append(o); });
+    row.append(field("Status", status), field("Kind", kind), btn("Refresh", () => load()));
+    p.append(row);
+    const counts = el("p", "muted small"); counts.id = "inbox-counts"; p.append(counts);
+    const detail = el("div"); detail.id = "inbox-detail"; p.append(detail);
+    const list = el("div"); list.id = "inbox-list"; p.append(list);
+    let openId = null, shown = null; // the open message's id and the row it was drawn from
+    status.addEventListener("change", () => load()); kind.addEventListener("change", () => load());
+    /** After a change: say so, show the item as the server now has it, then reload the list in place (the filters stay). */
+    const changed = async (r, what) => { if (r && r.ok) { toast(`${what} ✓`); if (r.item) show(r.item); await load(); } else toast(r && ERRORS[r.error] ? ERRORS[r.error] : `Failed: ${r && r.error ? r.error : "unknown"}`); return r; };
+    const closeItem = () => { openId = null; shown = null; detail.replaceChildren(); };
+    async function load() {
+      const d = await api(`/api/admin/feedback?status=${encodeURIComponent(status.value)}&kind=${encodeURIComponent(kind.value)}&limit=100`);
+      if (!d.ok) { list.replaceChildren(el("p", null, "Couldn't load the inbox.")); return; }
+      setInboxNew(Number(d.counts.new) || 0);
+      counts.textContent = `${d.counts.new} new · ${d.counts.seen} seen · ${d.counts.done} done`;
+      list.replaceChildren(table(["When", "Kind", "From", "Message", "Page", "Status", ""], d.items, (tr, x) => {
+        if (x.status === "new") tr.className = "inbox-row--new";
+        td(tr, ago(x.created_at));
+        const k = el("td"); k.append(kindTag(x.kind)); tr.append(k);
+        td(tr, fromOf(x));
+        const text = x.kind === "city" ? `${x.city}, ${x.country}${x.message ? " — " + x.message : ""}` : x.message || "";
+        td(tr, text.slice(0, 90), "inbox-preview");
+        monoTd(tr, x.page || "—");
+        td(tr, x.status, `inbox-status inbox-status--${x.status}`);
+        const act = el("td"); act.append(btn("Open", () => show(x, true))); tr.append(act);
+      }));
+      if (d.more) list.append(el("p", "muted small", "The newest 100 are shown; narrow the filters for older ones."));
+      // the open item stays open, redrawn only when the server's row changed (so a note being typed is never disturbed), and it
+      // stays even when the filters no longer list it (the admin closes it)
+      if (openId) {
+        const again = d.items.find((i) => i.id === openId);
+        if (again && (!shown || again.updated_at !== shown.updated_at || again.status !== shown.status || (again.admin_note || "") !== (shown.admin_note || ""))) show(again);
+      }
+    }
+    /**
+     * The open message, above the list. `scroll`: it was just opened from a row (which may be far down), so bring it into view.
+     * A note typed but not yet saved survives a redraw of the same item (keyboard and caret included) and travels with the next
+     * status change, so Mark seen / done never throws typing away.
+     */
+    function show(x, scroll = false) {
+      const old = $("#inbox-note");
+      const typed = old && openId === x.id && old.value !== ((shown && shown.admin_note) || "")
+        ? { value: old.value, focus: document.activeElement === old, start: old.selectionStart, end: old.selectionEnd } : null;
+      openId = x.id; shown = x;
+      const box = el("div", "inbox-item"); box.id = "inbox-item";
+      const hd = el("div", "inbox-item__head");
+      hd.append(el("h3", null, `#${x.id}`), kindTag(x.kind), el("span", `inbox-status inbox-status--${x.status}`, x.status), el("span", "muted small", ago(x.created_at)));
+      box.append(hd);
+      if (x.kind === "city") box.append(el("p", null, `${x.city}, ${x.country}`));
+      box.append(el("p", "inbox-msg", x.message || "(no message)"));
+      const facts = el("dl", "inbox-facts");
+      const fact = (k, v) => { facts.append(el("dt", null, k)); const dd = el("dd"); if (v && typeof v === "object") dd.append(v); else dd.textContent = v == null || v === "" ? "—" : String(v); facts.append(dd); };
+      fact("From", fromOf(x));
+      if (x.email && x.email !== "(hidden)") { const s = el("span"); s.append(el("span", "mono", x.email), " ", btn("Copy", () => window.V.copy(x.email, "E-mail copied"))); fact("E-mail", s); }
+      else fact("E-mail", x.email === "(hidden)" ? "hidden for moderators" : "none given");
+      if (x.page) { const a = el("a", "mono", x.page); a.href = x.page; a.target = "_blank"; a.rel = "noopener"; fact("Page", a); } else fact("Page", null);
+      fact("Browser", x.ua);
+      fact("Updated", x.updated_at ? ago(x.updated_at) : null);
+      box.append(facts);
+      // the note first (the status buttons send it along when it changed)
+      const note = el("textarea"); note.id = "inbox-note"; note.maxLength = 500; note.value = typed ? typed.value : (x.admin_note || ""); note.placeholder = "A note for the team (never sent to the person)";
+      const noteChanged = () => note.value !== (x.admin_note || "");
+      const hint = el("p", "muted small inbox-note-hint", "Unsaved note: it is saved with Save note, Mark seen or Mark done."); hint.id = "inbox-note-hint"; hint.hidden = !noteChanged();
+      note.addEventListener("input", () => { hint.hidden = !noteChanged(); });
+      const withNote = (body) => (noteChanged() ? { ...body, note: note.value } : body);
+      const acts = el("div", "admin-row");
+      const setStatus = (s, label) => btn(label, async () => changed(await post("/api/admin/feedback/update", withNote({ id: x.id, status: s })), `Marked ${s}`));
+      if (x.status !== "seen") acts.append(setStatus("seen", "Mark seen"));
+      if (x.status !== "done") acts.append(setStatus("done", "Mark done"));
+      if (x.status !== "new") acts.append(setStatus("new", "Reopen"));
+      if (can(2)) acts.append(btn("Delete", async () => {
+        if (!sure("Delete this message for good? The text, the e-mail and the note go with it (the deletion itself is logged).")) return;
+        const r = await post("/api/admin/feedback/delete", { id: x.id });
+        if (r && r.ok) { toast("Deleted ✓"); closeItem(); await load(); } else toast(r && ERRORS[r.error] ? ERRORS[r.error] : `Failed: ${r && r.error ? r.error : "unknown"}`);
+      }));
+      acts.append(btn("Close", () => { if (noteChanged() && !sure("Close without saving the note?")) return; closeItem(); }));
+      box.append(acts);
+      const noteRow = el("div", "admin-row");
+      noteRow.append(field("Admin note", note), btn("Save note", async () => changed(await post("/api/admin/feedback/update", { id: x.id, note: note.value }), "Note saved")));
+      box.append(noteRow, hint);
+      detail.replaceChildren(box);
+      if (typed && typed.focus) { note.focus({ preventScroll: true }); try { note.setSelectionRange(typed.start, typed.end); } catch { /* not every browser */ } }
+      if (scroll && typeof box.scrollIntoView === "function") box.scrollIntoView({ block: "start" });
+    }
+    inboxReload = load;
+    await load();
   }
 
   /* ---------- tab: users ---------- */

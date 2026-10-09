@@ -257,14 +257,14 @@ const post = (path, who, body = {}) => call(path, { method: "POST", cookie: who.
 test("every POST route needs a fresh wallet proof, GET routes do not", async () => {
   const owner = await sessionFor(OWNER, { stale: true });
   const POSTS = ["users/ban", "users/unban", "seats/decide", "objections/decide", "elections/create", "tokens/register",
-    "reports/decide", "appeals/decide", "snapshots/create", "roles/grant", "roles/revoke", "test/seed", "test/reset", "test/preview-role"];
+    "reports/decide", "appeals/decide", "snapshots/create", "roles/grant", "roles/revoke", "test/seed", "test/reset", "test/preview-role", "feedback/update"];
   for (const route of POSTS) {
     const r = await post("/api/admin/" + route, owner);
     assert.equal(r.status, 403, route);
     assert.equal((await r.json()).error, "reprove", route);
   }
   for (const route of ["overview", "users", "seats", "claims", "objections", "elections", "tokens", "reports", "appeals",
-    "snapshots", "config", "roles", "audit"]) {
+    "snapshots", "config", "roles", "audit", "feedback", "feedback/count"]) {
     assert.equal((await call("/api/admin/" + route, { cookie: owner.cookie })).status, 200, route);
   }
   // the role is still checked before the proof
