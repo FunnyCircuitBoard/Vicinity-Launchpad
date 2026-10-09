@@ -50,12 +50,28 @@
     return sig;
   }
 
+  // A silent connect (connectSilently(), used by public/swap.js inside a wallet app's own browser): the account the wallet ALREADY
+  // shares with this site, and never a question to the person. Anything else (no account, a refusal, an error, or no answer within
+  // SILENT_MS: a wallet that is asking the person after all) is null, and an answer that comes later is dropped.
+  const SILENT_MS = 2500;
+  /** `p`'s answer, or null when it has not come within `ms`. */
+  const within = (p, ms) => new Promise((resolve, reject) => {
+    const t = setTimeout(() => resolve(null), ms);
+    Promise.resolve(p).then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+  /** The Solana account of a list of Wallet Standard accounts (the first one when none names a chain), or null. */
+  const solanaAccount = (list) => {
+    const all = Array.isArray(list) ? list : list && typeof list[Symbol.iterator] === "function" ? [...list] : [];
+    const acc = all.find((a) => a && (a.chains || []).some((c) => String(c).startsWith("solana:"))) || all[0] || null;
+    return acc && typeof acc.address === "string" && acc.address ? acc : null;
+  };
   const versionsOf = (feature) => { const v = feature && feature.supportedTransactionVersions; return v ? [...v] : ["legacy"]; };
   /** The first answer of a Wallet Standard call ([{ ... }] by the standard; some wallets give the object itself). */
   const firstOf = (out) => (Array.isArray(out) ? out[0] : out);
   // Wallet Standard wallets. Besides connect and signMessage (what signing in needs), the swap panel (public/swap.js) uses
   // "solana:signAndSendTransaction" (serialized bytes + chain in, the signature out: the wallet broadcasts itself) and, for wallets
-  // that only sign, "solana:signTransaction" (the signed bytes out; our Worker relays them). canSend / canSign / txVersions say
+  // that only sign, "solana:signTransaction" (the signed bytes out; our Worker relays them), and inside a wallet app's own browser
+  // connectSilently (the account the wallet already shares with this site, never a prompt). canSend / canSign / txVersions say
   // which a wallet offers, chains which networks its account is on. Nothing here ever needs a page library.
   function standard(w) {
     const send = w.features["solana:signAndSendTransaction"], sign = w.features["solana:signTransaction"];
@@ -68,6 +84,22 @@
         const acc = accounts.find((a) => (a.chains || []).some((c) => String(c).startsWith("solana:"))) || accounts[0];
         if (!acc) throw new Error("No account was shared.");
         this.account = acc; return acc.address;
+      },
+      /**
+       * The account this wallet already shares with this site, never a prompt: the accounts it lists already, else "standard:connect"
+       * with { silent: true } (the standard's own "do not ask": a site the person allowed before gets its account back, any other
+       * none or a refusal). The address, or null (see SILENT_MS).
+       */
+      async connectSilently() {
+        try {
+          let acc = solanaAccount(w.accounts);
+          if (!acc) {
+            const out = await within(w.features["standard:connect"].connect({ silent: true }), SILENT_MS);
+            acc = out ? solanaAccount(out.accounts) || solanaAccount(w.accounts) : null;
+          }
+          if (!acc) return null;
+          this.account = acc; return acc.address;
+        } catch { return null; }
       },
       async signMessage(bytes) {
         return signatureOf(await w.features["solana:signMessage"].signMessage({ account: this.account, message: bytes }));
@@ -113,6 +145,19 @@
         const pk = r?.publicKey || p.publicKey;
         if (!pk) throw new Error("No account was shared.");
         return pk.toString();
+      },
+      /**
+       * The account already shared with this site, never a prompt: the one connected already, else connect({ onlyIfTrusted: true }),
+       * asked only of the wallets known to keep that promise (Phantom, Backpack; any other is not asked at all). The address, or null.
+       */
+      async connectSilently() {
+        try {
+          if (p.isConnected && p.publicKey) return p.publicKey.toString();
+          if (!p.isPhantom && !p.isBackpack) return null;
+          const r = await within(p.connect({ onlyIfTrusted: true }), SILENT_MS);
+          const pk = r ? r.publicKey || p.publicKey : null;
+          return pk ? pk.toString() : null;
+        } catch { return null; }
       },
       async signMessage(bytes) { return signatureOf(await p.signMessage(bytes, "utf8")); },
       async disconnect() { try { await p.disconnect(); } catch {} },

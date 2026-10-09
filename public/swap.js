@@ -9,7 +9,8 @@
 // from a tap). A build is good for 40 s, then made again by itself while the page is looked at (at most 3 times while nobody
 // touches the panel; then "Refresh price"). A phone without a wallet opens this page inside its wallet app with the trade filled
 // in (swap_in / swap_out / swap_amt / swap_slip / swap_open in the address, read once, never bought by itself); a computer shows
-// the same address as a QR code for the phone's camera.
+// the same address as a QR code for the phone's camera. Inside the wallet app, a person signed in with that wallet finds the panel
+// already connected (the wallet's silent connect: never a prompt), so the Buy tap is the first one.
 //   window.VSwap = { mount(el, opts), open(opts), refresh() }; every element with data-swap mounts itself
 //   (data-in / data-out = mints or "SOL"; data-mode = buy | trade | swap; data-title).
 // Needs window.V (site.js) and window.VW (wallets.js). Nothing here runs when the switch is off (/api/official has no swap key).
@@ -34,6 +35,8 @@
   const TOUCH = ["click", "input", "keydown", "change"]; // what tells a panel somebody is there
   const APP_KEY = "vicinity.walletApp"; // the wallet app (a VW.KNOWN id) this person opened last: offered first
   const AUTO_KEY = "vicinity.swapAuto"; // this browser's automatic builds of the last minute, shared by its tabs
+  const TAB_KEY = "vicinity.swapWallet"; // sessionStorage: the wallet this tab connected with a tap (a wallet app's next page starts connected)
+  const APP_WAIT_MS = 3000; // a wallet app's browser may put its wallet on the page this late (site.js / signup.js wait as long)
   const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   /** Bytes to base58 (a signature, 64 bytes). */
   function base58(bytes) {
@@ -117,10 +120,11 @@
   const tokenOf = (mint) => (config && config.tokens.find((t) => t.mint === mint)) || null;
   const symbolOf = (mint, fallback) => { const t = tokenOf(mint); return t ? (t.kind === "vicinity" ? "$VICINITY" : t.kind === "city" ? `$${(t.symbol || t.name || "COIN").toUpperCase().replace(/^\$/, "")}` : t.symbol) : fallback || shortAddr(mint); };
   const decimalsOf = (mint) => { const t = tokenOf(mint); return t ? t.decimals : 6; };
-  const wallet = { adapter: null, address: null, listeners: new Set() };
+  // silent: connected by the page itself inside a wallet app (connectSilently below), not by a tap on this page
+  const wallet = { adapter: null, address: null, silent: false, listeners: new Set() };
   const onWallet = (f) => { wallet.listeners.add(f); return () => wallet.listeners.delete(f); };
   let helpIds = 0;
-  function setWallet(adapter, address) { wallet.adapter = adapter; wallet.address = address; for (const f of wallet.listeners) { try { f(); } catch { /* one panel's trouble is its own */ } } }
+  function setWallet(adapter, address, silent = false) { wallet.adapter = adapter; wallet.address = address; wallet.silent = silent; for (const f of wallet.listeners) { try { f(); } catch { /* one panel's trouble is its own */ } } }
   const panels = new Set();
   // this browser's automatic builds (every panel, every tab): when each started, and none at all until slowUntil (after a 429).
   // Read from localStorage before every use (another tab may have built meanwhile) and written back after; storage that is off
@@ -141,6 +145,46 @@
   const lastApp = () => { try { const v = window.localStorage.getItem(APP_KEY); return typeof v === "string" && /^[a-z0-9]{2,24}$/.test(v) ? v : null; } catch { return null; } };
   const rememberApp = (id) => { try { window.localStorage.setItem(APP_KEY, id); } catch { /* storage off: nothing remembered */ } };
 
+  /* ---------------------------------------------------------------- inside a wallet app: connected from the start */
+  // In a wallet app's own browser (Phantom, Solflare, Backpack...: site.js's walletApp.here()) a person signed in to Vicinity with that
+  // wallet does not tap "Connect wallet" and then the only wallet of a one-line list on every page: once per page, when the first panel
+  // mounts, and only when exactly one wallet is on the page (it may come up to APP_WAIT_MS late) and it is that app's own, the wallet
+  // is asked SILENTLY for the account it already shares with this site (wallets.js connectSilently: never a question to the person).
+  // Its answer is taken only when it is the signed-in person's wallet (/api/me?lite=1, which site.js reads on every page anyway: no
+  // extra request) or the wallet this tab connected with a tap before (sessionStorage); otherwise nothing changes ("Connect wallet").
+  // Taken, every panel is connected (setWallet) and the exact price is built as usual once a typed amount settles; buying is still
+  // the person's own tap, confirmed in the wallet's own sheet. Never asked: a computer, a phone's Safari or Chrome (no wallet on the
+  // page), two wallets, a person with no account here and no tap in this tab. Dropped: an answer that comes after the person tapped
+  // Connect wallet themselves (their choice is on the screen) or after another wallet was connected.
+  const tabWallet = () => { try { const v = JSON.parse(window.sessionStorage.getItem(TAB_KEY) || "null"); return v && typeof v.address === "string" && isAddr(v.address) ? v.address : null; } catch { return null; } };
+  const keepTabWallet = (a, address) => { try { window.sessionStorage.setItem(TAB_KEY, JSON.stringify({ address, name: a.name })); } catch { /* storage off: the next page asks again */ } };
+  let silentP = null;
+  const autoConnect = () => (silentP ||= connectInApp().catch(() => null));
+  /** The wallet app's account, connected without a tap when it is recognised (see above); the address, or null. */
+  async function connectInApp() {
+    const w = W(), wa = window.V.walletApp;
+    if (!w || !w.isMobile || !wa || typeof wa.here !== "function" || typeof w.knownFor !== "function") return null;
+    if (!w.list().length) {
+      await new Promise((resolve) => {
+        let off = null;
+        const t = setTimeout(() => { if (typeof off === "function") off(); resolve(); }, APP_WAIT_MS);
+        off = w.onChange(() => { if (!w.list().length) return; if (typeof off === "function") off(); clearTimeout(t); resolve(); });
+      });
+    }
+    const list = w.list(), app = wa.here(), a = list.length === 1 ? list[0] : null;
+    if (!a || !app || !w.inWalletApp() || typeof a.connectSilently !== "function") return null;
+    const own = w.knownFor(a.name);
+    if (!own || own.id !== app.id) return null; // the wallet on the page is not this wallet app's own
+    const me = window.V.ready && typeof window.V.ready.then === "function" ? await window.V.ready.catch(() => null) : null;
+    const want = new Set([me && me.signedIn && me.user ? me.user.wallet : null, tabWallet()].filter((x) => typeof x === "string" && isAddr(x)));
+    const choosing = () => wallet.adapter || [...panels].some((p) => !p.walletBox.hidden);
+    if (!want.size || choosing()) return null; // nobody to recognise: the wallet is not even asked
+    const address = await a.connectSilently();
+    if (typeof address !== "string" || !want.has(address) || choosing()) return null;
+    setWallet(a, address, true);
+    return address;
+  }
+
   /** A coloured mark with the token's first letter (no outside images: the security policy allows only this site). */
   function mark(mint, label) {
     const s = el("span", "swap__mark", (label || "?").replace(/^\$/, "")[0].toUpperCase());
@@ -155,8 +199,9 @@
   // "Open in Phantom" (a phone) and the QR code (a computer) carry the panel's pair, amount and slippage in the page's own address:
   // swap_in, swap_out (a mint, or SOL / USDC / USDT), swap_amt, swap_slip (basis points) and swap_open=1 (the panel was the bottom
   // sheet, or the dashboard: another browser has no session there, so the sheet opens at once over whatever the page shows).
-  // Read ONCE on load, checked against the verified list before anything is filled in, never built or bought by itself; then
-  // only the swap_* params leave the address bar (its other params and the hash stay). Anyone can post such a link, so a link
+  // Read ONCE on load, checked against the verified list before anything is filled in, never built or bought by itself (a panel
+  // that connected by itself in the wallet app keeps the link's trade unbuilt until the person taps: "Tap Buy to get your price");
+  // then only the swap_* params leave the address bar (its other params and the hash stay). Anyone can post such a link, so a link
   // may LOWER the slippage but never raise it past the default 1% (more is the person's own choice, typed or tapped here).
   const LINK_KEYS = ["swap_in", "swap_out", "swap_amt", "swap_slip", "swap_open"];
   const LINK_NOTE = "Filled in from your link. Check the amount.";
@@ -268,6 +313,7 @@
       if (!this.s.out && config) this.s.out = config.tokens.find((t) => t.kind === "vicinity")?.mint || null;
       this.loadBalances();
       offerLink(this);
+      autoConnect(); // inside a wallet app: connected from the start when it safely can be (once per page)
     }
     /** In the bottom sheet (VSwap.open), not on the page itself. */
     get inSheet() { return Boolean(this.root.closest && this.root.closest(".swap-sheet")); }
@@ -424,8 +470,17 @@
       s.quote = null; s.curve = null;
       this.note.textContent = t.slipRefused ? `${LINK_NOTE} Slippage stays ${s.slippage / 100}%: a link cannot raise it.` : LINK_NOTE; this.note.hidden = false;
       if (t.amt) { this.inAmt.value = t.amt; this.onAmount(); } else this.render();
+      this.linkKey = this.tradeKey(); // the link's trade, as filled in (see linkHeld)
       this.loadBalances();
     }
+    /** The trade on the panel: pair, amount, slippage. */
+    tradeKey() { const s = this.s; return `${s.in}|${s.out}|${s.amount}|${s.slippage}`; }
+    /**
+     * The trade on the screen is still exactly the one a link filled in, and nobody tapped to connect on this page (the wallet app's
+     * silent connect did): a link never builds by itself, so the price waits for the person's tap ("Tap Buy to get your price").
+     * Typing another amount, slippage or pair makes it their own trade, built as usual.
+     */
+    get linkHeld() { return Boolean(wallet.silent && this.linkKey && this.linkKey === this.tradeKey()); }
     /** Brings a panel filled from a link into view (it may sit screens below the top) and puts the keyboard on its amount. */
     reveal() {
       setTimeout(() => {
@@ -500,7 +555,8 @@
     }
     /**
      * A quote landed. With a wallet that can trade here, the exact transaction is built next ("Getting your exact price…" at once,
-     * the build itself SETTLE_MS after the last keystroke); past the page's budget, or after a 429, the person taps for it instead.
+     * the build itself SETTLE_MS after the last keystroke); past the page's budget, after a 429, or for a link's trade the person has
+     * not tapped for yet (linkHeld), the person taps for it instead.
      * Without a wallet (or with one that cannot sign, or is on the wrong chain) the preview refreshes every 12 s as before.
      */
     afterQuote() {
@@ -508,7 +564,7 @@
       const s = this.s;
       if (this.locked) return; // never a build (nor the signature's watch cleared) while a trade is on its way
       if (this.connected && this.canSendHere && !this.wrongChain && s.quote && s.hold === null) {
-        if (!autoAllowed()) { s.hold = "manual"; this.render(); return this.scheduleRefresh(); }
+        if (this.linkHeld || !autoAllowed()) { s.hold = "manual"; this.render(); return this.scheduleRefresh(); }
         this.phase("building", { error: null, sig: null, moved: false, refreshed: false });
         this.buildT = setTimeout(() => this.prepare("auto"), Math.max(0, this.typedAt + SETTLE_MS - Date.now()));
         return;
@@ -710,7 +766,7 @@
         b.addEventListener("click", async () => {
           try {
             const keys = box.contains(document.activeElement) && !w.isMobile; // a keyboard on a computer (a phone would pop its keyboard over the price)
-            const address = await a.connect(); box.hidden = true; this.share = []; setWallet(a, address); toast(`Connected ${shortAddr(address)}`);
+            const address = await a.connect(); box.hidden = true; this.share = []; setWallet(a, address); if (w.isMobile) keepTabWallet(a, address); toast(`Connected ${shortAddr(address)}`);
             if (keys && !this.dead) { try { this.inAmt.focus({ preventScroll: true }); } catch { /* no focus */ } } // the box that had the keyboard is gone: on to the amount (Enter there = the button)
           }
           catch (e) { this.phase("failed", { error: { error: isReject(e) ? "rejected" : "rejected_by_network" }, soft: true }); }
