@@ -39,6 +39,12 @@ export const PUBLIC_LIMITS = {
   // minute per connection leaves room for a crowd; Jupiter itself is protected by the per-server budget (JUPITER_RPS), not here.
   swap_quote:     { max: 180, windowMs: MIN },
   swap_tx:        { max: 20, windowMs: MIN },
+  // the Buy panel's own builds, made BEFORE the tap so the exact price is on the screen (public/swap.js, `?auto=1`): counted
+  // apart from the taps, so a crowd behind one address (a carrier, iCloud Private Relay) that is only reading its prices can
+  // never use up the builds a Buy tap needs. One browser builds by itself at most 8 times a minute, about 2 a minute while a
+  // price just sits there and none after 3 quiet rebuilds: 60 is two or three dozen people reading, or seven typing at once.
+  // Past it a page simply waits for the tap ("Tap Buy to get your price").
+  swap_tx_auto:   { max: 60, windowMs: MIN },
   swap_send:      { max: 20, windowMs: MIN },
   // the status poll is counted per SIGNATURE first (STATUS_LIMIT below: one person's polling never consumes another's);
   // the per-connection number is only the brake on a flood of invented signatures (each poll is one RPC call)
@@ -48,9 +54,16 @@ export const PUBLIC_LIMITS = {
   // curve trades on our launchpad (LAUNCHPAD_TRADING=on, src/lptrade.js): the launchpad RPC on every call
   lp_quote:       { max: 60, windowMs: MIN },
   lp_tx:          { max: 20, windowMs: MIN },
+  lp_tx_auto:     { max: 60, windowMs: MIN }, // the curve's builds before the tap, apart from the taps (see swap_tx_auto)
 };
-/** A per-WALLET counter on top of the per-connection one (src/swap.js, src/lptrade.js): one wallet cannot burn the Jupiter or RPC budget from many connections. */
+/**
+ * A per-WALLET counter on top of the per-connection one (src/swap.js, src/lptrade.js): one wallet cannot burn the Jupiter or RPC
+ * budget from many connections. The automatic builds have their own (`<kind>_auto_wallet`, the same 15 a minute), so a person's
+ * own taps never find their wallet's builds used up by the prices their pages made by themselves.
+ */
 export const WALLET_LIMIT = { max: 15, windowMs: MIN };
+/** The counter of a transaction build: `kind` for a tap, `kind_auto` for a build the page made by itself (`?auto=1` on the route). */
+export const buildKind = (request, kind) => { try { return new URL(request.url).searchParams.get("auto") === "1" ? `${kind}_auto` : kind; } catch { return kind; } };
 /** Per SIGNATURE for GET /api/swap/status: a page polls every 2 seconds (30 a minute); two tabs watching one trade still fit. */
 export const STATUS_LIMIT = { max: 60, windowMs: MIN };
 

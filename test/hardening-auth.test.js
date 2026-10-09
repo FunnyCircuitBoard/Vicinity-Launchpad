@@ -104,6 +104,8 @@ test("the numbers: verify 30, transfer 30 and pair 20 per 10 minutes per connect
     // real limit is per signature (STATUS_LIMIT, 60 a minute: one trade's polling never uses up a neighbour's)
     swap_quote: { max: 180, windowMs: MIN }, swap_tx: { max: 20, windowMs: MIN }, swap_send: { max: 20, windowMs: MIN }, swap_status: { max: 600, windowMs: MIN },
     swap_balances: { max: 60, windowMs: MIN }, swap_tokens: { max: 30, windowMs: MIN }, lp_quote: { max: 60, windowMs: MIN }, lp_tx: { max: 20, windowMs: MIN },
+    // the Buy panel's own builds before the tap (?auto=1) have their own counters: they can never use up a tap's 20
+    swap_tx_auto: { max: 60, windowMs: MIN }, lp_tx_auto: { max: 60, windowMs: MIN },
   });
   assert.deepEqual(STATUS_LIMIT, { max: 60, windowMs: MIN });
   assert.deepEqual(WALLET_LIMIT, { max: 15, windowMs: MIN });
