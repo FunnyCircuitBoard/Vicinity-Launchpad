@@ -370,27 +370,46 @@ test("back in Safari after installing the app (the tab stayed, minutes went by):
 });
 
 test("Phantom opened the link but on another connection (status 'refused', review finding ux-UX-2): Safari says why, hides 'press and hold', and the pairing becomes THE button", async () => {
-  for (const [relay, words] of [[false, "Phantom opened your link, but it is on another internet connection (Wi-Fi and mobile data?), so the link can't be used there. Approve in Phantom instead: that way works on any connection."],
-    [true, "Phantom opened your link, but it seems to be in another country (travelling?), so the link can't be used there. Approve in Phantom instead: that way works anywhere."]]) {
-    const { p, world } = await safari();
-    world.relay = relay;
-    await p.tap(tile(p));
-    await p.setHidden(true);
-    world.status = "refused";
-    await p.setHidden(false); await p.flush();
-    assert.equal(p.$("#carry-error").textContent, words);
-    assert.equal(p.visible(p.$("#carry-hint")), false, "never 'press and hold': Phantom DID open it");
-    assert.equal(p.visible(p.$("#carry-open")), false);
-    assert.equal(p.$("#carry-pair").className, "btn btn--primary btn--block");
-    assert.equal(p.$("#carry-pair").textContent, "Approve in Phantom instead");
-    await p.advance(130_000);
-    assert.equal(world.codes, 1, "a refused relay link is not renewed away");
-    // ...and if the right connection opens it after all, the ordinary screen comes back
-    world.status = "opened"; await p.advance(3000);
-    assert.equal(p.$("#carry-status-text").textContent, "Phantom opened your link…");
-    assert.equal(p.$("#carry-pair").className, "link-btn");
-    world.status = "refused"; // (a later refusal of an opened link changes nothing on screen)
-  }
+  const { p, world } = await safari();
+  await p.tap(tile(p));
+  await p.setHidden(true);
+  world.status = "refused";
+  await p.setHidden(false); await p.flush();
+  assert.equal(p.$("#carry-error").textContent, "Phantom opened your link, but it is on another internet connection (Wi-Fi and mobile data?), so the link can't be used there. Approve in Phantom instead: that way works on any connection.");
+  assert.equal(p.visible(p.$("#carry-hint")), false, "never 'press and hold': Phantom DID open it");
+  assert.equal(p.visible(p.$("#carry-open")), false);
+  assert.equal(p.visible(p.$("#carry-renew")), false);
+  assert.equal(p.$("#carry-pair").className, "btn btn--primary btn--block");
+  assert.equal(p.$("#carry-pair").textContent, "Approve in Phantom instead");
+  // ...and if the right connection opens it after all, the ordinary screen comes back
+  world.status = "opened"; await p.advance(3000);
+  assert.equal(p.$("#carry-status-text").textContent, "Phantom opened your link…");
+  assert.equal(p.$("#carry-pair").className, "link-btn");
+  world.status = "refused"; // (a later refusal of an opened link changes nothing on screen)
+});
+
+test("a RELAY link opened in another country or through a VPN (status 'refused', relay; audit SEC-2): never 'approve instead' as the button (the pairing is bound to nothing): neutral words, a new link is the button, the pairing stays the quiet way", async () => {
+  const { p, world } = await safari();
+  world.relay = true;
+  await p.tap(tile(p));
+  await p.setHidden(true);
+  world.status = "refused";
+  await p.setHidden(false); await p.flush();
+  assert.equal(p.$("#carry-error").textContent, "Your link was opened in another country or through a VPN, so it can't be used there. If that wasn't you, someone else has your link: get a new one, and never send it to anyone.");
+  assert.doesNotMatch(p.$("#carry-error").textContent, /Approve in/, "the words never steer the person to the pairing");
+  for (const id of ["#carry-open", "#carry-hint", "#carry-pinrow"]) assert.equal(p.visible(p.$(id)), false, id);
+  assert.equal(p.visible(p.$("#carry-renew")), true, "Get a new link: THE button");
+  assert.equal(p.$("#carry-pair").className, "link-btn", "the pairing: a quiet link, never the button");
+  assert.equal(p.$("#carry-pair").textContent, "Didn't work? Approve in Phantom and finish here instead");
+  await p.advance(130_000);
+  assert.equal(world.codes, 1, "a refused relay link is not renewed away behind the person's back (the screen says why)");
+  // the tap: a new link (the old one dies on the server), the ordinary screen again
+  world.status = "waiting";
+  await p.tap(p.$("#carry-renew"));
+  assert.equal(world.codes, 2);
+  assert.equal(p.visible(p.$("#carry-open")), true);
+  assert.equal(p.$("#carry-error").textContent, "");
+  assert.equal(p.$("#carry-pair").className, "link-btn");
 });
 
 test("the link this tab kept is forgotten when it is linked, and a bad or foreign one is never shown", async () => {

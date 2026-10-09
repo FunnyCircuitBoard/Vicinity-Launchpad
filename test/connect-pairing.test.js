@@ -264,16 +264,18 @@ test("(3) an Android phone behind a relay (a VPN) is not told about its 'iPhone'
 });
 
 test("(3) the carry_network message quotes the button exactly as Safari shows it once the link was refused there (status 'refused')", async () => {
-  const { p } = await safari({ relay: false });
-  await p.tap(phantomTile(p));
-  assert.equal(p.$("#carry-pair").textContent, "Didn't work? Approve in Phantom and finish here instead");
-  // Phantom opened it on another connection: Safari's poll learns it, and its pairing becomes "Approve in Phantom instead"
-  const fetch0 = p.win.fetch;
-  p.win.fetch = async (path, init) => (String(path).startsWith("/api/me/wallet/carry/status") ? { ok: true, status: 200, json: async () => ({ ok: true, status: "refused" }) } : fetch0(path, init));
-  await p.advance(3000);
-  const label = p.$("#carry-pair").textContent;
-  assert.equal(label, "Approve in Phantom instead");
-  for (const relay of [false, true]) {
+  // an ordinary link: "Approve in Phantom instead" (the button); a relay link (audit SEC-2): the quiet "Didn't work? ..." under "Get a new link"
+  for (const [relay, want] of [[false, "Approve in Phantom instead"], [true, "Didn't work? Approve in Phantom and finish here instead"]]) {
+    const { p } = await safari({ relay: false }); // (a code is made: the status below says whether it was a relay one)
+    await p.tap(phantomTile(p));
+    assert.equal(p.$("#carry-pair").textContent, "Didn't work? Approve in Phantom and finish here instead");
+    // Phantom opened it on another connection (or a relay link: in another country): Safari's poll learns it
+    const fetch0 = p.win.fetch;
+    p.win.fetch = async (path, init) => (String(path).startsWith("/api/me/wallet/carry/status") ? { ok: true, status: 200, json: async () => ({ ok: true, status: "refused", ...(relay ? { relay: true } : {}) }) } : fetch0(path, init));
+    await p.advance(3000);
+    const label = p.$("#carry-pair").textContent;
+    assert.equal(label, want);
+    assert.equal(p.visible(p.$("#carry-pair")), true);
     const said = p.win.VSignup.pure.carryNetwork("Phantom", relay);
     const quoted = said.match(/tap “([^”]+)”/)[1];
     assert.equal(quoted, label, `“${quoted}” is the button “${label}”`);

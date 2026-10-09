@@ -143,14 +143,16 @@ test("phones live inside the wallet app (owner decision F4): the words of the li
   assert.equal(P.carryHint("Phantom", "iphone"), "Phantom didn't open Vicinity? Press and hold “Open Phantom”, then choose “Open in Phantom”. No Phantom yet? Get it first.");
   assert.equal(P.carryHint("Phantom", "chrome"), "Phantom didn't open Vicinity? Make sure Phantom is installed, then tap “Open Phantom” again. Or tap “Didn't work?” below.");
   assert.equal(P.carryHint("Phantom", "other"), "Phantom didn't open Vicinity? Make sure Phantom is installed, or open this page in Chrome and try again.");
-  // the wallet app DID open it, but on another connection / from another country: the pairing is the way (review finding ux-UX-2)
+  // the wallet app DID open it, but on another connection: the pairing is the way (review finding ux-UX-2); a relay link opened in another
+  // country or through a VPN is rarely the person: neutral words, a new link (audit SEC-2: never steered to the pairing, bound to nothing)
   assert.equal(P.carryRefused("Phantom", false), "Phantom opened your link, but it is on another internet connection (Wi-Fi and mobile data?), so the link can't be used there. Approve in Phantom instead: that way works on any connection.");
-  assert.equal(P.carryRefused("Phantom", true), "Phantom opened your link, but it seems to be in another country (travelling?), so the link can't be used there. Approve in Phantom instead: that way works anywhere.");
+  assert.equal(P.carryRefused("Phantom", true), "Your link was opened in another country or through a VPN, so it can't be used there. If that wasn't you, someone else has your link: get a new one, and never send it to anyone.");
+  assert.equal(P.carryPairQuiet("Phantom"), "Didn't work? Approve in Phantom and finish here instead");
   // the dead-link screen and its causes, in the wallet app
   assert.equal(P.errText("carry_expired", "app"), "This link is old. Go back to Safari or Chrome and tap “Connect wallet” again.");
   assert.equal(P.errText("carry_opened"), "For your safety it no longer works. Go back to Safari or Chrome and tap “Get a new link”. That stops the old one.");
   assert.match(P.errText({ error: "carry_network" }), /^Your wallet app and Safari are on different internet connections \(Wi-Fi and mobile data\?\)\./);
-  assert.equal(P.carryNetwork("Phantom", true), "Your wallet app and Safari seem to be in different countries (travelling?). Go back to Safari or Chrome and tap “Approve in Phantom instead”: that way works anywhere.");
+  assert.equal(P.carryNetwork("Phantom", true), "This link works only in the country where you made it, and not through a VPN. Travelling? Go back to Safari or Chrome and tap “Didn't work? Approve in Phantom and finish here instead”: that way works anywhere.");
   assert.equal(P.errText({ error: "carry_network", relay: true }), P.carryNetwork(null, true));
   assert.equal(P.ERR.carry_contested, "Someone else opened your link. It no longer works. Get a new link.");
   assert.equal(P.ERR.carry_ranout, "That link ran out. Get a new link.", "(review finding ux-UX-7: the 2-minute rule is the server's, never in the words)");

@@ -194,6 +194,36 @@ test("CARRY_RELAY=off stops the relay links already handed out (audit SEC-1): on
   assert.equal((await claimWith(pa, plain.code, p.w, { app: "phantom" })).status, 200);
 });
 
+test("relay: a server or a commercial VPN in Safari's own country can't open a relay link (audit SEC-2): carry_network, nothing bound, Safari hears 'refused'; Tor neither; the phone's own carrier (or WARP) still can", async () => {
+  const US = { country: "US", latitude: 39.0, longitude: -77.5 };
+  const hosts = [
+    { ip: "3.90.1.2", cf: { ...US, asn: 16509, asOrganization: "Amazon.com, Inc." } },
+    { ip: "45.88.1.2", cf: { ...US, asn: 212238, asOrganization: "Datacamp Limited" } },
+    { ip: "45.88.2.2", cf: { ...US, asn: 9009, asOrganization: "M247 Europe SRL" } },
+    { ip: "185.220.101.1", cf: { country: "T1", asn: 60729, asOrganization: "Stiftung Erneuerbare Freiheit" } }, // Tor
+  ];
+  const m = await safari();
+  const made = await carry(m.b);
+  for (const net of hosts) {
+    const r = await info(browser(env, net), made.code);
+    assert.deepEqual([r.status, await r.json()], [403, { ok: false, error: "carry_network", relay: true }], net.cf.asOrganization);
+    assert.deepEqual(r.headers.getSetCookie(), []);
+  }
+  assert.deepEqual(await one(env.DB, "SELECT opener, result FROM handoffs"), { opener: null, result: null }, "nothing bound");
+  assert.deepEqual(await status(m.b, made.ref), { ok: true, status: "refused", relay: true });
+  // the statement and the claim from such a server: refused the same way (it never opened the code anyway)
+  const sw = await wallet();
+  const vps = browser(env, hosts[0]);
+  assert.equal((await claimWith(vps, made.code, sw)).body.error, "carry_network");
+  // the phone's own mobile data still opens and claims it; so does a wallet app behind Cloudflare WARP (a relay, not a server)
+  const app = browser(env, CARRIER);
+  assert.equal((await info(app, made.code)).status, 200);
+  assert.equal((await claimWith(app, made.code, m.w)).status, 200);
+  const n = await safari(RELAY, { sub: "g-warp" });
+  const made2 = await carry(n.b);
+  assert.equal((await info(browser(env, { ip: "104.28.1.2", cf: { ...US, asn: 13335, asOrganization: "Cloudflare, Inc." } }), made2.code)).status, 200);
+});
+
 test("the owner can find the CARRY_RELAY emergency switch: docs/DEPLOY.md names it, where it lives (the Cloudflare dashboard, never wrangler.jsonc) and what `off` does", () => {
   const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
   const row = read("docs/DEPLOY.md").split("\n").find((l) => l.startsWith("| `CARRY_RELAY`"));

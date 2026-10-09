@@ -83,17 +83,25 @@
       ? `${name} didn't open Vicinity? Make sure ${name} is installed, then tap “Open ${name}” again. Or tap “Didn't work?” below.`
       : `${name} didn't open Vicinity? Make sure ${name} is installed, or open this page in Chrome and try again.`);
   /**
-   * The wallet app DID open the link, but the server could not let it in there (carry/status "refused"): Wi-Fi in one app and mobile data
-   * in the other, or (`relay`, behind iCloud Private Relay) another country. The pairing works on any connection: it becomes the button.
+   * The link was opened, but the server could not let it in there (carry/status "refused"). An ordinary link: the wallet app is on another
+   * connection (Wi-Fi in one app and mobile data in the other), and the pairing, which works on any connection, becomes the button. A relay
+   * link (`relay`, behind iCloud Private Relay): it was opened in another country or through a server or a VPN, which is rarely the person
+   * (audit SEC-2: the pairing is bound to nothing, so it is never pushed then): a new link is the button (it kills this one), and the
+   * pairing stays the quiet way for a phone abroad.
    */
   const carryRefused = (name, relay) => (relay
-    ? `${name} opened your link, but it seems to be in another country (travelling?), so the link can't be used there. Approve in ${name} instead: that way works anywhere.`
+    ? "Your link was opened in another country or through a VPN, so it can't be used there. If that wasn't you, someone else has your link: get a new one, and never send it to anyone."
     : `${name} opened your link, but it is on another internet connection (Wi-Fi and mobile data?), so the link can't be used there. Approve in ${name} instead: that way works on any connection.`);
+  /** The pairing under the "Open <app>" screen (the quiet way; after a relay link was refused, still the quiet way). */
+  const carryPairQuiet = (name) => `Didn't work? Approve in ${name || "your wallet app"} and finish here instead`;
   /**
-   * The wallet app opened the link on another connection (or, `relay`, from another country): what its dead screen says. It quotes the
-   * button Safari shows then (carry/status "refused": the pairing, "Approve in Phantom instead"), `name` = this wallet app.
+   * The wallet app opened the link on another connection (or, `relay`, from another country or through a VPN): what its dead screen says.
+   * It quotes the button Safari shows then (carry/status "refused"): the pairing, "Approve in Phantom instead"; for a relay link the quiet
+   * one, "Didn't work? Approve in Phantom and finish here instead". `name` = this wallet app.
    */
-  const carryNetwork = (name, relay) => `${relay ? "Your wallet app and Safari seem to be in different countries (travelling?)." : "Your wallet app and Safari are on different internet connections (Wi-Fi and mobile data?)."} Go back to Safari or Chrome and tap “Approve in ${name || "your wallet app"} instead”: that way works ${relay ? "anywhere" : "on any connection"}.`;
+  const carryNetwork = (name, relay) => (relay
+    ? `This link works only in the country where you made it, and not through a VPN. Travelling? Go back to Safari or Chrome and tap “${carryPairQuiet(name)}”: that way works anywhere.`
+    : `Your wallet app and Safari are on different internet connections (Wi-Fi and mobile data?). Go back to Safari or Chrome and tap “Approve in ${name || "your wallet app"} instead”: that way works on any connection.`);
   /**
    * The three ways a wallet with no account is told where to go. `inApp` = a wallet app's own browser (Google can't run there), `name` its
    * name, `returning` = this browser has a hint of a member who connected a wallet before (the "more than one wallet" sentence is for them).
@@ -237,7 +245,7 @@
   /** The wallet answers the sign-up page deals with itself (connect.js hands them to walletProven instead of showing a plain error). */
   const HANDLED = ["no_account", "wallet_taken", "has_wallet", "wrong_wallet", "link_done", "use_link"];
 
-  window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, resetField, relayWhy, carryLead, carrySmall, linkLead, carryHint, carryRefused, carryNetwork, noAccountCopy, linkedCopy, SAME_EMAIL, ERR, HANDLED } };
+  window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, resetField, relayWhy, carryLead, carrySmall, linkLead, carryHint, carryRefused, carryPairQuiet, carryNetwork, noAccountCopy, linkedCopy, SAME_EMAIL, ERR, HANDLED } };
 
   /* ================= the controller ================= */
   function start(ctx) {
@@ -917,14 +925,15 @@
       const get = $("#carry-get"); get.href = c.k.site; text("#carry-get", `No ${name} on this phone? Get it first.`);
       const a = $("#carry-open"); a.href = c.link; a.textContent = `Open ${name}`;
       const dead = c.expired || c.replaced || c.contested, refused = Boolean(c.refused && !c.opened && !dead);
-      hide("#carry-open", dead || refused); hide("#carry-pinrow", dead || refused || !c.pin); hide("#carry-status", dead || refused); hide("#carry-renew", !dead); hide("#carry-get", dead || refused);
+      const away = refused && c.refusedRelay; // a relay link opened in another country or through a VPN: a new link is the button (carryRefused)
+      hide("#carry-open", dead || refused); hide("#carry-pinrow", dead || refused || !c.pin); hide("#carry-status", dead || refused); hide("#carry-renew", !dead && !away); hide("#carry-get", dead || refused);
       hide("#carry-hint", dead || refused || !c.hint); text("#carry-hint", c.hint ? carryHint(name, browserKind()) : "");
       text("#carry-status-text", c.opened ? `${name} opened your link…` : c.fresh ? `New link ready. Waiting for ${name}…` : `Waiting for ${name}…`);
       text("#carry-error", c.contested ? errText("carry_contested") : c.replaced ? errText("carry_replaced") : c.expired ? (c.relay && !c.opened ? errText("carry_ranout") : "That link ran out (links work for 10 minutes). Get a new link.")
         : refused ? carryRefused(name, c.refusedRelay) : "");
       // the way that works on any connection: a quiet link under the button, or THE button when the wallet app could not use the link
-      const pair = $("#carry-pair"); pair.className = refused ? "btn btn--primary btn--block" : "link-btn";
-      text("#carry-pair", refused ? `Approve in ${name} instead` : `Didn't work? Approve in ${name} and finish here instead`);
+      const pair = $("#carry-pair"); pair.className = refused && !away ? "btn btn--primary btn--block" : "link-btn";
+      text("#carry-pair", refused && !away ? `Approve in ${name} instead` : carryPairQuiet(name));
       announce(dead || refused ? $("#carry-error").textContent : c.fresh ? `New link ready: check number ${c.pin}. Tap Open ${name}.` : `Connect your wallet in ${name}: check number ${c.pin}. Tap Open ${name}.`);
       focusHeading("carry");
       if (!dead) { pollSoon(c.restored ? 0 : 3000); planRenew(c); }
@@ -962,7 +971,8 @@
       if (d.status === "contested") { c.contested = true; forgetCarry(); return render(); }
       if (d.status === "expired" || Date.now() > c.until) { c.expired = true; forgetCarry(); return render(); }
       if (d.status === "replaced") { c.replaced = true; forgetCarry(); return render(); }
-      // the wallet app opened it on another connection (or, behind a relay, from another country): say why, and the pairing is the button
+      // the wallet app opened it on another connection: say why, and the pairing is the button (behind a relay, from another country or
+      // a VPN: say so, and a new link is the button)
       if (d.status === "refused" && !c.refused) { c.refused = true; c.refusedRelay = Boolean(d.relay); clearTimeout(S.renewTimer); render(); return; }
       if (d.status === "opened" && c.refused) { c.refused = false; render(); } // ...then it opened from the right one after all
       if (d.status === "opened" && !c.opened) { c.opened = true; c.fresh = false; clearTimeout(S.renewTimer); text("#carry-status-text", `${c.name} opened your link…`); announce(`${c.name} opened your link.`); }
