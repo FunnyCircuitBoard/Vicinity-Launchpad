@@ -30,6 +30,14 @@ export const launchpadV2On = (env) => String((env && env.LAUNCHPAD_V2) ?? "").tr
 export const dashboardV2On = (env) => String((env && env.DASHBOARD_V2) ?? "").trim().toLowerCase() === "on";
 
 /**
+ * CARRY_RELAY is an EMERGENCY switch, on by default: unset (or anything but "off") = behind iCloud Private Relay (or Cloudflare WARP) a
+ * phone's "Connect wallet" still opens the wallet app on a one-time link bound to the first browser that opens it and to the country
+ * (src/walletlink.js). CARRY_RELAY=off (trimmed, any letter case), set in the Cloudflare dashboard and never in wrangler.jsonc, sends
+ * relay connections back to the pairing ("approve in Phantom, finish in Safari") as before 10 Oct 2026, from the next request on.
+ */
+export const carryRelayOn = (env) => String((env && env.CARRY_RELAY) ?? "").trim().toLowerCase() !== "off";
+
+/**
  * SWAP=on turns on the in-app swap (the Jupiter-routed panel and /api/swap/*); LAUNCHPAD_TRADING=on the curve trades of city
  * coins (/api/launchpad/trade/*). Both live in src/cluster.js with the cluster settings they need; re-exported here so every
  * switch is listed in one place. Exactly "on"; anything else, unset included, is the site as it has always been.

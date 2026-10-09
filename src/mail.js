@@ -181,3 +181,43 @@ export function verificationEmail(code, kind = "signin") {
 </body></html>`;
   return { subject, text, html };
 }
+
+/** The wallet app ids a link can be remembered with (src/walletlink.js WALLET_APPS), by the name people know. */
+const APP_NAMES = { phantom: "Phantom", solflare: "Solflare", backpack: "Backpack", okx: "OKX Wallet", coinbase: "Coinbase Wallet", trust: "Trust Wallet",
+  bitget: "Bitget Wallet", magiceden: "Magic Eden", exodus: "Exodus", jupiter: "Jupiter", binance: "Binance Wallet", nightly: "Nightly", coin98: "Coin98",
+  tokenpocket: "TokenPocket", safepal: "SafePal", brave: "Brave Wallet" };
+
+/**
+ * "A wallet was connected to your Vicinity account": sent when a wallet joins an account from ANOTHER browser (a wallet app's own
+ * browser, or a pairing), so the owner can say "that wasn't me" within 7 days (src/walletlink.js handleDisown). It holds only the wallet
+ * masked ("Abcd…wxyz"), the app it was connected in (a name from the list above, else "A wallet app") and the dashboard link. Returns
+ * { subject, text, html }, branded like the code e-mail.
+ */
+export function walletLinkedEmail(masked, app) {
+  const who = APP_NAMES[app] || null;
+  const subject = "A wallet was connected to your Vicinity account";
+  const what = who ? `${who} (wallet ${masked}) was connected to your Vicinity account.` : `The wallet ${masked} was connected to your Vicinity account.`;
+  const text = `${what} If that was you, there's nothing to do.\n\nIf it wasn't you, open your dashboard on https://vicinity.city/dashboard within 7 days and tap “Remove it”.\n\n— Vicinity · One city. One coin. One community.`;
+  const esc = (s) => String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background-color:#060C17;">
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#060C17;padding:32px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" role="presentation" style="max-width:560px;width:100%;background-color:#0A1322;border:1px solid #1B2A44;border-radius:16px;">
+<tr><td align="center" style="padding:36px 32px 8px;">
+<div style="font-family:'Space Grotesk',Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;letter-spacing:6px;color:#FFFFFF;">VICINITY<span style="color:#FF5A36;">.</span></div>
+</td></tr>
+<tr><td align="center" style="padding:24px 40px 4px;">
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;color:#E8EDF5;">${esc(what)}</div>
+</td></tr>
+<tr><td align="center" style="padding:10px 48px 4px;">
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.7;color:#8A97AD;">If that was you, there's nothing to do.<br>If it wasn't you, open your dashboard within <b style="color:#E8EDF5;">7 days</b> and tap “Remove it”.</div>
+</td></tr>
+<tr><td align="center" style="padding:18px 32px 36px;">
+<a href="https://vicinity.city/dashboard" style="display:inline-block;background-color:#FF5A36;color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;text-decoration:none;padding:13px 40px;border-radius:999px;">Open my dashboard</a>
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+  return { subject, text, html };
+}

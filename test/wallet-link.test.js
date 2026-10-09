@@ -45,6 +45,9 @@ test("POST /api/me/wallet/link: the account takes the wallet, every session of t
   assert.deepEqual([r.status, body.ok, body.wallet, body.fresh, body.provenAt], [200, true, m.w.address, true, new Date(Date.now()).toISOString()], JSON.stringify(body));
   assert.deepEqual(r.headers.getSetCookie(), [], "the session stays the same: no new cookie");
   assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", u.id)).wallet, m.w.address);
+  assert.deepEqual(await one(env.DB, "SELECT wallet_at, wallet_via, wallet_app FROM users WHERE id = ?", u.id), { wallet_at: new Date(Date.now()).toISOString(), wallet_via: "page", wallet_app: null },
+    "when and how: signed in this very browser (no 'Wasn't you?' for it)");
+  assert.equal((await m.b.get("/api/me")).walletNew, undefined);
   const ss = await sessionsOf(u.id);
   assert.equal(ss.length, 2);
   assert.deepEqual(ss.map((s) => s.wallet), [m.w.address, m.w.address], "both browsers see the wallet");
@@ -139,6 +142,7 @@ test("the one rule on /api/auth/wallet: signed in without a wallet, a LOGIN sign
   assert.equal(m.b.jar.get("vs"), token);
   assert.equal(await count("sessions WHERE user_id = ?", u.id), 1, "the member's session was never dropped");
   assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", u.id)).wallet, m.w.address);
+  assert.equal((await one(env.DB, "SELECT wallet_via FROM users WHERE id = ?", u.id)).wallet_via, "page");
 
   advance(10 * 60_000);
   const again = await m.b.post("/api/auth/wallet", await loginBody(m.w));
@@ -216,6 +220,8 @@ test("a link pairing: Safari (or a computer) asks with purpose link, the wallet 
   const fin = await m.b.post("/api/pair/finish", { code: pair.code });
   assert.deepEqual([fin.ok, fin.status, fin.linked, fin.wallet, fin.next], [true, "done", true, m.w.address, "/dashboard?linked=1"], JSON.stringify(fin));
   assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", u.id)).wallet, m.w.address);
+  assert.deepEqual(await one(env.DB, "SELECT wallet_at, wallet_via FROM users WHERE id = ?", u.id), { wallet_at: new Date(Date.now()).toISOString(), wallet_via: "pair" },
+    "a wallet app approved it (whoever held the code could have): the account's older browsers may say 'Wasn't you?' for 7 days");
   assert.deepEqual((await sessionsOf(u.id)).map((s) => [s.wallet, Boolean(s.proven_at)]), [[m.w.address, true]]);
   assert.equal(await count("pairs"), 0, "the pairing is used up");
   assert.equal((await m.b.post("/api/pair/finish", { code: pair.code })).status, "expired");
@@ -282,6 +288,7 @@ test("the tiny transfer under the one rule: signed in without a wallet, { link: 
   assert.deepEqual([found.status, body.ok, body.linked, body.wallet, body.next], [200, true, true, m.w.address, "/dashboard?linked=1"], JSON.stringify(body));
   assert.deepEqual(found.headers.getSetCookie(), []);
   assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", u.id)).wallet, m.w.address);
+  assert.equal((await one(env.DB, "SELECT wallet_via FROM users WHERE id = ?", u.id)).wallet_via, "transfer");
   assert.deepEqual((await sessionsOf(u.id)).map((s) => [s.wallet, Boolean(s.proven_at)]), [[m.w.address, true]]);
   // without link (or reprove) a wallet-less member is a stranger to the route, and a transfer for ANOTHER wallet is wrong_wallet once one is linked
   const other = await m.b.send("/api/auth/transfer", { method: "POST", body: { address: (await wallet()).address, link: true } });
@@ -327,10 +334,12 @@ test("unlink: a fresh proof by the wallet on the account takes it off (every ses
   assert.deepEqual([busy.status, (await busy.json()).error], [409, "seat_or_application"]);
   await env.DB.prepare("DELETE FROM squad_members").run();
   assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", u.id)).wallet, m.w.address, "nothing changed so far");
+  await env.DB.prepare("UPDATE users SET wallet_at = ?, wallet_via = 'page', wallet_app = 'phantom' WHERE id = ?").bind(now, u.id).run();
 
   const r = await m.b.post("/api/me/wallet/unlink");
   assert.deepEqual(r, { ok: true });
   assert.equal((await one(env.DB, "SELECT wallet FROM users WHERE id = ?", u.id)).wallet, null);
+  assert.deepEqual(await one(env.DB, "SELECT wallet_at, wallet_via, wallet_app FROM users WHERE id = ?", u.id), { wallet_at: null, wallet_via: null, wallet_app: null }, "when and how go with it");
   assert.deepEqual((await sessionsOf(u.id)).map((s) => [s.wallet, s.proven_at]), [[null, null], [null, null]]);
   let me = await m.b.get("/api/me");
   assert.deepEqual([me.user.wallet, me.setup.percent, me.fresh], [null, 67, true], "a wallet-less account again: its login (just now) counts as fresh for 30 minutes");
