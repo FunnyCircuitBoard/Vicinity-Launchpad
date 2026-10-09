@@ -150,7 +150,8 @@ test("phones live inside the wallet app (owner decision F4): the words of the li
   assert.equal(P.errText("carry_expired", "app"), "This link is old. Go back to Safari or Chrome and tap “Connect wallet” again.");
   assert.equal(P.errText("carry_opened"), "For your safety it no longer works. Go back to Safari or Chrome and tap “Get a new link”. That stops the old one.");
   assert.match(P.errText({ error: "carry_network" }), /^Your wallet app and Safari are on different internet connections \(Wi-Fi and mobile data\?\)\./);
-  assert.equal(P.errText({ error: "carry_network", relay: true }), "Your wallet app and Safari seem to be in different countries (travelling?). Go back to Safari or Chrome and tap “Didn't work?”.");
+  assert.equal(P.carryNetwork("Phantom", true), "Your wallet app and Safari seem to be in different countries (travelling?). Go back to Safari or Chrome and tap “Approve in Phantom instead”: that way works anywhere.");
+  assert.equal(P.errText({ error: "carry_network", relay: true }), P.carryNetwork(null, true));
   assert.equal(P.ERR.carry_contested, "Someone else opened your link. It no longer works. Get a new link.");
   assert.equal(P.ERR.carry_ranout, "That link ran out. Get a new link.", "(review finding ux-UX-7: the 2-minute rule is the server's, never in the words)");
   // a wallet with no account inside the wallet app: for a RETURNING member, more than one wallet in the app is the usual reason; a

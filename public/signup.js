@@ -90,6 +90,11 @@
     ? `${name} opened your link, but it seems to be in another country (travelling?), so the link can't be used there. Approve in ${name} instead: that way works anywhere.`
     : `${name} opened your link, but it is on another internet connection (Wi-Fi and mobile data?), so the link can't be used there. Approve in ${name} instead: that way works on any connection.`);
   /**
+   * The wallet app opened the link on another connection (or, `relay`, from another country): what its dead screen says. It quotes the
+   * button Safari shows then (carry/status "refused": the pairing, "Approve in Phantom instead"), `name` = this wallet app.
+   */
+  const carryNetwork = (name, relay) => `${relay ? "Your wallet app and Safari seem to be in different countries (travelling?)." : "Your wallet app and Safari are on different internet connections (Wi-Fi and mobile data?)."} Go back to Safari or Chrome and tap “Approve in ${name || "your wallet app"} instead”: that way works ${relay ? "anywhere" : "on any connection"}.`;
+  /**
    * The three ways a wallet with no account is told where to go. `inApp` = a wallet app's own browser (Google can't run there), `name` its
    * name, `returning` = this browser has a hint of a member who connected a wallet before (the "more than one wallet" sentence is for them).
    */
@@ -135,8 +140,8 @@
     // "Open app" on a phone: the wallet link goes on in the wallet app's browser
     carry_expired: "That link was already used or has run out (it works once, for 10 minutes). Go back to Safari or Chrome and tap Connect wallet again.",
     "carry_expired:app": "This link is old. Go back to Safari or Chrome and tap “Connect wallet” again.",
-    carry_network: "Your wallet app and Safari are on different internet connections (Wi-Fi and mobile data?). Go back to Safari or Chrome and tap “Didn't work?”: that way works on any connection.",
-    "carry_network:relay": "Your wallet app and Safari seem to be in different countries (travelling?). Go back to Safari or Chrome and tap “Didn't work?”.",
+    carry_network: carryNetwork(null, false), // (the dead screen names the app: carryNetwork)
+    "carry_network:relay": carryNetwork(null, true),
     carry_opened: "For your safety it no longer works. Go back to Safari or Chrome and tap “Get a new link”. That stops the old one.",
     carry_contested: "Someone else opened your link. It no longer works. Get a new link.",
     carry_ranout: "That link ran out. Get a new link.",
@@ -232,7 +237,7 @@
   /** The wallet answers the sign-up page deals with itself (connect.js hands them to walletProven instead of showing a plain error). */
   const HANDLED = ["no_account", "wallet_taken", "has_wallet", "wrong_wallet", "link_done", "use_link"];
 
-  window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, resetField, relayWhy, carryLead, carrySmall, linkLead, carryHint, carryRefused, noAccountCopy, linkedCopy, SAME_EMAIL, ERR, HANDLED } };
+  window.VSignup = { start, pure: { viewFor, locSub, accSub, hasProgress, pwLen, pwHint, safeNext, validEmail, errText, bounceFor, finishPlan, resetField, relayWhy, carryLead, carrySmall, linkLead, carryHint, carryRefused, carryNetwork, noAccountCopy, linkedCopy, SAME_EMAIL, ERR, HANDLED } };
 
   /* ================= the controller ================= */
   function start(ctx) {
@@ -1073,7 +1078,8 @@
       S.offer = null; S.mode = "linkin"; // no tabs, no step bar, no hero on a phone: this browser is the wallet app's
       show("link-dead");
       text("#ld-h", known || "Couldn't check your link");
-      text("#ld-body", code === "carry_expired" && app ? errText(code, "app") : code === "link_done" && k ? `This account has its wallet. If it is the one in ${k.name}, sign in with it here.` : errText(r));
+      text("#ld-body", code === "carry_expired" && app ? errText(code, "app") : code === "link_done" && k ? `This account has its wallet. If it is the one in ${k.name}, sign in with it here.`
+        : code === "carry_network" ? carryNetwork(k ? k.name : null, Boolean(r.relay)) : errText(r));
       // a button only where there is something to do here: sign in with the linked wallet, or try again when there was no answer at all
       hide("#ld-retry", Boolean(known)); hide("#ld-signin", !(code === "link_done" && k));
       if (k) { text("#ld-signin", `Sign in with ${k.name}`); $("#ld-signin").dataset.app = k.id; }

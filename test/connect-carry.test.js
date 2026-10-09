@@ -406,7 +406,8 @@ test("S8: a link opened outside a phone's wallet app (a computer, or Safari) is 
 test("F1 S8: a used or expired link, another connection, or an account that got its wallet meanwhile: ONE plain screen inside the wallet app, no Terms gate, no step 1, nothing linked, and the code is kept so a reload shows the same screen", async () => {
   for (const [error, status, h, words] of [
     ["carry_expired", 410, "Almost there", /^This link is old\. Go back to Safari or Chrome and tap “Connect wallet” again\.$/],
-    ["carry_network", 403, "That link can't be used here", /^Your wallet app and Safari are on different internet connections \(Wi-Fi and mobile data\?\)\. Go back to Safari or Chrome and tap “Didn't work\?”: that way works on any connection\.$/],
+    // (it quotes the button Safari shows once it learns the link was refused here: review finding ux-UX-2)
+    ["carry_network", 403, "That link can't be used here", /^Your wallet app and Safari are on different internet connections \(Wi-Fi and mobile data\?\)\. Go back to Safari or Chrome and tap “Approve in Phantom instead”: that way works on any connection\.$/],
     ["carry_opened", 403, "That link was opened in another app", /^For your safety it no longer works\. Go back to Safari or Chrome and tap “Get a new link”\. That stops the old one\.$/],
     ["link_done", 409, "A wallet is already linked", /^This account has its wallet\. If it is the one in Phantom, sign in with it here\.$/],
   ]) {

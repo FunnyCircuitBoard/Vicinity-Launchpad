@@ -263,15 +263,22 @@ test("(3) an Android phone behind a relay (a VPN) is not told about its 'iPhone'
   assert.equal(p.$("#pair-why").textContent, "This browser hides its connection (a VPN or a private relay), so the link can't move into Phantom. Approve there instead, then come back here: this page finishes the link by itself.");
 });
 
-test("(3) the carry_network message quotes the button exactly as Safari shows it", async () => {
+test("(3) the carry_network message quotes the button exactly as Safari shows it once the link was refused there (status 'refused')", async () => {
   const { p } = await safari({ relay: false });
   await p.tap(phantomTile(p));
+  assert.equal(p.$("#carry-pair").textContent, "Didn't work? Approve in Phantom and finish here instead");
+  // Phantom opened it on another connection: Safari's poll learns it, and its pairing becomes "Approve in Phantom instead"
+  const fetch0 = p.win.fetch;
+  p.win.fetch = async (path, init) => (String(path).startsWith("/api/me/wallet/carry/status") ? { ok: true, status: 200, json: async () => ({ ok: true, status: "refused" }) } : fetch0(path, init));
+  await p.advance(3000);
   const label = p.$("#carry-pair").textContent;
-  assert.equal(label, "Didn't work? Approve in Phantom and finish here instead");
-  const said = p.win.VSignup.pure.ERR.carry_network;
-  const quoted = said.match(/tap “([^”]+)”/)[1];
-  assert.ok(label.startsWith(quoted), `“${quoted}” is on the button “${label}”`);
-  assert.doesNotMatch(said, /Sign in|sign-up/);
+  assert.equal(label, "Approve in Phantom instead");
+  for (const relay of [false, true]) {
+    const said = p.win.VSignup.pure.carryNetwork("Phantom", relay);
+    const quoted = said.match(/tap “([^”]+)”/)[1];
+    assert.equal(quoted, label, `“${quoted}” is the button “${label}”`);
+    assert.doesNotMatch(said, /Sign in|sign-up/);
+  }
 });
 
 test("(3) the link screen's lead on a phone says what the wallet app does, in one sentence each", async () => {
