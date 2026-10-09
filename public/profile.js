@@ -544,8 +544,13 @@
       bio.textContent = p.bio || (self ? "You haven't written a bio yet." : "");
       bio.hidden = !p.bio && !self; bio.classList.toggle("is-empty", !p.bio);
       $("#pf-badges").replaceChildren(...(p.badges || []).filter((b) => b.earned).map((b) => { const li = el("li"); li.append(el("span", null, b.icon), el("span", null, b.name)); li.firstChild.setAttribute("aria-hidden", "true"); return li; }));
-      $("#pf-wallet").textContent = p.wallet || "";
-      $("#pf-solscan").href = p.wallet ? `https://solscan.io/account/${p.wallet}` : "#";
+      // a member may have no wallet yet (onboarding v3: it is linked later, from the dashboard): say so, and offer nothing to copy or look up
+      const linked = Boolean(p.wallet);
+      $("#pf-wallet").textContent = linked ? p.wallet : "Wallet: not linked";
+      $("#pf-wallet").classList.toggle("mono", linked);
+      $("#pf-copy").hidden = !linked;
+      $("#pf-solscan").hidden = !linked;
+      $("#pf-solscan").href = linked ? `https://solscan.io/account/${p.wallet}` : "#";
       if (!tickers && p.home) loadTickers();
 
       // holdings
@@ -553,7 +558,7 @@
       $("#pf-hold-amount").textContent = h ? `${fmt(h.amount)} $VICINITY` : "—";
       $("#pf-hold-rank").textContent = h && h.rank ? `#${fmt(h.rank)} of ${fmt(h.total)}` : h && h.team ? "Team wallet" : "—";
       $("#pf-hold-pct").textContent = h && h.rank ? `Top ${pctText(h.percentile)}%` : h && h.team ? "Not ranked" : "—";
-      $("#pf-hold-note").textContent = !h ? "No $VICINITY figures to show right now. They appear once $VICINITY is live." : h.amount > 0 ? "" : "Doesn't hold $VICINITY yet.";
+      $("#pf-hold-note").textContent = !linked ? (self ? "No wallet linked yet. Link one from your dashboard to show your $VICINITY here." : "No wallet linked yet.") : !h ? "No $VICINITY figures to show right now. They appear once $VICINITY is live." : h.amount > 0 ? "" : "Doesn't hold $VICINITY yet.";
       $("#pf-hold-note").hidden = !$("#pf-hold-note").textContent;
 
       // who is this, to me
@@ -633,7 +638,7 @@
     function wireActions() {
       $("#pf-follow").addEventListener("click", toggleFollow);
       $("#pf-unblock").addEventListener("click", () => setBlock(false));
-      $("#pf-copy").addEventListener("click", () => cur && copy(cur.wallet, "Wallet address copied"));
+      $("#pf-copy").addEventListener("click", () => cur && cur.wallet && copy(cur.wallet, "Wallet address copied"));
       // the "…" menu: opens with Enter, Space or a click; arrows move; Escape or Tab closes
       const btn = $("#pf-menu-btn"), menu = $("#pf-menu"), items = () => $$("button", menu);
       const close = (focus) => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); if (focus) btn.focus(); };

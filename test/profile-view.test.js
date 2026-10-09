@@ -107,7 +107,8 @@ test("a profile has exactly the fields the owner decided are public, and the mem
   const r = await (await view(alice, n, "BobBrave")).json();
   assert.equal(r.ok, true);
   const p = r.profile;
-  assert.deepEqual(sorted(p), ["badges", "bio", "counts", "handle", "holding", "home", "level", "portfolio", "posts", "since", "viewer", "wallet"]);
+  assert.deepEqual(sorted(p), ["badges", "bio", "counts", "handle", "holding", "home", "level", "portfolio", "posts", "since", "viewer", "wallet", "walletLinked"]);
+  assert.equal(p.walletLinked, true);
   assert.equal(p.handle, "BobBrave");
   assert.equal(p.since, "2026-09-28T08:00:00.000Z");
   assert.equal(p.bio, "Utica born");
@@ -118,7 +119,7 @@ test("a profile has exactly the fields the owner decided are public, and the mem
   assert.equal(p.level, "member");
   assert.ok(p.badges.length >= 10);
   for (const b of p.badges) { assert.deepEqual(sorted(b), ["earned", "icon", "id", "name"]); assert.equal(typeof b.earned, "boolean"); }
-  assert.deepEqual(p.badges.filter((b) => b.earned).map((b) => b.id), ["early", "verified", "local"]);
+  assert.deepEqual(p.badges.filter((b) => b.earned).map((b) => b.id), ["early", "verified", "wallet", "local"]);
   assert.equal(p.holding, null, "before launch there is no holding");
   assert.deepEqual(p.portfolio, { asOf: iso(clock.now), totalUsd: 0, items: [], pricesComplete: true });
   assert.ok(!/message|inbox|chat|\bdm\b/i.test([...keysOf(r)].join(" ")), "no messaging anywhere");

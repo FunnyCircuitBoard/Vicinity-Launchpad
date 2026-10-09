@@ -99,7 +99,7 @@ export async function getSession(env, request, now = Date.now()) {
   const token = getCookie(request, SESSION_COOKIE);
   if (!token || token.length > 100) return null;
   await ensureSchema(env.DB);
-  const s = await env.DB.prepare("SELECT id, wallet, user_id, proof, expires_at, proven_at FROM sessions WHERE id = ?").bind(await sha256(token)).first();
+  const s = await env.DB.prepare("SELECT id, wallet, user_id, proof, created_at, expires_at, proven_at FROM sessions WHERE id = ?").bind(await sha256(token)).first();
   if (!s || Date.parse(s.expires_at) <= now) return null;
   const user = s.user_id ? await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(s.user_id).first() : null;
   if (s.user_id && !user) return null;
@@ -133,9 +133,19 @@ async function walletCookies(env, request, c, next) {
   return clear.length ? [c, ...clear] : c;
 }
 
-/** Was the wallet proven in this session within the last 30 minutes? Sensitive actions need that. */
-export const isFresh = (session, now = Date.now()) =>
-  Boolean(session && session.proven_at && now - Date.parse(session.proven_at) <= POLICY.freshProofMinutes * 60_000);
+/**
+ * Is this session fresh enough for a sensitive action (username, password, apply, endorse, vote, moderate)? The wallet was proven in
+ * this session within the last 30 minutes. For an account WITHOUT a wallet (onboarding v3: Google or e-mail first, the wallet linked
+ * later from the dashboard) the Google / e-mail login itself IS the identity, and such an account holds nothing a wallet proof would
+ * protect (no holdings, no rank, no seat, no squad): its session counts as fresh for the 30 minutes after it was made (the login).
+ * The moment a wallet is linked, only a proof by that wallet counts again.
+ */
+export const isFresh = (session, now = Date.now()) => {
+  if (!session) return false;
+  const window = POLICY.freshProofMinutes * 60_000;
+  if (session.proven_at && now - Date.parse(session.proven_at) <= window) return true;
+  return Boolean(session.user && !session.user.wallet && session.created_at && now - Date.parse(session.created_at) <= window);
+};
 
 /**
  * POST /api/auth/reprove { address, message, signature } → "it's still me": the signed-in person signs
@@ -146,6 +156,7 @@ export async function handleReprove(request, env, now = Date.now()) {
   if (blocked) return blocked;
   const s = await getSession(env, request, now);
   if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
+  if (!s.user.wallet) return json({ ok: false, error: "no_wallet" }, 403); // nothing to re-prove: link a wallet from the dashboard first
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
   const r = await checkSigned(body, request, now, ["login"], badSigned, env.DB);

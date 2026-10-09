@@ -41,7 +41,8 @@ export function badgesFor({ u, launched, amount, position, seat, manager, admin,
   const T = threshold || POLICY.founder.ladder.base;
   const list = [
     { id: "early", icon: "🌱", name: "Early member", detail: "Joined before $VICINITY launched. This one can never be earned again.", earned: Boolean(u.early) },
-    { id: "verified", icon: "✅", name: "Verified account", detail: "One wallet + one Google login or verified e-mail.", earned: true },
+    { id: "verified", icon: "✅", name: "Verified account", detail: "A verified Google login or e-mail.", earned: true },
+    { id: "wallet", icon: "🔗", name: "Wallet linked", detail: "A Solana wallet linked to your account with one free signature. It unlocks holdings, rank, badges and the founder path.", earned: Boolean(u.wallet) },
     { id: "local", icon: "📍", name: "Local", detail: "Home community confirmed by location.", earned: Boolean(u.home_city) },
     { id: "holder", icon: "🏅", name: "Holder", detail: launched ? "Hold any $VICINITY." : "Hold $VICINITY once it launches.", earned: amount > 0, progress: amount > 0 ? 1 : 0 },
     { id: "founder_ready", icon: "🔑", name: "Founder-ready", detail: `Held ${T.toLocaleString("en-US")}+ $VICINITY for ${POLICY.founder.qualifyingDays} days: may apply to found your city.`,
@@ -79,7 +80,7 @@ async function leaderboard(env, column, value, snap, fetchImpl) {
     if (!byKey) rankings.set(snap, (byKey = new Map()));
     const key = `${column}:${value}:${members}`;
     if (!byKey.has(key)) {
-      const wallets = (await env.DB.prepare(`SELECT wallet FROM users WHERE ${column} = ? AND provider != 'testlab' LIMIT 20000`).bind(value).all()).results.map((r) => r.wallet);
+      const wallets = (await env.DB.prepare(`SELECT wallet FROM users WHERE ${column} = ? AND provider != 'testlab' AND wallet IS NOT NULL LIMIT 20000`).bind(value).all()).results.map((r) => r.wallet);
       const amounts = await amountsFor(env, wallets, fetchImpl);
       byKey.set(key, wallets.map((w) => [w, amounts.get(w) || 0]).filter(([w, a]) => a > 0 && !isTeamWallet(w)).sort((a, b) => b[1] - a[1]));
     }
@@ -90,14 +91,17 @@ async function leaderboard(env, column, value, snap, fetchImpl) {
 
 async function liveStatus(env, s, fetchImpl, now) {
   const u = s.user, db = env.DB;
-  const mint = activeMint(env), launched = Boolean(mint), wallet = u.wallet, team = isTeamWallet(wallet);
+  // An account without a wallet (onboarding v3: the wallet is linked later, from the dashboard) holds nothing, ranks nowhere and
+  // can be nobody's admin: no blockchain look at all for it. The leaderboards below skip such members too.
+  const mint = activeMint(env), launched = Boolean(mint), wallet = u.wallet || null, team = Boolean(wallet) && isTeamWallet(wallet);
   let snap = null, chain = launched ? "live" : "prelaunch";
   if (launched) { try { snap = await holderSnapshot(env, mint, fetchImpl); } catch { chain = "partial"; } }
   let amount = 0, position = null;
-  if (snap) { position = rankOf(snap, wallet); amount = position.amount; }
+  if (!wallet) { /* nothing to look up */ }
+  else if (snap) { position = rankOf(snap, wallet); amount = position.amount; }
   else if (launched) { try { amount = await getHolding(env, wallet, mint, fetchImpl); } catch { chain = "unavailable"; } }
 
-  const admin = adminWallets(env).includes(wallet);
+  const admin = Boolean(wallet) && adminWallets(env).includes(wallet);
   const seat = await liveSeatOfUser(db, u.id);
   const mgr = seat && seat.status === "active" ? await managerOf(env, seat.country, now) : null;
   const isManager = Boolean(mgr && mgr.userId === u.id);
@@ -122,14 +126,17 @@ async function liveStatus(env, s, fetchImpl, now) {
   // your community and your country: members, where you rank among them
   const ranked = (board) => {
     if (!launched || !snap || !board.list) return { rank: null, holders: null, top: [] };
+    if (!wallet) return { rank: null, holders: board.list.length, top: board.list.slice(0, 5).map(([w, a]) => ({ wallet: mask(w), amount: a, you: false })) };
     const i = board.list.findIndex(([w]) => w === wallet);
     return { rank: i >= 0 ? i + 1 : null, holders: board.list.length, top: board.list.slice(0, 5).map(([w, a]) => ({ wallet: mask(w), amount: a, you: w === wallet })) };
   };
   let community = null, national = null;
   if (u.home_city) {
     const board = await leaderboard(env, "home_city", u.home_city, snap, fetchImpl);
+    // "you are member #N here": people (not test-lab rows) who made this community their home before or with this account
+    const nth = await db.prepare("SELECT COUNT(*) AS n FROM users WHERE home_city = ? AND id <= ? AND provider != 'testlab'").bind(u.home_city, u.id).first();
     community = { id: u.home_city, name: u.home_name, country: u.home_country, ticker: (await tickerOf(env, u.home_city))?.ticker || null,
-      members: board.members, ...ranked(board), ...(await cityPicture(env, u.home_city, u, now, fetchImpl)) };
+      members: board.members, memberNumber: nth ? Number(nth.n) : null, ...ranked(board), ...(await cityPicture(env, u.home_city, u, now, fetchImpl)) };
   }
   if (u.home_country) {
     const board = await leaderboard(env, "home_country", u.home_country, snap, fetchImpl);
@@ -149,7 +156,7 @@ async function liveStatus(env, s, fetchImpl, now) {
   // progress towards founding your home city
   const days = elig.tenure ? Math.floor(elig.tenure.days) : 0;
   const steps = [
-    { id: "account", label: "Wallet + account verified", done: true },
+    { id: "account", label: u.wallet ? "Account verified, wallet linked" : "Link a wallet", done: Boolean(u.wallet) },
     { id: "home", label: u.home_city ? `Home: ${u.home_name} (${POLICY.founder.localDays} days before applying)` : "Set your home community",
       done: Boolean(u.home_city) && Date.parse(elig.homeReadyAt || iso(now + DAY)) <= now, detail: u.home_city && elig.homeReadyAt && Date.parse(elig.homeReadyAt) > now ? `ready ${elig.homeReadyAt.slice(0, 10)}` : null },
     // a seated founder qualified when they claimed, under the bar they claimed with (the ladder may have moved since)
@@ -165,9 +172,11 @@ async function liveStatus(env, s, fetchImpl, now) {
       detail: seat && seat.status === "steward" && seat.probation_until ? `probation until ${seat.probation_until.slice(0, 10)}` : null },
   ];
   const done = steps.filter((x) => x.done).length;
+  // the profile ring: location and account are done by every member (the sign-up makes sure), the wallet may still be open
+  const setup = { percent: u.wallet ? 100 : 67, steps: [{ id: "location", done: true }, { id: "account", done: true }, { id: "wallet", done: Boolean(u.wallet) }] };
 
   return {
-    launched, chain, checkedAt: iso(now), level, fresh: isFresh(s, now), policyVersion: POLICY.version,
+    launched, chain, checkedAt: iso(now), level, fresh: isFresh(s, now), policyVersion: POLICY.version, setup,
     roles: { admin, manager: isManager, founder: founderLive, steward: Boolean(seat && seat.status === "steward"), holder: amount > 0,
       weight: VOTE_WEIGHT[isManager ? "manager" : founderLive ? "founder" : "member"] }, // the same weight powersOf gives for feed votes
     holding: { amount, rank: position ? position.rank : null, total: position ? position.total : null, percent: position ? position.percent : null,
@@ -387,9 +396,9 @@ export async function handleMembers(env) {
   const [total, top, placed] = await env.DB.batch([
     env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE provider != 'testlab'"),
     env.DB.prepare("SELECT home_city AS id, home_name AS name, home_country AS country, COUNT(*) AS members FROM users WHERE home_city IS NOT NULL AND provider != 'testlab' GROUP BY home_city ORDER BY members DESC LIMIT 300"),
-    env.DB.prepare("SELECT wallet, home_city FROM users WHERE home_city IS NOT NULL AND provider != 'testlab'"),
+    env.DB.prepare("SELECT wallet, home_city FROM users WHERE home_city IS NOT NULL AND provider != 'testlab' AND wallet IS NOT NULL"),
   ]);
-  // Holders per city: members whose wallet holds > 0 in the latest balance sample. A team wallet is not one of the people
+  // Holders per city: members whose wallet holds > 0 in the latest balance sample (a member without a wallet holds nothing). A team wallet is not one of the people
   // (as on the token page and the dashboard's "Holders here"), so it is not counted.
   let balances = null;
   try { balances = (await latestBalances(env, Date.now()))?.balances || null; } catch { balances = null; }
