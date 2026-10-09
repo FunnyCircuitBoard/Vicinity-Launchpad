@@ -665,7 +665,9 @@
       if (u) { const a = newTab(el("a", null, x.text)); a.href = u; parts.push(a); } else parts.push(el("span", null, x.text));
     }
     const words = parts.flatMap((n, i) => (i ? [" · ", n] : [n]));
-    p.replaceChildren(...words, ". Every card refreshes every 30 seconds and says how old its numbers are. You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds.");
+    // with the in-app swap on (SWAP=on) the Buy buttons trade here, so the sentence says so (public/swap.js holds the words); otherwise the old truth
+    const trade = swapOn && window.VSwap && window.VSwap.tradeSentence ? window.VSwap.tradeSentence : "You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds.";
+    p.replaceChildren(...words, `. Every card refreshes every 30 seconds and says how old its numbers are. ${trade}`);
   }
   function paintCountries() {
     const sel = $("#lp-country"), keep = state.country;

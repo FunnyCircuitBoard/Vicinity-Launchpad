@@ -456,9 +456,48 @@
     return p;
   }
   const refresh = () => { for (const p of panels) { p.loadBalances(); if (p.s.phase === "quoted") p.quote(true); } };
-  window.VSwap = { mount, open, close: closeSheet, refresh, words, base58, get config() { return config; }, get wallet() { return { address: wallet.address, adapter: wallet.adapter }; }, _panels: panels };
-  // self-mount every [data-swap] on the page once the switch is known
-  const start = async () => { await loadConfig(); for (const e of $$("[data-swap]")) { if (e.closest(".swap-sheet")) continue; if (!config || config.swap === false) e.hidden = true; else mount(e); } };
+
+  /* ---------------------------------------------------------------- the words on the pages once the switch is on */
+  // With the swap on nobody is sent to raydium.io any more, so the sentences that said "Buy on Raydium" say where buying happens
+  // now: here, in the person's own wallet, routed by Jupiter and executed on Raydium LaunchLab (Meteora's curve for a city coin).
+  // With the switch off the pages keep their words exactly. Each entry: the page (body[data-page]), the element, what its text must
+  // still say today (a sentence someone rewrote is left alone), and the new text or a function that rewrites the element.
+  const link = (href, text) => { const a = el("a", null, text); a.setAttribute("href", href); return a; };
+  const OLD_TRADE_SENTENCE = /You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds\./;
+  const NEW_TRADE_SENTENCE = "You buy and sell here, in your own wallet (routed by Jupiter, executed on Raydium LaunchLab or the Meteora curve); Vicinity never touches your funds.";
+  /** Replace a sentence inside an element's own text, leaving its links (Powered by Jupiter and the like) alone. */
+  const replaceSentence = (e, from, to) => { for (const n of Array.from(e.childNodes)) if (!n.tagName && from.test(String(n.data))) n.data = String(n.data).replace(from, to); };
+  const COPY = [
+    ["home", ".buy-steps h3", /^Buy on Raydium$/, "Buy here"],
+    ["home", ".buy-steps p", /Buy on Raydium/, (p) => p.replaceChildren("Right here, on our ", link("/token#buy-slot", "Token page"), ": the Buy panel quotes through Jupiter and executes on Raydium LaunchLab, signed in your own wallet, so you get the real $VICINITY without leaving vicinity.city.")],
+    ["home", "#buy-faq p", /Buy on Raydium/, (p) => p.replaceChildren("Get a Solana wallet (Phantom, Solflare or Backpack), add SOL, then use the Buy panel on the ", link("/token#buy-slot", "Token page"), ". It quotes through Jupiter and executes on Raydium LaunchLab, signed in your own wallet; you never leave this site. Look-alike sites that copy Raydium are scams that empty wallets.")],
+    ["token", "#buy li", /^Buy on Raydium\./, (li) => li.replaceChildren(el("strong", null, "Buy here."), " Use the Buy panel under the contract address at the top of this page: it quotes through Jupiter and executes on Raydium LaunchLab, signed in your own wallet. You never leave vicinity.city.")],
+    ["launchpad", "#lp-honesty", OLD_TRADE_SENTENCE, (p) => replaceSentence(p, OLD_TRADE_SENTENCE, NEW_TRADE_SENTENCE)],
+  ];
+  function copySweep() {
+    const page = document.body && document.body.dataset ? document.body.dataset.page : "";
+    for (const [p, sel, test, apply] of COPY) {
+      if (p !== page) continue;
+      for (const e of Array.from($$(sel))) {
+        if (e.dataset.swapCopy || !test.test(e.textContent)) continue;
+        e.dataset.swapCopy = "1";
+        if (typeof apply === "function") apply(e); else e.textContent = apply;
+      }
+    }
+  }
+  window.VSwap = { mount, open, close: closeSheet, refresh, words, base58, copySweep, tradeSentence: NEW_TRADE_SENTENCE, get config() { return config; }, get wallet() { return { address: wallet.address, adapter: wallet.adapter }; }, _panels: panels };
+  // Self-mount every [data-swap] on the page once the switch is known. Every page already reads /api/official (site.js), so the
+  // switch costs no extra request: off = the slots are hidden and nothing else is asked; on = the words change and the panels mount.
+  const start = async () => {
+    const slots = Array.from($$("[data-swap]")).filter((e) => !e.closest(".swap-sheet"));
+    const o = window.V.official && typeof window.V.official.then === "function" ? await window.V.official.catch(() => null) : undefined;
+    const on = o === undefined ? null : Boolean(o && o.swap === true);
+    if (on === false) { for (const e of slots) e.hidden = true; return; }
+    if (on === true) copySweep();
+    if (on === true && !slots.length) return; // a page that only needed its words changed (the home page)
+    await loadConfig();
+    for (const e of slots) { if (!config || config.swap === false) e.hidden = true; else mount(e); }
+  };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
   // the connected wallet is remembered across panels; wallets.js may register late (in-app browsers)
   if (W()) W().onChange(() => { for (const p of panels) p.render(); });

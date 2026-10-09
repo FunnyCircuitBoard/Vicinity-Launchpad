@@ -272,3 +272,68 @@ test("swap panel: open() shows the panel in a sheet over the page and closes on 
   sheet.dispatchEvent(newEvent("click"));
   assert.equal(sheet.hasAttribute("open"), false, "a tap on the backdrop closes it");
 });
+
+/* ---------------------------------------------------------------- the words on the pages, behind the switch */
+const HOME = `<body data-page="home"><ol class="buy-steps"><li class="card"><span class="buy-steps__n">2</span><h3>Add SOL</h3><p class="muted">Buy SOL in the wallet app.</p></li><li class="card"><span class="buy-steps__n">3</span><h3>Buy on Raydium</h3><p class="muted">On Raydium LaunchLab, only through the <strong>Buy on Raydium</strong> button on our <a href="/token#buy">Token page</a>, so you get the real $VICINITY.</p></li></ol><p class="scam-note"><strong>The only real Raydium is raydium.io.</strong> Look-alike addresses copy it to empty wallets.</p><details id="buy-faq"><summary>How do I buy $VICINITY?</summary><p>Get a Solana wallet (Phantom, Solflare or Backpack), add SOL, then use the <strong>Buy on Raydium</strong> button on the <a href="/token#buy">Token page</a>. It opens the official $VICINITY on Raydium LaunchLab (raydium.io). Look-alike sites that copy Raydium are scams that empty wallets.</p></details></body>`;
+/** A page whose <body data-page> and markup are given, with /api/official already read by site.js (window.V.official). */
+async function pageWith(body, { official, answers = {} }) {
+  const doc = new Doc();
+  doc.append(...parse(doc, `<html>${body}</html>`));
+  const calls = [];
+  const answer = async (path) => { calls.push(path); const a = answers[path.split("?")[0]]; return a === undefined ? { ok: false, error: "not_found", _status: 404 } : a; };
+  const el = (tag, cls, text) => { const e = doc.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const win = new Target();
+  Object.assign(win, { document: doc, location: { href: "https://vicinity.test/" }, console,
+    V: { $: (s, r = doc) => r.querySelector(s), $$: (s, r = doc) => r.querySelectorAll(s), el, api: answer, toast() {}, copy() {}, burst() {}, isAddr: (a) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(a)), official: Promise.resolve(official) },
+    VW: { KNOWN: [], isMobile: false, list: () => [], onChange() {}, safeIcon: () => null, mark: () => el("span") },
+    fetch: async (path) => ({ ok: false, status: 404, json: async () => answer(path) }), setTimeout: () => 0, clearTimeout() {}, AbortController, atob, btoa, Uint8Array, TextEncoder, Promise, Array, Object, String, Number, Math, JSON, Date, Boolean, Error });
+  win.window = win; doc.defaultView = win;
+  vm.runInContext(SWAP_JS, vm.createContext(win), { filename: "public/swap.js" });
+  for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+  return { doc, win, calls, $: (s) => doc.querySelector(s), $$: (s) => doc.querySelectorAll(s) };
+}
+
+test("copy behind the switch: on the home page with the swap ON the 'Buy on Raydium' step and FAQ say Buy here (routed by Jupiter, executed on Raydium LaunchLab); no /api/swap/config is asked when nothing mounts", async () => {
+  const P = await pageWith(HOME, { official: { swap: true, tokenContract: VIC } });
+  assert.equal(text(P.$$(".buy-steps h3")[1]), "Buy here");
+  assert.equal(text(P.$$(".buy-steps h3")[0]), "Add SOL", "the other steps are untouched");
+  const step = P.$$(".buy-steps p")[1];
+  assert.match(text(step), /^Right here, on our Token page: the Buy panel quotes through Jupiter and executes on Raydium LaunchLab, signed in your own wallet, so you get the real \$VICINITY without leaving vicinity\.city\.$/);
+  assert.equal(step.querySelector("a").getAttribute("href"), "/token#buy-slot", "the link goes to the panel");
+  assert.match(text(P.$("#buy-faq p")), /^Get a Solana wallet \(Phantom, Solflare or Backpack\), add SOL, then use the Buy panel on the Token page\. It quotes through Jupiter and executes on Raydium LaunchLab, signed in your own wallet; you never leave this site\. Look-alike sites that copy Raydium are scams that empty wallets\.$/);
+  assert.doesNotMatch(text(P.$("#buy-faq p")), /raydium\.io/, "nobody is sent to raydium.io");
+  assert.match(text(P.$(".scam-note")), /The only real Raydium is raydium\.io/, "the warning about look-alikes stays");
+  assert.deepEqual(P.calls, [], "the switch came from /api/official, which the page reads anyway: nothing else was asked");
+  assert.equal(P.$$(".buy-steps p")[1].dataset.swapCopy, "1", "marked, so a second sweep leaves it alone");
+  P.win.VSwap.copySweep();
+  assert.equal(P.$$(".buy-steps h3")[1].textContent, "Buy here");
+});
+
+test("copy behind the switch: with the swap OFF (no swap key in /api/official) every word stays exactly as it is and nothing is asked", async () => {
+  const P = await pageWith(HOME, { official: { tokenContract: VIC } });
+  assert.equal(text(P.$$(".buy-steps h3")[1]), "Buy on Raydium");
+  assert.match(text(P.$("#buy-faq p")), /use the Buy on Raydium button on the Token page\. It opens the official \$VICINITY on Raydium LaunchLab \(raydium\.io\)/);
+  assert.deepEqual(P.calls, []);
+  const slot = await pageWith(`<body data-page="token"><div id="buy-slot" data-swap data-out="${VIC}"></div></body>`, { official: { tokenContract: VIC } });
+  assert.equal(slot.$("#buy-slot").hidden, true, "a slot on a page is hidden without a request");
+  assert.deepEqual(slot.calls, []);
+});
+
+test("copy behind the switch: the token page's FAQ step and the Launchpad's honesty line (its links kept) change; a slot on the page still mounts through /api/swap/config", async () => {
+  const T = await pageWith(`<body data-page="token"><details id="buy"><ol class="faq__steps"><li><strong>Add SOL.</strong> Keep a little extra.</li><li><strong>Buy on Raydium.</strong> Use the <strong>Buy on Raydium</strong> button at the top of this page. It opens the official $VICINITY on Raydium LaunchLab (raydium.io); the contract address there must match the one here.</li></ol></details><div id="buy-slot" data-swap data-out="${VIC}" data-in="SOL" data-mode="buy"></div></body>`,
+    { official: { swap: true, tokenContract: VIC }, answers: { "/api/swap/config": CONFIG } });
+  const steps = T.$$("#buy li").map(text);
+  assert.equal(steps[0], "Add SOL. Keep a little extra.");
+  assert.equal(steps[1], "Buy here. Use the Buy panel under the contract address at the top of this page: it quotes through Jupiter and executes on Raydium LaunchLab, signed in your own wallet. You never leave vicinity.city.");
+  assert.equal(T.$$("#buy li")[1].querySelector("strong").textContent, "Buy here.");
+  assert.deepEqual(T.calls, ["/api/swap/config"], "the panel on the page needed the config, once");
+  assert.equal(T.$("#buy-slot").getAttribute("data-swap-mounted"), "1");
+  const L = await pageWith(`<body data-page="launchpad"><p class="tiny muted lp-honesty" id="lp-honesty">Prices from <a href="https://jup.ag">Powered by Jupiter</a>. They refresh every 30 seconds. You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds.</p></body>`, { official: { swap: true } });
+  assert.equal(text(L.$("#lp-honesty")), "Prices from Powered by Jupiter. They refresh every 30 seconds. You buy and sell here, in your own wallet (routed by Jupiter, executed on Raydium LaunchLab or the Meteora curve); Vicinity never touches your funds.");
+  assert.equal(L.$("#lp-honesty a").getAttribute("href"), "https://jup.ag", "the attribution link survives the sweep");
+  assert.equal(L.win.VSwap.tradeSentence, "You buy and sell here, in your own wallet (routed by Jupiter, executed on Raydium LaunchLab or the Meteora curve); Vicinity never touches your funds.");
+  // launchpad.js writes the same sentence when it redraws the line with the answer's attribution (source check: the words live in swap.js)
+  const lp = readFileSync(new URL("../public/launchpad.js", import.meta.url), "utf8");
+  assert.match(lp, /const trade = swapOn && window\.VSwap && window\.VSwap\.tradeSentence \? window\.VSwap\.tradeSentence : "You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds\.";/);
+  assert.match(lp, /says how old its numbers are\. \$\{trade\}`\);/);
+});

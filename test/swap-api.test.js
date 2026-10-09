@@ -100,6 +100,14 @@ test("swap: a quote without a taker is a keyless estimate; with a taker it is th
   assert.ok(q1.data.inUsd > 37 && q1.data.inUsd < 38, "0.25 SOL at the fake price");
   assert.equal(q1.headers.get("Cache-Control"), "no-store");
   assert.deepEqual(W.jup.log.filter((l) => l.path.startsWith("/swap")).map((l) => [l.path, l.keyed]), [["/swap/v1/quote", false]]);
+  // the keyless quote is shared too: three visitors (or a 12-second refresh) asking the same pair, amount and slippage cost one lite call
+  const q1b = await call("/api/swap/quote", { body: quoteBody(), ip: "9.9.9.9" });
+  const q1c = await call("/api/swap/quote", { body: quoteBody() });
+  assert.deepEqual([q1b.data.outAmount, q1c.data.quoteId], [q1.data.outAmount, q1.data.quoteId]);
+  assert.equal(W.jup.log.filter((l) => l.path === "/swap/v1/quote").length, 1, "one keyless call for three identical previews");
+  assert.equal(_swapState().quotes, 1);
+  await call("/api/swap/quote", { body: quoteBody({ slippageBps: 300 }) });
+  assert.equal(W.jup.log.filter((l) => l.path === "/swap/v1/quote").length, 2, "another slippage is another key");
   const q2 = await call("/api/swap/quote", { body: quoteBody({ taker: TAKER }) });
   assert.deepEqual([q2.data.source, q2.data.estimate], ["jupiter_build", false]);
   assert.equal(q2.data.priceImpactPct, "0.0012");
@@ -282,4 +290,21 @@ test("swap: attempt limits: the 21st /tx from one connection and the 16th from o
   assert.deepEqual([last.status, last.data.error], [429, "slow_down"], "one wallet from many connections");
   for (let i = 0; i < 61; i++) last = await call("/api/swap/quote", { body: quoteBody(), ip: "8.8.8.8" });
   assert.equal(last.status, 429, "the 61st quote from one connection");
+});
+
+test("swap: with the switch on the trade links of /api/launchpad and /api/coin carry `here` (this site's own Buy), without it nothing changes", async () => {
+  const { buyHereLink, tradeLinks } = await import("../src/launchpad.js");
+  assert.equal(buyHereLink({ SWAP: "on", VICINITY_MINT: REAL_VIC }, REAL_VIC), "/token#buy-slot");
+  assert.equal(buyHereLink({ SWAP: "on", VICINITY_MINT: REAL_VIC }, POOL), `/coin?mint=${POOL}`);
+  assert.equal(buyHereLink({ SWAP: "off", VICINITY_MINT: REAL_VIC }, REAL_VIC), null);
+  assert.equal(buyHereLink({ SWAP: "on" }, null), null);
+  assert.deepEqual(Object.keys(tradeLinks(POOL, SOL)), ["raydium", "jupiter", "dexscreener", "solscan"], "no `here` key while the switch is off: the answer is exactly as before");
+  assert.equal(tradeLinks(POOL, SOL, "/coin?mint=" + POOL).here, "/coin?mint=" + POOL);
+  const on = world({ LAUNCHPAD_V2: "on" });
+  const lp = await on.call("/api/launchpad");
+  assert.equal(lp.status, 200, JSON.stringify(lp.data).slice(0, 200));
+  assert.equal(lp.data.vicinity.links.here, "/token#buy-slot");
+  assert.equal(lp.data.vicinity.links.raydium, `https://raydium.io/launchpad/token/?mint=${REAL_VIC}`, "the information links stay");
+  const off = world({ LAUNCHPAD_V2: "on", SWAP: "off" });
+  assert.equal((await off.call("/api/launchpad")).data.vicinity.links.here, undefined);
 });

@@ -18,6 +18,7 @@
  */
 import { json } from "./http.js";
 import { activeMint, launchedAtOf, officialFor } from "./official.js";
+import { swapOn } from "./cluster.js";
 import { PAIRS, handleCoins, launchedCoins } from "./coins.js";
 import { handleSeats } from "./seats.js";
 import { latestBalances } from "./ledger.js";
@@ -37,8 +38,12 @@ let memo = new WeakMap(); // env.DB -> { at, ttl, promise }: one upstream round 
 const mask = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
 const shortErr = (e) => String((e && e.message) || e).replace(/[1-9A-HJ-NP-Za-km-z]{32,}/g, "<address>").slice(0, 80);
 
-/** Where to trade a live coin: the same addresses the dashboard's Buy & swap card and the token page build. */
-export function tradeLinks(mint, pairMint) {
+/**
+ * Where to trade a live coin: the same addresses the dashboard's Buy & swap card and the token page build. With the in-app swap
+ * on (SWAP=on, src/cluster.js) `here` names the page on THIS site where the coin is bought and sold (buyHereLink); the pages
+ * then show "Buy here" and keep raydium.io / jup.ag as information links.
+ */
+export function tradeLinks(mint, pairMint, here = null) {
   if (!mint) return null;
   const from = !pairMint || pairMint === SOL ? "SOL" : pairMint; // Jupiter writes SOL by name, every other token by its mint
   return {
@@ -46,8 +51,11 @@ export function tradeLinks(mint, pairMint) {
     jupiter: `https://jup.ag/swap/${from}-${mint}`,
     dexscreener: `https://dexscreener.com/solana/${mint}`,
     solscan: `https://solscan.io/token/${mint}`,
+    ...(here ? { here } : {}),
   };
 }
+/** The page on this site that buys and sells `mint` once the in-app swap is on: the token page's panel for $VICINITY, the coin page for a city coin; null while the switch is off. */
+export const buyHereLink = (env, mint, vicMint = activeMint(env)) => (swapOn(env) && mint ? (mint === vicMint ? "/token#buy-slot" : `/coin?mint=${mint}`) : null);
 
 /** How many people hold a coin, by the rule of the token page: every owner except pools, program accounts and team wallets (the labelled ones). */
 export const peopleOf = ({ list, labels }) => list.filter(([owner]) => !labels.get(owner)).length;
@@ -146,7 +154,7 @@ async function build(env, fetchImpl, now) {
       founder, members: members.get(String(c.city)) || null,
       market: c.mint ? market.markets.get(c.mint) || null : null,
       holders: c.mint ? stats.counts.get(c.mint) || null : null,
-      links: tradeLinks(c.mint, c.pairMint), rewardModel: null,
+      links: tradeLinks(c.mint, c.pairMint, buyHereLink(env, c.mint, vicMint)), rewardModel: null,
     });
   }
   const vicinity = {
@@ -154,7 +162,7 @@ async function build(env, fetchImpl, now) {
     pitch: "One city. One coin. One community.", color: "gold", logo: null, pair: { symbol: "SOL", mint: SOL },
     mint: vicMint, launchedAt: launchedAtOf(vicMint), designedAt: null, founder: null, members: null, // "New" for its first 7 days, like any coin
     market: vicMint ? market.markets.get(vicMint) || null : null, holders: vicMint ? stats.counts.get(vicMint) || null : null,
-    links: tradeLinks(vicMint, SOL), rewardModel: null, opensAt: official.launchpadOpensAt,
+    links: tradeLinks(vicMint, SOL, buyHereLink(env, vicMint, vicMint)), rewardModel: null, opensAt: official.launchpadOpensAt,
   };
 
   const all = [vicinity, ...cards];

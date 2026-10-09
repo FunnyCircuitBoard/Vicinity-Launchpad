@@ -52,12 +52,13 @@ function takeToken(rps, now) {
   budget.tokens -= 1;
   return true;
 }
-const builds = new Map(); // key -> { at, promise }
+const builds = new Map(); // key -> { at, promise }: /swap/v2/build per (taker, pair, amount, slippage)
+const quotes = new Map(); // key -> { at, promise }: keyless /swap/v1/quote per (pair, amount, slippage)
 let failedUntil = 0, lastFail = null; // the negative cache after a 429 / 5xx / timeout
 const decimalsOf = new Map(); // mint -> { at, promise }
 const alts = new Source("jupiter_alt", { ttlMs: 10 * 60_000, staleMs: 10 * 60_000 });
-export const _resetSwap = () => { builds.clear(); failedUntil = 0; lastFail = null; decimalsOf.clear(); alts.reset(); budget.tokens = 0; budget.at = 0; budget.rps = 0; };
-export const _swapState = () => ({ builds: builds.size, failedUntil, bucket: budget.tokens });
+export const _resetSwap = () => { builds.clear(); quotes.clear(); failedUntil = 0; lastFail = null; decimalsOf.clear(); alts.reset(); budget.tokens = 0; budget.at = 0; budget.rps = 0; };
+export const _swapState = () => ({ builds: builds.size, quotes: quotes.size, failedUntil, bucket: budget.tokens });
 
 class JupiterError extends Error { constructor(code, status, retryAfterS) { super(code); this.code = code; this.status = status; this.retryAfterS = retryAfterS; } }
 const NO_ROUTE = /not tradable|no route|could not find any route|TOKEN_NOT_TRADABLE|NO_ROUTES?_FOUND|ROUTE_PLAN_DOES_NOT_CONSUME/i;
@@ -96,11 +97,23 @@ function jupiterBuild(env, p, fetchImpl, now) {
   }
   return hit;
 }
-/** lite /swap/v1/quote: numbers only, keyless. */
+/**
+ * lite /swap/v1/quote: numbers only, keyless, and kept 12 s per (pair, amount, slippage) with one in-flight call per key: the
+ * keyless allowance is small (about one call every two seconds), and every visitor typing the same round amount, every
+ * 12-second refresh of an open page and every preview during a rush must share one call instead of each costing one.
+ */
 function jupiterQuote(env, p, fetchImpl, now) {
-  const jc = jupiterConfig(env);
-  const q = new URLSearchParams({ inputMint: p.inputMint, outputMint: p.outputMint, amount: String(p.amountRaw), slippageBps: String(p.slippageBps), swapMode: "ExactIn" });
-  return jupiterGet(env, `${jc.lite}/swap/v1/quote?${q}`, fetchImpl, now, { keyed: false });
+  const key = `${p.inputMint}|${p.outputMint}|${p.amountRaw}|${p.slippageBps}`;
+  let hit = quotes.get(key);
+  if (!hit || now - hit.at >= BUILD_TTL_MS) {
+    const jc = jupiterConfig(env);
+    const q = new URLSearchParams({ inputMint: p.inputMint, outputMint: p.outputMint, amount: String(p.amountRaw), slippageBps: String(p.slippageBps), swapMode: "ExactIn" });
+    hit = { at: now, promise: jupiterGet(env, `${jc.lite}/swap/v1/quote?${q}`, fetchImpl, now, { keyed: false }) };
+    hit.promise.catch(() => { if (quotes.get(key) === hit) quotes.delete(key); }); // a failure is never kept (the negative cache covers it)
+    quotes.delete(key); quotes.set(key, hit);
+    while (quotes.size > BUILD_MAX) quotes.delete(quotes.keys().next().value);
+  }
+  return hit.promise;
 }
 const sha22 = async (s) => { const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))); return btoa(String.fromCharCode(...d)).replace(/[+/=]/g, "").slice(0, 22); };
 
