@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { MINT } from "./helpers/world.js";
 
 const read = (f) => readFileSync(new URL(`../public/${f}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const HERO_SHA256 = "858cdd5e151c26e1cdcaa2998526166216b8fa58abefdc48f941b0db3fd67d3a";
+const HERO_SHA256 = "1bce9a7a8ee6500506033865436169e7e5d7a6e8a1e10276cb80ecf328ee7d86";
 const html = read("token.html"), src = readFileSync(new URL("../scripts/pages/src/token.html", import.meta.url), "utf8"), css = read("style.css"), js = read("token.js");
 
 /* ---------------- the page ---------------- */
@@ -41,13 +41,15 @@ test("token page: hero, holders (live, with the rank check), no rug pull, offici
 });
 
 test("token page: the hero is word for word what it was (Live from the Solana blockchain, $VICINITY, the contract card, the buttons, the stats)", () => {
-  // origin/main 07fe1d5's hero, from <section class="page-hero" id="token"> to its </section>, hashed: any change to it fails here. The one
-  // change since (the owner, 8 Oct 2026): team wallets are not ranked or counted either, so the Holders stat's line under it says so.
-  const sub = (t) => `<span class="stat__sub" id="st-holders-sub">${t}</span>`;
+  // The hero, from <section class="page-hero" id="token"> to its </section>, hashed: any change to it fails here. Since origin/main 07fe1d5:
+  // the Holders stat's line says team wallets are not counted either (8 Oct 2026), and the mobile polish of 9 Oct 2026 made the lead one
+  // sentence and put the Buy control in a buy slot (<div class="contract__slot" id="buy-slot">, where the in-app swap goes).
   for (const h of [html, src]) {
     const a = h.indexOf('<section class="page-hero" id="token">'), b = h.indexOf("</section>", a) + "</section>".length, hero = h.slice(a, b);
-    assert.ok(hero.includes(sub("people; pools and team wallets not counted")));
-    assert.equal(createHash("sha256").update(hero.replace(sub("people; pools and team wallets not counted"), sub("people, pools not counted"))).digest("hex"), HERO_SHA256);
+    assert.ok(hero.includes('<span class="stat__sub" id="st-holders-sub">people; pools and team wallets not counted</span>'));
+    assert.match(hero, /<div class="contract__slot" id="buy-slot"><a class="contract__buy" id="lnk-raydium"[^>]*>[\s\S]*?<\/a><\/div>\s*<a class="contract__ext" id="lnk-jup"/, "the buy slot holds the Buy control and nothing else");
+    assert.equal((h.match(/id="buy-slot"/g) || []).length, 1, "one buy slot on the page");
+    assert.equal(createHash("sha256").update(hero).digest("hex"), HERO_SHA256);
   }
 });
 
@@ -61,7 +63,7 @@ test("token page: one box in the holders section finds a wallet and checks its r
     assert.match(head, /<div class="holders__find" id="verify" tabindex="-1">\s*<form class="find-box" id="lookup" role="search" novalidate>\s*<label class="sr-only" for="holders-find">[^<]+<\/label>\s*<input id="holders-find" type="search" placeholder="Find a wallet" autocomplete="off" spellcheck="false" maxlength="60" aria-describedby="holders-hint">\s*<button class="btn btn--primary find-box__go" type="submit">Check rank<\/button>\s*<\/form>/);
     assert.match(head, /<p class="holders__hint" id="holders-hint">Paste any Solana wallet address to see its rank\. We compare it with every holder, live\. Nothing is saved\.<\/p>/, "the helper sentence, short, under the box");
     assert.match(head, /<div class="holders__meta">\s*<span id="holders-status"[^>]*>[^<]*<\/span>\s*<button class="link-btn" type="button" id="holders-refresh" hidden>Refresh<\/button>/, "status and Refresh above it");
-    assert.match(sec, /Want your own dashboard, badges and city\? <a href="\/connect">Connect your wallet<\/a>: signing is free and isn't a transaction\./);
+    assert.doesNotMatch(sec, /Want your own dashboard|href="\/connect"/, "no third link to /connect on the page (the header has Log in): 9 Oct 2026");
     // the answer is a pop-up in the same section, not a card on the page: a <dialog> (role dialog), named by its title, described by the rank
     assert.match(sec, /<dialog class="rank-pop" id="rank-pop" aria-labelledby="rank-pop-title" aria-describedby="rank-big rank-pct">/);
     assert.match(sec, /<h3 class="rank-pop__title" id="rank-pop-title">Where this wallet stands<\/h3>/);
@@ -84,9 +86,9 @@ test("token page: the FAQ at the bottom, How do I get $VICINITY? first (id buy):
     assert.deepEqual(steps, [
       ["Get a Solana wallet.", "Phantom, Solflare or Backpack, on your phone or in your browser. Write the recovery phrase down on paper and never share it."],
       ["Add SOL.", "Buy SOL in the wallet app or on an exchange and send it to your wallet. Keep a little extra for network fees."],
-      ["Buy on Raydium.", "Use the <strong>Buy on Raydium</strong> button at the top of this page. It opens the official $VICINITY on Raydium LaunchLab (raydium.io); the contract address there must match the one here."],
+      ["Buy $VICINITY.", "Use the <strong>Buy</strong> button at the top of this page: it is the only official way in, and the contract address you buy must match the one shown here."],
       ["Claim your spot.", '<a href="/connect">Connect here</a> and set your home city. That starts your 7-day clock towards founding it, and your rank and badges go live.'],
-    ], "today's four steps, word for word");
+    ], "the four steps, word for word (step 3 names the Buy button, whatever it opens: the in-app swap takes the Raydium link's place)");
     // word for word, except where the checker is: it is above the FAQ now
     assert.match(buy, /<p class="scam-note"><strong>The only real Raydium is raydium\.io\.<\/strong> Look-alike addresses copy it to empty wallets\. Never type your recovery phrase into any website, and check any link with the <a href="#check">checker above<\/a> first\.<\/p>\s*<\/details>/);
     const questions = [...faq.matchAll(/<summary>([^<]+)<\/summary>/g)].map((m) => m[1]);
@@ -631,7 +633,7 @@ test("token page after launch: no 'the moment it launches' copy, and nothing in 
     assert.doesNotMatch(h, />At launch</);
     assert.doesNotMatch(h, /Checked live at launch/);
   }
-  assert.match(html, /<p class="lead">The key to the Vicinity map\. Every number on this page is read live from the blockchain\. Don't trust us, check the chain\.<\/p>/);
+  assert.match(html, /<p class="lead">The key to the Vicinity map\. Every number here is read live from the blockchain: don't trust us, check the chain\.<\/p>/);
   assert.match(html, /<code id="ca-text">Loading…<\/code>/);
 });
 
