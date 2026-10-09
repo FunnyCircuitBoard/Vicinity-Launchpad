@@ -53,7 +53,12 @@ const CUSTOM = /custom program error: 0x([0-9a-f]+)/i;
  *   blockhash_expired     the blockhash is no longer valid
  * `decoded` (decodeHeader of the transaction) names the program of the failing instruction.
  */
-export function simulationError(err, logs = [], decoded = null, { launchpadProgramId = null } = {}) {
+/**
+ * A simulation / landing error in a plain code. `decoded` (the transaction) names the failing instruction's program; without it,
+ * `swapProgram` (the route's top-level swap program: Jupiter or Meteora DBC, from the status poll's `via`) stands in for the
+ * swap instruction's own codes, the way the simulation path reads them.
+ */
+export function simulationError(err, logs = [], decoded = null, { launchpadProgramId = null, swapProgram = null } = {}) {
   if (err == null) return null;
   const text = `${typeof err === "string" ? err : JSON.stringify(err)}\n${(logs || []).join("\n")}`;
   if (/InsufficientFundsForFee|InsufficientFundsForRent|insufficient lamports|insufficient funds for rent|found no record of a prior credit|Attempt to debit an account but/i.test(text)) return { error: "insufficient_sol" };
@@ -62,7 +67,7 @@ export function simulationError(err, logs = [], decoded = null, { launchpadProgr
   const ie = err && typeof err === "object" && Array.isArray(err.InstructionError) ? err.InstructionError : null;
   if (ie) {
     const [index, detail] = ie;
-    const program = decoded ? programOfInstruction(decoded, index) : null;
+    const program = decoded ? programOfInstruction(decoded, index) : swapProgram && [PROGRAM_IDS.jupiter, PROGRAM_IDS.dbc].includes(swapProgram) ? swapProgram : null;
     const custom = detail && typeof detail === "object" && Number.isInteger(detail.Custom) ? detail.Custom : null;
     if (custom != null) {
       if (program === PROGRAM_IDS.token && custom === 1) return { error: "insufficient_balance", program, code: custom };
@@ -116,7 +121,8 @@ export async function handleSend(request, env, fetchImpl = fetch) {
   return json({ ok: true, signature, solscan: solscanTx(signature, cluster), cluster });
 }
 
-/** GET /api/swap/status?sig=&lvbh=&cluster= */
+/** GET /api/swap/status?sig=&lvbh=&cluster=&via=jupiter|curve (via: which swap program the transaction went through, for plain words on a landed failure) */
+const VIA = { jupiter: PROGRAM_IDS.jupiter, curve: PROGRAM_IDS.dbc };
 export async function handleStatus(request, env, fetchImpl = fetch) {
   const slow = await publicLimit(env, request, "swap_status");
   if (slow) return slow;
@@ -131,7 +137,7 @@ export async function handleStatus(request, env, fetchImpl = fetch) {
     const v = st && Array.isArray(st.value) ? st.value[0] : null;
     const out = { ok: true, signature: sig, solscan: solscanTx(sig, cluster), cluster, slot: v ? v.slot ?? null : null };
     if (v) {
-      if (v.err) { const m = simulationError(v.err, [], null); return json({ ...out, status: "failed", err: m ? m.error : "failed", name: m && m.name }); }
+      if (v.err) { const m = simulationError(v.err, [], null, { swapProgram: VIA[q.get("via")] || null }); return json({ ...out, status: "failed", err: m ? m.error : "failed", name: m && m.name }); }
       const c = v.confirmationStatus;
       return json({ ...out, status: c === "finalized" ? "finalized" : c === "confirmed" || Number(v.confirmations) > 0 ? "confirmed" : "pending" });
     }

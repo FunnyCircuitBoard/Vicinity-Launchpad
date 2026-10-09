@@ -10,7 +10,7 @@
 .swap.is-bad .swap__row--out { border-color: rgba(255,90,54,.6); }
 .swap__label { font-size: .76rem; font-weight: 600; color: var(--muted); }
 .swap__line { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.swap__amt { flex: 1 1 0; width: 0; min-width: 0; font: 650 1.55rem/1.2 var(--display); letter-spacing: -.02em; color: var(--text); background: none; border: 0; padding: 0; outline: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swap__amt { flex: 1 1 0; width: 0; min-width: 0; min-height: 44px; font: 650 1.55rem/1.2 var(--display); letter-spacing: -.02em; color: var(--text); background: none; border: 0; padding: 0; outline: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .swap__amt:disabled { opacity: .55; }
 .swap__amt--out { display: block; }
 .swap__token { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 8px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card-2); color: var(--text); font: 700 .92rem var(--body); cursor: pointer; max-width: 55%; }
@@ -20,13 +20,13 @@
 .swap__caret { font-size: .7rem; color: var(--muted); }
 .swap__mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font: 800 .78rem var(--display); color: #fff; flex: none; }
 .swap__sub { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 1.4em; font-size: .76rem; color: var(--muted); }
-.swap__max { min-height: 32px; padding: 0 8px; font-size: .76rem; }
+.swap__max { min-height: 44px; padding: 0 10px; font-size: .76rem; }
 .swap__flip { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--text); font-size: 1.1rem; cursor: pointer; display: grid; place-items: center; }
 .swap__flip:hover { border-color: var(--pin-2); }
 .swap__flip:disabled { opacity: .5; cursor: default; }
 .swap__slip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .8rem; color: var(--muted); }
 .swap__slip-label { margin-right: 4px; font-weight: 600; }
-.swap__chip { min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 600 .8rem var(--body); cursor: pointer; }
+.swap__chip { min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 600 .8rem var(--body); cursor: pointer; }
 .swap__chip[aria-pressed="true"] { background: rgba(255,90,54,.14); border-color: rgba(255,90,54,.5); color: var(--text); }
 .swap__chip--custom { width: 7.5em; cursor: text; }
 .swap__details { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; padding: 10px 14px; border-radius: 14px; background: var(--card); font-size: .82rem; }
@@ -49,8 +49,9 @@
 .swap__picker-list { display: grid; gap: 6px; max-height: 280px; overflow: auto; }
 .swap__opt { min-height: 48px; }
 .swap__deeplinks { display: grid; gap: 8px; }
-.swap__wallets-close { justify-self: end; min-height: 36px; }
+.swap__wallets-close { justify-self: end; min-height: 44px; }
 .swap__ca code { overflow-wrap: anywhere; }
+.swap__ca .link-btn, .swap__picker-head .link-btn { min-height: 44px; }
 .swap .wallet-option { min-height: 48px; }
 /* the bottom sheet (open() on /coin and the Launchpad): a centred dialog on a computer, a sheet from the bottom on a phone */
 .swap-sheet { position: fixed; inset: 0; width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; padding: 0; border: 0; background: transparent; display: none; }

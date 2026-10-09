@@ -243,6 +243,16 @@ test("swap: the relay sends only a well-formed, signed, small transaction; prefl
   W.rpc.statuses[sent.data.signature] = { err: { InstructionError: [3, { Custom: 6001 }] }, confirmationStatus: "confirmed", slot: 5 };
   const failed = (await call(`/api/swap/status?sig=${sent.data.signature}`)).data;
   assert.equal(failed.status, "failed");
+  assert.deepEqual([failed.err, failed.name], ["program_error", "6001"], "without the transaction at hand the Worker cannot name the program: an honest generic code");
+  // the page's poll says which swap program the transaction went through (via=jupiter | curve): a landed 6001 / 6002 reads as slippage, like in simulation
+  const viaJup = (await call(`/api/swap/status?sig=${sent.data.signature}&via=jupiter`)).data;
+  assert.deepEqual([viaJup.status, viaJup.err, viaJup.name], ["failed", "slippage", "SlippageToleranceExceeded"]);
+  W.rpc.statuses[sent.data.signature] = { err: { InstructionError: [4, { Custom: 6002 }] }, confirmationStatus: "confirmed", slot: 5 };
+  const viaCurve = (await call(`/api/swap/status?sig=${sent.data.signature}&via=curve`)).data;
+  assert.deepEqual([viaCurve.err, viaCurve.name], ["slippage", "ExceededSlippage"]);
+  W.rpc.statuses[sent.data.signature] = { err: { InstructionError: [4, { Custom: 6017 }] }, confirmationStatus: "confirmed", slot: 5 };
+  assert.equal((await call(`/api/swap/status?sig=${sent.data.signature}&via=curve`)).data.err, "program_error", "other codes stay program errors");
+  assert.equal((await call(`/api/swap/status?sig=${sent.data.signature}&via=evil`)).data.err, "program_error", "an unknown via is ignored");
   const unknown = "5ctr2RXcTzQ4XfHfFmjTaFPYxSMBw1Zp2WgVgXnvwDeMb7Yg7nE1xWxXq2k4mbKTrDJDDWJnBHe3bDB7uCqUWbk";
   assert.equal((await call(`/api/swap/status?sig=${unknown}&lvbh=${W.rpc.blockHeight + 10}`)).data.status, "pending");
   assert.equal((await call(`/api/swap/status?sig=${unknown}&lvbh=${W.rpc.blockHeight - 10}`)).data.status, "expired");

@@ -262,7 +262,7 @@
       const started = Date.now();
       const tick = async () => {
         if (this.s.sig !== sig) return;
-        const d = await api(`/api/swap/status?sig=${sig}&lvbh=${lvbh || ""}&cluster=${this.s.cluster}`).catch(() => null);
+        const d = await api(`/api/swap/status?sig=${sig}&lvbh=${lvbh || ""}&cluster=${this.s.cluster}&via=${this.s.curve ? "curve" : "jupiter"}`).catch(() => null);
         if (this.s.sig !== sig) return;
         if (d && d.ok && (d.status === "confirmed" || d.status === "finalized")) { this.phase("done"); this.loadBalances(); try { const r = this.go.getBoundingClientRect(); burst(r.left + r.width / 2, r.top); } catch { /* no burst */ } return; }
         if (d && d.ok && d.status === "failed") return this.phase("failed", { error: { error: d.err || "rejected_by_network", name: d.name } });
