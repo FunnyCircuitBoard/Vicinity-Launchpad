@@ -54,7 +54,7 @@ test("onboard.css is loaded by /connect and /dashboard only, and every rule in i
   for (const l of rules) assert.match(l, /^\.(su-later|su-alt|su-why|link-top|link-skip|link-in|no-account|welcome|ring|wcard|stepper--two|alt-ways|cstate\[data-state="su-account"\])/, l.slice(0, 60));
   for (const sel of [".wcard", ".wcard--folded", ".wcard.is-done", ".ring", ".ring--sm", ".ring--pass", ".ring-row", ".welcome", ".welcome__ring", ".welcome__close"]) assert.ok(css.includes(sel + " "), `${sel} is styled`);
   // colours come from the site's tokens (the light theme follows by itself); no hard-coded text colour on the card
-  const wcard = css.slice(css.indexOf(".wcard {"));
+  const wcard = css.slice(css.indexOf("\n.wcard {")); // the card's own block (the row-span rule above names .wcard too)
   assert.doesNotMatch(wcard, /color: #[0-9a-f]{3,6}/i, "no hard-coded text colour on the link card");
 });
 

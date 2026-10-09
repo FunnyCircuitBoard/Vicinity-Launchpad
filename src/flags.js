@@ -2,10 +2,11 @@
  * Feature switches, read from the environment on every request (a dashboard variable change applies to
  * the next request, no deploy). Deliberately NOT in wrangler.jsonc "vars": a deploy would reset it.
  *
- * SIGNUP_FLOW=v2 turns on the new sign-up (location, account with terms, wallet, dashboard).
+ * SIGNUP_FLOW=v2 turns on the new sign-up (location, account with terms, then the dashboard; the wallet is linked later, from
+ * the dashboard: onboarding v3 evolved the same switch in place, so "v3" is accepted as another name for "v2").
  * Anything else (unset, empty, "v1", a typo) is the sign-up as it has always been.
  */
-export const signupFlow = (env) => (String((env && env.SIGNUP_FLOW) ?? "").trim().toLowerCase() === "v2" ? "v2" : "v1");
+export const signupFlow = (env) => (["v2", "v3"].includes(String((env && env.SIGNUP_FLOW) ?? "").trim().toLowerCase()) ? "v2" : "v1");
 export const v2On = (env) => signupFlow(env) === "v2";
 
 /**

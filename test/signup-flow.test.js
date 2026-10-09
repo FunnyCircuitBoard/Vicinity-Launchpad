@@ -413,3 +413,9 @@ test("with the real password cost (100,000 rounds, no test setting) a whole sign
   assert.ok((await one(env.DB, "SELECT password_hash FROM users")).password_hash.startsWith("pbkdf2-sha256$100000$"));
   assert.ok(performance.now() - started < 5000, "one hash at full cost is well under a second");
 });
+
+test("SIGNUP_FLOW accepts v3 as an alias of v2 (onboarding v3 evolved the same switch); anything else is v1", async () => {
+  const { signupFlow, v2On } = await import("../src/flags.js");
+  for (const v of ["v2", "v3", " V3 ", "V2"]) { assert.equal(signupFlow({ SIGNUP_FLOW: v }), "v2", JSON.stringify(v)); assert.equal(v2On({ SIGNUP_FLOW: v }), true, JSON.stringify(v)); }
+  for (const v of [undefined, "", "v1", "v4", "on", "true", "v33"]) { assert.equal(signupFlow(v === undefined ? {} : { SIGNUP_FLOW: v }), "v1", JSON.stringify(v)); assert.equal(v2On(v === undefined ? {} : { SIGNUP_FLOW: v }), false, JSON.stringify(v)); }
+});

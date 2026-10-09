@@ -40,6 +40,9 @@
 .no-account .verified-badge.is-plain { color: var(--muted); background: var(--card-2); box-shadow: 0 0 0 10px var(--card); }
 .no-account .btn { width: 100%; }
 
+/* ---- the dashboard: the welcome card and the link card take the whole row of the Home panel (two columns on wide screens) ---- */
+.welcome, .wcard { grid-column: 1 / -1; }
+
 /* ---- the dashboard: the welcome card ---- */
 .welcome { position: relative; display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; background: linear-gradient(135deg, rgba(255,90,54,.16), rgba(255,200,87,.1)), var(--card); border: 1px solid rgba(255,200,87,.35); border-radius: var(--radius); padding: 22px; margin-bottom: 18px; }
 .welcome__disc { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font: 800 1.4rem var(--display); color: #fff; background: linear-gradient(135deg, var(--pin), var(--gold)); box-shadow: 0 14px 30px -14px rgba(255,90,54,.8); }
