@@ -66,9 +66,9 @@
 .swap__picker-list { display: grid; gap: 6px; max-height: 280px; overflow: auto; }
 .swap__opt { min-height: 48px; }
 .swap__deeplinks { display: grid; gap: 8px; }
-.swap__wallets-close { justify-self: end; min-height: 44px; }
+.swap__wallets-close { justify-self: end; min-height: 44px; min-width: 44px; }
 .swap__ca code { overflow-wrap: anywhere; }
-.swap__ca .link-btn, .swap__picker-head .link-btn { min-height: 44px; }
+.swap__ca .link-btn, .swap__picker-head .link-btn { min-height: 44px; min-width: 44px; }
 .swap .wallet-option { min-height: 48px; }
 /* the bottom sheet (open() on /coin and the Launchpad): a centred dialog on a computer, a sheet from the bottom on a phone */
 .swap-sheet { position: fixed; inset: 0; width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; padding: 0; border: 0; background: transparent; display: none; }
