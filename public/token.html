@@ -15,6 +15,7 @@
   <link rel="preload" href="/fonts/space-grotesk.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/polish.css">
   <script src="/theme.js"></script>
 </head>
 <body data-page="token">
@@ -46,7 +47,7 @@
       <div class="wrap">
         <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Live from the Solana blockchain</p>
         <h1 class="page-title">$VICINITY</h1>
-        <p class="lead">The key to the Vicinity map. Every number on this page is read live from the blockchain. Don't trust us, check the chain.</p>
+        <p class="lead">The key to the Vicinity map. Every number here is read live from the blockchain: don't trust us, check the chain.</p>
 
         <div class="contract card is-pending" id="contract">
           <div class="contract__head">
@@ -61,7 +62,7 @@
             <button class="contract__copy" type="button" id="ca-copy"><span class="contract__copy-icons" aria-hidden="true"><svg class="contract__copy-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 8.5V6A1.5 1.5 0 0 0 14 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></svg><svg class="contract__copy-check" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span><span id="ca-copy-label">Copy address</span></button>
           </div>
           <div class="contract__links" id="ca-links">
-            <a class="contract__buy" id="lnk-raydium" href="#" rel="noopener" target="_blank"><span>Buy on Raydium</span><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg><span class="sr-only"> (opens in a new tab)</span></a>
+            <div class="contract__slot" id="buy-slot"><a class="contract__buy" id="lnk-raydium" href="#" rel="noopener" target="_blank"><span>Buy on Raydium</span><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg><span class="sr-only"> (opens in a new tab)</span></a></div>
             <a class="contract__ext" id="lnk-jup" href="#" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-3.5-3.5M20 16H6l3.5 3.5"/></svg><span>Jupiter</span><span class="contract__out" aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
             <a class="contract__ext" id="lnk-dex" href="#" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5h16"/><path d="m4.5 15 4.5-4.5 3.5 3.5 7-7.5"/><path d="M15 6.5h4.5V11"/></svg><span>DEX Screener</span><span class="contract__out" aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
             <a class="contract__ext" id="lnk-solscan" href="#" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></svg><span>Solscan</span><span class="contract__out" aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
@@ -87,7 +88,7 @@
         <div class="section-head">
           <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Holders · live</p>
           <h2>Everyone who holds $VICINITY.</h2>
-          <p class="muted">Straight from the blockchain, refreshed every minute. Pools and team wallets are labeled; ranks are for people only.</p>
+          <p class="muted">Refreshed every minute. Pools and team wallets are labeled; ranks are for people only.</p>
         </div>
         <div class="holders card">
           <div class="holders__head">
@@ -117,7 +118,6 @@
             </table>
           </div>
         </div>
-        <p class="tiny muted">Want your own dashboard, badges and city? <a href="/connect">Connect your wallet</a>: signing is free and isn't a transaction.</p>
         <!-- the rank check's answer: a little pop-up over the page (closed, it takes no room); token.js fills and opens it -->
         <dialog class="rank-pop" id="rank-pop" aria-labelledby="rank-pop-title" aria-describedby="rank-big rank-pct">
           <div class="rank-pop__card">
@@ -144,14 +144,13 @@
     <!-- ============ NO RUG PULL ============ -->
     <section class="section section--tight">
       <div class="wrap">
-        <div class="section-head"><p class="kicker">No rug pull</p><h2 class="h2--sm">Here's the proof.</h2></div>
+        <div class="section-head"><p class="kicker">No rug pull</p><h2 class="h2--sm">Here's the proof, checked on-chain.</h2></div>
         <div class="proof-grid">
-          <div class="proof card"><span class="proof__icon">✓</span><h3>Minting disabled</h3><p>No one, including us, can ever create more $VICINITY. The full 1,000,000,000 supply was created with the token, and its mint authority is already removed on-chain, so the supply is fixed for good.</p><span class="proof__live" data-live="mint">Checking on-chain…</span></div>
+          <div class="proof card"><span class="proof__icon">✓</span><h3>Minting disabled</h3><p>No one, including us, can ever create more $VICINITY: its mint authority is already removed on-chain, so the 1,000,000,000 supply is fixed for good.</p><span class="proof__live" data-live="mint">Checking on-chain…</span></div>
           <div class="proof card"><span class="proof__icon">✓</span><h3>No freeze button</h3><p>No one can lock your tokens or stop you from selling.</p><span class="proof__live" data-live="freeze">Checking on-chain…</span></div>
-          <div class="proof card"><span class="proof__icon">✓</span><h3>Liquidity can't be pulled</h3><p>Fair launch on Raydium LaunchLab. When the curve fills, the pool's liquidity is burned or locked for good. Nobody, including us, can pull it.</p><span class="proof__live">LaunchLab standard</span></div>
-          <div class="proof card"><span class="proof__icon">✓</span><h3>Fixed supply</h3><p><span id="supply-text">1,000,000,000</span> $VICINITY. That's it, forever.</p><span class="proof__live" data-live="supply2">Checking on-chain…</span></div>
+          <div class="proof card"><span class="proof__icon">✓</span><h3>Liquidity can't be pulled</h3><p>Fair launch on Raydium LaunchLab: when the curve fills, the pool's liquidity is burned or locked for good. Nobody, including us, can pull it.</p><span class="proof__live">LaunchLab standard</span></div>
           <div class="proof card"><span class="proof__icon">✓</span><h3>Team wallets public</h3><p>Every wallet we control is listed on this site and labeled in the holder list.</p><span class="proof__live" id="team-count">Listed at launch</span></div>
-          <div class="proof card"><span class="proof__icon">✓</span><h3>No presale</h3><p>No presale and no private sale. The team buys on the same public LaunchLab curve as everyone, from public wallets.</p><span class="proof__live">LaunchLab standard</span></div>
+          <div class="proof card"><span class="proof__icon">✓</span><h3>No presale</h3><p>No private sale either: the team buys on the same public curve as everyone, from public wallets.</p><span class="proof__live">LaunchLab standard</span></div>
         </div>
       </div>
     </section>
@@ -162,7 +161,7 @@
         <div class="section-head">
           <p class="kicker">Official tokens</p>
           <h2>Every real Vicinity token, on every network.</h2>
-          <p class="muted">If a token isn't on this list, it isn't Vicinity. Paste any link, token address or @handle to check it.</p>
+          <p class="muted">Paste any link, token address or @handle to check it.</p>
         </div>
         <div class="registry card">
           <table class="registry__table">
@@ -191,12 +190,12 @@
           <ol class="faq__steps">
             <li><strong>Get a Solana wallet.</strong> Phantom, Solflare or Backpack, on your phone or in your browser. Write the recovery phrase down on paper and never share it.</li>
             <li><strong>Add SOL.</strong> Buy SOL in the wallet app or on an exchange and send it to your wallet. Keep a little extra for network fees.</li>
-            <li><strong>Buy on Raydium.</strong> Use the <strong>Buy on Raydium</strong> button at the top of this page. It opens the official $VICINITY on Raydium LaunchLab (raydium.io); the contract address there must match the one here.</li>
+            <li><strong>Buy $VICINITY.</strong> Use the <strong>Buy</strong> button at the top of this page: it is the only official way in, and the contract address you buy must match the one shown here.</li>
             <li><strong>Claim your spot.</strong> <a href="/connect">Connect here</a> and set your home city. That starts your 7-day clock towards founding it, and your rank and badges go live.</li>
           </ol>
           <p class="scam-note"><strong>The only real Raydium is raydium.io.</strong> Look-alike addresses copy it to empty wallets. Never type your recovery phrase into any website, and check any link with the <a href="#check">checker above</a> first.</p>
         </details>
-        <details><summary>Is this the only official $VICINITY?</summary><p>Yes. Only the contract address at the top of this page is the official $VICINITY; anything else using the name is fake. If a token isn't on the <a href="#check">official list</a>, it isn't Vicinity: paste any link, token address or @handle into the checker to check it.</p></details>
+        <details><summary>Is this the only official $VICINITY?</summary><p>Yes: the contract address at the top of this page, and only that one. The <a href="#check">checker</a> tells you whether any link, address or @handle is ours.</p></details>
         <details><summary>How is my rank worked out?</summary><p>Straight from the blockchain: a wallet is compared with every holder, live, and the list is refreshed every minute. Pools, curves and team wallets are listed and labeled but not ranked. Paste any wallet address into the <a href="#verify">box above the holder list</a> and press <strong>Check rank</strong> to see its rank, how much it holds and how far it is from the next spot. Nothing is saved.</p></details>
         <details><summary>What is the founder amount?</summary><p>How much $VICINITY you need to hold to found your city: 100K to 1M by city size, held for 7 days. The rank check shows whether a wallet holds enough, or how much it still needs to reach the smallest amount.</p></details>
       </div></div>
@@ -207,23 +206,24 @@
     <div class="wrap footer-grid">
       <div class="footer-brand">
         <div class="brand"><img src="/logo.svg" alt="" width="28" height="28"><span>Vicinity</span></div>
-        <p class="muted">One city. One coin. One community.</p>
-        <p class="muted small">System status: <span id="status">checking…</span></p>
-        <p class="muted small footer-motion"><button class="link-btn motion-toggle" type="button" data-motion-toggle>Pause animations</button></p>
+        <div class="footer-meta">
+          <p class="muted small footer-status">System status: <span id="status">checking…</span></p>
+          <p class="muted small footer-motion"><button class="link-btn motion-toggle" type="button" data-motion-toggle>Pause animations</button></p>
+        </div>
       </div>
-      <nav class="footer-links" aria-label="Footer">
+      <nav class="footer-links footer-links--explore" aria-label="Footer">
         <p class="footer-title">Explore</p>
         <a href="/">How it works</a><a href="/token">Token &amp; holders</a><a href="/token#verify">Check a wallet's rank</a><a href="/cities">Claim a city</a><a href="/launchpad">Launchpad</a><a href="/dashboard">Dashboard</a>
       </nav>
-      <nav class="footer-links" aria-label="Safety">
+      <nav class="footer-links footer-links--safe" aria-label="Safety">
         <p class="footer-title">Stay safe</p>
-        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/terms">Terms of Use</a><a href="/#faq">FAQ</a><a href="/connect">Connect a wallet</a>
+        <a href="/token#check">Is this link official?</a><a href="/rules">Rules &amp; fairness</a><a href="/terms">Terms of Use</a>
         <p class="tiny muted">Vicinity will never ask for your recovery phrase or private key.</p>
       </nav>
-      <div class="footer-links">
-        <p class="footer-title">Data</p>
+      <details class="footer-data">
+        <summary class="footer-title">Data credits</summary>
         <p class="tiny muted">Places: <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> (CC BY 4.0). City boundaries: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL). Country outlines: Natural Earth.</p>
-      </div>
+      </details>
     </div>
     <p class="wrap tiny muted footer-legal">vicinity.city · Nothing here is financial advice. Meme coins are very risky: only use money you can afford to lose.</p>
   </footer>

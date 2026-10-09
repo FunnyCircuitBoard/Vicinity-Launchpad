@@ -17,7 +17,8 @@
     body.replaceChildren(...list.map((t) => {
       const tr = el("tr");
       const ca = el("td");
-      if (isAddr(t.contract)) ca.append(el("code", null, t.contract)); else ca.textContent = t.status || "—";
+      // the official contract is printed once on the page (the card at the top): the row points at it; a token without a contract shows a dash (its status is the tag)
+      if (isAddr(t.contract)) { const a = el("a", "registry__above", "Shown above ↑"); a.href = "#contract"; a.title = t.contract; ca.append(a); } else ca.textContent = "—";
       const st = el("td");
       st.append(el("span", t.contract ? "tag tag--ok" : /^launching/i.test(t.status || "") ? "tag tag--warn" : "tag", t.contract ? "Live" : t.status));
       tr.append(el("td", null, t.network), el("td", null, `${t.name} (${t.symbol.startsWith("e.g.") ? t.symbol : "$" + t.symbol})`), ca, st);
@@ -86,7 +87,7 @@
     live("freeze", f.freezingDisabled, "Verified on-chain", "Warning: freezing is ON");
     live("supply", true, "Verified on-chain", "");
     live("supply2", true, "Verified on-chain", "");
-    $("#supply-text").textContent = fmt(f.supply);
+    const supplyText = $("#supply-text"); if (supplyText) supplyText.textContent = fmt(f.supply); // the "Fixed supply" proof card is gone (9 Oct 2026); an older page still fills it
     $("#st-supply").textContent = compact(f.supply);
     if (d.price) { $("#st-price").textContent = usd(d.price); $("#st-mcap").textContent = d.marketCap ? `market cap ${"$" + compact(d.marketCap)}` : ""; }
     else { $("#st-price").textContent = "—"; $("#st-mcap").textContent = "price not available yet"; }
