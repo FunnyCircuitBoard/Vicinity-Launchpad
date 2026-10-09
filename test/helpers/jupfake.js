@@ -42,7 +42,7 @@ export function fakeOut(inMint, outMint, inRaw, decimals = DECIMALS, prices = PR
  * amounts in its data, the WSOL cleanup when SOL is involved, one compute-unit price, Jupiter's blockhash. `hostile` names a
  * deliberate corruption the validator must catch. With `alt: true` the recorded lookup table is claimed (the USDC route).
  */
-export async function rewriteBuild({ taker, inputMint, outputMint, amountRaw, slippageBps, outRaw, hostile = null, alt = false, cuPrice = 1220n, lastValidBlockHeight = 432_749_181 }) {
+export async function rewriteBuild({ taker, inputMint, outputMint, amountRaw, slippageBps, outRaw, hostile = null, alt = false, cuPrice = 1220n, lastValidBlockHeight = 432_749_181, platformFeeBps = 0, feeAccount = null }) {
   const tpl = alt ? buildUsdc : buildSol;
   const sol = inputMint === SOL, solOut = outputMint === SOL;
   const inRaw = BigInt(amountRaw), out = BigInt(outRaw);
@@ -61,8 +61,10 @@ export async function rewriteBuild({ taker, inputMint, outputMint, amountRaw, sl
   swap.accounts[0].pubkey = taker; swap.accounts[1].pubkey = inAta; swap.accounts[2].pubkey = outAta;
   swap.accounts[3].pubkey = inputMint; swap.accounts[4].pubkey = outputMint;
   const d = fromBase64(rec.data);
-  d.set(u64le(inRaw), 8); d.set(u64le(out), 16); d.set(u16le(slippageBps), 24); d.set(u16le(0), 26); d.set(u16le(0), 28);
+  d.set(u64le(inRaw), 8); d.set(u64le(out), 16); d.set(u16le(slippageBps), 24); d.set(u16le(platformFeeBps), 26); d.set(u16le(0), 28);
   swap.data = toBase64(d);
+  // a platform fee on (SWAP_PLATFORM_FEE_BPS + SWAP_FEE_ACCOUNT): the optional account of route_v2 is the fee's destination (what the Worker's validator insists on)
+  if (platformFeeBps > 0 && feeAccount) swap.accounts[7] = { pubkey: feeAccount, isSigner: false, isWritable: true };
   const cleanup = sol || solOut ? apiIx(PROGRAM_IDS.token, [[wsolAta, false, true], [taker, false, true], [taker, true, false]], Uint8Array.of(9)) : null;
   const build = {
     inputMint, outputMint, inAmount: String(inRaw), outAmount: String(out), otherAmountThreshold: String(threshold), swapMode: "ExactIn", slippageBps,
@@ -108,14 +110,14 @@ function corrupt(b, code, { taker, outAta, wsolAta, inRaw }) {
 }
 
 /** A fake Jupiter at the fetch layer: /swap/v2/build (keyed host), /swap/v1/quote, /tokens/v2/search, /price/v3. */
-export function fakeJupiter({ prices = PRICES, decimals = DECIMALS, hostile = null, alt = false, cuPrice } = {}) {
+export function fakeJupiter({ prices = PRICES, decimals = DECIMALS, hostile = null, alt = false, cuPrice, platformFeeBps = 0, feeAccount = null } = {}) {
   const log = [];
   let mode = "ok";
   const err = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
   const ok = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   const F = {
     log, prices, decimals,
-    setMode(m) { mode = m; }, get mode() { return mode; }, hostile, alt, cuPrice,
+    setMode(m) { mode = m; }, get mode() { return mode; }, hostile, alt, cuPrice, platformFeeBps, feeAccount,
     async fetch(url, init = {}) {
       const u = new URL(String(url));
       if (!/(^|\.)jup\.ag$/.test(u.hostname)) return null;
@@ -145,7 +147,9 @@ export function fakeJupiter({ prices = PRICES, decimals = DECIMALS, hostile = nu
         const taker = u.searchParams.get("taker");
         if (!taker) return err(400, { error: "taker is required" });
         if (outRaw <= 0n) return err(400, { error: "Amount too small", errorCode: "AMOUNT_TOO_SMALL" });
-        return ok(await rewriteBuild({ taker, inputMint, outputMint, amountRaw: amount, slippageBps, outRaw, hostile: F.hostile, alt: F.alt, cuPrice: F.cuPrice }));
+        // a fee the asker set in the query (what the Worker sends when SWAP_PLATFORM_FEE_BPS is on) is answered the way Jupiter would: in the data and the optional account
+        const askedFee = Number(u.searchParams.get("platformFeeBps") || 0), askedAccount = u.searchParams.get("feeAccount") || null;
+        return ok(await rewriteBuild({ taker, inputMint, outputMint, amountRaw: amount, slippageBps, outRaw, hostile: F.hostile, alt: F.alt, cuPrice: F.cuPrice, platformFeeBps: F.platformFeeBps || askedFee, feeAccount: F.feeAccount || askedAccount }));
       }
       return err(404, { error: "not found" });
     },

@@ -20,7 +20,7 @@ import { isSolanaAddress } from "./solana.js";
 import { Source, codeOf } from "./sources.js";
 import { launchpadCluster, solscanTx } from "./cluster.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas } from "./sol/pda.js";
-import { PROGRAM_CONSTANTS, decodeCoin, decodeConfig, decodeLookupTable, decodePool } from "./sol/dbc.js";
+import { PROGRAM_CONSTANTS, decodeCoin, decodeConfig, decodeLookupTable, decodePool, decodeTokenAccount } from "./sol/dbc.js";
 import { CurveError, MAX_SLIPPAGE_BPS, feeBpsOf, priceInQuote, quoteBuy, quoteSell } from "./sol/quote.js";
 import { CU, SwapMode, createAtaIdempotent, maxCuPrice, priorityFeeLamports, setComputeUnitLimit, setComputeUnitPrice, swap2, unwrapSol, wrapSol } from "./sol/ix.js";
 import { MAX_TX_BYTES, compileLegacy, compileV0, wrapUnsigned, decodeHeader } from "./sol/message.js";
@@ -29,17 +29,25 @@ import { bad, checkSlippage, checkTaker, formatAmount, parseAmount } from "./sol
 import { simulate, simulationError } from "./relay.js";
 import { launchedCoins } from "./coins.js";
 import { ensureSchema } from "./store.js";
-import { publicLimit } from "./guards.js";
+import { publicLimit, walletLimit } from "./guards.js";
 import { OFFICIAL } from "./official.js";
+import { issueTicket } from "./relay.js";
 
-// the dev wallet the trades pay their referral to must be the program's constant AND the first published team wallet
-if (PROGRAM_CONSTANTS.FEE_RECIPIENT !== ADDRESSES.feeRecipient || OFFICIAL.teamWallets[0] !== ADDRESSES.feeRecipient) throw new Error("fee recipient mismatch between the program, src/sol/pda.js and src/official.js");
+/**
+ * The dev wallet the trades pay their referral to must be the program's constant AND a published team wallet. Checked here, not
+ * thrown at import time: src/index.js imports this file unconditionally, so a mismatch confines itself to the trade routes
+ * (503 misconfigured, and stageOf answers null so the swap routes never hand a coin over) instead of taking the whole site down.
+ * test/lptrade.test.js asserts it is false, so CI still catches a reorder of src/official.js.
+ */
+export const launchpadMisconfigured = () => PROGRAM_CONSTANTS.FEE_RECIPIENT !== ADDRESSES.feeRecipient || !OFFICIAL.teamWallets.includes(ADDRESSES.feeRecipient);
 
 export const COIN_DECIMALS = 6;
 export const RENT_ATA_LAMPORTS = 2_039_280n;
 export const NETWORK_FEE_LAMPORTS = 5_000n;
 const QUOTE_TTL_MS = 12_000;
 const KNOWN_DECIMALS = { So11111111111111111111111111111111111111112: 9, EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: 6, Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: 6 };
+export const REFERRAL_NOTE = "about 0.002 SOL re-creates the platform's fee account for this coin's pair token and is not returned to you";
+export const RENT_NOTE = "about 0.002 SOL once, for a token account of yours that does not exist yet; it is returned when you close that account";
 
 /* ---------------------------------------------------------------- the registry and the stage */
 let registryMemo = null; // { key, at, promise }: launched city coins with their Coin records, 10 minutes per server
@@ -48,7 +56,8 @@ const pools = new Source("lp_pool", { ttlMs: 5_000, staleMs: 0, negativeMs: 3_00
 const configs = new Source("lp_config", { ttlMs: 60 * 60_000, staleMs: 60 * 60_000 });
 const tables = new Source("lp_lookup", { ttlMs: 10 * 60_000, staleMs: 10 * 60_000 });
 const decimalsSrc = new Source("lp_decimals", { ttlMs: 60 * 60_000, staleMs: 60 * 60_000 });
-export const _resetLpTrade = () => { registryMemo = null; for (const s of [pools, configs, tables, decimalsSrc]) s.reset(); };
+const referrals = new Source("lp_referral", { ttlMs: 60_000, staleMs: 0, negativeMs: 3_000 }); // the dev wallet's referral account per quote mint: exists or not, a minute per server
+export const _resetLpTrade = () => { registryMemo = null; for (const s of [pools, configs, tables, decimalsSrc, referrals]) s.reset(); };
 
 const lpRpc = (env, cl, method, params, fetchImpl) => rpc(env, method, params, fetchImpl, { url: cl.rpc });
 
@@ -89,7 +98,7 @@ async function buildRegistry(env, cl, fetchImpl) {
 /** Where a launched coin stands: { stage: curve|full|graduated, coin, pool, config, entry } or null when it is not a launchpad coin. */
 export async function stageOf(env, mint, fetchImpl = fetch, now = Date.now()) {
   const cl = launchpadCluster(env);
-  if (!cl.ready) return null;
+  if (!cl.ready || launchpadMisconfigured()) return null;
   const entry = (await registry(env, fetchImpl, { now, wantMint: mint })).get(mint);
   if (!entry) return null;
   const { coin } = entry;
@@ -103,6 +112,17 @@ export async function stageOf(env, mint, fetchImpl = fetch, now = Date.now()) {
   if (pool.config !== coin.dbcConfig || pool.baseMint !== coin.mint) return { stage: "unknown", coin, pool, config, entry };
   const stage = pool.isMigrated ? "graduated" : pool.quoteReserve >= config.migrationQuoteThreshold || pool.migrationProgress >= 1 ? "full" : "curve";
   return { stage, coin, pool, config, entry, cluster: cl };
+}
+/**
+ * Does the dev wallet's referral token account for `quoteMint` exist right now? Every trade (re)creates it idempotently with the
+ * TRADER as the payer, and the dev wallet closes it whenever it unwraps SOL, so when it is missing the next trader pays its rent
+ * (about 0.002 SOL that is not theirs): the quote says so. true / false, or null when the chain could not say.
+ */
+async function referralExists(env, cl, quoteMint, fetchImpl, now) {
+  const addr = await ata(ADDRESSES.feeRecipient, quoteMint);
+  const r = await referrals.get([addr], now, async ([k]) => new Map([[k, Boolean(decodeTokenAccount((await lpRpc(env, cl, "getAccountInfo", [k, { encoding: "base64", commitment: "confirmed" }], fetchImpl))?.value))]]));
+  const v = r.values.get(addr);
+  return v === undefined ? null : v;
 }
 async function quoteDecimals(env, cl, mint, fetchImpl, now) {
   if (KNOWN_DECIMALS[mint] != null) return KNOWN_DECIMALS[mint];
@@ -181,8 +201,9 @@ function readTradeInput(body, { takerRequired }) {
 }
 const unavailable = (e, what) => { console.error(what, codeOf(e)); return json({ ok: false, error: "rpc_unavailable" }, 503, { "Cache-Control": "no-store" }); };
 
-/** Everything both routes share: the input, the stage, the decimals, the quote. { error: Response } or { ...quote, st, in, amountRaw, cl }. */
+/** Everything both routes share: the input, the stage, the decimals, the quote (with the referral-rent fact). { error: Response } or { quote, st, input, amountRaw, qd }. */
 async function prepare(request, env, fetchImpl, { takerRequired, now }) {
+  if (launchpadMisconfigured()) { console.error("launchpad misconfigured: fee recipient mismatch between the program, src/sol/pda.js and src/official.js"); return { error: json({ ok: false, error: "misconfigured" }, 503, { "Cache-Control": "no-store" }) }; }
   const body = await readJson(request, 4096);
   const input = readTradeInput(body, { takerRequired });
   if (input.error) return { error: json({ ok: false, error: input.error, ...(input.max ? { max: input.max } : {}) }, input.status) };
@@ -207,6 +228,13 @@ async function prepare(request, env, fetchImpl, { takerRequired, now }) {
     }
     throw e;
   }
+  // the fee breakdown names the rent a trader may pay that is NOT theirs: the dev wallet's referral account when it is missing
+  let referral = null;
+  try { referral = await referralExists(env, st.cluster, st.coin.quoteMint, fetchImpl, now); } catch (e) { console.error("referral account check skipped", codeOf(e)); }
+  quote.fees.referralRentLamports = referral === false ? Number(RENT_ATA_LAMPORTS) : referral === true ? 0 : null; // null: unknown right now
+  quote.fees.referralNote = referral === false ? REFERRAL_NOTE : null;
+  quote.fees.rentLamports = Number(RENT_ATA_LAMPORTS);
+  quote.fees.rentNote = RENT_NOTE;
   return { quote, st, input, amountRaw: parsed.raw, qd };
 }
 const quoteId = async (parts) => { const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(parts.join("|")))); return btoa(String.fromCharCode(...d)).replace(/[+/=]/g, "").slice(0, 22); };
@@ -230,6 +258,8 @@ export async function handleTradeTx(request, env, fetchImpl = fetch, now = Date.
   if (p.error) return p.error;
   const { quote, st, input, amountRaw } = p;
   const cl = st.cluster, taker = input.taker;
+  const slowWallet = await walletLimit(env, "lp_tx", taker, now); // one wallet from many connections cannot burn the launchpad RPC (a blockhash + a simulation per build)
+  if (slowWallet) return slowWallet;
   const cuPriceSetting = BigInt(/^\d{1,12}$/.test(String(env.LAUNCHPAD_CU_PRICE || "")) ? env.LAUNCHPAD_CU_PRICE : 0);
   let ixs, blockhash, table = null;
   try {
@@ -263,12 +293,16 @@ export async function handleTradeTx(request, env, fetchImpl = fetch, now = Date.
   const cuPrice = cuPriceSetting > 0n ? (cuPriceSetting < maxCuPrice(cuLimit) ? cuPriceSetting : maxCuPrice(cuLimit)) : 0n;
   const id = await quoteId(["curve", input.mint, input.side, amountRaw.toString(), input.slippageBps, st.pool.sqrtPrice.toString()]);
   // this trade is about to move the curve: the next quote of this pool reads the chain again instead of the copy of the last
-  // 5 seconds, so the person who just traded (and sells or buys again at once) sees the true numbers, not those from before
+  // 5 seconds, so the person who just traded (and sells or buys again at once) sees the true numbers, not those from before;
+  // it also (re)creates the referral account, so that fact is read again too
   pools.forget([st.coin.dbcPool]);
+  referrals.forget([await ata(ADDRESSES.feeRecipient, st.coin.quoteMint)]);
   return json({
     ok: true, quoteId: id, tx: toBase64(tx), version: useV0 ? 0 : "legacy", bytes: tx.length, blockhash: blockhash.blockhash, lastValidBlockHeight: blockhash.lastValidBlockHeight,
-    chain: cl.chain, cluster: cl.cluster, taker, quote: { ...quote, coin: coinInfo(st), expiresAt: new Date(now + QUOTE_TTL_MS).toISOString() },
-    fees: { computeUnitLimit: cuLimit, computeUnitPrice: cuPrice.toString(), priorityLamports: Number(priorityFeeLamports(cuPrice, cuLimit)), networkLamports: Number(NETWORK_FEE_LAMPORTS), rentLamports: Number(RENT_ATA_LAMPORTS), rentNote: "about 0.002 SOL once for a token account that does not exist yet; it stays yours" },
+    chain: cl.chain, cluster: cl.cluster, taker, ticket: await issueTicket(env, tx, now),
+    // the quote of THIS build: what the wallet is about to sign (the page compares it with its preview before opening the wallet)
+    quote: { ...quote, quoteId: id, coin: coinInfo(st), expiresAt: new Date(now + QUOTE_TTL_MS).toISOString() },
+    fees: { computeUnitLimit: cuLimit, computeUnitPrice: cuPrice.toString(), priorityLamports: Number(priorityFeeLamports(cuPrice, cuLimit)), networkLamports: Number(NETWORK_FEE_LAMPORTS), rentLamports: Number(RENT_ATA_LAMPORTS), rentNote: RENT_NOTE, referralRentLamports: quote.fees.referralRentLamports, referralNote: quote.fees.referralNote },
     solscanBase: solscanTx("", cl.cluster).replace(/\/$/, ""),
   }, 200, { "Cache-Control": "no-store" });
 }

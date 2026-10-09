@@ -403,6 +403,7 @@ test("trade links are the dashboard's and the token page's exact addresses; a pa
   });
   assert.equal(tradeLinks(CITY_COIN, USDC).jupiter, `https://jup.ag/swap/${USDC}-${CITY_COIN}`);
   assert.equal(tradeLinks(CITY_COIN, null).jupiter, `https://jup.ag/swap/SOL-${CITY_COIN}`);
+  assert.equal(tradeLinks(CITY_COIN, USDC, `/coin?mint=${CITY_COIN}`).jupiter, `https://jup.ag/tokens/${CITY_COIN}`, "with a Buy here, the Jupiter link is the information page, not a swap page");
   assert.equal(tradeLinks(null, SOL), null);
 });
 

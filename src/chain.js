@@ -181,6 +181,7 @@ export async function getMintBalances(env, owner, mints, fetchImpl = fetch, { ti
   const url = (env && env.SOLANA_RPC_URL) || PUBLIC_RPC;
   const list = [...new Set(mints)];
   const out = new Map();
+  out.accounts = new Set();
   const chunks = [];
   for (let i = 0; i < list.length; i += 25) chunks.push(list.slice(i, i + 25));
   await Promise.all(chunks.map(async (chunk) => {
@@ -194,13 +195,15 @@ export async function getMintBalances(env, owner, mints, fetchImpl = fetch, { ti
       const r = byId.get(j);
       if (!r) throw new Error("rpc_missing_answer");
       if (r.error) throw new Error(`rpc_${r.error.code || "error"}`);
-      let amount = 0;
+      let amount = 0, accounts = 0;
       for (const acc of Array.isArray(r.result?.value) ? r.result.value : []) {
         const info = acc?.account?.data?.parsed?.info;
         if (info && info.mint && info.mint !== mint) continue;
         amount += accountAmount(info?.tokenAmount);
+        accounts++;
       }
       out.set(mint, amount);
+      if (accounts) out.accounts.add(mint); // the mints the wallet has a token account for, even an empty one (the swap panel's rent note)
     });
   }));
   return out;

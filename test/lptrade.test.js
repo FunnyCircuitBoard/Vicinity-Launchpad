@@ -11,7 +11,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { handleApi } from "../src/index.js";
-import { _resetLpTrade, curveQuote, tradeInstructions } from "../src/lptrade.js";
+import { _resetLpTrade, curveQuote, launchpadMisconfigured, tradeInstructions } from "../src/lptrade.js";
+import { OFFICIAL } from "../src/official.js";
 import { _resetSwap } from "../src/swap.js";
 import { decodeCoin, decodeConfig, decodeLaunchpad, decodeLookupTable, decodePool, decodeTokenAccount } from "../src/sol/dbc.js";
 import { LAYOUT } from "../src/sol/layout.js";
@@ -201,11 +202,51 @@ test("lptrade: /api/swap/quote hands a curve coin over to these routes, refuses 
   assert.deepEqual([cfg.data.launchpad.enabled, cfg.data.launchpad.cluster, cfg.data.launchpad.programId], [true, "devnet", PROGRAM_IDS.launchpadDevnet]);
 });
 
-test("lptrade: the 21st /tx from one connection answers 429 slow_down", async () => {
+test("lptrade: the 21st /tx from one connection answers 429 slow_down, and so does the 16th of one WALLET from many connections", async () => {
   const { call } = await tradeWorld();
   let last;
   for (let i = 0; i < 21; i++) last = await call("/api/launchpad/trade/tx", buy({ taker: TRADER, amount: String(0.005 + i / 10000) }), { ip: "9.9.9.9" });
   assert.deepEqual([last.status, last.data.error], [429, "slow_down"]);
+  const other = "CnQMR167gRRXcPYrDZkwbW6moYKmxd7gZNGSN6BNzz6p";
+  for (let i = 0; i < 16; i++) last = await call("/api/launchpad/trade/tx", buy({ taker: other, amount: (0.005 + i / 10000).toFixed(4) }), { ip: `10.1.0.${i + 1}` });
+  assert.deepEqual([last.status, last.data.error], [429, "slow_down"], "one wallet cannot burn the launchpad RPC from many connections");
+});
+
+test("lptrade: the fee-recipient check no longer throws at import time: it is false today (CI catches a reorder), and the routes would answer 503 misconfigured", async () => {
+  assert.equal(launchpadMisconfigured(), false, "the program constant, src/sol/pda.js and a published team wallet agree");
+  assert.ok(OFFICIAL.teamWallets.includes(ADDRESSES.feeRecipient));
+  const src = readFileSync(new URL("../src/lptrade.js", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /^if \(.*throw new Error\("fee recipient mismatch/m, "no throw at module evaluation: a mismatch must never take every route of the site down");
+  assert.match(src, /error: "misconfigured" \}, 503/);
+});
+
+test("lptrade: the quote says when the dev wallet's referral account is missing (that rent is the trader's and not returned); present = 0; the /tx answer carries a relay ticket and the build's own quote", async () => {
+  const { W, call } = await tradeWorld();
+  const q = await call("/api/launchpad/trade/quote", buy());
+  assert.deepEqual([q.data.fees.referralRentLamports, q.data.fees.referralNote, q.data.fees.rentLamports], [0, null, 2_039_280], "the recorded devnet referral account exists");
+  assert.match(q.data.fees.rentNote, /returned when you close that account/);
+  // the dev wallet closed it (it unwrapped SOL): the next quote names the rent the trader will pay
+  _resetLpTrade();
+  delete W.rpc.accounts[REF];
+  const q2 = await call("/api/launchpad/trade/quote", buy());
+  assert.equal(q2.data.fees.referralRentLamports, 2_039_280);
+  assert.match(q2.data.fees.referralNote, /^about 0\.002 SOL re-creates the platform's fee account for this coin's pair token and is not returned to you$/);
+  const reads = () => W.rpc.log.filter((e) => e.methods.includes("getAccountInfo")).length;
+  const n = reads();
+  await call("/api/launchpad/trade/quote", buy({ amount: "0.006" }));
+  assert.equal(reads(), n, "the referral fact is kept a minute: no second read");
+  const tx = await call("/api/launchpad/trade/tx", buy({ taker: TRADER }));
+  assert.equal(tx.status, 200, JSON.stringify(tx.data));
+  assert.deepEqual([tx.data.fees.referralRentLamports, tx.data.fees.referralNote != null, tx.data.quote.fees.referralRentLamports], [2_039_280, true, 2_039_280]);
+  assert.match(tx.data.ticket, /^\d{13}\.[A-Za-z0-9_-]{22}$/, "the relay ticket for a wallet that only signs");
+  assert.equal(tx.data.quote.quoteId, tx.data.quoteId);
+  assert.deepEqual([tx.data.quote.outAmount, tx.data.quote.minOut, tx.data.quote.priceImpactPct], [q.data.outAmount, q.data.minOut, q.data.priceImpactPct], "the quote of the very build");
+  // the relay accepts it (devnet, because trading is on there) and refuses the same bytes without the ticket
+  const signedTx = (() => { const b = fromBase64(tx.data.tx); b.fill(7, 1, 65); return toBase64(b); })();
+  assert.equal((await call("/api/swap/send", { tx: signedTx, cluster: "devnet" })).data.error, "bad_ticket");
+  const sent = await call("/api/swap/send", { tx: signedTx, ticket: tx.data.ticket, cluster: "devnet" });
+  assert.deepEqual([sent.status, sent.data.cluster, /cluster=devnet$/.test(sent.data.solscan)], [200, "devnet", true], JSON.stringify(sent.data));
+  assert.ok(W.rpc.log.filter((l) => l.methods.includes("sendTransaction")).every((l) => l.url.startsWith("https://api.devnet.solana.com")), "sent to the launchpad cluster's node");
 });
 
 test("lptrade: a built trade forgets the pool's 5 s copy, so the next quote reads the chain again (the person who just traded sees the true numbers)", async () => {

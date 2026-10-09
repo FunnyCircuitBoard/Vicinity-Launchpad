@@ -41,14 +41,15 @@ const shortErr = (e) => String((e && e.message) || e).replace(/[1-9A-HJ-NP-Za-km
 /**
  * Where to trade a live coin: the same addresses the dashboard's Buy & swap card and the token page build. With the in-app swap
  * on (SWAP=on, src/cluster.js) `here` names the page on THIS site where the coin is bought and sold (buyHereLink); the pages
- * then show "Buy here" and keep raydium.io / jup.ag as information links.
+ * then show "Buy here", keep raydium.io as an information link, and the Jupiter link is the coin's INFORMATION page on jup.ag
+ * (never its swap page: nobody is sent elsewhere to trade).
  */
 export function tradeLinks(mint, pairMint, here = null) {
   if (!mint) return null;
   const from = !pairMint || pairMint === SOL ? "SOL" : pairMint; // Jupiter writes SOL by name, every other token by its mint
   return {
     raydium: `https://raydium.io/launchpad/token/?mint=${mint}`,
-    jupiter: `https://jup.ag/swap/${from}-${mint}`,
+    jupiter: here ? `https://jup.ag/tokens/${mint}` : `https://jup.ag/swap/${from}-${mint}`,
     dexscreener: `https://dexscreener.com/solana/${mint}`,
     solscan: `https://solscan.io/token/${mint}`,
     ...(here ? { here } : {}),

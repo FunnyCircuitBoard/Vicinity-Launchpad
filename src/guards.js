@@ -34,11 +34,15 @@ export const PUBLIC_LIMITS = {
   // GET /api/coin and /api/coin/chart (LAUNCHPAD_V2=on): outside sources and the database on an edge-cache miss (a hit is not counted)
   coin:           { max: 60, windowMs: MIN },
   coin_chart:     { max: 60, windowMs: MIN },
-  // the in-app swap (SWAP=on, src/swap.js, src/relay.js): a Jupiter call (quote, tx), an RPC call (send, status, balances), a token search
-  swap_quote:     { max: 60, windowMs: MIN },
+  // the in-app swap (SWAP=on, src/swap.js, src/relay.js): a Jupiter call (quote, tx), an RPC call (send, status, balances), a token search.
+  // A mobile network puts dozens of phones behind one address: an open panel re-quotes every 12 s (5 a minute), so 180 a
+  // minute per connection leaves room for a crowd; Jupiter itself is protected by the per-server budget (JUPITER_RPS), not here.
+  swap_quote:     { max: 180, windowMs: MIN },
   swap_tx:        { max: 20, windowMs: MIN },
   swap_send:      { max: 20, windowMs: MIN },
-  swap_status:    { max: 240, windowMs: MIN },
+  // the status poll is counted per SIGNATURE first (STATUS_LIMIT below: one person's polling never consumes another's);
+  // the per-connection number is only the brake on a flood of invented signatures (each poll is one RPC call)
+  swap_status:    { max: 600, windowMs: MIN },
   swap_balances:  { max: 60, windowMs: MIN },
   swap_tokens:    { max: 30, windowMs: MIN },
   // curve trades on our launchpad (LAUNCHPAD_TRADING=on, src/lptrade.js): the launchpad RPC on every call
@@ -47,25 +51,29 @@ export const PUBLIC_LIMITS = {
 };
 /** A per-WALLET counter on top of the per-connection one (src/swap.js, src/lptrade.js): one wallet cannot burn the Jupiter or RPC budget from many connections. */
 export const WALLET_LIMIT = { max: 15, windowMs: MIN };
+/** Per SIGNATURE for GET /api/swap/status: a page polls every 2 seconds (30 a minute); two tabs watching one trade still fit. */
+export const STATUS_LIMIT = { max: 60, windowMs: MIN };
 
 /**
- * Count one attempt of `kind` for this connection (or, for a kind counted by session, for this session). Returns a 429
- * { ok: false, error: "slow_down" } Response when it is over its limit, otherwise null (go on). Null too without a
- * database, or when counting itself failed.
+ * Count one attempt of `kind` for `value` (a wallet, a signature: whatever the route is really spending on), with its own
+ * ceiling. Returns a 429 { ok: false, error: "slow_down" } Response when it is over its limit, otherwise null (go on).
+ * Null too without a database, or when counting itself failed. The value is HMAC'd like every other key: never stored.
  */
-export async function walletLimit(env, kind, wallet, now = Date.now()) {
-  if (!env || !env.DB || !wallet) return null;
+export async function keyLimit(env, kind, value, spec, now = Date.now()) {
+  if (!env || !env.DB || !value) return null;
   try {
     await ensureLimitsSchema(env.DB);
-    const key = await limitKey(env, "pub:" + kind + "_wallet", wallet);
-    const r = await check(env, [{ key, windowMs: WALLET_LIMIT.windowMs, max: WALLET_LIMIT.max }], now);
+    const key = await limitKey(env, "pub:" + kind, value);
+    const r = await check(env, [{ key, windowMs: spec.windowMs, max: spec.max }], now);
     if (r.ok) return null;
-    return json({ ok: false, error: "slow_down" }, 429, { "Retry-After": String(Math.ceil(WALLET_LIMIT.windowMs / 1000)) });
+    return json({ ok: false, error: "slow_down" }, 429, { "Retry-After": String(Math.ceil(spec.windowMs / 1000)) });
   } catch (e) {
-    console.error("wallet limit skipped", kind, String((e && e.message) || e).slice(0, 80));
+    console.error("limit skipped", kind, String((e && e.message) || e).slice(0, 80));
     return null;
   }
 }
+/** The per-wallet counter of a kind (`<kind>_wallet`): WALLET_LIMIT attempts a minute, from however many connections. */
+export const walletLimit = (env, kind, wallet, now = Date.now()) => keyLimit(env, kind + "_wallet", wallet, WALLET_LIMIT, now);
 
 export async function publicLimit(env, request, kind, now = Date.now()) {
   const spec = PUBLIC_LIMITS[kind];

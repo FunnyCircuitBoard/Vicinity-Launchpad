@@ -2,11 +2,17 @@
  * The RPC relay behind the swap panel (only while SWAP=on or LAUNCHPAD_TRADING=on): the few JSON-RPC methods a trade needs,
  * each with a timeout, a plain error code and a rate limit, so the page (whose security policy allows only this site) never
  * talks to a blockchain node itself and the Worker never holds a key.
- *   POST /api/swap/send      { tx (base64, SIGNED by the wallet), lastValidBlockHeight, cluster? }  -> { ok, signature }
- *                            the fallback for wallets that sign but do not send; the header is checked (1-2 signatures, the fee
- *                            payer's slot filled, version 0 or legacy, <= 1232 bytes) and the node's preflight error is mapped
+ *   POST /api/swap/send      { tx (base64, SIGNED by the wallet), ticket, lastValidBlockHeight, cluster? }  -> { ok, signature }
+ *                            the fallback for wallets that sign but do not send; the header is checked (exactly one signer, the fee
+ *                            payer's slot filled, version 0 or legacy, <= 1232 bytes), the TICKET proves this Worker built the
+ *                            very message being sent (an HMAC over the message bytes, issued by /api/swap/tx and
+ *                            /api/launchpad/trade/tx, 10 minutes; the relay is not an open sendTransaction proxy), and the
+ *                            node's preflight error is mapped
  *   GET  /api/swap/status?sig=&lvbh=&cluster=  -> { ok, status: pending|confirmed|finalized|failed|expired, err, slot, solscan }
- *   GET  /api/swap/balances?owner=&mints=      -> { ok, sol: { lamports, ui }, tokens: { mint: { raw, decimals, ui, hasAccount } } }
+ *                            counted per SIGNATURE (60 a minute), so phones behind one carrier address never use up each other's polls
+ *   GET  /api/swap/balances?owner=&mints=&fresh=1 -> { ok, sol: { lamports, ui }, tokens: { mint: { ui, hasAccount } } }
+ *                            10 s memo per wallet; a send through the relay forgets the payer's memo; fresh=1 reads the chain now
+ * cluster=devnet is honoured only while LAUNCHPAD_TRADING is on (devnet test coins); otherwise everything is mainnet.
  * Also here, shared with the builders: simulate() and simulationError(), which turn a node's answer into insufficient_sol,
  * slippage, insufficient_balance, program_error { program, name } BEFORE the wallet opens.
  */
@@ -14,20 +20,47 @@ import { json } from "./http.js";
 import { getMintBalances, rpc } from "./chain.js";
 import { isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
-import { fromBase64, toBase64 } from "./sol/bytes.js";
+import { fromBase64, hex, toBase64 } from "./sol/bytes.js";
 import { MAX_TX_BYTES, decodeHeader, programOfInstruction } from "./sol/message.js";
 import { PROGRAM_IDS } from "./sol/pda.js";
 import { dbcErrorName, launchpadErrorName } from "./sol/dbc.js";
 import { checkTaker } from "./sol/input.js";
-import { launchpadCluster, solscanTx, swapCluster } from "./cluster.js";
-import { publicLimit } from "./guards.js";
+import { launchpadCluster, launchpadTradingOn, solscanTx, swapCluster } from "./cluster.js";
+import { STATUS_LIMIT, keyLimit, publicLimit } from "./guards.js";
+import { limitKey } from "./limits.js";
 import { readJson } from "./http.js";
 
 const TIMEOUT_MS = 8000;
 const SIG = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 /** The RPC url of a cluster name: the launchpad's for devnet (its own setting), SOLANA_RPC_URL (the site's) for mainnet. */
 export const rpcUrlFor = (env, cluster) => (cluster === "devnet" ? launchpadCluster({ ...env, LAUNCHPAD_CLUSTER: "devnet" }).rpc : null);
-const clusterOf = (env, v) => (v === "devnet" && launchpadCluster(env).cluster === "devnet" ? "devnet" : "mainnet");
+/** "devnet" only while the launchpad's curve trades are ON and run on devnet (test coins); a site without them never reaches a devnet node. */
+const clusterOf = (env, v) => (v === "devnet" && launchpadTradingOn(env) && launchpadCluster(env).cluster === "devnet" ? "devnet" : "mainnet");
+
+/* ---------------------------------------------------------------- the relay ticket: "this Worker built these very bytes" */
+const TICKET_MS = 10 * 60_000;
+const TICKET = /^(\d{10,16})\.([A-Za-z0-9_-]{22})$/;
+const messageHex = (txBytes) => hex(txBytes.subarray(decodeHeader(txBytes).messageOffset));
+/**
+ * A ticket for an unsigned transaction this Worker just built: `<expiresAt>.<22 chars>`, the 22 chars being an HMAC (the
+ * limits salt, src/limits.js) over the MESSAGE bytes and the expiry. A wallet's signature changes only the signature section,
+ * so the signed bytes carry the same message and the same ticket verifies. Null without a database (nothing to key with).
+ */
+export async function issueTicket(env, txBytes, now = Date.now()) {
+  if (!env || !env.DB) return null;
+  const exp = now + TICKET_MS;
+  return `${exp}.${(await limitKey(env, "relay", messageHex(txBytes), String(exp))).slice("relay:".length)}`;
+}
+/** True when `ticket` was issued by this Worker for the message inside `txBytes` and has not expired. Without a database there is nothing to verify with (like the limits): true. */
+export async function checkTicket(env, txBytes, ticket, now = Date.now()) {
+  if (!env || !env.DB) return true;
+  const m = TICKET.exec(String(ticket || ""));
+  if (!m || !(Number(m[1]) > now)) return false;
+  const want = (await limitKey(env, "relay", messageHex(txBytes), m[1])).slice("relay:".length);
+  let diff = want.length ^ m[2].length;
+  for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ (m[2].charCodeAt(i) || 0);
+  return diff === 0;
+}
 
 /**
  * One JSON-RPC call that keeps the node's error envelope (sendTransaction's preflight failure carries `data.err` and `data.logs`,
@@ -94,7 +127,7 @@ export async function simulate(env, txBytes, fetchImpl = fetch, { url = null } =
 
 /* ---------------------------------------------------------------- the routes */
 /** POST /api/swap/send: relay a wallet-signed transaction. The route has checked the switch, the method and the Origin. */
-export async function handleSend(request, env, fetchImpl = fetch) {
+export async function handleSend(request, env, fetchImpl = fetch, now = Date.now()) {
   const slow = await publicLimit(env, request, "swap_send");
   if (slow) return slow;
   const body = await readJson(request, 8192);
@@ -103,8 +136,11 @@ export async function handleSend(request, env, fetchImpl = fetch) {
   try { bytes = fromBase64(body.tx); } catch { return json({ ok: false, error: "bad_tx" }, 400); }
   if (bytes.length > MAX_TX_BYTES) return json({ ok: false, error: "tx_too_large" }, 400);
   try { decoded = decodeHeader(bytes); } catch (e) { return json({ ok: false, error: "bad_tx", reason: codeOf(e) }, 400); }
-  if (decoded.numSignatures > 2) return json({ ok: false, error: "bad_tx", reason: "too_many_signers" }, 400);
+  // the Worker only ever builds one-signer transactions (the person's wallet pays and signs): the relay's contract says so too
+  if (decoded.numSignatures !== 1 || decoded.header.numRequiredSignatures !== 1) return json({ ok: false, error: "bad_tx", reason: "one_signer_only" }, 400);
   if (!decoded.signaturesFilled[0]) return json({ ok: false, error: "unsigned" }, 400);
+  // only what THIS Worker built goes to the owner's RPC: a signed transaction from anywhere else is refused before any node is asked
+  if (!(await checkTicket(env, bytes, body.ticket, now))) return json({ ok: false, error: "bad_ticket", message: "Only a transaction built on this site can be relayed. Press Swap again." }, 400);
   const cluster = clusterOf(env, body.cluster);
   let d;
   try {
@@ -118,17 +154,19 @@ export async function handleSend(request, env, fetchImpl = fetch) {
   }
   const signature = typeof d.result === "string" && SIG.test(d.result) ? d.result : null;
   if (!signature) return json({ ok: false, error: "rpc_unavailable" }, 503);
+  forgetBalances(decoded.staticKeys[0]); // the payer's balances are about to change: the next read is the chain's, not the 10 s memo
   return json({ ok: true, signature, solscan: solscanTx(signature, cluster), cluster });
 }
 
 /** GET /api/swap/status?sig=&lvbh=&cluster=&via=jupiter|curve (via: which swap program the transaction went through, for plain words on a landed failure) */
 const VIA = { jupiter: PROGRAM_IDS.jupiter, curve: PROGRAM_IDS.dbc };
 export async function handleStatus(request, env, fetchImpl = fetch) {
-  const slow = await publicLimit(env, request, "swap_status");
-  if (slow) return slow;
   const q = new URL(request.url).searchParams;
   const sig = q.get("sig") || "";
-  if (!SIG.test(sig)) return json({ ok: false, error: "bad_signature" }, 400);
+  if (!SIG.test(sig)) return json({ ok: false, error: "bad_signature" }, 400); // free: nothing is asked of a node, so nothing is counted
+  // counted per signature first (one trade's polls never use up another person's), then the connection's own flood brake
+  const slow = (await keyLimit(env, "swap_status_sig", sig, STATUS_LIMIT)) || (await publicLimit(env, request, "swap_status"));
+  if (slow) return slow;
   const lvbh = /^\d{1,12}$/.test(q.get("lvbh") || "") ? Number(q.get("lvbh")) : null;
   const cluster = clusterOf(env, q.get("cluster"));
   const url = rpcUrlFor(env, cluster);
@@ -152,10 +190,12 @@ export async function handleStatus(request, env, fetchImpl = fetch) {
   }
 }
 
-const balances = new Map(); // owner|cluster -> { at, promise }: 10 s per server, so a page polling after a swap costs one call per owner
+const balances = new Map(); // owner|cluster|mints -> { at, promise }: 10 s per server, so a page polling after a swap costs one call per owner
 const BAL_MS = 10_000;
 export const _resetRelay = () => balances.clear();
-/** GET /api/swap/balances?owner=&mints=&cluster= : SOL and up to 6 mints of one wallet. */
+/** Forget every memo of one owner (after a trade of theirs went out: the next read is the chain's). */
+export function forgetBalances(owner) { for (const k of [...balances.keys()]) if (k.startsWith(owner + "|")) balances.delete(k); }
+/** GET /api/swap/balances?owner=&mints=&cluster=&fresh=1 : SOL and up to 6 mints of one wallet; fresh=1 skips the memo (counted like a miss). */
 export async function handleBalances(request, env, fetchImpl = fetch) {
   const q = new URL(request.url).searchParams;
   const owner = checkTaker(q.get("owner") || "");
@@ -164,7 +204,7 @@ export async function handleBalances(request, env, fetchImpl = fetch) {
   const cluster = clusterOf(env, q.get("cluster"));
   const key = `${owner}|${cluster}|${mints.slice().sort().join(",")}`;
   let hit = balances.get(key);
-  if (!hit || Date.now() - hit.at > BAL_MS) {
+  if (!hit || q.get("fresh") === "1" || Date.now() - hit.at > BAL_MS) {
     const slow = await publicLimit(env, request, "swap_balances");
     if (slow) return slow;
     hit = { at: Date.now(), promise: readBalances(env, owner, mints, cluster, fetchImpl) };
@@ -186,7 +226,9 @@ async function readBalances(env, owner, mints, cluster, fetchImpl) {
   const tokens = {};
   for (const m of mints) {
     const ui = tok.get(m) || 0;
-    tokens[m] = { ui, hasAccount: ui > 0 ? true : null }; // hasAccount is only known for sure when it holds something (one call per mint would say more)
+    // hasAccount: true when the wallet holds a token account for the mint (even an empty one), false when it has none, so the
+    // page can say whether about 0.002 SOL of rent will be asked for; null when the read could not say
+    tokens[m] = { ui, hasAccount: tok.accounts ? tok.accounts.has(m) : ui > 0 ? true : null };
   }
   return { sol: { lamports, ui: lamports / 1e9 }, tokens };
 }
