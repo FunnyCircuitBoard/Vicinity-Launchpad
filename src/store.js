@@ -917,12 +917,46 @@ async function onboardMigrate(db) {
 }
 
 /**
- * Create the onboarding v3 schema (pairs.purpose/user_id, users.wallet nullable) the first time a v2 sign-up or wallet-link route needs
- * it (safe to repeat, and to run from two servers at once: a second rebuild finds the migration recorded or wallet already nullable).
- * Rejects on any other failure and forgets that it tried, so the next request retries. Callers answer 503 signup_unavailable.
+ * Phones live inside the wallet app (src/walletlink.js): a link made in the wallet app's own browser, and the safety net for it. Plain
+ * nullable columns, each ALTER on its own ("duplicate column" ignored: safe to repeat, and from two servers at once), then the record.
+ *   handoffs.opener   sha256 of the FIRST browser that opened a link code (its __Host-vlo nonce): only that browser may get the statement
+ *                     and claim; a second browser kills the code ("contested")
+ *   handoffs.country  the country of the Safari / Chrome that made a RELAY code (iCloud Private Relay keeps the country): the wallet
+ *                     app's own connection must be in the same one (net = 'relay': such a code is never bound to an IP address)
+ *   users.wallet_at   when the wallet was linked; users.wallet_via how: 'page' (signed in this very browser), 'app' (the wallet app's
+ *                     browser claimed a code), 'pair' (a wallet app approved a pairing), 'transfer' (a tiny transfer); users.wallet_app the
+ *                     wallet app it was linked in (public/wallets.js KNOWN id, 'phantom'), for the words "Phantom connected"
+ *   users.password_at when the password was last set: "Remove it" (handleDisown) clears a password set after a link from another app
+ */
+export const WALLETAPP_MIGRATION = {
+  id: "2026-10-10-wallet-app",
+  columns: [
+    "ALTER TABLE handoffs ADD COLUMN opener TEXT",
+    "ALTER TABLE handoffs ADD COLUMN country TEXT",
+    "ALTER TABLE users ADD COLUMN wallet_at TEXT",
+    "ALTER TABLE users ADD COLUMN wallet_via TEXT",
+    "ALTER TABLE users ADD COLUMN wallet_app TEXT",
+    "ALTER TABLE users ADD COLUMN password_at TEXT",
+  ],
+};
+async function walletAppMigrate(db) {
+  const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(WALLETAPP_MIGRATION.id).first();
+  if (done) return;
+  for (const s of WALLETAPP_MIGRATION.columns) {
+    try { await db.prepare(s).run(); }
+    catch (e) { if (!isDuplicateColumn(e)) throw e; }
+  }
+  await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(WALLETAPP_MIGRATION.id, new Date().toISOString()).run();
+}
+
+/**
+ * Create the onboarding v3 schema (pairs.purpose/user_id, users.wallet nullable, then the wallet-app columns above) the first time a v2
+ * sign-up or wallet-link route needs it (safe to repeat, and to run from two servers at once: a second rebuild finds the migration
+ * recorded or wallet already nullable). Rejects on any other failure and forgets that it tried, so the next request retries. Callers
+ * answer 503 signup_unavailable.
  */
 export function ensureOnboardSchema(db) {
-  if (!onboardReady.has(db)) onboardReady.set(db, onboardMigrate(db).catch((e) => { onboardReady.delete(db); throw e; }));
+  if (!onboardReady.has(db)) onboardReady.set(db, onboardMigrate(db).then(() => walletAppMigrate(db)).catch((e) => { onboardReady.delete(db); throw e; }));
   return onboardReady.get(db);
 }
 
