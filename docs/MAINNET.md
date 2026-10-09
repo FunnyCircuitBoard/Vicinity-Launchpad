@@ -23,14 +23,15 @@ deploys to mainnet and never sends a mainnet transaction. Section 8 lists what o
 
 So on day one **$VICINITY and every token Jupiter can route can be swapped in the app as soon as `SWAP=on`** (section 3).
 City coins on their bonding curve need the launchpad program on mainnet first (section 4); until then their Buy opens the
-same panel and the Worker answers `not_enabled` for curve trades (the page says "Swapping is switched off right now").
+same panel, the Worker asks Jupiter (which has no route for a coin still on a Meteora curve) and the page says "No market
+can trade this pair right now." Nothing is built and nothing can be signed for such a coin until `LAUNCHPAD_TRADING` is on.
 
 ## 2. Settings (where each one lives: docs/DEPLOY.md "Where each setting lives")
 
 | setting | value for mainnet | required for |
 |---|---|---|
 | `SWAP` | `on` | the panel and `/api/swap/*` (`off` or unset = hidden, 404, the old Raydium links and words stay) |
-| `JUPITER_API_KEY` (Secret) | a key from portal.jup.ag (the Developer plan, 10 requests per second, is the one for a launch day) | real builds (`/swap/v2/build`); without it quotes are estimates from the keyless API and no transaction is built |
+| `JUPITER_API_KEY` (Secret) | a key from portal.jup.ag (the Developer plan, 10 requests per second, is the one for a launch day) | builds (`/swap/v2/build`) on the plan's own allowance. Without it previews are keyless estimates and the Worker still builds on Jupiter's **anonymous** allowance (api.jup.ag answered a keyless build on 9 Oct 2026), which can end any day without notice: the key is required for a launch, not optional |
 | `JUPITER_RPS` | the plan's requests per second (`10`) | the per-server token bucket: more than this per second becomes estimates, never errors |
 | `JUPITER_API_BASE` | unset (= `https://api.jup.ag`); `JUPITER_LITE_BASE` unset (= `https://lite-api.jup.ag`) | |
 | `SWAP_PLATFORM_FEE_BPS`, `SWAP_FEE_ACCOUNT` | unset = no platform fee (an owner decision; the page says "takes no fee") | a Jupiter platform fee to that token account |
@@ -60,9 +61,10 @@ Who: the owner (secrets), one developer (pull request, smoke test). About an hou
 1. Secrets in Cloudflare: `SOLANA_RPC_URL` (set already), `JUPITER_API_KEY` (new). Variables: `JUPITER_RPS=10`, `RPC_TIMEOUT_MS=8000`.
 2. On your machine, with the secrets exported in the shell:
    `JUPITER_API_KEY=… JUPITER_RPS=10 SOLANA_RPC_URL=… npm run mainnet:preflight -- --set SWAP=on --site https://vicinity.city`
-   Every row but the launchpad ones must PASS (those WARN while `LAUNCHPAD_TRADING` is off). `Jupiter keyed build SOL → $VICINITY`
-   asks Jupiter for the build the Worker would ask for (0.01 SOL, the dev wallet as taker) and runs it through the Worker's own
-   validator: a layout Jupiter changed fails here first, before anyone presses Swap.
+   Every row but the launchpad ones must PASS (those WARN while `LAUNCHPAD_TRADING` is off). `Jupiter build SOL → $VICINITY`
+   asks Jupiter for the build the Worker would ask for (0.01 SOL, the dev wallet as taker; with the platform fee when one is
+   set) and runs it through the Worker's own validator: a layout Jupiter changed fails here first, before anyone presses
+   Swap. The row runs with or without the key (keyless it can only WARN: the anonymous allowance is not a plan).
 3. Deploy with `SWAP=on` (pull request). What changes on the site, all behind this one switch:
    * `/token`: the "Buy on Raydium" tile becomes "Buy here" and scrolls to the Buy panel under the contract address; the FAQ's
      third step says the same; Solscan and Chart tiles stay.
@@ -105,8 +107,9 @@ solana/LAUNCHPAD.md section 9 has the detail of every command.
    `LAUNCHPAD_LOOKUP_TABLE`, `LAUNCHPAD_CLUSTER=mainnet`; `LAUNCHPAD_RPC_URL` unset.
 6. `npm run mainnet:preflight -- --cluster mainnet --set LAUNCHPAD_TRADING=on --expect-upgrade-authority <squads vault> --expect-admin <squads vault>`
    with those exported: every launchpad row must PASS: the program is executable and owned by the upgradeable loader; the
-   upgrade authority IS the multisig (a plain wallet is a FAIL on mainnet); the global account is initialised, not paused, its
-   admin IS the multisig, a rewards program is set; each config is Meteora's with the dev wallet as fee claimer and leftover
+   upgrade authority IS the multisig (on mainnet the `upgrade authority` and `launchpad admin` rows FAIL unless the two
+   flags name the multisig and the chain matches them: a plain wallet, a stranger's vault or any program address can never
+   pass by accident); the global account is initialised, not paused, its admin IS the multisig, a rewards program is set; each config is Meteora's with the dev wallet as fee claimer and leftover
    receiver, 125 bps, creator share 50 %, pool creation fee under the program's cap (a SOL config that does not graduate at
    85 SOL is a WARN: an owner decision); each config has an enabled allow-list entry under our program; the dev wallet's referral
    account exists for each quote mint; the lookup table holds the nine addresses a trade needs.
@@ -137,43 +140,60 @@ every call is a GET or a JSON-RPC read; `--check-limits` posts invalid bodies th
 | `LAUNCHPAD_CLUSTER` | mainnet | WARN devnet while trading is on: test coins only |
 | `VICINITY_MINT`, `SOLANA_RPC_URL`, `RPC_TIMEOUT_MS` | set | FAIL / FAIL / WARN |
 | `site /api/health`, `site /api/official`, `site security headers / and /api/health`, `site cron alive` (`--site`) | 200; the switches as set here and the mint; CSP self-only + HSTS + nosniff + no framing; a balance sample under 25 minutes old | WARN when the site's switches differ from the settings here (dashboard vs wrangler.jsonc); FAIL on missing headers or a cron that never ran |
-| `site /api/swap/config`, `site live quote SOL → $VICINITY`, `site attempt limit /api/swap/quote` (`--site`, the site's swap on) | mainnet, keyed; 0.01 SOL quoted with its source and latency; the 61st quote of one connection is 429 (`--check-limits`) | WARN keyless / Jupiter busy; FAIL no 429 |
-| `JUPITER_API_KEY`, `JUPITER_RPS`, `SWAP_PLATFORM_FEE_BPS / SWAP_FEE_ACCOUNT` | key set; rate above 1; a fee only with a valid account | WARN / WARN / FAIL (a fee with no account) |
+| `site /api/swap/config`, `site live quote SOL → $VICINITY`, `site attempt limit /api/swap/quote` (`--site`, the site's swap on) | mainnet, keyed; 0.01 SOL quoted with its source and latency; the 181st quote of one connection is 429 (`--check-limits`; the number comes from src/guards.js) | WARN keyless / Jupiter busy; FAIL no 429 |
+| `JUPITER_API_KEY`, `JUPITER_RPS`, `SWAP_PLATFORM_FEE_BPS / SWAP_FEE_ACCOUNT` | key set; rate above 1; a fee only with a valid account | WARN (keyless builds run on the anonymous allowance) / WARN / FAIL (a fee with no account) |
 | `Jupiter lite quote SOL → $VICINITY` | the keyless quote answers with a route | FAIL: nobody can buy $VICINITY today |
-| `Jupiter keyed build SOL → $VICINITY` (key set) | `/swap/v2/build` answers 200 for the dev wallet AND the Worker's validator accepts it | WARN 429 (the plan's allowance); FAIL refused by the key or by the validator |
+| `Jupiter build SOL → $VICINITY` (always) | `/swap/v2/build` answers 200 for the dev wallet (with the platform fee when set) AND the Worker's validator accepts it, with the key | WARN keyless (works on the anonymous allowance today, may stop) or 429; FAIL refused by the key, or by the validator (with or without a key) |
 | `mainnet RPC answers`, `mainnet RPC health`, `$VICINITY mint on mainnet`, `Jupiter program on mainnet` | mainnet genesis; getHealth ok and two accounts under 1.5 s; 6 decimals, no mint or freeze authority; executable | FAIL / WARN slow / WARN authority / FAIL |
-| `no mainnet launchpad address in the code` | always PASS: it prints the mainnet defaults (null, []) | |
+| `no mainnet launchpad address in the code` | the mainnet defaults of src/cluster.js are null, [] and null (computed, not a literal) | FAIL: an address crept into the code |
 | `LAUNCHPAD_RPC_URL`, `LAUNCHPAD_PROGRAM_ID`, `LAUNCHPAD_DBC_CONFIGS` | set or defaulted (devnet); on mainnet the id and configs REQUIRED | WARN public RPC; FAIL missing |
 | `launchpad RPC cluster`, `launchpad RPC health` | the cluster it should be; getHealth ok and the configs under 1.5 s | FAIL / WARN |
 | `launchpad program` | executable, owned by the upgradeable loader | FAIL |
-| `upgrade authority` | = `--expect-upgrade-authority`; immutable also PASS | FAIL a different key, or a plain wallet on mainnet; WARN a plain wallet on devnet or an unexpected non-wallet |
+| `upgrade authority` | = `--expect-upgrade-authority`; immutable also PASS | FAIL a different key; on mainnet FAIL whenever the flag is missing (plain wallet, vault or program address alike: the row passes only by naming the multisig and matching it); WARN on devnet |
 | `Meteora DBC program` | executable on the cluster | FAIL |
-| `launchpad global account`, `launchpad admin`, `rewards program` | initialised, not paused; admin = `--expect-admin`; a rewards program set | FAIL not initialised; WARN paused; FAIL a different admin or a plain wallet on mainnet; FAIL no rewards program |
+| `launchpad global account`, `launchpad admin`, `rewards program` | initialised, not paused; admin = `--expect-admin`; a rewards program set | FAIL not initialised; WARN paused; FAIL a different admin, or on mainnet any admin while `--expect-admin` is missing; FAIL no rewards program |
 | `DBC config <id>` | Meteora's; fee claimer and leftover receiver = the dev wallet; 125 bps; creator share 50 %; pool creation fee under the cap | FAIL; WARN a SOL config not graduating at 85 SOL on mainnet |
 | `allow-list entry <id>` | an enabled LaunchConfig under our program for that config | FAIL (setup.mjs add-config) |
-| `referral account <quote>` | the dev wallet's token account for the quote mint exists | WARN (the first trade recreates it; that trader pays about 0.002 SOL) |
+| `referral account <quote>` | the dev wallet's token account for the quote mint exists | WARN (the next trade recreates it and THAT TRADER pays about 0.002 SOL that is not returned; the quote and the panel say so; the claim script must stop closing it) |
 | `LAUNCHPAD_LOOKUP_TABLE` | a table holding the nine addresses a trade needs | WARN some missing or unset; FAIL not a table |
 | `dev wallet` | in `ADMIN_WALLETS` | WARN |
 
-Recorded runs on 9 October 2026 (the logs are in the implementer's report):
+Recorded runs on 9 October 2026, after the review fixes (the logs are in the fixer's report). The shell had `SOLANA_RPC_URL`
+and `RPC_TIMEOUT_MS=8000` exported and no Jupiter key (the counts move with what the shell exports: without the RPC secret the
+`SOLANA_RPC_URL` row FAILs and the mainnet reads use the public RPC):
 
-* devnet settings, `--expect-upgrade-authority` and `--expect-admin` = the devnet deployer: **34 rows, 31 pass, 3 warn, 0 fail**
-  (the warnings: no Jupiter key in that shell, `JUPITER_RPS` at its default, `LAUNCHPAD_CLUSTER` devnet);
-* mainnet settings with no program deployed: **19 rows, 13 pass, 3 warn, 3 fail** (`LAUNCHPAD_TRADING`, `LAUNCHPAD_PROGRAM_ID`,
-  `LAUNCHPAD_DBC_CONFIGS`): the program rows fail cleanly and nothing else is skipped;
-* `--site https://vicinity.city` (today's live site, switches off): health, `/api/official` (swap off, launchpadTrading off,
-  the mint), the security headers on `/` and `/api/health`, the cron (a sample 7 minutes old) all PASS; the swap rows are
-  skipped with a WARN because the site's swap is off.
+* devnet settings, `--expect-upgrade-authority` and `--expect-admin` = the devnet deployer: **35 rows, 31 pass, 4 warn, 0 fail**
+  (the warnings: no Jupiter key in that shell, so the `Jupiter build` row is keyless, which it says; `JUPITER_RPS` at its
+  default; `LAUNCHPAD_CLUSTER` devnet; the dev wallet not in that shell's `ADMIN_WALLETS`). The keyless build answered in
+  248 ms with today's Raydium Launchlab route and the validator accepted it;
+* mainnet settings with no program deployed: **20 rows, 14 pass, 3 warn, 3 fail** (`LAUNCHPAD_TRADING`, `LAUNCHPAD_PROGRAM_ID`,
+  `LAUNCHPAD_DBC_CONFIGS`): the program rows fail cleanly and nothing else is skipped; the mint, the Jupiter program and the
+  lite quote (0.01 SOL → 152,320.805136 $VICINITY) read from mainnet;
+* `--site https://vicinity.city` (today's live site, switches off): **41 rows, 33 pass, 8 warn, 0 fail**: health, `/api/official`
+  (swap off, launchpadTrading off, the mint), the security headers on `/` and `/api/health`, the cron all PASS; the swap rows
+  are skipped with a WARN because the site's swap is off.
+
+These runs used `--rpc https://api.mainnet-beta.solana.com` (the public node; the provider URL is a Cloudflare Secret and was not
+in that shell) and no `JUPITER_API_KEY`. The team's own runs with both exported will show `SOLANA_RPC_URL` set and the build row
+keyed (PASS instead of WARN).
 
 ## 6. Costs (estimates; nothing of section 4 was run on mainnet)
 
 * Jupiter swaps: the person pays the network fee (5,000 lamports per signature), the priority fee Jupiter suggests (the Worker
-  caps it at 0.01 SOL and shows "priority fee ≤" in the quote), and once per new token account 2,039,280 lamports of rent
-  (returned when the account is closed). Vicinity takes no fee unless `SWAP_PLATFORM_FEE_BPS` is set. Jupiter's Developer plan:
-  $25 per month.
+  caps it at 0.01 SOL; the panel's fee line says "priority ≤ X SOL" with the quote and the exact "priority X SOL" once the
+  transaction is built), and once per new token account of theirs 2,039,280 lamports of rent (returned when they close the
+  account; the panel's "Account rent" row says so when the wallet has no account for the token yet). Vicinity takes no fee
+  unless `SWAP_PLATFORM_FEE_BPS` is set; when it is, the quote's fee line and the panel's footer say the percentage.
+  Jupiter's Developer plan price ($25 per month, 10 requests per second) is the owner's figure from portal.jup.ag, not
+  verified here.
 * Curve trades: the curve's 125 bps (100 bps to Meteora's fee claimer = the dev wallet, split by the program into city, holders,
-  founder and dev as LAUNCHPAD.md describes; 25 bps referral), the network fee, 55,000 to 73,000 compute units (devnet runs).
-* The launchpad on mainnet (LAUNCHPAD.md section 9): the deploy about 2.23 SOL at the peak, config + init + allow-list about
+  founder and dev as LAUNCHPAD.md describes; 25 bps referral), the network fee, 55,000 to 73,000 compute units (devnet runs),
+  and, whenever the dev wallet has closed its referral account (it does so when it unwraps SOL), about 0.002 SOL of rent paid
+  by the NEXT trader to re-create it, which is not returned to them: the quote carries `fees.referralRentLamports` and
+  `referralNote`, the panel shows it in the "Account rent" row, and the preflight's `referral account` row WARNs. The fix is
+  operational: keep that account open (do not close it in claim-platform-fees).
+* The launchpad on mainnet (LAUNCHPAD.md section 9): the owner's own estimates, not verified here: the deploy about 2.23 SOL at
+  the peak (the rent of the program account depends on the binary size at deploy time), config + init + allow-list about
   0.01 SOL, referral accounts and the table about 0.008 SOL, Meteora partner metadata about 0.002 SOL, the keeper's float 0.5 SOL
   plus about 0.03 SOL per graduation it runs, the Helius plan, the audit quote. Per launch the founder pays about 0.076 SOL.
 * The Worker, per trade: one Jupiter build per (wallet, pair, amount, slippage) per 12 s (keyless quotes are shared the same
@@ -183,16 +203,23 @@ Recorded runs on 9 October 2026 (the logs are in the implementer's report):
 
 ## 7. Launch-day load check (the harness, fakes for Jupiter and the chain; the Worker is real)
 
-`all-e2e/load-swap.cjs` on port 9340, mode `all` (SWAP on, keyed Jupiter, `JUPITER_RPS=10`), measured on 9 October 2026:
+`all-e2e/load-swap.cjs` on port 9348, mode `all` (SWAP on, keyed Jupiter, `JUPITER_RPS=10`), measured on 9 October 2026 after
+the review fixes (15 of 15 checks):
 
 | phase | result |
 |---|---|
-| 200 quotes in 10 s from 10 connections, 20 distinct keys | 200 × 200, p50 10 ms, p95 15 ms; 20 Jupiter builds (one per key), never more than 2 × `JUPITER_RPS` in one second; the overflow at the peak answered as estimates, never errors |
-| one connection, 70 quotes in 3 s | 60 × 200 then 10 × 429 `slow_down` with Retry-After |
-| 50 quote + tx pairs in 5 s | 50 builds for the quotes, NOT ONE more for the transactions (each reuses its quote's build); every tx simulated once, ≤ 1232 bytes, version 0; p95 18 ms |
-| 50 relayed sends | 50 signatures back, p95 16 ms |
-| 450 status polls in 6 s | 450 × 200 (45 per connection, under 240 per minute), pending → confirmed → finalized |
+| 200 quotes in 10 s from 10 connections, 20 distinct keys | 200 × 200, p50 13 ms, p95 17 ms; 20 Jupiter builds (one per key), never more than 2 × `JUPITER_RPS` in one second; the overflow at the peak answered as estimates, never errors |
+| one connection, 190 quotes in 4 s | 180 × 200 then 10 × 429 `slow_down` with Retry-After (the limit a dozen phones behind one carrier address need) |
+| 50 quote + tx pairs in 5 s | 50 builds for the quotes, NOT ONE more for the transactions (each reuses its quote's build, so none of them needs a token from the budget); every tx simulated once, ≤ 1232 bytes, version 0; p95 23 ms |
+| 50 relayed sends, each with its ticket | 50 signatures back, p95 18 ms (without the ticket every one is refused `bad_ticket` before any node is asked: that is what the reviewer's open-relay probe now gets) |
+| 450 status polls in 6 s over 50 signatures | 450 × 200 (9 per signature under the 60 per minute per signature, 45 per connection under the 600 brake), pending → confirmed → finalized |
 | outbound | nothing reached the internet |
+
+The journeys that prove the page side (`all-e2e/scenarios/swap.cjs`, 61 checks, and `scenarios/swap-fix.cjs`, 41 checks, both
+9 October 2026 on the same harness): a build worse than the preview stops with "The price moved" and the wallet never opens, the
+second press signs exactly the shown numbers; the fee and rent lines; a refused status poll reads "Still checking…" and ends as
+Swapped once the minute passes (the Worker's clock moved by the harness); the relay refuses a foreign transaction; 320 px keeps
+the whole figure; one live panel per sheet; the Jupiter tiles are information links; mode `noswap` has none of it.
 
 Real Jupiter and provider latency are not in these numbers (section 8).
 
@@ -206,11 +233,26 @@ Real Jupiter and provider latency are not in these numbers (section 8).
 * D1 indexes on `sessions`, `pairs` and `handoffs` `expires_at` (the cleanup deletes by them), as a repeatable migration that
   touches no data.
 * The edge cache is a convenience: a `cache.match` or `cache.put` that throws is a miss, never a 500.
-* Jupiter builds and keyless quotes are kept 12 s per key with one in-flight call per key (no stampede); lookup tables 10 min;
-  a failed Jupiter call is never kept and a negative cache (5 s, or Retry-After) stops a flood of retries.
+* Jupiter builds and keyless quotes are kept 12 s per key with one in-flight call per key (no stampede); lookup tables 10 min
+  (a table whose deactivation began is refused); a failed Jupiter call is never kept and a negative cache (5 s, or Retry-After)
+  stops a flood of retries, PER HOST: a 429 on the keyed build host turns previews into lite estimates and pauses builds, it
+  never blocks the lite quotes, and the other way round. `/tx` takes from the same per-server budget (`JUPITER_RPS`) as the
+  previews when its build is not cached: no visitor can make the Worker build unmetered.
 * Every `/api/swap/*` and `/api/launchpad/trade/*` route is Origin-checked, counted before the work (per connection, and per
-  wallet for `/tx`), answers `{ ok: false, error: <code> }`, and simulates before the wallet opens so slippage, missing SOL
-  and program errors are plain words, not a wallet warning.
+  wallet for both `/tx` routes), answers `{ ok: false, error: <code> }`, and simulates before the wallet opens so slippage,
+  missing SOL and program errors are plain words, not a wallet warning. The status poll is counted per SIGNATURE (60 a minute)
+  before the connection's own brake (600), so phones behind one carrier address never use up each other's polls; a refused poll
+  makes the page say "Still checking…" and wait for Retry-After, and never "didn't include it in time".
+* The page signs what it shows: the `/tx` answer carries the quote of the very build (`quote`) and the panel replaces its
+  preview with it before the wallet opens; a build that came out worse (more than 0.5 % less out, a lower minimum, or the
+  price impact crossing 3 % or 10 %) stops with "The price moved… press again" and the 10 % checkbox is judged on it; the
+  "Swapped ✓" line prints the signed build's amounts. The preview's `quoteId` is informational.
+* The relay (`/api/swap/send`) forwards only what this Worker built: `/tx` and `/trade/tx` return a `ticket` (an HMAC over the
+  message bytes, 10 minutes, keyed by the limits salt) and the relay refuses a signed transaction without it (`bad_ticket`),
+  as well as anything with more than one signer. A wallet that rewrites the message it signs (none of Phantom, Solflare or
+  Backpack does for a one-signer transaction that already carries a compute budget) would be refused the same way.
+* `cluster=devnet` on the relay routes is honoured only while `LAUNCHPAD_TRADING` is on; the fee-recipient check of
+  src/lptrade.js no longer throws at import time (a mismatch answers 503 `misconfigured` on the trade routes only).
 * CI runs the tests with `--unhandled-rejections=strict`; `ctx.waitUntil` work and in-flight cache promises carry a `.catch`.
 * `/api/swap/config` exposes booleans about secrets only; the preflight prints no secret; logs carry short codes only.
 
@@ -233,4 +275,15 @@ Real Jupiter and provider latency are not in these numbers (section 8).
   attribution clause was not read; the site keeps "Powered by Jupiter" under every Jupiter number and names where each trade
   executes).
 * Jupiter's keyless `lite-api` is being retired ("no longer actively maintained"): the estimates path depends on it until the
-  key is set; with the key, every quote for a connected wallet is a real build.
+  key is set; with the key, every quote for a connected wallet is a real build. Keyless builds (api.jup.ag's anonymous
+  allowance) worked on 9 October 2026; nothing says they will tomorrow.
+* The platform-fee layout of a Jupiter build (`SWAP_PLATFORM_FEE_BPS` on): the validator insists that the swap's optional
+  account is `SWAP_FEE_ACCOUNT` and refuses `shared_accounts_route_v2` builds with a fee (the fee account's place in that
+  layout was never recorded from a real answer). This was tested against the fake only; before flipping the fee on, run the
+  preflight with the fee settings exported: its `Jupiter build` row asks Jupiter for a fee-on build and runs the validator.
+* That Phantom, Solflare and Backpack return the message unchanged from `signTransaction` (the relay ticket depends on it);
+  the fake wallet does, real ones were not driven here.
+* The preflight's `Jupiter build` row buys $VICINITY with SOL as the dev wallet: a plain Token-program route with no lookup
+  table today. A Token-2022 output or a route that needs a lookup table (the USDC route does) is exercised only by the tests
+  against the recorded 9 October answers; a layout change on those paths would surface in production as `jupiter_refused`
+  (fail closed, nothing signed), not in the preflight.

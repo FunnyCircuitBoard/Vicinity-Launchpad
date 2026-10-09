@@ -14,6 +14,7 @@ import { launchpadCluster, jupiterConfig, swapOn, DEVNET } from "../src/cluster.
 import { ADDRESSES, PROGRAM_IDS, ata, dbc as dbcPdas, launchpad as launchpadPdas, programDataAddress } from "../src/sol/pda.js";
 import { decodeConfig, decodeLaunchConfig, decodeLaunchpad, decodeLookupTable, decodeProgramData, decodeTokenAccount, PROGRAM_CONSTANTS } from "../src/sol/dbc.js";
 import { checkJupiterBuild } from "../src/jupswap.js";
+import { PUBLIC_LIMITS } from "../src/guards.js";
 import { isOnCurve } from "../src/sol/oncurve.js";
 import { base58Decode, isSolanaAddress } from "../src/solana.js";
 
@@ -21,7 +22,7 @@ const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d", DEVNET_G
 const PUBLIC_RPC = { mainnet: "https://api.mainnet-beta.solana.com", devnet: "https://api.devnet.solana.com" };
 const SOL = ADDRESSES.wsol, SYSTEM = PROGRAM_IDS.system;
 const SOL_THRESHOLD_MAINNET = 85_000_000_000n; // LAUNCHPAD.md: a SOL curve graduates at 85 SOL
-const SLOW_RPC_MS = 1500, CRON_STALE_MS = 25 * 60_000, QUOTE_LIMIT = 60; // src/guards.js swap_quote 60 per minute per connection
+const SLOW_RPC_MS = 1500, CRON_STALE_MS = 25 * 60_000, QUOTE_LIMIT = PUBLIC_LIMITS.swap_quote.max; // src/guards.js swap_quote per minute per connection
 const short = (a) => (a && a.length > 12 ? `${a.slice(0, 6)}…` : a);
 const lamportsToSol = (n) => `${(Number(n) / 1e9).toLocaleString("en-US", { maximumFractionDigits: 9 })} SOL`;
 const plainWallet = (address) => { try { return isOnCurve(base58Decode(address)); } catch { return false; } }; // an on-curve key = one person's key; a Squads vault or any PDA is off the curve
@@ -99,7 +100,7 @@ export async function preflight(env, { fetchImpl = fetch, now = Date.now(), site
   if (site) await siteRows(site, { row, env, mint, swap, trading, fetchImpl, now, checkLimits });
 
   // ---- Jupiter ----
-  row(jc.keyed ? "PASS" : "WARN", "JUPITER_API_KEY", jc.keyed ? `set (${jc.key.length} characters, never printed): real builds for the asking wallet` : "not set here: quotes come from the keyless lite API as estimates and no transaction can be built (portal.jup.ag gives a key)");
+  row(jc.keyed ? "PASS" : "WARN", "JUPITER_API_KEY", jc.keyed ? `set (${jc.key.length} characters, never printed): builds on the plan's own allowance` : "not set here: previews are keyless estimates and builds run on Jupiter's ANONYMOUS allowance, which may stop without notice (portal.jup.ag gives a key; required for a launch)");
   row(jc.keyed && jc.rps > 1 ? "PASS" : "WARN", "JUPITER_RPS", `${jc.rps} per second per server${jc.rps === 1 ? " (the default: set the plan's rate, e.g. 10, or most previews during a rush become estimates)" : jc.rps < 10 ? " (below 10: a launch-day rush will see estimates instead of builds)" : ""}`);
   row(jc.platformFeeBps ? (jc.feeAccount ? "PASS" : "FAIL") : "PASS", "SWAP_PLATFORM_FEE_BPS / SWAP_FEE_ACCOUNT", jc.platformFeeBps ? (jc.feeAccount ? `${jc.platformFeeBps} bps to ${jc.feeAccount}` : `${jc.platformFeeBps} bps but no valid SWAP_FEE_ACCOUNT: no fee will be charged`) : "no platform fee (an owner decision; 0 by default)");
   if (isSolanaAddress(mint)) {
@@ -108,21 +109,23 @@ export async function preflight(env, { fetchImpl = fetch, now = Date.now(), site
       if (q.ok && d && d.outAmount) row("PASS", "Jupiter lite quote SOL → $VICINITY", `0.01 SOL → ${d.outAmount} raw units via ${(d.routePlan || []).map((r) => r.swapInfo && r.swapInfo.label).filter(Boolean).join(" + ") || "?"} in ${ms} ms (read-only)`);
       else row("FAIL", "Jupiter lite quote SOL → $VICINITY", `HTTP ${q.status} ${d && (d.error || d.errorCode) ? String(d.error || d.errorCode).slice(0, 80) : ""}: no route today means no one can buy $VICINITY here`);
     } catch (e) { row("FAIL", "Jupiter lite quote SOL → $VICINITY", `unreachable: ${errText(e)}`); }
-    if (jc.keyed) {
-      // the keyed build the Worker would ask for a 0.01 SOL buy by the dev wallet, run through the Worker's own validator: a layout Jupiter changed fails closed here first
-      try {
-        const q = new URLSearchParams({ inputMint: SOL, outputMint: mint, amount: "10000000", taker: ADDRESSES.feeRecipient, slippageBps: "100", maxAccounts: "64", wrapAndUnwrapSol: "true" });
-        const { res, body, ms } = await getJson(fetchImpl, `${jc.base}/swap/v2/build?${q}`, { headers: jc.headers });
-        if (res.status === 429) row("WARN", "Jupiter keyed build SOL → $VICINITY", `429 from ${new URL(jc.base).host}: the plan's allowance is used up right now (Retry-After ${res.headers.get("retry-after") || "?"} s)`);
-        else if (!res.ok || !body) row("FAIL", "Jupiter keyed build SOL → $VICINITY", `HTTP ${res.status} ${body && (body.error || body.message) ? String(body.error || body.message).slice(0, 80) : ""}: the key or the plan is not accepted by ${new URL(jc.base).host}`);
-        else {
-          try {
-            await checkJupiterBuild(body, { taker: ADDRESSES.feeRecipient, inputMint: SOL, outputMint: mint, inAmount: 10_000_000n, platformFeeBps: jc.platformFeeBps });
-            row("PASS", "Jupiter keyed build SOL → $VICINITY", `${new URL(jc.base).host} answered in ${ms} ms and the Worker's validator accepts today's layout (${(body.routePlan || []).map((r) => r.swapInfo && r.swapInfo.label).filter(Boolean).join(" + ") || "?"}, ${Object.keys(body.addressesByLookupTableAddress || {}).length} lookup tables); nothing was signed or sent`);
-          } catch (e) { row("FAIL", "Jupiter keyed build SOL → $VICINITY", `Jupiter answered but the Worker's validator refuses it (${e && e.code ? e.code : errText(e)}): swaps would answer jupiter_refused until src/jupswap.js learns the new layout`); }
-        }
-      } catch (e) { row("FAIL", "Jupiter keyed build SOL → $VICINITY", `unreachable: ${errText(e)}`); }
-    }
+    // the build the Worker would ask for a 0.01 SOL buy by the dev wallet (with the key when set, on Jupiter's anonymous allowance when
+    // not: the Worker builds either way), run through the Worker's own validator: a layout Jupiter changed fails closed HERE first,
+    // key or no key. Read-only: a GET, nothing signed, nothing sent.
+    const BUILD = "Jupiter build SOL → $VICINITY", host = new URL(jc.base).host, how = jc.keyed ? "keyed" : "KEYLESS (Jupiter's anonymous allowance, which may stop without notice: set JUPITER_API_KEY before a launch)";
+    try {
+      const q = new URLSearchParams({ inputMint: SOL, outputMint: mint, amount: "10000000", taker: ADDRESSES.feeRecipient, slippageBps: "100", maxAccounts: "64", wrapAndUnwrapSol: "true" });
+      if (jc.platformFeeBps && jc.feeAccount) { q.set("platformFeeBps", String(jc.platformFeeBps)); q.set("feeAccount", jc.feeAccount); }
+      const { res, body, ms } = await getJson(fetchImpl, `${jc.base}/swap/v2/build?${q}`, { headers: jc.headers });
+      if (res.status === 429) row("WARN", BUILD, `429 from ${host} (${how}): the allowance is used up right now (Retry-After ${res.headers.get("retry-after") || "?"} s)`);
+      else if (!res.ok || !body) row(jc.keyed ? "FAIL" : "WARN", BUILD, `HTTP ${res.status} ${body && (body.error || body.message) ? String(body.error || body.message).slice(0, 80) : ""} from ${host} (${how}): ${jc.keyed ? "the key or the plan is not accepted" : "the anonymous allowance refused it; a key is the fix"}`);
+      else {
+        try {
+          await checkJupiterBuild(body, { taker: ADDRESSES.feeRecipient, inputMint: SOL, outputMint: mint, inAmount: 10_000_000n, platformFeeBps: jc.platformFeeBps, feeAccount: jc.feeAccount });
+          row(jc.keyed ? "PASS" : "WARN", BUILD, `${host} answered in ${ms} ms (${how}) and the Worker's validator accepts today's layout (${(body.routePlan || []).map((r) => r.swapInfo && r.swapInfo.label).filter(Boolean).join(" + ") || "?"}, ${Object.keys(body.addressesByLookupTableAddress || {}).length} lookup tables${jc.platformFeeBps ? `, platform fee ${jc.platformFeeBps} bps to ${short(jc.feeAccount)}` : ""}); nothing was signed or sent`);
+        } catch (e) { row("FAIL", BUILD, `Jupiter answered (${how}) but the Worker's validator refuses it (${e && e.code ? e.code : errText(e)}): swaps would answer jupiter_refused until src/jupswap.js learns the new layout${jc.platformFeeBps ? " (a platform fee is on: the fee-on layout was never recorded from a real answer, see docs/MAINNET.md)" : ""}`); }
+      }
+    } catch (e) { row(jc.keyed ? "FAIL" : "WARN", BUILD, `unreachable (${how}): ${errText(e)}`); }
   }
 
   // ---- mainnet reads: the mint and the programs (read-only) ----
@@ -147,7 +150,9 @@ export async function preflight(env, { fetchImpl = fetch, now = Date.now(), site
   } catch (e) { row("FAIL", "mainnet RPC answers", `unreachable: ${errText(e)}`); }
 
   // ---- the launchpad cluster: the program, its upgrade authority, the configs, the allow-list, the referral accounts, the table, the global account ----
-  row("PASS", "no mainnet launchpad address in the code", `mainnet defaults: program ${JSON.stringify(launchpadCluster({ LAUNCHPAD_CLUSTER: "mainnet" }).programId)}, configs ${JSON.stringify(launchpadCluster({ LAUNCHPAD_CLUSTER: "mainnet" }).dbcConfigs)} (devnet defaults ${DEVNET.programId.slice(0, 6)}…)`);
+  const mainDefaults = launchpadCluster({ LAUNCHPAD_CLUSTER: "mainnet" }); // the settings alone: nothing from this shell
+  const noMainDefaults = mainDefaults.programId == null && mainDefaults.dbcConfigs.length === 0 && mainDefaults.lookupTable == null;
+  row(noMainDefaults ? "PASS" : "FAIL", "no mainnet launchpad address in the code", `mainnet defaults: program ${JSON.stringify(mainDefaults.programId)}, configs ${JSON.stringify(mainDefaults.dbcConfigs)}, lookup table ${JSON.stringify(mainDefaults.lookupTable)} (devnet defaults ${DEVNET.programId.slice(0, 6)}…)${noMainDefaults ? "" : " — a mainnet address crept into src/cluster.js: the launchpad's mainnet addresses are SETTINGS the team sets after deploying, never code"}`);
   if (mainnetLp && !String(env.LAUNCHPAD_RPC_URL || "").trim() && !mainRpc) row("WARN", "LAUNCHPAD_RPC_URL", "unset and SOLANA_RPC_URL unset: curve trades would use the public mainnet RPC");
   else row("PASS", "LAUNCHPAD_RPC_URL", mainnetLp ? (String(env.LAUNCHPAD_RPC_URL || "").trim() ? `set (${new URL(lp.rpc).host})` : `unset: = SOLANA_RPC_URL (${new URL(lp.rpc).host})`) : `devnet: ${new URL(lp.rpc).host}`);
   for (const k of ["LAUNCHPAD_PROGRAM_ID", "LAUNCHPAD_DBC_CONFIGS"]) {
@@ -202,7 +207,7 @@ async function siteRows(site, { row, env, mint, swap, trading, fetchImpl, now, c
     try {
       const { body } = await getJson(fetchImpl, `${site}/api/swap/config`);
       const ok = body && body.ok && body.cluster === "mainnet";
-      row(ok ? (body.jupiter && body.jupiter.keyed ? "PASS" : "WARN") : "FAIL", "site /api/swap/config", ok ? `cluster ${body.cluster}, Jupiter ${body.jupiter.keyed ? "keyed" : "KEYLESS (estimates only, no builds: set JUPITER_API_KEY)"} at ${body.jupiter.host} (${body.jupiter.rps}/s), ${body.tokens.length} tokens, launchpad ${body.launchpad.enabled ? `on (${body.launchpad.cluster}, program ${short(body.launchpad.programId)}, ${body.launchpad.dbcConfigs.length} configs)` : "off"}` : `HTTP body ${JSON.stringify(body).slice(0, 80)}`);
+      row(ok ? (body.jupiter && body.jupiter.keyed ? "PASS" : "WARN") : "FAIL", "site /api/swap/config", ok ? `cluster ${body.cluster}, Jupiter ${body.jupiter.keyed ? "keyed" : "KEYLESS (estimates for previews; builds on Jupiter's anonymous allowance, which may stop without notice: set JUPITER_API_KEY)"} at ${body.jupiter.host} (${body.jupiter.rps}/s), ${body.tokens.length} tokens, launchpad ${body.launchpad.enabled ? `on (${body.launchpad.cluster}, program ${short(body.launchpad.programId)}, ${body.launchpad.dbcConfigs.length} configs)` : "off"}` : `HTTP body ${JSON.stringify(body).slice(0, 80)}`);
     } catch (e) { row("FAIL", "site /api/swap/config", `unreadable: ${errText(e)}`); }
     if (isSolanaAddress(mint)) {
       try {
@@ -249,7 +254,9 @@ async function launchpadRows(lp, { row, env, fetchImpl, mainnetLp, expectUpgrade
       if (!data) row("FAIL", "upgrade authority", "the program's ProgramData account could not be read or decoded");
       else if (data.upgradeAuthority == null) row("PASS", "upgrade authority", `none: the program is immutable (no upgrade can ever happen; last deploy slot ${data.slot})`);
       else if (expectUpgradeAuthority) row(data.upgradeAuthority === expectUpgradeAuthority ? "PASS" : "FAIL", "upgrade authority", data.upgradeAuthority === expectUpgradeAuthority ? `${data.upgradeAuthority} = the expected multisig (last deploy slot ${data.slot})` : `${data.upgradeAuthority} is NOT the expected ${expectUpgradeAuthority}: whoever holds that key can replace the program`);
-      else if (plainWallet(data.upgradeAuthority)) row(mainnetLp ? "FAIL" : "WARN", "upgrade authority", `${data.upgradeAuthority} is a single wallet key${mainnetLp ? ": one person can replace the program. Hand it to the Squads multisig (solana program set-upgrade-authority) and re-run with --expect-upgrade-authority" : " (the devnet deployer; mainnet needs the Squads multisig)"}`);
+      // on mainnet the only way this row passes is to NAME the multisig and match it: a stranger's vault or any program address must never read as fine by accident
+      else if (mainnetLp) row("FAIL", "upgrade authority", `${data.upgradeAuthority} ${plainWallet(data.upgradeAuthority) ? "is a single wallet key: one person can replace the program. Hand it to the Squads multisig (solana program set-upgrade-authority)" : "is not a plain wallet (a multisig vault or a program address), but nobody said whose"}; on mainnet this row needs --expect-upgrade-authority <squads vault> and passes only when it matches`);
+      else if (plainWallet(data.upgradeAuthority)) row("WARN", "upgrade authority", `${data.upgradeAuthority} is a single wallet key (the devnet deployer; mainnet needs the Squads multisig)`);
       else row("WARN", "upgrade authority", `${data.upgradeAuthority} is not a plain wallet (a multisig vault or a program address): confirm it is yours with --expect-upgrade-authority`);
     }
     const dbc = await acct(lrpc, PROGRAM_IDS.dbc, fetchImpl, "base64", { dataSlice: { offset: 0, length: 0 } });
@@ -260,7 +267,8 @@ async function launchpadRows(lp, { row, env, fetchImpl, mainnetLp, expectUpgrade
     row(global ? (global.launchesPaused ? "WARN" : "PASS") : "FAIL", "launchpad global account", global ? `admin ${global.admin}, launches ${global.launchesPaused ? "PAUSED" : "open"}, payouts ${global.payoutsPaused ? "PAUSED" : "open"}, rewards program ${global.rewardsProgram}` : "not initialised: run the launchpad setup (scripts/launchpad/setup.mjs)");
     if (global) {
       if (expectAdmin) row(global.admin === expectAdmin ? "PASS" : "FAIL", "launchpad admin", global.admin === expectAdmin ? `${global.admin} = the expected multisig` : `${global.admin} is NOT the expected ${expectAdmin}: that key approves launches, pauses and payouts`);
-      else if (plainWallet(global.admin)) row(mainnetLp ? "FAIL" : "WARN", "launchpad admin", `${global.admin} is a single wallet key${mainnetLp ? ": hand the admin role to the Squads multisig (propose_admin / accept_admin) and re-run with --expect-admin" : " (the devnet deployer; mainnet needs the Squads multisig)"}`);
+      else if (mainnetLp) row("FAIL", "launchpad admin", `${global.admin} ${plainWallet(global.admin) ? "is a single wallet key: hand the admin role to the Squads multisig (propose_admin / accept_admin)" : "is not a plain wallet, but nobody said whose"}; on mainnet this row needs --expect-admin <squads vault> and passes only when it matches`);
+      else if (plainWallet(global.admin)) row("WARN", "launchpad admin", `${global.admin} is a single wallet key (the devnet deployer; mainnet needs the Squads multisig)`);
       else row("WARN", "launchpad admin", `${global.admin} is not a plain wallet: confirm it is your multisig with --expect-admin`);
       row(global.rewardsProgram && global.rewardsProgram !== SYSTEM ? "PASS" : "FAIL", "rewards program", global.rewardsProgram && global.rewardsProgram !== SYSTEM ? `${global.rewardsProgram} (vicinity_rewards: holder rewards per city)` : "unset: the global account names no rewards program");
     }
@@ -284,7 +292,7 @@ async function launchpadRows(lp, { row, env, fetchImpl, mainnetLp, expectUpgrade
       // the dev wallet's referral account for the quote mint: Meteora refuses a trade whose referral account is missing, so every trade recreates it (the trader pays 0.002 SOL)
       const ref = await acct(lrpc, await ata(ADDRESSES.feeRecipient, cfg.quoteMint), fetchImpl);
       const tok = ref ? decodeTokenAccount(ref) : null;
-      row(tok && tok.owner === ADDRESSES.feeRecipient && tok.mint === cfg.quoteMint ? "PASS" : "WARN", `referral account ${quote === "SOL" ? "SOL" : short(quote)}`, tok ? `exists (${tok.amount} raw units waiting for the dev wallet)` : "missing: the first trade of each curve recreates it and that trader pays about 0.002 SOL of rent (setup.mjs referral-accounts; the dev wallet closes it whenever it unwraps SOL)");
+      row(tok && tok.owner === ADDRESSES.feeRecipient && tok.mint === cfg.quoteMint ? "PASS" : "WARN", `referral account ${quote === "SOL" ? "SOL" : short(quote)}`, tok ? `exists (${tok.amount} raw units waiting for the dev wallet)` : "missing: the next trade of each curve recreates it and THAT TRADER pays about 0.002 SOL of rent that is not returned (the quote says so); setup.mjs referral-accounts creates it, and claim-platform-fees must stop closing it when it unwraps SOL");
     }
     if (lp.lookupTable) {
       const t = await acct(lrpc, lp.lookupTable, fetchImpl);
