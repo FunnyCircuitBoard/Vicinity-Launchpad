@@ -305,7 +305,7 @@ input, select, textarea { min-height: 44px; }
 .holders__table th, .registry__table th { font-size: .75rem; }
 .holders__table a { display: inline-block; padding: 12px 0; margin: -12px 0; }
 .holders__table .tag { font-size: .75rem; }
-@media (max-width: 480px) { .holders__table .tag { font-size: .72rem; } .holders__table td.is-unranked { font-size: .75rem; } }
+@media (max-width: 480px) { .holders__table .tag { font-size: .75rem; } .holders__table td.is-unranked { font-size: .75rem; } }
 .registry__table td { font-size: .9rem; }
 .contract__badge { font-size: .75rem; }
 @media (max-width: 480px) { .registry__table td:nth-child(1) { font-size: .75rem; } }
