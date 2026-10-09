@@ -50,8 +50,9 @@
     // snapshot (Merkle root "admin-manual", no holders) must never read as the Founding Supporter list.
     snap = (d.snapshots || []).find((s) => s.status !== "cancelled" && s.merkleRoot !== "admin-manual" && s.holders > 0) || null;
     const st = $("#snap-status"); if (!st) return;
+    const form = $("#snap-form"); if (form) form.hidden = !snap; // nothing to check against until a snapshot is published: the status line says so
     if (snap) st.textContent = `Snapshot #${snap.id} (cutoff ${new Date(snap.cutoff).toUTCString()}): ${snap.status === "active" ? "final" : `challenge period until ${new Date(snap.activatesAt).toLocaleString()}`} · ${fmt(snap.holders)} wallets · Merkle root ${snap.merkleRoot.slice(0, 16)}…`;
-    else st.textContent = d.scheduledCutoff ? `Cutoff scheduled for ${new Date(d.scheduledCutoff).toUTCString()}.` : "The cutoff hasn't been announced yet. It will be, here, well ahead of time.";
+    else st.textContent = d.scheduledCutoff ? `Cutoff scheduled for ${new Date(d.scheduledCutoff).toUTCString()}. The checker appears here once the snapshot is published.` : "The cutoff hasn't been announced yet. It will be, here, well ahead of time; the checker appears once the snapshot is published.";
   })();
   $("#snap-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -619,10 +620,11 @@
     tabs().forEach((b) => { const on = b.dataset.tab === state.tab; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; const c = b.querySelector("[data-count]"); if (c) c.textContent = String(n[b.dataset.tab] || 0); });
     $("#lp-panel").setAttribute("aria-labelledby", `lp-tab-${state.tab}`);
     $("#lp-tabnote").textContent = TAB_NOTE[state.tab];
-    const rows = rowsFor(cards, { ...state, now, countryNames });
-    const keep = focusKey();
-    // "Live now": the Vicinity token on top, the same card a little larger (on a phone it is the same card)
+    // "Live now": the Vicinity token on top, the same card a little larger (on a phone it is the same card); it is then left out of
+    // the list below (it was drawn twice, 9 Oct 2026: once in "Live now" and again as the first card of the Live list)
     const vic = data && data.vicinity && isLive(data.vicinity) ? data.vicinity : null;
+    const rows = rowsFor(vic ? cards.filter((c) => c !== vic) : cards, { ...state, now, countryNames });
+    const keep = focusKey();
     place($("#lp-featured"), vic ? [vic] : [], now, true);
     $("#lp-featured").classList.toggle("is-on", Boolean(vic));
     place($("#lp-grid"), rows, now, false);
