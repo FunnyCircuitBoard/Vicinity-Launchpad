@@ -1,13 +1,13 @@
-<!--{"title": "Dashboard", "description": "Your live Vicinity dashboard: rank among all holders, your city and country, badges, the path to founding your city, elections, and local and national memes, check-ins and discussions.", "page": "dashboard", "scripts": ["ticker", "wallets", "dashboard-roles", "dashboard"]}-->
+<!--{"title": "Dashboard", "description": "Your live Vicinity dashboard: rank among all holders, your city and country, badges, the path to founding your city, elections, and local and national memes, check-ins and discussions.", "page": "dashboard", "scripts": ["ticker", "wallets", "dashboard-roles", "dashboard"], "styles": ["onboard"]}-->
     <!-- signed out -->
     <section class="dash-out is-pending" id="dash-out" hidden>
       <div class="wrap teaser">
         <div class="teaser__copy">
           <p class="kicker">Your dashboard</p>
           <h1 class="page-title">Your city is talking.<br><span class="accent">You're not in it yet.</span></h1>
-          <p class="lead">Connect your wallet to see your live rank among every holder, who's applying to found your city, local memes, and who's checking in near you.</p>
-          <a class="btn btn--primary btn--lg" href="/connect">Connect &amp; sign in →</a>
-          <p class="tiny muted">Takes about a minute. Signing is free and isn't a transaction.</p>
+          <p class="lead">Two quick steps, where you are and who you are, and you're in: who's applying to found your city, local memes, and who's checking in near you. Link a wallet whenever you like for your live rank among every holder.</p>
+          <a class="btn btn--primary btn--lg" href="/connect">Join or log in →</a>
+          <p class="tiny muted">Takes a minute, with Google or e-mail. Your wallet comes later, from your dashboard: free, one signature.</p>
         </div>
         <!-- a snapshot of a member's Home tab with made-up sample values, drawn in HTML (sharp, themed, no image). Read as one picture.
              No ids, no links and no classes the dashboard scripts look up: the real dashboard below never confuses it with its own cards. -->
@@ -59,7 +59,7 @@
           <p class="kicker">Welcome, <span data-me-name>friend</span></p>
           <h1 class="h2--sm">Let's put you on the map.</h1>
           <ol class="onboard__steps">
-            <li class="is-ok"><span class="req__dot"></span><div><strong>Wallet verified</strong><p class="tiny muted mono" data-me-wallet></p></div></li>
+            <li class="is-ok" id="ob-wallet"><span class="req__dot"></span><div><strong id="ob-wallet-title">Wallet verified</strong><p class="tiny muted mono" data-me-wallet></p></div></li>
             <li class="is-ok"><span class="req__dot"></span><div><strong>Account linked</strong><p class="tiny muted" data-me-login></p></div></li>
             <li id="ob-rank"><span class="req__dot"></span><div><strong>Your position among all holders</strong><p class="tiny muted" id="ob-rank-text">Checking the blockchain…</p></div></li>
             <li id="ob-city"><span class="req__dot"></span><div><strong>Your community</strong><p class="tiny muted" id="ob-city-text">We use your location once to find the community you're in. It's never saved: only the community is.</p>
@@ -95,12 +95,29 @@
         </div>
         <div class="lost-alert" id="ban-notice" role="alert" hidden></div>
         <div class="lost-alert" id="lost-alert" role="alert" hidden></div>
+        <!-- the welcome moment: shown once, right after the account is made (/dashboard?welcome=1), with the setup ring (location, account, wallet) -->
+        <section class="welcome" id="welcome" role="region" aria-labelledby="welcome-title" hidden>
+          <div class="welcome__disc" aria-hidden="true"><span id="welcome-disc">—</span></div>
+          <div class="welcome__text">
+            <p class="kicker">You are in</p>
+            <h2 id="welcome-title">Welcome to Vicinity.</h2>
+            <p id="welcome-line">Your dashboard is live.</p>
+          </div>
+          <div class="ring welcome__ring" id="welcome-ring" role="img" aria-label="Profile 2 of 3 complete: location and account done, wallet not linked">
+            <svg class="ring__svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><circle class="ring__track" cx="32" cy="32" r="26"/><circle class="ring__arc" cx="32" cy="32" r="26"/><text class="ring__num" x="32" y="37" text-anchor="middle" id="welcome-ring-num">0/3</text></svg>
+            <ul class="ring__ticks" aria-hidden="true"><li id="welcome-ring-tick-location">Location done</li><li id="welcome-ring-tick-account">Account done</li><li id="welcome-ring-tick-wallet">Wallet open</li></ul>
+          </div>
+          <button class="icon-btn welcome__close" type="button" id="welcome-close" aria-label="Dismiss">✕</button>
+        </section>
         <div class="dash-top" id="dash-top">
           <div class="pass" id="pass">
             <span class="pass__shine" aria-hidden="true"></span>
             <div class="pass__top">
               <span class="pass__brand"><span class="pass__mark" aria-hidden="true"></span>Vicinity Pass</span>
-              <span class="role-pill" id="me-role">Member</span>
+              <span class="ring-row">
+                <span class="ring ring--sm ring--pass" id="pass-ring" role="img" aria-label="Profile 2 of 3 complete: location and account done, wallet not linked" hidden><svg class="ring__svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><circle class="ring__track" cx="32" cy="32" r="26"/><circle class="ring__arc" cx="32" cy="32" r="26"/><text class="ring__num" x="32" y="39" text-anchor="middle" id="pass-ring-num">2/3</text></svg></span>
+                <span class="role-pill" id="me-role">Member</span>
+              </span>
             </div>
             <div class="pass__who">
               <div class="idcard__avatar" id="me-avatar" aria-hidden="true">V</div>
@@ -112,7 +129,7 @@
               <div class="coin-disc pass__coin" aria-hidden="true"><span id="pass-coin">—</span></div>
             </div>
             <div class="pass__bottom">
-              <span><span class="mono" data-me-wallet></span> <button class="link-btn link-btn--tiny" type="button" id="me-copy">Copy</button></span>
+              <span><span class="mono" data-me-wallet></span> <button class="link-btn link-btn--tiny" type="button" id="me-copy">Copy</button><a class="link-btn link-btn--tiny" id="me-link" href="/connect?mode=link" hidden>Link</a></span>
               <span data-me-login></span>
               <span class="live-note"><span class="live-dot" aria-hidden="true"></span> <span id="me-checked">live</span></span>
               <button class="link-btn link-btn--tiny" type="button" id="me-logout">Sign out</button>
@@ -125,6 +142,25 @@
             <div class="stat"><span class="stat__label"><span class="stat__icon" aria-hidden="true">🌎</span>Rank · <span id="d-country-label">your country</span></span><strong id="d-nrank">—</strong><span class="stat__sub" id="d-nrank-sub"></span></div>
           </div>
         </div>
+
+        <!-- the link card: only for a member whose account has no wallet yet (onboarding v3); folds to one line on "Skip for now", stays as "Profile complete" once linked -->
+        <section class="wcard" id="wallet-card" aria-labelledby="wcard-title" hidden>
+          <p class="kicker" id="wcard-kicker">Complete your profile · 2 of 3</p>
+          <h2 id="wcard-title">Link your wallet</h2>
+          <p class="wcard__lead" id="wcard-lead">Free: one signature, not a transaction. Vicinity never asks for your recovery phrase or private key.</p>
+          <ul class="wcard__perks" id="wcard-perks">
+            <li>Your $VICINITY balance and your rank among all holders</li>
+            <li>The founder path for <span id="wcard-city">your city</span> and your city coin</li>
+            <li>Badges and holder rewards</li>
+          </ul>
+          <div class="wcard__actions" id="wcard-actions">
+            <a class="btn btn--primary btn--lg" id="wcard-go" href="/connect?mode=link">Link my wallet</a>
+            <a class="link-btn wcard__other" id="wcard-other" href="/connect?mode=link" hidden>Other wallet apps</a>
+            <button class="link-btn" type="button" id="wcard-skip">Skip for now</button>
+          </div>
+          <p class="wcard__wait" id="wcard-wait" role="status" hidden><span class="live-dot" aria-hidden="true"></span> <span id="wcard-wait-text">Waiting for your wallet app…</span></p>
+          <p class="wcard__tiny" id="wcard-tiny">You can unlink it any time from Profile.</p>
+        </section>
 
         <div class="dash-tools">
           <button class="btn btn--glass btn--sm" type="button" id="layout-edit">🎛 Customize layout</button>
@@ -479,7 +515,7 @@
         <section class="profile__sec" aria-labelledby="profile-account-h">
           <h3 id="profile-account-h">Your account</h3>
           <dl class="kv">
-            <div><dt>Wallet</dt><dd><span class="mono" id="profile-wallet">—</span> <button class="link-btn link-btn--tiny" type="button" id="profile-copy">Copy</button></dd></div>
+            <div><dt>Wallet</dt><dd><span class="mono" id="profile-wallet">—</span> <button class="link-btn link-btn--tiny" type="button" id="profile-copy">Copy</button> <a class="link-btn link-btn--tiny" id="profile-link" href="/connect?mode=link" hidden>Link</a> <button class="link-btn link-btn--tiny" type="button" id="profile-unlink" hidden>Unlink</button></dd></div>
             <div><dt>Signed in with</dt><dd id="profile-provider">—</dd></div>
             <div><dt>Home</dt><dd id="profile-home">—</dd></div>
           </dl>
@@ -534,6 +570,7 @@
         <p class="small muted">Sensitive actions (applying, endorsing, voting, moderating) need your wallet to sign once every 30 minutes. It's free and isn't a transaction. This stops anyone who gets hold of your login from acting as you.</p>
         <div class="wallet-list" id="proof-wallets"></div>
         <p class="small muted" id="proof-none" hidden>No wallet found in this browser. Open this page in your wallet app, or use the tiny transfer below.</p>
+        <button class="btn btn--primary btn--block" type="button" id="proof-login" hidden>Log in again to confirm it's you</button>
         <details class="more-wallets" id="proof-transfer">
           <summary>App wallet (FOMO…)? Prove it with a tiny transfer</summary>
           <div class="tp-code" id="proof-code" hidden>

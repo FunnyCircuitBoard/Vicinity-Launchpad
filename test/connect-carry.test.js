@@ -395,3 +395,20 @@ test("a link code on a page that can't use it (the old sign-up is back): never l
   assert.equal(p.$("#termsgate").hidden, false);
   assert.equal(p.addressBar.at(-1), "https://vicinity.test/connect");
 });
+
+test("/connect?mode=link&app=phantom (the dashboard's 'Link with Phantom'): the code is made and the Open Phantom screen shows at once, the name leaves the address bar", async () => {
+  const { p } = await safari({ search: "mode=link&app=phantom" });
+  assert.equal(p.callsTo("/api/me/wallet/carry").length, 1, "one code, made without a tap");
+  assert.equal(p.screen(), "carry");
+  assert.equal(p.$("#carry-h").textContent, "Link your wallet in Phantom");
+  assert.equal(p.$("#carry-pin").textContent, "47");
+  assert.equal(p.$("#carry-open").textContent, "Open Phantom");
+  assert.ok(!p.addressBar[p.addressBar.length - 1].includes("app="), p.addressBar.join(" "));
+  assert.equal(p.session.get("su-carry"), "Phantom");
+  assert.equal(p.session.get("vl-started"), "1");
+  // an unknown app name, or a computer: the tiles, nothing made
+  const { p: q } = await safari({ search: "mode=link&app=nosuchwallet" });
+  assert.equal(q.callsTo("/api/me/wallet/carry").length, 0); assert.equal(q.screen(), "pick");
+  const r = await openConnect({ ua: UA.desktop, search: "mode=link&app=phantom", me: LINK_ME });
+  assert.equal(r.callsTo("/api/me/wallet/carry").length, 0, "a computer has no app to open"); assert.equal(r.screen(), "pick");
+});

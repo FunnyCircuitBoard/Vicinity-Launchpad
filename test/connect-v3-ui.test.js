@@ -69,7 +69,7 @@ test("step 2: 'Agree and continue with Google' is one tap: it ticks the box, rec
   const google = p.$("#su-google");
   assert.equal(p.visible(google), true);
   assert.equal(google.disabled, false, "enabled although the box is not ticked yet");
-  assert.equal(p.$("#su-terms").checked, undefined);
+  assert.equal(p.$("#su-terms").checked, false, "not ticked yet");
   assert.equal(p.visible(p.$("#su-google-note")), true);
   assert.equal(p.visible(p.$("#su-terms-hint")), false);
   assert.equal(p.$("#su-email-alt").open, true, "on a computer the e-mail way is open as well (the page opens the details)");

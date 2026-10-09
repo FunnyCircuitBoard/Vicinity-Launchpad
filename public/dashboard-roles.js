@@ -82,6 +82,11 @@
       p.lead = d.founder.eligible ? `You qualify to found ${city}. Apply from inside the city below.` : `You can post, vote and endorse. Your road to founding ${city} is below.`;
       p.meters.push(meter("Founder path", d.progress.percent, `${d.progress.percent}%`));
       p.tools.push(jump("Founder path", "#progress", "btn btn--primary btn--sm"), jump("Post to your city", "#feed"), invite);
+    } else if (!d.user.wallet) {
+      // onboarding v3: the account exists, the wallet is linked later (from the dashboard's link card, or here)
+      p.tag = { text: "You are in", cls: "tag--ok" };
+      p.lead = `Member of ${city}. You are in. Link a wallet to see your $VICINITY, your rank and your road to founding ${city}.`;
+      p.tools.push(link("Link my wallet", "/connect?mode=link", "btn btn--primary btn--sm"), invite);
     } else {
       p.tag = { text: d.launched ? "Not holding yet" : "Early member", cls: d.launched ? "tag--warn" : "tag--ok" };
       p.lead = d.launched ? "You're signed in and local, but this wallet holds no $VICINITY yet. Holding any amount unlocks posting, voting and your rank."
@@ -149,6 +154,7 @@
     has_seat: "Someone in the squad already holds a seat.", not_member: "You're not in this squad.",
     needs_checkin: "Check in once from inside your city first (proof you're really here).", account_too_new: "Your account has to be 7+ days old.",
     home_too_new: "Your home community has to be set 7+ days first.", banned: "You can't do this while banned.", sign_in: "Your session ended. Please sign in again.",
+    no_wallet: "Link a wallet first.",
   };
   const WHY_MEMBER = { not_local: "not from this city", has_seat: "already holds a seat", banned: "banned", no_balance: "holds nothing yet", not_qualified: "hasn't held their share for 7 days yet" };
 

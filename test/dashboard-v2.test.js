@@ -45,9 +45,12 @@ const LAYOUT = ["main", "status", "termsgate", "termsgate-title", "termsgate-agr
 const TABLE = {
   global: ["dash-skel", "dash-out", "dash-onboard", "ob-rank", "ob-rank-text", "ob-city", "ob-city-text", "ob-locate", "ob-nearby", "ob-error", "ob-enter",
     "proof-modal", "proof-title", "proof-wallets", "proof-none", "proof-transfer", "proof-code", "proof-sol", "proof-start", "proof-error", "proof-cancel",
-    "locate-modal", "locate-title", "locate-link", "locate-copy", "locate-status", "locate-error", "locate-cancel", "dash-main"],
+    "locate-modal", "locate-title", "locate-link", "locate-copy", "locate-status", "locate-error", "locate-cancel", "dash-main", "ob-wallet", "ob-wallet-title", "proof-login"],
   retired: ["layout-edit", "layout-reset", "col-main", "col-side"],
-  home: ["pf-notice", "pf-notice-open", "pf-notice-ok", "ban-notice", "lost-alert", "dash-top", "pass", "me-role", "me-avatar", "me-home", "me-bio", "pass-coin", "me-copy", "me-checked", "me-logout",
+  home: ["pf-notice", "pf-notice-open", "pf-notice-ok", "ban-notice", "lost-alert",
+    "welcome", "welcome-disc", "welcome-title", "welcome-line", "welcome-ring", "welcome-ring-num", "welcome-ring-tick-location", "welcome-ring-tick-account", "welcome-ring-tick-wallet", "welcome-close",
+    "dash-top", "pass", "pass-ring", "pass-ring-num", "me-role", "me-avatar", "me-home", "me-bio", "pass-coin", "me-copy", "me-link", "me-checked", "me-logout",
+    "wallet-card", "wcard-kicker", "wcard-title", "wcard-lead", "wcard-perks", "wcard-city", "wcard-actions", "wcard-go", "wcard-other", "wcard-skip", "wcard-wait", "wcard-wait-text", "wcard-tiny",
     "d-amount", "d-amount-sub", "d-rank", "d-rank-sub", "d-city-label", "d-crank", "d-crank-sub", "d-country-label", "d-nrank", "d-nrank-sub",
     "today", "today-title", "today-list", "role-home", "portfolio", "pf-title", "pf-updated", "pf-refresh", "pf-body", "pf-msg", "pf-net", "pf-net-me", "pf-net-find",
     "badges", "bg-n-earned", "bg-n-locked", "badge-grid", "trade", "trade-title", "trade-state", "tr-amt", "tr-in", "tr-in-usd", "tr-flip", "tr-out", "tr-outk", "tr-rate", "tr-go", "tr-go-2", "tr-note"],
@@ -62,7 +65,7 @@ const TABLE = {
     "studio-card", "studio-title", "studio-city", "studio-state", "coin-studio", "studio-step-1", "cs-name", "cs-ticker", "cs-pitch", "cs-count", "studio-step-2", "studio-step-3", "cs-logo", "cs-logo-remove", "cs-save", "cs-err", "cs-mint", "cs-mint-send", "founder-foot"],
   moderate: ["mod", "mod-scope", "mod-sections", "coin-admin-card", "coin-admin", "coin-waiting"],
   profile: ["profile-modal", "profile-title", "profile-avatar", "profile-since", "profile-close", "profile-username-h", "username-form", "username-input", "username-err", "bio-sec", "profile-bio-h", "bio-form", "bio-input", "bio-count", "bio-hint", "bio-save", "bio-err",
-    "profile-net-sec", "profile-net-h", "profile-net", "profile-net-link", "profile-account-h", "profile-wallet", "profile-copy", "profile-provider", "profile-home", "email-row", "email-desc", "email-view", "email-form", "email-input", "email-code-form", "email-code-input",
+    "profile-net-sec", "profile-net-h", "profile-net", "profile-net-link", "profile-account-h", "profile-wallet", "profile-copy", "profile-link", "profile-unlink", "profile-provider", "profile-home", "email-row", "email-desc", "email-view", "email-form", "email-input", "email-code-form", "email-code-input",
     "phone-row", "phone-view", "phone-form", "phone-input", "contact-err", "profile-public-note", "profile-help-h", "profile-logout", "profile-theme-note", "roles"],
   strip: ["dv2", "dash-tabs", "dash-tablist", "tab-home", "tab-city", "tab-community", "tab-rankings", "tab-founder", "tab-moderate", "tab-moderate-n", "tab-profile",
     "panel-home", "panel-city", "panel-community", "panel-rankings", "panel-founder", "panel-moderate", "panel-profile"],
@@ -139,7 +142,7 @@ test("flag off: the built page keeps every pinned id, the strip and the skeleton
     "nc-election", "badges", "badge-grid", "mod", "request", "roles", "lost-alert", "ban-notice", "proof-modal", "role-home", "squad", "locate-modal", "profile-modal", "coin", "coin-studio", "coin-admin", "trade"]) assert.equal(count(id), 1, id);
   assert.match(html, /<div class="dv2" id="dv2" hidden>/, "the strip and panels are hidden until v2 runs");
   assert.match(html, /<section class="dash dv2-skel" id="dash-skel" aria-hidden="true" hidden>/, "the skeleton is hidden until v2 asks for it");
-  for (const id of ["today", "ch-status", "ch-locals", "ch-coin", "fs-state", "fs-rank", "studio-step-1", "studio-step-2", "studio-step-3", "fcard", "studio-card", "coin-admin-card", "tab-moderate", "tab-moderate-n"]) {
+  for (const id of ["today", "ch-status", "ch-locals", "ch-coin", "fs-state", "fs-rank", "studio-step-1", "studio-step-2", "studio-step-3", "fcard", "studio-card", "coin-admin-card", "tab-moderate", "tab-moderate-n", "welcome", "wallet-card", "pass-ring", "me-link", "proof-login"]) {
     assert.match(html, new RegExp(`<[a-z]+ [^>]*id="${id}"[^>]* hidden>`), `${id} is hidden markup with the switch off`);
   }
   assert.match(html, /<div class="dash-top" id="dash-top">/);

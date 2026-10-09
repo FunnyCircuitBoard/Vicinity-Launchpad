@@ -2,10 +2,13 @@
 // identity + role, ranks, the founder path (qualify → apply → endorse → chosen → objections → founder, with grace),
 // badges (re-checked every minute), community and country (elections), local / national feeds,
 // moderator tools (reasons, second confirmations, ban approvals, appeals), town requests.
+// Onboarding v3: an account can exist without a wallet. Such a member sees the welcome moment once (/dashboard?welcome=1), a
+// 2-of-3 setup ring, and the link card (#wallet-card) that leads to /connect?mode=link; the pass, the tiles, the badges and the
+// role card say "link a wallet" where a wallet would show, and the card watches for the link made in a wallet app (poll while visible).
 // Needs site.js (window.V), wallets.js (window.VW) and ticker.js.
 (() => {
   "use strict";
-  const { $, $$, el, api, toast, copy, fmt, compact, mask, ago, initials, getLocation, burst, reveal } = window.V;
+  const { $, $$, el, api, toast, copy, fmt, compact, mask, short, ago, initials, getLocation, burst, reveal } = window.V;
   const W = window.VW;
   const params = new URLSearchParams(location.search);
   const LEVEL = { admin: "Admin", manager: "Country Manager", founder: "City Founder", holder: "Holder", member: "Member" };
@@ -32,6 +35,8 @@
     founder_home_locked: "You can't move while you hold or are applying for a founder seat.",
     sign_in: "Your session ended. Please sign in again.",
     reprove: "Please confirm it's you with your wallet first.",
+    no_wallet: "Link a wallet first.",
+    wallet_required: "Link a wallet first.",
     in_grace: "Your founder seat is in grace: hold the founder amount again to use moderation.",
     not_allowed: "Only the right moderator can do that.",
     needs_second_moderator: "That needs a second moderator: you can't confirm your own action.",
@@ -54,8 +59,13 @@
       proofDone = resolve;
       $("#proof-error").hidden = true;
       $("#proof-code").hidden = true; $("#proof-start").hidden = false;
-      const list = W.list();
-      $("#proof-none").hidden = list.length > 0;
+      // an account without a wallet has nothing to sign with: its login IS its identity, so the person logs in again to confirm it
+      const linked = Boolean(me && me.user && me.user.wallet);
+      $("#proof-login").hidden = linked; $("#proof-transfer").hidden = !linked;
+      const list = linked ? W.list() : [];
+      $("#proof-none").hidden = linked && list.length > 0;
+      $("#proof-none").textContent = linked ? "No wallet found in this browser. Open this page in your wallet app, or use the tiny transfer below."
+        : "Your account has no wallet yet, so there is nothing to sign with. Log in again to confirm it's you.";
       $("#proof-wallets").replaceChildren(...list.map((w) => {
         const b = el("button", "wallet-option"); b.type = "button";
         const icon = W.safeIcon(w.icon);
@@ -96,11 +106,20 @@
     proofTimer = setTimeout(poll, 8000);
   });
   $("#proof-cancel").addEventListener("click", () => closeProof(false));
-  /** Run a sensitive call; if the server asks, confirm with the wallet and try once more. */
+  $("#proof-login").addEventListener("click", async () => { closeProof(false); await api("/api/auth/logout", {}); location.assign("/connect?mode=login"); });
+  /** Run a sensitive call; if the server asks, confirm with the wallet and try once more. An answer that needs a wallet points at the link card. */
   async function sensitive(call) {
     let r = await call();
     if (r && r.error === "reprove" && (await askProof())) r = await call();
+    if (r && (r.error === "no_wallet" || r.error === "wallet_required")) linkFirst();
     return r;
+  }
+  /** Something needed a wallet: bring the link card into view and say so (the server's answer is shown by the caller too). */
+  function linkFirst() {
+    const card = $("#wallet-card");
+    toast("Link a wallet first");
+    if (card.hidden) return;
+    if (v2) v2.goTo("#wallet-card"); else card.scrollIntoView({ block: "center", behavior: window.V.reduced ? "auto" : "smooth" });
   }
 
   /**
@@ -153,13 +172,128 @@
   /* ---------- identity ---------- */
   const PROVIDER_LABEL = { google: "Google", email: "Email" };
   function identity(d) {
-    const u = d.user, name = u.handle || u.name || mask(u.wallet);
+    const u = d.user, linked = Boolean(u.wallet), name = u.handle || u.name || (linked ? mask(u.wallet) : "Member");
     $$("[data-me-name]").forEach((e) => (e.textContent = name));
-    $$("[data-me-wallet]").forEach((e) => (e.textContent = mask(u.wallet)));
+    // no wallet yet (onboarding v3): the pass says so and offers the link; Copy has nothing to copy
+    $$("[data-me-wallet]").forEach((e) => { e.textContent = linked ? mask(u.wallet) : "No wallet linked"; e.classList.toggle("mono", linked); });
     // the pass shows the sign-in method only — never the real name (privacy)
     $$("[data-me-login]").forEach((e) => (e.textContent = PROVIDER_LABEL[u.provider] || "Google"));
     $("#me-avatar").textContent = initials(name);
+    $("#me-copy").hidden = !linked; $("#me-link").hidden = linked;
+    $("#pass-ring").hidden = linked;
+    if (!linked) ringSet($("#pass-ring"), d.setup, false);
+    $("#ob-wallet").classList.toggle("is-ok", linked);
+    $("#ob-wallet-title").textContent = linked ? "Wallet verified" : "Wallet: link it later, from your dashboard";
   }
+
+  /* ---------- the setup ring: location, account, wallet (2 of 3 until a wallet is linked; /api/me setup) ---------- */
+  const RING_LABEL = { location: "Location", account: "Account", wallet: "Wallet" };
+  const SETUP_DEFAULT = { steps: [{ id: "location", done: true }, { id: "account", done: true }, { id: "wallet", done: false }] };
+  const listOf = (a) => (a.length > 1 ? `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}` : a.join(""));
+  /** Fill a ring (#welcome-ring or #pass-ring): the number, the ticks, the words for a screen reader, and the arc (a CSS variable; a sweep unless reduced motion). */
+  function ringSet(host, setup, animate) {
+    if (!host) return;
+    const steps = (setup && Array.isArray(setup.steps) && setup.steps.length ? setup : SETUP_DEFAULT).steps;
+    const done = steps.filter((x) => x.done), open = steps.filter((x) => !x.done);
+    const num = host.querySelector(".ring__num"); if (num) num.textContent = `${done.length}/${steps.length}`;
+    for (const x of steps) {
+      const li = host.querySelector(`#${host.id}-tick-${x.id}`); if (!li) continue;
+      li.classList.toggle("is-done", x.done); li.textContent = `${RING_LABEL[x.id] || x.id} ${x.done ? "done" : "open"}`;
+    }
+    const low = (x) => (RING_LABEL[x.id] || x.id).toLowerCase();
+    host.setAttribute("aria-label", `Profile ${done.length} of ${steps.length} complete: ${listOf(done.map(low))} done${open.length ? `, ${listOf(open.map(low))} not linked` : ""}`);
+    const to = String(Math.round((done.length / steps.length) * 1000) / 1000);
+    if (animate && !window.V.reduced) { host.style.setProperty("--ring-done", "0"); requestAnimationFrame(() => requestAnimationFrame(() => host.style.setProperty("--ring-done", to))); }
+    else host.style.setProperty("--ring-done", to);
+  }
+
+  /* ---------- the welcome moment (/dashboard?welcome=1, once) ---------- */
+  const firstName = (u) => String(u.name || "").trim().split(/\s+/)[0] || (u.handle ? `@${u.handle}` : "");
+  function showWelcome(d) {
+    const u = d.user, c = d.community, box = $("#welcome"), who = firstName(u);
+    $("#welcome-title").textContent = `Welcome to ${u.home ? u.home.name : "Vicinity"}${who ? `, ${who}` : ""}.`;
+    $("#welcome-line").textContent = (c && c.memberNumber ? `You are member #${fmt(c.memberNumber)} here. ` : "Your dashboard is live. ")
+      + (u.wallet ? "Your profile is complete." : "Two of three steps done: link a wallet whenever you like.");
+    $("#welcome-disc").textContent = c ? (c.ticker || ticker(c.name)).slice(0, 5) : "📍";
+    box.hidden = false;
+    ringSet($("#welcome-ring"), d.setup, true);
+    const r = box.getBoundingClientRect(); burst(r.left + 60, r.top + 40);
+  }
+  $("#welcome-close").addEventListener("click", () => { $("#welcome").hidden = true; });
+
+  /* ---------- the link card (#wallet-card): a member without a wallet links one from here; it watches for a link made in a wallet app ---------- */
+  const WCARD_SKIP = "vicinity:wcard-skip"; // this viewer folded the card (localStorage: a convenience, never state)
+  let linkPoll = 0, linkPollUntil = 0, linkedNow = false; // linkedNow: the wallet arrived during this visit (the card stays as "Profile complete")
+  const skipped = () => { try { return localStorage.getItem(WCARD_SKIP) === "1"; } catch { return false; } };
+  const linkStarted = () => { try { return sessionStorage.getItem("vl-started") === "1"; } catch { return false; } }; // set by /connect's link mode in this tab
+  const carryName = () => { try { return sessionStorage.getItem("su-carry") || ""; } catch { return ""; } }; // the wallet app chosen on /connect ("Phantom")
+  function walletCard(d) {
+    const card = $("#wallet-card"), u = d.user;
+    if (u.wallet) {
+      stopLinkPoll();
+      if (!linkedNow) { card.hidden = true; return; }
+      card.hidden = false; card.classList.add("is-done", "wcard--folded");
+      $("#wcard-kicker").textContent = "Profile complete · 3 of 3";
+      $("#wcard-title").textContent = "Wallet linked ✓";
+      $("#wcard-lead").textContent = `${short(u.wallet)} is the wallet of your account. Your holdings, rank and founder path are live.`;
+      $("#wcard-perks").hidden = true; $("#wcard-actions").hidden = true; $("#wcard-wait").hidden = true; $("#wcard-tiny").hidden = false;
+      return;
+    }
+    card.hidden = false; card.classList.remove("is-done");
+    $("#wcard-city").textContent = u.home ? u.home.name : "your city";
+    // a phone's Safari / Chrome has no wallet in it: the button names the wallet app (the one chosen before, else "your wallet app") and /connect opens it
+    const phone = W.isMobile && !W.inWalletApp() && W.list().length === 0, app = carryName();
+    const go = $("#wcard-go"), other = $("#wcard-other");
+    if (phone) { go.textContent = app ? `Link with ${app}` : "Link with your wallet app"; go.href = app ? `/connect?mode=link&app=${encodeURIComponent(app.toLowerCase())}` : "/connect?mode=link"; other.hidden = !app; }
+    else { go.textContent = "Link my wallet"; go.href = "/connect?mode=link"; other.hidden = true; }
+    const fold = skipped();
+    card.classList.toggle("wcard--folded", fold);
+    $("#wcard-perks").hidden = fold; $("#wcard-tiny").hidden = fold; $("#wcard-skip").hidden = fold; $("#wcard-actions").hidden = false;
+    $("#wcard-kicker").textContent = fold ? "Your profile · 2 of 3" : "Complete your profile · 2 of 3";
+    $("#wcard-title").textContent = "Link your wallet";
+    $("#wcard-lead").textContent = fold ? "Free, one signature. Unlocks your holdings, rank, badges and the founder path."
+      : "Free: one signature, not a transaction. Vicinity never asks for your recovery phrase or private key.";
+    const waiting = linkStarted();
+    $("#wcard-wait").hidden = !waiting;
+    if (waiting) { $("#wcard-wait-text").textContent = `Waiting for ${app || "your wallet"}…`; startLinkPoll(); } else stopLinkPoll();
+  }
+  /** While a link started in this tab is open elsewhere (the wallet app's browser), ask /api/me?lite=1 every 4 s while this tab is on screen, and at once when it comes back. */
+  function startLinkPoll() {
+    if (linkPoll) return;
+    linkPollUntil = Date.now() + 15 * 60_000;
+    linkPoll = setInterval(linkTick, 4000);
+    document.addEventListener("visibilitychange", onLinkVisible);
+    linkTick();
+  }
+  function stopLinkPoll() {
+    if (!linkPoll) return;
+    clearInterval(linkPoll); linkPoll = 0;
+    document.removeEventListener("visibilitychange", onLinkVisible);
+  }
+  function onLinkVisible() { if (document.visibilityState === "visible") linkTick(); }
+  async function linkTick() {
+    if (!me || me.user.wallet || !linkStarted()) return stopLinkPoll();
+    if (Date.now() > linkPollUntil) { try { sessionStorage.removeItem("vl-started"); } catch {} $("#wcard-wait").hidden = true; return stopLinkPoll(); }
+    if (document.visibilityState !== "visible") return;
+    const r = await api("/api/me?lite=1");
+    if (r && r.signedIn && r.user && r.user.wallet) await walletLinked(r.user.wallet);
+  }
+  /** The wallet arrived (the poll saw it): the ring sweeps to 3 of 3, a burst, a toast, then everything is drawn again from /api/me. */
+  async function walletLinked(wallet) {
+    stopLinkPoll();
+    try { sessionStorage.removeItem("vl-started"); } catch {}
+    linkedNow = true;
+    if (me) { me.user.wallet = wallet; me.setup = { percent: 100, steps: SETUP_DEFAULT.steps.map((x) => ({ ...x, done: true })) }; }
+    if (!$("#welcome").hidden) ringSet($("#welcome-ring"), me && me.setup, true);
+    toast("Wallet linked ✓");
+    const r = $("#wallet-card").getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 40);
+    await refresh();
+  }
+  $("#wcard-skip").addEventListener("click", () => {
+    try { localStorage.setItem(WCARD_SKIP, "1"); } catch {}
+    if (me) walletCard(me);
+    toast("No problem. Link is on your pass whenever you want it.");
+  });
 
   /* ---------- first visit ---------- */
   function onboard(d) {
@@ -212,15 +346,17 @@
   function render(d) {
     me = d; checkedAt = Date.now();
     identity(d);
-    const u = d.user, h = d.holding, home = u.home, c = d.community, n = d.national;
+    walletCard(d);
+    const u = d.user, h = d.holding, home = u.home, c = d.community, n = d.national, linked = Boolean(u.wallet);
     const pill = $("#me-role"); pill.textContent = d.roles.steward && d.level === "founder" ? "Seed Steward" : LEVEL[d.level] || "Member"; pill.dataset.level = d.level;
     $("#me-home").textContent = home ? `${home.name}, ${countryName(home.country)}` : "No home community yet";
     $$("[data-policy-version]").forEach((e) => (e.textContent = d.policyVersion));
 
-    $("#d-amount").textContent = d.launched ? compact(h.amount) : "—";
-    $("#d-amount-sub").textContent = d.launched ? `${fmt(h.amount)} $VICINITY` : "live at launch";
+    // without a wallet there is nothing to hold or rank: the two tiles point at the link instead
+    $("#d-amount").textContent = d.launched && linked ? compact(h.amount) : "—";
+    $("#d-amount-sub").textContent = !linked ? "link a wallet" : d.launched ? `${fmt(h.amount)} $VICINITY` : "live at launch";
     $("#d-rank").textContent = h.rank ? `#${fmt(h.rank)}` : "—";
-    $("#d-rank-sub").textContent = h.rank ? `of ${fmt(h.total)} · top ${pctText(h.percentile)}%` : d.launched ? (h.team ? "team wallet, not ranked" : h.amount > 0 ? "ranking…" : "not holding yet") : "live at launch";
+    $("#d-rank-sub").textContent = h.rank ? `of ${fmt(h.total)} · top ${pctText(h.percentile)}%` : !linked ? "link a wallet" : d.launched ? (h.team ? "team wallet, not ranked" : h.amount > 0 ? "ranking…" : "not holding yet") : "live at launch";
     $("#d-city-label").textContent = home ? home.name : "your city";
     $("#d-country-label").textContent = n ? countryName(n.country) : "your country";
     $("#d-crank").textContent = c && c.rank ? `#${c.rank}` : "—";
@@ -488,13 +624,15 @@
   }
 
   let btab = "earned";
+  const WALLET_BADGES = new Set(["holder", "founder_ready", "whale", "top100", "top10"]); // badges a wallet's holdings earn
   function badgeEl(d, b) {
     const lost = d.lost.includes(b.id);
     const li = el("li", `badge ${b.earned ? "is-earned" : lost ? "is-lost" : "is-locked"}`);
     li.title = `${b.name}: ${b.detail}${b.earned ? " ✓" : ""}`;
     li.tabIndex = 0;
     li.append(el("span", "badge__icon", b.icon), el("span", "badge__name", b.grace ? `${b.name} (grace)` : b.name));
-    if (!b.earned && b.progress > 0) {
+    if (!b.earned && !d.user.wallet && WALLET_BADGES.has(b.id)) li.append(el("span", "badge__pending", "needs a wallet"));
+    else if (!b.earned && b.progress > 0) {
       const p = el("span", "badge__prog"), f = el("span");
       f.style.width = `${Math.round(b.progress * 100)}%`; p.append(f); li.append(p);
       li.append(el("span", "badge__pending", "◐ In progress"));
@@ -521,8 +659,9 @@
   /* ---------- feeds ---------- */
   let scope = "city", kind = "meme", sort = "new", oldest = 0, loading = false, picture = null;
   const PLACEHOLDER = { meme: "Caption a local meme…", checkin: "Say something about where you are (optional)", talk: "Start a discussion with your neighbours…" };
+  const NEEDS_WALLET_POST = "Link a wallet and hold any $VICINITY to post.";
   const POST_ERR = {
-    holders_only: "Only $VICINITY holders can post and vote now that it's live. Holding any amount unlocks it.",
+    holders_only: () => (me && !me.user.wallet ? NEEDS_WALLET_POST : "Only $VICINITY holders can post and vote now that it's live. Holding any amount unlocks it."),
     no_addresses: "Contract addresses can't be posted. The only official one is on the Token page.",
     too_long: (d) => `That's too long (max ${d.max} characters).`,
     empty: "Write something or add a picture.",
@@ -538,7 +677,7 @@
   function setupComposer() {
     const national = scope === "country", checkin = kind === "checkin";
     $("#composer").hidden = national && checkin;
-    $("#c-text").placeholder = PLACEHOLDER[kind];
+    $("#c-text").placeholder = me && me.launched && !me.user.wallet ? NEEDS_WALLET_POST : PLACEHOLDER[kind]; // after launch only holders post: a wallet comes first
     $("#c-text").maxLength = kind === "talk" ? 1000 : kind === "meme" ? 280 : 140;
     $("#c-pic-label").hidden = kind !== "meme";
     $("#c-post").textContent = checkin ? "📍 Check in here" : "Post";
@@ -1066,7 +1205,10 @@
     const u = me.user, name = u.handle || u.name || mask(u.wallet);
     $("#profile-avatar").textContent = initials(name);
     $("#profile-since").textContent = `Member since ${date(u.joined)} · ${LEVEL[me.level] || "Member"}`;
-    $("#profile-wallet").textContent = mask(u.wallet);
+    const linked = Boolean(u.wallet);
+    $("#profile-wallet").textContent = linked ? mask(u.wallet) : "No wallet linked";
+    $("#profile-wallet").classList.toggle("mono", linked);
+    $("#profile-copy").hidden = !linked; $("#profile-link").hidden = linked; $("#profile-unlink").hidden = !linked;
     $("#profile-provider").textContent = PROVIDER_LABEL[u.provider] || "Google";
     $("#profile-home").textContent = u.home ? `${u.home.name}, ${countryName(u.home.country)}` : "No home community yet";
     $("#username-input").value = u.handle || "";
@@ -1113,6 +1255,16 @@
   $("#profile-close").addEventListener("click", closeProfile);
   $("#profile-modal").addEventListener("click", (e) => { if (e.target.id === "profile-modal") closeProfile(); });
   $("#profile-copy").addEventListener("click", () => me && copy(me.user.wallet, "Wallet address copied"));
+  // Unlink: a fresh proof by that wallet (the server asks, askProof answers), refused while a seat, an application or a squad place depends on it
+  $("#profile-unlink").addEventListener("click", async () => {
+    if (!me || !me.user.wallet) return;
+    if (!confirm("Unlink this wallet? Your rank, badges and founder eligibility go with it until you link one again.")) return;
+    const r = await sensitive(() => api("/api/me/wallet/unlink", {}));
+    if (!r || !r.ok) return toast(r && r.error === "seat_or_application" ? "Resign or withdraw first." : errText({ reprove: "Please confirm it's you with your wallet first." }, r || {}, "Couldn't unlink. Try again."));
+    toast("Wallet unlinked"); linkedNow = false;
+    try { localStorage.removeItem(WCARD_SKIP); } catch {}
+    await refresh(); openProfile();
+  });
   $("#profile-logout").addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/"); });
   $("#username-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1334,6 +1486,14 @@
     // a member: the tabbed dashboard's placeholders while its code loads (in the room a guest's page held: a first visit after signing in)
     if (tabbed) { $("#dash-skel").hidden = false; unhold(); }
     me = d;
+    // ?welcome=1 (the account was just made) and ?linked=1 (the wallet was just linked) are moments, not places: read once, then taken off the address bar
+    const welcome = params.get("welcome"), linked = params.get("linked");
+    if (welcome || linked) {
+      params.delete("welcome"); params.delete("linked");
+      const q = String(params);
+      try { history.replaceState(null, "", location.pathname + (q ? `?${q}` : "") + location.hash); } catch {}
+    }
+    if (linked && d.user.wallet) linkedNow = true;
     identity(d);
     if (!d.user.home) { unhold(); onboard(d); return; }
     if (tabbed) {
@@ -1359,7 +1519,8 @@
     }
     setupComposer(); loadFeed(true); loadMod(); loadTowns();
     reveal();
-    if (params.get("welcome")) toast(`Welcome to Vicinity, ${d.user.handle || d.user.name} 🎉`);
+    if (welcome) showWelcome(d);
+    if (linked && d.user.wallet) { toast("Wallet linked ✓"); const r = $("#wallet-card").getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 40); }
     if (!v2 && params.get("claim")) $("#progress").scrollIntoView({ block: "center" });
     setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
   })();

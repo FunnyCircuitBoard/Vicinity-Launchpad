@@ -41,12 +41,15 @@
 .no-account .btn { width: 100%; }
 
 /* ---- the dashboard: the welcome card ---- */
-.welcome { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; background: linear-gradient(135deg, rgba(255,90,54,.16), rgba(255,200,87,.1)), var(--card); border: 1px solid rgba(255,200,87,.35); border-radius: var(--radius); padding: 22px; margin-bottom: 18px; }
+.welcome { position: relative; display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; background: linear-gradient(135deg, rgba(255,90,54,.16), rgba(255,200,87,.1)), var(--card); border: 1px solid rgba(255,200,87,.35); border-radius: var(--radius); padding: 22px; margin-bottom: 18px; }
 .welcome__disc { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font: 800 1.4rem var(--display); color: #fff; background: linear-gradient(135deg, var(--pin), var(--gold)); box-shadow: 0 14px 30px -14px rgba(255,90,54,.8); }
 .welcome__text { display: grid; gap: 4px; min-width: 0; }
 .welcome__text .kicker { margin-bottom: 0; }
 .welcome__text h2 { margin: 0; font-size: 1.5rem; line-height: 1.2; overflow-wrap: anywhere; }
 .welcome__text p { margin: 0; color: var(--muted); }
+.welcome__ring { align-self: center; }
+.welcome__close { position: absolute; top: 8px; right: 8px; }
+@media (max-width: 640px) { .welcome { grid-template-columns: auto 1fr; } .welcome__ring { grid-column: 1 / -1; } }
 @media (max-width: 480px) { .welcome { grid-template-columns: 1fr; justify-items: start; } }
 
 /* ---- the setup ring (2 of 3 → 3 of 3). The sweep is a CSS variable the page sets (no inline style): --ring-done 0..1 ---- */
@@ -59,7 +62,7 @@
 .ring__ticks li::before { content: "○ "; color: var(--muted); }
 .ring__ticks li.is-done::before { content: "✓ "; color: var(--moss); }
 .ring--sm .ring__svg { width: 36px; height: 36px; }
-.ring--sm .ring__num { font-size: .6rem; transform-origin: 32px 32px; }
+.ring--sm .ring__num { font-size: 22px; transform-origin: 32px 32px; }
 @media (prefers-reduced-motion: reduce) { .ring__arc { transition: none; } }
 
 /* ---- the dashboard's link card ---- */
@@ -79,3 +82,18 @@
 .wcard.is-done { border-color: rgba(55,194,154,.45); }
 .wcard.is-done .kicker { color: var(--ok-text); }
 .wcard--folded { padding: 14px 18px; }
+
+/* ---- the pass: the small ring by the role pill (white on the pass's own colours); .ring-row holds the ring and the pill ---- */
+.ring-row { display: inline-flex; align-items: center; gap: 10px; }
+.ring--pass { grid-template-columns: auto; gap: 0; }
+.ring--pass .ring__svg { width: 30px; height: 30px; }
+.ring--pass .ring__track { stroke: rgba(255,255,255,.28); }
+.ring--pass .ring__arc { stroke: #fff; }
+.ring--pass .ring__num { fill: #fff; }
+
+/* ---- the link card folded (Skip for now): one line and a smaller button, never a dead end ---- */
+.wcard--folded { padding: 14px 18px; gap: 8px; }
+.wcard--folded h2 { font-size: 1.1rem; }
+.wcard--folded .wcard__actions { grid-template-columns: auto 1fr; align-items: center; justify-items: start; }
+.wcard--folded .wcard__actions .btn { width: auto; padding: 10px 16px; font-size: .95rem; }
+.wcard.is-done h2 { color: var(--ok-text); }

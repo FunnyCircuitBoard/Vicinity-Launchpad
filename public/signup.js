@@ -752,10 +752,10 @@
     }
     const carryOf = (k, r) => ({ k, name: k.name, link: k.open(r.url), pin: r.pin, ref: r.ref, until: Date.parse(r.expiresAt), replaced: false, expired: false, opened: false });
     async function carryTo(k, tile) {
-      if (tile.disabled) return;
-      const go = tile.querySelector(".go");
+      if (tile && tile.disabled) return;
+      const go = tile ? tile.querySelector(".go") : null;
       setErr(""); if (S.noteView) notice("");
-      tile.disabled = true; tile.setAttribute("aria-busy", "true"); if (go) go.textContent = "Getting your link…";
+      if (tile) { tile.disabled = true; tile.setAttribute("aria-busy", "true"); } if (go) go.textContent = "Getting your link…";
       try {
         const r = await call("/api/me/wallet/carry", {});
         if (r._handled) return;
@@ -771,8 +771,20 @@
         linkStarted();
         render();
       } finally {
-        tile.disabled = false; tile.removeAttribute("aria-busy"); if (go) go.textContent = "Open app";
+        if (tile) { tile.disabled = false; tile.removeAttribute("aria-busy"); } if (go) go.textContent = "Open app";
       }
+    }
+    /**
+     * /connect?mode=link&app=phantom (the dashboard's "Link with Phantom" on a phone): the "Open app" link for that wallet is made at once,
+     * as if its tile had been tapped. Anywhere else (a computer, inside the app already) the tiles are enough. The name leaves the address bar.
+     */
+    function openApp(id) {
+      if (!id) return;
+      if (params.has("app")) { params.delete("app"); try { history.replaceState(null, "", location.pathname + (String(params) ? `?${params}` : "")); } catch { /* ignore */ } }
+      const k = W.KNOWN.find((x) => x.id === String(id).toLowerCase());
+      if (!k || !k.open || !carrier()) return;
+      const tile = $$("#wallets-known .wallet-option").find((b) => b.tagName === "BUTTON" && b.textContent.includes(k.name)) || null;
+      carryTo(k, tile);
     }
     function stopCarry() { clearTimeout(S.carryTimer); S.carryTimer = null; S.carry = null; }
     function pollSoon(ms) { clearTimeout(S.carryTimer); S.carryTimer = setTimeout(pollCarry, ms); }
@@ -1162,6 +1174,7 @@
           if (brought.carry != null && window.V.termsGate) window.V.termsGate.agreed(me.termsVersion || "2026-10-01");
           render();
           if (err) { const b = bounceFor(err); setErr(b.text); announce(b.text); }
+          openApp(params.get("app"));
           return true;
         }
         if (brought.carry != null && window.V.termsGate) window.V.termsGate.open(); // an old sign-up's link: one calm line, the ordinary tabs
