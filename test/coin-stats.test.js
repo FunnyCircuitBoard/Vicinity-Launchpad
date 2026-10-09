@@ -21,7 +21,7 @@ test("flag off: the job runs no statement that names coin_stats and the answer h
   env.DB = spyDb(env.DB);
   await seedCoin(env.DB, { city: 5142056, name: "Utica", mint: CITY_COIN });
   const out = await tick(env);
-  assert.deepEqual(Object.keys(out), ["sample", "seats", "elections", "moderation", "snapshot", "cleanup"]);
+  assert.deepEqual(Object.keys(out), ["sample", "seats", "elections", "moderation", "snapshot", "cleanup", "feedback"]); // "feedback" is the Feedback / Support retention step: no switch, runs on every site (src/feedback.js pruneFeedback)
   assert.ok(!env.DB.log.some((x) => /coin_stats/i.test(x.sql)));
   assert.ok(!(await schemaOf(env.DB)).tables.includes("coin_stats"));
 });

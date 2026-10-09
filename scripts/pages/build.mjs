@@ -30,7 +30,8 @@ const current = (page, p) => (page === p ? ' aria-current="page"' : "");
 function layout({ title, description, page, nav: navPage = page, scripts = [], styles = [], main = "", noindex = false }, body) {
   const nav = NAV.map(([p, href, label]) => `        <a href="${href}"${current(navPage, p)}>${label}${p === "launchpad" ? ' <span class="nav__soon" data-nav-launch>Oct 10</span>' : ""}</a>`).join("\n");
   const tabs = NAV.map(([p, href, , short, paths]) => `    <a href="${href}"${current(navPage, p)}>${icon(paths)}<span>${short}</span></a>`).join("\n");
-  const js = ["site", ...scripts].map((s) => `  <script src="/${s}.js" defer></script>`).join("\n");
+  // feedback.js (the floating Feedback / Support widget) runs last on every page: it needs window.V from site.js and nothing else needs it
+  const js = ["site", ...scripts, "feedback"].map((s) => `  <script src="/${s}.js" defer></script>`).join("\n");
   const fullTitle = page === "home" ? "Vicinity — One city. One coin. One community." : `${title} · Vicinity`;
   const gate = page === "terms" ? "" : `
   <div class="termsgate" id="termsgate" data-terms-version="2026-10-01" hidden>
@@ -69,7 +70,8 @@ ${noindex ? '  <meta name="robots" content="noindex, nofollow">\n' : ""}  <meta 
   <link rel="preload" href="/fonts/space-grotesk.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
-  <link rel="stylesheet" href="/polish.css">${styles.map((c) => `\n  <link rel="stylesheet" href="/${c}.css">`).join("")}
+  <link rel="stylesheet" href="/polish.css">
+  <link rel="stylesheet" href="/feedback.css">${styles.map((c) => `\n  <link rel="stylesheet" href="/${c}.css">`).join("")}
   <script src="/theme.js"></script>
 </head>
 <body data-page="${page}">

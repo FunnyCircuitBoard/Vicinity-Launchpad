@@ -31,10 +31,14 @@ export function redirect(location, cookies = []) {
   return new Response(null, { status: 302, headers: h });
 }
 
-/** Read a JSON body of at most `max` bytes. Returns the object, or null if it's missing, too big or broken. */
+/** Read a JSON body of at most `max` characters (the Content-Length header, in bytes, is checked first). Returns the object, or null if it's missing, too big or broken. */
 export async function readJson(request, max = 4096) {
   const len = Number(request.headers.get("content-length") || 0);
-  if (len > max) return null;
+  if (len > max) {
+    // let the body go before answering: an unread body on a kept-alive connection can break the NEXT request on it (seen in wrangler dev)
+    try { if (request.body) await request.body.cancel(); } catch { /* nothing to let go of */ }
+    return null;
+  }
   try {
     const text = await request.text();
     if (text.length > max) return null;
