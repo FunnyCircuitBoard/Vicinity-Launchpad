@@ -383,6 +383,35 @@ test("steps 3-7 come after the hand-over; the price curve is a one-time key and 
   assert.equal((await w.call("/api/admin/lp/tx", { step: "partner" })).data.error, "step_not_ready");
 });
 
+test("step 3 waits when Meteora's bonding-curve program is not the build the team pinned: nothing is spent on a price curve that would be refused (devnet rehearsal)", async () => {
+  const w = await world();
+  await afterHandoff(w);
+  const pdDbc = await programDataAddress(PROGRAM_IDS.dbc);
+  // Meteora's program as some newer build (on devnet it writes PoolConfig.version 1, and the curve it made was refused at record time)
+  w.chain.S.accounts[pdDbc] = programDataAccount("JADaUV8kvDpDbJr55wxXJHVaBS3VCj8thZZHjfeuCVLd", new Uint8Array(4096).fill(9));
+  const st = (await w.call("/api/admin/lp/status")).data;
+  const s3 = st.steps.find((x) => x.id === "config");
+  assert.equal(s3.state, "blocked");
+  assert.match(s3.reason, /^Meteora has updated its bonding-curve program since the team checked it \(its fingerprint is now [0-9a-f]{12}…, the checked one 4c26a8a5da99…\)\. A price curve made now may differ from the tested one, so this step waits\. Nothing was spent; tell the team/);
+  const b = await w.call("/api/admin/lp/tx", { step: "config", ephemeral: [addr(91)] });
+  assert.deepEqual([b.status, b.data.error], [409, "step_not_ready"], "the step is not even built");
+  assert.match(b.data.message, /Meteora has updated its bonding-curve program/);
+  // the whole program was read for its fingerprint, once (memoised per deploy slot)
+  const reads = () => w.chain.S.log.filter((x) => x.method === "getAccountInfo" && x.params[0] === pdDbc && !(x.params[1] && x.params[1].dataSlice)).length;
+  assert.equal(reads(), 1);
+  // once a price curve exists (here: from the settings) Meteora's program is no longer read at all, and step 3 is what the curve says
+  const cfg = addr(95);
+  w.chain.S.accounts[cfg] = { owner: PROGRAM_IDS.dbc, data: EXPECTED_POOL_CONFIG };
+  w.env.LAUNCHPAD_DBC_CONFIGS = cfg;
+  const before = reads();
+  const st2 = (await w.call("/api/admin/lp/status")).data;
+  assert.equal(st2.steps.find((x) => x.id === "config").state, "done");
+  assert.equal(reads(), before);
+  // Meteora's program unreadable (no such account): the step is offered as before (a real chain always has the program)
+  delete w.env.LAUNCHPAD_DBC_CONFIGS; delete w.chain.S.accounts[pdDbc];
+  assert.equal((await w.call("/api/admin/lp/status")).data.steps.find((x) => x.id === "config").state, "ready");
+});
+
 test("mainnet: step 5 makes the dev wallet's SOL and $VICINITY fee accounts", async () => {
   const VIC = "2aVkhRfAEm44tMhFo8oamWvumGGvweFqnUwukRMBkray";
   const pid = addr(61), rid = addr(62);

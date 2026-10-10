@@ -37,7 +37,7 @@ import { accountBytes, decodeCoin, decodeConfig, decodeLaunchConfig, decodeLaunc
 import { LAYOUT } from "./sol/layout.js";
 import { bytesEqual, fromBase64, readI64, readU32, readU64 } from "./sol/bytes.js";
 import { compileLegacy, MAX_TX_BYTES, wrapUnsigned } from "./sol/message.js";
-import { DBC_CONFIG_DEFAULTS, EXPECTED_POOL_CONFIG } from "./sol/dbc-config-data.js";
+import { DBC_CONFIG_DEFAULTS, DBC_PROGRAM_SHA256, EXPECTED_POOL_CONFIG } from "./sol/dbc-config-data.js";
 import { checkMultisig } from "./sol/squads.js";
 import * as IX from "./sol/lpadmin-ix.js";
 
@@ -231,16 +231,16 @@ async function readState(env, s, wallet, fetchImpl, { hashes = false } = {}) {
   const vm = s.cluster === "mainnet" ? activeMint(env) : null;
   const vicinityMint = isSolanaAddress(vm) ? vm : null;
   const multisig = setup.squads && isSolanaAddress(setup.squads.address) ? setup.squads.address : null;
-  const [lpPda, regPda, pdLp, pdRw, partnerPda, wsolAta, launchConfigPda] = await Promise.all([
-    L.launchpad(), R.registry(), programDataAddress(s.programId), programDataAddress(s.rewardsProgramId), IX.partnerMetadataAddress(DEV), ata(DEV, WSOL),
+  const [lpPda, regPda, pdLp, pdRw, pdDbc, partnerPda, wsolAta, launchConfigPda] = await Promise.all([
+    L.launchpad(), R.registry(), programDataAddress(s.programId), programDataAddress(s.rewardsProgramId), programDataAddress(PROGRAM_IDS.dbc), IX.partnerMetadataAddress(DEV), ata(DEV, WSOL),
     config ? L.launchConfig(config) : null,
   ]);
   const want = [s.programId, s.rewardsProgramId, lpPda, regPda, partnerPda, wsolAta, config, launchConfigPda, lookup, multisig, vicinityMint].filter(Boolean);
   const [acc, heads] = await Promise.all([
     readAccounts(env, want, fetchImpl),
-    lpRpc(env, "getMultipleAccounts", [[pdLp, pdRw], { encoding: "base64", commitment: "confirmed", dataSlice: { offset: 0, length: 45 } }], fetchImpl),
+    lpRpc(env, "getMultipleAccounts", [[pdLp, pdRw, pdDbc], { encoding: "base64", commitment: "confirmed", dataSlice: { offset: 0, length: 45 } }], fetchImpl),
   ]);
-  const head = heads && Array.isArray(heads.value) ? heads.value : [null, null];
+  const head = heads && Array.isArray(heads.value) ? heads.value : [null, null, null];
   const get = (a) => (a ? acc.get(a) || null : null);
   const programs = { launchpad: programInfo(s.programId, get(s.programId), pdLp, head[0]), rewards: programInfo(s.rewardsProgramId, get(s.rewardsProgramId), pdRw, head[1]) };
   if (hashes) {
@@ -261,10 +261,19 @@ async function readState(env, s, wallet, fetchImpl, { hashes = false } = {}) {
     } else referral.push({ mint: vicinityMint, symbol: "VICINITY", account: null, exists: false, missingMint: true });
   }
   const cfgAcc = get(config);
+  // Meteora's bonding-curve program, while no price curve exists yet (before step 3): the curve this tab creates is checked byte for
+  // byte against what the PINNED build writes (src/sol/dbc-config-data.js), so a Meteora upgrade since that pin is caught BEFORE
+  // the owner spends anything (the devnet rehearsal: devnet's newer build writes PoolConfig.version 1, and the curve it made was
+  // refused at record time). Read once per isolate and deploy slot; null when the program could not be read at all.
+  const dbcHead = decodeProgramData(head[2]);
+  const dbc = { programData: pdDbc, slot: dbcHead ? dbcHead.slot.toString() : null, sha256: null, pinned: DBC_PROGRAM_SHA256 };
+  if (!cfgAcc && dbc.slot !== null) {
+    try { Object.assign(dbc, await programHash(env, pdDbc, dbc.slot, fetchImpl)); } catch (e) { console.error("dbc program hash read failed", codeOf(e)); }
+  }
   const table = lookup ? decodeTable(get(lookup)) : null;
   const ms = multisig ? await checkMultisig(multisig, get(multisig)) : null;
   return {
-    s, wallet, setup, programs, allowList, vicinityMint,
+    s, wallet, setup, programs, allowList, vicinityMint, dbc,
     launchpad: decodeLaunchpad(get(lpPda), s.programId), launchpadAddress: lpPda,
     registry: decodeRegistry(get(regPda), s.rewardsProgramId), registryAddress: regPda,
     config: config ? { address: config, source: configSource, exists: Boolean(cfgAcc), diff: cfgAcc ? configDiff(cfgAcc) : null, facts: cfgAcc ? configFacts(cfgAcc) : null } : null,
@@ -329,6 +338,7 @@ export async function setupSteps(st) {
   if (c && c.exists && c.diff && c.diff.length === 0) s3 = step("config", "done", `The price curve ${c.address} matches Vicinity's defaults (85 SOL target, 1.25% fee, 0.05 SOL launch fee, fees to ${short(DEV)}).`, { address: c.address });
   else if (c && c.exists && c.source === "settings") s3 = step("config", "done", `The price curve ${c.address} comes from the settings. It differs from the mainnet defaults in: ${c.diff.join(", ")}.`, { address: c.address, note: true });
   else if (c && c.exists) s3 = step("config", "blocked", `The price curve ${c.address} differs from Vicinity's defaults in: ${c.diff.join(", ")}. Tell the team; do not allow it.`, { address: c.address });
+  else if (s2.state === "done" && st.dbc && st.dbc.sha256 && st.dbc.sha256 !== st.dbc.pinned) s3 = step("config", "blocked", `Meteora has updated its bonding-curve program since the team checked it (its fingerprint is now ${st.dbc.sha256.slice(0, 12)}…, the checked one ${st.dbc.pinned.slice(0, 12)}…). A price curve made now may differ from the tested one, so this step waits. Nothing was spent; tell the team, who re-check Meteora's new program first.`, { dbc: { sha256: st.dbc.sha256, pinned: st.dbc.pinned, slot: st.dbc.slot } });
   else s3 = after2("config", true, `Creates the Meteora price curve with a one-time key made in this browser (about ${sol(8_184_960)} of rent).${c && c.source === "recorded" ? ` The recorded curve ${c.address} is not on chain, so a new one is made.` : ""}`, { ephemeral: 1 });
   out.push(s3);
 
