@@ -17,13 +17,20 @@ export const launchedAtOf = (mint) => (mint && Object.hasOwn(VICINITY_LAUNCHED, 
 // When the Vicinity Launchpad opens (the countdown on /launchpad). 10:10:10 AM New York time (EDT, UTC-4), Oct 10 2026.
 export const LAUNCHPAD_OPENS_AT = "2026-10-10T10:10:10-04:00";
 
+// Where each official social account lives, so a full profile link (https://x.com/VicinityCitySOL, a post on it, t.me/…)
+// is checked like its @handle. Exact hosts only (www. and mobile. allowed); the account is the link's first path segment.
+// A Telegram entry goes here too, with hosts ["t.me", "telegram.me"], once the owner names the official group.
+export const SOCIAL_PROFILES = [
+  { network: "X", handle: "@VicinityCitySOL", hosts: ["x.com", "twitter.com"] }, // verified 2026-09-30
+];
+
 export const OFFICIAL = {
   updated: "2026-09-27", // vicinity.city is the main address; vicinitycity.net forwards to it
   // Only addresses we control for sure. (The two workers.dev addresses were listed before: a workers.dev name can be
   // claimed by anyone once it is released, so a name on this list that is not ours would vouch for a fake site.)
   websites: ["vicinity.city", "vicinitycity.com", "vicinitycity.net"],
   github: [],             // code is private
-  socials: ["@VicinityCitySOL"], // official X account (verified 2026-09-30)
+  socials: [...new Set(SOCIAL_PROFILES.map((p) => p.handle))], // the official accounts' @handles (see SOCIAL_PROFILES)
   tokenContract: VICINITY_MINT,
   // Every wallet the team controls, listed publicly. 13qRam…sRiN is the owner's wallet: it created $VICINITY on Raydium
   // LaunchLab on 3 Oct 2026 (its buy was in the creation transaction) and is the site's admin wallet; listed at the owner's
@@ -58,6 +65,18 @@ export function marketLink(input, isSolanaAddress) {
   try { words = decodeURIComponent(parts).split(/[^1-9A-HJ-NP-Za-km-z]+/); } catch { words = parts.split(/[^1-9A-HJ-NP-Za-km-z]+/); }
   const addresses = [...new Set(words.filter((w) => isSolanaAddress(w)))];
   return { host, name: MARKETS[host], addresses };
+}
+
+/** A link to a social network we have an official account on: { network, profile } where profile is the official account the
+ *  link opens (its first path segment is the handle, any case) or null for anyone else's, and account: whether the link names one
+ *  at all; null for any other host. */
+function socialLink(url) {
+  const host = url.hostname.toLowerCase().replace(/^(www|mobile)\./, "");
+  const onHost = SOCIAL_PROFILES.filter((p) => p.hosts.includes(host));
+  if (!onHost.length) return null;
+  const first = (url.pathname.split("/")[1] || "").toLowerCase();
+  const profile = onHost.find((p) => p.handle.slice(1).toLowerCase() === first) || null;
+  return { network: onHost[0].network, profile, account: Boolean(first) };
 }
 
 /** Decide whether something a visitor pasted is an official Vicinity place (the list as it is now: see withMint). */
@@ -103,6 +122,17 @@ export function checkOfficial(input, isSolanaAddress, env) {
       return { verdict: "warning", kind: "website", message: "Right site, but the link uses http. Use the https version." };
     if (OFFICIAL.websites.includes(host))
       return { verdict: "official", kind: "website", message: "This is the official Vicinity website." };
+    const social = socialLink(url);
+    if (social) {
+      if (social.profile) return { verdict: "official", kind: "social", message: `This is Vicinity's official account on ${social.profile.network}.` };
+      const ours = SOCIAL_PROFILES.filter((p) => p.network === social.network).map((p) => p.handle).join(" and ");
+      return {
+        verdict: "not_official", kind: "social",
+        message: social.account
+          ? `This ${social.network} account is not us. Vicinity's official ${social.network}: ${ours}.`
+          : `That link doesn't open an account. Vicinity's official ${social.network}: ${ours}.`,
+      };
+    }
     if (host === "github.com" && OFFICIAL.github.some((g) => hostPath === g || hostPath.startsWith(g + "/")))
       return { verdict: "official", kind: "github", message: "This is the official Vicinity code repository." };
     const market = OFFICIAL.tokenContract ? marketLink(raw, isSolanaAddress) : null;
