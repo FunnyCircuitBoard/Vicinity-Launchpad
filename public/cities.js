@@ -1351,7 +1351,10 @@
     full = on;
     wrapEl.classList.toggle("is-full", on); document.documentElement.classList.toggle("map-is-full", on);
     isolate(on);
-    const b = $("#map-full"); b.setAttribute("aria-pressed", String(on)); b.setAttribute("aria-label", on ? "Leave the full-screen map" : "Full-screen map"); b.title = b.getAttribute("aria-label"); b.textContent = on ? "⤡" : "⤢";
+    const b = $("#map-full"); b.setAttribute("aria-pressed", String(on)); b.setAttribute("aria-label", on ? "Leave the full-screen map" : "Full-screen map"); b.title = b.getAttribute("aria-label");
+    const ic = b.querySelector(".map-menu__ic"), lb = b.querySelector(".map-menu__label");
+    if (ic) ic.textContent = on ? "⤡" : "⤢"; else b.textContent = on ? "⤡" : "⤢";
+    if (lb) lb.textContent = on ? "Leave full screen" : "Full screen";
     $("#map-exit").hidden = !on;
     if (on && !fromHistory) { try { history.pushState({ vicinityMap: "full" }, ""); } catch {} }
     if (!on && !fromHistory && history.state && history.state.vicinityMap === "full") { try { history.back(); } catch {} }
@@ -1359,6 +1362,14 @@
     (on ? $("#map-exit") : b).focus({ preventScroll: true });
   }
   $("#map-full").addEventListener("click", () => setFull(!full));
+  // a phone: + and − stay on the map, the other four controls open from ⋯ (44 px rows with words); Escape, a tap outside or a
+  // choice closes it. A computer shows the four in the rail as before (polish-pages.css).
+  const rail = $(".map-ctrl"), more = $("#map-more");
+  const menu = (open) => { rail.classList.toggle("is-menu", open); more.setAttribute("aria-expanded", String(open)); };
+  more.addEventListener("click", () => menu(!rail.classList.contains("is-menu")));
+  for (const id of ["#map-reset", "#map-locate", "#map-full"]) $(id).addEventListener("click", () => menu(false));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && rail.classList.contains("is-menu")) { menu(false); more.focus({ preventScroll: true }); } });
+  document.addEventListener("pointerdown", (e) => { if (rail.classList.contains("is-menu") && !rail.contains(e.target)) menu(false); }, true);
   $("#map-exit").addEventListener("click", () => setFull(false));
   window.addEventListener("popstate", () => { if (full) setFull(false, true); });
   document.addEventListener("keydown", (e) => { if (full && e.key === "Escape") { e.preventDefault(); setFull(false); } });
@@ -1398,6 +1409,11 @@
     } else hits = cities.filter(pass);
     const total = hits.length; hits = hits.slice(0, 60);
     $("#city-count").textContent = total > 60 ? `Showing 60 of ${fmt(total)}. Type to narrow it down.` : `${fmt(total)} ${total === 1 ? "city" : "cities"}`;
+    // a phone shows 8 rows and "Show more" (no box that scrolls inside the page); a computer keeps its scrolling list
+    const moreBtn = $("#city-more");
+    moreBtn.hidden = hits.length <= 8;
+    const all = listEl.classList.contains("is-all");
+    moreBtn.textContent = all ? "Show fewer" : `Show more (${fmt(hits.length - 8)})`; moreBtn.setAttribute("aria-expanded", String(all));
     if (!hits.length) { listEl.replaceChildren(el("li", "muted", q ? "No match. You can add it below." : "Nothing here yet.")); return; }
     listEl.replaceChildren(...hits.map((c) => {
       const li = document.createElement("li");
@@ -1416,6 +1432,7 @@
   let typing; qEl.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(renderList, 120); });
   countryEl.addEventListener("change", () => { renderList(); if (countryEl.value) { userMoved = true; flyToCountry(countryEl.value); } });
   filterEl.addEventListener("change", renderList);
+  $("#city-more").addEventListener("click", () => { listEl.classList.toggle("is-all"); renderList(); });
 
   /* =================== coin preview + moderator =================== */
   function renderCoin(c) {
