@@ -783,5 +783,8 @@
     load();
   }
   let swapOn = false;
-  official.then((o) => { swapOn = Boolean(o && o.swap === true); if (o && o.launchpadV2 === true) start(); });
+  // city coins launched on our own launchpad (LAUNCHPAD_TRADING on, /api/official says so): the intro names it instead of Raydium
+  // LaunchLab. Without that switch nothing changes.
+  const lpCopy = (on) => { for (const e of $$("[data-launchlab-copy]")) e.hidden = on; for (const e of $$("[data-lp-only]")) e.hidden = !on; };
+  official.then((o) => { swapOn = Boolean(o && o.swap === true); if (o && o.launchpadTrading) lpCopy(true); if (o && o.launchpadV2 === true) start(); });
 })();

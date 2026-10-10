@@ -275,7 +275,8 @@ test("with the switch off the page is today's: every pinned id and the pre-launc
   assert.ok(before.startsWith("// Launchpad page: live countdown to the opening, and an \"add to my calendar\" file.\n"));
   assert.ok(before.includes("official.then(tick); tick(); setInterval(tick, 1000);") && before.includes("// Founding Supporter snapshot: status, and any wallet's amount + Merkle proof."));
   // the swap switch is read in the same breath (swapOn decides what the card's Buy does), but the only way IN is still launchpadV2 === true
-  assert.match(part, /let swapOn = false;\s*official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); if \(o && o\.launchpadV2 === true\) start\(\); \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true");
+  // (and /api/official's launchpadTrading only swaps the intro's "on Raydium LaunchLab" for "on the Vicinity launchpad": lpCopy)
+  assert.match(part, /let swapOn = false;\s*(\/\/[^\n]*\n\s*)*const lpCopy = \(on\) => \{ for \(const e of \$\$\("\[data-launchlab-copy\]"\)\) e\.hidden = on; for \(const e of \$\$\("\[data-lp-only\]"\)\) e\.hidden = !on; \};\s*official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); if \(o && o\.launchpadTrading\) lpCopy\(true\); if \(o && o\.launchpadV2 === true\) start\(\); \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true");
   assert.match(part, /if \(typeof document === "undefined" \|\| !window\.V\) return;/);
   assert.deepEqual([...part.matchAll(/\bapi\(([^)]*)\)/g)].map((m) => m[1]).sort(), ['"/api/launchpad"', "`/api/coin/chart?mint=${encodeURIComponent(mint", "`/api/coin/chart?mint=${encodeURIComponent(mint"],
     "the list, and each live coin's chart (its sparkline, 24 h then 7 d): nothing else");
@@ -464,4 +465,22 @@ test("honesty (review): a card names Raydium LaunchLab only when the chain found
   assert.equal(P.venueLine({ kind: "city", status: "live", pair: { symbol: "USDC" }, market: null }), "USDC pair");
   const js = readFileSync(new URL("../public/launchpad.js", import.meta.url), "utf8");
   assert.doesNotMatch(js, /`Raydium LaunchLab · \$\{str\(c\.pair/, "never said unconditionally");
+});
+
+test("intro copy: 'on Raydium LaunchLab' until city-coin trading is on (/api/official launchpadTrading), then 'on the Vicinity launchpad'", async () => {
+  // the built page: the sentence reads exactly as before while the second half stays hidden
+  const p = html.match(/<p class="muted">Every coin here is a city's one official coin,[\s\S]*?<\/p>/)[0];
+  assert.match(p, /<span data-launchlab-copy>on Raydium LaunchLab and recorded by Vicinity<\/span><span data-lp-only hidden>on the Vicinity launchpad \(a Meteora bonding curve\)<\/span>\. Live coins trade now/);
+  assert.ok(srcHtml.includes("<span data-lp-only hidden>on the Vicinity launchpad (a Meteora bonding curve)</span>"));
+  const run = async (o) => {
+    const els = { "[data-launchlab-copy]": [{ hidden: false }], "[data-lp-only]": [{ hidden: true }] };
+    const V2 = { ...V, $$: (sel) => els[sel] || [], official: Promise.resolve(o) };
+    const document = { addEventListener() {}, removeEventListener() {}, visibilityState: "visible", querySelector: () => null, querySelectorAll: () => [] };
+    vm.runInNewContext(src, { window: { V: V2 }, document, Intl, URLSearchParams, setInterval: () => 0, setTimeout: () => 0, clearTimeout() {} });
+    await new Promise((r) => setImmediate(r));
+    return [els["[data-launchlab-copy]"][0].hidden, els["[data-lp-only]"][0].hidden];
+  };
+  assert.deepEqual(await run({ launchpadV2: false }), [false, true], "production today: unchanged");
+  assert.deepEqual(await run({ launchpadV2: false, swap: true }), [false, true], "the swap alone changes nothing");
+  assert.deepEqual(await run({ launchpadV2: false, launchpadTrading: { cluster: "mainnet" } }), [true, false], "city-coin trading on: the Vicinity launchpad is named");
 });
