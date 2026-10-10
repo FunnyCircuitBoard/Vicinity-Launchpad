@@ -213,7 +213,7 @@
   // (AVOID; a page can mark more with data-fb-avoid), so it never sits on the page's next step. One passive scroll listener; the work runs once per frame.
   const narrow = typeof matchMedia === "function" ? matchMedia("(max-width: 900px)") : null;
   // (the footer's lines too: "never ask for your recovery phrase" and the risk line are never covered on a short page)
-  const AVOID = ".btn, .swap, .contract__copy, .hero__facts, [role='tab'], .site-footer p, [data-fb-avoid]";
+  const AVOID = ".btn, .swap, .wallet-option, .contract__copy, .hero__facts, [role='tab'], .site-footer p, [data-fb-avoid]";
   const frame = typeof window.requestAnimationFrame === "function" ? (fn) => window.requestAnimationFrame(fn) : (fn) => fn();
   let away = false, scrolled = false, over = false, lastY = 0, run = 0, queued = false;
   function paint() { const v = !isOpen && (scrolled || over); if (v !== away) { away = v; root.classList.toggle("fb--away", v); } }

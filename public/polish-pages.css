@@ -456,6 +456,15 @@
   .connect[data-mode="login"] .connect__intro { order: 2; }
   .connect[data-mode="login"] .connect__intro > :not(.safety) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   .connect[data-mode="login"] .connect__intro .safety { display: grid; margin: 0; }
+  /* linking a wallet: one heading ("Connect your wallet."; "Choose your wallet" stays for screen readers), the wallet rows right
+     under the lines that say what happens, then the recovery-phrase line and "No wallet app yet?" (moved, not removed) */
+  .connect[data-mode="link"] .cstate[data-state="pick"] { row-gap: 10px; }
+  .connect[data-mode="link"] #link-top { display: contents; }
+  .connect[data-mode="link"] #link-top .kicker { margin-bottom: -6px; }
+  .connect[data-mode="link"] #wallet-h { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .connect[data-mode="link"] :is(.link-top__safe, #link-noapp) { order: 1; }
+  .connect[data-mode="link"] .alt-ways { order: 2; }
+  .connect[data-mode="link"] #wallets-detected:empty { display: none; }
 }
 #locate-panel { min-height: 0; }
 #locate-panel .verified-badge svg { display: block; }
