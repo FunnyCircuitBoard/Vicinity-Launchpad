@@ -214,7 +214,7 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   assert.match(style, /\.problem__num \{[^}]*color: var\(--pin-2\);/, "the problem numbers: accent text, not the accent fill (3.7:1 in light)");
   assert.doesNotMatch(polish, /#B8430F/, "no hard-coded override left: the token covers the three");
   // A-6: an inline-block link's baseline is its last line, so a wrapped entry's number sat on its second line
-  assert.match(polish, /\.terms-toc a \{ display: block; padding: 6px 0;/);
+  assert.match(polish, /\.terms-toc a \{ display: block; padding: 11px 0;/, "each contents entry a 44 px row");
   // nits: the dead footer rule; the safety links one-then-two; every place shown on a computer; the token page's placeholder and skip link; the official list's wording
   assert.doesNotMatch(polish, /\.footer-brand > p\.muted:not\(\.small\)/, "build.mjs no longer emits the tagline paragraph");
   assert.match(polish, /\.footer-links--safe a:first-of-type \{ grid-column: 1 \/ -1; \}/);

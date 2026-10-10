@@ -387,7 +387,7 @@
    (the red notice is the one box), each section a fold (closed on a phone, open on a computer: rules.js), the contents fold kept.
    ===================================================================== */
 .rules-toc { flex-wrap: wrap; overflow: visible; margin: var(--sp-4, 16px) 0 0; padding: 0; }
-.rules-toc a { position: relative; min-height: 36px; padding: 0 14px; font-size: var(--fs-sm, .875rem); }
+.rules-toc a { position: relative; min-height: 38px; padding: 0 14px; font-size: var(--fs-sm, .875rem); }
 .rules-toc a::after { content: ""; position: absolute; inset: -4px 0; } /* a 44 px hit area; the 8 px gaps keep neighbours apart */
 .terms-sec { border-top: 1px solid var(--line); }
 .terms-sec > summary { list-style: none; cursor: pointer; position: relative; display: flex; align-items: center; min-height: 48px; padding: 6px 32px 6px 0; }

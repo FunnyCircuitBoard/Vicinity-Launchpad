@@ -510,7 +510,7 @@
     else disc.append(el("span", null, initialsOf(c)));
     disc.setAttribute("aria-hidden", "true");
     const id = el("div", "lp-card__id");
-    // the title is the card's one link: its ::after covers the whole card, so a tap anywhere opens the coin (the buttons sit above it)
+    // the title is the card's one link (its ::after gives the one line a 44 px hit area)
     const h3 = el("h3", "lp-card__title"), link = el("a", "lp-card__link"); link.href = coinHref(c); link.dataset.act = "view";
     link.append(el("span", "lp-card__ticker", `$${str(c.ticker)}`), " ", el("span", "lp-card__name", str(c.name)));
     if (live) link.append(el("span", "sr-only", ": chart and details"));

@@ -29,6 +29,7 @@ p > .link-btn, .tiny .link-btn, .holders__meta .link-btn { min-height: 44px; pad
 .tiny { font-size: .8rem; }
 input, select, textarea { min-height: 44px; }
 .find-box input, .composer textarea, .swapbox__amt, .su-check input { min-height: 0; }
+.find-box input { min-height: 44px; } /* "Find a wallet": a 44 px field (the box was already that tall around it) */
 .checker, .snap-lookup { padding: 8px; }
 .checker .btn, .snap-lookup .btn { min-height: 44px; font-size: .9rem; }
 .find-box .find-box__go { border-radius: 999px; } /* the token page's two search buttons: the same pill, the same 44 px, the same .9rem */
@@ -454,7 +455,7 @@ input, select, textarea { min-height: 44px; }
 .terms-toc[open] summary::after { content: "−"; }
 .terms-toc ol { margin: 0; padding: 0 0 12px 1.4em; columns: 2; column-gap: 24px; }
 .terms-toc li { margin: 0; font-size: .9rem; line-height: 1.5; }
-.terms-toc a { display: block; padding: 6px 0; text-decoration: none; color: var(--text-2); } /* block, so a wrapped entry's number sits on its first line */
+.terms-toc a { display: block; padding: 11px 0; text-decoration: none; color: var(--text-2); } /* block, so a wrapped entry's number sits on its first line */
 .terms-toc a:hover { color: var(--pin-2); }
 @media (max-width: 600px) { .terms-toc ol { columns: 1; } }
 .terms .agreebox .btn { min-height: 48px; }

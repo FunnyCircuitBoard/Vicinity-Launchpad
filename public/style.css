@@ -1982,7 +1982,8 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 :root { --up: #37C29A; --down: #FF5A36; --chart-halo: rgba(6,12,23,.86); }
 :root[data-theme="light"] { --up: #1E9E78; --down: #E8431F; --chart-halo: rgba(255,255,255,.92); }
 .lp-card--live { cursor: pointer; }
-.lp-card__title a { color: inherit; text-decoration: none; }
+.lp-card__title a { position: relative; color: inherit; text-decoration: none; }
+.lp-card__title a::after { content: ""; position: absolute; inset: -11px -6px; } /* a 44 px hit area around the one-line title */
 .lp-card__title a:focus-visible { outline: 3px solid var(--pin-2); outline-offset: 3px; border-radius: 6px; }
 .lp-card__sub { margin: 2px 0 0; font-size: .75rem; color: var(--muted); }
 .lp-card__status { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
