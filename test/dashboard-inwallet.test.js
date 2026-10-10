@@ -177,9 +177,12 @@ test("the note sits on the phone's buy card too; a browser the wallet made (notM
   assert.equal(p.text("#wcard-kicker"), "New wallet on your account", "while it asks: not the app the claim reported (and never the wallet: the kicker is in capitals)");
   assert.equal(p.text("#wcard-title"), "Buy in Phantom");
   assert.equal(p.text("#wcard-note-text"), `Connected 2h ago in Phantom (wallet ${MASKED}). Wasn't you?`);
+  const shown = (q) => q.$("#panel-home").children.filter((n) => !n.hidden).map((n) => n.id);
+  assert.equal(shown(p)[0], "wallet-card", `while it asks "was this you?", the card is the first on Home, as on a computer: ${JSON.stringify(shown(p))}`);
   // the browser the wallet made (or one that may not ask): "Phantom connected ✓", nothing to ask
   const o = await openDashboard({ ua: UA.iphone, me: linkedMe({ walletApp: "phantom" }, NEW({ notMe: false })) });
   assert.equal(o.text("#wcard-kicker"), "Phantom connected ✓"); assert.equal(o.$("#wcard-note").hidden, true);
+  assert.ok(shown(o).indexOf("wallet-card") > shown(o).indexOf("dash-top"), `nothing to ask: the phone's buy card stands where the Buy card was: ${JSON.stringify(shown(o))}`);
   const q = await openDashboard({ ua: UA.desktop, me: linkedMe({}, NEW({ notMe: false })) });
   assert.equal(q.$("#wallet-card").hidden, true, "the browser the wallet made has nothing to remove");
   const r = await openDashboard({ ua: UA.desktop, me: linkedMe({}, NEW({ app: null, via: "pair" })) });

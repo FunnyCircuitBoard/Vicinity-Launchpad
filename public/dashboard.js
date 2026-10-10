@@ -334,7 +334,7 @@
   /** A phone's Safari / Chrome, the wallet linked: this is where the person shops, inside the wallet app. One card, one habit: Connect Phantom. */
   function buyCard(card, u, wn) {
     const kept = WA.remembered(), k = kept || appNamed(u.walletApp), go = $("#wcard-go");
-    card.dataset.place = "buy";
+    card.dataset.place = wn && wn.notMe ? "top" : "buy"; // "was this you?" stands first on Home, as on a computer; else where the Buy card was
     // Safari lost what it remembered (7 days without a visit, a new phone): the app the account was linked in, kept again, so the Buy
     // panel's list of wallet apps (public/swap.js reads the same key) names the same app first as this card
     if (!kept && k) WA.remember(k.id);
