@@ -394,7 +394,8 @@
   .terms .callout { padding: var(--sp-4, 16px); border-radius: var(--r-card, 18px); }
   .terms .terms-sec > summary h2 { font-size: var(--fs-base, 1rem); line-height: 1.35; }
 }
-.health.card { display: flex; align-items: flex-start; gap: 10px; }
+.health.card { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 10px; }
+.health.card > #health-text { flex: 1 1 auto; min-width: 0; } /* the dot beside the sentence, not on a line of its own */
 .health.card > .live-dot { flex: none; margin-top: .55em; }
 
 /* =====================================================================
