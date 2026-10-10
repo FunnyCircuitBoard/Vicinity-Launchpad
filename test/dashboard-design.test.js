@@ -39,7 +39,8 @@ test("polish-dash.css is the dashboard's last stylesheet, and every rule in it i
   };
   walk(clean);
   assert.ok(sels.length > 150, `${sels.length} selectors`);
-  for (const s of sels) assert.match(s, /^(:root\[data-theme="light"\] )?(\.dv2(-skel)?\b|body\.is-dv2\b|body\[data-page="dashboard"\]|\[data-page="dashboard"\])/, `"${s}" could reach another page or the flag-off dashboard`);
+  // (and the signed-out page's example dashboard, .dpv / .dash-out: only this page has them; they moved here from style.css, review PERF-1)
+  for (const s of sels) assert.match(s, /^(:root\[data-theme="light"\] )?(\.dv2(-skel)?\b|body\.is-dv2\b|body\[data-page="dashboard"\]|\[data-page="dashboard"\]|\.dpv(__[\w-]+)?\b|\.dash-out\.is-pending \.dpv__)/, `"${s}" could reach another page or the flag-off dashboard`);
   // motion: only transform and opacity, only when motion is welcome
   for (const m of clean.matchAll(/@keyframes [\w-]+ \{([^}]*\})\s*\}/g)) for (const p of m[1].matchAll(/([a-z-]+)\s*:/g)) assert.ok(["transform", "opacity"].includes(p[1]), `keyframes move ${p[1]}`);
   const motion = clean.indexOf("@media (prefers-reduced-motion: no-preference)");

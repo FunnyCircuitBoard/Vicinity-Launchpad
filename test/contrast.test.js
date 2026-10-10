@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const css = readFileSync(new URL("../public/style.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const dashCss = readFileSync(new URL("../public/polish-dash.css", import.meta.url), "utf8").replace(/\r\n/g, "\n"); // the dashboard preview's rules
 const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
 const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255); };
 const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
@@ -40,11 +41,11 @@ test("the accent headlines (gradient text): every stop of the light theme's grad
 test("the example dashboard's smallest text reads clearly: the 'Your community' kicker and the coin's label", () => {
   // the 9.9 px kicker was var(--pin-2) #D4501F, 4.2:1 on white (light); design v2: a calm sentence-case kicker in var(--muted), as on the
   // real dashboard; the coin's 9.6 px label #0B3B2C was near the line on its green
-  assert.match(css, /\.dpv__kicker \{ display: block; font: 600 \.74rem\/1\.4 var\(--body\); color: var\(--muted\); \}/);
+  assert.match(dashCss, /\.dpv__kicker \{ display: block; font: 600 \.74rem\/1\.4 var\(--body\); color: var\(--muted\); \}/);
   const light = css.slice(css.indexOf(':root[data-theme="light"] {'));
   const muted = /--muted: (#[0-9A-Fa-f]{6})/.exec(light)[1];
   assert.ok(ratio(muted, "#FFFFFF") >= 4.5, `light --muted ${muted} on white: ${ratio(muted, "#FFFFFF").toFixed(2)}:1`);
-  assert.match(css, /\.dpv__coin, \.dpv__disc \{[^}]*color: #062A1F;/);
+  assert.match(dashCss, /\.dpv__coin, \.dpv__disc \{[^}]*color: #062A1F;/);
   assert.ok(ratio("#062A1F", "#37C29A") >= 6, "on the coin's green, where the label sits");
 });
 

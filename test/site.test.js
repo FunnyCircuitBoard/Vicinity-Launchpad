@@ -341,8 +341,9 @@ test("dashboard teaser: nothing in the signed-out preview is shifted sideways or
   // measured live 3 Oct 2026 on /dashboard (signed out) at 320px: the second staggered card ran 40 to 328px, the page widened to 328px and
   // the bottom menu bar was laid out 8px past the screen edge. The staggered blur cards were replaced on 5 Oct 2026 by an example
   // dashboard (.dpv) that stays inside its column: no sideways shift, no negative side offset. Checked in Chromium at 320/390/1280 px.
-  assert.doesNotMatch(css, /\.blur-card|\.teaser__lock/, "the old staggered cards are gone");
-  const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(?<=^|[{}])(\s*)([^{}@]*\.dpv[^{}]*)\{([^}]*)\}/g)];
+  const dash = read("polish-dash.css"); // the preview's rules live in the dashboard's own sheet (review PERF-1)
+  assert.doesNotMatch(css + dash, /\.blur-card|\.teaser__lock/, "the old staggered cards are gone");
+  const rules = [...dash.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(?<=^|[{}])(\s*)([^{}@]*\.dpv[^{}]*)\{([^}]*)\}/g)];
   assert.ok(rules.length >= 20, "the preview's rules");
   // the two light sweeps are larger than their card and slide across it, so their card clips them
   const clipped = { ".dpv__shine": ".dpv__pass", ".dpv__fill::after": ".dpv__fill" };

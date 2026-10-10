@@ -95,7 +95,9 @@ test("styles: no decoration loops forever unless a visitor can stop it; only wha
   assert.ok(endless.length >= 8);
   for (const name of endless) assert.ok(name in LIVE_OR_BUSY, `${name} loops forever`);
   assert.match(css, /:root\[data-motion="paused"\] \*, :root\[data-motion="paused"\] \*::before, :root\[data-motion="paused"\] \*::after \{ animation: none !important; \}/, "and every one of them stops on Pause");
-  assert.doesNotMatch(css, /\.dpv__[\w-]+(::after)? \{ animation: [^;}]*infinite/, "the example dashboard's motion ends");
+  const dash = read("public/polish-dash.css"); // the example dashboard's rules (moved there from style.css, review PERF-1)
+  assert.match(dash, /\.dpv__shine \{ animation: passShine 7s ease-in-out 1\.2s 2; \}/, "they are there");
+  assert.doesNotMatch(dash, /\.dpv__[\w-]+(::after)? \{ animation: [^;}]*infinite/, "the example dashboard's motion ends");
   assert.doesNotMatch(css, /moSheen[^;}]*infinite|contract(Sweep|In)[^;}]*infinite|\.contract::after \{[^}]*infinite/, "the bars' sheen and the contract card's own light end (Buy on Raydium is a live button)");
 });
 

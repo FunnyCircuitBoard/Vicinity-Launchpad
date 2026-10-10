@@ -44,7 +44,7 @@ test("signed-out dashboard: a guest's page holds the signed-out room from the fi
   assert.match(start, /if \(!d\.user\.home\) \{ unhold\(\); onboard\(d\); return; \}/, "or the first steps");
   assert.match(start, /unhold\(\);\n\s+\$\("#dash-main"\)\.hidden = false;/, "or the dashboard itself");
   assert.equal((start.match(/unhold\(\)/g) || []).length, 4, "and nowhere else");
-  assert.match(css, /@media \(prefers-reduced-motion: no-preference\) \{ \.dash-out\.is-pending \.dpv__frame, \.dash-out\.is-pending \.dpv__frame > \* \{ animation: none; \} \}/,
+  assert.match(read("public/polish-dash.css"), /@media \(prefers-reduced-motion: no-preference\) \{ \.dash-out\.is-pending \.dpv__frame, \.dash-out\.is-pending \.dpv__frame > \* \{ animation: none; \} \}/,
     "the example rises in when it shows, not behind the curtain");
 });
 

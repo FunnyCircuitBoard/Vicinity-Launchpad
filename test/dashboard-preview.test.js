@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { founderAmount, POLICY } from "../src/policy.js";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const css = read("public/style.css"), js = read("public/dashboard.js"), site = read("public/site.js");
+const css = read("public/polish-dash.css"), js = read("public/dashboard.js"), site = read("public/site.js"); // the preview's rules live in the dashboard's own sheet (review PERF-1)
 const both = [["public", read("public/dashboard.html")], ["src", read("scripts/pages/src/dashboard.html")]];
 /** #dash-out's markup, from its opening tag to the section after it. */
 const outOf = (h) => { const a = h.indexOf('<section class="dash-out is-pending" id="dash-out" hidden>'), b = h.indexOf("</section>", a); assert.ok(a >= 0 && b > a, "#dash-out"); return h.slice(a, b); };
