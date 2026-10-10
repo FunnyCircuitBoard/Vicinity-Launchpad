@@ -39,24 +39,60 @@
     $("#lnk-dex").href = `https://dexscreener.com/solana/${m}`;
     // With the Launchpad's coin pages on (LAUNCHPAD_V2), the third tile is our own live chart and details (/coin): DEX Screener lists
     // no pool while $VICINITY is on its bonding curve, and the coin page links DEX Screener itself once it does.
-    if (official && typeof official.then === "function") official.then((o) => { if (o && o.launchpadV2 === true) chartTile(m); if (o && o.swap === true) buyHere(m); });
+    if (official && typeof official.then === "function") official.then((o) => { if (o && o.launchpadV2 === true) { chartTile(m); dayChange(m); } if (o && o.swap === true) buyHere(m); else settleBuy("link"); }, () => settleBuy("link"));
+    else settleBuy("link");
     $("#ca-links").hidden = false;
     $("#ca-note").textContent = "This is the only official $VICINITY. Anything else using the name is fake.";
   }
-  /** With the in-app swap on (SWAP=on): the Buy panel (public/swap.js) sits under the contract card and the Buy tile scrolls to it. Nobody is sent to raydium.io. */
+  /**
+   * The Buy card (#buy-slot, the top of the page on a phone, the right-hand column on a computer) holds its room unseen from the first
+   * paint (.is-pending) until it knows what it shows: the in-app Buy panel, the plain "Buy on Raydium" button (the swap switched off),
+   * or nothing (no contract yet, or the swap's settings did not load): then the card's column goes and the page closes up.
+   */
+  let buyState = "";
+  function settleBuy(state) {
+    if (buyState === "panel" || buyState === "none" || buyState === state) return; // a panel or a "nothing" is final; a timeout's "link" can still become either
+    buyState = state;
+    const slot = $("#buy-slot"); if (slot) slot.classList.remove("is-pending");
+    const col = $(".token-hero__buy"); if (col) col.hidden = state === "none";
+    const hero = $(".token-hero"); if (hero) hero.classList.toggle("is-nobuy", state === "none");
+  }
+  // a hung answer never leaves a hole: after 4 s the card shows what it has (the Raydium button), and a panel still replaces it
+  setTimeout(() => settleBuy("link"), 4000);
+  /** With the in-app swap on (SWAP=on): the Buy panel (public/swap.js) is the page's Buy card and the Buy tile scrolls to it. Nobody is sent to raydium.io. */
   function buyHere(m) {
-    if (!window.VSwap || !isAddr(m)) return;
+    if (!window.VSwap || !isAddr(m)) { settleBuy("link"); return; }
     let slot = $("#buy-slot");
     if (!slot) { slot = el("div"); slot.id = "buy-slot"; const links = $("#ca-links"); (links && links.parentNode ? links : $("#ca-text")).after(slot); }
     slot.dataset.swap = ""; slot.dataset.out = m; slot.dataset.in = "SOL"; slot.dataset.mode = "buy"; slot.dataset.title = "Buy $VICINITY";
-    window.VSwap.mount(slot);
-    // the Jupiter tile next to "Buy here" is the token's INFORMATION page on jup.ag (its href already), labelled so nobody takes it for a place to buy
-    const j = $("#lnk-jup"); if (j && !j.dataset.swapHere) { j.dataset.swapHere = "1"; const jl = j.querySelector("span:not(.contract__out):not(.sr-only)"); if (jl) jl.textContent = "Jupiter · token info"; }
+    Promise.resolve(window.VSwap.mount(slot)).then((p) => settleBuy(p ? "panel" : "none"), () => settleBuy("link"));
+    // the Jupiter tile is the token's INFORMATION page on jup.ag (its href already): "Jupiter" to the eye, "Jupiter token info" to a
+    // screen reader, so nobody takes it for a place to buy (the Buy card is the page's one place to buy)
+    const j = $("#lnk-jup"); if (j && !j.dataset.swapHere) { j.dataset.swapHere = "1"; const jl = j.querySelector("span:not(.contract__out):not(.sr-only)"); if (jl) { jl.textContent = "Jupiter"; jl.after(el("span", "sr-only", " token info")); } }
     const a = $("#lnk-raydium"); if (!a) return;
     a.href = "#buy-slot"; a.removeAttribute("target"); a.removeAttribute("rel"); a.classList.add("is-here");
     for (const x of a.querySelectorAll(".sr-only")) x.remove();
     const name = a.querySelector("span"); if (name) name.textContent = "Buy here";
     a.addEventListener("click", (e) => { e.preventDefault(); slot.scrollIntoView({ behavior: "smooth", block: "center" }); const i = slot.querySelector(".swap__amt"); if (i) i.focus({ preventScroll: true }); });
+  }
+  /** The live line under the title: the price, its 24-hour change (from the coin page's answer, when it has one) and the market cap. */
+  function paintQuote(price, cap) {
+    const p = $("#tk-price"), c = $("#tk-cap"); if (!p || !c) return;
+    p.textContent = price ? usd(price) : "Price not available yet";
+    p.classList.toggle("is-none", !price);
+    c.textContent = price && cap ? `Market cap $${compact(cap)}` : "";
+  }
+  /** The 24-hour change chip: the coin page's own answer (Jupiter's change, or why there is none); nothing shows without a number. */
+  async function dayChange(m) {
+    const chip = $("#tk-chg"); if (!chip || !isAddr(m)) return;
+    const d = await api(`/api/coin?mint=${encodeURIComponent(m)}`);
+    const mk = d && d.market, v = mk && typeof mk.priceChange24hPct === "number" && Number.isFinite(mk.priceChange24hPct) ? mk.priceChange24hPct : null;
+    if (v == null) return;
+    chip.textContent = `${v > 0 ? "▲" : v < 0 ? "▼" : ""} ${Math.abs(v).toFixed(Math.abs(v) >= 10 ? 1 : 2)}% 24h`.trim();
+    chip.className = `token-quote__chg ${v > 0 ? "is-up" : v < 0 ? "is-down" : "is-flat"}`;
+    const from = mk.sources && typeof mk.sources.change24h === "string" ? mk.sources.change24h : "Jupiter";
+    chip.title = `24-hour change · ${from}`;
+    const src = $("#st-src"); if (src && !src.dataset.chg) { src.dataset.chg = "1"; src.textContent = `${src.textContent} 24 h change: ${from}.`; }
   }
   /** The third tile becomes "Chart": this site's coin page, in the same tab (no new-tab arrow, nothing to say about one). */
   function chartTile(m) {
@@ -83,15 +119,16 @@
     // until now the card held the room of the address and its buttons, unseen (the page never jumps, and /token#holders lands where it aims)
     $("#contract").classList.remove("is-pending");
     if (!d.launched) { // before the launch (VICINITY_MINT not set): say so, never a date or a guess
-      hideContract();
+      hideContract(); settleBuy("none"); paintQuote(null);
       $("#ca-text").textContent = "Not published yet";
       $("#ca-note").textContent = "Until it's published here, any \"$VICINITY\" you see is fake.";
       $$('[data-live="mint"], [data-live="freeze"], [data-live="supply2"]').forEach((e) => { e.textContent = "Checked live at launch"; });
       return;
     }
     const m = d.facts ? d.facts.mint : d.mint;
-    if (isAddr(m)) showContract(m); else hideContract();
+    if (isAddr(m)) showContract(m); else { hideContract(); settleBuy("none"); }
     if (!d.facts) { // the chain is busy: the contract is known, the live checks wait for the next visit
+      paintQuote(null);
       $$('[data-live="mint"], [data-live="freeze"], [data-live="supply2"]').forEach((e) => { e.textContent = "The blockchain is busy: check again in a minute"; e.classList.add("is-wait"); });
       return;
     }
@@ -106,6 +143,7 @@
     $("#st-supply").textContent = compact(f.supply);
     if (d.price) { $("#st-price").textContent = usd(d.price); $("#st-mcap").textContent = d.marketCap ? `market cap ${"$" + compact(d.marketCap)}` : ""; }
     else { $("#st-price").textContent = "—"; $("#st-mcap").textContent = "price not available yet"; }
+    paintQuote(d.price, d.marketCap);
   }
   /** "Team wallets public": say how many are actually listed (the official list is the one source), never just "Listed". */
   function renderTeamCount(o) {

@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { MINT } from "./helpers/world.js";
 
 const read = (f) => readFileSync(new URL(`../public/${f}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const HERO_SHA256 = "1bce9a7a8ee6500506033865436169e7e5d7a6e8a1e10276cb80ecf328ee7d86";
+const HERO_SHA256 = "565de6aa0f32c41dbfc6f7fb107140076388322f4831ee678f0558318ffe32c5";
 const html = read("token.html"), src = readFileSync(new URL("../scripts/pages/src/token.html", import.meta.url), "utf8"), css = read("style.css"), js = read("token.js");
 
 /* ---------------- the page ---------------- */
@@ -43,11 +43,16 @@ test("token page: hero, holders (live, with the rank check), no rug pull, offici
 test("token page: the hero is word for word what it was (Live from the Solana blockchain, $VICINITY, the contract card, the buttons, the stats)", () => {
   // The hero, from <section class="page-hero" id="token"> to its </section>, hashed: any change to it fails here. Since origin/main 07fe1d5:
   // the Holders stat's line says team wallets are not counted either (8 Oct 2026), and the mobile polish of 9 Oct 2026 made the lead one
-  // sentence and put the Buy control in a buy slot (<div class="contract__slot" id="buy-slot">, where the in-app swap goes).
+  // sentence and put the Buy control in a buy slot (<div class="contract__slot" id="buy-slot">, where the in-app swap goes). Design v2
+  // (10 Oct 2026): the kicker says "Live on Solana" (one line at 320 px), a live price line sits under the title, the slot is the page's
+  // Buy card before the contract card (.token-hero), and one line under the facts names their sources.
   for (const h of [html, src]) {
     const a = h.indexOf('<section class="page-hero" id="token">'), b = h.indexOf("</section>", a) + "</section>".length, hero = h.slice(a, b);
     assert.ok(hero.includes('<span class="stat__sub" id="st-holders-sub">people; pools and team wallets not counted</span>'));
-    assert.match(hero, /<div class="contract__slot" id="buy-slot"><a class="contract__buy" id="lnk-raydium"[^>]*>[\s\S]*?<\/a><\/div>\s*<a class="contract__ext" id="lnk-jup"/, "the buy slot holds the Buy control and nothing else");
+    // design v2 (10 Oct 2026, the owner's Buy panel): the slot left the contract card and is the page's Buy card, right under the title
+    // and its live price line on a phone, a sticky column on a computer; it holds its room unseen (.is-pending) until token.js knows what it shows
+    assert.match(hero, /<div class="token-hero__buy">\s*<div class="contract__slot buy-slot is-pending" id="buy-slot"><a class="contract__buy" id="lnk-raydium"[^>]*>[\s\S]*?<\/a><\/div>\s*<\/div>\s*<div class="token-hero__info">\s*<div class="contract card is-pending" id="contract">/, "the buy slot holds the Buy control and nothing else, before the contract card");
+    assert.ok(hero.indexOf('id="buy-slot"') < hero.indexOf('id="ca-links"'), "no longer inside the contract card's links");
     assert.equal((h.match(/id="buy-slot"/g) || []).length, 1, "one buy slot on the page");
     assert.equal(createHash("sha256").update(hero).digest("hex"), HERO_SHA256);
   }
@@ -633,7 +638,7 @@ test("token page after launch: no 'the moment it launches' copy, and nothing in 
     assert.doesNotMatch(h, />At launch</);
     assert.doesNotMatch(h, /Checked live at launch/);
   }
-  assert.match(html, /<p class="lead">The key to the Vicinity map\. Every number here is read live from the blockchain: don't trust us, check the chain\.<\/p>/);
+  assert.match(html, /<p class="lead token-hero__lead">The key to the Vicinity map\. Every number here is read live from the blockchain: don't trust us, check the chain\.<\/p>/);
   assert.match(html, /<code id="ca-text">Loading…<\/code>/);
 });
 

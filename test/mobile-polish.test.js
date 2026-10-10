@@ -141,7 +141,8 @@ test("style.css lost only the rules the old home page used: the numbers band, th
 
 test("token: the Buy control in its slot, the address once, five proofs, no third /connect link, the official list points at the card", () => {
   for (const h of [tokenPage, read("scripts/pages/src/token.html")]) {
-    assert.match(h, /<div class="contract__links" id="ca-links">\s*<div class="contract__slot" id="buy-slot"><a class="contract__buy" id="lnk-raydium"/, "the slot is the first thing in the links block");
+    // design v2 (10 Oct 2026): the slot is the page's Buy card, out of the contract card (owner item 3; test/token-ui.test.js pins the hero)
+    assert.match(h, /<div class="token-hero__buy">\s*<div class="contract__slot buy-slot is-pending" id="buy-slot"><a class="contract__buy" id="lnk-raydium"/, "the slot is the Buy card, above the contract card");
     assert.equal(count(h, /id="buy-slot"/g), 1);
     assert.equal(count(h, /<div class="proof card">/g), 5, "Minting disabled, No freeze button, Liquidity can't be pulled, Team wallets public, No presale");
     assert.doesNotMatch(h, /supply-text|supply2|<h3>Fixed supply<\/h3>/, "the Supply fact above and the Minting proof already say the supply is fixed");
