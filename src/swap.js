@@ -171,14 +171,9 @@ async function prepare(request, env, fetchImpl, now, { takerRequired }) {
   const body = await readJson(request, 4096);
   const input = readSwapInput(body, { takerRequired });
   if (input.error) return { error: json({ ok: false, error: input.error }, input.status, noStore) };
-  let inDec, outDec;
-  try { [inDec, outDec] = await Promise.all([mintDecimals(env, input.inputMint, fetchImpl, now), mintDecimals(env, input.outputMint, fetchImpl, now)]); }
-  catch (e) { console.error("mint decimals failed", codeOf(e)); return { error: json({ ok: false, error: "rpc_unavailable" }, 503, noStore) }; }
-  if (inDec == null || outDec == null) return { error: json({ ok: false, error: "unknown_token", mint: inDec == null ? input.inputMint : input.outputMint }, 400, noStore) };
-  const parsed = parseAmount(input.amount, inDec);
-  if (!parsed) return { error: json({ ok: false, error: "bad_amount" }, 400, noStore) };
-  if (parsed.tooPrecise) return { error: json({ ok: false, error: "amount_too_small" }, 400, noStore) };
-  // a city coin on its Meteora curve: the launchpad routes build that trade (Jupiter cannot route it yet)
+  // a city coin on its Meteora curve: the launchpad routes build that trade (Jupiter cannot route it yet). Asked BEFORE the
+  // decimals below, which are read on mainnet: a devnet test coin (LAUNCHPAD_CLUSTER=devnet) is not a mainnet mint at all, and
+  // /api/launchpad/trade/quote checks the amount against the coin's own decimals on the coin's own cluster
   if (launchpadTradingOn(env)) {
     for (const [mint, side] of [[input.outputMint, "buy"], [input.inputMint, "sell"]]) {
       let st = null;
@@ -190,6 +185,13 @@ async function prepare(request, env, fetchImpl, now, { takerRequired }) {
       }
     }
   }
+  let inDec, outDec;
+  try { [inDec, outDec] = await Promise.all([mintDecimals(env, input.inputMint, fetchImpl, now), mintDecimals(env, input.outputMint, fetchImpl, now)]); }
+  catch (e) { console.error("mint decimals failed", codeOf(e)); return { error: json({ ok: false, error: "rpc_unavailable" }, 503, noStore) }; }
+  if (inDec == null || outDec == null) return { error: json({ ok: false, error: "unknown_token", mint: inDec == null ? input.inputMint : input.outputMint }, 400, noStore) };
+  const parsed = parseAmount(input.amount, inDec);
+  if (!parsed) return { error: json({ ok: false, error: "bad_amount" }, 400, noStore) };
+  if (parsed.tooPrecise) return { error: json({ ok: false, error: "amount_too_small" }, 400, noStore) };
   return { input, inDec, outDec, amountRaw: parsed.raw, body };
 }
 const curveAnswer = (c) => json({ ok: true, source: "curve", ...c, useRoute: "/api/launchpad/trade", poweredBy: "Meteora DBC" }, 200, noStore);
