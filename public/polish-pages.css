@@ -86,6 +86,9 @@
   .token-hero__lead { grid-area: lead; }
   .token-hero__info { grid-area: info; }
   .token-hero__buy { grid-area: buy; position: sticky; top: var(--sticky-top, 79px); }
+  /* the wallet list (and its QR code) makes the card taller than a short screen: while it shows, the stuck card scrolls inside itself,
+     so its lower part is never out of reach */
+  .token-hero__buy:has(.swap__wallets:not([hidden])) { max-height: calc(100vh - var(--sticky-top, 79px) - 16px); overflow-y: auto; overscroll-behavior: contain; border-radius: var(--r-hero, 24px); }
   .buy-slot.is-pending { min-height: 530px; }
   .token-hero.is-nobuy { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "lead" "info"; }
   .token-quote__price { font-size: var(--fs-num, 2.25rem); }

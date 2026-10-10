@@ -109,3 +109,7 @@ test("after the opening on a phone: a tighter hero (the first live coin in an iP
   assert.match(read("public/launchpad.js"), /if \(c\.kind === "vicinity"\) ava\.dataset\.kind = "vicinity";/);
   assert.match(read("public/coin.js"), /if \(c\.kind === "vicinity"\) disc\.dataset\.kind = "vicinity"; else delete disc\.dataset\.kind;/);
 });
+
+test("a computer: the stuck Buy card scrolls inside itself while the wallet list (and its QR code) shows, so nothing of it is out of reach", () => {
+  assert.match(CSS, /\.token-hero__buy:has\(\.swap__wallets:not\(\[hidden\]\)\) \{ max-height: calc\(100vh - var\(--sticky-top, 79px\) - 16px\); overflow-y: auto;/);
+});
