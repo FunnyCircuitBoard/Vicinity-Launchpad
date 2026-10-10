@@ -190,7 +190,8 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   // A-7: Check rank (44 px, 10 px corners) and Check (48 px, pill) had the same job and two shapes
   assert.match(polish, /\.checker \.btn, \.snap-lookup \.btn \{ min-height: 44px; font-size: \.9rem; \}\n\.find-box \.find-box__go \{ border-radius: 999px; \}/);
   // A-8: one h2 size on a phone
-  assert.match(polish, /  h2, \.h2--sm \{ font-size: clamp\(1\.4rem, 6vw, 1\.75rem\); max-width: none; \}/);
+  assert.match(polish, /  h2, \.h2--sm \{ font-size: var\(--fs-xl\); max-width: none; \}/, "design v2: the h2 token (22.4 px at 320, 23.8 at 390)");
+  assert.match(style, /--fs-xl: clamp\(1\.375rem, 1rem \+ 2vw, 2\.25rem\);/);
   assert.doesNotMatch(polish, /#nyc \.section-head h2 \{ font-size/);
   // F2: on a phone the Buy & sell card lost its Buy button while coin.js keeps the bar off for exactly that scroll range
   assert.doesNotMatch(polish, /\.coin-buy \.contract__buy \{ display: none/);
@@ -306,4 +307,12 @@ test("home on a phone (the owner's screenshots 2 and 3): three facts that fit, a
   // the headline: "One city. One coin." then "One community." (a space before every <br>, the first one hidden on a phone)
   assert.match(homeSrc, /<h1 class="hero__title">One city\. <br>One coin\. <br><span class="accent">One community\.<\/span><\/h1>/);
   assert.match(polish, /\.hero__title br:first-of-type \{ display: none; \}/);
+});
+
+test("design v2 rhythm: sections, cards, kickers and page titles use the tokens (one place to tune them)", () => {
+  assert.match(style, /\.section \{ padding: var\(--section-y\) 0; position: relative; \}/);
+  assert.match(style, /\.card \{[^}]*border-radius: var\(--r-card\); padding: var\(--card-pad\); box-shadow: var\(--shadow-1\); \}/);
+  assert.match(style, /\.kicker \{[^}]*font-size: var\(--fs-kicker\);[^}]*letter-spacing: var\(--ls-kicker\);/);
+  assert.match(style, /\.page-title \{ font-size: var\(--fs-2xl\);/);
+  assert.doesNotMatch(polish, /(^|[\s}])(\.section|\.card|\.kicker) \{ (padding|font-size)/m, "the old values went with the tokens");
 });

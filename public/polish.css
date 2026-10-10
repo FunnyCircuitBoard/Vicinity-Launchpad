@@ -26,7 +26,6 @@ p > .link-btn, .tiny .link-btn, .holders__meta .link-btn { min-height: 44px; pad
 .faq details { padding: 8px 0; }
 .faq details p { margin-top: 6px; }
 .tag { font-size: .75rem; }
-.kicker { font-size: .78rem; }
 .tiny { font-size: .8rem; }
 input, select, textarea { min-height: 44px; }
 .find-box input, .composer textarea, .swapbox__amt, .su-check input { min-height: 0; }
@@ -34,23 +33,20 @@ input, select, textarea { min-height: 44px; }
 .checker .btn, .snap-lookup .btn { min-height: 44px; font-size: .9rem; }
 .find-box .find-box__go { border-radius: 999px; } /* the token page's two search buttons: the same pill, the same 44 px, the same .9rem */
 
-/* ---------- tighter rhythm: every page (72 px between sections on a computer, 40 on a phone) ---------- */
-.section { padding: 72px 0; }
+/* ---------- the rhythm: every page (style.css: sections --section-y apart, cards --card-pad and --r-card, kickers --fs-kicker) ---------- */
 .section-head { margin-bottom: 28px; }
 .nav a { min-height: 44px; }
 .nav__soon, .nav__open { font-size: .75rem; }
 @media (max-width: 600px) {
-  .section { padding: 26px 0; }
   .section--tight { padding: 22px 0 32px; }
   .section-head { margin-bottom: 14px; }
   .kicker { margin-bottom: 6px; }
   h2 { margin-bottom: .35em; }
   .section-head p.muted { font-size: .95rem; margin-bottom: .6em; }
-  h2, .h2--sm { font-size: clamp(1.4rem, 6vw, 1.75rem); max-width: none; } /* one title size on a phone (three before: 20.8, 21.6 and 27.3 px) */
+  h2, .h2--sm { font-size: var(--fs-xl); max-width: none; } /* one title size on a phone (three before: 20.8, 21.6 and 27.3 px) */
   .page-hero { padding: 28px 0 20px; }
-  .page-title { font-size: clamp(2.2rem, 11vw, 3rem); margin: 4px 0 10px; }
+  .page-title { margin: 4px 0 10px; }
   .lead { font-size: 1rem; }
-  .card { padding: 18px 16px; border-radius: 18px; }
   .bridge { margin-top: 16px; font-size: 1rem; }
   .ticks { gap: 8px; }
   .ticks li { font-size: .95rem; }
@@ -71,7 +67,7 @@ input, select, textarea { min-height: 44px; }
 .footer-data { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 4px; }
 .footer-data summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin: 0 !important; }
 .footer-data summary::-webkit-details-marker { display: none; }
-.footer-data summary::after { content: "+"; color: var(--pin); font-size: 1.1rem; line-height: 1; }
+.footer-data summary::after { content: "+"; color: var(--pin-2); font-size: 1.1rem; line-height: 1; }
 .footer-data[open] summary::after { content: "−"; }
 .footer-data p { margin: 0 0 6px; }
 .footer-legal { margin-top: 14px; padding-top: 12px; }
@@ -218,7 +214,7 @@ input, select, textarea { min-height: 44px; }
 .compare-details { margin: 0 0 16px; border: 1px solid var(--line); border-radius: 16px; padding: 0 14px; }
 .compare-details summary { cursor: pointer; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font: 600 .95rem var(--body); list-style: none; }
 .compare-details summary::-webkit-details-marker { display: none; }
-.compare-details summary::after { content: "+"; color: var(--pin); font-size: 1.4rem; line-height: 1; flex: none; }
+.compare-details summary::after { content: "+"; color: var(--pin-2); font-size: 1.4rem; line-height: 1; flex: none; }
 .compare-details[open] summary::after { content: "−"; }
 .compare-details .compare-card { margin: 0 -14px; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 16px 16px; box-shadow: none; padding: 6px 14px 10px; }
 .compare { font-size: .9rem; }
@@ -256,7 +252,7 @@ input, select, textarea { min-height: 44px; }
 .checks-details { margin-top: 14px; border: 1px solid var(--line); border-radius: 16px; padding: 0 16px; background: var(--card); }
 .checks-details summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; min-height: 48px; font: 600 .95rem var(--body); }
 .checks-details summary::-webkit-details-marker { display: none; }
-.checks-details summary::after { content: "+"; margin-left: auto; color: var(--pin); font-size: 1.4rem; line-height: 1; }
+.checks-details summary::after { content: "+"; margin-left: auto; color: var(--pin-2); font-size: 1.4rem; line-height: 1; }
 .checks-details[open] summary::after { content: "−"; }
 .checks-details .checks { padding: 4px 0 16px; }
 .flow--compact .flow__step p a { font-weight: 600; } /* step 5's pointer to the Token page: the one secondary way to the token after the hero's button */
@@ -452,7 +448,7 @@ input, select, textarea { min-height: 44px; }
 .rules-grid details.card > summary { cursor: pointer; list-style: none; display: block; padding: 18px 0; }
 .rules-grid details.card > summary::-webkit-details-marker { display: none; }
 .rules-grid details.card > summary .kicker { margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.rules-grid details.card > summary .kicker::after { content: "+"; color: var(--pin); font-size: 1.3rem; line-height: 1; }
+.rules-grid details.card > summary .kicker::after { content: "+"; color: var(--pin-2); font-size: 1.3rem; line-height: 1; }
 .rules-grid details.card[open] > summary .kicker::after { content: "−"; }
 .rules-grid details.card > summary h3 { margin: 0; }
 .rules-grid details.card > .rule-body { padding: 0 0 20px; }
@@ -461,7 +457,7 @@ input, select, textarea { min-height: 44px; }
 .terms-toc { margin: 18px 0 0; border: 1px solid var(--line); border-radius: 16px; padding: 0 16px; background: var(--card); }
 .terms-toc summary { cursor: pointer; list-style: none; min-height: 48px; display: flex; align-items: center; justify-content: space-between; font: 600 .95rem var(--body); }
 .terms-toc summary::-webkit-details-marker { display: none; }
-.terms-toc summary::after { content: "+"; color: var(--pin); font-size: 1.4rem; line-height: 1; }
+.terms-toc summary::after { content: "+"; color: var(--pin-2); font-size: 1.4rem; line-height: 1; }
 .terms-toc[open] summary::after { content: "−"; }
 .terms-toc ol { margin: 0; padding: 0 0 12px 1.4em; columns: 2; column-gap: 24px; }
 .terms-toc li { margin: 0; font-size: .9rem; line-height: 1.5; }

@@ -61,7 +61,7 @@ test("styles: every animation and transition of the motion layer only exists whe
 
 test("styles: the keyframes move only transform, opacity, filter or background-position (no layout, no repainted shadows)", () => {
   const names = [...section.text.matchAll(/@keyframes (\w+) \{/g)].map((m) => m[1]).concat("livePing");
-  assert.deepEqual(names.slice(0, -1).sort(), ["moAccent", "moEnter", "moSheen", "moState", "moTab", "moTabBar"]);
+  assert.deepEqual(names.slice(0, -1).sort(), ["moAccent", "moEnter", "moSheen", "moState", "moTab"], "design v2: the tab bar's top bar (moTabBar) became the icon's pill");
   for (const name of names) {
     const props = [...keyframes(name).matchAll(/([a-z-]+)\s*:/g)].map((p) => p[1]);
     assert.ok(props.length && props.every((p) => ["transform", "opacity", "filter", "background-position"].includes(p)), `${name}: ${props}`);
@@ -114,7 +114,11 @@ test("styles: a block is only ever hidden by the script's .mo-armed, only when m
 test("styles: hover lifts only under a mouse; the tab bar marks the page you are on; nothing makes the page wider", () => {
   assert.match(section.text, /@media \(hover: hover\) and \(pointer: fine\) and \(prefers-reduced-motion: no-preference\) \{\n[^@]*:hover[^@]*transform: translateY\(-4px\)/);
   assert.doesNotMatch(section.text.replace(/@media \(hover: hover\)[\s\S]*?\n\}\n/, ""), /:hover/, "no hover rule outside the mouse-only block");
-  assert.match(section.text, /@media \(max-width: 900px\) \{\n  \.tabbar a \{ position: relative; \}\n  \.tabbar a\[aria-current="page"\]::before \{[^}]*top: -7px;[^}]*width: 22px;/);
+  // design v2: one marker, the current page's icon in an accent pill (no top bar too); the pill is the icon's own padded background
+  // with an equal negative margin, so nothing in the bar moves
+  assert.match(section.text, /@media \(max-width: 900px\) \{\n  \.tabbar a \{ position: relative; \}\n\}/);
+  assert.match(css, /\.tabbar a\[aria-current="page"\] svg \{ color: var\(--pin\); background: var\(--accent-soft\); border-radius: 999px; padding: 4px 16px; margin: -4px -16px; box-sizing: content-box; \}/);
+  assert.doesNotMatch(css, /\.tabbar a\[aria-current="page"\]::before/);
   assert.match(section.text, /\.tabbar a:active svg \{ transform: scale\(\.8\);/, "a tapped tab gives a small bounce");
   // the glow sits inside its section (inset 0, behind the content), so it can never widen a phone screen
   assert.match(section.text, /main > \.section:first-child::before \{ content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;/);
