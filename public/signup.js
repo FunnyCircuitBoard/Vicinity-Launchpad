@@ -451,6 +451,8 @@
     }
     const signLabel = () => (linkMode() ? "Link wallet" : "Sign in");
     function setIntro() {
+      // which page this is, for the layout only (polish-pages.css: a phone's log-in and link screens put the panel first)
+      const sec = $(".connect"); if (sec && sec.dataset) sec.dataset.mode = S.mode === "link" || S.mode === "linkin" ? "link" : S.tab === "login" ? "login" : "new";
       const title = $(".connect__intro .page-title"), accent = el("span", "accent");
       const bullet = $(".connect__intro .safety li");
       if (bullet) bullet.textContent = S.mode === "link" || S.mode === "linkin" ? "Linking is free. It isn't a transaction and can't move funds." : "Signing in is free. It isn't a transaction and can't move funds.";

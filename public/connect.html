@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/polish.css">
   <link rel="stylesheet" href="/feedback.css">
   <link rel="stylesheet" href="/onboard.css">
+  <link rel="stylesheet" href="/polish-pages.css">
   <script src="/theme.js"></script>
 </head>
 <body data-page="connect">
@@ -152,6 +153,7 @@
               <p class="kicker">Almost done</p>
               <h2 class="h2--sm" id="link-title" tabindex="-1">Connect your wallet.</h2>
               <p class="muted small">One free signature proves the wallet is yours. Nothing is paid or moved.</p>
+              <p class="tiny muted link-top__safe">Vicinity will never ask for your recovery phrase or private key.</p>
             </div>
             <p class="or-line" id="or-line"><span>New here, or logging in with your wallet</span></p>
             <h2 class="h2--sm" id="wallet-h">Choose your wallet</h2>
@@ -340,8 +342,11 @@
                 </form>
               </details>
               <p class="muted small" id="su-off" hidden>Sign-up with Google or e-mail is being switched on. Please check back soon.</p>
-              <p class="tiny muted">With Google we keep only your Google account id and first name. With e-mail we keep your address and a scrambled (hashed) copy of your password. Nobody can read your password, not even us.</p>
-              <p class="tiny muted" id="su-profiles-note" data-profiles-only hidden>Other signed-in members can see your username, community, bio, wallet address and your $VICINITY and city-coin balances.</p>
+              <details class="fold su-keep">
+                <summary>What we keep and who sees it <span class="fold__meta">Google: your id and first name · e-mail: the address and a scrambled password<span data-profiles-only hidden> · members see your wallet and balances</span></span></summary>
+                <p class="tiny muted">With Google we keep only your Google account id and first name. With e-mail we keep your address and a scrambled (hashed) copy of your password. Nobody can read your password, not even us.</p>
+                <p class="tiny muted" id="su-profiles-note" data-profiles-only hidden>Other signed-in members can see your username, community, bio, wallet address and your $VICINITY and city-coin balances.</p>
+              </details>
             </div>
             <form class="su-form" id="su-code-form" method="post" action="/api/signup/email/verify" hidden novalidate>
               <p class="small">We sent a 6-digit code to <strong id="su-code-to">—</strong>. It works for 10 minutes. Check spam too.</p>

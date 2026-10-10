@@ -360,3 +360,32 @@
 }
 .health.card { display: flex; align-items: flex-start; gap: 10px; }
 .health.card > .live-dot { flex: none; margin-top: .55em; }
+
+/* =====================================================================
+   /connect and /locate: one column that can shrink on a phone, long button labels wrap, one Google button style on both tabs, the
+   selected tab a quiet pill (the step's own button is the ember), the log-in screen's panel first on a phone (its safety lines
+   after it, still on screen), what we keep folded with its facts in the summary; the locate page as tall as what it says.
+   ===================================================================== */
+.connect__grid { grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); }
+@media (max-width: 900px) { .connect__grid { grid-template-columns: minmax(0, 1fr); } }
+.connect__grid:has(> .connect__intro[hidden]) { grid-template-columns: minmax(0, 560px); }
+#su-google, #su-email-send, .su-ident .btn { white-space: normal; text-align: center; line-height: 1.25; }
+#su-google.btn--primary { background: #fff; color: #1f1f1f; border-color: rgba(11,22,38,.18); box-shadow: 0 10px 30px -18px rgba(0,0,0,.6); }
+#su-google.btn--primary::before, #su-google.btn--primary::after { content: none; }
+#su-google .social-mark { color: #4285F4; }
+.su-tab[aria-pressed="true"] { background: var(--surface-2, var(--bg-2)); color: var(--text); box-shadow: inset 0 -2px 0 var(--pin), 0 6px 16px -10px rgba(0,0,0,.5); }
+:root[data-theme="light"] .su-tab[aria-pressed="true"] { background: #fff; }
+.su-keep { width: 100%; margin-top: 4px; }
+.su-keep > p { margin: 0 0 8px; }
+.link-top__safe { margin: 0; }
+@media (max-width: 600px) {
+  .connect { padding-top: var(--sp-5, 24px); }
+  .connect[data-mode="login"] .connect__intro { order: 2; }
+  .connect[data-mode="login"] .connect__intro > :not(.safety) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .connect[data-mode="login"] .connect__intro .safety { display: grid; margin: 0; }
+}
+#locate-panel { min-height: 0; }
+#locate-panel .verified-badge svg { display: block; }
+/* the account step's place chip: the place on one line, "Not right? Check again" wraps under it when the row is short */
+#su-recap { flex-wrap: wrap; row-gap: 0; border-radius: var(--r-chip, 12px); }
+#su-recap-city { white-space: nowrap; font-weight: 600; }

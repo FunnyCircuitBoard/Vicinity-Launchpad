@@ -1,9 +1,9 @@
-<!--{"title": "Share your location", "description": "Finish a Vicinity location check in your phone's browser when your wallet app's browser can't share GPS.", "page": "locate", "scripts": ["locate"]}-->
+<!--{"title": "Share your location", "description": "Finish a Vicinity location check in your phone's browser when your wallet app's browser can't share GPS.", "page": "locate", "scripts": ["locate"], "styles": ["polish-pages"]}-->
     <section class="connect">
       <div class="wrap">
         <div class="connect__panel card" id="locate-panel" aria-live="polite">
           <div class="cstate" data-state="ask" hidden>
-            <div class="verified-badge is-gold" aria-hidden="true">📍</div>
+            <div class="verified-badge is-gold" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg></div>
             <h1 class="h2--sm">Share your location</h1>
             <p class="muted">You started this in your wallet app to <strong id="l-purpose">continue</strong>. Share your location here, then go back to your wallet app: it continues by itself.</p>
             <button class="btn btn--primary btn--block btn--lg" type="button" id="l-go">Share my location</button>
@@ -22,6 +22,7 @@
             <div class="verified-badge is-gold" aria-hidden="true">!</div>
             <h1 class="h2--sm">This link isn't working</h1>
             <p class="muted" id="l-bad">It has expired or was already used. Go back to your wallet app and start again.</p>
+            <a class="btn btn--glass btn--block" href="/">Back to Vicinity</a>
           </div>
           <p class="wallet__error" id="l-error" role="alert" hidden></p>
         </div>
