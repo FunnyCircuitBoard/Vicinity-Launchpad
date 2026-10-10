@@ -424,6 +424,7 @@
 /* the account step's place chip: the place on one line, "Not right? Check again" wraps under it when the row is short */
 #su-recap { flex-wrap: wrap; row-gap: 0; border-radius: var(--r-chip, 12px); }
 #su-recap-city { white-space: nowrap; font-weight: 600; }
+@media (max-width: 600px) { #su-recap .su-recap__sep { display: none; } #su-recap #su-recap-redo { flex: 0 0 calc(100% - 26px); margin-left: 26px; justify-content: flex-start; text-align: left; padding-left: 0; padding-right: 0; } } /* the place, then "Not right?" under it: no dot left hanging at a line end */
 
 /* ---------- /profile: the member's pass, the cards and the counts (profile.js belongs to the dashboard work: CSS and profile.html only) ---------- */
 .prof-head .kicker { margin-bottom: 4px; }

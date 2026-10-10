@@ -113,3 +113,10 @@ test("after the opening on a phone: a tighter hero (the first live coin in an iP
 test("a computer: the stuck Buy card scrolls inside itself while the wallet list (and its QR code) shows, so nothing of it is out of reach", () => {
   assert.match(CSS, /\.token-hero__buy:has\(\.swap__wallets:not\(\[hidden\]\)\) \{ max-height: calc\(100vh - var\(--sticky-top, 79px\) - 16px\); overflow-y: auto;/);
 });
+
+test("the account step's place chip: the place, then 'Not right? Check again' under it on a phone (the dot between them hidden, not read out)", () => {
+  for (const h of [read("public/connect.html"), read("scripts/pages/src/connect.html")]) {
+    assert.match(h, /<span id="su-recap-city">—<\/span><span class="su-recap__sep" aria-hidden="true"> · <\/span><button class="link-btn link-btn--tiny" type="button" id="su-recap-redo">Not right\? Check again<\/button>/);
+  }
+  assert.match(CSS, /@media \(max-width: 600px\) \{ #su-recap \.su-recap__sep \{ display: none; \}/);
+});
