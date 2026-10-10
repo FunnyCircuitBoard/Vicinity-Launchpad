@@ -75,7 +75,8 @@ test("D2: short visible words where the strip needs them; each accessible name c
   assert.match(css, /@media \(max-width: 360px\) \{\n  \.dv2 \.dtab \{ padding: 0 5px; font-size: \.78rem; \}\n  \.dv2 #tab-rankings \.dtab__long \{ display: none; \}\n  \.dv2 #tab-rankings \.dtab__short \{ display: inline; \}/);
   assert.match(css, /\.dv2 \.dtabs\.is-tight #tab-profile \{ display: none; \}/, "a crowded strip lets Profile step out (the header's account button opens it)");
   // the router: the fit check, the nearest scroll, keyboard skips a tab that stepped out
-  assert.match(v2, /if \(over\(\) && active !== "profile"\) strip\.classList\.add\("is-tight"\);\n\s+if \(over\(\)\) strip\.classList\.add\("is-scrollable"\);/);
+  assert.match(v2, /if \(over\(\)\) strip\.classList\.add\(active === "profile" \? "is-tight-mod" : "is-tight"\);\n\s+if \(over\(\)\) strip\.classList\.add\("is-scrollable"\);/);
+  assert.match(css, /\.dv2 \.dtabs\.is-tight-mod #tab-moderate \{ display: none; \}/, "with Profile open, Moderate steps out instead, so the chosen tab always shows");
   assert.doesNotMatch(v2, /\(lr\.width - tr\.width\) \/ 2/, "never centred: Home is never pushed out");
   assert.match(v2, /\.filter\(\(t\) => !t\.hidden && t\.getClientRects\(\)\.length\)/);
   // a short visible word stays the start of the strip's titles too

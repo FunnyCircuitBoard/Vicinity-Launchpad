@@ -30,6 +30,7 @@ body.is-dv2 .dash::before { content: none; }
 /* the indicator: a 2 px ember line under the chosen pill (the "live buttons" breathing of a chosen tab runs on this same line) */
 .dv2 .dtab[aria-selected="true"]::after { left: 12px; right: 12px; bottom: 0; height: 2px; border-radius: 2px; background: var(--pin); opacity: 1; }
 .dv2 .dtab__badge { min-width: 20px; height: 20px; padding: 0 5px; font-size: .75rem; }
+:root[data-theme="light"] .dv2 .dtab__badge { background: #B8430F; color: #fff; } /* 5.5:1 on any pill (the pale tint fell to 4.2 on the chosen one) */
 /* Profile: the person's initial in a neutral circle on phones, the word from 601 px */
 .dv2 #tab-profile { flex: 0 0 auto; padding: 0 4px; }
 .dv2 .dtab__av { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--card-2); box-shadow: inset 0 0 0 1px var(--line-2); color: var(--text); font: 700 .8rem/1 var(--display); }
@@ -37,6 +38,7 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 #tab-profile[aria-selected="true"] .dtab__av { background: var(--bg-2); }
 /* a crowded strip (a moderator's seven tabs on a small phone): Profile steps out, the header's account button opens it (dashboard-v2.js measure) */
 .dv2 .dtabs.is-tight #tab-profile { display: none; }
+.dv2 .dtabs.is-tight-mod #tab-moderate { display: none; } /* Profile open in a crowded strip: Moderate steps out instead (Home's Today row and role card lead there) */
 /* only if it still does not fit (a very large text setting) it scrolls, with a fade on the side that has more */
 .dv2 .dtabs.is-scrollable::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 32px; z-index: 1; pointer-events: none; opacity: 0; background: linear-gradient(270deg, transparent, var(--glass)); }
 .dv2 .dtabs.is-scrollable.is-scrolled::before { opacity: 1; }
@@ -166,13 +168,28 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .wcard.is-merged:not(.wcard--folded) #wcard-kicker, .dv2 .wcard.is-merged:not(.wcard--folded) #wcard-title, .dv2 .wcard.is-merged #wcard-perks { display: none; }
 /* tickers: the whole ticker, a smaller size for a longer one (dashboard.js and profile.js set data-len) */
 .dv2 .coin-disc span, .dv2 .pass__coin span { max-width: none; overflow: visible; white-space: nowrap; }
+/* AA on every disc: the coin's letters solid dark on its light colours (white on the dark "ink" one); the welcome disc and the
+   profile avatar on a deeper ember, so their white letters pass (white on the gold end was 2.2:1) */
+.dv2 :is(.pass__coin, .coin-art) span { color: #1A1206; text-shadow: 0 1px 0 rgba(255,255,255,.35); }
+.dv2 :is(.pass__coin, .coin-art)[data-color="ink"] span { color: #fff; text-shadow: none; padding: 1px 3px; border-radius: 6px; background: rgba(10,14,22,.5); } /* the silver coin: its letters on a dark band */
+.dv2 .welcome__disc, .dv2 .profile__head .idcard__avatar { background: linear-gradient(135deg, #C2370F, #9A5A06); color: #fff; }
 .dv2 .pass__coin span { font-size: .8rem; }
 .dv2 .pass__coin[data-len="5"] span { font-size: .72rem; }
 .dv2 .pass__coin[data-len="6"] span, .dv2 .pass__coin[data-len="7"] span { font-size: .66rem; }
 .dv2 .pass__coin:is([data-len="8"], [data-len="9"], [data-len="10"], [data-len="11"], [data-len="12"]) span { font-size: .56rem; letter-spacing: -.02em; }
 .dv2 .welcome__disc[data-len="5"] { font-size: .95rem; }
 .dv2 .welcome__disc:is([data-len="6"], [data-len="7"]) { font-size: .8rem; }
-.dv2 .welcome__disc:is([data-len="8"], [data-len="9"], [data-len="10"], [data-len="11"], [data-len="12"]) { font-size: .7rem; letter-spacing: -.02em; }
+.dv2 .welcome__disc:is([data-len="8"], [data-len="9"], [data-len="10"], [data-len="11"], [data-len="12"]) { font-size: .6rem; letter-spacing: -.02em; }
+/* a phone: the disc beside the greeting only; the line under it takes the card's full width */
+@media (max-width: 420px) {
+  .dv2 .welcome { row-gap: 2px; }
+  .dv2 .welcome__text { display: contents; }
+  .dv2 .welcome__disc { grid-row: 1 / span 2; align-self: center; }
+  .dv2 .welcome__text .kicker, .dv2 .welcome__text h2 { grid-column: 2; padding-right: 40px; }
+  .dv2 .welcome__text .kicker { align-self: end; }
+  .dv2 .welcome__text h2 { align-self: start; }
+  .dv2 .welcome__text p { grid-column: 1 / -1; margin-top: 8px; }
+}
 .dv2 .coin-disc[data-len="5"] span { font-size: .95rem; }
 .dv2 .coin-disc:is([data-len="6"], [data-len="7"]) span { font-size: .8rem; }
 .dv2 .coin-disc:is([data-len="8"], [data-len="9"], [data-len="10"], [data-len="11"], [data-len="12"]) span { font-size: .7rem; letter-spacing: -.02em; }
@@ -306,6 +323,9 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .profile__danger { display: flex; align-items: center; width: 100%; min-height: 52px; padding: 0; border: 0; border-top: 1px solid var(--line); background: none; color: var(--bad-text); font: 600 1rem var(--body); text-align: left; cursor: pointer; }
 .dv2 .profile__danger[hidden] { display: none; }
 .dv2 .profile__logout { margin-top: 12px; min-height: 48px; }
+/* Moderate: a hidden post is read and acted on at full strength (the dashed edge and the Hidden tag say what it is) */
+.dv2 #panel-moderate .post.is-hidden { opacity: 1; }
+
 /* the roles, folded under "How roles work" */
 .dv2 .roles-fold { padding-top: 0; padding-bottom: 0; }
 .dv2 .roles-fold > summary { min-height: 56px; font: 600 1rem/1.3 var(--body); }
@@ -356,9 +376,19 @@ body.is-dv2 .dash::before { content: none; }
   .dv2 #panel-home { grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr); grid-auto-flow: row dense; align-items: start; }
   .dv2 #panel-home > #dash-top, .dv2 #panel-home > #today, .dv2 #panel-home > #role-home, .dv2 #panel-home > #portfolio { grid-column: 1; }
   .dv2 #panel-home > #pf-notice, .dv2 #panel-home > #ban-notice, .dv2 #panel-home > #lost-alert, .dv2 #panel-home > #welcome, .dv2 #panel-home > #wallet-card { grid-column: 1 / -1; }
-  .dv2 #panel-home > #trade { grid-column: 2; grid-row: span 3; position: sticky; top: calc(var(--sticky-top, 79px) + var(--dd-strip)); max-height: calc(100dvh - var(--sticky-top, 79px) - var(--dd-strip) - 16px); overflow: auto; overscroll-behavior: contain; }
+  /* the Buy card spans the rows of the left column's cards (the Pass and standing, Today when it shows, the role card), then
+     Portfolio | Badges share the last row; so no column has a gap between two cards (the Buy card's own track is where it sticks) */
+  .dv2 #panel-home > #trade { grid-column: 2; grid-row: span 2; position: sticky; top: calc(var(--sticky-top, 79px) + var(--dd-strip)); max-height: calc(100dvh - var(--sticky-top, 79px) - var(--dd-strip) - 16px); overflow: auto; overscroll-behavior: contain; }
+  .dv2 #panel-home:has(> #today:not([hidden])) > #trade { grid-row: span 3; }
   .dv2 #panel-home > #badges { grid-column: 2; }
+  /* a member without a wallet: the one-line Buy card and the badges stack beside the Pass; the role card takes the full width */
   .dv2 #panel-home > #trade.is-locked { position: static; max-height: none; grid-row: auto; }
+  .dv2 #panel-home:has(> #trade.is-locked) > #dash-top { grid-row: span 2; }
+  .dv2 #panel-home:has(> #trade.is-locked) > #role-home { grid-column: 1 / -1; }
+  /* one main action never runs the width of the screen */
+  .dv2 .wcard:not(.wcard--folded) .wcard__actions { justify-items: center; }
+  .dv2 .wcard:not(.wcard--folded) .wcard__actions .btn { width: min(100%, 420px); }
+  .dv2 .wcard__lead, .dv2 .wcard__tiny { text-align: center; }
 }
 
 /* ---------- loading placeholders: the real geometry (a 53 px strip, the Pass, the standing card), still ---------- */
