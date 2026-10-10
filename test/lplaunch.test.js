@@ -20,7 +20,9 @@ import { decodeConfig } from "../src/sol/dbc.js";
 import { quoteBuy } from "../src/sol/quote.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas } from "../src/sol/pda.js";
 import { MINT, browser, chain as mainChain, newWorld, person, realClock, setHolding, useClock, advance } from "./helpers/world.js";
-import { DEMOV, DEMOV_COIN, DEMOV_CITY, DEMOV_POOL, DEV, LP_ON, PROGRAM, SOL_CONFIG, addr, lpChain } from "./helpers/lpchain.js";
+import { DEMOV, DEMOV_COIN, DEMOV_CITY, DEMOV_POOL, DEV, LP_ON, METAPLEX, PROGRAM, SOL_CONFIG, addr, lpChain, metaplexData } from "./helpers/lpchain.js";
+import { metadataAddress } from "../src/sol/metaplex.js";
+import { metadataUriFor } from "../src/coinmeta.js";
 
 const TABLE = "5tPTizNodKvKEo8k7a9NjRDucMNVQsQvHrqjEmwXCXhe";
 const CITY = "5142056"; // Utica (ticker UTICA in the test world)
@@ -256,7 +258,7 @@ test("launch/tx with a first buy: the SDK's buy in the same transaction; at most
   const big = await w.call("/api/lp/launch/tx", { cityId: CITY, mint, firstBuyLamports: "500000000" });
   assert.deepEqual([big.status, big.data.error], [400, "first_buy_too_large"]);
   assert.match(big.data.message, /do not fit in one Solana transaction\. Launch first, then buy/);
-  assert.equal(w.S.log.filter((l) => l.method === "simulateTransaction").length, 1, "nothing too large was ever simulated");
+  assert.equal(w.S.log.filter((l) => l.method === "simulateTransaction").length, 2, "nothing too large was ever simulated (the good one twice: measured, then its final bytes)");
 });
 
 test("launch/tx refusals: a founder mismatch, expired, paused, a disabled curve, no mint, a seat below the bar, the wrong origin", async () => {
@@ -278,7 +280,7 @@ test("launch/tx refusals: a founder mismatch, expired, paused, a disabled curve,
   assert.equal((await go()).data.error, "config_disabled");
   setField(w.S, await w.L.launchConfig(SOL_CONFIG), "LaunchConfig", "enabled", 1);
   assert.equal((await go()).status, 200);
-  assert.equal(w.S.log.filter((l) => l.method === "simulateTransaction").length, 1, "only the good one was simulated");
+  assert.equal(w.S.log.filter((l) => l.method === "simulateTransaction").length, 2, "only the good one was simulated (measured, then its final bytes)");
   // the founder's balance fell below the bar: the seat goes into grace now and nothing is built
   setHolding(w.wallet, 10);
   const g = await go();
@@ -301,6 +303,8 @@ test("launch/tx: the price-curve settings are required; a simulation failure ans
 
 test("graduate: only when the curve is full; three signers (the payer and two one-time keys) at 400k compute; then the leftover", async () => {
   const w = await world();
+  // the coin's metadata, as the program writes it at launch (a mint is looked up program-wide only when it points at /coin-meta)
+  w.S.accounts[await metadataAddress(DEMOV)] = { owner: METAPLEX, data: metaplexData({ mint: DEMOV, name: "Demo Vicinity", symbol: "DEMOV", uri: metadataUriFor(DEMOV) }) };
   const keys = { nft1: addr(101), nft2: addr(102) };
   let st = await w.call(`/api/lp/graduate/status?mint=${DEMOV}`);
   assert.equal(st.status, 200, JSON.stringify(st.data));

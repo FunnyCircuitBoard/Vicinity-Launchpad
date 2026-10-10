@@ -7,6 +7,9 @@
  *   Public   every design is public (GET /api/coins) and every change is in the public log (/api/audit).
  *   Launch   once the coin is live, the founder submits its contract address; an admin who isn't that founder
  *            checks it and records it. From then on the design is locked, so it always matches the blockchain.
+ *            On the Vicinity launchpad (src/lpcoins.js, only while its settings are there) the design locks earlier: from the
+ *            moment the owner builds the on-chain approval, because the approval fixes the name and ticker on chain and the
+ *            owner approved the design he saw (the description goes into the coin's /coin-meta JSON for ever).
  *   Safety   an admin can take down a logo or text that breaks the rules, with a public reason.
  */
 import { json, readJson } from "./http.js";
@@ -22,6 +25,7 @@ import { HAS_ADDRESS, cleanText } from "./text.js";
 import { readImage } from "./social.js";
 import { ensureSchema } from "./store.js";
 import { tickerOf } from "./tickers.js";
+import { designFrozen, rebuildMetaJson } from "./lpcoins.js";
 
 const C = POLICY.coins;
 
@@ -103,6 +107,11 @@ export async function handleDesign(request, env, fetchImpl = fetch, now = Date.n
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
   const old = await coinOf(db, seat.city_id);
   if (old && old.mint) return json({ ok: false, error: "coin_locked" }, 409);
+  let frozen = null;
+  try { frozen = await designFrozen(env, seat.city_id, fetchImpl, now); }
+  catch (e) { console.error("coin design: approval check failed", String((e && e.message) || e).slice(0, 80)); return json({ ok: false, error: "chain_unavailable" }, 503); }
+  if (frozen === "launched") return json({ ok: false, error: "coin_locked" }, 409);
+  if (frozen) return json({ ok: false, error: frozen === "held" ? "coin_being_approved" : "coin_approved" }, 409);
 
   const name = cleanText(body.name, C.nameMax);
   if (!name || name.length < 2 || !NAME_RE.test(name) || LINKISH.test(name)) return json({ ok: false, error: "bad_name", max: C.nameMax }, 400);
@@ -217,10 +226,22 @@ export async function handleTakedown(request, env, fetchImpl = fetch, now = Date
   if (!reason || note == null || note.length < 3) return json({ ok: false, error: "reason_required" }, 400);
   if (body.what === "logo") await db.prepare("UPDATE city_coins SET media_id = NULL, updated_at = ? WHERE city_id = ?").bind(iso(now), coin.city_id).run();
   else if (body.what === "text" && !coin.mint) await db.prepare("UPDATE city_coins SET name = city_name, pitch = NULL, updated_at = ? WHERE city_id = ?").bind(iso(now), coin.city_id).run();
+  else if (body.what === "text" && coin.pitch && (await recordedOnLaunchpad(env, coin.mint))) {
+    // a coin launched on the Vicinity launchpad: its name is on chain for ever, but its description lives in the /coin-meta JSON
+    // this site serves, so the description is removed there too (rebuilt with the default text; caches keep the old one an hour)
+    await db.prepare("UPDATE city_coins SET pitch = NULL, updated_at = ? WHERE city_id = ?").bind(iso(now), coin.city_id).run();
+    if (!(await rebuildMetaJson(env, coin.mint, now))) return json({ ok: false, error: "unavailable" }, 503);
+  }
   else return json({ ok: false, error: body.what === "text" ? "coin_locked" : "bad_request" }, 400);
   await log(db, { actor: a.u.id, role: "admin", action: `coin_${body.what}_removed`, user: coin.user_id, country: coin.country, place: coin.city_id,
     reason, note: `${coin.city_name}: ${note}`, at: iso(now) });
   return json({ ok: true, coin: coinView(await coinOf(db, coin.city_id)) });
+}
+
+/** Is this mint a coin recorded from the Vicinity launchpad (lp_coins), whatever the settings say now? */
+async function recordedOnLaunchpad(env, mint) {
+  try { return Boolean(await env.DB.prepare("SELECT 1 FROM lp_coins WHERE mint = ?").bind(mint).first()); }
+  catch (e) { if (/no such table/i.test(String(e && e.message))) return false; throw e; }
 }
 
 /**

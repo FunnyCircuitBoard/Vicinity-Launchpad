@@ -6,7 +6,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";
 import { coinMetadataJson, coinPageUrl, handleCoinMeta, metadataUriFor } from "../src/coinmeta.js";
-import { _resetLpCoins } from "../src/lpcoins.js";
+import { _resetLpCoins, recordLaunchedCoin } from "../src/lpcoins.js";
 import { _resetLpKit } from "../src/lpkit.js";
 import { metadataAddress } from "../src/sol/metaplex.js";
 import { LAYOUT } from "../src/sol/layout.js";
@@ -64,6 +64,14 @@ test("coin-meta: dark with production-like settings: 404 JSON with CORS, no RPC 
   assert.equal(await head.text(), "");
   assert.equal((await get(env, chain, `/coin-meta/${DEMOV}.json`, { method: "POST" })).status, 405);
   assert.equal(chain.S.log.length, 0, "no node is asked");
+  // a warm server does no database work at all while dark: the missing lp_coins table is remembered (it is only ever created with
+  // the settings on, which is another deploy)
+  let statements = 0;
+  const prep = env.DB.prepare;
+  env.DB.prepare = function (sql) { statements++; return prep.call(this, sql); };
+  for (let i = 0; i < 5; i++) assert.equal((await get(env, chain, `/coin-meta/${addr(300 + i)}.json`)).status, 404);
+  env.DB.prepare = prep;
+  assert.equal(statements, 0, "no D1 statement per request while dark");
   assert.ok(!(await tables(env)).includes("lp_coins"), "nothing new in the database while dark");
   // through the Worker's own fetch (not the static files: wrangler.jsonc run_worker_first has /coin-meta/*)
   const assetsAsked = [];
@@ -91,7 +99,8 @@ test("coin-meta: with the settings, a launched coin's JSON comes from the chain'
   // recorded (src/lpcoins.js): the row, the city's mint (the design is locked), the public log line
   const row = await env.DB.prepare("SELECT * FROM lp_coins WHERE mint = ?").bind(DEMOV).first();
   assert.deepEqual([row.cluster, row.program_id, row.city_id, row.name, row.symbol, row.launch_sig], ["devnet", LP_ON.LAUNCHPAD_PROGRAM_ID, DEMOV_CITY, "Demo Vicinity", "DEMOV", "5ctr2RXcTzQ4XfHfFmjTaFPYxSMBw1Zp2WgVgXnvwDeMb7Yg7nE1xWxXq2k4mbKTrDJDDWJnBHe3bDB7uCqUWbk"]);
-  assert.equal((await env.DB.prepare("SELECT mint FROM city_coins WHERE city_id = ?").bind(DEMOV_CITY).first()).mint, DEMOV);
+  const design = await env.DB.prepare("SELECT mint, name FROM city_coins WHERE city_id = ?").bind(DEMOV_CITY).first();
+  assert.deepEqual([design.mint, design.name], [DEMOV, "Demo Vicinity"], "locked, and named as on chain (not the edited \"Edited Later\")");
   // the second answer is the database's: no node asked, the same bytes
   const before = chain.S.log.length;
   const again = await get(env, chain, `/coin-meta/${DEMOV}.json`);
@@ -107,11 +116,17 @@ test("coin-meta: with the settings, a launched coin's JSON comes from the chain'
   assert.equal(chain.S.log.length, before);
 });
 
-test("coin-meta: an on-chain uri that is not this URL, or no metadata, answers 404 (the coin is still recorded)", async () => {
+test("coin-meta: an on-chain uri that is not this URL, or no metadata, answers 404 without a program-wide lookup (recorded only by its city)", async () => {
   const { env, chain } = await demovWorld({ uri: "https://elsewhere.example/x.json" });
   const r = await get(env, chain, `/coin-meta/${DEMOV}.json`);
   assert.equal(r.status, 404);
+  assert.equal(chain.calls("getProgramAccounts").length, 0, "a mint whose metadata does not point here is never looked up program-wide");
+  assert.equal(await env.DB.prepare("SELECT 1 FROM lp_coins WHERE mint = ?").bind(DEMOV).first(), null);
+  // recorded by its city (the founder's page, the sweep): still no JSON for a uri that is not this URL
+  assert.equal((await recordLaunchedCoin(env, { cityId: DEMOV_CITY }, chain.fetchImpl)).ok, true);
   assert.ok(await env.DB.prepare("SELECT 1 FROM lp_coins WHERE mint = ? AND meta_json IS NULL").bind(DEMOV).first());
+  assert.equal((await get(env, chain, `/coin-meta/${DEMOV}.json`, { now: Date.now() + 6 * 60_000 })).status, 404);
+  _resetLpCoins(); // a new server
   const { env: e2, chain: c2 } = await demovWorld();
   delete c2.S.accounts[await metadataAddress(DEMOV)];
   assert.equal((await get(e2, c2, `/coin-meta/${DEMOV}.json`)).status, 404);
@@ -120,15 +135,21 @@ test("coin-meta: an on-chain uri that is not this URL, or no metadata, answers 4
   assert.equal((await get(e2, c2, `/coin-meta/${DEMOV}.json`, { now: Date.now() + 6 * 60_000 })).status, 200);
 });
 
-test("coin-meta: an unknown mint costs one RPC call per 5 minutes, and the chain lookups count against coin_meta", async () => {
+test("coin-meta: an unknown mint costs one getAccountInfo per 5 minutes and never a getProgramAccounts; the chain lookups count against coin_meta", async () => {
   const { env, chain } = await demovWorld();
   const unknown = addr(500);
+  const metaOf = async (m) => chain.calls("getAccountInfo").filter((c) => c.params[0] === m).length;
+  const unknownMeta = await metadataAddress(unknown);
   const t0 = Date.now();
   assert.equal((await get(env, chain, `/coin-meta/${unknown}.json`, { now: t0 })).status, 404);
   assert.equal((await get(env, chain, `/coin-meta/${unknown}.png`, { now: t0 + 1000 })).status, 404);
-  assert.equal(chain.calls("getProgramAccounts").length, 1, "remembered as unknown");
+  assert.equal(await metaOf(unknownMeta), 1, "remembered as unknown");
   assert.equal((await get(env, chain, `/coin-meta/${unknown}.json`, { now: t0 + 5 * 60_000 + 1 })).status, 404);
-  assert.equal(chain.calls("getProgramAccounts").length, 2, "asked again after 5 minutes");
+  assert.equal(await metaOf(unknownMeta), 2, "asked again after 5 minutes");
+  assert.equal(chain.calls("getProgramAccounts").length, 0, "the expensive program-wide lookup only for a mint whose metadata points here");
+  // 40 invented mints from 40 connections (each under its own per-connection counter): 40 cheap reads, no program-wide lookup
+  for (let i = 0; i < 40; i++) assert.equal((await get(env, chain, `/coin-meta/${addr(700 + i)}.json`, { now: t0 + 6 * 60_000, ip: `203.0.113.${i}` })).status, 404);
+  assert.equal(chain.calls("getProgramAccounts").length, 0);
   // a flood of invented mints from one connection: the 61st chain lookup in a minute is refused
   let last;
   for (let i = 0; i < 61; i++) last = await get(env, chain, `/coin-meta/${addr(600 + i)}.json`, { now: t0 + 10 * 60_000 });

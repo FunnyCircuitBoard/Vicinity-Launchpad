@@ -82,6 +82,7 @@ function fakeChain({ genesis = GENESIS.devnet, accounts = {} } = {}) {
       }
       case "getTokenAccountsByOwner": return { context: { slot: 1 }, value: [] };
       case "getSlot": return S.slot;
+      case "getMinimumBalanceForRentExemption": if (S.rentDown) throw new Error("down"); return (128 + params[0]) * 5_080; // mainnet's rate since 2026
       case "getBlocks": return [S.slot - 10];
       case "simulateTransaction": {
         const watched = params[1].accounts ? params[1].accounts.addresses : [];
@@ -121,6 +122,8 @@ async function world({ authority = "owner", extra = {}, env: envExtra = {}, gene
   };
   return { env, owner, chain, call, pdLp, pdRw, wallet: owner.w.address };
 }
+/** What the City coins card sends with "Approve on chain": the city and the design it showed. */
+const seenOf = (c) => ({ cityId: c.cityId, name: c.name, symbol: c.symbol, founder: c.founder, designAt: c.designAt });
 const stepOf = async (w, id) => (await w.call("/api/admin/lp/status")).data.steps.find((s) => s.id === id);
 /** The chain after steps 1 and 2: launchpad and registry started by `admin`, both programs under a Squads vault (recorded). */
 async function afterHandoff(w) {
@@ -325,6 +328,12 @@ test("steps 3-7 come after the hand-over; the price curve is a one-time key and 
   st = (await w.call("/api/admin/lp/status")).data;
   assert.deepEqual(st.steps.map((x) => x.state), ["done", "done", "ready", "blocked", "ready", "blocked", "blocked"]);
   assert.match(st.steps[5].reason, /Do step 3 first: the speed table holds the price curve/);
+  // the rent named in each ready step is the cluster's own (5,080 lamports per byte now, not the old 6,960)
+  assert.match(st.steps[2].reason, /about 0\.00597408 SOL of rent\)/);
+  assert.match(st.steps[4].reason, /about 0\.00148844 SOL of rent, which anyone may pay\)/);
+  _resetLpAdmin(); w.chain.S.rentDown = true;
+  assert.match((await stepOf(w, "config")).reason, /\(a little rent\)/, "no number rather than a wrong one");
+  w.chain.S.rentDown = false;
   // 3: exactly one fresh one-time key
   const k = addr(91);
   assert.equal((await w.call("/api/admin/lp/tx", { step: "config" })).data.error, "bad_signers");
@@ -476,17 +485,23 @@ test("approval candidates: SOL pair, name of at most 32 bytes, the ticker, a liv
   await w.env.DB.prepare("UPDATE seats SET status = 'ended' WHERE city_id = ?").bind(String(city.UTI)).run();
   r = (await w.call("/api/admin/lp/candidates")).data;
   assert.match(by(city.UTI).reasons.join(" "), /no founder seat now/);
-  // approve NYC: the founder, the on-chain name and ticker, 7 days by default; the admin pays
+  // approve NYC: the founder, the on-chain name and ticker, 7 days by default; the admin pays. The page sends what its card showed.
   assert.equal((await w.call("/api/admin/lp/approve/tx", { cityId: String(city.NYC), expiryDays: 31 })).data.error, "bad_expiry");
-  const b = await w.call("/api/admin/lp/approve/tx", { cityId: String(city.NYC) });
+  const seen = seenOf(by(city.NYC));
+  assert.equal((await w.call("/api/admin/lp/approve/tx", { cityId: String(city.NYC) })).data.error, "design_changed", "a page that sends nothing it showed gets nothing built");
+  const b = await w.call("/api/admin/lp/approve/tx", seen);
   assert.equal(b.data.ok, true, JSON.stringify(b.data));
+  // what the owner's signature fixes is read back from the instruction's own bytes into the list the page shows
+  const shown = b.data.summary.find((x) => x.ix === "approve_launch");
+  assert.deepEqual(shown.fields, { cityId: String(city.NYC), founder: f[0].w.address, name: "Big Apple 🍎", symbol: "NYC", expiresAt: "2026-10-17T12:00:00.000Z" });
+  assert.equal(shown.detail, `the coin "Big Apple 🍎", ticker $NYC, founder wallet ${f[0].w.address}, who can launch it until 2026-10-17 12:00 UTC`);
   assert.deepEqual([b.data.approve.name, b.data.approve.symbol, b.data.approve.founder, b.data.approve.days], ["Big Apple 🍎", "NYC", f[0].w.address, 7]);
   assert.equal(b.data.approve.expiresAt, "2026-10-17T12:00:00.000Z");
   assert.deepEqual(b.data.signers, [w.wallet]);
   const ix = await IX.approveLaunch({ programId: PROGRAM, admin: w.wallet, cityId: BigInt(city.NYC), founder: f[0].w.address, name: "Big Apple 🍎", symbol: "NYC", expiresAt: Date.parse("2026-10-17T12:00:00Z") / 1000, dbcConfig: config });
   const d = decodeHeader(Buffer.from(b.data.tx, "base64"));
   assert.deepEqual(Buffer.from(d.instructions[d.instructions.length - 1].data), Buffer.from(ix.data));
-  const thirty = (await w.call("/api/admin/lp/approve/tx", { cityId: String(city.NYC), expiryDays: 30 })).data;
+  const thirty = (await w.call("/api/admin/lp/approve/tx", { ...seen, expiryDays: 30 })).data;
   assert.equal(Date.parse(thirty.approve.expiresAt), clock.now + 30 * 86_400_000 - 600_000, "ten minutes inside the program's 30-day limit");
   // approved on chain: it moves to the approvals, with its own founder and expiry; a launched coin is out of both lists
   const ap = await L.approval(BigInt(city.NYC));
@@ -512,7 +527,7 @@ test("approval candidates: blocked for everyone until the trading settings exist
   w.chain.S.accounts[await L.launchpad()] = { owner: PROGRAM, data: b64(layoutAccount("Launchpad", { admin: w.wallet, rewards_program: REWARDS })) };
   await seedCoin(w.env.DB, { city: 5128581, name: "New York City", coin: "Big Apple", seat: await seedSeat(w.env, w.owner, { city: 5128581, name: "New York City" }) });
   const r = (await w.call("/api/admin/lp/candidates")).data;
-  assert.match(r.global.join(" "), /Trading settings are not switched on yet/);
+  assert.match(r.global.join(" "), /City-coin trading is not switched on yet: the team switches it on after your setup steps/);
   assert.equal(r.candidates[0].ok, false);
   assert.deepEqual(r.candidates[0].warnings, ["The founder is the launchpad admin's own wallet."]);
 });

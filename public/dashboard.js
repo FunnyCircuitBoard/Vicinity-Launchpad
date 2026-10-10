@@ -1001,6 +1001,8 @@
   const COIN_ERR = {
     not_founder: "Only the city's active founder can design its coin.",
     coin_locked: "This coin has launched, so its design is locked.",
+    coin_approved: "The owner has approved this coin on the blockchain, so its design is fixed now: what was approved is what launches. To change it, ask the owner to withdraw the approval first.",
+    coin_being_approved: "The owner is approving this coin right now, so its design is fixed for a few minutes. Try again in 5 minutes.",
     bad_name: "Use 2 to 32 letters, numbers or spaces for the name (no links).",
     too_long: (d) => `That's too long (at most ${d.max} characters).`,
     no_addresses: "Contract addresses can't go in a coin's name or pitch.",

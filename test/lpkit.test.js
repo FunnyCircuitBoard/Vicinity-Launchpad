@@ -18,6 +18,8 @@ import { LP_ON, PROGRAM, REWARDS, addr, lpChain } from "./helpers/lpchain.js";
 const wranglerVars = () => JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "")).vars;
 const PAYER = addr(1), OTHER = addr(2), EPH = addr(3), EPH2 = addr(4);
 const env = (extra = {}) => ({ ...newWorld(), ...LP_ON, ...extra });
+/** The compute limit a (base64) transaction asks for. */
+const limitOf = (b64) => { const d = decodeHeader(fromBase64(b64)); const ix = d.instructions.find((i) => d.staticKeys[i.programIdIndex] === PROGRAM_IDS.computeBudget && i.data[0] === 2); return ix ? new DataView(Uint8Array.from(ix.data).buffer).getUint32(1, true) : null; };
 const createAccount = (from, to) => ({ programAddress: PROGRAM_IDS.system, accounts: [{ address: from, role: 3 }, { address: to, role: 3 }], data: Uint8Array.of(0, 0, 0, 0, ...new Uint8Array(8).fill(1), ...new Uint8Array(8), ...new Uint8Array(32)) });
 beforeEach(() => _resetLpKit());
 
@@ -78,7 +80,9 @@ test("buildTx: a legacy transfer, simulated, with the exact SOL change, the plai
   assert.equal(r.fees.computeUnitLimit, 50_000, "measured 30,000 +15%, at least 50,000");
   assert.equal(r.fees.priorityLamports, 0);
   assert.equal(r.fees.networkLamports, 5000);
-  assert.equal(c.calls("simulateTransaction").length, 1, "no priority fee: one simulation is exact");
+  assert.equal(c.calls("simulateTransaction").length, 2, "the measuring run at the full limit, then the very bytes handed out");
+  assert.deepEqual(c.calls("simulateTransaction").map((x) => limitOf(x.params[0])), [1_400_000, 50_000]);
+  assert.equal(c.calls("simulateTransaction")[1].params[0], r.tx, "the bytes handed to the wallet are the bytes simulated last");
   const sim = c.calls("simulateTransaction")[0].params[1];
   assert.deepEqual([sim.sigVerify, sim.replaceRecentBlockhash, sim.accounts.addresses], [false, true, [PAYER]]);
   const tx = fromBase64(r.tx);
@@ -94,6 +98,23 @@ test("buildTx: a legacy transfer, simulated, with the exact SOL change, the plai
   assert.equal(r.simulation.unitsConsumed, 30_000);
   assert.equal(respond(r).status, 200);
   assert.equal(respond(r).headers.get("cache-control"), "no-store");
+});
+
+test("buildTx: when the tuned limit fails its own simulation, the full-limit bytes that passed are handed out instead", async () => {
+  const c = lpChain();
+  c.S.units = 30_000;
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body);
+    if (body.method === "simulateTransaction" && limitOf(body.params[0]) < 1_400_000) {
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { context: { slot: 1 }, value: { err: "ProgramFailedToComplete", logs: ["Program log: exceeded CUs meter at BPF instruction"], unitsConsumed: 50_000, accounts: null } } }));
+    }
+    return c.fetchImpl(url, init);
+  };
+  const r = await buildTx(env(), { payer: PAYER, instructions: [systemTransfer(PAYER, OTHER, 1n)] }, fetchImpl);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.fees.computeUnitLimit, 1_400_000);
+  assert.equal(limitOf(r.tx), 1_400_000);
+  assert.equal(r.simulation.ok, true);
 });
 
 test("buildTx: a priority fee is read again from the final bytes; a fixed limit is kept", async () => {

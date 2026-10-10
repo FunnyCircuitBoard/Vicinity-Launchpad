@@ -49,7 +49,7 @@
    * In `box`: build through `path` (the Worker checks the step and simulates it), show the decoded list and the SOL change, then
    * "Approve in your wallet". The build answer says what to record once it is confirmed (record: { step, params }).
    */
-  async function signFlow(box, { path, body = {}, ephemeral = 0, after = null }) {
+  async function signFlow(box, { path, body = {}, ephemeral = 0, after = null, check = null }) {
     box.replaceChildren(el("p", "muted", "Preparing: the site builds this transaction and tries it on the blockchain first (nothing is sent)."));
     let h;
     try {
@@ -61,6 +61,9 @@
       if (e && e.detail && Array.isArray(e.detail.reasons)) box.append(reasonList(e.detail.reasons));
       return;
     }
+    // a step can check the built transaction against what its card showed, and put what matters most above the list
+    const head = check ? check(h.response) : null;
+    if (head && head.stop) { box.replaceChildren(head.node); return; }
     const sum = el("div", "lp-sum");
     window.LP.renderSummary(sum, h.response);
     const line = el("p", "lp-status");
@@ -87,10 +90,32 @@
     }, "btn btn--primary");
     const cancel = btn("Cancel", () => box.replaceChildren());
     const row = el("div", "admin-row"); row.append(go, cancel);
-    box.replaceChildren(sum, row, line);
+    box.replaceChildren(...(head ? [head.node] : []), sum, row, line);
     go.focus();
   }
   const reasonList = (reasons) => { const ul = el("ul", "lp-reasons"); for (const r of reasons) ul.append(el("li", null, r)); return ul; };
+  /**
+   * The approval's own arguments, read back from the transaction's bytes by the site (summary entry approve_launch, .fields): they
+   * must be the card's name, ticker, founder and city, or nothing is offered. Shown big, because the wallet does not show them.
+   */
+  function approveCheck(c) {
+    return (res) => {
+      const ix = (res.summary || []).find((x) => x.ix === "approve_launch");
+      const f = ix && ix.fields;
+      if (!f || f.cityId !== c.cityId || f.name !== c.name || f.symbol !== c.symbol || f.founder !== c.founder) {
+        return { stop: true, node: el("p", "lp-error", "The transaction the site built does not match this card. Nothing was sent. Reload the page; if it happens again, tell the team.") };
+      }
+      const wrap = el("div", "lp-note lp-approve");
+      wrap.append(el("p", "lp-strong", "You are approving, for ever on the blockchain:"));
+      const dl = el("dl", "lp-facts");
+      fact(dl, "Coin name", f.name);
+      fact(dl, "Ticker", `$${f.symbol}`);
+      fact(dl, "Founder wallet (only it can launch)", addr(f.founder));
+      fact(dl, "Can launch until", `${new Date(f.expiresAt).toLocaleString()} (${f.expiresAt.slice(0, 16).replace("T", " ")} UTC)`);
+      wrap.append(dl, el("p", "muted small", "Check the name and the founder wallet once more. Your wallet will not show them: it only shows the accounts and the SOL."));
+      return { node: wrap };
+    };
+  }
 
   /* ---------------------------------------------------------------- setup */
   const BADGE = { done: "Done", ready: "Ready", blocked: "Waiting" };
@@ -200,6 +225,8 @@
       const dl = el("dl", "lp-facts");
       fact(dl, "Coin", `${c.name} · $${c.ticker || "?"} · paired with ${c.pair}`);
       fact(dl, "Founder", c.founder ? addr(`${c.handle ? `@${c.handle} · ` : ""}${c.founder}`) : "No founder seat");
+      fact(dl, "Description (wallets and Jupiter show it for ever)", c.pitch || "None: the standard text is used");
+      fact(dl, "Logo", c.logo ? "Yes (on the coin page; you can still take it down later)" : "None: the Vicinity logo is used");
       card.append(dl);
       for (const wmsg of c.warnings || []) card.append(el("p", "lp-warn", wmsg));
       const box = el("div", "lp-step__box");
@@ -209,8 +236,10 @@
         sel.value = "7";
         const lab = el("label", "field"); lab.append(el("span", "fieldset__label", "The founder can launch within"), sel);
         const row = el("div", "admin-row");
-        row.append(lab, btn("Approve on chain", () => signFlow(box, { path: "/api/admin/lp/approve/tx", body: { cityId: c.cityId, expiryDays: Number(sel.value) }, after: rerender }), "btn btn--primary"));
-        card.append(row, el("p", "muted small", "Your wallet pays the approval's rent (about 0.002 SOL); it comes back when the founder launches or you revoke."));
+        // the card sends what it shows: the site builds nothing if the design changed since (reload and look again)
+        const seen = { cityId: c.cityId, name: c.name, symbol: c.symbol, founder: c.founder, designAt: c.designAt };
+        row.append(lab, btn("Approve on chain", () => signFlow(box, { path: "/api/admin/lp/approve/tx", body: { ...seen, expiryDays: Number(sel.value) }, check: approveCheck(c), after: rerender }), "btn btn--primary"));
+        card.append(row, el("p", "muted small", "Your wallet pays the approval's rent (about 0.0016 SOL); it comes back when the founder launches or you revoke. From the moment you prepare it, the founder can no longer change this design."));
       } else card.append(el("p", "lp-strong", "Not yet:"), reasonList(c.reasons));
       card.append(box);
       body.append(card);
@@ -225,6 +254,7 @@
       fact(dl, "Founder", addr(a.approval.founder));
       fact(dl, "Expires", `${new Date(a.approval.expiresAt).toLocaleString()}${a.approval.expired ? " (expired)" : ""}`);
       card.append(dl);
+      for (const wmsg of a.warnings || []) card.append(el("p", "lp-warn", wmsg));
       const box = el("div", "lp-step__box");
       card.append(btn("Revoke", () => signFlow(box, { path: "/api/admin/lp/revoke/tx", body: { cityId: a.cityId }, after: rerender })), box);
       body.append(card);

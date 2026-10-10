@@ -17,12 +17,12 @@
  */
 import { json } from "./http.js";
 import { rpc } from "./chain.js";
-import { isSolanaAddress } from "./solana.js";
+import { base58Encode, isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { lpSetup } from "./cluster.js";
 import { issueTicket, rpcRaw, simulationError } from "./relay.js";
 import { MAX_TX_BYTES, compileLegacy, compileV0, decodeHeader, wrapUnsigned } from "./sol/message.js";
-import { readU32, readU64, toBase64 } from "./sol/bytes.js";
+import { readI64, readU32, readU64, toBase64 } from "./sol/bytes.js";
 import { ADDRESSES, PROGRAM_IDS } from "./sol/pda.js";
 import { maxCuPrice, priorityFeeLamports, setComputeUnitLimit, setComputeUnitPrice } from "./sol/ix.js";
 import { accountBytes, decodeLookupTable } from "./sol/dbc.js";
@@ -116,16 +116,45 @@ const ALT_IX = { 0: "create_lookup_table", 1: "freeze_lookup_table", 2: "extend_
 const LOADER_IX = { 0: "initialize_buffer", 1: "write", 2: "deploy_with_max_data_len", 3: "upgrade", 4: "set_authority", 5: "close", 6: "extend_program", 7: "set_authority_checked" };
 const sol = (lamports) => `${(Number(lamports) / 1e9).toLocaleString("en-US", { maximumFractionDigits: 9 })} SOL`;
 
-/** { ix, say, detail } of one instruction ({ programAddress, data }) under the site's programs. */
+/**
+ * approve_launch's arguments, read back from the instruction's own bytes (city id u64, founder pubkey, name and symbol as Borsh
+ * strings, expires_at i64): what the owner's signature fixes for ever, so the page shows it before the wallet opens (a wallet does
+ * not decode our program). null when the bytes do not parse.
+ */
+export function decodeApproveLaunch(d) {
+  try {
+    let at = 8;
+    const cityId = readU64(d, at).toString(); at += 8;
+    if (d.length < at + 32) return null;
+    const founder = base58Encode(d.subarray(at, at + 32)); at += 32;
+    const text = () => {
+      const n = readU32(d, at); at += 4;
+      if (n > 64 || at + n > d.length) throw new Error("bad");
+      const v = new TextDecoder("utf-8", { fatal: true }).decode(d.subarray(at, at + n)); at += n; return v;
+    };
+    const name = text(), symbol = text();
+    if (at + 8 !== d.length) return null;
+    const expiresAt = Number(readI64(d, at));
+    return { cityId, founder, name, symbol, expiresAt: new Date(expiresAt * 1000).toISOString() };
+  } catch { return null; }
+}
+const utcMinute = (isoString) => `${isoString.slice(0, 10)} ${isoString.slice(11, 16)} UTC`;
+
+/** { ix, say, detail, fields? } of one instruction ({ programAddress, data }) under the site's programs. */
 export async function nameInstruction(env, ix) {
   const s = lpSetup(env), p = ix.programAddress, d = ix.data || new Uint8Array(0);
-  const out = (name, detail = null) => ({ ix: name, say: (name && SAY[name]) || (name ? name.replace(/_/g, " ") : "unknown instruction"), detail });
+  const out = (name, detail = null, fields = null) => ({ ix: name, say: (name && SAY[name]) || (name ? name.replace(/_/g, " ") : "unknown instruction"), detail, ...(fields ? { fields } : {}) });
   try {
     const key = p === s.programId ? "launchpad" : p === s.rewardsProgramId ? "rewards" : p === PROGRAM_IDS.dbc ? "dbc" : p === PROGRAM_IDS.damm ? "damm" : null;
     if (key) {
       if (d.length < 8) return out(null);
       const hex8 = [...d.subarray(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
-      return out((await anchorNames()).get(`${key}|${hex8}`) || null);
+      const name = (await anchorNames()).get(`${key}|${hex8}`) || null;
+      if (key === "launchpad" && name === "approve_launch") {
+        const a = decodeApproveLaunch(d);
+        if (a) return out(name, `the coin "${a.name}", ticker $${a.symbol}, founder wallet ${a.founder}, who can launch it until ${utcMinute(a.expiresAt)}`, a);
+      }
+      return out(name);
     }
     switch (p) {
       case PROGRAM_IDS.computeBudget:
@@ -154,7 +183,7 @@ export async function summarize(env, instructions, labels = {}) {
   const out = [];
   for (const ix of instructions) {
     const n = await nameInstruction(env, ix);
-    out.push({ program: ix.programAddress, programName: names[ix.programAddress] || "Unknown program", ix: n.ix, say: n.say, detail: n.detail,
+    out.push({ program: ix.programAddress, programName: names[ix.programAddress] || "Unknown program", ix: n.ix, say: n.say, detail: n.detail, ...(n.fields ? { fields: n.fields } : {}),
       accounts: ix.accounts.map((a) => ({ address: a.address, role: ROLE[a.role & 3], label: label(a.address) })) });
   }
   return out;
@@ -225,7 +254,8 @@ const lamportsOf = (acc) => (acc && Number.isFinite(Number(acc.lamports)) ? Numb
  *   extraSigners  public keys of one-time keys made in the browser (public/lp-sign.js); every signer of the instructions must be
  *                 the payer or one of these, or nothing is built (the Worker never builds what needs somebody else's key)
  *   lookupTable   an address (read from the chain) or { key, addresses }: version 0; none: legacy
- *   cuLimit       a fixed compute limit; without it the simulation measures one (+15%, at least 50,000)
+ *   cuLimit       a fixed compute limit; without it the simulation measures one (+15%, at least 50,000), and the transaction with
+ *                 that limit is simulated again (the bytes handed out are always simulated bytes)
  *   cuPrice       micro-lamports per unit (default the LAUNCHPAD_CU_PRICE setting, capped so the priority fee stays <= 0.01 SOL)
  *   watch         addresses whose SOL change is reported (default: the payer)
  *   labels        { address: "plain words" } for the summary
@@ -291,11 +321,13 @@ export async function buildTx(env, { payer, instructions, extraSigners = [], loo
     if (sim.ok && !fixedLimit && sim.unitsConsumed) {
       const tuned = Math.min(MAX_CU, Math.max(50_000, Math.ceil(sim.unitsConsumed * 1.15)));
       if (tuned !== limit) {
+        // the bytes handed to the wallet are always the bytes simulated last: the tuned limit is tried once more (the priority fee
+        // is charged on the limit, so the SOL change is read again too); if the tuned limit is too low, the full-limit bytes that
+        // already passed are kept
         const again = compile(tuned);
         if (!again.error) {
-          limit = tuned; built = again;
-          // the priority fee is charged on the limit: with one, the SOL change is read again from the final bytes
-          if (priceFor(limit) > 0n) sim = await simulateWith(built);
+          const sim2 = await simulateWith(again);
+          if (sim2.ok) { limit = tuned; built = again; sim = sim2; }
         }
       }
     }

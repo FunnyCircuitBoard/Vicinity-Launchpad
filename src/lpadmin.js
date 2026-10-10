@@ -15,7 +15,8 @@
  *   POST record             { step, signature, cluster, params }: confirms it on chain, then lp_setup / lp_approvals_log
  *   GET  summary            the setup summary the owner sends to the team (PLAN C5)
  *   GET  candidates         cities whose coin can be approved (PLAN D10), each blocked one with its reasons; approvals waiting
- *   POST approve/tx         { cityId, expiryDays }      POST revoke/tx { cityId }
+ *   POST approve/tx         { cityId, expiryDays, name, symbol, founder, designAt } (what the card showed: refused when it changed)
+ *   POST revoke/tx          { cityId }
  *   GET  coins              launched coins: stage, fees waiting, holder rewards set up or not
  *   POST collect/tx | init-city/tx | forward/tx { cityId }     POST pause/tx { launches }
  *   GET  platform/plan      the dev wallet's platform fees waiting       POST platform/tx  the next claim transaction (13qRam only)
@@ -39,6 +40,7 @@ import { bytesEqual, fromBase64, readI64, readU32, readU64 } from "./sol/bytes.j
 import { compileLegacy, MAX_TX_BYTES, wrapUnsigned } from "./sol/message.js";
 import { DBC_CONFIG_DEFAULTS, DBC_PROGRAM_SHA256, EXPECTED_POOL_CONFIG } from "./sol/dbc-config-data.js";
 import { checkMultisig } from "./sol/squads.js";
+import { holdDesign } from "./lpcoins.js";
 import * as IX from "./sol/lpadmin-ix.js";
 
 const DEV = ADDRESSES.feeRecipient;
@@ -47,6 +49,7 @@ const U64_MAX = (1n << 64n) - 1n;
 const DAY_S = 86_400;
 const APPROVAL_MAX_S = Number(LAYOUT.constants.APPROVAL_MAX_SECS); // 30 days: the program's own limit
 const SIG_RE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
+const TOKEN_ACCOUNT_BYTES = 165, LOOKUP_TABLE_META_BYTES = 56;
 export const STEPS = Object.freeze(["start", "handoff", "config", "allow", "referral", "lookup", "partner"]);
 const TITLE = {
   start: "Start the launchpad", handoff: "Hand the programs to your Squads", config: "Create the Meteora price curve", allow: "Allow the price curve",
@@ -183,7 +186,25 @@ function configFacts(acc) {
 
 /* ---------------------------------------------------------------- reading the chain */
 const programHashes = new Map(); // "<programData>|<slot>" -> { size, sha256 }
-export const _resetLpAdmin = () => programHashes.clear();
+const rentRates = new Map(); // "<cluster>|<rpc>" -> lamports per byte (Solana's rent, read from the cluster once per server)
+export const _resetLpAdmin = () => { programHashes.clear(); rentRates.clear(); };
+/**
+ * Solana's rent per byte on this cluster (getMinimumBalanceForRentExemption(0) / 128: every account carries 128 bytes of
+ * overhead), read once per server; null when the node did not answer (the page then names no number; the simulated SOL change is
+ * exact anyway). The rent was cut from 6,960 to 5,080 lamports per byte in 2026, so no number here is hard-coded.
+ */
+async function rentPerByte(env, s, fetchImpl) {
+  const k = `${s.cluster}|${s.rpc}`;
+  if (rentRates.has(k)) return rentRates.get(k);
+  try {
+    const v = Number(await lpRpc(env, "getMinimumBalanceForRentExemption", [0], fetchImpl));
+    if (!Number.isSafeInteger(v) || v <= 0 || v % 128 !== 0) return null;
+    rentRates.set(k, v / 128);
+    return v / 128;
+  } catch (e) { console.error("rent read failed", codeOf(e)); return null; }
+}
+/** "about 0.006 SOL of rent" for an account of `dataBytes` (or for several), or a plain "a little rent" when the rate is unknown. */
+const rentWords = (perByte, ...dataBytes) => (perByte ? `about ${sol(dataBytes.reduce((a, n) => a + (128 + n) * perByte, 0))} of rent` : "a little rent");
 async function programHash(env, programData, slot, fetchImpl) {
   const k = `${programData}|${slot}`;
   if (programHashes.has(k)) return programHashes.get(k);
@@ -272,8 +293,9 @@ async function readState(env, s, wallet, fetchImpl, { hashes = false } = {}) {
   }
   const table = lookup ? decodeTable(get(lookup)) : null;
   const ms = multisig ? await checkMultisig(multisig, get(multisig)) : null;
+  const rent = await rentPerByte(env, s, fetchImpl);
   return {
-    s, wallet, setup, programs, allowList, vicinityMint, dbc,
+    s, wallet, setup, programs, allowList, vicinityMint, dbc, rent,
     launchpad: decodeLaunchpad(get(lpPda), s.programId), launchpadAddress: lpPda,
     registry: decodeRegistry(get(regPda), s.rewardsProgramId), registryAddress: regPda,
     config: config ? { address: config, source: configSource, exists: Boolean(cfgAcc), diff: cfgAcc ? configDiff(cfgAcc) : null, facts: cfgAcc ? configFacts(cfgAcc) : null } : null,
@@ -339,7 +361,7 @@ export async function setupSteps(st) {
   else if (c && c.exists && c.source === "settings") s3 = step("config", "done", `The price curve ${c.address} comes from the settings. It differs from the mainnet defaults in: ${c.diff.join(", ")}.`, { address: c.address, note: true });
   else if (c && c.exists) s3 = step("config", "blocked", `The price curve ${c.address} differs from Vicinity's defaults in: ${c.diff.join(", ")}. Tell the team; do not allow it.`, { address: c.address });
   else if (s2.state === "done" && st.dbc && st.dbc.sha256 && st.dbc.sha256 !== st.dbc.pinned) s3 = step("config", "blocked", `Meteora has updated its bonding-curve program since the team checked it (its fingerprint is now ${st.dbc.sha256.slice(0, 12)}…, the checked one ${st.dbc.pinned.slice(0, 12)}…). A price curve made now may differ from the tested one, so this step waits. Nothing was spent; tell the team, who re-check Meteora's new program first.`, { dbc: { sha256: st.dbc.sha256, pinned: st.dbc.pinned, slot: st.dbc.slot } });
-  else s3 = after2("config", true, `Creates the Meteora price curve with a one-time key made in this browser (about ${sol(8_184_960)} of rent).${c && c.source === "recorded" ? ` The recorded curve ${c.address} is not on chain, so a new one is made.` : ""}`, { ephemeral: 1 });
+  else s3 = after2("config", true, `Creates the Meteora price curve with a one-time key made in this browser (${rentWords(st.rent, LAYOUT.PoolConfig.size)}).${c && c.source === "recorded" ? ` The recorded curve ${c.address} is not on chain, so a new one is made.` : ""}`, { ephemeral: 1 });
   out.push(s3);
 
   // 4 allow
@@ -355,7 +377,7 @@ export async function setupSteps(st) {
   const noMint = st.referral.find((r) => r.missingMint);
   let s5;
   if (!missing.length) s5 = step("referral", "done", `The dev wallet's fee account${st.referral.length > 1 ? "s exist" : " exists"}: ${st.referral.filter((r) => r.account).map((r) => `${r.symbol} ${r.account}`).join("; ")}.${noMint ? " The $VICINITY contract could not be read, so its account is missing." : ""}${!st.vicinityMint && s.cluster === "mainnet" ? " ($VICINITY's contract is not set, so only the SOL account is needed.)" : ""}`);
-  else s5 = after2("referral", true, `Creates the dev wallet's fee account${missing.length > 1 ? "s" : ""} for ${missing.map((r) => r.symbol).join(" and ")} (every trade on the site pays its referral fee there; anyone may pay the rent, about ${sol(2_039_280 * missing.length)}).`, { missing: missing.map((r) => r.symbol) });
+  else s5 = after2("referral", true, `Creates the dev wallet's fee account${missing.length > 1 ? "s" : ""} for ${missing.map((r) => r.symbol).join(" and ")} (every trade on the site pays its referral fee there; ${rentWords(st.rent, ...missing.map(() => TOKEN_ACCOUNT_BYTES))}, which anyone may pay).`, { missing: missing.map((r) => r.symbol) });
   out.push(s5);
 
   // 6 lookup (speed) table
@@ -371,14 +393,14 @@ export async function setupSteps(st) {
     else if (t.authority !== wallet) s6 = step("lookup", "blocked", `${notYours(`The speed table's authority`, t.authority, wallet)} It misses ${lack.length} address${lack.length === 1 ? "" : "es"}.`);
     else s6 = after2("lookup", true, `Adds the ${lack.length} missing address${lack.length === 1 ? "" : "es"} to the speed table ${t.address}.`, { extend: lack.length, address: t.address });
   } else if (t && t.source === "settings") s6 = step("lookup", "blocked", `The speed table in the settings (${t.address}) is not on chain. Tell the team.`);
-  else s6 = after2("lookup", true, `Creates the speed table (an address lookup table, about ${sol(1_670_400 + 222_720 * want.length)} of rent) and fills it with the ${want.length} addresses every city-coin transaction shares, so a launch with a first buy fits in one transaction.`);
+  else s6 = after2("lookup", true, `Creates the speed table (an address lookup table, ${rentWords(st.rent, LOOKUP_TABLE_META_BYTES + 32 * want.length)}) and fills it with the ${want.length} addresses every city-coin transaction shares, so a launch with a first buy fits in one transaction.`);
   out.push(s6 || step("lookup", "blocked", "Do step 2 first (hand the programs to your Squads)."));
 
   // 7 partner metadata (only the dev wallet can sign)
   let s7;
   if (st.partner.exists) s7 = step("partner", "done", `Meteora names the dev wallet's configs "Vicinity" (${st.partner.address}).`);
   else if (wallet !== DEV) s7 = step("partner", "blocked", `Only the dev wallet ${DEV} can sign this (it is Meteora's fee claimer for our price curve). Sign in to this page with it to do this step.`);
-  else s7 = after2("partner", true, "Gives Meteora and Jupiter Vicinity's name, website and logo for our price curve (about 0.002 SOL of rent, once).");
+  else s7 = after2("partner", true, "Gives Meteora and Jupiter Vicinity's name, website and logo for our price curve (a little rent, once).");
   out.push(s7);
   return out;
 }
@@ -665,7 +687,7 @@ const symbolOk = (t) => typeof t === "string" && /^[A-Z0-9]{1,10}$/.test(t);
 /** Every city with a coin design: its founder, name, ticker, pair and what keeps it from being approved now. */
 async function candidateList(env, ctx, fetchImpl, now) {
   const s = lpSetup(env), db = env.DB;
-  const rows = (await db.prepare(`SELECT cc.city_id, cc.city_name, cc.country, cc.name, cc.pair, cc.mint, cc.seat_id,
+  const rows = (await db.prepare(`SELECT cc.city_id, cc.city_name, cc.country, cc.name, cc.pitch, cc.media_id, cc.updated_at, cc.pair, cc.mint, cc.seat_id,
       s.id AS live_seat, s.status AS seat_status, s.wallet AS seat_wallet, u.wallet AS user_wallet, u.handle
     FROM city_coins cc
     LEFT JOIN seats s ON s.city_id = cc.city_id AND s.status IN ('provisional', 'active', 'grace', 'steward')
@@ -682,7 +704,7 @@ async function candidateList(env, ctx, fetchImpl, now) {
   const config = s.dbcConfigs[0] || null;
   const lc = config ? decodeLaunchConfig((await readAccounts(env, [await L.launchConfig(config)], fetchImpl)).values().next().value || null, s.programId) : null;
   const global = [];
-  if (!s.configsSet) global.push("Trading settings are not switched on yet (the team sets LAUNCHPAD_DBC_CONFIGS after your setup and the read-only check).");
+  if (!s.configsSet) global.push("City-coin trading is not switched on yet: the team switches it on after your setup steps and their read-only check.");
   else if (!lc || !lc.enabled) global.push("The price curve in the settings is not allowed on the launchpad yet (setup step 4).");
   else if (lc.quoteMint !== WSOL) global.push("The price curve in the settings is not priced in SOL.");
   if (!lp) global.push("The launchpad is not started yet (setup step 1).");
@@ -697,7 +719,17 @@ async function candidateList(env, ctx, fetchImpl, now) {
     const base = { cityId: String(id), cityName: r.city_name, country: r.country, name: r.name, pair: r.pair, ticker: t ? t.ticker : null, founder: r.seat_wallet || null, handle: r.handle || null };
     if (coin || r.mint) { launched.push({ ...base, mint: r.mint || null }); continue; }
     if (ap) {
-      approvals.push({ ...base, approval: { founder: ap.founder, name: ap.name, symbol: ap.symbol, expiresAt: iso(ap.expiresAt * 1000), expired: ap.expiresAt * 1000 <= now, rentPayer: ap.rentPayer } });
+      // the program checks only the approved wallet, the expiry and the pause: a wallet that lost the founder seat can still launch
+      // the city's official coin until the approval expires, so the owner is told to revoke it
+      const expired = ap.expiresAt * 1000 <= now;
+      const warnings = [];
+      if (!expired) {
+        if (!r.live_seat) warnings.push("The approved wallet no longer holds the founder seat (the city has no founder now), but it can still launch this city's coin on chain until the approval expires. Revoke it.");
+        else if (r.seat_wallet !== ap.founder) warnings.push(`The approved wallet no longer holds the founder seat (it is now ${r.seat_wallet}), but it can still launch this city's coin on chain until the approval expires. Revoke it.`);
+        else if (!["active", "steward"].includes(r.seat_status)) warnings.push(`The founder's seat is ${r.seat_status === "grace" ? "in its grace period (their balance fell below the bar)" : r.seat_status === "provisional" ? "not final (still in its appeal window)" : r.seat_status}. This website will not let them launch, but the approval still works on chain until it expires. Revoke it unless they recover soon.`);
+      }
+      approvals.push({ ...base, approval: { founder: ap.founder, name: ap.name, symbol: ap.symbol, expiresAt: iso(ap.expiresAt * 1000), expired, rentPayer: ap.rentPayer },
+        seat: { wallet: r.seat_wallet || null, status: r.live_seat ? r.seat_status : null }, warnings });
       continue;
     }
     const reasons = [...global];
@@ -712,7 +744,8 @@ async function candidateList(env, ctx, fetchImpl, now) {
     else if (!r.user_wallet || r.user_wallet !== r.seat_wallet) reasons.push(`The founder's account now uses another wallet (${r.user_wallet || "none"}) than the one that holds the seat (${r.seat_wallet}). Approve only the wallet that will sign the launch.`);
     const warnings = [];
     if (r.seat_wallet && lp && r.seat_wallet === lp.admin) warnings.push("The founder is the launchpad admin's own wallet.");
-    candidates.push({ ...base, symbol: t ? t.ticker : null, nameBytes: new TextEncoder().encode(r.name || "").length, ok: reasons.length === 0, reasons, warnings });
+    candidates.push({ ...base, symbol: t ? t.ticker : null, pitch: r.pitch || "", logo: Boolean(r.media_id), designAt: r.updated_at || null,
+      nameBytes: new TextEncoder().encode(r.name || "").length, ok: reasons.length === 0, reasons, warnings });
   }
   return { candidates, approvals, launched, global, config, admin: lp ? lp.admin : null, paused: lp ? lp.launchesPaused : null };
 }
@@ -731,13 +764,24 @@ async function approveTx(env, ctx, body, fetchImpl, now) {
     return err("not_a_candidate", "This city has no coin design to approve.", 404);
   }
   if (!c.ok) return err("blocked", c.reasons.join(" "), 409, { reasons: c.reasons });
+  // the owner approves what his page showed him: the card sends the coin's name, ticker, founder wallet and the time the design was
+  // last saved, and nothing is built when any of them changed since (a founder renaming the coin while the card was on screen)
+  const seen = { name: body.name, symbol: body.symbol, founder: body.founder, designAt: body.designAt };
+  if (seen.name !== c.name || seen.symbol !== c.symbol || seen.founder !== c.founder || seen.designAt !== c.designAt) {
+    return err("design_changed", "This coin's design changed since the page showed it to you (its name, ticker, founder, description or logo). Nothing was built. Reload the page, check the city again, then approve.", 409, { cityId: String(cityId) });
+  }
   const nowS = Math.floor(now / 1000);
   // the program refuses more than 30 days after ITS clock: ten minutes of slack at the longest choice
   const expiresAt = nowS + Math.min(days * DAY_S, APPROVAL_MAX_S - 600);
   const ix = await IX.approveLaunch({ programId: s.programId, admin: ctx.wallet, cityId, founder: c.founder, name: c.name, symbol: c.symbol, expiresAt, dbcConfig: list.config });
   const L = launchpadPdas(s.programId);
   const r = await buildTx(env, { payer: ctx.wallet, instructions: [ix], labels: { [await L.approval(cityId)]: `${c.cityName}'s approval (new; its rent comes back at launch or revoke)`, [c.founder]: `the founder of ${c.cityName}` } }, fetchImpl, now);
-  if (r.ok) Object.assign(r, { step: "approve", cityId: String(cityId), record: { step: "approve", params: { cityId: String(cityId) } }, approve: { name: c.name, symbol: c.symbol, founder: c.founder, expiresAt: iso(expiresAt * 1000), days } });
+  if (r.ok) {
+    // from now until this transaction lands (or its blockhash dies), and then for as long as the approval is on chain, the founder
+    // cannot change the design (src/coins.js handleDesign): what the owner approved is what launches and what /coin-meta shows
+    await holdDesign(env, cityId, now);
+    Object.assign(r, { step: "approve", cityId: String(cityId), record: { step: "approve", params: { cityId: String(cityId) } }, approve: { name: c.name, symbol: c.symbol, founder: c.founder, expiresAt: iso(expiresAt * 1000), days } });
+  }
   return respond(r);
 }
 

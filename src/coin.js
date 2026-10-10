@@ -69,7 +69,8 @@ async function build(env, coin, fetchImpl, now) {
     lpRow = (await recordedCoins(env)).get(coin.mint) || null;
     if (lpRow) lpCurve = await curveOf(env, lpRow, fetchImpl, now);
   } catch (e) { live.ok = false; console.error("coin curve unavailable", codeOf(e)); }
-  if (lpRow) applyLpMarket(market, lpCurve, live.pairPrices.get(coin.pairMint) ?? null);
+  // the curve's own quote token prices it (the chain's, never the design's pair: a USD price off by the price of SOL otherwise)
+  if (lpRow) applyLpMarket(market, lpCurve, live.pairPrices.get(lpRow.quote_mint) ?? null);
   let holders = null, holdersOk = true;
   try {
     await ensureLaunchpadSchema(env.DB);

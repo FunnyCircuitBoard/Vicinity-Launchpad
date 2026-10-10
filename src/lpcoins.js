@@ -72,14 +72,20 @@ export function ensureLpCoinsSchema(db) {
   }
   return ready.get(db);
 }
-/** The recorded row of a mint, or null. With `create` false (the gate is off) the table is never made: a missing table is "none". */
+const noTable = new WeakSet(); // databases where lp_coins was missing while the gate was off (per server; a deploy that turns it on starts fresh)
+/**
+ * The recorded row of a mint, or null. With `create` false (the gate is off) the table is never made: a missing table is "none",
+ * and it is remembered for the life of the server, so a /coin-meta request costs no database work at all while the city-coin
+ * settings are absent and no coin was ever recorded (lp_coins is only ever created by a call made with the gate on).
+ */
 export async function recordedByMint(env, mint, { create = true } = {}) {
   if (!env.DB || !isSolanaAddress(mint)) return null;
+  if (!create && noTable.has(env.DB)) return null;
   try {
-    if (create) await ensureLpCoinsSchema(env.DB); else await ensureSchema(env.DB);
+    if (create) await ensureLpCoinsSchema(env.DB);
     return await env.DB.prepare("SELECT * FROM lp_coins WHERE mint = ?").bind(mint).first();
   } catch (e) {
-    if (/no such table/i.test(String(e && e.message))) return null;
+    if (/no such table/i.test(String(e && e.message))) { if (!create) noTable.add(env.DB); return null; }
     throw e;
   }
 }
@@ -115,11 +121,20 @@ async function coinRecords(env, s, fetchImpl, mint = null) {
   }
   return out;
 }
-/** The Coin record of a mint from the chain (null when our program has none). */
-export async function coinByMint(env, mint, fetchImpl = fetch) {
+/**
+ * The Coin record of a mint from the chain (null when our program has none). A getProgramAccounts is the most expensive call at
+ * RPC providers, so a mint is looked up that way only after its Metaplex metadata (one getAccountInfo) points at our own
+ * /coin-meta URL, which our program writes for every coin it launches; and a miss is remembered for 5 minutes per server.
+ */
+export async function coinByMint(env, mint, fetchImpl = fetch, now = Date.now()) {
   const s = lpSetup(env);
   if (!s.on || !isSolanaAddress(mint)) return null;
-  return (await coinRecords(env, s, fetchImpl, mint))[0] || null;
+  if (knownMissing(mint, now)) return null;
+  const md = await chainMetadata(env, mint, fetchImpl);
+  if (!md || md.uri !== metadataUriFor(mint)) { rememberMissing(mint, now); return null; }
+  const c = (await coinRecords(env, s, fetchImpl, mint))[0] || null;
+  if (!c) rememberMissing(mint, now);
+  return c;
 }
 /** The coin's Metaplex metadata from the chain: { name, symbol, uri, ... } or null. */
 export async function chainMetadata(env, mint, fetchImpl = fetch) {
@@ -182,7 +197,8 @@ export async function recordLaunchedCoin(env, { cityId = null, mint = null, coin
     row = await db.prepare("SELECT * FROM lp_coins WHERE cluster = ? AND program_id = ? AND city_id = ?").bind(s.cluster, s.programId, city).first();
     if (!row || row.mint !== c.mint) return { ok: false, error: "conflict" };
   }
-  const locked = await lockDesign(env, row, now); // idempotent: the mint only where it is empty, the log line only when it was set
+  // idempotent: the mint only where it is empty, the log line only when it was set; the design's name and pair become the chain's
+  const locked = await lockDesign(env, row, { name: md ? md.name : row.name, quoteMint: c.quoteMint }, now);
   // the metadata JSON is built once, from the chain's name and symbol, and served from here for ever (src/coinmeta.js)
   if (md && md.uri === metadataUriFor(c.mint)) {
     try {
@@ -193,21 +209,33 @@ export async function recordLaunchedCoin(env, { cityId = null, mint = null, coin
   }
   return { ok: true, recorded: !known, row, locked };
 }
+/** The design's pair (src/coins.js PAIRS) of a quote mint, or null for a quote the design form does not know. */
+const pairOfQuote = (quoteMint) => QUOTE_SYMBOL[quoteMint] ?? null;
 /**
  * city_coins.mint for the city, only when it is empty (the design is locked from then on, src/coins.js), and a public log line.
+ * The design row's name and pair are set to what the chain says (`chain`: { name: the coin's Metaplex name, quoteMint }), so the
+ * site never shows a name or a pair nobody approved (the approval fixes the name on chain; the price curve fixes the pair).
  * true: set now · false: already this mint · "conflict": another mint is recorded there (nothing changes) · null: no design row.
  */
-async function lockDesign(env, row, now) {
+async function lockDesign(env, row, chain, now) {
   const db = env.DB;
+  const name = chain && typeof chain.name === "string" && chain.name ? chain.name : null;
+  const pair = chain ? pairOfQuote(chain.quoteMint) : null;
+  const usable = pair && ["SOL", "USDC"].includes(pair) ? pair : null; // RAY/USDT are not quote mints the design form can name truthfully here
   let r;
   try {
-    r = await db.prepare("UPDATE city_coins SET mint = ?, pending_mint = NULL, pending_at = NULL, launched_at = ?, launched_by = NULL WHERE city_id = ? AND mint IS NULL")
-      .bind(row.mint, row.launched_at || iso(now), String(row.city_id)).run();
+    r = await db.prepare(`UPDATE city_coins SET mint = ?, pending_mint = NULL, pending_at = NULL, launched_at = ?, launched_by = NULL,
+        name = COALESCE(?, name), pair = COALESCE(?, pair) WHERE city_id = ? AND mint IS NULL`)
+      .bind(row.mint, row.launched_at || iso(now), name, usable, String(row.city_id)).run();
   } catch (e) { console.error("lp record: city coin not updated", codeOf(e)); return "conflict"; }
   const design = await db.prepare("SELECT city_name, country, user_id, mint FROM city_coins WHERE city_id = ?").bind(String(row.city_id)).first();
   if (!design) { console.error("lp record: no design row for a launched city coin"); return null; }
   if (!r.meta.changes) {
-    if (design.mint === row.mint) return false;
+    if (design.mint === row.mint) {
+      // recorded before (perhaps before the chain's name could be read): the name and pair follow the chain again
+      if (name || usable) await db.prepare("UPDATE city_coins SET name = COALESCE(?, name), pair = COALESCE(?, pair) WHERE city_id = ? AND mint = ?").bind(name, usable, String(row.city_id), row.mint).run();
+      return false;
+    }
     console.error("lp record conflict: the city already has another mint recorded; nothing changed");
     return "conflict";
   }
@@ -215,6 +243,49 @@ async function lockDesign(env, row, now) {
       VALUES (?, 'founder', 'coin_launched', 'city_coin', NULL, ?, ?, ?, 'launch', ?, ?, 'done')`)
     .bind(design.user_id, design.user_id, design.country, String(row.city_id),
       `${design.city_name}: launched on the Vicinity launchpad (Solana ${row.cluster}), contract ${row.mint}. Recorded from the blockchain; the coin design is locked.`, iso(now)).run();
+  return true;
+}
+
+/* ---------------------------------------------------------------- the design is frozen from the approval on */
+/** How long an approval built by the owner keeps the founder from editing the design (its blockhash is long dead by then). */
+export const DESIGN_HOLD_MS = 5 * 60_000;
+const holdKey = (cityId) => `lp_design_hold:${String(cityId)}`;
+/** The owner just built an approval for this city (src/lpadmin.js approveTx): the design may not change until it lands or dies. */
+export async function holdDesign(env, cityId, now = Date.now()) {
+  await ensureSchema(env.DB);
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(holdKey(cityId), iso(now + DESIGN_HOLD_MS)).run();
+}
+/**
+ * Why a city's coin design may not change now (only while the gate is on): "approved" (the city's Approval record is on chain: its
+ * name and ticker are fixed there, and the owner approved the design he saw), "launched" (its Coin record is on chain, perhaps
+ * not recorded here yet), "held" (the owner is approving it right now), or null. Throws when the chain cannot be read, so the
+ * caller refuses rather than lets an approved design change.
+ */
+export async function designFrozen(env, cityId, fetchImpl = fetch, now = Date.now()) {
+  const s = lpSetup(env);
+  if (!s.on || !/^\d{1,19}$/.test(String(cityId)) || BigInt(cityId) <= 0n || BigInt(cityId) >= (1n << 64n) - 1n) return null;
+  await ensureSchema(env.DB);
+  const h = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(holdKey(cityId)).first();
+  if (h && Date.parse(h.value) > now) return "held";
+  const P = launchpadPdas(s.programId);
+  const [approval, coin] = await Promise.all([P.approval(BigInt(cityId)), P.coin(BigInt(cityId))]);
+  const r = await lpRpc(env, "getMultipleAccounts", [[approval, coin], { encoding: "base64", commitment: "confirmed", dataSlice: { offset: 0, length: 0 } }], fetchImpl);
+  const v = r && Array.isArray(r.value) && r.value.length === 2 ? r.value : null;
+  if (!v) throw new Error("rpc_bad_answer");
+  if (v[1] && v[1].owner === s.programId) return "launched";
+  if (v[0] && v[0].owner === s.programId) return "approved";
+  return null;
+}
+/**
+ * Moderation after a launch (src/coins.js handleTakedown "text"): the founder's description is dropped from the coin's /coin-meta
+ * JSON, which is rebuilt from the chain's name and symbol with the default text. The name stays: it is on chain for ever.
+ * true when a recorded coin's JSON was rebuilt, false when the mint is not a coin of this launchpad.
+ */
+export async function rebuildMetaJson(env, mint, now = Date.now()) {
+  const row = await recordedByMint(env, mint, { create: false });
+  if (!row || !row.name || !row.symbol) return false;
+  const meta = await metaJsonFor(env, row, { name: row.name, symbol: row.symbol });
+  await env.DB.prepare("UPDATE lp_coins SET meta_json = ?, meta_at = ? WHERE mint = ?").bind(JSON.stringify(meta), iso(now), mint).run();
   return true;
 }
 
@@ -329,8 +400,8 @@ export async function findCoin(request, env, mint, fetchImpl = fetch, now = Date
   const slow = await publicLimit(env, request, limitKind);
   if (slow) return { response: slow };
   let c;
-  try { c = await coinByMint(env, mint, fetchImpl); } catch (e) { console.error("lp coin lookup failed", codeOf(e)); return { error: "rpc_unavailable" }; }
-  if (!c) { rememberMissing(mint, now); return { row: null }; }
+  try { c = await coinByMint(env, mint, fetchImpl, now); } catch (e) { console.error("lp coin lookup failed", codeOf(e)); return { error: "rpc_unavailable" }; }
+  if (!c) return { row: null };
   const rec = await recordLaunchedCoin(env, { coin: c }, fetchImpl, now);
   return rec.ok ? { row: rec.row } : { error: rec.error };
 }

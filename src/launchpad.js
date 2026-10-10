@@ -162,7 +162,7 @@ async function build(env, fetchImpl, now) {
       ticker: (await tickerOf(env, c.city))?.ticker || null, name: c.name, pitch: c.pitch || "", color: c.color, logo: c.logo,
       pair: { symbol: c.pair, mint: c.pairMint }, mint: c.mint, launchedAt: c.launchedAt, designedAt: c.updatedAt,
       founder, members: members.get(String(c.city)) || null,
-      market: c.mint ? (lp.has(c.mint) ? applyLpMarket(market.markets.get(c.mint) || null, lpCurves.get(c.mint) ?? null, market.pairPrices.get(c.pairMint) ?? null) : market.markets.get(c.mint) || null) : null,
+      market: c.mint ? (lp.has(c.mint) ? applyLpMarket(market.markets.get(c.mint) || null, lpCurves.get(c.mint) ?? null, market.pairPrices.get(lp.get(c.mint).quote_mint) ?? null) : market.markets.get(c.mint) || null) : null,
       holders: c.mint ? stats.counts.get(c.mint) || null : null,
       links: c.mint && lp.has(c.mint) ? lpLinks(c.mint, lpCurves.get(c.mint)?.stage) : tradeLinks(c.mint, c.pairMint, buyHereLink(env, c.mint, vicMint)), rewardModel: null,
     });

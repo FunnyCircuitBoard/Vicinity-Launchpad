@@ -39,10 +39,11 @@ function statusOf({ cluster = "mainnet", steps, problems = [], launchesPaused = 
 const CANDIDATES = {
   ok: true, global: [], paused: false,
   candidates: [
-    { cityId: "5128581", cityName: "New York City", country: "US", name: "Big Apple", ticker: "NYC", pair: "SOL", founder: "F0under1111111111111111111111111111111111111", handle: "nyc", ok: true, reasons: [], warnings: ["The founder is the launchpad admin's own wallet."] },
+    { cityId: "5128581", cityName: "New York City", country: "US", name: "Big Apple", ticker: "NYC", symbol: "NYC", pair: "SOL", founder: "F0under1111111111111111111111111111111111111", handle: "nyc", pitch: "The city that never sleeps.", logo: true, designAt: "2026-10-09T08:00:00.000Z", ok: true, reasons: [], warnings: ["The founder is the launchpad admin's own wallet."] },
     { cityId: "5140405", cityName: "Syracuse", country: "US", name: "Salt City", ticker: "SYRACUSE", pair: "USDC", founder: "F1under1111111111111111111111111111111111111", ok: false, reasons: ["The coin is paired with USDC; only SOL-paired coins can launch on the Vicinity curve for now. The founder must pick SOL."], warnings: [] },
   ],
-  approvals: [{ cityId: "5106834", cityName: "Albany", approval: { founder: "F2under1111111111111111111111111111111111111", name: "Albany", symbol: "ALBANY", expiresAt: "2026-10-17T12:00:00.000Z", expired: false } }],
+  approvals: [{ cityId: "5106834", cityName: "Albany", approval: { founder: "F2under1111111111111111111111111111111111111", name: "Albany", symbol: "ALBANY", expiresAt: "2026-10-17T12:00:00.000Z", expired: false },
+    warnings: ["The approved wallet no longer holds the founder seat (the city has no founder now), but it can still launch this city's coin on chain until the approval expires. Revoke it."] }],
   launched: [],
 };
 
@@ -189,13 +190,20 @@ test("a step with a one-time key: built with the browser key, recorded with the 
   assert.match(t.text(), /1 confirmed transaction is not recorded here yet/);
 });
 
-test("approving a city sends its id and the chosen expiry; a refusal is shown in plain words and nothing is signed", async () => {
+/** The approve_launch entry of a build answer's list, as src/lpkit.js decodes it from the instruction's bytes. */
+const approveEntry = (over = {}) => ({ programName: "Vicinity launchpad", ix: "approve_launch", say: "approve a city coin", detail: "the coin ...", accounts: [],
+  fields: { cityId: "5128581", founder: "F0under1111111111111111111111111111111111111", name: "Big Apple", symbol: "NYC", expiresAt: "2026-11-08T12:00:00.000Z", ...over } });
+
+test("approving a city sends what its card showed and the chosen expiry; the approval's own name, ticker, founder and expiry are shown big; a refusal is plain words", async () => {
   const bodies = [];
   const t = await tab({ answers: {
     "/api/admin/lp/status": statusOf(), "/api/admin/lp/candidates": CANDIDATES,
-    "/api/admin/lp/approve/tx": (b) => { bodies.push(b); return bodies.length === 1 ? { ok: false, error: "blocked", message: "The founder's seat is in its grace period." } : { ok: true, step: "approve", cluster: "mainnet", record: { step: "approve", params: { cityId: b.cityId } } }; },
+    "/api/admin/lp/approve/tx": (b) => { bodies.push(b); return bodies.length === 1 ? { ok: false, error: "blocked", message: "The founder's seat is in its grace period." } : { ok: true, step: "approve", cluster: "mainnet", summary: [approveEntry()], record: { step: "approve", params: { cityId: b.cityId } } }; },
     "/api/admin/lp/record": () => ({ ok: true }),
   } });
+  // the card shows the description and the logo the owner approves along with the name
+  assert.match(t.text(), /Description \(wallets and Jupiter show it for ever\)The city that never sleeps\./);
+  assert.match(t.text(), /LogoYes/);
   const sel = t.panel.querySelector(".lp-select");
   assert.equal(sel.value, "7", "7 days by default");
   t.button("Approve on chain").click(); await tick();
@@ -203,11 +211,35 @@ test("approving a city sends its id and the chosen expiry; a refusal is shown in
   assert.equal(t.button("Approve in your wallet"), undefined);
   sel.value = "30";
   t.button("Approve on chain").click(); await tick();
-  assert.deepEqual(plain(bodies[1]), { cityId: "5128581", expiryDays: 30, cluster: "mainnet", ephemeral: [] });
+  assert.deepEqual(plain(bodies[1]), { cityId: "5128581", name: "Big Apple", symbol: "NYC", founder: "F0under1111111111111111111111111111111111111", designAt: "2026-10-09T08:00:00.000Z", expiryDays: 30, cluster: "mainnet", ephemeral: [] });
+  const box = t.panel.querySelector(".lp-approve");
+  assert.ok(box, "the approval's own arguments, above the list");
+  assert.match(box.textContent, /You are approving, for ever on the blockchain:/);
+  assert.match(box.textContent, /Coin nameBig Apple/);
+  assert.match(box.textContent, /Ticker\$NYC/);
+  assert.match(box.textContent, /Founder wallet \(only it can launch\)F0under1111111111111111111111111111111111111/);
+  assert.match(box.textContent, /2026-11-08 12:00 UTC/);
   t.button("Approve in your wallet").click(); await tick(30);
   assert.deepEqual(plain(t.calls.filter((c) => c.path === "/api/admin/lp/record").map((c) => c.body.params)), [{ cityId: "5128581" }]);
   assert.ok(t.button("Revoke"), "the waiting approval can be revoked");
   assert.match(t.text(), /Albany · \$ALBANY/);
+  assert.match(t.text(), /no longer holds the founder seat.*Revoke it\./, "a stale approval is flagged");
+});
+
+test("approving: a build whose approval is not the card's (another name or founder) offers nothing to sign", async () => {
+  for (const over of [{ name: "Vicinity Official Airdrop" }, { founder: "F9under1111111111111111111111111111111111111" }, { symbol: "NY" }, { cityId: "5140405" }]) {
+    const t = await tab({ answers: {
+      "/api/admin/lp/status": statusOf(), "/api/admin/lp/candidates": CANDIDATES,
+      "/api/admin/lp/approve/tx": () => ({ ok: true, step: "approve", cluster: "mainnet", summary: [approveEntry(over)], record: { step: "approve", params: { cityId: "5128581" } } }),
+    } });
+    t.button("Approve on chain").click(); await tick();
+    assert.match(t.text(), /does not match this card\. Nothing was sent/, JSON.stringify(over));
+    assert.equal(t.button("Approve in your wallet"), undefined);
+  }
+  // no approve_launch in the answer at all: the same
+  const t = await tab({ answers: { "/api/admin/lp/status": statusOf(), "/api/admin/lp/candidates": CANDIDATES, "/api/admin/lp/approve/tx": () => ({ ok: true, step: "approve", cluster: "mainnet", summary: [], record: { step: "approve", params: {} } }) } });
+  t.button("Approve on chain").click(); await tick();
+  assert.equal(t.button("Approve in your wallet"), undefined);
 });
 
 test("a cancelled wallet: the page says so and records nothing", async () => {

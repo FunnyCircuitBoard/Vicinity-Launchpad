@@ -153,7 +153,8 @@ test("LP.renderSummary: the network, the SOL change and every instruction in pla
   const node = (tag) => { const n = { tag, className: "", children: [], _text: "", append(...c) { this.children.push(...c); }, set textContent(v) { this._text = v; this.children = []; }, get textContent() { return this._text + this.children.map((c) => c.textContent).join(""); } }; made.push(n); return n; };
   const doc = { createElement: node };
   const el = node("div"); el.ownerDocument = doc;
-  LP.renderSummary(el, { ...res, summary: [...res.summary, { programName: "Vicinity launchpad", ix: "approve_launch", say: "approve a city coin", detail: null, accounts: [{ address: addr(8), role: "writable", label: "<img src=x onerror=alert(1)>" }] }],
+  const approved = `the coin "Utica Coin", ticker $UTICA, founder wallet ${addr(7)}, who can launch it until 2026-10-27 12:00 UTC`;
+  LP.renderSummary(el, { ...res, summary: [...res.summary, { programName: "Vicinity launchpad", ix: "approve_launch", say: "approve a city coin", detail: approved, accounts: [{ address: addr(8), role: "writable", label: "<img src=x onerror=alert(1)>" }] }],
     solChange: { [w.address]: -2_039_280 - 5000, [addr(9)]: 2_039_280 } });
   const text = el.textContent;
   assert.match(text, /Solana devnet \(test network\)/);
@@ -161,6 +162,7 @@ test("LP.renderSummary: the network, the SOL change and every instruction in pla
   assert.match(text, /\+0\.00203928 SOL/);
   assert.match(text, /Compute budget: set the compute limit \(set_compute_unit_limit\)/);
   assert.match(text, /Vicinity launchpad: approve a city coin \(approve_launch\)/);
+  assert.ok(text.includes(` · ${approved}`), "what an approval fixes on chain (name, ticker, founder, expiry) is in the rendered list, not only in the instruction data");
   assert.match(text, /<img src=x onerror=alert\(1\)>/, "a label is shown as text, never parsed");
   assert.match(text, /Signed by your wallet only/);
   LP.renderSummary(el, { ...res, cluster: "mainnet" });
