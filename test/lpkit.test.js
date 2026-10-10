@@ -5,7 +5,7 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { launchpadCluster, lpSetup } from "../src/cluster.js";
+import { launchpadCluster, launchpadTradingOn, lpSetup } from "../src/cluster.js";
 import { ANCHOR_NAMES, GENESIS, PROGRAM_NAMES, _resetLpKit, buildTx, checkCluster, checkGenesis, nameInstruction, programNames, respond } from "../src/lpkit.js";
 import { checkTicket } from "../src/relay.js";
 import { decodeHeader } from "../src/sol/message.js";
@@ -16,6 +16,9 @@ import { newWorld } from "./helpers/world.js";
 import { LP_ON, PROGRAM, REWARDS, addr, lpChain } from "./helpers/lpchain.js";
 
 const wranglerVars = () => JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "")).vars;
+// The live settings without the three City-coins setup settings (production before PR-1, or any deploy that drops them):
+// everything must stay dark there. The live settings themselves (setup on, trading off) are pinned in lpkit.test.js.
+const darkVars = () => { const v = wranglerVars(); for (const k of ["LAUNCHPAD_CLUSTER", "LAUNCHPAD_PROGRAM_ID", "LAUNCHPAD_REWARDS_PROGRAM_ID"]) delete v[k]; return v; };
 const PAYER = addr(1), OTHER = addr(2), EPH = addr(3), EPH2 = addr(4);
 const env = (extra = {}) => ({ ...newWorld(), ...LP_ON, ...extra });
 /** The compute limit a (base64) transaction asks for. */
@@ -23,9 +26,18 @@ const limitOf = (b64) => { const d = decodeHeader(fromBase64(b64)); const ix = d
 const createAccount = (from, to) => ({ programAddress: PROGRAM_IDS.system, accounts: [{ address: from, role: 3 }, { address: to, role: 3 }], data: Uint8Array.of(0, 0, 0, 0, ...new Uint8Array(8).fill(1), ...new Uint8Array(8), ...new Uint8Array(32)) });
 beforeEach(() => _resetLpKit());
 
-test("lpSetup: production-like settings keep it OFF although launchpadCluster().ready is already true through the devnet defaults", () => {
-  const prod = wranglerVars();
-  assert.equal(prod.LAUNCHPAD_CLUSTER, undefined, "the repo sets no launchpad switch");
+test("lpSetup: the live settings (PR-1, 10 Oct 2026) open the owner's setup on mainnet with his two programs; curve trading stays off until PR-2", () => {
+  const live = wranglerVars();
+  const s = lpSetup(live);
+  assert.deepEqual([s.on, s.cluster, s.chain, s.programId, s.rewardsProgramId], [true, "mainnet", "solana:mainnet", "AkMP9qvAYmb8Vyu63Qhw8Z4ee1fgQbCRKkXWy5r5A1Ai", "EVwxp3V9YSvsyDEjp39B9wRDQxHR2xF2CNeR8AMRYrgG"]);
+  assert.deepEqual([s.configsSet, s.dbcConfigs, s.lookupTable], [false, [], null], "no price curve or speed table yet: approve, launch and graduate wait for PR-2");
+  assert.equal(live.LAUNCHPAD_TRADING, undefined, "curve trading is switched on only by PR-2, after the owner's setup and the preflight");
+  assert.equal(launchpadTradingOn(live), false);
+});
+
+test("lpSetup: production-like settings without the setup settings keep it OFF although launchpadCluster().ready is already true through the devnet defaults", () => {
+  const prod = darkVars();
+  assert.equal(prod.LAUNCHPAD_CLUSTER, undefined, "without the three setup settings there is no launchpad switch");
   assert.equal(launchpadCluster(prod).ready, true, "the devnet defaults make the old helper ready");
   const s = lpSetup(prod);
   assert.equal(s.on, false);

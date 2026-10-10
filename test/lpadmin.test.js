@@ -25,6 +25,9 @@ const PROGRAM = "Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7", REWARDS = "Hm14p
 const LP_ON = { LAUNCHPAD_CLUSTER: "devnet", LAUNCHPAD_PROGRAM_ID: PROGRAM, LAUNCHPAD_REWARDS_PROGRAM_ID: REWARDS, LAUNCHPAD_RPC_URL: "https://lp-rpc.test/devnet" };
 const DEV = ADDRESSES.feeRecipient, LOADER = PROGRAM_IDS.upgradeableLoader, SQUADS = "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf";
 const wranglerVars = () => JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "")).vars;
+// The live settings without the three City-coins setup settings (production before PR-1, or any deploy that drops them):
+// everything must stay dark there. The live settings themselves (setup on, trading off) are pinned in lpkit.test.js.
+const darkVars = () => { const v = wranglerVars(); for (const k of ["LAUNCHPAD_CLUSTER", "LAUNCHPAD_PROGRAM_ID", "LAUNCHPAD_REWARDS_PROGRAM_ID"]) delete v[k]; return v; };
 const b64 = (u8) => Buffer.from(u8).toString("base64");
 
 /* ---------------------------------------------------------------- accounts as the programs write them */
@@ -147,7 +150,7 @@ async function afterHandoff(w) {
 beforeEach(() => { _resetLpKit(); _resetLpAdmin(); realClock(); });
 
 test("dark: with production-like settings every City coins route answers 404 not_enabled and reads nothing", async () => {
-  const env = { ...newWorld(), ...wranglerVars() };
+  const env = { ...newWorld(), ...darkVars() };
   const owner = await person(env);
   env.ADMIN_WALLETS = owner.w.address;
   const chain = fakeChain();

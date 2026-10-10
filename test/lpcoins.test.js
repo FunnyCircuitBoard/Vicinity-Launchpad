@@ -16,6 +16,9 @@ import { seedCoin } from "./helpers/launchpad.js";
 import { DEMOV, DEMOV_CITY, DEMOV_COIN, DEMOV_POOL, LP_ON, METAPLEX, addr, lpChain, metaplexData } from "./helpers/lpchain.js";
 
 const wranglerVars = () => JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "")).vars;
+// The live settings without the three City-coins setup settings (production before PR-1, or any deploy that drops them):
+// everything must stay dark there. The live settings themselves (setup on, trading off) are pinned in lpkit.test.js.
+const darkVars = () => { const v = wranglerVars(); for (const k of ["LAUNCHPAD_CLUSTER", "LAUNCHPAD_PROGRAM_ID", "LAUNCHPAD_REWARDS_PROGRAM_ID"]) delete v[k]; return v; };
 beforeEach(() => { _resetLpCoins(); _resetLpKit(); realClock(); });
 async function world(extra = {}) {
   const env = { ...newWorld(), ...LP_ON, ...extra };
@@ -34,7 +37,7 @@ function setField(chain, address, layout, field, value) {
 }
 
 test("dark: with production-like settings every /api/lp/* and /api/admin/lp/* route answers 404 not_enabled, before any check", async () => {
-  const env = { ...newWorld(), ...wranglerVars() };
+  const env = { ...newWorld(), ...darkVars() };
   const chain = lpChain();
   const b = browser(env);
   for (const [path, method] of [["/api/lp/record", "POST"], ["/api/lp/coin?mint=" + DEMOV, "GET"], ["/api/lp/launch/status?city=1", "GET"], ["/api/lp/launch/tx", "POST"],
@@ -153,7 +156,7 @@ test("the job's sweep: every 30 minutes, every Coin record of the program, the n
   assert.deepEqual(chain.calls("getProgramAccounts").map((c) => c.params[1].filters), [[{ dataSize: 243 }]]);
   assert.deepEqual(await sweepLaunchedCoins(env, clock.now + 10 * 60_000, chain.fetchImpl), { skipped: "not due" });
   assert.deepEqual(await sweepLaunchedCoins(env, clock.now + 31 * 60_000, chain.fetchImpl), { found: 1, recorded: 0, failed: 0, left: 0 });
-  const off = { ...newWorld(), ...wranglerVars() };
+  const off = { ...newWorld(), ...darkVars() };
   const quiet = lpChain();
   const r = await runJobs(off, clock.now, quiet.fetchImpl);
   assert.equal(r.lpCoins, undefined, "no step at all without the settings");
