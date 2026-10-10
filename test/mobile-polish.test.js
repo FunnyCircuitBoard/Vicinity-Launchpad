@@ -65,7 +65,7 @@ test("home: one hero button to the buy slot, one row of facts with one countdown
     assert.equal(count(h, /href="\/token#buy-slot"/g), 1, "the one call to buy");
     assert.equal(count(h, /data-countdown-short/g), 1, "the countdown once (it was in four places)");
     assert.equal(count(h, /data-stat="communities"/g), 1, "the communities count once (it was in three)");
-    assert.equal(count(h, /October 10/g), 2, "October 10: the roadmap's next stop and the FAQ's launch answer");
+    assert.equal(count(h, /October 10/g), 1, "October 10 once: the FAQ's launch answer (the roadmap's next stop has no date)");
     assert.doesNotMatch(h, /class="numbers"|cta-band|hero__facts[\s\S]*?hero__facts/, "no numbers band, no closing band, one facts row");
     assert.match(h, /<ul class="hero__facts" aria-label="Vicinity in numbers">\s*<li><strong data-stat="communities">[\d,]+<\/strong><span>communities mapped<\/span><\/li>\s*<li><strong data-countdown-short>Oct 10<\/strong><span>until the Launchpad opens<\/span><\/li>\s*<li><strong data-stat="members">…<\/strong><span>verified members<\/span><\/li>\s*<li><strong data-stat="countries">[\d,]+<\/strong><span>countries<\/span><\/li>\s*<li><strong data-stat="officialBoundaries">[\d,]+<\/strong><span>official city boundaries<\/span><\/li>\s*<\/ul>/);
     const order = ["<section class=\"hero\" id=\"hero\">", "id=\"nyc\"", "id=\"problem\"", "id=\"why\"", "id=\"how\"", "id=\"roadmap\"", "id=\"faq\""].map((s) => h.indexOf(s));
