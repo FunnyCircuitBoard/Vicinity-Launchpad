@@ -23,7 +23,7 @@
             <canvas class="citymap__layer" id="city-fx" width="1200" height="480" aria-hidden="true"></canvas>
             <canvas class="citymap__layer" id="city-labels" width="1200" height="480" aria-hidden="true"></canvas>
             <p class="citymap__tip" id="city-tip" hidden></p>
-            <div class="map-ctrl" role="group" aria-label="Map controls">
+            <div class="map-ctrl" role="group" aria-label="Map controls" data-fb-avoid>
               <button type="button" id="map-in" aria-label="Zoom in">+</button>
               <button type="button" id="map-out" aria-label="Zoom out">−</button>
               <button type="button" class="map-more" id="map-more" aria-expanded="false" aria-controls="map-menu" aria-label="More map controls"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="currentColor" stroke="none"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg></button>
@@ -37,7 +37,7 @@
             </div>
             <button type="button" class="map-exit" id="map-exit" aria-label="Close the full-screen map" hidden>✕</button>
             <p class="map-scale" id="map-scale" aria-hidden="true"><span class="map-scale__bar" id="map-scale-bar"></span><span id="map-scale-text">1,000 km</span></p>
-            <div class="map-focus is-loading" id="map-focus" role="group" aria-label="The city at the centre of the map">
+            <div class="map-focus is-loading" id="map-focus" role="group" aria-label="The city at the centre of the map" data-fb-avoid>
               <div class="map-focus__body">
                 <p class="map-focus__r1"><span class="map-focus__dot" aria-hidden="true"></span><strong class="map-focus__name" id="mf-name">Loading the map…</strong><span class="map-focus__ticker" id="mf-ticker"></span><span class="map-focus__mini" id="mf-mini"></span><span class="tag map-focus__status" id="mf-status" hidden></span></p>
                 <p class="map-focus__where" id="mf-where"></p>

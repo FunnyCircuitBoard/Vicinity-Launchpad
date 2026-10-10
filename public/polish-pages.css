@@ -352,6 +352,7 @@
 /* the hint and the city card: words wrap (two lines at most), never cut */
 .map-hint { white-space: normal; max-width: calc(100% - 24px); text-align: center; }
 .map-focus { height: 134px; }
+.map-scale { bottom: 154px; } /* the scale bar stays clear of the card, which grew by 18 px for its second line */
 .map-focus .map-focus__area, .map-focus .map-focus__line { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .map-focus .map-focus__line { -webkit-line-clamp: 1; line-clamp: 1; }
 .map-focus.is-folded { height: 52px; }
