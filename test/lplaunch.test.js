@@ -29,6 +29,9 @@ const CITY = "5142056"; // Utica (ticker UTICA in the test world)
 const ADMIN = addr(5);
 const ON = { ...LP_ON, LAUNCHPAD_DBC_CONFIGS: SOL_CONFIG, LAUNCHPAD_LOOKUP_TABLE: TABLE, VICINITY_MINT: MINT };
 const wranglerVars = () => JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "")).vars;
+// The live settings without the three City-coins setup settings (production before PR-1, or any deploy that drops them):
+// everything must stay dark there. The live settings themselves (setup on, trading off) are pinned in lpkit.test.js.
+const darkVars = () => { const v = wranglerVars(); for (const k of ["LAUNCHPAD_CLUSTER", "LAUNCHPAD_PROGRAM_ID", "LAUNCHPAD_REWARDS_PROGRAM_ID"]) delete v[k]; return v; };
 const b64 = (u8) => Buffer.from(u8).toString("base64");
 const idl = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
 
@@ -104,7 +107,7 @@ test("the discriminators and account lists are the IDLs' own", async () => {
 });
 
 test("dark: with production-like settings every founder route answers 404 not_enabled and reads nothing", async () => {
-  const env = { ...newWorld(), ...wranglerVars() };
+  const env = { ...newWorld(), ...darkVars() };
   const p = await person(env);
   const lp = lpChain();
   for (const [path, method] of [["/api/lp/launch/status", "GET"], ["/api/lp/launch/status?city=1&cluster=mainnet", "GET"], ["/api/lp/launch/tx", "POST"], ["/api/lp/graduate/status?mint=" + DEMOV, "GET"],
@@ -116,7 +119,7 @@ test("dark: with production-like settings every founder route answers 404 not_en
 });
 
 test("/api/official says cityCoins only while the settings are there (the pages ask /api/lp/* only then); production-like: no key, exactly as before", async () => {
-  const prod = { ...newWorld(), ...wranglerVars() };
+  const prod = { ...newWorld(), ...darkVars() };
   const lp = lpChain();
   const off = await (await browser(prod).send("/api/official", { fetchImpl: lp.fetchImpl })).json();
   assert.equal("cityCoins" in off, false, "no key at all while dark");
