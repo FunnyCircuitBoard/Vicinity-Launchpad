@@ -17,6 +17,13 @@ const dev = JSON.parse(readFileSync(new URL("./fixtures/launchpad-worker/devnet-
 const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d", DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 const DEPLOYER = "9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa"; // the devnet throwaway deployer: upgrade authority and admin on devnet
 const EXEC = (owner) => ({ owner, lamports: 1, data: ["", "base64"], executable: true });
+// vicinity_rewards on devnet, read on 10 Oct 2026 (slot 509,595,324): the program account, the first 45 bytes of its ProgramData
+// (upgrade authority = the devnet deployer) and the registry (admin = the devnet deployer)
+const REWARDS_DEVNET = {
+  Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi: { owner: "BPFLoaderUpgradeab1e11111111111111111111111", lamports: 833120, data: ["AgAAAJV8C0w20oU4T8fxrRLpJAu78sjuhJGOyXNnMrs2bzER", "base64"], executable: true },
+  B4XTEHayYiGTHkrRwMSxduGsWAg6rHAXhMkwqbgFLUoa: { owner: "BPFLoaderUpgradeab1e11111111111111111111111", lamports: 2570667960, data: ["AwAAAHhAOR4AAAAAAYMLE+V5vl7ZR7x63B81GcQEq8BzkmptBV24XeIxROF1", "base64"] },
+  "2rKKwGGcJEDRJBhdHRPtHQpoxPmq9wPWWj3uMrcRaRg3": { owner: "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi", lamports: 1021080, data: ["L65u9ri2/NqDCxPleb5e2Ue8etwfNRnEBKvAc5JqbQVduF3iMUThdQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==", "base64"] },
+};
 const SITE = "https://site.test";
 
 /** A fake chain + Jupiter + site: the recorded devnet accounts, executable programs, a mint, genesis and health per host, a live-looking site. */
@@ -25,6 +32,7 @@ function world({ siteSwap = true, cronMinutesAgo = 4, limitAt = QUOTE_MAX + 1 } 
   const W = fakeWorld({ rpc: { mints: { [REAL_VIC]: { decimals: 6 } } } });
   for (const [k, a] of Object.entries(dev.accounts)) W.rpc.accounts[k] = { owner: a.owner, lamports: a.lamports, data: [a.data, "base64"], ...(a.executable ? { executable: true } : {}) };
   for (const p of [PROGRAM_IDS.jupiter, PROGRAM_IDS.dbc]) W.rpc.accounts[p] = EXEC("BPFLoaderUpgradeab1e11111111111111111111111");
+  Object.assign(W.rpc.accounts, REWARDS_DEVNET);
   const sent = [], site = { posts: 0, paths: [] };
   const now = Date.parse("2026-10-09T12:00:00Z");
   const jsonRes = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
@@ -75,6 +83,14 @@ test("preflight: devnet settings: every chain row passes, the devnet keys warn (
   // the devnet keys are a throwaway deployer's: a warning that names the key and says mainnet needs the multisig, never a FAIL on devnet
   assert.equal(L["upgrade authority"], "WARN"); assert.match(by(rows, "upgrade authority").detail, new RegExp(`^${DEPLOYER} is a single wallet key \\(the devnet deployer; mainnet needs the Squads multisig\\)`));
   assert.equal(L["launchpad admin"], "WARN"); assert.match(by(rows, "launchpad admin").detail, new RegExp(`^${DEPLOYER} is a single wallet key`));
+  // the rewards program (named by the global account: LAUNCHPAD_REWARDS_PROGRAM_ID is not set in these settings) and its registry
+  assert.equal(L["rewards program deployed"], "PASS"); assert.match(by(rows, "rewards program deployed").detail, /^Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi \(owner BPFLoaderUpgradeab1e/);
+  assert.equal(L["rewards upgrade authority"], "WARN"); assert.match(by(rows, "rewards upgrade authority").detail, new RegExp(`^${DEPLOYER} is a single wallet key \\(the devnet deployer`));
+  assert.equal(L["rewards registry"], "PASS"); assert.match(by(rows, "rewards registry").detail, new RegExp(`^admin ${DEPLOYER}$`));
+  assert.equal(L["registry admin"], "WARN");
+  assert.equal(L.LAUNCHPAD_REWARDS_PROGRAM_ID, "WARN"); assert.match(by(rows, "LAUNCHPAD_REWARDS_PROGRAM_ID").detail, /City coins tab and \/api\/lp\/\* stay off/);
+  assert.equal(L["city coins gate"], "WARN"); assert.match(by(rows, "city coins gate").detail, /^off: LAUNCHPAD_PROGRAM_ID, LAUNCHPAD_REWARDS_PROGRAM_ID not set explicitly \(the devnet defaults never count\)/);
+  assert.equal(by(rows, "launchpad program fingerprint"), undefined, "devnet without an expectation: the 0.5 MB program is not read");
   assert.equal(L.LAUNCHPAD_CLUSTER, "WARN"); assert.match(by(rows, "LAUNCHPAD_CLUSTER").detail, /DEVNET test coins/);
   assert.deepEqual(rows.filter((r) => r.level === "FAIL"), [], "no FAIL on the recorded devnet world");
   assert.match(by(rows, "launchpad global account").detail, /admin 9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa, launches open/);
@@ -96,14 +112,22 @@ test("preflight: the expected multisig keys: PASS when the chain agrees, FAIL na
   const ok = await preflight(DEVNET_ENV, { fetchImpl, now, expectUpgradeAuthority: DEPLOYER, expectAdmin: DEPLOYER });
   assert.equal(by(ok, "upgrade authority").level, "PASS"); assert.match(by(ok, "upgrade authority").detail, /= the expected multisig \(last deploy slot 508501875\)/);
   assert.equal(by(ok, "launchpad admin").level, "PASS");
+  assert.equal(by(ok, "rewards upgrade authority").level, "PASS"); assert.equal(by(ok, "registry admin").level, "PASS");
+  assert.match(by(ok, "registry admin").detail, /= --expect-admin \(one wallet, as planned/);
   const other = "GjJyeC1r2RgkuoCWMyPYkCWSGSGLcz266EaAkLA27AhL";
   const bad = await preflight(DEVNET_ENV, { fetchImpl, now, expectUpgradeAuthority: other, expectAdmin: other });
   assert.equal(by(bad, "upgrade authority").level, "FAIL"); assert.match(by(bad, "upgrade authority").detail, new RegExp(`^${DEPLOYER} is NOT the expected ${other}: whoever holds that key can replace the program`));
   assert.equal(by(bad, "launchpad admin").level, "FAIL"); assert.match(by(bad, "launchpad admin").detail, /approves launches, pauses and payouts/);
+  assert.equal(by(bad, "rewards upgrade authority").level, "FAIL"); assert.equal(by(bad, "registry admin").level, "FAIL"); assert.match(by(bad, "registry admin").detail, /sets up each city's holder rewards/);
   // on MAINNET a plain wallet as upgrade authority or admin is a FAIL even without an expectation (the devnet world answers the mainnet genesis for any non-devnet host)
   const main = await preflight({ ...DEVNET_ENV, LAUNCHPAD_CLUSTER: "mainnet", LAUNCHPAD_PROGRAM_ID: PROGRAM_IDS.launchpadDevnet, LAUNCHPAD_DBC_CONFIGS: "4ZLtvU1zieGwbexVScEpEyrPV4uz53ZXVaT6fQoonrD7", LAUNCHPAD_LOOKUP_TABLE: "5tPTizNodKvKEo8k7a9NjRDucMNVQsQvHrqjEmwXCXhe" }, { fetchImpl, now });
-  assert.equal(by(main, "upgrade authority").level, "FAIL"); assert.match(by(main, "upgrade authority").detail, /one person can replace the program\. Hand it to the Squads multisig.*needs --expect-upgrade-authority <squads vault> and passes only when it matches/);
-  assert.equal(by(main, "launchpad admin").level, "FAIL"); assert.match(by(main, "launchpad admin").detail, /hand the admin role to the Squads multisig.*needs --expect-admin <squads vault> and passes only when it matches/);
+  assert.equal(by(main, "upgrade authority").level, "FAIL"); assert.match(by(main, "upgrade authority").detail, /one person can replace the program\. Hand it to the Squads multisig.*needs --expect-upgrade-authority <squads vault>.* and passes only when it matches/);
+  assert.equal(by(main, "launchpad admin").level, "FAIL"); assert.match(by(main, "launchpad admin").detail, /is a single wallet key, but nobody said whose: that key approves launches, pauses and payouts; on mainnet this row needs --expect-admin <address> and passes only when it matches/);
+  assert.equal(by(main, "rewards upgrade authority").level, "FAIL");
+  // on mainnet a plain wallet as upgrade authority FAILs even when it is the expected one (the Squads vault must hold it); a plain admin passes when expected (D1)
+  const mainNamed = await preflight({ ...DEVNET_ENV, LAUNCHPAD_CLUSTER: "mainnet", LAUNCHPAD_PROGRAM_ID: PROGRAM_IDS.launchpadDevnet, LAUNCHPAD_DBC_CONFIGS: "4ZLtvU1zieGwbexVScEpEyrPV4uz53ZXVaT6fQoonrD7" }, { fetchImpl, now, expectUpgradeAuthority: DEPLOYER, expectAdmin: DEPLOYER });
+  assert.equal(by(mainNamed, "upgrade authority").level, "FAIL"); assert.match(by(mainNamed, "upgrade authority").detail, /= the expected key, but it is a single wallet key: one person can replace the program/);
+  assert.equal(by(mainNamed, "launchpad admin").level, "PASS"); assert.equal(by(mainNamed, "registry admin").level, "PASS");
   // on mainnet an upgrade authority that is NOT a plain wallet (any PDA, anyone's Squads vault) is a FAIL too when nobody named the multisig: the row cannot pass by accident
   const { fetchImpl: offCurve } = world();
   const pda = "ppX3a7oUKmZg2aAmxct8LnKdxNAcoGFDowcyzvbTsbw"; // the launchpad global PDA: off the curve, like a Squads vault (a program id from solana-keygen is ON the curve)
@@ -143,7 +167,9 @@ test("preflight: mainnet settings without a program id and configs FAIL those ro
   assert.match(by(rows, "JUPITER_API_KEY").detail, /ANONYMOUS allowance, which may stop without notice/);
   assert.equal(L.JUPITER_API_KEY, "WARN"); assert.equal(L.JUPITER_RPS, "WARN"); assert.equal(L.LAUNCHPAD_CLUSTER, "PASS");
   assert.equal(L["$VICINITY mint on mainnet"], "PASS");
-  assert.deepEqual(rows.filter((r) => r.level === "FAIL").map((r) => r.name), ["LAUNCHPAD_TRADING", "LAUNCHPAD_PROGRAM_ID", "LAUNCHPAD_DBC_CONFIGS"]);
+  assert.deepEqual(rows.filter((r) => r.level === "FAIL").map((r) => r.name), ["LAUNCHPAD_TRADING", "LAUNCHPAD_PROGRAM_ID", "LAUNCHPAD_DBC_CONFIGS", "LAUNCHPAD_REWARDS_PROGRAM_ID"]);
+  assert.match(by(rows, "LAUNCHPAD_REWARDS_PROGRAM_ID").detail, /REQUIRED on mainnet/);
+  assert.equal(L["city coins gate"], "WARN");
   const withKeys = await preflight({ LAUNCHPAD_CLUSTER: "mainnet", LAUNCHPAD_TRADING: "on", VICINITY_MINT: REAL_VIC, SOLANA_RPC_URL: "https://rpc.test" }, { fetchImpl, now, expectAdmin: "GjJyeC1r2RgkuoCWMyPYkCWSGSGLcz266EaAkLA27AhL" });
   assert.equal(by(withKeys, "launchpad keys").level, "FAIL", "an expectation with nothing to compare is said out loud");
   const off = await preflight({ LAUNCHPAD_CLUSTER: "mainnet", VICINITY_MINT: REAL_VIC }, { fetchImpl, now });
@@ -179,6 +205,8 @@ test("preflight: settings come from wrangler.jsonc vars, then the environment, t
   assert.equal(s.VICINITY_MINT, REAL_VIC, "the repo's mint");
   assert.deepEqual([s.JUPITER_RPS, s.SWAP, s.LAUNCHPAD_CLUSTER, s.SOLANA_RPC_URL, s.HOME], ["10", "on", "mainnet", "https://rpc.example/x", undefined]);
   assert.ok(!("SOLANA_RPC_URL" in settingsFrom({ wranglerPath: new URL("../wrangler.jsonc", import.meta.url), env: {} })), "secrets are not in the repo");
-  assert.deepEqual(parseArgs(argv), { set: { SWAP: "on" }, cluster: "mainnet", rpc: "https://rpc.example/x", site: "https://vicinity.city", expectUpgradeAuthority: "A1", expectAdmin: "B2", checkLimits: true });
+  assert.deepEqual(parseArgs(argv), { set: { SWAP: "on" }, cluster: "mainnet", rpc: "https://rpc.example/x", site: "https://vicinity.city", expectUpgradeAuthority: "A1", expectAdmin: "B2", checkLimits: true, setup: null, buildRecord: null, expectSha256Launchpad: null, expectSha256Rewards: null });
+  assert.deepEqual(parseArgs(["--setup", "s.json", "--build-record", "b.json", "--expect-sha256-launchpad", "AB", "--expect-sha256-rewards", "cd"]),
+    { set: {}, cluster: null, rpc: null, site: null, expectUpgradeAuthority: null, expectAdmin: null, checkLimits: false, setup: "s.json", buildRecord: "b.json", expectSha256Launchpad: "ab", expectSha256Rewards: "cd" });
   void SOL;
 });

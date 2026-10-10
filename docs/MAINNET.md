@@ -39,9 +39,10 @@ can trade this pair right now." Nothing is built and nothing can be signed for s
 | `RPC_TIMEOUT_MS` | `8000` | |
 | `LAUNCHPAD_TRADING` | `on` only after section 4 | curve trades and `/api/launchpad/trade/*` |
 | `LAUNCHPAD_CLUSTER` | `mainnet` | which chain the curve trades and their badges speak of |
-| `LAUNCHPAD_PROGRAM_ID` | the deployed program (section 4) | REQUIRED on mainnet: no default exists, trading stays off without it |
-| `LAUNCHPAD_DBC_CONFIGS` | the Meteora configs created for mainnet, comma-separated | REQUIRED on mainnet |
-| `LAUNCHPAD_LOOKUP_TABLE` | the table created for mainnet | optional; without it trades are legacy-sized (bigger, still under 1232 bytes today) |
+| `LAUNCHPAD_PROGRAM_ID` | the owner's launchpad address (section 4, PR-1, set before his deploy) | REQUIRED on mainnet: no default exists, trading stays off without it |
+| `LAUNCHPAD_REWARDS_PROGRAM_ID` | the owner's rewards address (section 4, PR-1) | REQUIRED for city coins: with `LAUNCHPAD_CLUSTER` and `LAUNCHPAD_PROGRAM_ID` set explicitly it opens the owner's City coins tab, `/api/lp/*` and `/coin-meta` (src/cluster.js `lpSetup`; the devnet defaults never count) |
+| `LAUNCHPAD_DBC_CONFIGS` | the Meteora config the City coins tab's step 3 created, from the setup summary (section 4, PR-2) | REQUIRED on mainnet; approving, launching and graduating need it too |
+| `LAUNCHPAD_LOOKUP_TABLE` | the speed table of the City coins tab's step 6 (PR-2) | optional for trades (legacy-sized without it, still under 1232 bytes); a launch with a first buy needs it |
 | `LAUNCHPAD_RPC_URL` (Secret) | unset = `SOLANA_RPC_URL` | |
 
 Fixed in code and asserted at module load (src/sol/pda.js, src/lptrade.js): Meteora's programs and authorities, the dev wallet
@@ -84,51 +85,59 @@ Who: the owner (secrets), one developer (pull request, smoke test). About an hou
 6. WAF rules for the new routes (docs/DEPLOY.md "Attempt limits"): the code limits apply already; the WAF rows are the second line.
 7. Rollback: `SWAP=off` (next request) or Cloudflare's Rollback to the previous deployment. Nothing of the swap keeps state.
 
-## 4. City coins on mainnet: the launchpad program (NOT done, needs the owner's keys)
+## 4. City coins on mainnet: the two programs (NOT done; the owner does it, step by step, with docs/OWNER-LAUNCH-GUIDE.md)
 
-Nothing of this is automated or guessed. Each step by the owner on his own machine; the multisig signs where it says so.
-solana/LAUNCHPAD.md section 9 has the detail of every command.
+The owner deploys both programs from his Mac with Solana CLI 4.3.0 and does everything after that on vicinity.city, signed
+in Phantom (the admin "City coins" tab, owner only). There is no Node and no git on his Mac, no keeper server and no
+`setup.mjs` on mainnet: those scripts stay devnet-only. The team builds the two files, changes settings by pull request
+(the owner approves), and checks every step read-only. This section is the summary; the guide has every command and screen.
 
-0. Before anything: the outside audit of `vicinity_launchpad` (LAUNCHPAD.md section 9); a lawyer's sign-off on the
-   stock-token country list (pay-with-anything only); the website serves `/coin-meta/<mint>.json` and `/brand/vicinity-512.png`
-   (a blocker: the URI in each coin can never change); the Jupiter Developer key (section 3); the Workers Paid plan confirmed;
-   the Helius plan sized for one `getProgramAccounts` per coin per 10 minutes plus the trade traffic of section 6.
-1. Keys, on the owner's machine only: `solana-keygen new` for the program id, the DBC config and a deployer wallet funded with
-   about 2.3 SOL; the Squads multisig (upgrade authority and admin) with at least two signers.
-2. Verifiable build: `anchor build --verifiable` (Docker), the SHA-256 of `vicinity_launchpad.so` recorded, `declare_id!` =
-   the new program key, rebuild, the hash into solana/LAUNCHPAD-AUDIT.md.
-3. Deploy: `solana program deploy --program-id <key> --upgrade-authority <deployer> --url mainnet-beta` (about 2.20 SOL rent
-   plus fees), then `solana program set-upgrade-authority … --new-upgrade-authority <squads vault>`, plus `security.txt`.
-4. Setup with `solana/scripts/launchpad/setup.mjs`, each command first WITHOUT `--send` to see the plan, then `--send --mainnet`:
-   `config` (SOL quote, 85 SOL graduation, 125 bps, 0.05 SOL pool creation fee; the config keypair signs), `init` (admin = the
-   multisig), `add-config`, `referral-accounts` (SOL and $VICINITY), the lookup table. `vicinity_rewards` `init_city` is per
-   coin, later.
-5. Site settings in the Cloudflare dashboard (kept by `keep_vars`): `LAUNCHPAD_PROGRAM_ID`, `LAUNCHPAD_DBC_CONFIGS`,
-   `LAUNCHPAD_LOOKUP_TABLE`, `LAUNCHPAD_CLUSTER=mainnet`; `LAUNCHPAD_RPC_URL` unset.
-6. `npm run mainnet:preflight -- --cluster mainnet --set LAUNCHPAD_TRADING=on --expect-upgrade-authority <squads vault> --expect-admin <squads vault>`
-   with those exported: every launchpad row must PASS: the program is executable and owned by the upgradeable loader; the
-   upgrade authority IS the multisig (on mainnet the `upgrade authority` and `launchpad admin` rows FAIL unless the two
-   flags name the multisig and the chain matches them: a plain wallet, a stranger's vault or any program address can never
-   pass by accident); the global account is initialised, not paused, its admin IS the multisig, a rewards program is set; each config is Meteora's with the dev wallet as fee claimer and leftover
-   receiver, 125 bps, creator share 50 %, pool creation fee under the program's cap (a SOL config that does not graduate at
-   85 SOL is a WARN: an owner decision); each config has an enabled allow-list entry under our program; the dev wallet's referral
-   account exists for each quote mint; the lookup table holds the nine addresses a trade needs.
-7. Flip `LAUNCHPAD_TRADING=on` (dashboard variable, then a pull request). Smoke with the owner's wallet after the first approved
-   city launch: buy 0.01 SOL of that coin on `/coin` (the panel says "Live · curve", the fee line says "1.25% curve fee"), then
-   sell it back; compare both with the quote on Solscan to the raw unit (the devnet rehearsal of exactly this:
-   solana/LAUNCHPAD-DEVNET.md section 10); `npm run launchpad:claim-fees` lists what waits for the dev wallet.
-8. Keeper: `scripts/launchpad/crank.mjs` on a small server with its own 0.5 SOL wallet, a minute pass and a daily pass, an alert
-   on a failed pass (LAUNCHPAD.md section 7).
-9. Rollback: `LAUNCHPAD_TRADING=off` stops the routes at the next request; `set_pause launches=true` through the multisig stops
-   new launches; trades on existing curves cannot be stopped (Meteora's program is permissionless) and the panel then only
-   says so.
+The order is fixed. `init_registry` and `init_launchpad` must be signed by the CURRENT upgrade authority (the programs check
+ProgramData), so both programs start under a key that can sign on the website (the owner's Phantom) and move to the Squads
+vault only after that. (The earlier version of this section handed the upgrade authority to the vault right after the
+deploy and initialised afterwards: that order could not work.)
+
+| # | who, where | what | read-only check |
+|---|---|---|---|
+| 0 | team | blockers before the FIRST APPROVAL (not before the deploy): the outside audit of `vicinity_launchpad`; the live site serves `/coin-meta/<mint>.json` and `/brand/vicinity-512.png` (the URI in each coin can never change); a lawyer's stock-token country list (pay-with-anything only); the Jupiter key (section 3) | `--site`: `site /coin-meta`, `site /brand/vicinity-512.png` |
+| 1 | owner, Mac (guide steps 1 to 5) | CLI 4.3.0; five key files (deployer, launchpad-program, rewards-program, two buffers); a Squads v4 multisig, 2 of 3, no config authority; his own RPC. Sends ONLY the three public addresses (deployer, launchpad, rewards) and the Squads MULTISIG account address | |
+| 2 | team | PR-1: `LAUNCHPAD_CLUSTER=mainnet`, `LAUNCHPAD_PROGRAM_ID`, `LAUNCHPAD_REWARDS_PROGRAM_ID` (the owner approves). Effect: only the owner's City coins tab appears; the public site does not change (trading needs PR-2). And `bash solana/scripts/launchpad/build-mainnet.sh <launchpad> <rewards>`: the two `.so` files, `SHA256SUMS` and `build-record.json`, sent to the owner with the fingerprints in the message | the script itself: the audited bytes reproduce first, then only the ids change |
+| 3 | owner, Mac (guide steps 6 to 9) | `shasum -a 256 -c SHA256SUMS`; `solana config set --url <his RPC> --keypair deployer.json`; 4.85 SOL to the deployer; `solana program deploy <file> --program-id <program>.json --buffer <buffer>.json --use-rpc --with-compute-unit-price 200000 --max-sign-attempts 100`, rewards first, then the launchpad (a failed deploy resumes when the same command runs again); `solana program show` and `solana program dump` + `shasum` | `npm run mainnet:preflight -- --cluster mainnet --build-record build-record.json`: `launchpad program`, `rewards program deployed`, both fingerprints PASS (the global account and the registry FAIL until step 5, as they should) |
+| 4 | owner, Mac (guide step 10) | `solana program set-upgrade-authority <id> --new-upgrade-authority 13qRam… --skip-new-upgrade-authority-signer-check` for both; leftover buffers closed; `solana transfer 13qRam… ALL` | `solana program show`: `Authority: 13qRam…` |
+| 5 | owner, website (guide step 11), the same sitting | City coins steps 1 to 7, one Phantom signature each: 1 `init_registry` + `init_launchpad` in one transaction (the owner's wallet becomes the launchpad admin, the registry admin and later each city's rewards authority); 2 two unchecked loader `SetAuthority` instructions to the vault of the pasted multisig (the Worker reads the multisig, refuses a vault, a wallet, a 1-of-N or a controlled multisig, derives vault 0 and shows it for the owner to compare with the Squads app); 3 the Meteora config (a browser key; the Worker compares it byte for byte with the defaults); 4 the allow-list entry; 5 the dev wallet's fee accounts (they exist on mainnet already); 6 the speed table; 7 the partner name (dev wallet only) | each step re-reads the chain before it is offered |
+| 6 | owner, website (guide step 12) | step 8: "Send this to the team" (the C5 summary: public addresses and signatures only) | |
+| 7 | team | `npm run mainnet:preflight -- --cluster mainnet --setup summary.json --build-record build-record.json --expect-admin 13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN` (add `--expect-upgrade-authority <vault>` when the vault is known from the owner independently; otherwise the vault of the summary's multisig, decoded from the chain, is the expectation). No FAIL allowed. Before PR-2 the `setup summary vs settings` row WARNs and prints the exact `LAUNCHPAD_DBC_CONFIGS` and `LAUNCHPAD_LOOKUP_TABLE` values for PR-2 | every row of section 5 marked "setup", the rewards rows, both admins, both fingerprints |
+| 8 | team | PR-2: `LAUNCHPAD_DBC_CONFIGS`, `LAUNCHPAD_LOOKUP_TABLE`, `LAUNCHPAD_TRADING=on` (the owner approves) | |
+| 9 | team | after the deploy of PR-2: the same preflight plus `--site https://vicinity.city`: `setup summary vs settings` PASS, `LAUNCHPAD_TRADING` PASS, `site /coin-meta`, `site /brand/vicinity-512.png`, `site city-coin routes` PASS | |
+| 10 | owner, website (guide step 13) | the first approval (City coins → Approve a city coin); the founder launches from the dashboard's Founder tab. Smoke: buy 0.01 SOL of that coin on `/coin`, then sell it back, and compare both with the quote on Solscan to the raw unit (the devnet rehearsal of exactly this: solana/LAUNCHPAD-DEVNET.md section 10) | |
+
+No keeper: graduation is a button on `/coin` that anyone can press when a curve is full (the payer plus two one-time browser
+keys), and collecting fees, holder rewards set-up, forwarding, platform fees and pause are buttons in the City coins tab
+(LAUNCHPAD.md section 7 describes the keeper they replace). Rollback: `LAUNCHPAD_TRADING=off` stops the curve trade routes at
+the next request; "Pause launches" in the City coins tab stops new launches; trades on existing curves cannot be stopped
+(Meteora's program is permissionless) and the panel then only says so.
+
+Not done here on purpose (noted for the auditors): no Docker `anchor build --verifiable` (no Docker on the build machine;
+`build-mainnet.sh` instead proves the audited bytes reproduce with the pinned cargo-build-sbf 4.4.0 and platform-tools
+v1.57, and that the mainnet binaries differ from them only in the id bytes); no `security.txt` (it would change the audited
+bytes); `anchor keys sync` never runs (the repository keeps the devnet ids). Moving the launchpad admin and the registry
+admin from the owner's Phantom to the Squads vault (`propose_admin` in Phantom, `accept_admin` through the Squads app) is
+possible at any time and not part of the launch.
 
 ## 5. The preflight, row by row (`scripts/mainnet-preflight.mjs`, read-only, Node 22, no dependencies)
 
 ```
 npm run mainnet:preflight -- [--cluster devnet|mainnet] [--set KEY=VALUE]… [--rpc <url>] [--site https://vicinity.city]
                              [--expect-upgrade-authority <address>] [--expect-admin <address>] [--check-limits]
+                             [--setup <summary.json>] [--build-record <build-record.json>]
+                             [--expect-sha256-launchpad <hex>] [--expect-sha256-rewards <hex>]
 ```
+
+`--setup` takes the City coins tab's "Send this to the team" box (bare, or the `{ ok, summary }` of `/api/admin/lp/summary`).
+A launchpad setting that is set must agree with it; one that is not set yet (before PR-2) is taken from it for this run, and
+the `setup summary vs settings` row says so and prints the values. `--build-record` takes build-mainnet.sh's
+`build-record.json` (both programs' size and SHA-256); the `--expect-sha256-*` flags give one fingerprint each. The program
+rows run as soon as `LAUNCHPAD_PROGRAM_ID` is set (right after the deploy, before any config exists).
 
 Settings come from `wrangler.jsonc` vars, then the shell (export the secrets for the run), then `--set`. Exit code 1 on any
 FAIL. No key is printed (the Jupiter key goes out as a request header, exactly as the Worker sends it). Nothing is sent:
@@ -149,13 +158,22 @@ every call is a GET or a JSON-RPC read; `--check-limits` posts invalid bodies th
 | `LAUNCHPAD_RPC_URL`, `LAUNCHPAD_PROGRAM_ID`, `LAUNCHPAD_DBC_CONFIGS` | set or defaulted (devnet); on mainnet the id and configs REQUIRED | WARN public RPC; FAIL missing |
 | `launchpad RPC cluster`, `launchpad RPC health` | the cluster it should be; getHealth ok and the configs under 1.5 s | FAIL / WARN |
 | `launchpad program` | executable, owned by the upgradeable loader | FAIL |
-| `upgrade authority` | = `--expect-upgrade-authority`; immutable also PASS | FAIL a different key; on mainnet FAIL whenever the flag is missing (plain wallet, vault or program address alike: the row passes only by naming the multisig and matching it); WARN on devnet |
+| `upgrade authority`, `rewards upgrade authority` | = `--expect-upgrade-authority`, or else the vault of the setup summary's Squads multisig (decoded from the chain); immutable also PASS | FAIL a different key; on mainnet FAIL a plain wallet even when it is the expected one, and FAIL whenever there is no expectation (a vault or program address cannot pass by accident); WARN on devnet |
+| `launchpad program fingerprint`, `rewards program fingerprint` (with `--build-record` / `--expect-sha256-*`, or always on mainnet) | SHA-256 of ProgramData from byte 45 (what `solana program dump` writes; zero padding after the recorded size is ignored) = the build record | FAIL a different binary or a record for another program id; WARN on mainnet without an expectation (the fingerprint is printed) |
 | `Meteora DBC program` | executable on the cluster | FAIL |
-| `launchpad global account`, `launchpad admin`, `rewards program` | initialised, not paused; admin = `--expect-admin`; a rewards program set | FAIL not initialised; WARN paused; FAIL a different admin, or on mainnet any admin while `--expect-admin` is missing; FAIL no rewards program |
+| `launchpad global account`, `launchpad admin`, `rewards program` | initialised, not paused; admin = `--expect-admin` (a plain wallet passes when it is the expected one: the owner's Phantom, by decision); the rewards program the launchpad was started with = `LAUNCHPAD_REWARDS_PROGRAM_ID` | FAIL not initialised; WARN paused; FAIL a different admin, or on mainnet any admin while `--expect-admin` is missing; FAIL no rewards program or another one than the setting |
+| `rewards program deployed`, `rewards registry`, `registry admin` | executable and upgradeable; the registry exists; its admin = `--expect-admin` | FAIL (the City coins tab's step 1 starts the registry); the admin as for the launchpad |
+| `LAUNCHPAD_REWARDS_PROGRAM_ID`, `city coins gate` | set, a valid address, not the launchpad's, not the devnet one on mainnet; the gate on (cluster, program and rewards ids explicit) | FAIL on mainnet when missing; WARN on devnet; the gate row only WARNs (the settings rows say what is missing) |
 | `DBC config <id>` | Meteora's; fee claimer and leftover receiver = the dev wallet; 125 bps; creator share 50 %; pool creation fee under the cap | FAIL; WARN a SOL config not graduating at 85 SOL on mainnet |
-| `allow-list entry <id>` | an enabled LaunchConfig under our program for that config | FAIL (setup.mjs add-config) |
+| `allow-list entry <id>` | an enabled LaunchConfig under our program for that config | FAIL (the City coins tab's step 4; setup.mjs add-config on devnet) |
 | `referral account <quote>` | the dev wallet's token account for the quote mint exists | WARN (the next trade recreates it and THAT TRADER pays about 0.002 SOL that is not returned; the quote and the panel say so; the claim script must stop closing it) |
 | `LAUNCHPAD_LOOKUP_TABLE` | a table holding the nine addresses a trade needs | WARN some missing or unset; FAIL not a table |
+| `speed table for city coins` | the table holds every address the website's launch, graduation and fee transactions share (src/sol/lpadmin-ix.js `lookupTableAddresses`) | WARN some missing (a launch with a first buy may not fit); FAIL deactivated |
+| `setup summary`, `setup summary vs settings` (`--setup`) | the box parses; every launchpad setting equals it | FAIL not a summary; FAIL a setting that differs (both values named); WARN settings taken from the summary (before PR-2: the row prints them) |
+| `setup Squads multisig`, `setup Squads vault` | a Squads v4 multisig (2 or more approvals, no config authority, enough voters) whose vault 0 is the summary's vault; `--expect-upgrade-authority`, when given, is that vault | FAIL (a pasted vault or wallet, a 1-of-N or controlled multisig, another vault) |
+| `setup price curve`, `setup allow-list entry`, `setup speed table` | the config is byte for byte what Meteora writes for Vicinity's defaults (85 SOL, 1.25 %, 0.05 SOL, fees to the dev wallet) and in `LAUNCHPAD_DBC_CONFIGS`; its allow-list entry is the summary's and enabled; the table is `LAUNCHPAD_LOOKUP_TABLE`, active, and holds both | FAIL (on devnet a differing curve only WARNs) |
+| `setup admin`, `setup fee accounts`, `setup partner metadata`, `setup signatures` | the summary's admins are the chain's (and `--expect-admin`); the dev wallet's SOL and $VICINITY accounts are the derived ones and exist; Meteora's partner record exists; every setup signature landed without error | FAIL a different address or a failed transaction; WARN an account or a signature not found, no partner record (step 7, not a blocker) |
+| `site /coin-meta`, `site /brand/vicinity-512.png`, `site city-coin routes` (`--site`) | an unknown coin answers 404 JSON with `Access-Control-Allow-Origin: *`; the logo 200 `image/png`; `/api/lp/launch/status` answers the probe on the same cluster and 401 for a signed-out city | FAIL while the city coins are on in the settings checked here (WARN while off); FAIL the site off while on here, another cluster, or not 401 |
 | `dev wallet` | in `ADMIN_WALLETS` | WARN |
 
 Recorded runs on 9 October 2026, after the review fixes (the logs are in the fixer's report). The shell had `SOLANA_RPC_URL`
@@ -177,6 +195,20 @@ These runs used `--rpc https://api.mainnet-beta.solana.com` (the public node; th
 in that shell) and no `JUPITER_API_KEY`. The team's own runs with both exported will show `SOLANA_RPC_URL` set and the build row
 keyed (PASS instead of WARN).
 
+Recorded on 10 October 2026, after the city-coin rows were added (same shell):
+
+* `--site https://vicinity.city` (today's live site, nothing of the city coins deployed): **52 rows, 38 pass, 14 warn, 0 fail**;
+  `site /coin-meta` and `site /brand/vicinity-512.png` WARN (the live Worker does not serve them yet: they must PASS before the
+  first approval), `site city-coin routes` PASS ("off on the site, as the settings here say");
+* `--cluster mainnet` with no program: **22 rows, 13 pass, 6 warn, 3 fail** (`LAUNCHPAD_PROGRAM_ID`, `LAUNCHPAD_DBC_CONFIGS`,
+  `LAUNCHPAD_REWARDS_PROGRAM_ID`);
+* against devnet with explicit settings, a devnet setup summary, `--expect-admin` the devnet deployer and the audited
+  fingerprints, `--site` a local `wrangler dev` with the gate on: **60 rows, 47 pass, 11 warn, 2 fail**. Both fingerprints were
+  read from devnet's ProgramData and equal the audited `8706e3bf…27f0` and `f0fbc9d5…09a3`; `site /coin-meta`,
+  `site /brand/vicinity-512.png` and `site city-coin routes` PASS. The two FAILs are expected there: `setup Squads multisig`
+  (devnet has no Squads hand-over) and `site cron alive` (no cron in `wrangler dev`). The same Worker with the production
+  variables answered `/api/lp/launch/status` 404, which the row reads as "off, as the settings here say".
+
 ## 6. Costs (estimates; nothing of section 4 was run on mainnet)
 
 * Jupiter swaps: the person pays the network fee (5,000 lamports per signature), the priority fee Jupiter suggests (the Worker
@@ -192,10 +224,12 @@ keyed (PASS instead of WARN).
   by the NEXT trader to re-create it, which is not returned to them: the quote carries `fees.referralRentLamports` and
   `referralNote`, the panel shows it in the "Account rent" row, and the preflight's `referral account` row WARNs. The fix is
   operational: keep that account open (do not close it in claim-platform-fees).
-* The launchpad on mainnet (LAUNCHPAD.md section 9): the owner's own estimates, not verified here: the deploy about 2.23 SOL at
-  the peak (the rent of the program account depends on the binary size at deploy time), config + init + allow-list about
-  0.01 SOL, referral accounts and the table about 0.008 SOL, Meteora partner metadata about 0.002 SOL, the keeper's float 0.5 SOL
-  plus about 0.03 SOL per graduation it runs, the Helius plan, the audit quote. Per launch the founder pays about 0.076 SOL.
+* The launchpad and rewards programs on mainnet (docs/OWNER-LAUNCH-GUIDE.md, "Costs"): rent 2.20539564 + 2.57066796 +
+  2 × 0.00083312 = 4.77772984 SOL (read from mainnet with `solana rent` on 10 Oct 2026; CLI 4.3 sizes each program to its
+  binary), about 0.008 SOL of deploy fees; the owner sends 4.85 SOL to the deployer and gets the rest back. The website setup
+  from Phantom about 0.02 SOL. No keeper: whoever presses "Move to the open market" pays about 0.03 SOL. Per launch the founder
+  pays the config's launch fee plus about 0.0312 SOL of rent (0.0812 SOL with the mainnet defaults). The Helius plan, the
+  audit quote.
 * The Worker, per trade: one Jupiter build per (wallet, pair, amount, slippage) per 12 s (keyless quotes are shared the same
   way), one simulation per built transaction, one `sendTransaction` per relayed trade (wallets that cannot send themselves),
   one `getSignatureStatuses` per 2 s per watching page, a balance read per wallet per 10 s. Limits in src/guards.js and
