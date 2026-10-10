@@ -68,6 +68,7 @@ Keys and passwords (`SOLANA_RPC_URL`, `GOOGLE_CLIENT_SECRET`, the mail keys) are
 | `SNAPSHOT_CUTOFF` | The Founding Supporter cutoff, always 00:00 UTC, e.g. `2026-10-08T00:00:00Z`. Announce it first. |
 | `ATTEST_KEY` | Optional: the key that signs location attestations (otherwise one is made once and kept in the database). |
 | `JUPITER_API_BASE`, `JUPITER_API_KEY` | Optional: where prices come from and the key for it (`https://api.jup.ag` with a free key from portal.jup.ag). Unset = the keyless address Jupiter is retiring. See [docs/DEPLOY.md](docs/DEPLOY.md). |
+| `SOLANA_RPC_URL_BACKUP` | Optional, recommended: a second mainnet RPC URL from a **different provider** (a Secret). Asked only when the first one refuses or fails (credits used up, rate limit, outage); must allow `getProgramAccounts` on the token program. See [docs/DEPLOY.md](docs/DEPLOY.md). |
 | `RPC_TIMEOUT_MS` | Optional: how long one blockchain call may take before the site gives up on it (default 8000). |
 | `SIGNUP_FLOW` | `v2` switches on the new sign-up (see below); anything else or missing = the old sign-up. Set to `v2` in `wrangler.jsonc` since 3 Oct 2026, so every deploy applies it; change it there to switch back. |
 | `PROFILES` | `on` switches on member profiles (see below); anything else = no profiles. Set to `on` in `wrangler.jsonc` since 3 Oct 2026; change it there to switch back. |

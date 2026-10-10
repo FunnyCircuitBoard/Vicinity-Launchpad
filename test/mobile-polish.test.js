@@ -65,7 +65,7 @@ test("home: one hero button to the buy slot, one row of facts with one countdown
     assert.equal(count(h, /href="\/token#buy-slot"/g), 1, "the one call to buy");
     assert.equal(count(h, /data-countdown-short/g), 1, "the countdown once (it was in four places)");
     assert.equal(count(h, /data-stat="communities"/g), 1, "the communities count once (it was in three)");
-    assert.equal(count(h, /October 10/g), 2, "October 10: the roadmap's next stop and the FAQ's launch answer");
+    assert.equal(count(h, /October 10/g), 1, "October 10 once: the FAQ's launch answer (the roadmap's next stop has no date)");
     assert.doesNotMatch(h, /class="numbers"|cta-band|hero__facts[\s\S]*?hero__facts/, "no numbers band, no closing band, one facts row");
     // design v2 (10 Oct 2026): countries third, so a phone's three tiles are communities, the Launchpad (a link to it) and countries; the
     // members count (3 on opening day, the tile the owner circled) and the official boundaries show from 601 px
@@ -297,7 +297,7 @@ test("home on a phone (the owner's screenshots 2 and 3): three facts that fit, a
   assert.equal((polish.match(/\.timeline \{/g) || []).length, 1, "and the only .timeline rule in polish.css");
   assert.match(style, /\.timeline__item \{ position: relative; padding: 0 0 18px 10px; \}/);
   assert.match(style, /\.timeline::before \{[^}]*linear-gradient\(var\(--moss\), var\(--moss\) var\(--rail-done, 48%\), var\(--pin\) var\(--rail-at, 66%\)/, "green to the last stop done, orange at the next");
-  // after 10:10:10 New York time: "Live / Launchpad is open" (never "Open now"), the roadmap's Launchpad stop "Live now", the Passport next
+  // after 10:10:10 New York time: "Live / Launchpad is open" (never "Open now"), the roadmap's Launchpad stop "Open now", the Passport next
   const site = read("public/site.js"), homeJs = read("public/home.js");
   assert.doesNotMatch(site, /Open now|until the Launchpad opens/);
   assert.match(site, /if \(e\.textContent !== "Live"\) e\.textContent = "Live";/);
@@ -305,7 +305,9 @@ test("home on a phone (the owner's screenshots 2 and 3): three facts that fit, a
   assert.match(site, /if \(fact\) fact\.classList\.add\("is-live"\);/);
   assert.match(site, /document\.dispatchEvent\(new CustomEvent\("vicinity:launchpad-open"\)\);/, "a page left open across the opening flips too");
   assert.match(homeJs, /stop\.classList\.remove\("is-next"\); stop\.classList\.add\("is-done", "is-now"\);/);
-  assert.match(homeJs, /status\.textContent = "Live now";/);
+  // the stop says the page is open, not "Live now": no city coin can launch until its founder qualifies (honest copy, 10 Oct 2026)
+  assert.match(homeJs, /status\.textContent = "Open now";/);
+  assert.doesNotMatch(homeJs, /status\.textContent = "Live now"/);
   assert.match(homeJs, /go\.href = "\/launchpad"; go\.textContent = "Open the Launchpad →";/);
   assert.match(homeJs, /later\.classList\.add\("is-next"\);/);
   assert.match(homeJs, /document\.addEventListener\("vicinity:launchpad-open", launchpadLive\);/);

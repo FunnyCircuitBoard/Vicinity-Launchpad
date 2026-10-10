@@ -307,7 +307,8 @@ test("home: the roadmap shows the October 3 launch as done and the Launchpad as 
   const h = html["index.html"];
   const items = [...h.matchAll(/<li class="timeline__item([^"]*)"><span class="timeline__status">([^<]+)<\/span><h3>([^<]+)<\/h3>/g)].map((m) => [m[1].trim(), m[2], m[3]]);
   assert.deepEqual(items.slice(0, 4), [["is-done reveal", "Done", "The real map"], ["is-done reveal", "Done", "Accounts and dashboards"],
-    ["is-done reveal", "Done", "$VICINITY launched"], ["is-next reveal", "October 10", "Vicinity Launchpad"]]);
+    ["is-done reveal", "Done", "$VICINITY launched"], ["is-next reveal", "Next", "Vicinity Launchpad"]]);
+  assert.doesNotMatch(h, /Every city can launch/, "no city coin can launch yet: the roadmap says each city launches once its founder qualifies");
   assert.equal((h.match(/timeline__item is-next/g) || []).length, 1, "one next step");
   assert.doesNotMatch(h, /published on this site first/);
   assert.doesNotMatch(h, /it launches October 3|so it launches a week earlier|Why is \$VICINITY launching/);

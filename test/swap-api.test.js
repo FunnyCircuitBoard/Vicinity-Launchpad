@@ -409,7 +409,7 @@ test("swap: a 429 on the keyed build host pauses builds only: previews fall back
   assert.deepEqual([_swapState().failed.lite > 0, _swapState().failed.keyed], [true, 0]);
 });
 
-test("swap: the status poll is counted per SIGNATURE (60 a minute) so one trade's polling never uses up another's; a bad signature costs nothing; the connection's own brake is 600", async () => {
+test("swap: the status poll is counted per SIGNATURE (60 a minute) so one trade's polling never uses up another's; a bad signature costs nothing; the connection's own brake is 120", async () => {
   const { call } = world();
   const sigA = "5ctr2RXcTzQ4XfHfFmjTaFPYxSMBw1Zp2WgVgXnvwDeMb7Yg7nE1xWxXq2k4mbKTrDJDDWJnBHe3bDB7uCqUWbk";
   const sigB = "4ctr2RXcTzQ4XfHfFmjTaFPYxSMBw1Zp2WgVgXnvwDeMb7Yg7nE1xWxXq2k4mbKTrDJDDWJnBHe3bDB7uCqUWbk";
@@ -421,7 +421,7 @@ test("swap: the status poll is counted per SIGNATURE (60 a minute) so one trade'
   assert.equal(other.status, 200, "another person's trade behind the same address still polls");
   for (let i = 0; i < 20; i++) assert.equal((await call("/api/swap/status?sig=zzz", { ip: "7.7.7.8" })).data.error, "bad_signature");
   assert.equal((await call(`/api/swap/status?sig=${sigB}`, { ip: "7.7.7.8" })).status, 200, "bad signatures were not counted against the connection");
-  assert.equal(PUBLIC_LIMITS.swap_status.max, 600);
+  assert.equal(PUBLIC_LIMITS.swap_status.max, 120);
 });
 
 test("swap: balances: a send through the relay forgets the payer's memo, and fresh=1 reads the chain again (counted like a miss)", async () => {

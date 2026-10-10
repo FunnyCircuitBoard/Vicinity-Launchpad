@@ -30,6 +30,7 @@ import { autoUsername, cleanText } from "./text.js";
 import { isSolanaAddress } from "./solana.js";
 import { POLICY, DAY, iso } from "./policy.js";
 import { withMint } from "./official.js";
+import { rpcHealth } from "./rpcpool.js";
 
 const ROLES = ["moderator", "admin", "owner"];
 const LEVEL = { moderator: 1, admin: 2, owner: 3 };
@@ -448,9 +449,13 @@ async function handleConfig(ctx) {
       EMAIL_MAX_PER_HOUR: Boolean(env.EMAIL_MAX_PER_HOUR),
       VICINITY_MINT: Boolean(env.VICINITY_MINT),
       SOLANA_RPC_URL: Boolean(env.SOLANA_RPC_URL),
+      SOLANA_RPC_URL_BACKUP: Boolean(env.SOLANA_RPC_URL_BACKUP),
       ADMIN_WALLETS: Boolean(env.ADMIN_WALLETS),
       SNAPSHOT_CUTOFF: Boolean(env.SNAPSHOT_CUTOFF),
     },
+    // what THIS server saw of the RPC providers (src/rpcpool.js), by role only (primary, backup, launchpad, devnet), never a URL:
+    // when one last refused or failed, why (http_429, rpc_-32429, timeout ...), and until when it is asked last
+    rpc: rpcHealth(),
     grantedRoles: roles.n,
     auditRows: audit.n,
   });

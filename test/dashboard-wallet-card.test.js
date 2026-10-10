@@ -35,7 +35,8 @@ test("the dashboard page holds the welcome card, the link card, the two rings, t
   assert.match(html, /Free: one signature, not a transaction\. Vicinity never asks for your recovery phrase or private key\./);
   assert.match(html, /<li>Your \$VICINITY balance and your rank among all holders<\/li>/);
   assert.match(html, /<li>The founder path for <span id="wcard-city">your city<\/span> and your city coin<\/li>/);
-  assert.match(html, /<li>Badges and holder rewards<\/li>/);
+  assert.match(html, /<li>Your badges<\/li>/);
+  assert.doesNotMatch(html, /holder rewards/); // no reward exists for holding $VICINITY
   assert.match(html, /<a class="btn btn--primary btn--lg" id="wcard-go" href="\/connect\?mode=link">Connect wallet<\/a>/);
   assert.match(html, /<button class="link-btn link-btn--tiny" type="button" id="wcard-remove">Remove it<\/button>/);
   assert.match(html, /<button class="link-btn" type="button" id="wcard-skip">Skip for now<\/button>/);
