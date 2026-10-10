@@ -190,8 +190,12 @@
                 <div><p class="kicker">Portfolio · live values</p><h2 class="h2--sm" id="pf-title">Your Vicinity coins</h2></div>
                 <div class="pf__meta"><span class="tiny muted" id="pf-updated"></span><button class="link-btn pf__refresh" type="button" id="pf-refresh">Refresh</button></div>
               </div>
-              <p class="small muted">Only $VICINITY and city coins are counted here. Anything else in your wallet is never shown.</p>
-              <div class="pf" id="pf-body"><p class="muted small">Loading your coins…</p></div>
+              <p class="pf-total" id="pf-total" hidden></p>
+              <details class="fold pf-fold">
+                <summary>Breakdown <span class="fold__meta">Each coin, its amount and its value</span></summary>
+                <p class="small muted">Only $VICINITY and city coins are counted here. Anything else in your wallet is never shown.</p>
+                <div class="pf" id="pf-body"><p class="muted small">Loading your coins…</p></div>
+              </details>
               <p class="inline-err" id="pf-msg" role="alert" hidden></p>
               <p class="tiny muted pf__net"><span id="pf-net" hidden></span><a href="/profile" id="pf-net-me">Your profile page</a><a href="/profile" id="pf-net-find">Find members</a></p>
             </section>

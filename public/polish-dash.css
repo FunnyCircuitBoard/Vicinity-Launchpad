@@ -263,12 +263,27 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .rk-empty { margin: 8px 0; }
 .dv2 .rk-empty[hidden] { display: none; }
 
-/* the badges: one icon in a tinted circle, one tone per tier */
-.dv2 .badge-grid { gap: 8px; }
-.dv2 .badge { display: grid; justify-items: center; gap: 6px; padding: 12px 6px 10px; border-radius: var(--r-chip, 12px); border: 0; background: var(--dd-inset); }
+/* the portfolio: the total first; the ring and the table under "Breakdown" */
+.dv2 .portfolio-card { display: grid; gap: 10px; }
+.dv2 .portfolio-card__head h2 { margin: 0; }
+.dv2 .pf-total { display: flex; align-items: baseline; gap: 8px; margin: 0; }
+.dv2 .pf-total[hidden] { display: none; }
+.dv2 .pf-total__num { font: 650 var(--fs-num, 2rem)/1.05 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.dv2 .pf-total__label { font-size: var(--fs-sm, .875rem); color: var(--muted); }
+.dv2 .pf-fold > summary { min-height: 44px; }
+.dv2 .pf-fold[open] { padding-bottom: 4px; }
+.dv2 .pf__net { margin: 0; }
+
+/* the badges: one icon in a tinted circle, one tone per tier; four or five to a row */
+.dv2 .badge-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+@media (min-width: 390px) { .dv2 .badge-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (min-width: 1000px) { .dv2 .badge-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.dv2 .badge-tabs { margin: 6px 0 10px; }
+.dv2 .badge { display: grid; justify-items: center; align-content: start; gap: 6px; padding: 10px 2px 8px; border-radius: var(--r-chip, 12px); border: 0; background: var(--dd-inset); }
 .dv2 .badge.is-earned { background: var(--dd-inset); border: 0; }
 .dv2 .badge.is-locked { opacity: .75; }
-.dv2 .badge .ico { width: 40px; height: 40px; }
+.dv2 .badge .ico { width: 34px; height: 34px; }
+.dv2 .badge .ico svg { width: 18px; height: 18px; }
 .dv2 .badge__name { margin: 0; font-size: var(--fs-xs, .75rem); line-height: 1.25; }
 .dv2 .badge__pending { font-size: .75rem; letter-spacing: 0; text-transform: none; font-weight: 600; margin: 0; }
 
@@ -321,9 +336,12 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .composer-lock[hidden] { display: none; }
 .dv2 .composer textarea { font-size: 16px; }
 
-/* the founder path: dates never break */
-.dv2 .psteps li { align-items: flex-start; }
-.dv2 .psteps .detail { white-space: nowrap; }
+/* the founder path: a step's detail under its words (its date never breaks) */
+.dv2 .psteps li { flex-wrap: wrap; align-items: flex-start; row-gap: 2px; }
+.dv2 .psteps li > span:nth-child(2) { flex: 1 1 0; min-width: 0; }
+.dv2 .psteps .detail { flex-basis: 100%; margin-left: 32px; }
+.dv2 .psteps .mini { flex: 0 0 120px; margin: 8px 0 0 32px; }
+.dv2 .feed__head .seg, .dv2 .feed .chips { width: 100%; }
 
 /* the proof dialog (a sheet on phones, from the shared .modal__box): Cancel as a full-width button */
 [data-page="dashboard"] #proof-cancel { margin-top: 4px; }

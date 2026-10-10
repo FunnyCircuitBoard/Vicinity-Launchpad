@@ -54,7 +54,7 @@ const TABLE = {
     "wallet-card", "wcard-kicker", "wcard-title", "wcard-lead", "wcard-perks", "wcard-city", "wcard-actions", "wcard-go", "wcard-other", "wcard-skip", "wcard-wait", "wcard-wait-text", "wcard-tiny",
     "wcard-another", "wcard-apps", "wcard-note", "wcard-note-text", "wcard-remove", "wcard-tip", "wcard-tip-text", "wcard-tip-ok",
     "d-amount", "d-amount-sub", "d-rank", "d-rank-sub", "d-city-label", "d-crank", "d-crank-sub", "d-country-label", "d-nrank", "d-nrank-sub",
-    "today", "today-title", "today-list", "role-home", "portfolio", "pf-title", "pf-updated", "pf-refresh", "pf-body", "pf-msg", "pf-net", "pf-net-me", "pf-net-find",
+    "today", "today-title", "today-list", "role-home", "portfolio", "pf-total", "pf-title", "pf-updated", "pf-refresh", "pf-body", "pf-msg", "pf-net", "pf-net-me", "pf-net-find",
     "badges", "bg-n-earned", "bg-n-locked", "badge-grid", "trade", "trade-title", "trade-state", "tr-amt", "tr-in", "tr-in-usd", "tr-flip", "tr-out", "tr-outk", "tr-rate", "tr-go", "tr-go-2", "tr-note"],
   city: ["city-subnav", "community", "cc-face", "cc-name", "cc-ticker", "ch-status", "cc-members", "cc-holders", "cc-founder", "ch-locals", "ch-locals-n", "ch-coin", "ch-coin-v", "cc-fomo", "cc-top", "cc-share",
     "coin", "coin-title", "coin-city", "coin-status", "coin-art", "coin-logo", "coin-art-face", "coin-name", "coin-ticker", "coin-pair", "coin-pitch", "coin-by", "coin-contract", "coin-mint", "coin-mint-copy", "coin-note",

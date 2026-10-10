@@ -397,6 +397,10 @@
       const it = r && r.portfolio && Array.isArray(r.portfolio.items) ? r.portfolio.items.find((i) => i.kind === "vicinity") : null;
       const v = it && num(it.valueUsd) && it.valueUsd > 0 ? it.valueUsd : null, w = $("#d-worth");
       w.textContent = v == null ? "" : ` · ≈ ${v >= 100 ? usd0.format(v) : fmtUsd(v)}`; w.hidden = v == null;
+      // the portfolio card's answer first: its total, big; the ring and the table fold under "Breakdown"
+      const t = r && r.portfolio && num(r.portfolio.totalUsd) ? r.portfolio.totalUsd : null, total = $("#pf-total");
+      if (t == null) total.replaceChildren(); else total.replaceChildren(el("strong", "pf-total__num", fmtUsd(t)), el("span", "pf-total__label", " total, live"));
+      total.hidden = t == null;
     }
 
     // ---- the one-time notice

@@ -590,7 +590,8 @@
       const li = el("li", s.done ? "is-ok" : "");
       li.append(el("span", "req__dot"), el("span", null, s.label));
       if (s.id === "hold" && !s.done && s.progress > 0) { const m = el("span", "mini"), fill = el("span"); fill.style.width = `${Math.round(s.progress * 100)}%`; m.append(fill); li.append(m); }
-      if (s.detail && !s.done) li.append(el("span", "detail", s.detail));
+      // (a date in the server's detail, "probation until 2026-12-29", reads "Dec 29" like the rest of the path)
+      if (s.detail && !s.done) li.append(el("span", "detail", String(s.detail).replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (x) => day(`${x}T12:00:00Z`))));
       return li;
     }));
 
