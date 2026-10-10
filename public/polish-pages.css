@@ -117,6 +117,14 @@
 .lp-live__open .live-dot, .lp-live__open .live-dot::after { background: var(--ok-text); }
 .lp-live.has-coins .lp-live__open, .lp-live:not(.has-coins) .lp-live__view, .lp-live:not(.is-marquee) .lp-live__pause { display: none; }
 .launch-hero:not([data-clock="open"]) .lp-live__open { visibility: hidden; } /* the hero starts open (no jump), but says so only once the clock has */
+/* a phone once open: a tighter hero, so the first live coin starts in the first screen of an iPhone with Safari's bars (390 x 664) */
+@media (max-width: 600px) {
+  .launch-hero.is-open { padding-bottom: 20px; }
+  .launch-hero.is-open .lp-live { margin-top: 14px; }
+  .launch-hero.is-open .hero__cta--center { margin: 12px 0 8px; }
+  .launch-hero.is-open .lp-note { margin-bottom: 0; }
+  .launch-hero.is-open ~ .lp-coins { padding-top: 20px; }
+}
 /* a computer: the hero fills the first screen, so the coin list that arrives under it never pushes what is in view */
 @media (min-width: 900px) { .launch-hero { min-height: calc(100vh - var(--header-h, 67px)); display: flex; align-items: center; } .launch-hero > .launch-hero__inner { width: 100%; } }
 .lp-live__view { flex: 1 1 auto; min-width: 0; overflow: hidden; border-radius: var(--r-pill, 999px); }
@@ -160,6 +168,10 @@
 .lp-ava span { font: 700 .8rem/1 var(--display); letter-spacing: .02em; color: inherit; text-shadow: 0 1px 1px rgba(0,0,0,.25); max-width: none; overflow: visible; }
 .lp-ava[data-color="gold"], .lp-ava:not([data-color]) { color: #3A2300; }
 .lp-ava[data-color="gold"] span { text-shadow: none; }
+/* $VICINITY: the same mark as in the Buy panel's token pill (the pin orange into gold, a white V), not a city's gold disc */
+.lp-ava[data-kind="vicinity"] { color: #fff; background: linear-gradient(135deg, #FF5A36, #FFC857); }
+.lp-ava[data-kind="vicinity"] span { font-size: 1.05rem; text-shadow: 0 1px 2px rgba(0,0,0,.35); } /* one letter: a little larger than two initials */
+.lp-ava--sm[data-kind="vicinity"] span { font-size: .85rem; }
 .lp-ava img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .lp-ava--sm { width: 30px; height: 30px; }
 .lp-ava--sm span { font-size: .7rem; }
@@ -258,6 +270,7 @@
    ===================================================================== */
 .coin-head .coin-head__disc.lp-ava { width: 56px; height: 56px; }
 .coin-head .coin-head__disc.lp-ava span { font-size: 1rem; }
+.coin-head .coin-head__disc.lp-ava[data-kind="vicinity"] span { font-size: 1.4rem; }
 .coin-mini__disc.lp-ava { width: 30px; height: 30px; }
 .coin-price__row { min-height: 2.6rem; }
 .coin-price .coin-chg { min-height: 24px; min-width: 4.5em; justify-content: center; }

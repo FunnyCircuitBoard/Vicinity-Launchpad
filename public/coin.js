@@ -271,6 +271,7 @@
     $("#coin-name").textContent = c.kind === "vicinity" ? place : `${str(c.name)} · ${place}`;
     for (const id of ["#coin-disc", "#coin-mini-disc"]) {
       const disc = $(id); disc.dataset.color = ["gold", "rose", "ocean", "emerald", "violet", "ink"].includes(c.color) ? c.color : "gold";
+      if (c.kind === "vicinity") disc.dataset.kind = "vicinity"; else delete disc.dataset.kind; // $VICINITY wears the Buy panel's own mark
       const logo = /^\/api\/media\/[A-Za-z0-9_-]{1,64}$/.test(str(c.logo)) ? c.logo : null;
       const old = disc.querySelector("img");
       if (logo && !old) { const img = el("img"); img.src = logo; img.alt = ""; img.width = 64; img.height = 64; disc.append(img); }

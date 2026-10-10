@@ -100,3 +100,12 @@ test("404: one calm empty state with the pin, the line, Home and Cities, and the
     assert.match(h, /Check it with the <a href="\/token#check">official link checker<\/a>\./);
   }
 });
+
+test("after the opening on a phone: a tighter hero (the first live coin in an iPhone's first screen with Safari's bars), $VICINITY in the Buy panel's own mark", () => {
+  assert.match(CSS, /@media \(max-width: 600px\) \{\n  \.launch-hero\.is-open \{ padding-bottom: 20px; \}/);
+  assert.match(CSS, /\.launch-hero\.is-open ~ \.lp-coins \{ padding-top: 20px; \}/);
+  assert.match(CSS, /\.lp-ava\[data-kind="vicinity"\] \{ color: #fff; background: linear-gradient\(135deg, #FF5A36, #FFC857\); \}/);
+  assert.match(read("public/launchpad.js"), /if \(c\.kind === "vicinity"\) disc\.dataset\.kind = "vicinity";/);
+  assert.match(read("public/launchpad.js"), /if \(c\.kind === "vicinity"\) ava\.dataset\.kind = "vicinity";/);
+  assert.match(read("public/coin.js"), /if \(c\.kind === "vicinity"\) disc\.dataset\.kind = "vicinity"; else delete disc\.dataset\.kind;/);
+});

@@ -504,7 +504,7 @@
     cardsByKey.set(cardKey(c), c);
     const head = el("div", "lp-card__head");
     // one avatar recipe: the city's initials on the city's colour, ringed (its logo when it has one)
-    const disc = el("div", "coin-disc lp-card__disc lp-ava"); disc.dataset.color = colorOf(c);
+    const disc = el("div", "coin-disc lp-card__disc lp-ava"); disc.dataset.color = colorOf(c); if (c.kind === "vicinity") disc.dataset.kind = "vicinity"; // $VICINITY wears the Buy panel's own mark
     const logo = logoSrc(c);
     if (logo) { const img = el("img"); img.src = logo; img.alt = ""; img.width = 64; img.height = 64; img.loading = "lazy"; disc.append(img); }
     else disc.append(el("span", null, initialsOf(c)));
@@ -702,7 +702,7 @@
     track.dataset.sig = sig;
     const item = (c, copy) => {
       const li = el("li", `lp-live__item${copy ? " is-copy" : ""}`), a = el("a", "lp-live__link"); a.href = coinHref(c);
-      const ava = el("span", "lp-ava lp-ava--sm"); ava.dataset.color = colorOf(c); ava.setAttribute("aria-hidden", "true");
+      const ava = el("span", "lp-ava lp-ava--sm"); ava.dataset.color = colorOf(c); if (c.kind === "vicinity") ava.dataset.kind = "vicinity"; ava.setAttribute("aria-hidden", "true");
       const logo = logoSrc(c);
       if (logo) { const img = el("img"); img.src = logo; img.alt = ""; img.width = 28; img.height = 28; ava.append(img); } else ava.append(el("span", null, initialsOf(c)));
       const v = num(c.market && c.market.priceChange24hPct), ch = chipOf(v);
