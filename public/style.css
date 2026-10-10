@@ -725,7 +725,7 @@ html.map-is-full, html.map-is-full body { overflow: hidden; }
 .tip-claimed { color: var(--bad-text); font-weight: 600; } .tip-open { color: var(--ok-text); font-weight: 600; } .tip-ticker { color: var(--gold); font-weight: 700; }
 .tip-area { color: var(--muted); font-size: .76rem; }
 .citymap__legend { font-size: .8rem; color: var(--muted); margin: 10px 4px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
-.citymap__how { color: var(--faint); }
+.citymap__how { color: var(--muted); } /* 12 px: --faint read 4.0:1 (dark) and 3.6:1 (light) on the map card */
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 2px; }
 .dot--open { background: #7FA3D6; } .dot--claimed { background: var(--pin); box-shadow: 0 0 8px var(--pin); } .dot--mine { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
 .line { display: inline-block; width: 22px; height: 0; vertical-align: middle; margin-right: 2px; border-top: 2px solid var(--map-area-line); }

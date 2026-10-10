@@ -57,7 +57,7 @@
 .token-hero .stat-row { margin-top: var(--sp-3, 12px); grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2, 8px); }
 .token-hero .stat { padding: var(--sp-3, 12px) 14px; border-radius: var(--r-chip, 12px); background: var(--surface-1, var(--card)); }
 .token-hero .stat__label { text-transform: none; letter-spacing: 0; font-size: var(--fs-xs, .75rem); }
-.token-hero .stat strong { font-size: 1.3rem; font-variant-numeric: tabular-nums; }
+.token-hero .stat strong { font-size: clamp(1rem, 4.6vw, 1.3rem); font-variant-numeric: tabular-nums; } /* "$0.00000732" whole in a 320 px phone's half-width tile */
 .stat-src { margin: var(--sp-2, 8px) 2px 0; font-size: var(--fs-xs, .75rem); line-height: 1.5; color: var(--muted); }
 
 /* a phone: the title and the price, then the Buy card, the contract card and the facts; the one-sentence lead goes under the facts */
