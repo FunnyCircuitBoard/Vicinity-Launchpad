@@ -33,3 +33,15 @@ an auditor can reproduce it with the toolchain above, or the team can later upgr
 ## Rent on mainnet (10 October 2026, `solana rent`)
 
 launchpad 2.20516704 SOL, rewards 2.57043936 SOL, plus about 0.001 SOL per program account and about 0.01 SOL of fees.
+
+## Deployed on mainnet (10 October 2026, by the owner from his Mac)
+
+Checked from the chain afterwards (`solana program dump` + SHA-256, and the programdata account's authority field):
+
+| program | on-chain bytes | upgrade authority |
+|---|---|---|
+| `AkMP9qvAYmb8Vyu63Qhw8Z4ee1fgQbCRKkXWy5r5A1Ai` (launchpad) | SHA-256 `32906e19…c1621a` = the file above | `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X` (Squads vault, 2 of 3) |
+| `EVwxp3V9YSvsyDEjp39B9wRDQxHR2xF2CNeR8AMRYrgG` (rewards) | SHA-256 `8ab9b047…51219d` = the file above | `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X` (Squads vault, 2 of 3) |
+
+No leftover deploy buffers. Not yet done: the one-time setup (rewards registry, the Vicinity Meteora config, `init_launchpad`,
+allow-list, referral accounts, lookup table), then the site settings and `LAUNCHPAD_TRADING`.
