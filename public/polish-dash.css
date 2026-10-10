@@ -372,19 +372,20 @@ body.is-dv2 .dash::before { content: none; }
 /* the proof dialog (a sheet on phones, from the shared .modal__box): Cancel as a full-width button */
 [data-page="dashboard"] #proof-cancel { margin-top: 4px; }
 
-/* ---------- Home on a wide screen: two columns; the Buy card sticks on the right ---------- */
+/* ---------- Home on a wide screen: two columns; the Buy card has the right column to itself and sticks there ---------- */
 @media (min-width: 1000px) {
-  .dv2 #panel-home { grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr); grid-auto-flow: row dense; align-items: start; }
-  .dv2 #panel-home > #dash-top, .dv2 #panel-home > #today, .dv2 #panel-home > #role-home, .dv2 #panel-home > #portfolio { grid-column: 1; }
-  .dv2 #panel-home > #pf-notice, .dv2 #panel-home > #ban-notice, .dv2 #panel-home > #lost-alert, .dv2 #panel-home > #welcome, .dv2 #panel-home > #wallet-card { grid-column: 1 / -1; }
-  /* the Buy card spans the rows of the left column's cards (the Pass and standing, Today when it shows, the role card), then
-     Portfolio | Badges share the last row; so no column has a gap between two cards (the Buy card's own track is where it sticks) */
-  .dv2 #panel-home > #trade { grid-column: 2; grid-row: span 2; position: sticky; top: calc(var(--sticky-top, 79px) + var(--dd-strip)); max-height: calc(100dvh - var(--sticky-top, 79px) - var(--dd-strip) - 16px); overflow: auto; overscroll-behavior: contain; }
-  .dv2 #panel-home:has(> #today:not([hidden])) > #trade { grid-row: span 3; }
-  .dv2 #panel-home > #badges { grid-column: 2; }
+  /* the rows are spaced by each card's own bottom margin, not the grid's row gap: so the Buy card can span more rows than the left
+     column fills (an empty row is 0 px tall and adds no gap), and nothing ever stands under it in its column (a sticky grid item
+     moves inside the whole grid, not only its own rows: a card under it would slide beneath it) */
+  .dv2 #panel-home { grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr); grid-auto-flow: row dense; align-items: start; row-gap: 0; margin-bottom: calc(-1 * var(--dd-gap)); }
+  .dv2 #panel-home > * { margin-bottom: var(--dd-gap); }
+  .dv2 #panel-home > #dash-top, .dv2 #panel-home > #today, .dv2 #panel-home > #role-home, .dv2 #panel-home > #portfolio, .dv2 #panel-home > #badges, .dv2 #panel-home > #wallet-card[data-place="buy"] { grid-column: 1; }
+  .dv2 #panel-home > #pf-notice, .dv2 #panel-home > #ban-notice, .dv2 #panel-home > #lost-alert, .dv2 #panel-home > #welcome, .dv2 #panel-home > #wallet-card:not([data-place="buy"]) { grid-column: 1 / -1; }
+  .dv2 #panel-home > #trade { grid-column: 2; grid-row: span 8; align-self: start; position: sticky; top: calc(var(--sticky-top, 79px) + var(--dd-strip)); max-height: calc(100dvh - var(--sticky-top, 79px) - var(--dd-strip) - 16px); overflow: auto; overscroll-behavior: contain; }
   /* a member without a wallet: the one-line Buy card and the badges stack beside the Pass; the role card takes the full width */
   .dv2 #panel-home > #trade.is-locked { position: static; max-height: none; grid-row: auto; }
   .dv2 #panel-home:has(> #trade.is-locked) > #dash-top { grid-row: span 2; }
+  .dv2 #panel-home:has(> #trade.is-locked) > #badges { grid-column: 2; }
   .dv2 #panel-home:has(> #trade.is-locked) > #role-home { grid-column: 1 / -1; }
   /* one main action never runs the width of the screen */
   .dv2 .wcard:not(.wcard--folded) .wcard__actions { justify-items: center; }
