@@ -34,7 +34,18 @@
   }
 
   /* ---------- hero: New York City's community, glowing ---------- */
+  // On a phone the hero's map is hidden (the walkthrough's bigger map comes right after): a faint outline of New York City's real
+  // boundary sits behind the headline instead (decoration: aria-hidden, absolutely placed in the hero's background, so nothing moves).
+  function outline(data) {
+    const bg = $(".hero__bg"); if (!bg || $(".hero__outline", bg)) return;
+    const P = projector(data.view), [a, b, c, d] = boxOf(data.official);
+    const x0 = P.x(a), x1 = P.x(c), y0 = P.y(d), y1 = P.y(b), pad = 12;
+    const svg = svgEl("svg", { viewBox: `${(x0 - pad).toFixed(0)} ${(y0 - pad).toFixed(0)} ${(x1 - x0 + 2 * pad).toFixed(0)} ${(y1 - y0 + 2 * pad).toFixed(0)}`, "aria-hidden": "true", focusable: "false", preserveAspectRatio: "xMidYMid meet" }, "hero__outline");
+    svg.append(svgEl("path", { d: pathOf(P, data.official), "fill-rule": "evenodd" }));
+    bg.append(svg);
+  }
   function hero(data) {
+    outline(data);
     const svg = $("#hero-map"); if (!svg) return;
     const P = projector(data.view);
     drawBase(svg, data, P);
