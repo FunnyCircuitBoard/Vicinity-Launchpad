@@ -54,7 +54,8 @@ test("on: the stubs answer not_enabled, unknown lp paths not_found, and /api/adm
   const someone = await person(env);
   const chain = lpChain();
   const call = async (who, path, method = "GET", extra = {}) => { const r = await who.send(path, { method, body: method === "POST" ? {} : undefined, fetchImpl: chain.fetchImpl, ...extra }); return { status: r.status, data: await r.json() }; };
-  assert.deepEqual(await call(p, "/api/lp/launch/status?city=1"), { status: 404, data: { ok: false, error: "not_enabled" } }, "the founder track's stub");
+  // the founder track's routes (src/lplaunch.js): their first check is the page's cluster echo
+  assert.deepEqual([(await call(p, "/api/lp/launch/status?city=1&cluster=mainnet")).status, (await call(p, "/api/lp/launch/status?city=1&cluster=mainnet")).data.error], [409, "cluster_mismatch"]);
   assert.deepEqual((await call(p, "/api/lp/nothing-here")).status, 404);
   assert.equal((await call(p, "/api/lp/nothing-here")).data.error, "not_found");
   // the admin router line: signed out 401, not the owner 403, the owner reaches the admin track's stub

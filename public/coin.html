@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/polish.css">
   <link rel="stylesheet" href="/feedback.css">
   <link rel="stylesheet" href="/swap.css">
+  <link rel="stylesheet" href="/lp-launch.css">
   <script src="/theme.js"></script>
 </head>
 <body data-page="coin">
@@ -134,11 +135,17 @@
 
             <!-- the bonding curve -->
             <section class="card coin-curve" id="coin-curve" aria-labelledby="coin-curve-title">
-              <h2 class="coin-card__title" id="coin-curve-title">Bonding curve <span class="muted">· Raydium LaunchLab</span></h2>
+              <h2 class="coin-card__title" id="coin-curve-title">Bonding curve <span class="muted" id="coin-curve-venue">· Raydium LaunchLab</span></h2>
               <p class="coin-curve__big"><strong id="coin-curve-pct">—</strong> <span class="muted" id="coin-curve-of">&nbsp;</span></p>
               <progress class="lp-bar coin-curve__bar" id="coin-curve-bar" max="100" value="0" aria-labelledby="coin-curve-title"></progress>
               <p class="small coin-curve__text" id="coin-curve-text">Reading the bonding curve from the chain…</p>
               <p class="coin-foot coin-curve__src" id="coin-curve-src">Source: Solana blockchain</p>
+              <!-- a coin of the Vicinity launchpad whose curve is full: anyone signed in moves it to the open market (public/lp-launch.js) -->
+              <div class="coin-grad" id="coin-grad" aria-live="polite" hidden>
+                <p class="coin-grad__title" data-lp-grad-title></p>
+                <p class="small" data-lp-grad-text></p>
+                <div class="lp-flow" data-lp-grad-body></div>
+              </div>
             </section>
 
             <!-- the contract -->
@@ -253,6 +260,8 @@
   <script src="/coinchart.js" defer></script>
   <script src="/wallets.js" defer></script>
   <script src="/swap.js" defer></script>
+  <script src="/lp-sign.js" defer></script>
+  <script src="/lp-launch.js" defer></script>
   <script src="/coin.js" defer></script>
   <script src="/feedback.js" defer></script>
 </body>

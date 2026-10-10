@@ -1,4 +1,4 @@
-<!--{"title": "Dashboard", "description": "Your live Vicinity dashboard: rank among all holders, your city and country, badges, the path to founding your city, elections, and local and national memes, check-ins and discussions.", "page": "dashboard", "scripts": ["ticker", "wallets", "swap", "dashboard-roles", "dashboard"], "styles": ["onboard", "swap"]}-->
+<!--{"title": "Dashboard", "description": "Your live Vicinity dashboard: rank among all holders, your city and country, badges, the path to founding your city, elections, and local and national memes, check-ins and discussions.", "page": "dashboard", "scripts": ["ticker", "wallets", "swap", "dashboard-roles", "lp-sign", "lp-launch", "dashboard"], "styles": ["onboard", "swap", "lp-launch"]}-->
     <!-- signed out -->
     <section class="dash-out is-pending" id="dash-out" hidden>
       <div class="wrap teaser">
@@ -295,7 +295,8 @@
                   <label class="fieldset fieldset--wide"><span>Pitch · <span id="cs-count">0/200</span></span><textarea class="field" id="cs-pitch" rows="2" maxlength="200" placeholder="What makes this coin your city's?"></textarea></label>
                 </div>
                 <p class="studio-step" id="studio-step-2" hidden>Step 2 · Trading pair</p>
-                <p class="fieldset__label">Paired with, on Raydium LaunchLab</p>
+                <p class="fieldset__label">Paired with<span data-launchlab-copy>, on Raydium LaunchLab</span></p>
+                <p class="tiny muted" data-lp-only hidden>City coins launch on the Vicinity launchpad paired with SOL for now: pick SOL to launch.</p>
                 <div class="pair-pick" role="radiogroup" aria-label="Paired with">
                   <label class="pair-opt"><input type="radio" name="cs-pair" value="SOL" checked><span class="pair-opt__icon" aria-hidden="true">◎</span><strong>SOL</strong><em>Solana's own coin. What most traders hold.</em></label>
                   <label class="pair-opt"><input type="radio" name="cs-pair" value="USDC"><span class="pair-opt__icon" aria-hidden="true">$</span><strong>USDC</strong><em>A digital dollar. Prices read in dollars.</em></label>
@@ -321,7 +322,7 @@
                   <span class="tiny muted">Public and logged. Locked for good once the coin launches.</span>
                 </div>
                 <p class="wallet__error" id="cs-err" role="alert" hidden></p>
-                <details class="coin-launch">
+                <details class="coin-launch" data-launchlab-copy>
                   <summary>Launched it on Raydium LaunchLab? Add the contract</summary>
                   <p class="small muted">Paste the contract address. An admin (never you) checks it on the blockchain and records it. From then on the design is locked and it becomes the one official $<span data-city-ticker>CITY</span>.</p>
                   <div class="req-form"><label class="sr-only" for="cs-mint">Contract address</label><input class="field mono" id="cs-mint" maxlength="44" placeholder="Contract address" autocomplete="off" spellcheck="false"><button class="btn btn--glass btn--sm" type="button" id="cs-mint-send">Send for a check</button></div>
@@ -329,6 +330,17 @@
               </form>
 
               <div class="coin-admin" id="coin-admin" hidden><p class="kicker">🛡️ Contracts waiting for a check</p><ul class="req-list" id="coin-waiting"></ul></div>
+            </section>
+
+            <!-- "Launch your city coin" on the Vicinity launchpad (public/lp-launch.js): shown only to the city's founder, and only while the
+                 launchpad's settings are on (GET /api/lp/launch/status answers); the tabbed dashboard moves it into the Founder tab -->
+            <section class="card lp-launch" id="lp-launch" aria-labelledby="lp-launch-title" hidden>
+              <div class="lp-launch__head">
+                <div><p class="kicker">City coin · Vicinity launchpad</p><h2 class="h2--sm" id="lp-launch-title">Launch your city coin</h2></div>
+                <span class="tag" data-lp-state>Checking…</span>
+              </div>
+              <p class="lp-net" data-lp-net hidden></p>
+              <div class="lp-launch__body" data-lp-body aria-live="polite"><p class="small muted">Checking your coin on the blockchain…</p></div>
             </section>
           </div>
 

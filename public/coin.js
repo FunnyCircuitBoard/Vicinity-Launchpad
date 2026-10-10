@@ -144,6 +144,8 @@
 
   /** Did the chain find the coin's LaunchLab pool, or does Jupiter say it launched there? (only then is "Raydium LaunchLab" said) */
   const onLaunchLab = (d) => Boolean(d && d.market && (d.market.launchpad === "raydium-launchlab" || (d.market.curve && typeof d.market.curve === "object")));
+  /** A coin of the Vicinity launchpad (its Meteora curve, read from the chain by the server: market.lpCurve). */
+  const onVicinity = (d) => Boolean(d && d.market && d.market.launchpad === "vicinity");
   /** The line under the price: the price's source, the market cap with ITS source, the answer's age; or why there is no price. */
   function priceLine(m, ageS) {
     const s = (m && m.sources) || {};
@@ -154,10 +156,15 @@
   /** The About text of a city coin. */
   function cityAbout(d) {
     const c = d.coin, city = c.city && c.city.name ? c.city.name : "its city", pair = c.pair && c.pair.symbol ? c.pair.symbol : "SOL";
-    return `${c.ticker ? "$" + c.ticker : "This coin"} is the one official coin of ${city}${c.city && c.city.country ? `, ${c.city.country}` : ""}: launched by its founder${onLaunchLab(d) ? " on Raydium LaunchLab" : ""}, paired with ${pair}, and recorded by Vicinity.`;
+    return `${c.ticker ? "$" + c.ticker : "This coin"} is the one official coin of ${city}${c.city && c.city.country ? `, ${c.city.country}` : ""}: launched by its founder${onLaunchLab(d) ? " on Raydium LaunchLab" : onVicinity(d) ? " on the Vicinity launchpad" : ""}, paired with ${pair}, and recorded by Vicinity.`;
   }
-  /** The bonding curve in words: { pct, of, text, graduated } or null when the coin has no LaunchLab curve. */
+  /**
+   * The bonding curve in words: { pct, of, text, graduated, full, venue } or null when the coin has no curve we know. A Vicinity
+   * launchpad coin's curve (market.lpCurve: curve | full | graduated, a Meteora pool next) has its own words; the LaunchLab one as ever.
+   */
   function curveOf(d) {
+    const lp = d && d.market && d.market.lpCurve && typeof d.market.lpCurve === "object" ? d.market.lpCurve : null;
+    if (lp) return lpCurveOf(d, lp);
     const c = d && d.market && d.market.curve; if (!c || typeof c !== "object") return null;
     const sym = str(c.symbol) || "SOL", raised = num(c.raised), target = num(c.target), pct = num(c.progressPct);
     const ticker = d.coin && str(d.coin.ticker) ? `$${d.coin.ticker}` : "the coin";
@@ -168,6 +175,21 @@
       of: !graduated && raised != null && target != null ? `${sol(raised)} of ${sol(target)} ${sym} raised` : "",
       text: graduated ? `${ticker} has moved to a Raydium pool and trades like any other token.`
         : `When ${target != null ? sol(target) : "the target"} ${sym} has been raised, ${ticker} moves to a Raydium pool and trades like any other token. Until then every buy and sell happens on the curve. (Raydium's own page shows a progress figure based on price, which reads lower.)`,
+    };
+  }
+  function lpCurveOf(d, c) {
+    const sym = str(c.symbol) || "SOL", raised = num(c.raised), target = num(c.target), pct = num(c.progressPct);
+    const ticker = d.coin && str(d.coin.ticker) ? `$${d.coin.ticker}` : "the coin";
+    const stage = c.stage === "graduated" || c.stage === "full" ? c.stage : "curve";
+    const graduated = stage === "graduated", full = stage === "full";
+    return {
+      graduated, full, lp: true, venue: "Vicinity launchpad", stage,
+      value: stage === "curve" ? (pct == null ? 0 : Math.max(0, Math.min(100, pct))) : 100,
+      pct: graduated ? "Graduated" : full ? "Full" : pct == null ? "—" : `${pct >= 10 ? pct.toFixed(1) : pct.toFixed(2)}%`,
+      of: stage === "curve" && raised != null && target != null ? `${sol(raised)} of ${sol(target)} ${sym} raised` : full && target != null ? `${sol(target)} ${sym} raised` : "",
+      text: graduated ? `${ticker} has moved to its Meteora pool (the open market) and trades like any other token.`
+        : full ? `The curve is full: ${ticker} moves to a Meteora pool (the open market) next. Anyone can make the move below; until then nobody can trade it.`
+          : `When ${target != null ? sol(target) : "the target"} ${sym} has been raised, ${ticker} moves to a Meteora pool (the open market) and trades like any other token. Until then every buy and sell happens on the curve.`,
     };
   }
   /** The third trade tile: DEX Screener once it lists a pool; before that the curve's pool on GeckoTerminal; else nothing. */
@@ -216,7 +238,7 @@
   const legendText = (series, change, span) => `${series && series.unit === "SOL" ? "Raydium LaunchLab" : "vicinity.city readings"}: ${change} over ${span}`;
   const fmtDate = (iso) => { const t = Date.parse(str(iso)); return Number.isFinite(t) ? new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""; };
 
-  const pure = { isAddr, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, priceLine, cityAbout, RANGES, UNITS, STYLES };
+  const pure = { isAddr, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, onVicinity, priceLine, cityAbout, RANGES, UNITS, STYLES };
   window.VCoin = { pure };
   if (typeof document === "undefined" || !window.V || !window.VChart || !window.VChart.create) return; // node: the helpers are enough
 
@@ -273,8 +295,9 @@
     $("#coin-mini-ticker").textContent = ticker;
     // pills: live, the curve or graduation, official
     const cv = curveOf(d), words = [];
-    if (cv && !cv.graduated) words.push(["tag--gold", `Bonding curve ${cv.pct}`]);
-    else if (cv && cv.graduated) words.push(["tag--gold", "✓ Graduated to Raydium"]);
+    if (cv && cv.lp && cv.full) words.push(["tag--gold", "Curve full"]);
+    else if (cv && !cv.graduated) words.push(["tag--gold", `Bonding curve ${cv.pct}`]);
+    else if (cv && cv.graduated) words.push(["tag--gold", cv.lp ? "✓ On the open market (Meteora)" : "✓ Graduated to Raydium"]);
     if (offi && offi.tokenContract === d.mint) words.push(["tag--ok", "✓ Official"]);
     else if (c.kind === "city") words.push(["", "City coin · recorded by Vicinity"]);
     const key = JSON.stringify(words);
@@ -364,6 +387,19 @@
     bar.setAttribute("aria-valuetext", cv.graduated ? "Graduated" : `${cv.pct}${cv.of ? `, ${cv.of}` : ""}`);
     $("#coin-curve-text").textContent = cv.text;
     $("#coin-curve-src").textContent = `Source: ${str(d.market.sources && d.market.sources.curve) || "Solana blockchain"}${d.market.curve && num(d.market.curve.slot) ? ` · slot ${intFmt.format(d.market.curve.slot)}` : ""}`;
+    put($("#coin-curve-venue"), `· ${cv.venue || "Raydium LaunchLab"}`);
+    paintGrad(d, cv);
+  }
+  /** "Move to the open market" (public/lp-launch.js): a launchpad coin whose curve is full, then its last step; asked again when the stage changes. */
+  let gradKey = "";
+  function paintGrad(d, cv) {
+    const box = $("#coin-grad"); if (!box) return;
+    const want = cv.lp && (cv.full || cv.graduated) && window.LPLaunch && typeof window.LPLaunch.graduate === "function";
+    if (!want) { box.hidden = true; gradKey = ""; return; }
+    const key = `${d.mint}|${cv.stage}`;
+    if (key === gradKey) return;
+    gradKey = key;
+    window.LPLaunch.graduate(box, { mint: d.mint, ticker: d.coin && d.coin.ticker }).catch(() => { box.hidden = true; });
   }
 
   /** With the in-app swap on (SWAP=on): every Buy button opens the swap panel (public/swap.js) as a sheet over this page; nobody is sent to raydium.io. */

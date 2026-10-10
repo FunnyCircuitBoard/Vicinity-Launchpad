@@ -1,0 +1,50 @@
+/* "Launch your city coin" (dashboard Founder tab) and "Move to the open market" (coin page): public/lp-launch.js, and the
+   transaction summary public/lp-sign.js draws before the wallet opens (the same look as the admin tab's, public/admin.css). */
+.lp-launch { display: grid; gap: 12px; min-width: 0; }
+.lp-launch__head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 12px; }
+.lp-launch__head h2 { margin: 2px 0 0; }
+.lp-launch__body, .lp-flow { display: grid; gap: 10px; min-width: 0; }
+.lp-launch__body p, .lp-flow p, .coin-grad p { margin: 0; }
+.lp-flow:empty { display: none; }
+.lp-net { margin: 0; padding: 6px 12px; border-radius: 10px; font-weight: 700; font-size: .88rem; border: 1px solid var(--line-2); background: var(--card-2); justify-self: start; }
+.lp-net--main { background: #B3261E; border-color: #B3261E; color: #fff; letter-spacing: .01em; } /* white on #B3261E: 6.5:1 */
+.lp-coin { font-size: 1.05rem; overflow-wrap: anywhere; }
+.lp-coin__tk { font-weight: 700; color: var(--gold-text); }
+.lp-live { font-weight: 700; font-size: 1.05rem; color: var(--ok-text); }
+.lp-facts { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; font-size: .9rem; }
+.lp-facts dt { color: var(--muted); }
+.lp-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.lp-buy { display: grid; gap: 6px; font-weight: 600; font-size: .92rem; min-width: 0; }
+.lp-buy__input { width: 100%; max-width: 220px; min-height: 44px; font: 1rem var(--mono); }
+.lp-quote:empty { display: none; }
+.lp-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lp-row .btn, .lp-go { min-height: 44px; }
+.lp-go { justify-self: start; }
+.lp-wallets { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lp-wallets p { flex: 1 1 100%; }
+.lp-links { overflow-wrap: anywhere; }
+.lp-link { color: var(--pin-2); }
+.lp-addr { overflow-wrap: anywhere; word-break: break-all; }
+.lp-error { color: var(--bad-text); overflow-wrap: anywhere; }
+.lp-status { font-weight: 600; overflow-wrap: anywhere; }
+.lp-status:empty { display: none; }
+.lp-sum { border: 1px solid var(--line-2); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; background: var(--card); min-width: 0; font-size: .9rem; }
+.lp-sum p { margin: 0; }
+.lp-sum__net { font-weight: 700; }
+.lp-sum__net--main { color: #fff; background: #B3261E; border-radius: 8px; padding: 4px 10px; justify-self: start; }
+.lp-sum .lp-sum__h { font-weight: 700; margin-top: 4px; }
+.lp-sum__sol, .lp-sum__ixs { margin: 0; padding-left: 20px; display: grid; gap: 6px; overflow-wrap: anywhere; }
+.lp-sum__raw, .lp-sum__detail { color: var(--muted); }
+.lp-sum__more summary { cursor: pointer; color: var(--muted); min-height: 32px; }
+.lp-sum__accts { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 2px; font: .76rem var(--mono); overflow-wrap: anywhere; word-break: break-all; }
+.lp-sum__foot { color: var(--muted); font-size: .84rem; }
+.lp-sum__error { color: var(--bad-text); }
+/* the coin page: the graduation box inside the curve card */
+.coin-grad { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); min-width: 0; }
+.coin-grad__title { font-weight: 700; }
+@media (max-width: 520px) {
+  .lp-facts { grid-template-columns: 1fr; gap: 0; }
+  .lp-facts dt { margin-top: 6px; }
+  .lp-buy__input { max-width: none; }
+  .lp-go, .lp-row .btn--primary { width: 100%; justify-content: center; }
+}
