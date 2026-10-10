@@ -66,8 +66,9 @@
     if (!slot) { slot = el("div"); slot.id = "buy-slot"; const links = $("#ca-links"); (links && links.parentNode ? links : $("#ca-text")).after(slot); }
     slot.dataset.swap = ""; slot.dataset.out = m; slot.dataset.in = "SOL"; slot.dataset.mode = "buy"; slot.dataset.title = "Buy $VICINITY";
     Promise.resolve(window.VSwap.mount(slot)).then((p) => settleBuy(p ? "panel" : "none"), () => settleBuy("link"));
-    // the Jupiter tile is the token's INFORMATION page on jup.ag (its href already): "Jupiter" to the eye, "Jupiter token info" to a
-    // screen reader, so nobody takes it for a place to buy (the Buy card is the page's one place to buy)
+    // the Jupiter tile is the token's INFORMATION page on jup.ag (its href already): "Jupiter" with an info mark in place of the
+    // swap arrows (polish-pages.css, on data-swap-here) to the eye, "Jupiter token info" to a screen reader, so nobody takes it
+    // for a place to buy (the Buy card is the page's one place to buy)
     const j = $("#lnk-jup"); if (j && !j.dataset.swapHere) { j.dataset.swapHere = "1"; const jl = j.querySelector("span:not(.contract__out):not(.sr-only)"); if (jl) { jl.textContent = "Jupiter"; jl.after(el("span", "sr-only", " token info")); } }
     const a = $("#lnk-raydium"); if (!a) return;
     a.href = "#buy-slot"; a.removeAttribute("target"); a.removeAttribute("rel"); a.classList.add("is-here");

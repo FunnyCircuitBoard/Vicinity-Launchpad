@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { MINT } from "./helpers/world.js";
 
 const read = (f) => readFileSync(new URL(`../public/${f}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const HERO_SHA256 = "565de6aa0f32c41dbfc6f7fb107140076388322f4831ee678f0558318ffe32c5";
+const HERO_SHA256 = "3c8c73451c47ae0efa3f8fb0d73b1ebbb88a40862fdfe1a47ffc166ab315bea1";
 const html = read("token.html"), src = readFileSync(new URL("../scripts/pages/src/token.html", import.meta.url), "utf8"), css = read("style.css"), js = read("token.js");
 
 /* ---------------- the page ---------------- */
@@ -45,7 +45,8 @@ test("token page: the hero is word for word what it was (Live from the Solana bl
   // the Holders stat's line says team wallets are not counted either (8 Oct 2026), and the mobile polish of 9 Oct 2026 made the lead one
   // sentence and put the Buy control in a buy slot (<div class="contract__slot" id="buy-slot">, where the in-app swap goes). Design v2
   // (10 Oct 2026): the kicker says "Live on Solana" (one line at 320 px), a live price line sits under the title, the slot is the page's
-  // Buy card before the contract card (.token-hero), and one line under the facts names their sources.
+  // Buy card before the contract card (.token-hero), and one line under the facts names their sources. The Jupiter pill carries an
+  // info mark beside its swap arrows (CSS shows the info mark once the page's own Buy card is the place to buy: data-swap-here).
   for (const h of [html, src]) {
     const a = h.indexOf('<section class="page-hero" id="token">'), b = h.indexOf("</section>", a) + "</section>".length, hero = h.slice(a, b);
     assert.ok(hero.includes('<span class="stat__sub" id="st-holders-sub">people; pools and team wallets not counted</span>'));
@@ -54,6 +55,7 @@ test("token page: the hero is word for word what it was (Live from the Solana bl
     assert.match(hero, /<div class="token-hero__buy">\s*<div class="contract__slot buy-slot is-pending" id="buy-slot"><a class="contract__buy" id="lnk-raydium"[^>]*>[\s\S]*?<\/a><\/div>\s*<\/div>\s*<div class="token-hero__info">\s*<div class="contract card is-pending" id="contract">/, "the buy slot holds the Buy control and nothing else, before the contract card");
     assert.ok(hero.indexOf('id="buy-slot"') < hero.indexOf('id="ca-links"'), "no longer inside the contract card's links");
     assert.equal((h.match(/id="buy-slot"/g) || []).length, 1, "one buy slot on the page");
+    assert.match(hero, /id="lnk-jup"[^>]*><svg class="ext-ico ext-ico--swap"[^>]*>[\s\S]*?<\/svg><svg class="ext-ico ext-ico--info"[^>]*><circle cx="12" cy="12" r="8\.5"\/>/, "a visible info mark for the Jupiter info page");
     assert.equal(createHash("sha256").update(hero).digest("hex"), HERO_SHA256);
   }
 });

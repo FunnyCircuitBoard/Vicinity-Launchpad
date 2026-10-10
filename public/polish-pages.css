@@ -49,6 +49,10 @@
 .token-hero .contract__foot { padding-top: var(--sp-3, 12px); border-top: 1px solid var(--line); }
 .token-hero .contract__foot p { font-size: var(--fs-sm, .875rem); }
 @media (max-width: 360px) { .token-hero .contract__ext { padding: 0 4px; gap: 4px; font-size: .8rem; } .token-hero .contract__ext svg { display: none; } }
+/* the Jupiter pill: swap arrows while it is where you trade, an info mark once the page's own Buy card is the place to buy
+   (token.js / coin.js set data-swap-here; the info mark stays even at 360 px, where the other pills drop their icons) */
+.contract__ext .ext-ico--info, .contract__ext[data-swap-here] .ext-ico--swap { display: none; }
+.contract__ext[data-swap-here] .ext-ico--info { display: block; }
 /* the four facts: labels in sentence case above big tabular numbers; two by two on a phone */
 .token-hero .stat-row { margin-top: var(--sp-3, 12px); grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2, 8px); }
 .token-hero .stat { padding: var(--sp-3, 12px) 14px; border-radius: var(--r-chip, 12px); background: var(--surface-1, var(--card)); }
