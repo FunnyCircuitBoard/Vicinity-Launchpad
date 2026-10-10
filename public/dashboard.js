@@ -1088,7 +1088,7 @@
     $("#coin-by").textContent = cd ? `Designed by ${cd.by || "the City Founder"} · updated ${date(cd.updatedAt)}` : "";
     $("#coin-contract").hidden = !(cd && cd.mint);
     // a short chip (the whole address is the copy button's name and the chip's title); Copy copies the whole address
-    if (cd && cd.mint) { $("#coin-mint").textContent = `${cd.mint.slice(0, 4)}…${cd.mint.slice(-4)}`; $("#coin-mint").title = cd.mint; $("#coin-mint-copy").setAttribute("aria-label", `Copy the contract address ${cd.mint}`); }
+    if (cd && cd.mint) { $("#coin-mint").textContent = cd.mint; $("#coin-mint").title = cd.mint; $("#coin-mint-copy").setAttribute("aria-label", `Copy the contract address ${cd.mint}`); }
     tickerLine();
     $("#coin-note").textContent = mine
       ? (cd ? (cd.launched ? `${c.name}'s coin is live. Its design is locked, as the rules promise.` : "Change anything until your coin launches. Every save is public in the log.")
@@ -1173,7 +1173,7 @@
     window.VRole.queue({ coins: list.length });
     $("#coin-waiting").replaceChildren(...list.map((w) => {
       const li = el("li", "coin-check");
-      const link = el("a", "mono coin-check__mint", `${w.pendingMint.slice(0, 6)}…${w.pendingMint.slice(-6)}`); link.href = `https://solscan.io/token/${w.pendingMint}`; link.target = "_blank"; link.rel = "noopener";
+      const link = el("a", "mono coin-check__mint", w.pendingMint); // in full: a look-alike address can match the first and last few characters link.href = `https://solscan.io/token/${w.pendingMint}`; link.target = "_blank"; link.rel = "noopener";
       link.title = w.pendingMint; link.setAttribute("aria-label", `${w.pendingMint} on Solscan`);
       const cp = actBtn("Copy", () => copy(w.pendingMint, "Contract address copied"), "link-btn link-btn--tiny coin-check__copy"); cp.setAttribute("aria-label", `Copy the contract address ${w.pendingMint}`);
       const head = el("p", "coin-check__head"); head.append(el("strong", null, w.cityName), el("span", "tiny muted", ` · ${w.pair} pair · sent ${ago(w.pendingAt)}`));

@@ -271,7 +271,7 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .city-head #ch-status { margin: 6px 0 4px; }
 .dv2 .city-head .kv div { border: 0; background: var(--dd-inset); border-radius: var(--r-chip, 12px); }
 .dv2 .coin-contract { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--muted); }
-.dv2 .coin-contract code { padding: 4px 8px; border-radius: var(--r-xs, 8px); background: var(--dd-inset); color: var(--text); font-size: .8rem; }
+.dv2 .coin-contract code { min-width: 0; padding: 4px 8px; border-radius: var(--r-xs, 8px); background: var(--dd-inset); color: var(--text); font-size: .8rem; line-height: 1.45; overflow-wrap: anywhere; } /* the whole address, wrapping */
 .dv2 .subnav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 2px; border-radius: 999px; border: 1px solid var(--line); background: var(--card-2); }
 .dv2 .subnav__link { justify-content: center; padding: 0 6px; border: 0; white-space: nowrap; font-size: .8rem; }
 
@@ -343,7 +343,8 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .coin-check { display: grid; gap: 6px; padding: 12px; border: 0; border-radius: var(--r-chip, 12px); background: var(--dd-inset); }
 .dv2 .coin-check p { margin: 0; }
 .dv2 .coin-check__row { display: flex; align-items: center; gap: 8px; }
-.dv2 .coin-check__mint { font-size: .82rem; color: var(--text); }
+.dv2 .coin-check__row .coin-check__mint { flex: 1 1 0; min-width: 0; }
+.dv2 .coin-check__mint { font-size: .82rem; color: var(--text); overflow-wrap: anywhere; word-break: break-all; } /* the whole address, wrapping */
 .dv2 .coin-check__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .dv2 .coin-check__actions .btn { min-height: 44px; }
 
