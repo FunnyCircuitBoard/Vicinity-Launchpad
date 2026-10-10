@@ -117,6 +117,7 @@ async function attempt(t, body, fetchImpl, timeoutMs, send) {
     return { ok: false, reason, error: rpcError(`rpc_${reason}`) };
   }
   if (!res.ok) {
+    try { if (res.body && typeof res.body.cancel === "function") res.body.cancel().catch(() => {}); } catch { /* already read or closed */ }
     const err = rpcError(`rpc_http_${res.status}`, res.status);
     if (providerStatus(res.status)) return { ok: false, reason: `http_${res.status}`, error: err };
     throw err; // any other status is about the request itself: the same anywhere
