@@ -59,7 +59,9 @@ const decimalsSrc = new Source("lp_decimals", { ttlMs: 60 * 60_000, staleMs: 60 
 const referrals = new Source("lp_referral", { ttlMs: 60_000, staleMs: 0, negativeMs: 3_000 }); // the dev wallet's referral account per quote mint: exists or not, a minute per server
 export const _resetLpTrade = () => { registryMemo = null; for (const s of [pools, configs, tables, decimalsSrc, referrals]) s.reset(); };
 
-const lpRpc = (env, cl, method, params, fetchImpl) => rpc(env, method, params, fetchImpl, { url: cl.rpc });
+// the launchpad's own cluster: on devnet its node alone; on mainnet LAUNCHPAD_RPC_URL (or SOLANA_RPC_URL) with SOLANA_RPC_URL_BACKUP behind it
+const lpRoute = (cl) => ({ cluster: cl.cluster, url: cl.rpc });
+const lpRpc = (env, cl, method, params, fetchImpl) => rpc(env, method, params, fetchImpl, lpRoute(cl));
 
 /** Map(mint -> { cityId, coin, row }) of launched city coins that have a Coin record under our program on the launchpad cluster. */
 export async function registry(env, fetchImpl = fetch, { now = Date.now(), wantMint = null } = {}) {
@@ -278,7 +280,7 @@ export async function handleTradeTx(request, env, fetchImpl = fetch, now = Date.
   // the simulation: a plain code before the wallet opens, and the units it really needs
   let cuLimit = CU.swap;
   try {
-    const sim = await simulate(env, tx, fetchImpl, { url: cl.rpc });
+    const sim = await simulate(env, tx, fetchImpl, lpRoute(cl));
     if (!sim.ok) {
       const m = simulationError(sim.err, sim.logs, decodeHeader(tx), { launchpadProgramId: cl.programId }) || { error: "program_error" };
       console.error("curve trade would fail", m.error, m.name || "");

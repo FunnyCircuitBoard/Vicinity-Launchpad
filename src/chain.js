@@ -3,14 +3,15 @@
  * and "does this wallet hold $VICINITY?". Everything comes from the public
  * blockchain. Nothing is written, and no wallet address is ever stored.
  *
- * RPC: set the secret SOLANA_RPC_URL (e.g. a free Helius key) in Cloudflare.
- * Without it we fall back to the public endpoint, which can't list holders.
+ * RPC: set the secret SOLANA_RPC_URL (e.g. a Helius key) in Cloudflare, and optionally SOLANA_RPC_URL_BACKUP (another
+ * provider) for when it stops answering. Without SOLANA_RPC_URL we fall back to the public endpoint, which can't list holders.
+ * Every request goes out through src/rpcpool.js (endpoints, failover, breaker; never a URL in an error or a log).
  */
 import { OFFICIAL } from "./official.js";
 import { base58Decode, base58Encode } from "./solana.js";
 import { isOnCurve } from "./sol/oncurve.js";
+import { rpcPost } from "./rpcpool.js";
 
-const PUBLIC_RPC = "https://api.mainnet-beta.solana.com";
 const TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 const PROGRAM_LABELS = {
@@ -42,19 +43,19 @@ const poolLabel = (owner, ownerProgram) => {
 const RPC_TIMEOUT_MS = 8000;
 const rpcTimeout = (env) => { const n = Number(env && env.RPC_TIMEOUT_MS); return n > 0 ? n : RPC_TIMEOUT_MS; };
 
-export async function rpc(env, method, params, fetchImpl = fetch, { timeoutMs = null, url: urlOverride = null } = {}) {
-  // `url` overrides the RPC for one call: the launchpad's curve trades read their own cluster (src/cluster.js), everything else SOLANA_RPC_URL
-  const url = urlOverride || (env && env.SOLANA_RPC_URL) || PUBLIC_RPC;
-  const res = await fetchImpl(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    signal: AbortSignal.timeout(timeoutMs > 0 ? timeoutMs : rpcTimeout(env)),
-  });
-  if (!res.ok) throw new Error(`rpc_http_${res.status}`);
-  const data = await res.json();
-  if (data.error) throw new Error(`rpc_${data.error.code || "error"}`);
-  return data.result;
+/**
+ * One JSON-RPC call: { result, role } (role: which endpoint answered, never its URL). `cluster` "devnet" asks the launchpad's devnet
+ * node only; `url` is a caller's own first node (the launchpad's LAUNCHPAD_RPC_URL on mainnet, with SOLANA_RPC_URL_BACKUP behind it);
+ * `only` keeps the call on one role. A JSON-RPC error throws rpc_<code>, as before.
+ */
+export async function rpcAnswer(env, method, params, fetchImpl = fetch, { timeoutMs = null, url = null, cluster = null, only = null } = {}) {
+  const { data, role } = await rpcPost(env, { jsonrpc: "2.0", id: 1, method, params }, fetchImpl,
+    { timeoutMs: timeoutMs > 0 ? timeoutMs : rpcTimeout(env), url, cluster, only });
+  if (data && data.error) throw new Error(`rpc_${data.error.code || "error"}`);
+  return { result: data ? data.result : undefined, role };
+}
+export async function rpc(env, method, params, fetchImpl = fetch, opts = {}) {
+  return (await rpcAnswer(env, method, params, fetchImpl, opts)).result;
 }
 
 const uiAmount = (raw, decimals) => Number(BigInt(raw)) / 10 ** decimals;
@@ -141,15 +142,14 @@ export async function getHolding(env, owner, mint, fetchImpl) {
  * Returns Map(owner → amount). Read-only; nothing is stored.
  */
 export async function getHoldings(env, owners, mint, fetchImpl = fetch) {
-  const url = (env && env.SOLANA_RPC_URL) || PUBLIC_RPC;
   const out = new Map();
   for (let i = 0; i < owners.length; i += 25) {
     const chunk = owners.slice(i, i + 25);
     const body = chunk.map((o, j) => ({ jsonrpc: "2.0", id: j, method: "getTokenAccountsByOwner", params: [o, { mint }, { encoding: "jsonParsed" }] }));
-    const res = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(rpcTimeout(env)) });
-    if (!res.ok) throw new Error(`rpc_http_${res.status}`);
-    const data = await res.json();
-    for (const r of Array.isArray(data) ? data : []) {
+    const { data } = await rpcPost(env, body, fetchImpl, { timeoutMs: rpcTimeout(env) });
+    // a refusal for the whole batch (one error object, not a list) is an error, never "everyone holds 0"
+    if (!Array.isArray(data)) throw new Error(data && data.error ? `rpc_${data.error.code || "error"}` : "rpc_bad_answer");
+    for (const r of data) {
       if (r.error) throw new Error(`rpc_${r.error.code || "error"}`);
       let amount = 0;
       for (const acc of r.result?.value || []) amount += Number(acc.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0);
@@ -177,8 +177,7 @@ function accountAmount(ta) {
  * THROWS on anything odd (HTTP error, rate-limit answer that is not a list, an id missing from the answer, a per-call
  * error), because a half answer would be shown as "you hold nothing". Read-only; nothing is stored.
  */
-export async function getMintBalances(env, owner, mints, fetchImpl = fetch, { timeoutMs = 8000 } = {}) {
-  const url = (env && env.SOLANA_RPC_URL) || PUBLIC_RPC;
+export async function getMintBalances(env, owner, mints, fetchImpl = fetch, { timeoutMs = 8000, cluster = null, url = null } = {}) {
   const list = [...new Set(mints)];
   const out = new Map();
   out.accounts = new Set();
@@ -186,9 +185,7 @@ export async function getMintBalances(env, owner, mints, fetchImpl = fetch, { ti
   for (let i = 0; i < list.length; i += 25) chunks.push(list.slice(i, i + 25));
   await Promise.all(chunks.map(async (chunk) => {
     const body = chunk.map((mint, j) => ({ jsonrpc: "2.0", id: j, method: "getTokenAccountsByOwner", params: [owner, { mint }, { encoding: "jsonParsed" }] }));
-    const res = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
-    if (!res.ok) throw new Error(`rpc_http_${res.status}`);
-    const data = await res.json();
+    const { data } = await rpcPost(env, body, fetchImpl, { timeoutMs, cluster, url });
     if (!Array.isArray(data)) throw new Error(data && data.error ? `rpc_${data.error.code || "error"}` : "rpc_bad_answer");
     const byId = new Map(data.map((r) => [r && r.id, r]));
     chunk.forEach((mint, j) => {

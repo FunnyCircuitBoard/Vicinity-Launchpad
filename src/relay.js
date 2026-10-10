@@ -17,8 +17,9 @@
  * slippage, insufficient_balance, program_error { program, name } BEFORE the wallet opens.
  */
 import { json } from "./http.js";
-import { getMintBalances, rpc } from "./chain.js";
-import { isSolanaAddress } from "./solana.js";
+import { getMintBalances, rpcAnswer } from "./chain.js";
+import { rpcPost } from "./rpcpool.js";
+import { base58Encode, isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { fromBase64, hex, toBase64 } from "./sol/bytes.js";
 import { MAX_TX_BYTES, decodeHeader, programOfInstruction } from "./sol/message.js";
@@ -32,8 +33,11 @@ import { readJson } from "./http.js";
 
 const TIMEOUT_MS = 8000;
 const SIG = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
-/** The RPC url of a cluster name: the launchpad's for devnet (its own setting), SOLANA_RPC_URL (the site's) for mainnet. */
-export const rpcUrlFor = (env, cluster) => (cluster === "devnet" ? launchpadCluster({ ...env, LAUNCHPAD_CLUSTER: "devnet" }).rpc : null);
+/**
+ * Where a cluster's calls go (src/rpcpool.js): devnet = the launchpad's devnet node alone (its own setting, never a mainnet node);
+ * mainnet = SOLANA_RPC_URL, then SOLANA_RPC_URL_BACKUP when it is set.
+ */
+export const rpcRouteFor = (env, cluster) => (cluster === "devnet" ? { cluster: "devnet", url: launchpadCluster({ ...env, LAUNCHPAD_CLUSTER: "devnet" }).rpc } : { cluster: "mainnet" });
 /** "devnet" only while the launchpad's curve trades are ON and run on devnet (test coins); a site without them never reaches a devnet node. */
 const clusterOf = (env, v) => (v === "devnet" && launchpadTradingOn(env) && launchpadCluster(env).cluster === "devnet" ? "devnet" : "mainnet");
 
@@ -64,15 +68,18 @@ export async function checkTicket(env, txBytes, ticket, now = Date.now()) {
 
 /**
  * One JSON-RPC call that keeps the node's error envelope (sendTransaction's preflight failure carries `data.err` and `data.logs`,
- * which rpc() in src/chain.js would flatten to a code). { result } or { error: { code, message, data } }. Throws on transport.
+ * which rpc() in src/chain.js would flatten to a code). { result } or { error: { code, message, data } }, plus `failedOver: true`
+ * when another endpoint than the first one answered. Throws on transport (a code, never the URL; 429 has code rpc_busy).
+ * Through src/rpcpool.js: a sendTransaction goes to the backup at most once, and only when the provider failed (never on the
+ * node's verdict about the transaction).
  */
-export async function rpcRaw(env, method, params, fetchImpl = fetch, { url = null, timeoutMs = TIMEOUT_MS } = {}) {
-  const target = url || (env && env.SOLANA_RPC_URL) || "https://api.mainnet-beta.solana.com";
-  const res = await fetchImpl(target, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(timeoutMs) });
-  if (res.status === 429) { const e = new Error("rpc_http_429"); e.code = "rpc_busy"; throw e; }
-  if (!res.ok) throw new Error(`rpc_http_${res.status}`);
-  const d = await res.json();
-  return d && typeof d === "object" ? d : { error: { code: -32700, message: "bad answer" } };
+export async function rpcRaw(env, method, params, fetchImpl = fetch, { url = null, cluster = null, timeoutMs = TIMEOUT_MS } = {}) {
+  let a;
+  try { a = await rpcPost(env, { jsonrpc: "2.0", id: 1, method, params }, fetchImpl, { url, cluster, timeoutMs, send: method === "sendTransaction" }); }
+  catch (e) { if (e && e.status === 429) e.code = "rpc_busy"; throw e; }
+  const d = a.data && typeof a.data === "object" && !Array.isArray(a.data) ? a.data : { error: { code: -32700, message: "bad answer" } };
+  if (a.failedOver) d.failedOver = true;
+  return d;
 }
 
 /* ---------------------------------------------------------------- simulation and plain-word errors */
@@ -118,8 +125,8 @@ export function simulationError(err, logs = [], decoded = null, { launchpadProgr
   return { error: "rejected_by_network", name: typeof err === "string" ? err.slice(0, 40) : Object.keys(err || {})[0] || "unknown" };
 }
 /** simulateTransaction of an (unsigned or signed) transaction: { ok, unitsConsumed, err, logs } or throws (transport). */
-export async function simulate(env, txBytes, fetchImpl = fetch, { url = null } = {}) {
-  const d = await rpcRaw(env, "simulateTransaction", [toBase64(txBytes), { encoding: "base64", sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed" }], fetchImpl, { url });
+export async function simulate(env, txBytes, fetchImpl = fetch, { url = null, cluster = null } = {}) {
+  const d = await rpcRaw(env, "simulateTransaction", [toBase64(txBytes), { encoding: "base64", sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed" }], fetchImpl, { url, cluster });
   if (d.error) throw new Error(`rpc_${d.error.code || "error"}`);
   const v = d.result && d.result.value ? d.result.value : {};
   return { ok: v.err == null, err: v.err ?? null, logs: Array.isArray(v.logs) ? v.logs.slice(-40) : [], unitsConsumed: Number.isFinite(Number(v.unitsConsumed)) ? Number(v.unitsConsumed) : null };
@@ -144,8 +151,12 @@ export async function handleSend(request, env, fetchImpl = fetch, now = Date.now
   const cluster = clusterOf(env, body.cluster);
   let d;
   try {
-    d = await rpcRaw(env, "sendTransaction", [body.tx, { encoding: "base64", skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 }], fetchImpl, { url: rpcUrlFor(env, cluster) });
+    d = await rpcRaw(env, "sendTransaction", [body.tx, { encoding: "base64", skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 }], fetchImpl, rpcRouteFor(env, cluster));
   } catch (e) { console.error("relay send failed", codeOf(e)); return json({ ok: false, error: e.code === "rpc_busy" ? "rpc_busy" : "rpc_unavailable" }, 503); }
+  // After a failover the first provider may have sent these very bytes before it failed: the backup's "already processed" then
+  // means the transaction is on the chain, not that it failed. Its signature is the wallet's own (the first 64 bytes after the
+  // count), and the status poll tells how it ended.
+  if (d.error && d.failedOver && alreadyProcessed(d.error)) d = { result: base58Encode(bytes.subarray(1, 65)) };
   if (d.error) {
     const data = d.error.data || {};
     const mapped = simulationError(data.err ?? d.error.message, data.logs || [], decoded) || { error: "rejected_by_network" };
@@ -158,6 +169,8 @@ export async function handleSend(request, env, fetchImpl = fetch, now = Date.now
   return json({ ok: true, signature, solscan: solscanTx(signature, cluster), cluster });
 }
 
+const alreadyProcessed = (err) => (err.data && err.data.err === "AlreadyProcessed") || /already been processed/i.test(String(err.message || ""));
+
 /** GET /api/swap/status?sig=&lvbh=&cluster=&via=jupiter|curve (via: which swap program the transaction went through, for plain words on a landed failure) */
 const VIA = { jupiter: PROGRAM_IDS.jupiter, curve: PROGRAM_IDS.dbc };
 export async function handleStatus(request, env, fetchImpl = fetch) {
@@ -169,9 +182,9 @@ export async function handleStatus(request, env, fetchImpl = fetch) {
   if (slow) return slow;
   const lvbh = /^\d{1,12}$/.test(q.get("lvbh") || "") ? Number(q.get("lvbh")) : null;
   const cluster = clusterOf(env, q.get("cluster"));
-  const url = rpcUrlFor(env, cluster);
+  const route = rpcRouteFor(env, cluster);
   try {
-    const st = await rpc(env, "getSignatureStatuses", [[sig], { searchTransactionHistory: true }], fetchImpl, { url });
+    const { result: st, role } = await rpcAnswer(env, "getSignatureStatuses", [[sig], { searchTransactionHistory: true }], fetchImpl, route);
     const v = st && Array.isArray(st.value) ? st.value[0] : null;
     const out = { ok: true, signature: sig, solscan: solscanTx(sig, cluster), cluster, slot: v ? v.slot ?? null : null };
     if (v) {
@@ -180,7 +193,8 @@ export async function handleStatus(request, env, fetchImpl = fetch) {
       return json({ ...out, status: c === "finalized" ? "finalized" : c === "confirmed" || Number(v.confirmations) > 0 ? "confirmed" : "pending" });
     }
     if (lvbh != null) {
-      const height = await rpc(env, "getBlockHeight", [{ commitment: "confirmed" }], fetchImpl, { url });
+      // the height from the SAME node that just did not find the signature: a lagging backup must never call a landed trade expired
+      const { result: height } = await rpcAnswer(env, "getBlockHeight", [{ commitment: "confirmed" }], fetchImpl, { ...route, only: role });
       if (Number.isFinite(height) && height > lvbh) return json({ ...out, status: "expired" });
     }
     return json({ ...out, status: "pending" });
@@ -216,11 +230,10 @@ export async function handleBalances(request, env, fetchImpl = fetch) {
   catch (e) { console.error("balances failed", codeOf(e)); return json({ ok: false, error: "rpc_unavailable" }, 503); }
 }
 async function readBalances(env, owner, mints, cluster, fetchImpl) {
-  const url = rpcUrlFor(env, cluster);
-  const envAt = url ? { ...env, SOLANA_RPC_URL: url } : env;
-  const [sol, tok] = await Promise.all([
-    rpc(env, "getBalance", [owner, { commitment: "confirmed" }], fetchImpl, { url }),
-    mints.length ? getMintBalances(envAt, owner, mints, fetchImpl) : new Map(),
+  const route = rpcRouteFor(env, cluster);
+  const [{ result: sol }, tok] = await Promise.all([
+    rpcAnswer(env, "getBalance", [owner, { commitment: "confirmed" }], fetchImpl, route),
+    mints.length ? getMintBalances(env, owner, mints, fetchImpl, route) : new Map(),
   ]);
   const lamports = Number(sol && sol.value != null ? sol.value : sol) || 0;
   const tokens = {};
