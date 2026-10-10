@@ -348,7 +348,7 @@ body.is-dv2 .dash::before { content: none; }
 
 /* Community: the who-sees-this note on its own line, three equal kinds, a short sort, a locked composer */
 .dv2 .feed { padding: var(--dd-pad) !important; }
-.dv2 .feed__head { display: grid; gap: 8px; }
+.dv2 .feed__head { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; gap: 8px; }
 .dv2 .feed__head .seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .dv2 .feed__head .seg button { min-width: 0; overflow-wrap: anywhere; }
 .dv2 .feed .chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; padding: 2px; border-radius: 999px; border: 1px solid var(--line); background: var(--card-2); }
