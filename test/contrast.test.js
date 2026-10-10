@@ -62,3 +62,13 @@ test("the small text that carries each number's source, age and reason reads at 
     assert.doesNotMatch(rule[0], /--faint/, sel);
   }
 });
+
+test("the light theme's 'Open' chip beside Launchpad in the header reads at 4.5:1 or more on its green tint", () => {
+  // measured in Chromium at 1280 px after the opening (final check of 10 Oct 2026): the chip's tint over the header is #DCEAE7, and the
+  // light --ok-text #0F7A59 read 4.29:1 there (12 px bold is normal text: AA needs 4.5:1)
+  const polish = readFileSync(new URL("../public/polish.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const hex = /\n:root\[data-theme="light"\] \.nav__open \{ color: (#[0-9A-Fa-f]{6}); \}/.exec(polish)?.[1];
+  assert.ok(hex, "the light theme gives the header's Open chip its own darker green");
+  for (const bg of ["#DCEAE7", "#E8F6F2", "#FFFFFF"]) assert.ok(ratio(hex, bg) >= 4.5, `${hex} on ${bg}: ${ratio(hex, bg).toFixed(2)}:1`);
+  assert.match(css, /\n\.nav__open \{[^}]*background: var\(--ok-soft\); color: var\(--ok-text\);/, "the chip keeps its tint in both themes (the dark theme's --ok-text is unchanged)");
+});

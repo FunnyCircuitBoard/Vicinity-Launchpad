@@ -38,6 +38,7 @@ input, select, textarea { min-height: 44px; }
 .section-head { margin-bottom: 28px; }
 .nav a { min-height: 44px; }
 .nav__soon, .nav__open { font-size: .75rem; }
+:root[data-theme="light"] .nav__open { color: #0B6E57; } /* "Open" beside Launchpad: 5.0:1 on its green tint (the light --ok-text read 4.3:1) */
 @media (max-width: 600px) {
   .section--tight { padding: 22px 0 32px; }
   .section-head { margin-bottom: 14px; }
