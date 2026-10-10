@@ -343,6 +343,9 @@
 @media (max-width: 600px) {
   .claim-feed { flex-wrap: wrap; overflow: visible; }
   .claim-feed li { white-space: normal; max-width: 100%; border-radius: var(--r-chip, 12px); }
+  /* one sentence that wraps ("New York City, US · founder nycsteward C5CB…SiL · 5d ago"), not four squeezed columns */
+  .claim-feed li:not(.claim-feed__empty) { display: block; width: 100%; padding: 2px 12px 8px; line-height: 1.5; }
+  .claim-feed li .claim-feed__city { vertical-align: middle; }
 }
 /* the list: 8 rows and "Show more" on a phone, no box scrolling inside the page */
 .city-more { margin: 6px 0 2px; }
