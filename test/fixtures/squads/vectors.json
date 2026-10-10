@@ -1,0 +1,248 @@
+{
+ "generatedBy": "@sqds/multisig 2.1.4 in a scratch directory (never a repo dependency)",
+ "programId": "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+ "discriminator": [
+  224,
+  116,
+  121,
+  186,
+  68,
+  161,
+  79,
+  236
+ ],
+ "recordedAt": "2026-10-10T14:54:57.215Z",
+ "mainnet": {
+  "address": "2ZDFsDzcztw6fRgpvRECytSDTnWtJbUDiVqck7CJS1oi",
+  "owner": "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+  "lamports": 4343040,
+  "data": "4HR5ukShT+x6ZEVvniNcwgDEzx/vbef+EQeBHunjB+MwRxv6YLj2VAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAE1MFAAAAAAAdUwAAAAAAAAEJHvUTonGa/IzPPDowVKFDTKKgFXE1fTvnTisI2B8pR/8IAAAACR71E6JxmvyMzzw6MFShQ0yioBVxNX07504rCNgfKUcHD1QjHB0g0Gi6SqENnNMU1QS3UKJKcKprSeB0zJmepCkBII/i0Im+cj7sbJRhKZ6WdRGoBDDeS3N/Cr2xSMrpzGAHMWl+0kiLDwPiJBccsWfW+ZpPCHd4ya6lwej5PVdh8jwAovXwrFZf0pKroxJa+0HI4OD4UBOF5QYjEQPkKO6boLsHpGdqNW4EFO9X4RviDvZt47P69A6oSA/HhadHJWOz3C4H7Sj92ROVWnjV2TRQuFiStiMg4gBR3YkzySa0xVz6KrAA9UIw6HLWggy7zfEIsFcrp/wAJKrzbMzFFGAzlvdEm5cH9UIw6HLWggy7zfEIsFcrp/wAJKrzbMzFFGAzlvdEm5cHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+  "expected": {
+   "createKey": "9EmRLFPaD9vvKc6cXkKedV3FyE2u3kM8CSXDJtnCiH87",
+   "configAuthority": "11111111111111111111111111111111",
+   "threshold": 2,
+   "timeLock": 0,
+   "transactionIndex": "348947",
+   "staleTransactionIndex": "21277",
+   "rentCollector": "cc3novbXuNSe292qKH2gGhxToaWjuBvJbA7zQf8NVxi",
+   "bump": 255,
+   "members": [
+    {
+     "key": "cc3novbXuNSe292qKH2gGhxToaWjuBvJbA7zQf8NVxi",
+     "mask": 7
+    },
+    {
+     "key": "22qXZ7M9WK1s9TLHNY29ZYh9T4m73aN4X4Q2xvbCV8zt",
+     "mask": 1
+    },
+    {
+     "key": "3C7JPdhBqGPHWZBZjYhv5hvJxYcEqNvBego7hQDvRA4X",
+     "mask": 7
+    },
+    {
+     "key": "4KtH7hYgRSf4GLuq4TfEFGvvYa2CuHTu8Q9vMLqFrJod",
+     "mask": 0
+    },
+    {
+     "key": "By8ZMDk9pt3sY2vuKiwcYhzrTTH8bw648iH8nmbnh5wY",
+     "mask": 7
+    },
+    {
+     "key": "C4mKjpouf4JQkrJA1yp91Fp6kbdHwHHq9o4PhVL3N4sf",
+     "mask": 7
+    },
+    {
+     "key": "Gxmsu463MZrFWekwUkRsJWfwg1sSdpSaaZ43rsYta2DV",
+     "mask": 0
+    },
+    {
+     "key": "HWPRgtDGpBm8mByTGS57BWCsijMo53qPPSbskWDukfTc",
+     "mask": 7
+    }
+   ],
+   "vaults": [
+    "DQPERZ9e86pNJ4mhUnCEP8V75yxZofsipoVrRWT5Wdxd",
+    "g7iMVnHipyJNqQGMnEYpN5S2wyGr42tmEC655npa3eg",
+    "7sYuiuMRfGpLyEUvvHLX9isSoUmXKCJ3TbDMhnLKvaDS",
+    "4weW4Q2PPp1scGtQ7Lg8uYpDCZ25AHnTmf4ty5gUxy41"
+   ]
+  }
+ },
+ "synthetic": [
+  {
+   "address": "bWjUUFZnyGL3LCAsYmMRL6ZqiEiNzj18cCrh3Q4iWm7",
+   "owner": "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+   "data": "4HR5ukShT+zt+AMOGSQvOkVQW2ZxfIeSnaizvsnU3+r1AAsWISw3QgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAABQAAAAAAAAACAAAAAAAAAAD+AwAAAHmEj5qlsLvG0dzn8v0IEx4pND9KVWBrdoGMl6KtuMPOB56ptL/K1eDr9gEMFyItOENOWWRveoWQm6axvMfS3ejzB8PO2eTv+gUQGyYxPEdSXWhzfomUn6q1wMvW4ez3Ag0YBw==",
+   "expected": {
+    "createKey": "H1vy7GeCeUfZWBf2xXZch4sTZSt1Tu6xPZHfe4MQrVsf",
+    "configAuthority": "11111111111111111111111111111111",
+    "threshold": 2,
+    "timeLock": 0,
+    "transactionIndex": "5",
+    "staleTransactionIndex": "2",
+    "rentCollector": null,
+    "bump": 254,
+    "members": [
+     {
+      "key": "9BMa19MwkM1o45mhHeyTSPyos2BEvpBVLpqJfVvjYCWR",
+      "mask": 7
+     },
+     {
+      "key": "BgMWJHbKdP1B889XayoPEiYFe5hw6s6jivAeYvreDZbp",
+      "mask": 7
+     },
+     {
+      "key": "EBMSbRphNYYqBEb1kqP7hJQGWPDrcd8nYmaAbz1NTQ23",
+      "mask": 7
+     }
+    ],
+    "vaults": [
+     "GwocFF46cLAKaUuMyeSGKp86L1HYdaaizJnDCXFG1hV2",
+     "EGRAvhY8FnACwh41UX3EBXQCwqZLcSqHWaY7RwKqyR8Y",
+     "F8JpciguD2mpovmJj783RPndndKcCJw5pqABwsWn86gC",
+     "HAtcZEpMzqJkvJxPVbTpnxp4KBx8gQxLVaNCQH8ygVpa"
+    ]
+   }
+  },
+  {
+   "address": "BmQWeTU3ZDKH9E3eyd4z6s1jxRyueskTUPV6Fc9HTmcG",
+   "owner": "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+   "data": "4HR5ukShT+wSHSgzPklUX2p1gIuWoay3ws3Y4+75BA8aJTA7RlFcZwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAABQAAAAAAAAACAAAAAAAAAAG9yNPe6fT/ChUgKzZBTFdibXiDjpmkr7rF0Nvm8fwHEv4CAAAA6PP+CRQfKjVAS1ZhbHeCjZijrrnEz9rl8PsGERwnMj0HDRgjLjlET1plcHuGkZynsr3I097p9P8KFSArNkFMV2ID",
+   "expected": {
+    "createKey": "2Di8G8PtqdRTgm1RMuBsNJsw5pTMw65rY82iuYWS3bNW",
+    "configAuthority": "11111111111111111111111111111111",
+    "threshold": 1,
+    "timeLock": 0,
+    "transactionIndex": "5",
+    "staleTransactionIndex": "2",
+    "rentCollector": "Dmqfjd2dxbRnaurMWCSWAgHWNjwMNvkw6P5M9HY2TTkm",
+    "bump": 254,
+    "members": [
+     {
+      "key": "GgMNguMadZg62jnj8zZ76WaDF3iLJXG6AjKwPMdQaZja",
+      "mask": 7
+     },
+     {
+      "key": "t7eYd4qt8wKzJktBQZGuw27s2QMZmu8vxnduSL77rPK",
+      "mask": 3
+     }
+    ],
+    "vaults": [
+     "8wR2SDb945YzfE5KcvwUoWeuKSMwzGwz5Yej1kH8wAwk",
+     "DiLpr26fmobLjnJL5RCp6JHDUE4h2WsukmNFDaZepjru",
+     "EvWfc3nAC5XudsC39bbudAtdTvogcpwaB3ALnfP6CZjD",
+     "875HRdqVUWSxZGGsfuqPA81NaFj7Sm4zvVfWAyYXqios"
+    ]
+   }
+  },
+  {
+   "address": "9m4JfX8717rAqeirVwgtMLuhmQzRraG9i4omKrRFvds1",
+   "owner": "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+   "data": "4HR5ukShT+w3Qk1YY255hI+apbC7xtHc5/L9CBMeKTQ/SlVga3aBjCYxPEdSXWhzfomUn6q1wMvW4ez3Ag0YIy45RE9aZXB7AwAQDgAABQAAAAAAAAACAAAAAAAAAAD+BQAAAFdibXiDjpmkr7rF0Nvm8fwHEh0oMz5JVF9qdYCLlqGsB3yHkp2os77J1N/q9QALFiEsN0JNWGNueYSPmqWwu8bRAqGst8LN2OPu+QQPGiUwO0ZRXGdyfYiTnqm0v8rV4Ov2AsbR3Ofy/QgTHik0P0pVYGt2gYyXoq24w87Z5O/6BRAbAev2AQwXIi04Q05ZZG96hZCbprG8x9Ld6PP+CRQfKjVABA==",
+   "expected": {
+    "createKey": "4ii4ZGdGifQqr7GCVxFs8hSA7gsQHM5L5HH5128U1egs",
+    "configAuthority": "3a6389i6fbMzUa1a5siFBpKBxzfJZ53s56qc15haKAFk",
+    "threshold": 3,
+    "timeLock": 3600,
+    "transactionIndex": "5",
+    "staleTransactionIndex": "2",
+    "rentCollector": null,
+    "bump": 254,
+    "members": [
+     {
+      "key": "6t7X8uXbeCv6K1GSTWhGShaqF5GJ12SYTb2rtmEMUqyd",
+      "mask": 7
+     },
+     {
+      "key": "9P7TS3kyXEuUUMXDXz6UMiWdbAekzZG6WhTNKB96EsXe",
+      "mask": 2
+     },
+     {
+      "key": "Bt7PjBzMQGtrYPu3tsn97LrYNZLY84ACQ9Acj4zSTZZw",
+      "mask": 2
+     },
+     {
+      "key": "EP7L2LDj9SSWbWLY4jMsZviZErrTdpCFDza8n89AhPzA",
+      "mask": 1
+     },
+     {
+      "key": "Gt6NpfiBTt57E1A25vun7KKw58Tc7mjKGk84CK52rSVm",
+      "mask": 4
+     }
+    ],
+    "vaults": [
+     "B97aAtcpTUB4HvKpnvyrov5VWivhUuQBqCeF49Ne4G7",
+     "7vTXbFeepsuXq42uY74x5cZnQ8NhF9vU4Pr2hczz4b2d",
+     "HupwBSEXuyeQKWaGDt11epJSt1WaKpayeo8yrxREoYah",
+     "HGQ6DxhPV1QPHMvKYvPDdks4ggP2v4miVQvNrZ6Xi7QN"
+    ]
+   }
+  },
+  {
+   "address": "3AvqN1MWipKCWYBuNJD6ggin7XPoztdEcHPWAugK5wa6",
+   "owner": "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+   "data": "4HR5ukShT+xcZ3J9iJOeqbS/ytXg6/YBDBciLThDTllkb3qFkJumsQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAABQAAAAAAAAACAAAAAAAAAAD+AgAAAMbR3Ofy/QgTHik0P0pVYGt2gYyXoq24w87Z5O/6BRAbB+v2AQwXIi04Q05ZZG96hZCbprG8x9Ld6PP+CRQfKjVABwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+   "expected": {
+    "createKey": "7DhzrQrebhQE1TWye1KrrfuyuuFiFsUhvLDzEoX2VJcp",
+    "configAuthority": "11111111111111111111111111111111",
+    "threshold": 2,
+    "timeLock": 0,
+    "transactionIndex": "5",
+    "staleTransactionIndex": "2",
+    "rentCollector": null,
+    "bump": 254,
+    "members": [
+     {
+      "key": "EP7L2LDj9SSWbWLY4jMsZviZErrTdpCFDza8n89AhPzA",
+      "mask": 7
+     },
+     {
+      "key": "Gt6NpfiBTt57E1A25vun7KKw58Tc7mjKGk84CK52rSVm",
+      "mask": 7
+     }
+    ],
+    "vaults": [
+     "3dSFoRLKaMv2U9jpaxNhLY7fJdsZQLyq6uSG6EBy7if5",
+     "D5VKtVTv477kDtF3gCSAy59UJNKr5hqPtmGHzcZ8VdiQ",
+     "4U5wTVVmL1hKKnQWVzwoAFw1zVpTHZRXn1oo8uEXkJbX",
+     "th2hfg4yaQAx5sAkvo7o1cA94DdPfjpLwyiw6GDLxHK"
+    ]
+   }
+  },
+  {
+   "address": "6zHyFqcuF65GDyYUd2xGEF7nzWSEaeyB9VQWoAD3D9r6",
+   "owner": "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+   "data": "4HR5ukShT+yBjJeirbjDztnk7/oFEBsmMTxHUl1oc36JlJ+qtcDL1gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAABQAAAAAAAAACAAAAAAAAAAD+AwAAADVAS1ZhbHeCjZijrrnEz9rl8PsGERwnMj1IU15pdH+KB1plcHuGkZynsr3I097p9P8KFSArNkFMV2JteIOOmaSvAX+KlaCrtsHM1+Lt+AMOGSQvOkVQW2ZxfIeSnaizvsnUAQ==",
+   "expected": {
+    "createKey": "9ihw9Z62UjPcAomkiUj4p6NSoxhmMshCJjnec5N5yY9B",
+    "configAuthority": "11111111111111111111111111111111",
+    "threshold": 2,
+    "timeLock": 0,
+    "transactionIndex": "5",
+    "staleTransactionIndex": "2",
+    "rentCollector": null,
+    "bump": 254,
+    "members": [
+     {
+      "key": "4asUGfhFY4pPZvmBdMc2YwtddNSzwDhgxTwktG3GWz3T",
+      "mask": 7
+     },
+     {
+      "key": "75sQZovdR6omjH1xmQg2KKu7yYtu2DW18p2q4uN9iqwk",
+      "mask": 1
+     },
+     {
+      "key": "9asLrxA1J8o9tdGjqt5EELpvKeHN1kKZBvTLVKGtUsVm",
+      "mask": 1
+     }
+    ],
+    "vaults": [
+     "55ph8fpvdSsZFzBVhgE6pcA3hJmRYASm4PQrVQbRoZiY",
+     "FjMmKNkFeegi22T3NkwYCABVe68EYvt5LKG3NTGPafX2",
+     "FJSN8Ht3FSET7odaRTA3d4nZVWnhLbjf7cXWpAWYr8Da",
+     "DMjKTTaSgfxFJgK8Nvi1YQhGZRPreSfErLpp7JZNYDGJ"
+    ]
+   }
+  }
+ ]
+}

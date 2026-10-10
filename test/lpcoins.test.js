@@ -60,12 +60,13 @@ test("on: the stubs answer not_enabled, unknown lp paths not_found, and /api/adm
   // the admin router line: signed out 401, not the owner 403, the owner reaches the admin track's stub
   assert.equal((await call(browser(env), "/api/admin/lp/status")).data.error, "sign_in");
   assert.deepEqual((await call(someone, "/api/admin/lp/status")).data, { ok: false, error: "forbidden", need: "owner" });
-  assert.deepEqual(await call(p, "/api/admin/lp/status"), { status: 404, data: { ok: false, error: "not_enabled" } });
-  assert.deepEqual(await call(p, "/api/admin/lp/tx", "POST"), { status: 404, data: { ok: false, error: "not_enabled" } }, "a fresh proof: reaches the handler");
+  // the owner reaches the admin track's handler (src/lpadmin.js), whose first check is the page's cluster echo
+  assert.deepEqual([(await call(p, "/api/admin/lp/status")).status, (await call(p, "/api/admin/lp/status")).data.error], [409, "cluster_mismatch"]);
+  assert.deepEqual([(await call(p, "/api/admin/lp/tx", "POST")).status, (await call(p, "/api/admin/lp/tx", "POST")).data.error], [409, "cluster_mismatch"], "a fresh proof: reaches the handler");
   assert.equal((await call(p, "/api/admin/lp/tx", "POST", { origin: null })).data.error, "wrong_origin");
   advance(31 * 60_000);
   assert.deepEqual((await call(p, "/api/admin/lp/tx", "POST")).data, { ok: false, error: "reprove" }, "a proof older than 30 minutes");
-  assert.equal((await call(p, "/api/admin/lp/status")).status, 404, "reading needs no fresh proof");
+  assert.equal((await call(p, "/api/admin/lp/status")).status, 409, "reading needs no fresh proof (the handler answers)");
   realClock();
 });
 
