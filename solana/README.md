@@ -243,64 +243,62 @@ a production binary (1209600) from a test one (60), and CI checks it.
 ## Mainnet deployment (the owner, on his own machine)
 
 Nothing in this repository has been deployed to mainnet and nothing here holds a
-mainnet key. The steps below are the whole procedure; every command is run on
-the owner's machine with the owner's wallet.
+mainnet key. Both programs (`vicinity_rewards` and `vicinity_launchpad`) go to
+mainnet together, deployed by the owner from his Mac with Solana CLI 4.3.0 and set
+up on vicinity.city with his Phantom wallet: **`../docs/OWNER-LAUNCH-GUIDE.md`**
+has every command, and `../docs/MAINNET.md` section 4 the order and the team's
+read-only checks. In short:
 
-1. **Fresh program keypair.** `solana-keygen new --no-bip39-passphrase -o ~/vicinity-mainnet-program.json`
-   (keep it offline after step 4; it is only needed to deploy to this address
-   the first time). Print its address: `solana address -k ~/vicinity-mainnet-program.json`.
-2. **Put the address in the code.** Replace the id in
-   `programs/vicinity-rewards/src/lib.rs` (`declare_id!("...")`) and in both
-   `[programs.*]` entries of `Anchor.toml`. Commit.
-3. **Reproducible build.** With Docker running:
-   `anchor build --verifiable` (uses the `solanafoundation/anchor:v0.31.1`
-   image). Record `sha256sum target/verifiable/vicinity_rewards.so`; this is the
-   hash the auditor and anyone else can reproduce from the commit.
-   Copy `target/idl/vicinity_rewards.json` to `sdk/idl/` and commit it.
-4. **Deploy.** `solana config set --url mainnet-beta`, make sure the deploying
-   wallet holds about 3 SOL (rent for the program data account: 2.57 SOL for
-   the 506 KB binary with `--max-len` equal to its size, about 5.1 SOL with the
-   default 2x headroom for future upgrades; see `AUDIT.md`), then
-   `anchor deploy --provider.cluster mainnet --program-name vicinity_rewards --program-keypair ~/vicinity-mainnet-program.json --verifiable`
-   (or `solana program deploy target/verifiable/vicinity_rewards.so --program-id ~/vicinity-mainnet-program.json --use-rpc`;
-   add `--max-len <size of your .so in bytes>` (505864 for the build recorded
-   in `AUDIT.md`) to pay rent for the exact size instead of the 2x default).
-5. **Create the registry immediately**, in the same session, with the deploying
-   wallet (the upgrade authority), then hand the admin role to the multisig:
-   ```sh
-   ANCHOR_PROVIDER_URL=https://api.mainnet-beta.solana.com \
-   ANCHOR_WALLET=<the deploying wallet> \
-   REGISTRY_ADMIN=<Squads vault address> \
-   npm run init-registry
-   ```
-   `scripts/init-registry.ts` checks on chain that the wallet is the upgrade
-   authority, creates the registry with **the wallet as admin** (the program
-   requires the admin to sign, so an address nobody holds can never become the
-   admin: there is no second `init_registry` and `propose_admin` needs the
-   stored admin), then calls `propose_admin(<Squads vault>)` and prints the
-   `accept_admin` instruction (program, accounts, data) for the multisig to
-   execute as a vault transaction. The accept proves the multisig is live.
-   Run the script again afterwards: it must print the multisig as admin. It is
-   safe to rerun at any point; it never repeats a step that is done. Until the
-   registry exists no city config can be created, and once the upgrade
-   authority is gone it can never be created.
-6. **Hand the upgrade authority to the multisig, only after step 5 shows the
-   multisig as admin:**
-   `solana program set-upgrade-authority <program id> --new-upgrade-authority <Squads vault address> --skip-new-upgrade-authority-signer-check`
-   (or make it immutable right away, step 8).
-7. **Verify what is on chain.** `solana program dump <program id> /tmp/onchain.so`
-   and compare `sha256sum` with the verifiable build (the dump may be padded
-   with zeros up to the account size; compare the first N bytes where N is the
-   size of your .so, or use `solana-verify verify-from-repo`). Also
-   `anchor idl init --filepath target/idl/vicinity_rewards.json <program id> --provider.cluster mainnet`
-   so the IDL is on chain for explorers.
-8. **Freeze after the audit (optional, irreversible):**
-   `solana program set-upgrade-authority <program id> --final`. After this no
-   bug can be fixed; do it only when the auditor has signed off and the
-   registry exists.
-9. **Per city:** the Worker (ops key = registry admin, or a key the admin
-   delegates to by being the `authority`) calls `init_city` right after the
-   LaunchLab create, then `fund_epoch` or `fund_epoch_from_vault` per epoch.
+1. **Keys, on the owner's machine only.** `solana-keygen new` for the deployer,
+   both program ids and two explicit buffers. He sends only the public addresses.
+2. **The build.** `bash scripts/launchpad/build-mainnet.sh <launchpad id> <rewards id>`
+   (the team, with the pinned cargo-build-sbf 4.4.0 / platform-tools v1.57) copies
+   the build inputs to a scratch directory, first rebuilds them unchanged and checks
+   the audited SHA-256 (`f0fbc9d5…09a3` here, `8706e3bf…27f0` for the launchpad),
+   then changes only the two `declare_id!` lines, rebuilds, and checks that the new
+   binaries differ from the audited ones in the id bytes only. It writes the two
+   `.so` files, `SHA256SUMS` and `build-record.json`. The repository keeps the
+   devnet ids (`anchor keys sync` never runs); no `security.txt` is added (it would
+   change the audited bytes); no Docker `--verifiable` build is made.
+3. **Deploy.** `solana program deploy vicinity_rewards.so --program-id rewards-program.json --buffer rewards-buffer.json --use-rpc --with-compute-unit-price 50000 --max-sign-attempts 100`
+   through a paid, staked RPC (`--use-rpc` sends every upload through it; a free plan's one sendTransaction per second
+   makes it hours),
+   then the same for the launchpad. **Solana CLI 4.3 sizes the program to the
+   binary** (`--max-len` defaults to the file's length; there is no 2x headroom any
+   more) and extends the account by itself if a later upgrade needs more room
+   (`--no-auto-extend` turns that off). The rent is therefore exactly 2.57066796 SOL
+   for this program (505,909 bytes of ProgramData) and 2.20539564 SOL for the
+   launchpad, plus 0.00083312 SOL per program account: 4.77772984 SOL for both
+   (read from mainnet with `solana rent` on 10 Oct 2026). The owner funds the
+   deployer with 4.9 SOL: `program deploy` first checks that the payer could cover
+   the rent plus the highest possible fee of every upload at the chosen priority
+   fee (0.039685 SOL for this program, 0.034135 SOL for the launchpad at
+   `--with-compute-unit-price 50000`; 0.150775 and 0.129685 at 200000; measured on
+   devnet with CLI 4.3.0), although it really spends about 0.003 SOL each. A stopped deploy resumes when the same command runs
+   again (the explicit buffer); `solana program close --buffers` returns a
+   half-written buffer's rent.
+4. **Verify.** `solana program show <id>` (data length 505864) and
+   `solana program dump <id> check.so` + `shasum -a 256`: the dump is exactly the
+   binary (no padding, because the program is sized to it), so its SHA-256 equals
+   the build's.
+5. **Start the registry, then hand over.** `init_registry` must be signed by the
+   current upgrade authority, so the order is: `solana program set-upgrade-authority <id> --new-upgrade-authority <owner's Phantom> --skip-new-upgrade-authority-signer-check`;
+   then the website's City coins tab, step 1, signs `init_registry` (and
+   `init_launchpad`) in Phantom: the owner's wallet becomes the registry admin; then
+   step 2 hands both upgrade authorities to the owner's Squads vault (2 of 3). The
+   registry admin can move to the vault later with `propose_admin` / `accept_admin`.
+   (`npm run init-registry` and `scripts/init-registry.ts` are for devnet and
+   localnet.)
+6. **Freeze after the audit (optional, irreversible, through the Squads vault):**
+   `set-upgrade-authority --final`. After this no bug can be fixed.
+7. **Per city:** the City coins tab's "Set up holder rewards" signs `init_city`
+   (the owner's wallet as payer, registry admin and authority) once per launched
+   coin; reward rounds (`fund_epoch` / `fund_epoch_from_vault`) are not on the
+   website yet, and the holders' share waits in the city's vault.
+
+`npm run mainnet:preflight -- --cluster mainnet --setup <summary.json> --build-record <build-record.json> --expect-admin <owner>`
+(repository root) checks all of it read-only: both programs, their upgrade
+authority (the Squads vault), their fingerprints, the registry and its admin.
 
 ## Devnet
 

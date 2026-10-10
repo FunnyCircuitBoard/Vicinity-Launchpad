@@ -202,6 +202,39 @@ test("lptrade: /api/swap/quote hands a curve coin over to these routes, refuses 
   assert.deepEqual([cfg.data.launchpad.enabled, cfg.data.launchpad.cluster, cfg.data.launchpad.programId], [true, "devnet", PROGRAM_IDS.launchpadDevnet]);
 });
 
+test("lptrade: a DEVNET curve coin is no mainnet mint, and /api/swap/quote still hands it over (devnet rehearsal: the curve is asked before the mainnet decimals)", async () => {
+  const { W, env } = await tradeWorld({ SWAP: "on" });
+  // the site's mainnet RPC (SOLANA_RPC_URL) has never heard of the devnet coin, like the real mainnet; the launchpad's devnet RPC has
+  const mainnetAsked = [];
+  const fetchImpl = async (url, init) => {
+    const body = init && typeof init.body === "string" ? init.body : "";
+    if (String(url).startsWith("https://rpc.test") && body.includes(DEMOV)) {
+      const m = JSON.parse(body);
+      mainnetAsked.push(m.method);
+      const value = m.method === "getMultipleAccounts" ? m.params[0].map(() => null) : null;
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: m.id, result: { context: { slot: 1 }, value } }), { headers: { "content-type": "application/json" } });
+    }
+    return W.fetch(url, init);
+  };
+  const call = async (path, body) => {
+    const res = await handleApi(new Request(ORIGIN + path, { method: "POST", headers: new Headers({ "cf-connecting-ip": "1.2.3.9", "content-type": "application/json", origin: ORIGIN }), body: JSON.stringify(body) }), env, fetchImpl);
+    return { status: res.status, data: await res.json() };
+  };
+  const q = await call("/api/swap/quote", { inputMint: SOL, outputMint: DEMOV, amount: "0.005", slippageBps: 100 });
+  assert.deepEqual([q.status, q.data.source, q.data.side, q.data.cluster, q.data.useRoute], [200, "curve", "buy", "devnet", "/api/launchpad/trade"], JSON.stringify(q.data));
+  const s = await call("/api/swap/quote", { inputMint: DEMOV, outputMint: SOL, amount: "100", slippageBps: 100 });
+  assert.deepEqual([s.status, s.data.source, s.data.side], [200, "curve", "sell"], JSON.stringify(s.data));
+  const t = await call("/api/swap/tx", { inputMint: SOL, outputMint: DEMOV, amount: "0.005", slippageBps: 100, taker: TRADER });
+  assert.deepEqual([t.status, t.data.source], [200, "curve"], JSON.stringify(t.data));
+  assert.deepEqual(mainnetAsked, [], "a curve coin's decimals are never asked on mainnet");
+  // the curve route itself still checks the amount against the coin's own decimals
+  const tooFine = await call("/api/launchpad/trade/quote", buy({ amount: "0.0000000001" }));
+  assert.deepEqual([tooFine.status, tooFine.data.error], [400, "amount_too_small"]);
+  // anything that is not a curve coin is unchanged: an address that is no mint anywhere is still unknown_token
+  const unknown = await call("/api/swap/quote", { inputMint: SOL, outputMint: DEMOV_COIN, amount: "0.005", slippageBps: 100 });
+  assert.deepEqual([unknown.status, unknown.data.error], [400, "unknown_token"], JSON.stringify(unknown.data));
+});
+
 test("lptrade: the 21st /tx from one connection answers 429 slow_down, and so does the 16th of one WALLET from many connections", async () => {
   const { call } = await tradeWorld();
   let last;

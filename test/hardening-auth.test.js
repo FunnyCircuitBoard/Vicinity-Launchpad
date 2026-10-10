@@ -107,6 +107,8 @@ test("the numbers: verify 30, transfer 30 and pair 20 per 10 minutes per connect
     swap_balances: { max: 60, windowMs: MIN }, swap_tokens: { max: 30, windowMs: MIN }, lp_quote: { max: 60, windowMs: MIN }, lp_tx: { max: 20, windowMs: MIN },
     // the Buy panel's own builds before the tap (?auto=1) have their own counters: they can never use up a tap's 20
     swap_tx_auto: { max: 60, windowMs: MIN }, lp_tx_auto: { max: 60, windowMs: MIN },
+    // city coins on our launchpad (only with its settings): counted only when the chain is asked (src/coinmeta.js, src/lpcoins.js)
+    coin_meta: { max: 60, windowMs: MIN }, lp_record: { max: 20, windowMs: MIN }, lp_coin: { max: 60, windowMs: MIN },
   });
   assert.deepEqual(STATUS_LIMIT, { max: 60, windowMs: MIN });
   assert.deepEqual(WALLET_LIMIT, { max: 15, windowMs: MIN });

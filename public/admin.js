@@ -8,9 +8,10 @@
     ["overview", "Overview", 1], ["inbox", "Inbox", 1], ["users", "Users", 1], ["seats", "Seats", 1],
     ["elections", "Elections", 1], ["tokens", "Tokens", 1], ["content", "Content", 1],
     ["snapshots", "Snapshots", 1], ["config", "Config", 2], ["roles", "Roles", 3],
-    ["audit", "Audit", 1], ["testlab", "Test lab", 3],
+    ["audit", "Audit", 1], ["testlab", "Test lab", 3], ["citycoins", "City coins", 3],
   ];
   let me = null, config = null, activeTab = "overview";
+  let lpOn = false; // the City coins tab (public/admin-lp.js): only when the server has its settings (GET /api/admin/lp answers ok)
   let adapter = null, address = null, message = null;
   // the Inbox: how many messages are new (the badge on its tab and the browser title), refreshed every 20 seconds while the page is open
   const INBOX_POLL_MS = 20_000;
@@ -126,6 +127,8 @@
     badge.textContent = me.role; badge.className = `role-badge ${me.role}`;
     $("#admin-who").textContent = short(me.wallet);
     config = await api("/api/admin/config").catch(() => null);
+    // asked only when the server says the settings are there (config.cityCoins): a site without them sends no request for it
+    lpOn = me.role === "owner" && Boolean(config && config.cityCoins) && Boolean((await api("/api/admin/lp").catch(() => null) || {}).ok);
     if (config && config.ok && config.siteMode === "preview") $("#admin-banner").hidden = false;
     renderTabs();
     showTab("overview");
@@ -157,7 +160,7 @@
 
   /* ---------- tabs ---------- */
   function renderTabs() {
-    $("#admin-tabs").replaceChildren(...TABS.filter(([, , n]) => can(n)).map(([id, label]) => {
+    $("#admin-tabs").replaceChildren(...TABS.filter(([id, , n]) => can(n) && (id !== "citycoins" || lpOn)).map(([id, label]) => {
       const b = el("button", null, label); b.type = "button";
       if (id === "inbox") { const badge = el("span", "tab-badge", String(inboxNew)); badge.id = "inbox-badge"; badge.hidden = !inboxNew; badge.setAttribute("aria-label", `${inboxNew} new`); b.append(badge); }
       b.setAttribute("role", "tab"); b.setAttribute("aria-selected", id === activeTab ? "true" : "false");
@@ -170,8 +173,18 @@
     const p = $("#admin-panel"), loading = el("p", "muted", "Loading…"); p.replaceChildren(loading);
     ({ overview: tabOverview, inbox: tabInbox, users: tabUsers, seats: tabSeats, elections: tabElections, tokens: tabTokens,
        content: tabContent, snapshots: tabSnapshots, config: tabConfig, roles: tabRoles,
-       audit: tabAudit, testlab: tabTestlab })[id](p).then(() => loading.remove()).catch((e) => p.replaceChildren(el("p", null, `Couldn't load: ${e.message}`)));
+       audit: tabAudit, testlab: tabTestlab, citycoins: tabCityCoins })[id](p).then(() => loading.remove()).catch((e) => p.replaceChildren(el("p", null, `Couldn't load: ${e.message}`)));
   }
+  /** The City coins tab lives in public/admin-lp.js; it signs with the wallet this page signed in with (connected again after a reload). */
+  async function lpWallet() {
+    if (!adapter) {
+      const list = W.list();
+      if (list.length !== 1) throw new Error(list.length ? "Connect the wallet you signed in with: reload the page and sign in again." : "No wallet found in this browser.");
+      address = await list[0].connect(); adapter = list[0];
+    }
+    return adapter;
+  }
+  const tabCityCoins = (p) => (window.AdminLP ? window.AdminLP.mount(p, { api, post, toast, el, short, me, wallet: lpWallet }) : Promise.resolve(p.replaceChildren(el("p", null, "Couldn't load the City coins tab."))));
   const h2 = (t) => el("h2", null, t);
   const refresh = () => showTab(activeTab);
 

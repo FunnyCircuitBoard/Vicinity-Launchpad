@@ -17,7 +17,8 @@ const textOf = (h) => h.replace(/<[^>]+aria-hidden="true"[^>]*>[^<]*<\/span>/g, 
 /* ---------- the stylesheet ---------- */
 test("polish-dash.css is the dashboard's last stylesheet, and every rule in it is scoped to the tabbed dashboard or the dashboard page", () => {
   const settings = JSON.parse(src.match(/^<!--(\{.*\})-->/)[1]);
-  assert.deepEqual(settings.styles, ["onboard", "swap", "polish-dash"], "loads after style.css, polish.css, onboard.css and swap.css");
+  // lp-launch.css (the founder's "Launch your city coin" card, public/lp-launch.js) loads before it: polish-dash.css still has the last word
+  assert.deepEqual(settings.styles, ["onboard", "swap", "lp-launch", "polish-dash"], "loads after style.css, polish.css, onboard.css, swap.css and lp-launch.css");
   const links = [...html.matchAll(/<link rel="stylesheet" href="\/([a-z-]+)\.css">/g)].map((m) => m[1]);
   assert.equal(links[links.length - 1], "polish-dash", "the last stylesheet of the page");
   for (const f of ["index.html", "token.html", "cities.html", "launchpad.html", "coin.html", "connect.html"]) assert.doesNotMatch(read("public/" + f), /polish-dash\.css/, `${f} does not load it`);

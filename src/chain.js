@@ -27,6 +27,14 @@ const PROGRAM_LABELS = {
   "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE": "Raydium locked LP",
   "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo": "Meteora liquidity pool",
   "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG": "Meteora liquidity pool",
+  // the city coins of our own launchpad: Meteora DBC (the bonding curve), then Meteora DAMM v2 after graduation (the line above)
+  "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN": "Meteora bonding curve",
+};
+// Owners that ARE a pool: the pool-authority addresses that hold every pool's vaults for Meteora DBC and DAMM v2 (no data of
+// their own, so their owner program says nothing)
+const OWNER_LABELS = {
+  FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM: "Meteora bonding curve",
+  HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC: "Meteora liquidity pool",
 };
 const PROGRAM_ACCOUNT = "Pool or program account";
 
@@ -37,6 +45,7 @@ const TEAM_LABEL = "Team wallet (public)";
 export const isTeamWallet = (owner) => (OFFICIAL.teamWallets || []).includes(owner);
 /** A label for a big holder: a known pool program, or any program-controlled (off-curve) address. */
 const poolLabel = (owner, ownerProgram) => {
+  if (OWNER_LABELS[owner]) return OWNER_LABELS[owner];
   if (PROGRAM_LABELS[ownerProgram]) return PROGRAM_LABELS[ownerProgram];
   try { return isOnCurve(base58Decode(owner)) ? null : PROGRAM_ACCOUNT; } catch { return null; }
 };

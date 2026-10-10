@@ -58,6 +58,13 @@ program never holds anybody's curve money.
 6. Every day the keeper collects the city's share of fees and moves the
    holders' part to the city's rewards vault.
 
+On mainnet every one of these steps is a button on vicinity.city, signed in a
+wallet: you approve in the admin "City coins" tab, the founder launches from the
+dashboard's Founder tab, anyone can press "Move to the open market" on the coin's
+page when the curve is full, and collecting fees is a button in the City coins
+tab (there is no keeper server). How to get there, step by step:
+`../docs/OWNER-LAUNCH-GUIDE.md` (step 14 and "the everyday buttons").
+
 ## 3. Fees: who gets what
 
 On every buy and sell the trader pays **1.25%**:
@@ -147,7 +154,13 @@ coin's metadata file and the Vicinity logo, because the address written into
 each coin can never change. That means `/coin-meta/*` handled by the website's
 code (served as JSON that any site may read) and the logo at
 `https://vicinity.city/brand/vicinity-512.png`. Approve the first city only
-after those addresses answer.
+after those addresses answer. The website now does both (`src/coinmeta.js`, the
+name and ticker read from the coin's on-chain metadata); the team's read-only
+check proves it on the live site before your first approval
+(`npm run mainnet:preflight -- --site https://vicinity.city`, rows
+`site /coin-meta` and `site /brand/vicinity-512.png`; `../docs/MAINNET.md`
+section 4). The Meteora registration below is the City coins tab's step 7,
+signed by your dev wallet (`../docs/OWNER-LAUNCH-GUIDE.md`, step 12).
 
 Meteora's own per-coin page (a website and logo per pool) is deliberately not
 set: only the "Vicinity" name and logo above show on Meteora. It can be added
@@ -329,6 +342,19 @@ transaction.
 
 ## 9. What mainnet needs, and what it costs
 
+The step-by-step path, with every command and the exact costs, is
+**`../docs/OWNER-LAUNCH-GUIDE.md`**: you deploy both programs from your Mac
+(Solana CLI 4.3.0, which sizes each program to its file: 4.78 SOL of rent for
+both, 4.9 SOL sent to the deployer, about 4.91 SOL used in all with the Squads
+multisig) and do the rest on vicinity.city with
+Phantom. `../docs/MAINNET.md` section 4 is the team's side. Where the table below
+and the guide differ, the guide is current: the program files come from
+`scripts/launchpad/build-mainnet.sh` (no `security.txt`, which would change the
+audited bytes; no Docker build), there is no keeper wallet (website buttons
+instead), and the Squads multisig holds the upgrade authority from the website's
+step 2 while your Phantom wallet stays the launchpad admin at first (section 10,
+D15).
+
 | step | cost |
 |---|---|
 | Outside audit of `vicinity_launchpad` (small: about 2,400 lines of Rust, plus about 700 lines of its unit tests) plus a review of the SDK's transaction building | quote from the auditor |
@@ -364,7 +390,7 @@ SOL (D2), and a 1.25% fee per trade (D3). These are what is built.
 | D11 | Anti-sniper fee at launch | none | a decaying launch fee (needs a rule change) |
 | D13 | Paying with tokenized stocks | offered only where the issuer allows; a lawyer sets the country list (for now the EEA and Switzerland; never the US, UK, Canada, Australia or sanctioned countries; hidden when unknown) | not offered |
 | D14 | Founder paid in dollars to X Money | built and switched off | switch on after section 7 |
-| D15 | Keys | upgrade authority and admin on Squads multisigs before public launches | keep the phone wallet (not recommended) |
+| D15 | Keys | upgrade authority on a Squads multisig (2 of 3) from the City coins tab's step 2; the launchpad admin, the rewards registry admin and each city's rewards authority stay your Phantom dev wallet at first, because a Squads vault cannot sign "Approve on chain" on the website (**decided for the mainnet launch, `../docs/OWNER-LAUNCH-GUIDE.md`**); the admin can move to the vault later (`propose_admin` / `accept_admin`) | everything on the phone wallet (not recommended) |
 | D21 | One coin per city, forever | yes | allow a replacement (program change) |
 | new | Coin-to-coin swaps between coins priced in different tokens | two transactions (sell, then pay with anything) | none needed while every coin is priced in SOL |
 | new | Push airdrops | from your own wallet, signed on a signing page | the `solana-tokens` command with a key file |

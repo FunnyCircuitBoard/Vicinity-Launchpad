@@ -14,6 +14,8 @@ import { refreshCoinStats } from "./launchpad.js";
 import { recordMarket } from "./pricehistory.js";
 import { pruneFeedback } from "./feedback.js";
 import { v2On, profilesOn, launchpadV2On } from "./flags.js";
+import { lpSetup } from "./cluster.js";
+import { sweepLaunchedCoins } from "./lpcoins.js";
 import { DAY, HOUR, iso } from "./policy.js";
 
 /** How long one run may hold the lease: the cron fires every 10 minutes, a run takes seconds. A crashed run's lease simply expires. */
@@ -51,6 +53,8 @@ async function runSteps(env, now, fetchImpl, rand) {
   if (launchpadV2On(env)) await step("coinStats", () => refreshCoinStats(env, now, fetchImpl));
   // the Launchpad's price history: one sample per coin, Raydium's 15-minute candles, the 03:00 pruning (same switch)
   if (launchpadV2On(env)) await step("market", () => recordMarket(env, now, fetchImpl));
+  // city coins launched on our own launchpad, recorded from the chain every 30 minutes (only while its settings are there: lpSetup)
+  if (lpSetup(env).on) await step("lpCoins", () => sweepLaunchedCoins(env, now, fetchImpl));
   return out;
 }
 

@@ -151,6 +151,8 @@
 
   /** Did the chain find the coin's LaunchLab pool, or does Jupiter say it launched there? (only then is "Raydium LaunchLab" said) */
   const onLaunchLab = (d) => Boolean(d && d.market && (d.market.launchpad === "raydium-launchlab" || (d.market.curve && typeof d.market.curve === "object")));
+  /** A coin of the Vicinity launchpad (its Meteora curve, read from the chain by the server: market.lpCurve). */
+  const onVicinity = (d) => Boolean(d && d.market && d.market.launchpad === "vicinity");
   /** The line under the price: the price's source, the market cap with ITS source, the answer's age; or why there is no price. */
   function priceLine(m, ageS) {
     const s = (m && m.sources) || {};
@@ -161,10 +163,15 @@
   /** The About text of a city coin. */
   function cityAbout(d) {
     const c = d.coin, city = c.city && c.city.name ? c.city.name : "its city", pair = c.pair && c.pair.symbol ? c.pair.symbol : "SOL";
-    return `${c.ticker ? "$" + c.ticker : "This coin"} is the one official coin of ${city}${c.city && c.city.country ? `, ${c.city.country}` : ""}: launched by its founder${onLaunchLab(d) ? " on Raydium LaunchLab" : ""}, paired with ${pair}, and recorded by Vicinity.`;
+    return `${c.ticker ? "$" + c.ticker : "This coin"} is the one official coin of ${city}${c.city && c.city.country ? `, ${c.city.country}` : ""}: launched by its founder${onLaunchLab(d) ? " on Raydium LaunchLab" : onVicinity(d) ? " on the Vicinity launchpad" : ""}, paired with ${pair}, and recorded by Vicinity.`;
   }
-  /** The bonding curve in words: { pct, of, text, graduated } or null when the coin has no LaunchLab curve. */
+  /**
+   * The bonding curve in words: { pct, of, text, graduated, full, venue } or null when the coin has no curve we know. A Vicinity
+   * launchpad coin's curve (market.lpCurve: curve | full | graduated, a Meteora pool next) has its own words; the LaunchLab one as ever.
+   */
   function curveOf(d) {
+    const lp = d && d.market && d.market.lpCurve && typeof d.market.lpCurve === "object" ? d.market.lpCurve : null;
+    if (lp) return lpCurveOf(d, lp);
     const c = d && d.market && d.market.curve; if (!c || typeof c !== "object") return null;
     const sym = str(c.symbol) || "SOL", raised = num(c.raised), target = num(c.target), pct = num(c.progressPct);
     const ticker = d.coin && str(d.coin.ticker) ? `$${d.coin.ticker}` : "the coin";
@@ -177,6 +184,23 @@
         : `When ${target != null ? sol(target) : "the target"} ${sym} has been raised, ${ticker} moves to a Raydium pool and trades like any other token. Until then every buy and sell happens on the curve. (Raydium's own page shows a progress figure based on price, which reads lower.)`,
     };
   }
+  function lpCurveOf(d, c) {
+    const sym = str(c.symbol) || "SOL", raised = num(c.raised), target = num(c.target), pct = num(c.progressPct);
+    const ticker = d.coin && str(d.coin.ticker) ? `$${d.coin.ticker}` : "the coin";
+    const stage = c.stage === "graduated" || c.stage === "full" ? c.stage : "curve";
+    const graduated = stage === "graduated", full = stage === "full";
+    return {
+      graduated, full, lp: true, venue: "Vicinity launchpad", stage,
+      value: stage === "curve" ? (pct == null ? 0 : Math.max(0, Math.min(100, pct))) : 100,
+      pct: graduated ? "Graduated" : full ? "Full" : pct == null ? "—" : `${pct >= 10 ? pct.toFixed(1) : pct.toFixed(2)}%`,
+      of: stage === "curve" && raised != null && target != null ? `${sol(raised)} of ${sol(target)} ${sym} raised` : full && target != null ? `${sol(target)} ${sym} raised` : "",
+      text: graduated ? `${ticker} has moved to its Meteora pool (the open market) and trades like any other token.`
+        : full ? `The curve is full: nobody can trade ${ticker} until it moves to a Meteora pool (the open market).`
+          : `When ${target != null ? sol(target) : "the target"} ${sym} has been raised, ${ticker} moves to a Meteora pool (the open market) and trades like any other token. Until then every buy and sell happens on the curve.`,
+    };
+  }
+  /** A Vicinity launchpad coin whose curve is full: nobody can buy or sell it until it moves to the open market (no Buy, no "Live"). */
+  const tradingPaused = (d) => { const cv = curveOf(d); return Boolean(cv && cv.lp && cv.full); };
   /** The third trade tile: DEX Screener once it lists a pool; before that the curve's pool on GeckoTerminal; else nothing. */
   function thirdLink(d) {
     const l = (d && d.links) || {}, m = (d && d.market) || {};
@@ -223,7 +247,7 @@
   const legendText = (series, change, span) => `${series && series.unit === "SOL" ? "Raydium LaunchLab" : "vicinity.city readings"}: ${change} over ${span}`;
   const fmtDate = (iso) => { const t = Date.parse(str(iso)); return Number.isFinite(t) ? new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""; };
 
-  const pure = { isAddr, initialsOf, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, priceLine, cityAbout, RANGES, UNITS, STYLES };
+  const pure = { isAddr, initialsOf, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, onVicinity, tradingPaused, priceLine, cityAbout, RANGES, UNITS, STYLES };
   window.VCoin = { pure };
   if (typeof document === "undefined" || !window.V || !window.VChart || !window.VChart.create) return; // node: the helpers are enough
 
@@ -279,16 +303,18 @@
     }
     $("#coin-mini-ticker").textContent = ticker;
     // pills: live, the curve or graduation, official
-    const cv = curveOf(d), words = [];
-    if (cv && !cv.graduated) words.push(["tag--gold", `Bonding curve ${cv.pct}`]);
-    else if (cv && cv.graduated) words.push(["tag--gold", "✓ Graduated to Raydium"]);
+    const cv = curveOf(d), words = [], paused = tradingPaused(d);
+    if (paused) words.push(["tag--gold", "Curve full · trading paused"]);
+    else if (cv && !cv.graduated) words.push(["tag--gold", `Bonding curve ${cv.pct}`]);
+    else if (cv && cv.graduated) words.push(["tag--gold", cv.lp ? "✓ On the open market (Meteora)" : "✓ Graduated to Raydium"]);
     if (offi && offi.tokenContract === d.mint) words.push(["tag--ok", "✓ Official"]);
     else if (c.kind === "city") words.push(["", "City coin · recorded by Vicinity"]);
-    const key = JSON.stringify(words);
+    const key = JSON.stringify([paused, words]);
     if (key !== pillsKey) { // redrawn only when something changed (the live dot keeps its rhythm)
       pillsKey = key;
-      const live = el("span", "tag tag--ok coin-pill coin-live"); live.append(el("span", "coin-pill__dot"), "Live");
-      $("#coin-pills").replaceChildren(live, ...words.map(([cls, text]) => el("span", `tag ${cls} coin-pill`, text)));
+      const pills = words.map(([cls, text]) => el("span", `tag ${cls} coin-pill`, text));
+      if (!paused) { const live = el("span", "tag tag--ok coin-pill coin-live"); live.append(el("span", "coin-pill__dot"), "Live"); pills.unshift(live); } // nothing trades while the curve is full
+      $("#coin-pills").replaceChildren(...pills);
     }
     // the price (the chart's crosshair writes into its own copy while it is held, so the live one never jumps)
     paintPrice(d, ageS);
@@ -378,17 +404,35 @@
     bar.setAttribute("aria-valuetext", cv.graduated ? "Graduated" : `${cv.pct}${cv.of ? `, ${cv.of}` : ""}`);
     $("#coin-curve-text").textContent = cv.text;
     $("#coin-curve-src").textContent = `Source: ${str(d.market.sources && d.market.sources.curve) || "Solana blockchain"}${d.market.curve && num(d.market.curve.slot) ? ` · slot ${intFmt.format(d.market.curve.slot)}` : ""}`;
+    put($("#coin-curve-venue"), `· ${cv.venue || "Raydium LaunchLab"}`);
+    paintGrad(d, cv);
+  }
+  /** "Move to the open market" (public/lp-launch.js): a launchpad coin whose curve is full, then its last step; asked again when the stage changes. */
+  let gradKey = "";
+  function paintGrad(d, cv) {
+    const box = $("#coin-grad"); if (!box) return;
+    const want = cv.lp && (cv.full || cv.graduated) && window.LPLaunch && typeof window.LPLaunch.graduate === "function";
+    if (!want) { box.hidden = true; gradKey = ""; return; }
+    const key = `${d.mint}|${cv.stage}`;
+    if (key === gradKey) return;
+    gradKey = key;
+    window.LPLaunch.graduate(box, { mint: d.mint, ticker: d.coin && d.coin.ticker }).catch(() => { box.hidden = true; });
   }
 
   /** With the in-app swap on (SWAP=on): every Buy button opens the swap panel (public/swap.js) as a sheet over this page; nobody is sent to raydium.io. */
   let swapOn = false;
+  const BUYS = ["#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"];
+  let applyBars = () => {}; // wireBars sets it: the phone's bars follow a Buy that was hidden
   if (official && typeof official.then === "function") official.then((o) => { swapOn = Boolean(o && o.swap === true); if (swapOn && data) buyHere(data); });
   function buyHere(d) {
-    if (!swapOn || !window.VSwap || !d || !isAddr(d.mint)) return;
+    if (!swapOn || !window.VSwap || !d || !isAddr(d.mint)) { holdBuys(d); return; }
     const ticker = d.coin && d.coin.ticker ? `$${d.coin.ticker}` : "this coin";
-    // one Buy on the page (design v2): the hero's button, and the phone's bars once it has scrolled away
-    for (const id of ["#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"]) {
-      const a = $(id); if (!a || a.dataset.swapHere) continue;
+    // one Buy on the page (design v2): the hero's button, and the phone's bars once it has scrolled away. Set again on every paint:
+    // paintLinks has just written the Raydium link over it, or hidden it (a Vicinity launchpad coin has none: it vanished at the
+    // first 30 s refresh)
+    for (const id of BUYS) {
+      const a = $(id); if (!a) continue;
+      if (a.dataset.swapHere) { a.href = "#coin-head"; a.hidden = false; continue; }
       a.dataset.swapHere = "1"; a.href = "#coin-head"; a.removeAttribute("target"); a.removeAttribute("rel"); a.hidden = false;
       for (const x of a.querySelectorAll(".sr-only, [aria-hidden]")) x.remove();
       const label = a.querySelector("span") || a; label.textContent = id === "#coin-mini-buy" ? "Buy" : `Buy ${ticker}`;
@@ -399,6 +443,13 @@
     // is the server's links.jupiter, the token page once the switch is on: src/launchpad.js tradeLinks)
     const j = $("#coin-lnk-jup");
     if (j && !j.dataset.swapHere) { j.dataset.swapHere = "1"; const label = j.querySelector("span:not(.contract__out):not(.sr-only)"); if (label) { label.textContent = "Jupiter"; label.after(el("span", "sr-only", " token info")); } }
+    holdBuys(d);
+  }
+  /** While a launchpad curve is full nobody can trade the coin (the curve card says so): no Buy anywhere, the phone's Buy bar goes too. */
+  function holdBuys(d) {
+    if (!d || !tradingPaused(d)) return;
+    for (const id of BUYS) { const a = $(id); if (a) a.hidden = true; }
+    applyBars();
   }
   /* ----- buy & sell, the contract ----- */
   function paintLinks(d) {
@@ -406,6 +457,7 @@
     const set = (id, u) => { const a = $(id); if (u) { a.href = u; a.hidden = false; } else a.hidden = true; return a; };
     const ray = safeLink(l.raydium, "raydium.io");
     for (const id of ["#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"]) set(id, ray);
+    holdBuys(d); // with the swap off too: a full curve never shows Buy
     set("#coin-lnk-jup", safeLink(l.jupiter, "jup.ag"));
     buyHere(d); // after the links: with the swap on it turns the Buy links into openers and the Jupiter tile into the info page
     const third = thirdLink(d);
@@ -612,7 +664,7 @@
     const mini = $("#coin-mini"), bar = $("#coin-buybar");
     const phone = window.matchMedia("(max-width: 1023px)"), short = window.matchMedia("(max-height: 700px)");
     let priceOut = false, headBuyOut = false;
-    const apply = () => {
+    const apply = applyBars = () => {
       const m = priceOut && Boolean(data);
       mini.classList.toggle("is-on", m); mini.inert = !m; mini.setAttribute("aria-hidden", String(!m));
       document.body.classList.toggle("has-coin-mini", m);

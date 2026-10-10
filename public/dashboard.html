@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="/feedback.css">
   <link rel="stylesheet" href="/onboard.css">
   <link rel="stylesheet" href="/swap.css">
+  <link rel="stylesheet" href="/lp-launch.css">
   <link rel="stylesheet" href="/polish-dash.css">
   <script src="/theme.js"></script>
 </head>
@@ -359,7 +360,8 @@
                   <label class="fieldset fieldset--wide"><span>Pitch · <span id="cs-count">0/200</span></span><textarea class="field" id="cs-pitch" rows="2" maxlength="200" placeholder="What makes this coin your city's?"></textarea></label>
                 </div>
                 <p class="studio-step" id="studio-step-2" hidden>Step 2 · Trading pair</p>
-                <p class="fieldset__label">Paired with, on Raydium LaunchLab</p>
+                <p class="fieldset__label">Paired with<span data-launchlab-copy>, on Raydium LaunchLab</span></p>
+                <p class="tiny muted" data-lp-only hidden>City coins launch on the Vicinity launchpad paired with SOL for now: pick SOL to launch.</p>
                 <div class="pair-pick" role="radiogroup" aria-label="Paired with">
                   <label class="pair-opt"><input type="radio" name="cs-pair" value="SOL" checked><span class="pair-opt__icon" aria-hidden="true">◎</span><strong>SOL</strong><em>Solana's own coin. What most traders hold.</em></label>
                   <label class="pair-opt"><input type="radio" name="cs-pair" value="USDC"><span class="pair-opt__icon" aria-hidden="true">$</span><strong>USDC</strong><em>A digital dollar. Prices read in dollars.</em></label>
@@ -385,7 +387,7 @@
                   <span class="tiny muted">Public and logged. Locked for good once the coin launches.</span>
                 </div>
                 <p class="wallet__error" id="cs-err" role="alert" hidden></p>
-                <details class="coin-launch">
+                <details class="coin-launch" data-launchlab-copy>
                   <summary>Launched it on Raydium LaunchLab? Add the contract</summary>
                   <p class="small muted">Paste the contract address. An admin (never you) checks it on the blockchain and records it. From then on the design is locked and it becomes the one official $<span data-city-ticker>CITY</span>.</p>
                   <div class="req-form"><label class="sr-only" for="cs-mint">Contract address</label><input class="field mono" id="cs-mint" maxlength="44" placeholder="Contract address" autocomplete="off" spellcheck="false"><button class="btn btn--glass btn--sm" type="button" id="cs-mint-send">Send for a check</button></div>
@@ -393,6 +395,17 @@
               </form>
 
               <div class="coin-admin" id="coin-admin" hidden><p class="kicker"><span class="ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5.5c0 4.2 2.9 7.9 7 9.5 4.1-1.6 7-5.3 7-9.5V6l-7-3z"/></svg></span>Contracts waiting for a check</p><ul class="req-list" id="coin-waiting"></ul></div>
+            </section>
+
+            <!-- "Launch your city coin" on the Vicinity launchpad (public/lp-launch.js): shown only to the city's founder, and only while the
+                 launchpad's settings are on (GET /api/lp/launch/status answers); the tabbed dashboard moves it into the Founder tab -->
+            <section class="card lp-launch" id="lp-launch" aria-labelledby="lp-launch-title" hidden>
+              <div class="lp-launch__head">
+                <div><p class="kicker"><span class="ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 16V8M8.5 11.5 12 8l3.5 3.5"/></svg></span>City coin · Vicinity launchpad</p><h2 class="h2--sm" id="lp-launch-title">Launch your city coin</h2></div>
+                <span class="tag" data-lp-state>Checking…</span>
+              </div>
+              <p class="lp-net" data-lp-net hidden></p>
+              <div class="lp-launch__body" data-lp-body aria-live="polite"><p class="small muted">Checking your coin on the blockchain…</p></div>
             </section>
           </div>
 
@@ -817,6 +830,8 @@
   <script src="/wallets.js" defer></script>
   <script src="/swap.js" defer></script>
   <script src="/dashboard-roles.js" defer></script>
+  <script src="/lp-sign.js" defer></script>
+  <script src="/lp-launch.js" defer></script>
   <script src="/dashboard.js" defer></script>
   <script src="/feedback.js" defer></script>
 </body>

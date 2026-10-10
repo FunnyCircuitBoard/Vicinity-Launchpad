@@ -45,6 +45,8 @@
   const when = (iso) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const left = (iso) => { const ms = Date.parse(iso) - Date.now(); if (ms <= 0) return "closing now"; const h = Math.floor(ms / 3600000); return h >= 48 ? `${Math.floor(h / 24)} days left` : h >= 1 ? `${h}h left` : `${Math.ceil(ms / 60000)} min left`; };
   let me = null, checkedAt = 0;
+  // the launch on our own launchpad (lpMount below): is it switched on here, asked once; the city whose launch card is shown
+  let lpOn = false, lpProbed = false, lpCity = null;
   // the tabbed dashboard (DASHBOARD_V2=on): its code is fetched only when /api/me says so, and this stays null otherwise
   let v2 = null;
   const V2_KEY = "vicinity:dash-v2";
@@ -1037,6 +1039,8 @@
   const COIN_ERR = {
     not_founder: "Only the city's active founder can design its coin.",
     coin_locked: "This coin has launched, so its design is locked.",
+    coin_approved: "The owner has approved this coin on the blockchain, so its design is fixed now: what was approved is what launches. To change it, ask the owner to withdraw the approval first.",
+    coin_being_approved: "The owner is approving this coin right now, so its design is fixed for a few minutes. Try again in 5 minutes.",
     bad_name: "Use 2 to 32 letters, numbers or spaces for the name (no links).",
     too_long: (d) => `That's too long (at most ${d.max} characters).`,
     no_addresses: "Contract addresses can't go in a coin's name or pitch.",
@@ -1066,7 +1070,7 @@
     const r = await api(`/api/coins?city=${encodeURIComponent(c.id)}`);
     if (!r || r.ok === false) return;
     coinData = r.coin || null; coinPairs = r.pairs || coinPairs; vicMint = r.vicinity || null;
-    renderCoin(); renderTrade(); v2Coin();
+    renderCoin(); renderTrade(); v2Coin(); lpMount();
     if (me.roles && me.roles.admin) loadCoinQueue();
   }
   function paintCoin({ name, color, logo, pair }) {
@@ -1098,7 +1102,7 @@
     $("#coin-note").textContent = mine
       ? (cd ? (cd.launched ? `${c.name}'s coin is live. Its design is locked, as the rules promise.` : "Change anything until your coin launches. Every save is public in the log.")
         : `Your coin, your call. Design ${c.name}'s coin below: everyone in ${c.name} will see it.`)
-      : cd ? (cd.launched ? `The one official $${tk}. Buy or swap it in the panel on the right.` : `Designed by ${c.name}'s founder. It launches on Raydium LaunchLab.`)
+      : cd ? (cd.launched ? `The one official $${tk}. Buy or swap it in the panel on the right.` : `Designed by ${c.name}'s founder. It launches on ${lpOn ? "the Vicinity launchpad" : "Raydium LaunchLab"}.`)
       : seat ? `${seat.name}, ${c.name}'s founder, hasn't designed the coin yet. It'll appear here the moment they do.`
       : `${c.name}'s founder designs this coin: its name, logo, colour and what it's paired with. The seat is still open: see the founder path.`;
     $("#coin-studio").hidden = !mine || Boolean(cd && cd.launched);
@@ -1168,6 +1172,28 @@
     toast("Sent. An admin checks it on the blockchain.");
   });
   $("#coin-mint-copy").addEventListener("click", () => coinData && coinData.mint && copy(coinData.mint, "Contract copied"));
+
+  /* ---------- the launch on our own launchpad (public/lp-launch.js): only while its settings are on (the probe answers); then the
+     Raydium LaunchLab copy and the "add the contract" field go away, and the city's founder gets the launch card (it reads the chain
+     once per visit and city; the card refreshes itself after a launch or a fee collection) ---------- */
+  function lpCopy() {
+    $$("[data-launchlab-copy]").forEach((e) => (e.hidden = lpOn));
+    $$("[data-lp-only]").forEach((e) => (e.hidden = !lpOn));
+  }
+  async function lpMount() {
+    const L = window.LPLaunch;
+    if (!L || typeof L.probe !== "function") return;
+    if (!lpProbed) { lpProbed = true; lpOn = Boolean(await L.probe()); if (lpOn) { lpCopy(); renderCoin(); } }
+    if (!lpOn) return;
+    const c = me && me.community, seat = c && c.seat, card = $("#lp-launch");
+    const mine = Boolean(seat && seat.you && (seat.status === "active" || seat.status === "steward"));
+    if (!mine) { card.hidden = true; lpCity = null; if (v2) v2.lp({ on: true, state: null }); return; }
+    if (lpCity === c.id) return;
+    lpCity = c.id;
+    const r = await L.founder(card, { cityId: c.id, design: coinData, onChange: (x) => { if (v2) v2.lp(x); loadCoin(); } }); // launched: the coin card follows
+    if (coinData && coinData.launched && r.state !== "launched") card.hidden = true; // launched on Raydium LaunchLab before: nothing to launch here
+    if (v2) v2.lp(r);
+  }
 
   // admins: contracts founders sent, waiting for someone else to check them
   async function loadCoinQueue() {

@@ -30,6 +30,8 @@ import { autoUsername, cleanText } from "./text.js";
 import { isSolanaAddress } from "./solana.js";
 import { POLICY, DAY, iso } from "./policy.js";
 import { withMint } from "./official.js";
+import { lpSetup } from "./cluster.js";
+import { handleLpAdmin } from "./lpadmin.js";
 import { rpcHealth } from "./rpcpool.js";
 
 const ROLES = ["moderator", "admin", "owner"];
@@ -456,6 +458,8 @@ async function handleConfig(ctx) {
     // what THIS server saw of the RPC providers (src/rpcpool.js), by role only (primary, backup, launchpad, devnet), never a URL:
     // when one last refused or failed, why (http_429, rpc_-32429, timeout ...), and until when it is asked last
     rpc: rpcHealth(),
+    // the City coins tab (src/lpadmin.js) is there only with its settings: the page asks /api/admin/lp only when this is true
+    cityCoins: lpSetup(env).on,
     grantedRoles: roles.n,
     auditRows: audit.n,
   });
@@ -696,7 +700,7 @@ async function handleInboxDelete(request, ctx) {
 
 /* ---------------- router ---------------- */
 
-export async function handleAdmin(request, env, now = Date.now()) {
+export async function handleAdmin(request, env, now = Date.now(), fetchImpl = fetch) {
   const url = new URL(request.url);
   const method = request.method;
   const rel = url.pathname.replace(/^\/api\/admin\/?/, "");
@@ -705,6 +709,9 @@ export async function handleAdmin(request, env, now = Date.now()) {
   // Every state-changing route needs a fresh wallet proof on top of the role.
   const needPost = (minRole, opts) => postGuard(request, env, minRole, { fresh: true, ...opts, now });
   const run = async (g, fn) => { const r = await g; return r.res || fn(r.ctx); };
+
+  // the City coins tab (src/lpadmin.js): not there at all without its settings (lpSetup); then the owner only, a fresh proof on every POST
+  if (rel === "lp" || rel.startsWith("lp/")) return !lpSetup(env).on ? json({ ok: false, error: "not_enabled" }, 404) : run(method === "GET" ? need("owner") : await needPost("owner"), (c) => handleLpAdmin(request, { ...c, fetchImpl }, rel.slice(3), now));
 
   switch (rel) {
     case "me": { const b = only("GET"); return b || handleMe(request, env, now); }

@@ -63,6 +63,7 @@ const TABLE = {
   rankings: ["rankings-card", "rk-title", "rk-state", "rk-tiles", "rk-global", "rk-global-rank", "rk-global-sub", "rk-global-gap", "rk-country", "rk-country-label", "rk-country-rank", "rk-country-sub", "rk-country-note",
     "rk-city", "rk-city-label", "rk-city-rank", "rk-city-sub", "rk-city-note", "rk-note"],
   founder: ["fcard", "fcard-kicker", "fcard-state", "fcard-title", "fcard-who", "fcard-pick", "fcard-since-label", "fcard-since", "fcard-coin", "fcard-clock-row", "fcard-clock-label", "fcard-clock", "fcard-note", "fcard-go", "fcard-alt", "fcard-meter",
+    "lp-launch", "lp-launch-title",
     "progress", "progress-title", "p-city", "p-pct", "fs-state", "p-bar", "p-steps", "fs-rank", "fs-rank-text", "fs-rank-note", "p-panel", "p-window", "p-error", "squad",
     "studio-card", "studio-title", "studio-city", "studio-state", "coin-studio", "studio-step-1", "cs-name", "cs-ticker", "cs-pitch", "cs-count", "studio-step-2", "studio-step-3", "cs-logo", "cs-logo-remove", "cs-save", "cs-err", "cs-mint", "cs-mint-send", "danger-zone", "danger-body", "founder-foot"],
   moderate: ["mod", "mod-scope", "mod-sections", "coin-admin-card", "coin-admin", "coin-waiting"],
@@ -150,7 +151,7 @@ test("flag off: the built page keeps every pinned id, the strip and the skeleton
   }
   assert.match(html, /<div class="dash-top" id="dash-top">/);
   const order = [...html.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "swap", "dashboard-roles", "dashboard", "feedback"], "dashboard-v2.js is not a script tag of the page");
+  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "swap", "dashboard-roles", "lp-sign", "lp-launch", "dashboard", "feedback"], "dashboard-v2.js is not a script tag of the page");
   assert.doesNotMatch(html, /\sstyle="/); assert.doesNotMatch(html, /\son[a-z]+="/); assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/);
   // the roles accordion is still the whole section the site test reads
   assert.match(html, /<section class="section section--panel" id="roles">/);
@@ -222,7 +223,7 @@ test("every #id dashboard-v2.js names exists in the built page, and it creates n
   // the clock's length is the server's (founder.tenure.needed, which is POLICY.founder.qualifyingDays), never a number written here
   assert.match(v2, /\[`\$\{f\.tenure\.needed\}-day clock running`, "tag--gold"\]/, "state pill: the N-day clock from tenure.needed");
   assert.doesNotMatch(v2, /\d-day clock/, "no hardcoded clock length");
-  for (const t of ["Not designed yet", "Live", "Contract being checked", "Designed"]) assert.ok(v2.includes(`"${t}"`), `coin state: ${t}`);
+  for (const t of ["Not designed yet", "Live", "Contract being checked", "Approved", "Designed"]) assert.ok(v2.includes(`"${t}"`), `coin state: ${t}`);
   for (const t of ["Design the city coin", "Add the contract", "See the coin", "Manage city coin", "Founder path", "Buy & swap"]) assert.ok(v2.includes(`"${t}"`), `founder card button: ${t}`);
 });
 

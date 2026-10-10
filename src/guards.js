@@ -58,6 +58,11 @@ export const PUBLIC_LIMITS = {
   lp_quote:       { max: 60, windowMs: MIN },
   lp_tx:          { max: 20, windowMs: MIN },
   lp_tx_auto:     { max: 60, windowMs: MIN }, // the curve's builds before the tap, apart from the taps (see swap_tx_auto)
+  // city coins on the launchpad (lpSetup on, src/coinmeta.js, src/lpcoins.js): counted only when the chain is asked (a coin the
+  // database already knows answers for free); an unknown mint costs one RPC call and is then remembered for 5 minutes
+  coin_meta:      { max: 60, windowMs: MIN },
+  lp_record:      { max: 20, windowMs: MIN },
+  lp_coin:        { max: 60, windowMs: MIN },
 };
 /**
  * A per-WALLET counter on top of the per-connection one (src/swap.js, src/lptrade.js): one wallet cannot burn the Jupiter or RPC

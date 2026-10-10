@@ -13,7 +13,8 @@
 //   city      -> #panel-city       #city-subnav, #community, #coin, #city-about, #request
 //   community -> #panel-community  #feed, #national
 //   rankings  -> #panel-rankings   #rankings-card
-//   founder   -> #panel-founder    #fcard, #progress, #squad, #studio-card (gets #coin-studio out of #coin), #danger-zone, #founder-foot
+//   founder   -> #panel-founder    #fcard, #lp-launch (the launch on the Vicinity launchpad, public/lp-launch.js), #progress, #squad,
+//                                  #studio-card (gets #coin-studio out of #coin), #danger-zone, #founder-foot
 //   moderate  -> #panel-moderate   #mod, #coin-admin-card (gets #coin-admin out of #coin)
 //   profile   -> #panel-profile    #profile-modal (as an in-flow block), #roles-fold (gets #roles)
 //   strip                          #dash-tabs (#dash-tablist, the #tab-* links and the #panel-* sections above)
@@ -30,18 +31,20 @@
     city: ["#city-subnav", "#community", "#coin", "#city-about", "#request"],
     community: ["#feed", "#national"],
     rankings: ["#rankings-card"],
-    founder: ["#fcard", "#progress", "#squad", "#studio-card", "#danger-zone", "#founder-foot"],
+    founder: ["#fcard", "#lp-launch", "#progress", "#squad", "#studio-card", "#danger-zone", "#founder-foot"],
     moderate: ["#mod", "#coin-admin-card"],
     profile: ["#profile-modal", "#roles-fold"],
   });
   // a link to a card by its old hash (#progress, #coin, ...) opens the card's tab, then scrolls to the card
-  const ALIAS = { progress: "founder", squad: "founder", "coin-studio": "founder", coin: "city", "cc-top": "city", request: "city", "city-about": "city",
+  const ALIAS = { progress: "founder", squad: "founder", "coin-studio": "founder", "lp-launch": "founder", coin: "city", "cc-top": "city", request: "city", "city-about": "city",
     feed: "community", national: "community", mod: "moderate", roles: "profile", trade: "home", badges: "home", portfolio: "home", "role-home": "home", "wallet-card": "home", welcome: "home" };
   const HEADER = 67; // the site header: 66px plus its 1px border
   const QUEUE = [["posts", "reported post", "reported posts"], ["proposals", "ban proposal", "ban proposals"], ["appeals", "appeal", "appeals"],
     ["objections", "objection", "objections"], ["towns", "town request", "town requests"], ["coins", "coin contract to check", "coin contracts to check"]];
 
   let ctx = null, active = "home", pending = null, lastMod = null, coin = null, coinKnown = false, coinQueueN = 0, fcardAction = null, lastTarget = null, targetTimer = 0;
+  // the launch on our own launchpad (public/lp-launch.js through dashboard.js): { on, state } once known; off = the LaunchLab path
+  let lp = { on: false, state: null };
   const me = () => (ctx ? ctx.me() : null);
   const countryName = (cc) => (ctx ? ctx.countryName(cc) : cc);
   const behavior = () => (window.V.reduced ? "auto" : "smooth");
@@ -52,7 +55,9 @@
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
   const ticker = (name) => (window.vicinityTicker ? window.vicinityTicker.baseTicker(name) : String(name).toUpperCase().replace(/[^A-Z]/g, "").slice(0, 10));
   const modOn = () => { const m = me(); return Boolean((lastMod && lastMod.moderator === true) || (m && m.roles && m.roles.admin)); };
-  const coinState = () => (!coin ? "Not designed yet" : coin.launched ? "Live" : coin.waiting ? "Contract being checked" : "Designed");
+  // with the city-coin launch on (lp, public/lp-launch.js): the chain's word wins, so this fact agrees with the launch card's tag
+  const coinState = () => (!coin ? "Not designed yet" : coin.launched || (lp.on && lp.state === "launched") ? "Live" : coin.waiting ? "Contract being checked"
+    : lp.on && lp.state === "ready" ? "Approved" : "Designed");
 
   /* ---------- set-up: the cards move into their panels, the old two-column tools retire ---------- */
   function init(c) {
@@ -246,7 +251,8 @@
     const e = n && n.election;
     if (e && e.canVote && !e.myVote) add("Vote for your Country Manager", `Election closes ${left(e.closesAt)}`, "info", "community", "#national");
     if (seated && coinKnown && !coin) add(`Design ${seat.city}'s coin`, "Name, pitch, pair, colour, logo. Public and logged.", "ok", "founder", "#coin-studio");
-    if (seated && coin && !coin.mint && !coin.waiting) add("Add your coin's contract", "Launched it on Raydium LaunchLab? Send the address for a check.", "ok", "founder", "#cs-mint");
+    if (seated && coin && !coin.mint && !coin.waiting && !lp.on) add("Add your coin's contract", "Launched it on Raydium LaunchLab? Send the address for a check.", "ok", "founder", "#cs-mint");
+    if (seated && lp.on && lp.state === "ready") add("Launch your city coin", "An admin approved it. One signature in your wallet.", "ok", "founder", "#lp-launch");
     if (seated && coin && coin.waiting) add("Contract being checked", "An admin checks it on the blockchain. Nothing to do.", "info", "city", "#coin", true);
     const q = queueCounts();
     if (modOn() && q.total > 0) add(`${q.total} waiting for you`, q.parts.join(" · "), "warn", "moderate", q.total === q.counts.coins ? "#coin-admin" : "#mod");
@@ -425,6 +431,15 @@
     else if (!coin) { note.textContent = `Your coin, your call. Design ${seat.city}'s coin: everyone in ${seat.city} sees it.`; button("Design the city coin", "btn btn--primary", () => goTo("#coin-studio")); }
     else if (coin.launched) { note.textContent = `${seat.city}'s coin is live. Its design is locked for good, as the rules promise.`; button("Manage city coin", "btn btn--primary", () => goTo("#coin", { noAlias: true })); }
     else if (coin.waiting) { note.textContent = "An admin is checking the contract. Once recorded, the design is locked and it becomes the one official coin."; button("See the coin", "btn btn--glass", () => goTo("#coin", { noAlias: true })); }
+    else if (lp.on) {
+      const s = lp.state;
+      note.textContent = s === "ready" ? "An admin approved your coin. Launch it on the Vicinity launchpad: one signature in your wallet."
+        : s === "launched" ? "Your coin is live on the Vicinity launchpad."
+          : s === "expired" ? "Your approval expired. Ask an admin to approve your coin again."
+            : s === "paused" ? "Launches are paused for now. Your approval stays."
+              : "An admin approves your coin on chain first; your pair must be SOL. Then you launch it here.";
+      button(s === "ready" ? "Launch your city coin" : s === "launched" ? "See your coin" : "See the launch", s === "ready" ? "btn btn--primary" : "btn btn--glass", () => goTo("#lp-launch"));
+    }
     else { note.textContent = "Launch it on Raydium LaunchLab, then add the contract here. An admin (never you) checks and records it."; button("Add the contract", "btn btn--primary", () => goTo("#cs-mint")); }
     $("#fcard-alt").hidden = !((st === "active" || st === "steward") && modOn());
     $("#fcard-meter").hidden = st !== "steward";
@@ -468,5 +483,11 @@
     const m = me(); if (m) today(m);
   }
 
-  window.VDash = { init, render, coin: setCoin, mod, coinQueue, start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS) };
+  /** The launch card's state (dashboard.js after LPLaunch.founder): the Today strip and the Founder card follow it. */
+  function setLp(info) {
+    lp = { on: Boolean(info && info.on), state: (info && info.state) || null };
+    const d = me(); if (d) { today(d); founderCard(d); }
+  }
+
+  window.VDash = { init, render, coin: setCoin, lp: setLp, mod, coinQueue, start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS) };
 })();

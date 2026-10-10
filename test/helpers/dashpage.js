@@ -57,7 +57,7 @@ export function memberMe({ wallet = null, handle = "SwiftHarbor10", name = "Sa N
  *   wallets          Wallet Standard wallets in this browser ([] = none, like a phone's Safari)
  *   confirm          the answer to window.confirm (default true)
  */
-export async function openDashboard({ ua = UA.desktop, search = "", me = memberMe(), api = async () => undefined, storage = {}, session: sessionStore = {}, wallets = [], confirm = true, touchPoints } = {}) {
+export async function openDashboard({ ua = UA.desktop, search = "", me = memberMe(), api = async () => undefined, storage = {}, session: sessionStore = {}, wallets = [], confirm = true, touchPoints, official = { ok: true } } = {}) {
   const doc = new Doc();
   doc.append(...parse(doc, read("dashboard.html")));
   let now = 0, seq = 0, hidden = false;
@@ -104,7 +104,8 @@ export async function openDashboard({ ua = UA.desktop, search = "", me = memberM
       await null;
       let d;
       if (path === "/api/me" || path.startsWith("/api/me?")) d = meAnswer();
-      else if (path === "/api/health" || path === "/api/official") d = { ok: true };
+      else if (path === "/api/official") d = official;
+      else if (path === "/api/health") d = { ok: true };
       else d = (await api(path, body)) ?? DEFAULT[path.split("?")[0]] ?? { ok: true };
       const status = d._status || (d.ok === false ? 400 : 200);
       return { ok: status < 400, status, json: async () => { const out = { ...d }; delete out._status; return out; } };

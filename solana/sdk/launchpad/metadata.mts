@@ -34,8 +34,9 @@ export function coinMetadataUri(mint: Address): string {
 export function coinImageUrl(mint: Address): string {
   return `${VICINITY_BRAND.metadataPrefix}${mint}.png`;
 }
-export function coinPageUrl(cityId: bigint | number): string {
-  return `${VICINITY_BRAND.site}/c/${cityId}`;
+/** The coin's page on vicinity.city (the same URL the site's /coin-meta JSON names: src/coinmeta.js keeps parity). */
+export function coinPageUrl(mint: Address): string {
+  return `${VICINITY_BRAND.site}/coin?mint=${mint}`;
 }
 
 const utf8Len = (s: string) => Buffer.byteLength(s, 'utf8');
@@ -79,7 +80,9 @@ export interface CoinMetadataJson {
 /**
  * The JSON served at https://vicinity.city/coin-meta/<mint>.json (design 8.2).
  * `name` and `symbol` must equal the on-chain values for ever; the site serves
- * this only for mints that have an on-chain Coin record.
+ * this only for mints that have an on-chain Coin record. The Worker builds it
+ * with a pure-JS port (src/coinmeta.js coinMetadataJson) from the on-chain name
+ * and symbol; metadata.test.mts checks the two give the very same object.
  */
 export function coinMetadataJson(i: CoinMetadataInput): CoinMetadataJson {
   const nameErr = checkName(i.name), symErr = checkSymbol(i.symbol);
@@ -94,7 +97,7 @@ export function coinMetadataJson(i: CoinMetadataInput): CoinMetadataJson {
     symbol: i.symbol,
     description: `${lead}Launched on Vicinity (${VICINITY_BRAND.site}) on Solana.`,
     image: i.image ?? coinImageUrl(i.mint),
-    external_url: coinPageUrl(cityId),
+    external_url: coinPageUrl(i.mint),
     createdOn: VICINITY_BRAND.site,
     launchpad: VICINITY_BRAND.name,
     launchpadLogo: VICINITY_BRAND.logo,
@@ -106,7 +109,7 @@ export function coinMetadataJson(i: CoinMetadataInput): CoinMetadataJson {
       { trait_type: 'Network', value: VICINITY_BRAND.network },
       { trait_type: 'City', value: i.city.name },
     ],
-    website: coinPageUrl(cityId),
+    website: coinPageUrl(i.mint),
   };
   if (i.twitter) out.twitter = i.twitter;
   if (i.telegram) out.telegram = i.telegram;
