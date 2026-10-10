@@ -316,7 +316,7 @@ test("ready: a 429 on an automatic build stops them ('Tap Buy to get your price'
   await P.advance(12_000);
   assert.equal(txCalls(P), builds, "the 12 s preview refresh never builds by itself meanwhile");
   click(go(P)); await P.flush();
-  assert.deepEqual([text(P.$(".swap__status")), text(P.$(".swap__state"))], ["Too many tries from your network right now. Wait a minute and try again.", "Stopped"], "a tapped build that gets a 429: today's words");
+  assert.deepEqual([text(P.$(".swap__status")), text(P.$(".swap__state"))], ["Too many tries from your network right now. Wait a minute and try again.", "Try again"], "a tapped build that gets a 429: today's words, and the neutral tag of a soft stop");
   slow = false;
   click(go(P)); await P.flush(); // Try again
   assert.deepEqual([text(P.$(".swap__state")), text(go(P))], ["Price ready", "Buy $VICINITY"]);
