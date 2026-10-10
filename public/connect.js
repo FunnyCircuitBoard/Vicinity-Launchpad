@@ -528,7 +528,8 @@
     if (pairPurpose === "link") {
       $("#approve-h").textContent = `Link this wallet to ${s.name || "•••"}'s Vicinity account?`;
       $("#approve-owner").textContent = `@${s.handle || "•••"}`;
-      $("#approve-city").textContent = s.community ? `${s.community.name}, ${s.community.country}` : ""; // the pin is drawn by polish-pages.css $("#approve-city").hidden = !s.community;
+      $("#approve-city").textContent = s.community ? `${s.community.name}, ${s.community.country}` : ""; // the pin is drawn by polish-pages.css
+      $("#approve-city").hidden = !s.community;
       $("#approve-who").hidden = false;
       // where the person started: Safari or Chrome on this phone (the link said on=phone), or a computer / tablet (its QR code)
       const onPhone = params.get("on") === "phone", k = window.V.walletApp.here();
