@@ -282,7 +282,7 @@
       touched: false,       // the person tapped or typed on this page (a late wallet never switches the tab under their finger)
     };
     const text = (sel, t) => { $(sel).textContent = t; };
-    // the done screen's badge: a pin (signed in) or a link (a wallet linked), drawn by the SVGs in connect.html (polish-pages.css)
+    // the done screen's badge: a pin (signed in) or a link (a wallet linked), drawn by the SVGs in connect.html (pages-connect.css)
     const badge = (icon) => { const b = $("#done-badge"); if (b) b.dataset.icon = icon; };
     const hide = (sel, h = true) => { $(sel).hidden = h; };
     let liveFlip = false;
@@ -453,7 +453,7 @@
     }
     const signLabel = () => (linkMode() ? "Link wallet" : "Sign in");
     function setIntro() {
-      // which page this is, for the layout only (polish-pages.css: a phone's log-in and link screens put the panel first)
+      // which page this is, for the layout only (pages-connect.css: a phone's log-in and link screens put the panel first)
       const sec = $(".connect"); if (sec && sec.dataset) sec.dataset.mode = S.mode === "link" || S.mode === "linkin" ? "link" : S.tab === "login" ? "login" : "new";
       const title = $(".connect__intro .page-title"), accent = el("span", "accent");
       const bullet = $(".connect__intro .safety li");

@@ -203,7 +203,7 @@ test("active: its colour comes from --st-active (polish-map.css, both themes), r
   for (const [a, b] of [["#7FA3D6", "#2ED3B7"], ["#3F67A6", "#0E7C63"]]) { const d = Math.abs(hue(a) - hue(b)); assert.ok(Math.min(d, 360 - d) >= 40, `open vs active: ${a} ${hue(a).toFixed(0)}° vs ${b} ${hue(b).toFixed(0)}°`); }
   for (const t of ['l.st === "active" ? pal.activeText : pal.choosingText; g.fillText(l.t.name', 'l.st === "active" ? pal.activeText : pal.choosingText; g.fillText(l.t.a2']) assert.ok(js.includes(t), t);
   // the page loads the sheet after style.css (built from scripts/pages/src, where the setting lives)
-  assert.match(src, /^<!--\{[^\n]*"styles": \["polish-map", "polish-pages"\]\}-->/, "(design v2: the pages' sheet loads last, after it)");
+  assert.match(src, /^<!--\{[^\n]*"styles": \["polish-map", "pages-cities"\]\}-->/, "(design v2: the pages' sheet loads last, after it)");
   assert.match(page, /<link rel="stylesheet" href="\/style\.css">\n(?:  <link rel="stylesheet" href="\/[a-z-]+\.css">\n)*  <link rel="stylesheet" href="\/polish-map\.css">/); // after style.css (other page-wide sheets may sit between)
   assert.doesNotMatch(css, /st-active|dot--active|tag--active/, "nothing of it in style.css (a parallel branch edits that file)");
 });

@@ -1363,7 +1363,7 @@
   }
   $("#map-full").addEventListener("click", () => setFull(!full));
   // a phone: + and − stay on the map, the other four controls open from ⋯ (44 px rows with words); Escape, a tap outside or a
-  // choice closes it. A computer shows the four in the rail as before (polish-pages.css).
+  // choice closes it. A computer shows the four in the rail as before (pages-cities.css).
   const rail = $(".map-ctrl"), more = $("#map-more");
   const menu = (open) => { rail.classList.toggle("is-menu", open); more.setAttribute("aria-expanded", String(open)); };
   more.addEventListener("click", () => menu(!rail.classList.contains("is-menu")));

@@ -187,8 +187,8 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   // "3 verified mem..." and "Accounts and dashbo..." cut at the screen's edge); test "home on a phone" pins what replaced them
   assert.doesNotMatch(polish, /\.(hero__facts|timeline) \{[^}]*overflow-x: auto/);
   // A-3: at 320 px "Jupiter" and "Solscan" broke mid-word inside 79 px links
-  // design v2 (10 Oct 2026): the three links are pills (polish-pages.css), each label kept whole on one line
-  const pagesCss = read("public/polish-pages.css");
+  // design v2 (10 Oct 2026): the three links are pills (pages-token.css, pages-coin.css), each label kept whole on one line
+  const pagesCss = read("public/pages-token.css") + read("public/pages-coin.css");
   assert.match(pagesCss, /\.token-hero \.contract__ext span \{ overflow-wrap: normal; white-space: nowrap; \}/, "the token page's three links");
   assert.match(pagesCss, /\.coin-ca__links \.contract__ext span \{ white-space: nowrap; overflow-wrap: normal; \}/, "the coin page's three links");
   assert.match(polish, /@media \(max-width: 360px\) \{ \.contract__ext \{ gap: 4px; padding: 0 4px; \} \.contract__ext svg \{ display: none; \} \}/);

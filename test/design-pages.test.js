@@ -1,5 +1,6 @@
 // Design v2, the pages work (10 Oct 2026): the token, Launchpad, coin, cities, rules, terms, connect/locate, profile and 404 pages
-// share one late stylesheet (public/polish-pages.css). What this pins: every one of those pages loads it last; the Buy card holds
+// each load their own late stylesheet (public/pages-<page>.css; they were one 41 KB polish-pages.css every one of them loaded whole,
+// review PERF-1). What this pins: every one of those pages loads its sheet last, and nothing else; the Buy card holds
 // its room while it loads (no jump); motion only for those who want it, with the live strip still for everyone else; the honest
 // lines that moved into folds are still on the page; no emoji as icons in those pages' sources; the 404 is one calm empty state.
 import { test } from "node:test";
@@ -7,18 +8,27 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const CSS = read("public/polish-pages.css");
-const OWN = ["token", "cities", "launchpad", "coin", "profile", "connect", "locate", "rules", "terms", "404"];
+// each page and its own sheet
+const SHEETS = { token: ["pages-token"], launchpad: ["pages-launchpad"], coin: ["pages-coin"], cities: ["pages-cities"], rules: ["pages-docs"],
+  terms: ["pages-docs"], connect: ["pages-connect"], locate: ["pages-connect"], profile: ["pages-profile"], 404: ["pages-404"] };
+const OWN = Object.keys(SHEETS);
+const CSS = [...new Set(Object.values(SHEETS).flat())].map((s) => read(`public/${s}.css`)).join("\n");
 
-test("every page of the pages work loads polish-pages.css, as its last stylesheet", () => {
+test("every page of the pages work loads its own sheet(s) last, and no other page's", () => {
+  assert.throws(() => read("public/polish-pages.css"), "the one shared sheet is gone");
   for (const p of OWN) {
     for (const h of [read(`public/${p}.html`), read(`scripts/pages/src/${p}.html`)]) {
       const settings = h.match(/<!--(\{.*\})-->/);
-      if (settings) { assert.equal(JSON.parse(settings[1]).styles.at(-1), "polish-pages", `${p}: the last "styles" entry`); continue; }
-      const sheets = [...h.matchAll(/<link rel="stylesheet" href="\/([a-z-]+)\.css">/g)].map((m) => m[1]);
-      assert.equal(sheets.at(-1), "polish-pages", `${p}: ${sheets.join(", ")}`);
+      const sheets = settings ? JSON.parse(settings[1]).styles : [...h.matchAll(/<link rel="stylesheet" href="\/([a-z0-9-]+)\.css">/g)].map((m) => m[1]);
+      assert.deepEqual(sheets.filter((s) => s.startsWith("pages-")), SHEETS[p], `${p}: ${sheets.join(", ")}`);
+      assert.deepEqual(sheets.slice(-SHEETS[p].length), SHEETS[p], `${p}: its sheets come last`);
     }
   }
+  // a page sheet never reaches past its page: the 404, rules, terms, profile and locate pages load only a few KB of their own
+  for (const s of ["pages-404", "pages-docs", "pages-profile", "pages-connect"]) assert.ok(read(`public/${s}.css`).length < 8000, `${s}.css stays small`);
+  // the coin avatar (.lp-ava) is the Launchpad's: the coin page carries the same block rather than loading the whole Launchpad sheet
+  const ava = (s) => { const m = read(`public/${s}.css`).match(/\n:where\(\.lp-ava\)[\s\S]*?\n\.lp-ava--sm span \{[^}]*\}/); assert.ok(m, s); return m[0]; };
+  assert.equal(ava("pages-coin"), ava("pages-launchpad"), "one avatar recipe, the same in both sheets");
 });
 
 test("the stylesheet keeps the rules: no import, no outside address, no !important, tokens with a fallback where they are new", () => {

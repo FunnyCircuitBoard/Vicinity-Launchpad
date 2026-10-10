@@ -317,8 +317,8 @@ assert.match(block, /\.lp-empty \.btn \{ min-height: 44px; \}/);
   assert.match(block, /:root\[data-theme="light"\] \.lp-tabs__n/, "a light-theme touch");
   assert.match(block, /\.lp-grid \{[^}]*grid-template-columns: repeat\(auto-fill, minmax\(min\(100%, 300px\), 1fr\)\)/, "cards never force a horizontal scroll");
   assert.match(block, /@media \(max-width: 600px\) \{[\s\S]*\.lp-stats \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/, "two stat columns on phones");
-  // design v2 (10 Oct 2026): every coin wears the one avatar recipe of polish-pages.css (.lp-ava); the old disc's colour rule is gone
-  assert.match(read("polish-pages.css"), /\.lp-ava\[data-color\] \{ background: linear-gradient\(140deg, var\(--c2\), var\(--c3\)\); \}/, "the six coin colours of the dashboard");
+  // design v2 (10 Oct 2026): every coin wears the one avatar recipe of pages-launchpad.css (.lp-ava); the old disc's colour rule is gone
+  assert.match(read("pages-launchpad.css"), /\.lp-ava\[data-color\] \{ background: linear-gradient\(140deg, var\(--c2\), var\(--c3\)\); \}/, "the six coin colours of the dashboard");
   assert.doesNotMatch(block, /\.lp-card__disc\[data-color\]/);
   assert.equal((css.match(/Launchpad city coins \(LAUNCHPAD_V2=on\)/g) || []).length, 1);
 });

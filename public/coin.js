@@ -395,7 +395,7 @@
       a.addEventListener("click", (e) => { e.preventDefault(); window.VSwap.open({ out: d.mint, title: `Buy ${ticker}` }); });
     }
     // the Jupiter tile is an INFORMATION link now (the coin's page on jup.ag, never its swap page): "Jupiter" with an info mark in
-    // place of the swap arrows (polish-pages.css, on data-swap-here) to the eye, "Jupiter token info" to a screen reader (its href
+    // place of the swap arrows (pages-token.css, pages-coin.css, on data-swap-here) to the eye, "Jupiter token info" to a screen reader (its href
     // is the server's links.jupiter, the token page once the switch is on: src/launchpad.js tradeLinks)
     const j = $("#coin-lnk-jup");
     if (j && !j.dataset.swapHere) { j.dataset.swapHere = "1"; const label = j.querySelector("span:not(.contract__out):not(.sr-only)"); if (label) { label.textContent = "Jupiter"; label.after(el("span", "sr-only", " token info")); } }
