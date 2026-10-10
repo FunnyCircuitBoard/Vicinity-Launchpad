@@ -369,7 +369,8 @@ test("live card: Market cap · 24h volume · Holders · Liquidity, each value ti
     "and says it on screen, under the dash");
   const js = readFileSync(new URL("../public/launchpad.js", import.meta.url), "utf8");
   assert.match(js, /const note = field\(el\("dd", `lp-stat__src\$\{s\.value == null \? " is-why" : ""\}`, s\.value == null \? s\.why : s\.src \|\| ""\), `n-\$\{s\.key\}`\);/);
-  assert.match(js, /if \(foot\) li\.append\(field\(el\("p", "lp-src lp-stats__foot", foot\), "stats-foot"\)\);/);
+  // design v2 (10 Oct 2026): the four numbers, their sources and the footnote sit under the card's "Details" (fold), still on screen once opened
+  assert.match(js, /if \(foot\) fold\.append\(field\(el\("p", "lp-src lp-stats__foot", foot\), "stats-foot"\)\);/);
   assert.equal(P.statCells(city("C", { market: null })).length, 4, "a card without a market still has its four places");
 });
 test("live card: the bonding curve is SOL raised against the target (the real migration rule), clamped, and graduation is said in words", () => {
@@ -422,7 +423,7 @@ test("live card markup: price, chip, source, sparkline, four numbers, the curve 
   assert.match(cardFn, /el\("a", "btn btn--glass btn--sm", "Chart & details →"\); more\.href = coinHref\(c\);/);
   assert.doesNotMatch(cardFn, /dexscreener|DEX Screener|lk\.jupiter/, "Jupiter and DEX Screener live on the coin page (DEX Screener only once it lists a pool)");
   assert.match(cardFn, /field\(el\("progress", "lp-bar"\), "curve-bar"\); bar\.max = 100; bar\.value = cv\.value;/, "a progress element: its width needs no style attribute");
-  assert.match(cardFn, /"lp-price__val lp-num"/); assert.match(cardFn, /"lp-val lp-num"/);
+  assert.match(cardFn, /`lp-price__val lp-num\$\{priced \? "" : " is-none"\}`/); assert.match(cardFn, /"lp-val lp-num"/);
   assert.match(part, /window\.V\.liveNums\(list\.querySelectorAll\("\.lp-num"\)\);/, "the numbers ease through the motion layer (a price never counts up from 0)");
   assert.match(part, /if \(old\.dataset\.shape !== fresh\.dataset\.shape\) return fresh;/, "the 30-second refresh updates a card of the same shape in place");
   // the whole card: a click anywhere opens the coin page, except on its own links and buttons, or while selecting text
