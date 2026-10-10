@@ -22,7 +22,7 @@
 .token-quote__chg { display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: var(--r-pill, 999px); font: 700 var(--fs-xs, .75rem)/1 var(--body); font-variant-numeric: tabular-nums;
   color: var(--muted); background: var(--card-2); border: 1px solid var(--line-2); }
 .token-quote__chg.is-up { color: var(--ok-text); background: var(--ok-soft, rgba(55,194,154,.14)); border-color: rgba(55,194,154,.4); }
-.token-quote__chg.is-down { color: var(--bad-text); background: rgba(255,90,54,.1); border-color: rgba(255,90,54,.4); }
+.token-quote__chg.is-down { color: var(--bad-text); background: rgba(255,90,54,.07); border-color: rgba(255,90,54,.4); } /* .07: 4.6:1 for the light theme's red */
 .token-quote__cap { font-size: var(--fs-sm, .875rem); color: var(--muted); font-variant-numeric: tabular-nums; }
 #token .token-hero__lead { margin: 0; font-size: var(--fs-sm, .875rem); line-height: 1.5; color: var(--muted); }
 
@@ -216,6 +216,9 @@
 }
 /* the tabs never cut: four in a row, two by two on the narrowest phones; a zero count says nothing */
 .lp-tabs__n.is-zero { display: none; }
+/* the counts read at 4.5:1 in light: a fainter pill, and the selected tab's count in the text colour (its ember tint stays) */
+:root[data-theme="light"] .lp-tabs__n { background: rgba(11,22,38,.06); }
+:root[data-theme="light"] .lp-tabs button[aria-selected="true"] .lp-tabs__n { background: rgba(232,67,31,.08); color: var(--text); }
 @media (max-width: 600px) {
   .lp-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; }
   .lp-tabs button { min-width: 0; padding: 0 4px; }
@@ -399,6 +402,8 @@
 .prof-search__row .btn { min-height: 48px; }
 /* the pass: a round initials disc (the avatar recipe), the home line with the pin icon, and a calm glass coin (no gold: gold means
    founder or a top rank on this site, and the city has no colour of its own here) */
+/* the pass's orange corner glow is toned down here, so the white words over it ("Vicinity Pass", the home line) read at 4.5:1 */
+.prof-pass { background: radial-gradient(90% 120% at 0% 0%, rgba(255,106,61,.55), transparent 60%), radial-gradient(90% 120% at 100% 100%, rgba(122,92,255,.75), transparent 60%), linear-gradient(135deg, #1B1030, #0B1426); }
 .prof-pass .idcard__avatar { border-radius: 50%; font: 650 1.35rem/1 var(--display); letter-spacing: .02em; color: #fff; }
 .prof-pass .pass__home { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .prof-pass .pass__home span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
