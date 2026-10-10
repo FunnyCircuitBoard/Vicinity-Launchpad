@@ -39,6 +39,17 @@ test("no jump while the token page loads: the Buy card's room is held until toke
   assert.match(js, /Promise\.resolve\(window\.VSwap\.mount\(slot\)\)\.then\(\(p\) => settleBuy\(p \? "panel" : "none"\), \(\) => settleBuy\("link"\)\)/);
 });
 
+test("no jump on a computer either: the Launchpad hero starts open and fills the first screen, the coin page holds its Buy's room", () => {
+  const lp = read("scripts/pages/src/launchpad.html");
+  assert.match(lp, /<section class="launch-hero is-open" id="launchpad">/, "opened on 10 Oct 2026: the page ships open");
+  const js = read("public/launchpad.js");
+  assert.match(js, /hero\.classList\.toggle\("is-open", ms === 0\); hero\.dataset\.clock = ms === 0 \? "open" : "soon";/, "the clock still decides");
+  assert.match(CSS, /\.launch-hero:not\(\[data-clock="open"\]\) \.lp-live__open \{ visibility: hidden; \}/, "and it says 'open' only once the clock has");
+  assert.match(CSS, /@media \(min-width: 900px\) \{ \.launch-hero \{ min-height: calc\(100vh - var\(--header-h, 67px\)\);/);
+  assert.match(CSS, /\.coin-page\[aria-busy="true"\] \.coin-head__buy\[hidden\] \+ \.coin-head__safe \{ margin-top: 64px; \}/);
+  assert.match(CSS, /\.coin-side > \.coin-ca \{ order: -1; \}/);
+});
+
 test("motion: the live strip moves only for those who want motion, stops on hover, focus and Pause, and is never read out as it moves", () => {
   // every animation in the stylesheet sits inside prefers-reduced-motion: no-preference
   let depth = 0, inMotion = -1;
