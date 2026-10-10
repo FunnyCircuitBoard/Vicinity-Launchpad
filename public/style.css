@@ -540,7 +540,7 @@ select option { background: var(--bg-2); }
   .holders__meta { justify-content: flex-start; min-height: 48px; }
 }
 .find-box { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 14px; border-radius: 14px; background: var(--card-2); border: 1px solid var(--line-2); }
-.find-box:focus-within { border-color: var(--pin-2); }
+.find-box:focus-within { border-color: var(--pin-2); outline: 3px solid var(--pin-2); outline-offset: 2px; } /* the site's 3 px ring around the box its input sits in */
 .find-box input { flex: 1 1 auto; width: 0; min-width: 0; padding: 8px 0; border: 0; background: none; outline: none; color: var(--text); font: 500 .88rem var(--mono); }
 .find-box input::placeholder { font-family: var(--body); color: var(--muted); opacity: 1; }
 .find-box .find-box__go { flex: none; min-height: 44px; padding: 0 14px; border-radius: 10px; font-size: .9rem; --rim-in: 12px; }
