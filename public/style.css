@@ -1583,7 +1583,7 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .link-list a { font-weight: 600; }
 
 /* city coin designs: six colours */
-.coin-art, .pass__coin, .swatch { --c1: #FFF1C2; --c2: #FFC857; --c3: #D98A1F; }
+.coin-art, .pass__coin, .swatch, .coin-disc, .welcome__disc { --c1: #FFF1C2; --c2: #FFC857; --c3: #D98A1F; }
 [data-color="rose"] { --c1: #FFE3EA; --c2: #FF6B8B; --c3: #B8174F; }
 [data-color="ocean"] { --c1: #DDF1FF; --c2: #3BA7FF; --c3: #1B4FD8; }
 [data-color="emerald"] { --c1: #DBFFF1; --c2: #37C29A; --c3: #0E7C5A; }

@@ -1067,7 +1067,7 @@
   function paintCoin({ name, color, logo, pair }) {
     const tk = cityTk(), face = $("#coin-art-face"), img = $("#coin-logo");
     $("#coin-art").dataset.color = color || "gold";
-    $(".pass__coin").dataset.color = color || "gold";
+    for (const disc of [$(".pass__coin"), $("#welcome-disc").parentNode, $("#cc-face").parentNode]) disc.dataset.color = color || "gold"; // one coin, one colour
     if (logo) { img.src = logo; img.hidden = false; } else { img.hidden = true; img.removeAttribute("src"); }
     discText(face, tk); face.hidden = Boolean(logo);
     $("#coin-name").textContent = name;

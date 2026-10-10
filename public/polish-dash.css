@@ -169,11 +169,14 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .wcard.is-merged:not(.wcard--folded) #wcard-kicker, .dv2 .wcard.is-merged:not(.wcard--folded) #wcard-title, .dv2 .wcard.is-merged #wcard-perks { display: none; }
 /* tickers: the whole ticker, a smaller size for a longer one (dashboard.js and profile.js set data-len) */
 .dv2 .coin-disc span, .dv2 .pass__coin span { max-width: none; overflow: visible; white-space: nowrap; }
-/* AA on every disc: the coin's letters solid dark on its light colours (white on the dark "ink" one); the welcome disc and the
-   profile avatar on a deeper ember, so their white letters pass (white on the gold end was 2.2:1) */
-.dv2 :is(.pass__coin, .coin-art) span { color: #1A1206; text-shadow: 0 1px 0 rgba(255,255,255,.35); }
-.dv2 :is(.pass__coin, .coin-art)[data-color="ink"] span { color: #fff; text-shadow: none; padding: 1px 3px; border-radius: 6px; background: rgba(10,14,22,.5); } /* the silver coin: its letters on a dark band */
-.dv2 .welcome__disc, .dv2 .profile__head .idcard__avatar { background: linear-gradient(135deg, #C2370F, #9A5A06); color: #fff; }
+/* one coin, one look: the city's coin disc wears the colour its founder chose (gold until then) on the welcome, the Pass and the City
+   tab (dashboard.js paintCoin sets data-color on each). AA on every disc: the letters solid dark on its light colours (white on a dark
+   band on the "ink" one); the profile avatar on a deeper ember, so its white letter passes (white on the gold end was 2.2:1) */
+.dv2 :is(.coin-disc, .welcome__disc) { background: radial-gradient(circle at 32% 28%, var(--c1), var(--c2) 45%, var(--c3) 100%); }
+.dv2 .welcome__disc { color: #1A1206; box-shadow: inset 0 -4px 10px rgba(0,0,0,.28), inset 0 3px 6px rgba(255,255,255,.5); }
+.dv2 :is(.coin-disc, .coin-art, .welcome__disc) span { color: #1A1206; text-shadow: 0 1px 0 rgba(255,255,255,.35); }
+.dv2 :is(.coin-disc, .coin-art, .welcome__disc)[data-color="ink"] span { color: #fff; text-shadow: none; padding: 1px 3px; border-radius: 6px; background: rgba(10,14,22,.5); } /* the silver coin: its letters on a dark band */
+.dv2 .profile__head .idcard__avatar { background: linear-gradient(135deg, #C2370F, #9A5A06); color: #fff; }
 .dv2 .pass__coin span { font-size: .8rem; }
 .dv2 .pass__coin[data-len="5"] span { font-size: .72rem; }
 .dv2 .pass__coin[data-len="6"] span, .dv2 .pass__coin[data-len="7"] span { font-size: .66rem; }
