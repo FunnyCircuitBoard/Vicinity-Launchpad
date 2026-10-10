@@ -12,6 +12,51 @@
   const daysLeft = (iso) => Math.max(0, Math.ceil((Date.parse(iso) - Date.now()) / 86400000));
   const pct = (a, b) => (b > 0 ? Math.max(0, Math.min(100, (a / b) * 100)) : 0);
   let ctx = null, queue = {}, lastData = null;
+  // the tabbed dashboard (DASHBOARD_V2=on): window.VDash exists only then; the flag-off page keeps its emoji and its buttons as they were
+  const tabbed = () => Boolean(window.VDash);
+
+  /* ---------- the shared icon set (SPEC "Icons": 24 viewBox, stroke 1.7, currentColor), built as SVG nodes, never from text ---------- */
+  const ICONS = {
+    pin: [["path", { d: "M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z" }], ["circle", { cx: 12, cy: 10, r: 2.4 }]],
+    idcard: [["rect", { x: 3.5, y: 5.5, width: 17, height: 13, rx: 2.5 }], ["circle", { cx: 9, cy: 11, r: 2 }], ["path", { d: "M6 15.5c.6-1.4 1.7-2 3-2s2.4.6 3 2M14 10h3.5M14 13h3.5" }]],
+    city: [["path", { d: "M3.5 20.5h17M5.5 20.5V9l5-3v14.5M10.5 20.5V11h8v9.5M13.5 14h2M13.5 17h2M7.5 12h1M7.5 15h1" }]],
+    link: [["path", { d: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" }], ["path", { d: "M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" }]],
+    rocket: [["path", { d: "M12 3c3 2.2 4.5 5.6 4.5 9.3l-1.8 3.2H9.3l-1.8-3.2C7.5 8.6 9 5.2 12 3z" }], ["circle", { cx: 12, cy: 9.8, r: 1.6 }], ["path", { d: "M9.3 15.5 7 19l3-1M14.7 15.5 17 19l-3-1M12 17.5V21" }]],
+    check: [["path", { d: "m5 12.5 4.5 4.5L19 7.5" }]],
+    medal: [["circle", { cx: 12, cy: 15, r: 5 }], ["path", { d: "M8.5 10.5 6 3.5h4l2 5 2-5h4l-2.5 7" }]],
+    trophy: [["path", { d: "M7.5 4.5h9v4a4.5 4.5 0 0 1-9 0z" }], ["path", { d: "M7.5 6.5h-3a3 3 0 0 0 3 3.5M16.5 6.5h3a3 3 0 0 1-3 3.5M12 13v3.5M8.5 20h7M9.5 20l.5-3.5h4l.5 3.5" }]],
+    star: [["path", { d: "m12 3.8 2.5 5.1 5.6.8-4 4 1 5.6-5.1-2.7-5 2.7.9-5.6-4-4 5.6-.8z" }]],
+    chat: [["path", { d: "M20 12.5a7.5 7.5 0 0 1-11 6.6L4 20l1-4.2A7.5 7.5 0 1 1 20 12.5z" }]],
+    coin: [["circle", { cx: 12, cy: 12, r: 8.5 }], ["path", { d: "M12 7.5v9M9.5 9.5h3.75a1.75 1.75 0 0 1 0 3.5h-2.5a1.75 1.75 0 0 0 0 3.5h3.75" }]],
+    globe: [["circle", { cx: 12, cy: 12, r: 8.5 }], ["path", { d: "M3.5 12h17M12 3.5c2.4 2.4 3.5 5.3 3.5 8.5s-1.1 6.1-3.5 8.5c-2.4-2.4-3.5-5.3-3.5-8.5s1.1-6.1 3.5-8.5z" }]],
+    crown: [["path", { d: "M4 17.5 3 8l5 4 4-6.5 4 6.5 5-4-1 9.5z" }], ["path", { d: "M4.5 20.5h15" }]],
+    shield: [["path", { d: "M12 3 5 6v5.5c0 4.2 2.9 7.9 7 9.5 4.1-1.6 7-5.3 7-9.5V6l-7-3z" }]],
+    palette: [["path", { d: "M12 3.5a8.5 8.5 0 1 0 0 17c1.2 0 1.8-.8 1.8-1.7 0-1.3-1-1.6-1-2.6 0-.9.7-1.5 1.6-1.5H16a4.5 4.5 0 0 0 4.5-4.5c0-3.8-3.8-6.7-8.5-6.7z" }], ["circle", { cx: 7.8, cy: 11, r: 1 }], ["circle", { cx: 10.5, cy: 7.6, r: 1 }], ["circle", { cx: 15, cy: 7.8, r: 1 }]],
+    wallet: [["path", { d: "M4 7.5A2.5 2.5 0 0 1 6.5 5h11v3" }], ["rect", { x: 4, y: 8, width: 16.5, height: 11, rx: 2.5 }], ["path", { d: "M16 13.5h1.5" }]],
+    users: [["circle", { cx: 9, cy: 9, r: 3.2 }], ["path", { d: "M3.5 19c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8M15.5 6a3 3 0 0 1 0 6M17 14.4c1.9.6 3.1 2.2 3.5 4.6" }]],
+    chart: [["path", { d: "M4 19.5h16" }], ["path", { d: "m4.5 15 4.5-4.5 3.5 3.5 7-7.5" }], ["path", { d: "M15 6.5h4.5V11" }]],
+    swap: [["path", { d: "M4 8h14l-3.5-3.5M20 16H6l3.5 3.5" }]],
+    copy: [["rect", { x: 8.5, y: 8.5, width: 11, height: 11, rx: 2.5 }], ["path", { d: "M15.5 8.5V6A1.5 1.5 0 0 0 14 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5" }]],
+    info: [["circle", { cx: 12, cy: 12, r: 8.5 }], ["path", { d: "M12 11v5M12 7.8v.2" }]],
+    close: [["path", { d: "M6.5 6.5l11 11M17.5 6.5l-11 11" }]],
+    chevron: [["path", { d: "m6.5 9.5 5.5 5.5 5.5-5.5" }]],
+  };
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  /**
+   * An icon of the set in a tinted circle: <span class="ico [ico--sm] [ico--ok|gold|muted]"><svg>…</svg></span>, hidden from screen readers
+   * (the words beside it carry the meaning). `fallback` (an emoji) is used only where SVG cannot be built (an old engine, a test DOM).
+   */
+  function icon(name, { tone = "", small = true, fallback = "" } = {}) {
+    const box = el("span", `ico${small ? " ico--sm" : ""}${tone ? ` ico--${tone}` : ""}`);
+    box.setAttribute("aria-hidden", "true");
+    const parts = ICONS[name];
+    if (!parts || typeof document.createElementNS !== "function") { if (fallback) box.textContent = fallback; return box; }
+    const svg = document.createElementNS(SVG_NS, "svg");
+    for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", width: small ? 16 : 20, height: small ? 16 : 20, fill: "none", stroke: "currentColor", "stroke-width": 1.7, "stroke-linecap": "round", "stroke-linejoin": "round", focusable: "false" })) svg.setAttribute(k, String(v));
+    for (const [tag, attrs] of parts) { const n = document.createElementNS(SVG_NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v)); svg.append(n); }
+    box.append(svg);
+    return box;
+  }
 
   /** A labelled meter: "Holding · 120,000 of 180,000". */
   function meter(label, ratio, text, tone) {
@@ -30,26 +75,28 @@
 
   /** Walk away from a live seat (the bond is released at once for a steward; the usual cooldown applies to a founder). */
   function resignButton(seat) {
-    return tool("Resign", async () => {
+    return tool(tabbed() ? (seat.status === "steward" ? "Resign as Seed Steward" : "Resign as City Founder") : "Resign", async () => {
       const steward = seat.status === "steward";
       if (!confirm(steward ? "Resign as Seed Steward? Your bond is released and the city reopens for someone else."
         : "Resign as City Founder? The city reopens, and you wait 30 days before applying anywhere.")) return;
       const r = await api("/api/seats/resign", {});
       toast(r.ok ? "You resigned. The city is open again." : ctx.errText({}, r, "Couldn't resign."));
       if (r.ok) ctx.refresh();
-    }, "link-btn");
+    }, tabbed() ? "btn btn--sm danger-btn" : "link-btn");
   }
 
   /** What this person is, right now: icon, title, lead, status tag, meters, tools. */
   function profile(d) {
     const home = d.user.home, city = home ? home.name : "your city", cc = d.national ? d.national.country : "";
     const seat = d.founder.seat, c = d.community, weight = d.roles.weight;
-    const p = { icon: "🌱", title: `Member of ${city}`, lead: "", tag: null, meters: [], tools: [], notes: [], weight };
+    const p = { icon: "🌱", ico: ["pin", ""], title: `Member of ${city}`, lead: "", tag: null, meters: [], tools: [], notes: [], weight, danger: null };
+    // the tabbed dashboard: walking away from a seat is not one of the everyday tools, it sits in the Founder tab's "Danger zone"
+    const resign = (seat) => { if (tabbed()) p.danger = resignButton(seat); else p.tools.push(resignButton(seat)); };
     const invite = tool("Invite locals · copy link", () => copy(`I'm repping ${city} on Vicinity. One city, one coin, chosen by locals: join us → ${location.origin}/connect`, "Invite copied. Send it to your locals!"));
 
     if (seat && seat.status === "steward") {
       const q = c && c.seat && c.seat.quorum;
-      p.icon = "🌟"; p.title = `Seed Steward of ${seat.city}`;
+      p.icon = "🌟"; p.ico = ["star", "gold"]; p.title = `Seed Steward of ${seat.city}`;
       p.tag = { text: `Probation · ${daysLeft(seat.probationUntil)} days left`, cls: "tag--gold" };
       p.lead = `You founded ${seat.city} first and hold it on a bonded probation until ${date(seat.probationUntil)}. It's confirmed then, or sooner when ${q ? q.need : 50} verified local holders back it. Locals can challenge you: 10 endorsements force an election you run in.`;
       const start = Date.parse(seat.probationUntil) - 90 * 86400000;
@@ -58,27 +105,28 @@
       // a seat keeps the bar it was claimed under, even if the ladder has moved since
       p.meters.push(meter(`Your holding vs your bar (${fmt(seat.threshold)})`, pct(d.holding.amount, seat.threshold), `${fmt(d.holding.amount)} $VICINITY`, d.holding.amount >= seat.threshold ? "ok" : "bad"));
       if (seat.graceUntil) p.notes.push(`⚠️ You're below ${fmt(seat.threshold)} $VICINITY. Top up before ${when(seat.graceUntil)} or the seat is released. Moderation pauses while you're short.`);
-      p.tools.push(jump("Design the city's coin", "#coin"), jump("Moderator tools", "#mod"), invite, resignButton(seat));
+      p.tools.push(jump("Design the city's coin", "#coin"), jump("Moderator tools", "#mod"), invite); resign(seat);
     } else if (seat && seat.status === "provisional") {
-      p.icon = "👑"; p.title = `Chosen founder of ${seat.city}`;
+      p.icon = "👑"; p.ico = ["crown", "gold"]; p.title = `Chosen founder of ${seat.city}`;
       p.tag = { text: "Objection period", cls: "tag--warn" };
       p.lead = `${seat.city} chose you. Locals can object until ${when(seat.appealUntil)}; if none is upheld you become the founder.`;
       p.tools.push(jump("Founder path", "#progress"), invite);
     } else if (seat && seat.status === "grace") {
-      p.icon = "⚠️"; p.title = `${seat.city}: your seat is in grace`;
+      p.icon = "⚠️"; p.ico = ["info", ""]; p.title = `${seat.city}: your seat is in grace`;
       p.tag = { text: `Until ${when(seat.graceUntil)}`, cls: "tag--warn" };
       p.lead = `You dropped below ${fmt(seat.threshold)} $VICINITY, so moderation is paused. Hold it again before ${when(seat.graceUntil)} or the seat reopens.`;
       p.meters.push(meter(`Your holding vs your bar (${fmt(seat.threshold)})`, pct(d.holding.amount, seat.threshold), `${fmt(d.holding.amount)} $VICINITY`, "bad"));
-      p.tools.push(jump("Buy & swap", "#trade", "btn btn--primary btn--sm"), resignButton(seat));
+      p.tools.push(jump("Buy & swap", "#trade", "btn btn--primary btn--sm")); resign(seat);
     } else if (seat && seat.status === "active") {
-      p.icon = "👑"; p.title = `City Founder of ${seat.city}`;
+      p.icon = "👑"; p.ico = ["crown", "gold"]; p.title = `City Founder of ${seat.city}`;
       p.tag = { text: "Active", cls: "tag--ok" };
       p.lead = `You moderate ${seat.city}, design its coin and your vote counts ×${weight}. Keep ${fmt(seat.threshold)} $VICINITY: below it, moderation pauses at once.`;
       p.meters.push(meter(`Your holding vs your bar (${fmt(seat.threshold)})`, pct(d.holding.amount, seat.threshold), `${fmt(d.holding.amount)} $VICINITY`, d.holding.amount >= seat.threshold ? "ok" : "bad"));
-      p.tools.push(jump("Design the city's coin", "#coin"), jump("Moderator tools", "#mod"), invite, resignButton(seat));
+      p.tools.push(jump("Design the city's coin", "#coin"), jump("Moderator tools", "#mod"), invite); resign(seat);
     } else if (d.level === "holder") {
-      p.icon = "🏅"; p.title = `Holder in ${city}`;
-      p.tag = { text: `Path to founder · ${d.progress.percent}%`, cls: "tag--ok" };
+      p.icon = "🏅"; p.ico = ["medal", "ok"]; p.title = `Holder in ${city}`;
+      // (the tabbed dashboard drops the pill: the meter right under it says the same percentage)
+      p.tag = tabbed() ? null : { text: `Path to founder · ${d.progress.percent}%`, cls: "tag--ok" };
       p.lead = d.founder.eligible ? `You qualify to found ${city}. Apply from inside the city below.` : `You can post, vote and endorse. Your road to founding ${city} is below.`;
       p.meters.push(meter("Founder path", d.progress.percent, `${d.progress.percent}%`));
       p.tools.push(jump("Founder path", "#progress", "btn btn--primary btn--sm"), jump("Post to your city", "#feed"), invite);
@@ -86,7 +134,9 @@
       // onboarding v3: the account exists, the wallet is linked later (from the dashboard's link card, or here)
       p.tag = { text: "You are in", cls: "tag--ok" };
       p.lead = `Member of ${city}. You are in. Link a wallet to see your $VICINITY, your rank and your road to founding ${city}.`;
-      p.tools.push(link("Link my wallet", "/connect?mode=link", "btn btn--primary btn--sm"), invite);
+      // (the tabbed dashboard's first card is the wallet card with its one Connect wallet button: no second one here)
+      if (!tabbed()) p.tools.push(link("Link my wallet", "/connect?mode=link", "btn btn--primary btn--sm"));
+      p.tools.push(invite);
     } else {
       p.tag = { text: d.launched ? "Not holding yet" : "Early member", cls: d.launched ? "tag--warn" : "tag--ok" };
       p.lead = d.launched ? "You're signed in and local, but this wallet holds no $VICINITY yet. Holding any amount unlocks posting, voting and your rank."
@@ -96,14 +146,14 @@
 
     if (d.level === "manager") {
       const m = d.national && d.national.manager;
-      p.icon = "🛡️"; p.title = `Country Manager · ${ctx.countryName(cc)}`;
+      p.icon = "🛡️"; p.ico = ["shield", "gold"]; p.title = `Country Manager · ${ctx.countryName(cc)}`;
       p.tag = { text: m ? `Term until ${date(m.endsAt)}` : "Manager", cls: "tag--gold" };
       p.lead = `You moderate ${ctx.countryName(cc)}, advise on "add my town" requests, and your vote counts ×${weight}. Powers pause if your founder seat goes into grace.`;
       if (m) { const s = Date.parse(m.startsAt); p.meters.unshift(meter("Term", pct(Date.now() - s, Date.parse(m.endsAt) - s), `${daysLeft(m.endsAt)} days left`)); }
       p.tools = [jump("Moderator tools", "#mod", "btn btn--primary btn--sm"), jump("Country election", "#national"), ...p.tools.filter((t) => t.textContent !== "Moderator tools")];
     }
     if (d.level === "admin") {
-      p.icon = "⚙️"; p.title = "Admin";
+      p.icon = "⚙️"; p.ico = ["shield", "gold"]; p.title = "Admin";
       p.tag = { text: "Runs Vicinity within the published rules", cls: "tag--gold" };
       p.lead = "Everything that needs a decision is in the moderator tools. Launch settings, team wallets and snapshots live in the admin console.";
       p.tools = [link("Admin console", "/admin", "btn btn--primary btn--sm"), jump("Moderator tools", "#mod"), link("Public log", "/api/audit"), link("The rules", "/rules"), ...p.tools.filter((t) => t.tagName === "BUTTON" && /Resign|Invite/.test(t.textContent))];
@@ -127,6 +177,9 @@
     box.textContent = !queue.known ? "" : items.length ? `Waiting for you: ${items.join(" · ")}` : "Nothing is waiting for you right now. ✓";
   }
 
+  // the tabbed dashboard's tool tiles: one icon each, by what the tool does
+  const TOOL_ICON = [[/^Founder path/, "rocket"], [/^Post to your city/, "chat"], [/^Invite locals/, "users"], [/coin/, "palette"], [/^Moderator tools/, "shield"],
+    [/^Country election/, "users"], [/^Admin console/, "crown"], [/^Public log/, "chart"], [/^The rules/, "info"], [/^(Buy & swap|Get \$VICINITY)/, "coin"], [/^Link my wallet/, "wallet"]];
   function render(d, context) {
     ctx = context; lastData = d;
     const host = $("#role-home"); if (!host) return;
@@ -134,14 +187,41 @@
     host.hidden = false; host.dataset.level = d.level;
     const head = el("div", "role-home__head");
     const title = el("div"); title.append(el("p", "kicker", "Your role"), el("h2", "h2--sm", p.title));
-    head.append(el("span", "role__icon", p.icon), title);
+    head.append(tabbed() ? icon(p.ico[0], { tone: p.ico[1], small: false, fallback: p.icon }) : el("span", "role__icon", p.icon), title);
     if (p.tag) head.append(el("span", `tag ${p.tag.cls}`, p.tag.text));
-    const tools = el("div", "role-tools"); tools.append(...p.tools);
+    const tools = el("div", "role-tools");
     const parts = [head, el("p", "small", p.lead), ...p.notes.map((t) => el("p", "small role-note", t)), ...p.meters];
     parts.push(Object.assign(el("p", "small role-queue"), { id: "role-queue", hidden: true }), tools);
+    if (tabbed()) {
+      // equal tiles, two to a row; the text links ("What my role can do") on their own line under them
+      tools.classList.add("role-tools--grid");
+      const more = el("p", "role-more");
+      for (const t of p.tools) {
+        if (t.classList.contains("link-btn")) { more.append(t); continue; }
+        t.className = "btn btn--glass role-tile";
+        const m = TOOL_ICON.find(([re]) => re.test(t.textContent));
+        t.prepend(icon(m ? m[1] : "info"));
+        tools.append(t);
+      }
+      // an odd number of tiles leaves half a row empty: the text link takes it, as a quiet tile
+      if (tools.children.length % 2 && more.children.length === 1) {
+        const t = more.children[0];
+        t.className = "btn role-tile role-tile--link";
+        tools.append(t);
+      } else if (more.children.length) parts.push(more);
+    } else tools.append(...p.tools);
     host.replaceChildren(...parts);
     renderQueue();
     renderSquad(d);
+    danger(p.danger);
+  }
+  /** The Founder tab's "Danger zone" (the tabbed dashboard): the Resign button and what it does, folded; hidden without a seat. */
+  function danger(btn) {
+    const box = $("#danger-zone"), body = $("#danger-body");
+    if (!box || !body || !tabbed()) return;
+    box.hidden = !btn;
+    if (btn) body.replaceChildren(el("p", "small muted", "You give up your seat and the city reopens. A Seed Steward's bond is released at once; a City Founder waits 30 days before applying anywhere. You are asked to confirm first."), btn);
+    else body.replaceChildren();
   }
 
   /* ---------- squads: 3 to 5 verified locals pool their holdings ---------- */
@@ -206,7 +286,7 @@
   }
 
   window.VRole = {
-    render,
+    render, icon,
     /** The moderator queue sizes (from /api/mod) and waiting coin contracts, shown under your role. */
     queue(counts) { queue = { ...queue, ...counts, known: true }; renderQueue(); },
     redraw() { if (lastData && ctx) render(lastData, ctx); },
