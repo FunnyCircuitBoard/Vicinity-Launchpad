@@ -116,6 +116,9 @@
   color: var(--ok-text); background: var(--ok-soft, rgba(55,194,154,.14)); border: 1px solid rgba(55,194,154,.4); }
 .lp-live__open .live-dot, .lp-live__open .live-dot::after { background: var(--ok-text); }
 .lp-live.has-coins .lp-live__open, .lp-live:not(.has-coins) .lp-live__view, .lp-live:not(.is-marquee) .lp-live__pause { display: none; }
+.launch-hero:not([data-clock="open"]) .lp-live__open { visibility: hidden; } /* the hero starts open (no jump), but says so only once the clock has */
+/* a computer: the hero fills the first screen, so the coin list that arrives under it never pushes what is in view */
+@media (min-width: 900px) { .launch-hero { min-height: calc(100vh - var(--header-h, 67px)); display: flex; align-items: center; } .launch-hero > .launch-hero__inner { width: 100%; } }
 .lp-live__view { flex: 1 1 auto; min-width: 0; overflow: hidden; border-radius: var(--r-pill, 999px); }
 .lp-live__track { list-style: none; margin: 0; padding: 4px 0; display: flex; width: max-content; }
 .lp-live:not(.is-marquee) .lp-live__track { width: auto; flex-wrap: wrap; justify-content: center; gap: var(--sp-2, 8px); }
@@ -261,6 +264,12 @@
 .coin-price__sub { min-height: 2.9em; }
 .coin-head__safe { margin: 0; text-align: center; }
 @media (min-width: 1024px) { .coin-head__buy { display: inline-flex; width: auto; justify-self: start; min-width: 240px; } .coin-head__safe { text-align: left; } }
+/* a computer, while the page loads: the hero's Buy keeps its room (52 px + the gap) and the contract card leads the side column, so
+   neither the Buy arriving nor the bonding curve leaving (a coin off its curve) moves what is on screen */
+@media (min-width: 1024px) {
+  .coin-page[aria-busy="true"] .coin-head__buy[hidden] + .coin-head__safe { margin-top: 64px; }
+  .coin-side > .coin-ca { order: -1; }
+}
 .coin-chart__legend.is-up, .coin-chart__legend.is-down { color: var(--muted); }
 .coin-tile[hidden] { display: none; }
 .coin-tile dt { text-transform: none; letter-spacing: 0; font-size: var(--fs-xs, .75rem); }

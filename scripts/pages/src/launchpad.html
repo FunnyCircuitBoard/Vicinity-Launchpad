@@ -1,5 +1,5 @@
 <!--{"title": "Launchpad", "description": "The Vicinity Launchpad opens October 10 at 10:10:10 AM New York time: one official coin per city. City Founders and $VICINITY holders go first.", "page": "launchpad", "scripts": ["wallets", "swap", "launchpad"], "styles": ["swap", "polish-pages"]}-->
-    <section class="launch-hero" id="launchpad">
+    <section class="launch-hero is-open" id="launchpad">
       <div class="launch-hero__bg" aria-hidden="true"><div class="orb orb--a"></div><div class="orb orb--b"></div><div class="stars"></div></div>
       <div class="wrap launch-hero__inner">
         <p class="kicker">Vicinity Launchpad · coming next</p>
@@ -13,7 +13,8 @@
           <div class="countdown__unit"><strong data-cd="seconds">--</strong><span><span class="cd-full">seconds</span><span class="cd-short" aria-hidden="true">sec</span></span></div>
         </div>
         <div class="launch-progress" aria-hidden="true"><span id="lp-bar"></span></div>
-        <!-- once the Launchpad is open (launchpad.js marks the hero .is-open from the clock): the live coins in place of the countdown -->
+        <!-- once the Launchpad is open: the live coins in place of the countdown. The hero starts .is-open (the Launchpad opened on 10 Oct
+             2026, so nothing moves when the page loads); launchpad.js takes it off from the clock while the opening is still ahead -->
         <div class="lp-live" id="lp-live">
           <p class="lp-live__open"><span class="live-dot" aria-hidden="true"></span>The Launchpad is open.</p>
           <div class="lp-live__view"><ul class="lp-live__track" id="lp-live-track" aria-label="Live coins"></ul></div>

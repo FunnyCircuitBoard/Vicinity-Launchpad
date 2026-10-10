@@ -17,7 +17,7 @@
     $("#countdown")?.classList.toggle("is-open", ms === 0);
     // open: the hero shows the live coins in place of the countdown, its bar and the calendar link (polish-pages.css), from the clock,
     // so an answer that never comes (opening-day load) never leaves "0 / 00 / 00 / 00" on the screen
-    $(".launch-hero")?.classList.toggle("is-open", ms === 0);
+    const hero = $(".launch-hero"); if (hero) { hero.classList.toggle("is-open", ms === 0); hero.dataset.clock = ms === 0 ? "open" : "soon"; } // "open" only once the clock said so
     const bar = $("#lp-bar"); if (bar) bar.style.width = `${Math.min(100, Math.max(0, ((Date.now() - START) / (at - START)) * 100)).toFixed(2)}%`;
     const d = new Date(at);
     // Always stated in New York time; the line below gives the visitor's own time.
