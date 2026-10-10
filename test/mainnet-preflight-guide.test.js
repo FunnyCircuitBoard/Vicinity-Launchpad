@@ -57,7 +57,18 @@ test("guide: the rent adds up, equals the measured rate for the audited sizes, a
   const rent = (bytes) => (bytes + 128) * rate;
   assert.equal(rent(rwSize + 45), lamports("2.57066796")); assert.equal(rent(lpSize + 45), lamports("2.20539564")); assert.equal(rent(36), lamports("0.00083312"));
   assert.equal(lamports("2.57066796") + lamports("2.20539564") + 2 * lamports("0.00083312"), lamports("4.77772984"));
-  for (const v of ["2.57066796", "2.20539564", "0.00083312", "4.77772984", "4.85", "5.1"]) assert.ok(guide.includes(v), v);
+  for (const v of ["2.57066796", "2.20539564", "0.00083312", "4.77772984", "5.0", "5.1"]) assert.ok(guide.includes(v), v);
+  // the deployer amount survives `solana program deploy`'s up-front check of BOTH deploys (devnet rehearsal, CLI 4.3.0 at
+  // --with-compute-unit-price 200000: "insufficient funds for spend (2.57066796 SOL) + fee (0.150775 SOL)" for the rewards file and
+  // "(2.20539564 SOL) + fee (0.129685 SOL)" for the launchpad file; each deploy really spent about 0.003 SOL). 4.85 failed the second.
+  const send = lamports(/\| \*\*send to the deployer in step 7\*\* \| \*\*([0-9.]+)\*\*/.exec(guide)[1]);
+  const checkRw = lamports("2.57066796") + lamports("0.150775"), checkLp = lamports("2.20539564") + lamports("0.129685");
+  const spentRw = lamports("2.57066796") + lamports("0.00083312") + lamports("0.003");
+  assert.ok(send >= checkRw, "the rewards deploy (first) passes its check");
+  assert.ok(send - spentRw >= checkLp, "the launchpad deploy (second) passes its check after the rewards deploy");
+  assert.ok(lamports("4.85") - spentRw < checkLp, "the old 4.85 would fail the second check");
+  assert.match(section("### Step 7."), /Send 5\.0 SOL to the deployer/);
+  assert.doesNotMatch(guide, /4\.85/);
   assert.match(section("### Step 9."), new RegExp(`\`${rwSize} \\(0x${rwSize.toString(16)}\\) bytes\``));
   assert.match(section("### Step 9."), new RegExp(`\`${lpSize} \\(0x${lpSize.toString(16)}\\) bytes\``));
   // the audited fingerprints the build reproduces first are the recorded ones

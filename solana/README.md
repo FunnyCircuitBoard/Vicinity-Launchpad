@@ -268,7 +268,11 @@ read-only checks. In short:
    for this program (505,909 bytes of ProgramData) and 2.20539564 SOL for the
    launchpad, plus 0.00083312 SOL per program account: 4.77772984 SOL for both
    (read from mainnet with `solana rent` on 10 Oct 2026). The owner funds the
-   deployer with 4.85 SOL. A stopped deploy resumes when the same command runs
+   deployer with 5.0 SOL: `program deploy` first checks that the payer could cover
+   the rent plus the highest possible fee of every upload at the chosen priority
+   fee (0.150775 SOL for this program, 0.129685 SOL for the launchpad at
+   `--with-compute-unit-price 200000`, measured on devnet with CLI 4.3.0), although
+   it really spends about 0.003 SOL each. A stopped deploy resumes when the same command runs
    again (the explicit buffer); `solana program close --buffers` returns a
    half-written buffer's rent.
 4. **Verify.** `solana program show <id>` (data length 505864) and

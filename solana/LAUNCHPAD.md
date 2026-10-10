@@ -345,7 +345,7 @@ transaction.
 The step-by-step path, with every command and the exact costs, is
 **`../docs/OWNER-LAUNCH-GUIDE.md`**: you deploy both programs from your Mac
 (Solana CLI 4.3.0, which sizes each program to its file: 4.78 SOL of rent for
-both, 4.85 SOL sent to the deployer) and do the rest on vicinity.city with
+both, 5.0 SOL sent to the deployer) and do the rest on vicinity.city with
 Phantom. `../docs/MAINNET.md` section 4 is the team's side. Where the table below
 and the guide differ, the guide is current: the program files come from
 `scripts/launchpad/build-mainnet.sh` (no `security.txt`, which would change the

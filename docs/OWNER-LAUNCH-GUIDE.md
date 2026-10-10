@@ -77,7 +77,7 @@ What each one is:
 
 | file | what it does | how long it matters |
 |---|---|---|
-| `deployer.json` | pays for the deploy (you send it 4.85 SOL in step 7) | until step 10; afterwards it has no power and is empty |
+| `deployer.json` | pays for the deploy (you send it 5.0 SOL in step 7) | until step 10; afterwards it has no power and is empty |
 | `launchpad-program.json` | the address of the launchpad program | only for the first deploy |
 | `rewards-program.json` | the address of the rewards program | only for the first deploy |
 | `launchpad-buffer.json`, `rewards-buffer.json` | the temporary upload space of each deploy; with them a stopped deploy continues where it stopped | only during step 8 |
@@ -173,15 +173,18 @@ pinned toolchain (cargo-build-sbf 4.4.0, platform-tools v1.57); there is no Dock
    The first must print your deployer address (the one you sent us). The second must print
    `5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d`: that is Solana mainnet.
 
-### Step 7. Send 4.85 SOL to the deployer
+### Step 7. Send 5.0 SOL to the deployer
 
-In Phantom: Send → SOL → paste the deployer address (from `solana address`) → **4.85** → check the first and last
+In Phantom: Send → SOL → paste the deployer address (from `solana address`) → **5.0** → check the first and last
 four characters of the address → Send. Then:
 
 ```
 solana balance
 ```
-It must show `4.85 SOL`. (Why 4.85: the table at the end. What is left over comes back in step 10.)
+It must show `5 SOL`. (Why 5.0 when the rent is 4.78: before it uploads anything, each deploy command checks that the
+deployer could pay the highest possible network fee on top of the rent, about 0.15 SOL for the rewards file and 0.13 SOL
+for the launchpad file. It really spends only about 0.003 SOL each, but with less than 5.0 the second deploy stops at
+once with `insufficient funds`. What is left over, about 0.21 SOL, comes back in step 10.)
 
 ### Step 8. Deploy the two programs
 
@@ -353,6 +356,7 @@ pot or fee money.
 | Phantom warns about an unknown or new program (website step 1) | Phantom has never seen your brand-new program | check the page's list (your two addresses, about −0.0026 SOL) and approve. If Phantom refuses to sign at all: stop, nothing happened, the programs stay safe under your wallet; tell us |
 | Phantom warns that the transaction changes an authority or owner (website step 2) | that is exactly what step 2 does | check the new authority is the vault you compared with Squads, then approve. If Phantom refuses to sign: stop; the programs stay under your Phantom wallet (safe, but one key controls them); tell us the same day |
 | Phantom says the transaction will fail | something on chain changed since the page prepared it | reject, reload the page and prepare the step again; if it repeats, tell us |
+| step 3 says "Meteora has updated its bonding-curve program" | Meteora changed its program after we tested it; the price curve it would make now could differ from the tested one | nothing was spent: stop and tell us. We re-check Meteora's new program and update the website; then step 3 is offered again |
 | step 2 refuses the address you pasted | it is the vault, a wallet, a typo, or a multisig that needs only 1 approval | in Squads Settings copy the **Multisig account** address; make the threshold 2 if needed |
 | step 1 says "Waiting: … not the wallet you are signed in with" | step 10 is not done for that program, or you are signed in with another wallet | do step 10 for both programs; sign in with `13qRam…` |
 | "Done on the blockchain. … This page will try to record it again next time." | the transaction landed but the website could not note it | nothing to do; the page records it on your next visit |
@@ -371,7 +375,8 @@ pot or fee money.
 | rent of the two program accounts (2 × 0.00083312) | 0.00166624 |
 | **rent for both programs** | **4.77772984** |
 | network fees of the about 940 uploads, with the priority fee | about 0.008 |
-| **send to the deployer in step 7** | **4.85** (what is left, about 0.06, comes back in step 10) |
+| the deploy command's up-front check of the highest possible network fee (not spent) | about 0.15 for the rewards file, 0.13 for the launchpad file |
+| **send to the deployer in step 7** | **5.0** (what is left, about 0.21, comes back in step 10) |
 | website steps 1 to 7, from Phantom | about 0.02 (keep at least 0.06 in Phantom) |
 | creating the Squads multisig | shown by app.squads.so before you approve |
 | each approval | about 0.0016, refunded at launch or revoke |
