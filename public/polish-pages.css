@@ -93,6 +93,7 @@
   .token-hero.is-nobuy { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "lead" "info"; }
   .token-quote__price { font-size: var(--fs-num, 2.25rem); }
   .token-hero .stat-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .token-hero .stat strong { font-size: var(--fs-md, 1.125rem); } /* four across in the left column: "$0.00000732" whole, never cut with "…" */
   /* the old wide contract card (buttons in a column of their own, from 1180 px) does not apply inside the left column: one column, the
      links in its flow, the card as tall as what it holds */
   .token-hero .contract:has(> .contract__links:not([hidden])) { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
@@ -440,7 +441,10 @@
 .prof-pass .pass__home span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .pass__pin { width: 16px; height: 16px; flex: none; }
 .prof-pass .pass__coin { background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.32); box-shadow: none; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-.prof-pass .pass__coin span { color: #fff; text-shadow: none; font-weight: 700; }
+.prof-pass .pass__coin span { color: #fff; text-shadow: none; font-weight: 700; max-width: none; overflow: visible; white-space: nowrap; }
+/* the whole ticker (profile.js no longer cuts it to 5): a longer one steps down, by its length (data-len) */
+.prof-pass .pass__coin[data-len="6"] span, .prof-pass .pass__coin[data-len="7"] span { font-size: .66rem; }
+.prof-pass .pass__coin:is([data-len="8"], [data-len="9"], [data-len="10"], [data-len="11"], [data-len="12"]) span { font-size: .56rem; letter-spacing: -.02em; }
 /* badges: a word each in a glass chip; the pictures the server sends with them are emoji, so the chip shows a small dot instead */
 .prof-badges li > span[aria-hidden="true"]:first-child { display: none; }
 .prof-badges li { gap: 7px; padding: 4px 11px; min-height: 28px; font-weight: 600; }
