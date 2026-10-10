@@ -226,7 +226,7 @@ cat >"$OUT/build-record.json" <<EOF
   "notVerifiable": "built without Docker (no anchor build --verifiable on this machine); reproducible with this script and the pinned toolchain"
 }
 EOF
-printf '\nTotal rent for both programs: %s lamports (%s SOL). The owner funds the deployer with 5.0 SOL (docs/OWNER-LAUNCH-GUIDE.md step 7: the CLI checks the highest possible fee up front).\n' "$total" "$(awk -v l="$total" 'BEGIN{printf "%.9f", l/1e9}')"
+printf '\nTotal rent for both programs: %s lamports (%s SOL). The owner funds the deployer with 4.9 SOL (docs/OWNER-LAUNCH-GUIDE.md step 7: the CLI checks the highest possible fee up front).\n' "$total" "$(awk -v l="$total" 'BEGIN{printf "%.9f", l/1e9}')"
 echo "Written to $OUT: vicinity_launchpad.so, vicinity_rewards.so, SHA256SUMS, build-record.json"
 echo "The owner checks them with: shasum -a 256 -c SHA256SUMS"
 # ---- 7. cleanup (the trap deletes the scratch copy, its target directory and the throwaway keypairs)

@@ -63,7 +63,7 @@ wallet: you approve in the admin "City coins" tab, the founder launches from the
 dashboard's Founder tab, anyone can press "Move to the open market" on the coin's
 page when the curve is full, and collecting fees is a button in the City coins
 tab (there is no keeper server). How to get there, step by step:
-`../docs/OWNER-LAUNCH-GUIDE.md` (step 13 and "the everyday buttons").
+`../docs/OWNER-LAUNCH-GUIDE.md` (step 14 and "the everyday buttons").
 
 ## 3. Fees: who gets what
 
@@ -160,7 +160,7 @@ check proves it on the live site before your first approval
 (`npm run mainnet:preflight -- --site https://vicinity.city`, rows
 `site /coin-meta` and `site /brand/vicinity-512.png`; `../docs/MAINNET.md`
 section 4). The Meteora registration below is the City coins tab's step 7,
-signed by your dev wallet (`../docs/OWNER-LAUNCH-GUIDE.md`, step 11).
+signed by your dev wallet (`../docs/OWNER-LAUNCH-GUIDE.md`, step 12).
 
 Meteora's own per-coin page (a website and logo per pool) is deliberately not
 set: only the "Vicinity" name and logo above show on Meteora. It can be added
@@ -345,7 +345,8 @@ transaction.
 The step-by-step path, with every command and the exact costs, is
 **`../docs/OWNER-LAUNCH-GUIDE.md`**: you deploy both programs from your Mac
 (Solana CLI 4.3.0, which sizes each program to its file: 4.78 SOL of rent for
-both, 5.0 SOL sent to the deployer) and do the rest on vicinity.city with
+both, 4.9 SOL sent to the deployer, about 4.91 SOL used in all with the Squads
+multisig) and do the rest on vicinity.city with
 Phantom. `../docs/MAINNET.md` section 4 is the team's side. Where the table below
 and the guide differ, the guide is current: the program files come from
 `scripts/launchpad/build-mainnet.sh` (no `security.txt`, which would change the

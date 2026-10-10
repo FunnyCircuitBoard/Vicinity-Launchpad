@@ -260,7 +260,9 @@ read-only checks. In short:
    `.so` files, `SHA256SUMS` and `build-record.json`. The repository keeps the
    devnet ids (`anchor keys sync` never runs); no `security.txt` is added (it would
    change the audited bytes); no Docker `--verifiable` build is made.
-3. **Deploy.** `solana program deploy vicinity_rewards.so --program-id rewards-program.json --buffer rewards-buffer.json --use-rpc --with-compute-unit-price 200000 --max-sign-attempts 100`,
+3. **Deploy.** `solana program deploy vicinity_rewards.so --program-id rewards-program.json --buffer rewards-buffer.json --use-rpc --with-compute-unit-price 50000 --max-sign-attempts 100`
+   through a paid, staked RPC (`--use-rpc` sends every upload through it; a free plan's one sendTransaction per second
+   makes it hours),
    then the same for the launchpad. **Solana CLI 4.3 sizes the program to the
    binary** (`--max-len` defaults to the file's length; there is no 2x headroom any
    more) and extends the account by itself if a later upgrade needs more room
@@ -268,11 +270,11 @@ read-only checks. In short:
    for this program (505,909 bytes of ProgramData) and 2.20539564 SOL for the
    launchpad, plus 0.00083312 SOL per program account: 4.77772984 SOL for both
    (read from mainnet with `solana rent` on 10 Oct 2026). The owner funds the
-   deployer with 5.0 SOL: `program deploy` first checks that the payer could cover
+   deployer with 4.9 SOL: `program deploy` first checks that the payer could cover
    the rent plus the highest possible fee of every upload at the chosen priority
-   fee (0.150775 SOL for this program, 0.129685 SOL for the launchpad at
-   `--with-compute-unit-price 200000`, measured on devnet with CLI 4.3.0), although
-   it really spends about 0.003 SOL each. A stopped deploy resumes when the same command runs
+   fee (0.039685 SOL for this program, 0.034135 SOL for the launchpad at
+   `--with-compute-unit-price 50000`; 0.150775 and 0.129685 at 200000; measured on
+   devnet with CLI 4.3.0), although it really spends about 0.003 SOL each. A stopped deploy resumes when the same command runs
    again (the explicit buffer); `solana program close --buffers` returns a
    half-written buffer's rent.
 4. **Verify.** `solana program show <id>` (data length 505864) and
