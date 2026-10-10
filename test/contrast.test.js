@@ -25,6 +25,18 @@ test("main buttons: white text on every stop of their gradient reads at 4.5:1 or
   assert.doesNotMatch(css, /linear-gradient\(135deg, var\(--pin\), #FF7A45\)/, "the old light orange is gone from white-text buttons");
 });
 
+test("the accent headlines (gradient text): every stop of the light theme's gradient reads at 3:1 or more on the light page (large text)", () => {
+  // the contrast sweep skips gradient text (its fill is transparent), so the stops are checked here (review VUX-06: #D99A1A was 2.26:1)
+  const light = css.slice(css.indexOf(':root[data-theme="light"] {'));
+  const tok = (name) => new RegExp(`${name}: (#[0-9A-Fa-f]{6})`).exec(light)[1];
+  const gold = /:root\[data-theme="light"\] \.accent \{ --gold: (#[0-9A-Fa-f]{6}); \}/.exec(css)?.[1];
+  assert.ok(gold, "the light theme gives .accent its own gold stop");
+  for (const [name, hex] of [["--pin", tok("--pin")], ["--pin-2", tok("--pin-2")], [".accent --gold", gold]]) {
+    for (const bg of ["#F4F6FA", "#FFFFFF"]) assert.ok(ratio(hex, bg) >= 3, `${name} ${hex} on ${bg}: ${ratio(hex, bg).toFixed(2)}:1`);
+  }
+  assert.match(css, /\.accent \{ background-image: linear-gradient\(100deg, var\(--pin\) 5%, var\(--gold\) 45%, var\(--pin-2\) 72%, var\(--gold\) 95%\);/, "the moving gradient uses the same three stops");
+});
+
 test("the example dashboard's smallest text reads clearly: the 'Your community' kicker and the coin's label", () => {
   // the 9.9 px kicker was var(--pin-2) #D4501F, 4.2:1 on white (light); design v2: a calm sentence-case kicker in var(--muted), as on the
   // real dashboard; the coin's 9.6 px label #0B3B2C was near the line on its green

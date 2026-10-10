@@ -106,6 +106,7 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 :focus-visible { outline: 3px solid var(--pin-2); outline-offset: 3px; border-radius: 8px; }
 [hidden] { display: none !important; }
 .accent { background: linear-gradient(100deg, var(--pin) 10%, var(--gold) 90%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+:root[data-theme="light"] .accent { --gold: #9A6400; } /* the headline gradient's gold stop: 4.6:1 on the light page (#D99A1A read 2.3:1) */
 
 /* ---------- header ---------- */
 .site-header { position: sticky; top: 0; z-index: 50; background: var(--glass); backdrop-filter: saturate(1.5) blur(14px); -webkit-backdrop-filter: saturate(1.5) blur(14px); border-bottom: 1px solid var(--line); }
