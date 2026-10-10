@@ -188,6 +188,40 @@
   fetch("/data/demo-nyc.json").then((r) => r.json()).then((data) => { hero(data); walkthrough(data); })
     .catch(() => { const m = $("#nyc-members"); if (m) m.replaceChildren(Object.assign(document.createElement("li"), { textContent: "Couldn't load the map. Refresh to try again." })); });
 
+  /* ---------- the roadmap: the rail's colours follow the stops; the Launchpad stop turns "Live now" once it is open ---------- */
+  // The rail (style.css .timeline::before) is green up to the last stop done and orange at the next one: --rail-done and --rail-at are
+  // the centres of those two dots along the rail, measured (a stop's text wraps differently at every width). Once the Launchpad is open
+  // (site.js: on load, or on its 30 s tick for a page left open across 10:10:10) its stop is done and live, with the way in under it,
+  // and the Passport becomes the next stop.
+  const timeline = $("#timeline");
+  function rail() {
+    if (!timeline) return;
+    const items = $$(".timeline__item", timeline), across = getComputedStyle(timeline).display === "flex";
+    const len = across ? timeline.clientWidth : timeline.clientHeight - 12;
+    if (!len) return;
+    const at = (li) => (across ? li.offsetLeft + 10 : li.offsetTop + 12 - 6) / len * 100;
+    const done = items.filter((li) => li.classList.contains("is-done")).pop(), next = items.find((li) => li.classList.contains("is-next"));
+    if (done) timeline.style.setProperty("--rail-done", `${at(done).toFixed(1)}%`);
+    if (next) timeline.style.setProperty("--rail-at", `${at(next).toFixed(1)}%`); else timeline.style.setProperty("--rail-at", "100%");
+  }
+  function launchpadLive() {
+    const stop = timeline && $$(".timeline__item", timeline).find((li) => /Vicinity Launchpad/.test(li.textContent));
+    if (!stop || stop.classList.contains("is-now")) return;
+    stop.classList.remove("is-next"); stop.classList.add("is-done", "is-now");
+    const status = $(".timeline__status", stop); if (status) status.textContent = "Live now";
+    const go = document.createElement("a"); go.className = "timeline__go"; go.href = "/launchpad"; go.textContent = "Open the Launchpad →";
+    stop.append(go);
+    const later = stop.nextElementSibling; if (later) later.classList.add("is-next");
+    rail();
+  }
+  if (timeline) {
+    if (window.V.launchOpen && window.V.launchOpen()) launchpadLive();
+    window.V.official.then(() => { if (window.V.launchOpen()) launchpadLive(); });
+    document.addEventListener("vicinity:launchpad-open", launchpadLive);
+    rail();
+    if (window.ResizeObserver) new ResizeObserver(() => rail()).observe(timeline);
+  }
+
   /* ---------- tabs: the incentives block and the FAQ (role=tablist; the panels carry hidden until their tab is chosen) ---------- */
   // Arrow keys move between tabs (Home/End to the ends), the chosen tab is the only Tab stop of its list (WAI-ARIA tabs), and a link
   // to something inside a panel that is not showing (/#why-launchlab, /#roles) opens that panel first, then lands on the target.

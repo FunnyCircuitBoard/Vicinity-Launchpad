@@ -135,7 +135,7 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
   .tabbar a[aria-current="page"] svg { color: var(--pin); filter: drop-shadow(0 0 8px rgba(255,90,54,.5)); }
   .tabbar a:active { background: var(--card-2); }
   body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
-  .toast { bottom: calc(84px + env(safe-area-inset-bottom)) !important; }
+  .toast { bottom: calc(var(--bottom-bars, 67px) + 12px) !important; } /* just above the tab bar (and the coin page's Buy bar) */
 }
 
 /* ---------- buttons ---------- */
@@ -198,7 +198,9 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
 @media (max-width: 900px) { .grid-3 { grid-template-columns: minmax(0, 1fr); } }
 .bridge { margin-top: 28px; font-size: 1.1rem; color: var(--text-2); }
-.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 90; padding: 12px 18px; border-radius: 12px; background: var(--bg-3); border: 1px solid var(--line-2); box-shadow: 0 20px 50px -20px rgba(0,0,0,.8); font-weight: 500; animation: pop .3s ease; width: max-content; max-width: calc(100vw - 32px); overflow-wrap: anywhere; } /* one line when it fits: a fixed box centred with left: 50% would otherwise shrink to half the screen and wrap */
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 90; padding: 12px 18px; border-radius: var(--r-chip); background: var(--surface-2); border: 1px solid var(--line-2); box-shadow: var(--shadow-2); font-weight: 500; animation: pop .3s ease; width: max-content; max-width: calc(100vw - 32px); overflow-wrap: anywhere; }
+/* what the clipboard refused, on a line of its own to select and copy by hand */
+.toast__detail { display: block; margin-top: 8px; padding: 8px 10px; border-radius: var(--r-xs); background: var(--surface-inset); font: 500 .875rem/1.45 var(--mono); color: var(--text); -webkit-user-select: all; user-select: all; overflow-wrap: anywhere; } /* one line when it fits: a fixed box centred with left: 50% would otherwise shrink to half the screen and wrap */
 @keyframes pop { from { transform: translateX(-50%) scale(.9); opacity: 0; } }
 .burst { position: fixed; pointer-events: none; z-index: 80; font-size: 20px; animation: burst .9s ease-out forwards; }
 @keyframes burst { to { transform: translate(var(--bx), var(--by)) scale(.4); opacity: 0; } }
@@ -335,6 +337,7 @@ select option { background: var(--bg-2); }
 .flow::before { content: ""; position: absolute; left: 27px; top: 30px; bottom: 30px; width: 2px; background: linear-gradient(var(--pin), var(--gold), var(--moss)); opacity: .5; }
 .flow__step { display: flex; gap: 18px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px 16px 12px; position: relative; }
 .flow__icon { flex: none; width: 32px; height: 32px; border-radius: 12px; display: grid; place-items: center; background: var(--bg-3); border: 1px solid var(--line-2); font-size: 1rem; z-index: 1; }
+.flow__icon.ico { width: 28px; height: 28px; border: 0; border-radius: 50%; background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg); } /* a tinted circle that hides the line behind it */
 .flow__step h3 { margin: 4px 0 4px; }
 .flow__step p { margin: 0; font-size: .95rem; }
 .live-panel { position: sticky; top: 90px; }
@@ -366,8 +369,10 @@ select option { background: var(--bg-2); }
 
 /* timeline */
 .timeline { list-style: none; margin: 0; padding: 0 0 0 34px; position: relative; }
-.timeline::before { content: ""; position: absolute; left: 7px; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: linear-gradient(var(--moss), var(--pin) 50%, var(--line-2)); }
-.timeline__item { position: relative; padding: 0 0 30px 10px; }
+.timeline::before { content: ""; position: absolute; left: 7px; top: 6px; bottom: 6px; width: 2px; border-radius: 2px;
+  background: linear-gradient(var(--moss), var(--moss) var(--rail-done, 48%), var(--pin) var(--rail-at, 66%), var(--line-2) calc(var(--rail-at, 66%) + 12%), transparent); }
+.timeline__item { position: relative; padding: 0 0 18px 10px; }
+.timeline__item:last-child { padding-bottom: 0; }
 .timeline__item::before { content: ""; position: absolute; left: -34px; top: 4px; width: 16px; height: 16px; border-radius: 50%; background: var(--bg); border: 2px solid var(--line-2); z-index: 1; }
 .timeline__item.is-done::before { background: var(--moss); border-color: var(--moss); box-shadow: 0 0 0 5px rgba(55,194,154,.18); }
 .timeline__item.is-next::before { background: var(--pin); border-color: var(--pin); }
@@ -375,8 +380,12 @@ select option { background: var(--bg-2); }
    box-shadow pulse that restyled the page 60 times a second); still with reduced motion, paused while the timeline is off screen */
 .timeline__item.is-next::after { content: ""; position: absolute; left: -34px; top: 4px; width: 16px; height: 16px; border-radius: 50%; background: var(--pin); opacity: 0; pointer-events: none; }
 @media (prefers-reduced-motion: no-preference) { .timeline__item.is-next::after { animation: nextPing 1.8s cubic-bezier(0,0,.2,1) infinite; } }
+/* the stop that is live right now (home.js, once the Launchpad is open): done, green, its dot pinging, with the way in under it */
+.timeline__item.is-now::after { content: ""; position: absolute; left: -34px; top: 4px; width: 16px; height: 16px; border-radius: 50%; background: var(--moss); opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) { .timeline__item.is-now::after { animation: nextPing 1.8s cubic-bezier(0,0,.2,1) infinite; } }
+.timeline__go { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; font-size: .9rem; }
 @keyframes nextPing { 0% { transform: scale(1); opacity: .5; } 70%, 100% { transform: scale(2.1); opacity: 0; } }
-.timeline__status { display: inline-block; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 4px; }
+.timeline__status { display: inline-block; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 4px; }
 .is-done .timeline__status { color: var(--ok-text); } .is-next .timeline__status { color: var(--pin-2); }
 .timeline p { color: var(--muted); margin: 0; }
 
@@ -1299,7 +1308,7 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
   /* every page eases in */
   main { animation: moEnter .5s cubic-bezier(.2,.8,.2,1) backwards; }
   /* blocks below the screen rise in when they scroll into view (site.js adds .mo-armed only to those, then .mo-in) */
-  .mo-armed { opacity: 0; transform: translateY(18px); }
+  .mo-armed { opacity: 0; transform: translateY(12px); }
   .mo-armed.mo-in { opacity: 1; transform: none; transition: opacity .45s ease-out, transform .6s cubic-bezier(.2,.8,.2,1); }
   /* the orange headline words shift their colours a few times, then rest as they were */
   .accent { background-image: linear-gradient(100deg, var(--pin) 5%, var(--gold) 45%, var(--pin-2) 72%, var(--gold) 95%); background-size: 200% 100%; animation: moAccent 6s ease-in-out 4 alternate; }

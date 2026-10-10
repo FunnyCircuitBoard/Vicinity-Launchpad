@@ -100,7 +100,7 @@ test("styles: no decoration loops forever unless a visitor can stop it; only wha
 });
 
 test("styles: a block is only ever hidden by the script's .mo-armed, only when motion is welcome; reduced motion and print show everything", () => {
-  const armed = css.indexOf("  .mo-armed { opacity: 0; transform: translateY(18px); }");
+  const armed = css.indexOf("  .mo-armed { opacity: 0; transform: translateY(12px); }"); // 12 px since design v2 (18 before)
   assert.ok(armed > 0 && inNoPreference(armed), "the armed state exists only when motion is welcome");
   assert.match(css, /\.mo-armed\.mo-in \{ opacity: 1; transform: none; transition: opacity \.45s ease-out, transform \.6s cubic-bezier\(\.2,\.8,\.2,1\); \}/);
   // .reveal (the old scroll reveal) never hides anything by itself any more: without the script every block shows

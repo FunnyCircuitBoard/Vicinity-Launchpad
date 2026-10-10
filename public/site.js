@@ -54,10 +54,15 @@
   const takeCarry = () => { const c = carryCode; carryCode = null; return c; };
   const takeLink = () => { const c = linkCode; linkCode = null; return c; };
 
-  const toast = (msg) => {
+  /** One short line in the toast (role=status: read out once). With `detail` (a contract address, a link, an amount the clipboard
+   *  refused) the text sits on its own selectable line under the words, and the toast stays up long enough to copy it by hand.
+   *  body.has-toast is set while it shows (feedback.css tucks the feedback button away meanwhile). */
+  const toast = (msg, detail) => {
     const t = $("#toast"); if (!t) return;
-    t.textContent = msg; t.hidden = false;
-    clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), 3000);
+    if (detail == null) t.textContent = msg;
+    else { const d = el("span", "toast__detail", String(detail)); t.replaceChildren(document.createTextNode(msg), d); }
+    t.hidden = false; document.body.classList.add("has-toast");
+    clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; document.body.classList.remove("has-toast"); }, detail == null ? 3000 : 9000);
   };
   const burst = (x, y) => {
     if (reduced) return;
@@ -69,8 +74,9 @@
       document.body.append(s); setTimeout(() => s.remove(), 950);
     }
   };
-  /** Copies text and says so in the toast; answers true when it reached the clipboard (false: the toast shows the text to copy by hand). */
-  const copy = async (text, label = "Copied") => { try { await navigator.clipboard.writeText(text); toast(label); return true; } catch { toast(text); return false; } };
+  /** Copies text and says so in the toast; answers true when it reached the clipboard (false: the toast shows the text on a line of
+   *  its own, to select and copy by hand: neutral words, since callers copy contract addresses, links, invites and amounts alike). */
+  const copy = async (text, label = "Copied") => { try { await navigator.clipboard.writeText(text); toast(label); return true; } catch { toast("Couldn't copy. Select it here:", text); return false; } };
 
   /** JSON from our own API. POSTs send JSON; errors come back as { ok:false, error } (never throws on HTTP status). */
   async function api(path, body, method) {
@@ -195,7 +201,7 @@
     let on = !still && Boolean(IO && MO);
     if (!on) return { arm() {}, finish() {}, watch() {}, on };
     const BLOCKS = "main .section-head, main .card, main .stat, main .reveal, main .city-stats > div, main .numbers__row > div, main .wanted > li, main .faq details, main .scam-note";
-    const QUIET = ".dpv, .termsgate, .modal, .cstate, [data-still]"; // its own motion, or shown and hidden by its page
+    const QUIET = ".dpv, .termsgate, .modal, .cstate, .timeline, [data-still]"; // its own motion, shown and hidden by its page, or the roadmap (every stop shows as it is)
     const NUMS = ".hero__facts strong, .numbers__row strong, .why-now__big, .stat > strong, .city-stats strong, .tile__num";
     const HEROES = ".hero, .launch-hero, .page-hero, .connect, .dash-out, main > .section:first-child";
     const LOOPS = ".nyc, .timeline, .live-dot"; // further down a page, but moving for as long as it is open
@@ -205,6 +211,13 @@
     const SHINES = ".btn--primary, .btn--glass, .btn--social, .account-btn, .contract__buy, .contract__ext, .chip-link, .map-open, .theme-toggle, .map-ctrl button, .contract__copy, .icon-btn, .map-focus__btn, .seg button";
     const GLOW = [{ transform: "none", filter: "none" }, { transform: "translateY(-2px)", filter: "brightness(1.45) drop-shadow(0 0 10px rgba(255,138,91,.55))", offset: 0.3 }, { transform: "none", filter: "none" }];
     const timer = (f, ms) => win.setTimeout(f, ms);
+    /** Inside a box that scrolls sideways (a carousel, a strip of tabs): a block there may sit beside the screen and never "scroll into
+     *  view" vertically, so it would stay unseen. Never lowered. */
+    const inScroller = (e) => {
+      if (!win.getComputedStyle) return false;
+      for (let p = e.parentElement; p && p.tagName !== "MAIN" && p.tagName !== "BODY"; p = p.parentElement) if (/auto|scroll/.test(win.getComputedStyle(p).overflowX)) return true;
+      return false;
+    };
 
     /* blocks */
     const rise = new IO((entries) => {
@@ -228,7 +241,7 @@
         if (r.querySelectorAll) for (const e of r.querySelectorAll(BLOCKS)) found.add(e);
       }
       const act = doc.activeElement, focused = (e) => Boolean(act && act !== doc.body && e.contains(act));
-      const list = [...found].filter((e) => !e.classList.contains("mo-armed") && !e.closest(QUIET) && !(e.parentElement && e.parentElement.closest(BLOCKS)) && !focused(e));
+      const list = [...found].filter((e) => !e.classList.contains("mo-armed") && !e.closest(QUIET) && !(e.parentElement && e.parentElement.closest(BLOCKS)) && !focused(e) && !inScroller(e));
       const h = win.innerHeight || doc.documentElement.clientHeight;
       const rects = list.map((e) => e.getBoundingClientRect()); // every read first, then the writes: one layout
       list.forEach((e, i) => { if (rects[i].height > 0 && rects[i].top > h) { e.classList.add("mo-armed"); rise.observe(e); } });
@@ -428,10 +441,7 @@
   const official = api("/api/official").then((o) => {
     if (o && o.launchpadOpensAt) opensAt = Date.parse(o.launchpadOpensAt);
     if (o && o.siteMode) { siteMode = o.siteMode; if (siteMode === "preview") showPreviewBanner(); }
-    // nav "Oct 10" chip flips to "Open" once the launchpad date has passed
-    if (opensAt <= Date.now()) $$("[data-nav-launch]").forEach((e) => {
-      e.textContent = "Open"; e.classList.remove("nav__soon"); e.classList.add("nav__open");
-    });
+    tickShort();
     return o;
   });
   function showPreviewBanner() {
@@ -443,14 +453,31 @@
     b.textContent = "TEST ENVIRONMENT — previewing the post-launch site. Nothing here is real yet.";
     document.body.prepend(b);
   }
+  const launchOpen = () => opensAt <= Date.now();
   function shortCountdown() {
     const ms = opensAt - Date.now();
-    if (ms <= 0) return "Open now";
     const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000);
     return d > 0 ? `${d}d ${h}h` : `${h}h ${Math.floor((ms % 3600000) / 60000)}m`;
   }
-  const tickShort = () => $$("[data-countdown-short]").forEach((e) => (e.textContent = shortCountdown()));
-  if ($("[data-countdown-short]")) { official.then(tickShort); tickShort(); setInterval(tickShort, 30000); }
+  // Every 30 s (and when /api/official answers): the short countdown ("13h 23m" over its label). Once the Launchpad is
+  // open, the same fact reads "Live / Launchpad is open" (its tile turns green: .is-live), the menu's "Oct 10" chip reads "Open", and
+  // "vicinity:launchpad-open" fires once on document (home.js marks the roadmap). A page left open across 10:10:10 flips by itself.
+  let flipped = false;
+  function tickShort() {
+    const open = launchOpen();
+    $$("[data-countdown-short]").forEach((e) => {
+      if (!open) { e.textContent = shortCountdown(); return; }
+      const fact = e.closest("li"), label = fact && fact.querySelector("[data-countdown-label]");
+      if (e.textContent !== "Live") e.textContent = "Live";
+      if (label && label.textContent !== "Launchpad is open") label.textContent = "Launchpad is open";
+      if (fact) fact.classList.add("is-live");
+    });
+    if (!open || flipped) return;
+    flipped = true;
+    $$("[data-nav-launch]").forEach((e) => { e.textContent = "Open"; e.classList.remove("nav__soon"); e.classList.add("nav__open"); });
+    document.dispatchEvent(new CustomEvent("vicinity:launchpad-open"));
+  }
+  tickShort(); setInterval(tickShort, 30000);
 
   /* ---------- backend status in the footer ---------- */
   (async () => {
@@ -559,5 +586,5 @@
 
   window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, takeCarry, takeLink, walletApp, termsGate, liveNums, reveal,
     get reduced() { return reducedNow(); }, // read when it is needed: the visitor may pause the animations while the page is open
-    me: () => meLite, ready, official, opensAt: () => opensAt, siteMode: () => siteMode };
+    me: () => meLite, ready, official, opensAt: () => opensAt, launchOpen, siteMode: () => siteMode };
 })();
