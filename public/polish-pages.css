@@ -296,6 +296,14 @@
   .coin-side > .coin-ca { order: -1; }
 }
 .coin-chart__legend.is-up, .coin-chart__legend.is-down { color: var(--muted); }
+/* nothing recorded yet (a coin launched today, coin.js): one calm line with the chart icon in a small dashed card, no switches */
+.coin-chart__ico { display: none; }
+.coin-chart.is-none .coin-chart__controls, .coin-chart.is-none .coin-chart__legend { display: none; }
+.coin-chart.is-none .coin-chart__stage { height: auto; min-height: 120px; margin: var(--sp-3, 12px) 0 0; }
+.coin-chart.is-none .coin-chart__canvas { position: absolute; inset: 0; visibility: hidden; }
+.coin-chart.is-none .coin-chart__state { position: relative; inset: auto; min-height: 120px; gap: var(--sp-2, 8px); border: 1px dashed var(--line-2); border-radius: var(--r-chip, 12px); }
+.coin-chart.is-none .coin-chart__ico { display: inline-grid; }
+.coin-chart.is-none .coin-chart__msg { text-wrap: balance; }
 .coin-tile[hidden] { display: none; }
 .coin-tile dt { text-transform: none; letter-spacing: 0; font-size: var(--fs-xs, .75rem); }
 .coin-tile { border: 0; background: var(--surface-inset, rgba(var(--ink),.035)); border-radius: var(--r-chip, 12px); }

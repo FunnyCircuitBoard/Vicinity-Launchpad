@@ -542,6 +542,9 @@
     const used = view.unit === "MCAP" ? supply : SUPPLY; // the market cap is the chain's own supply × the price, and the footnote says which
     const s = window.VChart.pure.seriesFrom(d, { unit: view.unit, style: view.unit === "SOL" ? view.style : "line", supply: used });
     const leg = $("#coin-legend");
+    // nothing recorded yet in any range (a coin launched today): one calm line in a small card, no range / unit / style switches
+    const none = !(d.line && d.line.recordingSince) && !(d.candles && d.candles.rows && d.candles.rows.length) && !(d.missing && d.missing.candles === "No trades in this range");
+    $("#coin-chart").classList.toggle("is-none", Boolean(s.empty) && none);
     if (s.empty) {
       chart.clear();
       const other = view.unit !== "SOL" ? window.VChart.pure.seriesFrom(d, { unit: "SOL" }) : null;
