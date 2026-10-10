@@ -3,16 +3,18 @@
  * each with a timeout, a plain error code and a rate limit, so the page (whose security policy allows only this site) never
  * talks to a blockchain node itself and the Worker never holds a key.
  *   POST /api/swap/send      { tx (base64, SIGNED by the wallet), ticket, lastValidBlockHeight, cluster? }  -> { ok, signature }
- *                            the fallback for wallets that sign but do not send; the header is checked (exactly one signer, the fee
- *                            payer's slot filled, version 0 or legacy, <= 1232 bytes), the TICKET proves this Worker built the
- *                            very message being sent (an HMAC over the message bytes, issued by /api/swap/tx and
- *                            /api/launchpad/trade/tx, 10 minutes; the relay is not an open sendTransaction proxy), and the
- *                            node's preflight error is mapped
+ *                            the fallback for wallets that sign but do not send; the header is checked (1 to 4 signers with EVERY
+ *                            slot filled: the wallet, plus the one-time keys a city-coin page made in the browser, public/lp-sign.js;
+ *                            version 0 or legacy, <= 1232 bytes), the TICKET proves this Worker built the very message being sent
+ *                            (an HMAC over the message bytes, issued by /api/swap/tx, /api/launchpad/trade/tx and src/lpkit.js
+ *                            buildTx, 10 minutes; the relay is not an open sendTransaction proxy), and the node's preflight error
+ *                            is mapped
  *   GET  /api/swap/status?sig=&lvbh=&cluster=  -> { ok, status: pending|confirmed|finalized|failed|expired, err, slot, solscan }
  *                            counted per SIGNATURE (60 a minute), so phones behind one carrier address never use up each other's polls
  *   GET  /api/swap/balances?owner=&mints=&fresh=1 -> { ok, sol: { lamports, ui }, tokens: { mint: { ui, hasAccount } } }
  *                            10 s memo per wallet; a send through the relay forgets the payer's memo; fresh=1 reads the chain now
- * cluster=devnet is honoured only while LAUNCHPAD_TRADING is on (devnet test coins); otherwise everything is mainnet.
+ * cluster=devnet is honoured only while LAUNCHPAD_TRADING is on (devnet test coins) or the city-coin setup is on with
+ * LAUNCHPAD_CLUSTER=devnet (lpSetup, src/cluster.js); otherwise everything is mainnet.
  * Also here, shared with the builders: simulate() and simulationError(), which turn a node's answer into insufficient_sol,
  * slippage, insufficient_balance, program_error { program, name } BEFORE the wallet opens.
  */
@@ -25,7 +27,7 @@ import { MAX_TX_BYTES, decodeHeader, programOfInstruction } from "./sol/message.
 import { PROGRAM_IDS } from "./sol/pda.js";
 import { dbcErrorName, launchpadErrorName } from "./sol/dbc.js";
 import { checkTaker } from "./sol/input.js";
-import { launchpadCluster, launchpadTradingOn, solscanTx, swapCluster } from "./cluster.js";
+import { launchpadCluster, launchpadTradingOn, lpSetup, solscanTx, swapCluster } from "./cluster.js";
 import { STATUS_LIMIT, keyLimit, publicLimit } from "./guards.js";
 import { limitKey } from "./limits.js";
 import { readJson } from "./http.js";
@@ -34,8 +36,11 @@ const TIMEOUT_MS = 8000;
 const SIG = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 /** The RPC url of a cluster name: the launchpad's for devnet (its own setting), SOLANA_RPC_URL (the site's) for mainnet. */
 export const rpcUrlFor = (env, cluster) => (cluster === "devnet" ? launchpadCluster({ ...env, LAUNCHPAD_CLUSTER: "devnet" }).rpc : null);
-/** "devnet" only while the launchpad's curve trades are ON and run on devnet (test coins); a site without them never reaches a devnet node. */
-const clusterOf = (env, v) => (v === "devnet" && launchpadTradingOn(env) && launchpadCluster(env).cluster === "devnet" ? "devnet" : "mainnet");
+/** "devnet" only while the launchpad's curve trades are ON and run on devnet (test coins), or the city-coin setup (lpSetup) is on
+ *  devnet; a site without them never reaches a devnet node. */
+const clusterOf = (env, v) => (v === "devnet" && ((launchpadTradingOn(env) && launchpadCluster(env).cluster === "devnet") || lpSetup(env).cluster === "devnet") ? "devnet" : "mainnet");
+/** The most signatures one relayed transaction may carry: the wallet plus up to 3 one-time browser keys (a graduation needs 3). */
+export const MAX_RELAY_SIGNERS = 4;
 
 /* ---------------------------------------------------------------- the relay ticket: "this Worker built these very bytes" */
 const TICKET_MS = 10 * 60_000;
@@ -136,9 +141,11 @@ export async function handleSend(request, env, fetchImpl = fetch, now = Date.now
   try { bytes = fromBase64(body.tx); } catch { return json({ ok: false, error: "bad_tx" }, 400); }
   if (bytes.length > MAX_TX_BYTES) return json({ ok: false, error: "tx_too_large" }, 400);
   try { decoded = decodeHeader(bytes); } catch (e) { return json({ ok: false, error: "bad_tx", reason: codeOf(e) }, 400); }
-  // the Worker only ever builds one-signer transactions (the person's wallet pays and signs): the relay's contract says so too
-  if (decoded.numSignatures !== 1 || decoded.header.numRequiredSignatures !== 1) return json({ ok: false, error: "bad_tx", reason: "one_signer_only" }, 400);
-  if (!decoded.signaturesFilled[0]) return json({ ok: false, error: "unsigned" }, 400);
+  // the Worker builds transactions the person's wallet pays and signs, some with up to 3 one-time keys made in the browser
+  // (src/lpkit.js): 1 to 4 signers, and every slot must be filled (a half-signed transaction would only fail at the node)
+  const n = decoded.header.numRequiredSignatures;
+  if (n < 1 || n > MAX_RELAY_SIGNERS || decoded.numSignatures !== n) return json({ ok: false, error: "bad_tx", reason: "too_many_signers" }, 400);
+  if (!decoded.signaturesFilled.every(Boolean)) return json({ ok: false, error: "unsigned" }, 400);
   // only what THIS Worker built goes to the owner's RPC: a signed transaction from anywhere else is refused before any node is asked
   if (!(await checkTicket(env, bytes, body.ticket, now))) return json({ ok: false, error: "bad_ticket", message: "Only a transaction built on this site can be relayed. Press Swap again." }, 400);
   const cluster = clusterOf(env, body.cluster);

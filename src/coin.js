@@ -20,6 +20,7 @@ import { codeOf } from "./sources.js";
 import { poolAddress } from "./launchlab.js";
 import { isSolanaAddress } from "./solana.js";
 import { iso } from "./policy.js";
+import { NO_CHART, NO_TRADES, applyLpMarket, curveOf, lpLinks, recordedCoins } from "./lpcoins.js";
 
 const SOL = PAIRS.SOL.mint;
 const MEMO_MS = 30_000, DEGRADED_MS = 5_000, FACTS_MS = 5 * 60_000;
@@ -61,6 +62,14 @@ export const _resetCoin = () => { memos = new WeakMap(); facts.clear(); };
 async function build(env, coin, fetchImpl, now) {
   const live = await liveMarkets(env, [coin], fetchImpl, { now });
   const market = live.markets.get(coin.mint);
+  // a coin of our own launchpad (only while its settings are there): its stage and progress from its Meteora curve, its own
+  // page as the link, and honest words where LaunchLab data would be (src/lpcoins.js)
+  let lpRow = null, lpCurve = null;
+  try {
+    lpRow = (await recordedCoins(env)).get(coin.mint) || null;
+    if (lpRow) lpCurve = await curveOf(env, lpRow, fetchImpl, now);
+  } catch (e) { live.ok = false; console.error("coin curve unavailable", codeOf(e)); }
+  if (lpRow) applyLpMarket(market, lpCurve, live.pairPrices.get(coin.pairMint) ?? null);
   let holders = null, holdersOk = true;
   try {
     await ensureLaunchpadSchema(env.DB);
@@ -72,10 +81,11 @@ async function build(env, coin, fetchImpl, now) {
   // recent trades: Raydium LaunchLab's own list for the pool the chain confirmed (none after graduation: the curve is closed). When
   // the chain could not be read, the pool's address is still known (pure math from the mint and its pair), so Raydium is asked anyway
   let trades;
-  const unread = !market.curve && market.codes?.chain === "unreadable" && market.stage == null;
+  const unread = !lpRow && !market.curve && market.codes?.chain === "unreadable" && market.stage == null;
   const guessed = unread ? await poolAddress(coin.mint, coin.pairMint) : null;
-  const pool = market.curve?.poolId || guessed;
-  if (pool) {
+  const pool = lpRow ? null : market.curve?.poolId || guessed;
+  if (lpRow) trades = { source: null, rows: [], missing: NO_TRADES };
+  else if (pool) {
     const r = await raydiumTradesFor(pool, fetchImpl, { now, minT: minTimeOf(coin) });
     const list = r.values.get(pool);
     const symbol = market.curve?.symbol || coin.pair || "SOL";
@@ -92,9 +102,12 @@ async function build(env, coin, fetchImpl, now) {
   let samples = null;
   try { samples = await samplesSummary(env, coin, now); } catch (e) { console.error("coin samples unavailable", codeOf(e)); }
 
-  const links = tradeLinks(coin.mint, coin.pairMint, buyHereLink(env, coin.mint));
-  if (market.stage === "curve" || (!market.pairAddress && market.stage !== "pool")) links.dexscreener = null; // DEX Screener lists nothing before migration
-  if (market.curve?.poolId || (guessed && trades.rows.length)) links.pool = `https://solscan.io/account/${pool}`; // a pool the chain or Raydium knows
+  const links = lpRow ? lpLinks(coin.mint, lpCurve?.stage) : tradeLinks(coin.mint, coin.pairMint, buyHereLink(env, coin.mint));
+  if (lpRow) { if (lpCurve) links.pool = `https://solscan.io/account/${lpCurve.pool}`; }
+  else {
+    if (market.stage === "curve" || (!market.pairAddress && market.stage !== "pool")) links.dexscreener = null; // DEX Screener lists nothing before migration
+    if (market.curve?.poolId || (guessed && trades.rows.length)) links.pool = `https://solscan.io/account/${pool}`; // a pool the chain or Raydium knows
+  }
   const body = {
     ok: true, asOf: iso(now), mint: coin.mint,
     coin: { kind: coin.kind, ticker: coin.ticker, name: coin.name, city: coin.city, pair: { symbol: coin.pair, mint: coin.pairMint }, launchedAt: coin.launchedAt, color: coin.color, logo: coin.logo },
@@ -137,6 +150,8 @@ export async function handleCoinChart(env, mint, tf, fetchImpl = fetch, now = Da
   if (!coin) return json({ ok: false, error: "unknown_coin" }, 404);
   try {
     const body = await chartFor(env, coin, tf, fetchImpl, now);
+    // a coin of our own launchpad has no LaunchLab candles: an honest line instead (the USD line of our own samples stays)
+    if ((await recordedCoins(env)).has(mint)) { body.candles = null; body.missing = { ...body.missing, candles: NO_CHART }; }
     const short = body.candles?.note && /could not be read/.test(body.candles.note);
     return json(body, 200, { "Cache-Control": `public, max-age=${short ? 10 : CHART_TTL[tf]}` });
   } catch (e) {

@@ -27,6 +27,11 @@
  *   · POST /api/swap/send (relay for wallets that sign but do not send) · GET /api/swap/status?sig= · GET /api/swap/balances?owner=&mints=
  * Curve trades of city coins on our launchpad, only while LAUNCHPAD_TRADING=on (src/lptrade.js, src/cluster.js):
  *   POST /api/launchpad/trade/quote · POST /api/launchpad/trade/tx (Meteora DBC swap2, built here, signed in the wallet)
+ * City coins on our own launchpad, only while lpSetup is on (explicit LAUNCHPAD_CLUSTER, LAUNCHPAD_PROGRAM_ID and
+ * LAUNCHPAD_REWARDS_PROGRAM_ID, src/cluster.js; otherwise 404 not_enabled, and /coin-meta/* 404):
+ *   GET /coin-meta/<mint>.json|.png (src/coinmeta.js, outside /api: the URI our program writes on chain) · POST /api/lp/record
+ *   · GET /api/lp/coin?mint= (src/lpcoins.js) · /api/lp/launch/*, /api/lp/graduate/*, /api/lp/founder-claim/* (src/lplaunch.js)
+ *   · /api/admin/lp/* (src/lpadmin.js, owner only) · the relay /api/swap/send and /api/swap/status sign-and-send for them
  * The Launchpad's coin list, only while LAUNCHPAD_V2=on (otherwise 404 not_enabled; src/launchpad.js, src/marketlive.js):
  *   GET /api/launchpad   every city coin and $VICINITY as cards with market data, holder and member counts, trade links
  *   GET /api/coin?mint=  one allow-listed coin: facts, live market, holders, recent trades, links, sources (src/coin.js)
@@ -82,6 +87,10 @@ import { handleBalances, handleSend, handleStatus } from "./relay.js";
 import { handleTradeQuote, handleTradeTx } from "./lptrade.js";
 import { sameSite } from "./http.js";
 import { handleFeedback } from "./feedback.js";
+import { lpSetup } from "./cluster.js";
+import { handleLpCoin, handleLpRecord } from "./lpcoins.js";
+import { handleLaunchApi } from "./lplaunch.js";
+import { handleCoinMeta } from "./coinmeta.js";
 
 export { json, activeMint, cached as _cached };
 
@@ -239,7 +248,8 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   // the in-app swap (SWAP=on) and the launchpad's curve trades (LAUNCHPAD_TRADING=on): with a switch off they are simply not there.
   // POST bodies must come from this site's own pages (Origin); every route counts its own attempt limit (src/guards.js) first.
   if (path.startsWith("/api/swap/")) {
-    if (!swapOn(env) && !(launchpadTradingOn(env) && ["/api/swap/send", "/api/swap/status", "/api/swap/balances", "/api/swap/config"].includes(path))) return json({ ok: false, error: "not_enabled" }, 404);
+    if (!swapOn(env) && !(launchpadTradingOn(env) && ["/api/swap/send", "/api/swap/status", "/api/swap/balances", "/api/swap/config"].includes(path))
+      && !(lpSetup(env).on && ["/api/swap/send", "/api/swap/status"].includes(path))) return json({ ok: false, error: "not_enabled" }, 404);
     const post = (fn) => only("POST") || (sameSite(request) ? fn() : json({ ok: false, error: "bad_origin" }, 403));
     switch (path) {
       case "/api/swap/config": return only("GET") || cached("swap-config-" + (activeMint(env) || "pre"), 60, () => handleSwapConfig(env, fetchImpl));
@@ -262,8 +272,23 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     return json({ error: "not_found" }, 404);
   }
 
+  // city coins on our own launchpad (lpSetup): with the settings missing they are simply not there (before any method check)
+  if (path.startsWith("/api/lp/")) {
+    if (!lpSetup(env).on) return json({ ok: false, error: "not_enabled" }, 404);
+    if (path === "/api/lp/record") return only("POST") || handleLpRecord(request, env, fetchImpl);
+    if (path === "/api/lp/coin") {
+      const blocked = only("GET");
+      if (blocked) return blocked;
+      const mint = url.searchParams.get("mint");
+      if (!isSolanaAddress(mint)) return json({ ok: false, error: "bad_mint" }, 400);
+      return cached(`lp-coin-${mint}`, 10, () => handleLpCoin(request, env, fetchImpl));
+    }
+    if (/^\/api\/lp\/(launch|graduate|founder-claim)\//.test(path)) return handleLaunchApi(request, env, fetchImpl);
+    return json({ error: "not_found" }, 404);
+  }
+
   // paths with an id in them
-  if (path.startsWith("/api/admin/")) return db(() => handleAdmin(request, env));
+  if (path.startsWith("/api/admin/")) return db(() => handleAdmin(request, env, Date.now(), fetchImpl));
   const oauth = path.match(/^\/api\/auth\/(google)\/(start|callback)$/);
   if (oauth) return only("GET") || (oauth[2] === "start" ? handleOAuthStart(request, env, oauth[1]) : handleOAuthCallback(request, env, oauth[1], fetchImpl));
   if (path === "/api/auth/email/start") return only("POST") || db(() => handleEmailStart(request, env, fetchImpl));
@@ -551,6 +576,8 @@ export default {
         return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
       }
       if (url.pathname.startsWith("/api/")) return await handleApi(request, env, fetch, ctx);
+      // the metadata our launchpad program writes on chain points here (src/coinmeta.js): dark without its settings
+      if (url.pathname.startsWith("/coin-meta/")) return await handleCoinMeta(request, env, fetch);
       return withSecurityHeaders(await env.ASSETS.fetch(request));
     } catch (err) {
       console.error("Unhandled error:", err && err.stack ? err.stack : err);

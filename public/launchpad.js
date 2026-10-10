@@ -234,8 +234,9 @@
     const given = (c && c.links) || {};
     if (!mint) return null;
     const quote = c.pair && isAddr(c.pair.mint) && c.pair.mint !== SOL_MINT ? c.pair.mint : "SOL";
+    const ours = Boolean(c.market && c.market.launchpad === "vicinity"); // a coin of our own launchpad never was on Raydium LaunchLab
     return {
-      raydium: safe(given.raydium, "raydium") || `https://raydium.io/launchpad/token/?mint=${mint}`,
+      raydium: ours ? null : safe(given.raydium, "raydium") || `https://raydium.io/launchpad/token/?mint=${mint}`,
       jupiter: safe(given.jupiter, "jupiter") || `https://jup.ag/swap/${quote}-${mint}`,
       dexscreener: safe(given.dexscreener, "dexscreener") || `https://dexscreener.com/solana/${mint}`,
       solscan: safe(given.solscan, "solscan") || `https://solscan.io/token/${mint}`,
@@ -315,22 +316,30 @@
     const m = (c && c.market) || {}, sym = str(m.curve && m.curve.symbol) || str(m.nativeSymbol) || "SOL";
     return m.liquidityKind === "bonding_curve" ? `* In the curve: the ${sym} the bonding curve holds (on-chain) × the ${sym} price (Jupiter). It is not a trading pool.` : null;
   };
-  /** The bonding curve on a card: { pct, value, text, graduated } or null (no LaunchLab curve known). */
+  /**
+   * The bonding curve on a card: { pct, value, text, graduated, label } or null (no curve known). A Raydium LaunchLab curve
+   * (market.curve), or the Vicinity launchpad's own Meteora curve (market.lpCurve, src/lpcoins.js), which moves to a Meteora pool.
+   */
   function curveView(c) {
-    const cv = c && c.market && c.market.curve;
+    const m = (c && c.market) || {};
+    const ours = !(m.curve && typeof m.curve === "object") && Boolean(m.lpCurve && typeof m.lpCurve === "object");
+    const cv = ours ? m.lpCurve : m.curve;
     if (!cv || typeof cv !== "object") return null;
+    const venue = ours ? "Meteora" : "Raydium";
     const sym = str(cv.symbol) || "SOL", raised = num(cv.raised), target = num(cv.target), p = num(cv.progressPct);
     const amount = (v) => (v >= 100 ? plainFmt.format(v) : v.toFixed(2));
-    if (cv.stage !== "curve") return { graduated: true, value: 100, pct: "Graduated", text: "Graduated to a Raydium pool · Solana chain" };
+    if (ours && cv.stage === "full") return { graduated: false, value: 100, pct: "100%", label: "Bonding curve · full", text: `The curve is full: it moves to a ${venue} pool next · Solana chain` };
+    if (cv.stage !== "curve") return { graduated: true, value: 100, pct: "Graduated", ...(ours ? { label: `✓ Graduated to ${venue}` } : {}), text: `Graduated to a ${venue} pool · Solana chain` };
     return {
       graduated: false, value: p == null ? 0 : Math.max(0, Math.min(100, p)), pct: p == null ? "—" : `${p >= 10 ? p.toFixed(1) : p.toFixed(2)}%`,
-      text: `${raised != null && target != null ? `${amount(raised)} of ${amount(target)} ${sym} raised · ` : ""}moves to a Raydium pool at ${target != null ? amount(target) : "its target"} ${sym} · Solana chain`,
+      text: `${raised != null && target != null ? `${amount(raised)} of ${amount(target)} ${sym} raised · ` : ""}moves to a ${venue} pool at ${target != null ? amount(target) : "its target"} ${sym} · Solana chain`,
     };
   }
   /** The line under a live coin's name: "Raydium LaunchLab · SOL pair" only when the chain found its LaunchLab pool or Jupiter says it
    *  launched there (server: market.launchpad); otherwise the pair alone, never a venue nobody confirmed. */
   function venueLine(c) {
     const m = (c && c.market) || {}, sym = str(c && c.pair && c.pair.symbol) || "SOL";
+    if (m.launchpad === "vicinity") return `Vicinity launchpad · ${sym} pair`;
     return `${m.launchpad === "raydium-launchlab" || (m.curve && typeof m.curve === "object") ? "Raydium LaunchLab · " : ""}${sym} pair`;
   }
   /** Is it a card that trades (a price block, a curve, a sparkline) or one that waits? Cards of another shape are redrawn whole. */
@@ -540,7 +549,7 @@
       if (cv) {
         const cb = el("div", `lp-curve${cv.graduated ? " is-done" : ""}`);
         const top = el("p", "lp-curve__row");
-        top.append(el("span", null, cv.graduated ? "✓ Graduated to Raydium" : "Bonding curve"), field(el("strong", "lp-curve__pct", cv.graduated ? "100%" : cv.pct), "curve-pct", cv.value));
+        top.append(el("span", null, cv.label || (cv.graduated ? "✓ Graduated to Raydium" : "Bonding curve")), field(el("strong", "lp-curve__pct", cv.graduated ? "100%" : cv.pct), "curve-pct", cv.value));
         const bar = field(el("progress", "lp-bar"), "curve-bar"); bar.max = 100; bar.value = cv.value; bar.setAttribute("aria-label", `Bonding curve ${cv.pct}`);
         cb.append(top, bar, field(el("p", "lp-src", cv.text), "curve-src"));
         li.append(cb);
@@ -559,7 +568,8 @@
       // with the in-app swap on (SWAP=on) Buy opens the swap panel here (public/swap.js); otherwise the Raydium LaunchLab page
       let buy;
       if (swapOn && window.VSwap) { buy = el("button", "btn btn--primary btn--sm", "Buy"); buy.type = "button"; buy.dataset.act = "buy"; buy.dataset.mint = c.mint; buy.setAttribute("aria-label", `Buy $${str(c.ticker)} here`); buy.addEventListener("click", () => window.VSwap.open({ out: c.mint, title: `Buy $${str(c.ticker)}` })); }
-      else { buy = newTab(el("a", "btn btn--primary btn--sm", "Buy on Raydium ↗")); buy.href = lk.raydium; buy.dataset.act = "buy"; }
+      else if (lk.raydium) { buy = newTab(el("a", "btn btn--primary btn--sm", "Buy on Raydium ↗")); buy.href = lk.raydium; buy.dataset.act = "buy"; }
+      else { buy = el("a", "btn btn--primary btn--sm", "Buy"); buy.href = coinHref(c); buy.dataset.act = "buy"; } // a coin of our own launchpad: its own page
       const more = el("a", "btn btn--glass btn--sm", "Chart & details →"); more.href = coinHref(c); more.dataset.act = "chart";
       more.setAttribute("aria-label", `Chart and details of $${str(c.ticker)}`);
       acts.append(buy, more);

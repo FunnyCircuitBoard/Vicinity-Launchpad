@@ -441,15 +441,16 @@ test("swap: balances: a send through the relay forgets the payer's memo, and fre
   assert.deepEqual([b.data.tokens[REAL_VIC].hasAccount, b.data.tokens[USDC].hasAccount], [true, false]);
 });
 
-test("swap: the relay takes exactly one signer, and a lookup table whose deactivation began is refused", async () => {
+test("swap: a two-signer transaction this Worker did not build is refused by its ticket, and a lookup table whose deactivation began is refused", async () => {
   const { W, call } = world({}, { jupiter: { alt: true } });
   const tx = (await call("/api/swap/tx", { body: quoteBody({ taker: TAKER, inputMint: USDC, amount: "5" }) })).data;
   assert.equal(tx.version, 0);
-  // a transaction with two signers (a well-formed one, both slots filled): not something this Worker builds, refused before the ticket is even looked at
+  // a transaction with two signers (a well-formed one, both slots filled; the relay takes 1 to 4 since the city-coin pages,
+  // test/relay-multisig.test.js): carrying the ticket of ANOTHER message, it is refused by the ticket
   const transfer = { programAddress: PROGRAM_IDS.system, accounts: [{ address: TAKER, role: 3 }, { address: TAKER2, role: 3 }], data: Uint8Array.of(2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0) };
   const two = wrapUnsigned(compileLegacy({ payer: TAKER, instructions: [transfer], blockhash: tx.blockhash })); two.fill(7, 1, 129);
   assert.equal(decodeHeader(two).numSignatures, 2);
-  assert.deepEqual((await call("/api/swap/send", { body: { tx: toBase64(two), ticket: tx.ticket } })).data, { ok: false, error: "bad_tx", reason: "one_signer_only" });
+  assert.equal((await call("/api/swap/send", { body: { tx: toBase64(two), ticket: tx.ticket } })).data.error, "bad_ticket");
   // two slots glued in front of a one-signer message: refused as malformed before anything else
   assert.equal((await call("/api/swap/send", { body: { tx: toBase64(new Uint8Array([2, ...new Uint8Array(128).fill(7), ...fromBase64(tx.tx).subarray(65)])), ticket: tx.ticket } })).data.error, "bad_tx");
   // the table's deactivation slot set: the next build with it is refused as alt_deactivated

@@ -28,6 +28,7 @@ import { _resetMarketLive, attributionFor, liveMarkets } from "./marketlive.js";
 import { _resetLaunchlab } from "./launchlab.js";
 import { getAllHolders, isTeamWallet } from "./chain.js";
 import { DAY, iso } from "./policy.js";
+import { applyLpMarket, curvesFor, lpLinks, recordedCoins } from "./lpcoins.js";
 
 const SOL = PAIRS.SOL.mint;
 const NEW_DAYS = 7; // "New" = live for less than this (a default, see the product decisions in the report)
@@ -139,6 +140,14 @@ async function build(env, fetchImpl, now) {
   // LaunchLab curve, Jupiter, Raydium LaunchLab and DEX Screener, each number labelled with its source)
   const live = coins.filter((c) => c.mint).map((c) => ({ mint: c.mint, pairMint: c.pairMint }));
   const market = await liveMarkets(env, [...(vicMint ? [{ mint: vicMint, pairMint: SOL }] : []), ...live], fetchImpl, { now });
+  // city coins of our own launchpad (only while its settings are there, src/lpcoins.js): the stage and the progress toward the
+  // target from the coin's Meteora curve on the chain, its own page as the link, never Raydium LaunchLab's
+  let lp = new Map(), lpCurves = new Map(), lpOk = true;
+  try {
+    lp = await recordedCoins(env);
+    const rows = coins.filter((c) => c.mint && lp.has(c.mint)).map((c) => lp.get(c.mint));
+    if (rows.length) lpCurves = await curvesFor(env, rows, fetchImpl, now);
+  } catch (e) { lpOk = false; console.error("launchpad curves unavailable", shortErr(e)); }
 
   const cards = [];
   for (const c of coins) {
@@ -153,9 +162,9 @@ async function build(env, fetchImpl, now) {
       ticker: (await tickerOf(env, c.city))?.ticker || null, name: c.name, pitch: c.pitch || "", color: c.color, logo: c.logo,
       pair: { symbol: c.pair, mint: c.pairMint }, mint: c.mint, launchedAt: c.launchedAt, designedAt: c.updatedAt,
       founder, members: members.get(String(c.city)) || null,
-      market: c.mint ? market.markets.get(c.mint) || null : null,
+      market: c.mint ? (lp.has(c.mint) ? applyLpMarket(market.markets.get(c.mint) || null, lpCurves.get(c.mint) ?? null, market.pairPrices.get(c.pairMint) ?? null) : market.markets.get(c.mint) || null) : null,
       holders: c.mint ? stats.counts.get(c.mint) || null : null,
-      links: tradeLinks(c.mint, c.pairMint, buyHereLink(env, c.mint, vicMint)), rewardModel: null,
+      links: c.mint && lp.has(c.mint) ? lpLinks(c.mint, lpCurves.get(c.mint)?.stage) : tradeLinks(c.mint, c.pairMint, buyHereLink(env, c.mint, vicMint)), rewardModel: null,
     });
   }
   const vicinity = {
@@ -179,7 +188,7 @@ async function build(env, fetchImpl, now) {
     stats: { live: all.filter((k) => k.status === "live").length, new: all.filter(isNew).length, upcoming: all.filter((k) => k.status !== "live").length },
     attribution: attributionFor(market.used, { holders: all.some((k) => k.holders) }),
   };
-  return { body, degraded: !market.ok || !stats.ok };
+  return { body, degraded: !market.ok || !stats.ok || !lpOk };
 }
 
 /** GET /api/launchpad (public). The route in src/index.js has already checked the switch, the method and the database. */
