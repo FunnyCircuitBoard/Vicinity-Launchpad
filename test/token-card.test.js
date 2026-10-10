@@ -238,7 +238,8 @@ test("token.js: Copy puts the address on the clipboard, the button says 'Copied'
 });
 
 test("site.js copy answers whether the text reached the clipboard", () => {
-  assert.match(site, /const copy = async \(text, label = "Copied"\) => \{ try \{ await navigator\.clipboard\.writeText\(text\); toast\(label\); return true; \} catch \{ toast\(text\); return false; \} \};/);
+  // (site.js, design v2: a refused clipboard shows the text on its own selectable line under neutral words, never "your address")
+  assert.match(site, /const copy = async \(text, label = "Copied"\) => \{ try \{ await navigator\.clipboard\.writeText\(text\); toast\(label\); return true; \} catch \{ toast\("Couldn't copy\. Select it here:", text\); return false; \} \};/);
   assert.match(js, /if \(!\(await copy\(m, "Contract address copied"\)\)\) return;/);
 });
 
