@@ -105,6 +105,7 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .pass__copy svg { position: relative; }
 .dv2 .pass__copy:focus-visible { outline-offset: -4px; }
 .dv2 .pass__provider { color: rgba(255,255,255,.8); }
+.dv2 .pass__brand { color: #fff; } /* "Vicinity Pass" sits on the corner glow: at .85 white it read 4.4:1 on a 320 px phone (measured on the pixels) */
 .dv2 .pass .live-note { margin-left: auto; color: #DFFFF2; }
 .dv2 .pass .live-dot, .dv2 .pass .live-dot::after { background: #7CF0C5; }
 .dv2 #me-checked { min-width: 6.4em; } /* the room of "Live · 59m ago": the row never re-wraps as the time grows */
