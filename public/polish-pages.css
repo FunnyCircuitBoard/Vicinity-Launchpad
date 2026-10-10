@@ -420,3 +420,16 @@
   .prof-actions__row { flex-wrap: wrap; }
 }
 
+
+/* ---------- 404: one calm empty state (the pin, one line, Home and Cities), the link checker under it ---------- */
+.notfound { max-width: 560px; display: grid; gap: 16px; }
+.notfound__box { padding: 36px 22px 28px; gap: 10px; }
+.notfound__ico { width: 56px; height: 56px; }
+.notfound__ico svg { width: 28px; height: 28px; }
+.notfound__kicker { margin: 4px 0 0; }
+.notfound__title { margin: 0; color: var(--text); font: 650 clamp(1.5rem, 6vw, 2rem)/1.15 var(--display); letter-spacing: -.02em; text-wrap: balance; }
+.notfound__text { margin: 0; max-width: 40ch; color: var(--muted); font-size: var(--fs-md, 1rem); line-height: 1.5; }
+.notfound__cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; width: 100%; margin-top: 8px; }
+.notfound__cta .btn { flex: 1 1 140px; max-width: 220px; justify-content: center; }
+.notfound__check { margin: 0; text-align: center; }
+@media (max-width: 600px) { .notfound-sec { padding-top: 24px; } }
