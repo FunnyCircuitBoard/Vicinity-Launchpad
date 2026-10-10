@@ -121,18 +121,18 @@
     if (dx) list.scrollTo({ left: list.scrollLeft + dx, behavior: behavior() });
   }
   /**
-   * The strip fits the screen: every tab whole, no sideways strip. Should seven tabs not fit (a moderator on a small phone), the Profile
-   * tab steps out (.is-tight): the header's account button opens the same tab. With Profile itself open, Moderate steps out instead
-   * (.is-tight-mod), so the chosen tab always shows. Only if it still does not fit (a large text setting) does the strip scroll
-   * (.is-scrollable, with edge fades).
+   * The strip fits the screen: every tab whole and shown, no sideways strip. Should seven tabs not fit (a moderator on a phone), one step
+   * at a time: the gaps close (.is-snug), "Rankings" says "Rank" (.is-short), Founder and Moderate show as their icons (.is-compact). The
+   * tabs never shrink below their words, so a tight strip is seen as one. Only if it still does not fit (a large text setting) does the
+   * strip scroll (.is-scrollable, with edge fades).
    */
   function measure() {
     const list = $("#dash-tablist"), strip = $("#dash-tabs");
     if (!list || !strip) return;
     const over = () => list.scrollWidth > list.clientWidth + 1;
-    strip.classList.remove("is-tight", "is-tight-mod", "is-scrollable");
-    if (over()) strip.classList.add(active === "profile" ? "is-tight-mod" : "is-tight");
-    if (over()) strip.classList.add("is-scrollable");
+    const steps = ["is-snug", "is-short", "is-compact", "is-scrollable"];
+    strip.classList.remove(...steps);
+    for (const step of steps) { if (!over()) break; strip.classList.add(step); }
   }
   /** Open the tab a card is in and scroll to the card (opening any <details> around it). */
   function goTo(selector, { focus = true, openRole, noAlias = false } = {}) {

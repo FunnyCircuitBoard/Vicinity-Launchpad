@@ -24,7 +24,7 @@ body.is-dv2 .dash::before { content: none; }
 /* ---------- D2: the strip: one glass bar flush under the header; every tab whole, none cut (owner) ---------- */
 .dv2 .dtabs { top: var(--header-h, 67px); margin: 0 calc(-1 * var(--wrap-pad, 16px)) var(--dd-gap); padding: 0; }
 .dv2 .dtabs__list { gap: 2px; padding: 4px 8px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: none; }
-.dv2 .dtab { flex: 1 1 auto; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 8px; font: 600 .84rem/1 var(--body); white-space: nowrap; scroll-snap-align: none; }
+.dv2 .dtab { flex: 1 0 auto; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 8px; font: 600 .84rem/1 var(--body); white-space: nowrap; scroll-snap-align: none; }
 .dv2 .dtab__short { display: none; }
 .dv2 .dtab[aria-selected="true"] { background: var(--card-2); color: var(--text); box-shadow: none; }
 /* the indicator: a 2 px ember line under the chosen pill (the "live buttons" breathing of a chosen tab runs on this same line) */
@@ -36,9 +36,19 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .dtab__av { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--card-2); box-shadow: inset 0 0 0 1px var(--line-2); color: var(--text); font: 700 .8rem/1 var(--display); }
 .dv2 #tab-profile .dtab__long { display: none; }
 .dv2 #tab-profile[aria-selected="true"] .dtab__av { background: var(--bg-2); }
-/* a crowded strip (a moderator's seven tabs on a small phone): Profile steps out, the header's account button opens it (dashboard-v2.js measure) */
-.dv2 .dtabs.is-tight #tab-profile { display: none; }
-.dv2 .dtabs.is-tight-mod #tab-moderate { display: none; } /* Profile open in a crowded strip: Moderate steps out instead (Home's Today row and role card lead there) */
+/* a crowded strip (a moderator's seven tabs on a phone, dashboard-v2.js measure), one step at a time until every tab shows: the gaps
+   close (.is-snug), then "Rankings" says "Rank" (.is-short), then Founder and Moderate show as their line icons (.is-compact: crown,
+   shield, the count in a corner badge; their names stay for screen readers) */
+.dv2 .dtab__ico { display: none; }
+.dv2 .dtab__ico svg { display: block; width: 20px; height: 20px; }
+.dv2 .dtabs.is-snug .dtabs__list { gap: 0; padding-inline: 4px; }
+.dv2 .dtabs.is-snug .dtab { padding: 0 5px; }
+.dv2 .dtabs.is-short #tab-rankings .dtab__long { display: none; }
+.dv2 .dtabs.is-short #tab-rankings .dtab__short { display: inline; }
+.dv2 .dtabs.is-compact .dtab { padding: 0 4px; }
+.dv2 .dtabs.is-compact :is(#tab-founder, #tab-moderate) .dtab__text { display: none; }
+.dv2 .dtabs.is-compact :is(#tab-founder, #tab-moderate) .dtab__ico { display: block; }
+.dv2 .dtabs.is-compact #tab-moderate .dtab__badge { position: absolute; top: 2px; right: 0; min-width: 18px; height: 18px; padding: 0 4px; font-size: .68rem; }
 /* only if it still does not fit (a very large text setting) it scrolls, with a fade on the side that has more */
 .dv2 .dtabs.is-scrollable::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 32px; z-index: 1; pointer-events: none; opacity: 0; background: linear-gradient(270deg, transparent, var(--glass)); }
 .dv2 .dtabs.is-scrollable.is-scrolled::before { opacity: 1; }

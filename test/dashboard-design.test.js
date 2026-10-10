@@ -54,7 +54,7 @@ test("D1: no band above the strip: the dashboard's top padding goes, the header'
   assert.match(css, /body\.is-dv2 \.dash::before \{ content: none; \}/, "no glow stripe");
   assert.match(css, /\.dv2 \.dtabs \{ top: var\(--header-h, 67px\);/);
   assert.match(css, /\.dv2 \.dtabs__list \{ gap: 2px; padding: 4px 8px;/, "4 + 44 + 4 + its 1 px line: 53 px");
-  assert.match(css, /\.dv2 \.dtab \{ flex: 1 1 auto; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 8px; font: 600 \.84rem\/1 var\(--body\); white-space: nowrap;/);
+  assert.match(css, /\.dv2 \.dtab \{ flex: 1 0 auto; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 8px; font: 600 \.84rem\/1 var\(--body\); white-space: nowrap;/);
   assert.match(v2, /document\.body\.classList\.add\("is-dv2"\)/, "dashboard-v2.js marks the page when the tabbed dashboard shows");
 });
 
@@ -73,10 +73,13 @@ test("D2: short visible words where the strip needs them; each accessible name c
   // the stylesheet: the short words on phones, the long ones where there is room
   assert.match(css, /@media \(max-width: 600px\) \{\n  \.dv2 #tab-moderate \.dtab__long \{ display: none; \}\n  \.dv2 #tab-moderate \.dtab__short \{ display: inline; \}/);
   assert.match(css, /@media \(max-width: 360px\) \{\n  \.dv2 \.dtab \{ padding: 0 5px; font-size: \.78rem; \}\n  \.dv2 #tab-rankings \.dtab__long \{ display: none; \}\n  \.dv2 #tab-rankings \.dtab__short \{ display: inline; \}/);
-  assert.match(css, /\.dv2 \.dtabs\.is-tight #tab-profile \{ display: none; \}/, "a crowded strip lets Profile step out (the header's account button opens it)");
+  // a crowded strip (seven tabs on a 320 px phone, review VUX-09): no tab steps out any more; Founder and Moderate show as icons, named
+  assert.doesNotMatch(css, /is-tight/, "no tab is hidden to make room");
+  assert.match(css, /\.dv2 \.dtabs\.is-compact :is\(#tab-founder, #tab-moderate\) \.dtab__text \{ display: none; \}/);
+  assert.match(tag("tab-founder"), /aria-label="Founder"><span class="dtab__ico" aria-hidden="true"><svg /, "the icon-only Founder tab keeps its name");
+  assert.match(mod, /aria-label="Moderate" hidden><span class="dtab__ico" aria-hidden="true"><svg /);
   // the router: the fit check, the nearest scroll, keyboard skips a tab that stepped out
-  assert.match(v2, /if \(over\(\)\) strip\.classList\.add\(active === "profile" \? "is-tight-mod" : "is-tight"\);\n\s+if \(over\(\)\) strip\.classList\.add\("is-scrollable"\);/);
-  assert.match(css, /\.dv2 \.dtabs\.is-tight-mod #tab-moderate \{ display: none; \}/, "with Profile open, Moderate steps out instead, so the chosen tab always shows");
+  assert.match(v2, /const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];\n\s+strip\.classList\.remove\(\.\.\.steps\);\n\s+for \(const step of steps\) \{ if \(!over\(\)\) break; strip\.classList\.add\(step\); \}/);
   assert.doesNotMatch(v2, /\(lr\.width - tr\.width\) \/ 2/, "never centred: Home is never pushed out");
   assert.match(v2, /\.filter\(\(t\) => !t\.hidden && t\.getClientRects\(\)\.length\)/);
   // a short visible word stays the start of the strip's titles too
