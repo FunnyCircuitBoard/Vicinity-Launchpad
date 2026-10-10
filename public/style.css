@@ -1271,6 +1271,7 @@ body.layout-edit .layout-bar { display: flex; align-items: center; gap: 8px; mar
 .role-row__head::-webkit-details-marker { display: none; }
 .role-row__head h3 { margin: 0; }
 .role-row__head p { margin: 2px 0 0; }
+.role-row__head .role__icon.ico { display: inline-grid; margin: 0; font-size: inherit; } /* the shared line icons in a tinted circle */
 .role-row__chev { margin-left: auto; color: var(--text-3); font-size: 1.1rem; transition: transform .18s ease; flex: none; }
 .role-row__chev::before { content: "▾"; }
 details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }

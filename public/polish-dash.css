@@ -74,6 +74,9 @@ body.is-dv2 .dash::before { content: none; }
 /* a card's kicker is a short, calm label (the one ember of a screen is its main button; accent text stays on the Pass and in links) */
 .dv2 .kicker { font: 600 var(--fs-sm, .875rem)/1.3 var(--body); letter-spacing: 0; text-transform: none; color: var(--muted); margin-bottom: 4px; }
 .dv2 .kicker a { color: var(--pin-2); }
+/* an icon inline before a short label (a post's tags, Reply): the glyph alone, the label's colour (dashboard.js labelled) */
+.dv2 .ico--bare { width: auto; height: auto; margin-right: 5px; background: none; color: inherit; vertical-align: -2px; }
+.dv2 .ico--bare svg { width: 14px; height: 14px; }
 .dv2 .kicker .ico { width: 24px; height: 24px; margin-right: 8px; vertical-align: -7px; }
 .dv2 .kicker .ico svg { width: 14px; height: 14px; }
 .dv2 .studio-step, .dv2 .city-head .kv dt { text-transform: none; letter-spacing: 0; font-size: var(--fs-xs, .75rem); }

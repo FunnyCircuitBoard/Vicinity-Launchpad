@@ -568,6 +568,11 @@
   }
 
   const actBtn = (label, fn, cls = "link-btn") => { const b = el("button", cls, label); b.type = "button"; b.addEventListener("click", fn); return b; };
+  /** A short label led by a line icon of the shared set (the tabbed dashboard: no emoji as icons); the flag-off page keeps its emoji. */
+  const labelled = (node, icon, emoji, text) => {
+    node.replaceChildren(...(v2 && window.VRole ? [window.VRole.icon(icon, { tone: "bare", fallback: emoji }), String(text)] : [`${emoji} ${text}`]));
+    return node;
+  };
 
   /* ---------- founder path ---------- */
   /** Why someone can't endorse, vote or challenge (the same checks the server makes for verified locals). */
@@ -916,20 +921,20 @@
     }
     const meta = el("div", "post__meta");
     meta.append(memberLink(p.author.name, p.author.handle));
-    if (p.author.manager) meta.append(el("span", "tag tag--gold", "🛡️ Manager"));
-    if (p.author.founder) meta.append(el("span", "tag tag--gold", `👑 ${p.author.founder}`));
-    if (p.where && scope === "country") meta.append(el("span", "tag", `📍 ${p.where}`));
+    if (p.author.manager) meta.append(labelled(el("span", "tag tag--gold"), "shield", "🛡️", "Manager"));
+    if (p.author.founder) meta.append(labelled(el("span", "tag tag--gold"), "crown", "👑", p.author.founder));
+    if (p.where && scope === "country") meta.append(labelled(el("span", "tag"), "pin", "📍", p.where));
     meta.append(el("span", null, `· ${ago(p.at)}`));
     if (p.hidden) meta.append(el("span", "tag tag--no", p.hiddenUntil ? `Hidden until ${when(p.hiddenUntil)}` : "Hidden"));
     if (p.hideAction) meta.append(el("span", "tag", REASONS[p.hideAction.reason] || p.hideAction.reason));
     if (p.pendingBy) meta.append(el("span", "tag tag--warn", `hidden by ${p.pendingBy}, needs a 2nd moderator`));
     if (p.reports) meta.append(el("span", "tag tag--warn", `${p.reports} report${p.reports === 1 ? "" : "s"}`));
     li.append(meta);
-    if (p.body) li.append(el("p", "post__body", p.kind === "checkin" && !reply ? `📍 ${p.body}` : p.body));
+    if (p.body) li.append(p.kind === "checkin" && !reply ? labelled(el("p", "post__body"), "pin", "📍", p.body) : el("p", "post__body", p.body));
     if (p.image) { const img = el("img", "post__img"); img.src = p.image; img.alt = "Meme picture"; img.loading = "lazy"; li.append(img); }
     const actions = el("div", "post__actions");
     if (!reply && !queue && p.kind !== "checkin" && !p.hidden) {
-      const rb = actBtn(p.replies ? `💬 ${p.replies} repl${p.replies === 1 ? "y" : "ies"}` : "💬 Reply", () => toggleReplies(li, p, rb));
+      const rb = labelled(actBtn("", () => toggleReplies(li, p, rb)), "chat", "💬", p.replies ? `${p.replies} repl${p.replies === 1 ? "y" : "ies"}` : "Reply");
       actions.append(rb);
     }
     if (p.mine && p.hidden && p.hideAction) actions.append(actBtn("Appeal", () => appeal(p.hideAction.id)));
@@ -982,7 +987,7 @@
       send.disabled = false;
       if (!r.ok) return toast(errText(POST_ERR, r, "Couldn't reply."));
       input.value = ""; ul.append(postEl(r.post, { reply: true }));
-      p.replies += 1; btn.textContent = `💬 ${p.replies} repl${p.replies === 1 ? "y" : "ies"}`;
+      p.replies += 1; labelled(btn, "chat", "💬", `${p.replies} repl${p.replies === 1 ? "y" : "ies"}`);
     });
   }
 
