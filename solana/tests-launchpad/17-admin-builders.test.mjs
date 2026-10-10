@@ -357,7 +357,11 @@ describe('17 the admin City coins tab against the real programs', () => {
     const cands = (await call(owner.address, 'candidates')).data;
     assert.deepEqual(new Map(cands.candidates.map((c) => [c.cityId, [c.ok, c.symbol, c.founder]])), new Map([[String(cityA), [true, 'ALPHA', founderA.address]], [String(cityB), [true, 'BETA', founderB.address]]]), JSON.stringify(cands));
     for (const city of [cityA, cityB]) {
-      const b = (await call(owner.address, 'approve/tx', { cityId: String(city), expiryDays: 7 })).data;
+      // the card sends back what it showed (name, ticker, founder, design time): the server builds only that design (review SEC-1)
+      const c = cands.candidates.find((x) => x.cityId === String(city));
+      const seen = { name: c.name, symbol: c.symbol, founder: c.founder, designAt: c.designAt };
+      if (city === cityA) assert.equal((await call(owner.address, 'approve/tx', { cityId: String(city), expiryDays: 7, ...seen, name: 'Another name' })).data.error, 'design_changed');
+      const b = (await call(owner.address, 'approve/tx', { cityId: String(city), expiryDays: 7, ...seen })).data;
       assert.equal(b.ok, true, JSON.stringify(b));
       const sig = await exec(b, [owner]);
       const ap = decodeAccount(IDL.launchpad, 'Approval', w.account(P.approval(city)).data);
