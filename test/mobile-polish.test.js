@@ -191,7 +191,7 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   assert.doesNotMatch(polish, /#nyc \.section-head h2 \{ font-size/);
   // F2: on a phone the Buy & sell card lost its Buy button while coin.js keeps the bar off for exactly that scroll range
   assert.doesNotMatch(polish, /\.coin-buy \.contract__buy \{ display: none/);
-  assert.match(read("public/coin.js"), /const b = headBuyOut && !buyCardIn && Boolean\(data\)/, "the bar hides while the card is on screen, so the card must keep its button");
+  assert.match(read("public/coin.js"), /const b = headBuyOut && Boolean\(data\)/, "design v2: the Buy card is gone (one Buy in the hero); the bar brings it back once the hero's has scrolled away");
   // F4: the light theme's --pin-2 (#D4501F) is 4.2:1 on white and --pin (#E8431F) 3.7:1: the small orange texts this polish added use a darker orange
   const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
   const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255); };

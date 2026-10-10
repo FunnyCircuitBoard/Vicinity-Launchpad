@@ -109,6 +109,13 @@
   /** The first clause of a reason the server gave, as a sentence: "Jupiter has no price for it (no trade in the last 7 days)". */
   const firstReason = (r) => { const s = str(r).split(";")[0].trim(); return s ? s[0].toUpperCase() + s.slice(1) : ""; };
   const mask = (w) => (isAddr(w) ? `${w.slice(0, 5)}*****${w.slice(-3)}` : str(w));
+  /** The avatar's letters (the Launchpad's recipe): the city's initials, "V" for $VICINITY; never a cut ticker. */
+  function initialsOf(c) {
+    if (c && c.kind === "vicinity") return "V";
+    const words = str((c && c.city && c.city.name) || (c && c.name) || (c && c.ticker)).normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[A-Za-z0-9]+/g) || [];
+    if (!words.length) return "?";
+    return (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase();
+  }
 
   /**
    * The stat tiles from one answer: [{ key, label, value, title, src, sub, missing }]. A tile whose number is unknown keeps its
@@ -216,7 +223,7 @@
   const legendText = (series, change, span) => `${series && series.unit === "SOL" ? "Raydium LaunchLab" : "vicinity.city readings"}: ${change} over ${span}`;
   const fmtDate = (iso) => { const t = Date.parse(str(iso)); return Number.isFinite(t) ? new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""; };
 
-  const pure = { isAddr, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, priceLine, cityAbout, RANGES, UNITS, STYLES };
+  const pure = { isAddr, initialsOf, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, priceLine, cityAbout, RANGES, UNITS, STYLES };
   window.VCoin = { pure };
   if (typeof document === "undefined" || !window.V || !window.VChart || !window.VChart.create) return; // node: the helpers are enough
 
@@ -267,8 +274,7 @@
       const logo = /^\/api\/media\/[A-Za-z0-9_-]{1,64}$/.test(str(c.logo)) ? c.logo : null;
       const old = disc.querySelector("img");
       if (logo && !old) { const img = el("img"); img.src = logo; img.alt = ""; img.width = 64; img.height = 64; disc.append(img); }
-      disc.firstElementChild.textContent = logo ? "" : str(c.ticker).slice(0, 8);
-      disc.dataset.len = String(Math.min(8, str(c.ticker).length));
+      disc.firstElementChild.textContent = logo ? "" : initialsOf(c);
     }
     $("#coin-mini-ticker").textContent = ticker;
     // pills: live, the curve or graduation, official
@@ -346,9 +352,13 @@
         put(sub, t.sub || ""); put(src, t.src || "");
       }
       sub.hidden = !sub.textContent;
+      box.hidden = t.value == null; // no "—" tiles: a number nobody has yet is named, with its reason, in one line under the tiles
       order.push(box);
     }
     if (order.length !== dl.children.length || order.some((b, i) => dl.children[i] !== b)) dl.replaceChildren(...order);
+    const none = tiles.filter((t) => t.value == null);
+    const line = none.length ? `No number yet for ${none.map((t) => `${t.label.replace(/\*$/, "")} (${t.missing.replace(/\.$/, "")})`).join("; ")}.` : "";
+    put($("#coin-tiles-none"), line); show("#coin-tiles-none", Boolean(line));
     put($("#coin-tiles-age"), `Updated ${ago(ageS)}`);
   }
   const EASE = new Set(["price", "mcap", "fdv", "liq", "vol", "traders", "native", "holders"]);
@@ -372,25 +382,25 @@
   function buyHere(d) {
     if (!swapOn || !window.VSwap || !d || !isAddr(d.mint)) return;
     const ticker = d.coin && d.coin.ticker ? `$${d.coin.ticker}` : "this coin";
-    for (const id of ["#coin-lnk-raydium", "#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"]) {
+    // one Buy on the page (design v2): the hero's button, and the phone's bars once it has scrolled away
+    for (const id of ["#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"]) {
       const a = $(id); if (!a || a.dataset.swapHere) continue;
-      a.dataset.swapHere = "1"; a.href = "#coin-buy"; a.removeAttribute("target"); a.removeAttribute("rel"); a.hidden = false;
+      a.dataset.swapHere = "1"; a.href = "#coin-head"; a.removeAttribute("target"); a.removeAttribute("rel"); a.hidden = false;
       for (const x of a.querySelectorAll(".sr-only, [aria-hidden]")) x.remove();
       const label = a.querySelector("span") || a; label.textContent = id === "#coin-mini-buy" ? "Buy" : `Buy ${ticker}`;
-      if (id === "#coin-lnk-raydium") { a.classList.add("is-here"); label.textContent = "Buy here"; }
       a.addEventListener("click", (e) => { e.preventDefault(); window.VSwap.open({ out: d.mint, title: `Buy ${ticker}` }); });
     }
-    // the Jupiter tile is an INFORMATION link now (the coin's page on jup.ag, never its swap page), and says so next to "Buy here"
+    // the Jupiter tile is an INFORMATION link now (the coin's page on jup.ag, never its swap page): "Jupiter" to the eye, "Jupiter
+    // token info" to a screen reader (its href is the server's links.jupiter, the token page once the switch is on: src/launchpad.js tradeLinks)
     const j = $("#coin-lnk-jup");
-    // (its href is the server's links.jupiter, which is the token page once the switch is on: src/launchpad.js tradeLinks)
-    if (j && !j.dataset.swapHere) { j.dataset.swapHere = "1"; const label = j.querySelector("span:not(.contract__out):not(.sr-only)"); if (label) label.textContent = "Jupiter · token info"; }
+    if (j && !j.dataset.swapHere) { j.dataset.swapHere = "1"; const label = j.querySelector("span:not(.contract__out):not(.sr-only)"); if (label) { label.textContent = "Jupiter"; label.after(el("span", "sr-only", " token info")); } }
   }
   /* ----- buy & sell, the contract ----- */
   function paintLinks(d) {
     const l = d.links || {};
     const set = (id, u) => { const a = $(id); if (u) { a.href = u; a.hidden = false; } else a.hidden = true; return a; };
     const ray = safeLink(l.raydium, "raydium.io");
-    for (const id of ["#coin-lnk-raydium", "#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"]) set(id, ray);
+    for (const id of ["#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"]) set(id, ray);
     set("#coin-lnk-jup", safeLink(l.jupiter, "jup.ag"));
     buyHere(d); // after the links: with the swap on it turns the Buy links into openers and the Jupiter tile into the info page
     const third = thirdLink(d);
@@ -432,6 +442,12 @@
       li.append(a);
       return li;
     }));
+    // the newest 5 show; "Show all 20" opens the rest in place (and stays open across the 30-second refresh)
+    [...list.children].forEach((li, i) => li.classList.toggle("is-more", i >= 5));
+    const all = $("#coin-trades-all");
+    all.hidden = rows.length <= 5;
+    if (list.classList.contains("is-all")) { all.textContent = "Show fewer"; all.setAttribute("aria-expanded", "true"); }
+    else { all.textContent = `Show all ${rows.length}`; all.setAttribute("aria-expanded", "false"); }
     const empty = rows.length ? "" : tr.missing ? firstReason(tr.missing) : "No trades yet";
     $("#coin-trades-n").textContent = rows.length ? `newest ${rows.length}` : "";
     const foot = $("#coin-trades-foot");
@@ -576,6 +592,7 @@
       paintControls(); remember(); drawChart("reveal");
     });
     $("#coin-chart-retry").addEventListener("click", () => loadChart("reveal", true));
+    $("#coin-trades-all").addEventListener("click", () => { $("#coin-trades").classList.toggle("is-all"); if (data) paintTrades(data); });
   }
 
   /* ----- the slim header and the phone's Buy bar ----- */
@@ -586,19 +603,18 @@
     const IO = window.IntersectionObserver; if (!IO) return;
     const mini = $("#coin-mini"), bar = $("#coin-buybar");
     const phone = window.matchMedia("(max-width: 1023px)"), short = window.matchMedia("(max-height: 700px)");
-    let priceOut = false, headBuyOut = false, buyCardIn = false;
+    let priceOut = false, headBuyOut = false;
     const apply = () => {
       const m = priceOut && Boolean(data);
       mini.classList.toggle("is-on", m); mini.inert = !m; mini.setAttribute("aria-hidden", String(!m));
       document.body.classList.toggle("has-coin-mini", m);
-      const b = headBuyOut && !buyCardIn && Boolean(data) && !$("#coin-head-buy").hidden && phone.matches && !short.matches;
+      const b = headBuyOut && Boolean(data) && !$("#coin-head-buy").hidden && phone.matches && !short.matches; // the one Buy, back in reach once the hero's has scrolled away
       bar.classList.toggle("is-on", b); bar.inert = !b;
       document.body.classList.toggle("has-coin-buybar", b);
     };
     const top = 66; // under the sticky site header
     new IO((es) => { for (const e of es) priceOut = !e.isIntersecting && e.boundingClientRect.top < top; apply(); }, { rootMargin: `-${top}px 0px 0px 0px` }).observe($("#coin-price-box"));
     new IO((es) => { for (const e of es) headBuyOut = !e.isIntersecting && e.boundingClientRect.top < top; apply(); }, { rootMargin: `-${top}px 0px 0px 0px` }).observe($("#coin-head-buy"));
-    new IO((es) => { for (const e of es) buyCardIn = e.isIntersecting; apply(); }).observe($("#coin-buy"));
     window.addEventListener("resize", apply, { passive: true });
     $("#coin-buybar-copy").addEventListener("click", () => { if (data) copy(data.mint, "Contract address copied"); });
   }

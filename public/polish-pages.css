@@ -241,3 +241,35 @@
   .grid-3 .perk { grid-template-columns: 36px minmax(0, 1fr); }
   .perk__icon.ico { margin: 0; }
 }
+
+/* =====================================================================
+   /coin: one Buy (the hero's, then the phone's bar), the price line's room held, no "—" tiles, the newest five trades, the chart's
+   own change in a quiet colour (the header's 24 h chip is the coloured one), the sources in one fold, the Launchpad's avatar.
+   ===================================================================== */
+.coin-head .coin-head__disc.lp-ava { width: 56px; height: 56px; }
+.coin-head .coin-head__disc.lp-ava span { font-size: 1rem; }
+.coin-mini__disc.lp-ava { width: 30px; height: 30px; }
+.coin-price__row { min-height: 2.6rem; }
+.coin-price .coin-chg { min-height: 24px; min-width: 4.5em; justify-content: center; }
+.coin-price__sub { min-height: 2.9em; }
+.coin-head__safe { margin: 0; text-align: center; }
+@media (min-width: 1024px) { .coin-head__buy { display: inline-flex; width: auto; justify-self: start; min-width: 240px; } .coin-head__safe { text-align: left; } }
+.coin-chart__legend.is-up, .coin-chart__legend.is-down { color: var(--muted); }
+.coin-tile[hidden] { display: none; }
+.coin-tile dt { text-transform: none; letter-spacing: 0; font-size: var(--fs-xs, .75rem); }
+.coin-tile { border: 0; background: var(--surface-inset, rgba(var(--ink),.035)); border-radius: var(--r-chip, 12px); }
+.coin-tiles__none { margin: var(--sp-3, 12px) 2px 0; }
+/* the contract card's three links: one row of equal pills (Jupiter · the chart site · Solscan), like the token page's */
+.coin-ca__links { display: flex; flex-wrap: wrap; gap: var(--sp-2, 8px); margin-top: var(--sp-3, 12px); } /* "GeckoTerminal" is long: the row wraps, never cuts */
+.coin-ca__links .contract__ext { flex: 1 1 auto; flex-direction: row; justify-content: center; align-items: center; gap: 6px; min-height: 44px; padding: 0 8px; border-radius: var(--r-pill, 999px); font: 600 var(--fs-sm, .875rem)/1.15 var(--body); }
+.coin-ca__links .contract__ext svg { width: 16px; height: 16px; flex: none; }
+.coin-ca__links .contract__ext span { white-space: nowrap; overflow-wrap: normal; }
+.coin-ca__links .contract__ext .contract__out { position: static; font-size: var(--fs-xs, .75rem); }
+/* the newest five trades; the rest one tap away */
+.coin-trade.is-more { display: none; }
+.coin-trades__list.is-all .coin-trade.is-more { display: block; }
+.coin-trades__all { margin-top: var(--sp-2, 8px); }
+/* the sources: Powered by Jupiter on screen, the full account folded */
+.coin-trust { margin: var(--sp-5, 24px) 2px 0; font-size: var(--fs-sm, .875rem); color: var(--text-2); }
+.coin-sources-fold { margin-top: var(--sp-2, 8px); }
+.coin-sources-fold .coin-sources { margin: 0 0 var(--sp-3, 12px); }
