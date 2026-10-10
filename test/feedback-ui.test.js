@@ -153,7 +153,7 @@ test("it steps aside: from the page's buttons, the Buy card and Copy address (an
   assert.equal(win.listeners.filter((l) => l.type === "scroll").length, 1);
   assert.match(FEEDBACK_JS, /window\.addEventListener\("scroll", later, \{ passive: true \}\)/);
   assert.match(FEEDBACK_JS, /requestAnimationFrame/);
-  assert.match(FEEDBACK_JS, /const AVOID = "\.btn, \.swap, \.contract__copy, \.hero__facts, \[role='tab'\], \[data-fb-avoid\]"/);
+  assert.match(FEEDBACK_JS, /const AVOID = "\.btn, \.swap, \.contract__copy, \.hero__facts, \[role='tab'\], \.site-footer p, \[data-fb-avoid\]"/);
   // typing on a phone: hidden while a field of the page has the keyboard, never for the widget's own fields
   const field = doc.createElement("input"); doc.body.append(field);
   dispatch(field, newEvent("focusin"), win);
