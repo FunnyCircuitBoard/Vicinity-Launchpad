@@ -320,7 +320,7 @@ input, select, textarea { min-height: 44px; }
 .holders__table th, .registry__table th { font-size: .75rem; }
 .holders__table a { display: inline-block; padding: 12px 0; margin: -12px 0; }
 .holders__table .tag { font-size: .75rem; }
-@media (max-width: 480px) { .holders__table .tag { font-size: .75rem; white-space: nowrap; } .holders__table td.is-unranked { font-size: .75rem; } } /* "PumpSwap liquidity pool" on one line under the address, not two */
+@media (max-width: 480px) { .holders__table .tag { max-width: 100%; font-size: .75rem; white-space: normal; } .holders__table td.is-unranked { font-size: .75rem; } } /* "PumpSwap liquidity pool" under the address: one line where it fits, two on a 320-360 px phone, never over the amount */
 /* a keyboard skips the holder list (300 wallet links) with one Tab: the link shows where it sits once it has focus */
 .holders__skip { position: absolute; left: -999px; }
 .holders__skip:focus { position: static; display: inline-flex; align-items: center; min-height: 44px; margin: 0 0 8px; padding: 0 14px; border-radius: 999px; background: var(--pin); color: #fff; text-decoration: none; }
