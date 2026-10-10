@@ -1,55 +1,86 @@
 /* The swap panel (public/swap.js): the Buy & swap box on /token, the dashboard, /coin and the Launchpad cards, and its bottom
-   sheet on phones. Tokens of style.css only; 44 px targets; no horizontal scroll; motion only when the person allows it. */
-.swap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; } /* the one column may shrink below its content's widest line (320 px phones) */
-.swap__head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 10px; }
+   sheet on phones. Answer first: the amounts, a one-line summary, the button; the slippage and the details sit in a "Price
+   details" fold whose summary line keeps every cost and risk in sight. Self-contained (swap.js injects it on any page for the
+   sheet): the design tokens are read with a fallback. 44 px targets; no horizontal scroll; motion only when the person allows it.
+   Narrow panels (a 320-360 px phone, the token page's card) are styled by the panel's own width (container "swap"). */
+.swap { container: swap / inline-size; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; } /* the one column may shrink below its content's widest line (320 px phones) */
+.swap__head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 10px; min-height: 26px; } /* the tag's room is kept while it is hidden: nothing below moves */
 .swap__head .kicker { margin: 0; }
+
+/* the amounts: two wells, the big numbers in tabular figures */
 .swap__box { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
-.swap__row { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 18px; background: rgba(var(--ink),.05); border: 1px solid var(--line); transition: border-color .2s; }
-.swap__row:focus-within { border-color: var(--line-2); }
-.swap.is-warn .swap__row--out { border-color: rgba(255,213,138,.5); }
-.swap.is-bad .swap__row--out { border-color: rgba(255,90,54,.6); }
-.swap__label { font-size: .76rem; font-weight: 600; color: var(--muted); }
+.swap__row { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px 8px; border-radius: var(--r-chip, 12px); background: var(--surface-inset, rgba(var(--ink), .04)); }
+.swap__row:has(.swap__amt:focus) { outline: 1.5px solid var(--pin-2); outline-offset: -1.5px; } /* the amount's own focus ring is the well's */
+.swap.is-warn .swap__row--out { box-shadow: inset 0 0 0 1px var(--warn); }
+.swap.is-bad .swap__row--out { box-shadow: inset 0 0 0 1px var(--bad-text); }
+.swap__label { font-size: var(--fs-xs, .75rem); font-weight: 600; color: var(--muted); }
 .swap__line { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.swap__amt { flex: 1 1 0; width: 0; min-width: 0; min-height: 44px; font: 650 clamp(1.15rem, 6vw, 1.55rem)/1.2 var(--display); letter-spacing: -.02em; color: var(--text); background: none; border: 0; padding: 0; outline: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swap__amt { flex: 1 1 0; width: 0; min-width: 0; height: 48px; font: 650 var(--fs-num, clamp(1.75rem, 1.3rem + 2.4vw, 2.5rem))/48px var(--display); font-variant-numeric: tabular-nums; letter-spacing: -.02em; color: var(--text); background: none; border: 0; padding: 0; outline: none; overflow: hidden; white-space: nowrap; }
+.swap__amt::placeholder { color: var(--muted); opacity: 1; }
+.swap__amt[data-fit="m"] { font-size: 1.5rem; } /* 10-12 characters (3,566,650.12) */
+.swap__amt[data-fit="s"] { font-size: 1.2rem; } /* 13 or more (320,998,123.45); swap.js steps down further if a narrow panel needs it */
 .swap__amt:disabled { opacity: .55; }
 .swap__amt--out { display: block; }
-.swap__token { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 8px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card-2); color: var(--text); font: 700 .92rem var(--body); cursor: pointer; max-width: 55%; }
-.swap__token span:not(.swap__mark) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swap__amt--out.is-empty { color: var(--muted); }
+.swap__token { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 44px; min-height: 44px; padding: 0 12px 0 8px; border-radius: var(--r-pill, 999px); border: 1px solid var(--line-2); background: var(--card-2); color: var(--text); font: 700 .92rem var(--body); white-space: nowrap; cursor: pointer; } /* never cut: "$VICINITY" in full */
+:root[data-theme="light"] .swap__token { background: #fff; }
 .swap__token:disabled { cursor: default; padding-right: 14px; }
-.swap__token:not(:disabled):hover { border-color: rgba(var(--ink),.3); }
-.swap__caret { font-size: .7rem; color: var(--muted); }
+.swap__token:not(:disabled):hover { border-color: rgba(var(--ink), .3); }
+.swap__caret { font-size: .75rem; color: var(--muted); }
 .swap__mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font: 800 .78rem var(--display); color: #fff; flex: none; }
-.swap__sub { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 1.4em; font-size: .76rem; color: var(--muted); }
-.swap__max { min-height: 44px; padding: 0 10px; font-size: .76rem; }
-.swap__flip { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--text); font-size: 1.1rem; cursor: pointer; display: grid; place-items: center; }
+.swap__sub { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 20px; font-size: var(--fs-xs, .75rem); line-height: 1.4; color: var(--muted); font-variant-numeric: tabular-nums; }
+.swap__max { min-height: 44px; margin: -12px -10px -12px 0; padding: 0 10px; font-size: var(--fs-xs, .75rem); } /* a 44 px target that takes no more room than the line */
+.swap__flip { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--surface-2, var(--bg-2)); color: var(--text); font-size: 1.1rem; cursor: pointer; display: grid; place-items: center; box-shadow: var(--shadow-1, none); }
 .swap__flip:hover { border-color: var(--pin-2); }
 .swap__flip:disabled { opacity: .5; cursor: default; }
-.swap__slip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .8rem; color: var(--muted); }
-.swap__slip-label { margin-right: 4px; font-weight: 600; }
-.swap__chip { min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 600 .8rem var(--body); cursor: pointer; }
-.swap__chip[aria-pressed="true"] { background: rgba(255,90,54,.14); border-color: rgba(255,90,54,.5); color: var(--text); }
-.swap__chip--custom { width: 7.5em; cursor: text; }
-.swap__details { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; padding: 10px 14px; border-radius: 14px; background: var(--card); font-size: .82rem; }
+
+/* the summary line under the amounts, the 10 % box when it applies, the one main action */
+.swap__status { display: flex; flex-direction: column; justify-content: flex-end; margin: 0; min-height: 2.8em; font-size: var(--fs-sm, .875rem); line-height: 1.4; color: var(--text-2); font-variant-numeric: tabular-nums; text-wrap: pretty; } /* two lines kept (the button does not jump), the words against the button they describe */
+.swap__status.is-bad { color: var(--bad-text); }
+.swap__status.is-ok { color: var(--ok-text); font-weight: 600; }
+.swap__status.is-moved { color: var(--warn); font-weight: 600; }
+.swap__warn { display: flex; gap: 10px; align-items: flex-start; margin-top: -4px; padding: 8px 12px; border-radius: var(--r-chip, 12px); background: var(--accent-soft, rgba(255,90,54,.1)); border: 1px solid rgba(255,90,54,.45); font-size: var(--fs-sm, .875rem); line-height: 1.35; color: var(--text); cursor: pointer; } /* the whole box is the checkbox's label (a big target), held close to the line that names the impact */
+.swap__warn input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: var(--pin); }
+.swap__go { min-height: 52px; font-size: 1.05rem; }
+/* "Filled in from your link" */
+.swap__note { margin: 0; padding: 8px 12px; border-radius: var(--r-chip, 12px); background: rgba(91,140,255,.12); border: 1px solid rgba(91,140,255,.35); font-size: var(--fs-sm, .875rem); color: var(--text); }
+.swap__links { margin: 0; font-size: var(--fs-xs, .75rem); color: var(--muted); min-height: 0; }
+.swap__links:empty { display: none; }
+.swap__foot { margin: 0; font-size: var(--fs-xs, .75rem); line-height: 1.45; }
+
+/* "Price details": the same look as the site's .fold, under this sheet's own class (swap.css is loaded alone on some pages) */
+.swap__more { border-top: 1px solid var(--line); }
+.swap__more-sum { list-style: none; cursor: pointer; position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-height: 44px; padding: 10px 34px 8px 0; border-radius: var(--r-xs, 8px); font: 600 var(--fs-sm, .875rem)/1.3 var(--body); color: var(--text); }
+.swap__more-sum::-webkit-details-marker { display: none; }
+.swap__more-sum::after { content: "+"; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); color: var(--pin-2); font: 500 1.4rem/1 var(--body); }
+.swap__more[open] > .swap__more-sum::after { content: "\2212"; }
+.swap__more-meta { color: var(--muted); font-weight: 500; font-size: var(--fs-xs, .75rem); line-height: 1.4; text-wrap: balance; }
+.swap__more-bit { display: inline-block; } /* a fact wraps as one piece, its dot leading it */
+.swap__more-dot { color: var(--muted); font-weight: 500; }
+.swap__more-meta .is-cost { color: var(--text-2); }
+.swap__more-meta .is-warn { color: var(--warn); font-weight: 700; }
+.swap__more-meta .is-bad { color: var(--bad-text); font-weight: 700; }
+.swap__more-body { display: grid; gap: 12px; padding: 4px 0 2px; }
+.swap__slip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.swap__slip-label { grid-column: 1 / -1; font-size: var(--fs-xs, .75rem); font-weight: 600; color: var(--muted); }
+.swap__chip { min-width: 0; min-height: 44px; padding: 0 6px; border-radius: var(--r-pill, 999px); border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 600 var(--fs-sm, .875rem) var(--body); font-variant-numeric: tabular-nums; cursor: pointer; }
+.swap__chip[aria-pressed="true"] { background: var(--accent-soft, rgba(255,90,54,.14)); border-color: rgba(255,90,54,.55); }
+.swap__chip--custom { width: 100%; font-size: var(--fs-base, 1rem); text-align: center; cursor: text; } /* 16 px: a phone does not zoom into it */
+.swap__chip--custom::placeholder { font-size: var(--fs-sm, .875rem); color: var(--muted); opacity: 1; }
+.swap__help { margin: 0; font-size: var(--fs-xs, .75rem); line-height: 1.5; }
+.swap__details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; margin: 0; padding: 10px 12px; border-radius: var(--r-chip, 12px); background: var(--surface-inset, rgba(var(--ink), .04)); font-size: var(--fs-xs, .75rem); line-height: 1.45; font-variant-numeric: tabular-nums; }
 .swap__details dt { color: var(--muted); }
 .swap__details dd { margin: 0; text-align: right; color: var(--text-2); overflow-wrap: anywhere; }
 .swap__details dd.is-warn { color: var(--warn); font-weight: 600; }
 .swap__details dd.is-bad { color: var(--bad-text); font-weight: 700; }
-.swap__warn { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 14px; background: rgba(255,90,54,.1); border: 1px solid rgba(255,90,54,.4); font-size: .85rem; color: var(--text); }
-.swap__warn input { width: 22px; height: 22px; margin: 2px 0 0; flex: none; accent-color: var(--pin); }
-.swap__help { margin: -4px 0 0; line-height: 1.45; }
-.swap__status { margin: 0; min-height: 1.4em; font-size: .88rem; color: var(--text-2); }
-.swap__status.is-bad { color: var(--bad-text); }
-.swap__status.is-ok { color: var(--ok-text); font-weight: 600; }
-.swap__status.is-moved { color: var(--warn); font-weight: 600; }
-.swap__go { margin-top: 2px; }
-/* "Filled in from your link" */
-.swap__note { margin: 0; padding: 8px 12px; border-radius: 12px; background: rgba(91,140,255,.12); border: 1px solid rgba(91,140,255,.35); font-size: .84rem; color: var(--text); }
+.swap__more-empty { margin: 0; font-size: var(--fs-xs, .75rem); line-height: 1.5; color: var(--muted); }
+
 /* a computer: the QR code for the phone's camera (always dark on white, whatever the theme) */
 .swap__qr { display: grid; gap: 8px; justify-items: center; text-align: center; padding-top: 4px; }
 .swap__qr p { margin: 0; }
 .swap__qr-spot { display: grid; place-items: center; min-height: 44px; max-width: 100%; }
-.swap__qr-code { display: block; width: 184px; height: 184px; border-radius: 12px; background: #fff; image-rendering: pixelated; }
-.swap__qr-link { font-size: .8rem; overflow-wrap: anywhere; }
+.swap__qr-code { display: block; width: 184px; height: 184px; border-radius: var(--r-chip, 12px); background: #fff; image-rendering: pixelated; }
+.swap__qr-link { font-size: var(--fs-xs, .75rem); overflow-wrap: anywhere; }
 .swap__qr:focus:not(:focus-visible) { outline: none; }
 .swap__phone { justify-self: start; min-height: 44px; }
 /* a phone without a wallet: where buying happens, said first and in full colour */
@@ -57,52 +88,73 @@
 /* a phone without a wallet: Phantom's own swap, said to be Phantom's */
 .swap__phantom { display: grid; gap: 4px; margin-top: 6px; }
 .swap__phantom p { margin: 0 2px; }
-.swap__links { margin: 0; font-size: .82rem; color: var(--muted); min-height: 0; }
-.swap__links:empty { display: none; }
-.swap__foot { margin: 0; }
-.swap__picker, .swap__wallets { display: grid; gap: 8px; padding: 12px; border-radius: 16px; background: var(--bg-2); border: 1px solid var(--line-2); }
+/* the token list and the wallet chooser: wells right under what opened them */
+.swap__picker, .swap__wallets { display: grid; gap: 8px; padding: 12px; border-radius: var(--r-card, 18px); background: var(--surface-inset, rgba(var(--ink), .04)); }
+.swap__wallets > p { margin: 0; }
 /* scrolled into view by the tap that opened it (the wallet apps, the QR code) or by a link that filled the panel: clear of the
    sticky header and of the phone's bottom bar */
 .swap__wallets, .swap { scroll-margin-top: 84px; scroll-margin-bottom: calc(var(--bottom-bars, 0px) + 12px); }
 .swap__lead:focus, .swap__wallets > p:focus { outline: none; } /* a landing spot for the keyboard and a screen reader, not a control */
 .swap__picker-head { display: flex; justify-content: space-between; align-items: center; }
-.swap__search { width: 100%; min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 500 16px var(--body); }
+.swap__search { width: 100%; min-height: 44px; padding: 0 12px; border-radius: var(--r-chip, 12px); border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 500 var(--fs-base, 1rem) var(--body); }
 .swap__picker-list { display: grid; gap: 6px; max-height: 280px; overflow: auto; }
 .swap__opt { min-height: 48px; }
 .swap__deeplinks { display: grid; gap: 8px; }
 .swap__wallets-close { justify-self: end; min-height: 44px; min-width: 44px; }
-.swap__ca code { overflow-wrap: anywhere; }
+/* the contract address a phone without a wallet can copy: a chip of its own, broken anywhere */
+.swap__ca { margin: 0; }
+.swap__ca code { display: block; margin: 4px 0 2px; padding: 8px 10px; border-radius: var(--r-chip, 12px); border: 1px solid var(--line); background: var(--surface-2, var(--bg-2)); color: var(--text); font-size: .78rem; word-break: break-all; } /* a chip on the chooser's well */
 .swap__ca .link-btn, .swap__picker-head .link-btn { min-height: 44px; min-width: 44px; }
 .swap .wallet-option { min-height: 48px; }
+
+/* a narrow panel (320-360 px phones, the token page's card): the token pill drops its mark and caret so the amount keeps at least
+   88 px, the summary line keeps three lines, the custom slippage gets its own row */
+@container swap (max-width: 319px) {
+  .swap__amt { min-width: 88px; }
+  .swap__status { min-height: 4.2em; } /* three lines kept on a narrow panel */
+  .swap__token { gap: 0; padding: 0 10px; font-size: .84rem; }
+  .swap__token .swap__mark, .swap__token .swap__caret { display: none; }
+  .swap__slip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .swap__chip--custom { grid-column: 1 / -1; }
+}
+@container swap (max-width: 340px) { /* the fee, the route and the rent under their label, not in a ragged right-hand column */
+  .swap__details .is-long { grid-column: 1 / -1; }
+  .swap__details dd.is-long { margin-top: -4px; text-align: left; }
+}
+@container swap (max-width: 250px) { /* the token page's card on a 320 px phone: a little more room for a big number */
+  .swap__row { padding-inline: 10px; }
+  .swap__token { padding: 0 8px; font-size: .8rem; }
+}
+
 /* the bottom sheet (open() on /coin and the Launchpad): a centred dialog on a computer, a sheet from the bottom on a phone */
 .swap-sheet { position: fixed; inset: 0; width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; padding: 0; border: 0; background: transparent; display: none; }
 .swap-sheet[open] { display: grid; place-items: center; }
 .swap-sheet::backdrop { background: rgba(3,7,14,.55); }
 :root[data-theme="light"] .swap-sheet::backdrop { background: rgba(11,22,38,.3); }
-.swap-sheet__card { position: relative; width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 18px 16px 16px; border-radius: 22px; background: var(--bg-2); border: 1px solid var(--line-2); box-shadow: var(--shadow); }
-.swap-sheet__close { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: none; color: var(--muted); font-size: 1rem; cursor: pointer; }
+.swap-sheet__card { position: relative; width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; overscroll-behavior: contain; padding: var(--card-pad, 16px); border-radius: var(--r-hero, 24px); background: var(--surface-2, var(--bg-2)); border: 1px solid var(--line-2); box-shadow: var(--shadow-2, var(--shadow)); }
+.swap-sheet__close { position: absolute; top: 6px; right: 6px; z-index: 2; width: 44px; height: 44px; border: 0; border-radius: 50%; background: none; color: var(--muted); font-size: 1rem; cursor: pointer; }
 .swap-sheet__close:hover { color: var(--text); background: var(--card-2); }
-.swap-sheet__body { padding-top: 6px; }
-.swap-sheet .swap__head { padding-right: 44px; } /* the close button sits over the head's right end: the state tag keeps clear of it */
+.swap-sheet .swap__head { padding-right: 40px; } /* the close button sits over the head's right end: the state tag keeps clear of it */
 @media (max-width: 600px) {
   .swap-sheet[open] { place-items: end center; }
-  .swap-sheet__card { width: 100vw; max-height: calc(100dvh - 24px); border-radius: 22px 22px 0 0; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
-  .swap__details { grid-template-columns: 1fr; gap: 2px; }
-  .swap__details dd { text-align: left; margin-bottom: 4px; }
+  .swap-sheet__card { width: 100vw; max-height: calc(100dvh - 24px); border-bottom: 0; border-radius: var(--r-hero, 24px) var(--r-hero, 24px) 0 0; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
 }
-/* the smallest phones (320-360 px): the amount keeps at least 88 px (the token page's panel sits in a 254 px card there), the
-   token pill drops its mark and caret so a full quote fits */
-@media (max-width: 360px) {
-  .swap__amt { min-width: 88px; font-size: 1.15rem; }
-  .swap__token { max-width: 46%; padding: 0 10px; gap: 0; }
-  .swap__token .swap__mark, .swap__token .swap__caret { display: none; }
-}
+
+/* the token page's Buy card: the page's hero object, glass with a thin ember line along its top edge */
+#buy-slot.swap { position: relative; margin-top: 0; padding: var(--card-pad, 16px); border-radius: var(--r-hero, 24px); border: 1px solid var(--line-2); background: var(--surface-1, var(--card)); box-shadow: var(--shadow-1, none); }
+#buy-slot.swap::before { content: ""; position: absolute; top: -1px; left: 18%; right: 18%; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,90,54,.7), transparent); pointer-events: none; }
+
+/* motion: the sheet slides up, the details settle, the flip turns; transform and opacity only, never with reduced motion or after
+   "Pause animations" */
 @media (prefers-reduced-motion: no-preference) {
-  .swap-sheet[open] .swap-sheet__card { animation: swapSheetIn .28s cubic-bezier(.2,.8,.2,1); }
-  @keyframes swapSheetIn { from { transform: translateY(18px); opacity: 0; } to { transform: none; opacity: 1; } }
+  :root:not([data-motion="paused"]) .swap-sheet[open] .swap-sheet__card { animation: swapSheetIn var(--dur-3, .32s) var(--ease-out, cubic-bezier(.2,.8,.2,1)); }
+  :root:not([data-motion="paused"]) .swap__more[open] > .swap__more-body { animation: swapSettle var(--dur-3, .32s) var(--ease-out, cubic-bezier(.2,.8,.2,1)); }
+  :root:not([data-motion="paused"]) .swap__flip { transition: transform var(--dur-2, .2s) var(--ease-out, cubic-bezier(.2,.8,.2,1)), border-color var(--dur-2, .2s); }
+  :root:not([data-motion="paused"]) .swap__flip:not(:disabled):hover { transform: translate(-50%, -50%) rotate(180deg); }
+  @keyframes swapSheetIn { from { transform: translateY(32px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes swapSettle { from { transform: translateY(-6px); opacity: 0; } to { transform: none; opacity: 1; } }
 }
 /* the token page's Buy tile becomes "Buy here" (scrolls to the panel); the dashboard's old links disappear once the panel is in */
 .contract__buy.is-here svg { display: none; }
 .trade .swapbox.is-swap-mounted { margin-bottom: 0; }
 .trade #tr-go.is-gone, .trade #tr-go-2.is-gone, .trade #tr-note.is-gone { display: none; }
-#buy-slot.swap { margin-top: 14px; padding: 16px; border-radius: 20px; border: 1px solid var(--line-2); background: var(--card); }

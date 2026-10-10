@@ -489,6 +489,26 @@ test("compact panel: an amount is never cut with '...': a longer number takes a 
   assert.equal(P.$(".swap__row--in .swap__amt").dataset.fit, undefined, "a short amount: the full size again");
 });
 
+test("compact panel (swap.css): no ellipsis on an amount or a ticker, two-column details at every width, a 44 px summary with '+' / '−' in the accent text, kept room so the button does not jump, motion only under no-preference and not when paused", () => {
+  const css = readFileSync(new URL("../public/swap.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /text-overflow:\s*ellipsis/, "nothing in the panel is cut with an ellipsis: amounts, tickers");
+  assert.match(css, /\.swap__amt\[data-fit="m"\] \{ font-size: 1\.5rem; \}/);
+  assert.match(css, /\.swap__amt\[data-fit="s"\] \{ font-size: 1\.2rem; \}/);
+  assert.match(css, /\.swap__details \{ display: grid; grid-template-columns: auto minmax\(0, 1fr\);/);
+  assert.doesNotMatch(css, /\.swap__details \{ grid-template-columns: 1fr/, "the old one-column phone rule is gone");
+  assert.match(css, /\.swap__more-sum \{[^}]*min-height: 44px/);
+  assert.match(css, /\.swap__more-sum::after \{ content: "\+";[^}]*color: var\(--pin-2\)/);
+  assert.match(css, /\.swap__more\[open\] > \.swap__more-sum::after \{ content: "\\2212"; \}/);
+  assert.match(css, /\.swap__status \{[^}]*min-height: 2\.8em/, "two lines kept for the summary line");
+  assert.match(css, /\.swap__head \{[^}]*min-height: 26px/, "the hidden tag's room is kept");
+  assert.match(css, /\.swap__chip \{[^}]*min-height: 44px/);
+  assert.match(css, /\.swap__go \{ min-height: 52px;/);
+  const [still, moving] = css.split("@media (prefers-reduced-motion: no-preference) {");
+  assert.ok(moving, "one motion block");
+  assert.doesNotMatch(still, /animation:|@keyframes|transition:/, "nothing moves outside it");
+  for (const line of moving.split("\n").filter((l) => /animation:|transition:/.test(l))) assert.match(line, /:root:not\(\[data-motion="paused"\]\)/, `"Pause animations" stops it: ${line.trim().slice(0, 60)}`);
+});
+
 /* ---------------------------------------------------------------- the words on the pages, behind the switch */
 const HOME = `<body data-page="home"><ol class="buy-steps"><li class="card"><span class="buy-steps__n">2</span><h3>Add SOL</h3><p class="muted">Buy SOL in the wallet app.</p></li><li class="card"><span class="buy-steps__n">3</span><h3>Buy on Raydium</h3><p class="muted">On Raydium LaunchLab, only through the <strong>Buy on Raydium</strong> button on our <a href="/token#buy">Token page</a>, so you get the real $VICINITY.</p></li></ol><p class="scam-note"><strong>The only real Raydium is raydium.io.</strong> Look-alike addresses copy it to empty wallets.</p><details id="buy-faq"><summary>How do I buy $VICINITY?</summary><p>Get a Solana wallet (Phantom, Solflare or Backpack), add SOL, then use the <strong>Buy on Raydium</strong> button on the <a href="/token#buy">Token page</a>. It opens the official $VICINITY on Raydium LaunchLab (raydium.io). Look-alike sites that copy Raydium are scams that empty wallets.</p></details></body>`;
 /** A page whose <body data-page> and markup are given, with /api/official already read by site.js (window.V.official). */
