@@ -1634,7 +1634,11 @@
       const city = byId.get(c.city_id);
       const go = el("button", "claim-feed__city", `${c.city_name}, ${c.country}`); go.type = "button";
       if (city) go.addEventListener("click", () => select(city, true));
-      li.append(go, el("span", "muted", ` · ${c.status === "provisional" ? "chosen" : "founder"} ${c.founder} `), walletText(c.wallet), el("span", "muted", ` · ${ago(c.claimed_at)}`));
+      // the city, who (the wallet in a small chip) and when: one pill on a computer; on a phone a row of a list, the time beside the city
+      const who = el("span", "claim-feed__who");
+      const wallet = walletText(c.wallet); wallet.classList.add("claim-feed__wallet");
+      who.append(el("span", null, `${c.status === "provisional" ? "chosen" : "founder"} ${c.founder}`), wallet);
+      li.append(go, who, el("span", "claim-feed__ago", ago(c.claimed_at)));
       return li;
     }));
   }

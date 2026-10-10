@@ -349,6 +349,13 @@
   #cities .cities-intro .page-title { font-size: clamp(2rem, 9vw, 2.5rem); }
   #cities .cities-intro .lead { font-size: var(--fs-base, 1rem); }
   #cities .cities-intro .city-stats .is-open, #cities .cities-intro .city-stats .city-stats__claims { display: none; }
+  /* the numbers in one line on a phone (the map below shows the communities themselves) */
+  #cities .cities-intro .city-stats > div:first-child { display: none; }
+}
+@media (max-width: 380px) {
+  #cities .cities-intro .city-stats { column-gap: 10px; }
+  #cities .cities-intro .city-stats strong { font-size: .95rem; }
+  #cities .cities-intro .city-stats span { font-size: .8rem; }
 }
 /* the map's controls: + and − on the map; on a phone the other four open from ⋯ as 44 px rows with words */
 .map-menu { display: contents; }
@@ -377,13 +384,21 @@
 .map-focus .map-focus__area, .map-focus .map-focus__line { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .map-focus .map-focus__line { -webkit-line-clamp: 1; line-clamp: 1; }
 .map-focus.is-folded { height: 52px; }
-/* the founders feed wraps on a phone (it scrolled sideways) */
+/* the founders feed: who and when after the city (a pill on a computer); on a phone one list card, a row per founder: the city, then
+   "founder name", the wallet in a small mono chip and the time, hairlines between (it scrolled sideways, then wrapped unevenly) */
+.claim-feed__who, .claim-feed__ago { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; color: var(--muted); }
+.claim-feed__who::before, .claim-feed__ago::before { content: "·"; }
+.claim-feed__wallet { padding: 1px 6px; border-radius: var(--r-xs, 6px); background: var(--surface-inset, rgba(var(--ink), .06)); color: var(--text-2); font-size: .75rem; }
 @media (max-width: 600px) {
-  .claim-feed { flex-wrap: wrap; overflow: visible; }
-  .claim-feed li { white-space: normal; max-width: 100%; border-radius: var(--r-chip, 12px); }
-  /* one sentence that wraps ("New York City, US · founder nycsteward C5CB…SiL · 5d ago"), not four squeezed columns */
-  .claim-feed li:not(.claim-feed__empty) { display: block; width: 100%; padding: 2px 12px 8px; line-height: 1.5; }
-  .claim-feed li .claim-feed__city { vertical-align: middle; }
+  .claim-feed { display: grid; gap: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-card, 18px); background: var(--card-2); }
+  .claim-feed li { position: relative; white-space: normal; max-width: 100%; border: 0; border-radius: 0; background: none; }
+  .claim-feed li + li { border-top: 1px solid var(--line); }
+  .claim-feed li:not(.claim-feed__empty) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 10px; min-height: 0; padding: 8px 14px 10px; line-height: 1.4; }
+  .claim-feed li .claim-feed__city { justify-self: start; min-height: 0; padding: 2px 0 0; text-align: left; }
+  .claim-feed li .claim-feed__city::after { content: ""; position: absolute; inset: 0; } /* the whole row opens the city (a 60 px target) */
+  .claim-feed__who { grid-column: 1 / -1; flex-wrap: wrap; gap: 4px 8px; margin: 0 0 0 21px; font-size: .8rem; }
+  .claim-feed__ago { grid-column: 2; grid-row: 1; margin: 0; font-size: .75rem; white-space: nowrap; }
+  .claim-feed__who::before, .claim-feed__ago::before { content: none; }
 }
 /* the list: 8 rows and "Show more" on a phone, no box scrolling inside the page */
 .city-more { margin: 6px 0 2px; }
