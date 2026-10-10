@@ -191,13 +191,18 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   // F2: on a phone the Buy & sell card lost its Buy button while coin.js keeps the bar off for exactly that scroll range
   assert.doesNotMatch(polish, /\.coin-buy \.contract__buy \{ display: none/);
   assert.match(read("public/coin.js"), /const b = headBuyOut && !buyCardIn && Boolean\(data\)/, "the bar hides while the card is on screen, so the card must keep its button");
-  // F4: the light theme's --pin-2 (#D4501F) is 4.2:1 on white and --pin (#E8431F) 3.7:1: the small orange texts this polish added use a darker orange
+  // F4: the light theme's old --pin-2 (#D4501F) was 4.2:1 on white and --pin (#E8431F) 3.7:1. Design v2 (10 Oct 2026) darkened the light
+  // accent text token itself, so the three small orange texts (and every kicker and link) read at 4.5:1 or more with no override of their own
   const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
   const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255); };
   const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
-  const light = polish.match(/^:root\[data-theme="light"\] \.member-cloud__more, :root\[data-theme="light"\] \.problems \.problem__num, :root\[data-theme="light"\] \.flow--compact \.flow__step p a \{ color: (#[0-9A-Fa-f]{6}); \}$/m);
-  assert.ok(light, "one light-theme rule for the three");
-  for (const bg of ["#FFFFFF", "#F4F6FA"]) assert.ok(ratio(light[1], bg) >= 4.5, `${light[1]} on ${bg}: ${ratio(light[1], bg).toFixed(2)}:1`);
+  const lightBlock = style.slice(style.indexOf(':root[data-theme="light"] {'));
+  const light = /--pin-2: (#[0-9A-Fa-f]{6})/.exec(lightBlock);
+  assert.ok(light, "the light theme sets its own accent text colour");
+  for (const bg of ["#FFFFFF", "#F4F6FA", "#EEF2F7"]) assert.ok(ratio(light[1], bg) >= 4.5, `${light[1]} on ${bg}: ${ratio(light[1], bg).toFixed(2)}:1`);
+  assert.match(polish, /\.member-cloud__more \{[^}]*color: var\(--pin-2\);/, "the +N more chip: the accent text token");
+  assert.match(style, /\.problem__num \{[^}]*color: var\(--pin-2\);/, "the problem numbers: accent text, not the accent fill (3.7:1 in light)");
+  assert.doesNotMatch(polish, /#B8430F/, "no hard-coded override left: the token covers the three");
   // A-6: an inline-block link's baseline is its last line, so a wrapped entry's number sat on its second line
   assert.match(polish, /\.terms-toc a \{ display: block; padding: 6px 0;/);
   // nits: the dead footer rule; the safety links one-then-two; every place shown on a computer; the token page's placeholder and skip link; the official list's wording
@@ -234,4 +239,23 @@ test("cities, rules, terms: a plain search placeholder; a chip row and folds on 
   assert.deepEqual(links, Array.from({ length: 19 }, (_, i) => i + 1));
   for (const n of links) assert.match(terms, new RegExp(`<h2 id="s${n}">${n}\\. `), `section ${n} has its id`);
   assert.match(terms, /<summary>Contents \(19 sections\)<\/summary>/);
+});
+
+test("design v2 tokens: the contract the other sheets read (names fixed), with their phone steps and light values; the shared components", () => {
+  const names = ["--fs-xs", "--fs-sm", "--fs-base", "--fs-md", "--fs-lg", "--fs-xl", "--fs-2xl", "--fs-num", "--fs-kicker", "--ls-kicker", "--lh-tight", "--lh-snug", "--lh-body",
+    "--sp-1", "--sp-2", "--sp-3", "--sp-4", "--sp-5", "--sp-6", "--sp-7", "--sp-8", "--gutter", "--card-pad", "--section-y",
+    "--r-xs", "--r-chip", "--r-card", "--r-hero", "--r-pill", "--surface-1", "--surface-2", "--surface-inset", "--accent-soft", "--ok-soft", "--warn-soft", "--gold-soft",
+    "--shadow-1", "--shadow-2", "--header-h", "--sticky-top", "--dur-1", "--dur-2", "--dur-3", "--ease-out"];
+  const root = style.slice(0, style.indexOf("/* ---------- base ---------- */"));
+  for (const n of names) assert.match(root, new RegExp(`${n}: [^;]+;`), n);
+  assert.match(root, /--fs-xs: \.75rem;/, "12 px is the floor");
+  assert.match(root, /--header-h: 67px;/, "the header stays 66 + 1 px");
+  assert.match(root, /@media \(min-width: 481px\) \{ :root \{ --gutter: 24px; \} \}\n@media \(min-width: 601px\) \{ :root \{ --card-pad: 22px; \} \}\n@media \(min-width: 901px\) \{ :root \{ --section-y: 72px; \} \}/);
+  for (const sel of [".ico {", ".ico--sm {", ".ico--ok {", ".ico--gold {", ".ico--muted {", ".fold > summary {", ".fold > summary::after {", ".fold__meta {", ".empty {", ".skel {", ".tnum {"]) assert.ok(style.includes(sel), sel);
+  // the placeholder is still: nothing gives .skel a shimmer, and the coin page's inline ticker placeholder is its own rule
+  assert.doesNotMatch(style, /[,{]\s*\.skel\s*\{[^}]*animation/);
+  assert.doesNotMatch(style, /\.skel \{ animation|, \.skel \{ animation/);
+  assert.match(style, /\.coin-head__ticker > \.skel \{ display: inline-block; min-height: 1em; \}/);
+  // tokens and components sit before the profiles block (nothing after it may move) and outside the dashboard v2 block
+  assert.ok(style.indexOf("Design v2: the shared components") < style.indexOf("Member profiles (PROFILES=on)"));
 });

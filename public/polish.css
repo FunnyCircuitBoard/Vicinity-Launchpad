@@ -241,8 +241,6 @@ input, select, textarea { min-height: 44px; }
 .checks-details[open] summary::after { content: "−"; }
 .checks-details .checks { padding: 4px 0 16px; }
 .flow--compact .flow__step p a { font-weight: 600; } /* step 5's pointer to the Token page: the one secondary way to the token after the hero's button */
-/* light theme: the small orange texts this polish added read at 4.5:1 or more (--pin-2 is 4.2:1 on white there, --pin 3.7:1) */
-:root[data-theme="light"] .member-cloud__more, :root[data-theme="light"] .problems .problem__num, :root[data-theme="light"] .flow--compact .flow__step p a { color: #B8430F; }
 @media (min-width: 900px) {
   .flow-wrap--compact { grid-template-columns: minmax(0, 1fr); }
   .flow--compact { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }

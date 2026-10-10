@@ -34,7 +34,7 @@
   --card: rgba(255,255,255,.75); --card-2: rgba(11,22,38,.05);
   --line: rgba(11,22,38,.1); --line-2: rgba(11,22,38,.18);
   --text: #0B1626; --text-2: #2C3950; --muted: #55627A; --faint: #7A869C;
-  --pin: #E8431F; --pin-2: #D4501F; --moss: #1E9E78; --gold: #D99A1A; --blue: #2F63E0; --warn: #8F6200;
+  --pin: #E8431F; --pin-2: #B8430F; --moss: #1E9E78; --gold: #D99A1A; --blue: #2F63E0; --warn: #8F6200;
   --ok-text: #0F7A59; --bad-text: #C23A1C; --gold-text: #8A5A00;
   --glass: rgba(255,255,255,.86); --code-bg: rgba(11,22,38,.05);
   --dots: rgba(11,22,38,.05);
@@ -44,6 +44,40 @@
   --map-area: rgba(43,91,255,.07); --map-area-line: rgba(30,70,160,.8);
   --map-dot: #4A6FA8; --map-label: #0B1626; --map-halo: rgba(255,255,255,.9);
   color-scheme: light;
+}
+/* Design v2 tokens (a contract: the other sheets read them with var(--name, fallback); names are fixed, values tuned here only).
+   Light's --pin-2 is #B8430F (5.0:1 on the page, 5.5:1 on white; #D4501F was 3.9:1), so every kicker, link and "+" passes AA. */
+:root {
+  /* type: Space Grotesk for titles and numbers (tabular), Inter for words. .75rem is the floor: nothing smaller anywhere */
+  --fs-xs: .75rem; --fs-sm: .875rem; --fs-base: 1rem; --fs-md: 1.125rem; --fs-lg: 1.375rem;
+  --fs-xl: clamp(1.375rem, 1rem + 2vw, 2.25rem);     /* section titles (h2): 22-24 px on a phone */
+  --fs-2xl: clamp(2rem, 1.2rem + 4.5vw, 3.75rem);    /* page titles (h1) */
+  --fs-num: clamp(1.75rem, 1.3rem + 2.4vw, 2.5rem);  /* the one big number of a card: price, holding, amount */
+  --fs-kicker: .75rem; --ls-kicker: .12em;
+  --lh-tight: 1.08; --lh-snug: 1.3; --lh-body: 1.55;
+  /* space: a 4-point scale */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 72px;
+  --gutter: 16px; --card-pad: 16px; --section-y: 28px;
+  /* radii: these and nothing in between */
+  --r-xs: 8px; --r-chip: 12px; --r-card: 18px; --r-hero: 24px; --r-pill: 999px;
+  /* surfaces: one card level (glass), wells inside it, opaque layers on top */
+  --surface-1: var(--card); --surface-2: var(--bg-2); --surface-inset: rgba(var(--ink), .04);
+  --accent-soft: rgba(255,90,54,.12); --ok-soft: rgba(55,194,154,.14); --warn-soft: rgba(255,213,138,.12); --gold-soft: rgba(255,200,87,.14);
+  --shadow-1: inset 0 1px 0 rgba(var(--ink),.05), 0 10px 30px -20px rgba(0,0,0,.7);
+  --shadow-2: 0 24px 60px -24px rgba(0,0,0,.8);
+  /* layout: the header is 66 px + its 1 px border (unchanged) */
+  --header-h: 67px; --sticky-top: calc(var(--header-h) + 12px);
+  /* motion: transform and opacity only, inside a no-preference block, stopped by "Pause animations" */
+  --dur-1: 120ms; --dur-2: 200ms; --dur-3: 320ms; --ease-out: cubic-bezier(.2,.8,.2,1);
+}
+@media (min-width: 481px) { :root { --gutter: 24px; } }
+@media (min-width: 601px) { :root { --card-pad: 22px; } }
+@media (min-width: 901px) { :root { --section-y: 72px; } }
+:root[data-theme="light"] {
+  --surface-inset: #EEF2F7;
+  --accent-soft: rgba(232,67,31,.08); --ok-soft: rgba(30,158,120,.10); --warn-soft: rgba(143,98,0,.08); --gold-soft: rgba(217,154,26,.12);
+  --shadow-1: inset 0 1px 0 rgba(255,255,255,.8), 0 10px 30px -22px rgba(11,22,38,.35);
+  --shadow-2: 0 24px 60px -28px rgba(11,22,38,.4);
 }
 
 /* ---------- base ---------- */
@@ -169,6 +203,30 @@ input, select, textarea { font: 500 .98rem var(--body); color: var(--text); }
 .checker input:focus, .tp-form input:focus, .req-form input:focus, .city-search input:focus, .city-search select:focus, .composer textarea:focus { border-color: var(--pin-2); }
 select option { background: var(--bg-2); }
 
+/* ---------- Design v2: the shared components (SPEC.md §2-§4; every page and every track uses these) ---------- */
+/* an icon from the shared SVG set in a tinted circle */
+.ico { display: inline-grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--accent-soft); color: var(--pin-2); }
+.ico svg { width: 20px; height: 20px; }
+.ico--sm { width: 28px; height: 28px; } .ico--sm svg { width: 16px; height: 16px; }
+.ico--ok { background: var(--ok-soft); color: var(--ok-text); }
+.ico--gold { background: var(--gold-soft); color: var(--gold-text); }
+.ico--muted { background: var(--card-2); color: var(--text-2); }
+/* a fold: <details class="fold"><summary>Label <span class="fold__meta">the key facts</span></summary> ... </details>; the meta wraps, never cut */
+.fold { border-top: 1px solid var(--line); }
+.fold > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-2); min-height: 44px; padding: var(--sp-2) 28px var(--sp-2) 0; position: relative; font: 600 var(--fs-sm)/1.3 var(--body); color: var(--text); }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::after { content: "+"; position: absolute; right: 2px; top: 50%; transform: translateY(-50%); color: var(--pin-2); font-size: 1.3rem; line-height: 1; }
+.fold[open] > summary::after { content: "\2212"; }
+.fold__meta { color: var(--muted); font-weight: 500; font-size: var(--fs-xs); text-wrap: balance; }
+/* an empty state: one icon, one line, one button; never a wall of dashes */
+.empty { display: grid; justify-items: center; gap: var(--sp-2); padding: var(--sp-5) var(--sp-4); text-align: center; border: 1px dashed var(--line-2); border-radius: var(--r-card); color: var(--muted); font-size: var(--fs-sm); }
+.empty > strong { color: var(--text); font: 650 var(--fs-md)/1.25 var(--display); }
+.empty > .btn { margin-top: var(--sp-1); }
+/* a still placeholder of the final size: no shimmer (nothing moves by itself). An inline one (the coin page's ticker) is set below. */
+.skel { display: block; border-radius: var(--r-chip); background: linear-gradient(90deg, var(--card), var(--card-2), var(--card)); color: transparent; }
+/* numbers line up */
+.tnum { font-variant-numeric: tabular-nums; }
+
 /* ---------- page heroes ---------- */
 .page-hero { padding: 56px 0 30px; position: relative; }
 .page-title { font-size: clamp(2.6rem, 7vw, 4.6rem); font-weight: 700; letter-spacing: -0.04em; line-height: .98; margin: 6px 0 18px; }
@@ -230,7 +288,7 @@ select option { background: var(--bg-2); }
 .m-flag text { font: 600 18px var(--body); fill: var(--text); }
 
 /* problem cards */
-.problem__num { font: 700 .9rem var(--display); color: var(--pin); letter-spacing: .12em; display: block; margin-bottom: 12px; }
+.problem__num { font: 700 .9rem var(--display); color: var(--pin-2); letter-spacing: .12em; display: block; margin-bottom: 12px; }
 .problem p { margin: 0; }
 
 /* NYC walkthrough */
@@ -238,8 +296,9 @@ select option { background: var(--bg-2); }
 @media (max-width: 960px) { .nyc { grid-template-columns: 1fr; } }
 .nyc__map { position: relative; border-radius: 26px; overflow: hidden; border: 1px solid var(--line); background: var(--map-water); box-shadow: var(--shadow); }
 .nyc__map svg { width: 100%; height: auto; }
-.nyc__credit { position: absolute; left: 12px; bottom: 8px; margin: 0; color: var(--faint); background: var(--glass); padding: 2px 8px; border-radius: 8px; }
-@media (max-width: 700px) { .nyc__credit { position: static; font-size: .68rem; border-radius: 0; } }
+.nyc__credit { position: absolute; left: 12px; bottom: 8px; margin: 0; color: var(--muted); background: var(--glass); padding: 2px 8px; border-radius: 8px; }
+@media (max-width: 700px) { .nyc__credit { position: static; border-radius: 0; } }
+:root[data-theme="light"] .nyc__credit { color: var(--text-2); }
 .nyc__tip { position: absolute; margin: 0; pointer-events: none; background: var(--glass); border: 1px solid var(--line-2); border-radius: 10px; padding: 6px 10px; font-size: .82rem; transform: translate(-50%, calc(-100% - 10px)); white-space: nowrap; }
 .steps { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 8px; }
 .steps button { width: 100%; display: flex; gap: 14px; text-align: left; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; color: var(--text); font: inherit; cursor: pointer; transition: border-color .25s, background .25s; }
@@ -1670,7 +1729,7 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 @media (prefers-reduced-motion: no-preference) {
   .lp-card__ping::after, .coin-pill__dot::after { animation: livePing 1.8s cubic-bezier(0,0,.2,1) infinite var(--lb-play, running); }
   .lp-spark__ping { animation: livePing 2.4s cubic-bezier(0,0,.2,1) infinite var(--lb-play, running); }
-  .lp-spark.is-loading, .skel { animation: shimmer 1.4s linear infinite var(--lb-play, running); }
+  .lp-spark.is-loading { animation: shimmer 1.4s linear infinite var(--lb-play, running); }
   .is-flash-up::after, .is-flash-down::after { animation: lpFlash .9s ease-out; }
   .coin-trade.is-new { animation: coinTradeIn .3s cubic-bezier(.2,.8,.2,1) backwards; }
   .coin-trade.is-new .coin-trade__row::before { animation: lpFlash 1.2s ease-out; }
@@ -1949,8 +2008,8 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .lp-spark.is-empty, .lp-spark.is-loading { display: flex; align-items: center; justify-content: center; }
 .lp-spark__dash { position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--line-2); }
 .lp-spark__msg { position: relative; padding: 2px 10px; border-radius: 999px; font-size: .7rem; color: var(--muted); background: var(--chip-bg, var(--glass)); }
-.lp-spark.is-loading, .skel { border-radius: 10px; background: linear-gradient(90deg, rgba(var(--ink),.04), rgba(var(--ink),.1), rgba(var(--ink),.04)); background-size: 200% 100%; }
-.skel { display: inline-block; min-height: 1em; color: transparent; }
+.lp-spark.is-loading { border-radius: 10px; background: linear-gradient(90deg, rgba(var(--ink),.04), rgba(var(--ink),.1), rgba(var(--ink),.04)); background-size: 200% 100%; }
+.coin-head__ticker > .skel { display: inline-block; min-height: 1em; } /* the ticker's still placeholder sits inside its h1 */
 .skel--w140 { min-width: 140px; }
 /* the four numbers: 2 × 2, four in a row on a card 400 px wide or more */
 .lp-stats--live { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0; border-top: 0; }
