@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/polish.css">
   <link rel="stylesheet" href="/feedback.css">
+  <link rel="stylesheet" href="/pages-profile.css">
   <script src="/theme.js"></script>
 </head>
 <body data-page="profile">
@@ -38,7 +39,7 @@
       </nav>
       <div class="site-header__actions">
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false"><span class="moon" aria-hidden="true">☾</span><span class="sun" aria-hidden="true">☀</span></button>
-        <a class="btn btn--primary btn--sm account-btn" href="/connect?mode=login" data-account><span class="btn__dot" aria-hidden="true"></span><span data-account-label>Log in</span></a>
+        <a class="btn btn--glass btn--sm account-btn" href="/connect?mode=login" data-account><span class="btn__dot" aria-hidden="true"></span><span data-account-label>Log in</span></a>
       </div>
     </div>
   </header>
@@ -109,7 +110,7 @@
                     <div class="idcard__avatar" id="pf-avatar" aria-hidden="true">V</div>
                     <div class="pass__id">
                       <h2 class="pass__name" id="pf-handle">—</h2>
-                      <p class="pass__home">📍 <span id="pf-home">—</span></p>
+                      <p class="pass__home"><svg class="pass__pin" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span id="pf-home">—</span></p>
                       <p class="pass__bio" id="pf-bio" hidden></p>
                     </div>
                     <div class="coin-disc pass__coin" aria-hidden="true"><span id="pf-coin">—</span></div>

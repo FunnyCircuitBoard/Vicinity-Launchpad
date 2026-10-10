@@ -1,0 +1,26 @@
+/* Design v2 (10 Oct 2026): the rules and the terms. One sheet per page, loaded last there (scripts/pages/src/<page>.html "styles").
+   Phone first; the shared tokens come from style.css, each with a fallback here; motion only inside prefers-reduced-motion: no-preference. */
+/* =====================================================================
+   /rules: the chips to each rule wrap (36 px to see, 44 px to tap), no sideways strip. /terms: on a phone no card around the text
+   (the red notice is the one box), each section a fold (closed on a phone, open on a computer: rules.js), the contents fold kept.
+   ===================================================================== */
+.rules-toc { flex-wrap: wrap; overflow: visible; margin: var(--sp-4, 16px) 0 0; padding: 0; }
+.rules-toc a { position: relative; min-height: 38px; padding: 0 14px; font-size: var(--fs-sm, .875rem); }
+.rules-toc a::after { content: ""; position: absolute; inset: -4px 0; } /* a 44 px hit area; the 8 px gaps keep neighbours apart */
+.terms-sec { border-top: 1px solid var(--line); }
+.terms-sec > summary { list-style: none; cursor: pointer; position: relative; display: flex; align-items: center; min-height: 48px; padding: 6px 32px 6px 0; }
+.terms-sec > summary::-webkit-details-marker { display: none; }
+.terms-sec > summary::after { content: "+"; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); color: var(--pin-2); font-size: 1.3rem; line-height: 1; }
+.terms-sec[open] > summary::after { content: "\2212"; }
+.terms .terms-sec > summary h2, .terms .terms-sec:first-of-type > summary h2 { margin: 0; font-size: var(--fs-md, 1.125rem); }
+.terms-sec__body { padding: 0 0 var(--sp-4, 16px); }
+.terms-sec__body > :first-child { margin-top: 0; }
+.terms .agreebox { margin-top: var(--sp-5, 24px); }
+@media (max-width: 600px) {
+  .card.terms { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+  .terms .callout { padding: var(--sp-4, 16px); border-radius: var(--r-card, 18px); }
+  .terms .terms-sec > summary h2 { font-size: var(--fs-base, 1rem); line-height: 1.35; }
+}
+.health.card { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 10px; }
+.health.card > #health-text { flex: 1 1 auto; min-width: 0; } /* the dot beside the sentence, not on a line of its own */
+.health.card > .live-dot { flex: none; margin-top: .55em; }

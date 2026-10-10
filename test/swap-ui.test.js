@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { Doc, Target, newEvent, parse } from "./helpers/pagedom.js";
-import { SOL, USDC, VIC, CITY, TAKER, CONFIG, QUOTE, TX, walletOf, swapPage as page, paths, byPath, click, text } from "./helpers/swappage.js";
+import { SOL, USDC, VIC, CITY, TAKER, CONFIG, QUOTE, TX, CURVE_QUOTE, walletOf, swapPage as page, paths, byPath, click, text } from "./helpers/swappage.js";
 
 const SWAP_JS = readFileSync(new URL("../public/swap.js", import.meta.url), "utf8");
 const type = async (P, value) => { const i = P.$(".swap__amt"); i.value = value; i.dispatchEvent(newEvent("input")); await P.flush(); };
@@ -36,7 +36,7 @@ test("swap panel: mounts from data-swap, quotes while typing (no taker before a 
   assert.equal(text(P.$(".swap__state")), "Estimate");
   assert.equal(text(P.$(".swap__amt--out")), "89,166.22", "thousands get two decimals: the whole figure fits a phone");
   const dds = P.$$(".swap__details dd").map(text);
-  assert.deepEqual(dds.slice(0, 4), ["88,274.56 $VICINITY", "0.12%", "network ≈ 0.000005 SOL · priority ≤ 0.0000003 SOL · no platform fee", "Routed by Jupiter · executed on Raydium Launchlab"], "the priority fee is in the fee line, as the most the Worker allows for this quote");
+  assert.deepEqual(dds.slice(0, 4), ["88,274.56 $VICINITY", "0.12%", "network ≈ 0.000005 SOL · priority ≤ 0.0000003 SOL · no platform fee", "Routed by Jupiter · executed on Raydium LaunchLab"], "the priority fee is in the fee line, as the most the Worker allows for this quote (the route names LaunchLab as Raydium writes it)");
   assert.equal(P.$$(".swap__details dd")[4].hidden, true, "no rent row while nothing says a token account is missing");
   assert.match(text(P.$(".swap__help")), /^Slippage is how much worse than this quote you still accept\. If the price moves past Min received, the trade stops and nothing is spent; Price impact is how much your own trade moves the price\.$/, "the three words are explained in one sentence");
   assert.match(text(P.$(".swap__status")), /^Estimate: the exact amount is shown before your wallet opens\.$/);
@@ -119,7 +119,8 @@ test("swap panel: plain words for every way it stops: cancelled, slippage, not e
   const P = await page({ wallets: [w], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": () => quoteAnswer, "/api/swap/balances": { ok: true, sol: { lamports: 0, ui: 0 }, tokens: {} }, "/api/swap/tx": () => txAnswer } });
   click(P.$(".swap__go")); await P.flush(); click(P.$(".swap__wallets .wallet-option")); await P.flush();
   await type(P, "0.25"); click(P.$(".swap__go")); await P.flush(30); // Buy, cancelled in the wallet
-  assert.deepEqual([text(P.$(".swap__state")), text(P.$(".swap__status")), text(P.$(".swap__go"))], ["Stopped", "Cancelled in your wallet. Nothing was sent.", "Try again"]);
+  assert.deepEqual([text(P.$(".swap__state")), text(P.$(".swap__status")), text(P.$(".swap__go"))], ["Try again", "Cancelled in your wallet. Nothing was sent.", "Try again"], "a cancel is a soft stop: a neutral tag, the same words and button");
+  assert.ok(!P.$(".swap__state").classList.contains("tag--no"), "not the red 'Stopped' of a trade that failed");
   // Try again builds the price again (a build that fails says why, before any wallet)
   txAnswer = { ok: false, error: "slippage", name: "SlippageToleranceExceeded", _status: 409 };
   click(P.$(".swap__go")); await P.flush(30);
@@ -251,7 +252,7 @@ test("swap panel: the build the wallet signs is the truth: the panel shows the /
   const P = await page({ wallets: [w], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE(), "/api/swap/balances": { ok: true, sol: { lamports: 1e9, ui: 1 }, tokens: { [VIC]: { ui: 0, hasAccount: false } } }, "/api/swap/tx": () => txAnswer, "/api/swap/status": { ok: true, status: "confirmed" } } });
   click(P.$(".swap__go")); await P.flush(); click(P.$(".swap__wallets .wallet-option")); await P.flush();
   await type(P, "0.25");
-  assert.equal(text(P.$$(".swap__details dd")[4]), "about 0.00203928 SOL once creates your $VICINITY account (returned when you close it)", "the rent of a missing token account is said before the wallet opens");
+  assert.equal(text(P.$$(".swap__details dd")[4]), "about 0.00203928 SOL, once, to open your $VICINITY account (you get it back when you close it)", "the rent of a missing token account is said before the wallet opens (the same amount, once, returned when closed)");
   assert.equal(P.$$(".swap__details dd")[4].hidden, false);
   assert.ok(!w.calls.some((c) => c[0] === "signAndSend"), "the wallet was NOT opened for a build worse than the preview");
   assert.deepEqual([text(P.$(".swap__state")), text(P.$(".swap__amt--out")), P.$$(".swap__details dd").map(text)[0], P.$$(".swap__details dd").map(text)[1]], ["Price ready", "52,470", "51,945.3 $VICINITY", "35.00%"], "the panel shows the build's own numbers, not the preview's");
@@ -354,6 +355,160 @@ test("swap panel: a curve trade whose quote says the platform's referral account
   assert.equal(Q.$$(".swap__details dd")[4].hidden, true);
 });
 
+/* ---------------------------------------------------------------- the compact panel: answer first, the details folded */
+const kidsOf = (e) => e.children.map((c) => c.className.split(/\s+/).find((x) => x.startsWith("swap__")) || c.tagName.toLowerCase());
+const meta = (P) => text(P.$(".swap__more-meta"));
+const connectFirst = async (P) => { click(P.$(".swap__go")); await P.flush(); click(P.$(".swap__wallets .wallet-option")); await P.flush(); };
+
+test("compact panel: answer first (the amounts, the summary line, the 10% box, the button, the wallet chooser it opens), then the footer and 'Price details' with the slippage, its help and the details folded", async () => {
+  const P = await page({ answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE() } });
+  assert.deepEqual(kidsOf(P.slot), ["swap__head", "swap__note", "swap__box", "swap__picker", "swap__status", "swap__warn", "swap__go", "swap__wallets", "swap__links", "swap__foot", "swap__more"], "status, then the 10% box, then the button, right under the amounts");
+  const more = P.$(".swap__more");
+  assert.deepEqual([more.tagName, more.hasAttribute("open")], ["DETAILS", false], "folded");
+  assert.equal(P.$(".swap__more > .swap__more-sum").tagName, "SUMMARY");
+  assert.deepEqual(kidsOf(P.$(".swap__more-body")), ["swap__slip", "swap__help", "swap__details", "swap__more-empty"]);
+  assert.equal(text(P.$(".swap__more-sum")), "Price details Slippage 1%", "the summary (its accessible name too) says the slippage");
+  assert.equal(P.$(".swap__chip--custom").getAttribute("aria-describedby"), P.$(".swap__help").getAttribute("id"), "the help still describes the custom field");
+  assert.deepEqual([P.$(".swap__slip").getAttribute("role"), P.$(".swap__slip").getAttribute("aria-labelledby")], ["group", P.$(".swap__slip-label").getAttribute("id")], "the chips are one named group");
+  // the wallet chooser opens right under the button
+  click(P.$(".swap__go")); await P.flush();
+  assert.equal(P.$(".swap__wallets").hidden, false);
+  const kids = kidsOf(P.slot);
+  assert.equal(kids.indexOf("swap__wallets"), kids.indexOf("swap__go") + 1);
+});
+
+test("compact panel: before a quote the details list is hidden (kept, dashes and all) and one line says what will show there; the only dash on view is the 'You get' placeholder, muted", async () => {
+  const P = await page({ answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE() } });
+  assert.equal(P.$(".swap__details").hidden, true);
+  assert.deepEqual(P.$$(".swap__details dd").slice(0, 4).map(text), ["—", "—", "—", "—"], "still in the page");
+  assert.deepEqual([P.$(".swap__more-empty").hidden, text(P.$(".swap__more-empty"))], [false, "Type an amount to see the minimum you get, the price impact, the fees and the route."]);
+  assert.deepEqual([text(P.$(".swap__amt--out")), P.$(".swap__amt--out").classList.contains("is-empty")], ["—", true]);
+  await type(P, "0.25");
+  assert.deepEqual([P.$(".swap__details").hidden, P.$(".swap__more-empty").hidden, P.$(".swap__amt--out").classList.contains("is-empty")], [false, true, false]);
+  assert.equal(P.$$(".swap__details dd").map(text)[0], "88,274.56 $VICINITY");
+  await type(P, "");
+  assert.equal(P.$(".swap__details").hidden, true, "cleared: hidden again");
+});
+
+test("compact panel: the 'Price details' summary keeps every cost in sight: the one-time account fee whenever the rent row shows (its amount), a platform fee, a curve's fee and the account it does not return", async () => {
+  const BAL = (has) => ({ ok: true, sol: { lamports: 1e9, ui: 1 }, tokens: { [VIC]: { ui: 0, hasAccount: has } } });
+  const P = await page({ wallets: [walletOf()], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE(), "/api/swap/balances": BAL(false), "/api/swap/tx": TX(), "/api/swap/status": { ok: true, status: "confirmed" } } });
+  assert.equal(meta(P), "Slippage 1%");
+  await connectFirst(P); await type(P, "0.25");
+  assert.equal(P.$$(".swap__details dd")[4].hidden, false, "the rent row shows");
+  assert.equal(meta(P), "Slippage 1% · ≈ 0.00204 SOL one‑time account fee", "the rent row's 0.00203928 SOL, short");
+  assert.ok(P.$(".swap__more-meta .is-cost"), "a cost stands out from the slippage");
+  click(P.$$(".swap__chip:not(.swap__chip--custom)")[2]); await P.flush();
+  assert.match(meta(P), /^Slippage 3% · ≈ 0\.00204 SOL one‑time account fee$/, "the slippage follows the chips");
+  // the account exists already: no rent, nothing more in the summary
+  const Q = await page({ wallets: [walletOf()], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE(), "/api/swap/balances": BAL(true), "/api/swap/tx": TX() } });
+  await connectFirst(Q); await type(Q, "0.25");
+  assert.deepEqual([Q.$$(".swap__details dd")[4].hidden, meta(Q)], [true, "Slippage 1%"]);
+  // a platform fee the owner set: said before any quote, and with it
+  const F = await page({ answers: { "/api/swap/config": { ...CONFIG, platformFeeBps: 50 }, "/api/swap/quote": QUOTE({ fees: { networkLamports: 5000, priorityLamportsMax: 300, platformFeeBps: 50, rentLamports: 2039280 } }) } });
+  assert.equal(meta(F), "Slippage 1% · Fee 0.5%");
+  await type(F, "0.25");
+  assert.equal(meta(F), "Slippage 1% · Fee 0.5%");
+  // a city coin on its curve: the 1.25% curve fee, and the platform's account it re-creates and never returns
+  const curve = { "/api/swap/config": CONFIG, "/api/swap/quote": { ok: true, source: "curve", mint: CITY, side: "buy", chain: "solana:devnet", cluster: "devnet", quoteMint: SOL, useRoute: "/api/launchpad/trade" }, "/api/launchpad/trade/quote": CURVE_QUOTE({ fees: { curveFeeBps: 125, networkLamports: 5000, split: {}, referralRentLamports: 2039280, referralNote: "about 0.002 SOL re-creates the platform's fee account for this coin's pair token and is not returned to you" } }) };
+  const C = await page({ answers: curve, slot: `<div id="buy-slot" data-swap data-out="${CITY}" data-in="SOL" data-mode="buy"></div>` });
+  await type(C, "0.005");
+  assert.equal(meta(C), "Slippage 1% · Fee 1.25% · ≈ 0.00204 SOL setup fee, not returned");
+  assert.equal(text(C.$$(".swap__details dd")[4]), "about 0.002 SOL re-creates the platform's fee account for this coin's pair token and is not returned to you", "the full sentence stays in the details");
+});
+
+test("compact panel: a price impact above 3% opens 'Price details' once per trade and is in its summary (warn; above 10% bad); the page never closes it, nor opens it again for a trade the person closed it on", async () => {
+  let impact = "4.2";
+  const P = await page({ answers: { "/api/swap/config": CONFIG, "/api/swap/quote": () => QUOTE({ priceImpactPct: impact }) } });
+  const more = P.$(".swap__more");
+  await type(P, "1");
+  assert.equal(more.hasAttribute("open"), true, "opened");
+  assert.deepEqual([text(P.$(".swap__more-meta .is-warn")), meta(P)], ["Impact 4.20%", "Slippage 1% · Impact 4.20%"]);
+  more.removeAttribute("open"); // the person folds it
+  const panel = [...P.VSwap._panels][0];
+  await panel.quote(true); await P.flush(); // the same trade quoted again
+  assert.equal(more.hasAttribute("open"), false, "not opened again for the trade the person closed it on");
+  await type(P, "2");
+  assert.equal(more.hasAttribute("open"), true, "a new amount is a new trade");
+  impact = "0.5"; await type(P, "0.1");
+  assert.deepEqual([more.hasAttribute("open"), meta(P), P.$(".swap__more-meta .is-warn")], [true, "Slippage 1%", null], "a lower impact never folds it by itself");
+  impact = "12"; await type(P, "30");
+  assert.equal(text(P.$(".swap__more-meta .is-bad")), "Impact 12.00%");
+  // a small impact: it stays folded
+  const Q = await page({ answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE() } });
+  await type(Q, "0.25");
+  assert.deepEqual([Q.$(".swap__more").hasAttribute("open"), meta(Q)], [false, "Slippage 1%"]);
+});
+
+test("compact panel: the state tag: none while nothing is typed, a neutral 'Try again' for a soft stop, the red 'Stopped' for a trade that failed", async () => {
+  let q = QUOTE();
+  const P = await page({ answers: { "/api/swap/config": CONFIG, "/api/swap/quote": () => q } });
+  const tag = () => P.$(".swap__state");
+  assert.equal(tag().hidden, true, "idle, nothing typed");
+  await type(P, "0.25");
+  assert.deepEqual([tag().hidden, text(tag())], [false, "Live"]);
+  await type(P, "");
+  assert.equal(tag().hidden, true, "cleared");
+  q = { ok: false, error: "jupiter_unavailable", _status: 503 };
+  await type(P, "0.3");
+  assert.deepEqual([tag().hidden, text(tag()), tag().classList.contains("tag--no"), text(P.$(".swap__status"))], [false, "Try again", false, "The price service could not be reached. Try again in a minute."]);
+  // the chain refused the trade: a real failure
+  const w = walletOf();
+  const H = await page({ wallets: [w], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE(), "/api/swap/balances": { ok: true, sol: { lamports: 1e9, ui: 1 }, tokens: {} }, "/api/swap/tx": TX(), "/api/swap/status": { ok: true, status: "failed", err: "slippage" } } });
+  await connectFirst(H); await type(H, "0.25"); click(H.$(".swap__go")); await H.flush(60);
+  assert.deepEqual([text(H.$(".swap__state")), H.$(".swap__state").classList.contains("tag--no"), text(H.$(".swap__go"))], ["Stopped", true, "Start over"]);
+});
+
+test("compact panel: 'Swapped ✓' on a buy sends one burst from the button when the visitor allows motion; none with reduced motion or paused animations, none for a sale", async () => {
+  const run = async ({ reduced, sell = false }) => {
+    const P = await page({ wallets: [walletOf()], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE(), "/api/swap/balances": { ok: true, sol: { lamports: 1e9, ui: 1 }, tokens: { [VIC]: { ui: 5e5, hasAccount: true } } }, "/api/swap/tx": TX(), "/api/swap/status": { ok: true, status: "confirmed" } } });
+    const bursts = [];
+    P.win.V.burst = (x, y) => bursts.push([x, y]); P.win.V.reduced = reduced; // site.js: reduced motion or "Pause animations"
+    await connectFirst(P);
+    if (sell) { click(P.$(".swap__flip")); await P.flush(); }
+    await type(P, "0.25"); click(P.$(".swap__go")); await P.flush(60);
+    assert.equal(text(P.$(".swap__state")), "Swapped ✓");
+    return bursts.length;
+  };
+  assert.equal(await run({ reduced: false }), 1);
+  assert.equal(await run({ reduced: true }), 0);
+  assert.equal(await run({ reduced: false, sell: true }), 0);
+});
+
+test("compact panel: an amount is never cut with '...': a longer number takes a smaller size step (data-fit; swap.js measures and steps further in a browser)", async () => {
+  const P = await page({ answers: { "/api/swap/config": CONFIG, "/api/swap/quote": (b) => QUOTE({ outUi: b.amount === "900" ? "320998123.45" : b.amount === "10" ? "3566650.12" : "3566.65" }) } });
+  await type(P, "0.01");
+  assert.deepEqual([text(P.$(".swap__amt--out")), P.$(".swap__amt--out").dataset.fit], ["3,566.65", undefined]);
+  await type(P, "10");
+  assert.deepEqual([text(P.$(".swap__amt--out")), P.$(".swap__amt--out").dataset.fit], ["3,566,650.12", "m"]);
+  await type(P, "900");
+  assert.deepEqual([text(P.$(".swap__amt--out")), P.$(".swap__amt--out").dataset.fit], ["320,998,123.45", "s"]);
+  await type(P, "1234567890.12");
+  assert.equal(P.$(".swap__row--in .swap__amt").dataset.fit, "s", "the typed amount too");
+  await type(P, "0.5");
+  assert.equal(P.$(".swap__row--in .swap__amt").dataset.fit, undefined, "a short amount: the full size again");
+});
+
+test("compact panel (swap.css): no ellipsis on an amount or a ticker, two-column details at every width, a 44 px summary with '+' / '−' in the accent text, kept room so the button does not jump, motion only under no-preference and not when paused", () => {
+  const css = readFileSync(new URL("../public/swap.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /text-overflow:\s*ellipsis/, "nothing in the panel is cut with an ellipsis: amounts, tickers");
+  assert.match(css, /\.swap__amt\[data-fit="m"\] \{ font-size: 1\.5rem; \}/);
+  assert.match(css, /\.swap__amt\[data-fit="s"\] \{ font-size: 1\.2rem; \}/);
+  assert.match(css, /\.swap__details \{ display: grid; grid-template-columns: auto minmax\(0, 1fr\);/);
+  assert.doesNotMatch(css, /\.swap__details \{ grid-template-columns: 1fr/, "the old one-column phone rule is gone");
+  assert.match(css, /\.swap__more-sum \{[^}]*min-height: 44px/);
+  assert.match(css, /\.swap__more-sum::after \{ content: "\+";[^}]*color: var\(--pin-2\)/);
+  assert.match(css, /\.swap__more\[open\] > \.swap__more-sum::after \{ content: "\\2212"; \}/);
+  assert.match(css, /\.swap__status \{[^}]*min-height: 2\.8em/, "two lines kept for the summary line");
+  assert.match(css, /\.swap__head \{[^}]*min-height: 26px/, "the hidden tag's room is kept");
+  assert.match(css, /\.swap__chip \{[^}]*min-height: 44px/);
+  assert.match(css, /\.swap__go \{ min-height: 52px;/);
+  const [still, moving] = css.split("@media (prefers-reduced-motion: no-preference) {");
+  assert.ok(moving, "one motion block");
+  assert.doesNotMatch(still, /animation:|@keyframes|transition:/, "nothing moves outside it");
+  for (const line of moving.split("\n").filter((l) => /animation:|transition:/.test(l))) assert.match(line, /:root:not\(\[data-motion="paused"\]\)/, `"Pause animations" stops it: ${line.trim().slice(0, 60)}`);
+});
+
 /* ---------------------------------------------------------------- the words on the pages, behind the switch */
 const HOME = `<body data-page="home"><ol class="buy-steps"><li class="card"><span class="buy-steps__n">2</span><h3>Add SOL</h3><p class="muted">Buy SOL in the wallet app.</p></li><li class="card"><span class="buy-steps__n">3</span><h3>Buy on Raydium</h3><p class="muted">On Raydium LaunchLab, only through the <strong>Buy on Raydium</strong> button on our <a href="/token#buy">Token page</a>, so you get the real $VICINITY.</p></li></ol><p class="scam-note"><strong>The only real Raydium is raydium.io.</strong> Look-alike addresses copy it to empty wallets.</p><details id="buy-faq"><summary>How do I buy $VICINITY?</summary><p>Get a Solana wallet (Phantom, Solflare or Backpack), add SOL, then use the <strong>Buy on Raydium</strong> button on the <a href="/token#buy">Token page</a>. It opens the official $VICINITY on Raydium LaunchLab (raydium.io). Look-alike sites that copy Raydium are scams that empty wallets.</p></details></body>`;
 /** A page whose <body data-page> and markup are given, with /api/official already read by site.js (window.V.official). */
@@ -405,7 +560,7 @@ test("copy behind the switch: the token page's FAQ step and the Launchpad's hone
     { official: { swap: true, tokenContract: VIC }, answers: { "/api/swap/config": CONFIG } });
   const steps = T.$$("#buy li").map(text);
   assert.equal(steps[0], "Add SOL. Keep a little extra.");
-  assert.equal(steps[1], "Buy here. Use the Buy panel under the contract address at the top of this page: it quotes through Jupiter and executes on Raydium LaunchLab, signed in your own wallet. You never leave vicinity.city.");
+  assert.equal(steps[1], "Buy here. Use the Buy panel at the top of this page: it quotes through Jupiter and executes on Raydium LaunchLab, signed in your own wallet. You never leave vicinity.city.");
   assert.equal(T.$$("#buy li")[1].querySelector("strong").textContent, "Buy here.");
   assert.deepEqual(T.calls, ["/api/swap/config"], "the panel on the page needed the config, once");
   assert.equal(T.$("#buy-slot").getAttribute("data-swap-mounted"), "1");

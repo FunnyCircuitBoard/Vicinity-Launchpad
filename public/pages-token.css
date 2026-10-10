@@ -1,0 +1,105 @@
+/* Design v2 (10 Oct 2026): the token page. One sheet per page, loaded last there (scripts/pages/src/<page>.html "styles").
+   Phone first; the shared tokens come from style.css, each with a fallback here; motion only inside prefers-reduced-motion: no-preference. */
+/* =====================================================================
+   /token: the title, a live price line, the Buy card, then the contract card and the four facts. A computer puts the Buy card in a
+   sticky column on the right.
+   ===================================================================== */
+.token-hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4, 16px); }
+.token-hero > * { min-width: 0; }
+.token-hero__head .kicker { margin-bottom: var(--sp-2, 8px); }
+#token .token-hero__head .page-title { margin: 0 0 var(--sp-2, 8px); }
+/* the live line: the price (a big tabular number), its 24 h change and the market cap; its height is held from the first paint */
+.token-quote { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-height: 2rem; margin: 0; }
+.token-quote__price { font: 650 var(--fs-lg, 1.375rem)/1.2 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--text); }
+.token-quote__price:empty { display: inline-block; width: 7.5em; height: 1.2em; border-radius: var(--r-xs, 8px); background: var(--card-2); }
+.token-quote__price.is-none { font: 500 var(--fs-sm, .875rem)/1.4 var(--body); color: var(--muted); }
+.token-quote__chg:empty { display: none; }
+.token-quote__chg { display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: var(--r-pill, 999px); font: 700 var(--fs-xs, .75rem)/1 var(--body); font-variant-numeric: tabular-nums;
+  color: var(--muted); background: var(--card-2); border: 1px solid var(--line-2); }
+.token-quote__chg.is-up { color: var(--ok-text); background: var(--ok-soft, rgba(55,194,154,.14)); border-color: rgba(55,194,154,.4); }
+.token-quote__chg.is-down { color: var(--bad-text); background: rgba(255,90,54,.07); border-color: rgba(255,90,54,.4); } /* .07: 4.6:1 for the light theme's red */
+.token-quote__cap { font-size: var(--fs-sm, .875rem); color: var(--muted); font-variant-numeric: tabular-nums; }
+#token .token-hero__lead { margin: 0; font-size: var(--fs-sm, .875rem); line-height: 1.5; color: var(--muted); }
+
+/* the Buy card: its room is held unseen until token.js knows what it shows (the panel, the Raydium button, or nothing) */
+.token-hero__buy[hidden] { display: none; }
+.token-hero__buy > #buy-slot { margin: 0; }
+.buy-slot.is-pending { min-height: 518px; } /* the compact Buy panel's height before a quote (390 px); 555 at 320, 530 on a computer */
+.buy-slot.is-pending > .contract__buy { visibility: hidden; }
+
+/* the contract card: one glass card (the Buy card above is the page's hero object and its one ember); the shield in a tinted circle;
+   the address in a well; Jupiter · Chart · Solscan as three equal pills on one row */
+.token-hero .contract { margin: 0; gap: var(--sp-3, 12px); padding: var(--card-pad, 16px); border-radius: var(--r-card, 18px); border-color: var(--line);
+  background: var(--surface-1, var(--card)); box-shadow: var(--shadow-1, none); }
+:root[data-theme="light"] .token-hero .contract { background: var(--surface-1, var(--card)); border-color: var(--line); }
+.token-hero .contract::before, .token-hero .contract::after { content: none; }
+.token-hero .contract__icon { width: 36px; height: 36px; border-radius: 50%; color: var(--ok-text); background: var(--ok-soft, rgba(55,194,154,.14)); box-shadow: none; }
+.token-hero .contract__addr { padding: var(--sp-3, 12px); border: 0; border-radius: var(--r-chip, 12px); background: var(--surface-inset, rgba(var(--ink),.04)); box-shadow: none; }
+.token-hero .contract__links { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2, 8px); }
+.token-hero .contract__ext { flex-direction: row; justify-content: center; align-items: center; gap: 6px; min-height: 44px; padding: 0 8px; border-radius: var(--r-pill, 999px);
+  font: 600 var(--fs-sm, .875rem)/1.15 var(--body); background: var(--card-2); }
+.token-hero .contract__ext svg { width: 16px; height: 16px; flex: none; }
+.token-hero .contract__ext span { overflow-wrap: normal; white-space: nowrap; }
+.token-hero .contract__ext .contract__out { position: static; font-size: var(--fs-xs, .75rem); }
+.token-hero .contract__foot { padding-top: var(--sp-3, 12px); border-top: 1px solid var(--line); }
+.token-hero .contract__foot p { font-size: var(--fs-sm, .875rem); }
+@media (max-width: 360px) { .token-hero .contract__ext { padding: 0 4px; gap: 4px; font-size: .8rem; } .token-hero .contract__ext svg { display: none; } }
+/* the Jupiter pill: swap arrows while it is where you trade, an info mark once the page's own Buy card is the place to buy
+   (token.js / coin.js set data-swap-here; the info mark stays even at 360 px, where the other pills drop their icons) */
+.contract__ext .ext-ico--info, .contract__ext[data-swap-here] .ext-ico--swap { display: none; }
+.contract__ext[data-swap-here] .ext-ico--info { display: block; }
+/* the four facts: labels in sentence case above big tabular numbers; two by two on a phone */
+.token-hero .stat-row { margin-top: var(--sp-3, 12px); grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2, 8px); }
+.token-hero .stat { padding: var(--sp-3, 12px) 14px; border-radius: var(--r-chip, 12px); background: var(--surface-1, var(--card)); }
+.token-hero .stat__label { text-transform: none; letter-spacing: 0; font-size: var(--fs-xs, .75rem); }
+.token-hero .stat strong { font-size: clamp(1rem, 4.6vw, 1.3rem); font-variant-numeric: tabular-nums; } /* "$0.00000732" whole in a 320 px phone's half-width tile */
+.stat-src { margin: var(--sp-2, 8px) 2px 0; font-size: var(--fs-xs, .75rem); line-height: 1.5; color: var(--muted); }
+
+/* a phone: the title and the price, then the Buy card, the contract card and the facts; the one-sentence lead goes under the facts */
+@media (max-width: 999px) {
+  #token.page-hero { padding-top: var(--sp-4, 16px); }
+  .token-hero { gap: var(--sp-3, 12px); }
+  .token-hero__head .kicker { margin-bottom: 6px; }
+  #token .token-hero__head .page-title { margin-bottom: 4px; }
+  .token-hero__head { order: 1; }
+  .token-hero__buy { order: 2; }
+  .token-hero__info { order: 3; }
+  .token-hero__lead { order: 4; }
+}
+@media (max-width: 600px) {
+  #token .token-hero__head .page-title { font-size: clamp(2.1rem, 10vw, 2.6rem); }
+  /* price, change and market cap on one line at 390 px (they wrap, whole, on the narrowest phones) */
+  .token-quote { gap: 4px 8px; }
+  .token-quote__price { font-size: 1.25rem; }
+}
+@media (max-width: 360px) { .buy-slot.is-pending { min-height: 555px; } }
+/* a 320 px phone: the Buy button in the first screen ("Live on Solana" beside the title; the market cap is in the Price tile below) */
+@media (max-width: 359px) {
+  .token-hero__head { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
+  #token .token-hero__head .page-title { order: 1; }
+  .token-hero__head .kicker { order: 2; margin: 0; }
+  .token-quote { order: 3; flex-basis: 100%; }
+  .token-quote__cap { display: none; }
+}
+@media (min-width: 640px) and (max-width: 999px) { .token-hero__buy { width: min(100%, 560px); } }
+/* a computer: the title, the price, the lead and the facts on the left; the Buy card sticks in a column on the right */
+@media (min-width: 1000px) {
+  .token-hero { grid-template-columns: minmax(0, 1fr) minmax(380px, 440px); grid-template-areas: "head buy" "lead buy" "info buy"; grid-template-rows: auto auto 1fr; column-gap: 48px; row-gap: var(--sp-4, 16px); align-items: start; }
+  .token-hero__head { grid-area: head; }
+  .token-hero__lead { grid-area: lead; }
+  .token-hero__info { grid-area: info; }
+  .token-hero__buy { grid-area: buy; position: sticky; top: var(--sticky-top, 79px); }
+  /* the wallet list (and its QR code) makes the card taller than a short screen: while it shows, the stuck card scrolls inside itself,
+     so its lower part is never out of reach */
+  .token-hero__buy:has(.swap__wallets:not([hidden])) { max-height: calc(100vh - var(--sticky-top, 79px) - 16px); overflow-y: auto; overscroll-behavior: contain; border-radius: var(--r-hero, 24px); }
+  .buy-slot.is-pending { min-height: 530px; }
+  .token-hero.is-nobuy { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "lead" "info"; }
+  .token-quote__price { font-size: var(--fs-num, 2.25rem); }
+  .token-hero .stat-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .token-hero .stat strong { font-size: var(--fs-md, 1.125rem); } /* four across in the left column: "$0.00000732" whole, never cut with "…" */
+  /* the old wide contract card (buttons in a column of their own, from 1180 px) does not apply inside the left column: one column, the
+     links in its flow, the card as tall as what it holds */
+  .token-hero .contract:has(> .contract__links:not([hidden])) { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .token-hero .contract:has(> .contract__links:not([hidden])) > .contract__links { grid-column: auto; grid-row: auto; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .token-hero .contract:has(> .contract__links:not([hidden])) .contract__ext { flex-direction: row; justify-content: center; min-height: 44px; padding: 0 10px; font-size: var(--fs-sm, .875rem); }
+}

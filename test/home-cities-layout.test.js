@@ -38,21 +38,22 @@ test("home: on a phone the two hero buttons sit side by side when they fit and g
   assert.match(css, /\.btn--lg \{ min-height: 56px;/, "still a big touch target");
 });
 
-test("cities: the map first, then the numbers, then the description; every id, aria attribute and text kept", () => {
+test("cities: the title row (kicker, h1, one line, the numbers in a row), then the map; every id, aria attribute and text kept", () => {
+  // design v2 (10 Oct 2026): a compact title row above the map puts the H1 in the first screen of a phone; the map follows at once
   for (const [where, h] of both("cities")) {
     const start = h.indexOf('<section class="page-hero page-hero--map" id="cities">');
     assert.ok(start >= 0, where);
     const sec = h.slice(start, h.indexOf("</section>", start));
     const at = (needle) => { const i = sec.indexOf(needle); assert.ok(i >= 0, `${where}: ${needle}`); return i; };
     const order = [
+      at('<div class="cities-intro">'), at(">Live map</p>"), at('<h1 class="page-title">Claim your city.</h1>'), at("One wallet. One city. Chosen by locals."),
+      at('<div class="city-stats" aria-live="polite">'), at('id="cs-cities"'), at('id="cs-status"'),
       at('<div class="citymap card">'), at('id="city-canvas"'), at('class="map-ctrl"'), at('id="map-hint"'), at('class="citymap__legend"'),
       at("Latest founders · live"), at('id="claim-feed"'),
-      at('<div class="city-stats" aria-live="polite">'), at('id="cs-cities"'), at('id="cs-status"'),
-      at('<div class="cities-intro">'), at(">Live map</p>"), at('<h1 class="page-title">Claim your city.</h1>'), at("One wallet. One city. Chosen by locals."),
     ];
-    assert.deepEqual(order, [...order].sort((a, b) => a - b), `${where}: map card (canvas, controls, hint, legend, live feed) → stats → kicker, h1, lead`);
-    // the map is the very first thing in the section, so "scroll to the map" (Most wanted → the map) lands on it
-    assert.match(sec, /^<section class="page-hero page-hero--map" id="cities">\s*<div class="wrap">\s*(<!--[^>]*-->\s*)?<div class="citymap card">/, `${where}: the map opens the section`);
+    assert.deepEqual(order, [...order].sort((a, b) => a - b), `${where}: kicker, h1, lead, stats → map card (canvas, controls, hint, legend, live feed)`);
+    assert.match(sec, /^<section class="page-hero page-hero--map" id="cities">\s*<div class="wrap">\s*(<!--[^>]*-->\s*)?<div class="cities-intro">/, `${where}: the title row opens the section`);
+    assert.doesNotMatch(sec, /Every city has a real boundary: hold your city's founder amount, apply from inside it, and the people who live there decide/, `${where}: said once, in the checklist's "Locals decide"`);
     assert.equal((h.match(/<h1\b/g) || []).length, 1, `${where}: exactly one h1`);
     for (const id of ["cities", "city-canvas", "city-tip", "map-in", "map-out", "map-reset", "map-locate", "map-style", "map-zoom-level", "map-hint", "claim-feed", "cs-cities", "cs-countries", "cs-claimed", "cs-open", "cs-members", "cs-status"]) {
       assert.equal((h.match(new RegExp(`id="${id}"`, "g")) || []).length, 1, `${where}: #${id} once`);

@@ -318,7 +318,9 @@ assert.match(block, /\.lp-empty \.btn \{ min-height: 44px; \}/);
   assert.match(block, /:root\[data-theme="light"\] \.lp-tabs__n/, "a light-theme touch");
   assert.match(block, /\.lp-grid \{[^}]*grid-template-columns: repeat\(auto-fill, minmax\(min\(100%, 300px\), 1fr\)\)/, "cards never force a horizontal scroll");
   assert.match(block, /@media \(max-width: 600px\) \{[\s\S]*\.lp-stats \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/, "two stat columns on phones");
-  assert.match(block, /\.lp-card__disc\[data-color\] \{ background: radial-gradient\(circle at 32% 28%, var\(--c1\), var\(--c2\) 45%, var\(--c3\) 100%\); \}/, "the six coin colours of the dashboard");
+  // design v2 (10 Oct 2026): every coin wears the one avatar recipe of pages-launchpad.css (.lp-ava); the old disc's colour rule is gone
+  assert.match(read("pages-launchpad.css"), /\.lp-ava\[data-color\] \{ background: linear-gradient\(140deg, var\(--c2\), var\(--c3\)\); \}/, "the six coin colours of the dashboard");
+  assert.doesNotMatch(block, /\.lp-card__disc\[data-color\]/);
   assert.equal((css.match(/Launchpad city coins \(LAUNCHPAD_V2=on\)/g) || []).length, 1);
 });
 
@@ -370,7 +372,8 @@ test("live card: Market cap · 24h volume · Holders · Liquidity, each value ti
     "and says it on screen, under the dash");
   const js = readFileSync(new URL("../public/launchpad.js", import.meta.url), "utf8");
   assert.match(js, /const note = field\(el\("dd", `lp-stat__src\$\{s\.value == null \? " is-why" : ""\}`, s\.value == null \? s\.why : s\.src \|\| ""\), `n-\$\{s\.key\}`\);/);
-  assert.match(js, /if \(foot\) li\.append\(field\(el\("p", "lp-src lp-stats__foot", foot\), "stats-foot"\)\);/);
+  // design v2 (10 Oct 2026): the four numbers, their sources and the footnote sit under the card's "Details" (fold), still on screen once opened
+  assert.match(js, /if \(foot\) fold\.append\(field\(el\("p", "lp-src lp-stats__foot", foot\), "stats-foot"\)\);/);
   assert.equal(P.statCells(city("C", { market: null })).length, 4, "a card without a market still has its four places");
 });
 test("live card: the bonding curve is SOL raised against the target (the real migration rule), clamped, and graduation is said in words", () => {
@@ -423,7 +426,7 @@ test("live card markup: price, chip, source, sparkline, four numbers, the curve 
   assert.match(cardFn, /el\("a", "btn btn--glass btn--sm", "Chart & details →"\); more\.href = coinHref\(c\);/);
   assert.doesNotMatch(cardFn, /dexscreener|DEX Screener|lk\.jupiter/, "Jupiter and DEX Screener live on the coin page (DEX Screener only once it lists a pool)");
   assert.match(cardFn, /field\(el\("progress", "lp-bar"\), "curve-bar"\); bar\.max = 100; bar\.value = cv\.value;/, "a progress element: its width needs no style attribute");
-  assert.match(cardFn, /"lp-price__val lp-num"/); assert.match(cardFn, /"lp-val lp-num"/);
+  assert.match(cardFn, /`lp-price__val lp-num\$\{priced \? "" : " is-none"\}`/); assert.match(cardFn, /"lp-val lp-num"/);
   assert.match(part, /window\.V\.liveNums\(list\.querySelectorAll\("\.lp-num"\)\);/, "the numbers ease through the motion layer (a price never counts up from 0)");
   assert.match(part, /if \(old\.dataset\.shape !== fresh\.dataset\.shape\) return fresh;/, "the 30-second refresh updates a card of the same shape in place");
   // the whole card: a click anywhere opens the coin page, except on its own links and buttons, or while selecting text
@@ -467,11 +470,12 @@ test("honesty (review): a card names Raydium LaunchLab only when the chain found
   assert.doesNotMatch(js, /`Raydium LaunchLab · \$\{str\(c\.pair/, "never said unconditionally");
 });
 
-test("intro copy: 'on Raydium LaunchLab' until city-coin trading is on (/api/official launchpadTrading), then 'on the Vicinity launchpad'", async () => {
-  // the built page: the sentence reads exactly as before while the second half stays hidden
+test("intro copy: 'recorded by Vicinity' until city-coin trading is on (/api/official launchpadTrading), then 'on the Vicinity launchpad'", async () => {
+  // the built page: the sentence reads exactly as main's honest copy (#51) while the second half stays hidden; never "Live coins trade now"
   const p = html.match(/<p class="muted">Every coin here is a city's one official coin,[\s\S]*?<\/p>/)[0];
-  assert.match(p, /<span data-launchlab-copy>on Raydium LaunchLab and recorded by Vicinity<\/span><span data-lp-only hidden>on the Vicinity launchpad \(a Meteora bonding curve\)<\/span>\. Live coins trade now/);
-  assert.ok(srcHtml.includes("<span data-lp-only hidden>on the Vicinity launchpad (a Meteora bonding curve)</span>"));
+  assert.match(p, /launched by its City Founder<span data-launchlab-copy> and recorded by Vicinity<\/span><span data-lp-only hidden> on the Vicinity launchpad \(a Meteora bonding curve\)<\/span>\. A coin that has launched shows its live price; the others are designed and waiting\./);
+  assert.doesNotMatch(p, /Live coins trade now/);
+  assert.ok(srcHtml.includes("<span data-lp-only hidden> on the Vicinity launchpad (a Meteora bonding curve)</span>"));
   const run = async (o) => {
     const els = { "[data-launchlab-copy]": [{ hidden: false }], "[data-lp-only]": [{ hidden: true }] };
     const V2 = { ...V, $$: (sel) => els[sel] || [], official: Promise.resolve(o) };

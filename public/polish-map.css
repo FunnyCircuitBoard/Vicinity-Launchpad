@@ -20,3 +20,12 @@
 .tag--active::before { content: ""; display: inline-block; box-sizing: border-box; width: 8px; height: 8px; margin: 0 5px 0 -2px; vertical-align: -1px; border-radius: 50%; border: 1.5px solid currentColor; background: radial-gradient(circle, currentColor 1.2px, transparent 1.8px); }
 /* Most wanted: style.css paints every span of a row muted (.wanted span); the pills keep their own colour there too */
 .wanted li > .tag--open { color: var(--st-open); } .wanted li > .tag--active { color: var(--st-active); } .wanted li > .tag--gold { color: var(--gold-text); } .wanted li > .tag--no { color: var(--bad-text); }
+
+/* icons in place of emoji (the site's icon set, drawn in the text colour through a mask; the shapes are inline data, nothing is
+   fetched): the moderator row's shield, the members row's people, the claim feed's pin */
+.mod-row__icon, .members-row::before, .claim-feed__city::before { content: ""; flex: none; display: inline-block; width: 16px; height: 16px; margin-top: 2px; background: currentColor;
+  -webkit-mask: var(--ico-mask) center / contain no-repeat; mask: var(--ico-mask) center / contain no-repeat; }
+.mod-row__icon { --ico-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3 5 6v5.5c0 4.2 2.9 7.9 7 9.5 4.1-1.6 7-5.3 7-9.5V6l-7-3z'/%3E%3C/svg%3E"); color: var(--pin-2); }
+.members-row::before { --ico-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='9' cy='9' r='3.2'/%3E%3Cpath d='M3.5 19c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8M15.5 6a3 3 0 0 1 0 6M17 14.4c1.9.6 3.1 2.2 3.5 4.6'/%3E%3C/svg%3E"); }
+.claim-feed__city { display: inline-flex; align-items: center; gap: 5px; }
+.claim-feed__city::before { --ico-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z'/%3E%3Ccircle cx='12' cy='10' r='2.4'/%3E%3C/svg%3E"); width: 14px; height: 14px; margin-top: 0; color: var(--pin-2); background: var(--pin-2); }

@@ -47,8 +47,11 @@ export const PUBLIC_LIMITS = {
   swap_tx_auto:   { max: 60, windowMs: MIN },
   swap_send:      { max: 20, windowMs: MIN },
   // the status poll is counted per SIGNATURE first (STATUS_LIMIT below: one person's polling never consumes another's);
-  // the per-connection number is only the brake on a flood of invented signatures (each poll is one RPC call)
-  swap_status:    { max: 600, windowMs: MIN },
+  // the per-connection number is the brake on a flood of invented signatures: each poll is one RPC credit (the block height is
+  // shared for 2 s per server). 600 let one connection spend about 860K credits a day; 120 is four trades confirming at once
+  // behind one address (a page polls 30 times a minute), and a page that meets the limit waits and says "Still checking…"
+  // without losing its trade (public/swap.js watch)
+  swap_status:    { max: 120, windowMs: MIN },
   swap_balances:  { max: 60, windowMs: MIN },
   swap_tokens:    { max: 30, windowMs: MIN },
   // curve trades on our launchpad (LAUNCHPAD_TRADING=on, src/lptrade.js): the launchpad RPC on every call

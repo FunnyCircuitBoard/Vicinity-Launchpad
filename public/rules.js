@@ -2,11 +2,13 @@
 (() => {
   "use strict";
   const { $, $$, el, api, fmt, ago } = window.V;
-  // each rule is a fold: open on a computer, closed on a phone (one card at a time); a link to a rule (/rules#founders) opens its fold
-  const folds = $$(".rules-grid details");
+  // each rule is a fold: open on a computer, closed on a phone (one card at a time); a link to a rule (/rules#founders) opens its fold.
+  // The Terms page (/terms) loads this file for the same folds on its sections (and nothing else: the rules' numbers are below)
+  const folds = $$(".rules-grid details, details.terms-sec");
   if (window.matchMedia && window.matchMedia("(min-width: 800px)").matches) folds.forEach((d) => (d.open = true));
   const openTarget = () => { let t = null; try { t = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null; } catch {} const d = t && t.closest ? t.closest("details") : null; if (d) d.open = true; };
   openTarget(); window.addEventListener("hashchange", openTarget);
+  if (!$(".rules-grid")) return; // the Terms page: folds only
   (async () => {
     const d = await api("/api/policy");
     if (!d.policy) return;

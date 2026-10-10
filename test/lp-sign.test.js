@@ -170,3 +170,41 @@ test("LP.renderSummary: the network, the SOL change and every instruction in pla
   LP.renderSummary(el, { ok: false, error: "insufficient_sol" });
   assert.match(el.textContent, /enough SOL/);
 });
+
+test("LP: a send whose outcome is unclear (the relay's unclear: true, or no answer from the site at all) is watched by the wallet's own signature, never 'nothing was sent'", async () => {
+  const w = await wallet();
+  // 1. the relay answers unclear: true (src/relay.js, after a timeout of the node that had the bytes): the page watches that signature
+  const real = globalThis.fetch;
+  const relayUnclear = async (path, init) => {
+    const r = await real(path, init);
+    if (!String(path).startsWith("/api/swap/send")) return r;
+    const d = await r.json();
+    return new Response(JSON.stringify({ ...d, unclear: true }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  globalThis.fetch = relayUnclear;
+  const statuses = [];
+  const out = await LP.run({ wallet: w, build: build(w.address), ephemeral: 1, cluster: "devnet", onStatus: (s, sig, extra) => statuses.push([s, Boolean(extra && extra.unclear)]) });
+  assert.equal(out.status, "confirmed");
+  assert.deepEqual(statuses, [["signing", false], ["sending", false], ["confirming", true], ["done", false]]);
+  // 2. the site never answered the send (a dropped connection, a gateway's error page) although the relay passed it on: the wallet's
+  //    own signature (slot 0) is watched; the chain says confirmed
+  globalThis.fetch = async (path, init) => {
+    if (!String(path).startsWith("/api/swap/send")) return real(path, init);
+    await real(path, init); // it reached the Worker and went out
+    return new Response("<html>502 Bad Gateway</html>", { status: 502, headers: { "content-type": "text/html" } });
+  };
+  const seen = [];
+  const out2 = await LP.run({ wallet: w, build: build(w.address), ephemeral: 0, cluster: "devnet", onStatus: (s, sig, extra) => seen.push([s, sig || null, Boolean(extra && extra.unclear)]) });
+  const sent = chain.S.sent[chain.S.sent.length - 1];
+  const own = base58Encode(sent.subarray(1, 65));
+  assert.deepEqual([out2.status, out2.signature], ["confirmed", own], "the wallet's own signature, read from the signed bytes");
+  assert.deepEqual(seen.find(([s]) => s === "confirming"), ["confirming", own, true]);
+  // 3. no answer, and the bytes never reached the network: the chain decides "expired" (the only proof that nothing was spent)
+  globalThis.fetch = async (path, init) => (String(path).startsWith("/api/swap/send") ? Promise.reject(new TypeError("Failed to fetch")) : real(path, init));
+  chain.S.statuses = {};
+  const origFetch = chain.fetchImpl;
+  chain.fetchImpl = async (url, init) => { const b = JSON.parse(init.body); if (b.method === "getBlockHeight") return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: 5000 })); return origFetch(url, init); };
+  await assert.rejects(LP.run({ wallet: w, build: build(w.address), ephemeral: 0, cluster: "devnet" }), (e) => e.code === "expired" && typeof e.signature === "string" && /Nothing was spent/.test(e.message));
+  chain.fetchImpl = origFetch;
+  globalThis.fetch = real;
+});

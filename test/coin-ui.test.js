@@ -169,7 +169,11 @@ test("the built page: built from scripts/pages, the Launch tab is current, every
   // every link of the page that opens another site says so
   const main = html.slice(html.indexOf("<main"), html.indexOf("</main>"));
   assert.equal((main.match(/target="_blank"/g) || []).length, (main.match(/\(opens in a new tab\)/g) || []).length);
-  assert.equal((main.match(/target="_blank"/g) || []).length, 7, "and the slim bar's Buy on a short phone");
+  // design v2 (10 Oct 2026): one Buy in the hero (the "Buy & sell" card and its Buy link are gone; its three info links sit in the
+  // contract card, its sentence under the hero's button)
+  assert.equal((main.match(/target="_blank"/g) || []).length, 6, "the hero's Buy, Jupiter, the chart site, Solscan, and the bars' Buy (the slim bar's on a short phone)");
+  assert.doesNotMatch(main, /id="coin-buy"|id="coin-lnk-raydium"/, "one Buy on the page: the hero's (and the phone's bar once it has scrolled away)");
+  assert.match(html, /<a class="btn btn--primary coin-head__buy" id="coin-head-buy"[^>]*>[\s\S]*?<\/a>\s*<p class="coin-foot coin-head__safe">You trade in your own wallet\. Vicinity never touches your funds\.<\/p>/, "the disclosure right under the button");
 });
 
 test("the script keeps the rules: only this site's API, no markup from text, outside links only to the sites they name, 30 s refresh only while looked at", () => {
@@ -234,7 +238,7 @@ test("phones keep at most two bars over the coin page while it scrolls, the curv
   assert.match(css, /@media \(max-width: 1023px\) \{\n  \.coin-mini \{ top: 0; \}\n  body\.has-coin-mini \.site-header:not\(:focus-within\) \{ transform: translateY\(-100%\); \}\n\}/, "the header comes back for the keyboard");
   assert.match(css, /@media \(max-width: 1023px\) and \(max-height: 700px\) \{\n  \.coin-mini__buy:not\(\[hidden\]\) \{ display: inline-flex;[^}]*min-height: 44px;/);
   assert.match(html, /<a class="btn btn--primary btn--sm coin-mini__buy" id="coin-mini-buy" href="\/launchpad" rel="noopener" target="_blank" hidden>Buy <span aria-hidden="true">↗<\/span><span class="sr-only"> on Raydium \(opens in a new tab\)<\/span><\/a>/);
-  assert.match(src, /for \(const id of \["#coin-lnk-raydium", "#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"\]\) set\(id, ray\);/, "the same safe Raydium link");
+  assert.match(src, /for \(const id of \["#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"\]\) set\(id, ray\);/, "the same safe Raydium link");
   assert.match(src, /put\(\$\("#coin-mini-price"\), p \? shortZeros\(p\) : "—"\);/);
   assert.match(css, /\.coin-buybar:not\(\.is-on\), \.coin-mini:not\(\.is-on\) \{ --lb-play: paused; \}/);
   // the curve card: there from the start with its room kept (CLS 0.068 on a computer when it appeared and pushed the contract card down)

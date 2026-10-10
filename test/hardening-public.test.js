@@ -89,4 +89,7 @@ test("dashboard admin queue: the decision sent to /api/coins/mint/decide carries
   const js = read("dashboard.js");
   assert.ok(js.includes('api("/api/coins/mint/decide", { city: w.city, mint: w.pendingMint, approve, note })'));
   assert.ok(js.includes("link.href = `https://solscan.io/token/${w.pendingMint}`"), "it is the same address the Solscan link opened");
+  // shown in full, never as first…last characters (a look-alike address is made to match those)
+  assert.ok(js.includes('const link = el("a", "mono coin-check__mint", w.pendingMint);'), "the admin sees the whole address");
+  assert.ok(js.includes('$("#coin-mint").textContent = cd.mint;'), "the city coin card shows the whole official contract");
 });

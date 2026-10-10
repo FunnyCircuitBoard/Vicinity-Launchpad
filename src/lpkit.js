@@ -13,10 +13,13 @@
  *   checkCluster(env, v)  the page echoes the cluster it shows; a request for another cluster is refused
  *   respond(result)       a buildTx (or any { ok, error }) result as an HTTP answer with the right status
  *   programNames(env)     program id -> plain name, with this site's launchpad and rewards ids
- *   lpRpc / readAccounts  JSON-RPC on the launchpad cluster
+ *   lpRoute / lpRpc / readAccounts  JSON-RPC on the launchpad cluster, always through src/rpcpool.js (never a fetch of its own):
+ *                         devnet = the launchpad's one devnet node; mainnet = LAUNCHPAD_RPC_URL (else SOLANA_RPC_URL) first, then
+ *                         SOLANA_RPC_URL_BACKUP; no URL ever appears in an error or a log line
  */
 import { json } from "./http.js";
-import { rpc } from "./chain.js";
+import { rpc, rpcAnswer } from "./chain.js";
+import { rpcTargets } from "./rpcpool.js";
 import { base58Encode, isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { lpSetup } from "./cluster.js";
@@ -190,8 +193,14 @@ export async function summarize(env, instructions, labels = {}) {
 }
 
 /* ---------------------------------------------------------------- RPC on the launchpad cluster */
-/** One JSON-RPC call on the launchpad cluster's node (lpSetup(env).rpc). Throws a short code. */
-export const lpRpc = (env, method, params, fetchImpl = fetch) => rpc(env, method, params, fetchImpl, { url: lpSetup(env).rpc });
+/**
+ * Where the launchpad cluster's calls go (src/rpcpool.js): { cluster, url }. Devnet asks its one node (never a mainnet node, never
+ * a failover); mainnet asks lpSetup(env).rpc (LAUNCHPAD_RPC_URL, else SOLANA_RPC_URL) first and SOLANA_RPC_URL_BACKUP behind it,
+ * with the pool's breaker. Like src/lptrade.js lpRoute.
+ */
+export const lpRoute = (env) => { const s = lpSetup(env); return { cluster: s.cluster, url: s.rpc }; };
+/** One JSON-RPC call on the launchpad cluster, through the pool (lpRoute). Throws a short code (never a URL). */
+export const lpRpc = (env, method, params, fetchImpl = fetch) => rpc(env, method, params, fetchImpl, lpRoute(env));
 /** Map(address -> account | null) for up to any number of addresses (100 per call), base64 data. Throws on a broken answer. */
 export async function readAccounts(env, addresses, fetchImpl = fetch, { commitment = "confirmed" } = {}) {
   const out = new Map();
@@ -207,24 +216,28 @@ export async function readAccounts(env, addresses, fetchImpl = fetch, { commitme
 }
 
 /* ---------------------------------------------------------------- the cluster guards */
-const genesisOk = new Map(); // "<cluster>|<rpc>" -> true once the node's genesis hash matched (per server)
+const genesisOk = new Map(); // "<cluster>|<rpc>" -> true once the first node's genesis hash matched (per server; never shown)
 export const _resetLpKit = () => { genesisOk.clear(); anchorIndex = null; };
 /**
  * Is the node behind lpSetup(env).rpc really the cluster the settings name? { ok: true } | { ok: false, error: "wrong_cluster" |
- * "rpc_unavailable" | "not_enabled" }. A match is remembered for the life of the server; a failure is asked again next time.
+ * "rpc_unavailable" | "not_enabled" }. A match of that first node is remembered for the life of the server; a failure is asked
+ * again next time. When the pool answered from SOLANA_RPC_URL_BACKUP instead (the first node failed), a matching hash lets this
+ * request go on (the pool uses that backup only once it proved to be a mainnet node, src/rpcpool.js) but is not remembered: the
+ * first node is asked again by the next request.
  */
 export async function checkGenesis(env, fetchImpl = fetch) {
   const s = lpSetup(env);
   if (!s.on) return { ok: false, error: "not_enabled" };
   const key = `${s.cluster}|${s.rpc}`;
   if (genesisOk.get(key)) return { ok: true, cluster: s.cluster };
-  let got;
-  try { got = await lpRpc(env, "getGenesisHash", [], fetchImpl); } catch (e) { console.error("genesis check failed", codeOf(e)); return { ok: false, error: "rpc_unavailable" }; }
+  const route = lpRoute(env);
+  let got, role;
+  try { ({ result: got, role } = await rpcAnswer(env, "getGenesisHash", [], fetchImpl, route)); } catch (e) { console.error("genesis check failed", codeOf(e)); return { ok: false, error: "rpc_unavailable" }; }
   if (got !== GENESIS[s.cluster]) {
     console.error("genesis mismatch: the launchpad RPC is not", s.cluster);
     return { ok: false, error: "wrong_cluster", cluster: s.cluster, message: `The blockchain node in the settings is not Solana ${s.cluster}. Nothing was built.` };
   }
-  genesisOk.set(key, true);
+  if (role === rpcTargets(env, route)[0].role) genesisOk.set(key, true);
   return { ok: true, cluster: s.cluster };
 }
 /** The page sends the cluster it shows ("mainnet" / "devnet"); null when it is this Worker's, else the error to answer. */
@@ -306,7 +319,7 @@ export async function buildTx(env, { payer, instructions, extraSigners = [], loo
     return { tx, ixs, decoded: d, signers };
   };
   const simulateWith = async (built) => {
-    const d = await rpcRaw(env, "simulateTransaction", [toBase64(built.tx), { encoding: "base64", sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed", accounts: { encoding: "base64", addresses: watched } }], fetchImpl, { url: s.rpc });
+    const d = await rpcRaw(env, "simulateTransaction", [toBase64(built.tx), { encoding: "base64", sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed", accounts: { encoding: "base64", addresses: watched } }], fetchImpl, lpRoute(env));
     if (d.error) throw new Error(`rpc_${d.error.code || "error"}`);
     const v = d.result && d.result.value ? d.result.value : {};
     return { ok: v.err == null, err: v.err ?? null, logs: Array.isArray(v.logs) ? v.logs.slice(-30) : [], unitsConsumed: Number.isFinite(Number(v.unitsConsumed)) ? Number(v.unitsConsumed) : null, accounts: Array.isArray(v.accounts) ? v.accounts : null };

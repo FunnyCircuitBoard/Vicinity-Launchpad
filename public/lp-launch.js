@@ -62,9 +62,13 @@
     if (g.leftoverDue) return { action: "leftover", title: "One step left", text: g.message, cost: "Only the network fee (about 0.000005 SOL), plus about 0.002 SOL of rent once if the dev wallet has no account for this coin yet.", button: "Return the unsold coins" };
     return { action: null, title: g.stage === "full" ? "Moving to the open market" : null, text: g.stage === "full" ? g.message : null };
   }
-  const STATUS = { signing: "Waiting for your wallet…", sending: "Sending…", confirming: "Sent. Waiting for the network to confirm…", done: "Confirmed on the blockchain." };
+  const STATUS = { signing: "Waiting for your wallet…", sending: "Sending…", confirming: "Sent. Waiting for the network to confirm…", done: "Confirmed on the blockchain.",
+    // the send's outcome is not known yet (lp-sign.js: the relay's unclear: true, or no answer from the site): watched, never sent twice
+    unclear: "Sent, but the network's answer did not come back. Watching the blockchain for it: do not send it again." };
+  /** The status line for lp-sign.js's onStatus(state, signature, extra). */
+  const statusText = (s, extra) => (s === "confirming" && extra && extra.unclear ? STATUS.unclear : STATUS[s] || s);
 
-  const pure = { parseSol, solText, coinsText, dateText, leftText, view, gradView, NOT_APPROVED, STATUS };
+  const pure = { parseSol, solText, coinsText, dateText, leftText, view, gradView, statusText, NOT_APPROVED, STATUS };
   const root = typeof window !== "undefined" ? window : globalThis;
   root.LPLaunch = { pure };
   if (typeof document === "undefined" || !root.V) return; // node: the helpers are enough
@@ -153,7 +157,7 @@
       const go = button(approve, "btn btn--primary", async () => {
         cancel.disabled = true;
         try {
-          const r = await h.sign({ onStatus: (s) => { line.textContent = STATUS[s] || s; } });
+          const r = await h.sign({ onStatus: (s, _sig, extra) => { line.textContent = statusText(s, extra); } });
           go.remove(); cancel.remove();
           if (r.solscan) line.append(" ", link("See it on Solscan", r.solscan, true));
           if (onDone) await onDone(r, h.response);

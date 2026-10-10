@@ -79,8 +79,9 @@
 .wcard h2 { margin: 0; font-size: 1.35rem; }
 .wcard__lead { margin: 0; color: var(--text-2); }
 .wcard__perks { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; color: var(--text-2); font-size: .95rem; }
-.wcard__perks li { display: flex; gap: 8px; align-items: flex-start; }
-.wcard__perks li::before { content: "✦"; color: var(--gold-text); flex: none; }
+/* a block with the mark hung in its padding (not a flex row: that cut "The founder path for <city> and your city coin" into three columns) */
+.wcard__perks li { position: relative; padding-left: 22px; }
+.wcard__perks li::before { content: "✦"; color: var(--gold-text); position: absolute; left: 0; top: 0; }
 .wcard__actions { display: grid; gap: 8px; }
 .wcard__actions .btn { width: 100%; }
 .wcard__other { text-align: center; }

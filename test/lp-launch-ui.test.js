@@ -394,3 +394,31 @@ test("two wallets in this browser: the founder picks the one they signed in with
   assert.equal(p.prepared[0].address, WALLET);
   assert.match(text(card), /summary of launch/);
 });
+
+test("status line: a send whose outcome is unclear (lp-sign.js onStatus extra.unclear) says it is watched, never 'nothing was sent'", () => {
+  const P = pure();
+  assert.equal(P.statusText("confirming"), "Sent. Waiting for the network to confirm…");
+  assert.equal(P.statusText("signing"), "Waiting for your wallet…");
+  assert.match(P.statusText("confirming", { unclear: true }), /Watching the blockchain for it: do not send it again/);
+  assert.doesNotMatch(P.statusText("confirming", { unclear: true }), /Nothing was sent/);
+  assert.match(LP_LAUNCH, /h\.sign\(\{ onStatus: \(s, _sig, extra\) => \{ line\.textContent = statusText\(s, extra\); \} \}\)/);
+  const ADMIN_LP = read("public/admin-lp.js");
+  assert.match(ADMIN_LP, /s === "confirming" && extra && extra\.unclear \? SAY_STATUS\.unclear/);
+  assert.match(ADMIN_LP, /if \(e && e\.signature\) go\.remove\(\);/, "a step that went out is never offered twice");
+});
+
+test("design v2: the city-coin sheets read the site's tokens with a fallback, the accounts sit in the site's .fold, the card head carries an .ico", () => {
+  const ADMIN_CSS = read("public/admin.css");
+  const block = ADMIN_CSS.slice(ADMIN_CSS.indexOf("/* City coins tab"));
+  for (const css of [CSS, block]) {
+    for (const t of ["--sp-1", "--sp-2", "--sp-3", "--sp-4", "--r-chip", "--r-pill", "--r-card", "--fs-xs", "--fs-sm", "--surface-inset", "--r-xs"]) {
+      for (const m of css.matchAll(new RegExp(`var\\(${t}([,)])`, "g"))) assert.equal(m[1], ",", `${t} always has a fallback`);
+    }
+    assert.doesNotMatch(css, /!important|@import/);
+    assert.match(css, /\.lp-sum__net--main \{ color: #fff; background: #B3261E;/, "the mainnet line stays white on red (6.5:1) in both themes");
+  }
+  assert.match(read("public/lp-sign.js"), /node\("details", "fold lp-sum__more"\)/);
+  assert.match(DASH, /<p class="kicker"><span class="ico ico--sm" aria-hidden="true"><svg [^>]*>[\s\S]*?<\/svg><\/span>City coin · Vicinity launchpad<\/p>/);
+  assert.doesNotMatch(LP_LAUNCH + read("public/admin-lp.js") + read("public/lp-sign.js"), /[\u{1F300}-\u{1FAFF}⚙⚡]/u, "no pictographic emoji");
+  assert.match(block, /\.lp-approve \{ border: 2px solid var\(--gold, #FFC857\);/, "the 'You are approving' box (SEC-1) stands out");
+});

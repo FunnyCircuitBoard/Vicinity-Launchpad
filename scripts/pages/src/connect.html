@@ -1,4 +1,4 @@
-<!--{"title": "Connect", "description": "Join Vicinity in two quick steps: where you are, then who you are. Your dashboard opens right after; link a Solana wallet there whenever you like.", "page": "connect", "scripts": ["vendor/qrcode", "wallets", "connect"], "styles": ["onboard"]}-->
+<!--{"title": "Connect", "description": "Join Vicinity in two quick steps: where you are, then who you are. Your dashboard opens right after; link a Solana wallet there whenever you like.", "page": "connect", "scripts": ["vendor/qrcode", "wallets", "connect"], "styles": ["onboard", "pages-connect"]}-->
     <section class="connect">
       <div class="wrap connect__grid">
         <div class="connect__intro">
@@ -107,6 +107,7 @@
               <p class="kicker">Almost done</p>
               <h2 class="h2--sm" id="link-title" tabindex="-1">Connect your wallet.</h2>
               <p class="muted small">One free signature proves the wallet is yours. Nothing is paid or moved.</p>
+              <p class="tiny muted link-top__safe">Vicinity will never ask for your recovery phrase or private key.</p>
             </div>
             <p class="or-line" id="or-line"><span>New here, or logging in with your wallet</span></p>
             <h2 class="h2--sm" id="wallet-h">Choose your wallet</h2>
@@ -125,9 +126,9 @@
               <p class="tiny muted">Ledger? Connect it through Phantom or Solflare.</p>
             </details>
             <div class="alt-ways">
-              <button type="button" class="alt" id="alt-phone"><span class="alt__icon" aria-hidden="true">📱</span><span><strong>Wallet on my phone</strong><em>Scan a code with your phone, sign there, continue here.</em></span></button>
-              <button type="button" class="alt" id="alt-app"><span class="alt__icon" aria-hidden="true">💸</span><span><strong>App wallet (FOMO, exchanges…)</strong><em>Can't connect to websites? Send yourself a tiny, exact amount instead.</em></span></button>
-              <a class="alt" href="/token#verify" id="alt-check"><span class="alt__icon" aria-hidden="true">🔎</span><span><strong>Just check a wallet's rank</strong><em>Paste any address. No sign-in needed.</em></span></a>
+              <button type="button" class="alt" id="alt-phone"><span class="alt__icon ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></span><span><strong>Wallet on my phone</strong><em>Scan a code with your phone, sign there, continue here.</em></span></button>
+              <button type="button" class="alt" id="alt-app"><span class="alt__icon ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11v3"/><rect x="4" y="8" width="16.5" height="11" rx="2.5"/><path d="M16 13.5h1.5"/></svg></span><span><strong>App wallet (FOMO, exchanges…)</strong><em>Can't connect to websites? Send yourself a tiny, exact amount instead.</em></span></button>
+              <a class="alt" href="/token#verify" id="alt-check"><span class="alt__icon ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5h16"/><path d="m4.5 15 4.5-4.5 3.5 3.5 7-7.5"/><path d="M15 6.5h4.5V11"/></svg></span><span><strong>Just check a wallet's rank</strong><em>Paste any address. No sign-in needed.</em></span></a>
               <a class="link-btn link-skip" href="/dashboard" id="alt-skip" hidden>Skip for now</a>
             </div>
           </div>
@@ -258,7 +259,7 @@
           <div class="cstate" data-state="su-account" hidden>
             <h2 class="h2--sm" id="su-acc-title" tabindex="-1">Create your account</h2>
             <p class="su-chips">
-              <span class="su-chip" id="su-recap" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span id="su-recap-city">—</span> · <button class="link-btn link-btn--tiny" type="button" id="su-recap-redo">Not right? Check again</button></span>
+              <span class="su-chip" id="su-recap" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span id="su-recap-city">—</span><span class="su-recap__sep" aria-hidden="true"> · </span><button class="link-btn link-btn--tiny" type="button" id="su-recap-redo">Not right? Check again</button></span>
             </p>
             <div id="su-acc-choose">
               <div class="su-ident">
@@ -295,8 +296,11 @@
                 </form>
               </details>
               <p class="muted small" id="su-off" hidden>Sign-up with Google or e-mail is being switched on. Please check back soon.</p>
-              <p class="tiny muted">With Google we keep only your Google account id and first name. With e-mail we keep your address and a scrambled (hashed) copy of your password. Nobody can read your password, not even us.</p>
-              <p class="tiny muted" id="su-profiles-note" data-profiles-only hidden>Other signed-in members can see your username, community, bio, wallet address and your $VICINITY and city-coin balances.</p>
+              <details class="fold su-keep">
+                <summary>What we keep and who sees it <span class="fold__meta">Google: your id and first name · e-mail: the address and a scrambled password<span data-profiles-only hidden> · members see your wallet and balances</span></span></summary>
+                <p class="tiny muted">With Google we keep only your Google account id and first name. With e-mail we keep your address and a scrambled (hashed) copy of your password. Nobody can read your password, not even us.</p>
+                <p class="tiny muted" id="su-profiles-note" data-profiles-only hidden>Other signed-in members can see your username, community, bio, wallet address and your $VICINITY and city-coin balances.</p>
+              </details>
             </div>
             <form class="su-form" id="su-code-form" method="post" action="/api/signup/email/verify" hidden novalidate>
               <p class="small">We sent a 6-digit code to <strong id="su-code-to">—</strong>. It works for 10 minutes. Check spam too.</p>
@@ -430,7 +434,7 @@
 
           <!-- 3. done: signed in, or the wallet linked -->
           <div class="cstate" data-state="done" hidden>
-            <div class="verified-badge is-gold" aria-hidden="true" id="done-badge">📍</div>
+            <div class="verified-badge is-gold done-badge" aria-hidden="true" id="done-badge" data-icon="pin"><svg class="done-badge__pin" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><svg class="done-badge__link" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></div>
             <h2 class="h2--sm" id="done-h">You're in.</h2>
             <p class="muted" id="done-sub">Taking you to your dashboard…</p>
             <a class="btn btn--primary" href="/dashboard" id="done-go">Open my dashboard →</a>

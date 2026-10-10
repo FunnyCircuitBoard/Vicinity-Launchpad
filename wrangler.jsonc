@@ -46,7 +46,10 @@
     // since 9 Oct 2026, by the owner ("turn the swap on"). Routed by Jupiter, signed in the person's own wallet, no platform
     // fee. Any other value than "on" (change it, do not delete the line: keep_vars) hides the panel and brings the old
     // "Buy on Raydium" links back at the next deploy. City coins on their bonding curve stay off (LAUNCHPAD_TRADING unset).
-    "SWAP": "on"
+    "SWAP": "on",
+    // Jupiter's allowance for our key (portal.jup.ag, Free plan on 10 Oct 2026: 1 request every 2 seconds). The Worker spends at
+    // most this many exact builds per second per server and shows estimates beyond it; raise it with the plan (e.g. "10").
+    "JUPITER_RPS": "0.5"
   },
   "assets": {
     "directory": "./public",

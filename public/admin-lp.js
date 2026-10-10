@@ -7,7 +7,9 @@
 (() => {
   "use strict";
   const PENDING = "vicinity_lp_pending"; // a transaction that landed but was not recorded yet (per browser; retried on the next visit)
-  const SAY_STATUS = { signing: "Waiting for your wallet…", sending: "Sending…", confirming: "Sent. Waiting for the network to confirm…", done: "Confirmed on the blockchain." };
+  const SAY_STATUS = { signing: "Waiting for your wallet…", sending: "Sending…", confirming: "Sent. Waiting for the network to confirm…", done: "Confirmed on the blockchain.",
+    // the send's outcome is not known yet (lp-sign.js: the relay's unclear: true, or no answer from the site): watched, never sent twice
+    unclear: "Sent, but the network's answer did not come back. Watching the blockchain for it: do not send it again." };
   const STAGE = { curve: "On the price curve", full: "Curve full: ready to move to the open market", graduated: "On the open market (Meteora pool)", unknown: "Its curve could not be read" };
   let D = null, cluster = null, root = null, probe = null;
 
@@ -71,7 +73,7 @@
     const go = btn("Approve in your wallet", async () => {
       cancel.disabled = true;
       try {
-        const r = await h.sign({ onStatus: (s) => { line.textContent = SAY_STATUS[s] || s; } });
+        const r = await h.sign({ onStatus: (s, _sig, extra) => { line.textContent = s === "confirming" && extra && extra.unclear ? SAY_STATUS.unclear : SAY_STATUS[s] || s; } });
         const what = h.response.record || {};
         const entry = { step: what.step, signature: r.signature, params: what.params || {}, cluster, at: Date.now() };
         writePending([...readPending(), entry]);
@@ -86,6 +88,7 @@
         line.textContent = e && e.message ? e.message : "Something went wrong. Nothing was sent.";
         if (e && e.signature && e.solscan) { const a = el("a", "lp-link", "Check it on Solscan"); a.href = e.solscan; a.target = "_blank"; a.rel = "noopener"; line.append(" ", a); }
         cancel.disabled = false;
+        if (e && e.signature) go.remove(); // it went out and may still land: never offered twice (the tab shows the step's state on the next visit)
       }
     }, "btn btn--primary");
     const cancel = btn("Cancel", () => box.replaceChildren());

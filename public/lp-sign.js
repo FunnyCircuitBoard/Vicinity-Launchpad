@@ -17,7 +17,9 @@
  * The order of signing is fixed: the WALLET signs first (solana:signTransaction), so the wallet sees and can check the whole
  * transaction; then this page checks that the wallet changed nothing in the message (byte for byte) and that its signature is
  * valid, adds the one-time keys' signatures at their own slots, and sends through the site's relay (/api/swap/send, which only
- * forwards what this Worker built: the ticket), then watches /api/swap/status. Errors are thrown as Error(message) with .code.
+ * forwards what this Worker built: the ticket), then watches /api/swap/status. A send whose outcome nobody knows (the relay's
+ * unclear: true, or no answer from the site at all) is watched like any other: never "nothing was sent" until the chain says
+ * expired. Errors are thrown as Error(message) with .code.
  * `wallet`: a wallet of public/wallets.js (VW.list(): .account.address and .signTransaction(bytes, chain)), or any object with
  * `address` and `signTransaction(bytes, chain)`.
  */
@@ -162,7 +164,7 @@
       res = await root.fetch(path, body === undefined ? { headers: { accept: "application/json" }, credentials: "same-origin" }
         : { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", body: JSON.stringify(body) });
       data = await res.json();
-    } catch { return { ok: false, error: "rpc_unavailable", _status: res ? res.status : 0 }; }
+    } catch { return { ok: false, error: "rpc_unavailable", _status: res ? res.status : 0, _noAnswer: true }; } // no JSON answer from the site
     if (data && typeof data === "object") data._status = res.status;
     return data || { ok: false, error: "rpc_unavailable" };
   }
@@ -206,9 +208,15 @@
           signed.set(await k.sign(p.message), q.sigAt + 64 * i);
         }
         onStatus("sending");
+        // the transaction's id: the wallet's own signature (slot 0, the fee payer), known before anything is sent
+        const own = b58encode(signed.subarray(q.sigAt, q.sigAt + 64));
         const sent = await call("/api/swap/send", { tx: toB64(signed), ticket: res.ticket, lastValidBlockHeight: res.lastValidBlockHeight, cluster: res.cluster });
+        // No answer from the site (the connection dropped, a gateway's error page): the relay may already have passed the bytes on,
+        // so this never says "nothing was sent" (a second tap would do it twice). Like the relay's own unclear: true (src/relay.js),
+        // the wallet's signature is watched: confirmed, failed, or expired once the chain passed its last valid block (nothing spent).
+        if (sent && sent._noAnswer) { onStatus("confirming", own, { unclear: true }); return watch(own, res, onStatus); }
         if (!sent || sent.ok !== true || !sent.signature) throw err((sent && sent.error) || "rpc_unavailable", sent || undefined);
-        onStatus("confirming", sent.signature);
+        onStatus("confirming", sent.signature, sent.unclear ? { unclear: true } : undefined);
         return watch(sent.signature, res, onStatus);
       },
     };
@@ -264,7 +272,7 @@
       const accts = node("ul", "lp-sum__accts");
       for (const a of ix.accounts || []) accts.append(node("li", null, `${a.label ? `${a.label} ` : ""}${a.address}${a.role && a.role !== "read-only" ? ` (${a.role})` : ""}`));
       if ((ix.accounts || []).length) {
-        const more = node("details", "lp-sum__more");
+        const more = node("details", "fold lp-sum__more"); // the site's fold (design v2): the accounts one tap away, under the instruction
         more.append(node("summary", null, `${ix.accounts.length} account${ix.accounts.length === 1 ? "" : "s"}`), accts);
         li.append(more);
       }

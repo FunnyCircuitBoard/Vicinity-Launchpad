@@ -17,7 +17,7 @@
 (() => {
   "use strict";
   if (typeof window === "undefined" || !window.V) return;
-  const { $, $$, el, api, toast, copy, burst, isAddr } = window.V;
+  const { $, $$, el, api, toast, copy, isAddr } = window.V;
   const W = () => window.VW;
   const SOL = "So11111111111111111111111111111111111111112", USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
   const KEEP_SOL = 0.01; // MAX keeps this much SOL for fees and rent
@@ -66,6 +66,10 @@
   };
   const usd = (v) => (v == null ? "" : v >= 1000 ? "$" + Math.round(v).toLocaleString("en-US") : v >= 1 ? "$" + v.toFixed(2) : "$" + Number(v.toPrecision(3)));
   const sol = (lamports) => num(Number(lamports || 0) / 1e9, 6);
+  /** The same lamports in three significant digits (0.00204), for the one-line summary of the price details. */
+  const solShort = (lamports) => (Number(lamports || 0) / 1e9).toLocaleString("en-US", { maximumSignificantDigits: 3 });
+  /** Motion the visitor allows (site.js: no reduced-motion setting and not "Pause animations"), read when it is needed. */
+  const moving = () => Boolean(window.V && window.V.reduced === false);
   /**
    * Did the build the wallet is about to sign come out WORSE than the quote on the screen? By the raw amounts (more than 0.5 %
    * less out, or a lower minimum) or by the price impact crossing the 3 % / 10 % lines. A better price never stops anyone.
@@ -346,6 +350,8 @@
       this.timer = 0; this.refresh = 0; this.abort = null; this.poll = 0; this.seq = 0; this.dead = false;
       this.bseq = 0; this.babort = null; this.buildT = 0; this.expireT = 0; this.holdT = 0; this.typedAt = 0; this.share = [];
       this.build(); this.render();
+      // a panel that changes width (a phone turned, the sheet on a computer) fits its two amounts again: never cut off
+      if (typeof ResizeObserver === "function") { try { this.ro = new ResizeObserver(() => { this.fitAmt(this.inAmt, true); this.fitAmt(this.outAmt, true); }); this.ro.observe(root); } catch { this.ro = null; } }
       this.offWallet = onWallet(() => {
         if (this.s.phase === "ready" || this.s.phase === "building") { this.dropBuild(); this.s.phase = "quoted"; } // another wallet signs: that build is not its
         this.s.hold = null;
@@ -368,6 +374,7 @@
       this.dropBuild();
       this.seq++; this.s.sig = null;
       if (this.offWallet) this.offWallet();
+      if (this.ro) { try { this.ro.disconnect(); } catch { /* gone */ } this.ro = null; }
       document.removeEventListener("visibilitychange", this.onVisibility);
       for (const type of TOUCH) this.root.removeEventListener(type, this.onTouch);
       panels.delete(this);
@@ -402,21 +409,31 @@
       flip.addEventListener("click", () => this.flip());
       box.append(row("You pay", "in"), flip, row("You get", "out"));
       this.flipBtn = flip;
-      // slippage
+      // slippage (in the "Price details" fold; its summary always says the slippage)
       const slip = el("div", "swap__slip");
-      slip.append(el("span", "swap__slip-label", "Slippage"));
+      const slipLabel = el("span", "swap__slip-label", "Slippage"); slipLabel.setAttribute("id", `swap-slip-${helpIds + 1}`);
+      slip.setAttribute("role", "group"); slip.setAttribute("aria-labelledby", slipLabel.getAttribute("id"));
+      slip.append(slipLabel);
       for (const [bps, text] of [[50, "0.5%"], [100, "1%"], [300, "3%"]]) { const b = el("button", "swap__chip", text); b.type = "button"; b.dataset.bps = String(bps); b.addEventListener("click", () => this.setSlippage(bps)); slip.append(b); }
-      const custom = el("input", "swap__chip swap__chip--custom"); custom.inputMode = "decimal"; custom.placeholder = "custom %"; custom.setAttribute("aria-label", "Custom slippage in percent"); custom.maxLength = 5;
+      const custom = el("input", "swap__chip swap__chip--custom"); custom.inputMode = "decimal"; custom.placeholder = "Other %"; custom.setAttribute("aria-label", "Custom slippage in percent"); custom.maxLength = 5;
       custom.addEventListener("change", () => { const p = Number(String(custom.value).replace(",", ".")); if (Number.isFinite(p) && p > 0) this.setSlippage(Math.min(5000, Math.max(1, Math.round(p * 100)))); else custom.value = ""; });
       slip.append(custom); this.customSlip = custom;
       // the three words a first-time buyer meets, in one sentence
       const help = el("p", "tiny muted swap__help", "Slippage is how much worse than this quote you still accept. If the price moves past Min received, the trade stops and nothing is spent; Price impact is how much your own trade moves the price."); help.setAttribute("id", `swap-help-${++helpIds}`);
       custom.setAttribute("aria-describedby", help.getAttribute("id"));
       // details
-      const dl = el("dl", "swap__details");
-      const kv = (k) => { const dt = el("dt", null, k), dd = el("dd", null, "—"); dl.append(dt, dd); return dd; };
-      this.dMin = kv("Min received"); this.dImpact = kv("Price impact"); this.dFee = kv("Fee"); this.dRoute = kv("Route");
-      this.rentDt = el("dt", null, "Account rent"); this.dRent = el("dd", null, ""); dl.append(this.rentDt, this.dRent); this.rentDt.hidden = this.dRent.hidden = true; // shown only when a trade will ask for rent
+      // (hidden until there is a quote: the fold says what will show here instead of a column of dashes)
+      const dl = el("dl", "swap__details"); dl.hidden = true; this.dl = dl;
+      // long: a value that wraps takes the whole width on a narrow panel (swap.css)
+      const kv = (k, long) => { const dt = el("dt", long ? "is-long" : null, k), dd = el("dd", long ? "is-long" : null, "—"); dl.append(dt, dd); return dd; };
+      this.dMin = kv("Min received"); this.dImpact = kv("Price impact"); this.dFee = kv("Fee", true); this.dRoute = kv("Route", true);
+      this.rentDt = el("dt", "is-long", "Account rent"); this.dRent = el("dd", "is-long", ""); dl.append(this.rentDt, this.dRent); this.rentDt.hidden = this.dRent.hidden = true; // shown only when a trade will ask for rent
+      const moreEmpty = el("p", "swap__more-empty", ""); this.moreEmpty = moreEmpty;
+      // "Price details": the slippage, its help and the details folded under the button; the summary line keeps every cost and
+      // risk in sight (slippage, a fee, the one-time account fee, a high price impact), and opens by itself above 3 % impact
+      const more = el("details", "swap__more"); this.more = more;
+      const moreSum = el("summary", "swap__more-sum", "Price details "); const meta = el("span", "swap__more-meta", ""); moreSum.append(meta); this.moreMeta = meta;
+      const moreBody = el("div", "swap__more-body");
       // warnings, status, action
       const warn = el("label", "swap__warn"); warn.hidden = true;
       const cb = el("input"); cb.type = "checkbox"; this.understand = cb;
@@ -431,7 +448,10 @@
       const foot = el("p", "tiny muted swap__foot"); this.foot = foot;
       const picker = el("div", "swap__picker"); picker.hidden = true; this.picker = picker;
       const walletBox = el("div", "swap__wallets"); walletBox.hidden = true; this.walletBox = walletBox;
-      r.append(head, note, box, slip, help, dl, warn, status, go, links, foot, picker, walletBox);
+      // answer first: the amounts, the one-line summary, the 10 % box when it applies, the button and the wallet chooser it
+      // opens; then the receipt link, the footer, and the price details folded
+      moreBody.append(slip, help, dl, moreEmpty); more.append(moreSum, moreBody);
+      r.append(head, note, box, picker, status, warn, go, walletBox, links, foot, more);
       this.inAmt.addEventListener("input", () => { this.note.hidden = true; this.onAmount(); });
       this.inAmt.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); this.primary(); } });
       // somebody is here: any tap, key or change in the panel starts the quiet rebuilds' count again (removed by destroy(): a
@@ -764,7 +784,7 @@
         if (this.s.sig !== sig || this.dead) return;
         const d = await req(`/api/swap/status?sig=${sig}&lvbh=${lvbh || ""}&cluster=${this.s.cluster}&via=${this.s.curve ? "curve" : "jupiter"}`);
         if (this.s.sig !== sig || this.dead) return;
-        if (d && d.ok && (d.status === "confirmed" || d.status === "finalized")) { this.phase("done"); setTimeout(() => this.loadBalances(true), 1000); try { const r = this.go.getBoundingClientRect(); burst(r.left + r.width / 2, r.top); } catch { /* no burst */ } return; }
+        if (d && d.ok && (d.status === "confirmed" || d.status === "finalized")) { this.phase("done"); setTimeout(() => this.loadBalances(true), 1000); this.celebrate(); return; }
         if (d && d.ok && d.status === "failed") return this.phase("failed", { error: { error: d.err || "rejected_by_network", name: d.name } });
         if (d && d.ok && d.status === "expired") return this.phase("failed", { error: { error: "expired" } });
         let wait = POLL_MS;
@@ -827,7 +847,7 @@
       this.showBox(box.querySelector("button.wallet-option"));
     }
     /**
-     * The box opens under the footer, which may be below the screen (the button sits just above the bottom bar, or in the sheet):
+     * The box opens right under the button, which may sit just above the bottom bar or low in the sheet (below the screen):
      * it is scrolled into view and the keyboard (and a screen reader) moves to its first line or option, so a tap always shows
      * something happening.
      */
@@ -941,6 +961,54 @@
       search.focus();
     }
     impact() { const q = this.s.quote; const v = q && q.priceImpactPct != null ? Number(q.priceImpactPct) : 0; return Number.isFinite(v) ? v : 0; }
+    /* ----- presentation only (nothing here touches the trade) ----- */
+    /** "Swapped ✓" on a buy: one burst from the button (site.js), only when the visitor allows motion. */
+    celebrate() {
+      const V = window.V;
+      if (!V || typeof V.burst !== "function" || !moving() || !/^Buy /.test(this.action)) return;
+      try { const r = this.go.getBoundingClientRect(); V.burst(r.left + r.width / 2, r.top); } catch { /* no burst */ }
+    }
+    /**
+     * An amount never ends in "...": a longer number takes a smaller size (data-fit, swap.css), and one that still does not fit
+     * the panel (a 320 px phone, a big quote) is measured and stepped down until it does. `force`: the panel changed width.
+     */
+    fitAmt(e, force = false) {
+      if (!e) return;
+      const t = String((e.tagName === "INPUT" ? e.value : e.textContent) || "");
+      const fit = t.length >= 13 ? "s" : t.length >= 10 ? "m" : "";
+      if ((e.dataset.fit || "") !== fit) { if (fit) e.dataset.fit = fit; else delete e.dataset.fit; }
+      if ((!force && e._fitted === t) || typeof window.getComputedStyle !== "function" || !e.style) return;
+      e._fitted = t;
+      e.style.fontSize = "";
+      if (!t || !e.clientWidth || e.scrollWidth <= e.clientWidth + 1) return;
+      const size = parseFloat(window.getComputedStyle(e).fontSize) || 16;
+      e.style.fontSize = `${Math.max(13, Math.floor((size * (e.clientWidth - 2)) / e.scrollWidth))}px`;
+    }
+    /** A new number settles in (opacity and a 4 px rise, 240 ms), only when the visitor allows motion. */
+    settle(e) {
+      if (!moving() || !e || typeof e.animate !== "function") return;
+      try { e.animate([{ opacity: 0.35, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: 240, easing: "cubic-bezier(.2,.8,.2,1)" }); } catch { /* no motion */ }
+    }
+    /**
+     * The "Price details" summary: the slippage, then every cost and risk the fold holds (the curve or platform fee, the one-time
+     * account fee of a missing token account, the platform's account a curve trade re-creates and never returns, a price impact
+     * above 3 %), so folding never hides one. Written only when it changes.
+     */
+    renderMeta(q, f, impact, ownRent, refRent) {
+      const s = this.s, bits = [[`Slippage ${s.slippage / 100}%`, ""]];
+      const feeBps = f ? (f.curveFeeBps != null ? f.curveFeeBps : f.platformFeeBps) : config && config.platformFeeBps;
+      if (feeBps > 0) bits.push([`Fee ${f && f.curveFeeBps != null ? (feeBps / 100).toFixed(2) : (feeBps / 100).toString()}%`, "is-cost"]);
+      if (ownRent > 0) bits.push([`≈ ${solShort(ownRent)} SOL one\u2011time account fee`, "is-cost"]); // a hyphen that never breaks the line
+      if (refRent > 0) bits.push([`≈ ${solShort(refRent)} SOL setup fee, not returned`, "is-cost"]);
+      if (q && impact > 3) bits.push([`Impact ${impact.toFixed(2)}%`, impact > 10 ? "is-bad" : "is-warn"]);
+      const key = JSON.stringify(bits);
+      if (this.metaKey === key) return;
+      this.metaKey = key;
+      const parts = [];
+      // each fact wraps as one piece, its dot leading it ("Slippage 1%" / "· ≈ 0.00204 SOL one-time account fee")
+      bits.forEach(([t, cls], i) => { const bit = el("span", "swap__more-bit"); if (i) { parts.push(" "); bit.append(el("span", "swap__more-dot", "· ")); } bit.append(cls ? el("span", cls, t) : t); parts.push(bit); });
+      this.moreMeta.replaceChildren(...parts);
+    }
     /* ----- render ----- */
     render() {
       const s = this.s, q = s.quote;
@@ -950,7 +1018,10 @@
       setTok(this.outTok, s.out, this.fixedOut && !s.flipped);
       this.inLabel.textContent = s.curve ? (s.curve.side === "buy" ? "You pay" : "You sell") : "You pay";
       this.outLabel.textContent = q && q.estimate ? "You get · estimate" : q && q.partialFill ? "You get · the rest comes back" : "You get";
-      this.outAmt.textContent = q ? num(Number(q.outUi), 6) : s.phase === "quoting" ? "…" : "—";
+      const outText = q ? num(Number(q.outUi), 6) : s.phase === "quoting" ? "…" : "—";
+      if (this.outAmt.textContent !== outText) { this.outAmt.textContent = outText; if (q) this.settle(this.outAmt); }
+      this.outAmt.classList.toggle("is-empty", !q); // the one "—" (or "…") of the panel, in the muted colour
+      this.fitAmt(this.inAmt); this.fitAmt(this.outAmt);
       this.inUsd.textContent = q && q.inUsd != null ? `≈ ${usd(q.inUsd)}` : "";
       this.outUsd.textContent = q && q.outUsd != null ? `≈ ${usd(q.outUsd)}` : "";
       const b = s.balances;
@@ -974,22 +1045,32 @@
       const net = f ? `network ≈ ${sol(f.networkLamports || 5000)} SOL${prio ? ` · ${prio}` : ""}` : "";
       const platform = f && f.platformFeeBps > 0 ? ` · ${(f.platformFeeBps / 100).toString()}% platform fee` : " · no platform fee";
       this.dFee.textContent = q ? (f && f.curveFeeBps != null ? `${(f.curveFeeBps / 100).toFixed(2)}% curve fee · ${net}` : `${net}${platform}`) : "—";
-      this.dRoute.textContent = q ? (q.source === "curve" ? "Executed on the Meteora bonding curve" : q.routeText || "Routed by Jupiter") : "—";
+      this.dRoute.textContent = q ? (q.source === "curve" ? "Executed on the Meteora bonding curve" : String(q.routeText || "Routed by Jupiter").replace(/Launchlab/g, "LaunchLab")) : "—";
       // rent: a token account of the person's that does not exist yet (returned when closed), and on a curve the platform's
       // referral account when it is missing (that one is not returned): said before the wallet opens, not after
       const rentBits = [];
       const outAcct = b && this.connected && s.out !== SOL && b.tokens && b.tokens[s.out] ? b.tokens[s.out].hasAccount : null;
-      if (q && outAcct === false) rentBits.push(`about ${sol((f && f.rentLamports) || 2039280)} SOL once creates your ${sym(s.out)} account (returned when you close it)`);
-      if (q && f && f.referralRentLamports > 0) rentBits.push(f.referralNote || `about ${sol(f.referralRentLamports)} SOL re-creates the platform's fee account (not returned)`);
+      const ownRent = q && outAcct === false ? (f && f.rentLamports) || 2039280 : 0, refRent = q && f && f.referralRentLamports > 0 ? f.referralRentLamports : 0;
+      if (ownRent) rentBits.push(`about ${sol(ownRent)} SOL, once, to open your ${sym(s.out)} account (you get it back when you close it)`);
+      if (refRent) rentBits.push(f.referralNote || `about ${sol(refRent)} SOL re-creates the platform's fee account (not returned)`);
       this.dRent.textContent = rentBits.join("; ");
       this.dRent.hidden = this.rentDt.hidden = !rentBits.length;
+      // no column of dashes before a quote: the details show with the price, and the fold says what they will be
+      this.dl.hidden = !q; this.moreEmpty.hidden = Boolean(q);
+      const emptyLine = s.amount ? "The minimum you get, the price impact, the fees and the route show here with the price." : "Type an amount to see the minimum you get, the price impact, the fees and the route.";
+      if (this.moreEmpty.textContent !== emptyLine) this.moreEmpty.textContent = emptyLine;
+      this.renderMeta(q, f, impact, ownRent, refRent);
+      // a price impact above 3 % opens the details once per trade (pair, amount, slippage); never closed by the page, and never
+      // opened again for that trade once the person closed it
+      if (q && impact > 3 && (s.phase === "quoted" || s.phase === "ready")) { const key = this.tradeKey(); if (this.openedFor !== key) { this.openedFor = key; this.more.setAttribute("open", ""); } }
       this.root.classList.toggle("is-warn", impact > 3 && impact <= 10);
       this.root.classList.toggle("is-bad", impact > 10);
       this.warn.hidden = !(q && impact > 10 && (s.phase === "quoted" || s.phase === "ready"));
       // the state tag
-      const tags = { idle: ["", this.ready ? "Ready" : "Loading…"], quoting: ["", "Quoting…"], quoted: ["tag--ok", q && q.estimate ? "Estimate" : s.curve ? (s.cluster === "devnet" ? "Devnet test coin" : "Live · curve") : "Live"], building: ["", "Preparing…"], ready: ["tag--ok", s.refreshing ? "Refreshing…" : s.cluster === "devnet" ? "Devnet test coin" : "Price ready"], signing: ["tag--warn", "Confirm in wallet"], sending: ["tag--warn", "Sending…"], confirming: ["tag--warn", "Confirming…"], done: ["tag--ok", "Swapped ✓"], failed: ["tag--no", "Stopped"] };
+      const tags = { idle: ["", this.ready ? "Ready" : "Loading…"], quoting: ["", "Quoting…"], quoted: ["tag--ok", q && q.estimate ? "Estimate" : s.curve ? (s.cluster === "devnet" ? "Devnet test coin" : "Live · curve") : "Live"], building: ["", "Preparing…"], ready: ["tag--ok", s.refreshing ? "Refreshing…" : s.cluster === "devnet" ? "Devnet test coin" : "Price ready"], signing: ["tag--warn", "Confirm in wallet"], sending: ["tag--warn", "Sending…"], confirming: ["tag--warn", "Confirming…"], done: ["tag--ok", "Swapped ✓"], failed: s.soft ? ["", "Try again"] : ["tag--no", "Stopped"] };
       const [cls, text] = tags[s.phase] || ["", ""];
       this.state.className = `tag swap__state ${cls}`; this.state.textContent = text;
+      this.state.hidden = s.phase === "idle" && !s.amount; // nothing typed yet: no tag (its room stays, swap.css)
       // the status line (said once per state: the same words are never written again, so a screen reader is not told twice)
       const action = this.action, verb = action.split(" ")[0];
       const intro = this.mode === "buy" && !s.flipped ? `You pay ${sym(s.in)}, the market gives you ${sym(s.out)}; your own wallet asks you to confirm.` : "Pick the pair and an amount; your own wallet asks you to confirm.";
@@ -1111,7 +1192,7 @@
     ["home", ".buy-steps h3", /^Buy on Raydium$/, "Buy here"],
     ["home", ".buy-steps p", /Buy on Raydium/, (p) => p.replaceChildren("Right here, on our ", link("/token#buy-slot", "Token page"), ": the Buy panel quotes through Jupiter and executes on Raydium LaunchLab, signed in your own wallet, so you get the real $VICINITY without leaving vicinity.city.")],
     ["home", "#buy-faq p", /Buy on Raydium/, (p) => p.replaceChildren("Get a Solana wallet (Phantom, Solflare or Backpack), add SOL, then use the Buy panel on the ", link("/token#buy-slot", "Token page"), ". It quotes through Jupiter and executes on Raydium LaunchLab, signed in your own wallet; you never leave this site. Look-alike sites that copy Raydium are scams that empty wallets.")],
-    ["token", "#buy li", /^Buy on Raydium\./, (li) => li.replaceChildren(el("strong", null, "Buy here."), " Use the Buy panel under the contract address at the top of this page: it quotes through Jupiter and executes on Raydium LaunchLab, signed in your own wallet. You never leave vicinity.city.")],
+    ["token", "#buy li", /^Buy on Raydium\./, (li) => li.replaceChildren(el("strong", null, "Buy here."), " Use the Buy panel at the top of this page: it quotes through Jupiter and executes on Raydium LaunchLab, signed in your own wallet. You never leave vicinity.city.")],
     ["launchpad", "#lp-honesty", OLD_TRADE_SENTENCE, (p) => replaceSentence(p, OLD_TRADE_SENTENCE, NEW_TRADE_SENTENCE)],
   ];
   function copySweep() {

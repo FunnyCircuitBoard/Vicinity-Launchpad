@@ -307,7 +307,8 @@ test("home: the roadmap shows the October 3 launch as done and the Launchpad as 
   const h = html["index.html"];
   const items = [...h.matchAll(/<li class="timeline__item([^"]*)"><span class="timeline__status">([^<]+)<\/span><h3>([^<]+)<\/h3>/g)].map((m) => [m[1].trim(), m[2], m[3]]);
   assert.deepEqual(items.slice(0, 4), [["is-done reveal", "Done", "The real map"], ["is-done reveal", "Done", "Accounts and dashboards"],
-    ["is-done reveal", "Done", "$VICINITY launched"], ["is-next reveal", "October 10", "Vicinity Launchpad"]]);
+    ["is-done reveal", "Done", "$VICINITY launched"], ["is-next reveal", "Next", "Vicinity Launchpad"]]);
+  assert.doesNotMatch(h, /Every city can launch/, "no city coin can launch yet: the roadmap says each city launches once its founder qualifies");
   assert.equal((h.match(/timeline__item is-next/g) || []).length, 1, "one next step");
   assert.doesNotMatch(h, /published on this site first/);
   assert.doesNotMatch(h, /it launches October 3|so it launches a week earlier|Why is \$VICINITY launching/);
@@ -341,8 +342,9 @@ test("dashboard teaser: nothing in the signed-out preview is shifted sideways or
   // measured live 3 Oct 2026 on /dashboard (signed out) at 320px: the second staggered card ran 40 to 328px, the page widened to 328px and
   // the bottom menu bar was laid out 8px past the screen edge. The staggered blur cards were replaced on 5 Oct 2026 by an example
   // dashboard (.dpv) that stays inside its column: no sideways shift, no negative side offset. Checked in Chromium at 320/390/1280 px.
-  assert.doesNotMatch(css, /\.blur-card|\.teaser__lock/, "the old staggered cards are gone");
-  const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(?<=^|[{}])(\s*)([^{}@]*\.dpv[^{}]*)\{([^}]*)\}/g)];
+  const dash = read("polish-dash.css"); // the preview's rules live in the dashboard's own sheet (review PERF-1)
+  assert.doesNotMatch(css + dash, /\.blur-card|\.teaser__lock/, "the old staggered cards are gone");
+  const rules = [...dash.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(?<=^|[{}])(\s*)([^{}@]*\.dpv[^{}]*)\{([^}]*)\}/g)];
   assert.ok(rules.length >= 20, "the preview's rules");
   // the two light sweeps are larger than their card and slide across it, so their card clips them
   const clipped = { ".dpv__shine": ".dpv__pass", ".dpv__fill::after": ".dpv__fill" };

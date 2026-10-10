@@ -35,7 +35,8 @@ test("the dashboard page holds the welcome card, the link card, the two rings, t
   assert.match(html, /Free: one signature, not a transaction\. Vicinity never asks for your recovery phrase or private key\./);
   assert.match(html, /<li>Your \$VICINITY balance and your rank among all holders<\/li>/);
   assert.match(html, /<li>The founder path for <span id="wcard-city">your city<\/span> and your city coin<\/li>/);
-  assert.match(html, /<li>Badges and holder rewards<\/li>/);
+  assert.match(html, /<li>Your badges<\/li>/);
+  assert.doesNotMatch(html, /holder rewards/); // no reward exists for holding $VICINITY
   assert.match(html, /<a class="btn btn--primary btn--lg" id="wcard-go" href="\/connect\?mode=link">Connect wallet<\/a>/);
   assert.match(html, /<button class="link-btn link-btn--tiny" type="button" id="wcard-remove">Remove it<\/button>/);
   assert.match(html, /<button class="link-btn" type="button" id="wcard-skip">Skip for now<\/button>/);
@@ -61,13 +62,15 @@ test("onboard.css is loaded by /connect and /dashboard only, and every rule in i
   assert.doesNotMatch(wcard, /color: #[0-9a-f]{3,6}/i, "no hard-coded text colour on the link card");
 });
 
-test("dashboard-v2.js: ORDER.home has the welcome card first after the alerts and the link card right after the pass, both as hash aliases of Home", () => {
+test("dashboard-v2.js: ORDER.home (design v2): the alerts, the welcome, the Pass and standing, Today, Buy, then the wallet card; placeCard moves the wallet card up while it asks for something", () => {
   const window = { V: {}, addEventListener() {} };
   vm.runInNewContext(v2, { window });
   const home = [...window.VDash.ORDER.home];
-  assert.deepEqual(home, ["#pf-notice", "#ban-notice", "#lost-alert", "#welcome", "#dash-top", "#wallet-card", "#today", "#role-home", "#portfolio", "#badges", "#trade"]);
+  assert.deepEqual(home, ["#pf-notice", "#ban-notice", "#lost-alert", "#welcome", "#dash-top", "#today", "#trade", "#wallet-card", "#role-home", "#portfolio", "#badges"]);
   assert.equal(window.VDash.ALIAS["wallet-card"], "home"); assert.equal(window.VDash.ALIAS.welcome, "home");
-  assert.match(v2, /if \(!u\.wallet\) add\("Link your wallet", "Free, one signature\. Unlocks your holdings, rank, badges and the founder path\.", "ok", "home", "#wallet-card", true\);/);
+  // the link card IS the first card for a member without a wallet: Today no longer repeats "Link your wallet"
+  assert.doesNotMatch(v2, /add\("Link your wallet"/);
+  assert.match(v2, /const top = card\.dataset\.place !== "buy";\n\s+\(top \? welcome : trade\)\.after\(card\);/);
   assert.match(v2, /const fallback = !d\.user\.wallet \? "link a wallet"/);
 });
 
@@ -94,13 +97,12 @@ test("a member without a wallet: the link card, the pass says No wallet linked �
   // the tiles
   assert.equal(p.text("#d-amount"), "—"); assert.equal(p.text("#d-amount-sub"), "link a wallet");
   assert.equal(p.text("#d-rank"), "—"); assert.equal(p.text("#d-rank-sub"), "link a wallet");
-  // Today: the link first
-  const today = p.$$("#today-list a");
-  assert.match(today[0].textContent, /^Link your walletFree, one signature\./);
-  assert.equal(today[0].getAttribute("href"), "#home"); assert.equal(today[0].dataset.go, "#wallet-card");
-  // the role card
+  // the link card is the first card of Home (design v2): Today and the role card do not repeat it
+  const kids = p.$("#panel-home").children.filter((n) => !n.hidden).map((n) => n.id);
+  assert.equal(kids[0], "wallet-card", "the first card");
+  assert.ok(!p.$$("#today-list a").some((a) => /Link your wallet/.test(a.textContent)));
   assert.match(p.text("#role-home"), /Member of Utica\. You are in\. Link a wallet to see your \$VICINITY, your rank and your road to founding Utica\./);
-  assert.ok(p.$$("#role-home a").some((a) => a.textContent === "Link my wallet" && a.getAttribute("href") === "/connect?mode=link"), "the role card's tool");
+  assert.ok(!p.$$("#role-home a").some((a) => a.textContent === "Link my wallet"), "the one Connect wallet is the card's");
   // the badges: the locked tab says which ones need a wallet
   await p.tap(p.$('[data-btab="locked"]'));
   const locked = p.$$("#badge-grid li").map((li) => li.textContent.replace(/\s+/g, " ").trim());

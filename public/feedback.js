@@ -4,7 +4,8 @@
 // another window, so it works inside wallet apps' browsers too. The page's path travels with the message (only the few query keys
 // that name a public thing, never a sign-in code or a looked-up wallet: pagePath); a signed-in member's account and the browser
 // type are read by the server from the request itself, never from here. On phones the button slides out to the right while the
-// page scrolls down (it would sit over the right end of full-width rows) and comes back on the first scroll up.
+// page scrolls down (it would sit over the right end of full-width rows) and comes back on the first scroll up; on any screen it
+// steps aside while it would sit on one of the page's main buttons, and on a phone while a field of the page is being typed in.
 // Keyboard and screen readers: the button says what it does and whether the panel is open, Escape closes the panel, the keyboard
 // lands on the chosen kind when it opens and goes back to the button when it closes, the three kinds are one tab stop with the
 // arrow keys moving inside it, and while the Terms gate is open the whole widget is inert, like the rest of the page.
@@ -130,6 +131,7 @@
   function open() {
     if (isOpen) return;
     isOpen = true;
+    root.classList.add("fb--open");
     setAway(false);
     panel.hidden = false;
     btn.setAttribute("aria-expanded", "true"); btn.setAttribute("aria-label", "Close feedback");
@@ -139,9 +141,11 @@
   function close({ refocus = true } = {}) {
     if (!isOpen) return;
     isOpen = false;
+    root.classList.remove("fb--open");
     panel.hidden = true;
     btn.setAttribute("aria-expanded", "false"); btn.setAttribute("aria-label", "Feedback and support");
     if (refocus) btn.focus({ preventScroll: true });
+    later();
   }
   const toggle = () => (isOpen ? close() : open());
 
@@ -201,22 +205,54 @@
   // a tap or click anywhere else closes the panel without stealing the keyboard
   document.addEventListener("pointerdown", (e) => { if (isOpen && !root.contains(e.target)) close({ refocus: false }); });
 
-  /* ---------- phones: out of the way while the page scrolls down ---------- */
+  /* ---------- out of the way: phones scrolling down, the page's main buttons, typing ---------- */
   // On a phone the button sits over the right end of every full-width row (a holder table, a list's sort control). So it slides out
   // to the right after 24 px of scrolling down and comes back after 12 px of scrolling up, near the top of the page, while the
-  // panel is open, or when it gets the keyboard (feedback.css .fb--away; the panel itself is never moved).
+  // panel is open, or when it gets the keyboard (feedback.css .fb--away; the panel itself is never moved). On any screen it also
+  // steps aside while its corner would cover one of the page's buttons, the Buy card, a Copy address, a tab or the home page's facts
+  // (AVOID; a page can mark more with data-fb-avoid), so it never sits on the page's next step. One passive scroll listener; the work runs once per frame.
   const narrow = typeof matchMedia === "function" ? matchMedia("(max-width: 900px)") : null;
-  let away = false, lastY = 0, run = 0;
-  function setAway(v) { if (v !== away) { away = v; root.classList.toggle("fb--away", v); } }
-  function onScroll() {
+  // (the footer's lines too: "never ask for your recovery phrase" and the risk line are never covered on a short page)
+  const AVOID = ".btn, .swap, .wallet-option, .contract__copy, .hero__facts, [role='tab'], .site-footer p, [data-fb-avoid]";
+  const frame = typeof window.requestAnimationFrame === "function" ? (fn) => window.requestAnimationFrame(fn) : (fn) => fn();
+  let away = false, scrolled = false, over = false, lastY = 0, run = 0, queued = false;
+  function paint() { const v = !isOpen && (scrolled || over); if (v !== away) { away = v; root.classList.toggle("fb--away", v); } }
+  function setAway(v) { scrolled = v; paint(); }
+  /** Whether the button's corner (its place when shown, wherever it is now) touches one of the page's main buttons. */
+  function covering() {
+    if (isOpen || typeof root.getBoundingClientRect !== "function") return false;
+    const b = root.getBoundingClientRect();
+    if (!b.width) return false;
+    for (const e of document.querySelectorAll(AVOID)) {
+      if (root.contains(e)) continue;
+      const r = e.getBoundingClientRect();
+      if (r.width && r.height && r.left < b.right + 6 && r.right > b.left - 6 && r.top < b.bottom + 6 && r.bottom > b.top - 6) return true;
+    }
+    return false;
+  }
+  function measure() {
+    queued = false;
     const y = Math.max(0, Number(window.scrollY) || 0);
     const dy = y - lastY; lastY = y;
-    if (isOpen || !(narrow && narrow.matches) || y < 80) { run = 0; setAway(false); return; }
-    run = (dy > 0) === (run > 0) ? run + dy : dy;   // one run of scrolling in the same direction
-    if (run > 24) setAway(true); else if (run < -12) setAway(false);
+    if (isOpen || !(narrow && narrow.matches) || y < 80) { run = 0; scrolled = false; }
+    else {
+      run = (dy > 0) === (run > 0) ? run + dy : dy;   // one run of scrolling in the same direction
+      if (run > 24) scrolled = true; else if (run < -12) scrolled = false;
+    }
+    over = covering();
+    paint();
   }
-  window.addEventListener("scroll", onScroll, { passive: true });
+  const later = () => { if (!queued) { queued = true; frame(measure); } };
+  window.addEventListener("scroll", later, { passive: true });
+  window.addEventListener("resize", later, { passive: true });
+  // the page's own parts arrive late (a Buy panel, a list): look again whenever the page changes size
+  if (typeof ResizeObserver === "function") new ResizeObserver(later).observe(document.body);
   btn.addEventListener("focus", () => setAway(false));
+  // a phone's keyboard carries the button up over the field being typed in and the page's next button: it hides meanwhile
+  const isField = (t) => Boolean(t && t.tagName) && !root.contains(t) && (t.isContentEditable === true || t.tagName === "TEXTAREA" || t.tagName === "SELECT"
+    || (t.tagName === "INPUT" && !/^(button|submit|reset|checkbox|radio|range|color|file|image|hidden)$/i.test(t.getAttribute("type") || "")));
+  document.addEventListener("focusin", (e) => { root.classList.toggle("fb--typing", Boolean(narrow && narrow.matches) && isField(e.target)); });
+  document.addEventListener("focusout", () => root.classList.remove("fb--typing"));
 
   // the Terms gate (site.js) makes the rest of the page inert while it is open; this widget is added after the gate took its
   // list, so it keeps itself inert as long as the gate shows

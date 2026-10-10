@@ -249,7 +249,8 @@ test("every pf- / prof- class the page or the script uses is styled", () => {
   const stateOnly = new Set(["is-hot", "is-over", "is-warn", "is-err", "is-empty", "pf-s", "pf-sn", "pf-sx"]);
   const mine = [...used].filter((c) => /^(pf|prof|portfolio)[-_]/.test(c) && !stateOnly.has(c));
   assert.ok(mine.length > 40);
-  for (const c of mine) assert.ok(css.includes(`.${c}`), `.${c} has no style`);
+  const styled = css + read("polish-dash.css"); // the dashboard's design v2 sheet styles the one-line notice (.pf-notice__line, __open, __ok)
+  for (const c of mine) assert.ok(styled.includes(`.${c}`), `.${c} has no style`);
   for (const c of ["is-hot", "is-over", "is-warn", "is-err", "pf-sn", "pf-sx"]) assert.ok(css.includes(`.${c}`), `${c} is styled`);
 });
 
