@@ -26,7 +26,7 @@ import { tickerOf } from "./tickers.js";
 import { ensureLaunchpadSchema } from "./store.js";
 import { _resetMarketLive, attributionFor, liveMarkets } from "./marketlive.js";
 import { _resetLaunchlab } from "./launchlab.js";
-import { getAllHolders, isTeamWallet } from "./chain.js";
+import { getAllHolders, holderSnapshot, isTeamWallet } from "./chain.js";
 import { DAY, iso } from "./policy.js";
 
 const SOL = PAIRS.SOL.mint;
@@ -206,6 +206,7 @@ export async function handleLaunchpad(env, fetchImpl = fetch, now = Date.now()) 
  * count is one row in coin_stats. A failing coin is skipped and logged as a short code (never an address); the others
  * still run. Zero cost while nothing is launched.
  */
+const COUNT_REUSE_MS = 10 * 60_000; // one run of the job
 export async function refreshCoinStats(env, now = Date.now(), fetchImpl = fetch, { max = 40 } = {}) {
   const db = env.DB;
   await ensureLaunchpadSchema(db);
@@ -214,11 +215,17 @@ export async function refreshCoinStats(env, now = Date.now(), fetchImpl = fetch,
   const last = new Map((await db.prepare("SELECT mint, updated_at FROM coin_stats").all()).results.map((r) => [r.mint, r.updated_at]));
   const due = mints.sort((a, b) => (last.get(a) || "").localeCompare(last.get(b) || "")).slice(0, max);
   let counted = 0, failed = 0;
+  const vicinity = activeMint(env);
   for (const mint of due) {
     try {
-      const holders = peopleOf(await getAllHolders(env, mint, fetchImpl));
+      // $VICINITY: the holder list the site already keeps (src/chain.js holderSnapshot, shared everywhere and refreshed by the
+      // token page, the dashboards and this run's balance sample) when it is at most one run old, instead of a second
+      // getProgramAccounts every 10 minutes just for this count; the row says when that list was read. City coins: read here.
+      let holders, at = iso(now);
+      if (mint === vicinity) { const snap = await holderSnapshot(env, mint, fetchImpl, COUNT_REUSE_MS); holders = snap.people; at = snap.at; }
+      else holders = peopleOf(await getAllHolders(env, mint, fetchImpl));
       await db.prepare("INSERT INTO coin_stats (mint, holders, updated_at) VALUES (?, ?, ?) ON CONFLICT(mint) DO UPDATE SET holders = excluded.holders, updated_at = excluded.updated_at")
-        .bind(mint, holders, iso(now)).run();
+        .bind(mint, holders, at).run();
       counted++;
     } catch (e) {
       failed++;

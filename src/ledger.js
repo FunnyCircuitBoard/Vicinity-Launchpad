@@ -13,7 +13,7 @@
  */
 import { DAY, POLICY, founderLevels, iso } from "./policy.js";
 import { activeMint } from "./official.js";
-import { getAllHolders } from "./chain.js";
+import { getAllHolders, publishHolders } from "./chain.js";
 import { getBlob, putBlob, sha256hex } from "./blobs.js";
 import { ensureSchema } from "./store.js";
 
@@ -36,7 +36,11 @@ export async function maybeSample(env, now, fetchImpl = fetch, rand = Math.rando
 export async function takeSample(env, now, fetchImpl = fetch) {
   const db = env.DB;
   await ensureSchema(db);
-  const { facts, list, labels, slot } = await getAllHolders(env, activeMint(env), fetchImpl);
+  const read = await getAllHolders(env, activeMint(env), fetchImpl);
+  const { facts, list, labels, slot } = read;
+  // the sample read every holder anyway: the holder list, the dashboards and the coin stats of this run use it instead of
+  // reading the chain again (a shared copy only; a failure to share is not a failure of the sample)
+  await publishHolders(env, activeMint(env), read).catch(() => {});
   const takenAt = iso(now), day = dayOf(now);
   const acc = (await getBlob(db, `day:${day}`)) || { day, n: 0, sums: {}, last: {}, lastAt: null, lastSlot: null, labels: {} };
   acc.n += 1;

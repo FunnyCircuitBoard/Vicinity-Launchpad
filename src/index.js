@@ -47,7 +47,7 @@
  */
 import { activeMint, checkOfficial, marketLink, officialFor, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
-import { getHolding, getTokenFacts, getTopHolders, holderSnapshot, isTeamWallet, rankOf } from "./chain.js";
+import { SHOW_STALE_MS, getHolding, getTokenFacts, getTopHolders, holderSnapshot, isTeamWallet, rankOf } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
 import { SECURITY_HEADERS, json } from "./http.js";
 import { readSigned } from "./signed.js";
@@ -159,7 +159,9 @@ async function tokenPrice(env, mint, fetchImpl) {
 const HOLDERS_PAGE = 1000;
 async function holdersResponse(env, mint, offset, fetchImpl) {
   try {
-    const snap = await holderSnapshot(env, mint, fetchImpl);
+    // while the chain cannot be read, the last list (at most 15 minutes old, with its real time) instead of an error: the
+    // pages keep showing holders, and the 60 s edge cache keeps every open tab from asking the failing provider again
+    const snap = await holderSnapshot(env, mint, fetchImpl, 60_000, { staleMs: SHOW_STALE_MS });
     const end = offset + HOLDERS_PAGE;
     return json({ launched: true, mint, supply: snap.facts.supply, total: snap.people, count: snap.rows.length, full: true,
       holders: snap.rows.slice(offset, end), more: end < snap.rows.length, updatedAt: snap.at });
@@ -179,7 +181,7 @@ async function holdersResponse(env, mint, offset, fetchImpl) {
 async function rankResponse(env, mint, address, fetchImpl) {
   const founderMin = founderAmount(0);
   try {
-    const snap = await holderSnapshot(env, mint, fetchImpl);
+    const snap = await holderSnapshot(env, mint, fetchImpl, 60_000, { staleMs: SHOW_STALE_MS }); // a shown rank: like /api/holders
     return json({ launched: true, full: true, address, ...rankOf(snap, address), supply: snap.facts.supply, founderMin, updatedAt: snap.at });
   } catch { /* fall back to the balance alone */ }
   try {
