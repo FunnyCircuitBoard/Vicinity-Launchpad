@@ -39,6 +39,8 @@
   const countryName = (cc) => { try { return (regionNames && regionNames.of(cc)) || cc; } catch { return cc; } };
   const ticker = (name) => (window.vicinityTicker ? window.vicinityTicker.baseTicker(name) : String(name).toUpperCase().replace(/[^A-Z]/g, "").slice(0, 10));
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
+  /** A city ticker on a coin disc: the whole ticker, never cut; the disc gets its length (data-len) so the stylesheet steps the size down. */
+  const discText = (span, tk) => { span.textContent = tk; const disc = span.parentNode; if (disc && disc.dataset) disc.dataset.len = String(Math.min(String(tk).length, 12)); };
   const date = (iso) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   const when = (iso) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const left = (iso) => { const ms = Date.parse(iso) - Date.now(); if (ms <= 0) return "closing now"; const h = Math.floor(ms / 3600000); return h >= 48 ? `${Math.floor(h / 24)} days left` : h >= 1 ? `${h}h left` : `${Math.ceil(ms / 60000)} min left`; };
@@ -256,12 +258,12 @@
     $("#welcome-title").textContent = `Welcome to ${u.home ? u.home.name : "Vicinity"}${who ? `, ${who}` : ""}.`;
     $("#welcome-line").textContent = (c && c.memberNumber ? `You are member #${fmt(c.memberNumber)} here. ` : "Your dashboard is live. ")
       + (u.wallet ? "Your profile is complete." : "Two of three steps done: link a wallet whenever you like.");
-    $("#welcome-disc").textContent = c ? (c.ticker || ticker(c.name)).slice(0, 5) : "📍";
+    if (c) discText($("#welcome-disc"), c.ticker || ticker(c.name)); else $("#welcome-disc").textContent = "📍";
     box.hidden = false;
     ringSet($("#welcome-ring"), d.setup, true);
     const r = box.getBoundingClientRect(); burst(r.left + 60, r.top + 40);
   }
-  $("#welcome-close").addEventListener("click", () => { $("#welcome").hidden = true; });
+  $("#welcome-close").addEventListener("click", () => { $("#welcome").hidden = true; if (v2) v2.placeCard(); });
 
   /* ---------- the link card (#wallet-card): a member without a wallet links one from here; it watches for a link made in a wallet app ---------- */
   const WCARD_SKIP = "vicinity:wcard-skip"; // this viewer folded the card (localStorage: a convenience, never state)
@@ -284,7 +286,12 @@
     card.hidden = false;
   }
   function walletCard(d) {
+    walletCardDraw(d);
+    if (v2) v2.placeCard();
+  }
+  function walletCardDraw(d) {
     const card = $("#wallet-card"), u = d.user, wn = d.walletNew || null;
+    card.dataset.place = "top";
     // the old sign-up is back (SIGNUP_FLOW off): its /connect cannot link a wallet to an existing account, so no card that leads there
     if (!u.wallet && d.signupFlow !== "v2") { stopLinkPoll(); card.hidden = true; return; }
     if (u.wallet) {
@@ -327,18 +334,19 @@
   /** A phone's Safari / Chrome, the wallet linked: this is where the person shops, inside the wallet app. One card, one habit: Connect Phantom. */
   function buyCard(card, u, wn) {
     const kept = WA.remembered(), k = kept || appNamed(u.walletApp), go = $("#wcard-go");
+    card.dataset.place = "buy";
     // Safari lost what it remembered (7 days without a visit, a new phone): the app the account was linked in, kept again, so the Buy
     // panel's list of wallet apps (public/swap.js reads the same key) names the same app first as this card
     if (!kept && k) WA.remember(k.id);
     cardReset(card); card.classList.add("is-done"); card.classList.remove("wcard--folded");
     // ("Phantom connected ✓" only when nobody needs to ask "was this you?": while the notice shows, a neutral kicker; the note under the
     // button names the wallet itself. Never the wallet in the kicker: it is set in capitals, and a wallet address is case-sensitive.)
-    $("#wcard-kicker").textContent = wn && wn.notMe ? "New wallet on your account" : wn ? `${k ? k.name : "Wallet"} connected ✓` : "Your wallet app";
-    $("#wcard-title").textContent = k ? `On this phone you buy in ${k.name}` : "On this phone you buy in your wallet app";
+    $("#wcard-kicker").textContent = wn && wn.notMe ? "New wallet on your account" : wn ? `${k ? k.name : "Wallet"} connected ✓` : "Buy $VICINITY";
+    $("#wcard-title").textContent = k ? `Buy in ${k.name}` : "Buy in your wallet app";
     $("#wcard-lead").textContent = k ? `Opens Vicinity inside ${k.name}, logged in. You buy there.` : "Pick the wallet app you use: it opens Vicinity there, logged in. You buy there.";
     $("#wcard-perks").hidden = true; $("#wcard-tiny").hidden = true; $("#wcard-skip").hidden = true; $("#wcard-actions").hidden = false;
     go.hidden = !k;
-    if (k) { go.textContent = `Connect ${k.name}`; go.href = openIn(k); go.dataset.app = k.id; }
+    if (k) { go.textContent = `Open ${k.name}`; go.href = openIn(k); go.dataset.app = k.id; }
     $("#wcard-another").hidden = !k; $("#wcard-another").setAttribute("aria-expanded", "false");
     appChips($("#wcard-apps"), k ? k.id : null); $("#wcard-apps").hidden = Boolean(k);
     if (wn && wn.notMe) noteLine(wn);
@@ -346,6 +354,7 @@
   /** Inside the wallet app: connected, who is logged in, and how to come back here next time (until the person puts the tip away). */
   function tipCard(card, u, k) {
     cardReset(card); card.classList.add("is-done", "wcard--folded");
+    card.dataset.place = "buy";
     $("#wcard-kicker").textContent = "Profile complete · 3 of 3";
     $("#wcard-title").textContent = `${k.name} connected ✓`;
     $("#wcard-lead").textContent = u.handle ? `You're logged in as @${u.handle}.` : "You're logged in.";
@@ -473,6 +482,7 @@
   const BADGE_NAMES = {};
   function render(d) {
     me = d; checkedAt = Date.now();
+    $("#me-checked").textContent = "Live"; // just checked (the clock below says how long ago, every 5 s)
     identity(d);
     walletCard(d);
     const u = d.user, h = d.holding, home = u.home, c = d.community, n = d.national, linked = Boolean(u.wallet);
@@ -484,13 +494,13 @@
     $("#d-amount").textContent = d.launched && linked ? compact(h.amount) : "—";
     $("#d-amount-sub").textContent = !linked ? "link a wallet" : d.launched ? `${fmt(h.amount)} $VICINITY` : "live at launch";
     $("#d-rank").textContent = h.rank ? `#${fmt(h.rank)}` : "—";
-    $("#d-rank-sub").textContent = h.rank ? `of ${fmt(h.total)} · top ${pctText(h.percentile)}%` : !linked ? "link a wallet" : d.launched ? (h.team ? "team wallet, not ranked" : h.amount > 0 ? "ranking…" : "not holding yet") : "live at launch";
+    $("#d-rank-sub").textContent = h.rank ? `of ${fmt(h.total)} holder${h.total === 1 ? "" : "s"}` : !linked ? "link a wallet" : d.launched ? (h.team ? "team wallet, not ranked" : h.amount > 0 ? "ranking…" : "not holding yet") : "live at launch";
     $("#d-city-label").textContent = home ? home.name : "your city";
     $("#d-country-label").textContent = n ? countryName(n.country) : "your country";
     $("#d-crank").textContent = c && c.rank ? `#${c.rank}` : "—";
-    $("#d-crank-sub").textContent = c ? (c.rank ? `of ${c.holders} holders here` : `${fmt(c.members)} member${c.members === 1 ? "" : "s"}`) : "";
+    $("#d-crank-sub").textContent = c ? (c.rank ? `of ${fmt(c.holders)} holder${c.holders === 1 ? "" : "s"} here` : `${fmt(c.members)} member${c.members === 1 ? "" : "s"}`) : "";
     $("#d-nrank").textContent = n && n.rank ? `#${n.rank}` : "—";
-    $("#d-nrank-sub").textContent = n ? (n.rank ? `of ${n.holders} holders` : `${fmt(n.members)} member${n.members === 1 ? "" : "s"}`) : "";
+    $("#d-nrank-sub").textContent = n ? (n.rank ? `of ${fmt(n.holders)} holder${n.holders === 1 ? "" : "s"}` : `${fmt(n.members)} member${n.members === 1 ? "" : "s"}`) : "";
 
     // notices: a ban (with appeal), badges lost to a sale
     const ban = $("#ban-notice");
@@ -569,6 +579,8 @@
     city_taken: "Someone just became founder here.", already_applied: "You've already applied.", not_dark: "That city isn't dark long enough yet.",
     window_closing: "This city's window has ended and is being decided. Try again in a few minutes." };
 
+  /** "Oct 16" (no year, never broken across lines): the dates of the founder path. */
+  const day = (iso) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }).replace(" ", "\u00a0");
   function renderPath(d) {
     const p = d.progress, f = d.founder, home = d.user.home, c = d.community;
     $("#p-city").textContent = home ? home.name : "your city";
@@ -589,7 +601,7 @@
     if (f.seat) {
       const s = f.seat;
       if (s.status === "provisional") parts.push(say(`🎉 ${s.city} chose you! Locals can object until ${when(s.appealUntil)}; if no objection is upheld, you're the founder.`));
-      else if (s.status === "steward") parts.push(say(`🌟 You're ${s.city}'s Seed Steward: probation until ${date(s.probationUntil)}, or sooner once enough verified local holders back the city. Locals can challenge you.`));
+      else if (s.status === "steward") parts.push(say(`🌟 You're ${s.city}'s Seed Steward: probation until ${day(s.probationUntil)}, or sooner once enough verified local holders back the city. Locals can challenge you.`));
       else if (s.status === "active") parts.push(say(`👑 You're the founder of ${s.city}. Keep ${fmt(s.threshold)} $VICINITY: if you drop below, moderation pauses at once and you have 7 days to fix it.`));
       else if (s.status === "grace") parts.push(say(`⚠️ Grace until ${when(s.graceUntil)}: hold ${fmt(s.threshold)} $VICINITY again or ${s.city}'s seat reopens.`));
     } else if (f.application) {
@@ -625,12 +637,12 @@
     } else {
       const why = {
         no_home: "Set your home community first.",
-        home_too_new: `Your home community must be set 7 days before applying: ready ${f.homeReadyAt ? date(f.homeReadyAt) : "soon"}.`,
+        home_too_new: `Your home community must be set 7 days before applying: ready ${f.homeReadyAt ? day(f.homeReadyAt) : "soon"}.`,
         not_qualified: f.tenure && f.tenure.days > 0
           ? `Held ${T} for ${Math.floor(f.tenure.days)} of 7 days. Balances are checked at random times, about every hour: hold through all of them.`
           : `Hold ${T} $VICINITY to start your 7-day clock. Balances are checked at random times, so borrowed tokens don't help.`,
         below_threshold: `Hold ${T} $VICINITY right now to apply.`,
-        cooldown: `You can apply again on ${f.cooldownUntil ? date(f.cooldownUntil) : "soon"} (30 days after losing a seat).`,
+        cooldown: `You can apply again on ${f.cooldownUntil ? day(f.cooldownUntil) : "soon"} (30 days after losing a seat).`,
         city_taken: f.whyNot ? `${home ? home.name : "Your city"} has a Seed Steward on probation. To challenge them: ${VOTER_WHY[f.whyNot] || "you need to be a verified local."}` : `${home ? home.name : "Your city"} already has a founder.`,
         banned: "You can't apply while banned.",
         has_seat: "You already hold a seat.", already_applied: "You've already applied.",
@@ -640,9 +652,9 @@
     // the city's seat, if it's someone else's
     if (c && c.seat && !c.seat.you) {
       const s = c.seat;
-      const line = say(`${s.status === "provisional" ? "Chosen" : s.status === "steward" ? "Seed Steward" : "Founder"}: ${s.name} (${s.wallet}) since ${date(s.since)}`);
+      const line = say(`${s.status === "provisional" ? "Chosen" : s.status === "steward" ? "Seed Steward" : "Founder"}: ${s.handle ? s.name : `${s.name} (${s.wallet})`} since ${day(s.since)}`);
       if (s.status === "provisional") line.append(` · objections until ${when(s.appealUntil)}`);
-      if (s.status === "steward") line.append(` · probation until ${date(s.probationUntil)}${s.quorum ? ` · ${s.quorum.have}/${s.quorum.need} local holders` : ""}`);
+      if (s.status === "steward") line.append(` · probation until ${day(s.probationUntil)}${s.quorum ? ` · ${s.quorum.have}/${s.quorum.need} local holders` : ""}`);
       if (s.status === "grace") line.append(" · in grace");
       if (s.openObjections) line.append(` · ${s.openObjections} objection${s.openObjections === 1 ? "" : "s"} under review`);
       parts.push(line, actBtn("Object to this founder", () => objectTo(s.id, s.name)));
@@ -699,10 +711,10 @@
     const c = d.community;
     if (!c) return;
     const tk = c.ticker || ticker(c.name);
-    $("#cc-face").textContent = tk.slice(0, 5);
-    $("#pass-coin").textContent = tk.slice(0, 5);
+    discText($("#cc-face"), tk);
+    discText($("#pass-coin"), tk);
     $("#cc-name").textContent = c.name;
-    $("#cc-ticker").textContent = `$${tk} · city coin preview · ${countryName(c.country)}`;
+    tickerLine();
     $("#cc-members").textContent = fmt(c.members);
     $("#cc-holders").textContent = d.launched ? (c.holders != null ? fmt(c.holders) : "…") : "At launch";
     $("#cc-founder").textContent = c.seat ? (c.seat.you ? `You 👑${c.seat.status !== "active" ? ` (${c.seat.status})` : ""}` : `${c.seat.name}${c.seat.status !== "active" ? ` (${c.seat.status})` : ""}`)
@@ -717,6 +729,11 @@
       : `${fmt(others)} other ${others === 1 ? "person" : "people"} from ${c.name} ${others === 1 ? "is" : "are"} here, and nobody has applied to found it yet.`;
     $("#cc-top").replaceChildren(...(c.top && c.top.length ? c.top.map((t) => { const li = el("li", t.you ? "is-you" : ""); li.append(el("span", "mono", t.you ? "You" : t.wallet), el("span", "amt", compact(t.amount))); return li; })
       : [el("li", "muted small", d.launched ? "No holders here yet. Be the first." : "Live at launch.")]));
+  }
+  /** "$UTICA · city coin · United States"; "preview" while the city's coin is not live yet. */
+  function tickerLine() {
+    const c = me && me.community; if (!c) return;
+    $("#cc-ticker").textContent = `$${c.ticker || ticker(c.name)} · city coin${coinData && coinData.launched ? "" : " preview"} · ${countryName(c.country)}`;
   }
   $("#cc-share").addEventListener("click", () => {
     const name = me?.community?.name || "my city";
@@ -747,18 +764,22 @@
       }, "btn btn--glass btn--sm"));
       list.append(li);
     }
-    box.replaceChildren(el("p", "kicker kicker--live", `🗳️ Election open · ${left(e.closesAt)}`), list, ...(why ? [el("p", "small muted", why)] : []),
+    box.replaceChildren(el("p", "kicker kicker--live", `Election open · ${left(e.closesAt)}`), list, ...(why ? [el("p", "small muted", why)] : []),
       el("p", "tiny muted", "One vote per person. Score: 50% votes, 30% service, 20% holdings capped at 2×. 90-day term."));
   }
 
   let btab = "earned";
   const WALLET_BADGES = new Set(["holder", "founder_ready", "whale", "top100", "top10"]); // badges a wallet's holdings earn
+  const BADGE_ICON = { early: "rocket", verified: "check", wallet: "link", local: "pin", holder: "coin", founder_ready: "idcard", whale: "wallet", top100: "star", top10: "trophy",
+    city_founder: "crown", country_manager: "shield", voice: "chat", streak: "chart", admin: "shield" };
+  const TOP_BADGES = new Set(["city_founder", "country_manager", "top100", "top10", "admin", "whale"]); // founder or top: gold
   function badgeEl(d, b) {
     const lost = d.lost.includes(b.id);
     const li = el("li", `badge ${b.earned ? "is-earned" : lost ? "is-lost" : "is-locked"}`);
     li.title = `${b.name}: ${b.detail}${b.earned ? " ✓" : ""}`;
     li.tabIndex = 0;
-    li.append(el("span", "badge__icon", b.icon), el("span", "badge__name", b.grace ? `${b.name} (grace)` : b.name));
+    const art = v2 && BADGE_ICON[b.id] ? window.VRole.icon(BADGE_ICON[b.id], { small: false, tone: !b.earned ? "muted" : TOP_BADGES.has(b.id) ? "gold" : "ok", fallback: b.icon }) : el("span", "badge__icon", b.icon);
+    li.append(art, el("span", "badge__name", b.grace ? `${b.name} (grace)` : b.name));
     if (!b.earned && !d.user.wallet && WALLET_BADGES.has(b.id)) li.append(el("span", "badge__pending", "needs a wallet"));
     else if (!b.earned && b.progress > 0) {
       const p = el("span", "badge__prog"), f = el("span");
@@ -802,9 +823,20 @@
     already_proposed: "A ban for this person is already waiting for approval.",
     already_appealed: "You've already appealed this.",
   };
+  /** The tabbed dashboard: a member the server would refuse (holders_only: launched, not holding, not an admin) sees one line instead of a form. */
+  const postLocked = () => Boolean(v2 && me && me.launched && me.roles && !me.roles.holder && !me.roles.admin);
   function setupComposer() {
     const national = scope === "country", checkin = kind === "checkin";
-    $("#composer").hidden = national && checkin;
+    const locked = postLocked(), lock = $("#feed .composer-lock");
+    lock.hidden = !locked;
+    if (locked) {
+      const wallet = Boolean(me.user.wallet), go = $("#feed .composer-lock__go");
+      $("#feed .composer-lock__text").textContent = wallet ? "Hold any $VICINITY to post and vote." : "Link a wallet and hold any $VICINITY to post.";
+      go.textContent = wallet ? "Get $VICINITY" : "Connect wallet";
+      go.href = wallet ? "#home" : "/connect?mode=link";
+      if (wallet) go.dataset.go = "#trade"; else delete go.dataset.go;
+    }
+    $("#composer").hidden = (national && checkin) || locked;
     $("#c-text").placeholder = me && me.launched && !me.user.wallet ? NEEDS_WALLET_POST : PLACEHOLDER[kind]; // after launch only holders post: a wallet comes first
     $("#c-text").maxLength = kind === "talk" ? 1000 : kind === "meme" ? 280 : 140;
     $("#c-pic-label").hidden = kind !== "meme";
@@ -1036,7 +1068,7 @@
     $("#coin-art").dataset.color = color || "gold";
     $(".pass__coin").dataset.color = color || "gold";
     if (logo) { img.src = logo; img.hidden = false; } else { img.hidden = true; img.removeAttribute("src"); }
-    face.textContent = tk.slice(0, 5); face.hidden = Boolean(logo);
+    discText(face, tk); face.hidden = Boolean(logo);
     $("#coin-name").textContent = name;
     $("#coin-ticker").textContent = `$${tk}`;
     $("#coin-pair").textContent = pair || "chosen by the founder";
@@ -1054,7 +1086,9 @@
     $("#coin-pitch").textContent = cd ? cd.pitch : "";
     $("#coin-by").textContent = cd ? `Designed by ${cd.by || "the City Founder"} · updated ${date(cd.updatedAt)}` : "";
     $("#coin-contract").hidden = !(cd && cd.mint);
-    if (cd && cd.mint) $("#coin-mint").textContent = cd.mint;
+    // a short chip (the whole address is the copy button's name and the chip's title); Copy copies the whole address
+    if (cd && cd.mint) { $("#coin-mint").textContent = `${cd.mint.slice(0, 4)}…${cd.mint.slice(-4)}`; $("#coin-mint").title = cd.mint; $("#coin-mint-copy").setAttribute("aria-label", `Copy the contract address ${cd.mint}`); }
+    tickerLine();
     $("#coin-note").textContent = mine
       ? (cd ? (cd.launched ? `${c.name}'s coin is live. Its design is locked, as the rules promise.` : "Change anything until your coin launches. Every save is public in the log.")
         : `Your coin, your call. Design ${c.name}'s coin below: everyone in ${c.name} will see it.`)
@@ -1137,16 +1171,22 @@
     if (v2) v2.coinQueue(list.length);
     window.VRole.queue({ coins: list.length });
     $("#coin-waiting").replaceChildren(...list.map((w) => {
-      const li = el("li");
-      const link = el("a", "mono", w.pendingMint); link.href = `https://solscan.io/token/${w.pendingMint}`; link.target = "_blank"; link.rel = "noopener";
-      li.append(el("strong", null, `${w.cityName} · `), link, el("span", "tiny muted", ` · ${w.pair} pair · sent ${ago(w.pendingAt)}`));
+      const li = el("li", "coin-check");
+      const link = el("a", "mono coin-check__mint", `${w.pendingMint.slice(0, 6)}…${w.pendingMint.slice(-6)}`); link.href = `https://solscan.io/token/${w.pendingMint}`; link.target = "_blank"; link.rel = "noopener";
+      link.title = w.pendingMint; link.setAttribute("aria-label", `${w.pendingMint} on Solscan`);
+      const cp = actBtn("Copy", () => copy(w.pendingMint, "Contract address copied"), "link-btn link-btn--tiny coin-check__copy"); cp.setAttribute("aria-label", `Copy the contract address ${w.pendingMint}`);
+      const head = el("p", "coin-check__head"); head.append(el("strong", null, w.cityName), el("span", "tiny muted", ` · ${w.pair} pair · sent ${ago(w.pendingAt)}`));
+      const mintRow = el("p", "coin-check__row"); mintRow.append(link, " ", cp);
+      li.append(head, mintRow);
       // the decision carries the address the admin looked at: the server records only if it is still the one waiting
       const decide = (approve, note) => sensitive(() => api("/api/coins/mint/decide", { city: w.city, mint: w.pendingMint, approve, note }));
-      li.append(
-        actBtn("Record it ✓", async () => { const x = await decide(true, "Checked on the blockchain"); toast(x.ok ? "Recorded: it's the official coin now ✓" : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue(); }),
+      const acts = el("div", "coin-check__actions");
+      acts.append(
+        actBtn("Record it", async () => { const x = await decide(true, "Checked on the blockchain"); toast(x.ok ? "Recorded: it's the official coin now ✓" : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue(); }, "btn btn--primary btn--sm"),
         actBtn("Reject", () => reasonForm(li, "Reject", async (reason, note) => {
           const x = await decide(false, note || REASONS[reason]); toast(x.ok ? "Rejected" : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue();
-        })));
+        }), "btn btn--glass btn--sm"));
+      li.append(acts);
       return li;
     }));
   }
@@ -1170,14 +1210,16 @@
    */
   let swapOn = null;
   if (window.V.official) window.V.official.then((o) => { swapOn = Boolean(o && o.swap === true); if (swapOn) renderTrade(); });
+  const tradeAway = () => Boolean(v2 && me && me.user && me.signupFlow === "v2" && (!me.user.wallet || phoneBrowser()));
   function mountSwap(a, b, missing) {
-    if (!swapOn || !window.VSwap) return false;
+    if (!swapOn || !window.VSwap || tradeAway()) return false;
     const box = $("#trade .swapbox"); if (!box) return false;
     let slot = $("#tr-swap");
     if (!slot) { slot = el("div"); slot.id = "tr-swap"; box.after(slot); }
     const live = !missing && a[1] && b[1];
     box.hidden = Boolean(live); slot.hidden = !live;
     for (const id of ["#tr-go", "#tr-go-2", "#tr-note"]) $(id).classList.toggle("is-gone", Boolean(live));
+    $("#trade").classList.toggle("has-panel", Boolean(live)); // the panel brings its own heading: the card's kicker, title and tag step back (polish-dash.css)
     if (!live) return false;
     const key = `${route}|${a[1]}|${b[1]}`;
     if (slot.dataset.key !== key) {
@@ -1249,12 +1291,21 @@
     window.VRole.queue({ posts: d.posts.length, proposals: d.proposals.filter((x) => x.canApprove).length, appeals: d.appeals.length, objections: d.objections.length, towns: d.towns.length, bios: d.bios ? d.bios.length : 0 });
     $("#mod-scope").textContent = `${LEVEL[d.role] || d.role} · ${d.scope}`;
     const sections = [];
-    const section = (title, items) => { const s = el("div", "mod-section"); s.append(el("h3", null, title)); const ul = el("ul", "req-list"); ul.append(...items); s.append(ul); return s; };
+    let waiting = 0;
+    // the tabbed dashboard folds each queue (open when something waits, its count in the summary); the flag-off page keeps its headings
+    const fold = (title, list, n) => {
+      waiting += n;
+      if (!v2) { const s = el("div", "mod-section"); s.append(el("h3", null, title), list); return s; }
+      const s = el("details", "fold mod-section"); s.open = n > 0;
+      const sum = el("summary"); sum.append(el("span", "fold__label", title), " ", el("span", "fold__meta", n ? `${n} waiting` : "None"));
+      s.append(sum, list); return s;
+    };
+    const section = (title, items) => { const ul = el("ul", "req-list"); ul.append(...items); return fold(title, ul, items.filter((x) => !x.classList.contains("muted")).length); };
     const empty = (t) => el("li", "muted small", t);
     const decide = (label, fn, cls) => actBtn(label, async () => { const r = await sensitive(fn); toast(r.ok ? "Done ✓" : errText(POST_ERR, r, "Couldn't do that.")); loadMod(); refresh(); if (r.ok) loadFeed(true); }, cls);
     const posts = el("ul", "posts posts--compact");
     posts.append(...(d.posts.length ? d.posts.map((p) => postEl(p, { reply: true, queue: true })) : [empty("No reports. All clean.")]));
-    const ps = el("div", "mod-section"); ps.append(el("h3", null, "Reported and hidden posts"), posts); sections.push(ps);
+    sections.push(fold("Reported and hidden posts", posts, d.posts.length));
     sections.push(section("Ban proposals", d.proposals.length ? d.proposals.map((x) => {
       const li = el("li");
       li.append(el("strong", null, x.target), el("span", "muted", `${REASONS[x.reason] || x.reason}${x.note ? ` · “${x.note}”` : ""} · proposed by ${x.by} · expires ${when(x.expiresAt)}`));
@@ -1299,6 +1350,7 @@
       }), "btn btn--glass btn--sm"));
       li.append(acts); return li;
     }) : [empty("No reported bios.")]));
+    if (v2 && !waiting) sections.unshift(el("p", "mod-clear", "All clear. Nothing is waiting for you."));
     $("#mod-sections").replaceChildren(...sections);
     if (v2) v2.mod(d);
   }
@@ -1338,10 +1390,9 @@
   setInterval(() => {
     if (!checkedAt) return;
     const s = Math.round((Date.now() - checkedAt) / 1000);
-    $("#me-checked").textContent = s < 5 ? "live · just checked" : `live · checked ${s < 60 ? s + "s" : Math.round(s / 60) + "m"} ago`;
+    $("#me-checked").textContent = s < 5 ? "Live" : `Live · ${s < 60 ? s + "s" : Math.round(s / 60) + "m"} ago`;
   }, 5000);
   $("#me-copy").addEventListener("click", () => me && copy(me.user.wallet, "Wallet address copied"));
-  $("#me-logout").addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/"); });
 
   /* ---------- profile & settings ---------- */
   const USERNAME_ERR = {
@@ -1367,6 +1418,10 @@
     $("#profile-home").textContent = u.home ? `${u.home.name}, ${countryName(u.home.country)}` : "No home community yet";
     $("#username-input").value = u.handle || "";
     $("#username-err").hidden = true;
+    // each row's summary says what is set, so a closed row still answers "what is my username / wallet"
+    $("#profile-username-meta").textContent = u.handle ? `@${u.handle}` : "Pick one";
+    $("#profile-wallet-meta").textContent = linked ? mask(u.wallet) : "Not linked";
+    $("#profile-wallet-meta").classList.toggle("mono", linked);
     renderEmailView(u); renderPhoneView(u);
     $("#email-form").hidden = true; $("#email-code-form").hidden = true; $("#phone-form").hidden = true;
     $("#contact-err").hidden = true;
@@ -1385,14 +1440,17 @@
         (() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Remove";
           b.addEventListener("click", async () => { const r = await api("/api/me/contact/email/remove", {}); if (r.ok) { me.user.contact_email = null; renderEmailView(me.user); toast("E-mail removed"); } }); return b; })());
       $("#email-desc").textContent = "Verified. Not used for anything yet. You can remove it any time.";
+      $("#profile-email-meta").textContent = u.contact_email;
     } else {
       v.replaceChildren((() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Add";
         b.addEventListener("click", () => { $("#email-form").hidden = false; $("#email-input").focus(); }); return b; })());
       $("#email-desc").textContent = "Optional. Not used for anything yet. You can remove it any time.";
+      $("#profile-email-meta").textContent = "Not added";
     }
   }
   function renderPhoneView(u) {
     const v = $("#phone-view");
+    $("#profile-phone-meta").textContent = u.phone || "Not added";
     if (u.phone) {
       v.replaceChildren(el("span", null, u.phone),
         (() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Change";
@@ -1662,7 +1720,7 @@
     if (linked && d.user.wallet) linkedNow = true;
     // a wallet app's wallet can turn up a few seconds after the page drew: the card is chosen again then (inside Phantom it is the "next
     // time" tip, never Safari's "Connect Phantom", which would leave for phantom.com)
-    W.onChange(() => { if (me && me.signedIn && me.user) walletCard(me); });
+    W.onChange(() => { if (me && me.signedIn && me.user) { walletCard(me); if (v2) renderTrade(); } }); // (the tabbed Buy card follows: a wallet app's browser buys on the page)
     if (welcome) document.body.dataset.welcome = "1"; // the parameter is gone from the address bar: profile.js reads this (the profiles notice waits)
     identity(d);
     if (!d.user.home) { unhold(); onboard(d); return; }
@@ -1676,7 +1734,9 @@
         document.head.append(s);
       });
       $("#dash-skel").hidden = true;
-      if (v2) v2.init({ me: () => me, coin: () => ({ coin: coinData, vicMint, pairs: coinPairs }), openProfile, refresh: () => refresh(), countryName });
+      if (v2) v2.init({ me: () => me, coin: () => ({ coin: coinData, vicMint, pairs: coinPairs }), openProfile, refresh: () => refresh(), countryName,
+        // a phone's Safari / Chrome with the wallet linked: the wallet card is the one way to buy (in the wallet app), the Buy card steps back
+        buyInApp: () => Boolean(me && me.user && me.user.wallet && me.signupFlow === "v2" && phoneBrowser()) });
     }
     unhold();
     $("#dash-main").hidden = false;

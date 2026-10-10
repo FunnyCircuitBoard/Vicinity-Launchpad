@@ -204,7 +204,9 @@
   const homeText = (h) => (h ? `${h.name}, ${countryName(h.country)}` : "No home community yet");
   const sinceText = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? `Member since ${new Date(t).toLocaleDateString("en-US", { month: "short", year: "numeric" })}` : ""; };
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
-  const tickerOf = (name) => (window.vicinityTicker ? window.vicinityTicker.baseTicker(name) : String(name || "").toUpperCase().replace(/[^A-Z]/g, "")).slice(0, 5);
+  const tickerOf = (name) => (window.vicinityTicker ? window.vicinityTicker.baseTicker(name) : String(name || "").toUpperCase().replace(/[^A-Z]/g, ""));
+  /** The whole ticker on the pass's coin disc (never cut): the disc gets its length, so a stylesheet can step the size down (data-len). */
+  const discText = (span, tk) => { span.textContent = tk; const disc = span.parentNode; if (disc && disc.dataset) disc.dataset.len = String(Math.min(String(tk).length, 12)); };
 
   let uid = 0;
   /**
@@ -358,7 +360,7 @@
   const NOTICE_KEY = "vicinity-profiles-notice";
   function dashboard(ctx) {
     const { $, el, api, toast } = window.V;
-    let started = false, dismissed = false, pv = null;
+    let started = false, noticed = false, dismissed = false, pv = null;
     const counts = (d) => d.counts || (d.user && d.user.counts) || null;
 
     // ---- the bio
@@ -388,6 +390,13 @@
     function paintPass(d) {
       const bio = (d.user && d.user.bio) || "";
       $("#me-bio").textContent = bio; $("#me-bio").hidden = !bio;
+      $("#profile-bio-meta").textContent = bio || "Add a line about you"; // the Bio row's summary
+    }
+    // the holding's dollar value on the standing card ("$VICINITY · ≈ $459"), from the same answer as the portfolio
+    function paintWorth(r) {
+      const it = r && r.portfolio && Array.isArray(r.portfolio.items) ? r.portfolio.items.find((i) => i.kind === "vicinity") : null;
+      const v = it && num(it.valueUsd) && it.valueUsd > 0 ? it.valueUsd : null, w = $("#d-worth");
+      w.textContent = v == null ? "" : ` · ≈ ${v >= 100 ? usd0.format(v) : fmtUsd(v)}`; w.hidden = v == null;
     }
 
     // ---- the one-time notice
@@ -407,24 +416,29 @@
       render(d) {
         paintPass(d); paintNetwork(d);
         for (const sel of ["#bio-sec", "#profile-net-sec", "#profile-public-note"]) $(sel).hidden = false;
-        if (!started) {
-          started = true;
+        if (!noticed) {
+          noticed = true;
           // someone who just signed up read it on the sign-up page (dashboard.js takes ?welcome=1 off the address bar before this runs and leaves the mark on <body>)
           if (new URLSearchParams(location.search).get("welcome") || document.body.dataset.welcome === "1") { markSeen(); dismissed = true; }
+        }
+        // no wallet linked: nothing to value, so no card and no requests; the portfolio starts the moment a wallet is linked
+        const linked = Boolean(d.user && d.user.wallet);
+        $("#portfolio").hidden = !linked;
+        if (linked && !started) {
+          started = true;
           pv = livePortfolio({
             body: $("#pf-body"), updated: $("#pf-updated"), msg: $("#pf-msg"), refresh: $("#pf-refresh"), who: "you",
-            load: () => api("/api/me/portfolio"), pick: (r) => r.portfolio, launched: () => Boolean(ctx.me().launched),
+            load: () => api("/api/me/portfolio"), pick: (r) => r.portfolio, launched: () => Boolean(ctx.me().launched), onAnswer: paintWorth,
             failText: "We couldn't update your portfolio. Tap Refresh to try again.", errCtx: "portfolio",
           });
-          $("#portfolio").hidden = false;
           pv.start(null);
-        }
+        } else if (!linked && started) { started = false; pv.stop(); pv = null; paintWorth(null); }
         $("#pf-notice").hidden = dismissed || seen();
       },
       /** The profile window opened: fill the bio field with what is saved. */
       openModal(d) {
         input.value = (d.user && d.user.bio) || ""; err.hidden = true; check();
-        paintNetwork(d);
+        paintNetwork(d); paintPass(d);
       },
     };
   }
@@ -538,8 +552,8 @@
       $("#pf-handle").textContent = p.handle;
       $("#pf-home").textContent = homeText(p.home);
       const lvl = $("#pf-level"); lvl.textContent = levelLabel(p.level); lvl.dataset.level = p.level;
-      $("#pf-coin").textContent = p.home ? tickerOf(p.home.name) : "—";
-      if (p.home && tickers) { const t = tickers[p.home.id]; const tk = t ? (typeof t === "string" ? t : t[0]) : null; if (tk) $("#pf-coin").textContent = tk.slice(0, 5); }
+      if (p.home) discText($("#pf-coin"), tickerOf(p.home.name)); else $("#pf-coin").textContent = "—";
+      if (p.home && tickers) { const t = tickers[p.home.id]; const tk = t ? (typeof t === "string" ? t : t[0]) : null; if (tk) discText($("#pf-coin"), tk); }
       $("#pf-since").textContent = sinceText(p.since);
       const bio = $("#pf-bio");
       bio.textContent = p.bio || (self ? "You haven't written a bio yet." : "");

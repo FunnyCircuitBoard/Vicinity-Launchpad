@@ -56,7 +56,7 @@ test("the preview says it is an example: a visible 'Preview · example data' tag
 test("the preview mirrors a member's Home tab: pass with username and city, holding and rank, the city with members and founder path, Next for you", () => {
   for (const [where, h] of both) {
     const t = text(previewOf(h));
-    const order = ["Preview · example data", "Home City Community Rankings Founder", "Vicinity Pass", "Holder", "@UticaSam", "📍 Utica, United States", "live",
+    const order = ["Preview · example data", "Home City Feed Rankings Founder", "Vicinity Pass", "Holder", "@UticaSam", "📍 Utica, United States", "live",
       "💰 You hold", "250K", "250,000 $VICINITY", "🏆 Rank · all holders", "#126", "of 4,200 · top 3.00%",
       "Your community", "Utica", "Open seat 🔥", "Members", "312", "Holders here", "148", "Founder path", "33%",
       "Next for you", "A squad is forming in Utica", "Vote for your Country Manager"];
