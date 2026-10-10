@@ -6,7 +6,7 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { getHoldings, getMintBalances, getTokenFacts, rpc, rpcAnswer } from "../src/chain.js";
-import { BREAKER_MS, _resetRpcHealth, providerRefusal, rpcHealth, rpcTargets } from "../src/rpcpool.js";
+import { BREAKER_MS, MAINNET_GENESIS, _resetRpcHealth, providerRefusal, rpcHealth, rpcPost, rpcTargets } from "../src/rpcpool.js";
 import { _resetRelay, handleBalances, handleSend, handleStatus, rpcRaw } from "../src/relay.js";
 import { compileLegacy, wrapUnsigned } from "../src/sol/message.js";
 import { toBase64 } from "../src/sol/bytes.js";
@@ -31,28 +31,35 @@ function answer({ method, params }) {
   if (method === "getSignatureStatuses") return { context: { slot: 1 }, value: [null] };
   if (method === "getBlockHeight") return 1000;
   if (method === "sendTransaction") return base58Encode(new Uint8Array(64).fill(7));
+  if (method === "getGenesisHash") return MAINNET_GENESIS;
   return null;
 }
 const ok = (body) => new Response(JSON.stringify(Array.isArray(body) ? body.map((b) => ({ jsonrpc: "2.0", id: b.id, result: answer(b) })) : { jsonrpc: "2.0", id: 1, result: answer(body) }));
 const rpcErr = (code, message, data) => (body) => new Response(JSON.stringify(Array.isArray(body) ? body.map((b) => ({ jsonrpc: "2.0", id: b.id, error: { code, message, data } })) : { jsonrpc: "2.0", id: 1, error: { code, message, data } }));
-const http = (status) => () => new Response("busy", { status });
+const http = (status, text = "busy") => () => new Response(text, { status });
+// how Helius answers a key whose monthly credits are used up (an account-wide refusal, not "too fast right now")
+const outOfCredits = () => new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32429, message: "max usage reached" } }), { status: 429 });
 /** A provider that never answers but honours the caller's AbortSignal (a ref'd timer keeps the test alive: AbortSignal.timeout's is not). */
 const hang = (init) => new Promise((_, reject) => {
   const keep = setTimeout(() => reject(new Error("the caller never gave up")), 5_000);
   init.signal.addEventListener("abort", () => { clearTimeout(keep); reject(init.signal.reason); });
 });
 
-/** Two (or more) fake providers: each URL answers with its own behaviour; every call is recorded as [who, method, body]. */
-function network(byUrl) {
-  const calls = [];
+/**
+ * Two (or more) fake providers: each URL answers with its own behaviour; every call is recorded as [who, method, body]. The
+ * backup's one-time genesis check (src/rpcpool.js) is answered as mainnet and recorded apart (`genesis`), so `calls` is the traffic.
+ */
+function network(byUrl, { genesis = MAINNET_GENESIS } = {}) {
+  const calls = [], checks = [];
   const fetchImpl = async (url, init) => {
     const who = url === PRIMARY ? "primary" : url === BACKUP ? "backup" : url === DEVNET_URL ? "devnet" : url === LP_URL ? "launchpad" : "other:" + new URL(url).host;
     const body = JSON.parse(init.body);
+    if (!Array.isArray(body) && body.method === "getGenesisHash") { checks.push(who); return typeof genesis === "function" ? genesis(init) : new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: genesis })); }
     calls.push([who, Array.isArray(body) ? body[0].method : body.method, init.body]);
     const b = byUrl[who] || ok;
     return b(body, init, url);
   };
-  return { fetchImpl, calls, who: () => calls.map((c) => c[0]) };
+  return { fetchImpl, calls, checks, who: () => calls.map((c) => c[0]) };
 }
 
 let logs;
@@ -124,9 +131,9 @@ test("an answer every node would give is NOT asked again: bad params, a node's v
   assert.equal(providerRefusal(null), null);
 });
 
-test("breaker: after a provider failure the backup is asked FIRST for 60 s (the primary not at all), then one request probes the primary", async () => {
+test("breaker: after the provider as a whole failed (credits used up) the backup is asked FIRST for 60 s (the primary not at all), then one request probes the primary", async () => {
   let primaryDown = true;
-  const net = network({ primary: (b) => (primaryDown ? http(429)() : ok(b)) });
+  const net = network({ primary: (b) => (primaryDown ? outOfCredits() : ok(b)) });
   await rpc(ENV, "getBlockHeight", [], net.fetchImpl);
   assert.deepEqual(net.who(), ["primary", "backup"]);
   net.calls.length = 0;
@@ -136,6 +143,7 @@ test("breaker: after a provider failure the backup is asked FIRST for 60 s (the 
   const h = rpcHealth(clock.now);
   assert.equal(h.primary.lastReason, "http_429");
   assert.equal(h.primary.askedLastUntil, new Date(Date.parse("2026-10-10T14:20:00Z") + BREAKER_MS).toISOString());
+  assert.equal(h.primary.probingUntil, null);
   noSecretIn(JSON.stringify(h), "the health view");
   // the backup failing too while the primary is still benched: the primary is still asked (last), so one failure is not an outage
   net.calls.length = 0;
@@ -299,4 +307,163 @@ test("no path asks a provider by itself: only src/rpcpool.js fetches an RPC URL"
     if (f !== "rpcpool.js" && f !== "cluster.js") assert.ok(!/mainnet-beta\.solana\.com/.test(c), `${f} names the public RPC itself`);
   }
   assert.match(code("admin.js"), /SOLANA_RPC_URL_BACKUP: Boolean\(env\.SOLANA_RPC_URL_BACKUP\)/, "the admin view: presence only");
+});
+
+/* ---------------------------------------------------------------- review fixes (10 Oct 2026) */
+test("breaker: a passing hiccup of ONE request moves only that request (plain 429, -32010, a send's 429); three within 10 s, or a refused account, bench the provider", async () => {
+  const order = async (net, n = 3) => { net.calls.length = 0; for (let i = 0; i < n; i++) await rpc(ENV, "getBlockHeight", [], net.fetchImpl); return net.who(); };
+  // one plain rate limit (the body says nothing about the account): served by the backup, and the next calls go to the primary again
+  let fail = 1;
+  const plain = network({ primary: (b) => (fail-- > 0 ? http(429, '{"jsonrpc":"2.0","error":{"code":-32429,"message":"rate limited"}}')() : ok(b)) });
+  await rpc(ENV, "getBlockHeight", [], plain.fetchImpl);
+  assert.deepEqual(plain.who(), ["primary", "backup"]);
+  assert.deepEqual(await order(plain), ["primary", "primary", "primary"], "one 429 does not move every read to the backup");
+  // a method this provider does not index (-32010) for one call: the same
+  _resetRpcHealth(); fail = 1;
+  const idx = network({ primary: (b) => (fail-- > 0 ? rpcErr(-32010, "excluded from account secondary indexes; this RPC method unavailable for key")(b) : ok(b)) });
+  await rpc(ENV, "getProgramAccounts", [], idx.fetchImpl);
+  assert.deepEqual(await order(idx), ["primary", "primary", "primary"]);
+  // a sendTransaction refused by the per-method send limit (Helius: 1 or 5 a second): the reads stay on the primary
+  _resetRpcHealth();
+  const sends = network({ primary: (b) => (b.method === "sendTransaction" ? http(429)() : ok(b)) });
+  const r = await send(ENV, sends.fetchImpl);
+  assert.equal(r.status, 200, "the backup sent it");
+  assert.deepEqual(await order(sends), ["primary", "primary", "primary"], "a send limit never benches the reads");
+  // three plain failures within 10 s: now the provider is benched; a good answer in between starts the count again
+  _resetRpcHealth(); fail = 2;
+  const flaky = network({ primary: (b) => (fail-- > 0 ? http(429)() : ok(b)) });
+  await rpc(ENV, "getBlockHeight", [], flaky.fetchImpl); await rpc(ENV, "getBlockHeight", [], flaky.fetchImpl);
+  await rpc(ENV, "getBlockHeight", [], flaky.fetchImpl); // the primary answers: the count starts again
+  fail = 2;
+  await rpc(ENV, "getBlockHeight", [], flaky.fetchImpl); await rpc(ENV, "getBlockHeight", [], flaky.fetchImpl);
+  assert.deepEqual(await order(flaky, 1), ["primary"], "two since the last good answer: not benched");
+  _resetRpcHealth(); fail = 3;
+  for (let i = 0; i < 3; i++) { clock.now += 2_000; await rpc(ENV, "getBlockHeight", [], flaky.fetchImpl); }
+  assert.deepEqual(await order(flaky, 1), ["backup"], "three within 10 s: benched");
+  // the account itself refused (credits used up, the key refused): benched at once
+  for (const down of [outOfCredits, http(402), http(401), rpcErr(-32429, "max usage reached")]) {
+    _resetRpcHealth();
+    const net = network({ primary: down });
+    await rpc(ENV, "getBlockHeight", [], net.fetchImpl);
+    assert.deepEqual(await order(net, 1), ["backup"]);
+  }
+});
+
+test("breaker: a probe whose request is abandoned (the visitor left mid-probe) does not keep the primary asked last for good", async () => {
+  const net = network({ primary: outOfCredits });
+  await rpc(ENV, "getBlockHeight", [], net.fetchImpl);
+  clock.now += BREAKER_MS + 1_000;
+  // the probe: its fetch never settles and ignores its signal, so its `finally` never runs
+  const abandoned = rpc(ENV, "getBlockHeight", [], () => new Promise(() => {}));
+  abandoned.catch(() => {});
+  await new Promise((r) => setImmediate(r));
+  assert.ok(rpcHealth(clock.now).primary.probingUntil, "a probe in flight is shown with its deadline");
+  const during = network({});
+  await rpc(ENV, "getBlockHeight", [], during.fetchImpl);
+  assert.deepEqual(during.who(), ["backup"], "while the probe is under way the others go to the backup");
+  clock.now += 3_600_000;
+  const later = network({});
+  await rpc(ENV, "getBlockHeight", [], later.fetchImpl);
+  await rpc(ENV, "getBlockHeight", [], later.fetchImpl);
+  assert.deepEqual(later.who(), ["primary", "primary"], "an hour later the healthy primary is probed and first again");
+  const h = rpcHealth(clock.now).primary;
+  assert.deepEqual([h.askedLastUntil, h.probingUntil], [null, null]);
+});
+
+test("sendTransaction after an UNCLEAR failure (the bytes may have gone out): the page gets the wallet's signature to watch, never 'nothing was spent'", async () => {
+  const quick = (net) => (u, init) => net.fetchImpl(u, { ...init, signal: AbortSignal.timeout(20) });
+  const blockhashNotFound = rpcErr(-32002, "Transaction simulation failed: Blockhash not found", { err: "BlockhashNotFound", logs: [] });
+  const slippage = rpcErr(-32002, "Transaction simulation failed: Error processing Instruction 0: custom program error: 0x1771", { err: { InstructionError: [0, { Custom: 6001 }] }, logs: [] });
+  const cases = {
+    "primary timed out, a lagging backup says BlockhashNotFound": { primary: (b, init) => hang(init), backup: blockhashNotFound },
+    "primary timed out, the backup refuses inside a 200 (-32429)": { primary: (b, init) => hang(init), backup: rpcErr(-32429, "max usage reached") },
+    "both timed out after both got the bytes": { primary: (b, init) => hang(init), backup: (b, init) => hang(init) },
+    "primary 502 (a gateway may have forwarded it), the backup's preflight says slippage": { primary: http(502), backup: slippage },
+    "primary 503, the backup says too many requests": { primary: http(503), backup: rpcErr(-32005, "Too many requests for a specific RPC call") },
+    "primary network error after sending, the backup 429": { primary: () => { throw new TypeError(`Network connection lost: ${PRIMARY}`); }, backup: http(429) },
+  };
+  for (const [name, behaviour] of Object.entries(cases)) {
+    _resetRpcHealth(); _resetRelay(); logs.length = 0;
+    const net = network(behaviour);
+    const r = await send(ENV, quick(net));
+    const body = await r.json();
+    assert.equal(r.status, 200, `${name}: ${JSON.stringify(body)}`);
+    assert.deepEqual(body, { ok: true, signature: SIG, solscan: `https://solscan.io/tx/${SIG}`, cluster: "mainnet", unclear: true }, name);
+    assert.ok(net.calls.length <= 2 && net.calls.every((c) => c[2] === net.calls[0][2]), `${name}: the same bytes, at most once per provider`);
+    for (const l of logs) noSecretIn(l, "a log line");
+  }
+  // a single provider that timed out (no backup): the same, the chain decides
+  _resetRpcHealth();
+  const alone = network({ primary: (b, init) => hang(init) });
+  const a = await send({ SOLANA_RPC_URL: PRIMARY }, quick(alone));
+  assert.deepEqual([a.status, (await a.json()).unclear], [200, true]);
+});
+
+test("sendTransaction: a provider REFUSAL (nothing went out) is 'busy', never 'the network refused this', and never the provider's words; a clean refusal then a verdict stays the verdict", async () => {
+  // the only provider is out of credits and says so inside a 200: before, 409 rejected_by_network "...Nothing was spent" with "max usage reached" in `name`
+  const one = network({ primary: rpcErr(-32429, "max usage reached") });
+  const r = await send({ SOLANA_RPC_URL: PRIMARY }, one.fetchImpl);
+  const body = await r.json();
+  assert.deepEqual([r.status, body], [503, { ok: false, error: "rpc_busy" }]);
+  assert.ok(!JSON.stringify(body).includes("usage"));
+  // both refuse before taking it
+  _resetRpcHealth();
+  const both = network({ primary: http(402), backup: rpcErr(-32005, "Too many requests") });
+  assert.deepEqual([(await send(ENV, both.fetchImpl)).status], [503]);
+  // the primary refused cleanly (a 429 is answered before anything is sent), then the backup's verdict is the real one
+  _resetRpcHealth();
+  const verdict = network({ primary: http(429), backup: rpcErr(-32002, "Transaction simulation failed: Blockhash not found", { err: "BlockhashNotFound", logs: [] }) });
+  const v = await send(ENV, verdict.fetchImpl);
+  assert.deepEqual([v.status, (await v.json()).error], [409, "blockhash_expired"]);
+});
+
+test("a backup that is not a mainnet node (a devnet URL pasted by mistake) is never used: no plausible 'holds 0', one log line without its URL", async () => {
+  const devnetGenesis = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+  // the devnet node would answer "no token accounts" for every wallet: getHoldings must fail, not say everyone holds 0
+  const net = network({ primary: http(429), backup: (body) => new Response(JSON.stringify(body.map((b) => ({ jsonrpc: "2.0", id: b.id, result: { value: [] } })))) }, { genesis: devnetGenesis });
+  await assert.rejects(getHoldings(ENV, [OWNER], MINT, net.fetchImpl), /rpc_http_429/);
+  await assert.rejects(getHoldings(ENV, [OWNER], MINT, net.fetchImpl), /rpc_http_429/);
+  assert.deepEqual(net.who(), ["primary", "primary"], "the devnet node was never asked a mainnet question");
+  assert.deepEqual(net.checks, ["backup"], "checked once per server");
+  assert.equal(logs.filter((l) => /not a mainnet node/.test(l)).length, 1);
+  assert.equal(rpcHealth().backup.lastReason, "not_mainnet");
+  for (const l of logs) noSecretIn(l, "a log line");
+  // the check itself gets no answer: the backup is used anyway (better a backup than none), and checked again 30 s later
+  _resetRpcHealth();
+  const flaky = network({ primary: http(429) }, { genesis: () => new Response("down", { status: 503 }) });
+  assert.equal(await rpc(ENV, "getBlockHeight", [], flaky.fetchImpl), 1000);
+  assert.equal(await rpc(ENV, "getBlockHeight", [], flaky.fetchImpl), 1000);
+  assert.deepEqual(flaky.checks, ["backup"]);
+  clock.now += 31_000;
+  await rpc(ENV, "getBlockHeight", [], flaky.fetchImpl);
+  assert.deepEqual(flaky.checks, ["backup", "backup"]);
+  // a direct rpcPost names no URL either way
+  _resetRpcHealth();
+  const a = await rpcPost(ENV, { jsonrpc: "2.0", id: 1, method: "getBlockHeight", params: [] }, network({ primary: http(500) }).fetchImpl);
+  assert.deepEqual([a.role, a.failedOver, a.ambiguous], ["backup", true, true]);
+});
+
+test("status: the block height is shared for 2 s per server (half the cost of a flood of invented signatures); a failure is not kept", async () => {
+  const net = network({});
+  const poll = (n) => handleStatus(new Request(`https://x.test/api/swap/status?sig=${base58Encode(new Uint8Array(64).fill(n))}&lvbh=5000`), ENV, net.fetchImpl);
+  for (let i = 1; i <= 4; i++) assert.equal((await (await poll(i)).json()).status, "pending");
+  const heights = () => net.calls.filter((c) => c[1] === "getBlockHeight").length;
+  assert.equal(heights(), 1);
+  clock.now += 2_000;
+  await poll(5);
+  assert.equal(heights(), 2, "read again after 2 s");
+  // a height read from the backup is the backup's own (never another node's)
+  _resetRelay(); _resetRpcHealth();
+  const split = network({ primary: outOfCredits });
+  const p2 = (n) => handleStatus(new Request(`https://x.test/api/swap/status?sig=${base58Encode(new Uint8Array(64).fill(n))}&lvbh=5000`), ENV, split.fetchImpl);
+  await p2(7);
+  assert.deepEqual(split.calls.map((c) => [c[0], c[1]]), [["primary", "getSignatureStatuses"], ["backup", "getSignatureStatuses"], ["backup", "getBlockHeight"]]);
+  // a failed read is not remembered
+  _resetRelay(); _resetRpcHealth();
+  let down = true;
+  const once = network({ primary: (b) => (b.method === "getBlockHeight" && down ? http(500)() : ok(b)) });
+  const p3 = (n) => handleStatus(new Request(`https://x.test/api/swap/status?sig=${base58Encode(new Uint8Array(64).fill(n))}&lvbh=5000`), { SOLANA_RPC_URL: PRIMARY }, once.fetchImpl);
+  assert.equal((await p3(8)).status, 503);
+  down = false;
+  assert.equal((await (await p3(9)).json()).status, "pending");
 });

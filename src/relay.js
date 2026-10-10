@@ -18,7 +18,7 @@
  */
 import { json } from "./http.js";
 import { getMintBalances, rpcAnswer } from "./chain.js";
-import { rpcPost } from "./rpcpool.js";
+import { providerRefusal, rpcPost } from "./rpcpool.js";
 import { base58Encode, isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { fromBase64, hex, toBase64 } from "./sol/bytes.js";
@@ -69,16 +69,18 @@ export async function checkTicket(env, txBytes, ticket, now = Date.now()) {
 /**
  * One JSON-RPC call that keeps the node's error envelope (sendTransaction's preflight failure carries `data.err` and `data.logs`,
  * which rpc() in src/chain.js would flatten to a code). { result } or { error: { code, message, data } }, plus `failedOver: true`
- * when another endpoint than the first one answered. Throws on transport (a code, never the URL; 429 has code rpc_busy).
+ * when another endpoint than the first one answered, `ambiguous: true` when an earlier attempt failed in a way after which a
+ * transaction may still have gone out. Throws on transport (a code, never the URL; 429 has code rpc_busy; `ambiguous` likewise).
  * Through src/rpcpool.js: a sendTransaction goes to the backup at most once, and only when the provider failed (never on the
  * node's verdict about the transaction).
  */
 export async function rpcRaw(env, method, params, fetchImpl = fetch, { url = null, cluster = null, timeoutMs = TIMEOUT_MS } = {}) {
   let a;
   try { a = await rpcPost(env, { jsonrpc: "2.0", id: 1, method, params }, fetchImpl, { url, cluster, timeoutMs, send: method === "sendTransaction" }); }
-  catch (e) { if (e && e.status === 429) e.code = "rpc_busy"; throw e; }
+  catch (e) { if (e && e.status === 429) e.code = "rpc_busy"; throw e; } // e.ambiguous (rpcPost) rides along
   const d = a.data && typeof a.data === "object" && !Array.isArray(a.data) ? a.data : { error: { code: -32700, message: "bad answer" } };
   if (a.failedOver) d.failedOver = true;
+  if (a.ambiguous) d.ambiguous = true;
   return d;
 }
 
@@ -149,14 +151,35 @@ export async function handleSend(request, env, fetchImpl = fetch, now = Date.now
   // only what THIS Worker built goes to the owner's RPC: a signed transaction from anywhere else is refused before any node is asked
   if (!(await checkTicket(env, bytes, body.ticket, now))) return json({ ok: false, error: "bad_ticket", message: "Only a transaction built on this site can be relayed. Press Swap again." }, 400);
   const cluster = clusterOf(env, body.cluster);
+  // the transaction's id: the wallet's own signature (the first 64 bytes after the count; one signer, checked above)
+  const own = base58Encode(bytes.subarray(1, 65));
+  // An attempt failed in a way after which these bytes MAY have gone out (a timeout, a network error, a 408 or 5xx, an answer that
+  // was not JSON) and no node then said "sent": nobody knows whether the trade will land, so the page is never told "nothing was
+  // spent" (a second tap would buy twice). It gets the wallet's signature to watch instead: /api/swap/status says confirmed, failed,
+  // or expired once the chain's block height passes the transaction's last valid one (the only proof that nothing was spent).
+  const unclear = (why) => {
+    console.error("relay send unclear", why);
+    forgetBalances(decoded.staticKeys[0]);
+    return json({ ok: true, signature: own, solscan: solscanTx(own, cluster), cluster, unclear: true });
+  };
   let d;
   try {
     d = await rpcRaw(env, "sendTransaction", [body.tx, { encoding: "base64", skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 }], fetchImpl, rpcRouteFor(env, cluster));
-  } catch (e) { console.error("relay send failed", codeOf(e)); return json({ ok: false, error: e.code === "rpc_busy" ? "rpc_busy" : "rpc_unavailable" }, 503); }
+  } catch (e) {
+    if (e && e.ambiguous) return unclear(codeOf(e));
+    console.error("relay send failed", codeOf(e));
+    return json({ ok: false, error: e.code === "rpc_busy" ? "rpc_busy" : "rpc_unavailable" }, 503);
+  }
   // After a failover the first provider may have sent these very bytes before it failed: the backup's "already processed" then
-  // means the transaction is on the chain, not that it failed. Its signature is the wallet's own (the first 64 bytes after the
-  // count), and the status poll tells how it ended.
-  if (d.error && d.failedOver && alreadyProcessed(d.error)) d = { result: base58Encode(bytes.subarray(1, 65)) };
+  // means the transaction is on the chain, not that it failed, and the status poll tells how it ended.
+  if (d.error && (d.failedOver || d.ambiguous) && alreadyProcessed(d.error)) d = { result: own };
+  if (d.error && d.ambiguous) return unclear("verdict_after_" + (providerRefusal(d.error, { send: true }) ? "refusal" : "failure"));
+  if (d.error && providerRefusal(d.error, { send: true })) {
+    // every provider REFUSED it (credits, rate, a method not served) before taking it: nothing went out, and it is not the
+    // network's verdict on the trade, so the page says "busy", never "the network refused this" (and never the provider's words)
+    console.error("relay send refused by the provider", providerRefusal(d.error, { send: true }));
+    return json({ ok: false, error: "rpc_busy" }, 503);
+  }
   if (d.error) {
     const data = d.error.data || {};
     const mapped = simulationError(data.err ?? d.error.message, data.logs || [], decoded) || { error: "rejected_by_network" };
@@ -164,7 +187,7 @@ export async function handleSend(request, env, fetchImpl = fetch, now = Date.now
     return json({ ok: false, ...mapped, program: mapped.program || undefined }, 409);
   }
   const signature = typeof d.result === "string" && SIG.test(d.result) ? d.result : null;
-  if (!signature) return json({ ok: false, error: "rpc_unavailable" }, 503);
+  if (!signature) return d.ambiguous ? unclear("no_signature") : json({ ok: false, error: "rpc_unavailable" }, 503);
   forgetBalances(decoded.staticKeys[0]); // the payer's balances are about to change: the next read is the chain's, not the 10 s memo
   return json({ ok: true, signature, solscan: solscanTx(signature, cluster), cluster });
 }
@@ -194,7 +217,7 @@ export async function handleStatus(request, env, fetchImpl = fetch) {
     }
     if (lvbh != null) {
       // the height from the SAME node that just did not find the signature: a lagging backup must never call a landed trade expired
-      const { result: height } = await rpcAnswer(env, "getBlockHeight", [{ commitment: "confirmed" }], fetchImpl, { ...route, only: role });
+      const height = await blockHeight(env, cluster, route, role, fetchImpl);
       if (Number.isFinite(height) && height > lvbh) return json({ ...out, status: "expired" });
     }
     return json({ ...out, status: "pending" });
@@ -204,9 +227,27 @@ export async function handleStatus(request, env, fetchImpl = fetch) {
   }
 }
 
+/**
+ * The block height of one node, shared by every status poll of this server for 2 s (it was one call per poll: half of what a flood
+ * of invented signatures cost). A height only grows, so one read 2 s ago can only call a trade expired LATER, never too early.
+ * A failure is not kept.
+ */
+const heights = new Map(); // cluster|role -> { at, promise }
+const HEIGHT_MS = 2_000;
+function blockHeight(env, cluster, route, role, fetchImpl) {
+  const key = `${cluster}|${role}`;
+  let hit = heights.get(key);
+  if (!hit || Date.now() - hit.at >= HEIGHT_MS || Date.now() < hit.at) {
+    hit = { at: Date.now(), promise: rpcAnswer(env, "getBlockHeight", [{ commitment: "confirmed" }], fetchImpl, { ...route, only: role }).then((a) => a.result) };
+    hit.promise.catch(() => { if (heights.get(key) === hit) heights.delete(key); });
+    heights.set(key, hit);
+  }
+  return hit.promise;
+}
+
 const balances = new Map(); // owner|cluster|mints -> { at, promise }: 10 s per server, so a page polling after a swap costs one call per owner
 const BAL_MS = 10_000;
-export const _resetRelay = () => balances.clear();
+export const _resetRelay = () => { balances.clear(); heights.clear(); };
 /** Forget every memo of one owner (after a trade of theirs went out: the next read is the chain's). */
 export function forgetBalances(owner) { for (const k of [...balances.keys()]) if (k.startsWith(owner + "|")) balances.delete(k); }
 /** GET /api/swap/balances?owner=&mints=&cluster=&fresh=1 : SOL and up to 6 mints of one wallet; fresh=1 skips the memo (counted like a miss). */
