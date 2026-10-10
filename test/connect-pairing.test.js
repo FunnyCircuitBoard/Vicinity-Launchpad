@@ -313,7 +313,7 @@ test("(4) a LINK pairing: the approve page names the account the wallet joins, a
   assert.equal(p.visible(p.$("#stepper")), false, "and its old 3 steps");
   assert.equal(p.$("#approve-h").textContent, "Link this wallet to Sa•••'s Vicinity account?");
   assert.equal(p.$("#approve-owner").textContent, "@Sw•••");
-  assert.equal(p.$("#approve-city").textContent, "📍 Utica, US");
+  assert.equal(p.$("#approve-city").textContent, "Utica, US"); // design v2: the pin is an icon drawn by the stylesheet, not an emoji
   // (a computer's or tablet's QR code: the link has no on=phone. Review finding ux-UX-5: the phone wording was shown here too)
   assert.equal(p.$("#approve-ask").textContent, "Does your computer (or tablet), where you started, show check number 42?");
   assert.equal(p.$("#approve-warn").textContent, "Only continue if you started this yourself. Never sign for a code someone sent you.");

@@ -304,7 +304,7 @@
   const rmq = window.matchMedia("(prefers-reduced-motion: reduce)");
   if (rmq.addEventListener) rmq.addEventListener("change", motionChanged);
 
-  // ---- map style: the plain map (default) or the coloured one (the 🎨 switch) ----
+  // ---- map style: the plain map (default) or the coloured one (the palette switch) ----
   let mapStyle = (() => { try { return localStorage.getItem("vicinity-map-style") === "colored" ? "colored" : "plain"; } catch { return "plain"; } })();
   // coloured map: soft colours for countries, brighter ones for city areas; neighbours never share a colour
   const COUNTRY_COLORS = {
@@ -1383,7 +1383,7 @@
       if (!reduced) ripples.push({ lon: loc.lon, lat: loc.lat, t0: performance.now(), col: "55,194,154" });
       const c = await findCityAt(loc.lon, loc.lat);
       const home = c && parts.has(c.id) ? byId.get(parts.get(c.id)) : c;
-      if (home) { select(home, true); V().toast?.(`📍 You're in ${home.name}`); }
+      if (home) { select(home, true); V().toast?.(`You're in ${home.name}`); }
       else { userMoved = true; flyTo(loc.lon, loc.lat, 60); showNearby(loc.lon, loc.lat); V().toast?.("No community here yet: pick one of the three nearest."); }
     } catch (e) { V().toast?.(e?.inApp ? `${e.message} Open vicinity.city in Safari or Chrome to see where you are.` : e?.message || "Couldn't get your location."); }
     finally { b.disabled = false; b.classList.remove("is-busy"); }
@@ -1460,7 +1460,7 @@
     if (!c) { row.hidden = true; return; }
     row.hidden = false;
     const cname = countries[c.cc] || c.cc;
-    row.replaceChildren(el("span", "mod-row__icon", "🛡"), el("span", null, `Country moderator (${cname}): loading…`));
+    row.replaceChildren(el("span", "mod-row__icon"), el("span", null, `Country moderator (${cname}): loading…`));
     try {
       let d = modCache.get(c.cc);
       if (!d) { d = await (await fetch(`/api/moderator?country=${c.cc}`)).json(); modCache.set(c.cc, d); }
@@ -1470,8 +1470,8 @@
         txt.append(document.createTextNode(`Country moderator (${cname}): `), solscan(d.moderator.wallet),
           document.createTextNode(` · founder of ${d.moderator.city} · holds ${fmt(d.moderator.amount)} $VICINITY`));
       } else txt.textContent = `Country moderator (${cname}): ${d.launched ? "no founders here yet." : "picked at launch."} It's the city founder in ${cname} who holds the most $VICINITY.`;
-      row.replaceChildren(el("span", "mod-row__icon", "🛡"), txt);
-    } catch { row.replaceChildren(el("span", "mod-row__icon", "🛡"), el("span", null, `Country moderator (${cname}): the city founder holding the most $VICINITY.`)); }
+      row.replaceChildren(el("span", "mod-row__icon"), txt);
+    } catch { row.replaceChildren(el("span", "mod-row__icon"), el("span", null, `Country moderator (${cname}): the city founder holding the most $VICINITY.`)); }
   }
 
   /* =================== empty land: pick one of the three nearest communities =================== */
@@ -1532,7 +1532,7 @@
       if (!cl && win) sub.append(document.createElement("br"), el("span", "shared-note", `${win.applicants} applying · window closes ${new Date(win.closesAt).toLocaleString()}`));
       const m = memberCount.get(selected.id) || 0;
       mrow.hidden = false;
-      mrow.textContent = m ? `👥 ${fmt(m)} verified member${m === 1 ? "" : "s"} call ${selected.name} home${cl ? "" : " · founder seat open"}` : `👥 No members yet. Be the first to call ${selected.name} home.`;
+      mrow.textContent = m ? `${fmt(m)} verified member${m === 1 ? "" : "s"} call ${selected.name} home${cl ? "" : " · founder seat open"}` : `No members yet. Be the first to call ${selected.name} home.`;
     }
     // the button always leads to the dashboard, where wallet, holdings and location are checked together
     let label = "Claim a city in your dashboard →", href = "/dashboard";
@@ -1632,7 +1632,7 @@
     feed.replaceChildren(...list.map((c) => {
       const li = el("li", fresh.has(c.city_id) ? "is-new" : null);
       const city = byId.get(c.city_id);
-      const go = el("button", "claim-feed__city", `📍 ${c.city_name}, ${c.country}`); go.type = "button";
+      const go = el("button", "claim-feed__city", `${c.city_name}, ${c.country}`); go.type = "button";
       if (city) go.addEventListener("click", () => select(city, true));
       li.append(go, el("span", "muted", ` · ${c.status === "provisional" ? "chosen" : "founder"} ${c.founder} `), walletText(c.wallet), el("span", "muted", ` · ${ago(c.claimed_at)}`));
       return li;
@@ -1661,7 +1661,7 @@
       const fresh = new Set();
       if (!firstClaims) for (const c of list) if (!claims.has(c.city_id)) {
         fresh.add(c.city_id); const city = byId.get(c.city_id);
-        if (city) { ripple(city, "255,90,54"); popAt.set(city.id, performance.now()); V().toast?.(`🎉 ${city.name} has a founder`); }
+        if (city) { ripple(city, "255,90,54"); popAt.set(city.id, performance.now()); V().toast?.(`${city.name} has a founder`); }
       }
       firstClaims = false;
       claims = new Map(list.map((c) => [c.city_id, c]));

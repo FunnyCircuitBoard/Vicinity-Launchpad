@@ -126,9 +126,9 @@
               <p class="tiny muted">Ledger? Connect it through Phantom or Solflare.</p>
             </details>
             <div class="alt-ways">
-              <button type="button" class="alt" id="alt-phone"><span class="alt__icon" aria-hidden="true">📱</span><span><strong>Wallet on my phone</strong><em>Scan a code with your phone, sign there, continue here.</em></span></button>
-              <button type="button" class="alt" id="alt-app"><span class="alt__icon" aria-hidden="true">💸</span><span><strong>App wallet (FOMO, exchanges…)</strong><em>Can't connect to websites? Send yourself a tiny, exact amount instead.</em></span></button>
-              <a class="alt" href="/token#verify" id="alt-check"><span class="alt__icon" aria-hidden="true">🔎</span><span><strong>Just check a wallet's rank</strong><em>Paste any address. No sign-in needed.</em></span></a>
+              <button type="button" class="alt" id="alt-phone"><span class="alt__icon ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></span><span><strong>Wallet on my phone</strong><em>Scan a code with your phone, sign there, continue here.</em></span></button>
+              <button type="button" class="alt" id="alt-app"><span class="alt__icon ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11v3"/><rect x="4" y="8" width="16.5" height="11" rx="2.5"/><path d="M16 13.5h1.5"/></svg></span><span><strong>App wallet (FOMO, exchanges…)</strong><em>Can't connect to websites? Send yourself a tiny, exact amount instead.</em></span></button>
+              <a class="alt" href="/token#verify" id="alt-check"><span class="alt__icon ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5h16"/><path d="m4.5 15 4.5-4.5 3.5 3.5 7-7.5"/><path d="M15 6.5h4.5V11"/></svg></span><span><strong>Just check a wallet's rank</strong><em>Paste any address. No sign-in needed.</em></span></a>
               <a class="link-btn link-skip" href="/dashboard" id="alt-skip" hidden>Skip for now</a>
             </div>
           </div>
@@ -434,7 +434,7 @@
 
           <!-- 3. done: signed in, or the wallet linked -->
           <div class="cstate" data-state="done" hidden>
-            <div class="verified-badge is-gold" aria-hidden="true" id="done-badge">📍</div>
+            <div class="verified-badge is-gold done-badge" aria-hidden="true" id="done-badge" data-icon="pin"><svg class="done-badge__pin" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><svg class="done-badge__link" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></div>
             <h2 class="h2--sm" id="done-h">You're in.</h2>
             <p class="muted" id="done-sub">Taking you to your dashboard…</p>
             <a class="btn btn--primary" href="/dashboard" id="done-go">Open my dashboard →</a>

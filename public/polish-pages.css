@@ -433,3 +433,12 @@
 .notfound__cta .btn { flex: 1 1 140px; max-width: 220px; justify-content: center; }
 .notfound__check { margin: 0; text-align: center; }
 @media (max-width: 600px) { .notfound-sec { padding-top: 24px; } }
+
+/* /connect: the alternative ways and the done badge carry icons from the site's set (no emoji); signup.js sets the badge's data-icon */
+.alt .alt__icon.ico { font-size: inherit; }
+.done-badge svg { width: 36px; height: 36px; }
+.done-badge[data-icon="pin"] .done-badge__link, .done-badge[data-icon="link"] .done-badge__pin { display: none; }
+#approve-city { display: inline-flex; align-items: center; gap: 5px; }
+#approve-city::before { content: ""; flex: none; width: 14px; height: 14px; background: var(--pin-2);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z'/%3E%3Ccircle cx='12' cy='10' r='2.4'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z'/%3E%3Ccircle cx='12' cy='10' r='2.4'/%3E%3C/svg%3E") center / contain no-repeat; }
