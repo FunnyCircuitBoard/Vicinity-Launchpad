@@ -58,7 +58,7 @@ input, select, textarea { min-height: 44px; }
 
 /* ---------- the footer: one row of links (two columns on a phone), status and Pause side by side, data credits folded, the legal line kept ---------- */
 .site-footer { padding: 26px 0 20px; }
-.footer-grid { grid-template-columns: 1.3fr 1fr 1fr; gap: 16px 28px; align-items: start; }
+.footer-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 16px 28px; align-items: start; }
 .footer-brand p { margin: 6px 0 0; }
 .footer-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px; }
 .footer-meta p { margin: 0; }
@@ -76,11 +76,11 @@ input, select, textarea { min-height: 44px; }
 .footer-data p { margin: 0 0 6px; }
 .footer-legal { margin-top: 14px; padding-top: 12px; }
 @media (max-width: 900px) {
-  .footer-grid { grid-template-columns: 1fr 1fr; gap: 8px 20px; }
+  .footer-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 20px; }
   .footer-brand { grid-column: 1 / -1; }
   /* the Explore links are the tab bar's five pages: one menu per screen */
   .footer-links--explore { display: none; }
-  .footer-links--safe { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .footer-links--safe { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 16px; }
   .footer-links--safe .footer-title, .footer-links--safe .tiny, .footer-links--safe a:first-of-type { grid-column: 1 / -1; } /* three links: one, then two side by side */
   .footer-links a { min-height: 44px; }
   .footer-brand .brand { min-height: 0; margin: 0; padding: 0; }
@@ -107,7 +107,7 @@ input, select, textarea { min-height: 44px; }
 .hero__facts li span { line-height: 1.3; margin-top: 2px; }
 .hero__facts strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
 .hero-map .map-open { display: none; } /* the map itself is the link (aria-label); the one "Open on the live map" is in the walkthrough */
-@media (min-width: 961px) { .hero__title { font-size: clamp(3rem, 7vw, 5.5rem); } .hero__grid { grid-template-columns: 1.2fr .8fr; } } /* "One community." on one line at 1280 (it broke after "One") */
+@media (min-width: 961px) { .hero__title { font-size: clamp(3rem, 7vw, 5.5rem); } .hero__grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); } } /* "One community." on one line at 1280 (it broke after "One") */
 @media (max-width: 960px) {
   .hero { padding: 16px 0 22px; }
   .hero-map { display: none; } /* the same city, bigger and stepped through, starts right under the hero on a phone */

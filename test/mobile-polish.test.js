@@ -57,7 +57,7 @@ test("footer, every page: no duplicate of the tab bar or the header, status and 
     assert.match(foot, /href="\/rules">Rules &amp; fairness<\/a>/, f); assert.match(foot, /href="\/terms">Terms of Use<\/a>/, f);
   }
   assert.match(polish, /\.footer-links--explore \{ display: none; \}/, "on a phone the Explore links are the tab bar's five pages: hidden there");
-  assert.match(polish, /\.footer-links--safe \{ grid-column: 1 \/ -1; display: grid; grid-template-columns: 1fr 1fr;/, "the safety links two by two on a phone");
+  assert.match(polish, /\.footer-links--safe \{ grid-column: 1 \/ -1; display: grid; grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/, "the safety links two by two on a phone");
 });
 
 test("home: one hero button to the buy slot, one row of facts with one countdown, no numbers band, no closing band, the map right after the hero", () => {
@@ -258,4 +258,18 @@ test("design v2 tokens: the contract the other sheets read (names fixed), with t
   assert.match(style, /\.coin-head__ticker > \.skel \{ display: inline-block; min-height: 1em; \}/);
   // tokens and components sit before the profiles block (nothing after it may move) and outside the dashboard v2 block
   assert.ok(style.indexOf("Design v2: the shared components") < style.indexOf("Member profiles (PROFILES=on)"));
+});
+
+test("the guard against anything wider than a phone: buttons, media, code and grids fit their column; html never scrolls on its own", () => {
+  assert.match(style, /\.btn \{[^}]*max-width: 100%;/, "no button is wider than its column");
+  assert.match(style, /\.btn--lg, \.btn--block, \.btn--social \{ white-space: normal; text-wrap: balance; text-align: center; line-height: 1\.25; padding-block: 8px; \}/, "a long label wraps, centred");
+  assert.match(style, /main :where\(img, svg, video, canvas, iframe, table, pre\) \{ max-width: 100%; \}/);
+  assert.match(style, /p code \{ overflow-wrap: anywhere; \}/);
+  assert.match(style, /body \{[^}]*overflow-x: hidden;/, "body keeps its clip");
+  assert.doesNotMatch(style + polish, /(^|[}\s])html \{[^}]*overflow(-x)?:/, "never on html: body would become the scroll container and the sticky header would stop sticking");
+  // every grid that applies on a phone uses minmax(0, ...) tracks (a bare 1fr track grows to its longest word or input), outside the
+  // Launchpad / coin and dashboard v2 blocks that their own tests pin
+  const shared = style.slice(0, style.indexOf("/* ---------- Launchpad city coins (LAUNCHPAD_V2=on)")) + polish;
+  const bare = [...shared.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/grid-template-columns:\s*([^;}]+)/g)].map((m) => m[1]).filter((v) => /(^|[\s(,])\d*\.?\d+fr\b/.test(v.replace(/minmax\([^()]*(\([^()]*\))?[^()]*\)/g, "")));
+  assert.deepEqual(bare, [], "no bare fr track left");
 });
