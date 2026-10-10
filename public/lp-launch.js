@@ -1,7 +1,7 @@
 // "Launch your city coin" (the dashboard's Founder tab) and "Move to the open market" (the coin page): window.LPLaunch. Needs
 // site.js (window.V), wallets.js (window.VW) and lp-sign.js (window.LP). Everything here is switched off with the launchpad's
-// settings: the probe (GET /api/lp/launch/status, no city) answers 404 and nothing is shown, so the Raydium LaunchLab copy the
-// dashboard always had stays (public/dashboard.js decides that from probe()).
+// settings: /api/official has no cityCoins key, the probe (GET /api/lp/launch/status, no city) is not even asked and nothing is
+// shown, so the Raydium LaunchLab copy the dashboard always had stays (public/dashboard.js decides that from probe()).
 // The Worker builds each transaction UNSIGNED for the signed-in wallet and simulates it (src/lplaunch.js); this page shows what will
 // be signed and the exact SOL change BEFORE the wallet opens (LP.renderSummary), the wallet signs first, lp-sign.js adds the
 // one-time key(s) made in this browser (the coin's address, the two position NFTs) and sends through the site's relay.
@@ -80,9 +80,16 @@
   const words = (r) => (r && r.message) || (root.LP ? root.LP.say(r && r.error, r || undefined) : "Something went wrong.");
   const enc = encodeURIComponent;
   let probeMemo = null;
-  /** Is the launch switched on here? { on, cluster, ... } or null (the settings are not there: 404 not_enabled). Asked once per page. */
+  /**
+   * Is the launch switched on here? { on, cluster, ... } or null. /api/official (asked by every page anyway, site.js V.official) says
+   * cityCoins only while the settings are there; only then is the probe asked (a site without them sends no request and logs no 404).
+   * Asked once per page.
+   */
   function probe() {
-    if (!probeMemo) probeMemo = V.api("/api/lp/launch/status").then((r) => (r && r.ok && r.on ? r : null)).catch(() => null);
+    if (!probeMemo) {
+      probeMemo = Promise.resolve(V.official).then((o) => (o && o.cityCoins ? V.api("/api/lp/launch/status") : null))
+        .then((r) => (r && r.ok && r.on ? r : null)).catch(() => null);
+    }
     return probeMemo;
   }
   const link = (text, href, external = false) => { const a = el("a", "lp-link", text); a.href = href; if (external) { a.target = "_blank"; a.rel = "noopener"; } return a; };
@@ -204,6 +211,8 @@
     netLine(card.querySelector("[data-lp-net]"), p.cluster);
     const v = view(st, design);
     tag.textContent = v.tag[0]; tag.className = `tag ${v.tag[1]}`.trim();
+    const title = card.querySelector("h2");
+    if (title) title.textContent = v.state === "launched" ? "Your city coin" : "Launch your city coin";
     body.replaceChildren(...v.lines.map((t) => el("p", v.state === "error" ? "lp-error" : "small", t)));
     const again = async () => { const r = await founder(card, opts); if (typeof opts.onChange === "function") opts.onChange(r); return r; };
     if (v.state === "ready") readyView(body, st, p, again);
@@ -269,8 +278,9 @@
   }
 
   function launchedView(body, st, p, again) {
-    const ticker = st.coin && st.coin.symbol ? `$${st.coin.symbol}` : "Your coin";
-    body.replaceChildren(el("p", "lp-live", `Your coin ${ticker} is live.`));
+    // the chain's symbol, else the city's ticker (the launched status names it as `ticker`); never "Your coin Your coin is live."
+    const sym = (st.coin && st.coin.symbol) || st.ticker || null;
+    body.replaceChildren(el("p", "lp-live", sym ? `Your coin $${sym} is live.` : "Your coin is live."));
     const mint = el("p", "small mono lp-addr", st.mint);
     const links = el("p", "lp-links");
     links.append(link("Open your coin's page", st.coinPage), " · ", link("See it on Solscan", st.explorer, true));

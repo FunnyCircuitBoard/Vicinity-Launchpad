@@ -127,7 +127,8 @@
     badge.textContent = me.role; badge.className = `role-badge ${me.role}`;
     $("#admin-who").textContent = short(me.wallet);
     config = await api("/api/admin/config").catch(() => null);
-    lpOn = me.role === "owner" && Boolean((await api("/api/admin/lp").catch(() => null) || {}).ok);
+    // asked only when the server says the settings are there (config.cityCoins): a site without them sends no request for it
+    lpOn = me.role === "owner" && Boolean(config && config.cityCoins) && Boolean((await api("/api/admin/lp").catch(() => null) || {}).ok);
     if (config && config.ok && config.siteMode === "preview") $("#admin-banner").hidden = false;
     renderTabs();
     showTab("overview");

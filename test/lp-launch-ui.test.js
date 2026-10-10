@@ -74,6 +74,8 @@ async function open(file, { answers = {}, probe = { ok: true, on: true, cluster:
     },
   };
   win.V.toast = (m) => toasts.push(m);
+  // /api/official (site.js V.official): cityCoins only while the settings are there; then the probe is asked
+  win.V.official = Promise.resolve(probe === null ? { ok: true } : { ok: true, cityCoins: { cluster: probe.cluster || "mainnet" } });
   vm.runInContext(LP_LAUNCH, win, { filename: "public/lp-launch.js" });
   const btn = (root, text) => root.querySelectorAll("button").find((b) => b.textContent === text) || null;
   return { ...page, win, calls, prepared, toasts, btn, L: win.LPLaunch };
@@ -104,14 +106,20 @@ test("pure: amounts of SOL, the card's words per state, the graduation box", () 
   assert.equal(P.leftText(7 * 86400), "7 days left");
 });
 
-test("dark: with the settings off the probe answers 404 and the card stays hidden; nothing else is asked", async () => {
+test("dark: with the settings off /api/official has no cityCoins, the probe is not even asked (no 404 in the console) and the card stays hidden", async () => {
   const p = await open("dashboard.html", { probe: null });
   const card = p.$("#lp-launch");
   assert.equal(card.hidden, true);
   const r = await p.L.founder(card, { cityId: "5142056" });
   assert.deepEqual(plain(r), { on: false });
   assert.equal(card.hidden, true);
-  assert.deepEqual(p.calls.map((c) => c.path), ["/api/lp/launch/status"]);
+  assert.deepEqual(p.calls.map((c) => c.path), [], "no request at all");
+  // and when /api/official says cityCoins but the route answers 404 (settings removed meanwhile): still nothing shown
+  const q = await open("dashboard.html", { probe: { ok: false, error: "not_enabled", _code: 404 } });
+  q.win.V.official = Promise.resolve({ ok: true, cityCoins: { cluster: "mainnet" } });
+  const qr = await q.L.founder(q.$("#lp-launch"), { cityId: "5142056" });
+  assert.deepEqual(plain(qr), { on: false });
+  assert.deepEqual(q.calls.map((c) => c.path), ["/api/lp/launch/status"]);
   // the dashboard page carries the gated copy markers: the LaunchLab words only while the gate is off
   assert.match(DASH, /<span data-launchlab-copy>, on Raydium LaunchLab<\/span>/);
   assert.match(DASH, /<details class="coin-launch" data-launchlab-copy>/);
@@ -194,6 +202,7 @@ test("the launch: a one-time key, the summary before the wallet, then recorded a
   await tick(40);
   assert.deepEqual(p.calls.filter((c) => c.path === "/api/lp/record").map((c) => c.body), [{ cityId: "5142056" }]);
   assert.match(text(card), /Your coin \$UTICA is live\./);
+  assert.equal(text(card.querySelector("h2")), "Your city coin", "a launched coin: the heading no longer says 'Launch'");
   const links = card.querySelectorAll("a").map((a) => [a.textContent, a.getAttribute("href")]);
   assert.deepEqual(links.slice(0, 2), [["Open your coin's page", `/coin?mint=${MINT}`], ["See it on Solscan", `https://solscan.io/token/${MINT}`]]);
   assert.equal(text(card.querySelector("[data-lp-state]")), "● Live");
@@ -311,6 +320,7 @@ async function dashboard({ gate = true, status = { ...READY, wallet: ADDR } } = 
   const lpCalls = [];
   const page = await openDashboard({
     me: founderMe(),
+    official: gate ? { ok: true, cityCoins: { cluster: "mainnet" } } : { ok: true },
     api: async (path) => {
       if (path.startsWith("/api/lp/")) {
         lpCalls.push(path);
@@ -345,10 +355,10 @@ test("the dashboard, gate on: the founder's card in the Founder tab, the LaunchL
   assert.doesNotMatch(page.text("#today-list"), /Add your coin's contract/);
 });
 
-test("the dashboard, gate off: the card stays hidden, the LaunchLab path is unchanged, and only the probe was asked", async () => {
+test("the dashboard, gate off: the card stays hidden, the LaunchLab path is unchanged, and nothing of /api/lp is asked", async () => {
   const { page, lpCalls } = await dashboard({ gate: false });
   assert.equal(page.$("#lp-launch").hidden, true);
-  assert.deepEqual(lpCalls, ["/api/lp/launch/status"]);
+  assert.deepEqual(lpCalls, [], "/api/official has no cityCoins: no probe, no 404 in the console");
   for (const e of page.$$("[data-launchlab-copy]")) assert.equal(e.hidden, false);
   for (const e of page.$$("[data-lp-only]")) assert.equal(e.hidden, true);
   assert.equal(page.text("#fcard-go"), "Add the contract");
@@ -421,4 +431,16 @@ test("design v2: the city-coin sheets read the site's tokens with a fallback, th
   assert.match(DASH, /<p class="kicker"><span class="ico ico--sm" aria-hidden="true"><svg [^>]*>[\s\S]*?<\/svg><\/span>City coin · Vicinity launchpad<\/p>/);
   assert.doesNotMatch(LP_LAUNCH + read("public/admin-lp.js") + read("public/lp-sign.js"), /[\u{1F300}-\u{1FAFF}⚙⚡]/u, "no pictographic emoji");
   assert.match(block, /\.lp-approve \{ border: 2px solid var\(--gold, #FFC857\);/, "the 'You are approving' box (SEC-1) stands out");
+});
+
+test("launched, the chain's symbol not in the answer: the city's ticker, never 'Your coin Your coin is live.'", async () => {
+  const st = { ...LAUNCHED, coin: undefined, ticker: "SYRACUSE" };
+  const p = await open("dashboard.html", { answers: { "/api/lp/launch/status": st } });
+  const card = p.$("#lp-launch");
+  await p.L.founder(card, { cityId: "5140405" });
+  assert.match(text(card), /Your coin \$SYRACUSE is live\./);
+  assert.doesNotMatch(text(card), /Your coin Your coin/);
+  const bare = await open("dashboard.html", { answers: { "/api/lp/launch/status": { ...LAUNCHED, coin: undefined, ticker: undefined } } });
+  await bare.L.founder(bare.$("#lp-launch"), { cityId: "5140405" });
+  assert.match(text(bare.$("#lp-launch")), /Your coin is live\./);
 });

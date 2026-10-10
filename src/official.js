@@ -4,7 +4,7 @@
  * Change it only by a public commit so everyone can see the history.
  */
 import { launchpadV2On } from "./flags.js";
-import { launchpadCluster, launchpadTradingOn, swapOn } from "./cluster.js";
+import { launchpadCluster, launchpadTradingOn, lpSetup, swapOn } from "./cluster.js";
 
 // The $VICINITY mint address. Paste it here the moment the token launches (one line change).
 export const VICINITY_MINT = null;
@@ -192,7 +192,11 @@ export function officialFor(env) {
   // the in-app swap and the launchpad's curve trades (src/cluster.js): the pages render Buy here instead of a link to raydium.io
   // only when a switch is on; with both off these keys do not exist and the answer is exactly as it always was
   const withSwap = swapOn(env) ? { ...withV2, swap: true } : withV2;
-  return launchpadTradingOn(env) ? { ...withSwap, launchpadTrading: { cluster: launchpadCluster(env).cluster } } : withSwap;
+  const withTrading = launchpadTradingOn(env) ? { ...withSwap, launchpadTrading: { cluster: launchpadCluster(env).cluster } } : withSwap;
+  // the city-coin launch (lpSetup, src/cluster.js): the pages ask /api/lp/* only when this key is there, so a site without its
+  // settings sends no request for it and gets no 404 in the browser's console; off, the key does not exist
+  const lp = lpSetup(env);
+  return lp.on ? { ...withTrading, cityCoins: { cluster: lp.cluster } } : withTrading;
 }
 
 // Founding Supporter snapshot cutoff (always 00:00 UTC), announced ahead of time. The setting

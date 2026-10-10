@@ -189,6 +189,8 @@ test("config exposes presence flags only, never secret values", async () => {
   assert.equal(typeof d.rpc, "object");
   assert.ok(!JSON.stringify(d).includes("backup-secret-key") && !JSON.stringify(d).includes("rpc.example"), "the backup URL never leaves the server");
   delete env.SOLANA_RPC_URL_BACKUP;
+  // the City coins tab is asked for only when the server says its settings are there (src/cluster.js lpSetup)
+  assert.equal(d.cityCoins, false, "production-like: off");
   assert.ok(d.ok);
   assert.equal(d.siteMode, "preview");
   assert.equal(d.policyVersion, 5);

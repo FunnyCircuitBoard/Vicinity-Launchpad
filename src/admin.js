@@ -458,6 +458,8 @@ async function handleConfig(ctx) {
     // what THIS server saw of the RPC providers (src/rpcpool.js), by role only (primary, backup, launchpad, devnet), never a URL:
     // when one last refused or failed, why (http_429, rpc_-32429, timeout ...), and until when it is asked last
     rpc: rpcHealth(),
+    // the City coins tab (src/lpadmin.js) is there only with its settings: the page asks /api/admin/lp only when this is true
+    cityCoins: lpSetup(env).on,
     grantedRoles: roles.n,
     auditRows: audit.n,
   });

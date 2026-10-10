@@ -115,6 +115,16 @@ test("dark: with production-like settings every founder route answers 404 not_en
   assert.equal(lp.S.log.length, 0);
 });
 
+test("/api/official says cityCoins only while the settings are there (the pages ask /api/lp/* only then); production-like: no key, exactly as before", async () => {
+  const prod = { ...newWorld(), ...wranglerVars() };
+  const lp = lpChain();
+  const off = await (await browser(prod).send("/api/official", { fetchImpl: lp.fetchImpl })).json();
+  assert.equal("cityCoins" in off, false, "no key at all while dark");
+  const on = await (await browser({ ...newWorld(), ...ON }).send("/api/official", { fetchImpl: lp.fetchImpl })).json();
+  assert.deepEqual(on.cityCoins, { cluster: "devnet" });
+  assert.equal(lp.S.log.length, 0, "no chain read for it");
+});
+
 test("status: signed out 401, the cluster echo first, a member who is not the founder 403; a wrong method 405", async () => {
   const w = await world();
   assert.deepEqual([(await w.call(`/api/lp/launch/status?city=${CITY}`, undefined, { cluster: "mainnet" })).status], [409]);
