@@ -393,3 +393,30 @@
 /* the account step's place chip: the place on one line, "Not right? Check again" wraps under it when the row is short */
 #su-recap { flex-wrap: wrap; row-gap: 0; border-radius: var(--r-chip, 12px); }
 #su-recap-city { white-space: nowrap; font-weight: 600; }
+
+/* ---------- /profile: the member's pass, the cards and the counts (profile.js belongs to the dashboard work: CSS and profile.html only) ---------- */
+.prof-head .kicker { margin-bottom: 4px; }
+.prof-search__row .btn { min-height: 48px; }
+/* the pass: a round initials disc (the avatar recipe), the home line with the pin icon, and a calm glass coin (no gold: gold means
+   founder or a top rank on this site, and the city has no colour of its own here) */
+.prof-pass .idcard__avatar { border-radius: 50%; font: 650 1.35rem/1 var(--display); letter-spacing: .02em; color: #fff; }
+.prof-pass .pass__home { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.prof-pass .pass__home span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pass__pin { width: 16px; height: 16px; flex: none; }
+.prof-pass .pass__coin { background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.32); box-shadow: none; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.prof-pass .pass__coin span { color: #fff; text-shadow: none; font-weight: 700; }
+/* badges: a word each in a glass chip; the pictures the server sends with them are emoji, so the chip shows a small dot instead */
+.prof-badges li > span[aria-hidden="true"]:first-child { display: none; }
+.prof-badges li { gap: 7px; padding: 4px 11px; min-height: 28px; font-weight: 600; }
+.prof-badges li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; flex: none; background: currentColor; opacity: .75; }
+/* one surface per card: the posts inside "Recent posts" are wells, not cards in a card */
+.prof-posts .prof-post { border: 0; background: var(--surface-inset, rgba(var(--ink), .04)); border-radius: var(--r-chip, 14px); }
+.prof-count strong { font-variant-numeric: tabular-nums; }
+.prof-hold .kv dd { font-variant-numeric: tabular-nums; }
+.prof-wallet__row .btn { flex: 1 1 auto; justify-content: center; }
+@media (max-width: 600px) {
+  .prof-note { margin: 8px auto 16px; }
+  .prof-pass .pass__who { align-items: flex-start; }
+  .prof-actions__row { flex-wrap: wrap; }
+}
+
