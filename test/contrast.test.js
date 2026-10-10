@@ -25,12 +25,13 @@ test("main buttons: white text on every stop of their gradient reads at 4.5:1 or
   assert.doesNotMatch(css, /linear-gradient\(135deg, var\(--pin\), #FF7A45\)/, "the old light orange is gone from white-text buttons");
 });
 
-test("the example dashboard's smallest text reads clearly: the light theme's 'Your community' kicker and the coin's label", () => {
-  // 9.9 px kicker in var(--pin-2) #D4501F on white measured 4.2:1 (light); the coin's 9.6 px label #0B3B2C was near the line on its green
-  assert.match(css, /:root\[data-theme="light"\] \.dpv__kicker \{ color: var\(--bad-text\); \}/);
+test("the example dashboard's smallest text reads clearly: the 'Your community' kicker and the coin's label", () => {
+  // the 9.9 px kicker was var(--pin-2) #D4501F, 4.2:1 on white (light); design v2: a calm sentence-case kicker in var(--muted), as on the
+  // real dashboard; the coin's 9.6 px label #0B3B2C was near the line on its green
+  assert.match(css, /\.dpv__kicker \{ display: block; font: 600 \.74rem\/1\.4 var\(--body\); color: var\(--muted\); \}/);
   const light = css.slice(css.indexOf(':root[data-theme="light"] {'));
-  const bad = /--bad-text: (#[0-9A-Fa-f]{6})/.exec(light)[1];
-  assert.ok(ratio(bad, "#FFFFFF") >= 4.5, `light --bad-text ${bad} on white: ${ratio(bad, "#FFFFFF").toFixed(2)}:1`);
+  const muted = /--muted: (#[0-9A-Fa-f]{6})/.exec(light)[1];
+  assert.ok(ratio(muted, "#FFFFFF") >= 4.5, `light --muted ${muted} on white: ${ratio(muted, "#FFFFFF").toFixed(2)}:1`);
   assert.match(css, /\.dpv__coin, \.dpv__disc \{[^}]*color: #062A1F;/);
   assert.ok(ratio("#062A1F", "#37C29A") >= 6, "on the coin's green, where the label sits");
 });
