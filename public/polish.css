@@ -47,7 +47,6 @@ input, select, textarea { min-height: 44px; }
   .page-hero { padding: 28px 0 20px; }
   .page-title { margin: 4px 0 10px; }
   .lead { font-size: 1rem; }
-  .bridge { margin-top: 16px; font-size: 1rem; }
   .ticks { gap: 8px; }
   .ticks li { font-size: .95rem; }
 }
@@ -297,23 +296,16 @@ input, select, textarea { min-height: 44px; }
    the official list without the address printed twice, the FAQ.
    ===================================================================== */
 #token .lead { max-width: 60ch; margin-bottom: 0; }
-#token .page-title { margin-bottom: 10px; }
 .contract { margin-top: 20px; gap: 14px; }
 /* the buy slot: where the Buy control lives (the in-app swap goes here); it takes the main button's place in the grid */
 .contract__slot { grid-column: 1 / -1; display: grid; min-width: 0; }
 @media (min-width: 640px) { .contract__slot { grid-column: auto; } }
-@media (min-width: 1180px) { .contract:has(> .contract__links:not([hidden])) .contract__slot { grid-column: 1 / -1; } }
 /* the three outside links: one row of compact text links on a phone (icon + name), tiles from 640 px */
 @media (max-width: 639px) {
   .contract__ext { flex-direction: row; justify-content: center; gap: 6px; min-height: 44px; padding: 0 6px 0 4px; font-size: .78rem; }
-  .contract__ext svg { width: 16px; height: 16px; }
-  .contract__ext .contract__out { position: static; font-size: .75rem; }
-  .contract__ext span { overflow-wrap: normal; } /* "Jupiter" and "Solscan" never break mid-word; a two-word name wraps at its space */
 }
 @media (max-width: 360px) { .contract__ext { gap: 4px; padding: 0 4px; } .contract__ext svg { display: none; } } /* 320 px: three 79 px links; the ↗ already says "outside" */
 .contract__net { font-size: .75rem; }
-.contract__ext .contract__out { font-size: .75rem; }
-.contract__foot p { font-size: .84rem; }
 /* the four facts: two by two on a phone, labels 12 px, numbers in the display face */
 .stat-row { margin-top: 16px; gap: 10px; }
 .stat { padding: 12px 14px; border-radius: 16px; gap: 1px; }
@@ -362,20 +354,14 @@ input, select, textarea { min-height: 44px; }
 /* =====================================================================
    Cities: four facts in a row on a phone (the derived ones from 600 px), a shorter lead, the search card tidy
    ===================================================================== */
-.city-stats { margin-bottom: 18px; }
-.city-stats span { font-size: .75rem; }
 @media (max-width: 600px) {
   .city-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
   .city-stats .is-open, .city-stats .city-stats__claims { display: none; } /* "still open" = communities − founded; "claims: Open" is a word */
-  .city-stats div { padding: 10px 6px 8px; border-radius: 12px; text-align: center; }
   .city-stats strong { font-size: clamp(1rem, 4.6vw, 1.2rem); }
-  .city-stats span { font-size: .75rem; }
 }
-.cities-intro { padding-bottom: 8px; }
-.cities-intro .lead { margin: 0; }
 .map-ctrl button { width: 44px; height: 44px; border-radius: 12px; }
 .map-ctrl { gap: 8px; }
-@media (max-width: 600px) { .map-ctrl { gap: 6px; } .map-ctrl button { width: 44px; height: 44px; } .map-ctrl button::after { inset: 0; } }
+@media (max-width: 600px) { .map-ctrl { gap: 6px; } }
 .map-scale { font-size: 12px; }
 .citymap__legend { font-size: .78rem; }
 .claim-feed li { min-height: 44px; display: inline-flex; align-items: center; font-size: .82rem; padding: 4px 12px; }
@@ -384,7 +370,6 @@ input, select, textarea { min-height: 44px; }
 .city-list { margin: 10px 0 4px; }
 .city-row { min-height: 48px; }
 .city-search .link-btn { padding: 10px 0; }
-@media (max-width: 600px) { .city-list { max-height: 240px; } }
 .claim .reqs { margin: 14px 0; gap: 10px; }
 .claim .reqs p { font-size: .82rem; }
 .claim h3 { font-size: 1.3rem; }
@@ -403,7 +388,6 @@ input, select, textarea { min-height: 44px; }
 .launch-hero .hero__cta--center { margin: 18px 0 10px; }
 .lp-cal-link { color: var(--muted); font: 600 .9rem var(--body); }
 .lp-local { margin: 8px 0 0; }
-.lp-stat dt, .coin-tile dt { font-size: .75rem; }
 .lp-stats--live .lp-stat dd.lp-stat__src, .lp-src, .lp-delayed, .lp-spark__msg, .coin-tile__src, .coin-foot { font-size: .75rem; }
 .lp-tabs__n { font-size: .75rem; }
 .lp-spark__label { font-size: .75rem; }

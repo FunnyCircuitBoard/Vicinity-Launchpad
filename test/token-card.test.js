@@ -98,7 +98,7 @@ test("contract card on a phone: the address wraps into two even lines, copy is f
   assert.match(read("public/connect.js"), /"chip-link"/);
 });
 
-test("contract card on a computer: the address on one line with Copy beside it, then a row of buttons; on wide screens the buttons take a column of their own", () => {
+test("contract card on a computer: the address on one line with Copy beside it, then a row of buttons (one column on every width: the Buy card has a column of its own)", () => {
   const tablet = media("(min-width: 640px)", ".contract__addr code");
   assert.ok(tablet, "a 640 px block");
   assert.match(tablet, /\.contract__addr code \{ flex: 1 1 auto; max-width: none; margin: 0; text-align: left;/);
@@ -106,11 +106,10 @@ test("contract card on a computer: the address on one line with Copy beside it, 
   assert.match(tablet, /\.contract__links \{ grid-template-columns: minmax\(0, 1\.5fr\) repeat\(3, minmax\(0, 1fr\)\); \}/);
   assert.match(tablet, /\.contract__buy \{ grid-column: auto; \}/);
   assert.match(tablet, /\.contract__ext \{ flex-direction: row;[^}]*min-height: 52px;/);
-  const wide = media("(min-width: 1180px)", ".contract:has(");
-  assert.ok(wide, "a 1180 px block");
-  // two columns only while the links are shown: before the launch (links hidden) the card stays one column
-  assert.match(wide, /\.contract:has\(> \.contract__links:not\(\[hidden\]\)\) \{ grid-template-columns: minmax\(0, 1\.4fr\) minmax\(0, 1fr\);/);
-  assert.match(wide, /> \.contract__links \{ grid-column: 2; grid-row: 1 \/ span 3;/);
+  // design v2 (10 Oct 2026): the card sits in the token page's left column next to the Buy card, so the old 1180 px two-column card
+  // (the buttons in a column of their own) is gone, and with it polish-pages.css's need to undo it past 1180 px
+  assert.equal(media("(min-width: 1180px)", ".contract:has("), null, "no wide two-column contract card");
+  assert.match(read("public/polish-pages.css"), /\.token-hero \.contract:has\(> \.contract__links:not\(\[hidden\]\)\) \{ grid-template-columns: minmax\(0, 1fr\);/);
 });
 
 test("contract card motion: only transform and opacity move, the card's own motion ends, and nothing moves with reduced motion", () => {
@@ -250,8 +249,8 @@ test("contract card: until /api/token answers it holds its final room unseen, so
   // 390x844, 6 Oct 2026: the card grew 214 px when the answer came; #holders, #verify and #check landed 79 px lower than intended
   assert.match(css, /\.contract\.is-pending \.contract__copy, \.contract\.is-pending > \.contract__links \{ visibility: hidden; \}/, "unseen, but in the layout");
   assert.match(css, /@media \(max-width: 639px\) \{ \.contract\.is-pending \.contract__addr code \{ min-height: 3\.1em; \} \}/, "the address's two lines on a phone (line height 1.55)");
-  // the wide layout (buttons in a column on the right) already applies while pending: the links are not [hidden]
-  assert.match(css, /\.contract:has\(> \.contract__links:not\(\[hidden\]\)\)/);
+  // the computer layout (design v2: one column next to the Buy card) already applies while pending: the links are not [hidden]
+  assert.match(read("public/polish-pages.css"), /\.token-hero \.contract:has\(> \.contract__links:not\(\[hidden\]\)\)/);
   assert.match(js, /\$\("#contract"\)\.classList\.remove\("is-pending"\);\n\s+if \(!d\.launched\) \{[^\n]*\n\s+hideContract\(\);/, "removed on the answer, before anything else is decided");
   assert.match(js, /if \(isAddr\(m\)\) showContract\(m\); else \{ hideContract\(\); settleBuy\("none"\); \}/, "no address: no links to '#', and no Buy card");
   assert.match(js, /function hideContract\(\) \{ \$\("#ca-copy"\)\.hidden = true; \$\("#ca-links"\)\.hidden = true; \}/);
@@ -263,8 +262,8 @@ test("contract card tiles: the three icons share one line even when 'DEX Screene
   assert.match(rule(".contract__ext .contract__out"), /position: absolute; top: 5px; right: 7px;/, "the arrow sits in the corner, out of the label's way");
   const tablet = media("(min-width: 640px)", ".contract__ext");
   assert.match(tablet, /\.contract__ext \{ flex-direction: row; justify-content: center;[^}]*padding: 0 14px;/, "one row of icon and name on a computer, room for the arrow");
-  const wide = media("(min-width: 1180px)", ".contract__ext");
-  assert.match(wide, /\.contract__ext \{ flex-direction: column; justify-content: flex-start;/, "top-aligned again in the wide column");
+  // design v2 (10 Oct 2026): no wide column any more; on the token page the three links stay one row of pills (polish-pages.css)
+  assert.equal(media("(min-width: 1180px)", ".contract__ext"), null, "no tiles again past 1180 px");
 });
 
 test("token.js: the Buy card holds its room until it knows what it shows: the panel, the Raydium button, or nothing (then its column goes)", async () => {

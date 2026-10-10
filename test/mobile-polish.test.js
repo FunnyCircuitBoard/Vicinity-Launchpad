@@ -156,7 +156,8 @@ test("token: the Buy control in its slot, the address once, five proofs, no thir
   }
   assert.match(polish, /\.contract__slot \{ grid-column: 1 \/ -1; display: grid; min-width: 0; \}/, "the slot spans the card on a phone, like the button did");
   assert.match(polish, /@media \(min-width: 640px\) \{ \.contract__slot \{ grid-column: auto; \} \}/);
-  assert.match(polish, /@media \(min-width: 1180px\) \{ \.contract:has\(> \.contract__links:not\(\[hidden\]\)\) \.contract__slot \{ grid-column: 1 \/ -1; \} \}/);
+  // design v2 (10 Oct 2026): the Buy card left the contract card (its own column on a computer), so the wide-card slot rule is gone
+  assert.doesNotMatch(polish, /\.contract:has\(> \.contract__links:not\(\[hidden\]\)\) \.contract__slot/);
   const js = read("public/token.js");
   assert.match(js, /if \(isAddr\(t\.contract\)\) \{ const a = el\("a", "registry__above", "Shown above ↑"\); a\.href = "#contract"; a\.title = t\.contract; ca\.append\(a\); \} else ca\.textContent = "—";/,
     "the official list prints no second copy of the address, and a token without one shows a dash (it printed 'Phase 3' in two cells)");
@@ -186,7 +187,10 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   // "3 verified mem..." and "Accounts and dashbo..." cut at the screen's edge); test "home on a phone" pins what replaced them
   assert.doesNotMatch(polish, /\.(hero__facts|timeline) \{[^}]*overflow-x: auto/);
   // A-3: at 320 px "Jupiter" and "Solscan" broke mid-word inside 79 px links
-  assert.match(polish, /\n  \.contract__ext span \{ overflow-wrap: normal; \}[^\n]*\n\}\n@media \(max-width: 360px\)/, "inside the phone block of the three links");
+  // design v2 (10 Oct 2026): the three links are pills (polish-pages.css), each label kept whole on one line
+  const pagesCss = read("public/polish-pages.css");
+  assert.match(pagesCss, /\.token-hero \.contract__ext span \{ overflow-wrap: normal; white-space: nowrap; \}/, "the token page's three links");
+  assert.match(pagesCss, /\.coin-ca__links \.contract__ext span \{ white-space: nowrap; overflow-wrap: normal; \}/, "the coin page's three links");
   assert.match(polish, /@media \(max-width: 360px\) \{ \.contract__ext \{ gap: 4px; padding: 0 4px; \} \.contract__ext svg \{ display: none; \} \}/);
   // A-7: Check rank (44 px, 10 px corners) and Check (48 px, pill) had the same job and two shapes
   assert.match(polish, /\.checker \.btn, \.snap-lookup \.btn \{ min-height: 44px; font-size: \.9rem; \}\n\.find-box \.find-box__go \{ border-radius: 999px; \}/);
