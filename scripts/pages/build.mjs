@@ -1,5 +1,6 @@
 // Builds the site's pages: public/<name>.html = the shared layout (head, header, phone menu bar,
-// footer) + the page's own content from scripts/pages/src/<name>.html. Every page loads style.css and then
+// footer) + the page's own content from scripts/pages/src/<name>.html. The header's Log in is a glass pill with a live dot (design
+// v2, 10 Oct 2026): each page's one orange button is its own main action (Get $VICINITY, Buy, Connect wallet). Every page loads style.css and then
 // polish.css (the mobile-first polish of 9 Oct 2026: tighter spacing, 44 px targets, the compact footer, the home and token page layouts).
 //   npm run pages
 // Edit the files in scripts/pages/, never the generated public/*.html (a test checks they match).
@@ -88,7 +89,7 @@ ${nav}
       </nav>
       <div class="site-header__actions">
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false"><span class="moon" aria-hidden="true">☾</span><span class="sun" aria-hidden="true">☀</span></button>
-        <a class="btn btn--primary btn--sm account-btn" href="/connect?mode=login" data-account><span class="btn__dot" aria-hidden="true"></span><span data-account-label>Log in</span></a>
+        <a class="btn btn--glass btn--sm account-btn" href="/connect?mode=login" data-account><span class="btn__dot" aria-hidden="true"></span><span data-account-label>Log in</span></a>
       </div>
     </div>
   </header>

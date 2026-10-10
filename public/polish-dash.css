@@ -1,0 +1,560 @@
+/* The dashboard, design v2 ("Night-city glass", phone first). Loaded by /dashboard only, after style.css, polish.css, onboard.css and
+   swap.css. Every rule is scoped under .dv2 (the tabbed dashboard), body.is-dv2 (set by dashboard-v2.js) or [data-page="dashboard"]
+   (the signed-out page and the loading placeholders), so a dashboard with DASHBOARD_V2 off renders as before; the signed-out preview
+   (.dpv, only on this page) keeps its own class names. Shared tokens come from
+   style.css with a fallback each (var(--name, fallback)), so this sheet also reads right on its own. Motion: transform and opacity only,
+   inside prefers-reduced-motion: no-preference, stopped by "Pause animations" (style.css: :root[data-motion="paused"]). */
+
+body[data-page="dashboard"] {
+  --dd-gap: 12px;                                             /* between the cards of a panel */
+  --dd-pad: var(--card-pad, 16px);                            /* inside a card */
+  --dd-inset: var(--surface-inset, rgba(var(--ink), .045));   /* a well inside a card */
+  --dd-card: var(--surface-1, var(--card));
+  --dd-strip: 56px;                                           /* the tab strip under the header */
+  --dd-shadow: var(--shadow-1, inset 0 1px 0 rgba(var(--ink), .05), 0 10px 30px -20px rgba(0, 0, 0, .7));
+}
+:root[data-theme="light"] body[data-page="dashboard"] { --dd-inset: var(--surface-inset, #EEF2F7); --dd-shadow: var(--shadow-1, inset 0 1px 0 rgba(255,255,255,.8), 0 10px 30px -22px rgba(11,22,38,.35)); }
+@media (min-width: 601px) { body[data-page="dashboard"] { --dd-pad: var(--card-pad, 22px); --dd-gap: 14px; } }
+
+/* ---------- D1: no band between the header and the strip (owner) ---------- */
+body.is-dv2 #dash-main { padding-top: 0; padding-bottom: 20px; }
+body.is-dv2 .site-header { border-bottom-color: transparent; }
+body.is-dv2 .dash::before { content: none; }
+[data-page="dashboard"] #dash-skel { padding-top: 0; }
+
+/* ---------- D2: the strip: one glass bar flush under the header; every tab whole, none cut (owner) ---------- */
+.dv2 .dtabs { top: var(--header-h, 67px); margin: 0 calc(-1 * var(--wrap-pad, 16px)) var(--dd-gap); padding: 0; }
+.dv2 .dtabs__list { gap: 2px; padding: 4px 8px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: none; }
+.dv2 .dtab { flex: 1 0 auto; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 8px; font: 600 .84rem/1 var(--body); white-space: nowrap; scroll-snap-align: none; }
+.dv2 .dtab__short { display: none; }
+.dv2 .dtab[aria-selected="true"] { background: var(--card-2); color: var(--text); box-shadow: none; }
+/* the indicator: a 2 px ember line under the chosen pill (the "live buttons" breathing of a chosen tab runs on this same line) */
+.dv2 .dtab[aria-selected="true"]::after { left: 12px; right: 12px; bottom: 0; height: 2px; border-radius: 2px; background: var(--pin); opacity: 1; }
+.dv2 .dtab__badge { min-width: 20px; height: 20px; padding: 0 5px; font-size: .75rem; }
+:root[data-theme="light"] .dv2 .dtab__badge { background: #B8430F; color: #fff; } /* 5.5:1 on any pill (the pale tint fell to 4.2 on the chosen one) */
+/* Profile: the person's initial in a neutral circle on phones, the word from 601 px */
+.dv2 #tab-profile { flex: 0 0 auto; padding: 0 4px; }
+.dv2 .dtab__av { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--card-2); box-shadow: inset 0 0 0 1px var(--line-2); color: var(--text); font: 700 .8rem/1 var(--display); }
+.dv2 #tab-profile .dtab__long { display: none; }
+.dv2 #tab-profile[aria-selected="true"] .dtab__av { background: var(--bg-2); }
+/* a crowded strip (a moderator's seven tabs on a phone, dashboard-v2.js measure), one step at a time until every tab shows: the gaps
+   close (.is-snug), then "Rankings" says "Rank" (.is-short), then Founder and Moderate show as their line icons (.is-compact: crown,
+   shield, the count in a corner badge; their names stay for screen readers) */
+.dv2 .dtab__ico { display: none; }
+.dv2 .dtab__ico svg { display: block; width: 20px; height: 20px; }
+.dv2 .dtabs.is-snug .dtabs__list { gap: 0; padding-inline: 4px; }
+.dv2 .dtabs.is-snug .dtab { padding: 0 5px; }
+.dv2 .dtabs.is-short #tab-rankings .dtab__long { display: none; }
+.dv2 .dtabs.is-short #tab-rankings .dtab__short { display: inline; }
+.dv2 .dtabs.is-compact .dtab { padding: 0 4px; }
+.dv2 .dtabs.is-compact :is(#tab-founder, #tab-moderate) .dtab__text { display: none; }
+.dv2 .dtabs.is-compact :is(#tab-founder, #tab-moderate) .dtab__ico { display: block; }
+.dv2 .dtabs.is-compact #tab-moderate .dtab__badge { position: absolute; top: 2px; right: 0; min-width: 18px; height: 18px; padding: 0 4px; font-size: .68rem; }
+/* only if it still does not fit (a very large text setting) it scrolls, with a fade on the side that has more */
+.dv2 .dtabs.is-scrollable::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 32px; z-index: 1; pointer-events: none; opacity: 0; background: linear-gradient(270deg, transparent, var(--glass)); }
+.dv2 .dtabs.is-scrollable.is-scrolled::before { opacity: 1; }
+.dv2 .dtabs.is-scrollable .dtab { flex: none; }
+@media (max-width: 600px) {
+  .dv2 #tab-moderate .dtab__long { display: none; }
+  .dv2 #tab-moderate .dtab__short { display: inline; }
+}
+@media (max-width: 360px) {
+  .dv2 .dtab { padding: 0 5px; font-size: .78rem; }
+  .dv2 #tab-rankings .dtab__long { display: none; }
+  .dv2 #tab-rankings .dtab__short { display: inline; }
+}
+@media (min-width: 601px) {
+  .dv2 #tab-profile { padding: 0 14px; }
+  .dv2 #tab-profile .dtab__av { display: none; }
+  .dv2 #tab-profile .dtab__long { display: inline; }
+}
+/* a wide screen: the strip lines up with the cards under it */
+@media (min-width: 1000px) {
+  .dv2 .dtabs { margin: 0 0 var(--dd-gap); border: 1px solid var(--line); border-radius: var(--r-card, 18px); }
+  .dv2 .dtabs__list { justify-content: flex-start; padding: 4px 6px; }
+  .dv2 .dtab { flex: 0 1 auto; padding: 0 16px; }
+}
+
+/* ---------- the panels: one rhythm, one card surface ---------- */
+.dv2 .dpanel { gap: var(--dd-gap); }
+.dv2 .dpanel > .card, .dv2 .dpanel .modal__box, .dv2 .standing, .dv2 .wcard, .dv2 .welcome { border-radius: var(--r-card, 18px); }
+.dv2 .dpanel > .card { padding: var(--dd-pad); box-shadow: var(--dd-shadow); }
+.dv2 .dpanel .card::before { content: none; } /* one calm line around a card, no gradient rim */
+.dv2 .card .h2--sm, .dv2 .dv2-head .h2--sm { font-size: var(--fs-md, 1.125rem); line-height: 1.25; }
+@media (min-width: 601px) { .dv2 .card .h2--sm, .dv2 .dv2-head .h2--sm { font-size: 1.25rem; } }
+/* a card's kicker is a short, calm label (the one ember of a screen is its main button; accent text stays on the Pass and in links) */
+.dv2 .kicker { font: 600 var(--fs-sm, .875rem)/1.3 var(--body); letter-spacing: 0; text-transform: none; color: var(--muted); margin-bottom: 4px; }
+.dv2 .kicker a { color: var(--pin-2); }
+/* an icon inline before a short label (a post's tags, Reply): the glyph alone, the label's colour (dashboard.js labelled) */
+.dv2 .ico--bare { width: auto; height: auto; margin-right: 5px; background: none; color: inherit; vertical-align: -2px; }
+.dv2 .ico--bare svg { width: 14px; height: 14px; }
+.dv2 .kicker .ico { width: 24px; height: 24px; margin-right: 8px; vertical-align: -7px; }
+.dv2 .kicker .ico svg { width: 14px; height: 14px; }
+.dv2 .studio-step, .dv2 .city-head .kv dt { text-transform: none; letter-spacing: 0; font-size: var(--fs-xs, .75rem); }
+
+/* ---------- D3: the profiles notice, one short banner ---------- */
+.dv2 .pf-notice { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; margin: 0; padding: 4px 4px 4px 14px; border-radius: var(--r-card, 18px); border: 1px solid rgba(255,90,54,.3); background: var(--accent-soft, rgba(255,90,54,.1)); }
+.dv2 .pf-notice__line { flex: 1 1 auto; margin: 0; padding: 8px 0; font-size: var(--fs-sm, .875rem); line-height: 1.4; color: var(--text-2); }
+.dv2 .pf-notice__line strong { color: var(--text); }
+.dv2 .pf-notice__open { color: var(--pin-2); font-weight: 600; white-space: nowrap; }
+.dv2 .pf-notice__ok { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: none; color: var(--text-2); cursor: pointer; }
+.dv2 .pf-notice__ok:hover { background: var(--card-2); color: var(--text); }
+.dv2 .lost-alert { margin: 0; border-radius: var(--r-card, 18px); padding: 12px 14px; font-size: var(--fs-sm, .875rem); }
+
+/* ---------- D4: the Pass (one line of facts under it) and the standing card ---------- */
+.dv2 #dash-top { grid-template-columns: minmax(0, 1fr); gap: var(--dd-gap); margin: 0; }
+.dv2 .pass { min-height: 0; gap: 14px; padding: 16px 18px 12px; border-radius: var(--r-hero, 24px); }
+.dv2 .pass__who { gap: 12px; align-items: center; }
+.dv2 .pass .idcard__avatar { width: 48px; height: 48px; border-radius: 14px; font-size: 1.3rem; }
+.dv2 .pass__name { font-size: 1.3rem; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+.dv2 .pass__home { display: flex; align-items: flex-start; gap: 4px; white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.35; }
+.dv2 .pass__pin { flex: none; margin-top: 2px; color: #FFD3B8; }
+.dv2 .pass__bio { margin-top: 2px; font-size: .88rem; color: rgba(255,255,255,.88); }
+.dv2 .pass__coin { width: 56px; height: 56px; }
+.dv2 .pass__bottom { align-items: center; gap: 4px 12px; padding-top: 10px; font-size: .8rem; min-height: 44px; }
+.dv2 .pass__wallet { display: inline-flex; align-items: center; gap: 2px; }
+.dv2 .pass__copy { position: relative; display: inline-grid; place-items: center; width: 44px; height: 44px; margin: -8px -6px; border: 0; background: none; color: #fff; cursor: pointer; border-radius: 50%; }
+.dv2 .pass__copy::after { content: ""; position: absolute; inset: 8px; border-radius: 50%; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.26); z-index: -1; }
+.dv2 .pass__copy:hover::after { background: rgba(255,255,255,.24); }
+.dv2 .pass__copy svg { position: relative; }
+.dv2 .pass__copy:focus-visible { outline-offset: -4px; }
+.dv2 .pass__provider { color: rgba(255,255,255,.8); }
+.dv2 .pass__brand { color: #fff; } /* "Vicinity Pass" sits on the corner glow: at .85 white it read 4.4:1 on a 320 px phone (measured on the pixels) */
+.dv2 .pass .live-note { margin-left: auto; color: #DFFFF2; }
+.dv2 .pass .live-dot, .dv2 .pass .live-dot::after { background: #7CF0C5; }
+.dv2 #me-checked { min-width: 6.4em; } /* the room of "Live · 59m ago": the row never re-wraps as the time grows */
+.dv2 .pass__top { flex-wrap: wrap; row-gap: 8px; }
+.dv2 .pass .role-pill { white-space: nowrap; }
+@media (max-width: 380px) {
+  .dv2 .pass { padding: 14px 14px 10px; }
+  .dv2 .pass__brand { font-size: .7rem; letter-spacing: .14em; gap: 6px; }
+  .dv2 .pass__mark { width: 14px; height: 14px; }
+  .dv2 .pass .role-pill { font-size: .68rem; padding: 3px 8px; letter-spacing: .05em; }
+  .dv2 .pass__name { font-size: 1.12rem; }
+  .dv2 .pass__home { font-size: .84rem; }
+  .dv2 .pass__coin { width: 48px; height: 48px; }
+  .dv2 .pass .live-note { flex-basis: 100%; margin-left: 0; } /* its own line, always (no jump when the time grows) */
+}
+
+/* the standing card: the holding big, three rank wells, or one line and one button */
+.dv2 .standing { display: grid; gap: 10px; padding: 14px var(--dd-pad); border: 1px solid var(--line); background: linear-gradient(180deg, rgba(var(--ink),.06), rgba(var(--ink),.02)), var(--dd-card); box-shadow: var(--dd-shadow); }
+.dv2 .standing[hidden], .dv2 .standing [hidden] { display: none; }
+.dv2 .standing__hold { display: grid; gap: 2px; }
+.dv2 .standing__label { font: 600 var(--fs-xs, .75rem)/1.3 var(--body); color: var(--muted); }
+.dv2 .standing__row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 0; }
+.dv2 .standing__num { font: 650 var(--fs-num, clamp(1.75rem, 1.3rem + 2.4vw, 2.5rem))/1.05 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--text); }
+.dv2 .standing__unit { font-size: var(--fs-sm, .875rem); font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.dv2 .standing__usd { color: var(--muted); font-weight: 500; }
+.dv2 .standing__exact { font-size: var(--fs-xs, .75rem); color: var(--muted); font-variant-numeric: tabular-nums; }
+.dv2 .standing__ranks { display: flex; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.dv2 .rank-chip { flex: 1 1 0; min-width: 0; display: grid; align-content: start; gap: 1px; padding: 8px 10px; border-radius: var(--r-chip, 12px); background: var(--dd-inset); }
+.dv2 .rank-chip strong { font: 650 1.25rem/1.1 var(--display); letter-spacing: -.01em; font-variant-numeric: tabular-nums; color: var(--text); }
+.dv2 .rank-chip__label { font-size: var(--fs-xs, .75rem); line-height: 1.3; color: var(--text-2); overflow-wrap: anywhere; }
+.dv2 .rank-chip__sub { display: none; font-size: var(--fs-xs, .75rem); color: var(--muted); }
+@media (min-width: 601px) { .dv2 .rank-chip__sub { display: block; } .dv2 .rank-chip { padding: 12px 14px; } }
+.dv2 .standing__empty { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 0; font-size: var(--fs-sm, .875rem); font-weight: 600; color: var(--text-2); }
+.dv2 .standing[data-state="none"] .standing__empty, .dv2 .standing[data-state="nowallet"] .standing__empty, .dv2 .standing[data-state="prelaunch"] .standing__empty { min-height: 44px; }
+
+/* ---------- D5: a new member: the welcome and the wallet card read as ONE first card; tickers never cut ---------- */
+.dv2 .welcome { margin: 0; padding: var(--dd-pad); grid-template-columns: auto minmax(0, 1fr); gap: 12px 14px; border: 1px solid var(--line); background: linear-gradient(135deg, rgba(255,90,54,.12), rgba(255,200,87,.06) 60%, transparent), var(--dd-card); box-shadow: var(--dd-shadow); }
+.dv2 .welcome__text { padding-right: 34px; }
+.dv2 .welcome__text h2 { font-size: var(--fs-lg, 1.375rem); }
+.dv2 .welcome__text p { font-size: var(--fs-sm, .875rem); line-height: 1.45; color: var(--text-2); }
+.dv2 .welcome__ring { grid-column: 1 / -1; }
+.dv2 .welcome__disc { width: 56px; height: 56px; font-size: 1.15rem; letter-spacing: 0; }
+.dv2 .welcome__disc span { white-space: nowrap; }
+.dv2 .welcome__close { top: 6px; right: 6px; width: 44px; height: 44px; color: var(--text); border: 1px solid var(--line-2); background: var(--card-2); backdrop-filter: none; }
+.dv2 .welcome__close:hover { background: var(--card-2); border-color: var(--text-2); }
+@media (max-width: 480px) { .dv2 .welcome { grid-template-columns: auto minmax(0, 1fr); justify-items: stretch; } }
+.dv2 .wcard { margin: 0; padding: var(--dd-pad); gap: 10px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(var(--ink),.06), rgba(var(--ink),.02)), var(--dd-card); box-shadow: var(--dd-shadow); }
+.dv2 .wcard h2 { font-size: var(--fs-lg, 1.375rem); line-height: 1.2; }
+.dv2 .wcard .kicker, .dv2 .wcard.is-done .kicker { color: var(--muted); }
+.dv2 .wcard__lead { font-size: var(--fs-sm, .875rem); line-height: 1.45; }
+.dv2 .wcard__perks { font-size: var(--fs-sm, .875rem); }
+.dv2 .wcard__actions .btn--lg { min-height: 52px; }
+.dv2 .wcard__tiny { color: var(--muted); font-size: var(--fs-xs, .75rem); }
+.dv2 .wcard--folded .wcard__actions .btn { min-height: 44px; }
+/* the phone's buy card: the title in the text colour (the green "done" is for a finished step) */
+.dv2 .wcard[data-place="buy"] h2 { color: var(--text); }
+.dv2 .wcard[data-place="buy"] { border-color: var(--line); }
+/* merged: the welcome is the card's head, the wallet card its body, with one hairline between */
+.dv2 .welcome.is-merged { border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; box-shadow: none; }
+.dv2 .wcard.is-merged { margin-top: calc(-1 * var(--dd-gap)); border-top: 1px solid var(--line); border-top-left-radius: 0; border-top-right-radius: 0; background: var(--dd-card); }
+.dv2 .wcard.is-merged:not(.wcard--folded) #wcard-kicker, .dv2 .wcard.is-merged:not(.wcard--folded) #wcard-title, .dv2 .wcard.is-merged #wcard-perks { display: none; }
+/* tickers: the whole ticker, a smaller size for a longer one (dashboard.js and profile.js set data-len) */
+.dv2 .coin-disc span, .dv2 .pass__coin span { max-width: none; overflow: visible; white-space: nowrap; }
+/* one coin, one look: the city's coin disc wears the colour its founder chose (gold until then) on the welcome, the Pass and the City
+   tab (dashboard.js paintCoin sets data-color on each). AA on every disc: the letters solid dark on its light colours (white on a dark
+   band on the "ink" one); the profile avatar on a deeper ember, so its white letter passes (white on the gold end was 2.2:1) */
+.dv2 :is(.coin-disc, .welcome__disc) { background: radial-gradient(circle at 32% 28%, var(--c1), var(--c2) 45%, var(--c3) 100%); }
+.dv2 .welcome__disc { color: #1A1206; box-shadow: inset 0 -4px 10px rgba(0,0,0,.28), inset 0 3px 6px rgba(255,255,255,.5); }
+.dv2 :is(.coin-disc, .coin-art, .welcome__disc) span { color: #1A1206; text-shadow: 0 1px 0 rgba(255,255,255,.35); }
+.dv2 :is(.coin-disc, .coin-art, .welcome__disc)[data-color="ink"] span { color: #fff; text-shadow: none; padding: 1px 3px; border-radius: 6px; background: rgba(10,14,22,.5); } /* the silver coin: its letters on a dark band */
+.dv2 .profile__head .idcard__avatar { background: linear-gradient(135deg, #C2370F, #9A5A06); color: #fff; }
+.dv2 .pass__coin span { font-size: .8rem; }
+.dv2 .pass__coin[data-len="5"] span { font-size: .72rem; }
+.dv2 .pass__coin[data-len="6"] span, .dv2 .pass__coin[data-len="7"] span { font-size: .66rem; }
+.dv2 .pass__coin:is([data-len="8"], [data-len="9"], [data-len="10"], [data-len="11"], [data-len="12"]) span { font-size: .56rem; letter-spacing: -.02em; }
+.dv2 .welcome__disc[data-len="5"] { font-size: .95rem; }
+.dv2 .welcome__disc:is([data-len="6"], [data-len="7"]) { font-size: .8rem; }
+.dv2 .welcome__disc:is([data-len="8"], [data-len="9"], [data-len="10"], [data-len="11"], [data-len="12"]) { font-size: .6rem; letter-spacing: -.02em; }
+/* a phone: the disc beside the greeting only; the line under it takes the card's full width */
+@media (max-width: 420px) {
+  .dv2 .welcome { row-gap: 2px; }
+  .dv2 .welcome__text { display: contents; }
+  .dv2 .welcome__disc { grid-row: 1 / span 2; align-self: center; }
+  .dv2 .welcome__text .kicker, .dv2 .welcome__text h2 { grid-column: 2; padding-right: 40px; }
+  .dv2 .welcome__text .kicker { align-self: end; }
+  .dv2 .welcome__text h2 { align-self: start; }
+  .dv2 .welcome__text p { grid-column: 1 / -1; margin-top: 8px; }
+}
+.dv2 .coin-disc[data-len="5"] span { font-size: .95rem; }
+.dv2 .coin-disc:is([data-len="6"], [data-len="7"]) span { font-size: .8rem; }
+.dv2 .coin-disc:is([data-len="8"], [data-len="9"], [data-len="10"], [data-len="11"], [data-len="12"]) span { font-size: .7rem; letter-spacing: -.02em; }
+.dv2 .coin-art:is([data-len="6"], [data-len="7"]) span { font-size: 1.15rem; }
+.dv2 .coin-art:is([data-len="8"], [data-len="9"], [data-len="10"], [data-len="11"], [data-len="12"]) span { font-size: .95rem; letter-spacing: -.02em; }
+@media (max-width: 380px) {
+  .dv2 .pass__coin[data-len="5"] span { font-size: .7rem; }
+  .dv2 .pass__coin:is([data-len="6"], [data-len="7"]) span { font-size: .6rem; }
+  .dv2 .pass__coin:is([data-len="8"], [data-len="9"], [data-len="10"], [data-len="11"], [data-len="12"]) span { font-size: .5rem; }
+}
+
+/* ---------- D6: Buy on the dashboard ---------- */
+.dv2 :is(.swap, .swap__wallets) { scroll-margin-top: calc(var(--header-h, 67px) + var(--dd-strip) + 12px); }
+/* the swap panel brings its own heading: the card's kicker, title and tag step back (one heading) */
+.dv2 #trade.has-panel .trade__head, .dv2 #trade.has-panel #trade-title { display: none; }
+.dv2 #trade .swap__title { font: 650 var(--fs-md, 1.125rem)/1.25 var(--display); letter-spacing: -.01em; text-transform: none; color: var(--text); }
+.dv2 .trade__tabs { margin-bottom: 12px; }
+.dv2 .trade__tabs button { flex: 1 1 auto; min-width: 0; padding: 0 10px; font-size: .82rem; white-space: nowrap; overflow: visible; text-overflow: clip; }
+/* no wallet yet: one line and one button */
+.dv2 #trade.is-locked { padding-top: 10px; padding-bottom: 10px; }
+.dv2 #trade.is-locked > :not(.trade__lock) { display: none; }
+.dv2 .trade__lock { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 0; font-weight: 600; color: var(--text-2); }
+.dv2 .trade__lock[hidden] { display: none; }
+
+/* ---------- D7: Today ---------- */
+.dv2 .today { gap: 8px; }
+.dv2 .today__list { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.dv2 .today__card { min-height: 64px; padding: 12px 12px 12px 16px; border-radius: var(--r-card, 18px); background: var(--dd-card); box-shadow: var(--dd-shadow); }
+.dv2 .today__card::before { background: var(--line-2); }
+.dv2 .today__card[data-tone="warn"]::before { background: var(--warn); }
+.dv2 .today__card[data-tone="ok"]::before { background: var(--moss); }
+.dv2 .today__title { font: 650 1rem/1.3 var(--display); }
+.dv2 .today__sub { font-size: var(--fs-sm, .875rem); line-height: 1.35; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.dv2 .today__go { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--card-2); color: var(--pin-2); }
+@media (max-width: 600px) {
+  /* two or more: a carousel that shows a piece of the next one, with soft edges; one: the whole width */
+  .dv2 .today__list { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-inline: var(--wrap-pad, 16px); gap: 10px; margin: -4px calc(-1 * var(--wrap-pad, 16px)) -6px; padding: 4px var(--wrap-pad, 16px) 8px; scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--wrap-pad, 16px), #000 calc(100% - 24px), transparent); mask-image: linear-gradient(90deg, transparent, #000 var(--wrap-pad, 16px), #000 calc(100% - 24px), transparent); }
+  .dv2 .today__list::-webkit-scrollbar { display: none; }
+  .dv2 .today__card { flex: 0 0 85%; scroll-snap-align: start; }
+  .dv2 .today__card:only-child { flex-basis: 100%; }
+  .dv2 .today__list:has(> .today__card:only-child) { -webkit-mask-image: none; mask-image: none; }
+}
+
+/* ---------- D8: the cards ---------- */
+/* the role card: icon, title, tag in one head; the tools as equal tiles, two to a row */
+.dv2 .role-home { gap: 10px; }
+.dv2 .role-home__head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; }
+.dv2 .role-home__head .kicker { margin: 0 0 2px; }
+.dv2 .role-home__head h2 { margin: 0; }
+.dv2 .role-home__head .tag { margin: 0; white-space: nowrap; justify-self: end; }
+@media (max-width: 420px) { .dv2 .role-home__head .tag { grid-column: 2 / -1; justify-self: start; white-space: normal; } }
+.dv2 .role-home > p.small { margin: 0; color: var(--text-2); line-height: 1.5; }
+.dv2 .role-meter__row { display: grid; gap: 0; }
+.dv2 .role-meter__row span { font-size: var(--fs-xs, .75rem); color: var(--muted); }
+.dv2 .role-meter__row strong { font: 650 1rem/1.2 var(--display); white-space: nowrap; }
+.dv2 .role-tools--grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.dv2 .role-tile { display: flex; justify-content: flex-start; align-items: center; gap: 10px; min-height: 52px; padding: 8px 12px; border-radius: var(--r-chip, 12px); font-size: .88rem; line-height: 1.2; text-align: left; white-space: normal; }
+.dv2 .role-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.dv2 .role-tile .ico { flex: none; }
+.dv2 .role-more { margin: -4px 0 0; }
+.dv2 .role-tile--link { justify-content: center; text-align: center; border: 1px dashed var(--line-2); background: transparent; color: var(--pin-2); font-weight: 600; }
+.dv2 .role-more .link-btn { color: var(--pin-2); font-weight: 600; text-decoration: none; padding: 0; justify-content: flex-start; }
+.dv2 .role-queue { margin: 0; }
+/* the Founder tab's danger zone */
+.dv2 .danger-zone { padding: 0 var(--dd-pad); border: 1px solid var(--line); border-radius: var(--r-card, 18px); background: var(--dd-card); }
+.dv2 .danger-zone > summary { color: var(--bad-text); }
+.dv2 .danger-zone__body { display: grid; gap: 10px; padding-bottom: var(--dd-pad); }
+.dv2 .danger-zone__body p { margin: 0; }
+.dv2 .danger-btn { justify-self: start; min-height: 44px; color: var(--bad-text); background: none; border: 1px solid currentColor; }
+.dv2 .danger-btn:hover { background: rgba(255,90,54,.08); }
+
+/* the city head: the status tag under the name; the coin's contract as a short chip with a 44 px Copy */
+.dv2 .city-head .community-card__head { align-items: center; }
+.dv2 .city-head .community-card__head .coin-disc { width: 64px; height: 64px; }
+.dv2 .city-head .community-card__head > div:not(.coin-disc) { flex: 1 1 160px; }
+.dv2 .city-head .community-card__head h2 { font-size: var(--fs-lg, 1.375rem); }
+.dv2 .city-head #ch-status { margin: 6px 0 4px; }
+.dv2 .city-head .kv div { border: 0; background: var(--dd-inset); border-radius: var(--r-chip, 12px); }
+.dv2 .coin-contract { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--muted); }
+.dv2 .coin-contract code { min-width: 0; padding: 4px 8px; border-radius: var(--r-xs, 8px); background: var(--dd-inset); color: var(--text); font-size: .8rem; line-height: 1.45; overflow-wrap: anywhere; } /* the whole address, wrapping */
+.dv2 .subnav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 2px; border-radius: 999px; border: 1px solid var(--line); background: var(--card-2); }
+.dv2 .subnav__link { justify-content: center; padding: 0 6px; border: 0; white-space: nowrap; font-size: .8rem; }
+
+/* Rankings: one empty state when there is no rank anywhere */
+.dv2 .tile { border: 0; background: var(--dd-inset); border-radius: var(--r-chip, 12px); }
+.dv2 .tile__label { text-transform: none; letter-spacing: 0; font-size: var(--fs-xs, .75rem); }
+.dv2 .tile__num { overflow: visible; text-overflow: clip; font-variant-numeric: tabular-nums; }
+.dv2 .rk-empty { margin: 8px 0; }
+.dv2 .rk-empty[hidden] { display: none; }
+
+/* the portfolio: the total first; the ring and the table under "Breakdown" */
+.dv2 .portfolio-card { display: grid; gap: 8px; }
+.dv2 .portfolio-card__head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 0 10px; }
+.dv2 .portfolio-card__head h2 { margin: 0; }
+.dv2 .portfolio-card .pf__meta { flex-direction: column; align-items: flex-end; gap: 0; text-align: right; }
+.dv2 .portfolio-card .pf__refresh { min-height: 44px; margin: -6px -10px -12px 0; padding: 0 10px; }
+.dv2 .pf-sum { display: flex; align-items: baseline; gap: 8px; margin: 0; }
+.dv2 .pf-sum[hidden] { display: none; }
+.dv2 .pf-sum__num { font: 650 var(--fs-num, 2rem)/1.05 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.dv2 .pf-sum__label { font-size: var(--fs-sm, .875rem); color: var(--muted); }
+.dv2 .pf-fold > summary { min-height: 44px; }
+.dv2 .pf-fold[open] { padding-bottom: 4px; }
+.dv2 .pf__net { margin: -4px 0 -10px; gap: 0 18px; }
+.dv2 .pf__net #pf-net { flex-basis: 100%; padding-top: 4px; }
+
+/* the badges: one icon in a tinted circle, one tone per tier; four or five to a row */
+.dv2 .badge-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+@media (min-width: 390px) { .dv2 .badge-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (min-width: 1000px) { .dv2 .badge-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.dv2 .badge-tabs { margin: 4px 0 8px; }
+.dv2 .badge { display: grid; justify-items: center; align-content: start; gap: 4px; padding: 8px 2px 6px; border-radius: var(--r-chip, 12px); border: 0; background: var(--dd-inset); }
+.dv2 .badge.is-earned { background: var(--dd-inset); border: 0; }
+.dv2 .badge.is-locked { opacity: .75; }
+.dv2 .badge .ico { width: 30px; height: 30px; }
+.dv2 .badge .ico svg { width: 16px; height: 16px; }
+.dv2 .badge__name { margin: 0; font-size: var(--fs-xs, .75rem); line-height: 1.25; }
+.dv2 .badge__pending { font-size: .75rem; letter-spacing: 0; text-transform: none; font-weight: 600; margin: 0; }
+
+/* the Profile tab: one row per setting; every row a fold whose summary says what is set */
+.dv2 .modal--panel .modal__box { gap: 0; padding: var(--dd-pad); }
+.dv2 .profile__head { padding-bottom: 12px; }
+.dv2 .profile__head .idcard__avatar { width: 48px; height: 48px; border-radius: 14px; font-size: 1.2rem; }
+.dv2 .profile__row > summary { min-height: 56px; padding-top: 10px; padding-bottom: 10px; }
+.dv2 .profile__row > summary .fold__label { flex: 0 0 auto; font: 600 1rem/1.3 var(--body); color: var(--text); }
+.dv2 .profile__row > summary .fold__meta { flex: 1 1 140px; min-width: 0; text-align: right; font-size: var(--fs-sm, .875rem); color: var(--muted); overflow-wrap: anywhere; }
+/* Help & support: each link a 44 px row, hairlines between */
+.dv2 .profile__body .link-list { gap: 0; }
+.dv2 .profile__body .link-list li + li { border-top: 1px solid var(--line); }
+.dv2 .profile__body .link-list a { display: flex; align-items: center; min-height: 44px; }
+.dv2 .profile__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 0 0 16px; } /* one track that never grows past the fold: the username form's input made an auto track 338 px wide on a 320 px phone */
+.dv2 .profile__body > p { margin: 0; }
+.dv2 #profile-modal :is(input, textarea) { min-height: 44px; padding: 10px 12px; font-size: 16px; border-radius: var(--r-chip, 12px); border: 1px solid var(--line-2); background: var(--dd-inset); color: var(--text); }
+.dv2 #profile-modal .contact-row { align-items: flex-start; flex-wrap: wrap; }
+.dv2 .profile__danger { display: flex; align-items: center; width: 100%; min-height: 52px; padding: 0; border: 0; border-top: 1px solid var(--line); background: none; color: var(--bad-text); font: 600 1rem var(--body); text-align: left; cursor: pointer; }
+.dv2 .profile__danger[hidden] { display: none; }
+.dv2 .profile__logout { margin-top: 12px; min-height: 48px; }
+/* Moderate: a hidden post is read and acted on at full strength (the dashed edge and the Hidden tag say what it is) */
+.dv2 #panel-moderate .post.is-hidden { opacity: 1; }
+
+/* the roles, folded under "How roles work" */
+.dv2 .roles-fold { padding-top: 0; padding-bottom: 0; }
+.dv2 .roles-fold > summary { min-height: 56px; font: 600 1rem/1.3 var(--body); }
+.dv2 .roles-fold[open] { padding-bottom: var(--dd-pad); }
+.dv2 .roles-fold #roles .section-head .kicker, .dv2 .roles-fold #roles .section-head h2 { display: none; }
+.dv2 .roles-fold #roles .role-row { border-radius: var(--r-chip, 12px); box-shadow: none; }
+.dv2 .roles-fold #roles .role-row::before { content: none; }
+
+/* Moderate: "All clear" when every queue is empty; each queue a fold; a contract to check as a small card */
+.dv2 .mod-clear { display: flex; align-items: center; gap: 10px; margin: 8px 0 4px; padding: 12px 14px; border-radius: var(--r-chip, 12px); background: var(--ok-soft, rgba(55,194,154,.14)); color: var(--ok-text); font-weight: 600; }
+.dv2 .mod-clear::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--moss); }
+.dv2 .mod-section > summary .fold__meta { margin-left: auto; padding-right: 8px; }
+.dv2 .mod-section > .req-list, .dv2 .mod-section > .posts { padding-bottom: 12px; }
+.dv2 .coin-check { display: grid; gap: 6px; padding: 12px; border: 0; border-radius: var(--r-chip, 12px); background: var(--dd-inset); }
+.dv2 .coin-check p { margin: 0; }
+.dv2 .coin-check__row { display: flex; align-items: center; gap: 8px; }
+.dv2 .coin-check__row .coin-check__mint { flex: 1 1 0; min-width: 0; }
+.dv2 .coin-check__mint { font-size: .82rem; color: var(--text); overflow-wrap: anywhere; word-break: break-all; } /* the whole address, wrapping */
+.dv2 .coin-check__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.dv2 .coin-check__actions .btn { min-height: 44px; }
+
+/* Community: the who-sees-this note on its own line, three equal kinds, a short sort, a locked composer */
+.dv2 .feed { padding: var(--dd-pad) !important; }
+.dv2 .feed__head { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; gap: 8px; }
+.dv2 .feed__head .seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dv2 .feed__head .seg button { min-width: 0; overflow-wrap: anywhere; }
+.dv2 .feed .chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; padding: 2px; border-radius: 999px; border: 1px solid var(--line); background: var(--card-2); }
+.dv2 .feed .chips button { border: 0; padding: 0 6px; white-space: nowrap; }
+.dv2 .feed .chips button[aria-selected="true"] { background: var(--accent-soft, rgba(255,90,54,.12)); box-shadow: inset 0 0 0 1px rgba(255,90,54,.55); color: var(--text); }
+.dv2 .feed__sort { flex-wrap: wrap; }
+.dv2 .feed__sort #f-note { flex: 1 1 100%; order: 2; }
+.dv2 .feed__sort .seg button { white-space: nowrap; }
+.dv2 .composer-lock { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 0 0 10px; padding: 12px 14px; border-radius: var(--r-chip, 12px); border: 1px dashed var(--line-2); background: var(--dd-inset); color: var(--text-2); font-size: var(--fs-sm, .875rem); }
+.dv2 .composer-lock[hidden] { display: none; }
+.dv2 .composer textarea { font-size: 16px; }
+
+/* the founder path: a step's detail under its words (its date never breaks) */
+.dv2 .psteps li { flex-wrap: wrap; align-items: flex-start; row-gap: 2px; }
+.dv2 .psteps li > span:nth-child(2) { flex: 1 1 0; min-width: 0; }
+.dv2 .psteps .detail { flex-basis: 100%; margin-left: 32px; }
+.dv2 .psteps .mini { flex: 0 0 120px; margin: 8px 0 0 32px; }
+.dv2 .feed__head .seg, .dv2 .feed .chips { width: 100%; }
+
+/* the proof dialog (a sheet on phones, from the shared .modal__box): Cancel as a full-width button */
+[data-page="dashboard"] #proof-cancel { margin-top: 4px; }
+
+/* ---------- Home on a wide screen: two columns; the Buy card has the right column to itself and sticks there ---------- */
+@media (min-width: 1000px) {
+  /* the rows are spaced by each card's own bottom margin, not the grid's row gap: so the Buy card can span more rows than the left
+     column fills (an empty row is 0 px tall and adds no gap), and nothing ever stands under it in its column (a sticky grid item
+     moves inside the whole grid, not only its own rows: a card under it would slide beneath it) */
+  .dv2 #panel-home { grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr); grid-auto-flow: row dense; align-items: start; row-gap: 0; margin-bottom: calc(-1 * var(--dd-gap)); }
+  .dv2 #panel-home > * { margin-bottom: var(--dd-gap); }
+  .dv2 #panel-home > #dash-top, .dv2 #panel-home > #today, .dv2 #panel-home > #role-home, .dv2 #panel-home > #portfolio, .dv2 #panel-home > #badges, .dv2 #panel-home > #wallet-card[data-place="buy"] { grid-column: 1; }
+  .dv2 #panel-home > #pf-notice, .dv2 #panel-home > #ban-notice, .dv2 #panel-home > #lost-alert, .dv2 #panel-home > #welcome, .dv2 #panel-home > #wallet-card:not([data-place="buy"]) { grid-column: 1 / -1; }
+  .dv2 #panel-home > #trade { grid-column: 2; grid-row: span 8; align-self: start; position: sticky; top: calc(var(--sticky-top, 79px) + var(--dd-strip)); max-height: calc(100dvh - var(--sticky-top, 79px) - var(--dd-strip) - 16px); overflow: auto; overscroll-behavior: contain; }
+  /* a member without a wallet: the one-line Buy card and the badges stack beside the Pass; the role card takes the full width */
+  .dv2 #panel-home > #trade.is-locked { position: static; max-height: none; grid-row: auto; }
+  .dv2 #panel-home:has(> #trade.is-locked) > #dash-top { grid-row: span 2; }
+  .dv2 #panel-home:has(> #trade.is-locked) > #badges { grid-column: 2; }
+  .dv2 #panel-home:has(> #trade.is-locked) > #role-home { grid-column: 1 / -1; }
+  /* one main action never runs the width of the screen */
+  .dv2 .wcard:not(.wcard--folded) .wcard__actions { justify-items: center; }
+  .dv2 .wcard:not(.wcard--folded) .wcard__actions .btn { width: min(100%, 420px); }
+  .dv2 .wcard__lead, .dv2 .wcard__tiny { text-align: center; }
+}
+
+/* ---------- loading placeholders: the real geometry (a 53 px strip, the Pass, the standing card), still ---------- */
+[data-page="dashboard"] .dv2-skel .wrap { gap: var(--dd-gap); }
+[data-page="dashboard"] .dv2-skel .skel { display: block; animation: none; }
+[data-page="dashboard"] .dv2-skel .skel--tabs { height: 53px; margin: 0 calc(-1 * var(--wrap-pad, 16px)); border-radius: 0; }
+[data-page="dashboard"] .dv2-skel .skel-top { grid-template-columns: minmax(0, 1fr); gap: var(--dd-gap); }
+[data-page="dashboard"] .dv2-skel .skel--pass { min-height: 186px; border-radius: var(--r-hero, 24px); }
+[data-page="dashboard"] .dv2-skel .skel--standing { height: 168px; border-radius: var(--r-card, 18px); }
+[data-page="dashboard"] .dv2-skel .skel--card { border-radius: var(--r-card, 18px); }
+@media (min-width: 1000px) {
+  [data-page="dashboard"] .dv2-skel .skel--tabs { margin: 0; border-radius: var(--r-card, 18px); }
+  [data-page="dashboard"] .dv2-skel .skel-top { grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr); }
+}
+
+/* ---------- the signed-out preview (moved here from style.css: only /dashboard shows it): a member's Home tab with sample values, drawn in HTML so it stays sharp and follows the theme.
+   Nothing in it is shifted sideways or wider than its column (on 3 Oct 2026 the old staggered cards widened the page at 320px). */
+.dpv { position: relative; isolation: isolate; width: 100%; max-width: 540px; min-width: 0; justify-self: center; user-select: none; -webkit-user-select: none; cursor: default; }
+.dpv::before { content: ""; position: absolute; inset: 6% 0 0; z-index: -1; pointer-events: none; border-radius: 40px;
+  background: radial-gradient(55% 45% at 22% 18%, rgba(255,90,54,.30), transparent 70%), radial-gradient(55% 45% at 82% 82%, rgba(91,140,255,.24), transparent 70%); }
+:root[data-theme="light"] .dpv::before { opacity: .55; }
+.dpv__frame { position: relative; display: grid; gap: 10px; padding: 14px; border-radius: 28px; border: 1px solid var(--line-2);
+  background: linear-gradient(180deg, rgba(var(--ink),.05), rgba(var(--ink),.012)), var(--bg-2);
+  box-shadow: 0 40px 90px -42px rgba(0,0,0,.9), inset 0 1px 0 rgba(var(--ink),.08); }
+:root[data-theme="light"] .dpv__frame { box-shadow: 0 34px 70px -38px rgba(11,22,38,.45), inset 0 1px 0 #fff; }
+.dpv__frame > * { min-width: 0; }
+.dpv__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.dpv__tag { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font: 700 .72rem/1.4 var(--body);
+  color: var(--gold-text); background: rgba(255,200,87,.13); border: 1px dashed rgba(255,200,87,.6); white-space: nowrap; }
+:root[data-theme="light"] .dpv__tag { background: rgba(217,154,26,.1); border-color: rgba(217,154,26,.7); }
+.dpv__what { font-size: .74rem; color: var(--muted); }
+.dpv__tabs { display: flex; gap: 2px; overflow: hidden; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  -webkit-mask-image: linear-gradient(90deg, #000 78%, transparent); mask-image: linear-gradient(90deg, #000 78%, transparent); }
+.dpv__tabs span { flex: none; padding: 5px 12px; border-radius: 999px; font: 600 .76rem/1.4 var(--body); color: var(--muted); }
+.dpv__tabs .is-on { color: var(--text); background: var(--card-2); box-shadow: inset 0 -2px 0 var(--pin); }
+/* the pass: the real Vicinity Pass, smaller */
+.dpv__pass { position: relative; overflow: hidden; isolation: isolate; display: grid; gap: 12px; padding: 14px 16px 12px; border-radius: 20px; color: #fff; border: 1px solid rgba(255,255,255,.16);
+  background: radial-gradient(90% 120% at 0% 0%, rgba(255,106,61,.95), transparent 60%), radial-gradient(90% 120% at 100% 100%, rgba(122,92,255,.9), transparent 60%), linear-gradient(135deg, #1B1030, #0B1426);
+  box-shadow: 0 26px 50px -30px rgba(255,90,54,.65), inset 0 1px 0 rgba(255,255,255,.22); }
+.dpv__pass::after { content: ""; position: absolute; inset: 0; z-index: -1; opacity: .25; pointer-events: none; background: repeating-linear-gradient(115deg, rgba(255,255,255,.06) 0 1px, transparent 1px 14px); }
+.dpv__shine { position: absolute; inset: -60% -30%; z-index: -1; pointer-events: none; background: linear-gradient(110deg, transparent 42%, rgba(255,255,255,.22) 50%, transparent 58%); transform: translateX(-70%); }
+.dpv__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dpv__brand { display: inline-flex; align-items: center; gap: 8px; font: 700 .66rem var(--display); letter-spacing: .2em; text-transform: uppercase; color: rgba(255,255,255,.85); white-space: nowrap; }
+.dpv__mark { width: 14px; height: 14px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: linear-gradient(135deg, #FFD37A, #FF6A3D); box-shadow: 0 0 0 3px rgba(255,255,255,.18); }
+.dpv__pill { font: 800 .62rem/1.5 var(--body); letter-spacing: .08em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; color: #fff; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.3); }
+.dpv__who { display: flex; align-items: center; gap: 11px; }
+.dpv__avatar { flex: none; width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; font: 700 1.2rem var(--display); background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.3); }
+.dpv__id { flex: 1; min-width: 0; display: grid; }
+.dpv__name { font: 700 1.12rem/1.2 var(--display); letter-spacing: -.01em; overflow-wrap: anywhere; }
+.dpv__home { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: .8rem; color: rgba(255,255,255,.86); }
+.dpv__pin { flex: none; color: #FFD3B8; }
+.dpv__coin, .dpv__disc { flex: none; display: grid; place-items: center; border-radius: 50%; font: 800 .6rem/1 var(--display); color: #062A1F; letter-spacing: .02em; text-shadow: 0 1px 0 rgba(255,255,255,.45);
+  background: radial-gradient(circle at 32% 28%, #DBFFF1, #37C29A 45%, #0E7C5A 100%); border: 2px solid rgba(255,255,255,.7); box-shadow: inset 0 -3px 8px rgba(0,60,40,.4), inset 0 3px 6px rgba(255,255,255,.55), 0 8px 20px -8px rgba(55,194,154,.7); }
+.dpv__coin { width: 46px; height: 46px; }
+.dpv__foot { font-size: .72rem; color: rgba(255,255,255,.78); padding-top: 9px; border-top: 1px solid rgba(255,255,255,.16); }
+.dpv__live { display: inline-flex; align-items: center; gap: 7px; }
+.dpv__dot { position: relative; width: 7px; height: 7px; border-radius: 50%; background: #FF6A3D; }
+.dpv__dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: #FF8A5B; opacity: 0; }
+/* the standing card (as on the real Home): the big number, then three rank chips */
+.dpv__standing { display: grid; gap: 4px; padding: 12px; border-radius: 18px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(var(--ink),.06), rgba(var(--ink),.02)), var(--card); }
+.dpv__label { display: flex; align-items: center; gap: 7px; font: 600 .74rem/1.3 var(--body); color: var(--muted); }
+.dpv__label--ranks { margin-top: 6px; }
+.dpv__ico { width: 24px; height: 24px; } .dpv__ico svg { width: 14px; height: 14px; }
+.dpv__amt { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.dpv__num { font: 650 1.7rem/1.1 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dpv__unit { font-size: .76rem; font-weight: 600; color: var(--text-2); }
+.dpv__sub { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dpv__ranks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.dpv__chip { display: grid; align-content: start; gap: 1px; min-width: 0; padding: 7px 9px; border-radius: 12px; background: rgba(var(--ink),.045); }
+.dpv__cnum { font: 650 1.05rem/1.15 var(--display); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.dpv__clabel { font-size: .7rem; line-height: 1.3; color: var(--text-2); overflow-wrap: anywhere; }
+/* the city, with the path to founding it */
+.dpv__city { display: grid; gap: 9px; padding: 12px; border-radius: 18px; border: 1px solid var(--line); background: var(--card); }
+.dpv__city-head { display: flex; align-items: center; gap: 10px; }
+.dpv__disc { width: 38px; height: 38px; font-size: .52rem; }
+.dpv__kicker { display: block; font: 600 .74rem/1.4 var(--body); color: var(--muted); }
+.dpv__city-name { font: 650 1.05rem/1.2 var(--display); }
+.dpv__seat { flex: none; font: 700 .68rem/1.5 var(--body); padding: 2px 9px; border-radius: 999px; color: var(--bad-text); background: rgba(255,90,54,.12); border: 1px solid rgba(255,90,54,.4); white-space: nowrap; }
+.dpv__kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.dpv__kv > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; padding: 6px 10px; border-radius: 12px; background: rgba(var(--ink),.045); }
+.dpv__k { font-size: .72rem; color: var(--text-2); }
+.dpv__v { font: 650 1.02rem/1.25 var(--display); font-variant-numeric: tabular-nums; }
+.dpv__path, .dpv__step { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.dpv__path { font-size: .76rem; font-weight: 600; color: var(--text-2); }
+.dpv__pct { font: 700 1rem var(--display); color: var(--gold-text); font-variant-numeric: tabular-nums; }
+.dpv__bar { height: 8px; border-radius: 6px; background: rgba(var(--ink),.08); overflow: hidden; }
+.dpv__fill { position: relative; display: block; width: 33%; height: 100%; border-radius: 6px; overflow: hidden; transform-origin: left center; background: linear-gradient(90deg, var(--moss), var(--gold), var(--pin)); }
+.dpv__fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent); transform: translateX(-100%); }
+.dpv__step { font-size: .72rem; color: var(--muted); }
+.dpv__days { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* Next for you */
+.dpv__next { display: grid; gap: 6px; }
+.dpv__todos { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.dpv__todo { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-items: center; min-width: 0; padding: 9px 12px 9px 15px; border-radius: 14px; border: 1px solid var(--line); background: var(--card); overflow: hidden; }
+.dpv__todo::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: var(--blue); }
+.dpv__todo-t { font: 650 .82rem/1.3 var(--display); }
+.dpv__todo-s { grid-column: 1; font-size: .7rem; color: var(--muted); }
+.dpv__go { grid-column: 2; grid-row: 1 / 3; color: var(--pin-2); font-weight: 700; }
+@media (max-width: 360px) {
+  .dpv__frame { padding: 12px; } .dpv__pass { padding: 12px 13px 11px; } .dpv__what { display: none; }
+  .dpv__who { gap: 9px; } .dpv__avatar { width: 40px; height: 40px; } .dpv__coin { width: 40px; height: 40px; font-size: .54rem; } .dpv__home { font-size: .76rem; }
+  .dpv__num { font-size: 1.5rem; } .dpv__chip { padding: 6px 7px; } .dpv__cnum { font-size: .98rem; }
+  .dpv__disc { display: none; } /* the pass above already shows the city's coin */
+}
+/* alive: it rises in when the page shows, the shine sweeps and the dot pings a few times, then they rest (nothing here loops forever); dashboard.js counts the numbers, fills the bar and slides the
+   next steps in once each is on screen (it only "arms" them when it is going to play them). Reduced motion: none of this, every value as written. */
+@media (prefers-reduced-motion: no-preference) {
+  .dpv__frame > * { animation: dpvRise .7s cubic-bezier(.2,.8,.2,1) both; }
+  .dpv__frame > :nth-child(2) { animation-delay: .06s; } .dpv__frame > :nth-child(3) { animation-delay: .12s; } .dpv__frame > :nth-child(4) { animation-delay: .2s; }
+  .dpv__frame > :nth-child(5) { animation-delay: .28s; } .dpv__frame > :nth-child(6) { animation-delay: .36s; }
+  .dpv__shine { animation: passShine 7s ease-in-out 1.2s 2; }
+  .dpv__dot::after { animation: dpvPing 2.2s cubic-bezier(0,0,.2,1) 4; }
+  .dpv__fill::after { animation: dpvSheen 3.2s ease-in-out 2.4s 2; }
+  .dpv.is-armed .dpv__fill { transform: scaleX(0); }
+  .dpv.is-armed .dpv__bar.is-on .dpv__fill { transform: none; transition: transform 1.4s cubic-bezier(.2,.8,.2,1) .25s; }
+  .dpv.is-armed .dpv__todo { opacity: 0; transform: translateY(10px); }
+  .dpv.is-armed .dpv__todos.is-on .dpv__todo { opacity: 1; transform: none; transition: opacity .5s ease .1s, transform .6s cubic-bezier(.2,.8,.2,1) .1s; }
+  .dpv.is-armed .dpv__todos.is-on .dpv__todo:nth-child(2) { transition-delay: .26s; }
+}
+@media (prefers-reduced-motion: no-preference) and (min-width: 901px) { .dpv__frame { animation: dpvFloat 8s ease-in-out 1s 2; } }
+/* held unseen while /api/me answers: the preview rises in when it shows, not behind the curtain */
+@media (prefers-reduced-motion: no-preference) { .dash-out.is-pending .dpv__frame, .dash-out.is-pending .dpv__frame > * { animation: none; } }
+@keyframes dpvRise { from { opacity: 0; transform: translateY(14px); } }
+@keyframes dpvPing { 0% { transform: scale(1); opacity: .7; } 80%, 100% { transform: scale(3); opacity: 0; } }
+@keyframes dpvSheen { 0% { transform: translateX(-100%); } 60%, 100% { transform: translateX(100%); } }
+@keyframes dpvFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+/* ---------- the signed-out page ---------- */
+[data-page="dashboard"] .dash-out { padding-top: 24px; }
+[data-page="dashboard"] .dash-out .page-title { font-size: clamp(1.9rem, 8.5vw, 2.4rem); line-height: 1.1; text-wrap: balance; }
+@media (min-width: 901px) { [data-page="dashboard"] .dash-out .page-title { font-size: clamp(2.4rem, 3.4vw, 3.4rem); } }
+[data-page="dashboard"] .dash-out .lead { max-width: 34em; }
+[data-page="dashboard"] .dpv__tabs { justify-content: space-between; overflow: visible; -webkit-mask-image: none; mask-image: none; }
+[data-page="dashboard"] .dpv__tabs span { padding: 5px 8px; }
+@media (max-width: 600px) { [data-page="dashboard"] #out-cta { display: flex; width: 100%; justify-content: center; } }
+
+/* ---------- motion: the chosen tab's line settles, a panel eases in (transform and opacity only) ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .dv2 .dtab[aria-selected="true"]::after { animation: ddTabIn var(--dur-3, 320ms) var(--ease-out, cubic-bezier(.2,.8,.2,1)) both, lbBreath 4s steps(16) var(--dur-3, 320ms) infinite alternate var(--lb-play, running); }
+  .dv2 .dpanel:not([hidden]) { animation: ddPanelIn var(--dur-3, 320ms) var(--ease-out, cubic-bezier(.2,.8,.2,1)) both; }
+  .dv2 .pf-notice__ok, .dv2 .pass__copy::after, .dv2 .role-tile, .dv2 .today__card { transition: background-color var(--dur-2, 200ms), border-color var(--dur-2, 200ms), transform var(--dur-1, 120ms); }
+  .dv2 .today__card:active, .dv2 .role-tile:active { transform: scale(.98); }
+}
+@keyframes ddTabIn { from { transform: scaleX(.3); opacity: 0; } }
+@keyframes ddPanelIn { from { opacity: 0; transform: translateY(6px); } }

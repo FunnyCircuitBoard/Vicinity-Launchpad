@@ -15,6 +15,9 @@
       if (last[k] !== txt) { e.textContent = txt; if (!reduced && last[k] !== undefined) { e.classList.remove("is-tick"); void e.offsetWidth; e.classList.add("is-tick"); } last[k] = txt; }
     }
     $("#countdown")?.classList.toggle("is-open", ms === 0);
+    // open: the hero shows the live coins in place of the countdown, its bar and the calendar link (pages-launchpad.css), from the clock,
+    // so an answer that never comes (opening-day load) never leaves "0 / 00 / 00 / 00" on the screen
+    const hero = $(".launch-hero"); if (hero) { hero.classList.toggle("is-open", ms === 0); hero.dataset.clock = ms === 0 ? "open" : "soon"; } // "open" only once the clock said so
     const bar = $("#lp-bar"); if (bar) bar.style.width = `${Math.min(100, Math.max(0, ((Date.now() - START) / (at - START)) * 100)).toFixed(2)}%`;
     const d = new Date(at);
     // Always stated in New York time; the line below gives the visitor's own time.
@@ -244,6 +247,13 @@
   const viewHref = (c) => (c && c.kind === "vicinity" ? "/token" : c && c.city && (typeof c.city.id === "number" || /^[A-Za-z0-9_-]{1,40}$/.test(str(c.city.id))) ? `/cities?city=${encodeURIComponent(c.city.id)}` : "/cities");
   const logoSrc = (c) => (c && /^\/api\/media\/[A-Za-z0-9_-]{1,64}$/.test(str(c.logo)) ? c.logo : null);
   const COLORS = ["gold", "rose", "ocean", "emerald", "violet", "ink"];
+  /** The avatar's letters: the city's initials ("SP" for São Paulo, "UT" for Utica), "V" for $VICINITY; never a cut ticker. */
+  function initialsOf(c) {
+    if (c && c.kind === "vicinity") return "V";
+    const words = str((c && c.city && c.city.name) || (c && c.name) || (c && c.ticker)).normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[A-Za-z0-9]+/g) || [];
+    if (!words.length) return "?";
+    return (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase();
+  }
   const colorOf = (c) => (COLORS.includes(c && c.color) ? c.color : "gold");
   const cardKey = (c) => `${str(c.kind)}:${c.city && c.city.id != null ? c.city.id : str(c.ticker)}`;
 
@@ -389,7 +399,7 @@
   }
 
   const pure = { NEW_DAYS, TABS, SORTS, TAB_NOTE, norm, searchText, matches, inTab, isNew, counts, rowsFor, money, fullMoney, count, fullCount, pct, communityText,
-    countdownText, ageSeconds, agoText, statusLabel, notLiveWhy, founderText, pairText, links, viewHref, logoSrc, colorOf, cardKey, stateFromUrl, urlFor,
+    countdownText, ageSeconds, agoText, statusLabel, notLiveWhy, founderText, pairText, links, viewHref, logoSrc, colorOf, initialsOf, cardKey, stateFromUrl, urlFor,
     coinHref, chipOf, priceSource, shortSource, statCells, curveFoot, curveView, venueLine, shapeOf, sparkPick, sparkGeometry, sparkLabel, sparkWhy };
   window.VLaunchpad = { pure };
   if (typeof document === "undefined" || !window.V) return; // node: the helpers are enough
@@ -482,47 +492,57 @@
   }
 
   /* ----- a card ----- */
+  // A phone sees a compact row (design v2, 10 Oct 2026): the avatar, $TICKER and its city, the price with its 24 h chip and the market
+  // cap, a small sparkline, then Buy and "Details". "Details" opens the rest in place: the price's source and age, the four numbers
+  // (a number nobody has yet is left out, not a dash), the curve, the pair, founder and members, and the coin page's link.
   const cardsByKey = new Map(); // card key -> its latest data (a sparkline that arrives later is drawn from it)
+  let folds = 0;
   function card(c, now, featured) {
     const live = isLive(c);
     const li = el("li", `card lp-card${live ? " lp-card--live" : ""}${featured ? " lp-card--featured" : ""}`); li.dataset.key = cardKey(c); li.dataset.status = str(c.status); li.dataset.shape = shapeOf(c);
     if (live && isAddr(c.mint)) li.dataset.mint = c.mint;
     cardsByKey.set(cardKey(c), c);
     const head = el("div", "lp-card__head");
-    const disc = el("div", "coin-disc lp-card__disc"); disc.dataset.color = colorOf(c);
+    // one avatar recipe: the city's initials on the city's colour, ringed (its logo when it has one)
+    const disc = el("div", "coin-disc lp-card__disc lp-ava"); disc.dataset.color = colorOf(c); if (c.kind === "vicinity") disc.dataset.kind = "vicinity"; // $VICINITY wears the Buy panel's own mark
     const logo = logoSrc(c);
     if (logo) { const img = el("img"); img.src = logo; img.alt = ""; img.width = 64; img.height = 64; img.loading = "lazy"; disc.append(img); }
-    else { const tk = str(c.ticker).slice(0, 8); disc.dataset.len = String(Math.min(8, tk.length)); disc.append(el("span", null, tk)); } // longer tickers get smaller type
+    else disc.append(el("span", null, initialsOf(c)));
     disc.setAttribute("aria-hidden", "true");
     const id = el("div", "lp-card__id");
-    // the title is the card's one link: its ::after covers the whole card, so a tap anywhere opens the coin (the buttons sit above it)
+    // the title is the card's one link (its ::after gives the one line a 44 px hit area)
     const h3 = el("h3", "lp-card__title"), link = el("a", "lp-card__link"); link.href = coinHref(c); link.dataset.act = "view";
     link.append(el("span", "lp-card__ticker", `$${str(c.ticker)}`), " ", el("span", "lp-card__name", str(c.name)));
     if (live) link.append(el("span", "sr-only", ": chart and details"));
     h3.append(link);
     const place = c.kind === "vicinity" ? "The Vicinity token · every city" : [c.city && c.city.name, countryNames[c.city && c.city.country] || (c.city && c.city.country)].filter(Boolean).join(", ");
     id.append(h3, el("p", "small muted lp-card__place", place));
-    if (live) id.append(field(el("p", "lp-card__sub", venueLine(c)), "venue"));
     const [stText, stCls] = statusLabel(c, { now, opensAt: opensAt() });
     const tag = field(el("span", `tag ${stCls} lp-card__status`), "status"); tag.dataset.status = str(c.status);
     if (live) tag.append(el("span", "lp-card__ping"), stText); else tag.textContent = stText;
     head.append(disc, id, tag);
     li.append(head);
 
+    const fold = el("div", "lp-more"); // what "Details" opens (live cards only)
     if (live) {
-      const mk = c.market || {}, ch = chipOf(mk.priceChange24hPct);
+      const mk = c.market || {}, ch = chipOf(mk.priceChange24hPct), priced = num(mk.priceUsd) != null;
       const box = el("div", `lp-price${mk.stale ? " is-stale" : ""}`);
       const row = el("p", "lp-price__row");
       const p = money(mk.priceUsd);
-      const val = field(el("span", "lp-price__val lp-num", p || "—"), "price", num(mk.priceUsd));
+      // a coin nobody has traded yet says so in one muted line (its reason is under Details), never a "—" and a "— 24h"
+      const val = field(el("span", `lp-price__val lp-num${priced ? "" : " is-none"}`, p || "No trades yet"), "price", num(mk.priceUsd));
       val.title = p ? `${fullMoney(mk.priceUsd)} · ${str(mk.sources && mk.sources.price)}` : priceSource(mk, 0);
-      const chg = field(el("span", `lp-chg2 ${ch.cls}`, ch.text), "chg");
+      const chg = field(el("span", `lp-chg2 ${ch.cls}${priced ? "" : " is-none"}`, ch.text), "chg");
       chg.title = num(mk.priceChange24hPct) == null ? `No 24-hour change: ${reason(mk.missing && mk.missing.change24h) || "no source has it"}` : `24-hour change · ${str(mk.sources && mk.sources.change24h)}`;
       row.append(val, chg);
       const delayed = field(el("span", "tag tag--gold lp-delayed", "Delayed"), "delayed"); delayed.hidden = !mk.stale; delayed.title = "A source answered with its last good copy (at most a few minutes old)";
       row.append(delayed);
-      box.append(row, field(el("p", "lp-src", priceSource(mk, ageSeconds({ asOf: data && data.asOf, receivedAt, now: Date.now() }))), "src"));
+      const cap = money(mk.marketCapUsd);
+      const capEl = field(el("p", "lp-price__cap", cap ? `Market cap ${cap}` : ""), "cap", num(mk.marketCapUsd));
+      box.append(row, capEl);
       li.append(box, sparkEl(c, featured));
+      fold.append(field(el("p", "lp-src", priceSource(mk, ageSeconds({ asOf: data && data.asOf, receivedAt, now: Date.now() }))), "src"));
+      fold.append(field(el("p", "lp-card__sub", venueLine(c)), "venue"));
       const dl = el("dl", "lp-stats lp-stats--live");
       for (const s of statCells(c)) {
         const d = el("div", "lp-stat"); d.dataset.cell = s.key;
@@ -533,9 +553,9 @@
         d.append(el("dt", null, s.label), dd, note);
         dl.append(d);
       }
-      li.append(dl);
+      fold.append(dl);
       const foot = curveFoot(c);
-      if (foot) li.append(field(el("p", "lp-src lp-stats__foot", foot), "stats-foot"));
+      if (foot) fold.append(field(el("p", "lp-src lp-stats__foot", foot), "stats-foot"));
       const cv = curveView(c);
       if (cv) {
         const cb = el("div", `lp-curve${cv.graduated ? " is-done" : ""}`);
@@ -543,7 +563,7 @@
         top.append(el("span", null, cv.graduated ? "✓ Graduated to Raydium" : "Bonding curve"), field(el("strong", "lp-curve__pct", cv.graduated ? "100%" : cv.pct), "curve-pct", cv.value));
         const bar = field(el("progress", "lp-bar"), "curve-bar"); bar.max = 100; bar.value = cv.value; bar.setAttribute("aria-label", `Bonding curve ${cv.pct}`);
         cb.append(top, bar, field(el("p", "lp-src", cv.text), "curve-src"));
-        li.append(cb);
+        fold.append(cb);
       }
     } else li.append(sparkEl(c, featured));
 
@@ -551,24 +571,35 @@
     meta.append(el("span", null, pairText(c)), el("span", "lp-card__sep", " · "), el("span", "lp-card__founder", c.kind === "vicinity" ? "Launched by the Vicinity team" : founderText(c.founder)));
     const ct = communityText(c.members || {});
     if (ct) { const com = el("span", "lp-card__community", ct.short); com.title = ct.full; meta.append(el("span", "lp-card__sep", " · "), com); }
-    li.append(meta);
+    (live ? fold : li).append(meta);
 
     const acts = el("div", "lp-card__actions");
     const lk = live ? links(c) : null;
     if (lk) {
-      // with the in-app swap on (SWAP=on) Buy opens the swap panel here (public/swap.js); otherwise the Raydium LaunchLab page
+      // with the in-app swap on (SWAP=on) Buy opens the swap panel here (public/swap.js); otherwise the Raydium LaunchLab page.
+      // A row's Buy is a tinted button: the orange fill is kept for the one main action of a screen (the sheet's own Buy)
       let buy;
-      if (swapOn && window.VSwap) { buy = el("button", "btn btn--primary btn--sm", "Buy"); buy.type = "button"; buy.dataset.act = "buy"; buy.dataset.mint = c.mint; buy.setAttribute("aria-label", `Buy $${str(c.ticker)} here`); buy.addEventListener("click", () => window.VSwap.open({ out: c.mint, title: `Buy $${str(c.ticker)}` })); }
+      if (swapOn && window.VSwap) { buy = el("button", "btn btn--soft btn--sm lp-card__buy", "Buy"); buy.type = "button"; buy.dataset.act = "buy"; buy.dataset.mint = c.mint; buy.setAttribute("aria-label", `Buy $${str(c.ticker)} here`); buy.addEventListener("click", () => window.VSwap.open({ out: c.mint, title: `Buy $${str(c.ticker)}` })); }
       else { buy = newTab(el("a", "btn btn--primary btn--sm", "Buy on Raydium ↗")); buy.href = lk.raydium; buy.dataset.act = "buy"; }
       const more = el("a", "btn btn--glass btn--sm", "Chart & details →"); more.href = coinHref(c); more.dataset.act = "chart";
       more.setAttribute("aria-label", `Chart and details of $${str(c.ticker)}`);
-      acts.append(buy, more);
-    } else {
+      // "Details": a disclosure button for the part below (its open state survives the 30-second refresh: the card is updated in place)
+      // ($VICINITY's "Live now" card on a computer has the room: there it starts open, and pages-launchpad.css drops its Details button)
+      const openNow = Boolean(featured && window.matchMedia && window.matchMedia("(min-width: 900px)").matches);
+      fold.id = `lp-more-${++folds}`; fold.hidden = !openNow;
+      const tog = el("button", "btn btn--glass btn--sm lp-card__more", "Details"); tog.type = "button"; tog.dataset.act = "more";
+      const plus = el("span", "lp-card__plus"); plus.setAttribute("aria-hidden", "true"); tog.append(plus);
+      tog.setAttribute("aria-expanded", String(openNow)); tog.setAttribute("aria-controls", fold.id); tog.setAttribute("aria-label", `Details of $${str(c.ticker)}`);
+      tog.addEventListener("click", () => { const open = fold.hidden; fold.hidden = !open; tog.setAttribute("aria-expanded", String(open)); });
+      fold.append(more);
+      acts.append(buy, tog);
+    } else if (!live) {
       const wait = el("span", "lp-card__wait"); wait.append(el("span", "btn btn--glass btn--sm is-soft", "Not live yet"), el("span", "tiny muted", notLiveWhy(c)));
       wait.firstChild.setAttribute("aria-disabled", "true");
       acts.append(wait);
     }
     li.append(acts);
+    if (live) li.append(fold);
     return li;
   }
   /**
@@ -626,7 +657,7 @@
     const vic = data && data.vicinity && isLive(data.vicinity) ? data.vicinity : null;
     const listed = vic ? cards.filter((c) => c !== vic) : cards;
     const n = counts(listed, now);
-    tabs().forEach((b) => { const on = b.dataset.tab === state.tab; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; const c = b.querySelector("[data-count]"); if (c) c.textContent = String(n[b.dataset.tab] || 0); });
+    tabs().forEach((b) => { const on = b.dataset.tab === state.tab; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; const c = b.querySelector("[data-count]"); if (c) { c.textContent = String(n[b.dataset.tab] || 0); c.classList.toggle("is-zero", !n[b.dataset.tab]); } });
     $("#lp-panel").setAttribute("aria-labelledby", `lp-tab-${state.tab}`);
     $("#lp-tabnote").textContent = TAB_NOTE[state.tab];
     const rows = rowsFor(listed, { ...state, now, countryNames });
@@ -634,20 +665,59 @@
     place($("#lp-featured"), vic ? [vic] : [], now, true);
     $("#lp-featured").classList.toggle("is-on", Boolean(vic));
     place($("#lp-grid"), rows, now, false);
-    const empty = $("#lp-empty"), text = $("#lp-empty-text"), retry = $("#lp-retry");
+    const empty = $("#lp-empty"), text = $("#lp-empty-text"), retry = $("#lp-retry"), title = $("#lp-empty-title");
     const filtered = norm(state.q) || state.country || state.status;
-    if (!data && !fails) { text.textContent = "Loading city coins…"; retry.hidden = true; }
-    else if (!data) { text.textContent = "Prices are loading. Try again in a moment."; retry.hidden = false; }
+    // no city coin at all: the tabs, search and filters have nothing to sort, so they go; one empty card says when coins come
+    const none = Boolean(data) && !listed.length;
+    sec.classList.toggle("is-none", none);
+    const say = (t, words) => { title.textContent = t; text.textContent = words; };
+    if (!data && !fails) { say("Loading city coins…", ""); retry.hidden = true; }
+    else if (!data) { say("Prices didn't load", "Prices are loading. Try again in a moment."); retry.hidden = false; }
     else if (rows.length) { empty.hidden = true; }
-    else if (filtered) { text.textContent = "Nothing matches. Try another word, or clear the filters."; retry.hidden = true; }
-    else if (state.tab === "upcoming") { text.textContent = "No coin is waiting right now. A city's coin shows here as soon as its founder designs it."; retry.hidden = true; }
-    else if (state.tab === "new") { text.textContent = `No coin went live in the last ${NEW_DAYS} days.`; retry.hidden = true; }
-    else { text.textContent = "The first city coin appears here the moment its founder's contract is confirmed."; retry.hidden = true; }
+    else if (none) { say("No city coins yet", opensAt() <= now ? "The first city coin appears here the moment its founder's contract is confirmed." : "The Launchpad opens at 10:10 AM New York time."); retry.hidden = true; }
+    else if (filtered) { say("Nothing matches", "Nothing matches. Try another word, or clear the filters."); retry.hidden = true; }
+    else if (state.tab === "upcoming") { say("Nothing waiting", "No coin is waiting right now. A city's coin shows here as soon as its founder designs it."); retry.hidden = true; }
+    else if (state.tab === "new") { say("Nothing new", `No coin went live in the last ${NEW_DAYS} days.`); retry.hidden = true; }
+    else { say("No city coins yet", "The first city coin appears here the moment its founder's contract is confirmed."); retry.hidden = true; }
     empty.hidden = Boolean(data && rows.length);
     $("#lp-count").textContent = data ? `${rows.length} ${rows.length === 1 ? "coin" : "coins"}${filtered ? " match" : ""}` : "";
+    // the filter fold's summary says what is chosen, so a closed fold never hides a filter that is on
+    const fm = $("#lp-filtermeta");
+    if (fm) { const pick = (sel) => { const o = $(sel); return o && o.selectedIndex >= 0 ? o.options[o.selectedIndex].textContent : ""; }; fm.textContent = state.country || state.status || state.sort ? [pick("#lp-country"), pick("#lp-status"), pick("#lp-sort")].join(" · ") : "All countries · any status · the list's own order"; }
     if (keep) { const again = $(`${keep.featured ? "#lp-featured" : "#lp-grid"} [data-key="${keep.key}"] [data-act="${keep.act}"]`); if (again && again !== document.activeElement) again.focus(); }
     paintAge();
     paintSources();
+    paintLive();
+  }
+  /**
+   * The hero once the Launchpad is open: the live coins in a strip (avatar, $TICKER, 24 h change), each a link to its coin page. Four
+   * or more glide by (a marquee: the list twice, the copy hidden from screen readers and the keyboard), pausing on hover, on focus, with
+   * the strip's own Pause button (the site's "Pause animations") and never under reduced motion; fewer sit still in one row.
+   */
+  function paintLive() {
+    const strip = $("#lp-live"), track = $("#lp-live-track"); if (!strip || !track) return;
+    const live = data ? [data.vicinity, ...(data.coins || [])].filter((c) => c && isLive(c) && isAddr(c.mint)) : [];
+    const sig = live.map((c) => `${c.mint}:${chipOf(c.market && c.market.priceChange24hPct).text}`).join("|");
+    if (track.dataset.sig === sig) return;
+    track.dataset.sig = sig;
+    const item = (c, copy) => {
+      const li = el("li", `lp-live__item${copy ? " is-copy" : ""}`), a = el("a", "lp-live__link"); a.href = coinHref(c);
+      const ava = el("span", "lp-ava lp-ava--sm"); ava.dataset.color = colorOf(c); if (c.kind === "vicinity") ava.dataset.kind = "vicinity"; ava.setAttribute("aria-hidden", "true");
+      const logo = logoSrc(c);
+      if (logo) { const img = el("img"); img.src = logo; img.alt = ""; img.width = 28; img.height = 28; ava.append(img); } else ava.append(el("span", null, initialsOf(c)));
+      const v = num(c.market && c.market.priceChange24hPct), ch = chipOf(v);
+      const chg = el("span", `lp-live__chg ${ch.cls}`, v == null ? "new" : `${v > 0 ? "▲" : v < 0 ? "▼" : ""}${Math.abs(v).toFixed(Math.abs(v) >= 10 ? 1 : 2)}%`);
+      chg.setAttribute("aria-hidden", "true");
+      a.append(ava, el("span", "lp-live__tk", `$${str(c.ticker)}`), chg);
+      a.setAttribute("aria-label", `$${str(c.ticker)}${v == null ? "" : `, ${v > 0 ? "up" : v < 0 ? "down" : "flat"} ${Math.abs(v).toFixed(2)}% in 24 hours`}`);
+      if (copy) { li.setAttribute("aria-hidden", "true"); li.inert = true; a.tabIndex = -1; }
+      li.append(a);
+      return li;
+    };
+    const marquee = live.length >= 4;
+    track.replaceChildren(...live.map((c) => item(c, false)), ...(marquee ? live.map((c) => item(c, true)) : []));
+    strip.classList.toggle("is-marquee", marquee);
+    strip.classList.toggle("has-coins", live.length > 0);
   }
   function paintAge() {
     const u = $("#lp-updated"); if (!u) return;
@@ -710,6 +780,7 @@
     } else {
       fails = Math.min(fails + 1, BACKOFF.length - 1);
     }
+    sec.classList.remove("is-loading");
     render();
     schedule();
   }
@@ -765,6 +836,16 @@
   }
   function start() {
     started = true;
+    sec.classList.add("is-loading"); // the "Live now" card's room is held until the first answer
+    // the filters fold on a phone (the list comes first); a computer has the room to show them open
+    const ff = $("#lp-filterfold"); if (ff && window.matchMedia && window.matchMedia("(min-width: 901px)").matches) ff.open = true;
+    paintOpen(opensAt() <= Date.now()); // the clock says open: the hero says so too, whatever the list answers
+    const pause = $("#lp-live-pause");
+    if (pause) {
+      const sync = () => pause.setAttribute("aria-pressed", String(document.documentElement.dataset.motion === "paused"));
+      pause.addEventListener("click", () => { const t = $("[data-motion-toggle]"); if (t) t.click(); sync(); });
+      window.addEventListener("vicinity:motion", sync); sync();
+    }
     const fromUrl = stateFromUrl(location.search);
     state.tab = fromUrl.tab; state.q = fromUrl.q; $("#lp-q").value = fromUrl.q;
     wire();

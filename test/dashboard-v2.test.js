@@ -50,11 +50,11 @@ const TABLE = {
   retired: ["layout-edit", "layout-reset", "col-main", "col-side"],
   home: ["pf-notice", "pf-notice-open", "pf-notice-ok", "ban-notice", "lost-alert",
     "welcome", "welcome-disc", "welcome-title", "welcome-line", "welcome-ring", "welcome-ring-num", "welcome-ring-tick-location", "welcome-ring-tick-account", "welcome-ring-tick-wallet", "welcome-close",
-    "dash-top", "pass", "pass-ring", "pass-ring-num", "me-role", "me-avatar", "me-home", "me-bio", "pass-coin", "me-copy", "me-link", "me-checked", "me-logout",
+    "dash-top", "pass", "pass-ring", "pass-ring-num", "me-role", "me-avatar", "me-home", "me-bio", "pass-coin", "me-copy", "me-link", "me-checked", "standing", "d-worth",
     "wallet-card", "wcard-kicker", "wcard-title", "wcard-lead", "wcard-perks", "wcard-city", "wcard-actions", "wcard-go", "wcard-other", "wcard-skip", "wcard-wait", "wcard-wait-text", "wcard-tiny",
     "wcard-another", "wcard-apps", "wcard-note", "wcard-note-text", "wcard-remove", "wcard-tip", "wcard-tip-text", "wcard-tip-ok",
     "d-amount", "d-amount-sub", "d-rank", "d-rank-sub", "d-city-label", "d-crank", "d-crank-sub", "d-country-label", "d-nrank", "d-nrank-sub",
-    "today", "today-title", "today-list", "role-home", "portfolio", "pf-title", "pf-updated", "pf-refresh", "pf-body", "pf-msg", "pf-net", "pf-net-me", "pf-net-find",
+    "today", "today-title", "today-list", "role-home", "portfolio", "pf-total", "pf-title", "pf-updated", "pf-refresh", "pf-body", "pf-msg", "pf-net", "pf-net-me", "pf-net-find",
     "badges", "bg-n-earned", "bg-n-locked", "badge-grid", "trade", "trade-title", "trade-state", "tr-amt", "tr-in", "tr-in-usd", "tr-flip", "tr-out", "tr-outk", "tr-rate", "tr-go", "tr-go-2", "tr-note"],
   city: ["city-subnav", "community", "cc-face", "cc-name", "cc-ticker", "ch-status", "cc-members", "cc-holders", "cc-founder", "ch-locals", "ch-locals-n", "ch-coin", "ch-coin-v", "cc-fomo", "cc-top", "cc-share",
     "coin", "coin-title", "coin-city", "coin-status", "coin-art", "coin-logo", "coin-art-face", "coin-name", "coin-ticker", "coin-pair", "coin-pitch", "coin-by", "coin-contract", "coin-mint", "coin-mint-copy", "coin-note",
@@ -64,11 +64,12 @@ const TABLE = {
     "rk-city", "rk-city-label", "rk-city-rank", "rk-city-sub", "rk-city-note", "rk-note"],
   founder: ["fcard", "fcard-kicker", "fcard-state", "fcard-title", "fcard-who", "fcard-pick", "fcard-since-label", "fcard-since", "fcard-coin", "fcard-clock-row", "fcard-clock-label", "fcard-clock", "fcard-note", "fcard-go", "fcard-alt", "fcard-meter",
     "progress", "progress-title", "p-city", "p-pct", "fs-state", "p-bar", "p-steps", "fs-rank", "fs-rank-text", "fs-rank-note", "p-panel", "p-window", "p-error", "squad",
-    "studio-card", "studio-title", "studio-city", "studio-state", "coin-studio", "studio-step-1", "cs-name", "cs-ticker", "cs-pitch", "cs-count", "studio-step-2", "studio-step-3", "cs-logo", "cs-logo-remove", "cs-save", "cs-err", "cs-mint", "cs-mint-send", "founder-foot"],
+    "studio-card", "studio-title", "studio-city", "studio-state", "coin-studio", "studio-step-1", "cs-name", "cs-ticker", "cs-pitch", "cs-count", "studio-step-2", "studio-step-3", "cs-logo", "cs-logo-remove", "cs-save", "cs-err", "cs-mint", "cs-mint-send", "danger-zone", "danger-body", "founder-foot"],
   moderate: ["mod", "mod-scope", "mod-sections", "coin-admin-card", "coin-admin", "coin-waiting"],
   profile: ["profile-modal", "profile-title", "profile-avatar", "profile-since", "profile-close", "profile-username-h", "username-form", "username-input", "username-err", "bio-sec", "profile-bio-h", "bio-form", "bio-input", "bio-count", "bio-hint", "bio-save", "bio-err",
     "profile-net-sec", "profile-net-h", "profile-net", "profile-net-link", "profile-account-h", "profile-wallet", "profile-copy", "profile-link", "profile-unlink", "profile-provider", "profile-home", "email-row", "email-desc", "email-view", "email-form", "email-input", "email-code-form", "email-code-input",
-    "phone-row", "phone-view", "phone-form", "phone-input", "contact-err", "profile-public-note", "profile-help-h", "profile-logout", "profile-theme-note", "roles"],
+    "phone-row", "phone-view", "phone-form", "phone-input", "contact-err", "profile-public-note", "profile-help-h", "profile-logout", "profile-username-meta", "profile-bio-meta", "profile-wallet-meta",
+    "profile-email-meta", "profile-phone-meta", "roles-fold", "roles"],
   strip: ["dv2", "dash-tabs", "dash-tablist", "tab-home", "tab-city", "tab-community", "tab-rankings", "tab-founder", "tab-moderate", "tab-moderate-n", "tab-profile",
     "panel-home", "panel-city", "panel-community", "panel-rankings", "panel-founder", "panel-moderate", "panel-profile"],
 };
@@ -184,7 +185,10 @@ test("ORDER places every top-level node of #dash-main .wrap, #profile-modal and 
   const withId = top.filter((c) => c.id).map((c) => "#" + c.id);
   assert.deepEqual(top.filter((c) => !c.id).map((c) => c.cls), ["dash-tools", "dash-grid"], "the two retired blocks are the only unnamed children");
   for (const s of withId) if (s !== "#dv2") assert.ok(all.includes(s), `${s} is a top-level card with no tab`);
-  for (const s of ["#profile-modal", "#roles"]) assert.ok(VDash.ORDER.profile.includes(s), `${s} moves into the Profile tab`);
+  assert.ok(VDash.ORDER.profile.includes("#profile-modal"), "#profile-modal moves into the Profile tab");
+  // the public roles section moves into the Profile tab inside the "How roles work" fold (a re-homed block, like the coin studio)
+  assert.ok(VDash.ORDER.profile.includes("#roles-fold"), "#roles-fold stands in the Profile tab");
+  assert.match(v2, /\$\("#roles-fold"\)\.append\(\$\("#roles"\)\);/, "#roles goes into it");
   // whatever stands in a panel already (the v2 blocks) is listed for that panel, in the same order
   for (const tab of TABS) {
     const inPanel = children(html, startOf("panel-" + tab)).map((c) => "#" + c.id);

@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/polish.css">
   <link rel="stylesheet" href="/feedback.css">
+  <link rel="stylesheet" href="/pages-404.css">
   <script src="/theme.js"></script>
 </head>
 <body data-page="404">
@@ -37,22 +38,25 @@
       </nav>
       <div class="site-header__actions">
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false"><span class="moon" aria-hidden="true">☾</span><span class="sun" aria-hidden="true">☀</span></button>
-        <a class="btn btn--primary btn--sm account-btn" href="/connect?mode=login" data-account><span class="btn__dot" aria-hidden="true"></span><span data-account-label>Log in</span></a>
+        <a class="btn btn--glass btn--sm account-btn" href="/connect?mode=login" data-account><span class="btn__dot" aria-hidden="true"></span><span data-account-label>Log in</span></a>
       </div>
     </div>
   </header>
 
   <main id="main">
-    <section class="section">
+    <section class="section notfound-sec">
       <div class="wrap notfound">
-        <p class="kicker">404</p>
-        <h1 class="page-title">This place isn't<br><span class="accent">on the map.</span></h1>
-        <p class="lead">The page you're looking for doesn't exist, or it moved when Vicinity got its new pages.</p>
-        <div class="hero__cta">
-          <a class="btn btn--primary btn--lg" href="/">How Vicinity works</a>
-          <a class="btn btn--glass btn--lg" href="/cities">Find your city</a>
+        <div class="empty notfound__box">
+          <span class="ico notfound__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg></span>
+          <p class="kicker notfound__kicker">404</p>
+          <h1 class="notfound__title">This page isn't on the map.</h1>
+          <p class="notfound__text">It doesn't exist, or it moved when Vicinity got its new pages.</p>
+          <div class="notfound__cta">
+            <a class="btn btn--primary" href="/">Home</a>
+            <a class="btn btn--glass" href="/cities">Cities</a>
+          </div>
         </div>
-        <p class="tiny muted">Someone sent you a "Vicinity" link that led here? Check it with the <a href="/token#check">official link checker</a>.</p>
+        <p class="tiny muted notfound__check" data-fb-avoid>Someone sent you a "Vicinity" link that led here? Check it with the <a href="/token#check">official link checker</a>.</p>
       </div>
     </section>
   </main>

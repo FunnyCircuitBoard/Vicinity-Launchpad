@@ -1,0 +1,49 @@
+/* Design v2 (10 Oct 2026): /connect and /locate. One sheet per page, loaded last there (scripts/pages/src/<page>.html "styles").
+   Phone first; the shared tokens come from style.css, each with a fallback here; motion only inside prefers-reduced-motion: no-preference. */
+/* =====================================================================
+   /connect and /locate: one column that can shrink on a phone, long button labels wrap, one Google button style on both tabs, the
+   selected tab a quiet pill (the step's own button is the ember), the log-in screen's panel first on a phone (its safety lines
+   after it, still on screen), what we keep folded with its facts in the summary; the locate page as tall as what it says.
+   ===================================================================== */
+.connect__grid { grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); }
+@media (max-width: 900px) { .connect__grid { grid-template-columns: minmax(0, 1fr); } }
+.connect__grid:has(> .connect__intro[hidden]) { grid-template-columns: minmax(0, 560px); }
+#su-google, #su-email-send, .su-ident .btn { white-space: normal; text-align: center; line-height: 1.25; }
+#su-google.btn--primary { background: #fff; color: #1f1f1f; border-color: rgba(11,22,38,.18); box-shadow: 0 10px 30px -18px rgba(0,0,0,.6); }
+#su-google.btn--primary::before, #su-google.btn--primary::after { content: none; }
+#su-google .social-mark { color: #4285F4; }
+.su-tab[aria-pressed="true"] { background: var(--surface-2, var(--bg-2)); color: var(--text); box-shadow: inset 0 -2px 0 var(--pin), 0 6px 16px -10px rgba(0,0,0,.5); }
+:root[data-theme="light"] .su-tab[aria-pressed="true"] { background: #fff; }
+.su-keep { width: 100%; margin-top: 4px; }
+.su-keep > p { margin: 0 0 8px; }
+.link-top__safe { margin: 0; }
+@media (max-width: 600px) {
+  .connect { padding-top: var(--sp-5, 24px); }
+  .connect[data-mode="login"] .connect__intro { order: 2; }
+  .connect[data-mode="login"] .connect__intro > :not(.safety) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .connect[data-mode="login"] .connect__intro .safety { display: grid; margin: 0; }
+  /* linking a wallet: one heading ("Connect your wallet."; "Choose your wallet" stays for screen readers), the wallet rows right
+     under the lines that say what happens, then the recovery-phrase line and "No wallet app yet?" (moved, not removed) */
+  .connect[data-mode="link"] .cstate[data-state="pick"] { row-gap: 10px; }
+  .connect[data-mode="link"] #link-top { display: contents; }
+  .connect[data-mode="link"] #link-top .kicker { margin-bottom: -6px; }
+  .connect[data-mode="link"] #wallet-h { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .connect[data-mode="link"] :is(.link-top__safe, #link-noapp) { order: 1; }
+  .connect[data-mode="link"] .alt-ways { order: 2; }
+  .connect[data-mode="link"] #wallets-detected:empty { display: none; }
+}
+#locate-panel { min-height: 0; }
+#locate-panel .verified-badge svg { display: block; }
+/* the account step's place chip: the place on one line, "Not right? Check again" wraps under it when the row is short */
+#su-recap { flex-wrap: wrap; row-gap: 0; border-radius: var(--r-chip, 12px); }
+#su-recap-city { white-space: nowrap; font-weight: 600; }
+@media (max-width: 600px) { #su-recap .su-recap__sep { display: none; } #su-recap #su-recap-redo { flex: 0 0 calc(100% - 26px); margin-left: 26px; justify-content: flex-start; text-align: left; padding-left: 0; padding-right: 0; } } /* the place, then "Not right?" under it: no dot left hanging at a line end */
+
+/* /connect: the alternative ways and the done badge carry icons from the site's set (no emoji); signup.js sets the badge's data-icon */
+.alt .alt__icon.ico { font-size: inherit; }
+.done-badge svg { width: 36px; height: 36px; }
+.done-badge[data-icon="pin"] .done-badge__link, .done-badge[data-icon="link"] .done-badge__pin { display: none; }
+#approve-city { display: inline-flex; align-items: center; gap: 5px; }
+#approve-city::before { content: ""; flex: none; width: 14px; height: 14px; background: var(--pin-2);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z'/%3E%3Ccircle cx='12' cy='10' r='2.4'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z'/%3E%3Ccircle cx='12' cy='10' r='2.4'/%3E%3C/svg%3E") center / contain no-repeat; }

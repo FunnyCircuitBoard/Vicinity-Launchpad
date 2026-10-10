@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { founderAmount, POLICY } from "../src/policy.js";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const css = read("public/style.css"), js = read("public/dashboard.js"), site = read("public/site.js");
+const css = read("public/polish-dash.css"), js = read("public/dashboard.js"), site = read("public/site.js"); // the preview's rules live in the dashboard's own sheet (review PERF-1)
 const both = [["public", read("public/dashboard.html")], ["src", read("scripts/pages/src/dashboard.html")]];
 /** #dash-out's markup, from its opening tag to the section after it. */
 const outOf = (h) => { const a = h.indexOf('<section class="dash-out is-pending" id="dash-out" hidden>'), b = h.indexOf("</section>", a); assert.ok(a >= 0 && b > a, "#dash-out"); return h.slice(a, b); };
@@ -53,15 +53,20 @@ test("the preview says it is an example: a visible 'Preview · example data' tag
   }
 });
 
-test("the preview mirrors a member's Home tab: pass with username and city, holding and rank, the city with members and founder path, Next for you", () => {
+test("the preview mirrors a member's Home tab: pass with username and city, the standing card (holding, three rank chips), the city with members and founder path, Next for you", () => {
   for (const [where, h] of both) {
-    const t = text(previewOf(h));
-    const order = ["Preview · example data", "Home City Community Rankings Founder", "Vicinity Pass", "Holder", "@UticaSam", "📍 Utica, United States", "live",
-      "💰 You hold", "250K", "250,000 $VICINITY", "🏆 Rank · all holders", "#126", "of 4,200 · top 3.00%",
-      "Your community", "Utica", "Open seat 🔥", "Members", "312", "Holders here", "148", "Founder path", "33%",
+    const pv = previewOf(h), t = text(pv);
+    const order = ["Preview · example data", "Home City Feed Rankings Founder", "Vicinity Pass", "Holder", "@UticaSam", "Utica, United States", "live",
+      "You hold", "250K", "$VICINITY", "250,000 $VICINITY", "Your rank", "#126", "of 4,200 holders", "#9", "in Utica", "#41", "in the US",
+      "Your community", "Utica", "Open seat", "312", "members", "148", "holders here", "Founder path", "33%",
       "Next for you", "A squad is forming in Utica", "Vote for your Country Manager"];
     let at = 0;
     for (const s of order) { const i = t.indexOf(s, at); assert.ok(i >= at, `${where}: "${s}" after position ${at}, in the order a member sees them: ${t}`); at = i + s.length; }
+    // design v2: the shared line icons (pin, coin, trophy) drawn in SVG, no emoji as icons, sentence-case labels
+    assert.doesNotMatch(t, /\p{Extended_Pictographic}/u, `${where}: no emoji: ${t}`);
+    assert.equal((pv.match(/<svg /g) || []).length, 3, `${where}: the pin, the coin and the trophy`);
+    assert.match(pv, /<div class="dpv__standing">/, `${where}: one standing card, as on the real Home`);
+    assert.equal((pv.match(/class="dpv__chip"/g) || []).length, 3, `${where}: three rank chips`);
   }
 });
 

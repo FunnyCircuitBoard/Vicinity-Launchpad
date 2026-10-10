@@ -1,6 +1,6 @@
 // Phones live inside the wallet app (owner decision F4, 10 Oct 2026), the dashboard's side. Runs the real page in node
-// (test/helpers/dashpage.js). On a phone's Safari / Chrome a member with a linked wallet sees ONE card: "On this phone you buy in
-// Phantom" with "Connect Phantom" (Vicinity opens inside Phantom, logged in or one signature away); inside the wallet app the card says
+// (test/helpers/dashpage.js). On a phone's Safari / Chrome a member with a linked wallet sees ONE card: "Buy in Phantom" with
+// "Open Phantom" (Vicinity opens inside Phantom, logged in or one signature away; design v2 wording); inside the wallet app the card says
 // who is logged in and how to come back next time (until "Got it"); a browser that was logged in before a wallet joined from a wallet
 // app gets "Wasn't you? Remove it" for 7 days; a visitor inside a wallet app gets "Sign in with Phantom"; a proof on a phone's Safari
 // opens the wallet app. Instagram's or Facebook's in-app browser is NOT a wallet app.
@@ -23,13 +23,13 @@ const openInApp = (p, id, next = null) => p.win.VW.KNOWN.find((k) => k.id === id
 
 /* ---------------- a phone's Safari / Chrome: "On this phone you buy in Phantom" ---------------- */
 
-test("a phone's Safari with the wallet linked: ONE card, 'On this phone you buy in Phantom', and Connect Phantom opens Vicinity inside Phantom (signed in there)", async () => {
+test("a phone's Safari with the wallet linked: ONE card, 'Buy in Phantom', and Open Phantom opens Vicinity inside Phantom (signed in there)", async () => {
   const p = await openDashboard({ ua: UA.iphone, me: linkedMe(), storage: { "vicinity.walletApp": "phantom" } });
   assert.equal(p.$("#wallet-card").hidden, false);
-  assert.equal(p.text("#wcard-kicker"), "Your wallet app");
-  assert.equal(p.text("#wcard-title"), "On this phone you buy in Phantom");
+  assert.equal(p.text("#wcard-kicker"), "Buy $VICINITY");
+  assert.equal(p.text("#wcard-title"), "Buy in Phantom");
   assert.equal(p.text("#wcard-lead"), "Opens Vicinity inside Phantom, logged in. You buy there.");
-  assert.equal(p.text("#wcard-go"), "Connect Phantom");
+  assert.equal(p.text("#wcard-go"), "Open Phantom");
   const href = p.$("#wcard-go").getAttribute("href");
   assert.equal(href, openInApp(p, "phantom"));
   assert.match(decodeURIComponent(href), /^https:\/\/phantom\.com\/ul\/browse\/https:\/\/vicinity\.test\/connect\?mode=login&with=phantom\?ref=/);
@@ -54,18 +54,18 @@ test("a phone's Safari with the wallet linked: ONE card, 'On this phone you buy 
 
 test("Safari that never remembered an app: the server's (the app that linked the wallet); neither: 'your wallet app' and the chips, no button", async () => {
   const p = await openDashboard({ ua: UA.iphone, me: linkedMe({ walletApp: "solflare" }) });
-  assert.equal(p.text("#wcard-title"), "On this phone you buy in Solflare");
-  assert.equal(p.text("#wcard-go"), "Connect Solflare"); assert.equal(p.$("#wcard-go").getAttribute("href"), openInApp(p, "solflare"));
+  assert.equal(p.text("#wcard-title"), "Buy in Solflare");
+  assert.equal(p.text("#wcard-go"), "Open Solflare"); assert.equal(p.$("#wcard-go").getAttribute("href"), openInApp(p, "solflare"));
   // (integration finding INT-2: the Buy panel's list of wallet apps reads the same key, so it names Solflare first too, before any tap)
   assert.equal(p.local.get("vicinity.walletApp"), "solflare", "kept again as soon as the card says it");
   await p.tap(p.$("#wcard-go"));
   assert.equal(p.local.get("vicinity.walletApp"), "solflare", "the tap remembers it");
   // what Safari remembered itself wins over the account's (another app on this phone)
   const s = await openDashboard({ ua: UA.iphone, me: linkedMe({ walletApp: "solflare" }), storage: { "vicinity.walletApp": "backpack" } });
-  assert.equal(s.text("#wcard-title"), "On this phone you buy in Backpack");
+  assert.equal(s.text("#wcard-title"), "Buy in Backpack");
   assert.equal(s.local.get("vicinity.walletApp"), "backpack");
   const q = await openDashboard({ ua: UAS.android, me: linkedMe() });
-  assert.equal(q.text("#wcard-title"), "On this phone you buy in your wallet app");
+  assert.equal(q.text("#wcard-title"), "Buy in your wallet app");
   assert.equal(q.text("#wcard-lead"), "Pick the wallet app you use: it opens Vicinity there, logged in. You buy there.");
   assert.equal(q.$("#wcard-go").hidden, true); assert.equal(q.$("#wcard-another").hidden, true);
   assert.equal(q.$("#wcard-apps").hidden, false);
@@ -113,7 +113,7 @@ test("arriving in Phantom right after the link (/dashboard?linked=1): 'Phantom c
   assert.ok(q.toasts.includes("Wallet linked ✓"), JSON.stringify(q.toasts));
 });
 
-test("Safari waiting for the link made in Phantom: the poll sees it, 'Phantom connected ✓', and the card turns into 'On this phone you buy in Phantom'", async () => {
+test("Safari waiting for the link made in Phantom: the poll sees it, 'Phantom connected ✓', and the card turns into 'Buy in Phantom'", async () => {
   let wallet = null;
   const p = await openDashboard({ ua: UA.iphone, me: () => linkedMe({ wallet, walletApp: wallet ? "phantom" : null }), session: { "vl-started": "1", "su-carry": "Phantom" } });
   assert.equal(p.$("#wcard-wait").hidden, false); assert.equal(p.text("#wcard-wait-text"), "Waiting for Phantom…");
@@ -122,7 +122,7 @@ test("Safari waiting for the link made in Phantom: the poll sees it, 'Phantom co
   // the toast names the wallet itself: the app is only what the other side said (review finding safety-F5)
   assert.ok(p.toasts.includes(`Wallet ${MASKED} connected in Phantom ✓`), JSON.stringify(p.toasts));
   assert.equal(p.local.get("vicinity.walletApp"), "phantom", "the app that really linked it");
-  assert.equal(p.text("#wcard-title"), "On this phone you buy in Phantom");
+  assert.equal(p.text("#wcard-title"), "Buy in Phantom");
   assert.equal(p.$("#wcard-wait").hidden, true);
 });
 
@@ -175,11 +175,14 @@ test("'Remove it': said no in the confirm sends nothing; a stale login logs in a
 test("the note sits on the phone's buy card too; a browser the wallet made (notMe false) or a wallet app (no app named) words it plainly", async () => {
   const p = await openDashboard({ ua: UA.iphone, me: linkedMe({ walletApp: "phantom" }, NEW({ at: minutesAgo(120) })) });
   assert.equal(p.text("#wcard-kicker"), "New wallet on your account", "while it asks: not the app the claim reported (and never the wallet: the kicker is in capitals)");
-  assert.equal(p.text("#wcard-title"), "On this phone you buy in Phantom");
+  assert.equal(p.text("#wcard-title"), "Buy in Phantom");
   assert.equal(p.text("#wcard-note-text"), `Connected 2h ago in Phantom (wallet ${MASKED}). Wasn't you?`);
+  const shown = (q) => q.$("#panel-home").children.filter((n) => !n.hidden).map((n) => n.id);
+  assert.equal(shown(p)[0], "wallet-card", `while it asks "was this you?", the card is the first on Home, as on a computer: ${JSON.stringify(shown(p))}`);
   // the browser the wallet made (or one that may not ask): "Phantom connected ✓", nothing to ask
   const o = await openDashboard({ ua: UA.iphone, me: linkedMe({ walletApp: "phantom" }, NEW({ notMe: false })) });
   assert.equal(o.text("#wcard-kicker"), "Phantom connected ✓"); assert.equal(o.$("#wcard-note").hidden, true);
+  assert.ok(shown(o).indexOf("wallet-card") > shown(o).indexOf("dash-top"), `nothing to ask: the phone's buy card stands where the Buy card was: ${JSON.stringify(shown(o))}`);
   const q = await openDashboard({ ua: UA.desktop, me: linkedMe({}, NEW({ notMe: false })) });
   assert.equal(q.$("#wallet-card").hidden, true, "the browser the wallet made has nothing to remove");
   const r = await openDashboard({ ua: UA.desktop, me: linkedMe({}, NEW({ app: null, via: "pair" })) });
@@ -240,14 +243,15 @@ test("Safari during those 7 days (review finding ux-UX-1): a proof for the usern
   assert.equal(v.callsTo("/api/me/wallet/unlink").length, 1);
 });
 
-test("inside Phantom, its wallet injected a few seconds late (review finding ux-UX-4): the card turns from Safari's 'Connect Phantom' into the in-app one", async () => {
+test("inside Phantom, its wallet injected a few seconds late (review finding ux-UX-4): the card turns from Safari's 'Open Phantom' into the in-app one", async () => {
   const p = await openDashboard({ ua: UA.phantomApp, me: linkedMe({ walletApp: "phantom" }) });
-  assert.equal(p.text("#wcard-title"), "On this phone you buy in Phantom", "(no wallet yet: it looks like any phone browser)");
+  assert.equal(p.text("#wcard-title"), "Buy in Phantom", "(no wallet yet: it looks like any phone browser)");
   await p.advance(2000);
   await p.register(fakeWallet("Phantom").wallet);
   assert.equal(p.text("#wcard-title"), "Phantom connected ✓");
   assert.equal(p.$("#wcard-tip").hidden, false);
-  assert.equal(p.$("#wcard-actions").hidden, true, "no 'Connect Phantom' (it would leave for phantom.com) inside Phantom");
+  assert.equal(p.$("#wcard-actions").hidden, true, "no 'Open Phantom' (it would leave for phantom.com) inside Phantom");
+  assert.equal(p.$("#trade").hidden, false, "inside the wallet app the Buy card is back: there the person buys on the page");
   assert.equal(p.local.get("vicinity.walletApp"), "phantom");
 });
 

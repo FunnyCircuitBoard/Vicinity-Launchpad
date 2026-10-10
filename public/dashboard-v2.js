@@ -8,30 +8,31 @@
 // Where every element of dashboard.html lives (one place each; test/dashboard-v2.test.js checks the built page against ORDER):
 //   GLOBAL (never moved)  #dash-skel, #dash-out, #dash-onboard, #proof-modal, #locate-modal, #toast, #termsgate
 //   RETIRED (hidden)      #dash-main .dash-tools (#layout-edit, #layout-reset), #dash-main .dash-grid (#col-main, #col-side, emptied)
-//   home      -> #panel-home       #pf-notice, #ban-notice, #lost-alert, #welcome, #dash-top, #wallet-card, #today, #role-home, #portfolio, #badges, #trade
+//   home      -> #panel-home       #pf-notice, #ban-notice, #lost-alert, #welcome, #dash-top, #today, #trade, #wallet-card, #role-home, #portfolio, #badges
+//                                  (#wallet-card stands right after #welcome while it asks for something, after #trade as a phone's buy card: placeCard)
 //   city      -> #panel-city       #city-subnav, #community, #coin, #city-about, #request
 //   community -> #panel-community  #feed, #national
 //   rankings  -> #panel-rankings   #rankings-card
-//   founder   -> #panel-founder    #fcard, #progress, #squad, #studio-card (gets #coin-studio out of #coin), #founder-foot
+//   founder   -> #panel-founder    #fcard, #progress, #squad, #studio-card (gets #coin-studio out of #coin), #danger-zone, #founder-foot
 //   moderate  -> #panel-moderate   #mod, #coin-admin-card (gets #coin-admin out of #coin)
-//   profile   -> #panel-profile    #profile-modal (as an in-flow block), #profile-theme-note, #roles
+//   profile   -> #panel-profile    #profile-modal (as an in-flow block), #roles-fold (gets #roles)
 //   strip                          #dash-tabs (#dash-tablist, the #tab-* links and the #panel-* sections above)
 (() => {
   "use strict";
-  const { $, $$, el, fmt, mask } = window.V;
+  const { $, $$, el, fmt, mask, initials } = window.V;
   const byId = (id) => document.getElementById(id);
 
   const TABS = Object.freeze(["home", "city", "community", "rankings", "founder", "moderate", "profile"]);
   const LABEL = { home: "Home", city: "City", community: "Community", rankings: "Rankings", founder: "Founder", moderate: "Moderate", profile: "Profile" };
   // the cards, in the order they stand in each panel (the static v2 blocks are listed too, so the order is one list)
   const ORDER = Object.freeze({
-    home: ["#pf-notice", "#ban-notice", "#lost-alert", "#welcome", "#dash-top", "#wallet-card", "#today", "#role-home", "#portfolio", "#badges", "#trade"],
+    home: ["#pf-notice", "#ban-notice", "#lost-alert", "#welcome", "#dash-top", "#today", "#trade", "#wallet-card", "#role-home", "#portfolio", "#badges"],
     city: ["#city-subnav", "#community", "#coin", "#city-about", "#request"],
     community: ["#feed", "#national"],
     rankings: ["#rankings-card"],
-    founder: ["#fcard", "#progress", "#squad", "#studio-card", "#founder-foot"],
+    founder: ["#fcard", "#progress", "#squad", "#studio-card", "#danger-zone", "#founder-foot"],
     moderate: ["#mod", "#coin-admin-card"],
-    profile: ["#profile-modal", "#profile-theme-note", "#roles"],
+    profile: ["#profile-modal", "#roles-fold"],
   });
   // a link to a card by its old hash (#progress, #coin, ...) opens the card's tab, then scrolls to the card
   const ALIAS = { progress: "founder", squad: "founder", "coin-studio": "founder", coin: "city", "cc-top": "city", request: "city", "city-about": "city",
@@ -62,6 +63,8 @@
     }
     $("#studio-card").append($("#coin-studio"));
     $("#coin-admin-card").append($("#coin-admin"));
+    $("#roles-fold").append($("#roles")); // the public roles section, folded under "How roles work"
+    document.body.classList.add("is-dv2"); // polish-dash.css: the band above the strip goes, the header's line too
     $("#dash-main .dash-tools").hidden = true;
     $("#dash-main .dash-grid").hidden = true;
     // the profile modal becomes a block of the Profile tab; dashboard.js keeps filling it and its forms keep working
@@ -74,6 +77,7 @@
     try { history.scrollRestoration = "manual"; } catch {}
     $("#dash-main").addEventListener("click", onClick);
     $("#dash-tablist").addEventListener("keydown", onKey);
+    $("#dash-tablist").addEventListener("scroll", () => $("#dash-tabs").classList.toggle("is-scrolled", $("#dash-tablist").scrollLeft > 4), { passive: true });
     $("#fcard-go").addEventListener("click", () => { if (fcardAction) fcardAction(); });
     $("#trade").addEventListener("click", postProcess); // dashboard.js redraws the trade card on its own clicks
     window.addEventListener("hashchange", onHash);
@@ -108,20 +112,33 @@
     if (tab === "profile" && ctx) ctx.openProfile();
     measure();
   }
+  /** Only when the strip scrolls (200% text): bring the tab into view by the least distance ("nearest"), so Home is never pushed out. */
   function centerTab(tab) {
     const list = $("#dash-tablist"), t = byId("tab-" + tab);
-    if (!list || !t) return;
-    const lr = list.getBoundingClientRect(), tr = t.getBoundingClientRect();
-    list.scrollTo({ left: list.scrollLeft + (tr.left - lr.left) - (lr.width - tr.width) / 2, behavior: behavior() });
+    if (!list || !t || list.scrollWidth <= list.clientWidth + 1) return;
+    const lr = list.getBoundingClientRect(), tr = t.getBoundingClientRect(), pad = 28;
+    const dx = tr.left < lr.left + pad ? tr.left - lr.left - pad : tr.right > lr.right - pad ? tr.right - lr.right + pad : 0;
+    if (dx) list.scrollTo({ left: list.scrollLeft + dx, behavior: behavior() });
   }
+  /**
+   * The strip fits the screen: every tab whole and shown, no sideways strip. Should seven tabs not fit (a moderator on a phone), one step
+   * at a time: the gaps close (.is-snug), "Rankings" says "Rank" (.is-short), Founder and Moderate show as their icons (.is-compact). The
+   * tabs never shrink below their words, so a tight strip is seen as one. Only if it still does not fit (a large text setting) does the
+   * strip scroll (.is-scrollable, with edge fades).
+   */
   function measure() {
     const list = $("#dash-tablist"), strip = $("#dash-tabs");
-    if (list && strip) strip.classList.toggle("is-scrollable", list.scrollWidth > list.clientWidth + 2);
+    if (!list || !strip) return;
+    const over = () => list.scrollWidth > list.clientWidth + 1;
+    const steps = ["is-snug", "is-short", "is-compact", "is-scrollable"];
+    strip.classList.remove(...steps);
+    for (const step of steps) { if (!over()) break; strip.classList.add(step); }
   }
   /** Open the tab a card is in and scroll to the card (opening any <details> around it). */
   function goTo(selector, { focus = true, openRole, noAlias = false } = {}) {
     let sel = selector;
     if (!noAlias && sel === "#coin" && !$("#studio-card").hidden) sel = "#coin-studio"; // the founder lands on the studio, everyone else on the coin
+    if (sel === "#trade" && $("#trade").hidden && !$("#wallet-card").hidden) sel = "#wallet-card"; // a phone's Safari buys in the wallet app
     const target = $(sel);
     if (!target) return;
     const panel = target.closest(".dpanel");
@@ -168,7 +185,7 @@
     if (ALIAS[h]) { e.preventDefault(); goTo(href); }
   }
   function onKey(e) {
-    const tabs = $$(".dtab", $("#dash-tablist")).filter((t) => !t.hidden);
+    const tabs = $$(".dtab", $("#dash-tablist")).filter((t) => !t.hidden && t.getClientRects().length); // (a tab stepped out of a tight strip is skipped)
     const cur = tabs.indexOf(document.activeElement);
     let next = -1;
     if (e.key === "ArrowRight") next = cur < 0 ? 0 : (cur + 1) % tabs.length;
@@ -203,6 +220,8 @@
   function badge() {
     const { total } = queueCounts(), b = $("#tab-moderate-n");
     b.textContent = total ? String(total) : ""; b.hidden = !total;
+    $("#tab-moderate").setAttribute("aria-label", total ? `Moderate, ${total} to review` : "Moderate"); // the count stays in the tab's name
+    measure();
   }
 
   /* ---------- Today: up to four next steps, every one from a field /api/me, /api/mod or /api/coins already sends ---------- */
@@ -217,8 +236,7 @@
     const city = u.home ? u.home.name : "your city", seated = Boolean(seat && (seat.status === "active" || seat.status === "steward"));
     const rows = [];
     const add = (title, sub, tone, tab, go, exact) => rows.push({ title, sub, tone, href: tab[0] === "/" ? tab : "#" + tab, go, exact });
-    // an account without a wallet (onboarding v3): the link comes first; holdings, rank and the founder path wait for it
-    if (!u.wallet) add("Link your wallet", "Free, one signature. Unlocks your holdings, rank, badges and the founder path.", "ok", "home", "#wallet-card", true);
+    // (an account without a wallet: the wallet card is the first card of Home, so Today does not repeat "Link your wallet")
     if (seat && (seat.status === "grace" || (seat.status === "steward" && seat.graceUntil))) add("Top up your holding", `Hold ${fmt(seat.threshold)} $VICINITY again before ${when(seat.graceUntil)}`, "warn", "home", "#trade");
     if (seat && seat.status === "provisional") add("Objection period", `${seat.city} chose you · ends ${when(seat.appealUntil)}`, "info", "founder", "#progress");
     if (!seat && f.application) add(`You applied to found ${city}`, `Window closes ${when(f.application.closesAt)} (${left(f.application.closesAt)})`, "info", "founder", "#progress");
@@ -252,6 +270,43 @@
     $("#today").hidden = !rows.length;
   }
 
+  /* ---------- Home's standing card: what you hold and your three ranks; one line and one button when there is nothing to rank ---------- */
+  function standingState(d) {
+    const h = d.holding || {};
+    return !d.user.wallet ? "nowallet" : !d.launched ? "prelaunch" : h.team ? "team" : !(h.amount > 0) ? "none" : !h.rank ? "ranking" : "ranked";
+  }
+  const STANDING_WHY = { nowallet: "Link a wallet to see your rank.", prelaunch: "Ranks go live the moment $VICINITY launches.", team: "A team wallet: shown without a rank.",
+    none: "Not ranked yet.", ranking: "Your rank is on its way: ranks refresh about every minute." };
+  function standing(d) {
+    const h = d.holding || {}, state = standingState(d), box = $("#standing");
+    box.dataset.state = state;
+    $("#standing .standing__hold").hidden = !["team", "ranking", "ranked"].includes(state);
+    $("#standing .standing__ranks").hidden = state !== "ranked";
+    // a rank chip with nothing in it is not shown (never a "—")
+    for (const [id, has] of [["#d-rank", Boolean(h.rank)], ["#d-crank", Boolean(d.community && d.community.rank)], ["#d-nrank", Boolean(d.national && d.national.rank)]]) $(id).parentNode.hidden = !has;
+    // the exact amount only when the short one rounds it (62.7M, not 50 twice)
+    $("#d-amount-sub").hidden = !(h.amount > 0) || $("#d-amount").textContent === fmt(h.amount);
+    const why = STANDING_WHY[state] || "", empty = $("#standing .standing__empty"), go = $("#standing .standing__go");
+    empty.hidden = !why;
+    $("#standing .standing__why").textContent = why;
+    // (no wallet: the first card of Home is the wallet card with its Connect wallet button, so this line has none of its own)
+    go.hidden = state !== "none";
+  }
+
+  /* ---------- where the wallet card stands, and the Buy card's state (dashboard.js calls this after every draw of the wallet card) ---------- */
+  function placeCard() {
+    const card = $("#wallet-card"), welcome = $("#welcome"), trade = $("#trade"), m = me();
+    // asking for something (link a wallet, "wallet linked", "was this you?"): right under the welcome, the first card; a phone's buy card: where the Buy card was
+    const top = card.dataset.place !== "buy";
+    (top ? welcome : trade).after(card);
+    const merged = top && !welcome.hidden && !card.hidden; // the welcome and the wallet card read as one card
+    welcome.classList.toggle("is-merged", merged); card.classList.toggle("is-merged", merged);
+    trade.hidden = Boolean(ctx && ctx.buyInApp && ctx.buyInApp());
+    const locked = Boolean(m && m.user && !m.user.wallet && m.signupFlow === "v2"); // no wallet yet: buying needs one first, one line
+    trade.classList.toggle("is-locked", locked);
+    $("#trade .trade__lock").hidden = !locked;
+  }
+
   /* ---------- Rankings: the same three numbers as the Home stat row, as tiles with the next wallet to pass ---------- */
   function tile(id, num, sub) {
     byId(id + "-rank").textContent = num; byId(id + "-sub").textContent = sub;
@@ -276,6 +331,15 @@
     board("rk-city", c, c ? c.name : "Your city", fallback);
     $("#rk-note").textContent = launched ? "Ranks count people, not pools, program accounts or team wallets. Refreshed about every minute."
       : "Every rank goes live the moment $VICINITY launches. Your Early member badge is already yours.";
+    // no rank anywhere: one clear empty state instead of three tiles of dashes
+    const any = Boolean(h.rank || (c && c.rank) || (n && n.rank)), empty = $("#rankings-card .rk-empty"), state = standingState(d);
+    empty.hidden = any; $("#rk-tiles").hidden = !any;
+    if (!any) {
+      $("#rankings-card .rk-empty__why").textContent = { nowallet: "Link a wallet to see where you stand among every holder.", prelaunch: "Every rank goes live the moment $VICINITY launches.",
+        team: "Team wallets are shown without a rank.", none: "Hold any $VICINITY to get your rank.", ranking: "Your rank is on its way: ranks refresh about every minute." }[state] || "";
+      $("#rankings-card .rk-empty__link").hidden = !(state === "nowallet" && d.signupFlow === "v2");
+      $("#rankings-card .rk-empty__go").hidden = state !== "none";
+    }
   }
 
   /* ---------- City: the community card as the city's header, and the About card ---------- */
@@ -383,8 +447,9 @@
   /* ---------- what dashboard.js calls ---------- */
   function render(d) {
     $("#tab-home").classList.toggle("is-alert", !$("#ban-notice").hidden || !$("#lost-alert").hidden);
+    $("#tab-profile .dtab__av").textContent = initials(d.user.handle || d.user.name || "V");
     gate();
-    today(d); rankings(d); cityHeader(d); founderStatus(d); founderCard(d); studioSync(); postProcess();
+    placeCard(); standing(d); today(d); rankings(d); cityHeader(d); founderStatus(d); founderCard(d); studioSync(); postProcess();
   }
   function setCoin(c) {
     coin = c && c.coin ? c.coin : null; coinKnown = true;
@@ -403,5 +468,5 @@
     const m = me(); if (m) today(m);
   }
 
-  window.VDash = { init, render, coin: setCoin, mod, coinQueue, start, go, goTo, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS) };
+  window.VDash = { init, render, coin: setCoin, mod, coinQueue, start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS) };
 })();

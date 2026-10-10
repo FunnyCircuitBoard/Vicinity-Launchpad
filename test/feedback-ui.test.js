@@ -136,6 +136,45 @@ test("on a phone the button slides out of the way while the page scrolls down an
   scroll(wd, 300); scroll(wd, 400); assert.equal($d("#fb").classList.contains("fb--away"), false);
 });
 
+test("it steps aside: from the page's buttons, the Buy card and Copy address (any screen), from a phone's keyboard while a field is typed in, and for the toast and dialogs", async () => {
+  const { $, doc, window: win } = await widget("index.html", { phone: true });
+  const fb = $("#fb"), away = () => fb.classList.contains("fb--away");
+  const rect = (left, top, w, h) => () => ({ left, top, right: left + w, bottom: top + h, width: w, height: h });
+  fb.getBoundingClientRect = rect(336, 636, 44, 44);                   // its corner on a 390 x 844 phone
+  const buy = doc.querySelector(".btn--primary.btn--lg");             // the hero's "Get $VICINITY"
+  const scroll = (y) => { win.scrollY = y; for (const l of win.listeners.filter((x) => x.type === "scroll")) l.fn.call(win, newEvent("scroll")); };
+  buy.getBoundingClientRect = rect(16, 200, 358, 48); scroll(0);
+  assert.equal(away(), false, "nothing under it: shown");
+  buy.getBoundingClientRect = rect(16, 630, 358, 48); scroll(2);
+  assert.equal(away(), true, "a main button under its corner: out of the way, even near the top");
+  buy.getBoundingClientRect = rect(16, 560, 358, 48); scroll(4);
+  assert.equal(away(), false, "the button moved on: back");
+  // one passive scroll listener, the work once per frame
+  assert.equal(win.listeners.filter((l) => l.type === "scroll").length, 1);
+  assert.match(FEEDBACK_JS, /window\.addEventListener\("scroll", later, \{ passive: true \}\)/);
+  assert.match(FEEDBACK_JS, /requestAnimationFrame/);
+  assert.match(FEEDBACK_JS, /const AVOID = "\.btn, \.swap, \.wallet-option, \.contract__copy, \.hero__facts, \[role='tab'\], \.site-footer p, \[data-fb-avoid\]"/);
+  // typing on a phone: hidden while a field of the page has the keyboard, never for the widget's own fields
+  const field = doc.createElement("input"); doc.body.append(field);
+  dispatch(field, newEvent("focusin"), win);
+  assert.ok(fb.classList.contains("fb--typing"), "a page field has the keyboard: hidden");
+  dispatch(field, newEvent("focusout"), win);
+  assert.ok(!fb.classList.contains("fb--typing"), "and back after");
+  const box = doc.createElement("input"); box.setAttribute("type", "checkbox"); doc.body.append(box);
+  dispatch(box, newEvent("focusin"), win);
+  assert.ok(!fb.classList.contains("fb--typing"), "a checkbox brings up no keyboard");
+  $("#fb-open").click();
+  dispatch($("#fb-msg"), newEvent("focusin"), win);
+  assert.ok(!fb.classList.contains("fb--typing"), "its own message box: stays");
+  assert.ok(fb.classList.contains("fb--open"));
+  // the toast, dialogs (the Buy sheet), typing: visibility only, an open panel stays for the toast and the keyboard
+  assert.match(FEEDBACK_CSS, /body\.has-toast \.fb:not\(\.fb--open\), body:has\(dialog\[open\]\) \.fb, body:has\(\.swap-sheet\[open\]\) \.fb, \.fb--typing:not\(\.fb--open\) \{ visibility: hidden; \}/);
+  // neutral glass, no orange glow; the page's last line clears it on a phone
+  assert.match(FEEDBACK_CSS, /\.fb__btn \{[^}]*border: 1px solid var\(--line-2\);\s*background: var\(--surface-2, var\(--bg-2\)\); color: var\(--text\);/);
+  assert.doesNotMatch(FEEDBACK_CSS, /--cta-a|255,\s*90,\s*54/);
+  assert.match(FEEDBACK_CSS, /\.site-footer \{ padding-bottom: 64px; \}/);
+});
+
 test("open and close: a tap opens the panel and puts the keyboard on the chosen kind; Escape, the close button or the round button close it and give the keyboard back", async () => {
   const { $, doc, press, window: win } = await widget();
   const btn = $("#fb-open"), panel = $("#fb-panel");
@@ -297,15 +336,19 @@ test("security policy and hygiene: no inline style or script, the only innerHTML
   assert.doesNotMatch(FEEDBACK_JS, /window\.open|location\.(assign|href\s*=)/, "nothing opens or leaves the page: it must work inside wallet apps' browsers");
   assert.match(FEEDBACK_JS, /api\("\/api\/feedback", body\)/, "one call, through site.js's api()");
   assert.match(FEEDBACK_CSS, /\.fb \{ position: fixed; right: max\(16px, env\(safe-area-inset-right\)\); bottom: max\(20px, env\(safe-area-inset-bottom\)\); z-index: 70;[^}]*--fb-below: 82px; \}/);
-  assert.match(FEEDBACK_CSS, /@media \(max-width: 900px\) \{ \.fb \{ right: max\(10px, env\(safe-area-inset-right\)\); bottom: calc\(82px \+ env\(safe-area-inset-bottom\)\); --fb-below: 138px; \} \.fb__btn \{ width: 46px; height: 46px; \}/, "above the phone menu bar, a 46 px button nearer the edge");
+  assert.match(FEEDBACK_CSS, /@media \(max-width: 900px\) \{ \.fb \{ right: max\(10px, env\(safe-area-inset-right\)\); bottom: calc\(82px \+ env\(safe-area-inset-bottom\)\); --fb-below: 138px; \} \.fb__btn \{ width: 44px; height: 44px; \}/, "above the phone menu bar, a 44 px button nearer the edge");
   assert.match(FEEDBACK_CSS, /body\.has-coin-buybar \.fb \{ bottom: calc\(150px \+ env\(safe-area-inset-bottom\)\); --fb-below: 206px; \}/, "above the coin page's Buy bar");
   assert.match(FEEDBACK_CSS, /\.fb__btn \{[^}]*width: 52px; height: 52px;/, "a 44+ px target");
   // the panel is capped by the room above the button, not by the screen, so its title and Close never go off the top (keyboard open, landscape)
-  assert.match(FEEDBACK_CSS, /\.fb__panel \{[^}]*max-height: min\(600px, calc\(100vh - var\(--fb-below\) - 12px - env\(safe-area-inset-bottom\)\)\);\s*max-height: min\(600px, calc\(100dvh - var\(--fb-below\) - 12px - env\(safe-area-inset-bottom\)\)\)/);
+  // and never rises above the site header plus 8 px
+  assert.match(FEEDBACK_CSS, /\.fb__panel \{[^}]*max-height: min\(600px, calc\(100vh - var\(--fb-below\) - var\(--header-h, 67px\) - 8px - env\(safe-area-inset-bottom\)\)\);\s*max-height: min\(600px, calc\(100dvh - var\(--fb-below\) - var\(--header-h, 67px\) - 8px - env\(safe-area-inset-bottom\)\)\)/);
   assert.doesNotMatch(FEEDBACK_CSS, /72d?vh/);
   // out of the way on phones: a transform on the button only (the panel never moves), undone by the keyboard
   assert.match(FEEDBACK_CSS, /\.fb--away \.fb__btn \{ transform: translateX\(calc\(100% \+ 24px\)\);/);
-  assert.match(FEEDBACK_CSS, /\.fb--away \.fb__btn:focus-visible \{ transform: none; \}/);
+  assert.match(FEEDBACK_CSS, /\.fb--away \.fb__btn:focus-visible \{ transform: none; opacity: 1; pointer-events: auto; \}/);
+  // with reduced motion it does not slide, it just goes (and the keyboard still brings it back: the rule above comes after)
+  assert.match(FEEDBACK_CSS, /@media \(prefers-reduced-motion: reduce\) \{ \.fb--away \.fb__btn \{ transform: none; opacity: 0; pointer-events: none; \} \}/);
+  assert.ok(FEEDBACK_CSS.indexOf("prefers-reduced-motion: reduce") < FEEDBACK_CSS.indexOf(".fb--away .fb__btn:focus-visible"));
   assert.doesNotMatch(FEEDBACK_CSS, /\.fb--away \.fb__panel/);
   // the small print reads at 4.5:1 in both themes: --muted, never --faint
   assert.doesNotMatch(FEEDBACK_CSS, /--faint/);
