@@ -2103,7 +2103,7 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .coin-tile.is-na .coin-tile__val { color: var(--faint); }
 .coin-tile.is-stale .coin-tile__val { opacity: .7; }
 .coin-tile.is-up .coin-tile__val { color: var(--ok-text); } .coin-tile.is-down .coin-tile__val { color: var(--bad-text); }
-@media (max-width: 719px) { .coin-tile:last-child:nth-child(odd) { grid-column: 1 / -1; } } /* an odd last tile spans the row */
+@media (max-width: 719px) { .coin-tile.is-last-odd { grid-column: 1 / -1; } } /* an odd last tile (of those shown: coin.js) spans the row */
 /* the curve */
 .coin-curve__big { margin: 10px 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .coin-curve__big strong { font: 600 1.75rem/1 var(--display); font-variant-numeric: tabular-nums; }

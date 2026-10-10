@@ -357,6 +357,9 @@
       order.push(box);
     }
     if (order.length !== dl.children.length || order.some((b, i) => dl.children[i] !== b)) dl.replaceChildren(...order);
+    // an odd last tile spans its row on a phone: counted over the tiles shown (a hidden "—" tile left a hole beside the last one)
+    const shown = order.filter((b) => !b.hidden);
+    for (const b of order) b.classList.toggle("is-last-odd", shown.length % 2 === 1 && b === shown[shown.length - 1]);
     const none = tiles.filter((t) => t.value == null);
     const line = none.length ? `No number yet for ${none.map((t) => `${t.label.replace(/\*$/, "")} (${t.missing.replace(/\.$/, "")})`).join("; ")}.` : "";
     put($("#coin-tiles-none"), line); show("#coin-tiles-none", Boolean(line));
