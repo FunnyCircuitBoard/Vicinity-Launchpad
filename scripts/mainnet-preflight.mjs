@@ -81,12 +81,14 @@ async function backupRows(env, { row, mainRpc, mint, fetchImpl }) {
   const name = "SOLANA_RPC_URL_BACKUP", backup = String(env.SOLANA_RPC_URL_BACKUP || "").trim(), p = providerOf(backup);
   if (!backup) return row("WARN", name, "not set here: when the provider of SOLANA_RPC_URL refuses (credits used up, rate limit, outage), every chain read of the site fails until it answers again. Set another provider's mainnet URL as a Secret (docs/DEPLOY.md)");
   if (!p) return row("FAIL", name, "not a URL");
-  if (p === "solana.com") return row("WARN", name, "the public RPC: it refuses getProgramAccounts for the token program and rate-limits the Worker, so the holder list would still fail. Use a provider's URL");
-  if (backup === mainRpc || (mainRpc && p === providerOf(mainRpc))) return row("WARN", name, `the same provider as SOLANA_RPC_URL (${p}): when that account runs out of credits both stop. Use another provider`);
+  // the public MAINNET endpoint by its exact host: api.devnet.solana.com and api.testnet.solana.com go on to the genesis check
+  // below and FAIL there (not mainnet), like any other cluster's URL
+  if (new URL(backup).hostname === "api.mainnet-beta.solana.com") return row("WARN", name, "the public RPC: it refuses getProgramAccounts for the token program and rate-limits the Worker, so the holder list would still fail. Use a provider's URL");
   let genesis;
   try { genesis = await rpc(backup, "getGenesisHash", [], fetchImpl); }
   catch (e) { return row("FAIL", name, `set (${p}) but it does not answer: ${safeText(e)}`); }
-  if (genesis !== MAINNET_GENESIS) return row("FAIL", name, `set (${p}) but it is NOT mainnet: the Worker never fails over to another cluster`);
+  if (genesis !== MAINNET_GENESIS) return row("FAIL", name, `set (${p}) but it is NOT mainnet: the Worker checks this too and never uses it (it never fails over to another cluster)`);
+  if (backup === mainRpc || (mainRpc && p === providerOf(mainRpc))) return row("WARN", name, `the same provider as SOLANA_RPC_URL (${p}): when that account runs out of credits both stop. Use another provider`);
   if (!isSolanaAddress(mint)) return row("PASS", name, `set (${p}), mainnet`);
   // the holder list needs getProgramAccounts on the token program: one read of the $VICINITY token accounts WITHOUT their data
   // (dataSlice length 0) proves the backup's plan serves it

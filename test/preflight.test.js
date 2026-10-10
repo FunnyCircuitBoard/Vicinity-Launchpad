@@ -183,7 +183,7 @@ test("preflight: settings come from wrangler.jsonc vars, then the environment, t
   void SOL;
 });
 
-test("preflight: SOLANA_RPC_URL_BACKUP (10 Oct 2026): unset WARNs; the public RPC or the same provider WARN; another mainnet provider that serves getProgramAccounts PASSes; never its key", async () => {
+test("preflight: SOLANA_RPC_URL_BACKUP (10 Oct 2026): unset WARNs; the public RPC or the same provider WARN; another mainnet provider that serves getProgramAccounts PASSes; any devnet URL FAILs; never its key", async () => {
   const { fetchImpl, now } = world();
   const KEY = "BACKUPKEY123";
   const gpa = (refuse) => async (url, init = {}) => {
@@ -207,5 +207,10 @@ test("preflight: SOLANA_RPC_URL_BACKUP (10 Oct 2026): unset WARNs; the public RP
   assert.equal(r.level, "FAIL"); assert.match(r.detail, /NOT mainnet/);
   r = await run("not a url");
   assert.equal(r.level, "FAIL");
+  // the public DEVNET endpoint is not "the public RPC" (a WARN): it is another cluster, a FAIL; so is a devnet URL of the same provider
+  r = await run("https://api.devnet.solana.com");
+  assert.equal(r.level, "FAIL", r.detail); assert.match(r.detail, /NOT mainnet/);
+  r = await run(`https://devnet.helius-rpc.com/?api-key=${KEY}`);
+  assert.equal(r.level, "FAIL", r.detail); assert.match(r.detail, /NOT mainnet/);
   for (const b of [`https://backup-rpc.other.example/v2/${KEY}`, `https://other.helius-rpc.com/?api-key=${KEY}`]) assert.ok(!(await run(b)).detail.includes(KEY), "the key is never printed");
 });
