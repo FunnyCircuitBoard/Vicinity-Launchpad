@@ -16,7 +16,7 @@ body[data-page="dashboard"] {
 @media (min-width: 601px) { body[data-page="dashboard"] { --dd-pad: var(--card-pad, 22px); --dd-gap: 14px; } }
 
 /* ---------- D1: no band between the header and the strip (owner) ---------- */
-body.is-dv2 #dash-main { padding-top: 0; }
+body.is-dv2 #dash-main { padding-top: 0; padding-bottom: 20px; }
 body.is-dv2 .site-header { border-bottom-color: transparent; }
 body.is-dv2 .dash::before { content: none; }
 [data-page="dashboard"] #dash-skel { padding-top: 0; }
@@ -120,7 +120,7 @@ body.is-dv2 .dash::before { content: none; }
 }
 
 /* the standing card: the holding big, three rank wells, or one line and one button */
-.dv2 .standing { display: grid; gap: 12px; padding: var(--dd-pad); border: 1px solid var(--line); background: linear-gradient(180deg, rgba(var(--ink),.06), rgba(var(--ink),.02)), var(--dd-card); box-shadow: var(--dd-shadow); }
+.dv2 .standing { display: grid; gap: 10px; padding: 14px var(--dd-pad); border: 1px solid var(--line); background: linear-gradient(180deg, rgba(var(--ink),.06), rgba(var(--ink),.02)), var(--dd-card); box-shadow: var(--dd-shadow); }
 .dv2 .standing[hidden], .dv2 .standing [hidden] { display: none; }
 .dv2 .standing__hold { display: grid; gap: 2px; }
 .dv2 .standing__label { font: 600 var(--fs-xs, .75rem)/1.3 var(--body); color: var(--muted); }
@@ -130,7 +130,7 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .standing__usd { color: var(--muted); font-weight: 500; }
 .dv2 .standing__exact { font-size: var(--fs-xs, .75rem); color: var(--muted); font-variant-numeric: tabular-nums; }
 .dv2 .standing__ranks { display: flex; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.dv2 .rank-chip { flex: 1 1 0; min-width: 0; display: grid; align-content: start; gap: 2px; padding: 10px 10px 9px; border-radius: var(--r-chip, 12px); background: var(--dd-inset); }
+.dv2 .rank-chip { flex: 1 1 0; min-width: 0; display: grid; align-content: start; gap: 1px; padding: 8px 10px; border-radius: var(--r-chip, 12px); background: var(--dd-inset); }
 .dv2 .rank-chip strong { font: 650 1.25rem/1.1 var(--display); letter-spacing: -.01em; font-variant-numeric: tabular-nums; color: var(--text); }
 .dv2 .rank-chip__label { font-size: var(--fs-xs, .75rem); line-height: 1.3; color: var(--text-2); overflow-wrap: anywhere; }
 .dv2 .rank-chip__sub { display: none; font-size: var(--fs-xs, .75rem); color: var(--muted); }
@@ -219,14 +219,14 @@ body.is-dv2 .dash::before { content: none; }
 
 /* ---------- D8: the cards ---------- */
 /* the role card: icon, title, tag in one head; the tools as equal tiles, two to a row */
-.dv2 .role-home { gap: 12px; }
+.dv2 .role-home { gap: 10px; }
 .dv2 .role-home__head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; }
 .dv2 .role-home__head .kicker { margin: 0 0 2px; }
 .dv2 .role-home__head h2 { margin: 0; }
 .dv2 .role-home__head .tag { margin: 0; white-space: nowrap; justify-self: end; }
 @media (max-width: 420px) { .dv2 .role-home__head .tag { grid-column: 2 / -1; justify-self: start; white-space: normal; } }
 .dv2 .role-home > p.small { margin: 0; color: var(--text-2); line-height: 1.5; }
-.dv2 .role-meter__row { display: grid; gap: 2px; }
+.dv2 .role-meter__row { display: grid; gap: 0; }
 .dv2 .role-meter__row span { font-size: var(--fs-xs, .75rem); color: var(--muted); }
 .dv2 .role-meter__row strong { font: 650 1rem/1.2 var(--display); white-space: nowrap; }
 .dv2 .role-tools--grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -234,6 +234,7 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .role-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .dv2 .role-tile .ico { flex: none; }
 .dv2 .role-more { margin: -4px 0 0; }
+.dv2 .role-tile--link { justify-content: center; text-align: center; border: 1px dashed var(--line-2); background: transparent; color: var(--pin-2); font-weight: 600; }
 .dv2 .role-more .link-btn { color: var(--pin-2); font-weight: 600; text-decoration: none; padding: 0; justify-content: flex-start; }
 .dv2 .role-queue { margin: 0; }
 /* the Founder tab's danger zone */
@@ -264,26 +265,30 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .rk-empty[hidden] { display: none; }
 
 /* the portfolio: the total first; the ring and the table under "Breakdown" */
-.dv2 .portfolio-card { display: grid; gap: 10px; }
+.dv2 .portfolio-card { display: grid; gap: 8px; }
+.dv2 .portfolio-card__head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 0 10px; }
 .dv2 .portfolio-card__head h2 { margin: 0; }
-.dv2 .pf-total { display: flex; align-items: baseline; gap: 8px; margin: 0; }
-.dv2 .pf-total[hidden] { display: none; }
-.dv2 .pf-total__num { font: 650 var(--fs-num, 2rem)/1.05 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.dv2 .pf-total__label { font-size: var(--fs-sm, .875rem); color: var(--muted); }
+.dv2 .portfolio-card .pf__meta { flex-direction: column; align-items: flex-end; gap: 0; text-align: right; }
+.dv2 .portfolio-card .pf__refresh { min-height: 44px; margin: -6px -10px -12px 0; padding: 0 10px; }
+.dv2 .pf-sum { display: flex; align-items: baseline; gap: 8px; margin: 0; }
+.dv2 .pf-sum[hidden] { display: none; }
+.dv2 .pf-sum__num { font: 650 var(--fs-num, 2rem)/1.05 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.dv2 .pf-sum__label { font-size: var(--fs-sm, .875rem); color: var(--muted); }
 .dv2 .pf-fold > summary { min-height: 44px; }
 .dv2 .pf-fold[open] { padding-bottom: 4px; }
-.dv2 .pf__net { margin: 0; }
+.dv2 .pf__net { margin: -4px 0 -10px; gap: 0 18px; }
+.dv2 .pf__net #pf-net { flex-basis: 100%; padding-top: 4px; }
 
 /* the badges: one icon in a tinted circle, one tone per tier; four or five to a row */
 .dv2 .badge-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 @media (min-width: 390px) { .dv2 .badge-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
 @media (min-width: 1000px) { .dv2 .badge-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-.dv2 .badge-tabs { margin: 6px 0 10px; }
-.dv2 .badge { display: grid; justify-items: center; align-content: start; gap: 6px; padding: 10px 2px 8px; border-radius: var(--r-chip, 12px); border: 0; background: var(--dd-inset); }
+.dv2 .badge-tabs { margin: 4px 0 8px; }
+.dv2 .badge { display: grid; justify-items: center; align-content: start; gap: 4px; padding: 8px 2px 6px; border-radius: var(--r-chip, 12px); border: 0; background: var(--dd-inset); }
 .dv2 .badge.is-earned { background: var(--dd-inset); border: 0; }
 .dv2 .badge.is-locked { opacity: .75; }
-.dv2 .badge .ico { width: 34px; height: 34px; }
-.dv2 .badge .ico svg { width: 18px; height: 18px; }
+.dv2 .badge .ico { width: 30px; height: 30px; }
+.dv2 .badge .ico svg { width: 16px; height: 16px; }
 .dv2 .badge__name { margin: 0; font-size: var(--fs-xs, .75rem); line-height: 1.25; }
 .dv2 .badge__pending { font-size: .75rem; letter-spacing: 0; text-transform: none; font-weight: 600; margin: 0; }
 

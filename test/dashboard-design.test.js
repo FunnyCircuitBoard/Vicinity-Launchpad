@@ -49,7 +49,7 @@ test("polish-dash.css is the dashboard's last stylesheet, and every rule in it i
 });
 
 test("D1: no band above the strip: the dashboard's top padding goes, the header's line too, the strip sits flush under the header and is at most 56 px", () => {
-  assert.match(css, /body\.is-dv2 #dash-main \{ padding-top: 0; \}/);
+  assert.match(css, /body\.is-dv2 #dash-main \{ padding-top: 0; padding-bottom: 20px; \}/);
   assert.match(css, /body\.is-dv2 \.site-header \{ border-bottom-color: transparent; \}/);
   assert.match(css, /body\.is-dv2 \.dash::before \{ content: none; \}/, "no glow stripe");
   assert.match(css, /\.dv2 \.dtabs \{ top: var\(--header-h, 67px\);/);
@@ -211,8 +211,12 @@ test("D8: the role card's Resign sits in the Founder tab's Danger zone with the 
   await p.tap(resign);
   assert.deepEqual(p.confirms, ["Resign as City Founder? The city reopens, and you wait 30 days before applying anywhere."], "the same confirm");
   assert.match(roles, /if \(!confirm\(steward \? "Resign as Seed Steward\? Your bond is released and the city reopens for someone else\."/);
-  // the role tools: equal tiles with an icon each
-  assert.ok(p.$$("#role-home .role-tile").length >= 2);
+  // the role tools: equal tiles with an icon each; with an odd number, "What my role can do" fills the half row (the same button, same action)
+  const tiles = p.$$("#role-home .role-tools--grid > button");
+  assert.ok(tiles.length >= 2);
+  const more = tiles.find((b) => b.textContent === "What my role can do") || p.$$("#role-home .role-more button").find((b) => b.textContent === "What my role can do");
+  assert.ok(more, "the roles link is still there");
+  if (tiles.includes(more)) assert.equal(tiles.length % 2, 0, "it only joins the grid to fill an odd row");
   // Profile: one row per setting; Unlink is its own row; the full profiles text lives here now, word for word
   for (const id of ["profile-username-meta", "profile-wallet-meta", "profile-email-meta", "profile-phone-meta", "profile-bio-meta"]) assert.ok(html.includes(`id="${id}"`), id);
   assert.match(src, /<button class="profile__danger" type="button" id="profile-unlink" hidden>Unlink wallet<\/button>/);
@@ -252,4 +256,9 @@ test("profile.js: without a wallet there is no portfolio card and no portfolio r
   assert.match(part, /const linked = Boolean\(d\.user && d\.user\.wallet\);\n\s+\$\("#portfolio"\)\.hidden = !linked;\n\s+if \(linked && !started\) \{/);
   assert.match(part, /\} else if \(!linked && started\) \{ started = false; pv\.stop\(\); pv = null; paintWorth\(null\); \}/);
   assert.match(part, /onAnswer: paintWorth/, "the holding's dollar value on the standing card comes from the same answer");
+  // the card's answer first: the total (hidden while unknown; a partial sum says so), the ring and the table folded under "Breakdown"
+  assert.match(part, /const label = t != null && r\.portfolio\.pricesComplete === false \? " total of the coins with a price" : " total, live";/);
+  assert.match(part, /total\.hidden = t == null;/);
+  assert.ok(!/"pf-total__/.test(part), "the ring's own SVG classes (pf-total__label/value) are not reused for the big total");
+  assert.match(html, /<p class="pf-sum" id="pf-total" hidden><\/p>\s*<details class="fold pf-fold">\s*<summary>Breakdown <span class="fold__meta">/);
 });

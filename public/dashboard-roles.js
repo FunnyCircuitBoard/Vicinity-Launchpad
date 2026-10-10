@@ -203,7 +203,12 @@
         t.prepend(icon(m ? m[1] : "info"));
         tools.append(t);
       }
-      if (more.children.length) parts.push(more);
+      // an odd number of tiles leaves half a row empty: the text link takes it, as a quiet tile
+      if (tools.children.length % 2 && more.children.length === 1) {
+        const t = more.children[0];
+        t.className = "btn role-tile role-tile--link";
+        tools.append(t);
+      } else if (more.children.length) parts.push(more);
     } else tools.append(...p.tools);
     host.replaceChildren(...parts);
     renderQueue();
