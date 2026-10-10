@@ -203,7 +203,11 @@
 .lp-card--live > .lp-price { grid-column: 1; align-self: center; gap: 2px; }
 .lp-card--live > .lp-spark { grid-column: 2; align-self: center; height: 36px; }
 .lp-card--live > .lp-spark .lp-spark__label, .lp-card--live > .lp-spark .lp-spark__msg { display: none; }
-.lp-card--live > .lp-spark.is-loading, .lp-card--live > .lp-spark.is-empty { display: flex; } /* (a phone hid them: unseen, a sparkline was never asked for) */
+.lp-card--live > .lp-spark.is-loading { display: flex; } /* (a phone hid it: unseen, a sparkline was never asked for) */
+/* no price history yet (a coin launched today): no flat dashed line and no "0.00% 24h" chip; the price and market cap take the row */
+.lp-card--live:not(.lp-card--featured) > .lp-spark.is-empty { display: none; }
+.lp-card--live:not(.lp-card--featured):has(> .lp-spark.is-empty) > .lp-price { grid-column: 1 / -1; }
+.lp-card--live:has(> .lp-spark.is-empty) .lp-chg2.is-flat { display: none; }
 @media (max-width: 360px) { .lp-card--live { grid-template-columns: minmax(0, 1fr) 56px; column-gap: 8px; } .lp-card .lp-price__val { font-size: 1.25rem; } }
 .lp-card .lp-price__row { gap: 4px 8px; }
 .lp-card .lp-price__val { font-size: 1.375rem; }
