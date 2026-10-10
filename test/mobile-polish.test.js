@@ -221,7 +221,7 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   assert.match(polish, /@media \(min-width: 900px\) \{ \.member-cloud li\.is-more \{ display: inline-flex; \} \.member-cloud li:has\(> \.member-cloud__more\) \{ display: none; \} \}/);
   assert.match(polish, /@media \(min-width: 901px\) \{ \.proof-grid \{ grid-template-columns: repeat\(6, minmax\(0, 1fr\)\); \} \.proof \{ grid-column: span 2; \} \.proof:nth-child\(4\), \.proof:nth-child\(5\) \{ grid-column: span 3; \} \}/, "five proofs: three, then two, both rows full");
   for (const h of [tokenPage, read("scripts/pages/src/token.html")]) {
-    assert.match(h, /<input id="check-input" name="q" type="text" autocomplete="off" spellcheck="false" maxlength="300" placeholder="Link, address or @handle">/, "a placeholder that never clips (the line above it says what to paste)");
+    assert.match(h, /<input id="check-input" name="q" type="text" autocomplete="off" spellcheck="false" maxlength="300" placeholder="Link or address">/, "a placeholder that never clips, even on a 320 px phone (the line above it says what to paste, @handles too)");
     assert.match(h, /<a class="holders__skip" href="#proof">Skip the holder list<\/a>\n\s*<div class="table-scroll" id="holders-scroll"/, "a keyboard skips the 300 wallet links");
     assert.match(h, /<section class="section section--tight" id="proof" tabindex="-1">/);
   }

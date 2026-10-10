@@ -78,6 +78,14 @@
   .token-quote__price { font-size: 1.25rem; }
 }
 @media (max-width: 360px) { .buy-slot.is-pending { min-height: 555px; } }
+/* a 320 px phone: the Buy button in the first screen ("Live on Solana" beside the title; the market cap is in the Price tile below) */
+@media (max-width: 359px) {
+  .token-hero__head { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
+  #token .token-hero__head .page-title { order: 1; }
+  .token-hero__head .kicker { order: 2; margin: 0; }
+  .token-quote { order: 3; flex-basis: 100%; }
+  .token-quote__cap { display: none; }
+}
 @media (min-width: 640px) and (max-width: 999px) { .token-hero__buy { width: min(100%, 560px); } }
 /* a computer: the title, the price, the lead and the facts on the left; the Buy card sticks in a column on the right */
 @media (min-width: 1000px) {

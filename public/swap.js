@@ -415,7 +415,7 @@
       slip.setAttribute("role", "group"); slip.setAttribute("aria-labelledby", slipLabel.getAttribute("id"));
       slip.append(slipLabel);
       for (const [bps, text] of [[50, "0.5%"], [100, "1%"], [300, "3%"]]) { const b = el("button", "swap__chip", text); b.type = "button"; b.dataset.bps = String(bps); b.addEventListener("click", () => this.setSlippage(bps)); slip.append(b); }
-      const custom = el("input", "swap__chip swap__chip--custom"); custom.inputMode = "decimal"; custom.placeholder = "custom %"; custom.setAttribute("aria-label", "Custom slippage in percent"); custom.maxLength = 5;
+      const custom = el("input", "swap__chip swap__chip--custom"); custom.inputMode = "decimal"; custom.placeholder = "Other %"; custom.setAttribute("aria-label", "Custom slippage in percent"); custom.maxLength = 5;
       custom.addEventListener("change", () => { const p = Number(String(custom.value).replace(",", ".")); if (Number.isFinite(p) && p > 0) this.setSlippage(Math.min(5000, Math.max(1, Math.round(p * 100)))); else custom.value = ""; });
       slip.append(custom); this.customSlip = custom;
       // the three words a first-time buyer meets, in one sentence

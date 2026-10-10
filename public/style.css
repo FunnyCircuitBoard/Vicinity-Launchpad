@@ -100,6 +100,7 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 @media (max-width: 480px) { .wrap { padding: 0 16px; } }
 .muted { color: var(--muted); } .small { font-size: .9rem; } .tiny { font-size: .8rem; margin-top: 10px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.nowrap { white-space: nowrap; } /* a word that must not break at its hyphen ("on-chain") */
 .skip { position: absolute; left: -999px; top: 8px; background: var(--pin); color: #fff; padding: 8px 14px; border-radius: 8px; z-index: 100; }
 .skip:focus { left: 8px; }
 :focus-visible { outline: 3px solid var(--pin-2); outline-offset: 3px; border-radius: 8px; }
@@ -515,7 +516,7 @@ select option { background: var(--bg-2); }
 .proof h3 { margin: 6px 0 0; }
 .proof p { color: var(--muted); margin: 0; flex: 1; }
 .proof__icon { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: rgba(55,194,154,.18); color: var(--ok-text); }
-.proof__live, .stat__sub[data-live] { font-size: .76rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.proof__live, .stat__sub[data-live] { font-size: .76rem; font-weight: 600; color: var(--muted); } /* sentence case, like every label of design v2 */
 .proof__live { margin-top: 10px; }
 .is-live { color: var(--ok-text) !important; }
 .proof__live.is-live::before { content: "● "; }
