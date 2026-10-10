@@ -1,28 +1,36 @@
 /* The floating "Feedback / Support" widget (public/feedback.js), on every page: a round button in the bottom-right corner and a small
    panel above it. Its own file, so the site's stylesheet stays untouched (work on other pages merges cleanly). Colours and type come
-   from the site's variables, so both themes work. The button keeps clear of the phone menu bar, the coin page's Buy bar and the
-   device's safe area; it sits under the toast, the modals, the full-screen map and the Terms gate (z-index 70).
+   from the site's variables, so both themes work. The button keeps clear of the phone menu bar, the coin page's Buy bar, the
+   device's safe area and the page's main buttons, and steps aside for the toast, dialogs and typing; it sits under the toast, the modals, the full-screen map and the Terms gate (z-index 70).
    --fb-below is the room the panel must leave under itself: the bar offset plus the button and the gap (the panel's max-height uses it,
    so its title and Close button never go off the top of a short screen: a phone with the keyboard open, or in landscape). */
 .fb { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); z-index: 70; display: grid; justify-items: end; gap: 10px; --fb-below: 82px; }
 @media (max-width: 1023px) { body.has-coin-buybar .fb { bottom: calc(150px + env(safe-area-inset-bottom)); --fb-below: 206px; } } /* the coin page's Buy bar sits above it */
 
-/* the button: 52 px round, the site's orange, a chat bubble that becomes a cross while the panel is open */
-.fb__btn { position: relative; width: 52px; height: 52px; padding: 0; border-radius: 50%; border: 1px solid rgba(255,255,255,.18);
-  background: linear-gradient(135deg, var(--cta-a), var(--cta-b)); color: #fff; display: grid; place-items: center; cursor: pointer;
-  box-shadow: 0 12px 30px -10px rgba(255,90,54,.7), inset 0 1px 0 rgba(255,255,255,.25); }
-.fb__btn:hover { transform: translateY(-1px); box-shadow: 0 14px 40px -10px rgba(255,90,54,.9), inset 0 1px 0 rgba(255,255,255,.3); }
+/* the button: 52 px round neutral glass (the page's raised surface, a hairline border, the icon in the text colour, a soft dark
+   shadow and no orange glow: the orange stays for the page's own main actions), a chat bubble that becomes a cross while the
+   panel is open */
+.fb__btn { position: relative; width: 52px; height: 52px; padding: 0; border-radius: 50%; border: 1px solid var(--line-2);
+  background: var(--surface-2, var(--bg-2)); color: var(--text); display: grid; place-items: center; cursor: pointer;
+  box-shadow: 0 10px 26px -12px rgba(0,0,0,.55); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.fb__btn:hover { border-color: rgba(var(--ink),.3); }
 .fb__btn:focus-visible, .fb__close:focus-visible, .fb__kinds button:focus-visible, .fb__again:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .fb__btn svg { width: 24px; height: 24px; display: block; }
 .fb__btn[aria-expanded="true"] .fb__ico-chat, .fb__btn:not([aria-expanded="true"]) .fb__ico-x { display: none; }
-/* phones: above the menu bar (70 px + the inset), a 46 px button (44 is the site's minimum) a little nearer the edge, so it covers less of the content
-   column (after the button's own rules above, so these sizes win) */
-@media (max-width: 900px) { .fb { right: max(10px, env(safe-area-inset-right)); bottom: calc(82px + env(safe-area-inset-bottom)); --fb-below: 138px; } .fb__btn { width: 46px; height: 46px; } .fb__btn svg { width: 22px; height: 22px; } }
+/* phones: above the menu bar (70 px + the inset), a 44 px button (the site's minimum) a little nearer the edge, so it covers less of the
+   content column (after the button's own rules above, so these sizes win); the footer's last line ends above it */
+@media (max-width: 900px) { .fb { right: max(10px, env(safe-area-inset-right)); bottom: calc(82px + env(safe-area-inset-bottom)); --fb-below: 138px; } .fb__btn { width: 44px; height: 44px; } .fb__btn svg { width: 22px; height: 22px; }
+  .site-footer { padding-bottom: 64px; } }
 
-/* the panel: a card above the button, as wide as a phone allows; capped by the room above the button (never the whole screen),
-   scrolls inside when the screen is short */
-.fb__panel { width: min(360px, calc(100vw - 32px)); max-height: min(600px, calc(100vh - var(--fb-below) - 12px - env(safe-area-inset-bottom)));
-  max-height: min(600px, calc(100dvh - var(--fb-below) - 12px - env(safe-area-inset-bottom))); overflow: auto; overscroll-behavior: contain;
+/* out of the way while something else has the screen: the toast (site.js sets body.has-toast; an open panel stays), an open dialog
+   such as the Buy sheet, and on a phone while a field of the page is being typed in (feedback.js sets .fb--typing; the keyboard
+   would carry the button over the field and the page's own Send or Continue) */
+body.has-toast .fb:not(.fb--open), body:has(dialog[open]) .fb, body:has(.swap-sheet[open]) .fb, .fb--typing:not(.fb--open) { visibility: hidden; }
+
+/* the panel: a card above the button, as wide as a phone allows; capped by the room between the site header (plus 8 px) and the
+   button, never the whole screen, and scrolls inside when the screen is short (the privacy line at its end scrolls with it) */
+.fb__panel { width: min(360px, calc(100vw - 32px)); max-height: min(600px, calc(100vh - var(--fb-below) - var(--header-h, 67px) - 8px - env(safe-area-inset-bottom)));
+  max-height: min(600px, calc(100dvh - var(--fb-below) - var(--header-h, 67px) - 8px - env(safe-area-inset-bottom))); overflow: auto; overscroll-behavior: contain;
   background: var(--bg-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow); padding: 16px 16px 14px; display: grid; gap: 10px; }
 .fb__panel[hidden] { display: none; }
 .fb__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -60,13 +68,15 @@
 .fb__done p { margin: 0; font-size: .88rem; line-height: 1.45; color: var(--muted); }
 .fb__again { margin: 6px auto 0; min-height: 44px; }
 
-/* phones, scrolling down: the button slides out to the right (feedback.js adds .fb--away) and slides back on the first scroll up,
-   near the top, when it gets the keyboard, or when the panel opens; the panel is never moved */
+/* phones, scrolling down, and any screen while the button would sit on one of the page's main buttons: it slides out to the right
+   (feedback.js adds .fb--away) and slides back on the first scroll up, near the top, when it gets the keyboard, or when the panel
+   opens; the panel is never moved. With reduced motion it does not slide: it just goes and comes back. */
 .fb--away .fb__btn { transform: translateX(calc(100% + 24px)); box-shadow: none; }
-.fb--away .fb__btn:focus-visible { transform: none; }
+@media (prefers-reduced-motion: reduce) { .fb--away .fb__btn { transform: none; opacity: 0; pointer-events: none; } }
+.fb--away .fb__btn:focus-visible { transform: none; opacity: 1; pointer-events: auto; }
 @media (prefers-reduced-motion: no-preference) {
   .fb__panel { animation: fbIn .18s ease; }
   @keyframes fbIn { from { opacity: 0; transform: translateY(8px) scale(.98); } }
-  .fb__btn { transition: transform .25s ease, box-shadow .25s ease; }
+  .fb__btn { transition: transform .25s ease, box-shadow .25s ease, border-color .2s ease; }
 }
 @media (max-width: 360px) { .fb__kinds button { font-size: .76rem; } }

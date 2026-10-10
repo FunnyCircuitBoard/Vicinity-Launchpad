@@ -37,8 +37,11 @@ test("contract card: header, address + copy, buy button, three tiles, note: in t
   for (const [where, h] of both) {
     const c = cardOf(h);
     const at = (needle) => { const i = c.indexOf(needle); assert.ok(i >= 0, `${where}: ${needle}`); return i; };
+    // design v2 (10 Oct 2026): the Buy control (#buy-slot with #lnk-raydium) left the card for the page's Buy card above it (test below)
     const order = [at('class="contract__head"'), at('id="ca-badge"'), at('class="contract__addr"'), at('<code id="ca-text">Loading…</code>'), at('id="ca-copy"'),
-      at('id="ca-links"'), at('id="lnk-raydium"'), at('id="lnk-jup"'), at('id="lnk-dex"'), at('id="lnk-solscan"'), at('class="contract__foot"'), at('id="ca-note"')];
+      at('id="ca-links"'), at('id="lnk-jup"'), at('id="lnk-dex"'), at('id="lnk-solscan"'), at('class="contract__foot"'), at('id="ca-note"')];
+    assert.ok(!c.includes('id="lnk-raydium"') && !c.includes('id="buy-slot"'), `${where}: the Buy control is not in the card`);
+    assert.ok(h.indexOf('id="buy-slot"') < h.indexOf('<div class="contract card is-pending" id="contract">'), `${where}: the Buy card comes first`);
     assert.deepEqual(order, [...order].sort((a, b) => a - b), `${where}: top to bottom`);
     assert.match(c, /<div class="contract__label">Contract address<\/div>/, `${where}: one short label that fits one line at 320 px`);
     assert.match(c, /<span class="contract__net">Solana<\/span>/);
@@ -50,7 +53,7 @@ test("contract card: header, address + copy, buy button, three tiles, note: in t
     assert.match(c, /<div class="contract__links" id="ca-links">/);
     // each link opens another site in a new tab, and says so: the Buy button's arrow and the tiles' corner arrow to the eye, hidden text to a screen reader
     const NEWTAB = '<span class="sr-only"> \\(opens in a new tab\\)</span>';
-    assert.match(c, new RegExp(`<a class="contract__buy" id="lnk-raydium" href="#" rel="noopener" target="_blank"><span>Buy on Raydium</span><svg[^>]*aria-hidden="true"[^>]*><path d="M7 17 17 7M9 7h8v8"/></svg>${NEWTAB}</a>`), `${where}: the main button`);
+    assert.match(h, new RegExp(`<a class="contract__buy" id="lnk-raydium" href="#" rel="noopener" target="_blank"><span>Buy on Raydium</span><svg[^>]*aria-hidden="true"[^>]*><path d="M7 17 17 7M9 7h8v8"/></svg>${NEWTAB}</a>`), `${where}: the main button (the Buy card's, with the swap off)`);
     for (const [id, name] of [["lnk-jup", "Jupiter"], ["lnk-dex", "DEX Screener"], ["lnk-solscan", "Solscan"]])
       assert.match(c, new RegExp(`<a class="contract__ext" id="${id}" href="#" rel="noopener" target="_blank"><svg[^>]*aria-hidden="true"[^>]*>[\\s\\S]*?</svg><span>${name}</span><span class="contract__out" aria-hidden="true">↗</span>${NEWTAB}</a>`), `${where}: ${name} tile`);
     assert.equal((c.match(/target="_blank"/g) || []).length, (c.match(/\(opens in a new tab\)/g) || []).length, `${where}: every new-tab link says so`);
@@ -154,7 +157,7 @@ test("contract card motion: only transform and opacity move, the card's own moti
 
 /* ---------------- token.js in node ---------------- */
 
-function page({ token, copyWorks = true, official = null }) {
+function page({ token, copyWorks = true, official = null, VSwap = undefined }) {
   const nodes = new Map(), timers = [], copies = [];
   function node(sel) {
     const n = { sel, hidden: false, _text: "", classes: new Set(), style: {}, dataset: {}, handlers: {}, children: [], value: "", offsetWidth: 0,
@@ -162,12 +165,12 @@ function page({ token, copyWorks = true, official = null }) {
       append(...k) { n.children.push(...k); }, replaceChildren(...k) { n.children = k; }, addEventListener(t, f) { (n.handlers[t] ||= []).push(f); },
       attrs: {}, setAttribute(k, v) { n.attrs[k] = String(v); }, removeAttribute(k) { delete n.attrs[k]; },
       // the tiles' spans: their name (no class), the corner arrow and the new-tab words
-      querySelectorAll(q) { return n.children.filter((k) => q === "span" || q.split(", ").some((c) => c === "." + k.className)); },
+      querySelectorAll(q) { return n.children.filter((k) => q === "span" || q.split(", ").some((c) => c === "." + k.className)); }, querySelector() { return null; },
       classList: { add: (c) => n.classes.add(c), remove: (c) => n.classes.delete(c), toggle: (c, on) => (on ? n.classes.add(c) : n.classes.delete(c)), contains: (c) => n.classes.has(c) } };
     return n;
   }
   const $ = (sel) => { if (!nodes.has(sel)) nodes.set(sel, node(sel)); return nodes.get(sel); };
-  $("#ca-badge").hidden = true; $("#contract").classes.add("is-pending"); // as in the markup
+  $("#ca-badge").hidden = true; $("#contract").classes.add("is-pending"); $("#buy-slot").classes.add("is-pending"); // as in the markup
   $("#ca-text").textContent = "Loading…"; $("#ca-copy-label").textContent = "Copy address";
   const el = (tag, cls, text) => { const n = node(tag); if (cls) n.classes.add(cls); if (text != null) n.textContent = text; return n; };
   const span = (cls, text) => { const k = node("span"); k.className = cls; k.textContent = text; k.remove = () => { const p = $("#lnk-dex"); p.children = p.children.filter((x) => x !== k); }; return k; };
@@ -176,7 +179,7 @@ function page({ token, copyWorks = true, official = null }) {
   const V = { $, $$: () => [], el, toast() {}, fmt: String, compact: String, mask: (a) => a, isAddr: (a) => typeof a === "string" && a.length >= 32, official, reduced: false,
     copy: async (text, label) => { copies.push([text, label]); return copyWorks; },
     api: async (path) => (path === "/api/token" ? token : { launched: false, holders: [] }) };
-  vm.runInNewContext(js, { window: { V, addEventListener() {} }, document: { hidden: false }, location: { search: "" }, URLSearchParams, Intl, Date,
+  vm.runInNewContext(js, { window: { V, VSwap, addEventListener() {} }, document: { hidden: false }, location: { search: "" }, URLSearchParams, Intl, Date,
     setInterval: () => 0, setTimeout: (f, ms) => { timers.push([f, ms]); return timers.length; }, clearTimeout: () => {}, requestAnimationFrame: () => 0 });
   const settle = () => new Promise((r) => setImmediate(r));
   return { $, timers, copies, settle };
@@ -250,7 +253,7 @@ test("contract card: until /api/token answers it holds its final room unseen, so
   // the wide layout (buttons in a column on the right) already applies while pending: the links are not [hidden]
   assert.match(css, /\.contract:has\(> \.contract__links:not\(\[hidden\]\)\)/);
   assert.match(js, /\$\("#contract"\)\.classList\.remove\("is-pending"\);\n\s+if \(!d\.launched\) \{[^\n]*\n\s+hideContract\(\);/, "removed on the answer, before anything else is decided");
-  assert.match(js, /if \(isAddr\(m\)\) showContract\(m\); else hideContract\(\);/, "no address: no links to '#'");
+  assert.match(js, /if \(isAddr\(m\)\) showContract\(m\); else \{ hideContract\(\); settleBuy\("none"\); \}/, "no address: no links to '#', and no Buy card");
   assert.match(js, /function hideContract\(\) \{ \$\("#ca-copy"\)\.hidden = true; \$\("#ca-links"\)\.hidden = true; \}/);
 });
 
@@ -262,4 +265,47 @@ test("contract card tiles: the three icons share one line even when 'DEX Screene
   assert.match(tablet, /\.contract__ext \{ flex-direction: row; justify-content: center;[^}]*padding: 0 14px;/, "one row of icon and name on a computer, room for the arrow");
   const wide = media("(min-width: 1180px)", ".contract__ext");
   assert.match(wide, /\.contract__ext \{ flex-direction: column; justify-content: flex-start;/, "top-aligned again in the wide column");
+});
+
+test("token.js: the Buy card holds its room until it knows what it shows: the panel, the Raydium button, or nothing (then its column goes)", async () => {
+  // design v2 (10 Oct 2026): #buy-slot is the page's Buy card (.token-hero__buy). .is-pending keeps its room unseen from the first paint;
+  // it goes when VSwap.mount() settles (not when /api/official answers: the panel waits for /api/swap/config, and the slot would
+  // collapse to the Raydium link and grow again), when the swap is off, or after 4 s whatever happens (a hung answer leaves no hole)
+  const mounted = [];
+  const panel = page({ token: LIVE, official: Promise.resolve({ swap: true }), VSwap: { mount: async (slot) => { mounted.push(slot); return {}; } } });
+  await panel.settle(); await panel.settle(); await panel.settle();
+  assert.equal(mounted.length, 1, "the panel mounts in the slot");
+  assert.equal(panel.$("#buy-slot").dataset.out, MINT);
+  assert.ok(!panel.$("#buy-slot").classes.has("is-pending"), "its room is filled by the panel");
+  assert.equal(panel.$(".token-hero__buy").hidden, false);
+  assert.ok(panel.timers.some(([, ms]) => ms === 4000), "the 4 s fallback is armed");
+
+  const failed = page({ token: LIVE, official: Promise.resolve({ swap: true }), VSwap: { mount: async () => null } }); // the swap's settings did not load (swap.js hides the slot)
+  await failed.settle(); await failed.settle(); await failed.settle();
+  assert.equal(failed.$(".token-hero__buy").hidden, true, "no empty Buy card: its column goes");
+  assert.ok(failed.$(".token-hero").classes.has("is-nobuy"), "and a computer's layout closes up to one column");
+  failed.timers.find(([, ms]) => ms === 4000)[0]();
+  assert.equal(failed.$(".token-hero__buy").hidden, true, "the late fallback never brings an empty card back");
+
+  const off = page({ token: LIVE, official: Promise.resolve({ swap: false }) }); await off.settle(); await off.settle();
+  assert.ok(!off.$("#buy-slot").classes.has("is-pending"), "the swap off: the Raydium button shows");
+  assert.equal(off.$(".token-hero__buy").hidden, false);
+
+  const before = page({ token: { launched: false, registry: [] }, official: Promise.resolve({ swap: true }) }); await before.settle(); await before.settle();
+  assert.equal(before.$(".token-hero__buy").hidden, true, "no contract yet: nothing to buy, no card");
+
+  const hung = page({ token: LIVE, official: new Promise(() => {}) }); await hung.settle();
+  assert.ok(hung.$("#buy-slot").classes.has("is-pending"), "still waiting");
+  hung.timers.find(([, ms]) => ms === 4000)[0]();
+  assert.ok(!hung.$("#buy-slot").classes.has("is-pending"), "after 4 s the card shows what it has");
+});
+
+test("token.js: the live line under the title says the price and the market cap, and the 24 h change only with a number (and its source)", async () => {
+  const p = page({ token: { ...LIVE, price: 0.00042, marketCap: 420000 } }); await p.settle();
+  assert.equal(p.$("#tk-price").textContent, "$0.000420");
+  assert.equal(p.$("#tk-cap").textContent, "Market cap $420000");
+  assert.equal(p.$("#tk-chg").textContent, "", "no change chip without the coin pages");
+  const none = page({ token: LIVE }); await none.settle();
+  assert.equal(none.$("#tk-price").textContent, "Price not available yet");
+  assert.equal(none.$("#tk-cap").textContent, "");
 });

@@ -282,6 +282,8 @@
       touched: false,       // the person tapped or typed on this page (a late wallet never switches the tab under their finger)
     };
     const text = (sel, t) => { $(sel).textContent = t; };
+    // the done screen's badge: a pin (signed in) or a link (a wallet linked), drawn by the SVGs in connect.html (polish-pages.css)
+    const badge = (icon) => { const b = $("#done-badge"); if (b) b.dataset.icon = icon; };
     const hide = (sel, h = true) => { $(sel).hidden = h; };
     let liveFlip = false;
     /** Spoken by screen readers (a polite live region that exists from the start). */
@@ -451,6 +453,8 @@
     }
     const signLabel = () => (linkMode() ? "Link wallet" : "Sign in");
     function setIntro() {
+      // which page this is, for the layout only (polish-pages.css: a phone's log-in and link screens put the panel first)
+      const sec = $(".connect"); if (sec && sec.dataset) sec.dataset.mode = S.mode === "link" || S.mode === "linkin" ? "link" : S.tab === "login" ? "login" : "new";
       const title = $(".connect__intro .page-title"), accent = el("span", "accent");
       const bullet = $(".connect__intro .safety li");
       if (bullet) bullet.textContent = S.mode === "link" || S.mode === "linkin" ? "Linking is free. It isn't a transaction and can't move funds." : "Signing in is free. It isn't a transaction and can't move funds.";
@@ -514,7 +518,7 @@
         api("/api/me?lite=1").then((me) => { const g = window.V.termsGate; if (g) { if (me && me.termsVersion) g.agreed(me.termsVersion); else g.open(); } });
       }
       show("done");
-      text("#done-h", "You're in."); text("#done-badge", "📍");
+      text("#done-h", "You're in."); badge("pin");
       text("#done-sub", sub);
       const to = safeNext(next);
       $("#done-go").setAttribute("href", to); text("#done-go", "Open my dashboard →");
@@ -541,7 +545,7 @@
       const phone = !viaApp && W.isMobile && !here() && !W.list().length, away = Boolean(phone && k && k.open);
       const c = linkedCopy(viaApp ? "app" : away ? "phone" : "here", shortAddr(wallet), k ? k.name : null, inThere);
       show("done");
-      text("#done-badge", "🔗"); text("#done-h", c.h); text("#done-sub", c.sub);
+      badge("link"); text("#done-h", c.h); text("#done-sub", c.sub);
       $("#done-go").setAttribute("href", away ? openIn(k) : "/dashboard?linked=1"); text("#done-go", c.go);
       hide("#done-stay", !away);
       announce(`${c.h} ${c.sub}`);
