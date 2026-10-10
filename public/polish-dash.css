@@ -316,7 +316,7 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .profile__row > summary { min-height: 56px; padding-top: 10px; padding-bottom: 10px; }
 .dv2 .profile__row > summary .fold__label { flex: 0 0 auto; font: 600 1rem/1.3 var(--body); color: var(--text); }
 .dv2 .profile__row > summary .fold__meta { flex: 1 1 140px; min-width: 0; text-align: right; font-size: var(--fs-sm, .875rem); color: var(--muted); overflow-wrap: anywhere; }
-.dv2 .profile__body { display: grid; gap: 10px; padding: 0 0 16px; }
+.dv2 .profile__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 0 0 16px; } /* one track that never grows past the fold: the username form's input made an auto track 338 px wide on a 320 px phone */
 .dv2 .profile__body > p { margin: 0; }
 .dv2 #profile-modal :is(input, textarea) { min-height: 44px; padding: 10px 12px; font-size: 16px; border-radius: var(--r-chip, 12px); border: 1px solid var(--line-2); background: var(--dd-inset); color: var(--text); }
 .dv2 #profile-modal .contact-row { align-items: flex-start; flex-wrap: wrap; }
