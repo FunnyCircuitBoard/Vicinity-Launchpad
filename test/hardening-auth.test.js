@@ -100,9 +100,10 @@ test("the numbers: verify 30, transfer 30 and pair 20 per 10 minutes per connect
     verify: { max: 30, windowMs: 10 * MIN }, transfer: { max: 30, windowMs: 10 * MIN }, transfer_check: { max: 90, windowMs: 10 * MIN, by: "session" },
     pair: { max: 20, windowMs: 10 * MIN }, rank: { max: 60, windowMs: MIN }, coin: { max: 60, windowMs: MIN }, coin_chart: { max: 60, windowMs: MIN },
     // the in-app swap (SWAP=on) and the launchpad's curve trades (LAUNCHPAD_TRADING=on): docs/DEPLOY.md's WAF table carries the same numbers.
-    // quotes: 180 (a dozen phones behind one carrier address, each re-quoting every 12 s); status: 600 is only the brake, the
-    // real limit is per signature (STATUS_LIMIT, 60 a minute: one trade's polling never uses up a neighbour's)
-    swap_quote: { max: 180, windowMs: MIN }, swap_tx: { max: 20, windowMs: MIN }, swap_send: { max: 20, windowMs: MIN }, swap_status: { max: 600, windowMs: MIN },
+    // quotes: 180 (a dozen phones behind one carrier address, each re-quoting every 12 s); status: 120 is only the brake on invented
+    // signatures (one RPC credit each; 600 let one connection spend ~860K credits a day), the real limit is per signature
+    // (STATUS_LIMIT, 60 a minute: one trade's polling never uses up a neighbour's)
+    swap_quote: { max: 180, windowMs: MIN }, swap_tx: { max: 20, windowMs: MIN }, swap_send: { max: 20, windowMs: MIN }, swap_status: { max: 120, windowMs: MIN },
     swap_balances: { max: 60, windowMs: MIN }, swap_tokens: { max: 30, windowMs: MIN }, lp_quote: { max: 60, windowMs: MIN }, lp_tx: { max: 20, windowMs: MIN },
     // the Buy panel's own builds before the tap (?auto=1) have their own counters: they can never use up a tap's 20
     swap_tx_auto: { max: 60, windowMs: MIN }, lp_tx_auto: { max: 60, windowMs: MIN },

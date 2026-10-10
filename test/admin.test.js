@@ -181,8 +181,14 @@ test("test lab: preview-role sets and clears the cookie", async () => {
 test("config exposes presence flags only, never secret values", async () => {
   env.GOOGLE_CLIENT_ID = "gid123"; env.GOOGLE_CLIENT_SECRET = "gsec-secret";
   env.GMAIL_USER = "me@example.test"; env.VICINITY_MINT = "mint"; env.SOLANA_RPC_URL = "rpc";
+  env.SOLANA_RPC_URL_BACKUP = "https://backup.rpc.example/?api-key=backup-secret-key";
   const owner = await sessionFor(OWNER);
   const d = await (await call("/api/admin/config", { cookie: owner.cookie })).json();
+  // the backup RPC (10 Oct 2026): presence only, and what this server saw of the providers by role, never a URL
+  assert.equal(d.flags.SOLANA_RPC_URL_BACKUP, true);
+  assert.equal(typeof d.rpc, "object");
+  assert.ok(!JSON.stringify(d).includes("backup-secret-key") && !JSON.stringify(d).includes("rpc.example"), "the backup URL never leaves the server");
+  delete env.SOLANA_RPC_URL_BACKUP;
   assert.ok(d.ok);
   assert.equal(d.siteMode, "preview");
   assert.equal(d.policyVersion, 5);

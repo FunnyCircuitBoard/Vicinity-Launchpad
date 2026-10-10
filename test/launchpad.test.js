@@ -5,7 +5,7 @@
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { IN_NYC, IN_UTICA, MINT, advance, browser, clock, person, realClock, setHolding, tick, useClock } from "./helpers/world.js";
+import { IN_NYC, IN_UTICA, MINT, POOL, advance, browser, clock, person, realClock, setHolding, tick, useClock } from "./helpers/world.js";
 import { CITY_COIN, LP, PENDING, RAY, SOL, USDC, dexMock, fakeCaches, mintNo, pairFor, seedCoin, seedSeat } from "./helpers/launchpad.js";
 import { keysOf } from "./helpers/profiles.js";
 import { _resetLaunchpad, tradeLinks } from "../src/launchpad.js";
@@ -372,6 +372,9 @@ test("coin_stats cannot be made: the list still answers (holder counts missing),
     run: () => (broken.on && /CREATE TABLE IF NOT EXISTS coin_stats/.test(stmt.sql) ? Promise.reject(new Error("D1_ERROR: disk I/O error")) : stmt.run()) });
   env.DB = { ...real, prepare: (sql) => wrap(real.prepare(sql)), batch: (list) => real.batch(list.map((s) => s.inner || s)) };
   const dex = dexMock({ [CITY_COIN]: [pairFor(CITY_COIN)], [MINT]: [pairFor(MINT)] });
+  // no person holds either coin yet: their supply sits in the pool (a labelled wallet, never counted as a holder). A token with a
+  // supply always sits in some account; an empty list is a provider's bad answer (src/chain.js getAllHolders)
+  setHolding(POOL, 1_000);
   const noisy = console.error; const logged = [];
   console.error = (...a) => { logged.push(a.join(" ")); };
   try {

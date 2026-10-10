@@ -36,6 +36,7 @@ can trade this pair right now." Nothing is built and nothing can be signed for s
 | `JUPITER_API_BASE` | unset (= `https://api.jup.ag`); `JUPITER_LITE_BASE` unset (= `https://lite-api.jup.ag`) | |
 | `SWAP_PLATFORM_FEE_BPS`, `SWAP_FEE_ACCOUNT` | unset = no platform fee (an owner decision; the page says "takes no fee") | a Jupiter platform fee to that token account |
 | `SOLANA_RPC_URL` (Secret) | the provider's mainnet URL (Helius or similar) | every chain read, the simulations, the relay's `sendTransaction`, the status polls |
+| `SOLANA_RPC_URL_BACKUP` (Secret, recommended) | a mainnet URL from a **different provider** (QuickNode, Alchemy, Triton, Syndica ...) whose plan allows `getProgramAccounts` on the SPL Token program; never the public RPC | asked only when `SOLANA_RPC_URL` refuses or fails (401/402/403/429/5xx, timeout, "max usage reached"); first for 60 s after the provider as a whole failed (key or credits refused, unreachable or too slow, 5xx, or three passing failures within 10 s). Never used if it is not a mainnet node (the Worker asks its genesis hash first). A signed transaction goes to it at most once, as the same bytes; a node's verdict (preflight failure) is never re-sent. Unset = one provider, as before. Added after the 10 Oct 2026 outage (src/rpcpool.js) |
 | `RPC_TIMEOUT_MS` | `8000` | |
 | `LAUNCHPAD_TRADING` | `on` only after section 4 | curve trades and `/api/launchpad/trade/*` |
 | `LAUNCHPAD_CLUSTER` | `mainnet` | which chain the curve trades and their badges speak of |
@@ -58,9 +59,11 @@ Who: the owner (secrets), one developer (pull request, smoke test). About an hou
 0. Before anything: a lawyer reads the Terms of Use wording for an in-app swap (today they describe trading "through
    third-party protocols"; the panel executes on Jupiter's route in the person's own wallet, Vicinity never custodies).
    Jupiter's SDK & API License Agreement was NOT reviewed here; the site keeps "Powered by Jupiter" under every Jupiter number.
-1. Secrets in Cloudflare: `SOLANA_RPC_URL` (set already), `JUPITER_API_KEY` (new). Variables: `JUPITER_RPS=10`, `RPC_TIMEOUT_MS=8000`.
-2. On your machine, with the secrets exported in the shell:
-   `JUPITER_API_KEY=… JUPITER_RPS=10 SOLANA_RPC_URL=… npm run mainnet:preflight -- --set SWAP=on --site https://vicinity.city`
+1. Secrets in Cloudflare: `SOLANA_RPC_URL` (set already), `SOLANA_RPC_URL_BACKUP` (recommended: another provider, see the table above), `JUPITER_API_KEY` (new). Variables: `JUPITER_RPS=10`, `RPC_TIMEOUT_MS=8000`.
+2. On your machine, with the secrets exported in the shell. Type them in with `read -rs NAME && export NAME` (paste, Enter: nothing
+   is shown, nothing lands in the shell history or the process list), for `JUPITER_API_KEY`, `SOLANA_RPC_URL` and
+   `SOLANA_RPC_URL_BACKUP`; never paste a key into `wrangler.jsonc`, a pull request, an issue or a chat. Then:
+   `JUPITER_RPS=10 npm run mainnet:preflight -- --set SWAP=on --site https://vicinity.city`
    Every row but the launchpad ones must PASS (those WARN while `LAUNCHPAD_TRADING` is off). `Jupiter build SOL → $VICINITY`
    asks Jupiter for the build the Worker would ask for (0.01 SOL, the dev wallet as taker; with the platform fee when one is
    set) and runs it through the Worker's own validator: a layout Jupiter changed fails here first, before anyone presses
@@ -139,6 +142,7 @@ every call is a GET or a JSON-RPC read; `--check-limits` posts invalid bodies th
 | `SWAP`, `LAUNCHPAD_TRADING` | on (and, for trading, the cluster settings complete) | WARN off; FAIL on with settings missing |
 | `LAUNCHPAD_CLUSTER` | mainnet | WARN devnet while trading is on: test coins only |
 | `VICINITY_MINT`, `SOLANA_RPC_URL`, `RPC_TIMEOUT_MS` | set | FAIL / FAIL / WARN |
+| `SOLANA_RPC_URL_BACKUP` | set to another provider (by its domain; the key is never printed) that answers the mainnet genesis and one `getProgramAccounts` of the $VICINITY token accounts without their data | WARN unset, the public RPC, or the same provider as `SOLANA_RPC_URL`; FAIL not mainnet, no answer, or `getProgramAccounts` refused |
 | `site /api/health`, `site /api/official`, `site security headers / and /api/health`, `site cron alive` (`--site`) | 200; the switches as set here and the mint; CSP self-only + HSTS + nosniff + no framing; a balance sample under 25 minutes old | WARN when the site's switches differ from the settings here (dashboard vs wrangler.jsonc); FAIL on missing headers or a cron that never ran |
 | `site /api/swap/config`, `site live quote SOL → $VICINITY`, `site attempt limit /api/swap/quote` (`--site`, the site's swap on) | mainnet, keyed; 0.01 SOL quoted with its source and latency; the 181st quote of one connection is 429 (`--check-limits`; the number comes from src/guards.js) | WARN keyless / Jupiter busy; FAIL no 429 |
 | `JUPITER_API_KEY`, `JUPITER_RPS`, `SWAP_PLATFORM_FEE_BPS / SWAP_FEE_ACCOUNT` | key set; rate above 1; a fee only with a valid account | WARN (keyless builds run on the anonymous allowance) / WARN / FAIL (a fee with no account) |
@@ -212,7 +216,7 @@ the review fixes (15 of 15 checks):
 | one connection, 190 quotes in 4 s | 180 × 200 then 10 × 429 `slow_down` with Retry-After (the limit a dozen phones behind one carrier address need) |
 | 50 quote + tx pairs in 5 s | 50 builds for the quotes, NOT ONE more for the transactions (each reuses its quote's build, so none of them needs a token from the budget); every tx simulated once, ≤ 1232 bytes, version 0; p95 23 ms |
 | 50 relayed sends, each with its ticket | 50 signatures back, p95 18 ms (without the ticket every one is refused `bad_ticket` before any node is asked: that is what the reviewer's open-relay probe now gets) |
-| 450 status polls in 6 s over 50 signatures | 450 × 200 (9 per signature under the 60 per minute per signature, 45 per connection under the 600 brake), pending → confirmed → finalized |
+| 450 status polls in 6 s over 50 signatures | 450 × 200 (9 per signature under the 60 per minute per signature, 45 per connection, under the per-connection brake: 600 then, 120 since 10 Oct 2026), pending → confirmed → finalized |
 | outbound | nothing reached the internet |
 
 The journeys that prove the page side (`all-e2e/scenarios/swap.cjs`, 61 checks, and `scenarios/swap-fix.cjs`, 41 checks, both

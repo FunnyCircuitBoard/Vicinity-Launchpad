@@ -6,7 +6,7 @@
 //       --check-limits                                          (61 invalid quote POSTs to the site: the 61st must be 429; opt-in, it uses your own allowance)
 // READ-ONLY: a few GETs and JSON-RPC reads; nothing is sent, nothing is changed, no key is printed (the Jupiter key goes out as a
 // request header only, like the Worker sends it). Every row is PASS, WARN or FAIL with the reason; the exit code is 1 when any
-// row FAILs. Secrets (SOLANA_RPC_URL, JUPITER_API_KEY, LAUNCHPAD_RPC_URL) live in Cloudflare: export them in the shell for this
+// row FAILs. Secrets (SOLANA_RPC_URL, SOLANA_RPC_URL_BACKUP, JUPITER_API_KEY, LAUNCHPAD_RPC_URL) live in Cloudflare: export them in the shell for this
 // check or the rows say "not set here". docs/MAINNET.md lists every row and what to do about it.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -73,6 +73,31 @@ const getJson = async (fetchImpl, url, init = {}) => {
   return { res, body, ms: Date.now() - t0 };
 };
 const errText = (e) => String((e && e.message) || e).replace(/[1-9A-HJ-NP-Za-km-z]{32,}/g, "<address>").slice(0, 100);
+
+/** The provider of an RPC URL as its last two host labels (helius-rpc.com, quiknode.pro): never the key, the path or the endpoint name. */
+const providerOf = (u) => { try { return new URL(u).hostname.split(".").slice(-2).join("."); } catch { return null; } };
+const safeText = (e) => errText(e).replace(/https?:\/\/\S*/g, "<url>");
+async function backupRows(env, { row, mainRpc, mint, fetchImpl }) {
+  const name = "SOLANA_RPC_URL_BACKUP", backup = String(env.SOLANA_RPC_URL_BACKUP || "").trim(), p = providerOf(backup);
+  if (!backup) return row("WARN", name, "not set here: when the provider of SOLANA_RPC_URL refuses (credits used up, rate limit, outage), every chain read of the site fails until it answers again. Set another provider's mainnet URL as a Secret (docs/DEPLOY.md)");
+  if (!p) return row("FAIL", name, "not a URL");
+  // the public MAINNET endpoint by its exact host: api.devnet.solana.com and api.testnet.solana.com go on to the genesis check
+  // below and FAIL there (not mainnet), like any other cluster's URL
+  if (new URL(backup).hostname === "api.mainnet-beta.solana.com") return row("WARN", name, "the public RPC: it refuses getProgramAccounts for the token program and rate-limits the Worker, so the holder list would still fail. Use a provider's URL");
+  let genesis;
+  try { genesis = await rpc(backup, "getGenesisHash", [], fetchImpl); }
+  catch (e) { return row("FAIL", name, `set (${p}) but it does not answer: ${safeText(e)}`); }
+  if (genesis !== MAINNET_GENESIS) return row("FAIL", name, `set (${p}) but it is NOT mainnet: the Worker checks this too and never uses it (it never fails over to another cluster)`);
+  if (backup === mainRpc || (mainRpc && p === providerOf(mainRpc))) return row("WARN", name, `the same provider as SOLANA_RPC_URL (${p}): when that account runs out of credits both stop. Use another provider`);
+  if (!isSolanaAddress(mint)) return row("PASS", name, `set (${p}), mainnet`);
+  // the holder list needs getProgramAccounts on the token program: one read of the $VICINITY token accounts WITHOUT their data
+  // (dataSlice length 0) proves the backup's plan serves it
+  try {
+    const accs = await rpc(backup, "getProgramAccounts", [PROGRAM_IDS.token, { encoding: "base64", dataSlice: { offset: 0, length: 0 }, filters: [{ dataSize: 165 }, { memcmp: { offset: 0, bytes: mint } }] }], fetchImpl);
+    const n = Array.isArray(accs) ? accs.length : Array.isArray(accs && accs.value) ? accs.value.length : null;
+    row(n != null ? "PASS" : "FAIL", name, n != null ? `set (${p}), mainnet, a different provider; getProgramAccounts on the token program answers (${n} $VICINITY token accounts)` : `set (${p}) but getProgramAccounts gave no list`);
+  } catch (e) { row("FAIL", name, `set (${p}) but getProgramAccounts on the token program is refused (${safeText(e)}): the holder list would still fail on the backup. Pick a plan or provider that serves it`); }
+}
 
 /**
  * The rows. `env` = the settings; options: fetchImpl (tests pass a fake), site (the live Worker's origin, optional), the expected
@@ -148,6 +173,9 @@ export async function preflight(env, { fetchImpl = fetch, now = Date.now(), site
     const jup = await acct(rpcUrl, PROGRAM_IDS.jupiter, fetchImpl, "base64", { dataSlice: { offset: 0, length: 0 } });
     row(jup && jup.executable ? "PASS" : "FAIL", "Jupiter program on mainnet", jup && jup.executable ? PROGRAM_IDS.jupiter : "not an executable account");
   } catch (e) { row("FAIL", "mainnet RPC answers", `unreachable: ${errText(e)}`); }
+
+  // ---- the backup RPC (src/rpcpool.js): another provider, asked when the first one refuses (credits, rate limit, outage) ----
+  await backupRows(env, { row, mainRpc, mint, fetchImpl });
 
   // ---- the launchpad cluster: the program, its upgrade authority, the configs, the allow-list, the referral accounts, the table, the global account ----
   const mainDefaults = launchpadCluster({ LAUNCHPAD_CLUSTER: "mainnet" }); // the settings alone: nothing from this shell

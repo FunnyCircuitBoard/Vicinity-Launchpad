@@ -57,6 +57,7 @@ export function chain() {
       }) };
       if (method === "getMultipleAccounts") return { value: params[0].map((k) => ({ owner: k === POOL ? "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA" : "11111111111111111111111111111111" })) };
       if (method === "getTokenAccountsByOwner") { const a = holdings[params[0]] || 0; return { value: a ? [{ account: { data: { parsed: { info: { tokenAmount: { uiAmount: a } } } } } }] : [] }; }
+      if (method === "getGenesisHash") return "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"; // mainnet (src/rpcpool.js asks a backup first)
       throw new Error("unexpected " + method);
     };
     const out = Array.isArray(body) ? body.map((b) => ({ jsonrpc: "2.0", id: b.id, result: one(b) })) : { jsonrpc: "2.0", id: 1, result: one(body) };

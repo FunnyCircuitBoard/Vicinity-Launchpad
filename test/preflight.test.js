@@ -182,3 +182,35 @@ test("preflight: settings come from wrangler.jsonc vars, then the environment, t
   assert.deepEqual(parseArgs(argv), { set: { SWAP: "on" }, cluster: "mainnet", rpc: "https://rpc.example/x", site: "https://vicinity.city", expectUpgradeAuthority: "A1", expectAdmin: "B2", checkLimits: true });
   void SOL;
 });
+
+test("preflight: SOLANA_RPC_URL_BACKUP (10 Oct 2026): unset WARNs; the public RPC or the same provider WARN; another mainnet provider that serves getProgramAccounts PASSes; any devnet URL FAILs; never its key", async () => {
+  const { fetchImpl, now } = world();
+  const KEY = "BACKUPKEY123";
+  const gpa = (refuse) => async (url, init = {}) => {
+    if (String(url).includes("backup-rpc.other.example") && init.body && /getProgramAccounts/.test(init.body)) {
+      return new Response(JSON.stringify(refuse ? { jsonrpc: "2.0", id: 1, error: { code: -32601, message: "Method not found" } } : { jsonrpc: "2.0", id: 1, result: [{ pubkey: "a", account: { data: ["", "base64"] } }, { pubkey: "b", account: { data: ["", "base64"] } }] }), { headers: { "content-type": "application/json" } });
+    }
+    return fetchImpl(url, init);
+  };
+  const run = async (backup, f = gpa(false)) => by(await preflight({ ...DEVNET_ENV, SOLANA_RPC_URL: "https://mainnet.helius-rpc.com/?api-key=PRIMARYKEY", ...(backup ? { SOLANA_RPC_URL_BACKUP: backup } : {}) }, { fetchImpl: f, now }), "SOLANA_RPC_URL_BACKUP");
+  let r = await run(null);
+  assert.equal(r.level, "WARN"); assert.match(r.detail, /every chain read of the site fails/);
+  r = await run("https://api.mainnet-beta.solana.com");
+  assert.equal(r.level, "WARN"); assert.match(r.detail, /refuses getProgramAccounts/);
+  r = await run(`https://other.helius-rpc.com/?api-key=${KEY}`);
+  assert.equal(r.level, "WARN"); assert.match(r.detail, /same provider as SOLANA_RPC_URL \(helius-rpc\.com\)/);
+  r = await run(`https://backup-rpc.other.example/v2/${KEY}`);
+  assert.equal(r.level, "PASS", r.detail); assert.match(r.detail, /other\.example.*getProgramAccounts on the token program answers \(2 \$VICINITY token accounts\)/);
+  r = await run(`https://backup-rpc.other.example/v2/${KEY}`, gpa(true));
+  assert.equal(r.level, "FAIL"); assert.match(r.detail, /getProgramAccounts on the token program is refused/);
+  r = await run(`https://backup-rpc.devnet.example/v2/${KEY}`);
+  assert.equal(r.level, "FAIL"); assert.match(r.detail, /NOT mainnet/);
+  r = await run("not a url");
+  assert.equal(r.level, "FAIL");
+  // the public DEVNET endpoint is not "the public RPC" (a WARN): it is another cluster, a FAIL; so is a devnet URL of the same provider
+  r = await run("https://api.devnet.solana.com");
+  assert.equal(r.level, "FAIL", r.detail); assert.match(r.detail, /NOT mainnet/);
+  r = await run(`https://devnet.helius-rpc.com/?api-key=${KEY}`);
+  assert.equal(r.level, "FAIL", r.detail); assert.match(r.detail, /NOT mainnet/);
+  for (const b of [`https://backup-rpc.other.example/v2/${KEY}`, `https://other.helius-rpc.com/?api-key=${KEY}`]) assert.ok(!(await run(b)).detail.includes(KEY), "the key is never printed");
+});
