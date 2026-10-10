@@ -55,7 +55,9 @@
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
   const ticker = (name) => (window.vicinityTicker ? window.vicinityTicker.baseTicker(name) : String(name).toUpperCase().replace(/[^A-Z]/g, "").slice(0, 10));
   const modOn = () => { const m = me(); return Boolean((lastMod && lastMod.moderator === true) || (m && m.roles && m.roles.admin)); };
-  const coinState = () => (!coin ? "Not designed yet" : coin.launched ? "Live" : coin.waiting ? "Contract being checked" : "Designed");
+  // with the city-coin launch on (lp, public/lp-launch.js): the chain's word wins, so this fact agrees with the launch card's tag
+  const coinState = () => (!coin ? "Not designed yet" : coin.launched || (lp.on && lp.state === "launched") ? "Live" : coin.waiting ? "Contract being checked"
+    : lp.on && lp.state === "ready" ? "Approved" : "Designed");
 
   /* ---------- set-up: the cards move into their panels, the old two-column tools retire ---------- */
   function init(c) {

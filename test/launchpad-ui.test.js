@@ -275,8 +275,8 @@ test("with the switch off the page is today's: every pinned id and the pre-launc
   assert.ok(before.startsWith("// Launchpad page: live countdown to the opening, and an \"add to my calendar\" file.\n"));
   assert.ok(before.includes("official.then(tick); tick(); setInterval(tick, 1000);") && before.includes("// Founding Supporter snapshot: status, and any wallet's amount + Merkle proof."));
   // the swap switch is read in the same breath (swapOn decides what the card's Buy does), but the only way IN is still launchpadV2 === true
-  // (and /api/official's launchpadTrading only swaps the intro's "on Raydium LaunchLab" for "on the Vicinity launchpad": lpCopy)
-  assert.match(part, /let swapOn = false;\s*(\/\/[^\n]*\n\s*)*const lpCopy = \(on\) => \{ for \(const e of \$\$\("\[data-launchlab-copy\]"\)\) e\.hidden = on; for \(const e of \$\$\("\[data-lp-only\]"\)\) e\.hidden = !on; \};\s*official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); if \(o && o\.launchpadTrading\) lpCopy\(true\); if \(o && o\.launchpadV2 === true\) start\(\); \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true");
+  // (and /api/official's cityCoins only swaps the intro's "recorded by Vicinity" for "on the Vicinity launchpad": lpCopy)
+  assert.match(part, /let swapOn = false;\s*(\/\/[^\n]*\n\s*)*const lpCopy = \(on\) => \{ for \(const e of \$\$\("\[data-launchlab-copy\]"\)\) e\.hidden = on; for \(const e of \$\$\("\[data-lp-only\]"\)\) e\.hidden = !on; \};\s*official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); if \(o && o\.cityCoins\) lpCopy\(true\); if \(o && o\.launchpadV2 === true\) start\(\); \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true");
   assert.match(part, /if \(typeof document === "undefined" \|\| !window\.V\) return;/);
   assert.deepEqual([...part.matchAll(/\bapi\(([^)]*)\)/g)].map((m) => m[1]).sort(), ['"/api/launchpad"', "`/api/coin/chart?mint=${encodeURIComponent(mint", "`/api/coin/chart?mint=${encodeURIComponent(mint"],
     "the list, and each live coin's chart (its sparkline, 24 h then 7 d): nothing else");
@@ -470,7 +470,7 @@ test("honesty (review): a card names Raydium LaunchLab only when the chain found
   assert.doesNotMatch(js, /`Raydium LaunchLab · \$\{str\(c\.pair/, "never said unconditionally");
 });
 
-test("intro copy: 'recorded by Vicinity' until city-coin trading is on (/api/official launchpadTrading), then 'on the Vicinity launchpad'", async () => {
+test("intro copy: 'recorded by Vicinity' until the city-coin launch is on (/api/official cityCoins, like the dashboard and the coin page), then 'on the Vicinity launchpad'", async () => {
   // the built page: the sentence reads exactly as main's honest copy (#51) while the second half stays hidden; never "Live coins trade now"
   const p = html.match(/<p class="muted">Every coin here is a city's one official coin,[\s\S]*?<\/p>/)[0];
   assert.match(p, /launched by its City Founder<span data-launchlab-copy> and recorded by Vicinity<\/span><span data-lp-only hidden> on the Vicinity launchpad \(a Meteora bonding curve\)<\/span>\. A coin that has launched shows its live price; the others are designed and waiting\./);
@@ -486,5 +486,8 @@ test("intro copy: 'recorded by Vicinity' until city-coin trading is on (/api/off
   };
   assert.deepEqual(await run({ launchpadV2: false }), [false, true], "production today: unchanged");
   assert.deepEqual(await run({ launchpadV2: false, swap: true }), [false, true], "the swap alone changes nothing");
-  assert.deepEqual(await run({ launchpadV2: false, launchpadTrading: { cluster: "mainnet" } }), [true, false], "city-coin trading on: the Vicinity launchpad is named");
+  // the same key as the dashboard, the coin page and the admin tab (merge review B, minor 3): a partial setup never names two venues
+  assert.deepEqual(await run({ launchpadV2: false, cityCoins: { cluster: "mainnet" } }), [true, false], "the city-coin launch on: the Vicinity launchpad is named");
+  assert.deepEqual(await run({ launchpadV2: false, launchpadTrading: { cluster: "devnet" } }), [false, true], "curve trades alone (no launch for founders): unchanged");
+  assert.deepEqual(await run({ launchpadV2: false, launchpadTrading: { cluster: "mainnet" }, cityCoins: { cluster: "mainnet" } }), [true, false]);
 });

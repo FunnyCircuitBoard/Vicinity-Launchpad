@@ -161,6 +161,35 @@ test("coin-meta: an unknown mint costs one getAccountInfo per 5 minutes and neve
   assert.equal((await get(env, chain, `/coin-meta/${DEMOV}.json`, { now: t0 + 10 * 60_000 })).status, 200, "recorded: the flooded connection gets it from the database");
 });
 
+test("coin-meta: a recorded coin whose JSON is not built yet costs at most one metadata read per 5 minutes, and those reads count against coin_meta (merge review A, minor 1)", async () => {
+  const { env, chain } = await demovWorld();
+  const metaAddr = await metadataAddress(DEMOV);
+  const saved = chain.S.accounts[metaAddr];
+  delete chain.S.accounts[metaAddr]; // the metadata could not be read when the coin was recorded
+  assert.equal((await recordLaunchedCoin(env, { cityId: DEMOV_CITY }, chain.fetchImpl)).ok, true);
+  assert.ok(await env.DB.prepare("SELECT 1 FROM lp_coins WHERE mint = ? AND meta_json IS NULL").bind(DEMOV).first());
+  const reads = () => chain.calls("getAccountInfo").filter((c) => c.params[0] === metaAddr).length;
+  const before = reads();
+  const t0 = Date.now() + 6 * 60_000; // past any memo the recording itself left
+  // 100 requests from 100 connections within 5 minutes: one chain read, then the negative memo answers
+  for (let i = 0; i < 100; i++) assert.equal((await get(env, chain, `/coin-meta/${DEMOV}.json`, { now: t0 + i * 1000, ip: `198.18.0.${i}` })).status, 404);
+  assert.equal(reads() - before, 1, "one getAccountInfo for 100 public requests");
+  // the node fails (no memo for a failure): one connection's reads stop at the coin_meta counter, 429 with CORS
+  chain.S.down = true;
+  const statuses = [];
+  for (let i = 0; i < 61; i++) statuses.push((await get(env, chain, `/coin-meta/${DEMOV}.json`, { now: t0 + 6 * 60_000, ip: "198.18.1.1" })).status);
+  assert.deepEqual([...new Set(statuses.slice(0, 60))], [503]);
+  assert.equal(statuses[60], 429, "the 61st read in a minute is refused");
+  const refused = await get(env, chain, `/coin-meta/${DEMOV}.json`, { now: t0 + 6 * 60_000, ip: "198.18.1.1", method: "HEAD" });
+  assert.deepEqual([refused.status, refused.headers.get("access-control-allow-origin"), await refused.text()], [429, "*", ""]);
+  // the metadata appears and the node is back: built on the next read after the memo, then served from the database to everyone
+  chain.S.down = false;
+  chain.S.accounts[metaAddr] = saved;
+  const built = await get(env, chain, `/coin-meta/${DEMOV}.json`, { now: t0 + 6 * 60_000, ip: "198.18.2.2" });
+  assert.equal(built.status, 200);
+  assert.equal((await get(env, chain, `/coin-meta/${DEMOV}.json`, { now: t0 + 6 * 60_000, ip: "198.18.1.1" })).status, 200, "the flooded connection reads it from the database");
+});
+
 test("coin-meta: the PNG is the founder's logo with its real type, or a redirect to the brand PNG (no logo, taken down)", async () => {
   const { env, chain } = await demovWorld();
   const none = await get(env, chain, `/coin-meta/${DEMOV}.png`);

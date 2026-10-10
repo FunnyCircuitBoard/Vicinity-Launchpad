@@ -97,6 +97,36 @@ test("mainnet city coins: a first node of the wrong cluster is refused (wrong_cl
   await lpRpc(env, "getSlot", [], endpoints(lpChain({ genesis: GENESIS.mainnet }), { launchpad: () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: 7 })) }).fetchImpl).then((v) => assert.equal(v, 7));
 });
 
+test("mainnet city coins: a first node whose genesis call was refused once (a plain 429) never feeds a build: it is pinned to the checked node (merge review A, minor 2)", async () => {
+  // LAUNCHPAD_RPC_URL is a devnet node by mistake; it answers one plain 429 to getGenesisHash (busy: that call moves, nothing is
+  // benched), the backup (a real mainnet node) answers the check, and everything else would go back to the first node
+  const funded = { [PAYER]: { owner: PROGRAM_IDS.system, lamports: 2_000_000_000, data: "" } };
+  const devnetNode = lpChain({ accounts: funded });
+  const mainnetNode = lpChain({ genesis: GENESIS.mainnet, accounts: funded });
+  mainnetNode.S.blockhash = addr(55);
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const who = url === LP_URL ? "launchpad" : url === BACKUP ? "backup" : url === PRIMARY ? "primary" : "other";
+    const body = JSON.parse(init.body);
+    calls.push([who, body.method]);
+    if (who === "launchpad") return body.method === "getGenesisHash" ? new Response("Too Many Requests", { status: 429 }) : devnetNode.fetchImpl(url, init);
+    return mainnetNode.fetchImpl(url, init);
+  };
+  const env = { ...newWorld(), ...MAINNET, LAUNCHPAD_RPC_URL: LP_URL };
+  const r = await buildTx(env, { payer: PAYER, instructions: [systemTransfer(PAYER, addr(77), 1_000n)] }, fetchImpl);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.blockhash, mainnetNode.S.blockhash, "the blockhash of the node that proved mainnet, never the unchecked first node's");
+  assert.deepEqual(calls.filter(([who]) => who === "launchpad").map(([, m]) => m), ["getGenesisHash"], "nothing but the refused check went to the unchecked node");
+  for (const m of ["getLatestBlockhash", "getMultipleAccounts", "simulateTransaction"]) assert.ok(calls.some(([who, x]) => who === "backup" && x === m), `${m} on the backup`);
+  assert.equal(rpcHealth().launchpad.askedLastUntil, null, "a plain 429 benched nothing: only the pin kept the build off that node");
+  // the next build asks the first node again; once IT answers the check (here: the devnet hash), nothing is built
+  calls.length = 0;
+  const fixedFetch = async (url, init) => { const body = JSON.parse(init.body); calls.push([url === LP_URL ? "launchpad" : "backup", body.method]); return (url === LP_URL ? devnetNode : mainnetNode).fetchImpl(url, init); };
+  const again = await buildTx(env, { payer: PAYER, instructions: [systemTransfer(PAYER, addr(77), 1_000n)] }, fixedFetch);
+  assert.deepEqual([again.ok, again.error], [false, "wrong_cluster"]);
+  for (const l of logs) noSecretIn(l, "a log line");
+});
+
 test("devnet city coins: the one devnet node only; when it fails nothing goes to a mainnet node or the backup", async () => {
   const chain = lpChain();
   const net = endpoints(chain, { devnet: http(503) });

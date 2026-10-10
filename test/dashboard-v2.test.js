@@ -223,7 +223,7 @@ test("every #id dashboard-v2.js names exists in the built page, and it creates n
   // the clock's length is the server's (founder.tenure.needed, which is POLICY.founder.qualifyingDays), never a number written here
   assert.match(v2, /\[`\$\{f\.tenure\.needed\}-day clock running`, "tag--gold"\]/, "state pill: the N-day clock from tenure.needed");
   assert.doesNotMatch(v2, /\d-day clock/, "no hardcoded clock length");
-  for (const t of ["Not designed yet", "Live", "Contract being checked", "Designed"]) assert.ok(v2.includes(`"${t}"`), `coin state: ${t}`);
+  for (const t of ["Not designed yet", "Live", "Contract being checked", "Approved", "Designed"]) assert.ok(v2.includes(`"${t}"`), `coin state: ${t}`);
   for (const t of ["Design the city coin", "Add the contract", "See the coin", "Manage city coin", "Founder path", "Buy & swap"]) assert.ok(v2.includes(`"${t}"`), `founder card button: ${t}`);
 });
 

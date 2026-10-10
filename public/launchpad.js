@@ -864,8 +864,8 @@
     load();
   }
   let swapOn = false;
-  // city coins launched on our own launchpad (LAUNCHPAD_TRADING on, /api/official says so): the intro names it instead of Raydium
-  // LaunchLab. Without that switch nothing changes.
+  // city coins launched on our own launchpad (the city-coin settings, lpSetup: /api/official cityCoins, the same key the dashboard,
+  // the coin page and the admin tab follow): the intro names it instead of Raydium LaunchLab. Without it nothing changes.
   const lpCopy = (on) => { for (const e of $$("[data-launchlab-copy]")) e.hidden = on; for (const e of $$("[data-lp-only]")) e.hidden = !on; };
-  official.then((o) => { swapOn = Boolean(o && o.swap === true); if (o && o.launchpadTrading) lpCopy(true); if (o && o.launchpadV2 === true) start(); });
+  official.then((o) => { swapOn = Boolean(o && o.swap === true); if (o && o.cityCoins) lpCopy(true); if (o && o.launchpadV2 === true) start(); });
 })();

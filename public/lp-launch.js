@@ -55,10 +55,14 @@
         lines: [(st && st.message) || (window.LP ? window.LP.say(st && st.error, st || undefined) : "Something went wrong. Try again in a minute.")] };
     }
   }
-  /** The coin page's graduation box for a /api/lp/graduate/status answer: { action: migrate|leftover|null, title, text, cost, button }. */
+  /**
+   * The coin page's graduation box for a /api/lp/graduate/status answer: { action: migrate|leftover|null, title, text, cost, button }.
+   * The move's text is short: the curve card right above already says the curve is full and that nobody can trade until the move.
+   */
+  const MIGRATE_TEXT = "Anyone signed in with a wallet can make the move now.";
   function gradView(g) {
     if (!g || !g.ok) return { action: null, title: null, text: null };
-    if (g.canMigrate) return { action: "migrate", title: "Move to the open market", text: g.message, cost: g.cost && g.cost.words, button: "Move to the open market" };
+    if (g.canMigrate) return { action: "migrate", title: "Move to the open market", text: MIGRATE_TEXT, cost: g.cost && g.cost.words, button: "Move to the open market" };
     if (g.leftoverDue) return { action: "leftover", title: "One step left", text: g.message, cost: "Only the network fee (about 0.000005 SOL), plus about 0.002 SOL of rent once if the dev wallet has no account for this coin yet.", button: "Return the unsold coins" };
     return { action: null, title: g.stage === "full" ? "Moving to the open market" : null, text: g.stage === "full" ? g.message : null };
   }
@@ -68,7 +72,7 @@
   /** The status line for lp-sign.js's onStatus(state, signature, extra). */
   const statusText = (s, extra) => (s === "confirming" && extra && extra.unclear ? STATUS.unclear : STATUS[s] || s);
 
-  const pure = { parseSol, solText, coinsText, dateText, leftText, view, gradView, statusText, NOT_APPROVED, STATUS };
+  const pure = { parseSol, solText, coinsText, dateText, leftText, view, gradView, statusText, NOT_APPROVED, STATUS, MIGRATE_TEXT };
   const root = typeof window !== "undefined" ? window : globalThis;
   root.LPLaunch = { pure };
   if (typeof document === "undefined" || !root.V) return; // node: the helpers are enough

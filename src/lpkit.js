@@ -199,15 +199,18 @@ export async function summarize(env, instructions, labels = {}) {
  * with the pool's breaker. Like src/lptrade.js lpRoute.
  */
 export const lpRoute = (env) => { const s = lpSetup(env); return { cluster: s.cluster, url: s.rpc }; };
-/** One JSON-RPC call on the launchpad cluster, through the pool (lpRoute). Throws a short code (never a URL). */
-export const lpRpc = (env, method, params, fetchImpl = fetch) => rpc(env, method, params, fetchImpl, lpRoute(env));
+/**
+ * One JSON-RPC call on the launchpad cluster, through the pool (lpRoute; `route` adds `only` when buildTx is pinned to the node
+ * whose genesis hash was checked). Throws a short code (never a URL).
+ */
+export const lpRpc = (env, method, params, fetchImpl = fetch, route = null) => rpc(env, method, params, fetchImpl, route || lpRoute(env));
 /** Map(address -> account | null) for up to any number of addresses (100 per call), base64 data. Throws on a broken answer. */
-export async function readAccounts(env, addresses, fetchImpl = fetch, { commitment = "confirmed" } = {}) {
+export async function readAccounts(env, addresses, fetchImpl = fetch, { commitment = "confirmed", route = null } = {}) {
   const out = new Map();
   const list = [...new Set(addresses)];
   for (let i = 0; i < list.length; i += 100) {
     const chunk = list.slice(i, i + 100);
-    const r = await lpRpc(env, "getMultipleAccounts", [chunk, { encoding: "base64", commitment }], fetchImpl);
+    const r = await lpRpc(env, "getMultipleAccounts", [chunk, { encoding: "base64", commitment }], fetchImpl, route);
     const v = r && Array.isArray(r.value) ? r.value : null;
     if (!v || v.length !== chunk.length) throw new Error("rpc_bad_answer");
     chunk.forEach((a, j) => out.set(a, v[j] || null));
@@ -219,11 +222,13 @@ export async function readAccounts(env, addresses, fetchImpl = fetch, { commitme
 const genesisOk = new Map(); // "<cluster>|<rpc>" -> true once the first node's genesis hash matched (per server; never shown)
 export const _resetLpKit = () => { genesisOk.clear(); anchorIndex = null; };
 /**
- * Is the node behind lpSetup(env).rpc really the cluster the settings name? { ok: true } | { ok: false, error: "wrong_cluster" |
- * "rpc_unavailable" | "not_enabled" }. A match of that first node is remembered for the life of the server; a failure is asked
- * again next time. When the pool answered from SOLANA_RPC_URL_BACKUP instead (the first node failed), a matching hash lets this
- * request go on (the pool uses that backup only once it proved to be a mainnet node, src/rpcpool.js) but is not remembered: the
- * first node is asked again by the next request.
+ * Is the node behind lpSetup(env).rpc really the cluster the settings name? { ok: true, cluster, only? } | { ok: false, error:
+ * "wrong_cluster" | "rpc_unavailable" | "not_enabled" }. A match of that first node is remembered for the life of the server; a
+ * failure is asked again next time. When the pool answered from SOLANA_RPC_URL_BACKUP instead (the first node failed, perhaps only
+ * once: a plain 429 moves that one call and benches nothing), a matching hash lets this request go on (the pool uses that backup
+ * only once it proved to be a mainnet node, src/rpcpool.js) but is not remembered, and `only` names the node that WAS checked:
+ * buildTx then reads, takes its blockhash and simulates on that node alone, so a first node nobody checked (a devnet URL behind a
+ * "mainnet" label) never feeds a summary the person signs. The first node is asked again by the next request.
  */
 export async function checkGenesis(env, fetchImpl = fetch) {
   const s = lpSetup(env);
@@ -237,8 +242,8 @@ export async function checkGenesis(env, fetchImpl = fetch) {
     console.error("genesis mismatch: the launchpad RPC is not", s.cluster);
     return { ok: false, error: "wrong_cluster", cluster: s.cluster, message: `The blockchain node in the settings is not Solana ${s.cluster}. Nothing was built.` };
   }
-  if (role === rpcTargets(env, route)[0].role) genesisOk.set(key, true);
-  return { ok: true, cluster: s.cluster };
+  if (role === rpcTargets(env, route)[0].role) { genesisOk.set(key, true); return { ok: true, cluster: s.cluster }; }
+  return { ok: true, cluster: s.cluster, only: role };
 }
 /** The page sends the cluster it shows ("mainnet" / "devnet"); null when it is this Worker's, else the error to answer. */
 export function checkCluster(env, value) {
@@ -249,11 +254,11 @@ export function checkCluster(env, value) {
 }
 
 /* ---------------------------------------------------------------- building */
-async function tableOf(env, lookupTable, fetchImpl) {
+async function tableOf(env, lookupTable, fetchImpl, route) {
   if (!lookupTable) return null;
   if (typeof lookupTable === "object" && isSolanaAddress(lookupTable.key) && Array.isArray(lookupTable.addresses)) return lookupTable;
   if (!isSolanaAddress(lookupTable)) throw Object.assign(new Error("bad_lookup_table"), { code: "bad_lookup_table" });
-  const r = await lpRpc(env, "getAccountInfo", [lookupTable, { encoding: "base64", commitment: "confirmed" }], fetchImpl);
+  const r = await lpRpc(env, "getAccountInfo", [lookupTable, { encoding: "base64", commitment: "confirmed" }], fetchImpl, route);
   const t = decodeLookupTable(r && r.value);
   if (!t) throw Object.assign(new Error("lookup_table_missing"), { code: "lookup_table_missing" });
   return { key: lookupTable, addresses: t.addresses };
@@ -285,6 +290,9 @@ export async function buildTx(env, { payer, instructions, extraSigners = [], loo
   if (instructions.some((ix) => ix.programAddress === PROGRAM_IDS.computeBudget)) return { ok: false, error: "bad_request" };
   const g = await checkGenesis(env, fetchImpl);
   if (!g.ok) return g;
+  // every call of this build on the node whose genesis hash was checked: the first node once it matched (then the backup behind
+  // it, itself checked by the pool), or only the backup when the first node did not answer the check (checkGenesis `only`)
+  const route = g.only ? { ...lpRoute(env), only: g.only } : lpRoute(env);
   const watched = [...new Set([payer, ...(Array.isArray(watch) ? watch.filter(isSolanaAddress) : [])])];
   const fixedLimit = Number.isInteger(cuLimit) && cuLimit > 0 ? Math.min(MAX_CU, cuLimit) : null;
   const priceSetting = /^\d{1,12}$/.test(String(cuPrice ?? "")) ? BigInt(cuPrice) : 0n;
@@ -294,9 +302,9 @@ export async function buildTx(env, { payer, instructions, extraSigners = [], loo
   let table, bh, pre;
   try {
     [table, bh, pre] = await Promise.all([
-      tableOf(env, lookupTable, fetchImpl),
-      lpRpc(env, "getLatestBlockhash", [{ commitment: "confirmed" }], fetchImpl),
-      readAccounts(env, watched, fetchImpl),
+      tableOf(env, lookupTable, fetchImpl, route),
+      lpRpc(env, "getLatestBlockhash", [{ commitment: "confirmed" }], fetchImpl, route),
+      readAccounts(env, watched, fetchImpl, { route }),
     ]);
   } catch (e) {
     if (e.code === "lookup_table_missing" || e.code === "bad_lookup_table") return { ok: false, error: e.code };
@@ -319,7 +327,7 @@ export async function buildTx(env, { payer, instructions, extraSigners = [], loo
     return { tx, ixs, decoded: d, signers };
   };
   const simulateWith = async (built) => {
-    const d = await rpcRaw(env, "simulateTransaction", [toBase64(built.tx), { encoding: "base64", sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed", accounts: { encoding: "base64", addresses: watched } }], fetchImpl, lpRoute(env));
+    const d = await rpcRaw(env, "simulateTransaction", [toBase64(built.tx), { encoding: "base64", sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed", accounts: { encoding: "base64", addresses: watched } }], fetchImpl, route);
     if (d.error) throw new Error(`rpc_${d.error.code || "error"}`);
     const v = d.result && d.result.value ? d.result.value : {};
     return { ok: v.err == null, err: v.err ?? null, logs: Array.isArray(v.logs) ? v.logs.slice(-30) : [], unitsConsumed: Number.isFinite(Number(v.unitsConsumed)) ? Number(v.unitsConsumed) : null, accounts: Array.isArray(v.accounts) ? v.accounts : null };

@@ -13,7 +13,9 @@
  *   GET|HEAD /coin-meta/<mint>.png   the founder's logo with its real type (webp, png, jpeg), or 302 to /brand/vicinity-512.png
  *                                    (no logo, or one taken down)
  * Dark (404) unless lpSetup(env) is on; a coin recorded once keeps answering from the database even if the settings change.
- * An unknown mint costs at most one RPC call per 5 minutes (src/lpcoins.js negative memo) and counts against coin_meta.
+ * An unknown mint costs at most one RPC call per 5 minutes (src/lpcoins.js negative memo) and counts against coin_meta; so does a
+ * recorded coin whose JSON is not built yet (its metadata could not be read when it was recorded): every chain read this public
+ * URL causes is memoised on a miss and counted per connection.
  */
 import { SECURITY_HEADERS } from "./http.js";
 import { isSolanaAddress } from "./solana.js";
@@ -23,7 +25,8 @@ import { toBytes } from "./blobs.js";
 import { ensureSchema } from "./store.js";
 import { iso } from "./policy.js";
 import { LAYOUT } from "./sol/layout.js";
-import { chainMetadata, findCoin, rememberMissing } from "./lpcoins.js";
+import { publicLimit } from "./guards.js";
+import { chainMetadata, findCoin, knownMissing, rememberMissing } from "./lpcoins.js";
 
 /* ---------------------------------------------------------------- the JSON (a port of metadata.mts, kept byte-for-byte in parity) */
 export const VICINITY_BRAND = Object.freeze({
@@ -100,6 +103,8 @@ const base = { ...SECURITY_HEADERS, "Access-Control-Allow-Origin": "*", "X-Conte
 const answer = (request, body, status, headers) => new Response(request.method === "HEAD" ? null : body, { status, headers: { ...base, ...headers } });
 const jsonAnswer = (request, data, status, maxAge) => answer(request, typeof data === "string" ? data : JSON.stringify(data), status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": `public, max-age=${maxAge}` });
 const notFound = (request) => jsonAnswer(request, { ok: false, error: "not_found" }, 404, 60);
+/** Another module's answer (a 429 of publicLimit) with this route's CORS header and HEAD rule. */
+const passOn = (request, res) => new Response(request.method === "HEAD" ? null : res.body, { status: res.status, headers: { ...Object.fromEntries(res.headers), "Access-Control-Allow-Origin": "*" } });
 
 /** GET|HEAD /coin-meta/* (src/index.js sends every /coin-meta/ path here, before the static files). */
 export async function handleCoinMeta(request, env, fetchImpl = fetch, now = Date.now()) {
@@ -110,7 +115,7 @@ export async function handleCoinMeta(request, env, fetchImpl = fetch, now = Date
   let f;
   try { f = await findCoin(request, env, mint, fetchImpl, now, "coin_meta"); }
   catch (e) { console.error("coin-meta lookup failed", codeOf(e)); return jsonAnswer(request, { ok: false, error: "unavailable" }, 503, 10); }
-  if (f.response) return new Response(request.method === "HEAD" ? null : f.response.body, { status: f.response.status, headers: { ...Object.fromEntries(f.response.headers), "Access-Control-Allow-Origin": "*" } });
+  if (f.response) return passOn(request, f.response);
   if (f.error) return jsonAnswer(request, { ok: false, error: "unavailable" }, 503, 10);
   const row = f.row;
   if (!row) return notFound(request);
@@ -122,6 +127,11 @@ async function metadata(request, env, row, fetchImpl, now) {
   // recorded, but the JSON is not built yet (the metadata could not be read at that moment): only with the settings on, from the chain
   const s = lpSetup(env);
   if (!s.on || row.cluster !== s.cluster || row.program_id !== s.programId) return notFound(request);
+  // a chain read caused by a public URL, like findCoin's for an unknown mint: a miss is remembered for 5 minutes per server, and
+  // the reads count against coin_meta per connection (a read that fails is not remembered, so the counter is what bounds those)
+  if (knownMissing(row.mint, now)) return notFound(request);
+  const slow = await publicLimit(env, request, "coin_meta");
+  if (slow) return passOn(request, slow);
   let md;
   try { md = await chainMetadata(env, row.mint, fetchImpl); } catch (e) { console.error("coin-meta metadata read failed", codeOf(e)); return jsonAnswer(request, { ok: false, error: "unavailable" }, 503, 10); }
   if (!md || md.uri !== metadataUriFor(row.mint)) { rememberMissing(row.mint, now); return notFound(request); }

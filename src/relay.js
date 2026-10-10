@@ -79,9 +79,9 @@ export async function checkTicket(env, txBytes, ticket, now = Date.now()) {
  * Through src/rpcpool.js: a sendTransaction goes to the backup at most once, and only when the provider failed (never on the
  * node's verdict about the transaction).
  */
-export async function rpcRaw(env, method, params, fetchImpl = fetch, { url = null, cluster = null, timeoutMs = TIMEOUT_MS } = {}) {
+export async function rpcRaw(env, method, params, fetchImpl = fetch, { url = null, cluster = null, timeoutMs = TIMEOUT_MS, only = null } = {}) {
   let a;
-  try { a = await rpcPost(env, { jsonrpc: "2.0", id: 1, method, params }, fetchImpl, { url, cluster, timeoutMs, send: method === "sendTransaction" }); }
+  try { a = await rpcPost(env, { jsonrpc: "2.0", id: 1, method, params }, fetchImpl, { url, cluster, timeoutMs, send: method === "sendTransaction", only }); }
   catch (e) { if (e && e.status === 429) e.code = "rpc_busy"; throw e; } // e.ambiguous (rpcPost) rides along
   const d = a.data && typeof a.data === "object" && !Array.isArray(a.data) ? a.data : { error: { code: -32700, message: "bad answer" } };
   if (a.failedOver) d.failedOver = true;

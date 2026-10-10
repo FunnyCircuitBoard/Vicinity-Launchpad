@@ -355,6 +355,16 @@ test("the dashboard, gate on: the founder's card in the Founder tab, the LaunchL
   assert.doesNotMatch(page.text("#today-list"), /Add your coin's contract/);
 });
 
+test("the Founder card's CITY COIN fact agrees with the launch card: Approved when ready, Live once launched, Designed with the gate off (merge review B, minor 6)", async () => {
+  const ready = await dashboard();
+  assert.equal(ready.page.text("#fcard-coin"), "Approved");
+  assert.equal(ready.page.$("#lp-launch").querySelector("[data-lp-state]").textContent, "Approved");
+  const live = await dashboard({ status: { ...LAUNCHED, wallet: ADDR } });
+  assert.equal(live.page.text("#fcard-coin"), "Live");
+  const off = await dashboard({ gate: false });
+  assert.equal(off.page.text("#fcard-coin"), "Designed", "the LaunchLab path: unchanged");
+});
+
 test("the dashboard, gate off: the card stays hidden, the LaunchLab path is unchanged, and nothing of /api/lp is asked", async () => {
   const { page, lpCalls } = await dashboard({ gate: false });
   assert.equal(page.$("#lp-launch").hidden, true);
@@ -375,7 +385,15 @@ test("the coin page's words for a Vicinity launchpad coin: its curve, full (then
   assert.match(on.text, /moves to a Meteora pool \(the open market\)/);
   const full = P.curveOf(coin({ stage: "full", symbol: "SOL", raised: 85, target: 85, progressPct: 100 }));
   assert.deepEqual([full.pct, full.value, full.full], ["Full", 100, true]);
-  assert.match(full.text, /The curve is full: \$UTICA moves to a Meteora pool \(the open market\) next\. Anyone can make the move below/);
+  // one sentence (merge review B, minor 5): the graduation box under it says who can make the move and what it costs
+  assert.equal(full.text, "The curve is full: nobody can trade $UTICA until it moves to a Meteora pool (the open market).");
+  assert.equal(P.tradingPaused(coin({ stage: "full" })), true, "no Buy and no 'Live' pill while the curve is full");
+  assert.equal(P.tradingPaused(coin({ stage: "curve" })), false);
+  assert.equal(P.tradingPaused(coin({ stage: "graduated" })), false);
+  const L = pure();
+  const g = L.gradView({ ok: true, canMigrate: true, message: "The curve is full. Anyone can move the coin to the open market now: a Meteora pool where it trades like any other token.", cost: { words: "About 0.033 SOL" } });
+  assert.equal(g.text, "Anyone signed in with a wallet can make the move now.");
+  assert.doesNotMatch(`${full.text} ${g.text}`, /curve is full[\s\S]*curve is full/i, "the full curve is said once, not twice back to back");
   const grad = P.curveOf(coin({ stage: "graduated", symbol: "SOL", raised: 85, target: 85, progressPct: 100 }));
   assert.match(grad.text, /has moved to its Meteora pool/);
   assert.equal(P.onVicinity(coin({ stage: "curve" })), true);
@@ -427,6 +445,9 @@ test("design v2: the city-coin sheets read the site's tokens with a fallback, th
     assert.doesNotMatch(css, /!important|@import/);
     assert.match(css, /\.lp-sum__net--main \{ color: #fff; background: #B3261E;/, "the mainnet line stays white on red (6.5:1) in both themes");
   }
+  // the network chip wraps to two lines on devnet at 320 px: a chip's radius, never a pill's lozenge (merge review B, minor 2)
+  assert.match(CSS, /\.lp-net \{[^}]*border-radius: var\(--r-chip, 12px\);/);
+  assert.doesNotMatch(CSS.match(/\.lp-net \{[^}]*\}/)[0], /--r-pill/);
   assert.match(read("public/lp-sign.js"), /node\("details", "fold lp-sum__more"\)/);
   assert.match(DASH, /<p class="kicker"><span class="ico ico--sm" aria-hidden="true"><svg [^>]*>[\s\S]*?<\/svg><\/span>City coin · Vicinity launchpad<\/p>/);
   assert.doesNotMatch(LP_LAUNCH + read("public/admin-lp.js") + read("public/lp-sign.js"), /[\u{1F300}-\u{1FAFF}⚙⚡]/u, "no pictographic emoji");
