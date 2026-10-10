@@ -1,7 +1,10 @@
 /**
  * Live, read-only Solana data for the website: token facts, top holders,
  * and "does this wallet hold $VICINITY?". Everything comes from the public
- * blockchain. Nothing is written, and no wallet address is ever stored.
+ * blockchain; nothing is ever sent to it. The one thing written: a shared copy of the PUBLIC holder list (every holder wallet
+ * and its amount, as the chain shows them to anyone) in D1 (blobs `holders:v1:<mint>`) with a 30-second lease row in settings
+ * (`holders_lease:<mint>`), so every data centre uses one read (sharedHolders below). The balance history of src/ledger.js
+ * keeps the same public data (`day:` blobs). No other address is stored here: not a visitor's, not a checked wallet's.
  *
  * RPC: set the secret SOLANA_RPC_URL (e.g. a Helius key) in Cloudflare, and optionally SOLANA_RPC_URL_BACKUP (another
  * provider) for when it stops answering. Without SOLANA_RPC_URL we fall back to the public endpoint, which can't list holders.
@@ -238,7 +241,10 @@ export async function getAllHolders(env, mint, fetchImpl = fetch) {
   const filters = [{ memcmp: { offset: 0, bytes: mint } }];
   if (program === TOKEN_PROGRAM) filters.unshift({ dataSize: 165 });
   const res = await rpc(env, "getProgramAccounts", [program, { encoding: "base64", dataSlice: { offset: 32, length: 40 }, filters, withContext: true }], fetchImpl);
-  const accs = Array.isArray(res) ? res : res?.value || [];
+  // An answer that is not a list is a provider's bad answer, never "nobody holds anything": this list is shared with every data
+  // centre, decides eligibility, and the balance sample turns it into the founders' streaks (a wrong "holds 0" ends a streak).
+  const accs = Array.isArray(res) ? res : Array.isArray(res && res.value) ? res.value : null;
+  if (!accs) throw new Error("rpc_bad_answer");
   const slot = Array.isArray(res) ? null : res?.context?.slot ?? null;
   const byOwner = new Map();
   for (const a of accs) {
@@ -252,6 +258,9 @@ export async function getAllHolders(env, mint, fetchImpl = fetch) {
     byOwner.set(owner, (byOwner.get(owner) || 0n) + raw);
   }
   const list = [...byOwner].sort((x, y) => (y[1] > x[1] ? 1 : y[1] < x[1] ? -1 : 0)).map(([o, raw]) => [o, uiAmount(raw, facts.decimals)]);
+  // a token with a supply sits in at least one token account: an empty list then is the provider's, not the chain's (unless the
+  // remembered supply is out of date: everything burned since; asked once more, fresh, before refusing)
+  if (!list.length && facts.supply > 0 && (await getTokenFacts(env, mint, fetchImpl)).supply > 0) throw new Error("rpc_bad_answer");
 
   // label pools / bonding curves (program-owned wallets) among the biggest holders, and team wallets
   const top = list.slice(0, 50).map(([o]) => o);
@@ -330,7 +339,7 @@ async function shareFresh(env, mint, fresh, builtAt) {
   if (env && env.DB) await sharedPut(env.DB, mint, plain);
 }
 
-async function sharedHolders(env, mint, fetchImpl, maxAgeMs) {
+async function sharedHolders(env, mint, fetchImpl, maxAgeMs, { allowLate = false } = {}) {
   const now = Date.now(), db = env && env.DB ? env.DB : null;
   const cache = await coloCache(), key = SHARED_URL + mint;
   let stale = null; // the newest copy seen that is too old for this caller
@@ -338,16 +347,20 @@ async function sharedHolders(env, mint, fetchImpl, maxAgeMs) {
   const colo = await coloGet(cache, key);
   if (usable(colo) && now - colo.builtAt < maxAgeMs) return asCopy(colo);
   consider(colo);
+  // the shared copy before this data centre's failure marker: another data centre may have read the chain since (a D1 read
+  // costs no RPC credit), and then this one uses that list instead of answering its own failure for 10 s
+  const shared = db ? await sharedGet(db, mint) : null;
+  if (shared && now - shared.builtAt < maxAgeMs) { await coloPut(cache, key, shared, KEEP_MS); return asCopy(shared); }
+  consider(shared);
   const failed = await coloGet(cache, key + "/failed");
   if (failed && now - failed.at < COLO_FAILED_MS) throw withStale(new Error(String(failed.code || "rpc_unavailable")), stale);
   let leased = false;
   if (db) {
-    const shared = await sharedGet(db, mint);
-    if (shared && now - shared.builtAt < maxAgeMs) { await coloPut(cache, key, shared, KEEP_MS); return asCopy(shared); }
-    consider(shared);
     leased = await takeLease(db, mint, now);
-    // somebody else is reading the chain right now (or failed to, less than 30 s ago): their last list, a few seconds past its age
-    if (!leased && stale && now - stale.builtAt < maxAgeMs + LEASE_MS) return { ...asCopy(stale), late: true };
+    // somebody else is reading the chain right now (or failed to, less than 30 s ago): the display routes take their last list,
+    // a few seconds past its age (with its real time). A caller that decides something (eligibility, seats, votes, /api/me)
+    // never gets a list older than its maxAgeMs: it reads the chain itself, as before the shared copy existed.
+    if (!leased && allowLate && stale && now - stale.builtAt < maxAgeMs + LEASE_MS) return { ...asCopy(stale), late: true };
   }
   let fresh;
   try { fresh = await getAllHolders(env, mint, fetchImpl); }
@@ -368,8 +381,9 @@ async function sharedHolders(env, mint, fetchImpl, maxAgeMs) {
  * Kept for 60 seconds (per server, and everywhere through sharedHolders), so a busy dashboard doesn't hammer the blockchain.
  *   { facts, rows: [{ owner, amount, percent, rank|null, label }], byOwner: Map(owner → row), people, at, stale? }
  * staleMs (only for answers that show the list WITH its time: /api/holders, /api/rank): when the chain cannot
- * be read, the newest list younger than that is answered instead of an error, with its real `at` and stale: true. Callers that
- * decide something (voting power, eligibility) never get an old list: they keep their own fallback.
+ * be read, the newest list younger than that is answered instead of an error, with its real `at` and stale: true; and while
+ * another caller rebuilds the list, its last copy up to 30 s past maxAgeMs. Callers that decide something (voting power,
+ * eligibility, /api/me, profiles: no staleMs) never get a list older than maxAgeMs: they keep their own fallback.
  */
 const snaps = new Map();
 const lastGood = new Map(); // mint -> this server's last good snapshot (for staleMs)
@@ -386,11 +400,20 @@ function ranked({ facts, list, labels, builtAt }) {
   });
   return { facts, rows, byOwner: new Map(rows.map((r) => [r.owner, r])), people: rank, at: new Date(builtAt).toISOString() };
 }
-function strictSnapshot(env, mint, fetchImpl, maxAgeMs) {
+function strictSnapshot(env, mint, fetchImpl, maxAgeMs, allowLate = false) {
   const hit = snaps.get(mint);
-  if (hit && Date.now() < (hit.failedAt == null ? hit.at + maxAgeMs : hit.failedAt + FAILED_FOR_MS)) return hit.promise;
-  const entry = { at: Date.now(), promise: null, failedAt: null };
-  const promise = sharedHolders(env, mint, fetchImpl, maxAgeMs).then((copy) => {
+  if (hit && Date.now() < (hit.failedAt == null ? hit.at + maxAgeMs : hit.failedAt + FAILED_FOR_MS)) {
+    if (allowLate || hit.late === false) return hit.promise;
+    // a display route's read, which may turn out to be a list past its age: a deciding caller takes it only if it is not
+    return hit.promise.then((snap) => (hit.late ? startSnapshot(env, mint, fetchImpl, maxAgeMs, false) : snap));
+  }
+  return startSnapshot(env, mint, fetchImpl, maxAgeMs, allowLate);
+}
+function startSnapshot(env, mint, fetchImpl, maxAgeMs, allowLate) {
+  // late: null while a read that may answer a late copy is under way, then true or false
+  const entry = { at: Date.now(), promise: null, failedAt: null, late: allowLate ? null : false };
+  const promise = sharedHolders(env, mint, fetchImpl, maxAgeMs, { allowLate }).then((copy) => {
+    entry.late = Boolean(copy.late);
     // a shared copy ages from when it was read, not from when this server picked it up; one used past its age while another
     // caller rebuilds is asked again after 5 s here (not at every call: each would read the database)
     entry.at = copy.late ? Date.now() - maxAgeMs + LATE_RETRY_MS : copy.builtAt;
@@ -404,7 +427,7 @@ function strictSnapshot(env, mint, fetchImpl, maxAgeMs) {
   return promise;
 }
 export function holderSnapshot(env, mint, fetchImpl = fetch, maxAgeMs = 60_000, { staleMs = 0 } = {}) {
-  const p = strictSnapshot(env, mint, fetchImpl, maxAgeMs);
+  const p = strictSnapshot(env, mint, fetchImpl, maxAgeMs, staleMs > 0);
   if (!(staleMs > 0)) return p;
   return p.catch((e) => {
     const mine = lastGood.get(mint), theirs = e && e.stale ? ranked(e.stale) : null;
@@ -419,7 +442,7 @@ export async function publishHolders(env, mint, fresh) {
   await shareFresh(env, mint, fresh, builtAt);
   const snap = ranked({ ...fresh, builtAt });
   lastGood.set(mint, snap);
-  snaps.set(mint, { at: builtAt, promise: Promise.resolve(snap), failedAt: null });
+  snaps.set(mint, { at: builtAt, promise: Promise.resolve(snap), failedAt: null, late: false });
 }
 /** Tests: another server (its own memory empty, the shared copies still there). */
 export const _forgetServerMemory = () => { snaps.clear(); lastGood.clear(); factsMemo.clear(); };
@@ -443,6 +466,18 @@ export function rankOf(snap, owner) {
     if (last) out.next = { rank: last.rank, amount: last.amount, gap: last.amount };
   }
   return out;
+}
+
+/**
+ * rankOf, with this wallet's own amount read just now put into an older list (the display routes while the chain's full list
+ * cannot be read): someone who just bought sees what they hold and where that puts them; the others are as the list says.
+ */
+export function rankWithAmount(snap, owner, amount) {
+  const labels = new Map(snap.rows.filter((r) => r.label).map((r) => [r.owner, r.label]));
+  const list = snap.rows.filter((r) => r.owner !== owner).map((r) => [r.owner, r.amount]);
+  if (amount > 0) list.push([owner, amount]);
+  list.sort((x, y) => y[1] - x[1]);
+  return rankOf(ranked({ facts: snap.facts, list, labels, builtAt: Date.parse(snap.at) }), owner);
 }
 
 /**

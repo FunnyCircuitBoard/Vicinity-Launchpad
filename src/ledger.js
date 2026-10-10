@@ -32,12 +32,28 @@ export async function maybeSample(env, now, fetchImpl = fetch, rand = Math.rando
   return takeSample(env, now, fetchImpl);
 }
 
+/**
+ * A list with fewer than half the holders of a sample taken in the last 6 hours (when that one had at least 20) is not taken:
+ * holders do not halve in a few hours, a provider's cut-short answer does (a backup on another plan, a truncated
+ * getProgramAccounts), and a sample of it would end the streak of every founder missing from it (above_since = NULL cannot be
+ * undone) and lower everyone's 14-day average. After 6 hours without a sample the guard steps aside, so a real drop is recorded.
+ */
+const SHRINK_MIN = 20, SHRINK_WITHIN_MS = 6 * 3_600_000;
+async function shrankTooMuch(db, list, now) {
+  const prev = await db.prepare("SELECT taken_at, holders FROM balance_samples ORDER BY id DESC LIMIT 1").first();
+  return Boolean(prev && prev.holders >= SHRINK_MIN && list.length * 2 < prev.holders && now - Date.parse(prev.taken_at) < SHRINK_WITHIN_MS);
+}
+
 /** Record every holder's balance right now. */
 export async function takeSample(env, now, fetchImpl = fetch) {
   const db = env.DB;
   await ensureSchema(db);
   const read = await getAllHolders(env, activeMint(env), fetchImpl);
   const { facts, list, labels, slot } = read;
+  if (await shrankTooMuch(db, list, now)) {
+    console.error("balance sample skipped: the holder list shrank by more than half", list.length);
+    return { sampled: false, why: "list_shrank", holders: list.length };
+  }
   // the sample read every holder anyway: the holder list, the dashboards and the coin stats of this run use it instead of
   // reading the chain again (a shared copy only; a failure to share is not a failure of the sample)
   await publishHolders(env, activeMint(env), read).catch(() => {});

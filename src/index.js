@@ -47,7 +47,7 @@
  */
 import { activeMint, checkOfficial, marketLink, officialFor, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
-import { SHOW_STALE_MS, getHolding, getTokenFacts, getTopHolders, holderSnapshot, isTeamWallet, rankOf } from "./chain.js";
+import { SHOW_STALE_MS, getHolding, getTokenFacts, getTopHolders, holderSnapshot, isTeamWallet, rankOf, rankWithAmount } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
 import { SECURITY_HEADERS, json } from "./http.js";
 import { readSigned } from "./signed.js";
@@ -182,7 +182,13 @@ async function rankResponse(env, mint, address, fetchImpl) {
   const founderMin = founderAmount(0);
   try {
     const snap = await holderSnapshot(env, mint, fetchImpl, 60_000, { staleMs: SHOW_STALE_MS }); // a shown rank: like /api/holders
-    return json({ launched: true, full: true, address, ...rankOf(snap, address), supply: snap.facts.supply, founderMin, updatedAt: snap.at });
+    let mine = rankOf(snap, address);
+    if (snap.stale) {
+      // an older list (the full list cannot be read right now): the wallet's own amount is still read fresh when that works (one
+      // cheap call), so someone who just bought sees what they hold; the others' amounts are the list's, as of updatedAt
+      try { mine = rankWithAmount(snap, address, await getHolding(env, address, mint, fetchImpl)); } catch { /* the list's own amount */ }
+    }
+    return json({ launched: true, full: true, address, ...mine, supply: snap.facts.supply, founderMin, updatedAt: snap.at, ...(snap.stale ? { stale: true } : {}) });
   } catch { /* fall back to the balance alone */ }
   try {
     const amount = await getHolding(env, address, mint, fetchImpl);

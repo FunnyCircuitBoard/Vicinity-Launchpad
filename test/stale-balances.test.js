@@ -4,7 +4,7 @@
 // while the RPC was down, was seated as Seed Steward by the window that closed 20 hours later.
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { MINT, chain, holdings, newWorld, realClock, setHolding, useClock, wallet } from "./helpers/world.js";
+import { MINT, POOL, chain, holdings, newWorld, realClock, setHolding, useClock, wallet } from "./helpers/world.js";
 import { takeSample } from "../src/ledger.js";
 import { runJobs } from "../src/jobs.js";
 import { advanceElections } from "../src/elections.js";
@@ -25,6 +25,7 @@ async function sellerWithWindow() {
   useClock(new Date(T0).toISOString());
   await takeSample(env, T0, chain());
   setHolding(seller, 0); // sells everything; from here on the RPC is down
+  setHolding(POOL, 1_000_000); // to the pool (a labelled wallet, never a person): a token with a supply always sits in some account
   const now = T0 + 20 * HOUR;
   useClock(new Date(now).toISOString());
   const db = env.DB;
