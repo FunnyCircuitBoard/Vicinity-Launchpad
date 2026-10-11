@@ -105,3 +105,13 @@ test("d3 phone step card: the four steps share one cell, so the controls under t
   assert.match(polish, /\.nyc__ctrl \{ margin-top: auto; \}/, "a computer: the controls and the member card at the column's foot, level with the map's bottom");
   assert.doesNotMatch(polish, /\.member-cloud li\.is-more \{ display: inline-flex; \} \.member-cloud li:has/, "five boroughs and +41 more on every screen");
 });
+
+test("d3 walkthrough layout: a wide computer shows the whole story at once; a phone's step card shows where the story is", () => {
+  const wide = polish.match(/@media \(min-width: 1200px\) \{\n[\s\S]*?\n\}/)[0];
+  assert.match(wide, /\.nyc \{ grid-template-columns: minmax\(0, 1\.05fr\) minmax\(0, \.95fr\); grid-template-rows: auto 1fr auto; grid-template-areas: "map steps" "map ctrl" "facts facts"; gap: 0 32px; \}/);
+  assert.match(wide, /\.steps em, \.steps button\[aria-current="step"\] em \{ max-height: none;/, "every step's text shows: nothing changes height while it plays");
+  assert.match(wide, /\.nyc__steps \.nyc__ctrl \{ grid-area: ctrl; align-self: end;/, "the controls level with the map's foot");
+  assert.match(wide, /\.nyc__steps \.nyc__facts \{ grid-area: facts;/, "Inside $NYC as one band under both columns");
+  assert.match(polish, /\.nyc\[data-step="2"\] \.steps \{ --steps-done: 50%; \} \.nyc\[data-step="3"\] \.steps \{ --steps-done: 75%; \} \.nyc\[data-step="4"\] \.steps \{ --steps-done: 100%; \}/, "four segments along a phone's step card");
+  assert.doesNotMatch(polish.match(/\.steps::after \{[^}]*\}/)[0], /animation|transition/, "still");
+});
