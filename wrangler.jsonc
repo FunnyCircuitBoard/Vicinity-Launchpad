@@ -58,7 +58,12 @@
     // (docs/MAINNET.md section 4). Change them only by a pull request (do not delete the lines: keep_vars).
     "LAUNCHPAD_CLUSTER": "mainnet",
     "LAUNCHPAD_PROGRAM_ID": "AkMP9qvAYmb8Vyu63Qhw8Z4ee1fgQbCRKkXWy5r5A1Ai",
-    "LAUNCHPAD_REWARDS_PROGRAM_ID": "EVwxp3V9YSvsyDEjp39B9wRDQxHR2xF2CNeR8AMRYrgG"
+    "LAUNCHPAD_REWARDS_PROGRAM_ID": "EVwxp3V9YSvsyDEjp39B9wRDQxHR2xF2CNeR8AMRYrgG",
+    // The priority fee every City-coins transaction built here carries (micro-lamports per compute unit; capped in src/lpkit.js
+    // so it never passes 0.01 SOL). It must be set: a transaction WITHOUT one is changed by Phantom (it adds its own fee), and the
+    // site then refuses the changed bytes ("Your wallet changed the transaction", the owner's setup step 1, 11 Oct 2026). 100000
+    // costs 0.000005 SOL at 50,000 units and 0.00004 SOL at 400,000. Curve trades (src/lptrade.js) read the same setting.
+    "LAUNCHPAD_CU_PRICE": "100000"
   },
   "assets": {
     "directory": "./public",

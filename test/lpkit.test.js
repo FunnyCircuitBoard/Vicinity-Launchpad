@@ -35,6 +35,17 @@ test("lpSetup: the live settings (PR-1, 10 Oct 2026) open the owner's setup on m
   assert.equal(launchpadTradingOn(live), false);
 });
 
+test("the live settings carry a priority fee, so Phantom does not add its own and change the bytes (owner's setup step 1, 11 Oct 2026)", async () => {
+  const live = wranglerVars();
+  assert.match(String(live.LAUNCHPAD_CU_PRICE), /^[1-9]\d{0,11}$/, "a positive LAUNCHPAD_CU_PRICE");
+  const c = lpChain();
+  const r = await buildTx(env({ LAUNCHPAD_CU_PRICE: live.LAUNCHPAD_CU_PRICE }), { payer: PAYER, instructions: [systemTransfer(PAYER, OTHER, 1n)] }, c.fetchImpl);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.ok(r.summary.some((x) => /set_compute_unit_price/.test(JSON.stringify(x))), "the transaction names its own priority fee");
+  assert.equal(r.fees.computeUnitPrice, live.LAUNCHPAD_CU_PRICE);
+  assert.ok(r.fees.priorityLamports > 0 && r.fees.priorityLamports < 100_000, "a small fee: " + r.fees.priorityLamports);
+});
+
 test("lpSetup: production-like settings without the setup settings keep it OFF although launchpadCluster().ready is already true through the devnet defaults", () => {
   const prod = darkVars();
   assert.equal(prod.LAUNCHPAD_CLUSTER, undefined, "without the three setup settings there is no launchpad switch");
