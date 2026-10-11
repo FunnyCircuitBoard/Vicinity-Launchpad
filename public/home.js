@@ -308,7 +308,7 @@
     if (next) timeline.style.setProperty("--rail-at", `${at(next).toFixed(1)}%`); else timeline.style.setProperty("--rail-at", "100%");
   }
   function launchpadLive() {
-    const stop = timeline && $$(".timeline__item", timeline).find((li) => /Vicinity Launchpad/.test(li.textContent));
+    const stop = timeline && $$(".timeline__item", timeline).find((li) => /Vicinity\sLaunchpad/.test(li.textContent)); // \s: the title has a no-break space
     if (!stop || stop.classList.contains("is-now")) return;
     stop.classList.remove("is-next"); stop.classList.add("is-done", "is-now");
     const status = $(".timeline__status", stop); if (status) status.textContent = "Open now"; // the page is open; a city's coin launches once its founder qualifies

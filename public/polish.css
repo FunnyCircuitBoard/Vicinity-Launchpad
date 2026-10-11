@@ -200,6 +200,10 @@ input, select, textarea { min-height: 44px; }
   .steps em { font-size: .9rem; }
 }
 
+/* one section-title size on the home page (d3): --fs-xl everywhere (36 px on a computer, 22-24 px on a phone); no 48 px exceptions, no
+   22-character cap ("How one city becomes one coin." on one line on a computer) */
+[data-page="home"] .section-head h2 { font-size: var(--fs-xl); max-width: none; }
+
 /* the problem: three lines and a bridge */
 .problems { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .problems li { display: flex; gap: 12px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 1rem; color: var(--text); }

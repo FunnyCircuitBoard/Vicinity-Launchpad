@@ -127,18 +127,20 @@ test("home: the incentives are one tabbed block and the FAQ another; every panel
 
 test("home: the roles and the founder amount stated once each, the five steps in the new order (location, Google, dashboard, wallet when you like, Launchpad)", () => {
   const roles = home.match(/<div class="tabpanel why-panel" id="roles"[\s\S]*?<\/div>\s*<div class="tabpanel/)[0];
-  assert.deepEqual([...roles.matchAll(/<h3>([^<]+)<\/h3>/g)].map((m) => m[1]), ["Holder", "City Founder", "Country Manager", "Admin"]);
+  const plain = (x) => x.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " "); // d3: a no-break space ties the last two words of a title (no orphan)
+  assert.deepEqual([...roles.matchAll(/<h3>(.*?)<\/h3>/g)].map((m) => plain(m[1])), ["Holder", "City Founder", "Country Manager", "Admin"]);
   assert.equal(count(home, /100K to 1M/g), 1, "the Stake Ladder's range once (it was in five places)");
   assert.equal(count(home, /Founding Supporters/g), 3, "named in the first tab, the second fact and the roadmap");
-  const steps = [...home.matchAll(/<li class="flow__step reveal"(?: id="get")?><span class="flow__icon ico ico--sm" aria-hidden="true"><svg [^>]+>(?:<(?:path|circle|rect) [^>]+\/>)+<\/svg><\/span><div><h3>([^<]+)<\/h3>/g)].map((m) => m[1]);
+  const steps = [...home.matchAll(/<li class="flow__step reveal"(?: id="get")?><span class="flow__icon ico ico--sm" aria-hidden="true"><svg [^>]+>(?:<(?:path|circle|rect) [^>]+\/>)+<\/svg><\/span><div><h3>(.*?)<\/h3>/g)].map((m) => plain(m[1]));
   assert.deepEqual(steps, ["Find your community", "Sign in with Google or e-mail", "Your dashboard", "Connect a wallet when you like", "City coins on the Launchpad"]);
   // one sign-in story on the page (the FAQ says Google or e-mail; the step and the roadmap said Google only), and the measured claim about accounts
-  assert.match(home, /<h3>Sign in with Google or e-mail<\/h3><p class="muted">One account per login makes fake accounts and spam harder \(it does not prove one person\)\.<\/p>/);
+  // d3: "e-mail" never breaks at its hyphen (it did at 1440), tied to the word before it
+  assert.match(home, /<h3>Sign in with Google or&nbsp;<span class="nowrap">e-mail<\/span><\/h3><p class="muted">One account per login makes fake accounts and spam harder \(it does not prove one person\)\.<\/p>/);
   assert.match(home, /<p>One account per login, live ranks and badges, local and national feeds, moderation\.<\/p>/);
   assert.doesNotMatch(home, /per Google login|keeps fake accounts and spam out/);
   // the pointer to the Token page is step 5's (the "Need $VICINITY?" box under the steps was the hero's call to buy a second time); /#get still lands
-  assert.match(home, /<li class="flow__step reveal" id="get"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg [^>]+>[^]*?<\/svg><\/span><div><h3>City coins on the Launchpad<\/h3><p class="muted">Founders and \$VICINITY holders get in before the public\. <a href="\/token#buy">How to get \$VICINITY →<\/a><\/p><\/div><\/li>/);
-  assert.equal(count(home, /go first/g), 1, "said once: the first tab's heading");
+  assert.match(home, /<li class="flow__step reveal" id="get"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg [^>]+>[^]*?<\/svg><\/span><div><h3>City coins on the&nbsp;Launchpad<\/h3><p class="muted">Founders and \$VICINITY holders get in before the public\. <a href="\/token#buy">How to get \$VICINITY →<\/a><\/p><\/div><\/li>/);
+  assert.equal(count(home, /go(&nbsp;| )first/g), 1, "said once: the first tab's heading (its last two words tied by a no-break space)");
   assert.doesNotMatch(home.slice(home.indexOf("<main")), /[\u{1F300}-\u{1FAFF}\u2699\u26A1]/u, "no emoji as icons in the page: the shared SVG set in .ico");
   assert.doesNotMatch(home, /get-line|Need \$VICINITY\?/); assert.doesNotMatch(polish, /\.get-line/);
   assert.equal(count(home, /href="\/token#buy(-slot)?"/g), 2, "the hero's button to the buy slot and step 5's link to the how-to: no third pointer to the token (the FAQ's closed fold links the page itself)");

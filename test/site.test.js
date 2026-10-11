@@ -297,7 +297,7 @@ test("home: the Early member card no longer invites visitors to join for a badge
   // src/signup-finish.js (the sign-up) and src/auth.js store early = 0 for every account made while VICINITY_MINT is set (since 3 Oct 2026)
   const h = html["index.html"];
   assert.doesNotMatch(h, /Join before \$VICINITY launches/);
-  assert.match(h, /<h3>Proof you were early<\/h3><p class="muted">Members who joined before \$VICINITY launched on October 3 carry the <strong>Early member<\/strong> badge for good\. Nobody can earn it any more\.<\/p>/);
+  assert.match(h, /<h3>Proof you were&nbsp;early<\/h3><p class="muted">Members who joined before \$VICINITY launched on October 3 carry the <strong>Early member<\/strong> badge for good\. Nobody can earn it any more\.<\/p>/);
   for (const f of ["../src/signup-finish.js", "../src/auth.js"]) assert.match(readFileSync(new URL(f, import.meta.url), "utf8"), /activeMint\(env\) \? 0 : 1/, `${f}: the rule the card describes`);
 });
 
@@ -305,7 +305,8 @@ test("home: the roadmap shows the October 3 launch as done and the Launchpad as 
   // live 3 Oct 2026 after the launch: the launch was still the pulsing "next" step, "the contract address is published on this
   // site first", the FAQ said "it launches October 3", and the New York map said founder "claims open at launch"
   const h = html["index.html"];
-  const items = [...h.matchAll(/<li class="timeline__item([^"]*)"><span class="timeline__status">([^<]+)<\/span><h3>([^<]+)<\/h3>/g)].map((m) => [m[1].trim(), m[2], m[3]]);
+  // (d3: a no-break space ties the last two words of each title, so none ends on a single word)
+  const items = [...h.matchAll(/<li class="timeline__item([^"]*)"><span class="timeline__status">([^<]+)<\/span><h3>([^<]+)<\/h3>/g)].map((m) => [m[1].trim(), m[2], m[3].replace(/&nbsp;/g, " ")]);
   assert.deepEqual(items.slice(0, 4), [["is-done reveal", "Done", "The real map"], ["is-done reveal", "Done", "Accounts and dashboards"],
     ["is-done reveal", "Done", "$VICINITY launched"], ["is-next reveal", "Next", "Vicinity Launchpad"]]);
   assert.doesNotMatch(h, /Every city can launch/, "no city coin can launch yet: the roadmap says each city launches once its founder qualifies");
