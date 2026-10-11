@@ -82,8 +82,12 @@
 
 /* ---------- base ---------- */
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; scroll-padding-top: 84px; }
-body { margin: 0; background: var(--bg); background-image: radial-gradient(var(--dots) 1px, transparent 1.2px); background-size: 22px 22px; color: var(--text); font: 16px/1.65 var(--body); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+/* the page is never wider than the screen, for every browser and screenshot tool (iOS Safari and full-page captures read the root's
+   overflow, not body's): html clips, and body clips too. Clip, never hidden, on body: with html clipping, body overflow-x: hidden makes
+   body a scroll container (overflow-y computes to auto) and the sticky header stops sticking (measured 11 Oct 2026: the header at
+   -1500 px after scrolling 1500). "hidden" first is the fallback for browsers without clip (body's value then reaches the viewport). */
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; scroll-padding-top: 84px; overflow-x: clip; }
+body { margin: 0; background: var(--bg); background-image: radial-gradient(var(--dots) 1px, transparent 1.2px); background-size: 22px 22px; color: var(--text); font: 16px/1.65 var(--body); -webkit-font-smoothing: antialiased; overflow-x: hidden; overflow-x: clip; }
 img, svg, canvas { display: block; max-width: 100%; }
 /* nothing a page draws or prints is wider than the screen: media, tables and code wrap or shrink to their column */
 main :where(img, svg, video, canvas, iframe, table, pre) { max-width: 100%; }
@@ -127,7 +131,9 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 .account-btn.is-in .btn__dot { background: var(--ok-text); box-shadow: 0 0 0 3px rgba(55,194,154,.3); }
 .account-btn .avatar-mini { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 700 .72rem var(--display); background: linear-gradient(135deg, var(--pin), var(--gold)); color: #fff; margin-left: -8px; }
 @media (max-width: 900px) { .nav { display: none; } }
-@media (max-width: 380px) { .brand span { display: none; } }
+/* the wordmark shows at every width (at 320 px "Log in" leaves it 23 px to the theme button). A signed-in name (up to 16 characters) or
+   "Finish sign-in" is cut with an ellipsis to the room a phone has beside it (8 px or more from the theme button, measured 320-430 px) */
+@media (max-width: 440px) { .account-btn [data-account-label] { display: inline-block; max-width: max(3.2em, calc(100vw - 262px)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; } }
 
 /* phone menu bar */
 .tabbar { display: none; }

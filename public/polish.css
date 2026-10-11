@@ -16,7 +16,7 @@
 }
 
 /* ---------- 44 px targets, 12 px text (header, footer, the small controls every page shares) ---------- */
-.brand { min-height: 44px; min-width: 44px; padding: 0 4px; margin-left: -4px; border-radius: 10px; } /* 44 px wide too when only the logo shows (380 px and under) */
+.brand { min-height: 44px; min-width: 44px; padding: 0 4px; margin-left: -4px; border-radius: 10px; } /* a 44 px target: the logo and the wordmark, at every width */
 .theme-toggle { width: 44px; height: 44px; }
 .account-btn.btn--sm { min-height: 44px; }
 .btn--sm { min-height: 44px; }

@@ -275,8 +275,14 @@ test("the guard against anything wider than a phone: buttons, media, code and gr
   assert.match(style, /\.btn--lg, \.btn--block, \.btn--social \{ white-space: normal; text-wrap: balance; text-align: center; line-height: 1\.25; padding-block: 8px; \}/, "a long label wraps, centred");
   assert.match(style, /main :where\(img, svg, video, canvas, iframe, table, pre\) \{ max-width: 100%; \}/);
   assert.match(style, /p code \{ overflow-wrap: anywhere; \}/);
-  assert.match(style, /body \{[^}]*overflow-x: hidden;/, "body keeps its clip");
-  assert.doesNotMatch(style + polish, /(^|[}\s])html \{[^}]*overflow(-x)?:/, "never on html: body would become the scroll container and the sticky header would stop sticking");
+  // d3 (11 Oct 2026): the root clips too, so iOS Safari and full-page screenshot tools never see a page wider than the screen (the
+  // owner's desktop captures showed the layout left-aligned beside an empty band). The pair is deliberate: body clips with "clip",
+  // never "hidden" — html clip + body hidden makes body the scroll container and the sticky header stopped sticking (measured:
+  // -1500 px after scrolling 1500); with body clip it stays at 0. "hidden" stays first as the fallback for browsers without clip.
+  assert.match(style, /\nhtml \{[^}]*overflow-x: clip; \}/, "html clips sideways");
+  assert.match(style, /\nbody \{[^}]*overflow-x: hidden; overflow-x: clip; \}/, "body clips (hidden only as the fallback)");
+  assert.doesNotMatch(style + polish, /(^|[}\s])html \{[^}]*overflow(-x)?: (hidden|auto|scroll)/, "never hidden/auto/scroll on html");
+  assert.doesNotMatch(style + polish, /(^|[}\s])body \{[^}]*overflow-x: hidden; \}/, "never body hidden alone (with html clip, sticky would break)");
   // every grid that applies on a phone uses minmax(0, ...) tracks (a bare 1fr track grows to its longest word or input), outside the
   // Launchpad / coin and dashboard v2 blocks that their own tests pin
   const shared = style.slice(0, style.indexOf("/* ---------- Launchpad city coins (LAUNCHPAD_V2=on)")) + polish;
