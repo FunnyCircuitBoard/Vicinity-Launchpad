@@ -305,16 +305,17 @@ select option { background: var(--bg-2); }
 @keyframes march { to { stroke-dashoffset: -30; } }
 .m-dot { fill: var(--map-dot); transition: opacity .5s, r .5s, fill .5s; }
 .m-dot.is-in { fill: var(--pin-2); }
-.m-label { font: 600 19px var(--body); fill: var(--map-label); paint-order: stroke; stroke: var(--map-halo); stroke-width: 5px; stroke-linejoin: round; pointer-events: none; transition: opacity .5s; }
-.m-label--big { font: 700 26px var(--display); }
-@media (max-width: 700px) { .m-label { font-size: 30px; stroke-width: 7px; } .m-label--big { font-size: 34px; } .m-flag text { font-size: 30px; } .m-flag rect { height: 48px; } }
+/* labels keep their size on screen whatever the zoom: --u is map units per CSS pixel (home.js sets it on the svg through the CSSOM), so
+   13 px names and a 15 px city label at every width (they read 7-10 px on a phone before d3); a label that fits nowhere is left out */
+.m-label { font-family: var(--body); font-weight: 600; font-size: calc(13px * var(--u, 1.6)); fill: var(--map-label); paint-order: stroke; stroke: var(--map-halo); stroke-width: calc(4px * var(--u, 1.6)); stroke-linejoin: round; pointer-events: none; transition: opacity .5s; }
+.m-label--big { font-family: var(--display); font-weight: 700; font-size: calc(15px * var(--u, 1.6)); letter-spacing: -.01em; }
+.m-label.is-off { display: none; }
+.m-tick { font-size: calc(12px * var(--u, 1.6)); font-weight: 700; letter-spacing: .02em; fill: var(--gold-text); } /* a neighbour's own coin, under its name (a computer) */
 .m-coin circle { fill: var(--gold); stroke: #fff6; stroke-width: 3; }
 .m-coin text { font: 800 26px var(--display); fill: #5A3A06; }
 .m-pulse { fill: none; stroke: var(--pin); stroke-width: 2; animation: ringOut 2.4s ease-out infinite; transform-box: fill-box; transform-origin: center; }
 @keyframes ringOut { from { transform: scale(.4); opacity: 1; } to { transform: scale(2.4); opacity: 0; } }
 .m-link { stroke: rgba(255,138,91,.55); stroke-width: 1.2; vector-effect: non-scaling-stroke; transition: opacity .6s; }
-.m-flag rect { fill: var(--glass); stroke: var(--line-2); }
-.m-flag text { font: 600 18px var(--body); fill: var(--text); }
 
 /* problem cards */
 .problem__num { font: 700 .9rem var(--display); color: var(--pin-2); letter-spacing: .12em; display: block; margin-bottom: 12px; }
@@ -323,11 +324,21 @@ select option { background: var(--bg-2); }
 /* NYC walkthrough */
 .nyc { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 26px; align-items: start; }
 @media (max-width: 960px) { .nyc { grid-template-columns: minmax(0, 1fr); } }
-.nyc__map { position: relative; border-radius: 26px; overflow: hidden; border: 1px solid var(--line); background: var(--map-water); box-shadow: var(--shadow); }
-.nyc__map svg { width: 100%; height: auto; }
-.nyc__credit { position: absolute; left: 12px; bottom: 8px; margin: 0; color: var(--muted); background: var(--glass); padding: 2px 8px; border-radius: 8px; }
-@media (max-width: 700px) { .nyc__credit { position: static; border-radius: 0; } }
-:root[data-theme="light"] .nyc__credit { color: var(--text-2); }
+.nyc__map { position: relative; border-radius: var(--r-hero); overflow: hidden; border: 1px solid var(--line); background: var(--map-water); box-shadow: var(--shadow); }
+/* square at every width (both views are square), so a step's zoom never moves the page */
+.nyc__map svg { display: block; width: 100%; height: auto; aspect-ratio: 1 / 1; }
+/* under the map, never over it: the legend (what the colours mean; the parts of later steps dimmed until then) and the data credit */
+.nyc__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; padding: 10px 14px 11px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.nyc__legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.nyc__key { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-xs); font-weight: 600; line-height: 1.5; color: var(--text-2); transition: color .4s; }
+.nyc__key b { font-weight: inherit; }
+.nyc__swatch { flex: none; transition: opacity .4s; }
+.nyc__key--official .nyc__swatch { width: 18px; border-top: 2px dashed var(--gold); }
+.nyc__key--member .nyc__swatch { width: 9px; height: 9px; border-radius: 50%; background: var(--pin-2); box-shadow: 0 0 0 3px var(--accent-soft); margin: 0 2px; }
+.nyc__key--nb .nyc__swatch { width: 15px; height: 11px; border-radius: 3px; border: 1.5px solid var(--map-area-line); background: var(--map-area); }
+.nyc[data-step="1"] :is(.nyc__key--member, .nyc__key--nb), .nyc[data-step="2"] .nyc__key--nb { color: var(--muted); }
+.nyc[data-step="1"] :is(.nyc__key--member, .nyc__key--nb) .nyc__swatch, .nyc[data-step="2"] .nyc__key--nb .nyc__swatch { opacity: .35; }
+.nyc__credit { margin: 0; font-size: var(--fs-xs); color: var(--muted); }
 .nyc__tip { position: absolute; margin: 0; pointer-events: none; background: var(--glass); border: 1px solid var(--line-2); border-radius: 10px; padding: 6px 10px; font-size: .82rem; transform: translate(-50%, calc(-100% - 10px)); white-space: nowrap; }
 .steps { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 8px; }
 .steps button { width: 100%; display: flex; gap: 14px; text-align: left; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; color: var(--text); font: inherit; cursor: pointer; transition: border-color .25s, background .25s; }
@@ -337,20 +348,25 @@ select option { background: var(--bg-2); }
 .steps button[aria-current="step"] .steps__n { background: linear-gradient(135deg, var(--cta-a), var(--cta-b)); border-color: var(--cta-a); color: #fff; } /* white on the main buttons' orange: 4.5:1 or more */
 .steps strong { display: block; font-family: var(--display); font-size: 1.05rem; }
 .steps em { font-style: normal; color: var(--muted); font-size: .92rem; display: block; max-height: 0; overflow: hidden; transition: max-height .45s ease; }
-.steps button[aria-current="step"] em { max-height: 12em; margin-top: 4px; }
+.steps button[aria-current="step"] em { max-height: 18em; margin-top: 4px; }
+/* step 4's two facts (they were SVG flags over the map): an icon, a line each */
+.steps__facts { display: grid; gap: 6px; margin-top: 8px; }
+.steps__fact { display: flex; align-items: center; gap: 10px; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.35; }
+.steps__fact .ico { width: 26px; height: 26px; } .steps__fact .ico svg { width: 15px; height: 15px; }
 .nyc__ctrl { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 .nyc__facts { padding: 18px; }
 .member-cloud { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; max-height: 150px; overflow: auto; }
 .member-cloud li { font-size: .8rem; padding: 3px 10px; border-radius: 999px; background: var(--card-2); border: 1px solid var(--line); }
 .member-cloud li.is-big { border-color: rgba(255,90,54,.45); color: var(--text); }
 /* which layers show at each step */
-.nyc[data-step="1"] .m-nyc, .nyc[data-step="1"] .m-link, .nyc[data-step="1"] .m-coin, .nyc[data-step="1"] .m-nb, .nyc[data-step="1"] .m-flag, .nyc[data-step="1"] .m-lead { opacity: 0; }
-.nyc[data-step="2"] .m-nb, .nyc[data-step="2"] .m-flag, .nyc[data-step="2"] .m-lead { opacity: 0; }
-.nyc[data-step="3"] .m-link, .nyc[data-step="3"] .m-flag, .nyc[data-step="3"] .m-lead { opacity: 0; }
+.nyc[data-step="1"] .m-nyc, .nyc[data-step="1"] .m-link, .nyc[data-step="1"] .m-coin, .nyc[data-step="1"] .m-nb, .nyc[data-step="1"] .m-lead { opacity: 0; }
+.nyc[data-step="2"] .m-nb, .nyc[data-step="2"] .m-lead { opacity: 0; }
+.nyc[data-step="3"] .m-link, .nyc[data-step="3"] .m-lead { opacity: 0; }
 .nyc[data-step="3"] .m-official, .nyc[data-step="4"] .m-official { opacity: .35; }
 .nyc[data-step="4"] .m-link { opacity: 0; }
+.nyc:not([data-step="2"]) .m-boro { opacity: 0; } /* the five boroughs' names: step 2 only (a wider map) */
 .nyc[data-step="1"] .m-dot { opacity: .9; }
-.m-nb, .m-link, .m-coin, .m-flag, .m-lead, .m-official { transition: opacity .6s; }
+.m-nb, .m-link, .m-coin, .m-lead, .m-official, .m-boro { transition: opacity .6s; }
 
 /* flow */
 .flow-wrap { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, .7fr); gap: 24px; align-items: start; }

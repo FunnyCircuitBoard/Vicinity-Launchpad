@@ -82,7 +82,8 @@
       </div>
     </section>
 
-    <!-- ============ NYC, REAL DATA: the map first on a phone, one step at a time ============ -->
+    <!-- ============ NYC, REAL DATA: the map first on a phone, one step at a time. One view per step (home.js: zoomed in on the city, then out to
+         its neighbours), labels that never collide, a legend under the map; nothing floats over the drawing ============ -->
     <section class="section section--panel" id="nyc">
       <div class="wrap">
         <div class="section-head">
@@ -91,17 +92,24 @@
           <p class="muted">Step through it, or let it play.</p>
         </div>
         <div class="nyc" data-step="1">
-          <div class="nyc__map">
-            <svg id="nyc-map" viewBox="0 0 1000 925" role="img" aria-label="Map of New York City and its neighbours on the Vicinity map"></svg>
+          <div class="nyc__map" data-fb-avoid>
+            <svg id="nyc-map" viewBox="290 255 440 440" role="img" aria-label="Map of New York City and its neighbours on the Vicinity map"></svg>
             <p class="nyc__tip" id="nyc-tip" hidden></p>
-            <p class="nyc__credit tiny">© OpenStreetMap contributors · GeoNames · Natural Earth</p>
+            <div class="nyc__foot">
+              <ul class="nyc__legend" aria-label="Map key">
+                <li class="nyc__key nyc__key--official"><span class="nyc__swatch" aria-hidden="true"></span><span>Official boundary</span></li>
+                <li class="nyc__key nyc__key--member"><span class="nyc__swatch" aria-hidden="true"></span><span>Part of $NYC (<b data-stat="nycMembers">46</b>&nbsp;places)</span></li>
+                <li class="nyc__key nyc__key--nb"><span class="nyc__swatch" aria-hidden="true"></span><span>Neighbour: gets its own coin</span></li>
+              </ul>
+              <p class="nyc__credit">© OpenStreetMap contributors · GeoNames · Natural Earth</p>
+            </div>
           </div>
           <div class="nyc__steps">
             <ol class="steps" id="nyc-steps">
-              <li><button type="button" data-go="1" aria-current="step"><span class="steps__n">1</span><span><strong>The official boundary</strong><em>We start from the city's own boundary on OpenStreetMap: New York City's five boroughs.</em></span></button></li>
-              <li><button type="button" data-go="2"><span class="steps__n">2</span><span><strong><b data-stat="nycMembers">73</b> places, one coin</strong><em>Manhattan, Brooklyn, Queens, the Bronx, Staten Island and the neighbourhoods inside them (Harlem, Astoria, Flatbush…) all sit inside that boundary. Instead of <b data-stat="nycMembers">73</b> coins fighting each other, they share one: <b>$NYC</b>.</em></span></button></li>
-              <li><button type="button" data-go="3"><span class="steps__n">3</span><span><strong>Neighbours keep their own</strong><em>Nobody's city is folded into New York. Newark (with Jersey City and Hoboken right next door), Yonkers, Paterson and Hempstead each have their own coin, and borders never overlap.</em></span></button></li>
-              <li><button type="button" data-go="4"><span class="steps__n">4</span><span><strong>Locals take the lead</strong><em>People inside the boundary verify with their location and wallet. The first local who has held the city's founder amount for 7 days becomes Seed Steward, and locals can challenge them or choose between rivals. No single whale decides.</em></span></button></li>
+              <li><button type="button" data-go="1" aria-current="step"><span class="steps__n">1</span><span><strong>The official&nbsp;boundary</strong><em>We start from the city's own boundary on OpenStreetMap: New York City's five boroughs.</em></span></button></li>
+              <li><button type="button" data-go="2"><span class="steps__n">2</span><span><strong><b data-stat="nycMembers">46</b> places, one&nbsp;coin</strong><em>Manhattan, Brooklyn, Queens, the Bronx, Staten Island and the neighbourhoods inside them (Harlem, Astoria, Flatbush…) all sit inside that boundary. Instead of <b data-stat="nycMembers">46</b> coins fighting each other, they share one: <b>$NYC</b>.</em></span></button></li>
+              <li><button type="button" data-go="3"><span class="steps__n">3</span><span><strong>Neighbours keep their&nbsp;own</strong><em>Nobody's city is folded into New York. Newark (with Jersey City and Hoboken right next door), Yonkers, Paterson and Hempstead each get their own coin, and borders never overlap.</em></span></button></li>
+              <li><button type="button" data-go="4"><span class="steps__n">4</span><span><strong>Locals take the&nbsp;lead</strong><em>The first local who qualifies and applies becomes Seed Steward, and locals can challenge them or choose between rivals. No single whale decides.<span class="steps__facts"><span class="steps__fact"><span class="ico ico--sm ico--gold" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17.5 3 8l5 4 4-6.5 4 6.5 5-4-1 9.5z"/><path d="M4.5 20.5h15"/></svg></span><span>City Founder seat: open — hold the founder amount 7 days (home here 7+ days), then apply</span></span><span class="steps__fact"><span class="ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg></span><span>Locals verify with wallet + location</span></span></span></em></span></button></li>
             </ol>
             <div class="nyc__ctrl">
               <button class="btn btn--glass btn--sm" type="button" id="nyc-prev" aria-label="Previous step">←</button>

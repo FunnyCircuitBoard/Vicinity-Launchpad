@@ -84,7 +84,10 @@ test("home: one hero button to the buy slot, one row of facts with one countdown
   assert.match(polish, /\.hero-map \{ display: none; \}/, "on a phone the hero's own map is hidden: the walkthrough's bigger map comes right after the hero");
   assert.match(polish, /#nyc \.section-head \{ margin-bottom: 10px; \}\n  #nyc \.section-head p\.muted \{ display: none; \}/, "its kicker and title stay above the map; the hint under them goes (Previous · Pause · Next say it)");
   assert.doesNotMatch(polish, /#nyc \.nyc \{ order/, "nothing is reordered: a reader meets the title, then the map");
-  assert.match(polish, /\.steps li:not\(:has\(button\[aria-current="step"\]\)\) \{ display: none; \}/, "one step caption at a time on a phone");
+  // one step caption at a time on a phone; d3: the four sit in one grid cell and only the current one shows, so the card is as tall as the
+  // tallest step and the controls under it never jump while it plays (95 px at every step before)
+  assert.match(polish, /  \.steps \{ display: grid; gap: 0; margin-bottom: 10px; \}\n  \.steps li \{ grid-area: 1 \/ 1; display: grid; \}\n  \.steps button:not\(\[aria-current="step"\]\) \{ visibility: hidden; \}/);
+  assert.doesNotMatch(polish, /\.steps li:not\(:has\(button\[aria-current="step"\]\)\) \{ display: none; \}/, "not display: none (the card's height changed every step)");
 });
 
 test("home: the incentives are one tabbed block and the FAQ another; every panel reachable, every question kept, a link into a hidden panel opens it", () => {
@@ -223,7 +226,8 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   // nits: the dead footer rule; the safety links one-then-two; every place shown on a computer; the token page's placeholder and skip link; the official list's wording
   assert.doesNotMatch(polish, /\.footer-brand > p\.muted:not\(\.small\)/, "build.mjs no longer emits the tagline paragraph");
   assert.match(polish, /\.footer-links--safe a:first-of-type \{ grid-column: 1 \/ -1; \}/);
-  assert.match(polish, /@media \(min-width: 900px\) \{ \.member-cloud li\.is-more \{ display: inline-flex; \} \.member-cloud li:has\(> \.member-cloud__more\) \{ display: none; \} \}/);
+  // d3 (11 Oct 2026): "Inside $NYC" shows the five boroughs and "+41 more" on a computer too (all 46 made the column twice the map's height)
+  assert.doesNotMatch(polish, /\.member-cloud li\.is-more \{ display: inline-flex; \} \.member-cloud li:has\(> \.member-cloud__more\) \{ display: none; \}/);
   assert.match(polish, /@media \(min-width: 901px\) \{ \.proof-grid \{ grid-template-columns: repeat\(6, minmax\(0, 1fr\)\); \} \.proof \{ grid-column: span 2; \} \.proof:nth-child\(4\), \.proof:nth-child\(5\) \{ grid-column: span 3; \} \}/, "five proofs: three, then two, both rows full");
   for (const h of [tokenPage, read("scripts/pages/src/token.html")]) {
     assert.match(h, /<input id="check-input" name="q" type="text" autocomplete="off" spellcheck="false" maxlength="300" placeholder="Link or address">/, "a placeholder that never clips, even on a 320 px phone (the line above it says what to paste, @handles too)");
@@ -232,7 +236,11 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   }
   assert.match(polish, /\.holders__skip \{ position: absolute; left: -999px; \}\n\.holders__skip:focus \{ position: static;/);
   assert.match(read("public/token.js"), /t\.symbol\.startsWith\("e\.g\."\) \? `\$\{t\.name\}, \$\{t\.symbol\}` : `\$\{t\.name\} \(\$\$\{t\.symbol\}\)`/, "'City coins (one per city), e.g. $UTICA': not two brackets in a row");
-  assert.match(read("public/home.js"), /const coinBox = \[cx - 34, cy - 34, cx \+ 34, cy \+ 34\];[^\n]*\n\s+const tidy = \(\) => \{ declutter\(nbLabels, \[coinBox\]\); declutter\(memberLabels, \[coinBox\]\); \};/, "step 2: no borough label on the $NYC disc");
+  // d3: every label is laid out against the coin, New York City's own label (placed first), the labels already kept and the map's edge
+  // (before, the city's label was added after the others and "Parsippany · $PARSIPPANY" ran into it at every width)
+  const hjs = read("public/home.js");
+  assert.match(hjs, /const cr = coinPx\(\) \* u \+ m, taken = \[\[cx - cr, cy - cr, cx \+ cr, cy \+ cr\]\];\n\s+const bb = area\(big\); taken\.push\(\[bb\[0\] - m, bb\[1\] - m, bb\[2\] \+ m, bb\[3\] \+ m\]\);/, "the coin, then the city's own label");
+  assert.match(hjs, /if \(b\[0\] < edge\[0\] \|\| b\[1\] < edge\[1\] \|\| b\[2\] > edge\[2\] \|\| b\[3\] > edge\[3\]\) continue;\n\s+if \(taken\.some\(\(k\) => hit\(b, k\)\)\) continue;/, "inside the map, touching nothing taken");
   assert.match(home, /<a class="btn btn--glass btn--sm nyc__explore" href="\/cities">Explore every city<\/a>/, "no arrow beside the Next button's arrow; glass: the hero's Get $VICINITY is the page's one orange button");
 });
 

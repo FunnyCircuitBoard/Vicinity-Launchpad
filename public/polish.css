@@ -145,6 +145,23 @@ input, select, textarea { min-height: 44px; }
 
 /* the New York walkthrough: the map, one step caption with its three controls, the member chips */
 #nyc .section-head p.muted { margin-bottom: 0; }
+/* a computer: the right column is as tall as the map; the controls and "Inside $NYC" sit at its foot, so the steps open into the space
+   above them and nothing under the steps moves while the walkthrough plays */
+@media (min-width: 961px) {
+  .nyc { align-items: stretch; }
+  .nyc__map { align-self: start; }
+  .nyc__steps { display: flex; flex-direction: column; min-width: 0; }
+  .nyc__steps .steps { gap: 6px; margin-bottom: 12px; }
+  .steps button { padding: 11px 14px; align-items: flex-start; }
+  .steps strong { line-height: 1.35; padding-top: 2px; }
+  .steps__n { width: 28px; height: 28px; }
+  .nyc__ctrl { margin-top: auto; }
+  .nyc__facts { margin-bottom: 0; }
+}
+@media (min-width: 1200px) {
+  .nyc { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 32px; }
+  .steps em { font-size: var(--fs-base); line-height: 1.55; }
+}
 .nyc__ctrl { gap: 8px; margin-bottom: 12px; align-items: center; }
 .kicker__short { display: none; }
 @media (max-width: 360px) { .kicker__long { display: none; } .kicker__short { display: inline; } } /* "New York City · real data" on one line */
@@ -155,7 +172,6 @@ input, select, textarea { min-height: 44px; }
   .nyc__ctrl .nyc__explore { grid-column: 1 / -1; }
 }
 .nyc__ctrl .btn--sm { min-height: 44px; min-width: 44px; }
-.nyc__credit { font-size: .75rem; }
 .nyc__facts { padding: 14px 16px; }
 .nyc__facts .kicker { margin-bottom: 8px; }
 .member-cloud { max-height: none; overflow: visible; }
@@ -166,18 +182,20 @@ input, select, textarea { min-height: 44px; }
 .member-cloud__more::after { content: ""; position: absolute; inset: -8px 0; } /* a 44 px hit area in a 28 px chip */
 .member-cloud__more:hover { border-style: solid; }
 .member-cloud li:has(> .member-cloud__more) { padding: 0; border: 0; background: none; }
-@media (min-width: 900px) { .member-cloud li.is-more { display: inline-flex; } .member-cloud li:has(> .member-cloud__more) { display: none; } }
 @media (max-width: 960px) {
   /* the kicker and the title stay above the map (a reader meets the title first); the hint under them goes: Previous · Pause · Next say it */
   #nyc .section-head { margin-bottom: 10px; }
   #nyc .section-head p.muted { display: none; }
   #nyc .section-head .kicker { margin-bottom: 6px; }
   #nyc { padding-top: 22px; }
-  /* the four steps become one caption: the step playing now, with Previous · Pause · Next under it */
-  .steps { gap: 0; margin-bottom: 10px; }
-  .steps li:not(:has(button[aria-current="step"])) { display: none; }
+  /* the four steps become one caption: the step playing now, with Previous · Pause · Next under it. The four sit on top of each other
+     (one grid cell) and only the current one shows, so the card is always as tall as the tallest step and the buttons under it never
+     jump while it plays (they moved 95 px at every step before d3) */
+  .steps { display: grid; gap: 0; margin-bottom: 10px; }
+  .steps li { grid-area: 1 / 1; display: grid; }
+  .steps button:not([aria-current="step"]) { visibility: hidden; }
   .steps button { padding: 12px 14px; }
-  .steps button[aria-current="step"] em { max-height: none; }
+  .steps em, .steps button[aria-current="step"] em { max-height: none; margin-top: 4px; }
   .steps strong { font-size: 1rem; }
   .steps em { font-size: .9rem; }
 }

@@ -315,7 +315,11 @@ test("home: the roadmap shows the October 3 launch as done and the Launchpad as 
   assert.match(h, /it launched on October 3 on Raydium LaunchLab/);
   const home = read("home.js");
   assert.doesNotMatch(home, /claims open at launch/);
-  assert.match(home, /"👑 City Founder: seat open · hold 7 days, then apply"/);
+  // d3 (11 Oct 2026): the founder seat is no flag over the map any more (it covered the map and the other flag on a phone): step 4's
+  // caption says it, with the qualifying rule in full (holding alone never wins the seat)
+  assert.doesNotMatch(home, /m-flag|👑|📍/);
+  assert.match(h, /<span>City Founder seat: open — hold the founder amount 7 days \(home here 7\+ days\), then apply<\/span>/);
+  assert.match(h, /The first local who qualifies and applies becomes Seed Steward, and locals can challenge them or choose between rivals\./);
 });
 
 test("dashboard roles (public, signed out too) no longer present the rules in force since the launch as 'when Vicinity goes live'", () => {
