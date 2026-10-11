@@ -73,8 +73,9 @@ main :is(h1, h2, h3) { text-wrap: balance; }
 }
 #city-stage.is-full { height: 100vh; height: 100dvh; min-height: 0; }
 /* the light map: no grey vignette on its edges (it read as dirt on the white land), and a faint blue ocean so the land stands out */
-:root[data-theme="light"] #city-canvas { box-shadow: inset 0 0 60px rgba(11,22,38,.12); }
-:root[data-theme="light"] #city-stage { --map-bg: radial-gradient(80% 70% at 30% 35%, rgba(232,67,31,.04), transparent 60%), radial-gradient(120% 90% at 55% 45%, #E4EEF9, #D3E2F2); }
+/* (measured: the edges of the light map within about 10% of its middle's lightness; they were 30% darker) */
+:root[data-theme="light"] #city-canvas { box-shadow: inset 0 0 60px rgba(11,22,38,.08); }
+:root[data-theme="light"] #city-stage { --map-bg: radial-gradient(80% 70% at 30% 35%, rgba(232,67,31,.04), transparent 60%), radial-gradient(120% 90% at 55% 45%, #E6F0FA, #D9E6F4); }
 
 /* =====================================================================
    The map's controls: the magnifier (zoomed in: back to the search), + and − as one control, ⋯ for the rest (whole world, find my city,
@@ -164,6 +165,7 @@ main :is(h1, h2, h3) { text-wrap: balance; }
 .map-focus .map-focus__area, .map-focus .map-focus__line { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .map-focus .map-focus__line { -webkit-line-clamp: 1; line-clamp: 1; }
 .map-focus.is-folded { height: 52px; }
+@media (max-width: 360px) { .map-focus.is-folded .map-focus__ticker { display: none; } } /* folded on the smallest phones: the name and "Open · 950K", not a cut "O" */
 
 /* =====================================================================
    Under the map: the status keys on one line (the boundary keys at its end), the how-to in a fold, the founders feed once there is one

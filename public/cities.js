@@ -1763,7 +1763,7 @@
     const h = myHome(), c = h && byId.get(String(h));
     if (!c || userMoved || selected || focusPinned) return;
     focusPinned = c.id; pinnedBy = "home";
-    k = kAt(FOCUS_K); tx = fcx - wx(c.lon) * k; ty = fcy - wy(c.lat) * k; clampView(); viewMoved();
+    k = kAt(AREA_K + 0.5); tx = fcx - wx(c.lon) * k; ty = fcy - wy(c.lat) * k; clampView(); viewMoved(); // close enough for its detailed outline
   }
 
   /* =================== live claims feed + stats =================== */

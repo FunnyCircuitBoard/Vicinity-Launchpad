@@ -188,7 +188,7 @@ test("the first view picks nothing for the visitor (the owner, 11 Oct 2026): no 
   assert.match(load, /const want = new URLSearchParams\(location\.search\)\.get\("city"\);\n      if \(want && byId\.get\(want\)\) select\(byId\.get\(want\), true\);\n      else goHome\(\);\n      markAll\(\);/);
   assert.match(js, /const inFind = \(\) => finding \|\| \(kg\(\) < FOCUS_K && !\(focusPinned && !userMoved\)\);/, "the find state: further out than a region with nothing pinned, or a search the visitor opened");
   assert.equal(H.FOCUS_K, 4);
-  assert.match(js, /k = kAt\(FOCUS_K\); tx = fcx - wx\(c\.lon\) \* k;/, "a member's home city opens close enough for its card");
+  assert.match(js, /k = kAt\(AREA_K \+ 0\.5\); tx = fcx - wx\(c\.lon\) \* k;/, "a member's home city opens close enough for its card and its detailed outline");
 });
 
 test("a computer opens on the whole world inside the stage, left of the controls and above the find bar; a phone keeps the world covering it", () => {
