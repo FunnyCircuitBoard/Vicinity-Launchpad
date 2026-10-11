@@ -327,7 +327,7 @@ export async function setupSteps(st) {
     : !p.upgradeable ? `The ${name} program at ${p.id} was not deployed with the upgradeable loader, so it cannot be set up here.`
       : !p.executable ? `The ${name} program at ${p.id} is not executable.` : null);
   const authorityOf = (p, name) => (p.immutable ? `The ${name} program has no upgrade authority (it is final), so this step cannot run.`
-    : p.upgradeAuthority !== wallet ? notYours(`The ${name} program's upgrade authority`, p.upgradeAuthority, wallet) + " On your Mac, run set-upgrade-authority to your wallet (the guide's step 10)." : null);
+    : p.upgradeAuthority !== wallet ? notYours(`The ${name} program's upgrade authority`, p.upgradeAuthority, wallet) + " Move it to your wallet first: in the Squads app with a \"Change authority\" transaction when your Squads controls the program, or on your Mac with set-upgrade-authority (the guide's step 10)." : null);
 
   // 1 start: init_registry + init_launchpad (a half that exists is skipped)
   const haveLp = Boolean(st.launchpad), haveReg = Boolean(st.registry);
