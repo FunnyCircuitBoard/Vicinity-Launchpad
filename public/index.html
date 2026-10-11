@@ -43,9 +43,10 @@
   </header>
 
   <main id="main">
-    <!-- ============ HERO: the copy, one button, the facts; the New York map beside it on a computer (on a phone the walkthrough below is the map) ============ -->
+    <!-- ============ HERO: the copy, one button, the facts as tiles; the New York map beside it on a computer (on a phone the walkthrough below is the map).
+         Its light is anchored to the copy and the map card (style.css .hero__copy::before, .hero-map::before), never to the screen's edges ============ -->
     <section class="hero" id="hero">
-      <div class="hero__bg" aria-hidden="true"><div class="orb orb--a"></div><div class="orb orb--b"></div><div class="grid-floor"></div></div>
+      <div class="hero__bg" aria-hidden="true"><div class="grid-floor"></div></div>
       <div class="wrap hero__grid">
         <div class="hero__copy">
           <p class="eyebrow"><span class="pill pill--live"><span class="live-dot" aria-hidden="true"></span>Map live</span> <span class="eyebrow__tail">Every real city on Earth, one map</span></p>
@@ -59,23 +60,24 @@
             <li>Fixed supply</li>
             <li>Locals lead</li>
           </ul>
+          <!-- strong facts only: a phone shows the first three, a computer the Launchpad too; home.js puts a members tile in place of
+               the countries only at 100 verified members or more (a small count makes the map look empty) -->
           <ul class="hero__facts" aria-label="Vicinity in numbers">
-            <li><strong data-stat="communities">8,008</strong><span>communities mapped</span></li>
-            <li class="hero__fact--launch"><a class="hero__fact-link" href="/launchpad"><strong data-countdown-short>Oct 10</strong><span data-countdown-label>until the Launchpad<span class="fact__tail"> opens</span></span></a></li>
-            <li><strong data-stat="countries">244</strong><span>countries</span></li>
-            <li><strong data-stat="members">…</strong><span>verified members</span></li>
-            <li><strong data-stat="officialBoundaries">5,831</strong><span>official city boundaries</span></li>
+            <li><strong data-stat="communities">8,029</strong><span>communities mapped</span></li>
+            <li class="hero__fact--countries"><strong data-stat="countries">244</strong><span>countries &amp; territories</span></li>
+            <li><strong data-stat="officialBoundaries">5,838</strong><span>official<span class="fact__wide"> city</span> boundaries</span></li>
+            <li class="hero__fact--launch"><a class="hero__fact-link" href="/launchpad"><strong><span class="ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c3 2.2 4.5 5.6 4.5 9.3l-1.8 3.2H9.3l-1.8-3.2C7.5 8.6 9 5.2 12 3z"/><circle cx="12" cy="9.8" r="1.6"/><path d="M9.3 15.5 7 19l3-1M14.7 15.5 17 19l-3-1M12 17.5V21"/></svg></span>Launchpad</strong><span>Open · city coins come next <span aria-hidden="true">→</span></span></a></li>
           </ul>
         </div>
         <figure class="hero-map" aria-label="New York City's real community boundary">
           <a class="hero-map__link" href="/cities?city=5128581" aria-label="Open New York City on the live map">
-          <svg class="hero-map__svg" id="hero-map" viewBox="0 0 1000 925" role="img" aria-label="Outline of the New York City community on the Vicinity map"></svg>
+          <svg class="hero-map__svg" id="hero-map" viewBox="344 324 336 334" role="img" aria-label="Outline of the New York City community on the Vicinity map"></svg>
           <span class="hero-chip hero-chip--1"><b>$NYC</b> one coin</span>
-          <span class="hero-chip hero-chip--2"><b data-stat="nycMembers">73</b> places, one community</span>
+          <span class="hero-chip hero-chip--2"><b data-stat="nycMembers">46</b> places, one community</span>
           <span class="hero-chip hero-chip--3"><span class="live-dot" aria-hidden="true"></span> Founder seat open</span>
           <span class="map-open">Open the live map <span aria-hidden="true">→</span></span>
           </a>
-          <figcaption class="tiny muted">Real data: New York City's community on the Vicinity map.</figcaption>
+          <figcaption class="tiny muted">Real map data. $NYC isn't launched yet: it can only launch on the Vicinity Launchpad.</figcaption>
         </figure>
       </div>
     </section>

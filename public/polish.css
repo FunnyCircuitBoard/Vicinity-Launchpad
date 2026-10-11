@@ -98,17 +98,20 @@ input, select, textarea { min-height: 44px; }
 .hero__trust li { display: inline; padding: 0; border: 0; background: none; font-weight: 500; color: var(--muted); }
 .hero__trust li::before { content: none; }
 .hero__trust li + li::before { content: " · "; color: var(--faint); margin: 0 2px; }
-/* the facts: five in a row on a computer, three tiles that fit the screen on a phone (below). The Launchpad fact is a link to it;
-   once the Launchpad is open (site.js) it reads "Live / Launchpad is open" in green */
-.hero__facts { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding-top: 16px; }
-.hero__facts li { font-size: .75rem; min-width: 0; }
-.hero__facts li span { line-height: 1.3; margin-top: 2px; }
-.hero__facts strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
-.hero__fact-link { display: flex; flex-direction: column; min-width: 0; min-height: 44px; color: inherit; text-decoration: none; border-radius: var(--r-chip); }
+/* the facts: tiles, the same on a phone and a computer (d3, 11 Oct 2026). Strong facts only: communities, countries, official boundaries;
+   a computer adds the Launchpad as a link tile (the page is open, city coins come next: never "Live", no live dot). home.js puts a
+   members tile in place of the countries only at 100 or more. One row at every width, every label two lines at most. */
+.hero__facts { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.3fr); gap: var(--sp-2); margin: 0; padding: 0; }
+.hero__facts > li { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: var(--sp-3); border-radius: var(--r-chip); background: var(--surface-1); border: 1px solid var(--line); box-shadow: var(--shadow-1); }
+.hero__facts strong { font: 650 var(--fs-lg)/1.1 var(--display); letter-spacing: -.02em; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hero__facts > li > span, .hero__fact-link > span { font-size: var(--fs-xs); line-height: 1.25; color: var(--muted); }
+.hero__facts > li.hero__fact--launch { padding: 0; }
+.hero__fact-link { display: flex; flex-direction: column; gap: 3px; min-width: 0; min-height: 100%; padding: var(--sp-3); border-radius: inherit; color: inherit; text-decoration: none; }
+.hero__fact--launch strong { display: flex; align-items: center; gap: var(--sp-2); min-height: 1.1em; font-size: var(--fs-md); letter-spacing: -.01em; }
+.hero__fact--launch .ico { width: 24px; height: 24px; margin: -2px 0; } .hero__fact--launch .ico svg { width: 15px; height: 15px; }
+.hero__fact--launch:hover { border-color: var(--line-2); }
 .hero__fact-link:hover strong { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
-.hero__facts li.is-live strong { color: var(--ok-text); }
-:root[data-theme="light"] .hero__facts li.is-live strong { color: #0B6E57; } /* 5.7:1 on the tile (the light --ok-text is 4.9:1 on the page, close to the line on a tinted tile) */
-.hero__facts li.is-live strong::before { content: ""; display: inline-block; width: 8px; height: 8px; margin: 0 6px 0 1px; border-radius: 50%; background: var(--ok-text); vertical-align: .18em; box-shadow: 0 0 0 3px var(--ok-soft); }
+.hero__fact-link:focus-visible { outline-offset: 2px; }
 .hero-map .map-open { display: none; } /* the map itself is the link (aria-label); the one "Open on the live map" is in the walkthrough */
 @media (min-width: 961px) { .hero__title { font-size: clamp(3rem, 7vw, 5.5rem); } .hero__grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); } } /* "One community." on one line at 1280 (it broke after "One") */
 @media (max-width: 960px) {
@@ -124,17 +127,12 @@ input, select, textarea { min-height: 44px; }
 @media (max-width: 600px) {
   .hero__cta--one .btn { flex: 1 1 auto; }
   .lead__tail { display: none; } /* "...the key to all of them." on a phone: the tabs below say what it gets you */
-  /* three tiles in one row, all on screen: communities, the Launchpad, countries (members and official boundaries on a computer) */
-  .hero__facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 4px 0 0; overflow: visible; border-top: 0; }
-  .hero__facts li:nth-child(n+4) { display: none; }
-  .hero__facts li { justify-content: flex-start; padding: 10px; border-radius: var(--r-chip); background: var(--surface-1); border: 1px solid var(--line); box-shadow: var(--shadow-1); }
-  .hero__facts li.hero__fact--launch { padding: 0; }
-  .hero__fact-link { min-height: 100%; padding: 10px; }
-  .hero__facts strong { font-size: clamp(1rem, .55rem + 2.8vw, 1.15rem); line-height: 1.15; white-space: nowrap; }
-  .hero__facts li span { font-size: var(--fs-xs); line-height: 1.25; margin-top: 3px; color: var(--muted); }
-  .hero__facts .fact__tail { display: none; } /* "13h 4m until the Launchpad": two lines at most */
-  .hero__facts li.is-live { border-color: rgba(55,194,154,.45); background: linear-gradient(var(--ok-soft), var(--ok-soft)), var(--surface-1); }
+  /* three tiles in one row, all on screen: communities, countries, official boundaries (the Launchpad tile is a computer's) */
+  .hero__facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hero__facts > li.hero__fact--launch, .hero__facts .fact__wide { display: none; }
+  .hero__facts strong { font-size: clamp(1.125rem, .8rem + 2.2vw, 1.375rem); }
 }
+@media (max-width: 360px) { .hero__facts { gap: 6px; } .hero__facts > li { padding: 10px; } } /* "communities" fits a 320 px phone's tile */
 @media (max-width: 360px) { .eyebrow__tail { display: none; } } /* "Map live" alone: the headline says the rest */
 /* a phone's hero: the faint outline of New York City's real boundary behind the copy (home.js; decoration only, hidden on a computer
    where the map itself shows) */

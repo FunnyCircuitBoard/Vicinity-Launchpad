@@ -63,13 +63,18 @@ test("footer, every page: no duplicate of the tab bar or the header, status and 
 test("home: one hero button to the buy slot, one row of facts with one countdown, no numbers band, no closing band, the map right after the hero", () => {
   for (const h of [home, homeSrc]) {
     assert.equal(count(h, /href="\/token#buy-slot"/g), 1, "the one call to buy");
-    assert.equal(count(h, /data-countdown-short/g), 1, "the countdown once (it was in four places)");
+    // d3 (11 Oct 2026): no countdown on the home page any more. Since the Launchpad opened, its tile read "Live / Launchpad is open" (teal,
+    // live dot), which reads as if city coins trade; none can launch yet. The tile is a plain link: "Launchpad · Open · city coins come next"
+    assert.equal(count(h, /data-countdown-short|data-countdown-label/g), 0, "no countdown fact (site.js keeps the code for other pages)");
     assert.equal(count(h, /data-stat="communities"/g), 1, "the communities count once (it was in three)");
     assert.equal(count(h, /October 10/g), 1, "October 10 once: the FAQ's launch answer (the roadmap's next stop has no date)");
     assert.doesNotMatch(h, /class="numbers"|cta-band|hero__facts[\s\S]*?hero__facts/, "no numbers band, no closing band, one facts row");
-    // design v2 (10 Oct 2026): countries third, so a phone's three tiles are communities, the Launchpad (a link to it) and countries; the
-    // members count (3 on opening day, the tile the owner circled) and the official boundaries show from 601 px
-    assert.match(h, /<ul class="hero__facts" aria-label="Vicinity in numbers">\s*<li><strong data-stat="communities">[\d,]+<\/strong><span>communities mapped<\/span><\/li>\s*<li class="hero__fact--launch"><a class="hero__fact-link" href="\/launchpad"><strong data-countdown-short>Oct 10<\/strong><span data-countdown-label>until the Launchpad<span class="fact__tail"> opens<\/span><\/span><\/a><\/li>\s*<li><strong data-stat="countries">[\d,]+<\/strong><span>countries<\/span><\/li>\s*<li><strong data-stat="members">…<\/strong><span>verified members<\/span><\/li>\s*<li><strong data-stat="officialBoundaries">[\d,]+<\/strong><span>official city boundaries<\/span><\/li>\s*<\/ul>/);
+    // d3 (11 Oct 2026): strong facts only, as tiles. A phone shows the first three (communities, countries, official boundaries), a
+    // computer the Launchpad link tile too. No members tile in the markup: home.js adds one only at 100 verified members or more (the
+    // owner circled "2 verified members"), never "…"; the numbers are /data/stats.json's (8,008 / 5,831 / 73 were stale and flashed)
+    assert.match(h, /<ul class="hero__facts" aria-label="Vicinity in numbers">\s*<li><strong data-stat="communities">8,029<\/strong><span>communities mapped<\/span><\/li>\s*<li class="hero__fact--countries"><strong data-stat="countries">244<\/strong><span>countries &amp; territories<\/span><\/li>\s*<li><strong data-stat="officialBoundaries">5,838<\/strong><span>official<span class="fact__wide"> city<\/span> boundaries<\/span><\/li>\s*<li class="hero__fact--launch"><a class="hero__fact-link" href="\/launchpad"><strong><span class="ico ico--sm" aria-hidden="true"><svg [^>]+>[^]*?<\/svg><\/span>Launchpad<\/strong><span>Open · city coins come next <span aria-hidden="true">→<\/span><\/span><\/a><\/li>\s*<\/ul>/);
+    assert.doesNotMatch(h, /data-stat="members"|\bLive\b<|Launchpad is open/, "no members placeholder, nothing that reads like trading");
+    assert.doesNotMatch(h, /data-stat="communities">8,008<|data-stat="officialBoundaries">5,831<|hero-chip--2"><b data-stat="nycMembers">73</, "no stale fallback numbers");
     const order = ["<section class=\"hero\" id=\"hero\">", "id=\"nyc\"", "id=\"problem\"", "id=\"why\"", "id=\"how\"", "id=\"roadmap\"", "id=\"faq\""].map((s) => h.indexOf(s));
     assert.deepEqual(order, [...order].sort((a, b) => a - b), "hero, the New York walkthrough, the problem, why, how, roadmap, FAQ");
     assert.ok(order.every((i) => i >= 0));
@@ -292,10 +297,12 @@ test("the guard against anything wider than a phone: buttons, media, code and gr
 
 test("home on a phone (the owner's screenshots 2 and 3): three facts that fit, a vertical roadmap, the Launchpad live state, nothing that scrolls sideways", () => {
   const phone = polish.slice(polish.indexOf("@media (max-width: 600px) {\n  .hero__cta--one .btn { flex: 1 1 auto; }"));
-  assert.match(phone, /\.hero__facts \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); gap: 8px; margin: 0; padding: 4px 0 0; overflow: visible; border-top: 0; \}/);
-  assert.match(phone, /\.hero__facts li:nth-child\(n\+4\) \{ display: none; \}/, "the 4th and 5th facts (members, official boundaries) wait for a wider screen");
-  const shown = [...homeSrc.match(/<ul class="hero__facts"[\s\S]*?<\/ul>/)[0].matchAll(/<li[^>]*>[\s\S]*?<\/li>/g)].slice(0, 3).map((m) => (/data-stat="(\w+)"|data-countdown-short/.exec(m[0]) || [])[1] || "countdown");
-  assert.deepEqual(shown, ["communities", "countdown", "countries"], "exactly these three show on a phone");
+  // d3: the same tiles on every screen (one row of four on a computer, three on a phone); the Launchpad tile is a computer's
+  assert.match(polish, /\.hero__facts \{ list-style: none; display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\) minmax\(0, 1\.3fr\); gap: var\(--sp-2\); margin: 0; padding: 0; \}/);
+  assert.match(polish, /\.hero__facts > li \{ display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: var\(--sp-3\); border-radius: var\(--r-chip\); background: var\(--surface-1\); border: 1px solid var\(--line\); box-shadow: var\(--shadow-1\); \}/);
+  assert.match(phone, /\.hero__facts \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}\n  \.hero__facts > li\.hero__fact--launch, \.hero__facts \.fact__wide \{ display: none; \}/, "three tiles on a phone");
+  const shown = [...homeSrc.match(/<ul class="hero__facts"[\s\S]*?<\/ul>/)[0].matchAll(/<li[^>]*>[\s\S]*?<\/li>/g)].slice(0, 3).map((m) => (/data-stat="(\w+)"/.exec(m[0]) || [])[1] || "?");
+  assert.deepEqual(shown, ["communities", "countries", "officialBoundaries"], "exactly these three show on a phone");
   assert.doesNotMatch(polish, /margin: 0 -16px/, "no negative side margins: nothing reaches past the gutter");
   // the roadmap: the horizontal row only from 900 px; below it the vertical rail of style.css, every stop stacked
   const wide = polish.match(/@media \(min-width: 900px\) \{\n  \.timeline \{ display: flex;[\s\S]*?\n\}/);
@@ -303,7 +310,8 @@ test("home on a phone (the owner's screenshots 2 and 3): three facts that fit, a
   assert.equal((polish.match(/\.timeline \{/g) || []).length, 1, "and the only .timeline rule in polish.css");
   assert.match(style, /\.timeline__item \{ position: relative; padding: 0 0 18px 10px; \}/);
   assert.match(style, /\.timeline::before \{[^}]*linear-gradient\(var\(--moss\), var\(--moss\) var\(--rail-done, 48%\), var\(--pin\) var\(--rail-at, 66%\)/, "green to the last stop done, orange at the next");
-  // after 10:10:10 New York time: "Live / Launchpad is open" (never "Open now"), the roadmap's Launchpad stop "Open now", the Passport next
+  // after 10:10:10 New York time: site.js still flips a countdown fact to "Live / Launchpad is open" on any page that has one (the home page
+  // has none since d3), the roadmap's Launchpad stop reads "Open now", the Passport next
   const site = read("public/site.js"), homeJs = read("public/home.js");
   assert.doesNotMatch(site, /Open now|until the Launchpad opens/);
   assert.match(site, /if \(e\.textContent !== "Live"\) e\.textContent = "Live";/);

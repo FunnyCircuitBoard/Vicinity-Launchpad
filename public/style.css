@@ -256,6 +256,8 @@ select option { background: var(--bg-2); }
 /* ---------- home: hero ---------- */
 .hero { position: relative; padding: 56px 0 70px; overflow: hidden; isolation: isolate; }
 .hero__bg { position: absolute; inset: 0; z-index: -1; }
+/* the Launchpad hero's two soft orbs. The home hero has none since d3 (11 Oct 2026: a red smudge at the screen's top-right corner and a
+   blue one at its edge at 1920 px): its light is anchored to its content (.hero__copy::before, .hero-map::before), still, inside the hero */
 .orb { position: absolute; border-radius: 50%; filter: blur(80px); will-change: transform; }
 .orb--a { width: 540px; height: 540px; background: #FF5A36; top: -180px; right: -120px; opacity: .28; animation: drift 18s ease-in-out infinite; }
 .orb--b { width: 440px; height: 440px; background: #2B5BFF; bottom: -200px; left: -140px; opacity: .22; animation: drift 22s ease-in-out infinite reverse; }
@@ -264,23 +266,34 @@ select option { background: var(--bg-2); }
 .grid-floor { position: absolute; inset: 0; background-image: linear-gradient(rgba(var(--ink),.05) 1px, transparent 1px), linear-gradient(90deg, rgba(var(--ink),.05) 1px, transparent 1px); background-size: 56px 56px; mask-image: radial-gradient(ellipse 70% 60% at 60% 40%, #000 30%, transparent 75%); -webkit-mask-image: radial-gradient(ellipse 70% 60% at 60% 40%, #000 30%, transparent 75%); }
 .hero__grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 40px; align-items: center; }
 @media (max-width: 960px) { .hero__grid { grid-template-columns: minmax(0, 1fr); } .hero { padding-top: 28px; } }
+/* a faint cool light under the headline (a gradient is already soft: no blur filter, nothing moves); on a phone a warm one at the top right
+   too, where the map card's light is on a computer */
+.hero__copy { position: relative; }
+.hero__copy::before { content: ""; position: absolute; z-index: -1; pointer-events: none; left: -6%; top: 0; width: 78%; height: 66%; background: radial-gradient(closest-side, rgba(43,91,255,.14), rgba(43,91,255,.05) 60%, transparent); }
+:root[data-theme="light"] .hero__copy::before { background: radial-gradient(closest-side, rgba(43,91,255,.07), rgba(43,91,255,.025) 60%, transparent); }
+@media (max-width: 960px) {
+  .hero__copy::before { left: -16px; right: -16px; top: -28px; width: auto; height: 78%; background: radial-gradient(52% 46% at 92% 8%, rgba(255,90,54,.2), transparent 72%), radial-gradient(64% 52% at 16% 42%, rgba(43,91,255,.13), transparent 72%); }
+  :root[data-theme="light"] .hero__copy::before { background: radial-gradient(52% 46% at 92% 8%, rgba(255,90,54,.1), transparent 72%), radial-gradient(64% 52% at 16% 42%, rgba(43,91,255,.065), transparent 72%); }
+}
 .eyebrow { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .9rem; font-weight: 500; flex-wrap: wrap; }
 .hero__title { font-size: clamp(3rem, 8.2vw, 6.2rem); font-weight: 700; letter-spacing: -0.045em; line-height: .95; margin: 18px 0 24px; }
 .hero__cta { display: flex; flex-wrap: wrap; gap: 12px; margin: 28px 0 34px; }
 .hero__cta--center { justify-content: center; }
 @media (max-width: 480px) { .hero__cta .btn--lg { flex: 1 1 auto; padding: 0 18px; } } /* side by side when they fit, full width when they don't */
-.hero__facts { list-style: none; margin: 0; padding: 20px 0 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.hero__facts li { display: flex; flex-direction: column; font-size: .88rem; }
-.hero__facts strong { font: 650 1.45rem/1.1 var(--display); }
-.hero__facts span { color: var(--muted); }
+/* the map card: a warm light hugging it (still, inside the hero, half as strong in the light theme); the three chips sit in its corners,
+   16 px in (the "46 places" chip covered the $NYC coin and two chips stuck out of the card: d3, 11 Oct 2026) */
 .hero-map { position: relative; margin: 0; }
-.hero-map__svg { width: 100%; height: auto; border-radius: 28px; border: 1px solid var(--line); background: var(--map-water); box-shadow: 0 40px 100px -30px rgba(0,0,0,.8); }
-.hero-map figcaption { text-align: center; margin: 10px 0 0; }
-.hero-chip { position: absolute; padding: 8px 14px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line-2); backdrop-filter: blur(8px); font-size: .86rem; font-weight: 600; white-space: nowrap; box-shadow: 0 10px 30px -12px rgba(0,0,0,.6); animation: float 6s ease-in-out infinite; display: inline-flex; align-items: center; gap: 7px; }
+.hero-map::before { content: ""; position: absolute; inset: -16% -14% -10%; z-index: -1; pointer-events: none; background: radial-gradient(closest-side, rgba(255,90,54,.30), rgba(255,90,54,.10) 60%, transparent); }
+:root[data-theme="light"] .hero-map::before { background: radial-gradient(closest-side, rgba(255,90,54,.15), rgba(255,90,54,.05) 60%, transparent); }
+.hero-map__svg { width: 100%; height: auto; border-radius: var(--r-hero); border: 1px solid var(--line); background: var(--map-water); box-shadow: 0 40px 100px -30px rgba(0,0,0,.8); }
+:root[data-theme="light"] .hero-map__svg { box-shadow: 0 40px 90px -40px rgba(11,22,38,.45); }
+.hero-map figcaption { text-align: center; margin: 12px 0 0; }
+.hero-chip { position: absolute; z-index: 1; padding: 8px 14px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line-2); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); font-size: .86rem; font-weight: 600; white-space: nowrap; box-shadow: 0 10px 30px -12px rgba(0,0,0,.6); display: inline-flex; align-items: center; gap: 7px; }
 .hero-chip b { color: var(--gold-text); }
-.hero-chip--1 { top: 8%; left: -3%; } .hero-chip--2 { top: 40%; right: -4%; animation-delay: -2s; } .hero-chip--3 { bottom: 14%; left: 4%; animation-delay: -4s; }
-@media (max-width: 600px) { .hero-chip { font-size: .76rem; padding: 6px 10px; } .hero-chip--1 { left: 2%; } .hero-chip--2 { right: 2%; } }
-@keyframes float { 50% { transform: translateY(-10px); } }
+.hero-chip--1 { top: 16px; left: 16px; } .hero-chip--3 { top: 16px; right: 16px; } .hero-chip--2 { bottom: 16px; right: 16px; }
+/* a slow float of 6 px at most (16 px in, so a chip never comes closer than 10 px to the card's edge), only when motion is welcome */
+@media (prefers-reduced-motion: no-preference) { .hero-chip { animation: float 6s ease-in-out infinite; } .hero-chip--2 { animation-delay: -2s; } .hero-chip--3 { animation-delay: -4s; } }
+@keyframes float { 50% { transform: translateY(-6px); } }
 
 /* map drawing (home hero + NYC section) */
 .m-land { fill: var(--map-land); stroke: var(--map-land-line); stroke-width: 1; vector-effect: non-scaling-stroke; }
@@ -1398,9 +1411,11 @@ details[open] > .role-row__head .role-row__chev { transform: rotate(180deg); }
 .scam-note strong { color: var(--bad-text); }
 
 /* ---------- home: the New York maps open the live map; "Get in first" shows what it means ---------- */
-.hero-map__link { display: block; color: inherit; text-decoration: none; border-radius: 28px; }
-.hero-map__link .hero-map__svg { transition: transform .35s cubic-bezier(.2,.8,.2,1), border-color .35s, box-shadow .35s; }
-.hero-map__link:hover .hero-map__svg, .hero-map__link:focus-visible .hero-map__svg { transform: translateY(-4px); border-color: rgba(255,90,54,.55); box-shadow: 0 50px 110px -30px rgba(255,90,54,.45); }
+/* the card is the chips' containing block (they sit in its corners), and lifts as one under a mouse */
+.hero-map__link { position: relative; display: block; color: inherit; text-decoration: none; border-radius: var(--r-hero); transition: transform .35s cubic-bezier(.2,.8,.2,1); }
+.hero-map__link .hero-map__svg { transition: border-color .35s, box-shadow .35s; }
+.hero-map__link:hover, .hero-map__link:focus-visible { transform: translateY(-4px); }
+.hero-map__link:hover .hero-map__svg, .hero-map__link:focus-visible .hero-map__svg { border-color: rgba(255,90,54,.55); box-shadow: 0 50px 110px -30px rgba(255,90,54,.45); }
 .hero-map__link:focus-visible { outline: 3px solid var(--pin); outline-offset: 6px; }
 .map-open { position: absolute; right: 5%; bottom: 5%; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; font-size: .84rem; font-weight: 700; color: #fff; background: linear-gradient(135deg, var(--cta-a), var(--cta-b)); box-shadow: 0 10px 26px -10px rgba(255,90,54,.8); text-decoration: none; transition: transform .25s; }
 .hero-map__link:hover .map-open, .map-open:hover { transform: translateX(3px); }

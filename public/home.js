@@ -13,7 +13,16 @@
   /* ---------- numbers ---------- */
   const setStat = (k, v) => $$(`[data-stat="${k}"]`).forEach((e) => (e.textContent = fmt(v)));
   fetch("/data/stats.json").then((r) => r.json()).then((s) => { for (const [k, v] of Object.entries(s)) setStat(k, v); }).catch(() => {});
-  api("/api/members").then((m) => { if (typeof m.members === "number") setStat("members", m.members); });
+  // The members count shows only once it says something: at 100 or more it takes the countries tile's place (a phone keeps three tiles,
+  // a computer four). Below that there is no tile at all, never "…" and never a small number that makes the map look empty (d3).
+  const MEMBERS_MIN = 100;
+  api("/api/members").then((m) => {
+    if (!m || typeof m.members !== "number" || m.members < MEMBERS_MIN) return;
+    const countries = $(".hero__fact--countries"); if (!countries) return;
+    const li = document.createElement("li"), n = document.createElement("strong"), label = document.createElement("span");
+    li.className = "hero__fact--members"; n.textContent = fmt(m.members); label.textContent = "verified members";
+    li.append(n, label); countries.replaceWith(li);
+  });
 
   /* ---------- map drawing ---------- */
   const NS = "http://www.w3.org/2000/svg";
