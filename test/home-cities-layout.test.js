@@ -38,8 +38,11 @@ test("home: on a phone the two hero buttons sit side by side when they fit and g
   assert.match(css, /\.btn--lg \{ min-height: 56px;/, "still a big touch target");
 });
 
-test("cities: the title row (kicker, h1, one line, the numbers in a row), then the map; every id, aria attribute and text kept", () => {
-  // design v2 (10 Oct 2026): a compact title row above the map puts the H1 in the first screen of a phone; the map follows at once
+test("cities: the title block (kicker, h1, lead, then the facts: strong ones always, the others hidden below their threshold), then the map with its search first; every id, aria attribute and text kept", () => {
+  // design v2 (10 Oct 2026): a compact title row above the map puts the H1 in the first screen of a phone; the map follows at once.
+  // d3 (11 Oct 2026, the owner: "significant design issues"): "still open" (communities minus founded) and "Open claims" (a word set as
+  // a number) are gone; founded, choosing a founder and verified members ship hidden (cities.js shows them from 1, 1 and 100); the
+  // markup ships today's strong figures, never "…"; the application status is a pill, not a number; "Find your city" is the map's first view
   for (const [where, h] of both("cities")) {
     const start = h.indexOf('<section class="page-hero page-hero--map" id="cities">');
     assert.ok(start >= 0, where);
@@ -47,21 +50,36 @@ test("cities: the title row (kicker, h1, one line, the numbers in a row), then t
     const at = (needle) => { const i = sec.indexOf(needle); assert.ok(i >= 0, `${where}: ${needle}`); return i; };
     const order = [
       at('<div class="cities-intro">'), at(">Live map</p>"), at('<h1 class="page-title">Claim your city.</h1>'), at("One wallet. One city. Chosen by locals."),
-      at('<div class="city-stats" aria-live="polite">'), at('id="cs-cities"'), at('id="cs-status"'),
-      at('<div class="citymap card">'), at('id="city-canvas"'), at('class="map-ctrl"'), at('id="map-hint"'), at('class="citymap__legend"'),
-      at("Latest founders · live"), at('id="claim-feed"'),
+      at('id="cs-status" hidden>'), at('<ul class="city-stats" aria-live="polite"'), at('id="cs-claimed"'), at('id="cs-choosing"'), at('id="cs-cities"'), at('id="cs-countries"'), at('id="cs-official"'), at('id="cs-members"'),
+      at('<div class="citymap card">'), at('<form class="map-find" id="map-find" role="search" aria-label="Find your city" data-fb-avoid>'), at('id="city-canvas"'), at('class="map-ctrl"'), at('id="map-focus"'), at('id="map-hint"'), at('class="citymap__legend"'),
+      at("How to use the map"), at("Latest founders · live"), at('id="claim-feed"'),
     ];
-    assert.deepEqual(order, [...order].sort((a, b) => a - b), `${where}: kicker, h1, lead, stats → map card (canvas, controls, hint, legend, live feed)`);
-    assert.match(sec, /^<section class="page-hero page-hero--map" id="cities">\s*<div class="wrap">\s*(<!--[^>]*-->\s*)?<div class="cities-intro">/, `${where}: the title row opens the section`);
+    assert.deepEqual(order, [...order].sort((a, b) => a - b), `${where}: kicker, h1, lead, status, facts → map card (search, canvas, controls, card, hint, legend, how-to, live feed)`);
+    assert.match(sec, /^<section class="page-hero page-hero--map" id="cities">\s*<div class="wrap">\s*(<!--[^>]*-->\s*)?<div class="cities-intro">/, `${where}: the title block opens the section`);
     assert.doesNotMatch(sec, /Every city has a real boundary: hold your city's founder amount, apply from inside it, and the people who live there decide/, `${where}: said once, in the checklist's "Locals decide"`);
     assert.equal((h.match(/<h1\b/g) || []).length, 1, `${where}: exactly one h1`);
-    for (const id of ["cities", "city-canvas", "city-tip", "map-in", "map-out", "map-reset", "map-locate", "map-style", "map-zoom-level", "map-hint", "claim-feed", "cs-cities", "cs-countries", "cs-claimed", "cs-open", "cs-members", "cs-status"]) {
+    for (const id of ["cities", "city-canvas", "city-tip", "map-in", "map-out", "map-reset", "map-locate", "map-style", "map-zoom-level", "map-hint", "map-search", "map-find", "map-find-q", "map-find-loc", "map-find-list", "claim-feed", "cs-cities", "cs-countries", "cs-official", "cs-claimed", "cs-choosing", "cs-members", "cs-status"]) {
       assert.equal((h.match(new RegExp(`id="${id}"`, "g")) || []).length, 1, `${where}: #${id} once`);
     }
-    for (const a of ['role="img" tabindex="0" aria-label="Zoomable world map of every listed city.', 'role="group" aria-label="Map controls"', 'aria-label="Find the city I\'m in" title="Find the city I\'m in"', 'aria-label="Show the coloured map" aria-pressed="false"', '<span id="map-zoom-level" aria-live="polite">', '<ul class="claim-feed" id="claim-feed" aria-live="polite">']) assert.ok(sec.includes(a), `${where}: ${a}`);
-    for (const t of ["communities", "countries", "founded", "still open", "verified members", "claims", "founder amount", '<a href="/rules#founders">How it works</a>']) assert.ok(sec.includes(t), `${where}: ${t}`);
+    for (const gone of ["cs-open", "city-q"]) assert.doesNotMatch(h, new RegExp(`id="${gone}"`), `${where}: #${gone} is gone ("still open" was communities minus founded; one search on the page, the map's)`);
+    assert.doesNotMatch(sec, /still open|<span>claims<\/span>|>…</, `${where}: no derived number, no word set as a number, no placeholder figure`);
+    // the facts: the strong ones ship with today's figures (/data/stats.json: 8,029 communities, 244 country codes, 5,838 official boundaries)
+    assert.match(sec, /<li><strong id="cs-cities">8,029<\/strong><span>communities<\/span><\/li>/);
+    assert.match(sec, /<li><strong id="cs-countries">244<\/strong><span>countries &amp; territories<\/span><\/li>/, "244 country codes: countries and territories (about 195 are countries)");
+    assert.match(sec, /<li><strong id="cs-official">5,838<\/strong><span>official boundaries<\/span><\/li>/);
+    assert.match(sec, /<li data-min="1" hidden><strong id="cs-claimed">0<\/strong><span>founded<\/span><\/li>/, "never \"0 founded\": hidden below 1");
+    assert.match(sec, /<li data-min="1" hidden><strong id="cs-choosing">0<\/strong><span>choosing a founder<\/span><\/li>/);
+    assert.match(sec, /<li data-min="100" hidden><strong id="cs-members">0<\/strong><span>verified members<\/span><\/li>/, "never \"2 verified members\": hidden below 100");
+    assert.match(sec, /<p class="city-status" id="cs-status" hidden><svg [^>]*aria-hidden="true"[^>]*>.*<\/svg>Founder applications open<\/p>/, "about founder applications, never about coins");
+    for (const a of ['role="img" tabindex="0" aria-label="Zoomable world map of every listed city.', 'role="group" aria-label="Map controls"', 'aria-label="Find the city I\'m in" title="Find the city I\'m in"', 'aria-label="Show the coloured map" aria-pressed="false"', '<span id="map-zoom-level" aria-live="polite">', '<ul class="claim-feed" id="claim-feed" aria-live="polite">',
+      '<input id="map-find-q" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="map-find-list"', '<ul class="map-find__list" id="map-find-list" role="listbox" aria-label="Places" hidden></ul>', 'id="map-find-loc" aria-label="Use my location"',
+      '<div class="citymap__stage" id="city-stage" data-crosshair="off" data-world-fit="0" data-fb-avoid>', '<div class="claim-feed-wrap" hidden>']) assert.ok(sec.includes(a), `${where}: ${a}`);
+    for (const t of ["communities", "countries &amp; territories", "official boundaries", "founded", "verified members", "founder amount", '<a class="nowrap" href="/rules#founders">How it works</a>']) assert.ok(sec.includes(t), `${where}: ${t}`);
     assert.doesNotMatch(sec, /100,000 to 1,000,000/, `${where}: the Stake Ladder's numbers are stated once on the page, in the Pick-a-city checklist (9 Oct 2026)`);
     assert.doesNotMatch(sec, /\breveal\b/, `${where}: nothing at the top waits for a script to become visible`);
+    // the empty-looking blocks ship hidden: Most wanted until three communities have members (cities.js)
+    assert.match(h, /<section class="section section--panel" id="wanted" hidden>/);
+    assert.match(h, /<h3 id="claim-title">Pick your city on the map<\/h3>/, "one search on the page: the panel points at the map");
   }
 });
 
