@@ -675,7 +675,7 @@ test("reset: an account that vanished after the code was sent answers no_account
   const code = box.codeFor(ALICE);
   await env.DB.prepare("DELETE FROM users WHERE provider_id = ?").bind(ALICE).run();
   const r = await answer(await reset(b, ALICE, code, NEW_PASSWORD));
-  assert.deepEqual([r.status, r.body], [404, { ok: false, error: "no_account" }]);
+  assert.deepEqual([r.status, r.body], [404, { ok: false, error: "no_account", login: "email" }], "an e-mail login found nobody: the page speaks of the e-mail");
   assert.equal(b.has("vs"), false);
   // an unknown address got a code row too, but nobody has the code: a guess is "wrong", exactly as for a known address
   await startReset(b, "ghost@example.com");

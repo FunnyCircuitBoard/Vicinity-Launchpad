@@ -18,11 +18,14 @@
  *   follows, blocks, profile_reports, users.bio → member profiles (only while PROFILES=on, see PROFILES_MIGRATION below)
  *   feedback     → the "Feedback / Support" widget: questions, bug reports and city requests, with an optional reply e-mail
  *                  (made on first use, see FEEDBACK_MIGRATION below; src/feedback.js)
+ *   user_logins  → an extra way to log in to an existing account: a Google sign-in a member added from their Profile (Google's
+ *                  account number only, never an address; made on first use, see LOGINS_MIGRATION below; src/logins.js)
  *   claims, added_cities, requests → the first version (no longer written)
  * Locations of visitors are never saved. Wallets that only "verify" or look up a rank are never saved.
  *
  * The database itself enforces: one live founder per city, one live seat per person,
- * one open application window per city, one account per wallet and per Google login / verified e-mail.
+ * one open application window per city, one account per wallet and per Google login / verified e-mail,
+ * and (user_logins) one account per added Google sign-in and one added Google sign-in per account.
  */
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS claims (
@@ -1024,4 +1027,50 @@ export function ensureFeedbackSchema(db) {
     })().catch((e) => { feedbackReady.delete(db); throw e; }));
   }
   return feedbackReady.get(db);
+}
+
+/**
+ * Extra sign-ins (src/logins.js): a member who made their account with an e-mail (or, before onboarding v3, with a wallet and an
+ * e-mail) can add Google from their Profile, and then log in with Google too. Like the others, deliberately NOT in MIGRATIONS: the
+ * table is made the first time a Google sign-in is added or an account is made by the new sign-up (src/signup-finish.js checks it),
+ * never on every request, and the Google log-in only READS it (a table that is not there yet means nobody added one: src/logins.js
+ * findAccount). Safe to repeat. Same rule: no semicolon inside a comment or a string in this SQL, because split() cuts on every semicolon.
+ *   user_logins → one row per added sign-in: the account, the provider ('google'), Google's account number for this person (the
+ *                 same "sub" users.provider_id holds for a Google account: never an e-mail address, never a name) and when it was added.
+ *                 UNIQUE (provider, provider_id): one account per Google sign-in. UNIQUE (user_id, provider): one added Google sign-in
+ *                 per account (to change it, the member removes it first). That a Google id which is some account's MAIN login
+ *                 (users.provider = 'google') is never added to another account is checked inside the INSERT itself (src/logins.js).
+ */
+export const LOGINS_MIGRATION = {
+  id: "2026-10-12-user-logins",
+  sql: `
+CREATE TABLE IF NOT EXISTS user_logins (
+  user_id     INTEGER NOT NULL,
+  provider    TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  UNIQUE (provider, provider_id),
+  UNIQUE (user_id, provider)
+)
+`,
+};
+
+const loginsReady = new WeakMap();
+
+/**
+ * Create the user_logins table the first time it is written to (safe to repeat, and to run from two servers at once). Rejects on
+ * failure and forgets that it tried, so the next call retries. Callers answer 503 (adding a Google sign-in, finishing a sign-up);
+ * nothing else is affected.
+ */
+export function ensureLoginsSchema(db) {
+  if (!loginsReady.has(db)) {
+    loginsReady.set(db, (async () => {
+      await ensureSchema(db); // schema_migrations and users exist
+      const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(LOGINS_MIGRATION.id).first();
+      if (done) return;
+      for (const s of split(LOGINS_MIGRATION.sql)) await db.prepare(s).run();
+      await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(LOGINS_MIGRATION.id, new Date().toISOString()).run();
+    })().catch((e) => { loginsReady.delete(db); throw e; }));
+  }
+  return loginsReady.get(db);
 }

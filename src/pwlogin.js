@@ -191,7 +191,7 @@ export async function handleReset(request, env, x) {
   const v = await consumeEmailCode(env.DB, resetKey(email), code, now);
   if (!v.ok) return json({ ok: false, error: v.error, ...(v.left != null ? { left: v.left } : {}) }, v.error === "too_many" ? 429 : 400);
   const user = await env.DB.prepare(EMAIL_USER).bind(email).first();
-  if (!user) return json({ ok: false, error: "no_account" }, 404);
+  if (!user) return json({ ok: false, error: "no_account", login: "email" }, 404); // (an e-mail login: the page speaks of the e-mail, not of a wallet)
 
   const hash = await hashPassword(env, body.password);
   await ensureOnboardSchema(env.DB); // users.password_at

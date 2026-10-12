@@ -13,7 +13,13 @@
  *   file itself never creates an account: an unknown Google id or e-mail answers "no_account" here, and only signs
  *   people in.
  * Returning person: either the wallet OR the linked Google login / verified e-mail signs them
- * straight in (and, in v2, an e-mail account may also use its password: src/pwlogin.js).
+ * straight in (and, in v2, an e-mail account may also use its password: src/pwlogin.js). In v2 a member may also ADD Google to
+ * an existing account from their Profile ("Google sign-in": handleGoogleAdd, then the callback with the link marker "l"), and
+ * from then on "Log in with Google" signs them in to that account (src/logins.js findAccount). A Google login is never matched to
+ * an account by an e-mail address: Google gives us only an account number (scope "openid profile").
+ * When nobody has the login, v2 answers "no_account" and says which login it was, so the page names it: a Google login lands on
+ * /connect?error=no_account&login=google, an e-mail answer carries { login: "email" }, a wallet's answer carries nothing (the page's
+ * default words are the wallet's).
  * THE ONE RULE for a proven wallet in v2 (walletProven, below): a proof made FOR THE LINK (a signed LINK statement that names
  *   the account, a link pairing a phone approved, or a tiny transfer started with { link: true }) by a browser logged in to an
  *   account WITHOUT a wallet links that wallet (src/walletlink.js); a plain LOGIN proof by such a browser links nothing
@@ -46,10 +52,12 @@ import { check, clientKey, hits, limitKey, peek, refund } from "./limits.js";
 import { TERMS_VERSION, asText, endSignup, getSignup, recordIdentity } from "./signup-core.js";
 import { finishCore } from "./signup-finish.js";
 import { SESSION_COOKIE, SESSION_SECONDS } from "./session.js";
-import { accountName, linkNotice, linkWallet, maskName } from "./walletlink.js";
+import { accountName, linkLocked, linkNotice, linkWallet, lockedAnswer, maskName } from "./walletlink.js";
+import { addGoogle, findAccount, googleAdded } from "./logins.js";
 
 export { SESSION_COOKIE, SESSION_SECONDS };
 const OAUTH_COOKIE = "vo";
+const OAUTH_SECONDS = 10 * 60;       // the trip to Google and back: the OAuth cookie lives 10 minutes
 export const PENDING_SECONDS = 30 * 60;     // wallet proven, Google / e-mail still to link: 30 minutes
 const PAIR_SECONDS = 10 * 60;        // "sign in with my phone" codes: 10 minutes
 
@@ -233,6 +241,14 @@ export const isFresh = (session, now = Date.now()) => {
 };
 /** The stricter half of isFresh: the WALLET was proven in this session within the last 30 minutes (the login alone never counts). */
 export const isProven = (session, now = Date.now()) => Boolean(session && session.proven_at && now - Date.parse(session.proven_at) <= POLICY.freshProofMinutes * 60_000);
+/**
+ * Fresh enough to ADD a way to log in (the Profile's Google sign-in): this session was made by a login in the last 30 minutes (Google,
+ * the e-mail code, a password or a wallet's sign-in), or the wallet was proven in it in the last 30 minutes. A session left open on a
+ * shared computer for an hour is neither, so it can't quietly add a stranger's Google to the account: the member logs in again first.
+ * `graceMs` widens both by the time a person may spend at Google (the callback checks again with the OAuth cookie's 10 minutes).
+ */
+export const loginFresh = (session, now = Date.now(), graceMs = 0) => Boolean(session && session.user
+  && (isProven(session, now - graceMs) || (session.created_at && now - graceMs - Date.parse(session.created_at) <= POLICY.freshProofMinutes * 60_000)));
 
 /**
  * POST /api/auth/reprove { address, message, signature } → "it's still me": the signed-in person signs
@@ -471,29 +487,91 @@ export async function handleOAuthStart(request, env, provider) {
     if (!row || row.terms_version !== TERMS_VERSION) return redirect("/connect?error=terms_required");
     marker = ".s";
   }
+  const go = await oauthStart(request, env, provider, marker);
+  return redirect(go.url, [go.cookie]);
+}
+
+/**
+ * The trip to Google: a one-time state and a PKCE verifier, kept in the OAuth cookie (10 minutes) with the marker of what the trip is
+ * for: "" a log-in, ".s" a sign-up, ".l.<tag>" adding Google to the signed-in account (tag: linkTag of that session). { url, cookie }.
+ */
+async function oauthStart(request, env, provider, marker = "") {
   const state = randomToken(16), verifier = randomToken(48);
   const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
   const redirectUri = `${new URL(request.url).origin}/api/auth/${provider}/callback`;
-  return redirect(p.authorize(env, { redirectUri, state, challenge }), [cookie(OAUTH_COOKIE, `${provider}.${state}.${verifier}${marker}`, 600)]);
+  return { url: PROVIDERS[provider].authorize(env, { redirectUri, state, challenge }), cookie: cookie(OAUTH_COOKIE, `${provider}.${state}.${verifier}${marker}`, OAUTH_SECONDS) };
+}
+
+/** Which signed-in session asked to add Google: a hash of the session's row id (itself a hash of the cookie), so the cookie names no account. */
+const linkTag = async (s) => (await sha256(`google-link:${s.id}`)).slice(0, 22);
+
+/**
+ * POST /api/me/google/add (v2: the Profile's "Google sign-in", Add) → { ok, url }: the page goes to `url`, Google's own page, where
+ * the person picks their Google account; the callback then adds it as a way to log in to THIS account (src/logins.js addGoogle).
+ * Who may: a signed-in member, from this site's own page (Origin), whose session is not one a wallet from another app made in the last
+ * 7 days (linkLocked: 403 link_new, like the other identity changes), whose account has no Google sign-in yet (409 has_google: made
+ * with Google, or one added: remove it first), and who logged in or proved the wallet in this browser in the last 30 minutes
+ * (loginFresh: else 403 reprove with relogin, the page says "log in again"). Nothing is written here: the OAuth cookie gets the marker
+ * "l" and a tag of THIS session, and the callback adds nothing unless that same session is still signed in there.
+ */
+export async function handleGoogleAdd(request, env, now = Date.now()) {
+  const blocked = await guard(request, env);
+  if (blocked) return blocked;
+  if (!PROVIDERS.google.configured(env)) return json({ ok: false, error: "login_unavailable" }, 503);
+  const s = await getSession(env, request, now);
+  if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
+  if (linkLocked(s, now)) return lockedAnswer(s.user);
+  if (s.user.provider === "google" || (await googleAdded(env.DB, s.user.id))) return json({ ok: false, error: "has_google" }, 409);
+  if (!loginFresh(s, now)) return json({ ok: false, error: "reprove", relogin: true }, 403);
+  const go = await oauthStart(request, env, "google", `.l.${await linkTag(s)}`);
+  return json({ ok: true, url: go.url }, 200, { "Set-Cookie": go.cookie });
+}
+
+/**
+ * Back from Google with the link marker: add that Google account to the signed-in account, or say why not. Every answer goes back
+ * to the Profile (/dashboard?google=<code>#profile): linked, already, google_taken, has_google, link_new, reprove, login_expired,
+ * login_unavailable. It never signs anyone in, never makes an account and never ends a session. Signed out meanwhile: the log-in
+ * page's login_expired (nothing was added).
+ */
+async function finishGoogleAdd(env, session, tag, who, now, clear) {
+  const back = (code) => redirect(`/dashboard?google=${code}#profile`, [clear]);
+  if (!session || !session.user) return redirect("/connect?error=login_expired", [clear]);
+  if (!v2On(env)) return back("login_unavailable");
+  // the session that asked (logged out and in again, or someone else logged in on this browser meanwhile: nothing is added)
+  if (!tag || tag !== (await linkTag(session))) return back("login_expired");
+  if (linkLocked(session, now)) return back("link_new");
+  // checked again here, with the 10 minutes at Google: the marker sits in a cookie this browser could have edited
+  if (!loginFresh(session, now, OAUTH_SECONDS * 1000)) return back("reprove");
+  let r;
+  try { r = await addGoogle(env.DB, session.user.id, who.id, now); }
+  catch (e) { console.error("google sign-in not added", String((e && e.message) || e).slice(0, 120)); return back("login_unavailable"); }
+  if (r.error) return back(r.error);
+  if (!r.already) console.log("google sign-in added"); // no identifiers
+  return back(r.already ? "already" : "linked");
 }
 
 /**
  * GET /api/auth/google/callback → link the login to the proven wallet (v1), or sign a returning person in.
- * v2: a known Google id signs in; an unknown one is recorded in the sign-up (when the person started from the sign-up page)
+ * v2: a known Google id signs in (its account's main login, or a Google sign-in a member added: src/logins.js findAccount); an
+ * unknown one is recorded in the sign-up (when the person started from the sign-up page)
  * and the account is made right here, in the same request (finishCore), landing on /dashboard?welcome=1; a refusal of the
  * finish lands on /connect?error=<code> (location_unverified, social_taken, terms_required: the page shows the right step) or
  * /connect?step=finish (anything else: the page runs the finish once more and shows the precise reason). A login attempt
- * (no sign-up marker) with an unknown id is refused with "no_account".
+ * (no sign-up marker) with an unknown id is refused with "no_account", and the page is told it was a Google login
+ * (/connect?error=no_account&login=google: it speaks of the Google account, not of a wallet).
+ * With the link marker "l" (the Profile's Add, handleGoogleAdd) the Google account is added to the signed-in account instead, and
+ * every answer goes back to the Profile (finishGoogleAdd).
  */
 export async function handleOAuthCallback(request, env, provider, fetchImpl = fetch, now = Date.now()) {
   const url = new URL(request.url);
   const p = PROVIDERS[provider];
   if (!p) return json({ error: "not_found" }, 404);
   const clear = clearCookie(OAUTH_COOKIE);
-  const fail = (error) => redirect(`/connect?error=${error}`, [clear]);
+  const [cp, state, verifier, marker, tag] = (getCookie(request, OAUTH_COOKIE) || "").split(".");
+  const adding = marker === "l"; // adding Google from the Profile: the person goes back there, whatever happens
+  const fail = (error) => redirect(adding ? `/dashboard?google=${error}#profile` : `/connect?error=${error}`, [clear]);
   if (!p.configured(env) || !env.DB) return fail("login_unavailable");
   if (url.searchParams.get("error")) return fail("login_cancelled");
-  const [cp, state, verifier, marker] = (getCookie(request, OAUTH_COOKIE) || "").split(".");
   const code = url.searchParams.get("code");
   if (cp !== provider || !state || state !== url.searchParams.get("state") || !code || !verifier) return fail("login_expired");
 
@@ -503,8 +581,11 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
 
   await ensureSchema(env.DB);
   const session = await getSession(env, request, now);
+  if (adding) return finishGoogleAdd(env, session, tag, who, now, clear);
   const v2 = v2On(env) ? { onNew: marker === "s" ? () => recordIdentity(env, request, provider, who, now) : () => ({ error: "no_account" }) } : null;
   const r = await linkIdentity(env, session, provider, who, now, v2);
+  // no account for this Google login: the page must speak of the Google account (not of a wallet) and say how to add Google to theirs
+  if (r.error === "no_account") return redirect(`/connect?error=no_account&login=${provider}`, [clear]);
   if (r.error) return fail(r.error);
   if (r.recorded) {
     // the login is verified and in the sign-up: the account is made now, in this very request
@@ -529,7 +610,8 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
  * the Terms and the location). With v2 === null (the switch off) it is exactly the original.
  */
 export async function linkIdentity(env, session, provider, who, now, v2 = null) {
-  const linked = await env.DB.prepare("SELECT id, wallet FROM users WHERE provider = ? AND provider_id = ?").bind(provider, who.id).first();
+  // the account this login belongs to: its main login, or (Google only) a Google sign-in a member added from their Profile
+  const linked = await findAccount(env.DB, provider, who.id);
   // Signing in with Google / e-mail alone doesn't prove the wallet: sensitive actions ask for it again.
   const start = async (userId, wallet, to, isNew) => {
     if (session) await dropSession(env, session.id);
@@ -778,7 +860,8 @@ export async function handleEmailVerify(request, env, fetchImpl = fetch, now = D
   const session = await getSession(env, request, now);
   const v2 = v2On(env) ? { onNew: () => ({ error: "no_account" }) } : null;
   const r = await linkIdentity(env, session, "email", { id: email, handle: null, name: "E-mail member" }, now, v2);
-  if (r.error) return json({ ok: false, error: r.error }, 400);
+  // (no_account says it was an e-mail login: the page speaks of the e-mail, not of a wallet)
+  if (r.error) return json({ ok: false, error: r.error, ...(r.error === "no_account" ? { login: "email" } : {}) }, 400);
   const headers = r.cookie ? { "Set-Cookie": r.cookie } : {};
   if (v2 && r.cookie) { // signed in as an existing person: a half-done sign-up in this browser is over
     const clear = await endSignup(env, request);

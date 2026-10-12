@@ -19,6 +19,7 @@
  *   · /api/me/wallet/{link,unlink} · /api/me/wallet/carry(/info,/claim,/status) (the dashboard's wallet link, src/walletlink.js)
  *   · /api/pair { purpose: "link" } · GET /api/message?action=link(&code|&pair)
  *   · /api/auth/email/login · /api/auth/password/reset(/start) · /api/me/password
+ *   · /api/me/google/{add,remove} (the Profile's "Google sign-in": a way to log in with Google added to an existing account, src/logins.js)
  * Member profiles, only while PROFILES=on (otherwise 404 not_enabled; src/profiles.js):
  *   GET /api/profile?u= · /api/members/search?q= · POST /api/follow · GET /api/follows · POST /api/block · GET /api/me/blocks
  *   · POST /api/me/bio · POST /api/profile/report · GET /api/me/portfolio · POST /api/mod/bio/clear
@@ -59,9 +60,9 @@ import { readSigned } from "./signed.js";
 import { ensureSchema } from "./store.js";
 import { POLICY, founderAmount } from "./policy.js";
 import { ledgerStatus } from "./ledger.js";
-import { handleEmailStart, handleEmailVerify, handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, handlePairStart, handlePairStatus,
+import { handleEmailStart, handleEmailVerify, handleGoogleAdd, handleLogout, handleOAuthCallback, handleOAuthStart, handlePairFinish, handlePairStart, handlePairStatus,
   handleReprove, handleTransferCheck, handleTransferStart, handleWalletLogin } from "./auth.js";
-import { handleContactEmailRemove, handleContactEmailVerify, handleHome, handleMe, handleMembers, handlePhone, handleTermsAgree, handleUsername } from "./me.js";
+import { handleContactEmailRemove, handleContactEmailVerify, handleGoogleRemove, handleHome, handleMe, handleMembers, handlePhone, handleTermsAgree, handleUsername } from "./me.js";
 import { handleLocate } from "./attest.js";
 import { handleHandoffClaim, handleHandoffComplete, handleHandoffInfo, handleHandoffStart } from "./handoff.js";
 import { handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
@@ -227,6 +228,11 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   if (path.startsWith("/api/me/wallet/")) {
     if (!v2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
     return routeWalletLink(request, env, Date.now(), request.cf, ctx, fetchImpl); // ctx: the link e-mail goes out after the answer
+  }
+  // the Profile's "Google sign-in" (add Google to an existing account, or take the added one off): the same rule
+  if (path === "/api/me/google/add" || path === "/api/me/google/remove") {
+    if (!v2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
+    return only("POST") || (path === "/api/me/google/add" ? handleGoogleAdd(request, env) : handleGoogleRemove(request, env));
   }
 
   // member profiles: with the switch off they are simply not there either (before any method check, so nothing can be probed)

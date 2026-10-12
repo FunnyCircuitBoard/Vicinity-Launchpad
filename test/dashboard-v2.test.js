@@ -70,7 +70,8 @@ const TABLE = {
   profile: ["profile-modal", "profile-title", "profile-avatar", "profile-since", "profile-close", "profile-username-h", "username-form", "username-input", "username-err", "bio-sec", "profile-bio-h", "bio-form", "bio-input", "bio-count", "bio-hint", "bio-save", "bio-err",
     "profile-net-sec", "profile-net-h", "profile-net", "profile-net-link", "profile-account-h", "profile-wallet", "profile-copy", "profile-link", "profile-unlink", "profile-provider", "profile-home", "email-row", "email-desc", "email-view", "email-form", "email-input", "email-code-form", "email-code-input",
     "phone-row", "phone-view", "phone-form", "phone-input", "contact-err", "profile-public-note", "profile-help-h", "profile-logout", "profile-username-meta", "profile-bio-meta", "profile-wallet-meta",
-    "profile-email-meta", "profile-phone-meta", "roles-fold", "roles"],
+    "profile-email-meta", "profile-phone-meta", "roles-fold", "roles",
+    "google-sec", "profile-google-meta", "google-desc", "google-view", "google-err"], // the Google sign-in row (an extra way to log in, src/logins.js)
   strip: ["dv2", "dash-tabs", "dash-tablist", "tab-home", "tab-city", "tab-community", "tab-rankings", "tab-founder", "tab-moderate", "tab-moderate-n", "tab-profile",
     "panel-home", "panel-city", "panel-community", "panel-rankings", "panel-founder", "panel-moderate", "panel-profile"],
 };

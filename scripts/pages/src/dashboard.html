@@ -581,12 +581,27 @@
           </div>
         </details>
 
+        <!-- Google sign-in (the new sign-up only): log in with Google too. Add goes to Google and back here (/dashboard?google=CODE#profile) -->
+        <details class="fold profile__row" id="google-sec" hidden>
+          <summary><span class="fold__label">Google sign-in</span> <span class="fold__meta" id="profile-google-meta"></span></summary>
+          <div class="profile__body">
+            <div class="contact-row">
+              <div class="contact-row__main">
+                <p class="tiny muted" id="google-desc">Log in with Google too, as well as the way you made your account.</p>
+              </div>
+              <div id="google-view"></div>
+            </div>
+            <p class="tiny muted">We keep only Google's account number for this, never your Gmail address. A Gmail saved under E-mail is a contact address: it can't log you in.</p>
+            <p class="inline-err" id="google-err" role="alert" hidden></p>
+          </div>
+        </details>
+
         <details class="fold profile__row">
           <summary><span class="fold__label">E-mail</span> <span class="fold__meta" id="profile-email-meta"></span></summary>
           <div class="profile__body">
             <div class="contact-row" id="email-row">
               <div class="contact-row__main">
-                <p class="tiny muted" id="email-desc">Optional. Not used for anything yet. You can remove it any time.</p>
+                <p class="tiny muted" id="email-desc">Optional, and not a way to log in. Not used for anything yet. You can remove it any time.</p>
               </div>
               <div id="email-view"></div>
             </div>

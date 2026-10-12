@@ -5,6 +5,7 @@
  *                           your city's seat / application window, your country's manager / election
  *   GET  /api/me?lite=1   → just who you are (for the header on every page)
  *   POST /api/home        → set your home community from a location attestation (never the location)
+ *   POST /api/me/google/remove → take off the Google sign-in the member added (v2; adding it: src/auth.js handleGoogleAdd)
  */
 import { json, readJson } from "./http.js";
 import { cleanEmail, consumeEmailCode, getSession, isFresh, providers, renewSession, validEmail } from "./auth.js";
@@ -23,6 +24,7 @@ import { tickerOf } from "./tickers.js";
 import { latestBalances } from "./ledger.js";
 import { dashboardV2On, profilesOn, v2On } from "./flags.js";
 import { countsOf } from "./profile-core.js";
+import { googleAdded, removeGoogle } from "./logins.js";
 
 const HOME_LOCK_DAYS = 7; // a home community can be changed once a week
 const mask = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
@@ -226,7 +228,9 @@ export async function handleMe(request, env, fetchImpl = fetch, now = Date.now()
   // "that wasn't me" (src/walletlink.js handleDisown). The wallet itself only masked.
   const u = s.user;
   const wnew = v2 && linkWindow(u, now) ? { walletNew: { wallet: `${u.wallet.slice(0, 4)}…${u.wallet.slice(-4)}`, via: u.wallet_via, app: u.wallet_app || null, at: u.wallet_at, notMe: mayDisown(s, u) } } : {};
-  return json({ signedIn: true, user, providers: prov, ...myFlag, ...terms, ...counts, ...wnew, ...(await liveStatus(env, s, fetchImpl, now)) }, 200, headers);
+  // v2: whether the member ADDED a Google sign-in (the Profile's "Google sign-in" row: Add or Remove). Never which Google account.
+  const full = v2 ? { ...user, googleAdded: await googleAdded(env.DB, u.id) } : user;
+  return json({ signedIn: true, user: full, providers: prov, ...myFlag, ...terms, ...counts, ...wnew, ...(await liveStatus(env, s, fetchImpl, now)) }, 200, headers);
 }
 
 /**
@@ -352,6 +356,21 @@ export async function handleContactEmailRemove(request, env, now = Date.now()) {
   if (linkLocked(a.s, now)) return lockedAnswer(a.u);
   await env.DB.prepare("UPDATE users SET contact_email = NULL WHERE id = ?").bind(a.u.id).run();
   return json({ ok: true, email: null });
+}
+
+/**
+ * POST /api/me/google/remove (v2) → take the Google sign-in this member ADDED off their account (src/logins.js removeGoogle):
+ * "Log in with Google" with it answers no_account again. The account's main login (the Google, e-mail or wallet it was made with)
+ * is never touched, so an account made with Google keeps it. Not from a session a wallet from another app made in the last 7 days
+ * (link_new), like the other identity changes. { ok, removed } (removed false: there was none).
+ */
+export async function handleGoogleRemove(request, env, now = Date.now()) {
+  const a = await access(request, env, now);
+  if (a.error) return a.error;
+  if (linkLocked(a.s, now)) return lockedAnswer(a.u);
+  const removed = await removeGoogle(env.DB, a.u.id);
+  if (removed) console.log("google sign-in removed"); // no identifiers
+  return json({ ok: true, removed });
 }
 
 const validPhone = (s) => {

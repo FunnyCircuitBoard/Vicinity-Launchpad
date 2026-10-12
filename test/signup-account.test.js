@@ -266,7 +266,7 @@ test("S1: with v2 on the OLD e-mail route can only sign people in. An unknown ad
   await b.send("/api/auth/email/start", { method: "POST", body: { email: "sneaky@example.com" }, fetchImpl: box.fetch });
   const r = await b.send("/api/auth/email/verify", { method: "POST", body: { email: "sneaky@example.com", code: box.codeFor("sneaky@example.com") }, fetchImpl: box.fetch });
   assert.equal(r.status, 400);
-  assert.deepEqual(await r.json(), { ok: false, error: "no_account" });
+  assert.deepEqual(await r.json(), { ok: false, error: "no_account", login: "email" }, "it says the login was an e-mail, so the page speaks of the e-mail (not of a wallet)");
   assert.equal(await count("users"), 0, "no account without the Terms and the location");
   assert.equal((await b.get("/api/me?lite=1")).signedIn, false);
   // the same with a half-done sign-up open in the browser: the OLD route still makes nothing of it
@@ -283,7 +283,7 @@ test("S1: the Google callback without the sign-up marker only signs in, and a fo
   const start = await b.send("/api/auth/google/start");
   const state = new URL(start.headers.get("location")).searchParams.get("state");
   const cb = await b.send(`/api/auth/google/callback?code=c&state=${state}`, { fetchImpl: fakeGoogle("sneaky-sub") });
-  assert.equal(cb.headers.get("location"), "/connect?error=no_account");
+  assert.equal(cb.headers.get("location"), "/connect?error=no_account&login=google", "the page is told it was a Google login (its words are about the Google account)");
   assert.equal(await count("users"), 0);
   assert.ok(!b.has("vsu"), "and no sign-up was made out of it");
 
