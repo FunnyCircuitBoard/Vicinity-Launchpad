@@ -31,6 +31,14 @@
   // AUTO_MAX times per AUTO_WINDOW_MS, every panel and every tab together (the log is kept in localStorage when it can be);
   // past that, or after a 429, the person taps for the price ("Tap Buy to get your price").
   const SETTLE_MS = 600, READY_MS = 40_000, MAX_REBUILDS = 3, HOLD_MS = 1500, AUTO_MAX = 8, AUTO_WINDOW_MS = 60_000, SLOW_MS = 60_000;
+  // A price that did not load because the price service had a hiccup (Jupiter busy or out of reach, or no answer at all) is asked
+  // again quietly, "Still getting the best price…" on the screen instead of an error: after RETRY_WAITS (or the answer's
+  // Retry-After when that is longer; one longer than RETRY_WAIT_MAX_MS is not waited out), only while the page is looked at and the
+  // trade (pair, amount, slippage) is the same. Each retry is an automatic request: it needs the page's budget (autoAllowed) and
+  // spends from it (autoSpend), every panel and tab together, so a broken Jupiter never makes every open panel hammer the Worker.
+  // When the retries are spent the panel says so once and waits for the person's tap (Try again asks for the price again; with
+  // nobody connected the button stays Connect wallet, which also brings a price, and Try again is the link under it).
+  const RETRY_WAITS = [1500, 4000, 8000], RETRY_WAIT_MAX_MS = 10_000;
   const BASES = [SOL, USDC, USDT];
   const TOUCH = ["click", "input", "keydown", "change"]; // what tells a panel somebody is there
   const APP_KEY = "vicinity.walletApp"; // the wallet app (a VW.KNOWN id) this person opened last: offered first
@@ -97,8 +105,10 @@
     bad_ticket: "This transaction was not built here, or its ticket expired. Press Swap again.",
     misconfigured: "Curve trading is paused: a setting on our side does not match. Nothing was sent.",
     no_route: "No market can trade this pair right now.",
-    jupiter_busy: "The price service is busy. Try again in a few seconds.",
-    jupiter_unavailable: "The price service could not be reached. Try again in a minute.",
+    jupiter_busy: "Prices are slow to load right now. Nothing was sent. Try again in a few seconds.",
+    jupiter_unavailable: "Prices are not loading right now. Nothing was sent. Try again in a moment.",
+    quote_unavailable: "Prices are not loading right now. Tap Try again in a moment.", // the price for the typed amount, after its quiet retries
+    quote_unavailable_connect: "Prices are not loading right now. Tap Try again in a moment, or connect your wallet.", // the same, nobody connected (the button connects, Try again is the link under it)
     jupiter_refused: "The price service sent something unexpected, so nothing was built. Try again in a minute.",
     rpc_unavailable: "The blockchain is busy. Try again in a minute.",
     rpc_busy: "The blockchain is busy. Try again in a minute.",
@@ -126,6 +136,14 @@
   const words = (d) => (d && d.error === "program_error" && d.name ? `The market refused this trade (${d.name}). Nothing was spent.` : WORDS[d && d.error] || WORDS[d] || "Something went wrong. Nothing was spent. Try again.");
   const isReject = (e) => /reject|cancel|denied|declin|closed|dismiss/i.test(String((e && (e.message || e.code)) || e));
   const isSlow = (d) => Boolean(d && (d.error === "slow_down" || d._status === 429));
+  /** A price that did not come for a passing reason: Jupiter busy or out of reach, or no answer from this site at all (offline, or an error page instead of ours). */
+  const quoteDown = (d) => !d || (!d.ok && (d.error === "jupiter_unavailable" || d.error === "jupiter_busy" || d._status === 0 || (d._empty === true && d._status >= 500)));
+  /** How long before such a price is asked again quietly (ms): RETRY_WAITS[tries], or the answer's Retry-After when longer; null when it is not a passing failure, the retries are spent, or the wait would be longer than RETRY_WAIT_MAX_MS. */
+  const retryWait = (d, tries) => {
+    if (!quoteDown(d) || !Number.isInteger(tries) || tries < 0 || tries >= RETRY_WAITS.length) return null;
+    const wait = Math.max(RETRY_WAITS[tries], Math.min(60, Number(d && d.retryAfterS) || 0) * 1000);
+    return wait > RETRY_WAIT_MAX_MS ? null : wait;
+  };
 
   /* ---------------------------------------------------------------- shared: the config, the connected wallet */
   let configP = null, config = null;
@@ -349,13 +367,15 @@
       this.title = opts.title || root.dataset.title || (this.mode === "buy" ? `Buy ${symbolOf(this.s.out, "this coin")}` : "Swap");
       this.timer = 0; this.refresh = 0; this.abort = null; this.poll = 0; this.seq = 0; this.dead = false;
       this.bseq = 0; this.babort = null; this.buildT = 0; this.expireT = 0; this.holdT = 0; this.typedAt = 0; this.share = [];
+      this.retryT = 0; this.retryHeld = null; // a price asked again quietly (retryLater): its timer, or the retry a hidden page holds back
       this.build(); this.render();
       // a panel that changes width (a phone turned, the sheet on a computer) fits its two amounts again: never cut off
       if (typeof ResizeObserver === "function") { try { this.ro = new ResizeObserver(() => { this.fitAmt(this.inAmt, true); this.fitAmt(this.outAmt, true); }); this.ro.observe(root); } catch { this.ro = null; } }
       this.offWallet = onWallet(() => {
         if (this.s.phase === "ready" || this.s.phase === "building") { this.dropBuild(); this.s.phase = "quoted"; } // another wallet signs: that build is not its
         this.s.hold = null;
-        this.render(); this.loadBalances(); if (this.s.amount && ["quoted", "failed", "idle"].includes(this.s.phase)) { this.phase("quoting"); this.quote(); }
+        // (a price being asked again quietly is asked at once for the new wallet: quote() drops the waiting retry)
+        this.render(); this.loadBalances(); if (this.s.amount && (["quoted", "failed", "idle"].includes(this.s.phase) || (this.s.phase === "quoting" && this.s.retrying))) { this.phase("quoting"); this.quote(); }
       });
       panels.add(this);
       if (!this.s.out && config) this.s.out = config.tokens.find((t) => t.kind === "vicinity")?.mint || null;
@@ -371,7 +391,7 @@
       this.dead = true;
       clearTimeout(this.timer); clearTimeout(this.refresh); clearTimeout(this.poll);
       if (this.abort) { this.abort.abort(); this.abort = null; }
-      this.dropBuild();
+      this.dropBuild(); this.dropRetry();
       this.seq++; this.s.sig = null;
       if (this.offWallet) this.offWallet();
       if (this.ro) { try { this.ro.disconnect(); } catch { /* gone */ } this.ro = null; }
@@ -443,6 +463,16 @@
       const status = el("p", "swap__status"); status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite"); this.status = status;
       const go = el("button", "btn btn--primary btn--block swap__go", "Connect wallet"); go.type = "button"; this.go = go;
       go.addEventListener("click", () => this.primary());
+      // "Try again" under the button (and under the wallet chooser it opens) when the price did not load and nobody is connected:
+      // the button connects a wallet then
+      const again = el("button", "link-btn swap__again", "Try again"); again.type = "button"; again.hidden = true; this.again = again;
+      again.addEventListener("click", () => {
+        const s = this.s;
+        if (this.locked || s.phase !== "failed" || !s.requote || !s.amount) return;
+        let keys = false; try { keys = again.matches(":focus-visible"); } catch { /* an old browser */ }
+        this.quote(); // the link goes while the price is asked: a keyboard is put back in the amount (a phone's keyboard is not opened)
+        if (keys) { try { this.inAmt.focus({ preventScroll: true }); } catch { /* no focus */ } }
+      });
       const note = el("p", "swap__note", ""); note.hidden = true; this.note = note; // "Filled in from your link"
       const links = el("p", "swap__links"); this.links = links;
       const foot = el("p", "tiny muted swap__foot"); this.foot = foot;
@@ -451,7 +481,7 @@
       // answer first: the amounts, the one-line summary, the 10 % box when it applies, the button and the wallet chooser it
       // opens; then the receipt link, the footer, and the price details folded
       moreBody.append(slip, help, dl, moreEmpty); more.append(moreSum, moreBody);
-      r.append(head, note, box, picker, status, warn, go, walletBox, links, foot, more);
+      r.append(head, note, box, picker, status, warn, go, walletBox, again, links, foot, more);
       this.inAmt.addEventListener("input", () => { this.note.hidden = true; this.onAmount(); });
       this.inAmt.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); this.primary(); } });
       // somebody is here: any tap, key or change in the panel starts the quiet rebuilds' count again (removed by destroy(): a
@@ -462,6 +492,7 @@
       // (removed again by destroy())
       this.onVisibility = () => {
         if (document.hidden) { clearTimeout(this.refresh); return; }
+        if (this.retryHeld) return this.retryHeld(); // the price's quiet retry came due while nobody looked: asked now
         const s = this.s;
         if (s.phase === "quoted" && s.hold !== "refresh") this.scheduleRefresh();
         else if (s.phase === "ready" && s.build && !s.refreshing && Date.now() - s.build.at >= READY_MS) this.autoRebuild();
@@ -472,7 +503,8 @@
     phase(p, extra = {}) {
       // a failure is soft ("Try again": the price is built again) only when it says so: a Cancel earlier on must never turn a later
       // trade's "could not confirm" or the chain's refusal into "Try again", which would buy the same amount a second time
-      Object.assign(this.s, { phase: p }, p === "failed" ? { soft: false } : null, extra); this.render();
+      // requote: the price did not load (Try again asks for it again); retrying: it is being asked again quietly ("Still getting…")
+      Object.assign(this.s, { phase: p, requote: false, retrying: false }, p === "failed" ? { soft: false } : null, extra); this.render();
       // a trade that ended (done, failed) while the keyboard was in the panel: it lands on the button ("Swap again", "Try again"),
       // never on the page's body, so Enter goes on working
       if (this.refocus && !this.locked) {
@@ -502,7 +534,7 @@
       this.s.amount = v; this.s.understood = false; this.understand.checked = false; this.typedAt = Date.now();
       clearTimeout(this.timer); clearTimeout(this.refresh);
       if (this.abort) { this.abort.abort(); this.abort = null; this.seq++; } // the quote on its way is for the old amount: its answer is dropped
-      this.dropBuild(); this.s.hold = null; // a new amount is a new trade: the price built (or being built) goes
+      this.dropBuild(); this.dropRetry(); this.s.hold = null; // a new amount is a new trade: the price built (or being built), or asked again, goes
       if (!/^\d*\.?\d+$/.test(v) || Number(v) <= 0) { this.s.quote = null; this.s.curve = null; this.phase("idle", { error: null, moved: false }); return; }
       this.phase("quoting", { error: null, moved: false });
       this.timer = setTimeout(() => this.quote(), QUOTE_MS);
@@ -510,14 +542,14 @@
     setSlippage(bps) {
       if (this.locked) return;
       this.note.hidden = true; // "Filled in from your link" is about the link's trade, not this one any more
-      this.dropBuild(); this.s.hold = null; if (this.s.phase === "ready" || this.s.phase === "building") this.s.phase = "quoted";
+      this.dropBuild(); this.dropRetry(); this.s.hold = null; if (this.s.phase === "ready" || this.s.phase === "building") this.s.phase = "quoted";
       this.s.slippage = bps; this.s.understood = false; this.understand.checked = false; this.render();
       if (this.s.amount) { this.phase("quoting", { moved: false }); clearTimeout(this.timer); this.timer = setTimeout(() => this.quote(), 100); }
     }
     flip() {
       if (this.locked) return;
       this.note.hidden = true;
-      this.dropBuild(); this.s.hold = null; this.seq++; if (this.abort) { this.abort.abort(); this.abort = null; }
+      this.dropBuild(); this.dropRetry(); this.s.hold = null; this.seq++; if (this.abort) { this.abort.abort(); this.abort = null; }
       clearTimeout(this.timer); clearTimeout(this.refresh);
       if (this.fixedOut && this.mode === "buy" && !this.s.flipped) { this.s.flipped = true; } else if (this.fixedOut && this.s.flipped) this.s.flipped = false;
       [this.s.in, this.s.out] = [this.s.out, this.s.in]; this.s.quote = null; this.s.curve = null; this.s.amount = ""; this.inAmt.value = ""; this.phase("idle", { error: null, moved: false }); this.loadBalances();
@@ -573,7 +605,12 @@
         return u.toString();
       } catch { return String(location.href); }
     }
-    scheduleRefresh() { clearTimeout(this.refresh); this.refresh = setTimeout(() => { if (!document.hidden && this.s.phase === "quoted" && this.s.amount && this.s.hold !== "refresh") this.quote(true); }, REFRESH_MS); }
+    /** The 12 s refresh of a quoted price. Never next to a quiet retry of it (retryLater): that retry is this trade's next ask, and a refresh beside it would start its count again (a look away and back must not buy a new round of retries). */
+    scheduleRefresh() {
+      clearTimeout(this.refresh); this.refresh = 0;
+      if (this.retryT || this.retryHeld) return;
+      this.refresh = setTimeout(() => { if (!document.hidden && !this.retryT && !this.retryHeld && this.s.phase === "quoted" && this.s.amount && this.s.hold !== "refresh") this.quote(true); }, REFRESH_MS);
+    }
     async setMax() {
       const b = this.s.balances; if (!b || this.locked) return; // MAX is off while a trade is in the wallet's or the network's hands
       let v;
@@ -603,20 +640,56 @@
       }
       return { d, curve };
     }
-    async quote(silent = false) {
+    /**
+     * The price of the panel's trade (typed, the 12 s refresh when `silent`, another wallet). One that did not come for a passing
+     * reason is asked again quietly (retryLater); `tries` counts those retries.
+     */
+    async quote(silent = false, tries = 0) {
       if (!this.ready || !this.s.amount || this.locked) return;
+      this.dropRetry(); // this ask supersedes any retry still waiting
       const seq = ++this.seq;
       const ctrl = new AbortController(); if (this.abort) this.abort.abort(); this.abort = ctrl;
-      if (!silent) this.phase("quoting", { error: null });
+      if (!silent) this.phase("quoting", { error: null, retrying: tries > 0 });
       const r = await this.ask(ctrl.signal, () => seq === this.seq && !this.dead);
       if (!r) return; // a newer amount took over
       if (this.abort === ctrl) this.abort = null;
       const d = r.d; this.s.curve = r.curve;
-      if (!d || !d.ok) { this.s.quote = null; this.phase("failed", { error: d || { error: "swap_unavailable" }, soft: true }); return; }
+      if (tries && isSlow(d)) autoPause(Date.now() + Math.min(5 * SLOW_MS, Math.max(SLOW_MS, Number(d.retryAfterS || 0) * 1000))); // a retry nobody tapped for got a 429: every panel's automatic requests wait
+      if (!d || !d.ok) {
+        if (this.retryLater(d, silent, tries)) return;
+        this.s.quote = null; this.phase("failed", { error: d || { error: "swap_unavailable" }, soft: true, requote: quoteDown(d) });
+        return;
+      }
       this.s.quote = d; this.s.cluster = d.cluster || "mainnet"; this.s.chain = d.chain || "solana:mainnet";
       this.phase("quoted", { error: null, moved: false });
       this.afterQuote();
     }
+    /**
+     * The price did not come for a passing reason (quoteDown): ask again quietly, after RETRY_WAITS[tries] or the answer's Retry-After
+     * when longer, instead of showing the error. A typed amount shows "Still getting the best price…" meanwhile (no price: the one on
+     * the screen was for another amount); the 12 s refresh keeps its numbers on the screen. Not when the retries are spent, the wait
+     * would be longer than RETRY_WAIT_MAX_MS or the page's automatic budget is used up: false, and the caller shows the error. When
+     * the wait is over the retry is dropped if the trade (pair, amount, slippage) or the phase changed, held back while the page is
+     * hidden (asked when it is looked at again), and asked only within the budget, spending from it.
+     */
+    retryLater(d, silent, tries) {
+      const wait = retryWait(d, tries);
+      if (this.dead || wait == null || !autoAllowed()) return false;
+      const key = this.tradeKey(), want = silent ? "quoted" : "quoting";
+      if (!silent) { this.s.quote = null; this.phase("quoting", { error: null, retrying: true }); }
+      const run = () => {
+        this.retryT = 0; this.retryHeld = null;
+        if (this.dead || this.locked || key !== this.tradeKey() || this.s.phase !== want) return;
+        if (document.hidden) { this.retryHeld = run; return; }
+        if (!autoAllowed()) { this.s.quote = null; return this.phase("failed", { error: d || { error: "swap_unavailable" }, soft: true, requote: true }); }
+        autoSpend();
+        this.quote(silent, tries + 1);
+      };
+      this.retryT = setTimeout(run, wait);
+      return true;
+    }
+    /** Forget a quiet retry of the price (its timer, or the one a hidden page holds back). */
+    dropRetry() { clearTimeout(this.retryT); this.retryT = 0; this.retryHeld = null; }
     /**
      * A quote landed. With a wallet that can trade here, the exact transaction is built next ("Getting your exact price…" at once,
      * the build itself SETTLE_MS after the last keystroke); past the page's budget, after a 429, or for a link's trade the person has
@@ -651,7 +724,7 @@
       const s = this.s;
       if (this.dead || this.locked || !this.connected || !s.quote || (why === "auto" && s.phase !== "building")) return;
       const seq = ++this.bseq, live = () => !this.dead && seq === this.bseq;
-      clearTimeout(this.buildT); clearTimeout(this.expireT); clearTimeout(this.holdT); clearTimeout(this.timer); clearTimeout(this.refresh);
+      clearTimeout(this.buildT); clearTimeout(this.expireT); clearTimeout(this.holdT); clearTimeout(this.timer); clearTimeout(this.refresh); this.dropRetry();
       this.seq++; if (this.abort) { this.abort.abort(); this.abort = null; } // a quote still on its way must not overwrite the build
       if (this.babort) this.babort.abort();
       const ctrl = new AbortController(); this.babort = ctrl;
@@ -723,6 +796,7 @@
       const s = this.s;
       if (s.phase === "ready") return this.buy(); // first, before anything is awaited: the wallet opens inside this tap
       if (s.phase === "building" || this.locked) return; // a second tap while busy is ignored
+      if (s.phase === "failed" && s.requote && s.amount && this.connected) return this.quote(); // the price did not load: Try again asks for it again (nothing is built or signed); nobody connected: the button connects a wallet (below), Try again is the link under it
       if (s.phase === "done" || (s.phase === "failed" && !s.soft)) { s.sig = null; this.inAmt.value = ""; s.amount = ""; s.quote = null; this.phase("idle", { error: null }); this.inAmt.focus(); return; }
       if (!this.connected) return this.checkingWallet ? undefined : this.connect(); // the wallet app is still answering: the button is still
       if (s.phase === "failed" && s.soft && s.quote && s.amount) s.phase = "quoted"; // Try again: the price is built again
@@ -939,7 +1013,7 @@
           b.addEventListener("click", () => {
             if (this.locked) return; // a trade on its way: its pair stays
             this.note.hidden = true;
-            this.dropBuild(); this.s.hold = null; if (this.s.phase === "ready" || this.s.phase === "building") this.s.phase = "quoted";
+            this.dropBuild(); this.dropRetry(); this.s.hold = null; if (this.s.phase === "ready" || this.s.phase === "building") this.s.phase = "quoted";
             this.s[which] = t.mint; if (this.s.in === this.s.out) this.s[which === "in" ? "out" : "in"] = t.mint === SOL ? USDC : SOL; p.hidden = true; this.s.picker = null; this.s.quote = null; this.render(); this.loadBalances(); if (this.s.amount) this.onAmount();
             if (!this.walletBox.hidden) this.connect();
           });
@@ -1077,7 +1151,7 @@
       const extra = q ? `${q.partialFill ? `The curve takes only what it can still sell; the rest (${num(Number(q.refund) / 10 ** (q.decimals ? q.decimals.in : 9), 6)} ${sym(s.in)}) comes back. ` : ""}${impact > 3 ? `Price impact ${impact.toFixed(2)}%: a smaller amount gets a better price. ` : ""}` : "";
       const lines = {
         idle: this.connected ? `Connected ${shortAddr(wallet.address)}${wallet.adapter && !this.canSendHere ? " · " + WORDS.no_send : ""}` : intro,
-        quoting: "Getting the best price…",
+        quoting: s.retrying ? "Still getting the best price…" : "Getting the best price…",
         quoted: s.hold === "refresh" ? "Prices change, so this one has run out. Tap Refresh price for a new one."
           : s.hold === "manual" && this.connected ? `${extra}Tap ${verb} to get your price.`
           : (q ? `${q.estimate ? "Estimate: the exact amount is shown before your wallet opens. " : ""}${extra}` : "") || (this.connected ? `Connected ${shortAddr(wallet.address)}` : "Connect a wallet to swap."),
@@ -1092,22 +1166,26 @@
         sending: "Sending to the network…",
         confirming: s.checking ? "Still checking with the network… this can take a moment. Nothing more to sign." : "Waiting for the network to confirm…",
         done: q ? `Swapped ✓ ${num(Number(q.inUi), 6)} ${sym(s.in)} → ${num(Number(q.outUi), 6)} ${sym(s.out)}` : "Swapped ✓",
-        failed: words(s.error),
+        failed: s.requote ? (this.connected ? WORDS.quote_unavailable : WORDS.quote_unavailable_connect) : words(s.error),
       };
       const line = lines[s.phase] || "";
       if (this.status.textContent !== line) this.status.textContent = line;
-      this.status.className = `swap__status${s.phase === "failed" ? " is-bad" : s.phase === "done" ? " is-ok" : s.phase === "ready" && s.moved ? " is-moved" : ""}`;
+      // a price that did not load is no fault of anyone's: said in the calm colour of the other lines, not as an error
+      this.status.className = `swap__status${s.phase === "failed" && !s.requote ? " is-bad" : s.phase === "done" ? " is-ok" : s.phase === "ready" && s.moved ? " is-moved" : ""}`;
       // links: the signature
       this.links.replaceChildren();
       if (s.sig) { const a = el("a", null, "View on Solscan ↗"); a.setAttribute("href", `https://solscan.io/tx/${s.sig}${s.cluster !== "mainnet" ? `?cluster=${s.cluster}` : ""}`); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener"); this.links.append(el("span", "mono tiny", shortAddr(s.sig)), " · ", a); }
       // the button
       const busy = s.phase === "building" || this.locked;
       const connectLabel = this.checkingWallet ? CHECKING : "Connect wallet";
-      const labels = { idle: this.connected ? action : connectLabel, quoting: "Quoting…", quoted: !this.connected ? connectLabel : s.hold === "refresh" ? "Refresh price" : action, building: "Preparing…", ready: action, signing: "Confirm in your wallet…", sending: "Sending…", confirming: "Confirming…", done: "Swap again", failed: s.soft ? (this.connected ? "Try again" : "Connect wallet") : "Start over" };
+      // nobody connected while the price is asked again quietly: the button connects a wallet (a connected wallet's price is asked at once)
+      const waitingQuietly = s.phase === "quoting" && s.retrying && !this.connected;
+      const labels = { idle: this.connected ? action : connectLabel, quoting: waitingQuietly ? connectLabel : "Quoting…", quoted: !this.connected ? connectLabel : s.hold === "refresh" ? "Refresh price" : action, building: "Preparing…", ready: action, signing: "Confirm in your wallet…", sending: "Sending…", confirming: "Confirming…", done: "Swap again", failed: s.requote ? (this.connected ? "Try again" : connectLabel) : s.soft ? (this.connected ? "Try again" : "Connect wallet") : "Start over" };
       this.go.textContent = labels[s.phase] || "Swap";
-      this.go.disabled = busy || !this.ready || this.checkingWallet || (s.phase === "quoting") || (s.phase === "quoted" && (!this.connected ? false : impact > 10 && !s.understood)) || (s.phase === "idle" && this.connected && !s.amount)
+      this.go.disabled = busy || !this.ready || this.checkingWallet || (s.phase === "quoting" && !waitingQuietly) || (s.phase === "quoted" && (!this.connected ? false : impact > 10 && !s.understood)) || (s.phase === "idle" && this.connected && !s.amount)
         || (s.phase === "ready" && (s.refreshing || s.holding || (impact > 10 && !s.understood)));
       this.go.classList.toggle("is-busy", busy || this.checkingWallet || (s.phase === "ready" && s.refreshing));
+      this.again.hidden = !(s.phase === "failed" && s.requote && !this.connected);
       // the amount, the flip and the pair stay open while the price is being built (typing on simply starts again): only a trade
       // already in the wallet's or the network's hands locks them
       this.flipBtn.disabled = this.locked;
@@ -1125,7 +1203,7 @@
   async function req(path, body, signal) {
     try {
       const r = await fetch(path, { method: body === undefined ? "GET" : "POST", credentials: "same-origin", cache: "no-store", headers: body === undefined ? {} : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal });
-      const d = await r.json().catch(() => ({}));
+      const d = await r.json().catch(() => ({ _empty: true })); // not our JSON (an error page in front of the Worker): no answer
       if (!r.ok && d.ok === undefined) d.ok = false;
       if (!r.ok && !d.error) d.error = r.status === 429 ? "slow_down" : "swap_unavailable";
       d._status = r.status;
@@ -1206,7 +1284,7 @@
       }
     }
   }
-  window.VSwap = { mount, open, close: closeSheet, refresh, words, base58, num, worseThan, copySweep, tradeSentence: NEW_TRADE_SENTENCE, get config() { return config; }, get wallet() { return { address: wallet.address, adapter: wallet.adapter }; }, _panels: panels };
+  window.VSwap = { mount, open, close: closeSheet, refresh, words, base58, num, worseThan, quoteDown, retryWait, copySweep, tradeSentence: NEW_TRADE_SENTENCE, get config() { return config; }, get wallet() { return { address: wallet.address, adapter: wallet.adapter }; }, _panels: panels };
   // Self-mount every [data-swap] on the page once the switch is known. Every page already reads /api/official (site.js), so the
   // switch costs no extra request: off = the slots are hidden and nothing else is asked; on = the words change and the panels mount.
   const start = async () => {
