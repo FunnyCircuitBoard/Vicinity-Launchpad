@@ -14,14 +14,23 @@
  *   LP.renderSummary(el, response)     the decoded instruction list and the exact SOL change, in plain words (textContent only)
  *   LP.say(code, extra)                the plain-word message of an error code
  *
- * The order of signing is fixed: the WALLET signs first (solana:signTransaction), so the wallet sees and can check the whole
- * transaction; then this page checks that the wallet changed nothing in the message (byte for byte) and that its signature is
- * valid, adds the one-time keys' signatures at their own slots, and sends through the site's relay (/api/swap/send, which only
- * forwards what this Worker built: the ticket), then watches /api/swap/status. A send whose outcome nobody knows (the relay's
- * unclear: true, or no answer from the site at all) is watched like any other: never "nothing was sent" until the chain says
- * expired. Errors are thrown as Error(message) with .code.
- * `wallet`: a wallet of public/wallets.js (VW.list(): .account.address and .signTransaction(bytes, chain)), or any object with
- * `address` and `signTransaction(bytes, chain)`.
+ * The order of signing is fixed: the ONE-TIME KEYS sign first, each at its own slot, over the exact message prepare() checked
+ * (the wallet pays; the signers are exactly the wallet and those keys); the wallet's slot (0) stays empty. Then the wallet:
+ *   - a wallet that can send (solana:signAndSendTransaction: VW's canSend) signs AND sends it itself, the way the Buy panel already
+ *     does live (public/swap.js); its answer, its own signature, is the transaction's id, and that is watched. Our relay is not used.
+ *     Why: a wallet like Phantom adds its own protection instructions to a transaction it is the first to sign (and may set the
+ *     compute limit again), so a transaction it was only asked to sign came back with another message and this page refused it
+ *     ("changed"), even with a priority fee. It leaves a transaction that other keys signed already as it is (a change would void
+ *     their signatures, and the network would refuse it), and one it signs alone it may change, because it sends what it signed.
+ *   - a wallet that only signs (solana:signTransaction) signs; this page checks that it changed nothing in the message (byte for
+ *     byte) and that its signature is valid, puts every one-time signature at its slot again (a wallet may give back only its
+ *     own), and sends through the site's relay (/api/swap/send, which only forwards what this Worker built: the ticket).
+ * Either way /api/swap/status is then watched. A send whose outcome nobody knows (the relay's unclear: true, or no answer from the
+ * site at all) is watched like any other: never "nothing was sent" until the chain says expired. Errors are thrown as
+ * Error(message) with .code.
+ * `wallet`: a wallet of public/wallets.js (VW.list(): .account.address, .canSend, .signAndSendTransaction(bytes, chain, options)
+ * and .signTransaction(bytes, chain)), or any object with `address` and `signTransaction(bytes, chain)` (and, to send itself,
+ * `signAndSendTransaction`; `canSend: false` keeps it on the relay).
  */
 (function (root) {
   "use strict";
@@ -89,6 +98,8 @@
     changed: "Your wallet changed the transaction before signing it, so nothing was sent. Start again; if it happens again, tell the team.",
     bad_signature: "Your wallet's signature does not check out, so nothing was sent. Start again.",
     rejected: "You cancelled in your wallet. Nothing was sent.",
+    // the wallet that sends itself answered with an error, not a signature: it most likely sent nothing, but only the chain can say
+    wallet_send_failed: "Your wallet answered with an error instead of sending this (for example, its own check of the transaction found a problem), so most likely nothing was sent. Reload the page to see where things stand, then start again; if it happens again, tell the team.",
     cancelled: "Stopped. Nothing was sent.",
     not_enabled: "This is not switched on yet.",
     sign_in: "Sign in again, then start again.",
@@ -171,6 +182,13 @@
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const addressOf = (w) => (w && (w.address || (w.account && w.account.address))) || null;
   const chainOf = (cluster) => `solana:${cluster === "devnet" ? "devnet" : "mainnet"}`;
+  /** Does this wallet sign AND send (solana:signAndSendTransaction)? VW's canSend says so; `canSend: false` keeps it on the relay. */
+  const sendsItself = (w) => w.canSend !== false && typeof w.signAndSendTransaction === "function";
+  /** A sending wallet's answer (the 64-byte signature, or its base58 text) as the transaction's id, or null. */
+  const idOf = (s) => {
+    if (typeof s === "string") return /^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(s) ? s : null;
+    try { const u = s instanceof Uint8Array ? s : new Uint8Array(s || []); return u.length === 64 ? b58encode(u) : null; } catch { return null; }
+  };
 
   /** Build (the page's own `build(pubkeys)` calls its route) and check what came back; a handle whose sign() the person's tap calls. */
   async function prepare({ wallet, build, ephemeral: n = 0, cluster } = {}) {
@@ -189,24 +207,46 @@
     let used = false;
     return {
       response: res, keys: keys.map((k) => k.publicKey),
-      /** The wallet signs FIRST (call this straight from a tap), then the checks, the one-time signatures, the relay and the watch. */
+      /**
+       * Call this straight from a tap. The one-time keys sign first (slot 0 stays empty), then a wallet that sends signs and sends
+       * it itself, and a wallet that only signs signs, the checks run and the relay sends; then the watch.
+       */
       async sign({ onStatus = () => {} } = {}) {
         if (used) throw err("cancelled");
         used = true;
         onStatus("signing");
+        // the one-time keys sign the very message prepare() checked, each at its own slot of a copy of the built bytes (a few
+        // milliseconds of the browser's own crypto, nothing over the network: the wallet still opens from the tap)
+        const partial = tx.slice(), oneTime = [];
+        for (const k of keys) {
+          const i = p.signers.indexOf(k.publicKey);
+          if (i < 1) throw err("unexpected_signer");
+          let sig;
+          try { sig = await k.sign(p.message); } catch { throw err("unsupported"); }
+          partial.set(sig, p.sigAt + 64 * i);
+          oneTime.push({ i, sig });
+        }
+        const chain = res.chain || chainOf(res.cluster);
+        if (sendsItself(wallet)) {
+          // the wallet signs and sends (as public/swap.js does): its signature is the transaction's id. A wallet like Phantom may add
+          // its own checks to a transaction only it signs, and then sends what it signed; one the one-time keys signed it leaves as it is.
+          let id;
+          try { id = idOf(await wallet.signAndSendTransaction(partial.slice(), chain, { preflightCommitment: "confirmed", maxRetries: 3 })); }
+          catch (e) { throw isReject(e) ? err("rejected") : err("wallet_send_failed", { message: e && e.message }); }
+          if (!id) throw err("wallet_send_failed");
+          onStatus("confirming", id);
+          return watch(id, res, onStatus);
+        }
         let signed;
-        try { signed = await wallet.signTransaction(tx.slice(), res.chain || chainOf(res.cluster)); }
+        try { signed = await wallet.signTransaction(partial.slice(), chain); }
         catch (e) { throw isReject(e) ? err("rejected") : err(e && e.code === "no_sign" ? "no_sign" : "rejected", { message: e && e.message }); }
         signed = signed instanceof Uint8Array ? new Uint8Array(signed) : new Uint8Array(signed || []);
         let q;
         try { q = parse(signed); } catch { throw err("changed"); }
         if (q.count !== p.count || !same(q.message, p.message)) throw err("changed");
         if (!(await verify(who, p.message, signed.subarray(q.sigAt, q.sigAt + 64)))) throw err("bad_signature");
-        for (const k of keys) {
-          const i = p.signers.indexOf(k.publicKey);
-          if (i < 1) throw err("unexpected_signer");
-          signed.set(await k.sign(p.message), q.sigAt + 64 * i);
-        }
+        // every one-time signature at its own slot again: a wallet may give back its own signature only
+        for (const o of oneTime) signed.set(o.sig, q.sigAt + 64 * o.i);
         onStatus("sending");
         // the transaction's id: the wallet's own signature (slot 0, the fee payer), known before anything is sent
         const own = b58encode(signed.subarray(q.sigAt, q.sigAt + 64));

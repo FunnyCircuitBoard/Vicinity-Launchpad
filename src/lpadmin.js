@@ -4,7 +4,7 @@
  * here, one wallet signature per step, signed in his own wallet (Phantom): the Worker reads the chain, checks the step can run,
  * builds the transaction UNSIGNED with the SESSION wallet as the fee payer (never a wallet from the request), simulates it and
  * shows the decoded instruction list and the exact SOL change (src/lpkit.js buildTx); the page signs (public/lp-sign.js) and the
- * relay sends. The Worker never holds a key. Nothing here sends a transaction.
+ * wallet sends (or the relay, for a wallet that only signs). The Worker never holds a key. Nothing here sends a transaction.
  *
  *   GET  ""                 { on, cluster, programs, wallet }: the page's cheap probe (no chain read)
  *   GET  status             settings, genesis, both programs (deployed, executable, upgrade authority, size, SHA-256), the

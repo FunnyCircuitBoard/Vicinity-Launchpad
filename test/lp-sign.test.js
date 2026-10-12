@@ -1,7 +1,8 @@
 // public/lp-sign.js (window.LP) with Node's WebCrypto Ed25519 and the REAL Worker relay behind a fake fetch: one-time keys that
-// are not extractable; 1 to 3 of them signing at their own static-key slots after the wallet signed first; a wallet that changed
-// the message, signed wrongly, is the wrong account or cancelled is refused with plain words and nothing is sent; the summary is
-// built with textContent only.
+// are not extractable; 1 to 3 of them signing FIRST at their own static-key slots (the wallet's slot 0 left empty); a wallet that
+// sends (signAndSendTransaction, like Phantom) then signs and sends itself and our relay is not used; a wallet that only signs is
+// held to the strict path (a changed message, a wrong signature, the wrong account or a cancel is refused with plain words and
+// nothing is sent; otherwise the relay sends with the ticket); the summary is built with textContent only.
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
@@ -22,46 +23,71 @@ const LP = globalThis.LP;
 LP._pollMs = 1;
 const createAccount = (from, to) => ({ programAddress: PROGRAM_IDS.system, accounts: [{ address: from, role: 3 }, { address: to, role: 3 }], data: Uint8Array.of(0, 0, 0, 0, ...new Uint8Array(8).fill(1), ...new Uint8Array(8), ...new Uint8Array(32)) });
 
-/** A wallet with a Node key: signs its own slot (slot 0) of whatever it is given, or does `misbehave` first. */
-async function wallet({ misbehave = null } = {}) {
+/**
+ * A wallet with a Node key: signs its own slot (slot 0) of whatever it is given, or does `misbehave` first ("strip": gives back
+ * its own signature only, the other slots emptied). With `send` it also signs AND sends (signAndSendTransaction, like Phantom):
+ * straight to the fake chain (its own node, not our relay), answering its 64-byte signature; like Phantom it changes a transaction
+ * that no other key signed yet before it signs it (its own protection instructions), and leaves one that others signed as it is.
+ * `canSend: false` is how public/wallets.js marks a wallet that only signs.
+ */
+async function wallet({ misbehave = null, send = false, canSend } = {}) {
   const kp = await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"]);
   const address = base58Encode(new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey)));
-  const asked = [];
-  return {
-    address, asked, canSign: true,
-    async signTransaction(bytes, chain) {
-      asked.push({ bytes: bytes.slice(), chain });
+  const asked = [], sendAsked = [];
+  const w = {
+    address, asked, sendAsked, canSign: true,
+    async signTransaction(bytes, chainId) {
+      asked.push({ bytes: bytes.slice(), chain: chainId });
       if (misbehave === "reject") throw new Error("User rejected the request.");
       const tx = bytes.slice();
       const n = tx[0], msgAt = 1 + 64 * n;
       if (misbehave === "change") tx[tx.length - 1] ^= 1; // e.g. a wallet that rewrote the last instruction
       const sig = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, kp.privateKey, misbehave === "badsig" ? new Uint8Array([9]) : tx.subarray(msgAt)));
       tx.set(sig, 1);
+      if (misbehave === "strip") tx.fill(0, 65, msgAt);
       return tx;
     },
   };
+  if (send) {
+    w.signAndSendTransaction = async (bytes, chainId, options) => {
+      sendAsked.push({ bytes: bytes.slice(), chain: chainId, options });
+      if (misbehave === "reject") throw Object.assign(new Error("User rejected the request."), { code: 4001 });
+      if (misbehave === "fail") throw Object.assign(new Error("Unexpected error"), { code: -32603 });
+      if (misbehave === "nosig") return undefined;
+      const tx = bytes.slice();
+      const n = tx[0], msgAt = 1 + 64 * n;
+      if (tx.subarray(65, msgAt).every((b) => b === 0)) tx[tx.length - 1] ^= 1; // signed by no one else yet: the wallet adds its own
+      tx.set(new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, kp.privateKey, tx.subarray(msgAt))), 1);
+      await chain.fetchImpl("https://wallet-node.test", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "sendTransaction", params: [Buffer.from(tx).toString("base64"), { encoding: "base64" }] }) });
+      return tx.slice(1, 65);
+    };
+  }
+  if (canSend !== undefined) w.canSend = canSend;
+  return w;
 }
 
-let env, chain, sends;
+let env, chain, sends, polls;
 beforeEach(() => {
   _resetLpKit(); _resetRelay();
   env = { ...newWorld(), ...LP_ON };
   chain = lpChain();
-  sends = [];
+  sends = []; polls = [];
   // the page's fetch: the real Worker (relay and status) for /api/..., with this site's Origin like a browser
   globalThis.fetch = async (path, init = {}) => {
     const headers = new Headers(init.headers || {});
     headers.set("origin", ORIGIN);
     const req = new Request(ORIGIN + path, { method: init.method || "GET", headers, body: init.body });
     if (path.startsWith("/api/swap/send")) sends.push(JSON.parse(init.body));
+    if (path.startsWith("/api/swap/status")) polls.push(new URL(ORIGIN + path).searchParams.get("sig"));
     return handleApi(req, env, chain.fetchImpl);
   };
 });
 const build = (payer) => async (pubkeys) => buildTx(env, { payer, instructions: pubkeys.length ? pubkeys.map((k) => createAccount(payer, k)) : [systemTransfer(payer, addr(77), 1n)], extraSigners: pubkeys }, chain.fetchImpl);
-async function verifySlots(tx) {
+/** Every slot from `from` on carries its own key's valid signature over the message (from = 1: the one-time keys only). */
+async function verifySlots(tx, from = 0) {
   const d = decodeHeader(tx);
   const message = tx.subarray(d.messageOffset);
-  for (let i = 0; i < d.numSignatures; i++) {
+  for (let i = from; i < d.numSignatures; i++) {
     const key = await crypto.subtle.importKey("raw", base58Decode(d.staticKeys[i]), { name: "Ed25519" }, false, ["verify"]);
     assert.ok(await crypto.subtle.verify({ name: "Ed25519" }, key, tx.subarray(1 + 64 * i, 65 + 64 * i), message), `slot ${i} (${d.staticKeys[i].slice(0, 6)}) carries its own key's signature`);
   }
@@ -89,7 +115,7 @@ test("LP.supported and LP.ephemeral: WebCrypto Ed25519, the private half not ext
 });
 
 for (const n of [1, 2, 3]) {
-  test(`LP.run: the wallet signs first, then ${n} one-time key(s) sign at their own slots, the relay sends, the status confirms`, async () => {
+  test(`LP.run, a wallet that only signs: ${n} one-time key(s) sign first at their own slots, then the wallet, the relay sends, the status confirms`, async () => {
     const w = await wallet();
     const seen = [], statuses = [];
     const out = await LP.run({ wallet: w, build: build(w.address), ephemeral: n, cluster: "devnet", onSummary: (res) => { seen.push(res); return true; }, onStatus: (s) => statuses.push(s) });
@@ -97,9 +123,10 @@ for (const n of [1, 2, 3]) {
     assert.match(out.solscan, /cluster=devnet/);
     assert.equal(w.asked.length, 1);
     assert.equal(w.asked[0].chain, "solana:devnet");
-    // what the wallet was shown had NO signature at all: the wallet signs first
+    // what the wallet was shown: the one-time keys' signatures already in place, its own slot (0) still empty
     const shown = w.asked[0].bytes;
-    assert.ok(shown.subarray(1, 1 + 64 * (n + 1)).every((b) => b === 0), "the wallet saw an unsigned transaction");
+    assert.ok(shown.subarray(1, 65).every((b) => b === 0), "the wallet's own slot was empty");
+    await verifySlots(shown, 1);
     assert.deepEqual(statuses, ["signing", "sending", "confirming", "done"]);
     assert.equal(seen.length, 1);
     assert.equal(chain.S.sent.length, 1);
@@ -207,4 +234,100 @@ test("LP: a send whose outcome is unclear (the relay's unclear: true, or no answ
   await assert.rejects(LP.run({ wallet: w, build: build(w.address), ephemeral: 0, cluster: "devnet" }), (e) => e.code === "expired" && typeof e.signature === "string" && /Nothing was spent/.test(e.message));
   chain.fetchImpl = origFetch;
   globalThis.fetch = real;
+});
+
+/* ---------------------------------------------------------------- a wallet that sends itself (Phantom, the Buy panel's way) */
+const builtOf = (h) => new Uint8Array(Buffer.from(h.response.tx, "base64"));
+/** What the sending wallet was handed: exactly the built message, slot 0 (the wallet's) empty, every one-time slot validly signed. */
+async function handedPartlySigned(handed, built) {
+  const d = decodeHeader(handed);
+  assert.deepEqual(handed.subarray(d.messageOffset), built.subarray(decodeHeader(built).messageOffset), "the message is the one the Worker built");
+  assert.ok(handed.subarray(1, 65).every((b) => b === 0), "slot 0 (the wallet's) is empty");
+  await verifySlots(handed, 1);
+  return d;
+}
+
+for (const n of [1, 2, 3]) {
+  test(`LP, a wallet that sends: ${n} one-time key(s) sign first, the wallet signs AND sends, our relay is not called, its signature is watched`, async () => {
+    const w = await wallet({ send: true });
+    const h = await LP.prepare({ wallet: w, build: build(w.address), ephemeral: n, cluster: "devnet" });
+    const statuses = [];
+    const out = await h.sign({ onStatus: (s, sig) => statuses.push([s, sig || null]) });
+    assert.equal(w.asked.length, 0, "signTransaction is never asked");
+    assert.equal(w.sendAsked.length, 1);
+    const { bytes, chain: chainId, options } = w.sendAsked[0];
+    assert.equal(chainId, "solana:devnet");
+    assert.deepEqual(options, { preflightCommitment: "confirmed", maxRetries: 3 }, "the Buy panel's options (public/swap.js)");
+    const d = await handedPartlySigned(bytes, builtOf(h));
+    assert.equal(d.numSignatures, n + 1);
+    assert.equal(sends.length, 0, "/api/swap/send is not called");
+    assert.equal(chain.S.sent.length, 1, "the wallet sent it, once");
+    await verifySlots(chain.S.sent[0]); // a transaction others signed already is left as it is: every slot checks out
+    const id = base58Encode(chain.S.sent[0].subarray(1, 65));
+    assert.deepEqual([out.signature, out.status], [id, "confirmed"]);
+    assert.match(out.solscan, /cluster=devnet/);
+    assert.deepEqual(statuses, [["signing", null], ["confirming", id], ["done", id]]);
+    assert.ok(polls.length >= 1 && polls.every((s) => s === id), "watched by the wallet's own signature");
+  });
+}
+
+test("LP, a wallet that sends, no one-time key (the owner's setup step 1): it may add its own instructions and sends what it signed; never 'changed'", async () => {
+  const w = await wallet({ send: true });
+  const h = await LP.prepare({ wallet: w, build: build(w.address), ephemeral: 0, cluster: "devnet" });
+  const built = builtOf(h);
+  const out = await h.sign();
+  assert.equal(w.sendAsked.length, 1);
+  const d = await handedPartlySigned(w.sendAsked[0].bytes, built);
+  assert.equal(d.numSignatures, 1);
+  assert.equal(sends.length, 0, "/api/swap/send is not called");
+  const went = chain.S.sent[0];
+  assert.notDeepEqual(went.subarray(decodeHeader(went).messageOffset), built.subarray(decodeHeader(built).messageOffset), "the wallet changed it, as Phantom does");
+  await verifySlots(went);
+  const id = base58Encode(went.subarray(1, 65));
+  assert.deepEqual([out.signature, out.status], [id, "confirmed"]);
+  assert.ok(polls.length >= 1 && polls.every((s) => s === id));
+});
+
+test("LP, a wallet that sends: a cancel says 'rejected', any other failure the new plain words; nothing relayed, one tap is one use", async () => {
+  const no = await wallet({ send: true, misbehave: "reject" });
+  const h = await LP.prepare({ wallet: no, build: build(no.address), ephemeral: 1, cluster: "devnet" });
+  await assert.rejects(h.sign(), (e) => e.code === "rejected" && /cancelled/.test(e.message) && e.signature === undefined);
+  await assert.rejects(h.sign(), (e) => e.code === "cancelled");
+  assert.equal(no.sendAsked.length, 1, "the wallet is not opened a second time");
+  for (const misbehave of ["fail", "nosig"]) {
+    const bad = await wallet({ send: true, misbehave });
+    await assert.rejects(LP.run({ wallet: bad, build: build(bad.address), ephemeral: misbehave === "fail" ? 2 : 0, cluster: "devnet" }), (e) =>
+      e.code === "wallet_send_failed" && e.message === LP.say("wallet_send_failed") && e.signature === undefined);
+    assert.equal(bad.sendAsked.length, 1);
+    assert.equal(bad.asked.length, 0, "no second way round: signTransaction and the relay are not tried");
+  }
+  // honest: the wallet's own words say what it did, never that nothing was sent for certain
+  const words = LP.say("wallet_send_failed");
+  assert.match(words, /^Your wallet answered with an error instead of sending this \(for example, its own check of the transaction found a problem\), so most likely nothing was sent\./);
+  assert.match(words, /Reload the page to see where things stand, then start again; if it happens again, tell the team\.$/);
+  assert.doesNotMatch(words, /Nothing was sent/);
+  assert.equal(sends.length, 0);
+  assert.equal(chain.S.sent.length, 0);
+});
+
+test("LP, a wallet that only signs (canSend: false): the strict path; a changed message is refused, an unchanged one is relayed with the ticket and every one-time signature", async () => {
+  const changer = await wallet({ send: true, canSend: false, misbehave: "change" });
+  await assert.rejects(LP.run({ wallet: changer, build: build(changer.address), ephemeral: 1, cluster: "devnet" }), (e) => e.code === "changed");
+  assert.equal(changer.sendAsked.length, 0, "canSend: false: the wallet is never asked to send");
+  assert.equal(sends.length, 0);
+  assert.equal(chain.S.sent.length, 0);
+  // the wallet gives back its own signature only (the one-time slots emptied): they are put back, the relay sends with the ticket
+  const w = await wallet({ send: true, canSend: false, misbehave: "strip" });
+  const h = await LP.prepare({ wallet: w, build: build(w.address), ephemeral: 2, cluster: "devnet" });
+  const statuses = [];
+  const out = await h.sign({ onStatus: (s) => statuses.push(s) });
+  assert.equal(w.sendAsked.length, 0);
+  assert.equal(w.asked.length, 1);
+  await handedPartlySigned(w.asked[0].bytes, builtOf(h));
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].ticket, h.response.ticket, "relayed with the build's ticket");
+  const d = await verifySlots(chain.S.sent[0]);
+  assert.equal(d.numSignatures, 3);
+  assert.equal(out.signature, base58Encode(chain.S.sent[0].subarray(1, 65)));
+  assert.deepEqual(statuses, ["signing", "sending", "confirming", "done"]);
 });

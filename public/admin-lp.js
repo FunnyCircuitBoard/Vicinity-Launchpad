@@ -2,8 +2,8 @@
 // buttons that replace a keeper (collect fees, holder rewards, platform fees, pause). Needs site.js (window.V), lp-sign.js
 // (window.LP) and admin.js, which calls AdminLP.mount(panel, deps) when the owner opens the tab. Every step is one wallet
 // signature: the Worker builds and simulates the transaction (/api/admin/lp/*), this page shows what will be signed and the exact
-// SOL change BEFORE the wallet opens, the wallet signs first, lp-sign.js adds any one-time key and sends through the site's relay,
-// then this page records the result. Only textContent here: nothing from the server is ever HTML.
+// SOL change BEFORE the wallet opens, lp-sign.js has any one-time key sign first, then the wallet signs and sends it itself (or,
+// a wallet that only signs, signs and the site's relay sends), then this page records the result. Only textContent here: nothing from the server is ever HTML.
 (() => {
   "use strict";
   const PENDING = "vicinity_lp_pending"; // a transaction that landed but was not recorded yet (per browser; retried on the next visit)

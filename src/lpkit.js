@@ -1,8 +1,9 @@
 /**
  * The shared kit of the city-coin launch on the website (setup, approving a city, launching, graduating, collecting fees), used by
  * src/lpadmin.js, src/lplaunch.js and src/lpcoins.js. Nothing here holds a key or sends anything: the Worker builds an UNSIGNED
- * transaction, simulates it, and hands it to the page, where the person's wallet signs first (public/lp-sign.js adds the
- * signatures of any one-time keys made in the browser) and the relay (src/relay.js, /api/swap/send) forwards it.
+ * transaction, simulates it, and hands it to the page, where any one-time keys made in the browser sign first (public/lp-sign.js),
+ * then the person's wallet signs and sends it, or, a wallet that only signs, signs and the relay (src/relay.js, /api/swap/send)
+ * forwards it.
  *
  *   lpSetup(env)          the gate (src/cluster.js): explicit LAUNCHPAD_CLUSTER, LAUNCHPAD_PROGRAM_ID, LAUNCHPAD_REWARDS_PROGRAM_ID
  *   checkGenesis(env)     the RPC's genesis hash must be the cluster's (a "mainnet" label in front of a devnet node, or the other

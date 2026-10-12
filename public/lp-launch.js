@@ -3,8 +3,9 @@
 // settings: /api/official has no cityCoins key, the probe (GET /api/lp/launch/status, no city) is not even asked and nothing is
 // shown, so the Raydium LaunchLab copy the dashboard always had stays (public/dashboard.js decides that from probe()).
 // The Worker builds each transaction UNSIGNED for the signed-in wallet and simulates it (src/lplaunch.js); this page shows what will
-// be signed and the exact SOL change BEFORE the wallet opens (LP.renderSummary), the wallet signs first, lp-sign.js adds the
-// one-time key(s) made in this browser (the coin's address, the two position NFTs) and sends through the site's relay.
+// be signed and the exact SOL change BEFORE the wallet opens (LP.renderSummary); lp-sign.js has the one-time key(s) made in this
+// browser (the coin's address, the two position NFTs) sign first, then the wallet signs and sends it (or, a wallet that only
+// signs, signs and the site's relay sends).
 // Only textContent here: nothing from the server is ever HTML. No inline script, no inline style, no element ids made.
 //   LPLaunch.probe()                         -> Promise<{ on, cluster, configsSet, speedTable } | null>
 //   LPLaunch.founder(card, { cityId, design })  the founder card: approved / signing / done / expired / paused / not approved
