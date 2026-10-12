@@ -23,10 +23,10 @@ const overview = readFileSync(OVERVIEW_FILE, "utf8");
 const H = (() => {
   const a = js.indexOf("  /* map helpers: start"), b = js.indexOf("  /* map helpers: end */");
   assert.ok(a > 0 && b > a, "the map helpers sit together in one block of cities.js");
-  const raw = vm.runInNewContext(`${js.slice(a, b)}\n({ OV_UNIT, AREA_K, parseOverviewLine, inOverview, thinRing, thinFor, openingView, scaleBar, flightPlan, flyK, labelRank, byRank, placeLabels, chooseFocus, until, KREF, FOCUS_K, tzPlace, matchPlaces })`, {});
+  const raw = vm.runInNewContext(`${js.slice(a, b)}\n({ OV_UNIT, AREA_K, parseOverviewLine, inOverview, thinRing, thinFor, openingView, scaleBar, flightPlan, flyK, labelRank, byRank, placeLabels, chooseFocus, until, KREF, FOCUS_K, tzPlace, matchPlaces, mapFrame, coreBox })`, {});
   const here = (v) => (v == null || typeof v !== "object" ? v : ArrayBuffer.isView(v) ? [...v] : JSON.parse(JSON.stringify(v, (_, x) => (ArrayBuffer.isView(x) ? [...x] : x))));
   const out = { OV_UNIT: raw.OV_UNIT, AREA_K: raw.AREA_K, KREF: raw.KREF, FOCUS_K: raw.FOCUS_K, byRank: raw.byRank, inOverview: raw.inOverview };
-  for (const f of ["parseOverviewLine", "thinRing", "thinFor", "openingView", "scaleBar", "flightPlan", "flyK", "labelRank", "placeLabels", "chooseFocus", "until", "tzPlace", "matchPlaces"]) out[f] = (...args) => here(raw[f](...args));
+  for (const f of ["parseOverviewLine", "thinRing", "thinFor", "openingView", "scaleBar", "flightPlan", "flyK", "labelRank", "placeLabels", "chooseFocus", "until", "tzPlace", "matchPlaces", "mapFrame", "coreBox"]) out[f] = (...args) => here(raw[f](...args));
   out.raw = raw;
   return out;
 })();
@@ -193,7 +193,7 @@ test("the first view picks nothing for the visitor (the owner, 11 Oct 2026): no 
 
 test("a computer opens on the whole world inside the stage, left of the controls and above the find bar; a phone keeps the world covering it", () => {
   const size = js.slice(js.indexOf("  function size() {"), js.indexOf("  // the zoom, for screen readers"));
-  assert.match(size, /wide = W >= 720;\n    const f = freeBox\(\);\n    s0 = wide \? Math\.min\(\(f\[2\] - f\[0\]\) \/ 360, \(f\[3\] - f\[1\]\) \/ 144\) : Math\.max\(W \/ 360, H \/ 144\);/);
+  assert.match(size, /wide = W >= 600;\n    const f = freeBox\(\);\n    s0 = wide \? Math\.min\(\(f\[2\] - f\[0\]\) \/ 360, \(f\[3\] - f\[1\]\) \/ 144\) : Math\.max\(W \/ 360, H \/ 144\);/);
   assert.match(js, /return \[12, 8, Math\.max\(24, rail - 12\), Math\.max\(16, H - 64\)\];/, "the world's free box on a computer: 12 px in, left of the rail, 8 px from the top, the find bar's 64 px band free at the bottom");
   // clampView: an axis where the world is smaller than the free box is centred there; a bigger one always covers it (a phone: the old clamp exactly)
   const clamp = new Function("W", "H", "wide", "rects", "s0", "k", "tx", "ty", `${js.slice(js.indexOf("  const freeBox = () => {"), js.indexOf("  const canPan = "))}\nclampView(); return [tx, ty];`);
@@ -210,7 +210,7 @@ test("zoom rules count in real map scale: the same distance switches names, outl
   assert.equal(H.KREF, 3.4);
   assert.match(js, /const kg = \(\) => \(s0 \* k\) \/ KREF;\n  const kAt = \(g\) => \(g \* KREF\) \/ s0;/);
   for (const t of ["labelFilter(cands, kg(), {", "const dotMinPop = () => { const g = kg();", "if (a && kg() >= AREA_K - 0.5)", "const s = s0 * k, v = view(), g = s / KREF;", "const pic = (g < OV_CACHE_K || (moving && g < OV_MOVING_K))",
-    "const fade = Math.max(0, Math.min(1, (g - (AREA_K - 0.5)) / 1));", "let bTail = kg() >= 4 ?", "const g = kg(), key = `${c.id}|${st}|${g >= 4 ? 2 : g >= 3 ? 1 : 0}|", "Math.min(kAt(AREA_K + 0.5), fitK(a.box))", "const inside = kg() >= 2 ? areaIdAt(lon, lat) : null;", "MAXK = Math.round((900 * KREF) / s0);"]) assert.ok(js.includes(t), t);
+    "const fade = Math.max(0, Math.min(1, (g - (AREA_K - 0.5)) / 1));", "let bTail = kg() >= 4 ?", "const g = kg(), key = `${c.id}|${st}|${g >= 4 ? 2 : g >= 3 ? 1 : 0}|", "const inside = kg() >= 2 ? areaIdAt(lon, lat) : null;", "MAXK = Math.round((900 * KREF) / s0);"]) assert.ok(js.includes(t), t);
   // the page (after the pure helpers, which take the scale they are given): raw zoom steps only for the readout ("3.2×", relative to the
   // whole-world view), the touch rule (zoom 1 is the whole world: the page scrolls on it) and the sanity check of a touch
   const page = js.slice(js.indexOf("/* map helpers: end */")).replace("k < 10 ? k.toFixed(1)", "").replace("k > 1.01 ?", "").replace("k >= 1 && k <= MAXK", "");
@@ -232,14 +232,54 @@ test("camera: the zoom readout follows a move that is not a gesture, and a city 
   // the opening on your own city (goHome: k = 4, then viewMoved()) left the screen readers' readout at 1.0× while the map showed 4×
   const vm2 = js.slice(js.indexOf("  function viewMoved(interactive = false) {"), js.indexOf("  function settle()"));
   assert.match(vm2, /if \(interactive\) \{ moving = true; clearTimeout\(crispTimer\); crispTimer = setTimeout\(settle, 90\); \}\n    else zoomReadout\(\);/);
-  // a ?city= link: the boundary is fitted into the free part of the map (left of the rail, above the card), and when it arrives
-  // after the flight began (the guess was a 25 km circle at 118×) the map is framed again, unless the person moved it
+  // a ?city= link: the boundary (its main piece: coreBox) is fitted into the frame (mapFrame: never under the city card), and when it
+  // arrives after the flight began (the guess was a 25 km circle at 118×) the map is framed again, unless the person moved it
   const fit = js.slice(js.indexOf("  function fitK(b) {"), js.indexOf("  function flyToCountry(cc) {"));
-  assert.match(fit, /const right = rects\.rail && rects\.rail\[0\] > fcx \? rects\.rail\[0\] - 6 : W;/);
-  assert.match(fit, /const halfW = Math\.max\(30, Math\.min\(fcx, right - fcx\) - 10\), halfH = Math\.max\(30, fcy - 10\);/);
-  assert.match(fit, /if \(a\) return flyToBox\(a\.box, Math\.min\(kAt\(AREA_K \+ 0\.5\), fitK\(a\.box\)\)\);/);
+  assert.match(fit, /const f = frameBox;\n    return Math\.min\(\(f\[2\] - f\[0\]\) \/ Math\.max\(0\.0002, \(b\[2\] - b\[0\]\) \* s0\), \(f\[3\] - f\[1\]\) \/ Math\.max\(0\.0002, \(b\[3\] - b\[1\]\) \* s0\)\) \* 0\.92;/);
+  assert.match(fit, /if \(a\) \{ const b = coreBox\(pieceBoxes\(a\), c\.lon, c\.lat\), hw = Math\.max\(c\.lon - b\[0\], b\[2\] - c\.lon\), hh = Math\.max\(c\.lat - b\[1\], b\[3\] - c\.lat\); return flyToBox\(\[c\.lon - hw, c\.lat - hh, c\.lon \+ hw, c\.lat \+ hh\]\); \}/, "the city's point in the frame's middle, the whole main piece around it; no zoom floor past the fit (it zoomed NYC in past its own boundary)");
+  assert.match(js, /const m = mapFrame\(\{ W, H, across: slotWide, fromBottom: slotFromBottom, cardRight: slotRight, rail: rects\.rail \}\);\n    frameBox = m\.f; fcx = m\.x; fcy = m\.y;/, "the crosshair is the frame's middle");
   assert.match(js, /if \(fly && areas\.has\(c\.id\) && !userMoved && focusPinned === c\.id\) flyToCity\(c\);/);
   assert.doesNotMatch(js, /if \(fly && areas\.has\(c\.id\) && !cam\) flyToCity\(c\);/);
+});
+
+test("camera (review of 12 Oct 2026): an opened city is framed where the city card is not, its main piece only when the rest is far away", () => {
+  // a phone: the card runs across the bottom; the middle of what is above it, clear of the rail on both sides (as before)
+  const ph = H.mapFrame({ W: 390, H: 525, across: true, fromBottom: 144, cardRight: 372, rail: [336, 10, 44, 191] });
+  assert.deepEqual([ph.x, ph.y], [195, 190.5]);
+  assert.deepEqual(ph.f, [70, 10, 320, 371]);
+  // a computer (1024 and 1440 px windows): the card is a 360 px column at the bottom left; the frame is right of it (the full height) or
+  // above it (the full width), the one that holds the bigger square, and never touches the card or the rail
+  const card = (W, Hh) => [12, Hh - 146, 360, 134];
+  for (const [W, Hh] of [[950, 420], [1126, 490], [1520, 660]]) {
+    const rail = [W - 56, 12, 44, 191], m = H.mapFrame({ W, H: Hh, across: false, fromBottom: 146, cardRight: 372, rail }), c = card(W, Hh);
+    const hit = m.f[0] < c[0] + c[2] && m.f[2] > c[0] && m.f[1] < c[1] + c[3] && m.f[3] > c[1];
+    assert.equal(hit, false, `${W}×${Hh}: the frame ${m.f} is off the card`);
+    assert.ok(m.f[2] <= rail[0] - 24 && m.f[0] >= 24 && m.f[1] >= 24 && m.f[3] <= Hh - 24, `${W}×${Hh}: inside the stage, left of the rail`);
+    assert.deepEqual([m.x, m.y], [(m.f[0] + m.f[2]) / 2, (m.f[1] + m.f[3]) / 2], "the crosshair is the frame's middle");
+    assert.ok(Math.min(m.f[2] - m.f[0], m.f[3] - m.f[1]) >= 370, `${W}×${Hh}: room for a city`);
+  }
+  assert.deepEqual(H.mapFrame({ W: 950, H: 420, across: false, fromBottom: 146, cardRight: 372, rail: [894, 12, 44, 191] }).f, [396, 24, 870, 396], "1024 px: right of the card");
+  // a tall tablet stage: above the card (the full width) holds the bigger square
+  assert.deepEqual(H.mapFrame({ W: 700, H: 760, across: false, fromBottom: 146, cardRight: 372, rail: [644, 12, 44, 191] }).f, [24, 24, 620, 590]);
+  // the main piece: the one holding the city's point, plus the pieces near it (Tokyo: the mainland, not the Izu and Ogasawara islands
+  // 1,000 km south; New York: all five boroughs; a point outside every piece: the nearest piece, stretched to hold the point)
+  const tokyo = [[138.94, 35.50, 139.92, 35.90], [139.32, 34.65, 139.45, 34.80], [139.7, 33.0, 139.9, 33.2], [142.1, 26.6, 142.2, 27.1], [153.9, 24.2, 154.0, 24.3]];
+  assert.deepEqual(H.coreBox(tokyo, 139.69, 35.69), [138.94, 35.5, 139.92, 35.9]);
+  const nyc = [[-74.05, 40.68, -73.90, 40.88], [-73.93, 40.78, -73.75, 40.92], [-74.26, 40.49, -74.05, 40.65], [-74.04, 40.55, -73.70, 40.80]];
+  assert.deepEqual(H.coreBox(nyc, -74.006, 40.714), [-74.26, 40.49, -73.7, 40.92]);
+  assert.deepEqual(H.coreBox([[10, 10, 11, 11], [40, 40, 41, 41]], 11.2, 10.5), [10, 10, 11.2, 11]);
+  assert.deepEqual(H.coreBox([], 5, 6), [5, 6, 5, 6]);
+  // the data: of the 8,029 boundaries, only those with a far piece frame less than the whole (Tokyo, Cape Town, Hamburg's Neuwerk…)
+  let fewer = 0, n = 0;
+  for (const l of overview.split("\n").slice(1)) {
+    const a = H.parseOverviewLine(l); if (!a) continue; n++;
+    const boxes = a.rings.map((r) => { let w = 1e9, s = 1e9, e = -1e9, no = -1e9; for (let i = 0; i < r.length; i += 2) { w = Math.min(w, r[i]); e = Math.max(e, r[i]); s = Math.min(s, r[i + 1]); no = Math.max(no, r[i + 1]); } return [w * H.OV_UNIT, s * H.OV_UNIT, e * H.OV_UNIT, no * H.OV_UNIT]; });
+    const c = boxes[0], core = H.coreBox(boxes, (c[0] + c[2]) / 2, (c[1] + c[3]) / 2);
+    if (Math.max(core[2] - core[0], core[3] - core[1]) < 0.8 * Math.max(a.box[2] - a.box[0], a.box[3] - a.box[1])) fewer++;
+  }
+  assert.ok(n >= 8000 && fewer < n / 50, `${fewer} of ${n} framed on a main piece`);
+  // the page: the crosshair goes while the card shows a city opened for the visitor, and comes back once they move the map
+  assert.match(js, /const reticle = findOn === false && !\(focusPinned && !userMoved\) \? "on" : "off";/);
 });
 
 test("helpers: the city in focus is the area under the crosshair, else the nearest city within 56 px, and it does not flicker", () => {

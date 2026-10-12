@@ -67,11 +67,24 @@ main :is(h1, h2, h3) { text-wrap: balance; }
 @media (max-width: 900px) {
   #city-stage { height: calc(100vh - var(--stage-top, 220px) - var(--bottom-bars, 67px) - 8px); height: calc(100svh - var(--stage-top, 220px) - var(--bottom-bars, 67px) - 8px); min-height: 280px; }
 }
+/* a phone: the stage leaves room for the one-line legend under it, so the first screen ends on the legend, whole, 10 px above the tab bar
+   (it used to end on a line of the legend cut by the see-through tab bar); what follows starts below the tab bar (the fold's margin) */
+@media (max-width: 600px) {
+  #city-stage { --legend-room: 40px; height: calc(100vh - var(--stage-top, 220px) - var(--bottom-bars, 67px) - var(--legend-room)); height: calc(100svh - var(--stage-top, 220px) - var(--bottom-bars, 67px) - var(--legend-room)); min-height: 236px; }
+}
+/* a tablet (601 to 900 px): the whole world fits the stage (cities.js, a stage 600 px wide or more), so the stage is no taller than the
+   world needs (at 900 px it was a small world in a tall frame, with wide empty ocean bands) */
+@media (min-width: 601px) and (max-width: 900px) {
+  #cities .citymap { container-type: inline-size; }
+  #city-stage { height: min(calc(100svh - var(--stage-top, 220px) - var(--bottom-bars, 67px) - 8px), calc(100cqw / 1.75)); min-height: 360px; }
+}
 @media (min-width: 901px) {
   #cities .citymap { container-type: inline-size; }
   #city-stage { height: 490px; height: clamp(420px, calc(100cqw / 2.3), calc(100svh - var(--stage-top, 250px) - 28px)); }
 }
 #city-stage.is-full { height: 100vh; height: 100dvh; min-height: 0; }
+/* a search suggestion picked with a tap or a click: the map takes the keyboard without a ring round all of it (a key press brings it back) */
+.citymap canvas.is-quiet-focus:focus-visible { outline: none; }
 /* the light map: no grey vignette on its edges (it read as dirt on the white land), and a faint blue ocean so the land stands out */
 /* (measured: the edges of the light map within about 10% of its middle's lightness; they were 30% darker) */
 :root[data-theme="light"] #city-canvas { box-shadow: inset 0 0 60px rgba(11,22,38,.08); }
@@ -165,12 +178,26 @@ main :is(h1, h2, h3) { text-wrap: balance; }
 .map-focus .map-focus__area, .map-focus .map-focus__line { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .map-focus .map-focus__line { -webkit-line-clamp: 1; line-clamp: 1; }
 .map-focus.is-folded { height: 52px; }
-@media (max-width: 360px) { .map-focus.is-folded .map-focus__ticker { display: none; } } /* folded on the smallest phones: the name and "Open · 950K", not a cut "O" */
+/* folded on the smallest phones: the name and its status tag, whole ("New York City Open · …" was cut; the ticker and the amount are one
+   tap away, in the unfolded card) */
+@media (max-width: 360px) {
+  .map-focus.is-folded .map-focus__ticker, .map-focus.is-folded .map-focus__mini { display: none; }
+  .map-focus.is-folded .map-focus__status:not([hidden]) { display: inline-flex; flex: none; margin-left: auto; }
+}
 
 /* =====================================================================
    Under the map: the status keys on one line (the boundary keys at its end), the how-to in a fold, the founders feed once there is one
    ===================================================================== */
 #cities .citymap__legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 12px 4px 0; font-size: var(--fs-xs, .75rem); line-height: 1.4; color: var(--muted); }
+/* a phone: the four statuses on one line, short words (the fold says the rest: what "Active" means, Yours, the boundary keys) */
+.citymap__how--key { display: none; }
+@media (max-width: 600px) {
+  #cities .citymap__legend { flex-wrap: nowrap; justify-content: space-between; gap: 0 10px; height: 18px; margin: 12px 0 0; overflow: hidden; line-height: 18px; white-space: nowrap; }
+  #cities .citymap__legend .citymap__more, #cities .citymap__legend .citymap__yours, #cities .citymap__legend .citymap__keys { display: none; }
+  #cities .citymap__howto .citymap__how--key { display: block; }
+  /* the fold starts below the tab bar on the first screen (nothing ghosts under the tab icons), a section's gap once scrolled */
+  #cities .citymap .citymap__howto { margin-top: calc(var(--bottom-bars, 67px) + 24px); }
+}
 #cities .citymap__legend > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 #cities .citymap__legend .dot { margin: 0; }
 .citymap__keys { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }

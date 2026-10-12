@@ -55,7 +55,7 @@ test("d3 facts: strong facts only, members at 100 or more, no countdown, nothing
   for (const h of [homeSrc, home]) {
     assert.doesNotMatch(h, /data-countdown-short|data-countdown-label/);
     assert.doesNotMatch(hero(h), /\bLive\b|Launchpad is open|data-stat="members"/);
-    assert.match(hero(h), /<span>Open · city coins come next <span aria-hidden="true">→<\/span><\/span>/);
+    assert.match(hero(h), /<span>Open · city coins <span class="nowrap">come next <span aria-hidden="true">→<\/span><\/span><\/span>/);
     assert.match(hero(h), /countries &amp; territories/, "244 country codes include territories");
   }
   assert.match(js, /const MEMBERS_MIN = 100;/);
@@ -99,9 +99,23 @@ test("d3 headings: balanced, no single word on a last line, one section-title si
   assert.match(homeSrc, /<h3>Sign in with Google or&nbsp;<span class="nowrap">e-mail<\/span><\/h3>/);
 });
 
-test("d3 phone step card: the four steps share one cell, so the controls under them never jump while it plays", () => {
-  assert.match(polish, /  \.steps \{ display: grid; gap: 0; margin-bottom: 10px; \}\n  \.steps li \{ grid-area: 1 \/ 1; display: grid; \}\n  \.steps button:not\(\[aria-current="step"\]\) \{ visibility: hidden; \}/);
-  assert.match(polish, /  \.steps em, \.steps button\[aria-current="step"\] em \{ max-height: none; margin-top: 4px; \}/, "each step at its full height");
+test("phone step card (review of 12 Oct 2026): one card, the map, then Previous · Pause · Next, then the step right under the drawing, then the key", () => {
+  const ph = polish.match(/@media \(max-width: 960px\) \{\n  \/\* the kicker and the title stay above the map[\s\S]*?\n\}/)[0];
+  // the map's box, the steps' list and the controls' row give their parts to one grid: the map (row 1), the step card (row 2) with the
+  // controls in its head, the key (row 3), "Explore every city" (row 4), "Inside $NYC" (row 5)
+  assert.match(ph, /\.nyc \{ position: relative; grid-template-columns: 4px 44px minmax\(0, 1fr\) 44px 4px; gap: 0 8px; \}\n  \.nyc__map, \.nyc__steps, \.nyc__ctrl \{ display: contents; \}/);
+  assert.match(ph, /#nyc-map \{ grid-column: 1 \/ -1; grid-row: 1;/);
+  assert.match(ph, /\.steps \{ grid-column: 1 \/ -1; grid-row: 2; display: grid; gap: 0; margin: 0; padding: 70px 0 0;/, "the step's text starts under the controls");
+  assert.match(ph, /#nyc-prev, #nyc-play, #nyc-next \{ grid-row: 2; align-self: start; margin-top: 14px; \}\n  #nyc-prev \{ grid-column: 2; \} #nyc-play \{ grid-column: 3; \} #nyc-next \{ grid-column: 4; \}/, "the controls in the card's head: they never move while the step changes height");
+  assert.match(ph, /\.nyc__foot \{ grid-column: 1 \/ -1; grid-row: 3;/, "the key under the step (a short phone sees the step with the map)");
+  // the step takes its own height: only the current one is laid out (step 1 sat over a 150-230 px empty band when all took step 4's)
+  assert.match(ph, /  \.steps li \{ grid-area: 1 \/ 1; display: grid; \}\n  \.steps li:not\(:has\(> \[aria-current="step"\]\)\) \{ display: none; \}/);
+  assert.match(ph, /  \.steps em, \.steps button\[aria-current="step"\] em \{ max-height: none; margin-top: 4px; \}/, "each step at its full height");
+  assert.match(ph, /\.steps::after \{ content: ""; position: absolute; left: 14px; right: 14px; top: 0; height: 3px;/, "where the story is: along the card's top edge, right under the map");
+  // the feedback button steps aside from the whole walkthrough (it covered step 4's text at 390 px)
+  for (const h of [homeSrc, home]) assert.match(h, /<div class="nyc" data-step="1" data-fb-avoid>/);
+  // the hover tip is placed in its own box (the map's on a computer, the walkthrough's on a phone, where the map's box has no box)
+  assert.match(js, /const r = \(tip\.offsetParent \|\| svg\.parentElement\)\.getBoundingClientRect\(\);/);
   assert.match(polish, /\.nyc__ctrl \{ margin-top: auto; \}/, "a computer: the controls and the member card at the column's foot, level with the map's bottom");
   assert.doesNotMatch(polish, /\.member-cloud li\.is-more \{ display: inline-flex; \} \.member-cloud li:has/, "five boroughs and +41 more on every screen");
 });

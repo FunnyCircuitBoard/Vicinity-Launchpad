@@ -124,7 +124,10 @@ test("labels: the rule is fast enough for hundreds of cities on every layout (a 
 test("labels: the page applies the rule: the stage's size, the crosshair, the phone budget; nothing is placed when nothing may show; every status marker is a core no chip covers", () => {
   const layout = js.slice(js.indexOf("  function layoutLabels(now) {"), js.indexOf("  // text widths measured before the site's fonts arrive"));
   assert.match(layout, /const \{ ids, max \} = labelFilter\(cands, kg\(\), \{ phone, fx: fcx, fy: fcy, W, H \}\);/, "the rule gets the real map scale (kg: s0 × k ÷ KREF), not the raw zoom");
-  assert.match(layout, /const want = cands\.filter\(\(it\) => ids\.has\(it\.id\)\)\.sort\(/, "only the cities the rule allows, in priority order");
+  assert.match(layout, /const want = cands\.filter\(\(it\) => ids\.has\(it\.id\) && it\.id !== named\)\.sort\(/, "only the cities the rule allows, in priority order");
+  // the city the card names (opened for the visitor: a ?city= link, a pick; the map not moved since) carries no chip of its own: its
+  // chip sat on its own boundary (review of 12 Oct 2026); its pin, outline and card say it
+  assert.match(layout, /const named = findOn === false && focusPinned && !userMoved \? focusPinned : null;/);
   assert.match(layout, /if \(st !== "open"\) markers\.push\(\[x - 10, y - 10, 20, 20\]\);/, "active, choosing, founded, yours: 20 px around the dot, the whole ring (choosing ends at r 9, active at 8.25: a 16 px core let a chip touch the ring's outer pixel)");
   assert.match(layout, /const placed = items\.length \? placeLabels\(items, \{ W, H, avoid, soft: \[\[fcx - 20, fcy - 20, 40, 40\]\], core: \[\[fcx - 16, fcy - 16, 32, 32\], \.\.\.markers\], max \}\) : \[\];/);
   assert.match(layout, /span: spanOf\(c\)/);
@@ -231,7 +234,9 @@ test("active: its colour comes from --st-active (polish-map.css, both themes), r
 
 test("active: the legend, the city card, the tags and the tooltip carry the colour and the ring; the words say what it means", () => {
   for (const h of [page, src]) {
-    assert.match(h, /<span><span class="dot dot--open" aria-hidden="true"><\/span> Open<\/span><span><span class="dot dot--active" aria-hidden="true"><\/span> Active: verified holders, no founder yet<\/span><span><span class="dot dot--choosing"/, "between Open and Choosing: the order a community moves through");
+    assert.match(h, /<span><span class="dot dot--open" aria-hidden="true"><\/span> Open<\/span><span><span class="dot dot--active" aria-hidden="true"><\/span> <span>Active<span class="citymap__more">: verified holders, no founder yet<\/span><\/span><\/span><span><span class="dot dot--choosing"/, "between Open and Choosing: the order a community moves through");
+    // a phone's one-line legend keeps the word, and its fold says what it means (review of 12 Oct 2026: the legend's lines ran under the tab bar)
+    assert.match(h, /<span class="citymap__how citymap__how--key">Active: verified holders, no founder yet · /);
   }
   assert.match(polish, /\.dot--active \{ background: var\(--st-active\); box-shadow: 0 0 6px var\(--st-active\); \}/);
   assert.match(polish, /\.dot--active::before, \.map-focus\[data-status="active"\] \.map-focus__dot::before \{ content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var\(--st-active\); pointer-events: none; \}/, "the ring on the legend's dot and the card's dot");

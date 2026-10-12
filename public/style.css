@@ -201,7 +201,8 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 .section { padding: var(--section-y) 0; position: relative; }
 .section--tight { padding: 40px 0 90px; }
 .section--panel { background: var(--bg-2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.section--glow { background: radial-gradient(ellipse 60% 50% at 80% 50%, rgba(255,90,54,.1), transparent 70%), var(--bg); }
+/* a soft light inside the content column (the review of 12 Oct 2026: a 60%-wide glow at 80% ran off the right edge of a wide screen) */
+.section--glow { background: radial-gradient(min(440px, 40%) min(300px, 45%) at calc(50% + min(240px, 20%)) 55%, rgba(255,90,54,.075), transparent 72%), var(--bg); }
 .section-head { margin-bottom: 36px; }
 .section-head p.muted { max-width: 62ch; font-size: 1.05rem; }
 .lead { font-size: 1.15rem; color: var(--muted); max-width: 54ch; }
@@ -316,6 +317,11 @@ select option { background: var(--bg-2); }
 .m-tick { font-size: calc(12px * var(--u, 1.6)); font-weight: 700; letter-spacing: .02em; fill: var(--gold-text); } /* a neighbour's own coin, under its name (a computer) */
 .m-coin circle { fill: var(--gold); stroke: #fff6; stroke-width: 3; }
 .m-coin text { font: 800 26px var(--display); fill: #5A3A06; }
+/* the walkthrough's $NYC: four letters inside the disc at every size (they reached its edge on a 320 px phone), and the light theme's
+   coin as bright as the dark one's with a darker rim (dark brown on the light theme's deeper gold read poorly) */
+#nyc-map .m-coin text { font-size: 21px; }
+:root[data-theme="light"] .m-coin circle { fill: #FFC857; stroke: #B9780F; stroke-width: 2.5; }
+:root[data-theme="light"] .m-coin text { fill: #3F2702; }
 .m-pulse { fill: none; stroke: var(--pin); stroke-width: 2; animation: ringOut 2.4s ease-out infinite; transform-box: fill-box; transform-origin: center; }
 @keyframes ringOut { from { transform: scale(.4); opacity: 1; } to { transform: scale(2.4); opacity: 0; } }
 .m-link { stroke: rgba(255,138,91,.55); stroke-width: 1.2; vector-effect: non-scaling-stroke; transition: opacity .6s; }

@@ -96,8 +96,9 @@
     drawBase(svg, data, P);
     const tip = $("#nyc-tip");
     const showTip = (e, text) => {
-      const r = svg.parentElement.getBoundingClientRect();
       tip.textContent = text; tip.hidden = false;
+      // the box the tip is placed in: the map's own box on a computer, the walkthrough's on a phone (where the map's box gives its parts to one card)
+      const r = (tip.offsetParent || svg.parentElement).getBoundingClientRect();
       tip.style.left = `${e.clientX - r.left}px`; tip.style.top = `${e.clientY - r.top}px`;
     };
     const hideTip = () => (tip.hidden = true);

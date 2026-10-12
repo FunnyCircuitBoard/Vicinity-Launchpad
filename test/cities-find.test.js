@@ -25,9 +25,10 @@ function node(id, extra = {}) {
     setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }, removeAttribute(k) { delete this.attrs[k]; },
     addEventListener(t, f) { (this.on[t] ||= []).push(f); }, fire(t, e = {}) { for (const f of this.on[t] || []) f({ preventDefault() {}, stopPropagation() {}, ...e }); },
     replaceChildren(...k) { this.children = k; }, append(...k) { this.children.push(...k); }, scrollIntoView() {}, contains() { return false; },
-    focus() { focus.focused = this.id; }, ...extra };
+    classList: { set: new Set(), toggle(c, on) { if (on ?? !this.set.has(c)) this.set.add(c); else this.set.delete(c); }, add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, contains(c) { return this.set.has(c); } },
+    focus(o) { focus.focused = this.id; focus.opts = o || null; }, ...extra };
 }
-const focus = { focused: null };
+const focus = { focused: null, opts: null };
 
 /** The slot and the search, run with the page's state (the block between "the map's bottom slot" and the first view's own line). */
 function findPage({ cities = [], k = 1, s0 = 3.4, pinned = null, moved = false } = {}) {
@@ -77,8 +78,9 @@ test("the slot: one card at a time, and #city-stage[data-crosshair] says which (
   assert.equal(P.els["#map-find"].hidden, false); assert.equal(P.els["#map-focus"].hidden, true); assert.equal(P.els["#city-stage"].dataset.crosshair, "off");
   P.setFind(false);
   assert.equal(P.els["#map-find"].hidden, true); assert.equal(P.els["#map-focus"].hidden, false); assert.equal(P.els["#city-stage"].dataset.crosshair, "on");
-  // the crosshair is drawn only while the city card follows it
-  assert.match(js, /\/\/ the crosshair: a ring and four ticks at the focus point, only while the city card follows it[^\n]*\n    if \(findOn === false\) \{/);
+  // the crosshair is drawn only while the city card follows it, and not while the card shows a city opened for the visitor (its pin is the
+  // marker: the crosshair sat 15-25 px from London's, Chicago's, Lagos's pin, and over the ocean for Tokyo; review of 12 Oct 2026)
+  assert.match(js, /\/\/ the crosshair: a ring and four ticks at the focus point, only while the city card follows it[^]*?const reticle = findOn === false && !\(focusPinned && !userMoved\) \? "on" : "off";\n    if \(wrapEl\.dataset\.reticle !== reticle\) wrapEl\.dataset\.reticle = reticle;[^\n]*\n    if \(reticle === "on"\) \{/);
   assert.match(js, /const find = inFind\(\);\n    setFind\(find\);\n    if \(find\) \{ if \(focusId !== null\) \{ focusId = null;/, "updateFocus: no city in focus on the find view");
   // the first view before the map loads: a ?city= link shows its card (loading), everything else the search
   assert.match(js, /findOn = !new URLSearchParams\(location\.search\)\.get\("city"\);\n  showSlot\(findOn\);/);
@@ -106,9 +108,15 @@ test("the search: suggestions as you type (starts first, the biggest first), ↑
   q.fire("keydown", { key: "Enter" });
   assert.deepEqual(P.picked, [["New York City", true]], "select(c, true): fly there and pin its card");
   assert.equal(q.value, ""); assert.equal(focus.focused, "city-canvas", "the keyboard goes to the map (the find card makes way for the city card)");
-  // a click on a suggestion picks it too; a name that matches nothing says so
-  q.value = "angel"; q.fire("input"); list.children[0].fire("click");
+  assert.equal(focus.opts.focusVisible, true, "picked with the keyboard: the map's focus ring shows");
+  assert.equal(P.els["#city-canvas"].classList.contains("is-quiet-focus"), false);
+  // a click on a suggestion picks it too, without a focus ring round the whole map (review of 12 Oct 2026); a name that matches nothing says so
+  q.value = "angel"; q.fire("input"); list.children[0].fire("click", { detail: 1 });
   assert.deepEqual(P.picked.at(-1), ["Los Angeles", true]);
+  assert.equal(focus.focused, "city-canvas"); assert.equal(focus.opts.focusVisible, false);
+  assert.equal(P.els["#city-canvas"].classList.contains("is-quiet-focus"), true, "a tap or a click: no ring (pages-cities.css .is-quiet-focus) until a key is pressed");
+  assert.match(css, /\.citymap canvas\.is-quiet-focus:focus-visible \{ outline: none; \}/);
+  assert.match(js, /canvas\.addEventListener\("keydown", \(e\) => \{\n    canvas\.classList\.remove\("is-quiet-focus"\);/, "a key press brings the ring back");
   q.value = "zzzz"; q.fire("input");
   assert.equal(list.children.length, 1); assert.match(list.children[0].textContent, /^No place by that name yet/);
   q.fire("keydown", { key: "Enter" });

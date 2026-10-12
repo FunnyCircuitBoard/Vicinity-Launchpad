@@ -244,6 +244,51 @@
     if (cur && cur.d <= radius && (!best || best.d > cur.d - keep)) return current;
     return best ? best.id : null;
   }
+  /**
+   * Where a city that opens (a ?city= link, a search pick) is framed, and where the crosshair sits (the owner's review, 12 Oct 2026: on a
+   * computer an opened city ran under the city card). A phone, where the card runs across the bottom (across): the middle of what is above
+   * the card, the frame clear of the controls on both sides. A computer, where the card is a column at the bottom left (cardRight: its
+   * right edge): of the two free rectangles, right of the card's column (the full height) or above the card (the full width), the one
+   * that holds the bigger square, 24 px inside it. rail: the controls' [x, y, w, h] (null: none). Returns { f: [x0, y0, x1, y1], x, y }.
+   */
+  function mapFrame({ W, H, across, fromBottom, cardRight, rail }) {
+    const railX = rail && rail[0] > W / 2 ? rail[0] : W;
+    if (across) {
+      const x = W / 2, y = Math.max(40, (H - fromBottom) / 2);
+      const hw = Math.max(30, Math.min(x, railX - 6 - x) - 10), hh = Math.max(30, y - 10);
+      return { f: [x - hw, y - hh, x + hw, y + hh], x, y };
+    }
+    const P = 24, side = [cardRight + P, P, railX - P, H - P], top = [P, P, railX - P, H - fromBottom - P];
+    const sq = (r) => Math.min(r[2] - r[0], r[3] - r[1]);
+    let f = sq(side) >= sq(top) ? side : top;
+    if (sq(f) < 80) f = [P, P, railX - P, H - P]; // a stage too small for either: the whole of it
+    return { f, x: (f[0] + f[2]) / 2, y: (f[1] + f[3]) / 2 };
+  }
+  /**
+   * The part of a city's area to frame when it opens: the piece that holds the city's point (else the nearest piece), then every piece
+   * within a third of the framed box's longer side, until no more join; the point itself always inside. Tokyo's official boundary runs
+   * 1,000 km south to the Izu and Ogasawara islands, and framing all of it left the city in a corner over empty ocean.
+   * boxes: one [w, s, e, n] per piece (degrees). Returns [w, s, e, n].
+   */
+  function coreBox(boxes, lon, lat) {
+    if (!boxes.length) return [lon, lat, lon, lat];
+    const gap = (p, q) => Math.max(0, p[0] - q[2], q[0] - p[2], p[1] - q[3], q[1] - p[3]); // degrees between two boxes, 0 when they touch
+    const size = (b) => (b[2] - b[0]) * (b[3] - b[1]), pt = [lon, lat, lon, lat];
+    let seed = 0;
+    boxes.forEach((b, i) => { const d = gap(b, pt), e = gap(boxes[seed], pt); if (d < e || (d === e && size(b) > size(boxes[seed]))) seed = i; });
+    let out = boxes[seed].slice();
+    const left = new Set(boxes.keys()); left.delete(seed);
+    for (let grew = true; grew;) {
+      grew = false;
+      const reach = Math.max(0.02, Math.max(out[2] - out[0], out[3] - out[1]) / 3);
+      for (const i of left) {
+        const b = boxes[i];
+        if (gap(b, out) > reach) continue;
+        out = [Math.min(out[0], b[0]), Math.min(out[1], b[1]), Math.max(out[2], b[2]), Math.max(out[3], b[3])]; left.delete(i); grew = true;
+      }
+    }
+    return [Math.min(out[0], lon), Math.min(out[1], lat), Math.max(out[2], lon), Math.max(out[3], lat)];
+  }
   /** "1d 4h", "3h 20m", "12m": how long until an ISO time (a window's close). */
   function until(iso, now) {
     const s = Math.max(0, (Date.parse(iso) - now) / 1000), d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
@@ -273,7 +318,7 @@
   const wy = (lat) => (84 - lat) * s0;
   const sx = (lon) => wx(lon) * k + tx;
   const sy = (lat) => wy(lat) * k + ty;
-  /** The part of the stage the world is fitted in: on a computer (a stage 720 px wide or more) left of the control rail, above the
+  /** The part of the stage the world is fitted in: on a computer or a tablet (a stage 600 px wide or more) left of the control rail, above the
    *  "Find your city" bar and 8 px from the top; on a phone the whole stage (the world covers it). [x0, y0, x1, y1] */
   let wide = false;
   const freeBox = () => {
@@ -529,17 +574,21 @@
   // the focus point (the crosshair): the middle of the part of the map the city card doesn't cover
   const focusEl = $("#map-focus"), findEl = $("#map-find"), railEl = $(".map-ctrl"), scaleEl = $("#map-scale");
   let rects = { rail: null, card: null }, fcx = 0, fcy = 0;
-  // the city card's place (px from the stage's bottom) and whether it runs across the map (a phone): remembered while the find card
-  // holds the slot, so the crosshair appears where the card's own crosshair will be (no jump when one takes the slot from the other)
-  let slotFromBottom = 0, slotWide = false;
+  // the city card's place (px from the stage's bottom, its right edge on a computer) and whether it runs across the map (a phone):
+  // remembered while the find card holds the slot, so the crosshair appears where the card's own crosshair will be (no jump when one
+  // takes the slot from the other)
+  let slotFromBottom = 0, slotWide = false, slotRight = 372, frameBox = [0, 0, 0, 0];
   const relRect = (e) => { if (!e || e.hidden) return null; const r = e.getBoundingClientRect(), s = wrapEl.getBoundingClientRect(); return r.width ? [r.left - s.left, r.top - s.top, r.width, r.height] : null; };
   function measureOverlays() {
     const city = relRect(focusEl);
     rects = { rail: relRect(railEl), card: city || relRect(findEl), exit: relRect($("#map-exit")), scale: relRect(scaleEl) };
-    if (city && W) { slotFromBottom = H - city[1]; slotWide = city[2] > W * 0.6; }
+    if (city && W) { slotFromBottom = H - city[1]; slotWide = city[2] > W * 0.6; if (!slotWide) slotRight = city[0] + city[2]; }
     else if (!city) { slotFromBottom = 10 + (focusEl.classList.contains("is-folded") ? 52 : 134); slotWide = !window.matchMedia("(min-width: 720px)").matches; }
-    fcx = W / 2;
-    fcy = slotWide ? Math.max(40, (H - slotFromBottom) / 2) : H / 2; // a card across the whole width (phones): the middle of what's above it
+    // the crosshair and the frame of an opened city: a phone, the middle of what's above the card; a computer, the free part beside or
+    // above the card's column (mapFrame), so an opened city is never under the card
+    const m = mapFrame({ W, H, across: slotWide, fromBottom: slotFromBottom, cardRight: slotRight, rail: rects.rail });
+    frameBox = m.f; fcx = m.x; fcy = m.y;
+    if (W) wrapEl.dataset.frame = frameBox.map(Math.round).join(","); // a hook for the checks in Chromium, like data-labels
   }
   const grow = (r, g) => (r ? [r[0] - g, r[1] - g, r[2] + 2 * g, r[3] + 2 * g] : null);
 
@@ -558,10 +607,10 @@
     dpr = nd;
     W = r.width; H = r.height;
     measureOverlays();
-    // a computer (a stage 720 px wide or more): the whole world fits the free part of the stage at zoom 1, left of the controls and above
+    // a computer or a tablet (a stage 600 px wide or more; it was 720, and a tablet at 768 opened on a crop): the whole world fits the free part of the stage at zoom 1, left of the controls and above
     // "Find your city" (the world used to cover the stage, 1.6 times wider than the card: the Americas and half of Africa, the rest cut
     // off); a phone: the world covers the stage, and it opens on the visitor's part of it
-    wide = W >= 720;
+    wide = W >= 600;
     const f = freeBox();
     s0 = wide ? Math.min((f[2] - f[0]) / 360, (f[3] - f[1]) / 144) : Math.max(W / 360, H / 144);
     MAXK = Math.round((900 * KREF) / s0); if (k > MAXK) k = MAXK;
@@ -642,20 +691,24 @@
     viewMoved(true);
     return true;
   }
-  /** The zoom at which the box [west, south, east, north] fits the free part of the map around the crosshair (left of the control
-   *  rail, above the city card on a phone), with a margin. */
+  /** The zoom at which the box [west, south, east, north] fits the frame around the crosshair (mapFrame: left of the control rail and
+   *  above the city card on a phone; beside or above the card's column on a computer), with a margin. */
   function fitK(b) {
-    const right = rects.rail && rects.rail[0] > fcx ? rects.rail[0] - 6 : W;
-    const halfW = Math.max(30, Math.min(fcx, right - fcx) - 10), halfH = Math.max(30, fcy - 10);
-    return Math.min((2 * halfW) / Math.max(0.0002, (b[2] - b[0]) * s0), (2 * halfH) / Math.max(0.0002, (b[3] - b[1]) * s0)) * 0.92;
+    const f = frameBox;
+    return Math.min((f[2] - f[0]) / Math.max(0.0002, (b[2] - b[0]) * s0), (f[3] - f[1]) / Math.max(0.0002, (b[3] - b[1]) * s0)) * 0.92;
   }
-  /** Fly so the box [west, south, east, north] fills most of the free part of the map. */
+  /** Fly so the box [west, south, east, north] fills most of the frame. */
   function flyToBox(b, minK = 1) {
     flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.min(MAXK, Math.max(minK, fitK(b))));
   }
+  /** The box of each piece of a city's area (the detailed file's polygons, or the overview's rings), for coreBox. */
+  const pieceBoxes = (a) => a.area ? a.area.map(([o]) => boxOf([[o]]))
+    : a.rings.map((r) => { let w = 1e9, s = 1e9, e = -1e9, n = -1e9; for (let i = 0; i < r.length; i += 2) { if (r[i] < w) w = r[i]; if (r[i] > e) e = r[i]; if (r[i + 1] < s) s = r[i + 1]; if (r[i + 1] > n) n = r[i + 1]; } return [w * OV_UNIT, s * OV_UNIT, e * OV_UNIT, n * OV_UNIT]; });
   function flyToCity(c) {
     const a = areas.get(c.id) || ov.byId.get(c.id);
-    if (a) return flyToBox(a.box, Math.min(kAt(AREA_K + 0.5), fitK(a.box))); // the whole boundary in view (closer than zoom 5.5 when it fits)
+    // the whole boundary in the frame (its main piece when the rest is far away), never under the card, with the city's own point in the
+    // middle: the crosshair (hidden until the map moves) starts on the city, so a first nudge of the map keeps its card
+    if (a) { const b = coreBox(pieceBoxes(a), c.lon, c.lat), hw = Math.max(c.lon - b[0], b[2] - c.lon), hh = Math.max(c.lat - b[1], b[3] - c.lat); return flyToBox([c.lon - hw, c.lat - hh, c.lon + hw, c.lat + hh]); }
     const r = radiusOf(c);
     flyTo(c.lon, c.lat, Math.min(MAXK, Math.max(kAt(AREA_K + 0.5), (Math.min(W, H) * 0.3) / ((r / 111.32) * s0))));
   }
@@ -851,7 +904,10 @@
     // which of them may carry a label at this zoom: none zoomed out (the markers and their rings stay clear); zoomed in on a city, that
     // city and a few around the crosshair
     const { ids, max } = labelFilter(cands, kg(), { phone, fx: fcx, fy: fcy, W, H });
-    const want = cands.filter((it) => ids.has(it.id)).sort((p, q) => p.key - q.key || (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
+    // the city the card names (opened for the visitor, the map not moved since) carries no chip of its own: its pin and outline are enough,
+    // and its chip used to sit on its own boundary
+    const named = findOn === false && focusPinned && !userMoved ? focusPinned : null;
+    const want = cands.filter((it) => ids.has(it.id) && it.id !== named).sort((p, q) => p.key - q.key || (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
     const items = [];
     let a = 0;
     for (const x of want.slice(0, 3 * (max.A + max.B + max.C))) { // enough to fill every slot; the rest would never be placed
@@ -962,8 +1018,11 @@
       if (p < 1 || (l.pop && now - l.pop < 300)) busy = true;
       drawChip(l, p, now);
     }
-    // the crosshair: a ring and four ticks at the focus point, only while the city card follows it (never on the "Find your city" view)
-    if (findOn === false) {
+    // the crosshair: a ring and four ticks at the focus point, only while the city card follows it: never on the "Find your city" view,
+    // nor while the card shows a city that was opened for the visitor (its pin is the marker; the crosshair comes back once they move the map)
+    const reticle = findOn === false && !(focusPinned && !userMoved) ? "on" : "off";
+    if (wrapEl.dataset.reticle !== reticle) wrapEl.dataset.reticle = reticle; // a hook for the checks in Chromium
+    if (reticle === "on") {
       g.strokeStyle = `rgba(${pal.ink},.55)`; g.lineWidth = 1.5;
       g.beginPath(); g.arc(fcx, fcy, 5, 0, Math.PI * 2);
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { g.moveTo(fcx + dx * 9, fcy + dy * 9); g.lineTo(fcx + dx * 15, fcy + dy * 15); }
@@ -1320,16 +1379,19 @@
         const nm = el("span", "map-find__name");
         nm.append(el("strong", null, c.name), el("span", null, placeOf(c)));
         li.append(nm, rowTag(c));
-        li.addEventListener("click", () => pickPlace(c));
+        li.addEventListener("click", (e) => pickPlace(c, e.detail > 0)); // detail 0: a click a key or a screen reader made
         return li;
       }) : [el("li", "map-find__none", "No place by that name yet. Try another spelling, or ask for your town from your dashboard.")]));
     }
     findList.hidden = false; findQ.setAttribute("aria-expanded", "true"); findQ.removeAttribute("aria-activedescendant");
   }
   /** A suggestion picked: fly there and open its card (the same flow as a tap on the map: a part → its city, too small → the three nearest). */
-  function pickPlace(c) {
+  function pickPlace(c, pointer = false) {
     closeList(); findQ.value = ""; finding = false;
-    canvas.focus({ preventScroll: true }); // the find card makes way for the city card: the keyboard goes to the map (Enter opens the city)
+    // the find card makes way for the city card: the keyboard goes to the map (Enter opens the city). A tap or a click on a suggestion
+    // draws no focus ring round the whole map (the browser would: the visitor had just typed); a key press brings it back
+    canvas.classList.toggle("is-quiet-focus", pointer);
+    canvas.focus({ preventScroll: true, focusVisible: !pointer });
     select(c, true); ripple(c);
   }
   findQ.addEventListener("input", suggest);
@@ -1462,7 +1524,9 @@
   }, { passive: false });
   // keyboard: arrows move, + / − zoom, Enter opens the city in focus, Escape leaves the full-screen map (the map is focusable)
   canvas.addEventListener("focus", () => { wheelOK = true; });
+  canvas.addEventListener("blur", () => canvas.classList.remove("is-quiet-focus"));
   canvas.addEventListener("keydown", (e) => {
+    canvas.classList.remove("is-quiet-focus"); // the keyboard is in use: the focus ring shows again
     if (!loaded) return;
     const pan = { ArrowLeft: [80, 0], ArrowRight: [-80, 0], ArrowUp: [0, 80], ArrowDown: [0, -80] }[e.key];
     if (pan) { e.preventDefault(); cam = null; userMoved = true; tx += pan[0]; ty += pan[1]; clampView(); viewMoved(true); }

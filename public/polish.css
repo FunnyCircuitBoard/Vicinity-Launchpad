@@ -176,11 +176,7 @@ input, select, textarea { min-height: 44px; }
 .kicker__short { display: none; }
 @media (max-width: 360px) { .kicker__long { display: none; } .kicker__short { display: inline; } } /* "New York City · real data" on one line */
 #nyc-map { cursor: pointer; }
-@media (max-width: 600px) {
-  .nyc__ctrl { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 8px; }
-  .nyc__ctrl .btn--sm { padding: 0 10px; }
-  .nyc__ctrl .nyc__explore { grid-column: 1 / -1; }
-}
+@media (max-width: 960px) { .nyc__ctrl .btn--sm { padding: 0 10px; } }
 .nyc__ctrl .btn--sm { min-height: 44px; min-width: 44px; }
 .nyc__facts { padding: 14px 16px; }
 .nyc__facts .kicker { margin-bottom: 8px; }
@@ -198,28 +194,41 @@ input, select, textarea { min-height: 44px; }
   #nyc .section-head p.muted { display: none; }
   #nyc .section-head .kicker { margin-bottom: 6px; }
   #nyc { padding-top: 22px; }
-  /* the four steps become one caption: the step playing now, with Previous · Pause · Next under it. The four sit on top of each other
-     (one grid cell) and only the current one shows, so the card is always as tall as the tallest step and the buttons under it never
-     jump while it plays (they moved 95 px at every step before d3) */
-  .steps { display: grid; gap: 0; margin-bottom: 10px; }
+  /* one card (the review of 12 Oct 2026): the map; under it where the story is (four segments) and Previous · Pause · Next; then the step
+     playing now, right under the drawing (a short phone sees its title and first lines with the map); then the map key. The step takes
+     its own height (step 1 sat over a 150-230 px empty band when every step took step 4's), and the controls above it never move while it
+     plays. The map's box, the steps' list and the controls' row give their parts to this one grid (display: contents) */
+  .nyc { position: relative; grid-template-columns: 4px 44px minmax(0, 1fr) 44px 4px; gap: 0 8px; }
+  .nyc__map, .nyc__steps, .nyc__ctrl { display: contents; }
+  #nyc-map { grid-column: 1 / -1; grid-row: 1; border: 1px solid var(--line); border-bottom: 0; border-radius: var(--r-hero) var(--r-hero) 0 0; background: var(--map-water); }
+  .steps { grid-column: 1 / -1; grid-row: 2; display: grid; gap: 0; margin: 0; padding: 70px 0 0; border: 1px solid var(--line); border-block: 0; background: var(--card); }
   .steps li { grid-area: 1 / 1; display: grid; }
+  .steps li:not(:has(> [aria-current="step"])) { display: none; }
   .steps button:not([aria-current="step"]) { visibility: hidden; }
-  .steps button { padding: 12px 14px; }
+  .steps button, .steps button[aria-current="step"] { padding: 0 16px 16px; border: 0; border-radius: 0; background: none; }
   .steps em, .steps button[aria-current="step"] em { max-height: none; margin-top: 4px; }
-  /* where the story is: four short segments along the card's foot, filled up to the step showing (still; the card's own state) */
+  #nyc-prev, #nyc-play, #nyc-next { grid-row: 2; align-self: start; margin-top: 14px; }
+  #nyc-prev { grid-column: 2; } #nyc-play { grid-column: 3; } #nyc-next { grid-column: 4; }
+  .nyc__foot { grid-column: 1 / -1; grid-row: 3; border: 1px solid var(--line); border-radius: 0 0 var(--r-hero) var(--r-hero); }
+  .nyc__ctrl .nyc__explore { grid-column: 1 / -1; grid-row: 4; margin-top: 12px; }
+  .nyc__facts { grid-column: 1 / -1; grid-row: 5; margin: 12px 0 0; }
+  /* where the story is: four segments along the card's top edge, right under the map, filled up to the step showing (still; the card's own state) */
   .steps { position: relative; }
-  .steps button { padding-bottom: 28px; }
-  .steps::after { content: ""; position: absolute; left: 58px; right: 16px; bottom: 13px; height: 3px; pointer-events: none;
+  .steps::after { content: ""; position: absolute; left: 14px; right: 14px; top: 0; height: 3px; pointer-events: none;
     background: linear-gradient(var(--pin-2), var(--pin-2)) 0 0 / var(--steps-done, 25%) 100% no-repeat, var(--line-2);
     -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(25% - 4px), transparent calc(25% - 4px) 25%); mask: repeating-linear-gradient(90deg, #000 0 calc(25% - 4px), transparent calc(25% - 4px) 25%); }
   .nyc[data-step="2"] .steps { --steps-done: 50%; } .nyc[data-step="3"] .steps { --steps-done: 75%; } .nyc[data-step="4"] .steps { --steps-done: 100%; }
   .steps strong { font-size: 1rem; }
   .steps em { font-size: .9rem; }
+  /* a tablet: the story at a phone's width, in the middle (a 720 px map was a huge, mostly empty panel) */
+  #nyc .wrap { max-width: 648px; }
 }
 
 /* one section-title size on the home page (d3): --fs-xl everywhere (36 px on a computer, 22-24 px on a phone); no 48 px exceptions, no
    22-character cap ("How one city becomes one coin." on one line on a computer) */
 [data-page="home"] .section-head h2 { font-size: var(--fs-xl); max-width: none; }
+/* body copy that ends on a lone word reads as a mistake: the hero's lead and the fact tiles' lines wrap "pretty" (no orphan) */
+.hero .lead, .hero__facts > li > span, .hero__fact-link > span { text-wrap: pretty; } /* (not the spans inside them: a .nowrap one keeps "come next →" together) */
 
 /* the problem: three lines and a bridge */
 .problems { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
@@ -250,11 +259,15 @@ input, select, textarea { min-height: 44px; }
 .facts > li > div { min-width: 0; flex: 1; }
 .why-panel .early { padding: 0 0 10px; margin: 0; }
 @media (max-width: 600px) { .why-panel .early { display: none; } } /* the decorative coin stack: the facts under it are the point on a phone */
-.why-panel .early__coins { padding: 4px 0 10px; }
-.why-panel .early__coins .coin-disc { width: 46px; height: 46px; }
-.why-panel .early__coins .coin-disc--lg { width: 64px; height: 64px; }
-.why-panel .early__coins .coin-disc span { font-size: .7rem; }
-.why-panel .early__coins .coin-disc--lg span { font-size: .9rem; }
+/* the city coins in a row (the review of 12 Oct 2026: overlapped 46 px discs cut their own names, "LOND", "TOKY", "ARIS", in a 190 px
+   cluster): every coin whole and apart, every name inside its coin, $NYC the big one in the middle */
+.why-panel .early__coins { gap: 18px; padding: 10px 0 18px; }
+.why-panel .early__coins .coin-disc { width: 72px; height: 72px; margin: 0; }
+.why-panel .early__coins .coin-disc--lg { width: 96px; height: 96px; }
+.why-panel .early__coins .coin-disc span { max-width: none; overflow: visible; font-size: .68rem; letter-spacing: .04em; }
+.why-panel .early__coins .coin-disc--lg span { font-size: 1.1rem; letter-spacing: .02em; }
+.why-panel .early__coins .coin-disc:nth-child(1), .why-panel .early__coins .coin-disc:nth-child(5) { transform: translateY(10px); opacity: .88; }
+.why-panel .early__coins .coin-disc:nth-child(2), .why-panel .early__coins .coin-disc:nth-child(4) { transform: translateY(-2px); }
 .why-panel .bridge { margin-top: 12px; font-size: .95rem; }
 .why-panel .ticks { margin: 0 0 14px; }
 .why-panel .btn { margin-top: 4px; }

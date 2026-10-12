@@ -72,7 +72,7 @@ test("home: one hero button to the buy slot, one row of facts with one countdown
     // d3 (11 Oct 2026): strong facts only, as tiles. A phone shows the first three (communities, countries, official boundaries), a
     // computer the Launchpad link tile too. No members tile in the markup: home.js adds one only at 100 verified members or more (the
     // owner circled "2 verified members"), never "…"; the numbers are /data/stats.json's (8,008 / 5,831 / 73 were stale and flashed)
-    assert.match(h, /<ul class="hero__facts" aria-label="Vicinity in numbers">\s*<li><strong data-stat="communities">8,029<\/strong><span>communities mapped<\/span><\/li>\s*<li class="hero__fact--countries"><strong data-stat="countries">244<\/strong><span>countries &amp; territories<\/span><\/li>\s*<li><strong data-stat="officialBoundaries">5,838<\/strong><span>official<span class="fact__wide"> city<\/span> boundaries<\/span><\/li>\s*<li class="hero__fact--launch"><a class="hero__fact-link" href="\/launchpad"><strong><span class="ico ico--sm" aria-hidden="true"><svg [^>]+>[^]*?<\/svg><\/span>Launchpad<\/strong><span>Open · city coins come next <span aria-hidden="true">→<\/span><\/span><\/a><\/li>\s*<\/ul>/);
+    assert.match(h, /<ul class="hero__facts" aria-label="Vicinity in numbers">\s*<li><strong data-stat="communities">8,029<\/strong><span>communities mapped<\/span><\/li>\s*<li class="hero__fact--countries"><strong data-stat="countries">244<\/strong><span>countries &amp; territories<\/span><\/li>\s*<li><strong data-stat="officialBoundaries">5,838<\/strong><span>official<span class="fact__wide"> city<\/span> boundaries<\/span><\/li>\s*<li class="hero__fact--launch"><a class="hero__fact-link" href="\/launchpad"><strong><span class="ico ico--sm" aria-hidden="true"><svg [^>]+>[^]*?<\/svg><\/span>Launchpad<\/strong><span>Open · city coins <span class="nowrap">come next <span aria-hidden="true">→<\/span><\/span><\/span><\/a><\/li>\s*<\/ul>/);
     assert.doesNotMatch(h, /data-stat="members"|\bLive\b<|Launchpad is open/, "no members placeholder, nothing that reads like trading");
     assert.doesNotMatch(h, /data-stat="communities">8,008<|data-stat="officialBoundaries">5,831<|hero-chip--2"><b data-stat="nycMembers">73</, "no stale fallback numbers");
     const order = ["<section class=\"hero\" id=\"hero\">", "id=\"nyc\"", "id=\"problem\"", "id=\"why\"", "id=\"how\"", "id=\"roadmap\"", "id=\"faq\""].map((s) => h.indexOf(s));
@@ -84,10 +84,10 @@ test("home: one hero button to the buy slot, one row of facts with one countdown
   assert.match(polish, /\.hero-map \{ display: none; \}/, "on a phone the hero's own map is hidden: the walkthrough's bigger map comes right after the hero");
   assert.match(polish, /#nyc \.section-head \{ margin-bottom: 10px; \}\n  #nyc \.section-head p\.muted \{ display: none; \}/, "its kicker and title stay above the map; the hint under them goes (Previous · Pause · Next say it)");
   assert.doesNotMatch(polish, /#nyc \.nyc \{ order/, "nothing is reordered: a reader meets the title, then the map");
-  // one step caption at a time on a phone; d3: the four sit in one grid cell and only the current one shows, so the card is as tall as the
-  // tallest step and the controls under it never jump while it plays (95 px at every step before)
-  assert.match(polish, /  \.steps \{ display: grid; gap: 0; margin-bottom: 10px; \}\n  \.steps li \{ grid-area: 1 \/ 1; display: grid; \}\n  \.steps button:not\(\[aria-current="step"\]\) \{ visibility: hidden; \}/);
-  assert.doesNotMatch(polish, /\.steps li:not\(:has\(button\[aria-current="step"\]\)\) \{ display: none; \}/, "not display: none (the card's height changed every step)");
+  // one step caption at a time on a phone. d3 put the four in one grid cell (the card as tall as the tallest step) so the controls under
+  // it never jumped; the review of 12 Oct 2026 found the 150-230 px empty band that left under step 1, so the controls now sit above the
+  // step's text (pinned in test/home-d3.test.js) and the step takes its own height
+  assert.match(polish, /  \.steps li \{ grid-area: 1 \/ 1; display: grid; \}\n  \.steps li:not\(:has\(> \[aria-current="step"\]\)\) \{ display: none; \}\n  \.steps button:not\(\[aria-current="step"\]\) \{ visibility: hidden; \}/);
 });
 
 test("home: the incentives are one tabbed block and the FAQ another; every panel reachable, every question kept, a link into a hidden panel opens it", () => {
