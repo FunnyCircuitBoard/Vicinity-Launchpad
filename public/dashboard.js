@@ -1454,9 +1454,9 @@
     $("#profile-username-meta").textContent = u.handle ? `@${u.handle}` : "Pick one";
     $("#profile-wallet-meta").textContent = linked ? mask(u.wallet) : "Not linked";
     $("#profile-wallet-meta").classList.toggle("mono", linked);
-    renderEmailView(u); renderPhoneView(u);
+    renderEmailView(u); renderPhoneView(u); renderGoogleView(u);
     $("#email-form").hidden = true; $("#email-code-form").hidden = true; $("#phone-form").hidden = true;
-    $("#contact-err").hidden = true;
+    $("#contact-err").hidden = true; googleNote(""); googlePassword(false); // (a note from an earlier visit is not news now)
     if (profiles) profiles.openModal(me);
     $("#profile-modal").hidden = false;
   }
@@ -1471,14 +1471,117 @@
           b.addEventListener("click", () => { $("#email-form").hidden = false; $("#email-code-form").hidden = true; $("#email-input").focus(); }); return b; })(),
         (() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Remove";
           b.addEventListener("click", async () => { const r = await api("/api/me/contact/email/remove", {}); if (r.ok) { me.user.contact_email = null; renderEmailView(me.user); toast("E-mail removed"); } }); return b; })());
-      $("#email-desc").textContent = "Verified. Not used for anything yet. You can remove it any time.";
+      $("#email-desc").textContent = "Verified, and not a way to log in. Not used for anything yet. You can remove it any time.";
       $("#profile-email-meta").textContent = u.contact_email;
     } else {
       v.replaceChildren((() => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Add";
         b.addEventListener("click", () => { $("#email-form").hidden = false; $("#email-input").focus(); }); return b; })());
-      $("#email-desc").textContent = "Optional. Not used for anything yet. You can remove it any time.";
+      $("#email-desc").textContent = "Optional, and not a way to log in. Not used for anything yet. You can remove it any time.";
       $("#profile-email-meta").textContent = "Not added";
     }
+  }
+  /*
+   * Google sign-in (the new sign-up only): log in with Google too. An account made with Google has it already. One made with an e-mail
+   * (or a wallet) adds it here: POST /api/me/google/add answers Google's own page, the person picks their Google account there, and
+   * Google sends them back to /dashboard?google=<code>#profile (googleBounce). Adding a way to log in follows the rule of a password
+   * change (src/auth.js handleGoogleAdd): an account with a password types it here (the server answers reprove + password), one with only
+   * a wallet confirms with it (the "confirm it's you" sheet), one with neither logs in again if its login is older than 30 minutes.
+   * Remove takes the added one off and logs out the other browsers; the way the account was made always stays. /api/me says only
+   * whether one was added (user.googleAdded), never which Google account.
+   */
+  const GOOGLE_SAID = {
+    linked: "Google sign-in added. You can now log in with Google too.",
+    already: "That Google account already logs you in to this account. Nothing changed.",
+    google_taken: "That Google account already logs in to another Vicinity account, so it can't be added here. Pick another Google account.",
+    has_google: "Your account already has a Google sign-in. Remove it first to add a different one.",
+    reprove: (d) => (d.password ? "For your safety, type your password to add Google."
+      : d.relogin ? "For your safety, adding a way to log in needs a fresh login. Log in again, then add Google within 30 minutes."
+      : "For your safety, confirm it's you with your wallet first, then tap Add again."),
+    bad_credentials: "That password isn't right. Forgot it? Log out and use “Forgot or never set a password?” on the Log in tab.",
+    login_expired: "That took too long, or another tab or login got in the way. Nothing was added. Please try again.",
+    login_cancelled: "Cancelled at Google. Nothing was added.",
+    login_failed: "Google didn't answer properly. Nothing was added. Please try again.",
+    login_unavailable: "Google sign-in is having trouble right now. Nothing was added. Please try again in a few minutes.",
+    changed_retry: "Something changed at that very moment. Nothing was added. Please try again.",
+    link_new: (d) => COMMON_ERR.link_new(d),
+  };
+  /** A line under the Google row (empty text hides it); `relogin` adds "Log in again" (the server asked for a fresh login). */
+  function googleNote(text, relogin = false) {
+    const e = $("#google-err");
+    e.replaceChildren(...(text ? [text] : []));
+    if (relogin) {
+      const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Log in again";
+      b.addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/connect?mode=login&error=relogin_confirm"); });
+      e.append(" ", b);
+    }
+    e.hidden = !text;
+  }
+  /** The "type your password" step under the row (and, for an account with a wallet, "Confirm with my wallet instead"); false hides it. */
+  function googlePassword(on) {
+    $("#google-pw-form").hidden = !on; $("#google-pw").value = "";
+    $("#google-pw-alt").hidden = !(on && me && me.user && me.user.wallet);
+    if (on) $("#google-pw").focus();
+  }
+  function renderGoogleView(u) {
+    const sec = $("#google-sec"), v = $("#google-view");
+    sec.hidden = !(me && me.signupFlow === "v2");
+    if (sec.hidden) return;
+    const button = (label, fn) => { const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = label; b.addEventListener("click", () => fn(b)); return b; };
+    if (u.provider === "google") {
+      $("#profile-google-meta").textContent = "On";
+      $("#google-desc").textContent = "You made your account with Google: it is how you log in.";
+      v.replaceChildren();
+    } else if (u.googleAdded) {
+      $("#profile-google-meta").textContent = "Added";
+      $("#google-desc").textContent = "You can log in with Google too, as well as the way you made your account.";
+      v.replaceChildren(button("Remove", removeGoogle));
+    } else if (W.inWalletApp()) { // Google doesn't allow its log-in inside a wallet app's browser (the Log in tab says the same)
+      $("#profile-google-meta").textContent = "Not added";
+      $("#google-desc").textContent = "Google doesn't work inside a wallet app. To add it, open your dashboard in Safari or Chrome.";
+      v.replaceChildren();
+    } else {
+      $("#profile-google-meta").textContent = "Not added";
+      $("#google-desc").textContent = "Log in with Google too, as well as the way you made your account.";
+      v.replaceChildren(button("Add", (b) => addGoogle(b)));
+    }
+  }
+  /**
+   * Add: ask the server, and go to Google when it agrees. `body` = { current } once the password was typed. Asked to confirm: the password
+   * step (an account with a password), the wallet's "confirm it's you" sheet then once more (a wallet and no password), or "Log in again".
+   */
+  async function addGoogle(b, body = {}) {
+    googleNote(""); if (b) b.disabled = true;
+    let r = (await api("/api/me/google/add", body)) || {};
+    if (r.error === "reprove" && !r.password && !r.relogin && (await askProof(r))) r = (await api("/api/me/google/add", {})) || {};
+    if (r.ok && /^https:\/\/accounts\.google\.com\//.test(String(r.url))) { location.assign(r.url); return; } // off to Google, then back here
+    if (b) b.disabled = false;
+    googlePassword(r.error === "reprove" ? Boolean(r.password) : r.error === "bad_credentials");
+    googleNote(errText(GOOGLE_SAID, r, "Couldn't start. Please try again."), r.error === "reprove" && Boolean(r.relogin));
+  }
+  $("#google-pw-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const current = $("#google-pw").value;
+    if (!current) return $("#google-pw").focus();
+    addGoogle($("#google-pw-form button"), { current });
+  });
+  $("#google-pw-wallet").addEventListener("click", async () => { if (await askProof({})) { googlePassword(false); addGoogle(null); } });
+  async function removeGoogle(b) {
+    if (!confirm("Remove Google sign-in? You will log in the way you made your account, and your other browsers are logged out.")) return;
+    googleNote(""); b.disabled = true;
+    const r = (await api("/api/me/google/remove", {})) || {};
+    b.disabled = false;
+    if (!r.ok) return googleNote(errText(GOOGLE_SAID, r, "Couldn't remove it. Please try again."));
+    me.user.googleAdded = false; renderGoogleView(me.user); toast(r.removed ? "Google sign-in removed. Other browsers are logged out." : "Google sign-in removed");
+  }
+  /**
+   * Back from Google (?google=<code>, read once): the Profile is open (#profile); a success is a toast, anything else a line in the row. Only
+   * the map's OWN codes count (a link with ?google=valueOf or constructor would otherwise reach Object.prototype and stop the page's start).
+   */
+  function googleBounce(code) {
+    if (!Object.prototype.hasOwnProperty.call(GOOGLE_SAID, code) || !me || me.signupFlow !== "v2") return;
+    if (code === "linked" || code === "already") return toast(GOOGLE_SAID[code]);
+    $("#google-sec").open = true;
+    googleNote(errText(GOOGLE_SAID, { error: code }, ""), false);
   }
   function renderPhoneView(u) {
     const v = $("#phone-view");
@@ -1742,10 +1845,11 @@
     // a member: the tabbed dashboard's placeholders while its code loads (in the room a guest's page held: a first visit after signing in)
     if (tabbed) { $("#dash-skel").hidden = false; unhold(); }
     me = d;
-    // ?welcome=1 (the account was just made) and ?linked=1 (the wallet was just linked) are moments, not places: read once, then taken off the address bar
-    const welcome = params.get("welcome"), linked = params.get("linked");
-    if (welcome || linked) {
-      params.delete("welcome"); params.delete("linked");
+    // ?welcome=1 (the account was just made), ?linked=1 (the wallet was just linked) and ?google= (back from adding Google sign-in) are
+    // moments, not places: read once, then taken off the address bar
+    const welcome = params.get("welcome"), linked = params.get("linked"), googleSaid = params.get("google");
+    if (welcome || linked || googleSaid) {
+      params.delete("welcome"); params.delete("linked"); params.delete("google");
       const q = String(params);
       try { history.replaceState(null, "", location.pathname + (q ? `?${q}` : "") + location.hash); } catch {}
     }
@@ -1782,6 +1886,7 @@
     setupComposer(); loadFeed(true); loadMod(); loadTowns();
     reveal();
     if (welcome) showWelcome(d);
+    if (googleSaid) googleBounce(googleSaid);
     if (linked && d.user.wallet) { const k = appNamed(d.user.walletApp); toast(k ? `${k.name} connected ✓` : "Wallet linked ✓"); const r = $("#wallet-card").getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 40); }
     if (!v2 && params.get("claim")) $("#progress").scrollIntoView({ block: "center" });
     setInterval(() => { if (!document.hidden) refresh(); }, 60_000);

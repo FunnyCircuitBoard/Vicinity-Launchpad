@@ -5,7 +5,8 @@
  * (src/signup.js imports auth.js).
  *
  * What finishCore needs to be true, all of it checked again INSIDE the transaction: the sign-up is alive, holds the current
- * Terms, a community and a verified identity (Google id or e-mail), that identity has no account yet, and the connection still
+ * Terms, a community and a verified identity (Google id or e-mail), that identity has no account yet (neither as an account's main
+ * login nor as a Google sign-in a member added from their Profile: user_logins, src/logins.js), and the connection still
  * looks like the one the location was proven from (recheckLocation). The account is built ONLY from the sign-up row, never
  * from the request. It has NO wallet: the wallet is linked later, from the dashboard (src/walletlink.js). The session made
  * here carries no wallet proof (proven_at NULL): for an account without a wallet its login counts as fresh for 30 minutes
@@ -20,6 +21,8 @@ import { activeMint } from "./official.js";
 import { autoUsername } from "./text.js";
 import { check, limitKey } from "./limits.js";
 import { HOUR, iso } from "./policy.js";
+import { ensureLoginsSchema } from "./store.js";
+import { addedBy } from "./logins.js";
 
 const FINISHES_PER_HOUR = 10; // finish tries per sign-up (counted before the work, atomically: src/limits.js)
 
@@ -29,7 +32,8 @@ const FINISHES_PER_HOUR = 10; // finish tries per sign-up (counted before the wo
  * order: ?1 now, ?2 the sign-up, ?3 the Terms version, ?4 provider, ?5 provider id, ?6 the username, ?7 early member (0 or 1),
  * ?8 the new session's id (a hash), ?9 its end.
  *   1  the account, from the sign-up row alone, only while that row is alive with the Terms, a community and this very identity,
- *      and only if nobody has an account with this identity yet (the UNIQUE (provider, provider_id) index is the last guard)
+ *      and only if nobody has an account with this identity yet (the UNIQUE (provider, provider_id) index is the last guard), and
+ *      no member added it to their account as a Google sign-in (user_logins: that Google account logs in to theirs already)
  *   2  the 30-day session for the user statement 1 just made (found by identity, creation time and username: statement 1's row),
  *      with no wallet and no wallet proof
  *   3-4 the sign-up's hand-off rows and the sign-up itself go, only if statement 2 happened
@@ -41,7 +45,8 @@ export const FINISH = [
      FROM signups s
     WHERE s.id = ?2 AND s.expires_at > ?1 AND s.terms_version = ?3 AND s.loc_city IS NOT NULL AND s.identity_at IS NOT NULL
       AND s.provider = ?4 AND s.provider_id = ?5
-      AND NOT EXISTS (SELECT 1 FROM users WHERE provider = ?4 AND provider_id = ?5)`,
+      AND NOT EXISTS (SELECT 1 FROM users WHERE provider = ?4 AND provider_id = ?5)
+      AND NOT EXISTS (SELECT 1 FROM user_logins WHERE provider = ?4 AND provider_id = ?5)`,
   `INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at)
    SELECT ?8, NULL, u.id, NULL, ?1, ?9, NULL FROM users u WHERE u.provider = ?4 AND u.provider_id = ?5 AND u.created_at = ?1 AND u.handle = ?6`,
   "DELETE FROM handoffs WHERE signup_id = ?2 AND EXISTS (SELECT 1 FROM sessions WHERE id = ?8)",
@@ -99,6 +104,7 @@ async function whyNotFinished(env, row, now) {
     return made ? { error: "already_finished", status: 409 } : { error: "no_signup", status: 401 };
   }
   if (await env.DB.prepare("SELECT id FROM users WHERE provider = ? AND provider_id = ?").bind(row.provider, row.provider_id).first()) return { error: "social_taken", status: 409 };
+  if (await addedBy(env.DB, row.provider, row.provider_id)) return { error: "social_taken", status: 409 }; // a member added this Google account to theirs
   if (sig.terms_version !== TERMS_VERSION) return { error: "terms_required", status: 400 };
   if (!sig.loc_city) return { error: "location_required", status: 400 };
   if (!sig.identity_at) return { error: "account_required", status: 400, pending: Boolean(sig.pending_email) };
@@ -110,7 +116,8 @@ async function whyNotFinished(env, row, now) {
  * Returns { ok: true, cookies: [the 30-day `vs` cookie, the cleared `vsu` cookie], welcome: { name, city, memberNumber }, userId }
  * or { error, status, pending? } with the plain codes the page knows: slow_down, terms_required, location_required,
  * account_required (+ pending: an e-mail was typed but not verified), location_unverified (only the location is forgotten),
- * social_taken, already_finished, no_signup, changed_retry.
+ * social_taken (also: a member added this Google account to their account), already_finished, no_signup, changed_retry,
+ * signup_unavailable (the user_logins table statement 1 reads could not be made: nothing changed).
  */
 export async function finishCore(env, row, request, now = Date.now(), cf = request.cf) {
   const limit = await check(env, [{ key: await limitKey(env, "fins", row.id), windowMs: HOUR, max: FINISHES_PER_HOUR }], now);
@@ -124,7 +131,11 @@ export async function finishCore(env, row, request, now = Date.now(), cf = reque
     await env.DB.prepare("UPDATE signups SET loc_city = NULL, loc_name = NULL, loc_country = NULL, loc_choices = NULL, loc_net = NULL, loc_at = NULL WHERE id = ?").bind(row.id).run();
     return { error: "location_unverified", status: 403 };
   }
+  // statement 1 reads user_logins (a Google sign-in a member added), so it must exist; made once, on the first finish
+  try { await ensureLoginsSchema(env.DB); }
+  catch (e) { console.error("sign-in table unavailable", String((e && e.message) || e).slice(0, 120)); return { error: "signup_unavailable", status: 503 }; }
   if (await env.DB.prepare("SELECT id FROM users WHERE provider = ? AND provider_id = ?").bind(row.provider, row.provider_id).first()) return { error: "social_taken", status: 409 };
+  if (await addedBy(env.DB, row.provider, row.provider_id)) return { error: "social_taken", status: 409 }; // a member added this Google account to theirs
 
   const early = activeMint(env) ? 0 : 1;
   const token = randomToken(32), sessionId = await sha256(token);

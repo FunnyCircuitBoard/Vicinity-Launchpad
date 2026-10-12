@@ -105,12 +105,16 @@
   /**
    * The three ways a wallet with no account is told where to go. `inApp` = a wallet app's own browser (Google can't run there), `name` its
    * name, `returning` = this browser has a hint of a member who connected a wallet before (the "more than one wallet" sentence is for them).
+   * Both say what a member whose account has no wallet yet does (log in the way they made it, then connect the wallet: never a second
+   * account) and what someone new does. `login` is the words of the "Already a member?" button under it (the Log in tab).
    */
   function noAccountCopy(inApp, name, returning = false) {
     const many = !returning ? "" : name ? ` More than one wallet in ${name}? Switch to the one you linked, then try again.` : " More than one wallet in your app? Switch to the one you linked, then try again.";
     return inApp
-      ? { title: "No account for this wallet yet", body: `Vicinity accounts start with Google or e-mail. Create yours in Safari or Chrome (it takes a minute), then connect this wallet from your dashboard, one tap.${many}`, primary: "copy" }
-      : { title: "No account for this wallet yet", body: "Create one with Google in a minute, then connect this wallet from your dashboard.", primary: "create" };
+      ? { title: "No account for this wallet yet", body: `Vicinity accounts start with Google or e-mail. Create yours in Safari or Chrome (it takes a minute), then connect this wallet from your dashboard, one tap.${many}`, primary: "copy",
+        login: "Log in with the wallet on your account, or with your e-mail and password." }
+      : { title: "No account for this wallet yet", body: "Made your account with Google or e-mail? Log in that way, then connect this wallet from your dashboard. New here? Create one with Google in a minute.", primary: "create",
+        login: "Log in with Google or your e-mail, then connect this wallet." };
   }
   /**
    * The wallet is linked: what the done screen says and does. `where` = "app" (the wallet app's own browser: it stays there, on the
@@ -162,7 +166,11 @@
     // the wallet link
     has_wallet: "Your account already has a wallet.",
     wrong_wallet: "That is not the wallet on your account. Use the one you linked, or unlink it first from your Profile tab.",
-    no_account: "No Vicinity account uses this wallet yet. Accounts start with Google or e-mail; the wallet is linked from the dashboard.",
+    // no_account names the login that found nobody (errText): a Google account, an e-mail, and a bare no_account (the fallback, in a
+    // wallet's words: a wallet's own sign-in shows its screen, noAccountCopy). Each says what to do, for a member and for someone new.
+    no_account: "No Vicinity account uses this wallet yet. Made yours with Google or e-mail? Log in that way, then link this wallet from your dashboard. New here? Accounts start with Google or e-mail.",
+    "no_account:google": "No Vicinity account uses this Google account. Have one? Log in with your e-mail or wallet, then add Google in your Profile. A Gmail saved as contact e-mail can't log you in. New here? Tap New here.",
+    "no_account:email": "No Vicinity account logs in with this e-mail. Made yours with Google or a wallet? Log in that way instead. A contact e-mail saved in a Profile can't log you in. New here? Tap New here.",
     use_link: "That signature was for a sign-in, so nothing was linked. To add this wallet to your account, use Connect wallet on your dashboard.",
     // the sign-up itself
     no_signup: "Your sign-up was open too long, so we cleared it. Please start again.",
@@ -213,19 +221,29 @@
     offline: "Couldn't reach Vicinity. Check your connection and try again.",
     generic: "Something went wrong. Please try again.",
   };
-  /** One plain sentence for any server answer: errText({ error: "code_wrong", left: 4 }) or errText("bad_email", "login"). */
+  /**
+   * One plain sentence for any server answer: errText({ error: "code_wrong", left: 4 }) or errText("bad_email", "login").
+   * no_account speaks of the login that found nobody: the server says which ({ login: "email" }), or the page passes it (a Google
+   * bounce-back's &login=google: errText("no_account", "google")); without either it is a wallet's.
+   */
   function errText(d, ctx) {
     const code = typeof d === "string" ? d : d && d.error;
+    if (code === "no_account") return ERR[`no_account:${(d && d.login) || ctx}`] || ERR.no_account;
     if (code === "carry_network" && d && d.relay) return ERR["carry_network:relay"];
     if (code === "code_wrong") { const n = d && d.left; return n == null ? ERR.code_wrong : n === 0 ? ERR["code_wrong:last"] : `That code doesn't match. ${n} ${n === 1 ? "try" : "tries"} left.`; }
     if (code === "has_wallet" && d && d.wallet) return `Your account already has a wallet (${d.wallet}).`;
     return (ctx && ERR[`${code}:${ctx}`]) || ERR[code] || ERR.generic;
   }
-  /** Google (or the server) sent the person back to /connect?error=<code>: which tab to open, where to land, and what to say. */
-  function bounceFor(code) {
+  /**
+   * Google (or the server) sent the person back to /connect?error=<code>: which tab to open, where to land, and what to say. `login` is
+   * the &login= that came with it (no_account: "google", the Log in tab's Google button found nobody; the person stays on the Log in tab,
+   * where the words say how to log in the way they made the account, and New here is one tap away).
+   */
+  function bounceFor(code, login) {
     if (code === "location_unverified") return { tab: "new", text: errText(code, "finish") }; // the server cleared the location: step 1, the login is kept
     if (code === "terms_required") return { tab: "new", text: errText(code) };
     if (code === "social_taken") return { tab: "new", stuck: true, text: errText(code) }; // the stuck screen: log in instead, or another login
+    if (code === "no_account" && login === "google") return { tab: "login", text: errText(code, "google") };
     if (code === "no_account") return { tab: "new", text: errText(code) };
     if (code === "wallet_taken") return { tab: "login", text: errText(code) };
     return { text: errText(code) };
@@ -848,7 +866,7 @@
       const app = inApp(), k = here(), c = noAccountCopy(app, k ? k.name : null, returningHere());
       show("no-account");
       text("#na-h", c.title); text("#na-body", c.body);
-      hide("#na-create", c.primary !== "create"); hide("#na-copy", c.primary !== "copy"); hide("#na-tiny", !app);
+      hide("#na-create", c.primary !== "create"); hide("#na-copy", c.primary !== "copy"); hide("#na-tiny", false); text("#na-login", c.login); // ("Already a member?": on both)
       announce(`${c.title}. ${c.body}`);
       S.first = false; focusHeading("noAccount");
     }
@@ -1315,7 +1333,10 @@
           if (/^code_|^bad_code$|^too_many$/.test(d.error)) return fieldErr("rs-code", errText(d, "code"));
           return fieldErr("rs", errText(d, "login"));
         }
-        $("#rs-pw").value = ""; loginDone();
+        $("#rs-pw").value = "";
+        // a new password took off a Google sign-in the account had added (someone else may have added it): say so, then the dashboard
+        if (d.googleRemoved) return signedIn("Your new password is set, and other browsers are logged out. The Google sign-in added to your account was removed: if it was yours, add it again in your Profile.", "/dashboard", 6000);
+        loginDone();
       });
     }
 
@@ -1439,7 +1460,7 @@
           const kept = W.isMobile && !inApp() ? keptCarry() : null;
           if (kept) S.carry = kept;
           render();
-          if (err) { const b = bounceFor(err); setErr(b.text); announce(b.text); }
+          if (err) { const b = bounceFor(err, params.get("login")); setErr(b.text); announce(b.text); }
           if (!kept) openApp(params.get("app"));
           return true;
         }
@@ -1447,7 +1468,7 @@
         const d = await refresh();
         if (!d.ok || !S.srv) return failedLoad(d);
         try { sessionStorage.removeItem("su-reload"); } catch { /* ignore */ }
-        const st = S.srv, bounce = err ? bounceFor(err) : null;
+        const st = S.srv, bounce = err ? bounceFor(err, params.get("login")) : null;
         const mid = hasProgress(st);
         let remembered = false; try { remembered = localStorage.getItem("vicinity-account") === "1"; } catch { /* ignore */ }
         // inside a known wallet app a visitor most likely signs in with its wallet (a sign-up's location rarely works there): Log in first

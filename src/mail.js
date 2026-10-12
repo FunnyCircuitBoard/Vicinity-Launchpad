@@ -221,3 +221,37 @@ export function walletLinkedEmail(masked, app) {
 </body></html>`;
   return { subject, text, html };
 }
+
+/**
+ * "Google sign-in was added to your Vicinity account": sent when a member adds Google as a way to log in (src/logins.js googleNotice), so
+ * an owner who did not add it hears of it the same day. It names no Google account (we keep only Google's account number, and never put
+ * it in a mail) and says the two ways to take it off: Remove in the Profile, or a new password ("Forgot or never set a password?"), which
+ * also logs out every browser. Returns { subject, text, html }, branded like the code e-mail.
+ */
+export function googleAddedEmail() {
+  const subject = "Google sign-in was added to your Vicinity account";
+  const what = "Google sign-in was added to your Vicinity account: from now on, “Log in with Google” with that Google account opens it.";
+  const fix = "If it wasn't you, set a new password: on https://vicinity.city/connect tap Log in, then “Forgot or never set a password?”. That logs out every browser and removes this Google sign-in. Or open your dashboard, Profile, Google sign-in, and tap “Remove”.";
+  const text = `${what} If that was you, there's nothing to do.\n\n${fix}\n\n— Vicinity · One city. One coin. One community.`;
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background-color:#060C17;">
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#060C17;padding:32px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" role="presentation" style="max-width:560px;width:100%;background-color:#0A1322;border:1px solid #1B2A44;border-radius:16px;">
+<tr><td align="center" style="padding:36px 32px 8px;">
+<div style="font-family:'Space Grotesk',Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;letter-spacing:6px;color:#FFFFFF;">VICINITY<span style="color:#FF5A36;">.</span></div>
+</td></tr>
+<tr><td align="center" style="padding:24px 40px 4px;">
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;color:#E8EDF5;">${what}</div>
+</td></tr>
+<tr><td align="center" style="padding:10px 48px 4px;">
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.7;color:#8A97AD;">If that was you, there's nothing to do.<br>If it wasn't you, set a new password: on vicinity.city tap Log in, then “Forgot or never set a password?”. That logs out every browser and removes this Google sign-in.</div>
+</td></tr>
+<tr><td align="center" style="padding:18px 32px 36px;">
+<a href="https://vicinity.city/connect?mode=login" style="display:inline-block;background-color:#FF5A36;color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;text-decoration:none;padding:13px 40px;border-radius:999px;">Open Vicinity</a>
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+  return { subject, text, html };
+}

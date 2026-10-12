@@ -33,6 +33,7 @@ import { withMint } from "./official.js";
 import { lpSetup } from "./cluster.js";
 import { handleLpAdmin } from "./lpadmin.js";
 import { rpcHealth } from "./rpcpool.js";
+import { dropLogins } from "./logins.js";
 
 const ROLES = ["moderator", "admin", "owner"];
 const LEVEL = { moderator: 1, admin: 2, owner: 3 };
@@ -579,6 +580,7 @@ async function handleTestReset(request, ctx) {
   for (const table of RESET_ORDER) {
     for (const r of rows.filter((x) => x.table_name === table)) {
       const args = r.row_id2 == null ? [r.row_id] : [r.row_id, r.row_id2];
+      if (table === "users") await dropLogins(db, r.row_id); // an account never leaves a sign-in behind (src/logins.js)
       const out = await db.prepare(resetSql[table]).bind(...args).run();
       deleted += out.meta.changes || 0;
     }
