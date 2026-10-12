@@ -26,8 +26,13 @@
  *     byte) and that its signature is valid, puts every one-time signature at its slot again (a wallet may give back only its
  *     own), and sends through the site's relay (/api/swap/send, which only forwards what this Worker built: the ticket).
  * Either way /api/swap/status is then watched. A send whose outcome nobody knows (the relay's unclear: true, or no answer from the
- * site at all) is watched like any other: never "nothing was sent" until the chain says expired. Errors are thrown as
- * Error(message) with .code.
+ * site at all) is watched like any other: never "nothing was sent" until the chain says expired. A transaction the wallet signed
+ * and sent ALONE (no one-time key) may carry the wallet's own message and so its own blockhash: "expired" by the build's last
+ * valid block is then only "not seen in time" (expired_unclear), never "nothing was spent". When the sending wallet gives no id to
+ * watch (it answered with an error: wallet_send_failed, wallet_devnet; or it answered without a readable id: wallet_send_unclear),
+ * the words hedge and the error carries `unclear: true`, so the page does not offer the step again from this build. One tap is one
+ * use: a second sign() after a send that went out or may have repeats that answer, never "Stopped. Nothing was sent." Errors are
+ * thrown as Error(message) with .code.
  * `wallet`: a wallet of public/wallets.js (VW.list(): .account.address, .canSend, .signAndSendTransaction(bytes, chain, options)
  * and .signTransaction(bytes, chain)), or any object with `address` and `signTransaction(bytes, chain)` (and, to send itself,
  * `signAndSendTransaction`; `canSend: false` keeps it on the relay).
@@ -100,6 +105,10 @@
     rejected: "You cancelled in your wallet. Nothing was sent.",
     // the wallet that sends itself answered with an error, not a signature: it most likely sent nothing, but only the chain can say
     wallet_send_failed: "Your wallet answered with an error instead of sending this (for example, its own check of the transaction found a problem), so most likely nothing was sent. Reload the page to see where things stand, then start again; if it happens again, tell the team.",
+    // ... the same on devnet, with words that point to the network (public/swap.js wallet_devnet): a wallet set to the main network
+    wallet_devnet: "Your wallet answered with a network error instead of sending this, so most likely nothing was sent. It is probably not on devnet, the test network this page uses: switch your wallet to devnet (in Phantom: Settings, Developer Settings, Testnet Mode), reload the page, then start again.",
+    // the wallet's call ANSWERED but without an id this page can read: it most likely sent it, and this page cannot follow it
+    wallet_send_unclear: "Your wallet answered but did not tell this page the transaction's id, so it may have sent it and this page cannot follow it. Do not start again yet: check the activity in your wallet, then reload this page in a minute to see where things stand.",
     cancelled: "Stopped. Nothing was sent.",
     not_enabled: "This is not switched on yet.",
     sign_in: "Sign in again, then start again.",
@@ -121,6 +130,8 @@
     program_error: "The program refused this step",
     failed: "The transaction failed on the blockchain.",
     expired: "The transaction was not included in time. Nothing was spent. Start again.",
+    // the wallet signed and sent it alone: it may have given it a newer blockhash, so more time than this page knows
+    expired_unclear: "The blockchain has not shown this transaction in the time this page gave it, but your wallet may have given it more time, so it could still go through. Check the activity in your wallet, or reload this page in a minute, before starting again.",
     unconfirmed: "Sent, but not confirmed yet after 90 seconds. Check the explorer link before trying again.",
   };
   const say = (code, extra) => {
@@ -128,7 +139,10 @@
     return (extra && extra.message && !WORDS[code] ? extra.message : WORDS[code]) || "Something went wrong. Nothing was sent. Start again.";
   };
   function err(code, extra) { const e = new Error(say(code, extra)); e.code = code; if (extra) e.detail = extra; return e; }
-  const isReject = (e) => e && (e.code === 4001 || /reject|denied|cancel|declin/i.test(String(e.message || e)));
+  // a cancel in the wallet, worded like the Buy panel's (public/swap.js): code 4001, or words such as "rejected" or "Plugin Closed"
+  const isReject = (e) => e && (e.code === 4001 || /reject|denied|cancel|declin|closed|dismiss/i.test(String(e.message || e.code || e)));
+  /** An error whose outcome is not known for certain and that has no id to watch: the page does not offer the step again. */
+  const unsure = (e) => Object.assign(e, { unclear: true });
 
   /* ---------------------------------------------------------------- one-time keys */
   let supportedMemo = null;
@@ -204,65 +218,83 @@
     if (p.signers[0] !== who) throw err("wrong_wallet");
     const want = new Set([who, ...keys.map((k) => k.publicKey)]);
     if (p.signers.length !== want.size || !p.signers.every((s) => want.has(s))) throw err("unexpected_signer");
-    let used = false;
+    /**
+     * The one try of a handle. The one-time keys sign first (slot 0 stays empty), then a wallet that sends signs and sends it
+     * itself, and a wallet that only signs signs, the checks run and the relay sends; then the watch.
+     */
+    async function once(onStatus) {
+      onStatus("signing");
+      // the one-time keys sign the very message prepare() checked, each at its own slot of a copy of the built bytes (a few
+      // milliseconds of the browser's own crypto, nothing over the network: the wallet still opens from the tap)
+      const partial = tx.slice(), oneTime = [];
+      for (const k of keys) {
+        const i = p.signers.indexOf(k.publicKey);
+        if (i < 1) throw err("unexpected_signer");
+        let sig;
+        try { sig = await k.sign(p.message); } catch { throw err("unsupported"); }
+        partial.set(sig, p.sigAt + 64 * i);
+        oneTime.push({ i, sig });
+      }
+      const chain = res.chain || chainOf(res.cluster);
+      if (sendsItself(wallet)) {
+        // the wallet signs and sends (as public/swap.js does): its signature is the transaction's id. A wallet like Phantom may add
+        // its own checks to a transaction only it signs, and then sends what it signed; one the one-time keys signed it leaves as it is.
+        let id;
+        try { id = idOf(await wallet.signAndSendTransaction(partial.slice(), chain, { preflightCommitment: "confirmed", maxRetries: 3 })); }
+        catch (e) {
+          if (isReject(e)) throw err("rejected");
+          // public/wallets.js no_signature: the wallet's call ANSWERED, without a 64-byte signature; it most likely sent it
+          if (e && e.code === "no_signature") throw unsure(err("wallet_send_unclear"));
+          // on devnet, words that point to the network (a wallet set to the main network fails its own check: "Blockhash not found")
+          const devnet = chain !== "solana:mainnet" && /devnet|testnet|chain|network|blockhash/i.test(String(e && e.message));
+          throw unsure(err(devnet ? "wallet_devnet" : "wallet_send_failed", { message: e && e.message }));
+        }
+        if (!id) throw unsure(err("wallet_send_unclear"));
+        onStatus("confirming", id);
+        // signed alone (no one-time key), the message and so the blockhash may be the wallet's: "expired" is only "not seen in time"
+        return watch(id, res, onStatus, keys.length === 0);
+      }
+      let signed;
+      try { signed = await wallet.signTransaction(partial.slice(), chain); }
+      catch (e) { throw isReject(e) ? err("rejected") : err(e && e.code === "no_sign" ? "no_sign" : "rejected", { message: e && e.message }); }
+      signed = signed instanceof Uint8Array ? new Uint8Array(signed) : new Uint8Array(signed || []);
+      let q;
+      try { q = parse(signed); } catch { throw err("changed"); }
+      if (q.count !== p.count || !same(q.message, p.message)) throw err("changed");
+      if (!(await verify(who, p.message, signed.subarray(q.sigAt, q.sigAt + 64)))) throw err("bad_signature");
+      // every one-time signature at its own slot again: a wallet may give back its own signature only
+      for (const o of oneTime) signed.set(o.sig, q.sigAt + 64 * o.i);
+      onStatus("sending");
+      // the transaction's id: the wallet's own signature (slot 0, the fee payer), known before anything is sent
+      const own = b58encode(signed.subarray(q.sigAt, q.sigAt + 64));
+      const sent = await call("/api/swap/send", { tx: toB64(signed), ticket: res.ticket, lastValidBlockHeight: res.lastValidBlockHeight, cluster: res.cluster });
+      // No answer from the site (the connection dropped, a gateway's error page): the relay may already have passed the bytes on,
+      // so this never says "nothing was sent" (a second tap would do it twice). Like the relay's own unclear: true (src/relay.js),
+      // the wallet's signature is watched: confirmed, failed, or expired once the chain passed its last valid block (nothing spent).
+      if (sent && sent._noAnswer) { onStatus("confirming", own, { unclear: true }); return watch(own, res, onStatus); }
+      if (!sent || sent.ok !== true || !sent.signature) throw err((sent && sent.error) || "rpc_unavailable", sent || undefined);
+      onStatus("confirming", sent.signature, sent.unclear ? { unclear: true } : undefined);
+      return watch(sent.signature, res, onStatus);
+    }
+    let used = false, last = null;
     return {
       response: res, keys: keys.map((k) => k.publicKey),
       /**
-       * Call this straight from a tap. The one-time keys sign first (slot 0 stays empty), then a wallet that sends signs and sends
-       * it itself, and a wallet that only signs signs, the checks run and the relay sends; then the watch.
+       * Call this straight from a tap. One tap is one use: a second call is "cancelled", or, when the first one went out or may
+       * have (its error carries the signature, or `unclear`), that same error again, never "Stopped. Nothing was sent."
        */
       async sign({ onStatus = () => {} } = {}) {
-        if (used) throw err("cancelled");
+        if (used) throw last && (last.signature || last.unclear) ? last : err("cancelled");
         used = true;
-        onStatus("signing");
-        // the one-time keys sign the very message prepare() checked, each at its own slot of a copy of the built bytes (a few
-        // milliseconds of the browser's own crypto, nothing over the network: the wallet still opens from the tap)
-        const partial = tx.slice(), oneTime = [];
-        for (const k of keys) {
-          const i = p.signers.indexOf(k.publicKey);
-          if (i < 1) throw err("unexpected_signer");
-          let sig;
-          try { sig = await k.sign(p.message); } catch { throw err("unsupported"); }
-          partial.set(sig, p.sigAt + 64 * i);
-          oneTime.push({ i, sig });
-        }
-        const chain = res.chain || chainOf(res.cluster);
-        if (sendsItself(wallet)) {
-          // the wallet signs and sends (as public/swap.js does): its signature is the transaction's id. A wallet like Phantom may add
-          // its own checks to a transaction only it signs, and then sends what it signed; one the one-time keys signed it leaves as it is.
-          let id;
-          try { id = idOf(await wallet.signAndSendTransaction(partial.slice(), chain, { preflightCommitment: "confirmed", maxRetries: 3 })); }
-          catch (e) { throw isReject(e) ? err("rejected") : err("wallet_send_failed", { message: e && e.message }); }
-          if (!id) throw err("wallet_send_failed");
-          onStatus("confirming", id);
-          return watch(id, res, onStatus);
-        }
-        let signed;
-        try { signed = await wallet.signTransaction(partial.slice(), chain); }
-        catch (e) { throw isReject(e) ? err("rejected") : err(e && e.code === "no_sign" ? "no_sign" : "rejected", { message: e && e.message }); }
-        signed = signed instanceof Uint8Array ? new Uint8Array(signed) : new Uint8Array(signed || []);
-        let q;
-        try { q = parse(signed); } catch { throw err("changed"); }
-        if (q.count !== p.count || !same(q.message, p.message)) throw err("changed");
-        if (!(await verify(who, p.message, signed.subarray(q.sigAt, q.sigAt + 64)))) throw err("bad_signature");
-        // every one-time signature at its own slot again: a wallet may give back its own signature only
-        for (const o of oneTime) signed.set(o.sig, q.sigAt + 64 * o.i);
-        onStatus("sending");
-        // the transaction's id: the wallet's own signature (slot 0, the fee payer), known before anything is sent
-        const own = b58encode(signed.subarray(q.sigAt, q.sigAt + 64));
-        const sent = await call("/api/swap/send", { tx: toB64(signed), ticket: res.ticket, lastValidBlockHeight: res.lastValidBlockHeight, cluster: res.cluster });
-        // No answer from the site (the connection dropped, a gateway's error page): the relay may already have passed the bytes on,
-        // so this never says "nothing was sent" (a second tap would do it twice). Like the relay's own unclear: true (src/relay.js),
-        // the wallet's signature is watched: confirmed, failed, or expired once the chain passed its last valid block (nothing spent).
-        if (sent && sent._noAnswer) { onStatus("confirming", own, { unclear: true }); return watch(own, res, onStatus); }
-        if (!sent || sent.ok !== true || !sent.signature) throw err((sent && sent.error) || "rpc_unavailable", sent || undefined);
-        onStatus("confirming", sent.signature, sent.unclear ? { unclear: true } : undefined);
-        return watch(sent.signature, res, onStatus);
+        try { return await once(onStatus); } catch (e) { last = e; throw e; }
       },
     };
   }
-  /** Poll /api/swap/status every 2 s for up to 90 s of real answers (a 429 waits and does not count). */
-  async function watch(signature, res, onStatus) {
+  /**
+   * Poll /api/swap/status every 2 s for up to 90 s of real answers (a 429 waits and does not count). `alone`: the wallet signed and
+   * sent it with no other signature, so its blockhash may not be the build's: past the build's last valid block it is "expired_unclear".
+   */
+  async function watch(signature, res, onStatus, alone = false) {
     let deadline = Date.now() + 90_000, solscan = null;
     for (;;) {
       await wait(LP._pollMs);
@@ -270,7 +302,7 @@
       if (d && d.solscan) solscan = d.solscan;
       if (d && d.ok && (d.status === "confirmed" || d.status === "finalized")) { onStatus("done", signature); return { signature, status: d.status, solscan }; }
       if (d && d.ok && d.status === "failed") throw Object.assign(err("failed"), { signature, solscan, detail: d });
-      if (d && d.ok && d.status === "expired") throw Object.assign(err("expired"), { signature, solscan });
+      if (d && d.ok && d.status === "expired") throw Object.assign(err(alone ? "expired_unclear" : "expired"), { signature, solscan });
       if (d && d._status === 429) deadline += 5_000;
       if (Date.now() > deadline) throw Object.assign(err("unconfirmed"), { signature, solscan });
     }

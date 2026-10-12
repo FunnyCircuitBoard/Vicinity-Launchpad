@@ -145,7 +145,8 @@
 
   /**
    * One signature, in `box`: build through `build(keys)` (the Worker checks and simulates), show the decoded list and the SOL change,
-   * then "Approve in your wallet". Resolves to the relay's result after `onDone`, or null when it stopped (the reason is on screen).
+   * then "Approve in your wallet". Resolves to lp-sign.js's result (the confirmed signature, sent by the wallet itself or, for a
+   * wallet that only signs, by the site's relay) after `onDone`, or null when it stopped (the reason is on screen).
    */
   async function runStep(box, { expected, cluster, ephemeral = 0, build, approve = "Approve in your wallet", onDone }) {
     box.replaceChildren(el("p", "muted small", "Preparing: the site builds this transaction and tries it on the blockchain first. Nothing is sent yet."));
@@ -178,7 +179,9 @@
           line.textContent = e && e.message ? e.message : "Something went wrong. Nothing was sent.";
           if (e && e.signature && e.solscan) line.append(" ", link("Check it on Solscan", e.solscan, true));
           cancel.disabled = false;
-          if (e && e.signature) { go.remove(); resolve(null); } // it may have landed: never offer to send it twice
+          // it may have landed, or gone out with no id to watch (lp-sign.js `unclear`): never offer to send it twice, and no Cancel
+          // that would put "Stopped. Nothing was sent." over these words
+          if (e && (e.signature || e.unclear)) { go.remove(); cancel.remove(); resolve(null); }
         }
       });
       const row = el("div", "lp-row"); row.append(go, cancel);

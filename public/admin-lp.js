@@ -88,7 +88,9 @@
         line.textContent = e && e.message ? e.message : "Something went wrong. Nothing was sent.";
         if (e && e.signature && e.solscan) { const a = el("a", "lp-link", "Check it on Solscan"); a.href = e.solscan; a.target = "_blank"; a.rel = "noopener"; line.append(" ", a); }
         cancel.disabled = false;
-        if (e && e.signature) go.remove(); // it went out and may still land: never offered twice (the tab shows the step's state on the next visit)
+        // it went out and may still land, or it may have gone out with no id to watch (lp-sign.js `unclear`): never offered twice
+        // (the tab shows the step's state on the next visit)
+        if (e && (e.signature || e.unclear)) go.remove();
       }
     }, "btn btn--primary");
     const cancel = btn("Cancel", () => box.replaceChildren());

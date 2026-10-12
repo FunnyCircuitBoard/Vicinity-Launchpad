@@ -2,7 +2,8 @@
 // are not extractable; 1 to 3 of them signing FIRST at their own static-key slots (the wallet's slot 0 left empty); a wallet that
 // sends (signAndSendTransaction, like Phantom) then signs and sends itself and our relay is not used; a wallet that only signs is
 // held to the strict path (a changed message, a wrong signature, the wrong account or a cancel is refused with plain words and
-// nothing is sent; otherwise the relay sends with the ticket); the summary is built with textContent only.
+// nothing is sent; otherwise the relay sends with the ticket); an outcome nobody knows is never worded "nothing was sent", not even
+// on a second tap; the summary is built with textContent only.
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
@@ -28,6 +29,9 @@ const createAccount = (from, to) => ({ programAddress: PROGRAM_IDS.system, accou
  * its own signature only, the other slots emptied). With `send` it also signs AND sends (signAndSendTransaction, like Phantom):
  * straight to the fake chain (its own node, not our relay), answering its 64-byte signature; like Phantom it changes a transaction
  * that no other key signed yet before it signs it (its own protection instructions), and leaves one that others signed as it is.
+ * Its own ways to go wrong: "reject" (code 4001), "closed" (a closed window, no code), "fail" (any other error), "blockhash" (a
+ * wallet on the wrong network fails its own check), "nosig" (answers nothing), "vwnosig" (public/wallets.js: the call answered
+ * without a 64-byte signature, code no_signature), "drop" (signs and answers its signature, but the transaction never lands).
  * `canSend: false` is how public/wallets.js marks a wallet that only signs.
  */
 async function wallet({ misbehave = null, send = false, canSend } = {}) {
@@ -52,13 +56,16 @@ async function wallet({ misbehave = null, send = false, canSend } = {}) {
     w.signAndSendTransaction = async (bytes, chainId, options) => {
       sendAsked.push({ bytes: bytes.slice(), chain: chainId, options });
       if (misbehave === "reject") throw Object.assign(new Error("User rejected the request."), { code: 4001 });
+      if (misbehave === "closed") throw new Error("Plugin Closed");
       if (misbehave === "fail") throw Object.assign(new Error("Unexpected error"), { code: -32603 });
+      if (misbehave === "blockhash") throw new Error("Transaction simulation failed: Blockhash not found");
       if (misbehave === "nosig") return undefined;
+      if (misbehave === "vwnosig") throw Object.assign(new Error("The wallet gave back no signature."), { code: "no_signature" });
       const tx = bytes.slice();
       const n = tx[0], msgAt = 1 + 64 * n;
       if (tx.subarray(65, msgAt).every((b) => b === 0)) tx[tx.length - 1] ^= 1; // signed by no one else yet: the wallet adds its own
       tx.set(new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, kp.privateKey, tx.subarray(msgAt))), 1);
-      await chain.fetchImpl("https://wallet-node.test", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "sendTransaction", params: [Buffer.from(tx).toString("base64"), { encoding: "base64" }] }) });
+      if (misbehave !== "drop") await chain.fetchImpl("https://wallet-node.test", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "sendTransaction", params: [Buffer.from(tx).toString("base64"), { encoding: "base64" }] }) });
       return tx.slice(1, 65);
     };
   }
@@ -291,13 +298,20 @@ test("LP, a wallet that sends, no one-time key (the owner's setup step 1): it ma
 test("LP, a wallet that sends: a cancel says 'rejected', any other failure the new plain words; nothing relayed, one tap is one use", async () => {
   const no = await wallet({ send: true, misbehave: "reject" });
   const h = await LP.prepare({ wallet: no, build: build(no.address), ephemeral: 1, cluster: "devnet" });
-  await assert.rejects(h.sign(), (e) => e.code === "rejected" && /cancelled/.test(e.message) && e.signature === undefined);
+  await assert.rejects(h.sign(), (e) => e.code === "rejected" && /cancelled/.test(e.message) && e.signature === undefined && !e.unclear);
   await assert.rejects(h.sign(), (e) => e.code === "cancelled");
   assert.equal(no.sendAsked.length, 1, "the wallet is not opened a second time");
-  for (const misbehave of ["fail", "nosig"]) {
+  // a window closed without a 4001 code is a cancel too, worded like the Buy panel's (public/swap.js isReject)
+  const closer = await wallet({ send: true, misbehave: "closed" });
+  await assert.rejects(LP.run({ wallet: closer, build: build(closer.address), ephemeral: 0, cluster: "devnet" }), (e) => e.code === "rejected");
+  // an error, or an answer with no id: no id to watch, so the words hedge, the error is `unclear` (the page drops its button), and a
+  // second tap repeats the same words, never "Stopped. Nothing was sent."
+  for (const [misbehave, code] of [["fail", "wallet_send_failed"], ["nosig", "wallet_send_unclear"], ["vwnosig", "wallet_send_unclear"]]) {
     const bad = await wallet({ send: true, misbehave });
-    await assert.rejects(LP.run({ wallet: bad, build: build(bad.address), ephemeral: misbehave === "fail" ? 2 : 0, cluster: "devnet" }), (e) =>
-      e.code === "wallet_send_failed" && e.message === LP.say("wallet_send_failed") && e.signature === undefined);
+    const hb = await LP.prepare({ wallet: bad, build: build(bad.address), ephemeral: misbehave === "fail" ? 2 : 0, cluster: "devnet" });
+    const first = await hb.sign().then(() => null, (e) => e);
+    assert.ok(first && first.code === code && first.message === LP.say(code) && first.signature === undefined && first.unclear === true, `${misbehave}: ${first && first.code}`);
+    await assert.rejects(hb.sign(), (e) => e === first && !/Nothing was sent/.test(e.message), `${misbehave}: the second tap repeats the hedged words`);
     assert.equal(bad.sendAsked.length, 1);
     assert.equal(bad.asked.length, 0, "no second way round: signTransaction and the relay are not tried");
   }
@@ -306,8 +320,45 @@ test("LP, a wallet that sends: a cancel says 'rejected', any other failure the n
   assert.match(words, /^Your wallet answered with an error instead of sending this \(for example, its own check of the transaction found a problem\), so most likely nothing was sent\./);
   assert.match(words, /Reload the page to see where things stand, then start again; if it happens again, tell the team\.$/);
   assert.doesNotMatch(words, /Nothing was sent/);
+  // the wallet ANSWERED without an id: it may well have sent it, so never "nothing was sent" in any form, and not "start again" yet
+  const unclear = LP.say("wallet_send_unclear");
+  assert.match(unclear, /may have sent it/);
+  assert.match(unclear, /Do not start again yet: check the activity in your wallet, then reload this page in a minute/);
+  assert.doesNotMatch(unclear, /nothing was sent/i);
   assert.equal(sends.length, 0);
   assert.equal(chain.S.sent.length, 0);
+});
+
+test("LP, a wallet that sends, on devnet: a network error points to the wallet's network (Testnet Mode); on mainnet it is the plain wallet_send_failed", async () => {
+  const w = await wallet({ send: true, misbehave: "blockhash" });
+  await assert.rejects(LP.run({ wallet: w, build: build(w.address), ephemeral: 1, cluster: "devnet" }), (e) =>
+    e.code === "wallet_devnet" && e.unclear === true && /not on devnet/.test(e.message) && /Testnet Mode/.test(e.message) && !/Nothing was sent/.test(e.message));
+  const main = await wallet({ send: true, misbehave: "blockhash" });
+  const mainBuild = async (k) => ({ ...(await build(main.address)(k)), cluster: "mainnet", chain: "solana:mainnet" });
+  await assert.rejects(LP.run({ wallet: main, build: mainBuild, ephemeral: 0, cluster: "mainnet" }), (e) => e.code === "wallet_send_failed" && e.unclear === true);
+  assert.equal(main.sendAsked[0].chain, "solana:mainnet");
+  assert.equal(sends.length, 0);
+});
+
+test("LP, a wallet that sends: 'expired' says nothing was spent only when one-time keys pinned the message; signed alone it is only 'not seen in time'", async () => {
+  const orig = chain.fetchImpl;
+  chain.fetchImpl = async (url, init) => { const b = JSON.parse(init.body); if (b.method === "getBlockHeight") return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: 5000 })); return orig(url, init); };
+  // with a one-time key the wallet cannot change the message (it would void that signature): the build's blockhash, so truly expired
+  const pinned = await wallet({ send: true, misbehave: "drop" });
+  await assert.rejects(LP.run({ wallet: pinned, build: build(pinned.address), ephemeral: 1, cluster: "devnet" }), (e) =>
+    e.code === "expired" && typeof e.signature === "string" && /Nothing was spent/.test(e.message));
+  // signed alone (the owner's step 1): the wallet may have put a newer blockhash in, so the words hedge and the step is not offered again
+  const alone = await wallet({ send: true, misbehave: "drop" });
+  const h = await LP.prepare({ wallet: alone, build: build(alone.address), ephemeral: 0, cluster: "devnet" });
+  const first = await h.sign().then(() => null, (e) => e);
+  assert.ok(first && first.code === "expired_unclear" && typeof first.signature === "string", first && first.code);
+  assert.equal(first.message, LP.say("expired_unclear"));
+  assert.match(first.message, /could still go through\. Check the activity in your wallet, or reload this page in a minute, before starting again\.$/);
+  assert.doesNotMatch(first.message, /Nothing was (spent|sent)/i);
+  await assert.rejects(h.sign(), (e) => e === first, "a second tap repeats it");
+  assert.equal(alone.sendAsked.length, 1);
+  assert.equal(sends.length, 0);
+  chain.fetchImpl = orig;
 });
 
 test("LP, a wallet that only signs (canSend: false): the strict path; a changed message is refused, an unchanged one is relayed with the ticket and every one-time signature", async () => {
