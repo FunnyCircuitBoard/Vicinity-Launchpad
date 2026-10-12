@@ -13,6 +13,11 @@
 //   rings: at most 30 frames a second, only while something that moves is on screen, the tab is visible and motion is welcome, and
 //   only for 6 s after the last thing that happened: then it rests on a still frame that breathes through CSS) and the label layer
 //   (chips, crosshair: when the view changes).
+// The first view (the owner, 11 Oct 2026: "significant design issues"): nothing is picked for the visitor. The map opens on the whole
+// world on a computer (every continent inside the card) and on the visitor's part of it on a phone, with "Find your city" in the map's
+// bottom slot (a search with suggestions and "Use my location"); the crosshair and the city card take that slot once you zoom in on a
+// region (FOCUS_K) or pick a city, and follow the map from there. Every zoom rule counts in real map scale (KREF pixels per degree at
+// "zoom 1"), so a computer that shows the whole world and a phone that shows a region switch names, dots and the card at the same distance.
 // Labels and the "active" status (the owner, 9 Oct 2026: "city text labels must remain hidden when zoomed out so they do not obstruct
 // status indicators; text labels should only render when a user zooms in directly on a specific city; a distinct colour for cities that
 // have verified holders, even if a city founder has not been designated yet"):
@@ -138,6 +143,25 @@
     const metric = tier === 4 || tier === 6 ? x.holders || 0 : tier === 5 ? x.applicants || 0 : tier === 7 ? x.members : x.pop || 0;
     return [tier - (x.shown ? 0.5 : 0), -metric];
   }
+  const KREF = 3.4;   // pixels per degree at "zoom 1" for every zoom rule here (the cover-fitted map's scale before 11 Oct 2026); the page passes kg() = s0 × k ÷ KREF
+  const FOCUS_K = 4;   // from this zoom (a region) the crosshair and the city card follow the map; below it the map's bottom slot says "Find your city"
+  /** The place a time zone is named after, normalised like the search ("America/New_York" → "newyork"); "" for UTC, Etc/… and the like. No location, no network. */
+  function tzPlace(tz) {
+    const z = String(tz || ""), i = z.lastIndexOf("/");
+    if (i < 0 || z.startsWith("Etc/")) return "";
+    return z.slice(i + 1).normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^\p{L}]+/gu, "");
+  }
+  /** Up to n places for a search (q normalised like c.n): names that start with it first, then names that hold it; within each, the
+   *  order of the list (the biggest first). */
+  function matchPlaces(list, q, n) {
+    if (!q) return [];
+    const starts = [], has = [];
+    for (const c of list) {
+      if (c.n.startsWith(q)) { starts.push(c); if (starts.length >= n) break; }
+      else if (has.length < n && c.n.includes(q)) has.push(c);
+    }
+    return starts.concat(has).slice(0, n);
+  }
   const LABEL_K = 8;   // below this zoom (the world, a continent, a country) no city carries a text label: the markers and their rings stay clear
   const LABEL_PX = 56; // a city is the one you zoomed in on once its boundary spans this many pixels on screen
   /**
@@ -221,17 +245,49 @@
     return best ? best.id : null;
   }
   /**
-   * The city the card opens on when no link, pick or home city says which: the one nearest the crosshair (fx, fy), a bigger one
-   * first at the same distance. cands: [{ id, x, y, pop }] (px). The map then centres on it, so the card and the crosshair agree
-   * from the first view (it used to show the biggest city in view, up to 480 px away from the crosshair). null: no candidate.
+   * Where a city that opens (a ?city= link, a search pick) is framed, and where the crosshair sits (the owner's review, 12 Oct 2026: on a
+   * computer an opened city ran under the city card). A phone, where the card runs across the bottom (across): the middle of what is above
+   * the card, the frame clear of the controls on both sides. A computer, where the card is a column at the bottom left (cardRight: its
+   * right edge): of the two free rectangles, right of the card's column (the full height) or above the card (the full width), the one
+   * that holds the bigger square, 24 px inside it. rail: the controls' [x, y, w, h] (null: none). Returns { f: [x0, y0, x1, y1], x, y }.
    */
-  function openingFocus(cands, fx, fy) {
-    let best = null, bd = Infinity;
-    for (const c of cands) {
-      const d = Math.hypot(c.x - fx, c.y - fy);
-      if (d < bd - 1e-9 || (Math.abs(d - bd) <= 1e-9 && best && ((c.pop || 0) > (best.pop || 0) || ((c.pop || 0) === (best.pop || 0) && c.id < best.id)))) { best = c; bd = d; }
+  function mapFrame({ W, H, across, fromBottom, cardRight, rail }) {
+    const railX = rail && rail[0] > W / 2 ? rail[0] : W;
+    if (across) {
+      const x = W / 2, y = Math.max(40, (H - fromBottom) / 2);
+      const hw = Math.max(30, Math.min(x, railX - 6 - x) - 10), hh = Math.max(30, y - 10);
+      return { f: [x - hw, y - hh, x + hw, y + hh], x, y };
     }
-    return best ? best.id : null;
+    const P = 24, side = [cardRight + P, P, railX - P, H - P], top = [P, P, railX - P, H - fromBottom - P];
+    const sq = (r) => Math.min(r[2] - r[0], r[3] - r[1]);
+    let f = sq(side) >= sq(top) ? side : top;
+    if (sq(f) < 80) f = [P, P, railX - P, H - P]; // a stage too small for either: the whole of it
+    return { f, x: (f[0] + f[2]) / 2, y: (f[1] + f[3]) / 2 };
+  }
+  /**
+   * The part of a city's area to frame when it opens: the piece that holds the city's point (else the nearest piece), then every piece
+   * within a third of the framed box's longer side, until no more join; the point itself always inside. Tokyo's official boundary runs
+   * 1,000 km south to the Izu and Ogasawara islands, and framing all of it left the city in a corner over empty ocean.
+   * boxes: one [w, s, e, n] per piece (degrees). Returns [w, s, e, n].
+   */
+  function coreBox(boxes, lon, lat) {
+    if (!boxes.length) return [lon, lat, lon, lat];
+    const gap = (p, q) => Math.max(0, p[0] - q[2], q[0] - p[2], p[1] - q[3], q[1] - p[3]); // degrees between two boxes, 0 when they touch
+    const size = (b) => (b[2] - b[0]) * (b[3] - b[1]), pt = [lon, lat, lon, lat];
+    let seed = 0;
+    boxes.forEach((b, i) => { const d = gap(b, pt), e = gap(boxes[seed], pt); if (d < e || (d === e && size(b) > size(boxes[seed]))) seed = i; });
+    let out = boxes[seed].slice();
+    const left = new Set(boxes.keys()); left.delete(seed);
+    for (let grew = true; grew;) {
+      grew = false;
+      const reach = Math.max(0.02, Math.max(out[2] - out[0], out[3] - out[1]) / 3);
+      for (const i of left) {
+        const b = boxes[i];
+        if (gap(b, out) > reach) continue;
+        out = [Math.min(out[0], b[0]), Math.min(out[1], b[1]), Math.max(out[2], b[2]), Math.max(out[3], b[3])]; left.delete(i); grew = true;
+      }
+    }
+    return [Math.min(out[0], lon), Math.min(out[1], lat), Math.max(out[2], lon), Math.max(out[3], lat)];
   }
   /** "1d 4h", "3h 20m", "12m": how long until an ISO time (a window's close). */
   function until(iso, now) {
@@ -242,7 +298,7 @@
 
   const canvas = $("#city-canvas"), ctx = canvas.getContext("2d"), tip = $("#city-tip"), wrapEl = $(".citymap__stage");
   const fxCanvas = $("#city-fx"), fctx = fxCanvas.getContext("2d"), labCanvas = $("#city-labels"), lctx = labCanvas.getContext("2d");
-  const listEl = $("#city-list"), qEl = $("#city-q"), countryEl = $("#city-country"), filterEl = $("#city-filter");
+  const listEl = $("#city-list"), countryEl = $("#city-country"), filterEl = $("#city-filter");
   const btn = $("#claim-btn");
   let cities = [], byId = new Map(), countries = {}, admin = {}, claims = new Map(), tickers = new Map(), open = false, loaded = false;
   let selected = null, mode = "claim", memberCount = new Map(), holderCount = new Map(), activeIds = new Set(), totalMembers = 0, membersKnown = false; // activeIds: communities with a verified holder (from /api/members)
@@ -262,9 +318,25 @@
   const wy = (lat) => (84 - lat) * s0;
   const sx = (lon) => wx(lon) * k + tx;
   const sy = (lat) => wy(lat) * k + ty;
-  const clampView = () => { tx = Math.min(0, Math.max(W - 360 * s0 * k, tx)); ty = Math.min(0, Math.max(H - 144 * s0 * k, ty)); };
-  const canPan = () => 360 * s0 * k > W + 1 || 144 * s0 * k > H + 1;
-  const MAXK = 900;
+  /** The part of the stage the world is fitted in: on a computer or a tablet (a stage 600 px wide or more) left of the control rail, above the
+   *  "Find your city" bar and 8 px from the top; on a phone the whole stage (the world covers it). [x0, y0, x1, y1] */
+  let wide = false;
+  const freeBox = () => {
+    if (!wide) return [0, 0, W, H];
+    const rail = rects.rail && rects.rail[0] > W / 2 ? rects.rail[0] : W;
+    return [12, 8, Math.max(24, rail - 12), Math.max(16, H - 64)];
+  };
+  /** Keep the world on the stage: an axis where it is smaller than the free part is centred there; a bigger one always covers it. */
+  const clampView = () => {
+    const f = freeBox(), ew = 360 * s0 * k, eh = 144 * s0 * k;
+    tx = ew <= f[2] - f[0] ? f[0] + (f[2] - f[0] - ew) / 2 : Math.min(f[0], Math.max(f[2] - ew, tx));
+    ty = eh <= f[3] - f[1] ? f[1] + (f[3] - f[1] - eh) / 2 : Math.min(f[1], Math.max(f[3] - eh, ty));
+  };
+  const canPan = () => { const f = freeBox(); return 360 * s0 * k > f[2] - f[0] + 1 || 144 * s0 * k > f[3] - f[1] + 1; };
+  /** The zoom in real map scale (every zoom rule counts in it), and back: kAt(g) is the zoom k at which kg() is g. */
+  const kg = () => (s0 * k) / KREF;
+  const kAt = (g) => (g * KREF) / s0;
+  let MAXK = 900; // the closest zoom: 900 × KREF pixels per degree whatever the stage (set again by size())
   // What needs drawing: the base (expensive: only when the view changed), the labels (chips, crosshair), the glow layer.
   const dirty = { base: true, labels: true, layout: true, focus: true, fx: true };
   let moving = false, crispTimer = 0, lastCrisp = 0, lastLayout = 0, lastFocusAt = 0, lastFx = 0;
@@ -370,8 +442,10 @@
   const ovPaths = new Map();     // `${cc}|${thin}` → { r: Path2D, n: Path2D } (all cities of a country, one stroke for each kind)
   const ovAreaPaths = new Map(); // city id → Path2D (one city, for the status colours and the focus outline)
   const CELL_DEG = 2;            // the overview's lookup grid (which areas may hold a point)
+  let officialCount = 0; // communities with an official boundary (kind "r"): the facts row's "official boundaries"
   function addOverview(a) {
     const c = byId.get(a.id); a.cc = c ? c.cc : "";
+    if (a.kind === "r") officialCount++;
     ov.byId.set(a.id, a);
     (ov.byCC.get(a.cc) || ov.byCC.set(a.cc, []).get(a.cc)).push(a);
     for (let i = Math.floor(a.box[0] / CELL_DEG); i <= Math.floor(a.box[2] / CELL_DEG); i++)
@@ -387,7 +461,7 @@
         const end = Math.min(lines.length, i + 1000);
         for (; i < end; i++) { const a = parseOverviewLine(lines[i]); if (a) addOverview(a); }
         ovPaths.clear();
-        if (i < lines.length) idle(step); else { ov.ready = true; prebuild(); }
+        if (i < lines.length) idle(step); else { ov.ready = true; prebuild(); updateStats(); }
         dirty.focus = true; markAll();
       };
       idle(step);
@@ -451,7 +525,7 @@
       } while (todo.length && dl.timeRemaining() > 2);
       if (todo.length) { idleSlice(step); return; }
       ovCache.canvas = c; ovCache.scale = sc; ovCache.ready = true;
-      if (k < OV_CACHE_K) markAll();
+      if (kg() < OV_CACHE_K) markAll();
     };
     idleSlice(step);
   }
@@ -461,7 +535,7 @@
     return p;
   }
   /** The best outline of a city at this zoom: the detailed one once its file is in (from zoom 4.5), else the overview's. */
-  const shapeOf = (id) => { const a = areas.get(id); if (a && k >= AREA_K - 0.5) return { path: a.path, kind: a.kind, box: a.box }; const o = ov.byId.get(id); return o ? { path: ovAreaPath(id), kind: o.kind, box: o.box } : a ? { path: a.path, kind: a.kind, box: a.box } : null; };
+  const shapeOf = (id) => { const a = areas.get(id); if (a && kg() >= AREA_K - 0.5) return { path: a.path, kind: a.kind, box: a.box }; const o = ov.byId.get(id); return o ? { path: ovAreaPath(id), kind: o.kind, box: o.box } : a ? { path: a.path, kind: a.kind, box: a.box } : null; };
   /** The facts of a city's area for the cards: the detailed one when it's in, else the overview's (same km², computed from the detailed file at build time). */
   const areaFacts = (id) => areas.get(id) || ov.byId.get(id) || null;
 
@@ -480,7 +554,7 @@
     const c = cityAtPoint(lon, lat);
     if (c) return c.id;
     for (const a of ov.cells.get(Math.floor(lon / CELL_DEG) + "," + Math.floor(lat / CELL_DEG)) || []) {
-      if (boundsDone.has(a.cc) && k >= AREA_K - 0.5) continue; // its detailed shape said no
+      if (boundsDone.has(a.cc) && kg() >= AREA_K - 0.5) continue; // its detailed shape said no
       if (inBox(lon, lat, a.box) && inOverview(lon, lat, a)) return a.id;
     }
     return null;
@@ -498,14 +572,23 @@
   const tickerOf = (c) => tickers.get(c.id)?.ticker || null;
 
   // the focus point (the crosshair): the middle of the part of the map the city card doesn't cover
-  const focusEl = $("#map-focus"), railEl = $(".map-ctrl"), scaleEl = $("#map-scale");
+  const focusEl = $("#map-focus"), findEl = $("#map-find"), railEl = $(".map-ctrl"), scaleEl = $("#map-scale");
   let rects = { rail: null, card: null }, fcx = 0, fcy = 0;
+  // the city card's place (px from the stage's bottom, its right edge on a computer) and whether it runs across the map (a phone):
+  // remembered while the find card holds the slot, so the crosshair appears where the card's own crosshair will be (no jump when one
+  // takes the slot from the other)
+  let slotFromBottom = 0, slotWide = false, slotRight = 372, frameBox = [0, 0, 0, 0];
   const relRect = (e) => { if (!e || e.hidden) return null; const r = e.getBoundingClientRect(), s = wrapEl.getBoundingClientRect(); return r.width ? [r.left - s.left, r.top - s.top, r.width, r.height] : null; };
   function measureOverlays() {
-    rects = { rail: relRect(railEl), card: relRect(focusEl), exit: relRect($("#map-exit")), scale: relRect(scaleEl) };
-    const c = rects.card;
-    fcx = W / 2;
-    fcy = c && c[2] > W * 0.6 ? Math.max(40, c[1] / 2) : H / 2; // a card across the whole width (phones): the middle of what's above it
+    const city = relRect(focusEl);
+    rects = { rail: relRect(railEl), card: city || relRect(findEl), exit: relRect($("#map-exit")), scale: relRect(scaleEl) };
+    if (city && W) { slotFromBottom = H - city[1]; slotWide = city[2] > W * 0.6; if (!slotWide) slotRight = city[0] + city[2]; }
+    else if (!city) { slotFromBottom = 10 + (focusEl.classList.contains("is-folded") ? 52 : 134); slotWide = !window.matchMedia("(min-width: 720px)").matches; }
+    // the crosshair and the frame of an opened city: a phone, the middle of what's above the card; a computer, the free part beside or
+    // above the card's column (mapFrame), so an opened city is never under the card
+    const m = mapFrame({ W, H, across: slotWide, fromBottom: slotFromBottom, cardRight: slotRight, rail: rects.rail });
+    frameBox = m.f; fcx = m.x; fcy = m.y;
+    if (W) wrapEl.dataset.frame = frameBox.map(Math.round).join(","); // a hook for the checks in Chromium, like data-labels
   }
   const grow = (r, g) => (r ? [r[0] - g, r[1] - g, r[2] + 2 * g, r[3] + 2 * g] : null);
 
@@ -522,10 +605,18 @@
     if (first) { let tz = ""; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch {} [lon, lat] = openingView(tz); }
     else [lon, lat] = toLonLat(fcx, fcy);
     dpr = nd;
-    W = r.width; H = r.height; s0 = Math.max(W / 360, H / 144);
+    W = r.width; H = r.height;
+    measureOverlays();
+    // a computer or a tablet (a stage 600 px wide or more; it was 720, and a tablet at 768 opened on a crop): the whole world fits the free part of the stage at zoom 1, left of the controls and above
+    // "Find your city" (the world used to cover the stage, 1.6 times wider than the card: the Americas and half of Africa, the rest cut
+    // off); a phone: the world covers the stage, and it opens on the visitor's part of it
+    wide = W >= 600;
+    const f = freeBox();
+    s0 = wide ? Math.min((f[2] - f[0]) / 360, (f[3] - f[1]) / 144) : Math.max(W / 360, H / 144);
+    MAXK = Math.round((900 * KREF) / s0); if (k > MAXK) k = MAXK;
+    wrapEl.style.setProperty("--stage-h", `${Math.round(H)}px`);
     for (const c of [canvas, fxCanvas, labCanvas]) { const w = Math.round(W * dpr), h = Math.round(H * dpr); if (c.width !== w) c.width = w; if (c.height !== h) c.height = h; }
     baseView = null;
-    measureOverlays();
     tx = fcx - wx(lon) * k; ty = fcy - wy(lat) * k; clampView();
     ovPaths.clear(); buildOvCache();
     zoomLabel(); zoomReadout(); markAll();
@@ -534,6 +625,9 @@
   const zoomReadout = () => { const z = $("#map-zoom-level"), t = `${k < 10 ? k.toFixed(1) : Math.round(k)}×`; if (z.textContent !== t) z.textContent = t; };
   const zoomLabel = () => {
     canvas.style.touchAction = k > 1.01 ? "none" : "pan-y";
+    // a hook for the checks in Chromium, like data-labels: the whole world is inside the stage
+    const fit = 360 * s0 * k <= W + 0.5 && 144 * s0 * k <= H + 0.5 ? "1" : "0";
+    if (wrapEl.dataset.worldFit !== fit) wrapEl.dataset.worldFit = fit;
     const lat = toLonLat(fcx, fcy)[1], bar = scaleBar((s0 * k) / (111.32 * Math.max(0.05, Math.cos((Math.max(-80, Math.min(80, lat)) * Math.PI) / 180))));
     if (bar) { $("#map-scale-bar").style.width = `${bar.px}px`; $("#map-scale-text").textContent = bar.text; }
   };
@@ -597,22 +691,26 @@
     viewMoved(true);
     return true;
   }
-  /** The zoom at which the box [west, south, east, north] fits the free part of the map around the crosshair (left of the control
-   *  rail, above the city card on a phone), with a margin. */
+  /** The zoom at which the box [west, south, east, north] fits the frame around the crosshair (mapFrame: left of the control rail and
+   *  above the city card on a phone; beside or above the card's column on a computer), with a margin. */
   function fitK(b) {
-    const right = rects.rail && rects.rail[0] > fcx ? rects.rail[0] - 6 : W;
-    const halfW = Math.max(30, Math.min(fcx, right - fcx) - 10), halfH = Math.max(30, fcy - 10);
-    return Math.min((2 * halfW) / Math.max(0.0002, (b[2] - b[0]) * s0), (2 * halfH) / Math.max(0.0002, (b[3] - b[1]) * s0)) * 0.92;
+    const f = frameBox;
+    return Math.min((f[2] - f[0]) / Math.max(0.0002, (b[2] - b[0]) * s0), (f[3] - f[1]) / Math.max(0.0002, (b[3] - b[1]) * s0)) * 0.92;
   }
-  /** Fly so the box [west, south, east, north] fills most of the free part of the map. */
+  /** Fly so the box [west, south, east, north] fills most of the frame. */
   function flyToBox(b, minK = 1) {
     flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.min(MAXK, Math.max(minK, fitK(b))));
   }
+  /** The box of each piece of a city's area (the detailed file's polygons, or the overview's rings), for coreBox. */
+  const pieceBoxes = (a) => a.area ? a.area.map(([o]) => boxOf([[o]]))
+    : a.rings.map((r) => { let w = 1e9, s = 1e9, e = -1e9, n = -1e9; for (let i = 0; i < r.length; i += 2) { if (r[i] < w) w = r[i]; if (r[i] > e) e = r[i]; if (r[i + 1] < s) s = r[i + 1]; if (r[i + 1] > n) n = r[i + 1]; } return [w * OV_UNIT, s * OV_UNIT, e * OV_UNIT, n * OV_UNIT]; });
   function flyToCity(c) {
     const a = areas.get(c.id) || ov.byId.get(c.id);
-    if (a) return flyToBox(a.box, Math.min(AREA_K + 0.5, fitK(a.box))); // the whole boundary in view (closer than zoom 5.5 when it fits)
+    // the whole boundary in the frame (its main piece when the rest is far away), never under the card, with the city's own point in the
+    // middle: the crosshair (hidden until the map moves) starts on the city, so a first nudge of the map keeps its card
+    if (a) { const b = coreBox(pieceBoxes(a), c.lon, c.lat), hw = Math.max(c.lon - b[0], b[2] - c.lon), hh = Math.max(c.lat - b[1], b[3] - c.lat); return flyToBox([c.lon - hw, c.lat - hh, c.lon + hw, c.lat + hh]); }
     const r = radiusOf(c);
-    flyTo(c.lon, c.lat, Math.min(MAXK, Math.max(AREA_K + 0.5, (Math.min(W, H) * 0.3) / ((r / 111.32) * s0))));
+    flyTo(c.lon, c.lat, Math.min(MAXK, Math.max(kAt(AREA_K + 0.5), (Math.min(W, H) * 0.3) / ((r / 111.32) * s0))));
   }
   function flyToCountry(cc) {
     const list = cities.filter((c) => c.cc === cc);
@@ -624,7 +722,7 @@
   // pulse phase per city, so cities don't all breathe in sync
   const phase = (id) => { let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return (h % 1000) / 1000; };
   // the smallest place drawn as a dot at this zoom (13,000 places: towns show up as you zoom in)
-  const dotMinPop = () => (k < 2 ? 150_000 : k < 4 ? 50_000 : k < 8 ? 15_000 : k < 20 ? 5_000 : 0);
+  const dotMinPop = () => { const g = kg(); return g < 2 ? 150_000 : g < 4 ? 50_000 : g < 8 ? 15_000 : g < 20 ? 5_000 : 0; };
   const MARGIN = 60;
   const inViewPx = (x, y, m = MARGIN) => x > -m && x < W + m && y > -m && y < H + m;
   /** Cities that always show, whatever their size: founded, choosing, active (verified holders), yours, selected, in focus. */
@@ -655,12 +753,12 @@
     if (canvas.style.transform) canvas.style.transform = "";
   }
   function renderBase() {
-    const s = s0 * k, v = view();
+    const s = s0 * k, v = view(), g = s / KREF;
     const colored = mapStyle === "colored";
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     // graticule
-    const step = k < 3 ? 30 : k < 12 ? 10 : k < 40 ? 5 : k < 200 ? 1 : 0.25;
+    const step = g < 3 ? 30 : g < 12 ? 10 : g < 40 ? 5 : g < 200 ? 1 : 0.25;
     ctx.lineWidth = 1; ctx.strokeStyle = pal.grid;
     ctx.beginPath();
     for (let lon = Math.ceil(v[0] / step) * step; lon <= v[2]; lon += step) { const x = Math.round(sx(lon)) + 0.5; ctx.moveTo(x, 0); ctx.lineTo(x, H); }
@@ -671,7 +769,7 @@
     ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * tx, dpr * ty);
     ctx.lineJoin = "round";
     // the picture below zoom 1.6; while a gesture is under way, up to zoom 3 too (a little soft for a moment, drawn crisp when it stops)
-    const pic = (k < OV_CACHE_K || (moving && k < OV_MOVING_K)) && ovCache.ready && ovCache.key === ovCacheKey();
+    const pic = (g < OV_CACHE_K || (moving && g < OV_MOVING_K)) && ovCache.ready && ovCache.key === ovCacheKey();
     if (pic) {
       // the world view: the part in view of the world's picture (buildOvCache: land, borders, city outlines), in degree space
       const sc = ovCache.scale, cw = ovCache.canvas.width, ch = ovCache.canvas.height;
@@ -686,10 +784,10 @@
     }
 
     // city boundaries: the overview below zoom 5, the detailed files above, cross-fading country by country as each file is in
-    const fade = Math.max(0, Math.min(1, (k - (AREA_K - 0.5)) / 1));
+    const fade = Math.max(0, Math.min(1, (g - (AREA_K - 0.5)) / 1));
     if (fade > 0) loadVisible();
-    const thin = thinFor(s), dash = k >= 2;
-    const openW = (k < 2 ? 0.6 : 0.8) / s;
+    const thin = thinFor(s), dash = g >= 2;
+    const openW = (g < 2 ? 0.6 : 0.8) / s;
     if (!pic) for (const [cc, info] of boundsList) {
       if (!boxInView(info.box, v)) continue;
       const detail = fade > 0 && boundsDone.has(cc);
@@ -710,7 +808,7 @@
           const tint = colored ? hexA(AREA_COLORS[a.color ?? 0], pal.light ? 0.3 : 0.24) : pal.area;
           ctx.fillStyle = tint; ctx.fill(a.path, "evenodd");
         }
-        ctx.lineWidth = (k > 80 ? 1.6 : 1.15) / s; ctx.strokeStyle = pal.areaLine;
+        ctx.lineWidth = (g > 80 ? 1.6 : 1.15) / s; ctx.strokeStyle = pal.areaLine;
         for (const a of list) { ctx.setLineDash(a.kind === "n" ? [5 / s, 4 / s] : []); ctx.stroke(a.path); }
         ctx.setLineDash([]);
       }
@@ -740,7 +838,7 @@
     // open cities: small static dots (bigger as you zoom in); cities with a status: their bright core (the glow layer adds the rest)
     shown = [];
     const minPop = dotMinPop(), special = specialIds();
-    const d = (k < 2 ? 2.2 : k < 5 ? 3 : 3.6) * (k >= AREA_K ? 0.85 : 1);
+    const d = (g < 2 ? 2.2 : g < 5 ? 3 : 3.6) * (g >= AREA_K ? 0.85 : 1);
     ctx.fillStyle = `rgb(${pal.open})`; ctx.globalAlpha = pal.light ? 0.55 : 0.85;
     ctx.beginPath();
     for (const c of cities) {
@@ -765,7 +863,7 @@
 
   /* ---------- labels and chips (layout only when the view changes; drawing when the view or a fade changes) ---------- */
   const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }); // short(), with one formatter for the hundreds of chips
-  let labels = [], leaving = [], focusId = null, focusPinned = null, pinnedBy = null; // pinnedBy: "link" | "pick" | "home" | "nearest"
+  let labels = [], leaving = [], focusId = null, focusPinned = null, pinnedBy = null; // pinnedBy: "pick" | "home"
   const textW = new Map();
   const measure = (font, t) => { const key = font + "|" + t; let w = textW.get(key); if (w == null) { lctx.font = font; w = lctx.measureText(t).width; textW.set(key, w); } return w; };
   const FONT = { A1: "700 12px Inter, system-ui, sans-serif", A2: "600 11px Inter, system-ui, sans-serif", B: "600 11px Inter, system-ui, sans-serif", BT: "700 11px Inter, system-ui, sans-serif", C: "600 11px Inter, system-ui, sans-serif" };
@@ -782,9 +880,9 @@
     const bTicker = tk ? `$${tk}` : "", maxW = W < 600 ? 196 : 220;
     const tickW = bTicker ? measure(FONT.BT, " " + bTicker) : 0, nameW = measure(FONT.B, c.name);
     // the founder amount closer in, when the whole name still fits with it; else the name and the ticker; a very long name is shortened last
-    let bTail = k >= 4 ? ` · ${amount}` : "";
+    let bTail = kg() >= 4 ? ` · ${amount}` : "";
     if (bTail && 26 + nameW + tickW + measure(FONT.B, bTail) > maxW) bTail = "";
-    return { name: c.name, a2: `${STATUS_WORD[st]}${tk ? ` · $${tk}` : ""}${k >= 3 ? ` · ${amount}` : ""}`, bName: ellipsis(FONT.B, c.name, Math.max(48, maxW - 26 - tickW)), bTicker, bTail };
+    return { name: c.name, a2: `${STATUS_WORD[st]}${tk ? ` · $${tk}` : ""}${kg() >= 3 ? ` · ${amount}` : ""}`, bName: ellipsis(FONT.B, c.name, Math.max(48, maxW - 26 - tickW)), bTicker, bTail };
   }
   /** The longer side of a city's boundary on screen (px): the overview's box, the detailed one, else the circle drawn for a city with no outline yet. */
   const spanOf = (c) => { const a = ov.byId.get(c.id) || areas.get(c.id); return (a ? Math.max(a.box[2] - a.box[0], a.box[3] - a.box[1]) : (2 * radiusOf(c)) / 111.32) * s0 * k; };
@@ -805,8 +903,11 @@
     }
     // which of them may carry a label at this zoom: none zoomed out (the markers and their rings stay clear); zoomed in on a city, that
     // city and a few around the crosshair
-    const { ids, max } = labelFilter(cands, k, { phone, fx: fcx, fy: fcy, W, H });
-    const want = cands.filter((it) => ids.has(it.id)).sort((p, q) => p.key - q.key || (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
+    const { ids, max } = labelFilter(cands, kg(), { phone, fx: fcx, fy: fcy, W, H });
+    // the city the card names (opened for the visitor, the map not moved since) carries no chip of its own: its pin and outline are enough,
+    // and its chip used to sit on its own boundary
+    const named = findOn === false && focusPinned && !userMoved ? focusPinned : null;
+    const want = cands.filter((it) => ids.has(it.id) && it.id !== named).sort((p, q) => p.key - q.key || (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
     const items = [];
     let a = 0;
     for (const x of want.slice(0, 3 * (max.A + max.B + max.C))) { // enough to fill every slot; the rest would never be placed
@@ -836,7 +937,7 @@
   /** A city's chip texts and sizes at this zoom band, measured once (cleared when statuses, tickers or the screen width change). */
   const chipCache = new Map();
   function chipOf(c, st) {
-    const key = `${c.id}|${st}|${k >= 4 ? 2 : k >= 3 ? 1 : 0}|${W < 600 ? 1 : 0}`;
+    const g = kg(), key = `${c.id}|${st}|${g >= 4 ? 2 : g >= 3 ? 1 : 0}|${W < 600 ? 1 : 0}`;
     let v = chipCache.get(key);
     if (!v) {
       const t = chipText(c, st);
@@ -893,7 +994,7 @@
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
     // outlines in degree space: the country under the mouse (zoomed out), the city under the mouse, the city in focus
     g.setTransform(dpr * s, 0, 0, dpr * s, dpr * tx, dpr * ty); g.lineJoin = "round";
-    if (hoverCountry && k < 3) {
+    if (hoverCountry && kg() < 3) {
       g.fillStyle = pal.light ? "rgba(232,67,31,.08)" : "rgba(255,138,91,.1)"; g.fill(hoverCountry.path, "evenodd");
       g.strokeStyle = "rgba(255,120,80,.8)"; g.lineWidth = 1.5 / s; g.stroke(hoverCountry.path);
     }
@@ -903,7 +1004,7 @@
     if (fs && boxInView(fs.box, v)) { g.lineWidth = 1.5 / s; g.strokeStyle = pal.label; g.globalAlpha = 0.85; g.stroke(fs.path); g.globalAlpha = 1; }
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     // hover ring on a dot (a mouse, zoomed out)
-    if (hover && hover !== selected && k < AREA_K) { g.strokeStyle = pal.label; g.lineWidth = 1.5; g.beginPath(); g.arc(sx(hover.lon), sy(hover.lat), 7, 0, Math.PI * 2); g.stroke(); }
+    if (hover && hover !== selected && kg() < AREA_K) { g.strokeStyle = pal.label; g.lineWidth = 1.5; g.beginPath(); g.arc(sx(hover.lon), sy(hover.lat), 7, 0, Math.PI * 2); g.stroke(); }
     let busy = false;
     for (let i = leaving.length - 1; i >= 0; i--) {
       const l = leaving[i], p = (now - l.died) / 120;
@@ -917,11 +1018,16 @@
       if (p < 1 || (l.pop && now - l.pop < 300)) busy = true;
       drawChip(l, p, now);
     }
-    // the crosshair: a ring and four ticks at the focus point
-    g.strokeStyle = `rgba(${pal.ink},.55)`; g.lineWidth = 1.5;
-    g.beginPath(); g.arc(fcx, fcy, 5, 0, Math.PI * 2);
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { g.moveTo(fcx + dx * 9, fcy + dy * 9); g.lineTo(fcx + dx * 15, fcy + dy * 15); }
-    g.stroke();
+    // the crosshair: a ring and four ticks at the focus point, only while the city card follows it: never on the "Find your city" view,
+    // nor while the card shows a city that was opened for the visitor (its pin is the marker; the crosshair comes back once they move the map)
+    const reticle = findOn === false && !(focusPinned && !userMoved) ? "on" : "off";
+    if (wrapEl.dataset.reticle !== reticle) wrapEl.dataset.reticle = reticle; // a hook for the checks in Chromium
+    if (reticle === "on") {
+      g.strokeStyle = `rgba(${pal.ink},.55)`; g.lineWidth = 1.5;
+      g.beginPath(); g.arc(fcx, fcy, 5, 0, Math.PI * 2);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { g.moveTo(fcx + dx * 9, fcy + dy * 9); g.lineTo(fcx + dx * 15, fcy + dy * 15); }
+      g.stroke();
+    }
     return busy;
   }
 
@@ -1088,8 +1194,8 @@
   function pick(px, py, maxPx) {
     const chip = chipAt(px, py);
     if (chip) return chip;
-    const c = nearest(px, py, k >= AREA_K ? Math.min(maxPx, 9) : maxPx);
-    if (c || k < 3) return c;
+    const c = nearest(px, py, kg() >= AREA_K ? Math.min(maxPx, 9) : maxPx);
+    if (c || kg() < 3) return c;
     const id = areaIdAt(...toLonLat(px, py));
     return id ? byId.get(id) || null : null;
   }
@@ -1126,14 +1232,18 @@
 
   /* ---------- the city in focus: the card at the bottom of the map, for the city under the crosshair ---------- */
   let focusSig = "", sayTimer = 0, nearestGo = null, swapping = 0;
-  /** Which city the card shows: pinned (your city, a ?city= link, the one nearest the crosshair at the start, a pick) until the person moves the map, then the one under the crosshair. */
+  /** Which city the card shows: pinned (your city, a ?city= link, a pick) until the person moves the map, then the one under the crosshair.
+   *  Zoomed out further than a region with nothing pinned, no city: the slot says "Find your city" and the crosshair goes. */
   function updateFocus() {
     if (!cities.length) return;
+    const find = inFind();
+    setFind(find);
+    if (find) { if (focusId !== null) { focusId = null; dirty.labels = dirty.layout = dirty.base = true; kick(); } return; }
     let id = null;
     if (focusPinned && !userMoved && byId.has(focusPinned)) id = focusPinned;
     else {
       const [lon, lat] = toLonLat(fcx, fcy);
-      const inside = k >= 2 ? areaIdAt(lon, lat) : null;
+      const inside = kg() >= 2 ? areaIdAt(lon, lat) : null;
       const cands = [];
       for (const c of shown) { if (!isCommunity(c)) continue; const d = Math.hypot(sx(c.lon) - fcx, sy(c.lat) - fcy); if (d <= 70) cands.push({ id: c.id, d }); }
       id = chooseFocus(cands, inside && isCommunity(byId.get(inside) || { id: inside }) ? inside : null, focusId);
@@ -1217,13 +1327,119 @@
   });
   try { if (localStorage.getItem("vicinity-map-card") === "folded") { focusEl.classList.add("is-folded"); wrapEl.classList.add("is-folded"); const b = $("#mf-fold"); b.setAttribute("aria-expanded", "false"); b.setAttribute("aria-label", "Unfold the city card"); b.textContent = "▴"; } } catch {}
 
+  // A short phone (an iPhone SE, 640 px tall or less): the city card opens folded (52 px) so the map keeps its room, unless the visitor
+  // unfolded it before (the "vicinity-map-card" choice above wins)
+  try { if (!localStorage.getItem("vicinity-map-card") && window.matchMedia("(max-height: 640px) and (max-width: 900px)").matches) { focusEl.classList.add("is-folded"); wrapEl.classList.add("is-folded"); const b = $("#mf-fold"); b.setAttribute("aria-expanded", "false"); b.setAttribute("aria-label", "Unfold the city card"); b.textContent = "▴"; } } catch {}
+
+  /* ---------- the map's bottom slot: "Find your city" (the first view), or the city card (zoomed in on a region, or a city picked) ---------- */
+  const findQ = $("#map-find-q"), findList = $("#map-find-list");
+  let findOn = null, finding = false; // finding: the visitor opened the search (the rail's magnifier, "/") while zoomed in
+  /** The find state: further out than a region (FOCUS_K, in real map scale) with no city pinned for the visitor, or a search they opened. */
+  const inFind = () => finding || (kg() < FOCUS_K && !(focusPinned && !userMoved));
+  function showSlot(find) {
+    findEl.hidden = !find; focusEl.hidden = find;
+    wrapEl.dataset.crosshair = find ? "off" : "on"; // a hook for the checks in Chromium, like data-labels; pages-cities.css hides the scale bar and the magnifier by it
+  }
+  function setFind(on) {
+    if (on === findOn) return;
+    findOn = on; showSlot(on);
+    if (!on) closeList();
+    focusSig = ""; // the city card fills again when it comes back
+    if (W) { measureOverlays(); dirty.labels = dirty.layout = dirty.base = true; kick(); }
+  }
+  /** Opens the find card wherever the map is, and puts the keyboard in it. */
+  function openFind(scroll = false) {
+    if (findOn !== true) { finding = true; setFind(true); }
+    if (scroll) wrapEl.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+    findQ.focus({ preventScroll: scroll });
+    if (findQ.value.trim()) suggest();
+  }
+  /** Leaves a search opened while zoomed in (Escape, or the keyboard left an empty search): the city card comes back. */
+  function endFinding() { if (!finding) return; finding = false; findQ.value = ""; closeList(); dirty.focus = true; kick(); }
+  // the suggestions: a combobox (↑ ↓ move, Enter picks the highlighted place or the first, Escape closes); 6 places on a computer, 4 on
+  // a phone (the list opens upward over the map and must stay inside it)
+  let opts = [], active = -1;
+  function closeList() {
+    findList.hidden = true; findQ.setAttribute("aria-expanded", "false"); findQ.removeAttribute("aria-activedescendant"); active = -1;
+  }
+  function markActive() {
+    opts.forEach((c, i) => { const li = $(`#map-find-o${i}`); if (li) li.setAttribute("aria-selected", String(i === active)); });
+    const li = active >= 0 ? $(`#map-find-o${active}`) : null;
+    if (li) { findQ.setAttribute("aria-activedescendant", li.id); li.scrollIntoView({ block: "nearest" }); } else findQ.removeAttribute("aria-activedescendant");
+  }
+  function suggest() {
+    const q = norm(findQ.value.trim());
+    opts = []; active = -1;
+    if (!q) { closeList(); return; }
+    if (!cities.length) findList.replaceChildren(el("li", "map-find__none", "Loading the places…"));
+    else {
+      opts = matchPlaces(cities, q, window.matchMedia("(max-width: 600px)").matches ? 4 : 6);
+      findList.replaceChildren(...(opts.length ? opts.map((c, i) => {
+        const li = el("li", "map-find__opt"); li.id = `map-find-o${i}`; li.setAttribute("role", "option"); li.setAttribute("aria-selected", "false");
+        const nm = el("span", "map-find__name");
+        nm.append(el("strong", null, c.name), el("span", null, placeOf(c)));
+        li.append(nm, rowTag(c));
+        li.addEventListener("click", (e) => pickPlace(c, e.detail > 0)); // detail 0: a click a key or a screen reader made
+        return li;
+      }) : [el("li", "map-find__none", "No place by that name yet. Try another spelling, or ask for your town from your dashboard.")]));
+    }
+    findList.hidden = false; findQ.setAttribute("aria-expanded", "true"); findQ.removeAttribute("aria-activedescendant");
+  }
+  /** A suggestion picked: fly there and open its card (the same flow as a tap on the map: a part → its city, too small → the three nearest). */
+  function pickPlace(c, pointer = false) {
+    closeList(); findQ.value = ""; finding = false;
+    // the find card makes way for the city card: the keyboard goes to the map (Enter opens the city). A tap or a click on a suggestion
+    // draws no focus ring round the whole map (the browser would: the visitor had just typed); a key press brings it back
+    canvas.classList.toggle("is-quiet-focus", pointer);
+    canvas.focus({ preventScroll: true, focusVisible: !pointer });
+    select(c, true); ripple(c);
+  }
+  findQ.addEventListener("input", suggest);
+  findQ.addEventListener("focus", () => { if (findQ.value.trim()) suggest(); });
+  findQ.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (findList.hidden) suggest();
+      if (!opts.length) return;
+      active = e.key === "ArrowDown" ? (active + 1) % opts.length : (active <= 0 ? opts.length : active) - 1;
+      markActive();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (findList.hidden) suggest();
+      const c = opts[active] || opts[0];
+      if (c) pickPlace(c);
+    } else if (e.key === "Escape") {
+      if (!findList.hidden) { e.preventDefault(); e.stopPropagation(); closeList(); }
+      else if (finding) { e.preventDefault(); e.stopPropagation(); endFinding(); $("#map-search").focus({ preventScroll: true }); }
+    }
+  });
+  findEl.addEventListener("submit", (e) => e.preventDefault());
+  findList.addEventListener("mousedown", (e) => e.preventDefault()); // a click on a suggestion keeps the keyboard in the field
+  findEl.addEventListener("focusout", (e) => {
+    if (e.relatedTarget instanceof Node && findEl.contains(e.relatedTarget)) return;
+    closeList();
+    if (finding && !findQ.value.trim()) endFinding();
+  });
+  $("#map-search").addEventListener("click", () => openFind());
+  $("#city-find").addEventListener("click", () => openFind(true));
+  // "/" puts the keyboard in the search, as on most sites with one (never while typing elsewhere or with a dialog open)
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented || !loaded) return;
+    if (e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]")) return;
+    if (document.querySelector(".termsgate:not([hidden]), .fb__panel:not([hidden]), dialog[open]")) return;
+    e.preventDefault(); openFind(true);
+  });
+  // the first view: a ?city= link opens on its city card (loading), everything else on "Find your city" until the map knows better
+  findOn = !new URLSearchParams(location.search).get("city");
+  showSlot(findOn);
+
   // pointer: drag to move (it glides on after a flick), pinch or double-tap to zoom, tap to pick a city (or a country when zoomed out).
   // Heard on the whole stage (the base canvas may be moved by the compositor mid-gesture), except on the controls and the city card.
   const pts = new Map();
   let drag = null, lastTap = null, wheelOK = false;
   let stageRect = null; // the stage's place, read once per gesture (reading it on every move would force a layout each time)
   const local = (e) => { const r = (pts.size && stageRect) || wrapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-  const onMap = (e) => !(e.target instanceof Element) || !e.target.closest(".map-ctrl, .map-focus, .map-exit, .map-hint");
+  const onMap = (e) => !(e.target instanceof Element) || !e.target.closest(".map-ctrl, .map-focus, .map-find, .map-exit, .map-hint");
   wrapEl.addEventListener("pointerdown", (e) => {
     if (!loaded || !onMap(e)) return;
     wrapEl.setPointerCapture(e.pointerId);
@@ -1258,7 +1474,7 @@
     }
     if (e.pointerType === "mouse") {
       const c = pick(x, y, 16);
-      const w = !c && k < 3 ? countryAt(...toLonLat(x, y)) : null;
+      const w = !c && kg() < 3 ? countryAt(...toLonLat(x, y)) : null;
       if (c !== hover || w !== hoverCountry) { hover = c; hoverCountry = w; dirty.labels = true; kick(); }
       canvas.style.cursor = c || w ? "pointer" : "";
       if (c) showTip(c, x, y - 14); else if (w) showCountryTip(w, x, y - 14); else tip.hidden = true;
@@ -1286,10 +1502,10 @@
     lastTap = { t: now, x, y };
     const c = pick(x, y, e.pointerType === "mouse" ? 14 : 22);
     if (c) { select(c, true); ripple(c); return; }
-    const w = k < 3 ? countryAt(...toLonLat(x, y)) : null;
-    if (w && cityCount(w.cc)) { countryEl.value = w.cc; renderList(); userMoved = true; flyToCountry(w.cc); hoverCountry = null; tip.hidden = true; }
+    const w = kg() < 3 ? countryAt(...toLonLat(x, y)) : null;
+    if (w && cityCount(w.cc)) { countryPicked = true; countryEl.value = w.cc; renderList(); userMoved = true; flyToCountry(w.cc); hoverCountry = null; tip.hidden = true; }
     // zoomed in on land that no community covers: offer the three nearest
-    else if (k >= AREA_K && countryAt(...toLonLat(x, y))) { const [lon, lat] = toLonLat(x, y); if (!reduced) ripples.push({ lon, lat, t0: performance.now(), col: "127,163,214" }); showNearby(lon, lat); }
+    else if (kg() >= AREA_K && countryAt(...toLonLat(x, y))) { const [lon, lat] = toLonLat(x, y); if (!reduced) ripples.push({ lon, lat, t0: performance.now(), col: "127,163,214" }); showNearby(lon, lat); }
   };
   wrapEl.addEventListener("pointerup", end);
   wrapEl.addEventListener("pointercancel", end);
@@ -1308,7 +1524,9 @@
   }, { passive: false });
   // keyboard: arrows move, + / − zoom, Enter opens the city in focus, Escape leaves the full-screen map (the map is focusable)
   canvas.addEventListener("focus", () => { wheelOK = true; });
+  canvas.addEventListener("blur", () => canvas.classList.remove("is-quiet-focus"));
   canvas.addEventListener("keydown", (e) => {
+    canvas.classList.remove("is-quiet-focus"); // the keyboard is in use: the focus ring shows again
     if (!loaded) return;
     const pan = { ArrowLeft: [80, 0], ArrowRight: [-80, 0], ArrowUp: [0, 80], ArrowDown: [0, -80] }[e.key];
     if (pan) { e.preventDefault(); cam = null; userMoved = true; tx += pan[0]; ty += pan[1]; clampView(); viewMoved(true); }
@@ -1318,7 +1536,7 @@
   });
   $("#map-in").addEventListener("click", () => { userMoved = true; zoomStep(fcx, fcy, 1.8, 260); });
   $("#map-out").addEventListener("click", () => { userMoved = true; zoomStep(fcx, fcy, 1 / 1.8, 260); });
-  $("#map-reset").addEventListener("click", () => { userMoved = true; const [lon, lat] = toLonLat(fcx, fcy); flyTo(lon, Math.max(-50, Math.min(70, lat)), 1); });
+  $("#map-reset").addEventListener("click", () => { userMoved = true; finding = false; const [lon, lat] = toLonLat(fcx, fcy); flyTo(lon, Math.max(-50, Math.min(70, lat)), 1); });
   // plain / coloured map switch (remembered on this device)
   function showStyle() {
     const b = $("#map-style"), colored = mapStyle === "colored";
@@ -1373,9 +1591,8 @@
   $("#map-exit").addEventListener("click", () => setFull(false));
   window.addEventListener("popstate", () => { if (full) setFull(false, true); });
   document.addEventListener("keydown", (e) => { if (full && e.key === "Escape") { e.preventDefault(); setFull(false); } });
-  // ◎: find the city you're standing in (location is used on this device only, never sent)
-  $("#map-locate").addEventListener("click", async () => {
-    const b = $("#map-locate");
+  /** ◎ in the map's menu and "Use my location" on the find card: the city you're standing in (location is used on this device only, never sent). */
+  async function locateMe(b) {
     if (!loaded || b.disabled) return;
     b.disabled = true; b.classList.add("is-busy");
     try {
@@ -1383,11 +1600,26 @@
       if (!reduced) ripples.push({ lon: loc.lon, lat: loc.lat, t0: performance.now(), col: "55,194,154" });
       const c = await findCityAt(loc.lon, loc.lat);
       const home = c && parts.has(c.id) ? byId.get(parts.get(c.id)) : c;
+      finding = false;
       if (home) { select(home, true); V().toast?.(`You're in ${home.name}`); }
-      else { userMoved = true; flyTo(loc.lon, loc.lat, 60); showNearby(loc.lon, loc.lat); V().toast?.("No community here yet: pick one of the three nearest."); }
+      else { userMoved = true; flyTo(loc.lon, loc.lat, kAt(60)); showNearby(loc.lon, loc.lat); V().toast?.("No community here yet: pick one of the three nearest."); }
     } catch (e) { V().toast?.(e?.inApp ? `${e.message} Open vicinity.city in Safari or Chrome to see where you are.` : e?.message || "Couldn't get your location."); }
     finally { b.disabled = false; b.classList.remove("is-busy"); }
-  });
+  }
+  $("#map-locate").addEventListener("click", () => locateMe($("#map-locate")));
+  $("#map-find-loc").addEventListener("click", () => locateMe($("#map-find-loc")));
+  // the stage's place on the page: pages-cities.css sizes it to end inside the first screen (above a phone's tab bar) with --stage-top;
+  // measured again when the title block changes size (fonts, the facts line, a rotation), never while the map covers the screen
+  const introEl = $(".cities-intro");
+  let introW = -1;
+  function placeStage() {
+    if (wrapEl.classList.contains("is-full")) return;
+    const top = `${Math.round(wrapEl.getBoundingClientRect().top + window.scrollY)}px`;
+    if (wrapEl.style.getPropertyValue("--stage-top") !== top) wrapEl.style.setProperty("--stage-top", top);
+  }
+  if (window.ResizeObserver && introEl) new ResizeObserver(() => { const w = introEl.getBoundingClientRect().width; if (w !== introW) { introW = w; fitFacts(); } placeStage(); }).observe(introEl);
+  placeStage();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { fitFacts(); placeStage(); }).catch(() => {});
   let sizing = 0;
   const resized = () => { if (!loaded || sizing) return; sizing = requestAnimationFrame(() => { sizing = 0; size(); }); };
   window.addEventListener("resize", resized);
@@ -1398,39 +1630,59 @@
   new IntersectionObserver((es) => { onScreen = es.some((x) => x.isIntersecting); fxCanvas.classList.toggle("mo-off", !onScreen); if (onScreen) markAll(); }).observe(wrapEl);
 
   /* =================== search list =================== */
+  /** A place's pill, in the list and in the find card's suggestions: part of a city, too small to be a community, or its status. */
+  function rowTag(c) {
+    const cl = claims.get(c.id), mine = isMine(cl), parent = parts.has(c.id) && byId.get(parts.get(c.id));
+    return parent ? el("span", "tag", `Part of ${parent.name}`)
+      : outside.has(c.id) ? el("span", "tag", "No community yet")
+      : el("span", mine ? "tag tag--warn" : cl ? "tag tag--no" : windows.has(c.id) ? "tag tag--gold" : activeIds.has(c.id) ? "tag tag--active" : "tag tag--open", mine ? "Yours" : cl ? "Founded" : windows.has(c.id) ? "Choosing" : activeIds.has(c.id) ? "Active" : "Open");
+  }
+  /** The list browses (the map's find card searches every place, neighbourhoods too): a country's communities, or the world's, biggest
+   *  first; it opens on the visitor's country, and its count says what it counts (the country menu counts the same). */
   function renderList() {
-    const q = norm(qEl.value.trim()), cc = countryEl.value, f = filterEl.value;
-    const pass = (c) => (!cc || c.cc === cc) && (f === "all" || (f === "claimed") === claims.has(c.id));
-    let hits;
-    if (q) {
-      const starts = [], has = [];
-      for (const c of cities) { if (!pass(c)) continue; if (c.n.startsWith(q)) starts.push(c); else if (c.n.includes(q)) has.push(c); }
-      hits = starts.concat(has);
-    } else hits = cities.filter(pass);
+    const cc = countryEl.value, f = filterEl.value;
+    const pass = (c) => (!cc || c.cc === cc) && isCommunity(c) && (f === "all" || (f === "claimed") === claims.has(c.id));
+    let hits = cities.filter(pass);
     const total = hits.length; hits = hits.slice(0, 60);
-    $("#city-count").textContent = total > 60 ? `Showing 60 of ${fmt(total)}. Type to narrow it down.` : `${fmt(total)} ${total === 1 ? "city" : "cities"}`;
+    const where = cc ? ` in ${countries[cc] || cc}` : "", noun = total === 1 ? "community" : "communities";
+    $("#city-count").textContent = total > 60 ? `Showing 60 of ${fmt(total)} ${noun}${where}` : `${fmt(total)} ${noun}${where}`;
     // a phone shows 8 rows and "Show more" (no box that scrolls inside the page); a computer keeps its scrolling list
     const moreBtn = $("#city-more");
     moreBtn.hidden = hits.length <= 8;
     const all = listEl.classList.contains("is-all");
     moreBtn.textContent = all ? "Show fewer" : `Show more (${fmt(hits.length - 8)})`; moreBtn.setAttribute("aria-expanded", String(all));
-    if (!hits.length) { listEl.replaceChildren(el("li", "muted", q ? "No match. You can add it below." : "Nothing here yet.")); return; }
+    if (!hits.length) { listEl.replaceChildren(el("li", "muted", f === "claimed" ? "No founders here yet: every seat is open." : "Nothing here yet.")); return; }
     listEl.replaceChildren(...hits.map((c) => {
       const li = document.createElement("li");
       const b = el("button", "city-row" + (selected === c ? " is-selected" : "")); b.type = "button";
       const tk = tickers.get(c.id);
       const nm = el("span", "city-row__name");
       nm.append(el("strong", null, c.name), el("span", null, `${placeOf(c)}${c.pop ? " · " + fmt(c.pop) : ""}${c.added ? " · community-added" : ""}${tk ? " · $" + tk.ticker : ""}`));
-      const cl = claims.get(c.id), mine = isMine(cl), parent = parts.has(c.id) && byId.get(parts.get(c.id));
-      b.append(nm, parent ? el("span", "tag", `Part of ${parent.name}`)
-        : outside.has(c.id) ? el("span", "tag", "No community yet")
-        : el("span", mine ? "tag tag--warn" : cl ? "tag tag--no" : windows.has(c.id) ? "tag tag--gold" : activeIds.has(c.id) ? "tag tag--active" : "tag tag--open", mine ? "Yours" : cl ? "Founded" : windows.has(c.id) ? "Choosing" : activeIds.has(c.id) ? "Active" : "Open"));
+      b.append(nm, rowTag(c));
       b.addEventListener("click", () => select(c, true));
       li.append(b); return li;
     }));
   }
-  let typing; qEl.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(renderList, 120); });
-  countryEl.addEventListener("change", () => { renderList(); if (countryEl.value) { userMoved = true; flyToCountry(countryEl.value); } });
+  let countryPicked = false; // the visitor chose a country (here or by tapping one on the map): the list keeps it
+  countryEl.addEventListener("change", () => { countryPicked = true; renderList(); if (countryEl.value) { userMoved = true; flyToCountry(countryEl.value); } });
+  /** The visitor's country: the home city's when signed in, else the place the time zone is named after (America/New_York → the United
+   *  States), else the community nearest the time zone's part of the world; null when the time zone says nothing (UTC). Never the
+   *  middle of the world view (the Gulf of Guinea). */
+  function visitorCountry() {
+    const h = myHome(), home = h && byId.get(String(h));
+    if (home) return home.cc;
+    let tz = ""; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch {}
+    const p = tzPlace(tz);
+    if (p) { let best = null; for (const c of cities) { if (c.n === p) { best = c; break; } if (!best && c.n.startsWith(p)) best = c; } if (best) return best.cc; }
+    if (!/^(America|Europe|Africa|Asia|Australia|Pacific)\//.test(tz)) return null;
+    const [lon, lat] = openingView(tz), near = nearestCommunities(lon, lat, 1)[0];
+    return near ? near[0].cc : null;
+  }
+  function defaultCountry() {
+    if (countryPicked) return;
+    const cc = visitorCountry();
+    countryEl.value = cc && [...countryEl.options].some((o) => o.value === cc) ? cc : "";
+  }
   filterEl.addEventListener("change", renderList);
   $("#city-more").addEventListener("click", () => { listEl.classList.toggle("is-all"); renderList(); });
 
@@ -1545,12 +1797,12 @@
     const note = $("#claim-note");
     note.textContent = !open ? "Applications open after $VICINITY launches, for people who have held the founder amount for 7 days. There's no race: each city gets a 72-hour window and locals decide."
       : selected && myHome() && myHome() !== selected.id ? "You can only found the community you live in. Your dashboard shows yours."
-      : "The first qualified claimer becomes Seed Steward at once (90-day probation, locals can challenge). If several claim together, a 72-hour window decides: 50% endorsements, 30% contribution, 20% holdings. Apply or endorse in your dashboard.";
+      : "Apply, or endorse a neighbour who applied, in your dashboard: it checks your wallet, holding time and location together."; // "Locals decide" right above already gives the rule (it was said twice)
   }
   function select(c, fly = false) {
     // too small to be a community, in empty land: offer the three nearest communities
     if (outside.has(c.id)) {
-      if (fly) { userMoved = true; flyTo(c.lon, c.lat, Math.max(k, 60)); }
+      if (fly) { userMoved = true; flyTo(c.lon, c.lat, Math.max(k, kAt(60))); }
       return showNearby(c.lon, c.lat, c.name);
     }
     // a neighbourhood inside another city's official boundary belongs to that city
@@ -1561,7 +1813,7 @@
     }
     mode = "claim"; selected = c;
     // the card shows the city you picked; once you move the map it follows the crosshair again
-    focusPinned = c.id; pinnedBy = "pick"; userMoved = false;
+    focusPinned = c.id; pinnedBy = "pick"; userMoved = false; finding = false;
     refreshPanel(); renderList(); renderCoin(c); renderModerator(c);
     if (fly) flyToCity(c);
     // the boundary may still be loading: show it (and re-frame the map) once it's here
@@ -1569,24 +1821,47 @@
     if (!areas.has(c.id)) loadBounds(c.cc).then(() => { if (selected !== c) return; refreshPanel(); if (fly && areas.has(c.id) && !userMoved && focusPinned === c.id) flyToCity(c); });
     markAll();
   }
-  document.addEventListener("vicinity:me", () => { if (loaded) { refreshPanel(); renderList(); goHome(); markAll(); } });
+  document.addEventListener("vicinity:me", () => { if (loaded) { refreshPanel(); defaultCountry(); renderList(); goHome(); markAll(); } });
   /** A signed-in person with a home city who arrived without ?city=: the map opens on their city, and the card shows it. */
   function goHome() {
     const h = myHome(), c = h && byId.get(String(h));
-    if (!c || userMoved || selected || (focusPinned && pinnedBy !== "nearest")) return;
+    if (!c || userMoved || selected || focusPinned) return;
     focusPinned = c.id; pinnedBy = "home";
-    k = 4; tx = fcx - wx(c.lon) * k; ty = fcy - wy(c.lat) * k; clampView(); viewMoved();
+    k = kAt(AREA_K + 0.5); tx = fcx - wx(c.lon) * k; ty = fcy - wy(c.lat) * k; clampView(); viewMoved(); // close enough for its detailed outline
   }
 
   /* =================== live claims feed + stats =================== */
+  // The facts above the map (the owner, 11 Oct 2026: never a number that makes the site look empty): communities, countries and
+  // territories, official boundaries always; founded and choosing a founder from 1, verified members from 100 (data-min), never "0".
+  // In this order when there is room for fewer (a live signal first: founders, a window, 100+ members, then the size of the map): at most
+  // 4 on a computer, 3 on a phone, 2 on the smallest, always on one line; shown in the markup's order.
+  const FACTS = ["cs-claimed", "cs-choosing", "cs-cities", "cs-members", "cs-countries", "cs-official"];
+  function setFact(id, n) { const s = $("#" + id); if (!s) return; s.closest("li").dataset.n = String(n); const t = fmt(n); if (s.textContent !== t) s.textContent = t; }
+  const oneLine = (ul) => { const tops = new Set(); for (const li of ul.children) if (!li.hidden) tops.add(Math.round(li.getBoundingClientRect().top)); return tops.size <= 1 && ul.scrollWidth <= ul.clientWidth + 1; };
+  function fitFacts() {
+    const ul = $("#cities .city-stats");
+    if (!ul) return;
+    const max = window.innerWidth <= 340 ? 2 : window.innerWidth <= 600 ? 3 : 4;
+    const lis = FACTS.map((id) => $("#" + id)).filter(Boolean).map((s) => s.closest("li"));
+    for (const li of lis) li.hidden = true;
+    let shown = 0;
+    for (const li of lis) {
+      if (shown >= max) break;
+      const min = Number(li.dataset.min || 0);
+      if (li.dataset.n == null ? min > 0 : !(Number(li.dataset.n) >= min)) continue;
+      li.hidden = false;
+      if (oneLine(ul)) shown++; else li.hidden = true;
+    }
+  }
   function updateStats() {
-    const communities = cities.length - parts.size - outside.size;
-    $("#cs-cities").textContent = fmt(communities);
-    $("#cs-countries").textContent = fmt(new Set(cities.map((c) => c.cc)).size);
-    $("#cs-claimed").textContent = fmt(claims.size);
-    $("#cs-open").textContent = fmt(Math.max(0, communities - claims.size));
-    $("#cs-members").textContent = fmt(totalMembers);
-    $("#cs-status").textContent = open ? "Open" : "At launch";
+    setFact("cs-cities", cities.length - parts.size - outside.size);
+    setFact("cs-countries", new Set(cities.map((c) => c.cc)).size);
+    if (ov.ready && officialCount) setFact("cs-official", officialCount);
+    setFact("cs-claimed", claims.size);
+    setFact("cs-choosing", windows.size);
+    if (membersKnown) setFact("cs-members", totalMembers);
+    $("#cs-status").hidden = !open; // about founder applications, never about coins
+    fitFacts();
   }
   let membersSig = "", activeSig = "";
   /** Where verified members call home (public counts only), and the communities filling up fastest. */
@@ -1611,7 +1886,8 @@
     if (activeChanged) { chipCache.clear(); markAll(); renderList(); refreshPanel(); }
     else if (same) renderFocus(); else { dirty.focus = true; kick(); }
     updateStats();
-    const list = $("#wanted-list");
+    const list = $("#wanted-list"), wanted = $("#wanted");
+    if (wanted) wanted.hidden = d.communities.filter((c) => c.members > 0).length < 3; // one community with two members read as an empty page
     if (!d.communities.length) { list.replaceChildren(el("li", "muted", "No members yet. Sign in and set your home community to put your city on this list.")); return; }
     list.replaceChildren(...d.communities.slice(0, 24).map((c) => {
       const li = el("li"), city = byId.get(String(c.id)), cl = claims.get(String(c.id)), win = windows.has(String(c.id)), h = holderCount.get(String(c.id)) || 0, act = !cl && !win && h > 0; // the map's order: founded, choosing, active
@@ -1628,6 +1904,8 @@
   function renderFeed(fresh = new Set()) {
     const feed = $("#claim-feed");
     const list = [...claims.values()].sort((a, b) => Date.parse(b.claimed_at) - Date.parse(a.claimed_at)).slice(0, 8);
+    const wrap = $(".claim-feed-wrap");
+    if (wrap) wrap.hidden = !list.length; // an empty feed under the map read as a dead page
     if (!list.length) { feed.replaceChildren(el("li", "claim-feed__empty", open ? "No founders yet. Qualify by holding for 7 days, then apply." : "No founders yet. Applications open after $VICINITY launches.")); return; }
     feed.replaceChildren(...list.map((c) => {
       const li = el("li", fresh.has(c.city_id) ? "is-new" : null);
@@ -1719,32 +1997,23 @@
       loadOverview(overview);
       await refreshClaims();
       retick();
-      const counts = {}; for (const c of cities) if (!parts.has(c.id)) counts[c.cc] = (counts[c.cc] || 0) + 1;
+      const counts = {}; for (const c of cities) if (isCommunity(c)) counts[c.cc] = (counts[c.cc] || 0) + 1; // communities, as the list counts them
       const opts = Object.keys(countries).sort((a, b) => countries[a].localeCompare(countries[b]));
       countryEl.append(...opts.filter((c) => counts[c]).map((c) => Object.assign(document.createElement("option"), { value: c, textContent: `${countries[c]} (${counts[c]})` })));
       sec.classList.add("is-ready");
-      size(); renderList(); refreshPanel(); renderFeed(); refreshMembers();
+      defaultCountry();
+      size(); renderList(); refreshPanel(); renderFeed(); refreshMembers(); updateStats();
       lastRefresh = Date.now();
       setInterval(() => { if (!document.hidden && onScreen && Date.now() - lastRefresh >= 25000) refreshAll(); }, 30000);
-      // arriving with ?city=<id> (from other pages): open that city; signed in with a home city: start there; else the city nearest the
-      // crosshair, with the map centred on it (as far as the world's edges allow), before anything is drawn
+      // arriving with ?city=<id> (from other pages): open that city; signed in with a home city: start there; else nothing is picked
+      // for the visitor (a random city used to open with its card: Caracas, Houston, Riohacha…): the map's slot says "Find your city"
       const want = new URLSearchParams(location.search).get("city");
       if (want && byId.get(want)) select(byId.get(want), true);
       else goHome();
-      if (!focusPinned) {
-        const minPop = dotMinPop(), bottom = rects.card && rects.card[2] > W * 0.6 ? rects.card[1] : H, cands = [];
-        for (const c of cities) {
-          if (c.pop < minPop) break;
-          if (!isCommunity(c)) continue;
-          const x = sx(c.lon), y = sy(c.lat);
-          if (x > 24 && x < W - 24 && y > 24 && y < bottom - 24) cands.push({ id: c.id, x, y, pop: c.pop });
-        }
-        const id = openingFocus(cands, fcx, fcy), c = id && byId.get(id);
-        if (c) { focusPinned = c.id; pinnedBy = "nearest"; tx = fcx - wx(c.lon) * k; ty = fcy - wy(c.lat) * k; clampView(); viewMoved(); }
-      }
       markAll();
     } catch {
       loaded = false;
+      findOn = false; showSlot(false);
       listEl.replaceChildren(el("li", "muted", "Couldn't load the city list. Refresh the page to try again."));
       focusEl.classList.remove("is-loading"); focusEl.classList.add("is-error");
       $("#mf-name").textContent = "Couldn't load the map"; $("#mf-area").textContent = ""; $("#mf-line").textContent = "";
@@ -1752,6 +2021,7 @@
       go.addEventListener("click", () => location.reload(), { once: true });
     }
   }
+  fitFacts(); // the facts the markup ships (communities, countries and territories, official boundaries), on one line from the start
   const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); load(); } }, { rootMargin: "900px 0px" });
   io.observe(sec);
   if (location.hash === "#cities") load();

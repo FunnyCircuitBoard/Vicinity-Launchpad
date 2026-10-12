@@ -1,62 +1,215 @@
 /* Design v2 (10 Oct 2026): the cities map. One sheet per page, loaded last there (scripts/pages/src/<page>.html "styles").
-   Phone first; the shared tokens come from style.css, each with a fallback here; motion only inside prefers-reduced-motion: no-preference. */
+   Phone first; the shared tokens come from style.css, each with a fallback here; motion only inside prefers-reduced-motion: no-preference.
+   d3 (11 Oct 2026, the owner: "the claim a city page in both phone and desktop version: there are significant design issues"):
+   a calm title block with strong facts only, on one line; the whole world inside the map on a computer and the map inside the first
+   screen; nothing picked for the visitor ("Find your city" in the map's bottom slot); the card above a phone's tab bar; no empty blocks. */
+
+/* headings never end on a lone word (the Most wanted title, the panel's, the list's) */
+main :is(h1, h2, h3) { text-wrap: balance; }
+
 /* =====================================================================
-   /cities: the title, one line and the numbers in one row above the map (the H1 in the first screen); on a phone the map keeps +
-   and − and opens the rest from ⋯; the city card's lines wrap instead of cutting; the founders feed and the list never scroll inside
-   the page on a phone.
+   The title block: kicker, title (one line), lead; then the facts: communities, countries and territories, official boundaries always,
+   founded / choosing a founder / verified members from their threshold (cities.js fitFacts: as many as fit on one line). A phone: one
+   inline line under the title. A computer: the title left, the facts right as figures over labels, the status pill above them.
    ===================================================================== */
-#cities .cities-intro { padding: 0 0 var(--sp-3, 12px); gap: 6px 56px; }
-#cities .cities-intro .page-title { margin: 0; }
-#cities .cities-intro .lead { margin: 0; }
-#cities .cities-intro .city-stats { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 2px 0 0; }
-#cities .cities-intro .city-stats div { display: inline-flex; align-items: baseline; gap: 5px; padding: 0; border: 0; border-radius: 0; background: none; min-width: 0; text-align: left; }
-#cities .cities-intro .city-stats strong { display: inline; font: 650 var(--fs-base, 1rem)/1.4 var(--display); font-variant-numeric: tabular-nums; color: var(--text); }
-#cities .cities-intro .city-stats span { display: inline; margin: 0; font-size: var(--fs-sm, .875rem); }
-#cities .cities-intro .city-stats .is-claimed strong { color: var(--text); }
-@media (min-width: 1101px) {
-  #cities .cities-intro { grid-template-columns: auto minmax(0, 1fr); align-items: end; }
-  #cities .cities-intro__head { grid-row: span 2; }
-}
+#cities .cities-intro { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-2, 8px); align-items: end; padding: 0 0 var(--sp-3, 12px); }
+#cities .cities-intro__head { min-width: 0; }
+#cities .cities-intro .kicker { margin: 0 0 var(--sp-2, 8px); }
+#cities .cities-intro .page-title { margin: 0; white-space: nowrap; }
+#cities .cities-intro .lead { margin: var(--sp-2, 8px) 0 0; max-width: none; color: var(--muted); }
+#cities .cities-intro__side { min-width: 0; }
+#cities .city-status { display: none; }
+#cities .cities-intro .city-stats { list-style: none; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0; margin: 0; padding: 0; }
+/* one line box per fact (the separator too), so every fact has the same top: the facts are one line, measurably */
+#cities .cities-intro .city-stats li { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; white-space: nowrap; font-size: var(--fs-sm, .875rem); line-height: 1.35; }
+#cities .cities-intro .city-stats li:not([hidden]) ~ li:not([hidden])::before { content: "·"; margin: 0 9px 0 4px; color: var(--faint); }
+#cities .cities-intro .city-stats strong { display: inline; font: 650 var(--fs-base, 1rem)/1.35 var(--display); font-variant-numeric: tabular-nums; letter-spacing: -.01em; color: var(--text); }
+#cities .cities-intro .city-stats span { display: inline; margin: 0; font-size: var(--fs-sm, .875rem); line-height: 1.35; color: var(--muted); }
 @media (max-width: 600px) {
   .page-hero--map { padding-top: var(--sp-4, 16px); }
+  #cities .cities-intro { gap: var(--sp-2, 8px); padding-bottom: var(--sp-3, 12px); }
+  #cities .cities-intro .kicker { margin-bottom: 6px; }
   #cities .cities-intro .page-title { font-size: clamp(2rem, 9vw, 2.5rem); }
-  #cities .cities-intro .lead { font-size: var(--fs-base, 1rem); }
-  #cities .cities-intro .city-stats .is-open, #cities .cities-intro .city-stats .city-stats__claims { display: none; }
-  /* the numbers in one line on a phone (the map below shows the communities themselves) */
-  #cities .cities-intro .city-stats > div:first-child { display: none; }
+  #cities .cities-intro .lead { margin-top: 6px; font-size: var(--fs-base, 1rem); line-height: 1.45; }
 }
-@media (max-width: 380px) {
-  #cities .cities-intro .city-stats { column-gap: 10px; }
-  #cities .cities-intro .city-stats strong { font-size: .95rem; }
-  #cities .cities-intro .city-stats span { font-size: .8rem; }
+@media (max-width: 360px) {
+  #cities .cities-intro .city-stats strong { font-size: .9375rem; }
+  #cities .cities-intro .city-stats span { font-size: .78125rem; }
+  #cities .cities-intro .city-stats li:not([hidden]) ~ li:not([hidden])::before { margin: 0 7px 0 3px; }
 }
-/* the map's controls: + and − on the map; on a phone the other four open from ⋯ as 44 px rows with words */
-.map-menu { display: contents; }
-.map-more, .map-menu__label { display: none; }
+/* a short phone (an iPhone SE): the map keeps its room, the rules are one tap away in the panel below */
+@media (max-width: 600px) and (max-height: 640px) { #cities .cities-intro .lead { display: none; } }
+/* a computer: title left, figures right (at most 4, one line, the right edge on the map card's), the status pill above them */
+@media (min-width: 1024px) {
+  #cities .cities-intro { grid-template-columns: auto minmax(0, 1fr); align-items: stretch; column-gap: var(--sp-6, 32px); padding-bottom: var(--sp-4, 16px); }
+  #cities .cities-intro .lead { white-space: nowrap; font-size: var(--fs-md, 1.125rem); }
+  #cities .cities-intro__side { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: var(--sp-3, 12px); padding-bottom: 4px; }
+  #cities .city-status { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 0; padding: 5px 12px 5px 9px; border-radius: var(--r-pill, 999px); border: 1px solid rgba(55,194,154,.32);
+    background: var(--ok-soft, rgba(55,194,154,.14)); color: var(--ok-text); font: 600 var(--fs-xs, .75rem)/1.2 var(--body); letter-spacing: .01em; white-space: nowrap; }
+  #cities .city-status svg { flex: none; }
+  #cities .cities-intro .city-stats { justify-content: flex-end; align-items: stretch; }
+  #cities .cities-intro .city-stats li { display: grid; align-content: end; gap: 5px; text-align: left; }
+  #cities .cities-intro .city-stats li:not([hidden]) ~ li:not([hidden]) { margin-left: var(--sp-4, 16px); padding-left: var(--sp-4, 16px); border-left: 1px solid var(--line); }
+  #cities .cities-intro .city-stats li:not([hidden]) ~ li:not([hidden])::before { content: none; }
+  #cities .cities-intro .city-stats strong { font-size: var(--fs-lg, 1.375rem); line-height: 1.05; letter-spacing: -.02em; }
+  #cities .cities-intro .city-stats span { font-size: var(--fs-xs, .75rem); line-height: 1.2; }
+}
+@media (min-width: 1280px) {
+  #cities .cities-intro .city-stats li:not([hidden]) ~ li:not([hidden]) { margin-left: var(--sp-5, 24px); padding-left: var(--sp-5, 24px); }
+}
+:root[data-theme="light"] #cities .city-status { border-color: rgba(30,158,120,.35); }
+
+/* =====================================================================
+   The map stage: inside the first screen. A phone: from under the title to 8 px above the tab bar (cities.js sets --stage-top, the
+   stage's place on the page), 280 px at least. A computer: about 2.3:1 (the whole world fills it with little ocean around), never past
+   the first screen.
+   ===================================================================== */
+@media (max-width: 900px) {
+  #city-stage { height: calc(100vh - var(--stage-top, 220px) - var(--bottom-bars, 67px) - 8px); height: calc(100svh - var(--stage-top, 220px) - var(--bottom-bars, 67px) - 8px); min-height: 280px; }
+}
+/* a phone: the stage leaves room for the one-line legend under it, so the first screen ends on the legend, whole, 10 px above the tab bar
+   (it used to end on a line of the legend cut by the see-through tab bar); what follows starts below the tab bar (the fold's margin) */
+@media (max-width: 600px) {
+  #city-stage { --legend-room: 40px; height: calc(100vh - var(--stage-top, 220px) - var(--bottom-bars, 67px) - var(--legend-room)); height: calc(100svh - var(--stage-top, 220px) - var(--bottom-bars, 67px) - var(--legend-room)); min-height: 236px; }
+}
+/* a tablet (601 to 900 px): the whole world fits the stage (cities.js, a stage 600 px wide or more), so the stage is no taller than the
+   world needs (at 900 px it was a small world in a tall frame, with wide empty ocean bands) */
+@media (min-width: 601px) and (max-width: 900px) {
+  #cities .citymap { container-type: inline-size; }
+  #city-stage { height: min(calc(100svh - var(--stage-top, 220px) - var(--bottom-bars, 67px) - 8px), calc(100cqw / 1.75)); min-height: 360px; }
+}
+@media (min-width: 901px) {
+  #cities .citymap { container-type: inline-size; }
+  #city-stage { height: 490px; height: clamp(420px, calc(100cqw / 2.3), calc(100svh - var(--stage-top, 250px) - 28px)); }
+}
+#city-stage.is-full { height: 100vh; height: 100dvh; min-height: 0; }
+/* a search suggestion picked with a tap or a click: the map takes the keyboard without a ring round all of it (a key press brings it back) */
+.citymap canvas.is-quiet-focus:focus-visible { outline: none; }
+/* the light map: no grey vignette on its edges (it read as dirt on the white land), and a faint blue ocean so the land stands out */
+/* (measured: the edges of the light map within about 10% of its middle's lightness; they were 30% darker) */
+:root[data-theme="light"] #city-canvas { box-shadow: inset 0 0 60px rgba(11,22,38,.08); }
+:root[data-theme="light"] #city-stage { --map-bg: radial-gradient(80% 70% at 30% 35%, rgba(232,67,31,.04), transparent 60%), radial-gradient(120% 90% at 55% 45%, #E6F0FA, #D9E6F4); }
+
+/* =====================================================================
+   The map's controls: the magnifier (zoomed in: back to the search), + and − as one control, ⋯ for the rest (whole world, find my city,
+   colours, full screen) on every screen: six 44 px squares were a 300 px tower on a 420 px map.
+   ===================================================================== */
+.map-ctrl { gap: var(--sp-2, 8px); }
+.map-zoom { display: grid; }
+.map-zoom button:first-child { border-radius: var(--r-chip, 12px) var(--r-chip, 12px) 0 0; }
+.map-zoom button + button { margin-top: -1px; border-radius: 0 0 var(--r-chip, 12px) var(--r-chip, 12px); }
+.map-zoom button:hover { transform: none; }
+.map-search svg, .map-more svg { display: block; margin: auto; }
+#city-stage[data-crosshair="off"] .map-search { display: none; }
+.map-menu { display: none; position: absolute; right: calc(100% + 8px); top: 0; z-index: 5; width: 196px; padding: 6px; border-radius: var(--r-chip, 12px); background: var(--surface-2, var(--bg-2));
+  border: 1px solid var(--line-2); box-shadow: var(--shadow-2, 0 24px 60px -24px rgba(0,0,0,.8)); }
+.map-ctrl.is-menu .map-menu { display: grid; gap: 2px; }
+.map-ctrl .map-more { display: grid; place-items: center; }
 .map-menu__ic { display: grid; place-items: center; font: inherit; }
 .map-menu__ic svg { width: 18px; height: 18px; }
-@media (max-width: 600px) {
-  .map-ctrl .map-more { display: grid; place-items: center; }
-  .map-menu { display: none; position: absolute; right: 0; top: calc(100% + 8px); width: 196px; padding: 6px; border-radius: var(--r-chip, 12px); background: var(--surface-2, var(--bg-2));
-    border: 1px solid var(--line-2); box-shadow: var(--shadow-2, 0 24px 60px -24px rgba(0,0,0,.8)); }
-  .map-ctrl.is-menu .map-menu { display: grid; gap: 2px; }
-  .map-ctrl .map-menu button { display: flex; align-items: center; justify-content: flex-start; gap: 12px; width: 100%; height: 44px; padding: 0 12px; border: 0; border-radius: var(--r-xs, 8px);
-    background: none; backdrop-filter: none; font: 600 var(--fs-sm, .875rem) var(--body); text-align: left; }
-  .map-ctrl .map-menu button::after { inset: 0; }
-  .map-ctrl .map-menu button:hover { background: var(--card-2); transform: none; }
-  .map-ctrl .map-menu button[aria-pressed="true"] { background: var(--accent-soft, rgba(255,90,54,.12)); }
-  .map-menu .map-menu__ic { width: 22px; font-size: 1.1rem; }
-  .map-menu .map-menu__label { display: inline; font-style: normal; }
-  .map-ctrl button { width: 44px; height: 44px; }
-  .map-ctrl button::after { inset: 0; }
+.map-ctrl .map-menu button { display: flex; align-items: center; justify-content: flex-start; gap: 12px; width: 100%; height: 44px; padding: 0 12px; border: 0; border-radius: var(--r-xs, 8px);
+  background: none; backdrop-filter: none; font: 600 var(--fs-sm, .875rem) var(--body); text-align: left; }
+.map-ctrl .map-menu button::after { inset: 0; }
+.map-ctrl .map-menu button:hover { background: var(--card-2); transform: none; }
+.map-ctrl .map-menu button[aria-pressed="true"] { background: var(--accent-soft, rgba(255,90,54,.12)); }
+.map-menu .map-menu__ic { width: 22px; font-size: 1.1rem; }
+.map-menu .map-menu__label { display: inline; font-style: normal; }
+.map-ctrl button { width: 44px; height: 44px; }
+.map-ctrl button::after { inset: 0; }
+
+/* =====================================================================
+   "Find your city": the map's bottom slot on the first view. A phone: one pill (the field and a 44 px location button). A computer: one
+   bar in the ocean band under the world (cities.js keeps that band free), centred under it, with its title and "Use my location".
+   The suggestions open upward, inside the map.
+   ===================================================================== */
+.map-find { position: absolute; z-index: 4; left: 10px; right: 10px; bottom: 10px; display: flex; align-items: center; gap: 6px; height: 56px; margin: 0; padding: 5px 5px 5px 6px;
+  border-radius: var(--r-pill, 999px); background: var(--glass); -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4); border: 1px solid var(--line-2);
+  box-shadow: 0 18px 44px -18px rgba(0,0,0,.75), inset 0 1px 0 rgba(var(--ink),.06); }
+.map-find:focus-within { border-color: rgba(255,138,91,.55); box-shadow: 0 0 0 4px var(--accent-soft, rgba(255,90,54,.12)), 0 18px 44px -18px rgba(0,0,0,.75); }
+:root[data-theme="light"] .map-find { box-shadow: 0 18px 40px -20px rgba(11,22,38,.4), inset 0 1px 0 rgba(255,255,255,.8); }
+.map-find__title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.map-find__row { position: relative; flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
+.map-find__ico { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.map-find input { width: 100%; height: 44px; min-height: 44px; margin: 0; padding: 0 14px 0 42px; border: 0; border-radius: var(--r-pill, 999px); background: var(--surface-inset, rgba(255,255,255,.04));
+  color: var(--text); font: 500 16px/1.2 var(--body); outline: none; -webkit-appearance: none; appearance: none; }
+.map-find input::placeholder { color: var(--muted); opacity: 1; }
+.map-find input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.map-find input:focus-visible { outline: none; }
+.map-find__loc { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 44px; height: 44px; padding: 0; border-radius: var(--r-pill, 999px);
+  border: 1px solid var(--line-2); background: var(--card-2); color: var(--text); font: 600 var(--fs-sm, .875rem)/1 var(--body); white-space: nowrap; cursor: pointer; }
+.map-find__loc svg { flex: none; color: var(--pin-2); }
+.map-find__loc span { display: none; }
+.map-find__loc:hover { border-color: rgba(var(--ink),.3); background: rgba(var(--ink),.1); }
+.map-find__loc:disabled { cursor: progress; opacity: .7; }
+@media (prefers-reduced-motion: no-preference) { .map-find__loc.is-busy svg { animation: spin 1.2s linear infinite var(--lb-play, running); } }
+.map-find__list { position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); z-index: 1; margin: 0; padding: 6px; list-style: none; max-height: calc(var(--stage-h, 280px) - 80px); overflow-y: auto;
+  overscroll-behavior: contain; border-radius: var(--r-card, 18px); background: var(--surface-2, var(--bg-2)); border: 1px solid var(--line-2); box-shadow: var(--shadow-2, 0 24px 60px -24px rgba(0,0,0,.8)); }
+.map-find__opt { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 10px; border-radius: var(--r-chip, 12px); cursor: pointer; }
+.map-find__opt + .map-find__opt { margin-top: 2px; }
+.map-find__opt:hover, .map-find__opt[aria-selected="true"] { background: var(--card-2); }
+.map-find__opt[aria-selected="true"] { box-shadow: inset 3px 0 0 var(--pin-2); }
+.map-find__name { flex: 1 1 auto; min-width: 0; display: grid; gap: 1px; }
+.map-find__name strong, .map-find__name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-find__name strong { font: 600 .95rem/1.25 var(--body); color: var(--text); }
+.map-find__name span { font-size: var(--fs-xs, .75rem); line-height: 1.3; color: var(--muted); }
+.map-find__opt .tag { flex: none; }
+.map-find__none { padding: 12px; font-size: var(--fs-sm, .875rem); line-height: 1.4; color: var(--muted); }
+@media (min-width: 720px) {
+  /* in the band under the world (cities.js: the world ends 64 px above the stage's bottom), centred under it, left of the controls */
+  .map-find { left: 12px; right: 68px; bottom: 8px; max-width: 640px; margin: 0 auto; gap: 8px; padding: 5px 5px 5px 8px; }
+  .map-find__title { position: static; width: auto; height: auto; overflow: visible; clip: auto; flex: none; padding: 0 12px 0 10px; border-right: 1px solid var(--line-2);
+    font: 600 var(--fs-sm, .875rem)/1 var(--display); letter-spacing: -.005em; color: var(--text); }
+  .map-find input { font-size: var(--fs-base, 1rem); }
+  .map-find__loc { width: auto; padding: 0 16px 0 13px; }
+  .map-find__loc span { display: inline; }
+  .map-find__list { max-height: calc(var(--stage-h, 420px) - 96px); }
 }
-/* the hint and the city card: words wrap (two lines at most), never cut */
+
+/* =====================================================================
+   The city card and the scale bar: the bar sits above whichever card holds the slot (a variable for the card's height, not a fixed
+   154 px) and goes on the world view (a "2,000 km" bar is wrong at most latitudes of a whole-world map).
+   ===================================================================== */
+#city-stage { --slot-h: 134px; }
+#city-stage.is-folded { --slot-h: 52px; }
 .map-hint { white-space: normal; max-width: calc(100% - 24px); text-align: center; }
-.map-focus { height: 134px; }
-.map-scale { bottom: 154px; } /* the scale bar stays clear of the card, which grew by 18 px for its second line */
+.map-focus { height: var(--slot-h, 134px); }
+.map-scale { bottom: calc(var(--slot-h, 134px) + 20px); }
+#city-stage[data-crosshair="off"] .map-scale { display: none; }
 .map-focus .map-focus__area, .map-focus .map-focus__line { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .map-focus .map-focus__line { -webkit-line-clamp: 1; line-clamp: 1; }
 .map-focus.is-folded { height: 52px; }
+/* folded on the smallest phones: the name and its status tag, whole ("New York City Open · …" was cut; the ticker and the amount are one
+   tap away, in the unfolded card) */
+@media (max-width: 360px) {
+  .map-focus.is-folded .map-focus__ticker, .map-focus.is-folded .map-focus__mini { display: none; }
+  .map-focus.is-folded .map-focus__status:not([hidden]) { display: inline-flex; flex: none; margin-left: auto; }
+}
+
+/* =====================================================================
+   Under the map: the status keys on one line (the boundary keys at its end), the how-to in a fold, the founders feed once there is one
+   ===================================================================== */
+#cities .citymap__legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 12px 4px 0; font-size: var(--fs-xs, .75rem); line-height: 1.4; color: var(--muted); }
+/* a phone: the four statuses on one line, short words (the fold says the rest: what "Active" means, Yours, the boundary keys) */
+.citymap__how--key { display: none; }
+@media (max-width: 600px) {
+  #cities .citymap__legend { flex-wrap: nowrap; justify-content: space-between; gap: 0 10px; height: 18px; margin: 12px 0 0; overflow: hidden; line-height: 18px; white-space: nowrap; }
+  #cities .citymap__legend .citymap__more, #cities .citymap__legend .citymap__yours, #cities .citymap__legend .citymap__keys { display: none; }
+  #cities .citymap__howto .citymap__how--key { display: block; }
+  /* the fold starts below the tab bar on the first screen (nothing ghosts under the tab icons), a section's gap once scrolled */
+  #cities .citymap .citymap__howto { margin-top: calc(var(--bottom-bars, 67px) + 24px); }
+}
+#cities .citymap__legend > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+#cities .citymap__legend .dot { margin: 0; }
+.citymap__keys { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.citymap__keys > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.citymap__keys .line { margin: 0; width: 18px; }
+@media (min-width: 1024px) { .citymap__keys { margin-left: auto; } }
+#cities .citymap__legend .dot--active::before { inset: -3px; border-width: 1.5px; } /* the legend's ring: the marker's shape, at the legend's size */
+#cities .citymap__howto { margin: 10px 4px 0; }
+#cities .citymap__howto > summary { min-height: 40px; font-size: var(--fs-sm, .875rem); color: var(--text-2); }
+.citymap__howto-body { display: grid; gap: 4px; margin: 0 0 var(--sp-2, 8px); font-size: var(--fs-xs, .75rem); line-height: 1.5; color: var(--muted); }
+#cities .citymap__howto .citymap__how { display: block; }
+
 /* the founders feed: who and when after the city (a pill on a computer); on a phone one list card, a row per founder: the city, then
    "founder name", the wallet in a small mono chip and the time, hairlines between (it scrolled sideways, then wrapped unevenly) */
 .claim-feed__who, .claim-feed__ago { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; color: var(--muted); }
@@ -73,6 +226,17 @@
   .claim-feed__ago { grid-column: 2; grid-row: 1; margin: 0; font-size: .75rem; white-space: nowrap; }
   .claim-feed__who::before, .claim-feed__ago::before { content: none; }
 }
+
+/* =====================================================================
+   Browse cities (the list: the visitor's country first; the map's find card is the one search) and the claim panel
+   ===================================================================== */
+.city-search__head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 2px 16px; margin: 0 0 var(--sp-3, 12px); }
+.city-search__head .kicker { margin: 0 0 6px; }
+.city-search__title { margin: 0; max-width: none; font-size: 1.3rem; font-weight: 600; letter-spacing: -.01em; } /* the claim panel's title size: the two cards side by side read as one pair */
+.city-search__find { margin-bottom: -10px; }
+.city-search__find { font-size: var(--fs-sm, .875rem); font-weight: 600; }
+.city-search__row select { flex: 1 1 0; min-width: 0; }
+.city-search__row select#city-filter { flex: 0 1 auto; }
 /* the list: 8 rows and "Show more" on a phone, no box scrolling inside the page */
 .city-more { margin: 6px 0 2px; }
 @media (max-width: 600px) {

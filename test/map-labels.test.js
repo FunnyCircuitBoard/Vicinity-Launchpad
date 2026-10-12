@@ -23,7 +23,7 @@ const js = read("public/cities.js"), css = read("public/style.css"), polish = re
 const H = (() => {
   const a = js.indexOf("  /* map helpers: start"), b = js.indexOf("  /* map helpers: end */");
   assert.ok(a > 0 && b > a);
-  return vm.runInNewContext(`${js.slice(a, b)}\n({ LABEL_K, LABEL_PX, labelFilter, labelRank, byRank, placeLabels })`, {});
+  return vm.runInNewContext(`${js.slice(a, b)}\n({ LABEL_K, LABEL_PX, KREF, labelFilter, labelRank, byRank, placeLabels })`, {});
 })();
 const item = (id, x, y, span, extra = {}) => ({ id, x, y, span, ...extra });
 const plain = (o) => JSON.parse(JSON.stringify(o)); // answers come from another realm: compared as plain values
@@ -123,8 +123,11 @@ test("labels: the rule is fast enough for hundreds of cities on every layout (a 
 
 test("labels: the page applies the rule: the stage's size, the crosshair, the phone budget; nothing is placed when nothing may show; every status marker is a core no chip covers", () => {
   const layout = js.slice(js.indexOf("  function layoutLabels(now) {"), js.indexOf("  // text widths measured before the site's fonts arrive"));
-  assert.match(layout, /const \{ ids, max \} = labelFilter\(cands, k, \{ phone, fx: fcx, fy: fcy, W, H \}\);/);
-  assert.match(layout, /const want = cands\.filter\(\(it\) => ids\.has\(it\.id\)\)\.sort\(/, "only the cities the rule allows, in priority order");
+  assert.match(layout, /const \{ ids, max \} = labelFilter\(cands, kg\(\), \{ phone, fx: fcx, fy: fcy, W, H \}\);/, "the rule gets the real map scale (kg: s0 × k ÷ KREF), not the raw zoom");
+  assert.match(layout, /const want = cands\.filter\(\(it\) => ids\.has\(it\.id\) && it\.id !== named\)\.sort\(/, "only the cities the rule allows, in priority order");
+  // the city the card names (opened for the visitor: a ?city= link, a pick; the map not moved since) carries no chip of its own: its
+  // chip sat on its own boundary (review of 12 Oct 2026); its pin, outline and card say it
+  assert.match(layout, /const named = findOn === false && focusPinned && !userMoved \? focusPinned : null;/);
   assert.match(layout, /if \(st !== "open"\) markers\.push\(\[x - 10, y - 10, 20, 20\]\);/, "active, choosing, founded, yours: 20 px around the dot, the whole ring (choosing ends at r 9, active at 8.25: a 16 px core let a chip touch the ring's outer pixel)");
   assert.match(layout, /const placed = items\.length \? placeLabels\(items, \{ W, H, avoid, soft: \[\[fcx - 20, fcy - 20, 40, 40\]\], core: \[\[fcx - 16, fcy - 16, 32, 32\], \.\.\.markers\], max \}\) : \[\];/);
   assert.match(layout, /span: spanOf\(c\)/);
@@ -133,6 +136,27 @@ test("labels: the page applies the rule: the stage's size, the crosshair, the ph
   // the stats without a tap: the city card at the bottom follows the crosshair at every zoom (unchanged), the hint says when names show
   assert.match(js, /function updateFocus\(\) \{/);
   for (const h of [page, src]) assert.match(h, /names show once you zoom in on a city/, "the legend's hint");
+});
+
+test("labels: the same distance gives the same names on a whole-world computer stage and on a phone (real map scale, the critic of 11 Oct 2026)", () => {
+  // a computer now opens on the whole world (s0 ≈ 2.42 px per degree on a 950 × 420 stage), a phone keeps the world covering it
+  // (s0 ≈ 3.85 on 390 × 554): in raw zoom steps the computer's names would come on 1.6 times further out than the phone's
+  const desk = { W: 950, H: 420, s0: Math.min((950 - 80) / 360, (420 - 72) / 144) }, phoneStage = { W: 390, H: 554, s0: Math.max(390 / 360, 554 / 144) };
+  // cities around the crosshair, in degrees: [id, dx, dy (from the crosshair), span of the boundary]
+  const deg = [["a", 0.2, 0.1, 2.2], ["b", -1.5, 0.8, 2.0], ["c", 1.2, -1.4, 1.2], ["d", 0.6, 0.4, 1.0, "active"], ["far", 9, 9, 3], ["f", -0.1, 0.05, 1.1, null, true]];
+  const at = (stage, pxPerDeg) => {
+    const k = pxPerDeg / stage.s0, fx = stage.W / 2, fy = stage.H / 2;
+    const items = deg.map(([id, dx, dy, span, status, focus]) => ({ id, x: fx + dx * stage.s0 * k, y: fy + dy * stage.s0 * k, span: span * stage.s0 * k, status: status || "open", focus: Boolean(focus) }));
+    return { k, ids: [...H.labelFilter(items, (stage.s0 * k) / H.KREF, { phone: stage.W < 600, fx, fy, W: stage.W, H: stage.H }).ids].sort() };
+  };
+  for (const pxPerDeg of [20, 27.2, 30, 60, 200]) {
+    const a = at(desk, pxPerDeg), b = at(phoneStage, pxPerDeg);
+    assert.deepEqual(a.ids, b.ids, `${pxPerDeg} px per degree: computer zoom ${a.k.toFixed(1)}, phone zoom ${b.k.toFixed(1)}`);
+  }
+  assert.deepEqual(at(desk, 20).ids, [], "further out than LABEL_K × KREF px per degree: no names on either");
+  assert.deepEqual(at(desk, 30).ids, ["a", "b", "d", "f"], "zoomed in on a region: the cities big enough near the crosshair (an active one from half the span), not c (too small) nor the far one");
+  // the same view in raw zoom steps: the phone (zoom 7.8) would show nothing while the computer (zoom 12.4) shows names
+  assert.equal(at(phoneStage, 30).k < 8 && at(desk, 30).k > 8, true);
 });
 
 test("labels: priority: yours, selected, in focus, founded (by holders), choosing (by applicants), active (by holders), members, population", () => {
@@ -210,7 +234,9 @@ test("active: its colour comes from --st-active (polish-map.css, both themes), r
 
 test("active: the legend, the city card, the tags and the tooltip carry the colour and the ring; the words say what it means", () => {
   for (const h of [page, src]) {
-    assert.match(h, /<span><span class="dot dot--open" aria-hidden="true"><\/span> Open<\/span><span><span class="dot dot--active" aria-hidden="true"><\/span> Active: verified holders, no founder yet<\/span><span><span class="dot dot--choosing"/, "between Open and Choosing: the order a community moves through");
+    assert.match(h, /<span><span class="dot dot--open" aria-hidden="true"><\/span> Open<\/span><span><span class="dot dot--active" aria-hidden="true"><\/span> <span>Active<span class="citymap__more">: verified holders, no founder yet<\/span><\/span><\/span><span><span class="dot dot--choosing"/, "between Open and Choosing: the order a community moves through");
+    // a phone's one-line legend keeps the word, and its fold says what it means (review of 12 Oct 2026: the legend's lines ran under the tab bar)
+    assert.match(h, /<span class="citymap__how citymap__how--key">Active: verified holders, no founder yet · /);
   }
   assert.match(polish, /\.dot--active \{ background: var\(--st-active\); box-shadow: 0 0 6px var\(--st-active\); \}/);
   assert.match(polish, /\.dot--active::before, \.map-focus\[data-status="active"\] \.map-focus__dot::before \{ content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var\(--st-active\); pointer-events: none; \}/, "the ring on the legend's dot and the card's dot");

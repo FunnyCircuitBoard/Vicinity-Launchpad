@@ -159,7 +159,9 @@ test("token page: live facts on top, holders in a scrolling table with the rank 
 
 test("cities page: live map, claimed vs open, claiming sends you to the dashboard, rules stated plainly", () => {
   const h = html["cities.html"];
-  for (const id of ["cities", "city-canvas", "map-in", "map-out", "map-reset", "map-locate", "coin-preview", "coin-ticker", "claim-feed", "mod-row", "city-q", "cs-claimed", "cs-open", "wanted-list"]) assert.ok(h.includes(`id="${id}"`), id);
+  // d3 (11 Oct 2026): one search on the page, the map's (#map-find-q; the list's #city-q is gone); "still open" (#cs-open) is gone
+  for (const id of ["cities", "city-canvas", "map-in", "map-out", "map-reset", "map-locate", "map-find-q", "map-find-loc", "coin-preview", "coin-ticker", "claim-feed", "mod-row", "city-country", "cs-claimed", "cs-official", "wanted-list"]) assert.ok(h.includes(`id="${id}"`), id);
+  for (const id of ["city-q", "cs-open"]) assert.ok(!h.includes(`id="${id}"`), `${id} is gone`);
   assert.match(h, /<a class="btn btn--primary btn--block" id="claim-btn" href="\/dashboard">/);
   assert.match(h, /One wallet\. One city\./);
   assert.match(h, /100,000 to 1,000,000 \$VICINITY/, "the Stake Ladder, not a flat 1M");
@@ -297,7 +299,7 @@ test("home: the Early member card no longer invites visitors to join for a badge
   // src/signup-finish.js (the sign-up) and src/auth.js store early = 0 for every account made while VICINITY_MINT is set (since 3 Oct 2026)
   const h = html["index.html"];
   assert.doesNotMatch(h, /Join before \$VICINITY launches/);
-  assert.match(h, /<h3>Proof you were early<\/h3><p class="muted">Members who joined before \$VICINITY launched on October 3 carry the <strong>Early member<\/strong> badge for good\. Nobody can earn it any more\.<\/p>/);
+  assert.match(h, /<h3>Proof you were&nbsp;early<\/h3><p class="muted">Members who joined before \$VICINITY launched on October 3 carry the <strong>Early member<\/strong> badge for good\. Nobody can earn it any more\.<\/p>/);
   for (const f of ["../src/signup-finish.js", "../src/auth.js"]) assert.match(readFileSync(new URL(f, import.meta.url), "utf8"), /activeMint\(env\) \? 0 : 1/, `${f}: the rule the card describes`);
 });
 
@@ -305,7 +307,8 @@ test("home: the roadmap shows the October 3 launch as done and the Launchpad as 
   // live 3 Oct 2026 after the launch: the launch was still the pulsing "next" step, "the contract address is published on this
   // site first", the FAQ said "it launches October 3", and the New York map said founder "claims open at launch"
   const h = html["index.html"];
-  const items = [...h.matchAll(/<li class="timeline__item([^"]*)"><span class="timeline__status">([^<]+)<\/span><h3>([^<]+)<\/h3>/g)].map((m) => [m[1].trim(), m[2], m[3]]);
+  // (d3: a no-break space ties the last two words of each title, so none ends on a single word)
+  const items = [...h.matchAll(/<li class="timeline__item([^"]*)"><span class="timeline__status">([^<]+)<\/span><h3>([^<]+)<\/h3>/g)].map((m) => [m[1].trim(), m[2], m[3].replace(/&nbsp;/g, " ")]);
   assert.deepEqual(items.slice(0, 4), [["is-done reveal", "Done", "The real map"], ["is-done reveal", "Done", "Accounts and dashboards"],
     ["is-done reveal", "Done", "$VICINITY launched"], ["is-next reveal", "Next", "Vicinity Launchpad"]]);
   assert.doesNotMatch(h, /Every city can launch/, "no city coin can launch yet: the roadmap says each city launches once its founder qualifies");
@@ -315,7 +318,11 @@ test("home: the roadmap shows the October 3 launch as done and the Launchpad as 
   assert.match(h, /it launched on October 3 on Raydium LaunchLab/);
   const home = read("home.js");
   assert.doesNotMatch(home, /claims open at launch/);
-  assert.match(home, /"👑 City Founder: seat open · hold 7 days, then apply"/);
+  // d3 (11 Oct 2026): the founder seat is no flag over the map any more (it covered the map and the other flag on a phone): step 4's
+  // caption says it, with the qualifying rule in full (holding alone never wins the seat)
+  assert.doesNotMatch(home, /m-flag|👑|📍/);
+  assert.match(h, /<span>City Founder seat: open — hold the founder amount 7 days \(home here 7\+ days\), then apply<\/span>/);
+  assert.match(h, /The first local who qualifies and applies becomes Seed Steward, and locals can challenge them or choose between rivals\./);
 });
 
 test("dashboard roles (public, signed out too) no longer present the rules in force since the launch as 'when Vicinity goes live'", () => {

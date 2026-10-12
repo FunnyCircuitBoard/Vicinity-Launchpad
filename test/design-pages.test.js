@@ -131,10 +131,16 @@ test("the account step's place chip: the place, then 'Not right? Check again' un
   assert.match(CSS, /@media \(max-width: 600px\) \{ #su-recap \.su-recap__sep \{ display: none; \}/);
 });
 
-test("cities: the map's scale bar clears the taller city card, and the feedback button steps aside from the card and the map's controls", () => {
-  assert.match(CSS, /\.map-focus \{ height: 134px; \}\n\.map-scale \{ bottom: 154px; \}/);
+test("cities: the map's scale bar clears whichever card holds the slot, and the feedback button steps aside from the map, its card and its controls", () => {
+  // d3 (11 Oct 2026): the slot's height is one variable (134 px, 52 px folded) the card and the scale bar both read (the bar used a
+  // fixed bottom: 154px); the bar goes on the world view (a "2,000 km" bar is wrong at most latitudes of a whole-world map)
+  assert.match(CSS, /#city-stage \{ --slot-h: 134px; \}\n#city-stage\.is-folded \{ --slot-h: 52px; \}/);
+  assert.match(CSS, /\.map-focus \{ height: var\(--slot-h, 134px\); \}\n\.map-scale \{ bottom: calc\(var\(--slot-h, 134px\) \+ 20px\); \}\n#city-stage\[data-crosshair="off"\] \.map-scale \{ display: none; \}/);
+  assert.doesNotMatch(CSS, /\.map-scale \{ bottom: 154px; \}/);
   for (const h of [read("public/cities.html"), read("scripts/pages/src/cities.html")]) {
     assert.match(h, /<div class="map-ctrl" role="group" aria-label="Map controls" data-fb-avoid>/);
-    assert.match(h, /<div class="map-focus is-loading" id="map-focus" role="group" aria-label="The city at the centre of the map" data-fb-avoid>/);
+    assert.match(h, /<div class="map-focus is-loading" id="map-focus" role="group" aria-label="The city at the centre of the map" data-fb-avoid hidden>/, "the card waits for a city: the first view is the find card");
+    assert.match(h, /<form class="map-find" id="map-find" role="search" aria-label="Find your city" data-fb-avoid>/);
+    assert.match(h, /<div class="citymap__stage" id="city-stage" data-crosshair="off" data-world-fit="0" data-fb-avoid>/, "a phone: the feedback button never sits on the map (feedback.js AVOID honours data-fb-avoid)");
   }
 });

@@ -170,3 +170,10 @@
   .grid-3 .perk { grid-template-columns: 36px minmax(0, 1fr); }
   .perk__icon.ico { margin: 0; }
 }
+/* the hero's light (the review of 12 Oct 2026, the owner's H2 on the home page): anchored to the centred title and button, never to the
+   screen's corners (a 540 px red orb at the top right corner of a wide screen read as a smudge) */
+@media (min-width: 900px) {
+  .launch-hero .orb--a { width: 520px; height: 340px; top: 10%; right: auto; left: calc(50% - 470px); opacity: .17; }
+  .launch-hero .orb--b { width: 460px; height: 300px; bottom: 8%; left: calc(50% - 20px); opacity: .14; }
+  :root[data-theme="light"] .launch-hero .orb { opacity: .08; }
+}

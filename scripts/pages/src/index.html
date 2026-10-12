@@ -1,12 +1,13 @@
 <!--{"title": "How it works", "description": "Vicinity puts every real city on one map with real boundaries. One official coin per community, local leaders, local memes, check-ins and votes. $VICINITY holders get in first.", "page": "home", "scripts": ["ticker", "home", "swap"]}-->
-    <!-- ============ HERO: the copy, one button, the facts; the New York map beside it on a computer (on a phone the walkthrough below is the map) ============ -->
+    <!-- ============ HERO: the copy, one button, the facts as tiles; the New York map beside it on a computer (on a phone the walkthrough below is the map).
+         Its light is anchored to the copy and the map card (style.css .hero__copy::before, .hero-map::before), never to the screen's edges ============ -->
     <section class="hero" id="hero">
-      <div class="hero__bg" aria-hidden="true"><div class="orb orb--a"></div><div class="orb orb--b"></div><div class="grid-floor"></div></div>
+      <div class="hero__bg" aria-hidden="true"><div class="grid-floor"></div></div>
       <div class="wrap hero__grid">
         <div class="hero__copy">
           <p class="eyebrow"><span class="pill pill--live"><span class="live-dot" aria-hidden="true"></span>Map live</span> <span class="eyebrow__tail">Every real city on Earth, one map</span></p>
           <h1 class="hero__title">One city. <br>One coin. <br><span class="accent">One community.</span></h1>
-          <p class="lead">Every real city gets <strong>one official coin</strong>, run by the people who live there. <strong>$VICINITY</strong> is the key to all of them<span class="lead__tail">: you get into city coins first, and a shot at your city's founder seat</span>.</p>
+          <p class="lead">Every real city can get <strong>one official coin</strong>, run by the people who live there. <strong>$VICINITY</strong> is the key to all of&nbsp;them<span class="lead__tail">: you get into city coins first, and a shot at your city's founder seat</span>.</p>
           <div class="hero__cta hero__cta--one">
             <a class="btn btn--primary btn--lg" href="/token#buy-slot">Get $VICINITY <span aria-hidden="true">→</span></a>
           </div>
@@ -15,47 +16,56 @@
             <li>Fixed supply</li>
             <li>Locals lead</li>
           </ul>
+          <!-- strong facts only: a phone shows the first three, a computer the Launchpad too; home.js puts a members tile in place of
+               the countries only at 100 verified members or more (a small count makes the map look empty) -->
           <ul class="hero__facts" aria-label="Vicinity in numbers">
-            <li><strong data-stat="communities">8,008</strong><span>communities mapped</span></li>
-            <li class="hero__fact--launch"><a class="hero__fact-link" href="/launchpad"><strong data-countdown-short>Oct 10</strong><span data-countdown-label>until the Launchpad<span class="fact__tail"> opens</span></span></a></li>
-            <li><strong data-stat="countries">244</strong><span>countries</span></li>
-            <li><strong data-stat="members">…</strong><span>verified members</span></li>
-            <li><strong data-stat="officialBoundaries">5,831</strong><span>official city boundaries</span></li>
+            <li><strong data-stat="communities">8,029</strong><span>communities mapped</span></li>
+            <li class="hero__fact--countries"><strong data-stat="countries">244</strong><span>countries &amp; territories</span></li>
+            <li><strong data-stat="officialBoundaries">5,838</strong><span>official<span class="fact__wide"> city</span> boundaries</span></li>
+            <li class="hero__fact--launch"><a class="hero__fact-link" href="/launchpad"><strong><span class="ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c3 2.2 4.5 5.6 4.5 9.3l-1.8 3.2H9.3l-1.8-3.2C7.5 8.6 9 5.2 12 3z"/><circle cx="12" cy="9.8" r="1.6"/><path d="M9.3 15.5 7 19l3-1M14.7 15.5 17 19l-3-1M12 17.5V21"/></svg></span>Launchpad</strong><span>Open · city coins <span class="nowrap">come next <span aria-hidden="true">→</span></span></span></a></li>
           </ul>
         </div>
         <figure class="hero-map" aria-label="New York City's real community boundary">
           <a class="hero-map__link" href="/cities?city=5128581" aria-label="Open New York City on the live map">
-          <svg class="hero-map__svg" id="hero-map" viewBox="0 0 1000 925" role="img" aria-label="Outline of the New York City community on the Vicinity map"></svg>
+          <svg class="hero-map__svg" id="hero-map" viewBox="344 324 336 334" role="img" aria-label="Outline of the New York City community on the Vicinity map"></svg>
           <span class="hero-chip hero-chip--1"><b>$NYC</b> one coin</span>
-          <span class="hero-chip hero-chip--2"><b data-stat="nycMembers">73</b> places, one community</span>
+          <span class="hero-chip hero-chip--2"><b data-stat="nycMembers">46</b> places, one community</span>
           <span class="hero-chip hero-chip--3"><span class="live-dot" aria-hidden="true"></span> Founder seat open</span>
           <span class="map-open">Open the live map <span aria-hidden="true">→</span></span>
           </a>
-          <figcaption class="tiny muted">Real data: New York City's community on the Vicinity map.</figcaption>
+          <figcaption class="tiny muted">Real map data. $NYC isn't launched yet: it can only launch on the Vicinity Launchpad.</figcaption>
         </figure>
       </div>
     </section>
 
-    <!-- ============ NYC, REAL DATA: the map first on a phone, one step at a time ============ -->
+    <!-- ============ NYC, REAL DATA: the map first on a phone, one step at a time. One view per step (home.js: zoomed in on the city, then out to
+         its neighbours), labels that never collide, a legend under the map; nothing floats over the drawing ============ -->
     <section class="section section--panel" id="nyc">
       <div class="wrap">
         <div class="section-head">
           <p class="kicker"><span class="kicker__long">Real map, real data · New York City</span><span class="kicker__short">New York City · real data</span></p>
-          <h2>How one city becomes one coin.</h2>
+          <h2>How one city becomes one&nbsp;coin.</h2>
           <p class="muted">Step through it, or let it play.</p>
         </div>
-        <div class="nyc" data-step="1">
-          <div class="nyc__map">
-            <svg id="nyc-map" viewBox="0 0 1000 925" role="img" aria-label="Map of New York City and its neighbours on the Vicinity map"></svg>
+        <div class="nyc" data-step="1" data-fb-avoid>
+          <div class="nyc__map" data-fb-avoid>
+            <svg id="nyc-map" viewBox="290 255 440 440" role="img" aria-label="Map of New York City and its neighbours on the Vicinity map"></svg>
             <p class="nyc__tip" id="nyc-tip" hidden></p>
-            <p class="nyc__credit tiny">© OpenStreetMap contributors · GeoNames · Natural Earth</p>
+            <div class="nyc__foot">
+              <ul class="nyc__legend" aria-label="Map key">
+                <li class="nyc__key nyc__key--official"><span class="nyc__swatch" aria-hidden="true"></span><span>Official boundary</span></li>
+                <li class="nyc__key nyc__key--member"><span class="nyc__swatch" aria-hidden="true"></span><span>Part of $NYC (<b data-stat="nycMembers">46</b>&nbsp;places)</span></li>
+                <li class="nyc__key nyc__key--nb"><span class="nyc__swatch" aria-hidden="true"></span><span>Neighbour: gets its own coin</span></li>
+              </ul>
+              <p class="nyc__credit">© OpenStreetMap contributors · GeoNames · Natural Earth</p>
+            </div>
           </div>
           <div class="nyc__steps">
             <ol class="steps" id="nyc-steps">
-              <li><button type="button" data-go="1" aria-current="step"><span class="steps__n">1</span><span><strong>The official boundary</strong><em>We start from the city's own boundary on OpenStreetMap: New York City's five boroughs.</em></span></button></li>
-              <li><button type="button" data-go="2"><span class="steps__n">2</span><span><strong><b data-stat="nycMembers">73</b> places, one coin</strong><em>Manhattan, Brooklyn, Queens, the Bronx, Staten Island and the neighbourhoods inside them (Harlem, Astoria, Flatbush…) all sit inside that boundary. Instead of <b data-stat="nycMembers">73</b> coins fighting each other, they share one: <b>$NYC</b>.</em></span></button></li>
-              <li><button type="button" data-go="3"><span class="steps__n">3</span><span><strong>Neighbours keep their own</strong><em>Nobody's city is folded into New York. Newark (with Jersey City and Hoboken right next door), Yonkers, Paterson and Hempstead each have their own coin, and borders never overlap.</em></span></button></li>
-              <li><button type="button" data-go="4"><span class="steps__n">4</span><span><strong>Locals take the lead</strong><em>People inside the boundary verify with their location and wallet. The first local who has held the city's founder amount for 7 days becomes Seed Steward, and locals can challenge them or choose between rivals. No single whale decides.</em></span></button></li>
+              <li><button type="button" data-go="1" aria-current="step"><span class="steps__n">1</span><span><strong>The official&nbsp;boundary</strong><em>We start from the city's own boundary on OpenStreetMap: New York City's five boroughs.</em></span></button></li>
+              <li><button type="button" data-go="2"><span class="steps__n">2</span><span><strong><b data-stat="nycMembers">46</b> places, one&nbsp;coin</strong><em>Manhattan, Brooklyn, Queens, the Bronx, Staten Island and the neighbourhoods inside them (Harlem, Astoria, Flatbush…) all sit inside that boundary. Instead of <b data-stat="nycMembers">46</b> coins fighting each other, they share one: <b>$NYC</b>.</em></span></button></li>
+              <li><button type="button" data-go="3"><span class="steps__n">3</span><span><strong>Neighbours keep their&nbsp;own</strong><em>Nobody's city is folded into New York. Newark (with Jersey City and Hoboken right next door), Yonkers, Paterson and Hempstead each get their own coin, and borders never overlap.</em></span></button></li>
+              <li><button type="button" data-go="4"><span class="steps__n">4</span><span><strong>Locals take the&nbsp;lead</strong><em>The first local who qualifies and applies becomes Seed Steward, and locals can challenge them or choose between rivals. No single whale decides.<span class="steps__facts"><span class="steps__fact"><span class="ico ico--sm ico--gold" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17.5 3 8l5 4 4-6.5 4 6.5 5-4-1 9.5z"/><path d="M4.5 20.5h15"/></svg></span><span>City Founder seat: open — hold the founder amount 7 days (home here 7+ days), then apply</span></span><span class="steps__fact"><span class="ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg></span><span>Locals verify with wallet + location</span></span></span></em></span></button></li>
             </ol>
             <div class="nyc__ctrl">
               <button class="btn btn--glass btn--sm" type="button" id="nyc-prev" aria-label="Previous step">←</button>
@@ -77,7 +87,7 @@
       <div class="wrap">
         <div class="section-head">
           <p class="kicker">The problem</p>
-          <h2 class="h2--sm">Meme coins have no home. City coins have no owner.</h2>
+          <h2 class="h2--sm">Meme coins have no home. City coins have no&nbsp;owner.</h2>
         </div>
         <ol class="problems">
           <li><span class="problem__num">01</span><strong>Thousands of coins a day, no reason to stay.</strong></li>
@@ -93,7 +103,7 @@
       <div class="wrap">
         <div class="section-head">
           <p class="kicker">Incentives</p>
-          <h2>Why people hold $VICINITY.</h2>
+          <h2>Why people hold&nbsp;$VICINITY.</h2>
         </div>
         <div class="seg seg--tabs" role="tablist" aria-label="What $VICINITY gets you" id="why-tabs">
           <button type="button" role="tab" id="tab-why-now" aria-selected="true" aria-controls="why-now">Get in first</button>
@@ -111,16 +121,16 @@
             </div>
           </div>
           <ul class="facts">
-            <li><div><h3>Founding Supporters go first</h3><p class="muted">Hold $VICINITY at the Launchpad snapshot (counted as the lower of your balance then and your 14-day average) and you buy new city coins before the public.</p></div></li>
-            <li><div><h3>Every city gets one coin</h3><p class="muted">City coins launch on the Vicinity Launchpad, right here on vicinity.city, with City Founders and Founding Supporters first in line.</p></div></li>
-            <li><div><h3>Proof you were early</h3><p class="muted">Members who joined before $VICINITY launched on October 3 carry the <strong>Early member</strong> badge for good. Nobody can earn it any more.</p></div></li>
+            <li><div><h3>Founding Supporters go&nbsp;first</h3><p class="muted">Hold $VICINITY at the Launchpad snapshot (counted as the lower of your balance then and your 14-day average) and you buy new city coins before the public.</p></div></li>
+            <li><div><h3>Every city gets one&nbsp;coin</h3><p class="muted">City coins launch on the Vicinity Launchpad, right here on vicinity.city, with City Founders and Founding Supporters first in line.</p></div></li>
+            <li><div><h3>Proof you were&nbsp;early</h3><p class="muted">Members who joined before $VICINITY launched on October 3 carry the <strong>Early member</strong> badge for good. Nobody can earn it any more.</p></div></li>
           </ul>
         </div>
         <div class="tabpanel why-panel" id="roles" role="tabpanel" aria-labelledby="tab-roles" hidden>
           <ul class="facts facts--roles">
             <li><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="15" r="5"/><path d="M8.5 10.5 6 3.5h4l2 5 2-5h4l-2.5 7"/></svg></span><div><h3>Holder</h3><p class="muted">Hold any $VICINITY: post, vote and check in with your city and country, with a live rank and badges your city can see. Sell and they're gone.</p></div></li>
-            <li><span class="ico ico--gold" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17.5 3 8l5 4 4-6.5 4 6.5 5-4-1 9.5z"/><path d="M4.5 20.5h15"/></svg></span><div><h3>City Founder</h3><p class="muted">Hold your city's founder amount (100K to 1M $VICINITY, by city size) for 7 days, apply from inside the city and get confirmed by locals: you become Seed Steward at once, moderate the city and launch its coin first. Your votes count 2×.</p></div></li>
-            <li><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5.5c0 4.2 2.9 7.9 7 9.5 4.1-1.6 7-5.3 7-9.5V6l-7-3z"/></svg></span><div><h3>Country Manager</h3><p class="muted">A founder elected by the country's locals for 90 days: advises on new towns and proposes bans (a second person approves). Votes count 3×.</p></div></li>
+            <li><span class="ico ico--gold" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17.5 3 8l5 4 4-6.5 4 6.5 5-4-1 9.5z"/><path d="M4.5 20.5h15"/></svg></span><div><h3>City&nbsp;Founder</h3><p class="muted">Hold your city's founder amount (100K to 1M $VICINITY, by city size) for 7 days, apply from inside the city and get confirmed by locals: you become Seed Steward at once, moderate the city and launch its coin first. Your votes count 2×.</p></div></li>
+            <li><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5.5c0 4.2 2.9 7.9 7 9.5 4.1-1.6 7-5.3 7-9.5V6l-7-3z"/></svg></span><div><h3>Country&nbsp;Manager</h3><p class="muted">A founder elected by the country's locals for 90 days: advises on new towns and proposes bans (a second person approves). Votes count 3×.</p></div></li>
             <li><span class="ico ico--muted" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3.5l1.5 2.2 2.6-.7.6 2.6 2.5 1-1 2.4 1 2.4-2.5 1-.6 2.6-2.6-.7L12 20.5l-1.5-2.2-2.6.7-.6-2.6-2.5-1 1-2.4-1-2.4 2.5-1 .6-2.6 2.6.7z"/></svg></span><div><h3>Admin</h3><p class="muted">The Vicinity team: decides objections and appeals it wasn't part of. Can never touch anyone's tokens.</p></div></li>
           </ul>
           <p class="bridge"><a href="/rules">Every rule, and how to check it →</a></p>
@@ -159,15 +169,15 @@
       <div class="wrap">
         <div class="section-head">
           <p class="kicker">How the app works</p>
-          <h2 class="h2--sm">From your phone to city leader in five steps.</h2>
+          <h2 class="h2--sm">From your phone to city leader in five&nbsp;steps.</h2>
         </div>
         <div class="flow-wrap flow-wrap--compact">
           <ol class="flow flow--compact">
-            <li class="flow__step reveal"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg></span><div><h3>Find your community</h3><p class="muted">Share your location once (never saved): we find the city you're standing in.</p></div></li>
-            <li class="flow__step reveal"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><circle cx="9" cy="11" r="2"/><path d="M6 15.5c.6-1.4 1.7-2 3-2s2.4.6 3 2M14 10h3.5M14 13h3.5"/></svg></span><div><h3>Sign in with Google or e-mail</h3><p class="muted">One account per login makes fake accounts and spam harder (it does not prove one person).</p></div></li>
-            <li class="flow__step reveal"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 20.5h17M5.5 20.5V9l5-3v14.5M10.5 20.5V11h8v9.5M13.5 14h2M13.5 17h2M7.5 12h1M7.5 15h1"/></svg></span><div><h3>Your dashboard</h3><p class="muted">Local and national feeds: memes, check-ins, discussions and weekly votes.</p></div></li>
-            <li class="flow__step reveal"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></span><div><h3>Connect a wallet when you like</h3><p class="muted">A free signature, not a transaction: your live rank and badges switch on.</p></div></li>
-            <li class="flow__step reveal" id="get"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c3 2.2 4.5 5.6 4.5 9.3l-1.8 3.2H9.3l-1.8-3.2C7.5 8.6 9 5.2 12 3z"/><circle cx="12" cy="9.8" r="1.6"/><path d="M9.3 15.5 7 19l3-1M14.7 15.5 17 19l-3-1M12 17.5V21"/></svg></span><div><h3>City coins on the Launchpad</h3><p class="muted">Founders and $VICINITY holders get in before the public. <a href="/token#buy">How to get $VICINITY →</a></p></div></li>
+            <li class="flow__step reveal"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg></span><div><h3>Find your&nbsp;community</h3><p class="muted">Share your location once (never saved): we find the city you're standing in.</p></div></li>
+            <li class="flow__step reveal"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><circle cx="9" cy="11" r="2"/><path d="M6 15.5c.6-1.4 1.7-2 3-2s2.4.6 3 2M14 10h3.5M14 13h3.5"/></svg></span><div><h3>Sign in with Google or&nbsp;<span class="nowrap">e-mail</span></h3><p class="muted">One account per login makes fake accounts and spam harder (it does not prove one person).</p></div></li>
+            <li class="flow__step reveal"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 20.5h17M5.5 20.5V9l5-3v14.5M10.5 20.5V11h8v9.5M13.5 14h2M13.5 17h2M7.5 12h1M7.5 15h1"/></svg></span><div><h3>Your&nbsp;dashboard</h3><p class="muted">Local and national feeds: memes, check-ins, discussions and weekly votes.</p></div></li>
+            <li class="flow__step reveal"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></span><div><h3>Connect a wallet when you&nbsp;like</h3><p class="muted">A free signature, not a transaction: your live rank and badges switch on.</p></div></li>
+            <li class="flow__step reveal" id="get"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c3 2.2 4.5 5.6 4.5 9.3l-1.8 3.2H9.3l-1.8-3.2C7.5 8.6 9 5.2 12 3z"/><circle cx="12" cy="9.8" r="1.6"/><path d="M9.3 15.5 7 19l3-1M14.7 15.5 17 19l-3-1M12 17.5V21"/></svg></span><div><h3>City coins on the&nbsp;Launchpad</h3><p class="muted">Founders and $VICINITY holders get in before the public. <a href="/token#buy">How to get $VICINITY →</a></p></div></li>
           </ol>
         </div>
         <details class="checks-details">
@@ -187,13 +197,13 @@
     <!-- ============ ROADMAP: five stops in a row ============ -->
     <section id="roadmap" class="section section--panel">
       <div class="wrap">
-        <div class="section-head"><p class="kicker">Roadmap</p><h2 class="h2--sm">Where Vicinity is going.</h2></div>
+        <div class="section-head"><p class="kicker">Roadmap</p><h2 class="h2--sm">Where Vicinity is&nbsp;going.</h2></div>
         <ol class="timeline" id="timeline">
-          <li class="timeline__item is-done reveal"><span class="timeline__status">Done</span><h3>The real map</h3><p>Real city boundaries in 244 countries with zero overlaps, wallet verification, live holder tools, the official-link checker.</p></li>
-          <li class="timeline__item is-done reveal"><span class="timeline__status">Done</span><h3>Accounts and dashboards</h3><p>One account per login, live ranks and badges, local and national feeds, moderation.</p></li>
-          <li class="timeline__item is-done reveal"><span class="timeline__status">Done</span><h3>$VICINITY launched</h3><p>Fair launch on Raydium LaunchLab (raydium.io) on Saturday, October 3. The one official contract address is on the <a href="/token">Token page</a>.</p></li>
-          <li class="timeline__item is-next reveal"><span class="timeline__status">Next</span><h3>Vicinity Launchpad</h3><p>Each city launches its one official coin, once its City Founder qualifies. Founders and Founding Supporters first.</p></li>
-          <li class="timeline__item reveal"><span class="timeline__status">Then</span><h3>Vicinity Passport</h3><p>Collect stamps for visiting local places and other communities.</p></li>
+          <li class="timeline__item is-done reveal"><span class="timeline__status">Done</span><h3>The real&nbsp;map</h3><p>Real city boundaries in 244 countries and territories with zero overlaps, wallet verification, live holder tools, the official-link checker.</p></li>
+          <li class="timeline__item is-done reveal"><span class="timeline__status">Done</span><h3>Accounts and&nbsp;dashboards</h3><p>One account per login, live ranks and badges, local and national feeds, moderation.</p></li>
+          <li class="timeline__item is-done reveal"><span class="timeline__status">Done</span><h3>$VICINITY&nbsp;launched</h3><p>Fair launch on Raydium LaunchLab (raydium.io) on Saturday, October 3. The one official contract address is on the <a href="/token">Token page</a>.</p></li>
+          <li class="timeline__item is-next reveal"><span class="timeline__status">Next</span><h3>Vicinity&nbsp;Launchpad</h3><p>Each city launches its one official coin, once its City Founder qualifies. Founders and Founding Supporters first.</p></li>
+          <li class="timeline__item reveal"><span class="timeline__status">Then</span><h3>Vicinity&nbsp;Passport</h3><p>Collect stamps for visiting local places and other communities.</p></li>
         </ol>
       </div>
     </section>
@@ -212,7 +222,7 @@
           <details id="buy-faq"><summary>How do I buy $VICINITY?</summary><p>Get a Solana wallet, add SOL, then use the one official Buy button on the <a href="/token">Token page</a>. Buy nowhere else: look-alikes are scams.</p></details>
           <details id="why-launchlab"><summary>Why did $VICINITY launch on Raydium LaunchLab and not on the Vicinity Launchpad?</summary>
             <p><strong>Trust.</strong> LaunchLab is Raydium's own launchpad on Solana: no presale or private sale, and everyone buys on the same public curve. Minting and freezing are already switched off for good: the full supply was created with the token and nobody can add to it. When the curve fills, the coin moves into a Raydium pool and the pool's liquidity is burned or locked permanently. Launching our own token on our own brand-new launchpad would mean asking you to trust code we wrote and control. We'd be the player and the referee.</p>
-            <p><strong>Timing.</strong> The Launchpad opens on October 10 at 10:10:10 AM New York time, and $VICINITY is what gets people in first — so it launched a week earlier, on October 3, on Raydium LaunchLab.</p>
+            <p><strong>Timing.</strong> The Launchpad opened on October 10 at 10:10:10 AM New York time, and $VICINITY is what gets people in first — so it launched a week earlier, on October 3, on Raydium LaunchLab.</p>
             <p><strong>Room to grow.</strong> LaunchLab lets projects run their own launchpads on the same Raydium infrastructure. Starting $VICINITY there keeps it on the rails the Vicinity Launchpad can build on.</p>
             <p><strong>Focus.</strong> The Launchpad is built for city coins: one official coin per city, verified locals, founders and managers. $VICINITY is the key to that map, not a city coin, so it stays where it launched.</p>
           </details>

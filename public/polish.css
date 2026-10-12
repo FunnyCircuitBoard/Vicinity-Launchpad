@@ -16,7 +16,7 @@
 }
 
 /* ---------- 44 px targets, 12 px text (header, footer, the small controls every page shares) ---------- */
-.brand { min-height: 44px; min-width: 44px; padding: 0 4px; margin-left: -4px; border-radius: 10px; } /* 44 px wide too when only the logo shows (380 px and under) */
+.brand { min-height: 44px; min-width: 44px; padding: 0 4px; margin-left: -4px; border-radius: 10px; } /* a 44 px target: the logo and the wordmark, at every width */
 .theme-toggle { width: 44px; height: 44px; }
 .account-btn.btn--sm { min-height: 44px; }
 .btn--sm { min-height: 44px; }
@@ -98,17 +98,20 @@ input, select, textarea { min-height: 44px; }
 .hero__trust li { display: inline; padding: 0; border: 0; background: none; font-weight: 500; color: var(--muted); }
 .hero__trust li::before { content: none; }
 .hero__trust li + li::before { content: " · "; color: var(--faint); margin: 0 2px; }
-/* the facts: five in a row on a computer, three tiles that fit the screen on a phone (below). The Launchpad fact is a link to it;
-   once the Launchpad is open (site.js) it reads "Live / Launchpad is open" in green */
-.hero__facts { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding-top: 16px; }
-.hero__facts li { font-size: .75rem; min-width: 0; }
-.hero__facts li span { line-height: 1.3; margin-top: 2px; }
-.hero__facts strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
-.hero__fact-link { display: flex; flex-direction: column; min-width: 0; min-height: 44px; color: inherit; text-decoration: none; border-radius: var(--r-chip); }
+/* the facts: tiles, the same on a phone and a computer (d3, 11 Oct 2026). Strong facts only: communities, countries, official boundaries;
+   a computer adds the Launchpad as a link tile (the page is open, city coins come next: never "Live", no live dot). home.js puts a
+   members tile in place of the countries only at 100 or more. One row at every width, every label two lines at most. */
+.hero__facts { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.3fr); gap: var(--sp-2); margin: 0; padding: 0; }
+.hero__facts > li { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: var(--sp-3); border-radius: var(--r-chip); background: var(--surface-1); border: 1px solid var(--line); box-shadow: var(--shadow-1); }
+.hero__facts strong { font: 650 var(--fs-lg)/1.1 var(--display); letter-spacing: -.02em; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hero__facts > li > span, .hero__fact-link > span { font-size: var(--fs-xs); line-height: 1.25; color: var(--muted); }
+.hero__facts > li.hero__fact--launch { padding: 0; }
+.hero__fact-link { display: flex; flex-direction: column; gap: 3px; min-width: 0; min-height: 100%; padding: var(--sp-3); border-radius: inherit; color: inherit; text-decoration: none; }
+.hero__fact--launch strong { display: flex; align-items: center; gap: var(--sp-2); min-height: 1.1em; font-size: var(--fs-md); letter-spacing: -.01em; }
+.hero__fact--launch .ico { width: 24px; height: 24px; margin: -2px 0; } .hero__fact--launch .ico svg { width: 15px; height: 15px; }
+.hero__fact--launch:hover { border-color: var(--line-2); }
 .hero__fact-link:hover strong { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
-.hero__facts li.is-live strong { color: var(--ok-text); }
-:root[data-theme="light"] .hero__facts li.is-live strong { color: #0B6E57; } /* 5.7:1 on the tile (the light --ok-text is 4.9:1 on the page, close to the line on a tinted tile) */
-.hero__facts li.is-live strong::before { content: ""; display: inline-block; width: 8px; height: 8px; margin: 0 6px 0 1px; border-radius: 50%; background: var(--ok-text); vertical-align: .18em; box-shadow: 0 0 0 3px var(--ok-soft); }
+.hero__fact-link:focus-visible { outline-offset: 2px; }
 .hero-map .map-open { display: none; } /* the map itself is the link (aria-label); the one "Open on the live map" is in the walkthrough */
 @media (min-width: 961px) { .hero__title { font-size: clamp(3rem, 7vw, 5.5rem); } .hero__grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); } } /* "One community." on one line at 1280 (it broke after "One") */
 @media (max-width: 960px) {
@@ -124,17 +127,12 @@ input, select, textarea { min-height: 44px; }
 @media (max-width: 600px) {
   .hero__cta--one .btn { flex: 1 1 auto; }
   .lead__tail { display: none; } /* "...the key to all of them." on a phone: the tabs below say what it gets you */
-  /* three tiles in one row, all on screen: communities, the Launchpad, countries (members and official boundaries on a computer) */
-  .hero__facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 4px 0 0; overflow: visible; border-top: 0; }
-  .hero__facts li:nth-child(n+4) { display: none; }
-  .hero__facts li { justify-content: flex-start; padding: 10px; border-radius: var(--r-chip); background: var(--surface-1); border: 1px solid var(--line); box-shadow: var(--shadow-1); }
-  .hero__facts li.hero__fact--launch { padding: 0; }
-  .hero__fact-link { min-height: 100%; padding: 10px; }
-  .hero__facts strong { font-size: clamp(1rem, .55rem + 2.8vw, 1.15rem); line-height: 1.15; white-space: nowrap; }
-  .hero__facts li span { font-size: var(--fs-xs); line-height: 1.25; margin-top: 3px; color: var(--muted); }
-  .hero__facts .fact__tail { display: none; } /* "13h 4m until the Launchpad": two lines at most */
-  .hero__facts li.is-live { border-color: rgba(55,194,154,.45); background: linear-gradient(var(--ok-soft), var(--ok-soft)), var(--surface-1); }
+  /* three tiles in one row, all on screen: communities, countries, official boundaries (the Launchpad tile is a computer's) */
+  .hero__facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hero__facts > li.hero__fact--launch, .hero__facts .fact__wide { display: none; }
+  .hero__facts strong { font-size: clamp(1.125rem, .8rem + 2.2vw, 1.375rem); }
 }
+@media (max-width: 360px) { .hero__facts { gap: 6px; } .hero__facts > li { padding: 10px; } } /* "communities" fits a 320 px phone's tile */
 @media (max-width: 360px) { .eyebrow__tail { display: none; } } /* "Map live" alone: the headline says the rest */
 /* a phone's hero: the faint outline of New York City's real boundary behind the copy (home.js; decoration only, hidden on a computer
    where the map itself shows) */
@@ -147,17 +145,39 @@ input, select, textarea { min-height: 44px; }
 
 /* the New York walkthrough: the map, one step caption with its three controls, the member chips */
 #nyc .section-head p.muted { margin-bottom: 0; }
+/* a computer: the right column is as tall as the map; the controls and "Inside $NYC" sit at its foot, so the steps open into the space
+   above them and nothing under the steps moves while the walkthrough plays */
+@media (min-width: 961px) {
+  .nyc { align-items: stretch; }
+  .nyc__map { align-self: start; }
+  .nyc__steps { display: flex; flex-direction: column; min-width: 0; }
+  .nyc__steps .steps { gap: 6px; margin-bottom: 12px; }
+  .steps button { padding: 11px 14px; align-items: flex-start; }
+  .steps strong { line-height: 1.35; padding-top: 2px; }
+  .steps__n { width: 28px; height: 28px; }
+  .nyc__ctrl { margin-top: auto; }
+  .nyc__facts { margin-bottom: 0; }
+}
+/* a wide computer: the whole story at once. Every step's text shows (the current one marked), so nothing changes height while it plays;
+   the controls sit level with the map's foot, and "Inside $NYC" runs as one band under both columns */
+@media (min-width: 1200px) {
+  .nyc { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); grid-template-rows: auto 1fr auto; grid-template-areas: "map steps" "map ctrl" "facts facts"; gap: 0 32px; }
+  .nyc__steps { display: contents; }
+  .nyc__map { grid-area: map; }
+  .nyc__steps .steps { grid-area: steps; margin: 0; gap: 8px; }
+  .nyc__steps .nyc__ctrl { grid-area: ctrl; align-self: end; margin: 14px 0 0; }
+  .nyc__steps .nyc__facts { grid-area: facts; margin-top: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 18px; }
+  .nyc__facts .kicker { margin: 0; }
+  .steps button { padding: 12px 16px; }
+  .steps em, .steps button[aria-current="step"] em { max-height: none; margin-top: 4px; line-height: 1.5; }
+  .steps button:not([aria-current="step"]) em { color: var(--muted); }
+}
 .nyc__ctrl { gap: 8px; margin-bottom: 12px; align-items: center; }
 .kicker__short { display: none; }
 @media (max-width: 360px) { .kicker__long { display: none; } .kicker__short { display: inline; } } /* "New York City · real data" on one line */
 #nyc-map { cursor: pointer; }
-@media (max-width: 600px) {
-  .nyc__ctrl { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 8px; }
-  .nyc__ctrl .btn--sm { padding: 0 10px; }
-  .nyc__ctrl .nyc__explore { grid-column: 1 / -1; }
-}
+@media (max-width: 960px) { .nyc__ctrl .btn--sm { padding: 0 10px; } }
 .nyc__ctrl .btn--sm { min-height: 44px; min-width: 44px; }
-.nyc__credit { font-size: .75rem; }
 .nyc__facts { padding: 14px 16px; }
 .nyc__facts .kicker { margin-bottom: 8px; }
 .member-cloud { max-height: none; overflow: visible; }
@@ -168,21 +188,47 @@ input, select, textarea { min-height: 44px; }
 .member-cloud__more::after { content: ""; position: absolute; inset: -8px 0; } /* a 44 px hit area in a 28 px chip */
 .member-cloud__more:hover { border-style: solid; }
 .member-cloud li:has(> .member-cloud__more) { padding: 0; border: 0; background: none; }
-@media (min-width: 900px) { .member-cloud li.is-more { display: inline-flex; } .member-cloud li:has(> .member-cloud__more) { display: none; } }
 @media (max-width: 960px) {
   /* the kicker and the title stay above the map (a reader meets the title first); the hint under them goes: Previous · Pause · Next say it */
   #nyc .section-head { margin-bottom: 10px; }
   #nyc .section-head p.muted { display: none; }
   #nyc .section-head .kicker { margin-bottom: 6px; }
   #nyc { padding-top: 22px; }
-  /* the four steps become one caption: the step playing now, with Previous · Pause · Next under it */
-  .steps { gap: 0; margin-bottom: 10px; }
-  .steps li:not(:has(button[aria-current="step"])) { display: none; }
-  .steps button { padding: 12px 14px; }
-  .steps button[aria-current="step"] em { max-height: none; }
+  /* one card (the review of 12 Oct 2026): the map; under it where the story is (four segments) and Previous · Pause · Next; then the step
+     playing now, right under the drawing (a short phone sees its title and first lines with the map); then the map key. The step takes
+     its own height (step 1 sat over a 150-230 px empty band when every step took step 4's), and the controls above it never move while it
+     plays. The map's box, the steps' list and the controls' row give their parts to this one grid (display: contents) */
+  .nyc { position: relative; grid-template-columns: 4px 44px minmax(0, 1fr) 44px 4px; gap: 0 8px; }
+  .nyc__map, .nyc__steps, .nyc__ctrl { display: contents; }
+  #nyc-map { grid-column: 1 / -1; grid-row: 1; border: 1px solid var(--line); border-bottom: 0; border-radius: var(--r-hero) var(--r-hero) 0 0; background: var(--map-water); }
+  .steps { grid-column: 1 / -1; grid-row: 2; display: grid; gap: 0; margin: 0; padding: 70px 0 0; border: 1px solid var(--line); border-block: 0; background: var(--card); }
+  .steps li { grid-area: 1 / 1; display: grid; }
+  .steps li:not(:has(> [aria-current="step"])) { display: none; }
+  .steps button:not([aria-current="step"]) { visibility: hidden; }
+  .steps button, .steps button[aria-current="step"] { padding: 0 16px 16px; border: 0; border-radius: 0; background: none; }
+  .steps em, .steps button[aria-current="step"] em { max-height: none; margin-top: 4px; }
+  #nyc-prev, #nyc-play, #nyc-next { grid-row: 2; align-self: start; margin-top: 14px; }
+  #nyc-prev { grid-column: 2; } #nyc-play { grid-column: 3; } #nyc-next { grid-column: 4; }
+  .nyc__foot { grid-column: 1 / -1; grid-row: 3; border: 1px solid var(--line); border-radius: 0 0 var(--r-hero) var(--r-hero); }
+  .nyc__ctrl .nyc__explore { grid-column: 1 / -1; grid-row: 4; margin-top: 12px; }
+  .nyc__facts { grid-column: 1 / -1; grid-row: 5; margin: 12px 0 0; }
+  /* where the story is: four segments along the card's top edge, right under the map, filled up to the step showing (still; the card's own state) */
+  .steps { position: relative; }
+  .steps::after { content: ""; position: absolute; left: 14px; right: 14px; top: 0; height: 3px; pointer-events: none;
+    background: linear-gradient(var(--pin-2), var(--pin-2)) 0 0 / var(--steps-done, 25%) 100% no-repeat, var(--line-2);
+    -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(25% - 4px), transparent calc(25% - 4px) 25%); mask: repeating-linear-gradient(90deg, #000 0 calc(25% - 4px), transparent calc(25% - 4px) 25%); }
+  .nyc[data-step="2"] .steps { --steps-done: 50%; } .nyc[data-step="3"] .steps { --steps-done: 75%; } .nyc[data-step="4"] .steps { --steps-done: 100%; }
   .steps strong { font-size: 1rem; }
   .steps em { font-size: .9rem; }
+  /* a tablet: the story at a phone's width, in the middle (a 720 px map was a huge, mostly empty panel) */
+  #nyc .wrap { max-width: 648px; }
 }
+
+/* one section-title size on the home page (d3): --fs-xl everywhere (36 px on a computer, 22-24 px on a phone); no 48 px exceptions, no
+   22-character cap ("How one city becomes one coin." on one line on a computer) */
+[data-page="home"] .section-head h2 { font-size: var(--fs-xl); max-width: none; }
+/* body copy that ends on a lone word reads as a mistake: the hero's lead and the fact tiles' lines wrap "pretty" (no orphan) */
+.hero .lead, .hero__facts > li > span, .hero__fact-link > span { text-wrap: pretty; } /* (not the spans inside them: a .nowrap one keeps "come next →" together) */
 
 /* the problem: three lines and a bridge */
 .problems { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
@@ -213,11 +259,15 @@ input, select, textarea { min-height: 44px; }
 .facts > li > div { min-width: 0; flex: 1; }
 .why-panel .early { padding: 0 0 10px; margin: 0; }
 @media (max-width: 600px) { .why-panel .early { display: none; } } /* the decorative coin stack: the facts under it are the point on a phone */
-.why-panel .early__coins { padding: 4px 0 10px; }
-.why-panel .early__coins .coin-disc { width: 46px; height: 46px; }
-.why-panel .early__coins .coin-disc--lg { width: 64px; height: 64px; }
-.why-panel .early__coins .coin-disc span { font-size: .7rem; }
-.why-panel .early__coins .coin-disc--lg span { font-size: .9rem; }
+/* the city coins in a row (the review of 12 Oct 2026: overlapped 46 px discs cut their own names, "LOND", "TOKY", "ARIS", in a 190 px
+   cluster): every coin whole and apart, every name inside its coin, $NYC the big one in the middle */
+.why-panel .early__coins { gap: 18px; padding: 10px 0 18px; }
+.why-panel .early__coins .coin-disc { width: 72px; height: 72px; margin: 0; }
+.why-panel .early__coins .coin-disc--lg { width: 96px; height: 96px; }
+.why-panel .early__coins .coin-disc span { max-width: none; overflow: visible; font-size: .68rem; letter-spacing: .04em; }
+.why-panel .early__coins .coin-disc--lg span { font-size: 1.1rem; letter-spacing: .02em; }
+.why-panel .early__coins .coin-disc:nth-child(1), .why-panel .early__coins .coin-disc:nth-child(5) { transform: translateY(10px); opacity: .88; }
+.why-panel .early__coins .coin-disc:nth-child(2), .why-panel .early__coins .coin-disc:nth-child(4) { transform: translateY(-2px); }
 .why-panel .bridge { margin-top: 12px; font-size: .95rem; }
 .why-panel .ticks { margin: 0 0 14px; }
 .why-panel .btn { margin-top: 4px; }

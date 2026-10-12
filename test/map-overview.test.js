@@ -23,10 +23,10 @@ const overview = readFileSync(OVERVIEW_FILE, "utf8");
 const H = (() => {
   const a = js.indexOf("  /* map helpers: start"), b = js.indexOf("  /* map helpers: end */");
   assert.ok(a > 0 && b > a, "the map helpers sit together in one block of cities.js");
-  const raw = vm.runInNewContext(`${js.slice(a, b)}\n({ OV_UNIT, AREA_K, parseOverviewLine, inOverview, thinRing, thinFor, openingView, scaleBar, flightPlan, flyK, labelRank, byRank, placeLabels, chooseFocus, openingFocus, until })`, {});
+  const raw = vm.runInNewContext(`${js.slice(a, b)}\n({ OV_UNIT, AREA_K, parseOverviewLine, inOverview, thinRing, thinFor, openingView, scaleBar, flightPlan, flyK, labelRank, byRank, placeLabels, chooseFocus, until, KREF, FOCUS_K, tzPlace, matchPlaces, mapFrame, coreBox })`, {});
   const here = (v) => (v == null || typeof v !== "object" ? v : ArrayBuffer.isView(v) ? [...v] : JSON.parse(JSON.stringify(v, (_, x) => (ArrayBuffer.isView(x) ? [...x] : x))));
-  const out = { OV_UNIT: raw.OV_UNIT, AREA_K: raw.AREA_K, byRank: raw.byRank, inOverview: raw.inOverview };
-  for (const f of ["parseOverviewLine", "thinRing", "thinFor", "openingView", "scaleBar", "flightPlan", "flyK", "labelRank", "placeLabels", "chooseFocus", "openingFocus", "until"]) out[f] = (...args) => here(raw[f](...args));
+  const out = { OV_UNIT: raw.OV_UNIT, AREA_K: raw.AREA_K, KREF: raw.KREF, FOCUS_K: raw.FOCUS_K, byRank: raw.byRank, inOverview: raw.inOverview };
+  for (const f of ["parseOverviewLine", "thinRing", "thinFor", "openingView", "scaleBar", "flightPlan", "flyK", "labelRank", "placeLabels", "chooseFocus", "until", "tzPlace", "matchPlaces", "mapFrame", "coreBox"]) out[f] = (...args) => here(raw[f](...args));
   out.raw = raw;
   return out;
 })();
@@ -180,29 +180,106 @@ test("helpers: a fly-to's zoom never sinks below the whole world or the dip, and
   assert.match(js, /cam = null; \/\/ a touch stops whatever the map was doing[^\n]*\n    if \(!\(k >= 1 && k <= MAXK\)\) \{ zoomTo\(fcx, fcy, k\); viewMoved\(true\); \}/);
 });
 
-test("helpers: the first view's card shows the city nearest the crosshair, and the map centres on it (review OA-7)", () => {
-  const c = (id, x, y, pop) => ({ id, x, y, pop });
-  assert.equal(H.openingFocus([c("kinshasa", 1115, 545, 7e6), c("kc", 650, 470, 5e5)], 640, 465), "kc", "not the biggest far away: the nearest");
-  assert.equal(H.openingFocus([c("a", 110, 100, 10), c("b", 90, 100, 20)], 100, 100), "b", "same distance: the bigger one");
-  assert.equal(H.openingFocus([c("b", 110, 100, 5), c("a", 90, 100, 5)], 100, 100), "a", "and the same way every time");
-  assert.equal(H.openingFocus([], 1, 1), null);
+test("the first view picks nothing for the visitor (the owner, 11 Oct 2026): no opening pin; a ?city= link or a home city still opens on its city", () => {
+  // it used to open on "the city nearest the crosshair" (openingFocus, review OA-7) with its card: Caracas, Houston, Riohacha… a random
+  // city the visitor never asked for. The helper and its pin are gone; the map's bottom slot says "Find your city" instead.
+  assert.doesNotMatch(js, /openingFocus|pinnedBy = "nearest"/);
   const load = js.slice(js.indexOf("  async function load() {"));
-  assert.match(load, /const id = openingFocus\(cands, fcx, fcy\), c = id && byId\.get\(id\);\n        if \(c\) \{ focusPinned = c\.id; pinnedBy = "nearest"; tx = fcx - wx\(c\.lon\) \* k; ty = fcy - wy\(c\.lat\) \* k; clampView\(\); viewMoved\(\); \}/);
-  assert.doesNotMatch(js, /pinnedBy = "biggest"/);
+  assert.match(load, /const want = new URLSearchParams\(location\.search\)\.get\("city"\);\n      if \(want && byId\.get\(want\)\) select\(byId\.get\(want\), true\);\n      else goHome\(\);\n      markAll\(\);/);
+  assert.match(js, /const inFind = \(\) => finding \|\| \(kg\(\) < FOCUS_K && !\(focusPinned && !userMoved\)\);/, "the find state: further out than a region with nothing pinned, or a search the visitor opened");
+  assert.equal(H.FOCUS_K, 4);
+  assert.match(js, /k = kAt\(AREA_K \+ 0\.5\); tx = fcx - wx\(c\.lon\) \* k;/, "a member's home city opens close enough for its card and its detailed outline");
+});
+
+test("a computer opens on the whole world inside the stage, left of the controls and above the find bar; a phone keeps the world covering it", () => {
+  const size = js.slice(js.indexOf("  function size() {"), js.indexOf("  // the zoom, for screen readers"));
+  assert.match(size, /wide = W >= 600;\n    const f = freeBox\(\);\n    s0 = wide \? Math\.min\(\(f\[2\] - f\[0\]\) \/ 360, \(f\[3\] - f\[1\]\) \/ 144\) : Math\.max\(W \/ 360, H \/ 144\);/);
+  assert.match(js, /return \[12, 8, Math\.max\(24, rail - 12\), Math\.max\(16, H - 64\)\];/, "the world's free box on a computer: 12 px in, left of the rail, 8 px from the top, the find bar's 64 px band free at the bottom");
+  // clampView: an axis where the world is smaller than the free box is centred there; a bigger one always covers it (a phone: the old clamp exactly)
+  const clamp = new Function("W", "H", "wide", "rects", "s0", "k", "tx", "ty", `${js.slice(js.indexOf("  const freeBox = () => {"), js.indexOf("  const canPan = "))}\nclampView(); return [tx, ty];`);
+  const [x1, y1] = clamp(1128, 490, true, { rail: [1072, 12, 44, 150] }, 2.9, 1, -500, -500);
+  assert.equal(+x1.toFixed(3), +(12 + (1048 - 1044) / 2).toFixed(3)); assert.equal(+y1.toFixed(3), +(8 + (418 - 417.6) / 2).toFixed(3));
+  assert.deepEqual(clamp(390, 554, false, {}, 554 / 144, 1, 40, 40), [0, 0], "a phone at zoom 1: the world covers the stage, its corner pinned as before");
+  assert.deepEqual(clamp(390, 554, false, {}, 554 / 144, 1, -5000, 0), [390 - 360 * 554 / 144, 0]);
+  const [x3] = clamp(1128, 490, true, { rail: [1072, 12, 44, 150] }, 2.9, 8, 100, -900);
+  assert.equal(x3, 12, "zoomed in on a computer the world covers the free box: its west edge never leaves the left margin");
+  assert.match(js, /const fit = 360 \* s0 \* k <= W \+ 0\.5 && 144 \* s0 \* k <= H \+ 0\.5 \? "1" : "0";/, "#city-stage[data-world-fit] says when the whole world is inside the stage");
+});
+
+test("zoom rules count in real map scale: the same distance switches names, outlines, dots and the card on a whole-world computer and a phone (critic, 11 Oct 2026)", () => {
+  assert.equal(H.KREF, 3.4);
+  assert.match(js, /const kg = \(\) => \(s0 \* k\) \/ KREF;\n  const kAt = \(g\) => \(g \* KREF\) \/ s0;/);
+  for (const t of ["labelFilter(cands, kg(), {", "const dotMinPop = () => { const g = kg();", "if (a && kg() >= AREA_K - 0.5)", "const s = s0 * k, v = view(), g = s / KREF;", "const pic = (g < OV_CACHE_K || (moving && g < OV_MOVING_K))",
+    "const fade = Math.max(0, Math.min(1, (g - (AREA_K - 0.5)) / 1));", "let bTail = kg() >= 4 ?", "const g = kg(), key = `${c.id}|${st}|${g >= 4 ? 2 : g >= 3 ? 1 : 0}|", "const inside = kg() >= 2 ? areaIdAt(lon, lat) : null;", "MAXK = Math.round((900 * KREF) / s0);"]) assert.ok(js.includes(t), t);
+  // the page (after the pure helpers, which take the scale they are given): raw zoom steps only for the readout ("3.2×", relative to the
+  // whole-world view), the touch rule (zoom 1 is the whole world: the page scrolls on it) and the sanity check of a touch
+  const page = js.slice(js.indexOf("/* map helpers: end */")).replace("k < 10 ? k.toFixed(1)", "").replace("k > 1.01 ?", "").replace("k >= 1 && k <= MAXK", "");
+  assert.doesNotMatch(page, /[^.\w](k (<|>=|>) (\d|AREA_K|OV_|LABEL_K|FOCUS_K))/, "no zoom rule left in raw zoom steps");
+});
+
+test("the search: places that start with the letters first, then names that hold them, the biggest first; the time zone's own place", () => {
+  const list = [{ n: "newyorkcity", id: "nyc" }, { n: "eastnewyork", id: "eny" }, { n: "newark", id: "nwk" }, { n: "westnewyork", id: "wny" }, { n: "newyorkmills", id: "nym" }];
+  assert.deepEqual(H.matchPlaces(list, "newy", 6).map((c) => c.id), ["nyc", "nym", "eny", "wny"]);
+  assert.deepEqual(H.matchPlaces(list, "newy", 2).map((c) => c.id), ["nyc", "nym"]);
+  assert.deepEqual(H.matchPlaces(list, "", 6), []);
+  assert.equal(H.tzPlace("America/New_York"), "newyork");
+  assert.equal(H.tzPlace("America/Argentina/Buenos_Aires"), "buenosaires");
+  assert.equal(H.tzPlace("America/Sao_Paulo"), "saopaulo");
+  assert.equal(H.tzPlace("UTC"), ""); assert.equal(H.tzPlace("Etc/GMT+5"), ""); assert.equal(H.tzPlace(undefined), "");
 });
 
 test("camera: the zoom readout follows a move that is not a gesture, and a city link frames the whole boundary (review OA-6, OA-11)", () => {
   // the opening on your own city (goHome: k = 4, then viewMoved()) left the screen readers' readout at 1.0× while the map showed 4×
   const vm2 = js.slice(js.indexOf("  function viewMoved(interactive = false) {"), js.indexOf("  function settle()"));
   assert.match(vm2, /if \(interactive\) \{ moving = true; clearTimeout\(crispTimer\); crispTimer = setTimeout\(settle, 90\); \}\n    else zoomReadout\(\);/);
-  // a ?city= link: the boundary is fitted into the free part of the map (left of the rail, above the card), and when it arrives
-  // after the flight began (the guess was a 25 km circle at 118×) the map is framed again, unless the person moved it
+  // a ?city= link: the boundary (its main piece: coreBox) is fitted into the frame (mapFrame: never under the city card), and when it
+  // arrives after the flight began (the guess was a 25 km circle at 118×) the map is framed again, unless the person moved it
   const fit = js.slice(js.indexOf("  function fitK(b) {"), js.indexOf("  function flyToCountry(cc) {"));
-  assert.match(fit, /const right = rects\.rail && rects\.rail\[0\] > fcx \? rects\.rail\[0\] - 6 : W;/);
-  assert.match(fit, /const halfW = Math\.max\(30, Math\.min\(fcx, right - fcx\) - 10\), halfH = Math\.max\(30, fcy - 10\);/);
-  assert.match(fit, /if \(a\) return flyToBox\(a\.box, Math\.min\(AREA_K \+ 0\.5, fitK\(a\.box\)\)\);/);
+  assert.match(fit, /const f = frameBox;\n    return Math\.min\(\(f\[2\] - f\[0\]\) \/ Math\.max\(0\.0002, \(b\[2\] - b\[0\]\) \* s0\), \(f\[3\] - f\[1\]\) \/ Math\.max\(0\.0002, \(b\[3\] - b\[1\]\) \* s0\)\) \* 0\.92;/);
+  assert.match(fit, /if \(a\) \{ const b = coreBox\(pieceBoxes\(a\), c\.lon, c\.lat\), hw = Math\.max\(c\.lon - b\[0\], b\[2\] - c\.lon\), hh = Math\.max\(c\.lat - b\[1\], b\[3\] - c\.lat\); return flyToBox\(\[c\.lon - hw, c\.lat - hh, c\.lon \+ hw, c\.lat \+ hh\]\); \}/, "the city's point in the frame's middle, the whole main piece around it; no zoom floor past the fit (it zoomed NYC in past its own boundary)");
+  assert.match(js, /const m = mapFrame\(\{ W, H, across: slotWide, fromBottom: slotFromBottom, cardRight: slotRight, rail: rects\.rail \}\);\n    frameBox = m\.f; fcx = m\.x; fcy = m\.y;/, "the crosshair is the frame's middle");
   assert.match(js, /if \(fly && areas\.has\(c\.id\) && !userMoved && focusPinned === c\.id\) flyToCity\(c\);/);
   assert.doesNotMatch(js, /if \(fly && areas\.has\(c\.id\) && !cam\) flyToCity\(c\);/);
+});
+
+test("camera (review of 12 Oct 2026): an opened city is framed where the city card is not, its main piece only when the rest is far away", () => {
+  // a phone: the card runs across the bottom; the middle of what is above it, clear of the rail on both sides (as before)
+  const ph = H.mapFrame({ W: 390, H: 525, across: true, fromBottom: 144, cardRight: 372, rail: [336, 10, 44, 191] });
+  assert.deepEqual([ph.x, ph.y], [195, 190.5]);
+  assert.deepEqual(ph.f, [70, 10, 320, 371]);
+  // a computer (1024 and 1440 px windows): the card is a 360 px column at the bottom left; the frame is right of it (the full height) or
+  // above it (the full width), the one that holds the bigger square, and never touches the card or the rail
+  const card = (W, Hh) => [12, Hh - 146, 360, 134];
+  for (const [W, Hh] of [[950, 420], [1126, 490], [1520, 660]]) {
+    const rail = [W - 56, 12, 44, 191], m = H.mapFrame({ W, H: Hh, across: false, fromBottom: 146, cardRight: 372, rail }), c = card(W, Hh);
+    const hit = m.f[0] < c[0] + c[2] && m.f[2] > c[0] && m.f[1] < c[1] + c[3] && m.f[3] > c[1];
+    assert.equal(hit, false, `${W}×${Hh}: the frame ${m.f} is off the card`);
+    assert.ok(m.f[2] <= rail[0] - 24 && m.f[0] >= 24 && m.f[1] >= 24 && m.f[3] <= Hh - 24, `${W}×${Hh}: inside the stage, left of the rail`);
+    assert.deepEqual([m.x, m.y], [(m.f[0] + m.f[2]) / 2, (m.f[1] + m.f[3]) / 2], "the crosshair is the frame's middle");
+    assert.ok(Math.min(m.f[2] - m.f[0], m.f[3] - m.f[1]) >= 370, `${W}×${Hh}: room for a city`);
+  }
+  assert.deepEqual(H.mapFrame({ W: 950, H: 420, across: false, fromBottom: 146, cardRight: 372, rail: [894, 12, 44, 191] }).f, [396, 24, 870, 396], "1024 px: right of the card");
+  // a tall tablet stage: above the card (the full width) holds the bigger square
+  assert.deepEqual(H.mapFrame({ W: 700, H: 760, across: false, fromBottom: 146, cardRight: 372, rail: [644, 12, 44, 191] }).f, [24, 24, 620, 590]);
+  // the main piece: the one holding the city's point, plus the pieces near it (Tokyo: the mainland, not the Izu and Ogasawara islands
+  // 1,000 km south; New York: all five boroughs; a point outside every piece: the nearest piece, stretched to hold the point)
+  const tokyo = [[138.94, 35.50, 139.92, 35.90], [139.32, 34.65, 139.45, 34.80], [139.7, 33.0, 139.9, 33.2], [142.1, 26.6, 142.2, 27.1], [153.9, 24.2, 154.0, 24.3]];
+  assert.deepEqual(H.coreBox(tokyo, 139.69, 35.69), [138.94, 35.5, 139.92, 35.9]);
+  const nyc = [[-74.05, 40.68, -73.90, 40.88], [-73.93, 40.78, -73.75, 40.92], [-74.26, 40.49, -74.05, 40.65], [-74.04, 40.55, -73.70, 40.80]];
+  assert.deepEqual(H.coreBox(nyc, -74.006, 40.714), [-74.26, 40.49, -73.7, 40.92]);
+  assert.deepEqual(H.coreBox([[10, 10, 11, 11], [40, 40, 41, 41]], 11.2, 10.5), [10, 10, 11.2, 11]);
+  assert.deepEqual(H.coreBox([], 5, 6), [5, 6, 5, 6]);
+  // the data: of the 8,029 boundaries, only those with a far piece frame less than the whole (Tokyo, Cape Town, Hamburg's Neuwerk…)
+  let fewer = 0, n = 0;
+  for (const l of overview.split("\n").slice(1)) {
+    const a = H.parseOverviewLine(l); if (!a) continue; n++;
+    const boxes = a.rings.map((r) => { let w = 1e9, s = 1e9, e = -1e9, no = -1e9; for (let i = 0; i < r.length; i += 2) { w = Math.min(w, r[i]); e = Math.max(e, r[i]); s = Math.min(s, r[i + 1]); no = Math.max(no, r[i + 1]); } return [w * H.OV_UNIT, s * H.OV_UNIT, e * H.OV_UNIT, no * H.OV_UNIT]; });
+    const c = boxes[0], core = H.coreBox(boxes, (c[0] + c[2]) / 2, (c[1] + c[3]) / 2);
+    if (Math.max(core[2] - core[0], core[3] - core[1]) < 0.8 * Math.max(a.box[2] - a.box[0], a.box[3] - a.box[1])) fewer++;
+  }
+  assert.ok(n >= 8000 && fewer < n / 50, `${fewer} of ${n} framed on a main piece`);
+  // the page: the crosshair goes while the card shows a city opened for the visitor, and comes back once they move the map
+  assert.match(js, /const reticle = findOn === false && !\(focusPinned && !userMoved\) \? "on" : "off";/);
 });
 
 test("helpers: the city in focus is the area under the crosshair, else the nearest city within 56 px, and it does not flicker", () => {
@@ -289,7 +366,7 @@ test("map: every city's boundary from the first view (the overview loads with th
   assert.ok(load.indexOf('fetch("/data/bounds-overview.txt")') < load.indexOf("await Promise.all(["), "in parallel with the city list and world.json");
   assert.equal((js.match(/fetch\("\/data\/bounds-overview\.txt"\)/g) || []).length, 1, "fetched once");
   const base = js.slice(js.indexOf("  function renderBase() {"), js.indexOf("  /* ---------- labels and chips"));
-  assert.ok(base.includes("const fade = Math.max(0, Math.min(1, (k - (AREA_K - 0.5)) / 1));"), "the cross-fade over zoom 4.5–5.5");
+  assert.ok(base.includes("const fade = Math.max(0, Math.min(1, (g - (AREA_K - 0.5)) / 1));"), "the cross-fade over zoom 4.5–5.5 (in real map scale, kg)");
   assert.ok(base.includes("const detail = fade > 0 && boundsDone.has(cc);") && base.includes("const ovAlpha = detail ? 1 - fade : 1;"), "a country whose file is not in yet keeps its overview: never a blank moment");
   assert.doesNotMatch(base, /if \(k >= AREA_K\) \{/, "no zoom gate in front of the boundaries any more");
   assert.equal(H.AREA_K, 5);
@@ -319,7 +396,7 @@ test("map: on a phone the stats show with no tap: the city-in-focus card, announ
   assert.match(js, /sayTimer = setTimeout\(\(\) => \{ const s = \$\("#mf-say"\);[^\n]*\}, 600\);/, "debounced to 600 ms");
   // the chips: none zoomed out, the city in focus and a few around the crosshair once zoomed in on a city (the owner, 9 Oct 2026;
   // the rule and its budgets: labelFilter, test/map-labels.test.js). The stats without a tap come from the card.
-  assert.match(js, /const \{ ids, max \} = labelFilter\(cands, k, \{ phone, fx: fcx, fy: fcy, W, H \}\);/);
+  assert.match(js, /const \{ ids, max \} = labelFilter\(cands, kg\(\), \{ phone, fx: fcx, fy: fcy, W, H \}\);/);
   assert.doesNotMatch(js, /const max = \{ A: 3, B: phone \? 10 : 24, C: phone \? 20 : 60 \};/, "no fixed budget of 24 chips and 60 names any more");
   // a tap still picks a city, but nothing needs one: the desktop hover card is unchanged
   assert.match(js, /if \(e\.pointerType === "mouse"\) \{/);
@@ -360,7 +437,7 @@ test("map: panning the world view stays smooth on a slow phone: the world is one
   for (const at of ["    buildOvCache();\n    markAll();\n  }", "ovPaths.clear(); buildOvCache();", "ov.failed = true; buildOvCache();", 'canvas.classList.toggle("is-colored", colored);\n    buildOvCache();']) assert.ok(js.includes(at.replace(/\\n/g, "\n")), at);
   // renderBase: the part in view of the picture below zoom 1.6, and during a gesture up to zoom 3; drawn crisp when it stops
   const base = js.slice(js.indexOf("  function renderBase() {"), js.indexOf("  /* ---------- labels and chips"));
-  assert.match(base, /const pic = \(k < OV_CACHE_K \|\| \(moving && k < OV_MOVING_K\)\) && ovCache\.ready && ovCache\.key === ovCacheKey\(\);/);
+  assert.match(base, /const pic = \(g < OV_CACHE_K \|\| \(moving && g < OV_MOVING_K\)\) && ovCache\.ready && ovCache\.key === ovCacheKey\(\);/);
   assert.match(base, /if \(x1 > x0 && y1 > y0\) ctx\.drawImage\(ovCache\.canvas, x0, y0, x1 - x0, y1 - y0, x0 \/ sc, y0 \/ sc, \(x1 - x0\) \/ sc, \(y1 - y0\) \/ sc\);/);
   assert.match(base, /if \(!pic\) for \(const \[cc, info\] of boundsList\) \{/, "boundaries from the very first view either way");
   assert.match(js, /function settle\(\) \{ if \(cam\) \{ crispTimer = setTimeout\(settle, 90\); return; \} moving = false;/);
