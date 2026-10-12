@@ -13,7 +13,16 @@
   /* ---------- numbers ---------- */
   const setStat = (k, v) => $$(`[data-stat="${k}"]`).forEach((e) => (e.textContent = fmt(v)));
   fetch("/data/stats.json").then((r) => r.json()).then((s) => { for (const [k, v] of Object.entries(s)) setStat(k, v); }).catch(() => {});
-  api("/api/members").then((m) => { if (typeof m.members === "number") setStat("members", m.members); });
+  // The members count shows only once it says something: at 100 or more it takes the countries tile's place (a phone keeps three tiles,
+  // a computer four). Below that there is no tile at all, never "…" and never a small number that makes the map look empty (d3).
+  const MEMBERS_MIN = 100;
+  api("/api/members").then((m) => {
+    if (!m || typeof m.members !== "number" || m.members < MEMBERS_MIN) return;
+    const countries = $(".hero__fact--countries"); if (!countries) return;
+    const li = document.createElement("li"), n = document.createElement("strong"), label = document.createElement("span");
+    li.className = "hero__fact--members"; n.textContent = fmt(m.members); label.textContent = "verified members";
+    li.append(n, label); countries.replaceWith(li);
+  });
 
   /* ---------- map drawing ---------- */
   const NS = "http://www.w3.org/2000/svg";
@@ -67,10 +76,23 @@
   }
 
   /* ---------- the step-by-step New York City map ---------- */
+  // d3 (11 Oct 2026, the owner's phone screenshot: labels on top of each other, two "flags" over the map and each other, 6-10 px text):
+  // * one view per step: steps 1-2 zoom in on the city (its outline about two thirds of the map's width), steps 3-4 zoom out to the four
+  //   neighbours step 3 names. The map is square at every width (the views are square and CSS fixes the ratio), so nothing below moves;
+  //   the view glides between the two with motion welcome, and jumps with reduced motion, "Pause animations" or off screen;
+  // * labels, the coin, the dots and the rings keep their size on screen whatever the zoom: --u (map units per CSS pixel) is set on the
+  //   svg through the CSSOM and style.css sizes the text with it (13 px names, a 15 px city label);
+  // * labels are laid out per view, after the fonts load and again when the map's width changes: New York City's own label first, then
+  //   the neighbours the copy names (Newark, Yonkers, Paterson, Hempstead), then the biggest (six at most; on a phone the four and Stamford,
+  //   names only). Each tries a few spots (on its area, above, below, beside) and is left out when every spot touches another label, the
+  //   coin, New York City's area or the map's edge: nothing is ever drawn on top of something else;
+  // * no flags: what step 4 says sits in its caption, and the legend under the map says what the colours mean.
+  const VIEW_CITY = [290, 255, 440, 440], VIEW_REGION = [250, 170, 560, 560];
+  const NAMED = ["Newark", "Yonkers", "Paterson", "Hempstead"], BOROUGHS = ["Manhattan", "Brooklyn", "Queens", "The Bronx", "Staten Island"];
+  const PHONE_MAP = 500; // a phone's map (398 px at most) gets short labels (names only, a fixed list); every computer's (544 px and up) the long ones
   function walkthrough(data) {
     const svg = $("#nyc-map"), box = $(".nyc"); if (!svg || !box) return;
     const P = projector(data.view);
-    svg.setAttribute("viewBox", `0 0 1000 ${P.h.toFixed(0)}`);
     drawBase(svg, data, P);
     const tip = $("#nyc-tip");
     const showTip = (e, text) => {
@@ -99,72 +121,141 @@
     svg.append(nyc);
     svg.append(svgEl("path", { d: pathOf(P, data.official), "fill-rule": "evenodd" }, "m-official"));
 
-    // every listed place that shares the coin, with a line to the coin
+    // every listed place that shares the coin, with a line to the coin (dots sized in screen pixels: see size())
     const [cx, cy] = [P.x(-73.95), P.y(40.73)];
-    const links = svgEl("g", {}, "m-link");
-    const dots = svgEl("g");
+    const links = svgEl("g", {}, "m-link"), dots = svgEl("g"), dotList = [];
     for (const [name, lon, lat, pop, st] of data.members) {
       const x = P.x(lon), y = P.y(lat);
       links.append(svgEl("line", { x1: x.toFixed(1), y1: y.toFixed(1), x2: cx.toFixed(1), y2: cy.toFixed(1) }));
-      const d = svgEl("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: pop > 1e6 ? 8 : pop > 1e5 ? 6 : 4.5 }, "m-dot is-in");
+      const d = svgEl("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: 4 }, "m-dot is-in");
       d.addEventListener("pointermove", (e) => showTip(e, `${name}, ${st} · ${fmt(pop)} people · part of $NYC`));
       d.addEventListener("pointerleave", hideTip);
-      dots.append(d);
+      dots.append(d); dotList.push([d, pop > 1e6 ? 5.5 : pop > 1e5 ? 4.2 : 3.2]);
     }
     svg.append(links, dots);
 
-    // labels
-    const label = (x, y, text, cls = "m-label", group) => { const t = svgEl("text", { x: x.toFixed(0), y: y.toFixed(0), "text-anchor": "middle" }, cls); t.textContent = text; (group || svg).append(t); return t; };
-    /** Keep a group's labels only where they fit: inside the map, not on top of each other (first come, first kept) and not on the coin.
-     *  A label with a second place (data-alt: under its dot instead of over it) is moved there first, and dropped only if that is taken too. */
-    const declutter = (group, taken = []) => {
-      const kept = [...taken];
-      const boxOf = (t) => { const b = t.getBBox(); return [b.x - 4, b.y - 2, b.x + b.width + 4, b.y + b.height + 2]; };
-      const blocked = (box) => box[0] < 0 || box[2] > 1000 || box[1] < 0 || box[3] > P.h || kept.some((k) => box[0] < k[2] && k[0] < box[2] && box[1] < k[3] && k[1] < box[3]);
-      for (const t of [...group.querySelectorAll("text")]) {
-        let box; try { box = boxOf(t); } catch { continue; }
-        if (blocked(box) && t.dataset.alt) { t.setAttribute("y", t.dataset.alt); try { box = boxOf(t); } catch { continue; } }
-        if (blocked(box)) t.remove(); else kept.push(box);
-      }
-    };
-    const nbLabels = svgEl("g", {}, "m-nb");
-    for (const n of data.neighbors) {
-      const [lon, lat] = centroid(n.area);
-      label(P.x(lon), P.y(lat), `${n.name} · $${ticker(n.name)}`, "m-label", nbLabels);
-    }
-    svg.append(nbLabels);
-    const memberLabels = svgEl("g", {}, "m-link");
-    for (const [name, lon, lat] of data.members.filter((m) => ["Manhattan", "Brooklyn", "Queens", "The Bronx", "Staten Island"].includes(m[0]))) {
-      label(P.x(lon), P.y(lat) - 14, name, "m-label", memberLabels).dataset.alt = (P.y(lat) + 34).toFixed(0); // over its dot, or under it if the coin is there
-    }
-    svg.append(memberLabels);
-    const coinBox = [cx - 34, cy - 34, cx + 34, cy + 34]; // the $NYC disc (r 34): no label on it (the label boxes carry their own margin)
-    const tidy = () => { declutter(nbLabels, [coinBox]); declutter(memberLabels, [coinBox]); };
-    tidy();
-    const ob = boxOf(data.official);
-    label(P.x((ob[0] + ob[2]) / 2), P.y(ob[3]) - 16, "New York City · official boundary", "m-label m-label--big m-official-label");
+    // labels: the neighbours (steps 3-4), the five boroughs (step 2, on a wider map), New York City's own (every step)
+    const text = (cls, group) => { const t = svgEl("text", { x: 0, y: 0, "text-anchor": "middle" }, cls); group.append(t); return t; };
+    const nbLabels = svgEl("g", {}, "m-nb m-labels"), boroLabels = svgEl("g", {}, "m-boro m-labels");
+    const nbOrder = [...data.neighbors].sort((a, b) => (NAMED.includes(b.name) - NAMED.includes(a.name)) || (NAMED.indexOf(a.name) - NAMED.indexOf(b.name)) || (b.pop - a.pop));
+    const nbItems = nbOrder.map((n) => { const [lon, lat] = centroid(n.area); return { n, x: P.x(lon), y: P.y(lat), named: NAMED.includes(n.name), t: text("m-label", nbLabels) }; });
+    const boroItems = data.members.filter((m) => BOROUGHS.includes(m[0])).map(([name, lon, lat]) => ({ name, x: P.x(lon), y: P.y(lat), t: text("m-label", boroLabels) }));
+    const ob = boxOf(data.official), bigX = P.x((ob[0] + ob[2]) / 2), bigTop = P.y(ob[3]);
+    const big = text("m-label m-label--big m-official-label", svg);
+    svg.append(nbLabels, boroLabels, big);
 
-    const coin = svgEl("g", { transform: `translate(${cx.toFixed(0)} ${cy.toFixed(0)})` }, "m-coin");
-    coin.append(svgEl("circle", { r: 34 }), Object.assign(svgEl("text", { "text-anchor": "middle", y: 9 }), { textContent: "$NYC" }));
+    const coin = svgEl("g", { transform: `translate(${cx.toFixed(1)} ${cy.toFixed(1)})` }, "m-coin"), disc = svgEl("g");
+    disc.append(svgEl("circle", { r: 34 }), Object.assign(svgEl("text", { "text-anchor": "middle", y: 9 }), { textContent: "$NYC" }));
+    coin.append(disc);
     svg.append(coin);
 
-    // step 4: who leads it
-    const lead = svgEl("g", {}, "m-lead");
-    for (const [, lon, lat] of data.members.slice(0, 7)) lead.append(svgEl("circle", { cx: P.x(lon).toFixed(1), cy: P.y(lat).toFixed(1), r: 14 }, "m-pulse"));
-    const flag = (x, y, text) => {
-      const g = svgEl("g", { transform: `translate(${x} ${y})` }, "m-flag");
-      const t = svgEl("text", { x: 14, y: 26 }); t.textContent = text;
-      g.append(svgEl("rect", { width: text.length * 9.6 + 28, height: 40, rx: 20 }), t);
-      lead.append(g);
-    };
-    flag(Math.max(20, cx - 300), cy + 60, "👑 City Founder: seat open · hold 7 days, then apply");
-    flag(Math.max(20, cx - 300), cy + 115, "📍 Locals verify with wallet + location");
+    // step 4: who leads it (the rings pulse on the biggest places)
+    const lead = svgEl("g", {}, "m-lead"), rings = [];
+    for (const [, lon, lat] of data.members.slice(0, 7)) { const r = svgEl("circle", { cx: P.x(lon).toFixed(1), cy: P.y(lat).toFixed(1), r: 14 }, "m-pulse"); rings.push(r); lead.append(r); }
     svg.append(lead);
-    // size each flag to its text (the text is bigger on phones)
-    const fit = () => lead.querySelectorAll(".m-flag").forEach((g) => { try { g.querySelector("rect").setAttribute("width", (g.querySelector("text").getBBox().width + 28).toFixed(0)); } catch {} });
-    fit(); window.addEventListener("resize", fit);
 
-    // the member chips: the five boroughs, then one "+N more" that unfolds the rest in place
+    /* sizes in screen pixels, for one view: everything that marks a place keeps its size on screen whatever the zoom */
+    let W = 0, phone = true, view = VIEW_CITY.slice();
+    const coinPx = () => Math.max(22, Math.min(32, W * 0.05));
+    function size(v) {
+      const u = v[2] / W;
+      svg.setAttribute("viewBox", v.map((n) => n.toFixed(1)).join(" "));
+      svg.style.setProperty("--u", u.toFixed(4));
+      disc.setAttribute("transform", `scale(${((coinPx() * u) / 34).toFixed(4)})`);
+      for (const [d, px] of dotList) d.setAttribute("r", (px * u).toFixed(2));
+      for (const r of rings) r.setAttribute("r", (10 * u).toFixed(2));
+      big.setAttribute("x", bigX.toFixed(1)); big.setAttribute("y", (bigTop - 9 * u).toFixed(1));
+      return u;
+    }
+    /* the layout of one view's labels: first come, first kept; a spot is free when it is inside the map and touches nothing taken */
+    const hit = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+    const area = (t) => { const b = t.getBBox(); return [b.x, b.y, b.x + b.width, b.y + b.height]; };
+    const onNyc = (b) => { // any of 12 points of the label's box inside New York City's area
+      try { for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) if (nyc.isPointInFill(new DOMPoint(b[0] + ((b[2] - b[0]) * (i + 0.5)) / 4, b[1] + ((b[3] - b[1]) * (j + 0.5)) / 3))) return true; } catch { return false; }
+      return false;
+    };
+    const put = (t, x, y) => { t.setAttribute("x", x.toFixed(1)); t.setAttribute("y", y.toFixed(1)); for (const ts of t.children) ts.setAttribute("x", x.toFixed(1)); };
+    // each label is measured once at its place (centred on it), then its box is moved to each candidate spot by arithmetic: the nearest
+    // free spot wins (a named neighbour may move up to about three lines away; the others only on, above, below or beside their place)
+    function layoutView(v, items, opts) {
+      const u = size(v), f = 13 * u, m = 4 * u;
+      const edge = [v[0] + m, v[1] + m, v[0] + v[2] - m, v[1] + v[3] - m];
+      const cr = coinPx() * u + m, taken = [[cx - cr, cy - cr, cx + cr, cy + cr]];
+      const bb = area(big); taken.push([bb[0] - m, bb[1] - m, bb[2] + m, bb[3] + m]);
+      let kept = 0;
+      for (const it of items) {
+        const t = it.t;
+        t.classList.remove("is-off");
+        const lift = t.childElementCount > 1 ? 0.6 * f : 0; // a two-line label (name, then its coin) is centred on its place too
+        put(t, it.x, it.y + 0.35 * f - lift); t.setAttribute("text-anchor", "middle");
+        const raw = area(t), w = raw[2] - raw[0];
+        let best = null;
+        if (kept < opts.max) for (const [dx, dy] of opts.spots(it, f, w)) {
+          const r = [raw[0] + dx, raw[1] + dy, raw[2] + dx, raw[3] + dy], b = [r[0] - m, r[1] - m, r[2] + m, r[3] + m];
+          if (b[0] < edge[0] || b[1] < edge[1] || b[2] > edge[2] || b[3] > edge[3]) continue;
+          if (taken.some((k) => hit(b, k))) continue;
+          if (opts.avoidNyc && onNyc(r)) continue;
+          best = [dx, dy, b]; break;
+        }
+        if (!best) { t.classList.add("is-off"); continue; }
+        put(t, it.x + best[0], it.y + 0.35 * f - lift + best[1]);
+        taken.push(best[2]); kept++;
+      }
+    }
+    // candidate moves of a label's box [dx, dy], nearest first: on the place, above, below, beside; a named neighbour searches a wider ring
+    const nbSpots = ({ named }, f, w) => {
+      const s = [[0, 0], [0, -1.15 * f], [0, 1.15 * f], [w / 2 + 0.5 * f, 0], [-w / 2 - 0.5 * f, 0]];
+      if (named) {
+        const ring = [];
+        for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) ring.push([i * 0.25 * w, j * 0.8 * f]);
+        ring.sort((a, b) => Math.hypot(a[0], a[1] * 1.6) - Math.hypot(b[0], b[1] * 1.6));
+        s.push(...ring);
+      }
+      return s;
+    };
+    const boroSpots = (it, f, w) => [[0, -1.1 * f], [0, 1.1 * f], [w / 2 + 0.6 * f, 0], [-w / 2 - 0.6 * f, 0]];
+    function layout() {
+      const w = svg.getBoundingClientRect().width;
+      if (!w) return;
+      W = w; phone = W < PHONE_MAP;
+      // the words: a phone names the places; a wider map adds each neighbour's coin and says what the city's line is
+      big.textContent = phone ? "New York City" : "New York City · official boundary";
+      for (const it of nbItems) { // a phone: the name; a computer: the name, and the coin it gets on a second line
+        it.t.textContent = "";
+        if (phone) { it.t.textContent = it.n.name; continue; }
+        const name = svgEl("tspan"), coinName = svgEl("tspan", { dy: "1.15em" }, "m-tick");
+        name.textContent = it.n.name; coinName.textContent = `$${ticker(it.n.name)}`;
+        it.t.append(name, coinName);
+      }
+      for (const it of boroItems) it.t.textContent = it.name;
+      const phoneList = new Set([...NAMED, "Stamford"]);
+      layoutView(VIEW_REGION, phone ? nbItems.filter((it) => phoneList.has(it.n.name)) : nbItems, { spots: nbSpots, max: phone ? 5 : 6, avoidNyc: true });
+      for (const it of nbItems) if (phone && !phoneList.has(it.n.name)) it.t.classList.add("is-off");
+      layoutView(VIEW_CITY, boroItems, { spots: boroSpots, max: phone ? 0 : 5, avoidNyc: false }); // a phone's step 2 has no borough names (the dots, the lines and the coin say it)
+      size(view);
+    }
+
+    /* the view of a step, and the glide between two views (transform-free: the viewBox itself moves, a few hundred ms) */
+    const viewFor = (s) => (s <= 2 ? VIEW_CITY : VIEW_REGION);
+    let anim = 0;
+    function moveTo(target) {
+      cancelAnimationFrame(anim);
+      const from = view.slice(), still = window.V.reduced || box.classList.contains("mo-off") || !W || from.every((n, i) => Math.abs(n - target[i]) < 0.5);
+      if (still) { view = target.slice(); if (W) size(view); return; }
+      const t0 = performance.now(), D = 650, ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+      const frame = (now) => {
+        const k = ease(Math.min(1, (now - t0) / D));
+        view = from.map((n, i) => n + (target[i] - n) * k);
+        size(view);
+        if (k < 1) anim = requestAnimationFrame(frame); else view = target.slice();
+      };
+      anim = requestAnimationFrame(frame);
+    }
+    layout();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
+    if (window.ResizeObserver) { let lastW = 0; new ResizeObserver(() => { const w = Math.round(svg.getBoundingClientRect().width); if (w && w !== lastW) { lastW = w; cancelAnimationFrame(anim); view = viewFor(step); layout(); } }).observe(svg); }
+
+    // the member chips: the five boroughs, then one "+N more" that unfolds the rest in place (on every screen: the column stays as tall as the map)
     const SHOWN = 5;
     const cloud = $("#nyc-members"), chips = data.members.map(([name, , , pop], i) => { const li = document.createElement("li"); li.textContent = name; if (i < SHOWN) li.className = "is-big"; else li.className = "is-more"; return li; });
     const hidden = chips.filter((li) => li.className === "is-more").length;
@@ -183,6 +274,7 @@
       step = ((n - 1 + 4) % 4) + 1;
       box.dataset.step = String(step);
       steps.forEach((b) => (Number(b.dataset.go) === step ? b.setAttribute("aria-current", "step") : b.removeAttribute("aria-current")));
+      moveTo(viewFor(step));
     };
     const schedule = () => { clearTimeout(timer); if (playing && onScreen) timer = setTimeout(() => { go(step + 1); schedule(); }, 6500); };
     const setPlaying = (p) => { playing = p; $("#nyc-play").textContent = p ? "Pause" : "Play"; $("#nyc-play").setAttribute("aria-pressed", String(p)); schedule(); };
@@ -216,7 +308,7 @@
     if (next) timeline.style.setProperty("--rail-at", `${at(next).toFixed(1)}%`); else timeline.style.setProperty("--rail-at", "100%");
   }
   function launchpadLive() {
-    const stop = timeline && $$(".timeline__item", timeline).find((li) => /Vicinity Launchpad/.test(li.textContent));
+    const stop = timeline && $$(".timeline__item", timeline).find((li) => /Vicinity\sLaunchpad/.test(li.textContent)); // \s: the title has a no-break space
     if (!stop || stop.classList.contains("is-now")) return;
     stop.classList.remove("is-next"); stop.classList.add("is-done", "is-now");
     const status = $(".timeline__status", stop); if (status) status.textContent = "Open now"; // the page is open; a city's coin launches once its founder qualifies
