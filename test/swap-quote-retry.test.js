@@ -3,8 +3,10 @@
 // error) after 1.5 s, 4 s and 8 s (the answer's Retry-After when longer; one past 10 s is not waited out), only while the page
 // is looked at and the trade is the same, each retry spent from the page's budget of automatic requests (every panel and tab
 // together: a broken Jupiter never makes every open panel hammer the Worker). When the retries are spent the error shows ONCE,
-// in calm words, and nothing more is asked by itself: Try again asks again. Builds and sends are not retried here (their own
-// rules: test/swap-ready.test.js). The Worker's side (the keyed host standing in for the lite one) is in test/swap-api.test.js.
+// in calm words, and nothing more is asked by itself: Try again asks again. Nobody connected: the button stays Connect wallet
+// (a connected wallet's price is asked at once) and Try again is the link under it. A look away and back never starts a new
+// round of retries. Builds and sends are not retried here (their own rules: test/swap-ready.test.js). The Worker's side (the
+// keyed host standing in for the lite one, only on a plan with room to spare) is in test/swap-api.test.js.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { newEvent } from "./helpers/pagedom.js";
@@ -12,10 +14,10 @@ import { VIC, CONFIG, QUOTE, TX, TAKER, walletOf, swapPage, byPath, click, text 
 
 const LATER = () => new Date(Date.now() + 3_600_000).toISOString();
 const DOWN = { ok: false, error: "jupiter_unavailable", retryAfterS: 5, _status: 503 }; // what the Worker answers when Jupiter could not be reached
-const ERROR = "Prices are not loading right now. Tap Try again in a moment.";
+const ERROR = "Prices are not loading right now. Tap Try again in a moment, or connect your wallet."; // nobody connected (the owner's case)
 const input = (P, value) => { const i = P.$(".swap__amt"); i.value = value; i.dispatchEvent(newEvent("input")); };
 const asks = (P, amount) => byPath(P.calls, "/api/swap/quote").filter((c) => amount === undefined || c.body.amount === amount).length;
-const view = (P) => ({ tag: text(P.$(".swap__state")), line: text(P.$(".swap__status")), out: text(P.$(".swap__amt--out")), bad: P.$(".swap__status").classList.contains("is-bad"), button: text(P.$(".swap__go")) });
+const view = (P) => ({ tag: text(P.$(".swap__state")), line: text(P.$(".swap__status")), out: text(P.$(".swap__amt--out")), bad: P.$(".swap__status").classList.contains("is-bad"), button: text(P.$(".swap__go")) + (P.$(".swap__go").disabled ? " (off)" : ""), again: !P.$(".swap__again").hidden });
 /** Every write of the status line (what a screen reader announces), to prove what was, and was not, ever on the screen. */
 function writes(P) {
   const st = P.$(".swap__status"), seen = [];
@@ -48,12 +50,12 @@ test("quote retry: ONE failure then the price: no error is ever on the screen ('
   const seen = writes(P);
   input(P, "1"); await P.advance(450);
   assert.equal(asks(P), 1);
-  assert.deepEqual(view(P), { tag: "Quoting…", line: "Still getting the best price…", out: "…", bad: false, button: "Quoting…" }, "the hiccup: still getting the price, no error");
+  assert.deepEqual(view(P), { tag: "Quoting…", line: "Still getting the best price…", out: "…", bad: false, button: "Connect wallet", again: false }, "the hiccup: still getting the price, no error (nobody connected: the button can connect a wallet meanwhile)");
   await P.advance(4_999);
   assert.equal(asks(P), 1, "the Worker said Retry-After 5: not asked before");
   await P.advance(1);
   assert.equal(asks(P, "1"), 2, "asked again, quietly");
-  assert.deepEqual(view(P), { tag: "Estimate", line: "Estimate: the exact amount is shown before your wallet opens.", out: "89,166.22", bad: false, button: "Connect wallet" });
+  assert.deepEqual(view(P), { tag: "Estimate", line: "Estimate: the exact amount is shown before your wallet opens.", out: "89,166.22", bad: false, button: "Connect wallet", again: false });
   assert.ok(!seen.some((l) => /not loading|could not|busy|went wrong/i.test(l)), `never an error: ${JSON.stringify(seen)}`);
   assert.equal(JSON.parse(P.win.localStorage.getItem("vicinity.swapAuto")).log.length, 1, "the retry counted in this browser's budget of automatic requests");
   // no answer at all (the request itself failed: offline for a moment): the same, after 1.5 s
@@ -66,7 +68,7 @@ test("quote retry: ONE failure then the price: no error is ever on the screen ('
   assert.ok(!seenQ.some((l) => /not loading|could not|went wrong|not available/i.test(l)), JSON.stringify(seenQ));
 });
 
-test("quote retry: the first ask and its THREE quiet retries all fail: the calm error is written ONCE, after the last; nothing more is asked by itself; Try again asks again", async () => {
+test("quote retry: the first ask and its THREE quiet retries all fail: the calm error is written ONCE, after the last; nothing more is asked by itself; Try again (the link under Connect wallet) asks again", async () => {
   const plain = { ok: false, error: "jupiter_unavailable", _status: 503 };
   let answer = plain;
   const P = await panel(() => answer);
@@ -77,15 +79,15 @@ test("quote retry: the first ask and its THREE quiet retries all fail: the calm 
     await P.advance(wait - 1); assert.equal(asks(P), n - 1, `retry ${n - 1} not before ${wait} ms`);
     await P.advance(1); assert.equal(asks(P), n, `retry ${n - 1} at ${wait} ms`);
   }
-  assert.deepEqual(view(P), { tag: "Try again", line: ERROR, out: "—", bad: false, button: "Try again" }, "the retries are spent: calm words in the calm colour (not the red of an error), a neutral tag, and the button asks again");
+  assert.deepEqual(view(P), { tag: "Try again", line: ERROR, out: "—", bad: false, button: "Connect wallet", again: true }, "the retries are spent: calm words in the calm colour (not the red of an error), a neutral tag; the button still connects a wallet, Try again is the link under it");
   assert.equal(seen.filter((l) => l === ERROR).length, 1, "the error was written once");
   assert.ok(!seen.some((l) => /could not be reached/.test(l)), "never the old words");
   await P.advance(120_000);
   assert.equal(asks(P), 4, "nothing more is asked by itself (the words do not promise it)");
   answer = estimate();
-  click(P.$(".swap__go")); await P.advance(0);
-  assert.equal(asks(P), 5, "Try again asks for the price (no wallet: it does not open the wallet chooser first)");
-  assert.deepEqual([view(P).tag, view(P).out, P.$(".swap__wallets").hidden], ["Estimate", "89,166.22", true]);
+  click(P.$(".swap__again")); await P.advance(0);
+  assert.equal(asks(P), 5, "Try again asks for the price (it does not open the wallet chooser)");
+  assert.deepEqual([view(P).tag, view(P).out, view(P).again, P.$(".swap__wallets").hidden], ["Estimate", "89,166.22", false, true]);
   assert.equal(seen.filter((l) => l === ERROR).length, 1);
 });
 
@@ -169,4 +171,61 @@ test("quote retry: the 12 s refresh that hits a hiccup keeps its numbers on the 
   assert.deepEqual([view(C).tag, view(C).button], ["Price ready", "Buy $VICINITY"]);
   assert.equal(byPath(C.calls, "/api/swap/quote").pop().body.taker, TAKER);
   assert.deepEqual(w.calls, [["connect"]], "the wallet is not asked to sign by itself");
+});
+
+test("quote retry: a look away and back while the 12 s refresh's retry waits never starts a new round: the typed ask, the refresh and its three retries, then the calm words once (no refresh is armed beside a retry)", async () => {
+  let down = false;
+  const P = await panel(() => (down ? { ok: false, error: "jupiter_unavailable", _status: 503 } : estimate()));
+  const seen = writes(P);
+  input(P, "1"); await P.advance(450);
+  assert.equal(view(P).tag, "Estimate");
+  down = true;
+  await P.advance(12_000);
+  assert.equal(asks(P), 2, "the refresh asked and failed: its quiet retry waits, the numbers stay");
+  for (let i = 0; i < 4; i++) { P.setHidden(true); await P.advance(100); P.setHidden(false); await P.advance(100); }
+  await P.advance(60_000);
+  assert.equal(asks(P), 5, "the typed ask, the refresh, its three retries: no more");
+  assert.deepEqual([view(P).line, seen.filter((l) => l === ERROR).length], [ERROR, 1]);
+  P.setHidden(true); P.setHidden(false);
+  await P.advance(60_000);
+  assert.equal(asks(P), 5, "nothing more by itself");
+});
+
+test("quote retry: nobody connected and the price not loading: Connect wallet stays within reach (during the quiet retries and after them), and a wallet connected then is priced at once, the waiting retry dropped; connected, the button is Try again", async () => {
+  const keyless = { ok: false, error: "jupiter_unavailable", retryAfterS: 5, _status: 503 };
+  const quoteFor = (b) => (b.taker ? QUOTE({ expiresAt: LATER() }) : keyless); // the estimates down; a wallet's own price still comes
+  const rest = (w) => ({ wallets: [w], answers: { "/api/swap/quote": quoteFor, "/api/swap/balances": { ok: true, sol: { lamports: 1e9, ui: 1 }, tokens: { [VIC]: { ui: 0, hasAccount: true } } }, "/api/swap/tx": () => TX({ quote: QUOTE({ expiresAt: LATER() }) }) } });
+  // during the quiet retries: the button connects a wallet, and its price is asked at once
+  const w = walletOf();
+  const P = await panel(quoteFor, rest(w));
+  input(P, "1"); await P.advance(450);
+  assert.deepEqual([view(P).line, view(P).button], ["Still getting the best price…", "Connect wallet"]);
+  click(P.$(".swap__go")); await P.advance(0);
+  assert.equal(P.$(".swap__wallets").hidden, false, "the wallet chooser opens");
+  click(P.$(".swap__wallets .wallet-option")); await P.advance(0);
+  assert.deepEqual([asks(P), byPath(P.calls, "/api/swap/quote").pop().body.taker], [2, TAKER], "asked again at once, for the wallet (not when the retry was due)");
+  await P.advance(1_000);
+  assert.deepEqual([view(P).tag, view(P).button], ["Price ready", "Buy $VICINITY"]);
+  await P.advance(10_000);
+  assert.equal(asks(P), 2, "the retry that was waiting is gone");
+  assert.deepEqual(w.calls, [["connect"]], "the wallet is not asked to sign by itself");
+  // after the retries: the calm words name both ways, the button still connects, Try again is the link under it
+  const Q = await panel(quoteFor, rest(walletOf()));
+  input(Q, "1"); await Q.advance(450); await Q.advance(30_000);
+  assert.deepEqual([asks(Q), view(Q).line, view(Q).button, view(Q).again], [4, ERROR, "Connect wallet", true]);
+  click(Q.$(".swap__go")); await Q.advance(0);
+  assert.equal(Q.$(".swap__wallets").hidden, false, "Connect wallet opens the chooser (Try again did not take its place)");
+  click(Q.$(".swap__wallets .wallet-option")); await Q.advance(1_000);
+  assert.deepEqual([view(Q).tag, view(Q).button, view(Q).again, byPath(Q.calls, "/api/swap/quote").pop().body.taker], ["Price ready", "Buy $VICINITY", false, TAKER]);
+  // connected and its own price not loading either: nothing to connect, the button asks again
+  const both = rest(walletOf()); both.answers["/api/swap/quote"] = () => keyless;
+  const C = await panel(() => keyless, both);
+  click(C.$(".swap__go")); await C.advance(0); click(C.$(".swap__wallets .wallet-option")); await C.advance(0);
+  input(C, "1"); await C.advance(450);
+  assert.deepEqual([view(C).line, view(C).button], ["Still getting the best price…", "Quoting… (off)"]);
+  await C.advance(30_000);
+  assert.deepEqual([view(C).line, view(C).button, view(C).again], ["Prices are not loading right now. Tap Try again in a moment.", "Try again", false]);
+  const before = asks(C);
+  click(C.$(".swap__go")); await C.advance(0);
+  assert.equal(asks(C), before + 1, "Try again asks for the price again");
 });

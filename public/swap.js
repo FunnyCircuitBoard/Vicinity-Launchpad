@@ -36,7 +36,8 @@
   // Retry-After when that is longer; one longer than RETRY_WAIT_MAX_MS is not waited out), only while the page is looked at and the
   // trade (pair, amount, slippage) is the same. Each retry is an automatic request: it needs the page's budget (autoAllowed) and
   // spends from it (autoSpend), every panel and tab together, so a broken Jupiter never makes every open panel hammer the Worker.
-  // When the retries are spent the panel says so once and waits for the person's tap (Try again asks for the price again).
+  // When the retries are spent the panel says so once and waits for the person's tap (Try again asks for the price again; with
+  // nobody connected the button stays Connect wallet, which also brings a price, and Try again is the link under it).
   const RETRY_WAITS = [1500, 4000, 8000], RETRY_WAIT_MAX_MS = 10_000;
   const BASES = [SOL, USDC, USDT];
   const TOUCH = ["click", "input", "keydown", "change"]; // what tells a panel somebody is there
@@ -107,6 +108,7 @@
     jupiter_busy: "Prices are slow to load right now. Nothing was sent. Try again in a few seconds.",
     jupiter_unavailable: "Prices are not loading right now. Nothing was sent. Try again in a moment.",
     quote_unavailable: "Prices are not loading right now. Tap Try again in a moment.", // the price for the typed amount, after its quiet retries
+    quote_unavailable_connect: "Prices are not loading right now. Tap Try again in a moment, or connect your wallet.", // the same, nobody connected (the button connects, Try again is the link under it)
     jupiter_refused: "The price service sent something unexpected, so nothing was built. Try again in a minute.",
     rpc_unavailable: "The blockchain is busy. Try again in a minute.",
     rpc_busy: "The blockchain is busy. Try again in a minute.",
@@ -372,7 +374,8 @@
       this.offWallet = onWallet(() => {
         if (this.s.phase === "ready" || this.s.phase === "building") { this.dropBuild(); this.s.phase = "quoted"; } // another wallet signs: that build is not its
         this.s.hold = null;
-        this.render(); this.loadBalances(); if (this.s.amount && ["quoted", "failed", "idle"].includes(this.s.phase)) { this.phase("quoting"); this.quote(); }
+        // (a price being asked again quietly is asked at once for the new wallet: quote() drops the waiting retry)
+        this.render(); this.loadBalances(); if (this.s.amount && (["quoted", "failed", "idle"].includes(this.s.phase) || (this.s.phase === "quoting" && this.s.retrying))) { this.phase("quoting"); this.quote(); }
       });
       panels.add(this);
       if (!this.s.out && config) this.s.out = config.tokens.find((t) => t.kind === "vicinity")?.mint || null;
@@ -460,6 +463,16 @@
       const status = el("p", "swap__status"); status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite"); this.status = status;
       const go = el("button", "btn btn--primary btn--block swap__go", "Connect wallet"); go.type = "button"; this.go = go;
       go.addEventListener("click", () => this.primary());
+      // "Try again" under the button (and under the wallet chooser it opens) when the price did not load and nobody is connected:
+      // the button connects a wallet then
+      const again = el("button", "link-btn swap__again", "Try again"); again.type = "button"; again.hidden = true; this.again = again;
+      again.addEventListener("click", () => {
+        const s = this.s;
+        if (this.locked || s.phase !== "failed" || !s.requote || !s.amount) return;
+        let keys = false; try { keys = again.matches(":focus-visible"); } catch { /* an old browser */ }
+        this.quote(); // the link goes while the price is asked: a keyboard is put back in the amount (a phone's keyboard is not opened)
+        if (keys) { try { this.inAmt.focus({ preventScroll: true }); } catch { /* no focus */ } }
+      });
       const note = el("p", "swap__note", ""); note.hidden = true; this.note = note; // "Filled in from your link"
       const links = el("p", "swap__links"); this.links = links;
       const foot = el("p", "tiny muted swap__foot"); this.foot = foot;
@@ -468,7 +481,7 @@
       // answer first: the amounts, the one-line summary, the 10 % box when it applies, the button and the wallet chooser it
       // opens; then the receipt link, the footer, and the price details folded
       moreBody.append(slip, help, dl, moreEmpty); more.append(moreSum, moreBody);
-      r.append(head, note, box, picker, status, warn, go, walletBox, links, foot, more);
+      r.append(head, note, box, picker, status, warn, go, walletBox, again, links, foot, more);
       this.inAmt.addEventListener("input", () => { this.note.hidden = true; this.onAmount(); });
       this.inAmt.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); this.primary(); } });
       // somebody is here: any tap, key or change in the panel starts the quiet rebuilds' count again (removed by destroy(): a
@@ -592,7 +605,12 @@
         return u.toString();
       } catch { return String(location.href); }
     }
-    scheduleRefresh() { clearTimeout(this.refresh); this.refresh = setTimeout(() => { if (!document.hidden && this.s.phase === "quoted" && this.s.amount && this.s.hold !== "refresh") this.quote(true); }, REFRESH_MS); }
+    /** The 12 s refresh of a quoted price. Never next to a quiet retry of it (retryLater): that retry is this trade's next ask, and a refresh beside it would start its count again (a look away and back must not buy a new round of retries). */
+    scheduleRefresh() {
+      clearTimeout(this.refresh); this.refresh = 0;
+      if (this.retryT || this.retryHeld) return;
+      this.refresh = setTimeout(() => { if (!document.hidden && !this.retryT && !this.retryHeld && this.s.phase === "quoted" && this.s.amount && this.s.hold !== "refresh") this.quote(true); }, REFRESH_MS);
+    }
     async setMax() {
       const b = this.s.balances; if (!b || this.locked) return; // MAX is off while a trade is in the wallet's or the network's hands
       let v;
@@ -778,7 +796,7 @@
       const s = this.s;
       if (s.phase === "ready") return this.buy(); // first, before anything is awaited: the wallet opens inside this tap
       if (s.phase === "building" || this.locked) return; // a second tap while busy is ignored
-      if (s.phase === "failed" && s.requote && s.amount) return this.quote(); // the price did not load: Try again asks for it again (nothing is built or signed)
+      if (s.phase === "failed" && s.requote && s.amount && this.connected) return this.quote(); // the price did not load: Try again asks for it again (nothing is built or signed); nobody connected: the button connects a wallet (below), Try again is the link under it
       if (s.phase === "done" || (s.phase === "failed" && !s.soft)) { s.sig = null; this.inAmt.value = ""; s.amount = ""; s.quote = null; this.phase("idle", { error: null }); this.inAmt.focus(); return; }
       if (!this.connected) return this.checkingWallet ? undefined : this.connect(); // the wallet app is still answering: the button is still
       if (s.phase === "failed" && s.soft && s.quote && s.amount) s.phase = "quoted"; // Try again: the price is built again
@@ -1148,7 +1166,7 @@
         sending: "Sending to the network…",
         confirming: s.checking ? "Still checking with the network… this can take a moment. Nothing more to sign." : "Waiting for the network to confirm…",
         done: q ? `Swapped ✓ ${num(Number(q.inUi), 6)} ${sym(s.in)} → ${num(Number(q.outUi), 6)} ${sym(s.out)}` : "Swapped ✓",
-        failed: s.requote ? WORDS.quote_unavailable : words(s.error),
+        failed: s.requote ? (this.connected ? WORDS.quote_unavailable : WORDS.quote_unavailable_connect) : words(s.error),
       };
       const line = lines[s.phase] || "";
       if (this.status.textContent !== line) this.status.textContent = line;
@@ -1160,11 +1178,14 @@
       // the button
       const busy = s.phase === "building" || this.locked;
       const connectLabel = this.checkingWallet ? CHECKING : "Connect wallet";
-      const labels = { idle: this.connected ? action : connectLabel, quoting: "Quoting…", quoted: !this.connected ? connectLabel : s.hold === "refresh" ? "Refresh price" : action, building: "Preparing…", ready: action, signing: "Confirm in your wallet…", sending: "Sending…", confirming: "Confirming…", done: "Swap again", failed: s.requote ? "Try again" : s.soft ? (this.connected ? "Try again" : "Connect wallet") : "Start over" };
+      // nobody connected while the price is asked again quietly: the button connects a wallet (a connected wallet's price is asked at once)
+      const waitingQuietly = s.phase === "quoting" && s.retrying && !this.connected;
+      const labels = { idle: this.connected ? action : connectLabel, quoting: waitingQuietly ? connectLabel : "Quoting…", quoted: !this.connected ? connectLabel : s.hold === "refresh" ? "Refresh price" : action, building: "Preparing…", ready: action, signing: "Confirm in your wallet…", sending: "Sending…", confirming: "Confirming…", done: "Swap again", failed: s.requote ? (this.connected ? "Try again" : connectLabel) : s.soft ? (this.connected ? "Try again" : "Connect wallet") : "Start over" };
       this.go.textContent = labels[s.phase] || "Swap";
-      this.go.disabled = busy || !this.ready || this.checkingWallet || (s.phase === "quoting") || (s.phase === "quoted" && (!this.connected ? false : impact > 10 && !s.understood)) || (s.phase === "idle" && this.connected && !s.amount)
+      this.go.disabled = busy || !this.ready || this.checkingWallet || (s.phase === "quoting" && !waitingQuietly) || (s.phase === "quoted" && (!this.connected ? false : impact > 10 && !s.understood)) || (s.phase === "idle" && this.connected && !s.amount)
         || (s.phase === "ready" && (s.refreshing || s.holding || (impact > 10 && !s.understood)));
       this.go.classList.toggle("is-busy", busy || this.checkingWallet || (s.phase === "ready" && s.refreshing));
+      this.again.hidden = !(s.phase === "failed" && s.requote && !this.connected);
       // the amount, the flip and the pair stay open while the price is being built (typing on simply starts again): only a trade
       // already in the wallet's or the network's hands locks them
       this.flipBtn.disabled = this.locked;

@@ -136,7 +136,7 @@ test("swap panel: plain words for every way it stops: cancelled, slippage, not e
   assert.deepEqual([text(P.$(".swap__status")), P.$(".swap__go").disabled], ["No market can trade this pair right now.", false]);
   quoteAnswer = { ok: false, error: "jupiter_busy", retryAfterS: 5, _status: 503 };
   await type(P, "0.31");
-  assert.deepEqual([text(P.$(".swap__status")), text(P.$(".swap__go"))], ["Prices are not loading right now. Tap Try again in a moment.", "Try again"], "the price service busy on every quiet retry (test/swap-quote-retry.test.js): calm words, and Try again asks for the price again");
+  assert.deepEqual([text(P.$(".swap__status")), text(P.$(".swap__go")), P.$(".swap__again").hidden], ["Prices are not loading right now. Tap Try again in a moment.", "Try again", true], "the price service busy on every quiet retry (test/swap-quote-retry.test.js): calm words, and Try again asks for the price again (connected: the button itself)");
   assert.equal(P.win.VSwap.words({ error: "jupiter_busy" }), "Prices are slow to load right now. Nothing was sent. Try again in a few seconds.", "a build the price service was too busy for");
   // a wallet that can neither send nor sign a transaction here
   const legacy = walletOf({ kind: "legacy" });
@@ -363,7 +363,7 @@ const connectFirst = async (P) => { click(P.$(".swap__go")); await P.flush(); cl
 
 test("compact panel: answer first (the amounts, the summary line, the 10% box, the button, the wallet chooser it opens), then the footer and 'Price details' with the slippage, its help and the details folded", async () => {
   const P = await page({ answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE() } });
-  assert.deepEqual(kidsOf(P.slot), ["swap__head", "swap__note", "swap__box", "swap__picker", "swap__status", "swap__warn", "swap__go", "swap__wallets", "swap__links", "swap__foot", "swap__more"], "status, then the 10% box, then the button, right under the amounts");
+  assert.deepEqual(kidsOf(P.slot), ["swap__head", "swap__note", "swap__box", "swap__picker", "swap__status", "swap__warn", "swap__go", "swap__wallets", "swap__again", "swap__links", "swap__foot", "swap__more"], "status, then the 10% box, then the button, right under the amounts (its wallet chooser, then 'Try again' when a price did not load)");
   const more = P.$(".swap__more");
   assert.deepEqual([more.tagName, more.hasAttribute("open")], ["DETAILS", false], "folded");
   assert.equal(P.$(".swap__more > .swap__more-sum").tagName, "SUMMARY");
@@ -452,7 +452,8 @@ test("compact panel: the state tag: none while nothing is typed, a neutral 'Try 
   assert.equal(tag().hidden, true, "cleared");
   q = { ok: false, error: "jupiter_unavailable", _status: 503 };
   await type(P, "0.3");
-  assert.deepEqual([tag().hidden, text(tag()), tag().classList.contains("tag--no"), text(P.$(".swap__status"))], [false, "Try again", false, "Prices are not loading right now. Tap Try again in a moment."], "after its quiet retries");
+  assert.deepEqual([tag().hidden, text(tag()), tag().classList.contains("tag--no"), text(P.$(".swap__status"))], [false, "Try again", false, "Prices are not loading right now. Tap Try again in a moment, or connect your wallet."], "after its quiet retries (nobody connected: the button connects a wallet, Try again is the link under it)");
+  assert.deepEqual([text(P.$(".swap__go")), P.$(".swap__again").hidden], ["Connect wallet", false]);
   // the chain refused the trade: a real failure
   const w = walletOf();
   const H = await page({ wallets: [w], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE(), "/api/swap/balances": { ok: true, sol: { lamports: 1e9, ui: 1 }, tokens: {} }, "/api/swap/tx": TX(), "/api/swap/status": { ok: true, status: "failed", err: "slippage" } } });

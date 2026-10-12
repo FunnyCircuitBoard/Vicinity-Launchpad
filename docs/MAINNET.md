@@ -276,15 +276,19 @@ Real Jupiter and provider latency are not in these numbers (section 8).
   stops a flood of retries, PER HOST: a 429 on the keyed build host turns previews into lite estimates and pauses builds, it
   never blocks the lite quotes, and the other way round. `/tx` takes from the same per-server budget (`JUPITER_RPS`) as the
   previews when its build is not cached: no visitor can make the Worker build unmetered.
-* A lite hiccup (timeout, network, 5xx, 429 or its pause) on an estimate is asked once of the keyed host's own `/swap/v1/quote`
-  (with the key; still marked an estimate), only when the per-server bucket is FULL and at most once per 10 s per server: at
-  `JUPITER_RPS=0.5` the bucket holds one token, so "has a token" would let a lite outage spend every token a Buy tap needs;
-  this way the stand-in uses at most 1 call in 5 and only when nothing keyed was asked in the last 2 s. A real answer (no route,
-  too small, refused) is never asked twice. The panel asks a price that did not load (Jupiter busy or out of reach, or no answer)
-  again quietly after 1.5 s, 4 s and 8 s (Retry-After when longer; one past 10 s is not waited out), only while the page is
-  looked at and the trade is the same, each retry spent from the page's budget of automatic requests (8 a minute, every panel
-  and tab together; a 429 on a retry pauses them); then it says once "Prices are not loading right now. Tap Try again in a
-  moment." and asks nothing more by itself (`test/swap-quote-retry.test.js`).
+* A price that did not load is absorbed by the PANEL first: it asks again quietly ("Still getting the best price…") after 1.5 s,
+  4 s and 8 s (Retry-After when longer; one past 10 s is not waited out), only while the page is looked at and the trade is the
+  same, each retry spent from the page's budget of automatic requests (8 a minute, every panel and tab together; a 429 on a retry
+  pauses them; a look away and back never starts a new round). Then it says once, in the calm colour, "Prices are not loading
+  right now. Tap Try again in a moment." (nobody connected: "…, or connect your wallet.", the button stays Connect wallet, whose
+  wallet is priced at once, and Try again is the link under it) and asks nothing more by itself (`test/swap-quote-retry.test.js`).
+* On a plan with room to spare (`JUPITER_RPS` >= 1, a bucket of two) a lite hiccup (timeout, network, 5xx, 429 or its pause) on
+  an estimate is also asked once of the keyed host's own `/swap/v1/quote` (with the key; still marked an estimate): only when the
+  server's bucket is FULL, so a token is always left for a Buy tap's `/tx`, and at most once per 10 s per server. Jupiter counts
+  the key's calls across every server while each server keeps its own bucket, so on the Free plan (`JUPITER_RPS=0.5`, a bucket of
+  one token) the stand-in is OFF: no keyed call is ever made for a visitor without a wallet. Its own 429 or 5xx pauses only the
+  stand-in, never the builds; every pause starts when the call failed (after a timeout, 6 s in), not when it started. A real
+  answer (no route, too small, refused) is never asked twice (`test/swap-api.test.js`).
 * Every `/api/swap/*` and `/api/launchpad/trade/*` route is Origin-checked, counted before the work (per connection, and per
   wallet for both `/tx` routes), answers `{ ok: false, error: <code> }`, and simulates before the wallet opens so slippage,
   missing SOL and program errors are plain words, not a wallet warning. The status poll is counted per SIGNATURE (60 a minute)
