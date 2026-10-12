@@ -5,7 +5,7 @@
  *                           your city's seat / application window, your country's manager / election
  *   GET  /api/me?lite=1   → just who you are (for the header on every page)
  *   POST /api/home        → set your home community from a location attestation (never the location)
- *   POST /api/me/google/remove → take off the Google sign-in the member added (v2; adding it: src/auth.js handleGoogleAdd)
+ *   POST /api/me/google/remove → take off the Google sign-in the member added, and log out the other browsers (v2; adding it: src/auth.js handleGoogleAdd)
  */
 import { json, readJson } from "./http.js";
 import { cleanEmail, consumeEmailCode, getSession, isFresh, providers, renewSession, validEmail } from "./auth.js";
@@ -360,15 +360,18 @@ export async function handleContactEmailRemove(request, env, now = Date.now()) {
 
 /**
  * POST /api/me/google/remove (v2) → take the Google sign-in this member ADDED off their account (src/logins.js removeGoogle):
- * "Log in with Google" with it answers no_account again. The account's main login (the Google, e-mail or wallet it was made with)
- * is never touched, so an account made with Google keeps it. Not from a session a wallet from another app made in the last 7 days
- * (link_new), like the other identity changes. { ok, removed } (removed false: there was none).
+ * "Log in with Google" with it answers no_account again, and every OTHER browser of the account is logged out in the same transaction
+ * (a phone that logged in with that Google account included: sessions don't record which login made them), the way a password change
+ * does; this browser stays in. Removing a way in needs no fresh login (it only ever takes access away). The account's main login (the
+ * Google, e-mail or wallet it was made with) is never touched, so an account made with Google keeps it. Not from a session a wallet
+ * from another app made in the last 7 days (link_new), like the other identity changes. { ok, removed } (removed false: there was
+ * none, and nobody was logged out).
  */
 export async function handleGoogleRemove(request, env, now = Date.now()) {
   const a = await access(request, env, now);
   if (a.error) return a.error;
   if (linkLocked(a.s, now)) return lockedAnswer(a.u);
-  const removed = await removeGoogle(env.DB, a.u.id);
+  const removed = await removeGoogle(env.DB, a.u.id, a.s.id);
   if (removed) console.log("google sign-in removed"); // no identifiers
   return json({ ok: true, removed });
 }

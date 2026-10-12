@@ -97,7 +97,7 @@ The scheduled job and the full holder list need more CPU time than Cloudflare's 
 | `POST /api/auth/wallet` · `/api/auth/transfer` (+`/check`) · `/api/auth/reprove` · `/api/pair` (+`/finish`) · `GET /api/pair?code=` | Prove a wallet |
 | `GET /api/auth/google/start` (and `/callback`) · `POST /api/auth/logout` | Google sign-in |
 | `/api/signup/*` (start, state, location, terms, email, finish ...) · `POST /api/auth/email/login` · `/api/auth/password/*` · `/api/me/password` | The new sign-up and password log-in: only while `SIGNUP_FLOW=v2`, otherwise `404 not_enabled` |
-| `POST /api/me/google/add` · `POST /api/me/google/remove` | The Profile's "Google sign-in": add Google as a way to log in to an existing account, or take the added one off (only while `SIGNUP_FLOW=v2`) |
+| `POST /api/me/google/add` · `POST /api/me/google/remove` | The Profile's "Google sign-in": add Google as a way to log in to an existing account (needs the current password, or a fresh wallet proof; the owner is e-mailed), or take the added one off (logs out the other browsers). Only while `SIGNUP_FLOW=v2` |
 | `GET /api/me` · `POST /api/home` · `POST /api/locate` | Dashboard data · home community · where a location is read |
 | `GET /api/profile?u=` · `/api/members/search?q=` · `POST /api/follow` · `GET /api/follows?u=&list=` · `POST /api/block` · `GET /api/me/blocks` · `POST /api/me/bio` · `POST /api/profile/report` · `GET /api/me/portfolio` · `POST /api/mod/bio/clear` | Member profiles, signed-in members only: only while `PROFILES=on`, otherwise `404 not_enabled` |
 | `POST /api/locate/handoff` (+`/info`, `/complete`, `/claim`) | Location check finished in the phone's own browser, collected by the wallet app |

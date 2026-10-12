@@ -7,7 +7,8 @@
  *
  *   POST /api/me/google/add      → { ok, url }: off to Google with the link marker in the OAuth cookie (src/auth.js handleGoogleAdd),
  *                                  and the callback adds the Google account Google answers with (src/auth.js finishGoogleAdd)
- *   POST /api/me/google/remove   → { ok, removed }: the added Google sign-in goes (src/me.js handleGoogleRemove). The account's main
+ *   POST /api/me/google/remove   → { ok, removed }: the added Google sign-in goes, and with it every other browser of the account (src/me.js
+ *                                  handleGoogleRemove): a phone that logged in with that Google account is out too. The account's main
  *                                  login (users.provider / provider_id: what it was made with) is never touched
  *
  * The rules, all of them checked again inside the INSERT or by a UNIQUE constraint of user_logins (src/store.js LOGINS_MIGRATION):
@@ -17,12 +18,19 @@
  *     remove it before it adds another (has_google). Nothing is ever replaced quietly
  *   - the Google log-in (src/auth.js linkIdentity) finds an account through its main login first, then through user_logins; the new
  *     sign-up (src/signup-finish.js) makes no account for a Google account that is in user_logins (social_taken)
+ *   - who may add: the same rule as changing the password (src/auth.js handleGoogleAdd): the current password, or a wallet proof in this
+ *     browser in the last 30 minutes; only an account with neither counts its own login of the last 30 minutes. A session left open on
+ *     a shared computer, or a stolen cookie, never adds a way in on its own
+ *   - the owner hears of it: an e-mail to the login address (or the verified contact e-mail) the moment one is added (googleNotice)
+ *   - a new password takes it off (src/pwlogin.js: the reset by e-mail code and the change, which also log out every other browser), so
+ *     the owner's usual way back in after a scare shuts out a Google account someone else added
  *   - an account that is deleted takes its user_logins rows with it (src/admin.js)
  * Only Google's account number is kept (the same "sub" users.provider_id holds for an account made with Google), and nothing here
  * logs it or puts it in an answer: /api/me says only WHETHER a Google sign-in was added (googleAdded).
  */
 import { ensureLoginsSchema } from "./store.js";
 import { iso } from "./policy.js";
+import { emailConfigured, googleAddedEmail, sendMail } from "./mail.js";
 
 /** "no such table": user_logins is made the first time a sign-in is added, so before that nobody has added one. */
 const noTable = (e) => /no such table/i.test(String((e && e.message) || e));
@@ -102,14 +110,49 @@ export async function addGoogle(db, userId, googleId, now) {
   return (await verdict()) || { error: "changed_retry" }; // lost a race: say what is true now
 }
 
-/** Take the Google sign-in this account ADDED off it. The account's main login lives in users and is never touched here. Returns true when there was one. */
-export async function removeGoogle(db, userId) {
+/**
+ * Take the Google sign-in this account ADDED off it, and log out every other browser of the account (all but session `keep`, the one
+ * asking), in one transaction: a session that Google account made somewhere else (sessions don't record which login made them) must not
+ * stay in for its 30 days, the way a password change logs the others out. Only when there WAS one to take off: a Remove with nothing to
+ * remove logs nobody out. The account's main login lives in users and is never touched here. Returns true when there was one.
+ */
+export async function removeGoogle(db, userId, keep) {
   try {
-    return (await db.prepare("DELETE FROM user_logins WHERE user_id = ? AND provider = 'google'").bind(userId).run()).meta.changes > 0;
+    const r = await db.batch([
+      db.prepare("DELETE FROM sessions WHERE user_id = ?1 AND id != ?2 AND EXISTS (SELECT 1 FROM user_logins WHERE user_id = ?1 AND provider = 'google')").bind(userId, String(keep)),
+      db.prepare("DELETE FROM user_logins WHERE user_id = ? AND provider = 'google'").bind(userId),
+    ]);
+    return r[1].meta.changes > 0;
   } catch (e) {
     if (noTable(e)) return false;
     throw e;
   }
+}
+
+/**
+ * The statement that takes every sign-in an account added off it, for a batch that sets a new password (src/pwlogin.js: the reset by e-mail
+ * code, the change), which logs out the other browsers in the same transaction. Makes the table first (a batch that names a missing table
+ * fails as a whole): call it before the batch. Its meta.changes says whether a Google sign-in went (the page then says so).
+ */
+export async function dropLoginsStatement(db, userId) {
+  await ensureLoginsSchema(db);
+  return db.prepare("DELETE FROM user_logins WHERE user_id = ?").bind(userId);
+}
+
+/**
+ * "Google sign-in was added to your Vicinity account" (src/mail.js googleAddedEmail), sent the moment one is added (src/auth.js
+ * finishGoogleAdd), so an owner who did not add it hears of it and can take it off. To the account's own address (an e-mail account: every
+ * account that can add Google is one) or else its verified contact e-mail, the rule of the wallet's link notice (src/walletlink.js
+ * linkNotice). The address is read before the answer; only the sending runs after it (ctx.waitUntil; without a ctx, in tests, it is
+ * awaited). A failed mail is logged without the address and never undoes the add.
+ */
+export async function googleNotice(env, u, ctx = null, fetchImpl = fetch) {
+  const to = u && (u.provider === "email" ? u.provider_id : u.contact_email);
+  if (!to || !emailConfigured(env)) return;
+  const p = sendMail(env, { to, ...googleAddedEmail() }, { fetchImpl })
+    .then((r) => { if (!r.ok) console.error("google sign-in notice not sent", r.error); })
+    .catch((e) => console.error("google sign-in notice failed", String((e && e.message) || e).slice(0, 80)));
+  if (ctx && ctx.waitUntil) ctx.waitUntil(p); else await p;
 }
 
 /** An account is being deleted: every sign-in it added goes with it (src/admin.js). Nothing to do while the table was never made. */

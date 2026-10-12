@@ -304,7 +304,8 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   // paths with an id in them
   if (path.startsWith("/api/admin/")) return db(() => handleAdmin(request, env, Date.now(), fetchImpl));
   const oauth = path.match(/^\/api\/auth\/(google)\/(start|callback)$/);
-  if (oauth) return only("GET") || (oauth[2] === "start" ? handleOAuthStart(request, env, oauth[1]) : handleOAuthCallback(request, env, oauth[1], fetchImpl));
+  // (ctx: the "Google sign-in was added" e-mail goes out after the answer)
+  if (oauth) return only("GET") || (oauth[2] === "start" ? handleOAuthStart(request, env, oauth[1]) : handleOAuthCallback(request, env, oauth[1], fetchImpl, Date.now(), ctx));
   if (path === "/api/auth/email/start") return only("POST") || db(() => handleEmailStart(request, env, fetchImpl));
   if (path === "/api/auth/email/verify") return only("POST") || db(() => handleEmailVerify(request, env, fetchImpl));
   let m = path.match(/^\/api\/media\/([0-9]{1,10})$/);

@@ -639,6 +639,12 @@
               </div>
               <div id="google-view"></div>
             </div>
+            <!-- an account with a password confirms Add with it (the rule of a password change: a session alone never adds a way in) -->
+            <form id="google-pw-form" class="inline-form" hidden novalidate>
+              <input id="google-pw" type="password" autocomplete="current-password" spellcheck="false" maxlength="256" placeholder="Your password" aria-label="Your password">
+              <button class="btn btn--primary btn--sm" type="submit">Continue</button>
+            </form>
+            <p class="tiny muted" id="google-pw-alt" hidden><button class="link-btn link-btn--tiny" type="button" id="google-pw-wallet">Confirm with my wallet instead</button></p>
             <p class="tiny muted">We keep only Google's account number for this, never your Gmail address. A Gmail saved under E-mail is a contact address: it can't log you in.</p>
             <p class="inline-err" id="google-err" role="alert" hidden></p>
           </div>

@@ -28,7 +28,11 @@
  *     the code is used up by one atomic statement (two requests with the right code cannot both win), and on success every other
  *     session of that person ends and their attempt counters are cleared.
  *   - A stolen session changing the password. /api/me/password needs the current password or a fresh wallet proof; setting a first
- *     password needs the wallet proof (the e-mail account that was made with a code has none). Other sessions end.
+ *     password needs the wallet proof (the e-mail account that was made with a code has none). Other sessions end. The same rule guards
+ *     adding Google as a way to log in (src/auth.js handleGoogleAdd, with checkCurrentPassword below).
+ *   - A Google sign-in someone else added staying in after the owner takes the account back. A new password (the reset, the change)
+ *     takes every added sign-in off in the same transaction that ends the other sessions (src/logins.js dropLoginsStatement): the answer
+ *     says googleRemoved, and the owner adds their own Google again from the Profile.
  *   - A stranger's wallet, linked with a forwarded "Connect wallet" link, setting a password to lock the owner out. For 7 days after a
  *     link from another app, the sessions that wallet made may set a password only with the current one (src/walletlink.js
  *     linkLocked: 403 link_new), and every password records when it was set (users.password_at): the owner's "Remove it" clears a
@@ -44,8 +48,9 @@ import { check, clientKey, limitKey, refund } from "./limits.js";
 import { PASSWORD_MAX, checkPassword, hashPassword, verifyPassword } from "./password.js";
 import { HOUR, iso } from "./policy.js";
 import { asText, endSignup } from "./signup-core.js";
-import { ensureOnboardSchema } from "./store.js";
+import { ensureLimitsSchema, ensureOnboardSchema } from "./store.js";
 import { linkLocked, lockedAnswer } from "./walletlink.js";
+import { dropLoginsStatement } from "./logins.js";
 
 const WINDOW = 15 * 60_000;     // attempt counters: fixed 15-minute windows
 const MAX = {
@@ -197,18 +202,22 @@ export async function handleReset(request, env, x) {
   await ensureOnboardSchema(env.DB); // users.password_at
   const session = await newSessionStatement(env, user, now);
   const loginAddress = await limitKey(env, "pwa", email);
-  // One transaction: the new password, every old session gone, one new session, and the attempt counters of this address
-  // cleared (both kinds, every connection: the person gets the password route back). A password change that did not end
-  // the other sessions, or sessions ended without the new password, can not happen.
-  await env.DB.batch([
+  const logins = await dropLoginsStatement(env.DB, user.id); // (makes user_logins first: a batch naming a missing table fails whole)
+  // One transaction: the new password, every old session gone, every Google sign-in added to the account gone (someone who had the
+  // account may have added theirs: the owner adds their own again from the Profile), one new session, and the attempt counters of this
+  // address cleared (both kinds, every connection: the person gets the password route back). A password change that did not end the
+  // other sessions, or sessions ended without the new password, can not happen.
+  const done = await env.DB.batch([
     env.DB.prepare("UPDATE users SET password_hash = ?, password_at = ? WHERE id = ?").bind(hash, iso(now), user.id),
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id),
+    logins,
     session.statement,
     env.DB.prepare(`DELETE FROM auth_limits WHERE key = ?1 OR key = ?2 OR substr(key, 1, length(?3)) = ?3 OR substr(key, 1, length(?4)) = ?4`)
       .bind(loginAddress, counters.address, `pwp:${loginAddress.slice(4)}:`, `rsp:${counters.address.slice(4)}:`),
   ]);
   await dropCurrent(env, request); // a wallet that was proven here while signing up, or a session of someone else in this browser
-  return json({ ok: true, next: "/dashboard" }, 200, { "Set-Cookie": [session.cookie, ...(await endSignup(env, request))] });
+  const googleRemoved = done[2].meta.changes > 0; // the page says so: "add it again from your Profile"
+  return json({ ok: true, next: "/dashboard", ...(googleRemoved ? { googleRemoved } : {}) }, 200, { "Set-Cookie": [session.cookie, ...(await endSignup(env, request))] });
 }
 
 /* ---------------- "Wasn't you? Remove it" (src/walletlink.js handleDisown) ---------------- */
@@ -254,10 +263,30 @@ export async function handleSetPassword(request, env, x) {
   if (useCurrent && !(await verifyPassword(env, u.password_hash, typed)).ok) return badCredentials();
   const hash = await hashPassword(env, body.password);
   await ensureOnboardSchema(env.DB); // users.password_at
-  await env.DB.batch([
+  const logins = await dropLoginsStatement(env.DB, u.id);
+  // the new password, the other browsers out, and every Google sign-in added to the account off (as the reset does): one transaction
+  const done = await env.DB.batch([
     env.DB.prepare("UPDATE users SET password_hash = ?, password_at = ? WHERE id = ?").bind(hash, iso(now), u.id),
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND id != ?").bind(u.id, s.id),
+    logins,
   ]);
   await refund(env, keys);
-  return json({ ok: true });
+  return json({ ok: true, ...(done[2].meta.changes > 0 ? { googleRemoved: true } : {}) });
+}
+
+/**
+ * The current password, typed again for something a stolen session must not do on its own: adding Google as a way to log in (src/auth.js
+ * handleGoogleAdd). Counted exactly like a password change (per person and per connection, BEFORE the one hash), and the try is given back
+ * when it is right. Returns null when it is right, else the answer to send: 401 bad_credentials (wrong, or the account has no password),
+ * 429 slow_down. Never logs the password.
+ */
+export async function checkCurrentPassword(env, request, u, typed, now) {
+  if (typeof typed !== "string" || !typed || !u || !u.password_hash) return badCredentials();
+  await ensureLimitsSchema(env.DB); // auth_limits (this route is not behind the sign-up's guard)
+  const keys = [await limitKey(env, "pwu", String(u.id)), await limitKey(env, "pwi", clientKey(request))];
+  const specs = [{ key: keys[0], windowMs: WINDOW, max: MAX.user }, { key: keys[1], windowMs: WINDOW, max: MAX.connection }];
+  if (!(await check(env, specs, now)).ok) return slowDown();
+  if (!(await verifyPassword(env, u.password_hash, typed)).ok) return badCredentials();
+  await refund(env, keys);
+  return null;
 }
