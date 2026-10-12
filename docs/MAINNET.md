@@ -276,6 +276,15 @@ Real Jupiter and provider latency are not in these numbers (section 8).
   stops a flood of retries, PER HOST: a 429 on the keyed build host turns previews into lite estimates and pauses builds, it
   never blocks the lite quotes, and the other way round. `/tx` takes from the same per-server budget (`JUPITER_RPS`) as the
   previews when its build is not cached: no visitor can make the Worker build unmetered.
+* A lite hiccup (timeout, network, 5xx, 429 or its pause) on an estimate is asked once of the keyed host's own `/swap/v1/quote`
+  (with the key; still marked an estimate), only when the per-server bucket is FULL and at most once per 10 s per server: at
+  `JUPITER_RPS=0.5` the bucket holds one token, so "has a token" would let a lite outage spend every token a Buy tap needs;
+  this way the stand-in uses at most 1 call in 5 and only when nothing keyed was asked in the last 2 s. A real answer (no route,
+  too small, refused) is never asked twice. The panel asks a price that did not load (Jupiter busy or out of reach, or no answer)
+  again quietly after 1.5 s, 4 s and 8 s (Retry-After when longer; one past 10 s is not waited out), only while the page is
+  looked at and the trade is the same, each retry spent from the page's budget of automatic requests (8 a minute, every panel
+  and tab together; a 429 on a retry pauses them); then it says once "Prices are not loading right now. Tap Try again in a
+  moment." and asks nothing more by itself (`test/swap-quote-retry.test.js`).
 * Every `/api/swap/*` and `/api/launchpad/trade/*` route is Origin-checked, counted before the work (per connection, and per
   wallet for both `/tx` routes), answers `{ ok: false, error: <code> }`, and simulates before the wallet opens so slippage,
   missing SOL and program errors are plain words, not a wallet warning. The status poll is counted per SIGNATURE (60 a minute)

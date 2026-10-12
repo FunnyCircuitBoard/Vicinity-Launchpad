@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleApi } from "../src/index.js";
-import { _resetSwap, _swapState } from "../src/swap.js";
+import { _resetSwap, _swapState, handleSwapQuote, handleSwapTx } from "../src/swap.js";
 import { _resetRelay } from "../src/relay.js";
 import { _resetMarketLive } from "../src/marketlive.js";
 import { compileLegacy, decodeHeader, wrapUnsigned } from "../src/sol/message.js";
@@ -403,10 +403,116 @@ test("swap: a 429 on the keyed build host pauses builds only: previews fall back
   const b = await call("/api/swap/quote", { body: quoteBody({ taker: TAKER }) });
   assert.equal(b.data.source, "jupiter_build");
   const liteOnly429 = (url, init) => (/lite-api\.jup\.ag/.test(String(url)) ? new Response(JSON.stringify({ error: "rate limited" }), { status: 429, headers: { "content-type": "application/json", "retry-after": "20" } }) : W.fetch(url, init));
-  assert.deepEqual((await call("/api/swap/quote", { body: quoteBody(), fetchImpl: liteOnly429 })).data.error, "jupiter_busy", "a keyless preview is refused");
+  assert.deepEqual((await call("/api/swap/quote", { body: quoteBody(), fetchImpl: liteOnly429 })).data.error, "jupiter_busy", "a keyless preview is refused: the build just took from the bucket, so it is not full and the keyed host does not stand in");
   const tx2 = await call("/api/swap/tx", { body: quoteBody({ taker: TAKER }), fetchImpl: liteOnly429 });
   assert.equal(tx2.status, 200, "the taker's build still goes through");
   assert.deepEqual([_swapState().failed.lite > 0, _swapState().failed.keyed], [true, 0]);
+});
+
+/** A swap route's handler called straight, at a chosen moment (the keyed stand-in's 10 s and the bucket are about time). */
+async function at(handler, env, fetchImpl, now, path, body, ip = "1.2.3.4") {
+  const res = await handler(new Request(ORIGIN + path, { method: "POST", headers: { "content-type": "application/json", origin: ORIGIN, "cf-connecting-ip": ip }, body: JSON.stringify(body) }), env, fetchImpl, now);
+  return { status: res.status, data: await res.json(), headers: res.headers };
+}
+const LITE_Q = ["lite-api.jup.ag", "/swap/v1/quote", false], KEYED_Q = ["api.jup.ag", "/swap/v1/quote", true], KEYED_BUILD = ["api.jup.ag", "/swap/v2/build", true];
+const swapCalls = (W) => W.jup.log.filter((l) => l.path.startsWith("/swap")).map((l) => [l.host, l.path, l.keyed]);
+
+test("swap: a passing lite failure on an estimate is asked ONCE of the keyed host's /swap/v1/quote (still an estimate, shared 12 s); only from a FULL bucket and at most once per 10 s, so a Buy tap is never starved; otherwise the lite host's own error", async () => {
+  const { W, env } = world({ JUPITER_RPS: "0.5" }); // the live rate: a bucket of ONE token, one more every 2 s
+  const quote = (now, over, ip) => at(handleSwapQuote, env, W.fetch, now, "/api/swap/quote", quoteBody(over), ip);
+  W.jup.setMode("http500", "lite-api.jup.ag");
+  const t0 = Date.now();
+  const a = await quote(t0, { amount: "1" });
+  assert.deepEqual([a.status, a.data.source, a.data.estimate, a.data.inAmount, a.data.inUi], [200, "jupiter_quote", true, "1000000000", "1"], "the visitor gets the estimate, not an error");
+  assert.deepEqual(swapCalls(W), [LITE_Q, KEYED_Q], "the lite host first, then the keyed host once, with the key");
+  assert.equal(W.jup.log.find((l) => l.host === "api.jup.ag" && l.path === "/swap/v1/quote").q.amount, "1000000000", "the same request");
+  assert.ok(_swapState().bucket < 1 && _swapState().standInAt === t0, "the stand-in took the bucket's token");
+  // shared like any estimate: the same trade within 12 s costs no call at all
+  const a2 = await quote(t0 + 500, { amount: "1" }, "9.9.9.9");
+  assert.deepEqual([a2.status, a2.data.outAmount, swapCalls(W).length], [200, a.data.outAmount, 2]);
+  // another amount a second later: the lite host is paused (5 s) and the bucket empty: nothing more is asked, the lite host's error
+  const b = await quote(t0 + 1000, { amount: "2" });
+  assert.deepEqual([b.status, b.data.error, swapCalls(W).length], [503, "jupiter_unavailable", 2]);
+  assert.ok(b.data.retryAfterS >= 1 && b.data.retryAfterS <= 5 && b.headers.get("Retry-After") === String(b.data.retryAfterS), "with the lite host's own Retry-After");
+  // a Buy tap 2.1 s after the stand-in: the bucket has its token back, the tap builds
+  const tap = await at(handleSwapTx, env, W.fetch, t0 + 2100, "/api/swap/tx", quoteBody({ taker: TAKER, amount: "0.3" }));
+  assert.equal(tap.status, 200, JSON.stringify(tap.data));
+  assert.deepEqual(swapCalls(W).slice(2), [KEYED_BUILD]);
+  // the bucket full again (4 s after the tap) but the stand-in's 10 s are not over: the lite host is asked again, the keyed host not
+  const c = await quote(t0 + 6500, { amount: "3" });
+  assert.deepEqual([c.status, c.data.error], [503, "jupiter_unavailable"]);
+  assert.deepEqual(swapCalls(W).slice(3), [LITE_Q]);
+  // 10 s after the last stand-in, a full bucket: the keyed host stands in again
+  const d = await quote(t0 + 12_000, { amount: "4" });
+  assert.deepEqual([d.status, d.data.source, d.data.estimate], [200, "jupiter_quote", true]);
+  assert.deepEqual(swapCalls(W).slice(4), [LITE_Q, KEYED_Q]);
+  // a build took the token a moment ago: the bucket is not full, so an estimate never takes the next one (it is the build's)
+  const e = await quote(t0 + 30_000, { taker: TAKER, amount: "5" });
+  assert.equal(e.data.source, "jupiter_build");
+  const f = await quote(t0 + 30_500, { amount: "6" });
+  assert.deepEqual([f.status, f.data.error], [503, "jupiter_unavailable"]);
+  assert.deepEqual(swapCalls(W).slice(6), [KEYED_BUILD, LITE_Q], "no keyed quote after the build");
+  // the lite host back: no keyed call at all
+  W.jup.setMode(null, "lite-api.jup.ag");
+  const g = await quote(t0 + 60_000, { amount: "7" });
+  assert.deepEqual([g.status, g.data.source], [200, "jupiter_quote"]);
+  assert.deepEqual(swapCalls(W).slice(8), [LITE_Q]);
+  // a timeout, the network, a 429 or the lite host's pause are passing failures too
+  for (const mode of ["neterr", "http429"]) {
+    const w2 = world({ JUPITER_RPS: "0.5" });
+    w2.W.jup.setMode(mode, "lite-api.jup.ag");
+    const r = await at(handleSwapQuote, w2.env, w2.W.fetch, Date.now(), "/api/swap/quote", quoteBody());
+    assert.deepEqual([r.status, r.data.estimate, swapCalls(w2.W)], [200, true, [LITE_Q, KEYED_Q]], mode);
+  }
+});
+
+test("swap: the keyed host never stands in for a real answer (no route, too small, refused), without a key, or while it is paused itself; both hosts down: the lite host's error; a real answer from the keyed host is the answer", async () => {
+  const lite = (W, status, body) => (url, init) => (/lite-api\.jup\.ag\/swap/.test(String(url)) ? (W.jup.log.push({ path: new URL(String(url)).pathname, host: "lite-api.jup.ag", keyed: false }), new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })) : W.fetch(url, init));
+  for (const [name, make, status, code] of [
+    ["no route", (W) => (W.jup.setMode("noroute", "lite-api.jup.ag"), W.fetch), 404, "no_route"],
+    ["too small", (W) => (W.jup.setMode("small", "lite-api.jup.ag"), W.fetch), 400, "amount_too_small"],
+    ["refused", (W) => lite(W, 422, { error: "something else entirely" }), 502, "jupiter_refused"],
+  ]) {
+    const { W, env } = world({ JUPITER_RPS: "0.5" });
+    const r = await at(handleSwapQuote, env, make(W), Date.now(), "/api/swap/quote", quoteBody());
+    assert.deepEqual([r.status, r.data.error], [status, code], name);
+    assert.deepEqual(swapCalls(W), [LITE_Q], `${name}: an answer, never asked twice`);
+  }
+  // no key: nothing to stand in with
+  const nokey = world({ JUPITER_API_KEY: "", JUPITER_RPS: "0.5" });
+  nokey.W.jup.setMode("http500", "lite-api.jup.ag");
+  const n = await at(handleSwapQuote, nokey.env, nokey.W.fetch, Date.now(), "/api/swap/quote", quoteBody());
+  assert.deepEqual([n.status, n.data.error, swapCalls(nokey.W)], [503, "jupiter_unavailable", [LITE_Q]]);
+  // the keyed host paused by a 429 on a build (7 s): with a full bucket 3 s later it still does not stand in
+  const p = world({ JUPITER_RPS: "0.5" });
+  const t0 = Date.now();
+  p.W.jup.setMode("http429", "api.jup.ag");
+  const built = await at(handleSwapQuote, p.env, p.W.fetch, t0, "/api/swap/quote", quoteBody({ taker: TAKER }));
+  assert.deepEqual([built.status, built.data.source], [200, "jupiter_quote"], "the build's 429: today's lite estimate");
+  p.W.jup.setMode(null, "api.jup.ag"); p.W.jup.setMode("http500", "lite-api.jup.ag");
+  const paused = await at(handleSwapQuote, p.env, p.W.fetch, t0 + 3000, "/api/swap/quote", quoteBody({ amount: "0.4" }));
+  assert.deepEqual([paused.status, paused.data.error], [503, "jupiter_unavailable"]);
+  assert.deepEqual(swapCalls(p.W), [KEYED_BUILD, LITE_Q, LITE_Q], "after the build's 429 the keyed host was not asked again while paused");
+  // a taker whose keyed build fails falls back to the lite estimate as before; with the lite host down too, nothing more is asked
+  const tk = world({ JUPITER_RPS: "0.5" });
+  tk.W.jup.setMode("http500");
+  const both = await at(handleSwapQuote, tk.env, tk.W.fetch, Date.now(), "/api/swap/quote", quoteBody({ taker: TAKER }));
+  assert.deepEqual([both.status, both.data.error, swapCalls(tk.W)], [503, "jupiter_unavailable", [["api.jup.ag", "/swap/v2/build", true], LITE_Q]]);
+  // both hosts down for an estimate: the keyed host is asked once, the lite host's error is the answer (and the keyed host pauses)
+  const dn = world({ JUPITER_RPS: "0.5" });
+  dn.W.jup.setMode("http500");
+  const down = await at(handleSwapQuote, dn.env, dn.W.fetch, Date.now(), "/api/swap/quote", quoteBody());
+  assert.deepEqual([down.status, down.data.error, swapCalls(dn.W)], [503, "jupiter_unavailable", [LITE_Q, KEYED_Q]]);
+  assert.ok(_swapState().failed.keyed > Date.now(), "the keyed host's own pause, as after any failure there");
+  const busy = world({ JUPITER_RPS: "0.5" });
+  busy.W.jup.setMode("http500", "lite-api.jup.ag"); busy.W.jup.setMode("http429", "api.jup.ag");
+  const b = await at(handleSwapQuote, busy.env, busy.W.fetch, Date.now(), "/api/swap/quote", quoteBody());
+  assert.deepEqual([b.status, b.data.error], [503, "jupiter_unavailable"], "the keyed host's 429 on the stand-in: still the lite host's answer");
+  // the keyed host's real answer (no route) is the answer
+  const nr = world({ JUPITER_RPS: "0.5" });
+  nr.W.jup.setMode("http500", "lite-api.jup.ag"); nr.W.jup.setMode("noroute", "api.jup.ag");
+  const r = await at(handleSwapQuote, nr.env, nr.W.fetch, Date.now(), "/api/swap/quote", quoteBody());
+  assert.deepEqual([r.status, r.data.error, swapCalls(nr.W)], [404, "no_route", [LITE_Q, KEYED_Q]]);
 });
 
 test("swap: the status poll is counted per SIGNATURE (60 a minute) so one trade's polling never uses up another's; a bad signature costs nothing; the connection's own brake is 120", async () => {

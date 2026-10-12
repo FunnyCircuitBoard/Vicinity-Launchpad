@@ -136,7 +136,8 @@ test("swap panel: plain words for every way it stops: cancelled, slippage, not e
   assert.deepEqual([text(P.$(".swap__status")), P.$(".swap__go").disabled], ["No market can trade this pair right now.", false]);
   quoteAnswer = { ok: false, error: "jupiter_busy", retryAfterS: 5, _status: 503 };
   await type(P, "0.31");
-  assert.equal(text(P.$(".swap__status")), "The price service is busy. Try again in a few seconds.");
+  assert.deepEqual([text(P.$(".swap__status")), text(P.$(".swap__go"))], ["Prices are not loading right now. Tap Try again in a moment.", "Try again"], "the price service busy on every quiet retry (test/swap-quote-retry.test.js): calm words, and Try again asks for the price again");
+  assert.equal(P.win.VSwap.words({ error: "jupiter_busy" }), "Prices are slow to load right now. Nothing was sent. Try again in a few seconds.", "a build the price service was too busy for");
   // a wallet that can neither send nor sign a transaction here
   const legacy = walletOf({ kind: "legacy" });
   const L = await page({ wallets: [legacy], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE(), "/api/swap/balances": { ok: true, sol: { lamports: 0, ui: 0 }, tokens: {} } } });
@@ -451,7 +452,7 @@ test("compact panel: the state tag: none while nothing is typed, a neutral 'Try 
   assert.equal(tag().hidden, true, "cleared");
   q = { ok: false, error: "jupiter_unavailable", _status: 503 };
   await type(P, "0.3");
-  assert.deepEqual([tag().hidden, text(tag()), tag().classList.contains("tag--no"), text(P.$(".swap__status"))], [false, "Try again", false, "The price service could not be reached. Try again in a minute."]);
+  assert.deepEqual([tag().hidden, text(tag()), tag().classList.contains("tag--no"), text(P.$(".swap__status"))], [false, "Try again", false, "Prices are not loading right now. Tap Try again in a moment."], "after its quiet retries");
   // the chain refused the trade: a real failure
   const w = walletOf();
   const H = await page({ wallets: [w], answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE(), "/api/swap/balances": { ok: true, sol: { lamports: 1e9, ui: 1 }, tokens: {} }, "/api/swap/tx": TX(), "/api/swap/status": { ok: true, status: "failed", err: "slippage" } } });

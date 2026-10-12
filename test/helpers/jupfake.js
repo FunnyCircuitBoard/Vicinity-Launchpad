@@ -3,7 +3,8 @@
 // slippage, so every address the Worker checks (the taker's own token accounts, the swap's source and destination, the
 // WSOL wrap and unwrap) is what the real API would send for that wallet. Pure ESM, no node-only imports: it runs in node
 // and in workerd. Never touches the network.
-//   fakeJupiter(opts)  -> { fetch(url, init) | null, log, prices, setMode(mode) }  modes: ok | http429 | http500 | neterr | noroute | hostile:<code>
+//   fakeJupiter(opts)  -> { fetch(url, init) | null, log, prices, setMode(mode, host?) }  modes: ok | http429 | http500 | neterr | hang | noroute | small
+//                         (a host, e.g. "lite-api.jup.ag" or "api.jup.ag", gets its own mode; setMode(null, host) gives it back the shared one)
 //   fakeRpc(opts)      -> { fetch, log, accounts, sim, send, statuses }            simulateTransaction / sendTransaction / statuses are programmable
 //   rewriteBuild(...)  the rewrite itself, exported for the harness
 import { ata, ADDRESSES, PROGRAM_IDS } from "../../src/sol/pda.js";
@@ -113,16 +114,18 @@ function corrupt(b, code, { taker, outAta, wsolAta, inRaw }) {
 export function fakeJupiter({ prices = PRICES, decimals = DECIMALS, hostile = null, alt = false, cuPrice, platformFeeBps = 0, feeAccount = null } = {}) {
   const log = [];
   let mode = "ok";
+  const hostModes = new Map(); // host -> mode, over the shared one
   const err = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
   const ok = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   const F = {
     log, prices, decimals,
-    setMode(m) { mode = m; }, get mode() { return mode; }, hostile, alt, cuPrice, platformFeeBps, feeAccount,
+    setMode(m, host) { if (host) { if (m == null) hostModes.delete(host); else hostModes.set(host, m); } else mode = m; }, get mode() { return mode; }, hostile, alt, cuPrice, platformFeeBps, feeAccount,
     async fetch(url, init = {}) {
       const u = new URL(String(url));
       if (!/(^|\.)jup\.ag$/.test(u.hostname)) return null;
       const keyed = Boolean(init.headers && (init.headers["x-api-key"] || (typeof init.headers.get === "function" && init.headers.get("x-api-key"))));
       log.push({ path: u.pathname, host: u.hostname, keyed, q: Object.fromEntries(u.searchParams), at: Date.now() });
+      const mode = hostModes.get(u.hostname) ?? F.mode;
       if (mode === "http429") return err(429, { error: "rate limited" }, { "retry-after": "7" });
       if (mode === "http500") return err(500, { error: "oops" });
       if (mode === "neterr") throw new TypeError("fetch failed");
@@ -139,6 +142,7 @@ export function fakeJupiter({ prices = PRICES, decimals = DECIMALS, hostile = nu
       const inputMint = u.searchParams.get("inputMint"), outputMint = u.searchParams.get("outputMint"), amount = u.searchParams.get("amount"), slippageBps = Number(u.searchParams.get("slippageBps") || 100);
       const outRaw = fakeOut(inputMint, outputMint, BigInt(amount), decimals, prices);
       if (mode === "noroute" || outRaw == null) return err(400, { error: `The token ${outputMint} is not tradable`, errorCode: "TOKEN_NOT_TRADABLE" });
+      if (mode === "small") return err(400, { error: "Amount too small", errorCode: "AMOUNT_TOO_SMALL" });
       if (u.pathname === "/swap/v1/quote") {
         const threshold = outRaw - (outRaw * BigInt(slippageBps)) / 10_000n;
         return ok({ inputMint, inAmount: amount, outputMint, outAmount: String(outRaw), otherAmountThreshold: String(threshold), swapMode: "ExactIn", slippageBps, platformFee: null, priceImpactPct: "0", routePlan: [{ swapInfo: { ammKey: "3E32cHh3aA4KrAH1ShLbHcdTsTs2EyLKLtpWQNiNySZo", label: "Raydium Launchlab", inputMint, outputMint, inAmount: amount, outAmount: String(outRaw) }, percent: 100 }], contextSlot: 1, timeTaken: 0.0001, transactionVersion: 0 });
