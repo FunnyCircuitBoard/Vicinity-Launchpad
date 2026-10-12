@@ -159,7 +159,9 @@ test("token page: live facts on top, holders in a scrolling table with the rank 
 
 test("cities page: live map, claimed vs open, claiming sends you to the dashboard, rules stated plainly", () => {
   const h = html["cities.html"];
-  for (const id of ["cities", "city-canvas", "map-in", "map-out", "map-reset", "map-locate", "coin-preview", "coin-ticker", "claim-feed", "mod-row", "city-q", "cs-claimed", "cs-open", "wanted-list"]) assert.ok(h.includes(`id="${id}"`), id);
+  // d3 (11 Oct 2026): one search on the page, the map's (#map-find-q; the list's #city-q is gone); "still open" (#cs-open) is gone
+  for (const id of ["cities", "city-canvas", "map-in", "map-out", "map-reset", "map-locate", "map-find-q", "map-find-loc", "coin-preview", "coin-ticker", "claim-feed", "mod-row", "city-country", "cs-claimed", "cs-official", "wanted-list"]) assert.ok(h.includes(`id="${id}"`), id);
+  for (const id of ["city-q", "cs-open"]) assert.ok(!h.includes(`id="${id}"`), `${id} is gone`);
   assert.match(h, /<a class="btn btn--primary btn--block" id="claim-btn" href="\/dashboard">/);
   assert.match(h, /One wallet\. One city\./);
   assert.match(h, /100,000 to 1,000,000 \$VICINITY/, "the Stake Ladder, not a flat 1M");

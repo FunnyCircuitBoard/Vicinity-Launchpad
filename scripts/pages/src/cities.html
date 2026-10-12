@@ -1,31 +1,50 @@
 <!--{"title": "Claim a city", "description": "Every real city on one map, with real boundaries that never overlap. See which cities are claimed, which are open, and claim yours from your dashboard.", "page": "cities", "scripts": ["ticker", "cities"], "styles": ["polish-map", "pages-cities"]}-->
     <section class="page-hero page-hero--map" id="cities">
       <div class="wrap">
-        <!-- the title, one line, the numbers in one row; then the map -->
+        <!-- the title and the facts in one calm row above the map (a phone: the title, then one line of facts); then the map. Facts
+             with a threshold (founded, choosing a founder, verified members) stay hidden below it: cities.js shows them, as many as fit -->
         <div class="cities-intro">
           <div class="cities-intro__head">
             <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Live map</p>
             <h1 class="page-title">Claim your city.</h1>
+            <p class="lead">One wallet. One city. Chosen by locals. <a class="nowrap" href="/rules#founders">How it works</a>.</p>
           </div>
-          <p class="lead">One wallet. One city. Chosen by locals. <a href="/rules#founders">How it works</a>.</p>
-          <div class="city-stats" aria-live="polite">
-            <div><strong id="cs-cities">…</strong><span>communities</span></div>
-            <div><strong id="cs-countries">…</strong><span>countries</span></div>
-            <div class="is-claimed"><strong id="cs-claimed">…</strong><span>founded</span></div>
-            <div class="is-open"><strong id="cs-open">…</strong><span>still open</span></div>
-            <div><strong id="cs-members">…</strong><span>verified members</span></div>
-            <div class="city-stats__claims"><strong id="cs-status">…</strong><span>claims</span></div>
+          <div class="cities-intro__side">
+            <p class="city-status" id="cs-status" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>Founder applications open</p>
+            <ul class="city-stats" aria-live="polite" aria-label="The map in numbers">
+              <li data-min="1" hidden><strong id="cs-claimed">0</strong><span>founded</span></li>
+              <li data-min="1" hidden><strong id="cs-choosing">0</strong><span>choosing a founder</span></li>
+              <li><strong id="cs-cities">8,029</strong><span>communities</span></li>
+              <li><strong id="cs-countries">244</strong><span>countries &amp; territories</span></li>
+              <li><strong id="cs-official">5,838</strong><span>official boundaries</span></li>
+              <li data-min="100" hidden><strong id="cs-members">0</strong><span>verified members</span></li>
+            </ul>
           </div>
         </div>
         <div class="citymap card">
-          <div class="citymap__stage" id="city-stage">
-            <canvas id="city-canvas" width="1200" height="480" role="img" tabindex="0" aria-label="Zoomable world map of every listed city. Every city's boundary shows from the first view; the card at the bottom always shows the city at the centre of the map. Use arrow keys to move and + or − to zoom."></canvas>
+          <div class="citymap__stage" id="city-stage" data-crosshair="off" data-world-fit="0" data-fb-avoid>
+            <!-- the map's bottom slot (first in the stage: the keyboard reaches the search before the map): "Find your city" on the first view (nothing is picked for you), the city card once you zoom in on a
+                 region or pick a city (it then follows the crosshair) -->
+            <form class="map-find" id="map-find" role="search" aria-label="Find your city" data-fb-avoid>
+              <label class="map-find__title" for="map-find-q">Find your city</label>
+              <div class="map-find__row">
+                <svg class="map-find__ico" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
+                <input id="map-find-q" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="map-find-list" aria-describedby="map-find-hint" autocomplete="off" spellcheck="false" maxlength="60" enterkeyhint="go" placeholder="Search a city or town">
+              </div>
+              <button type="button" class="map-find__loc" id="map-find-loc" aria-label="Use my location" title="Use my location"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/></svg><span>Use my location</span></button>
+              <ul class="map-find__list" id="map-find-list" role="listbox" aria-label="Places" hidden></ul>
+              <p class="sr-only" id="map-find-hint">8,029 communities, one founder seat each. Type a few letters, then pick a place with the arrow keys and Enter.</p>
+            </form>
+            <canvas id="city-canvas" width="1200" height="480" role="img" tabindex="0" aria-label="Zoomable world map of every listed city. Every city's boundary shows from the first view; once you zoom in on a region, the card at the bottom shows the city at the centre of the map. Use arrow keys to move and + or − to zoom."></canvas>
             <canvas class="citymap__layer" id="city-fx" width="1200" height="480" aria-hidden="true"></canvas>
             <canvas class="citymap__layer" id="city-labels" width="1200" height="480" aria-hidden="true"></canvas>
             <p class="citymap__tip" id="city-tip" hidden></p>
             <div class="map-ctrl" role="group" aria-label="Map controls" data-fb-avoid>
-              <button type="button" id="map-in" aria-label="Zoom in">+</button>
-              <button type="button" id="map-out" aria-label="Zoom out">−</button>
+              <button type="button" class="map-search" id="map-search" aria-label="Search for a city" title="Search for a city"><svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg></button>
+              <div class="map-zoom">
+                <button type="button" id="map-in" aria-label="Zoom in">+</button>
+                <button type="button" id="map-out" aria-label="Zoom out">−</button>
+              </div>
               <button type="button" class="map-more" id="map-more" aria-expanded="false" aria-controls="map-menu" aria-label="More map controls"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="currentColor" stroke="none"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg></button>
               <div class="map-menu" id="map-menu">
                 <button type="button" id="map-reset" aria-label="Show the whole world"><b class="map-menu__ic" aria-hidden="true">⟲</b><i class="map-menu__label" aria-hidden="true">Whole world</i></button>
@@ -37,7 +56,7 @@
             </div>
             <button type="button" class="map-exit" id="map-exit" aria-label="Close the full-screen map" hidden>✕</button>
             <p class="map-scale" id="map-scale" aria-hidden="true"><span class="map-scale__bar" id="map-scale-bar"></span><span id="map-scale-text">1,000 km</span></p>
-            <div class="map-focus is-loading" id="map-focus" role="group" aria-label="The city at the centre of the map" data-fb-avoid>
+            <div class="map-focus is-loading" id="map-focus" role="group" aria-label="The city at the centre of the map" data-fb-avoid hidden>
               <div class="map-focus__body">
                 <p class="map-focus__r1"><span class="map-focus__dot" aria-hidden="true"></span><strong class="map-focus__name" id="mf-name">Loading the map…</strong><span class="map-focus__ticker" id="mf-ticker"></span><span class="map-focus__mini" id="mf-mini"></span><span class="tag map-focus__status" id="mf-status" hidden></span></p>
                 <p class="map-focus__where" id="mf-where"></p>
@@ -53,14 +72,16 @@
             <p class="sr-only" id="mf-say" aria-live="polite"></p>
             <p class="map-hint" id="map-hint">Click the map first, then scroll to zoom (or use + and −)</p>
           </div>
-          <p class="citymap__legend"><span><span class="dot dot--open" aria-hidden="true"></span> Open</span><span><span class="dot dot--active" aria-hidden="true"></span> Active: verified holders, no founder yet</span><span><span class="dot dot--choosing" aria-hidden="true"></span> Choosing its founder</span><span><span class="dot dot--claimed" aria-hidden="true"></span> Founded</span><span><span class="dot dot--mine" aria-hidden="true"></span> Yours</span><span><span class="line line--real"></span> Official city boundary + the land nearest to it</span><span><span class="line line--near"></span> No official boundary: the land nearest the city</span><span class="citymap__how">Tap a city for its City Founder, holders and founder amount</span><span class="citymap__how">Drag to move · scroll, pinch or double-tap to zoom · tap a country or a city · names show once you zoom in on a city · ◎ finds yours · the palette button adds colours</span></p>
-          <div class="claim-feed-wrap">
+          <p class="citymap__legend"><span><span class="dot dot--open" aria-hidden="true"></span> Open</span><span><span class="dot dot--active" aria-hidden="true"></span> Active: verified holders, no founder yet</span><span><span class="dot dot--choosing" aria-hidden="true"></span> Choosing its founder</span><span><span class="dot dot--claimed" aria-hidden="true"></span> Founded</span><span><span class="dot dot--mine" aria-hidden="true"></span> Yours</span><span class="citymap__keys"><span><span class="line line--real"></span> Official boundary + nearest land</span><span><span class="line line--near"></span> Nearest land only</span></span></p>
+          <details class="fold citymap__howto" data-fb-avoid>
+            <summary>How to use the map</summary>
+            <p class="citymap__howto-body"><span class="citymap__how">Tap a city for its City Founder, holders and founder amount</span><span class="citymap__how">Drag to move · scroll, pinch or double-tap to zoom · tap a country or a city · names show once you zoom in on a city · “Use my location” finds yours · ⋯ adds colours and full screen</span></p>
+          </details>
+          <div class="claim-feed-wrap" hidden>
             <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Latest founders · live</p>
             <ul class="claim-feed" id="claim-feed" aria-live="polite"><li class="claim-feed__empty">Loading…</li></ul>
           </div>
         </div>
-
-
       </div>
     </section>
 
@@ -68,9 +89,14 @@
       <div class="wrap">
         <div class="citybox">
           <div class="city-search card">
+            <div class="city-search__head">
+              <div>
+                <p class="kicker">Every community</p>
+                <h2 class="city-search__title">Browse cities</h2>
+              </div>
+              <button class="link-btn city-search__find" type="button" id="city-find">Search on the map ↑</button>
+            </div>
             <div class="city-search__row">
-              <label class="sr-only" for="city-q">Search cities</label>
-              <input id="city-q" type="search" autocomplete="off" spellcheck="false" maxlength="60" placeholder="Search a city">
               <label class="sr-only" for="city-country">Country</label>
               <select id="city-country"><option value="">All countries</option></select>
               <label class="sr-only" for="city-filter">Show</label>
@@ -84,7 +110,7 @@
 
           <div class="claim card" id="claim-panel" aria-live="polite">
             <p class="kicker" id="claim-kicker">Pick a city</p>
-            <h3 id="claim-title">Search or tap the map</h3>
+            <h3 id="claim-title">Pick your city on the map</h3>
             <p class="muted small" id="claim-sub">Choose the city you live in: you can only found one.</p>
 
             <div class="coin-preview" id="coin-preview" hidden>
@@ -115,7 +141,7 @@
       </div>
     </section>
 
-    <section class="section section--panel" id="wanted">
+    <section class="section section--panel" id="wanted" hidden>
       <div class="wrap">
         <div class="section-head">
           <p class="kicker">Most wanted</p>

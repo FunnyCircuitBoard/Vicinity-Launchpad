@@ -247,9 +247,12 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
 });
 
 test("cities, rules, terms: a plain search placeholder; a chip row and folds on the rules; a contents fold on the terms", () => {
-  assert.match(html["cities.html"], /<input id="city-q" type="search" autocomplete="off" spellcheck="false" maxlength="60" placeholder="Search a city">/);
-  assert.match(html["cities.html"], /<div class="city-stats__claims"><strong id="cs-status">…<\/strong><span>claims<\/span><\/div>/);
-  assert.match(polish, /\.city-stats \.is-open, \.city-stats \.city-stats__claims \{ display: none; \}/, "four facts on a phone: 'still open' is communities minus founded, 'claims' a word");
+  // d3 (11 Oct 2026): one search on /cities, the map's "Find your city" (the list's own field is gone), with a plain placeholder; the
+  // application status is a pill ("Founder applications open"), not the word "Open" set as a number beside "claims"
+  assert.match(html["cities.html"], /<input id="map-find-q" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="map-find-list" aria-describedby="map-find-hint" autocomplete="off" spellcheck="false" maxlength="60" enterkeyhint="go" placeholder="Search a city or town">/);
+  assert.doesNotMatch(html["cities.html"], /id="city-q"|city-stats__claims|<span>claims<\/span>/);
+  assert.match(html["cities.html"], /<p class="city-status" id="cs-status" hidden>.*Founder applications open<\/p>/);
+  assert.match(read("public/cities.js"), /\$\("#cs-status"\)\.hidden = !open;/, "shown while founder applications are open (/api/seats launched)");
   const rules = html["rules.html"];
   const toc = rules.match(/<nav class="rules-toc" aria-label="Rules">([\s\S]*?)<\/nav>/)[1];
   const anchors = [...toc.matchAll(/href="#([a-z]+)"/g)].map((m) => m[1]);
