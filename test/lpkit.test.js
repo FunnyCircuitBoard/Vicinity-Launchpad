@@ -18,7 +18,7 @@ import { LP_ON, PROGRAM, REWARDS, addr, lpChain } from "./helpers/lpchain.js";
 const wranglerVars = () => JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "")).vars;
 // The live settings without the three City-coins setup settings (production before PR-1, or any deploy that drops them):
 // everything must stay dark there. The live settings themselves (setup on, trading off) are pinned in lpkit.test.js.
-const darkVars = () => { const v = wranglerVars(); for (const k of ["LAUNCHPAD_CLUSTER", "LAUNCHPAD_PROGRAM_ID", "LAUNCHPAD_REWARDS_PROGRAM_ID"]) delete v[k]; return v; };
+const darkVars = () => { const v = wranglerVars(); for (const k of ["LAUNCHPAD_CLUSTER", "LAUNCHPAD_PROGRAM_ID", "LAUNCHPAD_REWARDS_PROGRAM_ID", "LAUNCHPAD_DBC_CONFIGS", "LAUNCHPAD_LOOKUP_TABLE", "LAUNCHPAD_TRADING"]) delete v[k]; return v; };
 const PAYER = addr(1), OTHER = addr(2), EPH = addr(3), EPH2 = addr(4);
 const env = (extra = {}) => ({ ...newWorld(), ...LP_ON, ...extra });
 /** The compute limit a (base64) transaction asks for. */
@@ -26,13 +26,14 @@ const limitOf = (b64) => { const d = decodeHeader(fromBase64(b64)); const ix = d
 const createAccount = (from, to) => ({ programAddress: PROGRAM_IDS.system, accounts: [{ address: from, role: 3 }, { address: to, role: 3 }], data: Uint8Array.of(0, 0, 0, 0, ...new Uint8Array(8).fill(1), ...new Uint8Array(8), ...new Uint8Array(32)) });
 beforeEach(() => _resetLpKit());
 
-test("lpSetup: the live settings (PR-1, 10 Oct 2026) open the owner's setup on mainnet with his two programs; curve trading stays off until PR-2", () => {
+test("lpSetup: the live settings (PR-1 10 Oct, PR-2 12 Oct 2026) run the owner's two programs on mainnet with his price curve and speed table; curve trading on", () => {
   const live = wranglerVars();
   const s = lpSetup(live);
   assert.deepEqual([s.on, s.cluster, s.chain, s.programId, s.rewardsProgramId], [true, "mainnet", "solana:mainnet", "AkMP9qvAYmb8Vyu63Qhw8Z4ee1fgQbCRKkXWy5r5A1Ai", "EVwxp3V9YSvsyDEjp39B9wRDQxHR2xF2CNeR8AMRYrgG"]);
-  assert.deepEqual([s.configsSet, s.dbcConfigs, s.lookupTable], [false, [], null], "no price curve or speed table yet: approve, launch and graduate wait for PR-2");
-  assert.equal(live.LAUNCHPAD_TRADING, undefined, "curve trading is switched on only by PR-2, after the owner's setup and the preflight");
-  assert.equal(launchpadTradingOn(live), false);
+  // the owner's setup summary of 12 Oct 2026, checked by the read-only preflight (44 pass, 7 warn, 0 fail)
+  assert.deepEqual([s.configsSet, s.dbcConfigs, s.lookupTable], [true, ["EZVHCgxKZhvXmUGMXJMEw8tZHiTmoHPyM9mNNQ5u1kSP"], "u2V4Y3KagE2nBZ1656sL4XsV3K7iAZ5C7cQV475DEZ5"], "the price curve and the speed table of the owner's steps 3 and 6");
+  assert.equal(live.LAUNCHPAD_TRADING, "on", "switched on by PR-2, after the owner's setup and the preflight");
+  assert.equal(launchpadTradingOn(live), true);
 });
 
 test("the live settings carry a priority fee, so Phantom does not add its own and change the bytes (owner's setup step 1, 11 Oct 2026)", async () => {
