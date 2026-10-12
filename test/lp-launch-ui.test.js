@@ -432,7 +432,10 @@ test("status line: a send whose outcome is unclear (lp-sign.js onStatus extra.un
   assert.match(LP_LAUNCH, /h\.sign\(\{ onStatus: \(s, _sig, extra\) => \{ line\.textContent = statusText\(s, extra\); \} \}\)/);
   const ADMIN_LP = read("public/admin-lp.js");
   assert.match(ADMIN_LP, /s === "confirming" && extra && extra\.unclear \? SAY_STATUS\.unclear/);
-  assert.match(ADMIN_LP, /if \(e && e\.signature\) go\.remove\(\);/, "a step that went out is never offered twice");
+  // a step that went out, or may have with no id to watch (lp-sign.js `unclear`), is never offered twice; the founder's card also
+  // drops its Cancel then, whose "Stopped. Nothing was sent." would otherwise replace these words
+  assert.match(ADMIN_LP, /if \(e && \(e\.signature \|\| e\.unclear\)\) go\.remove\(\);/, "a step that went out is never offered twice");
+  assert.match(LP_LAUNCH, /if \(e && \(e\.signature \|\| e\.unclear\)\) \{ go\.remove\(\); cancel\.remove\(\); resolve\(null\); \}/);
 });
 
 test("design v2: the city-coin sheets read the site's tokens with a fallback, the accounts sit in the site's .fold, the card head carries an .ico", () => {

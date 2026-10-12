@@ -3,8 +3,8 @@
  * /api/lp/launch/*, /api/lp/graduate/* and /api/lp/founder-claim/* here only while lpSetup(env).on). Nothing here holds a key or
  * sends anything: the Worker reads the chain, checks the step can run, builds the transaction UNSIGNED with the SESSION wallet as
  * the fee payer (never a wallet from the request), simulates it and answers the decoded instruction list and the exact SOL change
- * (src/lpkit.js buildTx). The page (public/lp-launch.js, public/coin.js) shows that, the wallet signs FIRST, public/lp-sign.js adds
- * the one-time key(s) made in the browser (the coin's mint, the two position-NFT mints) and the relay sends.
+ * (src/lpkit.js buildTx). The page (public/lp-launch.js, public/coin.js) shows that; public/lp-sign.js has the one-time key(s) made
+ * in the browser (the coin's mint, the two position-NFT mints) sign first, then the wallet signs and sends (or the relay sends).
  *
  *   GET  /api/lp/launch/status   (no city) the pages' probe: { on: true, cluster, configsSet, speedTable }, no sign-in, nothing read
  *   GET  /api/lp/launch/status?city=&cluster=[&buy=<lamports>&slippageBps=]   the signed-in founder of that city: the Approval on

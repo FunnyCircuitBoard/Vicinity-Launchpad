@@ -31,7 +31,8 @@
  * LAUNCHPAD_REWARDS_PROGRAM_ID, src/cluster.js; otherwise 404 not_enabled, and /coin-meta/* 404):
  *   GET /coin-meta/<mint>.json|.png (src/coinmeta.js, outside /api: the URI our program writes on chain) · POST /api/lp/record
  *   · GET /api/lp/coin?mint= (src/lpcoins.js) · /api/lp/launch/*, /api/lp/graduate/*, /api/lp/founder-claim/* (src/lplaunch.js)
- *   · /api/admin/lp/* (src/lpadmin.js, owner only) · the relay /api/swap/send and /api/swap/status sign-and-send for them
+ *   · /api/admin/lp/* (src/lpadmin.js, owner only) · a wallet that can send sends their transactions itself; the relay
+ *   /api/swap/send sends them for a wallet that only signs; /api/swap/status watches them either way (public/lp-sign.js)
  * The Launchpad's coin list, only while LAUNCHPAD_V2=on (otherwise 404 not_enabled; src/launchpad.js, src/marketlive.js):
  *   GET /api/launchpad   every city coin and $VICINITY as cards with market data, holder and member counts, trade links
  *   GET /api/coin?mint=  one allow-listed coin: facts, live market, holders, recent trades, links, sources (src/coin.js)
