@@ -2,8 +2,8 @@
 // buttons that replace a keeper (collect fees, holder rewards, platform fees, pause). Needs site.js (window.V), lp-sign.js
 // (window.LP) and admin.js, which calls AdminLP.mount(panel, deps) when the owner opens the tab. Every step is one wallet
 // signature: the Worker builds and simulates the transaction (/api/admin/lp/*), this page shows what will be signed and the exact
-// SOL change BEFORE the wallet opens, the wallet signs first, lp-sign.js adds any one-time key and sends through the site's relay,
-// then this page records the result. Only textContent here: nothing from the server is ever HTML.
+// SOL change BEFORE the wallet opens, lp-sign.js has any one-time key sign first, then the wallet signs and sends it itself (or,
+// a wallet that only signs, signs and the site's relay sends), then this page records the result. Only textContent here: nothing from the server is ever HTML.
 (() => {
   "use strict";
   const PENDING = "vicinity_lp_pending"; // a transaction that landed but was not recorded yet (per browser; retried on the next visit)
@@ -88,7 +88,9 @@
         line.textContent = e && e.message ? e.message : "Something went wrong. Nothing was sent.";
         if (e && e.signature && e.solscan) { const a = el("a", "lp-link", "Check it on Solscan"); a.href = e.solscan; a.target = "_blank"; a.rel = "noopener"; line.append(" ", a); }
         cancel.disabled = false;
-        if (e && e.signature) go.remove(); // it went out and may still land: never offered twice (the tab shows the step's state on the next visit)
+        // it went out and may still land, or it may have gone out with no id to watch (lp-sign.js `unclear`): never offered twice
+        // (the tab shows the step's state on the next visit)
+        if (e && (e.signature || e.unclear)) go.remove();
       }
     }, "btn btn--primary");
     const cancel = btn("Cancel", () => box.replaceChildren());

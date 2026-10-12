@@ -44,7 +44,7 @@ can trade this pair right now." Nothing is built and nothing can be signed for s
 | `LAUNCHPAD_REWARDS_PROGRAM_ID` | the owner's rewards address (section 4, PR-1) | REQUIRED for city coins: with `LAUNCHPAD_CLUSTER` and `LAUNCHPAD_PROGRAM_ID` set explicitly it opens the owner's City coins tab, `/api/lp/*` and `/coin-meta` (src/cluster.js `lpSetup`; the devnet defaults never count) |
 | `LAUNCHPAD_DBC_CONFIGS` | the Meteora config the City coins tab's step 3 created, from the setup summary (section 4, PR-2) | REQUIRED on mainnet; approving, launching and graduating need it too |
 | `LAUNCHPAD_LOOKUP_TABLE` | the speed table of the City coins tab's step 6 (PR-2) | optional for trades (legacy-sized without it, still under 1232 bytes); a launch with a first buy needs it |
-| `LAUNCHPAD_RPC_URL` (Secret) | unset = `SOLANA_RPC_URL` | the first node of the curve trades and of every city-coin read and simulation (src/lptrade.js, src/lpkit.js `lpRoute`), with `SOLANA_RPC_URL_BACKUP` behind it on mainnet, all through src/rpcpool.js (never a fetch of their own). Every build first checks the first node's genesis hash; when only the backup answered that check, the build reads, takes its blockhash and simulates on the backup alone, never on the unchecked first node. The relay's `sendTransaction` and the status polls of a city-coin step use `SOLANA_RPC_URL` then the backup, like the swap; a send whose outcome is unclear answers `unclear: true` and the page watches the wallet's signature |
+| `LAUNCHPAD_RPC_URL` (Secret) | unset = `SOLANA_RPC_URL` | the first node of the curve trades and of every city-coin read and simulation (src/lptrade.js, src/lpkit.js `lpRoute`), with `SOLANA_RPC_URL_BACKUP` behind it on mainnet, all through src/rpcpool.js (never a fetch of their own). Every build first checks the first node's genesis hash; when only the backup answered that check, the build reads, takes its blockhash and simulates on the backup alone, never on the unchecked first node. A city-coin step is sent by the wallet itself when it can send (Phantom: through its own node, so no relay log line appears), or by the relay's `sendTransaction` for a wallet that only signs; that relay send and the status polls of every step use `SOLANA_RPC_URL` then the backup, like the swap; a relay send whose outcome is unclear answers `unclear: true` and the page watches the wallet's signature |
 
 Fixed in code and asserted at module load (src/sol/pda.js, src/lptrade.js): Meteora's programs and authorities, the dev wallet
 (= the program constant `FEE_RECIPIENT` = the first published team wallet), Jupiter's program. The launchpad's global account
@@ -276,6 +276,19 @@ Real Jupiter and provider latency are not in these numbers (section 8).
   stops a flood of retries, PER HOST: a 429 on the keyed build host turns previews into lite estimates and pauses builds, it
   never blocks the lite quotes, and the other way round. `/tx` takes from the same per-server budget (`JUPITER_RPS`) as the
   previews when its build is not cached: no visitor can make the Worker build unmetered.
+* A price that did not load is absorbed by the PANEL first: it asks again quietly ("Still getting the best price…") after 1.5 s,
+  4 s and 8 s (Retry-After when longer; one past 10 s is not waited out), only while the page is looked at and the trade is the
+  same, each retry spent from the page's budget of automatic requests (8 a minute, every panel and tab together; a 429 on a retry
+  pauses them; a look away and back never starts a new round). Then it says once, in the calm colour, "Prices are not loading
+  right now. Tap Try again in a moment." (nobody connected: "…, or connect your wallet.", the button stays Connect wallet, whose
+  wallet is priced at once, and Try again is the link under it) and asks nothing more by itself (`test/swap-quote-retry.test.js`).
+* On a plan with room to spare (`JUPITER_RPS` >= 1, a bucket of two) a lite hiccup (timeout, network, 5xx, 429 or its pause) on
+  an estimate is also asked once of the keyed host's own `/swap/v1/quote` (with the key; still marked an estimate): only when the
+  server's bucket is FULL, so a token is always left for a Buy tap's `/tx`, and at most once per 10 s per server. Jupiter counts
+  the key's calls across every server while each server keeps its own bucket, so on the Free plan (`JUPITER_RPS=0.5`, a bucket of
+  one token) the stand-in is OFF: no keyed call is ever made for a visitor without a wallet. Its own 429 or 5xx pauses only the
+  stand-in, never the builds; every pause starts when the call failed (after a timeout, 6 s in), not when it started. A real
+  answer (no route, too small, refused) is never asked twice (`test/swap-api.test.js`).
 * Every `/api/swap/*` and `/api/launchpad/trade/*` route is Origin-checked, counted before the work (per connection, and per
   wallet for both `/tx` routes), answers `{ ok: false, error: <code> }`, and simulates before the wallet opens so slippage,
   missing SOL and program errors are plain words, not a wallet warning. The status poll is counted per SIGNATURE (60 a minute)

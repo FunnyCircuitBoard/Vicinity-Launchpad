@@ -12,10 +12,13 @@
  * lite /swap/v1/quote gives the numbers (marked estimate). /tx takes from the same budget when its build is not cached (never an
  * unmetered build). 429 -> 503 jupiter_busy with Retry-After (honoured, up to 60 s, PER HOST: a paused keyed host turns previews
  * into estimates from the lite host instead of refusing everyone); timeout / 5xx -> 503 jupiter_unavailable; "not tradable" ->
- * 404 no_route. Every build is checked (src/jupswap.js), its lookup tables are read back from the chain (and must be active), it
- * is simulated first (plain codes before the wallet opens: insufficient_sol, slippage, program_error), and compiled by the Worker's
- * own compiler (src/sol/message.js) with our compute budget (priority fee <= 0.01 SOL). The /tx answer carries the quote of the
- * very build being signed (the page shows THAT, never its preview) and a relay ticket (src/relay.js).
+ * 404 no_route. The other way round, on a plan with room to spare (JUPITER_RPS >= 1; off on the Free plan's 0.5), a lite hiccup
+ * (timeout, network, 5xx, 429, or its pause) on an estimate is asked once of the keyed host's own /swap/v1/quote, still an
+ * estimate, only from a full bucket and with its own pause (keyedStandIn below). Every build is
+ * checked (src/jupswap.js), its lookup tables are read back from the chain (and must be active), it is simulated first (plain
+ * codes before the wallet opens: insufficient_sol, slippage, program_error), and compiled by the Worker's own compiler
+ * (src/sol/message.js) with our compute budget (priority fee <= 0.01 SOL). The /tx answer carries the quote of the very build
+ * being signed (the page shows THAT, never its preview) and a relay ticket (src/relay.js).
  * A city coin still on its Meteora curve answers source "curve": the page then uses /api/launchpad/trade/* (src/lptrade.js).
  * Without a key, builds use Jupiter's anonymous allowance, which may stop without notice: the key is required for a launch.
  */
@@ -49,12 +52,36 @@ const noStore = { "Cache-Control": "no-store" };
 
 /* ---------------------------------------------------------------- Jupiter: the budget, the caches, the calls */
 const budget = { tokens: 0, at: 0, rps: 0 }; // per server: a token bucket of the plan's rate, so a burst of previews never takes the plan over its limit
-function takeToken(rps, now) {
+const capacityOf = (rps) => Math.max(1, rps * 2);
+/** The bucket filled up to `now` (a request that started earlier than the last one adds nothing, it never takes back). */
+function refill(rps, now) {
   if (budget.rps !== rps) { budget.rps = rps; budget.tokens = Math.max(1, rps); budget.at = now; }
-  budget.tokens = Math.min(Math.max(1, rps * 2), budget.tokens + ((now - budget.at) / 1000) * rps);
-  budget.at = now;
+  budget.tokens = Math.min(capacityOf(rps), budget.tokens + (Math.max(0, now - budget.at) / 1000) * rps);
+  budget.at = Math.max(budget.at, now);
+}
+function takeToken(rps, now) {
+  refill(rps, now);
   if (budget.tokens < 1) return false;
   budget.tokens -= 1;
+  return true;
+}
+// The keyed host standing in for the lite one (an estimate whose lite call failed for a passing reason). Jupiter counts the key's
+// calls across EVERY server, while each server (Worker isolate) keeps its own bucket here: a stand-in on every server during a lite
+// outage would be new keyed traffic in proportion to the number of servers, nobody's build behind it. So it is only for a plan with
+// room to spare: from a bucket of TWO tokens (JUPITER_RPS >= 1), and only when this server's bucket is FULL, so at least one token
+// stays for a Buy tap's /tx (which refuses rather than build unmetered); at most once per STAND_IN_GAP_MS per server (a tenth of a
+// call a second, at most 1/(10 x JUPITER_RPS) of the plan per server). On the Free plan (JUPITER_RPS=0.5 live: a bucket of ONE
+// token, where "full" and "has a token" are the same thing) it never runs, and a lite hiccup is absorbed by the panel's quiet
+// retries alone (public/swap.js). Its own failure (429, 5xx, timeout) pauses only the stand-in (standIn.until, Retry-After
+// honoured), never failed.keyed: an estimate can never pause the builds. Its answer is shared like any lite quote (12 s per pair,
+// amount and slippage, one in-flight call).
+const STAND_IN_GAP_MS = 10_000, STAND_IN_MIN_TOKENS = 2;
+const standIn = { at: -Infinity, until: 0, code: null }; // its last call, and its own pause (jupiterGet's negative cache for it)
+function keyedStandIn(jc, now) {
+  if (!jc.keyed || capacityOf(jc.rps) < STAND_IN_MIN_TOKENS || paused(true, now) || now < standIn.until || now - standIn.at < STAND_IN_GAP_MS) return false;
+  refill(jc.rps, now);
+  if (budget.tokens < capacityOf(jc.rps)) return false;
+  budget.tokens -= 1; standIn.at = now;
   return true;
 }
 const builds = new Map(); // key -> { at, promise }: /swap/v2/build per (taker, pair, amount, slippage)
@@ -65,20 +92,26 @@ const failed = { keyed: { until: 0, code: null }, lite: { until: 0, code: null }
 const paused = (keyed, now) => now < (keyed ? failed.keyed : failed.lite).until;
 const decimalsOf = new Map(); // mint -> { at, promise }
 const alts = new Source("jupiter_alt", { ttlMs: 10 * 60_000, staleMs: 10 * 60_000 });
-export const _resetSwap = () => { builds.clear(); quotes.clear(); failed.keyed = { until: 0, code: null }; failed.lite = { until: 0, code: null }; decimalsOf.clear(); alts.reset(); budget.tokens = 0; budget.at = 0; budget.rps = 0; };
-export const _swapState = () => ({ builds: builds.size, quotes: quotes.size, failedUntil: Math.max(failed.keyed.until, failed.lite.until), failed: { keyed: failed.keyed.until, lite: failed.lite.until }, bucket: budget.tokens });
+export const _resetSwap = () => { builds.clear(); quotes.clear(); failed.keyed = { until: 0, code: null }; failed.lite = { until: 0, code: null }; decimalsOf.clear(); alts.reset(); budget.tokens = 0; budget.at = 0; budget.rps = 0; standIn.at = -Infinity; standIn.until = 0; standIn.code = null; };
+export const _swapState = () => ({ builds: builds.size, quotes: quotes.size, failedUntil: Math.max(failed.keyed.until, failed.lite.until), failed: { keyed: failed.keyed.until, lite: failed.lite.until }, bucket: budget.tokens, standInAt: standIn.at, standInUntil: standIn.until });
 
 class JupiterError extends Error { constructor(code, status, retryAfterS) { super(code); this.code = code; this.status = status; this.retryAfterS = retryAfterS; } }
 const NO_ROUTE = /not tradable|no route|could not find any route|TOKEN_NOT_TRADABLE|NO_ROUTES?_FOUND|ROUTE_PLAN_DOES_NOT_CONSUME/i;
-/** One Jupiter GET with the host's negative cache, a 6 s timeout and plain codes. */
-async function jupiterGet(env, url, fetchImpl, now, { keyed = true } = {}) {
-  const f = keyed ? failed.keyed : failed.lite;
+/** The moment, on the request's clock (`now`, injected in tests), that is `t0` (a Date.now() reading) plus what has passed since. */
+const later = (now, t0) => now + Math.max(0, Date.now() - t0);
+/**
+ * One Jupiter GET with the host's negative cache (`pause`: the keyed or the lite host's, or the stand-in's own), a 6 s timeout and
+ * plain codes. A pause starts when the call FAILED, not when it started: after a 6 s timeout, 5 s from then.
+ */
+async function jupiterGet(env, url, fetchImpl, now, { keyed = true, pause = null } = {}) {
+  const f = pause || (keyed ? failed.keyed : failed.lite);
   if (now < f.until) throw new JupiterError(f.code || "jupiter_busy", 503, Math.ceil((f.until - now) / 1000));
   const jc = jupiterConfig(env);
+  const t0 = Date.now();
   let res;
   try { res = await fetchImpl(url, { headers: { accept: "application/json", "user-agent": "vicinity.city/1.0 (+https://vicinity.city)", ...(keyed ? jc.headers : {}) }, signal: AbortSignal.timeout(JUP_TIMEOUT_MS) }); }
-  catch (e) { f.until = now + NEGATIVE_MS; f.code = "jupiter_unavailable"; throw new JupiterError("jupiter_unavailable", 503, 5); }
-  if (res.status === 429) { const ra = Math.min(60_000, Math.max(NEGATIVE_MS, retryAfterMs(res.headers.get("retry-after"), now))); f.until = now + ra; f.code = "jupiter_busy"; throw new JupiterError("jupiter_busy", 503, Math.ceil(ra / 1000)); }
+  catch (e) { f.until = later(now, t0) + NEGATIVE_MS; f.code = "jupiter_unavailable"; throw new JupiterError("jupiter_unavailable", 503, 5); }
+  if (res.status === 429) { const t = later(now, t0), ra = Math.min(60_000, Math.max(NEGATIVE_MS, retryAfterMs(res.headers.get("retry-after"), t))); f.until = t + ra; f.code = "jupiter_busy"; throw new JupiterError("jupiter_busy", 503, Math.ceil(ra / 1000)); }
   let body = null;
   try { body = await res.json(); } catch { body = null; }
   if (res.status === 400 || res.status === 404 || res.status === 422) {
@@ -87,7 +120,7 @@ async function jupiterGet(env, url, fetchImpl, now, { keyed = true } = {}) {
     if (/amount|too small|Insufficient/i.test(msg)) throw new JupiterError("amount_too_small", 400);
     throw new JupiterError("jupiter_refused", 502);
   }
-  if (!res.ok || !body || typeof body !== "object") { f.until = now + NEGATIVE_MS; f.code = "jupiter_unavailable"; throw new JupiterError("jupiter_unavailable", 503, 5); }
+  if (!res.ok || !body || typeof body !== "object") { f.until = later(now, t0) + NEGATIVE_MS; f.code = "jupiter_unavailable"; throw new JupiterError("jupiter_unavailable", 503, 5); }
   return body;
 }
 const buildKey = (p) => `${p.taker}|${p.inputMint}|${p.outputMint}|${p.amountRaw}|${p.slippageBps}`;
@@ -106,10 +139,16 @@ function jupiterBuild(env, p, fetchImpl, now) {
   }
   return hit;
 }
+/** Jupiter busy or out of reach (a timeout, the network, a 5xx, a 429, or that host's pause): a passing trouble, not an answer. */
+const passing = (e) => e instanceof JupiterError && e.status === 503;
 /**
  * lite /swap/v1/quote: numbers only, keyless, and kept 12 s per (pair, amount, slippage) with one in-flight call per key: the
  * keyless allowance is small (about one call every two seconds), and every visitor typing the same round amount, every
  * 12-second refresh of an open page and every preview during a rush must share one call instead of each costing one.
+ * A passing lite failure is asked once of the keyed host's /swap/v1/quote (the same request and answer, with the key) when
+ * keyedStandIn allows it (a plan with room to spare, a full bucket, the 10 s gap, its own pause); the answer is still an estimate.
+ * A real answer (no route, too small, refused) is never asked twice, and when the keyed host cannot help the lite host's own
+ * error is the answer. The stand-in is decided, and its pause and gap are dated, when the lite call FAILED (`later`).
  */
 function jupiterQuote(env, p, fetchImpl, now) {
   const key = `${p.inputMint}|${p.outputMint}|${p.amountRaw}|${p.slippageBps}`;
@@ -117,7 +156,13 @@ function jupiterQuote(env, p, fetchImpl, now) {
   if (!hit || now - hit.at >= BUILD_TTL_MS) {
     const jc = jupiterConfig(env);
     const q = new URLSearchParams({ inputMint: p.inputMint, outputMint: p.outputMint, amount: String(p.amountRaw), slippageBps: String(p.slippageBps), swapMode: "ExactIn" });
-    hit = { at: now, promise: jupiterGet(env, `${jc.lite}/swap/v1/quote?${q}`, fetchImpl, now, { keyed: false }) };
+    const t0 = Date.now();
+    const lite = jupiterGet(env, `${jc.lite}/swap/v1/quote?${q}`, fetchImpl, now, { keyed: false }).catch((e) => {
+      const t = later(now, t0);
+      if (!passing(e) || !keyedStandIn(jc, t)) throw e;
+      return jupiterGet(env, `${jc.base}/swap/v1/quote?${q}`, fetchImpl, t, { pause: standIn }).catch((k) => { throw passing(k) ? e : k; });
+    });
+    hit = { at: now, promise: lite };
     hit.promise.catch(() => { if (quotes.get(key) === hit) quotes.delete(key); }); // a failure is never kept (the negative cache covers it)
     quotes.delete(key); quotes.set(key, hit);
     while (quotes.size > BUILD_MAX) quotes.delete(quotes.keys().next().value);
@@ -212,9 +257,11 @@ export async function handleSwapQuote(request, env, fetchImpl = fetch, now = Dat
     const cached = input.taker ? builds.get(buildKey(params)) : null;
     if (cached && now - cached.at < BUILD_TTL_MS) { body = await cached.promise; src = "jupiter_build"; }
     else if (input.taker && !paused(true, now) && takeToken(jc.rps, now)) {
-      // the keyed host busy or down right now: the estimate from the lite host stands in (the build is asked for again at the Swap click)
+      // the keyed host busy or down right now: the estimate from the lite host stands in (the build is asked for again at the Swap
+      // click), asked on the clock of the moment the build failed (after a timeout, 6 s later)
+      const t0 = Date.now();
       try { body = await jupiterBuild(env, params, fetchImpl, now).promise; src = "jupiter_build"; }
-      catch (e) { if (!(e instanceof JupiterError && e.status === 503)) throw e; body = await jupiterQuote(env, params, fetchImpl, now); src = "jupiter_quote"; }
+      catch (e) { if (!passing(e)) throw e; body = await jupiterQuote(env, params, fetchImpl, later(now, t0)); src = "jupiter_quote"; }
     } else { body = await jupiterQuote(env, params, fetchImpl, now); src = "jupiter_quote"; }
     if (!body || !/^\d+$/.test(String(body.outAmount)) || BigInt(body.outAmount) <= 0n) return json({ ok: false, error: "amount_too_small" }, 400, noStore);
     if (src === "jupiter_build") await checkJupiterBuild(body, { taker: input.taker, inputMint: input.inputMint, outputMint: input.outputMint, inAmount: amountRaw, platformFeeBps: jc.platformFeeBps, feeAccount: jc.feeAccount });

@@ -31,7 +31,7 @@ const ON = { ...LP_ON, LAUNCHPAD_DBC_CONFIGS: SOL_CONFIG, LAUNCHPAD_LOOKUP_TABLE
 const wranglerVars = () => JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "")).vars;
 // The live settings without the three City-coins setup settings (production before PR-1, or any deploy that drops them):
 // everything must stay dark there. The live settings themselves (setup on, trading off) are pinned in lpkit.test.js.
-const darkVars = () => { const v = wranglerVars(); for (const k of ["LAUNCHPAD_CLUSTER", "LAUNCHPAD_PROGRAM_ID", "LAUNCHPAD_REWARDS_PROGRAM_ID"]) delete v[k]; return v; };
+const darkVars = () => { const v = wranglerVars(); for (const k of ["LAUNCHPAD_CLUSTER", "LAUNCHPAD_PROGRAM_ID", "LAUNCHPAD_REWARDS_PROGRAM_ID", "LAUNCHPAD_DBC_CONFIGS", "LAUNCHPAD_LOOKUP_TABLE", "LAUNCHPAD_TRADING"]) delete v[k]; return v; };
 const b64 = (u8) => Buffer.from(u8).toString("base64");
 const idl = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
 

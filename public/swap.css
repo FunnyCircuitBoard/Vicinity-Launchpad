@@ -42,6 +42,8 @@
 .swap__warn { display: flex; gap: 10px; align-items: flex-start; margin-top: -4px; padding: 8px 12px; border-radius: var(--r-chip, 12px); background: var(--accent-soft, rgba(255,90,54,.1)); border: 1px solid rgba(255,90,54,.45); font-size: var(--fs-sm, .875rem); line-height: 1.35; color: var(--text); cursor: pointer; } /* the whole box is the checkbox's label (a big target), held close to the line that names the impact */
 .swap__warn input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: var(--pin); }
 .swap__go { min-height: 52px; font-size: 1.05rem; }
+.swap__again { justify-self: center; min-height: 44px; min-width: 44px; margin-top: -6px; padding: 0 10px; } /* "Try again" under Connect wallet when a price did not load: a 44 px target */
+.swap__again[hidden] { display: none; }
 /* "Filled in from your link" */
 .swap__note { margin: 0; padding: 8px 12px; border-radius: var(--r-chip, 12px); background: rgba(91,140,255,.12); border: 1px solid rgba(91,140,255,.35); font-size: var(--fs-sm, .875rem); color: var(--text); }
 .swap__links { margin: 0; font-size: var(--fs-xs, .75rem); color: var(--muted); min-height: 0; }
