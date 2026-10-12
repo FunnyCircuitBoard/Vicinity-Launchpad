@@ -43,5 +43,23 @@ Checked from the chain afterwards (`solana program dump` + SHA-256, and the prog
 | `AkMP9qvAYmb8Vyu63Qhw8Z4ee1fgQbCRKkXWy5r5A1Ai` (launchpad) | SHA-256 `32906e19…c1621a` = the file above | `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X` (Squads vault, 2 of 3) |
 | `EVwxp3V9YSvsyDEjp39B9wRDQxHR2xF2CNeR8AMRYrgG` (rewards) | SHA-256 `8ab9b047…51219d` = the file above | `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X` (Squads vault, 2 of 3) |
 
-No leftover deploy buffers. Not yet done: the one-time setup (rewards registry, the Vicinity Meteora config, `init_launchpad`,
-allow-list, referral accounts, lookup table), then the site settings and `LAUNCHPAD_TRADING`.
+No leftover deploy buffers.
+
+## Setup and trading switched on (12 October 2026)
+
+The owner ran the one-time setup from the City coins tab of vicinity.city/admin with his admin wallet
+`13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN` (signatures as recorded by the site):
+
+| step | result | signature |
+|---|---|---|
+| 1 rewards registry + `init_launchpad` | launchpad admin and registry admin = `13qRam…MsRiN` | `21psyK6rGNk1yD5DpYe1DH6kxe7Qofrqs37BYE7i3oTPB9EpAd2jf1KtPkDw1fUsSmKEiQ4K6HkQF4qDcNRgqB9U` |
+| 2 both upgrade authorities back to the Squads vault | moved from `13qRam…MsRiN` to `AB5qB1…LFGs7X` (on 11 Oct the owner had moved them to his wallet through the Squads, because step 1 needs the upgrade authority's signature) | `3MLvnhmk9wVq4Gm4Y5ndpNjCD4GJCYik48ZCwARweDqGiGz5cLyaVaaEb9cACD9zgWjcSe8rEjtmm1ytsS1EpQ2n` |
+| 3 Meteora DBC config | `EZVHCgxKZhvXmUGMXJMEw8tZHiTmoHPyM9mNNQ5u1kSP` (quote SOL, 85 SOL graduation, 1.25 % fee, 0.05 SOL launch fee) | `5ddd6HNfttFksTcBB1JLsFwtZ1YsiWzMfrNdyYtyV5uckVQniEAomXKLUM5K3uQ5q7djsgQ7ofypAUNFSogEeNmi` |
+| 4 allow-list entry | `6voKQ4uGtc5YShMJ1a3Xf9ahb1MRf5VTWqKfdidAiY75` | `3bQQxNSbCoQ48qDn38u5gjfX78oaQMvjueqUFeQD1oWDMArcD79YQVw5fE1N3QqqXsp6TqgcCFtzxDybGkFNAD3k` |
+| 5 referral (fee) accounts | SOL `FGdoiYmovw4J7sAy8a657kWH2QUSBLxup59kkfUeMHa`, $VICINITY `8f4RxfWmkSV2YkcZK6z3WETpqJU5ukuxHkeAAmWTnJGo` | (already existed) |
+| 6 lookup table | `u2V4Y3KagE2nBZ1656sL4XsV3K7iAZ5C7cQV475DEZ5` (21 addresses) | `2jE1BZCxPUhtht2mdKUm4v4fUVSX4fBEnNdqGmKH9MpioNQYQVYACFFPHxmi7gLiTAazyDjpvWHHRihM3tMn1KeJ` |
+| 7 Meteora partner metadata ("Vicinity") | `2be9mDcnk6rK2XVnNiTBH4JmeWWwFzmUXMSrXMS8si11` | `2anxpP4fGnN9WthdviFfofLRNTA6Ux5Z3EDenCTVi7AAmTmYSeMhuXyq63ES6WDxD7cxi84qbk8itqfnsQRsNEv3` |
+
+Both upgrade authorities = the Squads vault again (checked on chain after step 2). The read-only preflight
+(`npm run mainnet:preflight`) against that summary passed with 0 failures, and PR #59 then set
+`LAUNCHPAD_DBC_CONFIGS`, `LAUNCHPAD_LOOKUP_TABLE` and `LAUNCHPAD_TRADING=on` on the live site.
