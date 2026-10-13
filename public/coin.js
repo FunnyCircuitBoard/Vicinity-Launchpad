@@ -246,8 +246,13 @@
   /** The chart's legend: "vicinity.city readings: ▼ 3.16% over 24 hours" (USD and market cap), "Raydium LaunchLab: …" (SOL). */
   const legendText = (series, change, span) => `${series && series.unit === "SOL" ? "Raydium LaunchLab" : "vicinity.city readings"}: ${change} over ${span}`;
   const fmtDate = (iso) => { const t = Date.parse(str(iso)); return Number.isFinite(t) ? new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""; };
+  /**
+   * The Holders card's five: the biggest holders by size. /api/holders lists pools, the team lock and the team wallets first (the
+   * token page's order, 13 Oct 2026), so its first five are not the five biggest; a stable sort keeps its order between equal amounts.
+   */
+  const topHolders = (list, n = 5) => (Array.isArray(list) ? [...list] : []).sort((a, b) => (num(b && b.amount) ?? 0) - (num(a && a.amount) ?? 0)).slice(0, n);
 
-  const pure = { isAddr, initialsOf, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, onVicinity, tradingPaused, priceLine, cityAbout, RANGES, UNITS, STYLES };
+  const pure = { isAddr, initialsOf, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, onVicinity, tradingPaused, priceLine, cityAbout, topHolders, RANGES, UNITS, STYLES };
   window.VCoin = { pure };
   if (typeof document === "undefined" || !window.V || !window.VChart || !window.VChart.create) return; // node: the helpers are enough
 
@@ -530,7 +535,7 @@
     holdersAt = Date.now();
     const r = await api("/api/holders");
     if (!r || !Array.isArray(r.holders) || r.mint !== d.mint) return;
-    $("#coin-holders").replaceChildren(...r.holders.slice(0, 5).map((x) => {
+    $("#coin-holders").replaceChildren(...topHolders(r.holders).map((x) => { // the five biggest by size (topHolders)
       const li = el("li", "coin-holder");
       const who = el("span", "coin-holder__who"); who.append(el("span", "coin-holder__rank", x.rank ? `#${x.rank}` : /^Team wallet/.test(str(x.label)) ? "Team" : /^Team lock/.test(str(x.label)) ? "Lock" : "Pool"), " ", el("code", null, mask(x.owner)));
       if (x.label) who.append(" ", el("span", "tag coin-holder__tag", str(x.label)));
