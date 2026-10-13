@@ -18,7 +18,10 @@
       const tr = el("tr");
       const ca = el("td");
       // the official contract is printed once on the page (the card at the top): the row points at it; a token without a contract shows a dash (its status is the tag)
-      if (isAddr(t.contract)) { const a = el("a", "registry__above", "Shown above ↑"); a.href = "#contract"; a.title = t.contract; ca.append(a); } else ca.textContent = "—";
+      // a coin of the Vicinity Launchpad (one per city, each with its own contract) points at the Launchpad's live list instead
+      if (isAddr(t.contract)) { const a = el("a", "registry__above", "Shown above ↑"); a.href = "#contract"; a.title = t.contract; ca.append(a); }
+      else if (t.platform === "Vicinity Launchpad") { const a = el("a", "registry__above", "On the Launchpad →"); a.href = "/launchpad"; ca.append(a); }
+      else ca.textContent = "—";
       const st = el("td");
       st.append(el("span", t.contract ? "tag tag--ok" : /^launching/i.test(t.status || "") ? "tag tag--warn" : "tag", t.contract ? "Live" : t.status));
       tr.append(el("td", null, t.network), el("td", null, t.symbol.startsWith("e.g.") ? `${t.name}, ${t.symbol}` : `${t.name} ($${t.symbol})`), ca, st); // "City coins (one per city), e.g. $UTICA": not two brackets in a row

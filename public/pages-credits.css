@@ -1,0 +1,22 @@
+/* Design v4 (12 Oct 2026): /credits, the data and licence credits (rule R2: OpenStreetMap's ODbL and GeoNames' CC BY ask for them; the
+   footer's "Data" and the map's corner link here). A calm text page: one 720 px column on the header's left edge, a group per kind of data,
+   each credit one row (what on the left, who and the licence on the right; stacked on a phone), hairlines between. Tokens from style.css,
+   each with a fallback; nothing moves. */
+.credits > * { max-width: 720px; }
+.credits-hero { padding-bottom: var(--sp-5, 24px); }
+.credits-hero .lead { margin-bottom: 0; }
+.credits-body { padding-top: var(--sp-4, 16px); }
+.credits__group + .credits__group { margin-top: var(--sp-7, 48px); }
+.credits__h { margin: 0 0 var(--sp-3, 12px); font: 600 var(--fs-md, 1.125rem)/1.3 var(--display); letter-spacing: -.01em; color: var(--text); }
+.credits__list { margin: 0; border-top: 1px solid var(--line-2); }
+.credits__row { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--sp-1, 4px) var(--sp-5, 24px); padding: var(--sp-4, 16px) 0; border-bottom: 1px solid var(--line); }
+.credits__row dt { margin: 0; font: 500 var(--fs-sm, .875rem)/1.6 var(--body); color: var(--muted); }
+.credits__row dd { margin: 0; min-width: 0; }
+.credits__row dd p { margin: 0; font-size: var(--fs-base, 1rem); line-height: 1.6; color: var(--text); overflow-wrap: anywhere; }
+.credits__row dd p + p { margin-top: var(--sp-2, 8px); }
+.credits__row .credits__note { font-size: var(--fs-sm, .875rem); line-height: 1.55; color: var(--text-2); }
+.credits code { padding: 1px 4px; border-radius: var(--r-xs, 6px); background: var(--code-bg, rgba(0, 0, 0, .3)); font: 500 .9em/1.4 var(--mono); color: var(--text); }
+.credits__row a { text-decoration-thickness: 1px; }
+@media (max-width: 600px) {
+  .credits__row { grid-template-columns: minmax(0, 1fr); padding: 14px 0; }
+}

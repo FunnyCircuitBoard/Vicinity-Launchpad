@@ -76,7 +76,7 @@ test("a member without a wallet lands in the link mode: no tabs, no steps, 'Conn
   assert.equal(p.visible(p.$("#alt-check")), false);
   assert.equal(p.callsTo("/api/me/wallet/carry").length, 0, "no code until the person taps");
   assert.equal(p.callsTo("/api/signup/state").length, 0, "no sign-up here");
-  assert.equal(p.$("#termsgate").hidden, true, "the account holds the Terms: no gate");
+  assert.deepEqual(p.terms, [], "the account holds the Terms: nothing to agree to here");
 });
 
 test("tapping Phantom makes ONE code, then 'Open Phantom' carries the link to the app (phantom.com, /connect?link=, no referrer)", async () => {
@@ -286,27 +286,29 @@ test("S8: Phantom's browser links NOTHING on load: whose account it is (masked n
   assert.equal(p.$("#carry-in-no").textContent, "No, that is not me");
   assert.equal(p.visible(p.$("#su-steps")), false);
   assert.equal(p.visible(p.$(".su-tabs")), false);
-  assert.equal(p.$("#termsgate").hidden, true, "no Terms gate: they were accepted on that account");
+  assert.deepEqual(p.terms, [], "never a first visit: the Terms were accepted on that account...");
   assert.equal(p.local.get("vicinity_terms"), undefined, "...but not noted in this browser before the person says it is theirs");
+  assert.equal(p.$("#termsgate"), null, "no site-entry Terms modal (design v4)"); assert.deepEqual(p.$$('[aria-modal="true"]').filter(p.visible), [], "no dialog over the page");
   assert.equal(p.$(".connect__intro .kicker").textContent, "Almost done");
   assert.equal(p.visible(p.$(".connect__intro")), false, "the question is the heading: no hero above it on a phone");
   assert.equal(JSON.parse(p.session.get(KEPT)).code, CODE, "kept in this tab, so a reload shows the question again");
 });
 
-test("F1: a reload (pull-to-refresh) on the confirm screen offers the kept code again: the same question, no Terms gate, no step 1; forgotten after an hour, after the link, or on 'not me'", async () => {
+test("F1: a reload (pull-to-refresh) on the confirm screen offers the kept code again: the same question, no Terms step, no step 1; forgotten after an hour, after the link, or on 'not me'", async () => {
   const { p } = await inPhantom();
   const { p: r } = await inPhantom({ search: "", session: p.session }); // the same tab, reloaded: the address bar holds nothing
   assert.deepEqual(r.callsTo("/api/me/wallet/carry/info").map((c) => c.body), [{ code: CODE }]);
   assert.equal(r.screen(), "carry-in");
   assert.equal(r.$("#carry-in-pin").textContent, "47");
-  assert.equal(r.$("#termsgate").hidden, true);
+  assert.deepEqual(r.terms, [], "no Terms step at the wallet stage, nothing noted");
   assert.equal(r.visible(r.$("#su-steps")), false);
   assert.equal(r.calls.filter((c) => c.path.startsWith("/api/signup/") || c.path.startsWith("/api/auth/google")).length, 0);
-  // kept more than an hour ago: an ordinary visit (the gate, the sign-up)
+  // kept more than an hour ago: an ordinary visit (the sign-up)
   const old = new Map([[KEPT, JSON.stringify({ code: CODE, at: Date.now() - 61 * 60_000 })]]);
   const { p: s } = await inPhantom({ search: "", session: old });
   assert.equal(s.callsTo("/api/me/wallet/carry/info").length, 0);
-  assert.equal(s.screen(), "pick", "(inside the wallet app an ordinary visit opens on Log in)"); assert.equal(s.$("#termsgate").hidden, false);
+  assert.equal(s.screen(), "pick", "(inside the wallet app an ordinary visit opens on Log in)");
+  assert.deepEqual(s.terms, [], "an ordinary first visit: no account's Terms noted here (the sign-up asks for them)"); assert.equal(s.local.get("vicinity_terms"), undefined);
   assert.equal(s.session.get(KEPT), undefined, "and thrown away");
   // a pairing in the address bar, or a code there, wins over a kept one (never two codes)
   const { p: t } = await inPhantom({ session: p.session, info: () => ({ ...INFO, pin: "58" }) });
@@ -323,8 +325,8 @@ test("S8: 'Yes, link my wallet' with one wallet in the app: its connect and sign
   await p.tap(p.$("#carry-in-yes"));
   await p.flush();
   assert.equal(p.visible(p.$("#carry-in-yes")), false);
-  assert.equal(p.local.get("vicinity_terms"), "2026-10-01", "confirmed: the account's Terms are noted here, so nothing pops later");
-  assert.equal(p.$("#termsgate").hidden, true);
+  assert.equal(p.local.get("vicinity_terms"), "2026-10-01", "confirmed: the account's Terms are noted here");
+  assert.deepEqual(p.terms, [["agreed", "2026-10-01"]], "once, and only after the person said the account was theirs");
   assert.equal(ctl.connects, 1, "no tile to tap: one wallet, so it is that one");
   assert.deepEqual(asked, [`/api/message?address=${ADDR}&action=link&code=${CODE}&opener=N0nce_N0nce_N0nce_N0nce_N0nce_N0`], "the LINK statement for the owner of this code, with the opener nonce (a browser that drops cookies)");
   assert.equal(ctl.signs, 1);
@@ -380,11 +382,11 @@ test("S8: the wallet injected late (the app takes a moment): the tiles fill in w
   assert.equal(p.$("#carry-in-tap").textContent, "Tap Phantom and sign. Nothing is paid or moved.");
 });
 
-test("S8: 'No, that is not me' links nothing: the code stays unused, the Terms gate, an ordinary first visit", async () => {
+test("S8: 'No, that is not me' links nothing: the code stays unused, an ordinary first visit", async () => {
   const { p } = await inPhantom();
   await p.tap(p.$("#carry-in-no"));
   assert.equal(p.callsTo("/api/me/wallet/carry/claim").length, 0);
-  assert.equal(p.$("#termsgate").hidden, false, "a first visit here: the gate");
+  assert.deepEqual(p.terms, [["open"]], "a first visit here: the account's Terms are not noted"); assert.equal(p.local.get("vicinity_terms"), undefined);
   assert.equal(p.screen(), "su-location");
   assert.equal(p.$("#su-note").textContent, "OK, nothing was linked. The link stays unused.");
 });
@@ -395,7 +397,7 @@ test("S8: a link opened outside a phone's wallet app (a computer, or Safari) is 
     await p.advance(3500);
     assert.equal(p.callsTo("/api/me/wallet/carry/info").length, 0, ua);
     assert.equal(p.callsTo("/api/me/wallet/carry/claim").length, 0, ua);
-    assert.equal(p.$("#termsgate").hidden, false, ua);
+    assert.deepEqual(p.terms, [["open"]], `${ua}: a first visit, nothing noted`); assert.equal(p.local.get("vicinity_terms"), undefined, ua);
     assert.equal(p.screen(), "su-location", ua);
     assert.equal(p.$("#su-note").textContent, "That link only works inside your wallet app, on the phone where you started. Nothing was changed.", ua);
     assert.equal(p.addressBar.at(-1), "https://vicinity.test/connect", "the code still leaves the address bar");
@@ -403,7 +405,7 @@ test("S8: a link opened outside a phone's wallet app (a computer, or Safari) is 
   }
 });
 
-test("F1 S8: a used or expired link, another connection, or an account that got its wallet meanwhile: ONE plain screen inside the wallet app, no Terms gate, no step 1, nothing linked, and the code is kept so a reload shows the same screen", async () => {
+test("F1 S8: a used or expired link, another connection, or an account that got its wallet meanwhile: ONE plain screen inside the wallet app, no Terms step, no step 1, nothing linked, and the code is kept so a reload shows the same screen", async () => {
   for (const [error, status, h, words] of [
     ["carry_expired", 410, "Almost there", /^This link is old\. Go back to Safari or Chrome and tap “Connect wallet” again\.$/],
     // (it quotes the button Safari shows once it learns the link was refused here: review finding ux-UX-2)
@@ -415,7 +417,7 @@ test("F1 S8: a used or expired link, another connection, or an account that got 
     assert.equal(p.screen(), "link-dead", error);
     assert.equal(p.$("#ld-h").textContent, h, error);
     assert.match(p.$("#ld-body").textContent, words, error);
-    assert.equal(p.$("#termsgate").hidden, true, `${error}: no Terms gate at the wallet stage`);
+    assert.deepEqual(p.terms, [], `${error}: no Terms step at the wallet stage, nothing noted`); assert.equal(p.local.get("vicinity_terms"), undefined, error);
     assert.equal(p.visible(p.$("#su-steps")), false); assert.equal(p.visible(p.$(".su-tabs")), false); assert.equal(p.visible(p.$(".connect__intro")), false);
     assert.equal(p.calls.filter((c) => c.path.startsWith("/api/signup/") || c.path.startsWith("/api/auth/google")).length, 0, "no sign-up, no Google");
     assert.equal(geolocation.asked, undefined, "no location check");
@@ -425,7 +427,7 @@ test("F1 S8: a used or expired link, another connection, or an account that got 
     assert.equal(p.visible(p.$("#ld-signin")), error === "link_done", `${error}: Sign in with Phantom only when the account has its wallet`);
     assert.equal(JSON.parse(p.session.get(KEPT)).code, CODE, "kept: a reload shows this screen again, never the sign-up");
     const { p: again } = await inPhantom({ search: "", session: p.session, info: () => ({ ok: false, error, _status: status }) });
-    assert.equal(again.screen(), "link-dead"); assert.equal(again.$("#termsgate").hidden, true);
+    assert.equal(again.screen(), "link-dead"); assert.deepEqual(again.terms, []);
   }
   // no answer at all (offline, a 503): say so and offer to try again; the code stays kept for that
   const { p } = await inPhantom({ info: () => ({ ok: false, error: "offline", _status: 0 }) });
@@ -435,11 +437,11 @@ test("F1 S8: a used or expired link, another connection, or an account that got 
   assert.equal(p.visible(p.$("#ld-retry")), true); assert.equal(p.visible(p.$("#ld-signin")), false);
   await p.tap(p.$("#ld-retry"));
   assert.deepEqual(p.assigned, ["reload"]); assert.equal(JSON.parse(p.session.get(KEPT)).code, CODE);
-  // "log in here with your e-mail and password": the ordinary Log in tab, and only now the Terms gate (the person chose the ordinary page)
+  // "log in here with your e-mail and password": the ordinary Log in tab, and only now an ordinary visit (the person chose the ordinary page)
   const { p: q } = await inPhantom({ info: () => ({ ok: false, error: "carry_expired", _status: 410 }) });
   await q.tap(q.$("#ld-login"));
   assert.equal(q.screen(), "pick"); assert.equal(q.$("#tab-login").getAttribute("aria-pressed"), "true");
-  assert.equal(q.$("#termsgate").hidden, false);
+  assert.deepEqual(q.terms, [["open"]], "an ordinary visit now (the person chose the ordinary page)"); assert.equal(q.local.get("vicinity_terms"), undefined);
   assert.equal(q.session.get(KEPT), undefined, "forgotten: a reload is an ordinary visit now");
   assert.equal(q.visible(q.$("#lg-google")), false, "Google cannot run inside a wallet app: e-mail and the wallet only");
 });
@@ -447,7 +449,7 @@ test("F1 S8: a used or expired link, another connection, or an account that got 
 test("S8: the claim fails after the person signed: used meanwhile (back to Safari), another account logged in here, the wallet is another account's, or a passing failure (try again)", async () => {
   let { p } = await inPhantom({ claim: () => ({ ok: false, error: "carry_expired", _status: 410 }) });
   await p.tap(p.$("#carry-in-yes")); await p.flush();
-  assert.equal(p.$("#termsgate").hidden, true, "the person said the account was theirs: its Terms count here");
+  assert.deepEqual(p.terms, [["agreed", "2026-10-01"]], "the person said the account was theirs: its Terms count here");
   assert.equal(p.screen(), "link-dead", "used meanwhile: the one plain screen, back to Safari (never the sign-up)");
   assert.equal(p.$("#ld-h").textContent, "Almost there");
   assert.match(p.$("#ld-body").textContent, /This link is old/);
@@ -489,7 +491,7 @@ test("S8: the link died while the question was on screen (it ran out, or someone
     assert.match(p.$("#ld-body").textContent, body, error);
     assert.equal(ctl.signs, 0, `${error}: nothing signed`);
     assert.equal(p.callsTo("/api/me/wallet/carry/claim").length, 0, error);
-    assert.equal(p.$("#termsgate").hidden, true, `${error}: the gate stays shut (the person said the account was theirs)`);
+    assert.deepEqual(p.terms, [["agreed", "2026-10-01"]], `${error}: the person said the account was theirs: its Terms count here`);
   }
 });
 
@@ -510,11 +512,11 @@ test("S8: the same person is already logged in inside the wallet app's browser: 
   assert.equal(p.callsTo("/api/me/wallet/carry/info").length, 1);
 });
 
-test("a wallet app's browser opened without a code: no info, no claim, the gate; it opens on Log in with ONE button for its wallet (MOVED, owner decision F4: a sign-up's location rarely works in a wallet app), New here one tap away", async () => {
+test("a wallet app's browser opened without a code: no info, no claim, a first visit; it opens on Log in with ONE button for its wallet (MOVED, owner decision F4: a sign-up's location rarely works in a wallet app), New here one tap away", async () => {
   const { wallet } = fakeWallet("Phantom");
   const p = await openConnect({ ua: UA.phantomApp, agreed: null, wallets: [wallet], state: STATE.empty() });
   assert.equal(p.callsTo("/api/me/wallet/carry/info").length, 0);
-  assert.equal(p.$("#termsgate").hidden, false);
+  assert.deepEqual(p.terms, [], "an ordinary first visit: nothing noted"); assert.equal(p.local.get("vicinity_terms"), undefined);
   assert.equal(p.screen(), "pick");
   assert.equal(p.$("#tab-login").getAttribute("aria-pressed"), "true");
   assert.equal(p.visible(p.$("#lg-wallet")), true); assert.equal(p.$("#lg-wallet").textContent, "Sign in with Phantom");
@@ -523,12 +525,12 @@ test("a wallet app's browser opened without a code: no info, no claim, the gate;
   assert.equal(p.screen(), "su-location");
 });
 
-test("the old sign-up's /connect?carry= link: one calm line, the ordinary tabs, the gate; a member without a wallet lands in the link mode", async () => {
+test("the old sign-up's /connect?carry= link: one calm line, the ordinary tabs, a first visit; a member without a wallet lands in the link mode", async () => {
   const { p } = await inPhantom({ search: `carry=${CODE}` });
   assert.equal(p.callsTo("/api/me/wallet/carry/info").length, 0);
   assert.equal(p.calls.filter((c) => c.path.startsWith("/api/signup/carry")).length, 0, "the old routes are gone: never called");
   assert.equal(p.addressBar.at(-1), "https://vicinity.test/connect");
-  assert.equal(p.$("#termsgate").hidden, false);
+  assert.deepEqual(p.terms, [["open"]], "an old link is a first visit: nothing noted"); assert.equal(p.local.get("vicinity_terms"), undefined);
   assert.equal(p.screen(), "pick", "inside the wallet app: the Log in tab (its wallet signs in with one tap)");
   assert.equal(p.$("#tab-login").getAttribute("aria-pressed"), "true");
   assert.equal(p.visible(p.$(".su-tabs")), true);
@@ -536,13 +538,13 @@ test("the old sign-up's /connect?carry= link: one calm line, the ordinary tabs, 
   const { p: member } = await inPhantom({ search: `carry=${CODE}`, me: LINK_ME });
   assert.equal(member.screen(), "pick");
   assert.equal(member.visible(member.$("#link-top")), true);
-  assert.equal(member.$("#termsgate").hidden, true);
+  assert.deepEqual(member.terms, [["agreed", "2026-10-01"]], "a member: the account's Terms count");
 });
 
-test("a link code on a page that can't use it (the old sign-up is back): never looked at, and the Terms gate still shows", async () => {
+test("a link code on a page that can't use it (the old sign-up is back): never looked at, and an ordinary first visit", async () => {
   const p = await openConnect({ ua: UA.phantomApp, search: `link=${CODE}`, agreed: null, me: { signupFlow: undefined }, state: STATE.empty() });
   assert.equal(p.callsTo("/api/me/wallet/carry/info").length, 0);
-  assert.equal(p.$("#termsgate").hidden, false);
+  assert.deepEqual(p.terms, [["open"]], "a first visit: nothing noted"); assert.equal(p.local.get("vicinity_terms"), undefined);
   assert.equal(p.addressBar.at(-1), "https://vicinity.test/connect");
 });
 

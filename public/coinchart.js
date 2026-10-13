@@ -12,7 +12,7 @@
 //   page; keyboard: the canvas takes the focus, ← → step one point, Home / End jump to the ends, Esc lets go) with a pill on top
 //   saying when, what and from where.
 // Motion: a range change reveals the series from left to right in 450 ms; a live update pings the last point for 1.2 s. Each asks
-// for animation frames only while it lasts; nothing loops, nothing moves with reduced motion or "Pause animations".
+// for animation frames only while it lasts; nothing loops, nothing moves with reduced motion.
 // Pure helpers (scales, ticks, number and time words, gaps, the nearest point, the series) are window.VChart.pure, run in node by
 // test/coinchart.test.js.
 (() => {

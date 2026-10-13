@@ -47,6 +47,7 @@ main :is(h1, h2, h3) { text-wrap: balance; }
   #cities .city-status { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 0; padding: 5px 12px 5px 9px; border-radius: var(--r-pill, 999px); border: 1px solid rgba(55,194,154,.32);
     background: var(--ok-soft, rgba(55,194,154,.14)); color: var(--ok-text); font: 600 var(--fs-xs, .75rem)/1.2 var(--body); letter-spacing: .01em; white-space: nowrap; }
   #cities .city-status svg { flex: none; }
+  :root[data-theme="light"] #cities .city-status { color: #0C6B4E; } /* 12 px on its green tint over the page: 5.4:1 (was 4.43:1) */
   #cities .cities-intro .city-stats { justify-content: flex-end; align-items: stretch; }
   #cities .cities-intro .city-stats li { display: grid; align-content: end; gap: 5px; text-align: left; }
   #cities .cities-intro .city-stats li:not([hidden]) ~ li:not([hidden]) { margin-left: var(--sp-4, 16px); padding-left: var(--sp-4, 16px); border-left: 1px solid var(--line); }
@@ -83,6 +84,9 @@ main :is(h1, h2, h3) { text-wrap: balance; }
   #city-stage { height: 490px; height: clamp(420px, calc(100cqw / 2.3), calc(100svh - var(--stage-top, 250px) - 28px)); }
 }
 #city-stage.is-full { height: 100vh; height: 100dvh; min-height: 0; }
+/* full screen covers the floating header, the tab bar and the feedback button: the hero's own layer (.page-hero isolates its glow) would
+   keep the stage's z-index inside it, under them (the top zoom button sat under the header on a phone) */
+html.map-is-full #cities.page-hero { isolation: auto; }
 /* a search suggestion picked with a tap or a click: the map takes the keyboard without a ring round all of it (a key press brings it back) */
 .citymap canvas.is-quiet-focus:focus-visible { outline: none; }
 /* the light map: no grey vignette on its edges (it read as dirt on the white land), and a faint blue ocean so the land stands out */
@@ -186,6 +190,27 @@ main :is(h1, h2, h3) { text-wrap: balance; }
 }
 
 /* =====================================================================
+   The map's data credit (rule R2: OpenStreetMap's ODbL and GeoNames' CC BY ask for it wherever the map shows): one small line in a bottom
+   corner, like any map. "© OpenStreetMap" opens its copyright page, "Data" the full credits (/credits). It sits inside the stage, so full
+   screen keeps it; under the slot, the controls and their menu, over the canvases. A phone: the left-hand corner just above the slot (the
+   find pill), or above the scale bar once a city is picked (the controls' column runs down the right, and a short phone's stage has no
+   room beside it). A computer: the stage's bottom-right corner, beside the centred find bar when the stage is wide enough, above it when
+   not. A finger gets a 44 px tall hit area without a bigger pill.
+   ===================================================================== */
+.map-attrib { position: absolute; z-index: 1; left: 8px; bottom: calc(var(--slot-h, 134px) + 48px); display: flex; align-items: center; gap: 6px; margin: 0; padding: 4px 8px;
+  border-radius: var(--r-xs, 8px); background: var(--glass); background: color-mix(in srgb, var(--bg) 72%, transparent); color: var(--text-2);
+  font: 500 var(--fs-xs, .75rem)/1 var(--body); white-space: nowrap; }
+#city-stage[data-crosshair="off"] .map-attrib { bottom: 74px; }
+.map-attrib a { position: relative; color: inherit; text-decoration: none; }
+.map-attrib a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+@media (pointer: coarse) { .map-attrib a::after { content: ""; position: absolute; inset: -12px -6px; } }
+@media (min-width: 720px) {
+  .map-attrib { left: auto; right: 8px; bottom: 8px; }
+  #city-stage[data-crosshair="off"] .map-attrib { bottom: 72px; }
+}
+@container (min-width: 960px) { #city-stage[data-crosshair="off"] .map-attrib { bottom: 8px; } }
+
+/* =====================================================================
    Under the map: the status keys on one line (the boundary keys at its end), the how-to in a fold, the founders feed once there is one
    ===================================================================== */
 #cities .citymap__legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 12px 4px 0; font-size: var(--fs-xs, .75rem); line-height: 1.4; color: var(--muted); }
@@ -206,7 +231,7 @@ main :is(h1, h2, h3) { text-wrap: balance; }
 @media (min-width: 1024px) { .citymap__keys { margin-left: auto; } }
 #cities .citymap__legend .dot--active::before { inset: -3px; border-width: 1.5px; } /* the legend's ring: the marker's shape, at the legend's size */
 #cities .citymap__howto { margin: 10px 4px 0; }
-#cities .citymap__howto > summary { min-height: 40px; font-size: var(--fs-sm, .875rem); color: var(--text-2); }
+#cities .citymap__howto > summary { min-height: 44px; font-size: var(--fs-sm, .875rem); color: var(--text-2); } /* a finger's 44 px (was 40) */
 .citymap__howto-body { display: grid; gap: 4px; margin: 0 0 var(--sp-2, 8px); font-size: var(--fs-xs, .75rem); line-height: 1.5; color: var(--muted); }
 #cities .citymap__howto .citymap__how { display: block; }
 

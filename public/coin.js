@@ -568,7 +568,6 @@
       if (u) { const a = newTab(el("a", null, x.text)); a.href = u; parts.push(a); } else parts.push(el("span", null, x.text));
     }
     parts.push(el("span", null, "Price history in USD: read by vicinity.city every 10 minutes"));
-    parts.push(el("span", null, "Not financial advice"));
     p.replaceChildren(...parts.flatMap((n, i) => (i ? [" · ", n] : [n])));
   }
 

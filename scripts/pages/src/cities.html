@@ -1,4 +1,4 @@
-<!--{"title": "Claim a city", "description": "Every real city on one map, with real boundaries that never overlap. See which cities are claimed, which are open, and claim yours from your dashboard.", "page": "cities", "scripts": ["ticker", "cities"], "styles": ["polish-map", "pages-cities"]}-->
+<!--{"title": "Live map", "description": "Every real city on one map, with real boundaries that never overlap. See which cities are claimed, which are open, and claim yours from your dashboard.", "page": "cities", "scripts": ["ticker", "cities"], "styles": ["polish-map", "pages-cities"]}-->
     <section class="page-hero page-hero--map" id="cities">
       <div class="wrap">
         <!-- the title and the facts in one calm row above the map (a phone: the title, then one line of facts); then the map. Facts
@@ -71,6 +71,8 @@
             </div>
             <p class="sr-only" id="mf-say" aria-live="polite"></p>
             <p class="map-hint" id="map-hint">Click the map first, then scroll to zoom (or use + and −)</p>
+            <!-- the map data credit (OpenStreetMap's ODbL, GeoNames' CC BY): a bottom corner of the map, full screen too; the full credits: /credits -->
+            <p class="map-attrib"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" title="Map data © OpenStreetMap contributors">© OpenStreetMap<span class="sr-only"> contributors (opens in a new tab)</span></a><span aria-hidden="true">·</span><a href="/credits" title="Data sources and licences">Data<span class="sr-only"> sources and licences</span></a></p>
           </div>
           <!-- the status keys: one short line on a phone (it ends the first screen, fully above the tab bar), the full words and the boundary
                keys on a computer; a phone reads the rest in the fold below -->

@@ -34,7 +34,8 @@
   if (!sec) return;
   const $ = (s, r = document) => r.querySelector(s);
   const V = () => window.V || {};
-  // less motion: the device asks for it, or the visitor pressed "Pause animations" (footer, theme.js); both can change while the page is open
+  // less motion: the device asks for it (it can change while the page is open). The data-motion half is from the retired "Pause
+  // animations" switch (design v4): theme.js never sets it any more, so it is always false
   const stillNow = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "paused";
   let reduced = stillNow();
   const fmt = (n) => Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -1044,10 +1045,10 @@
   /** Is anything on the glow layer moving? (no frames at all otherwise) */
   const fxAnimating = () => !reduced && (fxItems.length > 0 || ripples.length > 0 || selectedInView());
   // The glow is drawn frame by frame for FX_AWAKE_MS after the last thing that happened (a move, a tap, a hover, new data), then it
-  // rests: one still frame, and the whole layer breathes through a CSS opacity animation (#city-fx.is-resting, the compositor's
+  // rests: one still frame, and the whole layer fades up once through a CSS opacity animation (#city-fx.is-resting, the compositor's
   // work: no script, no drawing) until something happens again. It used to redraw 15 to 30 times a second for as long as the map
-  // was on screen.
-  const FX_AWAKE_MS = 6000;
+  // was on screen. 4.5 s, not more: with no Pause control on the site, nothing that starts by itself moves for longer than 5 s (WCAG 2.2.2).
+  const FX_AWAKE_MS = 4500;
   let lastActive = 0, fxResting = false;
   function setResting(on) { if (fxResting === on) return; fxResting = on; fxCanvas.classList.toggle("is-resting", on); }
   // Only what moves is redrawn: the rectangles drawn last time and this time are cleared and drawn again (a few dozen small squares,
@@ -1439,7 +1440,7 @@
   let drag = null, lastTap = null, wheelOK = false;
   let stageRect = null; // the stage's place, read once per gesture (reading it on every move would force a layout each time)
   const local = (e) => { const r = (pts.size && stageRect) || wrapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-  const onMap = (e) => !(e.target instanceof Element) || !e.target.closest(".map-ctrl, .map-focus, .map-find, .map-exit, .map-hint");
+  const onMap = (e) => !(e.target instanceof Element) || !e.target.closest(".map-ctrl, .map-focus, .map-find, .map-exit, .map-hint, .map-attrib");
   wrapEl.addEventListener("pointerdown", (e) => {
     if (!loaded || !onMap(e)) return;
     wrapEl.setPointerCapture(e.pointerId);

@@ -166,7 +166,7 @@ test("the find card's markup: a search landmark, a labelled combobox, a listbox 
   assert.match(css, /\.map-find \{ position: absolute; z-index: 4; left: 10px; right: 10px; bottom: 10px; display: flex; align-items: center; gap: 6px; height: 56px;/);
   assert.match(css, /\.map-find input \{ width: 100%; height: 44px; min-height: 44px;[^}]*font: 500 16px\/1\.2 var\(--body\);/);
   assert.match(css, /@media \(min-width: 720px\) \{\n[^\n]*\n  \.map-find \{ left: 12px; right: 68px; bottom: 8px; max-width: 640px; margin: 0 auto;/);
-  assert.match(js, /const onMap = \(e\) => !\(e\.target instanceof Element\) \|\| !e\.target\.closest\("\.map-ctrl, \.map-focus, \.map-find, \.map-exit, \.map-hint"\);/, "a drag never starts on the find card");
+  assert.match(js, /const onMap = \(e\) => !\(e\.target instanceof Element\) \|\| !e\.target\.closest\("\.map-ctrl, \.map-focus, \.map-find, \.map-exit, \.map-hint, \.map-attrib"\);/, "a drag never starts on the find card, nor on the map's data credit (a tap there opens its link)");
 });
 
 /** fitFacts, run on pretend facts laid out in a row of the given width (each fact's width, a wrap when the row is full). */

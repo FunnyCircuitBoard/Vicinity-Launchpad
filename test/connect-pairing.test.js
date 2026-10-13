@@ -4,7 +4,7 @@
 //      the reloaded page picks it up again and finishes with the approval already given (no second approval). Forgotten once used,
 //      run out, or left. Never in localStorage or the address bar.
 //  (3) plain words: "Approve in Phantom, then finish here"; the relay reason; the "Didn't work?" button and the message that quotes it.
-//  (4) the wallet app's approve page: a LINK pairing names the account the wallet joins (no Terms gate: they are on that account), a
+//  (4) the wallet app's approve page: a LINK pairing names the account the wallet joins (no Terms step: they are on that account), a
 //      login pairing keeps today's words; no old hero / 1-2-3 bar, the card and the wallet tile at the top, "Tap Phantom below".
 //  (5) the pairing screen is brought into view under the sticky header (the person tapped far down the page).
 // Runs the real connect page (test/helpers/connectpage.js); the server side is test/wallet-link.test.js.
@@ -306,7 +306,7 @@ async function approvePage({ wallets, me = {}, sign, purpose = "link", on = null
 }
 const indexIn = (p, sel) => { const card = p.$('.cstate[data-state="approve"]'); return card.children.indexOf(p.$(sel)); };
 
-test("(4) a LINK pairing: the approve page names the account the wallet joins, asks about the check number, no Terms gate (they are on that account), 'Tap Phantom below and sign'", async () => {
+test("(4) a LINK pairing: the approve page names the account the wallet joins, asks about the check number, no Terms step (they are on that account), 'Tap Phantom below and sign'", async () => {
   const { p, asked } = await approvePage();
   assert.equal(p.screen(), "approve");
   assert.equal(p.visible(p.$(".connect__intro")), false, "the old hero is gone");
@@ -319,8 +319,9 @@ test("(4) a LINK pairing: the approve page names the account the wallet joins, a
   assert.equal(p.$("#approve-ask").textContent, "Does your computer (or tablet), where you started, show check number 42?");
   assert.equal(p.$("#approve-warn").textContent, "Only continue if you started this yourself. Never sign for a code someone sent you.");
   assert.equal(p.visible(p.$("#approve-terms")), true);
-  assert.equal(p.$("#termsgate").hidden, true, "no gate: the Terms were accepted on that account");
+  assert.deepEqual(p.terms, [["agreed", "2026-10-01"]], "the Terms were accepted on that account: noted here, never asked again");
   assert.equal(p.local.get("vicinity_terms"), "2026-10-01");
+  assert.equal(p.$("#termsgate"), null, "no site-entry Terms modal (design v4)"); assert.deepEqual(p.$$('[aria-modal="true"]').filter(p.visible), [], "no dialog over the page");
   assert.equal(p.$("#approve-tap").textContent, "Tap Phantom below and sign. Nothing is paid or moved.");
   assert.ok(indexIn(p, "#approve-tap") === indexIn(p, "#approve-wallets") - 1, "the line sits right above the wallet tile");
   await p.tap(p.$("#approve-wallets").children[0]);
@@ -341,12 +342,12 @@ test("(4) a LINK pairing started on this phone (Safari's app tiles say on=phone)
   assert.equal(p.$("#approve-done-text").textContent, "Approved. Go back to Safari or Chrome. It finishes the link, then tap “Open Phantom” there to come back and sign in here.");
 });
 
-test("(4) a LOGIN pairing keeps today's words and the Terms gate (a first visit like any other); its statement is the login one", async () => {
+test("(4) a LOGIN pairing keeps today's words (a first visit like any other); its statement is the login one", async () => {
   const { p, asked } = await approvePage({ purpose: "login" });
   assert.equal(p.$("#approve-h").textContent, "Approve the sign-in you started");
   assert.equal(p.visible(p.$("#approve-who")), false);
   assert.equal(p.visible(p.$("#approve-terms")), false);
-  assert.equal(p.$("#termsgate").hidden, false, "a first visit here: the gate");
+  assert.deepEqual(p.terms, [["open"]], "a first visit here: nothing noted"); assert.equal(p.local.get("vicinity_terms"), undefined);
   assert.match(p.$('.cstate[data-state="approve"]').textContent, /Never sign for a code someone sent you\./);
   await p.tap(p.$("#approve-wallets").children[0]);
   await p.flush();

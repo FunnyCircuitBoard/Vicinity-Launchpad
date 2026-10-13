@@ -853,7 +853,8 @@
     const pause = $("#lp-live-pause");
     if (pause) {
       const sync = () => pause.setAttribute("aria-pressed", String(document.documentElement.dataset.motion === "paused"));
-      pause.addEventListener("click", () => { const t = $("[data-motion-toggle]"); if (t) t.click(); sync(); });
+      // design v4 took the footer's "Pause animations" away, so this button pauses the strip by itself (the redesigned Launchpad has no strip)
+      pause.addEventListener("click", () => { const r = document.documentElement; if (r.dataset.motion === "paused") delete r.dataset.motion; else r.dataset.motion = "paused"; sync(); });
       window.addEventListener("vicinity:motion", sync); sync();
     }
     const fromUrl = stateFromUrl(location.search);

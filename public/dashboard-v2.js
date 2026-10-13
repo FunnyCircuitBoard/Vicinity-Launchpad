@@ -261,7 +261,7 @@
   /**
    * Something changes the tabs while the strip is on screen (Moderate shown or hidden when /api/mod answers, a count badge): every
    * tab glides from where it was to its new place (transform only, FOLLOW_MS), the pill glides with its tab, and a tab that just
-   * appeared fades in, so the bar re-divides as one calm move instead of a jump. At once with reduced motion or "Pause animations",
+   * appeared fades in, so the bar re-divides as one calm move instead of a jump. At once with reduced motion (V.reduced),
    * and before the strip has been shown. Nested calls run inside the outer one.
    */
   function reflow(fn) {

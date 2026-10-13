@@ -41,7 +41,9 @@ export const OFFICIAL = {
   // Every official Vicinity token on every network. Anything not listed here is fake.
   tokens: [
     { network: "Solana", name: "Vicinity", symbol: "VICINITY", contract: VICINITY_MINT, platform: "Raydium LaunchLab", status: "Launching October 3, 2026" },
-    { network: "Solana", name: "City coins (one per city)", symbol: "e.g. $UTICA", contract: null, platform: "Vicinity Launchpad", status: "Phase 3" },
+    // each city coin has its own contract, listed on /launchpad once it launches (the Launchpad opened on 10 Oct 2026; "Phase 3" said
+    // they did not exist yet): the list points there rather than repeating every contract
+    { network: "Solana", name: "City coins (one per city)", symbol: "e.g. $UTICA", contract: null, platform: "Vicinity Launchpad", status: "Launching city by city" },
   ],
 };
 

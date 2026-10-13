@@ -58,7 +58,7 @@
   .lp-live__item.is-copy, .lp-live__pause { display: none; }
   .lp-live.is-marquee .lp-live__view { -webkit-mask-image: none; mask-image: none; }
 }
-:root[data-motion="paused"] .lp-live.is-marquee .lp-live__track { width: auto; flex-wrap: wrap; justify-content: center; gap: var(--sp-2, 8px); }
+:root[data-motion="paused"] .lp-live.is-marquee .lp-live__track { animation: none; width: auto; flex-wrap: wrap; justify-content: center; gap: var(--sp-2, 8px); }
 :root[data-motion="paused"] .lp-live.is-marquee .lp-live__item { padding-right: 0; }
 :root[data-motion="paused"] .lp-live__item.is-copy { display: none; }
 :root[data-motion="paused"] .lp-live.is-marquee .lp-live__view { -webkit-mask-image: none; mask-image: none; }

@@ -18,6 +18,7 @@
   color: var(--muted); background: var(--card-2); border: 1px solid var(--line-2); }
 .token-quote__chg.is-up { color: var(--ok-text); background: var(--ok-soft, rgba(55,194,154,.14)); border-color: rgba(55,194,154,.4); }
 .token-quote__chg.is-down { color: var(--bad-text); background: rgba(255,90,54,.07); border-color: rgba(255,90,54,.4); } /* .07: 4.6:1 for the light theme's red */
+:root[data-theme="light"] .token-quote__chg.is-down { color: #A8321A; } /* measured on the painted hero glass: 4.29:1 with --bad-text; this red reads 6:1 */
 .token-quote__cap { font-size: var(--fs-sm, .875rem); color: var(--muted); font-variant-numeric: tabular-nums; }
 #token .token-hero__lead { margin: 0; font-size: var(--fs-sm, .875rem); line-height: 1.5; color: var(--muted); }
 

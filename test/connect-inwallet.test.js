@@ -1,7 +1,7 @@
 // Phones live inside the wallet app (owner decision F4, 10 Oct 2026), the /connect page's side. Runs the real page in node
 // (test/helpers/connectpage.js): Safari's "Connect Phantom" screen (relay links renewed quietly, a link that never opened Phantom, a
 // link this tab kept), and inside the wallet app: one tap signs in, "Sign in with Phantom" links (/connect?mode=login&with=phantom)
-// start by themselves, the Terms gate is the account's, and a browser signed in to someone else is told so before anything is signed.
+// start by themselves, the Terms are the account's, and a browser signed in to someone else is told so before anything is signed.
 // Instagram's or Facebook's in-app browser is NOT a wallet app: it keeps the ordinary sign-up.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -68,7 +68,7 @@ test("the Log in tab inside a wallet app leads with ONE 'Sign in with Phantom' b
   assert.equal(q.visible(q.$("#lg-join")), true);
 });
 
-test("/connect?mode=login&with=phantom inside Phantom (a visitor): the sign-in starts by itself, once; the Terms gate waits and is noted from the account; the parameter leaves the address bar", async () => {
+test("/connect?mode=login&with=phantom inside Phantom (a visitor): the sign-in starts by itself, once; the account's Terms are noted; the parameter leaves the address bar", async () => {
   let signed = false; // /api/me answers for the account once the wallet signed in (its Terms version included)
   const { p, ctl } = await inApp({
     search: "mode=login&with=phantom",
@@ -78,34 +78,35 @@ test("/connect?mode=login&with=phantom inside Phantom (a visitor): the sign-in s
   await p.flush();
   assert.deepEqual([ctl.connects, ctl.signs], [1, 1], "connect, then ONE signature, with no tap");
   assert.ok(!p.addressBar.at(-1).includes("with="), p.addressBar.join(" "));
-  assert.equal(p.$("#termsgate").hidden, true, "no gate while the sign-in runs");
+  assert.equal(p.$("#termsgate"), null, "no site-entry Terms modal (design v4)"); assert.deepEqual(p.$$('[aria-modal="true"]').filter(p.visible), [], "no dialog over the page");
+  assert.deepEqual(p.terms, [["agreed", "2026-10-01"]], "the account's Terms count: noted once it signed in");
   assert.equal(p.screen(), "done");
   await p.flush();
-  assert.equal(p.local.get("vicinity_terms"), "2026-10-01", "the account agreed: noted here, so the dashboard shows no gate");
+  assert.equal(p.local.get("vicinity_terms"), "2026-10-01", "the account agreed: noted here");
   await p.advance(1300);
   assert.deepEqual(p.assigned, ["/dashboard"]);
 });
 
-test("with=phantom refused or cancelled in the wallet: today's Sign in button stays, and this is a first visit after all (the gate)", async () => {
+test("with=phantom refused or cancelled in the wallet: today's Sign in button stays, and this is a first visit after all", async () => {
   const { p, ctl } = await inApp({ search: "mode=login&with=phantom", wallets: [(() => { const w = fakeWallet("Phantom"); w.ctl.sign = "reject"; return w; })()] });
   await p.flush();
   assert.equal(ctl.signs, 1);
   assert.equal(p.screen(), "sign");
   assert.match(p.$("#c-error").textContent, /cancelled/);
-  assert.equal(p.$("#termsgate").hidden, false);
-  // no account for that wallet: the no-account screen, and the gate
+  assert.deepEqual(p.terms, [["open"]], "a first visit after all: nothing noted"); assert.equal(p.local.get("vicinity_terms"), undefined);
+  // no account for that wallet: the no-account screen, a first visit
   const { p: q } = await inApp({ search: "mode=login&with=phantom", signIn: () => ({ ok: false, error: "no_account", _status: 404 }) });
   await q.flush();
-  assert.equal(q.screen(), "no-account"); assert.equal(q.$("#termsgate").hidden, false);
+  assert.equal(q.screen(), "no-account"); assert.deepEqual(q.terms, [["open"]]); assert.equal(q.local.get("vicinity_terms"), undefined);
 });
 
-test("with=phantom anywhere else (Safari, a computer, another wallet app's browser): nothing starts, the ordinary Log in tab and the gate", async () => {
+test("with=phantom anywhere else (Safari, a computer, another wallet app's browser): nothing starts, the ordinary Log in tab, a first visit", async () => {
   for (const [ua, wallets] of [[UA.iphone, []], [UA.desktop, [fakeWallet("Phantom")]], [UA.phantomApp, [fakeWallet("Backpack")]]]) {
     const { p, ctl } = await inApp({ ua, wallets, search: "mode=login&with=phantom" });
     await p.advance(3500);
     if (ctl) assert.equal(ctl.connects, 0, ua);
     assert.equal(p.callsTo("/api/auth/wallet").length, 0, ua);
-    assert.equal(p.$("#termsgate").hidden, false, `${ua}: the gate`);
+    assert.deepEqual(p.terms, [["open"]], `${ua}: a first visit, nothing noted`); assert.equal(p.local.get("vicinity_terms"), undefined, ua);
     assert.equal(p.$("#tab-login").getAttribute("aria-pressed"), "true");
   }
 });
@@ -115,7 +116,7 @@ test("with=phantom in a wallet app that is signed in already: straight to the da
   assert.deepEqual(p.replaced, ["/dashboard"]);
   assert.equal(ctl.connects, 0);
   assert.equal(p.local.get("vicinity_terms"), "2026-10-01");
-  assert.equal(p.$("#termsgate").hidden, true);
+  assert.deepEqual(p.terms, [["agreed", "2026-10-01"]]);
 });
 
 test("'Open Phantom' from Safari's 'confirm it's you' lands where the person was (next=/dashboard#profile), signed in already or after the one signature; anything else in next= is the dashboard (review finding ux-UX-3)", async () => {

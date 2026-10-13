@@ -199,7 +199,8 @@ test("styles: the page's still part with the Launchpad block, every control at l
   assert.match(block, /\.coin-chart__canvas \{[^}]*touch-action: pan-y;/); assert.match(block, /\.coin-chart__stage \{ position: relative; height: 260px;/);
   assert.match(block, /@media \(min-width: 1024px\) \{\n  \.coin-page \{ padding-top: 16px; \}\n  \.coin-grid \{ grid-template-columns: minmax\(0, 1fr\) 360px;/);
   assert.match(block, /\.coin-chart__stage \{ height: 380px; \}/);
-  assert.match(block, /\.coin-mini \{ position: fixed; top: 66px;/, "the slim header sits under the site header");
+  // design v4: the site header floats; --header-h is its bottom edge (12 + 56 px on a computer)
+  assert.match(block, /\.coin-mini \{ position: fixed; top: var\(--header-h\);/, "the slim header sits under the site header");
   assert.match(block, /@media \(max-width: 900px\) \{ \.coin-buybar \{ bottom: var\(--tabbar-h, 67px\);/, "the Buy bar sits above the phone's tab bar");
   const mo = css.slice(css.indexOf("Launchpad live market: motion (LAUNCHPAD_V2=on"), css.indexOf("Member profiles (PROFILES=on)"));
   assert.match(mo, /\.coin-buybar \{ transition: transform \.22s cubic-bezier\(\.2,\.8,\.2,1\), visibility 0s linear \.22s; \}/, "the bar slides (transform), only when motion is welcome");
@@ -235,12 +236,14 @@ test("phones keep at most two bars over the coin page while it scrolls, the curv
   assert.match(bars, /const phone = window\.matchMedia\("\(max-width: 1023px\)"\), short = window\.matchMedia\("\(max-height: 700px\)"\);/);
   assert.match(bars, /document\.body\.classList\.toggle\("has-coin-mini", m\);/);
   assert.match(bars, /&& phone\.matches && !short\.matches;/, "no Buy bar on a short screen");
-  assert.match(css, /@media \(max-width: 1023px\) \{\n  \.coin-mini \{ top: 0; \}\n  body\.has-coin-mini \.site-header:not\(:focus-within\) \{ transform: translateY\(-100%\); \}\n\}/, "the header comes back for the keyboard");
+  // design v4: the header floats 8-12 px under the top, so it leaves by its own height and that offset (no sliver left above the bar)
+  assert.match(css, /@media \(max-width: 1023px\) \{\n  \.coin-mini \{ top: 0; \}\n  body\.has-coin-mini \.site-header:not\(:focus-within\) \{ transform: translateY\(calc\(-100% - 12px\)\); \}/, "the header comes back for the keyboard");
   assert.match(css, /@media \(max-width: 1023px\) and \(max-height: 700px\) \{\n  \.coin-mini__buy:not\(\[hidden\]\) \{ display: inline-flex;[^}]*min-height: 44px;/);
   assert.match(html, /<a class="btn btn--primary btn--sm coin-mini__buy" id="coin-mini-buy" href="\/launchpad" rel="noopener" target="_blank" hidden>Buy <span aria-hidden="true">↗<\/span><span class="sr-only"> on Raydium \(opens in a new tab\)<\/span><\/a>/);
   assert.match(src, /for \(const id of \["#coin-head-buy", "#coin-buybar-buy", "#coin-mini-buy"\]\) set\(id, ray\);/, "the same safe Raydium link");
   assert.match(src, /put\(\$\("#coin-mini-price"\), p \? shortZeros\(p\) : "—"\);/);
-  assert.match(css, /\.coin-buybar:not\(\.is-on\), \.coin-mini:not\(\.is-on\) \{ --lb-play: paused; \}/);
+  // design v4: nothing on a hidden bar loops any more (the live buttons are gone), so there is nothing left to pause
+  assert.doesNotMatch(css, /--lb-play|lbGlow|lbSweep/);
   // the curve card: there from the start with its room kept (CLS 0.068 on a computer when it appeared and pushed the contract card down)
   assert.match(html, /<section class="card coin-curve" id="coin-curve" aria-labelledby="coin-curve-title">/, "not hidden until the answer");
   assert.match(html, /id="coin-curve-text">Reading the bonding curve from the chain…<\/p>/);

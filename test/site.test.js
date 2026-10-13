@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
-import { buildPages } from "../scripts/pages/build.mjs";
+import { buildPages, buildStandalonePages } from "../scripts/pages/build.mjs";
+import { openPage } from "./helpers/pagedom.js";
 import { cityAt } from "../src/geo.js";
 
 const read = (p) => readFileSync(new URL("../public/" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "coin.html", "connect.html", "locate.html", "dashboard.html", "rules.html", "terms.html", "404.html", "admin.html"];
+const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "coin.html", "connect.html", "locate.html", "dashboard.html", "rules.html", "terms.html", "404.html", "admin.html", "app.html", "credits.html"];
 const html = Object.fromEntries(PAGES.map((p) => [p, read(p)]));
 const all = Object.values(html).join("\n");
 const css = read("style.css");
@@ -42,43 +43,155 @@ test("every local file a page references exists", () => {
   }
 });
 
-test("same menu on every page: top menu for computers, bottom menu bar for phones, theme toggle", () => {
-  const links = ["/", "/token", "/cities", "/launchpad", "/dashboard"];
+test("same menu on every page: the floating header for computers (4 links), the tab bar for phones (5 tabs), the theme toggle, Log in and Sign up", () => {
+  // design v4 (prompt item 1): the header's links are only Launchpad, Live map, App preview, Dashboard; the phone tab bar keeps the five
+  // tasks (Home, Launchpad, Map, Token, Me); the brand is the way home on a computer
+  const headerLinks = ["/launchpad", "/cities", "/app", "/dashboard"], tabLinks = ["/", "/launchpad", "/cities", "/token", "/dashboard"];
+  const inHeader = { "launchpad.html": "/launchpad", "coin.html": "/launchpad", "cities.html": "/cities", "app.html": "/app", "dashboard.html": "/dashboard" };
+  const inTabs = { "index.html": "/", "launchpad.html": "/launchpad", "coin.html": "/launchpad", "cities.html": "/cities", "token.html": "/token", "dashboard.html": "/dashboard" };
   for (const [f, h] of Object.entries(html)) {
-    const nav = h.match(/<nav class="nav"[\s\S]*?<\/nav>/)[0], tabs = h.match(/<nav class="tabbar"[\s\S]*?<\/nav>/)[0];
-    assert.deepEqual([...nav.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), links, f);
-    assert.deepEqual([...tabs.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), links, f);
-    assert.equal((nav.match(/aria-current="page"/g) || []).length, ["404.html", "connect.html", "locate.html", "rules.html", "terms.html", "admin.html"].includes(f) ? 0 : 1, f);
+    const header = h.match(/<header class="site-header" data-header>[\s\S]*?<\/header>/)[0];
+    const nav = header.match(/<nav class="nav" aria-label="Main">[\s\S]*?<\/nav>/)[0], tabs = h.match(/<nav class="tabbar" aria-label="Main \(phone\)">[\s\S]*?<\/nav>/)[0];
+    assert.deepEqual([...nav.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), headerLinks, f);
+    assert.deepEqual([...nav.matchAll(/>([^<]+)<\/a>/g)].map((m) => m[1]), ["Launchpad", "Live map", "App preview", "Dashboard"], f);
+    assert.deepEqual([...tabs.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), tabLinks, f);
+    assert.deepEqual([...tabs.matchAll(/<span>([^<]+)<\/span><\/a>/g)].map((m) => m[1]), ["Home", "Launchpad", "Map", "Token", "Me"], f);
+    assert.deepEqual([...nav.matchAll(/<a href="([^"]+)" aria-current="page">/g)].map((m) => m[1]), inHeader[f] ? [inHeader[f]] : [], `${f}: the current page in the header`);
+    assert.deepEqual([...tabs.matchAll(/<a href="([^"]+)" aria-current="page">/g)].map((m) => m[1]), inTabs[f] ? [inTabs[f]] : [], `${f}: the current tab`);
+    assert.equal((tabs.match(/class="tabbar__ind"/g) || []).length, inTabs[f] ? 1 : 0, `${f}: one glide pill, on the current tab only`);
+    assert.match(header, /<a class="brand" href="\/" aria-label="Vicinity home">/, f);
+    assert.doesNotMatch(header, /data-nav-launch|nav__soon|nav__open/, `${f}: the "Oct 10 / Open" chip is gone`);
     assert.match(h, /data-theme-toggle/);
     assert.match(h, /<script src="\/theme\.js"><\/script>\s*<\/head>/, `${f}: theme runs before paint`);
-    assert.match(h, /data-account/);
-    assert.match(h, /<span data-account-label>Log in<\/span>/, `${f}: signed-out visitors see a Log in button`);
+    assert.match(header, /<a class="btn btn--ghost btn--sm account-btn" href="\/connect\?mode=login" data-account><span class="btn__dot" aria-hidden="true"><\/span><span data-account-label>Log in<\/span><\/a>/, `${f}: signed-out visitors see a Log in button`);
+    assert.match(header, /<a class="btn btn--primary btn--sm hdr-signup has-ring" href="\/connect" data-signup>Sign up<\/a>/, `${f}: and one orange Sign up (an account is made without a wallet: never "Connect wallet")`);
     assert.doesNotMatch(h, /data-logout|account-out/, `${f}: one account button in the header; Log out lives in the profile modal`);
   }
   assert.match(css, /:root\[data-theme="light"\]/);
   assert.match(css, /\.tabbar \{ display: grid;/);
+  // Sign up: hidden before the first paint for a browser that has shown a member here (theme.js data-guest), shown again by site.js once
+  // signed out; hidden for a member and for a sign-in in progress; never on /connect (the page is the sign-up)
+  assert.match(css, /:root:not\(\[data-guest\]\) \[data-signup\]:not\(\.is-shown\), body\[data-page="connect"\] \[data-signup\] \{ display: none; \}/);
+  const site = read("site.js");
+  assert.match(site, /signup\.hidden = Boolean\(d && \(d\.signedIn \|\| d\.pending\)\);\n\s+if \(!signup\.hidden\) signup\.classList\.add\("is-shown"\);/);
+  // the floating header: a stronger glass once the page scrolls, from a 1 px marker (no scroll listener)
+  assert.match(site, /new IntersectionObserver\(\(\[en\]\) => head\.classList\.toggle\("is-scrolled", !en\.isIntersecting\)\)\.observe\(mark\);/);
+  assert.doesNotMatch(site, /addEventListener\("scroll"/);
+  // the header's hairline is a shadow, not a border: polish-dash.css clears the header's bottom border on the dashboard, and the
+  // floating pill must keep all four edges there
+  const head = /\n\.site-header \{([^}]*)\}/.exec(css)[1];
+  assert.match(head, /box-shadow: inset 0 0 0 1px var\(--glass-border\), var\(--glass-hi\);/);
+  assert.doesNotMatch(head, /border(-bottom)?:/);
 });
 
-test("terms gate: every page (except /terms) asks for agreement before entry", () => {
-  for (const [f, h] of Object.entries(html)) {
-    if (f === "terms.html") continue;
-    assert.match(h, /id="termsgate"[^>]*data-terms-version="2026-10-01"/, `${f}: gate modal with version`);
-    assert.match(h, /id="termsgate-agree"/, `${f}: agree button`);
-    assert.match(h, /id="termsgate-decline"/, `${f}: decline button`);
-    assert.match(h, /href="\/terms"/, `${f}: link to the full terms`);
+test("footer socials come from src/official.js (rule R3): a network added there shows as an icon on the next build, a link is https only", async () => {
+  const { SOCIAL_PROFILES } = await import("../src/official.js");
+  const footerOf = (pages) => new Map(pages).get("index.html").match(/<ul class="site-footer__social"[\s\S]*?<\/ul>/)[0];
+  const before = footerOf(buildPages());
+  assert.equal((before.match(/<li>/g) || []).length, SOCIAL_PROFILES.length, "one icon per official account, no placeholder");
+  SOCIAL_PROFILES.push({ network: "Telegram", handle: "@vicinity_example", hosts: ["t.me", "telegram.me"] }, { network: "Mastodon", handle: "@vicinity", hosts: ["mastodon.social"] });
+  try {
+    const after = footerOf(buildPages());
+    assert.match(after, /<a class="social-link" href="https:\/\/t\.me\/vicinity_example" target="_blank" rel="noopener me" aria-label="Vicinity on Telegram \(@vicinity_example\), opens in a new tab"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="currentColor"><path d="M11\.944 0A12/);
+    assert.match(after, /aria-label="Vicinity on Mastodon \(@vicinity\), opens in a new tab"><span class="social-link__name">Mastodon<\/span><\/a>/, "a network without an icon shows its name, never dropped");
+    SOCIAL_PROFILES.push({ network: "Web", handle: "@x", hosts: ["x.example"], url: "http://x.example/" });
+    assert.throws(() => buildPages(), /needs an https:\/\/ address/);
+  } finally { SOCIAL_PROFILES.splice(1); }
+  assert.equal(footerOf(buildPages()), before);
+});
+
+test("the /app and /credits pages: an honest app teaser label, and every map data licence kept (R2)", () => {
+  const app = html["app.html"], credits = html["credits.html"];
+  assert.match(app, /<p class="kicker">In development<\/p>/, "the app is never presented as available");
+  assert.doesNotMatch(app, /App Store|Google Play|Download/i);
+  assert.match(credits, /<h1 class="page-title">Data &amp; credits<\/h1>/, "the full credits: the next test");
+});
+
+test("/credits (R2): every licence the map's data asks for, with its version and change notices, the market sources, the fonts' licences; outside links open in a new tab and say so", () => {
+  const c = html["credits.html"], main = c.slice(c.indexOf("<main"), c.indexOf("</main>"));
+  const text = main.replace(/<[^>]+>/g, "").replace(/\s+/g, " ");
+  // OpenStreetMap: ODbL 1.0, and the derived database this site serves (ODbL 4.4)
+  assert.match(main, /© <a href="https:\/\/www\.openstreetmap\.org\/copyright" target="_blank" rel="noopener">OpenStreetMap contributors<span class="sr-only"> \(opens in a new tab\)<\/span><\/a>, available under the <a href="https:\/\/opendatacommons\.org\/licenses\/odbl\/" target="_blank" rel="noopener">Open Database License 1\.0/);
+  assert.match(text, /\(ODbL 1\.0\)\. Vicinity simplifies these boundaries\. The simplified city boundaries this site serves \(\/data\/bounds\/\) are derived from OpenStreetMap and are available under the Open Database License 1\.0\./);
+  // GeoNames: CC BY 4.0, a link to the licence, and what was changed
+  assert.match(text, /GeoNames \(opens in a new tab\) \(geonames\.org\), licensed under Creative Commons Attribution 4\.0 \(opens in a new tab\) \(CC BY 4\.0\)\. Vicinity groups these places into communities\./);
+  assert.match(main, /href="https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/"/);
+  assert.match(text, /Country outlines Natural Earth \(opens in a new tab\) \(public domain\)\./);
+  // the market sources (Jupiter's terms ask for "Powered by Jupiter" wherever its data shows)
+  assert.match(text, /Prices, market caps and volumes Jupiter \(opens in a new tab\) \(Powered by Jupiter\), Raydium \(opens in a new tab\) and DEX Screener \(opens in a new tab\)\./);
+  assert.match(text, /Holders and bonding curves The Solana chain, read and counted by vicinity\.city\./);
+  // the fonts' own licence files (copied next to the fonts by copy-assets) and the QR library's
+  assert.match(main, /SIL Open Font License 1\.1: <a href="\/fonts\/LICENSE-inter\.txt">Inter licence<\/a> · <a href="\/fonts\/LICENSE-space-grotesk\.txt">Space Grotesk licence<\/a>/);
+  assert.match(read("../scripts/copy-assets.mjs"), /copyFileSync\(join\(dir, "LICENSE"\), join\(pub\("fonts\/"\), `LICENSE-\$\{name\}\.txt`\)\);/);
+  assert.match(text, /qrcode-generator, © Kazuhiko Arase, under the MIT licence\./);
+  // every outside link: https to the source itself, a new tab without an opener, and a screen reader is told
+  const ext = [...main.matchAll(/<a href="(https:[^"]+)"([^>]*)>([\s\S]*?)<\/a>/g)];
+  assert.equal(ext.length, 8);
+  for (const [, href, attrs, inner] of ext) {
+    assert.equal(attrs, ' target="_blank" rel="noopener"', href);
+    assert.match(inner, /<span class="sr-only"> \(opens in a new tab\)<\/span>$/, href);
+    assert.match(new URL(href).hostname, /^(www\.)?(openstreetmap\.org|opendatacommons\.org|geonames\.org|creativecommons\.org|naturalearthdata\.com|jup\.ag|raydium\.io|dexscreener\.com)$/, href);
   }
-  assert.doesNotMatch(html["terms.html"], /id="termsgate"/, "terms page itself stays readable (inline agree instead)");
-  assert.match(html["terms.html"], /id="terms-agree"/, "terms page has an inline agree button");
+  // no risk warning here either; the page's own small sheet, last
+  assert.doesNotMatch(text, /financial advice|afford to lose|very risky/i);
+  assert.match(c, /<link rel="stylesheet" href="\/pages-credits\.css">\n  <script src="\/theme\.js"><\/script>/);
+  const sheet = read("pages-credits.css");
+  assert.doesNotMatch(sheet, /@import|@font-face|!important|https?:\/\/|animation|transition/, "a calm page: nothing loaded, nothing moves");
+  assert.ok(sheet.length < 4000, "a small sheet");
 });
 
-test("terms gate script: the inline agree button is wired even when the modal is absent", () => {
+test("V.burst: eight small accent dots, never emoji, nothing with reduced motion; the callers' signature stays", () => {
   const js = read("site.js");
-  const gateLookup = js.indexOf('$("#termsgate")');
-  const termsBranch = js.indexOf('dataset.page === "terms"');
-  assert.ok(termsBranch !== -1 && gateLookup !== -1 && termsBranch < gateLookup,
-    "the terms-page branch must run before the gate-missing early return, or the inline button stays dead");
-  assert.ok(js.includes('$("#terms-agree")'), "inline agree button is wired");
-  assert.doesNotMatch(js, /style\.overflow\s*=\s*["']hidden["']/, "the gate never freezes page scrolling");
+  const burst = js.slice(js.indexOf("  const burst = (x, y) => {"), js.indexOf("  };", js.indexOf("  const burst = (x, y) => {")));
+  assert.match(burst, /if \(reducedNow\(\)\) return;/);
+  assert.match(burst, /for \(let i = 0; i < 8; i\+\+\) \{\n\s+const s = el\("span", "burst"\);/);
+  assert.doesNotMatch(burst, /\p{Extended_Pictographic}/u, "no emoji confetti");
+  assert.match(css, /\.burst \{ position: fixed; pointer-events: none; z-index: 80; width: 6px; height: 6px;[^}]*border-radius: 50%;[^}]*opacity: 0; \}/);
+  assert.match(css, /@media \(prefers-reduced-motion: no-preference\) \{ \.burst \{ animation: burst \.6s var\(--ease-out\) forwards; \} \}/);
+  assert.match(js, /window\.V = \{[^}]*\bburst\b/, "V.burst(x, y) stays for connect.js, signup.js, dashboard.js and swap.js");
+});
+
+test("no site-entry Terms modal (design v4, the owner's ask): no page carries one, every page links the Terms, /terms keeps its inline agree", () => {
+  for (const [f, h] of [...Object.entries(html), ...buildStandalonePages()]) {
+    assert.doesNotMatch(h, /termsgate|Agree to the Terms of Use|Before you enter/, `${f}: no site-entry Terms modal`);
+    assert.match(h, /<nav class="site-footer__links"[^>]*>\s*<a href="\/terms">Terms<\/a>/, `${f}: the footer links the Terms of Use (they bind every visit)`);
+  }
+  assert.match(html["terms.html"], /<button[^>]*id="terms-agree"/, "the Terms page keeps its inline agree button");
+});
+
+test("the Terms in site.js: no gate code left; V.termsGate keeps its two methods for signup.js and connect.js (open does nothing, agreed notes the version)", () => {
+  const js = read("site.js");
+  assert.doesNotMatch(js, /#termsgate|termsgate-|deferGate|gateLater|openGate|\.inert = true/, "no site-entry gate code, nothing made inert");
+  assert.doesNotMatch(js, /style\.overflow\s*=\s*["']hidden["']/, "nothing freezes page scrolling");
+  const gate = js.slice(js.indexOf("  const termsGate = {"), js.indexOf("  window.V = {"));
+  assert.match(gate, /^  const termsGate = \{\n    open\(\) \{\},\n    agreed\(version\) \{ try \{ if \(version\) localStorage\.setItem\("vicinity_terms", version\); \} catch/);
+  assert.match(js, /window\.V = \{[^}]*\btermsGate\b/, "V.termsGate stays: signup.js and connect.js call it unchanged");
+  for (const f of ["signup.js", "connect.js"]) assert.match(read(f), /window\.V\.termsGate/, `${f} still tells it (no change there)`);
+});
+
+test("/terms: the inline 'I agree' notes the version in this browser and, for a member, records it on the account (/api/me/terms)", async () => {
+  for (const signedIn of [false, true]) {
+    const p = await openPage("terms.html", { me: signedIn ? { ok: true, signedIn, user: { id: 7, handle: "Sam", wallet: null } } : { ok: true, signedIn } });
+    assert.equal(p.$("#termsgate"), null);
+    const agree = p.$("#terms-agree");
+    agree.click();
+    for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(p.storage.get("vicinity_terms"), "2026-10-01", `${signedIn}: noted here`);
+    assert.equal(agree.disabled, true); assert.equal(agree.textContent, "Agreed ✓");
+    assert.deepEqual(p.calls.filter((c) => c.path === "/api/me/terms").map((c) => c.body), signedIn ? [{ version: "2026-10-01" }] : [], `${signedIn}: recorded on the account only for a member`);
+  }
+  // any other page: nothing pops up, nothing is noted, nothing is asked of the server
+  const home = await openPage("index.html");
+  assert.equal(home.storage.get("vicinity_terms"), undefined);
+  assert.deepEqual(home.calls.filter((c) => c.path === "/api/me/terms"), []);
+  assert.deepEqual(home.doc.body.children.filter((e) => e.inert).map((e) => e.id || e.tagName), [], "nothing inert");
+  assert.equal(home.doc.activeElement, home.doc.body, "the keyboard starts at the top of the page, not in a dialog");
+});
+
+test("the sign-up still binds the Terms (R4): the box and the server's terms_required stay", () => {
+  const connect = html["connect.html"];
+  assert.match(connect, /id="su-terms"/, "the sign-up's own Terms box");
+  for (const f of ["../src/signup.js", "../src/signup-finish.js"]) assert.match(readFileSync(new URL(f, import.meta.url), "utf8"), /terms_required/, `${f}: an account is never made without the Terms`);
 });
 
 test("terms page: the full Terms of Use", () => {
@@ -87,8 +200,9 @@ test("terms page: the full Terms of Use", () => {
                    "16. Dispute Resolution", "Class Action Waiver", "19. Contact", "@VicinityCitySOL"]) {
     assert.ok(h.includes(s), `terms mention: ${s}`);
   }
-  assert.match(css, /\.termsgate\s*\{/, "gate styles exist");
+  assert.doesNotMatch(css, /\.termsgate/, "the site-entry modal's styles are gone with it (design v4)");
   assert.match(css, /\.terms h2/, "terms page styles exist");
+  assert.match(css, /\.terms \.agreebox \{/, "the Terms page's own agree box keeps its styles");
 });
 
 test("profile: the pass shows no real name, and the header username button is the profile button", () => {
@@ -127,7 +241,7 @@ test("home: the problem, the real New York City map, how it works, incentives, r
   assert.doesNotMatch(h, /pump\.fun/i, "not pump.fun");
   assert.doesNotMatch(h, /first to claim/i, "founders are chosen by locals, not a race");
   assert.match(h, /FOMO/);
-  assert.match(h, /Nothing here is financial advice/);
+  assert.doesNotMatch(h, /Nothing here is financial advice/, "no risk warning in the page chrome any more (design v4: the site-entry modal is gone; the Terms carry it)");
   assert.doesNotMatch(h, /Maple Falls|Port Jasper|Cedar Bay/, "no more fictional demo towns");
   const nyc = JSON.parse(read("data/demo-nyc.json"));
   assert.ok(nyc.members.length > 30 && nyc.official.length && nyc.nyc.area.length && nyc.neighbors.length > 5);
@@ -232,7 +346,7 @@ test("rules page: every rule, the formulas and the never-list, filled from the l
   assert.match(h, /50% × endorsement share/);
   assert.ok(h.includes("the lower of (balance at the cutoff) and (average of the last 14 days)"));
   for (const k of ["qualifyingDays", "windowHours", "appealHours", "graceDays", "cooldownDays", "termDays", "hideHours", "banDays"]) assert.ok(h.includes(`data-rule="${k}"`), k);
-  for (const p of PAGES) assert.ok(html[p].includes('href="/rules">Rules &amp; fairness</a>'), `${p} links the rules in the footer`);
+  for (const p of PAGES) assert.ok(html[p].includes('<a href="/rules">Rules</a>'), `${p} links the rules in the footer`);
   assert.doesNotMatch(all, /first come, first served/i, "no races");
   assert.doesNotMatch(all, /= one person/i, "no overclaiming: accounts aren't proof of a unique person");
 });

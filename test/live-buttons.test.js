@@ -1,15 +1,15 @@
-// Dark by default, and live buttons (the owner, 6 Oct 2026: "the website is going to load as dark theme by default" and "each button
-// should have live animation"). What is pinned here:
+// Dark by default, and nothing that loops (design v4, 12 Oct 2026: the owner asked for the "Pause animations" button to go; WCAG 2.2.2
+// then requires that nothing moving by itself lasts more than 5 s, so the live buttons of 6 Oct 2026 are gone). What is pinned here:
 // * theme.js: a first visit is dark whatever the device says (no prefers-color-scheme at all), from the first paint (meta theme-color
-//   and color-scheme follow the theme); the header toggle switches to light and remembers it; a stored choice always wins;
-// * "Pause animations" (footer, every page): stops every loop of the site, remembered on this device (WCAG 2.2.2: a visitor can stop
-//   anything that moves by itself), and site.js treats it like a reduced-motion setting;
-// * style.css "Live buttons": only transform and opacity move, every loop exists only when motion is welcome, pauses off screen and in
-//   a hidden tab (--lb-play), steps a few times a second instead of 60, never sits under a main button's words, and changes no size;
+//   and color-scheme follow the theme); a theme toggle switches to light and remembers it; a stored choice always wins; every toggle on
+//   the page (the header's, the phone footer's) stays in step;
+// * no Pause control anywhere: theme.js forgets the old stored choice once and never sets data-motion; no page has the button;
+// * style.css, polish.css and feedback.css: no animation runs forever, except busy indicators that end with the busy state (.is-busy,
+//   .is-loading, [aria-busy], a loading row) and the gradient ring while a mouse hovers it (the visitor started it); every animation
+//   that starts by itself ends within 5 s;
 // * site.js: the segmented controls' marker (measured, glides with transform, at once with reduced motion; the button keeps its own
 //   look until the marker has measured it).
-// How it looks and costs (390x844, 320x640, 1280x900, dark and light; idle main-thread work; frames drawn) is checked in Chromium on
-// the real Worker.
+// How it looks and costs (320 to 1920 px, dark and light, document.getAnimations() after 6 s idle) is checked in Chromium on the real Worker.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
@@ -17,6 +17,7 @@ import vm from "node:vm";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const css = read("public/style.css"), theme = read("public/theme.js"), site = read("public/site.js"), build = read("scripts/pages/build.mjs");
+const SHEETS = { "style.css": css, "polish.css": read("public/polish.css"), "feedback.css": read("public/feedback.css") };
 
 /* ---------------- theme.js on a pretend page ---------------- */
 
@@ -29,21 +30,21 @@ function themePage({ stored = {}, throws = false, deviceLight = true } = {}) {
   };
   const matchMedia = (q) => { queries.push(q); return { matches: deviceLight && /light/.test(q), addEventListener: () => queries.push(`listener ${q}`) }; };
   const metas = { 'meta[name="theme-color"]': { content: "#070E19" }, 'meta[name="color-scheme"]': { content: "dark" } };
-  const button = (text = "") => ({ attrs: {}, textContent: text, handlers: [], setAttribute(k, v) { this.attrs[k] = v; }, addEventListener(t, f) { this.handlers.push(f); }, click() { this.handlers.forEach((f) => f()); } });
-  const toggle = button(), pause = button("Pause animations");
+  const button = () => ({ attrs: {}, handlers: [], setAttribute(k, v) { this.attrs[k] = v; }, addEventListener(t, f) { this.handlers.push(f); }, click() { this.handlers.forEach((f) => f()); } });
+  const toggle = button(), footer = button();
   let parsed = false; // the buttons exist once the body is parsed (DOMContentLoaded)
   const root = { dataset: {} };
   const document = {
     documentElement: root,
     querySelector: (s) => metas[s] || null,
-    querySelectorAll: (s) => (!parsed ? [] : s === "[data-theme-toggle]" ? [toggle] : s === "[data-motion-toggle]" ? [pause] : []),
+    querySelectorAll: (s) => (!parsed ? [] : s === "[data-theme-toggle]" ? [toggle, footer] : []),
     addEventListener: (t, f) => (listeners[t] ||= []).push(f),
   };
   class CustomEvent { constructor(type, o) { this.type = type; this.detail = o && o.detail; } }
   const window = { dispatchEvent: (e) => events.push([e.type, e.detail]) };
   vm.runInNewContext(theme, { document, window, localStorage, matchMedia, CustomEvent });
   const ready = () => { parsed = true; (listeners.DOMContentLoaded || []).forEach((f) => f()); };
-  return { root, metas, store, queries, events, toggle, pause, ready };
+  return { root, metas, store, queries, events, toggle, footer, ready };
 }
 
 test("theme.js: a first visit is dark whatever the device says, from the first paint", () => {
@@ -68,162 +69,118 @@ test("theme.js: a stored choice always wins; anything else, or no storage at all
   assert.equal(themePage({ throws: true }).root.dataset.theme, "dark", "a private window that blocks storage: dark, no error");
 });
 
-test("theme.js: the header toggle switches to light and remembers it, then back to dark", () => {
+test("theme.js: a toggle switches to light and remembers it, then back to dark; the header's and the footer's toggles stay in step", () => {
   const P = themePage();
   P.ready();
-  assert.deepEqual(P.toggle.attrs, { "aria-pressed": "false", "aria-label": "Switch to light mode" });
+  for (const b of [P.toggle, P.footer]) assert.deepEqual(b.attrs, { "aria-pressed": "false", "aria-label": "Switch to light mode" });
   P.toggle.click();
   assert.equal(P.root.dataset.theme, "light");
   assert.equal(P.store.get("vicinity-theme"), "light");
-  assert.deepEqual(P.toggle.attrs, { "aria-pressed": "true", "aria-label": "Switch to dark mode" });
+  for (const b of [P.toggle, P.footer]) assert.deepEqual(b.attrs, { "aria-pressed": "true", "aria-label": "Switch to dark mode" });
   assert.deepEqual(P.events.at(-1), ["vicinity:theme", "light"], "the map and other canvases repaint in the new colours");
-  P.toggle.click();
+  P.footer.click();
   assert.equal(P.root.dataset.theme, "dark");
   assert.equal(P.store.get("vicinity-theme"), "dark");
+  assert.deepEqual(P.toggle.attrs, { "aria-pressed": "false", "aria-label": "Switch to light mode" });
 });
 
-test("theme.js: 'Pause animations' is applied before the first paint, remembered, and said on the button", () => {
+test("theme.js: the retired 'Pause animations' choice is forgotten once and never applied; no page has the button", () => {
   const P = themePage({ stored: { "vicinity-motion": "paused" } });
-  assert.equal(P.root.dataset.motion, "paused", "a paused page never starts moving");
-  P.ready();
-  assert.equal(P.pause.textContent, "Play animations");
-  P.pause.click();
-  assert.equal(P.root.dataset.motion, undefined);
-  assert.equal(P.store.has("vicinity-motion"), false);
-  assert.equal(P.pause.textContent, "Pause animations");
-  assert.deepEqual(P.events.at(-1), ["vicinity:motion", "on"]);
-  P.pause.click();
-  assert.equal(P.root.dataset.motion, "paused");
-  assert.equal(P.store.get("vicinity-motion"), "paused");
-  assert.deepEqual(P.events.at(-1), ["vicinity:motion", "paused"], "site.js stops its counts and rise-ins at once");
-  assert.equal(themePage().root.dataset.motion, undefined, "moving by default");
+  assert.equal(P.root.dataset.motion, undefined, "a stored Pause no longer stops anything (nothing loops)");
+  assert.equal(P.store.has("vicinity-motion"), false, "and the old key is cleared");
+  assert.doesNotMatch(theme, /dataset\.motion|data-motion-toggle|vicinity:motion/);
+  assert.doesNotMatch(build, /motion-toggle|Pause animations/);
+  assert.doesNotMatch(site, /vicinity:motion/);
+  for (const [name, sheet] of Object.entries(SHEETS)) assert.doesNotMatch(sheet, /data-motion|\.motion-toggle|\.footer-motion/, name);
 });
 
-test("built pages: dark meta from the first byte, and the 'Pause animations' button in every footer", () => {
+test("built pages: dark meta from the first byte, and no 'Pause animations' button in the layout", () => {
   const pages = readdirSync(new URL("../public/", import.meta.url)).filter((f) => f.endsWith(".html"));
-  assert.ok(pages.length >= 12);
+  assert.ok(pages.length >= 14);
   for (const f of pages) {
     const h = read("public/" + f);
     assert.match(h, /<meta name="theme-color" content="#070E19">\n  <meta name="color-scheme" content="dark">/, f);
-    assert.match(h, /<p class="muted small footer-motion"><button class="link-btn motion-toggle" type="button" data-motion-toggle>Pause animations<\/button><\/p>/, f);
+    const chrome = h.slice(0, h.indexOf('<main id="main"')) + h.slice(h.indexOf("</main>"));
+    assert.doesNotMatch(chrome, /data-motion-toggle|Pause animations|Play animations/, `${f}: header, footer and tab bar have no Pause control`);
   }
-  assert.match(css, /\.motion-toggle \{ min-height: 44px;/, "a 44 px touch target");
 });
 
-/* ---------------- style.css "Live buttons" ---------------- */
+/* ---------------- nothing loops (style.css, polish.css, feedback.css) ---------------- */
 
-const MARK = "Live buttons (the owner, 6 Oct 2026";
-const section = (() => {
-  const a = css.indexOf(MARK), b = css.indexOf("/* ---------- fair launch", a);
-  assert.ok(a > 0 && b > a, "the section");
-  assert.ok(a > css.indexOf("@media (prefers-reduced-motion: reduce) {\n  html {"), "after the site-wide motion layer and its reduced-motion block");
-  assert.ok(b < css.indexOf("Member profiles (PROFILES=on)"), "before the blocks that must not move by themselves");
-  return css.slice(a, b);
-})();
-const sectionAt = css.indexOf(MARK);
-const noPreference = (() => {
-  const out = [];
-  for (const m of css.matchAll(/@media [^{]*prefers-reduced-motion: no-preference[^{]*\{/g)) {
-    let depth = 1, i = m.index + m[0].length;
-    for (; i < css.length && depth; i++) depth += css[i] === "{" ? 1 : css[i] === "}" ? -1 : 0;
-    out.push([m.index, i]);
-  }
-  return out;
-})();
-const inNoPreference = (i) => noPreference.some(([a, b]) => i > a && i < b);
-const LB = ["lbGlow", "lbSweep", "lbBusy", "lbEdgeTop", "lbEdgeBottom", "lbBreath", "lbTab", "lbRing"];
-/** Every rule of the section: { sel, body, at } (media blocks opened, their inner rules listed). */
-const rules = (() => {
-  const out = [], text = section.replace(/\/\*[\s\S]*?\*\//g, (c) => " ".repeat(c.length));
-  const walk = (from, to) => {
+/** Every rule of a sheet: { sel, body, media } (media blocks opened, their inner rules listed with the media query that holds them). */
+function rulesOf(text) {
+  const out = [], t = text.replace(/\/\*[\s\S]*?\*\//g, (c) => " ".repeat(c.length));
+  const walk = (from, to, media) => {
     let i = from;
     while (i < to) {
-      const open = text.indexOf("{", i); if (open < 0 || open >= to) break;
-      const sel = text.slice(i, open).trim();
+      const open = t.indexOf("{", i); if (open < 0 || open >= to) break;
+      const sel = t.slice(i, open).trim();
       let depth = 1, j = open + 1;
-      for (; j < to && depth; j++) depth += text[j] === "{" ? 1 : text[j] === "}" ? -1 : 0;
-      if (sel.startsWith("@media")) walk(open + 1, j - 1);
-      else if (!sel.startsWith("@keyframes")) out.push({ sel, body: text.slice(open + 1, j - 1), at: sectionAt + open });
+      for (; j < to && depth; j++) depth += t[j] === "{" ? 1 : t[j] === "}" ? -1 : 0;
+      if (sel.startsWith("@media") || sel.startsWith("@supports")) walk(open + 1, j - 1, [...media, sel]);
+      else if (!sel.startsWith("@keyframes") && !sel.startsWith("@property") && !sel.startsWith("@font-face")) out.push({ sel, body: t.slice(open + 1, j - 1), media });
       i = j;
     }
   };
-  walk(0, text.length);
+  walk(0, t.length, []);
   return out;
-})();
+}
+const BUSY = /\.is-busy|\.is-loading|\[aria-busy|\.skeleton/;
 
-test("live buttons: only transform and opacity move, and the slow loops step a few times a second instead of 60", () => {
-  const names = [...section.matchAll(/@keyframes (\w+) \{/g)].map((m) => m[1]);
-  assert.deepEqual(names.sort(), [...LB].sort());
-  for (const name of LB) {
-    const line = section.slice(section.indexOf(`@keyframes ${name} {`)).split("\n")[0];
-    const props = [...line.matchAll(/([a-z-]+)\s*:/g)].map((p) => p[1]);
-    assert.ok(props.length && props.every((p) => p === "transform" || p === "opacity"), `${name}: ${props}`);
+test("nothing loops: every endless animation is a busy indicator that ends with the busy state, or the ring a mouse is hovering", () => {
+  let busy = 0;
+  for (const [name, sheet] of Object.entries(SHEETS)) {
+    for (const r of rulesOf(sheet)) {
+      for (const m of r.body.matchAll(/animation\s*:\s*([^;]+)/g)) {
+        if (!/\binfinite\b/.test(m[1])) continue;
+        const sels = r.sel.split(",").map((x) => x.trim());
+        const hovered = sels.every((x) => /:hover::after$/.test(x)) && /^ringSpin /.test(m[1]) && r.media.some((q) => /hover: hover\) and \(pointer: fine\)/.test(q));
+        if (hovered) continue; // the gradient ring turns only while a mouse is on it (the visitor started it)
+        for (const x of sels) assert.match(x, BUSY, `${name}: ${x} { animation: ${m[1]} } loops forever`);
+        busy++;
+      }
+    }
   }
-  assert.match(section, /animation: lbGlow 3\.6s steps\(18\) infinite alternate/);
-  assert.match(section, /animation: lbBreath 4s steps\(16\) infinite alternate/);
-  assert.match(section, /animation: lbTab 4s steps\(16\) infinite alternate/);
-  // the moving lights travel only during a short part of their cycle, then rest unseen (nothing to redraw)
-  assert.match(section, /@keyframes lbSweep \{ 0% \{ transform: translateX\(0\); opacity: 0; \} 3%, 15% \{ opacity: 1; \} 18%, 100% \{ transform: translateX\(127%\); opacity: 0; \} \}/);
-  assert.match(section, /@keyframes lbEdgeBottom \{ 0%, 15% \{[^}]*\} 17%, 28% \{ opacity: 1; \} 30%, 100% \{ transform: translateX\(0\); opacity: 0; \} \}/);
+  assert.ok(busy >= 4, "the spinners and loading shimmers are still there");
+  assert.doesNotMatch(css, /@keyframes (lbGlow|lbSweep|lbBusy|lbEdgeTop|lbEdgeBottom|lbBreath|lbTab|lbRing) /, "the live buttons' keyframes are gone");
+  assert.doesNotMatch(css, /--lb-(play|glow|edge|ring|tab)|--sweep-delay|--rim-in/, "and their variables");
+  assert.doesNotMatch(site, /const LIVE = |const SHINES = |--sweep-delay|mo-hidden/, "site.js no longer watches buttons on and off screen");
 });
 
-test("live buttons: every loop exists only when motion is welcome, pauses off screen and in a hidden tab, and stops on Pause", () => {
-  const anims = rules.filter((r) => /\banimation\s*:/.test(r.body) && !/animation: none/.test(r.body)); // (the Pause rule stops them)
-  assert.ok(anims.length >= 7);
-  for (const r of anims) {
-    assert.ok(inNoPreference(r.at), `${r.sel}: inside @media (prefers-reduced-motion: no-preference)`);
-    const m = /animation: (\w+) ([^;]*);/.exec(r.body);
-    assert.ok(LB.includes(m[1]), `${r.sel}: ${m[1]}`);
-    assert.match(m[2], /var\(--lb-play, running\)$/, `${r.sel}: pauses through --lb-play`);
+test("nothing loops: what starts by itself ends within 5 s (WCAG 2.2.2 without a Pause control)", () => {
+  // duration x iterations, delay excluded: a live dot pings 3 x 1.6 s, the contract card's hairline light and the pass's gloss run once
+  const sec = (v) => (/ms$/.test(v) ? Number(v.slice(0, -2)) / 1000 : Number(v.slice(0, -1)));
+  let n = 0;
+  for (const [name, sheet] of Object.entries(SHEETS)) {
+    for (const r of rulesOf(sheet)) {
+      if (r.media.some((q) => /hover: hover/.test(q)) || /:hover|:active|\.is-busy|\.is-loading|\[aria-busy|\.skeleton/.test(r.sel)) continue;
+      for (const m of r.body.matchAll(/animation\s*:\s*([^;]+)/g)) {
+        for (const one of m[1].split(/,(?![^(]*\))/)) {
+          const parts = one.trim().split(/\s+(?![^(]*\))/);
+          if (parts[0] === "none" || parts.includes("infinite")) continue;
+          const times = parts.filter((x) => /^\d*\.?\d+m?s$/.test(x)), iters = parts.find((x) => /^\d+$/.test(x));
+          if (!times.length) continue;
+          const total = sec(times[0]) * (iters ? Number(iters) : 1);
+          assert.ok(total <= 5, `${name}: ${r.sel} runs ${total.toFixed(2)} s (${one.trim()})`);
+          n++;
+        }
+      }
+    }
   }
-  for (const r of rules.filter((x) => /\btransition(-[a-z]+)?\s*:/.test(x.body))) assert.ok(inNoPreference(r.at), `${r.sel}: its transition only when motion is welcome`);
-  assert.match(section, /\n:root\.mo-hidden, \.mo-off \{ --lb-play: paused; \}/, "off screen (site.js .mo-off) or a hidden tab (.mo-hidden on <html>)");
-  assert.match(section, /\n:root\[data-motion="paused"\] \*, :root\[data-motion="paused"\] \*::before, :root\[data-motion="paused"\] \*::after \{ animation: none !important; \}/);
-  assert.match(section, /\n:root\[data-motion="paused"\] \.mo-armed \{ opacity: 1; transform: none; \}/, "nothing waits hidden");
-  assert.match(section, /\n:root\[data-motion="paused"\] \{ scroll-behavior: auto; \}/);
-  // with reduced motion or Pause the main buttons keep a still glow (the rest state lives outside every media block)
-  const glow = rules.find((r) => r.sel.startsWith(".btn--primary:not(.is-in)::before"));
-  assert.ok(glow && !inNoPreference(glow.at));
-  assert.match(glow.body, /box-shadow: 0 0 24px 2px var\(--lb-glow\); opacity: \.5;/);
-  // the site-wide reduced-motion rule still stops all of it
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  html \{ scroll-behavior: auto; \}\n  \*, \*::before, \*::after \{ animation: none !important; transition: none !important; \}/);
+  assert.ok(n >= 10, `checked ${n} animations`);
+  assert.match(css, /\.live-dot::after \{ animation: livePing 1\.6s cubic-bezier\(0,0,\.2,1\) 3; \}/, "the live dot pings three times and rests");
+  assert.match(css, /\.contract::after \{ animation: contractSweep 2\.4s ease-in-out 1\.2s 1; \}/);
+  assert.match(css, /\.pass__shine \{ animation: passShine 2\.4s ease-in-out \.4s 1; \}/);
+  assert.match(css, /\.citymap #city-fx\.is-resting \{ animation: fxRest 3\.6s steps\(18\) 1; \}/);
 });
 
-test("live buttons: the main buttons' light stays above their words (white on orange keeps 4.5:1), and nothing clips their glow", () => {
-  // the light: 1 px border + top 1 px + 7 px = 9 px from the button's top edge at most. The words start lower on every main button:
-  // measured in Chromium on 84 buttons (320, 390 and 1280 px): 3.0 px of room at the closest (a 40 px "Log in"), 13+ px on most
-  const light = rules.find((r) => r.sel.startsWith(".btn--primary:not(.is-in)::after"));
-  assert.match(light.body, /top: 1px; left: var\(--rim-in, 24px\); z-index: -1;/);
-  assert.match(light.body, /width: calc\(\(100% - 2 \* var\(--rim-in, 24px\)\) \* \.44\); height: 7px;/);
-  assert.match(light.body, /background: radial-gradient\(closest-side, rgba\(255,255,255,\.72\), rgba\(255,255,255,0\)\);/, "an ellipse that fades out before its box ends");
-  // it starts after the rounded end and stops before the other one (127% of 44% of the straight part = the rest of it)
-  assert.ok(Math.abs(0.44 * 2.27 - 1) < 0.002, "translateX(127%) ends the light at the straight part's right end");
-  assert.match(section, /\.btn--sm \{ --rim-in: 20px; \} \.btn--lg \{ --rim-in: 28px; \} \.contract__buy, \.map-open \{ --rim-in: 16px; \}/, "each size's rounded end");
-  assert.doesNotMatch(css.slice(css.indexOf(".contract__buy {"), css.indexOf("}", css.indexOf(".contract__buy {"))), /overflow: hidden/);
-  assert.doesNotMatch(css, /\.btn--primary\.btn--lg \{[^}]*overflow: hidden/);
-  // "Open the live map" (home) is a main button now, with the main buttons' darker orange: white on #FF5A36 read 3.0:1
-  assert.match(css, /\.map-open \{[^}]*color: #fff; background: linear-gradient\(135deg, var\(--cta-a\), var\(--cta-b\)\);/);
-});
-
-test("live buttons: no size or place changes; the buttons themselves only get positioning, a press and their colours", () => {
-  const SAFE = new Set(["position", "isolation", "transition-property", "transition-duration", "transition", "scale", "--rim-in", "background", "box-shadow", "text-decoration-thickness", "text-underline-offset"]);
-  for (const r of rules) {
-    if (/::(before|after)|^:root|\.seg__ind|\.footer-motion|\.motion-toggle/.test(r.sel)) continue; // pseudo layers, tokens, and the new footer button
-    if (r.sel === ".seg") continue; // the marker's frame: position + isolation only
-    for (const p of r.body.matchAll(/(^|;)\s*([a-z-]+)\s*:/g)) assert.ok(SAFE.has(p[2]), `${r.sel}: ${p[2]}`);
-  }
-  assert.match(section, /\n\.seg \{ position: relative; isolation: isolate; \}/);
-  // every layer added to a button ignores the pointer, so no hit area changes (the map rail's ::after stays its 44 px target)
-  for (const r of rules.filter((x) => /::(before|after)/.test(x.sel) && /content: ""/.test(x.body))) assert.match(r.body, /pointer-events: none/, r.sel);
-  assert.doesNotMatch(section, /\.map-ctrl button::after/, "the map rail's ::after is its touch target");
-  // the press uses the scale property, which adds to a button's own transform (the swap button is centred with one)
-  assert.match(section, /\.su-tab:active, \.swapbox__flip:active \{ scale: \.94; transition-duration: \.08s; \}/);
-});
-
-test("live buttons: fast selectors, and the tabbed dashboard's own block stays its own", () => {
-  for (const r of rules) for (const s of r.sel.split(",")) assert.doesNotMatch(s.trim(), /:is\([^)]*\)(::?[a-z-]+)?$/, `${s.trim()}: no :is() at the right end`);
-  assert.doesNotMatch(section, /\.dv2\b|\.dtab|\.dpanel|\.fcard|\.today__|\.dpv/, "the dashboard's tabs are reached as links that act as tabs (a[role=\"tab\"])");
-  assert.match(section, /\.nav a\[aria-current="page"\]::after, a\[role="tab"\]\[aria-selected="true"\]::after \{ animation: lbBreath/);
+test("the gradient ring: hover only, under a mouse only, with motion welcome; never at rest except the one hero action's still 35 % ring", () => {
+  assert.match(css, /@property --ring-a \{ syntax: "<angle>"; inherits: false; initial-value: 0deg; \}/);
+  assert.match(css, /\.has-ring::after \{ content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none; background: var\(--grad-ring\);[^}]*opacity: 0; \}/);
+  assert.match(css, /@media \(hover: hover\) and \(pointer: fine\) and \(prefers-reduced-motion: no-preference\) \{\n  \.has-ring::after \{ transition: opacity var\(--dur-2\) var\(--ease-out\); \}\n  \.has-ring:hover::after \{ animation: ringSpin 2\.4s linear infinite; \}/);
+  assert.match(css, /\.btn--cta-glow\.has-ring::after \{ opacity: \.35; \}/, "the one hero action shows it still");
+  assert.match(css, /only under a mouse, never at rest and never on a card but the featured \$VICINITY/, "the exception is written down where it lives");
+  assert.match(build, /<a class="btn btn--primary btn--sm hdr-signup has-ring" href="\/connect" data-signup>Sign up<\/a>/, "the header's Sign up has it");
 });
 
 /* ---------------- site.js: the segmented controls' marker ---------------- */
@@ -291,18 +248,3 @@ test("segments: at once with reduced motion; a control in a hidden panel keeps t
   assert.match(segmentsSrc, /if \(!RO \|\| !MO\) return;/, "an old browser keeps the buttons' own look");
 });
 
-test("live buttons: icon buttons, toggles and segments move by themselves too, a ring every 6 s, each at its own moment (review OA-2: a phone has no hover)", () => {
-  // on a 390 px phone the map rail, the theme toggle, the city card's buttons, the chart's segments, the copy buttons and the
-  // Launchpad's list tabs had no running animation at all: their only motion was a hover ring and a press
-  const ring = rules.find((r) => /animation: lbRing /.test(r.body));
-  assert.ok(ring && inNoPreference(ring.at), "only when motion is welcome");
-  assert.match(ring.body, /animation: lbRing 6s ease-out var\(--sweep-delay, 1\.5s\) infinite var\(--lb-play, running\);/);
-  for (const sel of [".theme-toggle::before", '.map-ctrl button:not([aria-pressed="true"]):not(:disabled)::before', ".contract__copy::before", ".map-focus__btn:not(:disabled)::before",
-    '.seg button:not([aria-selected="true"]):not([aria-pressed="true"]):not(:disabled)::before']) assert.ok(ring.sel.split(/,\s*/).includes(sel), sel);
-  assert.match(section, /@keyframes lbRing \{ 0%, 76%, 100% \{ opacity: 0; transform: scale\(\.94\); \} 86% \{ opacity: \.9; transform: scale\(1\); \} 97% \{ opacity: 0; transform: scale\(1\.08\); \} \}/, "at rest unseen most of the cycle");
-  // under a mouse the ring simply shows (no loop fighting the hover)
-  assert.match(section, /\.map-focus__btn:hover::before, \.seg button:hover::before \{ opacity: 1; animation: none; \}/);
-  // site.js spreads their moments and pauses each one off screen, like every live button
-  assert.match(site, /const LIVE = "[^"]*\.theme-toggle, \.contract__copy, \.icon-btn, \.map-focus__btn, \.seg button, \.lp-card, \.coin-live";/);
-  assert.match(site, /const SHINES = "[^"]*\.map-open, \.theme-toggle, \.map-ctrl button, \.contract__copy, \.icon-btn, \.map-focus__btn, \.seg button";/);
-});

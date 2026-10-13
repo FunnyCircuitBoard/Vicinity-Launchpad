@@ -120,7 +120,7 @@ test("token page: the pop-up is a little sheet on a phone and hangs from the box
   assert.match(sheet, /\.rank-pop \.rank-facts \{ grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/, "the facts two by two: a little sheet (499 of 640 px at 320 before)");
   assert.match(sheet, /\.rank-pop__head \{ margin-right: 0; \}/, "the close button's focus ring is not clipped at the sheet's edge");
   assert.match(css, /@media \(prefers-reduced-motion: no-preference\) and \(max-width: 600px\), \(prefers-reduced-motion: no-preference\) and \(max-height: 500px\) \{\n  \.rank-pop\[open\] \.rank-pop__card \{ animation-name: rankSheetIn; \}/);
-  assert.match(css, /:root\[data-motion="paused"\] \.rank-pop::backdrop \{ animation: none !important; \}/, "Pause animations stills the backdrop's fade too");
+  assert.doesNotMatch(css, /data-motion="paused"/, "design v4: no Pause switch any more (nothing loops); reduced motion stills the backdrop's fade (below)");
   assert.match(css, /@media \(max-width: 600px\) \{ \.find-box input \{ font-size: 16px; \}/, "16 px: iOS never zooms the page in when the box takes the keyboard");
   const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference) {\n  .rank-pop[open] .rank-pop__card"));
   assert.match(motion, /^@media \(prefers-reduced-motion: no-preference\) \{\n  \.rank-pop\[open\] \.rank-pop__card \{ animation: rankPopIn \.22s cubic-bezier\(\.2,\.8,\.2,1\) both; \}/, "220 ms, only when motion is welcome");
@@ -168,8 +168,8 @@ function page({ answer, token = { launched: false, registry: [] }, hash = "", se
       classList: { add: (c) => n.classes.add(c), remove: (...c) => c.forEach((x) => n.classes.delete(x)), toggle: (c, on) => (on ? n.classes.add(c) : n.classes.delete(c)), contains: (c) => n.classes.has(c) } };
     return n;
   }
-  const $ = (sel) => { if (!nodes.has(sel)) nodes.set(sel, node(sel === "#holders-find" ? "input" : sel === "#rank-pop" ? "dialog" : "div", sel)); return nodes.get(sel); };
-  $("#termsgate").hidden = true; // agreed already (the gate is site.js's)
+  // no built page has a site-entry Terms modal any more (design v4): token.js's look for one finds nothing, as on the real page
+  const $ = (sel) => { if (sel.startsWith("#termsgate")) return null; if (!nodes.has(sel)) nodes.set(sel, node(sel === "#holders-find" ? "input" : sel === "#rank-pop" ? "dialog" : "div", sel)); return nodes.get(sel); };
   // the pop-up: a <dialog> as far as token.js uses one (showModal/close fire as the browser's do; "close" is an event of its own)
   const pop = $("#rank-pop"); pop.open = false; pop.shown = 0;
   pop.showModal = () => { pop.open = true; pop.shown++; pop.atShow = { scrollBehavior: docEl.style.scrollBehavior, popY: pop.style["--pop-y"] }; if (desktop) win.scrollY = 0; };
@@ -470,20 +470,17 @@ test("token.js: the old links land: /token#buy opens How do I get $VICINITY? in 
   assert.deepEqual(plain.scrolled, [], "a hash the page doesn't know: nothing");
 });
 
-test("token.js: /token?address=... fills the box, filters the list and opens the answer; on a first visit it waits for the terms", async () => {
+test("token.js: /token?address=... fills the box, filters the list and opens the answer at once, a first visit too (no Terms modal to wait for, design v4)", async () => {
   const all = fakeHolders(300), me = owner(9);
   const p = page({ search: `?address=${me}`, answer: (path) => path.startsWith("/api/rank") ? { launched: true, full: true, address: me, amount: all[9].amount, rank: 10, total: 300, percentile: 3.33, next: { rank: 9, gap: 10 }, founderMin: 100_000 } : pageOf(all, 0) });
   await p.settle(); p.flush();
   assert.equal(p.$("#holders-find").value, me);
   assert.deepEqual(p.visible().map((r) => r.dataset.owner), [me], "the list shows that wallet");
   assert.equal(p.pop.open, true); assert.equal(p.$("#rank-num").textContent, "#10");
-  // the gate is open: nothing opens over it until the visitor agrees
+  // a wallet that holds none: the same, at once
   const q = page({ search: `?address=${me}`, answer: (path) => path.startsWith("/api/rank") ? { launched: true, full: true, amount: 0, rank: null, total: 300, next: { rank: 299, gap: 3 }, founderMin: 100_000 } : pageOf(all, 0) });
-  q.$("#termsgate").hidden = false; // a first visit: the terms gate is up when the answer comes back
   await q.settle();
-  assert.equal(q.pop.open, false, "not over the terms gate");
-  q.$("#termsgate").hidden = true; await q.$("#termsgate-agree").fire("click");
-  assert.equal(q.pop.open, true, "it opens once the terms are agreed");
+  assert.equal(q.pop.open, true, "nothing to wait for");
   assert.equal(q.$("#rank-of").textContent, "not holding yet");
 });
 

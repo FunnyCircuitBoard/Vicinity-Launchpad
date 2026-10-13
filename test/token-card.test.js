@@ -1,9 +1,9 @@
 // The official contract card at the top of /token, redesigned for phones: a header (label, network, an "Official" mark once
 // the address is known), the address in one block with a full-width copy button under it, Buy on Raydium across the card,
 // Jupiter / DEX Screener / Solscan as three equal tiles, then the "only official" note set apart. Every id token.js relies on
-// is kept; the pre-launch state and the chain-busy (503) fallback behave as before. The motion (the buy button's breathing glow and
-// the light along its top edge, shared with every main button: style.css "Live buttons"; a light along the card's hairline; a tick
-// that pops in when copied) is CSS only and switches off with prefers-reduced-motion or the footer's "Pause animations".
+// is kept; the pre-launch state and the chain-busy (503) fallback behave as before. The motion (design v4: a still glow on the buy
+// button that deepens under a mouse, a light that runs once along the card's hairline, a tick that pops in when copied) is CSS only,
+// ends by itself, and switches off with prefers-reduced-motion.
 // How it looks is checked in Chromium (320, 390, 1280 px, dark and light); this pins the markup, the rules and the script.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -113,7 +113,7 @@ test("contract card on a computer: the address on one line with Copy beside it, 
 });
 
 test("contract card motion: only transform and opacity move, the card's own motion ends, and nothing moves with reduced motion", () => {
-  for (const name of ["checkPop", "lbGlow", "lbSweep", "lbBusy", "contractIn", "contractSweep"]) {
+  for (const name of ["checkPop", "contractIn", "contractSweep"]) {
     const i = css.indexOf(`@keyframes ${name} {`); assert.ok(i >= 0, name);
     let depth = 0, j = i;
     for (; j < css.length; j++) { if (css[j] === "{") depth++; else if (css[j] === "}" && --depth === 0) break; }
@@ -121,31 +121,26 @@ test("contract card motion: only transform and opacity move, the card's own moti
     assert.ok(props.length, `${name} animates something`);
     for (const p of props) assert.ok(["transform", "opacity"].includes(p), `${name} animates ${p}`);
   }
-  // Buy on Raydium is a main button like the others (the owner, 6 Oct 2026: "each button should have live animation"): its glow breathes
-  // and a light glides along its top edge every 7 s. Endless, so a visitor can stop it: "Pause animations" (WCAG 2.2.2), reduced motion,
-  // and it pauses off screen and in a hidden tab (--lb-play). It never sits under the words, and the button no longer clips (the glow is outside).
-  assert.doesNotMatch(css, /buyShine/, "the old two-pass shine is gone");
+  // Buy on Raydium is a main button like the others. Design v4 (no "Pause animations" any more, so nothing may loop: WCAG 2.2.2): no
+  // breathing glow and no light gliding along it; a still glow (the main buttons' --glow-cta), deeper under a mouse.
+  assert.doesNotMatch(css, /buyShine|lbGlow|lbSweep|lbBusy|--lb-play/, "the old shine and the live-button loops are gone");
   assert.doesNotMatch(rule(".contract__buy"), /overflow: hidden/, "nothing clips the glow around it");
-  assert.match(css, /\.contract__buy::before, \.map-open::before \{ content: ""; position: absolute; inset: -1px; z-index: -1;[^}]*opacity: \.5; \}/, "a still glow at rest");
-  assert.match(css, /\.contract__buy::after, \.map-open::after \{ content: ""; position: absolute; top: 1px; left: var\(--rim-in, 24px\);[^}]*height: 7px;[^}]*opacity: 0;/, "the light rests unseen, above the words");
-  const live = media("(prefers-reduced-motion: no-preference)", ".contract__buy::after, .map-open::after { animation: lbSweep");
-  assert.ok(live, "the light is opt-in");
-  assert.match(live, /\.contract__buy::after, \.map-open::after \{ animation: lbSweep 7s ease-in-out var\(--sweep-delay, 1\.2s\) infinite var\(--lb-play, running\); \}/);
-  assert.match(live, /\.contract__buy::before, \.map-open::before \{ animation: lbGlow 3\.6s steps\(18\) infinite alternate var\(--lb-play, running\); \}/);
+  assert.match(rule(".contract__buy"), /box-shadow: var\(--glow-cta\);/, "a still glow at rest");
+  assert.match(css, /@media \(hover: hover\) and \(pointer: fine\) \{ \.contract__buy:hover \{ transform: translateY\(-1px\); box-shadow: var\(--glow-cta-hover\); \} \}/, "deeper under a mouse only");
+  assert.doesNotMatch(css, /\.contract__buy::(before|after)/, "no layers of light on it");
   assert.doesNotMatch(rule(".contract__links"), /animation/, "nothing plays while the links wait unseen");
   assert.ok(media("(prefers-reduced-motion: no-preference)", ".contract:not(.is-pending) > .contract__links, .contract:not(.is-pending) .contract__copy { animation: contractIn .5s cubic-bezier(.2,.8,.2,1) backwards; }"),
     "the buttons slide in when token.js reveals them (backwards fill: afterwards the button's own :active and hover transforms work)");
   assert.match(css, /@keyframes contractIn \{ from \{ opacity: 0; transform: translateY\(6px\); \} \}/, "from hidden to the element's own look: with no animation it simply shows");
   assert.match(css, /\.contract__copy\.is-copied \.contract__copy-check \{ opacity: 1; transform: none; animation: checkPop/, "the tick's resting state is visible; the pop is extra");
-  // the hairline itself is still; a short light runs along it twice (transform and opacity: the compositor moves it, the main thread idles).
+  // the hairline itself is still; a short light runs along it once (transform and opacity: the compositor moves it, the main thread idles).
   // On 6 Oct 2026 the old endless background-position glow kept /token restyling 60 times a second for as long as it was open.
   assert.doesNotMatch(css, /contractGlow/, "the endless moving gradient is gone");
   assert.doesNotMatch(rule(".contract::before"), /animation|background-size|\/ 200%/, "the hairline does not move");
-  assert.ok(media("(prefers-reduced-motion: no-preference)", ".contract::after { animation: contractSweep 6s ease-in-out 1.5s 2; }"), "the light along it is opt-in and runs twice");
+  assert.ok(media("(prefers-reduced-motion: no-preference)", ".contract::after { animation: contractSweep 2.4s ease-in-out 1.2s 1; }"), "the light along it is opt-in and runs once (2.4 s: within WCAG 2.2.2's 5 s)");
   assert.match(rule(".contract::after"), /left: 22px; width: 30%;[^}]*opacity: 0;/, "it starts at the hairline's left end and rests unseen");
   assert.match(css, /@keyframes contractSweep \{[^\n]*60%, 100% \{ transform: translateX\(calc\(233\.33% - 44px\)\); opacity: 0; \} \}/, "and ends at its right end (30% of the card, minus both 22 px insets), faded out");
-  assert.match(css, /\.mo-off \.contract::after, [^{]*\{ animation-play-state: paused; \}/, "the hairline's light pauses while the top of the page is off screen");
-  assert.match(css, /:root\.mo-hidden, \.mo-off \{ --lb-play: paused; \}/, "and the buy button's loops too (off screen, or a hidden tab)");
+  assert.doesNotMatch(css, /\.mo-off|\.mo-hidden/, "nothing loops, so nothing pauses off screen");
   // the shine and the slide-in are switched off for people who asked for less motion
   const reduce = media("(prefers-reduced-motion: reduce)", ".contract__copy-check");
   assert.ok(reduce, "a reduced-motion block for the card");

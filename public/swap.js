@@ -76,7 +76,7 @@
   const sol = (lamports) => num(Number(lamports || 0) / 1e9, 6);
   /** The same lamports in three significant digits (0.00204), for the one-line summary of the price details. */
   const solShort = (lamports) => (Number(lamports || 0) / 1e9).toLocaleString("en-US", { maximumSignificantDigits: 3 });
-  /** Motion the visitor allows (site.js: no reduced-motion setting and not "Pause animations"), read when it is needed. */
+  /** Motion the visitor allows (site.js: no reduced-motion setting on the device), read when it is needed. */
   const moving = () => Boolean(window.V && window.V.reduced === false);
   /**
    * Did the build the wallet is about to sign come out WORSE than the quote on the screen? By the raw amounts (more than 0.5 %
@@ -476,12 +476,17 @@
       const note = el("p", "swap__note", ""); note.hidden = true; this.note = note; // "Filled in from your link"
       const links = el("p", "swap__links"); this.links = links;
       const foot = el("p", "tiny muted swap__foot"); this.foot = foot;
+      // the Terms of Use, where every trade is made (design v4 removed the site-entry Terms pop-up, so a buyer without an account
+      // meets them here, next to the button): one line and a link, the same on every page and in the sheet; nothing else changes
+      const terms = el("p", "tiny muted swap__terms", "By trading here you agree to the ");
+      const termsLink = el("a", null, "Terms of Use"); termsLink.href = "/terms"; termsLink.target = "_blank"; termsLink.rel = "noopener";
+      terms.append(termsLink, ".");
       const picker = el("div", "swap__picker"); picker.hidden = true; this.picker = picker;
       const walletBox = el("div", "swap__wallets"); walletBox.hidden = true; this.walletBox = walletBox;
       // answer first: the amounts, the one-line summary, the 10 % box when it applies, the button and the wallet chooser it
       // opens; then the receipt link, the footer, and the price details folded
       moreBody.append(slip, help, dl, moreEmpty); more.append(moreSum, moreBody);
-      r.append(head, note, box, picker, status, warn, go, walletBox, again, links, foot, more);
+      r.append(head, note, box, picker, status, warn, go, walletBox, again, links, foot, terms, more);
       this.inAmt.addEventListener("input", () => { this.note.hidden = true; this.onAmount(); });
       this.inAmt.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); this.primary(); } });
       // somebody is here: any tap, key or change in the panel starts the quiet rebuilds' count again (removed by destroy(): a

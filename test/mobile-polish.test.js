@@ -2,8 +2,8 @@
 // easy to navigate on phone screens... a design pass on the Token page... zero redundancy"). What it promises, pinned here:
 // * every page loads public/polish.css after style.css, and polish.css publishes the height of the fixed bars at the bottom of a phone
 //   (--bottom-bars on body: the tab bar, plus the coin page's Buy bar) for anything that floats in a corner;
-// * the footer on every page: no link that the tab bar or the header already has (FAQ, Connect a wallet), status and "Pause animations"
-//   on one line, the data credits in a closed fold, the legal line kept word for word;
+// * the footer on every page (design v4): one calm line, the copyright, Terms / Privacy / Rules / Data / Check a link, the official social
+//   accounts; no status, no Pause, no credits block (they live on /credits and at the map's corner), no risk line;
 // * the home page: one hero button (to the Token page's buy slot), one row of facts (one countdown, one communities count), the New York
 //   walkthrough right after the hero, one tabbed block instead of four card walls, every FAQ question kept in three tabs, no closing band;
 // * the token page: the Buy control in a marked slot (#buy-slot, where the in-app swap goes), the contract address printed once, five
@@ -15,6 +15,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
+import * as officialMod from "../src/official.js";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const pages = readdirSync(new URL("../public/", import.meta.url)).filter((f) => f.endsWith(".html"));
@@ -27,13 +28,15 @@ test("every page loads polish.css right after style.css; polish.css publishes th
   assert.ok(pages.length >= 13);
   for (const f of pages) assert.match(html[f], /<link rel="stylesheet" href="\/style\.css">\n  <link rel="stylesheet" href="\/polish\.css">/, f);
   assert.match(build, /<link rel="stylesheet" href="\/polish\.css">/);
-  assert.match(polish, /^:root \{ --tabbar-h: 67px; --bottom-bars: 0px; \}$/m, "nothing fixed at the bottom on a computer");
+  assert.match(polish, /^:root \{ --tabbar-h: 64px; --bottom-bars: 0px; \}$/m, "nothing fixed at the bottom on a computer (design v4: a 64 px tab bar)");
   assert.match(polish, /@media \(max-width: 900px\) \{\n  body \{ --bottom-bars: calc\(var\(--tabbar-h\) \+ env\(safe-area-inset-bottom\)\); padding-bottom: calc\(var\(--bottom-bars\) \+ 8px\); \}\n  body\.has-coin-buybar \{ --bottom-bars: calc\(var\(--tabbar-h\) \+ 64px \+ env\(safe-area-inset-bottom\)\); \}/,
     "the tab bar on a phone, and the coin page's Buy bar above it (style.css puts that bar at var(--tabbar-h))");
   assert.match(style, /\.coin-buybar \{ bottom: var\(--tabbar-h, 67px\);/, "the variable polish.css sets is the one the Buy bar reads");
   assert.match(polish, /\.tabbar \{ height: calc\(var\(--tabbar-h\) \+ env\(safe-area-inset-bottom\)\);/, "the bar is exactly that tall");
   assert.match(polish, /\.tabbar a \{ font-size: \.75rem;/, "12 px labels (11.2 before)");
-  for (const rule of [/\.brand \{ min-height: 44px;/, /\.theme-toggle \{ width: 44px; height: 44px; \}/, /\.account-btn\.btn--sm \{ min-height: 44px; \}/, /\.btn--sm \{ min-height: 44px; \}/, /\.faq summary \{ min-height: 44px;/, /\.footer-links a \{ min-height: 44px;/]) assert.match(polish, rule);
+  for (const rule of [/\.brand \{ min-height: 44px;/, /\.theme-toggle \{ width: 44px; height: 44px; \}/, /\.account-btn\.btn--sm \{ min-height: 44px; \}/, /\.btn--sm \{ min-height: 44px; \}/, /\.faq summary \{ min-height: 44px;/, /\.site-footer__links a, \.social-link \{ min-height: 44px; \}/, /\.site-footer__theme \{ width: 44px; height: 44px; \}/]) assert.match(polish, rule);
+  // under a mouse the floating header's controls are 40 px (a finger keeps 44 everywhere)
+  assert.match(polish, /@media \(hover: hover\) and \(pointer: fine\) \{ \.site-header \.btn--sm \{ min-height: 40px; \} \.site-header \.theme-toggle \{ width: 40px; height: 40px; \} \}/);
 });
 
 test("polish.css moves nothing by itself: its one animation sits in a no-preference block and uses transform and opacity only", () => {
@@ -45,19 +48,35 @@ test("polish.css moves nothing by itself: its one animation sits in a no-prefere
   for (const kf of body.matchAll(/@keyframes \w+ \{([\s\S]*?)\} \}/g)) for (const prop of kf[1].matchAll(/([a-z-]+):/g)) assert.ok(["transform", "opacity"].includes(prop[1]), prop[1]);
 });
 
-test("footer, every page: no duplicate of the tab bar or the header, status and Pause on one line, data credits folded, the legal line kept", () => {
+test("footer, every page (design v4): the copyright line, Terms / Rules / Data / Check a link, the official socials, one security line; no status, Pause, credits block or risk line", () => {
+  const { SOCIAL_PROFILES } = officialMod;
   for (const f of pages) {
     const foot = html[f].match(/<footer class="site-footer">[\s\S]*?<\/footer>/)[0];
-    assert.doesNotMatch(foot, /href="\/#faq"|href="\/connect"/, `${f}: FAQ and Connect a wallet are the header's and the tab bar's`);
+    assert.doesNotMatch(foot, /href="\/#faq"|href="\/connect"/, `${f}: FAQ and Sign up are the header's and the tab bar's`);
     assert.doesNotMatch(foot, /One city\. One coin\. One community\./, `${f}: the tagline is the home page's headline`);
-    assert.match(foot, /<div class="footer-meta">\s*<p class="muted small footer-status">System status: <span id="status">checking…<\/span><\/p>\s*<p class="muted small footer-motion"><button class="link-btn motion-toggle" type="button" data-motion-toggle>Pause animations<\/button><\/p>\s*<\/div>/, f);
-    assert.match(foot, /<details class="footer-data">\s*<summary class="footer-title">Data credits<\/summary>\s*<p class="tiny muted">Places: <a href="https:\/\/www\.geonames\.org\/" target="_blank" rel="noopener">GeoNames<\/a> \(CC BY 4\.0\)\. City boundaries: © <a href="https:\/\/www\.openstreetmap\.org\/copyright" target="_blank" rel="noopener">OpenStreetMap contributors<\/a> \(ODbL\)\. Country outlines: Natural Earth\.<\/p>\s*<\/details>/, f);
-    assert.match(foot, /<p class="wrap tiny muted footer-legal">vicinity\.city · Nothing here is financial advice\. Meme coins are very risky: only use money you can afford to lose\.<\/p>/, f);
-    assert.match(foot, /<nav class="footer-links footer-links--explore" aria-label="Footer">/, f); assert.match(foot, /<nav class="footer-links footer-links--safe" aria-label="Safety">/, f);
-    assert.match(foot, /href="\/rules">Rules &amp; fairness<\/a>/, f); assert.match(foot, /href="\/terms">Terms of Use<\/a>/, f);
+    assert.match(foot, /<p class="site-footer__copy"><img src="\/logo\.svg" alt="" width="20" height="20"> Vicinity\.city © 2026\. All rights reserved\.<\/p>/, f);
+    const links = [...foot.match(/<nav class="site-footer__links" aria-label="Legal and data">([\s\S]*?)<\/nav>/)[1].matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} ${m[1]}`);
+    // review of 13 Oct 2026: no "Privacy" link (it opened the Rules' location card: the site has no privacy notice of that name yet)
+    assert.deepEqual(links, ["Terms /terms", "Rules /rules", "Data /credits", "Check a link /token#check"], f);
+    // the one line kept: a security fact against phishing (not a risk warning), once per page
+    assert.equal(foot.match(/<p class="site-footer__safe">Vicinity never asks for your recovery phrase or private key\.<\/p>/g).length, 1, f);
+    // the official accounts, from src/official.js (rule R3: real ones only; a network added there shows on the next build)
+    const social = foot.match(/<ul class="site-footer__social" aria-label="Vicinity on social media" data-fb-avoid>([\s\S]*?)<\/ul>/);
+    assert.ok(social, `${f}: the social list, kept clear of the feedback button`);
+    const hrefs = [...social[1].matchAll(/<a class="social-link" href="([^"]+)" target="_blank" rel="noopener me" aria-label="Vicinity on ([^"]+), opens in a new tab">/g)].map((m) => [m[1], m[2]]);
+    assert.deepEqual(hrefs.map((x) => x[0]), SOCIAL_PROFILES.map((p) => p.url || `https://${p.hosts[0]}/${p.handle.replace(/^@/, "")}`), `${f}: one icon per official account`);
+    for (const [href, label] of hrefs) { assert.match(href, /^https:\/\//); assert.match(label, /^\w+ \(@\w+\)$/); }
+    assert.doesNotMatch(foot, /href="#"|\sstyle="/, `${f}: no dead link, no inline style`);
+    assert.match(foot, /<button class="theme-toggle site-footer__theme" type="button" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false">/, `${f}: the phone's theme switch`);
+    // gone from the footer: the status line, Pause, the Explore / Stay safe columns, the credits fold, the risk line
+    assert.doesNotMatch(foot, /System status|id="status"|Pause animations|footer-data|Data credits|footer-legal|financial advice|afford to lose|very risky|Stay safe/, f);
   }
-  assert.match(polish, /\.footer-links--explore \{ display: none; \}/, "on a phone the Explore links are the tab bar's five pages: hidden there");
-  assert.match(polish, /\.footer-links--safe \{ grid-column: 1 \/ -1; display: grid; grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/, "the safety links two by two on a phone");
+  assert.match(html["index.html"], /href="https:\/\/x\.com\/VicinityCitySOL"/, "today: X, @VicinityCitySOL");
+  // the credits are never lost (licences R2): /credits keeps every one, linked as "Data" from every footer
+  const credits = html["credits.html"];
+  for (const host of ["https://www.geonames.org/", "https://www.openstreetmap.org/copyright"]) assert.ok(credits.includes(`href="${host}"`), host);
+  assert.match(credits, /Natural Earth/);
+  assert.match(style, /\.site-footer__theme \{ display: none; \}/); assert.match(style, /@media \(max-width: 480px\) \{ \.site-footer__theme \{ display: grid; \} \}/, "the footer's theme switch only on a phone (the header's leaves it there)");
 });
 
 test("home: one hero button to the buy slot, one row of facts with one countdown, no numbers band, no closing band, the map right after the hero", () => {
@@ -160,7 +179,8 @@ test("token: the Buy control in its slot, the address once, five proofs, no thir
     assert.equal(count(h, /id="buy-slot"/g), 1);
     assert.equal(count(h, /<div class="proof card">/g), 5, "Minting disabled, No freeze button, Liquidity can't be pulled, Team wallets public, No presale");
     assert.doesNotMatch(h, /supply-text|supply2|<h3>Fixed supply<\/h3>/, "the Supply fact above and the Minting proof already say the supply is fixed");
-    assert.equal(count(h, /href="\/connect"/g), 1, "one link to /connect in the page, in the FAQ's step 4 (the holders footnote was the third; the header's button is /connect?mode=login)");
+    const main = h.includes('<main id="main"') ? h.slice(h.indexOf('<main id="main"'), h.indexOf("</main>")) : h; // the page itself, not the header's Sign up (design v4)
+    assert.equal(count(main, /href="\/connect"/g), 1, "one link to /connect in the page, in the FAQ's step 4 (the holders footnote was the third)");
     assert.doesNotMatch(h, /If a token isn't on this list, it isn't Vicinity/, "the card's note says it once");
     assert.match(h, /<details><summary>Is this the only official \$VICINITY\?<\/summary><p>Yes: the contract address at the top of this page, and only that one\. The <a href="#check">checker<\/a> tells you whether any link, address or @handle is ours\.<\/p><\/details>/);
   }
@@ -169,8 +189,12 @@ test("token: the Buy control in its slot, the address once, five proofs, no thir
   // design v2 (10 Oct 2026): the Buy card left the contract card (its own column on a computer), so the wide-card slot rule is gone
   assert.doesNotMatch(polish, /\.contract:has\(> \.contract__links:not\(\[hidden\]\)\) \.contract__slot/);
   const js = read("public/token.js");
-  assert.match(js, /if \(isAddr\(t\.contract\)\) \{ const a = el\("a", "registry__above", "Shown above ↑"\); a\.href = "#contract"; a\.title = t\.contract; ca\.append\(a\); \} else ca\.textContent = "—";/,
-    "the official list prints no second copy of the address, and a token without one shows a dash (it printed 'Phase 3' in two cells)");
+  assert.match(js, /if \(isAddr\(t\.contract\)\) \{ const a = el\("a", "registry__above", "Shown above ↑"\); a\.href = "#contract"; a\.title = t\.contract; ca\.append\(a\); \}/,
+    "the official list prints no second copy of the address");
+  // the city coins (one contract per city, each on the Launchpad once it launches) point at the Launchpad's live list; anything else
+  // without a contract shows a dash (review of 13 Oct 2026: "Phase 3" read as if no city coin could exist yet)
+  assert.match(js, /else if \(t\.platform === "Vicinity Launchpad"\) \{ const a = el\("a", "registry__above", "On the Launchpad →"\); a\.href = "\/launchpad"; ca\.append\(a\); \}\n\s+else ca\.textContent = "—";/);
+  assert.doesNotMatch(read("src/official.js"), /status: "Phase 3"/);
   assert.match(js, /const supplyText = \$\("#supply-text"\); if \(supplyText\) supplyText\.textContent = fmt\(f\.supply\);/);
   assert.match(polish, /\.holders__table a \{ display: inline-block; padding: 12px 0; margin: -12px 0; \}/, "a 44 px hit area on every wallet in the list");
 });
@@ -206,7 +230,7 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   assert.match(polish, /\.checker \.btn, \.snap-lookup \.btn \{ min-height: 44px; font-size: \.9rem; \}\n\.find-box \.find-box__go \{ border-radius: 999px; \}/);
   // A-8: one h2 size on a phone
   assert.match(polish, /  h2, \.h2--sm \{ font-size: var\(--fs-xl\); max-width: none; \}/, "design v2: the h2 token (22.4 px at 320, 23.8 at 390)");
-  assert.match(style, /--fs-xl: clamp\(1\.375rem, 1rem \+ 2vw, 2\.25rem\);/);
+  assert.match(style, /--fs-xl: clamp\(1\.5rem, 1\.15rem \+ 1\.6vw, 2\.25rem\);/, "design v4: 24 px on a phone, 36 on a computer");
   assert.doesNotMatch(polish, /#nyc \.section-head h2 \{ font-size/);
   // F2: on a phone the Buy & sell card lost its Buy button while coin.js keeps the bar off for exactly that scroll range
   assert.doesNotMatch(polish, /\.coin-buy \.contract__buy \{ display: none/);
@@ -227,7 +251,7 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   assert.match(polish, /\.terms-toc a \{ display: block; padding: 11px 0;/, "each contents entry a 44 px row");
   // nits: the dead footer rule; the safety links one-then-two; every place shown on a computer; the token page's placeholder and skip link; the official list's wording
   assert.doesNotMatch(polish, /\.footer-brand > p\.muted:not\(\.small\)/, "build.mjs no longer emits the tagline paragraph");
-  assert.match(polish, /\.footer-links--safe a:first-of-type \{ grid-column: 1 \/ -1; \}/);
+  assert.doesNotMatch(polish, /\.footer-links|\.footer-grid|\.footer-meta|\.footer-data/, "design v4: the old footer's columns and folds went with them");
   // d3 (11 Oct 2026): "Inside $NYC" shows the five boroughs and "+41 more" on a computer too (all 46 made the column twice the map's height)
   assert.doesNotMatch(polish, /\.member-cloud li\.is-more \{ display: inline-flex; \} \.member-cloud li:has\(> \.member-cloud__more\) \{ display: none; \}/);
   assert.match(polish, /@media \(min-width: 901px\) \{ \.proof-grid \{ grid-template-columns: repeat\(6, minmax\(0, 1fr\)\); \} \.proof \{ grid-column: span 2; \} \.proof:nth-child\(4\), \.proof:nth-child\(5\) \{ grid-column: span 3; \} \}/, "five proofs: three, then two, both rows full");
@@ -277,8 +301,10 @@ test("design v2 tokens: the contract the other sheets read (names fixed), with t
   const root = style.slice(0, style.indexOf("/* ---------- base ---------- */"));
   for (const n of names) assert.match(root, new RegExp(`${n}: [^;]+;`), n);
   assert.match(root, /--fs-xs: \.75rem;/, "12 px is the floor");
-  assert.match(root, /--header-h: 67px;/, "the header stays 66 + 1 px");
-  assert.match(root, /@media \(min-width: 481px\) \{ :root \{ --gutter: 24px; \} \}\n@media \(min-width: 601px\) \{ :root \{ --card-pad: 22px; \} \}\n@media \(min-width: 901px\) \{ :root \{ --section-y: 72px; \} \}/);
+  // design v4: --header-h is the floating header's bottom edge: 8 + 52 px on a phone, 12 + 56 px from 901 px
+  assert.match(root, /--header-h: 60px; --sticky-top: calc\(var\(--header-h\) \+ 12px\);/);
+  assert.match(root, /@media \(min-width: 481px\) \{ :root \{ --gutter: 24px; \} \}\n@media \(min-width: 601px\) \{ :root \{ --card-pad: 24px; --section-y: 72px; \} \}\n@media \(min-width: 901px\) \{ :root \{ --section-y: 96px; --header-h: 68px; \} \}\n@media \(min-width: 1280px\) \{ :root \{ --gutter: 32px; \} \}/);
+  for (const n of ["--e1", "--e2", "--e3", "--glass-bg", "--glass-bg-strong", "--glass-border", "--glass-blur", "--grad-ink", "--grad-accent", "--grad-glow", "--grad-ring", "--glow-cta", "--glow-cta-hover", "--field-line", "--r-lg", "--fs-display", "--dur-4", "--ease-in-out", "--ease-spring", "--chart-1", "--chart-2"]) assert.match(root, new RegExp(`${n}: [^;]+;`), n);
   for (const sel of [".ico {", ".ico--sm {", ".ico--ok {", ".ico--gold {", ".ico--muted {", ".fold > summary {", ".fold > summary::after {", ".fold__meta {", ".empty {", ".skel {", ".tnum {"]) assert.ok(style.includes(sel), sel);
   // the placeholder is still: nothing gives .skel a shimmer, and the coin page's inline ticker placeholder is its own rule
   assert.doesNotMatch(style, /[,{]\s*\.skel\s*\{[^}]*animation/);

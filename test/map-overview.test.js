@@ -443,9 +443,9 @@ test("map: panning the world view stays smooth on a slow phone: the world is one
   assert.match(js, /function settle\(\) \{ if \(cam\) \{ crispTimer = setTimeout\(settle, 90\); return; \} moving = false;/);
 });
 
-test("map: the glow rests 6 s after the last thing that happened, then breathes on the compositor; a refresh with nothing new does not wake it (review PM-2)", () => {
+test("map: the glow rests 4.5 s after the last thing that happened, then fades up once on the compositor; a refresh with nothing new does not wake it (review PM-2)", () => {
   // measured (idle.cjs, 390 px phone, CPU 4x, 10 s with nothing touched): 442 rAF and 6.6 s of main-thread work before; 0 and 12 ms once at rest
-  assert.match(js, /const FX_AWAKE_MS = 6000;/);
+  assert.match(js, /const FX_AWAKE_MS = 4500;/, "under the 5 s of WCAG 2.2.2 (no Pause control on the site, design v4)");
   assert.match(js, /function kick\(\) \{ dirty\.fx = true; lastActive = performance\.now\(\);/, "every change, move, hover or tap wakes it");
   const frame = js.slice(js.indexOf("  function frame(now) {"), js.indexOf("  function kick()"));
   assert.match(frame, /const anim = fxAnimating\(\), awake = anim && now - lastActive < FX_AWAKE_MS;/);
@@ -454,7 +454,8 @@ test("map: the glow rests 6 s after the last thing that happened, then breathes 
   assert.match(frame, /else if \(awake\) \{ lastFrame = 0; clearTimeout\(idleTimer\);/, "no timer and no frame at all once it rests");
   assert.match(js, /function drawFx\(now, rest = false\) \{[^\n]*\n[^\n]*\n    const lightA = pal\.light \? 0\.6 : 1, still = reduced \|\| rest;/);
   assert.match(js, /fxCanvas\.classList\.toggle\("mo-off", !onScreen\);/, "the breathing pauses off screen (--lb-play)");
-  assert.match(css, /  \.citymap #city-fx\.is-resting \{ animation: fxRest 3\.6s steps\(18\) infinite alternate var\(--lb-play, running\); \}\n\}\n@keyframes fxRest \{ from \{ opacity: \.6; \} to \{ opacity: 1; \} \}/, "opacity only, a few steps a second, only when motion is welcome");
+  // design v4 (no Pause control, WCAG 2.2.2): one pass, never a loop
+  assert.match(css, /  \.citymap #city-fx\.is-resting \{ animation: fxRest 3\.6s steps\(18\) 1; \}\n\}\n@keyframes fxRest \{ from \{ opacity: \.6; \} to \{ opacity: 1; \} \}/, "opacity only, a few steps a second, once, only when motion is welcome");
   const at = css.indexOf(".citymap #city-fx.is-resting"), media = css.lastIndexOf("@media", at);
   assert.match(css.slice(media, at), /^@media \(prefers-reduced-motion: no-preference\) \{\n/);
   // the 30-second refresh: new numbers on the card, the map left alone when nothing changed
@@ -462,7 +463,7 @@ test("map: the glow rests 6 s after the last thing that happened, then breathes 
   assert.match(js, /if \(same\) renderFocus\(\); else \{ dirty\.focus = true; kick\(\); \}/);
 });
 
-test("map stage CSS: big on every screen, full screen over the header and tab bar, the city card a fixed size; legend markers move only when welcome", () => {
+test("map stage CSS: big on every screen, full screen over the header and tab bar, the city card a fixed size; legend markers ping three times only when welcome", () => {
   assert.match(css, /\.citymap__stage \{ position: relative; height: 560px; height: clamp\(560px, calc\(100vh - 186px\), 780px\);/);
   assert.match(css, /@media \(max-width: 1023px\) \{ \.citymap__stage \{ height: clamp\(480px, 70vh, 760px\); \} \}/);
   assert.match(css, /\.citymap__stage\.is-full \{ position: fixed; inset: 0; z-index: 90; height: 100vh; height: 100dvh; margin: 0; border-radius: 0; \}/);
@@ -473,11 +474,16 @@ test("map stage CSS: big on every screen, full screen over the header and tab ba
   assert.match(css, /\.map-exit \{[^}]*width: 44px; height: 44px;/);
   assert.match(css, /\.wrap \{ --wrap-pad: 24px; \}\n@media \(max-width: 480px\) \{ \.wrap \{ --wrap-pad: 16px; \} \}/);
   for (const t of ["--st-open: #7FA3D6", "--st-choosing: #FFC857", "--st-founded: #FF5A36", "--st-mine: #FFC857", "--chip-bg: rgba(7,14,25,.82)", "--st-open: #3F67A6", "--chip-bg: rgba(255,255,255,.92)"]) assert.ok(css.includes(t), t);
-  // the legend's and the card's loops: inside the motion-welcome block, paused off screen / in a hidden tab (--lb-play)
+  // the legend's and the card's dots: inside the motion-welcome block; design v4 (no Pause control): a ping three times, then still; the
+  // open and choosing markers no longer breathe or turn; only the card's loading lines shimmer while it loads
   const block = css.slice(css.indexOf("  .map-focus__dot::after { animation:"), css.indexOf("}\n", css.indexOf("  .dot--mine::after { animation:")));
   const at = css.indexOf("  .map-focus__dot::after { animation:"), media = css.lastIndexOf("@media", at);
   assert.match(css.slice(media, at), /^@media \(prefers-reduced-motion: no-preference\) \{\n$/);
-  for (const m of block.matchAll(/animation: (\w+) [^;]*;/g)) { assert.match(m[0], /var\(--lb-play, running\);$/, m[0]); assert.ok(["livePing", "shimmer", "lbBreath", "spin"].includes(m[1]), m[1]); }
+  for (const m of block.matchAll(/([^{};\n]+)\{ animation: (\w+) [^;]*;/g)) {
+    if (m[2] === "shimmer") { assert.match(m[1], /\.is-loading/, m[0]); continue; }
+    assert.equal(m[2], "livePing", m[0]); assert.match(m[0], /animation: livePing 1\.6s cubic-bezier\(0,0,\.2,1\) 3;$/, m[0]);
+  }
+  assert.doesNotMatch(css, /\.dot--(open|choosing) \{ animation/, "the open and choosing markers are still");
 });
 
 test("map: a resize that leaves the stage as it was costs nothing, and coming back to the tab catches up on founders and members (review PM-5, PM-10)", () => {

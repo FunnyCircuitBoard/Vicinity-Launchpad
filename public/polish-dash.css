@@ -585,8 +585,10 @@ body.is-dv2 .dash::before { content: none; }
 /* ---------- motion: the glass pill slides (dashboard-v2.js), its line breathes, the chosen tab's words light up with it, a panel eases
    in from the side of the tab that was left (transform and opacity only; with reduced motion all of it is at once) ---------- */
 @media (prefers-reduced-motion: no-preference) {
-  .dv2 .dtab[aria-selected="true"]::after { animation: ddTabIn var(--dur-3, 320ms) var(--ease-out, cubic-bezier(.2,.8,.2,1)) both, lbBreath 4s steps(16) var(--dur-3, 320ms) infinite alternate var(--lb-play, running); }
-  .dv2 .dtabs__ind::after { animation: ddLineBreath 4s steps(16) var(--dur-3, 320ms) infinite alternate var(--lb-play, running); }
+  /* design v4 has no Pause control (WCAG 2.2.2: nothing that moves by itself runs past 5 s): the line takes one breath (4 s) and rests;
+     the chosen tab's old second animation (lbBreath, whose keyframes left with the live buttons) is gone */
+  .dv2 .dtab[aria-selected="true"]::after { animation: ddTabIn var(--dur-3, 320ms) var(--ease-out, cubic-bezier(.2,.8,.2,1)) both; }
+  .dv2 .dtabs__ind::after { animation: ddLineBreath 4s steps(16) var(--dur-3, 320ms) 1 alternate var(--lb-play, running); }
   .dv2 .dtabs.has-ind .dtab { transition: color var(--dur-3, 320ms) var(--ease-out, cubic-bezier(.2,.8,.2,1)), background var(--dur-2, 200ms); }
   .dv2 .dpanel:not([hidden]) { animation: ddPanelIn var(--dur-3, 320ms) var(--ease-out, cubic-bezier(.2,.8,.2,1)) both; }
   .dv2[data-dir="next"] .dpanel:not([hidden]) { animation-name: ddPanelNext; }
