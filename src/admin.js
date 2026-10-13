@@ -158,6 +158,34 @@ async function handleOverview(ctx) {
   });
 }
 
+/**
+ * GET /api/admin/growth (owner only, read only): the Overview's charts, from rows the site already keeps. No wallets, no names.
+ *   holders    the last balance sample of each UTC day (src/ledger.js keeps 45 days): `holders` counts every wallet holding
+ *              $VICINITY in that sample, pools and team wallets included (the page names it "wallets", never "holders")
+ *   members    accounts made per UTC day over the last 90 days, test-lab rows left out, with the running total (`total`
+ *              includes every account made before the window)
+ *   countries  accounts per home country (all time, test-lab rows left out): the 12 largest, then the rest as "other"
+ */
+async function handleGrowth(ctx) {
+  const { db, now } = ctx;
+  const since = iso(now - 90 * DAY), day0 = since.slice(0, 10);
+  const [holders, joined, before, countries] = await db.batch([
+    db.prepare("SELECT day, holders, taken_at FROM balance_samples WHERE id IN (SELECT MAX(id) FROM balance_samples GROUP BY day) ORDER BY day"),
+    db.prepare("SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM users WHERE provider != 'testlab' AND created_at >= ? GROUP BY day ORDER BY day").bind(since),
+    db.prepare("SELECT COUNT(*) AS n FROM users WHERE provider != 'testlab' AND created_at < ?").bind(since),
+    db.prepare("SELECT home_country AS country, COUNT(*) AS n FROM users WHERE provider != 'testlab' AND home_country IS NOT NULL GROUP BY home_country ORDER BY n DESC, home_country"),
+  ]);
+  let total = before.results[0]?.n || 0;
+  const members = joined.results.map((r) => ({ day: r.day, joined: r.n, total: (total += r.n) }));
+  const top = countries.results.slice(0, 12), rest = countries.results.slice(12).reduce((s, r) => s + r.n, 0);
+  return json({
+    ok: true, asOf: iso(now), since: day0,
+    holders: holders.results.map((r) => ({ day: r.day, holders: r.holders, at: r.taken_at })),
+    members,
+    countries: [...top.map((r) => ({ country: r.country, members: r.n })), ...(rest ? [{ country: "other", members: rest }] : [])],
+  });
+}
+
 /* ---------------- users ---------------- */
 
 async function handleUsers(ctx, url) {
@@ -718,6 +746,7 @@ export async function handleAdmin(request, env, now = Date.now(), fetchImpl = fe
   switch (rel) {
     case "me": { const b = only("GET"); return b || handleMe(request, env, now); }
     case "overview": { const b = only("GET"); return b || run(need("moderator"), handleOverview); }
+    case "growth": { const b = only("GET"); return b || run(need("owner"), handleGrowth); }
     case "users": { const b = only("GET"); return b || run(need("moderator"), (c) => handleUsers(c, url)); }
     case "users/ban": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleBan(request, c, false)); }
     case "users/unban": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleBan(request, c, true)); }

@@ -8,7 +8,7 @@ import { openPage } from "./helpers/pagedom.js";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const style = read("public/style.css"), polish = read("public/polish.css"), lp = read("public/pages-launchpad.css"), home = read("public/pages-home.css");
-const appCss = read("public/pages-app.css"), cities = read("public/pages-cities.css");
+const appCss = read("public/pages-app.css"), admin = read("public/admin.css"), cities = read("public/pages-cities.css");
 const TERMS = "2026-10-01";
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
 
@@ -131,4 +131,13 @@ test("the header's scroll shadow fades on a layer of its own (opacity), the bar 
   assert.match(style, /\.site-header::after \{ content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; box-shadow: var\(--e3\); opacity: 0; \}/);
   assert.match(style, /\.site-header::after \{ transition: opacity var\(--dur-2\) var\(--ease-out\); \}/);
   assert.doesNotMatch(style, /\.site-header \{ transition: [^}]*(box-shadow|background)/, "no shadow or background transition on the blurred bar (the coin page's slide is a transform)");
+});
+
+/* ---------- admin ---------- */
+test("admin: the live activity rides beside the charts, the placeholder fits, the seat filter is live, a 44 px Jupiter link on touch", () => {
+  assert.match(admin, /\.adm-ov\.has-charts \.adm-feed \{ position: sticky; top: calc\(var\(--header-h, 68px\) \+ 92px\);/);
+  const js = read("public/admin.js");
+  assert.match(js, /"Search wallet or name"/);
+  assert.doesNotMatch(js, /btn\("Filter", \(\) => load\(\)\)/);
+  assert.match(admin, /@media \(pointer: coarse\) \{ \.adm-attrib a, \.chart__note a \{ display: inline-flex; align-items: center; min-height: 44px; \} \}/);
 });
