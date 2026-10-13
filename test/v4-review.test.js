@@ -7,8 +7,8 @@ import { readFileSync } from "node:fs";
 import { openPage } from "./helpers/pagedom.js";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const style = read("public/style.css"), polish = read("public/polish.css");
-const cities = read("public/pages-cities.css");
+const style = read("public/style.css"), polish = read("public/polish.css"), home = read("public/pages-home.css");
+const appCss = read("public/pages-app.css"), cities = read("public/pages-cities.css");
 const TERMS = "2026-10-01";
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
 
@@ -52,6 +52,7 @@ test("every Buy panel names the Terms of Use next to its button (the entry pop-u
 });
 
 test("the copy says only what is true: boundaries where they exist, city coins as they launch, a device (not a phone) shares the location", () => {
+  assert.match(read("scripts/pages/src/index.html"), /<p>Every real city on one map, with its official boundary where one exists\.<\/p>/);
   assert.match(read("src/official.js"), /platform: "Vicinity Launchpad", status: "Launching city by city" \}/);
   assert.match(read("scripts/pages/src/token.html"), /<td><a class="registry__above" href="\/launchpad">On the Launchpad →<\/a><\/td><td><span class="tag tag--warn">Launching city by city<\/span><\/td>/);
 });
@@ -69,6 +70,20 @@ test("the footer: a security line kept (not a risk line), no Privacy link, and S
 
 test("a short page keeps its footer at the bottom of the screen (the page is a column at least the screen's height)", () => {
   assert.match(style, /body \{ display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; \}\nbody > main \{ flex: 1 0 auto; \}/);
+});
+
+/* ---------- home and /app ---------- */
+test("home and /app: the headline and its line only rise (opaque from the first frame, so they paint as the main content at once)", () => {
+  assert.match(home, /\.hero4__title, \.hero4__lead \{ animation: hero4Rise \.4s var\(--ease-out\) backwards; \}/);
+  assert.match(home, /@keyframes hero4Rise \{ from \{ transform: translateY\(8px\); \} \}/);
+  assert.match(appCss, /\.app4-hero__copy \{ animation: app4Rise \.4s var\(--ease-out\) backwards; \}/);
+  assert.match(appCss, /@keyframes app4Rise \{ from \{ transform: translateY\(16px\); \} \}/);
+  // the dots stretch with a transform, never a width; the swiped strip is a Tab stop with its ring drawn inside, only while it scrolls
+  assert.match(appCss, /\.app4-dots span\.is-on \{ transform: scaleX\(3\); background: var\(--text-2\); \}/);
+  assert.doesNotMatch(appCss, /transition: width/);
+  assert.match(appCss, /\.app4-phones:focus-visible \{ outline: 3px solid var\(--pin-2\); outline-offset: -3px;/);
+  assert.match(read("public/app.js"), /if \(all \|\| getComputedStyle\(strip\)\.overflowX === "visible"\) strip\.removeAttribute\("tabindex"\); else strip\.tabIndex = 0;/);
+  assert.match(read("scripts/pages/src/app.html"), /<div class="app4-phones" id="app-phones" role="region" aria-label="Design previews of the app's screens">/);
 });
 
 /* ---------- accessibility ---------- */

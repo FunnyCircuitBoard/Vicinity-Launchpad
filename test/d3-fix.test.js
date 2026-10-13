@@ -6,7 +6,8 @@
 //   tab bar), and what follows starts below the tab bar;
 // * /cities on a tablet: the whole world fits from a 600 px stage, in a stage no taller than the world needs;
 // * home: the city coins in a row, every name inside its coin ("LOND", "TOKY", "ARIS" before); the walkthrough's $NYC inside its disc and
-//   readable on the light theme; no lone word at the end of the hero's lead or a fact tile;
+//   readable on the light theme; no lone word at the end of the hero's lead or a fact tile (design v4: the coin row, the walkthrough and
+//   the tiles are gone; test/home-v4.test.js pins the new home);
 // * glows stay inside the content (the Why section's ran off a wide screen's right edge; /launchpad kept the top-right smudge).
 // How it all looks at every width, dark and light, is checked in Chromium on the real Worker (the d3 fixer's probes).
 import { test } from "node:test";
@@ -39,12 +40,11 @@ test("/cities on a tablet: the whole world from a 600 px stage, in a stage no ta
   assert.match(cities, /@media \(min-width: 601px\) and \(max-width: 900px\) \{\n  #cities \.citymap \{ container-type: inline-size; \}\n  #city-stage \{ height: min\(calc\(100svh - var\(--stage-top, 220px\) - var\(--bottom-bars, 67px\) - 8px\), calc\(100cqw \/ 1\.75\)\); min-height: 360px; \}\n\}/);
 });
 
-test("home: the city coins in a row, apart, each name inside its coin", () => {
-  for (const h of [homeSrc, home]) assert.match(h, /<span class="coin-disc"><span>LONDON<\/span><\/span>\s*<span class="coin-disc"><span>TOKYO<\/span><\/span>\s*<span class="coin-disc coin-disc--lg"><span>NYC<\/span><\/span>\s*<span class="coin-disc"><span>PARIS<\/span><\/span>\s*<span class="coin-disc"><span>LAGOS<\/span><\/span>/);
-  assert.match(polish, /\.why-panel \.early__coins \{ gap: 18px; padding: 10px 0 18px; \}/);
-  assert.match(polish, /\.why-panel \.early__coins \.coin-disc \{ width: 72px; height: 72px; margin: 0; \}/, "no overlap (a coin covered its neighbour's name)");
-  assert.match(polish, /\.why-panel \.early__coins \.coin-disc span \{ max-width: none; overflow: visible; font-size: \.68rem; letter-spacing: \.04em; \}/, "the name is never cut (LONDON fits a 72 px coin at .68rem)");
-  assert.doesNotMatch(polish, /\.why-panel \.early__coins \.coin-disc[^{]*\{[^}]*scale\(/, "no shrunken coins");
+// design v4 (12 Oct 2026, track B): the incentives block and its row of sample coins left the home page (the owner: "get rid of the rest");
+// what stays pinned is that the page shows no ticker that is not a real coin (rule R1). Its .why-panel / .early__coins rules are dead CSS,
+// on the integration cleanup's list (SPEC A.9).
+test("home (design v4): no sample city coins on the page (LONDON, TOKYO, NYC, PARIS, LAGOS were names, not coins)", () => {
+  for (const h of [homeSrc, home]) assert.doesNotMatch(h, /class="coin-disc|<span>(LONDON|TOKYO|PARIS|LAGOS)<\/span>/);
 });
 
 test("home: the walkthrough's $NYC inside its disc on a 320 px phone, and readable on the light theme", () => {
@@ -52,12 +52,9 @@ test("home: the walkthrough's $NYC inside its disc on a 320 px phone, and readab
   assert.match(style, /:root\[data-theme="light"\] \.m-coin circle \{ fill: #FFC857; stroke: #B9780F; stroke-width: 2\.5; \}\n:root\[data-theme="light"\] \.m-coin text \{ fill: #3F2702; \}/);
 });
 
-test("home: no lone word at the end of the hero's lead or a fact tile", () => {
-  assert.match(polish, /\.hero \.lead, \.hero__facts > li > span, \.hero__fact-link > span \{ text-wrap: pretty; \}/, "the tiles' own lines only: text-wrap would undo the .nowrap inside them");
-  for (const h of [homeSrc, home]) {
-    assert.match(h, /<strong>\$VICINITY<\/strong> is the key to all of&nbsp;them<span class="lead__tail">/, "a phone's lead ended on \"them.\" alone");
-    assert.match(h, /<span>Open · city coins <span class="nowrap">come next <span aria-hidden="true">→<\/span><\/span><\/span>/, "\"next →\" alone at 1024 px");
-  }
+test("home: no lone word at the end of the hero's lead (design v4: the fact tiles are gone, the live numbers bar replaced them)", () => {
+  for (const h of [homeSrc, home]) assert.match(h, /\$VICINITY holders get in&nbsp;first\.<\/p>/, "a phone's lead never ends on \"first.\" alone");
+  assert.match(read("public/pages-home.css"), /\.hero4__lead \{ max-width: 34ch; margin: 0 auto 32px; font-size: var\(--fs-md\); color: var\(--text-2\); text-wrap: balance; \}/);
 });
 
 test("glows stay inside the content: the Why section's light, /launchpad's orbs", () => {

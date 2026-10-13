@@ -1,4 +1,4 @@
-// Home: one hero button (Get $VICINITY, to the Token page's buy slot). Cities: the map comes first, then the numbers, then
+// Home: Get $VICINITY (to the Token page's buy slot) and, beside it, Sign up (design v4). Cities: the map comes first, then the numbers, then
 // the page's title and description, with every id, aria attribute and text kept, and a tidy phone layout.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -18,17 +18,19 @@ const mediaWith = (px, needle) => {
   return null;
 };
 
-test("home: one hero button, Get $VICINITY, straight to the buy slot of the Token page; no second button and no closing band (the header has Log in)", () => {
-  // the mobile polish of 9 Oct 2026: the hero had "Get $VICINITY" + "My Dashboard" and the page closed with the same pair again
+test("home (design v4): two hero buttons side by side, Get $VICINITY to the buy slot and Sign up (My dashboard for a member); the call to buy made once, no closing band", () => {
+  // the mobile polish of 9 Oct 2026 kept one button; the owner (12 Oct 2026): "next to the 'Get $VICINITY' button add a similar button (Sign up)"
   for (const [where, h] of both("index")) {
-    assert.doesNotMatch(h, /Find my city|>My Dashboard</, `${where}: the old second button is gone`);
-    const ctas = [...h.matchAll(/<div class="hero__cta[^"]*">([\s\S]*?)<\/div>/g)].map((m) => m[1]);
+    assert.doesNotMatch(h, /Find my city|>My Dashboard</, `${where}: the old second button ("Find my city", "My Dashboard") is gone`);
+    const ctas = [...h.matchAll(/<div class="hero4__cta[^"]*"[^>]*>([\s\S]*?)<\/div>/g)].map((m) => m[1]);
     assert.equal(ctas.length, 1, `${where}: one row of hero buttons`);
-    assert.match(ctas[0], /^\s*<a class="btn btn--primary btn--lg" href="\/token#buy-slot">Get \$VICINITY <span aria-hidden="true">→<\/span><\/a>\s*$/, `${where}: one button, to the buy slot`);
+    assert.match(ctas[0], /^\s*<a class="btn btn--primary btn--lg has-ring" href="\/token#buy-slot">Get \$VICINITY <span aria-hidden="true">→<\/span><\/a>\s*<a class="btn btn--glass btn--lg hero4__second" href="\/connect" data-hero-second><span class="hero4__as-guest">Sign up<\/span><span class="hero4__as-member">My dashboard<\/span><\/a>\s*$/,
+      `${where}: the buy slot first, then Sign up beside it`);
     assert.doesNotMatch(h, /cta-band|class="numbers"/, `${where}: no closing band, no numbers band`);
     assert.equal((h.match(/Get \$VICINITY/g) || []).length, 1, `${where}: the call to buy is made once`);
   }
-  for (const f of ["site.js", "home.js"]) assert.doesNotMatch(read(`public/${f}`), /Find my city|My Dashboard/, f);
+  assert.doesNotMatch(read("public/site.js"), /Find my city|My Dashboard/, "site.js");
+  assert.doesNotMatch(read("public/home.js"), /Find my city|My Dashboard/, "home.js (it says \"My dashboard\" through the markup's second label)");
 });
 
 test("home: on a phone the two hero buttons sit side by side when they fit and go full width when they don't", () => {

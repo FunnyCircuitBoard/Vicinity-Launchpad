@@ -1,0 +1,103 @@
+/* The app preview (/app, design v4, prompt item 6: "a glass/3D-style preview of the upcoming Vicinity mobile app"). Loaded only by
+   /app, after app-phone.css (the phone frame and its screens). The app is in development and the page says so first; the phones are
+   a design preview with no number on them (rule R1). A computer fans the three phones out in 3D and, under a mouse with motion welcome,
+   the middle one leans a little toward the pointer (app.js); a phone swipes through them one at a time (scroll snap). Nothing loops. */
+
+/* ---------- hero: the words, then the phones (side by side from 1024 px) ---------- */
+.app4-hero { position: relative; isolation: isolate; overflow: hidden; padding: 40px 0 24px; }
+.app4-hero::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--grad-glow); }
+.app4-hero__grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; align-items: center; }
+.app4-hero__copy { max-width: 560px; margin: 0 auto; text-align: center; }
+.app4-hero__tag { margin: 0 0 16px; }
+.app4-hero__tag .tag { padding: 4px 12px; }
+.app4-hero__title { margin: 0 0 16px; }
+/* two lines: "Vicinity," then "in your pocket." (each line as wide as its words, so the gradient spans them) */
+.app4-hero__title > span { display: block; width: fit-content; margin-inline: auto; padding-bottom: .06em; }
+.app4-hero__lead { margin: 0 auto 28px; text-wrap: pretty; }
+.app4-hero__cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+/* a phone: the two buttons one above the other, full width (the same at every phone width) */
+@media (max-width: 480px) { .app4-hero__cta { flex-direction: column; gap: 10px; } .app4-hero__cta .btn { width: 100%; } }
+/* "Sign up" for a guest, "My dashboard" for a member: both labels in one grid cell (the button keeps the wider's width); theme.js's
+   :root[data-guest] picks before the first paint and app.js corrects a wrong guess */
+.app4-hero__first { display: inline-grid; place-items: center; }
+.app4-hero__first > span { grid-area: 1 / 1; }
+:root[data-guest] .app4__as-member, :root:not([data-guest]) .app4__as-guest { visibility: hidden; }
+.app4-hero__first.is-guest .app4__as-guest, .app4-hero__first.is-member .app4__as-member { visibility: visible; }
+.app4-hero__first.is-guest .app4__as-member, .app4-hero__first.is-member .app4__as-guest { visibility: hidden; }
+@media (min-width: 1024px) {
+  .app4-hero { padding: 64px 0 48px; }
+  .app4-hero__grid { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 24px; }
+  .app4-hero__copy { margin: 0; text-align: left; }
+  .app4-hero__title > span { margin-inline: 0; }
+  .app4-hero__lead { margin-left: 0; }
+  .app4-hero__cta { justify-content: flex-start; }
+}
+
+/* ---------- the three phones ---------- */
+.app4-stage { position: relative; isolation: isolate; min-width: 0; }
+/* the soft accent light under the frames */
+.app4-stage::before { content: ""; position: absolute; left: 12%; right: 12%; bottom: 8%; height: 34%; z-index: -1; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255,90,54,.22), transparent); }
+:root[data-theme="light"] .app4-stage::before { background: radial-gradient(closest-side, rgba(232,67,31,.12), transparent); }
+.app4-phones { --app-pw: 240px; display: flex; align-items: flex-start; }
+.app4-phones .phone4 { --pw: var(--app-pw); }
+.app4-fig { position: relative; margin: 0; flex: none; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.app4-fig figcaption { font: 500 .75rem/1.3 var(--body); letter-spacing: .02em; color: var(--muted); }
+
+/* a phone and a tablet: one phone per view, swiped (scroll snap, no custom gesture); the dots under it say which */
+@media (max-width: 1023px) {
+  /* the strip runs to the screen's edges (the next phone peeks in from the side), the first and last phones still centred */
+  .app4-phones { gap: 16px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none;
+    margin-inline: calc(-1 * var(--wrap-pad, 16px)); padding: 8px calc(50% + var(--wrap-pad, 16px) - var(--app-pw) / 2) 12px; }
+  .app4-phones::-webkit-scrollbar { display: none; }
+  .app4-fig { scroll-snap-align: center; scroll-snap-stop: always; }
+}
+@media (max-width: 360px) { .app4-phones { --app-pw: 228px; } }
+/* the chosen dot stretches to a short bar with a transform (no width change, so no layout on each frame) */
+.app4-dots { display: flex; justify-content: center; gap: 14px; height: 6px; margin-top: 10px; }
+.app4-dots span { width: 6px; height: 6px; border-radius: 3px; background: var(--line-2); }
+.app4-dots span.is-on { transform: scaleX(3); background: var(--text-2); }
+.app4-dots.is-off { visibility: hidden; }
+@media (prefers-reduced-motion: no-preference) { .app4-dots span { transition: transform var(--dur-2) var(--ease-out), background-color var(--dur-2); } }
+/* the swipeable strip takes the keyboard on a phone or tablet (app.js gives it a Tab stop only while it scrolls): its ring drawn inside */
+.app4-phones:focus-visible { outline: 3px solid var(--pin-2); outline-offset: -3px; border-radius: var(--r-lg, 20px); }
+
+/* a computer: the three fanned out in 3D, the middle one in front; the sides turned toward it and set back */
+@media (min-width: 1024px) {
+  .app4-phones { --app-pw: 216px; justify-content: center; padding: 8px 0 0; }
+  .app4-fig--c { z-index: 2; }
+  .app4-fig--l { z-index: 1; margin-right: -80px; }
+  .app4-fig--r { z-index: 1; margin-left: -80px; }
+  .app4-fig--l .app4-tilt { transform: perspective(1200px) rotateY(18deg) translateZ(-60px); transform-origin: 0 50%; }
+  .app4-fig--r .app4-tilt { transform: perspective(1200px) rotateY(-18deg) translateZ(-60px); transform-origin: 100% 50%; }
+  .app4-fig--c .app4-tilt { transform: perspective(1200px); }
+  .app4-dots { display: none; }
+}
+@media (min-width: 1280px) {
+  .app4-phones { --app-pw: 264px; }
+  .app4-fig--l { margin-right: -96px; } .app4-fig--r { margin-left: -96px; }
+}
+/* the middle phone's lean under a mouse (app.js writes the transform; transform only, eased) */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) { .app4-tilt[data-tilt] { transition: transform .18s var(--ease-out); } }
+
+/* the phones rise in once; the words only rise (opaque from the first frame, so they count as the page's main content at once) */
+@media (prefers-reduced-motion: no-preference) {
+  .app4-hero__copy { animation: app4Rise .4s var(--ease-out) backwards; }
+  .app4-fig { animation: app4In .56s var(--ease-out) backwards; }
+  .app4-fig--c { animation-delay: 80ms; } .app4-fig--l { animation-delay: 160ms; } .app4-fig--r { animation-delay: 220ms; }
+}
+@keyframes app4In { from { opacity: 0; transform: translateY(16px); } }
+@keyframes app4Rise { from { transform: translateY(16px); } }
+
+/* ---------- what it's for: two lines ---------- */
+.app4-for { padding-top: 32px; }
+.app4-for__title { text-align: center; margin: 0 auto 24px; }
+.app4-for__list { list-style: none; margin: 0 auto; padding: 0; max-width: 880px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.app4-for__list li { display: flex; align-items: center; gap: 14px; font: 600 1.0625rem/1.4 var(--display); letter-spacing: -.01em; }
+@media (min-width: 768px) { .app4-for__list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; } }
+
+/* ---------- until then ---------- */
+.app4-end { padding-top: 0; }
+.app4-end__card { display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 880px; margin: 0 auto; padding: 28px 24px; text-align: center; }
+.app4-end__card p { margin: 0; font-size: var(--fs-md); color: var(--text-2); max-width: 44ch; }
+@media (min-width: 768px) { .app4-end__card { flex-direction: row; justify-content: space-between; padding: 28px 32px; text-align: left; } .app4-end__card .btn { flex: none; } }

@@ -102,7 +102,7 @@ test("footer socials come from src/official.js (rule R3): a network added there 
 
 test("the /app and /credits pages: an honest app teaser label, and every map data licence kept (R2)", () => {
   const app = html["app.html"], credits = html["credits.html"];
-  assert.match(app, /<p class="kicker">In development<\/p>/, "the app is never presented as available");
+  assert.match(app, /<p class="app4-hero__tag"><span class="tag tag--gold">In development<\/span><\/p>/, "the app is never presented as available (test/home-v4.test.js pins the page)");
   assert.doesNotMatch(app, /App Store|Google Play|Download/i);
   assert.match(credits, /<h1 class="page-title">Data &amp; credits<\/h1>/, "the full credits: the next test");
 });
@@ -229,20 +229,22 @@ test("profile: the pass shows no real name, and the header username button is th
   assert.match(css, /\.icon-btn/, "profile icon button styles exist");
 });
 
-test("home: the problem, the real New York City map, how it works, incentives, roles, FAQ", () => {
-  const h = html["index.html"];
-  for (const id of ["problem", "nyc", "nyc-map", "why-now", "how", "why", "get", "roles", "roadmap", "faq"]) assert.ok(h.includes(`id="${id}"`), id);
-  assert.match(h, /Real map, real data · New York City/);
+test("home (design v4): the hero, How it works, the app teaser, the FAQ; the honest launch story; no risk warning in the page", () => {
+  const h = html["index.html"], main = h.slice(h.indexOf('<main id="main"'), h.indexOf("</main>"));
+  for (const id of ["hero", "how", "app-teaser", "faq", "faq-tabs", "buy-faq", "why-launchlab"]) assert.ok(h.includes(`id="${id}"`), id);
+  for (const gone of ["problem", "nyc", "nyc-map", "why-now", "why", "get", "roles", "roadmap"]) assert.ok(!h.includes(`id="${gone}"`), `#${gone} left with the old page (home.js sends its old links on)`);
   assert.match(h, /Why did \$VICINITY launch on Raydium LaunchLab and not on the Vicinity Launchpad\?/);
-  assert.match(h, /<a class="hero-map__link" href="\/cities\?city=5128581"/, "the New York map opens the map page");
   assert.doesNotMatch(h, /stonkfun|stonfun/i, "launching on Raydium LaunchLab");
   assert.match(h, /How do I buy \$VICINITY\?/);
-  assert.match(h, /href="\/token#buy"/);
+  assert.match(h, /href="\/token#buy-slot"/);
   assert.doesNotMatch(h, /pump\.fun/i, "not pump.fun");
   assert.doesNotMatch(h, /first to claim/i, "founders are chosen by locals, not a race");
   assert.match(h, /FOMO/);
-  assert.doesNotMatch(h, /Nothing here is financial advice/, "no risk warning in the page chrome any more (design v4: the site-entry modal is gone; the Terms carry it)");
+  // the owner (12 Oct 2026): "remove the risk warnings ... and similar": none in the page (the Terms carry them)
+  assert.doesNotMatch(main, /financial advice|afford to lose|very risky/i);
+  assert.doesNotMatch(h, /financial advice|afford to lose|very risky/i, "nor anywhere in the built page: the site-entry modal is gone (track F)");
   assert.doesNotMatch(h, /Maple Falls|Port Jasper|Cedar Bay/, "no more fictional demo towns");
+  // the New York example data stays (the build makes it, /cities?city=5128581 is where the old #nyc link lands)
   const nyc = JSON.parse(read("data/demo-nyc.json"));
   assert.ok(nyc.members.length > 30 && nyc.official.length && nyc.nyc.area.length && nyc.neighbors.length > 5);
   assert.ok(nyc.members.some(([name]) => name === "Brooklyn"));
@@ -409,34 +411,25 @@ test("the 'no rug pull' copy says minting is already off (the live mint's author
   assert.match(html["index.html"], /<summary>Is this a rug pull\?<\/summary><p>No\. There's no presale, minting and freezing are already switched off for good/);
 });
 
-test("home: the Early member card no longer invites visitors to join for a badge new sign-ups can't get since launch", () => {
+test("home: no badge is offered to visitors (the Early member badge can't be earned since launch; design v4 removed its card)", () => {
   // src/signup-finish.js (the sign-up) and src/auth.js store early = 0 for every account made while VICINITY_MINT is set (since 3 Oct 2026)
   const h = html["index.html"];
-  assert.doesNotMatch(h, /Join before \$VICINITY launches/);
-  assert.match(h, /<h3>Proof you were&nbsp;early<\/h3><p class="muted">Members who joined before \$VICINITY launched on October 3 carry the <strong>Early member<\/strong> badge for good\. Nobody can earn it any more\.<\/p>/);
-  for (const f of ["../src/signup-finish.js", "../src/auth.js"]) assert.match(readFileSync(new URL(f, import.meta.url), "utf8"), /activeMint\(env\) \? 0 : 1/, `${f}: the rule the card describes`);
+  assert.doesNotMatch(h, /Join before \$VICINITY launches|Early member/);
+  for (const f of ["../src/signup-finish.js", "../src/auth.js"]) assert.match(readFileSync(new URL(f, import.meta.url), "utf8"), /activeMint\(env\) \? 0 : 1/, `${f}: the rule the old card described`);
 });
 
-test("home: the roadmap shows the October 3 launch as done and the Launchpad as next; the FAQ and the map speak of the launch as past", () => {
+test("home: the FAQ speaks of the launch as past; nothing promises a city coin can launch now (design v4: the roadmap and the map left the page)", () => {
   // live 3 Oct 2026 after the launch: the launch was still the pulsing "next" step, "the contract address is published on this
   // site first", the FAQ said "it launches October 3", and the New York map said founder "claims open at launch"
   const h = html["index.html"];
-  // (d3: a no-break space ties the last two words of each title, so none ends on a single word)
-  const items = [...h.matchAll(/<li class="timeline__item([^"]*)"><span class="timeline__status">([^<]+)<\/span><h3>([^<]+)<\/h3>/g)].map((m) => [m[1].trim(), m[2], m[3].replace(/&nbsp;/g, " ")]);
-  assert.deepEqual(items.slice(0, 4), [["is-done reveal", "Done", "The real map"], ["is-done reveal", "Done", "Accounts and dashboards"],
-    ["is-done reveal", "Done", "$VICINITY launched"], ["is-next reveal", "Next", "Vicinity Launchpad"]]);
-  assert.doesNotMatch(h, /Every city can launch/, "no city coin can launch yet: the roadmap says each city launches once its founder qualifies");
-  assert.equal((h.match(/timeline__item is-next/g) || []).length, 1, "one next step");
+  assert.doesNotMatch(h, /Every city can launch/, "no city coin can launch yet without its founder: the hero says each city can get one");
+  assert.match(h, /Every real city can get one official coin/);
   assert.doesNotMatch(h, /published on this site first/);
   assert.doesNotMatch(h, /it launches October 3|so it launches a week earlier|Why is \$VICINITY launching/);
   assert.match(h, /it launched on October 3 on Raydium LaunchLab/);
   const home = read("home.js");
   assert.doesNotMatch(home, /claims open at launch/);
-  // d3 (11 Oct 2026): the founder seat is no flag over the map any more (it covered the map and the other flag on a phone): step 4's
-  // caption says it, with the qualifying rule in full (holding alone never wins the seat)
   assert.doesNotMatch(home, /m-flag|👑|📍/);
-  assert.match(h, /<span>City Founder seat: open — hold the founder amount 7 days \(home here 7\+ days\), then apply<\/span>/);
-  assert.match(h, /The first local who qualifies and applies becomes Seed Steward, and locals can challenge them or choose between rivals\./);
 });
 
 test("dashboard roles (public, signed out too) no longer present the rules in force since the launch as 'when Vicinity goes live'", () => {

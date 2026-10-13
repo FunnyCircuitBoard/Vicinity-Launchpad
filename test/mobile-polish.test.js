@@ -4,8 +4,9 @@
 //   (--bottom-bars on body: the tab bar, plus the coin page's Buy bar) for anything that floats in a corner;
 // * the footer on every page (design v4): one calm line, the copyright, Terms / Privacy / Rules / Data / Check a link, the official social
 //   accounts; no status, no Pause, no credits block (they live on /credits and at the map's corner), no risk line;
-// * the home page: one hero button (to the Token page's buy slot), one row of facts (one countdown, one communities count), the New York
-//   walkthrough right after the hero, one tabbed block instead of four card walls, every FAQ question kept in three tabs, no closing band;
+// * the home page (design v4, 12 Oct 2026, the owner's own words: no New York map, "One city. One coin." centred at the top, Sign up beside
+//   Get $VICINITY): one call to buy, no countdown, no numbers band, How it works, the app teaser and the FAQ in three tabs, no closing band
+//   (test/home-v4.test.js pins the page itself);
 // * the token page: the Buy control in a marked slot (#buy-slot, where the in-app swap goes), the contract address printed once, five
 //   proofs, no third /connect link, the FAQ's step 3 naming the Buy button rather than a venue;
 // * the Launchpad draws $VICINITY once (not in "Live now" and again in the list) and hides the snapshot checker until there is a snapshot;
@@ -79,39 +80,27 @@ test("footer, every page (design v4): the copyright line, Terms / Rules / Data /
   assert.match(style, /\.site-footer__theme \{ display: none; \}/); assert.match(style, /@media \(max-width: 480px\) \{ \.site-footer__theme \{ display: grid; \} \}/, "the footer's theme switch only on a phone (the header's leaves it there)");
 });
 
-test("home: one hero button to the buy slot, one row of facts with one countdown, no numbers band, no closing band, the map right after the hero", () => {
+test("home (design v4): one call to buy, no countdown, no numbers band, no closing band; hero, How it works, the app teaser, the FAQ", () => {
   for (const h of [home, homeSrc]) {
     assert.equal(count(h, /href="\/token#buy-slot"/g), 1, "the one call to buy");
-    // d3 (11 Oct 2026): no countdown on the home page any more. Since the Launchpad opened, its tile read "Live / Launchpad is open" (teal,
-    // live dot), which reads as if city coins trade; none can launch yet. The tile is a plain link: "Launchpad · Open · city coins come next"
     assert.equal(count(h, /data-countdown-short|data-countdown-label/g), 0, "no countdown fact (site.js keeps the code for other pages)");
-    assert.equal(count(h, /data-stat="communities"/g), 1, "the communities count once (it was in three)");
-    assert.equal(count(h, /October 10/g), 1, "October 10 once: the FAQ's launch answer (the roadmap's next stop has no date)");
-    assert.doesNotMatch(h, /class="numbers"|cta-band|hero__facts[\s\S]*?hero__facts/, "no numbers band, no closing band, one facts row");
-    // d3 (11 Oct 2026): strong facts only, as tiles. A phone shows the first three (communities, countries, official boundaries), a
-    // computer the Launchpad link tile too. No members tile in the markup: home.js adds one only at 100 verified members or more (the
-    // owner circled "2 verified members"), never "…"; the numbers are /data/stats.json's (8,008 / 5,831 / 73 were stale and flashed)
-    assert.match(h, /<ul class="hero__facts" aria-label="Vicinity in numbers">\s*<li><strong data-stat="communities">8,029<\/strong><span>communities mapped<\/span><\/li>\s*<li class="hero__fact--countries"><strong data-stat="countries">244<\/strong><span>countries &amp; territories<\/span><\/li>\s*<li><strong data-stat="officialBoundaries">5,838<\/strong><span>official<span class="fact__wide"> city<\/span> boundaries<\/span><\/li>\s*<li class="hero__fact--launch"><a class="hero__fact-link" href="\/launchpad"><strong><span class="ico ico--sm" aria-hidden="true"><svg [^>]+>[^]*?<\/svg><\/span>Launchpad<\/strong><span>Open · city coins <span class="nowrap">come next <span aria-hidden="true">→<\/span><\/span><\/span><\/a><\/li>\s*<\/ul>/);
+    assert.equal(count(h, /October 10/g), 1, "October 10 once: the FAQ's launch answer");
+    assert.doesNotMatch(h, /class="numbers"|cta-band|hero__facts|data-stat=/, "no numbers band, no closing band, no fact tiles: the live numbers bar says it (home.js)");
     assert.doesNotMatch(h, /data-stat="members"|\bLive\b<|Launchpad is open/, "no members placeholder, nothing that reads like trading");
-    assert.doesNotMatch(h, /data-stat="communities">8,008<|data-stat="officialBoundaries">5,831<|hero-chip--2"><b data-stat="nycMembers">73</, "no stale fallback numbers");
-    const order = ["<section class=\"hero\" id=\"hero\">", "id=\"nyc\"", "id=\"problem\"", "id=\"why\"", "id=\"how\"", "id=\"roadmap\"", "id=\"faq\""].map((s) => h.indexOf(s));
-    assert.deepEqual(order, [...order].sort((a, b) => a - b), "hero, the New York walkthrough, the problem, why, how, roadmap, FAQ");
+    const order = ['<section class="hero4" id="hero">', 'id="how"', 'id="app-teaser"', 'id="faq"'].map((x) => h.indexOf(x));
     assert.ok(order.every((i) => i >= 0));
-    assert.equal(count(h, /Open (on )?the live map/g), 1, "one map link (the hero figure's chip is hidden; the walkthrough's button is the one)");
-    assert.equal(count(h, /Raydium/g), 7, "Raydium only where it is a fact: the launch story (roadmap, two FAQ answers); it was 19");
+    assert.deepEqual(order, [...order].sort((x, y) => x - y), "hero, How it works, the app teaser, the FAQ");
+    assert.equal(count(h, /Open the live map/g), 1, "one map link: How it works' first card");
+    assert.equal(count(h, /Raydium/g), 6, "Raydium only where it is a fact: the launch story in two FAQ answers (it was 19, then 7)");
+    assert.doesNotMatch(h.slice(h.indexOf('<section class="hero4"')), /[\u{1F300}-\u{1FAFF}\u2699\u26A1]/u, "no emoji as icons in the page: the shared SVG set in .ico");
+    // the measured claims about accounts stay measured where the page still speaks of sign-in (the FAQ): never "one person", never "keeps out"
+    assert.doesNotMatch(h, /per Google login|keeps fake accounts and spam out|= one person|proves? (you are )?one person/i);
   }
-  assert.match(polish, /\.hero-map \{ display: none; \}/, "on a phone the hero's own map is hidden: the walkthrough's bigger map comes right after the hero");
-  assert.match(polish, /#nyc \.section-head \{ margin-bottom: 10px; \}\n  #nyc \.section-head p\.muted \{ display: none; \}/, "its kicker and title stay above the map; the hint under them goes (Previous · Pause · Next say it)");
-  assert.doesNotMatch(polish, /#nyc \.nyc \{ order/, "nothing is reordered: a reader meets the title, then the map");
-  // one step caption at a time on a phone. d3 put the four in one grid cell (the card as tall as the tallest step) so the controls under
-  // it never jumped; the review of 12 Oct 2026 found the 150-230 px empty band that left under step 1, so the controls now sit above the
-  // step's text (pinned in test/home-d3.test.js) and the step takes its own height
-  assert.match(polish, /  \.steps li \{ grid-area: 1 \/ 1; display: grid; \}\n  \.steps li:not\(:has\(> \[aria-current="step"\]\)\) \{ display: none; \}\n  \.steps button:not\(\[aria-current="step"\]\) \{ visibility: hidden; \}/);
 });
 
-test("home: the incentives are one tabbed block and the FAQ another; every panel reachable, every question kept, a link into a hidden panel opens it", () => {
+test("home (design v4): the FAQ is one tabbed block; every panel reachable, every question but the risk one kept, a link into a hidden panel opens it", () => {
   const lists = [...home.matchAll(/<div class="seg seg--tabs" role="tablist" aria-label="([^"]+)" id="([^"]+)">([\s\S]*?)<\/div>/g)];
-  assert.deepEqual(lists.map((m) => m[2]), ["why-tabs", "faq-tabs"]);
+  assert.deepEqual(lists.map((m) => m[2]), ["faq-tabs"], "the incentives block left with the rest of the old page");
   for (const [, , id, inner] of lists) {
     const tabs = [...inner.matchAll(/<button type="button" role="tab" id="([^"]+)" aria-selected="(true|false)" aria-controls="([^"]+)"( tabindex="-1")?>/g)];
     assert.equal(tabs.length, 3, id);
@@ -123,47 +112,17 @@ test("home: the incentives are one tabbed block and the FAQ another; every panel
       assert.equal(Boolean(panel[1]), i > 0, `${id}: only the panels behind the other tabs start hidden`);
     });
   }
-  for (const id of ["why-now", "roles", "for-cities", "faq-basics", "faq-founders", "faq-safety"]) assert.equal(count(home, new RegExp(`id="${id}"`, "g")), 1, id);
+  for (const id of ["faq-basics", "faq-founders", "faq-safety"]) assert.equal(count(home, new RegExp(`id="${id}"`, "g")), 1, id);
   const faq = home.slice(home.indexOf('<section id="faq"'));
   const questions = [...faq.matchAll(/<summary>([^<]+)<\/summary>/g)].map((m) => m[1]);
-  assert.deepEqual(questions, [
-    "What is Vicinity?", "How do I buy $VICINITY?", "Why did $VICINITY launch on Raydium LaunchLab and not on the Vicinity Launchpad?", "How do I get my dashboard?", "I use FOMO (or another app wallet). How do I connect?",
-    "How do I become a City Founder?", "Who is the Country Manager?", "Can a whale take over?", "What happens if I sell?", "What if I don't live inside any city?",
-    "Is this a rug pull?", "Which contract address is real?", "What do you store about me?", "Can someone fake their location?", "Is this financial advice?",
-  ], "every question of 8 Oct 2026, five a tab");
-  assert.match(home, /<details class="compare-details">\s*<summary>Random city coin vs Vicinity city coin<\/summary>/, "the six-row comparison, folded");
-  assert.equal(count(home, /<tr><th scope="row">/g), 6);
-  assert.match(home, /<details class="checks-details">\s*<summary><span class="live-dot" aria-hidden="true"><\/span>Checked live, all the time<\/summary>/);
-  assert.equal(count(home, /<li><strong>[^<]+<\/strong><span>[^<]+<\/span><\/li>/g), 6, "the six live checks");
+  assert.equal(questions.length, 14, "every question of 8 Oct 2026 but one");
+  assert.ok(!questions.includes("Is this financial advice?"), "the owner: remove the risk warnings (the Terms carry it)");
   const js = read("public/home.js");
   assert.match(js, /\$\$\('\[role="tablist"\]'\)\.map\(\(list\) => \{/);
   assert.match(js, /e\.key === "ArrowRight" \? i \+ 1 : e\.key === "ArrowLeft" \? i - 1 : e\.key === "Home" \? 0 : e\.key === "End" \? tabs\.length - 1 : null/, "arrow keys move between tabs");
   assert.match(js, /t\.setAttribute\("aria-selected", String\(on\)\); t\.tabIndex = on \? 0 : -1;/);
-  assert.match(js, /function openFor\(hash\)/); assert.match(js, /window\.addEventListener\("hashchange", \(\) => openFor\(location\.hash\)\);/, "/#why-launchlab opens its tab, then lands");
+  assert.match(js, /function openFor\(hash\)/); assert.match(js, /window\.addEventListener\("hashchange", \(\) => \{ if \(!oldLink\(\)\) openFor\(location\.hash\); \}\);/, "/#why-launchlab opens its tab, then lands");
   assert.match(js, /if \(target\.tagName === "DETAILS"\) target\.open = true;/);
-  assert.match(js, /const SHOWN = 5;/); assert.match(js, /more\.textContent = `\+\$\{fmt\(hidden\)\} more`;/, "the member chips: the five boroughs and a +N more that unfolds the rest");
-});
-
-test("home: the roles and the founder amount stated once each, the five steps in the new order (location, Google, dashboard, wallet when you like, Launchpad)", () => {
-  const roles = home.match(/<div class="tabpanel why-panel" id="roles"[\s\S]*?<\/div>\s*<div class="tabpanel/)[0];
-  const plain = (x) => x.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " "); // d3: a no-break space ties the last two words of a title (no orphan)
-  assert.deepEqual([...roles.matchAll(/<h3>(.*?)<\/h3>/g)].map((m) => plain(m[1])), ["Holder", "City Founder", "Country Manager", "Admin"]);
-  assert.equal(count(home, /100K to 1M/g), 1, "the Stake Ladder's range once (it was in five places)");
-  assert.equal(count(home, /Founding Supporters/g), 3, "named in the first tab, the second fact and the roadmap");
-  const steps = [...home.matchAll(/<li class="flow__step reveal"(?: id="get")?><span class="flow__icon ico ico--sm" aria-hidden="true"><svg [^>]+>(?:<(?:path|circle|rect) [^>]+\/>)+<\/svg><\/span><div><h3>(.*?)<\/h3>/g)].map((m) => plain(m[1]));
-  assert.deepEqual(steps, ["Find your community", "Sign in with Google or e-mail", "Your dashboard", "Connect a wallet when you like", "City coins on the Launchpad"]);
-  // one sign-in story on the page (the FAQ says Google or e-mail; the step and the roadmap said Google only), and the measured claim about accounts
-  // d3: "e-mail" never breaks at its hyphen (it did at 1440), tied to the word before it
-  assert.match(home, /<h3>Sign in with Google or&nbsp;<span class="nowrap">e-mail<\/span><\/h3><p class="muted">One account per login makes fake accounts and spam harder \(it does not prove one person\)\.<\/p>/);
-  assert.match(home, /<p>One account per login, live ranks and badges, local and national feeds, moderation\.<\/p>/);
-  assert.doesNotMatch(home, /per Google login|keeps fake accounts and spam out/);
-  // the pointer to the Token page is step 5's (the "Need $VICINITY?" box under the steps was the hero's call to buy a second time); /#get still lands
-  assert.match(home, /<li class="flow__step reveal" id="get"><span class="flow__icon ico ico--sm" aria-hidden="true"><svg [^>]+>[^]*?<\/svg><\/span><div><h3>City coins on the&nbsp;Launchpad<\/h3><p class="muted">Founders and \$VICINITY holders get in before the public\. <a href="\/token#buy">How to get \$VICINITY →<\/a><\/p><\/div><\/li>/);
-  assert.equal(count(home, /go(&nbsp;| )first/g), 1, "said once: the first tab's heading (its last two words tied by a no-break space)");
-  assert.doesNotMatch(home.slice(home.indexOf("<main")), /[\u{1F300}-\u{1FAFF}\u2699\u26A1]/u, "no emoji as icons in the page: the shared SVG set in .ico");
-  assert.doesNotMatch(home, /get-line|Need \$VICINITY\?/); assert.doesNotMatch(polish, /\.get-line/);
-  assert.equal(count(home, /href="\/token#buy(-slot)?"/g), 2, "the hero's button to the buy slot and step 5's link to the how-to: no third pointer to the token (the FAQ's closed fold links the page itself)");
-  assert.doesNotMatch(home, /class="buy-steps"|Buy on Raydium/, "no second copy of the steps, no venue in a button label");
 });
 
 test("style.css lost only the rules the old home page used: the numbers band, the bento, why-now, the buy steps, the roles grid, the closing band", () => {
@@ -262,12 +221,7 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   }
   assert.match(polish, /\.holders__skip \{ position: absolute; left: -999px; \}\n\.holders__skip:focus \{ position: static;/);
   assert.match(read("public/token.js"), /t\.symbol\.startsWith\("e\.g\."\) \? `\$\{t\.name\}, \$\{t\.symbol\}` : `\$\{t\.name\} \(\$\$\{t\.symbol\}\)`/, "'City coins (one per city), e.g. $UTICA': not two brackets in a row");
-  // d3: every label is laid out against the coin, New York City's own label (placed first), the labels already kept and the map's edge
-  // (before, the city's label was added after the others and "Parsippany · $PARSIPPANY" ran into it at every width)
-  const hjs = read("public/home.js");
-  assert.match(hjs, /const cr = coinPx\(\) \* u \+ m, taken = \[\[cx - cr, cy - cr, cx \+ cr, cy \+ cr\]\];\n\s+const bb = area\(big\); taken\.push\(\[bb\[0\] - m, bb\[1\] - m, bb\[2\] \+ m, bb\[3\] \+ m\]\);/, "the coin, then the city's own label");
-  assert.match(hjs, /if \(b\[0\] < edge\[0\] \|\| b\[1\] < edge\[1\] \|\| b\[2\] > edge\[2\] \|\| b\[3\] > edge\[3\]\) continue;\n\s+if \(taken\.some\(\(k\) => hit\(b, k\)\)\) continue;/, "inside the map, touching nothing taken");
-  assert.match(home, /<a class="btn btn--glass btn--sm nyc__explore" href="\/cities">Explore every city<\/a>/, "no arrow beside the Next button's arrow; glass: the hero's Get $VICINITY is the page's one orange button");
+  // design v4: the New York walkthrough (its label layout and its "Explore every city" button) left the home page with the map
 });
 
 test("cities, rules, terms: a plain search placeholder; a chip row and folds on the rules; a contents fold on the terms", () => {
@@ -334,39 +288,18 @@ test("the guard against anything wider than a phone: buttons, media, code and gr
   assert.deepEqual(bare, [], "no bare fr track left");
 });
 
-test("home on a phone (the owner's screenshots 2 and 3): three facts that fit, a vertical roadmap, the Launchpad live state, nothing that scrolls sideways", () => {
-  const phone = polish.slice(polish.indexOf("@media (max-width: 600px) {\n  .hero__cta--one .btn { flex: 1 1 auto; }"));
-  // d3: the same tiles on every screen (one row of four on a computer, three on a phone); the Launchpad tile is a computer's
-  assert.match(polish, /\.hero__facts \{ list-style: none; display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\) minmax\(0, 1\.3fr\); gap: var\(--sp-2\); margin: 0; padding: 0; \}/);
-  assert.match(polish, /\.hero__facts > li \{ display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: var\(--sp-3\); border-radius: var\(--r-chip\); background: var\(--surface-1\); border: 1px solid var\(--line\); box-shadow: var\(--shadow-1\); \}/);
-  assert.match(phone, /\.hero__facts \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}\n  \.hero__facts > li\.hero__fact--launch, \.hero__facts \.fact__wide \{ display: none; \}/, "three tiles on a phone");
-  const shown = [...homeSrc.match(/<ul class="hero__facts"[\s\S]*?<\/ul>/)[0].matchAll(/<li[^>]*>[\s\S]*?<\/li>/g)].slice(0, 3).map((m) => (/data-stat="(\w+)"/.exec(m[0]) || [])[1] || "?");
-  assert.deepEqual(shown, ["communities", "countries", "officialBoundaries"], "exactly these three show on a phone");
-  assert.doesNotMatch(polish, /margin: 0 -16px/, "no negative side margins: nothing reaches past the gutter");
-  // the roadmap: the horizontal row only from 900 px; below it the vertical rail of style.css, every stop stacked
-  const wide = polish.match(/@media \(min-width: 900px\) \{\n  \.timeline \{ display: flex;[\s\S]*?\n\}/);
-  assert.ok(wide, "the row is a computer's");
-  assert.equal((polish.match(/\.timeline \{/g) || []).length, 1, "and the only .timeline rule in polish.css");
-  assert.match(style, /\.timeline__item \{ position: relative; padding: 0 0 18px 10px; \}/);
-  assert.match(style, /\.timeline::before \{[^}]*linear-gradient\(var\(--moss\), var\(--moss\) var\(--rail-done, 48%\), var\(--pin\) var\(--rail-at, 66%\)/, "green to the last stop done, orange at the next");
-  // after 10:10:10 New York time: site.js still flips a countdown fact to "Live / Launchpad is open" on any page that has one (the home page
-  // has none since d3), the roadmap's Launchpad stop reads "Open now", the Passport next
+test("the Launchpad's opening still flips a countdown fact on a page that has one; the home page has none since d3, and no roadmap since design v4", () => {
+  // after 10:10:10 New York time: site.js flips a countdown fact to "Live / Launchpad is open" on any page that has one (the home page has
+  // none since d3); design v4 removed the home page's roadmap (its "Open now" Launchpad stop) and its fact tiles with the rest of the old page
   const site = read("public/site.js"), homeJs = read("public/home.js");
   assert.doesNotMatch(site, /Open now|until the Launchpad opens/);
   assert.match(site, /if \(e\.textContent !== "Live"\) e\.textContent = "Live";/);
   assert.match(site, /label\.textContent = "Launchpad is open";/);
   assert.match(site, /if \(fact\) fact\.classList\.add\("is-live"\);/);
   assert.match(site, /document\.dispatchEvent\(new CustomEvent\("vicinity:launchpad-open"\)\);/, "a page left open across the opening flips too");
-  assert.match(homeJs, /stop\.classList\.remove\("is-next"\); stop\.classList\.add\("is-done", "is-now"\);/);
-  // the stop says the page is open, not "Live now": no city coin can launch until its founder qualifies (honest copy, 10 Oct 2026)
-  assert.match(homeJs, /status\.textContent = "Open now";/);
-  assert.doesNotMatch(homeJs, /status\.textContent = "Live now"/);
-  assert.match(homeJs, /go\.href = "\/launchpad"; go\.textContent = "Open the Launchpad →";/);
-  assert.match(homeJs, /later\.classList\.add\("is-next"\);/);
-  assert.match(homeJs, /document\.addEventListener\("vicinity:launchpad-open", launchpadLive\);/);
-  // the headline: "One city. One coin." then "One community." (a space before every <br>, the first one hidden on a phone)
-  assert.match(homeSrc, /<h1 class="hero__title">One city\. <br>One coin\. <br><span class="accent">One community\.<\/span><\/h1>/);
-  assert.match(polish, /\.hero__title br:first-of-type \{ display: none; \}/);
+  assert.doesNotMatch(homeJs, /timeline|launchpadLive|status\.textContent = "Live now"/, "no roadmap on the home page");
+  for (const h of [home, homeSrc]) assert.doesNotMatch(h, /id="timeline"|class="timeline/);
+  assert.doesNotMatch(polish, /margin: 0 -16px/, "no negative side margins: nothing reaches past the gutter");
 });
 
 test("design v2 rhythm: sections, cards, kickers and page titles use the tokens (one place to tune them)", () => {
