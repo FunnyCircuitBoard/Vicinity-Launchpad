@@ -7,7 +7,7 @@
   const FOUNDER_MAX = 1_000_000; // the top of the Stake Ladder (100K to 1M by city size, see /rules#ladder)
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
   const usd = (n) => (n >= 1 ? "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "$" + n.toPrecision(3));
-  /** A published team wallet (labelled "Team wallet (public)" by the server): shown and labelled, never ranked, like a pool. */
+  /** A published team wallet (labelled "Team wallet (public)", or "Team wallet (FOMO)", by the server): shown and labelled, never ranked, like a pool. */
   const isTeam = (h) => !h.rank && /^Team wallet/.test(h.label || "");
   /** The team's locked tokens (labelled "Team lock (Jupiter Lock)" by the server): the same, and its tag opens the lock's page. */
   const isLock = (h) => !h.rank && /^Team lock/.test(h.label || "");
@@ -192,6 +192,10 @@
   // .holders--live .table-scroll), so the page stays the same length however many people hold the token.
   const CHUNK = 250, MAX_PAGES = 200;
   let queue = [], drawing = false, restart = false, loading = false, keepScroll = 0, load = 0, lastSnap = null;
+  // The bars' full width: the biggest share in the list. The server lists pools, the team lock and the team wallets first, then
+  // people biggest first, so the first row is not always the biggest holding; it is set before a page is drawn.
+  let barMax = 1;
+  const biggest = (rows) => rows.reduce((m, h) => Math.max(m, Number(h.percent) || 0), 0);
   function row(h) {
     const tr = el("tr"); tr.dataset.owner = h.owner;
     const w = el("td");
@@ -199,9 +203,8 @@
     w.append(a);
     if (isLock(h) && lock && lock.address === h.owner) { const t = lockLink(h.label); t.className = "tag tag--ok"; w.append(t); } // the lock's page: its rules, live
     else if (h.label) w.append(el("span", "tag tag--ok", h.label));
-    const max = holders[0]?.percent || 1;
     const pct = el("td", "num", `${pctText(h.percent)}%`);
-    const bar = el("span", "pct-bar"), fill = el("span"); fill.style.width = `${Math.max(2, (h.percent / max) * 100)}%`; bar.append(fill); pct.append(bar);
+    const bar = el("span", "pct-bar"), fill = el("span"); fill.style.width = `${Math.min(100, Math.max(2, (h.percent / barMax) * 100))}%`; bar.append(fill); pct.append(bar);
     tr.append(el("td", h.rank ? null : "is-unranked", h.rank ? String(h.rank) : isTeam(h) ? "Team" : isLock(h) ? "Lock" : "Pool"), w, el("td", "num", fmt(h.amount)), pct);
     return tr;
   }
@@ -251,6 +254,7 @@
     if (lastSnap && d.full && d.updatedAt === lastSnap.at && d.count === lastSnap.count) { status.textContent = lastSnap.text; return; }
     lastSnap = null;
     holders = d.holders;
+    barMax = biggest(holders) || 1;
     show(holders, true);
     // the next pages, if any; a wallet seen twice (the server's snapshot moved on between two pages) is listed once
     const seen = new Set(holders.map((h) => h.owner));
@@ -263,6 +267,7 @@
       offset += page.holders.length;
       const fresh = page.holders.filter((h) => !seen.has(h.owner) && seen.add(h.owner));
       holders = holders.concat(fresh);
+      barMax = Math.max(barMax, biggest(fresh)); // never bigger than the first page's in the server's order; a bar never passes 100% anyway
       show(fresh, false);
     }
     loading = false;
@@ -344,8 +349,10 @@
     set("#rank-founder", amount >= FOUNDER_MAX ? "✓ Enough for any city (hold it 7 days)"
       : amount >= founderMin ? "✓ Enough for smaller cities (hold it 7 days)" : `${fmt(founderMin - amount)} to reach the smallest`);
     if ((d.team === true || d.lock === true) && !d.rank) { // a published team wallet or the team lock: what it holds, but no rank (no "Rank" line at all), no meter, no wallet to pass, no founder amount
+      // a team wallet with a name of its own says it ("Team wallet (FOMO): …"), as its tag in the list does; "(public)" is not repeated
+      const named = typeof d.label === "string" && /^Team wallet \((?!public\)).+\)$/.test(d.label) ? d.label : "Team wallet";
       set("#rank-pct", d.lock === true ? "Team lock: the team's $VICINITY on Jupiter Lock, labeled in the list. Ranks are for people only."
-        : "Team wallet: published by Vicinity and labeled in the list. Ranks are for people only.");
+        : `${named}: published by Vicinity and labeled in the list. Ranks are for people only.`);
       set("#rank-founder", "—"); $("#rank-bar").hidden = true; extraFacts(false);
     }
     else if (d.label && !d.rank) { // a pool or curve: no rank, no wallet to pass, not a founder

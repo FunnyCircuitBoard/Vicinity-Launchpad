@@ -52,7 +52,7 @@
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
  * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional); the swap and launchpad cluster settings in src/cluster.js.
  */
-import { activeMint, checkOfficial, marketLink, officialFor, withMint } from "./official.js";
+import { activeMint, checkOfficial, marketLink, officialFor, teamWalletLabel, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
 import { SHOW_STALE_MS, getHolding, getTokenFacts, getTopHolders, holderSnapshot, isTeamLock, isTeamWallet, rankOf, rankWithAmount } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
@@ -203,7 +203,9 @@ async function rankResponse(env, mint, address, fetchImpl) {
   } catch { /* fall back to the balance alone */ }
   try {
     const amount = await getHolding(env, address, mint, fetchImpl);
-    return json({ launched: true, full: false, address, amount, rank: null, total: null, team: isTeamWallet(address), ...(isTeamLock(address) ? { lock: true } : {}), founderMin, updatedAt: new Date().toISOString() });
+    // a team wallet's label rides along (the rank check names "Team wallet (FOMO)" from it, list or no list)
+    const team = isTeamWallet(address);
+    return json({ launched: true, full: false, address, amount, rank: null, total: null, team, ...(team ? { label: teamWalletLabel(address) } : {}), ...(isTeamLock(address) ? { lock: true } : {}), founderMin, updatedAt: new Date().toISOString() });
   } catch {
     return json({ launched: true, error: "chain_unavailable" }, 503);
   }

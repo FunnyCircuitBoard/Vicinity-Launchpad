@@ -36,9 +36,10 @@ async function asTeam(address, fn) {
 test("the holder snapshot: the team wallet is listed and labelled but has no rank; people are ranked 1, 2, 3 under it and only they are counted", async () => {
   holders();
   const snap = await holderSnapshot(env, MINT, chain());
+  // the pool shown first, then the team wallet, though the team wallet holds more (the owner, 13 Oct 2026: test/team-order.test.js)
   assert.deepEqual(snap.rows.map((r) => [r.owner, r.rank, r.label]), [
-    [TEAM, null, "Team wallet (public)"],
     [POOL, null, "Pool or program account"],
+    [TEAM, null, "Team wallet (public)"],
     [A, 1, null], [B, 2, null], [C, 3, null],
   ]);
   assert.equal(snap.people, 3, "of 3 holders: neither the pool nor the team wallet is a person");
@@ -67,7 +68,7 @@ test("/api/holders and /api/rank: the team wallet's row has no rank, the total c
   const list = await b.get("/api/holders");
   assert.deepEqual([list.total, list.count], [3, 5]);
   assert.deepEqual(list.holders.map((h) => h.rank), [null, null, 1, 2, 3], "today's #2 is #1");
-  assert.equal(list.holders[0].label, "Team wallet (public)");
+  assert.deepEqual(list.holders.slice(0, 2).map((h) => [h.owner, h.label]), [[POOL, "Pool or program account"], [TEAM, "Team wallet (public)"]], "the pool, then the team wallet");
   const team = await b.get(`/api/rank?address=${TEAM}`);
   assert.deepEqual([team.rank, team.total, team.team, team.next, team.percentile, team.amount, team.label], [null, 3, true, null, null, 5_000_000, "Team wallet (public)"]);
   const top = await b.get(`/api/rank?address=${A}`);
@@ -96,7 +97,8 @@ test("the top-20 fallback (an RPC that cannot list every holder) ranks the same 
     throw new Error("unexpected " + method);
   };
   const { holders: top } = await getTopHolders({}, MINT, rpc);
-  assert.deepEqual(top.map((h) => [h.owner, h.rank, h.label]), [[TEAM, null, "Team wallet (public)"], [CURVE, null, "Raydium LaunchLab curve"], [A, 1, null], [B, 2, null]]);
+  // in the full list's order: the curve, then the team wallet (which holds more), then people
+  assert.deepEqual(top.map((h) => [h.owner, h.rank, h.label]), [[CURVE, null, "Raydium LaunchLab curve"], [TEAM, null, "Team wallet (public)"], [A, 1, null], [B, 2, null]]);
 });
 
 test("/api/me for a member whose wallet is a team wallet: no rank, no Top 10 / Top 100, no 'balance dropped' notice, not on the city's board", async () => {

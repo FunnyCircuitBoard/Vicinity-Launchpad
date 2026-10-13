@@ -4,13 +4,13 @@
 // to the team wallet; nobody can cancel it or change who receives it. Pinned here: the official entry (src/official.js teamLocks) and
 // /api/official, the checker's verdict, the holder list's "Team lock (Jupiter Lock)" label (never ranked, never a person), the rank
 // check, the Founding Supporter snapshot leaving it out, and the token page's "60M team tokens locked" card, holder row and rank pop-up
-// (the built page with the real public/token.js on test/helpers/pagedom.js).
+// (the built page with the real public/token.js on test/helpers/pagedom.js, through test/helpers/tokenpage.js).
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import vm from "node:vm";
 import { MINT, browser, chain, newWorld, realClock, setHolding, useClock } from "./helpers/world.js";
-import { newEvent, openPage } from "./helpers/pagedom.js";
+import { newEvent } from "./helpers/pagedom.js";
+import { tokenPage } from "./helpers/tokenpage.js";
 import { OFFICIAL, VICINITY_LAUNCHED, checkOfficial } from "../src/official.js";
 import { _resetSnapshots, getTopHolders, holderSnapshot, isOnCurve, isTeamLock, isTeamWallet, publishHolders, rankOf } from "../src/chain.js";
 import { computeSnapshot } from "../src/snapshot.js";
@@ -96,14 +96,15 @@ function holders() {
 test("the holder list: the lock is labelled 'Team lock (Jupiter Lock)', never ranked, and not counted as a person", async () => {
   holders();
   const snap = await holderSnapshot(env, MINT, chain());
+  // shown pool first, then the lock, then the team wallet, though the lock holds the most (the owner, 13 Oct 2026: test/team-order.test.js)
   assert.deepEqual(snap.rows.map((r) => [r.owner, r.rank, r.label]), [
+    [POOL, null, "Pool or program account"],
     [LOCK, null, LABEL],
     [TEAM, null, "Team wallet (public)"],
-    [POOL, null, "Pool or program account"],
     [A, 1, null], [B, 2, null],
   ]);
   assert.equal(snap.people, 2, "of 2 holders: the lock, the team wallet and the pool are not people");
-  assert.equal(snap.rows[0].percent, 6, "6% of the 1,000,000,000 supply");
+  assert.equal(snap.byOwner.get(LOCK).percent, 6, "6% of the 1,000,000,000 supply");
   assert.ok(isTeamLock(LOCK) && !isTeamLock(TEAM) && !isTeamLock(A));
   assert.ok(!isTeamWallet(LOCK), "a lock is not a wallet anyone can sign for");
 });
@@ -194,32 +195,7 @@ test("the token page's 'No rug pull' grid: a '60M team tokens locked' card after
   assert.ok(read("public/polish.css").includes("#team-lock-live a { display: inline-block; padding: 12px 0; margin: -12px 0; }"));
 });
 
-/** The built token page with the real token.js: `official` is what /api/official answers (a promise), `list` the holder rows. */
-async function tokenPage({ official, list, rank = {}, now = "2026-10-13T20:00:00Z" }) {
-  const page = await openPage("token.html");
-  const win = page.window, frames = [];
-  const T = Date.parse(now);
-  win.Date = class extends Date { constructor(...a) { super(...(a.length ? a : [T])); } static now() { return T; } };
-  win.location = { hash: "", search: "", pathname: "/token", href: "https://vicinity.city/token" };
-  win.requestAnimationFrame = (f) => frames.push(f);
-  Object.assign(win, { scrollX: 0, scrollY: 0, innerHeight: 800, scrollTo() {} });
-  const answer = (path) => {
-    const p = String(path).split("?")[0];
-    if (p === "/api/token") return { launched: true, registry: [], facts: { mint: VICINITY, program: "SPL Token", decimals: 6, supply: 1e9, mintAuthority: null, freezeAuthority: null, mintingDisabled: true, freezingDisabled: true, mintHeldByProgram: false }, price: null };
-    if (p === "/api/holders") return list === null ? { launched: true, error: "chain_unavailable" }
-      : { launched: true, mint: VICINITY, supply: 1e9, total: list.filter((h) => h.rank).length, count: list.length, full: true, holders: list, more: false, updatedAt: "2026-10-13T19:59:00Z" };
-    if (p === "/api/rank") return rank[new URL(path, "https://x").searchParams.get("address")];
-    return { ok: true };
-  };
-  win.fetch = async (path) => { const body = answer(path); return { ok: true, status: 200, json: async () => body }; };
-  win.V.official = official;
-  const pop = page.$("#rank-pop"); pop.showModal = () => { pop.open = true; }; pop.close = () => { pop.open = false; };
-  vm.runInContext(read("public/token.js"), win, { filename: "public/token.js" });
-  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); while (frames.length) frames.shift()(); };
-  await settle();
-  const rowOf = (owner) => page.$$("#holders-body tr").find((tr) => tr.dataset.owner === owner);
-  return { page, settle, rowOf, $: page.$ };
-}
+// the built token page with the real token.js (test/helpers/tokenpage.js): `official` is what /api/official answers, `list` the holder rows
 const LIST = [
   { owner: LOCK, amount: 60_000_000, percent: 6, rank: null, label: LABEL },
   { owner: TEAM, amount: 30_459_975.105287, percent: 3.05, rank: null, label: "Team wallet (public)" },

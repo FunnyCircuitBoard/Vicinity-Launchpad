@@ -34,10 +34,11 @@ export const OFFICIAL = {
   tokenContract: VICINITY_MINT,
   // Every wallet the team controls, listed publicly. 13qRam…sRiN is the owner's wallet: it created $VICINITY on Raydium
   // LaunchLab on 3 Oct 2026 (its buy was in the creation transaction) and is the site's admin wallet; listed at the owner's
-  // request on 5 Oct 2026. Listed wallets are labelled "Team wallet (public)" in the holder list, the checker calls them
-  // official team wallets, and they are left out of the Founding Supporter snapshot.
+  // request on 5 Oct 2026. Listed wallets are labelled "Team wallet (public)" in the holder list and listed right after the
+  // pools and the team lock (src/chain.js holderOrder), the checker calls them official team wallets, and they are left out of
+  // the Founding Supporter snapshot.
   // 8dQ5Rb…CxP5 is the team's account for its FOMO profile, listed at the owner's request on 13 Oct 2026 (it then held about
-  // 5.8M $VICINITY and was ranked as a person until listed).
+  // 5.8M $VICINITY and was ranked as a person until listed). It is labelled "Team wallet (FOMO)" (TEAM_WALLET_NAMES below).
   teamWallets: ["13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN", "8dQ5Rb2Y7jYWCEgyKKVMrhboEgMFvFXKNZw1KBeCxP5"],
   // The team's locked tokens. On 13 Oct 2026 the team wallet above locked 60,000,000 $VICINITY on Jupiter Lock (escrow CnRn…ejB6 of
   // the Jupiter Lock program LocpQgucEQHbqNABEYvBvwoxCPsSbG91A1QaQhQQqjn, creation transaction XYkk74…cCgNf). Read on-chain the same
@@ -69,6 +70,18 @@ export const OFFICIAL = {
     { network: "Solana", name: "City coins (one per city)", symbol: "e.g. $UTICA", contract: null, platform: "Vicinity Launchpad", status: "Launching city by city" },
   ],
 };
+
+/**
+ * A team wallet's own name, for the ones that have one (the owner, 13 Oct 2026: "mention the fomo team wallet as fomo in
+ * [parenthesis]"): `tag` goes in the holder list's brackets ("Team wallet (FOMO)"), `what` in the checker's answer. Any other
+ * wallet of teamWallets is "Team wallet (public)". Kept apart from teamWallets, which stays a plain list of addresses.
+ */
+export const TEAM_WALLET_NAMES = {
+  "8dQ5Rb2Y7jYWCEgyKKVMrhboEgMFvFXKNZw1KBeCxP5": { tag: "FOMO", what: "the team's FOMO account" },
+};
+const teamWalletName = (address) => (Object.hasOwn(TEAM_WALLET_NAMES, address) ? TEAM_WALLET_NAMES[address] : null);
+/** The holder list's label for a team wallet: "Team wallet (FOMO)" for a named one, "Team wallet (public)" for the rest. */
+export const teamWalletLabel = (address) => `Team wallet (${teamWalletName(address)?.tag || "public"})`;
 
 const clean = (s) => String(s || "").trim().slice(0, 300);
 /** "April 13, 2027": the day of a UTC time, in words. */
@@ -117,8 +130,10 @@ export function checkOfficial(input, isSolanaAddress, env) {
   if (isSolanaAddress(raw)) {
     if (OFFICIAL.tokenContract && raw === OFFICIAL.tokenContract)
       return { verdict: "official", kind: "contract", message: "This is the official $VICINITY contract address." };
-    if (OFFICIAL.teamWallets.includes(raw))
-      return { verdict: "official", kind: "wallet", message: "This is a published Vicinity team wallet." };
+    if (OFFICIAL.teamWallets.includes(raw)) {
+      const name = teamWalletName(raw);
+      return { verdict: "official", kind: "wallet", message: `This is a published Vicinity team wallet${name ? ` (${name.what})` : ""}.` };
+    }
     const lock = (OFFICIAL.teamLocks || []).find((l) => l.address === raw);
     if (lock) return { verdict: "official", kind: "lock", message: lockMessage(lock) };
     return {
