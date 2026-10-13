@@ -58,12 +58,19 @@ export function fakeWallet(name = "Phantom") {
   return { wallet, ctl };
 }
 
+/** Records every call to V.termsGate's two methods in `log`, then lets the real method run. */
+function spyTerms(gate, log) {
+  const { open, agreed } = gate;
+  gate.open = function (...a) { log.push(["open"]); return open.apply(this, a); };
+  gate.agreed = function (version, ...a) { log.push(["agreed", version]); return agreed.call(this, version, ...a); };
+}
+
 /**
  * openConnect({ ua, search, api, me, state, storage, session, agreed, geolocation }) → the page and the controls a test needs.
  *   api(path, body)  the server's answer to anything but /api/me, /api/health, /api/official and GET /api/signup/state (default { ok: true })
  *   me               merged into the /api/me answer (default: a visitor, sign-up v2, Google and e-mail on); a function: asked each time
  *   state            GET /api/signup/state's state (a value, or a function called each time)
- *   agreed           the Terms version already agreed in this browser (null: a first visit, the gate shows)
+ *   agreed           the Terms version already noted in this browser (null: a first visit)
  *   session          what this tab's sessionStorage already holds (a reloaded tab keeps it), or "throws" (storage blocked: every call throws)
  *   setup            ({ doc, win }) => void, run before the page's scripts (e.g. to give elements a layout, which this DOM has none of)
  *   net(path)        the network itself, asked before any request is answered: undefined = answer as usual, "offline" = the request fails
@@ -150,7 +157,15 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
     now = until; await flush();
   }
   if (setup) setup({ doc, win });
-  for (const f of ["site.js", "wallets.js", "connect.js"]) vm.runInContext(read(f), ctx, { filename: `public/${f}` });
+  // What the page told the Terms note (window.V.termsGate, site.js), in order: ["open"] or ["agreed", version]. There is no site-entry
+  // Terms modal any more (design v4); these calls still say which way connect.js and signup.js read the visit: an ordinary first visit
+  // ("open": the person agrees at sign-up), or an account whose Terms count in this browser ("agreed": noted here). A spy on the real
+  // object, so site.js's own part (noting the version) still runs.
+  const terms = [];
+  for (const f of ["site.js", "wallets.js", "connect.js"]) {
+    vm.runInContext(read(f), ctx, { filename: `public/${f}` });
+    if (f === "site.js") spyTerms(win.V.termsGate, terms);
+  }
   const register = (w) => { for (const l of win.listeners.filter((x) => x.type === "wallet-standard:register-wallet")) l.fn({ detail: (a) => a.register(w) }); };
   for (const w of wallets) register(w);
   await flush();
@@ -159,7 +174,7 @@ export async function openConnect({ ua = UA.desktop, search = "", api = async ()
   const $ = (s) => doc.querySelector(s);
   const visible = (e) => Boolean(e && e.getClientRects().length);
   return {
-    doc, win, $, $$: (s) => doc.querySelectorAll(s), calls, assigned, replaced, addressBar, local, session, timers, flush, advance, register,
+    doc, win, $, $$: (s) => doc.querySelectorAll(s), calls, assigned, replaced, addressBar, local, session, timers, flush, advance, register, terms,
     get now() { return now; },
     /** The tab goes to the background (another app is in front) or comes back. */
     setHidden: async (h) => { hidden = h; if (!h) for (const l of doc.listeners.filter((x) => x.type === "visibilitychange")) l.fn.call(doc, newEvent("visibilitychange")); await flush(); },

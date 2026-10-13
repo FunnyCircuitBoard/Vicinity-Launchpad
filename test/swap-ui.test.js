@@ -363,7 +363,10 @@ const connectFirst = async (P) => { click(P.$(".swap__go")); await P.flush(); cl
 
 test("compact panel: answer first (the amounts, the summary line, the 10% box, the button, the wallet chooser it opens), then the footer and 'Price details' with the slippage, its help and the details folded", async () => {
   const P = await page({ answers: { "/api/swap/config": CONFIG, "/api/swap/quote": QUOTE() } });
-  assert.deepEqual(kidsOf(P.slot), ["swap__head", "swap__note", "swap__box", "swap__picker", "swap__status", "swap__warn", "swap__go", "swap__wallets", "swap__again", "swap__links", "swap__foot", "swap__more"], "status, then the 10% box, then the button, right under the amounts (its wallet chooser, then 'Try again' when a price did not load)");
+  assert.deepEqual(kidsOf(P.slot), ["swap__head", "swap__note", "swap__box", "swap__picker", "swap__status", "swap__warn", "swap__go", "swap__wallets", "swap__again", "swap__links", "swap__foot", "swap__terms", "swap__more"], "status, then the 10% box, then the button, right under the amounts (its wallet chooser, then 'Try again' when a price did not load)");
+  // the Terms of Use where every trade is made (design v4 removed the site-entry pop-up: a buyer without an account meets them here)
+  assert.equal(text(P.$(".swap__terms")), "By trading here you agree to the Terms of Use.");
+  assert.equal(P.$(".swap__terms a").getAttribute("href"), "/terms");
   const more = P.$(".swap__more");
   assert.deepEqual([more.tagName, more.hasAttribute("open")], ["DETAILS", false], "folded");
   assert.equal(P.$(".swap__more > .swap__more-sum").tagName, "SUMMARY");

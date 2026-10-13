@@ -26,16 +26,17 @@ test("main buttons: white text on every stop of their gradient reads at 4.5:1 or
   assert.doesNotMatch(css, /linear-gradient\(135deg, var\(--pin\), #FF7A45\)/, "the old light orange is gone from white-text buttons");
 });
 
-test("the accent headlines (gradient text): every stop of the light theme's gradient reads at 3:1 or more on the light page (large text)", () => {
-  // the contrast sweep skips gradient text (its fill is transparent), so the stops are checked here (review VUX-06: #D99A1A was 2.26:1)
-  const light = css.slice(css.indexOf(':root[data-theme="light"] {'));
-  const tok = (name) => new RegExp(`${name}: (#[0-9A-Fa-f]{6})`).exec(light)[1];
-  const gold = /:root\[data-theme="light"\] \.accent \{ --gold: (#[0-9A-Fa-f]{6}); \}/.exec(css)?.[1];
-  assert.ok(gold, "the light theme gives .accent its own gold stop");
-  for (const [name, hex] of [["--pin", tok("--pin")], ["--pin-2", tok("--pin-2")], [".accent --gold", gold]]) {
-    for (const bg of ["#F4F6FA", "#FFFFFF"]) assert.ok(ratio(hex, bg) >= 3, `${name} ${hex} on ${bg}: ${ratio(hex, bg).toFixed(2)}:1`);
-  }
-  assert.match(css, /\.accent \{ background-image: linear-gradient\(100deg, var\(--pin\) 5%, var\(--gold\) 45%, var\(--pin-2\) 72%, var\(--gold\) 95%\);/, "the moving gradient uses the same three stops");
+test("the accent headlines (gradient text): every stop of each theme's accent gradient reads at 3:1 or more on its page (large text)", () => {
+  // the contrast sweep skips gradient text (its fill is transparent), so the stops are checked here (review VUX-06: #D99A1A was 2.26:1).
+  // Design v4: .accent is still (no colour shift any more) and reads one token, --grad-accent, set per theme.
+  const at = css.indexOf(':root[data-theme="light"] {'), dark = css.slice(0, at), light = css.slice(at);
+  const stops = (block) => { const g = /--grad-accent: linear-gradient\(100deg, ([^;]+)\);/.exec(block); assert.ok(g, "the theme sets --grad-accent"); return [...g[1].matchAll(/#[0-9A-Fa-f]{6}/g)].map((m) => m[0]); };
+  const lightStops = stops(light), darkStops = stops(dark);
+  assert.equal(lightStops.length, 3); assert.equal(darkStops.length, 3);
+  for (const hex of lightStops) for (const bg of ["#F4F6FA", "#FFFFFF"]) assert.ok(ratio(hex, bg) >= 3, `light ${hex} on ${bg}: ${ratio(hex, bg).toFixed(2)}:1`);
+  for (const hex of darkStops) for (const bg of ["#060C17", "#0A1322"]) assert.ok(ratio(hex, bg) >= 3, `dark ${hex} on ${bg}: ${ratio(hex, bg).toFixed(2)}:1`);
+  assert.match(css, /\.accent \{ background-image: var\(--grad-accent\); -webkit-background-clip: text; background-clip: text; color: transparent; \}/, "the headline words use that one gradient");
+  assert.match(css, /@media \(forced-colors: active\) \{ \.text-ink, \.accent \{ background: none; color: CanvasText; \} \}/, "and read as plain text in forced colours");
 });
 
 test("the example dashboard's smallest text reads clearly: the 'Your community' kicker and the coin's label", () => {
@@ -63,12 +64,33 @@ test("the small text that carries each number's source, age and reason reads at 
   }
 });
 
-test("the light theme's 'Open' chip beside Launchpad in the header reads at 4.5:1 or more on its green tint", () => {
-  // measured in Chromium at 1280 px after the opening (final check of 10 Oct 2026): the chip's tint over the header is #DCEAE7, and the
-  // light --ok-text #0F7A59 read 4.29:1 there (12 px bold is normal text: AA needs 4.5:1)
-  const polish = readFileSync(new URL("../public/polish.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-  const hex = /\n:root\[data-theme="light"\] \.nav__open \{ color: (#[0-9A-Fa-f]{6}); \}/.exec(polish)?.[1];
-  assert.ok(hex, "the light theme gives the header's Open chip its own darker green");
-  for (const bg of ["#DCEAE7", "#E8F6F2", "#FFFFFF"]) assert.ok(ratio(hex, bg) >= 4.5, `${hex} on ${bg}: ${ratio(hex, bg).toFixed(2)}:1`);
-  assert.match(css, /\n\.nav__open \{[^}]*background: var\(--ok-soft\); color: var\(--ok-text\);/, "the chip keeps its tint in both themes (the dark theme's --ok-text is unchanged)");
+test("the floating header's links and labels read at 4.5:1 or more on its glass, in both themes, at rest and scrolled", () => {
+  // design v4: the header is translucent glass (--glass-bg, then --glass-bg-strong once the page scrolls) over the page; its links and Log
+  // in are --muted and --text-2. The glass is composited over --bg (what is under the header at the top of every page). The header's
+  // "Oct 10 / Open" launch chip is gone (the Launchpad opened on 10 Oct), and its contrast pin with it.
+  const at = css.indexOf(':root[data-theme="light"] {');
+  const hexOf = (b, n) => new RegExp(`${n}: (#[0-9A-Fa-f]{6})`).exec(b)[1];
+  const rgbaOf = (b, n) => { const m = new RegExp(`${n}: rgba\\((\\d+),(\\d+),(\\d+),(\\.\\d+)\\)`).exec(b); assert.ok(m, n); return m.slice(1).map(Number); };
+  const over = ([r, g, b, a], bg) => { const n = parseInt(bg.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255]; return "#" + [r, g, b].map((v, i) => Math.round(v * a + c[i] * (1 - a)).toString(16).padStart(2, "0")).join(""); };
+  for (const [name, b] of [["dark", css.slice(0, at)], ["light", css.slice(at)]]) {
+    const bg = hexOf(b, "--bg");
+    for (const glass of ["--glass-bg", "--glass-bg-strong"]) {
+      const surface = over(rgbaOf(b, glass), bg);
+      for (const text of ["--muted", "--text-2", "--text"]) assert.ok(ratio(hexOf(b, text), surface) >= 4.5, `${name} ${text} on ${glass} (${surface}): ${ratio(hexOf(b, text), surface).toFixed(2)}:1`);
+    }
+  }
+  assert.doesNotMatch(css, /\.nav__open|\.nav__soon/, "no launch chip in the header any more");
+});
+
+test("form fields: their border reads 3:1 or more on the page, a card and an opaque layer, in both themes (WCAG 1.4.11)", () => {
+  // design v4 review: a --line-2 border (.14) measured 1.44:1 (dark) and 1.35:1 (light), so inputs vanished as components
+  const at = css.indexOf(':root[data-theme="light"] {');
+  const alpha = (b) => Number(/--field-line: rgba\(.*?,(\.\d+)\);/.exec(b)[1]);
+  const over = (ink, a, bg) => { const n = parseInt(bg.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255]; return "#" + c.map((v, i) => Math.round(ink[i] * a + v * (1 - a)).toString(16).padStart(2, "0")).join(""); };
+  for (const bg of ["#060C17", "#0A1322", "#0F1C31"]) { const line = over([255, 255, 255], alpha(css.slice(0, at)), bg); assert.ok(ratio(line, bg) >= 3, `dark field line on ${bg}: ${ratio(line, bg).toFixed(2)}:1`); }
+  for (const bg of ["#F4F6FA", "#FFFFFF", "#EEF2F7"]) { const line = over([11, 22, 38], alpha(css.slice(at)), bg); assert.ok(ratio(line, bg) >= 3, `light field line on ${bg}: ${ratio(line, bg).toFixed(2)}:1`); }
+  for (const sel of [".su-field input {", ".lp-search input {", ".lp-field select {", ".find-box {", ".prof-search input {", ".snap-lookup input {"]) {
+    const rule = css.slice(css.indexOf(sel), css.indexOf("}", css.indexOf(sel)));
+    assert.match(rule, /border: 1px solid var\(--field-line\)/, sel);
+  }
 });

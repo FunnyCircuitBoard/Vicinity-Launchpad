@@ -5,7 +5,7 @@
 // lines that moved into folds are still on the page; no emoji as icons in those pages' sources; the 404 is one calm empty state.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 // each page and its own sheet
@@ -75,6 +75,9 @@ test("motion: the live strip moves only for those who want motion, stops on hove
   const strip = lp.slice(lp.indexOf('<div class="lp-live" id="lp-live">'), lp.indexOf("</div>", lp.indexOf('id="lp-live-track"')));
   assert.doesNotMatch(strip, /aria-live/, "a moving strip is never a live region");
   assert.match(lp, /<button class="lp-live__pause" type="button" id="lp-live-pause" aria-pressed="false" aria-label="Pause animations">/);
+  // design v4 took the footer's Pause away: the strip's own button pauses it by itself, and paused it stands still
+  assert.match(read("public/launchpad.js"), /pause\.addEventListener\("click", \(\) => \{ const r = document\.documentElement; if \(r\.dataset\.motion === "paused"\) delete r\.dataset\.motion; else r\.dataset\.motion = "paused"; sync\(\); \}\);/);
+  assert.match(CSS, /:root\[data-motion="paused"\] \.lp-live\.is-marquee \.lp-live__track \{ animation: none; width: auto;/);
   assert.match(CSS, /\.lp-live__pause \{[^}]*width: 44px; height: 44px;/);
   const js = read("public/launchpad.js");
   assert.match(js, /setAttribute\("aria-hidden", "true"\)/); assert.match(js, /\.inert = true/);
@@ -84,11 +87,30 @@ test("the honest lines that moved into folds are still on the page, word for wor
   const lp = read("public/launchpad.html"), coin = read("public/coin.html"), token = read("public/token.html"), connect = read("public/connect.html");
   assert.ok(lp.includes("Powered by Jupiter") && lp.includes("Vicinity never touches your funds"), "the Launchpad's trust line, visible above its sources fold");
   assert.match(coin, /<p class="coin-foot coin-head__safe">You trade in your own wallet\. Vicinity never touches your funds\.<\/p>/, "under the coin page's one Buy");
+  // design v4: the trust line keeps the attribution and the non-custody fact, and drops the risk warning (the Terms carry it)
+  assert.match(coin, /<p class="coin-trust">Powered by Jupiter · Vicinity never touches your funds<\/p>/);
+  const sources = read("public/coin.js").match(/function paintSources\(d\) \{[\s\S]*?\n  \}/)[0];
+  assert.match(sources, /parts\.push\(el\("span", null, "Price history in USD: read by vicinity\.city every 10 minutes"\)\);\n    p\.replaceChildren/, "the sources line ends with where the history comes from");
   assert.ok(token.includes("Price: Jupiter (Powered by Jupiter)."), "the token facts name their sources");
   assert.match(connect, /<details class="fold su-keep"[^>]*>\s*<summary>What we keep and who sees it/, "the consent facts are one fold with its summary");
   const terms = read("public/terms.html");
   assert.match(terms, /Updated October 1, 2026 · Version 2026-10-01/);
   assert.ok((terms.match(/<details class="terms-sec"/g) || []).length >= 8, "the Terms read as folds");
+});
+
+test("no risk warning in the page chrome, pop-ups or scripts (design v4, the owner's ask): only the Terms of Use say it", () => {
+  const RISK = /financial advice|afford to lose|very risky|can go to zero/i;
+  for (const f of readdirSync(new URL("../public/", import.meta.url)).filter((x) => /\.(html|js)$/.test(x))) {
+    let h = read(`public/${f}`);
+    // the Terms of Use are the owner's document (R4). His #63 took the short warning line out of their top; their own risk
+    // clause (Section 13's "at your sole risk") is what carries it now, and it must stay
+    if (f === "terms.html") { assert.match(h, /your use of the Services is at your sole risk\./, "the Terms keep their own risk clause (R4)"); continue; }
+    // the home page's FAQ question is the home track's to drop (SPEC §4 row 7); nothing else on that page says it
+    if (f === "index.html") h = h.replace(/<details><summary>Is this financial advice\?<\/summary><p>[^<]*<\/p><\/details>/, "");
+    assert.doesNotMatch(h, RISK, f);
+  }
+  // a transaction's own facts are not disclaimers: they stay where the money moves
+  assert.match(read("public/swap.js"), /You sign in your own wallet; Vicinity never touches your funds\$\{feeBps \? ` and takes a \$\{\(feeBps \/ 100\)\.toString\(\)\}% platform fee` : " and takes no fee"\}/);
 });
 
 test("icons, not emoji: the pages' sources carry no pictographic emoji", () => {
@@ -102,11 +124,12 @@ test("icons, not emoji: the pages' sources carry no pictographic emoji", () => {
   assert.match(read("public/polish-map.css"), /\.mod-row__icon \{ --ico-mask: url\("data:image\/svg\+xml,/);
 });
 
-test("404: one calm empty state with the pin, the line, Home and Cities, and the link checker kept", () => {
+test("404: one calm empty state with the pin, the line, Home and Live map, and the link checker kept", () => {
   for (const h of [read("public/404.html"), read("scripts/pages/src/404.html")]) {
     assert.match(h, /<div class="empty notfound__box">\s*<span class="ico notfound__ico" aria-hidden="true"><svg [^>]*><path d="M12 21s-6\.5-5\.6-6\.5-11a6\.5 6\.5 0 0 1 13 0c0 5\.4-6\.5 11-6\.5 11z"\/>/);
     assert.match(h, /<h1 class="notfound__title">This page isn't on the map\.<\/h1>/);
-    assert.match(h, /<a class="btn btn--primary" href="\/">Home<\/a>\s*<a class="btn btn--glass" href="\/cities">Cities<\/a>/);
+    // the map has one name everywhere: "Live map" (the header, the 404, the page title); the phone tab bar's "Map" is its short form
+    assert.match(h, /<a class="btn btn--primary" href="\/">Home<\/a>\s*<a class="btn btn--glass" href="\/cities">Live map<\/a>/);
     assert.match(h, /Check it with the <a href="\/token#check">official link checker<\/a>\./);
   }
 });
@@ -143,4 +166,29 @@ test("cities: the map's scale bar clears whichever card holds the slot, and the 
     assert.match(h, /<form class="map-find" id="map-find" role="search" aria-label="Find your city" data-fb-avoid>/);
     assert.match(h, /<div class="citymap__stage" id="city-stage" data-crosshair="off" data-world-fit="0" data-fb-avoid>/, "a phone: the feedback button never sits on the map (feedback.js AVOID honours data-fb-avoid)");
   }
+});
+
+test("cities: the map carries its data credit (R2) in a bottom corner, full screen too, clear of the controls, the slot and the scale bar", () => {
+  for (const h of [read("public/cities.html"), read("scripts/pages/src/cities.html")]) {
+    const stage = h.slice(h.indexOf('<div class="citymap__stage" id="city-stage"'), h.indexOf('<p class="citymap__legend">'));
+    // inside the stage (it goes full screen with it), the last thing in it (the keyboard reaches it after the map's own controls)
+    assert.match(stage, /<p class="map-attrib"><a href="https:\/\/www\.openstreetmap\.org\/copyright" target="_blank" rel="noopener" title="Map data © OpenStreetMap contributors">© OpenStreetMap<span class="sr-only"> contributors \(opens in a new tab\)<\/span><\/a><span aria-hidden="true">·<\/span><a href="\/credits" title="Data sources and licences">Data<span class="sr-only"> sources and licences<\/span><\/a><\/p>\n          <\/div>\n/);
+  }
+  const rule = (sel) => { const m = CSS.match(new RegExp(`(^|\\n)${sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\{([^}]*)\\}`)); assert.ok(m, sel); return m[2]; };
+  // over the canvases, under the slot (find 4, card 2), the controls (3) and their menu
+  assert.match(rule(".map-attrib"), /position: absolute; z-index: 1; left: 8px; bottom: calc\(var\(--slot-h, 134px\) \+ 48px\);/, "a phone, a picked city: above the scale bar on the left (the controls run down the right)");
+  assert.match(rule(".map-attrib"), /font: 500 var\(--fs-xs, \.75rem\)\/1 var\(--body\); white-space: nowrap;/, "the type floor, one line");
+  assert.match(rule(".map-attrib"), /background: var\(--glass\); background: color-mix\(in srgb, var\(--bg\) 72%, transparent\); color: var\(--text-2\);/, "readable over any land, water or dot (measured 6.7:1 and more)");
+  assert.match(CSS, /#city-stage\[data-crosshair="off"\] \.map-attrib \{ bottom: 74px; \}/, "a phone, the find view: just above the pill");
+  assert.match(CSS, /@media \(pointer: coarse\) \{ \.map-attrib a::after \{ content: ""; position: absolute; inset: -12px -6px; \} \}/, "a 44 px tall hit area for a finger");
+  assert.match(CSS, /@media \(min-width: 720px\) \{\n  \.map-attrib \{ left: auto; right: 8px; bottom: 8px; \}\n  #city-stage\[data-crosshair="off"\] \.map-attrib \{ bottom: 72px; \}\n\}/, "a computer: the bottom-right corner, above the find bar when the stage is narrow");
+  assert.match(CSS, /@container \(min-width: 960px\) \{ #city-stage\[data-crosshair="off"\] \.map-attrib \{ bottom: 8px; \} \}/, "beside the centred find bar once there is room");
+  // full screen covers the floating header and the tab bar (the hero's isolated layer would keep the stage under them)
+  assert.match(CSS, /html\.map-is-full #cities\.page-hero \{ isolation: auto; \}/);
+  // a tap on it is never taken as a drag of the map
+  assert.match(read("public/cities.js"), /\.closest\("\.map-ctrl, \.map-focus, \.map-find, \.map-exit, \.map-hint, \.map-attrib"\)/);
+});
+
+test("/cities: the map's \"How to use the map\" fold is a finger's 44 px tall (integration QA: it was 40)", () => {
+  assert.match(read("public/pages-cities.css"), /#cities \.citymap__howto > summary \{ min-height: 44px; /);
 });

@@ -49,6 +49,9 @@
 .swap__links { margin: 0; font-size: var(--fs-xs, .75rem); color: var(--muted); min-height: 0; }
 .swap__links:empty { display: none; }
 .swap__foot { margin: 0; font-size: var(--fs-xs, .75rem); line-height: 1.45; }
+.swap__terms { margin: -4px 0 0; font-size: var(--fs-xs, .75rem); line-height: 1.45; }
+.swap__terms a { color: inherit; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.swap__terms a:hover { color: var(--text); text-decoration-color: currentColor; }
 
 /* "Price details": the same look as the site's .fold, under this sheet's own class (swap.css is loaded alone on some pages) */
 .swap__more { border-top: 1px solid var(--line); }

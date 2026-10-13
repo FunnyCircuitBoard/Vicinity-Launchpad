@@ -1,9 +1,10 @@
-// Dark / light theme, and the visitor's "Pause animations" choice. Loaded in <head> (not deferred), so the page never flashes the
-// wrong theme and a paused page never starts moving.
-// Dark by default: a first visit is dark whatever the device setting says (the owner, 6 Oct 2026). The header toggle switches to
-// light and remembers the choice on this device; a stored choice always wins.
+// Dark / light theme. Loaded in <head> (not deferred), so the page never flashes the wrong theme.
+// Dark by default: a first visit is dark whatever the device says (the owner, 6 Oct 2026). A theme toggle (the header's; the footer's on a
+// phone) switches to light and remembers the choice on this device; a stored choice always wins. Every [data-theme-toggle] stays in step.
+// Motion: nothing on the site loops any more (design v4, 12 Oct 2026), so the old "Pause animations" switch is gone; the device's
+// "reduce motion" setting is the visitor's control. The choice it used to store is forgotten once, and data-motion is never set again.
 (() => {
-  const KEY = "vicinity-theme", MOTION = "vicinity-motion";
+  const KEY = "vicinity-theme";
   const root = document.documentElement;
   const read = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
   const write = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch {} };
@@ -23,33 +24,21 @@
 
   apply(read(KEY) === "light" ? "light" : "dark");
 
-  // "Pause animations" (footer, every page): stops every looping animation of the site at once (WCAG 2.2.2), remembered on this
-  // device. style.css stops them under :root[data-motion="paused"]; site.js treats it like a reduced-motion setting.
-  function motion(paused) {
-    if (paused) root.dataset.motion = "paused"; else delete root.dataset.motion;
-    document.querySelectorAll("[data-motion-toggle]").forEach((b) => { b.textContent = paused ? "Play animations" : "Pause animations"; });
-  }
-  motion(read(MOTION) === "paused");
+  // the retired "Pause animations" choice: forgotten once (nothing reads it any more)
+  try { localStorage.removeItem("vicinity-motion"); } catch {}
 
   // A guest: this browser has never shown a signed-in page here (site.js remembers one, and so does the tabbed dashboard). Set before
-  // the first paint, so a page can hold the room of what a guest will see while it asks the server (style.css: the signed-out dashboard).
+  // the first paint, so a page can hold the room of what a guest will see while it asks the server (style.css: the signed-out dashboard,
+  // the header's Sign up).
   try { if (localStorage.getItem("vicinity-account") !== "1" && localStorage.getItem("vicinity:dash-v2") !== "1") root.dataset.guest = ""; } catch {}
 
   document.addEventListener("DOMContentLoaded", () => {
     apply(root.dataset.theme);
-    motion(root.dataset.motion === "paused");
     document.querySelectorAll("[data-theme-toggle]").forEach((b) =>
       b.addEventListener("click", () => {
         const next = root.dataset.theme === "light" ? "dark" : "light";
         write(KEY, next);
         apply(next);
-      }));
-    document.querySelectorAll("[data-motion-toggle]").forEach((b) =>
-      b.addEventListener("click", () => {
-        const paused = root.dataset.motion !== "paused";
-        write(MOTION, paused ? "paused" : null);
-        motion(paused);
-        window.dispatchEvent(new CustomEvent("vicinity:motion", { detail: paused ? "paused" : "on" }));
       }));
   });
 })();

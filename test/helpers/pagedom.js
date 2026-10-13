@@ -261,15 +261,18 @@ export function parse(doc, html) {
 }
 
 /**
- * openPage("connect.html", { agreed, focus }) -> { doc, window, $, $$, press, storage }
+ * openPage("connect.html", { agreed, focus, me }) -> { doc, window, $, $$, press, storage, calls }
  *   agreed  what localStorage already holds for "vicinity_terms" (a returning visitor), or null for a first visit
- *   focus   a selector to put the keyboard on before site.js runs (something already focused when the gate opens)
- * Runs public/site.js on the page, then lets its first requests (/api/me, /api/official, /api/health) answer.
+ *   focus   a selector to put the keyboard on before site.js runs
+ *   me      what /api/me answers (default: a visitor)
+ * Runs public/site.js on the page, then lets its first requests (/api/me, /api/official, /api/health) answer. `calls` lists every
+ * request the page made: { path, body }.
  */
-export async function openPage(file, { agreed = null, focus = null } = {}) {
+export async function openPage(file, { agreed = null, focus = null, me = { ok: true, signedIn: false } } = {}) {
   const doc = new Doc();
   doc.append(...parse(doc, page(file)));
   const storage = new Map(agreed ? [["vicinity_terms", agreed]] : []);
+  const calls = [];
   const win = new Target();
   Object.assign(win, {
     document: doc,
@@ -277,8 +280,9 @@ export async function openPage(file, { agreed = null, focus = null } = {}) {
     localStorage: { getItem: (k) => (storage.has(k) ? storage.get(k) : null), setItem: (k, v) => storage.set(k, String(v)), removeItem: (k) => storage.delete(k) },
     matchMedia: () => ({ matches: false, addEventListener() {} }),
     URLSearchParams,
-    fetch: async (path) => {
-      const body = String(path).startsWith("/api/me") ? { ok: true, signedIn: false } : { ok: true };
+    fetch: async (path, init = {}) => {
+      calls.push({ path: String(path), body: init.body ? JSON.parse(init.body) : undefined });
+      const body = String(path).startsWith("/api/me") && !init.body ? me : { ok: true };
       return { ok: true, status: 200, json: async () => body };
     },
     CustomEvent: function CustomEvent(type, init) { return newEvent(type, { detail: init && init.detail }); },
@@ -307,5 +311,5 @@ export async function openPage(file, { agreed = null, focus = null } = {}) {
     }
     return ev;
   }
-  return { doc, window: win, $: (s) => doc.querySelector(s), $$: (s) => doc.querySelectorAll(s), press, storage };
+  return { doc, window: win, $: (s) => doc.querySelector(s), $$: (s) => doc.querySelectorAll(s), press, storage, calls };
 }

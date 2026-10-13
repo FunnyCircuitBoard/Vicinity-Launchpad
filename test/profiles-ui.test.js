@@ -318,7 +318,9 @@ test("the pages: noindex, the same menu, our own files only, nothing inline", ()
   assert.match(profileHtml, /<body data-page="profile">/);
   assert.deepEqual([...profileHtml.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]), ["theme", "site", "ticker", "profile", "feedback"]);
   const nav = profileHtml.match(/<nav class="nav"[\s\S]*?<\/nav>/)[0], tabs = profileHtml.match(/<nav class="tabbar"[\s\S]*?<\/nav>/)[0];
-  for (const n of [nav, tabs]) assert.deepEqual([...n.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ["/", "/token", "/cities", "/launchpad", "/dashboard"]);
+  // design v4: the header's four links and the phone tab bar's five tabs (test/site.test.js pins them on every main page)
+  assert.deepEqual([...nav.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ["/launchpad", "/cities", "/app", "/dashboard"]);
+  assert.deepEqual([...tabs.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ["/", "/launchpad", "/cities", "/token", "/dashboard"]);
   assert.match(profileHtml, /<span data-account-label>Log in<\/span>/);
   assert.doesNotMatch(profileHtml, /\sstyle="/); assert.doesNotMatch(profileHtml, /<style[\s>]/); assert.doesNotMatch(profileHtml, /\son[a-z]+="/); assert.doesNotMatch(profileHtml, /<script(?![^>]*\bsrc=)[^>]*>/);
   const loads = [...profileHtml.matchAll(/<(?:script|img|link|iframe|source)\b[^>]*>/g)].map((m) => m[0]);

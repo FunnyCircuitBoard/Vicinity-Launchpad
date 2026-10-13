@@ -122,7 +122,9 @@ test("the glass pill: one static marker, the last child of the tab list, hidden 
 /* ---------- motion only when it is welcome ---------- */
 test("reduced motion: the pill is set at once, the tabs never glide and the panel just shows; every slide, fade and breath is inside prefers-reduced-motion: no-preference", () => {
   assert.ok(motion, "a no-preference block");
-  assert.match(motion, /\.dv2 \.dtabs__ind::after \{ animation: ddLineBreath 4s steps\(16\) var\(--dur-3, 320ms\) infinite alternate var\(--lb-play, running\); \}/);
+  // design v4 (no Pause control, WCAG 2.2.2): one breath, then the line rests (it ran forever while "Pause animations" could stop it)
+  assert.match(motion, /\.dv2 \.dtabs__ind::after \{ animation: ddLineBreath 4s steps\(16\) var\(--dur-3, 320ms\) 1 alternate var\(--lb-play, running\); \}/);
+  assert.doesNotMatch(read("public/polish-dash.css"), /animation:[^;}]*\binfinite\b/, "nothing on the dashboard loops");
   assert.match(motion, /\.dv2 \.dtabs\.has-ind \.dtab \{ transition: color var\(--dur-3, 320ms\)/);
   assert.match(motion, /\.dv2\[data-dir="next"\] \.dpanel:not\(\[hidden\]\) \{ animation-name: ddPanelNext; \}/);
   assert.match(motion, /\.dv2\[data-dir="prev"\] \.dpanel:not\(\[hidden\]\) \{ animation-name: ddPanelPrev; \}/);

@@ -41,7 +41,7 @@ function children(h, start) {
 const startOf = (id) => { const i = html.indexOf(`id="${id}"`); assert.ok(i > 0, id); return html.lastIndexOf("<", i); };
 
 // The id-to-tab table (CONTRACT.md section 1): every id of the built dashboard page, each in exactly one place.
-const LAYOUT = ["main", "status", "termsgate", "termsgate-title", "termsgate-agree", "termsgate-decline", "toast"];
+const LAYOUT = ["main", "status", "toast"]; // design v4: no site-entry Terms modal (#termsgate) on any page any more
 const TABLE = {
   global: ["dash-skel", "dash-out", "dash-onboard", "ob-rank", "ob-rank-text", "ob-city", "ob-city-text", "ob-locate", "ob-nearby", "ob-error", "ob-enter",
     "proof-modal", "proof-title", "proof-wallets", "proof-none", "proof-transfer", "proof-code", "proof-sol", "proof-start", "proof-error", "proof-cancel",

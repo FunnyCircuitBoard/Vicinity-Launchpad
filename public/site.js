@@ -4,7 +4,8 @@
   "use strict";
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-  // less motion: the device asks for it, or the visitor pressed "Pause animations" in the footer (theme.js, before the first paint)
+  // less motion: the device asks for it (prefers-reduced-motion). The footer's "Pause animations" is gone (design v4: nothing loops), so
+  // theme.js never sets data-motion any more and the second half of this test is always false; it stays for the pages that still read it.
   const reducedNow = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "paused";
   const reduced = reducedNow();
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -20,7 +21,7 @@
   // the account that made it (connect.js, the wallet link). The old sign-up's /connect?carry=CODE is read the same way for a week
   // (such a link is now only a calm line). The code leaves the address bar before anything else runs or asks the server (no
   // history entry or Referer keeps it); connect.js redeems it through takeLink() / takeCarry(), once. A pairing (/connect?pair=)
-  // stays in the address bar (it is what the wallet app opened), but like the codes it holds the Terms gate back (below).
+  // stays in the address bar (it is what the wallet app opened).
   // A link code this tab KEPT (sessionStorage, written by signup.js while its screen is up, for an hour at most) is read the same
   // way when the address bar holds none: a reload inside the wallet app (pull-to-refresh) offers the same link again, and never
   // the sign-up (the owner's rule: nothing asks for a location or Google at the wallet stage).
@@ -33,9 +34,7 @@
     } catch { /* storage blocked: a reload is an ordinary visit */ }
     return null;
   };
-  // "Connect Phantom" / "Sign in with Phantom" (/connect?mode=login&with=phantom, opened inside the wallet app): the account behind it
-  // agreed to the Terms already, so the gate waits for the sign-in too (signup.js: agreed once it is in, open if it is not).
-  let carryCode = null, linkCode = null, deferGate = false;
+  let carryCode = null, linkCode = null;
   try {
     if (document.body.dataset.page === "connect") {
       const q = new URLSearchParams(location.search);
@@ -45,7 +44,6 @@
       // only a reload of the bare page (the code already left the address bar) shows the kept code again; anything else in the address
       // bar is a new intent ("Sign in with Phantom", a pairing, Log in) and the kept code is forgotten: it never hides what was asked for
       if (linkCode === null && carryCode === null) { if (!String(q)) linkCode = keptLink(); else try { sessionStorage.removeItem(LINK_KEY); } catch { /* blocked: nothing kept */ } }
-      deferGate = linkCode !== null || carryCode !== null || q.has("pair") || q.has("with");
       if (tidy) history.replaceState(history.state, "", location.pathname + (String(q) ? `?${q}` : "") + location.hash);
       // a phone opening a link code: the sign-up's hero never flashes before the question (onboard.css hides it until signup.js decides)
       if (linkCode !== null) document.documentElement.classList.add("has-link");
@@ -64,14 +62,17 @@
     t.hidden = false; document.body.classList.add("has-toast");
     clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; document.body.classList.remove("has-toast"); }, detail == null ? 3000 : 9000);
   };
+  /** A small celebration at (x, y) (a sign-up, a check-in, a buy that landed): eight accent dots spread out and fade in 600 ms (style.css
+   *  .burst; transform and opacity only). Nothing with reduced motion. */
   const burst = (x, y) => {
-    if (reduced) return;
-    for (let i = 0; i < 10; i++) {
-      const s = el("span", "burst", ["📍", "✨", "🔥", "🏅"][i % 4]);
+    if (reducedNow()) return;
+    for (let i = 0; i < 8; i++) {
+      const s = el("span", "burst");
+      s.setAttribute("aria-hidden", "true");
       s.style.left = `${x}px`; s.style.top = `${y}px`;
-      const a = Math.random() * Math.PI * 2, d = 50 + Math.random() * 70;
-      s.style.setProperty("--bx", `${Math.cos(a) * d}px`); s.style.setProperty("--by", `${Math.sin(a) * d}px`);
-      document.body.append(s); setTimeout(() => s.remove(), 950);
+      const a = (i / 8) * Math.PI * 2 + Math.random() * 0.4, d = 28 + Math.random() * 26;
+      s.style.setProperty("--bx", `${(Math.cos(a) * d).toFixed(1)}px`); s.style.setProperty("--by", `${(Math.sin(a) * d).toFixed(1)}px`);
+      document.body.append(s); setTimeout(() => s.remove(), 650);
     }
   };
   /** Copies text and says so in the toast; answers true when it reached the clipboard (false: the toast shows the text on a line of
@@ -170,11 +171,8 @@
   //   A number the browser has already drawn (this script is deferred: on a slow phone connection the page is painted first) is
   //   never reset to count up again, a price ($) or a rank (#) never counts up from 0 (it would show prices and ranks that never
   //   were), and a fixed fact marked data-still (the token's supply) is never touched.
-  // * the moving parts of a page's top section (orbs, stars, chips, the headline's colours), of the home page's NYC map and timeline, and
-  //   every live dot's ping pause while they are off screen (.mo-off): an animation nobody can see never costs a frame.
-  // * live buttons (style.css "Live buttons"): each one pauses while it is off screen (.mo-off on the button itself, buttons a page
-  //   script adds later too) and every one of them while the tab is hidden (.mo-hidden on <html>). Their light passes are spread out
-  //   (--sweep-delay), so two buttons side by side never shine at the same moment.
+  // * nothing loops (design v4, 12 Oct 2026): a live dot pings three times and rests, and no button glows or shines by itself, so there is
+  //   nothing to pause off screen and no "Pause animations" switch (WCAG 2.2.2: every motion that starts by itself ends within 5 s).
   // No loop runs when nothing moves: a count asks for animation frames only while it lasts (1.3 s at most).
   const NUM = /^([$#]?)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?([KMBT]?)(%|\+|×| [a-z][a-z ]*)?$/;
   const UNIT = { "": 1, K: 1e3, M: 1e6, B: 1e9, T: 1e12 };
@@ -201,14 +199,8 @@
     let on = !still && Boolean(IO && MO);
     if (!on) return { arm() {}, finish() {}, watch() {}, on };
     const BLOCKS = "main .section-head, main .card, main .stat, main .reveal, main .city-stats > div, main .numbers__row > div, main .wanted > li, main .faq details, main .scam-note";
-    const QUIET = ".dpv, .termsgate, .modal, .cstate, .timeline, [data-still]"; // its own motion, shown and hidden by its page, or the roadmap (every stop shows as it is)
+    const QUIET = ".dpv, .modal, .cstate, .timeline, [data-still]"; // its own motion, shown and hidden by its page, or the roadmap (every stop shows as it is)
     const NUMS = ".hero__facts strong, .numbers__row strong, .why-now__big, .stat > strong, .city-stats strong, .tile__num";
-    const HEROES = ".hero, .launch-hero, .page-hero, .connect, .dash-out, main > .section:first-child";
-    const LOOPS = ".nyc, .timeline, .live-dot"; // further down a page, but moving for as long as it is open
-    // every control with a loop of its own (style.css "Live buttons"); the ones that shine get a --sweep-delay of their own
-    // (.lp-card, .coin-live: the Launchpad's live coin cards and the coin page's live parts, whose dots ping and lines glow)
-    const LIVE = ".btn, .contract__buy, .contract__ext, .chip-link, .map-open, .map-ctrl button, .chips button, .su-tab, a[role=tab], .nav a, .tabbar a, .seg__ind, .theme-toggle, .contract__copy, .icon-btn, .map-focus__btn, .seg button, .lp-card, .coin-live";
-    const SHINES = ".btn--primary, .btn--glass, .btn--social, .account-btn, .contract__buy, .contract__ext, .chip-link, .map-open, .theme-toggle, .map-ctrl button, .contract__copy, .icon-btn, .map-focus__btn, .seg button";
     const GLOW = [{ transform: "none", filter: "none" }, { transform: "translateY(-2px)", filter: "brightness(1.45) drop-shadow(0 0 10px rgba(255,138,91,.55))", offset: 0.3 }, { transform: "none", filter: "none" }];
     const timer = (f, ms) => win.setTimeout(f, ms);
     /** Inside a box that scrolls sideways (a carousel, a strip of tabs): a block there may sit beside the screen and never "scroll into
@@ -222,12 +214,12 @@
     /* blocks */
     const rise = new IO((entries) => {
       let i = 0;
-      for (const en of entries) if (en.isIntersecting) { rise.unobserve(en.target); show(en.target, Math.min(i++, 4) * 60); }
+      for (const en of entries) if (en.isIntersecting) { rise.unobserve(en.target); show(en.target, Math.min(i++, 4) * 40); }
     }, { rootMargin: "0px 0px -8% 0px" });
     function show(e, delay) {
       if (delay) e.style.transitionDelay = `${delay}ms`;
       e.classList.add("mo-in");
-      timer(() => { e.classList.remove("mo-armed", "mo-in"); e.style.transitionDelay = ""; }, delay + 700); // then the block is itself again (its own hover etc.)
+      timer(() => { e.classList.remove("mo-armed", "mo-in"); e.style.transitionDelay = ""; }, delay + 500); // then the block is itself again (its own hover etc.)
     }
     /** Shows a block at once, with no transition: the keyboard is in it. */
     function now(e) { rise.unobserve(e); e.classList.remove("mo-armed", "mo-in"); e.style.transitionDelay = ""; }
@@ -251,11 +243,8 @@
     let addQ = 0;
     const main = doc.querySelector("main");
     if (main) new MO((recs) => {
-      for (const r of recs) {
-        for (const n of r.addedNodes) if (n.nodeType === 1 && !(r.target.closest && r.target.closest("table"))) added.add(n);
-        for (const n of r.removedNodes || []) if (n.nodeType === 1) for (const e of liveIn(n)) away.unobserve(e); // a redrawn list lets its old buttons go
-      }
-      if (added.size && !addQ) addQ = win.requestAnimationFrame(() => { addQ = 0; const list = [...added].filter((n) => n.isConnected); added.clear(); if (list.length) { arm(...list); list.forEach(watchLive); } });
+      for (const r of recs) for (const n of r.addedNodes) if (n.nodeType === 1 && !(r.target.closest && r.target.closest("table"))) added.add(n);
+      if (added.size && !addQ) addQ = win.requestAnimationFrame(() => { addQ = 0; const list = [...added].filter((n) => n.isConnected); added.clear(); if (list.length) arm(...list); });
     }).observe(main, { childList: true, subtree: true });
 
     /* numbers */
@@ -338,29 +327,10 @@
     // the keyboard reaches a control inside a block still waiting (or still fading in): it shows now, never a focused control at opacity 0
     doc.addEventListener("focusin", (ev) => { const b = ev.target && ev.target.closest ? ev.target.closest(".mo-armed") : null; if (b) now(b); });
 
-    /* the top section's drifting parts, the loops further down and every live button pause while they are off screen */
-    const away = new IO((entries) => { for (const en of entries) en.target.classList.toggle("mo-off", !en.isIntersecting); });
-    for (const e of doc.querySelectorAll(`${HEROES}, ${LOOPS}`)) away.observe(e);
-    let shine = 0;
-    /** The live buttons in (or at) n: watched on and off screen; each one that shines takes the next spot in the 7 s cycle. */
-    function liveIn(n) { return n.querySelectorAll ? [...(n.matches && n.matches(LIVE) ? [n] : []), ...n.querySelectorAll(LIVE)] : []; }
-    function watchLive(n) {
-      for (const e of liveIn(n)) {
-        away.observe(e);
-        if (e.matches(SHINES) && e.style.setProperty && !e.style.getPropertyValue("--sweep-delay")) {
-          e.style.setProperty("--sweep-delay", `${(0.8 + ((shine++ * 0.618) % 1) * 7).toFixed(2)}s`); // golden-ratio steps: a button and the next two never shine together
-        }
-      }
-    }
-    watchLive(doc);
-
-    const rootEl = doc.documentElement, hiddenMark = () => { if (rootEl.classList) rootEl.classList.toggle("mo-hidden", Boolean(doc.hidden)); };
-    hiddenMark();
-    doc.addEventListener("visibilitychange", () => { hiddenMark(); if (doc.hidden) for (const e of [...runs.keys()]) stop(e, true); });
+    /* a hidden tab finishes every count at once; asking for less motion meanwhile stops everything now */
+    doc.addEventListener("visibilitychange", () => { if (doc.hidden) for (const e of [...runs.keys()]) stop(e, true); });
     const q = win.matchMedia ? win.matchMedia("(prefers-reduced-motion: reduce)") : null;
-    if (q && q.addEventListener) q.addEventListener("change", () => { if (q.matches) { on = false; finish(); } }); // asked for less motion meanwhile: stop now
-    // "Pause animations" pressed meanwhile (theme.js): the same. Played again: the page moves again from the next page on.
-    if (win.addEventListener) win.addEventListener("vicinity:motion", (ev) => { if (ev.detail === "paused") { on = false; finish(); } });
+    if (q && q.addEventListener) q.addEventListener("change", () => { if (q.matches) { on = false; finish(); } });
 
     arm();
     watch([...doc.querySelectorAll(NUMS)]);
@@ -430,6 +400,13 @@
     } else if (d.pending && b) {
       label.textContent = "Finish sign-in";
     }
+    // the header's "Sign up": only for someone signed out. A returning member's browser hides it before the first paint (style.css,
+    // :root:not([data-guest])), so it never flashes; it shows once the answer says signed out.
+    const signup = $("[data-signup]");
+    if (signup) {
+      signup.hidden = Boolean(d && (d.signedIn || d.pending));
+      if (!signup.hidden) signup.classList.add("is-shown");
+    }
     if (d && d.profilesFlag) $$("[data-profiles-only]").forEach((e) => (e.hidden = false)); // copy about member profiles shows only while they are switched on
     document.dispatchEvent(new CustomEvent("vicinity:me", { detail: d }));
     return d;
@@ -479,112 +456,67 @@
   }
   tickShort(); setInterval(tickShort, 30000);
 
-  /* ---------- backend status in the footer ---------- */
-  (async () => {
-    const s = $("#status"); if (!s) return;
-    const d = await api("/api/health");
-    s.textContent = d.ok ? "online ✓" : "offline";
-  })();
-
-  /* ---------- terms gate: agree before entry ---------- */
-  let gateLater = null; // { version, open }: the gate waiting for connect.js (a link code or a pairing, see takeLink)
-  const termsGate = {
-    open() { const g = gateLater; gateLater = null; if (g) g.open(); },
-    agreed(version) {
-      const g = gateLater;
-      if (!g) return;
-      if (version !== g.version) return termsGate.open(); // the sign-up holds another version: this one must be agreed to here
-      gateLater = null;
-      try { localStorage.setItem("vicinity_terms", version); } catch { /* private mode: the gate shows on the next page */ }
-    },
-  };
+  /* ---------- the floating header: a stronger glass once the page has scrolled (no scroll listener: a 1 px marker at the top) ---------- */
   (() => {
-    const key = "vicinity_terms";
-    const record = (version) => {
-      try { localStorage.setItem(key, version); } catch { /* private mode: gate reappears next visit */ }
-      ready.then((d) => { if (d && d.signedIn) api("/api/me/terms", { version }); });
-    };
-    // The terms page itself stays readable without the gate; it gets an inline agree button instead.
-    if (document.body.dataset.page === "terms") {
-      const inline = $("#terms-agree");
-      if (inline) inline.addEventListener("click", () => {
-        record("2026-10-01");
-        inline.disabled = true;
-        inline.textContent = "Agreed ✓";
-        toast("Thanks — you're all set.");
-      });
-      return;
-    }
-    const gate = $("#termsgate");
-    if (!gate) return;
-    const version = gate.dataset.termsVersion || "2026-10-01";
-    let agreed = null;
-    try { agreed = localStorage.getItem(key); } catch { /* ignore */ }
-    if (agreed === version) return;
-
-    // A link code or a pairing opened here from Safari / Chrome ("Open app" on a phone: /connect?link=, /connect?pair=) belongs to an
-    // account that accepted the Terms already. The gate waits for connect.js: termsGate.agreed(version) when the code is good (that
-    // version is noted here too), termsGate.open() when not (an old /connect?carry= link, a login pairing, a code that ran out).
-    if (deferGate) { gateLater = { version, open: openGate }; return; }
-    openGate();
-
-    function openGate() {
-      // Keyboard and screen readers. While the gate is open the page behind it is inert (no Tab stops, hidden from
-      // screen readers), the keyboard starts on the dialog's heading, Tab and Shift+Tab go round the dialog's own
-      // controls, and Escape does nothing (agreeing is the only way in). The overlay already covers the whole page,
-      // so nothing changes for a mouse or a finger. The toast stays outside the inert part so it can still be read out.
-      const card = $(".termsgate__card", gate);
-      const heading = () => $("#termsgate-title", card);
-      const before = document.activeElement;
-      const behind = [...document.body.children].filter((e) => e !== gate && e.id !== "toast" && !e.inert);
-      const stops = () => $$("a[href], button, input, select, textarea, summary, [tabindex]", card)
-        .filter((e) => e.tabIndex >= 0 && !e.disabled && e.getClientRects().length);
-      const onKey = (e) => {
-        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); return; }
-        if (e.key !== "Tab" || e.ctrlKey || e.altKey || e.metaKey) return; // Ctrl+Tab and friends belong to the browser
-        const list = stops(), at = list.indexOf(document.activeElement);
-        if (!list.length) { e.preventDefault(); return; }
-        // Only the ends need help: from the last stop (or from outside) Tab goes to the first, and from the first stop
-        // (or the heading, or outside) Shift+Tab goes to the last. Everything in between is the browser's own Tab.
-        const wrap = e.shiftKey ? at <= 0 : at === list.length - 1 || !card.contains(document.activeElement);
-        if (wrap) { e.preventDefault(); list[e.shiftKey ? list.length - 1 : 0].focus(); }
-      };
-      const focusHeading = () => { const h = heading(); h.tabIndex = -1; h.focus({ preventScroll: true }); };
-
-      gate.hidden = false;
-      behind.forEach((e) => (e.inert = true));
-      document.addEventListener("keydown", onKey, true);
-      focusHeading();
-
-      $("#termsgate-agree").addEventListener("click", () => {
-        record(version);
-        gate.hidden = true;
-        behind.forEach((e) => (e.inert = false));
-        document.removeEventListener("keydown", onKey, true);
-        // The keyboard goes back where it was before the gate opened or, on a first visit (nothing was focused yet),
-        // to the start of the page's content: the same place the "Skip to content" link goes.
-        if (before && before !== document.body && before.isConnected && before.getClientRects().length) { before.focus({ preventScroll: true }); return; }
-        const main = $("#main");
-        if (!main) return;
-        if (!main.hasAttribute("tabindex")) {
-          main.tabIndex = -1;
-          main.addEventListener("blur", () => main.removeAttribute("tabindex"), { once: true });
-        }
-        main.focus({ preventScroll: true });
-      });
-      $("#termsgate-decline").addEventListener("click", () => {
-        // The new heading keeps the dialog's name (aria-labelledby) and takes the keyboard, since the pressed button is gone.
-        card.innerHTML =
-          '<div class="termsgate__done"><p class="kicker">No problem</p>' +
-          '<h2 id="termsgate-title">You&rsquo;ll need to agree to enter</h2>' +
-          '<p class="muted">The Terms of Use keep everyone on the same page. You can read them any time and come back when you&rsquo;re ready.</p>' +
-          '<p><a href="/terms">Read the Terms of Use</a></p></div>';
-        focusHeading();
-      });
-    }
+    const head = $("[data-header]");
+    if (!head || !window.IntersectionObserver) return;
+    const mark = el("div", "hdr-sentinel");
+    mark.setAttribute("aria-hidden", "true");
+    document.body.prepend(mark);
+    new IntersectionObserver(([en]) => head.classList.toggle("is-scrolled", !en.isIntersecting)).observe(mark);
   })();
+
+  /* ---------- Terms of Use ----------
+     No site-entry gate any more (design v4, 12 Oct 2026: the owner asked for the Terms pop-up to go). The Terms are accepted where they
+     bind: at account creation (the sign-up's "I agree" box and "Agree and continue", recorded server-side as users.terms_version,
+     src/signup.js) and on /terms itself (its inline "I agree"); every page's footer links them. V.termsGate stays with the same two
+     methods, so signup.js and connect.js need no change: open() has nothing to open, agreed(version) notes the account's version here. */
+  const termsGate = {
+    open() {},
+    agreed(version) { try { if (version) localStorage.setItem("vicinity_terms", version); } catch { /* private mode: nothing to note */ } },
+  };
+  if (document.body.dataset.page === "terms") {
+    const inline = $("#terms-agree");
+    if (inline) inline.addEventListener("click", () => {
+      try { localStorage.setItem("vicinity_terms", "2026-10-01"); } catch { /* private mode */ }
+      ready.then((d) => { if (d && d.signedIn) api("/api/me/terms", { version: "2026-10-01" }); });
+      inline.disabled = true;
+      inline.textContent = "Agreed ✓";
+      toast("Thanks — you're all set.");
+    });
+  }
+
+  /* ---------- a member whose account has no agreement to the current Terms on record ----------
+     An account from before the sign-up recorded the Terms (or one the owner's console made) was asked by the site-entry pop-up; that
+     pop-up is gone (design v4), so such a member sees one quiet bar at the foot of the screen instead: never blocking, "Later" hides it
+     for this visit, "I agree" records it for the account (POST /api/me/terms, the same call as /terms' own button). Visitors never see
+     it (no account, nothing to record), and a member who agreed at sign-up never does either. Only with the new sign-up on: its
+     /api/me answer says which version the account agreed to. Not on /terms (its own button) or /connect (the sign-up itself). */
+  const TERMS_NOW = "2026-10-01";
+  ready.then((d) => {
+    if (!d || !d.signedIn || d.signupFlow !== "v2" || !("termsVersion" in d) || d.termsVersion === TERMS_NOW) return;
+    if (["terms", "connect"].includes(document.body.dataset.page)) return;
+    try { if (sessionStorage.getItem("vicinity-terms-later") === TERMS_NOW) return; } catch { /* storage off: the bar shows */ }
+    const bar = el("section", "terms-note");
+    bar.setAttribute("aria-label", "Terms of Use");
+    const text = el("p", "terms-note__text", "Please confirm the ");
+    const link = el("a", null, "Terms of Use"); link.href = "/terms";
+    text.append(link, " for your account.");
+    const later = el("button", "btn btn--ghost btn--sm terms-note__later", "Later"); later.type = "button";
+    const yes = el("button", "btn btn--primary btn--sm terms-note__yes", "I agree"); yes.type = "button";
+    const acts = el("div", "terms-note__acts"); acts.append(later, yes);
+    bar.append(text, acts);
+    later.addEventListener("click", () => { try { sessionStorage.setItem("vicinity-terms-later", TERMS_NOW); } catch { /* storage off */ } bar.remove(); });
+    yes.addEventListener("click", async () => {
+      yes.disabled = true;
+      const r = await api("/api/me/terms", { version: TERMS_NOW });
+      if (r && r.ok) { termsGate.agreed(TERMS_NOW); bar.remove(); toast("Thanks, that's recorded."); return; }
+      yes.disabled = false; toast("That didn't go through. Please try again.");
+    });
+    document.body.append(bar);
+  });
 
   window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, takeCarry, takeLink, walletApp, termsGate, liveNums, reveal,
-    get reduced() { return reducedNow(); }, // read when it is needed: the visitor may pause the animations while the page is open
+    get reduced() { return reducedNow(); }, // read when it is needed: the device setting can change while the page is open
     me: () => meLite, ready, official, opensAt: () => opensAt, launchOpen, siteMode: () => siteMode };
 })();

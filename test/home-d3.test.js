@@ -17,14 +17,17 @@ const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").re
 const style = read("public/style.css"), polish = read("public/polish.css");
 
 test("d3 root clip: html and body clip sideways, body with clip (hidden only as the fallback) so the sticky header keeps sticking", () => {
-  assert.match(style, /\nhtml \{ scroll-behavior: smooth; -webkit-text-size-adjust: 100%; scroll-padding-top: 84px; overflow-x: clip; \}/);
+  // design v4: an anchor lands 16 px under the floating header's bottom edge (--header-h: 60 px on a phone, 68 px from 901 px)
+  assert.match(style, /\nhtml \{ scroll-behavior: smooth; -webkit-text-size-adjust: 100%; scroll-padding-top: calc\(var\(--header-h\) \+ 16px\); overflow-x: clip; \}/);
   assert.match(style, /\nbody \{[^}]*overflow-x: hidden; overflow-x: clip; \}/);
 });
 
 test("d3 wordmark: never hidden on a phone; a long account label is cut with an ellipsis instead", () => {
   assert.doesNotMatch(style + polish, /\.brand span \{ display: none; \}/, "the 380 px rule that hid 'Vicinity' is gone");
-  assert.match(style, /@media \(max-width: 440px\) \{ \.account-btn \[data-account-label\] \{ display: inline-block; max-width: max\(3\.2em, calc\(100vw - 262px\)\); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; \} \}/,
-    "'Finish sign-in' or a 16-character name stays 8 px or more from the theme button at 320-430 px ('Log in' is never cut)");
+  // design v4: on a phone the theme switch is in the footer, so the room beside the wordmark is the bar minus its padding and the brand
+  assert.match(style, /@media \(max-width: 440px\) \{ \.account-btn \[data-account-label\] \{ display: inline-block; max-width: max\(3\.2em, calc\(100vw - 232px\)\); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; \} \}/,
+    "'Finish sign-in' or a 16-character name stays clear of the wordmark at 320-440 px ('Log in' is never cut)");
+  assert.match(style, /@media \(max-width: 480px\) \{ \.site-header \.theme-toggle \{ display: none; \} \}/, "the theme switch leaves the phone's header (the footer has one)");
   assert.doesNotMatch(polish, /only the logo shows/);
 });
 
@@ -37,17 +40,16 @@ test("d3 hero: no glow blobs at the screen's edges; the light is anchored to the
   assert.match(style, /\.hero-map::before \{ content: ""; position: absolute; inset: -16% -14% -10%; z-index: -1; pointer-events: none; background: radial-gradient\(closest-side, rgba\(255,90,54,\.30\)/);
   assert.match(style, /\.hero__copy::before \{ content: ""; position: absolute; z-index: -1; pointer-events: none;[^}]*rgba\(43,91,255,\.14\)/);
   for (const sel of [".hero-map::before", ".hero__copy::before"]) for (const m of style.matchAll(new RegExp(`${sel.replace(/[.:]/g, "\\$&")} \\{([^}]*)\\}`, "g"))) assert.doesNotMatch(m[1], /animation|filter:/, `${sel}: still, no blur filter`);
-  assert.match(style, /@keyframes drift \{/, "drift stays: the Launchpad hero's orbs use it");
+  assert.doesNotMatch(style, /@keyframes drift \{|animation: drift/, "design v4: the Launchpad hero's orbs stay still too (nothing loops)");
 });
 
-test("d3 hero chips: in the map card's corners, 16 px in, floating 6 px at most and only when motion is welcome", () => {
+test("d3 hero chips: in the map card's corners, 16 px in, and still (design v4: nothing loops)", () => {
   assert.match(style, /\.hero-map__link \{ position: relative; display: block;/, "the card (not the figure with its caption) is the chips' containing block");
   assert.match(style, /\.hero-chip--1 \{ top: 16px; left: 16px; \} \.hero-chip--3 \{ top: 16px; right: 16px; \} \.hero-chip--2 \{ bottom: 16px; right: 16px; \}/, "no chip on the $NYC coin (the old one sat at 40 % right -4 %)");
   assert.match(style, /\n\.hero-chip \{ position: absolute;[^}]*\}/);
   assert.doesNotMatch(style.match(/\n\.hero-chip \{ position: absolute;[^}]*\}/)[0], /animation/, "the float is not in the base rule");
-  assert.match(style, /@media \(prefers-reduced-motion: no-preference\) \{ \.hero-chip \{ animation: float 6s ease-in-out infinite; \}/);
-  assert.match(style, /@keyframes float \{ 50% \{ transform: translateY\(-6px\); \} \}/);
-  assert.match(style, /\.mo-off \.hero-chip/, "it pauses off screen");
+  assert.doesNotMatch(style, /\.hero-chip[^{]*\{[^}]*animation/, "the chips no longer float: nothing loops (WCAG 2.2.2 without a Pause control)");
+  assert.doesNotMatch(style, /@keyframes float \{/);
   for (const h of [homeSrc, home]) assert.match(h, /<figcaption class="tiny muted">Real map data\. \$NYC isn't launched yet: it can only launch on the Vicinity Launchpad\.<\/figcaption>/, "no 'Real data' beside a $NYC chip");
 });
 

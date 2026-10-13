@@ -241,7 +241,7 @@ test("the link mode on a computer: 'Almost done · Link your wallet.', the detec
   assert.equal(p.visible(p.$("#alt-app")), true);
   assert.equal(p.visible(p.$("#alt-skip")), true);
   assert.equal(p.visible(p.$("#alt-check")), false);
-  assert.equal(p.$("#termsgate").hidden, true);
+  assert.deepEqual(p.terms, [], "a member: nothing to agree to here");
   assert.equal(p.callsTo("/api/signup/state").length, 0);
   await p.tap(p.$("#wallets-detected").children[0]);
   assert.equal(p.session.get("vl-started"), "1", "the dashboard (same tab) will poll for the wallet while this is set");

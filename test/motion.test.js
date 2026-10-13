@@ -61,50 +61,45 @@ test("styles: every animation and transition of the motion layer only exists whe
 
 test("styles: the keyframes move only transform, opacity, filter or background-position (no layout, no repainted shadows)", () => {
   const names = [...section.text.matchAll(/@keyframes (\w+) \{/g)].map((m) => m[1]).concat("livePing");
-  assert.deepEqual(names.slice(0, -1).sort(), ["moAccent", "moEnter", "moSheen", "moState", "moTab"], "design v2: the tab bar's top bar (moTabBar) became the icon's pill");
+  assert.deepEqual(names.slice(0, -1).sort(), ["moEnter", "moSheen", "moState", "vtIn", "vtOut"], "design v4: the headline's colour shift (moAccent) and the tab's settle (moTab) are gone; the page transition's two");
   for (const name of names) {
     const props = [...keyframes(name).matchAll(/([a-z-]+)\s*:/g)].map((p) => p[1]);
     assert.ok(props.length && props.every((p) => ["transform", "opacity", "filter", "background-position"].includes(p)), `${name}: ${props}`);
   }
-  // the one background-position animation (the headline's colours) runs a few times and then rests where it started
-  assert.match(section.text, /\.accent \{[^}]*animation: moAccent 6s ease-in-out 4 alternate; \}/);
+  // the headline's accent words are still (design v4): one gradient, no colour shift
+  assert.doesNotMatch(css, /\.accent \{[^}]*animation/);
+  assert.match(css, /\.accent \{ background-image: var\(--grad-accent\);/);
   // nothing runs forever on a big layer: the glow behind each page's top section stays still (it cost every load ~40 ms on a test machine)
   for (const m of css.matchAll(/(?<=^|[{}])\s*([^{}@]*(?:page-hero|\.connect|\.dash-out|section:first-child|\.dash)::before[^{}]*)\{([^}]*)\}/g)) {
     assert.doesNotMatch(m[2], /animation|will-change/, `${m[1].trim()}: still`);
   }
-  // nothing of the layer itself runs forever: the sheen along a bar passes twice, then rests (WCAG 2.2.2). The buttons' loops are the
-  // "Live buttons" section's (test/live-buttons.test.js), which a visitor can stop with "Pause animations".
+  // nothing of the layer itself runs forever: the sheen along a bar passes once, then rests (WCAG 2.2.2; design v4 has no Pause control
+  // and no live buttons: test/live-buttons.test.js pins "nothing loops" for every sheet)
   const infinite = [...section.text.matchAll(/([^{};]+)\{[^}]*animation: (\w+)[^;}]*infinite/g)].map((m) => m[2]).sort();
   assert.deepEqual(infinite, []);
   assert.doesNotMatch(css, /moShine/, "the big buttons' two-pass shine became their live light");
-  assert.match(section.text, /animation: moSheen 3\.6s ease-in-out 1\.5s 2; \}/);
+  assert.match(section.text, /animation: moSheen 3\.6s ease-in-out 1\.5s 1; \}/);
 });
 
-test("styles: no decoration loops forever unless a visitor can stop it; only what says something live or busy, and the live buttons, do", () => {
-  // every endless animation in the whole style sheet, by keyframe name. The decorative ones the motion work added (the sheen on bars,
-  // the contract card's light, the example dashboard's shine, sheen, ping and float) play a few times and rest (WCAG 2.2.2, review of
-  // 6 Oct 2026). The live buttons loop because the owner asked for it ("each button should have live animation", 6 Oct 2026); they
-  // can be stopped: the footer's "Pause animations" on every page, and reduced motion (test/live-buttons.test.js pins both).
-  const LIVE_OR_BUSY = { livePing: "the live dot", nextPing: "the timeline's next step (a box-shadow pulse before)", drift: "the home and Launchpad heroes' orbs (since before)", float: "the hero chips (since before)",
-    march: "the official NYC boundary (since before)", ringOut: "the NYC map's rings (since before)", shimmer: "a loading row", spin: "a busy button",
-    twinkle: "the stars behind a hero (since before)", passShine: "a member's own Vicinity Pass (since before)",
-    lbGlow: "a main button's glow", lbSweep: "the light along a main button", lbBusy: "a busy main button", lbEdgeTop: "the light along a secondary button",
-    lbEdgeBottom: "the light along a secondary button", lbBreath: "the chosen tab or segment", lbTab: "the tab bar's current page",
-    fxRest: "the map's status glow once it rests (it replaced 15-30 redraws a second; review PM-2)", lbRing: "an icon button's or a segment's ring (the owner: every button)" };
+test("styles: nothing loops forever; only a busy indicator (while busy) or the ring a mouse is hovering does", () => {
+  // design v4 (the owner, 12 Oct 2026: the "Pause animations" button goes). WCAG 2.2.2 then allows no motion that starts by itself and
+  // lasts more than 5 s: the orbs, stars, chips, the NYC map's march and rings, the timeline's and the live dots' pings, the map legend,
+  // the pass's gloss and the live buttons all end or stay still. What remains endless says "busy" and ends with the busy state.
+  const BUSY = { shimmer: "a loading row or line (.skeleton, .is-loading)", spin: "a busy control (.is-busy)", ringSpin: "the gradient ring while a mouse hovers it" };
   const endless = [...css.matchAll(/animation: (\w+)[^;}]*\binfinite\b/g)].map((m) => m[1]);
-  assert.ok(endless.length >= 8);
-  for (const name of endless) assert.ok(name in LIVE_OR_BUSY, `${name} loops forever`);
-  assert.match(css, /:root\[data-motion="paused"\] \*, :root\[data-motion="paused"\] \*::before, :root\[data-motion="paused"\] \*::after \{ animation: none !important; \}/, "and every one of them stops on Pause");
+  assert.ok(endless.length >= 4);
+  for (const name of endless) assert.ok(name in BUSY, `${name} loops forever`);
+  assert.doesNotMatch(css, /data-motion="paused"/, "no Pause switch to stop them: nothing needs stopping");
   const dash = read("public/polish-dash.css"); // the example dashboard's rules (moved there from style.css, review PERF-1)
   assert.match(dash, /\.dpv__shine \{ animation: passShine 7s ease-in-out 1\.2s 2; \}/, "they are there");
   assert.doesNotMatch(dash, /\.dpv__[\w-]+(::after)? \{ animation: [^;}]*infinite/, "the example dashboard's motion ends");
-  assert.doesNotMatch(css, /moSheen[^;}]*infinite|contract(Sweep|In)[^;}]*infinite|\.contract::after \{[^}]*infinite/, "the bars' sheen and the contract card's own light end (Buy on Raydium is a live button)");
+  assert.doesNotMatch(css, /moSheen[^;}]*infinite|contract(Sweep|In)[^;}]*infinite|\.contract::after \{[^}]*infinite/, "the bars' sheen and the contract card's own light end");
 });
 
 test("styles: a block is only ever hidden by the script's .mo-armed, only when motion is welcome; reduced motion and print show everything", () => {
-  const armed = css.indexOf("  .mo-armed { opacity: 0; transform: translateY(12px); }"); // 12 px since design v2 (18 before)
+  const armed = css.indexOf("  .mo-armed { opacity: 0; transform: translateY(8px); }"); // 8 px since design v4 (12 before, 18 before that)
   assert.ok(armed > 0 && inNoPreference(armed), "the armed state exists only when motion is welcome");
-  assert.match(css, /\.mo-armed\.mo-in \{ opacity: 1; transform: none; transition: opacity \.45s ease-out, transform \.6s cubic-bezier\(\.2,\.8,\.2,1\); \}/);
+  assert.match(css, /\.mo-armed\.mo-in \{ opacity: 1; transform: none; transition: opacity \.4s ease-out, transform \.4s cubic-bezier\(\.2,\.8,\.2,1\); \}/);
   // .reveal (the old scroll reveal) never hides anything by itself any more: without the script every block shows
   for (const m of css.matchAll(/(?<=^|[{}])\s*([^{}@]*\.reveal\b[^{}]*)\{([^}]*)\}/g)) assert.doesNotMatch(m[2], /opacity:\s*0\b|transform/, m[1].trim());
   assert.doesNotMatch(css, /\.reveal\.is-in/);
@@ -114,18 +109,35 @@ test("styles: a block is only ever hidden by the script's .mo-armed, only when m
 });
 
 test("styles: hover lifts only under a mouse; the tab bar marks the page you are on; nothing makes the page wider", () => {
-  assert.match(section.text, /@media \(hover: hover\) and \(pointer: fine\) and \(prefers-reduced-motion: no-preference\) \{\n[^@]*:hover[^@]*transform: translateY\(-4px\)/);
+  assert.match(section.text, /@media \(hover: hover\) and \(pointer: fine\) and \(prefers-reduced-motion: no-preference\) \{\n[^@]*:hover[^@]*transform: translateY\(-2px\)/, "a card lifts 2 px (design v4: 4 before)");
   assert.doesNotMatch(section.text.replace(/@media \(hover: hover\)[\s\S]*?\n\}\n/, ""), /:hover/, "no hover rule outside the mouse-only block");
   // design v2: one marker, the current page's icon in an accent pill (no top bar too); the pill is the icon's own padded background
   // with an equal negative margin, so nothing in the bar moves
   assert.match(section.text, /@media \(max-width: 900px\) \{\n  \.tabbar a \{ position: relative; \}\n\}/);
-  assert.match(css, /\.tabbar a\[aria-current="page"\] svg \{ color: var\(--pin\); background: var\(--accent-soft\); border-radius: 999px; padding: 4px 16px; margin: -4px -16px; box-sizing: content-box; \}/);
+  // design v4: the current tab's icon in the accent, and a 4 x 20 px accent pill above it that glides to the new tab in a page transition
+  assert.match(css, /\.tabbar a\[aria-current="page"\] svg \{ color: var\(--pin\); \}/);
+  assert.match(css, /\.tabbar__ind \{ position: absolute; top: 0; left: 50%; width: 20px; height: 4px;[^}]*view-transition-name: tab-ind; \}/);
   assert.doesNotMatch(css, /\.tabbar a\[aria-current="page"\]::before/);
-  assert.match(section.text, /\.tabbar a:active svg \{ transform: scale\(\.8\);/, "a tapped tab gives a small bounce");
+  assert.match(section.text, /\.tabbar a:active svg \{ transform: scale\(\.86\);/, "a tapped tab gives a small bounce");
   // the glow sits inside its section (inset 0, behind the content), so it can never widen a phone screen
   assert.match(section.text, /main > \.section:first-child::before \{ content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;/);
   assert.match(section.text, /:root\[data-theme="light"\] \.page-hero::before, /, "a lighter glow in the light theme (selectors a browser can sort by class)");
   assert.doesNotMatch(section.text, /:is\([^)]*\)::before/, "no :is() at the right end of a selector (checked against every element on each style change)");
+});
+
+test("page transitions: same-site pages cross-fade when motion is welcome; the header and the tab bar stay put, the tab pill glides", () => {
+  // design v4 (prompt item 8: smooth page transitions without a framework): the browser's own cross-document view transitions
+  const vt = css.indexOf("@view-transition { navigation: auto; }");
+  assert.ok(vt > 0 && inNoPreference(vt), "only when motion is welcome: with reduced motion a link just navigates");
+  assert.match(css, /::view-transition-old\(root\) \{ animation: vtOut var\(--dur-1\) ease-out both; \}/);
+  assert.match(css, /::view-transition-new\(root\) \{ animation: vtIn var\(--dur-3\) var\(--ease-out\) both; \}/);
+  assert.match(css, /::view-transition-group\(tab-ind\) \{ animation-duration: var\(--dur-3\); animation-timing-function: var\(--ease-out\); \}/);
+  assert.match(css, /\n\.site-header \{[^}]*view-transition-name: site-header; \}/);
+  assert.match(css, /\.tabbar \{[^}]*view-transition-name: tabbar; \}/);
+  for (const name of ["vtOut", "vtIn"]) { const props = [...keyframes(name).matchAll(/([a-z-]+)\s*:/g)].map((p) => p[1]); assert.ok(props.every((p) => ["transform", "opacity"].includes(p)), name); }
+  // a browser without view transitions: the page itself eases in (320 ms, from 60 % opacity: never a blank first frame)
+  assert.match(css, /@supports not \(view-transition-name: none\) \{ @media \(prefers-reduced-motion: no-preference\) \{ main \{ animation: moEnter var\(--dur-3\) var\(--ease-out\) backwards; \} \} \}/);
+  assert.match(css, /@keyframes moEnter \{ from \{ opacity: \.6; transform: translateY\(6px\); \} \}/);
 });
 
 /* ---------------- the built pages ---------------- */
@@ -326,7 +338,7 @@ test("layer: only blocks below the screen are armed (never one on screen, a hidd
   const rise = P.io((o) => o.opts.rootMargin);
   rise.fire([P.head, true], [P.cards[0], true], [P.cards[1], true], [P.cards[2], false]);
   assert.ok(P.head.cls.has("mo-in") && P.cards[1].cls.has("mo-in") && !P.cards[2].cls.has("mo-in"));
-  assert.deepEqual([P.head.style.transitionDelay, P.cards[0].style.transitionDelay, P.cards[1].style.transitionDelay], [undefined, "60ms", "120ms"]);
+  assert.deepEqual([P.head.style.transitionDelay, P.cards[0].style.transitionDelay, P.cards[1].style.transitionDelay], [undefined, "40ms", "80ms"], "design v4: 40 ms apart");
   assert.ok(P.timers.every(([, ms]) => ms <= 1000), "cleaned up within a second");
   P.runTimers();
   for (const e of [P.head, P.cards[0], P.cards[1]]) { assert.ok(!e.cls.has("mo-armed") && !e.cls.has("mo-in")); assert.equal(e.style.transitionDelay, ""); }
@@ -469,25 +481,19 @@ test("site.js: V.reveal still lets a page's blocks rise in after its script show
   assert.match(block, /visibilitychange/, "a hidden tab finishes every count");
 });
 
-test("layer: the hero, the NYC map, the timeline and every live dot pause their loops while off screen (an unseen animation costs no frame)", () => {
+test("layer: nothing loops, so nothing is watched on and off screen; a ping or a sheen plays a few times and rests (design v4)", () => {
   const P = homePage(), { El } = P;
   const nyc = new El("div", "nyc", { top: 2400, h: 500 }), timeline = new El("ol", "timeline", { top: 3200, h: 400 }), dot = new El("span", "live-dot", { top: 3300, h: 8 });
   P.main.add(new El("section", "section", { top: 2300, h: 700 }).add(nyc), new El("section", "section", { top: 3100, h: 600 }).add(timeline, dot));
   start(P);
-  const away = P.io((o) => !o.opts.rootMargin && !o.opts.threshold);
-  assert.ok(away, "one observer for the loops");
-  for (const e of [P.hero, nyc, timeline, dot]) assert.ok(away.els.has(e), e.cls.values().next().value);
-  away.fire([nyc, false], [timeline, false], [dot, false], [P.hero, true]);
-  assert.ok(nyc.cls.has("mo-off") && timeline.cls.has("mo-off") && dot.cls.has("mo-off") && !P.hero.cls.has("mo-off"));
-  away.fire([timeline, true]);
-  assert.ok(!timeline.cls.has("mo-off"), "running again once it is back on screen");
-  // what .mo-off pauses: the map's rings and boundary, the timeline's next-step ping, the dot's ping, the contract card's light
-  for (const sel of [".mo-off .m-pulse", ".mo-off .m-official", ".mo-off .timeline__item::after", ".live-dot.mo-off::after", ".mo-off .contract::after"]) {
-    const at = css.indexOf(sel); assert.ok(at > 0 && inNoPreference(at), sel);
-  }
-  assert.match(css, /\.live-dot\.mo-off::after \{ animation-play-state: paused; \}/);
+  assert.equal(P.io((o) => !o.opts.rootMargin && !o.opts.threshold), undefined, "no observer for loops: there are none");
+  assert.equal(P.ios.length, 2, "only the rise-in and the first-count observers");
+  for (const e of [P.hero, nyc, timeline, dot]) assert.ok(!e.cls.has("mo-off"));
+  assert.doesNotMatch(css, /\.mo-off|animation-play-state: paused/, "nothing to pause");
+  assert.match(css, /\.live-dot::after \{ animation: livePing 1\.6s cubic-bezier\(0,0,\.2,1\) 3; \}/, "the live dot pings three times (4.8 s), then rests");
+  assert.match(css, /\.timeline__item\.is-next::after \{ animation: nextPing 1\.6s cubic-bezier\(0,0,\.2,1\) 3; \}/);
+  assert.match(css, /\.m-pulse \{[^}]*animation: ringOut 2\.4s ease-out 2;/);
 });
-
 test("styles: the timeline's next step pings with transform and opacity (no box-shadow pulse repainted every frame), still with reduced motion", () => {
   assert.doesNotMatch(css, /livePulse/, "the box-shadow pulse is gone");
   assert.match(css, /\.timeline__item\.is-next::before \{ background: var\(--pin\); border-color: var\(--pin\); \}/, "the dot itself is still");
@@ -581,46 +587,23 @@ test("layer: the keyboard never lands on something unseen: a block holding the f
   assert.ok(P.cards[2].cls.has("mo-armed") && P.head.cls.has("mo-armed"));
 });
 
-test("layer: every live button pauses its loops off screen (buttons a page adds later too, and lets go of removed ones), a hidden tab pauses them all, and their lights take turns", () => {
-  // style.css "Live buttons": the loops read --lb-play, which .mo-off (here) and <html>.mo-hidden set to paused
+test("layer: no live buttons any more (design v4); a hidden tab ends every count; less motion asked for meanwhile shows everything at once", () => {
+  // the live buttons (6 Oct 2026) looped forever and could be stopped with "Pause animations"; both are gone (the owner, 12 Oct 2026)
+  assert.doesNotMatch(site, /const LIVE = |const SHINES = |watchLive|--sweep-delay|mo-hidden|vicinity:motion/);
   const P = homePage(), { El } = P;
-  const styled = (e) => { const props = {}; e.style = { setProperty: (k, v) => (props[k] = v), getPropertyValue: (k) => props[k] || "" }; return e; };
-  const login = styled(new El("a", "btn btn--primary btn--sm account-btn", { top: 10, h: 40 })); // the header, outside <main>
-  const header = new El("header", "site-header").add(login);
-  P.doc.kids.unshift(header); header.parent = P.doc;
-  const cta = styled(new El("a", "btn btn--primary btn--lg", { top: 500, h: 56 })), glass = styled(new El("a", "btn btn--glass btn--lg", { top: 500, h: 56 }));
-  const copy = styled(new El("button", "contract__copy", { top: 600, h: 48 })); // an icon button: its ring loops too (review OA-2), so it is watched
-  P.hero.add(cta, glass, copy);
-  const rootCls = new Set(); P.doc.documentElement.classList = { toggle: (c, on) => (on ? rootCls.add(c) : rootCls.delete(c)) };
   const winListeners = {}; P.win.addEventListener = (t, f) => (winListeners[t] ||= []).push(f);
+  const cta = new El("a", "btn btn--primary btn--lg", { top: 500, h: 56 });
+  P.hero.add(cta);
   start(P);
-  const away = P.io((o) => !o.opts.rootMargin && !o.opts.threshold);
-  for (const e of [login, cta, glass]) assert.ok(away.els.has(e), [...e.cls].join(" "));
-  assert.ok(away.els.has(copy), "an icon button's ring pauses off screen like every live loop");
-  assert.match(copy.style.getPropertyValue("--sweep-delay"), /^\d+\.\d\ds$/, "and lights up at its own moment");
-  const delays = [login, cta, glass].map((e) => e.style.getPropertyValue("--sweep-delay"));
-  assert.ok(delays.every((d) => /^\d+\.\d\ds$/.test(d)) && new Set(delays).size === 3, `each one its own moment in the cycle: ${delays}`);
-  const secs = delays.map(parseFloat).sort((a, b) => a - b);
-  assert.ok(secs[1] - secs[0] >= 1.26 && secs[2] - secs[1] >= 1.26, "neighbours never shine together (a light moves for 18% of 7 s = 1.26 s)");
-  away.fire([cta, false], [login, true]);
-  assert.ok(cta.cls.has("mo-off") && !login.cls.has("mo-off"));
-  assert.match(css, /\n:root\.mo-hidden, \.mo-off \{ --lb-play: paused; \}/);
-  // a card a page script adds later: its button is watched from its first frame, and let go once the list is redrawn
-  const card = new El("li", "card lp-card", { top: 2600, h: 200 }), buy = styled(new El("a", "btn btn--primary", { top: 2700, h: 44 }));
-  card.add(buy); P.main.append(card); P.flush(); P.frame(0);
-  assert.ok(away.els.has(buy) && buy.style.getPropertyValue("--sweep-delay"));
-  P.mos[0].queue.push({ target: P.main, addedNodes: [], removedNodes: [card] }); P.flush();
-  assert.ok(!away.els.has(buy), "a removed button is not kept alive by the observer");
-  // a hidden tab: every live loop pauses (and every count ends); visible again: they run
-  assert.equal(rootCls.has("mo-hidden"), false);
-  P.doc.hidden = true; P.listeners.visibilitychange.forEach((f) => f());
-  assert.equal(rootCls.has("mo-hidden"), true);
-  P.doc.hidden = false; P.listeners.visibilitychange.forEach((f) => f());
-  assert.equal(rootCls.has("mo-hidden"), false);
-  // "Pause animations" pressed while the page is open: every count ends and every armed block shows, like reduced motion
+  assert.equal(cta.style.getPropertyValue, undefined, "a button gets no inline variable");
+  assert.deepEqual(Object.keys(winListeners), [], "no window listener: nothing to pause from the outside");
+  // a hidden tab: every count ends on the page's text at once
   P.f1.textContent = "9,999"; P.flush(); assert.notEqual(P.f1.textContent, "9,999", "a count was running");
-  winListeners["vicinity:motion"].forEach((f) => f({ detail: "paused" }));
+  P.doc.hidden = true; P.listeners.visibilitychange.forEach((f) => f());
   assert.equal(P.f1.textContent, "9,999");
+  P.doc.hidden = false;
+  // the device asks for less motion meanwhile: every armed block shows, nothing new is armed
+  P.mq.matches = true; P.mq.listeners.forEach((f) => f());
   assert.equal(P.doc.querySelectorAll(".mo-armed").length, 0);
   const later = new El("li", "card", { top: 3000, h: 100 }); P.main.append(later); P.flush(); P.runFrames(0);
   assert.ok(!later.cls.has("mo-armed"));

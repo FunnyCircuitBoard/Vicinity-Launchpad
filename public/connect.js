@@ -511,7 +511,8 @@
   // sign-up's), and says plainly what to do with the wallet tile. The card shows at once, in the new sign-up's look (never today's
   // pick screen, and nothing that moves the tile, while /api/me is on its way); today's look comes back only when /api/me answers
   // that the new sign-up is off. A LINK pairing (the owner's dashboard asked for it) names the account the wallet joins, and its
-  // Terms are on record there: no Terms gate here. A login pairing is a first visit like any other: the gate shows.
+  // Terms are on record there (noted with termsGate.agreed). Design v4 has no site-entry Terms pop-up any more, so for a login
+  // pairing gateNow() below has nothing to open: the Terms bind at account creation (and the member's "I agree" bar, site.js).
   let approveV2 = true;
   async function startApprove() {
     show("approve");
@@ -632,7 +633,8 @@
     if (loaded) resumePair();
   }
 
-  /** The Terms gate site.js held back for a code or a pairing this page can't vouch for (the switch is off, an old link...): it opens as usual. */
+  /** Was: the site-entry Terms gate site.js held back for a code or a pairing this page can't vouch for. Design v4 removed that pop-up,
+   *  so termsGate.open() does nothing; the call stays so this file reads the same as before (sign-in logic unchanged, rule R5). */
   const gateNow = () => { if (window.V.termsGate) window.V.termsGate.open(); };
 
   /* ---------- start ---------- */

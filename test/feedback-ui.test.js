@@ -170,7 +170,10 @@ test("it steps aside: from the page's buttons, the Buy card and Copy address (an
   // the toast, dialogs (the Buy sheet), typing: visibility only, an open panel stays for the toast and the keyboard
   assert.match(FEEDBACK_CSS, /body\.has-toast \.fb:not\(\.fb--open\), body:has\(dialog\[open\]\) \.fb, body:has\(\.swap-sheet\[open\]\) \.fb, \.fb--typing:not\(\.fb--open\) \{ visibility: hidden; \}/);
   // neutral glass, no orange glow; the page's last line clears it on a phone
-  assert.match(FEEDBACK_CSS, /\.fb__btn \{[^}]*border: 1px solid var\(--line-2\);\s*background: var\(--surface-2, var\(--bg-2\)\); color: var\(--text\);/);
+  // design v4: neutral glass (the page shows through it on a computer; nearly opaque and unblurred on a phone, whose header and tab bar
+  // are already blurred), the icon in the secondary text colour
+  assert.match(FEEDBACK_CSS, /\.fb__btn \{[^}]*border: 1px solid var\(--line-2\);\s*background: var\(--glass-bg, var\(--bg-2\)\); color: var\(--text-2\);/);
+  assert.match(FEEDBACK_CSS, /\.fb__btn \{ background: var\(--glass-bg-strong, var\(--bg-2\)\); -webkit-backdrop-filter: none; backdrop-filter: none; \}/);
   assert.doesNotMatch(FEEDBACK_CSS, /--cta-a|255,\s*90,\s*54/);
   assert.match(FEEDBACK_CSS, /\.site-footer \{ padding-bottom: 64px; \}/);
 });
@@ -318,14 +321,14 @@ test("the server's answers: too many messages, a bad e-mail, an outage, offline;
   assert.equal($("#fb-err").textContent, "You seem to be offline. Check the connection and try again.");
 });
 
-test("the Terms gate: while it is open the whole widget is inert (no Tab stop, nothing to tap); a visitor who agreed before gets it live", async () => {
-  const first = await widget("index.html", { agreed: null });
-  assert.equal(first.$("#termsgate").hidden, false, "the gate is open for a first visit");
-  assert.equal(first.$("#fb").inert, true);
-  assert.ok(!first.doc.tabStops().includes(first.$("#fb-open")));
-  const back = await widget("index.html", { agreed: "2026-10-01" });
-  assert.equal(back.$("#fb").inert, false);
-  assert.ok(back.doc.tabStops().includes(back.$("#fb-open")));
+test("no Terms modal (design v4): on a first visit the widget is live at once, a Tab stop and nothing inert, as for a visitor who agreed before", async () => {
+  for (const agreed of [null, "2026-10-01"]) {
+    const page = await widget("index.html", { agreed });
+    assert.equal(page.$("#termsgate"), null, "no site-entry Terms modal on the page");
+    assert.ok(!page.$("#fb").inert, `${agreed}: the widget is never inert`);
+    assert.ok(page.doc.tabStops().includes(page.$("#fb-open")), `${agreed}: its button is a Tab stop`);
+    assert.deepEqual(page.doc.body.children.filter((e) => e.inert).map((e) => e.id || e.tagName), [], `${agreed}: nothing on the page is inert`);
+  }
 });
 
 test("security policy and hygiene: no inline style or script, the only innerHTML is the two fixed icons, nothing leaves the page, the stylesheet keeps clear of the phone bars", () => {
@@ -338,7 +341,7 @@ test("security policy and hygiene: no inline style or script, the only innerHTML
   assert.match(FEEDBACK_CSS, /\.fb \{ position: fixed; right: max\(16px, env\(safe-area-inset-right\)\); bottom: max\(20px, env\(safe-area-inset-bottom\)\); z-index: 70;[^}]*--fb-below: 82px; \}/);
   assert.match(FEEDBACK_CSS, /@media \(max-width: 900px\) \{ \.fb \{ right: max\(10px, env\(safe-area-inset-right\)\); bottom: calc\(82px \+ env\(safe-area-inset-bottom\)\); --fb-below: 138px; \} \.fb__btn \{ width: 44px; height: 44px; \}/, "above the phone menu bar, a 44 px button nearer the edge");
   assert.match(FEEDBACK_CSS, /body\.has-coin-buybar \.fb \{ bottom: calc\(150px \+ env\(safe-area-inset-bottom\)\); --fb-below: 206px; \}/, "above the coin page's Buy bar");
-  assert.match(FEEDBACK_CSS, /\.fb__btn \{[^}]*width: 52px; height: 52px;/, "a 44+ px target");
+  assert.match(FEEDBACK_CSS, /\.fb__btn \{[^}]*width: 48px; height: 48px;/, "a 44+ px target (design v4: 48 px on a computer)");
   // the panel is capped by the room above the button, not by the screen, so its title and Close never go off the top (keyboard open, landscape)
   // and never rises above the site header plus 8 px
   assert.match(FEEDBACK_CSS, /\.fb__panel \{[^}]*max-height: min\(600px, calc\(100vh - var\(--fb-below\) - var\(--header-h, 67px\) - 8px - env\(safe-area-inset-bottom\)\)\);\s*max-height: min\(600px, calc\(100dvh - var\(--fb-below\) - var\(--header-h, 67px\) - 8px - env\(safe-area-inset-bottom\)\)\)/);

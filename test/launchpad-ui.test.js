@@ -449,15 +449,18 @@ test("live card styles: still in the Launchpad block; the motion (pings, flash, 
   assert.match(still, /:root\[data-theme="light"\] \{ --up: #1E9E78; --down: #E8431F;/, "a light theme of its own");
   const mo = css.slice(css.indexOf("Launchpad live market: motion (LAUNCHPAD_V2=on"), css.indexOf("Member profiles (PROFILES=on)"));
   assert.ok(mo.length > 500 && mo.length < 4000);
-  assert.match(mo, /@media \(prefers-reduced-motion: no-preference\) \{\n  \.lp-card__ping::after, \.coin-pill__dot::after \{ animation: livePing 1\.8s cubic-bezier\(0,0,\.2,1\) infinite var\(--lb-play, running\); \}/,
-    "the live dot pings, and pauses off screen or in a hidden tab (--lb-play)");
-  for (const m of mo.matchAll(/animation: (\w+)[^;}]*infinite([^;}]*)/g)) { assert.ok(["livePing", "shimmer"].includes(m[1]), m[1]); assert.match(m[2], /var\(--lb-play, running\)/, m[0]); }
+  // design v4 (no Pause control, WCAG 2.2.2): the live dot pings three times (4.8 s) and rests; only a loading sparkline shimmers while it loads
+  assert.match(mo, /@media \(prefers-reduced-motion: no-preference\) \{\n  \.lp-card__ping::after, \.coin-pill__dot::after \{ animation: livePing 1\.6s cubic-bezier\(0,0,\.2,1\) 3; \}/,
+    "the live dot pings three times, then rests");
+  assert.match(mo, /\.lp-spark__ping \{ animation: livePing 1\.6s cubic-bezier\(0,0,\.2,1\) 3; \}/);
+  for (const m of mo.matchAll(/([^{};\n]+)\{ animation: (\w+)[^;}]*infinite/g)) { assert.equal(m[2], "shimmer", m[0]); assert.match(m[1], /\.is-loading/, m[0]); }
+  assert.doesNotMatch(mo, /--lb-play/);
   for (const name of ["lpFlash", "coinTradeIn"]) {
     const kf = css.slice(css.indexOf(`@keyframes ${name} {`), css.indexOf("\n", css.indexOf(`@keyframes ${name} {`)));
     const props = [...kf.matchAll(/([a-z-]+)\s*:/g)].map((p) => p[1]);
     assert.ok(props.length && props.every((p) => ["transform", "opacity"].includes(p)), `${name}: ${props}`);
   }
-  assert.match(read("site.js"), /const LIVE = "[^"]*\.lp-card, \.coin-live";/, "the cards and the coin page's live parts are watched on and off screen");
+  assert.doesNotMatch(read("site.js"), /const LIVE = /, "design v4: nothing loops, so nothing is watched on and off screen");
 });
 
 test("honesty (review): a card names Raydium LaunchLab only when the chain found the coin's pool or Jupiter says it launched there", () => {
