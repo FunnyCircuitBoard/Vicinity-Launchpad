@@ -53,6 +53,8 @@ test("every Buy panel names the Terms of Use next to its button (the entry pop-u
 
 test("the copy says only what is true: boundaries where they exist, city coins as they launch, a device (not a phone) shares the location", () => {
   assert.match(read("scripts/pages/src/index.html"), /<p>Every real city on one map, with its official boundary where one exists\.<\/p>/);
+  assert.match(read("scripts/pages/src/connect.html"), /Your device shares where you are once, so we can find your community\./);
+  assert.doesNotMatch(read("scripts/pages/src/connect.html"), /Your phone shares where you are once/);
   assert.match(read("src/official.js"), /platform: "Vicinity Launchpad", status: "Launching city by city" \}/);
   assert.match(read("scripts/pages/src/token.html"), /<td><a class="registry__above" href="\/launchpad">On the Launchpad →<\/a><\/td><td><span class="tag tag--warn">Launching city by city<\/span><\/td>/);
 });

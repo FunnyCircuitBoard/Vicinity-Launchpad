@@ -1,47 +1,54 @@
 <!--{"title": "Connect", "description": "Join Vicinity in two quick steps: where you are, then who you are. Your dashboard opens right after; link a Solana wallet there whenever you like.", "page": "connect", "scripts": ["vendor/qrcode", "wallets", "connect"], "styles": ["onboard", "pages-connect"]}-->
     <section class="connect">
       <div class="wrap connect__grid">
+        <!-- the intro: a compact centred header above the panel (public/signup.js setIntro and connect.js write the kicker, the title and
+             the lead; signup.js writes the first .safety line, so the fold stays the intro's last child) -->
         <div class="connect__intro">
           <p class="kicker">Join Vicinity</p>
-          <h1 class="page-title">Connect. Verify.<br><span class="accent">Represent.</span></h1>
-          <p class="lead">New here? Two quick steps, then your dashboard: your live rank, your city and your people. Already a member? Log in.</p>
+          <h1 class="page-title">Your city.<br><span class="accent">Your account.</span></h1>
+          <p class="lead">Share your location once (it is never stored), then sign in. Link a wallet later, from your dashboard.</p>
           <ol class="stepper" id="stepper">
             <li data-s="1" class="is-active"><span class="stepper__n">1</span><span>Connect your wallet</span></li>
             <li data-s="2"><span class="stepper__n">2</span><span>Sign in with Google or e-mail</span></li>
             <li data-s="3"><span class="stepper__n">3</span><span>Your dashboard</span></li>
           </ol>
-          <ul class="safety">
-            <li>Signing in is free. It isn't a transaction and can't move funds.</li>
-            <li>Vicinity will never ask for your recovery phrase or private key.</li>
-            <li>One account per wallet and per Google login or verified e-mail. That makes fake accounts harder, but it is not proof of one person.</li>
-          </ul>
+          <details class="fold safe-fold">
+            <summary><svg class="safe-fold__ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.9 7 9 4.1-1.1 7-4.7 7-9V6.2z"/><path d="m9 12 2.2 2.2L15.2 10"/></svg>Safe by design</summary>
+            <ul class="safety">
+              <li>Signing in is free. It isn't a transaction and can't move funds.</li>
+              <li>Vicinity will never ask for your recovery phrase or private key.</li>
+              <li>One account per wallet and per Google login or verified e-mail. That makes fake accounts harder, but it is not proof of one person.</li>
+            </ul>
+          </details>
         </div>
 
         <div class="connect__panel card" id="connect-panel" aria-live="polite">
           <!-- Sign-up v2 only (SIGNUP_FLOW = "v2"): tabs, step bar, notes. Hidden until public/signup.js (which connect.js loads ONLY when /api/me says signupFlow is "v2") turns it on. -->
           <div class="su-top" id="su-top" hidden>
-            <div class="su-tabs" role="group" aria-label="New here, or already a member?">
+            <div class="su-tabs seg" role="group" aria-label="New here, or already a member?">
               <button class="su-tab" type="button" id="tab-new" aria-pressed="true">New here</button>
               <button class="su-tab" type="button" id="tab-login" aria-pressed="false">Log in</button>
             </div>
-            <!-- two steps; the wallet is not one of them (it comes later, from the dashboard): a muted chip says so -->
+            <!-- the wizard: two steps, then the wallet as an optional third that is not part of the sign-up (it comes later, from the
+                 dashboard). signup.js drawSteps() sets is-active / is-done / aria-current and the hidden state text; the icons and the
+                 small words under each label are decoration (aria-hidden), so a screen reader hears what it heard before. -->
             <ol class="stepper stepper--bar stepper--two" id="su-steps" aria-label="Sign-up steps">
-              <li data-step="location"><button class="stepper__btn" type="button" id="su-step-location" disabled><span class="stepper__n" aria-hidden="true">1</span><span>Location</span><span class="sr-only" data-step-state></span></button></li>
-              <li data-step="account"><button class="stepper__btn" type="button" id="su-step-account" disabled><span class="stepper__n" aria-hidden="true">2</span><span>Account</span><span class="sr-only" data-step-state></span></button></li>
-              <li class="su-later" id="su-later" title="Your wallet comes later, from your dashboard. Free, one signature."><span class="su-later__chip">Wallet · later</span><span class="sr-only">: your wallet comes later, from your dashboard. Free, one signature.</span></li>
+              <li data-step="location"><button class="stepper__btn" type="button" id="su-step-location" disabled><span class="stepper__n" aria-hidden="true"><svg class="stepper__ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><svg class="stepper__ok" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="m5.5 12.5 4 4 9-9"/></svg></span><span class="stepper__label">Location</span><span class="stepper__sub" aria-hidden="true">Find your city</span><span class="sr-only" data-step-state></span></button></li>
+              <li data-step="account"><button class="stepper__btn" type="button" id="su-step-account" disabled><span class="stepper__n" aria-hidden="true"><svg class="stepper__ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.5"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/></svg><svg class="stepper__ok" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="m5.5 12.5 4 4 9-9"/></svg></span><span class="stepper__label">Account</span><span class="stepper__sub" aria-hidden="true">Your login</span><span class="sr-only" data-step-state></span></button></li>
+              <li class="su-later" id="su-later" title="Your wallet comes later, from your dashboard. Free, one signature."><span class="stepper__n" aria-hidden="true"><svg class="stepper__ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11v3"/><rect x="4" y="8" width="16.5" height="11" rx="2.5"/><path d="M16 13.5h1.5"/></svg></span><span class="stepper__label">Wallet<span class="sr-only"> · later</span></span><span class="stepper__sub" aria-hidden="true">Optional · later</span><span class="sr-only">: your wallet comes later, from your dashboard. Free, one signature.</span></li>
             </ol>
             <p class="callout small su-note" id="su-note" hidden></p>
           </div>
           <p class="sr-only" id="su-live" role="status" aria-live="polite" aria-atomic="true"></p>
 
-          <!-- 0. v2 only: working out where the person is in the sign-up -->
-          <div class="cstate" data-state="loading" hidden>
+          <!-- 0. working out where the person is (the first paint: connect.js shows the right screen once /api/me answers, never this half-drawn page's pick screen) -->
+          <div class="cstate" data-state="loading">
             <p class="muted" id="su-loading"><span class="live-dot" aria-hidden="true"></span> <span id="su-loading-text">Loading…</span></p>
             <button class="link-btn" type="button" id="su-reload" hidden>Reload the page</button>
           </div>
 
           <!-- 1. log in, choose a wallet, or (a member without a wallet) link one -->
-          <div class="cstate" data-state="pick">
+          <div class="cstate" data-state="pick" hidden>
             <!-- v2 "Log in" tab: shown instead of #login-block (today's block, which stays as it is) -->
             <section class="login-block" id="lg-block" aria-labelledby="lg-title" hidden>
               <h2 class="h2--sm" id="lg-title" tabindex="-1">Welcome back</h2>
@@ -50,7 +57,7 @@
               <button class="btn btn--primary btn--block btn--lg" type="button" id="lg-wallet" hidden>Sign in with your wallet</button>
               <p class="tiny muted" id="lg-wallet-note" hidden>One free signature. Nothing is paid or moved.</p>
               <button class="link-btn" type="button" id="lg-join" hidden>New here? Join</button>
-              <a class="btn btn--social btn--google" href="/api/auth/google/start" id="lg-google" hidden><span class="social-mark" aria-hidden="true">G</span> Log in with Google</a>
+              <a class="btn btn--social btn--google" href="/api/auth/google/start" id="lg-google" hidden><span class="social-mark social-mark--g" aria-hidden="true"><svg viewBox="0 0 48 48" width="20" height="20" focusable="false"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg></span> Log in with Google</a>
               <p class="callout small" id="lg-inapp" hidden>You're inside a wallet app's browser. Google doesn't allow log-in here, so use your e-mail or your wallet. To use Google, open <strong>vicinity.city/connect</strong> in Safari or Chrome. <button class="link-btn" type="button" id="lg-copy">Copy the link</button></p>
               <p class="or-line" id="lg-or"><span>or with your e-mail</span></p>
               <form class="su-form" id="lg-form" method="post" action="/api/auth/email/login" novalidate>
@@ -78,7 +85,7 @@
               <h2 class="h2--sm" id="login-title">Already a member? Log in</h2>
               <p class="muted small">Continue with the Google account or e-mail address you signed up with. No wallet needed to get back in.</p>
               <div class="social-btns" id="login-social">
-                <a class="btn btn--social btn--google" href="/api/auth/google/start" id="login-google" hidden><span class="social-mark" aria-hidden="true">G</span> Log in with Google</a>
+                <a class="btn btn--social btn--google" href="/api/auth/google/start" id="login-google" hidden><span class="social-mark social-mark--g" aria-hidden="true"><svg viewBox="0 0 48 48" width="20" height="20" focusable="false"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg></span> Log in with Google</a>
                 <button class="btn btn--social btn--email" type="button" id="login-email" hidden><span class="social-mark" aria-hidden="true">✉</span> Log in with e-mail</button>
               </div>
               <div id="login-email-slot">
@@ -209,7 +216,7 @@
             <p class="addr addr--center"><span id="s-addr">—</span></p>
             <p class="muted small">Sign in with Google or your e-mail to finish. Your login is linked to this wallet for good (an e-mail address that is your sign-in cannot be changed or removed): one account per wallet and per login.</p>
             <div class="social-btns" id="go-social">
-              <a class="btn btn--social btn--google" href="/api/auth/google/start" id="go-google"><span class="social-mark" aria-hidden="true">G</span> Continue with Google</a>
+              <a class="btn btn--social btn--google" href="/api/auth/google/start" id="go-google"><span class="social-mark social-mark--g" aria-hidden="true"><svg viewBox="0 0 48 48" width="20" height="20" focusable="false"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg></span> Continue with Google</a>
               <button class="btn btn--social btn--email" type="button" id="go-email"><span class="social-mark" aria-hidden="true">✉</span> Continue with e-mail</button>
             </div>
             <div id="social-email-slot"></div>
@@ -223,7 +230,7 @@
           <div class="cstate" data-state="su-location" hidden>
             <h2 class="h2--sm" id="su-loc-title" tabindex="-1">Where are you?</h2>
             <div id="su-loc-ask">
-              <p class="muted small">Your phone shares where you are once, so we can find your community. We never save your location, only the community.</p>
+              <p class="muted small">Your device shares where you are once, so we can find your community. We never save your location, only the community.</p>
               <button class="btn btn--primary btn--block btn--lg" type="button" id="su-loc-go">Share my location</button>
               <p class="muted small" id="su-loc-status" hidden><span class="live-dot" aria-hidden="true"></span> <span id="su-loc-status-text">Waiting for your browser. If it asks, choose Allow.</span></p>
               <p class="su-err" id="su-loc-error" role="alert"></p>
@@ -263,12 +270,12 @@
             </p>
             <div id="su-acc-choose">
               <div class="su-ident">
-                <button class="btn btn--primary btn--block btn--lg" type="button" id="su-google" hidden><span class="social-mark" aria-hidden="true">G</span> Agree and continue with Google</button>
-                <p class="tiny muted" id="su-google-note" hidden>By continuing you agree to the Terms of Use.</p>
+                <button class="btn btn--primary btn--block btn--lg" type="button" id="su-google" hidden><span class="social-mark social-mark--g" aria-hidden="true"><svg viewBox="0 0 48 48" width="20" height="20" focusable="false"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg></span> Agree and continue with Google</button>
                 <p class="callout small" id="su-inapp" hidden>Google cannot sign you in inside a wallet app. Use e-mail here, or open <strong>vicinity.city/connect</strong> in Safari or Chrome. <button class="link-btn" type="button" id="su-copy">Copy the link</button></p>
               </div>
-              <!-- ticked from the start: the button above already says "Agree and continue", so the box only records it (untick it to hold the buttons) -->
-              <div class="su-check">
+              <!-- ticked from the start: the button above already says "Agree and continue", so the box only records it (untick it to hold the buttons);
+                   data-fb-avoid: the floating feedback button steps aside rather than sit on the Terms box -->
+              <div class="su-check" data-fb-avoid>
                 <input type="checkbox" id="su-terms" name="terms" checked aria-describedby="su-terms-error su-terms-hint">
                 <label for="su-terms">I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Use</a>. <span class="sr-only">Version <span id="su-terms-version">2026-10-01</span>.</span></label>
               </div>

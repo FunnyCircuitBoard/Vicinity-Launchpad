@@ -1,29 +1,57 @@
-/* Design v2 (10 Oct 2026): /connect and /locate. One sheet per page, loaded last there (scripts/pages/src/<page>.html "styles").
-   Phone first; the shared tokens come from style.css, each with a fallback here; motion only inside prefers-reduced-motion: no-preference. */
-/* =====================================================================
-   /connect and /locate: one column that can shrink on a phone, long button labels wrap, one Google button style on both tabs, the
-   selected tab a quiet pill (the step's own button is the ember), the log-in screen's panel first on a phone (its safety lines
-   after it, still on screen), what we keep folded with its facts in the summary; the locate page as tall as what it says.
-   ===================================================================== */
-.connect__grid { grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); }
-@media (max-width: 900px) { .connect__grid { grid-template-columns: minmax(0, 1fr); } }
-.connect__grid:has(> .connect__intro[hidden]) { grid-template-columns: minmax(0, 560px); }
+/* /connect and /locate (design v4). Loaded last there; new tokens with a fallback. /connect: one centred column, a compact header
+   (kicker, title, lead, "Safe by design" folded), then the panel: New here / Log in, the wizard (onboard.css), one primary action. */
+/* no jump while the sign-up loads: the section fills the first screen (the footer is out of view), the lead holds two lines */
+.connect { padding: 32px 0 72px; min-height: calc(100vh - var(--header-h, 68px)); min-height: calc(100svh - var(--header-h, 68px)); }
+.connect__grid, .connect__grid:has(> .connect__intro[hidden]) { grid-template-columns: minmax(0, 640px); justify-content: center; gap: 24px; }
+.connect__panel { width: 100%; max-width: 520px; justify-self: center; }
+.connect__intro { text-align: center; }
+.connect__intro .kicker { margin-bottom: 10px; }
+.connect__intro .page-title { font-size: clamp(2rem, 1.4rem + 2.4vw, 2.75rem); margin: 0 0 12px; }
+.connect__intro .lead { margin: 0 auto; font-size: 1rem; max-width: 36rem; min-height: 3.1em; display: grid; align-content: center; text-wrap: balance; }
+/* the old flow's 1-2-3 (not live; v2 hides it) only made the page jump */
+.connect__intro .stepper { display: none; }
+/* "Safe by design": a pill that opens to the three facts, word for word */
+.safe-fold { border-top: 0; margin-top: 16px; }
+.safe-fold > summary { width: fit-content; max-width: 100%; margin: 0 auto; gap: 8px; padding: 0 36px 0 14px; border: 1px solid var(--line-2); border-radius: var(--r-pill, 999px); color: var(--text-2); font-weight: 500; }
+.safe-fold > summary::after { right: 14px; }
+.safe-fold__ico { flex: none; color: var(--ok-text); }
+.connect__intro .safe-fold .safety { display: grid; gap: 10px; margin: 12px 0 0; padding: 16px; border-radius: var(--r-card, 16px); background: var(--surface-inset, rgba(255,255,255,.04)); border: 1px solid var(--line); text-align: left; font-size: .875rem; }
+.connect__intro .safety li { padding-left: 24px; }
+.connect__intro .safety li::before { content: ""; top: .45em; left: 2px; width: 9px; height: 5px; border: solid var(--ok-text); border-width: 0 0 2px 2px; transform: rotate(-45deg); }
+@media (hover: hover) { .safe-fold > summary:hover { color: var(--text); border-color: var(--field-line); } }
+/* the panel: a raised card, the switch and the wizard above a hairline, then the step */
+.connect__panel { border-radius: var(--r-lg, 20px); box-shadow: var(--e2); }
+@media (min-width: 481px) { .connect__panel { padding: 24px; } }
+/* the panel holds its room while the sign-up loads, then fits its screen; a heading focus is moved to (tabindex -1) has no ring */
+.connect__panel.su-on:not(:has(> [data-state="loading"]:not([hidden]))), .connect__panel:has(> [data-state="approve"]:not([hidden])) { min-height: 0; }
+.connect__panel h2[tabindex="-1"]:focus { outline: none; }
+.su-top { gap: 20px; margin-bottom: 20px; }
+#su-steps:not([hidden]) { padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.su-tabs.seg { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; padding: 3px; border-radius: var(--r-pill, 999px); }
+.su-tabs .su-tab { min-height: 44px; padding: 0 12px; font: 500 .9375rem var(--body); color: var(--muted); }
+.su-tabs .su-tab[aria-pressed="true"] { background: rgba(var(--ink), .12); color: var(--text); font-weight: 600; box-shadow: inset 0 0 0 1px var(--line-2); }
+:root[data-theme="light"] .su-tabs:not(.has-ind) .su-tab[aria-pressed="true"] { background: #fff; box-shadow: 0 0 0 1px rgba(11,22,38,.1), var(--e1); }
+.su-tabs .su-tab[aria-pressed="true"]::after { content: none; }
+.connect__panel .tiny { font-size: .8rem; line-height: 1.5; }
+.su-check { border-color: var(--line-2); background: var(--surface-inset, rgba(255,255,255,.04)); border-radius: var(--r-chip, 12px); }
+.alt { border-style: solid; border-color: var(--line); background: var(--surface-inset, rgba(255,255,255,.04)); }
+/* the intro names the screen: the panel's copy of those words stays for screen readers, out of sight (a phone's link mode hides the intro) */
+:root:not(.has-link) .connect__grid:has(> .connect__intro:not([hidden])) :is(#lg-title, #link-top > .kicker, #link-top > h2, #link-top > p:not(.link-top__safe)) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+:root:not(.has-link) .connect__grid:has(> .connect__intro:not([hidden])) #link-top { padding-bottom: 0; border-bottom: 0; }
 #su-google, #su-email-send, .su-ident .btn { white-space: normal; text-align: center; line-height: 1.25; }
 #su-google.btn--primary { background: #fff; color: #1f1f1f; border-color: rgba(11,22,38,.18); box-shadow: 0 10px 30px -18px rgba(0,0,0,.6); }
 #su-google.btn--primary::before, #su-google.btn--primary::after { content: none; }
 #su-google .social-mark { color: #4285F4; }
-.su-tab[aria-pressed="true"] { background: var(--surface-2, var(--bg-2)); color: var(--text); box-shadow: inset 0 -2px 0 var(--pin), 0 6px 16px -10px rgba(0,0,0,.5); }
-:root[data-theme="light"] .su-tab[aria-pressed="true"] { background: #fff; }
 .su-keep { width: 100%; margin-top: 4px; }
 .su-keep > p { margin: 0 0 8px; }
 .link-top__safe { margin: 0; }
 @media (max-width: 600px) {
-  .connect { padding-top: var(--sp-5, 24px); }
-  .connect[data-mode="login"] .connect__intro { order: 2; }
-  .connect[data-mode="login"] .connect__intro > :not(.safety) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-  .connect[data-mode="login"] .connect__intro .safety { display: grid; margin: 0; }
-  /* linking a wallet: one heading ("Connect your wallet."; "Choose your wallet" stays for screen readers), the wallet rows right
-     under the lines that say what happens, then the recovery-phrase line and "No wallet app yet?" (moved, not removed) */
+  .connect { padding: 12px 0 48px; }
+  .connect__grid { gap: 16px; }
+  .connect__intro .kicker { margin-bottom: 6px; }
+  .connect__intro .page-title { margin-bottom: 8px; }
+  .safe-fold { margin-top: 10px; }
+  /* linking a wallet: one heading, the wallet rows under what happens, then the recovery-phrase line and "No wallet app yet?" */
   .connect[data-mode="link"] .cstate[data-state="pick"] { row-gap: 10px; }
   .connect[data-mode="link"] #link-top { display: contents; }
   .connect[data-mode="link"] #link-top .kicker { margin-bottom: -6px; }
@@ -32,12 +60,13 @@
   .connect[data-mode="link"] .alt-ways { order: 2; }
   .connect[data-mode="link"] #wallets-detected:empty { display: none; }
 }
+@media (max-width: 480px) { .connect__intro .lead { display: none; } }
 #locate-panel { min-height: 0; }
 #locate-panel .verified-badge svg { display: block; }
 /* the account step's place chip: the place on one line, "Not right? Check again" wraps under it when the row is short */
 #su-recap { flex-wrap: wrap; row-gap: 0; border-radius: var(--r-chip, 12px); }
 #su-recap-city { white-space: nowrap; font-weight: 600; }
-@media (max-width: 600px) { #su-recap .su-recap__sep { display: none; } #su-recap #su-recap-redo { flex: 0 0 calc(100% - 26px); margin-left: 26px; justify-content: flex-start; text-align: left; padding-left: 0; padding-right: 0; } } /* the place, then "Not right?" under it: no dot left hanging at a line end */
+@media (max-width: 600px) { #su-recap { flex: 1 1 100%; } #su-recap .su-recap__sep { display: none; } #su-recap #su-recap-redo { flex: 0 0 calc(100% - 26px); margin-left: 26px; justify-content: flex-start; text-align: left; padding-left: 0; padding-right: 0; } } /* the place, then "Not right?" under it: no dot left hanging at a line end */
 
 /* /connect: the alternative ways and the done badge carry icons from the site's set (no emoji); signup.js sets the badge's data-icon */
 .alt .alt__icon.ico { font-size: inherit; }
