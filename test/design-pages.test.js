@@ -155,7 +155,20 @@ test("the account step's place chip: the place, then 'Not right? Check again' un
   for (const h of [read("public/connect.html"), read("scripts/pages/src/connect.html")]) {
     assert.match(h, /<span id="su-recap-city">—<\/span><span class="su-recap__sep" aria-hidden="true"> · <\/span><button class="link-btn link-btn--tiny" type="button" id="su-recap-redo">Not right\? Check again<\/button>/);
   }
-  assert.match(CSS, /@media \(max-width: 600px\) \{ #su-recap \.su-recap__sep \{ display: none; \}/);
+  // a phone: the chip runs the full width, like the buttons under it (review of 13 Oct 2026)
+  assert.match(CSS, /@media \(max-width: 600px\) \{ #su-recap \{ flex: 1 1 100%; \} #su-recap \.su-recap__sep \{ display: none; \}/);
+});
+
+test("connect (design v4): no jump while the sign-up loads: the first paint is the Loading screen, the section fills the first screen, the lead holds two lines", () => {
+  // measured in Chromium on the real Worker (13 Oct 2026): /connect, ?mode=login and a remembered browser at 1280 and 1920 went from
+  // CLS 0.02-0.21 (the old pick screen and the old Log in lead drawn first, then replaced) to 0.000
+  for (const h of [read("public/connect.html"), read("scripts/pages/src/connect.html")]) {
+    assert.match(h, /<div class="cstate" data-state="loading">/, "connect.js shows the right screen once /api/me answers; until then, Loading");
+    assert.match(h, /<div class="cstate" data-state="pick" hidden>/, "never the half-drawn pick screen first");
+  }
+  assert.match(CSS, /\.connect \{ padding: 32px 0 72px; min-height: calc\(100vh - var\(--header-h, 68px\)\); min-height: calc\(100svh - var\(--header-h, 68px\)\); \}/);
+  assert.match(CSS, /\.connect__intro \.lead \{[^}]*max-width: 36rem; min-height: 3\.1em;/);
+  assert.match(CSS, /\.connect__intro \.stepper \{ display: none; \}/);
 });
 
 test("cities: the map's scale bar clears whichever card holds the slot, and the feedback button steps aside from the map, its card and its controls", () => {

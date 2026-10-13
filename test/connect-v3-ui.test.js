@@ -24,18 +24,42 @@ function server(start = STATE.empty()) {
 }
 const geo = { getCurrentPosition: (ok) => ok({ coords: { latitude: 43.1, longitude: -75.23, accuracy: 30 } }) };
 
-test("New here: a two-step bar with a 'Wallet · later' chip that is not a step; the lead says two quick steps and no wallet", async () => {
+/** What a screen reader reads out of an element: its text without the parts marked aria-hidden (icons, the wizard's small words). */
+const spoken = (n) => (n.getAttribute ? (n.getAttribute("aria-hidden") === "true" ? "" : n.childNodes.map(spoken).join("")) : n.textContent);
+
+test("New here: the wizard (Location, Account, then the wallet as an optional third that is not a step); the intro says what happens, with no made-up number", async () => {
   const s = server();
   const p = await openConnect({ api: s.api, state: s.state });
   assert.equal(p.screen(), "su-location");
   assert.equal(p.visible(p.$("#su-steps")), true);
   assert.deepEqual(p.$("#su-steps").children.map((li) => li.getAttribute("data-step")), ["location", "account", null]);
-  assert.equal(p.$("#su-later").textContent.replace(/\s+/g, " ").trim(), "Wallet · later: your wallet comes later, from your dashboard. Free, one signature.");
+  // design v4 (13 Oct 2026, moved on purpose): the wallet is a dashed third circle with small words under it; what a screen reader
+  // hears is word for word what it heard from the old chip, and each step's name is still only its label and its state
+  assert.equal(spoken(p.$("#su-later")).replace(/\s+/g, " ").trim(), "Wallet · later: your wallet comes later, from your dashboard. Free, one signature.");
   assert.equal(p.$("#su-later").getAttribute("title"), "Your wallet comes later, from your dashboard. Free, one signature.");
+  assert.equal(spoken(p.$("#su-step-location")), "Location, current step");
+  assert.equal(spoken(p.$("#su-step-account")), "Account, not started yet");
+  assert.deepEqual([...p.doc.querySelectorAll("#su-steps .stepper__sub")].map((e) => [e.textContent, e.getAttribute("aria-hidden")]),
+    [["Find your city", "true"], ["Your login", "true"], ["Optional · later", "true"]], "the small words are decoration: never read twice");
+  for (const n of p.doc.querySelectorAll("#su-steps .stepper__n")) assert.equal(n.getAttribute("aria-hidden"), "true");
   assert.ok(p.$("#su-steps li[data-step=\"location\"]").classList.contains("is-active"));
-  assert.match(p.$(".connect__intro .lead").textContent, /^Two quick steps: where you are, then who you are\. Your dashboard opens right after\. Link a wallet there whenever you like\./);
+  assert.equal(p.$("#su-steps li[data-step=\"location\"]").getAttribute("aria-current"), "step");
+  assert.equal(p.$(".connect__intro .kicker").textContent, "Join Vicinity");
+  assert.equal(p.$(".connect__intro .page-title").textContent, "Your city.Your account.");
+  assert.equal(p.$(".connect__intro .lead").textContent, "Share your location once (it is never stored), then sign in. Link a wallet later, from your dashboard.");
+  for (const sel of [".kicker", ".page-title", ".lead"]) assert.doesNotMatch(p.$(`.connect__intro ${sel}`).textContent, /minute|\d/, "no time or count the page cannot back up");
   assert.match(p.$("#su-live").textContent, /Step 1 of 2: Location/);
   assert.equal(p.$("#su-loc-go").textContent, "Share my location");
+});
+
+test("the security and honesty lines stay on the page, folded under 'Safe by design' as the intro's last child (signup.js writes the first one)", async () => {
+  const { wallet } = fakeWallet("Phantom");
+  const p = await openConnect({ me: LINK_ME, wallets: [wallet] });
+  const intro = p.$(".connect__intro"), fold = intro.lastElementChild;
+  assert.equal(fold.tagName, "DETAILS");
+  assert.match(fold.querySelector("summary").textContent, /^Safe by design$/);
+  assert.deepEqual([...fold.querySelectorAll(".safety li")].map((li) => li.textContent), ["Linking is free. It isn't a transaction and can't move funds.",
+    "Vicinity will never ask for your recovery phrase or private key.", "One account per wallet and per Google login or verified e-mail. That makes fake accounts harder, but it is not proof of one person."]);
 });
 
 test("the location confirmed: a moment to see it, then step 2 by itself (announced); the bar still leads back to the done view", async () => {
@@ -70,7 +94,10 @@ test("step 2: 'Agree and continue with Google' is one tap: it ticks the box, rec
   assert.equal(p.visible(google), true);
   assert.equal(google.disabled, false, "enabled although the box is not ticked yet");
   assert.equal(p.$("#su-terms").checked, true, "ticked from the start: the button says Agree and continue, the box only records it (untick it to hold the buttons)");
-  assert.equal(p.visible(p.$("#su-google-note")), true);
+  // review of 13 Oct 2026: the agreement is said once on the button ("Agree and continue") and once on the box that links the Terms;
+  // the third line ("By continuing you agree to the Terms of Use.") went (item 5: no walls of text). The Terms still bind (R4).
+  assert.equal(p.$("#su-google-note"), null);
+  assert.match(google.textContent, /Agree and continue with Google/);
   assert.equal(p.$("label[for=\"su-terms\"]").textContent.replace(/\s+/g, " ").trim(), "I agree to the Terms of Use. Version 2026-10-01.");
   assert.ok(p.$("label[for=\"su-terms\"] .sr-only"), "the version is for screen readers, not noise on a phone");
   assert.equal(p.callsTo("/api/signup/terms").length, 0, "ticked or not, nothing is recorded before the tap");

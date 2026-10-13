@@ -483,11 +483,11 @@
       } else if (S.tab === "login") {
         text(".connect__intro .kicker", "Welcome back");
         accent.textContent = "Your city's waiting."; title.replaceChildren("Log in.", el("br"), accent);
-        text(".connect__intro .lead", "Log in with your Google account, your e-mail and password, or your wallet. You won't repeat anything else.");
+        text(".connect__intro .lead", "Google, e-mail or your wallet.");
       } else {
         text(".connect__intro .kicker", "Join Vicinity");
-        accent.textContent = "Represent."; title.replaceChildren("Check in. Verify.", el("br"), accent);
-        text(".connect__intro .lead", "Two quick steps: where you are, then who you are. Your dashboard opens right after. Link a wallet there whenever you like. Already a member? Tap Log in.");
+        accent.textContent = "Your account."; title.replaceChildren("Your city.", el("br"), accent);
+        text(".connect__intro .lead", "Share your location once (it is never stored), then sign in. Link a wallet later, from your dashboard.");
       }
     }
 
@@ -696,7 +696,7 @@
     /** Which of Google / e-mail / neither is offered here. Google can't run inside a wallet app's browser: e-mail here, or Safari. */
     function drawProviders() {
       const app = inApp(), google = S.providers.google && !app, email = S.providers.email;
-      hide("#su-google", !google); hide("#su-google-note", !google); hide("#su-inapp", !(app && S.providers.google));
+      hide("#su-google", !google); hide("#su-inapp", !(app && S.providers.google));
       hide("#su-email-alt", !email); hide("#su-off", Boolean(S.providers.google || S.providers.email));
       // e-mail is the way in on a computer and inside a wallet app (no Google there); on a phone's Safari it waits behind one line
       const alt = $("#su-email-alt");

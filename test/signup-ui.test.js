@@ -272,7 +272,8 @@ test("step 2: one primary action that agrees and continues with Google, the Term
   assert.doesNotMatch(step.match(/<button[^>]*id="su-google"[^>]*>/)[0], /\bdisabled\b/, "not disabled: the tap itself agrees");
   assert.match(step, /<input type="checkbox" id="su-terms" name="terms"[^>]*>(?![^]*checked)/, "unchecked until the tap (or the person) ticks it");
   assert.match(step, /id="su-terms-hint"[^>]*>Tick the box to continue\.</, "unticking by hand holds the primaries, with this hint");
-  assert.match(step, /id="su-google-note"[^>]*>By continuing you agree to the Terms of Use\.</);
+  // the agreement is said on the button and on the box (which links the Terms and records the version); no third line saying it again
+  assert.doesNotMatch(step, /id="su-google-note"|By continuing you agree/);
   assert.match(step, /One account per login keeps fake accounts out\. No wallet needed to join\./);
   assert.match(step, /<details class="su-alt" id="su-email-alt">\s*<summary id="su-email-summary">Use e-mail and a password instead<\/summary>\s*<form class="su-form" id="su-email-form"/);
   assert.match(step, /id="su-email-send">Agree and send me a code</);
@@ -281,10 +282,17 @@ test("step 2: one primary action that agrees and continues with Google, the Term
   assert.doesNotMatch(step, /su-recap-wallet|Wallet verified/, "no wallet in the account step");
 });
 
-test("the step bar has two steps and a 'Wallet · later' chip that is not a step; no wallet screen belongs to the sign-up", () => {
+test("the step bar has two steps and the wallet as an optional third that is not a step; no wallet screen belongs to the sign-up", () => {
   const bar = html.slice(html.indexOf('id="su-steps"'), html.indexOf('id="su-note"'));
   assert.deepEqual([...bar.matchAll(/data-step="([a-z]+)"/g)].map((m) => m[1]), ["location", "account"]);
-  assert.match(bar, /<li class="su-later" id="su-later" title="Your wallet comes later, from your dashboard\. Free, one signature\."><span class="su-later__chip">Wallet · later<\/span>/);
+  // design v4 (13 Oct 2026, moved on purpose): the chip became the wizard's dashed third circle; it is still an <li> with no button
+  // and no data-step, its title and its spoken words ("Wallet · later: …") are the same, and the small words under it are aria-hidden
+  assert.match(bar, /<li class="su-later" id="su-later" title="Your wallet comes later, from your dashboard\. Free, one signature\."><span class="stepper__n" aria-hidden="true"><svg [^>]*>[^]*?<\/svg><\/span><span class="stepper__label">Wallet<span class="sr-only"> · later<\/span><\/span><span class="stepper__sub" aria-hidden="true">Optional · later<\/span><span class="sr-only">: your wallet comes later, from your dashboard\. Free, one signature\.<\/span><\/li>/);
+  assert.doesNotMatch(bar.slice(bar.indexOf('id="su-later"')), /<button/, "the wallet is not a step anyone can go to from here");
+  for (const step of ["location", "account"]) {
+    const li = bar.match(new RegExp(`<li data-step="${step}">[^]*?</li>`))[0];
+    assert.match(li, /<span class="stepper__n" aria-hidden="true"><svg class="stepper__ico"[^>]*>[^]*?<\/svg><svg class="stepper__ok"[^>]*>[^]*?<\/svg><\/span><span class="stepper__label">(Location|Account)<\/span><span class="stepper__sub" aria-hidden="true">[^<]+<\/span><span class="sr-only" data-step-state><\/span><\/button>/, step);
+  }
   assert.doesNotMatch(html, /data-step="wallet"|data-state="su-wallet"/);
   assert.match(html, /<link rel="stylesheet" href="\/onboard\.css">/, "the new pieces are styled from public\/onboard.css (no inline style)");
   assert.doesNotMatch(src, /walletLead|PHONE_NOTE|showWallet|forceWallet|\/api\/signup\/carry/, "the wallet step's code is gone from the sign-up script");

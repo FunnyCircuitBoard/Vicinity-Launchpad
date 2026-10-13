@@ -263,6 +263,7 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 .btn--google { background: #fff; color: #1f1f1f; border-color: rgba(11,22,38,.18); }
 .btn--email { background: rgba(var(--ink),.08); color: var(--text); border-color: var(--line); }
 .social-mark { width: 24px; height: 24px; display: grid; place-items: center; font: 800 1rem var(--display); }
+.social-mark--g svg { width: 20px; height: 20px; } /* Google's own four-colour G (its sign-in button guidelines), on the white button */
 .btn--google .social-mark { color: #4285F4; }
 .btn--email .social-mark { color: var(--pin-2); }
 .social-btns { display: grid; gap: 10px; width: 100%; }

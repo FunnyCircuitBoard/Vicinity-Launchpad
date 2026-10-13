@@ -3,11 +3,51 @@
    their page settings). Every rule is scoped under its own class (.su-later, .link-top, .link-in, .no-account, .wcard, .ring,
    .welcome): nothing else on the site changes. Colours come from style.css's tokens, so the light theme follows by itself. */
 
-/* ---- the step bar: two steps and a muted "Wallet · later" chip (not a step) ---- */
-.stepper--two { grid-template-columns: 1fr 1fr auto; align-items: center; }
-.su-later { display: flex; justify-content: center; }
-.su-later__chip { display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .04em; padding: 4px 10px; border-radius: 999px; border: 1px dashed var(--line-2); color: var(--muted); background: var(--card); white-space: nowrap; }
-@media (max-width: 420px) { .stepper--two { grid-template-columns: 1fr 1fr; } .su-later { grid-column: 1 / -1; } }
+/* ---- the wizard (design v4): Location → Account → Wallet (optional, later). Three equal columns on one row at every width; each step
+   is an icon in a 32-px circle, its label and a few muted words. signup.js drawSteps() sets the states (.is-active, .is-done,
+   aria-current, disabled); nothing here changes them. Upcoming: a quiet ring (--field-line, 3:1); current: the accent ring on a soft
+   accent fill; done: a filled moss circle with a check. The 2-px track between two circles fills (scaleX) once the step before it is
+   done; the wallet's track and ring are dashed: it is not part of the sign-up. ---- */
+.stepper--two { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 0; align-items: start; }
+.stepper--two > li { position: relative; display: block; min-width: 0; text-align: center; color: var(--muted); font-size: inherit; }
+.stepper--two .stepper__btn, .stepper--two > .su-later { display: flex; flex-direction: column; align-items: center; gap: 0; width: 100%; min-height: 44px; padding: 0 4px 4px; border-radius: var(--r-chip, 12px); }
+.stepper--two .stepper__n { position: relative; z-index: 1; width: 32px; height: 32px; margin-bottom: 8px; border: 1.5px solid var(--field-line); border-radius: 50%; background: transparent; color: var(--muted); font-size: 0; display: grid; place-items: center; transition: none; }
+.stepper--two .stepper__n svg { width: 16px; height: 16px; grid-area: 1 / 1; }
+.stepper--two .stepper__ok { display: none; }
+.stepper--two .stepper__label { font: 600 .875rem/1.25 var(--body); letter-spacing: -.005em; color: var(--muted); overflow-wrap: anywhere; }
+.stepper--two .stepper__sub { margin-top: 2px; font: 500 .75rem/1.3 var(--body); color: var(--muted); text-wrap: balance; }
+.stepper--two > li.is-active .stepper__n { border-color: var(--pin-2); background: var(--accent-soft); color: var(--pin-2); box-shadow: 0 0 0 4px var(--accent-soft); }
+.stepper--two > li.is-active .stepper__label { color: var(--text); }
+.stepper--two > li.is-done .stepper__n { border-color: var(--moss); background: var(--moss); color: #062A1F; font-size: 0; }
+.stepper--two > li.is-done .stepper__n::after { content: none; }
+.stepper--two > li.is-done .stepper__ico { display: none; }
+.stepper--two > li.is-done .stepper__ok { display: block; }
+.stepper--two > li.is-done .stepper__label { color: var(--text); }
+.stepper--two .stepper__btn:not(:disabled):hover .stepper__n { border-color: var(--moss); box-shadow: 0 0 0 4px var(--ok-soft, rgba(55,194,154,.14)); }
+:root[data-theme="light"] .stepper--two > li.is-done .stepper__n { color: #fff; }
+/* the track between two circles: from the edge of the circle before to the edge of this one (columns of equal width, no gap) */
+.stepper--two > li + li::before, .stepper--two > li + li::after { content: ""; position: absolute; top: 15px; left: calc(-50% + 24px); right: calc(50% + 24px); height: 2px; border-radius: 2px; pointer-events: none; }
+.stepper--two > li + li::before { background: var(--line-2); }
+.stepper--two > li + li::after { background: var(--moss); transform: scaleX(0); transform-origin: left center; }
+.stepper--two > li.is-done + li::after { transform: scaleX(1); }
+.stepper--two > .su-later { cursor: help; }
+.stepper--two > .su-later .stepper__n { border-style: dashed; }
+.stepper--two > .su-later::before { background: none; border-top: 2px dashed var(--line-2); height: 0; }
+.stepper--two > .su-later::after { content: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .stepper--two .stepper__n { transition: border-color var(--dur-2, .2s), background-color var(--dur-2, .2s), color var(--dur-2, .2s), box-shadow var(--dur-2, .2s); }
+  .stepper--two > li + li::after { transition: transform var(--dur-3, .32s) var(--ease-out, ease-out); }
+  .stepper--two > li.is-done .stepper__ok { animation: suStepOk var(--dur-3, .32s) var(--ease-spring, ease-out) both; }
+}
+@keyframes suStepOk { from { transform: scale(.4); opacity: 0; } }
+/* forced colours: the rings and the track stay visible, the done circle is a filled system mark */
+@media (forced-colors: active) {
+  .stepper--two .stepper__n, .su-later .stepper__n { border-color: CanvasText; }
+  .stepper--two > li.is-done .stepper__n { background: Highlight; color: HighlightText; }
+  .stepper--two > li + li::before, .stepper--two > li + li::after { background: CanvasText; }
+}
+/* a narrow phone: the small words go, the three labels stay on one row */
+@media (max-width: 360px) { .stepper--two .stepper__sub { display: none; } .stepper--two .stepper__label { font-size: .8125rem; } }
 
 /* ---- step 2: one primary action, the Terms box under it, the e-mail way folded ---- */
 .su-why { margin: 0; }
@@ -18,7 +58,6 @@
 .su-alt[open] > summary::after { content: "−"; }
 .su-alt[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 14px; }
 .su-alt .su-form { padding-bottom: 14px; }
-.cstate[data-state="su-account"] .su-google-note { margin-top: -6px; }
 
 /* ---- the link mode's top (a member without a wallet) ---- */
 .link-top { display: grid; gap: 6px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
