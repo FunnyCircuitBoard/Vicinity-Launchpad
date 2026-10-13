@@ -249,8 +249,18 @@
     }
   }
 
+  // A page that draws a coin's own avatar (the Launchpad's card, the coin page: the city's initials on the city's colour) hands it to
+  // open(), so the sheet's token pill wears the same disc (review of 13 Oct 2026: "LO" on rose on the card, "L" on blue in the sheet).
+  // Looks only: letters and one of the six named colours, checked here; the trade is the same.
+  const AVATARS = new Map(), AVATAR_COLORS = ["gold", "rose", "ocean", "emerald", "violet", "ink"];
+  const keepAvatar = (mint, a) => {
+    if (!mint || !a || typeof a.text !== "string" || !/^[A-Z0-9?]{1,3}$/.test(a.text)) return;
+    AVATARS.set(mint, { text: a.text, color: AVATAR_COLORS.includes(a.color) ? a.color : "gold" });
+  };
   /** A coloured mark with the token's first letter (no outside images: the security policy allows only this site). */
   function mark(mint, label) {
+    const own = AVATARS.get(mint);
+    if (own) { const a = el("span", "swap__mark swap__mark--ava", own.text); a.dataset.color = own.color; return a; }
     const s = el("span", "swap__mark", (label || "?").replace(/^\$/, "")[0].toUpperCase());
     const t = tokenOf(mint);
     s.style.background = COLORS[mint] || (t && t.kind === "vicinity" ? "linear-gradient(135deg,#FF5A36,#FFC857)" : t && t.kind === "city" ? "#5B8CFF" : "#445");
@@ -1251,6 +1261,7 @@
     const body = sheet.querySelector(".swap-sheet__body");
     if (body._swap) body._swap.destroy(); // the previous card's panel: its timers, poll and listeners go with it
     body.replaceChildren(); body.removeAttribute("data-swap-mounted"); body.className = "swap-sheet__body";
+    keepAvatar(norm(opts.out), opts.avatar);
     const p = new Panel(body, { mode: opts.mode || "buy", in: opts.in || "SOL", out: opts.out, title: opts.title || `Buy ${symbolOf(norm(opts.out), "this coin")}` });
     body._swap = p;
     if (typeof sheet.showModal === "function") sheet.showModal(); else sheet.setAttribute("open", "");

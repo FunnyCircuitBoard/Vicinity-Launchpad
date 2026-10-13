@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { openPage } from "./helpers/pagedom.js";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const style = read("public/style.css"), polish = read("public/polish.css"), home = read("public/pages-home.css");
+const style = read("public/style.css"), polish = read("public/polish.css"), lp = read("public/pages-launchpad.css"), home = read("public/pages-home.css");
 const appCss = read("public/pages-app.css"), cities = read("public/pages-cities.css");
 const TERMS = "2026-10-01";
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
@@ -70,6 +70,37 @@ test("the footer: a security line kept (not a risk line), no Privacy link, and S
 
 test("a short page keeps its footer at the bottom of the screen (the page is a column at least the screen's height)", () => {
   assert.match(style, /body \{ display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; \}\nbody > main \{ flex: 1 0 auto; \}/);
+});
+
+/* ---------- the Launchpad ---------- */
+test("Launchpad: the four lists sized to their words on a phone (a count never squeezed); the smallest phones drop the counts, not the row", () => {
+  assert.match(lp, /\.lp-tabs__n \{ flex: none; \}/);
+  assert.match(lp, /@media \(max-width: 600px\) \{\n  \.lp-tabs \{ display: grid; grid-template-columns: repeat\(4, auto\); overflow: visible; \}/);
+  assert.match(lp, /@media \(max-width: 359px\) \{ \.lp-tabs__n \{ display: none; \} \.lp-tabs button \{ padding: 0 2px; \} \}/);
+  assert.doesNotMatch(lp, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); border-radius: var\(--r-card/, "no 2 x 2 block of tabs any more");
+  assert.match(lp, /:root\[data-theme="light"\] \.lp-tabs__n \{ background: transparent; color: var\(--text-2\); \}/, "AA in light (was 4.44:1 on two tints)");
+});
+
+test("Launchpad: the hero button glows softly (no hard 6 px band), Buy outranks Details, the featured card's buttons line up with its neighbour's", () => {
+  assert.match(style, /\.btn--cta-glow \{ box-shadow: var\(--glow-cta\), var\(--cta-halo\); \}/);
+  assert.doesNotMatch(style, /0 0 0 6px var\(--accent-soft\)/);
+  assert.match(lp, /\.btn--soft \{ background: rgba\(255,90,54,\.15\); border-color: rgba\(255,110,70,\.62\); color: var\(--pin-2\); font-weight: 700; \}/);
+  assert.match(lp, /grid-template-rows: auto auto auto minmax\(0, 1fr\) auto auto;/);
+  assert.match(lp, /\.lp-card--featured:first-child > \.lp-spark \{ grid-area: spark; height: auto; min-height: 120px; align-self: stretch; \}/);
+});
+
+test("Launchpad: a sparkline placeholder shimmers only while its chart is being asked for", () => {
+  assert.match(style, /\.lp-spark\.is-loading\.is-asking \{ animation: shimmer 1\.4s linear infinite; \}/);
+  assert.doesNotMatch(style, /\.lp-spark\.is-loading \{ animation:/);
+  assert.match(read("public/launchpad.js"), /asking\.add\(mint\);\n[^\n]*\n\s+for \(const b of \$\$\(`\.lp-spark\.is-loading\[data-mint="\$\{mint\}"\]`\)\) b\.classList\.add\("is-asking"\);/);
+});
+
+test("the Buy sheet's token pill wears the coin's own avatar (letters and one of six colours, checked)", () => {
+  const js = read("public/swap.js");
+  assert.match(js, /if \(!mint \|\| !a \|\| typeof a\.text !== "string" \|\| !\/\^\[A-Z0-9\?\]\{1,3\}\$\/\.test\(a\.text\)\) return;/);
+  assert.match(js, /AVATARS\.set\(mint, \{ text: a\.text, color: AVATAR_COLORS\.includes\(a\.color\) \? a\.color : "gold" \}\);/);
+  assert.match(js, /keepAvatar\(norm\(opts\.out\), opts\.avatar\);/);
+  assert.match(read("public/coin.js"), /avatar: c\.kind === "vicinity" \? null : \{ text: initialsOf\(c\), color: c\.color \}/);
 });
 
 /* ---------- home and /app ---------- */

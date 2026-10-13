@@ -30,6 +30,7 @@
   --e3: 0 24px 64px -24px rgba(0,0,0,.75);
   --glow-cta: 0 8px 24px -10px rgba(255,90,54,.6), inset 0 1px 0 rgba(255,255,255,.22);
   --glow-cta-hover: 0 12px 34px -8px rgba(255,90,54,.8), 0 0 0 1px rgba(255,138,91,.5), inset 0 1px 0 rgba(255,255,255,.28);
+  --cta-halo: 0 0 28px 2px rgba(255,90,54,.26); /* the one hero action's soft halo (a blur, never a hard band) */
   /* charts (one series colour, one for a second series; text never takes a series colour) */
   --chart-1: #F2552F; --chart-2: #5B8CFF; --chart-grid: rgba(var(--ink),.07); --chart-axis: var(--muted);
   --radius: 22px;
@@ -69,6 +70,7 @@
   --e3: 0 20px 50px -24px rgba(11,22,38,.28);
   --glow-cta: 0 8px 22px -12px rgba(232,67,31,.55), inset 0 1px 0 rgba(255,255,255,.25);
   --glow-cta-hover: 0 12px 30px -10px rgba(232,67,31,.65), 0 0 0 1px rgba(232,67,31,.35), inset 0 1px 0 rgba(255,255,255,.3);
+  --cta-halo: 0 0 26px 0 rgba(232,67,31,.20);
   --chart-1: #E8431F; --chart-2: #2F63E0; --chart-grid: rgba(11,22,38,.08);
   --shadow: 0 20px 50px -30px rgba(11,22,38,.35);
   --map-bg: radial-gradient(80% 70% at 30% 35%, rgba(232,67,31,.05), transparent 60%), radial-gradient(120% 90% at 55% 45%, #EAF1FA, #DCE6F2);
@@ -239,10 +241,10 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 .btn--glass { background: rgba(var(--ink),.06); border-color: var(--line-2); color: var(--text); }
 :root[data-theme="light"] .btn--glass { background: #FFFFFF; box-shadow: var(--e1); }
 .btn--ghost { background: transparent; color: var(--text-2); }
-.btn--cta-glow { box-shadow: var(--glow-cta), 0 0 0 6px var(--accent-soft); }
+.btn--cta-glow { box-shadow: var(--glow-cta), var(--cta-halo); }
 @media (hover: hover) {
   .btn--primary:hover { box-shadow: var(--glow-cta-hover); }
-  .btn--cta-glow:hover { box-shadow: var(--glow-cta-hover), 0 0 0 6px var(--accent-soft); }
+  .btn--cta-glow:hover { box-shadow: var(--glow-cta-hover), var(--cta-halo); }
   .btn--glass:hover { background: rgba(var(--ink),.10); border-color: rgba(var(--ink),.24); }
   .btn--ghost:hover { background: rgba(var(--ink),.05); color: var(--text); }
 }
@@ -1729,7 +1731,7 @@ a[role="tab"][aria-selected="true"]::after { content: ""; position: absolute; le
 @media (prefers-reduced-motion: no-preference) {
   .lp-card__ping::after, .coin-pill__dot::after { animation: livePing 1.6s cubic-bezier(0,0,.2,1) 3; }
   .lp-spark__ping { animation: livePing 1.6s cubic-bezier(0,0,.2,1) 3; }
-  .lp-spark.is-loading { animation: shimmer 1.4s linear infinite; } /* busy: ends with the loading state */
+  .lp-spark.is-loading.is-asking { animation: shimmer 1.4s linear infinite; } /* busy: only while its chart is being asked for (launchpad.js), ends with it; a card further down waits still */
   .is-flash-up::after, .is-flash-down::after { animation: lpFlash .9s ease-out; }
   .coin-trade.is-new { animation: coinTradeIn .3s cubic-bezier(.2,.8,.2,1) backwards; }
   .coin-trade.is-new .coin-trade__row::before { animation: lpFlash 1.2s ease-out; }
