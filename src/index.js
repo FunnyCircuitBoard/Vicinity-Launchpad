@@ -54,7 +54,7 @@
  */
 import { activeMint, checkOfficial, marketLink, officialFor, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
-import { SHOW_STALE_MS, getHolding, getTokenFacts, getTopHolders, holderSnapshot, isTeamWallet, rankOf, rankWithAmount } from "./chain.js";
+import { SHOW_STALE_MS, getHolding, getTokenFacts, getTopHolders, holderSnapshot, isTeamLock, isTeamWallet, rankOf, rankWithAmount } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
 import { SECURITY_HEADERS, json } from "./http.js";
 import { readSigned } from "./signed.js";
@@ -203,7 +203,7 @@ async function rankResponse(env, mint, address, fetchImpl) {
   } catch { /* fall back to the balance alone */ }
   try {
     const amount = await getHolding(env, address, mint, fetchImpl);
-    return json({ launched: true, full: false, address, amount, rank: null, total: null, team: isTeamWallet(address), founderMin, updatedAt: new Date().toISOString() });
+    return json({ launched: true, full: false, address, amount, rank: null, total: null, team: isTeamWallet(address), ...(isTeamLock(address) ? { lock: true } : {}), founderMin, updatedAt: new Date().toISOString() });
   } catch {
     return json({ launched: true, error: "chain_unavailable" }, 503);
   }

@@ -7,8 +7,8 @@
 // * the home page (design v4, 12 Oct 2026, the owner's own words: no New York map, "One city. One coin." centred at the top, Sign up beside
 //   Get $VICINITY): one call to buy, no countdown, no numbers band, How it works, the app teaser and the FAQ in three tabs, no closing band
 //   (test/home-v4.test.js pins the page itself);
-// * the token page: the Buy control in a marked slot (#buy-slot, where the in-app swap goes), the contract address printed once, five
-//   proofs, no third /connect link, the FAQ's step 3 naming the Buy button rather than a venue;
+// * the token page: the Buy control in a marked slot (#buy-slot, where the in-app swap goes), the contract address printed once, six
+//   proofs (five until the team lock's card joined them, 13 Oct 2026), no third /connect link, the FAQ's step 3 naming the Buy button rather than a venue;
 // * the Launchpad draws $VICINITY once (not in "Live now" and again in the list) and hides the snapshot checker until there is a snapshot;
 // * rules: a chip row to every rule and each rule a fold; terms: a contents fold; cities: one plain search placeholder.
 // Heights (390 px: home 17,228 → under 4,400; token 6,150 → under 4,300) were measured in Chromium on the real Worker; this file pins the markup,
@@ -131,12 +131,13 @@ test("style.css lost only the rules the old home page used: the numbers band, th
   assert.match(style, /\.scam-note \{/, "the scam note stays (the token page's FAQ)");
 });
 
-test("token: the Buy control in its slot, the address once, five proofs, no third /connect link, the official list points at the card", () => {
+test("token: the Buy control in its slot, the address once, six proofs, no third /connect link, the official list points at the card", () => {
   for (const h of [tokenPage, read("scripts/pages/src/token.html")]) {
     // design v2 (10 Oct 2026): the slot is the page's Buy card, out of the contract card (owner item 3; test/token-ui.test.js pins the hero)
     assert.match(h, /<div class="token-hero__buy">\s*<div class="contract__slot buy-slot is-pending" id="buy-slot"><a class="contract__buy" id="lnk-raydium"/, "the slot is the Buy card, above the contract card");
     assert.equal(count(h, /id="buy-slot"/g), 1);
-    assert.equal(count(h, /<div class="proof card">/g), 5, "Minting disabled, No freeze button, Liquidity can't be pulled, Team wallets public, No presale");
+    // 13 Oct 2026: "60M team tokens locked" (the team's 60M on Jupiter Lock, test/team-lock.test.js) joined the five, after Team wallets public
+    assert.equal(count(h, /<div class="proof card">/g), 6, "Minting disabled, No freeze button, Liquidity can't be pulled, Team wallets public, 60M team tokens locked, No presale");
     assert.doesNotMatch(h, /supply-text|supply2|<h3>Fixed supply<\/h3>/, "the Supply fact above and the Minting proof already say the supply is fixed");
     const main = h.includes('<main id="main"') ? h.slice(h.indexOf('<main id="main"'), h.indexOf("</main>")) : h; // the page itself, not the header's Sign up (design v4)
     assert.equal(count(main, /href="\/connect"/g), 1, "one link to /connect in the page, in the FAQ's step 4 (the holders footnote was the third)");
@@ -216,7 +217,10 @@ test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word brea
   assert.doesNotMatch(polish, /\.footer-links|\.footer-grid|\.footer-meta|\.footer-data/, "design v4: the old footer's columns and folds went with them");
   // d3 (11 Oct 2026): "Inside $NYC" shows the five boroughs and "+41 more" on a computer too (all 46 made the column twice the map's height)
   assert.doesNotMatch(polish, /\.member-cloud li\.is-more \{ display: inline-flex; \} \.member-cloud li:has\(> \.member-cloud__more\) \{ display: none; \}/);
-  assert.match(polish, /@media \(min-width: 901px\) \{ \.proof-grid \{ grid-template-columns: repeat\(6, minmax\(0, 1fr\)\); \} \.proof \{ grid-column: span 2; \} \.proof:nth-child\(4\), \.proof:nth-child\(5\) \{ grid-column: span 3; \} \}/, "five proofs: three, then two, both rows full");
+  // six proofs since 13 Oct 2026 (the team lock's card): style.css's own grid (three a row on a computer, two on a tablet) fills every
+  // row, so the five-card spans are gone (they would leave the sixth alone on a row of its own)
+  assert.doesNotMatch(polish, /\.proof:nth-child|\.proof:last-child|\.proof-grid \{ grid-template-columns/, "no five-card layout left in polish.css");
+  assert.match(style, /\.proof-grid \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); gap: 14px; \}\n@media \(max-width: 900px\) \{ \.proof-grid \{ grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\); \} \}/, "six proofs: two rows of three, three rows of two");
   for (const h of [tokenPage, read("scripts/pages/src/token.html")]) {
     assert.match(h, /<input id="check-input" name="q" type="text" autocomplete="off" spellcheck="false" maxlength="300" placeholder="Link or address">/, "a placeholder that never clips, even on a 320 px phone (the line above it says what to paste, @handles too)");
     assert.match(h, /<a class="holders__skip" href="#proof">Skip the holder list<\/a>\n\s*<div class="table-scroll" id="holders-scroll"/, "a keyboard skips the 300 wallet links");

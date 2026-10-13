@@ -3,8 +3,8 @@
  *
  * A single moment can be gamed by renting tokens for an hour. So for every wallet:
  *     eligible = the LOWER of (its balance at the cutoff) and (its average over the 14 days before)
- * using the unpredictable balance samples (src/ledger.js). Pools, bonding curves and team wallets
- * are excluded. Nobody has to sign up.
+ * using the unpredictable balance samples (src/ledger.js). Pools, bonding curves, team wallets and
+ * the team's locked tokens (src/official.js teamLocks) are excluded. Nobody has to sign up.
  *
  * The cutoff is always 00:00 UTC, announced ahead (SNAPSHOT_CUTOFF setting or src/official.js).
  * The result is published with a Merkle root and a hash of every input (sample times, slots, data
@@ -78,7 +78,8 @@ export async function computeSnapshot(env, cutoffIso, now = Date.now()) {
   let last = null;
   for (let i = 0; i < 3 && !last; i++) last = await getBlob(db, `day:${dayOf(cutoff - (i + 1) * DAY)}`);
   if (!last) throw new Error("no balances just before the cutoff");
-  const excluded = new Set([...Object.keys(last.labels || {}), ...(OFFICIAL.teamWallets || [])]);
+  // every labelled holder (pools, curves, program accounts), and the team's wallets and locks by name, labelled or not
+  const excluded = new Set([...Object.keys(last.labels || {}), ...(OFFICIAL.teamWallets || []), ...(OFFICIAL.teamLocks || []).map((l) => l.address)]);
   const scale = 10 ** (last.decimals ?? 6);
   const rows = [];
   let total = 0;

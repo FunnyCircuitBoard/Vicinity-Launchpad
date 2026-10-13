@@ -352,6 +352,7 @@ input, select, textarea { min-height: 44px; }
 .holders__table a { display: inline-block; padding: 12px 0; margin: -12px 0; }
 .holders__table .tag { font-size: .75rem; }
 @media (max-width: 480px) { .holders__table .tag { max-width: 100%; font-size: .75rem; white-space: normal; } .holders__table td.is-unranked { font-size: .75rem; } } /* "PumpSwap liquidity pool" under the address: one line where it fits, two on a 320-360 px phone, never over the amount */
+.holders__table a.tag { padding: 2px 10px; font-family: inherit; color: var(--ok-text); } .holders__table a.tag:hover { text-decoration: underline; } /* the team lock's tag opens its page: still a tag, not a wallet link */
 /* a keyboard skips the holder list (300 wallet links) with one Tab: the link shows where it sits once it has focus */
 .holders__skip { position: absolute; left: -999px; }
 .holders__skip:focus { position: static; display: inline-flex; align-items: center; min-height: 44px; margin: 0 0 8px; padding: 0 14px; border-radius: 999px; background: var(--pin); color: #fff; text-decoration: none; }
@@ -366,6 +367,7 @@ input, select, textarea { min-height: 44px; }
 .proof__icon { width: 28px; height: 28px; font-size: .9rem; }
 .proof__live { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; }
 .proof__live.is-live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok-text); }
+#team-lock-live a { display: inline-block; padding: 12px 0; margin: -12px 0; } /* "See the lock": a 44 px tap, the line no taller (like the wallet links) */
 @media (max-width: 560px) {
   .proof-grid { gap: 0; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
   .proof { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 12px; padding: 12px 14px; border: 0; border-radius: 0; box-shadow: none; background: none; }
@@ -375,8 +377,7 @@ input, select, textarea { min-height: 44px; }
   .proof p { font-size: .86rem; }
   .proof__live { margin-top: 4px; }
 }
-@media (min-width: 561px) and (max-width: 900px) { .proof:last-child { grid-column: 1 / -1; } } /* five proofs two by two: the fifth spans its row */
-@media (min-width: 901px) { .proof-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } .proof { grid-column: span 2; } .proof:nth-child(4), .proof:nth-child(5) { grid-column: span 3; } } /* three, then two: both rows full */
+/* six proofs (the team lock's card joined them on 13 Oct 2026): style.css's own grid, two a row on a tablet and three on a computer, fills every row */
 #check .section-head p.muted { margin-bottom: 0; }
 .registry { margin-bottom: 12px; }
 .check-result { padding: 14px 16px; }

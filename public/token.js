@@ -9,7 +9,10 @@
   const usd = (n) => (n >= 1 ? "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "$" + n.toPrecision(3));
   /** A published team wallet (labelled "Team wallet (public)" by the server): shown and labelled, never ranked, like a pool. */
   const isTeam = (h) => !h.rank && /^Team wallet/.test(h.label || "");
+  /** The team's locked tokens (labelled "Team lock (Jupiter Lock)" by the server): the same, and its tag opens the lock's page. */
+  const isLock = (h) => !h.rank && /^Team lock/.test(h.label || "");
   let holders = [], launched = false;
+  let lock; // the team lock of /api/official (teamLocks): undefined until it answers, null when it could not
 
   /* ---------- token facts ---------- */
   function renderRegistry(list) {
@@ -152,8 +155,34 @@
   /** "Team wallets public": say how many are actually listed (the official list is the one source), never just "Listed". */
   function renderTeamCount(o) {
     const e = $("#team-count"); if (!e) return;
-    const n = o && Array.isArray(o.teamWallets) ? o.teamWallets.length : 0;
-    e.textContent = n ? `${n} wallet${n === 1 ? "" : "s"} listed` : "No team wallets yet";
+    const n = o && Array.isArray(o.teamWallets) ? o.teamWallets.length : 0, l = o && Array.isArray(o.teamLocks) ? o.teamLocks.length : 0;
+    e.textContent = n ? `${n} wallet${n === 1 ? "" : "s"}${l ? ` and ${l} lock${l === 1 ? "" : "s"}` : ""} listed` : "No team wallets yet";
+  }
+  /** A link to the lock's own page, in a new tab (a screen reader is told so). */
+  function lockLink(text) { const a = el("a", null, text); a.href = lock.url; a.target = "_blank"; a.rel = "noopener"; a.append(el("span", "sr-only", " (opens in a new tab)")); return a; }
+  /**
+   * "60M team tokens locked": what the lock holds right now (its row in the holder list) and a link to its page; without its row (not
+   * in the list, the chain busy), the link alone. Until the cliff all of it is locked; after it, part may be unlocked but not yet taken
+   * out, so the words become "in the lock". One span holds the words and the link: the line is a flex box (polish.css), and two items
+   * would wrap as two columns on a narrow card.
+   */
+  function renderLock() {
+    const e = $("#team-lock-live"); if (!e || lock === undefined) return;
+    if (!lock) { e.textContent = "Couldn't check right now"; e.classList.add("is-wait"); return; }
+    const row = holders.find((h) => h.owner === lock.address);
+    const held = row ? `${fmt(row.amount)} ${Date.now() < Date.parse(lock.cliff) ? "still locked" : "still in the lock"} · ` : null;
+    const line = el("span"); line.append(...(held ? [held] : []), lockLink("See the lock"));
+    e.replaceChildren(line);
+    e.classList.toggle("is-live", Boolean(row));
+  }
+  /** The team lock from /api/official: its card's line, and its row's tag if the list is on screen already. */
+  function setLock(o) {
+    const l = o && Array.isArray(o.teamLocks) ? o.teamLocks[0] : null;
+    lock = l && isAddr(l.address) && /^https:\/\//.test(String(l.url)) ? l : null;
+    renderLock();
+    const h = lock && holders.find((x) => x.owner === lock.address);
+    const tr = h && $$("#holders-body tr").find((t) => t.dataset.owner === h.owner);
+    if (tr) { tr.after(place(h)); tr.remove(); }
   }
 
   /* ---------- holders table ---------- */
@@ -168,11 +197,12 @@
     const w = el("td");
     const a = el("a", null, mask(h.owner)); a.href = `https://solscan.io/account/${h.owner}`; a.target = "_blank"; a.rel = "noopener"; a.title = h.owner;
     w.append(a);
-    if (h.label) w.append(el("span", "tag tag--ok", h.label));
+    if (isLock(h) && lock && lock.address === h.owner) { const t = lockLink(h.label); t.className = "tag tag--ok"; w.append(t); } // the lock's page: its rules, live
+    else if (h.label) w.append(el("span", "tag tag--ok", h.label));
     const max = holders[0]?.percent || 1;
     const pct = el("td", "num", `${pctText(h.percent)}%`);
     const bar = el("span", "pct-bar"), fill = el("span"); fill.style.width = `${Math.max(2, (h.percent / max) * 100)}%`; bar.append(fill); pct.append(bar);
-    tr.append(el("td", h.rank ? null : "is-unranked", h.rank ? String(h.rank) : isTeam(h) ? "Team" : "Pool"), w, el("td", "num", fmt(h.amount)), pct);
+    tr.append(el("td", h.rank ? null : "is-unranked", h.rank ? String(h.rank) : isTeam(h) ? "Team" : isLock(h) ? "Lock" : "Pool"), w, el("td", "num", fmt(h.amount)), pct);
     return tr;
   }
   const query = () => $("#holders-find").value.trim();
@@ -214,9 +244,9 @@
     const run = ++load; // Refresh, or the minute timer, while pages are still coming: the older load stops where it is
     const d = await api("/api/holders");
     if (run !== load) return;
-    if (!d.launched) { status.textContent = "The live holder list opens the moment $VICINITY launches."; return; }
+    if (!d.launched) { status.textContent = "The live holder list opens the moment $VICINITY launches."; renderLock(); return; }
     $("#holders-refresh").hidden = false;
-    if (d.error || !Array.isArray(d.holders)) { status.textContent = "The blockchain is busy right now. Try Refresh in a minute."; return; }
+    if (d.error || !Array.isArray(d.holders)) { status.textContent = "The blockchain is busy right now. Try Refresh in a minute."; renderLock(); return; }
     // the snapshot already on screen (the server keeps one for a minute): no more pages to ask for, nothing to redraw
     if (lastSnap && d.full && d.updatedAt === lastSnap.at && d.count === lastSnap.count) { status.textContent = lastSnap.text; return; }
     lastSnap = null;
@@ -246,6 +276,7 @@
     if (complete && d.full) lastSnap = { at: d.updatedAt, count: d.count, text: status.textContent };
     $("#st-holders").textContent = d.full ? fmt(total) : `${people.length}+`;
     $("#st-top10").textContent = `${pctText(people.slice(0, 10).reduce((s, h) => s + h.percent, 0))}%`;
+    renderLock();
   }
   /** The find box: every row already in the table; rows still on their way are filtered as they are placed. */
   function filter() {
@@ -312,8 +343,9 @@
     const founderMin = d.founderMin || 100_000; // the smallest founder amount: the exact one depends on the city
     set("#rank-founder", amount >= FOUNDER_MAX ? "✓ Enough for any city (hold it 7 days)"
       : amount >= founderMin ? "✓ Enough for smaller cities (hold it 7 days)" : `${fmt(founderMin - amount)} to reach the smallest`);
-    if (d.team === true && !d.rank) { // a published team wallet: what it holds, but no rank (no "Rank" line at all), no meter, no wallet to pass, no founder amount
-      set("#rank-pct", "Team wallet: published by Vicinity and labeled in the list. Ranks are for people only.");
+    if ((d.team === true || d.lock === true) && !d.rank) { // a published team wallet or the team lock: what it holds, but no rank (no "Rank" line at all), no meter, no wallet to pass, no founder amount
+      set("#rank-pct", d.lock === true ? "Team lock: the team's $VICINITY on Jupiter Lock, labeled in the list. Ranks are for people only."
+        : "Team wallet: published by Vicinity and labeled in the list. Ranks are for people only.");
       set("#rank-founder", "—"); $("#rank-bar").hidden = true; extraFacts(false);
     }
     else if (d.label && !d.rank) { // a pool or curve: no rank, no wallet to pass, not a founder
@@ -455,6 +487,7 @@
   loadToken().then(reland);
   loadHolders();
   if (official && official.then) official.then(renderTeamCount, () => renderTeamCount(null));
+  if (official && official.then) official.then(setLock, () => setLock(null));
   setInterval(() => { if (launched && !document.hidden) loadHolders(); }, 60_000);
   const q = new URLSearchParams(location.search).get("address");
   if (q) { $("#holders-find").value = q; lookup(q); } // the rows are filtered as they land
