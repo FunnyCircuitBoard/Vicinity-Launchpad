@@ -56,8 +56,9 @@ export function memberMe({ wallet = null, handle = "SwiftHarbor10", name = "Sa N
  *   storage/session  what this browser's localStorage / sessionStorage already hold
  *   wallets          Wallet Standard wallets in this browser ([] = none, like a phone's Safari)
  *   confirm          the answer to window.confirm (default true)
+ *   globals          browser features this window lacks by default, set before the scripts run (e.g. { ResizeObserver })
  */
-export async function openDashboard({ ua = UA.desktop, search = "", me = memberMe(), api = async () => undefined, storage = {}, session: sessionStore = {}, wallets = [], confirm = true, touchPoints, official = { ok: true } } = {}) {
+export async function openDashboard({ ua = UA.desktop, search = "", me = memberMe(), api = async () => undefined, storage = {}, session: sessionStore = {}, wallets = [], confirm = true, touchPoints, official = { ok: true }, globals = {} } = {}) {
   const doc = new Doc();
   doc.append(...parse(doc, read("dashboard.html")));
   let now = 0, seq = 0, hidden = false;
@@ -117,6 +118,7 @@ export async function openDashboard({ ua = UA.desktop, search = "", me = memberM
     setTimeout: setTimeout_, clearTimeout: clearTimeout_, setInterval: setInterval_, clearInterval: clearTimeout_,
     requestAnimationFrame: (fn) => setTimeout_(fn, 16), performance: { now: () => now }, innerHeight: 844, scrollY: 0, scrollTo() {}, scrollBy() {},
   });
+  Object.assign(win, globals);
   win.window = win;
   win.addEventListener = Target.prototype.addEventListener.bind(win);
   win.removeEventListener = Target.prototype.removeEventListener.bind(win);

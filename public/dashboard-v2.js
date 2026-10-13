@@ -17,7 +17,7 @@
 //                                  #studio-card (gets #coin-studio out of #coin), #danger-zone, #founder-foot
 //   moderate  -> #panel-moderate   #mod, #coin-admin-card (gets #coin-admin out of #coin)
 //   profile   -> #panel-profile    #profile-modal (as an in-flow block), #roles-fold (gets #roles)
-//   strip                          #dash-tabs (#dash-tablist, the #tab-* links and the #panel-* sections above)
+//   strip                          #dash-tabs (#dash-tablist, the #tab-* links, the glass pill .dtabs__ind and the #panel-* sections above)
 (() => {
   "use strict";
   const { $, $$, el, fmt, mask, initials } = window.V;
@@ -43,6 +43,12 @@
     ["objections", "objection", "objections"], ["towns", "town request", "town requests"], ["coins", "coin contract to check", "coin contracts to check"]];
 
   let ctx = null, active = "home", pending = null, lastMod = null, coin = null, coinKnown = false, coinQueueN = 0, fcardAction = null, lastTarget = null, targetTimer = 0;
+  // the glass pill behind the chosen tab: its box now ({ x, y, w, h }, or null until it has measured a tab), its slide on the way, and
+  // whether the first tab has been shown (the first panel rises in; later ones come from the side of the tab that was left)
+  let pill = null, pillAnim = null, started = false;
+  // the tabs gliding to new places after a change on screen (reflow: tab -> its animation), and whether such a change is running
+  const tabGlides = new Map();
+  let reflowing = false;
   // the launch on our own launchpad (public/lp-launch.js through dashboard.js): { on, state } once known; off = the LaunchLab path
   let lp = { on: false, state: null };
   const me = () => (ctx ? ctx.me() : null);
@@ -86,7 +92,19 @@
     $("#fcard-go").addEventListener("click", () => { if (fcardAction) fcardAction(); });
     $("#trade").addEventListener("click", postProcess); // dashboard.js redraws the trade card on its own clicks
     window.addEventListener("hashchange", onHash);
-    window.addEventListener("resize", measure);
+    // the fit check runs when the width changes; a phone's address bar showing or hiding changes only the height (the strip is the
+    // same, and a slide on its way is not restarted)
+    let lastWidth = window.innerWidth;
+    window.addEventListener("resize", () => { const w = window.innerWidth; if (typeof w === "number" && w === lastWidth) return; lastWidth = w; measure(); });
+    // the pill follows its tab whenever a tab changes size (the strip shown, a badge, a fit step, Moderate shown or hidden, a font
+    // that loads late): it only moves the pill, which nothing observes, so it never loops. The fonts change the words' widths, so
+    // the fit check runs again once they are in.
+    if (window.ResizeObserver) {
+      const ro = new window.ResizeObserver(() => place());
+      ro.observe($("#dash-tablist"));
+      for (const t of $$(".dtab", $("#dash-tablist"))) ro.observe(t);
+    }
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => measure());
     try { localStorage.setItem("vicinity:dash-v2", "1"); } catch {}
     $("#dv2").hidden = false;
     $("#dash-skel").hidden = true;
@@ -106,6 +124,9 @@
     else if (push) pending = null; // the person chose another tab meanwhile: a late /api/mod answer must not pull them away from it
     const was = active;
     active = tab;
+    // the panel comes in from the side of the tab that was left (polish-dash.css; set before the panel shows, and only on a change,
+    // so the panel on screen never starts again)
+    if (started && was !== tab) $("#dv2").dataset.dir = TABS.indexOf(tab) > TABS.indexOf(was) ? "next" : "prev";
     for (const t of $$(".dtab")) { const on = t.dataset.tab === tab; t.setAttribute("aria-selected", String(on)); t.setAttribute("tabindex", on ? "0" : "-1"); }
     for (const p of $$(".dpanel")) p.hidden = p.id !== "panel-" + tab;
     document.title = tab === "home" ? "Dashboard · Vicinity" : `${LABEL[tab]} · Dashboard · Vicinity`;
@@ -115,7 +136,7 @@
     if (scroll) { const y = dv2Top(); if (window.scrollY > y) window.scrollTo({ top: y, behavior: behavior() }); }
     centerTab(tab);
     if (tab === "profile" && ctx) ctx.openProfile();
-    measure();
+    measure(started && was !== tab ? "slide" : ""); // a new tab the person chose: the pill slides there (the first one is simply set)
   }
   /** Only when the strip scrolls (200% text): bring the tab into view by the least distance ("nearest"), so Home is never pushed out. */
   function centerTab(tab) {
@@ -129,15 +150,139 @@
    * The strip fits the screen: every tab whole and shown, no sideways strip. Should seven tabs not fit (a moderator on a phone), one step
    * at a time: the gaps close (.is-snug), "Rankings" says "Rank" (.is-short), Founder and Moderate show as their icons (.is-compact). The
    * tabs never shrink below their words, so a tight strip is seen as one. Only if it still does not fit (a large text setting) does the
-   * strip scroll (.is-scrollable, with edge fades).
+   * strip scroll (.is-scrollable, with edge fades). Then the glass pill goes to the chosen tab (place): `how` is "slide" for a tab the
+   * person chose, "follow" while the tabs glide to new places (reflow), else it is set at once, or a slide on its way turns there in
+   * the time it had left. While the tabs are measured the pill is parked at no size, so where it was a moment ago (a wider strip)
+   * never counts as overflow.
    */
-  function measure() {
+  function measure(how) {
     const list = $("#dash-tablist"), strip = $("#dash-tabs");
     if (!list || !strip) return;
     const over = () => list.scrollWidth > list.clientWidth + 1;
+    const left = park();
     const steps = ["is-snug", "is-short", "is-compact", "is-scrollable"];
     strip.classList.remove(...steps);
     for (const step of steps) { if (!over()) break; strip.classList.add(step); }
+    place(how || (reflowing ? "follow" : ""), left);
+  }
+
+  /* ---------- the glass pill: one marker behind the chosen tab that slides (and stretches a little) to the next one ---------- */
+  // .dtabs__ind is static in dashboard.html, hidden from screen readers and the pointer (polish-dash.css), and sits inside the list,
+  // so it scrolls with the tabs on a phone. Its box is the chosen tab's, to the sub-pixel, in the list's scrolled coordinates. It
+  // slides with the Web Animations API (the CSP allows script-set styles) and is set at once with reduced motion or "Pause
+  // animations". Tabs of one width (a computer: every tab one equal part) slide on transform alone (translate and scaleX from the
+  // left edge), which the compositor runs; tabs of different widths (a phone, a tablet) also change the width, because a scaled
+  // capsule would squash its round ends. Until it has measured a tab (the strip not laid out yet) the chosen tab keeps its own look.
+  const PILL_MS = 320, FOLLOW_MS = 240, PILL_EASE = "cubic-bezier(.2,.8,.2,1)";
+  // a slide to a new tab, in two halves (the effect itself is linear): it speeds up to its middle, where it is stretched the most, then
+  // settles on the new tab. The halves meet at the same speed (twice the average), so the motion has no kink; the middle comes at
+  // 45% of the time with the centre 55% of the way. The stretch: a quarter of the distance, at most 48 px and half the wider tab.
+  const PILL_IN = "cubic-bezier(.4,0,.7,.51)", PILL_OUT = "cubic-bezier(.2,.49,.3,1)", PILL_MID = 0.45, PILL_AHEAD = 0.55;
+  const r2 = (n) => Math.round(n * 100) / 100;
+  /** Where the pill goes: the tab's rectangle in the list's content coordinates (rectangles from getBoundingClientRect). Pure. */
+  function pillBox(tab, list, scrollLeft = 0, scrollTop = 0) {
+    return { x: r2(tab.left - list.left + scrollLeft), y: r2(tab.top - list.top + scrollTop), w: r2(tab.width), h: r2(tab.height) };
+  }
+  const near = (a, b) => Boolean(a && b) && Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5 && Math.abs(a.w - b.w) < 0.5 && Math.abs(a.h - b.h) < 0.5;
+  /** The pill's own style for a box (set once per place; the height never animates). */
+  const pillStyle = (b) => ({ transform: `translate(${b.x}px, ${b.y}px)`, width: `${b.w}px`, height: `${b.h}px` });
+  /**
+   * The keyframes from one box to another (element.animate with a linear effect: each keyframe carries its easing). `stretch`: a new
+   * tab, the leading edge runs ahead and the pill is longest in the middle; otherwise one smooth move. `base`: the pill's width during
+   * the move when only transform changes (from and to the same width), else null and the width moves too. Pure.
+   */
+  function pillFrames(from, to, stretch = true) {
+    const base = Math.abs(from.w - to.w) < 0.5 ? to.w : null;
+    const frame = (b) => (base ? { transform: `translate(${b.x}px, ${b.y}px) scaleX(${Math.round((b.w / base) * 1e4) / 1e4})` } : { transform: `translate(${b.x}px, ${b.y}px)`, width: `${b.w}px` });
+    const c0 = from.x + from.w / 2, c1 = to.x + to.w / 2, d = Math.abs(c1 - c0);
+    if (!stretch || d < 1) return [{ ...frame(from), easing: PILL_EASE }, frame(to)];
+    const wide = Math.max(from.w, to.w), w = wide + Math.min(d / 4, 48, wide / 2), c = c0 + (c1 - c0) * PILL_AHEAD;
+    const mid = { x: r2(c - w / 2), y: r2(from.y + (to.y - from.y) / 2), w: r2(w) };
+    return [{ ...frame(from), easing: PILL_IN }, { ...frame(mid), offset: PILL_MID, easing: PILL_OUT }, frame(to)];
+  }
+  /** The pill's box from its computed style (mid-slide: where the animation has it now; a matrix's scaleX times the width), or null. Pure. */
+  function pillFromStyle(transform, width, height) {
+    const m = /^matrix\(([^)]+)\)$/.exec(String(transform || "").trim());
+    const p = m ? m[1].split(",").map(Number) : null;
+    const w = parseFloat(width), h = parseFloat(height);
+    return p && p.length === 6 && p.every(Number.isFinite) && Number.isFinite(w) && Number.isFinite(h) ? { x: r2(p[4]), y: r2(p[5]), w: r2(w * p[0]), h: r2(h) } : null;
+  }
+  const pillEl = () => $("#dash-tablist .dtabs__ind");
+  let pillMs = 0; // the length of the slide on its way
+  /** Stops the slide on its way, remembering where the pill is right now. Returns the time it still had (ms). */
+  function stop() {
+    const ind = pillEl(), a = pillAnim, cs = window.getComputedStyle(ind), t = Number(a.currentTime);
+    pill = pillFromStyle(cs.transform, cs.width, cs.height) || pill;
+    a.cancel(); pillAnim = null;
+    return Number.isFinite(t) ? Math.max(0, pillMs - t) : pillMs;
+  }
+  /** Stops a slide on its way and parks the pill at no size. Returns the time that slide still had (0: none). */
+  function park() {
+    const ind = pillEl();
+    if (!ind) return 0;
+    const left = pillAnim ? stop() : 0;
+    ind.style.width = "0px"; ind.style.transform = "none";
+    return left;
+  }
+  /** A tab's box where the layout has it (a tab gliding to a new place, reflow, is measured without its glide). */
+  function boxOf(tab) {
+    const r = tab.getBoundingClientRect();
+    if (!tabGlides.has(tab)) return r;
+    const m = /^matrix\(([^)]+)\)$/.exec(String(window.getComputedStyle(tab).transform || "").trim()), dx = m ? Number(m[1].split(",")[4]) || 0 : 0;
+    return { left: r.left - dx, top: r.top, width: r.width, height: r.height };
+  }
+  /** Puts the pill behind the chosen tab. `how`: "slide" (a new tab: the full slide), "follow" (its tab glides to a new place: the
+   *  same glide), "" (at once; a slide on its way turns there in `left` ms, the time it had left, at least 120). */
+  function place(how = "", left = 0) {
+    const list = $("#dash-tablist"), strip = $("#dash-tabs"), ind = pillEl(), tab = byId("tab-" + active);
+    if (!list || !strip || !ind) return;
+    const tr = tab && !tab.hidden ? boxOf(tab) : null, lr = list.getBoundingClientRect();
+    if (!tr || !tr.width || !lr.width) { // not laid out (a hidden strip) or no chosen tab: the tab's own look, no pill
+      if (pillAnim) { pillAnim.cancel(); pillAnim = null; }
+      pill = null; strip.classList.remove("has-ind");
+      return;
+    }
+    const to = pillBox(tr, lr, list.scrollLeft, list.scrollTop);
+    if (pillAnim) {
+      if (near(pill, to)) return; // already on its way there (a ResizeObserver answer mid-slide)
+      left = Math.max(left, stop()); // on its way elsewhere: it turns from where it is now
+    }
+    const from = pill;
+    Object.assign(ind.style, pillStyle(to));
+    pill = to;
+    strip.classList.add("has-ind");
+    const ms = how === "slide" ? PILL_MS : how === "follow" ? FOLLOW_MS : left > 0 ? Math.max(left, 120) : 0;
+    if (ms && from && !near(from, to) && !window.V.reduced && typeof ind.animate === "function") {
+      const anim = ind.animate(pillFrames(from, to, how === "slide"), { duration: ms });
+      pillAnim = anim; pillMs = ms;
+      anim.onfinish = () => { if (pillAnim === anim) pillAnim = null; };
+    }
+  }
+  /**
+   * Something changes the tabs while the strip is on screen (Moderate shown or hidden when /api/mod answers, a count badge): every
+   * tab glides from where it was to its new place (transform only, FOLLOW_MS), the pill glides with its tab, and a tab that just
+   * appeared fades in, so the bar re-divides as one calm move instead of a jump. At once with reduced motion or "Pause animations",
+   * and before the strip has been shown. Nested calls run inside the outer one.
+   */
+  function reflow(fn) {
+    const list = $("#dash-tablist");
+    if (reflowing || !started || !pill || !list || window.V.reduced) { fn(); return; }
+    const tabs = $$(".dtab", list), before = new Map();
+    for (const t of tabs) if (!t.hidden) before.set(t, t.getBoundingClientRect().left); // where each one is on screen now
+    for (const a of tabGlides.values()) a.cancel();
+    tabGlides.clear();
+    reflowing = true;
+    try { fn(); } finally { reflowing = false; }
+    if (typeof list.animate !== "function") return;
+    for (const t of tabs) {
+      if (t.hidden) continue;
+      if (!before.has(t)) { t.animate([{ opacity: 0 }, { opacity: 1 }], { duration: FOLLOW_MS, easing: PILL_EASE }); continue; }
+      const dx = r2(before.get(t) - t.getBoundingClientRect().left);
+      if (Math.abs(dx) < 0.5) continue;
+      const a = t.animate([{ transform: `translateX(${dx}px)` }, { transform: "none" }], { duration: FOLLOW_MS, easing: PILL_EASE });
+      tabGlides.set(t, a);
+      a.onfinish = () => { if (tabGlides.get(t) === a) tabGlides.delete(t); };
+    }
   }
   /** Open the tab a card is in and scroll to the card (opening any <details> around it). */
   function goTo(selector, { focus = true, openRole, noAlias = false } = {}) {
@@ -170,6 +315,7 @@
     if (params.get("claim")) { go("founder", { push: false, replace: true, scroll: false }); goTo("#progress", { focus: false }); }
     else { const p = parseHash(); go(p.tab, { push: false, replace: !p.ok, scroll: false }); if (p.target) goTo(p.target, { focus: false }); }
     measure();
+    started = true;
   }
   function onHash() {
     const p = parseHash();
@@ -463,7 +609,7 @@
   function render(d) {
     $("#tab-home").classList.toggle("is-alert", !$("#ban-notice").hidden || !$("#lost-alert").hidden);
     $("#tab-profile .dtab__av").textContent = initials(d.user.handle || d.user.name || "V");
-    gate();
+    reflow(gate); // the roles can change on a refresh: Moderate comes or goes as one glide
     placeCard(); standing(d); today(d); rankings(d); cityHeader(d); founderStatus(d); founderCard(d); studioSync(); postProcess();
   }
   function setCoin(c) {
@@ -473,13 +619,13 @@
   }
   function mod(d) {
     lastMod = d || null;
-    gate(); badge();
+    reflow(() => { gate(); badge(); }); // /api/mod answers after the strip is on screen: the bar re-divides as one glide
     const m = me(); if (m) { today(m); founderCard(m); }
   }
   function coinQueue(n) {
     coinQueueN = n;
     $("#coin-admin-card").hidden = $("#coin-admin").hidden;
-    badge();
+    reflow(badge);
     const m = me(); if (m) today(m);
   }
 
@@ -489,5 +635,6 @@
     const d = me(); if (d) { today(d); founderCard(d); }
   }
 
-  window.VDash = { init, render, coin: setCoin, lp: setLp, mod, coinQueue, start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS) };
+  window.VDash = { init, render, coin: setCoin, lp: setLp, mod, coinQueue, start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS),
+    pill: Object.freeze({ box: pillBox, frames: pillFrames, fromStyle: pillFromStyle, ms: PILL_MS, followMs: FOLLOW_MS, easing: PILL_EASE, easeIn: PILL_IN, easeOut: PILL_OUT }) };
 })();

@@ -210,7 +210,11 @@ test("every #id dashboard-v2.js names exists in the built page, and it creates n
   const used = [...new Set([...v2.matchAll(/["'`]#([A-Za-z][\w-]*)/g)].map((m) => m[1]))];
   assert.ok(used.length > 60, "the v2 code selects by id");
   for (const id of used) assert.equal(count(id), 1, `dashboard-v2.js uses #${id}, which the built page does not have exactly once`);
-  assert.doesNotMatch(v2, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|cssText|setAttribute\(["']style|\.style\./, "no markup from text, no inline style");
+  assert.doesNotMatch(v2, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|cssText|setAttribute\(["']style/, "no markup from text, no style text");
+  // one element gets a style, through the CSSOM: the glass pill behind the chosen tab, its measured box (transform, width, height), the
+  // way site.js places a segmented control's marker. The CSP (style-src 'self') allows that; a style attribute or a <style> it would not.
+  assert.deepEqual([...new Set([...v2.matchAll(/([\w$.]+)\.style\b/g)].map((m) => m[1]))], ["ind"], "only the pill gets a style");
+  assert.match(v2, /const pillStyle = \(b\) => \(\{ transform: `translate\(\$\{b\.x\}px, \$\{b\.y\}px\)`, width: `\$\{b\.w\}px`, height: `\$\{b\.h\}px` \}\);/, "numbers it measured, never text");
   assert.doesNotMatch(v2, /\bfetch\(|XMLHttpRequest|\bapi\(|navigator\.sendBeacon/, "v2 never talks to the server itself");
   assert.doesNotMatch(v2, /\bprompt\(|\bconfirm\(|\balert\(/, "no dialogs");
   assert.doesNotMatch(v2, /\.id\s*=[^=]|setAttribute\(["']id["']/, "no new element gets an id (every id is static markup)");

@@ -24,12 +24,41 @@ body.is-dv2 .dash::before { content: none; }
 
 /* ---------- D2: the strip: one glass bar flush under the header; every tab whole, none cut (owner) ---------- */
 .dv2 .dtabs { top: var(--header-h, 67px); margin: 0 calc(-1 * var(--wrap-pad, 16px)) var(--dd-gap); padding: 0; }
-.dv2 .dtabs__list { gap: 2px; padding: 4px 8px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: none; }
+.dv2 .dtabs__list { gap: 2px; padding: 4px 8px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: none; position: relative; isolation: isolate; }
 .dv2 .dtab { flex: 1 0 auto; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 8px; font: 600 .84rem/1 var(--body); white-space: nowrap; scroll-snap-align: none; }
 .dv2 .dtab__short { display: none; }
 .dv2 .dtab[aria-selected="true"] { background: var(--card-2); color: var(--text); box-shadow: none; }
 /* the indicator: a 2 px ember line under the chosen pill (the "live buttons" breathing of a chosen tab runs on this same line) */
 .dv2 .dtab[aria-selected="true"]::after { left: 12px; right: 12px; bottom: 0; height: 2px; border-radius: 2px; background: var(--pin); opacity: 1; }
+/* the glass pill (owner, 12 Oct 2026: "when switching tabs, a glassmorphic animation"): ONE marker behind the chosen tab that slides
+   and stretches a little to the next one (dashboard-v2.js place; transform from its left edge, and the width where tabs differ; at once
+   with reduced motion). It lives inside the list, so it scrolls with the tabs on a phone; it is never read out and never takes a tap.
+   The glass is drawn, not filtered: a translucent fill with a lit top edge, a fine rim and a soft ember glow, the ember line riding on
+   it (the bar under it already blurs the page, so a blur of its own showed nothing and only cost work on every frame of a slide).
+   Every shadow fades out within the 4 px of list under the pill: the scrolling list clips there, and a glow cut flat looked wrong.
+   Until it has measured the chosen tab (.has-ind), the tab keeps the look above, and so it does without the script. The words stay
+   var(--text) on it: measured on the pixels in Chromium (1280 px), 14.5:1 dark and 15.6:1 light at the weakest point (AA asks 4.5:1). */
+.dv2 .dtabs__ind { position: absolute; left: 0; top: 0; z-index: -1; display: none; width: 0; height: 44px; box-sizing: border-box; border-radius: 999px; pointer-events: none; transform-origin: 0 0;
+  border: 1px solid rgba(255,255,255,.14);
+  background: linear-gradient(180deg, rgba(255,255,255,.15), rgba(255,255,255,.05) 55%, rgba(255,90,54,.09)) border-box; /* one gradient under the rim too (from the padding box it repeated: its ember foot showed along the top edge) */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 2px 6px -4px rgba(255,90,54,.7), 0 1px 6px -3px rgba(0,0,0,.6); }
+.dv2 .dtabs.has-ind .dtabs__ind { display: block; }
+.dv2 .dtabs__ind::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px; height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, rgba(255,90,54,0), var(--pin) 25%, var(--pin) 75%, rgba(255,90,54,0)); box-shadow: 0 -2px 6px rgba(255,90,54,.55); }
+.dv2 .dtabs.has-ind .dtab[aria-selected="true"] { background: none; }
+.dv2 .dtabs.has-ind .dtab[aria-selected="true"]::after { content: none; }
+/* light: a cool, see-through glass on the white bar (not a white button), the same lit top edge and rim */
+:root[data-theme="light"] .dv2 .dtabs__ind { border-color: rgba(11,22,38,.12);
+  background: linear-gradient(180deg, rgba(255,255,255,.9), rgba(222,233,248,.72) 62%, rgba(232,67,31,.09)) border-box;
+  box-shadow: inset 0 1px 0 #fff, 0 2px 6px -4px rgba(232,67,31,.5), 0 1px 6px -3px rgba(11,22,38,.18); }
+/* the line a shade deeper than --pin on the light glass: 3.6:1 against the pill at its faintest breath (--pin would be 3.1:1) */
+:root[data-theme="light"] .dv2 .dtabs__ind::after { background: linear-gradient(90deg, rgba(207,58,26,0), #CF3A1A 25%, #CF3A1A 75%, rgba(207,58,26,0)); box-shadow: 0 -2px 5px rgba(207,58,26,.4); }
+/* a phone: the tabs hug their words, so the pill has no rim and a fainter lit edge (a drawn edge 6 px from a word looked as if the word
+   touched it) */
+@media (max-width: 600px) {
+  .dv2 .dtabs__ind, :root[data-theme="light"] .dv2 .dtabs__ind { border-color: transparent; }
+  .dv2 .dtabs__ind { box-shadow: inset 0 1px 0 rgba(255,255,255,.09), 0 2px 6px -4px rgba(255,90,54,.7), 0 1px 6px -3px rgba(0,0,0,.6); }
+}
 .dv2 .dtab__badge { min-width: 20px; height: 20px; padding: 0 5px; font-size: .75rem; }
 :root[data-theme="light"] .dv2 .dtab__badge { background: #B8430F; color: #fff; } /* 5.5:1 on any pill (the pale tint fell to 4.2 on the chosen one) */
 /* Profile: the person's initial in a neutral circle on phones, the word from 601 px */
@@ -63,16 +92,20 @@ body.is-dv2 .dash::before { content: none; }
   .dv2 #tab-rankings .dtab__long { display: none; }
   .dv2 #tab-rankings .dtab__short { display: inline; }
 }
+/* the tabs fill the whole bar from 601 px (owner, 12 Oct 2026: they were "gathered to the left" with half the bar empty). A tablet:
+   every tab, Profile too, grows from its words by the same share of the room left (flex: 1 0 auto, the same padding), so the gaps
+   between the words are equal. A computer: one equal part each, the word centred (flex: 1 1 0); a tab whose words need more than its
+   part keeps them whole and the others share the rest. A phone keeps the fit steps above. */
 @media (min-width: 601px) {
-  .dv2 #tab-profile { padding: 0 14px; }
+  .dv2 #tab-profile { flex: 1 0 auto; padding: 0 8px; }
   .dv2 #tab-profile .dtab__av { display: none; }
   .dv2 #tab-profile .dtab__long { display: inline; }
 }
-/* a wide screen: the strip lines up with the cards under it */
+/* a wide screen: the strip lines up with the cards under it, and the tabs are equal parts of it */
 @media (min-width: 1000px) {
   .dv2 .dtabs { margin: 0 0 var(--dd-gap); border: 1px solid var(--line); border-radius: var(--r-card, 18px); }
-  .dv2 .dtabs__list { justify-content: flex-start; padding: 4px 6px; }
-  .dv2 .dtab { flex: 0 1 auto; padding: 0 16px; }
+  .dv2 .dtabs__list { padding: 4px 6px; }
+  .dv2 .dtab, .dv2 #tab-profile { flex: 1 1 0; min-width: max-content; padding: 0 16px; }
 }
 
 /* ---------- the panels: one rhythm, one card surface ---------- */
@@ -549,12 +582,22 @@ body.is-dv2 .dash::before { content: none; }
 [data-page="dashboard"] .dpv__tabs span { padding: 5px 8px; }
 @media (max-width: 600px) { [data-page="dashboard"] #out-cta { display: flex; width: 100%; justify-content: center; } }
 
-/* ---------- motion: the chosen tab's line settles, a panel eases in (transform and opacity only) ---------- */
+/* ---------- motion: the glass pill slides (dashboard-v2.js), its line breathes, the chosen tab's words light up with it, a panel eases
+   in from the side of the tab that was left (transform and opacity only; with reduced motion all of it is at once) ---------- */
 @media (prefers-reduced-motion: no-preference) {
   .dv2 .dtab[aria-selected="true"]::after { animation: ddTabIn var(--dur-3, 320ms) var(--ease-out, cubic-bezier(.2,.8,.2,1)) both, lbBreath 4s steps(16) var(--dur-3, 320ms) infinite alternate var(--lb-play, running); }
+  .dv2 .dtabs__ind::after { animation: ddLineBreath 4s steps(16) var(--dur-3, 320ms) infinite alternate var(--lb-play, running); }
+  .dv2 .dtabs.has-ind .dtab { transition: color var(--dur-3, 320ms) var(--ease-out, cubic-bezier(.2,.8,.2,1)), background var(--dur-2, 200ms); }
   .dv2 .dpanel:not([hidden]) { animation: ddPanelIn var(--dur-3, 320ms) var(--ease-out, cubic-bezier(.2,.8,.2,1)) both; }
+  .dv2[data-dir="next"] .dpanel:not([hidden]) { animation-name: ddPanelNext; }
+  .dv2[data-dir="prev"] .dpanel:not([hidden]) { animation-name: ddPanelPrev; }
   .dv2 .pf-notice__ok, .dv2 .pass__copy::after, .dv2 .role-tile, .dv2 .today__card { transition: background-color var(--dur-2, 200ms), border-color var(--dur-2, 200ms), transform var(--dur-1, 120ms); }
   .dv2 .today__card:active, .dv2 .role-tile:active { transform: scale(.98); }
 }
 @keyframes ddTabIn { from { transform: scaleX(.3); opacity: 0; } }
 @keyframes ddPanelIn { from { opacity: 0; transform: translateY(6px); } }
+/* the ember line on the pill breathes between 85% and full, never fainter: it is the mark of the chosen tab that keeps 3:1 against the
+   pill at every moment (WCAG 1.4.11; measured on the pixels at its faintest: 4.3:1 dark, 3.6:1 light) */
+@keyframes ddLineBreath { from { opacity: .85; } to { opacity: 1; } }
+@keyframes ddPanelNext { from { opacity: 0; transform: translateX(16px); } }
+@keyframes ddPanelPrev { from { opacity: 0; transform: translateX(-16px); } }
