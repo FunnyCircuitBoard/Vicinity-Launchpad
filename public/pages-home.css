@@ -1,0 +1,149 @@
+/* The home page (design v4, 12 Oct 2026; the owner: "One city. One coin." centred at the top, no New York map, a Sign up beside
+   Get $VICINITY, "the website does not look that premium"). Loaded only by the home page, after the shared sheets and app-phone.css.
+   Four parts: the hero (headline, one line, two buttons, the live numbers bar), How it works (three cards), the app teaser (in
+   development) and the FAQ. One glow, at the top. Nothing moves by itself except the hero's one entrance; with reduced motion nothing
+   moves at all (style.css's reduce block stops every animation and transition). */
+
+/* ---------- hero ---------- */
+.hero4 { position: relative; isolation: isolate; overflow: hidden; text-align: center; padding: clamp(48px, 9vh, 120px) 0 8px; }
+.hero4::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--grad-glow); }
+:root[data-theme="light"] .hero4::before { opacity: .9; }
+.hero4__inner { display: flex; flex-direction: column; align-items: center; }
+/* two lines at every width: "One city." in the ink gradient, "One coin." in the accent. Each line is its own box as wide as its words, so
+   the gradient spans the words (not the screen); the room under the line keeps the y's tail inside the painted box */
+.hero4__title { font-size: var(--fs-display); font-weight: 650; line-height: .98; letter-spacing: -0.045em; max-width: none; margin: 0 0 20px; }
+.hero4__title > span { display: block; width: fit-content; margin: 0 auto; padding: 0 .04em .08em; }
+.hero4__lead { max-width: 34ch; margin: 0 auto 32px; font-size: var(--fs-md); color: var(--text-2); text-wrap: balance; }
+@media (min-width: 901px) { .hero4__lead { font-size: 1.25rem; max-width: 44ch; margin-bottom: 36px; } }
+
+/* the two buttons, side by side at every width from 320 px, equally tall (56 px); a too-narrow screen wraps them rather than overflow */
+.hero4__cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; width: 100%; }
+.hero4__cta .btn { flex: 0 1 auto; min-width: 12.5rem; padding-inline: 28px; }
+/* "Sign up" for a guest, "My dashboard" for a member: both labels share one grid cell, so the button is as wide as the wider whichever
+   shows. theme.js's :root[data-guest] picks before the first paint; home.js corrects a wrong guess (.is-guest / .is-member) */
+.hero4__second { display: inline-grid; place-items: center; }
+.hero4__second > span { grid-area: 1 / 1; }
+:root[data-guest] .hero4__as-member, :root:not([data-guest]) .hero4__as-guest { visibility: hidden; }
+.hero4__second.is-guest .hero4__as-guest, .hero4__second.is-member .hero4__as-member { visibility: visible; }
+.hero4__second.is-guest .hero4__as-member, .hero4__second.is-member .hero4__as-guest { visibility: hidden; }
+@media (max-width: 480px) {
+  .hero4__cta { gap: 8px; }
+  .hero4__cta .btn { flex: 1 1 auto; min-width: 0; padding-inline: 20px; }
+}
+@media (max-width: 400px) { .hero4__cta .btn { padding-inline: 16px; font-size: 1rem; } }
+/* the narrowest phones: smaller padding and type, and the arrow (decoration) leaves, so the pair stays on one row (measured at 320 px:
+   155.7 + 133.1 + 8 px with the arrow, over the 288 px there are) */
+@media (max-width: 360px) { .hero4__cta .btn { padding-inline: 14px; font-size: .95rem; } .hero4__cta .btn > [aria-hidden="true"] { display: none; } }
+
+/* ---------- the live numbers bar (home.js) ----------
+   A slim pill under the buttons: a live dot, then label over value cells split by hairlines. Its height is fixed from the first paint
+   (the cells arrive once, all together, so nothing moves); a computer shows five cells (.tk__item--more are the rest), a phone the first
+   four as a two-by-two card (.tk__item--p5 are the rest): nothing scrolls and nothing is cut at an edge (review of 13 Oct 2026). The
+   sources' line under it holds its room too. */
+.tk { width: 100%; max-width: 960px; margin: 44px auto 0; }
+.tk__pill { position: relative; border-radius: var(--r-pill); background: var(--surface-1); border: 1px solid var(--glass-border); box-shadow: var(--glass-hi), var(--e1); overflow: hidden; }
+.tk__bar { list-style: none; margin: 0; padding: 0 8px; display: flex; align-items: center; height: 54px; }
+.tk__dot { flex: none; display: grid; place-items: center; width: 32px; height: 100%; }
+.tk__dot .live-dot, .tk__dot .live-dot::after { background: var(--ok-text); }
+.tk__skel { flex: 1 1 0; display: grid; place-items: center; height: 100%; }
+.tk__skel .skel { width: min(96px, 70%); height: 24px; border-radius: 6px; }
+.tk__item { position: relative; flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0 12px; }
+.tk__item--price { flex-grow: 1.45; } /* the price and its change share one cell */
+.tk__item + .tk__item::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 1px; background: var(--line-2); }
+.tk__label { max-width: 100%; font: 500 .75rem/1.25 var(--body); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk__line { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.tk__val { min-width: 2ch; font: 600 .975rem/1.25 var(--display); letter-spacing: -.01em; font-variant-numeric: tabular-nums; color: var(--text); }
+.tk__chg { font: 600 .75rem/1 var(--body); font-variant-numeric: tabular-nums; }
+.tk__chg.is-up { color: var(--ok-text); } .tk__chg.is-down { color: var(--bad-text); } .tk__chg.is-flat { color: var(--muted); }
+.tk__delayed { align-self: center; padding: 1px 6px; }
+.tk__chg[hidden], .tk__delayed[hidden] { display: none; }
+@media (min-width: 768px) { .tk__item--more { display: none; } }
+@media (max-width: 767px) {
+  .tk { margin-top: 32px; }
+  .tk__pill { border-radius: var(--r-lg, 20px); }
+  /* two columns, two rows of 56 px from the first paint (four placeholders, then up to four cells; one or two cells sit centred in it) */
+  .tk__bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(56px, auto); align-content: center; height: auto; min-height: 112px; padding: 0; }
+  .tk__dot { position: absolute; top: 10px; left: 10px; width: 8px; height: 8px; }
+  .tk__skel, .tk__item { height: auto; padding: 8px 12px; }
+  .tk__skel:nth-child(n+6), .tk__item--p5 { display: none; }
+  .tk__skel .skel { width: 64px; height: 20px; }
+  .tk__item--wide { grid-column: 1 / -1; }
+  .tk__line { flex-wrap: wrap; justify-content: center; row-gap: 2px; }
+  /* hairlines: between the two columns, and between the two rows (the dot is the bar's first child) */
+  .tk__item + .tk__item::before { content: none; }
+  .tk__item:nth-child(odd):not(.tk__item--wide)::before { content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 1px; background: var(--line-2); }
+  .tk__item:nth-child(n+4)::after { content: ""; position: absolute; top: 0; left: 12px; right: 12px; height: 1px; background: var(--line-2); }
+}
+/* the narrowest phones: the price and its change stay on one line in a 143 px cell */
+@media (max-width: 360px) { .tk__skel, .tk__item { padding-inline: 6px; } .tk__val { font-size: .9rem; } .tk__line { column-gap: 4px; } }
+.tk__src { min-height: 3em; margin: 12px auto 0; max-width: 64ch; font-size: .75rem; line-height: 1.5; color: var(--muted); text-wrap: balance; }
+.tk__src a { color: inherit; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.tk__src a:hover { color: var(--text); text-decoration-color: currentColor; }
+@media (min-width: 768px) { .tk__src { min-height: 1.5em; } }
+
+/* the hero's one entrance: the headline, the line, the buttons, the bar rise 8 px, 60 ms apart (nothing is hidden without it). The
+   headline and the line only rise (opaque from the first frame: a browser does not count a paint at opacity 0 as the page's main
+   content, so a fade there held it back by about 0.45 s on a phone); the buttons and the bar also fade in. */
+@media (prefers-reduced-motion: no-preference) {
+  .hero4__title, .hero4__lead { animation: hero4Rise .4s var(--ease-out) backwards; }
+  .hero4__cta, .tk { animation: hero4In .4s var(--ease-out) backwards; }
+  .hero4__lead { animation-delay: 60ms; } .hero4__cta { animation-delay: 120ms; } .tk { animation-delay: 180ms; }
+}
+@keyframes hero4Rise { from { transform: translateY(8px); } }
+@keyframes hero4In { from { opacity: 0; transform: translateY(8px); } }
+
+/* ---------- section heads on this page: centred ---------- */
+.how4__head, .faq4__head { text-align: center; }
+.how4__head h2, .faq4__head h2 { margin-inline: auto; }
+
+/* ---------- How it works: three cards, each one link ---------- */
+.how4__grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@media (min-width: 768px) { .how4__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; } }
+@media (min-width: 1024px) { .how4__grid { gap: 20px; } }
+.how4__card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+@media (min-width: 601px) { .how4__card { padding: 28px; } }
+.how4__n { position: absolute; top: 20px; right: 22px; font: 600 .75rem/1 var(--display); letter-spacing: .08em; color: var(--muted); }
+.how4__ico { width: 40px; height: 40px; margin-bottom: 6px; }
+.how4__card h3 { font-size: var(--fs-lg); letter-spacing: -0.01em; line-height: 1.3; margin: 0; }
+.how4__card p { margin: 0; color: var(--text-2); }
+.how4__link { margin-top: auto; padding-top: 8px; font-weight: 600; font-size: .9375rem; color: var(--pin-2); text-decoration: none; }
+/* the whole card is the link's tap target (the title link pattern of the Launchpad cards), its focus ring the card's */
+.how4__link::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.how4__link:focus-visible { outline: none; }
+.how4__card:focus-within { outline: 3px solid var(--pin-2); outline-offset: 3px; }
+@media (hover: hover) and (pointer: fine) { .how4__card:hover .how4__link { text-decoration: underline; text-underline-offset: 4px; } }
+
+/* ---------- the app teaser: copy on one side, the phone on the other, cut by the card's edge ---------- */
+.teaser4 { padding-top: 0; }
+.teaser4__card { display: grid; grid-template-columns: minmax(0, 1fr); padding: 0; overflow: hidden; }
+.teaser4__copy { padding: 28px 24px 4px; }
+.teaser4__tag { margin: 0 0 14px; }
+.teaser4__copy h2 { margin: 0 0 10px; }
+.teaser4__line { margin: 0 0 16px; color: var(--text-2); max-width: 40ch; }
+.teaser4__link { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; font-weight: 600; color: var(--pin-2); text-decoration: none; }
+.teaser4__link::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.teaser4__link:focus-visible { outline: none; }
+.teaser4__card:focus-within { outline: 3px solid var(--pin-2); outline-offset: 3px; }
+.teaser4__stage { display: flex; justify-content: center; align-items: flex-start; height: 250px; padding-top: 16px; pointer-events: none;
+  background: radial-gradient(50% 60% at 50% 70%, var(--accent-soft), transparent 75%); }
+.teaser4__phone { --pw: 240px; }
+@media (min-width: 901px) {
+  .teaser4__card { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); align-items: center; min-height: 380px; }
+  .teaser4__copy { padding: 56px 0 56px 56px; }
+  .teaser4__stage { height: 380px; padding-top: 48px; perspective: 1100px; }
+  .teaser4__phone { transform: rotateY(-14deg) rotateX(6deg); transform-origin: 50% 0; }
+}
+
+/* ---------- FAQ: three tabs over one calm column of questions ---------- */
+.faq4 { padding-top: 0; }
+.faq4 .faq { max-width: 760px; margin: 0 auto; }
+.faq4 .seg--tabs { margin: 0 0 16px; }
+.faq4 .tabpanel { padding: 4px 20px; border-radius: var(--r-card); background: var(--surface-1); border: 1px solid var(--line); box-shadow: var(--e1); }
+.faq4 .tabpanel details { padding: 0; border-bottom: 1px solid var(--line); }
+.faq4 .tabpanel details:last-child { border-bottom: 0; }
+.faq4 summary { min-height: 60px; padding: 12px 0; align-items: center; font-family: var(--body); font-size: 1rem; font-weight: 600; line-height: 1.4; }
+.faq4 summary::after { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: rgba(var(--ink), .06); color: var(--text-2); font: 400 1.2rem/1 var(--body); }
+.faq4 details[open] summary::after { color: var(--pin-2); }
+.faq4 details p { margin: 0 0 14px; color: var(--text-2); max-width: 62ch; }
+.faq4 details p + p { margin-top: -4px; }
+@media (max-width: 600px) { .faq4 .tabpanel { padding: 2px 16px; } .faq4 summary { min-height: 56px; font-size: .95rem; } }

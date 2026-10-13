@@ -1,0 +1,56 @@
+/* The phone mock-up of the Vicinity app (design v4, 12 Oct 2026; the app is in development). The home page's teaser and the /app preview
+   draw the same frame and the same screens, so it lives in one small sheet both load before their own.
+   HTML and CSS only (no image, nothing from outside). Rule R1: no number anywhere on a screen, an amount is a still bar; the screens are
+   decoration with a label (role="img" on the frame), never controls: nothing in them can be focused or pressed. Nothing moves by itself. */
+.phone4 { --pw: 280px; position: relative; flex: none; width: var(--pw); height: calc(var(--pw) * 2.07); padding: calc(var(--pw) * .036);
+  border-radius: calc(var(--pw) * .157); background: #0B0F17;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.10), 0 0 0 1px rgba(0,0,0,.45), 0 30px 70px -30px rgba(0,0,0,.8); }
+:root[data-theme="light"] .phone4 { background: #1A2230; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14), 0 30px 60px -28px rgba(11,22,38,.45); }
+.phone4__screen { position: relative; height: 100%; overflow: hidden; display: flex; flex-direction: column; gap: 14px; padding: 46px 12px 18px;
+  border-radius: calc(var(--pw) * .121); background: var(--bg, #060C17); color: var(--text, #EEF2F8); font: 500 .8125rem/1.35 var(--body); text-align: left; }
+/* the camera pill and the home indicator */
+.phone4__notch { position: absolute; top: 10px; left: 50%; width: 32%; height: 22px; transform: translateX(-50%); border-radius: 999px; background: #000; }
+.phone4__screen::after { content: ""; position: absolute; bottom: 7px; left: 50%; width: 36%; height: 4px; transform: translateX(-50%); border-radius: 2px; background: rgba(var(--ink), .3); }
+
+/* the screens' parts */
+.pm-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+.pm-title { font: 600 1.0625rem/1.2 var(--display); letter-spacing: -.01em; }
+.pm-back { font: 500 1.25rem/1 var(--body); color: var(--muted); margin-right: auto; padding-right: 6px; }
+.pm-head .pm-back + .pm-title { margin-right: auto; }
+.pm-ava { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--pin-2); font: 700 .75rem/1 var(--display); }
+.pm-label { display: block; font: 500 .75rem/1.3 var(--body); color: var(--muted); }
+.pm-balance { display: grid; gap: 8px; padding: 2px 0 4px; }
+.pm-skel { display: block; width: 36px; height: 12px; border-radius: 6px; }
+.pm-skel--lg { width: 62%; height: 28px; border-radius: 8px; }
+.pm-skel--addr { width: 100%; height: 14px; }
+.pm-skel--amt { width: 72px; height: 16px; }
+.pm-skel--fee { width: 64px; }
+.pm-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pm-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-2);
+  background: rgba(var(--ink), .06); color: var(--text); font: 600 .8125rem/1 var(--body); white-space: nowrap; }
+.pm-btn svg { flex: none; }
+.pm-btn--primary { border-color: transparent; background: linear-gradient(135deg, var(--cta-a), var(--cta-b)); color: #fff; }
+.pm-btn--block { width: 100%; }
+.pm-btn.is-off { opacity: .55; }
+.pm-list { display: grid; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-1); overflow: hidden; }
+.pm-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px; }
+.pm-row + .pm-row { border-top: 1px solid var(--line); }
+/* a small frame keeps the coin names whole: the amount bars leave the rows */
+.phone4 { container-type: inline-size; }
+@container (max-width: 230px) { .pm-row { grid-template-columns: 30px minmax(0, 1fr); } .pm-row > .pm-skel { display: none; } }
+.pm-row__name { display: grid; min-width: 0; }
+.pm-row__name b { font: 600 .8125rem/1.25 var(--body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pm-row__name small { font: 500 .75rem/1.25 var(--body); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pm-coin { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; font: 700 .8125rem/1 var(--display); }
+.pm-coin--vic { background: linear-gradient(135deg, #FF5A36, #FFC857); color: #1A0E05; }
+.pm-coin--city { background: rgba(91,140,255,.16); color: var(--blue); }
+.pm-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 0 12px; border-radius: 12px;
+  border: 1px solid var(--field-line, var(--line-2)); background: var(--surface-inset); }
+.pm-field--ph { color: var(--muted); }
+.pm-chip { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px; background: rgba(var(--ink), .08); font: 600 .75rem/1 var(--body); white-space: nowrap; }
+.pm-form { display: grid; gap: 8px; }
+.pm-push { margin-top: auto; }
+/* the receive screen: a decorative pattern that only looks like a code (no data in it), on white in both themes */
+.pm-qr { align-self: center; width: 72%; aspect-ratio: 1; padding: 12px; border-radius: 16px; background: #fff; box-shadow: 0 0 0 1px var(--line); }
+.pm-qr svg { display: block; width: 100%; height: 100%; color: #0B1626; }
+.pm-center { text-align: center; }

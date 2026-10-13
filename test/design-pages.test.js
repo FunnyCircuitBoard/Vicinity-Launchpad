@@ -101,12 +101,10 @@ test("the honest lines that moved into folds are still on the page, word for wor
 test("no risk warning in the page chrome, pop-ups or scripts (design v4, the owner's ask): only the Terms of Use say it", () => {
   const RISK = /financial advice|afford to lose|very risky|can go to zero/i;
   for (const f of readdirSync(new URL("../public/", import.meta.url)).filter((x) => /\.(html|js)$/.test(x))) {
-    let h = read(`public/${f}`);
+    const h = read(`public/${f}`);
     // the Terms of Use are the owner's document (R4). His #63 took the short warning line out of their top; their own risk
     // clause (Section 13's "at your sole risk") is what carries it now, and it must stay
     if (f === "terms.html") { assert.match(h, /your use of the Services is at your sole risk\./, "the Terms keep their own risk clause (R4)"); continue; }
-    // the home page's FAQ question is the home track's to drop (SPEC §4 row 7); nothing else on that page says it
-    if (f === "index.html") h = h.replace(/<details><summary>Is this financial advice\?<\/summary><p>[^<]*<\/p><\/details>/, "");
     assert.doesNotMatch(h, RISK, f);
   }
   // a transaction's own facts are not disclaimers: they stay where the money moves
