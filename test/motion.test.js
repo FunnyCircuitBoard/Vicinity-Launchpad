@@ -96,6 +96,19 @@ test("styles: nothing loops forever; only a busy indicator (while busy) or the r
   assert.doesNotMatch(css, /moSheen[^;}]*infinite|contract(Sweep|In)[^;}]*infinite|\.contract::after \{[^}]*infinite/, "the bars' sheen and the contract card's own light end");
 });
 
+test("every other sheet too (the dashboard's, each page's, the panels'): nothing loops forever but a busy indicator while it is busy", () => {
+  // review of 13 Oct 2026: the test above reads style.css alone, so the dashboard tab line's endless breath in polish-dash.css slipped by
+  const sheets = readdirSync(new URL("../public/", import.meta.url)).filter((f) => f.endsWith(".css") && f !== "style.css");
+  assert.ok(sheets.includes("polish-dash.css") && sheets.includes("pages-launchpad.css") && sheets.includes("admin.css"));
+  for (const f of sheets) {
+    const text = read(`public/${f}`);
+    for (const m of text.matchAll(/([^{};]+)\{[^{}]*?animation: (\w+)[^;}]*\binfinite\b/g)) {
+      assert.ok(["shimmer", "spin"].includes(m[2]), `${f}: ${m[2]} loops forever`);
+      assert.match(m[1], /\.is-(busy|loading)/, `${f}: ${m[1].trim()} loops only while busy`);
+    }
+  }
+});
+
 test("styles: a block is only ever hidden by the script's .mo-armed, only when motion is welcome; reduced motion and print show everything", () => {
   const armed = css.indexOf("  .mo-armed { opacity: 0; transform: translateY(8px); }"); // 8 px since design v4 (12 before, 18 before that)
   assert.ok(armed > 0 && inNoPreference(armed), "the armed state exists only when motion is welcome");

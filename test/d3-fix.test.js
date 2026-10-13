@@ -8,7 +8,8 @@
 // * home: the city coins in a row, every name inside its coin ("LOND", "TOKY", "ARIS" before); the walkthrough's $NYC inside its disc and
 //   readable on the light theme; no lone word at the end of the hero's lead or a fact tile (design v4: the coin row, the walkthrough and
 //   the tiles are gone; test/home-v4.test.js pins the new home);
-// * glows stay inside the content (the Why section's ran off a wide screen's right edge; /launchpad kept the top-right smudge).
+// * glows stay inside the content (the Why section's ran off a wide screen's right edge; /launchpad kept the top-right smudge: design v4
+//   replaced its orbs with the page's one glow inside the hero).
 // How it all looks at every width, dark and light, is checked in Chromium on the real Worker (the d3 fixer's probes).
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -57,11 +58,12 @@ test("home: no lone word at the end of the hero's lead (design v4: the fact tile
   assert.match(read("public/pages-home.css"), /\.hero4__lead \{ max-width: 34ch; margin: 0 auto 32px; font-size: var\(--fs-md\); color: var\(--text-2\); text-wrap: balance; \}/);
 });
 
-test("glows stay inside the content: the Why section's light, /launchpad's orbs", () => {
+test("glows stay inside the content: the Why section's light, /launchpad's one glow", () => {
   assert.match(style, /\.section--glow \{ background: radial-gradient\(min\(440px, 40%\) min\(300px, 45%\) at calc\(50% \+ min\(240px, 20%\)\) 55%, rgba\(255,90,54,\.075\), transparent 72%\), var\(--bg\); \}/);
   assert.doesNotMatch(style, /\.section--glow \{ background: radial-gradient\(ellipse 60% 50% at 80% 50%/, "a 60%-wide glow at 80% ran off the right edge");
-  const wide = lp.match(/@media \(min-width: 900px\) \{\n  \.launch-hero \.orb--a \{[^\n]*\n[^\n]*\n[^\n]*\n\}/);
-  assert.ok(wide, "the launchpad hero's orbs on a computer");
-  assert.match(wide[0], /\.launch-hero \.orb--a \{ width: 520px; height: 340px; top: 10%; right: auto; left: calc\(50% - 470px\); opacity: \.17; \}/, "anchored to the centred title, not the screen's top right corner");
-  assert.match(wide[0], /\.launch-hero \.orb--b \{ width: 460px; height: 300px; bottom: 8%; left: calc\(50% - 20px\); opacity: \.14; \}/);
+  // design v4 (12 Oct 2026): the Launchpad's hero is the tagline and one button; its orbs are gone. Its light is the page's one glow
+  // (--grad-glow, from the top centre), painted inside the hero's own box, so it can never reach a wide screen's corners
+  assert.doesNotMatch(lp, /\.orb|\.launch-hero|\.stars/, "no orbs, no star field");
+  assert.match(lp, /\.lp4-hero \{ position: relative; isolation: isolate;/);
+  assert.match(lp, /\.lp4-hero::before \{ content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var\(--grad-glow\); \}/);
 });

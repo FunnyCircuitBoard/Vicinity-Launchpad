@@ -158,22 +158,25 @@ test("token: the Buy control in its slot, the address once, five proofs, no thir
   assert.match(polish, /\.holders__table a \{ display: inline-block; padding: 12px 0; margin: -12px 0; \}/, "a 44 px hit area on every wallet in the list");
 });
 
-test("launchpad: $VICINITY drawn once, the snapshot checker hidden until there is a snapshot, one date line, the calendar as a text link", () => {
+test("launchpad: $VICINITY drawn once and counted as drawn, the snapshot checker hidden until there is a snapshot, no date or calendar left", () => {
   const js = read("public/launchpad.js"), h = html["launchpad.html"];
-  assert.match(js, /const vic = data && data\.vicinity && isLive\(data\.vicinity\) \? data\.vicinity : null;\n\s+const listed = vic \? cards\.filter\(\(c\) => c !== vic\) : cards;\n\s+const n = counts\(listed, now\);/,
-    "the featured card is left out of the tab counts (they said 'Live 6' over '5 coins')");
-  assert.match(js, /const rows = rowsFor\(listed, \{ \.\.\.state, now, countryNames \}\);/, "and out of the list below it: counts and list from the same cards");
-  assert.doesNotMatch(js, /counts\(cards, now\)/);
+  // design v4 (12 Oct 2026): one grid, $VICINITY its first card (it was a "Live now" card above the list, and before 9 Oct also the
+  // list's first card: drawn twice). A tab's count is the cards that tab draws, with the search and the filters ("Live 6" over "5 coins")
+  assert.match(js, /const now = Date\.now\(\), cards = data \? \[data\.vicinity, \.\.\.\(data\.coins \|\| \[\]\)\]\.filter\(Boolean\) : \[\];/);
+  assert.match(js, /const n = Object\.fromEntries\(TABS\.map\(\(t\) => \[t, rowsFor\(cards, \{ \.\.\.opts, tab: t \}\)\.length\]\)\);/, "each tab counts what it draws");
+  assert.match(js, /const rows = rowsFor\(cards, opts\);/, "and the list is drawn from the same cards");
+  assert.match(js, /place\(grid, rows, now\);/); assert.equal((js.match(/\bplace\(/g) || []).length, 2, "one grid, placed in one place (and defined once)");
+  assert.doesNotMatch(js, /counts\(cards, now\)|lp-featured/);
+  assert.doesNotMatch(h, /id="lp-featured"/);
   assert.match(js, /const form = \$\("#snap-form"\); if \(form\) form\.hidden = !snap;/);
-  assert.match(h, /Opening <strong id="lp-date">October 10, 2026 · 10:10:10 AM New York time<\/strong>\. <span class="lp-local muted small" id="lp-local"><\/span><\/p>/, "your local time in the same sentence");
-  assert.match(h, /<button class="link-btn lp-cal-link" type="button" id="lp-cal">Add to my calendar<\/button>/);
-  assert.equal(count(h.slice(h.indexOf("<main")), /October 10/g), 1, "the date once in the page");
+  assert.doesNotMatch(h, /id="lp-date"|id="lp-local"|id="lp-cal"|Add to my calendar/, "the opening is past: no date line, no calendar file");
+  assert.equal(count(h.slice(h.indexOf("<main")), /October 10/g), 0);
   assert.match(polish, /\.lp-stats--live \.lp-stat__src\.is-why \{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; \}/, "a number nobody has yet keeps its tile: its reason on one line, so the four tiles stay two by two");
   assert.doesNotMatch(polish, /\.lp-stat:has\(> \.lp-stat__src\.is-why\) \{ display: none/, "hiding the tile left a blank cell in every card");
   assert.match(polish, /\.lp-tabs \{ flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; \}\n  \.lp-tabs::-webkit-scrollbar \{ display: none; \}\n  \.lp-tabs button \{ flex: 1 1 auto; padding: 0 6px; gap: 4px; font-size: \.8rem; \}\n  \.lp-tabs__n \{ min-width: 0; padding: 1px 6px; \}/, "Live · New · Upcoming · Trending on one row at 390 (Trending sat alone on a second)");
-  assert.match(js, /That is \$\{d\.toLocaleString\(undefined, \{ weekday: "long", hour: "numeric", minute: "2-digit", second: "2-digit" \}\)\} where you are\./, "the date is said once; the local line is only the visitor's clock");
-  assert.match(polish, /\.coin-stack \{ display: none; \}/, "the sample tickers are decoration: not on a phone");
+  assert.doesNotMatch(h, /coin-stack|Sample tickers/, "the sample tickers left with the 'Why a city launchpad' section");
 });
+
 
 test("review fixes of 9 Oct 2026: the strips keep their gutter, no mid-word break in the outside links, one button shape, the Buy card keeps its button, light-theme contrast, the terms numbers", () => {
   // A-1 (superseded by design v2, 10 Oct 2026): the facts and the roadmap no longer scroll sideways on a phone (the owner's screenshots:

@@ -49,18 +49,26 @@ test("no jump while the token page loads: the Buy card's room is held until toke
   assert.match(js, /Promise\.resolve\(window\.VSwap\.mount\(slot\)\)\.then\(\(p\) => settleBuy\(p \? "panel" : "none"\), \(\) => settleBuy\("link"\)\)/);
 });
 
-test("no jump on a computer either: the Launchpad hero starts open and fills the first screen, the coin page holds its Buy's room", () => {
+test("no jump: the Launchpad's coins hold their room with still placeholders until the first answer, the coin page holds its Buy's room", () => {
+  // design v4 (12 Oct 2026): the hero is the tagline and one button, so the grid is in the first screen. The section ships visible with two
+  // placeholder cards (no shimmer) that the first answer swaps for the toolbar and the grid (new boxes: nothing on screen moves), and both
+  // hold at least the rest of the first screen, so the sources, the snapshot fold and the footer never show and then jump away
   const lp = read("scripts/pages/src/launchpad.html");
-  assert.match(lp, /<section class="launch-hero is-open" id="launchpad">/, "opened on 10 Oct 2026: the page ships open");
+  assert.match(lp, /<section class="lp-coins is-loading" id="lp-coins" aria-labelledby="lp-coins-title">/, "visible from the start (no hidden attribute)");
+  assert.match(lp, /<div class="lp-skels" aria-hidden="true"><div class="lp-grid"><div class="card lp-card lp-skel lp-skel--featured">/);
+  assert.match(CSS, /\.lp-skels, #lp-panel \{ min-height: calc\(100vh - 240px\); \}/);
+  assert.match(CSS, /@media \(min-width: 901px\) \{ \.lp-skels, #lp-panel \{ min-height: calc\(100vh - 300px\); \} \}/);
+  assert.match(CSS, /\.lp-coins:not\(\.is-loading\) \.lp-skels,\n\.lp-coins\.is-loading :is\(\.lp-tools, \.lp-filters, \.lp-meta, #lp-panel\),/);
+  assert.match(CSS, /\.lp-card > \.lp-spark\.is-empty, \.lp-card > \.lp-spark\.is-loading \{ display: flex; \}/, "a card's chart keeps its room while it loads, on a phone too");
   const js = read("public/launchpad.js");
-  assert.match(js, /hero\.classList\.toggle\("is-open", ms === 0\); hero\.dataset\.clock = ms === 0 \? "open" : "soon";/, "the clock still decides");
-  assert.match(CSS, /\.launch-hero:not\(\[data-clock="open"\]\) \.lp-live__open \{ visibility: hidden; \}/, "and it says 'open' only once the clock has");
-  assert.match(CSS, /@media \(min-width: 900px\) \{ \.launch-hero \{ min-height: calc\(100vh - var\(--header-h, 67px\)\);/);
+  assert.match(js, /sec\.classList\.remove\("is-loading"\); sec\.classList\.toggle\("is-nodata", !data\);/, "the first answer (or failure) swaps them");
+  assert.match(js, /if \(o && o\.launchpadV2 === true\) start\(\); else sec\.hidden = true;/, "hidden only when the switch is off");
   assert.match(CSS, /\.coin-page\[aria-busy="true"\] \.coin-head__buy\[hidden\] \+ \.coin-head__safe \{ margin-top: 64px; \}/);
   assert.match(CSS, /\.coin-side > \.coin-ca \{ order: -1; \}/);
 });
 
-test("motion: the live strip moves only for those who want motion, stops on hover, focus and Pause, and is never read out as it moves", () => {
+
+test("motion: only for those who want it; the Launchpad has no live strip, no Pause button and nothing that loops", () => {
   // every animation in the stylesheet sits inside prefers-reduced-motion: no-preference
   let depth = 0, inMotion = -1;
   const lines = CSS.split("\n");
@@ -69,19 +77,16 @@ test("motion: the live strip moves only for those who want motion, stops on hove
     if (/\banimation(?:-name)?:\s*(?!none)[a-z]/.test(line) && !/animation-play-state/.test(line)) assert.ok(inMotion >= 0, `an animation outside no-preference: ${line.trim()}`);
     for (const ch of line) { if (ch === "{") depth++; else if (ch === "}") { depth--; if (depth === inMotion) inMotion = -1; } }
   }
-  assert.match(CSS, /\.lp-live\.is-marquee \.lp-live__view:hover \.lp-live__track, \.lp-live\.is-marquee \.lp-live__view:focus-within \.lp-live__track \{ animation-play-state: paused; \}/);
-  assert.match(CSS, /:root\[data-motion="paused"\] \.lp-live__item\.is-copy \{ display: none; \}/, "Pause animations: one still row");
-  const lp = read("scripts/pages/src/launchpad.html");
-  const strip = lp.slice(lp.indexOf('<div class="lp-live" id="lp-live">'), lp.indexOf("</div>", lp.indexOf('id="lp-live-track"')));
-  assert.doesNotMatch(strip, /aria-live/, "a moving strip is never a live region");
-  assert.match(lp, /<button class="lp-live__pause" type="button" id="lp-live-pause" aria-pressed="false" aria-label="Pause animations">/);
-  // design v4 took the footer's Pause away: the strip's own button pauses it by itself, and paused it stands still
-  assert.match(read("public/launchpad.js"), /pause\.addEventListener\("click", \(\) => \{ const r = document\.documentElement; if \(r\.dataset\.motion === "paused"\) delete r\.dataset\.motion; else r\.dataset\.motion = "paused"; sync\(\); \}\);/);
-  assert.match(CSS, /:root\[data-motion="paused"\] \.lp-live\.is-marquee \.lp-live__track \{ animation: none; width: auto;/);
-  assert.match(CSS, /\.lp-live__pause \{[^}]*width: 44px; height: 44px;/);
-  const js = read("public/launchpad.js");
-  assert.match(js, /setAttribute\("aria-hidden", "true"\)/); assert.match(js, /\.inert = true/);
+  // design v4 (12 Oct 2026, the owner: "the pause-animation button must go"): the hero's gliding strip and its Pause button are gone; nothing
+  // on the page loops (WCAG 2.2.2 then has nothing to pause). The cards rise in once (transform and opacity, 320 ms) when a list is drawn
+  const lp = read("scripts/pages/src/launchpad.html"), sheet = read("public/pages-launchpad.css"), js = read("public/launchpad.js");
+  assert.doesNotMatch(lp, /lp-live|Pause animations|aria-pressed/);
+  assert.doesNotMatch(sheet, /infinite|lpMarquee|data-motion|--lb-play/);
+  assert.doesNotMatch(js, /lp-live|paintLive|vicinity:motion|data-motion-toggle|\.inert = true/);
+  assert.match(sheet, /@keyframes lpCardIn \{ from \{ opacity: 0; transform: translateY\(8px\); \} \}/);
+  assert.match(sheet, /\.lp-coins:not\(\.is-loading\) \.lp-grid > \.lp-card \{ animation: lpCardIn var\(--dur-3, \.32s\) var\(--ease-out, ease-out\) backwards; \}/);
 });
+
 
 test("the honest lines that moved into folds are still on the page, word for word", () => {
   const lp = read("public/launchpad.html"), coin = read("public/coin.html"), token = read("public/token.html"), connect = read("public/connect.html");
@@ -132,14 +137,15 @@ test("404: one calm empty state with the pin, the line, Home and Live map, and t
   }
 });
 
-test("after the opening on a phone: a tighter hero (the first live coin in an iPhone's first screen with Safari's bars), $VICINITY in the Buy panel's own mark", () => {
-  assert.match(CSS, /@media \(max-width: 600px\) \{\n  \.launch-hero\.is-open \{ padding-bottom: 20px; \}/);
-  assert.match(CSS, /\.launch-hero\.is-open ~ \.lp-coins \{ padding-top: 20px; \}/);
+test("on a phone: a short hero (the tagline on two lines and one button), so the first coin starts in the first screen; $VICINITY in the Buy panel's own mark", () => {
+  assert.match(CSS, /\.lp4-hero \{ position: relative; isolation: isolate; padding: 28px 0 24px; text-align: center; \}/, "phone first");
+  assert.match(CSS, /@media \(min-width: 601px\) \{ \.lp4-hero \{ padding: 48px 0 36px; \}/);
+  assert.match(CSS, /\.lp4-hero__title > span \{ display: inline-block; \}/, "'Every city gets' / 'its own coin.': never a lone word");
   assert.match(CSS, /\.lp-ava\[data-kind="vicinity"\] \{ color: #fff; background: linear-gradient\(135deg, #FF5A36, #FFC857\); \}/);
   assert.match(read("public/launchpad.js"), /if \(c\.kind === "vicinity"\) disc\.dataset\.kind = "vicinity";/);
-  assert.match(read("public/launchpad.js"), /if \(c\.kind === "vicinity"\) ava\.dataset\.kind = "vicinity";/);
   assert.match(read("public/coin.js"), /if \(c\.kind === "vicinity"\) disc\.dataset\.kind = "vicinity"; else delete disc\.dataset\.kind;/);
 });
+
 
 test("a computer: the stuck Buy card scrolls inside itself while the wallet list (and its QR code) shows, so nothing of it is out of reach", () => {
   assert.match(CSS, /\.token-hero__buy:has\(\.swap__wallets:not\(\[hidden\]\)\) \{ max-height: calc\(100vh - var\(--sticky-top, 79px\) - 16px\); overflow-y: auto;/);

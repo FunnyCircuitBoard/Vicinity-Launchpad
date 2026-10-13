@@ -436,7 +436,7 @@
       a.dataset.swapHere = "1"; a.href = "#coin-head"; a.removeAttribute("target"); a.removeAttribute("rel"); a.hidden = false;
       for (const x of a.querySelectorAll(".sr-only, [aria-hidden]")) x.remove();
       const label = a.querySelector("span") || a; label.textContent = id === "#coin-mini-buy" ? "Buy" : `Buy ${ticker}`;
-      a.addEventListener("click", (e) => { e.preventDefault(); window.VSwap.open({ out: d.mint, title: `Buy ${ticker}` }); });
+      a.addEventListener("click", (e) => { e.preventDefault(); const c = d.coin || {}; window.VSwap.open({ out: d.mint, title: `Buy ${ticker}`, avatar: c.kind === "vicinity" ? null : { text: initialsOf(c), color: c.color } }); });
     }
     // the Jupiter tile is an INFORMATION link now (the coin's page on jup.ag, never its swap page): "Jupiter" with an info mark in
     // place of the swap arrows (pages-token.css, pages-coin.css, on data-swap-here) to the eye, "Jupiter token info" to a screen reader (its href

@@ -1,46 +1,15 @@
-// Launchpad page: live countdown to the opening, and an "add to my calendar" file.
+// Launchpad page (design v4, 12 Oct 2026): the hero's one action and the snapshot fold. "Create your city coin" signs a visitor up
+// (/connect, the link as shipped, so it works without this script); a member goes to the dashboard's Founder tab instead, where the
+// founder path says how to qualify (and where the launch card appears once the city's coin is ready). No request of its own: site.js's
+// /api/me answer (V.ready). The words never change. The snapshot fold opens itself when the address ends in #supporters (/rules links it).
 (() => {
   "use strict";
-  const { $, $$, official, opensAt, reduced } = window.V;
-  const START = Date.parse("2026-09-26T00:00:00Z"); // countdown bar starts here
-  const pad = (n) => String(n).padStart(2, "0");
-  let last = {};
-
-  function tick() {
-    const at = opensAt(), ms = Math.max(0, at - Date.now());
-    const parts = { days: Math.floor(ms / 86400000), hours: Math.floor((ms % 86400000) / 3600000), minutes: Math.floor((ms % 3600000) / 60000), seconds: Math.floor((ms % 60000) / 1000) };
-    for (const [k, v] of Object.entries(parts)) {
-      const e = $(`[data-cd="${k}"]`); if (!e) continue;
-      const txt = k === "days" ? String(v) : pad(v);
-      if (last[k] !== txt) { e.textContent = txt; if (!reduced && last[k] !== undefined) { e.classList.remove("is-tick"); void e.offsetWidth; e.classList.add("is-tick"); } last[k] = txt; }
-    }
-    $("#countdown")?.classList.toggle("is-open", ms === 0);
-    // open: the hero shows the live coins in place of the countdown, its bar and the calendar link (pages-launchpad.css), from the clock,
-    // so an answer that never comes (opening-day load) never leaves "0 / 00 / 00 / 00" on the screen
-    const hero = $(".launch-hero"); if (hero) { hero.classList.toggle("is-open", ms === 0); hero.dataset.clock = ms === 0 ? "open" : "soon"; } // "open" only once the clock said so
-    const bar = $("#lp-bar"); if (bar) bar.style.width = `${Math.min(100, Math.max(0, ((Date.now() - START) / (at - START)) * 100)).toFixed(2)}%`;
-    const d = new Date(at);
-    // Always stated in New York time; the line below gives the visitor's own time.
-    const ny = { timeZone: "America/New_York" };
-    $("#lp-date").textContent = `${d.toLocaleDateString("en-US", { ...ny, month: "long", day: "numeric", year: "numeric" })} · ${d.toLocaleTimeString("en-US", { ...ny, hour: "numeric", minute: "2-digit", second: "2-digit" })} New York time`;
-    // the date is already in the sentence: this is just its translation into the visitor's clock ("Saturday 2:10:10 PM where you are"; the weekday moves with the zone)
-    $("#lp-local").textContent = ms === 0 ? "The Launchpad is open." : `That is ${d.toLocaleString(undefined, { weekday: "long", hour: "numeric", minute: "2-digit", second: "2-digit" })} where you are.`;
-  }
-  official.then(tick); tick(); setInterval(tick, 1000);
-
-  // A standard calendar file, made right here in the browser.
-  $("#lp-cal")?.addEventListener("click", () => {
-    const at = new Date(opensAt()), stamp = (t) => t.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-    const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Vicinity//Launchpad//EN", "BEGIN:VEVENT", `UID:launchpad-${at.getTime()}@vicinity.city`,
-      `DTSTAMP:${stamp(new Date())}`, `DTSTART:${stamp(at)}`, `DTEND:${stamp(new Date(at.getTime() + 3600000))}`,
-      "SUMMARY:Vicinity Launchpad opens", "DESCRIPTION:Every city gets its own coin. Details: https://vicinity.city/launchpad", "URL:https://vicinity.city/launchpad",
-      "END:VEVENT", "END:VCALENDAR"].join("\r\n");
-    const a = document.createElement("a");
-    a.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
-    a.download = "vicinity-launchpad.ics";
-    document.body.append(a); a.click(); a.remove();
-  });
-  void $$;
+  const { $, ready } = window.V;
+  const create = $("[data-create-coin]");
+  if (create && ready && typeof ready.then === "function") ready.then((d) => { if (d && d.signedIn) create.href = "/dashboard#founder"; });
+  const fold = $("#supporters");
+  const openSnap = () => { if (fold && location.hash === "#supporters") fold.open = true; };
+  if (fold && typeof location !== "undefined") { openSnap(); window.addEventListener("hashchange", openSnap); }
 })();
 
 // Founding Supporter snapshot: status, and any wallet's amount + Merkle proof.
@@ -417,7 +386,7 @@
      The page
      ===================================================================== */
   const { $, $$, el, api, official, opensAt, reduced } = window.V;
-  const sec = $("#lp-coins"); if (!sec) return;
+  const sec = $("#lp-coins"), grid = $("#lp-grid"), empty = $("#lp-empty"); if (!sec || !grid || !empty) return;
   const REFRESH_MS = 30000, BACKOFF = [30000, 60000, 120000, 300000];
   const SPARK_MS = 300000; // a sparkline is asked again at most every 5 minutes
   let data = null, receivedAt = 0, fails = 0, timer = 0, state = { tab: "live", q: "", country: "", status: "", sort: "" }, countryNames = {}, started = false;
@@ -433,7 +402,7 @@
 
   /* ----- the sparkline: a line and the area under it, a dot where it ends; dashed and said in words when there is nothing ----- */
   function sparkEl(c, featured) {
-    const h = featured ? 120 : 44, box = field(el("div", `lp-spark${featured ? " lp-spark--lg" : ""}`), "spark");
+    const h = featured ? 120 : 56, box = field(el("div", `lp-spark${featured ? " lp-spark--lg" : ""}`), "spark"); // its height in CSS: the end dot stays round
     box.setAttribute("aria-hidden", "true");
     if (!isLive(c)) {
       box.classList.add("is-empty"); box.dataset.sig = "wait";
@@ -468,6 +437,8 @@
     if (!isAddr(mint) || asking.has(mint)) return;
     const hit = sparks.get(mint); if (hit && Date.now() - hit.at < SPARK_MS) { paintSpark(mint); return; }
     asking.add(mint);
+    // its placeholder shimmers only now, while the chart is asked for (a card below the screen waits still: nothing loops for nothing)
+    for (const b of $$(`.lp-spark.is-loading[data-mint="${mint}"]`)) b.classList.add("is-asking");
     const nowSec = Math.floor(Date.now() / 1000);
     const day = await api(`/api/coin/chart?mint=${encodeURIComponent(mint)}&tf=24h`);
     let range = "24h", spark = sparkPick(day, nowSec), why = null;
@@ -501,14 +472,28 @@
   }
 
   /* ----- a card ----- */
-  // A phone sees a compact row (design v2, 10 Oct 2026): the avatar, $TICKER and its city, the price with its 24 h chip and the market
-  // cap, a small sparkline, then Buy and "Details". "Details" opens the rest in place: the price's source and age, the four numbers
-  // (a number nobody has yet is left out, not a dash), the curve, the pair, founder and members, and the coin page's link.
+  // Design v4 (12 Oct 2026, the owner: "directly show the live tokens"): one grid of glass cards, $VICINITY the first (wider on a
+  // computer). A live card's face: the avatar, $TICKER and its place, the status; the price with its 24 h chip; the mini chart; Market
+  // cap · 24h volume · Holders (a number nobody has yet is left out) with their sources in one line under them; Buy (one tap: the Buy
+  // panel) and Details. Details opens the rest in place: the price's source and age, the pair's venue, the liquidity, the curve, the
+  // pair, founder and members, and the coin page's link. A card that is not live says why, and the whole live card opens its coin page.
   const cardsByKey = new Map(); // card key -> its latest data (a sparkline that arrives later is drawn from it)
   let folds = 0;
+  /** One number of a card: its label, its value (or a dash that says why), and, under Details, its source in a word or two. */
+  function statEl(s, withSource) {
+    const d = el("div", "lp-stat"); d.dataset.cell = s.key;
+    const dd = field(el("dd"), `s-${s.key}`, s.v); dd.title = s.title || "";
+    dd.append(s.value == null ? na(s.title) : el("span", "lp-val lp-num", s.value));
+    d.append(el("dt", null, s.label), dd);
+    if (!withSource) return d; // on the card's face the sources stand in one line under the row
+    // its source, or why it is "—", on screen (a phone has no tooltip)
+    const note = field(el("dd", `lp-stat__src${s.value == null ? " is-why" : ""}`, s.value == null ? s.why : s.src || ""), `n-${s.key}`);
+    d.append(note);
+    return d;
+  }
   function card(c, now, featured) {
     const live = isLive(c);
-    const li = el("li", `card lp-card${live ? " lp-card--live" : ""}${featured ? " lp-card--featured" : ""}`); li.dataset.key = cardKey(c); li.dataset.status = str(c.status); li.dataset.shape = shapeOf(c);
+    const li = el("li", `card lp-card${live ? " lp-card--live card--link" : ""}${featured ? " lp-card--featured has-ring" : ""}`); li.dataset.key = cardKey(c); li.dataset.status = str(c.status); li.dataset.shape = shapeOf(c);
     if (live && isAddr(c.mint)) li.dataset.mint = c.mint;
     cardsByKey.set(cardKey(c), c);
     const head = el("div", "lp-card__head");
@@ -546,22 +531,18 @@
       row.append(val, chg);
       const delayed = field(el("span", "tag tag--gold lp-delayed", "Delayed"), "delayed"); delayed.hidden = !mk.stale; delayed.title = "A source answered with its last good copy (at most a few minutes old)";
       row.append(delayed);
-      const cap = money(mk.marketCapUsd);
-      const capEl = field(el("p", "lp-price__cap", cap ? `Market cap ${cap}` : ""), "cap", num(mk.marketCapUsd));
-      box.append(row, capEl);
+      box.append(row);
       li.append(box, sparkEl(c, featured));
+      // the face: Market cap · 24h volume · Holders, each titled with its full figure and source; under them the sources in a word or two
+      const cells = statCells(c), faceCells = cells.filter((s) => s.key !== "liq");
+      const face = el("dl", "lp-stats lp-stats--face");
+      for (const s of faceCells) face.append(statEl(s, false));
+      const srcs = [...new Set(faceCells.filter((s) => s.value != null && s.src).map((s) => s.src))];
+      li.append(face, field(el("p", "lp-face__src", srcs.join(" · ")), "face-src"));
       fold.append(field(el("p", "lp-src", priceSource(mk, ageSeconds({ asOf: data && data.asOf, receivedAt, now: Date.now() }))), "src"));
       fold.append(field(el("p", "lp-card__sub", venueLine(c)), "venue"));
       const dl = el("dl", "lp-stats lp-stats--live");
-      for (const s of statCells(c)) {
-        const d = el("div", "lp-stat"); d.dataset.cell = s.key;
-        const dd = field(el("dd"), `s-${s.key}`, s.v); dd.title = s.title || "";
-        dd.append(s.value == null ? na(s.title) : el("span", "lp-val lp-num", s.value));
-        // its source, or why it is "—", on screen (a phone has no tooltip)
-        const note = field(el("dd", `lp-stat__src${s.value == null ? " is-why" : ""}`, s.value == null ? s.why : s.src || ""), `n-${s.key}`);
-        d.append(el("dt", null, s.label), dd, note);
-        dl.append(d);
-      }
+      for (const s of cells.filter((x) => x.key === "liq")) dl.append(statEl(s, true));
       fold.append(dl);
       const foot = curveFoot(c);
       if (foot) fold.append(field(el("p", "lp-src lp-stats__foot", foot), "stats-foot"));
@@ -586,20 +567,18 @@
     const lk = live ? links(c) : null;
     if (lk) {
       // with the in-app swap on (SWAP=on) Buy opens the swap panel here (public/swap.js); otherwise the Raydium LaunchLab page.
-      // A row's Buy is a tinted button: the orange fill is kept for the one main action of a screen (the sheet's own Buy)
+      // A card's Buy is a tinted button: the orange fill is kept for the one main action of a screen (the page's "Create your city coin")
       let buy;
-      if (swapOn && window.VSwap) { buy = el("button", "btn btn--soft btn--sm lp-card__buy", "Buy"); buy.type = "button"; buy.dataset.act = "buy"; buy.dataset.mint = c.mint; buy.setAttribute("aria-label", `Buy $${str(c.ticker)} here`); buy.addEventListener("click", () => window.VSwap.open({ out: c.mint, title: `Buy $${str(c.ticker)}` })); }
+      if (swapOn && window.VSwap) { buy = el("button", "btn btn--soft btn--sm lp-card__buy", "Buy"); buy.type = "button"; buy.dataset.act = "buy"; buy.dataset.mint = c.mint; buy.setAttribute("aria-label", `Buy $${str(c.ticker)} here`); buy.addEventListener("click", () => window.VSwap.open({ out: c.mint, title: `Buy $${str(c.ticker)}`, avatar: c.kind === "vicinity" ? null : { text: initialsOf(c), color: colorOf(c) } })); }
       else if (lk.raydium) { buy = newTab(el("a", "btn btn--primary btn--sm", "Buy on Raydium ↗")); buy.href = lk.raydium; buy.dataset.act = "buy"; }
       else { buy = el("a", "btn btn--soft btn--sm lp-card__buy", "Buy"); buy.href = coinHref(c); buy.dataset.act = "buy"; } // a coin of our own launchpad: its own page
       const more = el("a", "btn btn--glass btn--sm", "Chart & details →"); more.href = coinHref(c); more.dataset.act = "chart";
       more.setAttribute("aria-label", `Chart and details of $${str(c.ticker)}`);
       // "Details": a disclosure button for the part below (its open state survives the 30-second refresh: the card is updated in place)
-      // ($VICINITY's "Live now" card on a computer has the room: there it starts open, and pages-launchpad.css drops its Details button)
-      const openNow = Boolean(featured && window.matchMedia && window.matchMedia("(min-width: 900px)").matches);
-      fold.id = `lp-more-${++folds}`; fold.hidden = !openNow;
+      fold.id = `lp-more-${++folds}`; fold.hidden = true;
       const tog = el("button", "btn btn--glass btn--sm lp-card__more", "Details"); tog.type = "button"; tog.dataset.act = "more";
       const plus = el("span", "lp-card__plus"); plus.setAttribute("aria-hidden", "true"); tog.append(plus);
-      tog.setAttribute("aria-expanded", String(openNow)); tog.setAttribute("aria-controls", fold.id); tog.setAttribute("aria-label", `Details of $${str(c.ticker)}`);
+      tog.setAttribute("aria-expanded", "false"); tog.setAttribute("aria-controls", fold.id); tog.setAttribute("aria-label", `Details of $${str(c.ticker)}`);
       tog.addEventListener("click", () => { const open = fold.hidden; fold.hidden = !open; tog.setAttribute("aria-expanded", String(open)); });
       fold.append(more);
       acts.append(buy, tog);
@@ -645,10 +624,14 @@
     e.classList.add(`is-flash-${dir}`);
     setTimeout(() => e.classList.remove(`is-flash-${dir}`), 1000);
   }
-  /** Puts these cards in the list, reusing the ones already there (same key, same shape). */
-  function place(list, rows, now, featured) {
-    const have = new Map([...list.children].map((li) => [li.dataset.key, li]));
-    const next = rows.map((c) => { const fresh = card(c, now, featured), old = have.get(cardKey(c)); return old ? morph(old, fresh) : fresh; });
+  /**
+   * Puts these cards in the grid, reusing the ones already there (same key, same shape); the empty card (#lp-empty) stays last.
+   * $VICINITY is the featured card (wider on a computer).
+   */
+  function place(list, rows, now) {
+    const have = new Map([...list.children].filter((li) => li.dataset.key).map((li) => [li.dataset.key, li]));
+    const next = rows.map((c) => { const fresh = card(c, now, c.kind === "vicinity"), old = have.get(cardKey(c)); return old ? morph(old, fresh) : fresh; });
+    next.push(empty);
     if (next.length !== list.children.length || next.some((li, i) => list.children[i] !== li)) list.replaceChildren(...next);
     window.V.liveNums(list.querySelectorAll(".lp-num")); // numbers it already follows are left as they are
     wantSparks(list);
@@ -657,86 +640,59 @@
   /* ----- drawing ----- */
   function focusKey() {
     const a = document.activeElement, li = a && a.closest && a.closest(".lp-card");
-    return li ? { key: li.dataset.key, act: a.dataset.act || "", featured: li.classList.contains("lp-card--featured") } : null;
+    return li ? { key: li.dataset.key, act: a.dataset.act || "" } : null;
   }
   function render() {
     const now = Date.now(), cards = data ? [data.vicinity, ...(data.coins || [])].filter(Boolean) : [];
-    // "Live now": the Vicinity token on top, the same card a little larger (on a phone it is the same card); it is then left out of
-    // the list below (it was drawn twice, 9 Oct 2026: once in "Live now" and again as the first card of the Live list) and out of
-    // the tab counts (they said "Live 6" over "5 coins")
-    const vic = data && data.vicinity && isLive(data.vicinity) ? data.vicinity : null;
-    const listed = vic ? cards.filter((c) => c !== vic) : cards;
-    const n = counts(listed, now);
+    // One grid: $VICINITY is a card of the list (the Live tab's first: vicFirst), drawn once, and every count is what is drawn: a tab's
+    // number is the cards that tab shows with the search and the filters, $VICINITY included when it matches (9 Oct 2026: "Live 6" over
+    // "5 coins" came from counting one list and drawing another)
+    const opts = { ...state, now, countryNames };
+    const n = Object.fromEntries(TABS.map((t) => [t, rowsFor(cards, { ...opts, tab: t }).length]));
     tabs().forEach((b) => { const on = b.dataset.tab === state.tab; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; const c = b.querySelector("[data-count]"); if (c) { c.textContent = String(n[b.dataset.tab] || 0); c.classList.toggle("is-zero", !n[b.dataset.tab]); } });
     $("#lp-panel").setAttribute("aria-labelledby", `lp-tab-${state.tab}`);
     $("#lp-tabnote").textContent = TAB_NOTE[state.tab];
-    const rows = rowsFor(listed, { ...state, now, countryNames });
+    const rows = rowsFor(cards, opts);
+    const cities = rows.filter((c) => c.kind !== "vicinity").length; // the city coins drawn (the empty card speaks when there is none)
     const keep = focusKey();
-    place($("#lp-featured"), vic ? [vic] : [], now, true);
-    $("#lp-featured").classList.toggle("is-on", Boolean(vic));
-    place($("#lp-grid"), rows, now, false);
-    const empty = $("#lp-empty"), text = $("#lp-empty-text"), retry = $("#lp-retry"), title = $("#lp-empty-title");
+    place(grid, rows, now); // (before the first answer the grid is not shown: the placeholders hold its room)
+    const text = $("#lp-empty-text"), retry = $("#lp-retry"), title = $("#lp-empty-title");
     const filtered = norm(state.q) || state.country || state.status;
-    // no city coin at all: the tabs, search and filters have nothing to sort, so they go; one empty card says when coins come
-    const none = Boolean(data) && !listed.length;
+    // no city coin at all: the tabs, search and filters have nothing to sort, so they go; $VICINITY and one empty card say when coins come
+    const none = Boolean(data) && !(data.coins || []).some(Boolean);
     sec.classList.toggle("is-none", none);
     const say = (t, words) => { title.textContent = t; text.textContent = words; };
-    if (!data && !fails) { say("Loading city coins…", ""); retry.hidden = true; }
-    else if (!data) { say("Prices didn't load", "Prices are loading. Try again in a moment."); retry.hidden = false; }
-    else if (rows.length) { empty.hidden = true; }
-    else if (none) { say("No city coins yet", opensAt() <= now ? "The first city coin appears here the moment its founder's contract is confirmed." : "The Launchpad opens at 10:10 AM New York time."); retry.hidden = true; }
-    else if (filtered) { say("Nothing matches", "Nothing matches. Try another word, or clear the filters."); retry.hidden = true; }
+    if (!data && !fails) { say("Loading coins…", ""); retry.hidden = true; }
+    else if (!data) { say("Coins didn't load", "Try again in a moment."); retry.hidden = false; }
+    else if (cities) { retry.hidden = true; }
+    else if (none) { say("No city coin is live yet", opensAt() <= now ? "The first city coin appears here the moment its founder's contract is confirmed." : "The Launchpad opens at 10:10 AM New York time."); retry.hidden = true; }
+    else if (filtered) { say("No city coin matches", "Try another word, or clear the filters."); retry.hidden = true; }
     else if (state.tab === "upcoming") { say("Nothing waiting", "No coin is waiting right now. A city's coin shows here as soon as its founder designs it."); retry.hidden = true; }
     else if (state.tab === "new") { say("Nothing new", `No coin went live in the last ${NEW_DAYS} days.`); retry.hidden = true; }
-    else { say("No city coins yet", "The first city coin appears here the moment its founder's contract is confirmed."); retry.hidden = true; }
-    empty.hidden = Boolean(data && rows.length);
+    else { say("No city coin is live yet", "The first city coin appears here the moment its founder's contract is confirmed."); retry.hidden = true; }
+    empty.hidden = !(data || fails) || Boolean(data && cities);
     $("#lp-count").textContent = data ? `${rows.length} ${rows.length === 1 ? "coin" : "coins"}${filtered ? " match" : ""}` : "";
-    // the filter fold's summary says what is chosen, so a closed fold never hides a filter that is on
-    const fm = $("#lp-filtermeta");
-    if (fm) { const pick = (sel) => { const o = $(sel); return o && o.selectedIndex >= 0 ? o.options[o.selectedIndex].textContent : ""; }; fm.textContent = state.country || state.status || state.sort ? [pick("#lp-country"), pick("#lp-status"), pick("#lp-sort")].join(" · ") : "All countries · any status · the list's own order"; }
-    if (keep) { const again = $(`${keep.featured ? "#lp-featured" : "#lp-grid"} [data-key="${keep.key}"] [data-act="${keep.act}"]`); if (again && again !== document.activeElement) again.focus(); }
+    paintFilterMeta();
+    if (keep) { const again = $(`#lp-grid [data-key="${keep.key}"] [data-act="${keep.act}"]`); if (again && again !== document.activeElement) again.focus(); }
     paintAge();
     paintSources();
-    paintLive();
   }
-  /**
-   * The hero once the Launchpad is open: the live coins in a strip (avatar, $TICKER, 24 h change), each a link to its coin page. Four
-   * or more glide by (a marquee: the list twice, the copy hidden from screen readers and the keyboard), pausing on hover, on focus, with
-   * the strip's own Pause button (the site's "Pause animations") and never under reduced motion; fewer sit still in one row.
-   */
-  function paintLive() {
-    const strip = $("#lp-live"), track = $("#lp-live-track"); if (!strip || !track) return;
-    const live = data ? [data.vicinity, ...(data.coins || [])].filter((c) => c && isLive(c) && isAddr(c.mint)) : [];
-    const sig = live.map((c) => `${c.mint}:${chipOf(c.market && c.market.priceChange24hPct).text}`).join("|");
-    if (track.dataset.sig === sig) return;
-    track.dataset.sig = sig;
-    const item = (c, copy) => {
-      const li = el("li", `lp-live__item${copy ? " is-copy" : ""}`), a = el("a", "lp-live__link"); a.href = coinHref(c);
-      const ava = el("span", "lp-ava lp-ava--sm"); ava.dataset.color = colorOf(c); if (c.kind === "vicinity") ava.dataset.kind = "vicinity"; ava.setAttribute("aria-hidden", "true");
-      const logo = logoSrc(c);
-      if (logo) { const img = el("img"); img.src = logo; img.alt = ""; img.width = 28; img.height = 28; ava.append(img); } else ava.append(el("span", null, initialsOf(c)));
-      const v = num(c.market && c.market.priceChange24hPct), ch = chipOf(v);
-      const chg = el("span", `lp-live__chg ${ch.cls}`, v == null ? "new" : `${v > 0 ? "▲" : v < 0 ? "▼" : ""}${Math.abs(v).toFixed(Math.abs(v) >= 10 ? 1 : 2)}%`);
-      chg.setAttribute("aria-hidden", "true");
-      a.append(ava, el("span", "lp-live__tk", `$${str(c.ticker)}`), chg);
-      a.setAttribute("aria-label", `$${str(c.ticker)}${v == null ? "" : `, ${v > 0 ? "up" : v < 0 ? "down" : "flat"} ${Math.abs(v).toFixed(2)}% in 24 hours`}`);
-      if (copy) { li.setAttribute("aria-hidden", "true"); li.inert = true; a.tabIndex = -1; }
-      li.append(a);
-      return li;
-    };
-    const marquee = live.length >= 4;
-    track.replaceChildren(...live.map((c) => item(c, false)), ...(marquee ? live.map((c) => item(c, true)) : []));
-    strip.classList.toggle("is-marquee", marquee);
-    strip.classList.toggle("has-coins", live.length > 0);
+  /** The filter button says how many filters are on (and which, to a screen reader and in its title), so a closed panel never hides one. */
+  function paintFilterMeta() {
+    const fm = $("#lp-filtermeta"); if (!fm) return;
+    const pick = (sel) => { const o = $(sel); return o && o.value && o.selectedIndex >= 0 ? o.options[o.selectedIndex].textContent : ""; };
+    const on = ["#lp-country", "#lp-status", "#lp-sort"].map(pick).filter(Boolean);
+    fm.title = on.join(" · ");
+    fm.replaceChildren(...(on.length ? [el("span", "lp-filterbtn__n", String(on.length)), el("span", "sr-only", `: ${on.join(", ")}`)] : []));
   }
   function paintAge() {
     const u = $("#lp-updated"); if (!u) return;
     if (!data) { u.textContent = ""; return; }
     const s = ageSeconds({ asOf: data.asOf, receivedAt, now: Date.now() });
     u.textContent = `${agoText(s)}${fails ? " · Couldn't refresh, showing the last numbers." : ""}`;
-    // each live card's price line says how old its numbers are
+    // each live card's price line (under Details) says how old its numbers are
     for (const li of $$(".lp-card--live")) {
-      const c = cardsByKey.get(li.dataset.key), src = li.querySelector('.lp-price [data-f="src"]');
+      const c = cardsByKey.get(li.dataset.key), src = li.querySelector('.lp-more [data-f="src"]');
       if (c && src) { const t = priceSource(c.market, s); if (src.textContent !== t) src.textContent = t; }
     }
   }
@@ -763,22 +719,6 @@
     sel.value = list.some((x) => x.code === keep) ? keep : "";
     state.country = sel.value;
   }
-  /** After the opening (and only with the switch on): the hero and the phases speak of an open Launchpad. */
-  function paintOpen(open) {
-    if (!open) return;
-    const hero = $(".launch-hero"); if (!hero) return;
-    const kicker = $(".kicker", hero); if (kicker) kicker.textContent = "Vicinity Launchpad · open";
-    const cta = $(".hero__cta .btn--primary", hero); if (cta) { cta.textContent = "Browse city coins ↓"; cta.href = "#lp-coins"; }
-    const lead = $(".lead", hero);
-    if (lead) for (const t of lead.childNodes) if (t.nodeType === 3 && /Opening\s*$/.test(t.nodeValue)) t.nodeValue = t.nodeValue.replace(/Opening\s*$/, "Opened ");
-    const phases = $(".phases"), head = phases && phases.closest("section") && $(".section-head", phases.closest("section"));
-    if (head) { const k = $(".kicker", head); if (k) k.textContent = "How it works"; const p = $("p.muted", head); if (p) p.textContent = "This was the order. The exact times were announced here before launch."; }
-  }
-  function paintSamples() {
-    const note = $(".coin-stack p"); if (!note || !data) return;
-    const live = [data.vicinity, ...(data.coins || [])].some((c) => c && c.status === "live");
-    note.textContent = live ? "Sample tickers. The real coins are listed above." : "Sample tickers. Nothing is minted yet.";
-  }
 
   /* ----- loading: one answer, refreshed every 30 s while the page is visible, slower after a failure ----- */
   async function load() {
@@ -786,11 +726,12 @@
     const d = await api("/api/launchpad");
     if (d && d.ok && Array.isArray(d.coins)) {
       data = d; receivedAt = Date.now(); fails = 0;
-      paintCountries(); paintOpen(d.open === true || opensAt() <= Date.now()); paintSamples();
+      paintCountries();
     } else {
       fails = Math.min(fails + 1, BACKOFF.length - 1);
     }
-    sec.classList.remove("is-loading");
+    // the first answer (or failure) swaps the placeholders for the grid; the toolbar shows with a list that has city coins to sort
+    sec.classList.remove("is-loading"); sec.classList.toggle("is-nodata", !data);
     render();
     schedule();
   }
@@ -825,6 +766,9 @@
     q.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { state.q = q.value; pushUrl(); render(); }, 120); });
     $("#lp-search").addEventListener("submit", (e) => { e.preventDefault(); clearTimeout(t); state.q = q.value; pushUrl(); render(); });
     for (const k of ["country", "status", "sort"]) $(`#lp-${k}`).addEventListener("change", (e) => { state[k] = e.target.value; render(); });
+    // "Filter and sort": a disclosure button for the row of filters under the toolbar (closed until asked for, at every width)
+    const fb = $("#lp-filterbtn"), fp = $("#lp-filters");
+    fb.addEventListener("click", () => { const open = fp.hidden; fp.hidden = !open; fb.setAttribute("aria-expanded", String(open)); });
     $("#lp-retry").addEventListener("click", () => { fails = 0; load(); });
     // a live card opens its coin page wherever it is clicked (its title is the link the keyboard reaches); its own buttons and links
     // do what they say, and selecting a number to copy it is not a click
@@ -846,27 +790,16 @@
   }
   function start() {
     started = true;
-    sec.classList.add("is-loading"); // the "Live now" card's room is held until the first answer
-    // the filters fold on a phone (the list comes first); a computer has the room to show them open
-    const ff = $("#lp-filterfold"); if (ff && window.matchMedia && window.matchMedia("(min-width: 901px)").matches) ff.open = true;
-    paintOpen(opensAt() <= Date.now()); // the clock says open: the hero says so too, whatever the list answers
-    const pause = $("#lp-live-pause");
-    if (pause) {
-      const sync = () => pause.setAttribute("aria-pressed", String(document.documentElement.dataset.motion === "paused"));
-      // design v4 took the footer's "Pause animations" away, so this button pauses the strip by itself (the redesigned Launchpad has no strip)
-      pause.addEventListener("click", () => { const r = document.documentElement; if (r.dataset.motion === "paused") delete r.dataset.motion; else r.dataset.motion = "paused"; sync(); });
-      window.addEventListener("vicinity:motion", sync); sync();
-    }
     const fromUrl = stateFromUrl(location.search);
     state.tab = fromUrl.tab; state.q = fromUrl.q; $("#lp-q").value = fromUrl.q;
     wire();
-    sec.hidden = false;
-    render(); // the controls show at once; the first answer fills them
+    render(); // the controls are wired at once; the first answer fills them (the placeholders hold the room meanwhile)
     load();
   }
   let swapOn = false;
   // city coins launched on our own launchpad (the city-coin settings, lpSetup: /api/official cityCoins, the same key the dashboard,
-  // the coin page and the admin tab follow): the intro names it instead of Raydium LaunchLab. Without it nothing changes.
+  // the coin page and the admin tab follow): the sources fold names it instead of Raydium LaunchLab. Without it nothing changes.
+  // The section ships visible (its placeholders hold the room: nothing jumps); with the switch off it goes, and nothing is asked for.
   const lpCopy = (on) => { for (const e of $$("[data-launchlab-copy]")) e.hidden = on; for (const e of $$("[data-lp-only]")) e.hidden = !on; };
-  official.then((o) => { swapOn = Boolean(o && o.swap === true); if (o && o.cityCoins) lpCopy(true); if (o && o.launchpadV2 === true) start(); });
+  official.then((o) => { swapOn = Boolean(o && o.swap === true); if (o && o.cityCoins) lpCopy(true); if (o && o.launchpadV2 === true) start(); else sec.hidden = true; });
 })();

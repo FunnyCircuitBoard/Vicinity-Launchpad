@@ -28,6 +28,10 @@
 .swap__token:not(:disabled):hover { border-color: rgba(var(--ink), .3); }
 .swap__caret { font-size: .75rem; color: var(--muted); }
 .swap__mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font: 800 .78rem var(--display); color: #fff; flex: none; }
+/* a coin's own avatar from the page that opened the sheet (the city's initials on its colour, the Launchpad's recipe) */
+:where(.swap__mark--ava) { --c2: #FFC857; --c3: #D98A1F; }
+.swap__mark--ava { background: linear-gradient(140deg, var(--c2), var(--c3)); font-size: .66rem; letter-spacing: .02em; text-shadow: 0 1px 1px rgba(0,0,0,.25); }
+.swap__mark--ava[data-color="gold"] { color: #3A2300; text-shadow: none; }
 .swap__sub { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 20px; font-size: var(--fs-xs, .75rem); line-height: 1.4; color: var(--muted); font-variant-numeric: tabular-nums; }
 .swap__max { min-height: 44px; margin: -12px -10px -12px 0; padding: 0 10px; font-size: var(--fs-xs, .75rem); } /* a 44 px target that takes no more room than the line */
 .swap__flip { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--surface-2, var(--bg-2)); color: var(--text); font-size: 1.1rem; cursor: pointer; display: grid; place-items: center; box-shadow: var(--shadow-1, none); }

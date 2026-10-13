@@ -230,20 +230,28 @@ test("the address keeps the tab and the search: /launchpad?tab=trending&q=utica,
 });
 
 /* ---------- page and script agree ---------- */
-test("the built page: every id the script uses exists, the section starts hidden, tabs and panel are marked up for assistive tech", () => {
+test("the built page: every id the script uses exists, the section ships with its placeholders, tabs and panel are marked up for assistive tech", () => {
   assert.equal(new Map(buildPages()).get("launchpad.html"), html, "public/launchpad.html is built from scripts/pages/src (npm run pages)");
   const ids = [...new Set([...part.matchAll(/#(lp-[a-z-]+)/g)].map((m) => m[1]))];
   assert.ok(ids.length >= 12, "the script addresses the section by ids: " + ids.length);
   for (const id of ids) assert.ok(html.includes(`id="${id}"`), `page is missing #${id}`);
-  assert.match(html, /<section class="section lp-coins" id="lp-coins" hidden>/, "hidden until the switch is on");
-  const sec = html.slice(html.indexOf('id="lp-coins"'), html.indexOf("How it will work"));
-  assert.ok(sec.includes('role="tablist"') && sec.includes('aria-label="City coin lists"'));
+  // design v4 (12 Oct 2026): the section ships visible, two still placeholder cards holding its room (no jump); the script hides it only
+  // when /api/official says the switch is off
+  assert.match(html, /<section class="lp-coins is-loading" id="lp-coins" aria-labelledby="lp-coins-title">\s*<div class="wrap">\s*<h2 class="sr-only" id="lp-coins-title">Coins<\/h2>/);
+  const sec = html.slice(html.indexOf('id="lp-coins"'), html.indexOf('id="supporters"'));
+  assert.equal((sec.match(/class="card lp-card lp-skel/g) || []).length, 2, "two placeholders");
+  assert.ok(sec.includes('role="tablist"') && sec.includes('aria-label="Coin lists"'));
   for (const t of P.TABS) assert.match(sec, new RegExp(`<button type="button" role="tab" id="lp-tab-${t}" data-tab="${t}" aria-selected="${t === "live"}" aria-controls="lp-panel"${t === "live" ? "" : ' tabindex="-1"'}>`), t);
   assert.equal((sec.match(/role="tab"/g) || []).length, 4);
   assert.match(sec, /<div id="lp-panel" role="tabpanel" aria-labelledby="lp-tab-live">/);
-  assert.match(sec, /<ul class="lp-grid" id="lp-grid" aria-label="City coins"><\/ul>/, "cards are a list");
-  assert.match(sec, /<label class="sr-only" for="lp-q">Search city coins/); assert.match(sec, /<form class="lp-search" id="lp-search" role="search" novalidate>/);
+  // one grid: $VICINITY is its first card (drawn by the script), the empty card its last item
+  assert.match(sec, /<ul class="lp-grid" id="lp-grid" aria-label="Coins">\s*<li class="lp-empty empty" id="lp-empty" hidden>/, "cards are a list");
+  assert.doesNotMatch(html, /id="lp-featured"/, "no second list for $VICINITY: drawn once, in the grid");
+  assert.match(sec, /<label class="sr-only" for="lp-q">Search coins by ticker, coin name, city or country<\/label>/); assert.match(sec, /<form class="lp-search" id="lp-search" role="search" novalidate>/);
   assert.match(sec, /<input id="lp-q" type="search" autocomplete="off" spellcheck="false" maxlength="60"/);
+  // "Filter and sort": a disclosure button for a row of filters under the toolbar
+  assert.match(sec, /<button class="btn btn--glass lp-filterbtn" type="button" id="lp-filterbtn" aria-expanded="false" aria-controls="lp-filters">/);
+  assert.match(sec, /<div class="lp-filters" id="lp-filters" hidden>/);
   for (const k of ["country", "status", "sort"]) assert.match(sec, new RegExp(`<label class="lp-field"><span>[A-Z][a-z]+</span><select id="lp-${k}">`), k);
   const options = (id) => sec.match(new RegExp(`<select id="${id}">([\\s\\S]*?)</select>`))[1].match(/value="([a-z]*)"/g).map((v) => v.slice(7, -1));
   assert.deepEqual(options("lp-sort"), ["", ...P.SORTS], "the sort options are the script's sorts");
@@ -254,29 +262,37 @@ test("the built page: every id the script uses exists, the section starts hidden
   // the line under the list names the real sources (DEX Screener lists nothing while a coin is on its curve); the script swaps in the
   // answer's own attribution, Jupiter's "Powered by Jupiter" included
   assert.match(sec, /<p class="tiny muted lp-honesty" id="lp-honesty">Every number says where it comes from: prices, market caps and 24 h volumes from Jupiter \(Powered by Jupiter\), each bonding curve read from the Solana chain, holders counted by vicinity\.city\. They refresh every 30 seconds\. You trade in your own wallet on Raydium or Jupiter; Vicinity never touches your funds\.<\/p>/);
+  assert.match(sec, /<p class="lp-trust">Powered by Jupiter · Vicinity never touches your funds\.<\/p>/, "attribution and the non-custody fact stay on screen");
   assert.doesNotMatch(sec, /DexScreener|DEX Screener/, "no claim about a site that lists nothing for a coin on its curve");
-  assert.match(sec, /<ul class="lp-featured" id="lp-featured" aria-label="Live now: the Vicinity token"><\/ul>/, "the featured strip: an empty list until the script fills it");
   assert.doesNotMatch(sec, /\sstyle="|<style|\son[a-z]+="|<script/);
-  assert.ok(html.indexOf('id="lp-coins"') > html.indexOf('id="lp-cal"') && html.indexOf('id="lp-coins"') < html.indexOf("How it will work"), "between the hero and the phases");
+  assert.ok(html.indexOf('id="lp-coins"') > html.indexOf('id="lp-create"') && html.indexOf('id="lp-coins"') < html.indexOf('id="supporters"'), "between the hero and the snapshot fold");
 });
 
-test("with the switch off the page is today's: every pinned id and the pre-launch copy are untouched; the section is the only addition", () => {
-  for (const id of ["launchpad", "countdown", "lp-date", "lp-bar", "lp-local", "lp-cal", "supporters", "snap-status", "snap-form", "snap-input", "snap-result"]) assert.ok(html.includes(`id="${id}"`), id);
-  assert.match(html, /<p class="kicker">Vicinity Launchpad · coming next<\/p>/);
-  assert.match(html, /<a class="btn btn--primary btn--lg" href="\/connect">Get ready: connect &amp; claim →<\/a>/);
-  assert.match(html, /Opening <strong id="lp-date">October 10, 2026 · 10:10:10 AM New York time<\/strong>\./);
-  assert.match(html, /<p class="kicker">How it will work<\/p>/); assert.match(html, /Planned order\. The exact times are announced here before launch\./);
-  assert.match(html, /Sample tickers\. Nothing is minted yet\./);
-  assert.equal((srcHtml.match(/<section/g) || []).length, 6, "one section was added to the five");
+
+test("design v4: the hero is the tagline and one button; below the coins only the snapshot fold; the script's only way in is still launchpadV2 === true", () => {
+  // the owner (12 Oct 2026): "keep only 'Every city gets its own coin.', get rid of the rest, directly show the live tokens, and add a button
+  // 'Create your city coin' that takes people to create an account"
+  const hero = srcHtml.slice(srcHtml.indexOf('<section class="lp4-hero" id="launchpad">'), srcHtml.indexOf("</section>"));
+  assert.match(hero, /<h1 class="page-title lp4-hero__title"><span class="lp4-hero__line">Every city gets<\/span> <span class="accent">its own coin\.<\/span><\/h1>/);
+  assert.match(hero, /<a class="btn btn--primary btn--lg btn--cta-glow has-ring lp4-hero__cta" href="\/connect" id="lp-create" data-create-coin>Create your city coin<\/a>/, "sign-up, as shipped (no script needed)");
+  assert.equal((hero.match(/<(a|button|p)\b/g) || []).length, 1, "nothing else in the hero: no kicker, lead, date, countdown, strip, Pause button or note");
+  for (const id of ["launchpad", "lp-create", "lp-coins", "supporters", "snap-status", "snap-form", "snap-input", "snap-result"]) assert.ok(html.includes(`id="${id}"`), id);
+  for (const gone of ["countdown", "lp-date", "lp-bar", "lp-local", "lp-cal", "lp-live", "lp-live-pause", "lp-featured"]) assert.ok(!html.includes(`id="${gone}"`), gone);
+  assert.doesNotMatch(srcHtml, /How it will work|Who gets in first|Why a city launchpad|Sample tickers|Pause animations|financial advice|kicker/);
+  assert.match(srcHtml, /<details class="fold lp-snap__fold" id="supporters">\s*<summary>Founding Supporter snapshot/, "the checker, folded (open when the address ends in #supporters)");
+  assert.equal((srcHtml.match(/<section/g) || []).length, 3, "the hero, the coins, the snapshot fold");
   const hiddenOnes = [...srcHtml.matchAll(/<[a-z]+ [^>]*?id="([a-z-]+)"[^>]*?\shidden(?=\s|>)/g)].map((m) => m[1]);
-  assert.deepEqual(hiddenOnes, ["lp-coins", "lp-empty", "lp-retry"], "the section, the empty card and the retry button start hidden; nothing else gained the attribute");
-  assert.deepEqual([...html.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]), ["theme", "site", "wallets", "swap", "launchpad", "feedback"], "wallets.js and swap.js (the in-app swap, dark until SWAP=on) are the only additions");
-  // the script: the old parts come first and are intact, the new part asks /api/official (already fetched by site.js) and nothing else until the switch says on
-  assert.ok(before.startsWith("// Launchpad page: live countdown to the opening, and an \"add to my calendar\" file.\n"));
-  assert.ok(before.includes("official.then(tick); tick(); setInterval(tick, 1000);") && before.includes("// Founding Supporter snapshot: status, and any wallet's amount + Merkle proof."));
+  assert.deepEqual(hiddenOnes, ["lp-filters", "lp-empty", "lp-retry"], "the filters, the empty card and the retry button start hidden; the section does not");
+  assert.deepEqual([...html.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]), ["theme", "site", "wallets", "swap", "launchpad", "feedback"], "the same scripts");
+  // the script: the hero's button and the snapshot fold first, the snapshot checker unchanged, then the coins
+  assert.ok(before.startsWith("// Launchpad page (design v4, 12 Oct 2026): the hero's one action and the snapshot fold."));
+  assert.match(before, /ready\.then\(\(d\) => \{ if \(d && d\.signedIn\) create\.href = "\/dashboard#founder"; \}\);/, "a member goes to the dashboard's Founder tab");
+  assert.match(before, /if \(fold && location\.hash === "#supporters"\) fold\.open = true;/);
+  assert.ok(before.includes("// Founding Supporter snapshot: status, and any wallet's amount + Merkle proof."));
+  assert.doesNotMatch(before, /setInterval|lp-cal|text\/calendar|countdown/, "no countdown, no calendar file: the opening is past");
   // the swap switch is read in the same breath (swapOn decides what the card's Buy does), but the only way IN is still launchpadV2 === true
-  // (and /api/official's cityCoins only swaps the intro's "recorded by Vicinity" for "on the Vicinity launchpad": lpCopy)
-  assert.match(part, /let swapOn = false;\s*(\/\/[^\n]*\n\s*)*const lpCopy = \(on\) => \{ for \(const e of \$\$\("\[data-launchlab-copy\]"\)\) e\.hidden = on; for \(const e of \$\$\("\[data-lp-only\]"\)\) e\.hidden = !on; \};\s*official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); if \(o && o\.cityCoins\) lpCopy\(true\); if \(o && o\.launchpadV2 === true\) start\(\); \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true");
+  // (and /api/official's cityCoins only swaps the sources fold's "recorded by Vicinity" for "on the Vicinity launchpad": lpCopy)
+  assert.match(part, /let swapOn = false;\s*(\/\/[^\n]*\n\s*)*const lpCopy = \(on\) => \{ for \(const e of \$\$\("\[data-launchlab-copy\]"\)\) e\.hidden = on; for \(const e of \$\$\("\[data-lp-only\]"\)\) e\.hidden = !on; \};\s*official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); if \(o && o\.cityCoins\) lpCopy\(true\); if \(o && o\.launchpadV2 === true\) start\(\); else sec\.hidden = true; \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true; otherwise the section goes");
   assert.match(part, /if \(typeof document === "undefined" \|\| !window\.V\) return;/);
   assert.deepEqual([...part.matchAll(/\bapi\(([^)]*)\)/g)].map((m) => m[1]).sort(), ['"/api/launchpad"', "`/api/coin/chart?mint=${encodeURIComponent(mint", "`/api/coin/chart?mint=${encodeURIComponent(mint"],
     "the list, and each live coin's chart (its sparkline, 24 h then 7 d): nothing else");
@@ -285,10 +301,12 @@ test("with the switch off the page is today's: every pinned id and the pre-launc
   assert.match(part, /SPARK_MS = 300000/, "a sparkline is asked again at most every 5 minutes");
   assert.match(part, /new IntersectionObserver\(\(es\) => \{ for \(const e of es\) if \(e\.isIntersecting\) \{ sparkIO\.unobserve\(e\.target\); fetchSpark\(e\.target\.dataset\.mint\); \} \}, \{ rootMargin: "200px 0px" \}\)/, "and only once its card is near the screen");
   assert.doesNotMatch(part, /\bfetch\(|XMLHttpRequest|WebSocket|EventSource|navigator\.sendBeacon/);
-  assert.match(part, /sec\.hidden = false;/); assert.equal((part.match(/\.hidden = false/g) || []).length, 2, "only the section and the retry button are ever shown by the script");
+  assert.equal((part.match(/\.hidden = false/g) || []).length, 1, "the script shows nothing by itself but the retry button");
+  assert.equal((part.match(/sec\.hidden = /g) || []).length, 1, "and hides the section in one place: the switch is off");
   assert.match(part, /const REFRESH_MS = 30000, BACKOFF = \[30000, 60000, 120000, 300000\];/, "30 s refresh, slower after a failure");
   assert.match(part, /document\.visibilityState === "hidden"\) return;/, "no refresh while the page is not looked at");
 });
+
 
 test("the strict security policy holds in the new part: no markup from text, no style attributes, no logging, only our API and the four trading sites", () => {
   assert.doesNotMatch(part, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|\.style\.|cssText|setAttribute\(["']style/);
@@ -419,7 +437,8 @@ test("live card sparkline: a polyline and its area in a 240 × 44 box, x by time
   assert.equal(P.sparkLabel(null, "24h"), "");
 });
 test("live card markup: price, chip, source, sparkline, four numbers, the curve as a native progress bar, Buy on Raydium and Chart & details; no DEX Screener on a card", () => {
-  const cardFn = part.slice(part.indexOf("  function card(c, now, featured) {"), part.indexOf("  function morph(old, fresh) {"));
+  // (design v4: a number's cell is drawn by statEl, the card's face and its Details share it)
+  const cardFn = part.slice(part.indexOf("  function statEl(s, withSource) {"), part.indexOf("  function morph(old, fresh) {"));
   assert.ok(cardFn.length > 2000);
   assert.match(cardFn, /link\.href = coinHref\(c\); link\.dataset\.act = "view";/, "the title is the card's link");
   assert.match(cardFn, /el\("a", "btn btn--primary btn--sm", "Buy on Raydium ↗"\)\); buy\.href = lk\.raydium;/);
@@ -473,9 +492,11 @@ test("honesty (review): a card names Raydium LaunchLab only when the chain found
   assert.doesNotMatch(js, /`Raydium LaunchLab · \$\{str\(c\.pair/, "never said unconditionally");
 });
 
-test("intro copy: 'recorded by Vicinity' until the city-coin launch is on (/api/official cityCoins, like the dashboard and the coin page), then 'on the Vicinity launchpad'", async () => {
+test("sources copy: 'recorded by Vicinity' until the city-coin launch is on (/api/official cityCoins, like the dashboard and the coin page), then 'on the Vicinity launchpad'", async () => {
   // the built page: the sentence reads exactly as main's honest copy (#51) while the second half stays hidden; never "Live coins trade now"
-  const p = html.match(/<p class="muted">Every coin here is a city's one official coin,[\s\S]*?<\/p>/)[0];
+  // (design v4: it left the top of the page for the sources fold under the grid, "Where the numbers come from")
+  const p = html.match(/<p class="tiny muted lp-about">Every coin here is a city's one official coin,[\s\S]*?<\/p>/)[0];
+  assert.ok(html.indexOf("lp-about") > html.indexOf('<details class="fold lp-sources">'), "inside the sources fold");
   assert.match(p, /launched by its City Founder<span data-launchlab-copy> and recorded by Vicinity<\/span><span data-lp-only hidden> on the Vicinity launchpad \(a Meteora bonding curve\)<\/span>\. A coin that has launched shows its live price; the others are designed and waiting\./);
   assert.doesNotMatch(p, /Live coins trade now/);
   assert.ok(srcHtml.includes("<span data-lp-only hidden> on the Vicinity launchpad (a Meteora bonding curve)</span>"));
@@ -493,4 +514,33 @@ test("intro copy: 'recorded by Vicinity' until the city-coin launch is on (/api/
   assert.deepEqual(await run({ launchpadV2: false, cityCoins: { cluster: "mainnet" } }), [true, false], "the city-coin launch on: the Vicinity launchpad is named");
   assert.deepEqual(await run({ launchpadV2: false, launchpadTrading: { cluster: "devnet" } }), [false, true], "curve trades alone (no launch for founders): unchanged");
   assert.deepEqual(await run({ launchpadV2: false, launchpadTrading: { cluster: "mainnet" }, cityCoins: { cluster: "mainnet" } }), [true, false]);
+});
+
+test("design v4 card: price, 24 h chip, mini chart, then Market cap · 24h volume · Holders on its face with their sources in one line; liquidity and the rest under Details", () => {
+  const cardFn = part.slice(part.indexOf("  function card(c, now, featured) {"), part.indexOf("  function morph(old, fresh) {"));
+  assert.match(cardFn, /const cells = statCells\(c\), faceCells = cells\.filter\(\(s\) => s\.key !== "liq"\);/);
+  assert.match(cardFn, /for \(const s of faceCells\) face\.append\(statEl\(s, false\)\);/, "the face: three numbers");
+  assert.match(cardFn, /const srcs = \[\.\.\.new Set\(faceCells\.filter\(\(s\) => s\.value != null && s\.src\)\.map\(\(s\) => s\.src\)\)\];/, "their sources: only those of a number shown");
+  assert.match(cardFn, /for \(const s of cells\.filter\(\(x\) => x\.key === "liq"\)\) dl\.append\(statEl\(s, true\)\);/, "the liquidity with its own source, under Details");
+  assert.match(cardFn, /li\.append\(box, sparkEl\(c, featured\)\);/, "the mini chart on the face");
+  assert.match(cardFn, /fold\.id = `lp-more-\$\{\+\+folds\}`; fold\.hidden = true;/, "Details starts closed on every card and screen");
+  // the sheet's token pill wears the card's own avatar (a city's initials on its colour; $VICINITY keeps the panel's own mark)
+  assert.match(cardFn, /window\.VSwap\.open\(\{ out: c\.mint, title: `Buy \$\$\{str\(c\.ticker\)\}`, avatar: c\.kind === "vicinity" \? null : \{ text: initialsOf\(c\), color: colorOf\(c\) \} \}\)/, "Buy: one tap, the existing Buy panel");
+  // $VICINITY is the featured card of the one grid (wider, its chart larger, a ring only under a mouse); a number with no value is left out
+  assert.match(part, /const fresh = card\(c, now, c\.kind === "vicinity"\), old = have\.get\(cardKey\(c\)\);/);
+  assert.match(cardFn, /\$\{featured \? " lp-card--featured has-ring" : ""\}/);
+  const sheet = read("pages-launchpad.css");
+  assert.match(sheet, /\.lp-card \.lp-stats--face \.lp-stat:has\(> dd \.lp-na\), \.lp-card \.lp-stats--face:not\(:has\(\.lp-val\)\), \.lp-face__src:empty \{ display: none; \}/);
+  assert.match(sheet, /\.lp-grid > \.lp-card--featured:first-child, \.lp-skel--featured \{ grid-column: span 2; \}/, "two columns wide only as the grid's first card");
+  assert.doesNotMatch(sheet, /\.lp-card--featured[^{]*\{[^}]*animation/, "its ring turns only under a mouse (style.css .has-ring), never at rest");
+  // a country filter leaves $VICINITY out (it has no city); the Live tab puts it first
+  const vic = { kind: "vicinity", status: "live", ticker: "VICINITY", mint: MINT };
+  const rows = P.rowsFor([city("A"), vic], { tab: "live", now: NOW });
+  assert.equal(rows[0], vic);
+  assert.deepEqual(P.rowsFor([city("A"), vic], { tab: "live", country: "US", now: NOW }).map((c) => c.kind), ["city"]);
+  // the hero's button: the script only changes where it leads for a member (its words never change)
+  assert.match(src, /const create = \$\("\[data-create-coin\]"\);/);
+  assert.doesNotMatch(src, /create\.textContent|create\.innerText/);
+  // "Filter and sort" opens and closes its row, saying so to a screen reader
+  assert.match(part, /fb\.addEventListener\("click", \(\) => \{ const open = fp\.hidden; fp\.hidden = !open; fb\.setAttribute\("aria-expanded", String\(open\)\); \}\);/);
 });

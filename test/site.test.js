@@ -291,12 +291,14 @@ test("cities page: live map, claimed vs open, claiming sends you to the dashboar
   assert.deepEqual(order, ["theme", "site", "ticker", "cities", "feedback"]);
 });
 
-test("launchpad: countdown to October 10, 10:10:10 AM New York time, and who gets in first", () => {
+test("launchpad: the tagline, one button that signs people up, the coins and the Founding Supporter checker (design v4: no countdown, no date)", () => {
   const h = html["launchpad.html"];
-  for (const id of ["countdown", "lp-bar", "lp-cal"]) assert.ok(h.includes(`id="${id}"`), id);
-  assert.match(h, /October 10, 2026 · 10:10:10 AM New York time/);
-  assert.match(h, /data-cd="seconds"/);
-  assert.match(h, /Founding Supporters/);
+  for (const id of ["lp-create", "lp-coins", "lp-grid", "supporters", "snap-form"]) assert.ok(h.includes(`id="${id}"`), id);
+  assert.match(h, /<a class="btn btn--primary btn--lg btn--cta-glow has-ring lp4-hero__cta" href="\/connect" id="lp-create" data-create-coin>Create your city coin<\/a>/);
+  // the Launchpad opened on 10 Oct 2026: the countdown, its date line and the calendar file went with the owner's "get rid of the rest"
+  for (const id of ["countdown", "lp-bar", "lp-cal", "lp-date"]) assert.ok(!h.includes(`id="${id}"`), id);
+  assert.doesNotMatch(h, /data-cd=|October 10/);
+  assert.match(h, /Founding Supporter snapshot/);
   const official = readFileSync(new URL("../src/official.js", import.meta.url), "utf8");
   assert.match(official, /LAUNCHPAD_OPENS_AT = "2026-10-10T10:10:10-04:00"/);
 });

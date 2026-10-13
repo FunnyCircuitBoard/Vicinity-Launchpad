@@ -1,69 +1,93 @@
-/* Design v2 (10 Oct 2026): the Launchpad. One sheet per page, loaded last there (scripts/pages/src/<page>.html "styles").
-   Phone first; the shared tokens come from style.css, each with a fallback here; motion only inside prefers-reduced-motion: no-preference. */
-/* =====================================================================
-   /launchpad: before the opening, the countdown (DAYS · HRS · MIN · SEC on the narrowest phones); once open (from the clock), the live
-   coins glide through the hero in its place. The list: compact rows (avatar, $TICKER and city, price with its 24 h chip, market cap,
-   a small sparkline, Buy and Details), the rest folded under Details; the sources in one fold, their key facts visible.
-   ===================================================================== */
-.cd-short { display: none; }
-@media (max-width: 360px) {
-  .countdown__unit > span { letter-spacing: .04em; }
-  .cd-full { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-  .cd-short { display: inline; }
-}
-.launch-hero.is-open .countdown, .launch-hero.is-open .launch-progress, .launch-hero.is-open #lp-cal, .launch-hero.is-open .lp-local { display: none; }
-/* the live strip: the countdown's place, its height held while the list loads */
-.lp-live { display: none; }
-.launch-hero.is-open .lp-live { display: flex; align-items: center; justify-content: center; gap: var(--sp-2, 8px); width: min(760px, 100%); min-height: 52px; margin: var(--sp-5, 24px) auto var(--sp-1, 4px); }
-.lp-live__open { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; margin: 0; padding: 0 18px; border-radius: var(--r-pill, 999px); font: 650 1rem var(--display);
-  color: var(--ok-text); background: var(--ok-soft, rgba(55,194,154,.14)); border: 1px solid rgba(55,194,154,.4); }
-.lp-live__open .live-dot, .lp-live__open .live-dot::after { background: var(--ok-text); }
-.lp-live.has-coins .lp-live__open, .lp-live:not(.has-coins) .lp-live__view, .lp-live:not(.is-marquee) .lp-live__pause { display: none; }
-.launch-hero:not([data-clock="open"]) .lp-live__open { visibility: hidden; } /* the hero starts open (no jump), but says so only once the clock has */
-/* a phone once open: a tighter hero, so the first live coin starts in the first screen of an iPhone with Safari's bars (390 x 664) */
-@media (max-width: 600px) {
-  .launch-hero.is-open { padding-bottom: 20px; }
-  .launch-hero.is-open .lp-live { margin-top: 14px; }
-  .launch-hero.is-open .hero__cta--center { margin: 12px 0 8px; }
-  .launch-hero.is-open .lp-note { margin-bottom: 0; }
-  .launch-hero.is-open ~ .lp-coins { padding-top: 20px; }
-}
-/* a computer: the hero fills the first screen, so the coin list that arrives under it never pushes what is in view */
-@media (min-width: 900px) { .launch-hero { min-height: calc(100vh - var(--header-h, 67px)); display: flex; align-items: center; } .launch-hero > .launch-hero__inner { width: 100%; } }
-.lp-live__view { flex: 1 1 auto; min-width: 0; overflow: hidden; border-radius: var(--r-pill, 999px); }
-.lp-live__track { list-style: none; margin: 0; padding: 4px 0; display: flex; width: max-content; }
-.lp-live:not(.is-marquee) .lp-live__track { width: auto; flex-wrap: wrap; justify-content: center; gap: var(--sp-2, 8px); }
-.lp-live.is-marquee .lp-live__item { padding-right: var(--sp-2, 8px); } /* both halves exactly as wide: the loop never jumps */
-.lp-live__item { flex: none; }
-.lp-live__link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px 0 6px; border-radius: var(--r-pill, 999px); text-decoration: none; color: var(--text);
-  font: 650 .9rem var(--display); background: var(--surface-2, var(--bg-2)); border: 1px solid var(--line-2); white-space: nowrap; }
-.lp-live__link:hover { border-color: rgba(var(--ink),.3); }
-.lp-live__link:focus-visible { outline: 3px solid var(--pin-2); outline-offset: -3px; }
-.lp-live__chg { font: 700 var(--fs-xs, .75rem) var(--body); font-variant-numeric: tabular-nums; color: var(--muted); }
-.lp-live__chg.is-up { color: var(--ok-text); } .lp-live__chg.is-down { color: var(--bad-text); }
-.lp-live__pause { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--surface-2, var(--bg-2)); color: var(--text); cursor: pointer; }
-.lp-live__pause:hover { border-color: rgba(var(--ink),.3); }
-.lp-live__icon-play, .lp-live__pause[aria-pressed="true"] .lp-live__icon-pause { display: none; }
-.lp-live__pause[aria-pressed="true"] .lp-live__icon-play { display: block; }
-.lp-live.is-marquee .lp-live__view { -webkit-mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent); mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent); }
-@media (prefers-reduced-motion: no-preference) {
-  .lp-live.is-marquee .lp-live__track { animation: lpMarquee 36s linear infinite var(--lb-play, running); }
-  .lp-live.is-marquee .lp-live__view:hover .lp-live__track, .lp-live.is-marquee .lp-live__view:focus-within .lp-live__track { animation-play-state: paused; }
-}
-@keyframes lpMarquee { to { transform: translateX(-50%); } }
-/* reduced motion, or "Pause animations": one still row that wraps, no copy, no fade (the Pause button stays, to play it again) */
-@media (prefers-reduced-motion: reduce) {
-  .lp-live.is-marquee .lp-live__track { width: auto; flex-wrap: wrap; justify-content: center; gap: var(--sp-2, 8px); }
-  .lp-live.is-marquee .lp-live__item { padding-right: 0; }
-  .lp-live__item.is-copy, .lp-live__pause { display: none; }
-  .lp-live.is-marquee .lp-live__view { -webkit-mask-image: none; mask-image: none; }
-}
-:root[data-motion="paused"] .lp-live.is-marquee .lp-live__track { animation: none; width: auto; flex-wrap: wrap; justify-content: center; gap: var(--sp-2, 8px); }
-:root[data-motion="paused"] .lp-live.is-marquee .lp-live__item { padding-right: 0; }
-:root[data-motion="paused"] .lp-live__item.is-copy { display: none; }
-:root[data-motion="paused"] .lp-live.is-marquee .lp-live__view { -webkit-mask-image: none; mask-image: none; }
+/* /launchpad, design v4 (12 Oct 2026, the owner: "keep only 'Every city gets its own coin.', get rid of the rest, directly show the live
+   tokens, and add a button 'Create your city coin'"). One sheet per page, loaded last there (scripts/pages/src/<page>.html "styles"). Phone
+   first; the shared tokens come from style.css, each with a fallback here where it is new; motion only inside prefers-reduced-motion:
+   no-preference, and nothing moves by itself for longer than a few seconds.
+   The page: the tagline and one glowing button; the coins as one grid of glass cards ($VICINITY first, wider on a computer), each with
+   its price, 24 h change, a mini chart, market cap, volume and holders, Buy and Details; the sources line and fold; the snapshot fold. */
 
-/* one avatar recipe (the Launchpad, its strip and the coin page; pages-coin.css carries the same block, a test keeps the two equal): the city's initials on the city's colour, a 2 px ring */
+/* ---------- the hero: the tagline, centred, and the page's one main action ---------- */
+.lp4-hero { position: relative; isolation: isolate; padding: 28px 0 24px; text-align: center; }
+.lp4-hero::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--grad-glow); }
+.lp4-hero__inner { display: flex; flex-direction: column; align-items: center; }
+.lp4-hero__title { margin: 0 0 24px; font-size: clamp(2rem, 1.4rem + 3.6vw, 3.75rem); max-width: none; }
+.lp4-hero__title > span { display: inline-block; } /* "Every city gets" / "its own coin.": two lines at every width */
+.lp4-hero__cta { min-width: min(100%, 248px); }
+@media (max-width: 359px) { .lp4-hero { padding: 20px 0 16px; } .lp4-hero__title { margin-bottom: 18px; } } /* 320 x 568: the first card's price in the first screen */
+@media (min-width: 601px) { .lp4-hero { padding: 48px 0 36px; } .lp4-hero__title { margin-bottom: 28px; } }
+@media (min-width: 901px) { .lp4-hero { padding: 56px 0 40px; } }
+
+/* ---------- the coins section ----------
+   Until the first answer: two still placeholder cards (no shimmer) hold the room; then they go and the toolbar and the grid come in their
+   place (new boxes, nothing that was on screen moves: no layout shift). Both hold at least the rest of the first screen, so what is
+   under the grid (the sources, the snapshot fold, the footer) never shows and then jumps away. */
+.lp-coins { padding: 4px 0 0; border-top: 0; }
+.lp-skels, #lp-panel { min-height: calc(100vh - 240px); }
+@media (min-width: 901px) { .lp-skels, #lp-panel { min-height: calc(100vh - 300px); } }
+.lp-coins:not(.is-loading) .lp-skels,
+.lp-coins.is-loading :is(.lp-tools, .lp-filters, .lp-meta, #lp-panel),
+.lp-coins:is(.is-none, .is-nodata) :is(.lp-tools, .lp-filters, .lp-meta) { display: none; }
+.lp-skel { display: flex; flex-direction: column; gap: 14px; min-height: 352px; box-shadow: none; }
+.lp-skel > span { display: block; border-radius: var(--r-xs, 8px); background: var(--surface-inset, rgba(var(--ink),.04)); }
+.lp-skel__head { height: 44px; width: 64%; }
+.lp-skel__price { height: 28px; width: 42%; }
+.lp-skel__chart { height: 56px; }
+.lp-skel__stats { height: 44px; }
+.lp-skel__acts { height: 44px; margin-top: auto; }
+
+/* the toolbar: the four lists, the search, "Filter and sort". A phone: the lists on one row, the search and the filter button under them;
+   a computer: all three on one row. The filters open in a row of their own under it. */
+.lp-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.lp-tools > .lp-tabs { grid-column: 1 / -1; }
+@media (min-width: 901px) {
+  .lp-tools { grid-template-columns: auto minmax(200px, 1fr) auto; }
+  .lp-tools > .lp-tabs { grid-column: auto; width: auto; }
+}
+.lp-tabs button { min-height: 44px; }
+.lp-tabs__n.is-zero { display: none; } /* a zero count says nothing */
+/* the counts read at 4.5:1 in light: a fainter pill, and the selected tab's count in the text colour (its ember tint stays) */
+:root[data-theme="light"] .lp-tabs__n { background: transparent; color: var(--text-2); } /* on the strip's own 6 % tint: 4.44:1 with a second tint, #2C3950 on one tint is well above 7:1 */
+:root[data-theme="light"] .lp-tabs button[aria-selected="true"] .lp-tabs__n { background: rgba(232,67,31,.08); color: var(--text); }
+/* a phone: the four lists on one row, each tab as wide as its words and count plus an equal share of the room left ("auto" tracks
+   share the free space), so "Upcoming 3" never runs into "Trending 6" and a count is never squeezed (review of 13 Oct 2026, 375-414 px) */
+.lp-tabs__n { flex: none; }
+@media (max-width: 600px) {
+  .lp-tabs { display: grid; grid-template-columns: repeat(4, auto); overflow: visible; }
+  .lp-tabs button { min-width: 0; padding: 0 6px; }
+}
+@media (max-width: 380px) { .lp-tabs button { gap: 4px; padding: 0 4px; font-size: var(--fs-xs, .75rem); } .lp-tabs__n { padding: 1px 5px; } }
+/* the smallest phones (320-359 px): still one row, the words alone (the line under the strip counts the coins of the chosen list), so
+   the first coin card keeps its room in the first screen */
+@media (max-width: 359px) { .lp-tabs__n { display: none; } .lp-tabs button { padding: 0 2px; } }
+.lp-search { position: relative; min-width: 0; }
+.lp-search__icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.lp-search input { padding: 0 16px 0 44px; color: var(--text); font: 500 1rem var(--body); }
+.lp-search input::placeholder { color: var(--muted); opacity: 1; }
+:root[data-theme="light"] .lp-search input { background: #FFFFFF; }
+.lp-filterbtn { min-height: 48px; padding: 0 18px; gap: 8px; }
+.lp-filterbtn svg { flex: none; color: var(--text-2); }
+.lp-filterbtn[aria-expanded="true"] { border-color: var(--field-line); }
+.lp-filterbtn__n { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill, 999px); font: 700 .75rem/1 var(--body);
+  background: var(--accent-soft, rgba(255,90,54,.12)); color: var(--pin-2); }
+@media (max-width: 480px) {
+  /* a narrow phone: the button is its icon (and its count), its words for a screen reader */
+  .lp-filterbtn { width: 48px; padding: 0; gap: 2px; }
+  .lp-filterbtn:has(.lp-filterbtn__n) { width: auto; padding: 0 12px; }
+  .lp-filterbtn__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+.lp-filters { margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r-card, 16px); background: var(--surface-1, var(--card)); box-shadow: var(--e1, none); }
+.lp-filters .lp-field > span { text-transform: none; letter-spacing: 0; font-size: var(--fs-xs, .75rem); }
+@media (max-width: 480px) { .lp-filters { grid-template-columns: minmax(0, 1fr); } .lp-filters .lp-field:last-child { grid-column: auto; } } /* a country's whole name */
+/* the line over the grid: how many coins are drawn, what the list is, how old the numbers are */
+.lp-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 16px 2px 14px; min-height: 1.4em; font-size: var(--fs-sm, .875rem); color: var(--muted); }
+.lp-meta #lp-count { color: var(--text); font-weight: 600; }
+@media (max-width: 480px) { .lp-meta { margin: 12px 2px 10px; } .lp-meta #lp-tabnote { display: none; } } /* a phone: the count and the age (each card's tag says Live) */
+
+/* ---------- the grid: one list of glass cards ---------- */
+.lp-grid { gap: var(--sp-3, 12px); align-items: stretch; }
+@media (min-width: 601px) { .lp-grid { gap: var(--sp-4, 16px); } }
+@media (min-width: 1280px) { .lp-grid { gap: 20px; } }
+
+/* one avatar recipe (the Launchpad and the coin page; pages-coin.css carries the same block, a test keeps the two equal): the city's initials on the city's colour, a 2 px ring */
 :where(.lp-ava) { --c2: #FFC857; --c3: #D98A1F; } /* gold unless the city chose a colour ([data-color] in style.css) */
 .lp-ava { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 50%; overflow: hidden; color: #fff;
   background: linear-gradient(140deg, var(--c2), var(--c3)); border: 2px solid rgba(var(--ink),.18); box-shadow: none; }
@@ -79,101 +103,112 @@
 .lp-ava--sm { width: 30px; height: 30px; }
 .lp-ava--sm span { font-size: .7rem; }
 
-/* a coin card: one compact row of facts, Buy and Details; the sparkline small at the right of the price */
-.lp-grid { gap: var(--sp-3, 12px); }
-.lp-card { gap: var(--sp-3, 12px); padding: 14px; border-radius: var(--r-card, 18px); }
+/* a card: the glass card of the site (style.css .card), its parts in one column, Buy and Details at its foot, so cards in a row line up */
+.lp-card { display: flex; flex-direction: column; gap: 14px; padding: var(--card-pad, 16px); border-radius: var(--r-card, 16px); }
 .lp-card .lp-card__head { display: flex; align-items: center; gap: 12px; }
 .lp-card .lp-card__disc.lp-ava { width: 44px; height: 44px; }
-.lp-card .lp-card__title { font-size: var(--fs-md, 1.125rem); }
-.lp-card .lp-card__place { margin: 1px 0 0; font-size: var(--fs-sm, .875rem); line-height: 1.3; }
-.lp-card .lp-card__status { flex: none; max-width: 46%; margin: 0; align-self: center; }
-@media (max-width: 480px) { .lp-card .lp-card__head { display: flex; } .lp-card .lp-card__status { max-width: 46%; } }
+.lp-card .lp-card__title { font-size: var(--fs-md, 1.125rem); letter-spacing: -0.01em; }
+.lp-card .lp-card__place { margin: 2px 0 0; font-size: var(--fs-sm, .875rem); line-height: 1.3; }
+.lp-card .lp-card__status { flex: none; max-width: 46%; margin: 0; align-self: center; grid-column: auto; }
 @media (max-width: 600px) { .lp-card .lp-card__name { display: none; } } /* $TICKER and the city say it; the coin's own name is on its page */
-.lp-card--live { grid-template-columns: minmax(0, 1fr) 96px; column-gap: 12px; }
-.lp-card--live > .lp-card__head, .lp-card--live > .lp-card__actions, .lp-card--live > .lp-more, .lp-card--live > .lp-card__meta { grid-column: 1 / -1; }
-.lp-card--live > .lp-price { grid-column: 1; align-self: center; gap: 2px; }
-.lp-card--live > .lp-spark { grid-column: 2; align-self: center; height: 36px; }
-.lp-card--live > .lp-spark .lp-spark__label, .lp-card--live > .lp-spark .lp-spark__msg { display: none; }
-.lp-card--live > .lp-spark.is-loading { display: flex; } /* (a phone hid it: unseen, a sparkline was never asked for) */
-/* no price history yet (a coin launched today): no flat dashed line and no "0.00% 24h" chip; the price and market cap take the row */
-.lp-card--live:not(.lp-card--featured) > .lp-spark.is-empty { display: none; }
-.lp-card--live:not(.lp-card--featured):has(> .lp-spark.is-empty) > .lp-price { grid-column: 1 / -1; }
-.lp-card--live:has(> .lp-spark.is-empty) .lp-chg2.is-flat { display: none; }
-@media (max-width: 360px) { .lp-card--live { grid-template-columns: minmax(0, 1fr) 56px; column-gap: 8px; } .lp-card .lp-price__val { font-size: 1.25rem; } }
-.lp-card .lp-price__row { gap: 4px 8px; }
-.lp-card .lp-price__val { font-size: 1.375rem; }
+/* the price and its 24 h change */
+.lp-card .lp-price { gap: 2px; }
+.lp-card .lp-price__row { gap: 6px 10px; }
+.lp-card .lp-price__val { font-size: 1.5rem; letter-spacing: -0.02em; }
 .lp-card .lp-price__val.is-none { font: 500 var(--fs-sm, .875rem)/1.4 var(--body); color: var(--muted); }
 .lp-chg2.is-none { display: none; }
-.lp-price__cap { margin: 0; font-size: var(--fs-sm, .875rem); color: var(--muted); font-variant-numeric: tabular-nums; }
-.lp-price__cap:empty { display: none; }
-.lp-card__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2, 8px); padding-top: 0; }
-.lp-card__actions > .btn { width: 100%; padding: 0 12px; }
-.lp-card__actions .lp-card__wait { grid-column: 1 / -1; }
-.btn--soft { background: var(--accent-soft, rgba(255,90,54,.12)); border-color: rgba(255,90,54,.45); color: var(--text); font-weight: 700; }
-.btn--soft:hover { background: rgba(255,90,54,.2); border-color: rgba(255,90,54,.7); }
-:root[data-theme="light"] .btn--soft { border-color: rgba(232,67,31,.45); }
+/* the mini chart: 56 px (120 on $VICINITY's card), a 2 px line over a faint area, the dot where it ends; a quiet dashed line and its
+   reason when there is nothing to draw. Its room is held while it loads, on every screen (no jump when it arrives). */
+.lp-card > .lp-spark { height: 56px; flex: none; }
+.lp-card > .lp-spark.is-empty, .lp-card > .lp-spark.is-loading { display: flex; }
+.lp-card > .lp-spark .lp-spark__label { display: none; }
+.lp-card .lp-spark__line { stroke-width: 2; }
+.lp-card .lp-spark__stop0 { stop-opacity: .16; }
+.lp-card .lp-spark.is-loading { border-radius: var(--r-xs, 8px); background: var(--surface-inset, rgba(var(--ink),.04)); }
+.lp-spark__msg { background: var(--bg-2); }
+/* Market cap · 24h volume · Holders: three cells on the card's face (a number nobody has yet is left out), their sources under them */
+.lp-card .lp-stats--face { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 12px; padding: 12px 0 0; border-top: 1px solid var(--line); }
+.lp-card .lp-stats--face .lp-stat:last-child { grid-column: auto; }
+.lp-card .lp-stats--face .lp-stat:has(> dd .lp-na), .lp-card .lp-stats--face:not(:has(.lp-val)), .lp-face__src:empty { display: none; }
+.lp-card .lp-stats--face dt { font: 500 var(--fs-xs, .75rem)/1.3 var(--body); text-transform: none; letter-spacing: 0; color: var(--muted); }
+.lp-card .lp-stats--face .lp-stat dd, .lp-card .lp-stats--face .lp-stat:last-child dd { margin-top: 2px; font: 600 1rem/1.3 var(--display); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; color: var(--text); }
+.lp-card .lp-stats--face .lp-stat { position: relative; border-radius: 6px; }
+.lp-face__src { margin: -8px 0 0; font-size: var(--fs-xs, .75rem); line-height: 1.4; color: var(--muted); }
+/* Buy and Details, side by side at the card's foot */
+.lp-card .lp-card__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2, 8px); margin-top: auto; padding-top: 0; }
+.lp-card .lp-card__actions > .btn { width: 100%; min-height: 44px; padding: 0 12px; }
+.lp-card .lp-card__actions .lp-card__wait { grid-column: 1 / -1; }
+/* Buy: tinted (the orange fill is the page's one main action) but clearly above Details: the accent label (6.5:1 dark, 4.8:1 light on
+   its tint) and a firmer accent edge (review of 13 Oct 2026: the old tint read as disabled) */
+.btn--soft { background: rgba(255,90,54,.15); border-color: rgba(255,110,70,.62); color: var(--pin-2); font-weight: 700; }
+@media (hover: hover) { .btn--soft:hover { background: rgba(255,90,54,.24); border-color: rgba(255,120,80,.85); color: var(--pin-2); } }
+:root[data-theme="light"] .btn--soft { background: rgba(232,67,31,.09); border-color: rgba(232,67,31,.55); }
+@media (hover: hover) { :root[data-theme="light"] .btn--soft:hover { background: rgba(232,67,31,.14); border-color: rgba(232,67,31,.75); } }
 .lp-card__plus::before { content: "+"; color: var(--pin-2); font-size: 1.2rem; line-height: 1; } /* (a span: a glass button's ::after is its edge light) */
 .lp-card__more[aria-expanded="true"] .lp-card__plus::before { content: "\2212"; }
 .lp-card__more { gap: 6px; }
-/* Details: the price's source, the numbers that have a value (a number nobody has yet is left out), the curve, the people */
+/* Details: the price's source and age, the venue, the liquidity, the curve, the people, the coin page */
 .lp-more { display: grid; gap: 10px; padding-top: var(--sp-3, 12px); border-top: 1px solid var(--line); }
 .lp-more > .btn { justify-self: start; }
-.lp-stats--live .lp-stat:has(> dd .lp-na) { display: none; }
+.lp-stats--live { grid-template-columns: minmax(0, 1fr); }
+.lp-stats--live .lp-stat:has(> dd .lp-na), .lp-stats--live:not(:has(.lp-val)) { display: none; }
 .lp-stats--live .lp-stat { min-height: 0; background: var(--surface-inset, rgba(var(--ink),.035)); }
 .lp-stats--live .lp-stat dt { text-transform: none; letter-spacing: 0; font-size: var(--fs-xs, .75rem); }
 .lp-card .lp-card__sub { margin: 0; }
-/* $VICINITY's "Live now" card: its room is held while the list loads; on a computer its chart sits large on the right, the rest open */
-.lp-coins.is-loading .lp-featured:not(.is-on) { display: block; min-height: 240px; }
-@media (min-width: 900px) {
-  .lp-card--featured { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); grid-template-areas: "head spark" "price spark" "acts spark" "more more"; column-gap: 32px; }
-  .lp-card--featured > .lp-card__head { grid-area: head; }
-  .lp-card--featured > .lp-price { grid-area: price; }
-  .lp-card--featured > .lp-card__actions { grid-area: acts; }
-  .lp-card--featured > .lp-more { grid-area: more; }
-  .lp-card--featured .lp-card__more { display: none; }
-  .lp-card--featured .lp-card__actions { grid-template-columns: minmax(0, 1fr); }
-  .lp-card--featured > .lp-spark { grid-area: spark; height: 140px; align-self: center; }
-  .lp-card--featured > .lp-spark .lp-spark__label, .lp-card--featured > .lp-spark .lp-spark__msg { display: revert; }
-  .lp-card--featured .lp-stats--live { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+/* a card that is not live: its dashed line and reason, the pair and founder, "Not live yet" at its foot */
+.lp-card:not(.lp-card--live) .lp-card__meta { margin: 0; }
+/* a live card lifts under a mouse (style.css); its edge warms a little rather than turning orange */
+@media (hover: hover) and (pointer: fine) { .lp-card--live:hover { border-color: var(--accent-line, rgba(255,90,54,.35)); } }
+@media (prefers-reduced-motion: no-preference) { .lp-grid > .lp-card.card--link:has(.btn:active) { transform: none; } } /* pressing Buy presses Buy, not the card */
+
+/* $VICINITY's card: the first of the grid, two columns wide once the grid has two, its chart large on the right; its ring turns only under
+   a mouse (style.css .has-ring: nothing at rest) */
+@media (min-width: 680px) {
+  .lp-grid > .lp-card--featured:first-child, .lp-skel--featured { grid-column: span 2; }
+  /* the room a taller neighbour gives the row goes under the sources line: Buy and Details sit at the card's foot like the other cards',
+     and the chart grows with the card (no empty band under the buttons, review of 13 Oct 2026) */
+  .lp-grid > .lp-card--featured:first-child { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); column-gap: 32px; row-gap: 14px;
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "head head" "price spark" "stats spark" "src spark" "acts spark" "more more"; }
+  /* Details closed: no "more" row (and no row gap under the buttons), so its Buy lines up with its neighbour's */
+  .lp-grid > .lp-card--featured:first-child:not(:has(> .lp-more:not([hidden]))) { grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "head head" "price spark" "stats spark" "src spark" "acts spark"; }
+  .lp-card--featured:first-child > .lp-card__head { grid-area: head; }
+  .lp-card--featured:first-child > .lp-price { grid-area: price; align-self: end; }
+  .lp-card--featured:first-child > .lp-stats--face { grid-area: stats; }
+  .lp-card--featured:first-child > .lp-face__src { grid-area: src; margin: 0; align-self: start; }
+  .lp-card--featured:first-child > .lp-card__actions { grid-area: acts; align-self: end; }
+  .lp-card--featured:first-child > .lp-more { grid-area: more; }
+  .lp-card--featured:first-child > .lp-spark { grid-area: spark; height: auto; min-height: 120px; align-self: stretch; }
+  .lp-card--featured:first-child > .lp-spark .lp-spark__label { display: revert; }
+  .lp-card--featured:first-child .lp-price__val { font-size: 2rem; }
+  .lp-skel--featured .lp-skel__chart { height: 120px; }
 }
-/* the tabs never cut: four in a row, two by two on the narrowest phones; a zero count says nothing */
-.lp-tabs__n.is-zero { display: none; }
-/* the counts read at 4.5:1 in light: a fainter pill, and the selected tab's count in the text colour (its ember tint stays) */
-:root[data-theme="light"] .lp-tabs__n { background: rgba(11,22,38,.06); }
-:root[data-theme="light"] .lp-tabs button[aria-selected="true"] .lp-tabs__n { background: rgba(232,67,31,.08); color: var(--text); }
-@media (max-width: 600px) {
-  .lp-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; }
-  .lp-tabs button { min-width: 0; padding: 0 4px; }
-}
-@media (max-width: 380px) {
-  .lp-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); border-radius: var(--r-card, 18px); }
-  .lp-tabs button { font-size: var(--fs-sm, .875rem); }
-}
-/* the filters: one fold under the search (open on a computer), its summary saying what is chosen */
-.lp-filterfold { grid-column: 1 / -1; border-top: 0; }
-.lp-filterfold > summary { padding-left: 4px; }
-.lp-filterfold .lp-filters { padding: 4px 0 8px; }
-.lp-tools { gap: var(--sp-3, 12px) 16px; }
-/* no city coin at all: no tabs, search or filters; one empty card */
-.lp-coins.is-none .lp-tools, .lp-coins.is-none .lp-meta { display: none; }
+@media (min-width: 680px) and (max-width: 900px) { .lp-grid > .lp-card--featured:first-child { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 24px; } }
+/* a live card whose chart is still loading or has nothing: on $VICINITY's wide card it keeps its room too */
+
+/* the empty card: the same size as a card, dashed, one line, one sentence, one action ("Find your city" when there is no city coin) */
+.lp-grid > .lp-empty.empty { display: grid; align-content: center; justify-items: center; gap: var(--sp-2, 8px); min-height: 240px; padding: var(--sp-6, 32px) var(--sp-5, 24px); }
+.lp-grid > .lp-empty[hidden] { display: none; }
+.lp-empty.empty p { margin: 0; max-width: 34ch; text-align: center; }
 .lp-coins:not(.is-none) .lp-empty__go { display: none; }
-.lp-empty.empty { justify-items: center; padding: var(--sp-5, 24px) var(--sp-4, 16px); }
-.lp-empty.empty p { margin: 0; text-align: center; }
-/* the sources: Powered by Jupiter and "never touches your funds" on screen, the full account in a fold */
-.lp-trust { margin: var(--sp-5, 24px) 2px 0; font-size: var(--fs-sm, .875rem); color: var(--text-2); }
+
+/* under the grid: Powered by Jupiter and "never touches your funds" on screen, the full account in a fold */
+.lp-trust { margin: var(--sp-6, 32px) 2px 0; font-size: var(--fs-sm, .875rem); color: var(--text-2); }
 .lp-sources { margin-top: var(--sp-2, 8px); }
-.lp-sources .lp-honesty { margin: 0 0 var(--sp-3, 12px); font-size: var(--fs-xs, .75rem); }
-/* the perks and the phases: the shared icons in tinted circles; the step numbers tinted (the ember is the hero's button) */
-.perk__icon.ico { font-size: inherit; margin: 0 0 10px; }
-.phase__n { background: var(--accent-soft, rgba(255,90,54,.12)); color: var(--pin-2); }
-@media (max-width: 600px) {
-  .grid-3 .perk { grid-template-columns: 36px minmax(0, 1fr); }
-  .perk__icon.ico { margin: 0; }
+.lp-sources .lp-about, .lp-sources .lp-honesty { margin: 0 0 var(--sp-3, 12px); max-width: 78ch; font-size: var(--fs-xs, .75rem); }
+
+/* the Founding Supporter snapshot: one fold under everything (open when the address ends in #supporters) */
+.lp-snap { padding: 0 0 var(--sp-7, 48px); }
+.lp-snap__fold { border-bottom: 1px solid var(--line); }
+.lp-snap__body { display: grid; gap: var(--sp-3, 12px); max-width: 68ch; padding: 4px 0 var(--sp-4, 16px); }
+.lp-snap__body p { margin: 0; }
+.lp-snap__body .snap-lookup { margin: 0; padding: 0; }
+
+/* ---------- motion: the grid's cards rise in once, a few at a time, when the list is drawn (transform and opacity, 320 ms) ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .lp-coins:not(.is-loading) .lp-grid > .lp-card { animation: lpCardIn var(--dur-3, .32s) var(--ease-out, ease-out) backwards; }
+  .lp-grid > .lp-card:nth-child(2) { animation-delay: 40ms; } .lp-grid > .lp-card:nth-child(3) { animation-delay: 80ms; }
+  .lp-grid > .lp-card:nth-child(4) { animation-delay: 120ms; } .lp-grid > .lp-card:nth-child(n+5) { animation-delay: 160ms; }
 }
-/* the hero's light (the review of 12 Oct 2026, the owner's H2 on the home page): anchored to the centred title and button, never to the
-   screen's corners (a 540 px red orb at the top right corner of a wide screen read as a smudge) */
-@media (min-width: 900px) {
-  .launch-hero .orb--a { width: 520px; height: 340px; top: 10%; right: auto; left: calc(50% - 470px); opacity: .17; }
-  .launch-hero .orb--b { width: 460px; height: 300px; bottom: 8%; left: calc(50% - 20px); opacity: .14; }
-  :root[data-theme="light"] .launch-hero .orb { opacity: .08; }
-}
+@keyframes lpCardIn { from { opacity: 0; transform: translateY(8px); } }
