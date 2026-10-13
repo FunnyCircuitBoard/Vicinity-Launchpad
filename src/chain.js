@@ -43,6 +43,11 @@ export { isOnCurve };
 /** Every wallet the team publishes (src/official.js) is labelled with this in the holder list and, like a pool, never ranked. */
 const TEAM_LABEL = "Team wallet (public)";
 export const isTeamWallet = (owner) => (OFFICIAL.teamWallets || []).includes(owner);
+/** The team's locked tokens (src/official.js teamLocks): labelled "Team lock (Jupiter Lock)" and, like a team wallet, never ranked. */
+const teamLockOf = (owner) => (OFFICIAL.teamLocks || []).find((l) => l.address === owner) || null;
+export const isTeamLock = (owner) => Boolean(teamLockOf(owner));
+/** The label of a team wallet or a team lock, else null. It wins over a pool label: a lock is a program's account too. */
+const teamLabel = (owner) => (isTeamWallet(owner) ? TEAM_LABEL : teamLockOf(owner) ? `Team lock (${teamLockOf(owner).platform})` : null);
 /** A label for a big holder: a known pool program, or any program-controlled (off-curve) address. */
 const poolLabel = (owner, ownerProgram) => {
   if (OWNER_LABELS[owner]) return OWNER_LABELS[owner];
@@ -154,7 +159,7 @@ export async function getTopHolders(env, mint, fetchImpl) {
   const holders = [...byOwner.entries()]
     .sort((x, y) => y[1] - x[1])
     .map(([owner, amount]) => {
-      const label = isTeamWallet(owner) ? TEAM_LABEL : poolLabel(owner, ownerProgram[owner]);
+      const label = teamLabel(owner) || poolLabel(owner, ownerProgram[owner]);
       return { rank: label ? null : ++rank, owner, amount, percent: facts.supply ? (amount / facts.supply) * 100 : 0, label };
     });
   return { facts, holders };
@@ -271,14 +276,14 @@ export async function getAllHolders(env, mint, fetchImpl = fetch) {
   // remembered supply is out of date: everything burned since; asked once more, fresh, before refusing)
   if (!list.length && facts.supply > 0 && (await getTokenFacts(env, mint, fetchImpl)).supply > 0) throw new Error("rpc_bad_answer");
 
-  // label pools / bonding curves (program-owned wallets) among the biggest holders, and team wallets
+  // label pools / bonding curves (program-owned wallets) among the biggest holders, and team wallets and team locks
   const top = list.slice(0, 50).map(([o]) => o);
   const labels = new Map();
   if (top.length) {
     const acc = await rpc(env, "getMultipleAccounts", [top, { encoding: "base64", dataSlice: { offset: 0, length: 0 } }], fetchImpl);
     top.forEach((o, i) => { const l = poolLabel(o, acc?.value?.[i]?.owner); if (l) labels.set(o, l); });
   }
-  for (const w of OFFICIAL.teamWallets || []) labels.set(w, TEAM_LABEL);
+  for (const w of [...(OFFICIAL.teamWallets || []), ...(OFFICIAL.teamLocks || []).map((l) => l.address)]) labels.set(w, teamLabel(w));
   return { facts, list, labels, slot };
 }
 
@@ -404,7 +409,8 @@ export const SHOW_STALE_MS = 15 * 60_000;
 function ranked({ facts, list, labels, builtAt }) {
   let rank = 0;
   const rows = list.map(([owner, amount]) => {
-    const label = labels.get(owner) || (isTeamWallet(owner) ? TEAM_LABEL : null);
+    // a team label first: a list read before a lock was listed calls it "Pool or program account"
+    const label = teamLabel(owner) || labels.get(owner) || null;
     return { owner, amount, percent: facts.supply ? (amount / facts.supply) * 100 : 0, rank: label ? null : ++rank, label };
   });
   return { facts, rows, byOwner: new Map(rows.map((r) => [r.owner, r])), people: rank, at: new Date(builtAt).toISOString() };
@@ -460,17 +466,18 @@ export const _resetSnapshots = () => { _forgetServerMemory(); epoch++; };
 
 /**
  * Where does this wallet stand? Rank among people (pools and team wallets excluded), how many hold more,
- * and how much more it takes to pass the wallet just above. A team wallet (`team: true`) has no rank and nothing to pass.
+ * and how much more it takes to pass the wallet just above. A team wallet (`team: true`) has no rank and nothing to pass; nor has
+ * a team lock (`lock: true`, a key only a lock's answer has).
  */
 export function rankOf(snap, owner) {
-  const row = snap.byOwner.get(owner), team = isTeamWallet(owner);
+  const row = snap.byOwner.get(owner), team = isTeamWallet(owner), lock = isTeamLock(owner);
   const out = { amount: row ? row.amount : 0, rank: row ? row.rank : null, total: snap.people, label: row ? row.label : null,
-    percent: row ? row.percent : 0, percentile: null, next: null, team };
+    percent: row ? row.percent : 0, percentile: null, next: null, team, ...(lock ? { lock: true } : {}) };
   if (row && row.rank) {
     out.percentile = Math.max(0.01, (row.rank / Math.max(1, snap.people)) * 100);
     const above = snap.rows.find((r) => r.rank === row.rank - 1);
     if (above) out.next = { rank: above.rank, amount: above.amount, gap: Math.max(0, above.amount - row.amount) };
-  } else if (!team) {
+  } else if (!team && !lock) {
     const last = [...snap.rows].reverse().find((r) => r.rank);
     if (last) out.next = { rank: last.rank, amount: last.amount, gap: last.amount };
   }

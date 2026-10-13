@@ -17,7 +17,8 @@ beforeEach(() => { useClock("2026-10-12T12:00:00Z"); _resetLaunchpad(); _resetMa
 after(() => realClock());
 
 const OFF = [undefined, "", "off", "ON?", "true", "1", "yes", "onn", "o n", "v2"];
-const OFFICIAL_KEYS = ["updated", "websites", "github", "socials", "tokenContract", "teamWallets", "launchpadOpensAt", "tokens", "siteMode"];
+// teamLocks (13 Oct 2026): the team's locked tokens, part of the official list itself (src/official.js), switch or no switch
+const OFFICIAL_KEYS = ["updated", "websites", "github", "socials", "tokenContract", "teamWallets", "teamLocks", "launchpadOpensAt", "tokens", "siteMode"];
 
 test("launchpadV2On: exactly 'on', trimmed, any letter case", () => {
   for (const v of ["on", " on ", "ON", "On", "\ton\n"]) assert.equal(launchpadV2On({ LAUNCHPAD_V2: v }), true, JSON.stringify(v));

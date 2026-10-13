@@ -36,7 +36,30 @@ export const OFFICIAL = {
   // LaunchLab on 3 Oct 2026 (its buy was in the creation transaction) and is the site's admin wallet; listed at the owner's
   // request on 5 Oct 2026. Listed wallets are labelled "Team wallet (public)" in the holder list, the checker calls them
   // official team wallets, and they are left out of the Founding Supporter snapshot.
-  teamWallets: ["13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN"],
+  // 8dQ5Rb…CxP5 is the team's account for its FOMO profile, listed at the owner's request on 13 Oct 2026 (it then held about
+  // 5.8M $VICINITY and was ranked as a person until listed).
+  teamWallets: ["13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN", "8dQ5Rb2Y7jYWCEgyKKVMrhboEgMFvFXKNZw1KBeCxP5"],
+  // The team's locked tokens. On 13 Oct 2026 the team wallet above locked 60,000,000 $VICINITY on Jupiter Lock (escrow CnRn…ejB6 of
+  // the Jupiter Lock program LocpQgucEQHbqNABEYvBvwoxCPsSbG91A1QaQhQQqjn, creation transaction XYkk74…cCgNf). Read on-chain the same
+  // day: cliff 2027-04-13 16:00 UTC with nothing unlocked at it, then 500,000 every 24 hours for 120 days (the first 2027-04-14
+  // 16:00 UTC, the last 2027-08-11 16:00 UTC), each claimable only by the team wallet (the recipient); nobody can cancel it or change
+  // who receives it (both modes 0, "none").
+  // (Jupiter can still upgrade its Lock program: the site states the lock's rules and never calls it immutable.) The escrow is
+  // labelled "Team lock (Jupiter Lock)" in the holder list and never ranked, the checker calls it the team lock, the token page's
+  // "60M team tokens locked" card links its page, and it is left out of the Founding Supporter snapshot.
+  teamLocks: [{
+    address: "CnRn4NiHSfezUHxh7EUytzcoJv98yeH5CpbCgsvyejB6",
+    platform: "Jupiter Lock",
+    url: "https://lock.jup.ag/escrow/CnRn4NiHSfezUHxh7EUytzcoJv98yeH5CpbCgsvyejB6",
+    mint: "2aVkhRfAEm44tMhFo8oamWvumGGvweFqnUwukRMBkray",
+    recipient: "13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN",
+    amount: 60_000_000,
+    cliff: "2027-04-13T16:00:00Z",
+    end: "2027-08-11T16:00:00Z",
+    perDay: 500_000,
+    cancel: "none",
+    changeRecipient: "none",
+  }],
   launchpadOpensAt: LAUNCHPAD_OPENS_AT,
   // Every official Vicinity token on every network. Anything not listed here is fake.
   tokens: [
@@ -48,6 +71,9 @@ export const OFFICIAL = {
 };
 
 const clean = (s) => String(s || "").trim().slice(0, 300);
+/** "April 13, 2027": the day of a UTC time, in words. */
+const longDate = (iso) => new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+const lockMessage = (lock) => `This is the Vicinity team lock on ${lock.platform}. The team locked ${lock.amount.toLocaleString("en-US")} $VICINITY here: nothing unlocks before ${longDate(lock.cliff)}, and nobody can cancel it or change who receives it.`;
 
 // Where $VICINITY is traded and looked up: the four sites the token page itself links to (public/token.js: Buy on Raydium,
 // Jupiter, DEX Screener, Solscan). The real site is not enough: a link there is judged by the token it carries, because the
@@ -93,6 +119,8 @@ export function checkOfficial(input, isSolanaAddress, env) {
       return { verdict: "official", kind: "contract", message: "This is the official $VICINITY contract address." };
     if (OFFICIAL.teamWallets.includes(raw))
       return { verdict: "official", kind: "wallet", message: "This is a published Vicinity team wallet." };
+    const lock = (OFFICIAL.teamLocks || []).find((l) => l.address === raw);
+    if (lock) return { verdict: "official", kind: "lock", message: lockMessage(lock) };
     return {
       verdict: "not_official", kind: "address",
       message: OFFICIAL.tokenContract
@@ -124,6 +152,10 @@ export function checkOfficial(input, isSolanaAddress, env) {
       return { verdict: "warning", kind: "website", message: "Right site, but the link uses http. Use the https version." };
     if (OFFICIAL.websites.includes(host))
       return { verdict: "official", kind: "website", message: "This is the official Vicinity website." };
+    // the team lock's own page (the token page's "See the lock"): exact host and path, the address in it case and all
+    const lockPage = (OFFICIAL.teamLocks || []).find((l) => { const u = new URL(l.url); return host === u.hostname && url.pathname.replace(/\/+$/, "") === u.pathname; });
+    if (lockPage && url.protocol === "http:") return { verdict: "warning", kind: "lock", message: "Right lock page, but the link uses http. Use the https version." };
+    if (lockPage) return { verdict: "official", kind: "lock", message: lockMessage(lockPage) };
     const social = socialLink(url);
     if (social) {
       if (social.profile) return { verdict: "official", kind: "social", message: `This is Vicinity's official account on ${social.profile.network}.` };
