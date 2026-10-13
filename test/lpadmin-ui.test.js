@@ -85,7 +85,8 @@ async function tab({ answers = {}, probe = { ok: true, cluster: "mainnet" }, lp 
 }
 
 test("the built admin page loads lp-sign.js and admin-lp.js before admin.js; admin.js shows the tab only for the owner when the server answers", () => {
-  const order = ["/wallets.js", "/lp-sign.js", "/admin-lp.js", "/admin.js"].map((s) => ADMIN_HTML.indexOf(`<script src="${s}" defer></script>`));
+  // design v4: the Overview's charts (admin-charts.js) load right before admin.js too
+  const order = ["/wallets.js", "/lp-sign.js", "/admin-lp.js", "/admin-charts.js", "/admin.js"].map((s) => ADMIN_HTML.indexOf(`<script src="${s}" defer></script>`));
   assert.ok(order.every((i) => i > 0), JSON.stringify(order));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.match(ADMIN_JS, /\["citycoins", "City coins", 3\]/);

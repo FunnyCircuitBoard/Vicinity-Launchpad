@@ -44,26 +44,47 @@
     </div>
   </header>
 
-  <main id="main">
+  <main id="main" class="adm-page">
 
-<section class="wrap">
-  <p class="kicker">Admin</p>
-  <h1 class="page-title">Mission control</h1>
-  <div id="admin-banner" class="admin-banner" hidden><strong>TEST ENVIRONMENT</strong> — preview mode. Nothing here is public. Seeded test rows are marked <span class="mono">[TESTLAB]</span> and can be wiped from the Test lab tab.</div>
+<section class="wrap adm">
+  <div id="admin-banner" class="admin-banner" hidden><strong>Test environment</strong> · preview mode. Nothing here is public. Seeded test rows are marked <span class="mono">[TESTLAB]</span> and can be wiped from the Test lab tab.</div>
 
-  <div id="admin-gate">
-    <p class="lead">Connect the owner wallet and sign a message to open the dashboard.</p>
-    <div id="admin-wallets"></div>
+  <div id="admin-gate" class="card adm-gate">
+    <span class="ico adm-gate__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
+    <p class="kicker">Admin</p>
+    <h1 class="adm-gate__title">Control centre</h1>
+    <p class="adm-gate__lead">Connect the owner wallet and sign a message to open the dashboard.</p>
+    <div id="admin-wallets" class="adm-gate__wallets"></div>
     <p id="admin-addr" class="muted small"></p>
-    <p id="admin-msg" class="muted small mono"></p>
-    <p><button id="admin-sign" class="btn btn--primary" type="button" hidden>Sign in as admin</button></p>
-    <p id="admin-error" hidden></p>
+    <p id="admin-msg" class="muted small mono adm-gate__msg"></p>
+    <p class="adm-gate__go"><button id="admin-sign" class="btn btn--primary btn--block" type="button" hidden>Sign in as admin</button></p>
+    <p id="admin-error" role="alert" hidden></p>
   </div>
 
-  <div id="admin-main" hidden>
-    <p><span id="admin-role" class="role-badge"></span> <span id="admin-who" class="muted small"></span></p>
-    <nav class="admin-tabs" id="admin-tabs" aria-label="Admin sections"></nav>
-    <div id="admin-panel" class="admin-panel"></div>
+  <div id="admin-main" class="adm-shell" hidden>
+    <aside class="adm-side" aria-label="Control centre">
+      <div class="adm-side__head">
+        <p class="adm-side__title">Control centre</p>
+        <p class="adm-side__who"><span id="admin-role" class="role-badge"></span> <span id="admin-who" class="mono"></span></p>
+      </div>
+      <nav class="admin-tabs adm-nav" id="admin-tabs" aria-label="Admin sections"></nav>
+    </aside>
+    <div class="adm-body">
+      <div class="adm-bar">
+        <h1 class="adm-bar__title" id="admin-title">Overview</h1>
+        <div class="adm-bar__meta">
+          <span class="adm-bar__updated" id="admin-updated" aria-live="off"></span>
+          <button class="adm-icon-btn" id="admin-refresh" type="button" aria-label="Refresh this section" title="Refresh"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.9-3"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.9 3"/><path d="M20 20v-4h-4"/></svg></button>
+        </div>
+        <div class="adm-search" id="admin-search-box" hidden>
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+          <label class="sr-only" for="admin-search">Filter this section</label>
+          <input id="admin-search" class="adm-search__input" type="search" placeholder="Filter this section" autocomplete="off" spellcheck="false" enterkeyhint="search">
+          <span class="adm-search__count" id="admin-count" aria-live="polite"></span>
+        </div>
+      </div>
+      <div id="admin-panel" class="admin-panel" aria-labelledby="admin-title"></div>
+    </div>
   </div>
 </section>
   </main>
@@ -95,6 +116,7 @@
   <script src="/wallets.js" defer></script>
   <script src="/lp-sign.js" defer></script>
   <script src="/admin-lp.js" defer></script>
+  <script src="/admin-charts.js" defer></script>
   <script src="/admin.js" defer></script>
   <script src="/feedback.js" defer></script>
 </body>
