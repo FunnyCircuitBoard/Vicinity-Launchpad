@@ -31,6 +31,7 @@ import { activeMint } from "./official.js";
 import { displayTicker, tickerOf } from "./tickers.js";
 import { iso } from "./policy.js";
 import { lpSetup } from "./cluster.js";
+import { ensureLogoSchema } from "./store.js";
 import { buildTx, checkCluster, checkGenesis, lpRpc, readAccounts, respond } from "./lpkit.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas, programDataAddress } from "./sol/pda.js";
 import { createAtaIdempotent } from "./sol/ix.js";
@@ -687,7 +688,8 @@ const symbolOk = (t) => typeof t === "string" && /^[A-Z0-9]{1,10}$/.test(t);
 /** Every city with a coin design: its founder, name, ticker, pair and what keeps it from being approved now. */
 async function candidateList(env, ctx, fetchImpl, now) {
   const s = lpSetup(env), db = env.DB;
-  const rows = (await db.prepare(`SELECT cc.city_id, cc.city_name, cc.country, cc.name, cc.pitch, cc.media_id, cc.updated_at, cc.pair, cc.mint, cc.seat_id,
+  await ensureLogoSchema(db);
+  const rows = (await db.prepare(`SELECT cc.city_id, cc.city_name, cc.country, cc.name, cc.pitch, cc.media_id, cc.approved_media_id, cc.logo_status, cc.updated_at, cc.pair, cc.mint, cc.seat_id,
       s.id AS live_seat, s.status AS seat_status, s.wallet AS seat_wallet, u.wallet AS user_wallet, u.handle
     FROM city_coins cc
     LEFT JOIN seats s ON s.city_id = cc.city_id AND s.status IN ('provisional', 'active', 'grace', 'steward')
@@ -745,7 +747,10 @@ async function candidateList(env, ctx, fetchImpl, now) {
     else if (!r.user_wallet || r.user_wallet !== r.seat_wallet) reasons.push(`The founder's account now uses another wallet (${r.user_wallet || "none"}) than the one that holds the seat (${r.seat_wallet}). Approve only the wallet that will sign the launch.`);
     const warnings = [];
     if (r.seat_wallet && lp && r.seat_wallet === lp.admin) warnings.push("The founder is the launchpad admin's own wallet.");
-    candidates.push({ ...base, symbol: t ? t.ticker : null, pitch: r.pitch || "", logo: Boolean(r.media_id), designAt: r.updated_at || null,
+    // logo: a picture exists; logoStatus: where the working picture's check stands; approved: an approved picture shows to everyone
+    // (src/logos.js: only an approved picture is ever shown to the public; a replacement waits while the approved one keeps showing)
+    candidates.push({ ...base, symbol: t ? t.ticker : null, pitch: r.pitch || "", logo: Boolean(r.media_id), logoStatus: r.media_id ? r.logo_status || "pending" : null,
+      approved: Boolean(r.approved_media_id), designAt: r.updated_at || null,
       nameBytes: new TextEncoder().encode(r.name || "").length, ok: reasons.length === 0, reasons, warnings });
   }
   return { candidates, approvals, launched, global, config, admin: lp ? lp.admin : null, paused: lp ? lp.launchesPaused : null };

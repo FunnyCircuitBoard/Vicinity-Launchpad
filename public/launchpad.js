@@ -500,8 +500,11 @@
     // one avatar recipe: the city's initials on the city's colour, ringed (its logo when it has one)
     const disc = el("div", "coin-disc lp-card__disc lp-ava"); disc.dataset.color = colorOf(c); if (c.kind === "vicinity") disc.dataset.kind = "vicinity"; // $VICINITY wears the Buy panel's own mark
     const logo = logoSrc(c);
-    if (logo) { const img = el("img"); img.src = logo; img.alt = ""; img.width = 64; img.height = 64; img.loading = "lazy"; disc.append(img); }
-    else disc.append(el("span", null, initialsOf(c)));
+    if (logo) {
+      const img = el("img"); img.src = logo; img.alt = ""; img.width = 64; img.height = 64; img.loading = "lazy"; disc.append(img);
+      // a picture whose URL answers "not found" (its bytes no longer match what was approved) gives way to the initials
+      img.addEventListener("error", () => { img.remove(); if (!disc.querySelector("span")) disc.append(el("span", null, initialsOf(c))); });
+    } else disc.append(el("span", null, initialsOf(c)));
     disc.setAttribute("aria-hidden", "true");
     const id = el("div", "lp-card__id");
     // the title is the card's one link (its ::after gives the one line a 44 px hit area)

@@ -42,22 +42,27 @@ test("the city's founder designs its coin; everyone can see it; every change is 
   assert.equal(r.coin.name, "Utica Coin");
   assert.equal(r.coin.pair, "SOL");
   assert.equal(r.coin.pairMint, SOL);
-  assert.match(r.coin.logo, /^\/api\/media\/\d+$/);
+  // the picture waits for an admin's check (src/logos.js, test/logo-review.test.js): the founder sees it as their working picture,
+  // the public picture is none (the Vicinity badge) until it is approved
+  assert.match(r.coin.logoDraft, /^\/api\/media\/\d+$/);
+  assert.deepEqual([r.coin.logoStatus, r.coin.logo, r.coin.logoHash], ["pending", null, null]);
 
   const pub = await browser(env).get("/api/coins?city=5142056");
   assert.equal(pub.coin.name, "Utica Coin");
   assert.equal(pub.coin.color, "emerald");
   assert.equal(pub.coin.launched, false);
+  assert.deepEqual([pub.coin.logo, pub.coin.logoStatus, pub.coin.logoDraft], [null, undefined, undefined], "nothing about a waiting picture leaves the founder's own answer");
   assert.deepEqual(Object.keys(pub.pairs), ["SOL", "USDC", "RAY"]);
-  const logo = await browser(env).send(pub.coin.logo);
-  assert.equal(logo.status, 200);
+  const logo = await f.send(r.coin.logoDraft);
+  assert.equal(logo.status, 200, "the founder sees their working picture");
   assert.equal(logo.headers.get("content-type"), "image/png");
+  assert.equal((await browser(env).send(r.coin.logoDraft)).status, 404, "nobody else does");
   assert.equal((await browser(env).get("/api/coins")).coins.length, 1);
 
   // change the pair and drop the logo
   const r2 = await f.post("/api/coins/design", design({ pair: "USDC", removeLogo: true }));
   assert.equal(r2.coin.pair, "USDC");
-  assert.equal(r2.coin.logo, null);
+  assert.deepEqual([r2.coin.logo, r2.coin.logoDraft, r2.coin.logoStatus], [null, null, null]);
 
   const audit = (await browser(env).get("/api/audit?country=US")).actions.filter((a) => a.action === "coin_design");
   assert.equal(audit.length, 2);
@@ -79,7 +84,7 @@ test("a founder who sold below the amount can't design (grace)", async () => {
 test("launch: the founder submits the contract, a different person (an admin) records it, then the design is locked", async () => {
   const f = await founder();
   assert.equal((await f.post("/api/coins/mint", { mint: CITY_COIN })).error, "design_first");
-  await f.post("/api/coins/design", design());
+  await f.post("/api/coins/design", design({ image: PNG })); // with a picture (waiting for its check): the takedown below has something to take down
   assert.equal((await f.post("/api/coins/mint", { mint: MINT })).error, "not_a_city_coin", "not $VICINITY");
   assert.equal((await f.post("/api/coins/mint", { mint: SOL })).error, "not_a_city_coin", "not the pair");
   assert.equal((await f.post("/api/coins/mint", { mint: "nope" })).error, "bad_address");
@@ -107,6 +112,7 @@ test("launch: the founder submits the contract, a different person (an admin) re
   assert.equal((await adm.post("/api/coins/takedown", { city: "5142056", what: "logo", reason: "abuse" })).error, "reason_required");
   const t = await adm.post("/api/coins/takedown", { city: "5142056", what: "logo", reason: "abuse", note: "Offensive picture" });
   assert.equal(t.ok, true);
+  assert.deepEqual([t.coin.logoStatus, t.coin.logo], ["rejected", null]);
   const log = (await browser(env).get("/api/audit?country=US")).actions.map((a) => a.action);
   for (const a of ["coin_design", "coin_contract_submitted", "coin_launch_confirmed", "coin_logo_removed"]) assert.ok(log.includes(a), a);
 });

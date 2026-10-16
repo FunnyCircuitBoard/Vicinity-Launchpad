@@ -203,9 +203,10 @@ test("approving a city sends what its card showed and the chosen expiry; the app
     "/api/admin/lp/approve/tx": (b) => { bodies.push(b); return bodies.length === 1 ? { ok: false, error: "blocked", message: "The founder's seat is in its grace period." } : { ok: true, step: "approve", cluster: "mainnet", summary: [approveEntry()], record: { step: "approve", params: { cityId: b.cityId } } }; },
     "/api/admin/lp/record": () => ({ ok: true }),
   } });
-  // the card shows the description and the logo the owner approves along with the name
+  // the card shows the description the owner approves along with the name; the picture is checked separately (Moderation › Pictures),
+  // so the card says where its check stands and that the launch does not wait for it
   assert.match(t.text(), /Description \(wallets and Jupiter show it for ever\)The city that never sleeps\./);
-  assert.match(t.text(), /LogoYes/);
+  assert.match(t.text(), /PictureWaiting for a check \(Moderation › Pictures\): wallets show the Vicinity badge until it is approved/);
   const sel = t.panel.querySelector(".lp-select");
   assert.equal(sel.value, "7", "7 days by default");
   t.button("Approve on chain").click(); await tick();

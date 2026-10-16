@@ -1136,6 +1136,8 @@
   }
   function paintCoin({ name, color, logo, pair }) {
     const face = $("#coin-art-face"), img = $("#coin-logo");
+    // a picture whose URL answers "not found" (src/logos.js: its bytes no longer match what was approved) gives way to the initials
+    if (!img.dataset.fallback) { img.dataset.fallback = "1"; img.addEventListener("error", () => { if (!img.hidden) { img.hidden = true; face.hidden = false; } }); }
     $("#coin-art").dataset.color = color || "gold";
     for (const disc of [$(".pass__coin"), $("#welcome-disc").parentNode, $("#cc-face").parentNode]) disc.dataset.color = color || "gold"; // one coin, one colour
     if (logo) { img.src = logo; img.hidden = false; } else { img.hidden = true; img.removeAttribute("src"); }
@@ -1153,9 +1155,11 @@
     const st = $("#coin-status");
     st.className = "tag " + (cd && cd.launched ? "tag--ok" : cd && cd.waiting ? "tag--warn" : cd ? "tag--gold" : "");
     st.textContent = cd && cd.launched ? "● Live" : cd && cd.waiting ? "Contract being checked" : cd ? "Designed" : "Not designed yet";
-    if (!(mine && studioDirty)) paintCoin(cd ? cd : { name: c.name, color: "gold", logo: null, pair: null });
+    // the founder sees their working picture (the server sends logoDraft to them and the staff only); everyone else the approved one or none
+    if (!(mine && studioDirty)) paintCoin(cd ? { ...cd, logo: mine ? cd.logoDraft || cd.logo : cd.logo } : { name: c.name, color: "gold", logo: null, pair: null });
     $("#coin-pitch").textContent = cd ? cd.pitch : "";
     $("#coin-by").textContent = cd ? `Designed by ${cd.by || "the City Founder"} · updated ${date(cd.updatedAt)}` : "";
+    logoState(mine ? cd : null);
     $("#coin-contract").hidden = !(cd && cd.mint);
     // a short chip (the whole address is the copy button's name and the chip's title); Copy copies the whole address
     if (cd && cd.mint) { $("#coin-mint").textContent = cd.mint; $("#coin-mint").title = cd.mint; $("#coin-mint-copy").setAttribute("aria-label", `Copy the contract address ${cd.mint}`); }
@@ -1170,6 +1174,27 @@
     if (mine && !studioDirty) fillStudio();
   }
   const countPitch = () => ($("#cs-count").textContent = `${$("#cs-pitch").value.length}/200`);
+  // the founder's one line about their picture's check (src/logos.js): nobody else gets these fields, so nobody else sees a line.
+  // The reasons in the same words the admin picks from (public/admin.js PICTURE_REASONS). "Shows its initials on the site": a coin
+  // without an approved picture is drawn as the city's initials on its colour here, on the launchpad and on the coin page; the
+  // Vicinity badge is what /coin-meta/<mint>.png serves to wallets.
+  const REASON_WORDS = { scam: "scam or impersonation", abuse: "abuse or hate", illegal: "illegal", spam: "spam", off_topic: "not about the city", other: "breaks the rules" };
+  function logoState(cd) {
+    const p = $("#coin-logo-state");
+    if (!p) return;
+    const s = cd && cd.logoStatus;
+    let text = "";
+    if (s === "pending") {
+      text = cd.logo ? "Your new picture is being checked. Until it is approved, your coin keeps showing the picture approved before."
+        : "Your picture is being checked. Until it is approved, nobody else sees it: your coin shows its initials on the site and the Vicinity badge in wallets.";
+      if (!cd.launched) text += " Your coin can still be approved and launched meanwhile.";
+    } else if (s === "rejected") {
+      text = `Not approved: ${REASON_WORDS[cd.logoReason] || cd.logoReason || "breaks the rules"}.${cd.logoNote ? ` ${cd.logoNote}${/[.!?]$/.test(cd.logoNote) ? "" : "."}` : ""} Replace it to try again.`;
+      if (cd.logo) text += " Your coin keeps showing the picture approved before.";
+    } else if (s === "approved") text = "Approved.";
+    p.textContent = text; p.hidden = !text;
+    p.className = `tiny coin-logo-state${s ? ` is-${s}` : ""}`;
+  }
   function fillStudio() {
     const cd = coinData;
     $("#cs-name").value = cd ? cd.name : me.community.name;
@@ -1181,13 +1206,13 @@
     const p = document.querySelector(`input[name='cs-pair'][value='${cd ? cd.pair : "SOL"}']`); if (p) p.checked = true;
     const k = document.querySelector(`input[name='cs-color'][value='${cd ? cd.color : "gold"}']`); if (k) k.checked = true;
     logoData = null; dropLogo = false;
-    $("#cs-logo-remove").hidden = !(cd && cd.logo);
+    $("#cs-logo-remove").hidden = !(cd && (cd.logoDraft || cd.logo));
     countPitch();
   }
   function studioPreview() {
     studioDirty = true;
     paintCoin({ name: $("#cs-name").value.trim() || me.community.name, color: picked("cs-color", "gold"), pair: picked("cs-pair", "SOL"),
-      logo: logoData ? `data:${logoData.type};base64,${logoData.b64}` : dropLogo ? null : coinData && coinData.logo });
+      logo: logoData ? `data:${logoData.type};base64,${logoData.b64}` : dropLogo ? null : coinData && (coinData.logoDraft || coinData.logo) });
     countPitch();
   }
   $("#coin-studio").addEventListener("input", studioPreview);

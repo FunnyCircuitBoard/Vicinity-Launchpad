@@ -398,7 +398,7 @@
     if (w && w.canEndorse && !w.myEndorsement && !(w.applicants || []).some((a) => a.you)) add("Endorse a founder", `${w.applicants.length} applying to found ${c.name} · ${left(w.closesAt)}`, "info", "founder", "#p-window");
     const e = n && n.election;
     if (e && e.canVote && !e.myVote) add("Vote for your Country Manager", `Election closes ${left(e.closesAt)}`, "info", "community", "#national");
-    if (seated && coinKnown && !coin) add(`Design ${seat.city}'s coin`, "Name, pitch, pair, colour, logo. Public and logged.", "ok", "founder", "#coin-studio");
+    if (seated && coinKnown && !coin) add(`Design ${seat.city}'s coin`, "Name, pitch, pair, colour, logo (shown once checked). Public and logged.", "ok", "founder", "#coin-studio");
     if (seated && coin && !coin.mint && !coin.waiting && !lp.on) add("Add your coin's contract", "Launched it on Raydium LaunchLab? Send the address for a check.", "ok", "founder", "#cs-mint");
     if (seated && lp.on && lp.state === "ready") add("Launch your city coin", "An admin approved it. One signature in your wallet.", "ok", "founder", "#lp-launch");
     if (seated && coin && coin.waiting) add("Contract being checked", "An admin checks it on the blockchain. Nothing to do.", "info", "city", "#coin", true);

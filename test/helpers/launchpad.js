@@ -3,7 +3,8 @@
 // for one mint, and a stand-in for the edge cache. Everything else (people, browsers, the clock) is test/helpers/world.js.
 import { chain, clock, newWorld } from "./world.js";
 import { base58Encode } from "../../src/solana.js";
-import { ensureSchema } from "../../src/store.js";
+import { ensureLogoSchema, ensureSchema } from "../../src/store.js";
+import { hashOf } from "../../src/logos.js";
 
 export const LP = (extra = {}) => newWorld({ LAUNCHPAD_V2: "on", ...extra });
 
@@ -20,15 +21,23 @@ const at = () => new Date(clock.now).toISOString();
 
 /**
  * A coin row as the founder's design and the admin's decision would leave it: `mint` = launched, `pending` = waiting for the
- * admin's check, neither = designed. `user` is the designer's user id (0 = nobody in particular).
+ * admin's check, neither = designed. `user` is the designer's user id (0 = nobody in particular). A picture (`media`) waits for a
+ * check unless `approved` (src/logos.js: then it is the public picture, with the hash of its bytes when the media row exists).
  */
-export async function seedCoin(db, { city, name, country = "US", coin = name, pitch = "", pair = "SOL", color = "gold", media = null,
+export async function seedCoin(db, { city, name, country = "US", coin = name, pitch = "", pair = "SOL", color = "gold", media = null, approved = false,
   mint = null, pending = null, launchedAt = null, updatedAt = at(), user = 0, seat = 0 }) {
   await ensureSchema(db);
-  await db.prepare(`INSERT INTO city_coins (city_id, city_name, country, seat_id, user_id, name, pitch, pair, color, media_id, mint, pending_mint, pending_at,
-      launched_at, launched_by, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(String(city), name, country, seat, user, coin, pitch || null, pair, color, media, mint, pending, pending ? updatedAt : null,
+  await ensureLogoSchema(db);
+  await db.prepare(`INSERT INTO city_coins (city_id, city_name, country, seat_id, user_id, name, pitch, pair, color, media_id, logo_status, mint, pending_mint, pending_at,
+      launched_at, launched_by, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(String(city), name, country, seat, user, coin, pitch || null, pair, color, media, media ? "pending" : null, mint, pending, pending ? updatedAt : null,
       mint ? launchedAt || updatedAt : null, mint ? 1 : null, updatedAt, updatedAt).run();
+  if (media && approved) {
+    const m = await db.prepare("SELECT bytes FROM media WHERE id = ?").bind(media).first();
+    const hash = m ? await hashOf(m.bytes) : "seeded-without-bytes";
+    await db.prepare("UPDATE city_coins SET approved_media_id = ?, logo_hash = ?, logo_status = 'approved', logo_reviewed_at = ?, logo_reviewed_by = 1 WHERE city_id = ?")
+      .bind(media, hash, updatedAt, String(city)).run();
+  }
 }
 
 /** A live founder seat for a person (made directly: the Launchpad only reads seats). Returns the seat id. */

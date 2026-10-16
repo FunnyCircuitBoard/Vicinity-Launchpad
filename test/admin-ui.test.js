@@ -24,7 +24,7 @@ function answers(role, over = {}) {
     "/api/admin/me": { ok: true, wallet: W, role },
     "/api/admin/config": role === "moderator" ? { ok: false, error: "forbidden" } : { ok: true, siteMode: "live", policyVersion: 3, grantedRoles: 1, auditRows: 9, flags: { ADMIN_WALLETS: true } },
     "/api/admin/lp": { ok: false, error: "not_enabled" },
-    "/api/admin/overview": { ok: true, users: 1234, seats: { active: 3, grace: 1 }, openElections: 2, pendingReports: 4, pendingObjections: 1, registeredTokens: 0, launchedCityCoins: 5, snapshots: 0, latestSnapshot: null },
+    "/api/admin/overview": { ok: true, users: 1234, seats: { active: 3, grace: 1 }, openElections: 2, pendingReports: 4, pendingObjections: 1, pendingLogos: 1, registeredTokens: 0, launchedCityCoins: 5, snapshots: 0, latestSnapshot: null },
     "/api/admin/feedback/count": { ok: true, new: 3, counts: { new: 3, seen: 1, done: 0 } },
     "/api/official": { launchpadV2: true, tokenContract: MINT },
     "/api/launchpad": { ok: true, vicinity: { mint: MINT, holders: { count: 142, asOf: ago(4) },
@@ -38,6 +38,12 @@ function answers(role, over = {}) {
     "/api/admin/audit": { ok: true, audit: [{ id: 2, actor: W, action: "users/ban", target: "47ugnHuxsmgNZu8KEv1VXW7wPVVwMWti8vVrK4ADDxWa", detail: "spam", created_at: ago(30) }, { id: 1, actor: W, action: "roles/grant", target: "x", detail: null, created_at: ago(90) }] },
     "/api/admin/claims": { ok: true, claims: [{ id: 7, city_name: "Albany", country: "US", handle: "newhere", pitch: "Makers meetup", total: 0.62 }] },
     "/api/admin/reports": { ok: true, reports: [{ post_id: 3, body: "spam spam", handle: "jo", reports: 2, last_report: ago(60) }] },
+    "/api/admin/logos": { ok: true, waiting: 1, logos: [
+      { city: { id: "5142056", name: "Utica", country: "US" }, coin: "Utica Coin", launched: false, founder: { handle: "uticafounder", wallet: "Own3r*****111" }, mediaId: 7, preview: "/api/media/7",
+        type: "image/webp", size: 34000, uploadedAt: ago(20), status: "pending", reason: null, note: null, reviewedAt: null, approved: false, current: false, hash: null },
+      { city: { id: "5106834", name: "Albany", country: "US" }, coin: "Albany", launched: false, founder: { handle: null, wallet: "Abcde*****xyz" }, mediaId: 5, preview: "/api/media/5",
+        type: "image/png", size: 120000, uploadedAt: ago(900), status: "rejected", reason: "scam", note: "Copies the city seal", reviewedAt: ago(300), approved: false, current: false, hash: null },
+    ] },
     "/api/admin/objections": { ok: true, objections: [] },
     "/api/admin/appeals": { ok: true, appeals: [] },
     "/api/admin/users": { ok: true, users: [{ id: 1, handle: "nycsteward", wallet: W, home_name: "New York City", home_country: "US", created_at: ago(500), banned: 0 }] },
@@ -122,6 +128,9 @@ test("Overview: every number is the API's own; a missing one is '—' with the A
   assert.match(src("Balance samples, 24 h"), /^Last sample 12m ago$/);
   assert.equal(t.card("Balance samples, 24 h").querySelector(".tag").textContent, "Running");
   assert.equal(num("Reported posts"), "4");
+  assert.equal(num("Pictures waiting"), "1", "coin pictures waiting for a check (src/logos.js)");
+  assert.equal(src("Pictures waiting"), "Coin pictures waiting for a check");
+  assert.ok(t.card("Pictures waiting").classList.contains("is-hot"), "lit while something waits");
   assert.equal(num("Seat objections"), "1");
   assert.equal(num("Founder seats"), "4");
   assert.equal(src("Founder seats"), "3 active · 1 grace");
@@ -166,7 +175,7 @@ test("Overview with nothing to say: no market, no sampler, no sample: dashes and
 test("Moderation: claims for admins and the owner only, the other queues for every role; each decision asks first", async () => {
   const admin = await open("admin", { hash: "#moderation" });
   const subs = admin.doc.querySelectorAll(".adm-subtab").map((b) => b.id);
-  assert.deepEqual(subs, ["mod-tab-claims", "mod-tab-reports", "mod-tab-objections", "mod-tab-appeals"]);
+  assert.deepEqual(subs, ["mod-tab-claims", "mod-tab-reports", "mod-tab-logos", "mod-tab-objections", "mod-tab-appeals"]);
   assert.equal(admin.doc.querySelector("#mod-tab-claims").getAttribute("aria-selected"), "true", "the first queue with something waiting");
   assert.match(admin.doc.querySelector("#mod-panel").textContent, /Albany \(US\).*newhere.*Makers meetup/);
   assert.deepEqual(admin.doc.querySelectorAll("#mod-panel button").map((b) => b.textContent), ["Approve", "Reject"]);
@@ -174,10 +183,26 @@ test("Moderation: claims for admins and the owner only, the other queues for eve
   assert.deepEqual(admin.doc.querySelectorAll("#mod-panel button").map((b) => b.textContent), ["Hide", "Dismiss"]);
   assert.equal(admin.doc.querySelector("#mod-tab-reports").getAttribute("tabindex"), "0");
   assert.equal(admin.doc.querySelector("#mod-tab-claims").getAttribute("tabindex"), "-1", "one tab stop for the queue tabs");
+  // Pictures (src/logos.js): the count is what waits (1, not the 2 rows), the preview comes only from our own media route, a rejected
+  // one shows its reason in plain words, an admin gets Approve / Reject with a reason and a note for the founder
+  admin.doc.querySelector("#mod-tab-logos").click();
+  assert.equal(admin.doc.querySelector("#mod-tab-logos .adm-count").textContent, "1");
+  const pics = admin.doc.querySelector("#mod-panel");
+  assert.deepEqual(pics.querySelectorAll("img.adm-thumb").map((i) => i.src), ["/api/media/7", "/api/media/5"]);
+  assert.deepEqual(pics.querySelectorAll("img.adm-thumb").map((i) => i.alt), ["Picture sent for Utica by @uticafounder", "Picture sent for Albany by Abcde*****xyz"], "the picture is what the reviewer looks at, so it has a name");
+  assert.ok(!pics.textContent.includes("Vicinity badge") && !ADMIN_JS.includes("the coin shows the Vicinity badge"), "the site shows the city's initials, not the badge; nothing here says otherwise");
+  assert.match(pics.textContent, /Utica \(US\).*@uticafounder.*webp · 33 KB.*Waiting/);
+  assert.match(pics.textContent, /Albany \(US\).*Abcde\*\*\*\*\*xyz.*Not approved: Scam or impersonation/);
+  assert.ok(!pics.textContent.includes("Copies the city seal"), "the founder's note is not in the table (it is theirs)");
+  assert.deepEqual(pics.querySelectorAll("button").map((b) => b.textContent), ["Approve", "Reject", "Approve", "Reject"]);
+  assert.deepEqual(pics.querySelectorAll("select option").map((o) => o.value).slice(0, 6), ["scam", "abuse", "illegal", "spam", "off_topic", "other"], "the rules' reasons");
   const mod = await open("moderator", { hash: "#moderation" });
   assert.equal(mod.doc.querySelector("#mod-tab-claims"), null, "no claims queue for a moderator");
   assert.equal(mod.asked("/api/admin/claims"), false);
   assert.equal(mod.doc.querySelector("#mod-tab-reports").getAttribute("aria-selected"), "true");
+  mod.doc.querySelector("#mod-tab-logos").click();
+  assert.deepEqual(mod.doc.querySelectorAll("#mod-panel button").map((b) => b.textContent), [], "a moderator looks, admins decide");
+  assert.match(mod.doc.querySelector("#mod-panel").textContent, /admin only/);
   // every decision is behind sure() (window.confirm) in the source: the buttons moved, they did not change
   for (const label of ["Approve", "Reject", "Hide", "Dismiss", "Uphold", "Revoke", "Unban"]) assert.match(ADMIN_JS, new RegExp(`btn\\("${label}[^"]*", async \\(\\) => \\{ if \\(sure\\(`), label);
 });

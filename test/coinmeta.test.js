@@ -8,6 +8,8 @@ import worker from "../src/index.js";
 import { coinMetadataJson, coinPageUrl, handleCoinMeta, metadataUriFor } from "../src/coinmeta.js";
 import { _resetLpCoins, recordLaunchedCoin } from "../src/lpcoins.js";
 import { _resetLpKit } from "../src/lpkit.js";
+import { ensureLogoSchema } from "../src/store.js";
+import { hashOf, rejectLogo } from "../src/logos.js";
 import { metadataAddress } from "../src/sol/metaplex.js";
 import { LAYOUT } from "../src/sol/layout.js";
 import { newWorld } from "./helpers/world.js";
@@ -190,17 +192,28 @@ test("coin-meta: a recorded coin whose JSON is not built yet costs at most one m
   assert.equal((await get(env, chain, `/coin-meta/${DEMOV}.json`, { now: t0 + 6 * 60_000, ip: "198.18.1.1" })).status, 200, "the flooded connection reads it from the database");
 });
 
-test("coin-meta: the PNG is the founder's logo with its real type, or a redirect to the brand PNG (no logo, taken down)", async () => {
+test("coin-meta: the PNG is the founder's APPROVED logo with its real type, or a redirect to the brand PNG (no logo, waiting for a check, tampered, taken down)", async () => {
   const { env, chain } = await demovWorld();
   const none = await get(env, chain, `/coin-meta/${DEMOV}.png`);
   assert.deepEqual([none.status, none.headers.get("location"), none.headers.get("access-control-allow-origin")], [302, "/brand/vicinity-512.png", "*"]);
+  await ensureLogoSchema(env.DB);
   const m = await env.DB.prepare("INSERT INTO media (user_id, type, bytes, created_at) VALUES (1, 'image/png', ?, ?)").bind(PNG, new Date().toISOString()).run();
-  await env.DB.prepare("UPDATE city_coins SET media_id = ? WHERE city_id = ?").bind(m.meta.last_row_id, DEMOV_CITY).run();
+  // uploaded, waiting for an admin's check (src/logos.js): the badge still
+  await env.DB.prepare("UPDATE city_coins SET media_id = ?, logo_status = 'pending' WHERE city_id = ?").bind(m.meta.last_row_id, DEMOV_CITY).run();
+  assert.equal((await get(env, chain, `/coin-meta/${DEMOV}.png`)).status, 302, "a picture nobody approved is never served");
+  // approved: the picture, with the hash of its bytes on the row
+  await env.DB.prepare("UPDATE city_coins SET approved_media_id = media_id, logo_hash = ?, logo_status = 'approved' WHERE city_id = ?").bind(await hashOf(PNG), DEMOV_CITY).run();
   const logo = await get(env, chain, `/coin-meta/${DEMOV}.png`);
   assert.equal(logo.status, 200);
   assert.deepEqual([logo.headers.get("content-type"), logo.headers.get("cache-control"), logo.headers.get("x-content-type-options")], ["image/png", "public, max-age=3600", "nosniff"]);
   assert.deepEqual(new Uint8Array(await logo.arrayBuffer()), PNG);
-  await env.DB.prepare("UPDATE city_coins SET media_id = NULL WHERE city_id = ?").bind(DEMOV_CITY).run(); // an admin took it down
+  // the bytes swapped under the approved row: not what the admin approved, so the badge
+  await env.DB.prepare("UPDATE media SET bytes = ? WHERE id = ?").bind(Uint8Array.from([...PNG.slice(0, 8), ...new Uint8Array(40).fill(2)]), m.meta.last_row_id).run();
+  assert.equal((await get(env, chain, `/coin-meta/${DEMOV}.png`)).status, 302, "tampered bytes are never served");
+  await env.DB.prepare("UPDATE media SET bytes = ? WHERE id = ?").bind(PNG, m.meta.last_row_id).run();
+  assert.equal((await get(env, chain, `/coin-meta/${DEMOV}.png`)).status, 200);
+  // an admin took it down (src/coins.js handleTakedown → rejectLogo): the public picture goes, the badge is back
+  await rejectLogo(env.DB, DEMOV_CITY, { reason: "abuse", note: "Offensive picture", by: 1, at: Date.now(), takedown: true });
   assert.equal((await get(env, chain, `/coin-meta/${DEMOV}.png`)).status, 302);
 });
 

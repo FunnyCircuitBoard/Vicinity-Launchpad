@@ -40,7 +40,8 @@ async function threeStates(env) {
   await seedCoin(env.DB, { city: 5142056, name: "Utica", coin: "Utica Coin", pitch: "The Handshake City, on the map.", pair: "SOL", color: "emerald",
     mint: CITY_COIN, launchedAt: "2026-10-11T10:00:00.000Z", updatedAt: "2026-10-11T10:00:00.000Z", user: u.id, seat: 1 });
   await seedCoin(env.DB, { city: 5140405, name: "Syracuse", coin: "Syracuse Salt", pitch: "Salt City.", pair: "USDC", color: "ocean", pending: PENDING, updatedAt: "2026-10-12T09:00:00.000Z" });
-  await seedCoin(env.DB, { city: 5106834, name: "Albany", coin: "Albany", pair: "RAY", color: "violet", media: 7, updatedAt: "2026-10-10T09:00:00.000Z" });
+  // Albany's picture was approved by an admin (src/logos.js): only then does a card carry it
+  await seedCoin(env.DB, { city: 5106834, name: "Albany", coin: "Albany", pair: "RAY", color: "violet", media: 7, approved: true, updatedAt: "2026-10-10T09:00:00.000Z" });
   await tick(env); // a balance sample (member holders) and the holder counts
   return { f, other };
 }

@@ -482,7 +482,8 @@
     const attn = el("section", "adm-ov__attn"); attn.setAttribute("aria-labelledby", "ov-attn");
     const ah = h2("Needs attention"); ah.id = "ov-attn";
     const agrid = el("div", "adm-metrics adm-metrics--attn");
-    const A = { inbox: metric("Inbox: new", { attn: true }), reports: metric("Reported posts", { attn: true }), objections: metric("Seat objections", { attn: true }), seats: metric("Founder seats", { attn: true }) };
+    const A = { inbox: metric("Inbox: new", { attn: true }), reports: metric("Reported posts", { attn: true }), pictures: metric("Pictures waiting", { attn: true }),
+      objections: metric("Seat objections", { attn: true }), seats: metric("Founder seats", { attn: true }) };
     agrid.append(...Object.values(A).map((m) => m.root));
     attn.append(ah, agrid);
 
@@ -505,6 +506,9 @@
     M.coins.set(int(ov.launchedCityCoins), { from: "City coins with a recorded contract" });
     M.elections.set(int(ov.openElections), { from: "Country votes open now" });
     A.reports.set(int(ov.pendingReports), { from: "Posts with open reports", action: go("Review", "moderation", "reports") }).hot(ov.pendingReports > 0);
+    // coin pictures a founder uploaded that no admin has looked at yet (the badge shows meanwhile); an old server's answer has no count
+    if (ov.pendingLogos == null) A.pictures.none("Not counted by this server yet", { action: go("Review", "moderation", "logos") });
+    else A.pictures.set(int(ov.pendingLogos), { from: "Coin pictures waiting for a check", action: go("Review", "moderation", "logos") }).hot(ov.pendingLogos > 0);
     A.objections.set(int(ov.pendingObjections), { from: "Open objections to a founder seat", action: go("Review", "moderation", "objections") }).hot(ov.pendingObjections > 0);
     A.inbox.set(int(inboxNew), { from: "Questions, bug reports and city requests", action: go("Open inbox", "inbox") }).hot(inboxNew > 0);
     A.inbox.num.id = "ov-inbox-new";
@@ -792,14 +796,17 @@
     if (can(2)) queues.push({ id: "claims", label: "Claims", load: () => api("/api/admin/claims"), list: (d) => d.claims, draw: claimsTable, fail: "Couldn't load claims." });
     queues.push(
       { id: "reports", label: "Reports", load: () => api("/api/admin/reports"), list: (d) => d.reports, draw: reportsTable, fail: "Couldn't load reports." },
+      // coin pictures: the list holds what waits and what was decided lately; the count is what waits (every role may look, admins decide)
+      { id: "logos", label: "Pictures", load: () => api("/api/admin/logos"), list: (d) => d.logos, count: (d) => d.waiting, draw: picturesTable, fail: "Couldn't load pictures." },
       { id: "objections", label: "Objections", load: () => api("/api/admin/objections"), list: (d) => d.objections, draw: objectionsTable, fail: "Couldn't load objections." },
       { id: "appeals", label: "Appeals", load: () => api("/api/admin/appeals"), list: (d) => d.appeals, draw: appealsTable, fail: "Couldn't load appeals." },
     );
     const answers = await Promise.all(queues.map((q) => q.load()));
     const bar = el("div", "seg adm-subtabs"); bar.setAttribute("role", "tablist"); bar.setAttribute("aria-label", "Moderation queues");
     const panel = el("div", "adm-subpanel"); panel.id = "mod-panel"; panel.setAttribute("role", "tabpanel"); panel.tabIndex = 0;
+    const waiting = (q, d) => (q.count ? Number(q.count(d)) || 0 : (q.list(d) || []).length);
     const tabs = queues.map((q, i) => {
-      const d = answers[i], n = d && d.ok ? (q.list(d) || []).length : null;
+      const d = answers[i], n = d && d.ok ? waiting(q, d) : null;
       const b = el("button", "adm-subtab"); b.type = "button"; b.id = `mod-tab-${q.id}`;
       b.setAttribute("role", "tab"); b.setAttribute("aria-controls", "mod-panel");
       b.append(el("span", null, q.label));
@@ -824,7 +831,7 @@
     }
     // the queue asked for (a card on the Overview, or the one open before a decision), else the first that has something waiting
     let start = queues.findIndex((q) => q.id === (opt.sub || modSub));
-    if (start < 0) start = Math.max(0, queues.findIndex((q, i) => answers[i] && answers[i].ok && (q.list(answers[i]) || []).length));
+    if (start < 0) start = Math.max(0, queues.findIndex((q, i) => answers[i] && answers[i].ok && waiting(q, answers[i])));
     p.append(bar, panel);
     pick(start, false);
   }
@@ -846,6 +853,46 @@
       const act = actTd(tr);
       act.append(btn("Hide", async () => { if (sure("Hide this post for good?")) okMsg(await post("/api/admin/reports/decide", { id: x.post_id, action: "hide" }), "Post hidden"); }));
       act.append(btn("Dismiss", async () => { if (sure("Dismiss all reports on this post?")) okMsg(await post("/api/admin/reports/decide", { id: x.post_id, action: "dismiss" }), "Report dismissed"); }));
+    });
+  // the reasons the rules know (src/policy.js moderation.reasons), in plain words: the same words the founder reads on their dashboard
+  // (public/dashboard.js REASON_WORDS); the founder sees the reason and the note
+  const PICTURE_REASONS = [["scam", "Scam or impersonation"], ["abuse", "Abuse or hate"], ["illegal", "Illegal"], ["spam", "Spam"], ["off_topic", "Not about the city"], ["other", "Breaks the rules"]];
+  const PICTURE_STATE = { pending: "Waiting", approved: "Approved", rejected: "Not approved" };
+  const kb = (n) => (n == null ? "—" : `${Math.max(1, Math.round(Number(n) / 1024))} KB`);
+  /**
+   * Coin pictures: the preview goes through /api/media, which serves a waiting picture to the staff and its founder only. The actions
+   * cell holds the reason and the note on their own line and the two buttons under them, so it wraps instead of widening the table.
+   */
+  const picturesTable = (logos) => table(
+    ["Picture", "City", "Founder", "File", "Uploaded", "State", ""],
+    logos,
+    (tr, x) => {
+      const pic = el("td", "adm-pic");
+      const cityName = x.city ? x.city.name : "—", founder = x.founder ? (x.founder.handle ? `@${x.founder.handle}` : x.founder.wallet || "—") : "—";
+      // the picture is what the reviewer looks at, so it has a name (plain words: nothing here says it is approved)
+      if (/^\/api\/media\/\d+$/.test(String(x.preview || ""))) { const img = el("img", "adm-thumb"); img.src = x.preview; img.alt = `Picture sent for ${cityName} by ${founder}`; img.width = 48; img.height = 48; img.loading = "lazy"; pic.append(img); }
+      else pic.textContent = "—";
+      tr.append(pic);
+      td(tr, `${cityName}${x.city && x.city.country ? ` (${x.city.country})` : ""}${x.launched ? " · live" : ""}`);
+      td(tr, founder);
+      td(tr, `${String(x.type || "").replace("image/", "") || "?"} · ${kb(x.size)}`);
+      td(tr, x.uploadedAt ? ago(x.uploadedAt) : "—");
+      const state = PICTURE_STATE[x.status] || x.status || "—";
+      // a replacement that waits or was refused while an earlier approved picture is still the public one says so
+      td(tr, `${x.status === "rejected" && x.reason ? `${state}: ${(PICTURE_REASONS.find(([k]) => k === x.reason) || [])[1] || x.reason}` : state}${x.approved && !x.current ? " · an earlier approved picture still shows" : ""}`, "adm-text");
+      const act = actTd(tr); act.classList.add("adm-act--pic");
+      if (!can(2)) { act.append(el("span", "muted", "admin only")); return; }
+      if (x.status === "approved" && x.current) { act.append(el("span", "muted", "Shown to everyone")); return; }
+      const reason = el("select", "adm-pic__reason"); reason.setAttribute("aria-label", "Reason");
+      for (const [k, label] of PICTURE_REASONS) { const o = el("option", null, label); o.value = k; reason.append(o); }
+      const note = textInput("Note for the founder (3 to 300 characters)"); note.maxLength = 300; note.className = "adm-pic__note"; note.setAttribute("aria-label", "Note for the founder");
+      const city = x.city ? x.city.id : null, mediaId = x.mediaId;
+      const form = el("div", "adm-pic__reject"); form.append(reason, note); act.append(form);
+      act.append(btn("Approve", async () => { if (sure("Approve this picture? Everyone will see it on the coin from now on.")) okMsg(await post("/api/admin/logos/decide", { city, mediaId, action: "approve" }), "Picture approved"); }));
+      act.append(btn("Reject", async () => {
+        if (note.value.trim().length < 3) { toast("Write a short note for the founder first (at least 3 characters)."); return; }
+        if (sure("Reject this picture? The founder sees the reason and your note; nobody else sees the picture.")) okMsg(await post("/api/admin/logos/decide", { city, mediaId, action: "reject", reason: reason.value, note: note.value.trim() }), "Picture rejected");
+      }));
     });
   const appealsTable = (appeals) => table(
     ["From", "Text", "When", ""],

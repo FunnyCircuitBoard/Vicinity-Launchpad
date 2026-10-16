@@ -475,6 +475,14 @@ test("approval candidates: SOL pair, name of at most 32 bytes, the ticker, a liv
   assert.equal(r.ok, true, JSON.stringify(r));
   const by = (id) => r.candidates.find((c) => c.cityId === String(id));
   assert.deepEqual([by(city.NYC).ok, by(city.NYC).symbol, by(city.NYC).founder, by(city.NYC).nameBytes, by(city.NYC).handle], [true, "NYC", f[0].w.address, 14, "nyc"]);
+  // the picture's check is separate (src/logos.js): the card says whether a picture exists, where its check stands and whether an approved one shows
+  assert.deepEqual([by(city.NYC).logo, by(city.NYC).logoStatus, by(city.NYC).approved], [false, null, false]);
+  await w.env.DB.prepare("UPDATE city_coins SET media_id = 1, approved_media_id = 1, logo_hash = 'h', logo_status = 'approved' WHERE city_id = ?").bind(String(city.NYC)).run();
+  await w.env.DB.prepare("UPDATE city_coins SET media_id = 2, logo_status = 'pending' WHERE city_id = ?").bind(String(city.NYC)).run(); // a replacement waits while the approved one shows
+  r = (await w.call("/api/admin/lp/candidates")).data;
+  assert.deepEqual([by(city.NYC).logo, by(city.NYC).logoStatus, by(city.NYC).approved], [true, "pending", true]);
+  await w.env.DB.prepare("UPDATE city_coins SET media_id = NULL, approved_media_id = NULL, logo_hash = NULL, logo_status = NULL WHERE city_id = ?").bind(String(city.NYC)).run();
+  r = (await w.call("/api/admin/lp/candidates")).data;
   assert.match(by(city.SYR).reasons.join(" "), /paired with USDC; only SOL-paired coins/);
   assert.match(by(city.ALB).reasons.join(" "), /33 bytes long; the most is 32/);
   assert.match(by(city.UTI).reasons.join(" "), /grace period/);

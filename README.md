@@ -105,6 +105,7 @@ The scheduled job and the full holder list need more CPU time than Cloudflare's 
 | `GET\|POST /api/posts` · `POST /api/posts/vote` · `/api/posts/report` · `GET /api/media/:id` | Feeds |
 | `POST /api/seats/apply` · `/withdraw` · `/endorse` · `/object` · `/objections/decide` · `/api/elections/vote` | Founders and managers |
 | `GET /api/coins` (`?city=`, admins `?waiting=1`) · `POST /api/coins/design` · `/mint` · `/mint/decide` · `/takedown` · `GET /api/prices?mints=` | City coins designed by founders (src/coins.js); prices for the swap panel |
+| admins: `GET /api/admin/logos` · `POST /api/admin/logos/decide` | A founder's coin picture is checked by an admin before anyone sees it (src/logos.js): until approved every public surface shows no picture (`/api/media` answers 404 to everyone but the founder and the staff) and `/coin-meta/<mint>.png` redirects to the Vicinity badge; an approved picture is served with the sha256 of its bytes (`logoHash`) and only while the bytes still match it |
 | `GET /api/launchpad` | The Launchpad's coin list: $VICINITY and every city coin as cards with market data, holder and member counts, trade links. Only while `LAUNCHPAD_V2=on`, otherwise `404 not_enabled` |
 | `GET /api/mod` · `POST /api/mod/hide` · `/unhide` · `/ban` · `/ban/approve` · `/ban/reject` · `/api/appeals` (+`/decide`) | Moderation |
 | `GET\|POST /api/towns` · `POST /api/towns/decide` · `POST /api/snapshots/cancel` | Town requests · correcting a snapshot |
