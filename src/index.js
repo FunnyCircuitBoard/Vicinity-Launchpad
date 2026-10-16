@@ -40,7 +40,7 @@
  *   GET /api/coin/chart?mint=&tf=1h|24h|7d|30d|all   its price history (src/pricehistory.js)
  * Signed in: /api/me · /api/me/{terms,username,phone} · /api/me/contact/email/{verify,remove} · /api/home
  *   · /api/locate (the place a location is read, with /api/locate/handoff/* when a wallet app's browser can't
- *   share GPS: src/handoff.js) · /api/posts(/vote, /report)
+ *   share GPS: src/handoff.js) · /api/posts(/vote, /report) · feed v2 (FEED_V2=on only): POST /api/posts/delete · POST /api/mute · GET /api/mutes
  *   · /api/seats/{apply,withdraw,endorse,object,resign} · /api/elections/vote · /api/appeals · /api/towns
  *   · /api/seats/squad/{create,join,leave,apply} · /api/seats/squad/:id (readiness)
  * Feedback / Support (the floating widget on every page, no login needed): POST /api/feedback (src/feedback.js)
@@ -66,7 +66,8 @@ import { handleEmailStart, handleEmailVerify, handleGoogleAdd, handleLogout, han
 import { handleContactEmailRemove, handleContactEmailVerify, handleGoogleRemove, handleHome, handleMe, handleMembers, handlePhone, handleTermsAgree, handleUsername } from "./me.js";
 import { handleLocate } from "./attest.js";
 import { handleHandoffClaim, handleHandoffComplete, handleHandoffInfo, handleHandoffStart } from "./handoff.js";
-import { handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
+import { handleDelete, handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
+import { handleMute, handleMutes } from "./mutes.js";
 import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
 import { handleElectionResult, handleElectionVote } from "./elections.js";
 import { handleAppeal, handleAudit, handleBanDecision, handleDecideAppeal, handleHide, handleModQueue, handleMyTowns, handleProposeBan,
@@ -75,7 +76,7 @@ import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots,
 import { managerOf } from "./roles.js";
 import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown, jupiterPrices, officialCityCoin, wantedMints } from "./coins.js";
 import { runJobs } from "./jobs.js";
-import { launchpadV2On, profilesOn, v2On } from "./flags.js";
+import { feedV2On, launchpadV2On, profilesOn, v2On } from "./flags.js";
 import { linkAccountFor, routeWalletLink } from "./walletlink.js";
 import { routeV2 } from "./signup.js";
 import { PROFILE_PATHS, routeProfiles } from "./profiles.js";
@@ -237,6 +238,13 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   if (path === "/api/me/google/add" || path === "/api/me/google/remove") {
     if (!v2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
     return only("POST") || (path === "/api/me/google/add" ? handleGoogleAdd(request, env) : handleGoogleRemove(request, env));
+  }
+
+  // feed v2 (FEED_V2=on): delete your own post, mute. With the switch off these paths answer exactly what any unknown path answers today.
+  if (path === "/api/posts/delete" || path === "/api/mute" || path === "/api/mutes") {
+    if (!feedV2On(env)) return json({ error: "not_found" }, 404);
+    if (path === "/api/mutes") return only("GET") || handleMutes(request, env);
+    return only("POST") || (path === "/api/mute" ? handleMute(request, env) : handleDelete(request, env, fetchImpl));
   }
 
   // member profiles: with the switch off they are simply not there either (before any method check, so nothing can be probed)

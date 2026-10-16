@@ -820,7 +820,18 @@
 
   /* ---------- feeds ---------- */
   let scope = "city", kind = "meme", sort = "new", oldest = 0, loading = false, picture = null;
-  const PLACEHOLDER = { meme: "Caption a local meme…", checkin: "Say something about where you are (optional)", talk: "Start a discussion with your neighbours…" };
+  const PLACEHOLDER = { meme: "Caption a local meme…", checkin: "Say something about where you are (optional)", talk: "Start a discussion with your neighbours…", update: "Share an update with everyone here…" };
+  // feed v2 (FEED_V2=on, /api/me says feedV2: true): the Updates chip, who may write one, the per-row menu, the one national confirmation
+  const feedV2 = () => Boolean(me && me.feedV2);
+  const UPDATE_HINT = "Updates come from the city founder, the country manager or Vicinity.";
+  const mayUpdate = () => Boolean(me && me.roles && (me.roles.admin || (scope === "city" ? me.roles.founder : me.roles.manager)));
+  /** POST /api/posts; the first national post asks once ("Everyone in <country> will see this. Post it?") and is sent again with ack: true. */
+  async function postWithAck(body) {
+    const r = await api("/api/posts", body);
+    if (r.error !== "needs_ack") return r;
+    if (!confirm(`Everyone in ${countryName(r.country || (me && me.user.home.country))} will see this. Post it?`)) return { ok: false, error: "not_sent" };
+    return api("/api/posts", { ...body, ack: true });
+  }
   const NEEDS_WALLET_POST = "Link a wallet and hold any $VICINITY to post.";
   const POST_ERR = {
     holders_only: () => (me && !me.user.wallet ? NEEDS_WALLET_POST : "Only $VICINITY holders can post and vote now that it's live. Holding any amount unlocks it."),
@@ -835,12 +846,20 @@
     already_hidden: "It's already hidden.",
     already_proposed: "A ban for this person is already waiting for approval.",
     already_appealed: "You've already appealed this.",
+    no_image: "An update is words only: no picture.",
+    too_many_mutes: "You've muted as many people as we allow. Unmute someone first.",
+    self: "You can't mute yourself.",
+    feed_unavailable: "The feed is having trouble right now. Please try again in a few minutes.",
   };
   /** The tabbed dashboard: a member the server would refuse (holders_only: launched, not holding, not an admin) sees one line instead of a form. */
   const postLocked = () => Boolean(v2 && me && me.launched && me.roles && !me.roles.holder && !me.roles.admin);
   function setupComposer() {
-    const national = scope === "country", checkin = kind === "checkin";
+    const national = scope === "country", checkin = kind === "checkin", update = kind === "update";
     const locked = postLocked(), lock = $("#feed .composer-lock");
+    $$(".chips [data-feed-v2]").forEach((b) => (b.hidden = !feedV2()));
+    $("#feed .chips").classList.toggle("chips--4", feedV2()); // four kinds in the tabbed layout's grid (polish-dash.css)
+    // the Updates chip: everyone reads the hint; only the founder (Local), the manager (National) or an admin gets the form
+    const hint = $("#c-hint"); hint.hidden = !update; hint.textContent = update ? UPDATE_HINT : "";
     lock.hidden = !locked;
     if (locked) {
       const wallet = Boolean(me.user.wallet), go = $("#feed .composer-lock__go");
@@ -849,9 +868,9 @@
       go.href = wallet ? "#home" : "/connect?mode=link";
       if (wallet) go.dataset.go = "#trade"; else delete go.dataset.go;
     }
-    $("#composer").hidden = (national && checkin) || locked;
+    $("#composer").hidden = (national && checkin) || locked || (update && !mayUpdate());
     $("#c-text").placeholder = me && me.launched && !me.user.wallet ? NEEDS_WALLET_POST : PLACEHOLDER[kind]; // after launch only holders post: a wallet comes first
-    $("#c-text").maxLength = kind === "talk" ? 1000 : kind === "meme" ? 280 : 140;
+    $("#c-text").maxLength = kind === "talk" ? 1000 : kind === "meme" ? 280 : update ? 500 : 140;
     $("#c-pic-label").hidden = kind !== "meme";
     $("#c-post").textContent = checkin ? "📍 Check in here" : "Post";
     if (kind !== "meme") clearPicture();
@@ -873,8 +892,8 @@
   function emptyFeed() {
     const li = el("li", "empty-feed");
     const where = scope === "city" ? me.user.home.name : countryName(me.user.home.country);
-    li.append(el("strong", null, `${{ meme: "No memes yet", checkin: "No check-ins yet", talk: "No discussions yet" }[kind]} in ${where}.`),
-      el("span", null, kind === "checkin" && scope === "country" ? "Check in from your city's Local tab." : "Be the first: the first posts set the tone for everyone who joins after you."));
+    li.append(el("strong", null, `${{ meme: "No memes yet", checkin: "No check-ins yet", talk: "No discussions yet", update: "No updates yet" }[kind]} in ${where}.`),
+      el("span", null, kind === "checkin" && scope === "country" ? "Check in from your city's Local tab." : kind === "update" ? UPDATE_HINT : "Be the first: the first posts set the tone for everyone who joins after you."));
     return li;
   }
   async function loadFeed(reset) {
@@ -911,7 +930,7 @@
     toast(r.ok ? "Appeal sent" : errText(POST_ERR, r, "Couldn't send.")); if (r.ok) refresh();
   }
 
-  function postEl(p, { reply = false, queue = false } = {}) {
+  function postEl(p, { reply = false, queue = false, onDeleted = null } = {}) {
     const li = el("li", `post${p.hidden ? " is-hidden" : ""}`);
     if (!reply) {
       const v = el("div", "post__vote");
@@ -936,6 +955,7 @@
     if (p.hideAction) meta.append(el("span", "tag", REASONS[p.hideAction.reason] || p.hideAction.reason));
     if (p.pendingBy) meta.append(el("span", "tag tag--warn", `hidden by ${p.pendingBy}, needs a 2nd moderator`));
     if (p.reports) meta.append(el("span", "tag tag--warn", `${p.reports} report${p.reports === 1 ? "" : "s"}`));
+    if (p.deleted) meta.append(el("span", "tag tag--no", "Deleted by the author")); // the moderators' queue keeps it as evidence; it is in no feed
     li.append(meta);
     if (p.body) li.append(p.kind === "checkin" && !reply ? labelled(el("p", "post__body"), "pin", "📍", p.body) : el("p", "post__body", p.body));
     if (p.image) { const img = el("img", "post__img"); img.src = p.image; img.alt = "Meme picture"; img.loading = "lazy"; li.append(img); }
@@ -945,14 +965,42 @@
       actions.append(rb);
     }
     if (p.mine && p.hidden && p.hideAction) actions.append(actBtn("Appeal", () => appeal(p.hideAction.id)));
-    if (!p.mine && !p.hidden) actions.append(actBtn("Report", async () => {
+    const report = () => actBtn("Report", async () => {
       const reason = prompt("Why are you reporting this? (optional)");
       if (reason === null) return;
       const r = await api("/api/posts/report", { id: p.id, reason });
       toast(r.ok ? "Reported. Thanks for keeping your city clean." : errText(POST_ERR, r, "Couldn't report."));
-    }));
+    });
+    if (feedV2()) {
+      if (p.author && p.author.handle) li.dataset.author = p.author.handle;
+      const items = [];
+      if (p.mine && !p.deleted) items.push(actBtn("Delete", async () => {
+        if (!confirm("Delete this post? It disappears for everyone.")) return;
+        const r = await api("/api/posts/delete", { id: p.id });
+        if (!r.ok) return toast(errText(POST_ERR, r, "Couldn't delete."));
+        li.remove(); toast("Deleted");
+        if (onDeleted) onDeleted(); // a reply: the parent's count goes down
+      }));
+      else if (!p.mine) {
+        // Mute only where there is a profile to unmute from (PROFILES=on, me.profilesFlag)
+        if (p.author && p.author.handle && me.profilesFlag) items.push(actBtn("Mute", async () => {
+          const r = await api("/api/mute", { user: p.author.handle, on: true });
+          if (!r.ok) return toast(errText(POST_ERR, r, "Couldn't mute."));
+          $$(`#posts .post[data-author="${CSS.escape(p.author.handle)}"]`).forEach((x) => x.remove());
+          toast(`Muted ${p.author.name}. Unmute from their profile.`);
+        }));
+        if (!p.hidden && !p.deleted) items.push(report());
+      }
+      if (items.length) {
+        const menu = el("div", "post__menu"); menu.hidden = true; menu.append(...items);
+        const more = el("button", "post__more", "···"); more.type = "button"; more.setAttribute("aria-label", "More"); more.setAttribute("aria-expanded", "false");
+        more.addEventListener("click", () => { menu.hidden = !menu.hidden; more.setAttribute("aria-expanded", String(!menu.hidden)); });
+        actions.append(more, menu);
+      }
+    } else if (!p.mine && !p.hidden) actions.append(report());
     if (p.canModerate && !p.mine) {
-      if (!p.hidden) actions.append(actBtn("Hide", () => reasonForm(li, "Hide for 24 h", async (reason, note) => {
+      if (p.deleted) { /* nothing to hide or unhide: the author took it down; a ban can still be proposed */ }
+      else if (!p.hidden) actions.append(actBtn("Hide", () => reasonForm(li, "Hide for 24 h", async (reason, note) => {
         const r = await sensitive(() => api("/api/mod/hide", { id: p.id, reason, note }));
         toast(r.ok ? (r.confirmed ? "Hidden (confirmed by reports)" : "Hidden for 24 hours unless a second moderator confirms") : errText(POST_ERR, r, "Couldn't hide."));
         if (r.ok) { loadFeed(true); loadMod(); }
@@ -985,16 +1033,19 @@
     form.append(input, send);
     li.append(ul, form);
     const d = await api(`/api/posts?parent=${p.id}`);
-    ul.replaceChildren(...(d.posts || []).map((r) => postEl(r, { reply: true })));
+    const relabel = () => labelled(btn, "chat", "💬", p.replies ? `${p.replies} repl${p.replies === 1 ? "y" : "ies"}` : "Reply");
+    const onDeleted = () => { p.replies = Math.max(0, p.replies - 1); relabel(); }; // your own reply, deleted: the count follows at once
+    ul.replaceChildren(...(d.posts || []).map((r) => postEl(r, { reply: true, onDeleted })));
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const text = input.value.trim(); if (!text) return;
       send.disabled = true;
-      const r = await api("/api/posts", { parent: p.id, body: text });
+      const r = await postWithAck({ parent: p.id, body: text });
       send.disabled = false;
+      if (r.error === "not_sent") return; // the person said no to the national confirmation
       if (!r.ok) return toast(errText(POST_ERR, r, "Couldn't reply."));
-      input.value = ""; ul.append(postEl(r.post, { reply: true }));
-      p.replies += 1; labelled(btn, "chat", "💬", `${p.replies} repl${p.replies === 1 ? "y" : "ies"}`);
+      input.value = ""; ul.append(postEl(r.post, { reply: true, onDeleted }));
+      p.replies += 1; relabel();
     });
   }
 
@@ -1028,8 +1079,9 @@
     btn.disabled = true;
     try {
       if (kind === "checkin") { btn.textContent = "Checking your location…"; body.attestation = (await locateFor("checkin")).attestation; }
-      const r = await api("/api/posts", body);
-      if (!r.ok) throw new Error(errText(POST_ERR, r, "Couldn't post. Please try again."));
+      const r = await postWithAck(body);
+      if (r.error === "not_sent") return; // the person said no to the national confirmation
+      if (!r.ok) throw new Error(kind === "update" && r.error === "not_allowed" ? UPDATE_HINT : errText(POST_ERR, r, "Couldn't post. Please try again."));
       $("#c-text").value = ""; clearPicture(); count();
       if (sort !== "new") $("[data-sort='new']").click();
       else { const list = $("#posts"); list.querySelector(".empty-feed")?.remove(); list.prepend(postEl(r.post)); }

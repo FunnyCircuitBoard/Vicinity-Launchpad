@@ -24,7 +24,7 @@
 import { getSession, isFresh, SESSION_COOKIE } from "./auth.js";
 import { adminWallets } from "./roles.js";
 import { clearCookie, cookie, getCookie, json, readJson, sameSite, sha256 } from "./http.js";
-import { ensureFeedbackSchema, ensureSchema } from "./store.js";
+import { ensureFeedbackSchema, ensureSchema, feedApplied } from "./store.js";
 import { KINDS as FEEDBACK_KINDS, STATUSES as FEEDBACK_STATUSES } from "./feedback.js";
 import { autoUsername, cleanText } from "./text.js";
 import { isSolanaAddress } from "./solana.js";
@@ -132,13 +132,17 @@ async function handleMe(request, env, now) {
   return json({ ok: true, wallet: c.wallet, role: await adminRoleOf(env, c.wallet) });
 }
 
+/** Feed v2: a reported post its author deleted is nobody's to review here (once the column exists; on today's database the text is empty). */
+const notDeleted = async (ctx) => ((await feedApplied(ctx.db, ctx.now)) ? " AND p.deleted_at IS NULL" : "");
+
 async function handleOverview(ctx) {
   const { db } = ctx;
+  const alive = await notDeleted(ctx);
   const [users, seats, elections, reports, objections, tokens, coins, snaps] = await Promise.all([
     db.prepare("SELECT COUNT(*) AS n FROM users").first(),
     db.prepare("SELECT status, COUNT(*) AS n FROM seats GROUP BY status").all(),
     db.prepare("SELECT COUNT(*) AS n FROM elections WHERE status = 'open'").first(),
-    db.prepare("SELECT COUNT(*) AS n FROM reports r JOIN posts p ON p.id = r.post_id WHERE p.hidden = 0").first(),
+    db.prepare(`SELECT COUNT(*) AS n FROM reports r JOIN posts p ON p.id = r.post_id WHERE p.hidden = 0${alive}`).first(),
     db.prepare("SELECT COUNT(*) AS n FROM objections WHERE status = 'open'").first(),
     db.prepare("SELECT COUNT(*) AS n FROM admin_tokens").first(),
     db.prepare("SELECT COUNT(*) AS n FROM city_coins WHERE mint IS NOT NULL").first(),
@@ -385,7 +389,7 @@ async function handleReports(ctx) {
     `SELECT p.id AS post_id, p.body, p.kind, p.scope, p.place, p.country, p.created_at, u.handle, u.name,
             COUNT(r.user_id) AS reports, MAX(r.created_at) AS last_report, MAX(r.reason) AS reason
      FROM reports r JOIN posts p ON p.id = r.post_id JOIN users u ON u.id = p.user_id
-     WHERE p.hidden = 0 GROUP BY p.id ORDER BY last_report DESC LIMIT 100`).all()).results;
+     WHERE p.hidden = 0${await notDeleted(ctx)} GROUP BY p.id ORDER BY last_report DESC LIMIT 100`).all()).results;
   return json({ ok: true, reports: withoutName(ctx, rows) });
 }
 
@@ -394,8 +398,8 @@ async function handleReportDecide(request, ctx) {
   const postId = Number(body && body.id) || 0;
   const action = body && body.action;
   if (!postId || !["hide", "dismiss"].includes(action)) return json({ ok: false, error: "bad_request" }, 400);
-  const post = await ctx.db.prepare("SELECT id, hidden FROM posts WHERE id = ?").bind(postId).first();
-  if (!post) return json({ ok: false, error: "not_found" }, 404);
+  const post = await ctx.db.prepare("SELECT * FROM posts WHERE id = ?").bind(postId).first();
+  if (!post || post.deleted_at) return json({ ok: false, error: "not_found" }, 404); // deleted by its author (feed v2): nothing to hide, nothing to log about it
   const note = cleanText(body.note, 200);
   if (action === "hide") {
     await ctx.db.batch([

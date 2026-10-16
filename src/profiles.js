@@ -31,7 +31,7 @@
  */
 import { json, readJson } from "./http.js";
 import { access } from "./access.js";
-import { ensureProfilesSchema } from "./store.js";
+import { ensureProfilesSchema, feedApplied, feedReady } from "./store.js";
 import { iso } from "./policy.js";
 import { activeMint } from "./official.js";
 import { getHolding, holderSnapshot, isTeamWallet, rankOf } from "./chain.js";
@@ -41,6 +41,7 @@ import { adminRoleOf } from "./admin.js";
 import { portfolioOf } from "./portfolio.js";
 import { displayTicker } from "./tickers.js";
 import { handleClearBio } from "./moderation.js";
+import { feedV2On } from "./flags.js";
 import { cleanText } from "./text.js";
 import { MAX_BLOCKS, MAX_FOLLOWING, PAGE, SEARCH_MAX, SHOWN, cleanBio, countsOf, countsStatement, findMember, memberById, parseHandle, within } from "./profile-core.js";
 
@@ -65,6 +66,9 @@ async function member(request, env, now, { write, tables = true }) {
 
 /* ---------------- a profile ---------------- */
 
+/** Feed v2: " AND deleted_at IS NULL" once the column exists (a post the member deleted counts for nothing, switch or no switch), else "". */
+const aliveSql = async (env) => ((await feedApplied(env.DB)) ? " AND deleted_at IS NULL" : "");
+
 /** Level and badges as the Vicinity pass computes them, from the viewed member's own data. */
 async function standing(env, m, { launched, position, amount, now }) {
   const db = env.DB;
@@ -75,7 +79,7 @@ async function standing(env, m, { launched, position, amount, now }) {
   const founderLive = Boolean(seat && (seat.status === "active" || seat.status === "steward"));
   const level = admin ? "admin" : isManager ? "manager" : founderLive ? "founder" : amount > 0 ? "holder" : "member";
   const act = await db.prepare(
-    "SELECT COUNT(*) AS posts, COUNT(DISTINCT CASE WHEN kind = 'checkin' THEN substr(created_at, 1, 10) END) AS days FROM posts WHERE user_id = ? AND hidden = 0",
+    `SELECT COUNT(*) AS posts, COUNT(DISTINCT CASE WHEN kind = 'checkin' THEN substr(created_at, 1, 10) END) AS days FROM posts WHERE user_id = ? AND hidden = 0${await aliveSql(env)}`,
   ).bind(m.id).first();
   let stored = [];
   try { const s = JSON.parse(m.badges || "[]"); if (Array.isArray(s)) stored = s; } catch {}
@@ -86,12 +90,19 @@ async function standing(env, m, { launched, position, amount, now }) {
   return { level, badges };
 }
 
-/** The viewed member's latest feed posts that THIS viewer may see (same rule as the feeds: your own city or country, not hidden). */
-async function recentPosts(db, m, viewer) {
+/**
+ * The viewed member's latest feed posts that THIS viewer may see (same rule as the feeds: your own city or country, not hidden; not deleted;
+ * feed v2: not when the viewer muted them, blocked them or was blocked by them, exactly as the feeds hide them).
+ */
+async function recentPosts(env, m, viewer) {
+  const db = env.DB;
+  const hidden = feedV2On(env) && (await feedReady(db))
+    ? ` AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.blocker_id = ?4 AND b.blocked_id = ?1) OR (b.blocker_id = ?1 AND b.blocked_id = ?4))
+        AND NOT EXISTS (SELECT 1 FROM mutes mu WHERE mu.muter_id = ?4 AND mu.muted_id = ?1)` : "";
   const rows = (await db.prepare(
     `SELECT id, kind, body, media_id, score, replies, created_at FROM posts
-      WHERE user_id = ?1 AND hidden = 0 AND parent_id IS NULL AND ((scope = 'city' AND place = ?2) OR (scope = 'country' AND place = ?3))
-      ORDER BY id DESC LIMIT 5`).bind(m.id, viewer.home_city, viewer.home_country).all()).results;
+      WHERE user_id = ?1 AND hidden = 0 AND parent_id IS NULL AND ((scope = 'city' AND place = ?2) OR (scope = 'country' AND place = ?3))${await aliveSql(env)}${hidden}
+      ORDER BY id DESC LIMIT 5`).bind(m.id, viewer.home_city, viewer.home_country, ...(hidden ? [viewer.id] : [])).all()).results;
   return rows.map((r) => ({ id: r.id, kind: r.kind, body: r.body, image: r.media_id ? `/api/media/${r.media_id}` : null, at: r.created_at, score: r.score, replies: r.replies }));
 }
 
@@ -120,9 +131,11 @@ async function handleProfile(request, env, x) {
     db.prepare(`SELECT EXISTS(SELECT 1 FROM follows WHERE follower_id = ?1 AND followee_id = ?2) AS following,
                        EXISTS(SELECT 1 FROM follows WHERE follower_id = ?2 AND followee_id = ?1) AS followed_by,
                        EXISTS(SELECT 1 FROM blocks WHERE blocker_id = ?1 AND blocked_id = ?2) AS blocked`).bind(u.id, m.id).first(),
-    recentPosts(db, m, u),
+    recentPosts(env, m, u),
     snapP,
   ]);
+  // feed v2: whether the viewer muted this member (their own view; the member is never told). No new key while the switch is off.
+  const muted = feedV2On(env) && (await feedReady(db)) ? Boolean((await db.prepare("SELECT EXISTS(SELECT 1 FROM mutes WHERE muter_id = ?1 AND muted_id = ?2) AS muted").bind(u.id, m.id).first())?.muted) : null;
 
   let position = null, amount = 0, holding = null;
   if (launched) {
@@ -142,7 +155,7 @@ async function handleProfile(request, env, x) {
     handle: m.handle, since: m.created_at, level, badges, home: m.home_city ? { id: m.home_city, name: m.home_name, country: m.home_country, ticker: homeTicker ? homeTicker.ticker : null } : null,
     bio: m.bio || "", wallet: m.wallet || null, walletLinked: Boolean(m.wallet), holding, portfolio: await portP, counts, posts,
     // blockedBy is always false: a member who was blocked is never told (a follow is simply refused with cannot_follow)
-    viewer: { self: m.id === u.id, following: Boolean(rel?.following), followedBy: Boolean(rel?.followed_by), blocked: Boolean(rel?.blocked), blockedBy: false },
+    viewer: { self: m.id === u.id, following: Boolean(rel?.following), followedBy: Boolean(rel?.followed_by), blocked: Boolean(rel?.blocked), blockedBy: false, ...(muted === null ? {} : { muted }) },
   } });
 }
 
@@ -288,7 +301,9 @@ async function handleBlock(request, env, x) {
   }
   if (!who) return notFound();
   // members with an admin-console role (the owner wallets, the /admin roles admin and moderator) answer to everybody: they cannot be
-  // blocked (and never learn who tried). A city founder or a country manager is a member like any other here: a block only stops follows.
+  // blocked (and never learn who tried). A city founder or a country manager can be blocked like any member: the block stops follows
+  // and, with FEED_V2 on, hides posts both ways in the feeds, except that nobody hides their own posts from the moderator of that feed
+  // this way (src/social.js VISIBLE).
   if (await adminRoleOf(env, who.wallet)) return json({ ok: false, error: "cannot_block" }, 409);
   const [, , , state] = await db.batch([
     db.prepare(BLOCK).bind(u.id, who.id, iso(now), MAX_BLOCKS),

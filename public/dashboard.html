@@ -439,8 +439,11 @@
                   <button type="button" role="tab" data-kind="meme" aria-selected="true">Memes</button>
                   <button type="button" role="tab" data-kind="checkin" aria-selected="false">Check-ins</button>
                   <button type="button" role="tab" data-kind="talk" aria-selected="false" aria-label="Talk: discussions">Talk</button>
+                  <!-- feed v2 (FEED_V2=on only): announcements from the city founder, the country manager or Vicinity; dashboard.js shows it -->
+                  <button type="button" role="tab" data-kind="update" aria-selected="false" data-feed-v2 hidden>Updates</button>
                 </div>
               </div>
+              <p class="tiny muted" id="c-hint" hidden></p>
               <form class="composer" id="composer" novalidate>
                 <label class="sr-only" for="c-text">Write a post</label>
                 <textarea id="c-text" rows="2" maxlength="1000" placeholder="Share a local meme…"></textarea>

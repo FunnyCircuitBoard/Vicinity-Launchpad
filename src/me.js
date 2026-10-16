@@ -18,11 +18,11 @@ import { DAY, HOUR, POLICY, iso } from "./policy.js";
 import { VOTE_WEIGHT, activeBan, adminWallets, amountsFor, liveSeatOfUser, managerOf } from "./roles.js";
 import { cityPicture, cooldownUntil, eligibility, squadPicture } from "./seats.js";
 import { countryPicture } from "./elections.js";
-import { ensureProfilesSchema, ensureSchema } from "./store.js";
+import { ensureProfilesSchema, ensureSchema, feedApplied } from "./store.js";
 import { communityById } from "./community.js";
 import { displayTicker } from "./tickers.js";
 import { latestBalances } from "./ledger.js";
-import { dashboardV2On, profilesOn, v2On } from "./flags.js";
+import { dashboardV2On, feedV2On, profilesOn, v2On } from "./flags.js";
 import { countsOf } from "./profile-core.js";
 import { googleAdded, removeGoogle } from "./logins.js";
 
@@ -147,8 +147,10 @@ async function liveStatus(env, s, fetchImpl, now) {
     national = { country: u.home_country, members: board.members, ...ranked(board), ...(await countryPicture(env, u.home_country, u, now)) };
   }
 
+  // feed v2: a post the member deleted counts for nothing any more, from the moment the column exists (switch or no switch: a deletion sticks)
+  const alive = (await feedApplied(db, now)) ? " AND deleted_at IS NULL" : "";
   const act = await db.prepare(
-    "SELECT COUNT(*) AS posts, COUNT(DISTINCT CASE WHEN kind = 'checkin' THEN substr(created_at, 1, 10) END) AS days FROM posts WHERE user_id = ? AND hidden = 0",
+    `SELECT COUNT(*) AS posts, COUNT(DISTINCT CASE WHEN kind = 'checkin' THEN substr(created_at, 1, 10) END) AS days FROM posts WHERE user_id = ? AND hidden = 0${alive}`,
   ).bind(u.id).first();
   const badges = badgesFor({ u, launched, amount, position, seat, manager: isManager, admin, checkins: act?.days || 0, posts: act?.posts || 0, tenure: elig.tenure, threshold: elig.threshold });
   const earned = badges.filter((b) => b.earned).map((b) => b.id);
@@ -198,8 +200,9 @@ export async function handleMe(request, env, fetchImpl = fetch, now = Date.now()
   // Member profiles (PROFILES=on) say so too: profilesFlag, and for a signed-in member their bio (and, in the full answer,
   // their follower counts). The tabbed dashboard (DASHBOARD_V2=on) only says so: dashboardV2, and the page fetches its own code.
   // With a switch off there is no new key at all: the answers are exactly what they have always been.
+  // Feed v2 (FEED_V2=on) says so too: feedV2 (the page shows the Updates chip, the per-row menu and asks the one national confirmation).
   const v2 = v2On(env), pf = profilesOn(env), dv2 = dashboardV2On(env);
-  const v2Flag = { ...(v2 ? { signupFlow: "v2" } : {}), ...(dv2 ? { dashboardV2: true } : {}) };
+  const v2Flag = { ...(v2 ? { signupFlow: "v2" } : {}), ...(dv2 ? { dashboardV2: true } : {}), ...(feedV2On(env) ? { feedV2: true } : {}) };
   const flag = pf ? { ...v2Flag, profilesFlag: true } : v2Flag;
   if (!s) return json({ signedIn: false, providers: prov, ...flag });
   if (!s.user) {

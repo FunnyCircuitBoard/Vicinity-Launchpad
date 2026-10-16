@@ -20,6 +20,7 @@
  *                  (made on first use, see FEEDBACK_MIGRATION below; src/feedback.js)
  *   user_logins  → an extra way to log in to an existing account: a Google sign-in a member added from their Profile (Google's
  *                  account number only, never an address; made on first use, see LOGINS_MIGRATION below; src/logins.js)
+ *   mutes, posts.deleted_at, users.national_ack_at → feed v2 (only while FEED_V2=on, see FEED_MIGRATION below; src/social.js, src/mutes.js)
  *   claims, added_cities, requests → the first version (no longer written)
  * Locations of visitors are never saved. Wallets that only "verify" or look up a rank are never saved.
  *
@@ -1073,4 +1074,81 @@ export function ensureLoginsSchema(db) {
     })().catch((e) => { loginsReady.delete(db); throw e; }));
   }
   return loginsReady.get(db);
+}
+
+/**
+ * Community feed v2 (src/social.js, src/mutes.js), only while FEED_V2=on. Like the others, deliberately NOT in MIGRATIONS: it runs
+ * the first time a feed route needs it (ensureFeedSchema), so with the switch off no statement here ever touches the database, and a
+ * failure here can only make the feed routes answer 503. Every statement is additive and safe to repeat (no row is dropped or
+ * rewritten; "duplicate column" is ignored). Same rule: no semicolon inside a comment or a string in this SQL.
+ *   posts.deleted_at      → when the author deleted their own post (the row and its picture stay, hidden from everyone: a later step purges)
+ *   users.national_ack_at → when the account confirmed, once, that a national post is seen by the whole country
+ *   mutes                 → who muted whom (one way, your own view only: the muted member is never told)
+ *   blocks                → the very same table the profile migration makes, statement for statement, so the feed can hide posts both
+ *                           ways with PROFILES off as well (whichever switch comes first creates it)
+ */
+export const FEED_MIGRATION = {
+  id: "2026-10-16-feed-v2",
+  sql: `
+ALTER TABLE posts ADD COLUMN deleted_at TEXT;
+ALTER TABLE users ADD COLUMN national_ack_at TEXT;
+CREATE TABLE IF NOT EXISTS mutes (
+  muter_id   INTEGER NOT NULL,
+  muted_id   INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (muter_id, muted_id)
+);
+CREATE TABLE IF NOT EXISTS blocks (
+  blocker_id INTEGER NOT NULL,
+  blocked_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (blocker_id, blocked_id)
+);
+CREATE INDEX IF NOT EXISTS blocks_blocked ON blocks (blocked_id)
+`,
+};
+
+const feedReadyMap = new WeakMap();
+const feedAppliedMap = new WeakMap(); // db → true once the feed migration is known to be recorded, or the time a "not yet" was last read
+
+/**
+ * Add the feed v2 columns and tables the first time a feed route needs them (safe to repeat, and to run from two servers at once:
+ * "duplicate column" is ignored). Rejects on any other failure and forgets that it tried, so the next request retries. Callers answer
+ * 503 feed_unavailable (the routes) or carry on as if the switch were off (a count on a page).
+ */
+export function ensureFeedSchema(db) {
+  if (!feedReadyMap.has(db)) {
+    feedReadyMap.set(db, (async () => {
+      await ensureSchema(db); // posts and users exist (from the normal migrations)
+      const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(FEED_MIGRATION.id).first();
+      if (!done) {
+        for (const s of split(FEED_MIGRATION.sql)) {
+          try { await db.prepare(s).run(); }
+          catch (e) { if (!isDuplicateColumn(e)) throw e; }
+        }
+        await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(FEED_MIGRATION.id, new Date().toISOString()).run();
+      }
+      feedAppliedMap.set(db, true);
+    })().catch((e) => { feedReadyMap.delete(db); throw e; }));
+  }
+  return feedReadyMap.get(db);
+}
+
+/** true when the feed v2 schema is in place (made now if needed), false when it cannot be made: for readers that then simply skip the new filters. */
+export const feedReady = (db) => ensureFeedSchema(db).then(() => true).catch((e) => { console.error("feed tables unavailable", String((e && e.message) || e).slice(0, 80)); return false; });
+
+/**
+ * Has the feed migration run on this database? READ-ONLY: it never makes anything, so with the switch off today's database stays exactly as
+ * it is. The readers that honour posts.deleted_at ask this, not the switch: a post somebody deleted stays deleted when FEED_V2 is turned
+ * off again (the column is there, so it is honoured), while a database the migration never touched has no column and nothing to filter.
+ * A "yes" is remembered for the life of the server; a "no" for a minute (one extra lookup a minute, not one a request).
+ */
+export async function feedApplied(db, now = Date.now()) {
+  const known = feedAppliedMap.get(db);
+  if (known === true) return true;
+  if (typeof known === "number" && now >= known && now - known < 60_000) return false;
+  await ensureSchema(db); // schema_migrations exists (from the normal migrations)
+  const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(FEED_MIGRATION.id).first();
+  feedAppliedMap.set(db, done ? true : now);
+  return Boolean(done);
 }

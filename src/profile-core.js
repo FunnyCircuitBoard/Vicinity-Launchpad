@@ -25,6 +25,7 @@ export const LIMITS = {
   search: { max: 60,  windowMs: HOUR },   // searches
   follow: { max: 60,  windowMs: HOUR },   // follow + unfollow actions
   block:  { max: 60,  windowMs: HOUR },   // block + unblock actions
+  mute:   { max: 60,  windowMs: HOUR },   // mute + unmute actions (feed v2, src/mutes.js)
   list:   { max: 120, windowMs: HOUR },   // follower, following and block lists opened
   bio:    { max: 10,  windowMs: DAY },    // bio changes
   report: { max: 30,  windowMs: DAY },    // bio reports (the same number as post reports: POLICY.limits.reportsPerDay)

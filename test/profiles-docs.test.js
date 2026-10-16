@@ -18,7 +18,8 @@ test("what other members can see names the follower and following LISTS, not onl
 test("only admin-console roles are unblockable; a founder or a manager is a member like any other to a block", () => {
   assert.match(readme, /members with an admin-console role \(owner, admin or moderator in `\/admin`\) cannot be blocked; a city founder or a country manager can be, like any member/);
   assert.doesNotMatch(readme, /admins and moderators cannot be blocked/);
-  assert.match(profiles, /A city founder or a country manager is a member like any other here: a block only stops follows\./);
+  assert.match(profiles, /A city founder or a country manager can be blocked like any member: the block stops follows/);
+  assert.match(profiles, /nobody hides their own posts from the moderator of that feed/, "feed v2: a block never hides a post from its feed's moderator (src/social.js VISIBLE)");
   assert.match(page, /cannot_block: "Members with an admin role can't be blocked\."/);
 });
 

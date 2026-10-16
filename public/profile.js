@@ -163,6 +163,8 @@
     cannot_block: "Members with an admin role can't be blocked.",
     unblock_first: "You blocked this member. Unblock them first.",
     too_many_blocks: "You've blocked as many members as we allow. Unblock someone first.",
+    too_many_mutes: "You've muted as many members as we allow. Unmute someone first.",
+    feed_unavailable: "The feed is having trouble right now. Please try again in a few minutes.",
     no_bio: "This member has no bio to report.",
     profiles_unavailable: "Member profiles are having trouble right now. Please try again in a few minutes.",
     unavailable: "Member profiles are having trouble right now. Please try again in a few minutes.",
@@ -458,15 +460,19 @@
     const setErr = (t) => { const n = $("#pf-error"); n.textContent = t || ""; n.hidden = !t; };
     const say = (t) => { $("#pf-live").textContent = ""; setTimeout(() => ($("#pf-live").textContent = t), 30); }; // a polite announcement, repeated text included
     let meUser = null, cur = null, busy = false, pv = null, list = null;
+    // feed v2 (FEED_V2=on, /api/me says feedV2: true): Mute / Unmute next to Block, and "Members you've muted" on your own profile
+    let feedV2 = false, muteItem = null;
 
     /* ----- who is looking ----- */
     async function start() {
       const lite = await window.V.ready;
       if (!lite || !lite.signedIn) return show("#pf-out");
       let on = lite.profilesFlag === true, user = lite.user;
+      feedV2 = lite.feedV2 === true;
       if (!on) { // the short answer may leave the switch out: ask the full one once
         const full = await api("/api/me");
         on = Boolean(full && full.signedIn && full.profilesFlag === true); user = (full && full.user) || user;
+        feedV2 = feedV2 || Boolean(full && full.feedV2 === true);
       }
       if (!on) return show("#pf-off");
       meUser = user || {};
@@ -592,6 +598,11 @@
       paintCounts();
       $("#pf-blocks").hidden = !self;
       $("#pf-menu-block").textContent = v.blocked ? "Unblock" : "Block";
+      if (feedV2) { // mute: your own view of the feeds; a block hides posts both ways
+        if (muteItem) muteItem.textContent = v.muted ? "Unmute" : "Mute";
+        $("#pf-mutes").hidden = !self;
+        $("#pf-blocked-note").textContent = "You blocked this member. They can't follow you, and their posts and replies don't show in your feeds. They can still open your profile, as every member can.";
+      }
       $("#pf-menu-report").closest("li").hidden = !p.bio; // a report is about the bio: nothing to report without one
       paintPosts(p);
 
@@ -670,6 +681,23 @@
       document.addEventListener("click", (e) => { if (!menu.hidden && !$("#pf-menu-wrap").contains(e.target)) close(false); });
       $("#pf-menu-block").addEventListener("click", () => { close(false); if (cur.viewer.blocked) setBlock(false); else askBlock(); });
       $("#pf-menu-report").addEventListener("click", () => { close(false); askReport(); });
+      if (feedV2) { // the Mute item sits before Block (only while the switch is on: the page's markup stays as it was)
+        muteItem = el("button", null, "Mute"); muteItem.type = "button"; muteItem.setAttribute("role", "menuitem");
+        const li = el("li"); li.setAttribute("role", "none"); li.append(muteItem);
+        $("#pf-menu-block").closest("li").before(li);
+        muteItem.addEventListener("click", () => { close(false); setMute(!(cur && cur.viewer && cur.viewer.muted)); });
+      }
+    }
+    /** Feed v2: mute or unmute the member shown. Their posts and replies leave your feeds (only yours); they are never told. */
+    async function setMute(on) {
+      if (busy || !cur) return;
+      busy = true; setErr("");
+      const d = await api("/api/mute", { user: cur.handle, on });
+      busy = false;
+      if (!d || !d.ok) { const t = d && d.error === "self" ? "You can't mute yourself." : errText(d, "mute"); setErr(t); toast(t); return false; }
+      say(on ? `You muted ${cur.handle}. Their posts and replies no longer show in your feeds.` : `You unmuted ${cur.handle}.`);
+      await load(cur.handle, { quiet: true });
+      return true;
     }
 
     async function toggleFollow() {
@@ -712,6 +740,7 @@
       $("#pf-list-close").addEventListener("click", () => closeList(true));
       $("#pf-list-more").addEventListener("click", () => more());
       $("#pf-blocks-sum").addEventListener("click", () => setTimeout(() => { if ($("#pf-blocks").open) loadBlocks(); }, 0));
+      $("#pf-mutes-sum").addEventListener("click", () => setTimeout(() => { if ($("#pf-mutes").open) listMutes(); }, 0));
     }
     function closeList(focus) {
       const k = list && list.kind; list = null; show("#pf-lists", false);
@@ -769,6 +798,26 @@
       }));
     }
 
+    /** Feed v2: the members you muted (GET "/api/mutes"), each with an Unmute button. Only on your own profile, only while the switch is on. */
+    async function listMutes() {
+      const box = $("#pf-mutes-list"); box.replaceChildren(el("li", "muted small", "Loading…"));
+      const d = await api("/api/mutes");
+      if (!d || !d.ok) return box.replaceChildren(el("li", "muted small", errText(d, "profile")));
+      if (!d.users.length) return box.replaceChildren(el("li", "muted small", "You haven't muted anyone."));
+      box.replaceChildren(...d.users.map((u) => {
+        const li = el("li", "prof-blocked"), a = el("a", null, u.handle); a.href = profileHref(u.handle);
+        const b = el("button", "btn btn--glass btn--sm", "Unmute"); b.type = "button"; b.setAttribute("aria-label", `Unmute ${u.handle}`);
+        b.addEventListener("click", async () => {
+          b.disabled = true;
+          const r = await api("/api/mute", { user: u.handle, on: false });
+          if (!r || !r.ok) { b.disabled = false; return toast(errText(r, "mute")); }
+          li.remove(); say(`You unmuted ${u.handle}.`);
+          if (!box.children.length) box.append(el("li", "muted small", "You haven't muted anyone."));
+        });
+        li.append(a, b); return li;
+      }));
+    }
+
     /* ----- the dialog (confirm a block, send a report) ----- */
     let dialogFrom = null, dialogGo = null;
     function wireDialog() {
@@ -810,7 +859,7 @@
     function askBlock() {
       openDialog({
         title: `Block ${cur.handle}?`, ok: "Block",
-        text: `${cur.handle} will stop following you and won't be able to follow you again. If you follow them, that stops too. You can unblock any time. They can still open your profile, as every member can.`,
+        text: `${cur.handle} will stop following you and won't be able to follow you again. If you follow them, that stops too.${feedV2 ? " Their posts and replies leave your feeds, and yours leave theirs." : ""} You can unblock any time. They can still open your profile, as every member can.`,
         go: async () => { const r = await api("/api/block", { handle: cur.handle, block: true }); if (!r || !r.ok) return errText(r, "block"); say(`You blocked ${cur.handle}.`); await load(cur.handle, { quiet: true }); return ""; },
       });
     }

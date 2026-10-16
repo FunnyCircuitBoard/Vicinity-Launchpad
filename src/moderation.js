@@ -20,7 +20,7 @@ import { CITY_NAME_RE } from "./solana.js";
 import { cleanText } from "./text.js";
 import { COLS, FROM, present } from "./social.js";
 import { profilesOn } from "./flags.js";
-import { ensureProfilesSchema } from "./store.js";
+import { ensureProfilesSchema, feedApplied } from "./store.js";
 import { findMember, parseHandle } from "./profile-core.js";
 
 const MOD = POLICY.moderation;
@@ -51,7 +51,7 @@ export async function handleHide(request, env, fetchImpl = fetch, now = Date.now
   const { u, pw } = m, db = env.DB;
   const body = await readJson(request);
   const post = body && await db.prepare("SELECT * FROM posts WHERE id = ?").bind(Number(body.id) || 0).first();
-  if (!post) return json({ ok: false, error: "not_found" }, 404);
+  if (!post || post.deleted_at) return json({ ok: false, error: "not_found" }, 404); // a post its author deleted (feed v2) is nobody's to hide: the public log names only what people can see
   if (!canModerate(pw, post)) return json({ ok: false, error: "not_allowed" }, 403);
   if (post.user_id === u.id) return json({ ok: false, error: "own_post" }, 400);
   const reason = reasonOf(body.reason);
@@ -153,6 +153,7 @@ export async function handleProposeBan(request, env, fetchImpl = fetch, now = Da
   if (body.postId != null) {
     post = await db.prepare("SELECT * FROM posts WHERE id = ?").bind(Number(body.postId) || 0).first();
     if (post) target = await db.prepare("SELECT * FROM users WHERE id = ?").bind(post.user_id).first();
+    if (post && post.deleted_at) post = null; // the author took it down (feed v2): the ban names the person, not a post nobody can see
   } else target = await db.prepare("SELECT * FROM users WHERE id = ?").bind(Number(body.userId) || 0).first();
   if (!target) return json({ ok: false, error: "not_found" }, 404);
   if (target.id === u.id) return json({ ok: false, error: "own_account" }, 400);
@@ -265,7 +266,10 @@ export async function handleModQueue(request, env, fetchImpl = fetch, now = Date
   const pw = await powersOf(env, u, fetchImpl, now);
   if (!pw.admin && !pw.managerCountry && !pw.founderCity) return json({ ok: true, moderator: false });
   const [scope, args] = pw.admin ? ["1 = 1", []] : pw.managerCountry ? ["p.country = ?", [pw.managerCountry]] : ["p.scope = 'city' AND p.place = ?", [pw.founderCity]];
-  const reported = (await db.prepare(`SELECT ${COLS} ${FROM} WHERE (p.reports > 0 OR (p.hidden = 1 AND p.hide_confirmed = 0)) AND ${scope} ORDER BY p.hidden DESC, p.reports DESC, p.id DESC LIMIT 50`).bind(...args).all()).results;
+  // feed v2: a reported post its author deleted STAYS here, marked deleted (present): the moderators' evidence of a pattern, though it is in
+  // no feed and its picture answers 404 (the column is read only once the migration ran; on today's database nothing changes)
+  const cols = (await feedApplied(db, now)) ? `${COLS}, p.deleted_at` : COLS;
+  const reported = (await db.prepare(`SELECT ${cols} ${FROM} WHERE (p.reports > 0 OR (p.hidden = 1 AND p.hide_confirmed = 0)) AND ${scope} ORDER BY p.hidden DESC, p.reports DESC, p.id DESC LIMIT 50`).bind(...args).all()).results;
   const pendingBy = new Map((await db.prepare("SELECT target_id, actor_id FROM mod_actions WHERE target_type = 'post' AND action = 'hide' AND state = 'pending'").all()).results.map((r) => [r.target_id, r.actor_id]));
   const acts = (await db.prepare(`SELECT m.*, a.handle AS actor_handle, a.name AS actor_name, t.handle AS target_handle, t.name AS target_name FROM mod_actions m
     LEFT JOIN users a ON a.id = m.actor_id LEFT JOIN users t ON t.id = m.target_user
