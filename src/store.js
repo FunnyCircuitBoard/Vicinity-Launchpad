@@ -1152,3 +1152,42 @@ export async function feedApplied(db, now = Date.now()) {
   feedAppliedMap.set(db, done ? true : now);
   return Boolean(done);
 }
+
+/**
+ * City coin pictures are checked by a person before anyone sees them (src/logos.js; the owner's rule: human approval first). Like the
+ * lazy migrations above, deliberately NOT in MIGRATIONS: it runs the first time a coin row is read or written (ensureLogoSchema), is
+ * additive only ("duplicate column" ignored, so two servers can run it at once), and never drops or rewrites a row. The columns on
+ * city_coins:
+ *   logo_status        'pending' | 'approved' | 'rejected' | NULL (no picture)
+ *   logo_reason        a reason from POLICY.moderation.reasons (rejected)   · logo_note  the reviewer's note, for the founder
+ *   logo_reviewed_at   · logo_reviewed_by (the admin's user id)
+ *   logo_hash          sha256 hex of the approved picture's bytes: what is served is checked against it
+ *   approved_media_id  the picture the public sees; media_id stays the founder's working picture
+ * A picture uploaded before this change waits for a check like a new one (the one UPDATE below, idempotent): no coin has launched, so
+ * these are design previews, and no picture shows for them (the site the city's initials, wallets the Vicinity badge) until an admin
+ * approves them.
+ */
+export const LOGO_MIGRATION = {
+  id: "2026-10-16-logo-review",
+  columns: [
+    "ALTER TABLE city_coins ADD COLUMN logo_status TEXT",
+    "ALTER TABLE city_coins ADD COLUMN logo_reason TEXT",
+    "ALTER TABLE city_coins ADD COLUMN logo_note TEXT",
+    "ALTER TABLE city_coins ADD COLUMN logo_reviewed_at TEXT",
+    "ALTER TABLE city_coins ADD COLUMN logo_reviewed_by INTEGER",
+    "ALTER TABLE city_coins ADD COLUMN logo_hash TEXT",
+    "ALTER TABLE city_coins ADD COLUMN approved_media_id INTEGER",
+  ],
+  backfill: "UPDATE city_coins SET logo_status = 'pending' WHERE media_id IS NOT NULL AND logo_status IS NULL",
+};
+const logoReady = new WeakMap();
+export function ensureLogoSchema(db) {
+  if (!logoReady.has(db)) {
+    logoReady.set(db, (async () => {
+      await ensureSchema(db); // city_coins and schema_migrations exist (from the normal migrations)
+      await columnsMigrate(db, LOGO_MIGRATION); // the ALTERs (recorded once; "duplicate column" ignored)
+      await db.prepare(LOGO_MIGRATION.backfill).run(); // safe to repeat: touches only rows with a picture and no state
+    })().catch((e) => { logoReady.delete(db); throw e; }));
+  }
+  return logoReady.get(db);
+}

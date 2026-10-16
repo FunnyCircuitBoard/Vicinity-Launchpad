@@ -22,8 +22,9 @@ import { isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { lpSetup } from "./cluster.js";
 import { toBytes } from "./blobs.js";
-import { ensureSchema } from "./store.js";
+import { ensureLogoSchema, ensureSchema } from "./store.js";
 import { iso } from "./policy.js";
+import { IMAGE_TYPES, PICTURE_MAX_AGE, bytesApproved } from "./logos.js";
 import { LAYOUT } from "./sol/layout.js";
 import { publicLimit } from "./guards.js";
 import { chainMetadata, findCoin, knownMissing, rememberMissing } from "./lpcoins.js";
@@ -98,7 +99,6 @@ export async function metaJsonFor(env, row, md) {
 
 /* ---------------------------------------------------------------- the route */
 const PATH = /^\/coin-meta\/([1-9A-HJ-NP-Za-km-z]{32,44})\.(json|png)$/;
-const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const base = { ...SECURITY_HEADERS, "Access-Control-Allow-Origin": "*", "X-Content-Type-Options": "nosniff" };
 const answer = (request, body, status, headers) => new Response(request.method === "HEAD" ? null : body, { status, headers: { ...base, ...headers } });
 const jsonAnswer = (request, data, status, maxAge) => answer(request, typeof data === "string" ? data : JSON.stringify(data), status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": `public, max-age=${maxAge}` });
@@ -141,11 +141,14 @@ async function metadata(request, env, row, fetchImpl, now) {
   return jsonAnswer(request, meta, 200, 3600);
 }
 
+/** The APPROVED picture (src/logos.js), only while its bytes still hash to the coin's logo_hash; else the badge (no picture, waiting, taken down). */
 async function image(request, env, row) {
   try {
-    const logo = await env.DB.prepare("SELECT m.type, m.bytes FROM city_coins c JOIN media m ON m.id = c.media_id WHERE c.city_id = ? AND c.mint = ?").bind(String(row.city_id), row.mint).first();
-    if (logo && IMAGE_TYPES.has(logo.type)) {
-      return answer(request, toBytes(logo.bytes), 200, { "Content-Type": logo.type, "Cache-Control": "public, max-age=3600", "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": "inline" });
+    await ensureLogoSchema(env.DB);
+    const logo = await env.DB.prepare(`SELECT m.type, m.bytes, c.logo_hash FROM city_coins c JOIN media m ON m.id = c.approved_media_id
+        WHERE c.city_id = ? AND c.mint = ?`).bind(String(row.city_id), row.mint).first();
+    if (logo && IMAGE_TYPES.has(logo.type) && (await bytesApproved(logo.bytes, logo.logo_hash))) {
+      return answer(request, toBytes(logo.bytes), 200, { "Content-Type": logo.type, "Cache-Control": `public, max-age=${PICTURE_MAX_AGE}`, "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": "inline" });
     }
   } catch (e) { console.error("coin-meta logo read failed", codeOf(e)); }
   return new Response(null, { status: 302, headers: { ...base, Location: "/brand/vicinity-512.png", "Cache-Control": "public, max-age=300" } });

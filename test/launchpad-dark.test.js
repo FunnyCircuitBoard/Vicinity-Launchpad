@@ -89,7 +89,8 @@ test("flag off: the coin, seat, member and price routes answer exactly as before
   const b = browser(env);
   const coins = await b.get("/api/coins");
   assert.deepEqual(Object.keys(coins), ["coins", "pairs", "vicinity"]);
-  assert.deepEqual(Object.keys(coins.coins[0]), ["city", "cityName", "country", "name", "pitch", "pair", "pairMint", "color", "logo", "mint", "launched", "launchedAt", "waiting", "by", "updatedAt"]);
+  // logoHash: the sha256 of the approved picture's bytes (src/logos.js), null without one; the review state itself is only in the founder's and the staff's answers
+  assert.deepEqual(Object.keys(coins.coins[0]), ["city", "cityName", "country", "name", "pitch", "pair", "pairMint", "color", "logo", "logoHash", "mint", "launched", "launchedAt", "waiting", "by", "updatedAt"]);
   assert.deepEqual(Object.keys(await b.get("/api/seats")), ["launched", "seats", "windows", "founderAmount"]);
   assert.deepEqual(Object.keys(await b.get("/api/members")), ["members", "communities"]);
   assert.deepEqual(Object.keys(await b.get("/api/policy")), ["policy", "snapshotCutoff", "launched", "balanceHistory"]);

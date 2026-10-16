@@ -24,12 +24,14 @@ import { json, readJson } from "./http.js";
 import { access } from "./access.js";
 import { useAttestation, countRecent, noteEvent } from "./attest.js";
 import { activeBan, canModerate, managerOf, powersOf } from "./roles.js";
-import { ensureFeedSchema, ensureLimitsSchema, ensureSchema, feedApplied, feedReady } from "./store.js";
+import { ensureFeedSchema, ensureLimitsSchema, ensureLogoSchema, ensureSchema, feedApplied, feedReady } from "./store.js";
 import { check, limitKey } from "./limits.js";
 import { DAY, HOUR, POLICY, iso } from "./policy.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
 import { toBytes } from "./blobs.js";
 import { feedV2On, profilesOn } from "./flags.js";
+import { adminRoleOf } from "./admin.js";
+import { PICTURE_MAX_AGE, bytesApproved } from "./logos.js";
 
 export { cleanText };
 const KINDS = ["meme", "checkin", "talk"];
@@ -366,7 +368,10 @@ export async function handleReport(request, env, fetchImpl = fetch, now = Date.n
 
 /**
  * GET /api/media/:id → a picture.
- *   A city coin's logo is public, like the coin itself.
+ *   A city coin's APPROVED picture is public, like the coin itself, but only while its bytes still hash to the coin's logo_hash
+ *   (src/logos.js): a swapped or tampered row is "not found". It may sit in caches an hour (not a year): a removed picture
+ *   lingers at most that long.
+ *   A coin's working picture (waiting for a check, or not approved) is only for its founder and the staff (owner, admin, moderator).
  *   A meme picture is only for people who may see its post (that city or country, or its moderators): a feed
  *   that says "only people from Utica see this" can't have pictures anyone can fetch by counting ids.
  *   A picture that isn't attached to anything is only for the person who uploaded it.
@@ -377,23 +382,34 @@ export async function handleReport(request, env, fetchImpl = fetch, now = Date.n
 export async function handleMedia(request, env, id, fetchImpl = fetch, now = Date.now()) {
   if (!env.DB || !/^[0-9]{1,10}$/.test(id)) return json({ error: "not_found" }, 404);
   await ensureSchema(env.DB);
-  const row = await env.DB.prepare("SELECT m.type, m.bytes, m.user_id, (SELECT 1 FROM city_coins c WHERE c.media_id = m.id LIMIT 1) AS is_logo FROM media m WHERE m.id = ?").bind(Number(id)).first();
+  await ensureLogoSchema(env.DB);
+  const row = await env.DB.prepare(`SELECT m.type, m.bytes, m.user_id,
+      (SELECT c.user_id FROM city_coins c WHERE c.media_id = m.id LIMIT 1) AS draft_of,
+      (SELECT c.logo_hash FROM city_coins c WHERE c.approved_media_id = m.id LIMIT 1) AS approved_hash
+    FROM media m WHERE m.id = ?`).bind(Number(id)).first();
   if (!row) return json({ error: "not_found" }, 404);
-  let shared = Boolean(row.is_logo);
-  if (!shared) {
+  let shared = false;
+  if (row.approved_hash) {
+    if (!(await bytesApproved(row.bytes, row.approved_hash))) return json({ error: "not_found" }, 404); // not the bytes the admin approved
+    shared = true;
+  } else {
     const a = await access(request, env, now, { write: false });
     if (a.error) return json({ error: "not_found" }, 404);
-    const post = await env.DB.prepare("SELECT * FROM posts WHERE media_id = ?").bind(Number(id)).first();
-    if (!post) { if (row.user_id !== a.u.id) return json({ error: "not_found" }, 404); }
-    else {
-      if (post.deleted_at) return json({ error: "not_found" }, 404); // the author took the post down: its picture is gone for everyone
-      const pw = await powersOf(env, a.u, fetchImpl, now);
-      if (!sees(a.u, post, pw) || (post.hidden && !canModerate(pw, post) && post.user_id !== a.u.id)) return json({ error: "not_found" }, 404);
+    if (row.draft_of != null) {
+      if (row.draft_of !== a.u.id && !(await adminRoleOf(env, a.u.wallet))) return json({ error: "not_found" }, 404);
+    } else {
+      const post = await env.DB.prepare("SELECT * FROM posts WHERE media_id = ?").bind(Number(id)).first();
+      if (!post) { if (row.user_id !== a.u.id) return json({ error: "not_found" }, 404); }
+      else {
+        if (post.deleted_at) return json({ error: "not_found" }, 404); // the author took the post down: its picture is gone for everyone
+        const pw = await powersOf(env, a.u, fetchImpl, now);
+        if (!sees(a.u, post, pw) || (post.hidden && !canModerate(pw, post) && post.user_id !== a.u.id)) return json({ error: "not_found" }, 404);
+      }
     }
   }
   return new Response(toBytes(row.bytes), { headers: {
     "Content-Type": row.type, "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": "inline",
-    // logos are the same for everyone; a private picture must never sit in a shared cache
-    "Cache-Control": shared ? "public, max-age=31536000, immutable" : "private, max-age=3600",
+    // an approved coin picture is the same for everyone (an hour in caches); a private picture must never sit in a shared cache
+    "Cache-Control": shared ? `public, max-age=${PICTURE_MAX_AGE}` : "private, max-age=3600",
   } });
 }

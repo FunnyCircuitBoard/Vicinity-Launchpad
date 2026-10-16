@@ -298,6 +298,7 @@
                   <p class="coin-show__meta"><strong id="coin-ticker">$—</strong><span class="coin-show__pair">paired with <strong id="coin-pair">—</strong></span></p>
                   <p class="small muted" id="coin-pitch"></p>
                   <p class="tiny muted" id="coin-by"></p>
+                  <p class="tiny coin-logo-state" id="coin-logo-state" hidden></p>
                   <p class="coin-contract tiny" id="coin-contract" hidden>Contract <code id="coin-mint"></code> <button class="link-btn link-btn--tiny coin-contract__copy" type="button" id="coin-mint-copy">Copy</button></p>
                 </div>
               </div>
@@ -332,11 +333,11 @@
                 <div class="coin-studio__logo">
                   <label class="btn btn--glass btn--sm"><input type="file" id="cs-logo" accept="image/*" class="sr-only"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="m4 17 5-4.5 4 3.5 2.5-2 4.5 3.5"/></svg>Upload logo</label>
                   <button class="link-btn" type="button" id="cs-logo-remove" hidden>Remove logo</button>
-                  <span class="tiny muted">Square works best: it's cropped to a circle and shrunk in your browser.</span>
+                  <span class="tiny muted">Square works best: it's cropped to a circle and shrunk in your browser. An admin checks every picture before anyone else sees it; until then the coin shows its initials on the site and the Vicinity badge in wallets.</span>
                 </div>
                 <div class="coin-studio__actions">
                   <button class="btn btn--primary" type="submit" id="cs-save">Save design</button>
-                  <span class="tiny muted">Public and logged. Locked for good once the coin launches.</span>
+                  <span class="tiny muted">Public and logged; the picture once an admin has checked it. Locked for good once the coin launches.</span>
                 </div>
                 <p class="wallet__error" id="cs-err" role="alert" hidden></p>
                 <details class="coin-launch" data-launchlab-copy>

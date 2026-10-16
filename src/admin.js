@@ -34,6 +34,7 @@ import { lpSetup } from "./cluster.js";
 import { handleLpAdmin } from "./lpadmin.js";
 import { rpcHealth } from "./rpcpool.js";
 import { dropLogins } from "./logins.js";
+import { decidePicture, listPictures, logDecision, waitingPictures } from "./logos.js";
 
 const ROLES = ["moderator", "admin", "owner"];
 const LEVEL = { moderator: 1, admin: 2, owner: 3 };
@@ -138,7 +139,7 @@ const notDeleted = async (ctx) => ((await feedApplied(ctx.db, ctx.now)) ? " AND 
 async function handleOverview(ctx) {
   const { db } = ctx;
   const alive = await notDeleted(ctx);
-  const [users, seats, elections, reports, objections, tokens, coins, snaps] = await Promise.all([
+  const [users, seats, elections, reports, objections, tokens, coins, snaps, logos] = await Promise.all([
     db.prepare("SELECT COUNT(*) AS n FROM users").first(),
     db.prepare("SELECT status, COUNT(*) AS n FROM seats GROUP BY status").all(),
     db.prepare("SELECT COUNT(*) AS n FROM elections WHERE status = 'open'").first(),
@@ -147,6 +148,7 @@ async function handleOverview(ctx) {
     db.prepare("SELECT COUNT(*) AS n FROM admin_tokens").first(),
     db.prepare("SELECT COUNT(*) AS n FROM city_coins WHERE mint IS NOT NULL").first(),
     db.prepare("SELECT COUNT(*) AS n, MAX(created_at) AS latest FROM snapshots").first(),
+    waitingPictures(db), // coin pictures waiting for a check (src/logos.js)
   ]);
   return json({
     ok: true,
@@ -155,6 +157,7 @@ async function handleOverview(ctx) {
     openElections: elections.n,
     pendingReports: reports.n,
     pendingObjections: objections.n,
+    pendingLogos: logos,
     registeredTokens: tokens.n,
     launchedCityCoins: coins.n,
     snapshots: snaps.n,
@@ -413,6 +416,27 @@ async function handleReportDecide(request, ctx) {
     logAudit(ctx.db, { actor: ctx.wallet, action: "reports/dismiss", target: `post:${postId}`, detail: note }, ctx.now),
   ]);
   return json({ ok: true, dismissed: true });
+}
+
+/* ---------------- content: city coin pictures (src/logos.js) ---------------- */
+
+/** GET /api/admin/logos: the working pictures that wait for a check (oldest first), then those decided in the last 30 days. Every role may look. */
+async function handleLogos(ctx) {
+  return json({ ok: true, ...(await listPictures(ctx.db, ctx.now)) });
+}
+/**
+ * POST /api/admin/logos/decide { city, action: "approve" | "reject", mediaId?, reason?, note? } (admins and the owner, fresh proof).
+ * Approving makes the working picture the public one, with the hash of its bytes. Rejecting needs a reason from the rules and a note
+ * of 3 to 300 characters the founder sees; nobody else does. Every decision is one public mod-log line (city, action, reason) and one
+ * admin_audit line. `mediaId` is the picture the admin looked at: a picture the founder replaced meanwhile answers 409 picture_changed.
+ */
+async function handleLogoDecide(request, ctx) {
+  const body = await readJson(request);
+  const d = await decidePicture(ctx.db, body, { by: ctx.user.id, at: ctx.now });
+  if (d.error) return json({ ok: false, error: d.error }, d.status);
+  await logAudit(ctx.db, { actor: ctx.wallet, action: `logos/${d.action}`, target: `city_coin:${d.coin.city_id}`, detail: d.action === "approve" ? `media ${d.coin.media_id} · sha256 ${d.hash}` : d.reason }, ctx.now).run();
+  await logDecision(ctx.db, { by: ctx.user.id, action: d.action, coin: d.coin, reason: d.action === "approve" ? "review" : d.reason, at: ctx.now });
+  return json({ ok: true, city: String(d.coin.city_id), action: d.action, ...(d.hash ? { hash: d.hash } : {}) });
 }
 
 async function handleAppeals(ctx) {
@@ -765,6 +789,9 @@ export async function handleAdmin(request, env, now = Date.now(), fetchImpl = fe
     case "tokens/register": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleTokenRegister(request, c)); }
     case "reports": { const b = only("GET"); return b || run(need("moderator"), handleReports); }
     case "reports/decide": { const b = only("POST"); return b || run(await needPost("moderator"), (c) => handleReportDecide(request, c)); }
+    // city coin pictures (src/logos.js): every role may look, admins and the owner decide (a fresh wallet proof, like every POST here)
+    case "logos": { const b = only("GET"); return b || run(need("moderator"), handleLogos); }
+    case "logos/decide": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleLogoDecide(request, c)); }
     case "appeals": { const b = only("GET"); return b || run(need("moderator"), handleAppeals); }
     case "appeals/decide": { const b = only("POST"); return b || run(await needPost("admin"), (c) => handleAppealDecide(request, c)); }
     case "snapshots": { const b = only("GET"); return b || run(need("moderator"), handleSnapshots); }

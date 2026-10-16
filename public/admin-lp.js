@@ -231,7 +231,12 @@
       fact(dl, "Coin", `${c.name} · $${c.ticker || "?"} · paired with ${c.pair}`);
       fact(dl, "Founder", c.founder ? addr(`${c.handle ? `@${c.handle} · ` : ""}${c.founder}`) : "No founder seat");
       fact(dl, "Description (wallets and Jupiter show it for ever)", c.pitch || "None: the standard text is used");
-      fact(dl, "Logo", c.logo ? "Yes (on the coin page; you can still take it down later)" : "None: the Vicinity logo is used");
+      // the picture is checked separately (Moderation › Pictures): only an approved one is ever shown; the launch does not wait for it.
+      // The badge lines speak of the chain's image URL (/coin-meta/<mint>.png, what wallets show); the site shows the city's initials.
+      fact(dl, "Picture", c.approved && c.logoStatus !== "approved" ? `An approved picture shows; a newer one ${c.logoStatus === "rejected" ? "was not approved" : "waits for a check (Moderation › Pictures)"}`
+        : c.logoStatus === "approved" ? "Approved (on the coin page; you can still take it down later)"
+          : c.logoStatus === "rejected" ? "Not approved: wallets show the Vicinity badge until the founder sends another"
+            : c.logo ? "Waiting for a check (Moderation › Pictures): wallets show the Vicinity badge until it is approved" : "None: the Vicinity badge is used");
       card.append(dl);
       for (const wmsg of c.warnings || []) card.append(el("p", "lp-warn", wmsg));
       const box = el("div", "lp-step__box");

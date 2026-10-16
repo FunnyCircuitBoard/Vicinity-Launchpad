@@ -30,7 +30,7 @@ export async function allowListed(env, mint) {
   if (!isSolanaAddress(mint)) return null;
   const vic = activeMint(env);
   if (vic && mint === vic) {
-    return { kind: "vicinity", mint, pairMint: SOL, pair: "SOL", ticker: "VICINITY", name: "Vicinity", launchedAt: launchedAtOf(mint), city: null, color: "gold", logo: null };
+    return { kind: "vicinity", mint, pairMint: SOL, pair: "SOL", ticker: "VICINITY", name: "Vicinity", launchedAt: launchedAtOf(mint), city: null, color: "gold", logo: null, logoHash: null };
   }
   await ensureSchema(env.DB);
   const row = await env.DB.prepare("SELECT city_id FROM city_coins WHERE mint = ?").bind(mint).first();
@@ -38,8 +38,9 @@ export async function allowListed(env, mint) {
   const v = coinView(await coinOf(env.DB, row.city_id));
   if (!v || v.mint !== mint || !v.pairMint) return null;
   // the ticker the page shows: the chain's symbol once the launch is recorded, else the city list's (src/tickers.js)
+  // the picture: the approved one or nothing, with the hash of its bytes, so anyone can check what /api/media serves (src/logos.js)
   return { kind: "city", mint, pairMint: v.pairMint, pair: v.pair, ticker: (await displayTicker(env, { cityId: v.city, mint }))?.ticker || null, name: v.name, launchedAt: v.launchedAt,
-    city: { id: String(v.city), name: v.cityName, country: v.country }, color: v.color, logo: v.logo };
+    city: { id: String(v.city), name: v.cityName, country: v.country }, color: v.color, logo: v.logo, logoHash: v.logoHash };
 }
 
 const facts = new Map(); // mint -> { at, value | null, failedAt }
@@ -114,7 +115,7 @@ async function build(env, coin, fetchImpl, now) {
   }
   const body = {
     ok: true, asOf: iso(now), mint: coin.mint,
-    coin: { kind: coin.kind, ticker: coin.ticker, name: coin.name, city: coin.city, pair: { symbol: coin.pair, mint: coin.pairMint }, launchedAt: coin.launchedAt, color: coin.color, logo: coin.logo },
+    coin: { kind: coin.kind, ticker: coin.ticker, name: coin.name, city: coin.city, pair: { symbol: coin.pair, mint: coin.pairMint }, launchedAt: coin.launchedAt, color: coin.color, logo: coin.logo, logoHash: coin.logoHash ?? null },
     facts: f ? { ...f, source: "Solana blockchain, read by vicinity.city" } : null,
     market, holders, trades, samples, links,
     attribution: attributionFor(live.used, { holders: Boolean(holders), trades: Boolean(pool) }),

@@ -426,3 +426,19 @@
   .lp-badge { margin-left: 0; }
   .lp .admin-row > .btn, .lp .admin-row > .field { flex: 1 1 100%; }
 }
+
+/* Moderation › Pictures: the founder's coin picture (served to the staff only until approved), the reason and the note for a rejection.
+   The actions cell wraps (the reason and the note on one line, the buttons under them) so the table fits its box on a computer without
+   a sideways scroll; every control is a 44 px target like the rest of the console. */
+.admin-table td.adm-pic { width: 56px; }
+.adm-thumb { display: block; width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: var(--bg-2, rgba(255, 255, 255, 0.06)); }
+.admin-table td.adm-act--pic { min-width: 16rem; white-space: normal; }
+.adm-pic__reject { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; width: 100%; margin: 0 0 var(--sp-2, 8px); }
+.adm-pic__reject select, .adm-pic__reject input { min-height: 44px; padding: 0 10px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line-2); color: var(--text); font: inherit; font-size: 0.875rem; }
+.adm-pic__reason { flex: 0 1 auto; }
+.adm-pic__note { flex: 1 1 10rem; min-width: 0; max-width: 100%; }
+@container admbody (max-width: 639px) {
+  .admin-table--cards td.adm-pic::before { display: none; }
+  .admin-table--cards .adm-pic__reject { justify-content: flex-start; margin: 0; }
+  .admin-table--cards .adm-pic__note { flex-basis: 100%; }
+}

@@ -259,7 +259,8 @@ test("drift guard: the files that read users.wallet are the ones this change rev
   // reviewed the same way (and added here on purpose).
   const reviewed = new Set(["admin.js", "attest.js", "auth.js", "coins.js", "elections.js", "launchpad.js", "me.js", "moderation.js", "profiles.js", "portfolio.js", "pwlogin.js",
     "roles.js", "seats.js", "signup.js", "signup-finish.js", "snapshot.js", "social.js", "walletlink.js", "handoff.js", "signup-core.js", "profile-core.js", "lpadmin.js", "lplaunch.js",
-    "logins.js"]); // logins.js: findAccount hands { id, wallet } to the log-in (src/auth.js linkIdentity), which already takes a NULL wallet
+    "logins.js", // logins.js: findAccount hands { id, wallet } to the log-in (src/auth.js linkIdentity), which already takes a NULL wallet
+    "logos.js"]); // logos.js: the admin's picture list masks the founder's wallet (maskWallet(null) is null: a founder without a wallet is listed by handle)
   const dir = new URL("../src/", import.meta.url);
   const offenders = readdirSync(dir).filter((f) => f.endsWith(".js") && !reviewed.has(f)).filter((f) => {
     const src = readFileSync(new URL(f, dir), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");

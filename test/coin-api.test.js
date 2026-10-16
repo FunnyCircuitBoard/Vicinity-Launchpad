@@ -84,7 +84,7 @@ test("GET /api/coin for $VICINITY: facts, the live market with a source per numb
   assert.equal(res.headers.get("cache-control"), "public, max-age=30");
   const text = await res.text(), d = JSON.parse(text);
   assert.deepEqual(Object.keys(d), ["ok", "asOf", "mint", "coin", "facts", "market", "holders", "trades", "samples", "links", "attribution"]);
-  assert.deepEqual(d.coin, { kind: "vicinity", ticker: "VICINITY", name: "Vicinity", city: null, pair: { symbol: "SOL", mint: SOL }, launchedAt: null, color: "gold", logo: null });
+  assert.deepEqual(d.coin, { kind: "vicinity", ticker: "VICINITY", name: "Vicinity", city: null, pair: { symbol: "SOL", mint: SOL }, launchedAt: null, color: "gold", logo: null, logoHash: null });
   assert.deepEqual(d.facts, { supply: 1e9, decimals: 6, program: "SPL Token", mintingDisabled: true, freezingDisabled: true, mintHeldByProgram: false, source: "Solana blockchain, read by vicinity.city" });
   const m = d.market;
   assert.deepEqual([m.priceUsd, m.marketCapUsd, m.volume24hUsd, m.priceChange24hPct, m.traders24h], [JUP_PRICE, 7577.217833193381, 221.02457715972727 + 315.17594188232897, -0.7440200264703254, 18]);
@@ -123,7 +123,7 @@ test("GET /api/coin for a recorded city coin, and when sources fail: a dash with
   assert.equal(res.headers.get("cache-control"), "public, max-age=5");
   const d = await res.json();
   assert.deepEqual(d.coin, { kind: "city", ticker: "UTICA", name: "Utica Coin", city: { id: "5142056", name: "Utica", country: "US" }, pair: { symbol: "SOL", mint: SOL },
-    launchedAt: "2026-10-05T10:00:00.000Z", color: "emerald", logo: null });
+    launchedAt: "2026-10-05T10:00:00.000Z", color: "emerald", logo: null, logoHash: null }); // the picture only once an admin approved it (src/logos.js)
   assert.equal(d.market.priceUsd, null);
   assert.equal(d.market.missing.price, "Jupiter could not be reached; no LaunchLab curve on the chain; no DEX Screener pool");
   assert.deepEqual(d.trades, { source: null, rows: [], missing: "No LaunchLab curve known for this coin" });

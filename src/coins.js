@@ -5,12 +5,15 @@
  *            it's paired with on Raydium LaunchLab: SOL, USDC or RAY. The ticker is never part of the design: it is
  *            the city's own, from the one list (src/tickers.js), so nobody can pick, change or copy another city's
  *            coin; a city the list does not know gets no design until it is added.
- *   Public   every design is public (GET /api/coins) and every change is in the public log (/api/audit).
+ *   Public   every design is public (GET /api/coins; the picture once approved) and every change is in the public log (/api/audit).
  *   Launch   once the coin is live, the founder submits its contract address; an admin who isn't that founder
  *            checks it and records it. From then on the design is locked, so it always matches the blockchain.
  *            On the Vicinity launchpad (src/lpcoins.js, only while its settings are there) the design locks earlier: from the
  *            moment the owner builds the on-chain approval, because the approval fixes the name and ticker on chain and the
  *            owner approved the design he saw (the description goes into the coin's /coin-meta JSON for ever).
+ *   Pictures a founder's picture is checked by an admin before anyone sees it (src/logos.js): until it is approved, every public
+ *            surface shows no picture (the site the city's initials, /coin-meta/<mint>.png the Vicinity badge for wallets); the
+ *            founder and the staff see the working picture and its state.
  *   Safety   an admin can take down a logo or text that breaks the rules, with a public reason.
  */
 import { json, readJson } from "./http.js";
@@ -24,9 +27,11 @@ import { mintInfo } from "./chain.js";
 import { isSolanaAddress } from "./solana.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
 import { readImage } from "./social.js";
-import { ensureSchema } from "./store.js";
+import { ensureLogoSchema, ensureSchema } from "./store.js";
 import { displayTicker, tickerOf, tickersAvailable } from "./tickers.js";
 import { designFrozen, rebuildMetaJson } from "./lpcoins.js";
+import { adminRoleOf } from "./admin.js";
+import { clearedStatement, pendingStatement, publicLogo, rejectLogo, reviewView } from "./logos.js";
 
 const C = POLICY.coins;
 
@@ -40,19 +45,32 @@ export const PAIRS = {
 const NAME_RE = /^[\p{L}\p{N}][\p{L}\p{N} .'’&-]*$/u;
 const LINKISH = /https?:|www\.|\.[a-z]{2,}(\/|\b)/i;
 
-/** The public view of a coin (the contract waiting for a check is never shown: only that one is waiting). */
-export function coinView(row) {
+/**
+ * The public view of a coin (the contract waiting for a check is never shown: only that one is waiting). The picture is the approved
+ * one or nothing, with the hash of its bytes (src/logos.js). `mine`: the founder or the staff also get the working picture and where
+ * its check stands (logoStatus, logoDraft, logoReason, logoNote); nobody else ever sees a pending or rejected picture.
+ */
+export function coinView(row, { mine = false } = {}) {
   if (!row) return null;
   return {
     city: row.city_id, cityName: row.city_name, country: row.country,
     name: row.name, pitch: row.pitch || "", pair: row.pair, pairMint: PAIRS[row.pair]?.mint || null, color: row.color,
-    logo: row.media_id ? `/api/media/${row.media_id}` : null,
+    ...publicLogo(row),
     mint: row.mint || null, launched: Boolean(row.mint), launchedAt: row.launched_at || null,
     waiting: Boolean(row.pending_mint), by: row.designer || null, updatedAt: row.updated_at,
+    ...(mine ? reviewView(row) : {}),
   };
 }
 const SELECT = "SELECT c.*, COALESCE(u.handle, u.name) AS designer FROM city_coins c LEFT JOIN users u ON u.id = c.user_id";
-export const coinOf = (db, cityId) => db.prepare(`${SELECT} WHERE c.city_id = ?`).bind(String(cityId)).first();
+export async function coinOf(db, cityId) {
+  await ensureLogoSchema(db);
+  return db.prepare(`${SELECT} WHERE c.city_id = ?`).bind(String(cityId)).first();
+}
+/** Is this signed-in person the coin's founder, or on the staff (owner, admin, moderator)? They see the working picture and its state. */
+async function seesReview(env, u, row) {
+  if (!u || !row) return false;
+  return u.id === row.user_id || Boolean(await adminRoleOf(env, u.wallet));
+}
 
 function log(db, a) {
   return db.prepare(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, note, created_at, state)
@@ -87,16 +105,23 @@ export async function handleCoins(request, env, fetchImpl = fetch, now = Date.no
   const vicinity = activeMint(env) || null; // the live $VICINITY contract (for the swap panel)
   if (!env.DB) return json({ coins: [], coin: null, pairs, vicinity });
   await ensureSchema(env.DB);
+  await ensureLogoSchema(env.DB);
   const q = new URL(request.url).searchParams;
   if (q.get("waiting")) {
     const a = await admin(request, env, now, fetchImpl, { write: false, fresh: false }); // a page load: browsers send no Origin on GET
     if (a.error) return a.error;
     const rows = (await env.DB.prepare(`${SELECT} WHERE c.pending_mint IS NOT NULL ORDER BY c.pending_at`).all()).results;
-    return json({ ok: true, waiting: rows.map((r) => ({ ...coinView(r), pendingMint: r.pending_mint, pendingAt: r.pending_at, designerId: r.user_id })) });
+    return json({ ok: true, waiting: rows.map((r) => ({ ...coinView(r, { mine: true }), pendingMint: r.pending_mint, pendingAt: r.pending_at, designerId: r.user_id })) });
   }
-  if (q.get("city")) return json({ coin: coinView(await coinOf(env.DB, q.get("city"))), pairs, vicinity });
+  if (q.get("city")) {
+    // one city's coin is answered live (never cached): its founder and the staff also get the working picture and its state
+    const row = await coinOf(env.DB, q.get("city"));
+    let mine = false;
+    if (row) { const a = await access(request, env, now, { write: false }); mine = !a.error && await seesReview(env, a.u, row); }
+    return json({ coin: coinView(row, { mine }), pairs, vicinity });
+  }
   const rows = (await env.DB.prepare(`${SELECT} ORDER BY c.updated_at DESC LIMIT 20000`).all()).results;
-  return json({ coins: rows.map(coinView), pairs, vicinity });
+  return json({ coins: rows.map((r) => coinView(r)), pairs, vicinity });
 }
 
 /** POST /api/coins/design { name, pitch, pair, color, image?, removeLogo? } — the founder designs their city's coin. */
@@ -138,20 +163,25 @@ export async function handleDesign(request, env, fetchImpl = fetch, now = Date.n
   if (image) mediaId = (await db.prepare("INSERT INTO media (user_id, type, bytes, created_at) VALUES (?, ?, ?, ?)").bind(u.id, image.type, image.bytes, iso(now)).run()).meta.last_row_id;
   else if (body.removeLogo) mediaId = null;
 
-  await db.prepare(`INSERT INTO city_coins (city_id, city_name, country, seat_id, user_id, name, pitch, pair, color, media_id, updated_at, created_at)
+  // the picture's review state (src/logos.js): a new picture waits for an admin's check (an earlier approved one keeps showing meanwhile);
+  // removing the picture clears everything; otherwise the state stays as it is. One batch: the design and its state change together.
+  const stmts = [db.prepare(`INSERT INTO city_coins (city_id, city_name, country, seat_id, user_id, name, pitch, pair, color, media_id, updated_at, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(city_id) DO UPDATE SET seat_id = excluded.seat_id, user_id = excluded.user_id, name = excluded.name, pitch = excluded.pitch,
         pair = excluded.pair, color = excluded.color, media_id = excluded.media_id, updated_at = excluded.updated_at`)
-    .bind(seat.city_id, seat.city_name, seat.country, seat.id, u.id, name, pitch || null, body.pair, body.color, mediaId, iso(now), iso(now)).run();
+    .bind(seat.city_id, seat.city_name, seat.country, seat.id, u.id, name, pitch || null, body.pair, body.color, mediaId, iso(now), iso(now))];
+  if (image) stmts.push(pendingStatement(db, seat.city_id));
+  else if (body.removeLogo) stmts.push(clearedStatement(db, seat.city_id));
+  await db.batch(stmts);
   await noteEvent(env, u.id, "coin_design", now);
   const changed = [
     !old || old.name !== name ? `name "${name}"` : null, !old || (old.pitch || "") !== pitch ? "pitch" : null,
     !old || old.pair !== body.pair ? `paired with ${body.pair}` : null, !old || old.color !== body.color ? `colour ${body.color}` : null,
-    image ? "new logo" : !old || old.media_id !== mediaId ? (mediaId ? "logo" : "logo removed") : null,
+    image ? "new logo (waiting for a check)" : !old || old.media_id !== mediaId ? (mediaId ? "logo" : "logo removed") : null,
   ].filter(Boolean);
   await log(db, { actor: u.id, role: "founder", action: "coin_design", user: u.id, country: seat.country, place: seat.city_id, reason: "design",
     note: `${seat.city_name}: ${changed.join(", ") || "saved"}`, at: iso(now) });
-  return json({ ok: true, coin: coinView(await coinOf(db, seat.city_id)) });
+  return json({ ok: true, coin: coinView(await coinOf(db, seat.city_id), { mine: true }) });
 }
 
 /** POST /api/coins/mint { mint } — the founder: "our coin is live, this is its contract". An admin checks it. */
@@ -172,7 +202,7 @@ export async function handleProposeMint(request, env, fetchImpl = fetch, now = D
   await db.prepare("UPDATE city_coins SET pending_mint = ?, pending_at = ? WHERE city_id = ?").bind(mint, iso(now), seat.city_id).run();
   await log(db, { actor: u.id, role: "founder", action: "coin_contract_submitted", user: u.id, country: seat.country, place: seat.city_id, reason: "launch",
     note: `${seat.city_name}: waiting for an admin to check the contract`, at: iso(now) });
-  return json({ ok: true, coin: coinView(await coinOf(db, seat.city_id)) });
+  return json({ ok: true, coin: coinView(await coinOf(db, seat.city_id), { mine: true }) });
 }
 
 /**
@@ -217,10 +247,17 @@ export async function handleDecideMint(request, env, fetchImpl = fetch, now = Da
   }
   await log(db, { actor: a.u.id, role: "admin", action: body.approve === true ? "coin_launch_confirmed" : "coin_contract_rejected", user: coin.user_id,
     country: coin.country, place: coin.city_id, reason: "launch", note: `${coin.city_name}${note ? `: ${note}` : ""}${seen}`, at: iso(now) });
-  return json({ ok: true, coin: coinView(await coinOf(db, coin.city_id)) });
+  return json({ ok: true, coin: coinView(await coinOf(db, coin.city_id), { mine: true }) });
 }
 
-/** POST /api/coins/takedown { city, what: "logo" | "text", reason, note } — an admin removes a logo or text that breaks the rules. */
+/**
+ * POST /api/coins/takedown { city, what: "logo" | "text", reason, note } — an admin removes a logo or text that breaks the rules.
+ * A logo takedown is a rejection (src/logos.js): the public picture goes at once (caches keep it at most an hour), the founder sees
+ * the reason and the note on their dashboard and can replace the picture, which then waits for a check like any other. A newer
+ * working picture that waits for its check is left waiting (nobody has looked at it). A coin without any picture has nothing to take
+ * down: 404. The note here is PUBLIC (it goes into the mod log with the city's name, as it always did), unlike a Pictures-queue note,
+ * which only the founder sees.
+ */
 export async function handleTakedown(request, env, fetchImpl = fetch, now = Date.now()) {
   const a = await admin(request, env, now, fetchImpl);
   if (a.error) return a.error;
@@ -230,7 +267,11 @@ export async function handleTakedown(request, env, fetchImpl = fetch, now = Date
   const reason = POLICY.moderation.reasons.includes(body.reason) ? body.reason : null;
   const note = cleanText(body.note, 300);
   if (!reason || note == null || note.length < 3) return json({ ok: false, error: "reason_required" }, 400);
-  if (body.what === "logo") await db.prepare("UPDATE city_coins SET media_id = NULL, updated_at = ? WHERE city_id = ?").bind(iso(now), coin.city_id).run();
+  if (body.what === "logo") {
+    if (!coin.media_id && !coin.approved_media_id) return json({ ok: false, error: "not_found" }, 404);
+    await rejectLogo(db, coin.city_id, { reason, note, by: a.u.id, at: now, takedown: true });
+    await db.prepare("UPDATE city_coins SET updated_at = ? WHERE city_id = ?").bind(iso(now), coin.city_id).run();
+  }
   else if (body.what === "text" && !coin.mint) await db.prepare("UPDATE city_coins SET name = city_name, pitch = NULL, updated_at = ? WHERE city_id = ?").bind(iso(now), coin.city_id).run();
   else if (body.what === "text" && coin.pitch && (await recordedOnLaunchpad(env, coin.mint))) {
     // a coin launched on the Vicinity launchpad: its name is on chain for ever, but its description lives in the /coin-meta JSON
@@ -241,7 +282,7 @@ export async function handleTakedown(request, env, fetchImpl = fetch, now = Date
   else return json({ ok: false, error: body.what === "text" ? "coin_locked" : "bad_request" }, 400);
   await log(db, { actor: a.u.id, role: "admin", action: `coin_${body.what}_removed`, user: coin.user_id, country: coin.country, place: coin.city_id,
     reason, note: `${coin.city_name}: ${note}`, at: iso(now) });
-  return json({ ok: true, coin: coinView(await coinOf(db, coin.city_id)) });
+  return json({ ok: true, coin: coinView(await coinOf(db, coin.city_id), { mine: true }) });
 }
 
 /** Is this mint a coin recorded from the Vicinity launchpad (lp_coins), whatever the settings say now? */

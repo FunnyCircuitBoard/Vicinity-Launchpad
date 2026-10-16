@@ -303,7 +303,11 @@
       if (c.kind === "vicinity") disc.dataset.kind = "vicinity"; else delete disc.dataset.kind; // $VICINITY wears the Buy panel's own mark
       const logo = /^\/api\/media\/[A-Za-z0-9_-]{1,64}$/.test(str(c.logo)) ? c.logo : null;
       const old = disc.querySelector("img");
-      if (logo && !old) { const img = el("img"); img.src = logo; img.alt = ""; img.width = 64; img.height = 64; disc.append(img); }
+      if (logo && !old) {
+        const img = el("img"); img.src = logo; img.alt = ""; img.width = 64; img.height = 64; disc.append(img);
+        // a picture whose URL answers "not found" (its bytes no longer match what was approved) gives way to the initials
+        img.addEventListener("error", () => { img.remove(); disc.firstElementChild.textContent = initialsOf(c); });
+      }
       disc.firstElementChild.textContent = logo ? "" : initialsOf(c);
     }
     $("#coin-mini-ticker").textContent = ticker;

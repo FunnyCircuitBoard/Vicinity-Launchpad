@@ -1629,6 +1629,11 @@ a[role="tab"][aria-selected="true"]::after { content: ""; position: absolute; le
 .coin-contract { margin: 8px 0 0; }
 .coin-contract code { word-break: break-all; }
 .coin-note { margin: 12px 0 0; padding: 10px 14px; border-radius: 14px; background: rgba(255,200,87,.07); border: 1px solid rgba(255,200,87,.22); color: var(--text-2); }
+/* the founder's one line about their picture's check (only they and the staff get it) */
+.coin-logo-state { margin: 6px 0 0; color: var(--text-2); }
+.coin-logo-state.is-pending { color: var(--warn); }
+.coin-logo-state.is-rejected { color: var(--pin); }
+.coin-logo-state.is-approved { color: var(--ok-text, var(--moss)); }
 .coin-studio { margin-top: 18px; padding-top: 18px; border-top: 1px dashed var(--line-2); }
 .coin-studio__grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; }
 .fieldset { display: flex; flex-direction: column; gap: 6px; font-size: .82rem; font-weight: 600; color: var(--muted); }
