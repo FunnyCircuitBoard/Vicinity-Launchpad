@@ -144,7 +144,7 @@ export async function openDashboard({ ua = UA.desktop, search = "", me = memberM
     }
     now = until; await flush();
   }
-  for (const f of ["site.js", "wallets.js", "ticker.js", "dashboard-roles.js", "dashboard.js"]) vm.runInContext(read(f), ctx, { filename: `public/${f}` });
+  for (const f of ["site.js", "wallets.js", "dashboard-roles.js", "dashboard.js"]) vm.runInContext(read(f), ctx, { filename: `public/${f}` });
   const register = (w) => { for (const l of win.listeners.filter((x) => x.type === "wallet-standard:register-wallet")) l.fn({ detail: (a) => a.register(w) }); };
   for (const w of wallets) register(w);
   await flush();

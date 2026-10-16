@@ -28,7 +28,7 @@ import { json, readJson } from "./http.js";
 import { isSolanaAddress, base58Encode } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { activeMint } from "./official.js";
-import { tickerOf } from "./tickers.js";
+import { displayTicker, tickerOf } from "./tickers.js";
 import { iso } from "./policy.js";
 import { lpSetup } from "./cluster.js";
 import { buildTx, checkCluster, checkGenesis, lpRpc, readAccounts, respond } from "./lpkit.js";
@@ -715,8 +715,9 @@ async function candidateList(env, ctx, fetchImpl, now) {
     if (!id) continue;
     const ap = decodeApproval(acc.get(await L.approval(id)) || null, s.programId);
     const coin = acc.get(await L.coin(id)) || null;
-    const t = await tickerOf(env, r.city_id);
-    const base = { cityId: String(id), cityName: r.city_name, country: r.country, name: r.name, pair: r.pair, ticker: t ? t.ticker : null, founder: r.seat_wallet || null, handle: r.handle || null };
+    const t = await tickerOf(env, r.city_id); // the list's ticker: what an approval binds on chain (never a chain symbol read back)
+    const shown = await displayTicker(env, { cityId: r.city_id, mint: r.mint || null, chainSymbol: r.mint ? undefined : null }); // a launched coin shows the chain's
+    const base = { cityId: String(id), cityName: r.city_name, country: r.country, name: r.name, pair: r.pair, ticker: shown ? shown.ticker : null, founder: r.seat_wallet || null, handle: r.handle || null };
     if (coin || r.mint) { launched.push({ ...base, mint: r.mint || null }); continue; }
     if (ap) {
       // the program checks only the approved wallet, the expiry and the pause: a wallet that lost the founder seat can still launch

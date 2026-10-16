@@ -39,6 +39,7 @@ import { adminWallets, liveSeatOfUser, managerOf } from "./roles.js";
 import { badgesFor } from "./me.js";
 import { adminRoleOf } from "./admin.js";
 import { portfolioOf } from "./portfolio.js";
+import { displayTicker } from "./tickers.js";
 import { handleClearBio } from "./moderation.js";
 import { cleanText } from "./text.js";
 import { MAX_BLOCKS, MAX_FOLLOWING, PAGE, SEARCH_MAX, SHOWN, cleanBio, countsOf, countsStatement, findMember, memberById, parseHandle, within } from "./profile-core.js";
@@ -135,8 +136,10 @@ async function handleProfile(request, env, x) {
     }
   }
   const { level, badges } = await standing(env, m, { launched: Boolean(mint), position, amount, now });
+  // the home city's coin ticker, for the pass's coin disc: the chain's symbol once the coin is launched, else the city list's; null with neither
+  const homeTicker = m.home_city ? await displayTicker(env, { cityId: m.home_city }) : null;
   return json({ ok: true, profile: {
-    handle: m.handle, since: m.created_at, level, badges, home: m.home_city ? { id: m.home_city, name: m.home_name, country: m.home_country } : null,
+    handle: m.handle, since: m.created_at, level, badges, home: m.home_city ? { id: m.home_city, name: m.home_name, country: m.home_country, ticker: homeTicker ? homeTicker.ticker : null } : null,
     bio: m.bio || "", wallet: m.wallet || null, walletLinked: Boolean(m.wallet), holding, portfolio: await portP, counts, posts,
     // blockedBy is always false: a member who was blocked is never told (a follow is simply refused with cannot_follow)
     viewer: { self: m.id === u.id, following: Boolean(rel?.following), followedBy: Boolean(rel?.followed_by), blocked: Boolean(rel?.blocked), blockedBy: false },

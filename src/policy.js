@@ -18,8 +18,8 @@
  *   - Country managers are elected for 90 days (votes count most), not handed to the richest wallet.
  */
 export const POLICY = {
-  version: 5,
-  effectiveAt: "2026-10-01", // v5: Stake Ladder (tiered founder stake) + Seed Steward + Squad Founding
+  version: 6,
+  effectiveAt: "2026-10-16", // v6: one Never sentence on city coin tickers and pictures; v5 (2026-10-01): Stake Ladder (tiered founder stake) + Seed Steward + Squad Founding
 
   founder: {
     // v5: the Stake Ladder. One rule for every city, scaled by people:
@@ -95,6 +95,7 @@ export const POLICY = {
     "Move, freeze or take anyone's tokens.",
     "Mint more $VICINITY: minting is switched off on the blockchain.",
     "Change a city's official coin once it has launched.",
+    "Pick or change a city coin's ticker, or keep a picture that breaks the rules: the ticker is fixed by the Vicinity city list and copied on chain at launch, a picture that breaks the rules is removed, and a launched coin without a picture shows the Vicinity badge.",
     "Change these rules silently: every change is a new version, published first.",
     "Ban someone on one person's word: bans need two people and can be appealed.",
     "See or store anyone's exact location.",

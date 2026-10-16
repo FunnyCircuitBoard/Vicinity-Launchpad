@@ -22,7 +22,7 @@ import { swapOn } from "./cluster.js";
 import { PAIRS, handleCoins, launchedCoins } from "./coins.js";
 import { handleSeats } from "./seats.js";
 import { latestBalances } from "./ledger.js";
-import { tickerOf } from "./tickers.js";
+import { chainSymbolsOf, displayTicker } from "./tickers.js";
 import { ensureLaunchpadSchema } from "./store.js";
 import { _resetMarketLive, attributionFor, liveMarkets } from "./marketlive.js";
 import { _resetLaunchlab } from "./launchlab.js";
@@ -149,6 +149,8 @@ async function build(env, fetchImpl, now) {
     if (rows.length) lpCurves = await curvesFor(env, rows, fetchImpl, now);
   } catch (e) { lpOk = false; console.error("launchpad curves unavailable", shortErr(e)); }
 
+  // the ticker each card shows: the chain's symbol for a launched coin (one query for all of them), else the city list's
+  const chainSymbols = await chainSymbolsOf(env, coins.filter((c) => c.mint).map((c) => c.mint));
   const cards = [];
   for (const c of coins) {
     const seat = seats.get(String(c.city)) || null;
@@ -159,7 +161,7 @@ async function build(env, fetchImpl, now) {
     cards.push({
       kind: "city", status: c.mint ? "live" : c.waiting ? "waiting" : "designed",
       city: { id: String(c.city), name: c.cityName, country: c.country },
-      ticker: (await tickerOf(env, c.city))?.ticker || null, name: c.name, pitch: c.pitch || "", color: c.color, logo: c.logo,
+      ticker: (await displayTicker(env, { cityId: c.city, chainSymbol: (c.mint && chainSymbols.get(c.mint)) || null }))?.ticker || null, name: c.name, pitch: c.pitch || "", color: c.color, logo: c.logo,
       pair: { symbol: c.pair, mint: c.pairMint }, mint: c.mint, launchedAt: c.launchedAt, designedAt: c.updatedAt,
       founder, members: members.get(String(c.city)) || null,
       market: c.mint ? (lp.has(c.mint) ? applyLpMarket(market.markets.get(c.mint) || null, lpCurves.get(c.mint) ?? null, market.pairPrices.get(lp.get(c.mint).quote_mint) ?? null) : market.markets.get(c.mint) || null) : null,

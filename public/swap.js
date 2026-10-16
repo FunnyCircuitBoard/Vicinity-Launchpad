@@ -149,7 +149,8 @@
   let configP = null, config = null;
   const loadConfig = () => (configP ||= api("/api/swap/config").then((c) => (config = c && c.ok ? c : null)).catch(() => (config = null)));
   const tokenOf = (mint) => (config && config.tokens.find((t) => t.mint === mint)) || null;
-  const symbolOf = (mint, fallback) => { const t = tokenOf(mint); return t ? (t.kind === "vicinity" ? "$VICINITY" : t.kind === "city" ? `$${(t.symbol || t.name || "COIN").toUpperCase().replace(/^\$/, "")}` : t.symbol) : fallback || shortAddr(mint); };
+  // a city coin: the server's ticker (the chain's once launched, else the city list's) with its "$"; one without a ticker goes by its name, plain (nothing here makes a ticker up)
+  const symbolOf = (mint, fallback) => { const t = tokenOf(mint); return t ? (t.kind === "vicinity" ? "$VICINITY" : t.kind === "city" ? (t.symbol ? `$${String(t.symbol).replace(/^\$/, "")}` : t.name || "city coin") : t.symbol) : fallback || shortAddr(mint); };
   const decimalsOf = (mint) => { const t = tokenOf(mint); return t ? t.decimals : 6; };
   // silent: connected by the page itself inside a wallet app (connectSilently below), not by a tap on this page
   // checking: the wallet app is being asked silently and may still connect the panels (the button says CHECKING, still)

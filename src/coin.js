@@ -11,7 +11,7 @@ import { json } from "./http.js";
 import { activeMint, launchedAtOf } from "./official.js";
 import { PAIRS, coinOf, coinView } from "./coins.js";
 import { getTokenFacts } from "./chain.js";
-import { tickerOf } from "./tickers.js";
+import { displayTicker } from "./tickers.js";
 import { ensureLaunchpadSchema, ensureSchema } from "./store.js";
 import { buyHereLink, tradeLinks } from "./launchpad.js";
 import { attributionFor, liveMarkets, maskWallet, raydiumTradesFor } from "./marketlive.js";
@@ -37,7 +37,8 @@ export async function allowListed(env, mint) {
   if (!row) return null;
   const v = coinView(await coinOf(env.DB, row.city_id));
   if (!v || v.mint !== mint || !v.pairMint) return null;
-  return { kind: "city", mint, pairMint: v.pairMint, pair: v.pair, ticker: (await tickerOf(env, v.city))?.ticker || null, name: v.name, launchedAt: v.launchedAt,
+  // the ticker the page shows: the chain's symbol once the launch is recorded, else the city list's (src/tickers.js)
+  return { kind: "city", mint, pairMint: v.pairMint, pair: v.pair, ticker: (await displayTicker(env, { cityId: v.city, mint }))?.ticker || null, name: v.name, launchedAt: v.launchedAt,
     city: { id: String(v.city), name: v.cityName, country: v.country }, color: v.color, logo: v.logo };
 }
 

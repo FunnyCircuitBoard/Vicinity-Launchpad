@@ -294,7 +294,7 @@
   /* ----- the header ----- */
   function paintHead(d, ageS) {
     const c = d.coin, m = d.market || {};
-    const ticker = `$${str(c.ticker) || "COIN"}`;
+    const ticker = str(c.ticker) ? `$${str(c.ticker)}` : str(c.name) || "city coin"; // a coin without a ticker goes by its name: nothing here makes one up
     $("#coin-ticker").textContent = ticker; $("#coin-ticker").classList.remove("skel", "skel--w140");
     const place = c.kind === "vicinity" ? "Vicinity · Solana" : [c.city && c.city.name, c.city && c.city.country, "Solana"].filter(Boolean).join(" · ");
     $("#coin-name").textContent = c.kind === "vicinity" ? place : `${str(c.name)} · ${place}`;
@@ -708,7 +708,7 @@
     const d = data, ageS = ageSeconds(d.asOf, receivedAt, Date.now());
     show("#coin-note", false); show("#coin-main", true); show("#coin-lower", true); show("#coin-sources", true);
     root.removeAttribute("aria-busy");
-    document.title = `$${str(d.coin.ticker) || "Coin"}: live price, chart and holders · Vicinity`;
+    document.title = `${str(d.coin.ticker) ? `$${str(d.coin.ticker)}` : str(d.coin.name) || "City coin"}: live price, chart and holders · Vicinity`;
     paintHead(d, ageS); paintTiles(d, ageS); paintCurve(d); paintLinks(d); paintTrades(d); paintAbout(d); paintSources(d);
     paintHolders(d);
   }

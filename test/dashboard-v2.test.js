@@ -58,14 +58,14 @@ const TABLE = {
     "badges", "bg-n-earned", "bg-n-locked", "badge-grid", "trade", "trade-title", "trade-state", "tr-amt", "tr-in", "tr-in-usd", "tr-flip", "tr-out", "tr-outk", "tr-rate", "tr-go", "tr-go-2", "tr-note"],
   city: ["city-subnav", "community", "cc-face", "cc-name", "cc-ticker", "ch-status", "cc-members", "cc-holders", "cc-founder", "ch-locals", "ch-locals-n", "ch-coin", "ch-coin-v", "cc-fomo", "cc-top", "cc-share",
     "coin", "coin-title", "coin-city", "coin-status", "coin-art", "coin-logo", "coin-art-face", "coin-name", "coin-ticker", "coin-pair", "coin-pitch", "coin-by", "coin-contract", "coin-mint", "coin-mint-copy", "coin-note",
-    "city-about", "ca-title", "ca-city", "ca-ticker", "ca-country", "ca-threshold", "ca-map", "request", "req-form", "req-name", "req-mine", "req-err"],
+    "city-about", "ca-title", "ca-city", "ca-ticker", "ca-ticker-note", "ca-country", "ca-threshold", "ca-map", "request", "req-form", "req-name", "req-mine", "req-err"],
   community: ["feed", "f-city", "f-country", "composer", "c-text", "c-pic-label", "c-pic", "c-preview", "c-count", "c-post", "c-err", "f-note", "posts", "f-more", "national", "nc-name", "nc-members", "nc-manager", "nc-election"],
   rankings: ["rankings-card", "rk-title", "rk-state", "rk-tiles", "rk-global", "rk-global-rank", "rk-global-sub", "rk-global-gap", "rk-country", "rk-country-label", "rk-country-rank", "rk-country-sub", "rk-country-note",
     "rk-city", "rk-city-label", "rk-city-rank", "rk-city-sub", "rk-city-note", "rk-note"],
   founder: ["fcard", "fcard-kicker", "fcard-state", "fcard-title", "fcard-who", "fcard-pick", "fcard-since-label", "fcard-since", "fcard-coin", "fcard-clock-row", "fcard-clock-label", "fcard-clock", "fcard-note", "fcard-go", "fcard-alt", "fcard-meter",
     "lp-launch", "lp-launch-title",
     "progress", "progress-title", "p-city", "p-pct", "fs-state", "p-bar", "p-steps", "fs-rank", "fs-rank-text", "fs-rank-note", "p-panel", "p-window", "p-error", "squad",
-    "studio-card", "studio-title", "studio-city", "studio-state", "coin-studio", "studio-step-1", "cs-name", "cs-ticker", "cs-pitch", "cs-count", "studio-step-2", "studio-step-3", "cs-logo", "cs-logo-remove", "cs-save", "cs-err", "cs-mint", "cs-mint-send", "danger-zone", "danger-body", "founder-foot"],
+    "studio-card", "studio-title", "studio-city", "studio-state", "coin-studio", "studio-step-1", "cs-name", "cs-ticker-label", "cs-ticker", "cs-pitch", "cs-count", "studio-step-2", "studio-step-3", "cs-logo", "cs-logo-remove", "cs-save", "cs-err", "cs-mint", "cs-mint-send", "danger-zone", "danger-body", "founder-foot"],
   moderate: ["mod", "mod-scope", "mod-sections", "coin-admin-card", "coin-admin", "coin-waiting"],
   profile: ["profile-modal", "profile-title", "profile-avatar", "profile-since", "profile-close", "profile-username-h", "username-form", "username-input", "username-err", "bio-sec", "profile-bio-h", "bio-form", "bio-input", "bio-count", "bio-hint", "bio-save", "bio-err",
     "profile-net-sec", "profile-net-h", "profile-net", "profile-net-link", "profile-account-h", "profile-wallet", "profile-copy", "profile-link", "profile-unlink", "profile-provider", "profile-home", "email-row", "email-desc", "email-view", "email-form", "email-input", "email-code-form", "email-code-input",
@@ -153,7 +153,7 @@ test("flag off: the built page keeps every pinned id, the strip and the skeleton
   }
   assert.match(html, /<div class="dash-top" id="dash-top">/);
   const order = [...html.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "swap", "dashboard-roles", "lp-sign", "lp-launch", "dashboard", "feedback"], "dashboard-v2.js is not a script tag of the page");
+  assert.deepEqual(order, ["theme", "site", "wallets", "swap", "dashboard-roles", "lp-sign", "lp-launch", "dashboard", "feedback"], "dashboard-v2.js is not a script tag of the page");
   assert.doesNotMatch(html, /\sstyle="/); assert.doesNotMatch(html, /\son[a-z]+="/); assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/);
   // the roles accordion is still the whole section the site test reads
   assert.match(html, /<section class="section section--panel" id="roles">/);

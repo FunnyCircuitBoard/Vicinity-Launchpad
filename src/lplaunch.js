@@ -33,7 +33,7 @@ import { liveSeatOfUser } from "./roles.js";
 import { stillFounder } from "./seats.js";
 import { iso } from "./policy.js";
 import { keyLimit, publicLimit, walletLimit } from "./guards.js";
-import { tickerOf } from "./tickers.js";
+import { displayTicker } from "./tickers.js";
 import { decodeApproval } from "./lpadmin.js";
 import { coinByMint, recordedByMint } from "./lpcoins.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas } from "./sol/pda.js";
@@ -218,7 +218,8 @@ async function launchStatus(request, env, fetchImpl, now) {
 
   let st;
   try { st = await launchState(env, s, cityId, fetchImpl); } catch (e) { console.error("launch status read failed", codeOf(e)); return err("rpc_unavailable", "The blockchain could not be reached just now. Try again in a minute.", 503); }
-  const t = await tickerOf(env, String(cityId));
+  // the ticker the card shows: once launched and recorded, the chain's symbol; before that the city list's (src/tickers.js)
+  const t = await displayTicker(env, { cityId: String(cityId), mint: st.coin ? st.coin.mint : null, chainSymbol: st.coin ? undefined : null });
   const nowS = Math.floor(now / 1000);
   const out = {
     ok: true, cluster: s.cluster, chain: s.chain, cityId: String(cityId), city: { id: String(cityId), name: f.seat.city_name, country: f.seat.country },

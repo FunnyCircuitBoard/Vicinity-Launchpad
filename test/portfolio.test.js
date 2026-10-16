@@ -154,18 +154,19 @@ test("what an item looks like: kind, ticker, names, city, amount, price, value, 
   assert.equal(p.pricesComplete, true);
   assert.equal(p.totalUsd, 40); // 5000 × 0.002 = 10, 100 × 0.3 = 30
   assert.deepEqual(p.items, [
-    { kind: "city", mint: UTICA, symbol: "UTICA", name: "Utica Coin", city: { id: "5142056", name: "Utica", country: "US" }, amount: 100, priceUsd: 0.3, valueUsd: 30, sharePct: 75 },
+    { kind: "city", mint: UTICA, symbol: "UTICA", name: "Utica Coin", tickerSource: "registry", city: { id: "5142056", name: "Utica", country: "US" }, amount: 100, priceUsd: 0.3, valueUsd: 30, sharePct: 75 },
     { kind: "vicinity", mint: MINT, symbol: "VICINITY", name: "Vicinity", amount: 5000, priceUsd: 0.002, valueUsd: 10, sharePct: 25 },
   ]);
   assert.ok(!("city" in p.items[1]), "$VICINITY has no city");
 });
 
-test("a city coin whose city has no ticker still gets a symbol", async () => {
+test("a city coin whose city has no ticker goes by its name: no symbol is made up from the city", async () => {
   const env = newWorld({ VICINITY_MINT: MINT, SOLANA_RPC_URL: RPC });
   await launch(env, "nowhere-1", UTICA, { cityName: "Nowhere Land", name: "Nowhere Coin" });
   const net = fakeNet({ balances: { [addr(4)]: { [UTICA]: [acct(UTICA, 1)] } } });
   const p = await get(env, addr(4), net);
-  assert.equal(p.items[0].symbol, "NOWHERELAND");
+  assert.deepEqual([p.items[0].symbol, p.items[0].tickerSource], ["Nowhere Coin", null], "the name stands in; tickerSource null tells the page not to add a $");
+  assert.ok(!JSON.stringify(p).includes("NOWHERELAND"), "nothing invented from the city name");
 });
 
 test("balances: two accounts of one mint are summed, Token-2022 works, raw amount and decimals are used, zero and foreign accounts are dropped", async () => {
@@ -221,8 +222,8 @@ test("prices: values, total, shares and order (biggest value first, then no pric
     prices: { [MINT]: 0.002 /* 10 */, [UTICA]: 1.25 /* 50 */, [A]: 0.1 /* 10, ties with $VICINITY: bigger amount first */ } });
   const p = await get(env, wallet, net);
   assert.deepEqual(p.items.map((i) => [i.symbol, i.valueUsd, i.sharePct]), [
-    ["UTICA", 50, 71.4286], ["VICINITY", 10, 14.2857], ["AA", 10, 14.2857], // equal value: the larger amount (5000 vs 100) comes first
-    ["SYRACUSE", null, null], ["BB", null, null],                           // no price: after the priced ones, by amount
+    ["UTICA", 50, 71.4286], ["VICINITY", 10, 14.2857], ["A coin", 10, 14.2857], // equal value: the larger amount (5000 vs 100) comes first; cities 1 and 2 have no ticker: the coin's name
+    ["SYRACUSE", null, null], ["B coin", null, null],                           // no price: after the priced ones, by amount
   ]);
   assert.equal(p.totalUsd, 70, "the sum of the priced items only");
   assert.equal(p.pricesComplete, false);
@@ -417,8 +418,8 @@ test("mintsFor: $VICINITY first, then launched city coins only, never SOL/USDC/R
   const list = await mintsFor(env);
   assert.deepEqual(list, [
     { kind: "vicinity", mint: MINT, symbol: "VICINITY", name: "Vicinity" },
-    { kind: "city", mint: UTICA, symbol: "UTICA", name: "Utica Coin", city: { id: "5142056", name: "Utica", country: "US" } },
-    { kind: "city", mint: SYRACUSE, symbol: "SYRACUSE", name: "Syracuse Coin", city: { id: "5140405", name: "Syracuse", country: "US" } },
+    { kind: "city", mint: UTICA, symbol: "UTICA", tickerSource: "registry", name: "Utica Coin", city: { id: "5142056", name: "Utica", country: "US" } },
+    { kind: "city", mint: SYRACUSE, symbol: "SYRACUSE", tickerSource: "registry", name: "Syracuse Coin", city: { id: "5140405", name: "Syracuse", country: "US" } },
   ]);
   list[0].symbol = "X"; list[1].city.name = "X"; list.pop();
   const again = await mintsFor(env);
@@ -445,7 +446,7 @@ test("a newly launched coin shows up within 20 s even while a wallet's portfolio
   await launch(env, 77, fresh, { cityName: "Fresh" });
   assert.equal((await get(env, wallet, net, T0 + 16_000)).items.length, 1, "the allow-list is cached for 20 s: still the old one");
   const after = await get(env, wallet, net, T0 + 21_000); // the allow-list is read again; the wallet's old entry has NOT expired, but belongs to the old list
-  assert.deepEqual(after.items.map((i) => i.symbol).sort(), ["FRESH", "VICINITY"]);
+  assert.deepEqual(after.items.map((i) => i.symbol).sort(), ["Fresh Coin", "VICINITY"], "city 77 has no ticker: the coin goes by its name");
 });
 
 // ---- the HTTP handler ----

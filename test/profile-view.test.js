@@ -113,7 +113,7 @@ test("a profile has exactly the fields the owner decided are public, and the mem
   assert.equal(p.since, "2026-09-28T08:00:00.000Z");
   assert.equal(p.bio, "Utica born");
   assert.equal(p.wallet, bob.w.address, "the whole address");
-  assert.deepEqual(p.home, { id: "5142056", name: "Utica", country: "US" });
+  assert.deepEqual(p.home, { id: "5142056", name: "Utica", country: "US", ticker: "UTICA" }, "the home city's ticker rides along for the pass's coin disc (src/tickers.js displayTicker)");
   assert.deepEqual(p.counts, { followers: 0, following: 0 });
   assert.deepEqual(sorted(p.viewer), ["blocked", "blockedBy", "followedBy", "following", "self"]);
   assert.equal(p.level, "member");

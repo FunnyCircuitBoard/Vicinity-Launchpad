@@ -172,7 +172,8 @@ test("D5: tickers are never cut: no .slice(0, 5) on a ticker; the disc gets the 
     assert.match(code, /const discText = \(span, tk\) => \{ span\.textContent = tk; const disc = span\.parentNode; if \(disc && disc\.dataset\) disc\.dataset\.len = String\(Math\.min\(String\(tk\)\.length, 12\)\); \};/);
   }
   for (const sel of ["#cc-face", "#pass-coin"]) assert.match(dash, new RegExp(`discText\\(\\$\\("${sel}"\\), tk\\)`));
-  assert.match(dash, /if \(c\) discText\(\$\("#welcome-disc"\), c\.ticker \|\| ticker\(c\.name\)\);/);
+  assert.match(dash, /if \(c\) discText\(\$\("#welcome-disc"\), coinDisc\(c\)\);/);
+  for (const code of [dash, v2]) assert.doesNotMatch(code, /vicinityTicker|baseTicker\(/, "the dashboard never makes a ticker up from the city name: the server's ticker or the city name");
   for (const sel of [".welcome__disc", ".pass__coin", ".coin-disc"]) assert.ok(css.includes(`.dv2 ${sel}[data-len="5"]`), `${sel} has a size for 5 letters`);
   assert.match(css, /\.dv2 \.coin-disc span, \.dv2 \.pass__coin span \{ max-width: none; overflow: visible; white-space: nowrap; \}/);
   const me = memberMe(); me.community = { ...me.community, ticker: "SAOPAULO", name: "São Paulo" };
