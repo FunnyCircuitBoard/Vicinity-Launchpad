@@ -63,6 +63,12 @@ export const PUBLIC_LIMITS = {
   coin_meta:      { max: 60, windowMs: MIN },
   lp_record:      { max: 20, windowMs: MIN },
   lp_coin:        { max: 60, windowMs: MIN },
+  // Send from the Wallet tab (WALLET_SEND=on, src/walletsend.js): three RPC calls per build. The taps (Review, Max, the refresh of the
+  // details on the confirm screen) and the page's own live check while the person types (?live=1) are counted apart, as the Buy
+  // panel's are (swap_tx / swap_tx_auto), so a crowd behind one address that is only typing never uses up the builds a tap needs;
+  // each account has its own hourly ceiling on top (SEND_LIMIT and LIVE_LIMIT there).
+  wallet_send_build:      { max: 20, windowMs: MIN },
+  wallet_send_build_live: { max: 60, windowMs: MIN },
 };
 /**
  * A per-WALLET counter on top of the per-connection one (src/swap.js, src/lptrade.js): one wallet cannot burn the Jupiter or RPC

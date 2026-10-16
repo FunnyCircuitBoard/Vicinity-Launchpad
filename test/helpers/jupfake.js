@@ -170,6 +170,13 @@ export function fakeRpc({ mints = {}, lamports = {}, holdings = {}, slot = 1000,
   const log = [];
   const accounts = { [ALT_KEY]: { owner: altG3aq.result.value.owner, lamports: altG3aq.result.value.lamports, data: altG3aq.result.value.data } };
   const statuses = {};
+  /** A node's dataSlice: an account's base64 data cut to { offset, length } (src/walletsend.js asks for the first 166 bytes of each account). */
+  const sliced = (data, opts) => {
+    const sl = opts && opts.dataSlice;
+    if (!sl || !Array.isArray(data) || typeof data[0] !== "string") return data;
+    const off = Number(sl.offset) || 0;
+    return [Buffer.from(data[0], "base64").subarray(off, off + Number(sl.length)).toString("base64"), "base64"];
+  };
   const R = {
     log, accounts, statuses, mints: { [SOL]: { decimals: 9 }, [USDC]: { decimals: 6 }, [USDT]: { decimals: 6 }, ...mints }, lamports, holdings, slot, blockHeight,
     sim: () => ({ err: null, logs: ["Program JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4 success"], unitsConsumed: 180_000 }),
@@ -180,13 +187,13 @@ export function fakeRpc({ mints = {}, lamports = {}, holdings = {}, slot = 1000,
         case "getAccountInfo": {
           const [addr, opts] = params;
           const acc = accounts[addr];
-          if (acc) return { context: { slot }, value: { owner: acc.owner, lamports: acc.lamports, executable: false, rentEpoch: 0, data: acc.data } };
+          if (acc) return { context: { slot }, value: { owner: acc.owner, lamports: acc.lamports, executable: Boolean(acc.executable), rentEpoch: 0, data: acc.data } };
           const m = R.mints[addr];
           if (m === null) return { context: { slot }, value: null };
           if (m || opts?.encoding === "jsonParsed") return { context: { slot }, value: { owner: PROGRAM_IDS.token, lamports: 1461600, executable: false, rentEpoch: 0, data: { program: "spl-token", parsed: { type: "mint", info: { decimals: m ? m.decimals : 6, supply: "1000000000000000", mintAuthority: null, freezeAuthority: null, isInitialized: true } } } } };
           return { context: { slot }, value: null };
         }
-        case "getMultipleAccounts": return { context: { slot }, value: params[0].map((a) => (accounts[a] ? { owner: accounts[a].owner, lamports: accounts[a].lamports, executable: false, rentEpoch: 0, data: accounts[a].data } : null)) };
+        case "getMultipleAccounts": return { context: { slot }, value: params[0].map((a) => (accounts[a] ? { owner: accounts[a].owner, lamports: accounts[a].lamports, executable: Boolean(accounts[a].executable), rentEpoch: 0, data: sliced(accounts[a].data, params[1]) } : null)) };
         case "getBalance": return { context: { slot }, value: lamports[params[0]] ?? 0 };
         case "getTokenAccountsByOwner": { const [owner, f] = params; const a = (holdings[f?.mint] || {})[owner] || 0; const dec = R.mints[f?.mint]?.decimals ?? 6; return { context: { slot }, value: a > 0 ? [{ pubkey: "x", account: { data: { parsed: { info: { mint: f.mint, owner, tokenAmount: { amount: String(BigInt(Math.round(a * 10 ** dec))), decimals: dec, uiAmount: a, uiAmountString: String(a) } } } } } }] : [] }; }
         case "getLatestBlockhash": return { context: { slot }, value: { blockhash: base58Encode(crypto.getRandomValues(new Uint8Array(32))), lastValidBlockHeight: blockHeight + 150 } };
@@ -210,7 +217,7 @@ export function fakeRpc({ mints = {}, lamports = {}, holdings = {}, slot = 1000,
       if (!/rpc|solana\.com/.test(u)) return null;
       const body = JSON.parse(init.body);
       const list = Array.isArray(body) ? body : [body];
-      log.push({ methods: list.map((b) => b.method), url: u });
+      log.push({ methods: list.map((b) => b.method), params: list.map((b) => b.params), url: u });
       const ans = (b) => { try { return { jsonrpc: "2.0", id: b.id ?? 1, result: R.one(b) }; } catch (e) { return { jsonrpc: "2.0", id: b.id ?? 1, error: e && e.code ? e : { code: -32603, message: String((e && e.message) || e) } }; } };
       return new Response(JSON.stringify(Array.isArray(body) ? list.map(ans) : ans(body)), { headers: { "content-type": "application/json" } });
     },

@@ -110,12 +110,13 @@ export async function openDashboard({ ua = UA.desktop, search = "", hash = "", m
       else if (path === "/api/health") d = { ok: true };
       else d = (await api(path, body)) ?? DEFAULT[path.split("?")[0]] ?? { ok: true };
       const status = d._status || (d.ok === false ? 400 : 200);
-      return { ok: status < 400, status, json: async () => { const out = { ...d }; delete out._status; return out; } };
+      const hdrs = d._headers || {}; // an answer's headers, when a test gives some (Retry-After on a 429)
+      return { ok: status < 400, status, headers: { get: (k) => hdrs[String(k).toLowerCase()] ?? hdrs[String(k)] ?? null }, json: async () => { const out = { ...d }; delete out._status; delete out._headers; return out; } };
     },
     confirm: (q) => { confirms.push(q); return confirm; }, prompt: () => null,
     CustomEvent: function CustomEvent(type, init) { return newEvent(type, { detail: init && init.detail }); },
     URLSearchParams, URL, TextEncoder, TextDecoder, console, Date: PageDate, Promise, Intl,
-    btoa: (s) => Buffer.from(s, "binary").toString("base64"),
+    btoa: (s) => Buffer.from(s, "binary").toString("base64"), atob: (s) => Buffer.from(s, "base64").toString("binary"),
     setTimeout: setTimeout_, clearTimeout: clearTimeout_, setInterval: setInterval_, clearInterval: clearTimeout_,
     requestAnimationFrame: (fn) => setTimeout_(fn, 16), performance: { now: () => now }, innerHeight: 844, scrollY: 0, scrollTo() {}, scrollBy() {},
   });
@@ -126,12 +127,16 @@ export async function openDashboard({ ua = UA.desktop, search = "", hash = "", m
   win.dispatchEvent = (ev) => { for (const l of win.listeners.filter((x) => x.type === ev.type)) l.fn.call(win, ev); return true; };
   doc.defaultView = win;
   const ctx = vm.createContext(win);
-  // dashboard.js loads /dashboard-v2.js, /profile.js and /vendor/qrcode.js (the Wallet tab's QR code; copied in by scripts/copy-assets.mjs) with a
-  // <script> it appends to <head>: v2 and the QR code library run here, profiles do not (the switch is off in these tests)
+  // dashboard.js loads /dashboard-v2.js, /profile.js, /vendor/qrcode.js (the Wallet tab's QR code; copied in by scripts/copy-assets.mjs) and
+  // /wallet-send.js (WALLET_SEND=on) with a <script> it appends to <head>: v2, the QR code library and the Send sheet run here, profiles
+  // do not (the switch is off in these tests)
   const head = doc.querySelector("head");
   head.append = (s) => {
     if (s.src === "/dashboard-v2.js") { vm.runInContext(read("dashboard-v2.js"), ctx, { filename: "public/dashboard-v2.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
     else if (s.src === "/vendor/qrcode.js") { vm.runInContext(read("vendor/qrcode.js"), ctx, { filename: "public/vendor/qrcode.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
+    // the Wallet tab's Send (WALLET_SEND=on: dashboard.js asks for it when /api/me says walletSend), and the signing module it uses
+    else if (s.src === "/wallet-send.js") { vm.runInContext(read("wallet-send.js"), ctx, { filename: "public/wallet-send.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
+    else if (s.src === "/lp-sign.js") { vm.runInContext(read("lp-sign.js"), ctx, { filename: "public/lp-sign.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
     else Promise.resolve().then(() => s.onerror && s.onerror(new Error("not here")));
   };
   Object.defineProperty(doc, "head", { value: head });

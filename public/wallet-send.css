@@ -1,0 +1,49 @@
+/* The Wallet tab's Send sheet (public/wallet-send.js; WALLET_SEND=on), added to the page by that script only. The sheet itself is the Buy
+   panel's bottom sheet (swap.css .swap-sheet, loaded by the dashboard); these rules are its inside. Self-contained like swap.css: the
+   design tokens are read with a fallback each. 44 px targets; the address wraps and never scrolls sideways; nothing moves on its own. */
+.wsend { display: grid; gap: 12px; min-width: 0; }
+.wsend .kicker { margin: 0; }
+.wsend .h2--sm { margin: 0; }
+.wsend__form, .wsend__confirm { display: grid; gap: 12px; min-width: 0; }
+.wsend__from { margin: 0; overflow-wrap: anywhere; }
+.wsend__from code { font-size: .92em; }
+/* what to send: one row per asset the wallet holds, a radio each */
+.wsend__assets { display: grid; gap: 6px; }
+.wsend__asset { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 48px; padding: 8px 14px; border-radius: var(--r-chip, 12px); border: 1px solid var(--line-2); background: var(--surface-inset, rgba(var(--ink), .04)); color: var(--text); font: 600 var(--fs-sm, .875rem) var(--body); text-align: left; cursor: pointer; }
+.wsend__asset[aria-checked="true"] { border-color: var(--pin-2); box-shadow: inset 0 0 0 1px var(--pin-2); }
+.wsend__asset:focus-visible { outline: 3px solid var(--pin-2); outline-offset: 2px; }
+.wsend__asset-amt { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wsend__none { margin: 0; }
+/* the amount and the destination */
+.wsend__row { display: grid; gap: 6px; min-width: 0; }
+.wsend__label { font-size: var(--fs-xs, .75rem); font-weight: 600; color: var(--muted); }
+.wsend__line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wsend__input { flex: 1 1 0; width: 0; min-width: 0; min-height: 48px; padding: 0 14px; border-radius: var(--r-chip, 12px); border: 1px solid var(--line-2); background: var(--surface-inset, rgba(var(--ink), .04)); color: var(--text); font: 500 1rem var(--body); }
+.wsend__amt { font-variant-numeric: tabular-nums; }
+.wsend__to { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: .92rem; }
+.wsend__input:focus-visible { outline: 3px solid var(--pin-2); outline-offset: 2px; }
+.wsend__input:disabled { opacity: .55; }
+.wsend__max, .wsend__paste { flex: none; min-height: 44px; min-width: 44px; padding: 0 12px; border-radius: var(--r-pill, 999px); border: 1px solid var(--line-2); background: var(--card-2); color: var(--text); font: 700 .85rem var(--body); cursor: pointer; }
+.wsend__max:disabled, .wsend__paste:disabled { opacity: .5; cursor: default; }
+.wsend__check, .wsend__status { margin: 0; min-height: 1.4em; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.wsend__check.is-ok { color: var(--ok-text); }
+.wsend__check.is-bad, .wsend__status.is-bad { color: var(--bad-text); }
+.wsend__status.is-ok { color: var(--ok-text); font-weight: 600; }
+.wsend__review, .wsend__go { min-height: 52px; font-size: 1.05rem; }
+.wsend__foot { margin: 0; line-height: 1.45; }
+/* the confirm screen: the Worker's lines word for word, the full address with its first and last four characters emphasised */
+.wsend__lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.wsend__lines li { padding: 8px 12px; border-radius: var(--r-chip, 12px); background: var(--surface-inset, rgba(var(--ink), .04)); font-size: var(--fs-sm, .875rem); line-height: 1.4; font-variant-numeric: tabular-nums; }
+.wsend__lines li:first-child { font: 650 var(--fs-md, 1.125rem)/1.3 var(--display); }
+.wsend__to-label { margin: 0; }
+.wsend__addr { display: block; padding: 12px 14px; border-radius: var(--r-chip, 12px); background: var(--surface-inset, rgba(var(--ink), .04)); color: var(--text); font-size: var(--fs-sm, .875rem); line-height: 1.5; overflow-wrap: anywhere; word-break: break-all; user-select: all; -webkit-user-select: all; }
+.wsend__addr b { font-weight: 800; color: var(--pin); }
+.wsend__notice { margin: 0; font-weight: 600; color: var(--text); }
+.wsend__wallets { display: grid; gap: 8px; }
+.wsend__wallets:empty { display: none; }
+.wsend__wallets .wallet-option { min-height: 48px; }
+.wsend__links { margin: 0; min-height: 0; color: var(--muted); }
+.wsend__links:empty { display: none; }
+.wsend__back { justify-self: center; min-height: 44px; min-width: 44px; padding: 0 10px; }
+/* the Send button in the Balances card (next to Buy & swap) */
+.dv2 .wsend-open { min-height: 44px; min-width: 44px; }

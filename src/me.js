@@ -22,7 +22,7 @@ import { ensureNotifySchema, ensureProfilesSchema, ensureSchema, feedApplied } f
 import { communityById } from "./community.js";
 import { displayTicker } from "./tickers.js";
 import { latestBalances } from "./ledger.js";
-import { dashboardV2On, feedV2On, notifyOn, profilesOn, v2On } from "./flags.js";
+import { dashboardV2On, feedV2On, notifyOn, profilesOn, v2On, walletSendOn } from "./flags.js";
 import { unreadCount } from "./notify.js";
 import { countsOf } from "./profile-core.js";
 import { googleAdded, removeGoogle } from "./logins.js";
@@ -203,7 +203,8 @@ export async function handleMe(request, env, fetchImpl = fetch, now = Date.now()
   // With a switch off there is no new key at all: the answers are exactly what they have always been.
   // Feed v2 (FEED_V2=on) says so too: feedV2 (the page shows the Updates chip, the per-row menu and asks the one national confirmation).
   const v2 = v2On(env), pf = profilesOn(env), dv2 = dashboardV2On(env);
-  const v2Flag = { ...(v2 ? { signupFlow: "v2" } : {}), ...(dv2 ? { dashboardV2: true } : {}), ...(feedV2On(env) ? { feedV2: true } : {}) };
+  // Send from the Wallet tab (WALLET_SEND=on) says so too: walletSend (the page then fetches public/wallet-send.js and shows the Send button).
+  const v2Flag = { ...(v2 ? { signupFlow: "v2" } : {}), ...(dv2 ? { dashboardV2: true } : {}), ...(feedV2On(env) ? { feedV2: true } : {}), ...(walletSendOn(env) ? { walletSend: true } : {}) };
   const flag = pf ? { ...v2Flag, profilesFlag: true } : v2Flag;
   if (!s) return json({ signedIn: false, providers: prov, ...flag });
   if (!s.user) {

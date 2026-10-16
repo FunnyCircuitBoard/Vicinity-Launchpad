@@ -42,6 +42,9 @@
  *   · /api/locate (the place a location is read, with /api/locate/handoff/* when a wallet app's browser can't
  *   share GPS: src/handoff.js) · /api/posts(/vote, /report) · feed v2 (FEED_V2=on only): POST /api/posts/delete · POST /api/mute · GET /api/mutes
  *   · in-app notices (NOTIFY=on only, src/notify.js): GET /api/notices · POST /api/notices/read · GET/POST /api/notices/prefs
+ * Send from the Wallet tab, only while WALLET_SEND=on (otherwise 404 not_found like any unknown path; src/walletsend.js):
+ *   POST /api/wallet/send/build (an unsigned transfer of SOL, $VICINITY or a city coin from the linked wallet, with a relay ticket)
+ *   · POST /api/wallet/send/relay (= the swap's relay) · GET /api/wallet/send/status (= the swap's status poll)
  *   · /api/seats/{apply,withdraw,endorse,object,resign} · /api/elections/vote · /api/appeals · /api/towns
  *   · /api/seats/squad/{create,join,leave,apply} · /api/seats/squad/:id (readiness)
  * Feedback / Support (the floating widget on every page, no login needed): POST /api/feedback (src/feedback.js)
@@ -78,7 +81,8 @@ import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots,
 import { managerOf } from "./roles.js";
 import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown, jupiterPrices, officialCityCoin, wantedMints } from "./coins.js";
 import { runJobs } from "./jobs.js";
-import { feedV2On, launchpadV2On, notifyOn, profilesOn, v2On } from "./flags.js";
+import { feedV2On, launchpadV2On, notifyOn, profilesOn, v2On, walletSendOn } from "./flags.js";
+import { handleSendBuild } from "./walletsend.js";
 import { linkAccountFor, routeWalletLink } from "./walletlink.js";
 import { routeV2 } from "./signup.js";
 import { PROFILE_PATHS, routeProfiles } from "./profiles.js";
@@ -242,6 +246,22 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     return only("POST") || (path === "/api/me/google/add" ? handleGoogleAdd(request, env) : handleGoogleRemove(request, env));
   }
 
+  // Send from the Wallet tab (WALLET_SEND=on, src/walletsend.js): the Worker builds an unsigned transfer from the linked wallet, the
+  // person's wallet signs, the swap's relay and status poll carry it (src/relay.js). With the switch off these paths answer exactly what
+  // any unknown path answers today (before any method check, so nothing can be probed). POST bodies must come from this site's own pages.
+  // All three need the database: the ticket is verified with its salt and the attempts are counted there (without it the relay would
+  // pass anything on, and nothing would be counted), so without one they answer 503 like every other route that needs it.
+  if (path.startsWith("/api/wallet/send/")) {
+    if (!walletSendOn(env)) return json({ error: "not_found" }, 404);
+    const post = (fn) => only("POST") || (sameSite(request) ? fn() : json({ ok: false, error: "bad_origin" }, 403));
+    switch (path) {
+      case "/api/wallet/send/build": return post(() => needsDb() || handleSendBuild(request, env, fetchImpl));
+      case "/api/wallet/send/relay": return post(() => needsDb() || handleSend(request, env, fetchImpl));
+      case "/api/wallet/send/status": return only("GET") || needsDb() || handleStatus(request, env, fetchImpl);
+      default: return json({ error: "not_found" }, 404);
+    }
+  }
+
   // feed v2 (FEED_V2=on): delete your own post, mute. With the switch off these paths answer exactly what any unknown path answers today.
   if (path === "/api/posts/delete" || path === "/api/mute" || path === "/api/mutes") {
     if (!feedV2On(env)) return json({ error: "not_found" }, 404);
@@ -292,7 +312,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       case "/api/swap/tokens": return only("GET") || cached("swap-tokens-" + encodeURIComponent(String(url.searchParams.get("q") || "").slice(0, 44).toLowerCase()), 300, () => handleSwapTokens(request, env, fetchImpl));
       case "/api/swap/quote": return post(() => handleSwapQuote(request, env, fetchImpl));
       case "/api/swap/tx": return post(() => handleSwapTx(request, env, fetchImpl));
-      case "/api/swap/send": return post(() => handleSend(request, env, fetchImpl));
+      case "/api/swap/send": return post(() => needsDb() || handleSend(request, env, fetchImpl)); // the ticket is verified with the database's salt: without one nothing is relayed
       case "/api/swap/status": return only("GET") || handleStatus(request, env, fetchImpl);
       case "/api/swap/balances": return only("GET") || handleBalances(request, env, fetchImpl);
       default: return json({ error: "not_found" }, 404);
