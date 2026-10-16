@@ -91,7 +91,7 @@ test("the built admin page loads lp-sign.js and admin-lp.js before admin.js; adm
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.match(ADMIN_JS, /\["citycoins", "City coins", 3\]/);
   // asked only when /api/admin/config says the settings are there (cityCoins): a site without them sends no request and logs no 404
-  assert.match(ADMIN_JS, /lpOn = me\.role === "owner" && Boolean\(config && config\.cityCoins\) && Boolean\(\(await api\("\/api\/admin\/lp"\)/);
+  assert.match(ADMIN_JS, /lpProbe = me\.role === "owner" && Boolean\(config && config\.cityCoins\) \? await api\("\/api\/admin\/lp"\)\.catch\(\(\) => null\) : null;\s*lpOn = Boolean\(lpProbe && lpProbe\.ok\)/);
   assert.match(ADMIN_JS, /\(id !== "citycoins" \|\| lpOn\)/);
   assert.match(ADMIN_JS, /window\.AdminLP\.mount\(p, \{ api, post, toast, el, short, me, wallet: lpWallet \}\)/);
   assert.doesNotMatch(ADMIN_LP, /innerHTML|insertAdjacentHTML|outerHTML|document\.write|eval\(/, "textContent only");

@@ -395,6 +395,13 @@ Then we tell you "ready for the first city".
    wallet (it costs them the config's launch fee plus rent: about 0.08 SOL with the 0.05 SOL launch fee of the live config
    today). Their coin is live at once.
 
+Above the setup steps a line says **Meteora programs: as tested (checked HH:MM)**. We tested the launchpad against one
+build of each of Meteora's two programs; Meteora can update them at any time. If it says **changed**, the Approve buttons
+are off and founders cannot launch from this site until we have re-tested Meteora's new build; tell us. If it says
+**could not be checked**, they wait until the check works again; reload in a minute. Nothing is spent either way. A
+founder who already has an approval could still launch with other tools; to stop that too, press **Pause launches** in
+City coins. The Overview has the same check as the **Meteora build** card.
+
 If an approval later shows "The approved wallet no longer holds the founder seat … Revoke it" (the founder lost or
 left the seat before launching), press **Revoke**: the program itself would still let that wallet launch until the
 approval expires.

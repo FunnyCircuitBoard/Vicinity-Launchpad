@@ -11,6 +11,7 @@
 // Signature checks are ON, except inside `sendAsDevWallet` (the dev wallet is a
 // program constant and the tests have no key for it).
 import { readFileSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -54,6 +55,14 @@ function programPath(name) {
   }
   return p;
 }
+/**
+ * SHA-256 (hex) of a dump the World loads, e.g. 'dbc.so': the pinned mainnet build by default (fetch-fixtures.sh checked it). The
+ * Worker routes run here as devnet (17, 18), so these are the pins of that process (src/programpins.js _setProgramPinsForTests):
+ * the builds the suite runs are the builds it tests.
+ */
+export const programSha256 = (name) => createHash('sha256').update(readFileSync(programPath(name))).digest('hex');
+/** True when the World loads the default dumps (the pinned mainnet builds), not LAUNCHPAD_PROGRAMS_DIR's. */
+export const MAINNET_DUMPS = !process.env.LAUNCHPAD_PROGRAMS_DIR;
 
 // ---------------------------------------------------------------- byte helpers
 const u64 = (n) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; };

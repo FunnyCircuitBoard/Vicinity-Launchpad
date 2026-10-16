@@ -392,6 +392,10 @@
 .lp-check input { width: 22px; height: 22px; margin: 2px 0 0; flex: none; }
 .lp-error { color: var(--bad-text); margin: 0; overflow-wrap: anywhere; }
 .lp-warn { color: var(--gold-text); margin: 0; overflow-wrap: anywhere; }
+/* the standing line above the setup steps: Meteora's programs against the builds the team tested (as tested / changed / could not be checked) */
+.lp-pins { margin: 0 0 var(--sp-2, 8px); font-size: var(--fs-sm, .875rem); color: var(--text-2, #C9D2E0); overflow-wrap: anywhere; }
+.lp-pins--changed, .lp-pins--unavailable { color: var(--gold-text); font-weight: 700; }
+.lp-hold { font-size: var(--fs-sm, .875rem); }
 .lp-strong { font-weight: 700; margin: 0; }
 .lp-note { border: 1px solid var(--line-2); border-radius: var(--r-chip, 12px); padding: 10px 14px; background: var(--surface-inset, rgba(255,255,255,.04)); display: grid; gap: var(--sp-2, 8px); min-width: 0; }
 .lp-note--warn { border-color: rgba(255,200,87,.55); background: var(--warn-soft, rgba(255,213,138,.12)); }

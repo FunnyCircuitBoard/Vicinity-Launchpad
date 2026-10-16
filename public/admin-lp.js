@@ -138,7 +138,27 @@
     if (p.sha256) c.append(el("p", "muted small", "Compare the fingerprint with the one the team sent you; they must be identical."));
     return c;
   }
+  const hhmm = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const programName = (k) => ({ dbc: "bonding-curve program", dammV2: "DAMM v2 pool program" })[k] || k;
+  /**
+   * The standing line above the steps: are Meteora's two programs still the builds the team tested (status.meteora, src/programpins.js)?
+   * Approvals, the allow-list step and launches from this site wait whenever the answer is not "as tested". A founder who already
+   * holds an approval could still launch with other tools (the program checks only the approval), so while launches are running the
+   * line says how to stop that too (the Launches section below). The fingerprints are in step 4's reason and on a held Approve button.
+   */
+  const PAUSE_TOO = " Founders who already hold an approval could still launch with other tools; to stop that too, press Pause launches below.";
+  function meteoraLine(m, launchesRunning) {
+    const state = m && m.state ? m.state : "unavailable";
+    const p = el("p", `lp-pins lp-pins--${state}`);
+    p.setAttribute("role", "status");
+    const also = launchesRunning ? PAUSE_TOO : "";
+    if (state === "ok") p.textContent = `Meteora programs: as tested (checked ${hhmm(m.checkedAt)}).`;
+    else if (state === "changed") p.textContent = `Meteora programs changed: ${m.which.map(programName).join(" and ")}. Approvals and launches wait until the team re-tests ${m.which.length > 1 ? "them" : "it"}.${also}`;
+    else p.textContent = `Meteora programs: could not be checked. Approvals and launches wait until the check works again; reload in a minute.${also}`;
+    return p;
+  }
   async function setupSection(s, st) {
+    s.append(meteoraLine(st.meteora, Boolean(st.launchpad && !st.launchpad.launchesPaused)));
     const steps = el("ol", "lp-steps");
     for (const x of st.steps) {
       const li = el("li", `lp-step lp-step--${x.state}`);
@@ -222,6 +242,8 @@
     body.replaceChildren();
     if (r.global && r.global.length) { const g = el("div", "lp-note"); g.append(el("p", "lp-strong", "Approving is not possible yet:"), reasonList(r.global)); body.append(g); }
     if (r.paused) body.append(el("p", "lp-warn", "Launches are paused: approved founders cannot launch until you resume them (below)."));
+    // Meteora's programs not the tested builds (or not checkable): a city can be fine while every approval waits; the button says so
+    const hold = r.meteora && r.meteora.state !== "ok" ? (r.meteora.state === "changed" ? r.meteora.message : "Meteora's programs could not be checked just now, so approvals wait. Reload in a minute.") : null;
     body.append(el("h4", null, "Approve a city coin"));
     if (!r.candidates.length) body.append(el("p", "muted", "No city has a coin design waiting."));
     for (const c of r.candidates) {
@@ -248,8 +270,12 @@
         const row = el("div", "admin-row");
         // the card sends what it shows: the site builds nothing if the design changed since (reload and look again)
         const seen = { cityId: c.cityId, name: c.name, symbol: c.symbol, founder: c.founder, designAt: c.designAt };
-        row.append(lab, btn("Approve on chain", () => signFlow(box, { path: "/api/admin/lp/approve/tx", body: { ...seen, expiryDays: Number(sel.value) }, check: approveCheck(c), after: rerender }), "btn btn--primary"));
-        card.append(row, el("p", "muted small", "Your wallet pays the approval's rent (about 0.0016 SOL); it comes back when the founder launches or you revoke. From the moment you prepare it, the founder can no longer change this design."));
+        const approve = btn("Approve on chain", () => signFlow(box, { path: "/api/admin/lp/approve/tx", body: { ...seen, expiryDays: Number(sel.value) }, check: approveCheck(c), after: rerender }), "btn btn--primary");
+        if (hold) { approve.disabled = true; approve.title = hold; approve.setAttribute("aria-describedby", `lp-hold-${c.cityId}`); }
+        row.append(lab, approve);
+        card.append(row);
+        if (hold) { const why = el("p", "lp-warn lp-hold", hold); why.id = `lp-hold-${c.cityId}`; card.append(why); }
+        card.append(el("p", "muted small", "Your wallet pays the approval's rent (about 0.0016 SOL); it comes back when the founder launches or you revoke. From the moment you prepare it, the founder can no longer change this design."));
       } else card.append(el("p", "lp-strong", "Not yet:"), reasonList(c.reasons));
       card.append(box);
       body.append(card);

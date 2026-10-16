@@ -5,8 +5,10 @@
 import { readFileSync } from "node:fs";
 import { base58Decode, base58Encode } from "../../src/solana.js";
 import { decodeHeader } from "../../src/sol/message.js";
-import { fromBase64 } from "../../src/sol/bytes.js";
+import { concat, fromBase64, u32le, u64le } from "../../src/sol/bytes.js";
 import { GENESIS } from "../../src/lpkit.js";
+import { PROGRAM_IDS, programDataAddress } from "../../src/sol/pda.js";
+import { _setProgramPinsForTests } from "../../src/programpins.js";
 
 export const DEV = JSON.parse(readFileSync(new URL("../fixtures/launchpad-worker/devnet-accounts.json", import.meta.url), "utf8"));
 export const PROGRAM = "Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7", REWARDS = "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi";
@@ -17,6 +19,29 @@ export const METAPLEX = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 export const LP_ON = { LAUNCHPAD_CLUSTER: "devnet", LAUNCHPAD_PROGRAM_ID: PROGRAM, LAUNCHPAD_REWARDS_PROGRAM_ID: REWARDS, LAUNCHPAD_RPC_URL: "https://lp-rpc.test/devnet" };
 /** A different valid-looking address for each number. */
 export const addr = (i) => base58Encode(Uint8Array.from({ length: 32 }, (_, j) => (i * 31 + j * 7 + 3) & 255));
+/**
+ * A ProgramData account as the upgradeable loader writes it: the deploy `slot` (default 1234), `authority` (null: final), then the
+ * program bytes. A test that "upgrades" a program gives it a later slot, as every real upgrade does (src/programpins.js relies on it).
+ */
+export const programDataAccount = (authority, elf = new Uint8Array(64).fill(7), slot = 1234) => ({ owner: PROGRAM_IDS.upgradeableLoader, data: Buffer.from(concat([u32le(3), u64le(BigInt(slot)), authority ? Uint8Array.of(1) : Uint8Array.of(0), authority ? base58Decode(authority) : new Uint8Array(32), elf])).toString("base64") });
+export const sha256Hex = async (bytes) => Buffer.from(await crypto.subtle.digest("SHA-256", bytes)).toString("hex");
+/** Meteora's upgrade authority of both programs on devnet (solana/scripts/launchpad/fetch-fixtures.sh). */
+export const METEORA_AUTHORITY = "DHLXnJdACTY83yKwnUkeoDjqi4QBbsYGa1v8tJL76ViX";
+/**
+ * Meteora's two programs on a fake chain AS THE BUILDS THE TEAM TESTED (src/programpins.js): their ProgramData accounts with stand-in
+ * program bytes in `accounts` (an lpChain's S.accounts, or any fake chain's), and the pins of `cluster` set to those bytes'
+ * fingerprints for this test process (made-up bytes can never hash to the real pins; test/program-pins.test.js checks the real ones).
+ * A test that wants "Meteora upgraded" overwrites one of the two accounts with other bytes at a later slot afterwards. Returns the
+ * addresses and hashes.
+ */
+export async function meteoraAsTested(accounts, { dbc = new Uint8Array(4096).fill(0x11), dammV2 = new Uint8Array(2048).fill(0x22), cluster = "devnet" } = {}) {
+  const [pdDbc, pdDamm] = await Promise.all([programDataAddress(PROGRAM_IDS.dbc), programDataAddress(PROGRAM_IDS.damm)]);
+  accounts[pdDbc] = programDataAccount(METEORA_AUTHORITY, dbc);
+  accounts[pdDamm] = programDataAccount(METEORA_AUTHORITY, dammV2);
+  const hashes = { dbc: await sha256Hex(dbc), dammV2: await sha256Hex(dammV2) };
+  _setProgramPinsForTests({ [cluster]: hashes });
+  return { pdDbc, pdDamm, hashes };
+}
 
 /** Metaplex MetadataV1 bytes as the program writes them (name padded to 32, symbol to 10, uri to 200 with NULs). */
 export function metaplexData({ updateAuthority = "11111111111111111111111111111111", mint, name, symbol, uri }) {
@@ -34,7 +59,8 @@ export function lpChain({ genesis = GENESIS.devnet, accounts = {} } = {}) {
     signatures: {}, sendError: null, down: false,
     accounts: { ...Object.fromEntries(Object.entries(DEV.accounts).map(([k, a]) => [k, { owner: a.owner, lamports: a.lamports, data: a.data }])), ...accounts },
   };
-  const acc = (k) => { const a = S.accounts[k]; return a ? { owner: a.owner, lamports: a.lamports ?? 1_000_000, data: [a.data, "base64"], executable: false, rentEpoch: 0 } : null; };
+  // `space`: the account's whole length, as the real RPC says it (src/programpins.js fingerprint needs it)
+  const acc = (k) => { const a = S.accounts[k]; return a ? { owner: a.owner, lamports: a.lamports ?? 1_000_000, data: [a.data, "base64"], executable: false, rentEpoch: 0, space: Buffer.from(a.data, "base64").length } : null; };
   const one = ({ method, params }) => {
     switch (method) {
       case "getGenesisHash": return S.genesis;
@@ -69,6 +95,7 @@ export function lpChain({ genesis = GENESIS.devnet, accounts = {} } = {}) {
       }
       case "getSignatureStatuses": return { context: { slot: 6 }, value: params[0].map((s) => S.statuses[s] || null) };
       case "getBlockHeight": return 10;
+      case "getMinimumBalanceForRentExemption": return (128 + params[0]) * 5_080; // mainnet's rate since 2026 (the admin status asks once)
       default: throw new Error("unexpected " + method);
     }
   };

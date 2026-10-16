@@ -9,13 +9,23 @@
  *   GET  ""                 { on, cluster, programs, wallet }: the page's cheap probe (no chain read)
  *   GET  status             settings, genesis, both programs (deployed, executable, upgrade authority, size, SHA-256), the
  *                           registry, the launchpad, the price curve against the defaults, the allow-list, the fee accounts, the
- *                           speed table, the partner name, the Squads vault; setup steps 1-7, each done | ready | blocked + why
+ *                           speed table, the partner name, the Squads vault; setup steps 1-7, each done | ready | blocked + why;
+ *                           meteora: are Meteora's two programs still the builds the team tested (src/programpins.js)
+ *   GET  pins               that Meteora check alone (the Overview's "Meteora build" card)
  *   GET  squads?address=    a pasted Squads multisig: decoded, checked, its vault derived (src/sol/squads.js)
- *   POST tx                 { step, cluster, params, ephemeral }: one setup step's transaction
- *   POST record             { step, signature, cluster, params }: confirms it on chain, then lp_setup / lp_approvals_log
+ *   POST tx                 { step, cluster, params, ephemeral }: one setup step's transaction. Steps 3 and 4 are built on Meteora's
+ *                           programs read fresh, once: step 3 (the price curve) is refused with 409 program_changed while DBC is not
+ *                           the build the expected curve bytes came from, step 4 (the allow-list) while either program is not the
+ *                           pinned build, and both with 503 program_check_unavailable while that cannot be read clearly
+ *   POST record             { step, signature, cluster, params }: confirms it on chain, then lp_setup / lp_approvals_log. A price
+ *                           curve (step 3) is recorded only while DBC, read fresh like the builds, is the build the expected curve
+ *                           bytes came from: else dbc_changed, or dbc_unreadable (the page asks again) when it cannot be read clearly
  *   GET  summary            the setup summary the owner sends to the team (PLAN C5)
  *   GET  candidates         cities whose coin can be approved (PLAN D10), each blocked one with its reasons; approvals waiting
- *   POST approve/tx         { cityId, expiryDays, name, symbol, founder, designAt } (what the card showed: refused when it changed)
+ *   POST approve/tx         { cityId, expiryDays, name, symbol, founder, designAt } (what the card showed: refused when it changed).
+ *                           Like step 4 (the allow-list), refused with 409 program_changed while a Meteora program is not the tested
+ *                           build, and with 503 program_check_unavailable while that cannot be read: never an approval blind. Both
+ *                           read the programs' deploy slots fresh (src/programpins.js `fresh`), not the pages' ten-minute answer
  *   POST revoke/tx          { cityId }
  *   GET  coins              launched coins: stage, fees waiting, holder rewards set up or not
  *   POST collect/tx | init-city/tx | forward/tx { cityId }     POST pause/tx { launches }
@@ -32,7 +42,7 @@ import { displayTicker, tickerOf } from "./tickers.js";
 import { iso } from "./policy.js";
 import { lpSetup } from "./cluster.js";
 import { ensureLogoSchema } from "./store.js";
-import { buildTx, checkCluster, checkGenesis, lpRpc, readAccounts, respond } from "./lpkit.js";
+import { buildTx, checkCluster, checkGenesis, checkedRoute, lpRpc, readAccounts, respond } from "./lpkit.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas, programDataAddress } from "./sol/pda.js";
 import { createAtaIdempotent } from "./sol/ix.js";
 import { accountBytes, decodeCoin, decodeConfig, decodeLaunchConfig, decodeLaunchpad, decodePool, decodeProgramAccount, decodeProgramData, decodeTokenAccount } from "./sol/dbc.js";
@@ -43,6 +53,7 @@ import { DBC_CONFIG_DEFAULTS, DBC_PROGRAM_SHA256, EXPECTED_POOL_CONFIG } from ".
 import { checkMultisig } from "./sol/squads.js";
 import { holdDesign } from "./lpcoins.js";
 import { feeSchedule } from "./fees.js";
+import { _forgetProgramHashes, fingerprint, programHashes, programRefusal, programSummary } from "./programpins.js";
 import * as IX from "./sol/lpadmin-ix.js";
 
 const DEV = ADDRESSES.feeRecipient;
@@ -201,11 +212,9 @@ function configFacts(acc) {
 }
 
 /* ---------------------------------------------------------------- reading the chain */
-const programHashes = new Map(); // "<programData>|<slot>" -> { size, sha256 }
+const ownHashes = new Map(); // "<programData>|<slot>" -> { size, sha256 } (our two programs, for the status; Meteora's: src/programpins.js)
 const rentRates = new Map(); // "<cluster>|<rpc>" -> lamports per byte (Solana's rent, read from the cluster once per server)
-export const _resetLpAdmin = () => { programHashes.clear(); rentRates.clear(); };
-/** Tests only: what a read of `programData` at deploy slot `slot` hashes to (a fake chain cannot hold Meteora's real program bytes). */
-export const _seedProgramHash = (programData, slot, sha256, size = 0) => { programHashes.set(`${programData}|${slot}`, { size, sha256 }); };
+export const _resetLpAdmin = () => { ownHashes.clear(); rentRates.clear(); _forgetProgramHashes(); };
 /**
  * Solana's rent per byte on this cluster (getMinimumBalanceForRentExemption(0) / 128: every account carries 128 bytes of
  * overhead), read once per server; null when the node did not answer (the page then names no number; the simulated SOL change is
@@ -223,31 +232,15 @@ async function rentPerByte(env, s, fetchImpl) {
 }
 /** "about 0.006 SOL of rent" for an account of `dataBytes` (or for several), or a plain "a little rent" when the rate is unknown. */
 const rentWords = (perByte, ...dataBytes) => (perByte ? `about ${sol(dataBytes.reduce((a, n) => a + (128 + n) * perByte, 0))} of rent` : "a little rent");
+/** { size, sha256 } of one of OUR programs (the fingerprint the owner compares with the team's), once per deploy slot. */
 async function programHash(env, programData, slot, fetchImpl) {
   const k = `${programData}|${slot}`;
-  if (programHashes.has(k)) return programHashes.get(k);
+  if (ownHashes.has(k)) return ownHashes.get(k);
   const r = await lpRpc(env, "getAccountInfo", [programData, { encoding: "base64", commitment: "confirmed" }], fetchImpl);
-  const a = accountBytes(r && r.value);
-  if (!a || a.bytes.length < 45) return null;
-  const body = a.bytes.subarray(45);
-  const out = { size: body.length, sha256: [...new Uint8Array(await crypto.subtle.digest("SHA-256", body))].map((x) => x.toString(16).padStart(2, "0")).join("") };
-  programHashes.set(k, out);
-  if (programHashes.size > 50) programHashes.delete(programHashes.keys().next().value);
-  return out;
-}
-/**
- * Meteora's bonding-curve program as deployed now: { programData, slot, sha256, pinned }, with sha256 null when it could not be
- * read (then nothing that depends on it goes ahead). `head` is its ProgramData header when the caller read it already.
- */
-async function dbcFingerprint(env, fetchImpl, pdDbc, head) {
-  if (head === undefined) {
-    try { const r = await lpRpc(env, "getAccountInfo", [pdDbc, { encoding: "base64", commitment: "confirmed", dataSlice: { offset: 0, length: 45 } }], fetchImpl); head = r && r.value; } catch (e) { console.error("dbc program read failed", codeOf(e)); head = null; }
-  }
-  const h = decodeProgramData(head);
-  const out = { programData: pdDbc, slot: h ? h.slot.toString() : null, sha256: null, pinned: DBC_PROGRAM_SHA256 };
-  if (out.slot !== null) {
-    try { Object.assign(out, await programHash(env, pdDbc, out.slot, fetchImpl)); } catch (e) { console.error("dbc program hash read failed", codeOf(e)); }
-  }
+  const out = await fingerprint(r && r.value); // the same bytes and hash as Meteora's programs get (src/programpins.js)
+  if (!out) return null;
+  ownHashes.set(k, out);
+  if (ownHashes.size > 50) ownHashes.delete(ownHashes.keys().next().value);
   return out;
 }
 function programInfo(id, acc, pdAddress, pdHead) {
@@ -273,9 +266,10 @@ async function launchConfigs(env, s, fetchImpl) {
 
 /**
  * Everything the tab knows, read in a few calls: { s, wallet, programs: { launchpad, rewards }, launchpad, registry, config,
- * launchConfig, allowList, referral: [{ mint, account, exists }], lookup, partner, squads, setup, vicinityMint }.
+ * launchConfig, allowList, referral: [{ mint, account, exists }], lookup, partner, squads, setup, vicinityMint, meteora, dbc }.
+ * `fresh` and `route` go to programHashes: the builds of steps 3 and 4 read Meteora's deploy slots again (src/programpins.js).
  */
-async function readState(env, s, wallet, fetchImpl, { hashes = false } = {}) {
+async function readState(env, s, wallet, fetchImpl, { hashes = false, now = Date.now(), fresh = false, route = null } = {}) {
   const setup = await setupRows(env.DB, s);
   const L = launchpadPdas(s.programId), R = IX.rewards(s.rewardsProgramId);
   const allowList = await launchConfigs(env, s, fetchImpl);
@@ -285,16 +279,17 @@ async function readState(env, s, wallet, fetchImpl, { hashes = false } = {}) {
   const vm = s.cluster === "mainnet" ? activeMint(env) : null;
   const vicinityMint = isSolanaAddress(vm) ? vm : null;
   const multisig = setup.squads && isSolanaAddress(setup.squads.address) ? setup.squads.address : null;
-  const [lpPda, regPda, pdLp, pdRw, pdDbc, partnerPda, wsolAta, launchConfigPda] = await Promise.all([
-    L.launchpad(), R.registry(), programDataAddress(s.programId), programDataAddress(s.rewardsProgramId), programDataAddress(PROGRAM_IDS.dbc), IX.partnerMetadataAddress(DEV), ata(DEV, WSOL),
+  const [lpPda, regPda, pdLp, pdRw, partnerPda, wsolAta, launchConfigPda] = await Promise.all([
+    L.launchpad(), R.registry(), programDataAddress(s.programId), programDataAddress(s.rewardsProgramId), IX.partnerMetadataAddress(DEV), ata(DEV, WSOL),
     config ? L.launchConfig(config) : null,
   ]);
   const want = [s.programId, s.rewardsProgramId, lpPda, regPda, partnerPda, wsolAta, config, launchConfigPda, lookup, multisig, vicinityMint].filter(Boolean);
-  const [acc, heads] = await Promise.all([
+  const [acc, heads, meteora] = await Promise.all([
     readAccounts(env, want, fetchImpl),
-    lpRpc(env, "getMultipleAccounts", [[pdLp, pdRw, pdDbc], { encoding: "base64", commitment: "confirmed", dataSlice: { offset: 0, length: 45 } }], fetchImpl),
+    lpRpc(env, "getMultipleAccounts", [[pdLp, pdRw], { encoding: "base64", commitment: "confirmed", dataSlice: { offset: 0, length: 45 } }], fetchImpl),
+    programHashes(env, fetchImpl, now, { fresh, route }), // Meteora's two programs against the tested builds (never throws)
   ]);
-  const head = heads && Array.isArray(heads.value) ? heads.value : [null, null, null];
+  const head = heads && Array.isArray(heads.value) ? heads.value : [null, null];
   const get = (a) => (a ? acc.get(a) || null : null);
   const programs = { launchpad: programInfo(s.programId, get(s.programId), pdLp, head[0]), rewards: programInfo(s.rewardsProgramId, get(s.rewardsProgramId), pdRw, head[1]) };
   if (hashes) {
@@ -315,18 +310,20 @@ async function readState(env, s, wallet, fetchImpl, { hashes = false } = {}) {
     } else referral.push({ mint: vicinityMint, symbol: "VICINITY", account: null, exists: false, missingMint: true });
   }
   const cfgAcc = get(config);
-  // Meteora's bonding-curve program, while no price curve exists yet (before step 3): the curve this tab creates is checked byte for
-  // byte against what the PINNED build writes (src/sol/dbc-config-data.js), so a Meteora upgrade since that pin is caught BEFORE
-  // the owner spends anything (the devnet rehearsal: devnet's newer build wrote PoolConfig.version 1 before any pin knew of it, and
-  // the curve it made was refused at record time). Read once per isolate and deploy slot; null when the program could not be read,
-  // and then step 3 waits too: since PoolConfig.version 0 and 1 are both accepted, the fingerprint is what tells builds apart.
-  const dbcHead = decodeProgramData(head[2]);
-  const dbc = cfgAcc ? { programData: pdDbc, slot: dbcHead ? dbcHead.slot.toString() : null, sha256: null, pinned: DBC_PROGRAM_SHA256 } : await dbcFingerprint(env, fetchImpl, pdDbc, head[2]);
+  // Meteora's bonding-curve program for step 3 (and the record step's price curve), from the same read as the approvals' check
+  // (src/programpins.js programHashes, the one fingerprint of Meteora's programs on this server), but compared, on EVERY cluster, with
+  // the build the expected curve bytes came from (DBC_PROGRAM_SHA256, src/sol/dbc-config-data.js; on mainnet it is also the pin,
+  // test/program-pins.test.js keeps them equal): the curve this tab creates is checked byte for byte against what that build writes,
+  // so another build is caught BEFORE the owner spends anything (the devnet rehearsal: devnet's newer build wrote PoolConfig.version 1
+  // before any pin knew of it, and the curve it made was refused at record time). Since PoolConfig.version 0 and 1 are both accepted,
+  // the fingerprint is what tells builds apart: sha256 null when the program could not be read clearly, and then step 3 waits too
+  // (curveRefusal) and the record step refuses a price curve (dbc_unreadable), never built or recorded blind.
+  const dbc = { ...(meteora.dbc || { programData: null, slot: null, sha256: null }), pinned: DBC_PROGRAM_SHA256 };
   const table = lookup ? decodeTable(get(lookup)) : null;
   const ms = multisig ? await checkMultisig(multisig, get(multisig)) : null;
   const rent = await rentPerByte(env, s, fetchImpl);
   return {
-    s, wallet, setup, programs, allowList, vicinityMint, dbc, rent,
+    s, wallet, setup, programs, allowList, vicinityMint, dbc, meteora, rent,
     launchpad: decodeLaunchpad(get(lpPda), s.programId), launchpadAddress: lpPda,
     registry: decodeRegistry(get(regPda), s.rewardsProgramId), registryAddress: regPda,
     config: config ? { address: config, source: configSource, exists: Boolean(cfgAcc), diff: cfgAcc ? configDiff(cfgAcc) : null, facts: cfgAcc ? configFacts(cfgAcc) : null } : null,
@@ -392,12 +389,7 @@ export async function setupSteps(st) {
   if (c && c.exists && c.diff && c.diff.length === 0) s3 = step("config", "done", `The price curve ${c.address} matches Vicinity's defaults (${c.facts && c.facts.tradeFee ? `${c.facts.target} target, ${c.facts.tradeFee} fee, ${c.facts.launchFee} launch fee, ` : ""}fees to ${short(DEV)}).`, { address: c.address });
   else if (c && c.exists && c.source === "settings") s3 = step("config", "done", `The price curve ${c.address} comes from the settings. It differs from the mainnet defaults in: ${c.diff.join(", ")}.`, { address: c.address, note: true });
   else if (c && c.exists) s3 = step("config", "blocked", `The price curve ${c.address} differs from Vicinity's defaults in: ${c.diff.join(", ")}. Tell the team; do not allow it.`, { address: c.address });
-  else if (s2.state === "done" && !(st.dbc && st.dbc.sha256 && st.dbc.sha256 === st.dbc.pinned)) {
-    s3 = step("config", "blocked", st.dbc && st.dbc.sha256
-      ? `Meteora has updated its bonding-curve program since the team checked it (its fingerprint is now ${st.dbc.sha256.slice(0, 12)}…, the checked one ${st.dbc.pinned.slice(0, 12)}…). A price curve made now may differ from the tested one, so this step waits. Nothing was spent; tell the team, who re-check Meteora's new program first.`
-      : "Meteora's bonding-curve program could not be read, so its fingerprint is unknown and this step waits (a price curve is made only on the build the team checked). Nothing was spent; reload this page in a minute.",
-    { dbc: st.dbc ? { sha256: st.dbc.sha256, pinned: st.dbc.pinned, slot: st.dbc.slot } : null });
-  }
+  else if (s2.state === "done" && curveRefusal(st.dbc)) s3 = step("config", "blocked", curveRefusal(st.dbc).message, { dbc: { sha256: st.dbc.sha256, pinned: st.dbc.pinned, slot: st.dbc.slot } });
   else s3 = after2("config", true, `Creates the Meteora price curve with a one-time key made in this browser (${rentWords(st.rent, LAYOUT.PoolConfig.size)}).${c && c.source === "recorded" ? ` The recorded curve ${c.address} is not on chain, so a new one is made.` : ""}`, { ephemeral: 1 });
   out.push(s3);
 
@@ -406,6 +398,8 @@ export async function setupSteps(st) {
   if (st.launchConfig && !st.launchConfig.missing) s4 = st.launchConfig.enabled ? step("allow", "done", `The launchpad allows the price curve (allow-list entry ${st.launchConfig.address}).`) : step("allow", "blocked", "The price curve is allowed but switched off on chain. Tell the team.");
   else if (s3.state !== "done") s4 = step("allow", "blocked", "Do step 3 first (create the price curve).");
   else if (!st.launchpad || st.launchpad.admin !== wallet) s4 = step("allow", "blocked", notYours("The launchpad admin", st.launchpad ? st.launchpad.admin : "not set", wallet));
+  // a Meteora program that is not the tested build, or that could not be read clearly: no new allow-list entry
+  else if (programRefusal(st.meteora)) s4 = step("allow", "blocked", programRefusal(st.meteora, "This step and approvals").message, { meteora: programSummary(st.meteora) });
   else s4 = after2("allow", true, "Allows the price curve on the launchpad. The program checks every Vicinity rule again (fees to the dev wallet, locked liquidity, immutable names).");
   out.push(s4);
 
@@ -484,18 +478,37 @@ function extendsThatFit(payer, table, addresses, before = []) {
   return out;
 }
 
+/**
+ * Step 3 against Meteora's bonding-curve program (readState's `dbc`): null when it is the build the expected curve bytes came from;
+ * else what the step says and its build answers: 409 program_changed (another build), or 503 program_check_unavailable when it could
+ * not be read clearly (src/programpins.js: never "ok" by default). Step 4 does the same with programRefusal on both programs.
+ * Step 3 depends on DBC alone, by design: the curve is DBC's account, so DAMM v2 changed or unreadable does not hold it (programHashes
+ * fills in a program's fingerprint only when that program's own reading was clear, also in an answer that is unavailable overall).
+ */
+const CURVE_UNREADABLE = "Meteora's bonding-curve program could not be read, so its fingerprint is unknown and this step waits (a price curve is made only on the build the team checked). Nothing was spent; try again in a minute.";
+function curveRefusal(dbc) {
+  if (!dbc || !dbc.sha256) return { status: 503, error: "program_check_unavailable", which: [], message: CURVE_UNREADABLE };
+  if (dbc.sha256 === dbc.pinned) return null;
+  return { status: 409, error: "program_changed", which: ["dbc"], message: `Meteora has updated its bonding-curve program since the team checked it (its fingerprint is now ${dbc.sha256.slice(0, 12)}…, the checked one ${dbc.pinned.slice(0, 12)}…). A price curve made now may differ from the tested one, so this step waits. Nothing was spent; tell the team, who re-check Meteora's new program first.` };
+}
+
 const refuse = (st, id) => {
   const x = st.find((y) => y.id === id);
   return err(x && x.state === "done" ? "already_done" : "step_not_ready", x ? (x.state === "done" ? `Already done: ${x.reason}` : x.reason) : "Unknown step.", 409, { step: id, state: x ? x.state : null });
 };
 
-async function buildStep(env, ctx, body, fetchImpl, now) {
+async function buildStep(env, ctx, body, fetchImpl, now, route = null) {
   const s = lpSetup(env), wallet = ctx.wallet;
   const id = body.step, params = body.params && typeof body.params === "object" ? body.params : {};
   if (!STEPS.includes(id)) return err("bad_step", "Unknown setup step.", 400);
   const eph = Array.isArray(body.ephemeral) ? body.ephemeral : [];
   if (!eph.every(isSolanaAddress)) return err("bad_signers", "A one-time key is not a Solana address.", 400);
-  const st = await readState(env, s, wallet, fetchImpl);
+  // steps 3 (the price curve) and 4 (the allow-list) are built on Meteora's programs read for this request (the deploy slots again,
+  // never the pages' ten-minute answer), once, and refused first when they are not the tested builds or could not be read clearly
+  const gated = id === "config" || id === "allow";
+  const st = await readState(env, s, wallet, fetchImpl, gated ? { now, fresh: true, route } : { now });
+  const pr = id === "config" ? curveRefusal(st.dbc) : id === "allow" ? programRefusal(st.meteora, "This step and approvals") : null;
+  if (pr) return err(pr.error, pr.message, pr.status, { step: id, which: pr.which });
   const steps = await setupSteps(st);
   const me = steps.find((x) => x.id === id);
   const labels = {};
@@ -591,7 +604,7 @@ async function confirmedTx(env, signature, wallet, fetchImpl) {
   return { keys: new Set([...keys, ...loaded]) };
 }
 
-async function recordStep(env, ctx, body, fetchImpl, now) {
+async function recordStep(env, ctx, body, fetchImpl, now, route = null) {
   const s = lpSetup(env), wallet = ctx.wallet, db = env.DB;
   const id = body.step, params = body.params && typeof body.params === "object" ? body.params : {};
   const PER_CITY = ["approve", "revoke", "initCity", "collect", "forward", "platform", "pause"];
@@ -604,7 +617,9 @@ async function recordStep(env, ctx, body, fetchImpl, now) {
     if (tx.error) return tx.error;
   }
   const signature = adopt ? null : body.signature;
-  const st = await readState(env, s, wallet, fetchImpl);
+  // a price curve is recorded only on Meteora's bonding-curve program read for this request (the deploy slot again, like the builds
+  // of steps 3 and 4, never the pages' ten-minute answer): see the "config" case
+  const st = await readState(env, s, wallet, fetchImpl, id === "config" ? { now, fresh: true, route } : { now });
   const writes = [];
   const done = (msg, extra = {}) => json({ ok: true, step: id, message: msg, ...extra }, 200, { "Cache-Control": "no-store" });
   switch (id) {
@@ -628,7 +643,8 @@ async function recordStep(env, ctx, body, fetchImpl, now) {
       const diff = acc ? configDiff(acc) : ["missing"];
       if (diff.length) return err("config_differs", `The price curve ${a} ${acc ? `differs from Vicinity's defaults in: ${diff.join(", ")}` : "is not on chain yet"}. It was not recorded.`);
       // the bytes say "version 0 or 1", not which build wrote them: the program that made it must be the one the team checked
-      const fp = st.dbc && st.dbc.sha256 ? st.dbc : await dbcFingerprint(env, fetchImpl, st.dbc.programData);
+      // (readState's `dbc`, read fresh above through src/programpins.js; sha256 null when it could not be read clearly)
+      const fp = st.dbc;
       if (!fp.sha256) return err("dbc_unreadable", `Meteora's bonding-curve program could not be read, so the price curve ${a} was not recorded. Press Record again in a minute.`);
       if (fp.sha256 !== fp.pinned) return err("dbc_changed", `Meteora has updated its bonding-curve program since the team checked it (its fingerprint is now ${fp.sha256.slice(0, 12)}…, the checked one ${fp.pinned.slice(0, 12)}…), so the price curve ${a} was not recorded. Tell the team, who re-check Meteora's new program first.`);
       writes.push(putSetup(db, s, "config", { address: a, signature, wallet, now }));
@@ -683,9 +699,9 @@ async function recordStep(env, ctx, body, fetchImpl, now) {
 }
 
 /* ---------------------------------------------------------------- the summary for the team (PLAN C5) */
-async function summary(env, ctx, fetchImpl) {
+async function summary(env, ctx, fetchImpl, now) {
   const s = lpSetup(env);
-  const st = await readState(env, s, ctx.wallet, fetchImpl);
+  const st = await readState(env, s, ctx.wallet, fetchImpl, { now });
   const r = st.setup;
   const sig = (k) => (r[k] ? r[k].signature : null);
   const out = {
@@ -793,15 +809,21 @@ async function candidateList(env, ctx, fetchImpl, now) {
       approved: Boolean(r.approved_media_id), designAt: r.updated_at || null,
       nameBytes: new TextEncoder().encode(r.name || "").length, ok: reasons.length === 0, reasons, warnings });
   }
-  return { candidates, approvals, launched, global, config, admin: lp ? lp.admin : null, paused: lp ? lp.launchesPaused : null };
+  // Meteora's programs against the tested builds: a city can be fine (ok) while every approval waits; the page says so on its button
+  const meteora = programSummary(await programHashes(env, fetchImpl, now));
+  return { candidates, approvals, launched, global, config, admin: lp ? lp.admin : null, paused: lp ? lp.launchesPaused : null, meteora };
 }
 
-async function approveTx(env, ctx, body, fetchImpl, now) {
+async function approveTx(env, ctx, body, fetchImpl, now, route = null) {
   const s = lpSetup(env);
   const cityId = cityIdOf(body.cityId);
   if (!cityId) return err("bad_city", "Unknown city.", 400);
   const days = body.expiryDays === undefined ? 7 : Number(body.expiryDays);
   if (!Number.isInteger(days) || days < 1 || days > 30) return err("bad_expiry", "The approval lasts 1 to 30 days.", 400);
+  // never an approval against a Meteora build the team has not tested (409), nor one blind while that cannot be read (503); read
+  // fresh (the deploy slots again), so an upgrade a minute ago is seen now, not after the pages' ten minutes
+  const pr = programRefusal(await programHashes(env, fetchImpl, now, { fresh: true, route }), "Approvals");
+  if (pr) return err(pr.error, pr.message, pr.status, { which: pr.which, cityId: String(cityId) });
   const list = await candidateList(env, ctx, fetchImpl, now);
   const c = list.candidates.find((x) => x.cityId === String(cityId));
   if (!c) {
@@ -1053,15 +1075,15 @@ async function platformTx(env, ctx, fetchImpl, now) {
 }
 
 /* ---------------------------------------------------------------- the status */
-async function status(env, ctx, fetchImpl) {
+async function status(env, ctx, fetchImpl, now) {
   const s = lpSetup(env);
-  const st = await readState(env, s, ctx.wallet, fetchImpl, { hashes: true });
+  const st = await readState(env, s, ctx.wallet, fetchImpl, { hashes: true, now });
   const steps = await setupSteps(st);
   const want = await tableWant(st);
   return json({
     ok: true, cluster: s.cluster, wallet: ctx.wallet, devWallet: DEV, isDevWallet: ctx.wallet === DEV,
     settings: { programId: s.programId, rewardsProgramId: s.rewardsProgramId, dbcConfigs: s.dbcConfigs, configsSet: s.configsSet, lookupTable: s.lookupTable, trading: String(env.LAUNCHPAD_TRADING || "").trim().toLowerCase() === "on" },
-    genesis: "ok", programs: st.programs,
+    genesis: "ok", programs: st.programs, meteora: programSummary(st.meteora),
     launchpad: st.launchpad ? { address: st.launchpadAddress, admin: st.launchpad.admin, launchesPaused: st.launchpad.launchesPaused, payoutsPaused: st.launchpad.payoutsPaused, rewardsProgram: st.launchpad.rewardsProgram } : null,
     registry: st.registry ? { address: st.registryAddress, admin: st.registry.admin } : null,
     config: st.config ? { ...st.config, defaults: DBC_CONFIG_DEFAULTS } : null,
@@ -1075,7 +1097,7 @@ async function status(env, ctx, fetchImpl) {
 }
 
 /* ---------------------------------------------------------------- the router */
-const GET = new Set(["", "status", "summary", "squads", "candidates", "coins", "platform/plan"]);
+const GET = new Set(["", "status", "pins", "summary", "squads", "candidates", "coins", "platform/plan"]);
 const POST = new Set(["tx", "record", "approve/tx", "revoke/tx", "collect/tx", "init-city/tx", "forward/tx", "pause/tx", "platform/tx"]);
 
 /** /api/admin/lp/<sub> for the owner (src/admin.js already checked the gate, the role and, on POST, a fresh proof and the origin). */
@@ -1103,14 +1125,15 @@ export async function handleLpAdmin(request, ctx, sub, now = Date.now()) {
   if (!g.ok) return respond(g);
   try {
     switch (sub) {
-      case "status": return await status(env, ctx, fetchImpl);
-      case "summary": return await summary(env, ctx, fetchImpl);
+      case "status": return await status(env, ctx, fetchImpl, now);
+      case "pins": return json({ ok: true, cluster: s.cluster, meteora: programSummary(await programHashes(env, fetchImpl, now)) }, 200, { "Cache-Control": "no-store" });
+      case "summary": return await summary(env, ctx, fetchImpl, now);
       case "squads": {
         const a = String(url.searchParams.get("address") || "").trim();
         const acc = isSolanaAddress(a) ? (await readAccounts(env, [a], fetchImpl)).get(a) || null : null;
         const r = await checkMultisig(a, acc);
         if (!r.ok) return json(r, 200, { "Cache-Control": "no-store" }); // a refused paste is an answer, not a failure
-        const st = await readState(env, s, ctx.wallet, fetchImpl);
+        const st = await readState(env, s, ctx.wallet, fetchImpl, { now });
         const P = st.programs;
         return json({ ...r, members: r.members.map((m) => ({ key: m.key, vote: m.vote, execute: m.execute, initiate: m.initiate })), alreadyHandedOver: P.launchpad.upgradeAuthority === r.vault && P.rewards.upgradeAuthority === r.vault }, 200, { "Cache-Control": "no-store" });
       }
@@ -1121,9 +1144,9 @@ export async function handleLpAdmin(request, ctx, sub, now = Date.now()) {
         const groups = await packClaims(plan.claims);
         return json({ ok: true, ...plan, transactions: groups.length, isDevWallet: ctx.wallet === DEV }, 200, { "Cache-Control": "no-store" });
       }
-      case "tx": return await buildStep(env, ctx, body, fetchImpl, now);
-      case "record": return await recordStep(env, ctx, body, fetchImpl, now);
-      case "approve/tx": return await approveTx(env, ctx, body, fetchImpl, now);
+      case "tx": return await buildStep(env, ctx, body, fetchImpl, now, checkedRoute(env, g));
+      case "record": return await recordStep(env, ctx, body, fetchImpl, now, checkedRoute(env, g));
+      case "approve/tx": return await approveTx(env, ctx, body, fetchImpl, now, checkedRoute(env, g));
       case "revoke/tx": return await revokeTx(env, ctx, body, fetchImpl, now);
       case "collect/tx": return await collectTx(env, ctx, body, fetchImpl, now);
       case "init-city/tx": return await initCityTx(env, ctx, body, fetchImpl, now);

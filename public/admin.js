@@ -37,7 +37,7 @@
     testlab: ["M9 3h6", "M10 3v6l-5.4 9.5A1.7 1.7 0 0 0 6.1 21h11.8a1.7 1.7 0 0 0 1.5-2.5L14 9V3", "M7.5 15h9"],
   };
   let me = null, config = null, activeTab = "overview";
-  let lpOn = false; // the City coins tab (public/admin-lp.js): only when the server has its settings (GET /api/admin/lp answers ok)
+  let lpOn = false, lpProbe = null; // the City coins tab (public/admin-lp.js): only when the server has its settings (GET /api/admin/lp answers ok, with the cluster)
   let adapter = null, address = null, message = null;
   // the Inbox: how many messages are new (the badge on its tab and the browser title), refreshed every 20 seconds while the page is open
   const INBOX_POLL_MS = 20_000;
@@ -171,7 +171,8 @@
     $("#admin-who").textContent = short(me.wallet);
     config = can(2) ? await api("/api/admin/config").catch(() => null) : null; // admins and the owner only (a moderator's would be refused)
     // asked only when the server says the settings are there (config.cityCoins): a site without them sends no request for it
-    lpOn = me.role === "owner" && Boolean(config && config.cityCoins) && Boolean((await api("/api/admin/lp").catch(() => null) || {}).ok);
+    lpProbe = me.role === "owner" && Boolean(config && config.cityCoins) ? await api("/api/admin/lp").catch(() => null) : null;
+    lpOn = Boolean(lpProbe && lpProbe.ok);
     if (config && config.ok && config.siteMode === "preview") $("#admin-banner").hidden = false;
     renderTabs();
     const asked = (location.hash || "").slice(1);
@@ -484,6 +485,9 @@
     const agrid = el("div", "adm-metrics adm-metrics--attn");
     const A = { inbox: metric("Inbox: new", { attn: true }), reports: metric("Reported posts", { attn: true }), pictures: metric("Pictures waiting", { attn: true }),
       objections: metric("Seat objections", { attn: true }), seats: metric("Founder seats", { attn: true }) };
+    // Meteora's two programs against the builds the team tested (src/programpins.js): only where the City coins tab exists; it lights
+    // up whenever the answer is not "as tested", because approvals and launches wait then
+    if (lpOn) A.meteora = metric("Meteora build", { attn: true });
     agrid.append(...Object.values(A).map((m) => m.root));
     attn.append(ah, agrid);
 
@@ -515,6 +519,15 @@
     const seatRows = Object.entries(ov.seats || {}).sort((a, b) => b[1] - a[1]);
     const seatTotal = seatRows.reduce((s, [, n]) => s + n, 0);
     A.seats.set(int(seatTotal), { from: seatRows.length ? seatRows.map(([st, n]) => `${int(n)} ${st}`).join(" · ") : "No seat yet", action: go("Open seats", "seats") });
+    if (A.meteora) {
+      const hhmm = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      api(`/api/admin/lp/pins?cluster=${encodeURIComponent(lpProbe.cluster)}`).catch(() => null).then((r) => {
+        const m = r && r.ok ? r.meteora : null;
+        if (m && m.state === "ok") A.meteora.set("OK", { from: `Both Meteora programs are the builds the team tested · checked ${hhmm(m.checkedAt)}` });
+        else if (m && m.state === "changed") A.meteora.set("Changed", { from: `${m.which.map((k) => ({ dbc: "Bonding curve", dammV2: "DAMM v2" })[k] || k).join(" and ")} changed · approvals and launches wait`, action: go("Open City coins", "citycoins") }).hot(true);
+        else A.meteora.set("Unknown", { from: "Meteora's programs could not be checked just now; approvals and launches wait until they can", action: go("Open City coins", "citycoins") }).hot(true);
+      });
+    }
 
     // the rest, from the answers asked for above (a late one fills its card when it comes)
     const market = Promise.all([official, lpP]).then(([o, lp]) => {

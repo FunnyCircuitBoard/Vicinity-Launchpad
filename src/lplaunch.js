@@ -22,13 +22,17 @@
  *        collected first (harvest_curve_fees, anyone may), then claim_founder_fees, then the SOL is unwrapped
  * Every POST echoes the cluster the page shows (body.cluster) and is refused on a mismatch (a GET may leave it out: the page learns the
  * cluster from that answer, and a GET that names another cluster is refused too); the RPC's genesis hash is checked before any read. Approving, launching and graduating also need the price-curve settings set explicitly (lpSetup().configsSet).
+ * A launch is also refused (409 program_changed; 503 program_check_unavailable when it cannot be read) while a Meteora program on the
+ * cluster is not the build the team tested (src/programpins.js, read fresh for the build): a launch on an untested build is as bad as
+ * an approval on one. The founder is told in plain words (no fingerprints) that their approval stays. This holds launches from this
+ * site only: the program checks just the approval, so the owner's lever for other tools is Pause launches.
  */
 import { json, readJson } from "./http.js";
 import { access } from "./access.js";
 import { isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { lpSetup } from "./cluster.js";
-import { buildTx, checkCluster, checkGenesis, readAccounts, respond } from "./lpkit.js";
+import { buildTx, checkCluster, checkGenesis, checkedRoute, readAccounts, respond } from "./lpkit.js";
 import { liveSeatOfUser } from "./roles.js";
 import { stillFounder } from "./seats.js";
 import { iso } from "./policy.js";
@@ -36,6 +40,7 @@ import { keyLimit, publicLimit, walletLimit } from "./guards.js";
 import { displayTicker } from "./tickers.js";
 import { decodeApproval } from "./lpadmin.js";
 import { coinByMint, recordedByMint } from "./lpcoins.js";
+import { programHashes, programRefusal } from "./programpins.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas } from "./sol/pda.js";
 import { accountBytes, decodeCoin, decodeConfig, decodeLaunchConfig, decodeLaunchpad, decodePool, decodeTokenAccount } from "./sol/dbc.js";
 import { CurveError, quoteBuy } from "./sol/quote.js";
@@ -100,6 +105,19 @@ async function founderOf(env, u, cityId, now, fetchImpl) {
 const echo = (env, value) => { const c = checkCluster(env, value); return c ? respond(c) : null; };
 /** The RPC's genesis hash must be the cluster's (src/lpkit.js; remembered once it matched): after the sign-in and the counters. */
 async function genesis(env, fetchImpl) { const g = await checkGenesis(env, fetchImpl); return g.ok ? null : respond(g); }
+/**
+ * Meteora's programs against the builds the team tested (src/programpins.js), in a founder's words: null when both are as tested,
+ * else { status, error, which, message } (409 program_changed, 503 program_check_unavailable). The founder sees no fingerprints;
+ * their approval stays either way. `opts` as programHashes takes them (the launch build reads fresh).
+ */
+async function meteoraHold(env, fetchImpl, now, opts) {
+  const pr = programRefusal(await programHashes(env, fetchImpl, now, opts), "Launches");
+  if (!pr) return null;
+  const message = pr.error === "program_changed"
+    ? "Meteora has updated its programs since the team tested them. Launches wait until the team re-tests them; your approval stays."
+    : "Meteora's programs could not be checked just now. Launches wait until the check works again; your approval stays. Try again in a minute.";
+  return { ...pr, message };
+}
 
 /* ---------------------------------------------------------------- the chain */
 const poolFlag = (acc, field) => { const a = accountBytes(acc); const f = LAYOUT.VirtualPool.fields[field]; return a && f && a.bytes.length > f.at ? a.bytes[f.at] : null; };
@@ -249,8 +267,10 @@ async function launchStatus(request, env, fetchImpl, now) {
     out.yours = st.coin.founder === who.wallet;
     return json(out, 200, { "Cache-Control": "no-store" });
   }
-  const p = launchProblem(st, s, who.wallet, nowS);
+  let p = launchProblem(st, s, who.wallet, nowS);
   if (p && p.error === "founder_mismatch") return err(p.error, p.message, 403, { state: p.state, approval: out.approval });
+  // otherwise ready: Meteora's programs must still be the tested builds (the card says why launches wait, before the founder presses)
+  if (!p) { const h = await meteoraHold(env, fetchImpl, now); if (h) p = { state: "paused", error: h.error, message: h.message }; }
   out.state = p ? p.state : "ready";
   if (p) { out.why = p.error; out.message = p.message; }
   if (buy && st.config && !p) {
@@ -280,8 +300,8 @@ async function launchTx(request, env, fetchImpl, now) {
   if (slip === null) return err("bad_slippage", `Slippage is 0 to ${MAX_FIRST_BUY_SLIPPAGE_BPS / 100}%.`, 400);
   const slow = await walletLimit(env, "lp_launch_tx", who.wallet, now);
   if (slow) return slow;
-  const g = await genesis(env, fetchImpl);
-  if (g) return g;
+  const g = await checkGenesis(env, fetchImpl);
+  if (!g.ok) return respond(g);
   const f = await founderOf(env, who.u, cityId, now, fetchImpl);
   if (f.error) return f.error;
 
@@ -289,6 +309,10 @@ async function launchTx(request, env, fetchImpl, now) {
   try { st = await launchState(env, s, cityId, fetchImpl); } catch (e) { console.error("launch read failed", codeOf(e)); return err("rpc_unavailable", "The blockchain could not be reached just now. Nothing was built. Try again in a minute.", 503); }
   const p = launchProblem(st, s, who.wallet, Math.floor(now / 1000), { slack: EXPIRY_SLACK_S });
   if (p) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });
+  // never a launch on a Meteora build the team has not tested (409), nor one blind while that cannot be read (503); read fresh (the
+  // deploy slots again, on the node whose genesis hash was checked), so an upgrade a minute ago is seen now
+  const pr = await meteoraHold(env, fetchImpl, now, { fresh: true, route: checkedRoute(env, g) });
+  if (pr) return err(pr.error, pr.message, pr.status, { state: "paused", which: pr.which });
   if (buy > 0n && !s.lookupTable) return err("first_buy_needs_table", "A first buy in the same transaction needs the site's speed table, which is not set yet. Launch first, then buy on your coin's page.");
 
   const ap = st.approval;
