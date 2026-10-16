@@ -193,7 +193,7 @@ test("config exposes presence flags only, never secret values", async () => {
   assert.equal(d.cityCoins, false, "production-like: off");
   assert.ok(d.ok);
   assert.equal(d.siteMode, "preview");
-  assert.equal(d.policyVersion, 5);
+  assert.equal(d.policyVersion, 6);
   assert.deepEqual(d.flags.GOOGLE_CLIENT_ID, true);
   assert.deepEqual(d.flags.GMAIL_USER, true);
   assert.deepEqual(d.flags.GMAIL_APP_PASSWORD, false);

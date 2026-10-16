@@ -59,7 +59,9 @@
   const left = (iso) => { const ms = Date.parse(iso) - Date.now(); if (ms <= 0) return "closing now"; const h = Math.floor(ms / 3600000); return h >= 48 ? `${Math.floor(h / 24)} days left` : h >= 1 ? `${h}h left` : `${Math.ceil(ms / 60000)} min left`; };
   const daysLeft = (iso) => Math.max(0, Math.ceil((Date.parse(iso) - Date.now()) / 86400000));
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
-  const ticker = (name) => (window.vicinityTicker ? window.vicinityTicker.baseTicker(name) : String(name).toUpperCase().replace(/[^A-Z]/g, "").slice(0, 10));
+  // the city coin's label: the server's ticker ("$UTICA": the chain's symbol once launched, else the city list's), or the city's
+  // name when it has none. Nothing here makes a ticker up from the name.
+  const coinLabel = (c) => (c.ticker ? `$${c.ticker}` : c.name);
   const modOn = () => { const m = me(); return Boolean((lastMod && lastMod.moderator === true) || (m && m.roles && m.roles.admin)); };
   // with the city-coin launch on (lp, public/lp-launch.js): the chain's word wins, so this fact agrees with the launch card's tag
   const coinState = () => (!coin ? "Not designed yet" : coin.launched || (lp.on && lp.state === "launched") ? "Live" : coin.waiting ? "Contract being checked"
@@ -498,7 +500,7 @@
   function cityHeader(d) {
     const c = d.community;
     if (!c) return;
-    const tk = c.ticker || ticker(c.name), s = c.seat, st = $("#ch-status");
+    const tk = coinLabel(c), s = c.seat, st = $("#ch-status");
     const [text, cls] = s && s.status === "active" ? ["Founded", "tag tag--ok"]
       : s && s.status === "steward" ? ["Seed Steward on probation", "tag tag--gold"]
       : s && s.status === "provisional" ? ["Founder chosen · objections open", "tag tag--warn"]
@@ -510,9 +512,10 @@
     $("#ch-locals").hidden = !q;
     if (q) $("#ch-locals-n").textContent = `${q.have} of ${q.need}`;
     $("#ch-coin").hidden = !coinKnown;
-    if (coinKnown) $("#ch-coin-v").textContent = `$${tk} · ${coinState()}`;
+    if (coinKnown) $("#ch-coin-v").textContent = `${tk} · ${coinState()}`;
     $("#ca-city").textContent = c.name;
-    $("#ca-ticker").textContent = `$${tk}`;
+    $("#ca-ticker").textContent = tk;
+    const note = $("#ca-ticker-note"); if (note) { note.hidden = !c.ticker; note.textContent = c.tickerSource === "chain" ? "on chain" : "fixed by the map"; } // where the ticker comes from; nothing for a city without one
     $("#ca-country").textContent = countryName(c.country);
     const T = (s && s.threshold) || (d.founder && d.founder.threshold);
     $("#ca-threshold").textContent = T ? `${fmt(T)} $VICINITY` : "Set by city size when the first claim is made (100K to 1M)";

@@ -8,7 +8,8 @@
 // Phones live inside the wallet app (owner decision F4): on a phone's Safari / Chrome a member with a linked wallet sees "On this phone you
 // buy in Phantom" with Connect Phantom (Vicinity opens inside Phantom, signed in there or one signature away); inside the wallet app the
 // card says it is connected and gives the "next time" tip; for 7 days after a wallet joined from another app an older browser gets
-// "Wasn't you? Remove it". Needs site.js (window.V), wallets.js (window.VW) and ticker.js.
+// "Wasn't you? Remove it". Needs site.js (window.V) and wallets.js (window.VW). The city coin's ticker comes from /api/me alone
+// (the chain's symbol once launched, else the city list's): this file never makes one up from the city's name.
 (() => {
   "use strict";
   const { $, $$, el, api, toast, copy, fmt, compact, mask, short, ago, initials, getLocation, burst, reveal } = window.V;
@@ -37,7 +38,11 @@
   const REASONS = { spam: "Spam", scam: "Scam / fake token", abuse: "Abuse", illegal: "Illegal", off_topic: "Off topic", other: "Other" };
   const regionNames = (() => { try { return new Intl.DisplayNames(["en"], { type: "region" }); } catch { return null; } })();
   const countryName = (cc) => { try { return (regionNames && regionNames.of(cc)) || cc; } catch { return cc; } };
-  const ticker = (name) => (window.vicinityTicker ? window.vicinityTicker.baseTicker(name) : String(name).toUpperCase().replace(/[^A-Z]/g, "").slice(0, 10));
+  // The ticker comes from the server alone (/api/me community.ticker: the chain's symbol once the coin is launched, else the city
+  // list's). Nothing here makes one up from the city name: a city without one shows its name, with no "$", and its coin disc wears the
+  // name's first letter (a ticker-sized disc cannot hold a name; the name stands beside it).
+  const coinDisc = (c) => (c && c.ticker) || (c && c.name ? initials(c.name) : "");
+  const coinLabel = (c) => (c && c.ticker ? `$${c.ticker}` : c && c.name ? c.name : "your city coin");
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
   /** A city ticker on a coin disc: the whole ticker, never cut; the disc gets its length (data-len) so the stylesheet steps the size down. */
   const discText = (span, tk) => { span.textContent = tk; const disc = span.parentNode; if (disc && disc.dataset) disc.dataset.len = String(Math.min(String(tk).length, 12)); };
@@ -260,7 +265,7 @@
     $("#welcome-title").textContent = `Welcome to ${u.home ? u.home.name : "Vicinity"}${who ? `, ${who}` : ""}.`;
     $("#welcome-line").textContent = (c && c.memberNumber ? `You are member #${fmt(c.memberNumber)} here. ` : "Your dashboard is live. ")
       + (u.wallet ? "Your profile is complete." : "Two of three steps done: link a wallet whenever you like.");
-    if (c) discText($("#welcome-disc"), c.ticker || ticker(c.name)); else $("#welcome-disc").textContent = "📍";
+    if (c) discText($("#welcome-disc"), coinDisc(c)); else $("#welcome-disc").textContent = "📍";
     box.hidden = false;
     ringSet($("#welcome-ring"), d.setup, true);
     const r = box.getBoundingClientRect(); burst(r.left + 60, r.top + 40);
@@ -718,7 +723,7 @@
   function renderCommunity(d) {
     const c = d.community;
     if (!c) return;
-    const tk = c.ticker || ticker(c.name);
+    const tk = coinDisc(c);
     discText($("#cc-face"), tk);
     discText($("#pass-coin"), tk);
     $("#cc-name").textContent = c.name;
@@ -738,10 +743,10 @@
     $("#cc-top").replaceChildren(...(c.top && c.top.length ? c.top.map((t) => { const li = el("li", t.you ? "is-you" : ""); li.append(el("span", "mono", t.you ? "You" : t.wallet), el("span", "amt", compact(t.amount))); return li; })
       : [el("li", "muted small", d.launched ? "No holders here yet. Be the first." : "Live at launch.")]));
   }
-  /** "$UTICA · city coin · United States"; "preview" while the city's coin is not live yet. */
+  /** "$UTICA · city coin · United States" (the city's name when it has no ticker yet); "preview" while the city's coin is not live yet. */
   function tickerLine() {
     const c = me && me.community; if (!c) return;
-    $("#cc-ticker").textContent = `$${c.ticker || ticker(c.name)} · city coin${coinData && coinData.launched ? "" : " preview"} · ${countryName(c.country)}`;
+    $("#cc-ticker").textContent = `${coinLabel(c)} · city coin${coinData && coinData.launched ? "" : " preview"} · ${countryName(c.country)}`;
   }
   $("#cc-share").addEventListener("click", () => {
     const name = me?.community?.name || "my city";
@@ -1049,6 +1054,8 @@
     bad_color: "Pick one of the colours.",
     bad_image: "That picture couldn't be used. Try a PNG, JPEG or WebP.",
     bad_address: "That isn't a Solana contract address.",
+    no_ticker: "This city has no ticker yet. Tell us and we will add it.",
+    list_unavailable: "The city list could not be read just now. Try again in a minute.",
     not_a_city_coin: "That's $VICINITY or the pair, not your city's coin.",
     design_first: "Save a design first.",
     mint_taken: "That contract is already another city's coin.",
@@ -1060,7 +1067,9 @@
   };
   let coinData = null, coinPairs = null, vicMint = null, logoData = null, dropLogo = false, studioDirty = false;
   const v2Coin = () => { if (v2) v2.coin({ coin: coinData, vicMint }); };
-  const cityTk = () => (me && me.community ? me.community.ticker || ticker(me.community.name) : "CITY");
+  // the city coin's label ("$UTICA", or the city's name while it has no ticker) and the short text on its disc
+  const cityTk = () => coinLabel(me && me.community);
+  const cityDisc = () => coinDisc(me && me.community) || "CITY";
   const picked = (name, fallback) => (document.querySelector(`input[name='${name}']:checked`) || {}).value || fallback;
   const num = (x) => new Intl.NumberFormat(undefined, { maximumSignificantDigits: 6 }).format(x);
   const usd = (x) => new Intl.NumberFormat(undefined, { maximumFractionDigits: x < 1 ? 4 : 2 }).format(x);
@@ -1074,13 +1083,13 @@
     if (me.roles && me.roles.admin) loadCoinQueue();
   }
   function paintCoin({ name, color, logo, pair }) {
-    const tk = cityTk(), face = $("#coin-art-face"), img = $("#coin-logo");
+    const face = $("#coin-art-face"), img = $("#coin-logo");
     $("#coin-art").dataset.color = color || "gold";
     for (const disc of [$(".pass__coin"), $("#welcome-disc").parentNode, $("#cc-face").parentNode]) disc.dataset.color = color || "gold"; // one coin, one colour
     if (logo) { img.src = logo; img.hidden = false; } else { img.hidden = true; img.removeAttribute("src"); }
-    discText(face, tk); face.hidden = Boolean(logo);
+    discText(face, cityDisc()); face.hidden = Boolean(logo);
     $("#coin-name").textContent = name;
-    $("#coin-ticker").textContent = `$${tk}`;
+    $("#coin-ticker").textContent = cityTk();
     $("#coin-pair").textContent = pair || "chosen by the founder";
   }
   function renderCoin() {
@@ -1088,7 +1097,7 @@
     // the server lets a Seed Steward design the coin too (src/roles.js); the tabbed dashboard shows them the studio
     const mine = Boolean(seat && seat.you && (seat.status === "active" || (v2 && seat.status === "steward")));
     $("#coin-city").textContent = c.name;
-    $$("[data-city-ticker]").forEach((e) => (e.textContent = tk));
+    $$("[data-city-ticker]").forEach((e) => (e.textContent = c.ticker ? tk : `${c.name} coin`));
     const st = $("#coin-status");
     st.className = "tag " + (cd && cd.launched ? "tag--ok" : cd && cd.waiting ? "tag--warn" : cd ? "tag--gold" : "");
     st.textContent = cd && cd.launched ? "● Live" : cd && cd.waiting ? "Contract being checked" : cd ? "Designed" : "Not designed yet";
@@ -1102,7 +1111,7 @@
     $("#coin-note").textContent = mine
       ? (cd ? (cd.launched ? `${c.name}'s coin is live. Its design is locked, as the rules promise.` : "Change anything until your coin launches. Every save is public in the log.")
         : `Your coin, your call. Design ${c.name}'s coin below: everyone in ${c.name} will see it.`)
-      : cd ? (cd.launched ? `The one official $${tk}. Buy or swap it in the panel on the right.` : `Designed by ${c.name}'s founder. It launches on ${lpOn ? "the Vicinity launchpad" : "Raydium LaunchLab"}.`)
+      : cd ? (cd.launched ? `The one official ${c.ticker ? tk : `${c.name} coin`}. Buy or swap it in the panel on the right.` : `Designed by ${c.name}'s founder. It launches on ${lpOn ? "the Vicinity launchpad" : "Raydium LaunchLab"}.`)
       : seat ? `${seat.name}, ${c.name}'s founder, hasn't designed the coin yet. It'll appear here the moment they do.`
       : `${c.name}'s founder designs this coin: its name, logo, colour and what it's paired with. The seat is still open: see the founder path.`;
     $("#coin-studio").hidden = !mine || Boolean(cd && cd.launched);
@@ -1112,7 +1121,10 @@
   function fillStudio() {
     const cd = coinData;
     $("#cs-name").value = cd ? cd.name : me.community.name;
-    $("#cs-ticker").value = `$${cityTk()}`;
+    // the ticker field shows the server's ticker and where it comes from (the chain's once launched, else the list's); a city without
+    // one shows its name and no claim about the map
+    $("#cs-ticker").value = cityTk();
+    const tl = $("#cs-ticker-label"); if (tl) tl.textContent = me.community.tickerSource === "chain" ? "Ticker · on chain" : me.community.ticker ? "Ticker · fixed by the map" : "Ticker · none yet";
     $("#cs-pitch").value = cd ? cd.pitch : "";
     const p = document.querySelector(`input[name='cs-pair'][value='${cd ? cd.pair : "SOL"}']`); if (p) p.checked = true;
     const k = document.querySelector(`input[name='cs-color'][value='${cd ? cd.color : "gold"}']`); if (k) k.checked = true;
@@ -1226,7 +1238,7 @@
   /* ---------- buy & swap: straight to Jupiter or Raydium, where you sign in your own wallet ---------- */
   let route = "vic", flipped = false, priceCache = { key: "", at: 0, p: {} }, estTimer = 0;
   function routeInfo() {
-    const cd = coinData, tk = `$${cityTk()}`, cityMint = cd && cd.mint ? cd.mint : null;
+    const cd = coinData, tk = cityTk(), cityMint = cd && cd.mint ? cd.mint : null;
     const base = route === "vic" ? [["SOL", SOL_MINT], ["$VICINITY", vicMint]]
       : route === "city" ? [[cd ? cd.pair : "SOL", cd ? cd.pairMint : SOL_MINT], [tk, cityMint]]
       : [[tk, cityMint], ["$VICINITY", vicMint]];

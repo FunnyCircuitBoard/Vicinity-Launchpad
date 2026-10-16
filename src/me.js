@@ -20,7 +20,7 @@ import { cityPicture, cooldownUntil, eligibility, squadPicture } from "./seats.j
 import { countryPicture } from "./elections.js";
 import { ensureProfilesSchema, ensureSchema } from "./store.js";
 import { communityById } from "./community.js";
-import { tickerOf } from "./tickers.js";
+import { displayTicker } from "./tickers.js";
 import { latestBalances } from "./ledger.js";
 import { dashboardV2On, profilesOn, v2On } from "./flags.js";
 import { countsOf } from "./profile-core.js";
@@ -138,7 +138,8 @@ async function liveStatus(env, s, fetchImpl, now) {
     const board = await leaderboard(env, "home_city", u.home_city, snap, fetchImpl);
     // "you are member #N here": people (not test-lab rows) who made this community their home before or with this account
     const nth = await db.prepare("SELECT COUNT(*) AS n FROM users WHERE home_city = ? AND id <= ? AND provider != 'testlab'").bind(u.home_city, u.id).first();
-    community = { id: u.home_city, name: u.home_name, country: u.home_country, ticker: (await tickerOf(env, u.home_city))?.ticker || null,
+    const tk = await displayTicker(env, { cityId: u.home_city }); // the chain's symbol once the city's coin is launched, else the list's
+    community = { id: u.home_city, name: u.home_name, country: u.home_country, ticker: tk ? tk.ticker : null, tickerSource: tk ? tk.source : null,
       members: board.members, memberNumber: nth ? Number(nth.n) : null, ...ranked(board), ...(await cityPicture(env, u.home_city, u, now, fetchImpl)) };
   }
   if (u.home_country) {

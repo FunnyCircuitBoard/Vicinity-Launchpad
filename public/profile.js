@@ -75,7 +75,8 @@
   const fmtUsdShort = (x) => (!num(x) ? "—" : x < 1000 ? fmtUsd(x) : x < 100_000 ? usd0.format(x) : `$${compactNum.format(x)}`);
   const fmtAmount = (x) => (!num(x) ? "—" : new Intl.NumberFormat("en-US", { maximumFractionDigits: x >= 1000 ? 0 : x >= 1 ? 2 : 6 }).format(x));
   const fmtPct = (x) => (!num(x) ? "—" : x > 0 && x < 0.1 ? "<0.1%" : `${x.toFixed(1)}%`);
-  const symbolOf = (it) => `$${String(it.symbol || it.name || "?").replace(/^\$/, "")}`;
+  /** "$UTICA" for a coin with a ticker (tickerSource says where the server got it: chain | registry); a city coin without one goes by its name, plain. */
+  const symbolOf = (it) => (it.kind === "city" && !it.tickerSource ? it.symbol || it.name || "city coin" : `$${String(it.symbol || it.name || "?").replace(/^\$/, "")}`);
 
   /** Items the way the table lists them: biggest value first, coins without a price after those, then by amount. */
   function sortItems(items) {
@@ -204,7 +205,6 @@
   const homeText = (h) => (h ? `${h.name}, ${countryName(h.country)}` : "No home community yet");
   const sinceText = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? `Member since ${new Date(t).toLocaleDateString("en-US", { month: "short", year: "numeric" })}` : ""; };
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
-  const tickerOf = (name) => (window.vicinityTicker ? window.vicinityTicker.baseTicker(name) : String(name || "").toUpperCase().replace(/[^A-Z]/g, ""));
   /** The whole ticker on the pass's coin disc (never cut): the disc gets its length, so a stylesheet can step the size down (data-len). */
   const discText = (span, tk) => { span.textContent = tk; const disc = span.parentNode; if (disc && disc.dataset) disc.dataset.len = String(Math.min(String(tk).length, 12)); };
 
@@ -457,7 +457,7 @@
     const show = (sel, on = true) => { const n = $(sel); if (n) n.hidden = !on; };
     const setErr = (t) => { const n = $("#pf-error"); n.textContent = t || ""; n.hidden = !t; };
     const say = (t) => { $("#pf-live").textContent = ""; setTimeout(() => ($("#pf-live").textContent = t), 30); }; // a polite announcement, repeated text included
-    let meUser = null, cur = null, busy = false, pv = null, list = null, tickers = null;
+    let meUser = null, cur = null, busy = false, pv = null, list = null;
 
     /* ----- who is looking ----- */
     async function start() {
@@ -557,8 +557,9 @@
       $("#pf-handle").textContent = p.handle;
       $("#pf-home").textContent = homeText(p.home);
       const lvl = $("#pf-level"); lvl.textContent = levelLabel(p.level); lvl.dataset.level = p.level;
-      if (p.home) discText($("#pf-coin"), tickerOf(p.home.name)); else $("#pf-coin").textContent = "—";
-      if (p.home && tickers) { const t = tickers[p.home.id]; const tk = t ? (typeof t === "string" ? t : t[0]) : null; if (tk) discText($("#pf-coin"), tk); }
+      // the coin disc: the home city's ticker from the server (the chain's once its coin is launched, else the city list's); a city
+      // without one wears its name's first letter (nothing here makes a ticker up from the name)
+      if (p.home) discText($("#pf-coin"), p.home.ticker || window.V.initials(p.home.name)); else $("#pf-coin").textContent = "—";
       $("#pf-since").textContent = sinceText(p.since);
       const bio = $("#pf-bio");
       bio.textContent = p.bio || (self ? "You haven't written a bio yet." : "");
@@ -571,7 +572,6 @@
       $("#pf-copy").hidden = !linked;
       $("#pf-solscan").hidden = !linked;
       $("#pf-solscan").href = linked ? `https://solscan.io/account/${p.wallet}` : "#";
-      if (!tickers && p.home) loadTickers();
 
       // holdings
       const h = p.holding;
@@ -645,13 +645,6 @@
       $("#pf-hold-rank").textContent = h && h.rank ? `#${fmt(h.rank)} of ${fmt(h.total)}` : h && h.team ? "Team wallet" : "—";
       $("#pf-hold-pct").textContent = h && h.rank ? `Top ${pctText(h.percentile)}%` : h && h.team ? "Not ranked" : "—";
       paintCounts();
-    }
-    async function loadTickers() {
-      tickers = {}; // asked once; the page shows the name-based ticker until it arrives
-      try {
-        const r = await fetch("/data/tickers.json", { credentials: "same-origin" });
-        if (r.ok) { tickers = await r.json(); if (cur) paint(cur); }
-      } catch { /* the name-based ticker stays */ }
     }
 
     /* ----- follow, block, report ----- */

@@ -101,10 +101,14 @@ test("money, amounts and shares: a dash where there is no price", () => {
   assert.equal(P.fmtAmount(1_250_000), "1,250,000"); assert.equal(P.fmtAmount(12.3456), "12.35"); assert.equal(P.fmtAmount(0.000123), "0.000123"); assert.equal(P.fmtAmount(null), "—");
   assert.equal(P.fmtPct(null), "—"); assert.equal(P.fmtPct(0.02), "<0.1%"); assert.equal(P.fmtPct(62.34), "62.3%"); assert.equal(P.fmtPct(100), "100.0%");
   assert.equal(P.symbolOf({ symbol: "NYC" }), "$NYC"); assert.equal(P.symbolOf({ symbol: "$NYC" }), "$NYC"); assert.equal(P.symbolOf({}), "$?");
+  // a city coin: "$" only on a ticker the server vouches for (tickerSource chain | registry); one without a ticker goes by its name, plain
+  assert.equal(P.symbolOf({ kind: "city", symbol: "UTICA2", tickerSource: "chain" }), "$UTICA2"); assert.equal(P.symbolOf({ kind: "city", symbol: "UTICA", tickerSource: "registry" }), "$UTICA");
+  assert.equal(P.symbolOf({ kind: "city", symbol: "Nowhere Coin", tickerSource: null }), "Nowhere Coin"); assert.equal(P.symbolOf({ kind: "city", symbol: null, name: "Nowhere Coin", tickerSource: null }), "Nowhere Coin");
+  assert.equal(P.symbolOf({ kind: "vicinity", symbol: "VICINITY" }), "$VICINITY");
 });
 
 /* ---------- the colours coins wear ---------- */
-const coin = (symbol, valueUsd, kind = "city", amount = 1) => ({ kind, mint: `mint-${symbol}`, symbol, name: symbol, amount, priceUsd: valueUsd == null ? null : 1, valueUsd, sharePct: null });
+const coin = (symbol, valueUsd, kind = "city", amount = 1) => ({ kind, mint: `mint-${symbol}`, symbol, name: symbol, ...(kind === "city" ? { tickerSource: "registry" } : {}), amount, priceUsd: valueUsd == null ? null : 1, valueUsd, sharePct: null }); // a city item carries tickerSource like the server's
 test("items are listed biggest value first, coins without a price after them", () => {
   const list = P.sortItems([coin("B", 5), coin("N", null, "city", 99), coin("A", 50), coin("M", null, "city", 5)]);
   assert.deepEqual(plain(list.map((i) => i.symbol)), ["A", "B", "N", "M"]);
@@ -291,7 +295,7 @@ test("the moderator tools list reported bios with a way to clear one, and count 
 test("nothing is requested for anyone but members with the switch on", () => {
   // the dashboard fetches profile.js in one place, behind the flag; it is not one of the page's scripts
   const order = [...dashHtml.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ["theme", "site", "ticker", "wallets", "swap", "dashboard-roles", "lp-sign", "lp-launch", "dashboard", "feedback"], "profile.js is not a script tag of the dashboard");
+  assert.deepEqual(order, ["theme", "site", "wallets", "swap", "dashboard-roles", "lp-sign", "lp-launch", "dashboard", "feedback"], "profile.js is not a script tag of the dashboard");
   assert.equal((dashJs.match(/\/profile\.js/g) || []).length, 1, "named once");
   assert.match(dashJs, /if \(d\.profilesFlag\) \{ profilesSync\(d\);/, "asked for only when /api/me says so");
   assert.match(dashJs, /const memberLink = \(name, handle, tag = "b"\) => \{\n\s+if \(!\(me && me\.profilesFlag && typeof handle === "string" && HANDLE\.test\(handle\)\)\) return el\(tag, null, name\);/,
@@ -316,7 +320,7 @@ test("the pages: noindex, the same menu, our own files only, nothing inline", ()
   assert.ok(!new Map(buildPages()).has("profile.html"), "the main list (test/site.test.js) is unchanged");
   assert.match(profileHtml, /<meta name="robots" content="noindex, nofollow">/);
   assert.match(profileHtml, /<body data-page="profile">/);
-  assert.deepEqual([...profileHtml.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]), ["theme", "site", "ticker", "profile", "feedback"]);
+  assert.deepEqual([...profileHtml.matchAll(/<script src="\/([a-z/-]+)\.js"/g)].map((m) => m[1]), ["theme", "site", "profile", "feedback"], "no ticker.js: the ticker comes with the profile from the server");
   const nav = profileHtml.match(/<nav class="nav"[\s\S]*?<\/nav>/)[0], tabs = profileHtml.match(/<nav class="tabbar"[\s\S]*?<\/nav>/)[0];
   // design v4: the header's four links and the phone tab bar's five tabs (test/site.test.js pins them on every main page)
   assert.deepEqual([...nav.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ["/launchpad", "/cities", "/app", "/dashboard"]);
@@ -339,7 +343,7 @@ test("the strict security policy holds: no markup built from text, no style attr
   assert.match(profileHtml, /<a class="btn btn--glass btn--sm" id="pf-solscan" href="#" target="_blank" rel="noopener">/, "the outside link opens in a new tab without handing over the window");
   assert.doesNotMatch(src, /document\.cookie|sessionStorage|indexedDB/);
   const fetches = [...src.matchAll(/\bfetch\(([^)]*)\)/g)].map((m) => m[1]);
-  assert.deepEqual(fetches, ['"/data/tickers.json", { credentials: "same-origin" }'], "the only direct fetch is the tickers file; everything else goes through V.api");
+  assert.deepEqual(fetches, [], "no direct fetch at all: everything goes through V.api (the home city's ticker comes with the profile)");
   // the one thing remembered in the browser is the notice, behind try/catch
   assert.equal((src.match(/localStorage/g) || []).length, 2);
   assert.match(src, /try \{ return localStorage\.getItem\(NOTICE_KEY\) === "1"; \} catch \{ return false; \}/);

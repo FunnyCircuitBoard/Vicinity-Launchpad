@@ -41,7 +41,7 @@ import { priorityFeeLamports } from "./sol/ix.js";
 import { checkJupiterBuild, claimedLookupTables, composeJupiter, jupiterBlockhash, jupiterCuPrice } from "./jupswap.js";
 import { issueTicket, simulate, simulationError } from "./relay.js";
 import { stageOf } from "./lptrade.js";
-import { tickerOf } from "./tickers.js";
+import { chainSymbolsOf, displayTicker } from "./tickers.js";
 
 export const USDC = PAIRS.USDC.mint, USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", SOL = ADDRESSES.wsol;
 export const MAX_SLIPPAGE_BPS = 5000, DEFAULT_SLIPPAGE_BPS = 100;
@@ -371,10 +371,12 @@ export async function handleSwapConfig(env, fetchImpl = fetch, now = Date.now())
           await Promise.all(coins.slice(i, i + 10).map((c, j) => stageOf(env, c.mint, fetchImpl, now).then((st) => { if (st) stages[i + j] = st.stage; }).catch(() => { stages[i + j] = "unknown"; })));
         }
       }
+      const chainSymbols = await chainSymbolsOf(env, coins.map((c) => c.mint));
       for (const [i, c] of coins.entries()) {
-        // the same ticker the cards, the coin page and the checker use ($UTICA), never a symbol made up from the name
-        const ticker = (await tickerOf(env, c.city_id))?.ticker || null;
-        tokens.push({ mint: c.mint, symbol: ticker, name: c.name, decimals: 6, kind: "city", city: { id: String(c.city_id), name: c.city_name, country: c.country }, stage: stages[i] });
+        // the same ticker the cards, the coin page and the checker use ($UTICA): the chain's symbol once recorded, else the city
+        // list's; never a symbol made up from the name
+        const t = await displayTicker(env, { cityId: c.city_id, chainSymbol: chainSymbols.get(c.mint) || null });
+        tokens.push({ mint: c.mint, symbol: t ? t.ticker : null, tickerSource: t ? t.source : null, name: c.name, decimals: 6, kind: "city", city: { id: String(c.city_id), name: c.city_name, country: c.country }, stage: stages[i] });
       }
     } catch (e) { console.error("swap config coins skipped", codeOf(e)); }
   }

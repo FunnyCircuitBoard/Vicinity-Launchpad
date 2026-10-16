@@ -20,6 +20,7 @@ import { codeOf } from "./sources.js";
 import { lpSetup } from "./cluster.js";
 import { lpRpc } from "./lpkit.js";
 import { ensureSchema } from "./store.js";
+import { lpCoinsTableReady } from "./tickers.js";
 import { publicLimit } from "./guards.js";
 import { iso } from "./policy.js";
 import { launchpad as launchpadPdas } from "./sol/pda.js";
@@ -67,6 +68,7 @@ export function ensureLpCoinsSchema(db) {
       await ensureSchema(db);
       if (await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(MIGRATION_ID).first()) return;
       await db.prepare(TABLE).run();
+      lpCoinsTableReady(db);
       await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(MIGRATION_ID, new Date().toISOString()).run();
     })().catch((e) => { ready.delete(db); throw e; }));
   }

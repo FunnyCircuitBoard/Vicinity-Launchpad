@@ -2,8 +2,9 @@
  * City coins: each community's one official coin, designed by its City Founder.
  *   Design   the ACTIVE founder of the city (wallet proven in the last 30 minutes, founder amount still held,
  *            checked live) sets the coin's display name, a short pitch, a colour, a square logo, and the token
- *            it's paired with on Raydium LaunchLab: SOL, USDC or RAY. The ticker is the city's own, fixed by
- *            the map, so nobody can copy another city's coin.
+ *            it's paired with on Raydium LaunchLab: SOL, USDC or RAY. The ticker is never part of the design: it is
+ *            the city's own, from the one list (src/tickers.js), so nobody can pick, change or copy another city's
+ *            coin; a city the list does not know gets no design until it is added.
  *   Public   every design is public (GET /api/coins) and every change is in the public log (/api/audit).
  *   Launch   once the coin is live, the founder submits its contract address; an admin who isn't that founder
  *            checks it and records it. From then on the design is locked, so it always matches the blockchain.
@@ -24,7 +25,7 @@ import { isSolanaAddress } from "./solana.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
 import { readImage } from "./social.js";
 import { ensureSchema } from "./store.js";
-import { tickerOf } from "./tickers.js";
+import { displayTicker, tickerOf, tickersAvailable } from "./tickers.js";
 import { designFrozen, rebuildMetaJson } from "./lpcoins.js";
 
 const C = POLICY.coins;
@@ -112,6 +113,11 @@ export async function handleDesign(request, env, fetchImpl = fetch, now = Date.n
   catch (e) { console.error("coin design: approval check failed", String((e && e.message) || e).slice(0, 80)); return json({ ok: false, error: "chain_unavailable" }, 503); }
   if (frozen === "launched") return json({ ok: false, error: "coin_locked" }, 409);
   if (frozen) return json({ ok: false, error: frozen === "held" ? "coin_being_approved" : "coin_approved" }, 409);
+  // the ticker is never part of the design: it is the city's own, from the one list (src/tickers.js), and the approval copies it on
+  // chain. A city the list does not know gets no design (nothing here invents a ticker), only a plain answer; a list that cannot be
+  // read right now is said as that (never "no ticker" about a city that has one).
+  if (!(await tickersAvailable(env))) return json({ ok: false, error: "list_unavailable", message: "The city list could not be read just now. Try again in a minute." }, 503);
+  if (!(await tickerOf(env, seat.city_id))) return json({ ok: false, error: "no_ticker", message: "This city has no ticker yet. Tell us and we will add it." }, 409);
 
   const name = cleanText(body.name, C.nameMax);
   if (!name || name.length < 2 || !NAME_RE.test(name) || LINKISH.test(name)) return json({ ok: false, error: "bad_name", max: C.nameMax }, 400);
@@ -261,7 +267,7 @@ export async function officialCityCoin(env, address) {
     return null;
   }
   if (!row) return null;
-  try { ticker = (await tickerOf(env, row.city_id))?.ticker || null; } catch { ticker = null; } // the coin is official with or without its ticker
+  try { ticker = (await displayTicker(env, { cityId: row.city_id, mint: address }))?.ticker || null; } catch { ticker = null; } // the coin is official with or without its ticker
   const where = `${row.city_name}${row.country ? `, ${row.country}` : ""}`;
   return {
     verdict: "official", kind: "city_coin", city: row.city_id, cityName: row.city_name, country: row.country, ticker, name: row.name,

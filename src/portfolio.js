@@ -11,11 +11,13 @@
  * portfolio = {
  *   asOf: ISO time of the data (the older of: when the balances were read, when the oldest price was fetched),
  *   totalUsd: number | null,   sum of the priced items; 0 when nothing is held; null when something is held but nothing has a price
- *   items: [{ kind: "vicinity" | "city", mint, symbol, name, city?: { id, name, country }, amount,
+ *   items: [{ kind: "vicinity" | "city", mint, symbol, name, tickerSource?: "chain" | "registry" | null, city?: { id, name, country }, amount,
  *             priceUsd: number | null, valueUsd: number | null, sharePct: number | null }],
  *   pricesComplete: boolean    every item has a price (true when there are no items)
  * }
- * Only mints with a balance above zero are items. symbol is the bare ticker ("VICINITY", "UTICA"): the page adds the $.
+ * Only mints with a balance above zero are items. symbol is the bare ticker ("VICINITY", "UTICA") when the coin has one; a city coin
+ * also says where it came from, tickerSource "chain" (the launched coin's on-chain symbol) or "registry" (the city list), and a city
+ * coin with neither goes by its name (symbol = name, tickerSource null). The page adds the "$" only to a ticker.
  * An item without a price stays in the list with its amount; its value and share are null. When some items have no price,
  * totalUsd is the sum of the priced ones (pricesComplete says it is partial) and sharePct is the share of that sum.
  * Order: priced items by value (biggest first), then items without a price by amount; a tie goes to the symbol.
@@ -32,7 +34,7 @@ import { json } from "./http.js";
 import { access } from "./access.js";
 import { activeMint } from "./official.js";
 import { ensureSchema } from "./store.js";
-import { tickerOf } from "./tickers.js";
+import { chainSymbolsOf, displayTicker } from "./tickers.js";
 import { PAIRS, jupiterPrices, launchedCoins } from "./coins.js";
 import { getMintBalances } from "./chain.js";
 import { isSolanaAddress } from "./solana.js";
@@ -86,7 +88,6 @@ export const _cacheSizes = (env) => { const s = stateOf(env); return { wallets: 
 const round = (v, digits) => { const k = 10 ** digits; return Math.round(v * k) / k; };
 const emptyPortfolio = (now) => ({ asOf: new Date(now).toISOString(), totalUsd: 0, items: [], pricesComplete: true });
 const copy = (p) => (p ? { ...p, items: p.items.map((i) => ({ ...i, ...(i.city ? { city: { ...i.city } } : {}) })) } : p);
-const fallbackSymbol = (name) => String(name || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12) || "COIN";
 
 /** The allow-list with the signature of its mint set (the wallet cache key carries it, so a newly launched coin is never hidden by an old entry). */
 async function loadMints(env, now) {
@@ -103,11 +104,14 @@ async function loadMints(env, now) {
     }
     if (env && env.DB) {
       await ensureSchema(env.DB);
-      for (const c of await launchedCoins(env.DB, MAX_CITY_COINS)) {
+      const coins = await launchedCoins(env.DB, MAX_CITY_COINS);
+      const chainSymbols = await chainSymbolsOf(env, coins.map((c) => c.mint));
+      for (const c of coins) {
         if (!isSolanaAddress(c.mint) || seen.has(c.mint)) continue;
         seen.add(c.mint);
-        const t = await tickerOf(env, c.city_id);
-        list.push({ kind: "city", mint: c.mint, symbol: (t && t.ticker) || fallbackSymbol(c.city_name), name: c.name, city: { id: c.city_id, name: c.city_name, country: c.country } });
+        // the chain's symbol, else the city list's ticker; a coin with neither goes by its name (never a symbol made up from the city)
+        const t = await displayTicker(env, { cityId: c.city_id, chainSymbol: chainSymbols.get(c.mint) || null });
+        list.push({ kind: "city", mint: c.mint, symbol: (t && t.ticker) || c.name || "city coin", tickerSource: t ? t.source : null, name: c.name, city: { id: c.city_id, name: c.city_name, country: c.country } });
       }
     }
     const key = list.map((m) => m.mint).join(",");
@@ -123,7 +127,7 @@ async function loadMints(env, now) {
 
 /**
  * The allow-list: the live $VICINITY mint (absent before launch) first, then every launched city coin, each
- * { kind, mint, symbol, name, city? }. Kept 20 s. Throws if the database fails (portfolioOf catches that).
+ * { kind, mint, symbol, name, city? } (a city coin also carries tickerSource). Kept 20 s. Throws if the database fails (portfolioOf catches that).
  */
 export async function mintsFor(env, { now = Date.now() } = {}) {
   return (await loadMints(env, now)).list.map((m) => ({ ...m, ...(m.city ? { city: { ...m.city } } : {}) }));
@@ -195,7 +199,7 @@ async function lookup(env, s, key, wallet, m, fetchImpl, now) {
     asOf: new Date(Math.min(now, ...priced.map((r) => prices.get(r.x.mint).at))).toISOString(),
     totalUsd: priced.length ? round(total, 6) : null,
     items: rows.map((r) => ({
-      kind: r.x.kind, mint: r.x.mint, symbol: r.x.symbol, name: r.x.name, ...(r.x.city ? { city: { ...r.x.city } } : {}),
+      kind: r.x.kind, mint: r.x.mint, symbol: r.x.symbol, name: r.x.name, ...(r.x.kind === "city" ? { tickerSource: r.x.tickerSource ?? null } : {}), ...(r.x.city ? { city: { ...r.x.city } } : {}),
       amount: r.amount, priceUsd: r.price, valueUsd: r.value == null ? null : round(r.value, 6),
       sharePct: r.value == null || !(total > 0) ? null : round((r.value / total) * 100, 4),
     })),

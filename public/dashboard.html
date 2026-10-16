@@ -356,7 +356,7 @@
                 <p class="studio-step" id="studio-step-1" hidden>Step 1 · Identity</p>
                 <div class="coin-studio__grid">
                   <label class="fieldset"><span>Name</span><input class="field" id="cs-name" maxlength="32" autocomplete="off"></label>
-                  <label class="fieldset"><span>Ticker · fixed by the map</span><input class="field" id="cs-ticker" disabled></label>
+                  <label class="fieldset"><span id="cs-ticker-label">Ticker · fixed by the map</span><input class="field" id="cs-ticker" disabled></label>
                   <label class="fieldset fieldset--wide"><span>Pitch · <span id="cs-count">0/200</span></span><textarea class="field" id="cs-pitch" rows="2" maxlength="200" placeholder="What makes this coin your city's?"></textarea></label>
                 </div>
                 <p class="studio-step" id="studio-step-2" hidden>Step 2 · Trading pair</p>
@@ -389,7 +389,7 @@
                 <p class="wallet__error" id="cs-err" role="alert" hidden></p>
                 <details class="coin-launch" data-launchlab-copy>
                   <summary>Launched it on Raydium LaunchLab? Add the contract</summary>
-                  <p class="small muted">Paste the contract address. An admin (never you) checks it on the blockchain and records it. From then on the design is locked and it becomes the one official $<span data-city-ticker>CITY</span>.</p>
+                  <p class="small muted">Paste the contract address. An admin (never you) checks it on the blockchain and records it. From then on the design is locked and it becomes the one official <span data-city-ticker>$CITY</span>.</p>
                   <div class="req-form"><label class="sr-only" for="cs-mint">Contract address</label><input class="field mono" id="cs-mint" maxlength="44" placeholder="Contract address" autocomplete="off" spellcheck="false"><button class="btn btn--glass btn--sm" type="button" id="cs-mint-send">Send for a check</button></div>
                 </details>
               </form>
@@ -492,7 +492,7 @@
             <section class="card" id="city-about" aria-labelledby="ca-title">
               <div class="dv2-head"><div><p class="kicker">About</p><h2 class="h2--sm" id="ca-title">About <span id="ca-city">your city</span></h2></div></div>
               <dl class="kv">
-                <div><dt>Ticker</dt><dd><span id="ca-ticker">$—</span> <span class="tiny muted">fixed by the map</span></dd></div>
+                <div><dt>Ticker</dt><dd><span id="ca-ticker">$—</span> <span class="tiny muted" id="ca-ticker-note">fixed by the map</span></dd></div>
                 <div><dt>Country</dt><dd id="ca-country">—</dd></div>
                 <div><dt>Founder amount</dt><dd id="ca-threshold">—</dd></div>
               </dl>
@@ -816,7 +816,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   <script src="/site.js" defer></script>
-  <script src="/ticker.js" defer></script>
   <script src="/wallets.js" defer></script>
   <script src="/swap.js" defer></script>
   <script src="/dashboard-roles.js" defer></script>
