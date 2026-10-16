@@ -41,6 +41,7 @@
  * Signed in: /api/me · /api/me/{terms,username,phone} · /api/me/contact/email/{verify,remove} · /api/home
  *   · /api/locate (the place a location is read, with /api/locate/handoff/* when a wallet app's browser can't
  *   share GPS: src/handoff.js) · /api/posts(/vote, /report) · feed v2 (FEED_V2=on only): POST /api/posts/delete · POST /api/mute · GET /api/mutes
+ *   · in-app notices (NOTIFY=on only, src/notify.js): GET /api/notices · POST /api/notices/read · GET/POST /api/notices/prefs
  *   · /api/seats/{apply,withdraw,endorse,object,resign} · /api/elections/vote · /api/appeals · /api/towns
  *   · /api/seats/squad/{create,join,leave,apply} · /api/seats/squad/:id (readiness)
  * Feedback / Support (the floating widget on every page, no login needed): POST /api/feedback (src/feedback.js)
@@ -68,6 +69,7 @@ import { handleLocate } from "./attest.js";
 import { handleHandoffClaim, handleHandoffComplete, handleHandoffInfo, handleHandoffStart } from "./handoff.js";
 import { handleDelete, handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
 import { handleMute, handleMutes } from "./mutes.js";
+import { handleNotices, handleNoticesPrefs, handleNoticesRead } from "./notify.js";
 import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
 import { handleElectionResult, handleElectionVote } from "./elections.js";
 import { handleAppeal, handleAudit, handleBanDecision, handleDecideAppeal, handleHide, handleModQueue, handleMyTowns, handleProposeBan,
@@ -76,7 +78,7 @@ import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots,
 import { managerOf } from "./roles.js";
 import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown, jupiterPrices, officialCityCoin, wantedMints } from "./coins.js";
 import { runJobs } from "./jobs.js";
-import { feedV2On, launchpadV2On, profilesOn, v2On } from "./flags.js";
+import { feedV2On, launchpadV2On, notifyOn, profilesOn, v2On } from "./flags.js";
 import { linkAccountFor, routeWalletLink } from "./walletlink.js";
 import { routeV2 } from "./signup.js";
 import { PROFILE_PATHS, routeProfiles } from "./profiles.js";
@@ -245,6 +247,14 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     if (!feedV2On(env)) return json({ error: "not_found" }, 404);
     if (path === "/api/mutes") return only("GET") || handleMutes(request, env);
     return only("POST") || (path === "/api/mute" ? handleMute(request, env) : handleDelete(request, env, fetchImpl));
+  }
+
+  // in-app notices (NOTIFY=on): the list, marking read, the per-kind controls. With the switch off: exactly what any unknown path answers today.
+  if (path === "/api/notices" || path === "/api/notices/read" || path === "/api/notices/prefs") {
+    if (!notifyOn(env)) return json({ error: "not_found" }, 404);
+    if (path === "/api/notices") return only("GET") || handleNotices(request, env);
+    if (path === "/api/notices/read") return only("POST") || handleNoticesRead(request, env);
+    return method === "POST" ? handleNoticesPrefs(request, env, true) : only("GET") || handleNoticesPrefs(request, env, false);
   }
 
   // member profiles: with the switch off they are simply not there either (before any method check, so nothing can be probed)

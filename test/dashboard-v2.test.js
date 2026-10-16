@@ -77,11 +77,16 @@ const TABLE = {
     "profile-email-meta", "profile-phone-meta", "roles-fold", "roles",
     "google-sec", "profile-google-meta", "google-desc", "google-view", "google-err", // the Google sign-in row (an extra way to log in, src/logins.js)
     "google-pw-form", "google-pw", "google-pw-alt", "google-pw-wallet"], // its "type your password" step (the rule of a password change)
-  strip: ["dv2", "dash-tabs", "dash-tablist", "tab-home", "tab-wallet", "tab-city", "tab-community", "tab-rankings", "tab-founder", "tab-moderate", "tab-moderate-n", "tab-profile",
-    "panel-home", "panel-wallet", "panel-city", "panel-community", "panel-rankings", "panel-founder", "panel-moderate", "panel-profile"],
+  // in-app notices (NOTIFY=on; the tab is hidden markup until /api/me carries `unread`): the list and the five controls
+  notify: ["notices", "nt-title", "nt-all", "nt-list", "nt-empty", "nt-err", "notice-prefs", "ntp-title", "nt-toggles", "ntp-reply", "ntp-moderation", "ntp-picture", "ntp-founder", "ntp-election"],
+  strip: ["dv2", "dash-tabs", "dash-tablist", "tab-home", "tab-wallet", "tab-city", "tab-community", "tab-notify", "tab-notify-n", "tab-rankings", "tab-founder", "tab-moderate", "tab-moderate-n", "tab-profile",
+    "panel-home", "panel-wallet", "panel-city", "panel-community", "panel-notify", "panel-rankings", "panel-founder", "panel-moderate", "panel-profile"],
 };
 const TABLE_IDS = Object.values(TABLE).flat();
-const TABS = ["home", "wallet", "city", "community", "rankings", "founder", "moderate", "profile"];
+const TABS = ["home", "wallet", "city", "community", "notify", "rankings", "founder", "moderate", "profile"];
+// hidden markup: Moderate until /api/mod says so, Notifications until /api/me carries `unread` (NOTIFY=on). Wallet is shown markup: the script
+// hides it only for an account that cannot link a wallet (test/wallet-tab.test.js)
+const GATED = ["moderate", "notify"];
 
 /* ---------- the switch ---------- */
 test("dashboardV2On: exactly 'on', trimmed, any letter case", () => {
@@ -152,7 +157,7 @@ test("flag off: the built page keeps every pinned id, the strip and the skeleton
     "nc-election", "badges", "badge-grid", "mod", "request", "roles", "lost-alert", "ban-notice", "proof-modal", "role-home", "squad", "locate-modal", "profile-modal", "coin", "coin-studio", "coin-admin", "trade"]) assert.equal(count(id), 1, id);
   assert.match(html, /<div class="dv2" id="dv2" hidden>/, "the strip and panels are hidden until v2 runs");
   assert.match(html, /<section class="dash dv2-skel" id="dash-skel" aria-hidden="true" hidden>/, "the skeleton is hidden until v2 asks for it");
-  for (const id of ["today", "ch-status", "ch-locals", "ch-coin", "fs-state", "fs-rank", "studio-step-1", "studio-step-2", "studio-step-3", "fcard", "studio-card", "coin-admin-card", "tab-moderate", "tab-moderate-n", "welcome", "wallet-card", "pass-ring", "me-link", "proof-login"]) {
+  for (const id of ["today", "ch-status", "ch-locals", "ch-coin", "fs-state", "fs-rank", "studio-step-1", "studio-step-2", "studio-step-3", "fcard", "studio-card", "coin-admin-card", "tab-moderate", "tab-moderate-n", "tab-notify", "tab-notify-n", "nt-all", "nt-empty", "welcome", "wallet-card", "pass-ring", "me-link", "proof-login"]) {
     assert.match(html, new RegExp(`<[a-z]+ [^>]*id="${id}"[^>]* hidden>`), `${id} is hidden markup with the switch off`);
   }
   assert.match(html, /<div class="dash-top" id="dash-top">/);
@@ -163,7 +168,7 @@ test("flag off: the built page keeps every pinned id, the strip and the skeleton
   assert.match(html, /<section class="section section--panel" id="roles">/);
 });
 
-test("the ARIA tab strip: one tablist, eight tabs that control eight panels, Moderate hidden until the data says so", () => {
+test("the ARIA tab strip: one tablist, nine tabs that control nine panels, Moderate and Notifications hidden until the data says so", () => {
   assert.match(html, /<div class="dtabs__list" id="dash-tablist" role="tablist" aria-label="Dashboard sections">/);
   const tabs = [...html.matchAll(/<a class="dtab" id="tab-([a-z]+)" role="tab" href="#([a-z]+)" data-tab="([a-z]+)" aria-controls="panel-([a-z]+)" aria-selected="(true|false)"([^>]*)>/g)];
   assert.deepEqual(tabs.map((m) => m[1]), TABS);
@@ -171,12 +176,13 @@ test("the ARIA tab strip: one tablist, eight tabs that control eight panels, Mod
     assert.equal(m[2], m[1]); assert.equal(m[3], m[1]); assert.equal(m[4], m[1]);
     assert.equal(m[5], m[1] === "home" ? "true" : "false", `${m[1]} selected state`);
     assert.equal(/tabindex="-1"/.test(m[6]), m[1] !== "home", `${m[1]}: only the active tab is in the Tab order`);
-    assert.equal(/\bhidden\b/.test(m[6]), m[1] === "moderate", `${m[1]}: Moderate is the one gated tab`);
+    assert.equal(/\bhidden\b/.test(m[6]), GATED.includes(m[1]), `${m[1]}: Moderate and Notifications are the gated tabs`);
   }
   const panels = [...html.matchAll(/<section class="dpanel" id="panel-([a-z]+)" role="tabpanel" aria-labelledby="tab-([a-z]+)" tabindex="0"( hidden)?>/g)];
   assert.deepEqual(panels.map((m) => m[1]), TABS);
   for (const m of panels) { assert.equal(m[2], m[1]); assert.equal(Boolean(m[3]), m[1] !== "home", `${m[1]} panel hidden state`); }
   assert.match(html, /<span class="dtab__badge" id="tab-moderate-n" hidden><\/span>/);
+  assert.match(html, /<span class="dtab__badge" id="tab-notify-n" hidden><\/span>/);
 });
 
 test("the Wallet tab (wallet onboarding, step 1): second in the strip, after Home and before City, with its own panel and its two static cards; the deep link #wallet opens it", async () => {

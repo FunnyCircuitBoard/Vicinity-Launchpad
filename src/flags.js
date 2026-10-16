@@ -38,6 +38,15 @@ export const dashboardV2On = (env) => String((env && env.DASHBOARD_V2) ?? "").tr
 export const feedV2On = (env) => String((env && env.FEED_V2) ?? "").trim().toLowerCase() === "on";
 
 /**
+ * NOTIFY=on turns on in-app notices (src/notify.js): one plain sentence per event on the dashboard's Notifications tab (a reply to your
+ * post, a moderation outcome, your coin picture's review, a founder window or verdict, an election in your country), with per-kind
+ * controls. The routes GET /api/notices, POST /api/notices/read and GET/POST /api/notices/prefs, the key `unread` on /api/me, the
+ * notices table and users.notice_prefs (lazy, additive). No e-mail, no push, no messaging. Exactly "on" (trimmed, any letter case);
+ * anything else, unset included, is the site exactly as before: no new route, key, column or table, and no notice is written.
+ */
+export const notifyOn = (env) => String((env && env.NOTIFY) ?? "").trim().toLowerCase() === "on";
+
+/**
  * CARRY_RELAY is an EMERGENCY switch, on by default: unset (or anything but "off") = behind iCloud Private Relay (or Cloudflare WARP) a
  * phone's "Connect wallet" still opens the wallet app on a one-time link bound to the first browser that opens it and to the country
  * (src/walletlink.js). CARRY_RELAY=off (trimmed, any letter case), set in the Cloudflare dashboard and never in wrangler.jsonc, sends

@@ -21,6 +21,8 @@
  *   user_logins  → an extra way to log in to an existing account: a Google sign-in a member added from their Profile (Google's
  *                  account number only, never an address; made on first use, see LOGINS_MIGRATION below; src/logins.js)
  *   mutes, posts.deleted_at, users.national_ack_at → feed v2 (only while FEED_V2=on, see FEED_MIGRATION below; src/social.js, src/mutes.js)
+ *   notices, users.notice_prefs → in-app notices (only while NOTIFY=on, see NOTIFY_MIGRATION below; src/notify.js): one plain sentence
+ *                  per event, at most 200 per person, and which kinds a person wants
  *   claims, added_cities, requests → the first version (no longer written)
  * Locations of visitors are never saved. Wallets that only "verify" or look up a rank are never saved.
  *
@@ -1190,4 +1192,52 @@ export function ensureLogoSchema(db) {
     })().catch((e) => { logoReady.delete(db); throw e; }));
   }
   return logoReady.get(db);
+}
+
+/**
+ * In-app notices (src/notify.js), only while NOTIFY=on. Like the others, deliberately NOT in MIGRATIONS: it runs the first time a notice
+ * is written or read (ensureNotifySchema), so with the switch off no statement here ever touches the database, and a failure here can
+ * only make the notice routes answer 503 (a notice that cannot be written is dropped: the action it tells about never fails for it).
+ * Every statement is additive and safe to repeat (no row is dropped or rewritten; "duplicate column" is ignored).
+ *   notices             → one row per notice: who it is for, its kind (reply, moderation, picture, founder, election), what it refers
+ *                         to (a post, a seat, a window, an election: an id as text, or nothing), one plain sentence (no HTML, at most
+ *                         200 characters, built by the server), an in-site path, when, and when it was read
+ *   users.notice_prefs  → which kinds the person wants, as JSON text ({"reply":false,...}); NULL (or a missing key) means yes
+ */
+export const NOTIFY_MIGRATION = {
+  id: "2026-10-16-notify",
+  sql: `
+ALTER TABLE users ADD COLUMN notice_prefs TEXT;
+CREATE TABLE IF NOT EXISTS notices (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
+  kind       TEXT NOT NULL,
+  ref        TEXT,
+  text       TEXT NOT NULL,
+  href       TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  read_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS notices_user ON notices (user_id, id)
+`,
+};
+const notifyReady = new WeakMap();
+/**
+ * Add the notices table and users.notice_prefs the first time they are needed (safe to repeat, and to run from two servers at once:
+ * "duplicate column" is ignored). Rejects on any other failure and forgets that it tried, so the next request retries.
+ */
+export function ensureNotifySchema(db) {
+  if (!notifyReady.has(db)) {
+    notifyReady.set(db, (async () => {
+      await ensureSchema(db); // users and schema_migrations exist (from the normal migrations)
+      const done = await db.prepare("SELECT id FROM schema_migrations WHERE id = ?").bind(NOTIFY_MIGRATION.id).first();
+      if (done) return;
+      for (const s of split(NOTIFY_MIGRATION.sql)) {
+        try { await db.prepare(s).run(); }
+        catch (e) { if (!isDuplicateColumn(e)) throw e; }
+      }
+      await db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").bind(NOTIFY_MIGRATION.id, new Date().toISOString()).run();
+    })().catch((e) => { notifyReady.delete(db); throw e; }));
+  }
+  return notifyReady.get(db);
 }

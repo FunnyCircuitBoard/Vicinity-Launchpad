@@ -35,6 +35,8 @@ import { handleLpAdmin } from "./lpadmin.js";
 import { rpcHealth } from "./rpcpool.js";
 import { dropLogins } from "./logins.js";
 import { decidePicture, listPictures, logDecision, waitingPictures } from "./logos.js";
+import { attempt, notify, pictureReason } from "./notify.js";
+import { notifyOn } from "./flags.js";
 
 const ROLES = ["moderator", "admin", "owner"];
 const LEVEL = { moderator: 1, admin: 2, owner: 3 };
@@ -324,6 +326,13 @@ async function handleObjectionDecide(request, ctx) {
     .bind(iso(ctx.now), o.seat_id));
   stmts.push(logAudit(ctx.db, { actor: ctx.wallet, action: "objections/decide", target: `objection:${o.id}`, detail: `${uphold ? "upheld" : "dismissed"}${uphold ? " (seat revoked)" : ""}${note ? " — " + note : ""}` }, ctx.now));
   await ctx.db.batch(stmts);
+  // in-app notice (NOTIFY=on) to the seat holder: the outcome, nothing of the objector or the note. With the switch off not even the
+  // lookup runs; with it on, the lookup and the notice are one best-effort step (the decision above stands whatever happens here)
+  if (notifyOn(ctx.env)) await attempt("founder", async () => {
+    const seat = await ctx.db.prepare("SELECT user_id, city_name FROM seats WHERE id = ?").bind(o.seat_id).first();
+    if (seat) await notify(ctx.env, { to: seat.user_id, kind: "founder", ref: o.seat_id, href: "/dashboard#founder", now: ctx.now,
+      text: uphold ? `An objection against your seat in ${seat.city_name} was upheld: the seat ended.` : `An objection against your seat in ${seat.city_name} was dismissed.` });
+  });
   return json({ ok: true, upheld: uphold });
 }
 
@@ -436,6 +445,9 @@ async function handleLogoDecide(request, ctx) {
   if (d.error) return json({ ok: false, error: d.error }, d.status);
   await logAudit(ctx.db, { actor: ctx.wallet, action: `logos/${d.action}`, target: `city_coin:${d.coin.city_id}`, detail: d.action === "approve" ? `media ${d.coin.media_id} · sha256 ${d.hash}` : d.reason }, ctx.now).run();
   await logDecision(ctx.db, { by: ctx.user.id, action: d.action, coin: d.coin, reason: d.action === "approve" ? "review" : d.reason, at: ctx.now });
+  // in-app notice (NOTIFY=on) to the founder: the outcome and, when not approved, the public reason (the note stays on their coin card)
+  await notify(ctx.env, { to: d.coin.user_id, kind: "picture", ref: d.coin.city_id, href: "/dashboard#founder", now: ctx.now,
+    text: d.action === "approve" ? "Your coin picture was approved." : `Your coin picture was not approved: ${pictureReason(d.reason)}. The note is on your coin card.` });
   return json({ ok: true, city: String(d.coin.city_id), action: d.action, ...(d.hash ? { hash: d.hash } : {}) });
 }
 

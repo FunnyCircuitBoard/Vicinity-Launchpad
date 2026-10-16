@@ -22,6 +22,7 @@ import { COLS, FROM, present } from "./social.js";
 import { profilesOn } from "./flags.js";
 import { ensureProfilesSchema, feedApplied } from "./store.js";
 import { findMember, parseHandle } from "./profile-core.js";
+import { notify, postReason } from "./notify.js";
 
 const MOD = POLICY.moderation;
 
@@ -76,6 +77,8 @@ export async function handleHide(request, env, fetchImpl = fetch, now = Date.now
     db.prepare("UPDATE posts SET hidden = 1, hide_confirmed = ?, hidden_until = ? WHERE id = ?").bind(byReports ? 1 : 0, until, post.id),
     logAction(db, { actor: u.id, role, action: "hide", type: "post", id: post.id, user: post.user_id, country: post.country, place: post.place, reason, note, at: iso(now), expires: until, state: byReports ? "confirmed" : "pending" }),
   ]);
+  // in-app notice (NOTIFY=on): the author learns of the hide with its public reason (never the moderator's note)
+  await notify(env, { to: post.user_id, kind: "moderation", ref: post.id, text: `Your post was hidden: ${postReason(reason)}.`, href: "/dashboard#community", now });
   return json({ ok: true, hidden: true, confirmed: byReports, until });
 }
 
@@ -95,6 +98,7 @@ export async function handleUnhide(request, env, fetchImpl = fetch, now = Date.n
     db.prepare("UPDATE mod_actions SET state = 'reversed' WHERE target_type = 'post' AND target_id = ? AND action = 'hide' AND state IN ('pending', 'confirmed')").bind(post.id),
     logAction(db, { actor: u.id, role, action: "unhide", type: "post", id: post.id, user: post.user_id, country: post.country, place: post.place, reason: "review", note: cleanText(body.note, 200) || null, at: iso(now) }),
   ]);
+  await notify(env, { to: post.user_id, kind: "moderation", ref: post.id, text: "Your post is shown again.", href: "/dashboard#community", now });
   return json({ ok: true, hidden: false });
 }
 
@@ -198,6 +202,10 @@ export async function handleBanDecision(request, env, approve, fetchImpl = fetch
   ];
   if (act.target_type === "post") stmts.push(db.prepare("UPDATE posts SET hidden = 1, hide_confirmed = 1, hidden_until = NULL WHERE id = ?").bind(act.target_id));
   await db.batch(stmts);
+  // in-app notice (NOTIFY=on): the person learns of the ban, its public reason and how long it lasts; the Home tab states the scope
+  // (posting, voting, endorsing, applying), until when, and carries the Appeal button
+  await notify(env, { to: act.target_user, kind: "moderation", ref: act.id, href: "/dashboard#home", now,
+    text: `You were banned for ${MOD.banDays} days: ${postReason(act.reason)}. The Home tab shows until when, and how to appeal.` });
   return json({ ok: true, banned: true, until, country: act.country });
 }
 
@@ -241,6 +249,9 @@ export async function handleDecideAppeal(request, env, fetchImpl = fetch, now = 
   }
   stmts.push(logAction(db, { actor: u.id, role: pw.admin ? "admin" : "manager", action: body.overturn ? "overturn" : "uphold", type: "appeal", id: ap.id, user: ap.user_id, country: act.country, reason: "appeal", note, at: iso(now) }));
   await db.batch(stmts);
+  // in-app notice (NOTIFY=on): the outcome, in plain words (the decider's note stays in the public log)
+  await notify(env, { to: ap.user_id, kind: "moderation", ref: ap.id, href: act.action === "ban" ? "/dashboard#home" : "/dashboard#community", now,
+    text: body.overturn ? "Your appeal was accepted: the decision was reversed." : "Your appeal was declined: the decision stands." });
   return json({ ok: true, status: body.overturn ? "overturned" : "upheld" });
 }
 
