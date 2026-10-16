@@ -104,3 +104,42 @@
   .token-hero .contract:has(> .contract__links:not([hidden])) > .contract__links { grid-column: auto; grid-row: auto; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .token-hero .contract:has(> .contract__links:not([hidden])) .contract__ext { flex-direction: row; justify-content: center; min-height: 44px; padding: 0 10px; font-size: var(--fs-sm, .875rem); }
 }
+
+/* =====================================================================
+   Trades | Holders (the owner's 15 Oct 2026 proposal, first step): the Launchpad's tab strip (style.css .seg, polish.css .seg--tabs) over
+   two cards. The Trades card lists the newest buys and sells of the coin answer this page already reads; the Holders card is the live list
+   as it was, plus a "Delayed" state on its status line and the supply its percentages use.
+   ===================================================================== */
+.tk-tabs { margin: 0 0 var(--sp-3, 12px); }
+@media (min-width: 700px) { .tk-tabs { display: inline-flex; width: auto; } .tk-tabs button { flex: 0 0 auto; min-width: 140px; padding: 0 24px; } }
+.trades { padding: 16px; }
+.trades__head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin: 0 4px 12px; color: var(--muted); font-size: .92rem; }
+.trades__head .link-btn { min-height: 44px; padding: 10px 0; }
+.tk-delayed { color: var(--warn); font-weight: 600; }
+#holders-status.is-delayed { color: var(--warn); }
+.trades__list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.trades__list:empty { display: none; } /* the guard, switched-off and before-launch states: no empty bordered box under the sentence */
+/* one trade: Buy/Sell at the left, the token amount and (right) the SOL on the first line, the masked wallet · when · Solscan under them */
+.trade { display: grid; grid-template-columns: 3.4em minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 10px; row-gap: 2px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: .94rem; }
+.trade:last-child { border-bottom: 0; }
+.trade__side { grid-row: 1 / span 2; justify-self: start; padding: 2px 8px; border-radius: 999px; font: 700 .72rem/1.4 var(--body); }
+.trade__side.is-buy { color: var(--ok-text); background: var(--ok-soft, rgba(55,194,154,.14)); }
+.trade__side.is-sell { color: var(--bad-text); background: var(--bad-soft, rgba(255,90,54,.1)); }
+.trade__tok { grid-column: 2; grid-row: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+.trade__sol { grid-column: 3; grid-row: 1; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.trade__meta { grid-column: 2 / span 2; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; font-size: .8rem; color: var(--muted); }
+.trade__who { font-family: var(--mono); color: var(--text); }
+.trade__meta a { display: inline-block; padding: 13px 0; margin: -13px 0; color: var(--text); text-decoration: none; } /* a 44 px hit area at every width (the line is .76rem on a phone), like the holder list's wallets */
+.trade__meta a:hover { color: var(--pin-2); text-decoration: underline; }
+.trade.is-more { display: none; }
+.trades__list.is-all .trade.is-more { display: grid; }
+.trades__empty { display: block; padding: 18px 12px; text-align: center; color: var(--muted); font-size: .92rem; }
+.trades__note { margin: 10px 4px 0; font-size: .85rem; line-height: 1.5; color: var(--muted); }
+.trades__note a { color: var(--text); }
+.trades__all { margin: 10px 4px 0; min-height: 44px; }
+.trade.skeleton span { display: block; height: 10px; border-radius: 6px; background: var(--card-2); }
+.trade.skeleton span:nth-child(1) { width: 2.6em; } .trade.skeleton span:nth-child(2) { width: 60%; } .trade.skeleton span:nth-child(3) { width: 4em; justify-self: end; }
+/* the placeholder rows shimmer only while the card waits for its first answer (.is-loading leaves with the answer: token.js tradesSay) */
+@media (prefers-reduced-motion: no-preference) { .trades.is-loading .trade.skeleton span { background: linear-gradient(90deg, var(--card-2), rgba(var(--ink),.12), var(--card-2)); background-size: 200% 100%; animation: shimmer 1.6s linear infinite; } }
+.holders__basis { margin: 10px 4px 0; font-size: .8rem; line-height: 1.45; color: var(--muted); }
+@media (max-width: 560px) { .trade { font-size: .86rem; } .trade__meta { font-size: .76rem; } }

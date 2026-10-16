@@ -93,15 +93,35 @@
       </div>
     </section>
 
-    <!-- ============ HOLDERS (with the rank check: one box finds a wallet in the list and checks where any wallet stands) ============ -->
+    <!-- ============ TRADES | HOLDERS: one block, two tabs. Trades: the newest buys and sells (the coin answer this page already reads).
+         Holders: the live list, with the rank check (one box finds a wallet in the list and checks where any wallet stands). ============ -->
     <section id="holders" class="section">
       <div class="wrap">
         <div class="section-head">
-          <p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Holders · live</p>
-          <h2>Everyone who holds $VICINITY.</h2>
+          <p class="kicker">Trades and holders</p>
+          <h2>Who buys, sells and holds $VICINITY.</h2>
           <p class="muted">Refreshed every minute. Pools and team wallets are labeled; ranks are for people only.</p>
         </div>
-        <div class="holders card">
+        <!-- the tab strip (the Launchpad's glass pill): Trades opens first; a link into the holder list or the rank check opens Holders (token.js) -->
+        <div class="seg seg--tabs tk-tabs" role="tablist" aria-label="Trades or holders" id="tk-tabs">
+          <button type="button" role="tab" id="tk-tab-trades" data-tab="trades" aria-selected="true" aria-controls="trades-panel">Trades</button>
+          <button type="button" role="tab" id="tk-tab-holders" data-tab="holders" aria-selected="false" aria-controls="holders-panel" tabindex="-1">Holders</button>
+        </div>
+        <!-- Trades: Raydium LaunchLab's list for the curve, read by the server (/api/coin); token.js fills it and says when it can't -->
+        <div class="trades card tabpanel is-loading" id="trades-panel" role="tabpanel" aria-labelledby="tk-tab-trades">
+          <div class="trades__head">
+            <span class="trades__cover" id="trades-cover" role="status" aria-live="polite">Loading recent trades…</span>
+            <button class="link-btn" type="button" id="trades-refresh" hidden>Refresh</button>
+          </div>
+          <ol class="trades__list" id="trades-list" aria-label="Recent trades">
+            <li class="trade skeleton" aria-hidden="true"><span></span><span></span><span></span></li>
+            <li class="trade skeleton" aria-hidden="true"><span></span><span></span><span></span></li>
+            <li class="trade skeleton" aria-hidden="true"><span></span><span></span><span></span></li>
+          </ol>
+          <p class="trades__note" id="trades-note" hidden></p>
+          <button class="link-btn trades__all" type="button" id="trades-all" aria-expanded="false" aria-controls="trades-list" hidden>Show all</button>
+        </div>
+        <div class="holders card tabpanel" id="holders-panel" role="tabpanel" aria-labelledby="tk-tab-holders" hidden>
           <div class="holders__head">
             <div class="holders__meta">
               <span id="holders-status" role="status" aria-live="polite">Loading the live holder list…</span>
@@ -129,6 +149,7 @@
               </tbody>
             </table>
           </div>
+          <p class="holders__basis" id="holders-basis" hidden></p>
         </div>
         <!-- the rank check's answer: a little pop-up over the page (closed, it takes no room); token.js fills and opens it -->
         <dialog class="rank-pop" id="rank-pop" aria-labelledby="rank-pop-title" aria-describedby="rank-big rank-pct">

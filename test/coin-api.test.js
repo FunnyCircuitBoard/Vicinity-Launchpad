@@ -72,7 +72,7 @@ test("switch on: a bad mint is 400, a bad tf 400, another method 405; an unknown
 
 /* ------------------------------------------------------------------ GET /api/coin */
 
-test("GET /api/coin for $VICINITY: facts, the live market with a source per number, our holder count, Raydium's trades with masked wallets, links, attribution", async () => {
+test("GET /api/coin for $VICINITY: facts, the live market with a source per number, our holder count, Raydium's trades with masked wallets (each linked to its Solscan page), links, attribution", async () => {
   const env = LP({ VICINITY_MINT: MINT });
   const w = await marketWorld(MINT);
   await env.DB.prepare("SELECT 1").first();
@@ -92,11 +92,15 @@ test("GET /api/coin for $VICINITY: facts, the live market with a source per numb
   assert.deepEqual([m.stage, m.liquidityKind, m.curve.raised, m.curve.target, m.curve.progressPct.toFixed(4), m.priceNative], ["curve", "bonding_curve", 14.795544124, 85, "17.4065", 6.233650881956076e-8]);
   assert.deepEqual(d.holders, { count: 37, asOf: "2026-10-06T15:50:00.000Z", source: "Counted by vicinity.city (pools and team wallets excluded)" });
   assert.equal(d.trades.source, "Raydium LaunchLab");
-  assert.equal(d.trades.rows.length, 20);
+  assert.equal(d.trades.rows.length, 25, "every row of the fixture (25): the page asked for holds 50");
   const t0 = fixture("trade.json").data.rows[0];
   assert.deepEqual(d.trades.rows[0], { txid: t0.txid, at: "2026-10-06T04:43:31.000Z", side: "buy", tokens: 158764.265017, amount: 0.009999621, symbol: "SOL",
-    wallet: `${t0.owner.slice(0, 5)}*****${t0.owner.slice(-3)}`, url: `https://solscan.io/tx/${t0.txid}` });
-  for (const t of fixture("trade.json").data.rows) assert.ok(!text.includes(t.owner), "no trader's full wallet anywhere in the answer");
+    wallet: `${t0.owner.slice(0, 5)}*****${t0.owner.slice(-3)}`, walletUrl: `https://solscan.io/account/${t0.owner}`, url: `https://solscan.io/tx/${t0.txid}` });
+  // the wallet field stays masked; the full address is in the row's Solscan link only (16 Oct 2026: the token page links it, as the holder list's rows are)
+  const owners = fixture("trade.json").data.rows.map((t) => t.owner);
+  for (const o of new Set(owners)) assert.equal(text.split(o).length - 1, owners.filter((x) => x === o).length, "the trader's full wallet appears once per trade, in walletUrl");
+  for (const r of d.trades.rows) { const owner = r.walletUrl.slice("https://solscan.io/account/".length); assert.ok(owners.includes(owner)); assert.equal(r.wallet, `${owner.slice(0, 5)}*****${owner.slice(-3)}`, "the masked wallet is the linked one"); }
+  assert.match(w.urls("launch-history").find((u) => u.includes("/trade?")), /&limit=50$/, "the same call, a page of 50 (the token page shows 20 and opens the rest)");
   assert.deepEqual(d.links, { raydium: `https://raydium.io/launchpad/token/?mint=${MINT}`, jupiter: `https://jup.ag/swap/SOL-${MINT}`, dexscreener: null,
     solscan: `https://solscan.io/token/${MINT}`, pool: `https://solscan.io/account/${POOL}` }, "no DEX Screener link while it lists nothing");
   assert.deepEqual(d.attribution.map((a) => a.text), ["Price, market cap, 24 h volume & change: Jupiter · Powered by Jupiter", "Chart & trades: Raydium LaunchLab",

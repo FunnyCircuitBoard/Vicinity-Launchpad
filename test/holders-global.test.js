@@ -228,6 +228,8 @@ test("the provider fails: the pages show the last list (with its real time) inst
   const during = await holders(rpc.fetchImpl);
   assert.equal(during.status, 200, "no chain_unavailable while a recent list exists");
   assert.equal(during.data.updatedAt, before.data.updatedAt, "the list says when it was read");
+  assert.equal(before.data.stale, undefined, "a fresh list carries no stale flag: the answer's shape is what it was");
+  assert.equal(during.data.stale, true, "an older list says so: the token page shows 'Delayed · list from HH:MM' (test/token-tabs.test.js)");
   assert.equal(during.data.holders[0].amount, 5_000);
   // voting power and founder checks read the wallet itself (getTokenAccountsByOwner), never the old list
   const live = await liveAmounts(env, [me], rpc.fetchImpl, { mint: MINT });

@@ -87,11 +87,13 @@ async function build(env, coin, fetchImpl, now) {
   const pool = lpRow ? null : market.curve?.poolId || guessed;
   if (lpRow) trades = { source: null, rows: [], missing: NO_TRADES };
   else if (pool) {
-    const r = await raydiumTradesFor(pool, fetchImpl, { now, minT: minTimeOf(coin) });
+    // the same Raydium call with a page of 50 (its default is 20): the token page shows the newest 20 and opens the rest on "Show all"
+    const r = await raydiumTradesFor(pool, fetchImpl, { now, minT: minTimeOf(coin), limit: 50 });
     const list = r.values.get(pool);
     const symbol = market.curve?.symbol || coin.pair || "SOL";
+    // the trader's wallet masked in the row, with its Solscan page as a link (public on-chain data; /api/holders lists every holder in full)
     trades = { source: "Raydium LaunchLab", rows: Array.isArray(list) ? list.map((t) => ({ txid: t.txid, at: iso(t.at * 1000), side: t.side, tokens: t.tokens,
-      amount: t.amount, symbol, wallet: maskWallet(t.owner), url: `https://solscan.io/tx/${t.txid}` })) : [] };
+      amount: t.amount, symbol, wallet: maskWallet(t.owner), walletUrl: `https://solscan.io/account/${t.owner}`, url: `https://solscan.io/tx/${t.txid}` })) : [] };
     if (!Array.isArray(list)) trades.missing = guessed ? "The chain could not be read, and Raydium could not be reached" : "Raydium could not be reached";
     else if (!list.length) trades.missing = guessed ? "The chain could not be read, and Raydium lists no trades for this coin's LaunchLab pool" : "No trades yet";
     if (market.curve && market.curve.stage !== "curve") trades.note = "Trades on the bonding curve, before graduation";

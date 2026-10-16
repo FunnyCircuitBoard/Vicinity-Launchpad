@@ -1,12 +1,15 @@
-// Token page: live token facts, every holder (the table scrolls, not the page; it is loaded in pages and drawn in chunks) with one box that
-// finds a wallet in the list and checks where any wallet stands (the answer pops up over the page), the official token list, the link
-// checker and the FAQ (old links to /token#buy open its "How do I get $VICINITY?"). Everything comes from this site's /api (read live from Solana).
+// Token page: live token facts; one block with two tabs, Trades (the newest buys and sells, from the coin answer the page already reads)
+// and Holders (every holder: the table scrolls, not the page; it is loaded in pages and drawn in chunks) with one box that finds a wallet in
+// the list and checks where any wallet stands (the answer pops up over the page); the official token list, the link checker and the FAQ
+// (old links to /token#buy open its "How do I get $VICINITY?"). Everything comes from this site's /api (read live from Solana).
 (() => {
   "use strict";
-  const { $, $$, el, api, copy, fmt, compact, mask, isAddr, official } = window.V;
+  const { $, $$, el, api, copy, fmt, compact, mask, isAddr, official, ago } = window.V;
   const FOUNDER_MAX = 1_000_000; // the top of the Stake Ladder (100K to 1M by city size, see /rules#ladder)
   const pctText = (p) => (p >= 10 ? p.toFixed(1) : p >= 0.01 ? p.toFixed(2) : "<0.01");
   const usd = (n) => (n >= 1 ? "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "$" + n.toPrecision(3));
+  /** A clock time in the reader's locale ("6:29 AM"), one format for both cards' "updated", "list from" and "as of"; "" when the time is unreadable. */
+  const hhmm = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""; };
   /** A published team wallet (labelled "Team wallet (public)", or "Team wallet (FOMO)", by the server): shown and labelled, never ranked, like a pool. */
   const isTeam = (h) => !h.rank && /^Team wallet/.test(h.label || "");
   /** The team's locked tokens (labelled "Team lock (Jupiter Lock)" by the server): the same, and its tag opens the lock's page. */
@@ -45,8 +48,12 @@
     $("#lnk-dex").href = `https://dexscreener.com/solana/${m}`;
     // With the Launchpad's coin pages on (LAUNCHPAD_V2), the third tile is our own live chart and details (/coin): DEX Screener lists
     // no pool while $VICINITY is on its bonding curve, and the coin page links DEX Screener itself once it does.
-    if (official && typeof official.then === "function") official.then((o) => { if (o && o.launchpadV2 === true) { chartTile(m); dayChange(m); } if (o && o.swap === true) buyHere(m); else settleBuy("link"); }, () => settleBuy("link"));
-    else settleBuy("link");
+    // the coin answer (/api/coin, LAUNCHPAD_V2 on) feeds the 24-hour chip and the Trades tab; without it the tab says so
+    if (official && typeof official.then === "function") official.then((o) => {
+      if (o && o.launchpadV2 === true) { chartTile(m); loadCoin(m); } else tradesOff(m);
+      if (o && o.swap === true) buyHere(m); else settleBuy("link");
+    }, () => { settleBuy("link"); tradesOff(m); });
+    else { settleBuy("link"); tradesOff(m); }
     $("#ca-links").hidden = false;
     $("#ca-note").textContent = "This is the only official $VICINITY. Anything else using the name is fake.";
   }
@@ -89,10 +96,21 @@
     p.classList.toggle("is-none", !price);
     c.textContent = price && cap ? `Market cap $${compact(cap)}` : "";
   }
-  /** The 24-hour change chip: the coin page's own answer (Jupiter's change, or why there is none); nothing shows without a number. */
-  async function dayChange(m) {
-    const chip = $("#tk-chg"); if (!chip || !isAddr(m)) return;
+  /** The coin page's answer for $VICINITY (/api/coin): one call feeds the 24-hour chip and the Trades tab; again every minute with the
+   *  holder list (the server keeps it 30 s), and on the tab's Refresh. A newer call outranks an older one still on its way. */
+  let coinMint = null, coinLoad = 0;
+  async function loadCoin(m) {
+    if (!isAddr(m)) return;
+    coinMint = m;
+    const run = ++coinLoad;
     const d = await api(`/api/coin?mint=${encodeURIComponent(m)}`);
+    if (run !== coinLoad) return;
+    paintChange(d);
+    renderTrades(d, m);
+  }
+  /** The 24-hour change chip: the coin answer's change (Jupiter's, or why there is none); nothing shows without a number. */
+  function paintChange(d) {
+    const chip = $("#tk-chg"); if (!chip) return;
     const mk = d && d.market, v = mk && typeof mk.priceChange24hPct === "number" && Number.isFinite(mk.priceChange24hPct) ? mk.priceChange24hPct : null;
     if (v == null) return;
     chip.textContent = `${v > 0 ? "▲" : v < 0 ? "▼" : ""} ${Math.abs(v).toFixed(Math.abs(v) >= 10 ? 1 : 2)}% 24h`.trim();
@@ -126,7 +144,7 @@
     // until now the card held the room of the address and its buttons, unseen (the page never jumps, and /token#holders lands where it aims)
     $("#contract").classList.remove("is-pending");
     if (!d.launched) { // before the launch (VICINITY_MINT not set): say so, never a date or a guess
-      hideContract(); settleBuy("none"); paintQuote(null);
+      hideContract(); settleBuy("none"); paintQuote(null); tradesBeforeLaunch();
       $("#ca-text").textContent = "Not published yet";
       $("#ca-note").textContent = "Until it's published here, any \"$VICINITY\" you see is fake.";
       $$('[data-live="mint"], [data-live="freeze"], [data-live="supply2"]').forEach((e) => { e.textContent = "Checked live at launch"; });
@@ -134,6 +152,7 @@
     }
     const m = d.facts ? d.facts.mint : d.mint;
     if (isAddr(m)) showContract(m); else { hideContract(); settleBuy("none"); }
+    if (!isAddr(m)) tradesOff(null); // no address: no coin answer to read either
     if (!d.facts) { // the chain is busy: the contract is known, the live checks wait for the next visit
       paintQuote(null);
       $$('[data-live="mint"], [data-live="freeze"], [data-live="supply2"]').forEach((e) => { e.textContent = "The blockchain is busy: check again in a minute"; e.classList.add("is-wait"); });
@@ -250,8 +269,9 @@
     if (!d.launched) { status.textContent = "The live holder list opens the moment $VICINITY launches."; renderLock(); return; }
     $("#holders-refresh").hidden = false;
     if (d.error || !Array.isArray(d.holders)) { status.textContent = "The blockchain is busy right now. Try Refresh in a minute."; renderLock(); return; }
-    // the snapshot already on screen (the server keeps one for a minute): no more pages to ask for, nothing to redraw
-    if (lastSnap && d.full && d.updatedAt === lastSnap.at && d.count === lastSnap.count) { status.textContent = lastSnap.text; return; }
+    // the snapshot already on screen (the server keeps one for a minute): no more pages to ask for, nothing to redraw; the line is
+    // written again all the same (the same list comes back marked Delayed once the chain cannot be read)
+    if (lastSnap && d.full && d.updatedAt === lastSnap.at && d.count === lastSnap.count) { setStatus(d, lastSnap.people, true); return; }
     lastSnap = null;
     holders = d.holders;
     barMax = biggest(holders) || 1;
@@ -274,14 +294,27 @@
     if (!drawing) restore(true); // every row is drawn already; otherwise draw() does this when its queue runs out
     const people = holders.filter((h) => h.rank);
     const total = d.total ?? people.length;
-    const at = new Date(d.updatedAt).toLocaleTimeString();
-    status.textContent = !d.full ? `Top ${holders.length} wallets · updated ${at}`
-      : complete ? `${fmt(total)} holders · updated ${at}`
-      : `${fmt(total)} holders · showing the top ${fmt(people.length)} · updated ${at}`;
-    if (complete && d.full) lastSnap = { at: d.updatedAt, count: d.count, text: status.textContent };
+    setStatus(d, people.length, complete);
+    if (complete && d.full) lastSnap = { at: d.updatedAt, count: d.count, people: people.length };
     $("#st-holders").textContent = d.full ? fmt(total) : `${people.length}+`;
     $("#st-top10").textContent = `${pctText(people.slice(0, 10).reduce((s, h) => s + h.percent, 0))}%`;
     renderLock();
+  }
+  /**
+   * The line over the list: how many holders and when the list was read. "Delayed · list from HH:MM" when the server answered an older
+   * list because the chain could not be read (the time is the list's, never now). Under the list, the supply the percentages are a share
+   * of: the one read from the chain with the list, to the mint's six decimals (999,999,999.999998 today), never the rounded 1,000,000,000.
+   */
+  function setStatus(d, people, complete) {
+    const status = $("#holders-status"), total = d.total ?? people, at = hhmm(d.updatedAt);
+    const when = d.stale === true ? `Delayed · list from ${at}` : `updated ${at}`;
+    status.textContent = !d.full ? `Top ${holders.length} wallets · ${when}` : complete ? `${fmt(total)} holders · ${when}` : `${fmt(total)} holders · showing the top ${fmt(people)} · ${when}`;
+    status.classList.toggle("is-delayed", d.stale === true);
+    const basis = $("#holders-basis"), supply = typeof d.supply === "number" && Number.isFinite(d.supply) && d.supply > 0;
+    if (basis) {
+      basis.hidden = !supply;
+      if (supply) basis.textContent = d.stale === true ? `Percentages use the on-chain supply of ${fmt(d.supply, 6)} $VICINITY, read with the list.` : `Percentages use the live on-chain supply of ${fmt(d.supply, 6)} $VICINITY.`;
+    }
   }
   /** The find box: every row already in the table; rows still on their way are filtered as they are placed. */
   function filter() {
@@ -451,10 +484,105 @@
   // neighbours: the address typed in the box would otherwise have filtered the list down to that one row
   $("#rank-show").addEventListener("click", () => {
     const addr = lastLookup; closePop();
+    selectTab("holders"); // the list is in the Holders tab
     $("#holders-find").value = ""; filter();
     $("#holders-scroll").scrollIntoView({ block: "nearest", behavior: window.V.reduced ? "auto" : "smooth" });
     mark(addr);
   });
+
+  /* ---------- Trades | Holders: one block, two tabs ---------- */
+  // The Launchpad's tab strip: arrow keys move between the tabs (Home and End to the ends), the chosen tab is the strip's one Tab stop
+  // (WAI-ARIA tabs), and a choice goes into the address bar as #trades or #holders without a jump. Trades opens first; a link into the
+  // holder list or the rank check (/token#holders, #verify, #holders-scroll, ?address=) opens Holders, and so does a hash that changes
+  // to one of those while the page is open (the FAQ's "box above the holder list").
+  const TABS = ["trades", "holders"];
+  const tabs = () => $$("#tk-tabs [role=tab]");
+  /** The tab a hash asks for, or null: #holders and anything inside the Holders card, or #trades. */
+  const tabOf = (hash) => (/^#(holders|verify|lookup|rank-)/.test(hash) ? "holders" : hash === "#trades" ? "trades" : null);
+  function selectTab(name, { focus = false, url = false } = {}) {
+    if (!TABS.includes(name)) return;
+    tabs().forEach((b) => { const on = b.dataset.tab === name; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; });
+    for (const t of TABS) { const p = $(`#${t}-panel`); if (p) p.hidden = t !== name; }
+    // the reader's choice rides in the address bar (a #hash set directly would scroll the page to it; replaceState does not); a link's own hash stays
+    if (url && window.history && typeof window.history.replaceState === "function") { try { window.history.replaceState(null, "", `#${name}`); } catch { /* an odd browser: the page still works */ } }
+    if (focus) { const b = tabs().find((x) => x.dataset.tab === name); if (b) b.focus(); }
+  }
+  tabs().forEach((b, i, all) => {
+    b.addEventListener("click", () => selectTab(b.dataset.tab, { url: true }));
+    b.addEventListener("keydown", (e) => {
+      const n = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? all.length - 1 : null;
+      if (n === null) return;
+      e.preventDefault(); selectTab(all[(n + all.length) % all.length].dataset.tab, { focus: true, url: true });
+    });
+  });
+  selectTab(tabOf(location.hash) || (new URLSearchParams(location.search).has("address") ? "holders" : "trades"));
+
+  /* ---------- the Trades tab ---------- */
+  // The newest buys and sells from the coin answer (Raydium LaunchLab's own list for the curve, read by the server; a trader's wallet comes
+  // masked, with its Solscan page as the link, the one rule the holder list follows). Only while the pool is on the curve: once the coin has graduated (or the stage is
+  // unknown) the last curve trades could pass for the open market's, so the tab says where those are instead of showing them.
+  const TRADES_SHOWN = 20, TRADES_MAX = 50, TXID = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/, WALLET_URL = /^https:\/\/solscan\.io\/account\/[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  let tradeCount = 0, tradeKey = null; // tradeKey: the rows on screen (their transactions, in order); the same rows again redraw nothing, so a reader's focus on a link in the list survives the minute refresh
+  const solText = (n) => (n >= 100 ? fmt(n) : n >= 1 ? n.toFixed(2) : n.toFixed(4));
+  const outLink = (text, href, cls) => { const a = el("a", cls, text); a.href = href; a.target = "_blank"; a.rel = "noopener"; a.append(el("span", "sr-only", " (opens in a new tab)")); return a; };
+  const solscanNote = (m) => (isAddr(m) ? ["See every trade on ", outLink("Solscan", `https://solscan.io/token/${m}`), "."] : null);
+  const validTrade = (t) => Boolean(t) && typeof t === "object" && (t.side === "buy" || t.side === "sell") && typeof t.txid === "string" && TXID.test(t.txid)
+    && typeof t.tokens === "number" && Number.isFinite(t.tokens) && t.tokens > 0 && Number.isFinite(Date.parse(t.at));
+  /** One state of the tab: the sentence over the list (text or nodes), one line in the rows' place (or none), the note under them. */
+  const tradesCover = (cover) => { const c = $("#trades-cover"); if (c) c.replaceChildren(...(Array.isArray(cover) ? cover : [cover])); };
+  function tradesSay(cover, line, note) {
+    const panel = $("#trades-panel"); if (panel) panel.classList.remove("is-loading"); // the placeholder rows' shimmer ends with the first answer
+    tradesCover(cover);
+    const l = $("#trades-list"); if (l) l.replaceChildren(...(line ? [el("li", "trades__empty", line)] : []));
+    const n = $("#trades-note"); if (n) { n.replaceChildren(...(note || [])); n.hidden = !note; }
+    tradeKey = null; tradeCount = 0; showAll();
+  }
+  const tradesBeforeLaunch = () => tradesSay("The live trade list opens the moment $VICINITY launches.", null, null);
+  /** No coin answer to read (the coin pages are switched off, or their settings did not load): said plainly, with the way to Solscan. */
+  const tradesOff = (m) => tradesSay("Recent trades are not available here yet.", null, solscanNote(m));
+  /** "Show all N" under the newest 20 when the answer holds more (up to 50); open, it stays open across a refresh. */
+  function showAll() {
+    const all = $("#trades-all"), list = $("#trades-list"); if (!all || !list) return;
+    all.hidden = tradeCount <= TRADES_SHOWN;
+    const open = list.classList.contains("is-all");
+    all.textContent = open ? "Show fewer" : `Show all ${tradeCount}`; all.setAttribute("aria-expanded", String(open));
+  }
+  function tradeRow(t) {
+    const li = el("li", `trade is-${t.side}`);
+    const sol = typeof t.amount === "number" && Number.isFinite(t.amount) && t.amount > 0 ? `${solText(t.amount)} ${typeof t.symbol === "string" && /^[A-Za-z0-9]{1,12}$/.test(t.symbol) ? t.symbol : "SOL"}` : "—";
+    const when = el("time", "trade__when", ago(t.at)); when.dateTime = t.at; when.title = new Date(Date.parse(t.at)).toLocaleString();
+    const meta = el("span", "trade__meta");
+    const wallet = typeof t.wallet === "string" && t.wallet ? t.wallet : "—";
+    // the masked wallet, linked to its Solscan page when the answer carries one (one rule with the holder list: masked and linked); plain text otherwise
+    const who = typeof t.walletUrl === "string" && WALLET_URL.test(t.walletUrl) ? outLink(wallet, t.walletUrl, "trade__who") : el("span", "trade__who", wallet);
+    meta.append(who, " · ", when, " · ", outLink("Solscan", `https://solscan.io/tx/${t.txid}`, "trade__tx"));
+    li.append(el("span", `trade__side is-${t.side}`, t.side === "buy" ? "Buy" : "Sell"), el("span", "trade__tok", `${fmt(t.tokens)} $VICINITY`), el("span", "trade__sol", sol), meta);
+    return li;
+  }
+  function renderTrades(d, m) {
+    const refresh = $("#trades-refresh"); if (refresh) refresh.hidden = false;
+    const ok = Boolean(d) && d.ok === true, tr = ok ? d.trades : null, mk = ok && d.market && typeof d.market === "object" ? d.market : null;
+    if (!tr || typeof tr !== "object" || !mk) { tradesSay("Recent trades are not available right now. Try Refresh in a minute.", null, solscanNote(m)); return; }
+    if (mk.stage !== "curve") { // the stage guard: nothing here may pass for the open market's trades
+      if (mk.stage == null) tradesSay("Could not check the pool right now. Try Refresh in a minute.", null, solscanNote(m));
+      else tradesSay("Trade history for the open market is not available here yet.", null, ["See ", outLink("Solscan", `https://solscan.io/token/${m}`), " or ", outLink("DEX Screener", `https://dexscreener.com/solana/${m}`), "."]);
+      return;
+    }
+    const rows = (Array.isArray(tr.rows) ? tr.rows : []).filter(validTrade).sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, TRADES_MAX);
+    // the coverage sentence: the venue as the answer names it, and the answer's time. An older list the server fell back to (stale) says
+    // Delayed and gives no "as of": the answer's time is not the list's, and each trade shows its own
+    const venue = typeof tr.source === "string" && tr.source ? tr.source : "Raydium LaunchLab", at = hhmm(d.asOf);
+    const cover = tr.stale === true ? [`Trades on the ${venue} curve · `, el("span", "tk-delayed", "Delayed"), " · older list, each trade shows its own time"]
+      : [at ? `Trades on the ${venue} curve · as of ${at}` : `Trades on the ${venue} curve`];
+    if (!rows.length) { tradesSay(cover, /could not be re(ached|ad)/i.test(String(tr.missing || "")) ? "Recent trades are not available right now. Try Refresh in a minute." : "No trades yet", null); return; }
+    const key = rows.map((t) => t.txid).join(" ");
+    if (key === tradeKey) { tradesCover(cover); return; } // the rows on screen already: only the sentence is written again
+    tradesSay(cover, null, null);
+    $("#trades-list").replaceChildren(...rows.map((t, i) => { const li = tradeRow(t); if (i >= TRADES_SHOWN) li.classList.add("is-more"); return li; }));
+    tradeKey = key; tradeCount = rows.length; showAll();
+  }
+  const tradesAll = $("#trades-all"); if (tradesAll) tradesAll.addEventListener("click", () => { $("#trades-list").classList.toggle("is-all"); showAll(); });
+  const tradesRefresh = $("#trades-refresh"); if (tradesRefresh) tradesRefresh.addEventListener("click", () => { if (coinMint) loadCoin(coinMint); });
 
   /* ---------- old links: /token#buy opens "How do I get $VICINITY?" in the FAQ, /token#verify lands on the box (and focuses it) ---------- */
   // the browser itself focuses a link's target (#verify can take the focus: tabindex -1), also when the hash was #verify already;
@@ -466,12 +594,14 @@
   $("#verify").addEventListener("focus", () => { if (!tapped) $("#holders-find").focus({ preventScroll: true }); });
   function land(smooth) {
     const behavior = smooth && !window.V.reduced ? "smooth" : "instant";
+    const tab = tabOf(location.hash); if (tab) selectTab(tab); // a link into the holder list opens Holders first (the box takes the keyboard only shown)
     if (location.hash === "#buy") { $("#buy").open = true; $("#buy").scrollIntoView({ behavior }); }
     else if (location.hash === "#verify") { $("#verify").scrollIntoView({ behavior }); $("#holders-find").focus({ preventScroll: true }); }
+    else if (location.hash === "#trades") $("#holders").scrollIntoView({ behavior }); // nothing is called "trades": the block is the holders section
   }
   // what loads above them moves both (the contract card when the token facts come, the live list's fixed height above the FAQ, the
   // browser's own pass at the link when the page has loaded), so until the reader moves the page themselves, the visit is put back on it
-  let landing = location.hash === "#buy" || location.hash === "#verify";
+  let landing = location.hash === "#buy" || location.hash === "#verify" || location.hash === "#trades";
   function reland() { if (landing) requestAnimationFrame(() => { if (landing) land(false); }); }
   for (const t of ["wheel", "touchstart", "keydown", "pointerdown"]) window.addEventListener(t, () => { landing = false; }, { passive: true });
   window.addEventListener("hashchange", () => { landing = false; land(true); });
@@ -495,7 +625,7 @@
   loadHolders();
   if (official && official.then) official.then(renderTeamCount, () => renderTeamCount(null));
   if (official && official.then) official.then(setLock, () => setLock(null));
-  setInterval(() => { if (launched && !document.hidden) loadHolders(); }, 60_000);
+  setInterval(() => { if (launched && !document.hidden) { loadHolders(); if (coinMint) loadCoin(coinMint); } }, 60_000);
   const q = new URLSearchParams(location.search).get("address");
   if (q) { $("#holders-find").value = q; lookup(q); } // the rows are filtered as they land
 })();
