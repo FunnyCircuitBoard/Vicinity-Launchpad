@@ -76,6 +76,14 @@ export function decodeConfig(account) {
     swapBaseAmount: r("swap_base_amount"), migrationQuoteThreshold: r("migration_quote_threshold"), migrationBaseThreshold: r("migration_base_threshold"),
     migrationSqrtPrice: r("migration_sqrt_price"), sqrtStartPrice: r("sqrt_start_price"), curve, poolCreationFee: r("pool_creation_fee"),
     migratedPoolFeeBps: r("migrated_pool_fee_bps"), tokenType: r("token_type"), quoteTokenFlag: r("quote_token_flag"), version: r("version"),
+    // the pool's liquidity after graduation: what the dev wallet's (partner) and the city's (creator) positions hold, locked for ever or
+    // not (our program requires 50 / 50 locked and nothing unlocked; src/fees.js splits the pool fee by these)
+    partnerLockedLpPercentage: r("partner_permanent_locked_liquidity_percentage"), partnerLpPercentage: r("partner_liquidity_percentage"),
+    creatorLockedLpPercentage: r("creator_permanent_locked_liquidity_percentage"), creatorLpPercentage: r("creator_liquidity_percentage"),
+    // what makes a fee flat (our program's rules 5 and 9 allow nothing else; src/fees.js describes no other): the curve's fee
+    // scheduler / rate limiter factors, the pool's fee option (6: migrated_pool_fee_bps), its dynamic fee and its fee scheduler mode
+    firstFactor: r("pool_fees.base_fee.first_factor"), secondFactor: r("pool_fees.base_fee.second_factor"), thirdFactor: r("pool_fees.base_fee.third_factor"),
+    migrationFeeOption: r("migration_fee_option"), migratedDynamicFee: r("migrated_dynamic_fee"), migratedPoolBaseFeeMode: r("migrated_pool_base_fee_mode"),
   };
 }
 /** The on-chain AddressLookupTable account: its addresses (56-byte header, then 32 bytes each). null when it is not one. */

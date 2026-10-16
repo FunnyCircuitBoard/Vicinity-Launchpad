@@ -120,6 +120,7 @@ test("lptrade: quote and tx of a DEMOV buy and sell against the recorded devnet 
   assert.deepEqual([q.data.source, q.data.side, q.data.inputMint, q.data.outputMint, q.data.inAmount, q.data.inUi, q.data.outAmount, q.data.minOut, q.data.outUi, q.data.chain, q.data.cluster, q.data.poweredBy, q.data.partialFill],
     ["curve", "buy", SOL, DEMOV, "5000000", "0.005", "13286006275533", "13153146212777", "13286006.275533", "solana:devnet", "devnet", "Meteora DBC", false]);
   assert.deepEqual(q.data.fees.split, { meteora: "10000", referral: "2500", devWallet: "25000", city: "25000", holders: "12500", founder: "12500" });
+  assert.equal(q.data.fees.curveFeeText, "1.25%", "the schedule's own text (src/fees.js), what the Buy panel names");
   assert.deepEqual([q.data.fees.curveFeeBps, q.data.priceImpactPct, q.data.route, q.data.coin.cityId, q.data.coin.city.cityName, q.data.coin.curve.target], [125, "1.32", ["Meteora bonding curve"], "999000003", "Demo Village", "1000000000"]);
   assert.equal(q.headers.get("Cache-Control"), "no-store");
   assert.ok(q.data.quoteId.length === 22 && Date.parse(q.data.expiresAt) > Date.now());

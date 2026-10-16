@@ -28,13 +28,13 @@ function pure() {
 const READY = {
   ok: true, cluster: "mainnet", chain: "solana:mainnet", cityId: "5142056", city: { id: "5142056", name: "Utica", country: "US" }, wallet: WALLET, ticker: "UTICA", state: "ready",
   coin: { name: "Utica Coin", symbol: "UTICA", pair: "SOL" },
-  fees: { totalPct: 1.25, meteoraPct: 0.25, vicinityPct: 0.5, holdersPct: 0.25, founderPct: 0.25, words: "Every trade pays 1.25%: Meteora 0.25%, Vicinity 0.5%, the coin's holders 0.25%, and you, the founder, 0.25%." },
+  fees: { totalPct: 1.25, meteoraPct: 0.25, vicinityPct: 0.5, holdersPct: 0.25, founderPct: 0.25, poolPct: 1.25, totalText: "1.25%", words: "Every buy and sell on the price curve pays 1.25%: Meteora protocol fee 0.25% (20% of the fee, set by Meteora's program, which sends a fifth of that to Vicinity on trades made here), Vicinity 0.5%, the city's holder pot 0.25%, and you, the founder, 0.25%. After your coin graduates, its pool fee is 1.25%, split the same way, except that none of the Meteora protocol fee goes to Vicinity (anyone who adds liquidity to the pool later takes part of everything but the Meteora protocol fee).", halves: "Vicinity's program splits the city's share evenly between you and the holder pot." },
   cost: { approxLamports: 82000000, words: "About 0.082 SOL from your wallet: the 0.05 SOL launch fee and the rent of the coin's accounts. The exact amount is shown before your wallet opens." },
   firstBuy: { maxLamports: "10000000000", allowed: true, reason: null },
-  approval: { founder: WALLET, expiresAt: "2026-10-27T12:00:00.000Z", secondsLeft: 7 * 86400, dbcConfig: "Cfg" },
+  approval: { founder: WALLET, expiresAt: "2026-10-27T12:00:00.000Z", secondsLeft: 7 * 86400, dbcConfig: "EZVHCgxKZhvXmUGMXJMEw8tZHiTmoHPyM9mNNQ5u1kSP" },
 };
 const LAUNCHED = { ...READY, state: "launched", mint: MINT, coinPage: `/coin?mint=${MINT}`, explorer: `https://solscan.io/token/${MINT}`, yours: true,
-  founderFees: { inVaultLamports: "1000000", onCurveLamports: "234000", totalLamports: "1234000", words: "0.001234 SOL waiting for you" } };
+  founderFees: { inVaultLamports: "1000000", onCurveLamports: "234000", totalLamports: "1234000", sharePct: "0.25%", words: "0.001234 SOL waiting for you" } };
 
 /**
  * A built page with site.js, a stand-in window.LP and wallet, then lp-launch.js. `answers[path]` (the path without its query) is
@@ -147,13 +147,50 @@ test("not approved, a pair that is not SOL, expired, paused, a wrong wallet: pla
   }
 });
 
+test("the first-buy quote names the config's own fee: a 2% price curve says 2%, a status without a split names no figure (nothing hard-coded)", async () => {
+  const quote = { amountInLamports: "500000000", coinsOutUi: "12345678.123456", coinsOut: "12345678123456", minOut: "1" };
+  const two = { ...READY, fees: { ...READY.fees, totalPct: 2, totalText: "2%", words: "Every buy and sell on the price curve pays 2%: Meteora protocol fee 0.4% (20% of the fee, set by Meteora's program, which sends a fifth of that to Vicinity on trades made here), Vicinity 0.8%, the city's holder pot 0.4%, and you, the founder, 0.4%. After your coin graduates, its pool fee is 2%, split the same way, except that none of the Meteora protocol fee goes to Vicinity (anyone who adds liquidity to the pool later takes part of everything but the Meteora protocol fee)." } };
+  const p = await open("dashboard.html", { answers: { "/api/lp/launch/status": (b, url) => (url.includes("buy=") ? { ...two, quote } : two) } });
+  const card = p.$("#lp-launch");
+  await p.L.founder(card, { cityId: "5142056", design: { pair: "SOL" } });
+  assert.match(text(card.querySelector("[data-lp-body]")), /Fees.*pays 2%: Meteora protocol fee 0\.4% \(20% of the fee, set by Meteora's program/);
+  const input = card.querySelector("input");
+  input.value = "0.5"; input.dispatchEvent(newEvent("input"));
+  await tick();
+  assert.match(text(card.querySelector(".lp-quote")), /\(the 2% fee included\)/);
+  const P = pure();
+  assert.equal(P.feeNote({ fees: { totalPct: 1.25, totalText: "1.25%" } }), "the 1.25% fee included");
+  assert.equal(P.feeNote({ fees: { totalText: "about 1.233%" } }), "a fee of about 1.233% included", "the schedule's own text, 'about' where it is not whole, in a sentence that reads");
+  assert.equal(P.feeNote({ fees: null }), "the price curve's fee included", "no split in the answer: no figure");
+  // the founder's share names where it was read, like every fee figure on the site
+  // both sources: the settings give the city's share, Vicinity's program halves it
+  assert.equal(P.shareNote({ sharePct: "0.4%" }), "0.4% of every trade, from your coin's price-curve settings and Vicinity's program");
+  assert.equal(P.shareNote({ sharePct: "0.25%", shareUpTo: true }), "up to 0.25% of every trade, from your coin's price-curve settings and Vicinity's program", "graduated: other liquidity can take part of the pool's share");
+  assert.equal(P.shareNote({ sharePct: "0.25%", shareUpTo: false }), "0.25% of every trade, from your coin's price-curve settings and Vicinity's program");
+  assert.equal(P.shareNote({ sharePct: null }), "your share of every trade", "the config not read: no figure");
+  assert.doesNotMatch(LP_LAUNCH, /1\.25|quarter of a percent/, "no fee literal in the launch card's script");
+  // a ready status without a split (the config not read) shows no fee line rather than breaking
+  const bare = await open("dashboard.html", { answers: { "/api/lp/launch/status": { ...READY, fees: null } } });
+  const bareCard = bare.$("#lp-launch");
+  await bare.L.founder(bareCard, { cityId: "5142056", design: { pair: "SOL" } });
+  assert.doesNotMatch(text(bareCard.querySelector("[data-lp-body]")), /Every buy and sell|Read from your approved/);
+  // the source sentence: the price curve the approval names; none without one
+  assert.equal(P.feesFrom(READY), " Read from your approved price-curve settings on Solana (EZVH…1kSP). Vicinity's program splits the city's share evenly between you and the holder pot.");
+  assert.equal(P.feesFrom({ ...READY, approval: null }), " Vicinity's program splits the city's share evenly between you and the holder pot.", "the halving is our program's rule wherever it is read");
+  assert.equal(P.feesFrom({ ...READY, approval: null, fees: { ...READY.fees, halves: undefined } }), "");
+  assert.match(text(bareCard.querySelector("[data-lp-body]")), /Approved until/);
+});
+
 test("approved: the coin, the fee split, the expiry, the cost; the exact first-buy quote as the founder types", async () => {
   const p = await open("dashboard.html", { answers: { "/api/lp/launch/status": (b, url) => (url.includes("buy=") ? { ...READY, quote: { amountInLamports: "500000000", coinsOutUi: "12345678.123456", coinsOut: "12345678123456", minOut: "1" } } : READY) } });
   const card = p.$("#lp-launch");
   assert.deepEqual(plain(await p.L.founder(card, { cityId: "5142056", design: { pair: "SOL" } })), { on: true, state: "ready" });
   const body = text(card.querySelector("[data-lp-body]"));
   assert.match(body, /Utica Coin \$UTICA · paired with SOL/);
-  assert.match(body, /Fees on every trade.*Meteora 0\.25%, Vicinity 0\.5%, the coin's holders 0\.25%, and you, the founder, 0\.25%/);
+  // the label is "Fees": the sentence itself starts "Every buy and sell", so the label does not say it twice
+  assert.equal(text(card.querySelector(".lp-facts dt")), "Fees");
+  assert.match(body, /and you, the founder, 0\.25%\. After your coin graduates, .*\. Read from your approved price-curve settings on Solana \(EZVH…1kSP\)\. Vicinity's program splits the city's share evenly between you and the holder pot\./, "every figure carries its source");
+  assert.match(body, /Fees.*Meteora protocol fee 0\.25% \(20% of the fee, set by Meteora's program, which sends a fifth of that to Vicinity on trades made here\), Vicinity 0\.5%, the city's holder pot 0\.25%, and you, the founder, 0\.25%/);
   assert.match(body, /Approved until.*Oct 27, 2026.*\(7 days left\)/);
   assert.match(body, /What it costs you.*About 0\.082 SOL/);
   assert.equal(text(card.querySelector("[data-lp-state]")), "Approved");
@@ -162,7 +199,7 @@ test("approved: the coin, the fee split, the expiry, the cost; the exact first-b
   input.value = "0.5"; input.dispatchEvent(newEvent("input"));
   await tick();
   assert.match(p.calls.at(-1).path, /buy=500000000&slippageBps=50$/);
-  assert.match(text(card.querySelector(".lp-quote")), /You get exactly 12,345,678\.12 \$UTICA for 0\.5 SOL/);
+  assert.match(text(card.querySelector(".lp-quote")), /You get exactly 12,345,678\.12 \$UTICA for 0\.5 SOL \(the 1\.25% fee included\), in the same transaction as the launch\./, "the fee named is the status answer's (the config's figure), not a literal");
   input.value = "11"; input.dispatchEvent(newEvent("input"));
   await tick();
   assert.equal(text(card.querySelector(".lp-quote")), "The first buy is at most 10 SOL.");
@@ -241,7 +278,7 @@ test("launched: the founder's fees and Collect (the founder's own wallet; no one
   const p = await open("dashboard.html", { answers: { "/api/lp/launch/status": LAUNCHED, "/api/lp/founder-claim/tx": { ok: true, step: "founder-claim", cluster: "mainnet", tx: "AA==" } } });
   const card = p.$("#lp-launch");
   await p.L.founder(card, { cityId: "5142056" });
-  assert.match(text(card), /Your founder fees: 0\.001234 SOL waiting for you/);
+  assert.match(text(card), /Your founder fees: 0\.001234 SOL waiting for you \(0\.25% of every trade, from your coin's price-curve settings and Vicinity's program\)\./, "the founder's part is the coin's config's figure (founderFees.sharePct), not a literal");
   p.btn(card, "Collect your fees").click();
   await tick();
   assert.deepEqual(p.calls.find((c) => c.path === "/api/lp/founder-claim/tx").body, { cityId: "5142056", cluster: "mainnet" });

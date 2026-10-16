@@ -5,8 +5,9 @@
  * quoteBuy/quoteSell and with litesvm running the real DBC program.
  *   quoteBuy   exact in; the last buy of a curve becomes DBC's partial fill (the curve takes what it needs, the rest stays with the buyer)
  *   quoteSell  exact in
- * Fees: the trade fee (1.25%) splits into Meteora's cut, the referral (the dev wallet's quote account), the dev wallet's partner
- * share and the city's share, which our program later halves between holders and founder.
+ * Fees: the trade fee (the config's cliff fee; 1.25% on the live config today, src/fees.js reads it) splits into Meteora's protocol
+ * fee, the referral (a fifth of that fee, to the dev wallet's quote account), the dev wallet's partner share and the city's share,
+ * which our program later halves between holders and founder.
  */
 import { CurveError, Direction, FEE_DENOMINATOR, SwapMode, applySwap, quoteSwap } from "../../solana/sdk/launchpad/curve.mjs";
 

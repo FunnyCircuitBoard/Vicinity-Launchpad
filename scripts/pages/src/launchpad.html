@@ -57,6 +57,20 @@
       </div>
     </section>
 
+    <!-- Fees (only while the city-coin launch is on: /api/official cityCoins): the live price curve's schedule, every figure read from the config on
+         chain by GET /api/fees (src/fees.js, launchpad.js paintFees); hidden until that answer is here, so nothing is said that was not read -->
+    <section class="lp-fees" id="lp-fees" aria-labelledby="lp-fees-title" hidden>
+      <div class="wrap">
+        <div class="card lp-fees__card">
+          <h2 class="coin-card__title" id="lp-fees-title">City coin fees</h2>
+          <p class="small" id="lp-fees-curve"></p>
+          <p class="small" id="lp-fees-steps"></p>
+          <p class="small" id="lp-fees-oneoff"></p>
+          <p class="tiny muted" id="lp-fees-src"></p>
+        </div>
+      </div>
+    </section>
+
     <!-- Founding Supporter snapshot: one closed fold (open when the address ends in #supporters, as /rules links it) -->
     <section class="lp-snap">
       <div class="wrap">

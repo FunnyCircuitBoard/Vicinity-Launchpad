@@ -38,7 +38,8 @@ import { decodeApproval } from "./lpadmin.js";
 import { coinByMint, recordedByMint } from "./lpcoins.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas } from "./sol/pda.js";
 import { accountBytes, decodeCoin, decodeConfig, decodeLaunchConfig, decodeLaunchpad, decodePool, decodeTokenAccount } from "./sol/dbc.js";
-import { CurveError, feeBpsOf, quoteBuy } from "./sol/quote.js";
+import { CurveError, quoteBuy } from "./sol/quote.js";
+import { feeSchedule, halvesWords, meteoraWords, poolSplitWords } from "./fees.js";
 import { closeTokenAccount } from "./sol/ix.js";
 import { formatAmount } from "./sol/input.js";
 import { LAYOUT } from "./sol/layout.js";
@@ -51,15 +52,13 @@ export const MAX_FIRST_BUY_LAMPORTS = 10_000_000_000n;
 /** The first buy runs in the launch's own transaction: nobody can trade in between, so its slippage only covers rounding. */
 export const FIRST_BUY_SLIPPAGE_BPS = 50, MAX_FIRST_BUY_SLIPPAGE_BPS = 500;
 /**
- * What the page says before anything is built (the exact figure comes from the simulation): the price curve's launch fee (0.05 SOL
- * with the Vicinity defaults) plus the rent and network fees of the coin's accounts (0.0312 SOL: the launch cost 0.0812 SOL with the
+ * What the page says before anything is built (the exact figure comes from the simulation): the price curve's launch fee (read from
+ * the config, src/fees.js) plus the rent and network fees of the coin's accounts (0.0312 SOL: the launch cost 0.0812 SOL with the
  * defaults, measured in solana/tests-launchpad/18); graduation's rent (0.0325 SOL measured there).
  */
-export const LAUNCH_RENT_LAMPORTS = 31_200_000n, DEFAULT_LAUNCH_FEE_LAMPORTS = 50_000_000n, GRADUATE_COST_LAMPORTS = 33_000_000;
+export const LAUNCH_RENT_LAMPORTS = 31_200_000n, GRADUATE_COST_LAMPORTS = 33_000_000;
 /** An approval needs this much time left when the launch is built (the wallet, the relay and the network take a moment). */
 const EXPIRY_SLACK_S = 60;
-/** Meteora's cut of every trading fee (DBC's PROTOCOL_FEE_PERCENT); the rest is split between the city and Vicinity by the config. */
-const PROTOCOL_FEE_PERCENT = 20n;
 /** DBC's migration_progress once the curve is complete (Vicinity configs have no locked vesting): ready to move. */
 const LOCKED_VESTING = 2;
 const QUOTE_LIMIT = { max: 60, windowMs: 60_000 }; // live first-buy quotes while the founder types (one wallet, many keystrokes)
@@ -124,21 +123,30 @@ async function launchState(env, s, cityId, fetchImpl) {
   }
   return { approval, lp, coin, lc, config, addresses: { approval: approvalAddr, coin: coinAddr } };
 }
-/** The fee split of a config in plain numbers (percent of every trade): Meteora's cut, then the city's share (half holders, half founder), Vicinity the rest. */
+/**
+ * The fee split of a config in plain numbers (percent of every trade), from the schedule src/fees.js reads out of the config: Meteora's
+ * protocol fee, Vicinity's share, the city's share halved between holders and founder; the pool fee after graduation. null without a
+ * config: no figure is ever said that was not read from the chain.
+ */
 export function feeSplit(config) {
-  const total = config ? BigInt(feeBpsOf(config)) : 125n;
-  const meteora = (total * PROTOCOL_FEE_PERCENT) / 100n;
-  const city = ((total - meteora) * (config ? config.creatorTradingFeePercentage : 50n)) / 100n;
-  const vicinity = total - meteora - city, founder = city / 2n, holders = city - founder;
-  const pct = (bps) => Number(bps) / 100;
+  const S = feeSchedule(config);
+  if (!S) return null;
+  const c = S.curve, t = c.text, pct = (bps) => bps / 100;
   return {
-    totalPct: pct(total), meteoraPct: pct(meteora), vicinityPct: pct(vicinity), holdersPct: pct(holders), founderPct: pct(founder),
-    words: `Every trade pays ${pct(total)}%: Meteora ${pct(meteora)}%, Vicinity ${pct(vicinity)}%, the coin's holders ${pct(holders)}%, and you, the founder, ${pct(founder)}%.`,
+    totalPct: pct(c.totalBps), meteoraPct: pct(c.meteoraBps), vicinityPct: pct(c.vicinityBps), holdersPct: pct(c.holdersBps), founderPct: pct(c.founderBps), poolPct: pct(S.pool.totalBps),
+    totalText: t.total, // the schedule's own text ("about …" where the config's fee is not a whole tenth of a basis point): what the launch card names
+    // the same clauses as the Fees sections (src/fees.js): the Meteora protocol fee with its source, the pool's split with the
+    // later-liquidity note; `halves` says the founder / holder-pot halving is our program's rule (the card writes it after its source)
+    words: `Every buy and sell on the price curve pays ${t.total}: ${meteoraWords(S)}, Vicinity ${t.vicinity}, the city's holder pot ${t.holders}, and you, the founder, ${t.founder}. After your coin graduates, its pool fee is ${S.pool.text.total}, ${poolSplitWords(S, "you, the founder,")}.`,
+    halves: halvesWords("you"),
   };
 }
 /** What a launch costs the founder, before the simulation says it exactly: the curve's launch fee (when known) and the rent. */
 function launchCost(config) {
-  const fee = config ? config.poolCreationFee : DEFAULT_LAUNCH_FEE_LAMPORTS, approx = fee + LAUNCH_RENT_LAMPORTS;
+  if (!config) {
+    return { approxLamports: null, launchFeeLamports: null, rentLamports: Number(LAUNCH_RENT_LAMPORTS), words: `The price curve's launch fee and about ${sol(LAUNCH_RENT_LAMPORTS)} of rent for the coin's accounts come from your wallet. The exact amount is shown before your wallet opens.` };
+  }
+  const fee = config.poolCreationFee, approx = fee + LAUNCH_RENT_LAMPORTS;
   return {
     approxLamports: Number(approx), launchFeeLamports: fee.toString(), rentLamports: Number(LAUNCH_RENT_LAMPORTS),
     words: `About ${sol(approx)} from your wallet: ${fee > 0n ? `the ${sol(fee)} launch fee` : "no launch fee on this price curve"} and about ${sol(LAUNCH_RENT_LAMPORTS)} of rent for the coin's accounts. The exact amount is shown before your wallet opens.`,
@@ -416,11 +424,17 @@ async function graduateTx(request, env, fetchImpl, now) {
 async function founderFees(env, s, coin, fetchImpl) {
   const L = launchpadPdas(s.programId);
   const vault = await L.founderVault(await L.coin(coin.cityId));
-  const m = await readAccounts(env, [vault, coin.dbcPool], fetchImpl);
+  const m = await readAccounts(env, [vault, coin.dbcPool, coin.dbcConfig], fetchImpl);
   const v = decodeTokenAccount(m.get(vault) || null), pool = decodePool(m.get(coin.dbcPool) || null);
   const inVault = v ? v.amount : 0n;
   const onCurve = pool && !pool.isMigrated ? pool.creatorQuoteFee / 2n : 0n;
-  return { inVaultLamports: inVault.toString(), onCurveLamports: onCurve.toString(), totalLamports: (inVault + onCurve).toString(), words: `${sol(inVault + onCurve)} waiting for you` };
+  // the founder's part of every trade, from the config the coin launched under (src/fees.js): the curve's figure, the pool's once it
+  // has graduated; null when the config could not be read (the card then names no figure). In the pool it is a ceiling (shareUpTo):
+  // anyone who adds liquidity later takes part of the fee the locked positions earn
+  const S = feeSchedule(decodeConfig(m.get(coin.dbcConfig) || null));
+  const graduated = Boolean(pool && pool.isMigrated);
+  const sharePct = S ? (graduated ? S.pool.text.founder : S.curve.text.founder) : null;
+  return { inVaultLamports: inVault.toString(), onCurveLamports: onCurve.toString(), totalLamports: (inVault + onCurve).toString(), sharePct, shareUpTo: Boolean(sharePct) && graduated, words: `${sol(inVault + onCurve)} waiting for you` };
 }
 /** POST /api/lp/founder-claim/tx { cityId, cluster } */
 async function founderClaimTx(request, env, fetchImpl, now) {

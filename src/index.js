@@ -32,6 +32,8 @@
  * LAUNCHPAD_REWARDS_PROGRAM_ID, src/cluster.js; otherwise 404 not_enabled, and /coin-meta/* 404):
  *   GET /coin-meta/<mint>.json|.png (src/coinmeta.js, outside /api: the URI our program writes on chain) · POST /api/lp/record
  *   · GET /api/lp/coin?mint= (src/lpcoins.js) · /api/lp/launch/*, /api/lp/graduate/*, /api/lp/founder-claim/* (src/lplaunch.js)
+ *   · GET /api/fees[?mint=] (src/fees.js): the fee schedule of the live launch config, or of the config a coin launched under; public,
+ *     edge-cached 5 minutes (the config bytes 10 minutes per server), counted by the public limiter on a miss
  *   · /api/admin/lp/* (src/lpadmin.js, owner only) · a wallet that can send sends their transactions itself; the relay
  *   /api/swap/send sends them for a wallet that only signs; /api/swap/status watches them either way (public/lp-sign.js)
  * The Launchpad's coin list, only while LAUNCHPAD_V2=on (otherwise 404 not_enabled; src/launchpad.js, src/marketlive.js):
@@ -99,6 +101,7 @@ import { handleFeedback } from "./feedback.js";
 import { lpSetup } from "./cluster.js";
 import { handleLpCoin, handleLpRecord } from "./lpcoins.js";
 import { handleLaunchApi } from "./lplaunch.js";
+import { handleFees } from "./fees.js";
 import { handleCoinMeta } from "./coinmeta.js";
 
 export { json, activeMint, cached as _cached };
@@ -328,6 +331,16 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     return json({ error: "not_found" }, 404);
   }
 
+  // the fee schedule (lpSetup): every fee figure the pages show, read from the deployed config (src/fees.js). With the settings missing
+  // it is simply not there (before any method check); the public limiter counts a cache miss (a hit costs nothing)
+  if (path === "/api/fees") {
+    if (!lpSetup(env).on) return json({ ok: false, error: "not_enabled" }, 404);
+    const blocked = only("GET");
+    if (blocked) return blocked;
+    const mint = url.searchParams.get("mint");
+    if (mint !== null && !isSolanaAddress(mint)) return json({ ok: false, error: "bad_mint" }, 400);
+    return cached(`fees-${mint || "live"}`, 300, async () => (await publicLimit(env, request, "fees")) || handleFees(request, env, fetchImpl));
+  }
   // city coins on our own launchpad (lpSetup): with the settings missing they are simply not there (before any method check)
   if (path.startsWith("/api/lp/")) {
     if (!lpSetup(env).on) return json({ ok: false, error: "not_enabled" }, 404);
