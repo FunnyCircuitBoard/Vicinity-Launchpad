@@ -171,11 +171,12 @@ const HOLDERS_PAGE = 1000;
 async function holdersResponse(env, mint, offset, fetchImpl) {
   try {
     // while the chain cannot be read, the last list (at most 15 minutes old, with its real time) instead of an error: the
-    // pages keep showing holders, and the 60 s edge cache keeps every open tab from asking the failing provider again
+    // pages keep showing holders (marked stale: true, so the token page says "Delayed · list from HH:MM"), and the 60 s edge cache
+    // keeps every open tab from asking the failing provider again
     const snap = await holderSnapshot(env, mint, fetchImpl, 60_000, { staleMs: SHOW_STALE_MS });
     const end = offset + HOLDERS_PAGE;
     return json({ launched: true, mint, supply: snap.facts.supply, total: snap.people, count: snap.rows.length, full: true,
-      holders: snap.rows.slice(offset, end), more: end < snap.rows.length, updatedAt: snap.at });
+      holders: snap.rows.slice(offset, end), more: end < snap.rows.length, updatedAt: snap.at, ...(snap.stale ? { stale: true } : {}) });
   } catch (e) {
     console.error("full holder list failed, using the top 20", String(e));
   }

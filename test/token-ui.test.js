@@ -23,7 +23,7 @@ test("token page: hero, holders (live, with the rank check), no rug pull, offici
     const at = (needle) => { const i = h.indexOf(needle); assert.ok(i >= 0, needle); return i; };
     const order = [at('<section class="page-hero" id="token">'), at('<section id="holders" class="section">'), at('<p class="kicker">No rug pull</p>'), at('<section class="section section--panel" id="check">'), at('<section class="section" id="faq">')];
     assert.deepEqual(order, [...order].sort((a, b) => a - b), "sections top to bottom: token, holders, no rug pull, check, faq");
-    assert.ok(h.indexOf('id="holders"') < h.indexOf('<p class="kicker kicker--live"><span class="live-dot" aria-hidden="true"></span>Holders · live</p>'), "the live kicker is the holders section's own");
+    assert.ok(h.indexOf('id="holders"') < h.indexOf('<p class="kicker">Trades and holders</p>'), "the kicker is the holders section's own; it says neither 'live' nor a time, each card's own line does (Trades | Holders, 16 Oct 2026: test/token-tabs.test.js)");
     assert.ok(h.indexOf("Every real Vicinity token, on every network.") > h.indexOf("No rug pull"), "what followed the proof still follows it");
     // gone from the page body: the How to get section and the Verify a holder section (their ids live on: see the deep-link tests)
     assert.doesNotMatch(h, /<section[^>]*id="(buy|verify)"/);

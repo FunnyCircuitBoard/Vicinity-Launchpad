@@ -20,7 +20,7 @@
  *   Raydium mint    GET https://launch-mint-v1.raydium.io/get/by/mints?ids= (20 a call): the rolling 24 h volume in USD (volumeU),
  *                   asked ONLY for curve coins whose volume Jupiter and DEX Screener did not give. Its poolId must equal the
  *                   derived pool. Its finishingRate is price-based and is NOT the graduation progress: not used. 60 s.
- *   Raydium trades  GET https://launch-history-v1.raydium.io/trade?poolId=&limit=20: recent trades. 30 s.
+ *   Raydium trades  GET https://launch-history-v1.raydium.io/trade?poolId=&limit=20: recent trades (20 by default; the coin answer asks for 50). 30 s.
  *   Raydium kline   GET https://launch-history-v1.raydium.io/kline?poolId=&interval=1m|5m|15m&limit=1..500[&nextPageKey=]: OHLC in
  *                   the pair token, newest first, only buckets that had trades, no volume (src/pricehistory.js stores 15m).
  *   DEX Screener    src/market.js (unchanged): nothing before migration, the AMM pool after it (pool liquidity).

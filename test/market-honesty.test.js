@@ -54,7 +54,7 @@ test("GET /api/coin with the chain down: Raydium's trades for the derived pool, 
   const d = await quiet(async () => (await browser(env).send(`/api/coin?mint=${MINT}`, { fetchImpl: w.fetchImpl })).json());
   assert.equal(d.market.stage, null);
   assert.equal(d.trades.source, "Raydium LaunchLab");
-  assert.equal(d.trades.rows.length, Math.min(20, fixture("trade.json").data.rows.length), "the pool's address is pure math: Raydium is asked anyway");
+  assert.equal(d.trades.rows.length, Math.min(50, fixture("trade.json").data.rows.length), "the pool's address is pure math: Raydium is asked anyway (a page of 50)");
   assert.ok(w.urls("launch-history-v1").some((u) => u.includes(`poolId=${POOL}`)));
   assert.equal(d.trades.missing, undefined);
   assert.equal(d.trades.note, undefined, "not labelled as before graduation: the stage is unknown");

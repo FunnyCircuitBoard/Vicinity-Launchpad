@@ -537,7 +537,10 @@
     if (!r || !Array.isArray(r.holders) || r.mint !== d.mint) return;
     $("#coin-holders").replaceChildren(...topHolders(r.holders).map((x) => { // the five biggest by size (topHolders)
       const li = el("li", "coin-holder");
-      const who = el("span", "coin-holder__who"); who.append(el("span", "coin-holder__rank", x.rank ? `#${x.rank}` : /^Team wallet/.test(str(x.label)) ? "Team" : /^Team lock/.test(str(x.label)) ? "Lock" : "Pool"), " ", el("code", null, mask(x.owner)));
+      const who = el("span", "coin-holder__who"); who.append(el("span", "coin-holder__rank", x.rank ? `#${x.rank}` : /^Team wallet/.test(str(x.label)) ? "Team" : /^Team lock/.test(str(x.label)) ? "Lock" : "Pool"), " ");
+      // the masked address opens the wallet on Solscan, as a row of the token page's holder list does (one rule for both pages, 16 Oct 2026)
+      if (isAddr(x.owner)) { const a = newTab(el("a", "coin-holder__addr")); a.href = `https://solscan.io/account/${x.owner}`; a.title = x.owner; a.prepend(el("code", null, mask(x.owner))); who.append(a); }
+      else who.append(el("code", null, mask(x.owner)));
       if (x.label) who.append(" ", el("span", "tag coin-holder__tag", str(x.label)));
       const pct = num(x.percent);
       li.append(who, el("span", "coin-holder__pct", pct == null ? "—" : `${pct >= 10 ? pct.toFixed(1) : pct >= 0.01 ? pct.toFixed(2) : "<0.01"}%`));
