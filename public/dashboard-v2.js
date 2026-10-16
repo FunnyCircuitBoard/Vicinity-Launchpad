@@ -826,6 +826,12 @@
     const d = me(); if (d) { today(d); founderCard(d); }
   }
 
-  window.VDash = { init, render, coin: setCoin, lp: setLp, mod, coinQueue, wallet, walletRows, unread: (n) => reflow(() => unreadBadge(n)), start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS),
+  /** The Wallet tab's last answer and the rows drawn from it (null while loading or unread): what public/wallet-send.js lists as sendable. */
+  function walletState() {
+    const m = me(), r = walletData, c = ctx && ctx.coin ? ctx.coin() : {};
+    const ready = Boolean(r && !r.loading && r.balances && m);
+    return { data: r, rows: ready ? walletRows(r, { vicMint: c.vicMint || null, coin: c.coin || null, community: m.community || null }) : null };
+  }
+  window.VDash = { init, render, coin: setCoin, lp: setLp, mod, coinQueue, wallet, walletRows, walletState, unread: (n) => reflow(() => unreadBadge(n)), start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS),
     pill: Object.freeze({ box: pillBox, frames: pillFrames, fromStyle: pillFromStyle, ms: PILL_MS, followMs: FOLLOW_MS, easing: PILL_EASE, easeIn: PILL_IN, easeOut: PILL_OUT }) };
 })();

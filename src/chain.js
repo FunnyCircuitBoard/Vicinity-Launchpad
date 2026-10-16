@@ -59,6 +59,8 @@ function holderOrder(rows) {
   for (const r of rows) groups[holderGroup(r)].push(r);
   return groups.flat();
 }
+/** A known pool or program account by address alone (the pool authorities above, the pool programs we label): never a person's wallet. */
+export const knownProgramAccount = (address) => Boolean(Object.hasOwn(OWNER_LABELS, address) || Object.hasOwn(PROGRAM_LABELS, address));
 /** A label for a big holder: a known pool program, or any program-controlled (off-curve) address. */
 const poolLabel = (owner, ownerProgram) => {
   if (OWNER_LABELS[owner]) return OWNER_LABELS[owner];

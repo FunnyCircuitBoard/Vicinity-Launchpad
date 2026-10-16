@@ -1,7 +1,9 @@
 /**
  * The handful of instructions the Worker builds for a curve trade, byte-identical to the SDK's builders (checked in
  * solana/tests-launchpad/15-worker-builder.test.mjs): Meteora DBC swap2, the associated-token "create idempotent", a System
- * transfer, SPL Token sync-native and close (wrap and unwrap SOL), and the two compute-budget instructions. Every function is
+ * transfer, SPL Token sync-native and close (wrap and unwrap SOL), and the two compute-budget instructions; and, for the Wallet tab's
+ * Send (src/walletsend.js, run against the real token program in solana/tests-launchpad/19-wallet-send.test.mjs), SPL Token
+ * transfer-checked. Every function is
  * async because the token accounts and PDAs it names come from WebCrypto (src/sol/pda.js). Shape: @solana/kit-like
  * { programAddress, accounts: [{ address, role }], data } with role 0 read-only, 1 writable, 2 read-only signer, 3 both.
  */
@@ -30,6 +32,18 @@ export const systemTransfer = (from, to, lamports) => ({
   accounts: [{ address: from, role: Role.WS }, { address: to, role: Role.W }],
   data: concat([u32le(2), u64le(lamports)]),
 });
+/**
+ * SPL Token TransferChecked (instruction 12): `amount` raw units of `mint` from `source` to `destination`, signed by `owner`; the
+ * program checks `decimals` against the mint, so a wrong assumption about the token fails instead of moving a wrong amount.
+ */
+export const transferChecked = ({ source, mint, destination, owner, amount, decimals, tokenProgram = PROGRAM_IDS.token }) => {
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) throw new Error("bad_decimals");
+  return {
+    programAddress: tokenProgram,
+    accounts: [{ address: source, role: Role.W }, { address: mint, role: Role.R }, { address: destination, role: Role.W }, { address: owner, role: Role.RS }],
+    data: concat([Uint8Array.of(12), u64le(amount), Uint8Array.of(decimals)]),
+  };
+};
 export const syncNative = (account) => ({ programAddress: PROGRAM_IDS.token, accounts: [{ address: account, role: Role.W }], data: Uint8Array.of(17) });
 export const closeTokenAccount = (account, destination, owner) => ({
   programAddress: PROGRAM_IDS.token,

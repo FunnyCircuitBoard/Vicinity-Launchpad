@@ -61,3 +61,14 @@ export const carryRelayOn = (env) => String((env && env.CARRY_RELAY) ?? "").trim
  * switch is listed in one place. Exactly "on"; anything else, unset included, is the site as it has always been.
  */
 export { swapOn, launchpadTradingOn } from "./cluster.js";
+
+/**
+ * WALLET_SEND=on turns on Send in the dashboard's Wallet tab (wallet onboarding, step 2): POST /api/wallet/send/build builds an UNSIGNED
+ * transfer of SOL, $VICINITY or a launched city coin from the person's linked wallet (src/walletsend.js), the person's own wallet signs
+ * it, /api/wallet/send/relay and /api/wallet/send/status are the swap's relay and status poll under new names, and /api/me carries
+ * walletSend: true (the page then fetches public/wallet-send.js and shows the Send button). The builds are counted before any work: per
+ * connection 20 taps and 60 of the page's own live checks (?live=1) a minute (src/guards.js PUBLIC_LIMITS), per account 30 taps and 60 live
+ * checks an hour (src/walletsend.js SEND_LIMIT, LIVE_LIMIT), so typing never uses up a Review. Exactly "on" (trimmed, any letter case);
+ * anything else, unset included, is the Wallet tab as it is: no Send control, and the three paths answer like any unknown path (404).
+ */
+export const walletSendOn = (env) => String((env && env.WALLET_SEND) ?? "").trim().toLowerCase() === "on";

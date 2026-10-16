@@ -542,6 +542,8 @@
     if (d.profilesFlag) { profilesSync(d); linkName($("#cc-founder"), c && c.seat && !c.seat.you ? c.seat : null); linkName($("#nc-manager"), n && n.manager && !n.manager.you ? n.manager : null); }
     if (v2) v2.render(d);
     if (noticesOn()) noticesSync(d); // in-app notices (NOTIFY=on): the header's count, and a list on screen follows a changed count
+    if (v2 && d.walletSend === true) loadWalletSend(); // Send in the Wallet tab: fetched the first time the switch is seen on
+    if (wsend) wsend.render(d);
   }
 
   /* ---------- in-app notices (NOTIFY=on: /api/me carries `unread`, a number): the Notifications tab's list, marking read, the five controls ---------- */
@@ -1400,27 +1402,56 @@
   // GET /api/swap/balances (SOL and up to six token amounts; the Worker keeps a 10-second memo per wallet), plus SOL's price from
   // /api/prices (the Buy card's own price source; never a stale one, the portfolio's rule for the coins). At most one read per 10 s per
   // wallet, whoever asks, so the memo is honoured here too; dashboard-v2.js draws the answer (wallet). Nothing is sent from here.
-  let walletRead = { owner: null, at: 0, busy: false };
+  let walletRead = { owner: null, at: 0, busy: false, promise: null };
   const WALLET_READ_MS = 10_000;
-  async function readWallet() {
+  /**
+   * True once the chain was asked and the tab redrawn; false when nothing was read (no wallet, a read is running, or one just finished).
+   * After a confirmed send (afterSend) a read that is already running is waited for and the chain asked AGAIN, past the Worker's memo:
+   * that running read may still carry the balances from before the send.
+   */
+  async function readWallet({ afterSend = false } = {}) {
     const owner = me && me.user && me.user.wallet;
-    if (!v2 || !owner) return;
-    if (walletRead.busy || (walletRead.owner === owner && Date.now() - walletRead.at < WALLET_READ_MS)) return;
-    walletRead = { owner, at: Date.now(), busy: true };
+    if (!v2 || !owner) return false;
+    if (walletRead.busy) { if (!afterSend) return false; try { await walletRead.promise; } catch { /* the running read failed: read again */ } return readWallet({ afterSend: true }); }
+    if (!afterSend && walletRead.owner === owner && Date.now() - walletRead.at < WALLET_READ_MS) return false;
+    walletRead = { owner, at: Date.now(), busy: true, promise: null };
+    walletRead.promise = readWalletNow(owner, afterSend);
+    return walletRead.promise;
+  }
+  async function readWalletNow(owner, afterSend) {
     v2.wallet({ owner, loading: true });
     try {
       try { await coinP; } catch { /* the coin answer failed: the balances are read without its mints */ } // the live $VICINITY mint and the home city's coin
       const pf = await api("/api/me/portfolio");
       const portfolio = pf && pf.ok && pf.portfolio && Array.isArray(pf.portfolio.items) ? pf.portfolio : null;
       const mints = [...new Set([vicMint, coinData && coinData.mint, ...(portfolio ? portfolio.items.map((i) => i && i.mint) : [])].filter((m) => typeof m === "string" && isAddr(m)))].slice(0, 6);
-      const [bal, pr] = await Promise.all([api(`/api/swap/balances?owner=${encodeURIComponent(owner)}&mints=${mints.join(",")}`), api(`/api/prices?mints=${SOL_MINT}`)]);
-      if (!me || !me.user || me.user.wallet !== owner) return; // the wallet changed meanwhile: the next look reads the new one
+      // after a confirmed send (public/wallet-send.js) the chain is asked itself: the Worker's 10 s memo may still hold the balances from before it; the tab's own reads never pass it
+      const fresh = afterSend ? "&fresh=1" : "";
+      const [bal, pr] = await Promise.all([api(`/api/swap/balances?owner=${encodeURIComponent(owner)}&mints=${mints.join(",")}${fresh}`), api(`/api/prices?mints=${SOL_MINT}`)]);
+      if (!me || !me.user || me.user.wallet !== owner) return false; // the wallet changed meanwhile: the next look reads the new one
       const balances = bal && bal.ok && bal.sol ? bal : null;
       // stale: true is Jupiter's last good price up to five minutes old (src/coins.js); src/portfolio.js shows none then, so neither does this column
       const solUsd = pr && pr.ok !== false && !pr.stale && pr.prices && Number(pr.prices[SOL_MINT]) > 0 ? Number(pr.prices[SOL_MINT]) : null;
       // portfolioOk: the city coins were read; portfolioOff: the route is off (PROFILES off answers 404); at: the Worker's read time, or none
       v2.wallet({ owner, balances, portfolio, portfolioOk: Boolean(portfolio), portfolioOff: Boolean(pf && pf._status === 404), solUsd, at: balances ? balances.at || null : null });
-    } finally { walletRead = { owner, at: Date.now(), busy: false }; }
+      return true;
+    } finally { walletRead = { owner, at: Date.now(), busy: false, promise: null }; }
+  }
+  /* ---------- the Wallet tab's Send (WALLET_SEND=on): its code is fetched ONLY when /api/me says walletSend, and only under v2, so with the switch off this page never asks for it ---------- */
+  // public/wallet-send.js adds the Send button to the Balances card and the Send sheet; it reads the tab's rows through v2.walletState(),
+  // builds through the Worker (every number from there) and, once a send is confirmed, asks for the balances again straight from the chain.
+  let wsend = null, wsendAsked = false;
+  function loadWalletSend() {
+    if (wsend || wsendAsked || !v2) return;
+    wsendAsked = true;
+    const s = document.createElement("script"); s.src = "/wallet-send.js";
+    s.onload = () => {
+      if (!window.VWalletSend) { wsendAsked = false; return; }
+      wsend = window.VWalletSend.init({ me: () => me, state: () => v2.walletState(), readWallet: () => readWallet({ afterSend: true }) });
+      if (me) wsend.render(me);
+    };
+    s.onerror = () => { wsendAsked = false; }; // the next /api/me tries again
+    document.head.append(s);
   }
   let qrP = null;
   /** /vendor/qrcode.js (qrcode-generator, copied in at build time), loaded once, when the Wallet tab first shows an address: true when it is here. */

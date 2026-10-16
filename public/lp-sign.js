@@ -7,7 +7,9 @@
  *
  *   LP.supported()                     -> Promise<boolean>   WebCrypto Ed25519 is there (if not: no fallback, the page explains)
  *   LP.ephemeral(n)                    -> Promise<[{ publicKey (base58), sign(bytes) -> Promise<Uint8Array(64)> }]>
- *   LP.prepare({ wallet, build, ephemeral, cluster })  -> Promise<handle>   builds; handle.response is what the page shows
+ *   LP.prepare({ wallet, build, ephemeral, cluster, routes })  -> Promise<handle>   builds; handle.response is what the page shows
+ *                                         routes: { send, status } the relay and status paths (default the swap's /api/swap/send and
+ *                                         /api/swap/status; the Wallet tab's Send passes /api/wallet/send/relay and /status: the same code)
  *   handle.sign({ onStatus })          -> Promise<{ signature, status, solscan }>   call it straight from the person's tap
  *   LP.run({ wallet, build, ephemeral, cluster, onSummary, onStatus })   prepare, then onSummary(response) (resolve true to go
  *                                         on, false to stop), then sign
@@ -205,7 +207,10 @@
   };
 
   /** Build (the page's own `build(pubkeys)` calls its route) and check what came back; a handle whose sign() the person's tap calls. */
-  async function prepare({ wallet, build, ephemeral: n = 0, cluster } = {}) {
+  const ROUTES = Object.freeze({ send: "/api/swap/send", status: "/api/swap/status" });
+  const routesOf = (r) => ({ send: r && typeof r.send === "string" && r.send.startsWith("/api/") ? r.send : ROUTES.send, status: r && typeof r.status === "string" && r.status.startsWith("/api/") ? r.status : ROUTES.status });
+  async function prepare({ wallet, build, ephemeral: n = 0, cluster, routes } = {}) {
+    const R = routesOf(routes);
     const who = addressOf(wallet);
     if (!who) throw err("no_wallet");
     if (typeof wallet.signTransaction !== "function" || wallet.canSign === false) throw err("no_sign");
@@ -252,7 +257,7 @@
         if (!id) throw unsure(err("wallet_send_unclear"));
         onStatus("confirming", id);
         // signed alone (no one-time key), the message and so the blockhash may be the wallet's: "expired" is only "not seen in time"
-        return watch(id, res, onStatus, keys.length === 0);
+        return watch(id, res, onStatus, keys.length === 0, R);
       }
       let signed;
       try { signed = await wallet.signTransaction(partial.slice(), chain); }
@@ -267,14 +272,14 @@
       onStatus("sending");
       // the transaction's id: the wallet's own signature (slot 0, the fee payer), known before anything is sent
       const own = b58encode(signed.subarray(q.sigAt, q.sigAt + 64));
-      const sent = await call("/api/swap/send", { tx: toB64(signed), ticket: res.ticket, lastValidBlockHeight: res.lastValidBlockHeight, cluster: res.cluster });
+      const sent = await call(R.send, { tx: toB64(signed), ticket: res.ticket, lastValidBlockHeight: res.lastValidBlockHeight, cluster: res.cluster });
       // No answer from the site (the connection dropped, a gateway's error page): the relay may already have passed the bytes on,
       // so this never says "nothing was sent" (a second tap would do it twice). Like the relay's own unclear: true (src/relay.js),
       // the wallet's signature is watched: confirmed, failed, or expired once the chain passed its last valid block (nothing spent).
-      if (sent && sent._noAnswer) { onStatus("confirming", own, { unclear: true }); return watch(own, res, onStatus); }
+      if (sent && sent._noAnswer) { onStatus("confirming", own, { unclear: true }); return watch(own, res, onStatus, false, R); }
       if (!sent || sent.ok !== true || !sent.signature) throw err((sent && sent.error) || "rpc_unavailable", sent || undefined);
       onStatus("confirming", sent.signature, sent.unclear ? { unclear: true } : undefined);
-      return watch(sent.signature, res, onStatus);
+      return watch(sent.signature, res, onStatus, false, R);
     }
     let used = false, last = null;
     return {
@@ -294,11 +299,11 @@
    * Poll /api/swap/status every 2 s for up to 90 s of real answers (a 429 waits and does not count). `alone`: the wallet signed and
    * sent it with no other signature, so its blockhash may not be the build's: past the build's last valid block it is "expired_unclear".
    */
-  async function watch(signature, res, onStatus, alone = false) {
+  async function watch(signature, res, onStatus, alone = false, R = ROUTES) {
     let deadline = Date.now() + 90_000, solscan = null;
     for (;;) {
       await wait(LP._pollMs);
-      const d = await call(`/api/swap/status?sig=${encodeURIComponent(signature)}&lvbh=${encodeURIComponent(res.lastValidBlockHeight || "")}&cluster=${encodeURIComponent(res.cluster || "mainnet")}`);
+      const d = await call(`${R.status}?sig=${encodeURIComponent(signature)}&lvbh=${encodeURIComponent(res.lastValidBlockHeight || "")}&cluster=${encodeURIComponent(res.cluster || "mainnet")}`);
       if (d && d.solscan) solscan = d.solscan;
       if (d && d.ok && (d.status === "confirmed" || d.status === "finalized")) { onStatus("done", signature); return { signature, status: d.status, solscan }; }
       if (d && d.ok && d.status === "failed") throw Object.assign(err("failed"), { signature, solscan, detail: d });
@@ -308,8 +313,8 @@
     }
   }
   /** prepare, show (onSummary resolves true to go on), sign. */
-  async function run({ wallet, build, ephemeral: n = 0, cluster, onSummary, onStatus } = {}) {
-    const h = await prepare({ wallet, build, ephemeral: n, cluster });
+  async function run({ wallet, build, ephemeral: n = 0, cluster, onSummary, onStatus, routes } = {}) {
+    const h = await prepare({ wallet, build, ephemeral: n, cluster, routes });
     if (onSummary && (await onSummary(h.response)) === false) throw err("cancelled");
     return h.sign({ onStatus });
   }

@@ -109,6 +109,8 @@ test("the numbers: verify 30, transfer 30 and pair 20 per 10 minutes per connect
     swap_tx_auto: { max: 60, windowMs: MIN }, lp_tx_auto: { max: 60, windowMs: MIN },
     // city coins on our launchpad (only with its settings): counted only when the chain is asked (src/coinmeta.js, src/lpcoins.js)
     coin_meta: { max: 60, windowMs: MIN }, lp_record: { max: 20, windowMs: MIN }, lp_coin: { max: 60, windowMs: MIN },
+    // Send from the Wallet tab (WALLET_SEND=on, src/walletsend.js): the taps, and the page's own live checks (?live=1) apart, as for the Buy panel
+    wallet_send_build: { max: 20, windowMs: MIN }, wallet_send_build_live: { max: 60, windowMs: MIN },
   });
   assert.deepEqual(STATUS_LIMIT, { max: 60, windowMs: MIN });
   assert.deepEqual(WALLET_LIMIT, { max: 15, windowMs: MIN });

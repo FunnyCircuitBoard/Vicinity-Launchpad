@@ -133,12 +133,17 @@ test("the scripts: dashboard-v2.js draws from the answers dashboard.js reads (it
   assert.doesNotMatch(v2, /signTransaction|signAndSend|sendTransaction|\/api\/swap\/send|\/api\/swap\/tx/, "nothing is sent or signed from the Wallet tab");
   // dashboard.js: the two existing answers (and the Buy card's own SOL price), one read per 10 s per wallet
   assert.match(dash, /const pf = await api\("\/api\/me\/portfolio"\);/);
-  assert.match(dash, /api\(`\/api\/swap\/balances\?owner=\$\{encodeURIComponent\(owner\)\}&mints=\$\{mints\.join\(","\)\}`\)/, "the balances answer, with the Worker's memo (never fresh=1)");
-  assert.doesNotMatch(dash.slice(dash.indexOf("async function readWallet"), dash.indexOf("function loadQR")), /fresh=1/);
+  assert.match(dash, /api\(`\/api\/swap\/balances\?owner=\$\{encodeURIComponent\(owner\)\}&mints=\$\{mints\.join\(","\)\}\$\{fresh\}`\)/, "the balances answer, with the Worker's memo");
+  // fresh=1 only after a send was confirmed (public/wallet-send.js, step 2: the memo may still hold the balances from before it); the tab's own reads never pass it
+  const rw = dash.slice(dash.indexOf("async function readWallet"), dash.indexOf("function loadWalletSend"));
+  assert.match(rw, /const fresh = afterSend \? "&fresh=1" : "";/);
+  assert.equal((rw.match(/fresh=1/g) || []).length, 1, "the one place");
   assert.match(dash, /const WALLET_READ_MS = 10_000;/);
   assert.match(dash, /const solUsd = pr && pr\.ok !== false && !pr\.stale && pr\.prices && Number\(pr\.prices\[SOL_MINT\]\) > 0 \? Number\(pr\.prices\[SOL_MINT\]\) : null;/, "never a stale SOL price (the portfolio's rule for the coins)");
   assert.match(dash, /portfolioOk: Boolean\(portfolio\), portfolioOff: Boolean\(pf && pf\._status === 404\), solUsd, at: balances \? balances\.at \|\| null : null \}\);/, "the page is told what is missing; the read time is the Worker's or none");
-  assert.match(dash, /if \(walletRead\.busy \|\| \(walletRead\.owner === owner && Date\.now\(\) - walletRead\.at < WALLET_READ_MS\)\) return;/);
+  // one read at a time, one per 10 s; after a send (afterSend, step 2) a running read is waited for and the chain asked again
+  assert.match(dash, /if \(walletRead\.busy\) \{ if \(!afterSend\) return false; try \{ await walletRead\.promise; \} catch \{ [^}]* \} return readWallet\(\{ afterSend: true \}\); \}/);
+  assert.match(dash, /if \(!afterSend && walletRead\.owner === owner && Date\.now\(\) - walletRead\.at < WALLET_READ_MS\) return false;/);
   assert.match(dash, /s\.src = "\/vendor\/qrcode\.js"/, "the QR code library the pairing flow already ships (scripts\/copy-assets.mjs)");
   assert.match(dash, /readWallet, qr: loadQR \}\);/, "both handed to v2 through ctx");
   // the Worker: the balances answer says when it was read (additive; every key it had stays)
