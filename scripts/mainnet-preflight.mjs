@@ -547,7 +547,10 @@ async function setupRows(summary, { row, lp, lrpc, fetchImpl, mainnetLp, global,
     if (!acc || acc.owner !== PROGRAM_IDS.dbc) row("FAIL", "setup price curve", `${cfgAddr} is not a Meteora DBC config on ${lp.cluster}`);
     else if (!inSettings) row("FAIL", "setup price curve", `${cfgAddr} is not in LAUNCHPAD_DBC_CONFIGS`);
     else if (diff.length) row(mainnetLp ? "FAIL" : "WARN", "setup price curve", `${cfgAddr} differs from Vicinity's mainnet defaults in: ${diff.join(", ")}${mainnetLp ? " (the City coins tab only creates the defaults: find out where this one came from)" : " (a devnet curve)"}`);
-    else row("PASS", "setup price curve", `${cfgAddr} is byte for byte the config Meteora writes for Vicinity's defaults (85 SOL target, 1.25% fee, 0.05 SOL launch fee, fees and leftovers to the dev wallet)`);
+    else {
+      const v = decodeConfig(acc)?.version;
+      row("PASS", "setup price curve", `${cfgAddr} is byte for byte the config Meteora writes for Vicinity's defaults (85 SOL target, 1.25% fee, 0.05 SOL launch fee, fees and leftovers to the dev wallet), its version aside: ${v} (${v === 0 ? "made before Meteora's DBC 0.2.2 (legacy)" : "made by a DBC build that writes version 1, such as mainnet's 0.2.2"}; both are accepted)`);
+    }
     // its allow-list entry
     const lcAddr = await P.launchConfig(cfgAddr);
     if (summary.launchConfig !== lcAddr) row("FAIL", "setup allow-list entry", `the summary names ${summary.launchConfig || "nothing"}, but the allow-list entry of ${short(cfgAddr)} is ${lcAddr}`);

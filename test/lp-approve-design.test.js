@@ -7,6 +7,7 @@
 // lookup; and the bytes handed to the wallet are the bytes simulated.
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { IN_UTICA, MINT, advance, browser, newWorld, person, realClock, useClock, chain } from "./helpers/world.js";
 import { _resetLpKit, GENESIS } from "../src/lpkit.js";
 import { _resetLpAdmin } from "../src/lpadmin.js";
@@ -17,7 +18,6 @@ import { decodeHeader } from "../src/sol/message.js";
 import { LAYOUT } from "../src/sol/layout.js";
 import { ADDRESSES, PROGRAM_IDS, launchpad as launchpadPdas, programDataAddress } from "../src/sol/pda.js";
 import { metadataAddress } from "../src/sol/metaplex.js";
-import { EXPECTED_POOL_CONFIG } from "../src/sol/dbc-config-data.js";
 
 const PROGRAM = "Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7", REWARDS = "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi";
 const LOADER = PROGRAM_IDS.upgradeableLoader, WSOL = ADDRESSES.wsol, METAPLEX = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
@@ -26,6 +26,8 @@ const b64 = (u8) => Buffer.from(u8).toString("base64");
 let n = 0;
 const fresh = () => base58Encode(Uint8Array.from({ length: 32 }, (_, j) => (++n * 37 + j * 11 + 5) & 255));
 const CONFIG = fresh();
+// the price curve's bytes are the live mainnet one's (EZVHCg…, made with DBC 0.2.1: PoolConfig.version 0), which approvals name
+const LIVE_CONFIG = JSON.parse(readFileSync(new URL("./fixtures/launchpad-worker/mainnet-pool-config.json", import.meta.url), "utf8")).accounts.EZVHCgxKZhvXmUGMXJMEw8tZHiTmoHPyM9mNNQ5u1kSP;
 const enc = new TextEncoder();
 const s32 = (s) => concat([u32le(enc.encode(s).length), enc.encode(s)]);
 
@@ -103,7 +105,7 @@ async function world() {
     [PROGRAM]: programAccount(pdLp), [REWARDS]: programAccount(pdRw), [pdLp]: programDataAccount(owner.w.address), [pdRw]: programDataAccount(owner.w.address),
     [await L.launchpad()]: { owner: PROGRAM, data: b64(layoutAccount("Launchpad", { admin: owner.w.address, rewards_program: REWARDS })) },
     [await L.launchConfig(CONFIG)]: { owner: PROGRAM, data: b64(layoutAccount("LaunchConfig", { dbc_config: CONFIG, quote_mint: WSOL, enabled: 1 })) },
-    [CONFIG]: { owner: PROGRAM_IDS.dbc, data: EXPECTED_POOL_CONFIG },
+    [CONFIG]: { owner: PROGRAM_IDS.dbc, data: LIVE_CONFIG.data },
   });
   const main = chain();
   const both = (url, init) => (String(url).startsWith("https://lp-rpc.test") ? lp.fetchImpl(url, init) : main(url, init));

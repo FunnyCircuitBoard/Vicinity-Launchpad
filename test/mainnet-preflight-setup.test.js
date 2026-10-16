@@ -22,6 +22,8 @@ import { lookupTableAddresses, partnerMetadataAddress, rewards as rewardsPdas } 
 import { fakeWorld, REAL_VIC } from "./helpers/jupfake.js";
 
 const VECTORS = JSON.parse(readFileSync(new URL("./fixtures/squads/vectors.json", import.meta.url), "utf8"));
+// The live mainnet price curve EZVHCg… as read from the chain (made with DBC 0.2.1: PoolConfig.version 0)
+const LIVE_CONFIG = JSON.parse(readFileSync(new URL("./fixtures/launchpad-worker/mainnet-pool-config.json", import.meta.url), "utf8")).accounts.EZVHCgxKZhvXmUGMXJMEw8tZHiTmoHPyM9mNNQ5u1kSP;
 const MS = VECTORS.synthetic[0]; // 2 of 3, no config authority: what app.squads.so makes
 const VAULT = MS.expected.vaults[0];
 const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -167,6 +169,7 @@ test("setup preflight: right after the website setup (before PR-2) every row pas
   assert.equal(by(rows, "launchpad program fingerprint").detail, `${LP_ELF.length} bytes, SHA-256 ${sha(LP_ELF)} = the build record`);
   assert.equal(by(rows, "rewards program fingerprint").detail, `${RW_ELF.length} bytes, SHA-256 ${sha(RW_ELF)} = the build record (the first ${RW_ELF.length} of ${RW_ELF.length + 64} bytes; the rest is zero padding)`);
   assert.match(by(rows, "setup price curve").detail, /byte for byte the config Meteora writes for Vicinity's defaults \(85 SOL target, 1\.25% fee, 0\.05 SOL launch fee/);
+  assert.match(by(rows, "setup price curve").detail, /, its version aside: 1 \(made by a DBC build that writes version 1, such as mainnet's 0\.2\.2; both are accepted\)$/);
   assert.match(by(rows, "setup speed table").detail, new RegExp(`^${TABLE} holds the price curve and its allow-list entry \\(${c.tableAddrs.length} addresses; authority ${DEV}\\)$`));
   assert.match(by(rows, "speed table for city coins").detail, new RegExp(`^holds all ${c.tableAddrs.length} addresses`));
   assert.match(by(rows, "setup fee accounts").detail, /^SOL \w+; \$VICINITY \w+$/);
@@ -272,6 +275,29 @@ test("setup preflight: fingerprints, admins, the price curve, the table, the par
   // fee accounts the summary names wrong / missing on chain
   const fee = await run(PR2_ENV, world({ ...c.accounts, [c.summary.referralAccounts.vicinity]: undefined }), { setup: { ...c.summary, referralAccounts: { wsol: DEV, vicinity: c.summary.referralAccounts.vicinity } } });
   assert.equal(by(fee, "setup fee accounts").level, "FAIL"); assert.match(by(fee, "setup fee accounts").detail, new RegExp(`^SOL: the summary names ${DEV}, the dev wallet's account is \\w+`));
+});
+
+test("setup preflight: the price curve passes as the live mainnet one (version 0) or as one made on DBC 0.2.2 (version 1); version 2 or a transfer fee FAILs", async () => {
+  const F = LAYOUT.PoolConfig.fields;
+  const curve = async (bytes) => {
+    const c = await chainAfterSetup({ [CONFIG]: { owner: PROGRAM_IDS.dbc, data: Buffer.from(bytes).toString("base64") } });
+    return by(await run(PR2_ENV, world(c.accounts), { setup: c.summary }), "setup price curve");
+  };
+  const live = Buffer.from(LIVE_CONFIG.data, "base64");
+  let r = await curve(live);
+  assert.equal(r.level, "PASS", r.detail);
+  assert.match(r.detail, /, its version aside: 0 \(made before Meteora's DBC 0\.2\.2 \(legacy\); both are accepted\)$/);
+  r = await curve(Buffer.from(EXPECTED_POOL_CONFIG, "base64"));
+  assert.equal(r.level, "PASS", r.detail);
+  const v2 = Buffer.from(live); v2[F.version.at] = 2;
+  r = await curve(v2);
+  assert.equal(r.level, "FAIL"); assert.match(r.detail, /differs from Vicinity's mainnet defaults in: version \(/);
+  const fee = Buffer.from(live); fee[F.transfer_fee_flag.at] = 1;
+  r = await curve(fee);
+  assert.equal(r.level, "FAIL"); assert.match(r.detail, /differs from Vicinity's mainnet defaults in: transfer_fee_flag \(/);
+  const bps = Buffer.from(EXPECTED_POOL_CONFIG, "base64"); bps.writeUInt16LE(50, F.transfer_fee_basis_points.at);
+  r = await curve(bps);
+  assert.equal(r.level, "FAIL"); assert.match(r.detail, /differs from Vicinity's mainnet defaults in: transfer_fee_basis_points \(/);
 });
 
 test("setup preflight: the live site's city-coin rows: off here and there passes; on here but off there, /coin-meta answered by the static 404 page, no logo: FAIL", async () => {

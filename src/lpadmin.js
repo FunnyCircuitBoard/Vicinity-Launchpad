@@ -37,7 +37,7 @@ import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas, programDataAdd
 import { createAtaIdempotent } from "./sol/ix.js";
 import { accountBytes, decodeCoin, decodeConfig, decodeLaunchConfig, decodeLaunchpad, decodePool, decodeProgramAccount, decodeProgramData, decodeTokenAccount } from "./sol/dbc.js";
 import { LAYOUT } from "./sol/layout.js";
-import { bytesEqual, fromBase64, readI64, readU32, readU64 } from "./sol/bytes.js";
+import { fromBase64, readI64, readU32, readU64 } from "./sol/bytes.js";
 import { compileLegacy, MAX_TX_BYTES, wrapUnsigned } from "./sol/message.js";
 import { DBC_CONFIG_DEFAULTS, DBC_PROGRAM_SHA256, EXPECTED_POOL_CONFIG } from "./sol/dbc-config-data.js";
 import { checkMultisig } from "./sol/squads.js";
@@ -160,18 +160,31 @@ export function decodeTable(account) {
 const EXPECTED = fromBase64(EXPECTED_POOL_CONFIG);
 const CONFIG_FIELDS = Object.entries(LAYOUT.PoolConfig.fields).filter(([, f]) => Number.isInteger(f.at) && Number.isInteger(f.size)).sort((x, y) => x[1].at - y[1].at);
 /**
- * Compare a DBC config account with the one Meteora writes for the Vicinity defaults (src/sol/dbc-config-data.js). [] when equal,
- * else the names of the fields that differ (plain field names of the IDL, e.g. "migration_quote_threshold").
+ * PoolConfig.version, the one byte that may differ: DBC 0.2.1 wrote 0 and DBC 0.2.2 (on mainnet since 16 Oct 2026) writes 1. The
+ * live mainnet config (EZVHCg…, made on 12 Oct 2026) is version 0, a config made now is version 1, and DBC 0.2.2 runs both (a
+ * version-0 config keeps the original graduation path; with a SOL quote the money is the same to the unit, LAUNCHPAD-DESIGN.md
+ * section 17). Any other value is a config nobody has tested and differs as "version".
+ */
+const VERSION_AT = LAYOUT.PoolConfig.fields.version.at;
+const ACCEPTED_VERSIONS = new Set([0, 1]);
+const configByteOk = (bytes, i) => (i === VERSION_AT ? ACCEPTED_VERSIONS.has(bytes[i]) : bytes[i] === EXPECTED[i]);
+/**
+ * Compare a DBC config account with the one Meteora writes for the Vicinity defaults (src/sol/dbc-config-data.js): every byte
+ * equal (the transfer-fee fields of DBC 0.2.2 included, all zero: our coins have no transfer fee), except PoolConfig.version,
+ * which may be 0 or 1. [] when it matches, else the names of the fields that differ (plain field names of the IDL, e.g.
+ * "migration_quote_threshold"). Every check of a price curve against the defaults goes through here (the City coins tab's step 3,
+ * its record step and scripts/mainnet-preflight.mjs).
  */
 export function configDiff(account) {
   const a = accountBytes(account);
   if (!a || (a.owner && a.owner !== PROGRAM_IDS.dbc)) return ["not a Meteora DBC config"];
   if (a.bytes.length !== EXPECTED.length) return ["size"];
-  if (bytesEqual(a.bytes, EXPECTED)) return [];
+  const bad = (from, to) => { for (let i = from; i < to; i++) if (!configByteOk(a.bytes, i)) return true; return false; };
+  if (!bad(0, EXPECTED.length)) return [];
   const out = [];
   for (const [name, f] of CONFIG_FIELDS) {
     if (name.includes("[") && out.includes("curve")) continue;
-    for (let i = f.at; i < f.at + f.size; i++) if (a.bytes[i] !== EXPECTED[i]) { out.push(name.startsWith("curve[") ? "curve" : name); break; }
+    if (bad(f.at, f.at + f.size * (f.count || 1))) out.push(name.startsWith("curve[") ? "curve" : name);
   }
   return out.length ? [...new Set(out)] : ["other bytes"];
 }
@@ -189,6 +202,8 @@ function configFacts(acc) {
 const programHashes = new Map(); // "<programData>|<slot>" -> { size, sha256 }
 const rentRates = new Map(); // "<cluster>|<rpc>" -> lamports per byte (Solana's rent, read from the cluster once per server)
 export const _resetLpAdmin = () => { programHashes.clear(); rentRates.clear(); };
+/** Tests only: what a read of `programData` at deploy slot `slot` hashes to (a fake chain cannot hold Meteora's real program bytes). */
+export const _seedProgramHash = (programData, slot, sha256, size = 0) => { programHashes.set(`${programData}|${slot}`, { size, sha256 }); };
 /**
  * Solana's rent per byte on this cluster (getMinimumBalanceForRentExemption(0) / 128: every account carries 128 bytes of
  * overhead), read once per server; null when the node did not answer (the page then names no number; the simulated SOL change is
@@ -216,6 +231,21 @@ async function programHash(env, programData, slot, fetchImpl) {
   const out = { size: body.length, sha256: [...new Uint8Array(await crypto.subtle.digest("SHA-256", body))].map((x) => x.toString(16).padStart(2, "0")).join("") };
   programHashes.set(k, out);
   if (programHashes.size > 50) programHashes.delete(programHashes.keys().next().value);
+  return out;
+}
+/**
+ * Meteora's bonding-curve program as deployed now: { programData, slot, sha256, pinned }, with sha256 null when it could not be
+ * read (then nothing that depends on it goes ahead). `head` is its ProgramData header when the caller read it already.
+ */
+async function dbcFingerprint(env, fetchImpl, pdDbc, head) {
+  if (head === undefined) {
+    try { const r = await lpRpc(env, "getAccountInfo", [pdDbc, { encoding: "base64", commitment: "confirmed", dataSlice: { offset: 0, length: 45 } }], fetchImpl); head = r && r.value; } catch (e) { console.error("dbc program read failed", codeOf(e)); head = null; }
+  }
+  const h = decodeProgramData(head);
+  const out = { programData: pdDbc, slot: h ? h.slot.toString() : null, sha256: null, pinned: DBC_PROGRAM_SHA256 };
+  if (out.slot !== null) {
+    try { Object.assign(out, await programHash(env, pdDbc, out.slot, fetchImpl)); } catch (e) { console.error("dbc program hash read failed", codeOf(e)); }
+  }
   return out;
 }
 function programInfo(id, acc, pdAddress, pdHead) {
@@ -285,13 +315,11 @@ async function readState(env, s, wallet, fetchImpl, { hashes = false } = {}) {
   const cfgAcc = get(config);
   // Meteora's bonding-curve program, while no price curve exists yet (before step 3): the curve this tab creates is checked byte for
   // byte against what the PINNED build writes (src/sol/dbc-config-data.js), so a Meteora upgrade since that pin is caught BEFORE
-  // the owner spends anything (the devnet rehearsal: devnet's newer build writes PoolConfig.version 1, and the curve it made was
-  // refused at record time). Read once per isolate and deploy slot; null when the program could not be read at all.
+  // the owner spends anything (the devnet rehearsal: devnet's newer build wrote PoolConfig.version 1 before any pin knew of it, and
+  // the curve it made was refused at record time). Read once per isolate and deploy slot; null when the program could not be read,
+  // and then step 3 waits too: since PoolConfig.version 0 and 1 are both accepted, the fingerprint is what tells builds apart.
   const dbcHead = decodeProgramData(head[2]);
-  const dbc = { programData: pdDbc, slot: dbcHead ? dbcHead.slot.toString() : null, sha256: null, pinned: DBC_PROGRAM_SHA256 };
-  if (!cfgAcc && dbc.slot !== null) {
-    try { Object.assign(dbc, await programHash(env, pdDbc, dbc.slot, fetchImpl)); } catch (e) { console.error("dbc program hash read failed", codeOf(e)); }
-  }
+  const dbc = cfgAcc ? { programData: pdDbc, slot: dbcHead ? dbcHead.slot.toString() : null, sha256: null, pinned: DBC_PROGRAM_SHA256 } : await dbcFingerprint(env, fetchImpl, pdDbc, head[2]);
   const table = lookup ? decodeTable(get(lookup)) : null;
   const ms = multisig ? await checkMultisig(multisig, get(multisig)) : null;
   const rent = await rentPerByte(env, s, fetchImpl);
@@ -361,7 +389,12 @@ export async function setupSteps(st) {
   if (c && c.exists && c.diff && c.diff.length === 0) s3 = step("config", "done", `The price curve ${c.address} matches Vicinity's defaults (85 SOL target, 1.25% fee, 0.05 SOL launch fee, fees to ${short(DEV)}).`, { address: c.address });
   else if (c && c.exists && c.source === "settings") s3 = step("config", "done", `The price curve ${c.address} comes from the settings. It differs from the mainnet defaults in: ${c.diff.join(", ")}.`, { address: c.address, note: true });
   else if (c && c.exists) s3 = step("config", "blocked", `The price curve ${c.address} differs from Vicinity's defaults in: ${c.diff.join(", ")}. Tell the team; do not allow it.`, { address: c.address });
-  else if (s2.state === "done" && st.dbc && st.dbc.sha256 && st.dbc.sha256 !== st.dbc.pinned) s3 = step("config", "blocked", `Meteora has updated its bonding-curve program since the team checked it (its fingerprint is now ${st.dbc.sha256.slice(0, 12)}…, the checked one ${st.dbc.pinned.slice(0, 12)}…). A price curve made now may differ from the tested one, so this step waits. Nothing was spent; tell the team, who re-check Meteora's new program first.`, { dbc: { sha256: st.dbc.sha256, pinned: st.dbc.pinned, slot: st.dbc.slot } });
+  else if (s2.state === "done" && !(st.dbc && st.dbc.sha256 && st.dbc.sha256 === st.dbc.pinned)) {
+    s3 = step("config", "blocked", st.dbc && st.dbc.sha256
+      ? `Meteora has updated its bonding-curve program since the team checked it (its fingerprint is now ${st.dbc.sha256.slice(0, 12)}…, the checked one ${st.dbc.pinned.slice(0, 12)}…). A price curve made now may differ from the tested one, so this step waits. Nothing was spent; tell the team, who re-check Meteora's new program first.`
+      : "Meteora's bonding-curve program could not be read, so its fingerprint is unknown and this step waits (a price curve is made only on the build the team checked). Nothing was spent; reload this page in a minute.",
+    { dbc: st.dbc ? { sha256: st.dbc.sha256, pinned: st.dbc.pinned, slot: st.dbc.slot } : null });
+  }
   else s3 = after2("config", true, `Creates the Meteora price curve with a one-time key made in this browser (${rentWords(st.rent, LAYOUT.PoolConfig.size)}).${c && c.source === "recorded" ? ` The recorded curve ${c.address} is not on chain, so a new one is made.` : ""}`, { ephemeral: 1 });
   out.push(s3);
 
@@ -591,6 +624,10 @@ async function recordStep(env, ctx, body, fetchImpl, now) {
       const acc = (await readAccounts(env, [a], fetchImpl)).get(a) || null;
       const diff = acc ? configDiff(acc) : ["missing"];
       if (diff.length) return err("config_differs", `The price curve ${a} ${acc ? `differs from Vicinity's defaults in: ${diff.join(", ")}` : "is not on chain yet"}. It was not recorded.`);
+      // the bytes say "version 0 or 1", not which build wrote them: the program that made it must be the one the team checked
+      const fp = st.dbc && st.dbc.sha256 ? st.dbc : await dbcFingerprint(env, fetchImpl, st.dbc.programData);
+      if (!fp.sha256) return err("dbc_unreadable", `Meteora's bonding-curve program could not be read, so the price curve ${a} was not recorded. Press Record again in a minute.`);
+      if (fp.sha256 !== fp.pinned) return err("dbc_changed", `Meteora has updated its bonding-curve program since the team checked it (its fingerprint is now ${fp.sha256.slice(0, 12)}…, the checked one ${fp.pinned.slice(0, 12)}…), so the price curve ${a} was not recorded. Tell the team, who re-check Meteora's new program first.`);
       writes.push(putSetup(db, s, "config", { address: a, signature, wallet, now }));
       break;
     }

@@ -8,9 +8,11 @@
 //        the Worker were bypassed); a registry that exists already is skipped
 //   TN03 step 2: a pasted vault, a wallet, a 1-of-2 and a controlled multisig are refused; a 2-of-3 Squads multisig's vault gets
 //        both upgrade authorities through SetAuthority x2; recorded; step 1 can never run again
-//   TN04 steps 3-7: the price curve from a one-time key equals Meteora's account for the defaults byte for byte; allowed; the
-//        dev wallet's fee account; the speed table (create + extend in one transaction) holds the SDK's address list; Vicinity's
-//        partner entry (signed as the dev wallet); the summary for the team is complete
+//   TN04 steps 3-7: the price curve from a one-time key equals Meteora's account for the defaults byte for byte (DBC 0.2.2 writes
+//        PoolConfig.version 1); the live mainnet curve EZVHCg… (version 0, made with DBC 0.2.1) differs only there and passes the
+//        same check, another version does not; allowed; the dev wallet's fee account; the speed table (create + extend in one
+//        transaction) holds the SDK's address list; Vicinity's partner entry (signed as the dev wallet); the summary for the team
+//        is complete
 //   TN05 approve on chain (founder, name, ticker, expiry) and revoke (the rent comes back); the founder launches
 //   TN06 a launched coin: collect city fees, set up holder rewards (Holders, 0 bps, the city tag), forward the holders' share,
 //        pause and resume launches; after graduation the city's pool fees through its own position
@@ -37,12 +39,14 @@ import { decodeHeader } from '../../src/sol/message.js';
 import { _resetTickers } from '../../src/tickers.js';
 import * as WX from '../../src/sol/lpadmin-ix.js';
 import { CREATE_CONFIG_DATA, EXPECTED_POOL_CONFIG } from '../../src/sol/dbc-config-data.js';
+import { LAYOUT } from '../../src/sol/layout.js';
 import { generate } from '../scripts/launchpad/worker-config-bytes.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const solanaDir = join(here, '..');
 const ROOT = join(solanaDir, '..');
 const VECTORS = JSON.parse(readFileSync(join(ROOT, 'test', 'fixtures', 'squads', 'vectors.json'), 'utf8'));
+const LIVE_CONFIGS = JSON.parse(readFileSync(join(ROOT, 'test', 'fixtures', 'launchpad-worker', 'mainnet-pool-config.json'), 'utf8')).accounts;
 const SQUADS = 'SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf';
 const DEV = ADDRESSES.feeRecipient;
 const plain = (ix) => ({ p: String(ix.programAddress), a: ix.accounts.map((x) => `${x.address}:${x.role}`), d: Buffer.from(ix.data).toString('hex') });
@@ -290,6 +294,18 @@ describe('17 the admin City coins tab against the real programs', () => {
     config = cfgSigner.address;
     assert.deepEqual(Buffer.from(w.account(config).data), Buffer.from(EXPECTED_POOL_CONFIG, 'base64'), 'Meteora wrote exactly the expected account');
     assert.deepEqual(configDiff(asRpc(w.account(config))), []);
+    // the live mainnet curve, as read from the chain: the same account but for PoolConfig.version (0, made with DBC 0.2.1)
+    const V = LAYOUT.PoolConfig.fields.version.at;
+    const [liveAddress, liveAcc] = Object.entries(LIVE_CONFIGS)[0];
+    const live = Buffer.from(liveAcc.data, 'base64'), made = Buffer.from(w.account(config).data);
+    assert.deepEqual([liveAddress, V, live[V], made[V]], ['EZVHCgxKZhvXmUGMXJMEw8tZHiTmoHPyM9mNNQ5u1kSP', 236, 0, 1]);
+    assert.deepEqual([...live.keys()].filter((i) => live[i] !== made[i]), [V]);
+    w.setRaw(liveAddress, live, liveAcc.owner, BigInt(liveAcc.lamports));
+    assert.deepEqual(configDiff(asRpc(w.account(liveAddress))), [], 'the live curve passes');
+    const v2 = Buffer.from(live); v2[V] = 2;
+    w.setRaw(liveAddress, v2, liveAcc.owner, BigInt(liveAcc.lamports));
+    assert.deepEqual(configDiff(asRpc(w.account(liveAddress))), ['version'], 'a version nobody has tested does not');
+    w.setRaw(liveAddress, live, liveAcc.owner, BigInt(liveAcc.lamports));
     rpc.known.add(config);
     assert.equal((await call(owner.address, 'record', { step: 'config', signature: sig3, params: { address: stranger.address } })).data.error, 'wrong_transaction');
     assert.equal((await call(owner.address, 'record', { step: 'config', signature: sig3, params: { address: config } })).data.ok, true);

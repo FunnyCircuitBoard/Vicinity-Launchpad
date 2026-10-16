@@ -75,7 +75,7 @@ export function decodeConfig(account) {
     creatorTradingFeePercentage: BigInt(r("creator_trading_fee_percentage")), collectFeeMode: r("collect_fee_mode"), tokenDecimal: r("token_decimal"),
     swapBaseAmount: r("swap_base_amount"), migrationQuoteThreshold: r("migration_quote_threshold"), migrationBaseThreshold: r("migration_base_threshold"),
     migrationSqrtPrice: r("migration_sqrt_price"), sqrtStartPrice: r("sqrt_start_price"), curve, poolCreationFee: r("pool_creation_fee"),
-    migratedPoolFeeBps: r("migrated_pool_fee_bps"), tokenType: r("token_type"), quoteTokenFlag: r("quote_token_flag"),
+    migratedPoolFeeBps: r("migrated_pool_fee_bps"), tokenType: r("token_type"), quoteTokenFlag: r("quote_token_flag"), version: r("version"),
   };
 }
 /** The on-chain AddressLookupTable account: its addresses (56-byte header, then 32 bytes each). null when it is not one. */

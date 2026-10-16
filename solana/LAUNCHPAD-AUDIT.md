@@ -146,6 +146,15 @@ maths matching the real program to the raw unit after every trade.
 | keeper, minute pass after a curve fills: graduation, then leftover + harvest + forward in one transaction | 243,185, then about 160,000 | 1,109, then 973 |
 | keeper, daily pass, ten coins' harvest + forward | 7 transactions | 878 to 1,170 each |
 
+**16 October 2026, Meteora DBC 0.2.2:** the figures above were measured on DBC 0.2.1. On 0.2.2, now
+on mainnet, each DBC `swap2` costs about 3,500 more compute units: +3,464 to +3,512 across the
+re-test's runs, for example 29,987 to 33,468 for a 1 SOL buy and 36,086 to 39,598 for the partial
+fill that completes the curve. The money is the same to the unit. A curve trade from
+the Worker still asks for 120,000 units (`CU.swap` in `src/sol/ix.js`), and after simulating it
+re-sizes the limit to 1.2 times what the simulation used (`src/lptrade.js`), so it stays well inside
+the budget. Graduation went from 267,186 to 267,256 units, inside its limit of 400,000
+(`LAUNCHPAD-DESIGN.md` section 17).
+
 ### 5.2 Money and rent
 
 * A launch cost the founder 0.0812 SOL in the test VM, which uses the old rent
