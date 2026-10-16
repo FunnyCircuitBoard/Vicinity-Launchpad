@@ -1837,13 +1837,99 @@ All tests run **in process**, with no validator and no ports:
     `scripts/launchpad/fetch-fixtures.sh` with `solana program dump -u m` into
     `tests-launchpad/fixtures/programs/` (gitignored). The script checks the pinned SHA-256:
 
-    | dump | SHA-256 |
-    |---|---|
-    | `dbc.so` | `4c26a8a5da99f8ce932fa0300c46675b527090021fbb74214c9486bedda9f23b` |
-    | `damm_v2.so` | `4d5b920baebc090f89b2e8796a3452ed067c9667a143058c96a312f2c1e6848b` |
-    | `mpl_token_metadata.so` | `31f0a627dba051a938de650464e55cc5397a4be0fd496929c1f9cf02fe5e9011` |
+    | dump | build | SHA-256 |
+    |---|---|---|
+    | `dbc.so` | DBC 0.2.2 (mainnet slot 457,502,600, 16 Oct 2026) | `e2bfc853c1a1778dd8ee40ea9a0f3edf5587442360c57c685e7e3024ad0cad47` |
+    | `damm_v2.so` | DAMM v2 0.2.5 (mainnet slot 457,080,014, 15 Oct 2026) | `967ff9fb161eec2e62f66d2c899100739fb747c445f697b8625c86b31b9a2022` |
+    | `mpl_token_metadata.so` | Metaplex Token Metadata (unchanged) | `31f0a627dba051a938de650464e55cc5397a4be0fd496929c1f9cf02fe5e9011` |
 
     A mismatch means Meteora upgraded: stop, review their changelog, re-pin.
+
+    **Re-pinned on 16 October 2026.** Meteora upgraded both programs on mainnet:
+    DBC 0.2.1 to 0.2.2 (was `4c26a8a5…`) and DAMM v2 0.2.4 to 0.2.5 (was
+    `4d5b920b…`).
+    * *What changed.* DBC 0.2.2 adds `create_config2` (a Token-2022 base mint
+      with a transfer fee), errors 6083-6086 and the events `EvtCreateConfig3`
+      and `EvtSwap3`. Its `create_config` now writes `PoolConfig.version = 1`
+      (and is marked deprecated in favour of `create_config2`; it still works,
+      and the live config exists already).
+      PoolConfig's `padding_0[14]` (bytes 216-229) becomes
+      `transfer_fee_basis_points` (u16), `transfer_fee_withheld_authority`,
+      `migrated_transfer_fee_authority_option`, `transfer_fee_flag` (u8 each)
+      and `padding_0[9]`; no other offset moved. A version-0 config is
+      "legacy": at launch its quote mint is checked against the older badge
+      rule, and at graduation it always takes the original
+      `process_migrate_damm_v2` path. DAMM v2 0.2.5 changes no IDL item: it
+      allows `compounding_fee_bps = 0`, and its fee accumulators wrap instead
+      of failing on overflow.
+    * *Re-tested.* The whole in-process suite ran on the new bytes. Every money
+      figure is equal on both builds, to the unit: the fees, Meteora's 20 %
+      share, the referral's 20 % of it, the splits, the 0.2 % migration fee,
+      the 90/10 launch fee and the rent. Only two things differ: compute units
+      (each DBC swap costs about 3,500 more, `LAUNCHPAD-AUDIT.md` 5.1) and the
+      source line numbers in Anchor's error logs. The only failures were our
+      own pins (the program fingerprint and the version byte of the expected
+      config), and this re-pin fixes them.
+    * *The live config.* `EZVHCg…` was made on 12 Oct 2026 with DBC 0.2.1, so
+      it is version 0. It was read again at slots 457,700,370 and 457,706,945,
+      its transfer-fee bytes are all zero, and it equals the old
+      `EXPECTED_POOL_CONFIG` byte for byte. The re-test's full suite as of
+      `97358fb` (140 tests; `19-wallet-send`, added since, ran only on
+      version-1 configs), with every config rewritten to version 0, passed on
+      both builds, and its ledger of 2,750 transactions matched old against
+      new, apart from one deliberate out-of-compute refusal whose log wording
+      changed and the grouping of claim batches, which varies run to run on
+      either build. The exact live bytes then went through a whole coin's life
+      on both builds: launch, trades, refusals, fee claims, graduation, the
+      dev wallet's claims and pool trades. All 200 figures and all 16 refusal
+      codes matched. On 0.2.2 this config takes the legacy graduation path;
+      with a SOL quote (a classic SPL mint, scored Permissionless) both
+      quote-mint rules pass, and a version-1 config without a transfer fee
+      graduates through the same `process_migrate_damm_v2` code.
+    * *In the suite from now on.* `tests-launchpad/20-legacy-config.test.mjs`
+      (TV01-TV02) installs the exact live bytes
+      (`test/fixtures/launchpad-worker/mainnet-pool-config.json`) and runs a
+      coin's whole life on them through our program and the keeper, side by
+      side with a version-1 config the same build makes: launch, buys and
+      sells, refusals, a harvest, the fill, graduation with the leftover and
+      the surplus, the dev wallet's claims, DAMM v2 trades and the position
+      fees. Every amount (101 figures), every refusal code (15) and the masked
+      account states must be equal, and the live config must still be version
+      0 and unchanged at the end. It is the test that executes a legacy
+      config on the pinned build: run it at every re-pin.
+    * *What this changes.* `src/sol/dbc-config-data.js` is regenerated: the
+      fingerprint is now `e2bfc853…`, the expected account has version 1, and
+      the `create_config` data is unchanged. `configDiff` in `src/lpadmin.js`
+      accepts `PoolConfig.version` 0 or 1 and nothing else. Every other byte
+      must still be equal, so the four transfer-fee fields must be zero.
+      `src/sol/layout.js` names the new fields. As versions 0 and 1 both pass,
+      the bytes alone no longer tell a newer build apart, so the program
+      fingerprint now fails closed: the City coins tab's step 3 waits when
+      Meteora's program cannot be read (before, it went ahead without a
+      fingerprint), and its record step refuses a price curve while the
+      fingerprint differs from the pin or cannot be read. The suite on this
+      branch passes 148 of 148 on the new bytes. No program change, no fee
+      change.
+    * *The IDLs stay at DBC 0.2.1 and DAMM v2 0.2.4.* They are what the
+      deployed program was built against. Nothing that program calls changed
+      its accounts, arguments or discriminator in 0.2.2 or 0.2.5:
+      `initialize_virtual_pool_with_spl_token`, `claim_creator_trading_fee`,
+      `creator_withdraw_surplus` and DAMM's `claim_position_fee`. The same
+      holds for every instruction the Worker and keeper build: `swap2`,
+      `migration_damm_v2`, `withdraw_leftover`, `claim_trading_fee`,
+      `claim_partner_pool_creation_fee`, `partner_withdraw_surplus` and
+      `create_config`. The `VirtualPool`, DAMM `Pool` and `Position` layouts
+      are unchanged. Checked against Meteora's source: `git diff f552f20
+      91e696e` (DBC) and `git diff a85c926 5398b5c` (DAMM v2) change no
+      `#[derive(Accounts)]` struct of these instructions (two doc comments
+      aside; only the Token-2022 launch structs changed), no
+      `ConfigParameters` field and no argument; 0.2.2 only adds
+      `create_config2` with `TransferFeeParameters`.
+    * *Not covered.* The legacy-only refusals for a quote mint that is not SOL
+      need a quote our allow-list refuses (TB08), so they cannot be reached.
+      This is litesvm with mainnet dumps, not the mainnet runtime. Devnet's
+      DBC was upgraded as well (slot 508,712,305, `5edf76d9…`); it has not
+      been re-tested, so its pin stays as it was.
 * Fixture accounts:
   * the customizable DAMM v2 config `A8gMrE…` as JSON;
   * the WSOL mint (litesvm's native mint);

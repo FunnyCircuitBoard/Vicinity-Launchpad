@@ -408,7 +408,7 @@ The full list (D1 to D21) is in `LAUNCHPAD-DESIGN.md` section 21.
 | part | what it is | where |
 |---|---|---|
 | `vicinity_launchpad` (Anchor 0.31) | launch gate, config allow-list, fee split, pots, founder payouts | `programs/vicinity-launchpad/src` |
-| Meteora DBC 0.2.1 and DAMM v2 0.2.4 | the curve, swaps, graduation, the pool (audited by others; called, not changed) | pinned binaries in `scripts/launchpad/fetch-fixtures.sh` |
+| Meteora DBC 0.2.2 and DAMM v2 0.2.5 (on mainnet since 16 and 15 Oct 2026; our program is compiled against their 0.2.1 and 0.2.4 IDLs, and nothing it calls changed: `LAUNCHPAD-DESIGN.md` section 17) | the curve, swaps, graduation, the pool (audited by others; called, not changed) | pinned binaries in `scripts/launchpad/fetch-fixtures.sh` |
 | `vicinity_rewards` | the Merkle claim distributor (audited separately: `AUDIT.md`) | `programs/vicinity-rewards` |
 | the TypeScript SDK | account decoding, quotes, every transaction the website and operators send | `sdk/launchpad/*.mts` (on top of the JavaScript modules `*.mjs`) |
 | scripts | setup, keeper, snapshot, platform-fee claims, devnet demo | `scripts/launchpad/` |

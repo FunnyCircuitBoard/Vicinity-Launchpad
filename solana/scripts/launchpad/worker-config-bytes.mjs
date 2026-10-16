@@ -3,7 +3,8 @@
 // the Vicinity Meteora DBC config (vicinityConfigParams() defaults: SOL quote, 85 SOL target, 1.25% fee, 0.05 SOL launch fee,
 // fee claimer and leftover receiver the dev wallet), and the PoolConfig account Meteora's real program writes for it, read back
 // from litesvm (the pinned mainnet dump of DBC). The admin "City coins" tab builds setup step 3 from the first and, once the
-// config is on chain, compares it byte for byte with the second, naming any field that differs.
+// config is on chain, compares it byte for byte with the second (every byte but PoolConfig.version, which may be 0 or 1:
+// src/lpadmin.js configDiff), naming any field that differs.
 //
 //   node scripts/launchpad/worker-config-bytes.mjs           (from solana/) regenerate the file
 //   node scripts/launchpad/worker-config-bytes.mjs --check   exit 1 when the committed file is stale

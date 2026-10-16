@@ -36,7 +36,7 @@
     for (let i = 0; i < tries; i++) {
       r = await D.post("/api/admin/lp/record", { step: entry.step, signature: entry.signature, params: entry.params || {}, cluster });
       if (r && r.ok) { forget(entry.signature); return r; }
-      if (!r || !["not_confirmed", "not_done", "rpc_unavailable", "offline"].includes(r.error)) break;
+      if (!r || !["not_confirmed", "not_done", "rpc_unavailable", "dbc_unreadable", "offline"].includes(r.error)) break;
       await new Promise((ok) => setTimeout(ok, 2500));
     }
     if (r && ["bad_signature", "failed", "wrong_transaction", "not_yours", "bad_step"].includes(r.error)) forget(entry.signature);
