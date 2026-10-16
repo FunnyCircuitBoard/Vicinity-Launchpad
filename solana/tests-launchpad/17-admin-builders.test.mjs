@@ -8,11 +8,12 @@
 //        the Worker were bypassed); a registry that exists already is skipped
 //   TN03 step 2: a pasted vault, a wallet, a 1-of-2 and a controlled multisig are refused; a 2-of-3 Squads multisig's vault gets
 //        both upgrade authorities through SetAuthority x2; recorded; step 1 can never run again
-//   TN04 steps 3-7: the price curve from a one-time key equals Meteora's account for the defaults byte for byte (DBC 0.2.2 writes
-//        PoolConfig.version 1); the live mainnet curve EZVHCg… (version 0, made with DBC 0.2.1) differs only there and passes the
-//        same check, another version does not; allowed; the dev wallet's fee account; the speed table (create + extend in one
-//        transaction) holds the SDK's address list; Vicinity's partner entry (signed as the dev wallet); the summary for the team
-//        is complete
+//   TN04 steps 3-7: the Worker's fingerprints of Meteora's two programs as loaded here (src/programpins.js) are the dumps'
+//        SHA-256 (by default the mainnet pins), so the check says "as tested"; the price curve from a one-time key equals Meteora's
+//        account for the defaults byte for byte (DBC 0.2.2 writes PoolConfig.version 1); the live mainnet curve EZVHCg… (version 0,
+//        made with DBC 0.2.1) differs only there and passes the same check, another version does not; allowed; the dev wallet's fee
+//        account; the speed table (create + extend in one transaction) holds the SDK's address list; Vicinity's partner entry
+//        (signed as the dev wallet); the summary for the team is complete
 //   TN05 approve on chain (founder, name, ticker, expiry) and revoke (the rent comes back); the founder launches
 //   TN06 a launched coin: collect city fees, set up holder rewards (Holders, 0 bps, the city tag), forward the holders' share,
 //        pause and resume launches; after graduation the city's pool fees through its own position
@@ -25,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { address as kitAddress, generateKeyPairSigner, signBytes } from '@solana/kit';
-import { World, ADDRESSES, PROGRAM_IDS, LAMPORTS, P, R, C, IDL, buildIx, decodeAccount, ata as sdkAta, dbc as sdkDbc, completeCurve, graduate, expectFail } from './helpers.mjs';
+import { World, ADDRESSES, PROGRAM_IDS, LAMPORTS, P, R, C, IDL, buildIx, decodeAccount, ata as sdkAta, dbc as sdkDbc, completeCurve, graduate, expectFail, programSha256, MAINNET_DUMPS } from './helpers.mjs';
 import { vicinityConfigParams, createConfigIx } from '../sdk/launchpad/config.mjs';
 import { launchpadLookupTableAddresses, buildCreateLookupTable } from '../sdk/launchpad/lookup-table.mts';
 import { buildPartnerMetadata } from '../sdk/launchpad/metadata.mts';
@@ -38,8 +39,9 @@ import { base58Decode, base58Encode } from '../../src/solana.js';
 import { decodeHeader } from '../../src/sol/message.js';
 import { _resetTickers } from '../../src/tickers.js';
 import * as WX from '../../src/sol/lpadmin-ix.js';
-import { CREATE_CONFIG_DATA, EXPECTED_POOL_CONFIG } from '../../src/sol/dbc-config-data.js';
+import { CREATE_CONFIG_DATA, DBC_PROGRAM_SHA256, EXPECTED_POOL_CONFIG } from '../../src/sol/dbc-config-data.js';
 import { LAYOUT } from '../../src/sol/layout.js';
+import { PINS, _setProgramPinsForTests } from '../../src/programpins.js';
 import { generate } from '../scripts/launchpad/worker-config-bytes.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -146,6 +148,9 @@ describe('17 the admin City coins tab against the real programs', () => {
 
   before(async () => {
     _resetLpKit(); _resetLpAdmin(); _resetTickers();
+    // the routes run as devnet (the genesis hash below) on the Meteora dumps this World loads: those are the builds the suite tests,
+    // so they are this process's devnet pins (src/programpins.js); TN04 checks the Worker's own fingerprints of them
+    _setProgramPinsForTests({ devnet: { dbc: programSha256('dbc.so'), dammV2: programSha256('damm_v2.so') } });
     w = await World.create({ initLaunchpad: false, addConfig: false, initRewards: false });
     owner = await w.signer(200n);
     stranger = await w.signer(10n);
@@ -285,6 +290,12 @@ describe('17 the admin City coins tab against the real programs', () => {
   it('TN04 steps 3-7: the price curve, its allow-list entry, the fee account, the speed table, the partner entry; the summary', async () => {
     // 3: one-time browser key
     cfgSigner = await generateKeyPairSigner();
+    // Meteora's two programs as this World runs them, fingerprinted by the Worker through the RPC (src/programpins.js: the bytes
+    // after the loader's 45-byte header) equal the dumps' SHA-256, and by default those are the mainnet pins and the build the
+    // expected curve bytes came from: "as tested", so steps 3 and 4 and the approvals below are built
+    const st0 = await status();
+    assert.deepEqual([st0.meteora.state, st0.meteora.dbc.sha256, st0.meteora.dammV2.sha256], ['ok', programSha256('dbc.so'), programSha256('damm_v2.so')], JSON.stringify(st0.meteora));
+    if (MAINNET_DUMPS) assert.deepEqual([st0.meteora.dbc.sha256, st0.meteora.dammV2.sha256, st0.meteora.dbc.sha256], [PINS.mainnet.dbc.sha256, PINS.mainnet.dammV2.sha256, DBC_PROGRAM_SHA256]);
     const s3 = await stepOf('config');
     assert.equal(s3.state, 'ready', s3.reason);
     assert.equal((await call(owner.address, 'tx', { step: 'config', ephemeral: [] })).data.error, 'bad_signers');

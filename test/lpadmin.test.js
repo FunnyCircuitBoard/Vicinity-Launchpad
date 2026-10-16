@@ -8,7 +8,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { _resetLpKit, GENESIS } from "../src/lpkit.js";
-import { _resetLpAdmin, _seedProgramHash, configDiff, decodeApproval, nameProblem } from "../src/lpadmin.js";
+import { _resetLpAdmin, configDiff, decodeApproval, nameProblem } from "../src/lpadmin.js";
 import { base58Decode, base58Encode } from "../src/solana.js";
 import { concat, u32le, u64le } from "../src/sol/bytes.js";
 import { decodeHeader } from "../src/sol/message.js";
@@ -18,7 +18,7 @@ import { DBC_PROGRAM_SHA256, EXPECTED_POOL_CONFIG } from "../src/sol/dbc-config-
 import * as IX from "../src/sol/lpadmin-ix.js";
 import { advance, browser, clock, newWorld, person, realClock, useClock } from "./helpers/world.js";
 import { seedCoin, seedSeat } from "./helpers/launchpad.js";
-import { addr } from "./helpers/lpchain.js";
+import { addr, meteoraAsTested } from "./helpers/lpchain.js";
 
 const VECTORS = JSON.parse(readFileSync(new URL("./fixtures/squads/vectors.json", import.meta.url), "utf8"));
 // The live mainnet price curve EZVHCg… as read from the chain: made on 12 Oct 2026 with DBC 0.2.1, so PoolConfig.version 0.
@@ -45,7 +45,7 @@ function layoutAccount(name, values) {
   return out;
 }
 const programAccount = (programData) => ({ owner: LOADER, executable: true, data: b64(concat([u32le(2), base58Decode(programData)])) });
-const programDataAccount = (authority, elf = new Uint8Array(64).fill(7)) => ({ owner: LOADER, data: b64(concat([u32le(3), u64le(1234), authority ? Uint8Array.of(1) : Uint8Array.of(0), authority ? base58Decode(authority) : new Uint8Array(32), elf])) });
+const programDataAccount = (authority, elf = new Uint8Array(64).fill(7), slot = 1234) => ({ owner: LOADER, data: b64(concat([u32le(3), u64le(BigInt(slot)), authority ? Uint8Array.of(1) : Uint8Array.of(0), authority ? base58Decode(authority) : new Uint8Array(32), elf])) });
 const registryAccount = (admin) => ({ owner: REWARDS, data: b64(concat([Uint8Array.of(47, 174, 110, 246, 184, 182, 252, 218), base58Decode(admin), new Uint8Array(32), Uint8Array.of(255)])) });
 const tokenAccount = (mint, owner, amount = 0n, program = PROGRAM_IDS.token) => ({ owner: program, data: b64(concat([base58Decode(mint), base58Decode(owner), u64le(amount), new Uint8Array(36), Uint8Array.of(1), new Uint8Array(12), u64le(0), new Uint8Array(36)])) });
 function tableAccount(authority, addresses) {
@@ -69,8 +69,9 @@ function fakeChain({ genesis = GENESIS.devnet, accounts = {} } = {}) {
     const a = S.accounts[k];
     if (!a) return null;
     let data = Buffer.from(a.data, "base64");
+    const space = data.length; // the whole account, whatever the slice (as the real RPC answers)
     if (slice) data = data.subarray(slice.offset, slice.offset + slice.length);
-    return { owner: a.owner, lamports: a.lamports ?? 2_000_000, data: [data.toString("base64"), "base64"], executable: Boolean(a.executable), rentEpoch: 0 };
+    return { owner: a.owner, lamports: a.lamports ?? 2_000_000, data: [data.toString("base64"), "base64"], executable: Boolean(a.executable), rentEpoch: 0, space };
   };
   const one = ({ method, params }) => {
     switch (method) {
@@ -110,7 +111,8 @@ function fakeChain({ genesis = GENESIS.devnet, accounts = {} } = {}) {
 
 /**
  * The owner signed in (ADMIN_WALLETS), both programs deployed with `authority` (default: the owner's wallet) as upgrade authority,
- * and `extra` accounts. `call(path, body?)` adds the cluster echo unless `cluster` is given.
+ * Meteora's two programs as the builds the team tested (test/helpers/lpchain.js meteoraAsTested), and `extra` accounts.
+ * `call(path, body?)` adds the cluster echo unless `cluster` is given.
  */
 async function world({ authority = "owner", extra = {}, env: envExtra = {}, genesis } = {}) {
   const env = { ...newWorld(), ...LP_ON, ...envExtra };
@@ -119,13 +121,14 @@ async function world({ authority = "owner", extra = {}, env: envExtra = {}, gene
   const auth = authority === "owner" ? owner.w.address : authority;
   const [pdLp, pdRw] = await Promise.all([programDataAddress(PROGRAM), programDataAddress(REWARDS)]);
   const chain = fakeChain({ genesis, accounts: { [PROGRAM]: programAccount(pdLp), [REWARDS]: programAccount(pdRw), [pdLp]: programDataAccount(auth), [pdRw]: programDataAccount(auth), ...extra } });
+  const meteora = await meteoraAsTested(chain.S.accounts);
   const call = async (path, body, { who = owner, cluster = "devnet", origin } = {}) => {
     const sep = path.includes("?") ? "&" : "?";
     const url = body === undefined && cluster !== null ? `${path}${sep}cluster=${cluster}` : path;
     const r = await who.send(url, { method: body === undefined ? "GET" : "POST", body: body === undefined ? undefined : { ...(cluster !== null ? { cluster } : {}), ...body }, fetchImpl: chain.fetchImpl, ...(origin !== undefined ? { origin } : {}) });
     return { status: r.status, data: await r.json() };
   };
-  return { env, owner, chain, call, pdLp, pdRw, wallet: owner.w.address };
+  return { env, owner, chain, call, pdLp, pdRw, wallet: owner.w.address, meteora };
 }
 /** What the City coins card sends with "Approve on chain": the city and the design it showed. */
 const seenOf = (c) => ({ cityId: c.cityId, name: c.name, symbol: c.symbol, founder: c.founder, designAt: c.designAt });
@@ -148,17 +151,22 @@ async function afterHandoff(w) {
   }
   return ms;
 }
-
 /**
- * Meteora's bonding-curve program as the build the team pinned: its ProgramData (deploy slot 1234) on the fake chain and, as a fake
- * chain cannot hold Meteora's real bytes, the fingerprint a read of it gives (DBC_PROGRAM_SHA256). Again after _resetLpAdmin().
+ * Step 3 compares Meteora's bonding-curve program with the build the expected curve bytes came from (DBC_PROGRAM_SHA256), which
+ * made-up bytes can never hash to; so in test `t` the test world's stand-in (test/helpers/lpchain.js meteoraAsTested: 4096 bytes of
+ * 0x11) stands for it: its SHA-256 is answered as DBC_PROGRAM_SHA256 (every other hash is the real one). Before world().
+ * Returns the real SHA-256 (hex) of some bytes.
  */
-async function pinnedDbc(w) {
-  const pdDbc = await programDataAddress(PROGRAM_IDS.dbc);
-  w.chain.S.accounts[pdDbc] = programDataAccount("JADaUV8kvDpDbJr55wxXJHVaBS3VCj8thZZHjfeuCVLd");
-  _seedProgramHash(pdDbc, "1234", DBC_PROGRAM_SHA256);
-  return pdDbc;
+function asCurveBuild(t) {
+  const digest = SubtleCrypto.prototype.digest;
+  t.mock.method(crypto.subtle, "digest", async function (alg, data) {
+    const b = new Uint8Array(ArrayBuffer.isView(data) ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) : data);
+    return b.length === 4096 && b.every((x) => x === 0x11) ? Uint8Array.from(Buffer.from(DBC_PROGRAM_SHA256, "hex")).buffer : digest.call(crypto.subtle, alg, data);
+  });
+  return async (bytes) => Buffer.from(await digest.call(crypto.subtle, "SHA-256", bytes)).toString("hex");
 }
+const UNCHECKED_CURVE = "Meteora's bonding-curve program could not be read, so its fingerprint is unknown and this step waits (a price curve is made only on the build the team checked). Nothing was spent; try again in a minute.";
+const built = (w, from) => w.chain.S.log.slice(from).filter((l) => l.method === "simulateTransaction").length;
 
 beforeEach(() => { _resetLpKit(); _resetLpAdmin(); realClock(); });
 
@@ -329,7 +337,8 @@ test("step 2 recorded from the chain: programs already under the vault are adopt
   assert.equal((await w.call("/api/admin/lp/record", { step: "config", signature: null, params: {} })).data.error, "bad_signature");
 });
 
-test("steps 3-7 come after the hand-over; the price curve is a one-time key and must equal the defaults; step 7 is the dev wallet's", async () => {
+test("steps 3-7 come after the hand-over; the price curve is a one-time key and must equal the defaults; step 7 is the dev wallet's", async (t) => {
+  asCurveBuild(t); // Meteora's bonding-curve program is the build the expected curve bytes came from
   const w = await world();
   const L = launchpadPdas(PROGRAM);
   Object.assign(w.chain.S.accounts, {
@@ -341,14 +350,13 @@ test("steps 3-7 come after the hand-over; the price curve is a one-time key and 
   for (const id of ["config", "allow", "referral", "lookup"]) assert.match(st.steps.find((x) => x.id === id).reason, /Do step [23] first/);
   assert.match(st.steps[6].reason, new RegExp(`Only the dev wallet ${DEV}`));
   await afterHandoff(w);
-  await pinnedDbc(w);
   st = (await w.call("/api/admin/lp/status")).data;
   assert.deepEqual(st.steps.map((x) => x.state), ["done", "done", "ready", "blocked", "ready", "blocked", "blocked"]);
   assert.match(st.steps[5].reason, /Do step 3 first: the speed table holds the price curve/);
   // the rent named in each ready step is the cluster's own (5,080 lamports per byte now, not the old 6,960)
   assert.match(st.steps[2].reason, /about 0\.00597408 SOL of rent\)/);
   assert.match(st.steps[4].reason, /about 0\.00148844 SOL of rent, which anyone may pay\)/);
-  _resetLpAdmin(); await pinnedDbc(w); w.chain.S.rentDown = true;
+  _resetLpAdmin(); w.chain.S.rentDown = true; // (asCurveBuild still makes the world's DBC the build the curve bytes came from)
   assert.match((await stepOf(w, "config")).reason, /\(a little rent\)/, "no number rather than a wrong one");
   w.chain.S.rentDown = false;
   // 3: exactly one fresh one-time key
@@ -378,6 +386,16 @@ test("steps 3-7 come after the hand-over; the price curve is a one-time key and 
   assert.equal(st.steps[2].state, "done");
   assert.deepEqual(st.config.diff, []);
   assert.equal(st.steps[3].state, "ready");
+  // 4 waits while Meteora's programs cannot be read clearly: the page says so, and the build (which reads them for itself) refuses
+  const damm = w.chain.S.accounts[w.meteora.pdDamm];
+  delete w.chain.S.accounts[w.meteora.pdDamm];
+  _resetLpAdmin(); // the pages' ten-minute answer
+  const s4 = (await stepOf(w, "allow"));
+  assert.equal(s4.state, "blocked");
+  assert.match(s4.reason, /^Meteora's programs could not be checked against the builds the team tested just now, so nothing was built\. This step and approvals wait/);
+  const a4 = await w.call("/api/admin/lp/tx", { step: "allow" });
+  assert.deepEqual([a4.status, a4.data.error, a4.data.which, a4.data.step], [503, "program_check_unavailable", [], "allow"]);
+  w.chain.S.accounts[w.meteora.pdDamm] = damm;
   // 4 needs the launchpad admin
   w.chain.S.accounts[await L.launchpad()] = { owner: PROGRAM, data: b64(layoutAccount("Launchpad", { admin: addr(95), rewards_program: REWARDS })) };
   st = (await w.call("/api/admin/lp/status")).data;
@@ -385,12 +403,16 @@ test("steps 3-7 come after the hand-over; the price curve is a one-time key and 
   assert.ok(st.problems.some((p) => /launchpad admin is .*not the wallet you are signed in with/.test(p)));
   w.chain.S.accounts[await L.launchpad()] = { owner: PROGRAM, data: b64(layoutAccount("Launchpad", { admin: w.wallet, rewards_program: addr(96) })) };
   assert.ok((await w.call("/api/admin/lp/status")).data.problems.some((p) => /started with the rewards program/.test(p)), "a launchpad started with another rewards program");
-  // 6: a new speed table holds the shared addresses; 5 on devnet is the SOL account only
-  const t = await w.call("/api/admin/lp/tx", { step: "lookup" });
-  assert.equal(t.data.ok, true, JSON.stringify(t.data));
-  assert.deepEqual(t.data.summary.filter((x) => x.program === PROGRAM_IDS.lookupTable).map((x) => x.ix), ["create_lookup_table", "extend_lookup_table", "extend_lookup_table"]);
+  // 6: a new speed table holds the shared addresses; 5 on devnet is the SOL account only. Only steps 3 and 4 read Meteora's programs
+  // for their build: the others keep the pages' answer (no read of the deploy slots here)
+  const heads = () => w.chain.S.log.filter((x) => x.method === "getMultipleAccounts" && x.params[0].includes(w.meteora.pdDbc) && x.params[1] && x.params[1].dataSlice).length;
+  const h0 = heads();
+  const t6 = await w.call("/api/admin/lp/tx", { step: "lookup" });
+  assert.equal(t6.data.ok, true, JSON.stringify(t6.data));
+  assert.equal(heads(), h0, "step 6's build did not read Meteora's programs");
+  assert.deepEqual(t6.data.summary.filter((x) => x.program === PROGRAM_IDS.lookupTable).map((x) => x.ix), ["create_lookup_table", "extend_lookup_table", "extend_lookup_table"]);
   const table = (await IX.lookupTableAddress(w.wallet, 4990))[0];
-  assert.deepEqual(t.data.record, { step: "lookup", params: { address: table } });
+  assert.deepEqual(t6.data.record, { step: "lookup", params: { address: table } });
   const want = await IX.lookupTableAddresses({ programId: PROGRAM, rewardsProgramId: REWARDS, dbcConfigs: [k] });
   w.chain.S.accounts[table] = tableAccount(w.wallet, want.slice(0, 20));
   const sig6 = base58Encode(new Uint8Array(64).fill(6));
@@ -409,23 +431,28 @@ test("steps 3-7 come after the hand-over; the price curve is a one-time key and 
   assert.equal((await w.call("/api/admin/lp/tx", { step: "partner" })).data.error, "step_not_ready");
 });
 
-test("step 3 waits when Meteora's bonding-curve program is not the build the team pinned: nothing is spent on a price curve that would be refused (devnet rehearsal)", async () => {
+test("step 3 waits when Meteora's bonding-curve program is not the build the team pinned: nothing is spent on a price curve that would be refused (devnet rehearsal)", async (t) => {
+  asCurveBuild(t); // the world's stand-in DBC is the build the expected curve bytes came from (for the record step at the end)
   const w = await world();
   await afterHandoff(w);
   const pdDbc = await programDataAddress(PROGRAM_IDS.dbc);
-  // Meteora's program as some newer build (on devnet it writes PoolConfig.version 1, and the curve it made was refused at record time)
-  w.chain.S.accounts[pdDbc] = programDataAccount("JADaUV8kvDpDbJr55wxXJHVaBS3VCj8thZZHjfeuCVLd", new Uint8Array(4096).fill(9));
+  // Meteora's program as some newer build than the one pinned for this cluster (src/programpins.js; here the test world's stand-in
+  // build, deployed at a later slot, as every upgrade is): on devnet the newer build wrote PoolConfig.version 1, and the curve it made
+  // was refused at record time
+  w.chain.S.accounts[pdDbc] = programDataAccount("JADaUV8kvDpDbJr55wxXJHVaBS3VCj8thZZHjfeuCVLd", new Uint8Array(4096).fill(9), 5678);
   const st = (await w.call("/api/admin/lp/status")).data;
   const s3 = st.steps.find((x) => x.id === "config");
   assert.equal(s3.state, "blocked");
   assert.match(s3.reason, /^Meteora has updated its bonding-curve program since the team checked it \(its fingerprint is now [0-9a-f]{12}…, the checked one e2bfc853c1a1…\)\. A price curve made now may differ from the tested one, so this step waits\. Nothing was spent; tell the team/);
+  assert.deepEqual([st.meteora.state, st.meteora.which], ["changed", ["dbc"]], "the standing line says the same");
   const b = await w.call("/api/admin/lp/tx", { step: "config", ephemeral: [addr(91)] });
-  assert.deepEqual([b.status, b.data.error], [409, "step_not_ready"], "the step is not even built");
-  assert.match(b.data.message, /Meteora has updated its bonding-curve program/);
-  // the whole program was read for its fingerprint, once (memoised per deploy slot)
-  const reads = () => w.chain.S.log.filter((x) => x.method === "getAccountInfo" && x.params[0] === pdDbc && !(x.params[1] && x.params[1].dataSlice)).length;
+  assert.deepEqual([b.status, b.data.error, b.data.which, b.data.step], [409, "program_changed", ["dbc"], "config"], "the step is not even built");
+  assert.equal(b.data.message, s3.reason, "the page and the build say the same");
+  // the whole program was read for its fingerprint, once, together with DAMM v2's (src/programpins.js: one getMultipleAccounts; the
+  // build read the deploy slot again and knew those bytes)
+  const reads = () => w.chain.S.log.filter((x) => x.method === "getMultipleAccounts" && x.params[0].includes(pdDbc) && !(x.params[1] && x.params[1].dataSlice)).length;
   assert.equal(reads(), 1);
-  // once a price curve exists (here: from the settings) Meteora's program is no longer read at all, and step 3 is what the curve says
+  // once a price curve exists (here: from the settings) step 3 is what the curve says; Meteora's program is not read again within those minutes
   const cfg = addr(95);
   w.chain.S.accounts[cfg] = { owner: PROGRAM_IDS.dbc, data: EXPECTED_POOL_CONFIG };
   w.env.LAUNCHPAD_DBC_CONFIGS = cfg;
@@ -437,26 +464,97 @@ test("step 3 waits when Meteora's bonding-curve program is not the build the tea
   assert.equal(reads(), before);
   // Meteora's program unreadable (no such account, or the node did not answer): the step waits as well, it never goes ahead blind
   delete w.env.LAUNCHPAD_DBC_CONFIGS; delete w.chain.S.accounts[pdDbc];
+  _resetLpAdmin(); // the pages' ten-minute memory of the check
   const s3u = (await w.call("/api/admin/lp/status")).data.steps.find((x) => x.id === "config");
   assert.equal(s3u.state, "blocked");
   assert.match(s3u.reason, /^Meteora's bonding-curve program could not be read, so its fingerprint is unknown and this step waits \(a price curve is made only on the build the team checked\)\. Nothing was spent/);
-  assert.equal((await w.call("/api/admin/lp/tx", { step: "config", ephemeral: [addr(91)] })).data.error, "step_not_ready");
-  // the record step checks the program too: the bytes (version 0 or 1) cannot tell a newer build that writes the same account
+  assert.equal(s3u.reason, UNCHECKED_CURVE);
+  const u = await w.call("/api/admin/lp/tx", { step: "config", ephemeral: [addr(91)] });
+  assert.deepEqual([u.status, u.data.error, u.data.which, u.data.step, u.data.message], [503, "program_check_unavailable", [], "config", UNCHECKED_CURVE], "not built");
+  // the record step checks the program too (read fresh, like the builds): the bytes (version 0 or 1) cannot tell a newer build that
+  // writes the same account
   const k = addr(91), sig = base58Encode(new Uint8Array(64).fill(3));
   w.chain.S.landed[sig] = { keys: [w.wallet, k] };
   w.chain.S.accounts[k] = { owner: PROGRAM_IDS.dbc, data: EXPECTED_POOL_CONFIG };
   const rec = async () => (await w.call("/api/admin/lp/record", { step: "config", signature: sig, params: { address: k } })).data;
   let r = await rec();
   assert.deepEqual([r.error, r.message], ["dbc_unreadable", `Meteora's bonding-curve program could not be read, so the price curve ${k} was not recorded. Press Record again in a minute.`]);
-  w.chain.S.accounts[pdDbc] = programDataAccount("JADaUV8kvDpDbJr55wxXJHVaBS3VCj8thZZHjfeuCVLd", new Uint8Array(4096).fill(9));
+  w.chain.S.accounts[pdDbc] = programDataAccount("JADaUV8kvDpDbJr55wxXJHVaBS3VCj8thZZHjfeuCVLd", new Uint8Array(4096).fill(9), 5678);
   r = await rec();
   assert.equal(r.error, "dbc_changed");
   assert.match(r.message, new RegExp(`^Meteora has updated its bonding-curve program since the team checked it \\(its fingerprint is now [0-9a-f]{12}…, the checked one e2bfc853c1a1…\\), so the price curve ${k} was not recorded\\.`));
   assert.equal((await stepOf(w, "config")).state, "blocked", "nothing recorded");
-  // the pinned build: recorded
-  _resetLpAdmin(); await pinnedDbc(w);
+  // the record step reads the deploy slot itself, never the pages' ten-minute answer: the page saw the upgrade a moment ago, but
+  // Meteora is back on the checked build now (a later deploy), and the record goes ahead at once
+  w.chain.S.accounts[pdDbc] = programDataAccount("JADaUV8kvDpDbJr55wxXJHVaBS3VCj8thZZHjfeuCVLd", new Uint8Array(4096).fill(0x11), 9000);
   assert.equal((await rec()).ok, true);
   assert.equal((await stepOf(w, "config")).state, "done");
+});
+
+test("step 3 on a reading of Meteora's bonding-curve program that is not clear: 503 program_check_unavailable, never built (a node that lags behind an upgrade, the account missing, an RPC error on either read)", async (t) => {
+  asCurveBuild(t);
+  const w = await world();
+  await afterHandoff(w);
+  const pdDbc = w.meteora.pdDbc, tested = w.chain.S.accounts[pdDbc];
+  const build = () => w.call("/api/admin/lp/tx", { step: "config", ephemeral: [addr(91)] });
+  assert.equal((await build()).data.ok, true, "built while it is that build");
+  // a node that answers some calls oddly: `hook(rpc body, init)` gives the answer to one call, or null for the chain's own
+  const real = w.chain.fetchImpl;
+  let hook = null;
+  w.chain.fetchImpl = async (url, init) => (hook && hook(JSON.parse(init.body), init)) || real(url, init);
+  const dbcRead = (b, sliced) => b.method === "getMultipleAccounts" && b.params[0].includes(pdDbc) && Boolean(b.params[1] && b.params[1].dataSlice) === sliced;
+  const rpcError = () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32602, message: "Invalid params" } }));
+  /** the chain's answer had DBC's ProgramData been `account` (a node that has not seen the latest deploy) */
+  const asIf = (account, init) => { w.chain.S.accounts[pdDbc] = account; const r = real(LP_ON.LAUNCHPAD_RPC_URL, init); w.chain.S.accounts[pdDbc] = UPGRADED; return r; };
+  const UPGRADED = programDataAccount("JADaUV8kvDpDbJr55wxXJHVaBS3VCj8thZZHjfeuCVLd", new Uint8Array(4096).fill(9), 5678);
+  const cases = {
+    "the deploy slot says Meteora upgraded; the whole program comes from a node that still holds the tested build": () => {
+      w.chain.S.accounts[pdDbc] = UPGRADED;
+      hook = (b, init) => (dbcRead(b, false) ? asIf(tested, init) : null);
+    },
+    "DBC's ProgramData missing": () => { delete w.chain.S.accounts[pdDbc]; },
+    "a JSON-RPC error on the deploy-slot read": () => { hook = (b) => (dbcRead(b, true) ? rpcError() : null); },
+    "a JSON-RPC error on the whole-program read": () => { hook = (b) => (dbcRead(b, false) ? rpcError() : null); },
+  };
+  for (const [name, arm] of Object.entries(cases)) {
+    _resetLpAdmin(); // nothing remembered: each case reads the program's bytes again
+    w.chain.S.accounts[pdDbc] = tested; hook = null;
+    arm();
+    const before = w.chain.S.log.length;
+    const r = await build();
+    assert.deepEqual([r.status, r.data.error, r.data.which, r.data.step, r.data.message], [503, "program_check_unavailable", [], "config", UNCHECKED_CURVE], name);
+    assert.equal(built(w, before), 0, `${name}: nothing built or simulated`);
+  }
+  w.chain.S.accounts[pdDbc] = tested; hook = null; _resetLpAdmin();
+  assert.equal((await build()).data.ok, true, "built again once the reading is clear");
+  // step 3 depends on DBC alone, by design (the curve is DBC's account): DAMM v2 unreadable does not hold it; step 4 and the
+  // approvals, which need both programs, do wait (the "steps 3-7" test above)
+  delete w.chain.S.accounts[w.meteora.pdDamm]; _resetLpAdmin();
+  assert.equal((await build()).data.ok, true, "DAMM v2 missing: still built on a clear reading of DBC");
+});
+
+test("step 3's build reads Meteora's bonding-curve program again: offered on the page a minute ago, refused with 409 program_changed once Meteora upgraded since (never the page's ten-minute answer)", async (t) => {
+  const sha = asCurveBuild(t);
+  useClock("2026-10-20T12:00:00Z");
+  const w = await world();
+  await afterHandoff(w);
+  const pdDbc = await programDataAddress(PROGRAM_IDS.dbc);
+  const s3 = await stepOf(w, "config");
+  assert.equal(s3.state, "ready", s3.reason);
+  assert.equal((await w.call("/api/admin/lp/tx", { step: "config", ephemeral: [addr(91)] })).data.ok, true, "built while it is that build");
+  // Meteora upgrades its bonding curve a minute later; the page still shows the step offered (its answer is kept ten minutes)...
+  advance(60_000);
+  const NEWER = new Uint8Array(4096).fill(9);
+  w.chain.S.accounts[pdDbc] = programDataAccount("JADaUV8kvDpDbJr55wxXJHVaBS3VCj8thZZHjfeuCVLd", NEWER, 5678);
+  assert.equal((await stepOf(w, "config")).state, "ready");
+  // ...but the build reads the deploy slot again and refuses: no price curve from a build nobody tested
+  const before = w.chain.S.log.length;
+  const b = await w.call("/api/admin/lp/tx", { step: "config", ephemeral: [addr(91)] });
+  assert.deepEqual([b.status, b.data.error, b.data.which, b.data.step], [409, "program_changed", ["dbc"], "config"], JSON.stringify(b.data));
+  assert.equal(built(w, before), 0);
+  const now = await sha(NEWER);
+  assert.match(b.data.message, new RegExp(`^Meteora has updated its bonding-curve program since the team checked it \\(its fingerprint is now ${now.slice(0, 12)}…`));
+  assert.equal((await stepOf(w, "config")).state, "blocked", "and the page shows what the build saw");
 });
 
 test("mainnet: step 5 makes the dev wallet's SOL and $VICINITY fee accounts", async () => {
@@ -631,10 +729,10 @@ test("the price curve check: the live mainnet curve (version 0) and one made on 
   assert.deepEqual(diff(live, PROGRAM), ["not a Meteora DBC config"]);
 });
 
-test("step 3 and its record step accept the live mainnet curve (version 0) and a version-1 curve; version 2 or a transfer fee is refused", async () => {
+test("step 3 and its record step accept the live mainnet curve (version 0) and a version-1 curve; version 2 or a transfer fee is refused", async (t) => {
+  asCurveBuild(t); // Meteora's bonding-curve program is the build the expected curve bytes came from
   const w = await world();
   await afterHandoff(w);
-  await pinnedDbc(w);
   const F = LAYOUT.PoolConfig.fields;
   const k = addr(91), sig = base58Encode(new Uint8Array(64).fill(3));
   w.chain.S.landed[sig] = { keys: [w.wallet, k] };
@@ -699,4 +797,16 @@ test("launched coins: collect only when something waits; holder rewards need the
   assert.deepEqual([p.data.ok, p.data.summary.find((x) => x.ix === "set_pause").programName], [true, "Vicinity launchpad"]);
   // the platform fees are the dev wallet's to collect
   assert.equal((await w.call("/api/admin/lp/platform/tx", {})).data.error, "dev_wallet_only");
+});
+
+test("step 3 compares Meteora's bonding-curve program with the build the expected curve bytes came from, on devnet too (devnet's own tested build writes another PoolConfig)", async () => {
+  const w = await world(); // Meteora's programs as devnet's tested builds (stand-ins): the standing line says ok
+  await afterHandoff(w);
+  const st = (await w.call("/api/admin/lp/status")).data;
+  assert.equal(st.meteora.state, "ok");
+  const s3 = st.steps.find((x) => x.id === "config");
+  assert.equal(s3.state, "blocked", "a curve made by this build would be refused at record time");
+  assert.match(s3.reason, /the checked one e2bfc853c1a1…/);
+  const b = await w.call("/api/admin/lp/tx", { step: "config", ephemeral: [addr(91)] });
+  assert.deepEqual([b.status, b.data.error, b.data.which], [409, "program_changed", ["dbc"]]);
 });

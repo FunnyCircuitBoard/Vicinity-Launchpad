@@ -17,10 +17,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { IN_UTICA, MINT, browser, newWorld, person, realClock, useClock } from "./helpers/world.js";
 import { CITY_COIN, LP, dexMock, seedCoin, seedSeat } from "./helpers/launchpad.js";
-import { DEMOV, DEMOV_COIN, LP_ON, PROGRAM, REWARDS, SOL_CONFIG, addr, lpChain } from "./helpers/lpchain.js";
+import { DEMOV, DEMOV_COIN, LP_ON, PROGRAM, REWARDS, SOL_CONFIG, addr, lpChain, meteoraAsTested } from "./helpers/lpchain.js";
 import { _resetTickers, chainSymbolOf, chainSymbolsOf, displayTicker, tickerOf } from "../src/tickers.js";
 import { _resetLpCoins, ensureLpCoinsSchema } from "../src/lpcoins.js";
 import { _resetLpKit } from "../src/lpkit.js";
+import { _resetProgramPins } from "../src/programpins.js";
 import { _resetLaunchpad } from "../src/launchpad.js";
 import { _resetMarket } from "../src/market.js";
 import { _resetPortfolio, mintsFor } from "../src/portfolio.js";
@@ -40,7 +41,7 @@ const WSOL = ADDRESSES.wsol;
 const TABLE = "5tPTizNodKvKEo8k7a9NjRDucMNVQsQvHrqjEmwXCXhe";
 const b64 = (u8) => Buffer.from(u8).toString("base64");
 
-beforeEach(() => { useClock("2026-10-20T12:00:00Z"); _resetLpKit(); _resetLpCoins(); _resetLaunchpad(); _resetMarket(); _resetPortfolio(); });
+beforeEach(() => { useClock("2026-10-20T12:00:00Z"); _resetLpKit(); _resetLpCoins(); _resetProgramPins(); _resetLaunchpad(); _resetMarket(); _resetPortfolio(); });
 after(() => realClock());
 
 /** console.warn captured while fn runs: the lines, and fn's value. */
@@ -103,6 +104,7 @@ async function adminWorld() {
     [await L.launchpad()]: layoutAccount("Launchpad", { admin: owner.w.address, rewards_program: REWARDS }),
     [await L.launchConfig(config)]: layoutAccount("LaunchConfig", { dbc_config: config, quote_mint: WSOL, enabled: 1 }),
   } });
+  await meteoraAsTested(chain.S.accounts); // Meteora's programs as the builds the team tested (src/programpins.js)
   const call = async (path, body) => {
     const url = body === undefined ? `${path}${path.includes("?") ? "&" : "?"}cluster=devnet` : path;
     const r = await owner.send(url, { method: body === undefined ? "GET" : "POST", body: body === undefined ? undefined : { cluster: "devnet", ...body }, fetchImpl: chain.fetchImpl });
@@ -115,6 +117,7 @@ async function founderWorld({ approval = true } = {}) {
   const env = { ...newWorld(), ...LP_ON, LAUNCHPAD_DBC_CONFIGS: SOL_CONFIG, LAUNCHPAD_LOOKUP_TABLE: TABLE, VICINITY_MINT: MINT };
   const f = await uticaFounder(env);
   const lp = lpChain();
+  await meteoraAsTested(lp.S.accounts);
   const L = launchpadPdas(PROGRAM);
   if (approval) lp.S.accounts[await L.approval(BigInt(UTICA))] = approvalAccount({ cityId: UTICA, founder: f.w.address, expiresAt: Math.floor(Date.now() / 1000) + 7 * 86400 });
   const main = (await import("./helpers/world.js")).chain();

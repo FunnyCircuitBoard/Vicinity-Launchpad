@@ -18,6 +18,7 @@ import { decodeHeader } from "../src/sol/message.js";
 import { LAYOUT } from "../src/sol/layout.js";
 import { ADDRESSES, PROGRAM_IDS, launchpad as launchpadPdas, programDataAddress } from "../src/sol/pda.js";
 import { metadataAddress } from "../src/sol/metaplex.js";
+import { meteoraAsTested } from "./helpers/lpchain.js";
 
 const PROGRAM = "Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7", REWARDS = "Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi";
 const LOADER = PROGRAM_IDS.upgradeableLoader, WSOL = ADDRESSES.wsol, METAPLEX = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
@@ -58,8 +59,9 @@ function fakeChain(accounts = {}) {
     const a = S.accounts[k];
     if (!a) return null;
     let data = Buffer.from(a.data, "base64");
+    const space = data.length; // the whole account, whatever the slice (as the real RPC answers)
     if (slice) data = data.subarray(slice.offset, slice.offset + slice.length);
-    return { owner: a.owner, lamports: a.lamports ?? 2_000_000, data: [data.toString("base64"), "base64"], executable: Boolean(a.executable), rentEpoch: 0 };
+    return { owner: a.owner, lamports: a.lamports ?? 2_000_000, data: [data.toString("base64"), "base64"], executable: Boolean(a.executable), rentEpoch: 0, space };
   };
   const one = ({ method, params }) => {
     if (S.down && method !== "getGenesisHash") throw new Error("down");
@@ -107,6 +109,7 @@ async function world() {
     [await L.launchConfig(CONFIG)]: { owner: PROGRAM, data: b64(layoutAccount("LaunchConfig", { dbc_config: CONFIG, quote_mint: WSOL, enabled: 1 })) },
     [CONFIG]: { owner: PROGRAM_IDS.dbc, data: LIVE_CONFIG.data },
   });
+  await meteoraAsTested(lp.S.accounts); // Meteora's programs as the builds the team tested (src/programpins.js)
   const main = chain();
   const both = (url, init) => (String(url).startsWith("https://lp-rpc.test") ? lp.fetchImpl(url, init) : main(url, init));
   const f = await person(env, { home: IN_UTICA, holds: 2_000_000 });

@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { _resetLpKit } from "../src/lpkit.js";
 import { _resetLpCoins } from "../src/lpcoins.js";
+import { _resetProgramPins } from "../src/programpins.js";
 import { ensureOnboardSchema } from "../src/store.js";
 import { feeSplit } from "../src/lplaunch.js";
 import * as IX from "../src/sol/lplaunch-ix.js";
@@ -20,7 +21,7 @@ import { decodeConfig } from "../src/sol/dbc.js";
 import { quoteBuy } from "../src/sol/quote.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas } from "../src/sol/pda.js";
 import { MINT, browser, chain as mainChain, newWorld, person, realClock, setHolding, useClock, advance } from "./helpers/world.js";
-import { DEMOV, DEMOV_COIN, DEMOV_CITY, DEMOV_POOL, DEV, LP_ON, METAPLEX, PROGRAM, SOL_CONFIG, addr, lpChain, metaplexData } from "./helpers/lpchain.js";
+import { DEMOV, DEMOV_COIN, DEMOV_CITY, DEMOV_POOL, DEV, LP_ON, METAPLEX, PROGRAM, SOL_CONFIG, addr, lpChain, metaplexData, meteoraAsTested } from "./helpers/lpchain.js";
 import { metadataAddress } from "../src/sol/metaplex.js";
 import { metadataUriFor } from "../src/coinmeta.js";
 
@@ -67,6 +68,7 @@ async function world({ env: extra = {}, approval = true, holds = 2_000_000 } = {
   await env.DB.prepare("INSERT INTO seats (city_id, city_name, country, user_id, wallet, policy, threshold, status, created_at, activated_at) VALUES (?, 'Utica', 'US', ?, ?, 3, 1000000, 'active', ?, ?)")
     .bind(CITY, u.id, u.wallet, at, at).run();
   const lp = lpChain();
+  await meteoraAsTested(lp.S.accounts); // Meteora's programs as the builds the team tested (src/programpins.js; test/program-pins.test.js)
   const L = launchpadPdas(PROGRAM);
   const approvalAddr = await L.approval(BigInt(CITY));
   if (approval) lp.S.accounts[approvalAddr] = approvalAccount({ cityId: CITY, founder: f.w.address, expiresAt: Math.floor(Date.now() / 1000) + 7 * 86400 });
@@ -83,7 +85,7 @@ async function world({ env: extra = {}, approval = true, holds = 2_000_000 } = {
 const status = (w, extra = "") => w.call(`/api/lp/launch/status?city=${CITY}${extra}`);
 const signersOf = (tx) => { const d = decodeHeader(Buffer.from(tx, "base64")); return d.staticKeys.slice(0, d.header.numRequiredSignatures); };
 
-beforeEach(() => { _resetLpKit(); _resetLpCoins(); realClock(); });
+beforeEach(() => { _resetLpKit(); _resetLpCoins(); _resetProgramPins(); realClock(); });
 
 test("the discriminators and account lists are the IDLs' own", async () => {
   const lp = idl("../solana/sdk/idl/vicinity_launchpad.json"), dbc = idl("../solana/idls/dynamic_bonding_curve.json");

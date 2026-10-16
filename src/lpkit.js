@@ -200,6 +200,8 @@ export async function summarize(env, instructions, labels = {}) {
  * with the pool's breaker. Like src/lptrade.js lpRoute.
  */
 export const lpRoute = (env) => { const s = lpSetup(env); return { cluster: s.cluster, url: s.rpc }; };
+/** The route a build reads through after checkGenesis answered `g`: the checked node alone when that was the backup (`only`). */
+export const checkedRoute = (env, g) => (g && g.only ? { ...lpRoute(env), only: g.only } : lpRoute(env));
 /**
  * One JSON-RPC call on the launchpad cluster, through the pool (lpRoute; `route` adds `only` when buildTx is pinned to the node
  * whose genesis hash was checked). Throws a short code (never a URL).
@@ -293,7 +295,7 @@ export async function buildTx(env, { payer, instructions, extraSigners = [], loo
   if (!g.ok) return g;
   // every call of this build on the node whose genesis hash was checked: the first node once it matched (then the backup behind
   // it, itself checked by the pool), or only the backup when the first node did not answer the check (checkGenesis `only`)
-  const route = g.only ? { ...lpRoute(env), only: g.only } : lpRoute(env);
+  const route = checkedRoute(env, g);
   const watched = [...new Set([payer, ...(Array.isArray(watch) ? watch.filter(isSolanaAddress) : [])])];
   const fixedLimit = Number.isInteger(cuLimit) && cuLimit > 0 ? Math.min(MAX_CU, cuLimit) : null;
   const priceSetting = /^\d{1,12}$/.test(String(cuPrice ?? "")) ? BigInt(cuPrice) : 0n;

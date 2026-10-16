@@ -16,7 +16,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { address as kitAddress, generateKeyPairSigner, signBytes } from '@solana/kit';
-import { World, ADDRESSES, PROGRAM_IDS, LAMPORTS, P, C, IDL, decodeAccount, ata as sdkAta, damm as sdkDamm, completeCurve, readMetadata, assertInvariants } from './helpers.mjs';
+import { World, ADDRESSES, PROGRAM_IDS, LAMPORTS, P, C, IDL, decodeAccount, ata as sdkAta, damm as sdkDamm, completeCurve, readMetadata, assertInvariants, programSha256 } from './helpers.mjs';
 import { launchpadLookupTableAddresses, buildCreateLookupTable } from '../sdk/launchpad/lookup-table.mts';
 import { buildLaunch, buildWithdrawLeftover } from '../sdk/launchpad/trade.mts';
 import { d1 } from '../../test/helpers/d1.js';
@@ -25,6 +25,7 @@ import { createSession } from '../../src/auth.js';
 import { handleLaunchApi } from '../../src/lplaunch.js';
 import { _resetLpKit, GENESIS } from '../../src/lpkit.js';
 import { _resetLpCoins } from '../../src/lpcoins.js';
+import { _setProgramPinsForTests } from '../../src/programpins.js';
 import { base58Decode } from '../../src/solana.js';
 import { metadataAddress } from '../../src/sol/metaplex.js';
 import { decodeHeader } from '../../src/sol/message.js';
@@ -124,6 +125,9 @@ describe('18 the founder launch and graduation against the real programs', () =>
 
   before(async () => {
     _resetLpKit(); _resetLpCoins(); _resetTickers();
+    // the routes run as devnet on the Meteora dumps this World loads: those are the builds the suite tests, so they are this
+    // process's devnet pins (src/programpins.js; a launch from the site waits while Meteora's programs are not the tested builds)
+    _setProgramPinsForTests({ devnet: { dbc: programSha256('dbc.so'), dammV2: programSha256('damm_v2.so') } });
     w = await World.create();
     rpc = worldRpc(w);
     founderA = await w.signer(50n);

@@ -7,7 +7,9 @@
 # stop, read their changelog, rerun the tests on the new binary (the whole
 # suite, including tests-launchpad/20-legacy-config.test.mjs, which runs the
 # live mainnet config through a coin's life), then re-pin the hash here, in
-# the design file and in src/sol/dbc-config-data.js (worker-config-bytes.mjs).
+# the design file, in src/sol/dbc-config-data.js (worker-config-bytes.mjs) and
+# in src/programpins.js (the website's check; test/program-pins.test.js keeps
+# it equal to the rows below).
 # Never edit a hash to make this pass.
 #
 # Usage: npm run launchpad:fixtures   (from solana/)
