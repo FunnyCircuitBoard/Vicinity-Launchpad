@@ -30,6 +30,14 @@ export const launchpadV2On = (env) => String((env && env.LAUNCHPAD_V2) ?? "").tr
 export const dashboardV2On = (env) => String((env && env.DASHBOARD_V2) ?? "").trim().toLowerCase() === "on";
 
 /**
+ * FEED_V2=on turns on the community feed's second step: the post kind "update" (founder / manager / Vicinity announcements, an
+ * "Updates" chip), deleting your own post, muting people (and blocks hiding posts both ways in the feeds), the author's city on
+ * every national row, and one confirmation before an account's first national post. Exactly "on" (trimmed, any letter case);
+ * anything else, unset included, is the feed as it has always been: no new route, key, column or table.
+ */
+export const feedV2On = (env) => String((env && env.FEED_V2) ?? "").trim().toLowerCase() === "on";
+
+/**
  * CARRY_RELAY is an EMERGENCY switch, on by default: unset (or anything but "off") = behind iCloud Private Relay (or Cloudflare WARP) a
  * phone's "Connect wallet" still opens the wallet app on a one-time link bound to the first browser that opens it and to the country
  * (src/walletlink.js). CARRY_RELAY=off (trimmed, any letter case), set in the Cloudflare dashboard and never in wrangler.jsonc, sends

@@ -410,6 +410,9 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .feed .chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; padding: 2px; border-radius: 999px; border: 1px solid var(--line); background: var(--card-2); }
 .dv2 .feed .chips button { border: 0; padding: 0 6px; white-space: nowrap; }
 .dv2 .feed .chips button[aria-selected="true"] { background: var(--accent-soft, rgba(255,90,54,.12)); box-shadow: inset 0 0 0 1px rgba(255,90,54,.55); color: var(--text); }
+/* feed v2 (FEED_V2=on, dashboard.js adds chips--4 with the Updates chip): four equal kinds; on the narrowest phones two rows of two */
+.dv2 .feed .chips.chips--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 360px) { .dv2 .feed .chips.chips--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); border-radius: 18px; } }
 .dv2 .feed__sort { flex-wrap: wrap; }
 .dv2 .feed__sort #f-note { flex: 1 1 100%; order: 2; }
 .dv2 .feed__sort .seg button { white-space: nowrap; }

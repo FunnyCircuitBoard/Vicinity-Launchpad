@@ -259,7 +259,8 @@ test("every pf- / prof- class the page or the script uses is styled", () => {
 });
 
 test("only the endpoints of the contract are used (FEATURES.md)", () => {
-  const contract = new Set(["/api/me", "/api/me/portfolio", "/api/me/bio", "/api/me/blocks", "/api/profile", "/api/profile/report", "/api/members/search", "/api/follow", "/api/follows", "/api/block"]);
+  const contract = new Set(["/api/me", "/api/me/portfolio", "/api/me/bio", "/api/me/blocks", "/api/profile", "/api/profile/report", "/api/members/search", "/api/follow", "/api/follows", "/api/block",
+    "/api/mute", "/api/mutes"]); // feed v2 (FEED_V2=on): Mute / Unmute next to Block, and the list of members you muted
   const used = new Set([...src.matchAll(/["'`](\/api\/[^"'`?$]+)/g)].map((m) => m[1]));
   assert.ok(used.size >= 9, [...used].join());
   for (const u of used) assert.ok(contract.has(u), `${u} is not in the contract`);

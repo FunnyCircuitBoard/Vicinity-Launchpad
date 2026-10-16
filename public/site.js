@@ -408,6 +408,7 @@
       if (!signup.hidden) signup.classList.add("is-shown");
     }
     if (d && d.profilesFlag) $$("[data-profiles-only]").forEach((e) => (e.hidden = false)); // copy about member profiles shows only while they are switched on
+    if (d && d.feedV2) $$("[data-feed-v2-only]").forEach((e) => (e.hidden = false)); // and the feed v2 sentences (delete your own post, mute) only while FEED_V2 is on
     document.dispatchEvent(new CustomEvent("vicinity:me", { detail: d }));
     return d;
   });

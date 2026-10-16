@@ -1303,6 +1303,10 @@ body.layout-edit .layout-bar { display: flex; align-items: center; gap: 8px; mar
 .post__img { max-width: 100%; max-height: 420px; border-radius: 12px; border: 1px solid var(--line); margin-top: 6px; }
 .post__actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .post__actions .link-btn { font-size: .8rem; padding: 2px 0; }
+/* feed v2 (FEED_V2=on): the "···" per-row menu (Mute, Report; Delete on your own rows) */
+.post__more { background: none; border: 1px solid transparent; border-radius: 8px; color: var(--muted); font: 700 .85rem var(--body); letter-spacing: 1px; padding: 0 8px; min-width: 44px; min-height: 44px; cursor: pointer; }
+.post__more:hover, .post__more[aria-expanded="true"] { color: var(--text); border-color: var(--line-2); }
+.post__menu { display: inline-flex; gap: 12px; flex-wrap: wrap; }
 .post__replies { grid-column: 2; list-style: none; margin: 6px 0 0; padding: 0 0 0 12px; border-left: 2px solid var(--line); display: grid; gap: 6px; }
 .post__replies li { font-size: .9rem; }
 .reply-form { grid-column: 2; display: flex; gap: 8px; margin-top: 6px; }

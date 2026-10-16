@@ -73,7 +73,11 @@
     // stops the curve trade routes at the next deploy (change the lines, do not delete them: keep_vars).
     "LAUNCHPAD_DBC_CONFIGS": "EZVHCgxKZhvXmUGMXJMEw8tZHiTmoHPyM9mNNQ5u1kSP",
     "LAUNCHPAD_LOOKUP_TABLE": "u2V4Y3KagE2nBZ1656sL4XsV3K7iAZ5C7cQV475DEZ5",
-    "LAUNCHPAD_TRADING": "on"
+    "LAUNCHPAD_TRADING": "on",
+    // Community feed v2 (src/flags.js feedV2On): the "update" post kind, delete your own post, mute, the author's city on every
+    // national post, one confirmation before the first national post. OFF until the owner switches it on: "on" (change the value,
+    // do not delete the line: keep_vars) in a pull request; anything else is the feed exactly as before.
+    "FEED_V2": "off"
   },
   "assets": {
     "directory": "./public",
