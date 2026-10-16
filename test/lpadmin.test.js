@@ -432,6 +432,8 @@ test("step 3 waits when Meteora's bonding-curve program is not the build the tea
   const before = reads();
   const st2 = (await w.call("/api/admin/lp/status")).data;
   assert.equal(st2.steps.find((x) => x.id === "config").state, "done");
+  // the sentence's figures are the config's own (decoded from its bytes, the fee through src/fees.js), not literals
+  assert.equal(st2.steps.find((x) => x.id === "config").reason, `The price curve ${cfg} matches Vicinity's defaults (85 SOL target, 1.25% fee, 0.05 SOL launch fee, fees to 13qR…sRiN).`);
   assert.equal(reads(), before);
   // Meteora's program unreadable (no such account, or the node did not answer): the step waits as well, it never goes ahead blind
   delete w.env.LAUNCHPAD_DBC_CONFIGS; delete w.chain.S.accounts[pdDbc];

@@ -68,7 +68,8 @@
     // coins tab's setup on 12 Oct 2026 (steps 1-7, signed by 13qRam…MsRiN; both programs' upgrade authority is the Squads
     // vault AB5q…LFGs7X). The read-only preflight against his "Send this to the team" summary: 51 rows, 44 pass, 7 warn (keys
     // that live in Cloudflare, not in the shell), 0 fail. The price curve is byte for byte Meteora's config for Vicinity's
-    // defaults (85 SOL target, 1.25 % fee, 0.05 SOL launch fee, fees to the dev wallet), allow-listed by 6voKQ4…AiY75; the
+    // defaults (solana/sdk/launchpad/config.mjs: 85 SOL target, 1.25 % fee and 0.05 SOL launch fee on the live config today; the
+    // site reads every fee figure it shows from this config, src/fees.js), allow-listed by 6voKQ4…AiY75; the
     // speed table holds the 21 addresses the launch, graduation and fee transactions share. Rollback: LAUNCHPAD_TRADING "off"
     // stops the curve trade routes at the next deploy (change the lines, do not delete them: keep_vars).
     "LAUNCHPAD_DBC_CONFIGS": "EZVHCgxKZhvXmUGMXJMEw8tZHiTmoHPyM9mNNQ5u1kSP",

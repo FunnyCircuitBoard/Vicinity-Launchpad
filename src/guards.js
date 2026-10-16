@@ -69,6 +69,8 @@ export const PUBLIC_LIMITS = {
   // each account has its own hourly ceiling on top (SEND_LIMIT and LIVE_LIMIT there).
   wallet_send_build:      { max: 20, windowMs: MIN },
   wallet_send_build_live: { max: 60, windowMs: MIN },
+  // GET /api/fees[?mint=] (lpSetup on, src/fees.js): one config read on an edge-cache miss (the bytes then stay 10 minutes per server)
+  fees:           { max: 60, windowMs: MIN },
 };
 /**
  * A per-WALLET counter on top of the per-connection one (src/swap.js, src/lptrade.js): one wallet cannot burn the Jupiter or RPC

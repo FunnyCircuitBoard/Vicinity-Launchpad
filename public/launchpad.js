@@ -376,9 +376,25 @@
     return `${words} · ${spark.unit}`;
   }
 
+  /** HH:MM in the viewer's own clock, for "at 14:03" under the fees; "" when the time is not one. */
+  function hhmm(isoText) {
+    const t = Date.parse(str(isoText)); if (!Number.isFinite(t)) return "";
+    const d = new Date(t); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  // a word joiner after the ellipsis and a no-break space before the time: "EZVH…1kSP" and "at 14:03" never break across lines
+  const shortAddr = (a) => (isAddr(a) ? `${a.slice(0, 4)}…\u2060${a.slice(-4)}` : "");
+  /**
+   * The source line under the fees: the live price-curve settings on chain (their address) and when the site read them (GET /api/fees,
+   * src/fees.js), then the one rule that is Vicinity's program's, not the settings' (words.halves: the founder / holder-pot halving).
+   */
+  const feesSource = (f) => {
+    const halves = f && f.words && typeof f.words.halves === "string" && f.words.halves ? `. ${f.words.halves}` : "";
+    return `Read from the price-curve settings on Solana${shortAddr(f && f.config) ? ` (${shortAddr(f.config)})` : ""}${hhmm(f && f.readAt) ? ` at\u00a0${hhmm(f.readAt)}` : ""}${halves}`;
+  };
+
   const pure = { NEW_DAYS, TABS, SORTS, TAB_NOTE, norm, searchText, matches, inTab, isNew, counts, rowsFor, money, fullMoney, count, fullCount, pct, communityText,
     countdownText, ageSeconds, agoText, statusLabel, notLiveWhy, founderText, pairText, links, viewHref, logoSrc, colorOf, initialsOf, cardKey, stateFromUrl, urlFor,
-    coinHref, chipOf, priceSource, shortSource, statCells, curveFoot, curveView, venueLine, shapeOf, sparkPick, sparkGeometry, sparkLabel, sparkWhy };
+    coinHref, chipOf, priceSource, shortSource, statCells, curveFoot, curveView, venueLine, shapeOf, sparkPick, sparkGeometry, sparkLabel, sparkWhy, hhmm, feesSource };
   window.VLaunchpad = { pure };
   if (typeof document === "undefined" || !window.V) return; // node: the helpers are enough
 
@@ -799,10 +815,19 @@
     render(); // the controls are wired at once; the first answer fills them (the placeholders hold the room meanwhile)
     load();
   }
+  /* ----- Fees: the live price curve's schedule, every figure read from the config on chain (GET /api/fees, src/fees.js), only while the launch is on ----- */
+  async function paintFees() {
+    const box = $("#lp-fees"); if (!box) return;
+    const f = await api("/api/fees").catch(() => null);
+    if (!f || !f.ok || !f.words) return; // nothing is shown that was not read from the chain
+    $("#lp-fees-curve").textContent = str(f.words.curve); $("#lp-fees-steps").textContent = str(f.words.steps); $("#lp-fees-oneoff").textContent = str(f.words.oneOff);
+    $("#lp-fees-src").textContent = feesSource(f);
+    box.hidden = false;
+  }
   let swapOn = false;
   // city coins launched on our own launchpad (the city-coin settings, lpSetup: /api/official cityCoins, the same key the dashboard,
   // the coin page and the admin tab follow): the sources fold names it instead of Raydium LaunchLab. Without it nothing changes.
   // The section ships visible (its placeholders hold the room: nothing jumps); with the switch off it goes, and nothing is asked for.
   const lpCopy = (on) => { for (const e of $$("[data-launchlab-copy]")) e.hidden = on; for (const e of $$("[data-lp-only]")) e.hidden = !on; };
-  official.then((o) => { swapOn = Boolean(o && o.swap === true); if (o && o.cityCoins) lpCopy(true); if (o && o.launchpadV2 === true) start(); else sec.hidden = true; });
+  official.then((o) => { swapOn = Boolean(o && o.swap === true); if (o && o.cityCoins) { lpCopy(true); paintFees(); } if (o && o.launchpadV2 === true) start(); else sec.hidden = true; });
 })();

@@ -162,8 +162,13 @@ test("status from the chain: ready with the name, the ticker, the fee split, the
   const d = r.data;
   assert.equal(d.state, "ready");
   assert.deepEqual([d.cluster, d.cityId, d.ticker, d.coin.name, d.coin.symbol, d.coin.pair, d.wallet], ["devnet", CITY, "UTICA", "Utica Coin", "UTICA", "SOL", w.wallet]);
-  assert.deepEqual([d.fees.totalPct, d.fees.meteoraPct, d.fees.vicinityPct, d.fees.holdersPct, d.fees.founderPct], [1.25, 0.25, 0.5, 0.25, 0.25]);
-  assert.match(d.fees.words, /Meteora 0.25%, Vicinity 0.5%, the coin's holders 0.25%, and you, the founder, 0.25%/);
+  // the split is read from the config's bytes (src/fees.js), with the accurate label for Meteora's cut
+  assert.deepEqual([d.fees.totalPct, d.fees.meteoraPct, d.fees.vicinityPct, d.fees.holdersPct, d.fees.founderPct, d.fees.poolPct], [1.25, 0.25, 0.5, 0.25, 0.25, 1.25]);
+  assert.equal(d.fees.totalText, "1.25%");
+  // the same clauses as the Fees sections (src/fees.js meteoraWords, poolSplitWords): Meteora's cut with its source, no refund, the
+  // pool's split with the later-liquidity note
+  assert.equal(d.fees.halves, "Vicinity's program splits the city's share evenly between you and the holder pot.", "the founder / holder-pot halving is our program's rule: said as its own");
+  assert.equal(d.fees.words, "Every buy and sell on the price curve pays 1.25%: Meteora protocol fee 0.25% (20% of the fee, set by Meteora's program, which sends a fifth of that to Vicinity on trades made here), Vicinity 0.5%, the city's holder pot 0.25%, and you, the founder, 0.25%. After your coin graduates, its pool fee is 1.25%, split the same way, except that none of the Meteora protocol fee goes to Vicinity (anyone who adds liquidity to the pool later takes part of everything but the Meteora protocol fee).");
   assert.equal(d.approval.expiresAt, new Date(Date.now() + 7 * 86400_000).toISOString().replace(/\.\d{3}Z$/, ".000Z"));
   assert.equal(d.cost.approxLamports, 41_200_000, "the devnet curve's 0.01 SOL launch fee + the rent");
   assert.match(d.cost.words, /^About 0\.0412 SOL from your wallet: the 0\.01 SOL launch fee and about 0\.0312 SOL of rent/);
@@ -175,7 +180,7 @@ test("status from the chain: ready with the name, the ticker, the fee split, the
   assert.deepEqual([q.data.quote.coinsOut, q.data.quote.minOut, q.data.quote.amountInSol], [want.amountOut.toString(), want.minOut.toString(), "0.2"]);
   assert.equal((await status(w, "&buy=10000000001")).data.error, "first_buy_too_large");
   assert.equal((await status(w, "&buy=1.5")).data.error, "bad_first_buy");
-  assert.deepEqual(feeSplit(null).totalPct, 1.25, "without a config: the Vicinity defaults");
+  assert.equal(feeSplit(null), null, "without a config there is no figure to show: nothing is said that was not read from the chain");
 });
 
 test("status: not approved, expired, paused, a disabled price curve, the settings not set, a founder mismatch, launched", async () => {
@@ -215,6 +220,12 @@ test("status: not approved, expired, paused, a disabled price curve, the setting
   assert.deepEqual([d.state, d.mint, d.coinPage, d.yours], ["launched", DEMOV, `/coin?mint=${DEMOV}`, true]);
   assert.match(d.explorer, /^https:\/\/solscan\.io\/token\/EAXz.*\?cluster=devnet$/);
   assert.ok(d.founderFees && d.founderFees.words);
+  assert.equal(d.founderFees.sharePct, "0.25%", "the founder's part of every trade, read from the config the coin launched under");
+  assert.equal(d.founderFees.shareUpTo, false, "on the curve the share is exact");
+  // graduated: the pool's figure, and a ceiling (anyone who adds liquidity later takes part of what the locked positions earn)
+  setField(w.S, DEMOV_POOL, "VirtualPool", "is_migrated", 1);
+  d = (await status(w)).data;
+  assert.deepEqual([d.founderFees.sharePct, d.founderFees.shareUpTo], ["0.25%", true]);
 });
 
 test("launch/tx: the session wallet pays and is the founder, the mint is a one-time key, v0 through the speed table; the SOL change", async () => {

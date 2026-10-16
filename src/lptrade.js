@@ -22,6 +22,7 @@ import { launchpadCluster, solscanTx } from "./cluster.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas } from "./sol/pda.js";
 import { PROGRAM_CONSTANTS, decodeCoin, decodeConfig, decodeLookupTable, decodePool, decodeTokenAccount } from "./sol/dbc.js";
 import { CurveError, MAX_SLIPPAGE_BPS, feeBpsOf, priceInQuote, quoteBuy, quoteSell } from "./sol/quote.js";
+import { feeSchedule } from "./fees.js";
 import { CU, SwapMode, createAtaIdempotent, maxCuPrice, priorityFeeLamports, setComputeUnitLimit, setComputeUnitPrice, swap2, unwrapSol, wrapSol } from "./sol/ix.js";
 import { MAX_TX_BYTES, compileLegacy, compileV0, wrapUnsigned, decodeHeader } from "./sol/message.js";
 import { toBase64 } from "./sol/bytes.js";
@@ -144,13 +145,16 @@ export function curveQuote({ side, pool, config, amountRaw, slippageBps, quoteDe
   const q = side === "buy" ? quoteBuy(pool, config, { amountIn: amountRaw, slippageBps }) : quoteSell(pool, config, { amountIn: amountRaw, slippageBps });
   const [inMint, outMint, inDec, outDec] = side === "buy" ? [coin.quoteMint, coin.mint, qd, COIN_DECIMALS] : [coin.mint, coin.quoteMint, COIN_DECIMALS, qd];
   const spot = priceInQuote(pool.sqrtPrice, qd);
+  // the fee as the Fees sections say it (src/fees.js: "about …" where the config's fee is not a whole tenth of a basis point);
+  // curveFeeBps stays the whole basis points the arithmetic uses
+  const S = feeSchedule(config);
   return {
     source: "curve", side, mode: q.mode, inputMint: inMint, outputMint: outMint, decimals: { in: inDec, out: outDec },
     inAmount: q.amountIn.toString(), outAmount: q.amountOut.toString(), minOut: q.minOut.toString(), inUi: formatAmount(q.amountIn, inDec), outUi: formatAmount(q.amountOut, outDec), minOutUi: formatAmount(q.minOut, outDec),
     slippageBps, priceImpactPct: (q.priceImpactBps / 100).toFixed(2), refund: q.refund.toString(), completesCurve: q.completesCurve, partialFill: q.mode === SwapMode.PartialFill,
     spotPrice: spot, route: ["Meteora bonding curve"], executedOn: "Meteora DBC",
     fees: {
-      curveFeeBps: feeBpsOf(config), feeRaw: q.fees.total.toString(), feeToken: coin.quoteMint,
+      curveFeeBps: feeBpsOf(config), curveFeeText: S ? S.curve.text.total : null, feeRaw: q.fees.total.toString(), feeToken: coin.quoteMint,
       split: { meteora: q.fees.meteora.toString(), referral: q.fees.referral.toString(), devWallet: q.fees.devWallet.toString(), city: q.fees.city.toString(), holders: q.fees.holders.toString(), founder: q.fees.founder.toString() },
       networkLamports: Number(NETWORK_FEE_LAMPORTS), platformFeeBps: 0,
     },

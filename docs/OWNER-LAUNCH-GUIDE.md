@@ -353,7 +353,7 @@ is safe to do; a step that is "Waiting" says why.
 |---|---|---|
 | 1. Start the launchpad | starts the rewards registry and the launchpad in one transaction; your wallet becomes the admin of both | about −0.0026 SOL (rent for two small records). Phantom may warn that the program is new or unknown: it is your own program from step 8; check that the page names "Vicinity rewards" and "Vicinity launchpad" at your two addresses |
 | 2. Hand the programs to your Squads | paste the **Multisig account** address from step 11, press **Check**. The page reads it from the blockchain and shows "2 of 3 members", the three members and the **Vault**. Compare that vault with the vault in the Squads app, every character. Tick "The vault above is the vault in my Squads app", then **Prepare step 2** | only the network fee. The page lists two "Program loader (upgradeable): hand over control of a program (set_authority)" lines: open "3 accounts" under each; the one marked "your Squads vault (the new upgrade authority)" must be the vault you compared. Phantom may warn that the transaction changes who controls an account: that is exactly this step |
-| 3. Create the Meteora price curve | the price curve every city coin uses: 85 SOL target, 1.25% fee per trade, 0.05 SOL launch fee, fees to the dev wallet. A one-time key made in your browser signs together with you | about −0.006 SOL |
+| 3. Create the Meteora price curve | the price curve every city coin uses, with Vicinity's defaults (85 SOL target, 1.25% fee per trade and 0.05 SOL launch fee on the live config today; the website reads the figures it shows from the config itself), fees to the dev wallet. A one-time key made in your browser signs together with you | about −0.006 SOL |
 | 4. Allow the price curve | puts the curve on the launchpad's allow-list; the program checks every Vicinity rule again | about −0.0012 SOL |
 | 5. Fee accounts | the dev wallet's fee accounts for SOL and $VICINITY. They already exist on mainnet, so this step is probably shown as Done | about −0.0015 SOL per missing account |
 | 6. Speed table | an address list that makes a launch with a first buy fit in one transaction. If the page offers step 6 again afterwards, press it again until it says Done | about −0.0044 SOL |
@@ -392,7 +392,8 @@ Then we tell you "ready for the first city".
    can no longer change the design; if they changed it while your page was open, the page says so: reload and look
    again.
 3. Tell the founder. They open their dashboard → **Founder** tab → "Launch your city coin" → **Launch**, in their own
-   wallet (it costs them about 0.08 SOL: the 0.05 SOL launch fee plus rent). Their coin is live at once.
+   wallet (it costs them the config's launch fee plus rent: about 0.08 SOL with the 0.05 SOL launch fee of the live config
+   today). Their coin is live at once.
 
 If an approval later shows "The approved wallet no longer holds the founder seat … Revoke it" (the founder lost or
 left the seat before launching), press **Revoke**: the program itself would still let that wallet launch until the
@@ -412,7 +413,8 @@ approval expires.
 | Collect (platform fees) | only the dev wallet `13qRam…` | collects Vicinity's own share of trades and launches |
 | Pause launches / Resume launches | you | stops or allows new launches (trades on existing coins cannot be stopped) |
 
-Founders collect their own 0.25% on their Founder tab ("Collect your fees"). Reward rounds to holders are not on the
+Founders collect their own share (half of the city's part of each trade: 0.25% on the live config today, shown on the coin
+page's Fees card from the config) on their Founder tab ("Collect your fees"). Reward rounds to holders are not on the
 website yet: the holders' money waits safely in each city's vault until they are.
 
 Later, when you want, the admin role can move from your Phantom to the Squads vault too (the program supports it;

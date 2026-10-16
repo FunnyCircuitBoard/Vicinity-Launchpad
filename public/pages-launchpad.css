@@ -198,6 +198,11 @@
 .lp-sources { margin-top: var(--sp-2, 8px); }
 .lp-sources .lp-about, .lp-sources .lp-honesty { margin: 0 0 var(--sp-3, 12px); max-width: 78ch; font-size: var(--fs-xs, .75rem); }
 
+/* Fees: one card under the coins (only while the city-coin launch is on), three plain sentences and where the figures come from */
+.lp-fees { padding: var(--sp-5, 24px) 0 0; }
+.lp-fees__card { display: grid; gap: var(--sp-2, 8px); max-width: 78ch; }
+.lp-fees__card p { margin: 0; }
+
 /* the Founding Supporter snapshot: one fold under everything (open when the address ends in #supporters) */
 .lp-snap { padding: 0 0 var(--sp-7, 48px); }
 .lp-snap__fold { border-bottom: 1px solid var(--line); }

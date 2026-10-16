@@ -250,9 +250,24 @@
    * The Holders card's five: the biggest holders by size. /api/holders lists pools, the team lock and the team wallets first (the
    * token page's order, 13 Oct 2026), so its first five are not the five biggest; a stable sort keeps its order between equal amounts.
    */
+  /** HH:MM in the viewer's own clock, for "at 14:03" under the fees; "" when the time is not one. */
+  function hhmm(isoText) {
+    const t = Date.parse(str(isoText)); if (!Number.isFinite(t)) return "";
+    const d = new Date(t); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  // a word joiner after the ellipsis and a no-break space before the time: "EZVH…1kSP" and "at 14:03" never break across lines
+  const shortAddr = (a) => (isAddr(a) ? `${a.slice(0, 4)}…\u2060${a.slice(-4)}` : "");
+  /**
+   * The source line under the fees: the coin's own price-curve settings on chain (their address) and when the site read them, then
+   * the one rule that is Vicinity's program's, not the settings' (the answer's words.halves, src/fees.js: the founder / holder-pot halving).
+   */
+  const feesSource = (f) => {
+    const halves = f && f.words && typeof f.words.halves === "string" && f.words.halves ? `. ${f.words.halves}` : "";
+    return `Read from this coin's price-curve settings on Solana${shortAddr(f && f.config) ? ` (${shortAddr(f.config)})` : ""}${hhmm(f && f.readAt) ? ` at\u00a0${hhmm(f.readAt)}` : ""}${halves}`;
+  };
   const topHolders = (list, n = 5) => (Array.isArray(list) ? [...list] : []).sort((a, b) => (num(b && b.amount) ?? 0) - (num(a && a.amount) ?? 0)).slice(0, n);
 
-  const pure = { isAddr, initialsOf, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, onVicinity, tradingPaused, priceLine, cityAbout, topHolders, RANGES, UNITS, STYLES };
+  const pure = { isAddr, initialsOf, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, onVicinity, tradingPaused, priceLine, cityAbout, topHolders, hhmm, feesSource, RANGES, UNITS, STYLES };
   window.VCoin = { pure };
   if (typeof document === "undefined" || !window.V || !window.VChart || !window.VChart.create) return; // node: the helpers are enough
 
@@ -583,6 +598,27 @@
     p.replaceChildren(...parts.flatMap((n, i) => (i ? [" · ", n] : [n])));
   }
 
+  /* ----- fees: a coin of the Vicinity launchpad, from the config it launched under (GET /api/fees?mint=), asked once per coin ----- */
+  let feesAsked = null, fees = null;
+  function paintFees(d) {
+    if (!onVicinity(d) || !isAddr(d.mint)) { show("#coin-fees", false); return; } // $VICINITY and LaunchLab coins: no schedule of ours to show
+    if (feesAsked !== d.mint) {
+      feesAsked = d.mint; fees = null;
+      // an answer that did not come (the chain busy, the limiter) is asked again at the next refresh; a good one is kept for the page
+      api(`/api/fees?mint=${encodeURIComponent(d.mint)}`).then((f) => {
+        if (feesAsked !== d.mint) return;
+        if (f && f.ok && f.words && f.coin && f.coin.mint === d.mint) { fees = f; paintFees(data || d); } else feesAsked = null;
+      }).catch(() => { if (feesAsked === d.mint) feesAsked = null; });
+    }
+    const f = fees && fees.coin && fees.coin.mint === d.mint ? fees : null;
+    show("#coin-fees", Boolean(f)); // nothing is shown that was not read from the chain
+    if (!f) return;
+    // a coin that has moved to its pool: the pool's fee first, the curve's after it in the past tense (src/fees.js words.graduated)
+    const cv = curveOf(d), w = cv && cv.lp && cv.graduated && f.words.graduated ? f.words.graduated : f.words;
+    put($("#coin-fees-curve"), str(w.curve)); put($("#coin-fees-steps"), str(w.steps)); put($("#coin-fees-oneoff"), str(f.words.oneOff));
+    put($("#coin-fees-src"), feesSource(f));
+  }
+
   /* ----- the chart ----- */
   const chart = window.VChart.create($("#coin-canvas"), { onScrub });
   function chartMsg(text, { retry = false, alt = null, loading = false } = {}) {
@@ -713,7 +749,7 @@
     show("#coin-note", false); show("#coin-main", true); show("#coin-lower", true); show("#coin-sources", true);
     root.removeAttribute("aria-busy");
     document.title = `${str(d.coin.ticker) ? `$${str(d.coin.ticker)}` : str(d.coin.name) || "City coin"}: live price, chart and holders · Vicinity`;
-    paintHead(d, ageS); paintTiles(d, ageS); paintCurve(d); paintLinks(d); paintTrades(d); paintAbout(d); paintSources(d);
+    paintHead(d, ageS); paintTiles(d, ageS); paintCurve(d); paintLinks(d); paintTrades(d); paintAbout(d); paintFees(d); paintSources(d);
     paintHolders(d);
   }
   function schedule() {

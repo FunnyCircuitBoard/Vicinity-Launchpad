@@ -175,7 +175,7 @@ every call is a GET or a JSON-RPC read; `--check-limits` posts invalid bodies th
 | `speed table for city coins` | the table holds every address the website's launch, graduation and fee transactions share (src/sol/lpadmin-ix.js `lookupTableAddresses`) | WARN some missing (a launch with a first buy may not fit); FAIL deactivated |
 | `setup summary`, `setup summary vs settings` (`--setup`) | the box parses; every launchpad setting equals it | FAIL not a summary; FAIL a setting that differs (both values named); WARN settings taken from the summary (before PR-2: the row prints them) |
 | `setup Squads multisig`, `setup Squads vault` | a Squads v4 multisig (2 or more approvals, no config authority, enough voters) whose vault 0 is the summary's vault; `--expect-upgrade-authority`, when given, is that vault | FAIL (a pasted vault or wallet, a 1-of-N or controlled multisig, another vault) |
-| `setup price curve`, `setup allow-list entry`, `setup speed table` | the config is byte for byte what Meteora writes for Vicinity's defaults (85 SOL, 1.25 %, 0.05 SOL, fees to the dev wallet), its version aside (0 if made before Meteora's DBC 0.2.2, like the live one, 1 after), and in `LAUNCHPAD_DBC_CONFIGS`; its allow-list entry is the summary's and enabled; the table is `LAUNCHPAD_LOOKUP_TABLE`, active, and holds both | FAIL (on devnet a differing curve only WARNs) |
+| `setup price curve`, `setup allow-list entry`, `setup speed table` | the config is byte for byte what Meteora writes for Vicinity's defaults (solana/sdk/launchpad/config.mjs: 85 SOL, 1.25 %, 0.05 SOL, fees to the dev wallet; the site shows the config's own figures, src/fees.js), its version aside (0 if made before Meteora's DBC 0.2.2, like the live one, 1 after), and in `LAUNCHPAD_DBC_CONFIGS`; its allow-list entry is the summary's and enabled; the table is `LAUNCHPAD_LOOKUP_TABLE`, active, and holds both | FAIL (on devnet a differing curve only WARNs) |
 | `setup admin`, `setup fee accounts`, `setup partner metadata`, `setup signatures` | the summary's admins are the chain's (and `--expect-admin`); the dev wallet's SOL and $VICINITY accounts are the derived ones and exist; Meteora's partner record exists; every setup signature landed without error | FAIL a different address or a failed transaction; WARN an account or a signature not found, no partner record (step 7, not a blocker) |
 | `site /coin-meta`, `site /brand/vicinity-512.png`, `site city-coin routes` (`--site`) | an unknown coin answers 404 JSON with `Access-Control-Allow-Origin: *`; the logo 200 `image/png`; `/api/lp/launch/status` answers the probe on the same cluster and 401 for a signed-out city | FAIL while the city coins are on in the settings checked here (WARN while off); FAIL the site off while on here, another cluster, or not 401 |
 | `dev wallet` | in `ADMIN_WALLETS` | WARN |
@@ -222,8 +222,12 @@ Recorded on 10 October 2026, after the city-coin rows were added (same shell):
   unless `SWAP_PLATFORM_FEE_BPS` is set; when it is, the quote's fee line and the panel's footer say the percentage.
   Jupiter's Developer plan price ($25 per month, 10 requests per second) is the owner's figure from portal.jup.ag, not
   verified here.
-* Curve trades: the curve's 125 bps (100 bps to Meteora's fee claimer = the dev wallet, split by the program into city, holders,
-  founder and dev as LAUNCHPAD.md describes; 25 bps referral), the network fee, 55,000 to 73,000 compute units (devnet runs),
+* Curve trades: the config's trading fee (125 bps on the live config today; the site reads it from the config, src/fees.js and
+  `GET /api/fees`): Meteora's protocol fee is 20 % of it (25 bps; a fifth of that, 5 bps, goes to the dev wallet as the
+  referral on trades built here), the rest splits by the config's creator share between the city's Coin PDA (50 bps, halved
+  founder / holders by our program at harvest) and the dev wallet (50 bps, the partner share, claimed by the dev wallet; measured
+  on 16 Oct 2026 on copies of Meteora's mainnet programs, and again, identical, on Meteora's upgraded programs the same day),
+  the network fee, 55,000 to 73,000 compute units (devnet runs),
   and, whenever the dev wallet has closed its referral account (it does so when it unwraps SOL), about 0.002 SOL of rent paid
   by the NEXT trader to re-create it, which is not returned to them: the quote carries `fees.referralRentLamports` and
   `referralNote`, the panel shows it in the "Account rent" row, and the preflight's `referral account` row WARNs. The fix is

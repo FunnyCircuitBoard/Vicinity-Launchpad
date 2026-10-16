@@ -179,7 +179,7 @@ test("the built page: built from scripts/pages, the Launch tab is current, every
 test("the script keeps the rules: only this site's API, no markup from text, outside links only to the sites they name, 30 s refresh only while looked at", () => {
   assert.doesNotMatch(src, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|\bfetch\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon|console\.|localStorage|sessionStorage|document\.cookie/);
   const calls = [...src.matchAll(/\bapi\(([^)]*)\)/g)].map((m) => m[1]).sort();
-  assert.deepEqual(calls, ['"/api/holders"', '"/api/official"', "`/api/coin/chart?mint=${encodeURIComponent(mint", "`/api/coin?mint=${encodeURIComponent(mint"], "our own API, nothing else");
+  assert.deepEqual(calls, ['"/api/holders"', '"/api/official"', "`/api/coin/chart?mint=${encodeURIComponent(mint", "`/api/coin?mint=${encodeURIComponent(mint", "`/api/fees?mint=${encodeURIComponent(d.mint"], "our own API, nothing else (the fees of a launchpad coin come from /api/fees)");
   const hosts = [...new Set([...src.matchAll(/https?:\/\/([a-z0-9.-]+)/g)].map((m) => m[1]))].sort();
   assert.deepEqual(hosts, ["solscan.io", "www.geckoterminal.com", "x.com"], "links only (the trade links come from the server and are checked by safeLink)");
   assert.match(src, /const REFRESH_MS = 30000, BACKOFF = \[30000, 60000, 120000, 300000\], CHART_MS = 60000;/);

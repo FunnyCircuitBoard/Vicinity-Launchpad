@@ -67,3 +67,7 @@
    (token.js / coin.js set data-swap-here; the info mark stays even at 360 px, where the other pills drop their icons) */
 .contract__ext .ext-ico--info, .contract__ext[data-swap-here] .ext-ico--swap { display: none; }
 .contract__ext[data-swap-here] .ext-ico--info { display: block; }
+
+/* Fees (a coin of the Vicinity launchpad): three plain sentences and where the figures come from, read from the coin's own config */
+.coin-fees { display: grid; gap: 8px; }
+.coin-fees .small, .coin-fees .coin-foot { margin: 0; }

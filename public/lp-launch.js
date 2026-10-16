@@ -37,6 +37,31 @@
     return d >= 2 ? `${d} days left` : h >= 1 ? `${h} hours left` : `${Math.max(1, Math.ceil(s / 60))} minutes left`;
   }
   const NOT_APPROVED = "An admin approves your coin on chain first; your pair must be SOL.";
+  /**
+   * "the X% fee included", X from the status answer's fee split (the config's figure, src/fees.js); "a fee of about X% included" when
+   * the schedule says "about"; without one, no figure.
+   */
+  const feeNote = (st) => {
+    const t = st && st.fees && typeof st.fees.totalText === "string" ? st.fees.totalText : "";
+    return !t ? "the price curve's fee included" : t.startsWith("about ") ? `a fee of ${t} included` : `the ${t} fee included`;
+  };
+  /**
+   * "0.25% of every trade, from your coin's price-curve settings and Vicinity's program", the founder's part from the coin's config
+   * (founderFees.sharePct), halved between the founder and the holder pot by our program (not a field of the settings, so both are
+   * named); "up to 0.25% …" once the coin trades in its pool (shareUpTo: other liquidity takes part of it); without a figure, none.
+   */
+  const shareNote = (f) => (f && typeof f.sharePct === "string" && f.sharePct ? `${f.shareUpTo === true ? "up to " : ""}${f.sharePct} of every trade, from your coin's price-curve settings and Vicinity's program` : "your share of every trade");
+  /** "EZVH…1kSP": an address shortened for the eye. */
+  const short = (a) => (typeof a === "string" && a.length > 12 ? `${a.slice(0, 4)}…${a.slice(-4)}` : String(a || ""));
+  /**
+   * Where the launch card's fee figures were read: the price curve the approval names (status answer approval.dbcConfig), then the
+   * one rule that is our program's, not the settings' (fees.halves, src/fees.js halvesWords: the founder / holder-pot halving).
+   */
+  const feesFrom = (st) => {
+    const at = st && st.approval && typeof st.approval.dbcConfig === "string" && st.approval.dbcConfig ? ` Read from your approved price-curve settings on Solana (${short(st.approval.dbcConfig)}).` : "";
+    const halves = st && st.fees && typeof st.fees.halves === "string" && st.fees.halves ? ` ${st.fees.halves}` : "";
+    return `${at}${halves}`;
+  };
   /** What the card says for a status answer: { state, tag: [text, class], lines: [...], canLaunch }. */
   function view(st, design = null) {
     const s = st && st.ok ? st.state : "error";
@@ -73,7 +98,7 @@
   /** The status line for lp-sign.js's onStatus(state, signature, extra). */
   const statusText = (s, extra) => (s === "confirming" && extra && extra.unclear ? STATUS.unclear : STATUS[s] || s);
 
-  const pure = { parseSol, solText, coinsText, dateText, leftText, view, gradView, statusText, NOT_APPROVED, STATUS, MIGRATE_TEXT };
+  const pure = { parseSol, solText, coinsText, dateText, leftText, feeNote, shareNote, feesFrom, view, gradView, statusText, NOT_APPROVED, STATUS, MIGRATE_TEXT };
   const root = typeof window !== "undefined" ? window : globalThis;
   root.LPLaunch = { pure };
   if (typeof document === "undefined" || !root.V) return; // node: the helpers are enough
@@ -104,7 +129,6 @@
     return b;
   }
   const fact = (dl, label, value) => { dl.append(el("dt", null, label)); const dd = el("dd"); if (value && typeof value === "object") dd.append(value); else dd.textContent = value == null ? "—" : String(value); dl.append(dd); };
-  const short = (a) => (typeof a === "string" && a.length > 12 ? `${a.slice(0, 4)}…${a.slice(-4)}` : String(a || ""));
   function netLine(target, cluster) {
     if (!target) return;
     target.hidden = false;
@@ -233,7 +257,7 @@
     const head = el("p", "lp-coin");
     head.append(el("strong", "lp-coin__name", st.coin.name), " ", el("span", "lp-coin__tk", ticker), " ", el("span", "muted", "· paired with SOL"));
     const dl = el("dl", "lp-facts");
-    fact(dl, "Fees on every trade", st.fees.words);
+    if (st.fees && st.fees.words) fact(dl, "Fees", `${st.fees.words}${feesFrom(st)}`); // the config's own figures and where they were read; none when it was not read
     fact(dl, "Approved until", `${dateText(st.approval.expiresAt)} (${leftText(st.approval.secondsLeft)})`);
     fact(dl, "What it costs you", st.cost.words);
     fact(dl, "Your wallet", short(st.wallet));
@@ -259,7 +283,8 @@
         timer = setTimeout(async () => {
           const r = await V.api(`/api/lp/launch/status?city=${enc(st.cityId)}&cluster=${enc(p.cluster)}&buy=${enc(buy.lamports)}&slippageBps=${FIRST_BUY_SLIPPAGE_BPS}`);
           if (mine !== seq) return; // a newer amount was typed meanwhile
-          if (r && r.ok && r.quote) quote.textContent = `You get exactly ${coinsText(r.quote.coinsOutUi)} ${ticker} for ${solText(r.quote.amountInLamports)} (the 1.25% fee included), in the same transaction as the launch.`;
+          // the fee named is the config's (the status answer's fees come from src/fees.js), never a literal
+          if (r && r.ok && r.quote) quote.textContent = `You get exactly ${coinsText(r.quote.coinsOutUi)} ${ticker} for ${solText(r.quote.amountInLamports)} (${feeNote(st)}), in the same transaction as the launch.`;
           else quote.textContent = (r && (r.quoteError || r.message)) || words(r);
         }, 400);
       });
@@ -296,7 +321,8 @@
     const f = st.founderFees;
     if (!st.yours) { body.append(el("p", "small muted", "The coin's founder on chain is another wallet, so its founder fees are not collected from here.")); return; }
     if (!f) return;
-    body.append(el("p", "small", `Your founder fees: ${solText(f.totalLamports)} waiting for you (a quarter of a percent of every trade).`));
+    // the founder's part of every trade is the coin's config's figure (src/fees.js through the status answer), never a literal
+    body.append(el("p", "small", `Your founder fees: ${solText(f.totalLamports)} waiting for you (${shareNote(f)}).`));
     if (BigInt(f.totalLamports || "0") > 0n) {
       const flow = el("div", "lp-flow");
       const go = button("Collect your fees", "btn btn--glass btn--sm", async () => {

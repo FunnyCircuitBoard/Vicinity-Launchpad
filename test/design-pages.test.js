@@ -113,7 +113,8 @@ test("no risk warning in the page chrome, pop-ups or scripts (design v4, the own
     assert.doesNotMatch(h, RISK, f);
   }
   // a transaction's own facts are not disclaimers: they stay where the money moves
-  assert.match(read("public/swap.js"), /You sign in your own wallet; Vicinity never touches your funds\$\{feeBps \? ` and takes a \$\{\(feeBps \/ 100\)\.toString\(\)\}% platform fee` : " and takes no fee"\}/);
+  assert.match(read("public/swap.js"), /const jupFee = feeBps \? ` and takes a \$\{\(feeBps \/ 100\)\.toString\(\)\}% platform fee` : onPool \? " and adds no platform fee" : " and takes no fee";/);
+  assert.match(read("public/swap.js"), /You sign in your own wallet; Vicinity never touches your funds\$\{jupFee\}\$\{onPool \? "; if the route uses this coin's own Meteora pool, Vicinity's locked share of it earns part of that pool's fee" : ""\}/);
 });
 
 test("icons, not emoji: the pages' sources carry no pictographic emoji", () => {

@@ -42,6 +42,7 @@ import { compileLegacy, MAX_TX_BYTES, wrapUnsigned } from "./sol/message.js";
 import { DBC_CONFIG_DEFAULTS, DBC_PROGRAM_SHA256, EXPECTED_POOL_CONFIG } from "./sol/dbc-config-data.js";
 import { checkMultisig } from "./sol/squads.js";
 import { holdDesign } from "./lpcoins.js";
+import { feeSchedule } from "./fees.js";
 import * as IX from "./sol/lpadmin-ix.js";
 
 const DEV = ADDRESSES.feeRecipient;
@@ -188,13 +189,14 @@ export function configDiff(account) {
   }
   return out.length ? [...new Set(out)] : ["other bytes"];
 }
-/** The plain-word facts of a config (what the page shows next to the defaults). */
+/** The plain-word facts of a config (what the page shows next to the defaults); the fee figures through src/fees.js, from its bytes. */
 function configFacts(acc) {
   const c = decodeConfig(acc);
   if (!c) return null;
+  const S = feeSchedule(c); // null for a fee that is not flat (our program refuses one): then no fee figure is named
   return {
     quoteMint: c.quoteMint, feeClaimer: c.feeClaimer, leftoverReceiver: c.leftoverReceiver, target: sol(c.migrationQuoteThreshold),
-    tradeFeeBps: Number((c.feeNumerator * 10_000n) / 1_000_000_000n), launchFee: sol(c.poolCreationFee), migratedPoolFeeBps: c.migratedPoolFeeBps,
+    tradeFeeBps: Number((c.feeNumerator * 10_000n) / 1_000_000_000n), tradeFee: S ? S.curve.text.total : null, launchFee: S ? `${S.launchFeeSol} SOL` : sol(c.poolCreationFee), migratedPoolFeeBps: c.migratedPoolFeeBps,
   };
 }
 
@@ -386,7 +388,8 @@ export async function setupSteps(st) {
   // 3 config
   const c = st.config;
   let s3;
-  if (c && c.exists && c.diff && c.diff.length === 0) s3 = step("config", "done", `The price curve ${c.address} matches Vicinity's defaults (85 SOL target, 1.25% fee, 0.05 SOL launch fee, fees to ${short(DEV)}).`, { address: c.address });
+  // the figures in the sentence are the config's own (configFacts: decoded from its bytes, the fee through src/fees.js), never a literal
+  if (c && c.exists && c.diff && c.diff.length === 0) s3 = step("config", "done", `The price curve ${c.address} matches Vicinity's defaults (${c.facts && c.facts.tradeFee ? `${c.facts.target} target, ${c.facts.tradeFee} fee, ${c.facts.launchFee} launch fee, ` : ""}fees to ${short(DEV)}).`, { address: c.address });
   else if (c && c.exists && c.source === "settings") s3 = step("config", "done", `The price curve ${c.address} comes from the settings. It differs from the mainnet defaults in: ${c.diff.join(", ")}.`, { address: c.address, note: true });
   else if (c && c.exists) s3 = step("config", "blocked", `The price curve ${c.address} differs from Vicinity's defaults in: ${c.diff.join(", ")}. Tell the team; do not allow it.`, { address: c.address });
   else if (s2.state === "done" && !(st.dbc && st.dbc.sha256 && st.dbc.sha256 === st.dbc.pinned)) {

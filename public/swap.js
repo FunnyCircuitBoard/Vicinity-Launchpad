@@ -149,6 +149,39 @@
   let configP = null, config = null;
   const loadConfig = () => (configP ||= api("/api/swap/config").then((c) => (config = c && c.ok ? c : null)).catch(() => (config = null)));
   const tokenOf = (mint) => (config && config.tokens.find((t) => t.mint === mint)) || null;
+  // the pool fee of a graduated city coin (GET /api/fees?mint=, src/fees.js: read from the config the coin launched under): a good
+  // answer is kept for the page; one that did not come (the limiter, the chain busy) is forgotten after half a minute, so a later
+  // render asks again. null when the site has no schedule for it (nothing is shown then, never a guess)
+  const poolFees = new Map();
+  const poolFeeOf = (mint) => {
+    if (!poolFees.has(mint)) {
+      const p = api(`/api/fees?mint=${encodeURIComponent(mint)}`).then((d) => (d && d.ok && d.pool && d.pool.text ? d : null)).catch(() => null);
+      poolFees.set(mint, p);
+      p.then((d) => { if (!d) setTimeout(() => { if (poolFees.get(mint) === p) poolFees.delete(mint); }, 30_000); });
+    }
+    return poolFees.get(mint);
+  };
+  /** A short address and a time that never break across lines ("4ZLt…nrD7", "read 16:30"): a word joiner after the ellipsis, a no-break space. */
+  const keepShort = (a) => shortAddr(a).replace("…", "…\u2060");
+  const hhmm = (isoText) => { const t = Date.parse(String(isoText || "")); if (!Number.isFinite(t)) return ""; const d = new Date(t); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+  /**
+   * A trade that goes through a Meteora DAMM v2 pool (Jupiter's venue label, "Meteora DAMM v2"): the only kind of venue the coin's
+   * pool fee applies to. The quote carries the venues' labels only (src/swap.js labelsOf, de-duplicated), not their pool addresses,
+   * so a hop cannot be matched to the coin's own pool here: anyone can make a second DAMM v2 pool for the coin with another fee, and
+   * a two-hop route through two DAMM v2 pools reads as one label. So both sentences that use these are conditional ("if the route
+   * uses this coin's own Meteora pool"), true whichever DAMM v2 pool the route takes. viaMeteoraPool: some hop is one (the footer's
+   * sentence on Vicinity's share, which must not say "takes no fee" on such a route); onlyMeteoraPool: every hop is one (the Pool fee
+   * row, so a route split with another venue gets no row).
+   */
+  const isDamm = (l) => /meteora/i.test(String(l)) && /damm/i.test(String(l));
+  const viaMeteoraPool = (q) => Boolean(q && Array.isArray(q.route) && q.route.some(isDamm));
+  const onlyMeteoraPool = (q) => Boolean(q && Array.isArray(q.route) && q.route.length > 0 && q.route.every(isDamm));
+  /** The curve fee as the Fees sections write it (src/fees.js through the quote), else the quote's whole basis points. */
+  const curveFeeText = (f) => (typeof f.curveFeeText === "string" && f.curveFeeText ? f.curveFeeText : `${(f.curveFeeBps / 100).toFixed(2)}%`);
+  /** The city coin of a trade that has moved to its pool (the config's stage), or null. */
+  const graduatedCoin = (s) => [s.out, s.in].map(tokenOf).find((t) => t && t.kind === "city" && t.stage === "graduated") || null;
+  /** The graduated city coin whose pool this quote trades through (a Jupiter route with a Meteora DAMM v2 hop), or null: decided by the route and the coin's stage, never by whether its fee figure has loaded. */
+  const poolCoin = (q, s) => (q && q.source !== "curve" && viaMeteoraPool(q) ? graduatedCoin(s) : null);
   // a city coin: the server's ticker (the chain's once launched, else the city list's) with its "$"; one without a ticker goes by its name, plain (nothing here makes a ticker up)
   const symbolOf = (mint, fallback) => { const t = tokenOf(mint); return t ? (t.kind === "vicinity" ? "$VICINITY" : t.kind === "city" ? (t.symbol ? `$${String(t.symbol).replace(/^\$/, "")}` : t.name || "city coin") : t.symbol) : fallback || shortAddr(mint); };
   const decimalsOf = (mint) => { const t = tokenOf(mint); return t ? t.decimals : 6; };
@@ -459,6 +492,9 @@
       const kv = (k, long) => { const dt = el("dt", long ? "is-long" : null, k), dd = el("dd", long ? "is-long" : null, "—"); dl.append(dt, dd); return dd; };
       this.dMin = kv("Min received"); this.dImpact = kv("Price impact"); this.dFee = kv("Fee", true); this.dRoute = kv("Route", true);
       this.rentDt = el("dt", "is-long", "Account rent"); this.dRent = el("dd", "is-long", ""); dl.append(this.rentDt, this.dRent); this.rentDt.hidden = this.dRent.hidden = true; // shown only when a trade will ask for rent
+      // a graduated city coin: its pool's fee, from the config it launched under (shown only once the site has read it)
+      this.poolDt = el("dt", "is-long", "Pool fee"); this.dPool = el("dd", "is-long", ""); dl.append(this.poolDt, this.dPool); this.poolDt.hidden = this.dPool.hidden = true;
+      this.poolFee = null; this.poolP = null;
       const moreEmpty = el("p", "swap__more-empty", ""); this.moreEmpty = moreEmpty;
       // "Price details": the slippage, its help and the details folded under the button; the summary line keeps every cost and
       // risk in sight (slippage, a fee, the one-time account fee, a high price impact), and opens by itself above 3 % impact
@@ -1087,7 +1123,8 @@
     renderMeta(q, f, impact, ownRent, refRent) {
       const s = this.s, bits = [[`Slippage ${s.slippage / 100}%`, ""]];
       const feeBps = f ? (f.curveFeeBps != null ? f.curveFeeBps : f.platformFeeBps) : config && config.platformFeeBps;
-      if (feeBps > 0) bits.push([`Fee ${f && f.curveFeeBps != null ? (feeBps / 100).toFixed(2) : (feeBps / 100).toString()}%`, "is-cost"]);
+      // the curve's fee is named as such (its source is in the Fee row below); a platform fee keeps its short "Fee"
+      if (feeBps > 0) bits.push([f && f.curveFeeBps != null ? `Curve fee ${curveFeeText(f)}` : `Fee ${(feeBps / 100).toString()}%`, "is-cost"]);
       if (ownRent > 0) bits.push([`≈ ${solShort(ownRent)} SOL one\u2011time account fee`, "is-cost"]); // a hyphen that never breaks the line
       if (refRent > 0) bits.push([`≈ ${solShort(refRent)} SOL setup fee, not returned`, "is-cost"]);
       if (q && impact > 3) bits.push([`Impact ${impact.toFixed(2)}%`, impact > 10 ? "is-bad" : "is-warn"]);
@@ -1098,6 +1135,26 @@
       // each fact wraps as one piece, its dot leading it ("Slippage 1%" / "· ≈ 0.00204 SOL one-time account fee")
       bits.forEach(([t, cls], i) => { const bit = el("span", "swap__more-bit"); if (i) { parts.push(" "); bit.append(el("span", "swap__more-dot", "· ")); } bit.append(cls ? el("span", cls, t) : t); parts.push(bit); });
       this.moreMeta.replaceChildren(...parts);
+    }
+    /**
+     * "Pool fee: X% in this coin's own Meteora pool, if the route uses it" for a graduated city coin on a Jupiter route whose every
+     * hop is a Meteora DAMM v2 pool (never the curve): the figure the site read from the coin's own config (/api/fees?mint=), with
+     * where it comes from and when it was read. It names the coin's pool's fee, not the trade's: the route may use another DAMM v2
+     * pool, or two of them (see isDamm). Nothing until that answer is here, nothing when it is not, nothing for a route with a hop on
+     * another venue.
+     */
+    renderPoolFee(q) {
+      const coin = onlyMeteoraPool(q) ? poolCoin(q, this.s) : null;
+      if (coin) {
+        const p = poolFeeOf(coin.mint); // the same promise while it is kept: asked once; a new one only after a failed answer was forgotten
+        if (p !== this.poolP) { this.poolP = p; p.then((d) => { if (d && !this.dead && this.poolP === p) { this.poolFee = d; this.render(); } }); }
+      }
+      const d = coin && this.poolFee && this.poolFee.coin && this.poolFee.coin.mint === coin.mint ? this.poolFee : null;
+      const at = d ? hhmm(d.readAt) : "";
+      // the 20% is Meteora's program's, not the coin's settings': said next to it (the answer's meteora.protocolPercent, src/fees.js)
+      const cut = d && d.meteora && Number.isFinite(d.meteora.protocolPercent) ? `: ${d.meteora.protocolPercent}% of the fee, set by Meteora's program` : "";
+      this.dPool.textContent = d ? `${d.pool.text.total} in this coin's own Meteora pool, if the route uses it (Meteora protocol fee ${d.pool.text.meteora} included${cut}) · from the coin's price-curve settings ${keepShort(String(d.config))}${at ? ` · read\u00a0${at}` : ""}` : "";
+      this.dPool.hidden = this.poolDt.hidden = !d;
     }
     /* ----- render ----- */
     render() {
@@ -1134,7 +1191,8 @@
       const prio = !f ? "" : f.priorityLamports != null ? (f.priorityLamports > 0 ? `priority ${sol(f.priorityLamports)} SOL` : "no priority fee") : f.priorityLamportsMax > 0 ? `priority ≤ ${sol(f.priorityLamportsMax)} SOL` : "";
       const net = f ? `network ≈ ${sol(f.networkLamports || 5000)} SOL${prio ? ` · ${prio}` : ""}` : "";
       const platform = f && f.platformFeeBps > 0 ? ` · ${(f.platformFeeBps / 100).toString()}% platform fee` : " · no platform fee";
-      this.dFee.textContent = q ? (f && f.curveFeeBps != null ? `${(f.curveFeeBps / 100).toFixed(2)}% curve fee · ${net}` : `${net}${platform}`) : "—";
+      // the curve fee is the coin's config's (src/lptrade.js through src/fees.js): its source is said, as the Pool fee row says its own
+      this.dFee.textContent = q ? (f && f.curveFeeBps != null ? `${curveFeeText(f)} curve fee (from the coin's price-curve settings) · ${net}` : `${net}${platform}`) : "—";
       this.dRoute.textContent = q ? (q.source === "curve" ? "Executed on the Meteora bonding curve" : String(q.routeText || "Routed by Jupiter").replace(/Launchlab/g, "LaunchLab")) : "—";
       // rent: a token account of the person's that does not exist yet (returned when closed), and on a curve the platform's
       // referral account when it is missing (that one is not returned): said before the wallet opens, not after
@@ -1145,6 +1203,7 @@
       if (refRent) rentBits.push(f.referralNote || `about ${sol(refRent)} SOL re-creates the platform's fee account (not returned)`);
       this.dRent.textContent = rentBits.join("; ");
       this.dRent.hidden = this.rentDt.hidden = !rentBits.length;
+      this.renderPoolFee(q);
       // no column of dashes before a quote: the details show with the price, and the fold says what they will be
       this.dl.hidden = !q; this.moreEmpty.hidden = Boolean(q);
       const emptyLine = s.amount ? "The minimum you get, the price impact, the fees and the route show here with the price." : "Type an amount to see the minimum you get, the price impact, the fees and the route.";
@@ -1211,7 +1270,13 @@
       // the footer: attribution, where it executes, honesty (the fee sentence follows the setting, never a fixed "no fee")
       const testNet = s.cluster === "devnet" ? " · Devnet test coin: this trade uses test SOL with no value." : "";
       const feeBps = config && config.platformFeeBps > 0 ? config.platformFeeBps : 0;
-      this.foot.textContent = (q && q.source === "curve") ? `Prices by the Meteora bonding curve, exactly as the chain computes them. You sign in your own wallet; Vicinity never touches your funds.${testNet}` : `Powered by Jupiter. You sign in your own wallet; Vicinity never touches your funds${feeBps ? ` and takes a ${(feeBps / 100).toString()}% platform fee` : " and takes no fee"}.${testNet}`;
+      // a graduated city coin traded through a Meteora pool: Vicinity adds no platform fee, but if that pool is the coin's own, its
+      // locked share of it earns part of that pool's fee (src/fees.js), so "takes no fee" would not be true there. Conditional, as the
+      // Pool fee row is: the route's pool may be another DAMM v2 pool (isDamm). Decided by the route and the coin's stage, not by the
+      // Pool fee row: the sentence holds while the figure is still loading or did not come, and on a route split with another venue
+      const onPool = Boolean(poolCoin(q, s));
+      const jupFee = feeBps ? ` and takes a ${(feeBps / 100).toString()}% platform fee` : onPool ? " and adds no platform fee" : " and takes no fee";
+      this.foot.textContent = (q && q.source === "curve") ? `Prices by the Meteora bonding curve, exactly as the chain computes them. You sign in your own wallet; Vicinity never touches your funds.${testNet}` : `Powered by Jupiter. You sign in your own wallet; Vicinity never touches your funds${jupFee}${onPool ? "; if the route uses this coin's own Meteora pool, Vicinity's locked share of it earns part of that pool's fee" : ""}.${testNet}`;
     }
   }
   const norm = (m) => (m === "SOL" ? SOL : m === "USDC" ? USDC : m === "USDT" ? USDT : isAddr(m) ? m : null);

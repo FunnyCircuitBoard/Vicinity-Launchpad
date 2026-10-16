@@ -349,7 +349,7 @@ test("swap panel: a curve trade whose quote says the platform's referral account
   const P = await page({ answers, slot: `<div id="buy-slot" data-swap data-out="${CITY}" data-in="SOL" data-mode="buy"></div>` });
   await type(P, "0.005");
   const dds = P.$$(".swap__details dd");
-  assert.equal(text(dds[2]), "1.25% curve fee · network ≈ 0.000005 SOL");
+  assert.equal(text(dds[2]), "1.25% curve fee (from the coin's price-curve settings) · network ≈ 0.000005 SOL");
   assert.deepEqual([dds[4].hidden, text(dds[4])], [false, "about 0.002 SOL re-creates the platform's fee account for this coin's pair token and is not returned to you"]);
   const Q = await page({ answers: { ...answers, "/api/launchpad/trade/quote": curveQuote({ referralRentLamports: 0, referralNote: null }) }, slot: `<div id="buy-slot" data-swap data-out="${CITY}" data-in="SOL" data-mode="buy"></div>` });
   await type(Q, "0.005");
@@ -417,7 +417,7 @@ test("compact panel: the 'Price details' summary keeps every cost in sight: the 
   const curve = { "/api/swap/config": CONFIG, "/api/swap/quote": { ok: true, source: "curve", mint: CITY, side: "buy", chain: "solana:devnet", cluster: "devnet", quoteMint: SOL, useRoute: "/api/launchpad/trade" }, "/api/launchpad/trade/quote": CURVE_QUOTE({ fees: { curveFeeBps: 125, networkLamports: 5000, split: {}, referralRentLamports: 2039280, referralNote: "about 0.002 SOL re-creates the platform's fee account for this coin's pair token and is not returned to you" } }) };
   const C = await page({ answers: curve, slot: `<div id="buy-slot" data-swap data-out="${CITY}" data-in="SOL" data-mode="buy"></div>` });
   await type(C, "0.005");
-  assert.equal(meta(C), "Slippage 1% · Fee 1.25% · ≈ 0.00204 SOL setup fee, not returned");
+  assert.equal(meta(C), "Slippage 1% · Curve fee 1.25% · ≈ 0.00204 SOL setup fee, not returned");
   assert.equal(text(C.$$(".swap__details dd")[4]), "about 0.002 SOL re-creates the platform's fee account for this coin's pair token and is not returned to you", "the full sentence stays in the details");
 });
 
