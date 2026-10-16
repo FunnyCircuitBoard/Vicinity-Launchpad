@@ -32,6 +32,7 @@ import { displayTicker, tickerOf, tickersAvailable } from "./tickers.js";
 import { designFrozen, rebuildMetaJson } from "./lpcoins.js";
 import { adminRoleOf } from "./admin.js";
 import { clearedStatement, pendingStatement, publicLogo, rejectLogo, reviewView } from "./logos.js";
+import { notify, pictureReason } from "./notify.js";
 
 const C = POLICY.coins;
 
@@ -271,6 +272,8 @@ export async function handleTakedown(request, env, fetchImpl = fetch, now = Date
     if (!coin.media_id && !coin.approved_media_id) return json({ ok: false, error: "not_found" }, 404);
     await rejectLogo(db, coin.city_id, { reason, note, by: a.u.id, at: now, takedown: true });
     await db.prepare("UPDATE city_coins SET updated_at = ? WHERE city_id = ?").bind(iso(now), coin.city_id).run();
+    // in-app notice (NOTIFY=on) to the founder, with the public reason (the note is on their coin card and in the public log)
+    await notify(env, { to: coin.user_id, kind: "picture", ref: coin.city_id, href: "/dashboard#founder", now, text: `Your coin picture was taken down: ${pictureReason(reason)}.` });
   }
   else if (body.what === "text" && !coin.mint) await db.prepare("UPDATE city_coins SET name = city_name, pitch = NULL, updated_at = ? WHERE city_id = ?").bind(iso(now), coin.city_id).run();
   else if (body.what === "text" && coin.pitch && (await recordedOnLaunchpad(env, coin.mint))) {

@@ -32,6 +32,7 @@ import { toBytes } from "./blobs.js";
 import { feedV2On, profilesOn } from "./flags.js";
 import { adminRoleOf } from "./admin.js";
 import { PICTURE_MAX_AGE, bytesApproved } from "./logos.js";
+import { notify, notifyReply } from "./notify.js";
 
 export { cleanText };
 const KINDS = ["meme", "checkin", "talk"];
@@ -250,7 +251,10 @@ export async function handleNewPost(request, env, fetchImpl = fetch, now = Date.
     .bind(u.id, scope, place, country, kind, text, mediaId, parent ? parent.id : null, iso(now))];
   if (ackNow) stmts.push(db.prepare("UPDATE users SET national_ack_at = ? WHERE id = ? AND national_ack_at IS NULL").bind(iso(now), u.id));
   const [ins] = await db.batch(stmts);
-  if (parent) await db.prepare("UPDATE posts SET replies = replies + 1 WHERE id = ?").bind(parent.id).run();
+  if (parent) {
+    await db.prepare("UPDATE posts SET replies = replies + 1 WHERE id = ?").bind(parent.id).run();
+    await notifyReply(env, { parent, by: u, now }); // in-app notice to the parent's author (NOTIFY=on; best effort, never the replier)
+  }
   const row = await db.prepare(`SELECT ${COLS} ${FROM} WHERE p.id = ?`).bind(ins.meta.last_row_id).first();
   return json({ ok: true, post: (await present(env, [row], u, pw, fetchImpl, now))[0] });
 }
@@ -363,6 +367,8 @@ export async function handleReport(request, env, fetchImpl = fetch, now = Date.n
     stmts.push(log("hide", "confirmed"));
   }
   if (stmts.length) await db.batch(stmts);
+  // in-app notice (NOTIFY=on): the author learns that reports hid their post (the public log says the same)
+  if (!post.hidden && n >= POLICY.moderation.reportsToAutoHide) await notify(env, { to: post.user_id, kind: "moderation", ref: post.id, text: "Your post was hidden after reports from the community.", href: "/dashboard#community", now });
   return json({ ok: true });
 }
 

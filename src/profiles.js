@@ -12,7 +12,8 @@
  *   POST /api/profile/report { handle, reason }   report someone's bio for the moderators
  *   GET  /api/me/portfolio                    your own portfolio (src/portfolio.js)
  *   POST /api/mod/bio/clear                   a moderator clears a bio (src/moderation.js)
- * There is NO messaging of any kind, and no notifications.
+ * There is NO messaging of any kind. In-app notices (one plain sentence per event on the dashboard, no e-mail, no push) exist only
+ * while NOTIFY is on (src/notify.js); nothing here sends one.
  *
  * What other members see of a member: username, member since, level, badges, home community, bio, wallet address, exact
  * $VICINITY amount with rank and percentile, exact city-coin holdings with live dollar values, follower and following

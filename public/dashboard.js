@@ -541,7 +541,89 @@
     $("#f-country").textContent = n ? countryName(n.country) : "National";
     if (d.profilesFlag) { profilesSync(d); linkName($("#cc-founder"), c && c.seat && !c.seat.you ? c.seat : null); linkName($("#nc-manager"), n && n.manager && !n.manager.you ? n.manager : null); }
     if (v2) v2.render(d);
+    if (noticesOn()) noticesSync(d); // in-app notices (NOTIFY=on): the header's count, and a list on screen follows a changed count
   }
+
+  /* ---------- in-app notices (NOTIFY=on: /api/me carries `unread`, a number): the Notifications tab's list, marking read, the five controls ---------- */
+  const noticesOn = () => Boolean(me && typeof me.unread === "number");
+  let ntLoaded = false, ntPrefsLoaded = false, ntTimer = 0, ntShownUnread = null;
+  // a notice points at a place on this site: a dashboard hash opens that tab in place (the router), any other in-site path is a link
+  const noticeHref = (h) => (typeof h === "string" && h.startsWith("/dashboard#") ? h.slice("/dashboard".length) : typeof h === "string" && /^\/(?![\/\\])/.test(h) ? h : "#home");
+  function noticeRow(n) {
+    const li = el("li", "nt-row"); li.dataset.id = String(n.id);
+    if (!n.read) li.classList.add("is-unread");
+    const a = el("a", "nt-row__link"); a.href = noticeHref(n.href);
+    const dot = el("span", "nt-row__dot"); dot.setAttribute("aria-hidden", "true");
+    const text = el("span", "nt-row__text", n.text);
+    if (!n.read) text.prepend(el("span", "sr-only", "Unread: "));
+    const at = el("time", "nt-row__at", ago(n.at)); at.setAttribute("datetime", n.at);
+    a.append(dot, text, at); li.append(a);
+    return li;
+  }
+  /** The unread count everywhere it shows: the tab's badge (dashboard-v2.js) and the header's account button. */
+  function setUnread(n) {
+    const k = Math.max(0, Number(n) || 0);
+    if (me) me.unread = k;
+    if (v2) v2.unread(k);
+    const b = $("[data-account]");
+    if (!b) return;
+    let s = b.querySelector(".hdr-n");
+    if (!s && !k) return; // nothing to show, nothing made
+    if (!s) { s = el("span", "hdr-n"); s.setAttribute("aria-hidden", "true"); b.append(s); } // (the tab carries the count in its name)
+    s.textContent = k ? String(k) : ""; s.hidden = !k;
+  }
+  function noticesSync(d) {
+    setUnread(d.unread);
+    if (v2 && v2.active === "notify" && ntLoaded && d.unread !== ntShownUnread) loadNotices(); // something new arrived while the tab is open
+  }
+  async function loadNotices() {
+    if (!noticesOn()) return;
+    const d = await api("/api/notices");
+    const list = $("#nt-list"), err = $("#nt-err");
+    if (!d.ok) { err.textContent = d.error === "slow_down" ? "That was a lot of refreshes. Try again in a while." : "Couldn't load your notifications. Try again."; err.hidden = false; return; }
+    err.hidden = true;
+    const rows = d.notices || [], unread = Number(d.unread) || 0;
+    list.replaceChildren(...rows.map(noticeRow));
+    $("#nt-empty").hidden = rows.length > 0;
+    $("#nt-all").hidden = !unread;
+    ntLoaded = true; ntShownUnread = unread;
+    setUnread(unread);
+    // what is on screen counts as read 2 s later, if the person is still on the tab with the page in front
+    clearTimeout(ntTimer);
+    const ids = rows.filter((n) => !n.read).map((n) => n.id);
+    if (ids.length) ntTimer = setTimeout(() => { if (v2 && v2.active === "notify" && !document.hidden) markRead({ ids }); }, 2000);
+  }
+  async function markRead(body) {
+    clearTimeout(ntTimer); // Mark all read (or an early mark) makes the pending 2-second mark pointless: one request, not two
+    const r = await api("/api/notices/read", body);
+    if (!r.ok) { if (body.all) toast("Couldn't mark them read. Try again."); return; }
+    for (const li of $$("#nt-list .nt-row")) {
+      if (!body.all && !body.ids.includes(Number(li.dataset.id))) continue;
+      li.classList.remove("is-unread");
+      const sr = li.querySelector(".sr-only"); if (sr) sr.remove();
+    }
+    const unread = Number(r.unread) || 0;
+    $("#nt-all").hidden = !unread;
+    ntShownUnread = unread;
+    setUnread(unread);
+  }
+  async function loadPrefs() {
+    const d = await api("/api/notices/prefs");
+    if (!d.ok || !d.prefs) return;
+    for (const inp of $$("#nt-toggles input[data-pref]")) { inp.checked = d.prefs[inp.dataset.pref] !== false; inp.setAttribute("aria-checked", String(inp.checked)); }
+    ntPrefsLoaded = true;
+  }
+  /** The tab opened (dashboard-v2.js go): the list, and the controls once. */
+  function openNotices() { loadNotices(); if (!ntPrefsLoaded) loadPrefs(); }
+  $("#nt-all").addEventListener("click", () => markRead({ all: true }));
+  $("#nt-toggles").addEventListener("change", async (e) => {
+    const inp = e.target.closest("input[data-pref]");
+    if (!inp) return;
+    inp.setAttribute("aria-checked", String(inp.checked));
+    const r = await api("/api/notices/prefs", { [inp.dataset.pref]: inp.checked });
+    if (!r.ok) { inp.checked = !inp.checked; inp.setAttribute("aria-checked", String(inp.checked)); toast("Couldn't save that. Try again."); return; }
+    toast(inp.checked ? "On: you will be told about this." : "Off: no more notices about this.");
+  });
 
   /* ---------- member profiles: the code is fetched ONLY when /api/me says profilesFlag, so with the switch off this page never asks for it ---------- */
   let profiles = null, profilesAsked = false;
@@ -2000,7 +2082,7 @@
         document.head.append(s);
       });
       $("#dash-skel").hidden = true;
-      if (v2) v2.init({ me: () => me, coin: () => ({ coin: coinData, vicMint, pairs: coinPairs }), openProfile, refresh: () => refresh(), countryName,
+      if (v2) v2.init({ me: () => me, coin: () => ({ coin: coinData, vicMint, pairs: coinPairs }), openProfile, openNotices, refresh: () => refresh(), countryName,
         // a phone's Safari / Chrome with the wallet linked: the wallet card is the one way to buy (in the wallet app), the Buy card steps back
         buyInApp: () => Boolean(me && me.user && me.user.wallet && me.signupFlow === "v2" && phoneBrowser()),
         readWallet, qr: loadQR }); // the Wallet tab: the balances and the QR code library, both through this file

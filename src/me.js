@@ -18,11 +18,12 @@ import { DAY, HOUR, POLICY, iso } from "./policy.js";
 import { VOTE_WEIGHT, activeBan, adminWallets, amountsFor, liveSeatOfUser, managerOf } from "./roles.js";
 import { cityPicture, cooldownUntil, eligibility, squadPicture } from "./seats.js";
 import { countryPicture } from "./elections.js";
-import { ensureProfilesSchema, ensureSchema, feedApplied } from "./store.js";
+import { ensureNotifySchema, ensureProfilesSchema, ensureSchema, feedApplied } from "./store.js";
 import { communityById } from "./community.js";
 import { displayTicker } from "./tickers.js";
 import { latestBalances } from "./ledger.js";
-import { dashboardV2On, feedV2On, profilesOn, v2On } from "./flags.js";
+import { dashboardV2On, feedV2On, notifyOn, profilesOn, v2On } from "./flags.js";
+import { unreadCount } from "./notify.js";
 import { countsOf } from "./profile-core.js";
 import { googleAdded, removeGoogle } from "./logins.js";
 
@@ -234,7 +235,14 @@ export async function handleMe(request, env, fetchImpl = fetch, now = Date.now()
   const wnew = v2 && linkWindow(u, now) ? { walletNew: { wallet: `${u.wallet.slice(0, 4)}…${u.wallet.slice(-4)}`, via: u.wallet_via, app: u.wallet_app || null, at: u.wallet_at, notMe: mayDisown(s, u) } } : {};
   // v2: whether the member ADDED a Google sign-in (the Profile's "Google sign-in" row: Add or Remove). Never which Google account.
   const full = v2 ? { ...user, googleAdded: await googleAdded(env.DB, u.id) } : user;
-  return json({ signedIn: true, user: full, providers: prov, ...myFlag, ...terms, ...counts, ...wnew, ...(await liveStatus(env, s, fetchImpl, now)) }, 200, headers);
+  // in-app notices (NOTIFY=on): how many are unread (the dashboard's Notifications tab and its badge). No key with the switch off, and
+  // none when the notice table cannot be made: the page then shows no tab, never a broken dashboard.
+  let unread = {};
+  if (notifyOn(env)) {
+    try { await ensureNotifySchema(env.DB); unread = { unread: await unreadCount(env.DB, u.id) }; }
+    catch (e) { console.error("notice tables unavailable", String((e && e.message) || e).slice(0, 80)); }
+  }
+  return json({ signedIn: true, user: full, providers: prov, ...myFlag, ...terms, ...counts, ...wnew, ...unread, ...(await liveStatus(env, s, fetchImpl, now)) }, 200, headers);
 }
 
 /**

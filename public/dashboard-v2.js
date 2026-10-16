@@ -15,6 +15,7 @@
 //   wallet    -> #panel-wallet     #wt-receive (the address, Copy, the QR code), #wt-balances (SOL, $VICINITY, the city coins held; Buy & swap)
 //   city      -> #panel-city       #city-subnav, #community, #coin, #city-about, #request
 //   community -> #panel-community  #feed, #national
+//   notify    -> #panel-notify     #notices, #notice-prefs (in-app notices, NOTIFY=on: the tab shows when /api/me carries `unread`; dashboard.js fills them)
 //   rankings  -> #panel-rankings   #rankings-card
 //   founder   -> #panel-founder    #fcard, #lp-launch (the launch on the Vicinity launchpad, public/lp-launch.js), #progress, #squad,
 //                                  #studio-card (gets #coin-studio out of #coin), #danger-zone, #founder-foot
@@ -26,14 +27,15 @@
   const { $, $$, el, fmt, mask, initials, copy } = window.V;
   const byId = (id) => document.getElementById(id);
 
-  const TABS = Object.freeze(["home", "wallet", "city", "community", "rankings", "founder", "moderate", "profile"]);
-  const LABEL = { home: "Home", wallet: "Wallet", city: "City", community: "Community", rankings: "Rankings", founder: "Founder", moderate: "Moderate", profile: "Profile" };
+  const TABS = Object.freeze(["home", "wallet", "city", "community", "notify", "rankings", "founder", "moderate", "profile"]);
+  const LABEL = { home: "Home", wallet: "Wallet", city: "City", community: "Community", notify: "Notifications", rankings: "Rankings", founder: "Founder", moderate: "Moderate", profile: "Profile" };
   // the cards, in the order they stand in each panel (the static v2 blocks are listed too, so the order is one list)
   const ORDER = Object.freeze({
     home: ["#pf-notice", "#ban-notice", "#lost-alert", "#welcome", "#dash-top", "#today", "#trade", "#wallet-card", "#role-home", "#portfolio", "#badges"],
     wallet: ["#wt-receive", "#wt-balances"],
     city: ["#city-subnav", "#community", "#coin", "#city-about", "#request"],
     community: ["#feed", "#national"],
+    notify: ["#notices", "#notice-prefs"],
     rankings: ["#rankings-card"],
     founder: ["#fcard", "#lp-launch", "#progress", "#squad", "#studio-card", "#danger-zone", "#founder-foot"],
     moderate: ["#mod", "#coin-admin-card"],
@@ -41,7 +43,7 @@
   });
   // a link to a card by its old hash (#progress, #coin, ...) opens the card's tab, then scrolls to the card
   const ALIAS = { progress: "founder", squad: "founder", "coin-studio": "founder", "lp-launch": "founder", coin: "city", "cc-top": "city", request: "city", "city-about": "city",
-    feed: "community", national: "community", mod: "moderate", roles: "profile", trade: "home", badges: "home", portfolio: "home", "role-home": "home", "wallet-card": "home", welcome: "home" };
+    feed: "community", national: "community", notices: "notify", "notice-prefs": "notify", mod: "moderate", roles: "profile", trade: "home", badges: "home", portfolio: "home", "role-home": "home", "wallet-card": "home", welcome: "home" };
   const HEADER = 67; // the site header: 66px plus its 1px border
   const QUEUE = [["posts", "reported post", "reported posts"], ["proposals", "ban proposal", "ban proposals"], ["appeals", "appeal", "appeals"],
     ["objections", "objection", "objections"], ["towns", "town request", "town requests"], ["coins", "coin contract to check", "coin contracts to check"]];
@@ -67,6 +69,8 @@
   // name when it has none. Nothing here makes a ticker up from the name.
   const coinLabel = (c) => (c.ticker ? `$${c.ticker}` : c.name);
   const modOn = () => { const m = me(); return Boolean((lastMod && lastMod.moderator === true) || (m && m.roles && m.roles.admin)); };
+  // in-app notices (NOTIFY=on): /api/me carries `unread` (a number) only while the switch is on; the tab exists only then
+  const notifyOn = () => { const m = me(); return Boolean(m && typeof m.unread === "number"); };
   // with the city-coin launch on (lp, public/lp-launch.js): the chain's word wins, so this fact agrees with the launch card's tag
   const coinState = () => (!coin ? "Not designed yet" : coin.launched || (lp.on && lp.state === "launched") ? "Live" : coin.waiting ? "Contract being checked"
     : lp.on && lp.state === "ready" ? "Approved" : "Designed");
@@ -131,6 +135,7 @@
     if (tab === "moderate" && !modOn()) { pending = "moderate"; tab = "home"; push = false; replace = true; } // opens once /api/mod says so
     else if (push) pending = null; // the person chose another tab meanwhile: a late /api/mod answer must not pull them away from it
     if (tab === "wallet" && !walletOn()) { tab = "home"; push = false; replace = true; } // the tab is hidden (gate): nothing to show there
+    if (tab === "notify" && !notifyOn()) { tab = "home"; push = false; replace = true; } // a #notify link with the switch off: Home
     const was = active;
     active = tab;
     // the panel comes in from the side of the tab that was left (polish-dash.css; set before the panel shows, and only on a change,
@@ -147,6 +152,7 @@
     if (tab === "profile" && ctx) ctx.openProfile();
     if (ctx && was !== tab && (was === "wallet" || tab === "wallet")) placeCard(); // the wallet card stands in the Wallet tab while it is open with no wallet linked
     if (tab === "wallet") enterWallet();
+    if (tab === "notify" && ctx && ctx.openNotices) ctx.openNotices(); // dashboard.js loads the list (and marks what it shows read after 2 s)
     measure(started && was !== tab ? "slide" : ""); // a new tab the person chose: the pill slides there (the first one is simply set)
   }
   /** Only when the strip scrolls (200% text): bring the tab into view by the least distance ("nearest"), so Home is never pushed out. */
@@ -390,6 +396,19 @@
     const { total } = queueCounts(), b = $("#tab-moderate-n");
     b.textContent = total ? String(total) : ""; b.hidden = !total;
     $("#tab-moderate").setAttribute("aria-label", total ? `Moderate, ${total} to review` : "Moderate"); // the count stays in the tab's name
+    measure();
+  }
+
+  /* ---------- the Notifications tab (NOTIFY=on): shown only while /api/me carries `unread`; the count on the tab (0 hidden) and in its name ---------- */
+  function notifyGate() {
+    const on = notifyOn();
+    $("#tab-notify").hidden = !on;
+    if (!on) { $("#panel-notify").hidden = true; if (active === "notify") go("home", { push: false, replace: true }); }
+  }
+  function unreadBadge(n) {
+    const k = Math.max(0, Math.floor(Number(n) || 0)), b = $("#tab-notify-n");
+    b.textContent = k ? String(k) : ""; b.hidden = !k;
+    $("#tab-notify").setAttribute("aria-label", k ? `Notifications, ${k} unread` : "Notifications"); // the count stays in the tab's name
     measure();
   }
 
@@ -781,7 +800,7 @@
   function render(d) {
     $("#tab-home").classList.toggle("is-alert", !$("#ban-notice").hidden || !$("#lost-alert").hidden);
     $("#tab-profile .dtab__av").textContent = initials(d.user.handle || d.user.name || "V");
-    reflow(gate); // the roles can change on a refresh: Moderate comes or goes as one glide
+    reflow(() => { gate(); notifyGate(); unreadBadge(d.unread); }); // the roles (and the switch) can change on a refresh: a tab comes or goes as one glide
     placeCard(); standing(d); today(d); rankings(d); cityHeader(d); founderStatus(d); founderCard(d); studioSync(); postProcess(); walletTab(d);
   }
   function setCoin(c) {
@@ -807,6 +826,6 @@
     const d = me(); if (d) { today(d); founderCard(d); }
   }
 
-  window.VDash = { init, render, coin: setCoin, lp: setLp, mod, coinQueue, wallet, walletRows, start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS),
+  window.VDash = { init, render, coin: setCoin, lp: setLp, mod, coinQueue, wallet, walletRows, unread: (n) => reflow(() => unreadBadge(n)), start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS),
     pill: Object.freeze({ box: pillBox, frames: pillFrames, fromStyle: pillFromStyle, ms: PILL_MS, followMs: FOLLOW_MS, easing: PILL_EASE, easeIn: PILL_IN, easeOut: PILL_OUT }) };
 })();

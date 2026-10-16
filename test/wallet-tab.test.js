@@ -117,7 +117,7 @@ test("the sheet: the Copy button is 44 px, the code is dark on white in both the
 
 test("the scripts: dashboard-v2.js draws from the answers dashboard.js reads (it never fetches), the two answers are the existing ones, one read per 10 s, nothing is sent or signed", () => {
   // v2: the tab, the panel order, the rows from the two answers, the QR code from the library through ctx.qr, Copy through window.V.copy
-  assert.match(v2, /const TABS = Object\.freeze\(\["home", "wallet", "city", "community", "rankings", "founder", "moderate", "profile"\]\);/);
+  assert.match(v2, /const TABS = Object\.freeze\(\["home", "wallet", "city", "community", "notify", "rankings", "founder", "moderate", "profile"\]\);/, "Wallet second; Notifications (NOTIFY=on) after Feed");
   assert.match(v2, /wallet: \["#wt-receive", "#wt-balances"\],/);
   assert.doesNotMatch(v2, /\bfetch\(|XMLHttpRequest|\bapi\(/, "v2 never talks to the server");
   assert.match(v2, /if \(\(again \|\| !walletData\) && ctx\.readWallet\) ctx\.readWallet\(\);/, "the balances come through dashboard.js; after an /api/me only while nothing was read for this wallet yet");

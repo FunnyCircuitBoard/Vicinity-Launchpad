@@ -18,6 +18,7 @@ import { averages, dayOf, latestBalances, samplesStale } from "./ledger.js";
 import { activeBan, amountsFor } from "./roles.js";
 import { sha256hex } from "./blobs.js";
 import { profilesOn } from "./flags.js";
+import { notifyMany } from "./notify.js";
 
 const M = POLICY.manager, F = POLICY.founder;
 const clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, v));
@@ -62,8 +63,13 @@ export async function advanceElections(env, now = Date.now(), fetchImpl = fetch)
     const due = !upcoming && (!active || Date.parse(active.ends_at) - now <= M.electionDays * DAY);
     if (!due || !(await candidates(env, cc, now)).length) continue;
     try {
-      await db.prepare("INSERT INTO elections (country, policy, opened_at, closes_at) VALUES (?, ?, ?, ?)").bind(cc, POLICY.version, iso(now), iso(now + M.electionDays * DAY)).run();
+      const r = await db.prepare("INSERT INTO elections (country, policy, opened_at, closes_at) VALUES (?, ?, ?, ?)").bind(cc, POLICY.version, iso(now), iso(now + M.electionDays * DAY)).run();
       out.opened++;
+      // in-app notice (NOTIFY=on) to every member of the country, one statement, at most 5,000 rows (the oldest accounts first; `notified`
+      // says how many, `capped` when the country was larger than that: the rest see the election on the Community tab's country card as always)
+      const n = await notifyMany(env, { column: "home_country", value: cc, kind: "election", ref: r.meta.last_row_id, now, href: "/dashboard#community",
+        text: `A Country Manager election opened in your country. Voting is open for ${M.electionDays} days.` });
+      if (n.written) { out.notified = (out.notified || 0) + n.written; if (n.capped) out.capped = true; }
     } catch (err) { if (!/UNIQUE/i.test(String(err))) throw err; }
   }
   return out;
@@ -103,6 +109,9 @@ async function decideElection(env, e, now, fetchImpl) {
   const text = JSON.stringify(result);
   await db.prepare("UPDATE elections SET status = ?, decided_at = ?, result = ?, result_hash = ? WHERE id = ? AND status = 'open'")
     .bind(win ? "decided" : "empty", iso(now), text, await sha256hex(text), e.id).run();
+  // in-app notice (NOTIFY=on) to every member of the country (the same one statement and 5,000-row cap as the opening)
+  await notifyMany(env, { column: "home_country", value: e.country, kind: "election", ref: e.id, now, href: "/dashboard#community",
+    text: win ? "The Country Manager election in your country closed. The result is on the Community tab, under your country." : "The Country Manager election in your country closed without a candidate." });
   if (!win) return result;
   const active = await db.prepare("SELECT * FROM manager_terms WHERE country = ? AND status = 'active'").bind(e.country).first();
   const startsAt = active ? Math.max(now, Date.parse(active.ends_at)) : now;

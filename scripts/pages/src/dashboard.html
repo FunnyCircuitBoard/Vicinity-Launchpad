@@ -424,6 +424,8 @@
               <a class="dtab" id="tab-wallet" role="tab" href="#wallet" data-tab="wallet" aria-controls="panel-wallet" aria-selected="false" tabindex="-1" aria-label="Wallet"><span class="dtab__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10.5h18M15.5 15h2.5"/></svg></span><span class="dtab__text">Wallet</span></a>
               <a class="dtab" id="tab-city" role="tab" href="#city" data-tab="city" aria-controls="panel-city" aria-selected="false" tabindex="-1"><span class="dtab__text">City</span></a>
               <a class="dtab" id="tab-community" role="tab" href="#community" data-tab="community" aria-controls="panel-community" aria-selected="false" tabindex="-1" aria-label="Community feed"><span class="dtab__text">Feed</span></a>
+              <!-- in-app notices (NOTIFY=on only; dashboard-v2.js shows the tab when /api/me carries `unread`): a bell with the unread count -->
+              <a class="dtab" id="tab-notify" role="tab" href="#notify" data-tab="notify" aria-controls="panel-notify" aria-selected="false" tabindex="-1" aria-label="Notifications" hidden><span class="dtab__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg></span><span class="dtab__text">Notifications</span><span class="dtab__badge" id="tab-notify-n" hidden></span></a>
               <a class="dtab" id="tab-rankings" role="tab" href="#rankings" data-tab="rankings" aria-controls="panel-rankings" aria-selected="false" tabindex="-1" aria-label="Rankings"><span class="dtab__text dtab__long">Rankings</span><span class="dtab__text dtab__short" aria-hidden="true">Rank</span></a>
               <a class="dtab" id="tab-founder" role="tab" href="#founder" data-tab="founder" aria-controls="panel-founder" aria-selected="false" tabindex="-1" aria-label="Founder"><span class="dtab__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M4 17.5 3 8l5 4 4-6.5 4 6.5 5-4-1 9.5z"/><path d="M4.5 20.5h15"/></svg></span><span class="dtab__text">Founder</span></a>
               <a class="dtab" id="tab-moderate" role="tab" href="#moderate" data-tab="moderate" aria-controls="panel-moderate" aria-selected="false" tabindex="-1" aria-label="Moderate" hidden><span class="dtab__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M12 3 5 6v5.5c0 4.2 2.9 7.9 7 9.5 4.1-1.6 7-5.3 7-9.5V6l-7-3z"/></svg></span><span class="dtab__text dtab__long">Moderate</span><span class="dtab__text dtab__short" aria-hidden="true">Mod</span><span class="dtab__badge" id="tab-moderate-n" hidden></span></a>
@@ -490,6 +492,27 @@
           </section>
 
           <section class="dpanel" id="panel-community" role="tabpanel" aria-labelledby="tab-community" tabindex="0" hidden></section>
+
+          <!-- in-app notices (NOTIFY=on only): the list (dashboard.js fills it from /api/notices) and the five controls (/api/notices/prefs) -->
+          <section class="dpanel" id="panel-notify" role="tabpanel" aria-labelledby="tab-notify" tabindex="0" hidden>
+            <section class="card nt" id="notices" aria-labelledby="nt-title">
+              <div class="dv2-head"><div><p class="kicker">Notifications</p><h2 class="h2--sm" id="nt-title">What happened</h2></div><button class="btn btn--glass btn--sm" type="button" id="nt-all" hidden>Mark all read</button></div>
+              <ul class="nt-list" id="nt-list"></ul>
+              <p class="nt-empty small muted" id="nt-empty" hidden>Nothing yet. Replies, moderation outcomes, your coin picture's review, founder windows and elections show here.</p>
+              <p class="inline-err" id="nt-err" role="alert" hidden></p>
+            </section>
+            <section class="card nt-prefs" id="notice-prefs" aria-labelledby="ntp-title">
+              <div class="dv2-head"><div><p class="kicker">Settings</p><h2 class="h2--sm" id="ntp-title">What you get told about</h2></div></div>
+              <ul class="nt-toggles" id="nt-toggles">
+                <li class="nt-toggle"><label class="nt-toggle__text" for="ntp-reply"><span class="nt-toggle__name">Replies</span><span class="tiny muted">Someone replies to your post.</span></label><input class="nt-switch" type="checkbox" role="switch" id="ntp-reply" data-pref="reply" checked></li>
+                <li class="nt-toggle"><label class="nt-toggle__text" for="ntp-moderation"><span class="nt-toggle__name">Moderation</span><span class="tiny muted">A post of yours is hidden or shown again, a ban, the outcome of your appeal.</span></label><input class="nt-switch" type="checkbox" role="switch" id="ntp-moderation" data-pref="moderation" checked></li>
+                <li class="nt-toggle"><label class="nt-toggle__text" for="ntp-picture"><span class="nt-toggle__name">Coin picture</span><span class="tiny muted">Your city coin's picture: approved, not approved or taken down.</span></label><input class="nt-switch" type="checkbox" role="switch" id="ntp-picture" data-pref="picture" checked></li>
+                <li class="nt-toggle"><label class="nt-toggle__text" for="ntp-founder"><span class="nt-toggle__name">Founder</span><span class="tiny muted">A claim or challenge window in your city, a verdict, an objection against your seat, the end of your probation.</span></label><input class="nt-switch" type="checkbox" role="switch" id="ntp-founder" data-pref="founder" checked></li>
+                <li class="nt-toggle"><label class="nt-toggle__text" for="ntp-election"><span class="nt-toggle__name">Elections</span><span class="tiny muted">A Country Manager election opens or closes in your country.</span></label><input class="nt-switch" type="checkbox" role="switch" id="ntp-election" data-pref="election" checked></li>
+              </ul>
+              <p class="tiny muted">Notices show here only. No e-mail, no push.</p>
+            </section>
+          </section>
 
           <section class="dpanel" id="panel-rankings" role="tabpanel" aria-labelledby="tab-rankings" tabindex="0" hidden>
             <section class="card rk" id="rankings-card" aria-labelledby="rk-title">

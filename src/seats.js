@@ -40,7 +40,8 @@ import { LAUNCHPAD_OPENS_AT, activeMint } from "./official.js";
 import { countryCities } from "./cities.js";
 import { sha256hex } from "./blobs.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
-import { profilesOn } from "./flags.js";
+import { notifyOn, profilesOn } from "./flags.js";
+import { attempt, notify, notifyMany } from "./notify.js";
 
 const F = POLICY.founder;
 const mask = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
@@ -169,8 +170,11 @@ async function openWindow(env, city, now, fetchImpl) {
   if (w) return w;
   if (await liveSeatOfCity(db, city.id)) return null;
   try {
-    await db.prepare("INSERT INTO windows (city_id, city_name, country, policy, threshold, opened_at, closes_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    const r = await db.prepare("INSERT INTO windows (city_id, city_name, country, policy, threshold, opened_at, closes_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .bind(city.id, city.name, city.country, POLICY.version, city.threshold, iso(now), hoursFrom(now, F.windowHours)).run();
+    // in-app notice (NOTIFY=on) to every member of the city, one statement (at most 5,000 rows): the window is on their City card as always
+    await notifyMany(env, { column: "home_city", value: city.id, kind: "founder", ref: r.meta.last_row_id, now, href: "/dashboard#founder",
+      text: `A founder claim window opened in ${city.name}. It closes in ${F.windowHours} hours.` });
   } catch (e) { if (!/UNIQUE/i.test(String(e))) throw e; } // someone opened it at the same moment: use theirs
   return db.prepare("SELECT * FROM windows WHERE city_id = ? AND status = 'open'").bind(city.id).first();
 }
@@ -218,8 +222,10 @@ async function openChallengeWindow(env, e, u, now, fetchImpl) {
   const seat = await db.prepare("SELECT * FROM seats WHERE id = ? AND status = 'steward'").bind(e.challenging).first();
   if (!seat) return null; // the stewardship ended while the challenger was applying
   try {
-    await db.prepare("INSERT INTO windows (city_id, city_name, country, policy, threshold, opened_at, closes_at, kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'steward_challenge')")
+    const r = await db.prepare("INSERT INTO windows (city_id, city_name, country, policy, threshold, opened_at, closes_at, kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'steward_challenge')")
       .bind(e.cityId, e.cityName, e.country, POLICY.version, e.threshold, iso(now), hoursFrom(now, F.windowHours)).run();
+    await notifyMany(env, { column: "home_city", value: e.cityId, kind: "founder", ref: r.meta.last_row_id, now, href: "/dashboard#founder",
+      text: `A challenge to ${e.cityName}'s Seed Steward opened. The window closes in ${F.windowHours} hours.` }); // (NOTIFY=on)
   } catch (err) { if (!/UNIQUE/i.test(String(err))) throw err; } // someone opened it at the same moment: use theirs
   w = await db.prepare("SELECT * FROM windows WHERE city_id = ? AND status = 'open'").bind(e.cityId).first();
   const orig = seat.application_id ? await db.prepare("SELECT pitch FROM applications WHERE id = ?").bind(seat.application_id).first() : null;
@@ -426,6 +432,26 @@ async function publishWindow(db, w, scored, valid, winnerId, latest, extra, now)
 }
 
 /**
+ * In-app notice (NOTIFY=on) to every applicant of a decided window: the result is on their Founder tab. `seatedAppId` is the application
+ * whose seat was REALLY created (or kept, for a steward who saw off a challenge), never merely the top score: a clash or a skipped
+ * applicant seats the next one or nobody, and only the person seated reads "you were chosen" (a defending steward: "you keep the
+ * seat"). One best-effort step: the window's decision above stands whatever happens here.
+ */
+async function notifyVerdict(env, w, seatedAppId, now, stewardSeat = null) {
+  if (!notifyOn(env)) return;
+  await attempt("founder", async () => {
+    const apps = (await env.DB.prepare("SELECT id, user_id FROM applications WHERE window_id = ? AND withdrawn = 0").bind(w.id).all()).results;
+    const what = w.kind === "steward_challenge" ? `The challenge to ${w.city_name}'s Seed Steward was decided` : `The claim window in ${w.city_name} was decided`;
+    for (const a of apps) {
+      const seated = seatedAppId != null && a.id === seatedAppId;
+      const text = !seated ? `${what}. The result is on your Founder tab.`
+        : stewardSeat && a.user_id === stewardSeat.user_id ? `${what}: you keep the seat.` : `${what}: you were chosen.`;
+      await notify(env, { to: a.user_id, kind: "founder", ref: w.id, href: "/dashboard#founder", now, text });
+    }
+  });
+}
+
+/**
  * Close a window: check every applicant again, score them with the published formula, and seat the
  * winner. A lone qualifier becomes Seed Steward at once (no election of one); 2+ elect a
  * provisional founder. Challenge windows follow the steward-challenge rules. The whole result
@@ -443,11 +469,13 @@ export async function closeWindow(env, w, now = Date.now(), fetchImpl = fetch) {
   if (valid.length <= 1) {
     const result = await publishWindow(db, w, scored, valid, valid[0] ? valid[0].app.id : null, latest,
       { decision: valid[0] ? "sole_qualifier_steward" : "no_valid_applicants", kindOverride: valid[0] ? "steward_direct" : undefined }, now);
-    if (valid[0]) await grantStewardFromWindow(env, w, valid[0], now);
+    const seat = valid[0] ? await grantStewardFromWindow(env, w, valid[0], now) : null;
+    await notifyVerdict(env, w, seat ? valid[0].app.id : null, now);
     return result;
   }
   const result = await publishWindow(db, w, scored, valid, valid[0].app.id, latest, { decision: "election" }, now);
-  await grantProvisional(env, w, valid.map((s) => s.app), now);
+  const seatedAppId = await grantProvisional(env, w, valid.map((s) => s.app), now);
+  await notifyVerdict(env, w, seatedAppId, now);
   return result;
 }
 
@@ -498,16 +526,23 @@ async function finishChallengeWindow(env, db, w, scored, valid, stewardSeat, lat
     await db.prepare("UPDATE seats SET status = 'released', ended_at = ?, end_reason = ? WHERE id = ?")
       .bind(iso(now), !stewardEntry ? "bond_broken" : "lost_challenge", stewardSeat.id).run();
   }
+  let seatedAppId = winner && winner === stewardEntry ? winner.app.id : null; // the steward kept the seat
   if (winner && winner !== stewardEntry) {
-    await grantProvisional(env, w, [winner.app, ...challengers.filter((s) => s !== winner).map((s) => s.app)], now);
+    seatedAppId = await grantProvisional(env, w, [winner.app, ...challengers.filter((s) => s !== winner).map((s) => s.app)], now);
   } else if (winner && stewardSeat && Date.parse(stewardSeat.probation_until) <= now) {
     // The steward defended past probation end: confirm them on the spot.
-    await db.prepare("UPDATE seats SET status = 'active', activated_at = ? WHERE id = ? AND status = 'steward'").bind(iso(now), stewardSeat.id).run();
+    const r = await db.prepare("UPDATE seats SET status = 'active', activated_at = ? WHERE id = ? AND status = 'steward'").bind(iso(now), stewardSeat.id).run();
+    if (r.meta.changes) await notifyProbationEnd(env, stewardSeat, now);
   }
+  await notifyVerdict(env, w, seatedAppId, now, stewardSeat);
   return result;
 }
 
-/** Give the best still-eligible applicant (in rank order) a provisional seat with a 48-hour objection period. */
+/** In-app notice (NOTIFY=on): a Seed Steward's probation ended and the seat is a confirmed founder's. */
+const notifyProbationEnd = (env, seat, now) => notify(env, { to: seat.user_id, kind: "founder", ref: seat.id, href: "/dashboard#founder", now,
+  text: `Your Seed Steward probation ended: you are ${seat.city_name}'s confirmed founder.` });
+
+/** Give the best still-eligible applicant (in rank order) a provisional seat with a 48-hour objection period. Returns the seated application's id, or null when nobody was seated. */
 async function grantProvisional(env, w, ranked, now) {
   const db = env.DB;
   for (const x of ranked) {
@@ -517,13 +552,13 @@ async function grantProvisional(env, w, ranked, now) {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'provisional', ?, ?)`)
         .bind(w.city_id, w.city_name, w.country, x.user_id, x.wallet, w.id, x.id, w.policy, w.threshold, iso(now), hoursFrom(now, F.appealHours)).run();
       console.log("founder chosen (provisional)", w.city_id, "window", w.id);
-      return true;
+      return x.id;
     } catch (e) {
-      if (/UNIQUE/i.test(String(e))) { if (await liveSeatOfCity(db, w.city_id)) return false; continue; }
+      if (/UNIQUE/i.test(String(e))) { if (await liveSeatOfCity(db, w.city_id)) return null; continue; }
       throw e;
     }
   }
-  return false;
+  return null;
 }
 
 /** Enter grace (or release, after too many graces). Used by the scheduled job and before sensitive actions. */
@@ -632,6 +667,7 @@ export async function advanceSeats(env, now = Date.now(), fetchImpl = fetch) {
     if (timeServed || quorum) {
       const r = await db.prepare("UPDATE seats SET status = 'active', activated_at = ?, probation_until = NULL WHERE id = ? AND status = 'steward'").bind(iso(now), s.id).run();
       out.confirmed += r.meta.changes || 0;
+      if (r.meta.changes) await notifyProbationEnd(env, s, now);
     }
   }
 
@@ -890,9 +926,12 @@ export async function handleDecideObjection(request, env, fetchImpl = fetch, now
   if (o.user_id === u.id) return json({ ok: false, error: "own_objection" }, 403);
   const note = cleanText(body.note, 300) || null;
   const seat = await db.prepare("SELECT * FROM seats WHERE id = ?").bind(o.seat_id).first();
+  // in-app notice (NOTIFY=on) to the seat holder: the outcome, nothing of the objector or the note
+  const tell = (text) => notify(env, { to: seat.user_id, kind: "founder", ref: seat.id, href: "/dashboard#founder", now, text });
   if (!body.uphold) {
     await db.prepare("UPDATE objections SET status = 'dismissed', decided_by = ?, decided_at = ?, note = ? WHERE id = ?").bind(u.id, iso(now), note, o.id).run();
     await logSeatAction(db, u, "dismiss_objection", seat, note, now);
+    await tell(`An objection against your seat in ${seat.city_name} was dismissed.`);
     return json({ ok: true, status: "dismissed" });
   }
   await db.batch([
@@ -901,6 +940,7 @@ export async function handleDecideObjection(request, env, fetchImpl = fetch, now
     db.prepare("UPDATE seats SET status = 'revoked', ended_at = ?, end_reason = 'objection_upheld' WHERE id = ? AND status IN ('provisional', 'active', 'grace', 'steward')").bind(iso(now), seat.id),
   ]);
   await logSeatAction(db, u, "revoke_seat", seat, note, now);
+  await tell(`An objection against your seat in ${seat.city_name} was upheld: the seat ended.`);
   // the next applicant from the same window, if they still qualify
   let next = false;
   if (seat.window_id) {
@@ -912,7 +952,7 @@ export async function handleDecideObjection(request, env, fetchImpl = fetch, now
       const amt = latest ? latest.balances[x.wallet] || 0 : (await amountsFor(env, [x.wallet], fetchImpl)).get(x.wallet) || 0;
       if (amt >= w.threshold && (await tenure(env, x.wallet, w.threshold, now)).qualified) still.push(x);
     }
-    if (w && still.length) next = await grantProvisional(env, w, still, now);
+    if (w && still.length) next = Boolean(await grantProvisional(env, w, still, now));
   }
   return json({ ok: true, status: "upheld", nextApplicant: next });
 }
