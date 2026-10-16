@@ -38,6 +38,10 @@
  *     our program's Coin records: the pool each names, created by that record, on an allowed config, with its own mint); public,
  *     edge-cached 10 minutes (browsers 5), counted by the public limiter on a miss; a failed read or a node of another network is 503
  *     with no list; the CSV only on mainnet
+ *   · GET /api/fee-status?mint= (src/feestatus.js): an official city coin's fees so far, read from the chain (the Coin record's
+ *     counters, the founder vault, the holders pot, what is still in the curve or the pool, the rewards vault); public, edge-cached
+ *     1 minute (1 minute per server too, a failure 15 seconds), counted by the public limiter on a miss; not official 404, any
+ *     unclear reading of the exact figures 503 (after graduation the estimate of what is still in the pool alone may be withheld)
  *   · /api/admin/lp/* (src/lpadmin.js, owner only) · a wallet that can send sends their transactions itself; the relay
  *   /api/swap/send sends them for a wallet that only signs; /api/swap/status watches them either way (public/lp-sign.js)
  * The Launchpad's coin list, only while LAUNCHPAD_V2=on (otherwise 404 not_enabled; src/launchpad.js, src/marketlive.js):
@@ -106,6 +110,7 @@ import { lpSetup } from "./cluster.js";
 import { handleLpCoin, handleLpRecord } from "./lpcoins.js";
 import { handleLaunchApi } from "./lplaunch.js";
 import { handleFees } from "./fees.js";
+import { EDGE_SECONDS as FEE_STATUS_SECONDS, handleFeeStatus } from "./feestatus.js";
 import { handleCoinMeta } from "./coinmeta.js";
 import { BROWSER_SECONDS, EDGE_SECONDS, OFFICIAL_CSV_PATH, officialCacheKey, officialCoinsCsv, officialCoinsJson } from "./officialcoins.js";
 
@@ -348,6 +353,17 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     const mint = url.searchParams.get("mint");
     if (mint !== null && !isSolanaAddress(mint)) return json({ ok: false, error: "bad_mint" }, 400);
     return cached(`fees-${mint || "live"}`, 300, async () => (await publicLimit(env, request, "fees")) || handleFees(request, env, fetchImpl));
+  }
+  // one official city coin's fees so far (lpSetup), read from the chain (src/feestatus.js). With the settings missing it is simply not
+  // there (before any method check); the public limiter counts a cache miss; a 404 or a 503 is never kept at the edge
+  if (path === "/api/fee-status") {
+    const s = lpSetup(env);
+    if (!s.on) return json({ ok: false, error: "not_enabled" }, 404);
+    const blocked = only("GET");
+    if (blocked) return blocked;
+    const mint = url.searchParams.get("mint");
+    if (!isSolanaAddress(mint)) return json({ ok: false, error: "bad_mint" }, 400);
+    return cached(`fee-status-${s.cluster}-${s.programId}-${mint}`, FEE_STATUS_SECONDS, async () => (await publicLimit(env, request, "fee_status")) || handleFeeStatus(request, env, fetchImpl));
   }
   // the official city coins (lpSetup), read from the chain (src/officialcoins.js): JSON for the trackers and the /official page, and
   // the CSV made for Jupiter's token tags (mainnet only: the file cannot say which network it lists). With the settings missing they

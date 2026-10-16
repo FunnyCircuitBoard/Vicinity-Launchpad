@@ -144,6 +144,13 @@
               <p class="small" id="coin-fees-oneoff"></p>
               <p class="coin-foot" id="coin-fees-src"></p>
             </section>
+
+            <!-- fees so far: an official city coin of the Vicinity launchpad only, every figure read from the chain with its account and the time (GET /api/fee-status?mint=, src/feestatus.js); hidden until that answer is here, and whenever it fails -->
+            <section class="card coin-sofar" id="coin-sofar" aria-labelledby="coin-sofar-title" hidden>
+              <h2 class="coin-card__title" id="coin-sofar-title">Fees so far</h2>
+              <dl class="coin-sofar__list" id="coin-sofar-list"></dl>
+              <p class="small" id="coin-sofar-note">Holder reward rounds are not on the site yet and are not a promise (see the <a href="/terms#s5">Terms</a>).</p>
+            </section>
           </div>
         </div>
 

@@ -1,7 +1,8 @@
 // A fake launchpad RPC for the city-coin tests (src/lpkit.js, src/lpcoins.js, src/coinmeta.js, the relay): accounts in memory
 // (the recorded devnet accounts of test/fixtures/launchpad-worker/devnet-accounts.json by default, plus whatever a test adds),
 // getProgramAccounts with dataSize / memcmp filters (any length of bytes), withContext and minContextSlot, getMultipleAccounts with
-// minContextSlot (a node at S.slot refuses a later one, like Solana's -32016), simulateTransaction with the watched accounts' post-state,
+// minContextSlot (a node at S.slot refuses a later one, like Solana's -32016), getTokenAccountsByOwner (by program, with
+// minContextSlot), simulateTransaction with the watched accounts' post-state,
 // sendTransaction and getSignatureStatuses. Every call is logged ({ url, method, params }).
 import { readFileSync } from "node:fs";
 import { base58Decode, base58Encode } from "../../src/solana.js";
@@ -102,6 +103,13 @@ export function lpChain({ genesis = GENESIS.devnet, accounts = {} } = {}) {
           if (ok) out.push({ pubkey: k, account: acc(k) });
         }
         return cfg.withContext ? { context: { slot: S.slot }, value: out } : out;
+      }
+      case "getTokenAccountsByOwner": {
+        const [owner, { programId }, cfg = {}] = params;
+        if (cfg.minContextSlot != null && cfg.minContextSlot > S.slot) return { __error: { code: -32016, message: "Minimum context slot has not been reached", data: { contextSlot: S.slot } } };
+        const want = Buffer.from(base58Decode(owner));
+        const value = Object.keys(S.accounts).filter((k) => S.accounts[k].owner === programId && want.equals(Buffer.from(S.accounts[k].data, "base64").subarray(32, 64))).map((k) => ({ pubkey: k, account: acc(k) }));
+        return { context: { slot: S.slot }, value };
       }
       case "getSignaturesForAddress": return S.signatures[params[0]] || [];
       case "simulateTransaction": {
