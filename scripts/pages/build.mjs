@@ -1,6 +1,6 @@
 // Builds the site's pages: public/<name>.html = the shared layout (head, floating header, phone tab bar, footer) + the page's own
 // content from scripts/pages/src/<name>.html. Design v4 (12 Oct 2026): a slim floating glass header (the brand, four links, Log in and
-// one orange "Sign up"), a five-tab bar on phones, and a minimal footer (the copyright line, Terms / Rules / Data / Check a link, the
+// one orange "Sign up"), a five-tab bar on phones, and a minimal footer (the copyright line, Terms / Rules / Official addresses / Data / Check a link, the
 // official social accounts from src/official.js, and one security line: Vicinity never asks for a recovery phrase; not a risk line). Every page loads style.css and then polish.css. No page carries a
 // site-entry Terms of Use modal any more: the Terms are accepted at account creation and on /terms, and the footer links them everywhere.
 //   npm run pages
@@ -12,9 +12,14 @@
 //  "nav": "launchpad" marks that menu entry as the current page for a page that is not in the menu itself (the coin page /coin);
 //  "standalone": true builds the page like any other, but buildPages() leaves it out: test/site.test.js lists the main pages one by one and says only the admin console is noindex.
 //  The standalone pages come from buildStandalonePages() and are written by the same command; the tests of their own cover them.)
+// A source may hold a fill, <!--@name-->, which the build replaces with markup made from the site's own data (FILLS below); an
+// unknown name stops the build. Today: <!--@official-addresses--> on /official, the address list of src/official.js officialAddresses()
+// with the settings of wrangler.jsonc (what the Worker runs with), so no address is typed into a page.
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { SOCIAL_PROFILES } from "../../src/official.js";
+import { SOCIAL_PROFILES, officialAddresses } from "../../src/official.js";
+import { isSolanaAddress } from "../../src/solana.js";
+import { settingsFrom } from "../mainnet-preflight.mjs";
 
 const SRC = fileURLToPath(new URL("./src/", import.meta.url));
 const OUT = fileURLToPath(new URL("../../public/", import.meta.url));
@@ -117,7 +122,7 @@ ${body.trimEnd()}
     <div class="wrap site-footer__inner">
       <p class="site-footer__copy"><img src="/logo.svg" alt="" width="20" height="20"> Vicinity.city © 2026. All rights reserved.</p>
       <nav class="site-footer__links" aria-label="Legal and data">
-        <a href="/terms">Terms</a><a href="/rules">Rules</a><a href="/credits">Data</a><a href="/token#check">Check a link</a>
+        <a href="/terms">Terms</a><a href="/rules">Rules</a><a href="/official">Official addresses</a><a href="/credits">Data</a><a href="/token#check">Check a link</a>
       </nav>
       <ul class="site-footer__social" aria-label="Vicinity on social media" data-fb-avoid>
 ${socialLinks()}
@@ -138,6 +143,46 @@ ${js}
 `;
 }
 
+/* ---------------------------------------------------------------- fills */
+/** The settings the Worker runs with: the "vars" of wrangler.jsonc (nothing from this shell, so every build of a commit is the same). */
+export const deployedVars = () => settingsFrom({ wranglerPath: new URL("../../wrangler.jsonc", import.meta.url), env: {} });
+const solscan = (r) => `https://solscan.io/${r.kind === "token" ? "token" : "account"}/${r.address}`;
+/**
+ * One address: its label, the address itself, a note, a Copy button (site JS shows it) and its Solscan page (and one more page, e.g. the
+ * lock's). Its classes are off-row*, never the bare "addr": that is style.css's round address pill, which would clip the whole row.
+ */
+function addressRow(r) {
+  if (!isSolanaAddress(r.address)) throw new Error(`official addresses: "${r.label}" is not a Solana address (${r.address})`);
+  const out = (href, text) => {
+    if (!/^https:\/\/[^\s"'<>]+$/.test(href)) throw new Error(`official addresses: "${r.label}" links ${href}`);
+    return `<a class="btn btn--ghost btn--sm" href="${href}" target="_blank" rel="noopener">${esc(text)}<span class="sr-only">: ${esc(r.label)} (opens in a new tab)</span></a>`;
+  };
+  return [
+    `            <div class="credits__row off-row" data-address="${r.address}">`,
+    `              <dt>${esc(r.label)}</dt>`,
+    `              <dd>`,
+    `                <p><code class="off-row__value">${r.address}</code></p>`,
+    ...(r.note ? [`                <p class="credits__note">${esc(r.note)}</p>`] : []),
+    `                <p class="off-row__acts"><button class="btn btn--ghost btn--sm" type="button" data-copy="${r.address}" aria-label="Copy the address (${esc(r.label)})" hidden>Copy</button>${out(solscan(r), "Solscan")}${r.link ? out(r.link.href, r.link.text) : ""}</p>`,
+    `              </dd>`,
+    `            </div>`,
+  ].join("\n");
+}
+/** Groups of addresses (src/official.js officialAddresses) as the page's sections. */
+export const addressSections = (groups) => groups.map((g) => [
+  `        <section class="credits__group" aria-labelledby="off-${g.id}">`,
+  `          <h2 class="credits__h" id="off-${g.id}">${esc(g.title)}</h2>`,
+  `          <dl class="credits__list">`,
+  ...g.rows.map(addressRow),
+  `          </dl>`,
+  `        </section>`,
+].join("\n")).join("\n\n");
+const FILLS = { "official-addresses": () => addressSections(officialAddresses(deployedVars())) };
+const fill = (f, body) => body.replace(/<!--@([a-z-]+)-->/g, (_, name) => {
+  if (!Object.hasOwn(FILLS, name)) throw new Error(`${f}: unknown fill <!--@${name}-->`);
+  return FILLS[name]();
+});
+
 function build(standalone) {
   const out = [];
   for (const f of readdirSync(SRC).filter((x) => x.endsWith(".html")).sort()) {
@@ -145,7 +190,7 @@ function build(standalone) {
     const m = src.match(/^<!--(\{.*\})-->\n/);
     if (!m) throw new Error(`${f}: first line must be <!--{settings}-->`);
     const settings = JSON.parse(m[1]);
-    if (Boolean(settings.standalone) === standalone) out.push([f, layout(settings, src.slice(m[0].length))]);
+    if (Boolean(settings.standalone) === standalone) out.push([f, layout(settings, fill(f, src.slice(m[0].length)))]);
   }
   return out;
 }

@@ -71,6 +71,9 @@ export const PUBLIC_LIMITS = {
   wallet_send_build_live: { max: 60, windowMs: MIN },
   // GET /api/fees[?mint=] (lpSetup on, src/fees.js): one config read on an edge-cache miss (the bytes then stay 10 minutes per server)
   fees:           { max: 60, windowMs: MIN },
+  // GET /official-coins.csv and /api/official-coins (lpSetup on, src/officialcoins.js): the program's Coin records and their pools on an
+  // edge-cache miss (the reading then stays 1 minute per server, the answers 10 minutes at the edge); both paths count here
+  official_coins: { max: 60, windowMs: MIN },
 };
 /**
  * A per-WALLET counter on top of the per-connection one (src/swap.js, src/lptrade.js): one wallet cannot burn the Jupiter or RPC

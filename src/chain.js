@@ -10,7 +10,7 @@
  * provider) for when it stops answering. Without SOLANA_RPC_URL we fall back to the public endpoint, which can't list holders.
  * Every request goes out through src/rpcpool.js (endpoints, failover, breaker; never a URL in an error or a log).
  */
-import { OFFICIAL, teamWalletLabel } from "./official.js";
+import { OFFICIAL, teamLockLabel, teamWalletLabel } from "./official.js";
 import { base58Decode, base58Encode } from "./solana.js";
 import { isOnCurve } from "./sol/oncurve.js";
 import { rpcPost } from "./rpcpool.js";
@@ -47,7 +47,7 @@ export const isTeamWallet = (owner) => (OFFICIAL.teamWallets || []).includes(own
 const teamLockOf = (owner) => (OFFICIAL.teamLocks || []).find((l) => l.address === owner) || null;
 export const isTeamLock = (owner) => Boolean(teamLockOf(owner));
 /** The label of a team wallet or a team lock, else null. It wins over a pool label: a lock is a program's account too. */
-const teamLabel = (owner) => (isTeamWallet(owner) ? teamWalletLabel(owner) : teamLockOf(owner) ? `Team lock (${teamLockOf(owner).platform})` : null);
+const teamLabel = (owner) => (isTeamWallet(owner) ? teamWalletLabel(owner) : teamLockOf(owner) ? teamLockLabel(teamLockOf(owner)) : null);
 /**
  * The order the holder list is shown in (the owner, 13 Oct 2026: "put all the team wallets on the top after the pool and lock"):
  * pools and program accounts, then the team lock(s), then the team wallets, then people. Rows come in biggest first and with

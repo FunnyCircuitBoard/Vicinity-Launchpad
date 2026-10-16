@@ -7,7 +7,8 @@
  *
  *   lpSetup(env)          the gate (src/cluster.js): explicit LAUNCHPAD_CLUSTER, LAUNCHPAD_PROGRAM_ID, LAUNCHPAD_REWARDS_PROGRAM_ID
  *   checkGenesis(env)     the RPC's genesis hash must be the cluster's (a "mainnet" label in front of a devnet node, or the other
- *                         way round, is refused before anything is built); memoised per server once it matched
+ *                         way round, is refused before anything is built); memoised per server once it matched (not with
+ *                         `pin`, the official coin list's: asked every time, and every read then pinned to the node that answered)
  *   buildTx(env, opts)    compile (v0 with a lookup table, legacy otherwise), refuse more than 1232 bytes, read the watched
  *                         accounts, simulate (sigVerify off) with their post-state, and answer the exact SOL change per address,
  *                         the decoded instruction list in plain words and a relay ticket
@@ -207,16 +208,37 @@ export const checkedRoute = (env, g) => (g && g.only ? { ...lpRoute(env), only: 
  * whose genesis hash was checked). Throws a short code (never a URL).
  */
 export const lpRpc = (env, method, params, fetchImpl = fetch, route = null) => rpc(env, method, params, fetchImpl, route || lpRoute(env));
-/** Map(address -> account | null) for up to any number of addresses (100 per call), base64 data. Throws on a broken answer. */
-export async function readAccounts(env, addresses, fetchImpl = fetch, { commitment = "confirmed", route = null } = {}) {
+/**
+ * Is this a whole account as a node answers one asked with base64 data: { owner: an address, lamports: a number, data: [base64,
+ * "base64"] } whose bytes decode? (null, a string, a number, a missing owner or undecodable data are not.)
+ */
+export const wholeAccount = (a) => Boolean(a && typeof a === "object" && !Array.isArray(a) && isSolanaAddress(a.owner)
+  && typeof a.lamports === "number" && Number.isFinite(a.lamports) && a.lamports >= 0
+  && Array.isArray(a.data) && a.data.length === 2 && a.data[1] === "base64" && typeof a.data[0] === "string" && accountBytes(a));
+/**
+ * Map(address -> account | null) for up to any number of addresses (100 per call), base64 data. Throws on a broken answer.
+ * `minContextSlot`: a node that has not reached that slot refuses the call (Solana's -32016), so this reading is never older than
+ * an earlier one taken at that slot.
+ * `strict` (the official city-coin list, src/officialcoins.js): each entry must be null (no account) or a whole account
+ * (wholeAccount), and the answer's own slot must be a slot at or after `minContextSlot`; anything else throws rpc_bad_answer, so a
+ * malformed answer can never pass for "no account" or "not a pool". Without it any falsy entry reads as null (no account).
+ */
+export async function readAccounts(env, addresses, fetchImpl = fetch, { commitment = "confirmed", route = null, minContextSlot = null, strict = false } = {}) {
   const out = new Map();
   const list = [...new Set(addresses)];
+  const min = Number.isSafeInteger(minContextSlot) && minContextSlot > 0 ? minContextSlot : null;
+  const config = { encoding: "base64", commitment, ...(min ? { minContextSlot: min } : {}) };
   for (let i = 0; i < list.length; i += 100) {
     const chunk = list.slice(i, i + 100);
-    const r = await lpRpc(env, "getMultipleAccounts", [chunk, { encoding: "base64", commitment }], fetchImpl, route);
+    const r = await lpRpc(env, "getMultipleAccounts", [chunk, config], fetchImpl, route);
     const v = r && Array.isArray(r.value) ? r.value : null;
     if (!v || v.length !== chunk.length) throw new Error("rpc_bad_answer");
-    chunk.forEach((a, j) => out.set(a, v[j] || null));
+    if (strict) {
+      const slot = r.context && r.context.slot;
+      if (!Number.isSafeInteger(slot) || slot <= 0 || (min && slot < min)) throw new Error("rpc_bad_answer");
+      if (v.some((a) => a !== null && !wholeAccount(a))) throw new Error("rpc_bad_answer");
+    }
+    chunk.forEach((a, j) => out.set(a, strict ? v[j] : v[j] || null));
   }
   return out;
 }
@@ -232,12 +254,15 @@ export const _resetLpKit = () => { genesisOk.clear(); anchorIndex = null; };
  * only once it proved to be a mainnet node, src/rpcpool.js) but is not remembered, and `only` names the node that WAS checked:
  * buildTx then reads, takes its blockhash and simulates on that node alone, so a first node nobody checked (a devnet URL behind a
  * "mainnet" label) never feeds a summary the person signs. The first node is asked again by the next request.
+ * `pin` (the official city-coin list, src/officialcoins.js): the node is asked every time (nothing remembered is trusted) and `only`
+ * always names the node that answered, the first one too, so every later read of that reading goes to that node alone and never
+ * fails over to a node nobody checked.
  */
-export async function checkGenesis(env, fetchImpl = fetch) {
+export async function checkGenesis(env, fetchImpl = fetch, { pin = false } = {}) {
   const s = lpSetup(env);
   if (!s.on) return { ok: false, error: "not_enabled" };
   const key = `${s.cluster}|${s.rpc}`;
-  if (genesisOk.get(key)) return { ok: true, cluster: s.cluster };
+  if (!pin && genesisOk.get(key)) return { ok: true, cluster: s.cluster };
   const route = lpRoute(env);
   let got, role;
   try { ({ result: got, role } = await rpcAnswer(env, "getGenesisHash", [], fetchImpl, route)); } catch (e) { console.error("genesis check failed", codeOf(e)); return { ok: false, error: "rpc_unavailable" }; }
@@ -245,7 +270,7 @@ export async function checkGenesis(env, fetchImpl = fetch) {
     console.error("genesis mismatch: the launchpad RPC is not", s.cluster);
     return { ok: false, error: "wrong_cluster", cluster: s.cluster, message: `The blockchain node in the settings is not Solana ${s.cluster}. Nothing was built.` };
   }
-  if (role === rpcTargets(env, route)[0].role) { genesisOk.set(key, true); return { ok: true, cluster: s.cluster }; }
+  if (role === rpcTargets(env, route)[0].role) { genesisOk.set(key, true); if (!pin) return { ok: true, cluster: s.cluster }; }
   return { ok: true, cluster: s.cluster, only: role };
 }
 /** The page sends the cluster it shows ("mainnet" / "devnet"); null when it is this Worker's, else the error to answer. */

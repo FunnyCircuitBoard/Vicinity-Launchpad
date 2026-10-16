@@ -6,7 +6,7 @@ import { openPage } from "./helpers/pagedom.js";
 import { cityAt } from "../src/geo.js";
 
 const read = (p) => readFileSync(new URL("../public/" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "coin.html", "connect.html", "locate.html", "dashboard.html", "rules.html", "terms.html", "404.html", "admin.html", "app.html", "credits.html"];
+const PAGES = ["index.html", "token.html", "cities.html", "launchpad.html", "coin.html", "connect.html", "locate.html", "dashboard.html", "rules.html", "terms.html", "404.html", "admin.html", "app.html", "credits.html", "official.html"];
 const html = Object.fromEntries(PAGES.map((p) => [p, read(p)]));
 const all = Object.values(html).join("\n");
 const css = read("style.css");
@@ -36,7 +36,7 @@ test("no inline scripts or inline styles (blocked by our security policy), no li
 test("every local file a page references exists", () => {
   for (const [f, h] of Object.entries(html)) {
     for (const [, p] of h.matchAll(/(?:src|href)="(\/[^"#?]+)"/g)) {
-      if (p.startsWith("/api/")) continue;
+      if (p.startsWith("/api/") || p === "/official-coins.csv") continue; // answered by the Worker (wrangler.jsonc run_worker_first), not a file
       const file = p.endsWith("/") ? p + "index.html" : /\.[a-z0-9]+$/.test(p) ? p : p + ".html";
       assert.ok(existsSync(new URL("../public" + file, import.meta.url)), `${f}: missing ${p}`);
     }

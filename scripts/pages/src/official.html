@@ -1,0 +1,31 @@
+<!--{"title": "Official addresses", "description": "The Solana addresses of Vicinity: its programs and who can upgrade them, the fee wallet, the price-curve settings, $VICINITY, the team lock and team wallets, and the official city coins read from the chain.", "page": "official", "scripts": ["official"], "styles": ["pages-credits", "pages-official"]}-->
+    <section class="page-hero credits-hero">
+      <div class="wrap credits">
+        <p class="kicker">On Solana</p>
+        <h1 class="page-title">Official addresses</h1>
+        <p class="lead">The Solana addresses that are Vicinity's. Each one links to Solscan, so you can check it there.</p>
+      </div>
+    </section>
+
+    <section class="section section--tight credits-body">
+      <div class="wrap credits">
+<!--@official-addresses-->
+
+        <section class="credits__group" aria-labelledby="off-coins">
+          <h2 class="credits__h" id="off-coins">Official city coins</h2>
+          <p class="credits__note off-lead">This list is read from the chain by this site; the time of the reading is shown below. Nobody types it in. The same list as a file, one mint address per line: <a href="/official-coins.csv">official-coins.csv</a>, and with the details: <a href="/api/official-coins">JSON</a>.</p>
+          <p class="off-state" id="coins-state" role="status">Reading the list from the chain…</p>
+          <div class="off-table" id="coins-wrap" hidden>
+            <table>
+              <thead><tr><th scope="col">City</th><th scope="col">Ticker</th><th scope="col">Mint address</th><th scope="col">Stage</th></tr></thead>
+              <tbody id="coins-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="credits__group" aria-labelledby="off-check">
+          <h2 class="credits__h" id="off-check">How to check a city coin yourself</h2>
+          <p class="off-text">A city coin is official only if its mint address is on the list above (or in <a href="/official-coins.csv">official-coins.csv</a>). For each coin, the table and the JSON show its coin record, its mint and its pool as this site read them from the chain. To check them yourself, ask any Solana RPC node for the coin record (getAccountInfo; coinAccount in the JSON): its owner is the launchpad program listed above; its data starts with the 8 bytes d7c335eed9c4d533, which mark a coin record, followed by the city id (8 bytes, little-endian); its address is the one derived from the launchpad program and the seeds "coin" and that city id, so each city has one; and in its data the mint starts at byte 48, the price-curve setting at byte 112 and the pool at byte 144 (32 bytes each). Then ask for the pool: its owner is Meteora's bonding-curve program, and in its data the creator (byte 104) is the coin record, the price-curve setting (byte 72) is the record's and one listed above, and the mint (byte 136) is the coin's. Our programs' description (IDL) is not published yet, so Solscan shows the record's data as raw bytes; the byte offsets above are how to read it. Do not go by a pool's creator alone: anyone can open a pool on our public price-curve setting and then hand its creator role to one of our records, and anyone can make an empty account of their own show our program as its owner. The list above starts from our coin records and makes all of these checks.</p>
+        </section>
+      </div>
+    </section>

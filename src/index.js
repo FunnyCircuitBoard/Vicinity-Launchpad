@@ -34,6 +34,10 @@
  *   · GET /api/lp/coin?mint= (src/lpcoins.js) · /api/lp/launch/*, /api/lp/graduate/*, /api/lp/founder-claim/* (src/lplaunch.js)
  *   · GET /api/fees[?mint=] (src/fees.js): the fee schedule of the live launch config, or of the config a coin launched under; public,
  *     edge-cached 5 minutes (the config bytes 10 minutes per server), counted by the public limiter on a miss
+ *   · GET /official-coins.csv and GET /api/official-coins (src/officialcoins.js): the official city coins, read from the chain (from
+ *     our program's Coin records: the pool each names, created by that record, on an allowed config, with its own mint); public,
+ *     edge-cached 10 minutes (browsers 5), counted by the public limiter on a miss; a failed read or a node of another network is 503
+ *     with no list; the CSV only on mainnet
  *   · /api/admin/lp/* (src/lpadmin.js, owner only) · a wallet that can send sends their transactions itself; the relay
  *   /api/swap/send sends them for a wallet that only signs; /api/swap/status watches them either way (public/lp-sign.js)
  * The Launchpad's coin list, only while LAUNCHPAD_V2=on (otherwise 404 not_enabled; src/launchpad.js, src/marketlive.js):
@@ -103,6 +107,7 @@ import { handleLpCoin, handleLpRecord } from "./lpcoins.js";
 import { handleLaunchApi } from "./lplaunch.js";
 import { handleFees } from "./fees.js";
 import { handleCoinMeta } from "./coinmeta.js";
+import { BROWSER_SECONDS, EDGE_SECONDS, OFFICIAL_CSV_PATH, officialCacheKey, officialCoinsCsv, officialCoinsJson } from "./officialcoins.js";
 
 export { json, activeMint, cached as _cached };
 
@@ -111,7 +116,8 @@ export { json, activeMint, cached as _cached };
  *  The visitor gets the same `public, max-age=<that long>` on a miss and on a hit. On a hit the header is set again
  *  here: Cloudflare's zone Browser Cache TTL rewrites the copy cache.match() returns (measured 3 Oct 2026: every hit
  *  went out as `public, max-age=14400`, so a browser kept a price or holder list for 4 hours). The intended lifetime
- *  travels with the stored copy in an internal header that never reaches the visitor. */
+ *  travels with the stored copy in an internal header that never reaches the visitor. `edge` (seconds, optional): the edge keeps the
+ *  copy that long while browsers are still told `seconds` (the official coin list: 10 minutes at the edge, 5 in a browser). */
 const KEEP_HEADER = "x-vicinity-max-age";
 function withMaxAge(res, maxAge) {
   const out = new Response(res.body, res);
@@ -119,7 +125,7 @@ function withMaxAge(res, maxAge) {
   out.headers.delete(KEEP_HEADER);
   return out;
 }
-async function cached(key, seconds, produce) {
+async function cached(key, seconds, produce, { edge = 0 } = {}) {
   const cache = typeof caches !== "undefined" ? caches.default : null;
   const req = new Request("https://cache.vicinity.internal/" + key);
   if (cache) {
@@ -139,6 +145,8 @@ async function cached(key, seconds, produce) {
     try {
       const copy = new Response(out.clone().body, out);
       copy.headers.set(KEEP_HEADER, String(maxAge));
+      // the edge's own lifetime (never the browser's), unless the answer asked for a shorter life than `seconds`
+      if (maxAge === seconds && edge > maxAge) copy.headers.set("Cache-Control", `public, max-age=${edge}`);
       await cache.put(req, copy);
     } catch (e) { console.error("cache write failed", String((e && e.message) || e)); }
   }
@@ -340,6 +348,21 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     const mint = url.searchParams.get("mint");
     if (mint !== null && !isSolanaAddress(mint)) return json({ ok: false, error: "bad_mint" }, 400);
     return cached(`fees-${mint || "live"}`, 300, async () => (await publicLimit(env, request, "fees")) || handleFees(request, env, fetchImpl));
+  }
+  // the official city coins (lpSetup), read from the chain (src/officialcoins.js): JSON for the trackers and the /official page, and
+  // the CSV made for Jupiter's token tags (mainnet only: the file cannot say which network it lists). With the settings missing they
+  // are simply not there (before any method check); the public limiter counts a miss of the edge cache (a hit costs nothing). HEAD
+  // is answered like GET (link checkers and pollers ask a file's address with HEAD first; the runtime drops the body)
+  if (path === "/api/official-coins" || path === OFFICIAL_CSV_PATH) {
+    const s = lpSetup(env), csv = path === OFFICIAL_CSV_PATH;
+    if (!s.on || (csv && s.cluster !== "mainnet")) {
+      return csv ? new Response("not_enabled\n", { status: 404, headers: { ...SECURITY_HEADERS, "Content-Type": "text/plain; charset=utf-8" } }) : json({ ok: false, error: "not_enabled" }, 404);
+    }
+    const blocked = method === "HEAD" ? null : only("GET");
+    if (blocked) return blocked;
+    // the key names the configs too (officialCacheKey): a config added to LAUNCHPAD_DBC_CONFIGS is a new list at once
+    return cached(officialCacheKey(s, csv), BROWSER_SECONDS,
+      async () => (await publicLimit(env, request, "official_coins")) || (csv ? officialCoinsCsv(env, fetchImpl) : officialCoinsJson(env, fetchImpl)), { edge: EDGE_SECONDS });
   }
   // city coins on our own launchpad (lpSetup): with the settings missing they are simply not there (before any method check)
   if (path.startsWith("/api/lp/")) {
@@ -645,7 +668,8 @@ export default {
         url.protocol = "https:"; url.port = "";
         return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
       }
-      if (url.pathname.startsWith("/api/")) return await handleApi(request, env, fetch, ctx);
+      // the official city-coin CSV lives outside /api (a plain file address, made for Jupiter's token tags) but is answered like /api/*
+      if (url.pathname.startsWith("/api/") || url.pathname === OFFICIAL_CSV_PATH) return await handleApi(request, env, fetch, ctx);
       // the metadata our launchpad program writes on chain points here (src/coinmeta.js): dark without its settings
       if (url.pathname.startsWith("/coin-meta/")) return await handleCoinMeta(request, env, fetch);
       return withSecurityHeaders(await env.ASSETS.fetch(request));

@@ -15,10 +15,10 @@
  * lp_coins is created lazily (like coin_stats in src/store.js), only by a call made while the gate is on.
  */
 import { json, readJson, sameSite } from "./http.js";
-import { isSolanaAddress } from "./solana.js";
+import { base58Encode, isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { lpSetup } from "./cluster.js";
-import { lpRpc } from "./lpkit.js";
+import { lpRpc, wholeAccount } from "./lpkit.js";
 import { ensureSchema } from "./store.js";
 import { lpCoinsTableReady } from "./tickers.js";
 import { publicLimit } from "./guards.js";
@@ -32,6 +32,9 @@ import { metaJsonFor, metadataUriFor } from "./coinmeta.js";
 
 export const COIN_SIZE = LAYOUT.Coin.size; // 243
 export const COIN_MINT_OFFSET = LAYOUT.Coin.fields.mint.at; // 48
+// the Coin discriminator (d7c335eed9c4d533) at byte 0, as getProgramAccounts' memcmp wants it: anyone can make a 243-byte account
+// of zeros owned by our program (CreateAccount with our program as the owner); the node then leaves those out of the answer
+const COIN_DISCRIMINATOR = base58Encode(Uint8Array.from(LAYOUT.Coin.discriminator));
 const QUOTE_DECIMALS = { So11111111111111111111111111111111111111112: 9, EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: 6, Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: 6 };
 const QUOTE_SYMBOL = { So11111111111111111111111111111111111111112: "SOL", EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: "USDC", Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: "USDT" };
 export const SWEEP_EVERY_MS = 30 * 60_000;
@@ -108,20 +111,53 @@ async function coinOfCity(env, s, cityId, fetchImpl) {
   const c = decodeCoin(r && r.value, s.programId);
   return c ? { ...c, address } : null;
 }
-/** Every Coin record (with `mint` filtering to one): getProgramAccounts(dataSize 243[, memcmp mint at 48]); only canonical records. */
-async function coinRecords(env, s, fetchImpl, mint = null) {
-  const filters = [{ dataSize: COIN_SIZE }, ...(mint ? [{ memcmp: { offset: COIN_MINT_OFFSET, bytes: mint } }] : [])];
-  const list = await lpRpc(env, "getProgramAccounts", [s.programId, { encoding: "base64", commitment: "confirmed", filters }], fetchImpl);
+/**
+ * Every Coin record (with `mint` filtering to one): getProgramAccounts(dataSize 243, memcmp the Coin discriminator at 0[, memcmp mint
+ * at 48]); only canonical records (the account at ["coin", its own city id], owned by the program, with the Coin discriminator).
+ * Throws on a broken answer.
+ */
+export async function coinRecords(env, s, fetchImpl, mint = null) {
+  return (await readCoinRecords(env, s, fetchImpl, { mint })).records;
+}
+/**
+ * Every Coin record with the slot the node read them at: { slot, records }. The source of the official city-coin list
+ * (src/officialcoins.js), which reads the records' pools at that slot or later. `route`: the node to ask (the one whose genesis
+ * hash was checked, src/lpkit.js checkGenesis). `minContextSlot`: the slot of an earlier whole reading; a node that has not reached
+ * it refuses (Solana's -32016), and an answer older than it fails the reading, so a node that lags behind never drops a coin that
+ * was already on the list.
+ *
+ * STRICT, unlike coinRecords: every row the node returns has already passed dataSize 243 and the Coin discriminator at byte 0, and
+ * only our program can write that discriminator into an account it owns, and only at ["coin", that city id] (Anchor's init with
+ * those seeds). So a row that is not a whole account of our program, does not decode as a Coin, sits anywhere else, or comes twice
+ * can only come from a broken answer: the whole reading fails (rpc_bad_answer), it never quietly loses a coin. (coinRecords' callers,
+ * coinByMint and the sweep, still skip such a row: they look coins up one at a time and publish no list.)
+ */
+export async function coinRecordsAt(env, s, fetchImpl, { route = null, minContextSlot = null } = {}) {
+  const min = Number.isSafeInteger(minContextSlot) && minContextSlot > 0 ? minContextSlot : null;
+  const r = await readCoinRecords(env, s, fetchImpl, { route, withContext: true, strict: true, minContextSlot: min });
+  if (!Number.isSafeInteger(r.slot) || r.slot <= 0 || (min && r.slot < min)) throw new Error("rpc_bad_answer");
+  return r;
+}
+async function readCoinRecords(env, s, fetchImpl, { mint = null, route = null, withContext = false, strict = false, minContextSlot = null } = {}) {
+  const filters = [{ dataSize: COIN_SIZE }, { memcmp: { offset: 0, bytes: COIN_DISCRIMINATOR } }, ...(mint ? [{ memcmp: { offset: COIN_MINT_OFFSET, bytes: mint } }] : [])];
+  const config = { encoding: "base64", commitment: "confirmed", filters, ...(withContext ? { withContext: true } : {}), ...(minContextSlot ? { minContextSlot } : {}) };
+  const list = await lpRpc(env, "getProgramAccounts", [s.programId, config], fetchImpl, route);
   const rows = Array.isArray(list) ? list : list && Array.isArray(list.value) ? list.value : null;
   if (!rows) throw new Error("rpc_bad_answer");
-  const P = launchpadPdas(s.programId), out = [];
+  const slot = !Array.isArray(list) && list.context && Number.isSafeInteger(list.context.slot) ? list.context.slot : null;
+  const P = launchpadPdas(s.programId), out = [], seen = new Set();
+  // strict: a row that cannot be one of our Coin records fails the reading; otherwise it is skipped
+  const skip = () => { if (strict) throw new Error("rpc_bad_answer"); };
   for (const r of rows) {
+    if (strict && !(r && typeof r === "object" && isSolanaAddress(r.pubkey) && wholeAccount(r.account) && r.account.owner === s.programId)) skip();
     const c = decodeCoin(r && r.account ? { ...r.account, owner: r.account.owner || s.programId } : null, s.programId);
-    if (!c || (mint && c.mint !== mint)) continue;
-    if ((await P.coin(c.cityId)) !== r.pubkey) continue; // the canonical ["coin", city id] record, nothing else of that size
+    if (!c || (mint && c.mint !== mint)) { skip(); continue; }
+    if ((await P.coin(c.cityId)) !== r.pubkey) { skip(); continue; } // the canonical ["coin", city id] record, nothing else of that size
+    if (seen.has(r.pubkey)) skip();
+    seen.add(r.pubkey);
     out.push({ ...c, address: r.pubkey });
   }
-  return out;
+  return { slot, records: out };
 }
 /**
  * The Coin record of a mint from the chain (null when our program has none). A getProgramAccounts is the most expensive call at
