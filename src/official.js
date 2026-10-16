@@ -5,6 +5,7 @@
  */
 import { launchpadV2On } from "./flags.js";
 import { launchpadCluster, launchpadTradingOn, lpSetup, swapOn } from "./cluster.js";
+import { ADDRESSES } from "./sol/pda.js";
 
 // The $VICINITY mint address. Paste it here the moment the token launches (one line change).
 export const VICINITY_MINT = null;
@@ -82,6 +83,19 @@ export const TEAM_WALLET_NAMES = {
 const teamWalletName = (address) => (Object.hasOwn(TEAM_WALLET_NAMES, address) ? TEAM_WALLET_NAMES[address] : null);
 /** The holder list's label for a team wallet: "Team wallet (FOMO)" for a named one, "Team wallet (public)" for the rest. */
 export const teamWalletLabel = (address) => `Team wallet (${teamWalletName(address)?.tag || "public"})`;
+/** The holder list's label for a team lock of teamLocks: "Team lock (Jupiter Lock)". */
+export const teamLockLabel = (lock) => `Team lock (${lock.platform})`;
+
+// Who can upgrade our two Solana programs on mainnet (vicinity_launchpad and vicinity_rewards, deployed 10 Oct 2026): the owner's
+// Squads vault, a multisig of 3 signers that needs 2 of them (multisig 6v8hwKYSAWXXx6ZGGmvbg87n8eVy9MAgNruFgVqRFjYV), set back on
+// 12 Oct 2026 (solana/release/mainnet-2026-10-10/BUILD.md, setup step 2). Read on chain on 16 Oct 2026: both programs' ProgramData
+// accounts (A6xs…3N1a, 8M6e…pdUN) name it as their upgrade authority. Listed on /official (officialAddresses below). If it ever
+// changes, this line changes in the same public commit.
+export const PROGRAM_UPGRADE_AUTHORITY = "AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X";
+// The Squads v4 multisig that vault belongs to (the vault is its index 0: ["multisig", this, "vault", 0] under
+// SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf). Read on chain on 16 Oct 2026: threshold 2, 3 members, no config authority, no time
+// lock. The vault's own Solscan page does not show the 2-of-3 rule, this account's does, so /official links it next to the vault.
+export const PROGRAM_UPGRADE_MULTISIG = "6v8hwKYSAWXXx6ZGGmvbg87n8eVy9MAgNruFgVqRFjYV";
 
 const clean = (s) => String(s || "").trim().slice(0, 300);
 /** "April 13, 2027": the day of a UTC time, in words. */
@@ -203,6 +217,51 @@ export function checkOfficial(input, isSolanaAddress, env) {
   }
 
   return { verdict: "unknown", message: "That doesn't look like a link, Solana address or @handle." };
+}
+
+/**
+ * The addresses the "Official addresses" page lists (/official: scripts/pages/build.mjs builds it from this, with the settings of
+ * wrangler.jsonc, which are what the Worker runs with). Every address comes from where the site already keeps it: our two programs
+ * and the price-curve settings from the city-coin settings (lpSetup, src/cluster.js; only while they name mainnet), who can upgrade
+ * the programs (PROGRAM_UPGRADE_AUTHORITY), the fee wallet (the program's constant, src/sol/pda.js), $VICINITY (activeMint), the team
+ * lock and the team wallets (OFFICIAL, with the token page's labels). The official city coins are not here: the page reads them from
+ * the chain through GET /api/official-coins (src/officialcoins.js).
+ *   [{ id, title, rows: [{ label, address, kind: "account" | "token", note, link?: { href, text } }] }]
+ */
+export function officialAddresses(env = {}) {
+  const lp = lpSetup(env), groups = [];
+  const mainnet = lp.on && lp.cluster === "mainnet";
+  // the fee wallet is also a team wallet today: each row says so, so nobody counts two wallets (or reads two labels for one address)
+  const feeIsTeam = OFFICIAL.teamWallets.includes(ADDRESSES.feeRecipient);
+  if (mainnet) {
+    groups.push({ id: "programs", title: "Programs", rows: [
+      { label: "Launchpad program", address: lp.programId, kind: "account", note: "vicinity_launchpad. It creates every official city coin." },
+      { label: "Rewards program", address: lp.rewardsProgramId, kind: "account", note: "vicinity_rewards." },
+      { label: "Upgrade authority of both programs", address: PROGRAM_UPGRADE_AUTHORITY, kind: "account",
+        note: "A Squads multisig vault. Its multisig, linked here, needs 2 of its 3 signers to upgrade a program.",
+        link: { href: `https://solscan.io/account/${PROGRAM_UPGRADE_MULTISIG}`, text: "Squads multisig" } },
+    ] });
+    groups.push({ id: "fees", title: "Fees and price curve", rows: [
+      { label: "Fee wallet", address: ADDRESSES.feeRecipient, kind: "account", note: `Vicinity's share of city-coin fees goes to this wallet. The launchpad program has this address built in.${feeIsTeam ? " It is also the team's public wallet, listed under Team." : ""}` },
+      ...lp.dbcConfigs.map((address) => ({ label: "Price-curve setting (Meteora)", address, kind: "account",
+        note: "The Meteora settings the price curve of an official city coin runs on. Anyone can open a pool on these settings, so they alone do not make a coin official." })),
+    ] });
+  }
+  const mint = activeMint(env), launched = launchedAtOf(mint);
+  if (mint) groups.push({ id: "vicinity", title: "$VICINITY", rows: [
+    { label: "$VICINITY token", address: mint, kind: "token", note: `The platform token${launched ? `, launched on Raydium LaunchLab on ${longDate(launched)}` : ""}. It is not a city coin.` },
+  ] });
+  groups.push({ id: "team", title: "Team", rows: [
+    ...(OFFICIAL.teamLocks || []).map((lock) => ({ label: teamLockLabel(lock), address: lock.address, kind: "account",
+      note: `${lock.amount.toLocaleString("en-US")} $VICINITY locked: nothing unlocks before ${longDate(lock.cliff)}, and nobody can cancel the lock or change who receives it.`,
+      link: { href: lock.url, text: `${lock.platform} page` } })),
+    ...OFFICIAL.teamWallets.map((address) => {
+      const named = teamWalletName(address) ? `${teamWalletName(address).what[0].toUpperCase()}${teamWalletName(address).what.slice(1)}.` : null;
+      const fee = mainnet && address === ADDRESSES.feeRecipient ? "It is also the fee wallet, listed above." : null;
+      return { label: teamWalletLabel(address), address, kind: "account", note: [named, fee].filter(Boolean).join(" ") || null };
+    }),
+  ] });
+  return groups;
 }
 
 /** The live mint: the Cloudflare setting VICINITY_MINT wins over the line above (so launch needs no code change). */

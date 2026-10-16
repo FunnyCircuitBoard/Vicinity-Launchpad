@@ -153,7 +153,9 @@ test("the job's sweep: every 30 minutes, every Coin record of the program, the n
   const out = await runJobs(env, clock.now, chain.fetchImpl);
   assert.deepEqual(out.lpCoins, { found: 1, recorded: 1, failed: 0, left: 0 });
   assert.equal((await env.DB.prepare("SELECT mint FROM city_coins WHERE city_id = ?").bind(DEMOV_CITY).first()).mint, DEMOV);
-  assert.deepEqual(chain.calls("getProgramAccounts").map((c) => c.params[1].filters), [[{ dataSize: 243 }]]);
+  // 243 bytes that start with the Coin discriminator d7c335eed9c4d533 (base58 d6AgYymcV8v): a zero-filled account of that size that
+  // somebody made owned by our program is not even in the node's answer
+  assert.deepEqual(chain.calls("getProgramAccounts").map((c) => c.params[1].filters), [[{ dataSize: 243 }, { memcmp: { offset: 0, bytes: "d6AgYymcV8v" } }]]);
   assert.deepEqual(await sweepLaunchedCoins(env, clock.now + 10 * 60_000, chain.fetchImpl), { skipped: "not due" });
   assert.deepEqual(await sweepLaunchedCoins(env, clock.now + 31 * 60_000, chain.fetchImpl), { found: 1, recorded: 0, failed: 0, left: 0 });
   const off = { ...newWorld(), ...darkVars() };

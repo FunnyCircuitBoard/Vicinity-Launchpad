@@ -2,7 +2,7 @@
 // easy to navigate on phone screens... a design pass on the Token page... zero redundancy"). What it promises, pinned here:
 // * every page loads public/polish.css after style.css, and polish.css publishes the height of the fixed bars at the bottom of a phone
 //   (--bottom-bars on body: the tab bar, plus the coin page's Buy bar) for anything that floats in a corner;
-// * the footer on every page (design v4): one calm line, the copyright, Terms / Privacy / Rules / Data / Check a link, the official social
+// * the footer on every page (design v4): one calm line, the copyright, Terms / Rules / Official addresses / Data / Check a link, the official social
 //   accounts; no status, no Pause, no credits block (they live on /credits and at the map's corner), no risk line;
 // * the home page (design v4, 12 Oct 2026, the owner's own words: no New York map, "One city. One coin." centred at the top, Sign up beside
 //   Get $VICINITY): one call to buy, no countdown, no numbers band, How it works, the app teaser and the FAQ in three tabs, no closing band
@@ -49,7 +49,7 @@ test("polish.css moves nothing by itself: its one animation sits in a no-prefere
   for (const kf of body.matchAll(/@keyframes \w+ \{([\s\S]*?)\} \}/g)) for (const prop of kf[1].matchAll(/([a-z-]+):/g)) assert.ok(["transform", "opacity"].includes(prop[1]), prop[1]);
 });
 
-test("footer, every page (design v4): the copyright line, Terms / Rules / Data / Check a link, the official socials, one security line; no status, Pause, credits block or risk line", () => {
+test("footer, every page (design v4): the copyright line, Terms / Rules / Official addresses / Data / Check a link, the official socials, one security line; no status, Pause, credits block or risk line", () => {
   const { SOCIAL_PROFILES } = officialMod;
   for (const f of pages) {
     const foot = html[f].match(/<footer class="site-footer">[\s\S]*?<\/footer>/)[0];
@@ -58,7 +58,8 @@ test("footer, every page (design v4): the copyright line, Terms / Rules / Data /
     assert.match(foot, /<p class="site-footer__copy"><img src="\/logo\.svg" alt="" width="20" height="20"> Vicinity\.city © 2026\. All rights reserved\.<\/p>/, f);
     const links = [...foot.match(/<nav class="site-footer__links" aria-label="Legal and data">([\s\S]*?)<\/nav>/)[1].matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} ${m[1]}`);
     // review of 13 Oct 2026: no "Privacy" link (it opened the Rules' location card: the site has no privacy notice of that name yet)
-    assert.deepEqual(links, ["Terms /terms", "Rules /rules", "Data /credits", "Check a link /token#check"], f);
+    // 16 Oct 2026: "Official addresses" (/official, the addresses explorers are asked to label and the official city coins) next to the Rules
+    assert.deepEqual(links, ["Terms /terms", "Rules /rules", "Official addresses /official", "Data /credits", "Check a link /token#check"], f);
     // the one line kept: a security fact against phishing (not a risk warning), once per page
     assert.equal(foot.match(/<p class="site-footer__safe">Vicinity never asks for your recovery phrase or private key\.<\/p>/g).length, 1, f);
     // the official accounts, from src/official.js (rule R3: real ones only; a network added there shows on the next build)

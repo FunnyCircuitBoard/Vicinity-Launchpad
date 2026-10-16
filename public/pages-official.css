@@ -1,0 +1,26 @@
+/* /official, the Official addresses page (16 Oct 2026). Built on the calm text page of /credits (pages-credits.css: a 720 px column, a
+   group per kind, one row per address with hairlines between); this sheet adds the address itself (a long word that wraps anywhere),
+   the row's Copy and Solscan buttons, and the table of official city coins (on a phone each coin is a small stacked block, so nothing
+   hides off the right edge; wider, a plain table that scrolls sideways inside its box, never the page). The rows are off-row*, never
+   style.css's .addr (the round address pill). Tokens from style.css, each with a fallback; nothing moves. */
+.credits__h { max-width: none; }
+.off-row__value { display: inline-block; max-width: 100%; overflow-wrap: anywhere; word-break: break-all; }
+.off-row__acts { display: flex; flex-wrap: wrap; gap: var(--sp-2, 8px); margin-top: var(--sp-2, 8px); }
+.off-lead { margin: 0 0 var(--sp-3, 12px); }
+.off-state { margin: 0 0 var(--sp-3, 12px); font-size: var(--fs-base, 1rem); line-height: 1.6; color: var(--text); }
+.off-text { margin: 0; font-size: var(--fs-base, 1rem); line-height: 1.6; color: var(--text); }
+.off-table { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-sm, 12px); }
+.off-table table { width: 100%; border-collapse: collapse; font-size: .94rem; }
+.off-table th { text-align: left; font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 11px 10px; border-bottom: 1px solid var(--line); }
+.off-table td { padding: 11px 10px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--text); }
+.off-table tr:last-child td { border-bottom: 0; }
+.off-mint { min-width: 220px; }
+@media (max-width: 560px) {
+  .off-table { overflow-x: visible; }
+  .off-table table { font-size: .84rem; }
+  .off-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .off-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .off-table tbody tr:last-child { border-bottom: 0; }
+  .off-table td { display: block; padding: 0; border: 0; min-width: 0; }
+  .off-table td.off-mint, .off-table td:last-child { grid-column: 1 / -1; min-width: 0; }
+}

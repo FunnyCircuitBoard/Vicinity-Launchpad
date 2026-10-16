@@ -97,7 +97,8 @@ test("coin-meta: with the settings, a launched coin's JSON comes from the chain'
   assert.equal(j.name, "Demo Vicinity", "the chain's name, not the design's (\"Edited Later\")");
   assert.equal(chain.calls("getProgramAccounts").length, 1);
   const pga = chain.calls("getProgramAccounts")[0].params[1].filters;
-  assert.deepEqual(pga, [{ dataSize: 243 }, { memcmp: { offset: 48, bytes: DEMOV } }]);
+  // 243 bytes, the Coin discriminator d7c335eed9c4d533 (base58 d6AgYymcV8v) at byte 0, the mint at byte 48
+  assert.deepEqual(pga, [{ dataSize: 243 }, { memcmp: { offset: 0, bytes: "d6AgYymcV8v" } }, { memcmp: { offset: 48, bytes: DEMOV } }]);
   // recorded (src/lpcoins.js): the row, the city's mint (the design is locked), the public log line
   const row = await env.DB.prepare("SELECT * FROM lp_coins WHERE mint = ?").bind(DEMOV).first();
   assert.deepEqual([row.cluster, row.program_id, row.city_id, row.name, row.symbol, row.launch_sig], ["devnet", LP_ON.LAUNCHPAD_PROGRAM_ID, DEMOV_CITY, "Demo Vicinity", "DEMOV", "5ctr2RXcTzQ4XfHfFmjTaFPYxSMBw1Zp2WgVgXnvwDeMb7Yg7nE1xWxXq2k4mbKTrDJDDWJnBHe3bDB7uCqUWbk"]);
