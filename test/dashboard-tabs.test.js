@@ -79,7 +79,7 @@ test("the glass pill: one static marker, the last child of the tab list, hidden 
     assert.match(page, /<span class="dtab__text dtab__long">Profile<\/span><\/a>\n\s*<span class="dtabs__ind" aria-hidden="true"><\/span>\n\s*<\/div>\n\s*<\/nav>/, `${name}: inside #dash-tablist, after the last tab`);
   }
   const list = html.slice(html.indexOf('id="dash-tablist"'), html.indexOf("</nav>", html.indexOf('id="dash-tablist"')));
-  assert.equal((list.match(/role="tab"/g) || []).length, 7, "the tab list still holds seven tabs, and only the tabs are tabs");
+  assert.equal((list.match(/role="tab"/g) || []).length, 8, "the tab list holds eight tabs (Wallet since the wallet step), and only the tabs are tabs");
   assert.doesNotMatch(list, /<span class="dtabs__ind"[^>]*\b(id|role|tabindex)=/, "no id, no role, never focused");
   // the script finds the static marker, never builds one, never writes markup
   assert.match(v2, /const pillEl = \(\) => \$\("#dash-tablist \.dtabs__ind"\);/);
@@ -222,12 +222,13 @@ test("the pill follows the chosen tab: set once the strip has a size, slides on 
   const anims = [];
   ind.animate = (frames, opts) => { const a = { frames, opts, currentTime: 0, cancelled: false, cancel() { this.cancelled = true; }, onfinish: null }; anims.push(a); return a; };
   p.win.matchMedia = () => ({ matches: false, addEventListener() {} });
-  // a click: Home -> Rankings slides (transform alone, the stretch in the middle); the Rankings panel comes from the right
+  // a click: Home -> Rankings (the fifth tab: Home, Wallet, City, Feed, Rankings) slides (transform alone, the stretch in the middle); the
+  // Rankings panel comes from the right
   await p.tap(p.$("#tab-rankings"));
   assert.equal(p.win.VDash.active, "rankings");
-  assert.deepEqual(style(), at(3), "the pill's own box is the new tab's at once (the slide runs over it)");
+  assert.deepEqual(style(), at(4), "the pill's own box is the new tab's at once (the slide runs over it)");
   assert.equal(anims.length, 1);
-  assert.deepEqual(plain(anims[0].frames), [{ transform: slid(0), easing: IN }, { transform: "translate(145px, 4px) scaleX(1.5)", offset: 0.45, easing: p.win.VDash.pill.easeOut }, { transform: slid(3) }]);
+  assert.deepEqual(plain(anims[0].frames), [{ transform: slid(0), easing: IN }, { transform: "translate(200px, 4px) scaleX(1.5)", offset: 0.45, easing: p.win.VDash.pill.easeOut }, { transform: slid(4) }]);
   assert.deepEqual(plain(anims[0].opts), { duration: 320 });
   assert.equal(dv2.dataset.dir, "next");
   // the observer answers mid-slide: the same place, the slide goes on
@@ -240,7 +241,7 @@ test("the pill follows the chosen tab: set once the strip has a size, slides on 
   anims[0].currentTime = 150;
   ros[0].cb();
   assert.equal(anims[0].cancelled, true); assert.equal(anims.length, 2);
-  assert.deepEqual(plain(anims[1].frames), [{ transform: "translate(180px, 4px)", width: "130px", easing: EASE }, { transform: "translate(304px, 4px)", width: "110px" }]);
+  assert.deepEqual(plain(anims[1].frames), [{ transform: "translate(180px, 4px)", width: "130px", easing: EASE }, { transform: "translate(404px, 4px)", width: "110px" }]);
   assert.deepEqual(plain(anims[1].opts), { duration: 170 }, "320 ms in all");
   rk.getBoundingClientRect = rect;
   // a hash change mid-slide (back, a link): the running slide stops where it is and a full new one starts there, towards City
@@ -252,7 +253,7 @@ test("the pill follows the chosen tab: set once the strip has a size, slides on 
   assert.equal(anims.length, 3);
   assert.deepEqual(plain(anims[2].frames[0]), { transform: "translate(180px, 4px)", width: "130px", easing: IN }, "from where the pill was");
   assert.equal(anims[2].frames[1].offset, 0.45);
-  assert.deepEqual(plain(anims[2].frames.at(-1)), { transform: "translate(104px, 4px)", width: "96px" });
+  assert.deepEqual(plain(anims[2].frames.at(-1)), { transform: "translate(204px, 4px)", width: "96px" });
   assert.deepEqual(plain(anims[2].opts), { duration: 320 });
   assert.equal(dv2.dataset.dir, "prev", "the City panel comes from the left");
   anims[2].onfinish();
@@ -263,7 +264,7 @@ test("the pill follows the chosen tab: set once the strip has a size, slides on 
   assert.equal(p.win.VDash.active, "community");
   assert.equal(p.$("#tab-community").getAttribute("aria-selected"), "true"); assert.equal(p.$("#tab-community").getAttribute("tabindex"), "0");
   assert.equal(p.doc.activeElement, p.$("#tab-community"));
-  assert.equal(anims.length, 4); assert.equal(anims[3].frames[0].transform, slid(1)); assert.equal(anims[3].frames.at(-1).transform, slid(2));
+  assert.equal(anims.length, 4); assert.equal(anims[3].frames[0].transform, slid(2)); assert.equal(anims[3].frames.at(-1).transform, slid(3));
   anims[3].onfinish();
   // a resize: the tabs are wider and the list has scrolled 30 px; the pill is simply set on its tab (content coordinates), no slide
   step = 120; left = 0;
@@ -271,7 +272,7 @@ test("the pill follows the chosen tab: set once the strip has a size, slides on 
   p.win.innerWidth = 1280;
   p.win.dispatchEvent(newEvent("resize"));
   assert.equal(anims.length, 4, "a resize never slides");
-  assert.deepEqual(style(), at(2, 30));
+  assert.deepEqual(style(), at(3, 30));
   // a slide on its way, then the phone's address bar shows (only the height changes): nothing happens to the slide
   await p.tap(p.$("#tab-founder"));
   assert.equal(anims.length, 5);
@@ -284,7 +285,7 @@ test("the pill follows the chosen tab: set once the strip has a size, slides on 
   step = 110; p.win.innerWidth = 1100;
   p.win.dispatchEvent(newEvent("resize"));
   assert.equal(anims[4].cancelled, true); assert.equal(anims.length, 6);
-  assert.deepEqual(plain(anims[5].frames), [{ transform: "translate(180px, 4px)", width: "130px", easing: EASE }, { transform: "translate(474px, 4px)", width: "106px" }]);
+  assert.deepEqual(plain(anims[5].frames), [{ transform: "translate(180px, 4px)", width: "130px", easing: EASE }, { transform: "translate(584px, 4px)", width: "106px" }]);
   assert.deepEqual(plain(anims[5].opts), { duration: 220 });
   anims[5].onfinish();
   // the same tab again (a deep link inside the tab): nothing moves, the panel is not restarted
@@ -294,7 +295,7 @@ test("the pill follows the chosen tab: set once the strip has a size, slides on 
   p.win.matchMedia = () => ({ matches: true, addEventListener() {} });
   await p.tap(p.$("#tab-profile"));
   assert.equal(anims.length, 6, "no slide");
-  assert.deepEqual(style(), { transform: `translate(${4 + 6 * 110 + 30}px, 4px)`, width: "106px", height: "44px" });
+  assert.deepEqual(style(), { transform: `translate(${4 + 7 * 110 + 30}px, 4px)`, width: "106px", height: "44px" });
   // the strip loses its size (hidden): no pill, the chosen tab's own look comes back
   list.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0 });
   ros[0].cb();
@@ -309,7 +310,7 @@ test("the bar re-divides as one glide when Moderate arrives after the strip is o
   const tabs = [...p.$$(".dtab")];
   const { followMs, easing: EASE } = p.win.VDash.pill;
   assert.equal(mod.hidden, true, "a member: no Moderate yet");
-  // a computer's layout: the shown tabs share 700 px equally (6 tabs of 116.67 px, then 7 of 100 px)
+  // a computer's layout: the shown tabs share 700 px equally (7 tabs of 100 px, then 8 of 87.5 px)
   list.getBoundingClientRect = () => ({ left: 0, top: 0, width: 708, height: 52 });
   const layout = (t) => { const shown = tabs.filter((x) => !x.hidden), w = 700 / shown.length; return { left: 4 + shown.indexOf(t) * w, top: 4, width: w, height: 44 }; };
   for (const t of tabs) t.getBoundingClientRect = () => layout(t);
@@ -321,8 +322,8 @@ test("the bar re-divides as one glide when Moderate arrives after the strip is o
   await p.tap(prof);
   anims.splice(0).forEach((a) => a.onfinish && a.onfinish()); // the slide to Profile, done
   const before = new Map(tabs.filter((t) => !t.hidden).map((t) => [t, layout(t).left]));
-  // /api/mod answers: this person moderates. The pill was behind Profile (x 587.33, 116.67 wide); where the follow starts from:
-  p.win.getComputedStyle = (e) => (e === ind ? { transform: "matrix(1, 0, 0, 1, 587.33, 4)", width: "116.67px", height: "44px" } : { transform: "none" });
+  // /api/mod answers: this person moderates. The pill was behind Profile (x 604, 100 wide); where the follow starts from:
+  p.win.getComputedStyle = (e) => (e === ind ? { transform: "matrix(1, 0, 0, 1, 604, 4)", width: "100px", height: "44px" } : { transform: "none" });
   p.win.VDash.mod({ ok: true, moderator: true, role: "founder", posts: [], proposals: [], appeals: [], objections: [], towns: [] });
   assert.equal(mod.hidden, false, "Moderate shows");
   // every tab that moved glides from its old place to its new one (transform only), at the follow's pace
@@ -339,9 +340,9 @@ test("the bar re-divides as one glide when Moderate arrives after the strip is o
   // the pill goes with its tab, the same glide (no stretch), to Profile's new box
   const pillMoves = anims.filter((a) => a.el === ind && !a.cancelled);
   assert.equal(pillMoves.length, 1);
-  assert.deepEqual(plain(pillMoves[0].frames), [{ transform: "translate(587.33px, 4px)", width: "116.67px", easing: EASE }, { transform: "translate(604px, 4px)", width: "100px" }]);
+  assert.deepEqual(plain(pillMoves[0].frames), [{ transform: "translate(604px, 4px)", width: "100px", easing: EASE }, { transform: "translate(616.5px, 4px)", width: "87.5px" }]);
   assert.deepEqual(plain(pillMoves[0].opts), { duration: followMs });
-  assert.deepEqual({ transform: ind.style.transform, width: ind.style.width }, { transform: "translate(604px, 4px)", width: "100px" });
+  assert.deepEqual({ transform: ind.style.transform, width: ind.style.width }, { transform: "translate(616.5px, 4px)", width: "87.5px" });
   // the observer answers while the tabs glide: Profile is drawn 8 px short of its place; the pill is measured where the layout has
   // Profile, so it does not turn towards the glide
   p.win.getComputedStyle = (e) => (e === prof ? { transform: "matrix(1, 0, 0, 1, -8, 0)" } : e === ind ? { transform: "matrix(1, 0, 0, 1, 600, 4)", width: "102px", height: "44px" } : { transform: "none" });
@@ -350,7 +351,7 @@ test("the bar re-divides as one glide when Moderate arrives after the strip is o
   ros[0].cb();
   assert.equal(anims.length, n, "no new slide: the pill is already on its way to Profile's place");
   assert.equal(pillMoves[0].cancelled, false, "the glide goes on");
-  assert.equal(ind.style.transform, "translate(604px, 4px)", "towards Profile's place in the layout, not where its glide draws it");
+  assert.equal(ind.style.transform, "translate(616.5px, 4px)", "towards Profile's place in the layout, not where its glide draws it");
   prof.getBoundingClientRect = () => layout(prof);
   anims.forEach((a) => a.onfinish && a.onfinish());
   // with reduced motion the bar re-divides at once: Moderate goes, nothing glides, the pill is simply on Profile
@@ -359,7 +360,7 @@ test("the bar re-divides as one glide when Moderate arrives after the strip is o
   p.win.VDash.mod({ ok: true, moderator: false });
   assert.equal(mod.hidden, true);
   assert.equal(anims.length, m, "nothing animates");
-  assert.equal(ind.style.transform, `translate(${r2(4 + 5 * (700 / 6))}px, 4px)`);
+  assert.equal(ind.style.transform, `translate(${r2(4 + 6 * (700 / 7))}px, 4px)`);
 });
 
 test("the pill never counts as overflow: the fit check parks it at no size first, then puts it back on the chosen tab", async () => {

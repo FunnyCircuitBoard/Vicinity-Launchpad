@@ -11,7 +11,7 @@
  *                            is mapped
  *   GET  /api/swap/status?sig=&lvbh=&cluster=  -> { ok, status: pending|confirmed|finalized|failed|expired, err, slot, solscan }
  *                            counted per SIGNATURE (60 a minute), so phones behind one carrier address never use up each other's polls
- *   GET  /api/swap/balances?owner=&mints=&fresh=1 -> { ok, sol: { lamports, ui }, tokens: { mint: { ui, hasAccount } } }
+ *   GET  /api/swap/balances?owner=&mints=&fresh=1 -> { ok, at (ISO: when the chain was read), sol: { lamports, ui }, tokens: { mint: { ui, hasAccount } } }
  *                            10 s memo per wallet; a send through the relay forgets the payer's memo; fresh=1 reads the chain now
  * cluster=devnet is honoured only while LAUNCHPAD_TRADING is on (devnet test coins) or the city-coin setup is on with
  * LAUNCHPAD_CLUSTER=devnet (lpSetup, src/cluster.js); otherwise everything is mainnet.
@@ -275,7 +275,8 @@ export async function handleBalances(request, env, fetchImpl = fetch) {
     balances.set(key, hit);
     if (balances.size > 2000) balances.delete(balances.keys().next().value);
   }
-  try { return json({ ok: true, owner, cluster, ...(await hit.promise) }, 200, { "Cache-Control": "no-store" }); }
+  // `at`: when this answer was read from the chain (a memo's answer carries the memo's time), so a page can say "read at HH:MM" truthfully
+  try { return json({ ok: true, owner, cluster, at: new Date(hit.at).toISOString(), ...(await hit.promise) }, 200, { "Cache-Control": "no-store" }); }
   catch (e) { console.error("balances failed", codeOf(e)); return json({ ok: false, error: "rpc_unavailable" }, 503); }
 }
 async function readBalances(env, owner, mints, cluster, fetchImpl) {

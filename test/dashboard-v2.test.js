@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { IN_UTICA, MINT, V2, browser, loginBody, newWorld, person, realClock, useClock, wallet } from "./helpers/world.js";
+import { ADDR, memberMe, openDashboard } from "./helpers/dashpage.js";
 import { dashboardV2On } from "../src/flags.js";
 import { POLICY } from "../src/policy.js";
 
@@ -48,6 +49,9 @@ const TABLE = {
     "locate-modal", "locate-title", "locate-link", "locate-copy", "locate-status", "locate-error", "locate-cancel", "dash-main", "ob-wallet", "ob-wallet-title", "proof-login",
     "out-cta", "out-cta-note", "proof-app", "proof-app-line", "proof-apps"],
   retired: ["layout-edit", "layout-reset", "col-main", "col-side"],
+  // the Wallet tab (wallet onboarding, step 1): Receive (the address, Copy, the QR code) and the balances the site supports, with Buy & swap
+  wallet: ["wt-receive", "wt-receive-title", "wt-addr", "wt-copy", "wt-copy-live", "wt-qr", "wt-qr-path",
+    "wt-balances", "wt-balances-title", "wt-loading", "wt-rows", "wt-empty", "wt-read", "wt-read-text", "wt-refresh", "wt-buy"],
   home: ["pf-notice", "pf-notice-open", "pf-notice-ok", "ban-notice", "lost-alert",
     "welcome", "welcome-disc", "welcome-title", "welcome-line", "welcome-ring", "welcome-ring-num", "welcome-ring-tick-location", "welcome-ring-tick-account", "welcome-ring-tick-wallet", "welcome-close",
     "dash-top", "pass", "pass-ring", "pass-ring-num", "me-role", "me-avatar", "me-home", "me-bio", "pass-coin", "me-copy", "me-link", "me-checked", "standing", "d-worth",
@@ -73,11 +77,11 @@ const TABLE = {
     "profile-email-meta", "profile-phone-meta", "roles-fold", "roles",
     "google-sec", "profile-google-meta", "google-desc", "google-view", "google-err", // the Google sign-in row (an extra way to log in, src/logins.js)
     "google-pw-form", "google-pw", "google-pw-alt", "google-pw-wallet"], // its "type your password" step (the rule of a password change)
-  strip: ["dv2", "dash-tabs", "dash-tablist", "tab-home", "tab-city", "tab-community", "tab-rankings", "tab-founder", "tab-moderate", "tab-moderate-n", "tab-profile",
-    "panel-home", "panel-city", "panel-community", "panel-rankings", "panel-founder", "panel-moderate", "panel-profile"],
+  strip: ["dv2", "dash-tabs", "dash-tablist", "tab-home", "tab-wallet", "tab-city", "tab-community", "tab-rankings", "tab-founder", "tab-moderate", "tab-moderate-n", "tab-profile",
+    "panel-home", "panel-wallet", "panel-city", "panel-community", "panel-rankings", "panel-founder", "panel-moderate", "panel-profile"],
 };
 const TABLE_IDS = Object.values(TABLE).flat();
-const TABS = ["home", "city", "community", "rankings", "founder", "moderate", "profile"];
+const TABS = ["home", "wallet", "city", "community", "rankings", "founder", "moderate", "profile"];
 
 /* ---------- the switch ---------- */
 test("dashboardV2On: exactly 'on', trimmed, any letter case", () => {
@@ -159,7 +163,7 @@ test("flag off: the built page keeps every pinned id, the strip and the skeleton
   assert.match(html, /<section class="section section--panel" id="roles">/);
 });
 
-test("the ARIA tab strip: one tablist, seven tabs that control seven panels, Moderate hidden until the data says so", () => {
+test("the ARIA tab strip: one tablist, eight tabs that control eight panels, Moderate hidden until the data says so", () => {
   assert.match(html, /<div class="dtabs__list" id="dash-tablist" role="tablist" aria-label="Dashboard sections">/);
   const tabs = [...html.matchAll(/<a class="dtab" id="tab-([a-z]+)" role="tab" href="#([a-z]+)" data-tab="([a-z]+)" aria-controls="panel-([a-z]+)" aria-selected="(true|false)"([^>]*)>/g)];
   assert.deepEqual(tabs.map((m) => m[1]), TABS);
@@ -173,6 +177,27 @@ test("the ARIA tab strip: one tablist, seven tabs that control seven panels, Mod
   assert.deepEqual(panels.map((m) => m[1]), TABS);
   for (const m of panels) { assert.equal(m[2], m[1]); assert.equal(Boolean(m[3]), m[1] !== "home", `${m[1]} panel hidden state`); }
   assert.match(html, /<span class="dtab__badge" id="tab-moderate-n" hidden><\/span>/);
+});
+
+test("the Wallet tab (wallet onboarding, step 1): second in the strip, after Home and before City, with its own panel and its two static cards; the deep link #wallet opens it", async () => {
+  assert.deepEqual(TABS.slice(0, 3), ["home", "wallet", "city"]);
+  assert.match(html, /<a class="dtab" id="tab-wallet" role="tab" href="#wallet" data-tab="wallet" aria-controls="panel-wallet" aria-selected="false" tabindex="-1" aria-label="Wallet"><span class="dtab__ico" aria-hidden="true"><svg /, "named, with an icon for a crowded strip");
+  assert.match(html, /<span class="dtab__text">Wallet<\/span><\/a>/);
+  assert.match(html, /<section class="dpanel" id="panel-wallet" role="tabpanel" aria-labelledby="tab-wallet" tabindex="0" hidden>/);
+  for (const id of ["panel-wallet", "tab-wallet", "wt-receive", "wt-balances"]) assert.equal(count(id), 1, id);
+  assert.deepEqual(children(html, startOf("panel-wallet")).map((c) => c.id), ["wt-receive", "wt-balances"], "the two cards, both hidden until a wallet is linked");
+  assert.match(html, /<section class="card wtab" id="wt-receive" aria-labelledby="wt-receive-title" hidden>/);
+  assert.match(html, /<section class="card wtab" id="wt-balances" aria-labelledby="wt-balances-title" hidden>/);
+  const VDash = loadV2();
+  assert.deepEqual([...VDash.ORDER.wallet], ["#wt-receive", "#wt-balances"]);
+  assert.ok(VDash.TABS.includes("wallet"), "a tab name: the hash #wallet is routed as a tab, never read as an element");
+  // the deep link on the real page: /dashboard#wallet opens the Wallet tab for a member with a wallet, and the strip says so
+  const p = await openDashboard({ hash: "wallet", me: memberMe({ wallet: ADDR }) });
+  assert.equal(p.win.VDash.active, "wallet");
+  assert.equal(p.$("#panel-wallet").hidden, false); assert.equal(p.$("#panel-home").hidden, true);
+  assert.equal(p.$("#tab-wallet").getAttribute("aria-selected"), "true");
+  assert.equal(p.win.document.title, "Wallet · Dashboard · Vicinity");
+  assert.equal(p.text("#wt-addr"), ADDR, "the address is on the page at once");
 });
 
 /* ---------- dashboard-v2.js against the page ---------- */

@@ -75,7 +75,7 @@ test("D2: short visible words where the strip needs them; each accessible name c
   // the stylesheet: the short words on phones, the long ones where there is room
   assert.match(css, /@media \(max-width: 600px\) \{\n  \.dv2 #tab-moderate \.dtab__long \{ display: none; \}\n  \.dv2 #tab-moderate \.dtab__short \{ display: inline; \}/);
   assert.match(css, /@media \(max-width: 360px\) \{\n  \.dv2 \.dtab \{ padding: 0 5px; font-size: \.78rem; \}\n  \.dv2 #tab-rankings \.dtab__long \{ display: none; \}\n  \.dv2 #tab-rankings \.dtab__short \{ display: inline; \}/);
-  // a crowded strip (seven tabs on a 320 px phone, review VUX-09): no tab steps out any more; Founder and Moderate show as icons, named
+  // a crowded strip (eight tabs on a 320 px phone, review VUX-09): no tab steps out any more; Founder, Moderate (and Wallet, test/wallet-tab.test.js) show as icons, named
   assert.doesNotMatch(css, /is-tight/, "no tab is hidden to make room");
   assert.match(css, /\.dv2 \.dtabs\.is-compact :is\(#tab-founder, #tab-moderate\) \.dtab__text \{ display: none; \}/);
   assert.match(tag("tab-founder"), /aria-label="Founder"><span class="dtab__ico" aria-hidden="true"><svg /, "the icon-only Founder tab keeps its name");
@@ -85,7 +85,7 @@ test("D2: short visible words where the strip needs them; each accessible name c
   assert.doesNotMatch(v2, /\(lr\.width - tr\.width\) \/ 2/, "never centred: Home is never pushed out");
   assert.match(v2, /\.filter\(\(t\) => !t\.hidden && t\.getClientRects\(\)\.length\)/);
   // a short visible word stays the start of the strip's titles too
-  assert.match(v2, /const LABEL = \{ home: "Home", city: "City", community: "Community", rankings: "Rankings", founder: "Founder", moderate: "Moderate", profile: "Profile" \};/);
+  assert.match(v2, /const LABEL = \{ home: "Home", wallet: "Wallet", city: "City", community: "Community", rankings: "Rankings", founder: "Founder", moderate: "Moderate", profile: "Profile" \};/);
 });
 
 test("D2 at runtime: the avatar shows the person's initial, the Moderate tab's name carries its count, and the page is marked is-dv2", async () => {
