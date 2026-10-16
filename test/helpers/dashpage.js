@@ -50,7 +50,8 @@ export function memberMe({ wallet = null, handle = "SwiftHarbor10", name = "Sa N
 }
 
 /**
- * openDashboard({ ua, search, me, api, storage, session, wallets, hidden }) → the page and the controls a test needs.
+ * openDashboard({ ua, search, hash, me, api, storage, session, wallets, hidden }) → the page and the controls a test needs.
+ *   hash             the address bar's hash when the page opens (a deep link: "wallet" for /dashboard#wallet)
  *   me               what /api/me (and /api/me?lite=1) answers: a value, or a function called on every request (so a test can change it)
  *   api(path, body)  the server's answer to any other request (defaults below: empty feed, no moderator, no towns, no coin)
  *   storage/session  what this browser's localStorage / sessionStorage already hold
@@ -58,7 +59,7 @@ export function memberMe({ wallet = null, handle = "SwiftHarbor10", name = "Sa N
  *   confirm          the answer to window.confirm (default true)
  *   globals          browser features this window lacks by default, set before the scripts run (e.g. { ResizeObserver })
  */
-export async function openDashboard({ ua = UA.desktop, search = "", me = memberMe(), api = async () => undefined, storage = {}, session: sessionStore = {}, wallets = [], confirm = true, touchPoints, official = { ok: true }, globals = {} } = {}) {
+export async function openDashboard({ ua = UA.desktop, search = "", hash = "", me = memberMe(), api = async () => undefined, storage = {}, session: sessionStore = {}, wallets = [], confirm = true, touchPoints, official = { ok: true }, globals = {} } = {}) {
   const doc = new Doc();
   doc.append(...parse(doc, read("dashboard.html")));
   let now = 0, seq = 0, hidden = false;
@@ -76,7 +77,7 @@ export async function openDashboard({ ua = UA.desktop, search = "", me = memberM
   const session = new Map(Object.entries(sessionStore));
   const store = (m) => ({ getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) });
   const loc = {
-    origin: "https://vicinity.test", protocol: "https:", host: "vicinity.test", pathname: "/dashboard", search: search ? `?${search}` : "", hash: "",
+    origin: "https://vicinity.test", protocol: "https:", host: "vicinity.test", pathname: "/dashboard", search: search ? `?${search}` : "", hash: hash ? `#${hash}` : "",
     get href() { return this.origin + this.pathname + this.search + this.hash; },
     assign: (u) => assigned.push(u), reload: () => assigned.push("reload"),
     replace: (u) => { assigned.push(u); replaced.push(u); }, // a navigation that leaves no history entry (Back skips it): in `assigned` too, and in `replaced`
@@ -125,10 +126,12 @@ export async function openDashboard({ ua = UA.desktop, search = "", me = memberM
   win.dispatchEvent = (ev) => { for (const l of win.listeners.filter((x) => x.type === ev.type)) l.fn.call(win, ev); return true; };
   doc.defaultView = win;
   const ctx = vm.createContext(win);
-  // dashboard.js loads /dashboard-v2.js and /profile.js with a <script> it appends to <head>: v2 runs here, profiles do not (the switch is off in these tests)
+  // dashboard.js loads /dashboard-v2.js, /profile.js and /vendor/qrcode.js (the Wallet tab's QR code; copied in by scripts/copy-assets.mjs) with a
+  // <script> it appends to <head>: v2 and the QR code library run here, profiles do not (the switch is off in these tests)
   const head = doc.querySelector("head");
   head.append = (s) => {
     if (s.src === "/dashboard-v2.js") { vm.runInContext(read("dashboard-v2.js"), ctx, { filename: "public/dashboard-v2.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
+    else if (s.src === "/vendor/qrcode.js") { vm.runInContext(read("vendor/qrcode.js"), ctx, { filename: "public/vendor/qrcode.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
     else Promise.resolve().then(() => s.onerror && s.onerror(new Error("not here")));
   };
   Object.defineProperty(doc, "head", { value: head });

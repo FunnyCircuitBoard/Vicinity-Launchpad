@@ -3,13 +3,16 @@
 // dashboardV2: true, then drives it through window.VDash: init(ctx) before the page shows, render(d) after every
 // /api/me, coin() after every coin answer, mod() after /api/mod, coinQueue(n) after the admin queue, start() once.
 // It never asks the server for anything and never builds markup from text: every element it fills is static in
-// dashboard.html, and it creates no element with an id.
+// dashboard.html, and it creates no element with an id. The Wallet tab's balances come through dashboard.js too: wallet(r) after it read
+// the two answers the site already has (the tab asks for them with ctx.readWallet(), and for the QR code library with ctx.qr()).
 //
 // Where every element of dashboard.html lives (one place each; test/dashboard-v2.test.js checks the built page against ORDER):
 //   GLOBAL (never moved)  #dash-skel, #dash-out, #dash-onboard, #proof-modal, #locate-modal, #toast, #termsgate
 //   RETIRED (hidden)      #dash-main .dash-tools (#layout-edit, #layout-reset), #dash-main .dash-grid (#col-main, #col-side, emptied)
 //   home      -> #panel-home       #pf-notice, #ban-notice, #lost-alert, #welcome, #dash-top, #today, #trade, #wallet-card, #role-home, #portfolio, #badges
-//                                  (#wallet-card stands right after #welcome while it asks for something, after #trade as a phone's buy card: placeCard)
+//                                  (#wallet-card stands right after #welcome while it asks for something, after #trade as a phone's buy card: placeCard;
+//                                  in #panel-wallet while the Wallet tab is open with no wallet linked)
+//   wallet    -> #panel-wallet     #wt-receive (the address, Copy, the QR code), #wt-balances (SOL, $VICINITY, the city coins held; Buy & swap)
 //   city      -> #panel-city       #city-subnav, #community, #coin, #city-about, #request
 //   community -> #panel-community  #feed, #national
 //   rankings  -> #panel-rankings   #rankings-card
@@ -20,14 +23,15 @@
 //   strip                          #dash-tabs (#dash-tablist, the #tab-* links, the glass pill .dtabs__ind and the #panel-* sections above)
 (() => {
   "use strict";
-  const { $, $$, el, fmt, mask, initials } = window.V;
+  const { $, $$, el, fmt, mask, initials, copy } = window.V;
   const byId = (id) => document.getElementById(id);
 
-  const TABS = Object.freeze(["home", "city", "community", "rankings", "founder", "moderate", "profile"]);
-  const LABEL = { home: "Home", city: "City", community: "Community", rankings: "Rankings", founder: "Founder", moderate: "Moderate", profile: "Profile" };
+  const TABS = Object.freeze(["home", "wallet", "city", "community", "rankings", "founder", "moderate", "profile"]);
+  const LABEL = { home: "Home", wallet: "Wallet", city: "City", community: "Community", rankings: "Rankings", founder: "Founder", moderate: "Moderate", profile: "Profile" };
   // the cards, in the order they stand in each panel (the static v2 blocks are listed too, so the order is one list)
   const ORDER = Object.freeze({
     home: ["#pf-notice", "#ban-notice", "#lost-alert", "#welcome", "#dash-top", "#today", "#trade", "#wallet-card", "#role-home", "#portfolio", "#badges"],
+    wallet: ["#wt-receive", "#wt-balances"],
     city: ["#city-subnav", "#community", "#coin", "#city-about", "#request"],
     community: ["#feed", "#national"],
     rankings: ["#rankings-card"],
@@ -92,6 +96,8 @@
     $("#dash-tablist").addEventListener("keydown", onKey);
     $("#dash-tablist").addEventListener("scroll", () => $("#dash-tabs").classList.toggle("is-scrolled", $("#dash-tablist").scrollLeft > 4), { passive: true });
     $("#fcard-go").addEventListener("click", () => { if (fcardAction) fcardAction(); });
+    $("#wt-copy").addEventListener("click", copyAddress);
+    $("#wt-refresh").addEventListener("click", () => { if (ctx && ctx.readWallet) ctx.readWallet(); });
     $("#trade").addEventListener("click", postProcess); // dashboard.js redraws the trade card on its own clicks
     window.addEventListener("hashchange", onHash);
     // the fit check runs when the width changes; a phone's address bar showing or hiding changes only the height (the strip is the
@@ -124,6 +130,7 @@
     if (!TABS.includes(tab)) tab = "home";
     if (tab === "moderate" && !modOn()) { pending = "moderate"; tab = "home"; push = false; replace = true; } // opens once /api/mod says so
     else if (push) pending = null; // the person chose another tab meanwhile: a late /api/mod answer must not pull them away from it
+    if (tab === "wallet" && !walletOn()) { tab = "home"; push = false; replace = true; } // the tab is hidden (gate): nothing to show there
     const was = active;
     active = tab;
     // the panel comes in from the side of the tab that was left (polish-dash.css; set before the panel shows, and only on a change,
@@ -138,6 +145,8 @@
     if (scroll) { const y = dv2Top(); if (window.scrollY > y) window.scrollTo({ top: y, behavior: behavior() }); }
     centerTab(tab);
     if (tab === "profile" && ctx) ctx.openProfile();
+    if (ctx && was !== tab && (was === "wallet" || tab === "wallet")) placeCard(); // the wallet card stands in the Wallet tab while it is open with no wallet linked
+    if (tab === "wallet") enterWallet();
     measure(started && was !== tab ? "slide" : ""); // a new tab the person chose: the pill slides there (the first one is simply set)
   }
   /** Only when the strip scrolls (200% text): bring the tab into view by the least distance ("nearest"), so Home is never pushed out. */
@@ -354,12 +363,19 @@
   }
 
   /* ---------- the Moderate tab: only when /api/mod (or the admin role) says so ---------- */
+  /**
+   * The Wallet tab shows for a linked wallet, and with none for the new sign-up's wallet card (its connect and link paths). With the old sign-up
+   * (SIGNUP_FLOW not v2) and no wallet, dashboard.js hides that card (its /connect cannot link one), so the tab would be empty: it is hidden too.
+   */
+  function walletOn() { const m = me(); return !m || Boolean(m.user && m.user.wallet) || m.signupFlow === "v2"; }
   function gate() {
-    const on = modOn();
+    const on = modOn(), wOn = walletOn();
     $("#tab-moderate").hidden = !on;
     if (!on) $("#panel-moderate").hidden = true;
+    $("#tab-wallet").hidden = !wOn;
+    if (!wOn) $("#panel-wallet").hidden = true;
     if (on && pending === "moderate") { pending = null; go("moderate", { push: false, replace: true }); }
-    else if (!on && active === "moderate") go("home", { push: false, replace: true });
+    else if ((!on && active === "moderate") || (!wOn && active === "wallet")) go("home", { push: false, replace: true });
     measure();
   }
   function queueCounts() {
@@ -453,7 +469,11 @@
     // asking for something (link a wallet, "wallet linked", "was this you?"): right under the welcome, the first card; a phone's buy card: where the Buy card was
     const top = card.dataset.place !== "buy";
     (top ? welcome : trade).after(card);
-    const merged = top && !welcome.hidden && !card.hidden; // the welcome and the wallet card read as one card
+    // the Wallet tab with no wallet linked shows this very card (one card, one set of ids, the same connect and link paths): it stands in
+    // that panel while the tab is open and comes back to Home with the next placing (go)
+    const inWallet = active === "wallet" && !(m && m.user && m.user.wallet);
+    if (inWallet) $("#panel-wallet").prepend(card);
+    const merged = !inWallet && top && !welcome.hidden && !card.hidden; // the welcome and the wallet card read as one card
     welcome.classList.toggle("is-merged", merged); card.classList.toggle("is-merged", merged);
     trade.hidden = Boolean(ctx && ctx.buyInApp && ctx.buyInApp());
     const locked = Boolean(m && m.user && !m.user.wallet && m.signupFlow === "v2"); // no wallet yet: buying needs one first, one line
@@ -608,17 +628,166 @@
     if (go.textContent.endsWith(" ↓")) go.textContent = go.textContent.slice(0, -2) + " →";
   }
 
+  /* ---------- the Wallet tab: Receive (the address, a QR code of it) and the balances the site supports ---------- */
+  // dashboard.js reads GET /api/me/portfolio ($VICINITY and the city coins held, with prices and where each ticker came from) and
+  // GET /api/swap/balances (SOL and the token amounts, the Worker's 10-second memo) when the tab is entered or Refresh is tapped, at most
+  // once per 10 s (the minute /api/me refresh does not read them again), then calls wallet(r): r = { owner, loading: true } on the way, else
+  // { owner, balances, portfolio, portfolioOk, portfolioOff, solUsd, at } with balances or portfolio null when that answer failed (portfolioOk:
+  // the city coins were read; portfolioOff: that route is off, PROFILES off) and at null when the Worker did not say when it read the chain.
+  // Nothing is sent from here; sending is not part of this step.
+  let walletData = null; // the last answer for the linked wallet (or null: not read yet)
+  let qrFor = null; // the address the QR code on screen was drawn for
+  let copyTimer = 0, restTimer = 0, resting = false; // Refresh rests REST_MS after a read: sooner would get the same memo
+  const REST_MS = 10000;
+  /** A coin amount by size: thousands with 2 decimals, units up to 4, fractions 6 significant digits; "—" when unknown. Pure. */
+  function amountText(v) {
+    const n = Number(v);
+    if (v == null || !Number.isFinite(n)) return "—";
+    const a = Math.abs(n);
+    return a === 0 ? "0" : a >= 1000 ? n.toLocaleString("en-US", { maximumFractionDigits: 2 }) : a >= 1 ? n.toLocaleString("en-US", { maximumFractionDigits: 4 }) : n.toLocaleString("en-US", { maximumSignificantDigits: 6 });
+  }
+  /** A US-dollar value: "$1,234.56" and "$0.50" (two decimals from one cent up); under a cent three significant digits ("$0.00123"); "—" when not known. Pure. */
+  function usdText(v) {
+    const n = Number(v);
+    if (v == null || !Number.isFinite(n)) return "—";
+    return n >= 0.01 || n === 0 ? "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "$" + n.toLocaleString("en-US", { maximumSignificantDigits: 3 });
+  }
+  const clock = (iso) => { const t = new Date(iso); return iso && Number.isFinite(t.getTime()) ? t.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : null; }; // null: no time to show
+  /**
+   * The rows of the balances list from the two answers. Pure. SOL first, then $VICINITY (its mint from /api/coins, else the portfolio's own
+   * $VICINITY item: a wallet holding it is never shown empty because that call failed), then every city coin the
+   * wallet holds (the portfolio's items of kind city) and the home city's launched coin when it holds none of it. amount: the balances
+   * answer's for a mint it was asked about, else the portfolio's, else null; usd: the portfolio's price times that amount (SOL: solUsd), null
+   * when not known. A city coin's label is its ticker from the chain or the city list ($UTICA, and where it came from); a coin with neither
+   * goes by its name. Nothing here makes a ticker up.
+   *   { key, label, sub, amount: number | null, usd: number | null }
+   */
+  function walletRows({ balances, portfolio, solUsd }, { vicMint, coin, community }) {
+    const tokens = (balances && balances.tokens) || {};
+    const asked = (m) => Boolean(m) && Object.prototype.hasOwnProperty.call(tokens, m) && tokens[m] && tokens[m].ui != null;
+    const items = portfolio && Array.isArray(portfolio.items) ? portfolio.items : [];
+    const item = (m) => items.find((i) => i && i.mint === m) || null;
+    const amountOf = (m) => (asked(m) ? Number(tokens[m].ui) || 0 : item(m) ? Number(item(m).amount) || 0 : null);
+    const usdOf = (m, a) => { const it = item(m); return it && it.priceUsd != null && a != null ? a * Number(it.priceUsd) : null; };
+    const sol = balances && balances.sol && balances.sol.ui != null ? Number(balances.sol.ui) || 0 : null;
+    const rows = [{ key: "SOL", label: "SOL", sub: "Solana", amount: sol, usd: sol != null && solUsd != null ? sol * Number(solUsd) : null }];
+    const vic = vicMint || ((items.find((i) => i && i.kind === "vicinity") || {}).mint || null); // /api/coins' live mint, else the portfolio's
+    if (vic) { const a = amountOf(vic); rows.push({ key: vic, label: "$VICINITY", sub: "Vicinity", amount: a, usd: usdOf(vic, a) }); }
+    const cityRow = (mint, ticker, source, name, cityName) => {
+      const a = amountOf(mint), where = source === "chain" ? " · ticker on chain" : source === "registry" ? " · ticker fixed by the map" : "";
+      rows.push({ key: mint, label: ticker ? `$${String(ticker).replace(/^\$/, "")}` : name, sub: `${cityName} city coin${where}`, amount: a, usd: usdOf(mint, a) });
+    };
+    for (const it of items) if (it && it.kind === "city" && it.mint && it.mint !== vic) cityRow(it.mint, it.tickerSource ? it.symbol : null, it.tickerSource || null, it.name || it.symbol || "city coin", it.city && it.city.name ? it.city.name : it.name || "Your city");
+    // the home city's launched coin, when the portfolio does not list it (it lists only what is held): its ticker is /api/me's
+    const home = coin && coin.launched && coin.mint && coin.mint !== vic && !item(coin.mint) && community ? coin : null;
+    if (home) cityRow(home.mint, community.ticker || null, community.ticker ? community.tickerSource || null : null, home.name || community.name, community.name);
+    return rows;
+  }
+  /** The QR code of `text` as one SVG path (every dark module one square), or null without the library. */
+  function qrPath(text) {
+    if (typeof window.qrcode !== "function") return null;
+    try {
+      const q = window.qrcode(0, "M"); q.addData(text); q.make();
+      const n = q.getModuleCount(); let d = "";
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`;
+      return { d, size: n };
+    } catch { return null; }
+  }
+  /** Draws the address's QR code into the static svg (dark modules, a quiet zone of two around them); without the library the figure stays hidden. */
+  function drawQR(text) {
+    const fig = $("#wt-qr"), q = qrPath(text);
+    if (!q) { fig.hidden = true; qrFor = null; return; }
+    $("#wt-qr svg").setAttribute("viewBox", `-2 -2 ${q.size + 4} ${q.size + 4}`);
+    $("#wt-qr-path").setAttribute("d", q.d);
+    fig.hidden = false; qrFor = text;
+  }
+  /**
+   * The Wallet tab is open with a wallet linked: the QR code is drawn when the one on screen is not this address's (the library comes through
+   * dashboard.js), and the balances are read: on entering the tab always (dashboard.js keeps that to one read per 10 s); after an /api/me
+   * (again: false) only while nothing was read for this wallet yet, so the minute refresh never polls the chain. Refresh reads on its own.
+   */
+  function enterWallet({ again = true } = {}) {
+    const m = me(), w = m && m.user && m.user.wallet;
+    if (!w || !ctx) return;
+    if (qrFor !== w && ctx.qr) ctx.qr().then((ok) => { const cur = me(); if (ok && cur && cur.user && cur.user.wallet === w) drawQR(w); });
+    if ((again || !walletData) && ctx.readWallet) ctx.readWallet();
+  }
+  /** Copy: the address onto the clipboard; the button says "Copied" and the live region reads it out once (no toast: a second announcement). */
+  async function copyAddress() {
+    const m = me(), w = m && m.user && m.user.wallet;
+    if (!w) return;
+    let ok = false;
+    try { await navigator.clipboard.writeText(w); ok = true; } catch { ok = false; }
+    if (!ok) { if (typeof copy === "function") copy(w, "Address copied"); return; } // site.js: the address in a toast, to select by hand
+    const b = $("#wt-copy"), live = $("#wt-copy-live");
+    b.textContent = "Copied"; live.textContent = "Address copied";
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => { b.textContent = "Copy"; live.textContent = ""; }, 2000);
+  }
+  function rowEl(r) {
+    const li = el("li", "wtab-row");
+    const name = el("span", "wtab-row__name"); name.append(el("strong", null, r.label), el("span", "wtab-row__sub", r.sub));
+    const amt = el("span", "wtab-row__amt"); amt.append(el("strong", null, amountText(r.amount)), el("span", "wtab-row__usd", usdText(r.usd)));
+    li.append(name, amt);
+    return li;
+  }
+  /**
+   * The line under the list: when the chain was read (the Worker's own time; no time when it gave none, never this browser's clock) and, when
+   * the portfolio did not answer, that the city coins are missing (the route off: "not shown"; it failed: "could not be read").
+   */
+  function readLine(r) {
+    const t = clock(r.at), when = t ? ` at ${t}` : "";
+    const city = r.portfolioOk ? "" : r.portfolioOff ? " City coins are not shown right now." : " City coins could not be read right now.";
+    return `Balances read from the Solana chain${when}.${city}`;
+  }
+  /** The balances card from the last answer: loading, the rows, "Nothing here yet", or that they could not be read; the time line and Refresh. */
+  function balancesDraw() {
+    const m = me(), w = m && m.user && m.user.wallet, r = walletData;
+    if (!w) return;
+    const state = !r || r.loading ? "loading" : !r.balances ? "unavailable" : "ready";
+    const c = ctx && ctx.coin ? ctx.coin() : {};
+    const rows = state === "ready" ? walletRows(r, { vicMint: c.vicMint || null, coin: c.coin || null, community: m.community || null }) : [];
+    // "Nothing here yet" only when the city coins were read too; else the rows stand (at 0) and the line says what is missing
+    const empty = state === "ready" && Boolean(r.portfolioOk) && rows.every((x) => !(x.amount > 0));
+    $("#wt-loading").hidden = state !== "loading";
+    $("#wt-empty").hidden = !empty;
+    const list = $("#wt-rows"); list.hidden = state !== "ready" || empty;
+    list.replaceChildren(...(list.hidden ? [] : rows.map(rowEl)));
+    $("#wt-read").hidden = state === "loading";
+    $("#wt-read-text").textContent = state === "ready" ? readLine(r) : state === "unavailable" ? "Balances could not be read right now." : "";
+    $("#wt-refresh").disabled = state === "loading" || resting;
+  }
+  /** After every /api/me: the two cards show for a linked wallet (the address at once; the QR code and the balances when the tab is open). */
+  function walletTab(d) {
+    const u = d.user, w = u.wallet || null;
+    $("#wt-receive").hidden = !w; $("#wt-balances").hidden = !w;
+    if (!w) { walletData = null; qrFor = null; $("#wt-qr").hidden = true; return; }
+    $("#wt-addr").textContent = w;
+    if (walletData && walletData.owner !== w) walletData = null; // another wallet is linked now: its balances are read afresh
+    if (qrFor && qrFor !== w) { qrFor = null; $("#wt-qr").hidden = true; }
+    if (active === "wallet") enterWallet({ again: false }); // a wallet just linked or changed: its first read; otherwise no read (the tab entry and Refresh read)
+    balancesDraw();
+  }
+  /** dashboard.js, with the answers (or that they are on their way). */
+  function wallet(r) {
+    const m = me();
+    if (!r || !m || !m.user || r.owner !== m.user.wallet) return; // an answer for a wallet that is not the linked one any more
+    walletData = r;
+    if (!r.loading) { resting = true; clearTimeout(restTimer); restTimer = setTimeout(() => { resting = false; const b = $("#wt-refresh"); if (b) b.disabled = false; }, REST_MS); }
+    balancesDraw();
+  }
+
   /* ---------- what dashboard.js calls ---------- */
   function render(d) {
     $("#tab-home").classList.toggle("is-alert", !$("#ban-notice").hidden || !$("#lost-alert").hidden);
     $("#tab-profile .dtab__av").textContent = initials(d.user.handle || d.user.name || "V");
     reflow(gate); // the roles can change on a refresh: Moderate comes or goes as one glide
-    placeCard(); standing(d); today(d); rankings(d); cityHeader(d); founderStatus(d); founderCard(d); studioSync(); postProcess();
+    placeCard(); standing(d); today(d); rankings(d); cityHeader(d); founderStatus(d); founderCard(d); studioSync(); postProcess(); walletTab(d);
   }
   function setCoin(c) {
     coin = c && c.coin ? c.coin : null; coinKnown = true;
     const d = me(); if (!d) return;
-    today(d); cityHeader(d); founderCard(d); studioSync(); postProcess();
+    today(d); cityHeader(d); founderCard(d); studioSync(); postProcess(); balancesDraw();
   }
   function mod(d) {
     lastMod = d || null;
@@ -638,6 +807,6 @@
     const d = me(); if (d) { today(d); founderCard(d); }
   }
 
-  window.VDash = { init, render, coin: setCoin, lp: setLp, mod, coinQueue, start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS),
+  window.VDash = { init, render, coin: setCoin, lp: setLp, mod, coinQueue, wallet, walletRows, start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS),
     pill: Object.freeze({ box: pillBox, frames: pillFrames, fromStyle: pillFromStyle, ms: PILL_MS, followMs: FOLLOW_MS, easing: PILL_EASE, easeIn: PILL_IN, easeOut: PILL_OUT }) };
 })();

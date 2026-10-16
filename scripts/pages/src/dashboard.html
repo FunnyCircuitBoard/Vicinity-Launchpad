@@ -421,6 +421,7 @@
           <nav class="dtabs" id="dash-tabs" aria-label="Dashboard sections">
             <div class="dtabs__list" id="dash-tablist" role="tablist" aria-label="Dashboard sections">
               <a class="dtab" id="tab-home" role="tab" href="#home" data-tab="home" aria-controls="panel-home" aria-selected="true"><span class="dtab__text">Home</span></a>
+              <a class="dtab" id="tab-wallet" role="tab" href="#wallet" data-tab="wallet" aria-controls="panel-wallet" aria-selected="false" tabindex="-1" aria-label="Wallet"><span class="dtab__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10.5h18M15.5 15h2.5"/></svg></span><span class="dtab__text">Wallet</span></a>
               <a class="dtab" id="tab-city" role="tab" href="#city" data-tab="city" aria-controls="panel-city" aria-selected="false" tabindex="-1"><span class="dtab__text">City</span></a>
               <a class="dtab" id="tab-community" role="tab" href="#community" data-tab="community" aria-controls="panel-community" aria-selected="false" tabindex="-1" aria-label="Community feed"><span class="dtab__text">Feed</span></a>
               <a class="dtab" id="tab-rankings" role="tab" href="#rankings" data-tab="rankings" aria-controls="panel-rankings" aria-selected="false" tabindex="-1" aria-label="Rankings"><span class="dtab__text dtab__long">Rankings</span><span class="dtab__text dtab__short" aria-hidden="true">Rank</span></a>
@@ -436,6 +437,35 @@
               <p class="kicker today__kicker" id="today-title">Next for you</p>
               <div class="today__list" id="today-list"></div>
             </div>
+          </section>
+
+          <!-- the Wallet tab (wallet onboarding, step 1): Receive (the address, a QR code of it) and the balances the site supports. With no
+               wallet linked the tab shows the wallet card itself (dashboard-v2.js placeCard moves #wallet-card here while the tab is open,
+               back to Home after). Sending is not part of this step. -->
+          <section class="dpanel" id="panel-wallet" role="tabpanel" aria-labelledby="tab-wallet" tabindex="0" hidden>
+            <section class="card wtab" id="wt-receive" aria-labelledby="wt-receive-title" hidden>
+              <div class="dv2-head"><div><p class="kicker">Receive</p><h2 class="h2--sm" id="wt-receive-title">Your wallet address</h2></div></div>
+              <div class="wtab-receive">
+                <div class="wtab-receive__addr">
+                  <code class="wtab-addr mono" id="wt-addr">—</code>
+                  <button class="btn btn--glass btn--sm wtab-copy" type="button" id="wt-copy">Copy</button>
+                  <span class="sr-only" id="wt-copy-live" role="status" aria-live="polite"></span>
+                </div>
+                <figure class="wtab-qr" id="wt-qr" hidden>
+                  <svg viewBox="0 0 29 29" width="180" height="180" role="img" aria-label="QR code of your wallet address" shape-rendering="crispEdges" focusable="false"><path id="wt-qr-path" fill="currentColor" d=""/></svg>
+                </figure>
+              </div>
+              <p class="small">Solana mainnet only. Send SOL, $VICINITY or Vicinity city coins to this address from another wallet or an exchange.</p>
+              <p class="small muted">Anything else sent here is still yours, but this page does not show it.</p>
+            </section>
+            <section class="card wtab" id="wt-balances" aria-labelledby="wt-balances-title" hidden>
+              <div class="dv2-head"><div><p class="kicker">Balances</p><h2 class="h2--sm" id="wt-balances-title">What this wallet holds</h2></div></div>
+              <p class="small muted" id="wt-loading">Reading your balances…</p>
+              <ul class="wtab-rows" id="wt-rows" hidden></ul>
+              <div class="empty wtab-empty" id="wt-empty" hidden><strong>Nothing here yet</strong><span>Send SOL, $VICINITY or a Vicinity city coin to the address above and it shows here.</span></div>
+              <p class="tiny muted wtab-read" id="wt-read" hidden><span id="wt-read-text"></span> <button class="link-btn wtab-refresh" type="button" id="wt-refresh">Refresh</button></p>
+              <div class="dv2-actions"><a class="btn btn--primary btn--sm" id="wt-buy" href="#home" data-go="#trade">Buy &amp; swap</a></div>
+            </section>
           </section>
 
           <section class="dpanel" id="panel-city" role="tabpanel" aria-labelledby="tab-city" tabindex="0" hidden>

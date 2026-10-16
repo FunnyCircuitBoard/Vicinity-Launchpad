@@ -12,7 +12,7 @@
 // (the chain's symbol once launched, else the city list's): this file never makes one up from the city's name.
 (() => {
   "use strict";
-  const { $, $$, el, api, toast, copy, fmt, compact, mask, short, ago, initials, getLocation, burst, reveal } = window.V;
+  const { $, $$, el, api, toast, copy, fmt, compact, mask, short, ago, initials, getLocation, burst, reveal, isAddr } = window.V;
   const W = window.VW;
   // the wallet app this person uses on this phone, and the one whose browser this is (site.js): null on a computer and in Safari
   const WA = window.V.walletApp || { here: () => null, remembered: () => null, remember() {} };
@@ -535,7 +535,7 @@
     renderCommunity(d);
     renderCountry(d);
     renderBadges(d);
-    loadCoin();
+    coinP = loadCoin();
     $$(".role-row").forEach((r) => r.classList.toggle("is-you", r.dataset.role === d.level));
     $("#f-city").textContent = home ? home.name : "Local";
     $("#f-country").textContent = n ? countryName(n.country) : "National";
@@ -1118,6 +1118,7 @@
     chain_unavailable: "The blockchain could not be asked just now. Nothing was recorded; try again in a minute.",
   };
   let coinData = null, coinPairs = null, vicMint = null, logoData = null, dropLogo = false, studioDirty = false;
+  let coinP = null; // the /api/coins answer on its way (render starts it; the Wallet tab waits for it, its mints come from there)
   const v2Coin = () => { if (v2) v2.coin({ coin: coinData, vicMint }); };
   // the city coin's label ("$UTICA", or the city's name while it has no ticker) and the short text on its disc
   const cityTk = () => coinLabel(me && me.community);
@@ -1309,6 +1310,46 @@
         }), "btn btn--glass btn--sm"));
       li.append(acts);
       return li;
+    }));
+  }
+
+  /* ---------- the Wallet tab (v2 only): the two answers this site already has for a wallet, read when the tab is entered or Refresh is tapped ---------- */
+  // GET /api/me/portfolio ($VICINITY and the city coins held, with prices and where each ticker came from; PROFILES=on) and
+  // GET /api/swap/balances (SOL and up to six token amounts; the Worker keeps a 10-second memo per wallet), plus SOL's price from
+  // /api/prices (the Buy card's own price source; never a stale one, the portfolio's rule for the coins). At most one read per 10 s per
+  // wallet, whoever asks, so the memo is honoured here too; dashboard-v2.js draws the answer (wallet). Nothing is sent from here.
+  let walletRead = { owner: null, at: 0, busy: false };
+  const WALLET_READ_MS = 10_000;
+  async function readWallet() {
+    const owner = me && me.user && me.user.wallet;
+    if (!v2 || !owner) return;
+    if (walletRead.busy || (walletRead.owner === owner && Date.now() - walletRead.at < WALLET_READ_MS)) return;
+    walletRead = { owner, at: Date.now(), busy: true };
+    v2.wallet({ owner, loading: true });
+    try {
+      try { await coinP; } catch { /* the coin answer failed: the balances are read without its mints */ } // the live $VICINITY mint and the home city's coin
+      const pf = await api("/api/me/portfolio");
+      const portfolio = pf && pf.ok && pf.portfolio && Array.isArray(pf.portfolio.items) ? pf.portfolio : null;
+      const mints = [...new Set([vicMint, coinData && coinData.mint, ...(portfolio ? portfolio.items.map((i) => i && i.mint) : [])].filter((m) => typeof m === "string" && isAddr(m)))].slice(0, 6);
+      const [bal, pr] = await Promise.all([api(`/api/swap/balances?owner=${encodeURIComponent(owner)}&mints=${mints.join(",")}`), api(`/api/prices?mints=${SOL_MINT}`)]);
+      if (!me || !me.user || me.user.wallet !== owner) return; // the wallet changed meanwhile: the next look reads the new one
+      const balances = bal && bal.ok && bal.sol ? bal : null;
+      // stale: true is Jupiter's last good price up to five minutes old (src/coins.js); src/portfolio.js shows none then, so neither does this column
+      const solUsd = pr && pr.ok !== false && !pr.stale && pr.prices && Number(pr.prices[SOL_MINT]) > 0 ? Number(pr.prices[SOL_MINT]) : null;
+      // portfolioOk: the city coins were read; portfolioOff: the route is off (PROFILES off answers 404); at: the Worker's read time, or none
+      v2.wallet({ owner, balances, portfolio, portfolioOk: Boolean(portfolio), portfolioOff: Boolean(pf && pf._status === 404), solUsd, at: balances ? balances.at || null : null });
+    } finally { walletRead = { owner, at: Date.now(), busy: false }; }
+  }
+  let qrP = null;
+  /** /vendor/qrcode.js (qrcode-generator, copied in at build time), loaded once, when the Wallet tab first shows an address: true when it is here. */
+  function loadQR() {
+    if (typeof window.qrcode === "function") return Promise.resolve(true);
+    return (qrP ||= new Promise((done) => {
+      const s = document.createElement("script"); s.src = "/vendor/qrcode.js";
+      const t = setTimeout(() => { qrP = null; done(false); }, 8000);
+      s.onload = () => { clearTimeout(t); done(typeof window.qrcode === "function"); };
+      s.onerror = () => { clearTimeout(t); qrP = null; done(false); };
+      document.head.append(s);
     }));
   }
 
@@ -1961,7 +2002,8 @@
       $("#dash-skel").hidden = true;
       if (v2) v2.init({ me: () => me, coin: () => ({ coin: coinData, vicMint, pairs: coinPairs }), openProfile, refresh: () => refresh(), countryName,
         // a phone's Safari / Chrome with the wallet linked: the wallet card is the one way to buy (in the wallet app), the Buy card steps back
-        buyInApp: () => Boolean(me && me.user && me.user.wallet && me.signupFlow === "v2" && phoneBrowser()) });
+        buyInApp: () => Boolean(me && me.user && me.user.wallet && me.signupFlow === "v2" && phoneBrowser()),
+        readWallet, qr: loadQR }); // the Wallet tab: the balances and the QR code library, both through this file
     }
     unhold();
     $("#dash-main").hidden = false;

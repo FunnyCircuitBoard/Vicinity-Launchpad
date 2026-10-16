@@ -576,6 +576,31 @@ body.is-dv2 .dash::before { content: none; }
 @keyframes dpvSheen { 0% { transform: translateX(-100%); } 60%, 100% { transform: translateX(100%); } }
 @keyframes dpvFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 
+/* ---------- the Wallet tab: Receive (the address, a QR code of it) and the balances the site supports (dashboard-v2.js) ---------- */
+/* a crowded strip (the is-compact step): Wallet shows as its icon too, like Founder and Moderate; its name stays in aria-label */
+.dv2 .dtabs.is-compact #tab-wallet .dtab__text { display: none; }
+.dv2 .dtabs.is-compact #tab-wallet .dtab__ico { display: block; }
+.dv2 .wtab { display: grid; gap: 10px; }
+.dv2 .wtab-receive { display: grid; gap: 14px; }
+@media (min-width: 601px) { .dv2 .wtab-receive { grid-template-columns: minmax(0, 1fr) auto; align-items: start; } }
+.dv2 .wtab-receive__addr { display: grid; gap: 10px; justify-items: start; min-width: 0; }
+.dv2 .wtab-addr { display: block; width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: var(--r-chip, 12px); background: var(--dd-inset); color: var(--text); font-size: var(--fs-sm, .875rem); line-height: 1.5; overflow-wrap: anywhere; word-break: break-all; user-select: all; -webkit-user-select: all; }
+.dv2 .wtab-copy { min-height: 44px; min-width: 44px; }
+.dv2 .wtab-qr { margin: 0; justify-self: center; }
+/* the code is dark on white in both themes (a camera reads it); the white box around it is the quiet zone */
+.dv2 .wtab-qr svg { display: block; width: 180px; height: 180px; padding: 8px; border-radius: var(--r-chip, 12px); background: #fff; color: #0B1626; }
+.dv2 .wtab-rows { list-style: none; margin: 0; padding: 0; display: grid; }
+.dv2 .wtab-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 56px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.dv2 .wtab-row:last-child { border-bottom: 0; }
+.dv2 .wtab-row__name, .dv2 .wtab-row__amt { display: grid; gap: 2px; min-width: 0; }
+.dv2 .wtab-row__amt { text-align: right; font-variant-numeric: tabular-nums; flex: none; }
+.dv2 .wtab-row strong { font: 650 var(--fs-md, 1.125rem)/1.25 var(--display); color: var(--text); overflow-wrap: anywhere; }
+.dv2 .wtab-row__sub, .dv2 .wtab-row__usd { font-size: var(--fs-xs, .75rem); color: var(--muted); }
+.dv2 .wtab-empty { margin: 0; }
+.dv2 .wtab-read { display: flex; flex-wrap: wrap; align-items: center; gap: 0 10px; margin: 0; }
+.dv2 .wtab-refresh { min-height: 44px; padding: 10px 0; font-size: var(--fs-sm, .875rem); color: var(--text-2); }
+.dv2 .wtab-refresh:disabled { cursor: default; opacity: .55; text-decoration: none; }
+
 /* ---------- the signed-out page ---------- */
 [data-page="dashboard"] .dash-out { padding-top: 24px; }
 [data-page="dashboard"] .dash-out .page-title { font-size: clamp(1.9rem, 8.5vw, 2.4rem); line-height: 1.1; text-wrap: balance; }
