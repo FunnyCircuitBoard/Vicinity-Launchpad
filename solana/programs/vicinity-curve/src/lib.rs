@@ -153,6 +153,47 @@ pub mod vicinity_curve {
     pub fn buyback_burn(ctx: Context<BuybackBurn>) -> Result<()> {
         instructions::buyback_burn::handle_buyback_burn(ctx)
     }
+
+    /// 4.14. Permissionless: pay `platform_pending` to `FEE_RECIPIENT`.
+    pub fn withdraw_platform_fees(ctx: Context<WithdrawPlatformFees>) -> Result<()> {
+        instructions::withdraw_platform_fees::handle_withdraw_platform_fees(ctx)
+    }
+
+    /// 4.15. Permissionless: pay `holders_pending` to the city's checked
+    /// `vicinity_rewards` WSOL vault (followed by a top-level `SyncNative`).
+    pub fn forward_holders_fees(ctx: Context<ForwardHoldersFees>) -> Result<()> {
+        instructions::forward_holders_fees::handle_forward_holders_fees(ctx)
+    }
+
+    /// 4.16. The founder takes `founder_pending`.
+    pub fn claim_founder_fees(ctx: Context<ClaimFounderFees>) -> Result<()> {
+        instructions::claim_founder_fees::handle_claim_founder_fees(ctx)
+    }
+
+    /// 4.17. The founder hands the seat to a co-signing key.
+    pub fn transfer_founder(ctx: Context<TransferFounder>) -> Result<()> {
+        instructions::transfer_founder::handle_transfer_founder(ctx)
+    }
+
+    /// 4.18. The founder opts in to daily payouts to the payout wallet.
+    pub fn opt_in_payout(
+        ctx: Context<OptInPayout>,
+        expected_destination: Pubkey,
+        ref_hash: [u8; 32],
+    ) -> Result<()> {
+        instructions::opt_in_payout::handle_opt_in_payout(ctx, expected_destination, ref_hash)
+    }
+
+    /// 4.19. Close a payout opt-in (current founder or its signer).
+    pub fn revoke_payout_opt_in(ctx: Context<RevokePayoutOptIn>) -> Result<()> {
+        instructions::revoke_payout_opt_in::handle_revoke_payout_opt_in(ctx)
+    }
+
+    /// 4.20. The payout key pays an opted-in founder's share to the payout
+    /// wallet, at most daily.
+    pub fn payout_founder_fees(ctx: Context<PayoutFounderFees>) -> Result<()> {
+        instructions::payout_founder_fees::handle_payout_founder_fees(ctx)
+    }
 }
 
 #[cfg(test)]
