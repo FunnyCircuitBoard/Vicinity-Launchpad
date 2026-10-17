@@ -298,6 +298,140 @@ fn token_and_account_surface() {
     );
 }
 
+/// The source without comment lines (`//`, `///`, `//!`), so that rules
+/// match code only.
+fn without_comments(src: &str) -> String {
+    src.lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The instructions whose code mentions `what`.
+fn mentioned_in(what: &str) -> Vec<&'static str> {
+    SOURCES
+        .iter()
+        .filter(|(_, src)| without_comments(src).contains(what))
+        .map(|(name, _)| *name)
+        .collect()
+}
+
+/// 4.4, 8.3, 3.4: who reads and writes the pause flags and the keys of
+/// `Launchpad`. `buys_halted` stops only `launch`, `buy` and `buyback_burn`;
+/// `launches_paused` only `launch`; `payouts_paused` only
+/// `payout_founder_fees`. No exit (sell, claim, forward, withdraw) reads any
+/// flag. The flags are written only by `init_launchpad` (all false) and
+/// `set_pause`; the payout key and wallet only by `init_launchpad` (zero: off
+/// by default, O12) and `set_payout_config`; the guardian only by
+/// `init_launchpad` and `set_guardian`; the admin seat only by
+/// `init_launchpad`, `propose_admin` and `accept_admin`.
+#[test]
+fn pause_flags_and_launchpad_keys() {
+    let want = |what: &str, mut names: Vec<&str>| {
+        let mut got = mentioned_in(what);
+        got.sort_unstable();
+        names.sort_unstable();
+        assert_eq!(got, names, "`{what}`");
+    };
+    want(
+        ".buys_halted",
+        vec![
+            "buy",
+            "buyback_burn",
+            "launch",
+            "init_launchpad",
+            "set_pause",
+        ],
+    );
+    want(
+        ".launches_paused",
+        vec!["launch", "init_launchpad", "set_pause"],
+    );
+    want(
+        ".payouts_paused",
+        vec!["payout_founder_fees", "init_launchpad", "set_pause"],
+    );
+    want(
+        ".payout_authority =",
+        vec!["init_launchpad", "set_payout_config"],
+    );
+    want(
+        ".payout_destination =",
+        vec!["init_launchpad", "set_payout_config"],
+    );
+    want(".guardian =", vec!["init_launchpad", "set_guardian"]);
+    want(".admin =", vec!["init_launchpad", "accept_admin"]);
+    want(
+        ".pending_admin =",
+        vec!["init_launchpad", "propose_admin", "accept_admin"],
+    );
+    // Payouts start off: init writes both payout settings as zero.
+    let init = without_comments(
+        SOURCES
+            .iter()
+            .find(|(n, _)| *n == "init_launchpad")
+            .unwrap()
+            .1,
+    );
+    assert!(init.contains("lp.payout_authority = Pubkey::default();"));
+    assert!(init.contains("lp.payout_destination = Pubkey::default();"));
+    // The exits never take a typed Launchpad: sell checks its address only.
+    let sell = SOURCES.iter().find(|(n, _)| *n == "sell").unwrap().1;
+    assert!(sell.contains("pub launchpad: UncheckedAccount<'info>"));
+}
+
+/// I1, I2, R4: the frozen terms and identity of a `Coin` are written once, in
+/// `launch`, and never again; the phase changes only through the math crate's
+/// state (`apply_state`); the founder only in `transfer_founder`; the
+/// graduation fields only in the graduating `buy`.
+#[test]
+fn frozen_coin_fields_are_written_only_at_launch() {
+    let frozen = [
+        "layout_version",
+        "bump",
+        "mint_bump",
+        "vault_bump",
+        "config_id",
+        "city_id",
+        "mint",
+        "vault",
+        "symbol",
+        "liquidity_bps",
+        "platform_bps",
+        "founder_bps",
+        "holders_bps",
+        "buyback_bps",
+        "total_fee_bps",
+        "virtual_sol",
+        "virtual_tokens",
+        "curve_supply",
+        "pool_supply",
+        "graduation_sol",
+        "dust_burned",
+        "meta_hash",
+        "rent_reserve",
+        "launched_at",
+        "launch_slot",
+    ];
+    let launch = without_comments(SOURCES.iter().find(|(n, _)| *n == "launch").unwrap().1);
+    for field in frozen {
+        assert!(
+            mentioned_in(&format!("coin.{field} =")).is_empty(),
+            "coin.{field} is frozen after launch"
+        );
+        assert_eq!(
+            launch.matches(&format!("c.{field} = ")).count(),
+            1,
+            "launch writes {field} once"
+        );
+    }
+    assert!(mentioned_in("coin.phase =").is_empty());
+    assert!(mentioned_in("c.phase =").is_empty());
+    assert_eq!(mentioned_in("coin.founder ="), ["transfer_founder"]);
+    assert_eq!(mentioned_in("coin.graduated_at ="), ["buy"]);
+    assert_eq!(mentioned_in("coin.graduation_slot ="), ["buy"]);
+}
+
 // ---- the instruction contract of section 4, against the committed IDL ----
 
 fn idl() -> Value {

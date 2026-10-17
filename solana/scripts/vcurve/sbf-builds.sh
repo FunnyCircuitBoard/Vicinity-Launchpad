@@ -17,6 +17,8 @@ MANIFEST=programs/vicinity-curve/Cargo.toml
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
 status=0
 summary=""
+# The toolchain goes into the record with the sizes and hashes (C03).
+toolchain=$(cargo build-sbf --version 2>&1 | tr '\n' ' ')
 for variant in production devnet halt-all; do
   out="target/vcurve-builds/$variant"
   log="target/vcurve-builds/$variant.log"
@@ -41,5 +43,5 @@ for variant in production devnet halt-all; do
   so="$out/vicinity_curve.so"
   summary+=$(printf '%-10s %8d bytes  sha256 %s' "$variant" "$(wc -c < "$so" | tr -d ' ')" "$(sha256 "$so")")$'\n'
 done
-printf '\nvicinity_curve builds (no stack warning: %s)\n%s' "$([ $status -eq 0 ] && echo yes || echo NO)" "$summary"
+printf '\nvicinity_curve builds with %s(no stack warning: %s)\n%s' "$toolchain" "$([ $status -eq 0 ] && echo yes || echo NO)" "$summary"
 exit $status

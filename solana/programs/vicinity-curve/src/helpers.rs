@@ -412,6 +412,45 @@ mod tests {
         assert_eq!(symbol_bytes("ABCDEFGHIJ"), *b"ABCDEFGHIJ");
     }
 
+    /// U11, exhaustively on small inputs: every one-byte ticker passes exactly
+    /// when it is `A-Z` or `0-9`; every length from 1 to 10 passes and 11
+    /// fails; every control character (C0, DEL, C1) and every listed format
+    /// character is refused in a name, alone or inside one; a 32-byte name of
+    /// two-byte characters passes.
+    #[test]
+    fn u11_exhaustive_small_inputs() {
+        for b in 0u8..=255 {
+            let s = (b as char).to_string();
+            let want = b.is_ascii_uppercase() || b.is_ascii_digit();
+            assert_eq!(check_symbol(&s).is_ok(), want, "byte {b}");
+        }
+        for len in 1..=11 {
+            let s = "Z".repeat(len);
+            assert_eq!(check_symbol(&s).is_ok(), len <= 10, "length {len}");
+        }
+        let controls = (0u32..0x20).chain([0x7F]).chain(0x80..0xA0);
+        let formats = [
+            0x00ADu32, 0x0600, 0x0605, 0x061C, 0x06DD, 0x070F, 0x0890, 0x0891, 0x08E2, 0x180E,
+            0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x202A, 0x202E, 0x2060, 0x2064, 0x2066, 0x206F,
+            0xFEFF, 0xFFF9, 0xFFFB, 0x110BD, 0x110CD, 0x13430, 0x1343F, 0x1BCA0, 0x1BCA3, 0x1D173,
+            0x1D17A, 0xE0001, 0xE0020, 0xE007F,
+        ];
+        for cp in controls.chain(formats) {
+            let c = char::from_u32(cp).unwrap();
+            assert_eq!(code(check_name(&c.to_string())), 6021, "U+{cp:04X}");
+            assert_eq!(code(check_name(&format!("Ab{c}cd"))), 6021, "U+{cp:04X}");
+        }
+        // Neighbours of the listed ranges stay allowed.
+        for cp in [
+            0x00AEu32, 0x0606, 0x2010, 0x2029, 0x202F, 0x2065, 0x2070, 0xFFFC,
+        ] {
+            let c = char::from_u32(cp).unwrap();
+            assert!(check_name(&format!("City{c}")).is_ok(), "U+{cp:04X}");
+        }
+        assert!(check_name(&"é".repeat(16)).is_ok());
+        assert_eq!(code(check_name(&"é".repeat(17))), 6021);
+    }
+
     #[test]
     fn payout_keys_separate() {
         let admin = Pubkey::new_unique();

@@ -334,6 +334,22 @@ typed account of `launch`, `approve_launch` and `forward_holders_fees` and the c
 instruction boxed (3.1). CI now builds all three after every push, recompiling the crate so its
 warnings are printed, and fails on any stack warning (`npm run vcurve:sbf`, C04).
 
+The binaries depend on the toolchain, not only on the source: the CI runner (Agave 4.3.0
+installer on ubuntu-latest, the same source at commit 0a6d6d9) produced 612,528 / 612,528 /
+611,216 bytes, also without any stack warning, against 588,216 / 588,216 / 586,880 on the build
+machine whose toolchain matches `release/mainnet-2026-10-10/BUILD.md`. The script now prints
+the `cargo build-sbf --version` it used beside the sizes and hashes, and the audit pack must
+record the hash of the verifiable build (C03), not a CI artefact.
+
+Compute measured in a litesvm smoke run of the production build (one coin's life on default
+config #0; a scratch run, not yet the C01 suite of stage 3): `launch` 110,776 CU; a curve buy
+26,182, a curve sell 23,503, the graduating buy 29,706, a pool buy 25,610; `buyback_burn`
+19,938; `withdraw_platform_fees` 12,632; `claim_founder_fees` 13,165; `forward_holders_fees`
+plus the top-level `SyncNative` 19,871; `payout_founder_fees` 18,829. Every figure is inside
+its 11.1 test budget. The same run reproduced E1 to E3 to the lamport and raw unit (33,774,693.369781
+coins for 1 SOL; 950,625,000 lamports back; 87,179,487,179 charged for the completing buy) and
+checked I9 (`Coin` lamports equal `rent_reserve` plus the liabilities) after every outflow.
+
 ### 21. The halt-all guard runs after Anchor's account validation (4.0, 8.3, H02)
 
 **Spec.** 4.0: with `halt-all` the eight outflow handlers "fail with `TradingHalted` before
@@ -351,6 +367,13 @@ account list fails with the account error first. Either way the transaction reve
 is created, moved or written. Moving the check in front of account validation would need a
 hand-written entrypoint around Anchor's dispatcher, which 8.3 does not ask for and which would
 add audit surface to every build.
+
+Checked in the litesvm smoke run of entry 20 (H02 and H03 in miniature; the committed suite is
+stage 3): the halt-all build deployed over a live coin made `buy`, `sell`, `buyback_burn`,
+`withdraw_platform_fees`, `claim_founder_fees`, `forward_holders_fees`, `payout_founder_fees`
+and the `launch` of a second approved city fail with `TradingHalted`, left the `Coin`'s bytes
+and lamports unchanged while settings instructions (an approval) still worked, and after the
+production build was deployed back, trades and the second launch succeeded.
 
 ### 22. `pay_out` refuses a destination equal to the `Coin` (6.5)
 
@@ -418,6 +441,17 @@ not carry `#[constant]`, so they are not in the IDL.
   anywhere; `mint_to`, `set_authority` and the Metaplex CPI only in `launch`; `burn` only in
   `launch` and `buyback_burn`; `transfer_checked` only in `buy` and `sell`; system transfers
   only in `launch` and `buy`; `close =` only on the approval and the opt-in;
+* who reads and writes `Launchpad`: `buys_halted` is read only by `launch`, `buy` and
+  `buyback_burn`, `launches_paused` only by `launch`, `payouts_paused` only by
+  `payout_founder_fees`; no exit reads any flag (`sell` takes `Launchpad` as an unchecked
+  account checked by address); the flags are written only by `init_launchpad` (all false) and
+  `set_pause`, the payout key and wallet only by `init_launchpad` (zero, so payouts start off)
+  and `set_payout_config`, the guardian only by `init_launchpad` and `set_guardian`, the admin
+  seat only by `init_launchpad`, `propose_admin` and `accept_admin`;
+* the frozen fields of a `Coin` (identity, the six fee fields, the curve terms, `dust_burned`,
+  `meta_hash`, `rent_reserve`, `launched_at`, `launch_slot`) are written once, in `launch`, and
+  by no other instruction; the phase only through the math crate's state; the founder only in
+  `transfer_founder`; the graduation fields only in `buy` (I1, I2);
 * the instruction contract against the committed IDL: every instruction's accounts in the order
   and with the signer and writable flags of its table in section 4, `buy` and `sell` sharing
   one list of 10 accounts, every instruction's arguments and `ConfigParams`, the
