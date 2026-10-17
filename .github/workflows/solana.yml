@@ -133,6 +133,9 @@ jobs:
       # builds" step and the Metaplex dump of the fixtures step).
       - name: Curve in-process smoke test (production and halt-all builds)
         run: npm run test:vcurve
+      # A test-only mock router (tests-curve/router, never deployed) for G02, G03 and R02b of 12.5.
+      - name: Curve test router (G02, G03, R02b)
+        run: npm run curve:router
       # vicinity_curve lifecycle suites (VICINITY-CURVE-DESIGN.md 12.3 and 12.5) on the
       # production build of `anchor build` and the halt-all build above, with the committed
       # mainnet binaries of vicinity_rewards and vicinity_launchpad and the pinned Metaplex

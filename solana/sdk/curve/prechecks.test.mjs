@@ -173,3 +173,17 @@ test('simulateWithConnection: a v0 transaction simulated without signatures, ret
   const failing = S.simulateWithConnection({ ...connection, simulateTransaction: async () => ({ value: { err: { InstructionError: [0, { Custom: 1 }] }, logs: ['x'] } }) }, { feePayer: payer });
   assert.equal((await failing([ix], [config])).ok, false);
 });
+
+test('pay with any token (14.1, G03): sol_in is the swap\'s guaranteed output, never the quoted one', () => {
+  assert.equal(S.solInFromSwapQuote({ swapMode: 'ExactIn', outAmount: 2_000_000_000n, otherAmountThreshold: '1980000000' }), 1_980_000_000n);
+  assert.equal(S.solInFromSwapQuote({ swapMode: 'ExactOut', outAmount: '2000000000', otherAmountThreshold: 9n }), 2_000_000_000n);
+  assert.throws(() => S.solInFromSwapQuote({ swapMode: 'ExactIn', outAmount: 1n, otherAmountThreshold: 2n }), /above outAmount/);
+  assert.throws(() => S.solInFromSwapQuote({}), /unknown swapMode/);
+  const user = key(); const mint = key(); const coin = key();
+  const swapIx = { programAddress: key(), accounts: [], data: new Uint8Array([1]) };
+  const { instructions, solIn } = S.buyWithSwap({ ix: S.ix, user, coin, mint, swapInstructions: [swapIx], quote: { swapMode: 'ExactIn', outAmount: 500_000n, otherAmountThreshold: 400_000n } });
+  assert.equal(solIn, 400_000n);
+  assert.deepEqual(instructions.map((x) => x.programAddress), [swapIx.programAddress, S.ADDRESSES.associatedToken, S.CURVE_PROGRAM_ID]);
+  assert.equal(Buffer.from(instructions[2].data).readBigUInt64LE(8), 400_000n, 'the buy\'s sol_in');
+  assert.equal(instructions[2].accounts[5].address, S.associatedTokenAddress(user, mint));
+});

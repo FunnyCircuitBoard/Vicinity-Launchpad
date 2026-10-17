@@ -154,37 +154,74 @@ export function snapshot(w, keys) {
 
 // ---------------------------------------------------------------- the transaction
 /** Decode a sent transaction: keys, signers, top-level instructions with their inner instructions, log segments and events. */
+/**
+ * Decode a sent transaction: keys, signers, top-level instructions with their inner instructions, log
+ * segments and events, and every call of vicinity_curve, top level or by CPI from another program (a
+ * router, G02). Each call carries its own inner instructions (those deeper than it, until the stack
+ * returns to its level), its depth and its events; each inner instruction knows the innermost call it
+ * belongs to. `steps` lists, in execution order, the indices the checker steps a vault through.
+ */
 export function decodeTransaction(w, { messageBytes, inner, logs, lookupAddresses = [] }) {
   const msg = getCompiledTransactionMessageDecoder().decode(messageBytes);
   const keys = [...msg.staticAccounts.map(String), ...lookupAddresses.map(String)];
   const nSigners = msg.header.numSignerAccounts;
   const signers = new Set(keys.slice(0, nSigners));
   const segments = splitLogs(logs);
+  const calls = []; const steps = [];
+  const isEventCpi = (ii) => ii.program === w.programId && ii.data.length >= 8 && S.EVENT_IX_TAG.every((x, k) => ii.data[k] === x);
+  const nameOf = (data) => INSTRUCTION_BY_DISC.get(Buffer.from(data).subarray(0, 8).toString('hex')) ?? null;
+  const eventsOf = (call) => {
+    const out = [];
+    for (const ii of call.inner) {
+      if (!isEventCpi(ii)) continue;
+      const e = S.decodeEventCpi({ programId: ii.program, accounts: ii.accounts, data: ii.data }, { programId: w.programId });
+      assert.ok(e, `an event CPI not signed by the event authority (${ii.accounts.join(',')})`);
+      assert.ok(S.CPI_EVENTS.includes(e.name), `${e.name} must not be an event CPI`);
+      assert.equal(ii.stackHeight, call.depth + 1, `${e.name}: the event CPI comes from the call that emits it`);
+      out.push(e);
+    }
+    return out;
+  };
   const top = msg.instructions.map((ix, i) => {
     const program = keys[ix.programAddressIndex];
     const accounts = (ix.accountIndices ?? []).map((k) => keys[k]);
     const data = Buffer.from(ix.data ?? []);
     const innerIxs = (inner[i] ?? []).map((ii) => {
       const c = ii.instruction();
-      return { program: keys[c.programIdIndex()], accounts: Array.from(c.accounts()).map((k) => keys[k]), data: Buffer.from(c.data()), stackHeight: ii.stackHeight() };
+      return { program: keys[c.programIdIndex()], accounts: Array.from(c.accounts()).map((k) => keys[k]), data: Buffer.from(c.data()), stackHeight: ii.stackHeight(), call: null };
     });
-    const name = program === w.programId ? INSTRUCTION_BY_DISC.get(data.subarray(0, 8).toString('hex')) ?? null : null;
+    const name = program === w.programId ? nameOf(data) : null;
     const seg = segments[i] ?? [];
-    // events: money events by event CPI, settings events by emit! (M20, 4.21)
-    const cpiEvents = [];
-    for (const ii of innerIxs) {
-      if (ii.program !== w.programId) continue;
-      const e = S.decodeEventCpi({ programId: ii.program, accounts: ii.accounts, data: ii.data }, { programId: w.programId });
-      assert.ok(e, `inner instruction to vicinity_curve that is not an event CPI signed by the event authority (${ii.accounts.join(',')})`);
-      assert.ok(S.CPI_EVENTS.includes(e.name), `${e.name} must not be an event CPI`);
-      cpiEvents.push(e);
+    const t = { index: i, program, accounts, data, name, inner: innerIxs, events: [], calls: [], logs: seg, cu: computeOf(seg, program), depth: 1 };
+    // the calls of vicinity_curve within this instruction: itself, or CPIs into it (not its own event CPIs)
+    const mine = [];
+    if (program === w.programId) mine.push({ ...t, inner: innerIxs, top: t });
+    else steps.push(i);
+    innerIxs.forEach((ii, j) => {
+      if (ii.program !== w.programId || isEventCpi(ii)) return;
+      const callName = nameOf(ii.data);
+      assert.ok(callName, `a CPI into vicinity_curve with an unknown instruction (${ii.data.subarray(0, 8).toString('hex')})`);
+      let end = j + 1;
+      while (end < innerIxs.length && innerIxs[end].stackHeight > ii.stackHeight) end++;
+      mine.push({ index: i + (mine.length + 1) / 1000, program: ii.program, accounts: ii.accounts, data: ii.data, name: callName, inner: innerIxs.slice(j + 1, end), depth: ii.stackHeight, logs: seg, cu: null, top: t, viaCpi: true });
+    });
+    // each inner instruction belongs to the innermost call that contains it
+    for (const c of mine) for (const ii of c.inner) if (!ii.call || ii.call.depth < c.depth) ii.call = c;
+    for (const c of mine) {
+      c.events = eventsOf(c);
+      if (!c.viaCpi) {
+        const logEvents = S.decodeEventLogs(seg, { programId: w.programId });
+        for (const e of logEvents) assert.ok(!S.CPI_EVENTS.includes(e.name), `${e.name} is a money event and must be an event CPI, not a log`);
+        c.events.push(...logEvents);
+      }
+      calls.push(c); steps.push(c.index); t.calls.push(c); t.events.push(...c.events);
     }
-    const logEvents = program === w.programId ? S.decodeEventLogs(seg, { programId: w.programId }) : [];
-    for (const e of logEvents) assert.ok(!S.CPI_EVENTS.includes(e.name), `${e.name} is a money event and must be an event CPI, not a log`);
-    const cu = computeOf(seg, program);
-    return { index: i, program, accounts, data, name, inner: innerIxs, events: [...cpiEvents, ...logEvents], logs: seg, cu };
+    for (const ii of innerIxs) {
+      if (ii.program === w.programId && isEventCpi(ii)) assert.ok(ii.call, 'an event CPI outside any call of vicinity_curve');
+    }
+    return t;
   });
-  return { keys, signers, feePayer: keys[0], nSignatures: nSigners, top };
+  return { keys, signers, feePayer: keys[0], nSignatures: nSigners, top, calls, steps };
 }
 function splitLogs(logs) {
   const out = [];
@@ -292,7 +329,7 @@ export function checkDestinations(w, { tx, preAccounts, postAccounts, label }) {
     if (tag === 8) return { tag, kind: 'allocate', to: ii.accounts[0] };
     return { tag, kind: `system instruction ${tag}` };
   };
-  for (const t of tx.top) {
+  for (const t of [...tx.calls, ...tx.top.filter((x) => x.program === S.ADDRESSES.associatedToken)]) {
     if (t.program === w.programId && t.name) {
       const spec = CREATES[t.name];
       const created = new Map(); // address -> owner it must end with
@@ -305,14 +342,14 @@ export function checkDestinations(w, { tx, preAccounts, postAccounts, label }) {
       for (const ii of t.inner) {
         if (ii.program === w.programId || ii.program === S.ADDRESSES.token) continue; // event CPIs (decodeTransaction) and token flows (below)
         if (ii.program === S.ADDRESSES.metaplex) {
-          assert.ok(metadata && ii.stackHeight === 2 && ii.data[0] === 33 && ii.accounts[0] === metadata,
+          assert.ok(metadata && ii.stackHeight === t.depth + 1 && ii.data[0] === 33 && ii.accounts[0] === metadata,
             `${label}: ${t.name} called Metaplex outside launch's CreateMetadataAccountsV3 of its own metadata`);
           continue;
         }
         assert.equal(ii.program, S.ADDRESSES.system, `${label}: I14 ${t.name} called ${ii.program} (only System, SPL Token, Metaplex and its own event CPI)`);
         const s = sysOf(ii);
-        const inMetaplex = ii.stackHeight === 3 && metadata !== null;
-        if (!inMetaplex) assert.equal(ii.stackHeight, 2, `${label}: I14 a system instruction at depth ${ii.stackHeight} under ${t.name}`);
+        const inMetaplex = ii.stackHeight === t.depth + 2 && metadata !== null;
+        if (!inMetaplex) assert.equal(ii.stackHeight, t.depth + 1, `${label}: I14 a system instruction at depth ${ii.stackHeight} under ${t.name}`);
         if (s.kind === 'create_account' || s.kind === 'transfer') {
           assert.equal(s.from, payer, `${label}: I14 ${t.name}'s ${s.kind} from ${s.from}, not its payer ${payer}`);
           credited.set(s.to, (credited.get(s.to) ?? 0n) + s.amount);
@@ -372,7 +409,7 @@ export function checkTransaction(w, ctx) {
   const credits = []; // { to, amount, kind }
   const moves = (from, to, amount, kind) => { addD(from, -amount); addD(to, amount); credits.push({ from, to, amount, kind }); };
   const allIxs = [];
-  for (const t of tx.top) { allIxs.push({ ...t, top: t }); for (const ii of t.inner) allIxs.push({ ...ii, top: t }); }
+  for (const t of tx.top) { allIxs.push({ ...t, top: t.calls.find((c) => !c.viaCpi) ?? t }); for (const ii of t.inner) allIxs.push({ ...ii, top: ii.call ?? t }); }
   const runningNative = new Map(); // lamports a native token account gained or lost inside the tx
   for (const ix of allIxs) {
     if (ix.program === S.ADDRESSES.system && ix.data.length >= 4) {
@@ -406,7 +443,7 @@ export function checkTransaction(w, ctx) {
   const coinOfEvent = (e) => { const c = coinByCity.get(e.data.city_id); assert.ok(c, `${label}: ${e.name} for unknown city ${e.data.city_id}`); return c; };
   const moneyOut = new Map(); // coin -> lamports out by events
   const buysIn = new Map(); // coin -> lamports charged by buys
-  for (const t of tx.top) {
+  for (const t of tx.calls) {
     for (const e of t.events) {
       const d = e.data;
       let to = null; let amount = 0n;
@@ -477,7 +514,7 @@ export function checkTransaction(w, ctx) {
       const ok = c.kind === 'close' && pre.approvals.has(c.from) && pre.approvals.get(c.from).rentPayer === r;
       assert.ok(ok, `${label}: I21 ${c.amount} lamports to role key ${r} (${c.kind})`);
     }
-    for (const t of tx.top) for (const e of t.events) if (e.name === 'Trade') assert.notEqual(e.data.user, r, `${label}: I21 a role key traded`);
+    for (const t of tx.calls) for (const e of t.events) if (e.name === 'Trade') assert.notEqual(e.data.user, r, `${label}: I21 a role key traded`);
   }
 
   // ------------------------------------------------ tokens (I14)
@@ -572,7 +609,7 @@ export function checkTransaction(w, ctx) {
   const inTx = new Set(tx.keys);
   for (const [addr, c] of post.coins) {
     const b = pre.coins.get(addr);
-    const events = tx.top.flatMap((t) => t.events.map((e) => ({ ...e, top: t }))).filter((e) => e.data.city_id === c.cityId);
+    const events = tx.calls.flatMap((t) => t.events.map((e) => ({ ...e, top: t }))).filter((e) => e.data.city_id === c.cityId);
     // A coin none of whose accounts (Coin, vault, mint, metadata) the transaction loaded cannot have
     // changed; it is checked to be byte-identical instead of re-running every invariant (they held
     // after the transaction that last touched it).
@@ -728,9 +765,9 @@ export function checkTransaction(w, ctx) {
       const steps = vaultStep.get(addr) ?? new Map(); const dons = donStep.get(addr) ?? new Map();
       let running = b ? b.vaultAmount : 0n;
       let donated = (w.tokenDonations.get(addr) ?? 0n) - (tokenFlows.donated.get(addr) ?? 0n);
-      for (const t of tx.top) {
-        running += steps.get(t.index) ?? 0n; donated += dons.get(t.index) ?? 0n;
-        if (t.index === graduationIx) break;
+      for (const idx of tx.steps) {
+        running += steps.get(idx) ?? 0n; donated += dons.get(idx) ?? 0n;
+        if (idx === graduationIx) break;
       }
       assert.equal(running, terms.poolSupply + donated, `${label}: I5 the vault holds P when ${c.symbol} graduates`);
       if (lastPoolEvent <= graduationIx) {
@@ -788,7 +825,7 @@ function checkLaunch(w, { c, cl, pre, label, txSlot, txTs, rentMin, tx }) {
   assert.equal(d.launch_fee, cfg.launchFeeLamports, 'I14 the launch fee equals the config\'s');
   assert.deepEqual([d.slot, d.timestamp], [txSlot, txTs]);
   // the launch fee went to FEE_RECIPIENT and nowhere else (a system transfer from the payer)
-  const xfers = cl.top.inner.filter((ii) => ii.program === S.ADDRESSES.system && ii.data.readUInt32LE(0) === 2 && ii.stackHeight === 2);
+  const xfers = cl.top.inner.filter((ii) => ii.program === S.ADDRESSES.system && ii.data.readUInt32LE(0) === 2 && ii.stackHeight === cl.top.depth + 1);
   const feeXfer = xfers.filter((x) => x.accounts[1] === S.ADDRESSES.feeRecipient);
   if (cfg.launchFeeLamports > 0n) {
     assert.equal(feeXfer.length, 1); assert.equal(feeXfer[0].data.readBigUInt64LE(4), cfg.launchFeeLamports); assert.equal(feeXfer[0].accounts[0], cl.top.accounts[1]);
@@ -895,7 +932,7 @@ function checkCoin(w, { c, b, label, rentMin, graduatedInTx }) {
 /** I19, I20 and the settings rules after a transaction. */
 function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
   const P = w.P;
-  const curveIxs = tx.top.filter((t) => t.program === w.programId);
+  const curveIxs = tx.calls;
   const has = (name) => curveIxs.filter((t) => t.name === name);
   // I19: one Coin per city, one TickerLock per ticker, never closed, never together with an Approval
   const cities = new Set();

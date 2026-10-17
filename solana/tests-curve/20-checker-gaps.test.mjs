@@ -20,7 +20,9 @@ import { checkDestinations, compiledIdsProblems, PROGRAM_DATA_HEADER } from './i
 function edited(tx, i, j, edit) {
   const top = tx.top.map((t) => ({ ...t, accounts: [...t.accounts], inner: t.inner.map((ii) => ({ ...ii, accounts: [...ii.accounts], data: Buffer.from(ii.data) })) }));
   if (j === null) top[i].inner.push(edit(null)); else top[i].inner[j] = edit(top[i].inner[j]);
-  return { ...tx, top };
+  // the calls of vicinity_curve the checker iterates (here all top level)
+  const calls = top.filter((t) => t.name).map((t) => ({ ...t, depth: 1, top: t }));
+  return { ...tx, top, calls };
 }
 const findInner = (tx, name, pred) => {
   const i = tx.top.findIndex((t) => t.name === name);
