@@ -1,7 +1,9 @@
 //! Curve, pool, liquidity drip and buyback (5.3 to 5.8, 7.1).
 
 use crate::arith::{add, add128, add64, div_ceil, div_floor, mul, sub, sub64, to_u64, D};
-use crate::constants::{BUYBACK_CAP_DIVISOR, BUYBACK_INTERVAL_SLOTS, MIN_TRADE_LAMPORTS};
+use crate::constants::{
+    BUYBACK_CAP_DIVISOR, BUYBACK_INTERVAL_SLOTS, COIN_SUPPLY, MIN_TRADE_LAMPORTS,
+};
 use crate::error::MathError;
 use crate::fee::{fee_of, fee_split, gross_for_t};
 use crate::types::{BuyQuote, BuybackQuote, FeeSplit, Phase, SellQuote, State, Terms};
@@ -396,4 +398,13 @@ pub fn liabilities(state: &State) -> Result<u64, MathError> {
         sum = add64(sum, v)?;
     }
     Ok(sum)
+}
+
+/// Raw units `launch` burns from the vault right after the single `mint_to`
+/// (4.10 effect 4, 5.9, O3 (a)): `COIN_SUPPLY - S - P`, 9,100,000 (9.1 coins)
+/// on default config #0. `InvalidTerms` when `S + P` exceeds `COIN_SUPPLY`
+/// (V3 refuses such a config).
+pub fn launch_dust(terms: &Terms) -> Result<u64, MathError> {
+    let kept = add64(terms.curve_supply, terms.pool_supply)?;
+    sub64(COIN_SUPPLY, kept, MathError::InvalidTerms)
 }

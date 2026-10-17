@@ -47,7 +47,7 @@ pub use decode::{decode_coin, CoinView};
 pub use error::{ConfigError, DecodeError, MathError};
 pub use fee::{fee_split, gross_for};
 pub use trade::{
-    buyback_cap, curve_value, depth, liabilities, max_quote_in, quote_buy, quote_buyback,
-    quote_sell, spot_price, tokens_for,
+    buyback_cap, curve_value, depth, launch_dust, liabilities, max_quote_in, quote_buy,
+    quote_buyback, quote_sell, spot_price, tokens_for,
 };
 pub use types::{BuyQuote, BuybackQuote, ConfigParams, FeeSplit, Phase, SellQuote, State, Terms};

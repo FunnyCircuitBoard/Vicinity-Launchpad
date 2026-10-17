@@ -618,6 +618,29 @@ fn u05_other_figures() {
     );
 }
 
+/// 4.10 effect 4 and O3 (a): the launch burns `COIN_SUPPLY - S - P`, 9.1
+/// coins on default config #0; O3 (c)'s pool config burns nothing; terms
+/// whose supplies exceed `COIN_SUPPLY` are refused.
+#[test]
+fn launch_dust_of_4_10() {
+    assert_eq!(launch_dust(&T).unwrap(), 9_100_000);
+    let c = Terms {
+        pool_supply: 206_900_010_000_000,
+        ..T
+    };
+    assert_eq!(launch_dust(&c).unwrap(), 0);
+    let over = Terms {
+        pool_supply: COIN_SUPPLY - T.curve_supply + 1,
+        ..T
+    };
+    assert_eq!(launch_dust(&over), Err(MathError::InvalidTerms));
+    let wrap = Terms {
+        curve_supply: u64::MAX,
+        ..T
+    };
+    assert_eq!(launch_dust(&wrap), Err(MathError::Overflow));
+}
+
 // ---------------------------------------------------------------- U06
 
 #[test]

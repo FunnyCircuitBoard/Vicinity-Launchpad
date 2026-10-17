@@ -111,6 +111,33 @@ pub mod vicinity_curve {
     ) -> Result<()> {
         instructions::set_launch_config_enabled::handle_set_launch_config_enabled(ctx, enabled)
     }
+
+    /// 4.8. Approve one founder to launch one city's coin.
+    #[allow(clippy::too_many_arguments)]
+    pub fn approve_launch(
+        ctx: Context<ApproveLaunch>,
+        city_id: u64,
+        founder: Pubkey,
+        config_id: u16,
+        name: String,
+        symbol: String,
+        meta_hash: [u8; 32],
+        expires_at: i64,
+    ) -> Result<()> {
+        instructions::approve_launch::handle_approve_launch(
+            ctx, city_id, founder, config_id, name, symbol, meta_hash, expires_at,
+        )
+    }
+
+    /// 4.9. Close a pending approval (the admin, or anyone once expired).
+    pub fn revoke_approval(ctx: Context<RevokeApproval>, city_id: u64) -> Result<()> {
+        instructions::revoke_approval::handle_revoke_approval(ctx, city_id)
+    }
+
+    /// 4.10. The approved founder launches the city's coin.
+    pub fn launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {
+        instructions::launch::handle_launch(ctx, city_id)
+    }
 }
 
 #[cfg(test)]
@@ -122,10 +149,13 @@ mod tests {
     #[test]
     fn instruction_discriminators() {
         let h = |s: &str| anchor_lang::solana_program::hash::hash(s.as_bytes()).to_bytes();
-        let cases: &[(&[u8], &str)] = &[(
-            crate::instruction::InitLaunchpad::DISCRIMINATOR,
-            "init_launchpad",
-        )];
+        let cases: &[(&[u8], &str)] = &[
+            (
+                crate::instruction::InitLaunchpad::DISCRIMINATOR,
+                "init_launchpad",
+            ),
+            (crate::instruction::Launch::DISCRIMINATOR, "launch"),
+        ];
         for (d, name) in cases {
             assert_eq!(*d, &h(&format!("global:{name}"))[..8], "{name}");
         }

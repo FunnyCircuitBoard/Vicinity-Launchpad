@@ -8,8 +8,11 @@
 
 pub mod accept_admin;
 pub mod add_launch_config;
+pub mod approve_launch;
 pub mod init_launchpad;
+pub mod launch;
 pub mod propose_admin;
+pub mod revoke_approval;
 pub mod set_guardian;
 pub mod set_launch_config_enabled;
 pub mod set_pause;
@@ -17,8 +20,11 @@ pub mod set_payout_config;
 
 pub use accept_admin::*;
 pub use add_launch_config::*;
+pub use approve_launch::*;
 pub use init_launchpad::*;
+pub use launch::*;
 pub use propose_admin::*;
+pub use revoke_approval::*;
 pub use set_guardian::*;
 pub use set_launch_config_enabled::*;
 pub use set_pause::*;
