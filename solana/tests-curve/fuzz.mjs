@@ -8,7 +8,9 @@
 //     balance, more than a balance), buyback runs at random slots, the three
 //     payouts, the payout path, founder transfers, approvals, revocations,
 //     launches, configs (valid and invalid, F03 in passing), pauses by every
-//     key, guardian and payout settings, admin hand-overs, lamport and coin
+//     key, guardian and payout settings, admin hand-overs (and the admin's other
+//     seats following it: the old program's admin, 8.5, and each city's rewards
+//     authority, 4.2), lamport and coin
 //     donations, holder burns and transfers, clock warps, bundles of several
 //     instructions in one transaction, and invalid variants (F02): one account
 //     of a valid instruction replaced by another plausible account, or its
@@ -406,6 +408,55 @@ export class Fuzz {
   }
   payoutOneStep(h) { const op = this.payoutOp(h); return { label: 'payout', ops: [op], ixs: op.ixs, signers: op.signers }; }
 
+  /**
+   * The admin's other seats follow it, as steps (4.2, 8.2, 8.5; NOTES 42 and 44): the old program's admin
+   * (`propose_admin` by its current admin, `accept_admin` by this program's admin: until then approvals and
+   * launches here fail with LegacyAdminMismatch) and each city's rewards authority (`propose_authority`,
+   * `accept_authority`: until then forward_holders_fees fails and the holders' money waits). A step may stop
+   * after the proposal (`legacyAccept`, `rewardsAccept` false), leaving a transfer pending for a later run.
+   * Every step is computed when it runs, from the chain.
+   */
+  followPlans({ legacyAccept = true, rewardsAccept = true } = {}) {
+    const w = this.w;
+    const steps = [];
+    const follow = (label, signer, ix) => ({ label, ops: [{ kind: 'follow' }], signers: [signer], ixs: [ix] });
+    steps.push(() => {
+      const admin = w.launchpad().admin; const old = w.legacyAdmins(); const from = w.signerOf(old.admin);
+      if (old.admin === admin || old.pendingAdmin === admin || !from) return null;
+      return follow('legacy propose_admin (follow the admin)', from, w.legacyIx('propose_admin', { new_admin: new PublicKey(admin) }, { admin: old.admin, launchpad: w.legacyPdas().launchpad }));
+    });
+    if (legacyAccept) {
+      steps.push(() => {
+        const admin = w.launchpad().admin; const old = w.legacyAdmins();
+        if (old.admin === admin || old.pendingAdmin !== admin) return null;
+        return follow('legacy accept_admin (follow the admin)', w.signerOf(admin), w.legacyIx('accept_admin', {}, { new_admin: admin, launchpad: w.legacyPdas().launchpad }));
+      });
+    }
+    for (const h of this.coins) {
+      const config = w.P.rewardsAccounts(h.mint).config;
+      const view = () => { try { return S.decodeRewardsCityConfig(w.accountInfo(config), { cluster: w.cluster }); } catch { return null; } };
+      steps.push(() => {
+        const v = view(); const admin = w.launchpad().admin;
+        if (!v || v.authority === admin || v.pendingAuthority === admin || !w.signerOf(v.authority)) return null;
+        return follow(`rewards propose_authority ${h.cityId} (follow the admin)`, w.signerOf(v.authority), w.rewardsIx('propose_authority', { new_authority: new PublicKey(admin) }, { authority: v.authority, config }));
+      });
+      if (rewardsAccept) {
+        steps.push(() => {
+          const v = view(); const admin = w.launchpad().admin;
+          if (!v || v.authority === admin || v.pendingAuthority !== admin) return null;
+          return follow(`rewards accept_authority ${h.cityId} (follow the admin)`, w.signerOf(admin), w.rewardsIx('accept_authority', {}, { new_authority: admin, config }));
+        });
+      }
+      // a transfer left pending by an earlier admin while the authority is already the admin: cancelled
+      steps.push(() => {
+        const v = view(); const admin = w.launchpad().admin;
+        if (!v || v.authority !== admin || v.pendingAuthority === ZERO) return null;
+        return follow(`rewards cancel a stale authority transfer ${h.cityId}`, w.signerOf(admin), w.rewardsIx('propose_authority', { new_authority: new PublicKey(ZERO) }, { authority: admin, config }));
+      });
+    }
+    return steps;
+  }
+
   /** One random action as a plan `{ label, ops, ixs, signers, opts, invalid? }`. */
   async nextPlan() {
     const w = this.w; const r = this.r;
@@ -413,7 +464,7 @@ export class Fuzz {
     const action = r.weighted([
       [22, 'buy'], [18, 'sell'], [7, 'buyback'], [3, 'withdraw'], [3, 'claim'], [3, 'forward'], [3, 'payout'],
       [1.5, 'opt_in'], [0.7, 'revoke_opt_in'], [0.7, 'transfer_founder'], [1.5, 'approve'], [0.8, 'revoke_approval'], [1.2, 'launch'],
-      [1.2, 'add_config'], [0.6, 'set_enabled'], [2, 'set_pause'], [0.3, 'set_guardian'], [0.3, 'set_payout_config'], [0.3, 'admin_handover'],
+      [1.2, 'add_config'], [0.6, 'set_enabled'], [2, 'set_pause'], [0.3, 'set_guardian'], [0.3, 'set_payout_config'], [0.3, 'admin_handover'], [0.3, 'follow_admin'],
       [0.4, 'legacy_pause'], [0.8, 'donate_lamports'], [0.6, 'donate_coins'], [0.6, 'holder_burn'], [0.8, 'holder_transfer'], [4, 'warp'], [4, 'bundle'], [0.1, 'init_launchpad'],
       [14, 'invalid'],
     ]);
@@ -525,8 +576,13 @@ export class Fuzz {
         // the old program's launches opened or paused again by its admin (8.5): approvals and launches here
         // must then fail (the checker's I19 holds every successful one to it)
         const paused = r.chance(0.7);
+        const oldAdmin = w.signerOf(w.legacyAdmins().admin) ?? this.registryAdmin;
         return { label: `legacy set_pause ${paused}`, ops: [{ kind: 'legacy', ixs: [] }],
-          ixs: [w.legacyIx('set_pause', { launches: paused, payouts: null }, { authority: this.registryAdmin.address, launchpad: w.legacyPdas().launchpad })], signers: [this.registryAdmin] };
+          ixs: [w.legacyIx('set_pause', { launches: paused, payouts: null }, { authority: oldAdmin.address, launchpad: w.legacyPdas().launchpad })], signers: [oldAdmin] };
+      }
+      case 'follow_admin': {
+        const steps = this.followPlans({ legacyAccept: r.chance(0.85), rewardsAccept: r.chance(0.85) });
+        return steps.length ? steps : this.nextPlan();
       }
       case 'donate_lamports': {
         const from = r.pick(this.traders.slice(0, 6));
@@ -726,7 +782,11 @@ export class Fuzz {
     for (const op of plan.ops) {
       if (op.kind === 'buy' && op.holder) w.addHolder(op.mint, op.holder);
       if (op.kind === 'transfer_founder') this.founders.set(op.coin, op.newSigner);
-      if (op.kind === 'accept_admin') w.admin = op.signer;
+      if (op.kind === 'accept_admin') {
+        w.admin = op.signer;
+        // the admin's other seats follow it (4.2, 8.2, 8.5), mostly at once, sometimes later (follow_admin)
+        if (this.r.chance(0.8)) this.queue = [...(this.queue ?? []), ...this.followPlans()];
+      }
     }
     this.compare(res);
   }

@@ -283,16 +283,13 @@ test('X61 a hostile crank caller chooses nothing and receives nothing: extra dat
   await w.forward(h, { feePayer: caller, label: 'forward by the hostile caller' });
   assert.equal(w.lamportsOf(caller.address), c0 - 4n * 5_000n);
   assert.equal(mintInfo(w.accountInfo(h.mint)).supply, supply0);
-  // a fee payer with no lamports cannot even start
+  // a fee payer with no lamports cannot even start: refused before execution, it pays no fee and nothing moves (the
+  // failed-transaction check knows such a refusal charges nothing, L2)
   const broke = await w.signer(0n);
   w.warpSlots(150n);
   await w.buy(u, h, LAMPORTS);
   const before = fingerprint(w, watch);
-  // (sent directly: a transaction refused before execution charges no fee, which World.send's failed-transaction check does not model)
-  const res = w.svm.sendTransaction(await w.buildTx([w.ix.buybackBurn({ coin: h.coin })], [], { feePayer: broke }));
-  w.svm.expireBlockhash();
-  assert.equal(typeof res.err, 'function', 'refused');
-  assert.ok([2, 4].includes(res.err()), `AccountNotFound (2) or InsufficientFundsForFee (4), got ${res.err()}`);
+  await refuse(() => w.send([w.ix.buybackBurn({ coin: h.coin })], [], 'buyback paid by a 0-lamport fee payer', { feePayer: broke }), /AccountNotFound|InsufficientFundsForFee/);
   assert.deepEqual(fingerprint(w, watch), before);
   assert.equal(w.lamportsOf(broke.address), 0n);
   await w.finish();

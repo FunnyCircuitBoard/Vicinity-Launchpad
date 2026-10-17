@@ -6,16 +6,17 @@
 // test may make, delivering coins to a role key (I21), program code edited
 // without an upgrade and binaries of the wrong cluster (I20). I5 and I6 are
 // exercised in multi-instruction transactions: a graduation followed by pool
-// trades and a buyback in the same transaction. The last two tests are the
-// regressions of the long F01/F02 run (VICINITY-CURVE-NOTES.md 34, 41).
+// trades and a buyback in the same transaction. Two tests are the regressions
+// of the long F01/F02 run (VICINITY-CURVE-NOTES.md 34, 41); the last one is the
+// failed-transaction check's fee rule (NOTES 47, L2).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { address } from '@solana/kit';
 import web3 from '@solana/web3.js';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { World, S, LAMPORTS, PATHS, SOL } from './helpers.mjs';
-import { checkDestinations, compiledIdsProblems, PROGRAM_DATA_HEADER } from './invariants.mjs';
+import { World, S, LAMPORTS, PATHS, SOL, expectFail, refusedBeforeExecution } from './helpers.mjs';
+import { checkDestinations, compiledIdsProblems, PROGRAM_DATA_HEADER, checkFailedTransaction, snapshot } from './invariants.mjs';
 
 /** A deep copy of a decoded transaction whose `top[i].inner[j]` is replaced by `edit(copy)`. */
 function edited(tx, i, j, edit) {
@@ -211,5 +212,32 @@ test('I22: a buyback bucket worth less than one raw coin in an expensive pool is
   await w.buyback(h, { label: 'the next run burns' });
   assert.equal(w.coinView(h).buybackCount, count + 1n);
   assert.equal(w.coinView(h).buybackPending, 0n);
+  await w.finish();
+});
+
+test('L2 the failed-transaction check: a transaction refused before execution pays nothing, one that ran and failed pays exactly its fee, and the check refuses either mixed up', async () => {
+  const w = await World.create();
+  const h = await w.launchCoin({ cityId: 2_050n, symbol: 'NOFEE' });
+  // a fee payer with no lamports: the runtime refuses the transaction before running it (no fee, nothing moves)
+  const broke = await w.signer(0n);
+  const e = await expectFail(() => w.send([w.ix.buybackBurn({ coin: h.coin })], [], 'paid by a 0-lamport fee payer', { feePayer: broke }), /AccountNotFound|InsufficientFundsForFee/);
+  assert.match(e.errText, /AccountNotFound|InsufficientFundsForFee/);
+  assert.equal(w.lamportsOf(broke.address), 0n);
+  assert.ok(refusedBeforeExecution(2) && refusedBeforeExecution(4) && !refusedBeforeExecution(32), 'AccountNotFound and InsufficientFundsForFee pay nothing; UnbalancedTransaction ran');
+  // a transaction that ran and failed pays exactly 5,000 lamports per signature
+  const u = await w.signer(1n);
+  const u0 = w.lamportsOf(u.address);
+  await expectFail(() => w.send([w.ix.claimFounderFees({ founder: u.address, coin: h.coin })], [u], 'claim by a stranger', { feePayer: u }), 'WrongFounder');
+  assert.equal(u0 - w.lamportsOf(u.address), 5_000n);
+  // the check itself, on account snapshots: each rule refuses the other case
+  const snap = snapshot(w);
+  const K = String(u.address); const other = String(h.founder.address);
+  const accounts = (feePayer, rest = 1_000n) => new Map([[K, { address: K, lamports: feePayer, exists: true, owner: S.ADDRESSES.system, data: Buffer.alloc(0) }], [other, { address: other, lamports: rest, exists: true, owner: S.ADDRESSES.system, data: Buffer.alloc(0) }]]);
+  const run = (post, charged) => checkFailedTransaction(w, { pre: snap, post: snap, preAccounts: accounts(20_000n), postAccounts: post, feePayer: K, nSignatures: 1, label: 'synthetic', charged });
+  run(accounts(15_000n), true);
+  run(accounts(20_000n), false);
+  assert.throws(() => run(accounts(20_000n), true), /lamports of .* moved/, 'a transaction that ran must have paid its fee');
+  assert.throws(() => run(accounts(15_000n), false), /lamports of .* moved/, 'a refused transaction pays nothing');
+  assert.throws(() => run(accounts(15_000n, 999n), true), /lamports of .* moved/, 'nothing else moves');
   await w.finish();
 });

@@ -507,6 +507,9 @@ SHA-256 again. The stage 2 smoke test (`tests-vcurve`) keeps its crafted account
 
 ### 28. Where the SDK and the suites live, and how the SDK is checked (14.1, 12.5 G01)
 
+*Superseded in part: the G01 volume and F01's differential run it leaves open are done (entries 37
+and 38); the directory names stand (revision 3 of the specification uses them).*
+
 **Spec.** 14.1 calls the SDK module `sdk/vcurve/`; G01 asks for golden vectors exported by the Rust
 crate and parity "to the lamport on 10^4 random trades".
 
@@ -612,6 +615,9 @@ binary that is not the audited one.
 
 ### 32. The first attack tests, and what they do not yet cover (12.4, 12.5 F02, 14.3)
 
+*Superseded: the attack tests of 12.4 are entry 33, F02 in full is entry 38, and the X02 and X04
+cases this entry left partial are completed in entry 48.*
+
 `tests-curve/14-attacks.test.mjs` covers part of 12.4 with the World and its checker (every failed
 transaction is checked to have moved nothing but the fee):
 
@@ -708,7 +714,7 @@ attacks, and victims never pay the fee, so their balances must be exactly unchan
   1.5.0 accepts a credit (a 0.0001 SOL buy) into an untraded coin that stays below the new minimum.
 * For the checker's owner: `checkFailedTransaction` charges every failed transaction its fee, but a
   transaction refused before execution (a missing or empty fee payer) pays none; X61 sends that case
-  through LiteSVM directly.
+  through LiteSVM directly. *Resolved by entry 47.*
 * Graduation-boundary sandwiches (file 17): a victim whose own price impact is below twice the fee
   (a 0.3 SOL buy at 80 SOL raised, 0.53%) cannot be sandwiched at a profit at any front-run size; a
   victim with 5.39% impact (3 SOL) and 1% slippage can be, by at most 0.000753 SOL, within his
@@ -742,7 +748,8 @@ attacks, and victims never pay the fee, so their balances must be exactly unchan
 ### 34. The checker's last gaps: I14 destinations, I21 tokens, I5 and I6 per step, I20 at run time (9, 12 intro, L13)
 
 Entry 29 describes the checker. Four readings were added, and
-`tests-curve/20-checker-gaps.test.mjs` breaks each one on purpose and requires the checker to fail:
+`tests-curve/20-checker-gaps.test.mjs` (now `27-checker-gaps.test.mjs`, entry 48) breaks each one on
+purpose and requires the checker to fail:
 
 * **I14 destinations.** Explaining every lamport difference is not enough: an extra transfer from
   the payer inside `launch` is explained by its own system instruction. Every inner instruction of
@@ -993,7 +1000,7 @@ do not reach in practice (their end price is far below one lamport per raw coin)
 
 A raw coin costs one lamport once the pool's price reaches 10^6 lamports per coin, a fully diluted
 value of about 1,000,000 SOL; on config #0 the pool then holds about 4,200 SOL. The regression
-test in `20-checker-gaps.test.mjs` puts 20,000 SOL in (about 22 lamports per raw coin), lets the
+test in `20-checker-gaps.test.mjs` (now `27-checker-gaps.test.mjs`) puts 20,000 SOL in (about 22 lamports per raw coin), lets the
 runs spend the bucket, and then sells 100 raw coins, which adds 6 lamports to the bucket. The run
 is then a no-op. The next ordinary trade's share makes the bucket worth coins, and the following
 run burns. This is the program doing exactly what 7.1 specifies; no program change. It is dust
@@ -1163,3 +1170,34 @@ accounts with data are no config); `29-clients` against the real `vicinity_rewar
 vault addresses pre-funded, `init_city` proposed and creating both, the forward paid, then an admin
 hand-over reported as fixable until `propose_authority` and `accept_authority`, after which the
 config is correct again and forwards resume.
+
+### 47. The failed-transaction check and transactions refused before execution (12 intro, L13; entries 29 and 33; leftover L2)
+
+`checkFailedTransaction` charged every failed transaction its fee. A transaction the runtime refuses
+before running it (its fee payer missing or unable to pay, a bad signature or blockhash, a message
+that does not sanitise, an account loaded twice or locked, a bad lookup table) pays nothing, so
+`World.send` could not send one and X61 went around it (entry 33). `World.send` now classifies
+litesvm's error (`REFUSED_BEFORE_EXECUTION` in `helpers.mjs`, fieldless errors only) and the check
+requires exactly no fee for those and exactly 5,000 lamports per signature for every other failure,
+with nothing else moved either way. X61 sends its 0-lamport fee payer through `World.send`.
+`27-checker-gaps` L2 shows that each rule refuses the other case.
+
+### 48. The fuzz follows admin hand-overs; X04 and X02 completed; the test files (12.4 X02, X04, 12.5 F01, F02; entries 32 and 38; leftovers L1, L3, L5)
+
+* **L1.** After an `accept_admin` the fuzz now has the admin's other seats follow it (`followPlans`
+  in `fuzz.mjs`), at once in four cases out of five and otherwise through a later `follow_admin`
+  action: the old program's admin (`propose_admin`, `accept_admin`, entry 42) and each city's
+  rewards authority (`propose_authority`, `accept_authority`, or a cancel of a stale pending
+  transfer, 4.2). Some steps stop after the proposal and leave a transfer pending. The old
+  program's pause is signed by its current admin. So approvals, launches and forwards keep
+  succeeding in long runs after admin changes. Two 5,000-step runs (seeds 3 and 4) made 205 follow
+  steps (all succeeded) and 173 successful forwards; the model and the chain agreed at every step.
+* **L3.** `14-attacks` completes X04 and X02. X04: a real Token-2022 mint, and Token-2022 copies of
+  the coin's mint, its vault and a holder's token account, alone and together with the Token-2022
+  program, in `buy` and `sell` (18 variants): each is refused with `AccountOwnedByWrongProgram`
+  (3007) on the substituted account, or `InvalidProgramId` (3008) for the program alone. X02: a
+  `Coin` made by the old program itself (its approval and launch through Meteora DBC) in the coin
+  slot of all nine coin-level instructions: `AccountOwnedByWrongProgram`. Nothing moved, and the old
+  `Coin` is untouched.
+* **L5.** `20-checker-gaps.test.mjs` is now `27-checker-gaps.test.mjs` (two files had the prefix
+  20); `tests-curve/README.md` lists every file; entries 28 and 32 are marked superseded.

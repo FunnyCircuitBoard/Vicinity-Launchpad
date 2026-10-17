@@ -243,9 +243,14 @@ function computeOf(seg, program) {
 }
 
 // ---------------------------------------------------------------- failed transactions
-export function checkFailedTransaction(w, { pre, post, preAccounts, postAccounts, feePayer, nSignatures, label }) {
+/**
+ * A failed transaction moved nothing but its fee: the fee payer paid exactly the fee (5,000 lamports per signature)
+ * when the transaction ran and failed, and nothing at all when the runtime refused it before execution (`charged`
+ * false: its fee payer missing or unable to pay, a bad signature or blockhash, L2); no other account changed.
+ */
+export function checkFailedTransaction(w, { pre, post, preAccounts, postAccounts, feePayer, nSignatures, label, charged = true }) {
   checkProgramBytes(w, label);
-  const fee = LAMPORTS_PER_SIGNATURE * BigInt(nSignatures);
+  const fee = charged ? LAMPORTS_PER_SIGNATURE * BigInt(nSignatures) : 0n;
   for (const [k, a] of preAccounts) {
     const b = postAccounts.get(k);
     const want = k === feePayer ? a.lamports - fee : a.lamports;

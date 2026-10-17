@@ -112,6 +112,18 @@ const FIELDLESS = ['AccountInUse', 'AccountLoadedTwice', 'AccountNotFound', 'Pro
   'WouldExceedMaxAccountCostLimit', 'WouldExceedAccountDataBlockLimit', 'TooManyAccountLocks', 'AddressLookupTableNotFound', 'InvalidAddressLookupTableOwner',
   'InvalidAddressLookupTableData', 'InvalidAddressLookupTableIndex', 'InvalidRentPayingAccount', 'WouldExceedMaxVoteCostLimit', 'WouldExceedAccountDataTotalLimit',
   'MaxLoadedAccountsDataSizeExceeded', 'ResanitizationNeeded', 'InvalidLoadedAccountsDataSizeLimit', 'UnbalancedTransaction', 'ProgramCacheHitMaxLimit', 'CommitCancelled'];
+/**
+ * Transactions the runtime refuses before executing them: the fee payer is missing or cannot pay, a signature,
+ * the blockhash or the message itself is invalid, an account is loaded twice or locked. They pay no fee and
+ * change nothing; every other failure ran (an instruction error, the rent-state rule after execution) and pays
+ * its fee (L2).
+ */
+export const REFUSED_BEFORE_EXECUTION = Object.freeze(new Set(['AccountInUse', 'AccountLoadedTwice', 'AccountNotFound', 'InsufficientFundsForFee',
+  'InvalidAccountForFee', 'AlreadyProcessed', 'BlockhashNotFound', 'MissingSignatureForFee', 'InvalidAccountIndex', 'SignatureFailure', 'SanitizeFailure',
+  'UnsupportedVersion', 'InvalidWritableAccount', 'TooManyAccountLocks', 'AddressLookupTableNotFound', 'InvalidAddressLookupTableOwner',
+  'InvalidAddressLookupTableData', 'InvalidAddressLookupTableIndex', 'ResanitizationNeeded']));
+/** Whether litesvm's error `v` (a fieldless index or an error object) is one of REFUSED_BEFORE_EXECUTION. */
+export const refusedBeforeExecution = (v) => typeof v === 'number' && REFUSED_BEFORE_EXECUTION.has(FIELDLESS[v]);
 const stringify = (v) => {
   if (typeof v === 'number' && FIELDLESS[v]) return `TransactionError ${FIELDLESS[v]} (${v})`;
   const json = JSON.stringify(v, (k, x) => (typeof x === 'bigint' ? x.toString() : x));
@@ -375,7 +387,7 @@ export class World {
       const logs = res.meta().logs();
       const rpc = rpcTransaction(messageBytes, { err: stringify(res.err()), inner: res.meta().innerInstructions(), logs, loaded });
       if (this.checks) {
-        checkFailedTransaction(this, { pre, post: snapshot(this, keySet), preAccounts, postAccounts, feePayer: keys[0], nSignatures: msg.header.numSignerAccounts, label });
+        checkFailedTransaction(this, { pre, post: snapshot(this, keySet), preAccounts, postAccounts, feePayer: keys[0], nSignatures: msg.header.numSignerAccounts, label, charged: !refusedBeforeExecution(res.err()) });
         // 4.21, T56 (CLI-2): a failed transaction yields no events to an indexer, whatever its metadata carries
         assert.deepEqual(S.decodeTransactionEvents(rpc, { programId: this.programId }), [], `${label} (failed): decodeTransactionEvents returned events`);
       }
