@@ -684,6 +684,16 @@ test("names: the program's own rule (1 to 32 UTF-8 bytes, no control or invisibl
   assert.match(nameProblem("Ams​terdam"), /invisible/);
   assert.match(nameProblem("Ams‮terdam"), /invisible/);
   assert.match(nameProblem("Ams\nterdam"), /control/);
+  // review FA-1: every default-ignorable code point (the Hangul fillers, the combining grapheme joiner, variation selectors...)
+  // and every blank character, wherever it stands; the review's names looked exactly like "Paris"
+  for (const cp of [0x34f, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180f, 0x2065, 0x3164, 0xfe00, 0xfe0f, 0xffa0, 0xfff0, 0xe0000, 0xe0100, 0xe0fff,
+    0xa0, 0x1680, 0x2000, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x2800, 0x3000, 0x1d159]) {
+    const c = String.fromCodePoint(cp);
+    for (const name of [`Paris${c}`, `Pa${c}ris`, c]) assert.match(nameProblem(name), /invisible/, `U+${cp.toString(16)} in ${JSON.stringify(name)}`);
+  }
+  // spaces: a single U+0020 between two characters only
+  for (const name of [" ", " Paris", "Paris ", "New  York"]) assert.match(nameProblem(name), /space/, JSON.stringify(name));
+  for (const name of ["New York City", "Rio de Janeiro", "Xi'an", "Saint-Étienne"]) assert.equal(nameProblem(name), null, name);
 });
 
 test("the price curve check names the fields that differ from the defaults", () => {
