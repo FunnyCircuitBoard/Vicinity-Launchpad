@@ -632,3 +632,79 @@ transaction is checked to have moved nothing but the fee):
   the signer cannot pay it, so the probe tests the instruction, not the fee.
 * **X32, X33, X65** as 12.4 states them.
 
+
+### 33. The attack tests of 12.4, what litesvm cannot test, and what they measured (12.4, section 10, 7.3, 7.5, T63, T76)
+
+`tests-curve/15-attacks-accounts.test.mjs` to `20-attacks-runtime.test.mjs` add one test (or one
+block of a test) per testable threat of section 10. Every refusal goes through `World.send`, so the
+failed-transaction check asserts that nothing moved but the fee payer's fee and that no
+`vicinity_curve` account changed; each test also compares the bytes and lamports of the accounts it
+attacks, and victims never pay the fee, so their balances must be exactly unchanged.
+
+| file | threats |
+|---|---|
+| 15 accounts | X03 fake mint, X06 metadata address, X29 re-init of every account, X30 close and revival, X36 (closest shape), X37 metadata edit, X38 Unicode, X39 authorities, X54 aliased accounts, X55 pre-funded PDAs, X60 (closest shape), X64 |
+| 16 trading | X13 zero outputs, X14 overflow, X15 zero denominators, X16 every partial-fill edge, X17, X18, X19, X20, X21, X22, X40, X41, X42, X57 |
+| 17 economics | X07, X08 donations against a twin coin, X09, X12 tiny trades on the curve, X10 in the pool, X11 round trips, X28 dust sells, X27 and X27b drip farming |
+| 18 buyback | X23 bundled, X24 canonical sandwich (and founder credited), X25 multi-leg bundle and the hold through K runs (T76), X26, X61 |
+| 19 admin | X34, X35, X43, X43b, X44, X45 (closest shape), X46 (closest shape), X47 with the other cluster's id, X48, X49, X50, X51, X52, X53 |
+| 20 runtime | X56 (closest shape), X59, X62 (closest shape), X63 |
+
+**Not testable in litesvm, and the closest shape tested instead.**
+
+* T36 look-alike tokens outside the program cannot be prevented on Solana. X36 makes a perfect
+  look-alike for real (a classic mint with 6 decimals and Metaplex metadata with the official name,
+  symbol and even the official URI): every instruction refuses it, and only the registry (the
+  `Coin` and `TickerLock` owned by the program) tells the two apart.
+* T45 (a stolen admin key approving many cities) and T46 (a malicious upgrade) are process (Squads
+  2 of 3, time lock, monitoring). X45 tests the on-chain limits: approvals expire within 30 days, an
+  expired one cannot launch and anyone may close it, one approval per city, a `LaunchApproved` event
+  for every approval. X46 shows that a stranger can neither upgrade the program (with his own buffer
+  or the authority's) nor take its upgrade authority, while the authority's own redeploy works; the
+  halt-all build over live state is H03.
+* T56 and T60 need an attacker program deployed in the VM, which the suite does not build. X56
+  shows that a forged event instruction is refused alone (not signed by the event authority) and
+  sinks any transaction it rides along with, and that the SDK decoder accepts a money event only as
+  the program's own event CPI. X60 shows that every money instruction calls only System, SPL Token,
+  Metaplex (in `launch`) and its own event CPI, and that every program slot refuses other real
+  executables (`vicinity_rewards`, the old program, Metaplex, itself) before any CPI.
+* T62 (launch sniping), T52 and T53 (founder key theft or loss) and T20 (pool pre-creation) are
+  design; X62, X52, X53 and X20 test the properties the design relies on. T66, T68 and T74 are
+  outside the program and not tested.
+* Where an attacker cannot create a state, the tests create it out of band to reach the check
+  itself: an `Approval` for a launched city (X29, to meet plain `init` on the `Coin`), field edits of
+  the real rewards config and vault (X47 to X49, in the style of TE10 to TE13), loader buffers (X46),
+  a whale holding 1.5 million SOL (X13), a fake and an immutable ProgramData (X64).
+
+**What the tests measured (no program bug was found).**
+
+* X24 canonical sandwich, best result over 0.0001 to 50 SOL: curve 0.95253 (Theorem M: 0.95253),
+  pool 0.95894 (0.96230); the founder credited his share 0.96550 (0.97223), credited his and the
+  holders' shares 0.97540 (never a profit). X25 multi-leg bundles: curve 0.95244, pool 0.95951
+  (split-leg bound 0.95253 and 0.97217).
+* T76 hold-through (X25), a 0.1 SOL attacker and no other trade: on the curve with a backlog of
+  0.948 SOL (3.15% of depth) a loss through K = 25 runs, the first profit at K = 26, and +1.14% when
+  held until the backlog was spent (32 runs); in a pool with a backlog of 20.9% of depth the first
+  profit at K = 26 and +7.15% after 60 runs. Every result is within Theorem M_K. This is the residual
+  risk of O25: the keeper's runs every interval and the backlog alert of 7.2 and 14.1 are the
+  mitigation.
+* X27 drip farming by the founder holding the whole float, credited the founder, holders and buyback
+  shares of his legs, against selling at once: -0.098 SOL (12 round trips of 1 SOL), -0.626 SOL
+  (4 of 20), -0.883 SOL (2 of 60) on the default config; -0.173 SOL (8 of 5) and -0.551 SOL (3 of 50)
+  on the V10 edge (50, 51, 50, 50, 30).
+* X09 and X12: 60 trades of 100,039 lamports (30 buys, 30 sells packed 10 per transaction) saved 42
+  lamports of fee rounding against one round trip of the same size, and cost 165,000 lamports of
+  signatures; X10 in the pool saved 28. X11: the best curve round trip returned 0.95063 (the 0.0001
+  SOL buy: two fees each rounded down by under a lamport), the best pool round trip 0.95741.
+* X63, the Rent sysvar raised by 10% (a `Coin`'s minimum from 5,714,160 to 6,285,576 lamports): every
+  exit of a coin with ordinary liabilities works, because `pay_out` floors at `min(rent_reserve, live
+  rent)`. A coin with 650,000 lamports of liabilities is still exempt, but a sell paying 617,906
+  lamports would leave it below the new minimum, and the runtime's rent-state rule (an exempt
+  account may not become rent-paying) refuses it with `InsufficientFundsForRent`; a top-up of
+  571,416 lamports by anyone lets the same sell through. So T63's "a rent increase cannot block
+  exits" holds for the program's own floor, while the last exits of a nearly empty coin need a top-up,
+  as X63 states; the keeper should top up coins below the live minimum after a rent change. litesvm
+  1.5.0 accepts a credit (a 0.0001 SOL buy) into an untraded coin that stays below the new minimum.
+* For the checker's owner: `checkFailedTransaction` charges every failed transaction its fee, but a
+  transaction refused before execution (a missing or empty fee payer) pays none; X61 sends that case
+  through LiteSVM directly.
