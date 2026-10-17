@@ -70,6 +70,13 @@ export const CREATES = Object.freeze({
   launch: { payer: 'payer', accounts: ['coin', 'mint', 'coin_vault', 'ticker_lock'], metaplex: 'metadata' },
   opt_in_payout: { payer: 'founder', accounts: ['opt_in'] },
 });
+// PDA derivations are memoised: the checker derives the same few addresses for every coin after
+// every transaction, and each derivation costs a hash and a curve check per bump tried.
+const memo = new Map();
+const cached = (key, fn) => { let v = memo.get(key); if (v === undefined) { v = fn(); memo.set(key, v); } return v; };
+const metadataOf = (mint) => cached(`md:${mint}`, () => S.metadataAddress(mint));
+const ataOf = (owner, mint) => cached(`ata:${owner}:${mint}`, () => S.associatedTokenAddress(owner, mint));
+const programDataOf = (id) => cached(`pd:${id}`, () => S.findPda([new PublicKey(id).toBuffer()], S.ADDRESSES.upgradeableLoader)[0]);
 const accountOf = (t, name) => {
   const i = S.ACCOUNT_TABLES[t.name].findIndex(([n]) => n === name);
   assert.ok(i >= 0, `no account ${name} in ${t.name}`);
@@ -113,8 +120,12 @@ export function readMetadata(data) {
   return { updateAuthority, mint, name, symbol, uri, sellerFeeBasisPoints, hasCreators: hasCreators === 1, isMutable };
 }
 
-/** Every vicinity_curve account, decoded, plus each coin's vault and mint (the state the checker compares). */
-export function snapshot(w) {
+/**
+ * Every vicinity_curve account, decoded, plus each coin's vault and mint (the state the checker compares).
+ * With `keys` (the accounts a transaction loads), the vault and mint are read only for the coins the
+ * transaction can touch: no other account can change.
+ */
+export function snapshot(w, keys) {
   const programId = w.programId;
   const accounts = new Map();
   const coins = new Map(); const configs = new Map(); const approvals = new Map(); const tickers = new Map(); const optIns = new Map();
@@ -132,6 +143,7 @@ export function snapshot(w) {
     else assert.fail(`unknown account ${acc.address} owned by vicinity_curve (${acc.data.length} bytes)`);
   }
   for (const c of coins.values()) {
+    if (keys && !(keys.has(c.address) || keys.has(c.vault) || keys.has(c.mint))) { c.vaultAmount = undefined; c.mintInfo = { supply: undefined }; continue; }
     c.vaultAmount = tokenAccountInfo(w.accountInfo(c.vault))?.amount ?? null;
     c.mintInfo = mintInfo(w.accountInfo(c.mint));
   }
@@ -222,7 +234,7 @@ export function checkFailedTransaction(w, { pre, post, preAccounts, postAccounts
 export const PROGRAM_DATA_HEADER = 45;
 export function checkProgramBytes(w, label) {
   for (const [id, code] of w.programBytes ?? []) {
-    const pd = w.accountInfo(S.findPda([new PublicKey(id).toBuffer()], S.ADDRESSES.upgradeableLoader)[0]);
+    const pd = w.accountInfo(programDataOf(id));
     assert.ok(pd && pd.data.subarray(PROGRAM_DATA_HEADER).equals(code), `${label}: I20 the code of ${id} changed without an upgrade`);
   }
 }
@@ -556,9 +568,18 @@ export function checkTransaction(w, ctx) {
   const txSlot = post.slot; const txTs = post.ts;
   const rentMin = w.svm.minimumBalanceForRentExemption(BigInt(S.ACCOUNT_LEN.CurveCoin));
   for (const coin of pre.coins.keys()) assert.ok(post.coins.has(coin), `${label}: Coin ${coin} vanished (I19)`);
+  const inTx = new Set(tx.keys);
   for (const [addr, c] of post.coins) {
     const b = pre.coins.get(addr);
     const events = tx.top.flatMap((t) => t.events.map((e) => ({ ...e, top: t }))).filter((e) => e.data.city_id === c.cityId);
+    // A coin none of whose accounts (Coin, vault, mint, metadata) the transaction loaded cannot have
+    // changed; it is checked to be byte-identical instead of re-running every invariant (they held
+    // after the transaction that last touched it).
+    if (b && !events.length && ![addr, c.vault, c.mint, metadataOf(c.mint)].some((k) => inTx.has(k))) {
+      assert.ok(c.raw.equals(b.raw) && c.lamports === b.lamports && c.vaultAmount === b.vaultAmount && c.mintInfo.supply === b.mintInfo.supply,
+        `${label}: ${c.symbol} changed although the transaction did not load any of its accounts`);
+      continue;
+    }
     const terms = S.coinTerms(c);
     let st; let ext; let launched = false;
     if (!b) {
@@ -837,7 +858,7 @@ function checkCoin(w, { c, b, label, rentMin, graduatedInTx }) {
   const m = c.mintInfo;
   assert.equal(m.supply, S.COIN_SUPPLY - c.dustBurned - c.tokensBurned - (w.holderBurns.get(c.mint) ?? 0n), `${tag}: I11 supply`);
   assert.deepEqual([m.mintAuthority, m.freezeAuthority, m.decimals], [null, null, 6], `${tag}: I11 authorities None, 6 decimals`);
-  const md = readMetadata(w.accountInfo(S.metadataAddress(c.mint)).data);
+  const md = readMetadata(w.accountInfo(metadataOf(c.mint)).data);
   const meta = w.coinMeta.get(c.address);
   assert.deepEqual([md.isMutable, md.updateAuthority, md.mint, md.name, md.symbol, md.uri, md.sellerFeeBasisPoints, md.hasCreators],
     [false, c.address, c.mint, meta.name, meta.symbol, S.metadataUri(c.mint), 0, false], `${tag}: I11 metadata`);
@@ -953,7 +974,7 @@ export async function probeLiveness(w, { label = 'liveness' } = {}) {
       assert.equal(after.phase, 1, `${label}: I22 the max_quote_in buy graduates ${tag}`);
     }
     for (const h of w.holdersOf(c.mint)) {
-      const ta = S.associatedTokenAddress(h.address, c.mint);
+      const ta = ataOf(h.address, c.mint);
       const bal = tokenAccountInfo(w.accountInfo(ta))?.amount ?? 0n;
       if (bal === 0n) continue;
       const amount = c.phase === 0 && bal > c.tokensSold ? c.tokensSold : bal;

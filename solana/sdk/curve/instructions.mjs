@@ -108,9 +108,13 @@ function writeConfigParams(w, p) {
 
 const ZERO = ADDRESSES.system;
 
-/** Builders for one deployment. */
-export function curveInstructions({ programId = CURVE_PROGRAM_ID, cluster = 'mainnet' } = {}) {
-  const P = curvePdas({ programId, cluster });
+/**
+ * Builders for one deployment. `pdas` may pass the deployment's PDA helpers
+ * (for example a memoised `curvePdas({ programId, cluster })`) so that the
+ * builders do not derive the same addresses again.
+ */
+export function curveInstructions({ programId = CURVE_PROGRAM_ID, cluster = 'mainnet', pdas } = {}) {
+  const P = pdas ?? curvePdas({ programId, cluster });
   const program = P.programId;
   const evt = { event_authority: P.eventAuthority(), program };
 

@@ -147,8 +147,9 @@ export class World {
     this.svm = new LiteSVM();
     this.programId = S.CURVE_PROGRAM_ID;
     this.cluster = 'mainnet';
-    this.P = S.curvePdas({ programId: this.programId, cluster: this.cluster });
-    this.ix = S.curveInstructions({ programId: this.programId, cluster: this.cluster });
+    this.P = memoPdas(S.curvePdas({ programId: this.programId, cluster: this.cluster }));
+    this.ix = S.curveInstructions({ programId: this.programId, cluster: this.cluster, pdas: this.P });
+    this.ataCache = new Map();
     this.signers = new Map();
     this.holders = new Map(); // mint -> Map(address -> signer)
     this.lamportDonations = new Map();
@@ -258,7 +259,14 @@ export class World {
   exists(addr) { return this.accountInfo(addr) !== null; }
   lamportsOf(addr) { return this.accountInfo(addr)?.lamports ?? 0n; }
   tokenBalance(ta) { return tokenAccountInfo(this.accountInfo(ta))?.amount ?? 0n; }
-  balanceOf(owner, mint) { return this.tokenBalance(S.associatedTokenAddress(owner.address ?? owner, mint)); }
+  balanceOf(owner, mint) { return this.tokenBalance(this.ata(owner.address ?? owner, mint)); }
+  /** The associated token account of `owner` for `mint` (memoised). */
+  ata(owner, mint) {
+    const k = `${owner}:${mint}`;
+    let a = this.ataCache.get(k);
+    if (!a) { a = S.associatedTokenAddress(owner, mint); this.ataCache.set(k, a); }
+    return a;
+  }
   now() { return BigInt(this.svm.getClock().unixTimestamp); }
   slot() { return BigInt(this.svm.getClock().slot); }
   /** Advance `n` slots (and n * 0.4 s, at least 1 s). */
@@ -323,7 +331,8 @@ export class World {
     const keys = [...msg.staticAccounts.map(String), ...loaded];
     const read = () => new Map(keys.map((k) => { const a = this.accountInfo(k); return [k, a ?? { address: k, lamports: 0n, exists: false, data: Buffer.alloc(0), owner: null }]; }));
     const preAccounts = read();
-    const pre = this.checks ? snapshot(this) : null;
+    const keySet = new Set(keys);
+    const pre = this.checks ? snapshot(this, keySet) : null;
     const size = Buffer.from(getBase64EncodedWireTransaction(tx), 'base64').length;
     const res = this.svm.sendTransaction(tx);
     this.svm.expireBlockhash();
@@ -332,14 +341,14 @@ export class World {
     if (typeof res.err === 'function') {
       const logs = res.meta().logs();
       if (this.checks) {
-        checkFailedTransaction(this, { pre, post: snapshot(this), preAccounts, postAccounts, feePayer: keys[0], nSignatures: msg.header.numSignerAccounts, label });
+        checkFailedTransaction(this, { pre, post: snapshot(this, keySet), preAccounts, postAccounts, feePayer: keys[0], nSignatures: msg.header.numSignerAccounts, label });
       }
       throw new TxError(label, logs, stringify(res.err()));
     }
     const logs = res.logs();
     const decoded = decodeTransaction(this, { messageBytes, inner: res.innerInstructions(), logs, lookupAddresses: loaded });
     if (this.checks) {
-      const ctx = { pre, post: snapshot(this), tx: decoded, preAccounts, postAccounts, label, opts: o };
+      const ctx = { pre, post: snapshot(this, keySet), tx: decoded, preAccounts, postAccounts, label, opts: o };
       this.lastCtx = ctx; // what the checker saw (tests of the checker replay it with edits)
       checkTransaction(this, ctx);
       if (this.probeEach && !o.noProbe) this.probes += (await probeLiveness(this, { label: `after ${label}` })).probes;
@@ -416,10 +425,10 @@ export class World {
   /** `[create ATA (idempotent) if missing, buy]`: the website's buy transaction (14.1). */
   buyIxs(user, h, solIn, minTokensOut = 0n, { userTokenAccount } = {}) {
     const mint = h.mint;
-    const ata = S.associatedTokenAddress(user.address, mint);
+    const ata = this.ata(user.address, mint);
     const out = [];
     if (!userTokenAccount && !this.exists(ata)) out.push(S.createAssociatedTokenAccountIdempotent({ payer: user.address, owner: user.address, mint }));
-    out.push(this.ix.buy({ user: user.address, coin: h.coin ?? h.address, userTokenAccount, solIn, minTokensOut }));
+    out.push(this.ix.buy({ user: user.address, coin: h.coin ?? h.address, userTokenAccount: userTokenAccount ?? ata, solIn, minTokensOut }));
     return out;
   }
   /** A buy by `user`; the SDK quote from the state before must equal what happened (the checker replays it too). */
@@ -427,7 +436,7 @@ export class World {
     const before = this.coinView(h);
     const q = S.quoteBuy(S.coinTerms(before), S.coinState(before), BigInt(solIn));
     const lam0 = this.lamportsOf(user.address);
-    const ta = userTokenAccount ?? S.associatedTokenAddress(user.address, h.mint);
+    const ta = userTokenAccount ?? this.ata(user.address, h.mint);
     const tok0 = this.tokenBalance(ta);
     const res = await this.send(this.buyIxs(user, h, BigInt(solIn), BigInt(min), { userTokenAccount }), [user], label);
     assert.equal(this.tokenBalance(ta) - tok0, q.tokensOut, `${label}: coins received = the SDK quote`);
@@ -438,7 +447,7 @@ export class World {
     const before = this.coinView(h);
     const q = S.quoteSell(S.coinTerms(before), S.coinState(before), BigInt(tokensIn));
     const lam0 = this.lamportsOf(user.address);
-    const res = await this.send([this.ix.sell({ user: user.address, coin: h.coin, tokensIn: BigInt(tokensIn), minSolOut: BigInt(min) })], [user], label);
+    const res = await this.send([this.ix.sell({ user: user.address, coin: h.coin, userTokenAccount: this.ata(user.address, h.mint), tokensIn: BigInt(tokensIn), minSolOut: BigInt(min) })], [user], label);
     assert.equal(this.lamportsOf(user.address) - lam0, q.solOut, `${label}: lamports received = the SDK quote`);
     return { res, q };
   }
@@ -551,6 +560,21 @@ export class World {
       mint_metadata: dbc.metadata(base.address), quote_mint: S.ADDRESSES.nativeMint, dbc_event_authority: dbc.eventAuthority(),
     })], [founder, base], 'legacy launch', { cu: 400_000 });
   }
+}
+
+/** The PDA helpers of a deployment with every derivation memoised (the checker derives the same addresses after every transaction). */
+function memoPdas(P) {
+  const cache = new Map();
+  const out = {};
+  for (const [k, v] of Object.entries(P)) {
+    out[k] = typeof v !== 'function' ? v : (...args) => {
+      const key = `${k}:${args.map(String).join(',')}`;
+      let r = cache.get(key);
+      if (r === undefined) { r = v(...args); cache.set(key, r); }
+      return r;
+    };
+  }
+  return Object.freeze(out);
 }
 
 /** Shorthand for the default amounts of 5.14. */
