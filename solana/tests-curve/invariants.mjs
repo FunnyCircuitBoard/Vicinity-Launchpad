@@ -11,11 +11,33 @@
 //     native-token transfers that executed, the money events of vicinity_curve
 //     (whose destinations are the fixed ones of 6.4) and Anchor's closes of an
 //     Approval or a PayoutOptIn to their pinned receivers (I13, I14, I21).
+//   * destinations (I14): every inner instruction of a vicinity_curve
+//     instruction goes to System, SPL Token, Metaplex (in `launch` only) or the
+//     program's own event CPI; every system transfer, account creation,
+//     allocation and assignment inside one is pinned: a creation (or Anchor's
+//     transfer, allocate and assign over a pre-funded address) only to an
+//     account that very instruction creates (by its account table: the
+//     Launchpad, a LaunchConfig, an Approval, the Coin, its mint, vault and
+//     TickerLock, a PayoutOptIn), from that instruction's payer and for at most
+//     the rent of what it creates; a transfer otherwise only to the Coin (the
+//     buy's `charged`), FEE_RECIPIENT (the launch fee) or, inside Metaplex's
+//     own CPI of `launch`, the metadata account it creates (its rent plus
+//     Metaplex's 0.01 SOL fee, 3.10). Anything else is refused. The associated
+//     token program's top-level creations are pinned the same way.
 //   * tokens from the token instructions that actually executed (top level and
 //     every CPI): coins leave a vault only to the buyer's token account inside a
 //     `buy`, or by `burn` in `buyback_burn` or the launch's dust burn; no
 //     approve, revoke, close, freeze, thaw, set-authority or mint touches a vault
-//     or a mint after launch (I14).
+//     or a mint after launch (I14); no coins are delivered to a token account
+//     whose owner, delegate or close authority is a role key (I21).
+//   * I6 after every Trade and every BuybackBurned event of a coin in its pool
+//     phase, in event order (several instructions of one transaction included),
+//     from the events' own after-figures; I5's vault == P explicitly at the end
+//     of the instruction that graduates a coin.
+//   * I20 at run time: the program bytes of vicinity_curve (and of the two
+//     programs it reads) are those the World loaded, before and after every
+//     transaction, successful or not; the World checks at every load that the
+//     binary carries the compiled ids of its cluster and none of the other's.
 //   * each coin's state by replaying the transaction's events through the SDK's
 //     math port from the state before it: every quote, fee share, drip, counter
 //     and after-figure of every Trade, Graduated, BuybackBurned and payout event
@@ -33,6 +55,26 @@ import * as S from '../sdk/curve/index.mjs';
 const { PublicKey } = web3;
 const ZERO = S.ADDRESSES.system;
 const LAMPORTS_PER_SIGNATURE = 5_000n;
+/** Metaplex Token Metadata's own fee, charged to the payer of `launch` into the metadata account (3.10, O17). */
+export const METAPLEX_CREATE_FEE = 10_000_000n;
+/**
+ * I14: what each vicinity_curve instruction may create, by the names of its
+ * account table (4.1 to 4.20), and which of its accounts pays. An instruction
+ * not listed here makes no system instruction at all, except `buy` (its one
+ * transfer of `charged` from `user` to the Coin).
+ */
+export const CREATES = Object.freeze({
+  init_launchpad: { payer: 'payer', accounts: ['launchpad'] },
+  add_launch_config: { payer: 'payer', accounts: ['config'] },
+  approve_launch: { payer: 'admin', accounts: ['approval'] },
+  launch: { payer: 'payer', accounts: ['coin', 'mint', 'coin_vault', 'ticker_lock'], metaplex: 'metadata' },
+  opt_in_payout: { payer: 'founder', accounts: ['opt_in'] },
+});
+const accountOf = (t, name) => {
+  const i = S.ACCOUNT_TABLES[t.name].findIndex(([n]) => n === name);
+  assert.ok(i >= 0, `no account ${name} in ${t.name}`);
+  return t.accounts[i];
+};
 const INSTRUCTION_BY_DISC = new Map(Object.entries(S.INSTRUCTION_DISCRIMINATORS).map(([n, d]) => [Buffer.from(d).toString('hex'), n]));
 
 // ---------------------------------------------------------------- reading accounts
@@ -152,6 +194,7 @@ function computeOf(seg, program) {
 
 // ---------------------------------------------------------------- failed transactions
 export function checkFailedTransaction(w, { pre, post, preAccounts, postAccounts, feePayer, nSignatures, label }) {
+  checkProgramBytes(w, label);
   const fee = LAMPORTS_PER_SIGNATURE * BigInt(nSignatures);
   for (const [k, a] of preAccounts) {
     const b = postAccounts.get(k);
@@ -169,12 +212,144 @@ export function checkFailedTransaction(w, { pre, post, preAccounts, postAccounts
   }
 }
 
+// ---------------------------------------------------------------- I20 at run time, I21's keys
+/**
+ * I20: the code of every program the World loaded (its ProgramData after the
+ * 45-byte header, which holds the deploy slot and the upgrade authority) is
+ * unchanged by any transaction: no upgrade happened, so the compiled ids are
+ * the ones the World checked at load (World.recordPrograms).
+ */
+export const PROGRAM_DATA_HEADER = 45;
+export function checkProgramBytes(w, label) {
+  for (const [id, code] of w.programBytes ?? []) {
+    const pd = w.accountInfo(S.findPda([new PublicKey(id).toBuffer()], S.ADDRESSES.upgradeableLoader)[0]);
+    assert.ok(pd && pd.data.subarray(PROGRAM_DATA_HEADER).equals(code), `${label}: I20 the code of ${id} changed without an upgrade`);
+  }
+}
+/**
+ * The compiled ids a vicinity_curve binary carries (3.2): the ids stored as
+ * plain bytes in its read-only data (the program's own, vicinity_rewards',
+ * the old program's and Metaplex's) must be those of `cluster`, and none of
+ * the other cluster's. FEE_RECIPIENT and LEGACY_LAUNCHPAD are compared as
+ * immediates in the code, not stored whole; the checker sees them at run time
+ * instead (every launch fee and withdrawal goes to FEE_RECIPIENT, every
+ * approval and launch reads the old Launchpad at its compiled address).
+ */
+export function compiledIdsProblems(binary, { programId, cluster }) {
+  const b = Buffer.from(binary);
+  const has = (k) => b.indexOf(new PublicKey(k).toBuffer()) >= 0;
+  const out = [];
+  const want = S.CLUSTERS[cluster]; const other = S.CLUSTERS[cluster === 'mainnet' ? 'devnet' : 'mainnet'];
+  for (const [what, k] of [['program id', programId], ['REWARDS_PROGRAM_ID', want.rewardsProgram], ['LEGACY_PROGRAM_ID', want.legacyProgram], ['METAPLEX_PROGRAM_ID', S.ADDRESSES.metaplex]]) {
+    if (!has(k)) out.push(`${what} ${k} missing`);
+  }
+  for (const [what, k] of [['REWARDS_PROGRAM_ID', other.rewardsProgram], ['LEGACY_PROGRAM_ID', other.legacyProgram], ['LEGACY_LAUNCHPAD', other.legacyLaunchpad]]) {
+    if (has(k)) out.push(`the other cluster's ${what} ${k} present`);
+  }
+  return out;
+}
+/** I21's keys: the World's role keys and whatever the Launchpad names as admin, pending admin, guardian or payout key, before or after. */
+export function roleKeysOf(w, pre, post) {
+  const out = new Set(w.roleKeys());
+  for (const lp of [pre?.launchpad, post?.launchpad]) {
+    if (!lp) continue;
+    for (const k of [lp.admin, lp.pendingAdmin, lp.guardian, lp.payoutAuthority]) if (k && k !== ZERO) out.add(k);
+  }
+  return [...out];
+}
+
+// ---------------------------------------------------------------- I14: destinations of every system instruction
+/**
+ * Every inner instruction of a vicinity_curve instruction goes to System, SPL
+ * Token, Metaplex (only `launch`, only its CreateMetadataAccountsV3) or the
+ * program's own event CPI; inside Metaplex only System. Every system
+ * instruction is pinned to the accounts that instruction creates (CREATES),
+ * the Coin (`buy`), FEE_RECIPIENT (`launch`) or the metadata account Metaplex
+ * creates; anything else fails. The associated token program's creations are
+ * pinned to the token account it creates.
+ */
+export function checkDestinations(w, { tx, preAccounts, postAccounts, label }) {
+  const rent = (k) => w.svm.minimumBalanceForRentExemption(BigInt(postAccounts.get(k)?.data?.length ?? 0));
+  const freshBefore = (k) => { const a = preAccounts.get(k); return !a?.exists || (a.owner === ZERO && a.data.length === 0); };
+  const sysOf = (ii) => {
+    const tag = ii.data.length >= 4 ? ii.data.readUInt32LE(0) : -1;
+    if (tag === 0) return { tag, kind: 'create_account', from: ii.accounts[0], to: ii.accounts[1], amount: ii.data.readBigUInt64LE(4), owner: new PublicKey(ii.data.subarray(20, 52)).toBase58() };
+    if (tag === 2) return { tag, kind: 'transfer', from: ii.accounts[0], to: ii.accounts[1], amount: ii.data.readBigUInt64LE(4) };
+    if (tag === 1) return { tag, kind: 'assign', to: ii.accounts[0], owner: new PublicKey(ii.data.subarray(4, 36)).toBase58() };
+    if (tag === 8) return { tag, kind: 'allocate', to: ii.accounts[0] };
+    return { tag, kind: `system instruction ${tag}` };
+  };
+  for (const t of tx.top) {
+    if (t.program === w.programId && t.name) {
+      const spec = CREATES[t.name];
+      const created = new Map(); // address -> owner it must end with
+      if (spec) {
+        for (const n of spec.accounts) created.set(accountOf(t, n), ['mint', 'coin_vault'].includes(n) ? S.ADDRESSES.token : w.programId);
+      }
+      const payer = spec ? accountOf(t, spec.payer) : t.name === 'buy' ? accountOf(t, 'user') : null;
+      const metadata = spec?.metaplex ? accountOf(t, spec.metaplex) : null;
+      const credited = new Map();
+      for (const ii of t.inner) {
+        if (ii.program === w.programId || ii.program === S.ADDRESSES.token) continue; // event CPIs (decodeTransaction) and token flows (below)
+        if (ii.program === S.ADDRESSES.metaplex) {
+          assert.ok(metadata && ii.stackHeight === 2 && ii.data[0] === 33 && ii.accounts[0] === metadata,
+            `${label}: ${t.name} called Metaplex outside launch's CreateMetadataAccountsV3 of its own metadata`);
+          continue;
+        }
+        assert.equal(ii.program, S.ADDRESSES.system, `${label}: I14 ${t.name} called ${ii.program} (only System, SPL Token, Metaplex and its own event CPI)`);
+        const s = sysOf(ii);
+        const inMetaplex = ii.stackHeight === 3 && metadata !== null;
+        if (!inMetaplex) assert.equal(ii.stackHeight, 2, `${label}: I14 a system instruction at depth ${ii.stackHeight} under ${t.name}`);
+        if (s.kind === 'create_account' || s.kind === 'transfer') {
+          assert.equal(s.from, payer, `${label}: I14 ${t.name}'s ${s.kind} from ${s.from}, not its payer ${payer}`);
+          credited.set(s.to, (credited.get(s.to) ?? 0n) + s.amount);
+        }
+        if (inMetaplex) {
+          assert.ok(['transfer', 'allocate', 'assign'].includes(s.kind) && s.to === metadata, `${label}: I14 Metaplex's ${s.kind} to ${s.to}, not the metadata account it creates`);
+          if (s.kind === 'assign') assert.equal(s.owner, S.ADDRESSES.metaplex);
+          continue;
+        }
+        if (t.name === 'buy') {
+          assert.ok(s.kind === 'transfer' && s.to === accountOf(t, 'coin'), `${label}: I14 buy's ${s.kind} to ${s.to}, not the Coin`);
+          continue;
+        }
+        if (t.name === 'launch' && s.kind === 'transfer' && s.to === S.ADDRESSES.feeRecipient) continue; // the launch fee (checkLaunch: exactly the config's)
+        assert.ok(created.has(s.to), `${label}: I14 ${t.name}'s ${s.kind} to ${s.to}, which it does not create`);
+        if (s.kind === 'create_account' || s.kind === 'assign') assert.equal(s.owner, created.get(s.to), `${label}: I14 ${s.to} assigned to ${s.owner}`);
+      }
+      for (const [k, owner] of created) {
+        const a = postAccounts.get(k);
+        assert.ok(freshBefore(k) && a?.exists && a.owner === owner, `${label}: I14 ${t.name} did not create ${k} (owner ${a?.owner})`);
+        assert.ok((credited.get(k) ?? 0n) <= rent(k), `${label}: I14 ${t.name} paid ${credited.get(k)} into ${k}, more than its rent ${rent(k)}`);
+      }
+      if (metadata) {
+        const a = postAccounts.get(metadata);
+        assert.ok(freshBefore(metadata) && a?.exists && a.owner === S.ADDRESSES.metaplex, `${label}: I14 the metadata account was not created`);
+        assert.ok((credited.get(metadata) ?? 0n) <= rent(metadata) + METAPLEX_CREATE_FEE, `${label}: I14 ${credited.get(metadata)} paid into the metadata account (rent plus 0.01 SOL at most)`);
+      }
+    } else if (t.program === S.ADDRESSES.associatedToken) {
+      const [payer, ata] = t.accounts;
+      for (const ii of t.inner) {
+        if (ii.program === S.ADDRESSES.token) continue;
+        assert.equal(ii.program, S.ADDRESSES.system, `${label}: the associated token program called ${ii.program}`);
+        const s = sysOf(ii);
+        assert.ok(['create_account', 'transfer', 'allocate', 'assign'].includes(s.kind) && s.to === ata, `${label}: I14 the associated token program's ${s.kind} to ${s.to}, not the token account it creates`);
+        if (s.from) assert.equal(s.from, payer);
+        if (s.amount !== undefined) assert.ok(s.amount <= rent(ata), `${label}: I14 more than the token account's rent`);
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------- successful transactions
 export function checkTransaction(w, ctx) {
   const { pre, post, tx, preAccounts, postAccounts, label, opts = {} } = ctx;
   const P = w.P;
   const coinByCity = new Map();
   for (const c of [...pre.coins.values(), ...post.coins.values()]) coinByCity.set(c.cityId, c.address);
+  checkProgramBytes(w, label);
+  checkDestinations(w, { tx, pre, post, preAccounts, postAccounts, label });
+  const roles = roleKeysOf(w, pre, post);
 
   // ------------------------------------------------ SOL: every lamport change explained (I13, I14, I21)
   const exp = new Map();
@@ -283,7 +458,7 @@ export function checkTransaction(w, ctx) {
   }
   assert.equal(residualSum, 0n, `${label}: other programs' direct lamport moves do not balance`);
   // I21: no lamports to the admin, the guardian, the payout key, the upgrade authority or the keeper
-  for (const r of w.roleKeys()) {
+  for (const r of roles) {
     for (const c of credits) {
       if (c.to !== r || c.from === r || c.amount === 0n) continue;
       const ok = c.kind === 'close' && pre.approvals.has(c.from) && pre.approvals.get(c.from).rentPayer === r;
@@ -297,6 +472,9 @@ export function checkTransaction(w, ctx) {
   for (const c of [...pre.coins.values(), ...post.coins.values()]) { vaults.set(c.vault, c.address); mints.set(c.mint, c.address); }
   const tokenFlows = { buyOut: new Map(), sellIn: new Map(), burned: new Map(), holderBurned: new Map(), donated: new Map() };
   const bump = (m, k, v) => m.set(k, (m.get(k) ?? 0n) + v);
+  // per coin, the vault's change in each top-level instruction (I5: the vault holds P when the coin graduates)
+  const vaultStep = new Map(); const donStep = new Map();
+  const stepVault = (coin, index, d) => { const m = vaultStep.get(coin) ?? new Map(); m.set(index, (m.get(index) ?? 0n) + d); vaultStep.set(coin, m); };
   for (const ix of allIxs) {
     if (ix.program === S.ADDRESSES.token2022) {
       assert.ok(!ix.accounts.some((a) => vaults.has(a) || mints.has(a)), `${label}: Token-2022 touched a coin account`);
@@ -313,12 +491,21 @@ export function checkTransaction(w, ctx) {
           assert.equal(dst, ix.top.accounts[5], 'only to the buy\'s user_token_account');
           assert.equal(src, ix.top.accounts[4]);
           bump(tokenFlows.buyOut, vaults.get(src), amount);
+          stepVault(vaults.get(src), ix.top.index, -amount);
+          // I21 (tokens): never to a token account a role key owns, may spend (delegate) or may close
+          const to = tokenAccountInfo(postAccounts.get(dst)?.exists ? postAccounts.get(dst) : null);
+          assert.ok(to, `${label}: coins delivered to ${dst}, which is not a token account after the transaction`);
+          for (const [what, k] of [['owner', to.owner], ['delegate', to.delegate], ['close authority', to.closeAuthority]]) {
+            assert.ok(!k || !roles.includes(k), `${label}: I21 coins delivered to a token account whose ${what} is the role key ${k}`);
+          }
         }
         if (vaults.has(dst)) {
           if (topName === 'sell') { assert.equal(src, ix.top.accounts[5]); bump(tokenFlows.sellIn, vaults.get(dst), amount); } else {
             assert.ok(opts.tokenDonation, `${label}: tokens sent to a vault outside a sell (an undeclared donation)`);
             bump(tokenFlows.donated, vaults.get(dst), amount);
+            const dm = donStep.get(vaults.get(dst)) ?? new Map(); dm.set(ix.top.index, (dm.get(ix.top.index) ?? 0n) + amount); donStep.set(vaults.get(dst), dm);
           }
+          stepVault(vaults.get(dst), ix.top.index, amount);
         }
         break;
       }
@@ -326,6 +513,7 @@ export function checkTransaction(w, ctx) {
         if (vaults.has(a[0])) {
           assert.ok(topName === 'buyback_burn' || topName === 'launch', `${label}: a burn from a vault outside buyback_burn and launch`);
           bump(tokenFlows.burned, vaults.get(a[0]), amount);
+          stepVault(vaults.get(a[0]), ix.top.index, -amount);
         } else if (mints.has(a[1])) {
           assert.ok(opts.holderBurn, `${label}: an undeclared holder burn`);
           bump(tokenFlows.holderBurned, a[1], amount);
@@ -337,6 +525,7 @@ export function checkTransaction(w, ctx) {
           assert.equal(topName, 'launch', `${label}: mint_to outside launch`);
           assert.equal(a[1], post.coins.get(mints.get(a[0])).vault, 'minted into the vault');
           assert.equal(amount, S.COIN_SUPPLY, 'exactly COIN_SUPPLY, once');
+          stepVault(mints.get(a[0]), ix.top.index, amount);
         }
         break;
       case 6:
@@ -386,6 +575,14 @@ export function checkTransaction(w, ctx) {
     const supplyBefore = b ? b.mintInfo.supply : S.COIN_SUPPLY - (S.COIN_SUPPLY - terms.curveSupply - terms.poolSupply);
     let burnedInTx = 0n; let graduatedInTx = false; let trades = 0n; let lamportsOut = 0n; let lamportsIn = 0n;
     let tokensOut = 0n; let tokensIn = 0n; let tokensBurned = 0n;
+    // I6 per event: X * Y from each pool event's own after-figures never falls below the one before it
+    let kPrev = b && b.phase === 1 ? b.poolSol * b.poolTokens : null;
+    const kStep = (k, what) => {
+      assert.ok(kPrev !== null, `${label}: ${what} in the pool before the pool opened`);
+      assert.ok(k >= kPrev, `${label}: I6 X * Y fell from ${kPrev} to ${k} at ${what}`);
+      kPrev = k;
+    };
+    let lastPoolEvent = -1; let graduationIx = -1;
     for (const e of events) {
       const d = e.data;
       if (e.name === 'Trade') {
@@ -437,6 +634,12 @@ export function checkTransaction(w, ctx) {
         // I16: liquidity_pending rises only in curve trades and falls only in pool trades
         if (phaseBefore === 0) assert.ok(st.liquidityPending >= lBefore, 'I16'); else assert.ok(st.liquidityPending <= lBefore, 'I16');
         if (phaseBefore === 1) assert.ok(st.poolSol * st.poolTokens >= kBefore, 'I6 X*Y never decreases');
+        if (phaseBefore === 1) { kStep(d.pool_sol * d.pool_tokens, `Trade ${d.trade_seq}`); lastPoolEvent = e.top.index; }
+        if (d.graduated) {
+          // I5: the graduating buy ends at s = S, curve_sol = R and opens the pool at exactly (R, P)
+          assert.deepEqual([d.tokens_sold, d.curve_sol, d.pool_sol, d.pool_tokens], [terms.curveSupply, terms.graduationSol, terms.graduationSol, terms.poolSupply], `${label}: I5 graduation`);
+          kPrev = d.pool_sol * d.pool_tokens; graduationIx = e.top.index;
+        }
       } else if (e.name === 'Graduated') {
         assert.ok(graduatedInTx, `${label}: Graduated without a graduating buy`);
         assert.deepEqual([d.pool_sol, d.pool_tokens], [terms.graduationSol, terms.poolSupply], 'I5 the pool opens at (R, P)');
@@ -459,6 +662,7 @@ export function checkTransaction(w, ctx) {
         assert.equal(d.phase, before.phase);
         assert.deepEqual([d.buyback_pending_after, d.tokens_burned_total], [st.buybackPending, st.tokensBurned]);
         assert.deepEqual([d.virtual_sol_after, d.virtual_tokens_after], S.spotPrice(terms, st));
+        if (d.phase === 1) { kStep(d.virtual_sol_after * d.virtual_tokens_after, `BuybackBurned ${st.buybackCount}`); lastPoolEvent = e.top.index; }
         burnedInTx += d.tokens_burned; tokensBurned += d.tokens_burned;
         assert.equal(d.supply_after, supplyBefore - burnedInTx, 'supply_after is mint.supply after the burn');
         assert.deepEqual([d.slot, d.timestamp], [txSlot, txTs]);
@@ -493,6 +697,23 @@ export function checkTransaction(w, ctx) {
     for (const k of S.STATE_KEYS) assert.equal(got[k], st[k], `${label}: ${c.symbol} ${k} on chain ${got[k]}, replayed ${st[k]}`);
     for (const k of Object.keys(ext)) assert.equal(c[k], ext[k], `${label}: ${c.symbol} ${k} on chain ${c[k]}, replayed ${ext[k]}`);
     assert.equal(c.tradeSeq - (b?.tradeSeq ?? 0n), trades, 'I16 trade_seq +1 per trade');
+    // I6: the account ends at the last pool event's reserves
+    if (c.phase === 1 && kPrev !== null) assert.equal(c.poolSol * c.poolTokens, kPrev, `${label}: I6 the pool after the transaction is the last event's`);
+    // I5: at the end of the instruction that graduates the coin, the vault holds exactly P (plus donations)
+    if (graduationIx >= 0) {
+      const steps = vaultStep.get(addr) ?? new Map(); const dons = donStep.get(addr) ?? new Map();
+      let running = b ? b.vaultAmount : 0n;
+      let donated = (w.tokenDonations.get(addr) ?? 0n) - (tokenFlows.donated.get(addr) ?? 0n);
+      for (const t of tx.top) {
+        running += steps.get(t.index) ?? 0n; donated += dons.get(t.index) ?? 0n;
+        if (t.index === graduationIx) break;
+      }
+      assert.equal(running, terms.poolSupply + donated, `${label}: I5 the vault holds P when ${c.symbol} graduates`);
+      if (lastPoolEvent <= graduationIx) {
+        assert.deepEqual([c.poolSol, c.poolTokens], [terms.graduationSol, terms.poolSupply], `${label}: I5 (R, P) before any pool trade`);
+        assert.equal(c.vaultAmount, terms.poolSupply + (w.tokenDonations.get(addr) ?? 0n), `${label}: I5 the vault holds P before any pool trade`);
+      }
+    }
     checkCoin(w, { c, b, label, rentMin, launched, graduatedInTx, events });
     // I13: the Coin's lamports change by buys minus outflows (plus declared donations)
     const donated = opts.lamportDonation?.coin === addr ? opts.lamportDonation.amount : 0n;

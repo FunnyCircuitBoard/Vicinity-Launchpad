@@ -36,6 +36,7 @@ import { createConfigIx, vicinityConfigParams } from '../sdk/launchpad/config.mj
 import { dbc } from '../sdk/launchpad/pda.mjs';
 import {
   snapshot, decodeTransaction, checkTransaction, checkFailedTransaction, probeLiveness, tokenAccountInfo, mintInfo, readMetadata,
+  compiledIdsProblems, PROGRAM_DATA_HEADER,
 } from './invariants.mjs';
 
 const { BN } = anchorPkg;
@@ -170,6 +171,7 @@ export class World {
     this.loadUpgradeable(this.programId, this.curveSo, this.deployer.address);
     this.loadUpgradeable(S.CLUSTERS.mainnet.rewardsProgram, release(PATHS.rewards), this.deployer.address);
     this.loadUpgradeable(S.CLUSTERS.mainnet.legacyProgram, release(PATHS.legacy), this.deployer.address);
+    this.recordPrograms();
     this.setRaw(S.ADDRESSES.nativeMint, mintData({ decimals: 9 }), S.ADDRESSES.token);
     const c = svm.getClock(); c.unixTimestamp = START_TS; c.slot = START_SLOT; svm.setClock(c);
     this.admin = await this.signer();
@@ -227,10 +229,27 @@ export class World {
     pkb(authority).copy(data, 13);
     this.svm.setAccount({ ...acc, address: address(pd), data: new Uint8Array(data) });
   }
-  /** Deploy another build of vicinity_curve over the live state (H02, H03). */
+  /** Deploy another build of vicinity_curve over the live state (H02, H03): an upgrade, so the checker's record of the program bytes follows. */
   loadCurve(path) {
     this.svm.addProgramFromFile(address(this.programId), path);
     this.haltAllLoaded = path === PATHS.curveHaltAll;
+    this.recordPrograms();
+  }
+  /**
+   * I20 at run time: the program data of vicinity_curve and of the two programs it
+   * reads, as loaded; the checker compares them before and after every
+   * transaction. The vicinity_curve binary must carry the compiled ids of this
+   * World's cluster and none of the other cluster's.
+   */
+  recordPrograms() {
+    this.programBytes = new Map();
+    for (const id of [this.programId, S.CLUSTERS.mainnet.rewardsProgram, S.CLUSTERS.mainnet.legacyProgram]) {
+      const pd = this.accountInfo(S.findPda([pkb(id)], S.ADDRESSES.upgradeableLoader)[0]);
+      assert.ok(pd, `no program data for ${id}`);
+      this.programBytes.set(id, Buffer.from(pd.data.subarray(PROGRAM_DATA_HEADER))); // the ELF after the ProgramData header
+    }
+    const problems = compiledIdsProblems(this.programBytes.get(this.programId), { programId: this.programId, cluster: this.cluster });
+    assert.deepEqual(problems, [], `I20: the loaded vicinity_curve binary does not carry the ${this.cluster} ids`);
   }
   accountInfo(addr) {
     const a = this.svm.getAccount(address(String(addr)));
@@ -320,7 +339,9 @@ export class World {
     const logs = res.logs();
     const decoded = decodeTransaction(this, { messageBytes, inner: res.innerInstructions(), logs, lookupAddresses: loaded });
     if (this.checks) {
-      checkTransaction(this, { pre, post: snapshot(this), tx: decoded, preAccounts, postAccounts, label, opts: o });
+      const ctx = { pre, post: snapshot(this), tx: decoded, preAccounts, postAccounts, label, opts: o };
+      this.lastCtx = ctx; // what the checker saw (tests of the checker replay it with edits)
+      checkTransaction(this, ctx);
       if (this.probeEach && !o.noProbe) this.probes += (await probeLiveness(this, { label: `after ${label}` })).probes;
     }
     const events = decoded.top.flatMap((t) => t.events);
