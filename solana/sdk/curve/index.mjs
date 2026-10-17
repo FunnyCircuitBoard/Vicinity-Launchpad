@@ -8,3 +8,5 @@ export * from './math.mjs';
 export * from './accounts.mjs';
 export * from './events.mjs';
 export * from './instructions.mjs';
+export * from './prechecks.mjs';
+export * from './rewards.mjs';

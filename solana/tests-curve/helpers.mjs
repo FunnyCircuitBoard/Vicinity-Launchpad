@@ -351,7 +351,7 @@ export class World {
     this.lastTx = { cu, ixCu, size, logs, events };
     return { logs, events, cu, ixCu, size, top: decoded.top };
   }
-  /** Simulate without committing: `{ ok, error, coin(addr) }` (I22 probes). */
+  /** Simulate without committing: `{ ok, error, logs, account(addr), coin(addr) }` (I22 probes, the SDK's simulations). */
   async simulate(ixs, signers = [], o = {}) {
     // the first signer pays, unless it cannot (a 0-lamport founder or seller): then the world's payer does
     const feePayer = o.feePayer ?? signers.find((s) => this.lamportsOf(s.address) >= 1_000_000n) ?? this.payer;
@@ -361,6 +361,11 @@ export class World {
     const accounts = new Map(r.postAccounts().map((a) => [String(a.address), a]));
     return {
       ok: true,
+      logs: r.meta().logs(),
+      account: (addr) => {
+        const a = accounts.get(String(addr));
+        return a ? { address: String(addr), owner: String(a.programAddress), lamports: BigInt(a.lamports), data: Buffer.from(a.data) } : null;
+      },
       coin: (addr) => {
         const a = accounts.get(String(addr));
         return S.decodeCurveCoin({ owner: String(a.programAddress), data: a.data }, { programId: this.programId });
