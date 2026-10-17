@@ -85,7 +85,7 @@ test('C01/C02 compute units per instruction against the 11.1 budgets, and the we
   await w.finish();
 });
 
-test('TL-INFO-1 the launch of a high-bump city (1000, name A, symbol C0) stays within the 230,000 budget and within 11.1\'s measured range; the first buy\'s token-account create costs 13,424 + 1,500 per extra bump iteration of the owner', async () => {
+test('TL-INFO-1 the launch of a high-bump city (1000, name A, symbol C0) stays within the 230,000 budget and within 11.1\'s measured range; the first buy\'s token-account create costs about 13,430 + 1,500 per extra bump iteration of the owner', async () => {
   const w = await World.create();
   const founder = await w.signer(10n);
   await w.approve({ cityId: 1000n, founder, name: 'A', symbol: 'C0' });
@@ -106,7 +106,10 @@ test('TL-INFO-1 the launch of a high-bump city (1000, name A, symbol C0) stays w
     const r = await w.buy(u, h, 100_000_000n);
     const ata = r.res.top.find((t) => t.program === S.ADDRESSES.associatedToken);
     const bump = S.findPda([new web3.PublicKey(String(u.address)).toBuffer(), new web3.PublicKey(S.ADDRESSES.token).toBuffer(), new web3.PublicKey(h.mint).toBuffer()], S.ADDRESSES.associatedToken)[1];
-    assert.equal(ata.cu, 13_424 + 1_500 * (255 - bump), `the create costs 13,424 + 1,500 x ${255 - bump}`);
+    // 1,500 per extra bump iteration is exact; the base is the associated token program's own cost, which differs by a few CU
+    // between test runtimes (13,424 locally, 13,433 on the CI runner), so it is checked within a window far narrower than 1,500
+    const base = ata.cu - 1_500 * (255 - bump);
+    assert.ok(base >= 13_400 && base <= 13_460, `the create costs about 13,430 + 1,500 x ${255 - bump} (base ${base})`);
     sizes.push(ata.cu);
   }
   console.log(`TL-INFO-1: launch of city 1000 ${cu} CU (11.1: ${lo} to ${hi}); token-account creates ${sizes.join(', ')} CU`);

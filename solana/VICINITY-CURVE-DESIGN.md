@@ -2638,8 +2638,9 @@ to 1,700 CU per extra iteration; the worst known city under the localnet id, 100
 symbol C0, takes 151,008, asserted by `12-compute`); `launch` + token account + first buy 165,500
 in total for one city; settings instructions 3,800 to 22,700. Every figure is inside its test
 budget. The suggested client limits are per instruction: the website's first buy adds the
-idempotent token-account create, `13,424 + 1,500 x k` CU with `k` the owner's extra bump
-iterations (13,424 to 25,424 over 300 owners; `12-compute` asserts the formula), so a first buy
+idempotent token-account create, about `13,430 + 1,500 x k` CU with `k` the owner's extra bump
+iterations (13,424 to 25,424 over 300 owners; the base is the associated token program's own cost
+and differs by a few CU between runtimes; `12-compute` asserts the formula), so a first buy
 takes its limit from a simulation (1.2 x, as for `launch`) or adds 30,000 to the buy's figure. The
 figures depend on the program id (its event-authority and `Launchpad` bumps add about 1,500 to
 2,400 CU per extra iteration to every money instruction) and are measured again once the mainnet

@@ -1908,6 +1908,11 @@ Tests. `12-compute` TL-INFO-1: city 1000 / A / C0 within 230,000 and within the 
 (read from the spec; revision 3's sentence fails it), and six first buys whose ATA create matches
 `13,424 + 1,500 x (255 - bump)`. `04-launch`'s lookup-table test includes the registry.
 
+Follow-up (CI). The first CI run of a1301dd measured a base of 13,433, not 13,424: the base is the
+associated token program's own cost and differs by a few CU between runtimes. The test now holds
+the 1,500 per iteration exactly and the base within 13,400 to 13,460 (any wrong `k` is off by at
+least 1,500); 11.1 says "about 13,430".
+
 ### 66. The checker holds every call to the flags of its moment, and approvals and opt-ins to their rules (I20, 12; review SM-2)
 
 **Issue.** Coverage, not a program defect: the per-transaction checker never asserted that a
