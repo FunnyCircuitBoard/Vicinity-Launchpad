@@ -148,3 +148,76 @@ test('GOV-2 a withdrawal never pays the guardian: the state the finding reached 
   await w.withdraw(h); // I21 holds: FEE_RECIPIENT is no role key
   await w.finish();
 });
+
+// ---------------------------------------------------------------- review round 2: the founder seat (R2-DIFF-1, SPEC-1; NOTES 49)
+// A coin's founder receives that coin's founder share (4.16, 4.20), so the seat never goes to a key that may not touch
+// money: FEE_RECIPIENT (only receives, FeeRecipientRole), the guardian (only brakes) or the payout key (only pays opted-in
+// founders to the payout wallet), FounderHoldsRole for the last two. approve_launch checks the founder it names, launch
+// checks the signing founder again against the settings of that moment, and transfer_founder checks the new founder
+// (it now reads the Launchpad). The admin may still be a founder: it chooses every founder anyway (8.1).
+test('R2-DIFF-1, SPEC-1 the founder seat never goes to FEE_RECIPIENT, the guardian or the payout key (approve_launch, launch, transfer_founder); the admin may still be approved (8.1)', async () => {
+  const w = await World.create();
+  w.svm.withSigverify(false);
+  const fee = offlineKey(FEE);
+  const pk = await w.signer(1n); const pw = await w.signer(1n);
+  await w.send([w.ix.setPayoutConfig({ admin: w.admin.address, payoutAuthority: pk.address, payoutDestination: pw.address })], [w.admin], 'set_payout_config');
+  w.payoutKey = pk;
+  // approve_launch refuses each of the three as the founder it names
+  await expectFail(() => w.approve({ cityId: 4300n, founder: FEE, symbol: 'SEATA' }), 'FeeRecipientRole');
+  await expectFail(() => w.approve({ cityId: 4300n, founder: w.guardian, symbol: 'SEATA' }), 'FounderHoldsRole');
+  await expectFail(() => w.approve({ cityId: 4300n, founder: pk, symbol: 'SEATA' }), 'FounderHoldsRole');
+
+  // launch checks again, against the settings at launch: a founder who became the guardian after the approval cannot launch
+  const f = await w.signer(50n);
+  await w.approve({ cityId: 4300n, founder: f, symbol: 'SEATA' });
+  const g0 = w.guardian;
+  await w.send([w.ix.setGuardian({ admin: w.admin.address, guardian: f.address })], [w.admin], 'set_guardian(the approved founder)');
+  w.guardian = f;
+  await expectFail(() => w.launch({ cityId: 4300n, founder: f, label: 'launch by the guardian' }), 'FounderHoldsRole');
+  await w.send([w.ix.setGuardian({ admin: w.admin.address, guardian: g0.address })], [w.admin], 'set_guardian back');
+  w.guardian = g0;
+  const h = await w.launch({ cityId: 4300n, founder: f });
+  // and an approval naming FEE_RECIPIENT (only possible out of band now) cannot be launched
+  await w.approve({ cityId: 4301n, founder: f, symbol: 'SEATB' });
+  const apAddr = w.P.approval(4301n); const raw = w.accountInfo(apAddr);
+  const edited = Buffer.from(raw.data); new PublicKey(FEE).toBuffer().copy(edited, 16);
+  w.setRaw(apAddr, edited, w.programId, raw.lamports);
+  assert.equal(w.approval(4301n).founder, FEE);
+  await expectFail(() => w.launch({ cityId: 4301n, founder: fee, payer: w.payer, label: 'launch by FEE_RECIPIENT' }), 'FeeRecipientRole');
+  w.setRaw(apAddr, raw.data, w.programId, raw.lamports);
+  await w.send([w.ix.revokeApproval({ by: w.admin.address, cityId: 4301n, rentPayer: w.admin.address })], [w.admin], 'revoke');
+
+  // transfer_founder refuses each of the three as the new founder, even with its co-signature; nothing moves
+  const u = await w.signer(100n);
+  await w.buy(u, h, 10n * LAMPORTS);
+  const pending = w.coinView(h).founderPending;
+  assert.ok(pending > 0n);
+  for (const [to, code] of [[fee, 'FeeRecipientRole'], [w.guardian, 'FounderHoldsRole'], [pk, 'FounderHoldsRole']]) {
+    await expectFail(() => w.send([w.ix.transferFounder({ founder: f.address, newFounder: to.address, coin: h.coin })], [f, to], `transfer_founder to ${to.address}`), code);
+  }
+  assert.equal(w.coinView(h).founder, f.address);
+  // a plain key still takes the seat, and the seat's money with it
+  const next = await w.signer(5n);
+  await w.send([w.ix.transferFounder({ founder: f.address, newFounder: next.address, coin: h.coin })], [f, next], 'transfer_founder');
+  const n0 = w.lamportsOf(next.address);
+  await w.claim(h, next);
+  assert.equal(w.lamportsOf(next.address) - n0, pending);
+  // the payout wallet only receives, like any founder's wallet: it may hold a seat
+  await w.approve({ cityId: 4302n, founder: pw, symbol: 'SEATC' });
+  // the admin chooses every founder and may approve itself (8.1's worst case); refusing its own key would protect nothing
+  await w.approve({ cityId: 4303n, founder: w.admin, symbol: 'SEATD' });
+  await w.finish();
+});
+
+test('R2-DIFF-1 init_launchpad refuses FEE_RECIPIENT as the upgrade authority (later changes of the upgrade authority are a deploy precondition, 8.4)', async () => {
+  const w = await World.create({ initLaunchpad: false });
+  w.svm.withSigverify(false);
+  const fee = offlineKey(FEE);
+  w.loadUpgradeable(w.programId, w.curveSo, FEE); // the program's upgrade authority is FEE_RECIPIENT
+  await expectFail(() => w.send([w.ix.initLaunchpad({ payer: w.payer.address, admin: w.admin.address, upgradeAuthority: FEE, guardian: w.guardian.address })],
+    [w.admin, fee], 'init_launchpad with upgrade authority = FEE_RECIPIENT'), 'FeeRecipientRole');
+  w.loadUpgradeable(w.programId, w.curveSo, w.deployer.address);
+  await w.send([w.ix.initLaunchpad({ payer: w.payer.address, admin: w.admin.address, upgradeAuthority: w.deployer.address, guardian: w.guardian.address })],
+    [w.admin, w.deployer], 'init_launchpad');
+  await w.finish();
+});

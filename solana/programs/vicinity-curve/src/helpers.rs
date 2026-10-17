@@ -131,6 +131,31 @@ pub fn check_not_fee_recipient(key: &Pubkey) -> Result<()> {
     Ok(())
 }
 
+/// The founder seat (4.8, 4.10, 4.17; review R2-DIFF-1, SPEC-1). A founder
+/// receives the coin's founder share (4.16, 4.20), so the seat never goes to a
+/// key that may not touch money: not zero (`InvalidAddress`), not
+/// `FEE_RECIPIENT` (`FeeRecipientRole`; it only receives platform and launch
+/// fees), not the guardian (it only brakes) and not the payout key (it only
+/// pays opted-in founders to the payout wallet) (`FounderHoldsRole`). A zero
+/// guardian or payout key (none) never equals a nonzero founder. The admin may
+/// be a founder: it chooses every founder anyway (8.1). Checked against the
+/// settings of the moment: a later `set_guardian` or `set_payout_config`
+/// naming a key that already holds a seat is not detected (the program cannot
+/// enumerate coins; 8.4).
+pub fn check_founder_key(
+    founder: &Pubkey,
+    guardian: &Pubkey,
+    payout_authority: &Pubkey,
+) -> Result<()> {
+    require!(*founder != Pubkey::default(), CurveError::InvalidAddress);
+    check_not_fee_recipient(founder)?;
+    require!(
+        founder != guardian && founder != payout_authority,
+        CurveError::FounderHoldsRole
+    );
+    Ok(())
+}
+
 /// Who may set which pause flag (4.4). `launches`, `payouts`, `buys` are the
 /// instruction's arguments.
 ///
@@ -527,6 +552,39 @@ mod tests {
         assert_eq!(code(check_not_fee_recipient(&FEE_RECIPIENT)), 6052);
         assert!(check_not_fee_recipient(&Pubkey::new_unique()).is_ok());
         assert!(check_not_fee_recipient(&Pubkey::default()).is_ok());
+    }
+
+    /// R2-DIFF-1, SPEC-1: the founder seat is never zero, `FEE_RECIPIENT`, the
+    /// guardian or the payout key; the admin, the payout wallet and any other
+    /// key may hold it; unset roles (zero) refuse nobody.
+    #[test]
+    fn founder_seat_rules() {
+        let (guardian, payout_key, founder) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let zero = Pubkey::default();
+        assert!(check_founder_key(&founder, &guardian, &payout_key).is_ok());
+        assert!(check_founder_key(&founder, &zero, &zero).is_ok());
+        assert_eq!(code(check_founder_key(&zero, &guardian, &payout_key)), 6002);
+        assert_eq!(code(check_founder_key(&zero, &zero, &zero)), 6002);
+        for (g, k) in [(guardian, payout_key), (zero, zero)] {
+            assert_eq!(code(check_founder_key(&FEE_RECIPIENT, &g, &k)), 6052);
+        }
+        assert_eq!(
+            code(check_founder_key(&guardian, &guardian, &payout_key)),
+            6053
+        );
+        assert_eq!(code(check_founder_key(&guardian, &guardian, &zero)), 6053);
+        assert_eq!(
+            code(check_founder_key(&payout_key, &guardian, &payout_key)),
+            6053
+        );
+        assert_eq!(
+            code(check_founder_key(&payout_key, &zero, &payout_key)),
+            6053
+        );
     }
 
     #[test]

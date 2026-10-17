@@ -166,8 +166,11 @@ pub enum CurveError {
     )]
     LegacyAdminMismatch,
     /// 6052
-    #[msg("the fee recipient cannot be the admin, the proposed admin or the guardian")]
+    #[msg("the fee recipient cannot be the admin, the proposed admin, the guardian, the upgrade authority at init or a coin's founder")]
     FeeRecipientRole,
+    /// 6053
+    #[msg("a coin's founder cannot be the guardian or the payout key")]
+    FounderHoldsRole,
 }
 
 /// The program error for a math crate error (4.22): the trade refusals keep
@@ -221,7 +224,7 @@ mod tests {
     /// 4.22: the codes are fixed; a reordering would break every client.
     #[test]
     fn codes_are_in_spec_order() {
-        let table: [(CurveError, u32); 53] = [
+        let table: [(CurveError, u32); 54] = [
             (CurveError::Unauthorized, 6000),
             (CurveError::NotUpgradeAuthority, 6001),
             (CurveError::InvalidAddress, 6002),
@@ -275,6 +278,7 @@ mod tests {
             (CurveError::BadMetaHash, 6050),
             (CurveError::LegacyAdminMismatch, 6051),
             (CurveError::FeeRecipientRole, 6052),
+            (CurveError::FounderHoldsRole, 6053),
         ];
         for (e, code) in table {
             assert_eq!(u32::from(e), code, "{e:?}");

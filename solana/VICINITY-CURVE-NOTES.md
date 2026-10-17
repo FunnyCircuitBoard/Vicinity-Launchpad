@@ -1,7 +1,8 @@
 # `vicinity_curve`: implementation notes for the auditors
 
 Companion to `VICINITY-CURVE-DESIGN.md`, revision 3 (entries 1 to 41 were written against
-revision 2, commit ee62c31; revision 3 folds every entry in, and its Appendix C says where). The
+revision 2, commit ee62c31; revision 3 folds every entry in, and its Appendix C says where;
+entries 42 to 48 answer review round 1 of the build, entry 49 onwards review round 2). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -1202,3 +1203,44 @@ with nothing else moved either way. X61 sends its 0-lamport fee payer through `W
   `Coin` is untouched.
 * **L5.** `20-checker-gaps.test.mjs` is now `27-checker-gaps.test.mjs` (two files had the prefix
   20); `tests-curve/README.md` lists every file; entries 28 and 32 are marked superseded.
+
+### 49. The founder seat never goes to `FEE_RECIPIENT`, the guardian or the payout key (4.1, 4.8, 4.10, 4.17, 8.1, 8.4, I20, I21, T52, T77; reviews R2-DIFF-1, SPEC-1)
+
+**Spec.** Revision 3's 8.1 row for `FEE_RECIPIENT` said it "cannot ... sign anything in the
+program; hold any role", I21 said "since `FEE_RECIPIENT` can hold no role, platform withdrawals
+never reach one", the guardian "cannot ... touch money" and the payout key cannot "touch any other
+bucket". NOTES 34 calls I21 "the program property ... that no program path pays a role key".
+
+**Issue.** Entry 43 (GOV-2) covered the admin, proposed admin, guardian, payout key and payout wallet
+seats, not the founder seat. `approve_launch` checked only `founder != 0`, `launch` only that the
+signer is the approved founder, and `transfer_founder` accepted any co-signing key. So
+`FEE_RECIPIENT`, the guardian or the payout key could be approved (or handed the seat), sign
+`launch`, `claim_founder_fees`, `opt_in_payout` and `transfer_founder`, and receive that coin's
+founder share; the checker's I21 then failed at the guardian's claim. `init_launchpad` also accepted
+`FEE_RECIPIENT` as the upgrade authority (the checker's I21 then failed at the first launch, whose
+fee went to a role key). No third party's money was at risk: only that coin's founder share, and only
+with an admin approval or the key's own co-signature.
+
+**Choice.** The safer reading, enforced where the program can see it. `check_founder_key(founder,
+guardian, payout_authority)` refuses zero (`InvalidAddress`), `FEE_RECIPIENT` (`FeeRecipientRole`,
+6052) and the guardian or the payout key (`FounderHoldsRole`, 6053, appended): `approve_launch` on the
+founder it names, `launch` again on the signing founder against the `Launchpad` of that moment, and
+`transfer_founder` on the new founder, which now takes the `Launchpad` (read-only, seed-pinned; the
+IDL and the SDK's builder follow). `init_launchpad` refuses `FEE_RECIPIENT` as the upgrade authority.
+Not refused, on purpose: the admin (it chooses every founder and may choose itself, 8.1's worst case;
+refusing its own key would protect nothing) and the payout wallet (it only receives, like any
+founder's wallet). Not detectable on chain, so stated as 8.4's operating rule and kept by the
+tests: a later loader `SetAuthority` to `FEE_RECIPIENT`, and a `set_guardian` or
+`set_payout_config` naming a key that already holds a founder seat (the program cannot enumerate
+coins). 8.1's `FEE_RECIPIENT` row now says what holds: it can trade like any wallet, and holds no
+seat. I21 names the founder seat as the one path that pays a key the admin chose.
+
+Tests. `28-governance` (each of the three refused by `approve_launch` and by `transfer_founder` even
+with its co-signature; a founder made guardian after the approval cannot launch; an approval naming
+`FEE_RECIPIENT`, written out of band, cannot be launched; a plain key still takes the seat and its
+money; the payout wallet and the admin may still be approved; `init_launchpad` with `FEE_RECIPIENT` as
+the upgrade authority); unit tests `founder_seat_rules` and the review checklist's
+`founder_seat_checked_wherever_a_founder_is_named`; the checker's I20 (no coin's founder is
+`FEE_RECIPIENT`, the guardian or the payout key, after every transaction); the fuzz model predicts
+the refusals of `transfer_founder`. Against the previous build both new governance tests fail at their
+first refusal (the approval of `FEE_RECIPIENT` and the initialisation succeed).

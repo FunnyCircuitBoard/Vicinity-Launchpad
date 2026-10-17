@@ -14,7 +14,7 @@
 //!   IDL `sdk/idl/vicinity_curve.json` (generated from this crate with the
 //!   `idl-build` feature; CI diffs it against the build): every instruction's
 //!   accounts in the order, with the signer and writable flags, of its table,
-//!   its arguments, the account discriminators, the 21 events, the 53 error
+//!   its arguments, the account discriminators, the 21 events, the 54 error
 //!   codes and the compiled ids of the default (mainnet) build.
 
 use serde_json::{json, Value};
@@ -380,6 +380,19 @@ fn pause_flags_and_launchpad_keys() {
     assert!(sell.contains("pub launchpad: UncheckedAccount<'info>"));
 }
 
+/// R2-DIFF-1, SPEC-1: every instruction that names a founder checks the seat
+/// (`check_founder_key`: never zero, `FEE_RECIPIENT`, the guardian or the
+/// payout key): `approve_launch` the founder it names, `launch` the signing
+/// founder again, `transfer_founder` the new founder. No other instruction
+/// writes or names a founder.
+#[test]
+fn founder_seat_checked_wherever_a_founder_is_named() {
+    let mut got = mentioned_in("check_founder_key(");
+    got.sort_unstable();
+    assert_eq!(got, ["approve_launch", "launch", "transfer_founder"]);
+    assert_eq!(mentioned_in("a.founder = founder"), ["approve_launch"]);
+}
+
 /// I1, I2, R4: the frozen terms and identity of a `Coin` are written once, in
 /// `launch`, and never again; the phase changes only through the math crate's
 /// state (`apply_state`); the founder only in `transfer_founder`; the
@@ -575,7 +588,12 @@ fn spec_accounts() -> Vec<(&'static str, Vec<(&'static str, u8)>)> {
         ),
         (
             "transfer_founder",
-            vec![("founder", S), ("new_founder", S), ("coin", W)],
+            vec![
+                ("founder", S),
+                ("new_founder", S),
+                ("launchpad", 0),
+                ("coin", W),
+            ],
         ),
         (
             "opt_in_payout",
@@ -874,13 +892,13 @@ fn idl_events() {
     assert_eq!(got, want);
 }
 
-/// 4.22: 53 codes from 6000, contiguous, in the table's order (the first and
+/// 4.22: 54 codes from 6000, contiguous, in the table's order (the first and
 /// the last few checked by name; errors.rs checks every code).
 #[test]
 fn idl_errors() {
     let idl = idl();
     let errors = idl["errors"].as_array().unwrap();
-    assert_eq!(errors.len(), 53);
+    assert_eq!(errors.len(), 54);
     for (i, e) in errors.iter().enumerate() {
         assert_eq!(e["code"].as_u64().unwrap(), 6000 + i as u64);
     }
@@ -892,6 +910,7 @@ fn idl_errors() {
     assert_eq!(name(50), "BadMetaHash");
     assert_eq!(name(51), "LegacyAdminMismatch");
     assert_eq!(name(52), "FeeRecipientRole");
+    assert_eq!(name(53), "FounderHoldsRole");
 }
 
 /// 3.2, C03: the committed IDL is the default (mainnet ids) build's, its

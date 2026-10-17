@@ -18,8 +18,10 @@
 //! (R4). The approval closes at exit (rent to its `rent_payer`). R1 across
 //! both programs is re-checked here (8.5): no `Coin` and no `Approval` for the
 //! city in the old program, its launches paused, and its admin this program's
-//! admin with no transfer pending (GOV-1). No direct lamport move happens in
-//! `launch`.
+//! admin with no transfer pending (GOV-1). The signing founder is checked
+//! again against the settings of this moment: never `FEE_RECIPIENT`, the
+//! guardian or the payout key (R2-DIFF-1, SPEC-1). No direct lamport move
+//! happens in `launch`.
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{self, Transfer};
@@ -37,7 +39,7 @@ use crate::custody::require_not_halted;
 use crate::errors::{config_err, math_err, CurveError};
 use crate::events::CoinLaunched;
 use crate::helpers::{
-    check_name, check_symbol, is_empty_system_account, legacy_admin_matches,
+    check_founder_key, check_name, check_symbol, is_empty_system_account, legacy_admin_matches,
     legacy_approval_address, legacy_coin_address, legacy_launches_paused, legacy_launchpad_valid,
     metadata_address, metadata_uri, symbol_bytes,
 };
@@ -190,6 +192,11 @@ pub fn handle_launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {
         a.approval.founder,
         CurveError::WrongFounder
     );
+    check_founder_key(
+        &a.founder.key(),
+        &a.launchpad.guardian,
+        &a.launchpad.payout_authority,
+    )?;
     let params = a.config.params();
     validate_config(&params).map_err(config_err)?;
     check_name(&a.approval.name)?;

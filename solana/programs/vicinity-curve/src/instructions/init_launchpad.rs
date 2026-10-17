@@ -3,8 +3,10 @@
 //!
 //! Only the program's upgrade authority can call it, so nobody can race the
 //! deployer to the `["launchpad"]` PDA (T64). The admin signs too, so the
-//! stored admin is a live key. Neither the admin nor the guardian may be
-//! `FEE_RECIPIENT` (GOV-2), which only receives. The ids of the programs this program talks to
+//! stored admin is a live key. Neither the admin, the guardian nor the upgrade
+//! authority may be `FEE_RECIPIENT` (GOV-2, R2-DIFF-1), which only receives;
+//! a later change of the upgrade authority (the loader's `SetAuthority`) is
+//! outside the program and a deploy precondition (8.4). The ids of the programs this program talks to
 //! are compiled constants (3.2), not arguments. The ProgramData header is
 //! parsed by hand (`helpers::program_data_upgrade_authority`).
 
@@ -61,6 +63,7 @@ pub fn handle_init_launchpad(ctx: Context<InitLaunchpad>, guardian: Pubkey) -> R
         authority == Some(ctx.accounts.upgrade_authority.key()),
         CurveError::NotUpgradeAuthority
     );
+    check_not_fee_recipient(&ctx.accounts.upgrade_authority.key())?;
     check_not_fee_recipient(&ctx.accounts.admin.key())?;
     check_not_fee_recipient(&guardian)?;
 

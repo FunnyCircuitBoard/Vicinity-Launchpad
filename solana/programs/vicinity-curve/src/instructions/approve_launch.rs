@@ -10,6 +10,10 @@
 //! same multisig could ever reopen it. The same legacy checks run again in
 //! `launch`.
 //!
+//! The founder is never `FEE_RECIPIENT`, the guardian or the payout key (the
+//! founder seat receives money; R2-DIFF-1, SPEC-1); `launch` checks the
+//! signing founder again.
+//!
 //! A second approval for the same city fails at `init` until the first is used
 //! or revoked. A symbol longer than 32 bytes fails the ticker seed derivation
 //! before `check_symbol` (still refused).
@@ -23,7 +27,7 @@ use crate::constants::{
 use crate::errors::CurveError;
 use crate::events::LaunchApproved;
 use crate::helpers::{
-    check_name, check_symbol, is_empty_system_account, legacy_admin_matches,
+    check_founder_key, check_name, check_symbol, is_empty_system_account, legacy_admin_matches,
     legacy_approval_address, legacy_coin_address, legacy_launches_paused, legacy_launchpad_valid,
 };
 use crate::instructions::now;
@@ -118,7 +122,8 @@ pub fn handle_approve_launch(
     expires_at: i64,
 ) -> Result<()> {
     require!(city_id >= 1, CurveError::BadCityId);
-    require!(founder != Pubkey::default(), CurveError::InvalidAddress);
+    let lp = &ctx.accounts.launchpad;
+    check_founder_key(&founder, &lp.guardian, &lp.payout_authority)?;
     check_name(&name)?;
     check_symbol(&symbol)?;
     require!(meta_hash != [0u8; 32], CurveError::BadMetaHash);

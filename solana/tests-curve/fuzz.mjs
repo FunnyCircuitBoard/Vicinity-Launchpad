@@ -289,6 +289,9 @@ export class Fuzz {
       }
       case 'transfer_founder':
         if (String(op.signer.address) !== coinModel.ext.founder) return fail('WrongFounder');
+        // the founder seat (R2-DIFF-1, SPEC-1): never FEE_RECIPIENT, the guardian or the payout key
+        if (String(op.newFounder) === String(S.ADDRESSES.feeRecipient)) return fail('FeeRecipientRole');
+        if ([lp.guardian, lp.payoutAuthority].includes(String(op.newFounder))) return fail('FounderHoldsRole');
         coinModel.ext.founder = op.newFounder;
         return { ok: true };
       case 'add_config': {

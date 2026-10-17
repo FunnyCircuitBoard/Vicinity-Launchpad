@@ -2034,6 +2034,30 @@
           "signer": true
         },
         {
+          "name": "launchpad",
+          "docs": [
+            "Read for the guardian and the payout key (the new founder is neither)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "coin",
           "writable": true,
           "pda": {
@@ -2755,7 +2779,12 @@
     {
       "code": 6052,
       "name": "FeeRecipientRole",
-      "msg": "the fee recipient cannot be the admin, the proposed admin or the guardian"
+      "msg": "the fee recipient cannot be the admin, the proposed admin, the guardian, the upgrade authority at init or a coin's founder"
+    },
+    {
+      "code": 6053,
+      "name": "FounderHoldsRole",
+      "msg": "a coin's founder cannot be the guardian or the payout key"
     }
   ],
   "types": [

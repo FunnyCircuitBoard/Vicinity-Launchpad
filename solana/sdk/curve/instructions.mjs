@@ -53,7 +53,7 @@ export const ACCOUNT_TABLES = Object.freeze({
   forward_holders_fees: [['launchpad', Role.R], ['coin', Role.W], ['rewards_city_config', Role.R], ['rewards_vault', Role.W],
     ['event_authority', Role.R], ['program', Role.R]],
   claim_founder_fees: [['founder', Role.WS], ['coin', Role.W], ['event_authority', Role.R], ['program', Role.R]],
-  transfer_founder: [['founder', Role.RS], ['new_founder', Role.RS], ['coin', Role.W]],
+  transfer_founder: [['founder', Role.RS], ['new_founder', Role.RS], ['launchpad', Role.R], ['coin', Role.W]],
   opt_in_payout: [['founder', Role.WS], ['launchpad', Role.R], ['coin', Role.R], ['opt_in', Role.W], ['system_program', Role.R]],
   revoke_payout_opt_in: [['by', Role.RS], ['coin', Role.R], ['opt_in', Role.W], ['opt_in_founder', Role.W]],
   payout_founder_fees: [['payout_authority', Role.RS], ['launchpad', Role.R], ['coin', Role.W], ['opt_in', Role.R],
@@ -245,9 +245,9 @@ export function curveInstructions({ programId = CURVE_PROGRAM_ID, cluster = 'mai
     /** 4.16: the founder; works whatever is paused. */
     claimFounderFees: ({ founder, coin, cityId, overrides }) =>
       make('claim_founder_fees', { founder, coin: coinOf({ coin, cityId }).coin, ...evt }, W('claim_founder_fees').done(), overrides),
-    /** 4.17: both keys sign. */
+    /** 4.17: both keys sign; the new founder is not FEE_RECIPIENT, the guardian or the payout key (the Launchpad is read for them). */
     transferFounder: ({ founder, newFounder, coin, cityId, overrides }) =>
-      make('transfer_founder', { founder, new_founder: newFounder, coin: coinOf({ coin, cityId }).coin }, W('transfer_founder').done(), overrides),
+      make('transfer_founder', { founder, new_founder: newFounder, launchpad: P.launchpad(), coin: coinOf({ coin, cityId }).coin }, W('transfer_founder').done(), overrides),
     /** 4.18: `expectedDestination` must be the configured payout wallet. */
     optInPayout: ({ founder, coin, cityId, expectedDestination, refHash, overrides }) => {
       const c = coinOf({ coin, cityId }).coin;

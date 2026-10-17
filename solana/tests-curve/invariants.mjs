@@ -976,6 +976,14 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
     for (const [k, v] of [['admin', lp.admin], ['pending admin', lp.pendingAdmin], ['guardian', lp.guardian]]) {
       assert.notEqual(v, S.ADDRESSES.feeRecipient, `${label}: I20 FEE_RECIPIENT is the ${k}`);
     }
+    // R2-DIFF-1, SPEC-1: no coin's founder is FEE_RECIPIENT, the guardian or the payout key. The program refuses them at
+    // approve_launch, launch and transfer_founder; a later set_guardian or set_payout_config naming a founder is not
+    // detected on chain (8.4), so for those two keys this is a rule the tests keep.
+    for (const c of post.coins.values()) {
+      for (const [k, v] of [['FEE_RECIPIENT', S.ADDRESSES.feeRecipient], ['the guardian', lp.guardian], ['the payout key', lp.payoutAuthority]]) {
+        if (v && v !== ZERO) assert.notEqual(c.founder, v, `${label}: I20 the founder of city ${c.cityId} is ${k}`);
+      }
+    }
     assert.equal(lp.address, P.launchpad());
     assert.equal(lp.nextConfigId, post.configs.size, `${label}: I20 next_config_id = number of configs`);
     if (lp0) {

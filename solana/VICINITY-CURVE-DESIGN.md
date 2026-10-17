@@ -2,9 +2,9 @@
 
 Status: specification for the build and for the outside audit, revision 3, 17 October 2026.
 Revision 3 folds in the implementation notes of the build (`VICINITY-CURVE-NOTES.md` entries 1 to
-48: every clarification and accepted deviation) and answers review round 1 of the build (GOV-1,
-GOV-2, CLI-1, CLI-2, CLI-3); revision 2 answered the security, math, runtime and integration review
-of revision 1. Appendix C lists every finding of both reviews, what changed and the parts that were
+49: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
+CLI-2, CLI-3) and 2 (R2-DIFF-1, SPEC-1) of the build; revision 2 answered the security, math, runtime and integration review
+of revision 1. Appendix C lists every finding of each review, what changed and the parts that were
 not applied, with reasons, and the notes folded in. The program, its math crate, its client SDK and
 its test suites are built (branch `feat/vicinity-curve`); nothing has been deployed or signed.
 Devnet uses a throwaway program key only. Mainnet needs the owner, the Squads vault `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X`
@@ -533,8 +533,11 @@ now compiled constants (3.2).
 | 6 | `system_program` | | |
 
 Checks: (1) `program_data_upgrade_authority(program_data.data) == Some(upgrade_authority)`
-(reused hand parser of the 45-byte header) else `NotUpgradeAuthority`; (2) neither `admin` nor
-`guardian` is `FEE_RECIPIENT` (`FeeRecipientRole`): `FEE_RECIPIENT` only receives (8.1).
+(reused hand parser of the 45-byte header) else `NotUpgradeAuthority`; (2) neither
+`upgrade_authority`, `admin` nor `guardian` is `FEE_RECIPIENT` (`FeeRecipientRole`):
+`FEE_RECIPIENT` only receives (8.1). The upgrade-authority part holds at initialisation only:
+the loader's `SetAuthority` can move the upgrade authority later, outside the program, so it
+also stays a deploy precondition (8.4; review R2-DIFF-1).
 Effects: every `Launchpad` field: `admin`, zero `pending_admin`, payout keys zero,
 `guardian` (zero = none), all flags false, `next_config_id = 0`, `bump`.
 Event (`emit!`): `LaunchpadInitialized { admin, upgrade_authority, guardian }`. Mainnet:
@@ -636,7 +639,11 @@ future approvals and launches; live coins never read their config again. Event
 | 9 | `legacy_launchpad` | | Unchecked; `address = LEGACY_LAUNCHPAD` (`InvalidAddress`); `owner == LEGACY_PROGRAM_ID`, `data_len == 171`, `data[0..8] == LEGACY_LAUNCHPAD_DISCRIMINATOR` (`InvalidAddress`); `data[168] == 1`, the old program's launches paused (`LegacyLaunchesOpen`); `data[8..40] == launchpad.admin` and `data[40..72] == 0`, the old program's admin is this program's admin with no transfer pending (`LegacyAdminMismatch`) |
 | 10 | `system_program` | | |
 
-Checks in order: `city_id >= 1` (`BadCityId`); `founder != 0` (`InvalidAddress`);
+Checks in order: `city_id >= 1` (`BadCityId`); the founder seat, `check_founder_key(founder,
+guardian, payout_authority)`: `founder != 0` (`InvalidAddress`), `founder != FEE_RECIPIENT`
+(`FeeRecipientRole`), `founder` neither the guardian nor the payout key (`FounderHoldsRole`);
+the founder receives the coin's founder share, so the seat never goes to a key that may not
+touch money (8.1; the admin may be a founder; reviews R2-DIFF-1, SPEC-1);
 `check_name(name)` (`BadName`); `check_symbol(symbol)` (`BadSymbol`);
 `meta_hash != [0; 32]` (`BadMetaHash`);
 `now < expires_at <= now + APPROVAL_MAX_SECS` (`BadExpiry`).
@@ -691,8 +698,10 @@ Effect: the approval closes at exit; its rent goes to `rent_payer`. Event (`emit
 
 Checks in order (after the constraints): `!launchpad.launches_paused` (`LaunchesPaused`);
 `!launchpad.buys_halted` (`BuysHalted`); `now <= approval.expires_at` (`ApprovalExpired`);
-`founder == approval.founder` (`WrongFounder`); `validate_config(config)` again (defence in
-depth; V errors); `check_name`, `check_symbol` on the approval's strings again (`BadName`,
+`founder == approval.founder` (`WrongFounder`); `check_founder_key` again against the
+`Launchpad` of this moment (`FeeRecipientRole`, `FounderHoldsRole`: a founder who became the
+guardian or the payout key after the approval cannot launch); `validate_config(config)` again
+(defence in depth; V errors); `check_name`, `check_symbol` on the approval's strings again (`BadName`,
 `BadSymbol`). The legacy accounts are checked by their constraints, so R1 across both
 programs holds at the moment of every launch, not only at approval time.
 
@@ -865,8 +874,10 @@ rent-exempt minimum of an empty account (14.3).
 
 ### 4.17 `transfer_founder()`
 
-Reused. `founder` S; `new_founder` S; `coin` W, seeds, `has_one = founder`
-(`WrongFounder`). Effect: `founder = new_founder`. Money still pending goes with the seat
+Reused, with one account added. `founder` S; `new_founder` S; `launchpad` seeds (read for the
+guardian and the payout key); `coin` W, seeds, `has_one = founder` (`WrongFounder`). Check:
+`check_founder_key(new_founder, guardian, payout_authority)` (`FeeRecipientRole`,
+`FounderHoldsRole`; 4.8). Effect: `founder = new_founder`. Money still pending goes with the seat
 (the founder should claim first). An existing opt-in stops working (it names the old
 founder). Event (`emit!`): `FounderTransferred { city_id, old, new }`. The admin can never
 change a founder.
@@ -1004,7 +1015,8 @@ curve's last virtual reserves are in `Graduated` (NOTES 23).
 | 6049 | `BuysHalted` | `buys_halted` is set (guardian or admin) |
 | 6050 | `BadMetaHash` | `meta_hash` is all zeros |
 | 6051 | `LegacyAdminMismatch` | `vicinity_launchpad`'s admin is not this program's admin, or an admin transfer is pending there (4.8, 4.10) |
-| 6052 | `FeeRecipientRole` | `FEE_RECIPIENT` named as admin, proposed admin or guardian (4.1, 4.2, 4.4) |
+| 6052 | `FeeRecipientRole` | `FEE_RECIPIENT` named as admin, proposed admin, guardian or upgrade authority at init, or as a coin's founder (4.1, 4.2, 4.4, 4.8, 4.10, 4.17) |
+| 6053 | `FounderHoldsRole` | a coin's founder named as the guardian or the payout key (4.8, 4.10, 4.17) |
 
 Anchor's own errors (for example `ConstraintSeeds`, `AccountNotInitialized`, an `init` on an
 existing account) can appear before ours for some substitutions; tests accept either and
@@ -1981,12 +1993,12 @@ compared with selling at once):
 | key | can | cannot |
 |---|---|---|
 | **Squads vault `AB5qB1iA...`** (multisig `6v8hwKYS...`, 2 of 3), mainnet, in **all** of its roles: `vicinity_curve` admin, upgrade authority and program-metadata (IDL) authority; `vicinity_rewards` registry admin, every city's rewards authority and upgrade authority; `vicinity_launchpad` admin and upgrade authority (the old program's admin seat is enforced: approvals and launches here require it to be this program's admin, 8.5) | **As admin**: `approve_launch`, `revoke_approval`, `add_launch_config` (inside V1 to V11), `set_launch_config_enabled`, `set_pause` (any flag either way), `set_payout_config`, `set_guardian`, `propose_admin`. **As upgrade authority**: replace `vicinity_curve` (including the pre-audited `halt-all` build) after the time lock, and with a new binary take every coin's reserves and buckets. **As rewards registry admin**: choose each city's rewards authority at `init_city` (`vicinity_curve` accepts only configs whose authority is the admin, 4.15). **As each city's rewards authority**: publish the Merkle roots that decide who receives the holders' money in the rewards vault, itself included; pause claims; cancel epochs. **As `vicinity_rewards` upgrade authority**: replace that program, and with it take every forwarded lamport | Within `vicinity_curve`, without an upgrade: move any lamport or token; change a live coin's split, curve, founder or state; block sells, claims, forwards or withdrawals; redirect platform fees; change the compiled program ids; mint; freeze; create a second coin for a city or a ticker. In `vicinity_rewards`: there is no withdraw instruction; a published root is write-once |
-| **guardian** (a separate Squads multisig without a time lock, suggested 1 of 3 of the same members; never on the website server or the keeper; never `FEE_RECIPIENT`, the payout key or the payout wallet, which the program refuses, 4.4, 4.5) | `set_pause` with `launches = true` and/or `buys = true` only: stops new launches, buys and buybacks at once | clear any flag; block sells, claims, forwards, withdrawals or payouts; touch money; change any setting |
-| **payout key** (off by default; never on the website server) | `payout_founder_fees` for opted-in founders, to the fixed payout wallet, once a day per coin; pause payouts | resume payouts; pay anywhere else; touch any other bucket |
-| **founder** (per coin) | claim, opt in or out of payouts, hand over the seat to a co-signing key | touch any other bucket or coin |
+| **guardian** (a separate Squads multisig without a time lock, suggested 1 of 3 of the same members; never on the website server or the keeper; never `FEE_RECIPIENT`, the payout key or the payout wallet, which the program refuses, 4.4, 4.5; never a coin's founder, which the program refuses at every approval, launch and founder transfer, 4.8, 4.10, 4.17) | `set_pause` with `launches = true` and/or `buys = true` only: stops new launches, buys and buybacks at once | clear any flag; block sells, claims, forwards, withdrawals or payouts; touch money; change any setting |
+| **payout key** (off by default; never on the website server; never a coin's founder, refused as for the guardian) | `payout_founder_fees` for opted-in founders, to the fixed payout wallet, once a day per coin; pause payouts | resume payouts; pay anywhere else; touch any other bucket |
+| **founder** (per coin; the admin chooses it at approval and may choose itself; never `FEE_RECIPIENT`, the guardian or the payout key, 4.8, 4.10, 4.17) | claim, opt in or out of payouts, hand over the seat to a co-signing key that is none of those three | touch any other bucket or coin |
 | **anyone** | trade; `buyback_burn`; `withdraw_platform_fees` (pays only `FEE_RECIPIENT`); `forward_holders_fees` (pays only the checked vault); `SyncNative` on a WSOL account; revoke an expired approval | everything else |
 | **website and keeper** | build unsigned transactions; the keeper's hot key signs permissionless cranks as fee payer only | approve launches, halt, or move funds: the website holds no admin, guardian, payout or upgrade key; admins create Squads proposals from their own wallets |
-| **`FEE_RECIPIENT`** | receive | sign anything in the program; hold any role: the program refuses it as admin, proposed admin, guardian, payout key or payout wallet (4.1 to 4.5) |
+| **`FEE_RECIPIENT`** | receive; trade and buy coins like any wallet (the program cannot stop a key from spending its own SOL; I21) | hold any seat in the program: it refuses `FEE_RECIPIENT` as admin, proposed admin, guardian, payout key or payout wallet (4.1 to 4.5), as a coin's founder (4.8, 4.10, 4.17), and as the upgrade authority at `init_launchpad` (4.1); later moves of the upgrade authority happen outside the program, so that part is a deploy precondition (8.4). Its only signatures in the program are a trader's |
 
 Worst cases:
 * **Two of the three Squads keys stolen (or two members acting together).** As admin: approve
@@ -2094,7 +2106,13 @@ launches fail with `LegacyAdminMismatch`.
   its upgrade authority is the Squads vault (it is, `release/mainnet-2026-10-10/BUILD.md`), its
   launches are paused and its configs disabled (8.5); the guardian is set and is neither the
   payout key nor the payout wallet; the program metadata (IDL) is published; config #0 is added; the time lock is set
-  (unless the owner chose O11's alternative).
+  (unless the owner chose O11's alternative). **Afterwards, as an operating rule** (review
+  R2-DIFF-1, SPEC-1): the upgrade authority is never moved to `FEE_RECIPIENT` (the program
+  checks it only at `init_launchpad`), and `set_guardian` and `set_payout_config` never name a
+  key that already holds a coin's founder seat (the program refuses the guardian and the payout
+  key as founders at every approval, launch and founder transfer, but cannot enumerate the
+  coins when those settings change; the deploy checklist compares the new key with every
+  `Coin.founder` before the proposal is signed).
 * Under Meteora, curve and pool money sat in Meteora's programs. Here it sits under
   `vicinity_curve`, so the upgrade authority is the main trust: it could take every coin's
   reserves and unpaid shares. The website says so plainly.
@@ -2225,7 +2243,10 @@ Global:
   program's admin with no transfer pending (8.5).
 * **I20 Settings.** The compiled program ids never change without an upgrade; payout key and
   wallet separate from each other, the admin, the guardian and `FEE_RECIPIENT` when set;
-  `FEE_RECIPIENT` is never the admin, the pending admin or the guardian; `guardian` changes
+  `FEE_RECIPIENT` is never the admin, the pending admin or the guardian; no coin's founder is
+  `FEE_RECIPIENT`, the guardian or the payout key (the program refuses them at every approval,
+  launch and founder transfer; that a later `set_guardian` or `set_payout_config` does not name
+  an existing founder is a rule the tests keep and an operating rule, 8.4); `guardian` changes
   only in `set_guardian`; `buys_halted` becomes true only by the guardian or the admin and
   false only by the admin; `next_config_id` equals the number of `LaunchConfig` accounts; a
   `LaunchConfig` changes only in `enabled`; every `LaunchConfig` passes V1 to V11.
@@ -2234,8 +2255,15 @@ Global:
   keeper; the one exception is an `Approval`'s rent returning to its `rent_payer`, which
   `approve_launch` sets to the admin (its own rent coming back, not a money path). The program
   cannot stop a role key from buying coins with its own SOL, so the token half is a rule for
-  the tests (NOTES 29, 34). Since `FEE_RECIPIENT` can hold no role (4.1 to 4.5), platform
-  withdrawals never reach one. This invariant does not cover `vicinity_rewards`: forwarded holders' money is
+  the tests (NOTES 29, 34). The founder seat is the one program path that pays a key the admin
+  chose: the program refuses `FEE_RECIPIENT`, the guardian and the payout key as founders (4.8,
+  4.10, 4.17), so founder claims and payouts never reach them while 8.4's operating rule holds;
+  the admin may approve itself as a founder (8.1's worst case), and its founder claims would then
+  pay it that coin's founder share, which the tests never do (the checker refuses it).
+  `FEE_RECIPIENT` holds no admin, guardian, payout or founder seat and is refused as the
+  upgrade authority at initialisation (4.1 to 4.5, 4.8, 4.10, 4.17), so platform withdrawals
+  never reach a role key as long as 8.4's precondition on the upgrade authority holds (review
+  R2-DIFF-1). This invariant does not cover `vicinity_rewards`: forwarded holders' money is
   distributed by Merkle roots that the same Squads vault publishes as each city's rewards
   authority (8.1).
 * **I22 Liveness (nothing stuck).** From every reachable state reached in the tests, unless
@@ -2313,7 +2341,7 @@ Global:
 | T49 | **Rewards config whose root publisher is a stranger**, or a self-serving root | `CityConfig.authority == launchpad.admin` and no pending authority required (4.15); roots are published by the Squads vault after the time lock, with the published snapshot and an independent recomputation (8.1) | X47b; process |
 | T50 | **Payout redirection** | destination must equal the founder's agreed destination and the current setting, be System-owned, and differ from the admin, the guardian, the payout key and `FEE_RECIPIENT` | X50 |
 | T51 | **Payout key abuse** | 24-hour cooldown stored on `Coin`; fixed wallet; it can pause payouts but not resume them | X51 |
-| T52 | **Founder key theft** | exposure limited to `founder_pending`; the seat moves only with both signatures; the admin cannot reassign | design |
+| T52 | **Founder key theft** | exposure limited to `founder_pending`; the seat moves only with both signatures, never to `FEE_RECIPIENT`, the guardian or the payout key; the admin cannot reassign | design; 28-governance |
 | T53 | **Lost founder key** | the share stays claimable only by that key (O22) | design |
 | T54 | **Duplicate or aliased accounts** | `user_token_account.owner != coin` (excludes the vault and any token account of the `Coin` PDA); sells require the user as token owner; the `Coin` PDA can never sign from outside | X54 |
 | T55 | **Pre-funding a PDA to block `init`** | Anchor `init` creates over pre-funded system accounts (transfer, allocate, assign); extra lamports are donations | X55 |
@@ -2338,7 +2366,7 @@ Global:
 | T74 | **Third-party pools for the coin** | cannot be prevented for a classic SPL coin; they pay no Vicinity fee and buybacks and injections carry over to them only past 2.5% plus their fee; labelled (6.6) and listed as an owner-visible risk (13, 14.5) | process |
 | T75 | **CPI after a direct lamport move** (`UnbalancedInstruction`, stuck instruction) | rule of 4.0; `forward_holders_fees` leaves `SyncNative` to a separate top-level instruction | R02, R02b |
 | T76 | **Buying ahead of a public buyback backlog** (hold through several runs) | Theorem M_K; 0.1% step; V11 horizon; keeper every interval, alert above 1% of depth, backlog shown on the coin page; residual risk signed off (O25) | P06b; X25 |
-| T77 | **One hot key in several roles** (`FEE_RECIPIENT` as admin or guardian, the guardian as payout key or wallet, the old program administered by another key) | refused by `init_launchpad`, `propose_admin`, `accept_admin`, `set_guardian` and `set_payout_config` (`FeeRecipientRole`, `PayoutKeyNotSeparate`); approvals and launches require the old program's admin to be this program's admin (`LegacyAdminMismatch`, 8.5) | I19, I20; 28-governance |
+| T77 | **One hot key in several roles** (`FEE_RECIPIENT` as admin, guardian, upgrade authority or a coin's founder, the guardian as payout key or wallet, the guardian or the payout key as a coin's founder, the old program administered by another key) | refused by `init_launchpad`, `propose_admin`, `accept_admin`, `set_guardian` and `set_payout_config` (`FeeRecipientRole`, `PayoutKeyNotSeparate`) and, for the founder seat, by `approve_launch`, `launch` and `transfer_founder` (`FeeRecipientRole`, `FounderHoldsRole`); later moves of the upgrade authority and settings that name an existing founder are 8.4's operating rule; approvals and launches require the old program's admin to be this program's admin (`LegacyAdminMismatch`, 8.5) | I19, I20; 28-governance |
 | T78 | **A client buy without a minimum** (the "pay with any token" composer), sandwiched | the program enforces `min_tokens_out`; the SDK's `buyWithSwap` refuses to build a buy without one (14.1) | 29-clients |
 
 ---
@@ -3368,6 +3396,17 @@ accepted. Severities are the verifier's.
 | GOV-4 | governance, info | the time lock is a property of the Squads multisig, not of the program | **Rejected**: process; 8.4 already makes the time lock a precondition. No change |
 | GOV-5 | governance, info | an admin hand-over stops forwards until each city's rewards authority follows | **Rejected**: specified (4.2, 8.2) and tested. 8.2 now also names the old program's admin, which must follow too |
 
+### Revision 3: review round 2 of the build (17 October 2026)
+
+The fixes of round 1 and the whole build were reviewed again through four lenses (the round-1 fix
+diff, spec conformance, an attacker's economics, a fresh audit); each finding was reproduced by a
+verifier before it was accepted. Severities are the verifier's.
+
+| id | lens, severity | finding (short) | response |
+|---|---|---|---|
+| R2-DIFF-1 | fix diff, info | revision 3's 8.1 said `FEE_RECIPIENT` "cannot sign anything; hold any role" and I21 relied on it, but the program accepted it as a coin's founder (approve, launch, claim, opt in, transfer) and as the upgrade authority at `init_launchpad` | **Confirmed**. **Applied**, enforcing where the program can see it: `FeeRecipientRole` for the founder in `approve_launch`, `launch` and `transfer_founder`, and for the upgrade authority in `init_launchpad`; 8.1's row says what holds (it trades like any wallet, holds no seat), and later moves of the upgrade authority are 8.4's operating rule (the loader's `SetAuthority` is outside the program, as the verifier noted). 4.1, 4.8, 4.10, 4.17, 4.22, 8.1, 8.4, I21, T77; `28-governance`; NOTES 49 |
+| SPEC-1 | conformance, low | the guardian (and `FEE_RECIPIENT`) could hold a coin's founder seat and receive its founder share, against 8.1 ("cannot touch money") and I21 (the checker fails at the claim) | **Confirmed**. **Applied** with R2-DIFF-1: `check_founder_key` also refuses the guardian and the payout key (`FounderHoldsRole`, 6053) at every approval, launch and founder transfer; `transfer_founder` reads the `Launchpad` (one account added; IDL and SDK). The admin stays allowed as a founder (8.1's worst case; it chooses every founder anyway), and I21 now says so instead of claiming no program path pays a role key; a later `set_guardian` or `set_payout_config` naming an existing founder cannot be detected on chain and is 8.4's operating rule and a checker rule (I20). 4.8, 4.10, 4.17, 4.22, 8.1, 8.4, I20, I21, T52, T77; `28-governance`, checklist test; NOTES 49 |
+
 ### Revision 3: the leftovers of the build's third stage
 
 | item | done |
@@ -3414,3 +3453,4 @@ build follows the text as written and the entry records a reading or a measureme
 | 40 | G02, G03 and R02b with a mock router | 12.5 R02b |
 | 41 | I22's buyback dust case | I22 |
 | 42 to 48 | review round 1 and the leftovers (above) | as listed above |
+| 49 | review round 2: the founder seat (above) | as listed above |
