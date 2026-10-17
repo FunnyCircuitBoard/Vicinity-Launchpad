@@ -758,7 +758,7 @@ const symbolOk = (t) => typeof t === "string" && /^[A-Z0-9]{1,10}$/.test(t);
 async function candidateList(env, ctx, fetchImpl, now) {
   const s = lpSetup(env), db = env.DB;
   await ensureLogoSchema(db);
-  const rows = (await db.prepare(`SELECT cc.city_id, cc.city_name, cc.country, cc.name, cc.pitch, cc.media_id, cc.approved_media_id, cc.logo_status, cc.updated_at, cc.pair, cc.mint, cc.seat_id,
+  const rows = (await db.prepare(`SELECT cc.city_id, cc.city_name, cc.country, cc.name, cc.pitch, cc.media_id, cc.approved_media_id, cc.logo_status, cc.updated_at, cc.pair, cc.mint, cc.pending_mint, cc.seat_id,
       s.id AS live_seat, s.status AS seat_status, s.wallet AS seat_wallet, u.wallet AS user_wallet, u.handle
     FROM city_coins cc
     LEFT JOIN seats s ON s.city_id = cc.city_id AND s.status IN ('provisional', 'active', 'grace', 'steward')
@@ -805,6 +805,9 @@ async function candidateList(env, ctx, fetchImpl, now) {
       continue;
     }
     const reasons = [...global];
+    // a contract sent through the old Raydium LaunchLab path before the launchpad was set up (src/coins.js closes that path now):
+    // the city may already have a coin there, and one city has one coin, so it is skipped until the team settles that contract
+    if (r.pending_mint) reasons.push("A Raydium LaunchLab contract for this city is still waiting for a check (it was sent through the old path before the launchpad was set up). One city has one coin, so this city is skipped until the team settles that contract.");
     if (r.pair !== "SOL") reasons.push(`The coin is paired with ${r.pair}; only SOL-paired coins can launch on the Vicinity curve for now. The founder must pick SOL.`);
     const np = nameProblem(r.name);
     if (np) reasons.push(np);

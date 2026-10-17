@@ -57,6 +57,8 @@
   let reflowing = false;
   // the launch on our own launchpad (public/lp-launch.js through dashboard.js): { on, state } once known; off = the LaunchLab path
   let lp = { on: false, state: null };
+  // a contract sent through the old LaunchLab path before the launchpad was set up: with lp.on nobody records it (src/coins.js)
+  const LEGACY_CONTRACT = "A contract for this city is waiting for a check. Nothing can launch until that's settled.";
   const me = () => (ctx ? ctx.me() : null);
   const countryName = (cc) => (ctx ? ctx.countryName(cc) : cc);
   const behavior = () => (window.V.reduced ? "auto" : "smooth");
@@ -436,7 +438,8 @@
     if (seated && coinKnown && !coin) add(`Design ${seat.city}'s coin`, "Name, pitch, pair, colour, logo (shown once checked). Public and logged.", "ok", "founder", "#coin-studio");
     if (seated && coin && !coin.mint && !coin.waiting && !lp.on) add("Add your coin's contract", "Launched it on Raydium LaunchLab? Send the address for a check.", "ok", "founder", "#cs-mint");
     if (seated && lp.on && lp.state === "ready") add("Launch your city coin", "An admin approved it. One signature in your wallet.", "ok", "founder", "#lp-launch");
-    if (seated && coin && coin.waiting) add("Contract being checked", "An admin checks it on the blockchain. Nothing to do.", "info", "city", "#coin", true);
+    // with the Vicinity launchpad set up, nobody checks a contract sent through the old LaunchLab path (src/coins.js closes it)
+    if (seated && coin && coin.waiting) add("Contract being checked", lp.on ? LEGACY_CONTRACT : "An admin checks it on the blockchain. Nothing to do.", "info", "city", "#coin", true);
     const q = queueCounts();
     if (modOn() && q.total > 0) add(`${q.total} waiting for you`, q.parts.join(" · "), "warn", "moderate", q.total === q.counts.coins ? "#coin-admin" : "#mod");
     if (sq && sq.joinable && !sq.joinable.full) add(`A squad is forming in ${city}`, `${sq.joinable.members.length} of ${sq.joinable.max} members · join to pool holdings`, "info", "founder", "#squad");
@@ -618,7 +621,7 @@
     else if (!coinKnown) { note.textContent = ""; go.hidden = true; fcardAction = null; }
     else if (!coin) { note.textContent = `Your coin, your call. Design ${seat.city}'s coin: everyone in ${seat.city} sees it.`; button("Design the city coin", "btn btn--primary", () => goTo("#coin-studio")); }
     else if (coin.launched) { note.textContent = `${seat.city}'s coin is live. Its design is locked for good, as the rules promise.`; button("Manage city coin", "btn btn--primary", () => goTo("#coin", { noAlias: true })); }
-    else if (coin.waiting) { note.textContent = "An admin is checking the contract. Once recorded, the design is locked and it becomes the one official coin."; button("See the coin", "btn btn--glass", () => goTo("#coin", { noAlias: true })); }
+    else if (coin.waiting) { note.textContent = lp.on ? LEGACY_CONTRACT : "An admin is checking the contract. Once recorded, the design is locked and it becomes the one official coin."; button("See the coin", "btn btn--glass", () => goTo("#coin", { noAlias: true })); }
     else if (lp.on) {
       const s = lp.state;
       note.textContent = s === "ready" ? "An admin approved your coin. Launch it on the Vicinity launchpad: one signature in your wallet."

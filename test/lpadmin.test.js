@@ -676,6 +676,37 @@ test("approval candidates: blocked for everyone until the trading settings exist
   assert.deepEqual(r.candidates[0].warnings, ["The founder is the launchpad admin's own wallet."]);
 });
 
+test("approval candidates: a city whose Raydium LaunchLab contract is still waiting for a check is skipped, and the card says why; approving it is refused", async () => {
+  const config = addr(101);
+  const w = await world({ env: { LAUNCHPAD_DBC_CONFIGS: config } });
+  const L = launchpadPdas(PROGRAM);
+  Object.assign(w.chain.S.accounts, {
+    [await L.launchpad()]: { owner: PROGRAM, data: b64(layoutAccount("Launchpad", { admin: w.wallet, rewards_program: REWARDS })) },
+    [await L.launchConfig(config)]: { owner: PROGRAM, data: b64(layoutAccount("LaunchConfig", { dbc_config: config, quote_mint: ADDRESSES.wsol, enabled: 1 })) },
+  });
+  const f = await Promise.all([1, 2].map(() => person(w.env)));
+  // NYC: ready; Utica: the same, except that a contract sent through the old LaunchLab path (before the launchpad was set up) waits
+  await seedCoin(w.env.DB, { city: 5128581, name: "New York City", coin: "Big Apple", seat: await seedSeat(w.env, f[0], { city: 5128581, name: "New York City" }) });
+  await seedCoin(w.env.DB, { city: 5142056, name: "Utica", coin: "Utica Coin", pending: addr(105), seat: await seedSeat(w.env, f[1], { city: 5142056, name: "Utica" }) });
+  const r = (await w.call("/api/admin/lp/candidates")).data;
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const by = (id) => r.candidates.find((c) => c.cityId === String(id));
+  assert.deepEqual([by(5128581).ok, by(5128581).reasons], [true, []]);
+  const uti = by(5142056);
+  assert.equal(uti.ok, false);
+  assert.deepEqual(uti.reasons, ["A Raydium LaunchLab contract for this city is still waiting for a check (it was sent through the old path before the launchpad was set up). One city has one coin, so this city is skipped until the team settles that contract."]);
+  assert.ok(!JSON.stringify(r).includes(addr(105)), "the waiting address itself is not in the answer");
+  const from = w.chain.S.log.length;
+  const a = await w.call("/api/admin/lp/approve/tx", seenOf(uti));
+  assert.deepEqual([a.status, a.data.error, a.data.reasons], [409, "blocked", uti.reasons]);
+  assert.equal(built(w, from), 0, "nothing built");
+  assert.equal((await w.env.DB.prepare("SELECT pending_mint FROM city_coins WHERE city_id = '5142056'").first()).pending_mint, addr(105), "the waiting contract is left as it is");
+  // once that contract is settled (the team rejects it with the launchpad's settings off), the city is a candidate like any other
+  await w.env.DB.prepare("UPDATE city_coins SET pending_mint = NULL, pending_at = NULL WHERE city_id = '5142056'").run();
+  const r2 = (await w.call("/api/admin/lp/candidates")).data;
+  assert.equal(r2.candidates.find((c) => c.cityId === "5142056").ok, true);
+});
+
 test("names: the program's own rule (1 to 32 UTF-8 bytes, no control or invisible characters)", () => {
   assert.equal(nameProblem("Amsterdam"), null);
   assert.equal(nameProblem("São Paulo Moedas ÁÉÍÓ Útil"), null, "32 bytes exactly");

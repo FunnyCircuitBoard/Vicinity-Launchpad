@@ -1200,6 +1200,7 @@
     mint_changed: "The founder submitted a different address since you opened this one. Reload the queue and check the new one.",
     not_a_mint: "The blockchain says that address is not a token with a supply. Nothing was recorded.",
     chain_unavailable: "The blockchain could not be asked just now. Nothing was recorded; try again in a minute.",
+    launchpad_only: "City coins launch on the Vicinity launchpad now, so the old Raydium LaunchLab contract path is closed. Nothing was changed.",
   };
   let coinData = null, coinPairs = null, vicMint = null, logoData = null, dropLogo = false, studioDirty = false;
   let coinP = null; // the /api/coins answer on its way (render starts it; the Wallet tab waits for it, its mints come from there)
@@ -1369,9 +1370,12 @@
     if (v2) v2.lp(r);
   }
 
-  // admins: contracts founders sent, waiting for someone else to check them
+  // admins: contracts founders sent, waiting for someone else to check them. While the Vicinity launchpad is set up (the probe
+  // lpMount asks, once per page) that old LaunchLab path is closed (the server refuses /api/coins/mint/decide): no queue, not asked
   async function loadCoinQueue() {
-    const r = await api("/api/coins?waiting=1");
+    const L = window.LPLaunch;
+    const closed = Boolean(L && typeof L.probe === "function" && await L.probe());
+    const r = closed ? null : await api("/api/coins?waiting=1");
     const list = r && r.ok ? r.waiting : [];
     $("#coin-admin").hidden = !list.length;
     if (v2) v2.coinQueue(list.length);
