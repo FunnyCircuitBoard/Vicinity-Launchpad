@@ -138,7 +138,7 @@ test("token: the Buy control in its slot, the address once, six proofs, no third
     assert.match(h, /<div class="token-hero__buy">\s*<div class="contract__slot buy-slot is-pending" id="buy-slot"><a class="contract__buy" id="lnk-raydium"/, "the slot is the Buy card, above the contract card");
     assert.equal(count(h, /id="buy-slot"/g), 1);
     // 13 Oct 2026: "60M team tokens locked" (the team's 60M on Jupiter Lock, test/team-lock.test.js) joined the five, after Team wallets public
-    assert.equal(count(h, /<div class="proof card">/g), 6, "Minting disabled, No freeze button, Liquidity can't be pulled, Team wallets public, 60M team tokens locked, No presale");
+    assert.equal(count(h, /<div class="proof card">/g), 6, "Minting disabled, No freeze button, Liquidity locks at graduation, Team wallets public, 60M team tokens locked, No presale");
     assert.doesNotMatch(h, /supply-text|supply2|<h3>Fixed supply<\/h3>/, "the Supply fact above and the Minting proof already say the supply is fixed");
     const main = h.includes('<main id="main"') ? h.slice(h.indexOf('<main id="main"'), h.indexOf("</main>")) : h; // the page itself, not the header's Sign up (design v4)
     assert.equal(count(main, /href="\/connect"/g), 1, "one link to /connect in the page, in the FAQ's step 4 (the holders footnote was the third)");
