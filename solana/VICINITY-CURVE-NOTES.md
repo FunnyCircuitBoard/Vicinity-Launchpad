@@ -608,3 +608,27 @@ shows that `claim_founder_fees`, `withdraw_platform_fees` and `sell` all fail wi
 that nothing moves (the failed-transaction check). That is the state a bookkeeping bug would leave,
 and the refusal comes from the same `pay_out` floor; a separate test-only build would only add a
 binary that is not the audited one.
+
+### 32. The first attack tests, and what they do not yet cover (12.4, 12.5 F02, 14.3)
+
+`tests-curve/14-attacks.test.mjs` covers part of 12.4 with the World and its checker (every failed
+transaction is checked to have moved nothing but the fee):
+
+* **X01, X02, X04, X05, F02 in miniature.** Every slot of `buy`, `sell`, `buyback_burn`,
+  `withdraw_platform_fees`, `claim_founder_fees`, `forward_holders_fees` and
+  `payout_founder_fees` that is not a signer is replaced in turn by plausible wrong accounts
+  (another coin, its vault and mint, the old program's `Coin` bytes under the old program's id and
+  under `vicinity_rewards`' id, Token-2022, System or `vicinity_curve` in program slots, WSOL, a
+  random key, the admin as fee recipient, another coin's rewards accounts and opt-in). All of them
+  (more than 80) are refused. One substitution is not an attack and is skipped:
+  `withdraw_platform_fees` is permissionless and its every other account derives from the coin, so
+  naming another coin is that coin's own legitimate withdrawal. Signer slots are not substituted:
+  another signer is another legitimate caller, whose own authority checks L01 to L12 test. F02 in
+  full (random fuzz over every instruction, 10,000 runs) is still open.
+* **X58 (14.3, T58).** A seller or founder holding 0 lamports: a payout below the rent-exempt
+  minimum of an empty account fails with `InsufficientFundsForRent` and moves nothing; a larger one
+  is paid. The I22 probe applies the same rule (a holder or founder with 0 lamports is not expected
+  to receive less than that minimum), and its simulations take the fee from the world's payer when
+  the signer cannot pay it, so the probe tests the instruction, not the fee.
+* **X32, X33, X65** as 12.4 states them.
+

@@ -44,3 +44,4 @@ of each test.
 | `11-halts.test.mjs` | L12, H01, H02, H03: the set_pause matrix, the guardian halt, the halt-all build over live state and back |
 | `12-compute.test.mjs` | C01, C02: compute units of every instruction against the 11.1 budgets, the website's transaction sizes (also written to `target/vcurve-measurements.json`) |
 | `13-checker.test.mjs` | L13: declared donations and holder burns keep every invariant; the checker fails on undeclared ones and on an out-of-band edit; `pay_out` refuses every debit when the liabilities exceed the balance (X31); forged events are refused (T56) |
+| `14-attacks.test.mjs` | X01, X02, X04, X05 and F02 in miniature (every non-signer slot of the seven money instructions substituted: always refused, nothing moves), X32 (cross-coin bleed), X33 (approval replay), X58 (a 0-lamport seller or founder), X65 (the IDL tag returns `IdlInstructionStub`) |

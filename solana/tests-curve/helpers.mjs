@@ -98,7 +98,20 @@ export function mintData({ supply = 0n, decimals = 6, mintAuthority = null, free
   return Buffer.concat([opt(mintAuthority), u64b(supply), Buffer.from([decimals, 1]), opt(freezeAuthority)]);
 }
 export const metaHash = (s) => [...createHash('sha256').update(String(s)).digest()];
-const stringify = (v) => JSON.stringify(v, (k, x) => (typeof x === 'bigint' ? x.toString() : x));
+// litesvm's TransactionErrorFieldless is a const enum (no runtime object): its names, in order
+const FIELDLESS = ['AccountInUse', 'AccountLoadedTwice', 'AccountNotFound', 'ProgramAccountNotFound', 'InsufficientFundsForFee', 'InvalidAccountForFee',
+  'AlreadyProcessed', 'BlockhashNotFound', 'CallChainTooDeep', 'MissingSignatureForFee', 'InvalidAccountIndex', 'SignatureFailure', 'InvalidProgramForExecution',
+  'SanitizeFailure', 'ClusterMaintenance', 'AccountBorrowOutstanding', 'WouldExceedMaxBlockCostLimit', 'UnsupportedVersion', 'InvalidWritableAccount',
+  'WouldExceedMaxAccountCostLimit', 'WouldExceedAccountDataBlockLimit', 'TooManyAccountLocks', 'AddressLookupTableNotFound', 'InvalidAddressLookupTableOwner',
+  'InvalidAddressLookupTableData', 'InvalidAddressLookupTableIndex', 'InvalidRentPayingAccount', 'WouldExceedMaxVoteCostLimit', 'WouldExceedAccountDataTotalLimit',
+  'MaxLoadedAccountsDataSizeExceeded', 'ResanitizationNeeded', 'InvalidLoadedAccountsDataSizeLimit', 'UnbalancedTransaction', 'ProgramCacheHitMaxLimit', 'CommitCancelled'];
+const stringify = (v) => {
+  if (typeof v === 'number' && FIELDLESS[v]) return `TransactionError ${FIELDLESS[v]} (${v})`;
+  const json = JSON.stringify(v, (k, x) => (typeof x === 'bigint' ? x.toString() : x));
+  // litesvm's transaction errors are class instances (e.g. TransactionErrorInsufficientFundsForRent): keep the name
+  const name = v && typeof v === 'object' && v.constructor && v.constructor !== Object ? v.constructor.name : '';
+  return name ? `${name} ${json}` : json;
+};
 
 // ---------------------------------------------------------------- results
 export class TxError extends Error {
@@ -319,7 +332,8 @@ export class World {
   }
   /** Simulate without committing: `{ ok, error, coin(addr) }` (I22 probes). */
   async simulate(ixs, signers = [], o = {}) {
-    const feePayer = signers[0] ?? this.payer;
+    // the first signer pays, unless it cannot (a 0-lamport founder or seller): then the world's payer does
+    const feePayer = o.feePayer ?? signers.find((s) => this.lamportsOf(s.address) >= 1_000_000n) ?? this.payer;
     const tx = await this.buildTx(ixs, signers, { ...o, feePayer });
     const r = this.svm.simulateTransaction(tx);
     if (typeof r.err === 'function') return { ok: false, error: `${stringify(r.err())}\n${r.meta().logs().slice(-6).join('\n')}` };

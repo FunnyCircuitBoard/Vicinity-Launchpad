@@ -703,7 +703,8 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
  * buy of max_quote_in succeeds and graduates; every holder the world knows can
  * sell what he holds (unless the output would be 0, or he holds 0 lamports and
  * the payout would be below the rent-exempt minimum of an empty account);
- * withdraw_platform_fees and claim_founder_fees succeed; with a correct rewards
+ * withdraw_platform_fees and claim_founder_fees succeed (the same rent rule for a
+ * founder holding 0 lamports); with a correct rewards
  * config forward_holders_fees succeeds; once the interval has passed and the
  * bucket is not empty buyback_burn burns or curve_sol == f(S - 1); expired
  * approvals can be revoked by anyone. Skips buys and buybacks while buys are
@@ -742,7 +743,9 @@ export async function probeLiveness(w, { label = 'liveness' } = {}) {
     }
     if (c.platformPending > 0n) await sim([w.ix.withdrawPlatformFees({ coin: c.address })], [], `${tag} withdraw_platform_fees`);
     const founder = w.signerOf(c.founder);
-    if (c.founderPending > 0n && founder) await sim([w.ix.claimFounderFees({ founder: founder.address, coin: c.address })], [founder], `${tag} claim_founder_fees`);
+    // a founder holding 0 lamports can receive only at least the rent-exempt minimum of an empty account (6.5, 14.3)
+    const claimable = founder && !(w.lamportsOf(founder.address) === 0n && c.founderPending < w.svm.minimumBalanceForRentExemption(0n));
+    if (c.founderPending > 0n && claimable) await sim([w.ix.claimFounderFees({ founder: founder.address, coin: c.address })], [founder], `${tag} claim_founder_fees`);
     if (c.holdersPending > 0n) {
       const r = w.P.rewardsAccounts(c.mint);
       const acc = w.accountInfo(r.config);
