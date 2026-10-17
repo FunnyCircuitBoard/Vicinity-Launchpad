@@ -54,7 +54,7 @@ test("home: the walkthrough's $NYC inside its disc on a 320 px phone, and readab
 });
 
 test("home: no lone word at the end of the hero's lead (design v4: the fact tiles are gone, the live numbers bar replaced them)", () => {
-  for (const h of [homeSrc, home]) assert.match(h, /\$VICINITY holders get in&nbsp;first\.<\/p>/, "a phone's lead never ends on \"first.\" alone");
+  for (const h of [homeSrc, home]) assert.match(h, /Locals hold \$VICINITY to found their&nbsp;city\.<\/p>/, "a phone's lead never ends on \"city.\" alone");
   assert.match(read("public/pages-home.css"), /\.hero4__lead \{ max-width: 34ch; margin: 0 auto 32px; font-size: var\(--fs-md\); color: var\(--text-2\); text-wrap: balance; \}/);
 });
 

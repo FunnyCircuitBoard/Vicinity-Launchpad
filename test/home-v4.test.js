@@ -24,8 +24,8 @@ test("home hero: \"One city. One coin.\" centred at the top on two lines, one ho
     const main = mainOf(h);
     assert.match(main.replace(/^<main id="main">/, "").trimStart(), /^(<!--[\s\S]*?-->\s*)?<section class="hero4" id="hero">/, "the hero opens the page: no pill, no map, nothing above the headline");
     assert.match(h, /<h1 class="hero4__title"><span class="text-ink">One city\.<\/span> <span class="accent">One coin\.<\/span><\/h1>/, "the owner's words, exactly, the second line in the accent");
-    // critique 18 (R1): "can get" (no city coin is live yet) and the holders' head start
-    assert.match(h, /<p class="lead hero4__lead">Every real city can get one official coin, run by the people who live there\. \$VICINITY holders get in&nbsp;first\.<\/p>/);
+    // critique 18 (R1): "can get" (no city coin is live yet); 17 Oct 2026: what $VICINITY really does (no head start exists)
+    assert.match(h, /<p class="lead hero4__lead">Every real city can get one official coin, run by the people who live there\. Locals hold \$VICINITY to found their&nbsp;city\.<\/p>/);
     const cta = h.match(/<div class="hero4__cta" data-fb-avoid>([\s\S]*?)<\/div>/);
     assert.ok(cta, "one row of hero buttons, kept clear of the feedback button");
     const btns = [...cta[1].matchAll(/<a class="([^"]+)" href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)].map((m) => [m[1], m[2], m[3].replace(/<[^>]+>/g, "|")]);
@@ -140,9 +140,9 @@ test("home: How it works (three cards, each one link), the app teaser (in develo
     const cards = [...how.matchAll(/<li class="card card--link how4__card">([\s\S]*?)<\/li>/g)].map((m) => m[1]);
     assert.equal(cards.length, 3);
     const pick = (c) => [c.match(/<h3>(.*?)<\/h3>/)[1].replace(/&nbsp;/g, " "), c.match(/<a class="how4__link" href="([^"]+)">/)[1]];
-    assert.deepEqual(cards.map(pick), [["Find your city", "/cities"], ["Get in first", "/rules#supporters"], ["Launch its coin", "/launchpad"]]);
-    // critique 18: the head start has a condition (the Launchpad snapshot), and the card says it
-    assert.match(cards[1], /<p>Hold \$VICINITY through the Launchpad snapshot to buy new city coins before the public\.<\/p>/);
+    assert.deepEqual(cards.map(pick), [["Find your city", "/cities"], ["Hold to found", "/rules#founders"], ["Launch its coin", "/launchpad"]]);
+    // 17 Oct 2026: no early buying exists (city-coin curves are open to everyone at launch); the card says what holding is for
+    assert.match(cards[1], /<p>Keep your city's founder amount of \$VICINITY, set by its size, in every random balance check for seven days\.<\/p>/);
     assert.doesNotMatch(how.replace(/<[^>]+>/g, "").replace(/\b0[1-3]\b/g, ""), /\d/, "no number in the cards (the 01-03 are decoration)");
     const teaser = h.slice(order[2], order[3]);
     assert.match(teaser, /<span class="tag tag--gold">In development<\/span>/, "never presented as available");
