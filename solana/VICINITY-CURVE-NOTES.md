@@ -1291,6 +1291,9 @@ founder's own 10 SOL wash round trip, his shares claimed back, loses exactly his
 first refusal (the model and the program accept (0, 0, 100, 0, 0)). The reference checks
 (`checks.py`) print the same output before and after V2b.
 
+Superseded in part by entry 52 (review round 3): V2b bounds the sum `b_F + b_H`, since a founder who
+also holds the float is credited both shares.
+
 ### 51. `check_name` refuses every invisible and blank character and stray spaces (3.6, 4.8, 4.10, T38, U11, X38; review FA-1)
 
 **Spec.** T38: "`check_name` refuses control and invisible formatting characters".
@@ -1328,3 +1331,55 @@ and the updated neighbour list of `u11_exhaustive_small_inputs`; `15-attacks-acc
 rule refused by `approve_launch`; ordinary names, now with spaces, still launch);
 `test/lpadmin.test.js` for `nameProblem`. Against the previous build, U11 fails on U+034F and X38 at
 its first new code point (the approval succeeds).
+
+### 52. V2b bounds the sum of the founder's and the holders' shares (5.13, 3.2, 5.15, 7.4, I3, T44, X44, G01; reviews R3-DIFF-1, MATH3-2)
+
+**Spec.** Entry 50 and revision 3 after review round 2: V2b `max(b_F, b_H) + MIN_TOTAL_FEE_BPS <= t`;
+5.13 called `m` "the largest share an attacker can be credited back"; 7.4 said V2b keeps a
+credited trader's cost at 0.01% or more "in every config"; 3.2's `MAX_FOUNDER_FEE_BPS` row said a
+founder's own trades always cost him at least `MIN_TOTAL_FEE_BPS` per leg.
+
+**Issue.** A founder who also holds the float, in wallets other than his seat (the snapshot leaves
+out only the seat, and the 20-holder gate is easy to meet with his own wallets), is credited both
+shares of every leg: `b_F` through `founder_pending`, whoever trades, and `b_H` back through the
+rewards rounds in proportion to the float he holds. The project's own attacker model already counts
+him that way (7.5's drip attacker, P06 and entry 13's `(b_F + b_H)/D` class), but V2b bounded only
+the larger share. So (0, 0, 50, 50, 0), (0, 0, 100, 1, 0), (0, 0, 100, 150, 0) and (0, 0, 1, 1, 0)
+passed V1 to V11 in the crate, the SDK port, the reference model and the program (V8 and V11 do not
+run without a buyback share; V10 passes at `b_L = 0`). The verifier's on-chain wash trade under
+(0, 0, 50, 50, 0), twenty founder wallets holding the float and a real `fund_epoch_from_vault`
+round under the SDK's round rules: 119.4 SOL of legs, the founder's wallets net -12 lamports
+(rounding dust); V2b's stated floor was 0.01194 SOL. Severity low (the review) and info (the math
+lens): it needs a config the owner or a stolen admin key chose with `b_L = b_P = b_B = 0`, and the
+sandwich harm beyond the accepted 1-bp configs is about 1 bp per leg (99.3 bps against 100.0 bps of a
+1 SOL buy at 1%).
+
+**Choice.** The review's fix: **V2b** `b_F + b_H + MIN_TOTAL_FEE_BPS <= t`, the same as
+`b_L + b_P + b_B >= 1`, still part of V2 (`ConfigFeeShareCap`, whose message now says "together";
+no new code). It keeps every config the spec requires to pass: config #0 (`t - b_F - b_H = 150`),
+X44's (0, 1, 0, 0, 0) and (0, 0, 100, 0, 150), ECON-1's (0, 1, 100, 0, 0) and (0, 20, 100, 0, 0), and
+the edges (0, 1, 100, 100, 0), (0, 1, 0, 100, 0), (0, 1, 50, 50, 0) and (1, 2, 100, 0, 0). None of the
+golden vectors changes (the seeded ones, valid or refused, are byte for byte the same; nine fixed
+cases are appended after ECON-1's, no random draw), the G01 vectors are unchanged, and
+`checks.py` prints the same output. Not changed, and now stated in 5.13: when `b_B > 0`, V8 and V11
+still credit only `m = max(b_F, b_H)` (MATH-3's accepted modelling); for a founder holding the float
+their bounds are the tested heuristic of 7.3, which P06 and entry 13 check with `(b_F + b_H)/D`.
+The platform's own wallet stays outside V2b, as entry 50 says.
+
+Built in the crate (`validate_config`), the SDK port (`validateConfig`), the reference model and
+its Appendix A copy, the program (through the crate, at `add_launch_config` and every `launch`),
+and the checker's I3, which now asserts the sum directly as well as through `validateConfig`.
+5.13 (the definition of `m`, V2b, config #0's margin), 3.2, 4.22, 5.15, 7.4, I3, T44, 12.1 and 12.4
+say so.
+
+Tests. `config_rules.rs` `v02b_credited_shares_leave_the_minimum_fee` (the review's four sum configs
+and (0, 0, 100, 100, 0) refused with nothing else violated; the 1-bp edges pass; an exhaustive sweep
+of small founder, holders and other shares); `v10_drip_not_farmable` now shows `b_L = 0` with
+`b_P = 0` on (0, 0, 100, 0, 150), since (0, 0, 100, 100, 0) is a V2b refusal; `19-attacks-admin` X44
+(the four sum configs refused on chain with `ConfigFeeShareCap`; (0, 1, 50, 50, 0) accepted and run
+through a whole life; on every accepted hostile config the founder's 10 SOL wash round trip still
+costs at least 0.01% of each leg after both his own and the whole holders' share; measured under
+(0, 1, 50, 50, 0): 0.1015 SOL before the holders' share, 0.01% of each leg after it); F03's generated
+set breaks V2b as a sum on purpose; the golden vectors (`differential.rs`, `math.test.mjs`, F03 on
+chain). Against the previous build, `v02b_credited_shares_leave_the_minimum_fee` fails at
+(0, 0, 50, 50, 0) and X44 at its first sum config (the program accepts it).

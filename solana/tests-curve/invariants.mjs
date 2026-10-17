@@ -884,6 +884,7 @@ function checkCoin(w, { c, b, label, rentMin, graduatedInTx }) {
   // I3
   assert.equal(t.totalFeeBps, t.liquidityBps + t.platformBps + t.founderBps + t.holdersBps + t.buybackBps, `${tag}: I3`);
   assert.ok(t.totalFeeBps >= 1n && t.totalFeeBps <= 250n && t.platformBps <= 120n && t.founderBps <= 100n, `${tag}: I3 caps`);
+  assert.ok(t.founderBps + t.holdersBps + S.MIN_TOTAL_FEE_BPS <= t.totalFeeBps, `${tag}: I3 V2b (the founder's and the holders' shares leave MIN_TOTAL_FEE_BPS)`);
   assert.equal(S.validateConfig({ ...t, launchFeeLamports: 0n }), true, `${tag}: I3 snapshot passes V1 to V11`);
   // I4
   if (c.phase === 0) {

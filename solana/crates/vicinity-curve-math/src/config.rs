@@ -102,7 +102,7 @@ pub fn v11_sides(p: &ConfigParams) -> Result<V11Sides, ConfigError> {
 /// | rule | condition |
 /// |---|---|
 /// | V1 | `1 <= t <= 250` (summed in `u32`) |
-/// | V2 | `b_P <= 120`, `b_F <= 100`, and V2b `max(b_F, b_H) + MIN_TOTAL_FEE_BPS <= t` |
+/// | V2 | `b_P <= 120`, `b_F <= 100`, and V2b `b_F + b_H + MIN_TOTAL_FEE_BPS <= t` |
 /// | V3 | `S >= 1`, `P >= 1`, `S + P <= 10^15`, `10^15 - S - P <= MAX_DUST_RAW` |
 /// | V4 | `1 <= x0 <= 2^60`, `S < y0 <= 2^60`, `x0 * t >= C*D`, `R * P * t >= C*D * 10^15` |
 /// | V5 | `10^9 <= R <= 10^13`, `f(S) == R`, V5b `f(S - 1) <= R - 1` |
@@ -119,12 +119,13 @@ pub fn validate_config(p: &ConfigParams) -> Result<(), ConfigError> {
     let r = Rule(ConfigError::FeeTotal);
     r.check(t >= MIN_TOTAL_FEE_BPS as u128 && t <= MAX_TOTAL_FEE_BPS as u128)?;
 
-    // V2 (and V2b: a trader credited the founder's or the holders' share back
-    // still pays at least MIN_TOTAL_FEE_BPS net per leg, with or without a
-    // buyback share; review ECON-1)
+    // V2 (and V2b: a trader credited back the founder's share, the holders'
+    // share or both, as a founder who also holds the float is, still pays at
+    // least MIN_TOTAL_FEE_BPS net per leg, with or without a buyback share;
+    // reviews ECON-1 and R3-DIFF-1). Equivalent to b_L + b_P + b_B >= 1.
     let r = Rule(ConfigError::FeeShareCap);
     r.check(p.platform_bps <= MAX_PLATFORM_FEE_BPS && p.founder_bps <= MAX_FOUNDER_FEE_BPS)?;
-    let credited = p.founder_bps.max(p.holders_bps) as u128;
+    let credited = r.add(p.founder_bps as u128, p.holders_bps as u128)?;
     r.check(r.add(credited, MIN_TOTAL_FEE_BPS as u128)? <= t)?;
 
     // V3

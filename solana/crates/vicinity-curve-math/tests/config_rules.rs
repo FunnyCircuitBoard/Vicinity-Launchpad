@@ -83,17 +83,26 @@ fn v02_share_caps() {
     );
 }
 
-/// V2b (review ECON-1): a trader credited the founder's or the holders' share
-/// still pays at least `MIN_TOTAL_FEE_BPS` per leg, also in a config without a
-/// buyback share (where V8 and V11 do not run): `t - max(b_F, b_H) >= 1`.
+/// V2b (reviews ECON-1 and R3-DIFF-1): a trader credited the founder's share,
+/// the holders' share or both (a founder who also holds the float) still pays
+/// at least `MIN_TOTAL_FEE_BPS` per leg, also in a config without a buyback
+/// share (where V8 and V11 do not run): `t - b_F - b_H >= 1`, the same as
+/// `b_L + b_P + b_B >= 1`.
 #[test]
-fn v02b_credited_share_leaves_the_minimum_fee() {
-    // the review's configs: the founder (or the holders) take the whole fee
+fn v02b_credited_shares_leave_the_minimum_fee() {
+    // ECON-1's configs: the founder (or the holders) take the whole fee
+    // R3-DIFF-1's: the founder's and the holders' shares together are the whole
+    // fee, so a founder holding the float trades for free (MATH3-2's too)
     for bps in [
         [0, 0, 100, 0, 0],
         [0, 0, 0, 100, 0],
         [0, 0, 1, 0, 0],
         [0, 0, 0, 250, 0],
+        [0, 0, 50, 50, 0],
+        [0, 0, 100, 1, 0],
+        [0, 0, 100, 150, 0],
+        [0, 0, 1, 1, 0],
+        [0, 0, 100, 100, 0],
     ] {
         assert_eq!(
             err(&with_bps(bps)),
@@ -102,11 +111,12 @@ fn v02b_credited_share_leaves_the_minimum_fee() {
         );
         later_bps_rules_pass(&with_bps(bps));
     }
-    // the edge: one basis point left passes, for the founder and for the holders
+    // the edge: one basis point left besides the founder's and the holders' shares passes
     for bps in [
         [0, 1, 100, 0, 0],
         [0, 1, 0, 100, 0],
         [0, 1, 100, 100, 0],
+        [0, 1, 50, 50, 0],
         [1, 2, 100, 0, 0],
     ] {
         assert_eq!(err(&with_bps(bps)), None, "{bps:?}");
@@ -115,6 +125,10 @@ fn v02b_credited_share_leaves_the_minimum_fee() {
     assert_eq!(err(&with_bps([0, 20, 100, 0, 0])), None);
     // X44b's platform-only 0.01% config is untouched: nobody is credited
     assert_eq!(err(&with_bps([0, 1, 0, 0, 0])), None);
+    // a buyback share counts as the basis point left: X44's 1.5% buyback with a 1% founder share
+    assert_eq!(err(&with_bps([0, 0, 100, 0, 150])), None);
+    // config #0: t - b_F - b_H = 150
+    assert_eq!(err(&DEF), None);
     // with a buyback share V8 already bounded the founder's credited round trip
     assert_eq!(
         err(&with_bps([0, 0, 100, 0, 1])),
@@ -122,14 +136,14 @@ fn v02b_credited_share_leaves_the_minimum_fee() {
     );
     // exhaustive over small shares on the default curve: V2 fails exactly when a cap or V2b fails
     for f in 0..=101u16 {
-        for h in [0u16, 1, 50, 100, 101] {
+        for h in [0u16, 1, 2, 50, 99, 100, 101, 149, 150] {
             for rest in [0u16, 1, 2, 70] {
                 let p = with_bps([0, rest, f, h, 0]);
                 let t = rest as u32 + f as u32 + h as u32;
                 if t == 0 || t > 250 {
                     continue;
                 }
-                let v2 = f > 100 || (f.max(h) as u32) + 1 > t;
+                let v2 = f > 100 || f as u32 + h as u32 + 1 > t;
                 assert_eq!(
                     err(&p) == Some(ConfigError::FeeShareCap),
                     v2,
@@ -471,8 +485,8 @@ fn v10_drip_not_farmable() {
     assert_eq!(err(&fail), Some(ConfigError::DripFarmable));
     let ((l1, r1), (l2, r2)) = v11_sides(&fail).unwrap();
     assert!(l1 <= r1 && l2 <= r2, "only V10 is violated");
-    // b_L = 0 always passes V10, even with b_P = 0
-    assert_eq!(err(&with_bps([0, 0, 100, 100, 0])), None);
+    // b_L = 0 always passes V10, even with b_P = 0 (here with a buyback share, which V2b needs)
+    assert_eq!(err(&with_bps([0, 0, 100, 0, 150])), None);
     assert_eq!(
         err(&with_bps([100, 50, 50, 50, 0])),
         Some(ConfigError::DripFarmable)

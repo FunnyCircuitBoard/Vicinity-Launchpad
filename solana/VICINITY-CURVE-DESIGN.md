@@ -2,8 +2,8 @@
 
 Status: specification for the build and for the outside audit, revision 3, 17 October 2026.
 Revision 3 folds in the implementation notes of the build (`VICINITY-CURVE-NOTES.md` entries 1 to
-51: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
-CLI-2, CLI-3) and 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1) of the build; revision 2 answered the security, math, runtime and integration review
+52: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
+CLI-2, CLI-3), 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1) and 3 (R3-DIFF-1, MATH3-2) of the build; revision 2 answered the security, math, runtime and integration review
 of revision 1. Appendix C lists every finding of each review, what changed and the parts that were
 not applied, with reasons, and the notes folded in. The program, its math crate, its client SDK and
 its test suites are built (branch `feat/vicinity-curve`); nothing has been deployed or signed.
@@ -236,9 +236,9 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 | `COIN_DECIMALS` | 6 | R8 |
 | `BPS` (`D`) | 10,000 | denominator |
 | `MAX_TOTAL_FEE_BPS` | 250 | R2, R4: a config's five shares never add up to more than 2.5% |
-| `MIN_TOTAL_FEE_BPS` | 1 | keeps the buyback cap and the MEV bound meaningful; also the least a trader credited the founder's or the holders' share pays per leg (V2b) |
+| `MIN_TOTAL_FEE_BPS` | 1 | keeps the buyback cap and the MEV bound meaningful; also the least a trader credited the founder's share, the holders' share or both pays per leg (V2b) |
 | `MAX_PLATFORM_FEE_BPS` | 120 | Vicinity's own share never exceeds 1.2% (0.7% + the 0.5% bucket if the owner ever routes it to Vicinity, O1) |
-| `MAX_FOUNDER_FEE_BPS` | 100 | a founder's share never exceeds 1.0%: bounds what a founder gets back from sandwiching or wash-trading his own coin (V2, V8); V2b keeps it below the whole fee, so his own trades always cost him at least `MIN_TOTAL_FEE_BPS` per leg |
+| `MAX_FOUNDER_FEE_BPS` | 100 | a founder's share never exceeds 1.0%: bounds what a founder gets back from sandwiching or wash-trading his own coin (V2, V8); V2b keeps it, together with the holders' share, below the whole fee, so his own trades always cost him at least `MIN_TOTAL_FEE_BPS` per leg, also when he holds the float (review R3-DIFF-1) |
 | `MIN_TRADE_LAMPORTS` | 100,000 (0.0001 SOL) | smallest `sol_in` of a buy (5.2, O5) |
 | `BUYBACK_CAP_DIVISOR` (`C`) | 25 | a buyback spends at most `depth * total_fee_bps / (25 * D)` (0.1% of depth at 2.5%) |
 | `BUYBACK_INTERVAL_SLOTS` | 150 (about 60 s) | at most one buyback per coin per interval; the first one at least 150 slots after launch |
@@ -978,7 +978,7 @@ curve's last virtual reserves are in `Graduated` (NOTES 23).
 | 6009 | `ConfigDisabled` | |
 | 6010 | `ConfigCount` | 65,535 configs reached |
 | 6011 | `ConfigFeeTotal` | V1 |
-| 6012 | `ConfigFeeShareCap` | V2: platform above 1.2% or founder above 1.0%; V2b: the founder's or the holders' share leaves less than `MIN_TOTAL_FEE_BPS` of the fee |
+| 6012 | `ConfigFeeShareCap` | V2: platform above 1.2% or founder above 1.0%; V2b: the founder's and the holders' shares together leave less than `MIN_TOTAL_FEE_BPS` of the fee |
 | 6013 | `ConfigSupply` | V3 |
 | 6014 | `ConfigCurveBounds` | V4 |
 | 6015 | `ConfigGraduation` | V5 (including V5b) |
@@ -1414,13 +1414,16 @@ integers the same way; `add_launch_config` re-checks V3 to V7 on chain.
 
 ### 5.13 `validate_config` (pure; run at `add_launch_config` and again at every `launch`)
 
-`m = max(b_F, b_H)` (the largest share an attacker can be credited back on his own legs: the
-founder's share, or the holders' share for someone holding the float).
+`m = max(b_F, b_H)`: the share V8 and V11 credit an attacker back on his own legs (the founder's
+share, or the holders' share for someone holding the float; MATH-3's modelling). A founder who
+also holds the float is credited both, `b_F + b_H`, and V2b bounds that sum (review R3-DIFF-1).
+When `b_B > 0`, V8 and V11 still credit only `m`: for that founder their bounds are the tested
+heuristic of 7.3 (P06 credits him `(b_F + b_H)/D`), not a proof.
 
 | # | rule | error |
 |---|---|---|
 | V1 | `1 <= t = b_L + b_P + b_F + b_H + b_B <= 250` (summed in u32) | `ConfigFeeTotal` |
-| V2 | `b_P <= 120` and `b_F <= 100`, and **V2b** `m + MIN_TOTAL_FEE_BPS <= t` (a trader credited the founder's or the holders' share still pays at least 0.01% per leg, with or without a buyback share; review ECON-1) | `ConfigFeeShareCap` |
+| V2 | `b_P <= 120` and `b_F <= 100`, and **V2b** `b_F + b_H + MIN_TOTAL_FEE_BPS <= t`, the same as `b_L + b_P + b_B >= 1` (a trader credited the founder's share, the holders' share or both, as a founder who also holds the float is, still pays at least 0.01% per leg, with or without a buyback share; reviews ECON-1, R3-DIFF-1) | `ConfigFeeShareCap` |
 | V3 | `S >= 1`, `P >= 1`, `S + P <= 10^15`, `10^15 - S - P <= MAX_DUST_RAW` | `ConfigSupply` |
 | V4 | `1 <= x0 <= 2^60`, `S < y0 <= 2^60`, `x0 * t >= C * D` and `R * P * t >= C * D * 10^15` (the buyback cap is at least 1 lamport in every reachable state of either phase, 7.1) | `ConfigCurveBounds` |
 | V5 | `f(S) = ceil(x0*S/(y0 - S)) == graduation_sol`, `1 SOL <= graduation_sol <= 10,000 SOL`, and **V5b** `f(S - 1) <= R - 1` (the completing buy always puts at least one lamport into the curve, 5.4) | `ConfigGraduation` |
@@ -1431,8 +1434,8 @@ founder's share, or the holders' share for someone holding the float).
 | V10 | `b_L == 0` or `b_L < b_P` (the drip can never return more than the platform share costs, 7.5) | `ConfigDripFarmable` |
 | V11 | if `b_B > 0`: `C*(D - t)*(D - t + 2*b_L) <= D*(C*D - 38*t)` and `C*(D - t + 2*b_L)*(D - t + m) <= (D - m)*(C*D - 28*t)` (a hold through fewer than 20 runs, or 15 for a credited attacker, is unprofitable, 7.3) | `ConfigBuybackHorizon` |
 
-Default config #0 passes with margins: V2 70 against 120 and 50 against 100, V2b `t - m = 200`
-against 1; V6 by a factor
+Default config #0 passes with margins: V2 70 against 120 and 50 against 100, V2b
+`t - b_F - b_H = 150` against 1; V6 by a factor
 of 2,434; V7 at 2.0e-12 against 1e-9; V8 at 0.98210 against 0.99 (left side
 613,813,296,968,750,000,000, right side 618,750,000,000,000,000,000); V10 50 < 70; V11
 2,400,937,500 <= 2,405,000,000 and 2,413,250,000 <= 2,417,850,000. V11 limits
@@ -1533,10 +1536,13 @@ the pool.
   price impact must exceed about twice the attacker's own cost per leg and the victim's
   slippage must allow it. That cost is the fee `t` for an outsider and `t - b_F` for the
   coin's founder, who is credited his share of his own legs (at most `t - b_H` for someone
-  holding the float); V2b keeps both at `MIN_TOTAL_FEE_BPS` (0.01%) or more. On a config
-  with a small net fee, X44's 0.01% platform-only config for anyone or a 1% founder share
-  with 0.01% left for its founder, the attacker can take nearly the whole slippage the
-  victim allows (measured about 99 bps at 1% and 199 bps at 2%, review ECON-1); under
+  holding the float, and at most `t - b_F - b_H` for a founder who also holds it); V2b keeps
+  all three at `MIN_TOTAL_FEE_BPS` (0.01%) or more. On a config with a small net fee, X44's
+  0.01% platform-only config for anyone, a 1% founder share with 0.01% left for its founder,
+  or founder and holders shares with 0.01% left for a founder holding the float, the attacker
+  can take nearly the whole slippage the victim allows (measured about 99 bps at 1% and 199
+  bps at 2%, review ECON-1; 99.3 bps of a 1 SOL buy at 1% under (0, 1, 50, 50, 0), review
+  R3-DIFF-1); under
   config #0 (t = 2.5%, founder 0.5%) no ordering profits at the website's slippage.
   Defence: `min_tokens_out` / `min_sol_out`; the website's default slippage stays at 1% to
   2% for normal sizes; the owner chooses configs (13).
@@ -1961,13 +1967,18 @@ below it.
 ### 7.4 Ordinary sandwiches and wash trading
 
 User sandwiches are the usual AMM risk, bounded by the user's slippage limits (5.15). Wash
-trading pays nobody it does not cost: a trader gets back at most his own share of each leg,
-so the founder's cost per leg is `t - b_F` and a holder of the float pays at least `t - b_H`,
-which V2b keeps at 0.01% or more in every config (review ECON-1: without a buyback share V8
-and V11 do not run, and before V2b a config whose founder share was the whole fee, such as
+trading pays nobody it does not cost: a trader gets back at most his own shares of each leg,
+so the founder's cost per leg is `t - b_F`, a holder of the float pays at least `t - b_H`, and
+a founder who also holds the float (in wallets other than his seat, which the snapshot leaves
+out; the 20-holder gate is easy to meet with his own wallets) pays at least `t - b_F - b_H`.
+V2b keeps all three at 0.01% or more in every config (review ECON-1: without a buyback share
+V8 and V11 do not run, and before V2b a config whose founder share was the whole fee, such as
 (0, 0, 100, 0, 0), let the founder trade his own coin for free and sandwich buyers up to their
-slippage). Under config #0 the founder pays 2.0% per leg net (measured: a 10 SOL wash round
-trip costs him 3.95%). Vicinity's own wallet pays `t - b_P` per leg, which is 0 in a config
+slippage; review R3-DIFF-1: until V2b bounded the sum, (0, 0, 50, 50, 0), (0, 0, 100, 1, 0)
+and (0, 0, 100, 150, 0) let a founder holding the float wash-trade for exactly 0 net on chain,
+his holders' share coming back through the rewards rounds). Under config #0 the founder pays
+2.0% per leg net, 1.5% if he also holds the whole float (measured: a 10 SOL wash round trip
+costs him 3.95% before the holders' share). Vicinity's own wallet pays `t - b_P` per leg, which is 0 in a config
 whose whole fee goes to the platform (X44's 0.01% config): V2b does not cover the platform,
 whose wallet is the owner's, like the choice of the config itself (13).
 
@@ -2176,7 +2187,7 @@ Per coin:
   launch_slot` never change after launch (byte compare); `founder` changes only in
   `transfer_founder` with both signatures.
 * **I3 Caps.** `total_fee_bps` = sum of the five, `1 <= total_fee_bps <= 250`,
-  `platform_bps <= 120`, `founder_bps <= 100`, `max(founder_bps, holders_bps) < total_fee_bps`
+  `platform_bps <= 120`, `founder_bps <= 100`, `founder_bps + holders_bps < total_fee_bps`
   (V2b), and the snapshot passes V1 to V11.
 * **I4 Curve state function.** Curve: `curve_sol == f(tokens_sold)` and `curve_sol <= R - 1`.
 * **I5 Graduation exactness.** In the transaction that sets `phase = 1`: the graduating buy
@@ -2351,7 +2362,7 @@ Global:
 | T41 | **Compute exhaustion** | every path O(1); no loops over accounts; no remaining accounts | C01 |
 | T42 | **Griefing that blocks trading** | trades write only the coin's accounts and the user's; `Launchpad` is read-only in trades and written only by admin and guardian instructions; no external state; counters cannot overflow (u128); sells never read `Launchpad` | I22; X42 |
 | T43 | **Admin abuse** | powers of 8.1; no money path within the program (I21); live coins frozen (I2); caps compiled in | I2, I21; X43 |
-| T44 | **Hostile config from a stolen admin key** | V1 to V11 (total at most 2.5%, platform at most 1.2%, founder at most 1.0%, a credited founder or holder still pays 0.01% per leg (V2b), curve, continuity, MEV with founder credit, drip, horizon); the founder signs `launch` naming the config via the approval; existing coins unaffected | V01 to V11; X44 |
+| T44 | **Hostile config from a stolen admin key** | V1 to V11 (total at most 2.5%, platform at most 1.2%, founder at most 1.0%, a credited founder, holder of the float, or founder holding the float still pays 0.01% per leg (V2b), curve, continuity, MEV with founder credit, drip, horizon); the founder signs `launch` naming the config via the approval; existing coins unaffected | V01 to V11; X44 |
 | T45 | **Stolen admin key approving itself for many cities** | Squads 2 of 3; time lock; approvals expire in at most 30 days; `LaunchApproved` events monitored; O15 would add an on-chain city list | process |
 | T46 | **Malicious or buggy upgrade** | Squads 2 of 3; 48-hour time lock once coins are live (O11), during which holders can sell and the guardian can halt buys; verified builds; pre-audited halt-all build rebuilt after every upgrade | process; H03 |
 | T47 | **Fake rewards config or vault** | PDAs re-derived under the compiled `REWARDS_PROGRAM_ID`; owner check; config fields checked; vault mint WSOL and authority the config | X47 |
@@ -2486,7 +2497,7 @@ find exactly the checker's events, and nothing for a failed one (E01).
 | U10 | `decode_coin` offsets equal the Borsh layout of the program's `CurveCoin` (round trip); it rejects a wrong owner, a wrong length, `layout_version != 1` and the old program's `Coin` bytes | 3.7, 5.16 |
 | U11 | `check_name` (every default-ignorable code point and blank character, the space rule; review FA-1), `check_symbol`, `metadata_uri` | T38 |
 | U12 | compiled constants: `LEGACY_LAUNCHPAD` equals the derivation for each cluster build; the legacy discriminator, size and the offsets of `launches_paused`, `admin` and `pending_admin` match the old program's `Launchpad` | 3.2 |
-| V01-V11 | one test per config rule: only that rule violated gives its error; the edge passes; the edge plus one fails (V2 for both caps and V2b at `t - m = 1` and 0; V5 for V5b; V10 at `b_P = b_L + 1` passes and `b_P = b_L` fails) | 5.13, T44 |
+| V01-V11 | one test per config rule: only that rule violated gives its error; the edge passes; the edge plus one fails (V2 for both caps and V2b at `t - b_F - b_H = 1` and 0; V5 for V5b; V10 at `b_P = b_L + 1` passes and `b_P = b_L` fails) | 5.13, T44 |
 
 ### 12.2 Property tests (P; at least 10^6 cases each)
 
@@ -2548,9 +2559,10 @@ part of his balance, then every invariant (I11 with the burn added back) and the
 hold; X42 a trade while another coin is hammered; X43 every admin instruction cannot move
 money; X43b the guardian cannot clear a flag, set payouts, block a sell, claim, forward or
 withdrawal, or change a setting; X44 hostile configs (including founder-favouring splits
-refused by V2 and V8, and the founder or the holders credited the whole fee, refused by V2b;
-review ECON-1), and the accepted hostile configs through a whole life, in which the founder's
-own wash trade loses at least 0.01% of each leg; X47 fake rewards config and vault (reuse of TE10 to TE13 style), including a config owned by
+refused by V2 and V8, and the founder or the holders credited the whole fee, or the two shares
+together the whole fee, refused by V2b; reviews ECON-1 and R3-DIFF-1), and the accepted
+hostile configs through a whole life, in which the founder's own wash trade loses at least
+0.01% of each leg, also after the holders' share of both legs; X47 fake rewards config and vault (reuse of TE10 to TE13 style), including a config owned by
 the other cluster's rewards program id; X47b a
 Holders/WSOL config whose authority is a stranger, and one with a pending authority, are
 refused; X48 Creator and Split rewards configs refused; X50 payout destination games; X51
@@ -2862,7 +2874,7 @@ def rules(c):
     """validate_config V1 to V11 (V9, the launch fee cap, is not modelled). Returns the first failing rule."""
     L, Pl, F, H, B = c.bps; t = c.t; C = CAP_DIV
     if not (1 <= t <= 250): return 'V1'
-    if Pl > 120 or F > 100 or t - max(F, H) < 1: return 'V2'   # V2b: a credited share leaves 1 bp
+    if Pl > 120 or F > 100 or t - F - H < 1: return 'V2'   # V2b: the credited shares leave 1 bp
     if not (c.S >= 1 and c.P >= 1 and c.S + c.P <= SUPPLY and SUPPLY - c.S - c.P <= MAX_DUST): return 'V3'
     if not (1 <= c.x0 <= 2**60 and c.S < c.y0 <= 2**60 and c.x0 * t >= C * D
             and c.R * c.P * t >= C * D * SUPPLY): return 'V4'
@@ -3429,6 +3441,19 @@ verifier before it was accepted. Severities are the verifier's.
 | ECON-1 | attacker, low (reported medium) | without a buyback share V8 and V11 do not run and V2 caps only `b_F <= 100`, so (0, 0, 100, 0, 0) passed V1 to V11: the founder got his whole fee back, wash-traded for free and took about 99 to 199 bps of buys made at 1% to 2% slippage, against 3.2, 5.15 and 7.4 | **Confirmed**. **Applied** as the verifier suggested, decided with the minimum fee: **V2b** `max(b_F, b_H) + MIN_TOTAL_FEE_BPS <= t` (part of V2, `ConfigFeeShareCap`; no new code): a trader credited the founder's or the holders' share pays at least 0.01% per leg, the floor every outsider pays. **Not applied**: the review's stronger forms (V8's credited bound with a zero step, or `t - m >= 100`), which would also refuse X44's accepted 0.01% platform-only config and contradict `MIN_TOTAL_FEE_BPS = 1`; the platform's own wallet stays uncovered (7.4 says so). Crate, SDK port, reference model (Appendix A), golden vectors (nine fixed V2b cases), F03. 3.2, 4.22, 5.13, 5.15, 7.4, T44, 12.1, 12.4; `config_rules.rs`, X44; NOTES 50 |
 | FA-1 | fresh audit, low | `check_name` let Unicode default-ignorable code points that are not format characters (the Hangul fillers, the combining grapheme joiner, variation selectors and others) and blank characters into the immutable Metaplex name: "Paris" plus a Hangul filler looked exactly like "Paris"; the server's `nameProblem` had the same gap | **Confirmed**, with the verifier's two corrections (only the four Hangul fillers pass the website's own design route; U+2028 and U+2029 were kept on purpose as U11 neighbours). **Applied**, the safer reading of T38: `check_name` refuses every `Default_Ignorable_Code_Point` and other format character, every blank character (spaces other than U+0020, U+2028, U+2029, U+2800, U+1D159) and a leading, trailing or doubled U+0020; `nameProblem` mirrors it. Look-alike letters and canonical equivalents remain (names are not unique; the ticker is the identifier); the retired old program keeps its weaker rule. 3.6, 4.8, 4.22, T38, U11; U11, X38, `test/lpadmin.test.js`; NOTES 51 |
 
+### Revision 3: review round 3 of the build (17 October 2026)
+
+The fixes of round 2 and the whole build were reviewed again through five lenses (the round-2 fix
+diff, the math, the coin's lifecycle, hostile roles, the clients); each finding was reproduced by
+a verifier before it was accepted. Severities are the verifier's.
+
+| id | lens, severity | finding (short) | response |
+|---|---|---|---|
+| R3-DIFF-1 | fix diff, low | V2b bounded `max(b_F, b_H)`, but a founder who also holds the float is credited both shares: (0, 0, 50, 50, 0), (0, 0, 100, 1, 0), (0, 0, 100, 150, 0) and (0, 0, 1, 1, 0) passed V1 to V11, and his wash trade cost exactly 0 net on chain (ECON-1 only partly closed; 7.4's "in every config" false) | **Confirmed**. **Applied** as proposed: **V2b** `b_F + b_H + MIN_TOTAL_FEE_BPS <= t` (the same as `b_L + b_P + b_B >= 1`; `ConfigFeeShareCap`, no new code). It keeps config #0, X44's configs and every edge the spec names; no golden vector changes (nine fixed cases appended). When `b_B > 0`, V8 and V11 still credit only `m = max(b_F, b_H)` (MATH-3's modelling), now said in 5.13. Crate, SDK port, reference model (Appendix A), I3. 3.2, 4.22, 5.13, 5.15, 7.4, I3, T44, 12.1, 12.4; `config_rules.rs`, X44, F03; NOTES 52 |
+| MATH3-2 | math, info | the same gap as R3-DIFF-1, seen from the math: configs whose founder and holders shares make the whole fee pass, and a founder holding the eligible float trades for exactly 0 net fee | **Confirmed**. **Applied** with R3-DIFF-1 (the sum form, which still accepts every X44 config); 3.2's `MAX_FOUNDER_FEE_BPS` row and NOTES 50 corrected. NOTES 52 |
+| HR-2 | roles, info | a thief of a founder key can move the seat with `transfer_founder` and take every later founder fee | **Rejected** by the verifier: the recorded design (4.17 and T52: the seat moves only with both signatures and the admin can never reassign it; O22). The copied key could claim every later accrual without a transfer anyway, and the legitimate founder can use the transfer first. No change |
+| HR-3 | roles, info | a stolen `FEE_RECIPIENT` key takes the platform's income until an upgrade | **Rejected** by the verifier: recorded (R9, 3.2: changing `FEE_RECIPIENT` needs an upgrade; 6.4 and 8.3: platform withdrawals are not pausable by design); no holder's, founder's or third party's money is reachable. A cold wallet or a Squads vault as `FEE_RECIPIENT` before the mainnet build is an operational choice for the owner. No change |
+
 ### Revision 3: the leftovers of the build's third stage
 
 | item | done |
@@ -3478,3 +3503,4 @@ build follows the text as written and the entry records a reading or a measureme
 | 49 | review round 2: the founder seat (above) | as listed above |
 | 50 | review round 2: V2b (above) | as listed above |
 | 51 | review round 2: names with invisible or blank characters (above) | as listed above |
+| 52 | review round 3: V2b bounds the sum of the founder's and the holders' shares (above) | as listed above |

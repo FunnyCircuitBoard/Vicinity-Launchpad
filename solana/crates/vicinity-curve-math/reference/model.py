@@ -38,7 +38,7 @@ def rules(c):
     """validate_config V1 to V11 (V9, the launch fee cap, is not modelled). Returns the first failing rule."""
     L, Pl, F, H, B = c.bps; t = c.t; C = CAP_DIV
     if not (1 <= t <= 250): return 'V1'
-    if Pl > 120 or F > 100 or t - max(F, H) < 1: return 'V2'   # V2b: a credited share leaves 1 bp
+    if Pl > 120 or F > 100 or t - F - H < 1: return 'V2'   # V2b: the credited shares leave 1 bp
     if not (c.S >= 1 and c.P >= 1 and c.S + c.P <= SUPPLY and SUPPLY - c.S - c.P <= MAX_DUST): return 'V3'
     if not (1 <= c.x0 <= 2**60 and c.S < c.y0 <= 2**60 and c.x0 * t >= C * D
             and c.R * c.P * t >= C * D * SUPPLY): return 'V4'

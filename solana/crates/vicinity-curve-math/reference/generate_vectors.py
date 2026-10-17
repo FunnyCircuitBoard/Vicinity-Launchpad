@@ -317,6 +317,14 @@ def gen_validate(rng, n):
         v = dict(bps=list(bps), x0=b.x0, y0=b.y0, S=b.S, P=b.P, R=b.R, fee=0)
         c = Cfg(b.x0, b.y0, b.S, b.P, b.R, bps=tuple(bps), validate=False)
         out.append(dict(params=v, rule=first_rule(c, 0)))
+    # V2b as a sum (review R3-DIFF-1), fixed cases after those: a founder who also holds the float is credited
+    # both shares, so b_F + b_H must leave 1 bp; the sum configs refused, the 1-bp edges that stay valid
+    for bps in ([0, 0, 50, 50, 0], [0, 0, 100, 1, 0], [0, 0, 100, 150, 0], [0, 0, 1, 1, 0], [0, 0, 100, 100, 0],
+                [0, 1, 50, 50, 0], [0, 1, 100, 100, 0], [1, 2, 100, 0, 0], [0, 0, 100, 0, 150]):
+        b = DEFAULT
+        v = dict(bps=list(bps), x0=b.x0, y0=b.y0, S=b.S, P=b.P, R=b.R, fee=0)
+        c = Cfg(b.x0, b.y0, b.S, b.P, b.R, bps=tuple(bps), validate=False)
+        out.append(dict(params=v, rule=first_rule(c, 0)))
     return out
 
 

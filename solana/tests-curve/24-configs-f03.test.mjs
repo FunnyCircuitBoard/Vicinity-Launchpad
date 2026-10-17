@@ -57,6 +57,7 @@ function generated(seed, n) {
     out.push({ ...base, founderBps: 101n, liquidityBps: 0n, platformBps: 0n, holdersBps: 0n, buybackBps: 0n }); // V2
     out.push({ ...base, founderBps: base.founderBps, liquidityBps: 0n, platformBps: 0n, holdersBps: 0n, buybackBps: 0n }); // V2b (or V1 at 0)
     out.push({ ...base, holdersBps: base.holdersBps + 1n, liquidityBps: 0n, platformBps: 0n, founderBps: 0n, buybackBps: 0n }); // V2b
+    out.push({ ...base, holdersBps: base.holdersBps + 1n, liquidityBps: 0n, platformBps: 0n, buybackBps: 0n }); // V2b as a sum (R3-DIFF-1; or V2)
     out.push({ ...base, poolSupply: base.poolSupply + S.MAX_DUST_RAW + 1n }); // V3
     out.push({ ...base, virtualSol: S.MAX_VIRTUAL + 1n }); // V4
     out.push({ ...base, graduationSol: base.graduationSol + 1n }); // V5 (f(S) != R)

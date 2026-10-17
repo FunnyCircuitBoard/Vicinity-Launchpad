@@ -481,8 +481,9 @@ export function validateConfig(pIn) {
   r.check(t >= MIN_TOTAL_FEE_BPS && t <= MAX_TOTAL_FEE_BPS);
   r = new Rule('FeeShareCap');
   r.check(p.platformBps <= MAX_PLATFORM_FEE_BPS && p.founderBps <= MAX_FOUNDER_FEE_BPS);
-  // V2b (review ECON-1): a trader credited the founder's or the holders' share still pays MIN_TOTAL_FEE_BPS per leg
-  const credited = p.founderBps > p.holdersBps ? p.founderBps : p.holdersBps;
+  // V2b (reviews ECON-1, R3-DIFF-1): a trader credited the founder's share, the holders' share or both (a founder
+  // who also holds the float) still pays MIN_TOTAL_FEE_BPS per leg; the same as b_L + b_P + b_B >= 1
+  const credited = p.founderBps + p.holdersBps;
   r.check(credited + MIN_TOTAL_FEE_BPS <= t);
   r = new Rule('Supply');
   const s = p.curveSupply; const pp = p.poolSupply;
