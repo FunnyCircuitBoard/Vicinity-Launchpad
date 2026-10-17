@@ -589,14 +589,54 @@ export function cheapestAttackerCostBps(termsIn) {
 }
 
 /**
- * The buy size, in lamports charged, above which an ordinary sandwich profits whatever slippage the victim allows
- * (5.15, review MATH3-1): `floor(depth * c / D)` with `c = cheapestAttackerCostBps(terms)` and `depth` the market's
- * SOL depth (`x0 + curve_sol` on the curve, `pool_sol` in the pool). The attacker's profit is about
- * `slippage * (V - c * depth / D)`, so above this size he takes almost the whole tolerance, below it he loses. A
- * first-order bound: the measured threshold is a little higher (0.79 SOL against 0.75 SOL for an outsider at launch),
- * so it errs on the buyer's side. Config #0 at launch: 0.45 SOL.
+ * The margin, in basis points, that one buyback run inside the victim's sandwich is worth to the attacker (5.15;
+ * review SDK4-4): `ceil(2t / C)` when the config has a buyback share, else 0. A due `buyback_burn` is
+ * permissionless, so the attacker can place one between the victim's trade and his back-run; it spends at most
+ * `t / (C * D)` of the depth (7.1: `depth * t / (C * D)`, 0.1% under config #0), which moves the price his way by
+ * about twice that. Config #0: 20 bps.
+ */
+export function buybackRunMarginBps(termsIn) {
+  const t = terms(termsIn);
+  if (t.buybackBps === 0n) return 0n;
+  return divCeil(2n * t.totalFeeBps, BUYBACK_CAP_DIVISOR);
+}
+
+/**
+ * The cost per leg, in basis points, that the sandwich threshold uses (5.15; reviews MATH3-1, SDK4-4):
+ * `cheapestAttackerCostBps(terms) - buybackRunMarginBps(terms)`, at least 0. Config #0: 250 - 100 - 20 = 130.
+ */
+export function sandwichCostBps(termsIn) {
+  const t = terms(termsIn);
+  const c = cheapestAttackerCostBps(t);
+  const m = buybackRunMarginBps(t);
+  return c > m ? c - m : 0n;
+}
+
+/**
+ * The SOL depth at which a client judges a trade's sandwich exposure (5.15; reviews MATH3-1, R4-DIFF-3, SDK4-2):
+ * `pool_sol` in the pool; on the curve `min(x0 + curve_sol, graduation_sol)`. Any curve trade can be made to run in
+ * the pool, which opens at depth `graduation_sol` (85 SOL under config #0, against up to 115 SOL of curve depth),
+ * by someone who graduates the coin first: graduate, buy in the new pool, let the victim's curve-quoted trade run
+ * there, sell.
+ */
+export function sandwichDepth(termsIn, stateIn) {
+  const t = terms(termsIn);
+  const s = state(stateIn);
+  if (s.phase !== Phase.Curve) return s.poolSol;
+  const d = add64(t.virtualSol, s.curveSol);
+  return d < t.graduationSol ? d : t.graduationSol;
+}
+
+/**
+ * The trade size, in lamports (a buy's charge, a sell's gross), above which an ordinary sandwich profits whatever
+ * slippage the victim allows (5.15; reviews MATH3-1, R4-DIFF-3, SDK4-2, SDK4-4, R4-DIFF-5):
+ * `floor(sandwichDepth * sandwichCostBps / D)`. The attacker's profit is about `slippage * (V - c * depth / D)`, so
+ * above this size he takes almost the whole tolerance, below it he loses, also when the trade is pushed into a
+ * fresh pool and when one buyback run sits inside the sandwich. A first-order bound that errs on the trader's side.
+ * Config #0: 1.3% of the depth, 0.39 SOL at launch, 0.91 SOL at 40 SOL raised, 1.105 SOL from 55 SOL raised and at
+ * pool open.
  */
 export function sandwichThreshold(termsIn, stateIn) {
   const t = terms(termsIn);
-  return toU64(divFloor(mul(depth(t, stateIn), cheapestAttackerCostBps(t)), D));
+  return toU64(divFloor(mul(sandwichDepth(t, stateIn), sandwichCostBps(t)), D));
 }

@@ -152,10 +152,12 @@ test('G03: pay with any token: a swap delivering SOL then the buy; sol_in from t
     return { solIn, t };
   };
   const Q = 2n * LAMPORTS; const T = Q - Q / 100n; // quoted 2 SOL out, at least 1.98 SOL (1% slippage)
-  const exactIn = { swapMode: 'ExactIn', outAmount: Q, otherAmountThreshold: T };
+  // the mock swap delivers native SOL: a quote from some token to the native mint (review SDK4-5)
+  const toSol = { inputMint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', outputMint: S.ADDRESSES.nativeMint };
+  const exactIn = { ...toSol, swapMode: 'ExactIn', outAmount: Q, otherAmountThreshold: T };
   assert.equal((await run('swap delivers as quoted', { delivered: Q, quote: exactIn })).solIn, T, 'sol_in = otherAmountThreshold');
   await run('swap delivers its minimum', { delivered: T, quote: exactIn });
-  await run('ExactOut: the swap delivers exactly sol_in', { delivered: Q, quote: { swapMode: 'ExactOut', outAmount: Q, otherAmountThreshold: Q * 2n } });
+  await run('ExactOut: the swap delivers exactly sol_in', { delivered: Q, quote: { ...toSol, swapMode: 'ExactOut', outAmount: Q, otherAmountThreshold: Q * 2n } });
   // below its minimum the swap fails and nothing moves (the buy never runs)
   const u = await w.signer(3n);
   const { instructions } = S.buyWithSwap({ ix: w.ix, user: u.address, coin: h.coin, mint: h.mint, swapInstructions: [swap(u.address, T - 1n, T)], quote: exactIn, coinAccount: w.coinView(h), slippageBps: S.LARGE_BUY_MAX_SLIPPAGE_BPS });
@@ -166,8 +168,9 @@ test('G03: pay with any token: a swap delivering SOL then the buy; sol_in from t
   await w.send(naive, [v], 'naive sol_in = outAmount');
   w.addHolder(h.mint, v);
   assert.equal(own - ataRent - w.lamportsOf(v.address), Q - T, 'the naive composition spent the difference from the user\'s own SOL');
-  assert.throws(() => S.solInFromSwapQuote({ swapMode: 'ExactIn', outAmount: 1n, otherAmountThreshold: 2n }), /otherAmountThreshold above outAmount/);
-  assert.throws(() => S.solInFromSwapQuote({ swapMode: 'Other' }), /unknown swapMode/);
+  assert.throws(() => S.solInFromSwapQuote({ ...toSol, swapMode: 'ExactIn', outAmount: 1n, otherAmountThreshold: 2n }), /otherAmountThreshold above outAmount/);
+  assert.throws(() => S.solInFromSwapQuote({ ...toSol, swapMode: 'Other' }), /unknown swapMode/);
+  assert.throws(() => S.solInFromSwapQuote({ ...exactIn, outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' }), /native SOL/, 'a quote to USDC (SDK4-5)');
   await w.finish();
 });
 
