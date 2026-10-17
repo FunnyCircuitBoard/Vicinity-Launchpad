@@ -138,6 +138,21 @@ pub mod vicinity_curve {
     pub fn launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {
         instructions::launch::handle_launch(ctx, city_id)
     }
+
+    /// 4.11. Exact-in buy on the curve or in the pool.
+    pub fn buy(ctx: Context<Buy>, sol_in: u64, min_tokens_out: u64) -> Result<()> {
+        instructions::buy::handle_buy(ctx, sol_in, min_tokens_out)
+    }
+
+    /// 4.12. Exact-in sell on the curve or in the pool.
+    pub fn sell(ctx: Context<Sell>, tokens_in: u64, min_sol_out: u64) -> Result<()> {
+        instructions::sell::handle_sell(ctx, tokens_in, min_sol_out)
+    }
+
+    /// 4.13. Permissionless buyback-and-burn crank.
+    pub fn buyback_burn(ctx: Context<BuybackBurn>) -> Result<()> {
+        instructions::buyback_burn::handle_buyback_burn(ctx)
+    }
 }
 
 #[cfg(test)]
@@ -155,6 +170,12 @@ mod tests {
                 "init_launchpad",
             ),
             (crate::instruction::Launch::DISCRIMINATOR, "launch"),
+            (crate::instruction::Buy::DISCRIMINATOR, "buy"),
+            (crate::instruction::Sell::DISCRIMINATOR, "sell"),
+            (
+                crate::instruction::BuybackBurn::DISCRIMINATOR,
+                "buyback_burn",
+            ),
         ];
         for (d, name) in cases {
             assert_eq!(*d, &h(&format!("global:{name}"))[..8], "{name}");
