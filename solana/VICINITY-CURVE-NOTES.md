@@ -1,7 +1,8 @@
 # `vicinity_curve`: implementation notes for the auditors
 
-Companion to `VICINITY-CURVE-DESIGN.md` (revision 2, commit ee62c31). The specification is
-authoritative. Each entry below records one place where the build had to clarify the
+Companion to `VICINITY-CURVE-DESIGN.md`, revision 3 (entries 1 to 41 were written against
+revision 2, commit ee62c31; revision 3 folds every entry in, and its Appendix C says where). The
+specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
 economic figure: every worked example of 5.14 and every figure of 5.9, 5.10 and 5.13 is

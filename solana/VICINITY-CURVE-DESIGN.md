@@ -1,10 +1,13 @@
 # `vicinity_curve`: audit specification of the fully custom Vicinity launchpad
 
-Status: specification for the build and for the outside audit, revision 2, 17 October 2026.
-Revision 2 answers the security, math, runtime and integration review of revision 1; Appendix
-C lists every finding, what changed and the parts that were not applied, with reasons.
-Nothing in this file has been built, deployed or signed. Devnet uses a throwaway program key
-only. Mainnet needs the owner, the Squads vault `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X`
+Status: specification for the build and for the outside audit, revision 3, 17 October 2026.
+Revision 3 folds in the implementation notes of the build (`VICINITY-CURVE-NOTES.md` entries 1 to
+48: every clarification and accepted deviation) and answers review round 1 of the build (GOV-1,
+GOV-2, CLI-1, CLI-2, CLI-3); revision 2 answered the security, math, runtime and integration review
+of revision 1. Appendix C lists every finding of both reviews, what changed and the parts that were
+not applied, with reasons, and the notes folded in. The program, its math crate, its client SDK and
+its test suites are built (branch `feat/vicinity-curve`); nothing has been deployed or signed.
+Devnet uses a throwaway program key only. Mainnet needs the owner, the Squads vault `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X`
 (2 of 3) and the outside audit. The existing programs `vicinity_launchpad`
 (`AkMP9qvAYmb8Vyu63Qhw8Z4ee1fgQbCRKkXWy5r5A1Ai`) and `vicinity_rewards`
 (`EVwxp3V9YSvsyDEjp39B9wRDQxHR2xF2CNeR8AMRYrgG`), $VICINITY
@@ -40,7 +43,8 @@ Sources. Appendix C Review responses.
    fee buckets and every lifetime counter. **All of the coin's SOL is held as native
    lamports of this account.** The coin's tokens sit in one SPL token account owned by it. A
    permanent `TickerLock` per ticker enforces one coin per ticker, and the old program's
-   accounts are checked at every approval and every launch (R1 across both programs).
+   accounts are checked at every approval and every launch, including that the old program is
+   administered by the same multisig as this one (R1 across both programs, 8.5).
 3. **The curve and the pool are two phases of the same account.** The curve is the pump.fun
    constant product on virtual reserves, implemented as an exact integer state function of
    the coins sold. Graduation is a field change inside the buy that takes the last curve coin:
@@ -189,7 +193,7 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 
 | req | requirement (short) | where it is met | invariants | tests |
 |---|---|---|---|---|
-| R1 | one city, one coin, one community; admin approval naming founder, city, ticker, expiry; ticker lock | `Coin` PDA per `city_id`, never closed (3.7); `TickerLock` per ticker, never closed (3.8); `approve_launch`, `launch`, `revoke_approval` (4.8 to 4.10); old program's `Coin` and `Approval` empty and its launches paused, checked at approval and at launch (4.8, 4.10, 8.5) | I19 | L04, L05, X33 to X35 |
+| R1 | one city, one coin, one community; admin approval naming founder, city, ticker, expiry; ticker lock | `Coin` PDA per `city_id`, never closed (3.7); `TickerLock` per ticker, never closed (3.8); `approve_launch`, `launch`, `revoke_approval` (4.8 to 4.10); old program's `Coin` and `Approval` empty and its launches paused, checked at approval and at launch (4.8, 4.10, 8.5) | I19 | L04, L05, X33 to X35, 28-governance |
 | R2 | 2.5% on every buy and sell, curve and pool, split 0.5/0.7/0.5/0.5/0.3, nothing on top, never above 2.5%; 0.5% default "added to locked liquidity", a config field | fee rounded down and split (5.2), same code in both phases (5.4 to 5.8), cap `MAX_TOTAL_FEE_BPS = 250` (3.2, V1), liquidity bucket (5.8), labels (6.6), decisions O1, O2. **Exceptions to record**: the coin's own buyback pays no fee (7.1; owner sign-off O7); pools that third parties create for this classic SPL coin are outside the program and pay no Vicinity fee (6.6, 13, 14.5) | I3, I12 | U01, U02, P08, L06, L08 |
 | R3 | no fee on wallet transfers; classic SPL; no hook, delegate, freeze; mint authority removed | mint created by the program under classic SPL Token with no freeze authority; mint authority set to `None` in `launch` (3.10, 4.10) | I11 | L05, X04, X39 |
 | R4 | future splits changeable within compiled caps; live coins keep their split forever | `LaunchConfig` immutable except `enabled` (3.5); terms copied into `Coin` at launch, never written again (3.7); caps and rules V1 to V11 (5.13) | I2, I3, I20 | V01 to V11, L03, P10 |
@@ -213,9 +217,9 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 | program | `vicinity_curve`, crate `programs/vicinity-curve`; one file per instruction (`handle_<name>`), as in `vicinity_launchpad` |
 | math crate | `crates/vicinity-curve-math`: `#![no_std]`, `#![forbid(unsafe_code)]`, depends only on `core`; u64 in, u128 inside, `Result<_, MathError>` out. The program calls these functions for every number it computes (5.16) |
 | program id | new. Localnet and devnet: a throwaway keypair. Mainnet: generated by the owner on his own machine; upgrade authority the Squads vault |
-| toolchain, pinned exactly | `anchor-lang = "=0.31.2"` (feature `event-cpi`); `anchor-spl = "=0.31.2"` (`default-features = false`, features `token` and `metadata`); `mpl-token-metadata` pinned with `=` to the exact 5.x version that `Cargo.lock` resolves (anchor-spl 0.31.2 asks for `^5`); `Cargo.lock` committed. The existing programs' `Cargo.toml` says `"0.31.1"`, a caret requirement, and their `Cargo.lock` resolves 0.31.2, so 0.31.2 is what they were built with. Agave solana-cli 4.3.0, cargo-build-sbf 4.4.0, platform-tools v1.57 (as `release/mainnet-2026-10-10/BUILD.md`). All versions and the binary hash go into the audit pack (C03) |
-| release profile | `overflow-checks = true`, `lto = "fat"`, `codegen-units = 1`, `opt-level = 3` |
-| features | `no-idl` (in the crate's default features, so every build, including the verifiable build, leaves Anchor's IDL instructions out; 8.4); `devnet` (switches the compiled ids of 3.2 to the devnet deployments); `halt-all` (the pre-audited emergency build, 8.3). No other feature |
+| toolchain, pinned exactly | `anchor-lang = "=0.31.2"` (feature `event-cpi`); `anchor-spl = "=0.31.2"` (`default-features = false`, features `token`, `token_2022`, `token_2022_extensions`, `associated_token` and `metadata`: the two this program uses do not compile alone, and none of the other code is reachable, which the checklist test enforces by refusing `Token2022`, `token_interface` and `AssociatedToken` in the crate; NOTES 18); `mpl-token-metadata = "=5.1.1"` (what `Cargo.lock` resolves for anchor-spl 0.31.2's `^5`); `Cargo.lock` committed. The existing programs' `Cargo.toml` says `"0.31.1"`, a caret requirement, and their `Cargo.lock` resolves 0.31.2, so 0.31.2 is what they were built with. Agave solana-cli 4.3.0, cargo-build-sbf 4.4.0, platform-tools v1.57 (as `release/mainnet-2026-10-10/BUILD.md`). All versions and the binary hash go into the audit pack (C03) |
+| release profile | `overflow-checks = true`, `lto = "fat"`, `codegen-units = 1`, `opt-level = 3`. `lto` has no effect while the crate keeps Anchor's two crate types (`cdylib` and `lib`), as both deployed programs do; dropping `lib` is left to the auditors and the owner (NOTES 19) |
+| features | `no-idl` (in the crate's default features, so every build, including the verifiable build, leaves Anchor's IDL instructions out; 8.4); `devnet` (switches the compiled ids of 3.2 to the devnet deployments); `halt-all` (the pre-audited emergency build, 8.3). Besides these, only Anchor's tooling features, which change no deployed behaviour: `cpi`, `no-entrypoint`, `no-log-ix-name`, `idl-build` (the client IDL, 8.4) and `short-windows`, accepted and ignored for the workspace's CI (NOTES 17) |
 | stack | every typed account in `launch`, `approve_launch` and `forward_holders_fees` is `Box<...>`, and the coin is `Box<Account<'info, CurveCoin>>` in every instruction (today's `launch.rs` boxes for the same reason: SBF stack frames are 4 KB). CI fails on any cargo-build-sbf "Stack offset ... exceeded" warning (C04) |
 
 ### 3.2 Constants (policy values carry `#[constant]` so they appear in the IDL)
@@ -227,6 +231,7 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 | `LEGACY_PROGRAM_ID` | mainnet build `AkMP9qvAYmb8Vyu63Qhw8Z4ee1fgQbCRKkXWy5r5A1Ai`; `devnet` build `Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7` | the old program whose `Coin`, `Approval` and `Launchpad` accounts are checked for R1 |
 | `LEGACY_LAUNCHPAD` | the address `find_program_address(["launchpad"], LEGACY_PROGRAM_ID)`, compiled per cluster; unit test U12 checks the derivation | the old program's global account (171 bytes: discriminator, five Pubkeys, `launches_paused` at byte 168, `payouts_paused` 169, `bump` 170) |
 | `LEGACY_LAUNCHPAD_DISCRIMINATOR` / `LEGACY_LAUNCHPAD_LEN` / `LEGACY_LAUNCHES_PAUSED_AT` | `sha256("account:Launchpad")[..8]` / 171 / 168 | read-only check of the old program's pause (4.8, 4.10) |
+| `LEGACY_ADMIN_AT` / `LEGACY_PENDING_ADMIN_AT` | 8 / 40 | the old program's `admin` and `pending_admin`: at every approval and launch the old admin must be this program's admin with no transfer pending (4.8, 8.5) |
 | `COIN_SUPPLY` | 1,000,000,000,000,000 raw | R8 |
 | `COIN_DECIMALS` | 6 | R8 |
 | `BPS` (`D`) | 10,000 | denominator |
@@ -256,7 +261,9 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 
 The localnet test suite loads `vicinity_rewards` and the old `vicinity_launchpad` builds at
 their mainnet addresses (litesvm can place a program at any address), so the binary the tests
-exercise is the mainnet binary; only the `devnet` feature changes the three ids (C03 records
+exercise is the mainnet binary (the committed release binaries of `release/mainnet-2026-10-10`,
+SHA-256 checked: an Anchor program runs only at its own `declare_id!`, so builds with the devnet ids
+cannot serve there; NOTES 27); only the `devnet` feature changes the three ids (C03 records
 the ids compiled into each binary).
 
 ### 3.3 Addresses, sizes and rent
@@ -504,8 +511,10 @@ number), `opted_in_at` i64 (136), `bump` u8 (144).
   `halt-all`, the eight handlers that move lamports or tokens out of a `Coin` or its vault
   (`launch`, `buy`, `sell`, `buyback_burn`, `withdraw_platform_fees`,
   `forward_holders_fees`, `claim_founder_fees`, `payout_founder_fees`) fail with
-  `TradingHalted` before anything else. Without the feature these checks do not exist in the
-  binary.
+  `TradingHalted` at the first statement of the handler, that is after Anchor has validated the
+  account list: a transaction with an invalid account list fails with the account error first,
+  and either way nothing is created, moved or written (NOTES 21). Without the feature these
+  checks do not exist in the binary.
 * **Math**: every amount comes from the math crate (5.16). Handlers do no arithmetic of their
   own except checked counter additions.
 
@@ -524,7 +533,8 @@ now compiled constants (3.2).
 | 6 | `system_program` | | |
 
 Checks: (1) `program_data_upgrade_authority(program_data.data) == Some(upgrade_authority)`
-(reused hand parser of the 45-byte header) else `NotUpgradeAuthority`.
+(reused hand parser of the 45-byte header) else `NotUpgradeAuthority`; (2) neither `admin` nor
+`guardian` is `FEE_RECIPIENT` (`FeeRecipientRole`): `FEE_RECIPIENT` only receives (8.1).
 Effects: every `Launchpad` field: `admin`, zero `pending_admin`, payout keys zero,
 `guardian` (zero = none), all flags false, `next_config_id = 0`, `bump`.
 Event (`emit!`): `LaunchpadInitialized { admin, upgrade_authority, guardian }`. Mainnet:
@@ -535,17 +545,21 @@ guardian is the separate guardian multisig (8.1).
 
 Reused unchanged.
 * `propose_admin`: `admin` S; `launchpad` W, seeds, `has_one = admin` (`Unauthorized`).
-  Check: if `new_admin != 0`, `check_payout_keys_separate(new_admin, payout_authority,
-  payout_destination)` (`PayoutKeyNotSeparate`). Effect: `pending_admin = new_admin` (zero
-  cancels). Event `AdminProposed { admin, pending_admin }`.
+  Checks: if `new_admin != 0`, `new_admin != FEE_RECIPIENT` (`FeeRecipientRole`) and
+  `check_payout_keys_separate(new_admin, guardian, payout_authority, payout_destination)`
+  (`PayoutKeyNotSeparate`). Effect: `pending_admin = new_admin` (zero cancels). Event
+  `AdminProposed { admin, pending_admin }`.
 * `accept_admin`: `new_admin` S; `launchpad` W, seeds. Checks: `pending_admin != 0`
-  (`NoPendingAdmin`); `pending_admin == new_admin` (`NotPendingAdmin`); the separation rule
-  again (`PayoutKeyNotSeparate`). Effects: `admin = new_admin`, `pending_admin = 0`. Event
+  (`NoPendingAdmin`); `pending_admin == new_admin` (`NotPendingAdmin`); `new_admin !=
+  FEE_RECIPIENT` (`FeeRecipientRole`); the separation rule again, with the current guardian
+  (`PayoutKeyNotSeparate`). Effects: `admin = new_admin`, `pending_admin = 0`. Event
   `AdminChanged { old_admin, new_admin }`.
 * Because `forward_holders_fees` requires each city's rewards authority to equal the admin
   (4.15), a new admin must also take over each city's rewards authority (`vicinity_rewards`
   `propose_authority` / `accept_authority`); holders' money waits in `holders_pending` until
-  then.
+  then. Likewise the old `vicinity_launchpad`'s admin must follow (its `propose_admin` by its
+  current admin, `accept_admin` by the new one): until then `approve_launch` and `launch` fail
+  with `LegacyAdminMismatch` (4.8, 8.5).
 
 ### 4.4 `set_pause(launches: Option<bool>, payouts: Option<bool>, buys: Option<bool>)` and `set_guardian(guardian: Pubkey)`
 
@@ -558,10 +572,14 @@ Reused unchanged.
 | nonzero `guardian` | only `launches` and `buys`, only to `Some(true)`, `payouts = None`, at least one set: it can stop launches and buys, never resume them |
 
 Effects: set the given flags. Event `PauseChanged { launches_paused, payouts_paused,
-buys_halted, by }`. Nothing can stop sells, claims, forwards or withdrawals.
+buys_halted, by }`. An admin call with all three arguments `None` changes nothing and emits the
+unchanged flags (NOTES 23). Nothing can stop sells, claims, forwards or withdrawals.
 
 `set_guardian`: `admin` S; `launchpad` W, seeds, `has_one = admin` (`Unauthorized`).
-Effect: `guardian = guardian` (zero = none). Event (`emit!`) `GuardianChanged { old, new }`.
+Checks: `guardian != FEE_RECIPIENT` (`FeeRecipientRole`); `check_payout_keys_separate(admin,
+guardian, payout_authority, payout_destination)` (`PayoutKeyNotSeparate`): the guardian is never
+the payout key or the payout wallet (8.1: it cannot touch money). Effect: `guardian = guardian`
+(zero = none). Event (`emit!`) `GuardianChanged { old, new }`.
 To recover from a stolen guardian, the admin clears `buys_halted` and replaces the guardian
 in the same proposal.
 
@@ -569,8 +587,9 @@ in the same proposal.
 
 Reused. `admin` S; `launchpad` W, `has_one = admin` (`Unauthorized`). Checks: two zeros =
 payouts off; otherwise both nonzero (`InvalidAddress`) and
-`check_payout_keys_separate(admin, ...)` (payout key not the admin or `FEE_RECIPIENT`;
-payout wallet not the payout key, the admin or `FEE_RECIPIENT`) (`PayoutKeyNotSeparate`).
+`check_payout_keys_separate(admin, guardian, ...)` (payout key not the admin, the guardian or
+`FEE_RECIPIENT`; payout wallet not the payout key, the admin, the guardian or `FEE_RECIPIENT`)
+(`PayoutKeyNotSeparate`).
 Effects: both fields. Existing opt-ins naming another wallet stop working; they are never
 redirected. Event `PayoutConfigChanged { old_authority, new_authority, old_destination,
 new_destination }`.
@@ -614,7 +633,7 @@ future approvals and launches; live coins never read their config again. Event
 | 6 | `ticker_lock` | | Unchecked; seeds `["ticker", symbol.as_bytes()]`; `data_is_empty() && owner == System` (`TickerTaken`) |
 | 7 | `legacy_coin` | | Unchecked; key = `find_program_address(["coin", city_id LE], LEGACY_PROGRAM_ID)` (`InvalidAddress`); `data_is_empty() && owner == System` (`LegacyCoinExists`) |
 | 8 | `legacy_approval` | | Unchecked; key = `find_program_address(["approval", city_id LE], LEGACY_PROGRAM_ID)` (`InvalidAddress`); `data_is_empty() && owner == System` (`LegacyApprovalExists`) |
-| 9 | `legacy_launchpad` | | Unchecked; `address = LEGACY_LAUNCHPAD` (`InvalidAddress`); `owner == LEGACY_PROGRAM_ID`, `data_len == 171`, `data[0..8] == LEGACY_LAUNCHPAD_DISCRIMINATOR` (`InvalidAddress`); `data[168] == 1`, the old program's launches paused (`LegacyLaunchesOpen`) |
+| 9 | `legacy_launchpad` | | Unchecked; `address = LEGACY_LAUNCHPAD` (`InvalidAddress`); `owner == LEGACY_PROGRAM_ID`, `data_len == 171`, `data[0..8] == LEGACY_LAUNCHPAD_DISCRIMINATOR` (`InvalidAddress`); `data[168] == 1`, the old program's launches paused (`LegacyLaunchesOpen`); `data[8..40] == launchpad.admin` and `data[40..72] == 0`, the old program's admin is this program's admin with no transfer pending (`LegacyAdminMismatch`) |
 | 10 | `system_program` | | |
 
 Checks in order: `city_id >= 1` (`BadCityId`); `founder != 0` (`InvalidAddress`);
@@ -628,7 +647,9 @@ expires_at }`.
 Notes: a second approval for the same city fails at `init` until the first is used or
 revoked. A symbol longer than 32 bytes fails seed derivation before `check_symbol` (still
 refused). Two pending approvals for different cities may name the same ticker; only the
-first launch can create the ticker lock. The three legacy checks run again in `launch`.
+first launch can create the ticker lock. The legacy checks run again in `launch`. The admin
+check makes reopening the old program need the same multisig and time lock as every admin
+action here (8.5): while the two admins differ, nothing is approved or launched here.
 
 ### 4.9 `revoke_approval(city_id: u64)`
 
@@ -661,7 +682,7 @@ Effect: the approval closes at exit; its rent goes to `rent_payer`. Event (`emit
 | 12 | `fee_recipient` | W | `address = FEE_RECIPIENT` (`InvalidAddress`) |
 | 13 | `legacy_coin` | | as in 4.8 (`InvalidAddress`, `LegacyCoinExists`) |
 | 14 | `legacy_approval` | | as in 4.8 (`InvalidAddress`, `LegacyApprovalExists`) |
-| 15 | `legacy_launchpad` | | as in 4.8 (`InvalidAddress`, `LegacyLaunchesOpen`) |
+| 15 | `legacy_launchpad` | | as in 4.8 (`InvalidAddress`, `LegacyLaunchesOpen`, `LegacyAdminMismatch`) |
 | 16 | `metadata_program` | | `address = METAPLEX_PROGRAM_ID` (`InvalidAddress`) |
 | 17 | `token_program` | | `Program<Token>` (classic SPL Token) |
 | 18 | `system_program` | | |
@@ -826,6 +847,11 @@ close instruction, so a config created with the wrong values makes this instruct
 that coin forever; only a program upgrade could route that money elsewhere (O26). The SDK's
 `initRewardsForCoin` therefore simulates the Squads proposal and runs `check_rewards_config`
 and the authority rule on the resulting account bytes before the proposal is created (R03).
+Only an account owned by `vicinity_rewards` at the config address is an existing config: anyone
+can send lamports to the deterministic address, before or after launch, and `init_city` creates
+the config over such a System account without data (T55). For an existing config the SDK tells
+the fixable problems (its authority is not the admin, or a transfer is pending:
+`propose_authority` / `accept_authority`) from the unfixable ones (its economics, O26).
 `init_city` cannot run before launch because it needs the mint.
 
 ### 4.16 `claim_founder_fees()`
@@ -884,8 +910,8 @@ ref_hash, total_paid_out }`.
 
 ### 4.21 Events
 
-`emit_cpi!` (cannot be truncated like logs; indexers accept them only from an inner
-instruction of `vicinity_curve` signed by its `event_authority` PDA):
+`emit_cpi!` (cannot be truncated like logs; indexers accept them only as the acceptance rule
+below says):
 
 | event | fields |
 |---|---|
@@ -902,7 +928,25 @@ instruction of `vicinity_curve` signed by its `event_authority` PDA):
 (with `buys_halted`), `GuardianChanged`, `PayoutConfigChanged`, `ConfigAdded`,
 `ConfigEnabled`, `LaunchApproved`, `ApprovalRevoked`, `FounderTransferred`,
 `PayoutOptedIn`, `PayoutOptInRevoked`. Every figure in every event is also a counter or field
-in an account, so indexers can reconcile from state.
+in an account, so indexers can reconcile from state. The `Trade` of the buy that completes the
+curve has `phase = 0` (where it executed) while its `*_after` fields describe the new pool; the
+curve's last virtual reserves are in `Graduated` (NOTES 23).
+
+**Acceptance rule for indexers** (T56; the SDK's `decodeTransactionEvents` applies it to what
+`getTransaction` returns):
+
+1. Only events of a transaction whose `meta.err` is null, read at `finalized` commitment or
+   re-checked there. The runtime records the inner instructions and logs of failed transactions
+   too, so a failed transaction carries genuine event CPIs of trades that were reverted (review
+   CLI-2: a buy or sell followed by an instruction that always fails costs only the fee).
+2. A money event only from an inner instruction (stack height 2 or more) of `vicinity_curve`
+   whose enclosing call (the nearest instruction one level up) is `vicinity_curve` itself and
+   whose only account is the event authority PDA (a router calling `vicinity_curve` puts the
+   event at depth 3, which is fine).
+3. A settings event only from a `Program data:` line logged while `vicinity_curve` is the
+   running program; never a money event from a log.
+4. Never keep the first event seen for a `(coin, trade_seq)` and drop later ones: after
+   confirmation, reconcile each coin's events with `Coin.trade_seq` and the account's counters.
 
 ### 4.22 Errors (`CurveError`, codes from 6000 in this order; new codes only appended)
 
@@ -916,7 +960,7 @@ in an account, so indexers can reconcile from state.
 | 6005 | `LaunchesPaused` | |
 | 6006 | `PayoutsPaused` | |
 | 6007 | `PayoutsNotConfigured` | |
-| 6008 | `PayoutKeyNotSeparate` | |
+| 6008 | `PayoutKeyNotSeparate` | the admin, the payout key and the payout wallet are not three different keys, or the payout key or wallet is the guardian or `FEE_RECIPIENT` |
 | 6009 | `ConfigDisabled` | |
 | 6010 | `ConfigCount` | 65,535 configs reached |
 | 6011 | `ConfigFeeTotal` | V1 |
@@ -959,6 +1003,8 @@ in an account, so indexers can reconcile from state.
 | 6048 | `LegacyLaunchesOpen` | `vicinity_launchpad` launches are not paused |
 | 6049 | `BuysHalted` | `buys_halted` is set (guardian or admin) |
 | 6050 | `BadMetaHash` | `meta_hash` is all zeros |
+| 6051 | `LegacyAdminMismatch` | `vicinity_launchpad`'s admin is not this program's admin, or an admin transfer is pending there (4.8, 4.10) |
+| 6052 | `FeeRecipientRole` | `FEE_RECIPIENT` named as admin, proposed admin or guardian (4.1, 4.2, 4.4) |
 
 Anchor's own errors (for example `ConstraintSeeds`, `AccountNotInitialized`, an `init` on an
 existing account) can appear before ours for some substitutions; tests accept either and
@@ -1478,25 +1524,36 @@ Pure functions of the `Coin` data; the program calls exactly these and writes wh
 return, so an off-chain quote equals the on-chain result to the lamport.
 
 ```
-fee_split(terms, amount) -> FeeSplit { fee, liquidity, liquidity_floor, platform, founder, holders, buyback }
+fee_split(terms, amount) -> Result<FeeSplit { fee, liquidity, liquidity_floor, platform, founder, holders, buyback }>
 curve_value(terms, s) -> u64                       // f(s)
 tokens_for(terms, q) -> u64
 gross_for(terms, net) -> u64                       // Lemma G
 quote_buy(terms, state, sol_in) -> BuyQuote { charged, net, tokens_out, split, drip,
                                               partial, graduates, new_state }
 quote_sell(terms, state, tokens_in) -> SellQuote { gross, sol_out, split, drip, new_state }
-quote_buyback(terms, state, slot) -> Option<BuybackQuote { spent, coins, cap, new_state }>
+quote_buyback(terms, state, slot) -> Result<Option<BuybackQuote { spent, coins, cap, new_state }>>
+                                                   // Ok(None) = the no-op of 4.0 and 7.1
 max_quote_in(terms, state) -> u64                 // sol_in that completes the curve exactly
-spot_price(state) -> (virtual_sol, virtual_tokens)
+spot_price(terms, state) -> (virtual_sol, virtual_tokens)   // the terms hold x0 and y0
+liabilities(state), depth(terms, state), buyback_cap(terms, state)   // 6.5, 7.2
 validate_config(params) -> Result<(), ConfigError> // V1 to V11
 derive_curve(S, P, R) -> (x0, y0)                  // off-chain helper, 5.9
-decode_coin(owner: &Pubkey, data: &[u8]) -> Result<CoinView, DecodeError>
+decode_coin(owner: &[u8; 32], data: &[u8]) -> Result<CoinView, DecodeError>
     // owner == the vicinity_curve id, data.len() == 693, CurveCoin discriminator,
-    // layout_version == 1, then the fixed offsets of 3.7
+    // layout_version == 1, phase 0 or 1, then the fixed offsets of 3.7
 ```
 
-All functions return errors instead of panicking. A TypeScript port in the SDK is tested for
-parity against golden vectors generated by the Rust crate (G01).
+All functions return `Result<_, MathError>` instead of panicking (NOTES 3). `State` holds every
+field a trade or a buyback writes and the quotes return the complete new state, so the handlers
+write it without arithmetic (NOTES 6). The quotes refuse the trades the program refuses
+(`TradeTooSmall`, `ZeroAmount`, `ZeroOutput`, `SellExceedsCurve`, in the order of section 4) and
+refuse a buy whose liabilities would leave `u64` (NOTES 4, 5); they check the proofs' guarantees
+before returning a state and refuse inputs that break a precondition of 5.1 (`InvalidTerms`,
+`InvalidState`, mapped to `MathOverflow` by the program; NOTES 8). `validate_config` returns the
+first failing rule in table order; `v8_sides` and `v11_sides` expose its margins (NOTES 9).
+`derive_curve` is the search of 5.9 made exact (NOTES 11). A JavaScript port in the SDK
+(`sdk/curve/math.mjs`) is tested for parity against golden vectors generated by the Rust crate
+(G01) and against the program's results after every transaction of the test suites.
 
 ---
 
@@ -1605,6 +1662,7 @@ fn pay_out(coin: &AccountInfo, rent_reserve: u64, to: &AccountInfo, amount: u64,
     let rent_live = Rent::get()?.minimum_balance(coin.data_len());
     let floor = liabilities_after
         .checked_add(rent_reserve.min(rent_live)).ok_or(CurveError::MathOverflow)?;
+    require_keys_neq!(to.key(), coin.key(), CurveError::InvalidAddress);   // NOTES 22
     let left = coin.lamports().checked_sub(amount).ok_or(CurveError::RentFloor)?;
     require!(left >= floor, CurveError::RentFloor);
     **coin.try_borrow_mut_lamports()? = left;
@@ -1617,14 +1675,21 @@ fn pay_out(coin: &AccountInfo, rent_reserve: u64, to: &AccountInfo, amount: u64,
   rent part and every remaining obligation can never be paid out. Without donations a `Coin`
   holds exactly `rent_reserve + liabilities` (I9), so by I9 the check never fails in a
   correct program; it is the line an auditor can read in one place. The only CPI that may
-  follow it is `emit_cpi!` (rule of 4.0).
+  follow it is `emit_cpi!` (rule of 4.0). It refuses a destination equal to the `Coin` (a check
+  that can only refuse) and computes both new balances before writing either (NOTES 22).
 * **Rent changes**: the floor uses the smaller of the rent stored at launch and the live
-  `Rent` sysvar. A rent increase (rent can change, LAUNCHPAD-DESIGN cites SIMD-0437) therefore
-  never raises the floor above what the `Coin` holds, so it cannot stop sells, claims,
-  withdrawals or forwards; the runtime's own rent-state rules still apply to the account,
-  which matters only when the remaining liabilities are smaller than the increase (the last
-  lamports of a nearly empty coin); anyone can top a `Coin` up (a donation). Test X63 raises
-  the `Rent` sysvar by 10%.
+  `Rent` sysvar. A rent increase (rent can change, LAUNCHPAD-DESIGN cites SIMD-0437; SIMD-0438
+  would reset the rate to 6,960 lamports per byte) therefore never raises the floor above what
+  the `Coin` holds, so the program never refuses an exit because of it. The runtime's own
+  rent-state rule still applies to the account: under SIMD-0392 (active on mainnet since epoch
+  1027) a transaction may not leave an account below the live rent-exempt minimum and below its
+  balance before the transaction. So after an increase of `d` lamports in a `Coin`'s minimum,
+  a debit that leaves its liabilities below `d` is refused by the runtime
+  (`InsufficientFundsForRent`) until someone tops the `Coin` up: the last exits of a nearly empty
+  coin, and every debit of a coin whose liabilities are already below `d`. Credits (buys) into
+  such a coin are accepted. Anyone can top a `Coin` up (a donation); the keeper tops up every coin
+  below the live minimum after any rent change (14.1, T63). Test X63 raises the `Rent` sysvar by
+  10%.
 * **Destinations must accept a credit**: the runtime refuses a credit that leaves a
   0-lamport account below the rent-exempt minimum of an empty account (128 x 5,080 = 650,240
   lamports at today's mainnet rate; 890,880 at 6,960). A seller or founder can have 0 lamports
@@ -1915,13 +1980,13 @@ compared with selling at once):
 
 | key | can | cannot |
 |---|---|---|
-| **Squads vault `AB5qB1iA...`** (multisig `6v8hwKYS...`, 2 of 3), mainnet, in **all** of its roles: `vicinity_curve` admin, upgrade authority and program-metadata (IDL) authority; `vicinity_rewards` registry admin, every city's rewards authority and upgrade authority; `vicinity_launchpad` admin and upgrade authority | **As admin**: `approve_launch`, `revoke_approval`, `add_launch_config` (inside V1 to V11), `set_launch_config_enabled`, `set_pause` (any flag either way), `set_payout_config`, `set_guardian`, `propose_admin`. **As upgrade authority**: replace `vicinity_curve` (including the pre-audited `halt-all` build) after the time lock, and with a new binary take every coin's reserves and buckets. **As rewards registry admin**: choose each city's rewards authority at `init_city` (`vicinity_curve` accepts only configs whose authority is the admin, 4.15). **As each city's rewards authority**: publish the Merkle roots that decide who receives the holders' money in the rewards vault, itself included; pause claims; cancel epochs. **As `vicinity_rewards` upgrade authority**: replace that program, and with it take every forwarded lamport | Within `vicinity_curve`, without an upgrade: move any lamport or token; change a live coin's split, curve, founder or state; block sells, claims, forwards or withdrawals; redirect platform fees; change the compiled program ids; mint; freeze; create a second coin for a city or a ticker. In `vicinity_rewards`: there is no withdraw instruction; a published root is write-once |
-| **guardian** (a separate Squads multisig without a time lock, suggested 1 of 3 of the same members; never on the website server or the keeper) | `set_pause` with `launches = true` and/or `buys = true` only: stops new launches, buys and buybacks at once | clear any flag; block sells, claims, forwards, withdrawals or payouts; touch money; change any setting |
+| **Squads vault `AB5qB1iA...`** (multisig `6v8hwKYS...`, 2 of 3), mainnet, in **all** of its roles: `vicinity_curve` admin, upgrade authority and program-metadata (IDL) authority; `vicinity_rewards` registry admin, every city's rewards authority and upgrade authority; `vicinity_launchpad` admin and upgrade authority (the old program's admin seat is enforced: approvals and launches here require it to be this program's admin, 8.5) | **As admin**: `approve_launch`, `revoke_approval`, `add_launch_config` (inside V1 to V11), `set_launch_config_enabled`, `set_pause` (any flag either way), `set_payout_config`, `set_guardian`, `propose_admin`. **As upgrade authority**: replace `vicinity_curve` (including the pre-audited `halt-all` build) after the time lock, and with a new binary take every coin's reserves and buckets. **As rewards registry admin**: choose each city's rewards authority at `init_city` (`vicinity_curve` accepts only configs whose authority is the admin, 4.15). **As each city's rewards authority**: publish the Merkle roots that decide who receives the holders' money in the rewards vault, itself included; pause claims; cancel epochs. **As `vicinity_rewards` upgrade authority**: replace that program, and with it take every forwarded lamport | Within `vicinity_curve`, without an upgrade: move any lamport or token; change a live coin's split, curve, founder or state; block sells, claims, forwards or withdrawals; redirect platform fees; change the compiled program ids; mint; freeze; create a second coin for a city or a ticker. In `vicinity_rewards`: there is no withdraw instruction; a published root is write-once |
+| **guardian** (a separate Squads multisig without a time lock, suggested 1 of 3 of the same members; never on the website server or the keeper; never `FEE_RECIPIENT`, the payout key or the payout wallet, which the program refuses, 4.4, 4.5) | `set_pause` with `launches = true` and/or `buys = true` only: stops new launches, buys and buybacks at once | clear any flag; block sells, claims, forwards, withdrawals or payouts; touch money; change any setting |
 | **payout key** (off by default; never on the website server) | `payout_founder_fees` for opted-in founders, to the fixed payout wallet, once a day per coin; pause payouts | resume payouts; pay anywhere else; touch any other bucket |
 | **founder** (per coin) | claim, opt in or out of payouts, hand over the seat to a co-signing key | touch any other bucket or coin |
 | **anyone** | trade; `buyback_burn`; `withdraw_platform_fees` (pays only `FEE_RECIPIENT`); `forward_holders_fees` (pays only the checked vault); `SyncNative` on a WSOL account; revoke an expired approval | everything else |
 | **website and keeper** | build unsigned transactions; the keeper's hot key signs permissionless cranks as fee payer only | approve launches, halt, or move funds: the website holds no admin, guardian, payout or upgrade key; admins create Squads proposals from their own wallets |
-| **`FEE_RECIPIENT`** | receive | nothing in the program (it signs nothing) |
+| **`FEE_RECIPIENT`** | receive | sign anything in the program; hold any role: the program refuses it as admin, proposed admin, guardian, payout key or payout wallet (4.1 to 4.5) |
 
 Worst cases:
 * **Two of the three Squads keys stolen (or two members acting together).** As admin: approve
@@ -1934,6 +1999,11 @@ Worst cases:
   through a self-serving Merkle root, also only after the time lock (a root is a proposal of
   the same multisig) and visible before it executes. As `vicinity_rewards` upgrade authority:
   every lamport in the rewards vaults, after the time lock.
+* **The old program's admin**: the same Squads vault (8.4), which the program enforces at every
+  approval and launch (8.5). A different or pending old admin stops all approvals and launches
+  here (fail closed); reopening the old program to launch a second coin for a city therefore
+  needs the same two keys and the time lock as everything else (review GOV-1: on mainnet that
+  seat was the owner's wallet, which is also `FEE_RECIPIENT`).
 * **Stolen guardian**: halts buys, buybacks and launches until the admin clears the flag and
   replaces the guardian in one proposal (after the time lock); sells, claims, forwards and
   withdrawals never stop.
@@ -1950,8 +2020,11 @@ program and publishes the holder reward roots, and the website says exactly that
 ### 8.2 Two-step admin
 
 `propose_admin` then `accept_admin` signed by the new key (a Squads vault signs through a
-proposal). Zero cancels. The payout key and wallet must stay separate from the admin through
-the hand-over. Each city's rewards authority must follow the admin (4.2).
+proposal). Zero cancels. The payout key and wallet must stay separate from the admin (and the
+guardian) through the hand-over, and the new admin is never `FEE_RECIPIENT`. Each city's rewards
+authority and the old `vicinity_launchpad`'s admin must follow the admin (4.2): until the rewards
+authority follows, forwards wait in `holders_pending`; until the old admin follows, approvals and
+launches fail with `LegacyAdminMismatch`.
 
 ### 8.3 Emergency brake: the guardian halt and the halt-all build
 
@@ -1991,8 +2064,10 @@ the hand-over. Each city's rewards authority must follow the admin (4.2).
   watching deploys could take the IDL in the first slot the program can be invoked and publish
   a misleading IDL forever. Release builds therefore set `no-idl` (3.1): the binary has no IDL
   instructions (the IDL tag returns Anchor error 1000 `IdlInstructionStub`, test X65) and
-  nobody can create the legacy IDL account. The IDL JSON is published with the verified build,
-  in the repository, on the website and through the Solana Program Metadata program, whose
+  nobody can create the legacy IDL account. The IDL JSON is generated from the source with
+  Anchor's `idl-build` feature, committed at `sdk/idl/vicinity_curve.json` and diffed by CI
+  against the build (NOTES 24); it is published with the verified build, in the repository, on
+  the website and through the Solana Program Metadata program, whose
   canonical entry only the program's upgrade authority can write (a Squads proposal, made
   before the first coin launches so the time lock does not delay it).
 * Verified builds (`solana-verify` / `anchor build --verifiable`) with the hash published
@@ -2013,8 +2088,12 @@ the hand-over. Each city's rewards authority must follow the admin (4.2).
   later option (bugs could then no longer be fixed).
 * **Preconditions before the first coin launches** (the deploy checklist checks each on
   chain): `vicinity_rewards` registry admin and upgrade authority are the Squads vault;
-  `vicinity_launchpad` launches are paused and its configs disabled (8.5); the guardian is
-  set; the program metadata (IDL) is published; config #0 is added; the time lock is set
+  `vicinity_launchpad`'s admin is the Squads vault with no pending admin (on mainnet it is the
+  owner's wallet `13qRam...`, which is also `FEE_RECIPIENT`: `propose_admin` from that wallet,
+  `accept_admin` through the Squads app; `approve_launch` and `launch` refuse until then, 8.5),
+  its upgrade authority is the Squads vault (it is, `release/mainnet-2026-10-10/BUILD.md`), its
+  launches are paused and its configs disabled (8.5); the guardian is set and is neither the
+  payout key nor the payout wallet; the program metadata (IDL) is published; config #0 is added; the time lock is set
   (unless the owner chose O11's alternative).
 * Under Meteora, curve and pool money sat in Meteora's programs. Here it sits under
   `vicinity_curve`, so the upgrade authority is the main trust: it could take every coin's
@@ -2023,15 +2102,27 @@ the hand-over. Each city's rewards authority must follow the admin (4.2).
 ### 8.5 Retiring the old launch path
 
 No city coin exists on mainnet. Before the new program accepts its first approval, the
-Squads vault pauses launches in `vicinity_launchpad` (`set_pause`) and disables its configs
-(`set_launch_config_enabled`). Both `approve_launch` and `launch` here then check on chain that
-the old program has no `Coin` and no pending `Approval` for the city and that its launches are
-paused (`LegacyCoinExists`, `LegacyApprovalExists`, `LegacyLaunchesOpen`), so no launch here
-can happen while the old program could launch, and a coin created in the old program during
-an approval's 30-day window blocks the launch here. The old program cannot see the new one,
-so keeping it paused after a launch here is what keeps R1 in the other direction (O19): if the
-old admin ever unpaused it, launches here would stop at once, but a city launched here could
-then be launched again in the old program.
+Squads vault becomes the old program's admin (8.4), pauses launches in `vicinity_launchpad`
+(`set_pause`) and disables its configs (`set_launch_config_enabled`). Both `approve_launch` and
+`launch` here then check on chain that the old program has no `Coin` and no pending `Approval`
+for the city, that its launches are paused, and that its admin is this program's admin with no
+transfer pending (`LegacyCoinExists`, `LegacyApprovalExists`, `LegacyLaunchesOpen`,
+`LegacyAdminMismatch`), so no launch here can happen while the old program could launch, and a
+coin created in the old program during an approval's 30-day window blocks the launch here. The
+old program cannot see the new one, so keeping it paused after a launch here is what keeps R1 in
+the other direction (O19): if the old admin ever unpaused it, launches here would stop at once,
+but a city launched here could then be launched again in the old program. The admin check makes
+that old admin the same multisig as this program's admin (two of three keys and the 48-hour time
+lock, 8.1), never a single hot wallet; the accepted risk of O19 is then the same as any admin
+action here. (Review GOV-1 found the old admin on mainnet to be the owner's wallet, also
+`FEE_RECIPIENT`: alone it could have reopened the old program, launched a second coin for a city
+launched here and paused it again, and blocked pending launches here with old approvals.)
+
+Closing the old program (`solana program close` by its upgrade authority) once it is paused for
+good would make it unable ever to unpause: its `Launchpad` stays, owned by `LEGACY_PROGRAM_ID`
+with `launches_paused = 1`. It would also freeze its admin field, so a later hand-over of this
+program's admin would stop approvals and launches here until an upgrade of this program; the owner
+decides (O19).
 
 ---
 
@@ -2089,7 +2180,9 @@ Per coin:
 * **I14 Destinations.** SOL is traced by the lamport difference of every account in the
   message before and after the transaction (direct lamport moves leave no inner
   instruction): the only program-owned account whose balance fell is the `Coin`, by exactly
-  the sum of the amounts in the money events; every account that gained lamports, ignoring
+  the sum of the amounts in the money events (besides Anchor's close of an `Approval` or a
+  `PayoutOptIn`, to zero, its rent going to the pinned `rent_payer` or the opt-in's founder;
+  NOTES 29); every account that gained lamports, ignoring
   the fee payer's fee and the sources of system transfers, is one of the signer of a `sell`,
   `FEE_RECIPIENT`, `coin.founder`, `launchpad.payout_destination` with an opt-in signed by the
   current founder naming it, or the checked rewards vault, with amounts equal to the events.
@@ -2110,25 +2203,39 @@ Per coin:
 * **I17 Partial fill.** A buy with `charged < sol_in` graduates the coin, delivers exactly
   `S - s_before` coins, has `c = R - curve_sol_before >= 1` and
   `charged == floor((c - 1)*D/(D - t)) + 1` and `charged - fee == c`.
-* **I18 No free value.** (Property tests.) A buy followed by a sell of the coins bought, from
-  any reachable state, returns less than was charged; no address ends a random sequence with
-  more SOL plus coins valued at the final spot price than it started with, net of donations
-  it received.
+* **I18 No free value.** (Property tests P05, P11a, P11b and `tests-curve/25-no-free-value`.)
+  A buy followed by a sell of the coins bought, from any reachable state, returns less than was
+  charged (P05). Coins still held are valued at what they sell for at the final state (at most
+  their spot value less the fee), and: **P11a**, one address alone, arriving with SOL only at any
+  reachable state (others' operations and set-aside liquidity before it, the buyback backlog run
+  down so that no backlog of others can flow to it), never ends a random sequence of buys, sells,
+  pool trades and buyback runs with more than it came with; **P11b**, all addresses together,
+  from launch, buying, selling, running buybacks and collecting payouts in random order and then
+  selling everything, never end with more than they came with, net of the founder fees received
+  and of gifts from outside. (Revision 2's second clause valued coins at the final spot price,
+  which is false for any constant-product market: a position marked at the marginal price right
+  after the buy that made it is worth more than it cost; NOTES 35.)
 
 Global:
 
 * **I19 Uniqueness.** At most one `Coin` per `city_id` and one `TickerLock` per ticker; never
   closed; `TickerLock.mint == Coin.mint` for the coin with that symbol; an `Approval` and a
   `Coin` never coexist for a city; **at every approval and at every launch**, the old program
-  had no `Coin` and no `Approval` for the city and its launches were paused.
+  had no `Coin` and no `Approval` for the city, its launches were paused, and its admin was this
+  program's admin with no transfer pending (8.5).
 * **I20 Settings.** The compiled program ids never change without an upgrade; payout key and
-  wallet separate from each other, the admin and `FEE_RECIPIENT` when set; `guardian` changes
+  wallet separate from each other, the admin, the guardian and `FEE_RECIPIENT` when set;
+  `FEE_RECIPIENT` is never the admin, the pending admin or the guardian; `guardian` changes
   only in `set_guardian`; `buys_halted` becomes true only by the guardian or the admin and
   false only by the admin; `next_config_id` equals the number of `LaunchConfig` accounts; a
   `LaunchConfig` changes only in `enabled`; every `LaunchConfig` passes V1 to V11.
 * **I21 No admin money path within `vicinity_curve`.** No instruction in any test moves
   lamports or tokens to the admin, the guardian, the payout key, the upgrade authority or the
-  keeper. This invariant does not cover `vicinity_rewards`: forwarded holders' money is
+  keeper; the one exception is an `Approval`'s rent returning to its `rent_payer`, which
+  `approve_launch` sets to the admin (its own rent coming back, not a money path). The program
+  cannot stop a role key from buying coins with its own SOL, so the token half is a rule for
+  the tests (NOTES 29, 34). Since `FEE_RECIPIENT` can hold no role (4.1 to 4.5), platform
+  withdrawals never reach one. This invariant does not cover `vicinity_rewards`: forwarded holders' money is
   distributed by Merkle roots that the same Squads vault publishes as each city's rewards
   authority (8.1).
 * **I22 Liveness (nothing stuck).** From every reachable state reached in the tests, unless
@@ -2138,11 +2245,16 @@ Global:
   `claim_founder_fees` succeed; with a correct rewards config (Holders, `founder_bps = 0`,
   WSOL, authority equal to the admin, no pending authority) `forward_holders_fees` succeeds
   (a wrong config can never be fixed, 4.15, O26); once the interval has passed and
-  `buyback_pending > 0`, `buyback_burn` either burns or `curve_sol == f(S - 1)` (the next
-  buy graduates the coin, after which buybacks proceed); approvals can be revoked once
-  expired. **Intended permanent balances** (not stuck states, disclosed): the
-  `liquidity_pending` of a coin that never graduates (O2); in a config with
-  `liquidity_bps = 0`, the curve-phase rounding remainders in `liquidity_pending`; donations.
+  `buyback_pending > 0`, `buyback_burn` either burns, or `curve_sol == f(S - 1)` (the next
+  buy graduates the coin, after which buybacks proceed), or `b = min(buyback_pending, cap)`
+  buys less than one raw coin at the current price (in the pool `Y * b < X + b`, on the curve
+  `tokens_for(r + b) <= s`: dust that burns once the next trades' shares make the bucket worth a
+  coin; NOTES 41); approvals can be revoked once expired. Any holder's sell means any holder
+  holding lamports, or receiving at least the rent-exempt minimum of an empty account (14.3).
+  **Intended permanent balances** (not stuck states, disclosed): the `liquidity_pending` of a
+  coin that never graduates (O2); in a config with `liquidity_bps = 0`, the curve-phase rounding
+  remainders in `liquidity_pending`; the buyback bucket's dust below the price of one raw coin in
+  a coin that stops trading; donations.
 
 ---
 
@@ -2183,7 +2295,7 @@ Global:
 | T31 | **Rent drain of the SOL-holding PDA** | single `pay_out` refuses to go below `min(rent_reserve, rent_min) + liabilities_after`; the runtime's rent rules; every debit bounded by its bucket or by `gross <= reserve` | I9; X31 |
 | T32 | **Cross-coin bleed** | each coin's lamports are its own account; `pay_out` checks that coin's liabilities | I9 per coin; X32 |
 | T33 | **Approval replay** | approval closed by `launch`; `Coin` and `TickerLock` permanent | X33 |
-| T34 | **Approval or launch for a city that already has a coin or approval** (here or in the old program), or while the old program can launch | `coin`, `legacy_coin` and `legacy_approval` must be empty and System-owned and the old program's launches paused, at approval and again at launch; `launch` `init` fails anyway | I19; X34 |
+| T34 | **Approval or launch for a city that already has a coin or approval** (here or in the old program), or while the old program can launch | `coin`, `legacy_coin` and `legacy_approval` must be empty and System-owned, the old program's launches paused and its admin this program's admin with no transfer pending, at approval and again at launch; `launch` `init` fails anyway | I19; X34; 28-governance |
 | T35 | **Ticker squatting inside the program** | `TickerLock` per ticker, permanent; approve refuses a locked ticker | I19; X35 |
 | T36 | **Look-alike tokens outside the program** | cannot be prevented on Solana; the on-chain `Coin` / `TickerLock` registry (filtered by program owner) is the official list; hosted metadata only for registry mints | process; 14.1 |
 | T37 | **Metadata spoofing or later edit** | on-chain name, symbol and URI are created by the program from the approval and immutable (`is_mutable = false`, update authority the `Coin` PDA). The JSON at the URI is served by the website and is not immutable: its SHA-256 is approved by the admin, stored in `Coin.meta_hash` and emitted; the website serves it write-once with a content-addressed image. A compromised website can still change what it serves; anyone comparing the hash detects it | I11; L05 |
@@ -2199,33 +2311,35 @@ Global:
 | T47 | **Fake rewards config or vault** | PDAs re-derived under the compiled `REWARDS_PROGRAM_ID`; owner check; config fields checked; vault mint WSOL and authority the config | X47 |
 | T48 | **Holder money into a founder-paying rewards config** | model Holders and `founder_bps == 0` required | X48 |
 | T49 | **Rewards config whose root publisher is a stranger**, or a self-serving root | `CityConfig.authority == launchpad.admin` and no pending authority required (4.15); roots are published by the Squads vault after the time lock, with the published snapshot and an independent recomputation (8.1) | X47b; process |
-| T50 | **Payout redirection** | destination must equal the founder's agreed destination and the current setting, be System-owned, and differ from the admin, the payout key and `FEE_RECIPIENT` | X50 |
+| T50 | **Payout redirection** | destination must equal the founder's agreed destination and the current setting, be System-owned, and differ from the admin, the guardian, the payout key and `FEE_RECIPIENT` | X50 |
 | T51 | **Payout key abuse** | 24-hour cooldown stored on `Coin`; fixed wallet; it can pause payouts but not resume them | X51 |
 | T52 | **Founder key theft** | exposure limited to `founder_pending`; the seat moves only with both signatures; the admin cannot reassign | design |
 | T53 | **Lost founder key** | the share stays claimable only by that key (O22) | design |
 | T54 | **Duplicate or aliased accounts** | `user_token_account.owner != coin` (excludes the vault and any token account of the `Coin` PDA); sells require the user as token owner; the `Coin` PDA can never sign from outside | X54 |
 | T55 | **Pre-funding a PDA to block `init`** | Anchor `init` creates over pre-funded system accounts (transfer, allocate, assign); extra lamports are donations | X55 |
-| T56 | **Event spoofing** | events by self-CPI signed by the event-authority PDA; indexers check it and reconcile with state | L13 |
+| T56 | **Event spoofing**, including the genuine event CPIs that a failed transaction's metadata carries | events by self-CPI signed by the event-authority PDA; indexers apply the acceptance rule of 4.21 (successful transactions only, event CPIs only under a `vicinity_curve` call, settings events only from its logs) and reconcile with state; the SDK's `decodeTransactionEvents` implements it | L13; X56; E01 |
 | T57 | **Stale quotes** | `min_tokens_out`, `min_sol_out` | X57 |
 | T58 | **Credit to an unfunded destination** (0-lamport seller, founder, router PDA) | the instruction reverts; nothing is lost; retry once funded or with a larger amount; SDK and adapter pre-check (14.3) | X58 |
 | T59 | **Clock games** | buyback rate limit in slots; approval expiry and payout cooldown in Unix time (drift of seconds against windows of a day or more) | X59 |
 | T60 | **Re-entrancy** | CPIs only to System, SPL Token, Metaplex and the program's own event CPI; none calls user code | review |
 | T61 | **Malicious caller of a permissionless crank** | no arguments; amounts from state; destinations fixed; the caller receives nothing | X61 |
 | T62 | **Launch sniping** | the founder may buy atomically in the launch transaction; flat fee; first buyback 150 slots after launch; no anti-sniper fee (O20) | design |
-| T63 | **Rent increase** | `pay_out` floor uses `min(rent_reserve, live rent)`, so a rent increase cannot block exits; anyone can top up a `Coin` | X63 |
+| T63 | **Rent increase** | `pay_out`'s floor uses `min(rent_reserve, live rent)`, so the program never refuses an exit because of a rent increase; the runtime's rent-state rule (SIMD-0392) still refuses a debit that would leave a `Coin` below the live minimum, which after an increase of `d` affects only coins whose remaining liabilities are below `d`: anyone can top a `Coin` up, and the keeper tops up every coin below the live minimum after a rent change (6.5, 14.1) | X63 |
 | T64 | **Front-running `init_launchpad`** | only the program's upgrade authority can call it | X64 |
 | T65 | **IDL account squatting** | `no-idl`: no IDL instructions in the binary; IDL published through the Program Metadata program by the upgrade authority | C03; X65 |
 | T66 | **A hostile website or front end building another transaction** | fixed account lists, wallet simulation, IDL published by the upgrade authority; the website holds no key that can approve, halt or move funds | process |
-| T67 | **The old program launching a city here or there** | on-chain checks at approval and launch (8.5); keeping the old program paused afterwards is process (O19) | I19; X34 |
+| T67 | **The old program launching a city here or there** | on-chain checks at approval and launch, including that the old program's admin is this program's admin with no transfer pending (8.5), so reopening the old program needs the same multisig and time lock; keeping it paused afterwards is process (O19) | I19; X34; 28-governance |
 | T68 | **Front-end fee on top** (an app adds its own fee) | outside our program; disclosed in the label (6.6) | process |
 | T69 | **Stuck buyback bucket** (cap 0) | V4: `x0 * t >= 25D` and `R*P*t >= 25D * 10^15`, so the cap is at least 1 lamport in every reachable state | I22; V04 |
-| T70 | **Missing or wrong rewards config** | missing: holders' money waits in `holders_pending`, forward works once a correct config exists; wrong: it can never be fixed (no update or close in `vicinity_rewards`), so the SDK simulates and checks before proposing; fallback O26 | I22; R01, R03 |
+| T70 | **Missing or wrong rewards config** | missing: holders' money waits in `holders_pending`, forward works once a correct config exists; wrong: it can never be fixed (no update or close in `vicinity_rewards`), so the SDK simulates and checks before proposing; fallback O26 ; the SDK ignores lamports sent to the config address and reports a config whose only problem is its authority as fixable (4.15) | I22; R01, R03; 29-clients |
 | T71 | **Pending liquidity of a coin that never graduates** | locked by design, counted, disclosed as never used (O2) | I7, I22 |
 | T72 | **Misuse of the halts** | the guardian can only stop buys, buybacks and launches, never exits, and cannot clear its own flag; the halt-all build needs an upgrade (multisig, time lock); halt-all refuses every outflow by design | H01 to H03; X43b |
 | T73 | **Stolen guardian** | the same limits; the admin clears the flag and replaces the guardian in one proposal | X43b |
 | T74 | **Third-party pools for the coin** | cannot be prevented for a classic SPL coin; they pay no Vicinity fee and buybacks and injections carry over to them only past 2.5% plus their fee; labelled (6.6) and listed as an owner-visible risk (13, 14.5) | process |
 | T75 | **CPI after a direct lamport move** (`UnbalancedInstruction`, stuck instruction) | rule of 4.0; `forward_holders_fees` leaves `SyncNative` to a separate top-level instruction | R02, R02b |
 | T76 | **Buying ahead of a public buyback backlog** (hold through several runs) | Theorem M_K; 0.1% step; V11 horizon; keeper every interval, alert above 1% of depth, backlog shown on the coin page; residual risk signed off (O25) | P06b; X25 |
+| T77 | **One hot key in several roles** (`FEE_RECIPIENT` as admin or guardian, the guardian as payout key or wallet, the old program administered by another key) | refused by `init_launchpad`, `propose_admin`, `accept_admin`, `set_guardian` and `set_payout_config` (`FeeRecipientRole`, `PayoutKeyNotSeparate`); approvals and launches require the old program's admin to be this program's admin (`LegacyAdminMismatch`, 8.5) | I19, I20; 28-governance |
+| T78 | **A client buy without a minimum** (the "pay with any token" composer), sandwiched | the program enforces `min_tokens_out`; the SDK's `buyWithSwap` refuses to build a buy without one (14.1) | 29-clients |
 
 ---
 
@@ -2252,6 +2366,12 @@ the cluster, each token CPI costs less. Boxing adds a few hundred CU of heap wor
 re-measured after boxing. Optional savings deliberately not taken (they trade auditability for
 compute): zero-copy `Coin`, stored event-authority bump, untyped user token account.
 
+Measured on the production build (NOTES 30; C01 asserts every figure against its test budget):
+a curve buy about 26,100 CU and a sell about 23,500; the graduating buy 29,600; pool trades about
+25,500 and 23,500; `buyback_burn` about 20,000; `launch` 110,600 to 125,900; `launch` + token
+account + first buy 165,500 in total; settings instructions 3,800 to 22,700. Every figure is inside
+its test budget.
+
 ### 11.2 Account sizes and launch cost
 
 Sizes and rents are in 3.3. A founder's launch costs, at today's mainnet rent rate: rent
@@ -2273,12 +2393,16 @@ lamports) returns to the Squads vault.
   authority, `vicinity_curve`, `FEE_RECIPIENT`, `Launchpad`, `LEGACY_LAUNCHPAD`, the config
   PDAs): about 800 to 900 bytes with it.
 * `approve_launch` goes through a Squads vault transaction (lookup tables supported).
+* Measured (C02, NOTES 30): the website's buy 555 bytes, its sell 513, `launch` alone 920,
+  `launch` + token account + first buy 1,031 bytes without and 786 with the lookup table.
 
 ### 11.4 Program binary
 
 Target: at most 450 KB (today's `vicinity_launchpad` is 433,960 bytes with Meteora's
 interfaces). The Metaplex wrapper of anchor-spl adds code; `no-idl` removes Anchor's six IDL
-handlers; measure (C03). The program data account rent at 5,080 lamports per byte is about
+handlers; measure (C03). Measured: 591,296 bytes for the production build of revision 3
+(cargo-build-sbf 4.4.0, platform-tools v1.57; NOTES 20), above the target, which costs rent, not
+behaviour; no build prints a stack warning (C04). The program data account rent at 5,080 lamports per byte is about
 2.3 SOL for 450 KB; an upgrade needs a buffer of the same size, and so does the halt-all
 buffer kept ready.
 
@@ -2287,14 +2411,18 @@ buffer kept ready.
 ## 12. Test plan
 
 Structure follows today's suites: Rust unit and property tests in the math crate and the
-program (`cargo test`, deterministic xorshift generators, no extra crates), and litesvm
-in-process tests in JavaScript (`node:test`, built like `tests-launchpad/helpers.mjs`) with
-the Metaplex fixture `mpl_token_metadata.so`, a real `vicinity_rewards` build and a real
-`vicinity_launchpad` build, both loaded at their mainnet addresses. Every transaction of every
+program (`cargo test`; the property tests use `proptest` as a dev-dependency, which no program
+build sees, NOTES 1), and litesvm in-process tests in JavaScript (`node:test`, built like
+`tests-launchpad/helpers.mjs`, in `tests-curve/`, NOTES 28) with the Metaplex fixture
+`mpl_token_metadata.so` and the committed mainnet binaries of `vicinity_rewards` and
+`vicinity_launchpad`, both loaded at their mainnet addresses (NOTES 27). Every transaction of every
 litesvm test is followed by the invariant checker (I1 to I22) and the money-flow tracer (I13,
 I14): SOL from the pre and post lamports of every account in the message (direct lamport moves
 leave no inner instruction, so a tracer built only on inner instructions would check nothing),
-tokens from the inner instructions that actually executed.
+tokens from the inner instructions that actually executed. A failed transaction must have
+moved nothing but its fee (none when the runtime refused it before execution, NOTES 47), and
+every transaction is also decoded with the SDK's transaction-level event decoder, which must
+find exactly the checker's events, and nothing for a failed one (E01).
 
 ### 12.1 Math crate unit tests (U)
 
@@ -2311,7 +2439,7 @@ tokens from the inner instructions that actually executed.
 | U09 | overflow and division edges at the bounds of V3 and V4, including `x0 = y0 = 2^60`, `t = 250`; `u64::MAX` inputs return `MathOverflow`, never panic | T14, T15 |
 | U10 | `decode_coin` offsets equal the Borsh layout of the program's `CurveCoin` (round trip); it rejects a wrong owner, a wrong length, `layout_version != 1` and the old program's `Coin` bytes | 3.7, 5.16 |
 | U11 | `check_name`, `check_symbol`, `metadata_uri` (reused tests) | T38 |
-| U12 | compiled constants: `LEGACY_LAUNCHPAD` equals the derivation for each cluster build; the legacy discriminator and size match the old program's `Launchpad` | 3.2 |
+| U12 | compiled constants: `LEGACY_LAUNCHPAD` equals the derivation for each cluster build; the legacy discriminator, size and the offsets of `launches_paused`, `admin` and `pending_admin` match the old program's `Launchpad` | 3.2 |
 | V01-V11 | one test per config rule: only that rule violated gives its error; the edge passes; the edge plus one fails (V2 for both caps; V5 for V5b; V10 at `b_P = b_L + 1` passes and `b_P = b_L` fails) | 5.13, T44 |
 
 ### 12.2 Property tests (P; at least 10^6 cases each)
@@ -2328,8 +2456,10 @@ tokens from the inner instructions that actually executed.
 | P07 | ledger identities and liabilities conservation after every operation | I7, I8, I9 |
 | P08 | `fee * D <= A * t` and `fee > A*t/D - 1` for all `A` | I12; T12 |
 | P09 | `drip <= min(L, floor(A*b_L/D))`; drip only in the pool | I12, I16; T27 |
-| P09b | drip farming from random states under random configs passing V1 to V11, attacker credited the founder, holder and buyback shares: never a gain | T27 |
+| P09b | drip farming from random states under random configs passing V1 to V11, attacker credited the founder, holder and buyback shares: never a gain beyond the fee's rounding (at most one lamport per attacker trade, which 5.1 and 5.11 allow; NOTES 16) | T27 |
 | P10 | random configs that pass V1 to V11 (and `x0 = y0 = 2^60`, `t = 250`): no overflow anywhere at extreme reachable states | T14 |
+| P11a | one address alone, from reachable states (others' trades and injected liquidity before it, the backlog run down), never ends a random sequence of buys, sells, pool trades and buyback runs with more than it came with, coins held valued at what they sell for | I18; T11 |
+| P11b | all addresses together, from launch, trading, running buybacks and collecting payouts in random order, then selling everything, never end with more than they came with, net of the founder fees received | I18 |
 
 ### 12.3 litesvm lifecycle tests (L)
 
@@ -2338,7 +2468,7 @@ tokens from the inner instructions that actually executed.
 | L01 | `init_launchpad` only by the upgrade authority; second call refused; guardian stored |
 | L02 | admin two-step; cancel; separation rule at both steps |
 | L03 | `add_launch_config` for config #0 and edge configs; every V error on chain; `set_launch_config_enabled` |
-| L04 | `approve_launch` (each check and error), `revoke_approval` by the admin and by anyone after expiry, refused before expiry for non-admins; coin, ticker and legacy checks (an old-program `Coin` and `Approval` created with the real old program; its launches open or paused; a wrong-owner or wrong-size account at `LEGACY_LAUNCHPAD`) |
+| L04 | `approve_launch` (each check and error), `revoke_approval` by the admin and by anyone after expiry, refused before expiry for non-admins; coin, ticker and legacy checks (an old-program `Coin` and `Approval` created with the real old program; its launches open or paused; a wrong-owner or wrong-size account at `LEGACY_LAUNCHPAD`; an old admin other than this program's admin, or a transfer pending there) |
 | L05 | `launch`: accounts created; metadata fields; `meta_hash` stored and emitted; supply after the 9.1-coin burn; authorities `None`; fee to `FEE_RECIPIENT`; rent; `rent_reserve`; the legacy checks again at launch (a legacy coin created after approval blocks the launch); the pool-option config (no burn); CU and transaction size with a first buy through the lookup table |
 | L06 | curve trading: buys and sells; slippage; minimum buy; `Trade` events match state |
 | L07 | graduation: exactly at `S` and `R`; partial fill; `rem = 1`; `Graduated`; the next trade uses the pool with the same account list |
@@ -2352,8 +2482,10 @@ tokens from the inner instructions that actually executed.
 ### 12.4 Attack tests (X; one per testable threat, each asserting that no balance moved)
 
 X01 account substitution in every slot of `buy`, `sell`, `buyback_burn`; X02 fake `Coin`
-(including the old program's `Coin` bytes under another owner); X03 fake mint; X04 Token-2022
-mint, account and program; X05 program substitution; X06 metadata address; X07 lamport
+(including the old program's `Coin` bytes under another owner, and a `Coin` made by the old
+program itself in the coin slot of every coin-level instruction); X03 fake mint; X04 Token-2022
+mint, account and program (a real Token-2022 mint, and Token-2022 copies of the coin's mint,
+vault and a holder's token account, alone and with the Token-2022 program, in `buy` and `sell`); X05 program substitution; X06 metadata address; X07 lamport
 donation then full lifecycle; X08 coin donation; X13 zero outputs; X16 partial-fill edges
 (rem 1, rem 2, last step); X17 victim forced near completion; X18 oversell; X19 graduation
 arbitrage loses; X23 buyback at `S - 1`, then a bundled 0.0001 SOL buy graduates (charged 1
@@ -2361,10 +2493,11 @@ lamport); X24 canonical sandwich on chain; X25 bundled multi-leg sandwich, and a
 several runs of a seeded backlog; X26 crank called every interval; X27 drip farming; X27b the
 V10 edge on chain (`b_P = b_L + 1` config: a loss; `b_P = b_L` refused at `add_launch_config`);
 X28 dust sells; X29 re-`init` of every account; X30 close attempts; X31 rent floor (forced by
-a test-only build that skips bookkeeping, proving `pay_out` refuses); X32 two coins, one
+editing a live `Coin` out of band so that its liabilities exceed its balance, proving `pay_out`
+refuses; no test-only build, NOTES 31); X32 two coins, one
 drained by sells, the other untouched; X33 approval replay; X34 approval and launch for a
-launched city, a legacy city, a city with a legacy approval, and while legacy launches are
-open; X35 ticker reuse under another city; X39 mint and freeze authority; X40b a holder burns
+launched city, a legacy city, a city with a legacy approval, while legacy launches are open,
+and while the old program's admin is another key or has a transfer pending; X35 ticker reuse under another city; X39 mint and freeze authority; X40b a holder burns
 part of his balance, then every invariant (I11 with the burn added back) and the I22 probe
 hold; X42 a trade while another coin is hammered; X43 every admin instruction cannot move
 money; X43b the guardian cannot clear a flag, set payouts, block a sell, claim, forward or
@@ -2386,12 +2519,13 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 
 | id | test |
 |---|---|
-| F01 | 10^5-step random sequences with several users, buys, sells, buybacks, claims, forwards, withdrawals, payouts, donations, holder burns and graduation, run in litesvm and in the reference model side by side; `Coin` state byte-equal after every step |
+| F01 | 10^5-step random sequences with several users, buys, sells, buybacks, claims, forwards, withdrawals, payouts, donations, holder burns and graduation, run in litesvm with a model side by side (the SDK's math port fed by each action's own inputs, NOTES 38); `Coin` state byte-equal after every step; admin hand-overs followed by the old program's admin and each city's rewards authority (NOTES 48) |
 | F02 | account fuzz: every account slot of every instruction replaced by random plausible accounts; always refused, no balance moved |
 | F03 | config fuzz: random `ConfigParams`; on-chain `validate_config` agrees with the model (V1 to V11) |
 | G01 | Rust math crate, TypeScript port and on-chain results equal to the lamport on 10^4 random trades, including graduating buys and buybacks (golden vectors exported by the Rust crate) |
 | G02 | a mock router program CPIs `buy` and `sell`, with `user` both the transaction signer and a router PDA signing with `invoke_signed`: balances, events and CPI depth (event self-CPI at depth 3) work; a PDA with data as `user` of a `buy` is refused by the system transfer; partial-fill leftovers stay with the router |
-| G03 | "pay with any token": a Jupiter swap that under-delivers SOL before `buy` never spends SOL the user already had (ExactOut or `sol_in = otherAmountThreshold`, 14.1) |
+| G03 | "pay with any token": a Jupiter swap that under-delivers SOL before `buy` never spends SOL the user already had (ExactOut or `sol_in = otherAmountThreshold`, 14.1); the buy leg carries its own `min_tokens_out`, without which the SDK builds nothing, and a sandwich front-run then makes the buy fail (CLI-1) |
+| E01 | the SDK's transaction-level event decoder on every transaction of every litesvm suite: exactly the checker's events for a success, nothing for a failure; a failed transaction carrying a genuine `Trade` event CPI yields nothing (CLI-2) |
 | C01 | CU per instruction asserted against 11.1, including `launch` + ATA create + first `buy` in one transaction |
 | C02 | transaction sizes of the website's buy, sell and launch-with-first-buy (with the lookup table) |
 | C03 | binary size and hash; toolchain, `anchor-lang`, `anchor-spl` and `mpl-token-metadata` versions; the compiled program ids; the IDL tag refused |
@@ -2401,8 +2535,8 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | H03 | the `halt-all` build deployed over live coin state produced by the normal build, then upgraded back to the normal build: every coin's state and balances unchanged and fully working; the halt buffer is rebuilt from the deployed commit after every upgrade |
 | R01 | real `vicinity_rewards` in the same VM: create a WSOL Holders config (authority the admin) for a new coin; run the real `forward_holders_fees` followed by a top-level `SyncNative`; then `SyncNative` and `fund_epoch_from_vault`; claim with a Merkle proof |
 | R02 | the real `forward_holders_fees` with `amount > 0`, then `SyncNative` in the same transaction: the vault's `amount` grows by exactly `amount` and the `Coin`'s lamports drop by the same |
-| R02b | documentation test: a test-only build that CPIs `SyncNative(rewards_vault)` after `pay_out` fails with `UnbalancedInstruction` (the rule of 4.0) |
-| R03 | a rewards config with the wrong model makes `forward_holders_fees` fail every time and nothing moves (it can never be fixed); one with a stranger authority fails until that authority hands over to the admin (`propose_authority` / `accept_authority`); the SDK's `initRewardsForCoin` refuses to propose either |
+| R02b | documentation test: a CPI of `SyncNative(rewards_vault)` after a direct lamport move fails with `UnbalancedInstruction` (the rule of 4.0), shown with a test-only mock router on the same runtime instead of a test-only build of the program (NOTES 40) |
+| R03 | a rewards config with the wrong model makes `forward_holders_fees` fail every time and nothing moves (it can never be fixed); one with a stranger authority fails until that authority hands over to the admin (`propose_authority` / `accept_authority`); the SDK's `initRewardsForCoin` refuses to propose either, reports the stranger authority as fixable and the wrong model as unfixable, and proposes `init_city` over a pre-funded config address |
 | D01 | devnet rehearsal with a throwaway program key (`devnet` build): init, config #0, approve, launch, trade to graduation, buybacks, forwards, claims, withdrawals, guardian halt; addresses recorded. No mainnet |
 
 ### 12.6 Invariant and threat coverage
@@ -2410,7 +2544,7 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | invariant / threat | tests |
 |---|---|
 | I1, I5, I17 | L07, U07, F01 |
-| I2, I3, I20 | L13 (byte compare after every transaction), V01 to V11, L03, L12 |
+| I2, I3, I20 | L13 (byte compare after every transaction), V01 to V11, L03, L12, 28-governance |
 | I4 | P01, P02, F01 |
 | I6 | P04, L08, F01 |
 | I7, I8, I16 | P07, L13, F01 |
@@ -2418,7 +2552,7 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | I11 | L05, L09, X39, X40b |
 | I12 | U01, U02, P08, P09, L06, L08 |
 | I15 | U08, L09, P06, X23 to X26 |
-| I18 | P05, P06, P06b, X19, X24, X25, X27 |
+| I18 | P05, P06, P06b, P11a, P11b, X19, X24, X25, X27 |
 | I19 | L04, L05, X33 to X35 |
 | I21 | X43, X43b, L13 |
 | I22 | L13 liveness probe after every 100th step of F01, L09, R01, X40b, X63 |
@@ -2429,7 +2563,9 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | T65 (IDL) | C03, X65 |
 | T72, T73 (halts) | H01 to H03, X43b |
 | T75 (CPI after lamport move) | R02, R02b |
-| R11 integration | G01, G02, G03, C02 |
+| R11 integration | G01, G02, G03, E01, C02 |
+| T56 (events) | X56, E01 |
+| T77, T78 (roles, client minimum) | 28-governance, 29-clients |
 
 ---
 
@@ -2455,7 +2591,7 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | O16 | Launch fee | **0.05 SOL, all to `FEE_RECIPIENT`** | Another amount per config, up to 0.5 SOL | New config |
 | O17 | Metaplex's own 0.01 SOL metadata fee | **Accepted**: a one-time launch cost paid to Metaplex, not a trading fee; without Metaplex metadata wallets show an unknown token, and Token-2022 metadata would break R3 | none recommended | |
 | O18 | The last buy | **Partial fill**: the buyer pays only for what the curve still had | Continue the rest of the buy in the new pool | Exact-in for routers, but two pricing legs and a fee split across them in one instruction |
-| O19 | The old `vicinity_launchpad` | **Leave it deployed, pause its launches and disable its configs before the first approval here, and keep it paused** (launches here require it, 8.5) | Keep both open | Not possible with this program: launches here refuse while the old one is open |
+| O19 | The old `vicinity_launchpad` | **Leave it deployed; make the Squads vault its admin, pause its launches and disable its configs before the first approval here, and keep it paused under the vault** (approvals and launches here require all of it, 8.5) | Keep both open; or close the old program once paused | Keeping both open is not possible with this program (approvals and launches refuse while the old one is open or administered by another key). Closing it makes unpausing impossible, but freezes its admin field: a later hand-over of this program's admin would then stop approvals and launches here until an upgrade |
 | O20 | Anti-sniper launch fee | **None** (flat fee; the founder can buy atomically at launch) | A decaying first-minute fee | Breaks R2's "never above 2.5%"; needs an explicit owner exception |
 | O21 | Donated lamports or coins | **Ignored forever** (not counted, not withdrawable) | A permissionless sweep of surplus into the buyback or holders bucket | Small extra surface |
 | O22 | A lost founder key | **The share stays with that key** (no admin lever) | Admin reassignment | A money power for the admin |
@@ -2478,7 +2614,7 @@ new program, these coins trade only on vicinity.city and through direct program 
 
 ### 14.1 Website
 
-* **New SDK module** (`sdk/vcurve/`, JavaScript with BigInt): a port of the math crate with
+* **New SDK module** (`sdk/curve/`, JavaScript with BigInt; NOTES 28): a port of the math crate with
   golden vectors from the Rust crate (G01); account decoders for `Launchpad`,
   `LaunchConfig`, `Approval`, `CurveCoin`, `TickerLock`, `PayoutOptIn`, each checking the
   program owner as well as the discriminator; instruction builders for all 21 instructions;
@@ -2495,7 +2631,9 @@ new program, these coins trade only on vicinity.city and through direct program 
   `founder_bps = 0`, reward mint WSOL, authority the `vicinity_curve` admin, i.e. the Squads
   vault), built by the existing `initRewardsForCoin` helper, which first simulates the
   proposal and runs `check_rewards_config` and the authority rule on the resulting account
-  bytes (4.15; a wrong config can never be fixed).
+  bytes (4.15; a wrong config can never be fixed). Lamports someone sent to the config address
+  do not stop it, and an existing config whose only problem is its authority is reported as
+  fixable (`propose_authority` / `accept_authority`).
 * **Trading on vicinity.city**: quote from the `Coin` account with the JS math port; buy
   transaction `[ComputeBudget, create the buyer's token account (idempotent), buy]` paid from
   native SOL (no wrap or unwrap needed); sell mirrors it and the SOL arrives natively. Near
@@ -2505,13 +2643,17 @@ new program, these coins trade only on vicinity.city and through direct program 
   in the same transaction, which works before Jupiter integrates us; it requests an
   **ExactOut** quote for `sol_in` (or sets `sol_in` to the quote's `otherAmountThreshold`,
   its minimum output), so a swap that under-delivers can never make the buy spend SOL the
-  user already had (G03).
+  user already had (G03). The buy leg carries its own `min_tokens_out`: the quote of that
+  `sol_in` on the coin, less the slippage. The swap's minimum says nothing about the curve's
+  price, and a buy without a minimum can be sandwiched (a 5 SOL buy into a fresh coin lost 68% of
+  its coins in review CLI-1), so the SDK's `buyWithSwap` refuses to build one without it.
 * **Crank** (server; fee-payer-only key with no authority): per coin, `buyback_burn` every
   interval while `buyback_pending > 0` (a missed interval grows the backlog, 7.3); an alert
   when `buyback_pending` exceeds 1% of depth; `forward_holders_fees` followed by a top-level
   `SyncNative(rewards_vault)` in the same transaction when `holders_pending` exceeds a
-  threshold (for example 0.05 SOL); `withdraw_platform_fees` daily. All no-ops are cheap and
-  batchable; a halt is an error the keeper skips.
+  threshold (for example 0.05 SOL); `withdraw_platform_fees` daily; after any change of the
+  rent rate, a top-up of every `Coin` below the live rent-exempt minimum (6.5, T63). All no-ops
+  are cheap and batchable; a halt is an error the keeper skips.
 * **Reward rounds**: the funding transaction starts with `SyncNative(vault)`, then
   `fund_epoch_from_vault`; the snapshot file and its hash are published before the Squads
   proposal, and a second person recomputes the root before members sign (8.1).
@@ -2524,9 +2666,13 @@ new program, these coins trade only on vicinity.city and through direct program 
   replace). Global totals by summing coins.
 * **Founder dashboard**: `founder_pending` with a claim button (native SOL; no unwrap step),
   lifetime earned, claimed and paid out.
-* **Market backend and charts**: parse `Trade` events from inner instructions of
-  `vicinity_curve` (check the event authority); `trade_seq` is gap-free per coin, so missed
-  events are detectable; reconcile with `Coin` state.
+* **Market backend and charts**: decode each confirmed transaction with the acceptance rule of
+  4.21 (the SDK's `decodeTransactionEvents`: nothing from a failed transaction, event CPIs only
+  under a `vicinity_curve` call with the event authority as their only account), at
+  `finalized` or re-checked there; `trade_seq` is gap-free per coin among successful
+  transactions, so missed events are detectable; reconcile each coin's events with
+  `Coin.trade_seq` and the counters, never keeping the first event seen for a `trade_seq`
+  (review CLI-2).
 * **Official list** (`/official-coins.csv`): from accounts owned by `vicinity_curve` with the
   `CurveCoin` discriminator (filtered by program owner, never by bytes alone) and the old
   program's `Coin` accounts (none on mainnet), for the Jupiter tag and trackers.
@@ -2557,7 +2703,7 @@ excludes. Under the time lock (O11) each round's proposal waits 48 hours.
 | one account per market to watch | the `Coin` account holds phase, reserves, fees and curve terms; no vault balance is read |
 | fixed accounts | `buy` and `sell`: the same 10 accounts in the same order before and after graduation; no remaining accounts; no optional accounts |
 | deterministic quotes without RPC calls | `vicinity-curve-math` (`no_std`, integer only); the program runs the very same functions |
-| CPI from a router | the user is the only signer; the destination token account of a buy may be any account of the mint not owned by the `Coin` PDA; no instruction-sysvar or call-stack checks. **Conditions**: `user` must be a system-owned account without data (the system transfer of a buy requires it, so a router PDA that carries data cannot buy); SOL paid to an account holding 0 lamports must be at least the rent-exempt minimum of an empty account (650,240 lamports at today's mainnet rate), or the runtime refuses the transaction. The SDK and the adapter pre-check both (`lamports(user) > 0` or `out >= rent_min(0)`) and return a clear error. Tested by G02 |
+| CPI from a router | the user is the only signer; the destination token account of a buy may be any account of the mint not owned by the `Coin` PDA; no instruction-sysvar or call-stack checks. **Conditions**: `user` must be a system-owned account without data (the system transfer of a buy requires it, so a router PDA that carries data cannot buy); SOL paid to an account holding 0 lamports must be at least the rent-exempt minimum of an empty account (650,240 lamports at today's mainnet rate), or the runtime refuses the transaction. A buyer may also end the transaction with 0 lamports or with at least that minimum, never with anything in between (the same rule: a rent-exempt wallet may not become rent-paying, judged on the balance at the end of the transaction; NOTES 36). The SDK and the adapter pre-check all three (`precheckBuyer`, `precheckBuy`, `precheckSolCredit`: `lamports(user) > 0` or `out >= rent_min(0)`) and return a clear error. Tested by G02 and `tests-curve/21-sdk-prechecks` |
 | slippage | `min_tokens_out`, `min_sol_out` |
 | trade data | `Trade` event by self-CPI with amounts, the five fee shares, drip and reserves after |
 | lifecycle | `CoinLaunched`, `Graduated`, `phase`; progress = `curve_sol / graduation_sol`; `buys_halted` in `Launchpad` |
@@ -3147,7 +3293,7 @@ buybacks, 11,973 payouts, 300 graduations, never a non-completing buy with dust)
   the math reviewer's scripts in `mathreview/` (`attack_multi.py`, `attack_founder.py`,
   `attack_drip2.py`, `extra.py`, `floorfee.py`), re-run for this revision.
 
-## Appendix C. Review responses (revision 1 to revision 2)
+## Appendix C. Review responses (revision 1 to revision 2; revision 3)
 
 Each finding was checked against the code and the math before it was applied. "Applied" means
 the fix is in this file as the reviewer proposed or in an equivalent form; where a part was not
@@ -3201,3 +3347,70 @@ applied, the reason is given.
 | INT-15 | integration, minor | wallets will warn on a new program; "Phantom at once" not addressed | **Applied**: allow-listing step in 14.3 and O23; 14.4 and 14.5 corrected |
 | INT-16 | integration, nit | M8's rationale does not hold (a bundled tiny buy graduates the coin at will) | **Applied**: M8 rationale changed; X23 covers the state |
 | INT-17 | integration, nit | `legacy_coin` not checked at launch | **Applied** with SEC-5 |
+
+### Revision 3: review round 1 of the build (17 October 2026)
+
+The build was reviewed through five lenses (accounts, custody, math, governance, integration)
+against this file and the notes; each finding was reproduced by a verifier before it was
+accepted. Severities are the verifier's.
+
+| id | lens, severity | finding (short) | response |
+|---|---|---|---|
+| GOV-1 | governance, medium | the cross-program one-coin-per-city guard depends on the old program's admin, which on mainnet is a single hot wallet (`FEE_RECIPIENT`); 8.4 did not require moving it | **Confirmed** (reproduced with the old program's mainnet binary and Meteora DBC). **Applied** both ways: the 8.4 precondition (the old admin is the Squads vault with nothing pending; closing the old program is an owner option, O19) and a code check in `approve_launch` and `launch` (the old `Launchpad`'s admin equals `launchpad.admin`, its pending admin zero, else `LegacyAdminMismatch`, 6051; fails closed). 4.2, 4.8, 4.10, 4.22, 8.1, 8.2, 8.4, 8.5, I19, T34, T67, T77, O19; `tests-curve/28-governance`; NOTES 42 |
+| GOV-2 | governance, low | the program accepts `FEE_RECIPIENT` as admin, pending admin or guardian, and the guardian as payout key (and wallet) | **Confirmed**. **Applied**: `FeeRecipientRole` (6052) in `init_launchpad`, `propose_admin`, `accept_admin` and `set_guardian`; `check_payout_keys_separate` takes the guardian and `set_guardian` runs it. 4.1, 4.2, 4.4, 4.5, 4.22, 8.1, I20, I21, T50, T77; `28-governance`; NOTES 43 (resolves the third observation of NOTES 33) |
+| CLI-1 | integration, medium | `buyWithSwap` defaulted the buy leg's `min_tokens_out` to 0, so "pay with any token" could be sandwiched | **Confirmed** (an SDK defect; the program enforces any minimum given). **Applied**: the helper builds no buy without a positive minimum (`minTokensOut`, or the coin's snapshot and `slippageBps` up to 500). 14.1, G03, T78; `29-clients`, `sdk/curve/prechecks.test.mjs`; NOTES 44 |
+| CLI-2 | integration, low | the event rule given to indexers accepts a genuine event CPI from a failed transaction (fake trades for a fee, `trade_seq` collisions) | **Confirmed**. **Applied**: the acceptance rule of 4.21 (successful transactions only, at `finalized`; event CPIs only under a `vicinity_curve` call; settings events only from its logs; reconcile, never first-write-wins); the SDK's `decodeTransactionEvents`; every suite transaction decoded with it (E01). 4.21, 14.1, T56, 12.5; `sdk/curve/events.test.mjs`, `29-clients`; NOTES 45 |
+| CLI-3 | integration, low | `initRewardsForCoin` reports a pre-funded (System-owned, empty) rewards config address as an unfixable wrong config | **Confirmed** for the pre-funded case. **Applied**: only an account owned by `vicinity_rewards` is a config; authority-only problems are reported as fixable (`AuthorityNotAdmin`), wrong economics as unfixable (`ExistsWrong`, O26). 4.15, 14.1, T70, R03; `29-clients`, `prechecks.test.mjs`; NOTES 46 |
+| ACPI-1 | accounts, info | `forward_holders_fees` without a config fails before its no-op check, sinking a keeper's batch | **Rejected** by the verifier: specified (4.15, T70) and tested (`09-outflows`); the keeper sends forward only above a threshold and skips errors. No change |
+| LC-INFO-1 | custody, info | X63's conclusion may not hold under the deployment cluster's rent rule | **Rejected**: SIMD-0392 is active on mainnet, devnet and testnet and in litesvm's default features. Its side point, that under SIMD-0392 every debit from a coin already below the live minimum is refused until a top-up (not only the last exits), is now stated in 6.5 and T63, with the keeper's top-up in 14.1 |
+| MATH-INFO-1 | math, info | a buy into an untraded coin below the live minimum would be refused on mainnet | **Rejected**: under SIMD-0392 it is accepted (Agave 4.3.0 with the mainnet feature set). No change |
+| GOV-3 | governance, info | an opt-in pays again after the payout wallet moves W1 to W2 and back | **Rejected**: intended and tested (X50; the founder agreed to W1 by name, 4.5, 4.19). No change |
+| GOV-4 | governance, info | the time lock is a property of the Squads multisig, not of the program | **Rejected**: process; 8.4 already makes the time lock a precondition. No change |
+| GOV-5 | governance, info | an admin hand-over stops forwards until each city's rewards authority follows | **Rejected**: specified (4.2, 8.2) and tested. 8.2 now also names the old program's admin, which must follow too |
+
+### Revision 3: the leftovers of the build's third stage
+
+| item | done |
+|---|---|
+| L1 | the fuzz has the admin's other seats follow every hand-over (the old program's admin, each city's rewards authority), so approvals, launches and forwards keep succeeding in long runs (12.5 F01; NOTES 48) |
+| L2 | the failed-transaction check charges no fee to a transaction refused before execution and exactly the fee to every other failure (12 intro; NOTES 47) |
+| L3 | X04 (a Token-2022 mint and Token-2022 token accounts of the coin's mint in `buy` and `sell`) and X02 (the old program's real `Coin` in every coin slot) completed (12.4; NOTES 48) |
+| L4 | this revision: I18's second clause restated as P11a and P11b; I22's dust case; the third buyer rent rule in 14.3; T63's rent nuance and the keeper's top-up; every accepted note folded in (below) |
+| L5 | `tests-curve/README.md` lists every test file; the duplicate prefix 20 renamed (`27-checker-gaps`); NOTES 28 and 32 marked superseded |
+
+### Revision 3: implementation notes folded in
+
+Every entry of `VICINITY-CURVE-NOTES.md` and where this revision reflects it. "No change" means the
+build follows the text as written and the entry records a reading or a measurement.
+
+| entry | subject | revision 3 |
+|---|---|---|
+| 1 | property tests use `proptest` (dev-dependency) | 12 intro |
+| 2, 3 | `spot_price` takes the terms; every function returns `Result` | 5.16 |
+| 4, 5, 6, 8 | the quotes refuse what the program refuses; a buy whose liabilities would leave `u64`; the contents of `State`; preconditions and self-checks | 5.16 |
+| 7 | `decode_coin` takes a 32-byte owner and refuses a phase other than 0 or 1 | 5.16 |
+| 9, 11 | `validate_config` order and margins; `derive_curve` made exact | 5.16 |
+| 10, 12, 13, 14, 15 | V01 to V11 edges (two unreachable), the completing buy at exactly the remainder, P05/P06/P06b bounds, where U10 to U12 live, the reference model and vectors | no change |
+| 16 | P09b allows the fee's rounding (at most one lamport per trade) | 12.2 P09b |
+| 17, 18, 19 | Cargo features; anchor-spl's extra features; `lto` without effect | 3.1 |
+| 20 | binary size and stack | 11.4 |
+| 21 | the halt-all guard runs after Anchor's account validation | 4.0 |
+| 22 | `pay_out` refuses a destination equal to the `Coin` | 6.5 |
+| 23 | smaller handler choices (an empty `set_pause`, config ids, the completing buy's `Trade`) | 4.4, 4.21 |
+| 24 | the committed client IDL | 8.4 |
+| 25, 26 | the review checklist tests; CI additions | no change |
+| 27 | the suites load the committed mainnet binaries | 3.2, 12 intro |
+| 28 | `sdk/curve/` and `tests-curve/` (superseded in part by 37 and 38) | 14.1, 12 intro |
+| 29 | the checker's readings of I14 and I21 (Anchor's closes; an `Approval`'s rent) | I14, I21 |
+| 30 | compute units and transaction sizes measured | 11.1, 11.3 |
+| 31 | X31 forced by an out-of-band edit, not a test-only build | 12.4 |
+| 32 | the first attack tests (superseded by 33, 38 and 48) | none |
+| 33 | the attack tests of 12.4, the rent-increase measurements and three observations | 6.5, T63, 12.4; the guardian observation by GOV-2 |
+| 34 | the checker's last gaps (I14 destinations, I21 tokens, I5 and I6 per step, I20 at run time) | 12 intro, I21 |
+| 35 | I18's spot-value clause is false for a constant-product market; P11a and P11b | I18, 12.2 |
+| 36 | the third buyer rent rule; the SDK's pre-checks (its `initRewardsForCoin` sentence superseded by 46) | 14.3, 4.15 |
+| 37, 39 | G01 and F03 at full scale | no change |
+| 38 | F01 and F02 at full scale with a model side by side | 12.5 F01 |
+| 40 | G02, G03 and R02b with a mock router | 12.5 R02b |
+| 41 | I22's buyback dust case | I22 |
+| 42 to 48 | review round 1 and the leftovers (above) | as listed above |
