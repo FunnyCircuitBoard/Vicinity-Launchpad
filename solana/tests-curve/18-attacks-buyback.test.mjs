@@ -8,10 +8,11 @@
 // transaction) against the split-leg bound, at most one run per bundle, and the
 // hold through K runs of a seeded backlog against Theorem M_K (a loss below K*,
 // the bound at every K); X26 the crank called at every interval (timing changes
-// only how many coins are burned); X61 a hostile crank caller.
+// only how many coins are burned); X61 a hostile crank caller; HR-1 the
+// platform's key, credited b_P of its own legs, which V8 and V11 do not count.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { World, S, expectFail, mintInfo, LAMPORTS } from './helpers.mjs';
+import { World, S, expectFail, mintInfo, offlineKey, LAMPORTS } from './helpers.mjs';
 
 const T = S.DEFAULT_TERMS;
 const D = S.BPS;
@@ -326,5 +327,47 @@ test('X25, T76 a backlog the attacker makes himself by wash trading (as founder,
     }
   }
   console.log(`self-made backlog: ${report.join(' | ')}`);
+  await w.finish();
+});
+
+// ---------------------------------------------------------------- HR-1: the platform's key in the MEV rules
+test('HR-1 the platform\'s key is credited b_P of its own legs, which V8 and V11 do not count: (0, 120, 0, 1, 1) passes V1 to V11, and FEE_RECIPIENT\'s canonical single-run sandwich returns a profit where a plain trader loses (why 8.4 keeps it out of city coins); the clients\' sandwich threshold counts it', async () => {
+  const w = await World.create();
+  w.svm.withSigverify(false); // FEE_RECIPIENT is the owner's key; with signature checks off its transactions show what its holder could do
+  const params = { ...S.DEFAULT_CONFIG, liquidityBps: 0n, platformBps: 120n, founderBps: 0n, holdersBps: 1n, buybackBps: 1n };
+  assert.equal(S.configRule(params), null, 'V1 to V11 pass');
+  const configId = await w.addConfig(params);
+  const terms = S.termsFromParams(params);
+  // the clients count the platform's credit (5.15): its cost per leg is t - b_P = 2 bps, not t - (b_F + b_H) = 121
+  assert.equal(S.cheapestAttackerCostBps(terms), 2n);
+  const fee = offlineKey(S.ADDRESSES.feeRecipient);
+  w.svm.airdrop(fee.address, 10n * LAMPORTS);
+  const out = [];
+  for (const who of ['FEE_RECIPIENT', 'plain']) {
+    const h = await w.launchCoin({ cityId: who === 'plain' ? 1_961n : 1_960n, symbol: who === 'plain' ? 'PLAIN' : 'PLATK', configId });
+    const others = await w.signer(5_000n);
+    // other traders' curve round trips build a backlog of more than one run's cap (the curve ends where it started)
+    for (;;) {
+      const c = w.coinView(h);
+      if (c.buybackPending >= 3n * S.buybackCap(terms, S.coinState(c))) break;
+      const b = await w.buy(others, h, 20n * LAMPORTS, { label: 'others buy' });
+      await w.sell(others, h, b.q.tokensOut, { label: 'others sell' });
+    }
+    w.warpSlots(200n);
+    const actor = who === 'plain' ? await w.signer(100n) : fee;
+    await w.send([S.createAssociatedTokenAccountIdempotent({ payer: w.payer.address, owner: actor.address, mint: h.mint })], [], 'the actor\'s token account');
+    if (who === 'FEE_RECIPIENT') await w.withdraw(h, { label: 'the platform share so far' });
+    const l0 = w.lamportsOf(actor.address);
+    const position = 5n * LAMPORTS;
+    const b = await w.buy(actor, h, position, { label: `${who}: front-run` });
+    await w.buyback(h, { label: `${who}: the one run` });
+    await w.sell(actor, h, b.q.tokensOut, { label: `${who}: back-run` });
+    if (who === 'FEE_RECIPIENT') await w.withdraw(h, { label: 'the platform share of its own legs' });
+    const pnl = w.lamportsOf(actor.address) - l0;
+    out.push(`${who} ${pnl} lamports (${(Number(pnl) * 100 / Number(position)).toFixed(4)}%)`);
+    if (who === 'plain') assert.ok(pnl * 100n < -position, `a plain trader loses more than 1% (${pnl})`);
+    else assert.ok(pnl > 0n, `FEE_RECIPIENT gains from a single run (${pnl}): outside V8's bound, so the operating rule of 8.4`);
+  }
+  console.log(`HR-1 single-run sandwich under (0, 120, 0, 1, 1): ${out.join(', ')}`);
   await w.finish();
 });

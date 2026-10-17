@@ -1551,3 +1551,50 @@ least `withSlippage(quote, max)`. Measured in the test: the review's sandwich +2
 at 0.3% the victim loses 0.30% and the outsider makes +623,692 (0.06%); at the threshold with 5%
 the best results are -1,943,804 (founder holding the float, launch), -4,535,468 (40 SOL raised) and
 -4,577,093 (fresh pool), every other class lower.
+
+### 56. The platform's key in the MEV rules; open owner decision O29 (5.13, 7.3, 8.1, 8.4, T24, T76, O1, O25, O29; review HR-1)
+
+**Spec.** 5.13: `m = max(b_F, b_H)` is "the largest share an attacker can be credited back on his
+own legs"; V8, V11 ("15 for a credited attacker"), T24, T76 and O25 state their bounds for any
+credited attacker; 8.1: `FEE_RECIPIENT` may "trade ... like any wallet".
+
+**Issue.** `withdraw_platform_fees` is permissionless and pays all of `platform_pending` to
+`FEE_RECIPIENT`, so whoever holds that key (the owner's hot wallet, or a thief of it) gets `b_P` of
+his own legs back, trading from any wallet. `b_P` exceeds `m` in config #0 (70 against 50) and in
+O1's named alternative (120 against 50). Measured on chain by the review and its verifier: under
+O1's alternative `FEE_RECIPIENT` profits from a 1.343% backlog after 14 runs (+18,083 lamports;
+the founder from the same state loses 1,382,754); under config #0 with a founder seat held by the
+same owner (credited 120 of 250 bps), +14,186 lamports from 1.338% after 14 runs; (0, 120, 0, 1, 1)
+passes V1 to V11 and `FEE_RECIPIENT`'s canonical single-run sandwich of 5 SOL returns +0.05%, where
+V8 promises at least -1%. Under config #0 alone `FEE_RECIPIENT` stays inside O25's founder envelope
+(first profit at about 1.85% to 1.9% and 19 runs). The verifier rated it info: every breach needs an
+owner-chosen config or the owner stacking a founder seat on `FEE_RECIPIENT`, and the actor is the
+owner's own wallet, the trust class 7.4 already uses to excuse V2b. The defect is the spec's
+universal claims.
+
+**Choice.** Correct the claims and replace the missing rule with an operating rule; leave the
+fee-split question to the owner.
+* 5.13, V8, V11, 7.3 (a closing paragraph with the platform's measured envelope), 8.1, T24, T76,
+  O25 and O1 now exclude the platform's key and give its numbers.
+* 8.4's operating rules gain one: `FEE_RECIPIENT`, and every wallet of the owner who controls it,
+  never holds or trades city coins and never takes a founder seat (the admin may approve itself as
+  a founder; the owner does not); the keeper alerts when `FEE_RECIPIENT` holds any city coin. The
+  program cannot enforce it: refusing `FEE_RECIPIENT` as a trader would protect nothing, since the
+  credit reaches the platform's key whichever wallet trades.
+* The clients' sandwich threshold (entry 55) counts `b_P`.
+* **Open owner decision O29 (not changed here):** count `b_P` in the MEV rules, either
+  `m = max(b_F, b_H, b_P)` in V8 with a platform horizon of its own in V11 (config #0 passes V8 with
+  70, at 0.98608 against 0.99, but fails V11's credited inequality at `K_F = 15`,
+  2,418,175,000 > 2,412,990,000, and at 14; it passes at `K_P = 13`), or keep `b_P <= m` in every
+  config. Both change which fee splits are allowed (they would refuse configs such as
+  (0, 120, 0, 1, 1), and O1's alternative would need the platform horizon), and they need a crate,
+  model and golden-vector change before the audit. The task's rule for this round: no fee value or
+  fee rule that needs an owner decision is changed; it is recorded here and as O29.
+
+Tests. `18-attacks-buyback` HR-1, on chain with the checker on (signature checks off, as for every
+test that shows what `FEE_RECIPIENT`'s holder could do): (0, 120, 0, 1, 1) is accepted by
+`add_launch_config`; the clients' cheapest attacker cost under it is 2 bps (the platform's), not
+121; `FEE_RECIPIENT`'s canonical single-run sandwich of 5 SOL (buy, one `buyback_burn`, sell,
+`withdraw_platform_fees`) gains, while a plain trader from the same state loses more than 1%. The
+test pins the corrected claim; HR-1 changes no program behaviour, so it passes against the previous
+build too (the code half of the fix, the clients' threshold, is tested with entry 55).

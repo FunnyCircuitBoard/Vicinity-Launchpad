@@ -2,9 +2,9 @@
 
 Status: specification for the build and for the outside audit, revision 3, 17 October 2026.
 Revision 3 folds in the implementation notes of the build (`VICINITY-CURVE-NOTES.md` entries 1 to
-55: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
+56: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
 CLI-2, CLI-3), 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1) and 3 (R3-DIFF-1, MATH3-2, LL-1, R3-CLI-1,
-MATH3-1) of the build; revision 2 answered the security, math, runtime and integration review
+MATH3-1, HR-1) of the build; revision 2 answered the security, math, runtime and integration review
 of revision 1. Appendix C lists every finding of each review, what changed and the parts that were
 not applied, with reasons, and the notes folded in. The program, its math crate, its client SDK and
 its test suites are built (branch `feat/vicinity-curve`); nothing has been deployed or signed.
@@ -80,8 +80,10 @@ Sources. Appendix C Review responses.
    many runs profits only if the public backlog that gets spent while he holds exceeds about
    2.0% to 2.6% of the market's depth (1.5% to 2.0% for a founder credited his share), and
    then only after 21 to 26 runs (16 to 21 for a founder; about a minute each) with no other
-   trading (Theorem M_K); that residual risk is stated, tested and
-   needs the owner's sign-off (O25).
+   trading (Theorem M_K); that residual risk is stated, tested and needs the owner's sign-off
+   (O25). These bounds do not cover whoever holds the platform's key (`FEE_RECIPIENT`, credited
+   the platform share of its own legs; 7.3): an operating rule keeps it and the owner's wallets
+   out of city coins (8.4, O29).
 8. **Admin powers are minimal and listed** (section 8). Within `vicinity_curve` the admin can
    approve or revoke launches, add or disable future configs inside compiled caps, pause new
    launches, payouts, buys and buybacks, set the payout key and wallet, set the guardian and hand over
@@ -1442,7 +1444,13 @@ integers the same way; `add_launch_config` re-checks V3 to V7 on chain.
 share, or the holders' share for someone holding the float; MATH-3's modelling). A founder who
 also holds the float is credited both, `b_F + b_H`, and V2b bounds that sum (review R3-DIFF-1).
 When `b_B > 0`, V8 and V11 still credit only `m`: for that founder their bounds are the tested
-heuristic of 7.3 (P06 credits him `(b_F + b_H)/D`), not a proof.
+heuristic of 7.3 (P06 credits him `(b_F + b_H)/D`), not a proof. Nor do they count the platform's
+share: `withdraw_platform_fees` pays all of `platform_pending` to `FEE_RECIPIENT`, so whoever holds
+that key gets `b_P` of his own legs back, and `b_P` can exceed `m` (70 against 50 in config #0).
+V8, V11 and every MEV bound below therefore hold for traders other than the platform's key and
+its owner; the platform's key is covered by the operating rule of 8.4 and its measured envelope
+in 7.3 (review HR-1). Counting `b_P` in `m` would make config #0 fail V11's second inequality
+(2,418,175,000 > 2,412,990,000); a horizon of its own for the platform is owner decision O29.
 
 | # | rule | error |
 |---|---|---|
@@ -1453,10 +1461,10 @@ heuristic of 7.3 (P06 credits him `(b_F + b_H)/D`), not a proof.
 | V5 | `f(S) = ceil(x0*S/(y0 - S)) == graduation_sol`, `1 SOL <= graduation_sol <= 10,000 SOL`, and **V5b** `f(S - 1) <= R - 1` (the completing buy always puts at least one lamport into the curve, 5.4) | `ConfigGraduation` |
 | V6 | `x0 * y0 <= (y0 - S)^2` (Lemma C2) | `ConfigAbsorption` |
 | V7 | `0 <= (x0 + R)*P - R*(y0 - S) <= floor((x0 + R)*P / 10^9)` | `ConfigContinuity` |
-| V8 | if `b_B > 0`: `100 * ((C*D + t)^2 * (D - t + 2*b_L + m) * (D - t + 2*b_L) + m * D * (C*D)^2) <= 99 * (C*D)^2 * D^2` (single-run bound for an attacker credited `m` on both legs, 7.3) | `ConfigBuybackMev` |
+| V8 | if `b_B > 0`: `100 * ((C*D + t)^2 * (D - t + 2*b_L + m) * (D - t + 2*b_L) + m * D * (C*D)^2) <= 99 * (C*D)^2 * D^2` (single-run bound for an attacker credited `m` on both legs, 7.3; not the platform's key, which is credited `b_P`, review HR-1) | `ConfigBuybackMev` |
 | V9 | `launch_fee_lamports <= 500,000,000` | `ConfigLaunchFee` |
 | V10 | `b_L == 0` or `b_L < b_P` (the drip can never return more than the platform share costs, 7.5) | `ConfigDripFarmable` |
-| V11 | if `b_B > 0`: `C*(D - t)*(D - t + 2*b_L) <= D*(C*D - 38*t)` and `C*(D - t + 2*b_L)*(D - t + m) <= (D - m)*(C*D - 28*t)` (a hold through fewer than 20 runs, or 15 for a credited attacker, is unprofitable, 7.3) | `ConfigBuybackHorizon` |
+| V11 | if `b_B > 0`: `C*(D - t)*(D - t + 2*b_L) <= D*(C*D - 38*t)` and `C*(D - t + 2*b_L)*(D - t + m) <= (D - m)*(C*D - 28*t)` (a hold through fewer than 20 runs, or 15 for an attacker credited `m`, is unprofitable, 7.3; not the platform's key, review HR-1) | `ConfigBuybackHorizon` |
 
 Default config #0 passes with margins: V2 70 against 120 and 50 against 100, V2b
 `t - b_F - b_H = 150` against 1; V6 by a factor
@@ -1895,7 +1903,8 @@ fraction `f = t/D` (0.025); buyback step `s = t/(C*D)` (0.001); injected liquidi
 trade at most `2*l` of its SOL leg with `l = b_L/D` (0.005: the trade's own share plus at
 most the same again as drip); on the curve nothing is injected; `c = m/D` with
 `m = max(b_F, b_H)` the share an attacker may be credited back on each of his own legs
-(0.005: a founder gets his share of his own trades).
+(0.005: a founder gets his share of his own trades). The platform's key is credited `b_P`
+(0.007 under config #0) and is outside these bounds; see the end of this section (review HR-1).
 
 **Theorem M (canonical sandwich: attacker buy, one buyback, attacker sell).** For every
 attacker size `a` and every state:
@@ -2016,6 +2025,28 @@ below it.
   that pool's own fee, so buybacks and liquidity injections mostly do not carry over to such a
   pool (T74).
 
+**The platform's key (review HR-1).** Every bound above credits an attacker at most
+`m = max(b_F, b_H)`. Whoever holds `FEE_RECIPIENT` (the owner's hot wallet, compiled into the
+binary, or a thief of it) is credited `b_P` of his own legs through the permissionless
+`withdraw_platform_fees`, and he can trade from any wallet. Measured on chain by the review and
+its verifier (real program, checker on):
+* config #0, `FEE_RECIPIENT` alone (credited 70 of 250 bps): inside O25's founder envelope; it
+  lost at every backlog up to 1.82% of depth and every hold up to 18 runs (positions of 0.1 to
+  40 SOL), first profit at about 1.85% to 1.9% and 19 runs;
+* config #0 with a founder seat held by the same owner (credited 50 + 70 = 120 bps): +14,186
+  lamports from a 1.338% backlog after 14 runs, below V11's 15-run promise;
+* O1's named alternative (0, 120, 50, 50, 30), `FEE_RECIPIENT` alone: +18,083 lamports from a
+  1.343% backlog after 14 runs (the founder from the same state: -1,382,754);
+* (0, 120, 0, 1, 1), which passes V1 to V11: `FEE_RECIPIENT`'s canonical single-run sandwich of a
+  5 SOL position returns +0.05%, where V8 promises any credited attacker at least -1% (a plain
+  trader: -2.34%).
+The defence is the **operating rule of 8.4**: `FEE_RECIPIENT`, and every wallet of the owner who
+controls it, never holds or trades city coins and never takes a founder seat; the keeper alerts
+when `FEE_RECIPIENT` holds any city coin (visible on chain). The admin chooses the configs, so a
+config whose `b_P` exceeds `m` (O1's alternative) is an owner decision with this envelope, and
+counting `b_P` in V8 and V11 (with a platform horizon of its own) is O29. Clients count the
+platform's credit in the sandwich threshold of 5.15.
+
 ### 7.4 Ordinary sandwiches and wash trading
 
 User sandwiches are the usual AMM risk, bounded by the user's slippage limits (5.15). Above a
@@ -2081,7 +2112,7 @@ compared with selling at once):
 | **founder** (per coin; the admin chooses it at approval and may choose itself; never `FEE_RECIPIENT`, the guardian or the payout key, 4.8, 4.10, 4.17) | claim, opt in or out of payouts, hand over the seat to a co-signing key that is none of those three | touch any other bucket or coin |
 | **anyone** | trade; `buyback_burn`; `withdraw_platform_fees` (pays only `FEE_RECIPIENT`); `forward_holders_fees` (pays only the checked vault); `SyncNative` on a WSOL account; revoke an expired approval | everything else |
 | **website and keeper** | build unsigned transactions; the keeper's hot key signs permissionless cranks as fee payer only | approve launches, halt, or move funds: the website holds no admin, guardian, payout or upgrade key; admins create Squads proposals from their own wallets |
-| **`FEE_RECIPIENT`** | receive; trade and buy coins like any wallet (the program cannot stop a key from spending its own SOL; I21) | hold any seat in the program: it refuses `FEE_RECIPIENT` as admin, proposed admin, guardian, payout key or payout wallet (4.1 to 4.5), as a coin's founder (4.8, 4.10, 4.17), and as the upgrade authority at `init_launchpad` (4.1); later moves of the upgrade authority happen outside the program, so that part is a deploy precondition (8.4). Its only signatures in the program are a trader's |
+| **`FEE_RECIPIENT`** | receive; trade and buy coins like any wallet (the program cannot stop a key from spending its own SOL; I21). Since it is credited `b_P` of every leg, its holder is outside the MEV bounds of 7.3: the operating rule of 8.4 keeps it, and the owner's other wallets, out of city coins and founder seats (review HR-1) | hold any seat in the program: it refuses `FEE_RECIPIENT` as admin, proposed admin, guardian, payout key or payout wallet (4.1 to 4.5), as a coin's founder (4.8, 4.10, 4.17), and as the upgrade authority at `init_launchpad` (4.1); later moves of the upgrade authority happen outside the program, so that part is a deploy precondition (8.4). Its only signatures in the program are a trader's |
 
 Worst cases:
 * **Two of the three Squads keys stolen (or two members acting together).** As admin: approve
@@ -2215,7 +2246,12 @@ launches fail with `LegacyAdminMismatch`.
   key that already holds a coin's founder seat (the program refuses the guardian and the payout
   key as founders at every approval, launch and founder transfer, but cannot enumerate the
   coins when those settings change; the deploy checklist compares the new key with every
-  `Coin.founder` before the proposal is signed).
+  `Coin.founder` before the proposal is signed). **And** (review HR-1): `FEE_RECIPIENT`, and
+  every wallet of the owner who controls it, never holds or trades city coins and never takes
+  a founder seat (the admin may approve itself as a founder, 8.1; the owner does not). The
+  platform's key is credited `b_P` of its own legs, which V8 and V11 do not count (7.3); the
+  keeper alerts when `FEE_RECIPIENT` holds any city coin, and its keeper backlog alert stays at
+  1% of depth.
 * Under Meteora, curve and pool money sat in Meteora's programs. Here it sits under
   `vicinity_curve`, so the upgrade authority is the main trust: it could take every coin's
   reserves and unpaid shares. The website says so plainly.
@@ -2420,7 +2456,7 @@ Global:
 | T21 | **Double graduation** | `phase` flag; the curve branch is unreachable in phase Pool | I1 |
 | T22 | **Half-graduated state** | graduation is field writes inside the completing buy; no CPI | I5 |
 | T23 | **Graduation through the buyback crank** | buyback capped at `S - 1` coins sold; graduation timing via a bundled tiny buy is harmless (V7) | I15; X23 |
-| T24 | **Sandwiching the buyback** | cap `depth * t/(25D)`, one run per 150 slots, no arguments; loss at least 3.77% (Theorem M), 2.78% for a credited founder; V2 and V8 for future configs | I15; P06; X24 |
+| T24 | **Sandwiching the buyback** | cap `depth * t/(25D)`, one run per 150 slots, no arguments; loss at least 3.77% (Theorem M), 2.78% for a credited founder; V2 and V8 for future configs; the platform's key, credited `b_P` and outside V8 (single-run +0.05% under (0, 120, 0, 1, 1)), by the operating rule of 8.4 (review HR-1, O29) | I15; P06; X24; HR-1 |
 | T25 | **Multi-leg or bundled sandwich** around a buyback | split-leg bound (loss at least 2.78%, 1.79% for a credited founder; a heuristic with a tested margin); one run per coin per 150 slots, so a bundle holds at most one | P06; X25 |
 | T26 | **Buyback timing griefing** | no arguments; any timing only changes how many coins are burned; small runs are safer | X26 |
 | T27 | **Farming the liquidity drip** | drip at most `floor(A*b_L/D)` of others' set-aside share; V10 `b_L < b_P` (or 0) | 7.5; P09, P09b; X27, X27b |
@@ -2472,7 +2508,7 @@ Global:
 | T73 | **Stolen guardian** | the same limits; the admin replaces the guardian and clears the flags, buybacks before buys when backlogs built up (8.3) | X43b; LL-1 |
 | T74 | **Third-party pools for the coin** | cannot be prevented for a classic SPL coin; they pay no Vicinity fee and buybacks and injections carry over to them only past 2.5% plus their fee; labelled (6.6) and listed as an owner-visible risk (13, 14.5) | process |
 | T75 | **CPI after a direct lamport move** (`UnbalancedInstruction`, stuck instruction) | rule of 4.0; `forward_holders_fees` leaves `SyncNative` to a separate top-level instruction | R02, R02b |
-| T76 | **Buying ahead of a public buyback backlog** (hold through several runs), including the backlog a halt of buybacks leaves and the predictable moment buys reopen (review LL-1) | Theorem M_K; 0.1% step; V11 horizon; keeper every interval, alert above 1% of depth, backlog shown on the coin page; buybacks halted only while buys are, resumed first, and the keeper drains every backlog before buys reopen (8.3); residual risk signed off (O25) | P06b; X25; LL-1 |
+| T76 | **Buying ahead of a public buyback backlog** (hold through several runs), including the backlog a halt of buybacks leaves and the predictable moment buys reopen (review LL-1) | Theorem M_K; 0.1% step; V11 horizon; keeper every interval, alert above 1% of depth, backlog shown on the coin page; buybacks halted only while buys are, resumed first, and the keeper drains every backlog before buys reopen (8.3); the platform's key, credited `b_P`, by the operating rule of 8.4 (7.3, review HR-1); residual risk signed off (O25) | P06b; X25; LL-1; HR-1 |
 | T77 | **One hot key in several roles** (`FEE_RECIPIENT` as admin, guardian, upgrade authority or a coin's founder, the guardian as payout key or wallet, the guardian or the payout key as a coin's founder, the old program administered by another key) | refused by `init_launchpad`, `propose_admin`, `accept_admin`, `set_guardian` and `set_payout_config` (`FeeRecipientRole`, `PayoutKeyNotSeparate`) and, for the founder seat, by `approve_launch`, `launch` and `transfer_founder` (`FeeRecipientRole`, `FounderHoldsRole`); later moves of the upgrade authority and settings that name an existing founder are 8.4's operating rule; approvals and launches require the old program's admin to be this program's admin (`LegacyAdminMismatch`, 8.5) | I19, I20; 28-governance |
 | T78 | **A client buy without a minimum** (the "pay with any token" composer), sandwiched | the program enforces `min_tokens_out`; the SDK's `buyWithSwap` refuses to build a buy without one (14.1) | 29-clients |
 
@@ -2712,7 +2748,7 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 
 | # | question | default (built) | alternative | consequence of the alternative |
 |---|---|---|---|---|
-| O1 | Where does the 0.5% "protocol/liquidity" share go? | **Into the pool's SOL reserve, without adding coins** (it deepens the pool and raises the price; sellers receive it through trades like all pool SOL), config field `liquidity_bps = 50`; label in 6.6 | A future config with `liquidity_bps = 0` and the 50 bps given to another bucket (for example platform 120 bps, shown as "Vicinity 1.2%"; or holders; or buyback) | No code change; only new coins; the platform cap of 1.2% already allows it; V8, V10 and V11 must still pass (V10 needs `b_L < b_P`; V11 keeps `b_L` at about 58 or less while a buyback share exists) |
+| O1 | Where does the 0.5% "protocol/liquidity" share go? | **Into the pool's SOL reserve, without adding coins** (it deepens the pool and raises the price; sellers receive it through trades like all pool SOL), config field `liquidity_bps = 50`; label in 6.6 | A future config with `liquidity_bps = 0` and the 50 bps given to another bucket (for example platform 120 bps, shown as "Vicinity 1.2%"; or holders; or buyback) | No code change; only new coins; the platform cap of 1.2% already allows it; V8, V10 and V11 must still pass (V10 needs `b_L < b_P`; V11 keeps `b_L` at about 58 or less while a buyback share exists). With platform 120 bps the platform's key would profit from a 1.34% backlog after 14 runs, below V11's 15-run promise (7.3, review HR-1): it relies on the operating rule of 8.4, or on O29 |
 | O2 | The 0.5% collected before graduation | **Set aside in `liquidity_pending`, fed into the pool after graduation at most at each trade's rounded-down liquidity share** (no price jump). **For a coin that never graduates (most coins) it is never used and stays locked forever, benefiting no one: needs the owner's explicit sign-off** | (a) Spend it during the curve through the capped buyback path (buy and burn): the SOL enters `curve_sol` and moves to the pool at graduation, nothing sits idle, no drip; (b) add it all at graduation | (a) It is buy-and-burn, not liquidity, before graduation; the label changes; it adds to the buyback backlog (7.3); a code change before the audit. (b) The pool opens 0.5% to 5% above the curve's last price and graduation becomes snipeable (5.8); V7 would have to be relaxed |
 | O3 | R8's 9.1 leftover coins (`10^15 - 793,099,990,000,000 - 206,900,000,900,000 = 9,100,000` raw); R8's figures cannot all hold with nothing else changing | **(a) Burned at launch**: sold and pool figures exact, supply 999,999,990.9 coins after launch, integers of 5.9 | (b) To Vicinity's wallet as today: all three figures exact; (c) into the pool (revision 1): supply exactly 1,000,000,000, pool 206,900,010 | (b) needs code (an ATA for `FEE_RECIPIENT` created in every launch, about 0.0015 SOL of rent paid by the founder, for coins worth about 0.0000037 SOL) and a token path at launch; (c) is a config change. **Decide before the audit freeze** |
 | O4 | Fee rounding | **Settled by R2: the total is rounded down** (never above 2.5%), named shares rounded down, remainder (0 to 4 lamports) to liquidity | none (rounding up would break R2's "never above 2.5%" and would need an explicit waiver) | |
@@ -2736,14 +2772,16 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | O22 | A lost founder key | **The share stays with that key** (no admin lever) | Admin reassignment | A money power for the admin |
 | O23 | Aggregator and wallet visibility | **Ship the math crate, IDL, layout and this spec; ask Jupiter and the trading terminals to integrate after the audit; Jupiter adapter crate as a later step** (14.4); submit the program id, IDL and audit report to Blockaid, Blowfish and Phantom for allow-listing at mainnet launch (wallet warnings are expected until then; how long that takes is not proven) | Stay on Meteora | Keeps automatic routing but keeps Meteora's 0.5% and the other REPORT.md conflicts |
 | O24 | Who runs the cranks | **Vicinity's fee-payer wallet, no tip** | A small tip from the bucket | A spam incentive and another money path |
-| O25 | Residual multi-run buyback risk | **Accept and disclose**: a trader who buys while a public backlog above about 2.0% to 2.6% of depth exists (1.5% to 2.0% for a founder), and holds through at least 21 to 26 runs (16 to 21 for a founder) with no other trading, can profit (Theorem M_K); mitigated by the small step, V11, a keeper that spends every interval, an alert above 1% of depth and the backlog shown on the coin page; a halt of buybacks, the one time the keeper cannot run, is possible only while buys are halted, and buys reopen only after the keeper has spent the backlog (8.3, review LL-1) | Execute buybacks inside trades (no backlog at all) | Contradicts R7's "executed separately" and R5's distinction; not offered |
+| O25 | Residual multi-run buyback risk | **Accept and disclose**: a trader who buys while a public backlog above about 2.0% to 2.6% of depth exists (1.5% to 2.0% for a founder), and holds through at least 21 to 26 runs (16 to 21 for a founder) with no other trading, can profit (Theorem M_K); mitigated by the small step, V11, a keeper that spends every interval, an alert above 1% of depth and the backlog shown on the coin page; a halt of buybacks, the one time the keeper cannot run, is possible only while buys are halted, and buys reopen only after the keeper has spent the backlog (8.3, review LL-1). Not covered: the platform's key (`FEE_RECIPIENT`, credited `b_P`): alone under config #0 inside these figures (first profit at about 1.9% and 19 runs), but 1.34% and 14 runs under O1's alternative or with a founder seat held by the owner; kept out by the operating rule of 8.4 (7.3, review HR-1) | Execute buybacks inside trades (no backlog at all) | Contradicts R7's "executed separately" and R5's distinction; not offered |
 | O26 | Holders' money of a coin whose rewards config was created wrong (it can never be fixed in `vicinity_rewards`) | **Waits in `holders_pending` until a program upgrade**; the SDK simulates and checks every config before proposing it | A permissionless fallback that, after a long delay (for example 90 days with no valid config), routes `holders_pending` into the buyback bucket | Changes the split for that coin; needs owner approval and audit |
 | O27 | Who may be the holders' root publisher | **Only the admin** (`CityConfig.authority == launchpad.admin`) | A separate `Launchpad.rewards_authority` (for example a rewards multisig without the time lock, so rounds are not delayed), changeable only by a listed two-step admin power | Faster reward rounds under the time lock; one more key and power to list and audit |
 | O28 | The metadata JSON served by the website | **Hash approved by the admin, stored and emitted; served write-once; image content-addressed** | State the residual risk only | Simpler, but the coin's displayed identity could then change silently |
+| O29 | The platform's key in the MEV rules (review HR-1) | **Not counted by V8 and V11; the operating rule of 8.4 keeps `FEE_RECIPIENT` and the owner's wallets out of city coins and founder seats** (config #0 alone stays inside O25's founder envelope) | (a) Count `b_P` in V8 (`m = max(b_F, b_H, b_P)`) and give the platform a horizon of its own in V11 (config #0's analytic form allows `K_P` = 13); or (b) keep `b_P <= m` in every config (a lower platform share, or a matching founder or holders share) | (a) refuses configs such as (0, 120, 0, 1, 1) and changes which future configs pass (config #0 passes V8 with 70 but would fail V11's credited inequality at `K_F` = 15, so the platform needs its own `K_P`); a crate, model and vector change before the audit. (b) changes the fee shares. Either is an owner decision on the fee split; nothing is changed until the owner decides |
 
 The decisions the owner should see first: **O3** (the 9.1 coins), **O11** (the time lock and
 what it delays in the existing programs), **O25** (the residual multi-run buyback risk),
-**O2** (the never-graduating coins' liquidity), **O7** (no fee on the buyback), and **O10 /
+**O2** (the never-graduating coins' liquidity), **O7** (no fee on the buyback), **O29** (the
+platform's key in the MEV rules, and the operating rule that stands in for it), and **O10 /
 O23** (native SOL confirmation and visibility on Jupiter and wallets: until each integrates the
 new program, these coins trade only on vicinity.city and through direct program calls).
 
@@ -3548,6 +3586,7 @@ a verifier before it was accepted. Severities are the verifier's.
 | LL-1 | lifecycle, low (reported medium) | one flag, `buys_halted`, stopped user buys and buybacks alike, while every sell still booked its 0.3% into `buyback_pending`: during a guardian halt a mostly sold pool built a backlog many times `u*` (14.9% of depth), the keeper could not spend it, and the first buyer after the admin's publicly scheduled clear took a large share (+1.24 SOL on 20 SOL) | **Confirmed**. **Applied**, the safer of the two proposals (a separate flag rather than leaving buybacks unhaltable): `Launchpad.buybacks_halted` (offset 174, from the reserved bytes; size unchanged) blocks `buyback_burn` (`BuybacksHalted`, 6054); `buys_halted` now blocks only `buy` and `launch`; `set_pause` takes a fourth argument and refuses any result with buybacks halted and buys open (`BuybackHaltWithoutBuyHalt`, 6055), for every signer, so a buyback halt goes with a buy halt and buys never reopen before buybacks. A halt of buys alone leaves the keeper running; after a halt of both the admin resumes buybacks first, the keeper drains every backlog while buys are still refused, and buys reopen in a later proposal (8.3 runbook, 14.1). IDL, SDK builder, decoder and event. 3.4, 4.0, 4.4, 4.13, 4.21, 4.22, 6.4, 7.1, 7.2, 8.1, 8.3, I20, I22, T72, T73, T76, O9, O25, 12.3, 12.5, 14.1, 14.3; H01, L12, X43b, the LL-1 test, the fuzz model, the checker (I20); NOTES 53 |
 | R3-CLI-1 | clients, medium (reported high) | on a buy that completes the curve, `buyWithSwap` (and the README's direct buy) took `min_tokens_out` from the partial quote but left `sol_in` at the full amount; once a searcher (or any buyer) graduated the coin first, the same buy ran in the pool, was charged all of `sol_in` and still cleared the small minimum (20 SOL at 4.9 times the quoted price; 10.77 SOL taken); 14.3 told routers they may "treat `charged < sol_in` as the amount used" | **Confirmed** (an SDK and guidance defect; the program behaves as specified). **Applied**: the SDK's new `buyLeg` (used by `buyWithSwap`) caps `sol_in` at the partial quote's charge (`max_quote_in`) and takes the minimum from that quote; it needs the coin snapshot; `buyLegMinimum` refuses an uncapped `sol_in`; `buyWithSwap` also returns the swap's guaranteed output (the difference stays in the wallet). The README's direct buy uses `buyLeg`. 14.3 now requires the cap; 5.4 explains why; T79 added next to T17. M13's price limit was not taken: the minimum was computed for the smaller charge, so it would not help. 5.4, 14.1, 14.3, T79; `29-clients`, `prechecks.test.mjs`; NOTES 54 |
 | MATH3-1 | math, low | 5.15 said that under config #0 "no ordering profits at the website's slippage", but any buy above about 2.5% of the market's SOL depth (2.0% for the founder; about 0.75 SOL on a fresh coin) is sandwiched at a profit whatever the slippage, and the victim loses almost all of it; the SDK's `buyLegMinimum` accepted a flat slippage up to 5% for any size | **Confirmed**. **Applied**: 5.15 states the threshold `V* = (c/D) * depth` per attacker class and corrects the config #0 sentence; 7.4 and 14.1 follow. The SDK's `sandwichThreshold` (`(t - max(b_F + b_H, b_P))/D` of depth, the cheapest credited attacker) and `buySlippagePolicy`; `buyLeg` and `buyWithSwap` allow at most 5% up to the threshold and 0.3% above it, for a minimum given or derived, and refuse more with a message that offers splitting; the website's default is 1% up to the threshold, 0.3% above it. A private submission path is mentioned, not built. 5.15, 7.4, 14.1, T80; `29-clients`, `prechecks.test.mjs`; NOTES 55 |
+| HR-1 | roles, info (reported low) | V8, V11 and V2b credit at most `m = max(b_F, b_H)`, but `withdraw_platform_fees` credits `FEE_RECIPIENT` (a single compiled hot wallet) `b_P` of its own legs: under O1's alternative, or with a founder seat held by the owner under config #0, it profits from a 1.34% backlog after 14 runs, and (0, 120, 0, 1, 1) passes V1 to V11 with a profitable single-run sandwich for it; 5.13, 7.3, V11, T24, T76 and O25 claimed their bounds for any credited attacker | **Confirmed** as a spec defect (the verifier: under config #0 `FEE_RECIPIENT` alone stays inside O25's founder envelope; every breach needs an owner-chosen config or the owner stacking a founder seat on `FEE_RECIPIENT`). **Applied**: 5.13, V8, V11, 7.3 (the platform's key and its measured envelope), 8.1, T24, T76, O25 and O1 now exclude it and give its numbers; the operating rule of 8.4 (`FEE_RECIPIENT` and the owner's wallets never hold or trade city coins or take a founder seat; the keeper alerts when it holds one); the clients' sandwich threshold counts `b_P` (5.15). **Not applied, open owner decision O29**: counting `b_P` in V8 and V11 (config #0 would fail V11 unless the platform gets its own horizon) or keeping `b_P <= m`, both changes to which fee splits are allowed; no fee value changed. `19-attacks-admin` (HR-1); NOTES 56 |
 | HR-2 | roles, info | a thief of a founder key can move the seat with `transfer_founder` and take every later founder fee | **Rejected** by the verifier: the recorded design (4.17 and T52: the seat moves only with both signatures and the admin can never reassign it; O22). The copied key could claim every later accrual without a transfer anyway, and the legitimate founder can use the transfer first. No change |
 | HR-3 | roles, info | a stolen `FEE_RECIPIENT` key takes the platform's income until an upgrade | **Rejected** by the verifier: recorded (R9, 3.2: changing `FEE_RECIPIENT` needs an upgrade; 6.4 and 8.3: platform withdrawals are not pausable by design); no holder's, founder's or third party's money is reachable. A cold wallet or a Squads vault as `FEE_RECIPIENT` before the mainnet build is an operational choice for the owner. No change |
 
@@ -3604,3 +3643,4 @@ build follows the text as written and the entry records a reading or a measureme
 | 53 | review round 3: a separate buyback halt, set only while buys are halted (above) | as listed above |
 | 54 | review round 3: the completing buy offers only its charge (above) | as listed above |
 | 55 | review round 3: the buy leg's slippage depends on its size (above) | as listed above |
+| 56 | review round 3: the platform's key in the MEV rules; open owner decision O29 (above) | as listed above |
