@@ -986,6 +986,7 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
       }
     }
     assert.equal(lp.address, P.launchpad());
+  assert.ok(!lp.buybacksHalted || lp.buysHalted, `${label}: I20 buybacks are halted only while buys are (review LL-1)`);
     assert.equal(lp.nextConfigId, post.configs.size, `${label}: I20 next_config_id = number of configs`);
     if (lp0) {
       if (lp.guardian !== lp0.guardian) assert.ok(has('set_guardian').length, `${label}: I20 guardian changed outside set_guardian`);
@@ -993,12 +994,12 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
       if (lp.pendingAdmin !== lp0.pendingAdmin) assert.ok(has('propose_admin').length || has('accept_admin').length, `${label}: pending admin changed`);
       if (lp.payoutAuthority !== lp0.payoutAuthority || lp.payoutDestination !== lp0.payoutDestination) assert.ok(has('set_payout_config').length, `${label}: payout keys changed`);
       const pauses = has('set_pause');
-      for (const [k, name] of [['launchesPaused', 'launches'], ['payoutsPaused', 'payouts'], ['buysHalted', 'buys']]) {
+      for (const [k, name] of [['launchesPaused', 'launches'], ['payoutsPaused', 'payouts'], ['buysHalted', 'buys'], ['buybacksHalted', 'buybacks']]) {
         if (lp[k] === lp0[k]) continue;
         assert.ok(pauses.length, `${label}: ${k} changed outside set_pause`);
         const by = pauses.map((t) => t.accounts[0]);
-        if (k === 'buysHalted' && lp.buysHalted) assert.ok(by.some((s) => s === lp0.guardian || s === lp0.admin), `${label}: I20 buys halted only by the guardian or the admin`);
-        else if (k === 'buysHalted') assert.ok(by.includes(lp0.admin), `${label}: I20 buys resumed only by the admin`);
+        if ((k === 'buysHalted' || k === 'buybacksHalted') && lp[k]) assert.ok(by.some((s) => s === lp0.guardian || s === lp0.admin), `${label}: I20 ${name} halted only by the guardian or the admin`);
+        else if (k === 'buysHalted' || k === 'buybacksHalted') assert.ok(by.includes(lp0.admin), `${label}: I20 ${name} resumed only by the admin`);
         else if (!lp[k]) assert.ok(by.includes(lp0.admin), `${label}: ${name} resumed only by the admin`);
       }
     } else {
@@ -1079,7 +1080,7 @@ export async function probeLiveness(w, { label = 'liveness' } = {}) {
       try { ok = acc && S.rewardsConfigProblems(S.decodeRewardsCityConfig(acc, { cluster: w.cluster }), { mint: c.mint, vault: r.vault, admin: lp.admin }).length === 0; } catch { ok = false; }
       if (ok) await sim(w.ix.forwardHoldersFeesWithSync({ coin: c.address }), [], `${tag} forward_holders_fees + SyncNative`);
     }
-    if (!lp.buysHalted && c.buybackPending > 0n && snap.slot >= c.lastBuybackSlot + S.BUYBACK_INTERVAL_SLOTS) {
+    if (!lp.buybacksHalted && c.buybackPending > 0n && snap.slot >= c.lastBuybackSlot + S.BUYBACK_INTERVAL_SLOTS) {
       const q = S.quoteBuyback(terms, st, snap.slot);
       if (q) {
         const r = await sim([w.ix.buybackBurn({ coin: c.address })], [], `${tag} buyback_burn`);

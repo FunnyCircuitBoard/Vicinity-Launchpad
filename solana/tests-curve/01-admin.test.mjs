@@ -28,7 +28,7 @@ test('L01 init_launchpad: only the upgrade authority, once; every field; the gua
   const lp = w.launchpad();
   assert.deepEqual(lp, {
     admin: w.admin.address, pendingAdmin: ZERO, payoutAuthority: ZERO, payoutDestination: ZERO, guardian: w.guardian.address,
-    launchesPaused: false, payoutsPaused: false, buysHalted: false, nextConfigId: 0, bump: S.findPda([Buffer.from('launchpad')], w.programId)[1],
+    launchesPaused: false, payoutsPaused: false, buysHalted: false, buybacksHalted: false, nextConfigId: 0, bump: S.findPda([Buffer.from('launchpad')], w.programId)[1],
   });
   assert.equal(w.accountInfo(w.P.launchpad()).data.length, S.ACCOUNT_LEN.Launchpad);
   const ev = res.events.find((e) => e.name === 'LaunchpadInitialized');

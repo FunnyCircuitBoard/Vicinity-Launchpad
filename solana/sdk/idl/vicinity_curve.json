@@ -513,7 +513,7 @@
         {
           "name": "launchpad",
           "docs": [
-            "Only `buys_halted` is read (a buyback is a buy)."
+            "Only `buybacks_halted` is read."
           ],
           "pda": {
             "seeds": [
@@ -1884,8 +1884,9 @@
     {
       "name": "set_pause",
       "docs": [
-        "4.4. Pause or resume launches, payouts and buys. The payout key may",
-        "only pause payouts; the guardian may only pause launches and buys."
+        "4.4. Pause or resume launches, payouts, buys and buybacks. The payout",
+        "key may only pause payouts; the guardian may only pause launches, buys",
+        "and buybacks. Buybacks are halted only while buys are."
       ],
       "discriminator": [
         63,
@@ -1943,6 +1944,12 @@
         },
         {
           "name": "buys",
+          "type": {
+            "option": "bool"
+          }
+        },
+        {
+          "name": "buybacks",
           "type": {
             "option": "bool"
           }
@@ -2785,6 +2792,16 @@
       "code": 6053,
       "name": "FounderHoldsRole",
       "msg": "a coin's founder cannot be the guardian or the payout key"
+    },
+    {
+      "code": 6054,
+      "name": "BuybacksHalted",
+      "msg": "buybacks are halted"
+    },
+    {
+      "code": 6055,
+      "name": "BuybackHaltWithoutBuyHalt",
+      "msg": "buybacks may be halted only while buys are halted: halt buys with them, and resume buybacks before or with buys"
     }
   ],
   "types": [
@@ -4122,8 +4139,10 @@
         "One per program; seeds `[\"launchpad\"]`; 238 bytes (3.4).",
         "",
         "There is no fee-recipient field, no program-id field and no coin counter",
-        "(3.2). `buy`, `buyback_burn` and `launch` read `buys_halted`; `sell` never",
-        "reads this account."
+        "(3.2). `buy` and `launch` read `buys_halted`, `buyback_burn` reads",
+        "`buybacks_halted`; `sell` never reads this account.",
+        "`buybacks_halted` implies `buys_halted` (`set_pause` refuses anything else,",
+        "review LL-1): no buyback backlog can build while anyone can buy ahead of it."
       ],
       "type": {
         "kind": "struct",
@@ -4160,8 +4179,8 @@
           {
             "name": "guardian",
             "docs": [
-              "Offset 136. May only set `launches_paused` and `buys_halted` to true;",
-              "zero = none."
+              "Offset 136. May only set `launches_paused`, `buys_halted` and",
+              "`buybacks_halted` to true; zero = none."
             ],
             "type": "pubkey"
           },
@@ -4182,7 +4201,7 @@
           {
             "name": "buys_halted",
             "docs": [
-              "Offset 170. Blocks `buy`, `buyback_burn` and `launch`; never an exit."
+              "Offset 170. Blocks `buy` and `launch`; never an exit."
             ],
             "type": "bool"
           },
@@ -4201,14 +4220,22 @@
             "type": "u8"
           },
           {
+            "name": "buybacks_halted",
+            "docs": [
+              "Offset 174. Blocks `buyback_burn`; set only while `buys_halted` is",
+              "(review LL-1). Taken from the reserved bytes: the size is unchanged."
+            ],
+            "type": "bool"
+          },
+          {
             "name": "_reserved",
             "docs": [
-              "Offset 174. Zero."
+              "Offset 175. Zero."
             ],
             "type": {
               "array": [
                 "u8",
-                64
+                63
               ]
             }
           }
@@ -4256,6 +4283,10 @@
           },
           {
             "name": "buys_halted",
+            "type": "bool"
+          },
+          {
+            "name": "buybacks_halted",
             "type": "bool"
           },
           {

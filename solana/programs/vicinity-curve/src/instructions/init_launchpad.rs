@@ -76,9 +76,10 @@ pub fn handle_init_launchpad(ctx: Context<InitLaunchpad>, guardian: Pubkey) -> R
     lp.launches_paused = false;
     lp.payouts_paused = false;
     lp.buys_halted = false;
+    lp.buybacks_halted = false;
     lp.next_config_id = 0;
     lp.bump = ctx.bumps.launchpad;
-    lp._reserved = [0; 64];
+    lp._reserved = [0; 63];
     emit!(LaunchpadInitialized {
         admin: lp.admin,
         upgrade_authority: ctx.accounts.upgrade_authority.key(),

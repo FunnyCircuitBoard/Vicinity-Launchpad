@@ -105,8 +105,8 @@ test('X43, X43b every admin and guardian instruction run against live coins move
   const A = () => w.admin;
   const next = await w.signer(5n); const pk = await w.signer(1n); const wallet = await w.signer(1n); const g2 = await w.signer(1n);
   await unchanged('set_pause (all on, all off)', async () => {
-    await w.send([w.ix.setPause({ authority: A().address, launches: true, payouts: true, buys: true })], [A()], 'pause all');
-    await w.send([w.ix.setPause({ authority: A().address, launches: false, payouts: false, buys: false })], [A()], 'resume all');
+    await w.send([w.ix.setPause({ authority: A().address, launches: true, payouts: true, buys: true, buybacks: true })], [A()], 'pause all');
+    await w.send([w.ix.setPause({ authority: A().address, launches: false, payouts: false, buys: false, buybacks: false })], [A()], 'resume all');
   });
   await unchanged('set_guardian', () => w.send([w.ix.setGuardian({ admin: A().address, guardian: g2.address })], [A()], 'set_guardian'));
   const oldGuardian = w.guardian; w.guardian = g2;
@@ -132,10 +132,11 @@ test('X43, X43b every admin and guardian instruction run against live coins move
   await refuse(w, [w.P.launchpad()], () => w.send([w.ix.setPayoutConfig({ admin: A().address, payoutAuthority: pk.address, payoutDestination: A().address })], [A()], 'payout wallet = the admin'), 'PayoutKeyNotSeparate');
   // the admin's own payout key and wallet (separate keys he controls): without the founder's opt-in nothing can be paid
   await refuse(w, watch, () => w.payout(curve, { destination: wallet.address, label: 'payout without an opt-in' }), 'AccountNotInitialized');
-  // the guardian (X43b): may halt buys and launches, nothing else
+  // the guardian (X43b): may halt buys, buybacks and launches, nothing else
   const g = w.guardian;
-  await w.send([w.ix.setPause({ authority: g.address, buys: true, launches: true })], [g], 'guardian halts');
-  for (const [label, ix] of [['clear the halt', w.ix.setPause({ authority: g.address, buys: false })], ['pause payouts', w.ix.setPause({ authority: g.address, payouts: true })],
+  await w.send([w.ix.setPause({ authority: g.address, buys: true, launches: true, buybacks: true })], [g], 'guardian halts');
+  for (const [label, ix] of [['clear the halt', w.ix.setPause({ authority: g.address, buys: false })], ['resume buybacks', w.ix.setPause({ authority: g.address, buybacks: false })],
+    ['pause payouts', w.ix.setPause({ authority: g.address, payouts: true })],
     ['replace itself', w.ix.setGuardian({ admin: g.address, guardian: g.address })], ['set payouts', w.ix.setPayoutConfig({ admin: g.address, payoutAuthority: g.address, payoutDestination: wallet.address })],
     ['add a config', w.ix.addLaunchConfig({ admin: g.address, payer: g.address, configId: w.launchpad().nextConfigId, params: S.DEFAULT_CONFIG })],
     ['disable a config', w.ix.setLaunchConfigEnabled({ admin: g.address, configId: 0, enabled: false })], ['propose an admin', w.ix.proposeAdmin({ admin: g.address, newAdmin: g.address })]]) {
@@ -148,7 +149,7 @@ test('X43, X43b every admin and guardian instruction run against live coins move
   await w.claim(curve, curve.founder, { label: 'claim while halted' });
   await w.withdraw(pool, { label: 'withdraw while halted' });
   await w.forward(pool, { label: 'forward while halted' });
-  await w.send([w.ix.setPause({ authority: A().address, buys: false, launches: false })], [A()], 'the admin clears');
+  await w.send([w.ix.setPause({ authority: A().address, buys: false, launches: false, buybacks: false })], [A()], 'the admin clears');
   await unchanged('propose_admin and accept_admin', async () => {
     await w.send([w.ix.proposeAdmin({ admin: A().address, newAdmin: next.address })], [A()], 'propose');
     await w.send([w.ix.acceptAdmin({ newAdmin: next.address })], [next], 'accept');

@@ -240,7 +240,7 @@ export class Fuzz {
         return { ok: true };
       }
       case 'buyback': {
-        if (lp.buysHalted) return fail('BuysHalted');
+        if (lp.buybacksHalted) return fail('BuybacksHalted');
         const q = S.quoteBuyback(coinModel.terms, coinModel.st, slot);
         if (q) coinModel.st = q.newState;
         return { ok: true };
@@ -303,6 +303,9 @@ export class Fuzz {
       case 'set_pause': {
         const allowed = pauseAllowed(String(op.signer.address), lp, op.flags);
         if (!allowed) return fail('Unauthorized');
+        // review LL-1: buybacks are halted only while buys are, whatever the signer may set
+        const buys = op.flags.buys ?? lp.buysHalted; const buybacks = op.flags.buybacks ?? lp.buybacksHalted;
+        if (buybacks && !buys) return fail('BuybackHaltWithoutBuyHalt');
         return { ok: true };
       }
       case 'init_launchpad': return fail(null);
@@ -550,7 +553,7 @@ export class Fuzz {
         const who = r.weighted([[4, w.signerOf(lp.admin)], [2, w.signerOf(lp.guardian) ?? w.guardian], [1, w.signerOf(lp.payoutAuthority) ?? this.payoutKey], [1, r.pick(this.traders)]]);
         const v = () => (r.chance(0.5) ? null : r.chance(0.5));
         // the admin mostly clears: trading should not stay halted for long
-        const flags = who.address === lp.admin && r.chance(0.6) ? { launches: false, payouts: false, buys: false } : { launches: v(), payouts: v(), buys: v() };
+        const flags = who.address === lp.admin && r.chance(0.6) ? { launches: false, payouts: false, buys: false, buybacks: false } : { launches: v(), payouts: v(), buys: v(), buybacks: v() };
         return one({ kind: 'set_pause', signer: who, flags, ixs: [w.ix.setPause({ authority: who.address, ...flags })] });
       }
       case 'set_guardian': {
@@ -650,7 +653,7 @@ export class Fuzz {
       () => this.buyOp(h), () => this.sellOp(h), () => this.buybackOp(h), () => this.withdrawOp(h), () => this.claimOp(h), () => this.forwardOp(h), () => this.payoutOp(h),
       () => ({ kind: 'opt_in', signer: founder, ixs: [w.ix.optInPayout({ founder: founder.address, coin: h.coin, expectedDestination: lp.payoutDestination, refHash: metaHash('x') })] }),
       () => ({ kind: 'transfer_founder', signer: founder, signers: [founder, this.traders[0]], ixs: [w.ix.transferFounder({ founder: founder.address, newFounder: this.traders[0].address, coin: h.coin })] }),
-      () => ({ kind: 'set_pause', signer: admin, ixs: [w.ix.setPause({ authority: admin.address, buys: false })] }),
+      () => ({ kind: 'set_pause', signer: admin, ixs: [w.ix.setPause({ authority: admin.address, buys: false, buybacks: false })] }),
       () => ({ kind: 'set_guardian', signer: admin, ixs: [w.ix.setGuardian({ admin: admin.address, guardian: w.guardian.address })] }),
       () => ({ kind: 'add_config', signer: admin, ixs: [w.ix.addLaunchConfig({ admin: admin.address, payer: w.payer.address, configId: lp.nextConfigId, params: S.DEFAULT_CONFIG })] }),
       () => ({ kind: 'set_enabled', signer: admin, ixs: [w.ix.setLaunchConfigEnabled({ admin: admin.address, configId: 0, enabled: true })] }),
@@ -863,11 +866,12 @@ export class Fuzz {
 const describe = (op) => JSON.stringify(Object.fromEntries(Object.entries(op).filter(([k]) => !['ixs', 'h', 'signer', 'signers', 'holder', 'newSigner', 'params'].includes(k))), (k, v) => (typeof v === 'bigint' ? v.toString() : v));
 
 /** pause_allowed of the program (helpers.rs), for the model. */
-function pauseAllowed(signer, lp, { launches, payouts, buys }) {
+function pauseAllowed(signer, lp, { launches, payouts, buys, buybacks }) {
   if (signer === lp.admin) return true;
-  const asPayout = lp.payoutAuthority !== ZERO && signer === lp.payoutAuthority && launches == null && payouts === true && buys == null;
+  const asPayout = lp.payoutAuthority !== ZERO && signer === lp.payoutAuthority && launches == null && payouts === true && buys == null && buybacks == null;
   const onlyTrue = (v) => v == null || v === true;
-  const asGuardian = lp.guardian !== ZERO && signer === lp.guardian && payouts == null && onlyTrue(launches) && onlyTrue(buys) && (launches != null || buys != null);
+  const asGuardian = lp.guardian !== ZERO && signer === lp.guardian && payouts == null && onlyTrue(launches) && onlyTrue(buys) && onlyTrue(buybacks)
+    && (launches != null || buys != null || buybacks != null);
   return asPayout || asGuardian;
 }
 

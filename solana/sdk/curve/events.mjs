@@ -35,7 +35,7 @@ export const EVENT_FIELDS = Object.freeze({
   LaunchpadInitialized: [['admin', 'pubkey'], ['upgrade_authority', 'pubkey'], ['guardian', 'pubkey']],
   AdminProposed: [['admin', 'pubkey'], ['pending_admin', 'pubkey']],
   AdminChanged: [['old_admin', 'pubkey'], ['new_admin', 'pubkey']],
-  PauseChanged: [['launches_paused', 'bool'], ['payouts_paused', 'bool'], ['buys_halted', 'bool'], ['by', 'pubkey']],
+  PauseChanged: [['launches_paused', 'bool'], ['payouts_paused', 'bool'], ['buys_halted', 'bool'], ['buybacks_halted', 'bool'], ['by', 'pubkey']],
   GuardianChanged: [['old', 'pubkey'], ['new', 'pubkey']],
   PayoutConfigChanged: [['old_authority', 'pubkey'], ['new_authority', 'pubkey'], ['old_destination', 'pubkey'], ['new_destination', 'pubkey']],
   ConfigAdded: [['config_id', 'u16'], ['liquidity_bps', 'u16'], ['platform_bps', 'u16'], ['founder_bps', 'u16'], ['holders_bps', 'u16'],

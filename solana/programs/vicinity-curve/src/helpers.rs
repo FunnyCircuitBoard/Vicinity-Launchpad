@@ -192,23 +192,31 @@ pub fn check_founder_key(
     Ok(())
 }
 
-/// Who may set which pause flag (4.4). `launches`, `payouts`, `buys` are the
-/// instruction's arguments.
+/// The arguments of `set_pause` (4.4): `None` leaves a flag as it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PauseArgs {
+    pub launches: Option<bool>,
+    pub payouts: Option<bool>,
+    pub buys: Option<bool>,
+    pub buybacks: Option<bool>,
+}
+
+/// Who may set which pause flag (4.4).
 ///
 /// * the admin: any flag, to true or false;
-/// * a nonzero `payout_authority`: only `(None, Some(true), None)`;
-/// * a nonzero `guardian`: only `launches` and `buys`, only to `Some(true)`,
-///   `payouts = None`, at least one set.
+/// * a nonzero `payout_authority`: only `(None, Some(true), None, None)`;
+/// * a nonzero `guardian`: only `launches`, `buys` and `buybacks`, only to
+///   `Some(true)`, `payouts = None`, at least one set.
 ///
 /// A key that holds more than one role may do what any of its roles allows.
+/// Whether the resulting flags are allowed together is
+/// [`pause_flags_consistent`]'s question.
 pub fn pause_allowed(
     signer: &Pubkey,
     admin: &Pubkey,
     payout_authority: &Pubkey,
     guardian: &Pubkey,
-    launches: Option<bool>,
-    payouts: Option<bool>,
-    buys: Option<bool>,
+    a: PauseArgs,
 ) -> bool {
     let zero = Pubkey::default();
     if signer == admin {
@@ -216,17 +224,27 @@ pub fn pause_allowed(
     }
     let as_payout_key = *payout_authority != zero
         && signer == payout_authority
-        && launches.is_none()
-        && payouts == Some(true)
-        && buys.is_none();
+        && a.launches.is_none()
+        && a.payouts == Some(true)
+        && a.buys.is_none()
+        && a.buybacks.is_none();
     let only_true = |v: Option<bool>| v.is_none() || v == Some(true);
     let as_guardian = *guardian != zero
         && signer == guardian
-        && payouts.is_none()
-        && only_true(launches)
-        && only_true(buys)
-        && (launches.is_some() || buys.is_some());
+        && a.payouts.is_none()
+        && only_true(a.launches)
+        && only_true(a.buys)
+        && only_true(a.buybacks)
+        && (a.launches.is_some() || a.buys.is_some() || a.buybacks.is_some());
     as_payout_key || as_guardian
+}
+
+/// The flags after `set_pause` may be stored only if buybacks are halted
+/// solely while buys are (review LL-1): a halt of buybacks alone would let a
+/// backlog build that anyone could buy ahead of, and resuming buys before
+/// buybacks would open the market in front of that backlog.
+pub fn pause_flags_consistent(buys_halted: bool, buybacks_halted: bool) -> bool {
+    !buybacks_halted || buys_halted
 }
 
 /// Reads the upgrade authority from a BPF upgradeable loader ProgramData
@@ -723,24 +741,38 @@ mod tests {
         for l in all {
             for p in all {
                 for b in all {
-                    // The admin may set anything.
-                    assert!(pause_allowed(&admin, &admin, &pk, &g, l, p, b));
-                    // A stranger may set nothing.
-                    assert!(!pause_allowed(&other, &admin, &pk, &g, l, p, b));
-                    // The payout key may only stop payouts.
-                    let want_pk = l.is_none() && p == Some(true) && b.is_none();
-                    assert_eq!(pause_allowed(&pk, &admin, &pk, &g, l, p, b), want_pk);
-                    // The guardian may only stop launches and buys.
-                    let want_g = p.is_none()
-                        && l != Some(false)
-                        && b != Some(false)
-                        && (l.is_some() || b.is_some());
-                    assert_eq!(pause_allowed(&g, &admin, &pk, &g, l, p, b), want_g);
-                    // Unset roles (zero keys) give nothing, even to the zero key.
-                    assert!(!pause_allowed(&z, &admin, &z, &z, l, p, b));
+                    for k in all {
+                        let a = PauseArgs {
+                            launches: l,
+                            payouts: p,
+                            buys: b,
+                            buybacks: k,
+                        };
+                        // The admin may set anything.
+                        assert!(pause_allowed(&admin, &admin, &pk, &g, a));
+                        // A stranger may set nothing.
+                        assert!(!pause_allowed(&other, &admin, &pk, &g, a));
+                        // The payout key may only stop payouts.
+                        let want_pk = l.is_none() && p == Some(true) && b.is_none() && k.is_none();
+                        assert_eq!(pause_allowed(&pk, &admin, &pk, &g, a), want_pk);
+                        // The guardian may only stop launches, buys and buybacks.
+                        let want_g = p.is_none()
+                            && l != Some(false)
+                            && b != Some(false)
+                            && k != Some(false)
+                            && (l.is_some() || b.is_some() || k.is_some());
+                        assert_eq!(pause_allowed(&g, &admin, &pk, &g, a), want_g);
+                        // Unset roles (zero keys) give nothing, even to the zero key.
+                        assert!(!pause_allowed(&z, &admin, &z, &z, a));
+                    }
                 }
             }
         }
+        // review LL-1: buybacks are halted only while buys are
+        assert!(pause_flags_consistent(false, false));
+        assert!(pause_flags_consistent(true, false));
+        assert!(pause_flags_consistent(true, true));
+        assert!(!pause_flags_consistent(false, true));
     }
 
     fn program_data(tag: u32, option: u8, auth: [u8; 32]) -> Vec<u8> {

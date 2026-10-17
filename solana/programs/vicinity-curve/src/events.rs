@@ -201,6 +201,7 @@ pub struct PauseChanged {
     pub launches_paused: bool,
     pub payouts_paused: bool,
     pub buys_halted: bool,
+    pub buybacks_halted: bool,
     pub by: Pubkey,
 }
 

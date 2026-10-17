@@ -171,6 +171,12 @@ pub enum CurveError {
     /// 6053
     #[msg("a coin's founder cannot be the guardian or the payout key")]
     FounderHoldsRole,
+    /// 6054
+    #[msg("buybacks are halted")]
+    BuybacksHalted,
+    /// 6055
+    #[msg("buybacks may be halted only while buys are halted: halt buys with them, and resume buybacks before or with buys")]
+    BuybackHaltWithoutBuyHalt,
 }
 
 /// The program error for a math crate error (4.22): the trade refusals keep
@@ -224,7 +230,7 @@ mod tests {
     /// 4.22: the codes are fixed; a reordering would break every client.
     #[test]
     fn codes_are_in_spec_order() {
-        let table: [(CurveError, u32); 54] = [
+        let table: [(CurveError, u32); 56] = [
             (CurveError::Unauthorized, 6000),
             (CurveError::NotUpgradeAuthority, 6001),
             (CurveError::InvalidAddress, 6002),
@@ -279,6 +285,8 @@ mod tests {
             (CurveError::LegacyAdminMismatch, 6051),
             (CurveError::FeeRecipientRole, 6052),
             (CurveError::FounderHoldsRole, 6053),
+            (CurveError::BuybacksHalted, 6054),
+            (CurveError::BuybackHaltWithoutBuyHalt, 6055),
         ];
         for (e, code) in table {
             assert_eq!(u32::from(e), code, "{e:?}");

@@ -137,10 +137,10 @@ test('L09 refused while buys are halted; the halt stops nothing else; a fresh co
   assert.equal(r.events.length, 0);
   await w.buy(u, h, 3n * LAMPORTS);
   w.warpSlots(150n);
-  await w.send([w.ix.setPause({ authority: w.guardian.address, buys: true })], [w.guardian], 'guardian halts buys');
-  await expectFail(() => w.buyback(h, { label: 'buyback while halted' }), 'BuysHalted');
+  await w.send([w.ix.setPause({ authority: w.guardian.address, buys: true, buybacks: true })], [w.guardian], 'guardian halts buys and buybacks');
+  await expectFail(() => w.buyback(h, { label: 'buyback while halted' }), 'BuybacksHalted');
   // the account list is pinned: another coin's mint or vault, Token-2022
-  await w.send([w.ix.setPause({ authority: w.admin.address, buys: false })], [w.admin], 'admin clears');
+  await w.send([w.ix.setPause({ authority: w.admin.address, buys: false, buybacks: false })], [w.admin], 'admin clears');
   await expectFail(() => w.send([w.ix.buybackBurn({ coin: h.coin, overrides: { mint: h2.mint } })], [], 'another mint', { feePayer: w.keeper }), 'InvalidAddress');
   await expectFail(() => w.send([w.ix.buybackBurn({ coin: h.coin, overrides: { coin_vault: h2.vault } })], [], 'another vault', { feePayer: w.keeper }), 'InvalidAddress');
   await expectFail(() => w.send([w.ix.buybackBurn({ coin: h.coin, overrides: { token_program: S.ADDRESSES.token2022 } })], [], 'Token-2022', { feePayer: w.keeper }), 'InvalidProgramId');

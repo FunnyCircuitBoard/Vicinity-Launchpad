@@ -45,6 +45,7 @@ pub mod state;
 #[cfg(test)]
 mod checklist;
 
+use helpers::PauseArgs;
 use instructions::*;
 
 // Localnet / devnet id: a throwaway keypair kept outside the repository; the
@@ -73,15 +74,25 @@ pub mod vicinity_curve {
         instructions::accept_admin::handle_accept_admin(ctx)
     }
 
-    /// 4.4. Pause or resume launches, payouts and buys. The payout key may
-    /// only pause payouts; the guardian may only pause launches and buys.
+    /// 4.4. Pause or resume launches, payouts, buys and buybacks. The payout
+    /// key may only pause payouts; the guardian may only pause launches, buys
+    /// and buybacks. Buybacks are halted only while buys are.
     pub fn set_pause(
         ctx: Context<SetPause>,
         launches: Option<bool>,
         payouts: Option<bool>,
         buys: Option<bool>,
+        buybacks: Option<bool>,
     ) -> Result<()> {
-        instructions::set_pause::handle_set_pause(ctx, launches, payouts, buys)
+        instructions::set_pause::handle_set_pause(
+            ctx,
+            PauseArgs {
+                launches,
+                payouts,
+                buys,
+                buybacks,
+            },
+        )
     }
 
     /// 4.4. Set or clear (zero) the guardian.

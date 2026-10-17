@@ -186,6 +186,7 @@ export const ERROR_NAMES = Object.freeze([
   'WrongRewardsConfig', 'WrongRewardsVault', 'DestinationMismatch', 'OptInFounderMismatch', 'PayoutTooSoon',
   'TradingHalted', 'MathOverflow', 'ConfigDripFarmable', 'ConfigBuybackHorizon', 'LegacyApprovalExists',
   'LegacyLaunchesOpen', 'BuysHalted', 'BadMetaHash', 'LegacyAdminMismatch', 'FeeRecipientRole', 'FounderHoldsRole',
+  'BuybacksHalted', 'BuybackHaltWithoutBuyHalt',
 ]);
 export const ERROR_CODES = Object.freeze(Object.fromEntries(ERROR_NAMES.map((n, i) => [n, 6000 + i])));
 /** The error name of a custom program error code, or null. */

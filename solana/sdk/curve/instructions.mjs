@@ -160,8 +160,9 @@ export function curveInstructions({ programId = CURVE_PROGRAM_ID, cluster = 'mai
     /** 4.3. */
     acceptAdmin: ({ newAdmin, overrides }) => make('accept_admin', { new_admin: newAdmin, launchpad: P.launchpad() }, W('accept_admin').done(), overrides),
     /** 4.4: each flag `true`, `false` or `null` (unchanged). */
-    setPause: ({ authority, launches = null, payouts = null, buys = null, overrides }) =>
-      make('set_pause', { authority, launchpad: P.launchpad() }, W('set_pause').optBool(launches).optBool(payouts).optBool(buys).done(), overrides),
+    /** 4.4: `null` leaves a flag as it is; buybacks are halted only while buys are (review LL-1). */
+    setPause: ({ authority, launches = null, payouts = null, buys = null, buybacks = null, overrides }) =>
+      make('set_pause', { authority, launchpad: P.launchpad() }, W('set_pause').optBool(launches).optBool(payouts).optBool(buys).optBool(buybacks).done(), overrides),
     /** 4.4: zero = no guardian. */
     setGuardian: ({ admin, guardian, overrides }) => make('set_guardian', { admin, launchpad: P.launchpad() }, W('set_guardian').pubkey(guardian).done(), overrides),
     /** 4.5: two zeros switch payouts off. */

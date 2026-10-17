@@ -332,12 +332,12 @@ test('vicinity_curve smoke: one coin, every outflow, guardian halt, halt-all ove
   await fails(() => send([ix('payout_founder_fees', {}, payoutAccounts)], [payoutKey], 'payout too soon'), 'PayoutTooSoon');
 
   // guardian halt: buys and buybacks refuse, sells and claims work, only the admin clears
-  await send([ix('set_pause', { launches: null, payouts: null, buys: true }, { authority: A(guardian), launchpad: LAUNCHPAD })], [guardian], 'guardian halts');
+  await send([ix('set_pause', { launches: null, payouts: null, buys: true, buybacks: null }, { authority: A(guardian), launchpad: LAUNCHPAD })], [guardian], 'guardian halts');
   await fails(() => send([ix('buy', { sol_in: bn(1_000_000_000n), min_tokens_out: bn(0) }, trade)], [buyer], 'halted buy'), 'BuysHalted');
   await send([ix('sell', { tokens_in: bn(1_000_000n), min_sol_out: bn(0) }, trade)], [buyer], 'sell while halted');
   await send([ix('claim_founder_fees', {}, { founder: A(founder), coin: COIN, ...ev })], [founder], 'claim while halted');
-  await fails(() => send([ix('set_pause', { launches: null, payouts: null, buys: false }, { authority: A(guardian), launchpad: LAUNCHPAD })], [guardian], 'guardian clears'), 'Unauthorized');
-  await send([ix('set_pause', { launches: null, payouts: null, buys: false }, { authority: A(admin), launchpad: LAUNCHPAD })], [admin], 'admin clears');
+  await fails(() => send([ix('set_pause', { launches: null, payouts: null, buys: false, buybacks: null }, { authority: A(guardian), launchpad: LAUNCHPAD })], [guardian], 'guardian clears'), 'Unauthorized');
+  await send([ix('set_pause', { launches: null, payouts: null, buys: false, buybacks: null }, { authority: A(admin), launchpad: LAUNCHPAD })], [admin], 'admin clears');
   log('guardian halt ok');
 
   // halt-all build over the live state (H02, H03)

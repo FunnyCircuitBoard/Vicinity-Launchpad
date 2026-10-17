@@ -1383,3 +1383,70 @@ costs at least 0.01% of each leg after both his own and the whole holders' share
 set breaks V2b as a sum on purpose; the golden vectors (`differential.rs`, `math.test.mjs`, F03 on
 chain). Against the previous build, `v02b_credited_shares_leave_the_minimum_fee` fails at
 (0, 0, 50, 50, 0) and X44 at its first sum config (the program accepts it).
+
+### 53. A separate buyback halt, set only while buys are halted (3.4, 4.4, 4.13, 4.22, 7.2, 8.3, I20, T72, T73, T76, O25, H01, L12; review LL-1)
+
+**Spec.** 3.4 and 8.3: one flag, `buys_halted`, set by the guardian or the admin, stopped `buy`,
+`buyback_burn` and `launch`; 7.2, T76 and O25 named volume bursts and keeper downtime as the causes
+of a backlog, with a keeper that spends every interval as the mitigation.
+
+**Issue.** During a guardian halt every sell still booked its 0.3% into `buyback_pending` and every
+`buyback_burn` failed with `BuysHalted`, so the keeper could not run for the whole halt (under the
+48-hour time lock, at least 48 hours, and the clearing proposal is public that long). The review's
+on-chain run: a 970 SOL pool, 95% of the holders' coins sold during the halt, a backlog of 2.868 SOL
+against a depth of 19.26 SOL (14.9%, seven times `u*`); the first buyer after the clear, 20 SOL held
+through 73 runs, made +1.235 SOL, against -0.897 SOL with the keeper running. A stolen guardian key
+could create the condition on every pool coin at once. The verifier rated it low: it is O25's
+accepted front-run of a public backlog, it needs a pool coin far above graduation mostly sold during
+the halt, and the loss is at most 0.3% of the SOL sold. The program already allowed an atomic drain
+(`[set_pause(false), buyback_burn, set_pause(true)]` per transaction), but under the time lock each
+of those is a Squads proposal (139 for the review's backlog).
+
+**Choice.** The review's first fix, which is the safer one: buybacks get their own flag, and the
+program forbids the state in which a backlog can build in front of open buys.
+* `Launchpad.buybacks_halted` (offset 174, taken from `_reserved`, now 63 bytes; the account stays
+  238 bytes and no other offset moves) blocks `buyback_burn` with `BuybacksHalted` (6054,
+  appended). `buys_halted` blocks only `buy` and `launch`.
+* `set_pause(launches, payouts, buys, buybacks)`: the guardian may set any of launches, buys and
+  buybacks to true, never false; the payout key only stops payouts; the admin anything. Whoever
+  signs, the flags after the call must satisfy `!buybacks_halted || buys_halted`
+  (`BuybackHaltWithoutBuyHalt`, 6055, appended): buybacks are halted only together with or after
+  buys, and buys reopen only with or after buybacks. `PauseArgs` carries the four arguments
+  (`pause_allowed` would otherwise take eight); `pause_flags_consistent` is the rule.
+  `PauseChanged` gains `buybacks_halted`.
+* So a halt of buys alone leaves the keeper running (no backlog builds; sellers keep the support
+  their 0.3% pays for), and after a halt of both the admin's recovery is two proposals: buybacks
+  first, then, once the keeper has spent every coin's backlog to at most one cap and the site has
+  published the figures, buys. Nobody can buy ahead of the drain. 8.3 now tells the guardian to
+  halt buybacks only when they are themselves in question (a curve-math bug, a buyback MEV route).
+* Not taken: leaving `buyback_burn` unhaltable (the review's alternative). It is simpler and also
+  removes the stolen-guardian case, but it leaves no fast stop for a buyback-specific bug short of
+  the halt-all upgrade; with the rule above a stolen guardian can only create a backlog that nobody
+  can buy ahead of, and the admin drains it before reopening buys.
+* Not solvable on chain: clearing both flags in one proposal while large backlogs exist. The program
+  cannot see every coin's backlog; the runbook (8.3, 14.1) drains first, and clearing both at once
+  stays possible for small backlogs.
+
+Spec 3.4, 4.0, 4.4, 4.13, 4.21, 4.22, 6.4, 7.1, 7.2, 8.1, 8.3, I20, I22, T72, T73, T76, O9, O25,
+12.3 (L09, L12), 12.5 (H01, LL-1), 14.1 (the keeper's drain), 14.3. The IDL, the SDK's `setPause`
+builder (`buybacks`), `decodeLaunchpad` (`buybacksHalted`), the `PauseChanged` decoder and the error
+list follow.
+
+Tests. `11-halts`: L12 (the guardian may halt buybacks only while buys are halted, never resume
+them; the admin cannot halt buybacks alone or reopen buys before buybacks; the events carry the new
+flag), H01 (a halt of buys alone leaves `buyback_burn` running; with buybacks halted it refuses with
+`BuybacksHalted`; the admin resumes buybacks, then buys), and **LL-1**: two pool coins of about
+320 SOL with the same history, buys and buybacks halted, everybody sells 95% in five rounds (the
+backlog ends above `u*` on both), the admin cannot reopen buys first, resumes buybacks while buys
+stay refused, the keeper drains coin A in 47 runs, then buys reopen; the first buyer of each coin
+buys 5 SOL and holds through every run: on A he loses 0.237 SOL, on the undrained twin B he would
+make 0.094 SOL after 39 runs (the reason for the runbook). `19-attacks-admin` X43b (the guardian
+cannot resume buybacks), `08-buyback` (`BuybacksHalted`), unit tests `pause_roles` (every
+combination of the four arguments and the consistency rule) and the review checklist's
+`pause_flags_and_launchpad_keys` (`buys_halted` read only by `buy` and `launch`,
+`buybacks_halted` only by `buyback_burn`), `launchpad_offsets` (offset 174); the checker's I20
+(`buybacks_halted` only with `buys_halted`; set only by the guardian or the admin, cleared only by
+the admin) and its I22 probe (buybacks while `buybacks_halted` is clear); the fuzz model predicts
+`BuybacksHalted` and `BuybackHaltWithoutBuyHalt`. Against the previous build, H01 fails at its
+first `set_pause` (the event has no `buybacks_halted`) and the LL-1 test at its first `set_pause`
+(`Unauthorized`: the old program reads only three arguments).

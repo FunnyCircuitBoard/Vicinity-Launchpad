@@ -14,8 +14,10 @@ use crate::errors::CurveError;
 /// One per program; seeds `["launchpad"]`; 238 bytes (3.4).
 ///
 /// There is no fee-recipient field, no program-id field and no coin counter
-/// (3.2). `buy`, `buyback_burn` and `launch` read `buys_halted`; `sell` never
-/// reads this account.
+/// (3.2). `buy` and `launch` read `buys_halted`, `buyback_burn` reads
+/// `buybacks_halted`; `sell` never reads this account.
+/// `buybacks_halted` implies `buys_halted` (`set_pause` refuses anything else,
+/// review LL-1): no buyback backlog can build while anyone can buy ahead of it.
 #[account]
 #[derive(InitSpace)]
 pub struct Launchpad {
@@ -28,21 +30,24 @@ pub struct Launchpad {
     pub payout_authority: Pubkey,
     /// Offset 104. System-owned wallet that receives opted-in payouts; zero = off.
     pub payout_destination: Pubkey,
-    /// Offset 136. May only set `launches_paused` and `buys_halted` to true;
-    /// zero = none.
+    /// Offset 136. May only set `launches_paused`, `buys_halted` and
+    /// `buybacks_halted` to true; zero = none.
     pub guardian: Pubkey,
     /// Offset 168. Blocks `launch`.
     pub launches_paused: bool,
     /// Offset 169. Blocks `payout_founder_fees`.
     pub payouts_paused: bool,
-    /// Offset 170. Blocks `buy`, `buyback_burn` and `launch`; never an exit.
+    /// Offset 170. Blocks `buy` and `launch`; never an exit.
     pub buys_halted: bool,
     /// Offset 171. Id of the next `LaunchConfig`; sequential from 0.
     pub next_config_id: u16,
     /// Offset 173.
     pub bump: u8,
-    /// Offset 174. Zero.
-    pub _reserved: [u8; 64],
+    /// Offset 174. Blocks `buyback_burn`; set only while `buys_halted` is
+    /// (review LL-1). Taken from the reserved bytes: the size is unchanged.
+    pub buybacks_halted: bool,
+    /// Offset 175. Zero.
+    pub _reserved: [u8; 63],
 }
 
 /// One per allowed split and curve; seeds `["config", config_id u16 LE]`;
@@ -435,7 +440,8 @@ mod tests {
             buys_halted: true,
             next_config_id: 0xBEEF,
             bump: 254,
-            _reserved: [0; 64],
+            buybacks_halted: true,
+            _reserved: [0; 63],
         };
         let d = bytes(&lp);
         assert_eq!(d.len(), LAUNCHPAD_LEN);
@@ -446,7 +452,8 @@ mod tests {
         assert_eq!((d[168], d[169], d[170]), (1, 0, 1));
         assert_eq!(u16_at(&d, 171), 0xBEEF);
         assert_eq!(d[173], 254);
-        assert!(d[174..238].iter().all(|b| *b == 0));
+        assert_eq!(d[174], 1, "buybacks_halted at 174");
+        assert!(d[175..238].iter().all(|b| *b == 0));
     }
 
     #[test]

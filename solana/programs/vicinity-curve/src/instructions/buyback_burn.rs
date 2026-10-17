@@ -10,7 +10,10 @@
 //! burned from the vault with SPL `burn`.
 //!
 //! No-op (`Ok`, no state change, no event) when there is nothing to do; a halt
-//! (`BuysHalted`) is an error (4.0).
+//! (`BuybacksHalted`) is an error (4.0). Buybacks have their own flag (review
+//! LL-1): while only buys are halted they go on, so no backlog builds, and
+//! after a halt of both the admin resumes buybacks first and the keeper spends
+//! each coin's backlog while nobody can buy ahead of it.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, Mint, Token, TokenAccount};
@@ -33,7 +36,7 @@ pub struct BuybackBurn<'info> {
     )]
     pub coin: Box<Account<'info, CurveCoin>>,
 
-    /// Only `buys_halted` is read (a buyback is a buy).
+    /// Only `buybacks_halted` is read.
     #[account(seeds = [LAUNCHPAD_SEED], bump = launchpad.bump)]
     pub launchpad: Box<Account<'info, Launchpad>>,
 
@@ -53,7 +56,7 @@ pub struct BuybackBurn<'info> {
 pub fn handle_buyback_burn(ctx: Context<BuybackBurn>) -> Result<()> {
     require_not_halted()?;
     let a = &ctx.accounts;
-    require!(!a.launchpad.buys_halted, CurveError::BuysHalted);
+    require!(!a.launchpad.buybacks_halted, CurveError::BuybacksHalted);
     let (timestamp, slot) = now()?;
     let terms = a.coin.terms();
     let before = a.coin.state()?;

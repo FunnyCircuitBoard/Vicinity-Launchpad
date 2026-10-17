@@ -2,8 +2,8 @@
 
 Status: specification for the build and for the outside audit, revision 3, 17 October 2026.
 Revision 3 folds in the implementation notes of the build (`VICINITY-CURVE-NOTES.md` entries 1 to
-52: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
-CLI-2, CLI-3), 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1) and 3 (R3-DIFF-1, MATH3-2) of the build; revision 2 answered the security, math, runtime and integration review
+53: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
+CLI-2, CLI-3), 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1) and 3 (R3-DIFF-1, MATH3-2, LL-1) of the build; revision 2 answered the security, math, runtime and integration review
 of revision 1. Appendix C lists every finding of each review, what changed and the parts that were
 not applied, with reasons, and the notes folded in. The program, its math crate, its client SDK and
 its test suites are built (branch `feat/vicinity-curve`); nothing has been deployed or signed.
@@ -83,7 +83,7 @@ Sources. Appendix C Review responses.
    needs the owner's sign-off (O25).
 8. **Admin powers are minimal and listed** (section 8). Within `vicinity_curve` the admin can
    approve or revoke launches, add or disable future configs inside compiled caps, pause new
-   launches, payouts and buys, set the payout key and wallet, set the guardian and hand over
+   launches, payouts, buys and buybacks, set the payout key and wallet, set the guardian and hand over
    the admin seat in two steps; it has no path to any lamport or token and cannot change a
    live coin. **The same Squads multisig is also the upgrade authority and publishes the holder
    reward rounds in `vicinity_rewards`**, so it is the main trust in the system (8.1). A
@@ -296,18 +296,21 @@ it asks the `Rent` sysvar.
 | 40 | `pending_admin` | Pubkey | second step of an admin transfer; zero = none |
 | 72 | `payout_authority` | Pubkey | key that may run opted-in founder payouts; zero = off (default) |
 | 104 | `payout_destination` | Pubkey | system-owned wallet that receives opted-in payouts; zero = off |
-| 136 | `guardian` | Pubkey | may only set `launches_paused` and `buys_halted` to true; zero = none |
+| 136 | `guardian` | Pubkey | may only set `launches_paused`, `buys_halted` and `buybacks_halted` to true; zero = none |
 | 168 | `launches_paused` | bool | blocks `launch` |
 | 169 | `payouts_paused` | bool | blocks `payout_founder_fees` |
-| 170 | `buys_halted` | bool | blocks `buy`, `buyback_burn` and `launch`; never sells, claims, forwards, withdrawals or payouts |
+| 170 | `buys_halted` | bool | blocks `buy` and `launch`; never sells, claims, forwards, withdrawals or payouts |
 | 171 | `next_config_id` | u16 | id of the next `LaunchConfig`; ids are sequential from 0 |
 | 173 | `bump` | u8 | |
-| 174 | `_reserved` | [u8; 64] | zero |
+| 174 | `buybacks_halted` | bool | blocks `buyback_burn`; set only while `buys_halted` is (review LL-1) |
+| 175 | `_reserved` | [u8; 63] | zero |
 | 238 | end | | |
 
-There is no fee-recipient field, no program-id field (3.2) and no coin counter. `buy`,
-`buyback_burn` and `launch` read `buys_halted`; `sell` only checks this account's address and
-never reads it, so no content of this account can stop an exit.
+There is no fee-recipient field, no program-id field (3.2) and no coin counter. `buy` and
+`launch` read `buys_halted`, `buyback_burn` reads `buybacks_halted`; `sell` only checks this
+account's address and never reads it, so no content of this account can stop an exit.
+`buybacks_halted` came out of the reserved bytes (review LL-1), so the size and every other
+offset are unchanged; `set_pause` never stores `buybacks_halted` without `buys_halted`.
 
 ### 3.5 `LaunchConfig` (one per allowed split and curve; 144 bytes; immutable except `enabled`)
 
@@ -489,7 +492,7 @@ number), `opted_in_at` i64 (136), `bump` u8 (144).
 * **No-op rule**: `buyback_burn`, `withdraw_platform_fees`, `forward_holders_fees`,
   `claim_founder_fees` and `payout_founder_fees` return `Ok` without changing state or
   emitting when there is nothing to move (a keeper can batch many coins in one transaction).
-  A halt (`BuysHalted`, `TradingHalted`) is an error, not a no-op.
+  A halt (`BuysHalted`, `BuybacksHalted`, `TradingHalted`) is an error, not a no-op.
 * **Order of effects** in every money instruction: checks, then CPIs that bring value in
   (system transfer from the buyer, token transfer from the seller), then CPIs that send
   tokens out or burn, then the in-memory state update, then direct lamport moves through
@@ -506,8 +509,9 @@ number), `opted_in_at` i64 (136), `bump` u8 (144).
   `emit_cpi!`, whose single account is the event authority, so both sides of the move stay
   outside it and the sums match. `forward_holders_fees` therefore does not call SPL
   `SyncNative` itself (4.15). Review checklist item and test R02b.
-* **Halts**: `buys_halted` (set by the guardian or the admin, 4.4) makes `launch`, `buy` and
-  `buyback_burn` fail with `BuysHalted`. The **halt-all build** (8.3): with feature
+* **Halts**: `buys_halted` (set by the guardian or the admin, 4.4) makes `launch` and `buy`
+  fail with `BuysHalted`; `buybacks_halted`, set only together with or after it, makes
+  `buyback_burn` fail with `BuybacksHalted`. The **halt-all build** (8.3): with feature
   `halt-all`, the eight handlers that move lamports or tokens out of a `Coin` or its vault
   (`launch`, `buy`, `sell`, `buyback_burn`, `withdraw_platform_fees`,
   `forward_holders_fees`, `claim_founder_fees`, `payout_founder_fees`) fail with
@@ -564,27 +568,33 @@ Reused unchanged.
   current admin, `accept_admin` by the new one): until then `approve_launch` and `launch` fail
   with `LegacyAdminMismatch` (4.8, 8.5).
 
-### 4.4 `set_pause(launches: Option<bool>, payouts: Option<bool>, buys: Option<bool>)` and `set_guardian(guardian: Pubkey)`
+### 4.4 `set_pause(launches: Option<bool>, payouts: Option<bool>, buys: Option<bool>, buybacks: Option<bool>)` and `set_guardian(guardian: Pubkey)`
 
 `set_pause`: `authority` S; `launchpad` W, seeds. Who may set what (else `Unauthorized`):
 
 | signer | may set |
 |---|---|
 | `admin` | any flag, to true or false |
-| nonzero `payout_authority` | only `(None, Some(true), None)`: it can stop payouts, never resume them |
-| nonzero `guardian` | only `launches` and `buys`, only to `Some(true)`, `payouts = None`, at least one set: it can stop launches and buys, never resume them |
+| nonzero `payout_authority` | only `(None, Some(true), None, None)`: it can stop payouts, never resume them |
+| nonzero `guardian` | only `launches`, `buys` and `buybacks`, only to `Some(true)`, `payouts = None`, at least one set: it can stop launches, buys and buybacks, never resume them |
 
-Effects: set the given flags. Event `PauseChanged { launches_paused, payouts_paused,
-buys_halted, by }`. An admin call with all three arguments `None` changes nothing and emits the
-unchanged flags (NOTES 23). Nothing can stop sells, claims, forwards or withdrawals.
+Effects: set the given flags; then, whoever signed, require `!buybacks_halted || buys_halted`
+(`BuybackHaltWithoutBuyHalt`, review LL-1): buybacks are halted only while buys are, so a halt
+of buybacks goes with a halt of buys, and buybacks resume before or together with buys. A
+backlog therefore never builds while anyone can buy ahead of it, and after a halt of both the
+keeper can spend every coin's backlog while buys are still refused (8.3). Event `PauseChanged
+{ launches_paused, payouts_paused, buys_halted, buybacks_halted, by }`. An admin call with all
+four arguments `None` changes nothing and emits the unchanged flags (NOTES 23). Nothing can stop
+sells, claims, forwards or withdrawals.
 
 `set_guardian`: `admin` S; `launchpad` W, seeds, `has_one = admin` (`Unauthorized`).
 Checks: `guardian != FEE_RECIPIENT` (`FeeRecipientRole`); `check_payout_keys_separate(admin,
 guardian, payout_authority, payout_destination)` (`PayoutKeyNotSeparate`): the guardian is never
 the payout key or the payout wallet (8.1: it cannot touch money). Effect: `guardian = guardian`
 (zero = none). Event (`emit!`) `GuardianChanged { old, new }`.
-To recover from a stolen guardian, the admin clears `buys_halted` and replaces the guardian
-in the same proposal.
+To recover from a stolen guardian, the admin replaces the guardian and clears the flags in the
+same proposal, or, if the thief also halted buybacks and backlogs built up, resumes buybacks
+first and buys in a later proposal (8.3).
 
 ### 4.5 `set_payout_config(payout_authority: Pubkey, payout_destination: Pubkey)`
 
@@ -795,7 +805,7 @@ There is no minimum on sells and no flag that blocks them, so any holder can alw
 | # | account | flags | constraints (error) |
 |---|---|---|---|
 | 1 | `coin` | W | seeds, bump |
-| 2 | `launchpad` | | seeds, bump; only `buys_halted` is read |
+| 2 | `launchpad` | | seeds, bump; only `buybacks_halted` is read |
 | 3 | `mint` | W | `address = coin.mint` (`InvalidAddress`) (a burn lowers the supply) |
 | 4 | `coin_vault` | W | `address = coin.vault` (`InvalidAddress`) |
 | 5 | `token_program` | | `Program<Token>` |
@@ -803,7 +813,9 @@ There is no minimum on sells and no flag that blocks them, so any holder can alw
 
 No signer besides the transaction fee payer; the caller chooses nothing and receives
 nothing. No arguments.
-Check: `!launchpad.buys_halted` (`BuysHalted`: a buyback is a buy).
+Check: `!launchpad.buybacks_halted` (`BuybacksHalted`). Buybacks have their own flag (review
+LL-1): a halt of buys alone leaves them running, so sellers keep the support their own 0.3%
+pays for and no backlog builds while nobody can buy.
 No-op (`Ok`) when any holds: `buyback_pending == 0`;
 `slot < last_buyback_slot + BUYBACK_INTERVAL_SLOTS`; `math::quote_buyback(...)` returns
 nothing (cap 0, or 0 coins, or 0 lamports spent; 7.1).
@@ -939,7 +951,7 @@ below says):
 | `FounderPaidOut` | city_id, founder, destination, amount, seq, ref_hash, total_paid_out |
 
 `emit!` (settings): `LaunchpadInitialized`, `AdminProposed`, `AdminChanged`, `PauseChanged`
-(with `buys_halted`), `GuardianChanged`, `PayoutConfigChanged`, `ConfigAdded`,
+(with `buys_halted` and `buybacks_halted`), `GuardianChanged`, `PayoutConfigChanged`, `ConfigAdded`,
 `ConfigEnabled`, `LaunchApproved`, `ApprovalRevoked`, `FounderTransferred`,
 `PayoutOptedIn`, `PayoutOptInRevoked`. Every figure in every event is also a counter or field
 in an account, so indexers can reconcile from state. The `Trade` of the buy that completes the
@@ -1020,6 +1032,8 @@ curve's last virtual reserves are in `Graduated` (NOTES 23).
 | 6051 | `LegacyAdminMismatch` | `vicinity_launchpad`'s admin is not this program's admin, or an admin transfer is pending there (4.8, 4.10) |
 | 6052 | `FeeRecipientRole` | `FEE_RECIPIENT` named as admin, proposed admin, guardian or upgrade authority at init, or as a coin's founder (4.1, 4.2, 4.4, 4.8, 4.10, 4.17) |
 | 6053 | `FounderHoldsRole` | a coin's founder named as the guardian or the payout key (4.8, 4.10, 4.17) |
+| 6054 | `BuybacksHalted` | `buybacks_halted` is set (guardian or admin; 4.13) |
+| 6055 | `BuybackHaltWithoutBuyHalt` | `set_pause` would leave `buybacks_halted` set while `buys_halted` is not (4.4, review LL-1) |
 
 Anchor's own errors (for example `ConstraintSeeds`, `AccountNotInitialized`, an `init` on an
 existing account) can appear before ours for some substitutions; tests accept either and
@@ -1666,7 +1680,7 @@ counters; "burned by buybacks" = `tokens_burned`; "burned at launch" = `dust_bur
 | founder claim | `claim_founder_fees` | the founder | all of `founder_pending` | `coin.founder` (signer) | nothing (only `halt-all`) |
 | founder payout | `payout_founder_fees` | payout key | all of `founder_pending`, at most daily | `payout_destination`, only with a matching opt-in signed by the current founder | `payouts_paused`; payouts off; `halt-all` |
 | holders | `forward_holders_fees` | anyone | all of `holders_pending` | the city's derived `vicinity_rewards` WSOL vault under a Holders-only config whose authority is the admin | a missing or wrong rewards config (money waits); `halt-all` |
-| buyback | `buyback_burn` | anyone | `min(buyback_pending, cap)` | none: lamports move into the reserve, coins are burned | rate limit; `buys_halted`; `halt-all` |
+| buyback | `buyback_burn` | anyone | `min(buyback_pending, cap)` | none: lamports move into the reserve, coins are burned | rate limit; `buybacks_halted`; `halt-all` |
 | liquidity | none | - | - | stays in the pool, or set aside forever if the coin never graduates | - |
 | launch fee | `launch` | the founder | `launch_fee_lamports` | `FEE_RECIPIENT` | `launches_paused`; `buys_halted`; the old program's launches open; `halt-all` |
 
@@ -1777,7 +1791,7 @@ passed.
 
 ```
 buyback_burn():                                                   // permissionless, no arguments
-  require !launchpad.buys_halted                                  // BuysHalted
+  require !launchpad.buybacks_halted                              // BuybacksHalted
   if buyback_pending == 0 or slot < last_buyback_slot + 150: return Ok     // no-op
   depth = Curve ? x0 + curve_sol : pool_sol                       // the market's SOL depth now
   cap   = floor(depth * t / (25 * D))                             // 0.1% of depth at t = 250
@@ -1835,6 +1849,10 @@ buyback_burn():                                                   // permissionl
 * Operations (14.1): the keeper runs every interval for every coin with a nonzero bucket; it
   alerts when `buyback_pending` exceeds 1% of depth; the coin page shows the backlog and the
   depth, so the market prices the coming buys in.
+* A halt of buybacks (8.3) is the one time the keeper cannot run, and sells keep filling the
+  bucket: a pool mostly sold during a long halt ends with a backlog many times `u*` (review
+  LL-1). The program allows it only while buys are halted and never reopens buys before
+  buybacks; the keeper drains every coin before the admin reopens buys.
 
 ### 7.3 MEV analysis
 
@@ -2021,7 +2039,7 @@ compared with selling at once):
 | key | can | cannot |
 |---|---|---|
 | **Squads vault `AB5qB1iA...`** (multisig `6v8hwKYS...`, 2 of 3), mainnet, in **all** of its roles: `vicinity_curve` admin, upgrade authority and program-metadata (IDL) authority; `vicinity_rewards` registry admin, every city's rewards authority and upgrade authority; `vicinity_launchpad` admin and upgrade authority (the old program's admin seat is enforced: approvals and launches here require it to be this program's admin, 8.5) | **As admin**: `approve_launch`, `revoke_approval`, `add_launch_config` (inside V1 to V11), `set_launch_config_enabled`, `set_pause` (any flag either way), `set_payout_config`, `set_guardian`, `propose_admin`. **As upgrade authority**: replace `vicinity_curve` (including the pre-audited `halt-all` build) after the time lock, and with a new binary take every coin's reserves and buckets. **As rewards registry admin**: choose each city's rewards authority at `init_city` (`vicinity_curve` accepts only configs whose authority is the admin, 4.15). **As each city's rewards authority**: publish the Merkle roots that decide who receives the holders' money in the rewards vault, itself included; pause claims; cancel epochs. **As `vicinity_rewards` upgrade authority**: replace that program, and with it take every forwarded lamport | Within `vicinity_curve`, without an upgrade: move any lamport or token; change a live coin's split, curve, founder or state; block sells, claims, forwards or withdrawals; redirect platform fees; change the compiled program ids; mint; freeze; create a second coin for a city or a ticker. In `vicinity_rewards`: there is no withdraw instruction; a published root is write-once |
-| **guardian** (a separate Squads multisig without a time lock, suggested 1 of 3 of the same members; never on the website server or the keeper; never `FEE_RECIPIENT`, the payout key or the payout wallet, which the program refuses, 4.4, 4.5; never a coin's founder, which the program refuses at every approval, launch and founder transfer, 4.8, 4.10, 4.17) | `set_pause` with `launches = true` and/or `buys = true` only: stops new launches, buys and buybacks at once | clear any flag; block sells, claims, forwards, withdrawals or payouts; touch money; change any setting |
+| **guardian** (a separate Squads multisig without a time lock, suggested 1 of 3 of the same members; never on the website server or the keeper; never `FEE_RECIPIENT`, the payout key or the payout wallet, which the program refuses, 4.4, 4.5; never a coin's founder, which the program refuses at every approval, launch and founder transfer, 4.8, 4.10, 4.17) | `set_pause` with `launches`, `buys` and/or `buybacks` set to true only, buybacks only while buys are halted: stops new launches and buys at once, and buybacks with them when they are in question | clear any flag; block sells, claims, forwards, withdrawals or payouts; touch money; change any setting |
 | **payout key** (off by default; never on the website server; never a coin's founder, refused as for the guardian) | `payout_founder_fees` for opted-in founders, to the fixed payout wallet, once a day per coin; pause payouts | resume payouts; pay anywhere else; touch any other bucket |
 | **founder** (per coin; the admin chooses it at approval and may choose itself; never `FEE_RECIPIENT`, the guardian or the payout key, 4.8, 4.10, 4.17) | claim, opt in or out of payouts, hand over the seat to a co-signing key that is none of those three | touch any other bucket or coin |
 | **anyone** | trade; `buyback_burn`; `withdraw_platform_fees` (pays only `FEE_RECIPIENT`); `forward_holders_fees` (pays only the checked vault); `SyncNative` on a WSOL account; revoke an expired approval | everything else |
@@ -2044,9 +2062,11 @@ Worst cases:
   here (fail closed); reopening the old program to launch a second coin for a city therefore
   needs the same two keys and the time lock as everything else (review GOV-1: on mainnet that
   seat was the owner's wallet, which is also `FEE_RECIPIENT`).
-* **Stolen guardian**: halts buys, buybacks and launches until the admin clears the flag and
-  replaces the guardian in one proposal (after the time lock); sells, claims, forwards and
-  withdrawals never stop.
+* **Stolen guardian**: halts buys, buybacks and launches until the admin replaces the guardian
+  and clears the flags (after the time lock); sells, claims, forwards and withdrawals never
+  stop. If it halted buybacks too and backlogs built up, the admin resumes buybacks first and
+  buys only after the keeper has spent them (8.3; the program never lets buys reopen before
+  buybacks).
 * **Stolen payout key**: only opted-in founders' share, only to the agreed wallet, at most
   daily; it can pause payouts but not resume them.
 * **Stolen founder key**: that coin's `founder_pending` only.
@@ -2072,10 +2092,28 @@ launches fail with `LegacyAdminMismatch`.
   withdrawals. A key that can stop exits is a lever for theft or coercion; a stolen key of
   that kind could freeze every coin for at least the length of the time lock.
 * **Guardian halt (fast, on chain).** The guardian (or the admin) sets
-  `Launchpad.buys_halted`; `buy`, `buyback_burn` and `launch` then fail with `BuysHalted`.
-  The guardian can only set it; only the admin clears it. It is the brake for a bug in the
-  buy path or the curve math, a newly found MEV route, or a hostile upgrade waiting out its
-  time lock (newcomers stop buying in). Cost: `buy`, `sell` and `buyback_burn` take the
+  `Launchpad.buys_halted`; `buy` and `launch` then fail with `BuysHalted`. It may also set
+  `buybacks_halted`, only while buys are halted (`BuybackHaltWithoutBuyHalt` otherwise); then
+  `buyback_burn` fails with `BuybacksHalted`. The guardian can only set flags; only the admin
+  clears them. It is the brake for a bug in the buy path or the curve math, a newly found MEV
+  route, or a hostile upgrade waiting out its time lock (newcomers stop buying in). The
+  guardian halts buybacks only when the buybacks themselves are in question (a curve-math bug,
+  a buyback MEV route); for a hostile upgrade or a buy-path bug it halts buys alone, and the
+  keeper keeps spending every bucket while sellers exit.
+* **Clearing a halt of buybacks: buybacks first, then buys (review LL-1).** While buybacks
+  are halted, every sell still books its share into `buyback_pending` and no run can spend it.
+  A coin whose pool is mostly sold during a long halt ends with a backlog many times `u*`
+  (the review: 14.9% of depth after 95% of a 970 SOL pool was sold), and whoever buys first
+  once buys reopen takes a large part of it as the runs execute (Theorem M_K; +1.24 SOL on
+  20 SOL in the review). So `set_pause` never stores buybacks halted with buys open, and the
+  admin's recovery is two proposals: the first resumes buybacks while buys stay halted; the
+  keeper then runs every coin until its backlog is at most one cap (nobody can buy ahead of
+  those runs), and the coin page shows each backlog and depth; the second resumes buys after
+  the backlog figures are published. Measured (LL-1 test): the drained coin's first buyer
+  after the clear loses 0.237 SOL on 5 SOL; its twin, left undrained, would have paid him
+  0.094 SOL. Clearing both in one proposal stays possible when the backlogs are small. The
+  sellers' shortfall during the halt itself (no support for their own 0.3%) is the cost of
+  halting buybacks, and is why the guardian halts them only when needed. Cost: `buy`, `sell` and `buyback_burn` take the
   `Launchpad` as a fixed read-only account (10 accounts in the trade lists; `sell` checks its
   address only), and `buy` reads one bool.
 * **halt-all build (slow, by upgrade).** Cargo feature `halt-all` makes every instruction
@@ -2276,8 +2314,9 @@ Global:
   `FEE_RECIPIENT`, the guardian or the payout key (the program refuses them at every approval,
   launch and founder transfer; that a later `set_guardian` or `set_payout_config` does not name
   an existing founder is a rule the tests keep and an operating rule, 8.4); `guardian` changes
-  only in `set_guardian`; `buys_halted` becomes true only by the guardian or the admin and
-  false only by the admin; `next_config_id` equals the number of `LaunchConfig` accounts; a
+  only in `set_guardian`; `buys_halted` and `buybacks_halted` become true only by the guardian
+  or the admin and false only by the admin, and `buybacks_halted` is never set while
+  `buys_halted` is not (review LL-1); `next_config_id` equals the number of `LaunchConfig` accounts; a
   `LaunchConfig` changes only in `enabled`; every `LaunchConfig` passes V1 to V11.
 * **I21 No admin money path within `vicinity_curve`.** No instruction in any test moves
   lamports or tokens to the admin, the guardian, the payout key, the upgrade authority or the
@@ -2296,8 +2335,8 @@ Global:
   distributed by Merkle roots that the same Squads vault publishes as each city's rewards
   authority (8.1).
 * **I22 Liveness (nothing stuck).** From every reachable state reached in the tests, unless
-  `buys_halted` is set (then buys, buybacks and launches are refused by design and everything
-  else below still holds): on the curve a buy of `max_quote_in` succeeds and graduates; any
+  `buys_halted` is set (then buys and launches are refused by design, and buybacks while
+  `buybacks_halted` is set, and everything else below still holds): on the curve a buy of `max_quote_in` succeeds and graduates; any
   holder can sell (unless the output would be 0); `withdraw_platform_fees` and
   `claim_founder_fees` succeed; with a correct rewards config (Holders, `founder_bps = 0`,
   WSOL, authority equal to the admin, no pending authority) `forward_holders_fees` succeeds
@@ -2390,11 +2429,11 @@ Global:
 | T69 | **Stuck buyback bucket** (cap 0) | V4: `x0 * t >= 25D` and `R*P*t >= 25D * 10^15`, so the cap is at least 1 lamport in every reachable state | I22; V04 |
 | T70 | **Missing or wrong rewards config** | missing: holders' money waits in `holders_pending`, forward works once a correct config exists; wrong: it can never be fixed (no update or close in `vicinity_rewards`), so the SDK simulates and checks before proposing; fallback O26 ; the SDK ignores lamports sent to the config address and reports a config whose only problem is its authority as fixable (4.15) | I22; R01, R03; 29-clients |
 | T71 | **Pending liquidity of a coin that never graduates** | locked by design, counted, disclosed as never used (O2) | I7, I22 |
-| T72 | **Misuse of the halts** | the guardian can only stop buys, buybacks and launches, never exits, and cannot clear its own flag; the halt-all build needs an upgrade (multisig, time lock); halt-all refuses every outflow by design | H01 to H03; X43b |
-| T73 | **Stolen guardian** | the same limits; the admin clears the flag and replaces the guardian in one proposal | X43b |
+| T72 | **Misuse of the halts** | the guardian can only stop buys, buybacks and launches, never exits, and cannot clear its own flags; buybacks only while buys are halted, so no backlog builds in front of open buys (review LL-1); the halt-all build needs an upgrade (multisig, time lock); halt-all refuses every outflow by design | H01 to H03; X43b; LL-1 |
+| T73 | **Stolen guardian** | the same limits; the admin replaces the guardian and clears the flags, buybacks before buys when backlogs built up (8.3) | X43b; LL-1 |
 | T74 | **Third-party pools for the coin** | cannot be prevented for a classic SPL coin; they pay no Vicinity fee and buybacks and injections carry over to them only past 2.5% plus their fee; labelled (6.6) and listed as an owner-visible risk (13, 14.5) | process |
 | T75 | **CPI after a direct lamport move** (`UnbalancedInstruction`, stuck instruction) | rule of 4.0; `forward_holders_fees` leaves `SyncNative` to a separate top-level instruction | R02, R02b |
-| T76 | **Buying ahead of a public buyback backlog** (hold through several runs) | Theorem M_K; 0.1% step; V11 horizon; keeper every interval, alert above 1% of depth, backlog shown on the coin page; residual risk signed off (O25) | P06b; X25 |
+| T76 | **Buying ahead of a public buyback backlog** (hold through several runs), including the backlog a halt of buybacks leaves and the predictable moment buys reopen (review LL-1) | Theorem M_K; 0.1% step; V11 horizon; keeper every interval, alert above 1% of depth, backlog shown on the coin page; buybacks halted only while buys are, resumed first, and the keeper drains every backlog before buys reopen (8.3); residual risk signed off (O25) | P06b; X25; LL-1 |
 | T77 | **One hot key in several roles** (`FEE_RECIPIENT` as admin, guardian, upgrade authority or a coin's founder, the guardian as payout key or wallet, the guardian or the payout key as a coin's founder, the old program administered by another key) | refused by `init_launchpad`, `propose_admin`, `accept_admin`, `set_guardian` and `set_payout_config` (`FeeRecipientRole`, `PayoutKeyNotSeparate`) and, for the founder seat, by `approve_launch`, `launch` and `transfer_founder` (`FeeRecipientRole`, `FounderHoldsRole`); later moves of the upgrade authority and settings that name an existing founder are 8.4's operating rule; approvals and launches require the old program's admin to be this program's admin (`LegacyAdminMismatch`, 8.5) | I19, I20; 28-governance |
 | T78 | **A client buy without a minimum** (the "pay with any token" composer), sandwiched | the program enforces `min_tokens_out`; the SDK's `buyWithSwap` refuses to build a buy without one (14.1) | 29-clients |
 
@@ -2530,10 +2569,10 @@ find exactly the checker's events, and nothing for a failed one (E01).
 | L06 | curve trading: buys and sells; slippage; minimum buy; `Trade` events match state |
 | L07 | graduation: exactly at `S` and `R`; partial fill; `rem = 1`; `Graduated`; the next trade uses the pool with the same account list |
 | L08 | pool trading and the drip until `liquidity_pending` is 0 |
-| L09 | buyback: interval (including the first after launch), cap, burn, supply; never graduates; no-op cases; refused while `buys_halted` |
+| L09 | buyback: interval (including the first after launch), cap, burn, supply; never graduates; no-op cases; refused while `buybacks_halted` |
 | L10 | withdraw, claim, opt-in, payout (cooldown, pause, destination rules), forward followed by a top-level `SyncNative` |
 | L11 | `transfer_founder`; an old opt-in stops working |
-| L12 | pauses and the guardian: launches, payouts, buys; trading exits, claims, forwards and withdrawals unaffected; only the admin clears |
+| L12 | pauses and the guardian: launches, payouts, buys, buybacks (only while buys are halted, resumed no later than buys); trading exits, claims, forwards and withdrawals unaffected; only the admin clears |
 | L13 | invariant checker and money-flow tracer after every transaction of every test; event authority check |
 
 ### 12.4 Attack tests (X; one per testable threat, each asserting that no balance moved)
@@ -2590,7 +2629,8 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | C02 | transaction sizes of the website's buy, sell and launch-with-first-buy (with the lookup table) |
 | C03 | binary size and hash; toolchain, `anchor-lang`, `anchor-spl` and `mpl-token-metadata` versions; the compiled program ids; the IDL tag refused |
 | C04 | CI fails on any cargo-build-sbf "Stack offset ... exceeded" warning |
-| H01 | guardian halt: `launch`, `buy`, `buyback_burn` refuse with `BuysHalted`; `sell`, claims, forwards, withdrawals and payouts work; only the admin clears |
+| H01 | guardian halt: `launch` and `buy` refuse with `BuysHalted` while `buyback_burn` keeps running; with buybacks halted too, `buyback_burn` refuses with `BuybacksHalted`; `sell`, claims, forwards, withdrawals and payouts work; only the admin clears, buybacks first |
+| LL-1 | a halt of buys and buybacks over a mostly sold pool: buybacks cannot be halted alone, buys cannot reopen before buybacks, the keeper drains the backlog while buys are halted, and the first buyer after the clear loses; on a twin coin left undrained he would profit (review LL-1) |
 | H02 | `halt-all` build: every outflow (`sell`, `withdraw_platform_fees`, `forward_holders_fees`, `claim_founder_fees`, `payout_founder_fees`, `buyback_burn`, `buy`, `launch`) refuses with `TradingHalted` |
 | H03 | the `halt-all` build deployed over live coin state produced by the normal build, then upgraded back to the normal build: every coin's state and balances unchanged and fully working; the halt buffer is rebuilt from the deployed commit after every upgrade |
 | R01 | real `vicinity_rewards` in the same VM: create a WSOL Holders config (authority the admin) for a new coin; run the real `forward_holders_fees` followed by a top-level `SyncNative`; then `SyncNative` and `fund_epoch_from_vault`; claim with a Merkle proof |
@@ -2641,7 +2681,7 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | O6 | Fee caps | **Total at most 2.5% (hard); platform at most 1.2%; founder at most 1.0%; launch fee at most 0.5 SOL** | Platform at most 1.0% | Tighter public commitment; O1's "send it to Vicinity" would then need an upgrade |
 | O7 | Buyback parameters | **At most 0.1% of depth per run, once per 150 slots, first run 150 slots after launch, never graduates, and no fee on the buyback** (an exception to R2's "every buy": sign-off needed) | Larger steps (a backlog forms less often, but a multi-run hold profits sooner, and at 1% V8 fails for the default split once the founder is credited: 0.9998 against 0.99); slower pace (always safe); a fee on buybacks (pays platform and founder from burn money) | Step and interval are compiled constants: changing them is an upgrade |
 | O8 | Buybacks during the curve phase | **Yes** | Only after graduation (the bucket waits) | Less support during the curve; one branch fewer |
-| O9 | Can trading be paused? | **Buys, buybacks and launches: yes, by the guardian (at once) or the admin; exits: never.** Plus the pre-audited halt-all build by upgrade (8.3) | No guardian (halt-all build only) | Under the time lock the only brake would take 48 hours; the trade lists would drop back to 9 accounts (decide before the audit freeze, because aggregators copy the list) |
+| O9 | Can trading be paused? | **Buys, buybacks and launches: yes, by the guardian (at once) or the admin, buybacks only while buys are halted; exits: never.** Plus the pre-audited halt-all build by upgrade (8.3) | No guardian (halt-all build only) | Under the time lock the only brake would take 48 hours; the trade lists would drop back to 9 accounts (decide before the audit freeze, because aggregators copy the list) |
 | O10 | SOL custody | **Native lamports in the `Coin` PDA** (M1); not proven that every aggregator and terminal can route it: get written confirmation from Jupiter, Axiom, GMGN and FOMO before the audit freeze | WSOL token account per coin | Routers that only handle token accounts integrate more directly; one more account and one more token CPI per trade; recipients (founder, `FEE_RECIPIENT`, payout wallet) need WSOL accounts, which the previous audit showed can break flows; a rewrite and a new audit if decided after the freeze |
 | O11 | Upgrade policy | **Squads 2 of 3 as upgrade authority; verified builds; 48-hour time lock from the first mainnet coin launch; a guardian for the fast brake.** The lock applies to every proposal of the same multisig, so it also delays every `vicinity_launchpad` and `vicinity_rewards` action of the vault (new cities' `init_city`, every reward round, pauses, upgrades) and every approval here by 48 hours (8.4) | No time lock (the halt-all build then deploys in one proposal) | Without a time lock, a compromise of two Squads keys could take every coin's reserves, and every forwarded holder lamport, at once |
 | O12 | Founder payout opt-in (X Money style) | **Built, off by default**, native SOL to the fixed payout wallet | Leave it out of v1 | Three instructions and one account fewer for the auditor |
@@ -2657,7 +2697,7 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | O22 | A lost founder key | **The share stays with that key** (no admin lever) | Admin reassignment | A money power for the admin |
 | O23 | Aggregator and wallet visibility | **Ship the math crate, IDL, layout and this spec; ask Jupiter and the trading terminals to integrate after the audit; Jupiter adapter crate as a later step** (14.4); submit the program id, IDL and audit report to Blockaid, Blowfish and Phantom for allow-listing at mainnet launch (wallet warnings are expected until then; how long that takes is not proven) | Stay on Meteora | Keeps automatic routing but keeps Meteora's 0.5% and the other REPORT.md conflicts |
 | O24 | Who runs the cranks | **Vicinity's fee-payer wallet, no tip** | A small tip from the bucket | A spam incentive and another money path |
-| O25 | Residual multi-run buyback risk | **Accept and disclose**: a trader who buys while a public backlog above about 2.0% to 2.6% of depth exists (1.5% to 2.0% for a founder), and holds through at least 21 to 26 runs (16 to 21 for a founder) with no other trading, can profit (Theorem M_K); mitigated by the small step, V11, a keeper that spends every interval, an alert above 1% of depth and the backlog shown on the coin page | Execute buybacks inside trades (no backlog at all) | Contradicts R7's "executed separately" and R5's distinction; not offered |
+| O25 | Residual multi-run buyback risk | **Accept and disclose**: a trader who buys while a public backlog above about 2.0% to 2.6% of depth exists (1.5% to 2.0% for a founder), and holds through at least 21 to 26 runs (16 to 21 for a founder) with no other trading, can profit (Theorem M_K); mitigated by the small step, V11, a keeper that spends every interval, an alert above 1% of depth and the backlog shown on the coin page; a halt of buybacks, the one time the keeper cannot run, is possible only while buys are halted, and buys reopen only after the keeper has spent the backlog (8.3, review LL-1) | Execute buybacks inside trades (no backlog at all) | Contradicts R7's "executed separately" and R5's distinction; not offered |
 | O26 | Holders' money of a coin whose rewards config was created wrong (it can never be fixed in `vicinity_rewards`) | **Waits in `holders_pending` until a program upgrade**; the SDK simulates and checks every config before proposing it | A permissionless fallback that, after a long delay (for example 90 days with no valid config), routes `holders_pending` into the buyback bucket | Changes the split for that coin; needs owner approval and audit |
 | O27 | Who may be the holders' root publisher | **Only the admin** (`CityConfig.authority == launchpad.admin`) | A separate `Launchpad.rewards_authority` (for example a rewards multisig without the time lock, so rounds are not delayed), changeable only by a listed two-step admin power | Faster reward rounds under the time lock; one more key and power to list and audit |
 | O28 | The metadata JSON served by the website | **Hash approved by the admin, stored and emitted; served write-once; image content-addressed** | State the residual risk only | Simpler, but the coin's displayed identity could then change silently |
@@ -2713,7 +2753,11 @@ new program, these coins trade only on vicinity.city and through direct program 
   `SyncNative(rewards_vault)` in the same transaction when `holders_pending` exceeds a
   threshold (for example 0.05 SOL); `withdraw_platform_fees` daily; after any change of the
   rent rate, a top-up of every `Coin` below the live rent-exempt minimum (6.5, T63). All no-ops
-  are cheap and batchable; a halt is an error the keeper skips.
+  are cheap and batchable; a halt is an error the keeper skips. A halt of buys alone does not
+  stop the buybacks, and the keeper keeps running them. After a halt of buybacks (8.3, review
+  LL-1), once the admin resumes them with buys still halted, the keeper runs every coin each
+  interval until its backlog is at most one cap, and the site publishes each coin's backlog and
+  depth before the proposal that reopens buys.
 * **Reward rounds**: the funding transaction starts with `SyncNative(vault)`, then
   `fund_epoch_from_vault`; the snapshot file and its hash are published before the Squads
   proposal, and a second person recomputes the root before members sign (8.1).
@@ -2766,7 +2810,7 @@ excludes. Under the time lock (O11) each round's proposal waits 48 hours.
 | CPI from a router | the user is the only signer; the destination token account of a buy may be any account of the mint not owned by the `Coin` PDA; no instruction-sysvar or call-stack checks. **Conditions**: `user` must be a system-owned account without data (the system transfer of a buy requires it, so a router PDA that carries data cannot buy); SOL paid to an account holding 0 lamports must be at least the rent-exempt minimum of an empty account (650,240 lamports at today's mainnet rate), or the runtime refuses the transaction. A buyer may also end the transaction with 0 lamports or with at least that minimum, never with anything in between (the same rule: a rent-exempt wallet may not become rent-paying, judged on the balance at the end of the transaction; NOTES 36). The SDK and the adapter pre-check all three (`precheckBuyer`, `precheckBuy`, `precheckSolCredit`: `lamports(user) > 0` or `out >= rent_min(0)`) and return a clear error. Tested by G02 and `tests-curve/21-sdk-prechecks` |
 | slippage | `min_tokens_out`, `min_sol_out` |
 | trade data | `Trade` event by self-CPI with amounts, the five fee shares, drip and reserves after |
-| lifecycle | `CoinLaunched`, `Graduated`, `phase`; progress = `curve_sol / graduation_sol`; `buys_halted` in `Launchpad` |
+| lifecycle | `CoinLaunched`, `Graduated`, `phase`; progress = `curve_sol / graduation_sol`; `buys_halted` (and `buybacks_halted`) in `Launchpad` |
 | decoding | no on-chain Anchor IDL account (`no-idl`); the IDL JSON from the verified build, the repository and the Solana Program Metadata program (written by the upgrade authority); fixed offsets in 3.7; `decode_coin(owner, data)` in the crate; discriminators `sha256("global:buy")[..8]`, `sha256("global:sell")[..8]`, account `sha256("account:CurveCoin")[..8]` |
 | trust | open source, verified build, outside audit, official coin list from `Coin` accounts; Blockaid, Blowfish and Phantom allow-listing requested at mainnet launch (until then wallets may show simulation warnings on every buy and sell, including on vicinity.city) |
 
@@ -3451,6 +3495,7 @@ a verifier before it was accepted. Severities are the verifier's.
 |---|---|---|---|
 | R3-DIFF-1 | fix diff, low | V2b bounded `max(b_F, b_H)`, but a founder who also holds the float is credited both shares: (0, 0, 50, 50, 0), (0, 0, 100, 1, 0), (0, 0, 100, 150, 0) and (0, 0, 1, 1, 0) passed V1 to V11, and his wash trade cost exactly 0 net on chain (ECON-1 only partly closed; 7.4's "in every config" false) | **Confirmed**. **Applied** as proposed: **V2b** `b_F + b_H + MIN_TOTAL_FEE_BPS <= t` (the same as `b_L + b_P + b_B >= 1`; `ConfigFeeShareCap`, no new code). It keeps config #0, X44's configs and every edge the spec names; no golden vector changes (nine fixed cases appended). When `b_B > 0`, V8 and V11 still credit only `m = max(b_F, b_H)` (MATH-3's modelling), now said in 5.13. Crate, SDK port, reference model (Appendix A), I3. 3.2, 4.22, 5.13, 5.15, 7.4, I3, T44, 12.1, 12.4; `config_rules.rs`, X44, F03; NOTES 52 |
 | MATH3-2 | math, info | the same gap as R3-DIFF-1, seen from the math: configs whose founder and holders shares make the whole fee pass, and a founder holding the eligible float trades for exactly 0 net fee | **Confirmed**. **Applied** with R3-DIFF-1 (the sum form, which still accepts every X44 config); 3.2's `MAX_FOUNDER_FEE_BPS` row and NOTES 50 corrected. NOTES 52 |
+| LL-1 | lifecycle, low (reported medium) | one flag, `buys_halted`, stopped user buys and buybacks alike, while every sell still booked its 0.3% into `buyback_pending`: during a guardian halt a mostly sold pool built a backlog many times `u*` (14.9% of depth), the keeper could not spend it, and the first buyer after the admin's publicly scheduled clear took a large share (+1.24 SOL on 20 SOL) | **Confirmed**. **Applied**, the safer of the two proposals (a separate flag rather than leaving buybacks unhaltable): `Launchpad.buybacks_halted` (offset 174, from the reserved bytes; size unchanged) blocks `buyback_burn` (`BuybacksHalted`, 6054); `buys_halted` now blocks only `buy` and `launch`; `set_pause` takes a fourth argument and refuses any result with buybacks halted and buys open (`BuybackHaltWithoutBuyHalt`, 6055), for every signer, so a buyback halt goes with a buy halt and buys never reopen before buybacks. A halt of buys alone leaves the keeper running; after a halt of both the admin resumes buybacks first, the keeper drains every backlog while buys are still refused, and buys reopen in a later proposal (8.3 runbook, 14.1). IDL, SDK builder, decoder and event. 3.4, 4.0, 4.4, 4.13, 4.21, 4.22, 6.4, 7.1, 7.2, 8.1, 8.3, I20, I22, T72, T73, T76, O9, O25, 12.3, 12.5, 14.1, 14.3; H01, L12, X43b, the LL-1 test, the fuzz model, the checker (I20); NOTES 53 |
 | HR-2 | roles, info | a thief of a founder key can move the seat with `transfer_founder` and take every later founder fee | **Rejected** by the verifier: the recorded design (4.17 and T52: the seat moves only with both signatures and the admin can never reassign it; O22). The copied key could claim every later accrual without a transfer anyway, and the legitimate founder can use the transfer first. No change |
 | HR-3 | roles, info | a stolen `FEE_RECIPIENT` key takes the platform's income until an upgrade | **Rejected** by the verifier: recorded (R9, 3.2: changing `FEE_RECIPIENT` needs an upgrade; 6.4 and 8.3: platform withdrawals are not pausable by design); no holder's, founder's or third party's money is reachable. A cold wallet or a Squads vault as `FEE_RECIPIENT` before the mainnet build is an operational choice for the owner. No change |
 
@@ -3504,3 +3549,4 @@ build follows the text as written and the entry records a reading or a measureme
 | 50 | review round 2: V2b (above) | as listed above |
 | 51 | review round 2: names with invisible or blank characters (above) | as listed above |
 | 52 | review round 3: V2b bounds the sum of the founder's and the holders' shares (above) | as listed above |
+| 53 | review round 3: a separate buyback halt, set only while buys are halted (above) | as listed above |

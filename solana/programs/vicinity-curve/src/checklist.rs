@@ -317,7 +317,8 @@ fn mentioned_in(what: &str) -> Vec<&'static str> {
 }
 
 /// 4.4, 8.3, 3.4: who reads and writes the pause flags and the keys of
-/// `Launchpad`. `buys_halted` stops only `launch`, `buy` and `buyback_burn`;
+/// `Launchpad`. `buys_halted` stops only `launch` and `buy`;
+/// `buybacks_halted` only `buyback_burn` (review LL-1);
 /// `launches_paused` only `launch`; `payouts_paused` only
 /// `payout_founder_fees`. No exit (sell, claim, forward, withdraw) reads any
 /// flag. The flags are written only by `init_launchpad` (all false) and
@@ -335,13 +336,11 @@ fn pause_flags_and_launchpad_keys() {
     };
     want(
         ".buys_halted",
-        vec![
-            "buy",
-            "buyback_burn",
-            "launch",
-            "init_launchpad",
-            "set_pause",
-        ],
+        vec!["buy", "launch", "init_launchpad", "set_pause"],
+    );
+    want(
+        ".buybacks_halted",
+        vec!["buyback_burn", "init_launchpad", "set_pause"],
     );
     want(
         ".launches_paused",
@@ -700,6 +699,7 @@ fn idl_arguments_match_section_4() {
                 ("launches", json!({"option": "bool"})),
                 ("payouts", json!({"option": "bool"})),
                 ("buys", json!({"option": "bool"})),
+                ("buybacks", json!({"option": "bool"})),
             ],
         ),
         ("set_guardian", vec![("guardian", pk.clone())]),
@@ -892,13 +892,13 @@ fn idl_events() {
     assert_eq!(got, want);
 }
 
-/// 4.22: 54 codes from 6000, contiguous, in the table's order (the first and
+/// 4.22: 56 codes from 6000, contiguous, in the table's order (the first and
 /// the last few checked by name; errors.rs checks every code).
 #[test]
 fn idl_errors() {
     let idl = idl();
     let errors = idl["errors"].as_array().unwrap();
-    assert_eq!(errors.len(), 54);
+    assert_eq!(errors.len(), 56);
     for (i, e) in errors.iter().enumerate() {
         assert_eq!(e["code"].as_u64().unwrap(), 6000 + i as u64);
     }
@@ -911,6 +911,8 @@ fn idl_errors() {
     assert_eq!(name(51), "LegacyAdminMismatch");
     assert_eq!(name(52), "FeeRecipientRole");
     assert_eq!(name(53), "FounderHoldsRole");
+    assert_eq!(name(54), "BuybacksHalted");
+    assert_eq!(name(55), "BuybackHaltWithoutBuyHalt");
 }
 
 /// 3.2, C03: the committed IDL is the default (mainnet ids) build's, its

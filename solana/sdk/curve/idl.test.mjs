@@ -84,6 +84,7 @@ test('program id, cluster ids, constants and discriminators equal the IDL and th
   assert.equal(idl.errors.length, S.ERROR_NAMES.length);
   for (const e of idl.errors) assert.equal(S.ERROR_CODES[e.name], e.code, e.name);
   assert.equal(S.errorName(6049), 'BuysHalted');
+  assert.deepEqual([S.errorName(6054), S.errorName(6055)], ['BuybacksHalted', 'BuybackHaltWithoutBuyHalt']);
   // the math crate's PROGRAM_ID and CurveCoin discriminator (decode_coin)
   const rs = readFileSync(join(SOL, 'crates', 'vicinity-curve-math', 'src', 'constants.rs'), 'utf8');
   const grab = (name) => {
@@ -119,7 +120,7 @@ function samples() {
       init_launchpad: [{ payer: k.payer, admin: k.admin, upgradeAuthority: k.up, guardian: k.guardian }, { guardian: k.guardian }],
       propose_admin: [{ admin: k.admin, newAdmin: k.newAdmin }, { new_admin: k.newAdmin }],
       accept_admin: [{ newAdmin: k.newAdmin }, {}],
-      set_pause: [{ authority: k.admin, launches: true, payouts: null, buys: false }, { launches: true, payouts: null, buys: false }],
+      set_pause: [{ authority: k.admin, launches: true, payouts: null, buys: false, buybacks: true }, { launches: true, payouts: null, buys: false, buybacks: true }],
       set_guardian: [{ admin: k.admin, guardian: k.guardian }, { guardian: k.guardian }],
       set_payout_config: [{ admin: k.admin, payoutAuthority: k.pa, payoutDestination: k.pd }, { payout_authority: k.pa, payout_destination: k.pd }],
       add_launch_config: [{ admin: k.admin, payer: k.payer, configId: 3, params }, { p: P }],
@@ -243,7 +244,7 @@ test('account decoders equal Anchor decoding; owner, length and discriminator ar
     for (let round = 0; round < 25; round++) {
       const lp = {
         admin: key(), pending_admin: key(), payout_authority: key(), payout_destination: key(), guardian: key(), launches_paused: round % 2 === 0,
-        payouts_paused: round % 3 === 0, buys_halted: round % 5 === 0, next_config_id: rnd16(), bump: round, _reserved: Array(64).fill(0),
+        payouts_paused: round % 3 === 0, buys_halted: round % 5 === 0, next_config_id: rnd16(), bump: round, buybacks_halted: round % 10 === 0, _reserved: Array(63).fill(0),
       };
       check(S.decodeLaunchpad(await enc('Launchpad', lp)), lp);
       const cfg = {
@@ -297,7 +298,7 @@ test('account decoders equal Anchor decoding; owner, length and discriminator ar
     assert.throws(() => S.decodeTickerLock({ owner, data: bad }), (e) => e.code === 'WrongDiscriminator');
     const lpBytes = await enc('Launchpad', {
       admin: key(), pending_admin: key(), payout_authority: key(), payout_destination: key(), guardian: key(), launches_paused: false,
-      payouts_paused: false, buys_halted: false, next_config_id: 0, bump: 1, _reserved: Array(64).fill(0),
+      payouts_paused: false, buys_halted: false, next_config_id: 0, bump: 1, buybacks_halted: false, _reserved: Array(63).fill(0),
     });
     // the old program's Launchpad has the same discriminator: the owner tells them apart (3.7)
     assert.throws(() => S.decodeLaunchpad({ owner: S.CLUSTERS.mainnet.legacyProgram, data: lpBytes.data }), (e) => e.code === 'WrongOwner');

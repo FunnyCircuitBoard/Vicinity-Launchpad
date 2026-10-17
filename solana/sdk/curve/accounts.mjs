@@ -77,6 +77,7 @@ export function decodeLaunchpad(account, opts) {
   return {
     admin: r.key(8), pendingAdmin: r.key(40), payoutAuthority: r.key(72), payoutDestination: r.key(104), guardian: r.key(136),
     launchesPaused: r.bool(168), payoutsPaused: r.bool(169), buysHalted: r.bool(170), nextConfigId: r.u16(171), bump: r.u8(173),
+    buybacksHalted: r.bool(174),
   };
 }
 
