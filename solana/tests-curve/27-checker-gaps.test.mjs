@@ -10,7 +10,9 @@
 // of the long F01/F02 run (VICINITY-CURVE-NOTES.md 34, 41); the last one is the
 // failed-transaction check's fee rule (NOTES 47, L2). SM-2 (review round 4): the
 // checker holds every call to the flags as they stood at that call, and what
-// approve_launch and opt_in_payout wrote to their rules.
+// approve_launch and opt_in_payout wrote to their rules. R5-REG-1 (review round 5):
+// the seats approve_launch and launch read (the admins of this program, the old
+// one and the registry, the old launch pause) are taken as they stood at that call.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { address } from '@solana/kit';
@@ -294,5 +296,57 @@ test('SM-2 the checker refuses a successful call made under flags that forbid it
   const withOptIn = (edit) => ({ ...optCtx, post: { ...optCtx.post, optIns: new Map([...optCtx.post.optIns, [oi[0], { ...oi[1], ...edit }]]) } });
   assert.match(run(withOptIn({ agreedDestination: String(u.address) })), /^refused: .*SM-2/);
   assert.match(run(withOptIn({ founder: String(u.address) })), /^refused: .*SM-2/);
+  await w.finish();
+});
+
+test('R5-REG-1 the checker reads the seats the program reads at each approve_launch and launch as they stood at that call: a hand-over finished and used in one transaction passes, and a seat moved earlier in the same transaction is caught', async () => {
+  const w = await World.create();
+  const run = (ctx) => { try { checkTransaction(w, ctx); return 'accepted'; } catch (e) { return `refused: ${e.message.split('\n')[0]}`; } };
+  const v1 = w.admin; const v2 = await w.signer(20n);
+  const L = w.legacyPdas(); const registry = w.rewardsPdas().registry;
+  const newAdmin = new web3Key(String(v2.address));
+  // V1's proposal: the three seats proposed together (8.2)
+  await w.send([w.ix.proposeAdmin({ admin: v1.address, newAdmin: v2.address }),
+    w.legacyIx('propose_admin', { new_admin: newAdmin }, { admin: v1.address, launchpad: L.launchpad }),
+    w.rewardsIx('propose_admin', { new_admin: newAdmin }, { admin: v1.address, registry })], [v1], 'V1 proposes V2 for the three seats');
+  // V2's transaction: the three accepts and an approval in one (the program reads each seat at the approve_launch)
+  const founder = await w.signer(5n);
+  await w.send([w.ix.acceptAdmin({ newAdmin: v2.address }),
+    w.legacyIx('accept_admin', {}, { new_admin: v2.address, launchpad: L.launchpad }),
+    w.rewardsIx('accept_admin', {}, { new_admin: v2.address, registry }),
+    w.ix.approveLaunch({ admin: v2.address, cityId: 7301n, founder: founder.address, configId: 0, name: 'Seat City', symbol: 'SEAT', metaHash: Array(32).fill(7), expiresAt: w.now() + 86_400n })],
+  [v2], 'V2 accepts the three seats and approves a city in one transaction');
+  const bundled = w.lastCtx;
+  w.admin = v2; w.legacyAdmin = v2;
+  assert.equal(run(bundled), 'accepted', 'the program accepted it, and the checker does (review R5-REG-1: refused with I19, then SM-2 rent payer)');
+  assert.equal(w.approval(7301n).rentPayer, String(v2.address), 'the approval\'s rent payer is the admin of that moment');
+  await w.launch({ cityId: 7301n, founder });
+  // the false negative of the finding: a seat moved earlier in the same transaction (a program that skipped its own
+  // check would have accepted it). A real approval replayed with an old propose_admin, a registry propose_admin or an
+  // old set_pause(launches = false) placed ahead of it, and the accounts after it moved accordingly
+  await w.approve({ cityId: 7302n, founder, symbol: 'SEATB' });
+  const plain = w.lastCtx;
+  assert.equal(run(plain), 'accepted', 'control');
+  const stranger = new web3Key(String((await w.signer(1n)).address));
+  const disc = { propose_admin: Buffer.from([121, 214, 199, 212, 87, 39, 117, 234]), set_pause: Buffer.from([63, 32, 154, 2, 56, 103, 79, 45]) };
+  /** `ctx` with the instruction `ix` placed before (or after) its own instructions, and the accounts after it edited. */
+  const withStep = (ctx, ix, accountEdit, where = 'before') => {
+    const step = { index: where === 'before' ? -1 : ctx.tx.top.length, program: ix.program, accounts: ix.accounts, data: ix.data, name: null, inner: [], events: [], calls: [], logs: [], cu: null, depth: 1 };
+    const top = where === 'before' ? [step, ...ctx.tx.top] : [...ctx.tx.top, step];
+    const postAccounts = new Map(ctx.postAccounts);
+    if (accountEdit) { const [k, edit] = accountEdit; const a = postAccounts.get(k); const d = Buffer.from(a.data); edit(d); postAccounts.set(k, { ...a, data: d }); }
+    return { ...ctx, tx: { ...ctx.tx, top }, postAccounts };
+  };
+  const oldPropose = { program: S.CLUSTERS.mainnet.legacyProgram, accounts: [String(v2.address), L.launchpad], data: Buffer.concat([disc.propose_admin, stranger.toBuffer()]) };
+  const regPropose = { program: S.CLUSTERS.mainnet.rewardsProgram, accounts: [String(v2.address), registry], data: Buffer.concat([disc.propose_admin, stranger.toBuffer()]) };
+  const oldOpen = { program: S.CLUSTERS.mainnet.legacyProgram, accounts: [String(v2.address), L.launchpad], data: Buffer.concat([disc.set_pause, Buffer.from([1, 0, 0])]) };
+  const oldPending = [L.launchpad, (d) => stranger.toBuffer().copy(d, S.LEGACY_PENDING_ADMIN_AT)];
+  assert.match(run(withStep(plain, oldPropose, oldPending)), /^refused: .*I19 the old program's admin .* \(pending /);
+  assert.match(run(withStep(plain, regPropose, [registry, (d) => stranger.toBuffer().copy(d, S.REWARDS_REGISTRY_PENDING_ADMIN_AT)])), /^refused: .*OPS-1 the rewards registry's admin/);
+  assert.match(run(withStep(plain, oldOpen, [L.launchpad, (d) => { d[S.LEGACY_LAUNCHES_PAUSED_AT] = 0; }])), /^refused: .*I19 the old program could launch/);
+  // the same steps after the approval are what the program allows
+  assert.equal(run(withStep(plain, oldPropose, oldPending, 'after')), 'accepted');
+  // the walk must end where the accounts are: a seat step the checker did not apply is refused
+  assert.match(run(withStep(plain, oldPropose, null, 'after')), /^refused: .*the seat walk's oldPending/);
   await w.finish();
 });

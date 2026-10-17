@@ -2821,6 +2821,11 @@
       "code": 6056,
       "name": "RewardsRegistryAdminMismatch",
       "msg": "vicinity_rewards' registry admin must be this program's admin, with no admin transfer pending"
+    },
+    {
+      "code": 6057,
+      "name": "GuardianIsAdmin",
+      "msg": "the guardian cannot be the admin or the proposed admin: its halt must not wait for the admin's time lock"
     }
   ],
   "types": [

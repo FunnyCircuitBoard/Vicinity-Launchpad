@@ -182,6 +182,9 @@ pub enum CurveError {
         "vicinity_rewards' registry admin must be this program's admin, with no admin transfer pending"
     )]
     RewardsRegistryAdminMismatch,
+    /// 6057
+    #[msg("the guardian cannot be the admin or the proposed admin: its halt must not wait for the admin's time lock")]
+    GuardianIsAdmin,
 }
 
 /// The program error for a math crate error (4.22): the trade refusals keep
@@ -235,7 +238,7 @@ mod tests {
     /// 4.22: the codes are fixed; a reordering would break every client.
     #[test]
     fn codes_are_in_spec_order() {
-        let table: [(CurveError, u32); 57] = [
+        let table: [(CurveError, u32); 58] = [
             (CurveError::Unauthorized, 6000),
             (CurveError::NotUpgradeAuthority, 6001),
             (CurveError::InvalidAddress, 6002),
@@ -293,6 +296,7 @@ mod tests {
             (CurveError::BuybacksHalted, 6054),
             (CurveError::BuybackHaltWithoutBuyHalt, 6055),
             (CurveError::RewardsRegistryAdminMismatch, 6056),
+            (CurveError::GuardianIsAdmin, 6057),
         ];
         for (e, code) in table {
             assert_eq!(u32::from(e), code, "{e:?}");

@@ -23,6 +23,10 @@
 //   * OPS-4 (review round 4): the deploy checklist of 8.4 (scripts/vcurve/preflight.mjs)
 //     reads every precondition from the chain; an old Approval left when the old
 //     program is closed blocks its city here forever, so it is a problem before a close.
+//   * Review round 5: the guardian is never the admin or the proposed admin
+//     (GuardianIsAdmin, R5-CONS-1); the checklist checks a proposed guardian or payout key
+//     against every founder before the proposal is signed (R5-DIFF-2, R5-CONS-2) and
+//     accepts an immutable old program (R5-DIFF-3, R5-CONS-3).
 //
 // Keys for which the suite has no private key (FEE_RECIPIENT) sign with zeros in a
 // World whose signature checks are off (offlineKey).
@@ -31,7 +35,7 @@ import assert from 'node:assert/strict';
 import web3 from '@solana/web3.js';
 import { address } from '@solana/kit';
 import { World, S, expectFail, offlineKey, LAMPORTS, DAY } from './helpers.mjs';
-import { checkDeployPreconditions, checklistAddresses } from '../scripts/vcurve/preflight.mjs';
+import { checkDeployPreconditions, checklistAddresses, parseArgs, programDataState } from '../scripts/vcurve/preflight.mjs';
 
 const { PublicKey } = web3;
 const ZERO = S.ADDRESSES.system;
@@ -414,4 +418,126 @@ test('OPS-4, OPS-1 the deploy checklist (scripts/vcurve/preflight.mjs) reads 8.4
   await expectFail(() => w.approve({ cityId: 7001n, founder, symbol: 'NEWX' }), 'LegacyApprovalExists');
   r = run();
   assert.ok(codes(r.problems).includes('LEGACY_APPROVAL') && !codes(r.problems).includes('LEGACY_UPGRADE_AUTHORITY'), 'after a close the approval is a problem in any mode');
+});
+
+// ---------------------------------------------------------------- review round 5
+test('R5-CONS-1 the guardian is never the admin or the proposed admin: the program refuses it at init_launchpad, set_guardian, propose_admin and accept_admin (GuardianIsAdmin), and the checklist reports a guardian that is the admin, the vault or the proposed admin', async () => {
+  const w = await World.create({ initLaunchpad: false });
+  const init = (guardian) => [w.ix.initLaunchpad({ payer: w.payer.address, admin: w.admin.address, upgradeAuthority: w.deployer.address, guardian })];
+  await expectFail(() => w.send(init(w.admin.address), [w.admin, w.deployer], 'init_launchpad with guardian = admin'), 'GuardianIsAdmin');
+  await w.send(init(w.guardian.address), [w.admin, w.deployer], 'init_launchpad');
+  await w.addConfig(S.DEFAULT_CONFIG);
+  const setG = (g, label) => w.send([w.ix.setGuardian({ admin: w.admin.address, guardian: g })], [w.admin], label);
+  await expectFail(() => setG(w.admin.address, 'set_guardian(the admin)'), 'GuardianIsAdmin');
+  const next = await w.signer(5n);
+  await expectFail(() => w.send([w.ix.proposeAdmin({ admin: w.admin.address, newAdmin: w.guardian.address })], [w.admin], 'propose the guardian as admin'), 'GuardianIsAdmin');
+  await w.send([w.ix.proposeAdmin({ admin: w.admin.address, newAdmin: next.address })], [w.admin], 'propose another key');
+  await expectFail(() => setG(next.address, 'set_guardian(the proposed admin)'), 'GuardianIsAdmin');
+  // accept_admin checks again: a Launchpad whose guardian is the proposed key (doctored: the program never stores it) refuses the accept
+  const lpKey = w.P.launchpad();
+  const before = w.accountInfo(lpKey);
+  const doctored = Buffer.from(before.data); pkb(next.address).copy(doctored, 136);
+  w.setRaw(lpKey, doctored, before.owner, before.lamports);
+  await expectFail(() => w.send([w.ix.acceptAdmin({ newAdmin: next.address })], [next], 'accept_admin while the guardian is the proposed key'), 'GuardianIsAdmin');
+  w.setRaw(lpKey, Buffer.from(before.data), before.owner, before.lamports);
+  // no guardian (zero) and any other key are fine; the hand-over completes
+  await setG(ZERO, 'no guardian');
+  const g2 = await w.signer(1n);
+  await setG(g2.address, 'another guardian');
+  await w.send([w.ix.acceptAdmin({ newAdmin: next.address })], [next], 'accept_admin');
+  w.admin = next;
+  assert.deepEqual([w.launchpad().admin, w.launchpad().guardian], [String(next.address), String(g2.address)]);
+  // the checklist (the guardian is read from the chain; snapshots doctored where the program would refuse)
+  const run = (edit, vault = next.address) => checkDeployPreconditions({ ...checklistSnapshot(w, edit), vault, programId: w.programId });
+  const asGuardian = (k) => (a) => { const d = Buffer.from(a[lpKey].data); pkb(k).copy(d, 136); return { ...a, [lpKey]: { ...a[lpKey], data: d } }; };
+  assert.ok(!codes(run().problems).includes('GUARDIAN_IS_ADMIN'));
+  for (const [label, edit, vault] of [['the admin', asGuardian(next.address)], ['the vault, before the admin is handed to it', undefined, g2.address]]) {
+    const r = run(edit, vault);
+    assert.ok(codes(r.problems).includes('GUARDIAN_IS_ADMIN'), `${label}: ${JSON.stringify(codes(r.problems))}`);
+    assert.match(r.problems.find((p) => p.code === 'GUARDIAN_IS_ADMIN').message, /time lock/);
+  }
+  await w.finish();
+});
+
+test('R5-DIFF-2, R5-CONS-2 the checklist checks a proposed guardian or payout key against every coin\'s and pending approval\'s founder (and the other role keys) before the proposal is signed; unknown options are refused', async () => {
+  const w = await World.create();
+  const founder = await w.signer(5n); const pendingFounder = await w.signer(5n);
+  await w.launchCoin({ cityId: 7101n, founder, symbol: 'PROPK' });
+  await w.approve({ cityId: 7102n, founder: pendingFounder, symbol: 'PROPA' });
+  const payoutKey = await w.signer(1n); const wallet = await w.signer(1n);
+  await w.send([w.ix.setPayoutConfig({ admin: w.admin.address, payoutAuthority: payoutKey.address, payoutDestination: wallet.address })], [w.admin], 'set_payout_config');
+  const run = (proposed) => checkDeployPreconditions({ ...checklistSnapshot(w), vault: w.admin.address, programId: w.programId, ...(proposed ? { proposed } : {}) });
+  const base = codes(run().problems);
+  const extra = (proposed) => { const r = run(proposed); return { problems: codes(r.problems).filter((c) => !base.includes(c)), warnings: codes(r.warnings) }; };
+  // what the review found: before set_guardian(founder) nothing was reported, with any option passed
+  assert.throws(() => checkDeployPreconditions({ ...checklistSnapshot(w), vault: w.admin.address, programId: w.programId, proposedGuardian: founder.address }), /unknown option proposedGuardian/);
+  assert.throws(() => run({ guardians: founder.address }), /unknown proposed key guardians/);
+  // a founder (of a coin, of a pending approval) as guardian or payout key
+  for (const k of [founder.address, pendingFounder.address]) {
+    assert.deepEqual(extra({ guardian: k }).problems, ['PROPOSED_KEY_IS_FOUNDER'], `guardian ${k}`);
+    assert.deepEqual(extra({ payoutAuthority: k }).problems, ['PROPOSED_KEY_IS_FOUNDER'], `payout key ${k}`);
+  }
+  assert.match(run({ guardian: founder.address }).problems.find((p) => p.code === 'PROPOSED_KEY_IS_FOUNDER').message, /the coin of city 7101/);
+  assert.match(run({ guardian: pendingFounder.address }).problems.find((p) => p.code === 'PROPOSED_KEY_IS_FOUNDER').message, /the approval of city 7102/);
+  // a founder as payout wallet: a warning (the program does not keep the wallet from a seat)
+  assert.deepEqual(extra({ payoutDestination: founder.address }), { problems: [], warnings: ['PROPOSED_KEY_IS_FOUNDER'] });
+  // the keys the program keeps a role apart from: FEE_RECIPIENT, the admin (or the vault), the payout keys, the guardian
+  assert.deepEqual(extra({ guardian: S.ADDRESSES.feeRecipient }).problems, ['PROPOSED_KEY_FEE_RECIPIENT']);
+  assert.deepEqual(extra({ guardian: w.admin.address }).problems, ['PROPOSED_GUARDIAN_IS_ADMIN']);
+  assert.deepEqual(extra({ guardian: payoutKey.address }).problems, ['PROPOSED_GUARDIAN_PAYOUT']);
+  assert.deepEqual(extra({ payoutAuthority: w.guardian.address }).problems, ['PROPOSED_PAYOUT_IS_GUARDIAN']);
+  assert.deepEqual(extra({ payoutAuthority: w.admin.address, payoutDestination: wallet.address }).problems, ['PROPOSED_PAYOUT_IS_ADMIN']);
+  assert.deepEqual(extra({ payoutAuthority: wallet.address }).problems, ['PROPOSED_PAYOUT_SAME'], 'the payout key = the current payout wallet');
+  assert.deepEqual(extra({ payoutAuthority: wallet.address, payoutDestination: payoutKey.address }).problems, [], 'the two swapped in one proposal');
+  // a fresh key passes; removing the guardian is a warning (O9)
+  const fresh = await w.signer(1n);
+  assert.deepEqual(extra({ guardian: fresh.address, payoutAuthority: (await w.signer(1n)).address }), { problems: [], warnings: [] });
+  assert.deepEqual(extra({ guardian: ZERO }), { problems: [], warnings: ['PROPOSED_NO_GUARDIAN'] });
+  // the program still accepts set_guardian(founder) (it cannot list the coins): the check before signing is the guard
+  const sim = await w.simulate([w.ix.setGuardian({ admin: w.admin.address, guardian: founder.address })], [w.admin]);
+  assert.ok(sim.ok, 'set_guardian(a founder) would execute');
+  // the CLI: the three options, an unknown option and a bad key refused (exit status 2)
+  assert.deepEqual(parseArgs(['--rpc', 'u', '--vault', String(w.admin.address), '--proposed-guardian', String(founder.address), '--proposed-payout-key', String(fresh.address), '--proposed-payout-destination', String(wallet.address)]).proposed,
+    { guardian: String(founder.address), payoutAuthority: String(fresh.address), payoutDestination: String(wallet.address) });
+  assert.match(parseArgs(['--rpc', 'u', '--vault', 'v', '--proposedGuardian', 'x']).error, /unknown option --proposedGuardian/);
+  assert.match(parseArgs(['--rpc', 'u', '--vault', 'v', '--proposed-guardian', 'not-a-key']).error, /not a public key/);
+  assert.match(parseArgs(['--vault', 'v']).error, /required/);
+  await w.finish();
+});
+
+test('R5-DIFF-3, R5-CONS-3 an immutable old program meets the checklist (a warning, not a problem), as 8.5 and O19 recommend instead of a close; its approvals stay revocable warnings', async () => {
+  const w = await World.create({ dbcProgram: true });
+  const run = (o = {}) => checkDeployPreconditions({ ...checklistSnapshot(w), vault: w.admin.address, programId: w.programId, beforeLegacyClose: o.close });
+  for (const id of [w.programId, S.CLUSTERS.mainnet.rewardsProgram, S.CLUSTERS.mainnet.legacyProgram]) {
+    const pd = S.findPda([pkb(id)], S.ADDRESSES.upgradeableLoader)[0];
+    const a = w.accountInfo(pd); const d = Buffer.from(a.data); pkb(w.admin.address).copy(d, 13);
+    w.setRaw(pd, d, S.ADDRESSES.upgradeableLoader, a.lamports);
+  }
+  assert.deepEqual(run(), { problems: [], warnings: [] });
+  // the vault makes the old program immutable: the loader's SetAuthority with no new authority
+  const LEG = S.CLUSTERS.mainnet.legacyProgram;
+  const pd = S.findPda([pkb(LEG)], S.ADDRESSES.upgradeableLoader)[0];
+  w.warpSlots(10);
+  await w.send([{ programAddress: S.ADDRESSES.upgradeableLoader, accounts: [{ address: pd, role: S.Role.W }, { address: String(w.admin.address), role: S.Role.RS }], data: new Uint8Array([4, 0, 0, 0]) }], [w.admin], 'the old program made immutable');
+  const after = w.accountInfo(pd);
+  assert.ok(after.data.length >= 45 && after.data[12] === 0, 'the ProgramData stays, with no upgrade authority');
+  assert.deepEqual(programDataState(after), { state: 'immutable' });
+  for (const close of [false, true]) {
+    const r = run({ close });
+    assert.deepEqual([codes(r.problems), codes(r.warnings)], [[], ['LEGACY_IMMUTABLE']], `beforeLegacyClose ${close}: ready, with a warning (review R5-DIFF-3: it was LEGACY_UPGRADE_AUTHORITY for ever)`);
+  }
+  // an old approval: its program still runs, so it is revocable: a warning, a problem only before a close
+  await w.legacyPause(false); await w.legacyEnable(true);
+  await w.legacyApprove({ cityId: 7201n, founder: await w.signer(1n), symbol: 'IMMX' });
+  await w.legacyPause(true); await w.legacyEnable(false);
+  assert.deepEqual([codes(run().problems), codes(run().warnings)], [[], ['LEGACY_APPROVAL', 'LEGACY_IMMUTABLE']]);
+  await w.legacyRevoke(7201n);
+  // launches here go on
+  await w.launchCoin({ cityId: 7202n, symbol: 'IMMY' });
+  // the other two programs must stay upgradeable by the vault (8.4): immutable there is still reported
+  const rewardsPd = S.findPda([pkb(S.CLUSTERS.mainnet.rewardsProgram)], S.ADDRESSES.upgradeableLoader)[0];
+  const ra = w.accountInfo(rewardsPd); const rd = Buffer.from(ra.data); rd[12] = 0;
+  const r = checkDeployPreconditions({ ...checklistSnapshot(w, (a) => ({ ...a, [rewardsPd]: { ...a[rewardsPd], data: rd } })), vault: w.admin.address, programId: w.programId });
+  assert.deepEqual(codes(r.problems), ['REWARDS_UPGRADE_AUTHORITY']);
+  await w.finish();
 });

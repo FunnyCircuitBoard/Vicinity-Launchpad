@@ -16,7 +16,9 @@ use anchor_lang::solana_program::bpf_loader_upgradeable;
 use crate::constants::LAUNCHPAD_SEED;
 use crate::errors::CurveError;
 use crate::events::LaunchpadInitialized;
-use crate::helpers::{check_not_fee_recipient, program_data_upgrade_authority};
+use crate::helpers::{
+    check_guardian_separate, check_not_fee_recipient, program_data_upgrade_authority,
+};
 use crate::state::Launchpad;
 
 #[derive(Accounts)]
@@ -66,6 +68,8 @@ pub fn handle_init_launchpad(ctx: Context<InitLaunchpad>, guardian: Pubkey) -> R
     check_not_fee_recipient(&ctx.accounts.upgrade_authority.key())?;
     check_not_fee_recipient(&ctx.accounts.admin.key())?;
     check_not_fee_recipient(&guardian)?;
+    // R5-CONS-1: the guardian's halt never waits for the admin's time lock
+    check_guardian_separate(&guardian, &ctx.accounts.admin.key(), &Pubkey::default())?;
 
     let lp = &mut ctx.accounts.launchpad;
     lp.admin = ctx.accounts.admin.key();

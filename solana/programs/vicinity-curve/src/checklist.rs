@@ -894,13 +894,13 @@ fn idl_events() {
     assert_eq!(got, want);
 }
 
-/// 4.22: 57 codes from 6000, contiguous, in the table's order (the first and
+/// 4.22: 58 codes from 6000, contiguous, in the table's order (the first and
 /// the last few checked by name; errors.rs checks every code).
 #[test]
 fn idl_errors() {
     let idl = idl();
     let errors = idl["errors"].as_array().unwrap();
-    assert_eq!(errors.len(), 57);
+    assert_eq!(errors.len(), 58);
     for (i, e) in errors.iter().enumerate() {
         assert_eq!(e["code"].as_u64().unwrap(), 6000 + i as u64);
     }
@@ -916,6 +916,7 @@ fn idl_errors() {
     assert_eq!(name(54), "BuybacksHalted");
     assert_eq!(name(55), "BuybackHaltWithoutBuyHalt");
     assert_eq!(name(56), "RewardsRegistryAdminMismatch");
+    assert_eq!(name(57), "GuardianIsAdmin");
 }
 
 /// 3.2, C03: the committed IDL is the default (mainnet ids) build's, its

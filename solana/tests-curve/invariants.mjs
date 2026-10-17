@@ -203,7 +203,7 @@ export function decodeTransaction(w, { messageBytes, inner, logs, lookupAddresse
       assert.ok(callName, `a CPI into vicinity_curve with an unknown instruction (${ii.data.subarray(0, 8).toString('hex')})`);
       let end = j + 1;
       while (end < innerIxs.length && innerIxs[end].stackHeight > ii.stackHeight) end++;
-      mine.push({ index: i + (mine.length + 1) / 1000, program: ii.program, accounts: ii.accounts, data: ii.data, name: callName, inner: innerIxs.slice(j + 1, end), depth: ii.stackHeight, logs: seg, cu: null, top: t, viaCpi: true });
+      mine.push({ index: i + (mine.length + 1) / 1000, program: ii.program, accounts: ii.accounts, data: ii.data, name: callName, inner: innerIxs.slice(j + 1, end), depth: ii.stackHeight, logs: seg, cu: null, top: t, viaCpi: true, innerAt: j });
     });
     // each inner instruction belongs to the innermost call that contains it
     for (const c of mine) for (const ii of c.inner) if (!ii.call || ii.call.depth < c.depth) ii.call = c;
@@ -797,7 +797,7 @@ export function checkTransaction(w, ctx) {
     if (b) assert.equal(c.mintInfo.supply, b.mintInfo.supply - tokensBurned - holderBurned, `${label}: I15 mint supply falls exactly by the burns`);
   }
 
-  checkGlobal(w, { pre, post, tx, label, preAccounts });
+  checkGlobal(w, { pre, post, tx, label, preAccounts, postAccounts });
 }
 
 /** CoinLaunched and the new Coin against the approval and the config it consumed (4.10, I2, I19). */
@@ -936,8 +936,69 @@ function checkCoin(w, { c, b, label, rentMin, graduatedInTx }) {
   }
 }
 
+// The admin instructions of the old vicinity_launchpad and of vicinity_rewards' registry that move a seat
+// vicinity_curve reads (their committed IDLs, sdk/idl/: Anchor's `sha256("global:<name>")[..8]`, the same for both
+// programs), and the old program's set_pause(launches: Option<bool>, payouts: Option<bool>).
+const SEAT_IX = Object.freeze({
+  propose_admin: Buffer.from([121, 214, 199, 212, 87, 39, 117, 234]).toString('hex'),
+  accept_admin: Buffer.from([112, 42, 45, 90, 116, 181, 13, 170]).toString('hex'),
+  set_pause: Buffer.from([63, 32, 154, 2, 56, 103, 79, 45]).toString('hex'),
+});
+const seatIxName = (data) => { const h = Buffer.from(data).subarray(0, 8).toString('hex'); return Object.keys(SEAT_IX).find((k) => SEAT_IX[k] === h) ?? null; };
+const keyAtData = (d, at) => new PublicKey(Buffer.from(d).subarray(at, at + 32)).toBase58();
+/** The old program's Launchpad and vicinity_rewards' Registry as the checker reads them: `{ ok, admin, pending, paused }`. */
+function seatAccounts(w, accounts) {
+  const P = w.P;
+  const o = accounts.get(P.cluster.legacyLaunchpad);
+  const oldOk = Boolean(o?.exists && o.owner === P.cluster.legacyProgram && o.data.length === S.LEGACY_LAUNCHPAD_LEN && S.LEGACY_LAUNCHPAD_DISCRIMINATOR.every((x, i) => o.data[i] === x));
+  const r = accounts.get(P.cluster.rewardsRegistry);
+  const regOk = Boolean(r?.exists && r.owner === P.cluster.rewardsProgram && r.data.length === S.REWARDS_REGISTRY_LEN && S.REWARDS_REGISTRY_DISCRIMINATOR.every((x, i) => r.data[i] === x));
+  return {
+    oldOk, oldAdmin: oldOk ? keyAtData(o.data, S.LEGACY_ADMIN_AT) : null, oldPending: oldOk ? keyAtData(o.data, S.LEGACY_PENDING_ADMIN_AT) : null, oldPaused: oldOk && o.data[S.LEGACY_LAUNCHES_PAUSED_AT] === 1,
+    regOk, regAdmin: regOk ? keyAtData(r.data, S.REWARDS_REGISTRY_ADMIN_AT) : null, regPending: regOk ? keyAtData(r.data, S.REWARDS_REGISTRY_PENDING_ADMIN_AT) : null,
+  };
+}
+/**
+ * The seats vicinity_curve reads, as they stood at each of its calls (review R5-REG-1, as SM-2 does for the flags):
+ * this program's admin, pending admin, guardian and payout keys, the old program's admin, pending admin and launch
+ * pause, and the registry's admin and pending admin, from the accounts before the transaction, with every earlier
+ * propose_admin, accept_admin, set_guardian, set_payout_config and old set_pause of the same transaction applied in
+ * execution order (top-level instructions and, inside each, its inner instructions and CPIs into this program).
+ * Returns `{ at: Map(call -> seats), last }`.
+ */
+export function seatWalk(w, { pre, tx, preAccounts }) {
+  const P = w.P;
+  const lp = pre.launchpad;
+  const s = { admin: lp?.admin ?? null, pendingAdmin: lp?.pendingAdmin ?? ZERO, guardian: lp?.guardian ?? ZERO, payoutAuthority: lp?.payoutAuthority ?? ZERO, payoutDestination: lp?.payoutDestination ?? ZERO, ...seatAccounts(w, preAccounts) };
+  const at = new Map();
+  const curve = (c) => {
+    at.set(c, { ...s });
+    if (c.name === 'propose_admin') s.pendingAdmin = keyAtData(c.data, 8);
+    else if (c.name === 'accept_admin') { s.admin = s.pendingAdmin; s.pendingAdmin = ZERO; }
+    else if (c.name === 'set_guardian') s.guardian = keyAtData(c.data, 8);
+    else if (c.name === 'set_payout_config') { s.payoutAuthority = keyAtData(c.data, 8); s.payoutDestination = keyAtData(c.data, 40); }
+  };
+  const other = (ix) => {
+    const name = seatIxName(ix.data);
+    if (!name) return;
+    if (ix.program === P.cluster.legacyProgram && s.oldOk) {
+      if (name === 'propose_admin') s.oldPending = keyAtData(ix.data, 8);
+      else if (name === 'accept_admin') { s.oldAdmin = s.oldPending; s.oldPending = ZERO; }
+      else if (name === 'set_pause' && ix.data[8] === 1) s.oldPaused = ix.data[9] === 1;
+    } else if (ix.program === P.cluster.rewardsProgram && s.regOk) {
+      if (name === 'propose_admin') s.regPending = keyAtData(ix.data, 8);
+      else if (name === 'accept_admin') { s.regAdmin = s.regPending; s.regPending = ZERO; }
+    }
+  };
+  for (const t of tx.top) {
+    if (t.program === w.programId) { const c = t.calls.find((x) => !x.viaCpi); if (c) curve(c); } else other(t);
+    t.inner.forEach((ii, j) => { const c = t.calls.find((x) => x.viaCpi && x.innerAt === j); if (c) curve(c); else other(ii); });
+  }
+  return { at, last: s };
+}
+
 /** I19, I20 and the settings rules after a transaction. */
-function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
+function checkGlobal(w, { pre, post, tx, label, preAccounts, postAccounts }) {
   const P = w.P;
   const curveIxs = tx.calls;
   const has = (name) => curveIxs.filter((t) => t.name === name);
@@ -953,27 +1014,30 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
   for (const [k, t] of pre.tickers) assert.ok(post.tickers.has(k) && post.tickers.get(k).raw.equals(t.raw), `${label}: I19 a TickerLock changed or closed`);
   for (const [k, a] of post.approvals) assert.equal(k, P.approval(a.cityId));
   // at every approval and every launch: the old program had no Coin and no Approval for the city, its launches were
-  // paused, and its admin was this program's admin with no transfer pending (8.5, GOV-1: only the same multisig could reopen it)
+  // paused, and its admin was this program's admin with no transfer pending (8.5, GOV-1: only the same multisig could
+  // reopen it); the rewards registry's admin too (OPS-1). The seats as they stood at that call (review R5-REG-1): an
+  // earlier hand-over step of the same transaction counts, as the program reads it.
+  const seats = seatWalk(w, { pre, tx, preAccounts });
   for (const t of [...has('approve_launch'), ...has('launch')]) {
     const city = t.data.readBigUInt64LE(8);
+    const m = seats.at.get(t);
     const empty = (k) => { const a = preAccounts.get(k); return !a?.exists || (a.owner === ZERO && a.data.length === 0); };
-    const lpOld = preAccounts.get(P.cluster.legacyLaunchpad);
-    const paused = lpOld?.exists && lpOld.owner === P.cluster.legacyProgram && lpOld.data.length === S.LEGACY_LAUNCHPAD_LEN
-      && S.LEGACY_LAUNCHPAD_DISCRIMINATOR.every((x, i) => lpOld.data[i] === x) && lpOld.data[S.LEGACY_LAUNCHES_PAUSED_AT] === 1;
-    assert.ok(empty(P.legacyCoin(city)) && empty(P.legacyApproval(city)) && paused, `${label}: I19 the old program could launch city ${city}`);
-    const oldAdmin = new PublicKey(lpOld.data.subarray(S.LEGACY_ADMIN_AT, S.LEGACY_ADMIN_AT + 32)).toBase58();
-    const oldPending = new PublicKey(lpOld.data.subarray(S.LEGACY_PENDING_ADMIN_AT, S.LEGACY_PENDING_ADMIN_AT + 32)).toBase58();
-    assert.ok(pre.launchpad && oldAdmin === pre.launchpad.admin && oldPending === ZERO,
-      `${label}: I19 the old program's admin ${oldAdmin} (pending ${oldPending}) is not this program's admin ${pre.launchpad?.admin} at the ${t.name} of city ${city}`);
+    assert.ok(empty(P.legacyCoin(city)) && empty(P.legacyApproval(city)) && m.oldOk && m.oldPaused, `${label}: I19 the old program could launch city ${city}`);
+    assert.ok(m.admin && m.oldAdmin === m.admin && m.oldPending === ZERO,
+      `${label}: I19 the old program's admin ${m.oldAdmin} (pending ${m.oldPending}) is not this program's admin ${m.admin} at the ${t.name} of city ${city}`);
     // OPS-1: vicinity_rewards' registry admin (the only key that can create the coin's rewards config) was this program's admin, nothing pending
-    const reg = preAccounts.get(P.cluster.rewardsRegistry);
-    const regOk = reg?.exists && reg.owner === P.cluster.rewardsProgram && reg.data.length === S.REWARDS_REGISTRY_LEN
-      && S.REWARDS_REGISTRY_DISCRIMINATOR.every((x, i) => reg.data[i] === x);
-    assert.ok(regOk, `${label}: OPS-1 no vicinity_rewards registry at the ${t.name} of city ${city}`);
-    const regAdmin = new PublicKey(reg.data.subarray(S.REWARDS_REGISTRY_ADMIN_AT, S.REWARDS_REGISTRY_ADMIN_AT + 32)).toBase58();
-    const regPending = new PublicKey(reg.data.subarray(S.REWARDS_REGISTRY_PENDING_ADMIN_AT, S.REWARDS_REGISTRY_PENDING_ADMIN_AT + 32)).toBase58();
-    assert.ok(regAdmin === pre.launchpad.admin && regPending === ZERO,
-      `${label}: OPS-1 the rewards registry's admin ${regAdmin} (pending ${regPending}) is not this program's admin ${pre.launchpad.admin} at the ${t.name} of city ${city}`);
+    assert.ok(m.regOk, `${label}: OPS-1 no vicinity_rewards registry at the ${t.name} of city ${city}`);
+    assert.ok(m.regAdmin === m.admin && m.regPending === ZERO,
+      `${label}: OPS-1 the rewards registry's admin ${m.regAdmin} (pending ${m.regPending}) is not this program's admin ${m.admin} at the ${t.name} of city ${city}`);
+  }
+  // the walk ends where the accounts are after the transaction (it read every step that moves a seat)
+  if (pre.launchpad && post.launchpad) {
+    for (const k of ['admin', 'pendingAdmin', 'guardian', 'payoutAuthority', 'payoutDestination']) assert.equal(seats.last[k], post.launchpad[k], `${label}: the seat walk's ${k}`);
+  }
+  if (postAccounts) {
+    const after = seatAccounts(w, postAccounts);
+    if (seats.last.oldOk && after.oldOk) for (const k of ['oldAdmin', 'oldPending', 'oldPaused']) assert.equal(seats.last[k], after[k], `${label}: the seat walk's ${k}`);
+    if (seats.last.regOk && after.regOk) for (const k of ['regAdmin', 'regPending']) assert.equal(seats.last[k], after[k], `${label}: the seat walk's ${k}`);
   }
   // SM-2 (review round 4): every call ran under flags that permit it, as they stood at that call: the Launchpad before
   // the transaction, then each earlier set_pause of the same transaction applied (a successful set_pause stores exactly
@@ -994,10 +1058,12 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
     }
   }
   // SM-2: what approve_launch and opt_in_payout wrote is what they may write (4.8, 4.18), checked when it appears
+  const approveAt = new Map(has('approve_launch').map((t) => [t.data.readBigUInt64LE(8), seats.at.get(t)]));
   for (const [k, ap] of post.approvals) {
     if (pre.approvals.has(k)) continue;
     assert.ok(has('approve_launch').length, `${label}: an Approval appeared outside approve_launch`);
-    const lpA = pre.launchpad;
+    const lpA = approveAt.get(ap.cityId); // the admin, guardian and payout key at that approve_launch (R5-REG-1)
+    assert.ok(lpA, `${label}: SM-2 the approval of city ${ap.cityId} has no approve_launch of that city`);
     assert.ok(ap.cityId >= 1n, `${label}: SM-2 an approval for city 0`);
     for (const [name, key] of [['FEE_RECIPIENT', S.ADDRESSES.feeRecipient], ['the guardian', lpA.guardian], ['the payout key', lpA.payoutAuthority]]) {
       if (key && key !== ZERO) assert.notEqual(ap.founder, key, `${label}: SM-2 the approval of city ${ap.cityId} names ${name} as founder`);
@@ -1028,6 +1094,8 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
       assert.ok(![lp.admin, lp.guardian, S.ADDRESSES.feeRecipient].includes(lp.payoutAuthority), `${label}: I20 payout key separate`);
       assert.ok(![lp.payoutAuthority, lp.admin, lp.guardian, S.ADDRESSES.feeRecipient].includes(lp.payoutDestination), `${label}: I20 payout wallet separate`);
     }
+    // R5-CONS-1: the guardian's halt never waits for the admin's time lock
+    if (lp.guardian !== ZERO) assert.ok(lp.guardian !== lp.admin && lp.guardian !== lp.pendingAdmin, `${label}: I20 the guardian is the admin or the proposed admin`);
     // GOV-2: FEE_RECIPIENT only receives
     for (const [k, v] of [['admin', lp.admin], ['pending admin', lp.pendingAdmin], ['guardian', lp.guardian]]) {
       assert.notEqual(v, S.ADDRESSES.feeRecipient, `${label}: I20 FEE_RECIPIENT is the ${k}`);

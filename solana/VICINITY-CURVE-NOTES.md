@@ -2057,3 +2057,132 @@ after 4 runs; on twin coins the SDK refuses those buys, its 0.3% buy at 8.4 caps
 at most, and its largest 1% buy at 3 caps leaves every class at a loss through every run.
 `29-clients` SDK4-4 holds through every run the backlog pays for. Against the previous SDK the
 refusals fail and its threshold's buys profit.
+
+### 70. The guardian is never the admin or the proposed admin (4.1, 4.2, 4.4, 4.22, 8.1, 8.4, I20; review R5-CONS-1)
+
+**Spec.** 8.1 and 8.4: the guardian is "a separate Squads multisig without a time lock", the fast brake
+of 8.3 that halts buys at once while a hostile upgrade waits out its time lock (T46, T72); O9: without a
+guardian "the only brake would take 48 hours".
+
+**Issue.** Nothing enforced it. `init_launchpad`, `set_guardian`, `propose_admin` and `accept_admin`
+compared the guardian with `FEE_RECIPIENT` and the payout keys only, and the deploy checklist checked only
+`GUARDIAN_UNSET` and `GUARDIAN_PAYOUT`: with the vault as guardian (by `init_launchpad(guardian = admin)` or
+`set_guardian(vault)`) it reported every precondition as holding (reproduced). A halt would then be a vault
+proposal waiting 48 hours, O9's rejected alternative in disguise. Low: an operator misconfiguration; exits
+are unaffected.
+
+**Choice.** The safer fix, in the program and in the checklist:
+* `check_guardian_separate(guardian, admin, pending_admin)` (helpers.rs): a nonzero guardian is neither the
+  admin nor a nonzero proposed admin, else `GuardianIsAdmin` (6057, appended). `init_launchpad` checks the
+  guardian against the signing admin, `set_guardian` against the admin and the pending admin,
+  `propose_admin` the guardian against the proposed key, `accept_admin` against the accepting key. One
+  comparison each; the existing refusals keep their order (`FeeRecipientRole`, `PayoutKeyNotSeparate` first).
+* The checklist reports `GUARDIAN_IS_ADMIN` when the guardian is the admin, the vault or the pending admin
+  (the vault check covers the state before the admin is handed to the vault, which the program cannot see),
+  and its final line asks the operator to confirm that the guardian is a separate multisig without a time
+  lock of its own, which nothing on chain shows.
+* The checker's I20 asserts the same after every transaction. IDL (one error), the SDK's `ERROR_NAMES`,
+  `checklist.rs` (58 codes), 4.1, 4.2, 4.4, 4.22, 8.1, 8.4 and I20 follow.
+
+Tests. `28-governance` R5-CONS-1: `init_launchpad(guardian = admin)`, `set_guardian(admin)`,
+`propose_admin(guardian)`, `set_guardian(pending admin)` and an `accept_admin` by a key that is the guardian
+(a doctored Launchpad, since the program never stores it) are refused with `GuardianIsAdmin`; no guardian and
+another key are accepted and the hand-over completes; the checklist reports a guardian that is the admin or
+the vault. Unit test `guardian_separate_from_admin`. Against the previous build every refusal fails (each
+call executed) and the checklist reported nothing.
+
+### 71. The deploy checklist checks a proposed guardian or payout key before the proposal is signed (8.4, Appendix C OPS-1; reviews R5-DIFF-2, R5-CONS-2)
+
+**Spec.** 8.4's operating rule (since SPEC-1, round 2): "`set_guardian` and `set_payout_config` never name
+a key that already holds a coin's founder seat ... the deploy checklist compares the new key with every
+`Coin.founder` before the proposal is signed"; Appendix C OPS-1: "the deploy checklist reads every 8.4
+precondition".
+
+**Issue.** Round 4's `preflight.mjs` compared founders only with the guardian and payout key already
+stored, and had no input for a proposed key: `checkDeployPreconditions` silently ignored any extra option
+(`proposedGuardian` included) and the CLI parsed only five flags. The program accepts `set_guardian(K)` for
+a coin's founder K (it cannot list the coins), and `FOUNDER_HOLDS_ROLE` appeared only on the next run, after
+K, now the guardian, could claim the founder share (reproduced: 10,000,000 lamports). SPEC-1's leftover risk
+was accepted on the strength of this check. Low / info.
+
+**Choice.**
+* `checkProposedRoleKey({ role, key, lp, curveAccounts, vault })`, exported: for `guardian`,
+  `payoutAuthority` or `payoutDestination`, a problem when the key is a Coin's or a pending Approval's
+  founder (`PROPOSED_KEY_IS_FOUNDER`; a warning for the payout wallet, which the program does not keep from a
+  seat), `FEE_RECIPIENT`, the admin, the vault or the proposed admin, or another key the program keeps the
+  role apart from (the payout keys for the guardian, the guardian and the other payout setting for the payout
+  keys), each with its own code; removing the guardian is a warning (O9). `foundersOf` lists the founders.
+* `checkDeployPreconditions` takes `proposed = { guardian, payoutAuthority, payoutDestination }`, checks each
+  against the Launchpad with the proposal's other keys applied, and refuses unknown options (`TypeError`), so
+  a misspelt check is never skipped silently.
+* The CLI takes `--proposed-guardian`, `--proposed-payout-authority` (alias `--proposed-payout-key`) and
+  `--proposed-payout-destination`, refuses unknown options and malformed keys with exit status 2
+  (`parseArgs`, exported).
+* 8.4 names this mode for the operating rule; the OPS-1 row's "reads every 8.4 precondition" now says
+  "every 8.4 precondition it can read from the chain", with the proposed-key mode of round 5. The config #0
+  sub-point (a config #0 with other valid shares passed) was not confirmed as an inconsistency (8.4 asks
+  only that it is added); a `CONFIG0_NOT_DEFAULT` warning now names the fields that differ from 5.9's
+  config #0.
+
+Tests. `28-governance` R5-DIFF-2, R5-CONS-2: with a coin's founder and a pending approval's founder, each
+proposed as guardian or payout key is a problem naming its coin or approval, as payout wallet a warning;
+`FEE_RECIPIENT`, the admin, the payout key as guardian, the guardian as payout key, the admin as payout key and
+the payout wallet as payout key are each reported, the two payout keys swapped in one proposal are not; a fresh
+key passes; `proposedGuardian` and an unknown proposed key throw; the program still simulates
+`set_guardian(founder)` successfully; the CLI parses the three options and refuses an unknown one, a bad key and
+a missing `--rpc`. Against the previous checklist the test fails at its first assertion (the option was
+ignored).
+
+### 72. An immutable old program meets the checklist (8.4, 8.5, O19; reviews R5-DIFF-3, R5-CONS-3)
+
+**Spec.** 8.5, O19 and OPS-4: "making the old program immutable instead of closing it keeps its instructions
+callable and avoids the trap"; 8.4's precondition and the checklist: the old program's upgrade authority is
+the vault (a closed program exempt).
+
+**Issue.** An immutable ProgramData (still there, option byte 0) made `upgradeAuthorityOf` return null, so
+the checklist reported `LEGACY_UPGRADE_AUTHORITY` for ever (reproduced with a real loader `SetAuthority`
+with no new authority), while launches here kept working: the recommended configuration read as not ready,
+teaching operators to ignore the exit status. Info.
+
+**Choice.** `programDataState(programData)` (exported) tells closed, immutable, upgradeable (with its
+authority) and invalid apart. For the old program only, immutable passes with a `LEGACY_IMMUTABLE` warning
+(its code can never change; its admin seat still moves only by its own two steps); an upgradeable one must
+be the vault's; an account that is not a ProgramData is a problem. Its approvals stay warnings (the
+immutable program can still revoke them). vicinity_curve and vicinity_rewards must stay upgradeable by the
+vault (8.4). 8.4 says "the Squads vault, or none (immutable)".
+
+Tests. `28-governance` R5-DIFF-3, R5-CONS-3: after the vault's real `SetAuthority` to none, the checklist is
+ready with `LEGACY_IMMUTABLE` in both modes; an old approval made and revoked meanwhile is a warning; a launch
+here works; an immutable vicinity_rewards is still `REWARDS_UPGRADE_AUTHORITY`. Against the previous checklist
+it fails (`LEGACY_UPGRADE_AUTHORITY`).
+
+### 73. The checker reads the seats of each approval and launch as they stood at that call (I19, 8.2, 12; review R5-REG-1)
+
+**Spec.** I19 and SM-2 (entry 66): every approval and launch ran while the old program's admin and the
+registry's admin were this program's admin with nothing pending, and an approval's rent payer is the admin;
+the program reads each seat at the instruction. 8.2: the seats follow every admin hand-over.
+
+**Issue.** The per-transaction checker read those seats from the accounts before the transaction. Wrong both
+ways (the verifier; the outage itself was rejected as recorded): the program accepts
+`[accept_admin, old accept_admin, registry accept_admin, approve_launch]` by the new admin in one transaction
+and the checker refused it (I19, then SM-2's rent payer); a mutant build without the old-admin check approved
+inside `[old propose_admin(stranger), approve_launch]` and the checker accepted it. Info.
+
+**Choice.** The verifier's scoped fix: `seatWalk` (invariants.mjs) starts from the accounts before the
+transaction and walks the calls in execution order (top-level instructions, and inside each its inner
+instructions and CPIs into this program, which now carry their position), applying this program's
+`propose_admin`, `accept_admin`, `set_guardian` and `set_payout_config`, the old program's and the registry's
+`propose_admin` and `accept_admin`, and the old program's `set_pause`, as SM-2 applies `set_pause`. I19 and
+OPS-1 use the seats of each approve_launch's and launch's moment; SM-2 checks a new approval's founder and rent
+payer against the guardian, payout key and admin of its approve_launch; and the walk must end where the
+accounts are after the transaction (a seat step it could not see fails loudly). 8.2 gains the no-gap
+recipe the verifier described (the new admin's accept proposal approved before the old admin's proposal
+executes, since the time lock counts from approval). Not built: an SDK helper for both halves (optional).
+
+Tests. `27-checker-gaps` R5-REG-1: V1 proposes V2 for the three seats; V2's one transaction of the three
+accepts and an approval is accepted by the program and by the checker (the approval's rent payer is V2), and
+the city launches; a real approval replayed with an old `propose_admin`, a registry `propose_admin` or an old
+`set_pause(launches = false)` placed ahead of it (and the accounts after it moved accordingly) is refused with
+I19 or OPS-1; the same old `propose_admin` after the approval is accepted, and without its account change it
+is refused by the walk's end check. Against the previous checker the bundled transaction is refused and the
+three doctored contexts are accepted.

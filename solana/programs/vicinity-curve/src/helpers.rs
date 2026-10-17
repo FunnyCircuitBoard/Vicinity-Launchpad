@@ -159,6 +159,28 @@ pub fn check_payout_keys_separate(
     Ok(())
 }
 
+/// The guardian is neither the admin nor the proposed admin (8.1; review
+/// R5-CONS-1): its halt is the fast brake of 8.3, and an admin under the
+/// time lock as guardian would make that halt a proposal that waits as long
+/// as every other (O9's "only brake would take 48 hours"). A zero guardian
+/// (none) or a zero proposed admin (none) matches nothing. Whether a separate
+/// guardian multisig has a time lock of its own cannot be seen on chain.
+pub fn check_guardian_separate(
+    guardian: &Pubkey,
+    admin: &Pubkey,
+    pending_admin: &Pubkey,
+) -> Result<()> {
+    let zero = Pubkey::default();
+    if *guardian == zero {
+        return Ok(());
+    }
+    require!(
+        guardian != admin && (*pending_admin == zero || guardian != pending_admin),
+        CurveError::GuardianIsAdmin
+    );
+    Ok(())
+}
+
 /// `FEE_RECIPIENT` only receives (8.1: "it signs nothing"): it may never be the
 /// admin, the proposed admin or the guardian (GOV-2). A hot wallet that is
 /// also the platform-fee wallet would otherwise approve launches and, through
@@ -722,6 +744,29 @@ mod tests {
         ] {
             assert_eq!(code(check_payout_keys_separate(&a, &g, &k, &w)), 6008);
         }
+    }
+
+    /// R5-CONS-1: the guardian is neither the admin nor the proposed admin;
+    /// no guardian, or no proposed admin, matches nothing.
+    #[test]
+    fn guardian_separate_from_admin() {
+        let admin = Pubkey::new_unique();
+        let pending = Pubkey::new_unique();
+        let guardian = Pubkey::new_unique();
+        let zero = Pubkey::default();
+        for p in [pending, zero] {
+            assert!(check_guardian_separate(&guardian, &admin, &p).is_ok());
+            assert!(check_guardian_separate(&zero, &admin, &p).is_ok());
+        }
+        assert_eq!(code(check_guardian_separate(&admin, &admin, &zero)), 6057);
+        assert_eq!(
+            code(check_guardian_separate(&admin, &admin, &pending)),
+            6057
+        );
+        assert_eq!(
+            code(check_guardian_separate(&pending, &admin, &pending)),
+            6057
+        );
     }
 
     /// GOV-2: FEE_RECIPIENT is refused as admin, proposed admin or guardian.
