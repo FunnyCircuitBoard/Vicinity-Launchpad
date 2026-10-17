@@ -142,7 +142,7 @@ test("home: How it works (three cards, each one link), the app teaser (in develo
     const pick = (c) => [c.match(/<h3>(.*?)<\/h3>/)[1].replace(/&nbsp;/g, " "), c.match(/<a class="how4__link" href="([^"]+)">/)[1]];
     assert.deepEqual(cards.map(pick), [["Find your city", "/cities"], ["Hold to found", "/rules#founders"], ["Launch its coin", "/launchpad"]]);
     // 17 Oct 2026: no early buying exists (city-coin curves are open to everyone at launch); the card says what holding is for
-    assert.match(cards[1], /<p>Keep your city's founder amount of \$VICINITY, set by its size, in every random balance check for seven days\.<\/p>/);
+    assert.match(cards[1], /<p>Hold your city's founder amount of \$VICINITY, set by its size, through random balance checks for seven days\.<\/p>/);
     assert.doesNotMatch(how.replace(/<[^>]+>/g, "").replace(/\b0[1-3]\b/g, ""), /\d/, "no number in the cards (the 01-03 are decoration)");
     const teaser = h.slice(order[2], order[3]);
     assert.match(teaser, /<span class="tag tag--gold">In development<\/span>/, "never presented as available");

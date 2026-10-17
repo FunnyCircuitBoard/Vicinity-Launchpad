@@ -1,6 +1,6 @@
 # Vicinity
 
-**One city. One coin. One community.** Every real city on one map, with real boundaries. Each community gets one official coin, local leaders, and its own feed of memes, check-ins, discussions and weekly votes. $VICINITY holders get in first; the Vicinity Launchpad opens October 10, 2026 at 10:10:10 AM New York time.
+**One city. One coin. One community.** Every real city on one map, with real boundaries. Each community gets one official coin, local leaders, and its own feed of memes, check-ins, discussions and weekly votes. Locals hold $VICINITY to found their city; the Vicinity Launchpad opened October 10, 2026 at 10:10:10 AM New York time.
 
 Live: https://vicinity.city (vicinitycity.net and the www addresses forward there).
 
@@ -11,7 +11,7 @@ Separate pages, one shared menu (top menu on computers, bottom menu bar on phone
 - **/** How it works: the problem, a step-by-step walkthrough on the real New York City boundaries (73 places, one coin), why joining early matters (straight from the rules), how the app works, incentives for holders and for the Launchpad, how to get $VICINITY, roles, roadmap, FAQ (including why $VICINITY launched on Raydium LaunchLab).
 - **/token** Token and holders: live facts from the blockchain (minting/freezing off, supply, price), every holder in a table that scrolls on its own, "where does this wallet stand?" (paste any address: rank, percentile, gap to the next wallet), the official token list and link checker.
 - **/cities** The live map: 8,000+ communities in 244 countries with real boundaries that never overlap; claimed vs open; the communities filling up. The claim button leads to the dashboard.
-- **/launchpad** Countdown to October 10 (10:10:10 AM New York time), the planned phases, who gets in first, add-to-calendar.
+- **/launchpad** Countdown to October 10 (10:10:10 AM New York time), the planned phases, add-to-calendar.
 - **/connect** Log in or sign up. Returning members log in with Google or e-mail (the header button says **Log in** when you're signed out). New members: any Solana wallet (Wallet Standard + older ones; app links for phones), "wallet on my phone" (QR code + 2-digit check number), and a tiny-transfer proof for app wallets that can't connect (FOMO, exchanges). Then Google or e-mail (Google is hidden inside a wallet app's browser, where it can't run; e-mail works everywhere). One account per wallet and per login (a best-effort limit: it does not prove one person). **/locate** is the page a wallet app's browser sends you to for a location check it can't do itself (GPS often isn't shared there).
 - **/rules** Every rule and formula, the "never" list, and whether the balance checks are running (filled live from `/api/policy`).
 - **/official** Official addresses: our programs and who can upgrade them, the fee wallet, the price-curve setting, $VICINITY, the team lock and team wallets (each with Copy and its Solscan page, built from `src/official.js` and the settings of `wrangler.jsonc`), and the official city coins read from the chain (`/api/official-coins`). Linked from every footer.

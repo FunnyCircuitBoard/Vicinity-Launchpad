@@ -36,7 +36,7 @@ test("honest claims: the home page says what $VICINITY is for (founding a city),
   for (const f of ["scripts/pages/src/index.html", "public/index.html"]) {
     const h = read(f);
     assert.match(h, /<p class="lead hero4__lead">Every real city can get one official coin, run by the people who live there\. Locals hold \$VICINITY to found their&nbsp;city\.<\/p>/, f);
-    assert.match(h, /<h3>Hold to&nbsp;found<\/h3>\s*<p>Keep your city's founder amount of \$VICINITY, set by its size, in every random balance check for seven days\.<\/p>\s*<a class="how4__link" href="\/rules#founders">How founding works/, f);
+    assert.match(h, /<h3>Hold to&nbsp;found<\/h3>\s*<p>Hold your city's founder amount of \$VICINITY, set by its size, through random balance checks for seven days\.<\/p>\s*<a class="how4__link" href="\/rules#founders">How founding works/, f);
     assert.doesNotMatch(h, /Launchpad snapshot to buy|buy new city coins/i, f);
   }
   assert.match(read("public/index.html"), /<meta name="description" content="[^"]*Locals hold \$VICINITY to found their city\.">/);
@@ -49,15 +49,15 @@ test("honest claims: liquidity is never said to be locked or burned today while 
     // a sentence may say the liquidity is burned or locked only as what happens when the curve fills
     const sentences = h.replace(/<[^>]+>/g, " ").replace(/&nbsp;| /g, " ").split(/(?<=[.!?])\s+/);
     for (const s of sentences.filter((x) => /liquidity (is|are|gets) (burned|locked)|liquidity is burned or locked|(burned|locked) liquidity/i.test(x))) {
-      assert.match(s, /when the curve fills/i, `${f}: "${s.trim()}" must say it happens only when the curve fills`);
+      assert.match(s, /when (the curve|it) fills/i, `${f}: "${s.trim()}" must say it happens only when the curve fills`);
     }
   }
   for (const f of ["scripts/pages/src/index.html", "public/index.html"]) {
-    assert.match(read(f), /<summary>Is this a rug pull\?<\/summary><p>No\. There's no presale, minting and freezing are already switched off for good, and every team wallet is listed: the <a href="\/token">Token page<\/a> shows the proof live from the blockchain\. \$VICINITY is still on its LaunchLab curve; when the curve fills, LaunchLab burns or locks the pool's liquidity\.<\/p>/, f);
+    assert.match(read(f), /<summary>Is this a rug pull\?<\/summary><p>No\. There's no presale, minting and freezing are already switched off for good, and every team wallet is listed: the <a href="\/token">Token page<\/a> shows the proof live from the blockchain\. Until its curve fills, \$VICINITY trades on LaunchLab's bonding curve; when it fills, LaunchLab burns or locks the new pool's liquidity\.<\/p>/, f);
   }
   for (const f of ["scripts/pages/src/token.html", "public/token.html"]) {
     // the card keeps its place in the grid and its "LaunchLab standard" tag: a rule of LaunchLab's, not a reading of the chain
-    assert.match(read(f), /<h3>Liquidity locks at graduation<\/h3><p>\$VICINITY is still on its Raydium LaunchLab bonding curve\. When the curve fills, it moves into a Raydium pool and LaunchLab burns or locks that pool's liquidity for good\.<\/p><span class="proof__live">LaunchLab standard<\/span>/, f);
+    assert.match(read(f), /<h3>Liquidity locks at graduation<\/h3><p>Until its curve fills, \$VICINITY trades on Raydium LaunchLab's bonding curve\. When it fills, it moves into a Raydium pool and LaunchLab burns or locks that pool's liquidity for good\.<\/p><span class="proof__live">LaunchLab standard<\/span>/, f);
   }
 });
 
@@ -79,7 +79,7 @@ test("honest claims: Founding Supporters are promised nothing, and city coins pa
     const h = read(f);
     const roles = h.slice(h.indexOf('<section class="section section--panel" id="roles">'));
     assert.ok(roles.length < h.length, `${f}: the Roles box`);
-    assert.match(roles, /<li>Founding Supporters are the holders by 14-day average balance at the snapshot\. Its rules are published; no date is set and no benefit is promised\.<\/li>/, f);
+    assert.match(roles, /<li>Founding Supporters are the holders by 14-day average balance at the snapshot\. Its rules are published; no date is set yet and no benefit is promised\.<\/li>/, f);
     assert.match(roles, /<li>Design the city's coin: name, logo, colour and a short pitch; it launches paired with SOL\. Public, logged, and locked once it launches\.<\/li>/, f);
     assert.doesNotMatch(roles, /USDC|\bRAY\b/, `${f}: the Roles box names no pair a city coin cannot launch with`);
   }
