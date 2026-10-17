@@ -8,7 +8,11 @@ MATH3-1, HR-1), 4 (R4-DIFF-1 to R4-DIFF-5, SM-1, SM-2, SDK4-1 to SDK4-6, OPS-1 t
 TL-INFO-1) and 5 (R5-DIFF-1 to R5-DIFF-3, R5-REG-1, MV-1, KR-1, R5-CONS-1 to R5-CONS-5) of the
 build; revision 2 answered the security, math, runtime and integration review of revision 1.
 Appendix C lists every finding of each review, what changed and the parts that were
-not applied, with reasons, and the notes folded in. The program, its math crate, its client SDK and
+not applied, with reasons, and the notes folded in. Revision 3 also specifies the owner's
+**batch launch approval** of 17 October 2026 (a separate launch approver signs one Merkle root a
+day naming every eligible founder, whose launches then need no per-launch signature: 1.4, 3.2,
+3.4, 3.11, 3.12, 4.23 to 4.27, 8.1, 8.4, 8.6, I23 to I25, T81 to T91, O30 to O33, 14.1; NOTES 75);
+that part is specified and not yet built. The program, its math crate, its client SDK and
 its test suites are built (branch `feat/vicinity-curve`); nothing has been deployed or signed.
 Devnet uses a throwaway program key only. Mainnet needs the owner, the Squads vault `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X`
 (2 of 3) and the outside audit. The existing programs `vicinity_launchpad`
@@ -37,7 +41,8 @@ Sources. Appendix C Review responses.
 
 ### 0.1 The design on one page
 
-1. **One new program, `vicinity_curve`, runs a city coin's whole life**: admin approval,
+1. **One new program, `vicinity_curve`, runs a city coin's whole life**: approval (by the
+   admin one city at a time, or in a daily batch signed by the launch approver, item 8),
    launch, bonding curve, graduation, the pool after graduation, fee booking, payouts and
    buyback-and-burn. No Meteora program, no other AMM, no third party receives anything.
 2. **One permanent `Coin` account per city** (`["coin", city_id u64 LE]`; Rust struct
@@ -88,13 +93,18 @@ Sources. Appendix C Review responses.
    out of city coins (8.4, O29).
 8. **Admin powers are minimal and listed** (section 8). Within `vicinity_curve` the admin can
    approve or revoke launches, add or disable future configs inside compiled caps, pause new
-   launches, payouts, buys and buybacks, set the payout key and wallet, set the guardian and hand over
-   the admin seat in two steps; it has no path to any lamport or token and cannot change a
+   launches, payouts, buys and buybacks, set the payout key and wallet, set the guardian and the
+   launch approver and hand over the admin seat in two steps; it has no path to any lamport or token and cannot change a
    live coin. **The same Squads multisig is also the upgrade authority and publishes the holder
    reward rounds in `vicinity_rewards`**, so it is the main trust in the system (8.1). A
    separate **guardian** key can only stop buys, buybacks and launches at once; nothing can
    stop sells, claims, forwards or withdrawals. Upgrades wait behind a 48-hour time lock once
-   the first coin is live (O11).
+   the first coin is live (O11). A third key, the **launch approver** (the owner's own, never on
+   the website, set and rotated only by the admin), can only publish or clear a **launch
+   batch**: one Merkle root naming, for cities with no coin, the founder, config, name, ticker
+   and metadata hash each may launch with. A batch takes force no sooner than 12 hours after
+   publication (the review window, O30) and lasts at most 48 hours (O31); founders it names
+   then launch with no per-launch signature, under every rule of a per-city launch (8.6).
 9. **Integration**: `buy(sol_in, min_tokens_out)` and `sell(tokens_in, min_sol_out)` take
    the same 10 fixed accounts before and after graduation; no remaining accounts; a `no_std`
    pure integer math crate that the program itself calls and that off-chain code reuses; a
@@ -139,8 +149,9 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 
 ### 1.1 In scope
 
-* The Anchor program `vicinity_curve` (new program id), its 21 instructions, its accounts,
-  events and errors.
+* The Anchor program `vicinity_curve` (new program id), its 26 instructions, its accounts,
+  events and errors (the five instructions of the batch launch approval, 4.23 to 4.27, and its
+  account, 3.11, are specified and not yet built).
 * The pure integer math crate `vicinity-curve-math`, which the program calls for every
   number it computes, and which an SDK, an indexer or an aggregator adapter can reuse.
 * The integration contract with `vicinity_rewards` as deployed (read its `CityConfig`,
@@ -191,7 +202,12 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
   `platform_pending`, `founder_pending`, `holders_pending`, `buyback_pending`).
 * **Liabilities** of a coin: the reserve of its phase plus the five buckets.
 * **Guardian**: a key stored in `Launchpad` whose only power is to stop buys, buybacks and
-  launches (8.3).
+  launches (8.3), and to clear launch batches (4.26).
+* **Launch approver**: a key stored in `Launchpad.launch_approver` whose only powers are to
+  publish and to clear launch batches (4.25, 4.26, 8.1); zero means the batch path is off.
+* **Launch batch**: a Merkle root of launch approvals with a sequence number and a validity
+  window, published by the launch approver (3.11, 3.12). A batch is **in force** when
+  `launch_from_batch` may use it at that moment (8.6).
 * **Depth**: the market's SOL side used for buyback caps: `virtual_sol + curve_sol` on the
   curve, `pool_sol` in the pool.
 
@@ -201,7 +217,7 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 
 | req | requirement (short) | where it is met | invariants | tests |
 |---|---|---|---|---|
-| R1 | one city, one coin, one community; admin approval naming founder, city, ticker, expiry; ticker lock | `Coin` PDA per `city_id`, never closed (3.7); `TickerLock` per ticker, never closed (3.8); `approve_launch`, `launch`, `revoke_approval` (4.8 to 4.10); old program's `Coin` and `Approval` empty and its launches paused, checked at approval and at launch (4.8, 4.10, 8.5) | I19 | L04, L05, X33 to X35, 28-governance |
+| R1 | one city, one coin, one community; admin approval naming founder, city, ticker, expiry; ticker lock | `Coin` PDA per `city_id`, never closed (3.7); `TickerLock` per ticker, never closed (3.8); `approve_launch`, `launch`, `revoke_approval` (4.8 to 4.10); old program's `Coin` and `Approval` empty and its launches paused, checked at approval and at launch (4.8, 4.10, 8.5); or a launch batch signed by the launch approver, each leaf naming founder, city, ticker, name, metadata hash and config, in force at most 48 hours, with every rule of a per-city launch checked at the launch (3.11, 3.12, 4.23 to 4.27, 8.6) | I19, I23, I24 | L04, L05, L14, X33 to X35, X66 to X76, 28-governance |
 | R2 | 2.5% on every buy and sell, curve and pool, split 0.5/0.7/0.5/0.5/0.3, nothing on top, never above 2.5%; 0.5% default "added to locked liquidity", a config field | fee rounded down and split (5.2), same code in both phases (5.4 to 5.8), cap `MAX_TOTAL_FEE_BPS = 250` (3.2, V1), liquidity bucket (5.8), labels (6.6), decisions O1, O2. **Exceptions to record**: the coin's own buyback pays no fee (7.1; owner sign-off O7); pools that third parties create for this classic SPL coin are outside the program and pay no Vicinity fee (6.6, 13, 14.5) | I3, I12 | U01, U02, P08, L06, L08 |
 | R3 | no fee on wallet transfers; classic SPL; no hook, delegate, freeze; mint authority removed | mint created by the program under classic SPL Token with no freeze authority; mint authority set to `None` in `launch` (3.10, 4.10) | I11 | L05, X04, X39 |
 | R4 | future splits changeable within compiled caps; live coins keep their split forever | `LaunchConfig` immutable except `enabled` (3.5); terms copied into `Coin` at launch, never written again (3.7); caps and rules V1 to V11 (5.13) | I2, I3, I20 | V01 to V11, L03, P10 |
@@ -210,7 +226,7 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 | R7 | buyback and burn: accrues per coin, buys at the curve or pool price, SPL burn, tracked, separate crank with caps and rate limit, MEV analysed | 4.13, section 7 (single run, split legs, founder credit, multi-run backlog), V8, V11 | I15 | L09, P06, P06b, X24, X25 |
 | R8 | 10^9 coins at 6 decimals; ~30 SOL / ~1,073,000,000 coins virtual; 793,099,990 sold; 206,900,000.9 kept; graduation at 85 SOL; launch fee 0.05 SOL to Vicinity with a cap | default config #0 (3.5); integers and proofs (5.9); launch fee (4.10). R8's coin figures are 9,100,000 raw short of 10^15; the default burns the difference at launch (keeps the sold and pool figures exactly), O3 lists what each alternative keeps | I5, I11 | U04, U05, L05, L07 |
 | R9 | platform fees only to `FEE_RECIPIENT` | constant; only `withdraw_platform_fees` and the launch fee pay it (4.10, 4.14) | I14 | X43, L10 |
-| R10 | Squads as admin and upgrade authority; minimal listed admin powers; website holds no approving or money key | section 8 (one row for every role of the Squads vault, including its roles in `vicinity_rewards`; guardian; time lock) | I21 | L02, L12, X43, X43b |
+| R10 | Squads as admin and upgrade authority; minimal listed admin powers; website holds no approving or money key | section 8 (one row for every role of the Squads vault, including its roles in `vicinity_rewards`; guardian; time lock; the launch approver, a key outside the website that can only publish or clear launch batches, while the website only computes the list and prepares the unsigned instruction, 8.1, 8.4, 8.6) | I21, I25 | L02, L12, L14, X43, X43b, X73 |
 | R11 | aggregator integration: fixed account lists, slippage, pure quote module, events | 4.11, 4.12, 5.16, 4.21, section 14 (integration conditions in 14.3) | I12 | G01, G02, L06 |
 | R12 | security first: minimal surface, no stuck states, no rounding extraction, donation-proof, stored reserves rule, checked math, every account validated | sections 5, 6.5, 9, 10; validation in every instruction table (4); the order rule for CPIs after lamport moves (4.0); intended permanent balances named in I22 | I4 to I10, I18, I22 | sections 12.2 to 12.6 |
 
@@ -228,7 +244,7 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 | toolchain, pinned exactly | `anchor-lang = "=0.31.2"` (feature `event-cpi`); `anchor-spl = "=0.31.2"` (`default-features = false`, features `token`, `token_2022`, `token_2022_extensions`, `associated_token` and `metadata`: the two this program uses do not compile alone, and none of the other code is reachable, which the checklist test enforces by refusing `Token2022`, `token_interface` and `AssociatedToken` in the crate; NOTES 18); `mpl-token-metadata = "=5.1.1"` (what `Cargo.lock` resolves for anchor-spl 0.31.2's `^5`); `Cargo.lock` committed. The existing programs' `Cargo.toml` says `"0.31.1"`, a caret requirement, and their `Cargo.lock` resolves 0.31.2, so 0.31.2 is what they were built with. Agave solana-cli 4.3.0, cargo-build-sbf 4.4.0, platform-tools v1.57 (as `release/mainnet-2026-10-10/BUILD.md`). All versions and the binary hash go into the audit pack (C03) |
 | release profile | `overflow-checks = true`, `lto = "fat"`, `codegen-units = 1`, `opt-level = 3`. `lto` has no effect while the crate keeps Anchor's two crate types (`cdylib` and `lib`), as both deployed programs do; dropping `lib` is left to the auditors and the owner (NOTES 19) |
 | features | `no-idl` (in the crate's default features, so every build, including the verifiable build, leaves Anchor's IDL instructions out; 8.4); `devnet` (switches the compiled ids of 3.2 to the devnet deployments); `halt-all` (the pre-audited emergency build, 8.3). Besides these, only Anchor's tooling features, which change no deployed behaviour: `cpi`, `no-entrypoint`, `no-log-ix-name`, `idl-build` (the client IDL, 8.4) and `short-windows`, accepted and ignored for the workspace's CI (NOTES 17) |
-| stack | every typed account in `launch`, `approve_launch` and `forward_holders_fees` is `Box<...>`, and the coin is `Box<Account<'info, CurveCoin>>` in every instruction (today's `launch.rs` boxes for the same reason: SBF stack frames are 4 KB). CI fails on any cargo-build-sbf "Stack offset ... exceeded" warning (C04) |
+| stack | every typed account in `launch`, `launch_from_batch`, `approve_launch` and `forward_holders_fees` is `Box<...>`, and the coin is `Box<Account<'info, CurveCoin>>` in every instruction (today's `launch.rs` boxes for the same reason: SBF stack frames are 4 KB). CI fails on any cargo-build-sbf "Stack offset ... exceeded" warning (C04) |
 
 ### 3.2 Constants (policy values carry `#[constant]` so they appear in the IDL)
 
@@ -260,6 +276,12 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 | `CONTINUITY_PPB` | 1 | the pool opens at most 1 part per 10^9 below the curve's last price, never above |
 | `MAX_LAUNCH_FEE_LAMPORTS` | 500,000,000 (0.5 SOL) | R8 cap (same as today) |
 | `APPROVAL_MAX_SECS` | 2,592,000 (30 days) | reused |
+| `BATCH_REVIEW_SECS` | 43,200 (12 hours) | least time from a launch batch's publication to its `valid_from`: the review window in which the site's monitor recomputes the root, a second person checks the new entries, and the guardian, the owner or the admin can clear it (4.25, 8.6, O30) |
+| `BATCH_MAX_LEAD_SECS` | 172,800 (48 hours) | latest `valid_from` after publication: a list is never signed long before it takes force (4.25) |
+| `BATCH_MAX_VALIDITY_SECS` | 172,800 (48 hours) | longest window from `valid_from` to `valid_until` (4.25, O31) |
+| `MAX_BATCH_LEAVES` / `MAX_BATCH_PROOF_LEN` | 512 / 9 | most leaves in one batch, and the proof length that covers them (`ceil(log2 512)`): keeps `launch_from_batch` with the founder's first buy inside one transaction (11.3) and bounds what one batch can approve (8.1) |
+| `LAUNCH_LEAF_TAG` / `LAUNCH_LEAF_VERSION` | the 26 ASCII bytes `vicinity_curve/launch_leaf` / 1 | domain separation and version of a launch leaf (3.12) |
+| `MERKLE_LEAF_PREFIX` / `MERKLE_NODE_PREFIX` | 0x00 / 0x01 | leaf and inner-node prefixes, as in `vicinity_rewards`' `merkle.rs` (3.12) |
 | `PAYOUT_COOLDOWN_SECS` | 86,400 | reused |
 | `METADATA_URI_PREFIX` | `https://vicinity.city/coin-meta/` | URI = prefix + mint (base58) + `.json` (reused) |
 | `MAX_NAME_LEN` / `MAX_SYMBOL_LEN` | 32 / 10 bytes | reused (Metaplex limits) |
@@ -267,7 +289,7 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 | `NATIVE_MINT` | `So11111111111111111111111111111111111111112` | reward mint of the city's rewards vault |
 | `REWARDS_CITY_CONFIG_DISCRIMINATOR` | `[14, 136, 110, 28, 46, 68, 178, 115]` | reused `read_rewards_city_config` |
 | `REWARDS_MODEL_HOLDERS` | 1 | reused |
-| seeds | `launchpad`, `config`, `approval`, `coin`, `mint`, `coin_vault`, `ticker`, `payout_opt_in`; rewards program: `city`, `vault`; old program: `coin`, `approval`, `launchpad` | |
+| seeds | `launchpad`, `config`, `approval`, `coin`, `mint`, `coin_vault`, `ticker`, `payout_opt_in`, `launch_batch`; rewards program: `city`, `vault`; old program: `coin`, `approval`, `launchpad` | |
 
 The localnet test suite loads `vicinity_rewards` and the old `vicinity_launchpad` builds at
 their mainnet addresses (litesvm can place a program at any address), so the binary the tests
@@ -295,6 +317,10 @@ it asks the `Rent` sysvar.
 | coin mint (classic SPL) | PDA `["mint", coin]` | 82 | 1,066,800 | 1,461,600 | `launch` | never (classic mints cannot close) |
 | coin vault (SPL token account) | PDA `["coin_vault", coin]` | 165 | 1,488,440 | 2,039,280 | `launch` | never (no code path signs a close) |
 | Metaplex metadata | Metaplex PDA `["metadata", METAPLEX_PROGRAM_ID, mint]` | 679 | 4,099,560 | 5,616,720 | `launch` (Metaplex CPI) | never (immutable) |
+| `LaunchBatch` | PDA `["launch_batch"]` | 260 | 1,971,040 | 2,700,480 | `init_launch_batch` (payer) | never |
+
+`launch_from_batch` creates the same accounts as `launch` (`Coin`, mint, vault, `TickerLock`,
+metadata) and no `Approval`.
 
 `city_id` is the GeoNames id the site uses (`public/data/tickers.json`), a `u64`, at least 1.
 
@@ -303,7 +329,7 @@ it asks the `Rent` sysvar.
 | offset | field | type | meaning |
 |---|---|---|---|
 | 0 | discriminator | [u8; 8] | |
-| 8 | `admin` | Pubkey | approves launches, adds and enables configs, sets any pause flag either way, sets the payout key and wallet and the guardian. Mainnet: the Squads vault |
+| 8 | `admin` | Pubkey | approves launches, adds and enables configs, sets any pause flag either way, sets the payout key and wallet, the guardian and the launch approver. Mainnet: the Squads vault |
 | 40 | `pending_admin` | Pubkey | second step of an admin transfer; zero = none |
 | 72 | `payout_authority` | Pubkey | key that may run opted-in founder payouts; zero = off (default) |
 | 104 | `payout_destination` | Pubkey | system-owned wallet that receives opted-in payouts; zero = off |
@@ -314,7 +340,8 @@ it asks the `Rent` sysvar.
 | 171 | `next_config_id` | u16 | id of the next `LaunchConfig`; ids are sequential from 0 |
 | 173 | `bump` | u8 | |
 | 174 | `buybacks_halted` | bool | blocks `buyback_burn`; set only while `buys_halted` is (review LL-1) |
-| 175 | `_reserved` | [u8; 63] | zero |
+| 175 | `launch_approver` | Pubkey | may only publish and clear launch batches (4.25, 4.26); zero = none, the batch path off (the default after `init_launchpad`); written only by the admin's `set_launch_approver` (4.24) |
+| 207 | `_reserved` | [u8; 31] | zero |
 | 238 | end | | |
 
 There is no fee-recipient field, no program-id field (3.2) and no coin counter. `buy` and
@@ -322,6 +349,10 @@ There is no fee-recipient field, no program-id field (3.2) and no coin counter. 
 account's address and never reads it, so no content of this account can stop an exit.
 `buybacks_halted` came out of the reserved bytes (review LL-1), so the size and every other
 offset are unchanged; `set_pause` never stores `buybacks_halted` without `buys_halted`.
+`launch_approver` also comes out of the reserved bytes (the batch approval, 8.6): the size and
+every other offset stay as they are, and every instruction that must keep a role apart from the
+approver (4.2, 4.4, 4.5, 4.8, 4.10, 4.17) already holds this account, so none gains an account.
+The approver's own instructions never write this account (4.25, 4.26).
 
 ### 3.5 `LaunchConfig` (one per allowed split and curve; 144 bytes; immutable except `enabled`)
 
@@ -482,12 +513,156 @@ number), `opted_in_at` i64 (136), `bump` u8 (144).
 * **Ordinary transfers** of the coin never touch `vicinity_curve`, carry no Vicinity fee and
   cannot be hooked, frozen or clawed back (R3).
 
+### 3.11 `LaunchBatch` (one per program; 260 bytes)
+
+PDA `["launch_batch"]`; Rust struct `LaunchBatch`, discriminator
+`sha256("account:LaunchBatch")[..8]` (the old program has no account of that name). It holds the
+two most recent batch records the launch approver published and the halt of the batch path.
+Created once by the admin (`init_launch_batch`, 4.23); written only by `set_launch_approver`,
+`publish_launch_batch` and `clear_launch_batch` (4.24 to 4.26); read by `launch_from_batch`
+(4.27); never read by a trade; never closed.
+
+| offset | field | type | meaning |
+|---|---|---|---|
+| 0 | discriminator | [u8; 8] | |
+| 8 | `bump` | u8 | |
+| 9 | `halted` | bool | set by `clear_launch_batch(halt = true)` (the approver, the admin or the guardian); refuses every publication and every batch launch; reset only by the admin's `set_launch_approver` |
+| 10 | `latest` | `BatchRecord` (109 bytes) | the most recently published batch |
+| 119 | `previous` | `BatchRecord` | the batch `latest` superseded; stays in force until `latest.valid_from` (8.6) |
+| 228 | `_reserved` | [u8; 32] | zero |
+| 260 | end | | |
+
+`BatchRecord` (Borsh, fixed size; offsets within the record):
+
+| offset | field | type | meaning |
+|---|---|---|---|
+| 0 | `seq` | u64 | batch sequence number, gap-free from 1; 0 = no batch |
+| 8 | `root` | [u8; 32] | Merkle root of the batch's leaves (3.12); nonzero |
+| 40 | `leaf_count` | u32 | 1 to `MAX_BATCH_LEAVES` (512) |
+| 44 | `valid_from` | i64 | Unix time; at least `published_at + BATCH_REVIEW_SECS`, at most `published_at + BATCH_MAX_LEAD_SECS` |
+| 52 | `valid_until` | i64 | after `valid_from`, at most `valid_from + BATCH_MAX_VALIDITY_SECS`; the window is inclusive at both ends |
+| 60 | `published_at` | i64 | |
+| 68 | `published_slot` | u64 | |
+| 76 | `publisher` | Pubkey | the launch approver who signed it |
+| 108 | `cleared` | bool | set by every `clear_launch_batch` and every change of the approver; never unset (a publication writes a new record) |
+| 109 | end | | |
+
+`publish_launch_batch` writes a record whole; afterwards only `cleared` changes. Which record is
+in force at a given moment, and why there are two, is in 8.6. Rent 1,971,040 lamports at 5,080
+per byte (2,700,480 at litesvm's rate), paid once by the admin's payer.
+
+### 3.12 Launch batch leaves, the tree and proofs
+
+A leaf is one launch approval: the fields of an `Approval` (3.6) that decide the launch, bound to
+one batch of one program. The program never accepts a leaf hash from a caller; it builds the leaf
+from `launch_from_batch`'s own arguments and its signer (4.27).
+
+```
+leaf = SHA-256( 0x00                                MERKLE_LEAF_PREFIX
+             || "vicinity_curve/launch_leaf"        LAUNCH_LEAF_TAG, 26 ASCII bytes
+             || 0x01                                LAUNCH_LEAF_VERSION
+             || program_id                          32 bytes: the program that verifies the proof
+             || batch_seq        u64 LE
+             || city_id          u64 LE
+             || founder          32 bytes           the launch's signer
+             || config_id        u16 LE
+             || meta_hash        32 bytes           SHA-256 of the metadata JSON (3.10)
+             || name_len  u8  || name bytes         1 to 32 bytes, passes check_name
+             || symbol_len u8 || symbol bytes       1 to 10 bytes A-Z0-9, passes check_symbol )
+node = SHA-256( 0x01 || min(a, b) || max(a, b) )    unsigned byte-wise comparison
+```
+
+* **What a leaf covers.** The six launch fields of an `Approval`: `city_id`, `founder`,
+  `config_id`, `meta_hash`, `name`, `symbol`. A config is immutable except `enabled` (3.5), so
+  `config_id` pins the split, the curve and the launch fee. The metadata URI is
+  `METADATA_URI_PREFIX + mint + ".json"`, with the mint derived from the program id and the
+  city id (3.10), so the leaf pins the URI as well, and `meta_hash` pins what it serves.
+  `batch_seq` stands in for the approval's `approved_at` and `expires_at` (the batch's
+  publication and window, 3.11); `rent_payer` and `bump` have no counterpart, since no account
+  is created. The program id and the batch sequence number make a leaf valid for one batch of
+  one program only (T83).
+* **Encoding.** Fixed-size fields first, the two strings last, each after a one-byte length, so
+  the encoding is injective: two different entries never share a preimage. A leaf preimage is
+  144 bytes plus the name and the symbol (146 to 186 bytes) and starts with 0x00; a node
+  preimage is exactly 65 bytes and starts with 0x01. No node can be presented as a leaf or a
+  leaf as a node (T82). The prefixes and the sorted-pair rule are those of `vicinity_rewards`
+  (`merkle.rs`, `sdk/merkle.mjs`), so the reviewed node and tree code serves both; the tag and
+  the version keep a rewards leaf from ever reading as a launch leaf, and a later leaf layout
+  takes version 2.
+* **Tree.** Leaves sorted by `city_id` ascending, one leaf per city (the SDK refuses a duplicate
+  city or a duplicate symbol, 14.1); each level is hashed in pairs from the left; an odd last node
+  is promoted unchanged (never hashed with itself or duplicated); the root is the single node at
+  the top, and a one-leaf tree's root is its leaf. The same data therefore gives the same root in
+  the site, the owner's verifier and the monitor.
+* **Proof.** The siblings from the leaf up, without direction bits. Its length is at most
+  `depth(leaf_count) = ceil(log2(leaf_count))` (0 for one leaf; a promoted node has fewer
+  siblings), at most 9. `launch_from_batch` refuses a longer proof before hashing
+  (`ProofTooLong`), folds `node = node_hash(node, sibling)` and compares the result with the
+  batch's root (`InvalidProof`).
+* **List file.** The site keeps each batch as a canonical JSON file (version, program id,
+  `seq`, the entries in `city_id` order with every leaf field, the root); the root is its
+  identity. The file goes to the owner's verifier and to the guardian members, and each founder
+  receives his own entry and proof; it is not published, because the site masks founders'
+  wallets until they launch (14.1).
+
+**Worked example.** Program id `nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSYS7tk` (the localnet and
+devnet throwaway id; hex `0bb520f977287355b716c92bda75a1efcf5dafc69a57e01481083ae4df2e1c49`),
+batch 7, config 0; founders the keys whose 32 bytes are all 0x11, 0x22 and 0x33; each `meta_hash`
+is the SHA-256 of the illustrative JSON `{"name":"<name>","symbol":"<symbol>"}` (a real one is
+the full metadata file of 3.10). Every value was computed with Node's and with Python's SHA-256,
+which agree, and the root also with the rewards SDK's `hashNode`.
+
+```
+entry (sorted)  city_id    name / symbol         founder (base58)
+L0              2643743    London / LONDON       29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2
+L1              2988507    Paris / PARIS         3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3
+L2              5128581    New York City / NYC   4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4
+
+meta_hash L0    c252ce452838061b9ee03879063abccd3482e5fa49174b1ab87b5196e4a44d58
+meta_hash L1    901ac7d96290237431cc70beaf0d46977af1cdc9818ec75eeb46b78a062dcee3
+meta_hash L2    ddcc511e9df7568a13fbc2d6d6091020af5ed62e6120b50315600481bd1feff5
+
+preimage of L0 (156 bytes), field by field:
+  00                                                                 leaf prefix
+  766963696e6974795f63757276652f6c61756e63685f6c656166               "vicinity_curve/launch_leaf"
+  01                                                                 version
+  0bb520f977287355b716c92bda75a1efcf5dafc69a57e01481083ae4df2e1c49   program id
+  0700000000000000                                                   batch_seq 7
+  1f57280000000000                                                   city_id 2,643,743
+  1111111111111111111111111111111111111111111111111111111111111111   founder
+  0000                                                               config_id 0
+  c252ce452838061b9ee03879063abccd3482e5fa49174b1ab87b5196e4a44d58   meta_hash
+  06 4c6f6e646f6e                                                    "London"
+  06 4c4f4e444f4e                                                    "LONDON"
+(L1's preimage is 154 bytes, L2's 160)
+
+L0   = 539ae27079e009d0b140bea745a90b939c5f5eaf299312a252f9ec0e10cc71e0
+L1   = a606901235eb24b9a37c1fdc60354539b91f5cd1dcc4d553580d46cdcbc0f44e
+L2   = 0c5ac2c3a5e2fdccf0a2a12d1e9f6696d7c49934e330e3939978835a22f84a5c
+N01  = SHA-256(01 || L0 || L1)    (L0 < L1)
+     = 6565f42ef55b9b2dea2aaad63bdb674e5827004781161dfcefa49ab88085c4b3
+       L2 has no sibling on level 0 and is promoted unchanged
+root = SHA-256(01 || L2 || N01)   (L2 < N01)
+     = 678ab4f7709c306d03b4a47bbc0bd93272acd8cf6fd38c2d6d7629a88f4b5d45
+
+proofs: London [L1, L2]; Paris [L0, L2]; New York City [N01]
+depth(3) = 2, so a proof of more than 2 hashes is refused
+```
+
+The approver publishes `seq = 7`, this root and `leaf_count = 3`. Paris's founder launching as
+"Parisx", or with another config, ticker or metadata hash, or another key signing for Paris, gives
+another leaf and `InvalidProof`; the same entry presented under batch 8 or to another program id is
+another leaf as well. The SDK's fixture of 14.1 carries these values as a test vector for the
+program and the SDK.
+
 ---
 
-## 4. Instructions (21)
+## 4. Instructions (26)
 
 ### 4.0 Conventions
 
+* The five instructions of the batch launch approval follow the events and errors, as 4.23 to
+  4.27, so that every earlier section number stays as the code, the tests and the notes cite it.
 * "S" = signer, "W" = writable. Anchor validates account constraints in the order the
   accounts are listed; the handler then runs its checks in the order given, then its
   effects. A failure anywhere reverts the whole instruction.
@@ -495,8 +670,8 @@ number), `opted_in_at` i64 (136), `bump` u8 (144).
   opt-in instructions) take no `city_id` argument. They find the coin with
   `Box<Account<CurveCoin>>`, `seeds = ["coin", coin.city_id.to_le_bytes()]`,
   `bump = coin.bump` (owner, discriminator and address all checked). **City-level
-  instructions** (`approve_launch`, `revoke_approval`, `launch`) take `city_id` because it
-  seeds an account being created or closed.
+  instructions** (`approve_launch`, `revoke_approval`, `launch`, `launch_from_batch`) take
+  `city_id` because it seeds an account being created or closed.
 * **Event accounts**: `#[event_cpi]` appends `event_authority` (PDA `["__event_authority"]`)
   and `program` as the last two accounts. Instructions that move money or tokens emit with
   `emit_cpi!`; settings instructions emit with `emit!`.
@@ -520,12 +695,13 @@ number), `opted_in_at` i64 (136), `bump` u8 (144).
   `emit_cpi!`, whose single account is the event authority, so both sides of the move stay
   outside it and the sums match. `forward_holders_fees` therefore does not call SPL
   `SyncNative` itself (4.15). Review checklist item and test R02b.
-* **Halts**: `buys_halted` (set by the guardian or the admin, 4.4) makes `launch` and `buy`
-  fail with `BuysHalted`; `buybacks_halted`, set only together with or after it, makes
-  `buyback_burn` fail with `BuybacksHalted`. The **halt-all build** (8.3): with feature
-  `halt-all`, the eight handlers that move lamports or tokens out of a `Coin` or its vault
-  (`launch`, `buy`, `sell`, `buyback_burn`, `withdraw_platform_fees`,
-  `forward_holders_fees`, `claim_founder_fees`, `payout_founder_fees`) fail with
+* **Halts**: `buys_halted` (set by the guardian or the admin, 4.4) makes `launch`,
+  `launch_from_batch` and `buy` fail with `BuysHalted`; `buybacks_halted`, set only together
+  with or after it, makes `buyback_burn` fail with `BuybacksHalted`. The **halt-all build**
+  (8.3): with feature `halt-all`, the nine handlers that move lamports or tokens out of a `Coin`
+  or its vault, or create one (`launch`, `launch_from_batch`, `buy`, `sell`, `buyback_burn`,
+  `withdraw_platform_fees`, `forward_holders_fees`, `claim_founder_fees`,
+  `payout_founder_fees`) fail with
   `TradingHalted` at the first statement of the handler, that is after Anchor has validated the
   account list: a transaction with an invalid account list fails with the account error first,
   and either way nothing is created, moved or written (NOTES 21). Without the feature these
@@ -567,14 +743,16 @@ Reused unchanged.
 * `propose_admin`: `admin` S; `launchpad` W, seeds, `has_one = admin` (`Unauthorized`).
   Checks: if `new_admin != 0`, `new_admin != FEE_RECIPIENT` (`FeeRecipientRole`),
   `check_payout_keys_separate(new_admin, guardian, payout_authority, payout_destination)`
-  (`PayoutKeyNotSeparate`) and `new_admin != guardian` (`GuardianIsAdmin`, review R5-CONS-1).
+  (`PayoutKeyNotSeparate`), `new_admin != guardian` (`GuardianIsAdmin`, review R5-CONS-1) and
+  `new_admin != launch_approver` when the approver is set (`ApproverHoldsRole`, 4.24).
   Effect: `pending_admin = new_admin` (zero cancels). Event `AdminProposed { admin,
   pending_admin }`.
 * `accept_admin`: `new_admin` S; `launchpad` W, seeds. Checks: `pending_admin != 0`
   (`NoPendingAdmin`); `pending_admin == new_admin` (`NotPendingAdmin`); `new_admin !=
   FEE_RECIPIENT` (`FeeRecipientRole`); the separation rule again, with the current guardian
-  (`PayoutKeyNotSeparate`); `new_admin != guardian` again (`GuardianIsAdmin`). Effects: `admin =
-  new_admin`, `pending_admin = 0`. Event `AdminChanged { old_admin, new_admin }`.
+  (`PayoutKeyNotSeparate`); `new_admin != guardian` again (`GuardianIsAdmin`); `new_admin !=
+  launch_approver` again (`ApproverHoldsRole`). Effects: `admin = new_admin`,
+  `pending_admin = 0`. Event `AdminChanged { old_admin, new_admin }`.
 * Because `forward_holders_fees` requires each city's rewards authority to equal the admin
   (4.15), a new admin must also take over each city's rewards authority (`vicinity_rewards`
   `propose_authority` / `accept_authority`); holders' money waits in `holders_pending` until
@@ -607,8 +785,10 @@ Checks: `guardian != FEE_RECIPIENT` (`FeeRecipientRole`); `check_payout_keys_sep
 guardian, payout_authority, payout_destination)` (`PayoutKeyNotSeparate`): the guardian is never
 the payout key or the payout wallet (8.1: it cannot touch money); a nonzero guardian is neither
 the admin nor the pending admin (`GuardianIsAdmin`, review R5-CONS-1: an admin under the time lock
-as guardian would make the fast brake wait as long as every other proposal). Effect: `guardian =
-guardian` (zero = none). Event (`emit!`) `GuardianChanged { old, new }`.
+as guardian would make the fast brake wait as long as every other proposal); a nonzero guardian is
+not the launch approver (`ApproverHoldsRole`: the key that stops a wrong batch is never the key
+that signs it, 4.24, 8.6). Effect: `guardian = guardian` (zero = none). Event (`emit!`)
+`GuardianChanged { old, new }`.
 
 **Recovering from a stolen guardian (reviews R4-DIFF-4, OPS-3).** The guardian can set flags
 until the moment the admin's proposal executes, and the consistency rule applies to the admin's
@@ -638,7 +818,8 @@ Reused. `admin` S; `launchpad` W, `has_one = admin` (`Unauthorized`). Checks: tw
 payouts off; otherwise both nonzero (`InvalidAddress`) and
 `check_payout_keys_separate(admin, guardian, ...)` (payout key not the admin, the guardian or
 `FEE_RECIPIENT`; payout wallet not the payout key, the admin, the guardian or `FEE_RECIPIENT`)
-(`PayoutKeyNotSeparate`).
+(`PayoutKeyNotSeparate`); neither is the launch approver when it is set (`ApproverHoldsRole`:
+the approver never touches money, 4.24).
 Effects: both fields. Existing opt-ins naming another wallet stop working; they are never
 redirected. Event `PayoutConfigChanged { old_authority, new_authority, old_destination,
 new_destination }`.
@@ -687,10 +868,12 @@ future approvals and launches; live coins never read their config again. Event
 | 11 | `system_program` | | |
 
 Checks in order: `city_id >= 1` (`BadCityId`); the founder seat, `check_founder_key(founder,
-guardian, payout_authority)`: `founder != 0` (`InvalidAddress`), `founder != FEE_RECIPIENT`
-(`FeeRecipientRole`), `founder` neither the guardian nor the payout key (`FounderHoldsRole`);
-the founder receives the coin's founder share, so the seat never goes to a key that may not
-touch money (8.1; the admin may be a founder; reviews R2-DIFF-1, SPEC-1);
+guardian, payout_authority, launch_approver)`: `founder != 0` (`InvalidAddress`), `founder !=
+FEE_RECIPIENT` (`FeeRecipientRole`), `founder` neither the guardian, the payout key nor the
+launch approver (`FounderHoldsRole`); the founder receives the coin's founder share, so the seat
+never goes to a key that may not touch money (8.1; the admin may be a founder; reviews
+R2-DIFF-1, SPEC-1; the approver since the batch approval, the one change the batch approval
+makes to this instruction, 4.24);
 `check_name(name)` (`BadName`: 1 to 32 bytes; no control character, no Unicode
 default-ignorable code point or other invisible format character, no blank character (spaces
 other than U+0020, line and paragraph separators, the braille blank, the musical null notehead),
@@ -712,6 +895,10 @@ registry check (review OPS-1) closes the same class of hole for the holders' sha
 or close a city's config, so a registry admin outside the multisig could create a new coin's
 config with wrong economics (Creator, `founder_bps` 10,000) before the multisig's time-locked
 `init_city`, and every forward would then fail for good (O26). It runs again in `launch`.
+This per-city path stays the way to approve exceptions (a city outside the day's batch, a
+non-default config, a longer expiry). A pending approval takes precedence over any launch batch
+for its city: `launch_from_batch` refuses a city whose `Approval` exists (`ApprovalPending`,
+4.27), so the admin's explicit choice of founder always wins.
 
 ### 4.9 `revoke_approval(city_id: u64)`
 
@@ -756,7 +943,7 @@ Checks in order (after the constraints): `!launchpad.launches_paused` (`Launches
 `!launchpad.buys_halted` (`BuysHalted`); `now <= approval.expires_at` (`ApprovalExpired`);
 `founder == approval.founder` (`WrongFounder`); `check_founder_key` again against the
 `Launchpad` of this moment (`FeeRecipientRole`, `FounderHoldsRole`: a founder who became the
-guardian or the payout key after the approval cannot launch); `validate_config(config)` again
+guardian, the payout key or the launch approver after the approval cannot launch); `validate_config(config)` again
 (defence in depth; V errors); `check_name`, `check_symbol` on the approval's strings again (`BadName`,
 `BadSymbol`). The legacy accounts are checked by their constraints, so R1 across both
 programs holds at the moment of every launch, not only at approval time.
@@ -784,7 +971,8 @@ Effects in order:
 
 No direct lamport move happens in `launch`. Event (`emit_cpi!`): `CoinLaunched`. The founder
 may append a `buy` to the same transaction (normal fee; the atomic first buy); the website
-uses an address lookup table for that transaction (11.3).
+uses an address lookup table for that transaction (11.3). Effects 1 to 7 are one function shared
+with `launch_from_batch` (4.27), so the two launch paths cannot drift apart.
 
 ### 4.11 `buy(sol_in: u64, min_tokens_out: u64)`
 
@@ -933,9 +1121,9 @@ rent-exempt minimum of an empty account (14.3).
 ### 4.17 `transfer_founder()`
 
 Reused, with one account added. `founder` S; `new_founder` S; `launchpad` seeds (read for the
-guardian and the payout key); `coin` W, seeds, `has_one = founder` (`WrongFounder`). Check:
-`check_founder_key(new_founder, guardian, payout_authority)` (`FeeRecipientRole`,
-`FounderHoldsRole`; 4.8). Effect: `founder = new_founder`. Money still pending goes with the seat
+guardian, the payout key and the launch approver); `coin` W, seeds, `has_one = founder`
+(`WrongFounder`). Check: `check_founder_key(new_founder, guardian, payout_authority,
+launch_approver)` (`FeeRecipientRole`, `FounderHoldsRole`; 4.8). Effect: `founder = new_founder`. Money still pending goes with the seat
 (the founder should claim first). An existing opt-in stops working (it names the old
 founder). Event (`emit!`): `FounderTransferred { city_id, old, new }`. The admin can never
 change a founder.
@@ -992,12 +1180,18 @@ below says):
 | `HoldersFeesForwarded` | city_id, amount, rewards_vault, total_forwarded |
 | `FounderFeesClaimed` | city_id, founder, amount, total_claimed |
 | `FounderPaidOut` | city_id, founder, destination, amount, seq, ref_hash, total_paid_out |
+| `LaunchedFromBatch` | city_id, founder, mint, config_id, batch_seq, root, leaf (emitted by `launch_from_batch` right after its `CoinLaunched`, 4.27) |
 
 `emit!` (settings): `LaunchpadInitialized`, `AdminProposed`, `AdminChanged`, `PauseChanged`
 (with `buys_halted` and `buybacks_halted`), `GuardianChanged`, `PayoutConfigChanged`, `ConfigAdded`,
 `ConfigEnabled`, `LaunchApproved`, `ApprovalRevoked`, `FounderTransferred`,
-`PayoutOptedIn`, `PayoutOptInRevoked`. Every figure in every event is also a counter or field
-in an account, so indexers can reconcile from state. The `Trade` of the buy that completes the
+`PayoutOptedIn`, `PayoutOptInRevoked`; and, for the batch approval (4.23 to 4.26),
+`LaunchBatchInitialized { by }`, `LaunchApproverChanged { old, new, latest_seq }`,
+`LaunchBatchPublished { seq, root, leaf_count, valid_from, valid_until, publisher,
+published_at, previous_seq, replaced_seq }` and `LaunchBatchCleared { by, latest_seq,
+previous_seq, halted }`. Every figure in every event is also a counter or field
+in an account, so indexers can reconcile from state (the batch monitor of 14.1 reads
+`LaunchBatch` itself, not only the events). The `Trade` of the buy that completes the
 curve has `phase = 0` (where it executed) while its `*_after` fields describe the new pool; the
 curve's last virtual reserves are in `Graduated` (NOTES 23).
 
@@ -1073,17 +1267,213 @@ curve's last virtual reserves are in `Graduated` (NOTES 23).
 | 6049 | `BuysHalted` | `buys_halted` is set (guardian or admin) |
 | 6050 | `BadMetaHash` | `meta_hash` is all zeros |
 | 6051 | `LegacyAdminMismatch` | `vicinity_launchpad`'s admin is not this program's admin, or an admin transfer is pending there (4.8, 4.10) |
-| 6052 | `FeeRecipientRole` | `FEE_RECIPIENT` named as admin, proposed admin, guardian or upgrade authority at init, or as a coin's founder (4.1, 4.2, 4.4, 4.8, 4.10, 4.17) |
-| 6053 | `FounderHoldsRole` | a coin's founder named as the guardian or the payout key (4.8, 4.10, 4.17) |
+| 6052 | `FeeRecipientRole` | `FEE_RECIPIENT` named as admin, proposed admin, guardian, launch approver or upgrade authority at init, or as a coin's founder (4.1, 4.2, 4.4, 4.8, 4.10, 4.17, 4.24, 4.27) |
+| 6053 | `FounderHoldsRole` | a coin's founder named as the guardian, the payout key or the launch approver (4.8, 4.10, 4.17, 4.27) |
 | 6054 | `BuybacksHalted` | `buybacks_halted` is set (guardian or admin; 4.13) |
 | 6055 | `BuybackHaltWithoutBuyHalt` | `set_pause` would leave `buybacks_halted` set while `buys_halted` is not (4.4, review LL-1) |
 | 6056 | `RewardsRegistryAdminMismatch` | `vicinity_rewards`' registry is not at `REWARDS_REGISTRY`'s owner, size and discriminator, its admin is not this program's admin, or an admin transfer is pending there (4.8, 4.10, review OPS-1) |
 | 6057 | `GuardianIsAdmin` | the guardian would be the admin or the proposed admin (`init_launchpad`, `set_guardian`, `propose_admin`, `accept_admin`; 4.1, 4.2, 4.4, review R5-CONS-1) |
+| 6058 | `LaunchApproverNotSet` | `launch_from_batch` while no launch approver is set (the batch path is off; 4.27) |
+| 6059 | `ApproverHoldsRole` | the launch approver would be the admin, the proposed admin, the guardian, the payout key or the payout wallet, or one of those would become the approver (4.2, 4.4, 4.5, 4.24) |
+| 6060 | `BatchSeqMismatch` | `publish_launch_batch` with a `seq` other than the latest batch's plus one (4.25) |
+| 6061 | `BadBatchRoot` | a batch root of all zeros (4.25) |
+| 6062 | `BadLeafCount` | a leaf count of 0 or above `MAX_BATCH_LEAVES` (4.25) |
+| 6063 | `BadBatchWindow` | `valid_from` sooner than the review delay or later than the lead after publication, or `valid_until` not after `valid_from` or beyond the maximum validity (4.25) |
+| 6064 | `BatchesHalted` | the batch path is halted: no publication, no batch launch until the admin's `set_launch_approver` (4.25, 4.27) |
+| 6065 | `BatchSuperseded` | the named batch is neither stored record, or is the previous one after the latest took force, or its publisher is no longer the approver (4.27) |
+| 6066 | `BatchCleared` | the named batch was cleared (4.27) |
+| 6067 | `BatchNotYetValid` | before the batch's `valid_from` (4.27) |
+| 6068 | `BatchExpired` | after the batch's `valid_until` (4.27) |
+| 6069 | `ProofTooLong` | more hashes than `MAX_BATCH_PROOF_LEN` or than the batch's depth (3.12, 4.27) |
+| 6070 | `InvalidProof` | the leaf built from the call does not fold to the batch's root (3.12, 4.27) |
+| 6071 | `ApprovalPending` | `launch_from_batch` for a city that has a pending per-city `Approval` here (4.8, 4.27) |
 
 Anchor's own errors (for example `ConstraintSeeds`, `AccountNotInitialized`, an `init` on an
 existing account) can appear before ours for some substitutions; tests accept either and
 check that no balance moved (as LAUNCHPAD-AUDIT.md 7(3) records for today's program). An IDL
 instruction returns Anchor error 1000 `IdlInstructionStub` (`no-idl`, 8.4).
+
+### 4.23 `init_launch_batch()`
+
+| # | account | flags | constraints (error) |
+|---|---|---|---|
+| 1 | `admin` | S | |
+| 2 | `payer` | S W | |
+| 3 | `launchpad` | | seeds, `has_one = admin` (`Unauthorized`) |
+| 4 | `launch_batch` | W | `init`, seeds `["launch_batch"]`, space 260 |
+| 5 | `system_program` | | |
+
+One time (a second call fails at `init`). No checks beyond the constraints. Effects: every field
+zero (`latest.seq = previous.seq = 0`: no batch), `halted = false`, `bump`. Event (`emit!`):
+`LaunchBatchInitialized { by }`. Creating the account does not turn the batch path on; that is
+`set_launch_approver`. A separate instruction rather than a change to `init_launchpad`: the
+reviewed `init_launchpad` stays as it is, a deployment already initialised gains the account, and
+the program keeps plain `init` everywhere (no `init_if_needed`, T29).
+
+### 4.24 `set_launch_approver(approver: Pubkey)`
+
+| # | account | flags | constraints (error) |
+|---|---|---|---|
+| 1 | `admin` | S | |
+| 2 | `launchpad` | W | seeds, `has_one = admin` (`Unauthorized`) |
+| 3 | `launch_batch` | W | seeds `["launch_batch"]`, `bump = launch_batch.bump` |
+
+Checks in order, when `approver != 0`: `approver != FEE_RECIPIENT` (`FeeRecipientRole`);
+`approver` is not the admin, a nonzero pending admin, a nonzero guardian, a nonzero payout key or
+a nonzero payout wallet (`ApproverHoldsRole`). (A zero approver turns the batch path off and
+needs no check.)
+Effects: `launch_approver = approver`; `latest.cleared = previous.cleared = true`;
+`halted = false`. Event (`emit!`): `LaunchApproverChanged { old, new, latest_seq }`.
+Notes:
+* Every call clears both stored batches, whatever the new key is. A batch never outlives a
+  change of the key that signed it, and a halt is lifted only together with a fresh start: the
+  new approver's first batch takes force a review window after it is published (8.6). Calling
+  with the current key is how the admin lifts a halt after a false alarm.
+* The roles the approver is kept apart from are the ones `check_founder_key` protects
+  (`FEE_RECIPIENT`, the guardian, the payout key) and the admin's seats, plus the payout wallet,
+  which receives money. The other side of each rule is checked where those keys are set
+  (`propose_admin`, `accept_admin`, `set_guardian`, `set_payout_config`: `ApproverHoldsRole`),
+  and `check_founder_key` refuses the approver as a founder from then on (4.8, 4.10, 4.17,
+  4.27), so the approver never receives a founder share. That the new key holds no founder seat
+  already cannot be seen on chain; it is 8.4's operating rule, checked by the deploy checklist
+  with `--proposed-launch-approver`.
+* Under the time lock (O11) this takes 48 hours. The fast stops are the clear and the guardian's
+  pause (4.26, 4.4), which need no admin proposal.
+
+### 4.25 `publish_launch_batch(seq: u64, root: [u8; 32], leaf_count: u32, valid_from: i64, valid_until: i64)`
+
+| # | account | flags | constraints (error) |
+|---|---|---|---|
+| 1 | `approver` | S | |
+| 2 | `launchpad` | | seeds, `bump = launchpad.bump`; only `launch_approver` is read |
+| 3 | `launch_batch` | W | seeds `["launch_batch"]`, `bump = launch_batch.bump` |
+
+Checks in order (`now` = `Clock::unix_timestamp`):
+1. `launchpad.launch_approver != 0 && approver == launchpad.launch_approver` (`Unauthorized`).
+2. `!launch_batch.halted` (`BatchesHalted`).
+3. `seq == latest.seq + 1` (`BatchSeqMismatch`).
+4. `root != [0; 32]` (`BadBatchRoot`).
+5. `1 <= leaf_count <= MAX_BATCH_LEAVES` (`BadLeafCount`).
+6. `now + BATCH_REVIEW_SECS <= valid_from <= now + BATCH_MAX_LEAD_SECS` and
+   `valid_from < valid_until <= valid_from + BATCH_MAX_VALIDITY_SECS` (`BadBatchWindow`).
+
+Effects in order:
+1. If `latest.seq != 0 && now >= latest.valid_from` (the latest batch has begun, whether it is in
+   force, cleared or past its end): `previous = latest`. Otherwise the latest batch is still in
+   its review window (or there is none): it is **replaced**, never takes force, and `previous`
+   stays as it is.
+2. `latest = { seq, root, leaf_count, valid_from, valid_until, published_at = now,
+   published_slot = slot, publisher = approver, cleared = false }`.
+
+Event (`emit!`): `LaunchBatchPublished { seq, root, leaf_count, valid_from, valid_until,
+publisher, published_at, previous_seq, replaced_seq }` (`replaced_seq` is the pending batch this
+one replaced, 0 for none).
+Notes:
+* The sequence number is gap-free. A signed publication therefore applies once and only on the
+  state it was prepared for (two publications prepared from the same state cannot both land, and
+  a replayed transaction fails), and nobody can exhaust the numbers by jumping to `u64::MAX`.
+  Numbers of replaced batches are skipped for good.
+* The program cannot see the leaves: the root is the approver's statement, and each leaf is
+  checked in full when it is used (4.27). An empty list is not a batch (`leaf_count >= 1`); to stop,
+  the approver clears (4.26).
+* No account is created and nothing is paid but the transaction fee. The approver never writes
+  `Launchpad`.
+
+### 4.26 `clear_launch_batch(halt: bool)`
+
+| # | account | flags | constraints (error) |
+|---|---|---|---|
+| 1 | `authority` | S | |
+| 2 | `launchpad` | | seeds, `bump = launchpad.bump`; `admin`, `guardian` and `launch_approver` are read |
+| 3 | `launch_batch` | W | seeds `["launch_batch"]`, `bump = launch_batch.bump` |
+
+Check: `authority` is the admin, the nonzero launch approver or the nonzero guardian
+(`Unauthorized`).
+Effects: `latest.cleared = true`, `previous.cleared = true`; if `halt`, `halted = true`. Nothing is
+ever set to false. Event (`emit!`): `LaunchBatchCleared { by, latest_seq, previous_seq, halted }`,
+also when nothing changed (a repeated clear).
+Notes: a pure stop. It ends the stored batches and, with `halt`, refuses further publications;
+it never approves, re-opens a batch or lifts a halt. After a clear without `halt` the approver's
+next batch takes force a review window after it is published; after a halt only the admin's
+`set_launch_approver` (a new key, or the same key after a false alarm) re-opens publication. The
+per-city path (4.8 to 4.10) is untouched; to stop every launch at once the guardian or the admin
+sets `launches_paused` (4.4). The guardian and the approver may halt as well as clear: a thief of
+either key could only stop batch launches, which he can do anyway (8.1).
+
+### 4.27 `launch_from_batch(city_id: u64, batch_seq: u64, config_id: u16, name: String, symbol: String, meta_hash: [u8; 32], proof: Vec<[u8; 32]>)`
+
+| # | account | flags | constraints (error) |
+|---|---|---|---|
+| 1 | `founder` | S | the leaf's founder (the leaf is built with this key) |
+| 2 | `payer` | S W | pays rent, the launch fee and Metaplex's fee (usually the founder) |
+| 3 | `launchpad` | | seeds (`Box`) |
+| 4 | `launch_batch` | | seeds `["launch_batch"]`, `bump = launch_batch.bump` (`Box`); read-only |
+| 5 | `approval` | | Unchecked; seeds `["approval", city_id LE]`; `data_is_empty() && owner == System` (`ApprovalPending`) |
+| 6 | `config` | | seeds `["config", config_id LE]`, `bump = config.bump`; `enabled` (`ConfigDisabled`) (`Box`) |
+| 7 | `coin` | W | `init`, seeds `["coin", city_id LE]`, space 693 (`Box<Account<CurveCoin>>`) |
+| 8 | `mint` | W | as in 4.10 |
+| 9 | `coin_vault` | W | as in 4.10 |
+| 10 | `ticker_lock` | W | `init`, seeds `["ticker", symbol.as_bytes()]`, space 49 (`Box`) |
+| 11 | `metadata` | W | as in 4.10 (`InvalidAddress`) |
+| 12 | `fee_recipient` | W | `address = FEE_RECIPIENT` (`InvalidAddress`) |
+| 13 | `legacy_coin` | | as in 4.8 (`InvalidAddress`, `LegacyCoinExists`) |
+| 14 | `legacy_approval` | | as in 4.8 (`InvalidAddress`, `LegacyApprovalExists`) |
+| 15 | `legacy_launchpad` | | as in 4.8 (`InvalidAddress`, `LegacyLaunchesOpen`, `LegacyAdminMismatch`) |
+| 16 | `rewards_registry` | | as in 4.8 (`InvalidAddress`, `RewardsRegistryAdminMismatch`) |
+| 17 | `metadata_program` | | `address = METAPLEX_PROGRAM_ID` (`InvalidAddress`) |
+| 18 | `token_program` | | `Program<Token>` (classic SPL Token) |
+| 19 | `system_program` | | |
+| 20 | `rent` | | sysvar |
+| 21-22 | event accounts | | |
+
+The same 22 accounts as `launch`, except that `launch_batch` and the (empty) `approval` take the
+places of the approval being closed and its rent payer. An existing `Coin` or `TickerLock` makes
+`init` fail (the system program's "already in use"), as in `launch`.
+
+Checks in order, after the constraints (`now` = `Clock::unix_timestamp`):
+1. `!launchpad.launches_paused` (`LaunchesPaused`); `!launchpad.buys_halted` (`BuysHalted`).
+2. `launchpad.launch_approver != 0` (`LaunchApproverNotSet`); `!launch_batch.halted`
+   (`BatchesHalted`).
+3. The batch named by `batch_seq` is in force (8.6): `b = latest` if `batch_seq ==
+   latest.seq`, else `b = previous` if `batch_seq == previous.seq` and `now <
+   latest.valid_from`; `batch_seq != 0`, a `b` found and `b.publisher ==
+   launchpad.launch_approver`, else `BatchSuperseded`; `!b.cleared` (`BatchCleared`);
+   `now >= b.valid_from` (`BatchNotYetValid`); `now <= b.valid_until` (`BatchExpired`).
+4. `city_id >= 1` (`BadCityId`).
+5. `check_founder_key(founder, guardian, payout_authority, launch_approver)` against the
+   `Launchpad` of this moment (`FeeRecipientRole`, `FounderHoldsRole`).
+6. `validate_config(config)` (V errors).
+7. `check_name(name)` (`BadName`), `check_symbol(symbol)` (`BadSymbol`), `meta_hash != [0; 32]`
+   (`BadMetaHash`).
+8. `proof.len() <= min(MAX_BATCH_PROOF_LEN, depth(b.leaf_count))` (`ProofTooLong`; 3.12).
+9. `leaf = launch_leaf(program_id, batch_seq, city_id, founder, config_id, meta_hash, name,
+   symbol)` and `verify(proof, b.root, leaf)` (`InvalidProof`; 3.12).
+
+Every check of `approve_launch` (4.8) and of `launch` (4.10) is here, run at the moment of the
+launch: the pause and halt flags, the founder key against every role, the config enabled and
+valid, the name, the symbol and the metadata hash, the old program's `Coin`, `Approval`, pause and
+admin, the rewards registry's admin, an empty `Coin` and `TickerLock`. The batch window stands in
+for the approval's expiry, and the leaf for its contents.
+Effects: 4.10's effects 1 to 7, in the same order and through the same function as `launch`, with
+the call's `config_id`, `name`, `symbol` and `meta_hash` in place of the approval's (the coin's
+`founder` is the signer and `Coin.meta_hash` the leaf's). No approval closes, no direct lamport
+move happens, and `launch_batch` is not written (launches of different cities never contend on
+it). Events (`emit_cpi!`): `CoinLaunched` (the same fields as from `launch`), then
+`LaunchedFromBatch { city_id, founder, mint, config_id, batch_seq, root, leaf }`. The founder may
+append his first `buy` in the same transaction, as after `launch` (11.3).
+Notes:
+* **One use per leaf.** A launch creates the city's permanent `Coin` and the ticker's `TickerLock`,
+  so no later launch of the city, by either path or from any batch, can succeed. A leaf of a batch
+  no longer in force cannot be used (`BatchSuperseded`, `BatchCleared`, `BatchExpired`).
+* **Re-approval.** For a city that still has no coin, a later batch may name another founder (or
+  another name, ticker, metadata hash or config): that is the one intended way to move an unused
+  batch approval. The earlier batch's leaf stops working when the later batch takes force, or at
+  once after a clear. Nothing else lets a superseded or used leaf launch anyone.
+* Within one batch a city appears once; the SDK refuses a list that names a city or a ticker
+  twice (14.1). Were a wrong list to do so, the first launch would win and the second would fail
+  at `init`: R1 holds whatever the list says.
+* A pending per-city `Approval` for the city wins (`ApprovalPending`); the site leaves such
+  cities out of the batch (8.4).
 
 ---
 
@@ -1814,7 +2204,7 @@ tests:
 | holders 0.5% | `holders_pending` | `forward_holders_fees` (anyone) to the rewards vault; then the rewards authority funds a Merkle round when at least 20 holders qualify for 0.01 SOL each; then each holder claims | `holders_earned`, `holders_forwarded`, `holders_pending`; `vicinity_rewards` counters `total_to_holders`, `total_claimed` |
 | buyback 0.3% | `buyback_pending` | `buyback_burn` (anyone; Vicinity's keeper runs it; capped; once per 150 slots) | `buyback_earned`, `buyback_spent`, `buyback_pending`, `tokens_burned`, `buyback_count`, `last_buyback_slot`; the mint's supply |
 | graduation | in the buy that takes the last curve coin | - | `phase`, `graduated_at`, `graduation_slot`, `Graduated` event |
-| launch fee | paid to `FEE_RECIPIENT` in the launch transaction | - | `CoinLaunched.launch_fee` |
+| launch fee | paid to `FEE_RECIPIENT` in the launch transaction (either launch path, the same amount) | - | `CoinLaunched.launch_fee` |
 | launch burn of R8's 9.1 leftover coins | burned in the launch transaction | - | `dust_burned` |
 
 Website figures: "earned" = `*_earned`; "waiting" = `*_pending`; "paid" = the outflow
@@ -1834,7 +2224,7 @@ counters; "burned by buybacks" = `tokens_burned`; "burned at launch" = `dust_bur
 | holders | `forward_holders_fees` | anyone | all of `holders_pending` | the city's derived `vicinity_rewards` WSOL vault under a Holders-only config whose authority is the admin | a missing or wrong rewards config (money waits); `halt-all` |
 | buyback | `buyback_burn` | anyone | `min(buyback_pending, cap)` | none: lamports move into the reserve, coins are burned | rate limit; `buybacks_halted`; `halt-all` |
 | liquidity | none | - | - | stays in the pool, or set aside forever if the coin never graduates | - |
-| launch fee | `launch` | the founder | `launch_fee_lamports` | `FEE_RECIPIENT` | `launches_paused`; `buys_halted`; the config disabled (`ConfigDisabled`); the old program's launches open, a `Coin` or `Approval` of the city there, or its admin not this program's (`LegacyLaunchesOpen`, `LegacyCoinExists`, `LegacyApprovalExists`, `LegacyAdminMismatch`); the rewards registry's admin not this program's (`RewardsRegistryAdminMismatch`); `halt-all` |
+| launch fee | `launch` or `launch_from_batch` | the founder | `launch_fee_lamports` | `FEE_RECIPIENT` | `launches_paused`; `buys_halted`; the config disabled (`ConfigDisabled`); the old program's launches open, a `Coin` or `Approval` of the city there, or its admin not this program's (`LegacyLaunchesOpen`, `LegacyCoinExists`, `LegacyApprovalExists`, `LegacyAdminMismatch`); the rewards registry's admin not this program's (`RewardsRegistryAdminMismatch`); `halt-all`; for `launch_from_batch` also no approver set, the batch path halted, the batch not in force, a failed proof or a pending approval for the city (4.27) |
 
 There is no other instruction that moves a lamport out of a `Coin` or a token out of a vault.
 
@@ -2242,12 +2632,13 @@ compared with selling at once):
 
 | key | can | cannot |
 |---|---|---|
-| **Squads vault `AB5qB1iA...`** (multisig `6v8hwKYS...`, 2 of 3), mainnet, in **all** of its roles: `vicinity_curve` admin, upgrade authority and program-metadata (IDL) authority; `vicinity_rewards` registry admin, every city's rewards authority and upgrade authority; `vicinity_launchpad` admin and upgrade authority (the old program's admin seat is enforced: approvals and launches here require it to be this program's admin, 8.5) | **As admin**: `approve_launch`, `revoke_approval`, `add_launch_config` (inside V1 to V11), `set_launch_config_enabled`, `set_pause` (any flag either way), `set_payout_config`, `set_guardian`, `propose_admin`. **As upgrade authority**: replace `vicinity_curve` (including the pre-audited `halt-all` build) after the time lock, and with a new binary take every coin's reserves and buckets. **As rewards registry admin**: choose each city's rewards authority at `init_city` (`vicinity_curve` accepts only configs whose authority is the admin, 4.15). **As each city's rewards authority**: publish the Merkle roots that decide who receives the holders' money in the rewards vault, itself included; pause claims; cancel epochs. **As `vicinity_rewards` upgrade authority**: replace that program, and with it take every forwarded lamport | Within `vicinity_curve`, without an upgrade: move any lamport or token; change a live coin's split, curve, founder or state; block sells, claims, forwards or withdrawals; redirect platform fees; change the compiled program ids; mint; freeze; create a second coin for a city or a ticker. In `vicinity_rewards`: there is no withdraw instruction; a published root is write-once |
-| **guardian** (a separate Squads multisig without a time lock, suggested 1 of 3 of the same members; never on the website server or the keeper; never `FEE_RECIPIENT`, the payout key or the payout wallet, which the program refuses, 4.4, 4.5; never the admin or the proposed admin, which the program refuses, 4.1, 4.2, 4.4 (review R5-CONS-1; that the guardian multisig has no time lock of its own is confirmed by hand, 8.4); never a coin's founder, which the program refuses at every approval, launch and founder transfer, 4.8, 4.10, 4.17) | `set_pause` with `launches`, `buys` and/or `buybacks` set to true only, buybacks only while buys are halted: stops new launches and buys at once, and buybacks with them when they are in question | clear any flag; block sells, claims, forwards, withdrawals or payouts; touch money; change any setting |
-| **payout key** (off by default; never on the website server; never a coin's founder, refused as for the guardian) | `payout_founder_fees` for opted-in founders, to the fixed payout wallet, once a day per coin; pause payouts | resume payouts; pay anywhere else; touch any other bucket |
-| **founder** (per coin; the admin chooses it at approval and may choose itself; never `FEE_RECIPIENT`, the guardian or the payout key, 4.8, 4.10, 4.17) | claim, opt in or out of payouts, hand over the seat to a co-signing key that is none of those three | touch any other bucket or coin |
+| **Squads vault `AB5qB1iA...`** (multisig `6v8hwKYS...`, 2 of 3), mainnet, in **all** of its roles: `vicinity_curve` admin, upgrade authority and program-metadata (IDL) authority; `vicinity_rewards` registry admin, every city's rewards authority and upgrade authority; `vicinity_launchpad` admin and upgrade authority (the old program's admin seat is enforced: approvals and launches here require it to be this program's admin, 8.5) | **As admin**: `approve_launch`, `revoke_approval`, `add_launch_config` (inside V1 to V11), `set_launch_config_enabled`, `set_pause` (any flag either way), `set_payout_config`, `set_guardian`, `propose_admin`, `init_launch_batch`, `set_launch_approver` (choose, rotate or remove the launch approver; every change clears the stored batches and lifts a halt), `clear_launch_batch`. **As upgrade authority**: replace `vicinity_curve` (including the pre-audited `halt-all` build) after the time lock, and with a new binary take every coin's reserves and buckets. **As rewards registry admin**: choose each city's rewards authority at `init_city` (`vicinity_curve` accepts only configs whose authority is the admin, 4.15). **As each city's rewards authority**: publish the Merkle roots that decide who receives the holders' money in the rewards vault, itself included; pause claims; cancel epochs. **As `vicinity_rewards` upgrade authority**: replace that program, and with it take every forwarded lamport | Within `vicinity_curve`, without an upgrade: move any lamport or token; change a live coin's split, curve, founder or state; block sells, claims, forwards or withdrawals; redirect platform fees; change the compiled program ids; mint; freeze; create a second coin for a city or a ticker. In `vicinity_rewards`: there is no withdraw instruction; a published root is write-once |
+| **guardian** (a separate Squads multisig without a time lock, suggested 1 of 3 of the same members; never on the website server or the keeper; never `FEE_RECIPIENT`, the payout key or the payout wallet, which the program refuses, 4.4, 4.5; never the admin or the proposed admin, which the program refuses, 4.1, 4.2, 4.4 (review R5-CONS-1; that the guardian multisig has no time lock of its own is confirmed by hand, 8.4); never a coin's founder, which the program refuses at every approval, launch and founder transfer, 4.8, 4.10, 4.17; never the launch approver, 4.4) | `set_pause` with `launches`, `buys` and/or `buybacks` set to true only, buybacks only while buys are halted: stops new launches and buys at once, and buybacks with them when they are in question; `clear_launch_batch`, with or without halting batch publication (4.26) | clear any flag; lift a batch halt; publish or re-open a batch; block sells, claims, forwards, withdrawals or payouts; touch money; change any setting |
+| **launch approver** (`Launchpad.launch_approver`; off while zero; a dedicated key the owner holds in his own wallet, O32; never on the website server or the keeper; set and rotated only by the admin; never `FEE_RECIPIENT`, the admin, the proposed admin, the guardian, the payout key or the payout wallet, which the program refuses, 4.2, 4.4, 4.5, 4.24; never a coin's founder, refused at every approval, launch, batch launch and founder transfer, 4.8, 4.10, 4.17, 4.27) | `publish_launch_batch`: one Merkle root naming, for cities with no coin, the founder, config, name, ticker and metadata hash each may launch with (at most 512 entries), in force no sooner than 12 hours after publication and for at most 48 hours; `clear_launch_batch`, with or without halting publication | move any lamport or token; launch a coin or sign for a founder; make a batch take force sooner than 12 hours after it is published or last longer than 48 hours; approve a launch that any rule of 4.8 or 4.10 refuses (a city with a coin here or in the old program, a pending per-city approval, a locked ticker, a disabled or invalid config, a bad name, ticker or metadata hash, a founder holding a role, launches paused, buys halted); change a live coin, a founder, a setting, a flag or a config; lift a halt; publish while publication is halted |
+| **payout key** (off by default; never on the website server; never a coin's founder, refused as for the guardian; never the launch approver, 4.5) | `payout_founder_fees` for opted-in founders, to the fixed payout wallet, once a day per coin; pause payouts | resume payouts; pay anywhere else; touch any other bucket |
+| **founder** (per coin; the admin chooses it at approval and may choose itself, or the launch approver names it in a batch; never `FEE_RECIPIENT`, the guardian, the payout key or the launch approver, 4.8, 4.10, 4.17, 4.27) | claim, opt in or out of payouts, hand over the seat to a co-signing key that is none of those four | touch any other bucket or coin |
 | **anyone** | trade; `buyback_burn`; `withdraw_platform_fees` (pays only `FEE_RECIPIENT`); `forward_holders_fees` (pays only the checked vault); `SyncNative` on a WSOL account; revoke an expired approval | everything else |
-| **website and keeper** | build unsigned transactions; the keeper's hot key signs permissionless cranks as fee payer only | approve launches, halt, or move funds: the website holds no admin, guardian, payout or upgrade key; admins create Squads proposals from their own wallets |
+| **website and keeper** | build unsigned transactions; compute the day's launch batch list and prepare the unsigned `publish_launch_batch` for the owner; give each listed founder his entry and proof; the keeper's hot key signs permissionless cranks as fee payer only | approve launches, publish or clear batches, halt, or move funds: the website holds no admin, guardian, payout, launch approver or upgrade key; admins create Squads proposals from their own wallets, and the owner signs batches from his own wallet (8.4) |
 | **`FEE_RECIPIENT`** | receive; trade and buy coins like any wallet (the program cannot stop a key from spending its own SOL; I21). Since it is credited `b_P` of every leg, its holder is outside the MEV bounds of 7.3: the operating rule of 8.4 keeps it, and the owner's other wallets, out of city coins and founder seats (review HR-1) | hold any seat in the program: it refuses `FEE_RECIPIENT` as admin, proposed admin, guardian, payout key or payout wallet (4.1 to 4.5), as a coin's founder (4.8, 4.10, 4.17), and as the upgrade authority at `init_launchpad` (4.1); later moves of the upgrade authority happen outside the program, so that part is a deploy precondition (8.4). Its only signatures in the program are a trader's |
 
 Worst cases:
@@ -2278,6 +2669,33 @@ Worst cases:
 * **Stolen payout key**: only opted-in founders' share, only to the agreed wallet, at most
   daily; it can pause payouts but not resume them.
 * **Stolen founder key**: that coin's `founder_pending` only.
+* **Stolen launch approver key.** The thief can publish batches. None takes force sooner than 12
+  hours after publication; the batch monitor (14.1) compares every publication with the site's own
+  list within minutes and pages the owner and the guardian members; the owner (who still holds the
+  key), the guardian or the admin then clears it, with `halt` (4.26), which ends every stored batch
+  and refuses publications until the admin rotates the key; if a bad batch is already in force,
+  the guardian's `set_pause(launches = true)` stops both launch paths at once. If nobody acts
+  within the window: up to 512 cities that have no coin can be launched by founders of the thief's
+  choosing, under an enabled config, with names, tickers and metadata hashes that pass the
+  program's checks, and those cities are taken for ever (R1), as in the admin's worst case above.
+  No lamport or token of any coin, holder, founder or of Vicinity is reachable; fees and splits are
+  the admin's configs and do not change; no live coin changes. The thief can also deny the batch
+  path (publishing junk, halting) until the admin rotates the key, 48 hours under the time lock;
+  the batch in force keeps running through a pending junk batch's review window (8.6), and
+  per-city approvals keep working unless launches are paused.
+* **Lost launch approver key.** No new batches. The batch in force runs to its `valid_until` (at
+  most 48 hours); the admin rotates the key (48 hours under the time lock; the rotation also
+  clears the stored batches), and meanwhile exceptions go through `approve_launch`. At most about
+  two days without batch launches; nothing else stops. A seed backup kept offline avoids it (O32).
+* **Wrong list** (a website bug, a compromised website, or the owner signing what he did not
+  review): wrong founders, names, tickers, metadata or configs for cities that have no coin, or a
+  founder who has lost his seat. The owner signs only after his own verifier has recomputed the
+  root and shown the day's changes (8.4); during the review window the monitor recomputes the root
+  from the site's database and a second person checks the new entries. An entry found wrong before
+  its batch takes force never takes effect (a corrected batch replaces a pending one; or a clear).
+  Found later, `[clear, publish corrected]` stops it for every founder not yet launched; a coin
+  already launched stays as launched (immutable, R1). A city or ticker named twice: the first
+  launch wins and R1 holds.
 
 Mitigations for the reward-root path: the snapshot file and its `snapshot_hash` are published
 before the root proposal is created; a second party (not the one who computed it) recomputes
@@ -2336,13 +2754,16 @@ call (I19).
   halting buybacks, and is why the guardian halts them only when needed. Cost: `buy`, `sell` and `buyback_burn` take the
   `Launchpad` as a fixed read-only account (10 accounts in the trade lists; `sell` checks its
   address only), and `buy` reads one bool.
+* **Stopping launch batches (fast, on chain).** The guardian, the launch approver or the admin
+  ends every stored batch with `clear_launch_batch`, and with `halt` refuses publications until
+  the admin's `set_launch_approver` (4.26, 8.6); `launches_paused` stops both launch paths.
 * **halt-all build (slow, by upgrade).** Cargo feature `halt-all` makes every instruction
   that moves lamports or tokens out of a `Coin` or its vault fail with `TradingHalted`:
   `sell`, `withdraw_platform_fees`, `forward_holders_fees`, `claim_founder_fees`,
-  `payout_founder_fees`, `buyback_burn`, `buy` and `launch`. It is the full freeze for an
+  `payout_founder_fees`, `buyback_burn`, `buy`, `launch` and `launch_from_batch`. It is the full freeze for an
   accounting bug (an over-credited bucket would otherwise be paid out by strangers through
   the permissionless outflows, out of SOL that backs the reserve). It is a few `#[cfg]` lines
-  at the top of eight handlers, in the audit scope, built verifiably, with its buffer uploaded
+  at the top of nine handlers, in the audit scope, built verifiably, with its buffer uploaded
   in advance under the Squads vault as buffer authority. Under the time lock it takes effect
   48 hours after the proposal, which is still sooner than writing, auditing and deploying a
   fix. **Its buffer is rebuilt from the same commit after every normal upgrade**; deploying an
@@ -2414,6 +2835,71 @@ call (I19).
   platform's key is credited `b_P` of its own legs, which V8 and V11 do not count (7.3); the
   keeper alerts when `FEE_RECIPIENT` holds any city coin, and its keeper backlog alert stays at
   two caps (0.2% of depth, 7.2).
+* **The launch approver: preconditions and rules** (8.6). Before the first batch: `LaunchBatch`
+  exists (`init_launch_batch`), and the approver is set by an admin proposal checked first by the
+  deploy checklist with `--proposed-launch-approver`, which compares the key with every
+  `Coin.founder` and pending `Approval.founder` (the program refuses the approver as a founder from
+  then on, but cannot list the coins when the key is set) and with `FEE_RECIPIENT`, the admin, the
+  vault, the proposed admin, the guardian and the payout key and wallet (which the program refuses
+  too), and warns when it is a member key of the vault's or the guardian's multisig. Afterwards:
+  the approver key is a dedicated key in the owner's own wallet, used for nothing else (never
+  `FEE_RECIPIENT`'s `13qRam...`, which the program refuses, never a Squads member key), never on
+  the website server, the keeper or any server; as one of the owner's wallets it never holds or
+  trades city coins (the rule above); its seed is backed up offline (O32). A change of the
+  approver, the guardian or the payout keys never names a key that holds a founder seat (the
+  checklist's proposed-key mode, as above).
+* **The daily launch batch: how the owner signs** (owner decision of 17 October 2026; 8.6).
+  1. *The site computes the list* at a fixed hour: every founder eligible by the site's rules (a
+     live, final founder seat; the founder's account wallet is the seat's wallet; the coin design
+     saved by the current founder; SOL pair), for cities with no coin here or in the old program,
+     no pending per-city `Approval` and a ticker not locked, each entry with the city's registry
+     ticker, the default or admin-approved name, the SHA-256 of the metadata JSON the site will
+     serve write-once, the config (the enabled default, config #0, unless the admin approved
+     another) and the founder's wallet. Each entry passes the SDK's copies of the program's checks
+     (`check_name`, `check_symbol`, a nonzero metadata hash, the founder key against every role of
+     the current `Launchpad`); no city or ticker appears twice; at most 512 entries (the
+     longest-eligible first; the rest wait a day or take the per-city path). The site writes the
+     list file (3.12), computes the root and the day's changes against the batch in force (entries
+     added, removed or changed), and sends the changes to the owner and the guardian members
+     through the monitor's own channel, not only the website.
+  2. *The owner verifies on his own computer*: the batch verifier (`scripts/vcurve/batch.mjs
+     verify <list file>`, to be built with the SDK of 14.1) re-reads the chain (`Launchpad`,
+     `LaunchBatch`, each city's `Coin`, `Approval` and `TickerLock`, the old program's accounts,
+     the configs), re-checks every entry, recomputes the root, prints the changes and builds the
+     unsigned `publish_launch_batch` (`seq = latest.seq + 1`, `valid_from = now + 12 hours + 10
+     minutes`, `valid_until = valid_from + 36 hours`, O31). The owner reads the changes (normally a
+     few lines a day), then signs that transaction with the approver key from his own wallet. If he
+     signs on the website's batch page instead, he first compares the root, `seq` and window the
+     page shows with the verifier's. One signature a day; no launch needs another.
+  3. *After publication, during the 12-hour review window*: the batch monitor (a process apart
+     from the website, holding no key) reads `LaunchBatch`, rebuilds the list from the site's
+     database rather than from the cached file, and checks the root, `leaf_count`, window and
+     publisher; any difference, or a publication nobody prepared, pages the owner and every
+     guardian member at once. The verifier's `check` mode does the same from the owner's
+     computer. A second person (a guardian member, not the owner) checks the day's new entries
+     (city, founder seat, name, ticker, metadata JSON and image) before `valid_from`; new entries
+     not confirmed an hour before `valid_from` are cleared (step 5) or the batch is replaced
+     without them, as the rewards roots are only signed after a second person recomputes them
+     (8.1).
+  4. *From `valid_from`*: the site offers the launch to each listed founder, gives him his entry
+     and proof, and builds `launch_from_batch` with his first buy (11.3). Before building it
+     re-checks his eligibility and the chain; a founder who has lost his seat gets no transaction
+     and the owner is told at once. The site's refusal is not a protection: the founder can build
+     the transaction himself from his entry and proof, so a lost seat is removed only on chain
+     (step 5, O33).
+  5. *How to stop*: an entry found wrong while its batch is pending: the owner publishes a
+     corrected batch, which replaces the pending one (the batch in force keeps running). An entry
+     wrong or a seat lost in the batch in force: `[clear_launch_batch(halt = false),
+     publish_launch_batch(corrected)]` in one transaction by the owner (batch launches then pause
+     for the review window for everyone), or, if the risk is acceptable, wait for the next daily
+     batch to take force. An unexpected publication, a root that differs from the site's, or a
+     suspected theft of the approver key: the guardian (or the owner) sends
+     `clear_launch_batch(halt = true)`, and if a bad batch is already in force the guardian first
+     sends `set_pause(launches = true)`; recovery is one admin proposal `[set_launch_approver(new
+     key), set_pause(launches = false)]` (the second only if launches were paused; `launches` has
+     no consistency rule with the other flags, so no flag the guardian set can make it fail),
+     after which the owner publishes with the new key and batches take force a review window
+     later. Per-city approvals keep working throughout unless launches are paused.
 * Under Meteora, curve and pool money sat in Meteora's programs. Here it sits under
   `vicinity_curve`, so the upgrade authority is the main trust: it could take every coin's
   reserves and unpaid shares. The website says so plainly.
@@ -2451,6 +2937,85 @@ loader's `Close`). So each one is revoked first, while the old program can still
 old program immutable instead of closing it keeps its instructions callable and avoids the trap;
 the deploy checklist accepts an immutable old program (a warning, not a problem; review
 R5-DIFF-3).
+
+### 8.6 Batch launch approval: the separate key, the review window, validity and supersession
+
+**Why a separate key.** The owner's decision of 17 October 2026: "In the new custom program, I
+sign one batch approval (say daily) covering every eligible founder, and their launches then go
+through with no per-launch step. No key ever sits on the website. It's covered by the same outside
+audit." The admin is the Squads vault, behind the 48-hour time lock once coins are live (O11): a
+daily batch signed by the vault would be two days old when it took force, and every change to the
+list would wait two days. So a batch is signed by the **launch approver**, a key the owner holds
+in his own wallet whose only powers are to publish and to clear batches (8.1). The admin chooses,
+rotates and removes it; the website only computes the list and prepares the unsigned instruction
+(8.4); the five instructions (4.23 to 4.27), the account (3.11) and the leaf format (3.12) are in
+the audit scope like everything else.
+
+**What a batch is.** A statement by the approver: "between `valid_from` and `valid_until`, each of
+these founders may launch this city's coin with exactly this config, name, ticker and metadata
+hash". Each launch is then checked against the leaf and against every rule of a per-city launch at
+the moment it happens (4.27): a batch can never approve what `approve_launch` and `launch` would
+refuse, and it gives the approver no path to money (I25).
+
+**Which batch is in force.** `LaunchBatch` keeps two records, `latest` and `previous` (3.11). At
+time `now`, with the approver set and the batch path not halted:
+* `latest` is in force when it is not cleared, its publisher is the current approver and
+  `valid_from <= now <= valid_until`;
+* otherwise `previous` is in force when the same holds for it **and** `now < latest.valid_from`:
+  a newer batch supersedes the older one when the newer takes force, not when it is published;
+* otherwise no batch is in force.
+A publication moves `latest` to `previous` only if `latest` has already begun (`now >=
+latest.valid_from`); a `latest` still in its review window is replaced and never takes force
+(4.25). So, with daily publications:
+
+| moment | `previous` | `latest` | in force |
+|---|---|---|---|
+| day 1, 21:00: batch 1 published (from 09:00 day 2) | - | 1 (pending) | none |
+| day 2, 09:00 | - | 1 | 1 |
+| day 2, 21:00: batch 2 published (from 09:00 day 3) | 1 | 2 (pending) | 1 |
+| day 2, 22:00: batch 3 published, correcting 2 (from 10:00 day 3) | 1 | 3 (pending; 2 replaced, never in force) | 1 |
+| day 3, 10:00 | 1 | 3 | 3 (1 superseded) |
+| a clear at any moment | cleared | cleared | none until a new batch takes force, a review window after it is published |
+
+Launches therefore never pause between daily batches, a pending batch can be corrected without
+interrupting the one in force, and two batches are never in force at once.
+
+**Review window: `BATCH_REVIEW_SECS` = 12 hours (O30).** A used leaf cannot be undone: the coin, its
+ticker, its founder and its on-chain name are permanent (R1, 3.10). What protects against a stolen
+approver key or a wrong list is therefore the time between publication and force, during which the
+monitor recomputes the root and pages, a second person checks the new entries, and the guardian
+(one of three signatures, no time lock), the owner (who holds the approver key) or the admin can
+clear. Twelve hours covers a night's sleep and the time to act for a team in one time zone, and
+makes sure the second person's check falls inside someone's working day; the daily rhythm still
+works (signed in the evening, launches open the next morning). Six hours would need someone on call
+overnight. One or two hours would need an automatic stop, which means a clear-only key on a server
+watching the chain: it could only stop batches, but it is a key on a server, which the owner ruled
+out, so it is not built. A longer window only makes founders wait longer.
+
+**Validity: at most `BATCH_MAX_VALIDITY_SECS` = 48 hours (O31); the SDK's default 36 hours.** A
+day's batch outlasts the next day's publication by 12 hours, so a signature a few hours late leaves
+no gap, and supersession at the newer batch's `valid_from` keeps the overlap harmless. The validity
+bounds how long a list lives if the owner stops signing. `BATCH_MAX_LEAD_SECS` (48 hours) keeps a
+list from being signed long before it takes force.
+
+**Stale entries.** A founder who loses his seat after the batch is signed can still launch until the
+batch in force is superseded (the next daily batch's `valid_from`), cleared or expired: at most
+about a day with daily signing, 48 hours plus the lead at worst. The site refuses to build his
+transaction, but he can build it himself; removing him in time takes `[clear, publish corrected]`,
+which pauses batch launches for everyone for one review window. This residual risk is disclosed and
+needs the owner's sign-off (O33); today's per-city approvals have the same property for up to 30
+days (the admin page warns and asks for a revoke).
+
+**Precedence and size.** A pending per-city `Approval` beats any batch for its city
+(`ApprovalPending`), so the admin's explicit choice wins and exceptions stay simple. At most 512
+entries per batch (`MAX_BATCH_LEAVES`): a proof of 9 hashes keeps `launch_from_batch` with the
+founder's first buy inside one transaction (11.3), and it bounds what one batch, or one stolen key
+inside one window, can approve.
+
+**Not built.** An automatic clear-only sentinel (above); an on-chain list of eligible founders or
+cities (the program cannot see seats; O15 is the related city-list option); a per-entry revocation
+by the approver (it would make the approver more than publish-or-clear; `[clear, publish]` does the
+same at the cost of one review window, O33).
 
 ---
 
@@ -2550,7 +3115,7 @@ Global:
 
 * **I19 Uniqueness.** At most one `Coin` per `city_id` and one `TickerLock` per ticker; never
   closed; `TickerLock.mint == Coin.mint` for the coin with that symbol; an `Approval` and a
-  `Coin` never coexist for a city; **at every approval and at every launch**, the old program
+  `Coin` never coexist for a city; **at every approval and at every launch, by either path**, the old program
   had no `Coin` and no `Approval` for the city, its launches were paused, and its admin was this
   program's admin with no transfer pending (8.5); so was `vicinity_rewards`' registry admin
   (review OPS-1). The seats are taken as they stood at that call (review R5-REG-1): the accounts
@@ -2561,15 +3126,16 @@ Global:
   wallet separate from each other, the admin, the guardian and `FEE_RECIPIENT` when set;
   `FEE_RECIPIENT` is never the admin, the pending admin or the guardian; a set guardian is never
   the admin or the pending admin (review R5-CONS-1); no coin's founder is
-  `FEE_RECIPIENT`, the guardian or the payout key (the program refuses them at every approval,
-  launch and founder transfer; that a later `set_guardian` or `set_payout_config` does not name
-  an existing founder is a rule the tests keep and an operating rule, 8.4); `guardian` changes
-  only in `set_guardian`; `buys_halted` and `buybacks_halted` become true only by the guardian
+  `FEE_RECIPIENT`, the guardian, the payout key or the launch approver (the program refuses them
+  at every approval, launch, batch launch and founder transfer; that a later `set_guardian`,
+  `set_payout_config` or `set_launch_approver` does not name an existing founder is a rule the
+  tests keep and an operating rule, 8.4); `guardian` changes only in `set_guardian` and
+  `launch_approver` only in `set_launch_approver`; `buys_halted` and `buybacks_halted` become true only by the guardian
   or the admin and false only by the admin, and `buybacks_halted` is never set while
   `buys_halted` is not (review LL-1); `next_config_id` equals the number of `LaunchConfig` accounts; a
   `LaunchConfig` changes only in `enabled`; every `LaunchConfig` passes V1 to V11. **Per call
-  (review SM-2):** every successful `buy` and `launch` ran with buys open, every `launch` with
-  launches open, every `buyback_burn` with buybacks open and every `payout_founder_fees` with
+  (review SM-2):** every successful `buy`, `launch` and `launch_from_batch` ran with buys open,
+  every `launch` and `launch_from_batch` with launches open, every `buyback_burn` with buybacks open and every `payout_founder_fees` with
   payouts open, the flags taken as they stood at that call (the `Launchpad` before the
   transaction, then each earlier `set_pause` of the same transaction); a new `Approval` holds
   what 4.8 allows (city id at least 1, a founder that is not `FEE_RECIPIENT`, the guardian or the
@@ -2577,8 +3143,8 @@ Global:
   config, a valid symbol and name, the admin as rent payer), and a new `PayoutOptIn` names the
   coin's founder and the payout wallet (4.18).
 * **I21 No admin money path within `vicinity_curve`.** No instruction in any test moves
-  lamports or tokens to the admin, the guardian, the payout key, the upgrade authority or the
-  keeper; the one exception is an `Approval`'s rent returning to its `rent_payer`, which
+  lamports or tokens to the admin, the guardian, the payout key, the launch approver, the upgrade
+  authority or the keeper; the one exception is an `Approval`'s rent returning to its `rent_payer`, which
   `approve_launch` sets to the admin (its own rent coming back, not a money path). The program
   cannot stop a role key from buying coins with its own SOL, so the token half is a rule for
   the tests (NOTES 29, 34). The founder seat is the one program path that pays a key the admin
@@ -2609,6 +3175,43 @@ Global:
   coin that never graduates (O2); in a config with `liquidity_bps = 0`, the curve-phase rounding
   remainders in `liquidity_pending`; the buyback bucket's dust below the price of one raw coin in
   a coin that stops trading; donations.
+
+Batch launch approval (8.6; specified, asserted once built, each per call with the `Launchpad`
+and `LaunchBatch` of that call's moment: the accounts before the transaction with every earlier
+`set_launch_approver`, `publish_launch_batch`, `clear_launch_batch`, `set_pause`, `set_guardian`,
+`set_payout_config`, `propose_admin` and `accept_admin` of the same transaction applied, as the
+checker's seat walk already does for I19):
+
+* **I23 No launch without an approval or a valid proof.** Every new `Coin` comes from a successful
+  `launch` that closed the city's `Approval` (whose founder signed), or from a successful
+  `launch_from_batch` for which all of this held at its moment: the approver was nonzero and the
+  batch path not halted; the batch named by `batch_seq` was in force (8.6: `latest`, or `previous`
+  before `latest.valid_from`; not cleared; published by the current approver; `valid_from <= now
+  <= valid_until`); the leaf built from the call's arguments and its signer folds through a proof
+  of at most `min(9, depth(leaf_count))` hashes to that batch's root (the checker recomputes it
+  with the SDK, 3.12); no `Approval` existed for the city; and every per-call rule of I19 and I20
+  for a launch held. The `Coin`, `TickerLock` and metadata it created hold exactly the leaf's
+  founder, config terms, symbol, name and `meta_hash`. Hence no launch outside a window, after a
+  clear, under a superseded root, or for a city that holds a pending approval.
+* **I24 Batch state.** `LaunchBatch` is written only by `init_launch_batch`,
+  `set_launch_approver`, `publish_launch_batch` and `clear_launch_batch`, never by a launch or a
+  trade. `latest.seq` grows by exactly 1 per successful publication and changes nowhere else;
+  `previous.seq < latest.seq` unless both are 0; `previous` changes only in a publication, and only
+  to the record `latest` held, when that had begun. Every stored record with `seq > 0` has a
+  nonzero root, `1 <= leaf_count <= 512`, `published_at + BATCH_REVIEW_SECS <= valid_from <=
+  published_at + BATCH_MAX_LEAD_SECS`, `valid_from < valid_until <= valid_from +
+  BATCH_MAX_VALIDITY_SECS`, and the publisher that was the approver at its publication. A record's
+  `cleared` goes only from false to true; `halted` becomes true only in a clear (by the approver,
+  the admin or the guardian) and false only in the admin's `set_launch_approver`; every
+  `set_launch_approver` leaves both records cleared. A successful publication ran with the
+  batch path not halted and was signed by the approver of its moment.
+* **I25 The launch approver holds no money path and no other seat.** A nonzero `launch_approver` is
+  never `FEE_RECIPIENT`, the admin, the pending admin, the guardian, the payout key or the payout
+  wallet; it is no coin's founder (I20); the approver's instructions write only `LaunchBatch` and
+  move no lamport or token besides the signer's own transaction fee; no instruction moves lamports
+  or tokens to it (I21). The approver cannot set any flag, setting, config, founder or live coin:
+  every change of `Launchpad` after `init_launchpad` is signed by the admin, the pending admin
+  accepting, the guardian or the payout key, exactly as before the batch approval.
 
 ---
 
@@ -2646,7 +3249,7 @@ Global:
 | T26 | **Buyback timing griefing** | no arguments; any timing only changes how many coins are burned; small runs are safer | X26 |
 | T27 | **Farming the liquidity drip** | drip at most `floor(A*b_L/D)` of others' set-aside share; V10 `b_L < b_P` (or 0) | 7.5; P09, P09b; X27, X27b |
 | T28 | **Dust trades farming the drip or the remainder** | the remainder never drips; a dust sell drips at most `floor(A*b_L/D)` (0 below 200 lamports at the default); buys have a minimum | X28 |
-| T29 | **Reinitialisation** of `Launchpad`, `LaunchConfig`, `Coin`, `TickerLock`, mint, vault, opt-in | plain `init` everywhere; no `init_if_needed` anywhere in the program | X29 |
+| T29 | **Reinitialisation** of `Launchpad`, `LaunchConfig`, `Coin`, `TickerLock`, mint, vault, opt-in, `LaunchBatch` | plain `init` everywhere; no `init_if_needed` anywhere in the program | X29 |
 | T30 | **Closing accounts or revival** | only `Approval` and `PayoutOptIn` close, by Anchor `close` to a pinned key; no code path signs a token `close_account` | I14; X30 |
 | T31 | **Rent drain of the SOL-holding PDA** | single `pay_out` refuses to go below `min(rent_reserve, rent_min) + liabilities_after`; the runtime's rent rules; every debit bounded by its bucket or by `gross <= reserve` | I9; X31 |
 | T32 | **Cross-coin bleed** | each coin's lamports are its own account; `pay_out` checks that coin's liabilities | I9 per coin; X32 |
@@ -2659,10 +3262,10 @@ Global:
 | T39 | **Supply inflation or freezing** | mint authority set to `None` after the single `mint_to`; freeze authority `None` from creation | I11; X39 |
 | T40 | **Re-selling burned coins** | burns are SPL `burn` from the vault; they leave the reserve and the supply together; holder burns only lower the supply | I10, I11; X40b |
 | T41 | **Compute exhaustion** | every path O(1); no loops over accounts; no remaining accounts | C01 |
-| T42 | **Griefing that blocks trading** | trades write only the coin's accounts and the user's; `Launchpad` is read-only in trades and written only by admin and guardian instructions; no external state; counters cannot overflow (u128); sells never read `Launchpad` | I22; X42 |
+| T42 | **Griefing that blocks trading** | trades write only the coin's accounts and the user's; `Launchpad` is read-only in trades and written only by admin and guardian instructions (and the payout key's pause); trades never read `LaunchBatch`; no external state; counters cannot overflow (u128); sells never read `Launchpad` | I22; X42 |
 | T43 | **Admin abuse** | powers of 8.1; no money path within the program (I21); live coins frozen (I2); caps compiled in | I2, I21; X43 |
 | T44 | **Hostile config from a stolen admin key** | V1 to V11 (total at most 2.5%, platform at most 1.2%, founder at most 1.0%, a credited founder, holder of the float, or founder holding the float still pays 0.01% per leg (V2b), curve, continuity, MEV with founder credit, drip, horizon); the founder signs `launch` naming the config via the approval; existing coins unaffected | V01 to V11; X44 |
-| T45 | **Stolen admin key approving itself for many cities** | Squads 2 of 3; time lock; approvals expire in at most 30 days; `LaunchApproved` events monitored; O15 would add an on-chain city list | process |
+| T45 | **Stolen admin key approving itself for many cities** | Squads 2 of 3; time lock; approvals expire in at most 30 days; `LaunchApproved` events monitored; O15 would add an on-chain city list. The admin can also make itself the launch approver only through `set_launch_approver`, which refuses the admin's own key (`ApproverHoldsRole`); naming another key it controls is as visible and time-locked as any proposal (T85) | process |
 | T46 | **Malicious or buggy upgrade** | Squads 2 of 3; 48-hour time lock once coins are live (O11), during which holders can sell and the guardian can halt buys; verified builds; pre-audited halt-all build rebuilt after every upgrade | process; H03 |
 | T47 | **Fake rewards config or vault** | PDAs re-derived under the compiled `REWARDS_PROGRAM_ID`; owner check; config fields checked; vault mint WSOL and authority the config | X47 |
 | T48 | **Holder money into a founder-paying rewards config** | model Holders and `founder_bps == 0` required | X48 |
@@ -2694,8 +3297,19 @@ Global:
 | T74 | **Third-party pools for the coin** | cannot be prevented for a classic SPL coin; they pay no Vicinity fee and buybacks and injections carry over to them only past 2.5% plus their fee; labelled (6.6) and listed as an owner-visible risk (13, 14.5) | process |
 | T75 | **CPI after a direct lamport move** (`UnbalancedInstruction`, stuck instruction) | rule of 4.0; `forward_holders_fees` leaves `SyncNative` to a separate top-level instruction | R02, R02b |
 | T76 | **Buying ahead of a public buyback backlog** (hold through several runs), including the backlog a halt of buybacks leaves and the predictable moment buys reopen (review LL-1) | Theorem M_K; 0.1% step; V11 horizon; keeper every interval, alert above two caps (0.2% of depth), backlog shown on the coin page, the clients' threshold counting every run the backlog pays for (5.15, review KR-1); buybacks halted only while buys are, resumed first, and the keeper drains every backlog before buys reopen (8.3); the platform's key, credited `b_P`, by the operating rule of 8.4 (7.3, review HR-1); residual risk signed off (O25) | P06b; X25; LL-1; HR-1 |
-| T77 | **One hot key in several roles** (`FEE_RECIPIENT` as admin, guardian, upgrade authority or a coin's founder, the guardian as payout key or wallet, the guardian or the payout key as a coin's founder, the old program administered by another key) | refused by `init_launchpad`, `propose_admin`, `accept_admin`, `set_guardian` and `set_payout_config` (`FeeRecipientRole`, `PayoutKeyNotSeparate`) and, for the founder seat, by `approve_launch`, `launch` and `transfer_founder` (`FeeRecipientRole`, `FounderHoldsRole`); later moves of the upgrade authority and settings that name an existing founder are 8.4's operating rule; approvals and launches require the old program's admin to be this program's admin (`LegacyAdminMismatch`, 8.5) | I19, I20; 28-governance |
+| T77 | **One hot key in several roles** (`FEE_RECIPIENT` as admin, guardian, launch approver, upgrade authority or a coin's founder, the guardian as payout key or wallet, the guardian, the payout key or the launch approver as a coin's founder, the launch approver as admin, guardian or payout key, the old program administered by another key) | refused by `init_launchpad`, `propose_admin`, `accept_admin`, `set_guardian`, `set_payout_config` and `set_launch_approver` (`FeeRecipientRole`, `PayoutKeyNotSeparate`, `ApproverHoldsRole`) and, for the founder seat, by `approve_launch`, `launch`, `launch_from_batch` and `transfer_founder` (`FeeRecipientRole`, `FounderHoldsRole`); later moves of the upgrade authority and settings that name an existing founder are 8.4's operating rule; approvals and launches require the old program's admin to be this program's admin (`LegacyAdminMismatch`, 8.5) | I19, I20; 28-governance |
 | T78 | **A client buy without a minimum** (the "pay with any token" composer), sandwiched | the program enforces `min_tokens_out`; the SDK's `buyWithSwap` refuses to build a buy without one (14.1) | 29-clients |
+| T81 | **Forged proof**: a launch through a batch with a founder, city, name, ticker, metadata hash or config that is not in the signed list | the program builds the leaf from the call's arguments and its signer, never takes a leaf hash (3.12, 4.27); SHA-256 collision and second-preimage resistance; a proof longer than `min(9, depth(leaf_count))` is refused before hashing; sorted pairs need no direction bits a caller could flip | I23; X66, U13, P12 |
+| T82 | **Second preimage between leaf and node**: an inner node presented as a leaf, or a leaf as a node, to shorten or extend a proof | leaf preimages start with 0x00 and are 146 to 186 bytes, node preimages start with 0x01 and are exactly 65 bytes; the program accepts only the fields of a leaf, never a 32- or 64-byte value as one; injective leaf encoding (3.12) | I23; X67, U13 |
+| T83 | **Replay across batches, programs or clusters**: an old batch's leaf used after a newer batch, a leaf or root from another deployment (devnet, a fork of the program) or from a rewards tree, a used leaf, a publication replayed | `batch_seq` and the program id in every leaf; only the batch in force is accepted (8.6); the launch tag and version differ from every rewards leaf; a used leaf's city has a permanent `Coin`; publications carry the gap-free `seq` (a replayed or out-of-order publication fails, `BatchSeqMismatch`) | I23, I24; X68, X69 |
+| T84 | **Stale batch after a seat is lost**: a founder who lost his seat, or whom the owner would no longer approve, launches from a batch signed before | bounded by the batch's validity (at most 48 hours) and by supersession when the next daily batch takes force; urgent removal by `[clear, publish corrected]` or a guardian clear (8.4); the site's refusal to build his transaction is not a protection; residual risk disclosed (O33) | I23; X70; process |
+| T85 | **Theft of the launch approver key** | the approver can only publish or clear (8.1); every batch waits the 12-hour review window (4.25), during which the monitor pages and the guardian, the owner or the admin clears with `halt`, and the guardian can pause launches; rotation by the admin clears every batch; a batch is still checked against every launch rule; at most 512 cities per batch; the approver is no founder and moves no money (I25); worst case in 8.1 | I24, I25; X71, X73 |
+| T86 | **Griefing by publishing empty or junk batches** (or halting) | only the approver can publish; `leaf_count >= 1` and a nonzero root; a junk batch published while a good one is in force only replaces the pending record, and the good batch stays in force until the junk one's `valid_from` (8.6), by which time it is cleared; the gap-free `seq` cannot be exhausted; per-city approvals are unaffected; a thief who halts or keeps publishing is stopped by the admin's rotation | I24; X72 |
+| T87 | **Front-running a founder's batch launch** (copying his transaction, proof or arguments, or racing for his city or ticker) | the leaf binds the signer, so a copy needs the founder's signature and changes nothing; the `Coin` and mint are PDAs that only the program creates (T55); a ticker can be raced only by another approved entry with the same ticker, which the SDK refuses within a batch and against pending approvals (8.4); sniping after the launch is T62 (the first buy rides in the launch transaction, 11.3) | X74; T55, T62 |
+| T88 | **A batch and a per-city approval for the same city** (two founders) | `launch_from_batch` refuses a city whose `Approval` exists (`ApprovalPending`); the site leaves such cities out of the batch; the admin's choice wins (4.8, 4.27) | I23; X75 |
+| T89 | **A compromised website preparing a list the owner signs** (a founder of the attacker's choosing, or another name, ticker or metadata) | the owner signs from his own verifier, which re-reads the chain, recomputes the root and shows the day's changes; the monitor rebuilds the list from the database; a second person checks the new entries before `valid_from`; the review window lets any of them clear; the website never holds the approver key (8.4); the same residual as a self-serving reward root (8.1) if all of them fail | process; 8.4 |
+| T90 | **Batch clock games** (publishing a window that starts at once, or lasts for weeks) | `valid_from >= now + 12 hours`, `valid_from <= now + 48 hours`, `valid_until <= valid_from + 48 hours`, checked against the cluster's clock at publication; launches compare Unix time with windows of hours (drift of seconds) | I24; X76, X59 |
+| T91 | **A wrong list naming a city or a ticker twice**, or a city that already has a coin or a locked ticker | the SDK refuses such a list (14.1); on chain the first launch wins and later ones fail at `init` (`Coin`, `TickerLock`), so R1 holds whatever the list says | I19, I23; X75 |
 
 ---
 
@@ -2715,6 +3329,8 @@ Global:
 | `launch` | 125,000 to 190,000 | Metaplex CPI dominates (today's launch through DBC and Metaplex measured 154,600 to 173,704); four `init`s; `mint_to`; dust `burn`; `set_authority`; two `find_program_address` under the old program | 230,000 | 300,000 |
 | `launch` + idempotent ATA create + first `buy`, one transaction | 175,000 to 260,000 | the sum of the three | asserted by C01 | 400,000, or 1.2 x the simulated figure (as the Worker already does for trades) |
 | admin and settings instructions | 5,000 to 30,000 | `approve_launch` includes two `find_program_address` under the old program | 50,000 | 60,000 |
+| `launch_from_batch` (estimate, not built) | `launch` plus 8,000 to 20,000 | `LaunchBatch` load and check (about 2,000); the empty `approval` PDA re-derived (one bump search, 1,500 to 10,000); the leaf hash (about 160 CU for a preimage of up to 186 bytes) and at most 9 node hashes (about 120 CU each: the `sol_sha256` syscall's base cost plus its per-byte cost); the second event CPI (about 5,000) | 250,000 | 300,000, or 1.2 x the simulated figure |
+| `publish_launch_batch`, `clear_launch_batch`, `set_launch_approver`, `init_launch_batch` (estimates) | 4,000 to 15,000 | one or two account loads, no CPI except `init`'s | 50,000 | 60,000 |
 
 Reference: Meteora DBC `swap2` measured 29,987 to 39,598 CU (LAUNCHPAD-AUDIT.md 5.1), so a
 trade here should cost about the same. If the efficient SPL Token implementation is live on
@@ -2747,7 +3363,9 @@ Sizes and rents are in 3.3. A founder's launch costs, at today's mainnet rent ra
 11,724,640 lamports (`Coin` 4,170,680, mint 1,066,800, vault 1,488,440, ticker lock 899,160,
 metadata about 4,099,560) + launch fee 50,000,000 + Metaplex's fee 10,000,000 = about
 0.0717 SOL, plus network fees (0.0761 SOL at litesvm's rate). The approval's rent (1,569,720
-lamports) returns to the Squads vault.
+lamports) returns to the Squads vault. A launch through a batch costs the founder the same and
+involves no approval rent at all; the batch path's only account, `LaunchBatch` (1,971,040
+lamports), is paid once, and a daily publication costs the approver only its transaction fee.
 
 ### 11.3 Transaction sizes (estimates; measured by C02)
 
@@ -2762,6 +3380,18 @@ lamports) returns to the Squads vault.
   authority, `vicinity_curve`, `FEE_RECIPIENT`, `Launchpad`, `LEGACY_LAUNCHPAD`,
   `REWARDS_REGISTRY`, the config PDAs): about 800 to 900 bytes with it.
 * `approve_launch` goes through a Squads vault transaction (lookup tables supported).
+* `launch_from_batch` (estimate, not built): the same 22 accounts as `launch` (`LaunchBatch`, a
+  static address, goes in the lookup table; the city's empty `approval` replaces the closed
+  approval and its rent payer), plus at most 96 bytes of arguments (city, batch, config, a name of
+  up to 32 bytes, a ticker of up to 10, the metadata hash, the proof's length) and 32 bytes per
+  proof hash. With the founder's first buy and the lookup table: the measured 788 bytes of 11.3,
+  plus at most 96 + 9 x 32 = 384, about 1,170 bytes in the worst case (a 32-byte name, a 10-byte
+  ticker, 512 leaves), under the 1,232-byte limit; that is why `MAX_BATCH_LEAVES` is 512 (at 1,024
+  leaves the worst case would be about 1,200 bytes, too close to the limit). C02 measures the worst
+  case; were it to exceed the limit, the website would send the first buy in the next transaction
+  for that launch only.
+* `publish_launch_batch`: 3 accounts and 68 bytes of instruction data, about 300 bytes signed by
+  the approver alone.
 * Measured (C02, NOTES 30; again after review OPS-1 added the registry account, review
   R5-CONS-5): the website's buy 555 bytes, its sell 513, `launch` alone 953, `launch` + token
   account + first buy 1,064 bytes without and 788 with the lookup table.
@@ -2811,6 +3441,7 @@ find exactly the checker's events, and nothing for a failed one (E01).
 | U10 | `decode_coin` offsets equal the Borsh layout of the program's `CurveCoin` (round trip); it rejects a wrong owner, a wrong length, `layout_version != 1` and the old program's `Coin` bytes | 3.7, 5.16 |
 | U11 | `check_name` (every default-ignorable code point and blank character, the space rule; review FA-1), `check_symbol`, `metadata_uri` | T38 |
 | U12 | compiled constants: `LEGACY_LAUNCHPAD` and `REWARDS_REGISTRY` equal their derivations for each cluster build; the legacy discriminator, size and the offsets of `launches_paused`, `admin` and `pending_admin` match the old program's `Launchpad`; the registry's discriminator, size and `admin` / `pending_admin` offsets match `vicinity_rewards`' `Registry` | 3.2 |
+| U13 | launch leaves and proofs (program crate, with the SDK): the worked example of 3.12 to the byte (preimages, leaves, root, proofs); a shared fixture `sdk/fixtures/launch-batch.json` with trees of 1 to 70 leaves and of 512 (roots, depths, every proof) reproduced by the Rust verifier and the SDK; every field changed one at a time gives another leaf; a leaf preimage never equals a node preimage; proofs truncated, extended, of a neighbour or longer than the depth refused; `LaunchBatch` and `Launchpad` offsets equal the Borsh layout | 3.11, 3.12, T81, T82 |
 | V01-V11 | one test per config rule: only that rule violated gives its error; the edge passes; the edge plus one fails (V2 for both caps and V2b at `t - b_F - b_H = 1` and 0; V5 for V5b; V10 at `b_P = b_L + 1` passes and `b_P = b_L` fails) | 5.13, T44 |
 
 ### 12.2 Property tests (P; at least 10^6 cases each)
@@ -2831,6 +3462,7 @@ find exactly the checker's events, and nothing for a failed one (E01).
 | P10 | random configs that pass V1 to V11 (and `x0 = y0 = 2^60`, `t = 250`): no overflow anywhere at extreme reachable states | T14 |
 | P11a | one address alone, from reachable states (others' trades and injected liquidity before it, the backlog run down), never ends a random sequence of buys, sells, pool trades and buyback runs with more than it came with, coins held valued at what they sell for | I18; T11 |
 | P11b | all addresses together, from launch, trading, running buybacks and collecting payouts in random order, then selling everything, never end with more than they came with, net of the founder fees received | I18 |
+| P12 | random launch batches (1 to 512 entries, random names and tickers within the rules): every entry's proof verifies against the root; every mutation of one field, of the program id or of `batch_seq`, and every proof of another entry, fails; the in-force function of 8.6 over random publication, clear and rotation sequences and times agrees with a direct model of the two records | I23, I24; T81 to T83 |
 
 ### 12.3 litesvm lifecycle tests (L)
 
@@ -2849,6 +3481,7 @@ find exactly the checker's events, and nothing for a failed one (E01).
 | L11 | `transfer_founder`; an old opt-in stops working |
 | L12 | pauses and the guardian: launches, payouts, buys, buybacks (only while buys are halted, resumed no later than buys); trading exits, claims, forwards and withdrawals unaffected; only the admin clears |
 | L13 | invariant checker and money-flow tracer after every transaction of every test; event authority check |
+| L14 | batch launch approval: `init_launch_batch` once; `set_launch_approver` and each separation refusal both ways (`ApproverHoldsRole`, `FeeRecipientRole`); a publication refused before 12 hours, beyond 48 hours of lead or validity, with a zero root, 0 or 513 leaves, a wrong `seq`, by a stranger or while halted; three cities launched from one batch with their first buys, each `Coin` holding the leaf's terms; a daily sequence with no gap between batches (the table of 8.6), a pending batch replaced, a superseded `previous`; clears by the approver, the admin and the guardian, with and without `halt`; rotation clears and lifts the halt; launches refused before `valid_from`, after `valid_until`, after a clear, from a superseded batch, after a rotation, for a city with a pending approval, by a founder holding a role; a per-city approval and launch unchanged throughout |
 
 ### 12.4 Attack tests (X; one per testable threat, each asserting that no balance moved)
 
@@ -2889,30 +3522,50 @@ sell, a claim, a withdrawal and a forward still work, a debit below the live min
 nearly empty coin is refused, and a top-up restores it; X64 `init_launchpad` by a stranger;
 X65 the IDL instruction tag returns `IdlInstructionStub`.
 
+Batch launch approval (specified, to be built with it): X66 forged proofs (each leaf field
+changed, another entry's proof, a leaf hash passed as an argument cannot exist, a proof of 10
+hashes); X67 an inner node presented as a leaf (its children as the "name" bytes cannot produce a
+valid leaf preimage) and a proof with a leaf in place of a node; X68 a valid leaf of batch N used
+once batch N+1 is in force, and under another program id (a second deployment in the same VM);
+X69 a publication replayed, and two publications prepared from the same state (the second fails,
+`BatchSeqMismatch`); X70 a founder removed from the next batch launches until it takes force and
+is refused after, and `[clear, publish]` stops him at once; X71 a stolen approver key: its batch
+cannot take force within 12 hours, the guardian's clear with `halt` stops it and refuses every
+later publication, the admin's rotation restores the path; X72 junk batches (zero root, 0 leaves,
+a junk root) and a publication storm while a good batch is in force: the good batch stays in force
+until the last junk batch's `valid_from`, and the clear ends it; X73 the approver signing every
+other instruction (set_pause, set_guardian, set_payout_config, add_launch_config, approve_launch,
+revoke_approval, claim, transfer_founder, payout) is refused, and no instruction pays it; X74 a
+founder's launch transaction copied with another signer or payer, and a race for his ticker from a
+pending per-city approval; X75 a city both in a batch and under a pending approval
+(`ApprovalPending`), and a wrong list naming a city or a ticker twice (the first launch wins);
+X76 clock warps around `valid_from` and `valid_until`, and publication windows at each bound.
+
 ### 12.5 Fuzz, differential, compute, halts, rewards, devnet
 
 | id | test |
 |---|---|
-| F01 | 10^5-step random sequences with several users, buys, sells, buybacks, claims, forwards, withdrawals, payouts, donations, holder burns and graduation, run in litesvm with a model side by side (the SDK's math port fed by each action's own inputs, NOTES 38); `Coin` state byte-equal after every step; admin hand-overs followed by the old program's admin and each city's rewards authority (NOTES 48) |
-| F02 | account fuzz: every account slot of every instruction replaced by random plausible accounts; always refused, no balance moved |
+| F01 | 10^5-step random sequences with several users, buys, sells, buybacks, claims, forwards, withdrawals, payouts, donations, holder burns and graduation, run in litesvm with a model side by side (the SDK's math port fed by each action's own inputs, NOTES 38); `Coin` state byte-equal after every step; admin hand-overs followed by the old program's admin and each city's rewards authority (NOTES 48). With the batch approval: the model also holds `LaunchBatch` byte-equal, and the sequences include approver rotations, publications (valid and refused), clears with and without `halt`, clock steps across windows, and batch launches with valid and invalid proofs, superseded or cleared batches and wrong signers, each launch checked by I23 |
+| F02 | account fuzz: every account slot of every instruction replaced by random plausible accounts; always refused, no balance moved (with the batch approval: `LaunchBatch` substituted by a look-alike, the `approval` slot by another city's PDA, the config by another config) |
 | F03 | config fuzz: random `ConfigParams`; on-chain `validate_config` agrees with the model (V1 to V11) |
 | G01 | Rust math crate, TypeScript port and on-chain results equal to the lamport on 10^4 random trades, including graduating buys and buybacks (golden vectors exported by the Rust crate) |
 | G02 | a mock router program CPIs `buy` and `sell`, with `user` both the transaction signer and a router PDA signing with `invoke_signed`: balances, events and CPI depth (event self-CPI at depth 3) work; a PDA with data as `user` of a `buy` is refused by the system transfer; partial-fill leftovers stay with the router |
 | G03 | "pay with any token": a Jupiter swap that under-delivers SOL before `buy` never spends SOL the user already had (ExactOut or `sol_in = otherAmountThreshold`, 14.1); the buy leg carries its own `min_tokens_out`, without which the SDK builds nothing, and a sandwich front-run then makes the buy fail (CLI-1); the swap's output must be native SOL, or the SDK refuses the quote (SDK4-5) |
 | E01 | the SDK's transaction-level event decoder on every transaction of every litesvm suite: exactly the checker's events for a success, nothing for a failure; a failed transaction carrying a genuine `Trade` event CPI yields nothing (CLI-2) |
-| C01 | CU per instruction asserted against 11.1, including `launch` + ATA create + first `buy` in one transaction |
-| C02 | transaction sizes of the website's buy, sell and launch-with-first-buy (with the lookup table) |
+| C01 | CU per instruction asserted against 11.1, including `launch` + ATA create + first `buy` in one transaction (and `launch_from_batch` with a 9-hash proof + ATA create + first `buy`) |
+| C02 | transaction sizes of the website's buy, sell and launch-with-first-buy (with the lookup table), and of `launch_from_batch` with the first buy in the worst case of 11.3 (32-byte name, 10-byte ticker, 9-hash proof) under 1,232 bytes |
 | C03 | binary size and hash; toolchain, `anchor-lang`, `anchor-spl` and `mpl-token-metadata` versions; the compiled program ids; the IDL tag refused |
 | C04 | CI fails on any cargo-build-sbf "Stack offset ... exceeded" warning |
 | H01 | guardian halt: `launch` and `buy` refuse with `BuysHalted` while `buyback_burn` keeps running; with buybacks halted too, `buyback_burn` refuses with `BuybacksHalted`; `sell`, claims, forwards, withdrawals and payouts work; only the admin clears, buybacks first |
 | LL-1 | a halt of buys and buybacks over a mostly sold pool: buybacks cannot be halted alone, buys cannot reopen before buybacks, the keeper drains the backlog while buys are halted, and the first buyer after the clear loses; on a twin coin left undrained he would profit (review LL-1) |
-| H02 | `halt-all` build: every outflow (`sell`, `withdraw_platform_fees`, `forward_holders_fees`, `claim_founder_fees`, `payout_founder_fees`, `buyback_burn`, `buy`, `launch`) refuses with `TradingHalted` |
+| H02 | `halt-all` build: every outflow (`sell`, `withdraw_platform_fees`, `forward_holders_fees`, `claim_founder_fees`, `payout_founder_fees`, `buyback_burn`, `buy`, `launch`, and `launch_from_batch` once built) refuses with `TradingHalted` |
 | H03 | the `halt-all` build deployed over live coin state produced by the normal build, then upgraded back to the normal build: every coin's state and balances unchanged and fully working; the halt buffer is rebuilt from the deployed commit after every upgrade |
 | R01 | real `vicinity_rewards` in the same VM: create a WSOL Holders config (authority the admin) for a new coin; run the real `forward_holders_fees` followed by a top-level `SyncNative`; then `SyncNative` and `fund_epoch_from_vault`; claim with a Merkle proof |
 | R02 | the real `forward_holders_fees` with `amount > 0`, then `SyncNative` in the same transaction: the vault's `amount` grows by exactly `amount` and the `Coin`'s lamports drop by the same |
 | R02b | documentation test: a CPI of `SyncNative(rewards_vault)` after a direct lamport move fails with `UnbalancedInstruction` (the rule of 4.0), shown with a test-only mock router on the same runtime instead of a test-only build of the program (NOTES 40) |
 | R03 | a rewards config with the wrong model makes `forward_holders_fees` fail every time and nothing moves (it can never be fixed); one with a stranger authority fails until that authority hands over to the admin (`propose_authority` / `accept_authority`); the SDK's `initRewardsForCoin` refuses to propose either, reports the stranger authority as fixable and the wrong model as unfixable, and proposes `init_city` over a pre-funded config address |
-| D01 | devnet rehearsal with a throwaway program key (`devnet` build): init, config #0, approve, launch, trade to graduation, buybacks, forwards, claims, withdrawals, guardian halt; addresses recorded. No mainnet |
+| D01 | devnet rehearsal with a throwaway program key (`devnet` build): init, config #0, approve, launch, trade to graduation, buybacks, forwards, claims, withdrawals, guardian halt; addresses recorded. No mainnet. With the batch approval: a throwaway approver key, one batch through the site's list, the verifier and the monitor, a launch from it after the window, a clear |
+| CK1 | the per-transaction checker (once the batch approval is built): I23 to I25 after every transaction of every suite, with the `Launchpad` and `LaunchBatch` of each call's moment (the seat walk of NOTES 73 extended with `set_launch_approver`, `publish_launch_batch` and `clear_launch_batch`); every `launch_from_batch` leaf recomputed with the SDK from the call's instruction data and signer and folded through its proof; a doctored context (a launch after a clear, under a superseded root, outside the window, with a proof against another root, or a publication by a stranger) is refused by the checker, as `27-checker-gaps` does for the existing rules |
 
 ### 12.6 Invariant and threat coverage
 
@@ -2941,6 +3594,7 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | R11 integration | G01, G02, G03, E01, C02 |
 | T56 (events) | X56, E01 |
 | T77, T78, T79, T80 (roles, client minimum, the completing buy, size-dependent slippage) | 28-governance, 29-clients |
+| I23, I24, I25, T81 to T91 (batch launch approval) | U13, P12, L14, X66 to X76, F01, F02, CK1, C01, C02, D01 |
 
 ---
 
@@ -2978,12 +3632,19 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | O28 | The metadata JSON served by the website | **Hash approved by the admin, stored and emitted; served write-once; image content-addressed** | State the residual risk only | Simpler, but the coin's displayed identity could then change silently |
 | O29 | The platform's key in the MEV rules (review HR-1) | **Not counted by V8 and V11; the operating rule of 8.4 keeps `FEE_RECIPIENT` and the owner's wallets out of city coins and founder seats** (config #0 alone stays inside O25's founder envelope) | (a) Count `b_P` in V8 (`m = max(b_F, b_H, b_P)`) and give the platform a horizon of its own in V11 (config #0's analytic form allows `K_P` = 13); or (b) keep `b_P <= m` in every config (a lower platform share, or a matching founder or holders share) | (a) refuses configs such as (0, 120, 0, 1, 1) and changes which future configs pass (config #0 passes V8 with 70 but would fail V11's credited inequality at `K_F` = 15, so the platform needs its own `K_P`); a crate, model and vector change before the audit. (b) changes the fee shares. Either is an owner decision on the fee split; nothing is changed until the owner decides |
 
+| O30 | The batch review window: how long after publication a launch batch may take force (`BATCH_REVIEW_SECS`, compiled; 8.6) | **12 hours (recommended)**: covers a night's sleep and the time to act for a team in one time zone, and puts the second person's check of the new entries inside someone's working day; the owner signs in the evening and launches open the next morning | (a) 6 hours; (b) 1 to 2 hours; (c) 24 hours | (a) needs a guardian member on call overnight, paged by the monitor; launches open 6 hours after signing. (b) is safe only with an automatic stop, a clear-only key on a server watching the chain, which the owner ruled out ("no key ever sits on the website"); not built. (c) is safer still but every founder waits a further day. A compiled constant: changing it after the audit is an upgrade |
+| O31 | The longest validity of a batch (`BATCH_MAX_VALIDITY_SECS`, compiled) and the SDK's default | **At most 48 hours; the SDK proposes 36 hours (recommended)**: a day's batch outlasts the next day's signature by 12 hours, so a late signature leaves no gap; a newer batch supersedes it when the newer takes force (8.6) | (a) 24 hours at most; (b) 72 hours at most | (a) a list is at most a day old, but a signature a few hours late closes batch launches until the next batch takes force. (b) covers a weekend without signing, but a founder who lost his seat can launch for up to three days (O33) |
+| O32 | Who holds the launch approver key | **A dedicated key in the owner's own wallet, preferably a hardware wallet, used for nothing else, with its seed backed up offline (recommended; what the owner described)**. Never `FEE_RECIPIENT`'s `13qRam...` (the program refuses it), never a Squads member key, never on the website, the keeper or any server; it never holds or trades city coins (8.4) | (a) a separate Squads multisig without a time lock (for example 2 of 3 of the members), distinct from the guardian multisig (the program refuses the guardian); (b) a team member other than the owner | (a) one stolen device can no longer publish a batch, at the cost of a second signature every day. (b) separates the daily signature from the owner, who keeps the admin and guardian seats. With any choice a lost key costs at most about two days of batch launches (8.1) |
+| O33 | Stale batch entries (a founder who loses his seat after the batch is signed) | **Accept and disclose**: he can launch until the batch in force is superseded by the next daily batch (about a day), cleared or expired (at most 48 hours of validity after a lead of at most 48 hours); urgent removals by `[clear, publish corrected]`, which pauses batch launches for everyone for one review window (8.4, 8.6). Today's per-city approvals have the same property for up to 30 days | A per-entry revocation the approver could sign (a "deny list" checked at launch) | Removes one founder at once without pausing the others, but gives the approver a second power and the launch a further account to check; not built |
+
 The decisions the owner should see first: **O3** (the 9.1 coins), **O11** (the time lock and
 what it delays in the existing programs), **O25** (the residual multi-run buyback risk, with
 the lower figures of review KR-1 when an honest trade sits inside the hold), **O2** (the never-graduating coins' liquidity), **O7** (no fee on the buyback), **O29** (the
-platform's key in the MEV rules, and the operating rule that stands in for it), and **O10 /
+platform's key in the MEV rules, and the operating rule that stands in for it), **O10 /
 O23** (native SOL confirmation and visibility on Jupiter and wallets: until each integrates the
-new program, these coins trade only on vicinity.city and through direct program calls).
+new program, these coins trade only on vicinity.city and through direct program calls), and,
+for the batch launch approval he chose on 17 October 2026, **O30** (the 12-hour review window),
+**O31** (the 48-hour validity), **O32** (who holds the approver key) and **O33** (stale entries).
 
 ---
 
@@ -2997,13 +3658,41 @@ new program, these coins trade only on vicinity.city and through direct program 
   program owner as well as the discriminator; instruction builders for all 21 instructions;
   PDA helpers (`coin`, `mint`, `coin_vault`, `ticker`, `config`, `approval`, `payout_opt_in`,
   event authority, the old program's `coin`, `approval` and `launchpad`).
+* **Batch module** (to be built with the batch approval; `sdk/curve/batch.mjs`): `launchLeaf`
+  (3.12, byte for byte); `buildLaunchBatch(entries, chain?)`, which checks each entry as the
+  program will (`check_name`, `check_symbol`, a nonzero metadata hash, a config id, the founder
+  key against every role of the given `Launchpad`, and with chain state no coin here or in the old
+  program, no pending approval, no locked ticker), refuses a duplicate city or ticker and more
+  than 512 entries, sorts by `city_id` and builds the tree with the rewards SDK's node and
+  promotion rule; `launchBatchProof`, `verifyLaunchProof`, `depth`; the canonical list file and
+  `diffLaunchBatches(old, new)`; `decodeLaunchBatch` (owner and discriminator checked) and
+  `batchInForce(launchBatch, launchpad, now)` (8.6); the builders `ix.initLaunchBatch`,
+  `ix.setLaunchApprover`, `ix.publishLaunchBatch` (unsigned, for the approver: `seq` from the
+  account, the window from the clock and O30/O31's values, refusing a window the program would
+  refuse), `ix.clearLaunchBatch` and `ix.launchFromBatch` (with the founder's first buy, as for
+  `launch`); the fixture `sdk/fixtures/launch-batch.json` shared with the program's unit test
+  (U13). The batch verifier `scripts/vcurve/batch.mjs` (`verify`, `check`) and the deploy
+  checklist's `--proposed-launch-approver` use it.
 * **Approvals**: the admin page prepares an `approve_launch` proposal for the Squads vault,
   including the SHA-256 of the coin's metadata JSON; members approve in Squads. The site never
-  holds the admin key.
+  holds the admin key. With the batch approval this is the path for exceptions; the daily batch
+  replaces it for every founder the site finds eligible (8.4): the batch page computes the list,
+  shows the day's changes and prepares the unsigned `publish_launch_batch` for the owner, who
+  signs it with the approver key from his own wallet. The site never holds the approver key, and
+  it does not publish the list (it masks founders' wallets until they launch); each founder sees
+  his own entry.
 * **Launch**: the founder clicks Launch: one transaction `[ComputeBudget(400,000, or 1.2 x the
   simulated figure), launch, create founder token account (idempotent), buy]` built with the
   address lookup table of 11.3 (or the buy right after). The mint is a PDA, so no keypair is
-  generated on the site.
+  generated on the site. A founder in the batch in force gets the same transaction with
+  `launch_from_batch` and his entry and proof in place of `launch`, once the batch has taken force
+  and after the site has re-checked his eligibility and the chain (8.4).
+* **Batch monitor** (a process apart from the website, holding no key): after every
+  `LaunchBatchPublished` it reads `LaunchBatch`, rebuilds the list from the site's database,
+  compares the root, `leaf_count`, window and publisher, and pages the owner and every guardian
+  member on any difference or on a publication nobody prepared; it sends the day's new entries to
+  the second person who checks them; it reports when a batch takes force, is cleared or expires,
+  and when the approver changes (8.4).
 * **After launch**: a Squads proposal for `vicinity_rewards.init_city` (model Holders,
   `founder_bps = 0`, reward mint WSOL, authority the `vicinity_curve` admin, i.e. the Squads
   vault), built by the existing `initRewardsForCoin` helper, which first simulates the
@@ -3082,6 +3771,8 @@ new program, these coins trade only on vicinity.city and through direct program 
 * **Honest copy**: the round trip costs about 4.9%; within the program no admin can move
   money, and the same Squads multisig can upgrade the program after a 48-hour delay and
   publishes the holder reward rounds (8.1, 8.4); a guardian can stop buys but never exits;
+  launches are approved by the Squads vault one city at a time or in a daily batch signed by
+  the owner's launch approver key, which can approve launches and nothing else (8.6);
   pools that others create do not pay Vicinity's fee; until aggregators integrate, other apps
   will not route these coins.
 
@@ -3921,3 +4612,28 @@ build follows the text as written and the entry records a reading or a measureme
 | 72 | review round 5: an immutable old program meets the checklist (above) | as listed above |
 | 73 | review round 5: the checker reads the seats of each call as they stood at it (above) | as listed above |
 | 74 | review round 5: the text brought up to date with rounds 4 and 5 (above) | as listed above |
+| 75 | the owner's batch launch approval, specified, not yet built (below) | as listed below |
+
+### Revision 3: the owner's batch launch approval (17 October 2026)
+
+Not a review finding: an owner decision, specified here before it is built (NOTES 75), and part of
+the same outside audit. The decision, verbatim: "In the new custom program, I sign one batch
+approval (say daily) covering every eligible founder, and their launches then go through with no
+per-launch step. No key ever sits on the website. It's covered by the same outside audit."
+
+| item | specified in |
+|---|---|
+| a separate launch approver (not the time-locked vault), kept apart from every other role both ways, never a founder | 1.4, 3.4, 4.2, 4.4, 4.5, 4.8, 4.10, 4.17, 4.24, 8.1, I20, I25 |
+| the account `LaunchBatch` with two batch records and a halt | 3.3, 3.11 |
+| the leaf (domain tag, version, program id, batch number and every launch field of an `Approval`), the sorted-pair tree of `vicinity_rewards`, proofs, the worked example | 3.2, 3.12 |
+| `init_launch_batch`, `set_launch_approver`, `publish_launch_batch` (gap-free number, 12-hour review window, 48-hour validity and lead), `clear_launch_batch` (approver, admin or guardian; a pure stop, optionally halting publication), `launch_from_batch` (every launch rule, the leaf rebuilt from the call, a pending approval wins) | 4.23 to 4.27, 4.21, 4.22 (errors 6058 to 6071) |
+| which batch is in force; supersession when the newer takes force; why 12 hours and 48 hours; stale entries | 8.6 |
+| worst cases of a stolen or lost approver key and of a wrong list; operating rules (how the owner signs each day, what the site and the monitor check before and after, how to stop) | 8.1, 8.4 |
+| invariants, threats, tests, budgets | I23 to I25; T81 to T91; U13, P12, L14, X66 to X76, F01, F02, CK1, C01, C02, H02, D01; 11.1 to 11.3 |
+| owner decisions | O30 (review window), O31 (validity), O32 (who holds the key), O33 (stale entries) |
+| SDK, verifier, monitor and website | 14.1 |
+
+The per-city path (`approve_launch`, `revoke_approval`, `launch`) keeps its accounts, arguments,
+effects and events; its one change is that `check_founder_key` also refuses the launch approver,
+so that the approver never receives a founder share (I21, I25). No fee value or fee-share rule
+changes.

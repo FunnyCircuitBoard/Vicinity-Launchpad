@@ -3,7 +3,8 @@
 Companion to `VICINITY-CURVE-DESIGN.md`, revision 3 (entries 1 to 41 were written against
 revision 2, commit ee62c31; revision 3 folds every entry in, and its Appendix C says where;
 entries 42 to 48 answer review round 1 of the build, entries 49 to 51 review round 2, 52 to 56
-review round 3, 57 to 66 review round 4, entry 67 onwards review round 5). The
+review round 3, 57 to 66 review round 4, 67 to 74 review round 5; entry 75 records the
+specification of the owner's batch launch approval, which is not built yet). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -2211,3 +2212,63 @@ the lookup table, the production binary 605,664 bytes. Every figure stays inside
 
 Tests. None needed beyond the suites' own measurements (`04-launch` C01/C02, `12-compute`), which print
 these figures; `prechecks.test.mjs` and `12-compute` still read the spec sections they check.
+
+### 75. The batch launch approval, specified before it is built (1.4, 3.2, 3.3, 3.4, 3.11, 3.12, 4.2, 4.4, 4.5, 4.8, 4.10, 4.17, 4.21 to 4.27, 6.4, 8.1, 8.3, 8.4, 8.6, I19 to I25, T29, T42, T45, T77, T81 to T91, 11, 12, O30 to O33, 14.1, Appendix C; owner decision of 17 October 2026)
+
+**Owner decision (verbatim).** "In the new custom program, I sign one batch approval (say daily) covering
+every eligible founder, and their launches then go through with no per-launch step. No key ever sits on the
+website. It's covered by the same outside audit."
+
+**Issue.** Today every launch needs an admin-signed `approve_launch` per city, and the admin is the Squads
+vault behind the 48-hour time lock once coins are live (O11): a daily approval signed by the vault would be two
+days old when it took force. Nothing in the program let one signature approve many founders, and the website
+must still hold no approving key (R10).
+
+**Choice.** Specification only in this entry; the program, SDK, verifier, monitor and tests follow.
+* **A separate launch approver**, `Launchpad.launch_approver` (offset 175, from the reserved bytes; size 238
+  unchanged), set, rotated and removed only by the admin (`set_launch_approver`). It is kept apart from
+  `FEE_RECIPIENT`, the admin, the pending admin, the guardian, the payout key and the payout wallet in both
+  directions (`ApproverHoldsRole` at `set_launch_approver`, `propose_admin`, `accept_admin`, `set_guardian`,
+  `set_payout_config`; `FeeRecipientRole`), and `check_founder_key` refuses it as a founder everywhere, so it
+  never receives money. Putting the key in `Launchpad` means none of those instructions gains an account.
+* **A separate account for the batches**, `LaunchBatch` (`["launch_batch"]`, 260 bytes), so the approver never
+  writes `Launchpad`. It is created by a one-time admin instruction (`init_launch_batch`) instead of a change to
+  `init_launchpad`, which stays as reviewed, works for a deployment already initialised and keeps plain `init`
+  everywhere (T29).
+* **Two batch records and supersession at the newer batch's `valid_from`**, not at its publication: with daily
+  publications and a 12-hour review window, superseding at publication would close launches for 12 hours a day.
+  A publication replaces a `latest` that has not begun (so a corrected batch never interrupts the one in force,
+  and a thief's publication storm cannot push a good batch out before his own batch could take force) and
+  otherwise moves `latest` to `previous`.
+* **A gap-free `seq`** (`latest.seq + 1`): a compare-and-swap for the owner's signed transaction, no replay, and
+  no exhaustion by jumping to `u64::MAX`, which a merely increasing number would allow a stolen key to do.
+* **The leaf** reuses `vicinity_rewards`' prefixes and sorted-pair tree (`merkle.rs`, `sdk/merkle.mjs`), adds a
+  26-byte domain tag and a version byte, binds the program id and the batch number, and carries the six launch
+  fields of an `Approval` (the URI follows from the city id, `meta_hash` pins its content, `config_id` pins the
+  terms because a config is immutable except `enabled`). Strings come last with one-byte lengths, so the
+  encoding is injective. The worked example of 3.12 was computed with Node and Python, which agree, and its root
+  with the rewards SDK's `hashNode`.
+* **`launch_from_batch` runs every rule of `approve_launch` and `launch`** at the launch, rebuilds the leaf from
+  its own arguments and signer, refuses a proof longer than `min(9, depth)` before hashing, refuses a city with a
+  pending per-city `Approval` (the admin's choice wins), writes nothing in `LaunchBatch` and shares effects 1 to
+  7 with `launch`. One use per leaf is the permanent `Coin`; the re-approval path is a later batch.
+* **Values**: review window 12 hours (O30: a night plus time to act, and a working-day check by a second person;
+  1 to 2 hours would need a clear-only key on a server, which the owner ruled out); validity at most 48 hours,
+  SDK default 36 (O31); lead at most 48 hours; at most 512 leaves, so the batch launch with the founder's first
+  buy fits one transaction (about 1,170 bytes in the worst case against 1,232; about 1,200 at 1,024 leaves) and
+  one batch bounds what one stolen key can approve.
+* **The per-city path is unchanged** in accounts, arguments, effects and events; its one change is the
+  approver in `check_founder_key`. The alternative, leaving `check_founder_key` alone and keeping the approver
+  out of founder seats only by an operating rule, was not taken: "the approver can never move money" would then
+  hold only by process, which SPEC-1 rejected for the guardian.
+* **Not specified as built**: an automatic sentinel, an on-chain eligibility list, a per-entry revocation (O33's
+  alternative).
+
+**Open owner decisions.** O30 (the review window), O31 (the validity), O32 (who holds the approver key: default a
+dedicated hardware-wallet key of the owner, alternative a separate multisig without a time lock), O33 (stale
+entries, accepted and disclosed by default).
+
+**Tests to come** (12): U13 (leaf vectors and the shared fixture), P12, L14, X66 to X76, F01 and F02 extended,
+CK1 (the checker's I23 to I25 with the batch state of each call's moment), C01 and C02 (the worst-case
+transaction), H02, D01. Nothing in this entry changes a fee value or a fee-share rule, and no existing test
+changes until the program does.
