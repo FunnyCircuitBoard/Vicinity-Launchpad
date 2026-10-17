@@ -1,0 +1,26 @@
+[package]
+name = "vicinity-curve-math"
+version = "0.1.0"
+description = "Pure integer math of the vicinity_curve launchpad program (VICINITY-CURVE-DESIGN.md sections 5 and 7): fee split, bonding curve, pool, liquidity drip, buyback sizing, validate_config"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+name = "vicinity_curve_math"
+
+[features]
+default = []
+# Accepted and ignored: CI runs `cargo clippy --all-targets --features
+# short-windows` over the whole workspace, so every member must accept the
+# flag. It changes nothing in this crate.
+short-windows = []
+
+# No dependencies: #![no_std], core only (VICINITY-CURVE-DESIGN.md 3.1).
+
+[dev-dependencies]
+# Property tests P01 to P10 (12.2). Test-only; never part of a program build.
+proptest = { version = "1.12", default-features = false, features = ["std"] }
+# Reads reference/vectors.json in the differential test (already in Cargo.lock
+# through vicinity-rewards' dev-dependencies).
+serde_json = "1"

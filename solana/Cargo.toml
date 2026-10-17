@@ -1,5 +1,5 @@
 [workspace]
-members = ["programs/*"]
+members = ["programs/*", "crates/vicinity-curve-math"]
 resolver = "2"
 
 # Release = the on-chain build. overflow-checks stays ON so that even arithmetic
