@@ -79,9 +79,10 @@
     "LAUNCHPAD_LOOKUP_TABLE": "u2V4Y3KagE2nBZ1656sL4XsV3K7iAZ5C7cQV475DEZ5",
     "LAUNCHPAD_TRADING": "on",
     // In-app notices (src/flags.js notifyOn): a Notifications tab on the dashboard (replies, moderation outcomes, your coin picture's
-    // review, founder windows and verdicts, elections), with per-kind controls. No e-mail, no push. OFF until the owner switches it on:
-    // "on" (change the value, do not delete the line: keep_vars) in a pull request; anything else is the site exactly as before.
-    "NOTIFY": "off",
+    // review, founder windows and verdicts, elections), with per-kind controls. No e-mail, no push. ON since 17 Oct 2026, by the owner
+    // ("switch on all the builds"). To switch off: "off" (change the value, do not delete the line: keep_vars) in a pull request;
+    // anything else than "on" is the site exactly as before.
+    "NOTIFY": "on",
     // Send from the dashboard's Wallet tab (src/flags.js walletSendOn, src/walletsend.js): SOL, $VICINITY or a city coin from the linked
     // wallet to an address the person types; the Worker builds and checks, the person's own wallet signs, nothing is held here. OFF until
     // the owner switches it on: "on" (change the value, do not delete the line: keep_vars) in a pull request; anything else is the Wallet

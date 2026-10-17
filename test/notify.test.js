@@ -55,12 +55,12 @@ after(() => realClock());
 
 /* ---------------- the switch ---------------- */
 
-test("notifyOn: exactly 'on', trimmed, any letter case; the switch is listed in wrangler.jsonc, off for this step", () => {
+test("notifyOn: exactly 'on', trimmed, any letter case; the switch is listed in wrangler.jsonc", () => {
   for (const v of ["on", " on ", "ON", "On", "\ton\n"]) assert.equal(notifyOn({ NOTIFY: v }), true, JSON.stringify(v));
   for (const v of [undefined, "", "off", "true", "1", "yes", "v2", "onn"]) assert.equal(notifyOn(v === undefined ? {} : { NOTIFY: v }), false, JSON.stringify(v));
   assert.equal(notifyOn(undefined), false);
   assert.equal(notifyOn({ NOTIFY: true }), false, "a boolean is not the word on");
-  assert.match(read("wrangler.jsonc"), /\n    "NOTIFY": "off",?\n/, "off in wrangler.jsonc for this step; flipping it is that one word");
+  assert.match(read("wrangler.jsonc"), /\n    "NOTIFY": "(on|off)",?\n/, "the switch is listed in wrangler.jsonc (on since 17 Oct 2026; flipping it is that one word)");
   assert.deepEqual([...KINDS], ["reply", "moderation", "picture", "founder", "election"]);
 });
 
