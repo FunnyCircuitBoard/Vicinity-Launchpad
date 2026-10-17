@@ -562,7 +562,7 @@ test("page: the Notifications tab shows with the switch on (after Feed, the bell
   assert.deepEqual([...p.$$(".dtab")].map((t) => t.id).slice(3, 6), ["tab-community", "tab-notify", "tab-rankings"], "right after Feed (Home, Wallet, City before)");
   assert.ok(tab.querySelector(".dtab__ico svg"), "a bell");
   assert.deepEqual([p.text("#tab-notify-n"), p.$("#tab-notify-n").hidden, tab.getAttribute("aria-label")], ["2", false, "Notifications, 2 unread"]);
-  assert.equal(p.text("[data-account] .hdr-n"), "2", "the header's account button carries the count");
+  assert.equal(p.text("[data-account-avatar] .hdr-n"), "2", "the header's avatar carries the count");
   assert.equal(p.callsTo("/api/notices").length, 0, "nothing is asked until the tab opens");
   assert.equal(p.$("#panel-notify").hidden, true);
   // open the tab
@@ -598,7 +598,7 @@ test("page: the Notifications tab shows with the switch on (after Feed, the bell
   assert.deepEqual(reads[0].body, { ids: [31, 30] });
   assert.deepEqual([...p.$$("#nt-list .nt-row")].map((r) => r.classList.contains("is-unread")), [false, false, false]);
   assert.equal(p.$("#nt-list .sr-only"), null, "the spoken 'Unread' goes with it");
-  assert.deepEqual([p.$("#tab-notify-n").hidden, tab.getAttribute("aria-label"), p.$("[data-account] .hdr-n").hidden], [true, "Notifications", true]);
+  assert.deepEqual([p.$("#tab-notify-n").hidden, tab.getAttribute("aria-label"), p.$("[data-account-avatar] .hdr-n").hidden], [true, "Notifications", true]);
   assert.equal(p.$("#nt-all").hidden, true);
   // Mark all read (a later visit with new rows): one POST { all: true }
   p.$("#nt-all").hidden = false;
@@ -640,7 +640,7 @@ test("page: Mark all read before the 2 seconds are up cancels the pending mark (
 
 test("page: the empty state; the switch off is today's page (no tab, no request, no header count); a #notify link with the switch off lands on Home", async () => {
   const e = await noticesPage({ notices: [], unread: 0 });
-  assert.deepEqual([e.$("#tab-notify").hidden, e.$("#tab-notify-n").hidden, e.$("[data-account] .hdr-n") === null], [false, true, true], "shown with 0 unread; no badge, no header count");
+  assert.deepEqual([e.$("#tab-notify").hidden, e.$("#tab-notify-n").hidden, e.$("[data-account-avatar] .hdr-n") === null], [false, true, true], "shown with 0 unread; no badge, no header count");
   await e.tap(e.$("#tab-notify"));
   assert.equal(e.$("#nt-empty").hidden, false);
   assert.equal(e.text("#nt-empty"), "Nothing yet. Replies, moderation outcomes, your coin picture's review, founder windows and elections show here.");
@@ -654,14 +654,14 @@ test("page: the empty state; the switch off is today's page (no tab, no request,
   const off = await openDashboard({ me: memberMe({ wallet: ADDR, handle: "jo_utica" }), storage: { vicinity_terms: "2026-10-01" }, globals: { console: { ...console, error: (...a) => errors.push(a.map(String).join(" ")) } } });
   assert.equal(off.$("#tab-notify").hidden, true);
   assert.equal(off.$("#panel-notify").hidden, true);
-  assert.equal(off.$("[data-account] .hdr-n") === null, true, "no header count");
+  assert.equal(off.$("[data-account-avatar] .hdr-n") === null, true, "no header count");
   off.win.VDash.go("notify");
   assert.equal(off.win.VDash.active, "home", "a #notify link with the switch off: Home");
   assert.equal(off.callsTo("/api/notices").length + off.callsTo("/api/notices/prefs").length, 0, "no new request");
   assert.deepEqual(errors, []);
   // the markup is hidden until the switch is on, and dashboard-v2.js names only ids the page has
   const html = read("public/dashboard.html");
-  assert.match(html, /<a class="dtab" id="tab-notify" role="tab" href="#notify" data-tab="notify" aria-controls="panel-notify" aria-selected="false" tabindex="-1" aria-label="Notifications" hidden>/);
+  assert.match(html, /<a class="dtab" id="tab-notify" role="tab" href="#notify" data-tab="notify" aria-controls="panel-notify" aria-selected="false" tabindex="-1" aria-label="Notifications" title="Notifications" hidden>/);
   assert.match(html, /<section class="dpanel" id="panel-notify" role="tabpanel" aria-labelledby="tab-notify" tabindex="0" hidden>/);
   assert.match(html, /<button class="btn btn--glass btn--sm" type="button" id="nt-all" hidden>Mark all read<\/button>/);
   const css = read("public/polish-dash.css");

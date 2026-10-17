@@ -2,7 +2,8 @@
 // the empty right half of the bar: the tabs were "kind of gathered to the left"; and "when switching tabs, a glassmorphic animation").
 //   * the tabs fill the whole bar from 601 px: a tablet gives every tab, Profile too, the same share of the room left over (equal gaps
 //     between the words); a computer (1000 px and up) gives each tab one equal part, the word centred, never narrower than its words.
-//     A phone keeps its fit steps (is-snug, is-short, is-compact, is-scrollable).
+//     A tablet keeps its fit steps (is-snug, is-short, is-compact, is-scrollable). A phone (owner, 17 Oct 2026) shows icons, the pill
+//     behind the chosen tab's icon and its name under it; its row only scrolls (with snap) or fits (test/phone-dash.test.js).
 //   * one glass pill (.dtabs__ind, static in the page, hidden from screen readers and the pointer) behind the chosen tab, inside the
 //     scrolling list; it slides to the next tab with a short stretch at the middle of its way on a click, a key, a hash change, back and
 //     forward, follows its tab on every resize, turns from where it is when its target moves mid-slide, and glides with the tabs when
@@ -50,24 +51,22 @@ function loadV2() {
 }
 
 /* ---------- the fill ---------- */
-test("the tabs fill the whole bar from 601 px (nothing gathered to the left): a tablet shares the room left equally, a computer gives each tab one equal part; a phone keeps its fit steps", () => {
-  // every tab grows from its words (the base rule); from 601 px Profile shows its word and grows like the others, with their padding
+test("the tabs fill the whole bar from 601 px (nothing gathered to the left): a tablet shares the room left equally, a computer gives each tab one equal part; a tablet keeps its fit steps", () => {
+  // every tab grows from its words (the base rule), Profile too (its word, no exception of its own since the header's avatar took the initial)
   assert.match(css, /\.dv2 \.dtab \{ flex: 1 0 auto; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 8px;/);
-  const tablet = media("(min-width: 601px)").join("\n");
-  assert.match(tablet, /\.dv2 #tab-profile \{ flex: 1 0 auto; padding: 0 8px; \}/, "601 px: Profile takes the same share and padding as every tab (equal gaps between the words)");
-  assert.match(tablet, /\.dv2 #tab-profile \.dtab__long \{ display: inline; \}/);
+  assert.doesNotMatch(css, /#tab-profile \{/, "601 px: Profile takes the same share and padding as every tab (equal gaps between the words)");
   // a computer: one equal part each, never narrower than its words, the same padding for all
   const wide = media("(min-width: 1000px)").join("\n");
   assert.ok(wide, "the 1000 px block (the strip lines up with the cards)");
-  assert.match(wide, /\.dv2 \.dtab, \.dv2 #tab-profile \{ flex: 1 1 0; min-width: max-content; padding: 0 16px; \}/);
+  assert.match(wide, /\.dv2 \.dtab \{ flex: 1 1 0; min-width: max-content; padding: 0 16px; \}/);
   assert.match(wide, /\.dv2 \.dtabs__list \{ padding: 4px 6px; \}/);
-  // nothing packs the tabs at the start or sizes them by their words alone
+  // nothing packs the tabs at the start or sizes them by their words alone (a phone's icon tab stacks its icon over its name: its
+  // main axis is vertical, so its flex-start is the top, and its tabs share the row equally)
   for (const r of rules.filter((x) => /\.dtabs__list|\.dtab\b|#tab-/.test(x.head))) {
-    assert.doesNotMatch(r.body, /justify-content:\s*flex-start/, `${r.head}: the tabs are not pushed to the left`);
+    if (!/flex-direction:\s*column/.test(r.body)) assert.doesNotMatch(r.body, /justify-content:\s*flex-start/, `${r.head}: the tabs are not pushed to the left`);
     assert.doesNotMatch(r.body, /flex:\s*0 1 auto/, `${r.head}: no tab sized by its words alone`);
   }
-  // a phone: unchanged (the fit steps, Profile as the person's initial, its own padding)
-  assert.match(css, /\.dv2 #tab-profile \{ flex: 0 0 auto; padding: 0 4px; \}/);
+  // a tablet: the fit steps (a phone shows icons; its row only scrolls or fits)
   assert.match(v2, /const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];/);
   for (const step of ["is-snug", "is-short", "is-compact", "is-scrollable"]) assert.match(css, new RegExp(`\\.dv2 \\.dtabs\\.${step} `), step);
 });
@@ -293,7 +292,7 @@ test("the pill follows the chosen tab: set once the strip has a size, slides on 
   p.win.VDash.go("founder");
   assert.equal(anims.length, 6); assert.equal(dv2.dataset.dir, "next");
   // reduced motion again (or "Pause animations"): the next switch is at once
-  p.win.matchMedia = () => ({ matches: true, addEventListener() {} });
+  p.win.matchMedia = (q) => ({ matches: /reduce/.test(q), addEventListener() {} }); // (still a computer: the text strip)
   await p.tap(p.$("#tab-profile"));
   assert.equal(anims.length, 6, "no slide");
   assert.deepEqual(style(), { transform: `translate(${4 + 8 * 110 + 30}px, 4px)`, width: "106px", height: "44px" });
@@ -357,7 +356,7 @@ test("the bar re-divides as one glide when Moderate arrives after the strip is o
   prof.getBoundingClientRect = () => layout(prof);
   anims.forEach((a) => a.onfinish && a.onfinish());
   // with reduced motion the bar re-divides at once: Moderate goes, nothing glides, the pill is simply on Profile
-  p.win.matchMedia = () => ({ matches: true, addEventListener() {} });
+  p.win.matchMedia = (q) => ({ matches: /reduce/.test(q), addEventListener() {} }); // (still a computer: the text strip)
   const m = anims.length;
   p.win.VDash.mod({ ok: true, moderator: false });
   assert.equal(mod.hidden, true);
@@ -381,7 +380,7 @@ test("the pill never counts as overflow: the fit check parks it at no size first
   assert.ok(seen.length > 0 && seen.every((w) => w === "0px"), `the fit check saw the pill at ${seen.join(", ")}`);
   assert.doesNotMatch(strip.className, /is-snug|is-short|is-compact|is-scrollable/, "no fit step for a pill left behind");
   assert.equal(ind.style.width, "54px", "back on Home");
-  assert.match(v2, /const left = park\(\);\n\s+const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];\n\s+strip\.classList\.remove\(\.\.\.steps\);\n\s+for \(const step of steps\) \{ if \(!over\(\)\) break; strip\.classList\.add\(step\); \}\n\s+place\(how \|\| \(reflowing \? "follow" : ""\), left\);/);
+  assert.match(v2, /const left = park\(\);\n\s+const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];\n\s+strip\.classList\.remove\(\.\.\.steps\);\n\s+for \(const step of iconMode\(\) \? \["is-scrollable"\] : steps\) \{ if \(!over\(\)\) break; strip\.classList\.add\(step\); \}[^\n]*\n\s+place\(how \|\| \(reflowing \? "follow" : ""\), left\);/);
   assert.match(v2, /window\.addEventListener\("resize", \(\) => \{ const w = window\.innerWidth; if \(typeof w === "number" && w === lastWidth\) return; lastWidth = w; measure\(\); \}\);/, "a resize is never taken for a slide, and only a new width re-fits");
   assert.match(v2, /if \(document\.fonts && document\.fonts\.ready\) document\.fonts\.ready\.then\(\(\) => measure\(\)\);/, "the fit check runs again once the fonts are in");
 });

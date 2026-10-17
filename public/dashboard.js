@@ -229,6 +229,7 @@
     // the pass shows the sign-in method only — never the real name (privacy)
     $$("[data-me-login]").forEach((e) => (e.textContent = PROVIDER_LABEL[u.provider] || "Google"));
     $("#me-avatar").textContent = initials(name);
+    if (window.V.setAccount) window.V.setAccount(u); // the header's account sheet: the username and home community, kept in step
     $("#me-copy").hidden = !linked; $("#me-link").hidden = linked || d.signupFlow !== "v2"; // (Link only while the new sign-up's link routes are on)
     $("#pass-ring").hidden = linked;
     if (!linked) ringSet($("#pass-ring"), d.setup, false);
@@ -562,12 +563,12 @@
     a.append(dot, text, at); li.append(a);
     return li;
   }
-  /** The unread count everywhere it shows: the tab's badge (dashboard-v2.js) and the header's account button. */
+  /** The unread count everywhere it shows: the tab's badge (dashboard-v2.js) and the header's avatar. */
   function setUnread(n) {
     const k = Math.max(0, Number(n) || 0);
     if (me) me.unread = k;
     if (v2) v2.unread(k);
-    const b = $("[data-account]");
+    const b = $("[data-account-avatar]");
     if (!b) return;
     let s = b.querySelector(".hdr-n");
     if (!s && !k) return; // nothing to show, nothing made
@@ -2123,7 +2124,7 @@
     render(d);
     if (!v2) layoutInit();
     if (v2) v2.start();
-    else if (location.hash === "#profile") {
+    else if (["#profile", "#profile-account"].includes(location.hash)) { // (the account sheet's Profile and Account, from another page)
       history.replaceState(null, "", location.pathname + location.search);
       openProfile();
     }

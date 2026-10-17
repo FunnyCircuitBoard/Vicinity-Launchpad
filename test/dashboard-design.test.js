@@ -68,31 +68,36 @@ test("D2: short visible words where the strip needs them; each accessible name c
   assert.match(rank, /aria-label="Rankings"/); assert.match(rank, /<span class="dtab__text dtab__long">Rankings<\/span><span class="dtab__text dtab__short" aria-hidden="true">Rank<\/span>/);
   assert.ok("Rankings".startsWith("Rank"), "the short word starts the name (WCAG 2.5.3)");
   const mod = tag("tab-moderate");
-  assert.match(mod, /aria-label="Moderate" hidden>/); assert.match(mod, /<span class="dtab__text dtab__short" aria-hidden="true">Mod<\/span>/);
+  assert.match(mod, /aria-label="Moderate" title="Moderate" hidden>/); assert.match(mod, /<span class="dtab__text dtab__short" aria-hidden="true">Mod<\/span>/);
   assert.match(v2, /\$\("#tab-moderate"\)\.setAttribute\("aria-label", total \? `Moderate, \$\{total\} to review` : "Moderate"\);/, "the count stays in the name");
+  // Profile (owner, 17 Oct 2026): its line icon like every tab; the person's initial is the header's one avatar now, not a second one here
   const me = tag("tab-profile");
-  assert.match(me, /aria-label="Profile" title="Profile"><span class="dtab__av" aria-hidden="true">V<\/span><span class="dtab__text dtab__long">Profile<\/span>/);
-  // the stylesheet: the short words on phones, the long ones where there is room
-  assert.match(css, /@media \(max-width: 600px\) \{\n  \.dv2 #tab-moderate \.dtab__long \{ display: none; \}\n  \.dv2 #tab-moderate \.dtab__short \{ display: inline; \}/);
-  assert.match(css, /@media \(max-width: 360px\) \{\n  \.dv2 \.dtab \{ padding: 0 5px; font-size: \.78rem; \}\n  \.dv2 #tab-rankings \.dtab__long \{ display: none; \}\n  \.dv2 #tab-rankings \.dtab__short \{ display: inline; \}/);
+  assert.match(me, /aria-label="Profile" title="Profile"><span class="dtab__ico" aria-hidden="true"><svg [^>]*>[\s\S]*?<\/svg><\/span><span class="dtab__text dtab__long">Profile<\/span><\/a>/);
+  assert.doesNotMatch(html, /dtab__av/, "no initial in the strip");
+  // the stylesheet: a phone shows icons (the chosen tab's whole name under its icon, never a short word); the short words remain for
+  // a crowded tablet strip (the fit steps)
+  assert.doesNotMatch(css, /\.dv2 #tab-(rankings|moderate) \.dtab__short \{ display: inline; \}/, "no phone word-shortening any more (Rank, Mod)");
+  assert.match(css, /\.dv2 \.dtabs \.dtab__short \{ display: none; \}/);
+  assert.match(css, /\.dv2 \.dtabs\.is-short #tab-rankings \.dtab__short \{ display: inline; \}/);
   // a crowded strip (nine tabs on a 320 px phone, review VUX-09): no tab steps out any more; Founder, Moderate (and Wallet, test/wallet-tab.test.js;
   // Notifications, test/notify.test.js) show as icons, named
   assert.doesNotMatch(css, /is-tight/, "no tab is hidden to make room");
   assert.match(css, /\.dv2 \.dtabs\.is-compact :is\(#tab-founder, #tab-moderate\) \.dtab__text \{ display: none; \}/);
-  assert.match(tag("tab-founder"), /aria-label="Founder"><span class="dtab__ico" aria-hidden="true"><svg /, "the icon-only Founder tab keeps its name");
-  assert.match(mod, /aria-label="Moderate" hidden><span class="dtab__ico" aria-hidden="true"><svg /);
-  // the router: the fit check, the nearest scroll, keyboard skips a tab that stepped out
-  assert.match(v2, /const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];\n\s+strip\.classList\.remove\(\.\.\.steps\);\n\s+for \(const step of steps\) \{ if \(!over\(\)\) break; strip\.classList\.add\(step\); \}/);
+  assert.match(tag("tab-founder"), /aria-label="Founder" title="Founder"><span class="dtab__ico" aria-hidden="true"><svg /, "the icon-only Founder tab keeps its name");
+  assert.match(mod, /aria-label="Moderate" title="Moderate" hidden><span class="dtab__ico" aria-hidden="true"><svg /);
+  // the router: the fit check (a phone's icons only scroll or fit), the nearest scroll, keyboard skips a tab that stepped out
+  assert.match(v2, /const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];\n\s+strip\.classList\.remove\(\.\.\.steps\);\n\s+for \(const step of iconMode\(\) \? \["is-scrollable"\] : steps\) \{ if \(!over\(\)\) break; strip\.classList\.add\(step\); \}/);
   assert.doesNotMatch(v2, /\(lr\.width - tr\.width\) \/ 2/, "never centred: Home is never pushed out");
   assert.match(v2, /\.filter\(\(t\) => !t\.hidden && t\.getClientRects\(\)\.length\)/);
   // a short visible word stays the start of the strip's titles too
   assert.match(v2, /const LABEL = \{ home: "Home", wallet: "Wallet", city: "City", community: "Community", notify: "Notifications", rankings: "Rankings", founder: "Founder", moderate: "Moderate", profile: "Profile" \};/);
 });
 
-test("D2 at runtime: the avatar shows the person's initial, the Moderate tab's name carries its count, and the page is marked is-dv2", async () => {
+test("D2 at runtime: the header's one avatar shows the person's initial, the Moderate tab's name carries its count, and the page is marked is-dv2", async () => {
   const p = await openDashboard({ me: memberMe({ wallet: ADDR, handle: "jo_utica" }), api: async (path) => (path === "/api/mod" ? { ok: true, moderator: true, role: "founder", scope: "Utica", posts: [{ id: 1, kind: "meme", body: "x", score: 0, replies: 0, voted: false, mine: false, hidden: true, at: new Date().toISOString(), author: { name: "a" }, canModerate: true }], proposals: [], appeals: [], objections: [], towns: [] } : undefined) });
   assert.ok(p.doc.body.classList.contains("is-dv2"));
-  assert.equal(p.text("#tab-profile .dtab__av"), "J");
+  assert.equal(p.text("[data-account-avatar] [data-account-initial]"), "J", "the header's avatar (owner, 17 Oct 2026: one avatar, top right)");
+  assert.equal(p.$("#tab-profile .dtab__av"), null, "and no second one in the strip");
   assert.equal(p.$("#tab-moderate").hidden, false);
   assert.equal(p.$("#tab-moderate").getAttribute("aria-label"), "Moderate, 1 to review");
   assert.equal(p.text("#tab-moderate-n"), "1");

@@ -98,7 +98,8 @@ export async function openDashboard({ ua = UA.desktop, search = "", hash = "", m
       pushState: (st, title, url) => { const u = new URL(url, loc.origin); loc.pathname = u.pathname; loc.search = u.search; loc.hash = u.hash; addressBar.push(loc.href); } },
     navigator: { userAgent: ua, maxTouchPoints: touchPoints ?? (/iPhone|Android/.test(ua) ? 5 : 0), clipboard: { writeText: async () => {} } },
     localStorage: store(local), sessionStorage: store(session),
-    matchMedia: () => ({ matches: true, addEventListener() {} }), // reduced motion: nothing animates, the ring is set at once
+    // reduced motion: nothing animates, the ring is set at once; any other query is false (a computer: the text tab strip, the popover)
+    matchMedia: (q) => ({ matches: /prefers-reduced-motion: reduce/.test(String(q)), addEventListener() {} }),
     fetch: async (path, init = {}) => {
       path = String(path);
       const body = init.body ? JSON.parse(init.body) : undefined;

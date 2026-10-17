@@ -22,9 +22,10 @@
 //   moderate  -> #panel-moderate   #mod, #coin-admin-card (gets #coin-admin out of #coin)
 //   profile   -> #panel-profile    #profile-modal (as an in-flow block), #roles-fold (gets #roles)
 //   strip                          #dash-tabs (#dash-tablist, the #tab-* links, the glass pill .dtabs__ind and the #panel-* sections above)
+//                                  (a phone, ICONS: every tab is its line icon, the chosen one's name under it, the pill behind the icon)
 (() => {
   "use strict";
-  const { $, $$, el, fmt, mask, initials, copy } = window.V;
+  const { $, $$, el, fmt, mask, copy } = window.V;
   const byId = (id) => document.getElementById(id);
 
   const TABS = Object.freeze(["home", "wallet", "city", "community", "notify", "rankings", "founder", "moderate", "profile"]);
@@ -43,7 +44,11 @@
   });
   // a link to a card by its old hash (#progress, #coin, ...) opens the card's tab, then scrolls to the card
   const ALIAS = { progress: "founder", squad: "founder", "coin-studio": "founder", "lp-launch": "founder", coin: "city", "cc-top": "city", request: "city", "city-about": "city",
-    feed: "community", national: "community", notices: "notify", "notice-prefs": "notify", mod: "moderate", roles: "profile", trade: "home", badges: "home", portfolio: "home", "role-home": "home", "wallet-card": "home", welcome: "home" };
+    feed: "community", national: "community", notices: "notify", "notice-prefs": "notify", mod: "moderate", roles: "profile", trade: "home", badges: "home", portfolio: "home", "role-home": "home", "wallet-card": "home", welcome: "home",
+    "profile-account": "profile" }; // (the header's account sheet: Account is the Profile tab's Wallet and sign-in rows, Settings the notification settings)
+  // a phone: the strip is icons (polish-dash.css, the same query): the glass pill sits behind the chosen tab's icon, the fit steps are not needed
+  const ICONS = "(max-width: 600px)";
+  const iconMode = () => Boolean(window.matchMedia && window.matchMedia(ICONS).matches);
   const HEADER = 67; // the site header: 66px plus its 1px border
   const QUEUE = [["posts", "reported post", "reported posts"], ["proposals", "ban proposal", "ban proposals"], ["appeals", "appeal", "appeals"],
     ["objections", "objection", "objections"], ["towns", "town request", "town requests"], ["coins", "coin contract to check", "coin contracts to check"]];
@@ -95,6 +100,8 @@
     $("#community").classList.add("city-head");
     for (const id of ["studio-step-1", "studio-step-2", "studio-step-3"]) byId(id).hidden = false;
     window.V.openProfile = () => go("profile"); // the header button: dashboard.js's own opener runs when the tab is entered
+    // the header's account sheet (site.js): Profile opens the tab (the keyboard on its panel), Account and Settings the card in theirs
+    window.V.accountGo = (hash) => { if (TABS.includes(hash)) { go(hash); byId("panel-" + hash).focus({ preventScroll: true }); } else goTo("#" + hash); };
     try { history.scrollRestoration = "manual"; } catch {}
     $("#dash-main").addEventListener("click", onClick);
     $("#dash-tablist").addEventListener("keydown", onKey);
@@ -179,7 +186,7 @@
     const left = park();
     const steps = ["is-snug", "is-short", "is-compact", "is-scrollable"];
     strip.classList.remove(...steps);
-    for (const step of steps) { if (!over()) break; strip.classList.add(step); }
+    for (const step of iconMode() ? ["is-scrollable"] : steps) { if (!over()) break; strip.classList.add(step); } // icons: they scroll (with snap) or fit
     place(how || (reflowing ? "follow" : ""), left);
   }
 
@@ -241,9 +248,10 @@
     ind.style.width = "0px"; ind.style.transform = "none";
     return left;
   }
-  /** A tab's box where the layout has it (a tab gliding to a new place, reflow, is measured without its glide). */
+  /** A tab's box where the layout has it (a tab gliding to a new place, reflow, is measured without its glide): on a phone, its icon's. */
   function boxOf(tab) {
-    const r = tab.getBoundingClientRect();
+    const mark = iconMode() ? tab.querySelector(".dtab__ico") || tab : tab;
+    const r = mark.getBoundingClientRect();
     if (!tabGlides.has(tab)) return r;
     const m = /^matrix\(([^)]+)\)$/.exec(String(window.getComputedStyle(tab).transform || "").trim()), dx = m ? Number(m[1].split(",")[4]) || 0 : 0;
     return { left: r.left - dx, top: r.top, width: r.width, height: r.height };
@@ -304,6 +312,7 @@
   /** Open the tab a card is in and scroll to the card (opening any <details> around it). */
   function goTo(selector, { focus = true, openRole, noAlias = false } = {}) {
     let sel = selector;
+    if (sel === "#notice-prefs" && !notifyOn()) { go("profile", { push: started, replace: !started }); return; } // the account sheet's Settings with notices off: the Profile tab
     if (!noAlias && sel === "#coin" && !$("#studio-card").hidden) sel = "#coin-studio"; // the founder lands on the studio, everyone else on the coin
     if (sel === "#trade" && $("#trade").hidden && !$("#wallet-card").hidden) sel = "#wallet-card"; // a phone's Safari buys in the wallet app
     const target = $(sel);
@@ -799,7 +808,6 @@
   /* ---------- what dashboard.js calls ---------- */
   function render(d) {
     $("#tab-home").classList.toggle("is-alert", !$("#ban-notice").hidden || !$("#lost-alert").hidden);
-    $("#tab-profile .dtab__av").textContent = initials(d.user.handle || d.user.name || "V");
     reflow(() => { gate(); notifyGate(); unreadBadge(d.unread); }); // the roles (and the switch) can change on a refresh: a tab comes or goes as one glide
     placeCard(); standing(d); today(d); rankings(d); cityHeader(d); founderStatus(d); founderCard(d); studioSync(); postProcess(); walletTab(d);
   }

@@ -378,27 +378,21 @@
    *  writes eases from the old one (a price never counts from 0). Text-only elements; nothing happens with reduced motion. */
   const liveNums = (els) => motion.watch([...els]);
 
-  /* ---------- who's signed in (header button) ---------- */
+  /* ---------- who's signed in (the header: Log in, or one avatar) ---------- */
   let meLite = null;
   const ready = api("/api/me?lite=1").then((d) => {
     meLite = d;
-    const b = $("[data-account]"), label = $("[data-account-label]");
-    if (d.signedIn && b) {
-      b.href = "/dashboard#profile"; b.classList.add("is-in");
-      const who = d.user.handle || d.user.name || short(d.user.wallet);
-      label.textContent = who.length > 16 ? who.slice(0, 15) + "…" : who;
-      // the header username button IS the profile button: on the dashboard it
-      // opens the profile modal in place, anywhere else it lands on it
-      b.setAttribute("aria-label", `Profile and settings (${who})`);
+    const b = $("[data-account]"), label = $("[data-account-label]"), av = $("[data-account-avatar]");
+    if (d.signedIn && d.user) {
+      // signed in: one avatar, top right, and no username pill beside it (owner, 17 Oct 2026). The avatar opens the account sheet, with
+      // the username and home community at its top, then Profile, Account and Settings (accountSheet below)
+      if (b) b.hidden = true;
       try { localStorage.setItem("vicinity-account", "1"); } catch {} // remembered so /connect opens on "Log in"
-      b.addEventListener("click", (e) => {
-        if (document.body.dataset.page === "dashboard" && typeof window.V.openProfile === "function") {
-          e.preventDefault();
-          window.V.openProfile();
-        }
-      });
-    } else if (d.pending && b) {
-      label.textContent = "Finish sign-in";
+      if (av) accountSheet(av, d.user);
+    } else {
+      if (d.pending && b) label.textContent = "Finish sign-in";
+      if (b) b.classList.add("is-shown"); // a returning member's browser holds it back until the answer (polish.css), so it never flashes
+      if (av) av.classList.add("is-off");
     }
     // the header's "Sign up": only for someone signed out. A returning member's browser hides it before the first paint (style.css,
     // :root:not([data-guest])), so it never flashes; it shows once the answer says signed out.
@@ -412,6 +406,124 @@
     document.dispatchEvent(new CustomEvent("vicinity:me", { detail: d }));
     return d;
   });
+
+  /* ---------- the account sheet: the header's one avatar (signed in) ----------
+     One button, top right, on every page: the member's initial (the site has no member pictures). It opens one sheet (a bottom sheet on
+     a phone, a small popover under the avatar on a computer: polish.css, the same query as SHEET_MQ) with the username and the home
+     community at the top, then Profile, Account and Settings, each an existing place of the dashboard, and Log out (the profile's own
+     Log out: the same request, then the home page). On the dashboard the three open in place (its tabs: it hands over V.accountGo), anywhere
+     else they are links to it. A dialog: the button says aria-haspopup / aria-expanded, the keyboard moves into the sheet and stays there
+     (Tab wraps), Escape, the close button, a tap outside or a swipe down on a phone close it, and the keyboard goes back to the avatar.
+     It slides (a phone) or fades (a computer) with the Web Animations API, at once with reduced motion; nothing loops. */
+  const SHEET_MQ = "(max-width: 600px)";
+  let setAccount = () => {};
+  function accountSheet(btn, user) {
+    const sheet = $("[data-acct]"), panel = sheet && $(".acct__panel", sheet);
+    if (!sheet || !panel) return;
+    const scrim = $(".acct__scrim", sheet);
+    const regions = (() => { try { return new Intl.DisplayNames(["en"], { type: "region" }); } catch { return null; } })();
+    const country = (cc) => { try { return (regions && regions.of(cc)) || cc; } catch { return cc; } };
+    setAccount = (u) => {
+      if (!u) return;
+      const who = u.handle || u.name || short(u.wallet) || "Your account";
+      const face = initials(u.handle || u.name || "V");
+      $("[data-account-initial]", btn).textContent = face;
+      $("[data-acct-initial]", sheet).textContent = face;
+      $("[data-acct-name]", sheet).textContent = who;
+      $("[data-acct-home]", sheet).textContent = u.home ? `${u.home.name}, ${country(u.home.country)}` : "No home community yet";
+      btn.setAttribute("aria-label", `Profile, account and settings (${who})`);
+    };
+    setAccount(user);
+    btn.hidden = false;
+    let state = "closed", anims = [], drag = null, dragEnd = 0;
+    const phone = () => Boolean(window.matchMedia && window.matchMedia(SHEET_MQ).matches);
+    const stops = () => $$("a[href], button:not([disabled])", panel).filter((e) => e.getClientRects().length);
+    const stopAnims = () => { for (const a of anims) a.cancel(); anims = []; };
+    /** The sheet's own motion (in: a phone's sheet rises, the popover fades down a little; out: the reverse, then it hides). */
+    function move(opening, done) {
+      stopAnims();
+      panel.style.transform = "";
+      if (reducedNow() || typeof panel.animate !== "function") { if (done) done(); return; }
+      const ph = phone(), from = drag && drag.y > 0 ? `translateY(${drag.y}px)` : null;
+      const shut = ph ? { transform: "translateY(100%)" } : { opacity: 0, transform: "translateY(-6px) scale(.97)" };
+      const open = { opacity: 1, transform: "none" };
+      const ms = opening ? (ph ? 320 : 180) : (ph ? 220 : 140), easing = opening ? "cubic-bezier(.2,.8,.2,1)" : "cubic-bezier(.4,0,1,1)";
+      const p = panel.animate(opening ? [shut, open] : [from ? { transform: from } : open, shut], { duration: ms, easing, fill: "both" });
+      const s = scrim.animate(opening ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }], { duration: ms, easing: "linear", fill: "both" });
+      anims = [p, s];
+      p.onfinish = () => { if (anims[0] !== p) return; if (done) done(); if (opening) stopAnims(); };
+    }
+    function open() {
+      if (state === "open") return;
+      state = "open";
+      sheet.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+      // a finger dragging the sheet down moves it (a phone): anywhere on it while it has nothing to scroll, else from its top (polish.css)
+      panel.style.touchAction = phone() && panel.scrollHeight <= panel.clientHeight + 1 ? "none" : "";
+      move(true);
+      const first = $(".acct__link", panel);
+      if (first) first.focus({ preventScroll: true });
+    }
+    /** restore: the keyboard goes back to the avatar (not when a link takes the person somewhere). */
+    function close(restore = true) {
+      if (state !== "open") return;
+      state = "closing";
+      btn.setAttribute("aria-expanded", "false");
+      move(false, () => { if (state !== "closing") return; state = "closed"; sheet.hidden = true; stopAnims(); });
+      drag = null;
+      if (restore) btn.focus({ preventScroll: true });
+    }
+    btn.addEventListener("click", () => (state === "open" ? close() : open()));
+    document.addEventListener("keydown", (e) => {
+      if (state !== "open") return;
+      if (e.key === "Escape") { e.preventDefault(); close(); return; }
+      if (e.key !== "Tab") return;
+      const f = stops();
+      if (!f.length) return;
+      const at = document.activeElement, i = f.indexOf(at);
+      if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
+    });
+    sheet.addEventListener("click", (e) => {
+      if (Date.now() - dragEnd < 400) { e.preventDefault(); return; } // the end of a drag is not a tap on a link
+      if (e.target.closest("[data-acct-close]")) { close(); return; }
+      const a = e.target.closest("[data-acct-go]");
+      // the dashboard opens the place in place, no reload (it hands its opener over: V.accountGo, or its profile dialog V.openProfile);
+      // on any other page the link goes to the dashboard
+      const go = typeof window.V.accountGo === "function" ? window.V.accountGo : typeof window.V.openProfile === "function" ? () => window.V.openProfile() : null;
+      if (!a || !go) return;
+      e.preventDefault(); close(false);
+      go((a.getAttribute("href") || "").split("#")[1] || "profile");
+    });
+    $("[data-acct-logout]", sheet).addEventListener("click", async (e) => {
+      e.currentTarget.disabled = true;
+      await api("/api/auth/logout", {});
+      location.assign("/");
+    });
+    // a phone: the sheet follows a finger dragging it down from its top, and goes once it is pulled far enough (or flicked)
+    panel.addEventListener("pointerdown", (e) => {
+      if (state !== "open" || e.pointerType === "mouse" || !phone() || panel.scrollTop > 0) return;
+      drag = { id: e.pointerId, y0: e.clientY, t0: Date.now(), y: 0, on: false };
+    });
+    panel.addEventListener("pointermove", (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dy = e.clientY - drag.y0;
+      if (!drag.on && dy > 8) { drag.on = true; stopAnims(); }
+      if (!drag.on) return;
+      drag.y = Math.max(0, dy);
+      panel.style.transform = `translateY(${drag.y}px)`;
+    });
+    const release = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const d = drag, fast = d.y / Math.max(1, Date.now() - d.t0) > 0.6;
+      if (!d.on) { drag = null; return; }
+      dragEnd = Date.now();
+      if (d.y > Math.min(120, panel.offsetHeight / 3) || (fast && d.y > 24)) close();
+      else { drag = null; panel.style.transform = ""; if (!reducedNow() && typeof panel.animate === "function") anims = [panel.animate([{ transform: `translateY(${d.y}px)` }, { transform: "none" }], { duration: 200, easing: "cubic-bezier(.2,.8,.2,1)" })]; }
+    };
+    panel.addEventListener("pointerup", release);
+    panel.addEventListener("pointercancel", release);
+  }
 
   /* ---------- live launch countdown (short form, used in several places) ---------- */
   let opensAt = Date.parse("2026-10-10T10:10:10-04:00");
@@ -519,5 +631,6 @@
 
   window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, takeCarry, takeLink, walletApp, termsGate, liveNums, reveal,
     get reduced() { return reducedNow(); }, // read when it is needed: the device setting can change while the page is open
-    me: () => meLite, ready, official, opensAt: () => opensAt, launchOpen, siteMode: () => siteMode };
+    me: () => meLite, ready, official, opensAt: () => opensAt, launchOpen, siteMode: () => siteMode,
+    setAccount: (u) => setAccount(u) }; // the dashboard keeps the account sheet's name and home in step with /api/me
 })();
