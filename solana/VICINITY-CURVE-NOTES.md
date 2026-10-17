@@ -1497,3 +1497,57 @@ curve first and the capped buy then pays at most its charge. `sdk/curve/precheck
 in `buyLeg` (with a slippage or an explicit minimum), `buyLegMinimum`'s refusal and its acceptance
 of the capped `solIn`, no cap below the remainder or in the pool, `coinAccount` required. Against
 the previous SDK, the 29-clients test fails at its first assertion (`solIn` is 20 SOL).
+
+### 55. The buy leg's slippage depends on its size (5.15, 7.4, 14.1, T80; review MATH3-1)
+
+**Spec.** 5.15 (revision 3, written for ECON-1): "under config #0 (t = 2.5%, founder 0.5%) no
+ordering profits at the website's slippage", with "the website's default slippage stays at 1% to
+2% for normal sizes"; 14.1: "Default slippage 1% to 2%"; `buyLegMinimum` accepted a flat
+`slippageBps` up to 500 for any size.
+
+**Issue.** For a victim buy of `V` allowing slippage `σ`, the best ordinary sandwich (the largest
+front-run that still lets the victim pass) earns about `σ * (V - (c/D) * depth)`, with `c` the
+attacker's cost per leg and `depth` the market's SOL depth. Above `V* = (c/D) * depth` it profits
+at any slippage and takes almost all of it; on a fresh coin (depth `x0` = 30 SOL) that is 0.75 SOL
+for an outsider and 0.60 SOL for the founder, ordinary sizes. The review measured on chain (and the
+math crate agrees to the lamport): 1 SOL at 1% on a fresh coin +2,035,797 lamports to an outsider,
+the victim getting exactly 1.000% fewer coins; 5 SOL at 1% +46.9M (94% of the tolerance); 2 SOL at
+40 SOL raised; 5 SOL in a fresh pool. The sentence was false at normal sizes and contradicted the
+same paragraph's rule. The program is correct (it enforces the minimum); severity low.
+
+**Choice.** The review's fix, enforced in the SDK so clients cannot ignore it:
+* 5.15 states the threshold per attacker class and corrects the config #0 sentence; 7.4 and 14.1
+  follow; T80.
+* `sandwichThreshold(terms, state)` (math.mjs): `floor(depth * cheapestAttackerCostBps(terms) / D)`
+  with `cheapestAttackerCostBps = t - max(b_F + b_H, b_P)`: the cheapest attacker the shares allow,
+  a founder who also holds the float (entry 52) or whoever holds the platform's key (entry 56).
+  Under config #0, 150 bps: 0.45 SOL at launch, 1.05 SOL at 40 SOL raised, 1.275 SOL at pool open.
+  It is the first-order bound, so below every measured threshold (the safe side).
+* `buyLeg` (and `buyWithSwap`, `buyLegMinimum`) allow at most `MAX_SWAP_SLIPPAGE_BPS` (5%) up to
+  the threshold and `LARGE_BUY_MAX_SLIPPAGE_BPS` (0.3%) above it, judged on the capped charge, for a
+  minimum given as well as one derived from `slippageBps` (the slippage a given minimum allows is
+  rounded up); more is refused with a message that names the threshold and offers splitting.
+  `buySlippagePolicy(coinAccount, solIn)` gives the website its default: 1%
+  (`DEFAULT_BUY_SLIPPAGE_BPS`) up to the threshold, 0.3% above it.
+* 0.3% rather than refusing large buys: above the threshold any slippage is taken, so the limit
+  only bounds the loss (measured: the attacker keeps at most about 0.2% of the buy); a buy can be
+  split into buys of at most the threshold, each in its own transaction (within one transaction a
+  sandwich wraps them all). A private or protected submission path for large buys is mentioned in
+  5.15, not built.
+* Not changed: the program (nothing on chain can tell a sandwiched buy from an ordinary one) and
+  the configs.
+
+Tests. `29-clients` MATH3-1, on chain with the checker on: the review's sandwich of a 1 SOL buy at
+1% on a fresh config #0 coin profits and takes almost the whole 1%; `buyLeg` refuses that buy at 1%
+and 2%; at the SDK's 0.3% the same best sandwich costs the victim at most 0.3% and leaves every
+attacker class (an outsider, the founder, the founder holding the float, the platform's key) at
+most 0.3%; at the threshold with the full 5% every class loses, on the curve at launch, at 40 SOL
+raised and in a fresh pool. `sdk/curve/prechecks.test.mjs`: the threshold and the cost per class,
+the policy and its defaults, a given minimum judged like a derived one, the threshold as depth grows.
+Against the previous SDK both MATH3-1 tests fail at their first threshold call (there was no
+`sandwichThreshold`), and the CLI-1 test at its new refusal of a 5 SOL buy at 2% on a fresh coin
+(`buyWithSwap` built it). The given minimum is judged with the same rounding as a derived one: at
+least `withSlippage(quote, max)`. Measured in the test: the review's sandwich +2,035,790 lamports;
+at 0.3% the victim loses 0.30% and the outsider makes +623,692 (0.06%); at the threshold with 5%
+the best results are -1,943,804 (founder holding the float, launch), -4,535,468 (40 SOL raised) and
+-4,577,093 (fresh pool), every other class lower.

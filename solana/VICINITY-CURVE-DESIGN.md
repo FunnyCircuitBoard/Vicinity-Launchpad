@@ -2,9 +2,9 @@
 
 Status: specification for the build and for the outside audit, revision 3, 17 October 2026.
 Revision 3 folds in the implementation notes of the build (`VICINITY-CURVE-NOTES.md` entries 1 to
-54: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
-CLI-2, CLI-3), 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1) and 3 (R3-DIFF-1, MATH3-2, LL-1, R3-CLI-1) of
-the build; revision 2 answered the security, math, runtime and integration review
+55: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
+CLI-2, CLI-3), 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1) and 3 (R3-DIFF-1, MATH3-2, LL-1, R3-CLI-1,
+MATH3-1) of the build; revision 2 answered the security, math, runtime and integration review
 of revision 1. Appendix C lists every finding of each review, what changed and the parts that were
 not applied, with reasons, and the notes folded in. The program, its math crate, its client SDK and
 its test suites are built (branch `feat/vicinity-curve`); nothing has been deployed or signed.
@@ -1566,10 +1566,34 @@ the pool.
   or founder and holders shares with 0.01% left for a founder holding the float, the attacker
   can take nearly the whole slippage the victim allows (measured about 99 bps at 1% and 199
   bps at 2%, review ECON-1; 99.3 bps of a 1 SOL buy at 1% under (0, 1, 50, 50, 0), review
-  R3-DIFF-1); under
-  config #0 (t = 2.5%, founder 0.5%) no ordering profits at the website's slippage.
-  Defence: `min_tokens_out` / `min_sol_out`; the website's default slippage stays at 1% to
-  2% for normal sizes; the owner chooses configs (13).
+  R3-DIFF-1).
+* **The size threshold (review MATH3-1).** For a victim buy of `V` lamports allowing a
+  slippage `σ`, the attacker's best front-run (the largest that still lets the victim's buy
+  pass) earns about `σ * (V - (c/D) * depth)`, where `c` is his cost per leg and `depth` the
+  market's SOL depth (`x0 + curve_sol` on the curve, `pool_sol` in the pool). So below
+  `V* = (c/D) * depth` no sandwich profits at any slippage, and above it any slippage the
+  victim allows is taken almost entirely (94% of it for a 5 SOL buy on a fresh coin). Under
+  config #0, `V*` is 2.5% of depth for an outsider (0.75 SOL on a fresh coin, whose depth is
+  `x0` = 30 SOL; measured first profit 0.79 SOL), 2.0% for the coin's founder (0.60 SOL;
+  measured 0.63 SOL), 1.5% for a founder who also holds the float and 1.8% for whoever holds
+  the platform's key (HR-1). So config #0 does **not** make 1% to 2% safe for ordinary sizes:
+  revision 3 said "no ordering profits at the website's slippage", which held only below these
+  sizes (measured on chain by the review: a 1 SOL buy at 1% on a fresh coin is sandwiched for
+  +0.0020 SOL, 2 SOL for +0.0123 SOL, 5 SOL for +0.0469 SOL; at 40 SOL raised from 2 SOL).
+  The program is correct (it enforces the minimum); the defence is the client's slippage.
+  **Defence:** `min_tokens_out` / `min_sol_out`, with a slippage that depends on size. The SDK's
+  `sandwichThreshold(terms, state)` is `floor(depth * (t - max(b_F + b_H, b_P)) / D)`, the
+  threshold of the cheapest credited attacker (1.5% of depth under config #0: 0.45 SOL at
+  launch, 1.05 SOL at 40 SOL raised, 1.275 SOL at pool open; a first-order bound, below every
+  measured threshold). A buy at or below it may allow up to 5% (default 1%); above it at most
+  `LARGE_BUY_MAX_SLIPPAGE_BPS` = 0.3%, enforced by `buyLeg` and `buyWithSwap` for a minimum
+  given or derived. The website shows the threshold and offers to split a larger buy into buys
+  of at most the threshold, each in its own transaction (14.1). Measured with the SDK model,
+  which equals the program to the lamport (G01): at the threshold every attacker class (an
+  outsider, the founder, the founder holding the float, the platform's key) loses at every
+  slippage up to 5%, in both phases; above it a 0.3% limit caps the victim's loss at 0.3%
+  (the attacker keeps at most about 0.2% of the buy). Large buys can also go through a
+  private or protected submission path (not built). The owner chooses configs (13).
 
 ### 5.16 The math crate (`vicinity-curve-math`)
 
@@ -1994,7 +2018,10 @@ below it.
 
 ### 7.4 Ordinary sandwiches and wash trading
 
-User sandwiches are the usual AMM risk, bounded by the user's slippage limits (5.15). Wash
+User sandwiches are the usual AMM risk, bounded by the user's slippage limits (5.15). Above a
+coin's sandwich threshold (5.15: about 2% to 2.5% of the market's SOL depth under config #0,
+0.6 to 0.75 SOL on a fresh coin) any slippage the buyer allows is taken almost entirely, so
+the clients allow at most 0.3% there (review MATH3-1). Wash
 trading pays nobody it does not cost: a trader gets back at most his own shares of each leg,
 so the founder's cost per leg is `t - b_F`, a holder of the float pays at least `t - b_H`, and
 a founder who also holds the float (in wallets other than his seat, which the snapshot leaves
@@ -2385,6 +2412,7 @@ Global:
 | T15 | **Division by zero** | `y0 > S >= s`; `x0 + q > 0`; `X + n > 0`; `Y + t > 0`; `D - t >= 9,750`; `t >= 1` | U09 |
 | T16 | **Partial-fill abuse** (be charged for coins not received, or take the last coins cheap) | only `charged = gross_for(c)` is taken; Lemma G gives net exactly `c`; tokens exactly `S - s` | I17; U07; X16 |
 | T17 | **Forcing a victim into a partial fill** | strict `min_tokens_out` refuses it; the victim pays nothing | X17 |
+| T80 | **Sandwiching an ordinary buy above the size threshold** at the client's slippage (review MATH3-1) | the program enforces the minimum; the clients make the slippage depend on size: at most 5% up to the coin's sandwich threshold, where no sandwich profits, and at most 0.3% above it (`sandwichThreshold`, `buyLeg`; 5.15, 14.1); splitting large buys | 29-clients |
 | T79 | **Forcing a victim out of a partial fill**: a buy signed near graduation with `sol_in` above the remainder and the partial quote's minimum is run in the pool after someone else graduates the coin, charged all of `sol_in` (review R3-CLI-1) | clients offer at most `max_quote_in` with the minimum of that quote (the SDK's `buyLeg`, `buyWithSwap`; `buyLegMinimum` refuses the uncapped pair; 5.4, 14.1, 14.3); the program then refuses the buy (`SlippageExceeded`) and the victim pays nothing | 29-clients |
 | T18 | **Selling more than the curve sold** | `tokens_in <= tokens_sold` (`SellExceedsCurve`) | X18 |
 | T19 | **Graduation front-running** ("pop") | pool opens at most 1e-9 below the curve's last price, never above (V7; default 2.0e-12); the curve-phase liquidity is not dumped into the pool | I5; L07; X19 |
@@ -2676,7 +2704,7 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | T75 (CPI after lamport move) | R02, R02b |
 | R11 integration | G01, G02, G03, E01, C02 |
 | T56 (events) | X56, E01 |
-| T77, T78, T79 (roles, client minimum, the completing buy) | 28-governance, 29-clients |
+| T77, T78, T79, T80 (roles, client minimum, the completing buy, size-dependent slippage) | 28-governance, 29-clients |
 
 ---
 
@@ -2749,7 +2777,12 @@ new program, these coins trade only on vicinity.city and through direct program 
   transaction `[ComputeBudget, create the buyer's token account (idempotent), buy]` paid from
   native SOL (no wrap or unwrap needed); sell mirrors it and the SOL arrives natively. Near
   graduation, size the buy with `max_quote_in` and show "fills the curve; you pay X". Default
-  slippage 1% to 2%. The buy panel shows the one-time token-account rent of a first buy. Pay
+  slippage 1% for a buy up to the coin's sandwich threshold (5.15; the SDK's
+  `sandwichThreshold`, 1.5% of the market's SOL depth under config #0, 0.45 SOL on a fresh
+  coin) and 0.3% above it, where the SDK refuses more (`buyLeg`, `buySlippagePolicy`); above
+  the threshold the buy panel says that a larger slippage would be taken by a sandwich and
+  offers to split the buy into buys of at most the threshold, each in its own transaction
+  (review MATH3-1). The buy panel shows the one-time token-account rent of a first buy. Pay
   with any token: the existing Jupiter composer swaps to SOL (unwrapped) and appends our buy
   in the same transaction, which works before Jupiter integrates us; it requests an
   **ExactOut** quote for `sol_in` (or sets `sol_in` to the quote's `otherAmountThreshold`,
@@ -3514,6 +3547,7 @@ a verifier before it was accepted. Severities are the verifier's.
 | MATH3-2 | math, info | the same gap as R3-DIFF-1, seen from the math: configs whose founder and holders shares make the whole fee pass, and a founder holding the eligible float trades for exactly 0 net fee | **Confirmed**. **Applied** with R3-DIFF-1 (the sum form, which still accepts every X44 config); 3.2's `MAX_FOUNDER_FEE_BPS` row and NOTES 50 corrected. NOTES 52 |
 | LL-1 | lifecycle, low (reported medium) | one flag, `buys_halted`, stopped user buys and buybacks alike, while every sell still booked its 0.3% into `buyback_pending`: during a guardian halt a mostly sold pool built a backlog many times `u*` (14.9% of depth), the keeper could not spend it, and the first buyer after the admin's publicly scheduled clear took a large share (+1.24 SOL on 20 SOL) | **Confirmed**. **Applied**, the safer of the two proposals (a separate flag rather than leaving buybacks unhaltable): `Launchpad.buybacks_halted` (offset 174, from the reserved bytes; size unchanged) blocks `buyback_burn` (`BuybacksHalted`, 6054); `buys_halted` now blocks only `buy` and `launch`; `set_pause` takes a fourth argument and refuses any result with buybacks halted and buys open (`BuybackHaltWithoutBuyHalt`, 6055), for every signer, so a buyback halt goes with a buy halt and buys never reopen before buybacks. A halt of buys alone leaves the keeper running; after a halt of both the admin resumes buybacks first, the keeper drains every backlog while buys are still refused, and buys reopen in a later proposal (8.3 runbook, 14.1). IDL, SDK builder, decoder and event. 3.4, 4.0, 4.4, 4.13, 4.21, 4.22, 6.4, 7.1, 7.2, 8.1, 8.3, I20, I22, T72, T73, T76, O9, O25, 12.3, 12.5, 14.1, 14.3; H01, L12, X43b, the LL-1 test, the fuzz model, the checker (I20); NOTES 53 |
 | R3-CLI-1 | clients, medium (reported high) | on a buy that completes the curve, `buyWithSwap` (and the README's direct buy) took `min_tokens_out` from the partial quote but left `sol_in` at the full amount; once a searcher (or any buyer) graduated the coin first, the same buy ran in the pool, was charged all of `sol_in` and still cleared the small minimum (20 SOL at 4.9 times the quoted price; 10.77 SOL taken); 14.3 told routers they may "treat `charged < sol_in` as the amount used" | **Confirmed** (an SDK and guidance defect; the program behaves as specified). **Applied**: the SDK's new `buyLeg` (used by `buyWithSwap`) caps `sol_in` at the partial quote's charge (`max_quote_in`) and takes the minimum from that quote; it needs the coin snapshot; `buyLegMinimum` refuses an uncapped `sol_in`; `buyWithSwap` also returns the swap's guaranteed output (the difference stays in the wallet). The README's direct buy uses `buyLeg`. 14.3 now requires the cap; 5.4 explains why; T79 added next to T17. M13's price limit was not taken: the minimum was computed for the smaller charge, so it would not help. 5.4, 14.1, 14.3, T79; `29-clients`, `prechecks.test.mjs`; NOTES 54 |
+| MATH3-1 | math, low | 5.15 said that under config #0 "no ordering profits at the website's slippage", but any buy above about 2.5% of the market's SOL depth (2.0% for the founder; about 0.75 SOL on a fresh coin) is sandwiched at a profit whatever the slippage, and the victim loses almost all of it; the SDK's `buyLegMinimum` accepted a flat slippage up to 5% for any size | **Confirmed**. **Applied**: 5.15 states the threshold `V* = (c/D) * depth` per attacker class and corrects the config #0 sentence; 7.4 and 14.1 follow. The SDK's `sandwichThreshold` (`(t - max(b_F + b_H, b_P))/D` of depth, the cheapest credited attacker) and `buySlippagePolicy`; `buyLeg` and `buyWithSwap` allow at most 5% up to the threshold and 0.3% above it, for a minimum given or derived, and refuse more with a message that offers splitting; the website's default is 1% up to the threshold, 0.3% above it. A private submission path is mentioned, not built. 5.15, 7.4, 14.1, T80; `29-clients`, `prechecks.test.mjs`; NOTES 55 |
 | HR-2 | roles, info | a thief of a founder key can move the seat with `transfer_founder` and take every later founder fee | **Rejected** by the verifier: the recorded design (4.17 and T52: the seat moves only with both signatures and the admin can never reassign it; O22). The copied key could claim every later accrual without a transfer anyway, and the legitimate founder can use the transfer first. No change |
 | HR-3 | roles, info | a stolen `FEE_RECIPIENT` key takes the platform's income until an upgrade | **Rejected** by the verifier: recorded (R9, 3.2: changing `FEE_RECIPIENT` needs an upgrade; 6.4 and 8.3: platform withdrawals are not pausable by design); no holder's, founder's or third party's money is reachable. A cold wallet or a Squads vault as `FEE_RECIPIENT` before the mainnet build is an operational choice for the owner. No change |
 
@@ -3569,3 +3603,4 @@ build follows the text as written and the entry records a reading or a measureme
 | 52 | review round 3: V2b bounds the sum of the founder's and the holders' shares (above) | as listed above |
 | 53 | review round 3: a separate buyback halt, set only while buys are halted (above) | as listed above |
 | 54 | review round 3: the completing buy offers only its charge (above) | as listed above |
+| 55 | review round 3: the buy leg's slippage depends on its size (above) | as listed above |

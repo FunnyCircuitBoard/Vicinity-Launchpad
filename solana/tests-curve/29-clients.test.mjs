@@ -19,6 +19,10 @@
 //     someone else graduated the coin, the buy ran in the pool, was charged all
 //     of it and still cleared the minimum. The leg now offers only the partial
 //     quote's charge (max_quote_in), and the same bundle makes the buy fail.
+//   * MATH3-1 (review round 3): above a coin's sandwich threshold (about 2% to
+//     2.5% of its SOL depth under config #0) an ordinary sandwich takes almost
+//     any slippage the buyer allows; the buy leg now allows at most 0.3% there,
+//     and up to 5% only below it, where no sandwich profits.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import web3 from '@solana/web3.js';
@@ -39,11 +43,13 @@ test('CLI-1 buyWithSwap: no buy leg without a minimum; with the SDK\'s slippage 
   // what the website did before: no minimum, now refused by the helper
   assert.throws(() => S.buyWithSwap(base), (e) => e instanceof S.ComposeError && /minimum/.test(e.message));
   assert.throws(() => S.buyWithSwap({ ...base, minTokensOut: 0n }), S.ComposeError);
-  // the website's call: the coin as read before signing, 2% slippage (14.1's default range is 1% to 2%)
+  // the website's call: the coin as read before signing; a 5 SOL buy on a fresh coin is above its sandwich threshold, so
+  // 0.3% (2% is refused there, review MATH3-1)
   const c0 = w.coinView(h);
-  const { instructions, minTokensOut } = S.buyWithSwap({ ...base, coinAccount: c0, slippageBps: 200 });
+  assert.throws(() => S.buyWithSwap({ ...base, coinAccount: c0, slippageBps: 200 }), /sandwich threshold/);
+  const { instructions, minTokensOut } = S.buyWithSwap({ ...base, coinAccount: c0, slippageBps: S.LARGE_BUY_MAX_SLIPPAGE_BPS });
   const quoted = S.quoteBuy(S.coinTerms(c0), S.coinState(c0), solIn).tokensOut;
-  assert.equal(minTokensOut, S.withSlippage(quoted, 200));
+  assert.equal(minTokensOut, S.withSlippage(quoted, S.LARGE_BUY_MAX_SLIPPAGE_BPS));
   assert.equal(Buffer.from(instructions.at(-1).data).readBigUInt64LE(16), minTokensOut, 'the buy carries the minimum');
   // the review's sandwich: a 25.5 SOL front-run on a fresh config #0 coin (the victim would have lost 68% of the coins)
   const front = await w.buy(attacker, h, 25_500_000_000n, { label: 'front-run' });
@@ -56,7 +62,7 @@ test('CLI-1 buyWithSwap: no buy leg without a minimum; with the SDK\'s slippage 
   const back = await w.sell(attacker, h, front.q.tokensOut, { label: 'back-run' });
   assert.ok(back.q.solOut < front.q.charged, 'the would-be sandwich loses the fees');
   // without the front-run the same buy goes through and delivers at least the minimum
-  const fresh = S.buyWithSwap({ ...base, coinAccount: w.coinView(h), slippageBps: 200 });
+  const fresh = S.buyWithSwap({ ...base, coinAccount: w.coinView(h), slippageBps: S.LARGE_BUY_MAX_SLIPPAGE_BPS });
   await w.send(fresh.instructions, [victim], 'victim\'s buy, no front-run');
   w.addHolder(h.mint, victim);
   assert.ok(w.balanceOf(victim, h.mint) >= fresh.minTokensOut);
@@ -193,5 +199,87 @@ test('R3-CLI-1 a buy that completes the curve offers only its charge: buyWithSwa
     await expectFail(() => w.send(leg.instructions, [victim], 'the capped buy after the race', { feePayer: w.payer }), 'SlippageExceeded');
     assert.equal(w.lamportsOf(victim.address), r0, 'refused, nothing paid');
   }
+  await w.finish();
+});
+
+// MATH3-1: the best ordinary sandwich of a victim buy (the largest front-run that still lets it pass), found
+// with the SDK's quotes (equal to the program's, G01) and then run on chain
+function bestFrontRun(terms, st, V, min) {
+  const passes = (a) => {
+    try {
+      const f = S.quoteBuy(terms, st, a);
+      if (f.graduates) return false;
+      return S.quoteBuy(terms, f.newState, V).tokensOut >= min;
+    } catch (e) { if (e instanceof S.MathError) return false; throw e; }
+  };
+  if (!passes(S.MIN_TRADE_LAMPORTS)) return null;
+  let lo = S.MIN_TRADE_LAMPORTS; let hi = 5_000n * LAMPORTS;
+  while (hi - lo > 1_000n) { const m = (lo + hi) / 2n; if (passes(m)) lo = m; else hi = m; }
+  return lo;
+}
+/** Front-run, the victim's buy with `min`, back-run on chain: the attacker's result for each credited class. */
+async function sandwich(w, h, { V, min, label }) {
+  const terms = S.coinTerms(w.coinView(h));
+  const plain = S.quoteBuy(terms, S.coinState(w.coinView(h)), V);
+  const a = bestFrontRun(terms, S.coinState(w.coinView(h)), V, min);
+  assert.ok(a, `${label}: some front-run lets the victim pass`);
+  const attacker = await w.signer(0n);
+  w.setRaw(attacker.address, Buffer.alloc(0), S.ADDRESSES.system, 10_000n * LAMPORTS);
+  const victim = await w.signer(0n);
+  w.setRaw(victim.address, Buffer.alloc(0), S.ADDRESSES.system, 100n * LAMPORTS);
+  const f = await w.buy(attacker, h, a, { label: `${label}: front-run` });
+  const v = await w.buy(victim, h, V, { min, label: `${label}: the victim's buy` });
+  const b = await w.sell(attacker, h, f.q.tokensOut, { label: `${label}: back-run` });
+  const net = b.q.solOut - f.q.charged;
+  const credit = (...k) => k.reduce((x, key) => x + f.q.split[key] + b.q.split[key], 0n);
+  return {
+    victimLoss: plain.tokensOut - v.q.tokensOut, plainTokens: plain.tokensOut,
+    outsider: net, founder: net + credit('founder'), founderFloat: net + credit('founder', 'holders'), platform: net + credit('platform'),
+  };
+}
+
+test('MATH3-1 an ordinary sandwich profits at any slippage above the coin\'s size threshold and at none below it: the SDK allows 5% only up to sandwichThreshold and 0.3% above it, which bounds the loss', async () => {
+  const w = await World.create();
+  const T = S.DEFAULT_TERMS;
+  const whale = await w.signer(0n);
+  w.setRaw(whale.address, Buffer.alloc(0), S.ADDRESSES.system, 1_000n * LAMPORTS);
+  let city = 2_910n;
+  const coinAt = async (raised, symbol) => {
+    const h = await w.launchCoin({ cityId: city++, symbol });
+    if (raised === 'pool') await w.buy(whale, h, S.maxQuoteIn(T, S.coinState(w.coinView(h))), { label: 'graduate' });
+    else if (raised > 0n) await w.buy(whale, h, S.grossFor(T, raised * LAMPORTS), { label: `the curve to ${raised} SOL` });
+    return h;
+  };
+  // the review's case: a fresh config #0 coin, a 1 SOL buy at the website's 1%: an outsider profits
+  const fresh = await coinAt(0n, 'SW1');
+  const q1 = S.quoteBuy(T, S.coinState(w.coinView(fresh)), LAMPORTS);
+  const review = await sandwich(w, fresh, { V: LAMPORTS, min: S.withSlippage(q1.tokensOut, 100), label: '1 SOL at 1% on a fresh coin' });
+  assert.ok(review.outsider > 0n, `the review's sandwich profits (${review.outsider})`);
+  assert.ok(review.victimLoss * 10_000n >= q1.tokensOut * 95n, 'the victim loses almost his whole 1%');
+  // the SDK no longer builds that buy: above the threshold it allows at most 0.3%
+  // (that coin moved; a second fresh coin has the review's state)
+  const fresh2 = await coinAt(0n, 'SW2');
+  const cf = w.coinView(fresh2);
+  const thr = S.sandwichThreshold(S.coinTerms(cf), S.coinState(cf));
+  assert.equal(thr, 450_012_804n, 'config #0 at launch: 1.5% of x0');
+  for (const bps of [100, 200]) assert.throws(() => S.buyLeg({ solIn: LAMPORTS, coinAccount: cf, slippageBps: bps }), (e) => e instanceof S.ComposeError && /sandwich threshold/.test(e.message));
+  const leg = S.buyLeg({ solIn: LAMPORTS, coinAccount: cf, slippageBps: S.LARGE_BUY_MAX_SLIPPAGE_BPS });
+  const capped = await sandwich(w, fresh2, { V: LAMPORTS, min: leg.minTokensOut, label: '1 SOL at the SDK\'s 0.3%' });
+  assert.ok(capped.victimLoss * 10_000n <= capped.plainTokens * 30n, `the victim loses at most 0.3% (${capped.victimLoss})`);
+  for (const k of ['outsider', 'founder', 'founderFloat', 'platform']) assert.ok(capped[k] * 10_000n <= LAMPORTS * 30n, `${k} keeps at most 0.3% (${capped[k]})`);
+  // at the threshold, with the most slippage the SDK allows there (5%), nobody profits: on the curve at launch,
+  // at 40 SOL raised and in a fresh pool, for an outsider, the founder, the founder holding the float and the platform's key
+  const report = [];
+  for (const [raised, symbol] of [[0n, 'SWT0'], [40n, 'SWT40'], ['pool', 'SWTP']]) {
+    const h = await coinAt(raised, symbol);
+    const c = w.coinView(h);
+    const V = S.sandwichThreshold(S.coinTerms(c), S.coinState(c));
+    const l = S.buyLeg({ solIn: V, coinAccount: c, slippageBps: S.MAX_SWAP_SLIPPAGE_BPS });
+    assert.equal(l.large, false, 'at the threshold the full 5% is allowed');
+    const r = await sandwich(w, h, { V, min: l.minTokensOut, label: `${symbol}: ${V} lamports at 5%` });
+    for (const k of ['outsider', 'founder', 'founderFloat', 'platform']) assert.ok(r[k] < 0n, `${symbol}: the ${k} loses (${r[k]})`);
+    report.push(`${symbol} V=${V}: outsider ${r.outsider}, founder ${r.founder}, founder+float ${r.founderFloat}, platform ${r.platform}`);
+  }
+  console.log(`MATH3-1: the review's 1 SOL at 1%: outsider ${review.outsider}; 1 SOL at 0.3%: victim loss ${capped.victimLoss} of ${capped.plainTokens}, outsider ${capped.outsider}; at the threshold with 5%: ${report.join(' | ')}`);
   await w.finish();
 });

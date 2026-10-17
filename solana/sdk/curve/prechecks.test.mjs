@@ -214,20 +214,22 @@ test('pay with any token (14.1, G03): sol_in is the swap\'s guaranteed output, n
   const user = key(); const mint = key(); const coin = key();
   const swapIx = { programAddress: key(), accounts: [], data: new Uint8Array([1]) };
   const coinAccount = { ...S.DEFAULT_TERMS, ...S.stateAtLaunch(0n), mint };
-  const { instructions, solIn, minTokensOut, swapSolIn } = S.buyWithSwap({ ix: S.ix, user, coin, mint, swapInstructions: [swapIx], quote: { swapMode: 'ExactIn', outAmount: 500_000n, otherAmountThreshold: 400_000n }, coinAccount, minTokensOut: 7n });
+  const given = S.withSlippage(S.quoteBuy(S.DEFAULT_TERMS, S.stateAtLaunch(0n), 400_000n).tokensOut, 100);
+  const { instructions, solIn, minTokensOut, swapSolIn } = S.buyWithSwap({ ix: S.ix, user, coin, mint, swapInstructions: [swapIx], quote: { swapMode: 'ExactIn', outAmount: 500_000n, otherAmountThreshold: 400_000n }, coinAccount, minTokensOut: given });
   assert.equal(solIn, 400_000n);
   assert.equal(swapSolIn, 400_000n);
-  assert.equal(minTokensOut, 7n);
+  assert.equal(minTokensOut, given);
   assert.deepEqual(instructions.map((x) => x.programAddress), [swapIx.programAddress, S.ADDRESSES.associatedToken, S.CURVE_PROGRAM_ID]);
   assert.equal(Buffer.from(instructions[2].data).readBigUInt64LE(8), 400_000n, 'the buy\'s sol_in');
-  assert.equal(Buffer.from(instructions[2].data).readBigUInt64LE(16), 7n, 'the buy\'s min_tokens_out');
+  assert.equal(Buffer.from(instructions[2].data).readBigUInt64LE(16), given, 'the buy\'s min_tokens_out');
   assert.equal(instructions[2].accounts[5].address, S.associatedTokenAddress(user, mint));
 });
 
 test('CLI-1 pay with any token: buyWithSwap never builds a buy without its own minimum (14.1)', () => {
   const user = key(); const coinKey = key();
   const swapIx = { programAddress: key(), accounts: [], data: new Uint8Array([1]) };
-  const quote = { swapMode: 'ExactIn', outAmount: 1_010_000_000n, otherAmountThreshold: 1_000_000_000n };
+  // 0.4 SOL: below config #0's sandwich threshold at launch (0.45 SOL), so up to 5% is allowed (MATH3-1)
+  const quote = { swapMode: 'ExactIn', outAmount: 404_000_000n, otherAmountThreshold: 400_000_000n };
   // a coin snapshot at launch on config #0
   const coin = { ...S.DEFAULT_TERMS, ...S.stateAtLaunch(1000n), mint: key() };
   const base = { ix: S.ix, user, coin: coinKey, mint: coin.mint, swapInstructions: [swapIx], quote };
@@ -240,7 +242,7 @@ test('CLI-1 pay with any token: buyWithSwap never builds a buy without its own m
   assert.throws(() => S.buyWithSwap({ ...base, coinAccount: coin, slippageBps: 1.5 }), /integer/);
   assert.throws(() => S.buyWithSwap({ ...base, mint: key(), coinAccount: coin, slippageBps: 100 }), /not .*mint|coin of mint/);
   // from the snapshot: the quote of the guaranteed sol_in, less the slippage
-  const q = S.quoteBuy(S.coinTerms(coin), S.coinState(coin), 1_000_000_000n);
+  const q = S.quoteBuy(S.coinTerms(coin), S.coinState(coin), 400_000_000n);
   for (const bps of [0, 100, 200, 500]) {
     const r = S.buyWithSwap({ ...base, coinAccount: coin, slippageBps: bps });
     assert.equal(r.minTokensOut, S.withSlippage(q.tokensOut, bps));
@@ -262,7 +264,7 @@ test('R3-CLI-1 a buy that completes the curve offers only its charge: buyLeg cap
   assert.equal(leg.minTokensOut, S.withSlippage(q.tokensOut, 200), 'the minimum of the same quote');
   assert.deepEqual([leg.quote.partial, leg.quote.graduates, leg.quote.tokensOut, leg.quote.charged], [false, true, q.tokensOut, q.charged]);
   // with an explicit minimum the cap applies too
-  assert.equal(S.buyLeg({ solIn, coinAccount: coin, minTokensOut: 5n }).solIn, q.charged);
+  assert.equal(S.buyLeg({ solIn, coinAccount: coin, minTokensOut: S.withSlippage(q.tokensOut, 100) }).solIn, q.charged);
   // buyLegMinimum: the uncapped sol_in is refused, the capped one accepted
   assert.throws(() => S.buyLegMinimum({ solIn, coinAccount: coin, slippageBps: 200 }), (e) => e instanceof S.ComposeError && /completes the curve/.test(e.message) && e.message.includes(String(q.charged)));
   assert.equal(S.buyLegMinimum({ solIn: q.charged, coinAccount: coin, slippageBps: 200 }), leg.minTokensOut);
@@ -273,7 +275,7 @@ test('R3-CLI-1 a buy that completes the curve offers only its charge: buyLeg cap
   const data = Buffer.from(r.instructions.at(-1).data);
   assert.deepEqual([data.readBigUInt64LE(8), data.readBigUInt64LE(16)], [q.charged, leg.minTokensOut]);
   // below the remainder, and in the pool, nothing is capped
-  for (const [label, state, amount] of [['a buy below the remainder', st, 10n ** 9n / 2n], ['a pool buy', S.quoteBuy(t, st, solIn).newState, solIn]]) {
+  for (const [label, state, amount] of [['a buy below the remainder', st, 10n ** 9n / 2n], ['a pool buy', S.quoteBuy(t, st, solIn).newState, 10n ** 9n]]) {
     const c = { ...t, ...state, mint: coin.mint };
     const l = S.buyLeg({ solIn: amount, coinAccount: c, slippageBps: 100 });
     assert.equal(l.solIn, amount, label);
@@ -281,4 +283,50 @@ test('R3-CLI-1 a buy that completes the curve offers only its charge: buyLeg cap
   }
   // the cap reads the coin: coinAccount is required, also with an explicit minimum
   assert.throws(() => S.buyLeg({ solIn, minTokensOut: 5n }), /needs coinAccount/);
+});
+
+test('MATH3-1 the buy leg\'s slippage depends on its size: at most 5% up to the coin\'s sandwich threshold, at most 0.3% above it, for a minimum given or derived; the threshold is the cheapest credited attacker\'s', () => {
+  const t = S.DEFAULT_TERMS;
+  const st0 = S.stateAtLaunch(0n);
+  const coin = { ...t, ...st0, mint: key() };
+  // config #0: t - max(b_F + b_H, b_P) = 250 - 100 = 150 bps of the depth (x0 at launch: 0.45 SOL)
+  assert.equal(S.cheapestAttackerCostBps(t), 150n);
+  const thr = S.sandwichThreshold(t, st0);
+  assert.equal(thr, (t.virtualSol * 150n) / 10_000n);
+  assert.equal(thr, 450_012_804n);
+  // the review's case: a 1 SOL buy at the website's 1% or 2% is refused, 0.3% is built
+  for (const bps of [100, 200, S.LARGE_BUY_MAX_SLIPPAGE_BPS + 1]) {
+    assert.throws(() => S.buyLeg({ solIn: 1_000_000_000n, coinAccount: coin, slippageBps: bps }), (e) => e instanceof S.ComposeError && /sandwich threshold/.test(e.message) && e.message.includes(String(thr)));
+  }
+  const q1 = S.quoteBuy(t, st0, 1_000_000_000n);
+  const big = S.buyLeg({ solIn: 1_000_000_000n, coinAccount: coin, slippageBps: S.LARGE_BUY_MAX_SLIPPAGE_BPS });
+  assert.deepEqual([big.large, big.threshold, big.minTokensOut], [true, thr, S.withSlippage(q1.tokensOut, 30)]);
+  // a given minimum is judged the same way (its slippage rounded up)
+  assert.throws(() => S.buyLeg({ solIn: 1_000_000_000n, coinAccount: coin, minTokensOut: S.withSlippage(q1.tokensOut, 100) }), /sandwich threshold/);
+  assert.throws(() => S.buyLeg({ solIn: 1_000_000_000n, coinAccount: coin, minTokensOut: S.withSlippage(q1.tokensOut, 30) - 1n }), /sandwich threshold/);
+  assert.equal(S.buyLeg({ solIn: 1_000_000_000n, coinAccount: coin, minTokensOut: S.withSlippage(q1.tokensOut, 30) }).minTokensOut, S.withSlippage(q1.tokensOut, 30));
+  assert.equal(S.buyLeg({ solIn: 1_000_000_000n, coinAccount: coin, minTokensOut: q1.tokensOut + 5n }).minTokensOut, q1.tokensOut + 5n, 'a minimum above the quote allows no slippage');
+  // and so is buyWithSwap
+  assert.throws(() => S.buyWithSwap({ ix: S.ix, user: key(), coin: key(), mint: coin.mint, swapInstructions: [], quote: { swapMode: 'ExactOut', outAmount: 1_000_000_000n, otherAmountThreshold: 2_000_000_000n }, coinAccount: coin, slippageBps: 100 }), /sandwich threshold/);
+  // at the threshold up to 5%; one lamport above it, 0.3%
+  const at = S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: S.MAX_SWAP_SLIPPAGE_BPS });
+  assert.equal(at.large, false);
+  assert.throws(() => S.buyLeg({ solIn: thr + 1n, coinAccount: coin, slippageBps: 31 }), /sandwich threshold/);
+  // the website's default (14.1)
+  assert.deepEqual(S.buySlippagePolicy(coin, thr), { maxSlippageBps: 500, defaultSlippageBps: 100, threshold: thr, charged: thr, large: false });
+  const p1 = S.buySlippagePolicy(coin, 1_000_000_000n);
+  assert.deepEqual([p1.maxSlippageBps, p1.defaultSlippageBps, p1.large], [30, 30, true]);
+  // the threshold follows the depth: 40 SOL raised (70 SOL deep), a fresh pool (85 SOL deep)
+  const st40 = S.quoteBuy(t, st0, S.grossFor(t, 40n * 10n ** 9n)).newState;
+  assert.equal(S.sandwichThreshold(t, st40), (S.depth(t, st40) * 150n) / 10_000n);
+  const pool = S.quoteBuy(t, st0, S.maxQuoteIn(t, st0)).newState;
+  assert.equal(S.sandwichThreshold(t, pool), 1_275_000_000n);
+  // the cheapest attacker under other configs: the platform's key (review HR-1), a founder holding the float (R3-DIFF-1)
+  const cfg = (l, p, f, h, b) => S.termsFromParams({ ...S.DEFAULT_CONFIG, liquidityBps: l, platformBps: p, founderBps: f, holdersBps: h, buybackBps: b });
+  assert.equal(S.cheapestAttackerCostBps(cfg(0n, 120n, 0n, 1n, 1n)), 2n);
+  assert.equal(S.cheapestAttackerCostBps(cfg(0n, 1n, 50n, 50n, 0n)), 1n);
+  assert.equal(S.cheapestAttackerCostBps(cfg(0n, 1n, 0n, 0n, 0n)), 0n, 'X44\'s platform-only 0.01% config: the platform\'s key trades for free');
+  const free = { ...cfg(0n, 1n, 0n, 0n, 0n), ...st0, mint: coin.mint };
+  assert.equal(S.sandwichThreshold(S.coinTerms(free), st0), 0n);
+  assert.equal(S.buyLeg({ solIn: S.MIN_TRADE_LAMPORTS, coinAccount: free, slippageBps: 30 }).large, true, 'every buy is above a threshold of 0');
 });

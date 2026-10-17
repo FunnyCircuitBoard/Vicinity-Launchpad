@@ -573,3 +573,30 @@ export function withSlippage(amount, slippageBps) {
   if (bps < 0n || bps > D) throw new RangeError(`slippage out of range: ${slippageBps}`);
   return (u64(amount) * (D - bps)) / D;
 }
+
+/**
+ * The least net fee per leg, in basis points, of the cheapest attacker the shares allow (5.15, 7.4; reviews
+ * MATH3-1, R3-DIFF-1, HR-1): `t - max(b_F + b_H, b_P)`, for a founder who also holds the float (credited both his
+ * share and the holders' share of every leg) or for whoever holds the platform's key (credited `b_P` through
+ * `withdraw_platform_fees`). V2b keeps `t - b_F - b_H >= 1`; the platform term may reach 0 (X44's platform-only
+ * config). An outsider pays `t`, the founder alone `t - b_F`.
+ */
+export function cheapestAttackerCostBps(termsIn) {
+  const t = terms(termsIn);
+  const fh = t.founderBps + t.holdersBps;
+  const credited = fh > t.platformBps ? fh : t.platformBps;
+  return t.totalFeeBps > credited ? t.totalFeeBps - credited : 0n;
+}
+
+/**
+ * The buy size, in lamports charged, above which an ordinary sandwich profits whatever slippage the victim allows
+ * (5.15, review MATH3-1): `floor(depth * c / D)` with `c = cheapestAttackerCostBps(terms)` and `depth` the market's
+ * SOL depth (`x0 + curve_sol` on the curve, `pool_sol` in the pool). The attacker's profit is about
+ * `slippage * (V - c * depth / D)`, so above this size he takes almost the whole tolerance, below it he loses. A
+ * first-order bound: the measured threshold is a little higher (0.79 SOL against 0.75 SOL for an outsider at launch),
+ * so it errs on the buyer's side. Config #0 at launch: 0.45 SOL.
+ */
+export function sandwichThreshold(termsIn, stateIn) {
+  const t = terms(termsIn);
+  return toU64(divFloor(mul(depth(t, stateIn), cheapestAttackerCostBps(t)), D));
+}
