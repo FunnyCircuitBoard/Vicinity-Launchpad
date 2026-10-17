@@ -124,6 +124,12 @@ jobs:
         run: npm run launchpad:fixtures
       - name: Launchpad in-process tests
         run: npm run test:launchpad
+      # vicinity_curve in litesvm: one coin's life on the production build,
+      # then the halt-all build over the live state (every outflow refuses)
+      # and back (stage 2 smoke; it loads the binaries of the "Curve SBF
+      # builds" step and the Metaplex dump of the fixtures step).
+      - name: Curve in-process smoke test (production and halt-all builds)
+        run: npm run test:vcurve
       # The deadline, sweep and close_claim_status tests need an epoch whose
       # claim window passes during the run: the test-only `short-windows`
       # feature lowers MIN_CLAIM_WINDOW_SECS to 60 s. This rebuilds the program

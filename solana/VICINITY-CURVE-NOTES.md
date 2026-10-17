@@ -331,18 +331,22 @@ buffer (and the halt-all buffer kept ready, 8.3) as much again each. For informa
 package alone is 457,208 bytes and with `"s"` 489,584 bytes, at a compute cost not yet
 measured. No build prints a cargo-build-sbf "Stack offset ... exceeded" warning, with every
 typed account of `launch`, `approve_launch` and `forward_holders_fees` and the coin in every
-instruction boxed (3.1). CI now builds all three after every push, recompiling the crate so its
+instruction boxed (3.1). "Typed account" is read as every deserialised `Account<...>`: `Signer`,
+`Program`, `UncheckedAccount` and the `Rent` `Sysvar` hold a reference or a few bytes and are not
+boxed. CI now builds all three after every push, recompiling the crate so its
 warnings are printed, and fails on any stack warning (`npm run vcurve:sbf`, C04).
 
-The binaries depend on the toolchain, not only on the source: the CI runner (Agave 4.3.0
-installer on ubuntu-latest, the same source at commit 0a6d6d9) produced 612,528 / 612,528 /
-611,216 bytes, also without any stack warning, against 588,216 / 588,216 / 586,880 on the build
-machine whose toolchain matches `release/mainnet-2026-10-10/BUILD.md`. The script now prints
-the `cargo build-sbf --version` it used beside the sizes and hashes, and the audit pack must
-record the hash of the verifiable build (C03), not a CI artefact.
+The binaries depend on the toolchain, not only on the source: the CI runner's Agave 4.3.0
+installer brings cargo-build-sbf 4.3.0 (platform-tools v1.57), and its builds of the same source
+(commits 0a6d6d9 and 517e7f8, identical hashes) are 612,528 / 612,528 / 611,216 bytes, also
+without any stack warning, against 588,216 / 588,216 / 586,880 with cargo-build-sbf 4.4.0 on the
+build machine, whose toolchain matches `release/mainnet-2026-10-10/BUILD.md`. The script prints
+the `cargo build-sbf --version` it used beside the sizes and hashes; the audit pack must record
+the hash of the verifiable build with its toolchain (C03), not a CI artefact.
 
-Compute measured in a litesvm smoke run of the production build (one coin's life on default
-config #0; a scratch run, not yet the C01 suite of stage 3): `launch` 110,776 CU; a curve buy
+Compute measured by the litesvm smoke test of the production build (`tests-vcurve/00-smoke.test.mjs`,
+`npm run test:vcurve`, run in CI; one coin's life on default config #0; not yet the C01 suite of
+stage 3): `launch` 110,776 CU; a curve buy
 26,182, a curve sell 23,503, the graduating buy 29,706, a pool buy 25,610; `buyback_burn`
 19,938; `withdraw_platform_fees` 12,632; `claim_founder_fees` 13,165; `forward_holders_fees`
 plus the top-level `SyncNative` 19,871; `payout_founder_fees` 18,829. Every figure is inside
@@ -368,8 +372,8 @@ is created, moved or written. Moving the check in front of account validation wo
 hand-written entrypoint around Anchor's dispatcher, which 8.3 does not ask for and which would
 add audit surface to every build.
 
-Checked in the litesvm smoke run of entry 20 (H02 and H03 in miniature; the committed suite is
-stage 3): the halt-all build deployed over a live coin made `buy`, `sell`, `buyback_burn`,
+Checked by the litesvm smoke test of entry 20 on every push (H02 and H03 in miniature; the full
+suites are stage 3): the halt-all build deployed over a live coin made `buy`, `sell`, `buyback_burn`,
 `withdraw_platform_fees`, `claim_founder_fees`, `forward_holders_fees`, `payout_founder_fees`
 and the `launch` of a second approved city fail with `TradingHalted`, left the `Coin`'s bytes
 and lamports unchanged while settings instructions (an approval) still worked, and after the
@@ -465,5 +469,6 @@ rules on the real binary (H02, R02, R02b, L01 to L13, X01 to X65).
 
 `.github/workflows/solana.yml` gains, for `vicinity-curve` only: clippy (`-D warnings`) and the
 unit tests with `--features devnet` and with `--features halt-all`; the diff of the committed
-IDL against `anchor build`'s; and the three SBF builds with the stack check of entry 20. The
-existing programs' steps, IDLs and binaries are unchanged.
+IDL against `anchor build`'s; the three SBF builds with the stack check of entry 20; and the
+litesvm smoke test of entries 20 and 21 (`npm run test:vcurve`). The existing programs' steps,
+IDLs and binaries are unchanged.
