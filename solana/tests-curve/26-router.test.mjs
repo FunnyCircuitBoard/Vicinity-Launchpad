@@ -141,7 +141,7 @@ test('G03: pay with any token: a swap delivering SOL then the buy; sol_in from t
     const u = await w.signer(3n); // the SOL the user already had
     const own = w.lamportsOf(u.address);
     const minOut = BigInt(quote.swapMode === 'ExactOut' ? quote.outAmount : quote.otherAmountThreshold);
-    const { instructions, solIn } = S.buyWithSwap({ ix: w.ix, user: u.address, coin: h.coin, mint: h.mint, swapInstructions: [swap(u.address, delivered, minOut)], quote });
+    const { instructions, solIn } = S.buyWithSwap({ ix: w.ix, user: u.address, coin: h.coin, mint: h.mint, swapInstructions: [swap(u.address, delivered, minOut)], quote, coinAccount: w.coinView(h), slippageBps: 100 });
     const r = await w.send(instructions, [u], label);
     w.addHolder(h.mint, u);
     const t = r.events.find((e) => e.name === 'Trade').data;
@@ -158,7 +158,7 @@ test('G03: pay with any token: a swap delivering SOL then the buy; sol_in from t
   await run('ExactOut: the swap delivers exactly sol_in', { delivered: Q, quote: { swapMode: 'ExactOut', outAmount: Q, otherAmountThreshold: Q * 2n } });
   // below its minimum the swap fails and nothing moves (the buy never runs)
   const u = await w.signer(3n);
-  const { instructions } = S.buyWithSwap({ ix: w.ix, user: u.address, coin: h.coin, mint: h.mint, swapInstructions: [swap(u.address, T - 1n, T)], quote: exactIn });
+  const { instructions } = S.buyWithSwap({ ix: w.ix, user: u.address, coin: h.coin, mint: h.mint, swapInstructions: [swap(u.address, T - 1n, T)], quote: exactIn, coinAccount: w.coinView(h), slippageBps: 100 });
   await expectFail(() => w.send(instructions, [u], 'swap below its minimum'), /custom program error: 0x1\b/);
   // the hazard the rule avoids: sol_in = outAmount with a swap delivering only its minimum spends the user's own SOL
   const v = await w.signer(3n); const own = w.lamportsOf(v.address);

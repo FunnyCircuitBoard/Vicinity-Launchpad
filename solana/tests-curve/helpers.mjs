@@ -122,12 +122,39 @@ const stringify = (v) => {
 
 // ---------------------------------------------------------------- results
 export class TxError extends Error {
-  constructor(label, logs, err) {
+  constructor(label, logs, err, rpc = null) {
     super(`${label} failed: ${err}\n  ${logs.slice(-14).join('\n  ')}`);
     this.logs = logs;
     this.errText = String(err);
+    this.rpc = rpc; // the failed transaction as getTransaction would return it (rpcTransaction)
   }
 }
+
+/**
+ * A transaction as an RPC's getTransaction returns it (`{ slot, meta, transaction: { message } }`, v0 message
+ * with compiled instructions, inner instructions with their stack heights, logs, loaded addresses), built from
+ * litesvm's result: what `S.decodeTransactionEvents` reads (CLI-2). `err` is null for a success.
+ */
+export function rpcTransaction(messageBytes, { err = null, inner, logs, loaded = [] }) {
+  const msg = getCompiledTransactionMessageDecoder().decode(messageBytes);
+  const compiled = (ix) => ({ programIdIndex: ix.programAddressIndex, accountKeyIndexes: [...(ix.accountIndices ?? [])], data: Uint8Array.from(ix.data ?? []) });
+  // loaded addresses come in runtime order (World.loadedAddresses): the writable ones of every table, then the read-only ones
+  const nW = (msg.addressTableLookups ?? []).reduce((n, l) => n + (l.writableIndexes ?? l.writableIndices ?? []).length, 0);
+  return {
+    meta: {
+      err,
+      logMessages: logs,
+      loadedAddresses: { writable: loaded.slice(0, nW).map(String), readonly: loaded.slice(nW).map(String) },
+      innerInstructions: inner.map((list, index) => ({
+        index,
+        instructions: list.map((ii) => { const c = ii.instruction(); return { programIdIndex: c.programIdIndex(), accounts: Array.from(c.accounts()), data: Uint8Array.from(c.data()), stackHeight: ii.stackHeight() }; }),
+      })).filter((g) => g.instructions.length),
+    },
+    transaction: { message: { staticAccountKeys: msg.staticAccounts.map(String), compiledInstructions: msg.instructions.map(compiled) } },
+  };
+}
+/** Events as a sorted list of `name:fields` strings (to compare two decoders' results as multisets). */
+const eventKeys = (events) => events.map((e) => `${e.name}:${JSON.stringify(e.data, (k, v) => (typeof v === 'bigint' ? v.toString() : v instanceof Uint8Array ? [...v] : v))}`).sort();
 /** Assert that `fn` fails with one of `codes` (error names, or RegExps over logs and error). */
 export async function expectFail(fn, ...codes) {
   let e;
@@ -346,14 +373,21 @@ export class World {
     const postAccounts = read();
     if (typeof res.err === 'function') {
       const logs = res.meta().logs();
+      const rpc = rpcTransaction(messageBytes, { err: stringify(res.err()), inner: res.meta().innerInstructions(), logs, loaded });
       if (this.checks) {
         checkFailedTransaction(this, { pre, post: snapshot(this, keySet), preAccounts, postAccounts, feePayer: keys[0], nSignatures: msg.header.numSignerAccounts, label });
+        // 4.21, T56 (CLI-2): a failed transaction yields no events to an indexer, whatever its metadata carries
+        assert.deepEqual(S.decodeTransactionEvents(rpc, { programId: this.programId }), [], `${label} (failed): decodeTransactionEvents returned events`);
       }
-      throw new TxError(label, logs, stringify(res.err()));
+      throw new TxError(label, logs, stringify(res.err()), rpc);
     }
     const logs = res.logs();
     const decoded = decodeTransaction(this, { messageBytes, inner: res.innerInstructions(), logs, lookupAddresses: loaded });
     if (this.checks) {
+      // the SDK's transaction-level decoder (what indexers use, CLI-2) finds exactly the events the checker found
+      const rpc = rpcTransaction(messageBytes, { inner: res.innerInstructions(), logs, loaded });
+      assert.deepEqual(eventKeys(S.decodeTransactionEvents(rpc, { programId: this.programId })), eventKeys(decoded.top.flatMap((t) => t.events)),
+        `${label}: decodeTransactionEvents disagrees with the checker`);
       const ctx = { pre, post: snapshot(this, keySet), tx: decoded, preAccounts, postAccounts, label, opts: o };
       this.lastCtx = ctx; // what the checker saw (tests of the checker replay it with edits)
       checkTransaction(this, ctx);

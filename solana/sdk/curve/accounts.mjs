@@ -58,7 +58,8 @@ class Reader {
   }
 }
 
-const ownerOf = (a) => (a.owner instanceof PublicKey ? a.owner.toBase58() : String(a.owner ?? a.programAddress));
+/** The owner of an account snapshot as base58 (`owner` as a string or PublicKey, or kit's `programAddress`). */
+export const ownerOf = (a) => (a.owner instanceof PublicKey ? a.owner.toBase58() : String(a.owner ?? a.programAddress));
 function open(account, name, { programId = CURVE_PROGRAM_ID, exactLength = true } = {}) {
   if (!account) throw new DecodeError('Missing', name);
   if (ownerOf(account) !== String(programId)) throw new DecodeError('WrongOwner', `${name} owned by ${ownerOf(account)}`);

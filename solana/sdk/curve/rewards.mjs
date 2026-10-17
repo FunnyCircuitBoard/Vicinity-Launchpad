@@ -12,9 +12,14 @@
 // `init_city` instruction, simulates it, decodes the CityConfig bytes the
 // simulation would write and runs the program's own two rules on them
 // (`rewardsConfigProblems`: check_rewards_config and the authority rule)
-// before it returns anything to propose. A config that already exists is
-// checked the same way: a correct one needs nothing, a wrong one is reported
-// as unfixable.
+// before it returns anything to propose. A config that already exists (an
+// account owned by vicinity_rewards at the config address) is checked the
+// same way: a correct one needs nothing; one whose only problems are its
+// authority (not the admin, or a transfer pending) is fixable with
+// propose_authority / accept_authority (`AuthorityNotAdmin`); one with wrong
+// economics is unfixable (`ExistsWrong`, O26). A System-owned account without
+// data at the config address is not a config: anyone can pre-fund the address
+// (CLI-3), and init_city creates the config over it (Anchor `init`, T55).
 //
 // The chain is reached only through the two functions the caller passes:
 //   getAccount(address)       -> { owner, lamports, data } | null
@@ -25,7 +30,7 @@
 // suites pass the World's simulator.) Plain ESM, BigInt, no Anchor.
 import web3 from '@solana/web3.js';
 import { ADDRESSES } from './constants.mjs';
-import { decodeLaunchpad, decodeRewardsCityConfig, rewardsConfigProblems } from './accounts.mjs';
+import { decodeLaunchpad, decodeRewardsCityConfig, ownerOf, rewardsConfigProblems } from './accounts.mjs';
 import { clusterIds, curvePdas, findPda, toKey } from './pda.mjs';
 import { Role } from './instructions.mjs';
 
@@ -103,15 +108,26 @@ export function cityConfigProblems(account, { mint, admin, cluster = 'mainnet' }
   return { view, problems: rewardsConfigProblems(view, { mint, vault, admin }) };
 }
 
+/** The problems an existing config's authority can fix (propose_authority / accept_authority, 4.15); every other problem is in the economics, written once by init_city. */
+export const FIXABLE_CONFIG_PROBLEMS = Object.freeze(['authority is not the vicinity_curve admin', 'an authority transfer is pending']);
+
 /**
  * Build, simulate and check the city's rewards config for a launched coin
  * before anything is proposed (R03, 4.15, 14.1). Returns
  * `{ instructions, config, vault, view, already }`:
- *   * no config yet: `instructions` is the one `init_city` whose simulated
- *     CityConfig passes check_rewards_config and the authority rule;
+ *   * no config yet (no account, or a System-owned account without data that
+ *     someone pre-funded): `instructions` is the one `init_city` whose
+ *     simulated CityConfig passes check_rewards_config and the authority rule;
  *   * a correct config exists: `instructions` is empty and `already` true;
- * and throws RewardsConfigError (`WouldBeWrong`, `ExistsWrong`,
- * `SimulationFailed`, `NoLaunchpad`) otherwise, listing the problems.
+ * and throws RewardsConfigError otherwise, listing the problems:
+ *   * `AuthorityNotAdmin` (`fixable` true): the config's economics are right
+ *     but its authority is not the admin or a transfer is pending; the current
+ *     authority proposes the admin (or zero, to cancel) and the admin accepts;
+ *   * `ExistsWrong` (`fixable` false): wrong economics, which vicinity_rewards
+ *     can never change (O26);
+ *   * `NotACityConfig`: the address holds an account that is neither a
+ *     vicinity_rewards account nor an empty System account;
+ *   * `WouldBeWrong`, `SimulationFailed`, `NoLaunchpad`.
  * `admin` defaults to the vicinity_curve Launchpad's admin, read through
  * `getAccount`.
  */
@@ -128,15 +144,29 @@ export async function initRewardsForCoin({
     if (!lp) throw new RewardsConfigError('NoLaunchpad', 'the vicinity_curve Launchpad does not exist');
     curveAdmin = decodeLaunchpad(lp, { programId: P.programId }).admin;
   }
-  const { config, vault } = rewardsCityAccounts({ mint, cluster });
+  const { config, vault, program: rewardsProgram } = rewardsCityAccounts({ mint, cluster });
   const existing = await getAccount(config);
-  if (existing && BigInt(existing.lamports ?? 1) > 0n) {
+  const owner = existing ? ownerOf(existing) : null;
+  const dataLen = existing?.data?.length ?? 0;
+  if (existing && owner === rewardsProgram) {
     const { view, problems } = cityConfigProblems(existing, { mint, admin: curveAdmin, cluster });
+    if (problems.length && problems.every((p) => FIXABLE_CONFIG_PROBLEMS.includes(p))) {
+      const e = new RewardsConfigError('AuthorityNotAdmin', `the city's rewards config ${config} has the right economics, but forward_holders_fees refuses it until its authority is the vicinity_curve admin ${curveAdmin} with no transfer pending: the current authority ${view.authority} proposes the admin (propose_authority; or proposes zero to cancel a pending transfer) and the admin accepts (accept_authority); the holders' share waits in holders_pending until then (4.15)`, problems);
+      e.fixable = true; e.view = view;
+      throw e;
+    }
     if (problems.length) {
-      throw new RewardsConfigError('ExistsWrong', `the city's rewards config ${config} already exists and forward_holders_fees refuses it; vicinity_rewards cannot change or close it, so the holders' share of this coin waits until a program upgrade (O26)`, problems);
+      const e = new RewardsConfigError('ExistsWrong', `the city's rewards config ${config} already exists with economics forward_holders_fees refuses; vicinity_rewards cannot change or close it, so the holders' share of this coin waits until a program upgrade (O26)`, problems);
+      e.fixable = false; e.view = view;
+      throw e;
     }
     return { instructions: [], config, vault, view, already: true };
   }
+  if (existing && !(owner === ADDRESSES.system && dataLen === 0)) {
+    throw new RewardsConfigError('NotACityConfig', `the account at the city's rewards config address ${config} is owned by ${owner} with ${dataLen} bytes: neither a vicinity_rewards CityConfig nor an empty System account`);
+  }
+  // no config yet: nothing there, or lamports someone sent to the address (a System account without data, which
+  // init_city creates the config over, T55)
   const ix = initCityInstruction({ payer, registryAdmin, authority, founder: coin.founder, mint, rewardModel, founderBps, rewardMint, cityTag, cluster });
   const sim = await simulate([ix], [config]);
   if (!sim?.ok) throw new RewardsConfigError('SimulationFailed', `init_city does not simulate: ${sim?.error ?? 'no result'}`);

@@ -5,9 +5,25 @@
 // `["__event_authority"]` (signed by the program) and whose data is
 // EVENT_IX_TAG, the event discriminator and the Borsh fields. Settings changes
 // are emitted with `emit!`, a "Program data: <base64>" log line holding the
-// discriminator and the fields. Indexers accept a money event only from an
-// inner instruction of vicinity_curve with the event authority as its account
-// (`decodeEventCpi` checks both) and reconcile it with the account state.
+// discriminator and the fields.
+//
+// Indexers decode a whole confirmed transaction with `decodeTransactionEvents`
+// (4.21, T56; CLI-2), which accepts events only:
+//   * from a transaction that succeeded (`meta.err` null). The runtime records
+//     the inner instructions and logs of FAILED transactions too, and a failed
+//     transaction reverts everything: a genuine Trade event CPI from a buy that
+//     was then made to fail costs its sender only the fee and changed nothing;
+//   * for money events, from an inner instruction (stack height 2 or more) of
+//     vicinity_curve, called by vicinity_curve itself (the enclosing call), with
+//     the event authority PDA as its only account;
+//   * for settings events, from "Program data:" lines logged while
+//     vicinity_curve was the running program.
+// `decodeEventCpi` and `decodeEventLogs` check one instruction or one log list
+// only, never the transaction's status: never feed them a failed transaction.
+// Indexers also read at `finalized` commitment (or re-check at it), and never
+// keep the first event seen for a (coin, trade_seq) and drop later ones: after
+// confirmation they reconcile each coin's events with `Coin.trade_seq` and the
+// counters of the account (14.1).
 import web3 from '@solana/web3.js';
 import { CURVE_PROGRAM_ID, EVENT_DISCRIMINATORS, EVENT_IX_TAG } from './constants.mjs';
 import { curvePdas } from './pda.mjs';
@@ -101,7 +117,10 @@ export function decodeEventBytes(bytes) {
  * Decode an event CPI: `ix` = `{ programId, accounts: [base58...], data }` of an
  * inner instruction. Returns `{ name, data }` only when it is a vicinity_curve
  * instruction whose single account is the event authority PDA and whose data
- * starts with EVENT_IX_TAG; null otherwise.
+ * starts with EVENT_IX_TAG; null otherwise. It checks this one instruction
+ * only: whether the transaction succeeded and who called the program are
+ * `decodeTransactionEvents`' checks (a failed transaction carries genuine
+ * event CPIs of trades that never happened, CLI-2).
  */
 export function decodeEventCpi(ix, { programId = CURVE_PROGRAM_ID } = {}) {
   if (String(ix.programId) !== String(programId)) return null;
@@ -112,7 +131,11 @@ export function decodeEventCpi(ix, { programId = CURVE_PROGRAM_ID } = {}) {
   return decodeEventBytes(d.subarray(8));
 }
 
-/** The `emit!` events in a transaction's logs ("Program data: <base64>" lines of vicinity_curve). */
+/**
+ * The `emit!` events in a transaction's logs ("Program data: <base64>" lines of
+ * vicinity_curve). The logs of failed transactions are recorded too: use
+ * `decodeTransactionEvents`, which reads them only from a successful one.
+ */
 export function decodeEventLogs(logs, { programId = CURVE_PROGRAM_ID } = {}) {
   const out = [];
   const stack = [];
@@ -126,6 +149,89 @@ export function decodeEventLogs(logs, { programId = CURVE_PROGRAM_ID } = {}) {
       const e = decodeEventBytes(Uint8Array.from(atob(m[1]), (c) => c.charCodeAt(0)));
       if (e) out.push(e);
     }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- whole transactions (CLI-2)
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+/** Base58 to bytes (instruction data of RPC "json" encoding). */
+function fromBase58(str) {
+  let n = 0n;
+  for (const ch of str) {
+    const v = B58.indexOf(ch);
+    if (v < 0) throw new Error(`not base58: ${ch}`);
+    n = n * 58n + BigInt(v);
+  }
+  const bytes = [];
+  while (n > 0n) { bytes.unshift(Number(n & 0xffn)); n >>= 8n; }
+  for (const ch of str) { if (ch !== '1') break; bytes.unshift(0); }
+  return Uint8Array.from(bytes);
+}
+const keyString = (k) => (typeof k === 'string' ? k : k instanceof PublicKey ? k.toBase58() : k?.pubkey !== undefined ? keyString(k.pubkey) : String(k));
+const dataBytes = (d) => (d instanceof Uint8Array ? d : typeof d === 'string' ? fromBase58(d) : Array.isArray(d) && typeof d[0] === 'string' && d[1] === 'base64' ? Uint8Array.from(atob(d[0]), (c) => c.charCodeAt(0)) : new Uint8Array(d ?? []));
+
+/** The full account list of a transaction message: its static keys, then the addresses loaded from lookup tables (writable, then read-only). */
+function transactionKeys(message, meta) {
+  const statics = (message.staticAccountKeys ?? message.accountKeys ?? []).map(keyString);
+  const loaded = meta?.loadedAddresses ?? {};
+  return [...statics, ...(loaded.writable ?? []).map(keyString), ...(loaded.readonly ?? []).map(keyString)];
+}
+/** `{ program, accounts, data }` of a compiled or parsed instruction. */
+function instructionOf(ix, keys) {
+  const program = ix.programIdIndex !== undefined ? keys[ix.programIdIndex] : keyString(ix.programId);
+  const idx = ix.accountKeyIndexes ?? ix.accounts ?? [];
+  const accounts = idx.map((a) => (typeof a === 'number' ? keys[a] : keyString(a)));
+  return { program, accounts, data: dataBytes(ix.data) };
+}
+
+/**
+ * Every vicinity_curve event of one confirmed transaction, the way indexers
+ * must accept them (4.21, T56, 14.1; CLI-2). `tx` is what getTransaction
+ * returns: `{ meta, transaction: { message } }` (or `{ meta, message }`), with
+ * a legacy or v0 message, "json" or "jsonParsed" instructions, or web3.js
+ * objects. Returns `[]` when the transaction failed (`meta.err` set): its
+ * events describe nothing that happened. Otherwise, in order:
+ *   * each event CPI: an inner instruction of vicinity_curve at stack height 2
+ *     or more whose enclosing call (the nearest instruction one level up) is
+ *     vicinity_curve, whose only account is the event authority PDA and whose
+ *     data starts with EVENT_IX_TAG, as `{ name, data, source: 'cpi', index,
+ *     stackHeight }` (`index`: the top-level instruction it ran under);
+ *   * each `emit!` event logged while vicinity_curve was running, as
+ *     `{ name, data, source: 'log' }` (never a money event: those are CPIs).
+ * Throws when the metadata cannot prove where an event CPI came from (no
+ * `meta`, or inner instructions without `stackHeight`).
+ */
+export function decodeTransactionEvents(tx, { programId = CURVE_PROGRAM_ID } = {}) {
+  const meta = tx?.meta;
+  if (!meta) throw new Error('decodeTransactionEvents: no transaction metadata (meta)');
+  if (meta.err !== null && meta.err !== undefined) return [];
+  const message = tx.transaction?.message ?? tx.message;
+  if (!message) throw new Error('decodeTransactionEvents: no message');
+  const program = String(programId);
+  const eventAuthority = curvePdas({ programId }).eventAuthority();
+  const keys = transactionKeys(message, meta);
+  const top = (message.compiledInstructions ?? message.instructions ?? []).map((ix) => instructionOf(ix, keys));
+  const out = [];
+  for (const group of meta.innerInstructions ?? []) {
+    const parent = top[group.index];
+    if (!parent) throw new Error(`decodeTransactionEvents: inner instructions of a missing instruction ${group.index}`);
+    const stack = [null, parent.program]; // stack[h] = the program of the latest instruction at stack height h
+    for (const raw of group.instructions ?? []) {
+      const h = raw.stackHeight;
+      if (!Number.isInteger(h)) throw new Error('decodeTransactionEvents: inner instruction without stackHeight: the enclosing call cannot be checked');
+      const ii = instructionOf(raw, keys);
+      const caller = h >= 2 ? stack[h - 1] : null;
+      stack[h] = ii.program; stack.length = h + 1;
+      if (ii.program !== program || h < 2 || caller !== program) continue;
+      if (ii.accounts.length !== 1 || ii.accounts[0] !== eventAuthority) continue;
+      if (ii.data.length < 16 || !sameBytes(ii.data, EVENT_IX_TAG)) continue;
+      const e = decodeEventBytes(ii.data.subarray(8));
+      if (e) out.push({ ...e, source: 'cpi', index: group.index, stackHeight: h });
+    }
+  }
+  for (const e of decodeEventLogs(meta.logMessages ?? [], { programId })) {
+    if (!CPI_EVENTS.includes(e.name)) out.push({ ...e, source: 'log' });
   }
   return out;
 }

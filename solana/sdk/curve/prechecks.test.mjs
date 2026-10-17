@@ -146,10 +146,42 @@ test('initRewardsForCoin proposes only a config forward_holders_fees accepts; it
   assert.deepEqual([again.instructions.length, again.already], [0, true]);
   chain.set(config, { owner: rewardsProgram, lamports: 1n, data: cityConfigBytes({ authority: admin, founder: coin.founder, mint: coin.mint, vault, model: 0, founderBps: 10_000 }) });
   await assert.rejects(() => S.initRewardsForCoin(base), (e) => e.code === 'ExistsWrong' && /can.?not change or close it/.test(e.message));
+  // CLI-3: problems of the authority alone are fixable (propose_authority / accept_authority), never O26
   chain.set(config, { owner: rewardsProgram, lamports: 1n, data: cityConfigBytes({ authority: admin, pending: key(), founder: coin.founder, mint: coin.mint, vault }) });
-  await assert.rejects(() => S.initRewardsForCoin(base), (e) => e.code === 'ExistsWrong' && e.problems.includes('an authority transfer is pending'));
+  await assert.rejects(() => S.initRewardsForCoin(base), (e) => e.code === 'AuthorityNotAdmin' && e.fixable === true && e.problems.includes('an authority transfer is pending') && !/O26/.test(e.message));
+  chain.set(config, { owner: rewardsProgram, lamports: 1n, data: cityConfigBytes({ authority: key(), founder: coin.founder, mint: coin.mint, vault }) });
+  await assert.rejects(() => S.initRewardsForCoin(base), (e) => e.code === 'AuthorityNotAdmin' && /propose_authority/.test(e.message));
+  // wrong economics and a wrong authority together: unfixable
+  chain.set(config, { owner: rewardsProgram, lamports: 1n, data: cityConfigBytes({ authority: key(), founder: coin.founder, mint: coin.mint, vault, model: 2, founderBps: 5_000 }) });
+  await assert.rejects(() => S.initRewardsForCoin(base), (e) => e.code === 'ExistsWrong' && e.fixable === false && e.problems.includes('model is not Holders'));
+  // an account owned by another program at the address is no CityConfig, and not an empty System account either
   chain.set(config, { owner: S.CLUSTERS.devnet.rewardsProgram, lamports: 1n, data: cityConfigBytes({ authority: admin, founder: coin.founder, mint: coin.mint, vault }) });
-  await assert.rejects(() => S.initRewardsForCoin(base), (e) => e.code === 'ExistsWrong' && /WrongOwner/.test(e.problems[0]));
+  await assert.rejects(() => S.initRewardsForCoin(base), (e) => e.code === 'NotACityConfig');
+  chain.set(config, { owner: S.ADDRESSES.system, lamports: 1n, data: Buffer.alloc(8) });
+  await assert.rejects(() => S.initRewardsForCoin(base), (e) => e.code === 'NotACityConfig');
+});
+
+test('CLI-3 initRewardsForCoin: lamports sent to the config address (a System account without data) are not a config; init_city is proposed as usual', async () => {
+  const admin = key(); const coin = { mint: key(), founder: key() };
+  const { config } = S.rewardsCityAccounts({ mint: coin.mint });
+  const rewardsProgram = S.CLUSTERS.mainnet.rewardsProgram;
+  let simulated = 0;
+  const simulate = async (ixs) => {
+    simulated++;
+    const ix = ixs[0]; const acc = (i) => ix.accounts[i].address;
+    const data = cityConfigBytes({ authority: acc(3), founder: acc(4), mint: acc(5), rewardMint: acc(6), vault: acc(8), model: ix.data[8], founderBps: ix.data[9] | (ix.data[10] << 8) });
+    return { ok: true, account: (k) => (String(k) === config ? { owner: rewardsProgram, lamports: 890_880n, data } : null) };
+  };
+  for (const prefunded of [
+    { owner: S.ADDRESSES.system, lamports: 890_880n, data: Buffer.alloc(0) }, // rent_min(0), the grief of the review
+    { owner: S.ADDRESSES.system, lamports: 1n, data: new Uint8Array(0) },
+    { programAddress: S.ADDRESSES.system, lamports: 5_000_000_000n, data: Buffer.alloc(0) }, // kit's shape
+  ]) {
+    const getAccount = async (k) => (String(k) === config ? prefunded : null);
+    const r = await S.initRewardsForCoin({ getAccount, simulate, payer: key(), registryAdmin: admin, authority: admin, coin, admin });
+    assert.deepEqual([r.instructions.length, r.already, r.view.authority], [1, false, admin]);
+  }
+  assert.equal(simulated, 3);
 });
 
 test('simulateWithConnection: a v0 transaction simulated without signatures, returning the accounts asked for', async () => {
@@ -181,9 +213,36 @@ test('pay with any token (14.1, G03): sol_in is the swap\'s guaranteed output, n
   assert.throws(() => S.solInFromSwapQuote({}), /unknown swapMode/);
   const user = key(); const mint = key(); const coin = key();
   const swapIx = { programAddress: key(), accounts: [], data: new Uint8Array([1]) };
-  const { instructions, solIn } = S.buyWithSwap({ ix: S.ix, user, coin, mint, swapInstructions: [swapIx], quote: { swapMode: 'ExactIn', outAmount: 500_000n, otherAmountThreshold: 400_000n } });
+  const { instructions, solIn, minTokensOut } = S.buyWithSwap({ ix: S.ix, user, coin, mint, swapInstructions: [swapIx], quote: { swapMode: 'ExactIn', outAmount: 500_000n, otherAmountThreshold: 400_000n }, minTokensOut: 7n });
   assert.equal(solIn, 400_000n);
+  assert.equal(minTokensOut, 7n);
   assert.deepEqual(instructions.map((x) => x.programAddress), [swapIx.programAddress, S.ADDRESSES.associatedToken, S.CURVE_PROGRAM_ID]);
   assert.equal(Buffer.from(instructions[2].data).readBigUInt64LE(8), 400_000n, 'the buy\'s sol_in');
+  assert.equal(Buffer.from(instructions[2].data).readBigUInt64LE(16), 7n, 'the buy\'s min_tokens_out');
   assert.equal(instructions[2].accounts[5].address, S.associatedTokenAddress(user, mint));
+});
+
+test('CLI-1 pay with any token: buyWithSwap never builds a buy without its own minimum (14.1)', () => {
+  const user = key(); const coinKey = key();
+  const swapIx = { programAddress: key(), accounts: [], data: new Uint8Array([1]) };
+  const quote = { swapMode: 'ExactIn', outAmount: 1_010_000_000n, otherAmountThreshold: 1_000_000_000n };
+  // a coin snapshot at launch on config #0
+  const coin = { ...S.DEFAULT_TERMS, ...S.stateAtLaunch(1000n), mint: key() };
+  const base = { ix: S.ix, user, coin: coinKey, mint: coin.mint, swapInstructions: [swapIx], quote };
+  // the default the review found: no minimum at all (it used to encode min_tokens_out = 0)
+  assert.throws(() => S.buyWithSwap(base), (e) => e instanceof S.ComposeError && /needs its own minimum/.test(e.message));
+  assert.throws(() => S.buyWithSwap({ ...base, minTokensOut: 0n }), /at least 1/);
+  assert.throws(() => S.buyWithSwap({ ...base, minTokensOut: 5n, slippageBps: 100 }), /not both/);
+  assert.throws(() => S.buyWithSwap({ ...base, slippageBps: 100 }), /needs coinAccount/);
+  assert.throws(() => S.buyWithSwap({ ...base, coinAccount: coin, slippageBps: S.MAX_SWAP_SLIPPAGE_BPS + 1 }), /0 to 500/);
+  assert.throws(() => S.buyWithSwap({ ...base, coinAccount: coin, slippageBps: 1.5 }), /integer/);
+  assert.throws(() => S.buyWithSwap({ ...base, mint: key(), coinAccount: coin, slippageBps: 100 }), /not .*mint|coin of mint/);
+  // from the snapshot: the quote of the guaranteed sol_in, less the slippage
+  const q = S.quoteBuy(S.coinTerms(coin), S.coinState(coin), 1_000_000_000n);
+  for (const bps of [0, 100, 200, 500]) {
+    const r = S.buyWithSwap({ ...base, coinAccount: coin, slippageBps: bps });
+    assert.equal(r.minTokensOut, S.withSlippage(q.tokensOut, bps));
+    assert.equal(Buffer.from(r.instructions.at(-1).data).readBigUInt64LE(16), r.minTokensOut, `${bps} bps encoded`);
+    assert.ok(r.minTokensOut > 0n);
+  }
 });

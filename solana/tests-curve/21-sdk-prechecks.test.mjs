@@ -160,13 +160,16 @@ test('R03 last clause: initRewardsForCoin simulates the real init_city and propo
   // asked again: nothing to do
   const again = await S.initRewardsForCoin(base);
   assert.deepEqual([again.instructions.length, again.already], [0, true]);
-  // an authority transfer started on the correct config makes it refused until it is accepted or cancelled (4.15)
+  // an authority transfer started on the correct config makes it refused until it is accepted or cancelled (4.15):
+  // a fixable problem (propose_authority / accept_authority), not an unfixable config (NOTES 46)
   await w.send([w.rewardsIx('propose_authority', { new_authority: new PublicKey(stranger.address) }, { authority: w.admin.address, config })], [w.admin], 'rewards propose_authority');
-  await assert.rejects(() => S.initRewardsForCoin(base), (e) => e.code === 'ExistsWrong' && e.problems.includes('an authority transfer is pending'));
+  await assert.rejects(() => S.initRewardsForCoin(base), (e) => e.code === 'AuthorityNotAdmin' && e.fixable === true && e.problems.includes('an authority transfer is pending'));
+  await w.send([w.rewardsIx('propose_authority', { new_authority: new PublicKey(S.ADDRESSES.system) }, { authority: w.admin.address, config })], [w.admin], 'rewards cancel the transfer');
+  assert.equal((await S.initRewardsForCoin(base)).already, true);
   // a coin whose config was made wrong behind the SDK's back: reported as unfixable
   const h2 = await w.launchCoin({ cityId: 2_121n, symbol: 'RWD2' });
   await w.initRewardsCity(h2, { model: 'Creator', founderBps: 10_000 });
-  await assert.rejects(() => S.initRewardsForCoin({ ...base, coin: w.coinView(h2) }), (e) => e.code === 'ExistsWrong' && e.problems.includes('model is not Holders'));
+  await assert.rejects(() => S.initRewardsForCoin({ ...base, coin: w.coinView(h2) }), (e) => e.code === 'ExistsWrong' && e.fixable === false && e.problems.includes('model is not Holders'));
   await w.finish();
 });
 

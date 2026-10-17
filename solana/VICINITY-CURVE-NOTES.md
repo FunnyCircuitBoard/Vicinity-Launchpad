@@ -853,7 +853,9 @@ config's economics only in `init_city` and cannot close one, so a wrong config m
 simulates it, decodes the CityConfig the simulation would write and runs the program's own two rules
 on it (`check_rewards_config` and the authority rule, with the admin read from the Launchpad) before
 it returns anything to propose. An existing correct config needs nothing, and an existing wrong one
-(or one with an authority transfer pending) is reported as unfixable (`RewardsConfigError`). The
+(or one with an authority transfer pending) is reported as unfixable (`RewardsConfigError`).
+*Superseded by entry 46: a pre-funded config address is no config, and authority-only problems are
+reported as fixable (`AuthorityNotAdmin`).* The
 tests run it against the real `vicinity_rewards` in litesvm and over a fake chain, and the config it
 proposes carries the holders' money.
 
@@ -1078,3 +1080,86 @@ wallet refused both ways, and allowed again once payouts are off; a withdrawal a
 `set_guardian`); unit tests `payout_keys_separate` and `fee_recipient_has_no_role`; the checker's
 I20 (payout keys separate from the guardian; `FEE_RECIPIENT` is never the admin, the pending admin
 or the guardian).
+
+### 44. The buy leg of "pay with any token" carries its own minimum (14.1, 12.5 G03; review CLI-1)
+
+**Spec.** 14.1 says the composer takes `sol_in` from the swap's guaranteed output (G03, entry 40)
+and that slippage defaults to 1% to 2%; it did not say that the buy leg needs its own minimum.
+
+**Issue.** `sdk/curve/compose.mjs`'s `buyWithSwap` defaulted `min_tokens_out` to 0, and every call in
+the repository left it out. The swap's minimum says nothing about the curve's price, so a searcher
+could buy ahead of the transaction and sell after it: on a fresh coin a 5 SOL buy received 68% fewer
+coins than quoted (attacker +2.13 SOL). `ix.buy` itself throws without a minimum; only the helper
+dropped it. The program was right: with a minimum the victim's buy fails.
+
+**Choice.** `buyWithSwap` builds no buy without a positive minimum (`buyLegMinimum`): either
+`minTokensOut` (at least 1), or the coin's snapshot (`coinAccount`, a decoded `CurveCoin`) and
+`slippageBps` (an integer from 0 to `MAX_SWAP_SLIPPAGE_BPS` = 500), from which the minimum is
+`withSlippage(quoteBuy(coin, guaranteed sol_in).tokensOut, slippageBps)`. Anything else throws
+`ComposeError`. It returns the minimum with the instructions. G03's calls pass the coin and 100
+basis points. No program change.
+
+Tests. `sdk/curve/prechecks.test.mjs` (no minimum, 0, both ways at once, a missing snapshot, a
+slippage above 500 or not an integer, another coin's snapshot: refused; the computed minimum
+encoded); `tests-curve/29-clients.test.mjs` (the review's 25.5 SOL front-run against a 5 SOL buy at
+2%: the victim's buy fails with `SlippageExceeded` and nothing moves, the attacker's round trip
+loses; without the front-run the buy delivers at least the minimum).
+
+### 45. Events only from successful transactions: `decodeTransactionEvents` (4.21, 14.1, T56; review CLI-2)
+
+**Spec.** 4.21: indexers accept event CPIs "only from an inner instruction of `vicinity_curve`
+signed by its `event_authority` PDA"; 14.1: "`trade_seq` is gap-free per coin, so missed events
+are detectable".
+
+**Issue.** The runtime records the inner instructions and logs of failed transactions too (Agave
+`svm/src/transaction_processor.rs`; litesvm's failed metadata). A transaction `[sell everything, a
+transfer that always fails]` reverts and costs its sender only the fee, yet its metadata holds the
+program's genuine `Trade` event CPI, which the stated rule and `decodeEventCpi` accept; the next
+real trade carries the same `trade_seq`. An indexer that keeps the first event per
+`(coin, trade_seq)` keeps the fake one. No funds move; charts, volume and rankings can be painted.
+
+**Choice.** The rule is now complete in 4.21, 14.1 and T56: events count only from a transaction
+whose `meta.err` is null (read or re-checked at `finalized`); event CPIs only from an inner
+instruction (stack height 2 or more) whose enclosing call is `vicinity_curve`, with the event
+authority as its only account; `emit!` events only from log lines written while `vicinity_curve`
+runs, and never a money event; and indexers reconcile each coin's events with `Coin.trade_seq`
+and the counters instead of deduplicating first-write-wins. The SDK adds
+`decodeTransactionEvents(tx)`, which takes what `getTransaction` returns (legacy or v0, "json",
+"jsonParsed" or web3.js objects), returns nothing for a failed transaction, applies the stack and
+caller rule, and throws when the metadata lacks stack heights (the caller cannot be proven).
+`decodeEventCpi` and `decodeEventLogs` say that they check one instruction or one log list only.
+`World.send` now runs the decoder on every transaction of every suite, built into
+`getTransaction`'s shape from litesvm's result (`rpcTransaction` in `helpers.mjs`): for a success
+it must find exactly the checker's events, for a failure nothing. No program change.
+
+Tests. `sdk/curve/events.test.mjs` (failed transactions, the caller rule through a router and
+through another program, siblings after a deeper call, foreign accounts and missing tags, money
+events in logs, the RPC shapes, missing stack heights); `29-clients` (the review's failed sell: the
+genuine CPI is there, the decoder returns nothing, the coin did not move, the next real trade is
+the only `trade_seq` 2); and the cross-check of every suite transaction.
+
+### 46. `initRewardsForCoin`: a pre-funded config address is not a config; authority problems are fixable (4.15, T55, T70, R03; entry 36; review CLI-3)
+
+**Issue.** `initRewardsForCoin` treated any account holding lamports at the city's config address
+`["city", mint]` as an existing config. Mints are PDAs of the city, so anyone can compute every
+city's config address before launch; a plain transfer of `rent_min(0)` (890,880 lamports) leaves a
+System-owned account without data, and the SDK then reported `ExistsWrong` ("cannot change or close
+it ... program upgrade (O26)") and proposed nothing, although `init_city` creates over the
+pre-funded address (Anchor `init`, T55) and forwarding then works. Entry 36 also reported a config
+whose only problem is its authority as unfixable, though 4.15 says the current authority can hand
+it to the admin.
+
+**Choice.** Only an account owned by `vicinity_rewards` is an existing config. A System-owned
+account without data is no config: `init_city` is built, simulated and checked as usual. Anything
+else at the address is `NotACityConfig`. For an existing config, problems of the authority alone
+(not the admin, or a transfer pending) are `AuthorityNotAdmin` with `fixable: true` (the current
+authority proposes the admin, or zero to cancel, and the admin accepts); wrong economics are
+`ExistsWrong` with `fixable: false` (O26). `FIXABLE_CONFIG_PROBLEMS` lists the first kind. Entry
+36's sentence "(or one with an authority transfer pending) is reported as unfixable" is superseded.
+
+Tests. `sdk/curve/prechecks.test.mjs` (pre-funded System accounts in both snapshot shapes propose
+`init_city`; authority-only problems are fixable; mixed ones are not; foreign owners and System
+accounts with data are no config); `29-clients` against the real `vicinity_rewards`: the config and
+vault addresses pre-funded, `init_city` proposed and creating both, the forward paid, then an admin
+hand-over reported as fixable until `propose_authority` and `accept_authority`, after which the
+config is correct again and forwards resume.
