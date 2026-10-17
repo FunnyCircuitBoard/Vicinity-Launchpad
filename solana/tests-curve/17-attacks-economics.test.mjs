@@ -337,3 +337,69 @@ test('X27b the V10 edge on chain: (50, 51, 50, 50, 30) passes and drip farming s
   }
   await w.finish();
 });
+
+// ---------------------------------------------------------------- graduation-boundary snipes
+test('X17, X19 graduation-boundary sandwiches: a victim whose impact is below twice the fee cannot be sandwiched at a profit; a larger one with 1% slippage loses at most his tolerance; a front-run that graduates the coin and is not followed by the victim loses', async () => {
+  const w = await World.create();
+  const whale = await w.signer(5_000n);
+  const results = [];
+  let city = 1790n;
+  for (const [kind, size, slipBps] of [['small victim, 1%', 300_000_000n, 100n], ['large victim, 1%', 3n * LAMPORTS, 100n], ['large careless victim', 3n * LAMPORTS, null]]) {
+    for (const a of [50_000_000n, LAMPORTS / 2n, 2n * LAMPORTS, 6n * LAMPORTS]) {
+      const h = await w.launchCoin({ cityId: city, symbol: `SNP${city}` });
+      city++;
+      await w.buy(whale, h, S.grossFor(T, 80n * LAMPORTS), { label: 'curve to 80 SOL' });
+      const victim = await w.signer(50n); const atk = await w.signer(50n);
+      await w.send([S.createAssociatedTokenAccountIdempotent({ payer: w.payer.address, owner: victim.address, mint: h.mint })], [], 'victim token account');
+      w.addHolder(h.mint, victim);
+      const vq = S.quoteBuy(T, st(w, h), size);
+      // the victim's own price impact on the curve, against twice the fee
+      const [x1, y1] = S.spotPrice(T, vq.newState); const [x0, y0] = S.spotPrice(T, st(w, h));
+      const impact = Number(x1 * y0) / Number(x0 * y1) - 1;
+      const min = slipBps === null ? 0n : S.withSlippage(vq.tokensOut, slipBps);
+      const a0 = w.lamportsOf(atk.address); const v0 = w.lamportsOf(victim.address);
+      const fb = await w.buy(atk, h, a, { label: 'attacker front-runs' });
+      let victimCharged = null;
+      try {
+        victimCharged = (await w.buy(victim, h, size, { min, label: 'victim buy' })).q.charged;
+      } catch (e) {
+        assert.match(`${e.logs?.join('\n')}\n${e.errText}`, /SlippageExceeded/);
+        assert.equal(w.lamportsOf(victim.address), v0, 'a refused victim pays nothing');
+      }
+      await w.sell(atk, h, fb.q.tokensOut, { label: 'attacker back-runs' });
+      const pnl = w.lamportsOf(atk.address) - a0 + w.svm.minimumBalanceForRentExemption(165n);
+      if (victimCharged !== null) assert.ok(w.balanceOf(victim, h.mint) >= min, 'the victim got at least his minimum');
+      if (impact < 0.0494) assert.ok(pnl < 0n, `${kind}: impact ${(impact * 100).toFixed(2)}% below twice the fee, front-run ${a}: ${pnl}`);
+      if (slipBps !== null) assert.ok(pnl < 0n || (victimCharged !== null && pnl * 10_000n <= victimCharged * slipBps), `${kind}, front-run ${a}: ${pnl} beyond the victim's tolerance`);
+      if (fb.q.graduates && victimCharged === null) assert.ok(pnl < 0n, 'a front-run that graduates the coin, with the victim refused, loses');
+      results.push(`${kind} (impact ${(impact * 100).toFixed(2)}%), front-run ${Number(a) / 1e9} SOL${fb.q.graduates ? ' (graduates)' : ''}: attacker ${(Number(pnl) / 1e9).toFixed(6)} SOL, victim ${victimCharged !== null ? 'filled' : 'refused'}`);
+    }
+  }
+  console.log(`graduation-boundary sandwiches: ${results.join(' | ')}`);
+  await w.finish();
+});
+
+// ---------------------------------------------------------------- 7.4: wash trading by the founder
+test('7.4 wash trading by the founder pays nobody: he pays 2.5% per leg and gets back his 0.5%, on the curve and in the pool', async () => {
+  const w = await World.create();
+  for (const graduate of [false, true]) {
+    const founder = await w.signer(1_000n);
+    const h = await w.launchCoin({ cityId: graduate ? 1799n : 1798n, symbol: graduate ? 'WASHP' : 'WASHC', founder });
+    if (graduate) await w.buy(await w.signer(200n), h, 100n * LAMPORTS, { label: 'others graduate' });
+    await w.claim(h, founder, { label: 'empty bucket' });
+    const l0 = w.lamportsOf(founder.address);
+    let volume = 0n;
+    for (let k = 0; k < 6; k++) {
+      const b = await w.buy(founder, h, 10n * LAMPORTS, { label: `wash buy ${k}` });
+      const s = await w.sell(founder, h, b.q.tokensOut, { label: `wash sell ${k}` });
+      volume += b.q.charged + s.q.gross;
+    }
+    await w.claim(h, founder, { label: 'founder claims his share of his own volume' });
+    const loss = l0 - w.lamportsOf(founder.address) - w.svm.minimumBalanceForRentExemption(165n);
+    assert.ok(loss > 0n, 'a loss');
+    // at least the four other shares (platform, holders, buyback, liquidity: 2% of volume) less the pool's injected liquidity he may recover
+    assert.ok(loss * 10_000n >= volume * (graduate ? 100n : 199n), `${graduate ? 'pool' : 'curve'}: loss ${loss} on volume ${volume} (${pct(loss, volume).toFixed(3)}%)`);
+    console.log(`7.4 founder wash trading (${graduate ? 'pool' : 'curve'}): ${(Number(loss) / 1e9).toFixed(4)} SOL lost on ${(Number(volume) / 1e9).toFixed(1)} SOL of volume (${pct(loss, volume).toFixed(3)}%)`);
+  }
+  await w.finish();
+});

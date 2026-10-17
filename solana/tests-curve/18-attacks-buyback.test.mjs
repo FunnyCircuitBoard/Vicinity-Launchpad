@@ -297,3 +297,37 @@ test('X61 a hostile crank caller chooses nothing and receives nothing: extra dat
   assert.equal(w.lamportsOf(broke.address), 0n);
   await w.finish();
 });
+
+// ---------------------------------------------------------------- 7.3: a backlog made by the attacker himself
+test('X25, T76 a backlog the attacker makes himself by wash trading (as founder, credited his share), then holds through every run: a loss at every position size (7.3: at least 4 lamports of fees per lamport of backlog)', async () => {
+  const w = await World.create();
+  const report = [];
+  let city = 1870n;
+  for (const graduate of [false, true]) {
+    for (const a of [LAMPORTS, 20n * LAMPORTS]) {
+      const founder = await w.signer(3_000n);
+      const h = await w.launchCoin({ cityId: city, symbol: `SELF${city}`, founder });
+      city++;
+      const others = await w.signer(500n);
+      if (graduate) { await w.buy(others, h, 100n * LAMPORTS, { label: 'others graduate the coin' }); w.warpSlots(150n); while (view(w, h).buybackPending > 0n) { await w.buyback(h, { label: 'clear the graduation backlog' }); w.warpSlots(150n); } }
+      await w.claim(h, founder, { label: 'founder starts with an empty bucket' });
+      const l0 = w.lamportsOf(founder.address);
+      // wash trading: round trips of 40 SOL until the backlog is over 3% of depth (above u*), each run's cap kept from spending it
+      while (view(w, h).buybackPending * 100n < 3n * S.depth(T, st(w, h))) {
+        const b = await w.buy(founder, h, 40n * LAMPORTS, { label: 'wash buy' });
+        await w.sell(founder, h, b.q.tokensOut, { label: 'wash sell' });
+      }
+      const backlog = view(w, h).buybackPending;
+      const b = await w.buy(founder, h, a, { label: 'the position' });
+      let runs = 0;
+      while (view(w, h).buybackPending > 0n && runs < 80) { w.warpSlots(150n); await w.buyback(h, { label: `run ${runs + 1}` }); runs++; }
+      await w.sell(founder, h, b.q.tokensOut, { label: 'sell after the hold' });
+      await w.claim(h, founder, { label: 'founder claims his share of everything he paid' });
+      const pnl = w.lamportsOf(founder.address) - l0 + w.svm.minimumBalanceForRentExemption(165n);
+      assert.ok(pnl < 0n, `${graduate ? 'pool' : 'curve'}, position ${a}: ${pnl}`);
+      report.push(`${graduate ? 'pool' : 'curve'}: backlog ${(Number(backlog) / 1e9).toFixed(3)} SOL made by wash trading, position ${Number(a) / 1e9} SOL held through ${runs} runs: ${(Number(pnl) / 1e9).toFixed(4)} SOL`);
+    }
+  }
+  console.log(`self-made backlog: ${report.join(' | ')}`);
+  await w.finish();
+});

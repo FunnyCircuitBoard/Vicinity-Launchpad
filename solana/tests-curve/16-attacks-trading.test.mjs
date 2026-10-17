@@ -370,3 +370,76 @@ test('X41, X42 compute stays flat whatever the state or extra accounts; a coin h
   }
   await w.finish();
 });
+
+// ---------------------------------------------------------------- X16 (every remainder), X21 (one transaction)
+test('X16 every remainder from 1 to 300 lamports, on the top of its step and from inside it: every buy size is charged only the least amount netting the remainder, and delivers exactly S - s', async () => {
+  const w = await World.create();
+  const h = await w.launchCoin({ cityId: 1690n, symbol: 'EVERY' });
+  const holder = await w.signer(500n);
+  // R - 1 (the last flat step below S); then down one lamport at a time with 1-lamport sells (no minimum on sells, O5)
+  await w.buy(holder, h, S.grossFor(T, T.graduationSol - 1n), { label: 'to R - 1' });
+  const buyer = await trader(w, h, 10n);
+  const probe = w.probeEach; w.probeEach = false; // 300 steps: the liveness probe runs at the end
+  const checkAt = async (rem, where) => {
+    const c0 = view(w, h);
+    assert.equal(c0.curveSol, T.graduationSol - rem);
+    for (const g of [S.MIN_TRADE_LAMPORTS, S.grossFor(T, rem), U64]) {
+      if (g < S.MIN_TRADE_LAMPORTS) continue;
+      const q = quoteBuy(w, h, g);
+      const sim = await w.simulate([buyIx(w, buyer, h, g)], [buyer]);
+      assert.equal(sim.ok, true, `rem ${rem} (${where}), sol_in ${g}: ${sim.error}`);
+      assert.deepEqual(S.coinState(sim.coin(h.coin)), q.newState, `rem ${rem} (${where}), sol_in ${g}`);
+      assert.deepEqual([q.graduates, q.net, q.tokensOut], [true, rem, T.curveSupply - c0.tokensSold], `rem ${rem} (${where}): completes with net exactly rem and S - s coins`);
+      assert.equal(q.charged, q.partial ? ((rem - 1n) * S.BPS) / (S.BPS - T.totalFeeBps) + 1n : g, 'Lemma G');
+    }
+  };
+  for (let rem = 1n; rem <= 300n; rem++) {
+    if (rem > 1n) {
+      // sell down to the top of the step of R - rem (gross 1 lamport)
+      const s = view(w, h).tokensSold;
+      const top = S.tokensFor(T, T.graduationSol - rem);
+      await w.sell(holder, h, s - top, { label: `to R - ${rem}` });
+    }
+    await checkAt(rem, 'top of its step');
+    if (rem % 25n === 0n) {
+      // every 25th remainder also from inside a step: sell to the middle of the next step down (a sell inside one step
+      // releases nothing and is refused, ZeroOutput), check rem + 1 from there, then continue the walk from rem + 2
+      const s = view(w, h).tokensSold;
+      const nextTop = S.tokensFor(T, T.graduationSol - rem - 1n);
+      const mid = nextTop - 7n; // f(mid) = R - rem - 1 as long as the step is wider than 7 raw units (about 2,433 here)
+      assert.equal(S.curveValue(T, mid), T.graduationSol - rem - 1n);
+      await w.sell(holder, h, s - mid, { label: `to the middle of the step of R - ${rem + 1n}` });
+      await checkAt(rem + 1n, 'inside its step');
+      rem++;
+      const s2 = view(w, h).tokensSold;
+      const top2 = S.tokensFor(T, T.graduationSol - rem - 1n);
+      await w.sell(holder, h, s2 - top2, { label: `to R - ${rem + 1n}` });
+      rem++;
+      await checkAt(rem, 'top of its step');
+    }
+  }
+  w.probeEach = probe;
+  // send one for real: the minimum buy at R - 300 or so is a partial fill charged exactly gross_for(rem)
+  const rem = T.graduationSol - view(w, h).curveSol;
+  const l0 = w.lamportsOf(buyer.address);
+  const r = await w.buy(buyer, h, S.MIN_TRADE_LAMPORTS, { label: `completing buy at rem ${rem}` });
+  assert.deepEqual([r.q.partial, r.q.charged], [true, S.grossFor(T, rem)]);
+  assert.equal(l0 - w.lamportsOf(buyer.address), r.q.charged);
+  await w.finish();
+});
+
+test('X21 two graduating-size buys in one transaction: the first graduates, the second is a pool buy, one Graduated event; a buyback in the same transaction runs on the pool', async () => {
+  const w = await World.create();
+  const h = await w.launchCoin({ cityId: 1695n, symbol: 'ONCE' });
+  const a = await trader(w, h, 500n); const b = await trader(w, h, 500n);
+  w.warpSlots(150n);
+  await w.buy(a, h, 10n * LAMPORTS, { label: 'fees for a buyback' });
+  const r = await w.send([buyIx(w, a, h, 100n * LAMPORTS), buyIx(w, b, h, 100n * LAMPORTS), w.ix.buybackBurn({ coin: h.coin })], [a, b], 'graduate, buy again, buyback: one transaction');
+  const trades = r.events.filter((e) => e.name === 'Trade');
+  assert.deepEqual(trades.map((e) => [e.data.phase, e.data.graduated]), [[0, true], [1, false]]);
+  assert.equal(r.events.filter((e) => e.name === 'Graduated').length, 1);
+  const bb = r.events.find((e) => e.name === 'BuybackBurned');
+  assert.ok(bb && bb.data.phase === 1, 'the run in the same transaction ran on the pool');
+  assert.deepEqual([view(w, h).tokensSold, view(w, h).curveSol], [T.curveSupply, T.graduationSol]);
+  await w.finish();
+});

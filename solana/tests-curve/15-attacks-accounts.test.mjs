@@ -265,6 +265,9 @@ test('X38 Unicode spoofing: every control and invisible formatting character is 
     assert.equal(w.approval(city).name, name);
   }
   await expectFail(() => send(city + 1n, 'é'.repeat(16) + 'x', 'LONG'), 'BadName');
+  // the longest multi-byte name launches: Metaplex takes the same 32 bytes, unchanged
+  const h = await w.launch({ cityId: city, founder });
+  assert.equal(readMetadata(w.accountInfo(S.metadataAddress(h.mint)).data).name, 'é'.repeat(16));
   await w.finish();
 });
 
@@ -334,9 +337,12 @@ test('X55 pre-funded PDAs: lamports sent ahead to the Launchpad, a config, an ap
   for (const [cityId, sym, coinFund] of [[1570n, 'PREA', below], [1571n, 'PREB', above]]) {
     const { coin, mint, vault } = w.P.coinAccounts(cityId);
     await fund(w.P.approval(cityId), rent(0) + 3n, `approval ${cityId}`);
+    // the part of a pre-funded Coin above its rent is surplus that no counter sees (I9 with donations); below it, init absorbs it
+    // into the rent. A pre-funded Coin address is still empty for approve_launch (System-owned, no data): fund one before the approval
+    const fundCoin = () => fund(coin, coinFund, `Coin ${cityId}`, { lamportDonation: { coin, amount: coinFund > rent(693) ? coinFund - rent(693) : 0n } });
+    if (sym === 'PREA') await fundCoin();
     await w.approve({ cityId, founder, symbol: sym });
-    // the part of a pre-funded Coin above its rent is surplus that no counter sees (I9 with donations); below it, init absorbs it into the rent
-    await fund(coin, coinFund, `Coin ${cityId}`, { lamportDonation: { coin, amount: coinFund > rent(693) ? coinFund - rent(693) : 0n } });
+    if (sym !== 'PREA') await fundCoin();
     await fund(mint, rent(0) + 11n, `mint ${cityId}`);
     await fund(vault, rent(165) + 9n, `vault ${cityId}`);
     await fund(w.P.ticker(sym), rent(0) + 13n, `ticker ${sym}`);
