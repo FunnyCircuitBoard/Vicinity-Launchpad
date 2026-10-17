@@ -30,6 +30,11 @@
 //     left out a buyback run inside the sandwich (SDK4-4); splitting a large
 //     buy into threshold-size buys was offered as a defence (R4-DIFF-2); sells
 //     had no size rule (R4-DIFF-5, SDK4-3).
+//   * Review round 5: the pieces of a split order re-quoted from fresh reads
+//     let a searcher ratchet the price (R5-DIFF-1); trades from one snapshot
+//     in one block were sandwiched together at sizes allowed one at a time
+//     (MV-1); the threshold allowed for one buyback run while a hold through
+//     every run of a public backlog profited (KR-1).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import web3 from '@solana/web3.js';
@@ -161,20 +166,23 @@ test('R3-CLI-1 a buy that completes the curve offers only its charge: buyWithSwa
   for (const c of [h, race]) await w.buy(whale, c, S.grossFor(terms, 84n * LAMPORTS), { label: 'the curve to 84 SOL' });
   const victim = await w.signer(30n);
   const solIn = 20n * LAMPORTS;
-  // "pay with any token": the swap delivers at least 20 SOL (ExactIn), the website's 2% on the buy leg
+  // "pay with any token": the swap delivers at least 20 SOL (ExactIn); the buy leg at the most the SDK allows (its
+  // charge, 1.03 SOL, is above the threshold that the whale's 0.25 SOL of backlog lowers to 0.595 SOL, KR-1: 0.3%)
   const quote = swapQuote({ swapMode: 'ExactIn', outAmount: solIn + 200_000_000n, otherAmountThreshold: solIn });
   const c0 = w.coinView(h);
+  const bps = S.buySlippagePolicy(c0, solIn).maxSlippageBps;
+  assert.equal(bps, S.LARGE_BUY_MAX_SLIPPAGE_BPS);
   const q = S.quoteBuy(terms, S.coinState(c0), solIn);
   assert.deepEqual([q.partial, q.graduates], [true, true], 'a 20 SOL buy completes the curve');
-  const built = S.buyWithSwap({ ix: w.ix, user: victim.address, coin: h.coin, mint: h.mint, swapInstructions: [], quote, coinAccount: c0, slippageBps: 200 });
+  const built = S.buyWithSwap({ ix: w.ix, user: victim.address, coin: h.coin, mint: h.mint, swapInstructions: [], quote, coinAccount: c0, slippageBps: bps });
   assert.equal(built.solIn, q.charged, 'the buy offers only the partial quote\'s charge');
   assert.equal(built.swapSolIn, solIn, 'the swap is still guaranteed 20 SOL');
   assert.equal(built.solIn, S.maxQuoteIn(terms, S.coinState(c0)), '= max_quote_in');
-  assert.equal(built.minTokensOut, S.withSlippage(q.tokensOut, 200));
+  assert.equal(built.minTokensOut, S.withSlippage(q.tokensOut, bps));
   const data = Buffer.from(built.instructions.at(-1).data);
   assert.deepEqual([data.readBigUInt64LE(8), data.readBigUInt64LE(16)], [built.solIn, built.minTokensOut], 'sol_in and min_tokens_out encoded');
   // the old helper's pair (minimum of the partial quote, sol_in uncapped) is refused, not built
-  assert.throws(() => S.buyLegMinimum({ solIn, coinAccount: c0, slippageBps: 200 }), (e) => e instanceof S.ComposeError && /completes the curve/.test(e.message));
+  assert.throws(() => S.buyLegMinimum({ solIn, coinAccount: c0, slippageBps: bps }), (e) => e instanceof S.ComposeError && /completes the curve/.test(e.message));
   // the searcher's bundle ahead of the victim: graduate the coin, then buy in the new pool
   await w.buy(whale, h, S.maxQuoteIn(terms, S.coinState(w.coinView(h))), { label: 'the searcher graduates the coin' });
   await w.buy(whale, h, 94_750_000_000n, { label: 'the searcher buys in the new pool' });
@@ -193,7 +201,7 @@ test('R3-CLI-1 a buy that completes the curve offers only its charge: buyWithSwa
   assert.ok(w.accountInfo(h.coin).data.equals(coin0.data), 'the coin did not move');
   // an honest race on the second coin: another buyer completes the curve first; the capped buy pays at most its charge
   const rq = S.quoteBuy(terms, S.coinState(w.coinView(race)), solIn);
-  const leg = S.buyWithSwap({ ix: w.ix, user: victim.address, coin: race.coin, mint: race.mint, swapInstructions: [], quote, coinAccount: w.coinView(race), slippageBps: 200 });
+  const leg = S.buyWithSwap({ ix: w.ix, user: victim.address, coin: race.coin, mint: race.mint, swapInstructions: [], quote, coinAccount: w.coinView(race), slippageBps: bps });
   assert.equal(leg.solIn, rq.charged);
   const other = await w.signer(10n);
   await w.buy(other, race, 2n * LAMPORTS, { label: 'another buyer completes the curve' });
@@ -276,15 +284,17 @@ test('MATH3-1 an ordinary sandwich profits at any slippage above the coin\'s siz
   const capped = await sandwich(w, fresh2, { V: LAMPORTS, min: leg.minTokensOut, label: '1 SOL at the SDK\'s 0.3%' });
   assert.ok(capped.victimLoss * 10_000n <= capped.plainTokens * 30n, `the victim loses at most 0.3% (${capped.victimLoss})`);
   for (const k of ['outsider', 'founder', 'founderFloat', 'platform']) assert.ok(capped[k] * 10_000n <= LAMPORTS * 30n, `${k} keeps at most 0.3% (${capped[k]})`);
-  // at the threshold, with the most slippage the SDK allows there (5%), nobody profits: on the curve at launch,
-  // at 40 SOL raised and in a fresh pool, for an outsider, the founder, the founder holding the float and the platform's key
+  // one buy alone at the threshold with 5% (5.15's single-trade bound), nobody profits: on the curve at launch,
+  // at 40 SOL raised and in a fresh pool, for an outsider, the founder, the founder holding the float and the platform's
+  // key. The SDK itself allows only 0.3% at the threshold since trades sharing a block are sandwiched together (MV-1).
   const report = [];
   for (const [raised, symbol] of [[0n, 'SWT0'], [40n, 'SWT40'], ['pool', 'SWTP']]) {
     const h = await coinAt(raised, symbol);
     const c = w.coinView(h);
     const V = S.sandwichThreshold(S.coinTerms(c), S.coinState(c));
-    const l = S.buyLeg({ solIn: V, coinAccount: c, slippageBps: S.MAX_SWAP_SLIPPAGE_BPS });
-    assert.equal(l.large, false, 'at the threshold the full 5% is allowed');
+    assert.throws(() => S.buyLeg({ solIn: V, coinAccount: c, slippageBps: S.MAX_SWAP_SLIPPAGE_BPS }), /review MV-1/);
+    assert.deepEqual([S.buySlippagePolicy(c, V).maxSlippageBps, S.buySlippagePolicy(c, V).large], [S.LARGE_BUY_MAX_SLIPPAGE_BPS, false]);
+    const l = { minTokensOut: S.withSlippage(S.quoteBuy(S.coinTerms(c), S.coinState(c), V).tokensOut, S.MAX_SWAP_SLIPPAGE_BPS) };
     const r = await sandwich(w, h, { V, min: l.minTokensOut, label: `${symbol}: ${V} lamports at 5%` });
     for (const k of ['outsider', 'founder', 'founderFloat', 'platform']) assert.ok(r[k] < 0n, `${symbol}: the ${k} loses (${r[k]})`);
     report.push(`${symbol} V=${V}: outsider ${r.outsider}, founder ${r.founder}, founder+float ${r.founderFloat}, platform ${r.platform}`);
@@ -401,18 +411,21 @@ test('R4-DIFF-3, SDK4-2 near graduation the sandwich threshold is judged at the 
   const ob = bestStraddle(T, st, oldV, oldMin);
   const o = await straddle(w, old, { V: oldV, min: oldMin, A: ob.A, self: ob.self, label: 'old size at 5%' });
   assert.ok(o.res.founderFloat > 0n, `the old size is straddled for profit by the founder holding the float (${o.res.founderFloat})`);
-  // the SDK's threshold at 5%
-  const leg = S.buyLeg({ solIn: S.sandwichThreshold(T, st), coinAccount: c, slippageBps: 500 });
-  assert.deepEqual([leg.large, leg.threshold], [false, 1_105_000_000n]);
+  // the SDK's threshold (130 bps of 85 SOL with one cap of backlog; the whale's buy left 3.0 caps, so four runs are
+  // counted, 70 bps: review KR-1), one buy at it with 5% (the SDK allows only 0.3% there, MV-1)
+  assert.deepEqual([S.sandwichRuns(T, st), S.sandwichThreshold(T, st)], [4n, 595_000_000n]);
+  const thrNow = S.sandwichThreshold(T, st);
+  assert.throws(() => S.buyLeg({ solIn: thrNow, coinAccount: c, slippageBps: 500 }), /review MV-1/);
+  const leg = { solIn: thrNow, minTokensOut: S.withSlippage(S.quoteBuy(T, st, thrNow).tokensOut, 500) };
   const nb = bestStraddle(T, st, leg.solIn, leg.minTokensOut);
   assert.ok(nb && nb.top < 0n, `the model's best straddle loses (${nb?.top})`);
   const n = await straddle(w, now, { V: leg.solIn, min: leg.minTokensOut, A: nb.A, self: nb.self, label: 'the SDK\'s threshold at 5%' });
   for (const k of Object.keys(CLASSES)) assert.ok(n.res[k] < 0n, `the ${k} loses (${n.res[k]})`);
-  console.log(`R4-DIFF-3: old size ${oldV} at 5%: ${fmt(o.res)}; the SDK's ${leg.solIn} at 5%: ${fmt(n.res)}`);
+  console.log(`R4-DIFF-3: old size ${oldV} at 5%: ${fmt(o.res)}; one buy at the SDK's threshold ${leg.solIn} at 5%: ${fmt(n.res)}`);
   await w.finish();
 });
 
-test('SDK4-4 a due buyback run inside the sandwich: at the old threshold with 5% the founder holding the float profits; at the SDK\'s threshold (2t/C left for the run) every class loses', async () => {
+test('SDK4-4, KR-1 due buyback runs inside the sandwich: at the old threshold with 5% the founder holding the float profits with one run; at the SDK\'s threshold (2t/C left for every run the backlog pays for) one buy with 5% loses for every class whenever the attacker sells', async () => {
   const w = await World.create();
   const T = S.DEFAULT_TERMS;
   const trader = await richSigner(w, 100n);
@@ -424,36 +437,46 @@ test('SDK4-4 a due buyback run inside the sandwich: at the old threshold with 5%
     w.warpSlots(200);
     const c0 = w.coinView(h); const st0 = S.coinState(c0);
     assert.ok(st0.buybackPending > S.buybackCap(T, st0), 'more than one cap is pending: a run is due');
+    // the round trip left about 4 caps: the SDK counts 4 runs (KR-1); the old threshold allowed for none
+    const runs = label === 'SDK' ? Number(S.sandwichRuns(T, st0)) : 1;
+    if (label === 'SDK') assert.ok(runs >= 3, `${runs} runs counted`);
     const V = V0(st0);
     const min = S.withSlippage(S.quoteBuy(T, st0, V).tokensOut, 500);
-    if (label === 'SDK') assert.equal(S.buyLeg({ solIn: V, coinAccount: c0, slippageBps: 500 }).minTokensOut, min);
-    const slot = w.slot();
+    // one buy alone at 5% (5.15's single-trade bound); the SDK allows only 0.3% at its threshold (MV-1)
+    if (label === 'SDK') assert.throws(() => S.buyLeg({ solIn: V, coinAccount: c0, slippageBps: 500 }), /review MV-1/);
     let best = null;
     for (let a = 1_000_000n; a < 3n * LAMPORTS; a += 1_000_000n) {
       const f = S.quoteBuy(T, st0, a); const v = S.quoteBuy(T, f.newState, V);
       if (v.tokensOut < min) break;
-      const bb = S.quoteBuyback(T, v.newState, slot);
-      const s = S.quoteSell(T, bb.newState, f.tokensOut);
-      const p = s.solOut - f.charged + creditOf([f, s], CLASSES.founderFloat);
-      if (!best || p > best.p) best = { a, p };
+      let st = v.newState; let slot = w.slot();
+      for (let k = 1; k <= runs; k++) {
+        const bb = S.quoteBuyback(T, st, slot); if (!bb) break; st = bb.newState; slot += 150n;
+        const sq = S.quoteSell(T, st, f.tokensOut);
+        const res = classResults(sq.solOut - f.charged, [f, sq]);
+        const p = label === 'SDK' ? Object.values(res).reduce((x, y) => (y > x ? y : x)) : res.founderFloat;
+        if (!best || p > best.p) best = { a, p, k };
+      }
     }
     const attacker = await richSigner(w, 50n); const victim = await richSigner(w, 10n);
     const f = await w.buy(attacker, h, best.a, { label: `${label}: front-run` });
     await w.send(w.buyIxs(victim, h, V, min), [victim], `${label}: the victim's buy at 5%`);
     w.addHolder(h.mint, victim);
-    const e = await w.buyback(h, { label: `${label}: the due run inside the sandwich` });
-    assert.ok(e.events.some((x) => x.name === 'BuybackBurned'));
-    const s = await w.sell(attacker, h, f.q.tokensOut, { label: `${label}: back-run` });
+    for (let k = 0; k < best.k; k++) {
+      if (k) w.warpSlots(150);
+      const e = await w.buyback(h, { label: `${label}: due run ${k + 1} inside the sandwich` });
+      assert.ok(e.events.some((x) => x.name === 'BuybackBurned'));
+    }
+    const s = await w.sell(attacker, h, f.q.tokensOut, { label: `${label}: back-run after ${best.k} run(s)` });
     const res = classResults(s.q.solOut - f.q.charged, [f.q, s.q]);
     if (label === 'SDK') for (const k of Object.keys(CLASSES)) assert.ok(res[k] < 0n, `SDK threshold: the ${k} loses (${res[k]})`);
     else assert.ok(res.founderFloat > 0n, `old threshold: the founder holding the float profits (${res.founderFloat})`);
-    report.push(`${label} V=${V}: ${fmt(res)}`);
+    report.push(`${label} V=${V}, ${best.k} run(s): ${fmt(res)}`);
   }
   console.log(`SDK4-4: ${report.join(' | ')}`);
   await w.finish();
 });
 
-test('R4-DIFF-2 splitting a large buy into threshold-size buys in separate transactions is no defence: one sandwich wraps every piece at 1%; judged by the order (orderSolIn) each piece allows 0.3% and the loss stays at about 0.3%', async () => {
+test('R4-DIFF-2 splitting a large buy into threshold-size buys in separate transactions is no defence: one sandwich wraps every piece at 1%; judged by the order (orderSolIn, order) each piece allows 0.3% and the loss stays at about 0.3%', async () => {
   const w = await World.create();
   const T = S.DEFAULT_TERMS;
   const order = 5n * LAMPORTS;
@@ -462,17 +485,25 @@ test('R4-DIFF-2 splitting a large buy into threshold-size buys in separate trans
     const h = await w.launchCoin({ cityId, symbol });
     const c0 = w.coinView(h); const st0 = S.coinState(c0);
     const thr = S.sandwichThreshold(T, st0);
-    // the pieces and their minimums, each from the snapshot advanced by the earlier pieces (as a client would)
-    const pieces = []; let st = st0; let left = order;
+    // the pieces and their minimums, all from one snapshot advanced by the earlier pieces, so they can be signed
+    // together: the old advice by hand at 1% each (the SDK now refuses it: alone a threshold-size buy allows 0.3%,
+    // MV-1, and as a piece of the order 0.3%); the SDK's legs anchored to the order's start (R5-DIFF-1), the snapshot
+    // advanced by the earlier pieces as coinAccount and their quoted coins as received
+    const pieces = []; let st = st0; let left = order; let received = 0n;
     while (left > 0n) {
       const V = left < thr ? left : thr;
       const coin = { ...c0, ...st };
+      let leg;
       if (bps === 100) {
-        assert.equal(S.buyLeg({ solIn: V, coinAccount: coin, slippageBps: bps }).large, false, 'alone, each piece may allow 1%');
-        assert.throws(() => S.buyLeg({ solIn: V, coinAccount: coin, slippageBps: bps, orderSolIn: order }), /part of an order/);
+        if (V === thr) assert.throws(() => S.buyLeg({ solIn: V, coinAccount: coin, slippageBps: bps }), /review MV-1/);
+        assert.throws(() => S.buyLeg({ solIn: V, coinAccount: coin, slippageBps: bps, orderSolIn: order, order: { start: c0, pieces: pieces.map((l) => l.solIn), received } }), /part of an order/);
+        const quote = S.quoteBuy(T, st, V);
+        leg = { solIn: V, minTokensOut: S.withSlippage(quote.tokensOut, bps), quote };
+      } else {
+        leg = S.buyLeg({ solIn: V, coinAccount: coin, slippageBps: bps, orderSolIn: order, order: { start: c0, pieces: pieces.map((l) => l.solIn), received } });
+        assert.equal(leg.minTokensOut, S.withSlippage(leg.quote.tokensOut, bps), 'from one snapshot the order\'s floor never binds');
       }
-      const leg = bps === 100 ? S.buyLeg({ solIn: V, coinAccount: coin, slippageBps: bps }) : S.buyLeg({ solIn: V, coinAccount: coin, slippageBps: bps, orderSolIn: order });
-      pieces.push(leg); st = leg.quote.newState; left -= V;
+      pieces.push(leg); st = leg.quote.newState; left -= V; received += leg.quote.tokensOut;
     }
     const plain = pieces.reduce((x, l) => x + l.quote.tokensOut, 0n);
     // the largest front-run that lets every piece pass
@@ -537,9 +568,10 @@ test('R4-DIFF-5, SDK4-3 the sell leg: a sell above the threshold at 1% is sandwi
       assert.equal(min, S.withSlippage(S.quoteSell(T, st0, tokens).solOut, 30));
     } else {
       while (S.quoteSell(T, st0, tokens).gross > thr) tokens -= tokens / 200n;
-      const leg = S.sellLeg({ tokensIn: tokens, coinAccount: c0, slippageBps: 500 });
-      assert.equal(leg.large, false);
-      min = leg.minSolOut;
+      // one sell alone at 5% (5.15's single-trade bound); the SDK allows less at this size (MV-1)
+      assert.throws(() => S.sellLeg({ tokensIn: tokens, coinAccount: c0, slippageBps: 500 }), /review MV-1/);
+      assert.equal(S.sellSlippagePolicy(c0, tokens).large, false);
+      min = S.withSlippage(S.quoteSell(T, st0, tokens).solOut, 500);
     }
     const quoted = S.quoteSell(T, st0, tokens).solOut;
     // the best front-run sell (the attacker then buys back exactly the coins he sold)
@@ -569,5 +601,200 @@ test('R4-DIFF-5, SDK4-3 the sell leg: a sell above the threshold at 1% is sandwi
     report.push(`${label}: threshold ${thr}, gross ${S.quoteSell(T, st0, tokens).gross}, seller loss ${lossBps} bps, ${fmt(res)}`);
   }
   console.log(`R4-DIFF-5: ${report.join(' | ')}`);
+  await w.finish();
+});
+
+// ---------------------------------------------------------------- review round 5
+/** A config #0 coin graduated by a whale; by default the keeper then runs every interval until at most one cap of backlog is left. */
+async function poolCoin(w, cityId, symbol, { drain = true } = {}) {
+  const T = S.DEFAULT_TERMS;
+  const h = await w.launchCoin({ cityId, symbol });
+  const whale = await richSigner(w, 200n);
+  await w.buy(whale, h, S.maxQuoteIn(T, S.coinState(w.coinView(h))), { label: `${symbol}: graduate` });
+  w.warpSlots(200);
+  while (drain && S.sandwichRuns(T, S.coinState(w.coinView(h))) > 1n) { await w.buyback(h, { label: `${symbol}: the keeper's run` }); w.warpSlots(150); }
+  return h;
+}
+/** Other traders' round trips until the bucket holds at least `caps` caps (a cap at the depth the SDK judges at). */
+async function churnTo(w, h, caps, label) {
+  const T = S.DEFAULT_TERMS;
+  const trader = await richSigner(w, 500n);
+  const capAt = (st) => (S.sandwichDepth(T, st) * T.totalFeeBps) / (S.BUYBACK_CAP_DIVISOR * 10_000n);
+  let i = 0;
+  while (true) {
+    const st = S.coinState(w.coinView(h));
+    if (st.buybackPending * 1000n >= capAt(st) * BigInt(Math.round(caps * 1000))) break;
+    const r = await w.buy(trader, h, 10n * LAMPORTS, { label: `${label}: volume ${++i}` });
+    await w.sell(trader, h, r.q.tokensOut, { label: `${label}: volume ${i}` });
+  }
+  w.warpSlots(200);
+}
+/**
+ * The best wrap of victim buys `legs` ({ solIn, min }) on state `st` by the SDK's model (= the program, G01): front-run
+ * `a`, the legs, then up to `maxRuns` due buyback runs (one per interval from `slot`), then the back-run; per class
+ * `{ a, p, k }` (k = runs before the back-run).
+ */
+function bestWrapPerClass(T, st, legs, { slot, maxRuns = 40 } = {}) {
+  const best = {};
+  for (let a = S.MIN_TRADE_LAMPORTS; a < 30n * LAMPORTS; a += a < LAMPORTS ? 1_000_000n : 5_000_000n) {
+    const f = S.quoteBuy(T, st, a); if (f.graduates) break;
+    let s = f.newState; let ok = true;
+    for (const l of legs) { const q = S.quoteBuy(T, s, l.solIn); if (q.tokensOut < l.min) { ok = false; break; } s = q.newState; }
+    if (!ok) break;
+    let sl = slot;
+    for (let k = 0; k <= maxRuns; k++) {
+      const b = S.quoteSell(T, s, f.tokensOut);
+      const res = classResults(b.solOut - f.charged, [f, b]);
+      for (const [c, p] of Object.entries(res)) if (!best[c] || p > best[c].p) best[c] = { a, p, k };
+      const r = S.quoteBuyback(T, s, sl); if (!r) break; s = r.newState; sl += 150n;
+    }
+  }
+  return best;
+}
+/** The wrap on chain: front-run `a` by a fresh attacker, every victim transaction, `k` runs, the back-run; the class results. */
+async function wrapOnChain(w, h, { a, k, victimTxs, label }) {
+  const attacker = await richSigner(w, 50n);
+  const f = await w.buy(attacker, h, a, { label: `${label}: front-run` });
+  for (const [i, v] of victimTxs.entries()) { await w.send(v.instructions, [v.signer], `${label}: victim ${i + 1}`); w.addHolder(h.mint, v.signer); }
+  for (let j = 0; j < k; j++) { if (j) w.warpSlots(150); await w.buyback(h, { label: `${label}: run ${j + 1}` }); }
+  const b = await w.sell(attacker, h, f.q.tokensOut, { label: `${label}: back-run after ${k} run(s)` });
+  return classResults(b.q.solOut - f.q.charged, [f.q, b.q]);
+}
+/** The largest charge whose policy allows `bps`. */
+function largestFor(coin, bps) {
+  const thr = S.sandwichThreshold(S.coinTerms(coin), S.coinState(coin));
+  let lo = 0n; let hi = thr + 1n;
+  while (hi - lo > 1n) { const m = (lo + hi) / 2n; if (m >= S.MIN_TRADE_LAMPORTS && S.buySlippagePolicy(coin, m).maxSlippageBps >= bps) lo = m; else hi = m; }
+  return lo;
+}
+const swapQuoteOf = (V) => swapQuote({ swapMode: 'ExactIn', outAmount: V + 10_000_000n, otherAmountThreshold: V });
+
+test('MV-1 two SDK buys read from one snapshot land in one block: at round 4\'s allowance (5% each at the threshold) the founder wraps both with the due run for a profit; the SDK now refuses that, and at the sizes it allows every class loses', async () => {
+  const w = await World.create();
+  const T = S.DEFAULT_TERMS;
+  const report = [];
+  // round 4's allowance: two threshold buys at 5%, one due run (the coin's backlog spent to at most one cap)
+  const old = await poolCoin(w, 2_970n, 'MVOLD');
+  const c0 = w.coinView(old); const st0 = S.coinState(c0);
+  const V = S.sandwichThreshold(T, st0);
+  assert.equal(S.sandwichRuns(T, st0), 1n);
+  assert.throws(() => S.buyLeg({ solIn: V, coinAccount: c0, slippageBps: 500 }), /review MV-1/);
+  const min5 = S.withSlippage(S.quoteBuy(T, st0, V).tokensOut, 500);
+  const legsOld = [{ solIn: V, min: min5 }, { solIn: V, min: min5 }];
+  const bo = bestWrapPerClass(T, st0, legsOld, { slot: w.slot(), maxRuns: 1 });
+  assert.ok(bo.founder.p > 0n, `the model: the founder profits (${bo.founder.p})`);
+  const victimsOld = [await richSigner(w, 5n), await richSigner(w, 5n)];
+  const ro = await wrapOnChain(w, old, { a: bo.founder.a, k: bo.founder.k, label: 'two threshold buys at 5%', victimTxs: victimsOld.map((v) => ({ signer: v, instructions: w.buyIxs(v, old, V, min5) })) });
+  assert.ok(ro.founder > 0n, `on chain the founder profits (${ro.founder}; review MV-1)`);
+  report.push(`round 4's allowance: 2 x ${V} at 5%, front ${bo.founder.a}: ${fmt(ro)}`);
+  // the SDK now, on a twin coin: two buys at the largest size it allows for 2%, and three at the largest for 1%, built
+  // with buyWithSwap from one snapshot; the best class's best wrap through every run
+  // (three buys of the largest 1% size, or of half of it, cannot all pass even unattacked: three of a quarter of it)
+  for (const [bps, n, part, cityId, symbol] of [[200, 2, 1n, 2_971n, 'MVNEW2'], [100, 3, 4n, 2_972n, 'MVNEW1']]) {
+    const h = await poolCoin(w, cityId, symbol);
+    w.warpSlots(150);
+    const c = w.coinView(h); const st = S.coinState(c);
+    const size = largestFor(c, bps) / part;
+    assert.ok(size >= S.MIN_TRADE_LAMPORTS && size < S.sandwichThreshold(T, st), `${bps} bps up to ${size}`);
+    const victims = []; for (let i = 0; i < n; i++) victims.push(await richSigner(w, 5n));
+    const built = victims.map((v) => S.buyWithSwap({ ix: w.ix, user: v.address, coin: h.coin, mint: h.mint, swapInstructions: [], quote: swapQuoteOf(size), coinAccount: c, slippageBps: bps }));
+    const best = bestWrapPerClass(T, st, built.map((b) => ({ solIn: b.solIn, min: b.minTokensOut })), { slot: w.slot() });
+    assert.equal(Object.keys(best).length, 4, 'some front-run lets every buy pass');
+    for (const [k, v] of Object.entries(best)) assert.ok(v.p < 0n, `${n} x ${size} at ${bps} bps: the model's best for the ${k} loses (${v.p})`);
+    const top = Object.entries(best).reduce((x, y) => (y[1].p > x[1].p ? y : x));
+    const r = await wrapOnChain(w, h, { a: top[1].a, k: top[1].k, label: `${n} SDK buys at ${bps} bps`, victimTxs: victims.map((v, i) => ({ signer: v, instructions: built[i].instructions })) });
+    for (const k of Object.keys(CLASSES)) assert.ok(r[k] < 0n, `${n} x ${size} at ${bps} bps on chain: the ${k} loses (${r[k]})`);
+    report.push(`SDK: ${n} x ${size} at ${bps} bps, front ${top[1].a} (${top[0]}), ${top[1].k} run(s): ${fmt(r)}`);
+  }
+  console.log(`MV-1: ${report.join(' | ')}`);
+  await w.finish();
+});
+
+test('KR-1 a public backlog: one buy at round 4\'s one-run threshold, held through the runs, profits (8.4 caps at 5%, 3 caps at 1%); the SDK now counts every run the backlog pays for and refuses it, and at what it allows every class loses through every run', async () => {
+  const w = await World.create();
+  const T = S.DEFAULT_TERMS;
+  const report = [];
+  for (const [caps, bps, cityId, symbol] of [[8.4, 500, 2_975n, 'KRA'], [3, 100, 2_977n, 'KRB']]) {
+    // round 4's threshold: 130 bps of the depth whatever the backlog
+    const old = await poolCoin(w, cityId, `${symbol}O`);
+    await churnTo(w, old, caps, `${symbol}O`);
+    const c0 = w.coinView(old); const st0 = S.coinState(c0);
+    const oldV = (S.sandwichDepth(T, st0) * 130n) / 10_000n;
+    assert.ok(S.sandwichThreshold(T, st0) < oldV, 'the SDK\'s threshold is now lower');
+    assert.throws(() => S.buyLeg({ solIn: oldV, coinAccount: c0, slippageBps: bps }), /sandwich threshold/);
+    const min = S.withSlippage(S.quoteBuy(T, st0, oldV).tokensOut, bps);
+    const bo = bestWrapPerClass(T, st0, [{ solIn: oldV, min }], { slot: w.slot() });
+    const who = caps > 5 ? 'founder' : 'founderFloat';
+    assert.ok(bo[who].p > 0n && bo[who].k >= 3, `the model: the ${who} profits after ${bo[who].k} runs (${bo[who].p})`);
+    const victim = await richSigner(w, 5n);
+    const ro = await wrapOnChain(w, old, { a: bo[who].a, k: bo[who].k, label: `${caps} caps, round 4's threshold at ${bps} bps`, victimTxs: [{ signer: victim, instructions: w.buyIxs(victim, old, oldV, min) }] });
+    assert.ok(ro[who] > 0n, `on chain the ${who} profits after ${bo[who].k} runs (${ro[who]}; review KR-1)`);
+    report.push(`${caps} caps, ${oldV} at ${bps} bps, ${bo[who].k} runs: ${fmt(ro)}`);
+    // the SDK now, on a twin coin with the same backlog
+    const h = await poolCoin(w, cityId + 1n, `${symbol}N`);
+    await churnTo(w, h, caps, `${symbol}N`);
+    const c = w.coinView(h); const st = S.coinState(c);
+    const runs = S.sandwichRuns(T, st);
+    assert.equal(S.sandwichThreshold(T, st), (S.sandwichDepth(T, st) * S.sandwichCostBps(T, st)) / 10_000n);
+    assert.equal(S.sandwichCostBps(T, st), runs >= 8n ? 0n : 150n - 20n * runs, `${runs} runs counted`);
+    const victimN = await richSigner(w, 5n);
+    let built; let size;
+    if (S.sandwichThreshold(T, st) === 0n) {
+      // nothing left: every buy is large, 0.3%; the victim loses at most that
+      size = oldV;
+      assert.deepEqual([S.buySlippagePolicy(c, size).maxSlippageBps, S.buySlippagePolicy(c, size).large], [30, true]);
+      built = S.buyWithSwap({ ix: w.ix, user: victimN.address, coin: h.coin, mint: h.mint, swapInstructions: [], quote: swapQuoteOf(size), coinAccount: c, slippageBps: 30 });
+    } else {
+      size = largestFor(c, bps);
+      built = S.buyWithSwap({ ix: w.ix, user: victimN.address, coin: h.coin, mint: h.mint, swapInstructions: [], quote: swapQuoteOf(size), coinAccount: c, slippageBps: bps });
+    }
+    const best = bestWrapPerClass(T, st, [{ solIn: built.solIn, min: built.minTokensOut }], { slot: w.slot() });
+    assert.equal(Object.keys(best).length, 4, 'some front-run lets the buy pass');
+    const top = Object.entries(best).reduce((x, y) => (y[1].p > x[1].p ? y : x));
+    const plain = built.quote.tokensOut;
+    const r = await wrapOnChain(w, h, { a: top[1].a, k: top[1].k, label: `${caps} caps, the SDK's buy`, victimTxs: [{ signer: victimN, instructions: built.instructions }] });
+    const lossBps = ((plain - w.balanceOf(victimN, h.mint)) * 10_000n) / plain;
+    if (S.sandwichThreshold(T, st) === 0n) assert.ok(lossBps <= 30n, `the victim loses at most 0.3% (${lossBps} bps)`);
+    else for (const k of Object.keys(CLASSES)) assert.ok(r[k] < 0n, `${caps} caps, the SDK's ${size} at ${bps} bps: the ${k} loses (${r[k]})`);
+    report.push(`SDK at ${caps} caps (${runs} runs): ${size} at ${S.buySlippagePolicy(c, size).maxSlippageBps} bps, ${top[1].k} run(s): ${fmt(r)}, victim -${lossBps} bps`);
+  }
+  console.log(`KR-1: ${report.join(' | ')}`);
+  await w.finish();
+});
+
+test('R5-DIFF-1 a split order whose pieces are each built from a fresh read: anchored to the order\'s start (order), a searcher who front-runs every piece by the most it clears and sells after the last takes at most the order\'s 0.3%', async () => {
+  const w = await World.create();
+  const T = S.DEFAULT_TERMS;
+  const h = await w.launchCoin({ cityId: 2_980n, symbol: 'RATCH' });
+  const start = w.coinView(h);
+  const thr = S.sandwichThreshold(T, S.coinState(start));
+  const total = 5n * LAMPORTS;
+  assert.throws(() => S.buyLeg({ solIn: thr, coinAccount: start, slippageBps: 30, orderSolIn: total }), /needs order: \{ start, pieces, received \}/);
+  // the order as quoted at its start: the pieces in sequence with no other trade
+  let plain = 0n; { let s = S.coinState(start); let left = total; while (left > 0n) { const V = left < thr ? left : thr; const q = S.quoteBuy(T, s, V); plain += q.tokensOut; s = q.newState; left -= V; } }
+  const victim = await richSigner(w, 20n);
+  const attacker = await richSigner(w, 100n);
+  const pieces = []; let received = 0n; let left = total; let held = 0n; let spent = 0n;
+  while (left > 0n) {
+    const V = left < thr ? left : thr;
+    const fresh = w.coinView(h); // the coin as read just before this piece is signed
+    const leg = S.buyLeg({ solIn: V, coinAccount: fresh, slippageBps: 30, orderSolIn: total, order: { start, pieces, received } });
+    // the searcher's front-run: the most that still lets the piece pass (the model on the same read)
+    const st = S.coinState(fresh);
+    const passes = (a) => S.quoteBuy(T, S.quoteBuy(T, st, a).newState, leg.solIn).tokensOut >= leg.minTokensOut;
+    let lo = 0n; let hi = 30n * LAMPORTS; while (hi - lo > 10_000n) { const m = (lo + hi) / 2n; if (m >= S.MIN_TRADE_LAMPORTS && passes(m)) lo = m; else hi = m; }
+    if (lo >= S.MIN_TRADE_LAMPORTS) { const f = await w.buy(attacker, h, lo, { label: `front-run of piece ${pieces.length + 1}` }); held += f.q.tokensOut; spent += f.q.charged; }
+    const t0 = w.balanceOf(victim, h.mint);
+    await w.send(w.buyIxs(victim, h, leg.solIn, leg.minTokensOut), [victim], `piece ${pieces.length + 1}, its own transaction`);
+    w.addHolder(h.mint, victim);
+    received += w.balanceOf(victim, h.mint) - t0; pieces.push(leg.solIn); left -= V;
+  }
+  const b = await w.sell(attacker, h, held, { label: 'the searcher sells after the last piece' });
+  const lossBps = ((plain - received) * 10_000n) / plain;
+  const outsider = b.q.solOut - spent;
+  assert.equal(pieces.length, 13);
+  assert.ok(lossBps <= 30n, `the order loses at most its 0.3% (${lossBps} bps; review R5-DIFF-1 measured 187 with fresh minimums)`);
+  assert.ok(outsider * 10_000n <= total * 30n, `the searcher keeps at most 0.3% of the order (${outsider})`);
+  console.log(`R5-DIFF-1: ${pieces.length} pieces of at most ${thr}, the order lost ${lossBps} bps, the searcher ${outsider}`);
   await w.finish();
 });

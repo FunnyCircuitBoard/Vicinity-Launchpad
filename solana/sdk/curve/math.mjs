@@ -589,26 +589,47 @@ export function cheapestAttackerCostBps(termsIn) {
 }
 
 /**
- * The margin, in basis points, that one buyback run inside the victim's sandwich is worth to the attacker (5.15;
- * review SDK4-4): `ceil(2t / C)` when the config has a buyback share, else 0. A due `buyback_burn` is
+ * The margin, in basis points, that the buyback runs inside the victim's sandwich are worth to the attacker (5.15;
+ * reviews SDK4-4, KR-1): `ceil(2t / C)` per run when the config has a buyback share, else 0. A due `buyback_burn` is
  * permissionless, so the attacker can place one between the victim's trade and his back-run; it spends at most
  * `t / (C * D)` of the depth (7.1: `depth * t / (C * D)`, 0.1% under config #0), which moves the price his way by
- * about twice that. Config #0: 20 bps.
+ * about twice that. Config #0: 20 bps per run. Without `stateIn`, one run; with it, every run the visible backlog can
+ * pay for (`sandwichRuns`): an attacker who holds through `K` runs with the victim's trade inside the hold profits
+ * once `K` runs are worth more than the threshold left for them (review KR-1: one run allowed, a founder profited
+ * after 8 runs of a backlog of 0.84% of depth).
  */
-export function buybackRunMarginBps(termsIn) {
+export function buybackRunMarginBps(termsIn, stateIn) {
   const t = terms(termsIn);
   if (t.buybackBps === 0n) return 0n;
-  return divCeil(2n * t.totalFeeBps, BUYBACK_CAP_DIVISOR);
+  const perRun = divCeil(2n * t.totalFeeBps, BUYBACK_CAP_DIVISOR);
+  return stateIn === undefined ? perRun : perRun * sandwichRuns(t, stateIn);
 }
 
 /**
- * The cost per leg, in basis points, that the sandwich threshold uses (5.15; reviews MATH3-1, SDK4-4):
- * `cheapestAttackerCostBps(terms) - buybackRunMarginBps(terms)`, at least 0. Config #0: 250 - 100 - 20 = 130.
+ * The buyback runs a sandwich can hold through (review KR-1): `max(1, ceil(buyback_pending / cap'))`, where
+ * `cap' = floor(sandwichDepth * t / (C * D))` is a run's cap at the depth the trade is judged at (the smaller cap on
+ * the curve near graduation, so more runs are counted). 1 for a config without a buyback share.
  */
-export function sandwichCostBps(termsIn) {
+export function sandwichRuns(termsIn, stateIn) {
+  const t = terms(termsIn);
+  const s = state(stateIn);
+  if (t.buybackBps === 0n) return 1n;
+  const cap = divFloor(mul(sandwichDepth(t, s), t.totalFeeBps), mul(BUYBACK_CAP_DIVISOR, D));
+  if (cap === 0n) return s.buybackPending > 0n ? U64_MAX : 1n;
+  const runs = divCeil(s.buybackPending, cap);
+  return runs > 1n ? runs : 1n;
+}
+
+/**
+ * The cost per leg, in basis points, that the sandwich threshold uses (5.15; reviews MATH3-1, SDK4-4, KR-1):
+ * `cheapestAttackerCostBps(terms) - buybackRunMarginBps(terms, state)`, at least 0. Config #0 with at most one cap
+ * pending: 250 - 100 - 20 = 130; each further cap of backlog takes 20 more, and from 7.5 caps (0.75% of depth)
+ * nothing is left, so every trade is judged large (0.3%). Without `stateIn`, one run.
+ */
+export function sandwichCostBps(termsIn, stateIn) {
   const t = terms(termsIn);
   const c = cheapestAttackerCostBps(t);
-  const m = buybackRunMarginBps(t);
+  const m = buybackRunMarginBps(t, stateIn);
   return c > m ? c - m : 0n;
 }
 
@@ -629,14 +650,16 @@ export function sandwichDepth(termsIn, stateIn) {
 
 /**
  * The trade size, in lamports (a buy's charge, a sell's gross), above which an ordinary sandwich profits whatever
- * slippage the victim allows (5.15; reviews MATH3-1, R4-DIFF-3, SDK4-2, SDK4-4, R4-DIFF-5):
- * `floor(sandwichDepth * sandwichCostBps / D)`. The attacker's profit is about `slippage * (V - c * depth / D)`, so
- * above this size he takes almost the whole tolerance, below it he loses, also when the trade is pushed into a
- * fresh pool and when one buyback run sits inside the sandwich. A first-order bound that errs on the trader's side.
- * Config #0: 1.3% of the depth, 0.39 SOL at launch, 0.91 SOL at 40 SOL raised, 1.105 SOL from 55 SOL raised and at
- * pool open.
+ * slippage the victim allows (5.15; reviews MATH3-1, R4-DIFF-3, SDK4-2, SDK4-4, R4-DIFF-5, KR-1):
+ * `floor(sandwichDepth * sandwichCostBps(terms, state) / D)`. The attacker's profit is about
+ * `slippage * (V - c * depth / D)`, so above this size he takes almost the whole tolerance, below it he loses, also
+ * when the trade is pushed into a fresh pool and when the buyback runs the visible backlog pays for sit inside the
+ * sandwich. A first-order bound that errs on the trader's side, for one trade: the slippage a trade may allow below
+ * it depends on its size too (compose.mjs, review MV-1), since trades sharing a block are sandwiched together.
+ * Config #0 with at most one cap pending: 1.3% of the depth, 0.39 SOL at launch, 0.91 SOL at 40 SOL raised,
+ * 1.105 SOL from 55 SOL raised and at pool open.
  */
 export function sandwichThreshold(termsIn, stateIn) {
   const t = terms(termsIn);
-  return toU64(divFloor(mul(sandwichDepth(t, stateIn), sandwichCostBps(t)), D));
+  return toU64(divFloor(mul(sandwichDepth(t, stateIn), sandwichCostBps(t, stateIn)), D));
 }

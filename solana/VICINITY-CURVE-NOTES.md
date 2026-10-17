@@ -3,7 +3,7 @@
 Companion to `VICINITY-CURVE-DESIGN.md`, revision 3 (entries 1 to 41 were written against
 revision 2, commit ee62c31; revision 3 folds every entry in, and its Appendix C says where;
 entries 42 to 48 answer review round 1 of the build, entries 49 to 51 review round 2, 52 to 56
-review round 3, entry 57 onwards review round 4). The
+review round 3, 57 to 66 review round 4, entry 67 onwards review round 5). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -1936,3 +1936,124 @@ Tests. `27-checker-gaps` SM-2: the real contexts pass; doctored flags (buy, laun
 payout) are refused with SM-2's messages; a transaction that halts, resumes and buys passes, and
 the same calls reordered (resume, halt, buy) are refused at the buy; seven doctored approvals and
 two doctored opt-ins are refused. Against the previous checker every doctored case is accepted.
+
+### 67. A piece of a split order is held to the order's start (5.15, 14.1, T80; review R5-DIFF-1)
+
+**Spec.** Entry 59 and 5.15: a client that splits an order (a schedule, a DCA) judges every piece by
+the order's total (`orderSolIn`, `orderGross`), "0.3% per piece, measured 0.28%"; `buyLeg`'s input is
+"the coin as read before signing".
+
+**Issue.** The 0.28% came from a test that computed every piece's minimum up front from the order's
+first snapshot. A schedule reads the coin again before each piece, and each piece's 0.3% was then
+measured from a price that already held a searcher's earlier buys: he bought ahead of every piece by
+the most it still cleared and sold after the last. Measured on chain with the production build: a
+5 SOL order in 13 pieces lost 187 bps and paid him +70,707,128 lamports; the model gives 327 bps on a
+10 SOL order and 98 bps on a 6-piece sell (against 24 bps sold at once). Without `orderSolIn`, at the
+old 1% per piece, the same reads lost 609 bps, so round 4 cut the loss by about 3x but did not reach
+its bound. Low: client side only, no program funds.
+
+**Choice.** The review's option 1, made the only way to build a piece:
+* `buyLeg`, `buyWithSwap` and `sellLeg` take `order = { start, pieces, received }`: the decoded coin as
+  read when the order began, the size of each earlier piece as sent (`sol_in` of buys, `tokens_in` of
+  sells) and what they delivered (raw coins, lamports). A leg smaller than `orderSolIn` / `orderGross`
+  without `order.start` is refused (`ComposeError`, naming R5-DIFF-1); so are `order` without its
+  total, another coin's start and buy pieces adding up to more than `orderSolIn`.
+* The piece's minimum is at least `floor(Q * (D - s) / D) - received`, where `Q` is what the earlier
+  pieces and this one deliver in sequence from `start` with no other trade (the SDK's quotes, which equal
+  the program, G01), and at least its own minimum on the current read. When the current quote is
+  already below that floor the piece is refused: the order has used up its slippage and ends. A given
+  minimum must clear the floor at the policy's largest slippage. Whatever happens between the pieces,
+  the order then loses at most `s` against its quote at the start.
+* Pieces signed together from one snapshot pass the snapshot advanced by the earlier pieces as the coin
+  and their quoted coins as `received` (the R4-DIFF-2 test does). An order restarted from a fresh read
+  starts a new budget; 5.15 and 14.1 say that a client restarting after every refusal gives the bound up.
+* `buySlippagePolicy` and `sellSlippagePolicy` keep `orderSolIn` / `orderGross` (they build no minimum).
+* 5.15, 14.1, T80, the compose.mjs header and the SDK README say so.
+
+Tests. `prechecks.test.mjs` R5-DIFF-1: the refusals; the first piece read at the start keeps its own
+minimum; the review's ratchet in the model, 13 pieces each from a fresh read with a greedy searcher:
+round 4's minimums lose 187 bps (+70.8M to the searcher), the anchored ones 29 bps (+13.9M); a piece
+after the price moved more than the order allows is refused; a given minimum below the floor is refused;
+sells: 100 bps with fresh minimums, 29 anchored. `29-clients` R5-DIFF-1 on chain: the same 5 SOL order,
+each piece built from `w.coinView` just before it is signed, a searcher front-running every piece by
+the most it clears: the order loses 29 bps and the searcher keeps +13,924,931 lamports (0.28% of the
+order). `29-clients` R4-DIFF-2 passes the order's start. Against the previous SDK both fail (a piece
+without `order` was accepted, and `order` was ignored).
+
+### 68. The slippage a trade at or below the threshold may allow depends on its size (5.15, 7.4, 14.1, T80; review MV-1)
+
+**Spec.** 5.15: "at the threshold every attacker class ... loses at every slippage up to 5%"; T80: "at
+most 5% up to the coin's sandwich threshold, where no sandwich profits"; the SDK's `policy` allowed 5%
+for any trade at or below the threshold.
+
+**Issue.** The threshold was judged one trade at a time. Two honest trades that read the same coin and
+land in one block (a launch, a graduation, the first block after buys reopen) are wrapped by one
+sandwich, and each one's tolerance is room for the trades ahead of it. Measured on chain: two
+threshold-size buys at 5% in a fresh pool, each safe alone, paid the founder +12,722,874 lamports and an
+outsider +948,502 with the due run inside (the outsider only with the run and from 3%); sells alike
+(+15,196,387). The victims lost about 2.6% of their 2.21 SOL to the attack, each capped by his own
+slippage. Low (reported medium): the bad cases need trades near the 5% maximum; at the website's 1%
+only the founder holding the float profits (+259k to +505k lamports in the model).
+
+**Choice.** The review's rule, on the charge for buys and the gross for sells: a trade of size `V` at
+or below the threshold may allow a slippage `s` only while `V + floor(depth' * s / (2D)) <= threshold`,
+taken as the largest `s = floor(2D * (threshold - V) / depth')`, clamped to `LARGE_BUY_MAX_SLIPPAGE_BPS`
+(0.3%) to `MAX_SWAP_SLIPPAGE_BPS` (5%); the default is 1% or that maximum when lower. Whatever lands ahead
+of the last trade must fit within its tolerance (about `depth' * s / 2`), so the trades one sandwich wraps
+stay under the threshold together. Config #0: about 2.6% for the smallest trades, 1.93% at 0.1 SOL and
+1% up to 0.24 SOL on a fresh coin, 1% up to 0.68 SOL at pool open; never 5%. The 0.3% floor keeps the
+large-trade regime in the top 0.15% of depth below the threshold (two such trades cannot both pass even
+unattacked). The refusal names MV-1. `buyLeg` and `sellLeg` also return `maxSlippageBps`. 5.15, 7.4,
+14.1 (the panel and the default), 14.3 and T80 restated; the statement that the threshold holds for one
+trade alone stays as the single-trade bound the rule builds on.
+
+Tests. `prechecks.test.mjs` MV-1: the rule's figures at nine sizes, the leg at the maximum and the
+refusal one bps above (derived and given), the review's two threshold buys at 5% with the run profit in
+the model (+24.6M for the founder holding the float) and are refused, and one to three buys from one
+snapshot at the largest sizes the rule allows for 0.5% to 2.5% (and half of them), held through every
+run, lose for every class at launch, at 40 SOL raised and at pool open with one and with three caps;
+the earlier tests at the threshold now build its 5% by hand (the single-trade bound) and assert that the
+SDK refuses it. `29-clients` MV-1 on chain: round 4's allowance (two threshold buys at 5%) pays the
+founder +10.9M; the SDK refuses it; two buys at its largest 2% size and three at a quarter of its largest
+1% size, built with `buyWithSwap` from one snapshot, leave every class at a loss with the runs inside.
+Against the previous SDK the refusals fail and the sizes it allowed (5% to the threshold) profit.
+
+### 69. The sandwich threshold counts every buyback run the visible backlog pays for (5.15, 7.2, 7.3, O25, T76, T80; review KR-1)
+
+**Spec.** Entry 58: the threshold's cost leaves room for one run (`ceil(2t/C)`); 7.3 and O25: a hold
+through `K` runs profits only above 1.5% of depth and 16 runs for a founder (2.0% and 21 for anyone),
+"with no other trading"; the keeper alerts above 1% of depth.
+
+**Issue.** With an honest trade inside the hold the runs add to its price impact. Measured on chain: one
+SDK buy at the threshold with 5%, a front-run held through 8 runs of a backlog of 0.84% of depth: the
+founder +297,718 lamports; 10 runs: +8,400,788; an outsider through 15 runs of 1.5%: +7,901,169; at the
+website's 1% the founder after 10 runs (+2,011,609). The model's least `K` with the victim inside is 13
+for an outsider, 8 for the founder, 6 for the platform's key and 3 for a founder holding the float,
+against 26, 21, 19 and 16 without it, at every slippage from 1% to 5%. Below the keeper's 1% alert.
+Low: a visible backlog and a hold of minutes with market risk; the victim's loss is capped by his
+slippage.
+
+**Choice.** The review's first proposal: `sandwichRuns(terms, state) = max(1, ceil(buyback_pending /
+cap'))`, with `cap'` a run's cap at the sandwich depth (`floor(depth' * t / (C * D))`: near graduation
+the pool's 85 SOL, so more runs are counted than at the curve's depth), and
+`buybackRunMarginBps(terms, state) = ceil(2t/C) * sandwichRuns` (one run without a state, as before);
+`sandwichCostBps` and `sandwichThreshold` take the state. Config #0: 130 bps with at most one cap, 20
+less per further cap, nothing left from 7.5 caps (every trade large, 0.3%). A buy that completes the
+curve alone leaves about 3 caps, so a fresh pool's threshold is 0.595 SOL until the keeper has run.
+Also: the keeper's alert moves from 1% of depth to two caps (0.2% at t = 250), below the 3-cap figure;
+7.3 states M_K's figures for a hold with no other trade and gives the lower ones with a trade inside;
+O25 carries them and needs the owner's sign-off again (the SDK protects its own trades; a client that
+allows more slippage than the SDK does not). Not taken: treating every trade as large while
+`buyback_pending > cap` (it refuses ordinary sizes after every busy minute).
+
+Tests. `prechecks.test.mjs` KR-1: the run count, margin, cost and threshold at nine backlogs (0 to
+8.37 caps), the cap at the pool's depth near graduation, no buyback share; the review's states (8.37
+caps at 5%, 3 caps at 1%) profit at round 4's threshold in the model and are refused now; at backlogs of
+0 to 7 caps the SDK's largest sizes for 0.5% to 2%, one or two victims, held through every run, lose
+for every class. The R4-DIFF-3, SDK4-4, R4-DIFF-5 and MATH3-1 tests now name the backlog they assume.
+`29-clients` KR-1 on chain: at 8.4 caps round 4's threshold at 5% pays the founder +2,483,539 after 9
+runs (the founder holding the float +23.8M), at 3 caps at 1% the founder holding the float +747,711
+after 4 runs; on twin coins the SDK refuses those buys, its 0.3% buy at 8.4 caps loses the victim 29 bps
+at most, and its largest 1% buy at 3 caps leaves every class at a loss through every run.
+`29-clients` SDK4-4 holds through every run the backlog pays for. Against the previous SDK the
+refusals fail and its threshold's buys profit.

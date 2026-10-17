@@ -1630,36 +1630,75 @@ the pool.
   and sells alike (a sell is sandwiched the same way by any holder: sell first, buy the same
   coins back; review R4-DIFF-5). The SDK's `sandwichThreshold(terms, state)` is
   `floor(depth' * c' / D)`, with:
-  * `c' = t - max(b_F + b_H, b_P) - ceil(2t/C)`, at least 0: the cheapest credited attacker's
-    cost per leg, less what one buyback run is worth to him. A due `buyback_burn` is
-    permissionless, so he can place one between the victim's trade and his back-run; it spends
-    up to `t/(C*D)` of the depth and moves the price his way by about twice that (review
-    SDK4-4: at the round-3 threshold with 5%, one run made the founder holding the float
-    profit). The run term applies only to configs with a buyback share.
+  * `c' = t - max(b_F + b_H, b_P) - K * ceil(2t/C)`, at least 0: the cheapest credited attacker's
+    cost per leg, less what the buyback runs inside the sandwich are worth to him. A due
+    `buyback_burn` is permissionless, so he can place one between the victim's trade and his
+    back-run; it spends up to `t/(C*D)` of the depth and moves the price his way by about twice
+    that (review SDK4-4: at the round-3 threshold with 5%, one run made the founder holding the
+    float profit). He can also hold through every run the public backlog pays for, so `K`
+    counts them (`sandwichRuns`): `K = max(1, ceil(buyback_pending / cap'))`, with `cap'` a
+    run's cap at `depth'` (review KR-1: with one run allowed, a buy at the threshold held
+    through 8 runs of a backlog of 0.84% of depth paid the founder +297,718 lamports on chain,
+    and through 15 runs of 1.5% an outsider; the model's least `K` with such a buy inside the
+    hold is 3 for a founder holding the float, 8 for the founder, 13 for an outsider). The run
+    term applies only to configs with a buyback share.
   * `depth' = min(x0 + curve_sol, graduation_sol)` on the curve and `pool_sol` in the pool:
     any curve trade can be pushed into the pool, which opens at depth `graduation_sol`, by
     whoever graduates the coin first (graduate, buy in the new pool, let the victim's
     curve-quoted trade run there, sell; review R4-DIFF-3: near graduation the curve's depth
     reaches 115 SOL against the pool's 85, and a founder holding the float straddled a
     threshold-size buy at 4% to 5% for a profit).
-  Under config #0, `c'` is 130 bps: 0.39 SOL at launch, 0.91 SOL at 40 SOL raised, 1.105 SOL
-  from 55 SOL raised and at pool open (a first-order bound, below every measured threshold). A
-  trade at or below it (a buy's charge, a sell's gross) may allow up to 5% (default 1%); above
-  it at most `LARGE_BUY_MAX_SLIPPAGE_BPS` = 0.3%, enforced by `buyLeg`, `buyWithSwap` and
-  `sellLeg` for a minimum given or derived (`buySlippagePolicy`, `sellSlippagePolicy`).
+  Under config #0 with at most one cap of backlog `c'` is 130 bps: 0.39 SOL at launch, 0.91 SOL
+  at 40 SOL raised, 1.105 SOL from 55 SOL raised and at pool open (a first-order bound, below
+  every measured threshold). Each further cap of backlog takes 20 bps more (the buy that
+  completes the curve alone leaves about 3 caps: 70 bps, 0.595 SOL at pool open), and from 7.5
+  caps (0.75% of depth) nothing is left, so every trade is judged large. A trade above the
+  threshold (a buy's charge, a sell's gross) may allow at most `LARGE_BUY_MAX_SLIPPAGE_BPS` =
+  0.3%. **At or below it the slippage depends on the size too (review MV-1).** Trades that read
+  the same coin and land in one block (a launch, a graduation, the first block after buys
+  reopen) are wrapped by one sandwich, and each one's tolerance is room for the trades ahead of
+  it: measured on chain, two buys of the threshold at 5% from one snapshot, each safe alone,
+  paid the founder +12,722,874 lamports and an outsider +948,502 with the due run inside, the
+  victims losing about 2.6% of their 2.21 SOL to the attack. So a trade of size `V` may allow a
+  slippage `s` only while `V + depth' * s / (2D)` stays at or below the threshold, that is at
+  most `floor(2D * (threshold - V) / depth')`, never more than 5% and never less than 0.3%:
+  whatever lands ahead of the last trade must fit within its tolerance (about `depth' * s / 2`),
+  so all the trades one sandwich wraps stay under the threshold together. Under config #0: about
+  2.6% for the smallest trades, 1.93% at 0.1 SOL and 1% up to 0.24 SOL on a fresh coin, 1% up to
+  0.68 SOL at pool open, 0.3% in the top 0.15% of depth below the threshold, never 5% (5% would
+  need 250 bps of cost left). Enforced by `buyLeg`, `buyWithSwap` and `sellLeg` for a minimum
+  given or derived; `buySlippagePolicy` and `sellSlippagePolicy` give the maximum and the
+  default (1%, or the maximum when it is lower).
   **Splitting is no defence** (review R4-DIFF-2): an attacker can hold his position across
   separate transactions, front-run the first piece and sell after the last, so a large trade
   split into threshold-size pieces at 1% each loses about 1% of the whole (measured on chain:
   13 pieces of a 5 SOL buy, 0.93%, the outsider +0.044 SOL). A client that splits an order
-  anyway judges every piece by the order's total (`orderSolIn`, `orderGross`: 0.3% per piece,
-  measured 0.28%). Measured with the SDK model, which equals the program to the lamport (G01),
-  and on chain: at the threshold every attacker class (an outsider, the founder, the founder
-  holding the float, the platform's key) loses at every slippage up to 5%, in both phases,
-  also when the trade is pushed from the curve into the pool by a graduation and with one
-  buyback run inside the sandwich; above it a 0.3% limit caps the victim's loss at 0.3% (the
-  attacker keeps at most about 0.2% of the trade). Large trades can also go through a private
-  or protected submission path (not built), which is the advice for them. The owner chooses
-  configs (13).
+  anyway judges every piece by the order's total (`orderSolIn`, `orderGross`: 0.3% per piece)
+  and anchors every piece's minimum to the order's start (`order`: the coin as read when the
+  order began, the size of each earlier piece, what they delivered): the piece must deliver at
+  least `floor(Q * (D - s) / D) - received`, where `Q` is what the earlier pieces and this one
+  deliver in sequence from the start with no other trade, and the SDK refuses the piece (ending
+  the order) once the coin's current quote is below that. The whole order then loses at most
+  `s` against its quote at the start, whatever happens between its pieces (review R5-DIFF-1:
+  with each piece's 0.3% re-quoted from a fresh read, as round 4 allowed, a searcher who bought
+  ahead of every piece by the most it still cleared took 187 bps of a 5 SOL order and 327 bps of
+  a 10 SOL one, since each tolerance was measured from a price that already held his earlier
+  buys; anchored, 29 bps, measured on chain). Pieces signed together from one snapshot pass, for
+  each piece, the snapshot advanced by the earlier pieces as the coin and their quoted coins as
+  `received`. An order restarted from a fresh read starts a new budget, so a client that restarts
+  after every refusal gives the bound up. Measured with the SDK model, which equals the program
+  to the lamport (G01), and on chain: one trade alone at the threshold loses for every attacker
+  class (an outsider, the founder, the founder holding the float, the platform's key) at every
+  slippage up to 5%, in both phases, also when the trade is pushed from the curve into the pool
+  by a graduation and with every run the backlog pays for inside the sandwich; at the sizes the
+  size rule allows, one to three trades from one snapshot wrapped together lose for every class
+  with every run inside (0.5% to 2.6%, at launch, at 40 SOL raised and at pool open with backlogs
+  of 0 to 7 caps); above the threshold a 0.3% limit caps the victim's loss at 0.3%, and the
+  attacker keeps at most about that (nearly all of it when a backlog sits inside the hold). The
+  threshold is a property of everything a sandwich can wrap, not of one trade: a client outside
+  the SDK that allows 5% at the threshold is safe alone and not beside another such trade. Large
+  trades can also go through a private or protected submission path (not built), which is the
+  advice for them. The owner chooses configs (13).
 
 ### 5.16 The math crate (`vicinity-curve-math`)
 
@@ -1954,8 +1993,10 @@ buyback_burn():                                                   // permissionl
   interval creates it, and so does sustained volume above the binding rate (20 SOL per minute
   at the start of the curve adds 0.03 SOL of backlog per minute).
 * Operations (14.1): the keeper runs every interval for every coin with a nonzero bucket; it
-  alerts when `buyback_pending` exceeds 1% of depth; the coin page shows the backlog and the
-  depth, so the market prices the coming buys in.
+  alerts when `buyback_pending` exceeds two caps (0.2% of depth at t = 250: the keeper has fallen
+  two runs behind; review KR-1, where a hold with another trade inside profited from 3 caps); the
+  coin page shows the backlog and the depth, so the market prices the coming buys in, and the
+  clients' sandwich threshold counts every run the backlog pays for (5.15).
 * A halt of buybacks (8.3) is the one time the keeper cannot run, and sells keep filling the
   bucket: a pool mostly sold during a long halt ends with a backlog many times `u*` (review
   LL-1). The program allows it only while buys are halted and never reopens buys before
@@ -2045,8 +2086,19 @@ Consequences, all independent of the step size:
   attacker can move the price, and an exit after the backlog is spent. Positive expected value
   remains for a trader who sees a large backlog and can wait: this is a stated residual risk
   that needs the owner's sign-off (O25). Mitigations: the keeper spends every interval, alerts
-  above 1% of depth, and the coin page shows the backlog so the market prices it in (7.2,
-  14.1).
+  above two caps (0.2% of depth), and the coin page shows the backlog so the market prices it in
+  (7.2, 14.1).
+* **With another trade inside the hold (review KR-1).** The figures above assume no other
+  trade between the attacker's legs. An honest trade that lands inside the hold adds its price
+  impact to the runs': with one buy at the clients' round-4 threshold (one run allowed), the
+  founder profited after 8 runs of a backlog of 0.84% of depth (+297,718 lamports on chain;
+  +8,400,788 after 10 runs) and an outsider after 15 runs of 1.5% (+7,901,169); the model's least
+  `K` with such a buy inside is 13 for an outsider, 8 for the founder, 6 for the platform's key
+  and 3 for a founder holding the float (backlog about `K` caps), against 26, 21, 19 and 16 with
+  no victim, at every slippage from 1% to 5%. The victim's loss stays capped by his own
+  slippage. The clients now count every run the backlog pays for in the sandwich threshold
+  (5.15), so an SDK trade inside such a hold leaves every class at a loss; a trade from another
+  client at a large slippage does not, which is O25's residual risk with these lower figures.
 * **Creating a backlog oneself** costs at least `(b_P + b_L)/b_B = 4` lamports of platform and
   liquidity fees per lamport of backlog (the platform share never comes back; the liquidity
   share only partly, through the pool), even for a founder credited his share; the
@@ -2117,7 +2169,9 @@ platform's credit in the sandwich threshold of 5.15.
 User sandwiches are the usual AMM risk, bounded by the user's slippage limits (5.15). Above a
 coin's sandwich threshold (5.15: the SDK's `sandwichThreshold`, 1.3% of the market's SOL depth under config #0,
 0.39 SOL on a fresh coin) any slippage the trader allows is taken almost entirely, so
-the clients allow at most 0.3% there, for buys and sells (reviews MATH3-1, R4-DIFF-5, SDK4-6). Wash
+the clients allow at most 0.3% there, for buys and sells (reviews MATH3-1, R4-DIFF-5, SDK4-6);
+below it they allow less as the trade nears the threshold, since trades sharing a block are
+sandwiched together (review MV-1), and the threshold falls as the buyback backlog grows (KR-1). Wash
 trading pays nobody it does not cost: a trader gets back at most his own shares of each leg,
 so the founder's cost per leg is `t - b_F`, a holder of the float pays at least `t - b_H`, and
 a founder who also holds the float (in wallets other than his seat, which the snapshot leaves
@@ -2327,7 +2381,7 @@ follows, with `RewardsRegistryAdminMismatch` (review OPS-1).
   a founder seat (the admin may approve itself as a founder, 8.1; the owner does not). The
   platform's key is credited `b_P` of its own legs, which V8 and V11 do not count (7.3); the
   keeper alerts when `FEE_RECIPIENT` holds any city coin, and its keeper backlog alert stays at
-  1% of depth.
+  two caps (0.2% of depth, 7.2).
 * Under Meteora, curve and pool money sat in Meteora's programs. Here it sits under
   `vicinity_curve`, so the upgrade authority is the main trust: it could take every coin's
   reserves and unpaid shares. The website says so plainly.
@@ -2540,7 +2594,7 @@ Global:
 | T15 | **Division by zero** | `y0 > S >= s`; `x0 + q > 0`; `X + n > 0`; `Y + t > 0`; `D - t >= 9,750`; `t >= 1` | U09 |
 | T16 | **Partial-fill abuse** (be charged for coins not received, or take the last coins cheap) | only `charged = gross_for(c)` is taken; Lemma G gives net exactly `c`; tokens exactly `S - s` | I17; U07; X16 |
 | T17 | **Forcing a victim into a partial fill** | strict `min_tokens_out` refuses it; the victim pays nothing | X17 |
-| T80 | **Sandwiching an ordinary buy or sell above the size threshold** at the client's slippage (reviews MATH3-1, R4-DIFF-2, R4-DIFF-3, R4-DIFF-5, SDK4-4), also by pushing a curve trade into a fresh pool, with a buyback run inside the sandwich, or across the pieces of a split trade | the program enforces the minimum; the clients make the slippage depend on size: at most 5% up to the coin's sandwich threshold, where no sandwich profits, and at most 0.3% above it (`sandwichThreshold` at `min(x0 + curve_sol, graduation_sol)` on the curve, less one run; `buyLeg`, `sellLeg`; 5.15, 14.1); a piece of a split order is judged by the order | 29-clients |
+| T80 | **Sandwiching an ordinary buy or sell above the size threshold** at the client's slippage (reviews MATH3-1, R4-DIFF-2, R4-DIFF-3, R4-DIFF-5, SDK4-4, MV-1, KR-1, R5-DIFF-1), also by pushing a curve trade into a fresh pool, with the buyback runs of a backlog inside the sandwich, across the pieces of a split trade, or by wrapping several trades of one block together | the program enforces the minimum; the clients make the slippage depend on size: at most 0.3% above the coin's sandwich threshold (`sandwichThreshold` at `min(x0 + curve_sol, graduation_sol)` on the curve, less every run the backlog pays for), and at or below it at most `floor(2D * (threshold - V) / depth')`, clamped to 0.3% to 5%, so that everything one sandwich can wrap in a block fits under the threshold, where no sandwich profits (`buyLeg`, `sellLeg`; 5.15, 14.1); a piece of a split order is judged by the order and its minimum anchored to the order's start | 29-clients; `prechecks.test.mjs` |
 | T79 | **Forcing a victim out of a partial fill**: a buy signed near graduation with `sol_in` above the remainder and the partial quote's minimum is run in the pool after someone else graduates the coin, charged all of `sol_in` (review R3-CLI-1) | clients offer at most `max_quote_in` with the minimum of that quote (the SDK's `buyLeg`, `buyWithSwap`; `buyLegMinimum` refuses the uncapped pair; 5.4, 14.1, 14.3); the program then refuses the buy (`SlippageExceeded`) and the victim pays nothing; within about 97,500 lamports of graduation `max_quote_in` is `MIN_TRADE_LAMPORTS`, still a partial fill, so the exposure left is 0.0001 SOL (R4-DIFF-1) | 29-clients |
 | T18 | **Selling more than the curve sold** | `tokens_in <= tokens_sold` (`SellExceedsCurve`) | X18 |
 | T19 | **Graduation front-running** ("pop") | pool opens at most 1e-9 below the curve's last price, never above (V7; default 2.0e-12); the curve-phase liquidity is not dumped into the pool | I5; L07; X19 |
@@ -2600,7 +2654,7 @@ Global:
 | T73 | **Stolen guardian**, also one that sets a flag late in the time lock to make the admin's recovery proposal fail (reviews R4-DIFF-4, OPS-3) | the same limits; the admin replaces the guardian with `set_pause(buybacks = false)` and buys left halted (a proposal no flag can make fail; the SDK's `guardianRecovery`), then reopens buys in a later proposal, buybacks before buys when backlogs built up (4.4, 8.3) | X43b; LL-1; 28-governance R4-DIFF-4 |
 | T74 | **Third-party pools for the coin** | cannot be prevented for a classic SPL coin; they pay no Vicinity fee and buybacks and injections carry over to them only past 2.5% plus their fee; labelled (6.6) and listed as an owner-visible risk (13, 14.5) | process |
 | T75 | **CPI after a direct lamport move** (`UnbalancedInstruction`, stuck instruction) | rule of 4.0; `forward_holders_fees` leaves `SyncNative` to a separate top-level instruction | R02, R02b |
-| T76 | **Buying ahead of a public buyback backlog** (hold through several runs), including the backlog a halt of buybacks leaves and the predictable moment buys reopen (review LL-1) | Theorem M_K; 0.1% step; V11 horizon; keeper every interval, alert above 1% of depth, backlog shown on the coin page; buybacks halted only while buys are, resumed first, and the keeper drains every backlog before buys reopen (8.3); the platform's key, credited `b_P`, by the operating rule of 8.4 (7.3, review HR-1); residual risk signed off (O25) | P06b; X25; LL-1; HR-1 |
+| T76 | **Buying ahead of a public buyback backlog** (hold through several runs), including the backlog a halt of buybacks leaves and the predictable moment buys reopen (review LL-1) | Theorem M_K; 0.1% step; V11 horizon; keeper every interval, alert above two caps (0.2% of depth), backlog shown on the coin page, the clients' threshold counting every run the backlog pays for (5.15, review KR-1); buybacks halted only while buys are, resumed first, and the keeper drains every backlog before buys reopen (8.3); the platform's key, credited `b_P`, by the operating rule of 8.4 (7.3, review HR-1); residual risk signed off (O25) | P06b; X25; LL-1; HR-1 |
 | T77 | **One hot key in several roles** (`FEE_RECIPIENT` as admin, guardian, upgrade authority or a coin's founder, the guardian as payout key or wallet, the guardian or the payout key as a coin's founder, the old program administered by another key) | refused by `init_launchpad`, `propose_admin`, `accept_admin`, `set_guardian` and `set_payout_config` (`FeeRecipientRole`, `PayoutKeyNotSeparate`) and, for the founder seat, by `approve_launch`, `launch` and `transfer_founder` (`FeeRecipientRole`, `FounderHoldsRole`); later moves of the upgrade authority and settings that name an existing founder are 8.4's operating rule; approvals and launches require the old program's admin to be this program's admin (`LegacyAdminMismatch`, 8.5) | I19, I20; 28-governance |
 | T78 | **A client buy without a minimum** (the "pay with any token" composer), sandwiched | the program enforces `min_tokens_out`; the SDK's `buyWithSwap` refuses to build a buy without one (14.1) | 29-clients |
 
@@ -2875,15 +2929,15 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | O22 | A lost founder key | **The share stays with that key** (no admin lever) | Admin reassignment | A money power for the admin |
 | O23 | Aggregator and wallet visibility | **Ship the math crate, IDL, layout and this spec; ask Jupiter and the trading terminals to integrate after the audit; Jupiter adapter crate as a later step** (14.4); submit the program id, IDL and audit report to Blockaid, Blowfish and Phantom for allow-listing at mainnet launch (wallet warnings are expected until then; how long that takes is not proven) | Stay on Meteora | Keeps automatic routing but keeps Meteora's 0.5% and the other REPORT.md conflicts |
 | O24 | Who runs the cranks | **Vicinity's fee-payer wallet, no tip** | A small tip from the bucket | A spam incentive and another money path |
-| O25 | Residual multi-run buyback risk | **Accept and disclose**: a trader who buys while a public backlog above about 2.0% to 2.6% of depth exists (1.5% to 2.0% for a founder), and holds through at least 21 to 26 runs (16 to 21 for a founder) with no other trading, can profit (Theorem M_K); mitigated by the small step, V11, a keeper that spends every interval, an alert above 1% of depth and the backlog shown on the coin page; a halt of buybacks, the one time the keeper cannot run, is possible only while buys are halted, and buys reopen only after the keeper has spent the backlog (8.3, review LL-1). Not covered: the platform's key (`FEE_RECIPIENT`, credited `b_P`): alone under config #0 inside these figures (first profit at about 1.9% and 19 runs), but 1.34% and 14 runs under O1's alternative or with a founder seat held by the owner; kept out by the operating rule of 8.4 (7.3, review HR-1) | Execute buybacks inside trades (no backlog at all) | Contradicts R7's "executed separately" and R5's distinction; not offered |
+| O25 | Residual multi-run buyback risk | **Accept and disclose**: a trader who buys while a public backlog above about 2.0% to 2.6% of depth exists (1.5% to 2.0% for a founder), and holds through at least 21 to 26 runs (16 to 21 for a founder) with no other trading, can profit (Theorem M_K). **With an honest trade inside the hold the figures are lower (review KR-1; the owner's sign-off is needed again for them):** with one buy at the clients' round-4 threshold inside, the founder profited after 8 runs of a backlog of 0.84% of depth and an outsider after 15 runs of 1.5% (on chain); the model's least hold is 13 runs for an outsider, 8 for the founder and 3 for a founder holding the float (a backlog of about that many caps). The SDK now counts every run the backlog pays for in the sandwich threshold, so its own trades inside such a hold leave every class at a loss; a trade from a client that allows more slippage than the SDK does not. Mitigated by the small step, V11, a keeper that spends every interval, an alert above two caps (0.2% of depth) and the backlog shown on the coin page; a halt of buybacks, the one time the keeper cannot run, is possible only while buys are halted, and buys reopen only after the keeper has spent the backlog (8.3, review LL-1). Not covered: the platform's key (`FEE_RECIPIENT`, credited `b_P`): alone under config #0 inside these figures (first profit at about 1.9% and 19 runs), but 1.34% and 14 runs under O1's alternative or with a founder seat held by the owner; kept out by the operating rule of 8.4 (7.3, review HR-1) | Execute buybacks inside trades (no backlog at all) | Contradicts R7's "executed separately" and R5's distinction; not offered |
 | O26 | Holders' money of a coin whose rewards config was created wrong (it can never be fixed in `vicinity_rewards`) | **Waits in `holders_pending` until a program upgrade**; the SDK simulates and checks every config before proposing it | A permissionless fallback that, after a long delay (for example 90 days with no valid config), routes `holders_pending` into the buyback bucket | Changes the split for that coin; needs owner approval and audit |
 | O27 | Who may be the holders' root publisher | **Only the admin** (`CityConfig.authority == launchpad.admin`) | A separate `Launchpad.rewards_authority` (for example a rewards multisig without the time lock, so rounds are not delayed), changeable only by a listed two-step admin power | Faster reward rounds under the time lock; one more key and power to list and audit |
 | O28 | The metadata JSON served by the website | **Hash approved by the admin, stored and emitted; served write-once; image content-addressed** | State the residual risk only | Simpler, but the coin's displayed identity could then change silently |
 | O29 | The platform's key in the MEV rules (review HR-1) | **Not counted by V8 and V11; the operating rule of 8.4 keeps `FEE_RECIPIENT` and the owner's wallets out of city coins and founder seats** (config #0 alone stays inside O25's founder envelope) | (a) Count `b_P` in V8 (`m = max(b_F, b_H, b_P)`) and give the platform a horizon of its own in V11 (config #0's analytic form allows `K_P` = 13); or (b) keep `b_P <= m` in every config (a lower platform share, or a matching founder or holders share) | (a) refuses configs such as (0, 120, 0, 1, 1) and changes which future configs pass (config #0 passes V8 with 70 but would fail V11's credited inequality at `K_F` = 15, so the platform needs its own `K_P`); a crate, model and vector change before the audit. (b) changes the fee shares. Either is an owner decision on the fee split; nothing is changed until the owner decides |
 
 The decisions the owner should see first: **O3** (the 9.1 coins), **O11** (the time lock and
-what it delays in the existing programs), **O25** (the residual multi-run buyback risk),
-**O2** (the never-graduating coins' liquidity), **O7** (no fee on the buyback), **O29** (the
+what it delays in the existing programs), **O25** (the residual multi-run buyback risk, with
+the lower figures of review KR-1 when an honest trade sits inside the hold), **O2** (the never-graduating coins' liquidity), **O7** (no fee on the buyback), **O29** (the
 platform's key in the MEV rules, and the operating rule that stands in for it), and **O10 /
 O23** (native SOL confirmation and visibility on Jupiter and wallets: until each integrates the
 new program, these coins trade only on vicinity.city and through direct program calls).
@@ -2918,13 +2972,20 @@ new program, these coins trade only on vicinity.city and through direct program 
   transaction `[ComputeBudget, create the buyer's token account (idempotent), buy]` paid from
   native SOL (no wrap or unwrap needed); sell mirrors it and the SOL arrives natively. Near
   graduation, size the buy with `max_quote_in` and show "fills the curve; you pay X". Default
-  slippage 1% for a buy or a sell up to the coin's sandwich threshold (5.15; the SDK's
-  `sandwichThreshold`, 1.3% of the depth of the market the trade can run in under config #0,
-  0.39 SOL on a fresh coin) and 0.3% above it, where the SDK refuses more (`buyLeg`,
-  `sellLeg`, `buySlippagePolicy`, `sellSlippagePolicy`); above the threshold the trade panel
-  says that a larger slippage would be taken by a sandwich, that splitting the trade does not
-  help (an attacker can hold his position across transactions, review R4-DIFF-2) and that a
-  protected submission path is the way for large trades (reviews MATH3-1, R4-DIFF-5). The buy
+  slippage 1% for a buy or a sell at or below the coin's sandwich threshold (5.15; the SDK's
+  `sandwichThreshold`, 1.3% of the depth of the market the trade can run in under config #0
+  with at most one cap of buyback backlog, 0.39 SOL on a fresh coin, lower for each further
+  cap) and 0.3% above it, where the SDK refuses more; at or below it the most a trade may allow
+  shrinks as its size nears the threshold (`floor(2D * (threshold - V) / depth')`, from about
+  2.6% for the smallest trades to 0.3%; review MV-1: trades sharing a block are sandwiched
+  together), and the default is that maximum when it is below 1% (`buyLeg`, `sellLeg`,
+  `buySlippagePolicy`, `sellSlippagePolicy`). When the trade is above the threshold or its size
+  limits its slippage, the trade panel says that a larger slippage would be taken by a
+  sandwich, that splitting the trade does not help (an attacker can hold his position across
+  transactions, review R4-DIFF-2) and that a protected submission path is the way for large
+  trades (reviews MATH3-1, R4-DIFF-5). A schedule that splits an order builds each piece with
+  the order's total and its start (`orderSolIn` or `orderGross`, and `order`; review R5-DIFF-1)
+  and stops when the SDK refuses a piece. The buy
   panel shows the one-time token-account rent of a first buy. Pay with any token: the
   existing Jupiter composer swaps to native SOL (`outputMint` the native mint, unwrapped with
   `wrapAndUnwrapSol`; the SDK refuses any other output, review SDK4-5) and appends our buy
@@ -2940,7 +3001,7 @@ new program, these coins trade only on vicinity.city and through direct program 
   reviews R3-CLI-1, R4-DIFF-1). The SDK's `buyLeg` does both for the direct buy too.
 * **Crank** (server; fee-payer-only key with no authority): per coin, `buyback_burn` every
   interval while `buyback_pending > 0` (a missed interval grows the backlog, 7.3); an alert
-  when `buyback_pending` exceeds 1% of depth; `forward_holders_fees` followed by a top-level
+  when `buyback_pending` exceeds two caps (0.2% of depth, 7.2, review KR-1); `forward_holders_fees` followed by a top-level
   `SyncNative(rewards_vault)` in the same transaction when `holders_pending` exceeds a
   threshold (for example 0.05 SOL); `withdraw_platform_fees` daily; after any change of the
   rent rate, a top-up of every `Coin` by `liabilities + rent_min(693) - lamports` when positive
@@ -3000,7 +3061,7 @@ excludes. Under the time lock (O11) each round's proposal waits 48 hours.
 | fixed accounts | `buy` and `sell`: the same 10 accounts in the same order before and after graduation; no remaining accounts; no optional accounts |
 | deterministic quotes without RPC calls | `vicinity-curve-math` (`no_std`, integer only); the program runs the very same functions |
 | CPI from a router | the user is the only signer; the destination token account of a buy may be any account of the mint not owned by the `Coin` PDA; no instruction-sysvar or call-stack checks. **Conditions**: `user` must be a system-owned account without data (the system transfer of a buy requires it, so a router PDA that carries data cannot buy); SOL paid to an account holding 0 lamports must be at least the rent-exempt minimum of an empty account (650,240 lamports at today's mainnet rate), or the runtime refuses the transaction. A buyer may also end the transaction with 0 lamports or with at least that minimum, never with anything in between (the same rule: a rent-exempt wallet may not become rent-paying, judged on the balance at the end of the transaction; NOTES 36). The SDK and the adapter pre-check all three (`precheckBuyer`, `precheckBuy`, `precheckSolCredit`: `lamports(user) > 0` or `out >= rent_min(0)`) and return a clear error. Tested by G02 and `tests-curve/21-sdk-prechecks` |
-| slippage | `min_tokens_out`, `min_sol_out`; a client's slippage depends on the trade's size (5.15: at most 0.3% above the coin's sandwich threshold, buys and sells) |
+| slippage | `min_tokens_out`, `min_sol_out`; a client's slippage depends on the trade's size (5.15: at most 0.3% above the coin's sandwich threshold, which counts every buyback run the backlog pays for, and below it at most `floor(2D * (threshold - V) / depth')`, since trades sharing a block are sandwiched together; buys and sells; the pieces of a split order anchored to its start) |
 | trade data | `Trade` event by self-CPI with amounts, the five fee shares, drip and reserves after |
 | lifecycle | `CoinLaunched`, `Graduated`, `phase`; progress = `curve_sol / graduation_sol`; `buys_halted` (and `buybacks_halted`) in `Launchpad` |
 | decoding | no on-chain Anchor IDL account (`no-idl`); the IDL JSON from the verified build, the repository and the Solana Program Metadata program (written by the upgrade authority); fixed offsets in 3.7; `decode_coin(owner, data)` in the crate; discriminators `sha256("global:buy")[..8]`, `sha256("global:sell")[..8]`, account `sha256("account:CurveCoin")[..8]` |
@@ -3722,6 +3783,23 @@ that several lenses reported share a row.
 | TL-INFO-1 | cross-program calls, info | 11.1 stated `launch` 110,600 to 125,900 CU from one city; over 600 city ids it spans about 110,000 to 152,000 (bump searches), and the suggested buy limits left out the first buy's token-account create | **Confirmed** (no budget exceeded, no funds involved). **Applied**: 11.1 restated from a fresh measurement (110,382 to 152,266 over 600 city ids, city 1000 / A / C0 151,008; the ATA create `13,424 + 1,500 x k`; first buys from a simulation or plus 30,000; re-measured with the mainnet id); 11.3 for the registry account. `12-compute` TL-INFO-1; NOTES 65 |
 | SM-2 | state machine, info | the per-transaction checker never checked that a successful call ran under permitting flags, nor what `approve_launch` and `opt_in_payout` wrote (no program defect) | **Confirmed**. **Applied**: the checker walks the calls with the flags of their moment (earlier `set_pause`s of the same transaction applied) and checks a new approval's and opt-in's contents (I20); the pool-buy and payout probes of I22 are not added (optional). `27-checker-gaps` SM-2; NOTES 66 |
 
+### Revision 3: review round 5 of the build (17 October 2026)
+
+The fixes of round 4 and the whole build were reviewed again through five lenses (the round-4
+fix diff, the rewards registry dependency, the economics under the final SDK policy, the
+consistency of the specification with the code, cross-coin arithmetic); each finding was
+reproduced by a verifier before it was accepted. Severities are the verifier's. Findings that
+several lenses reported share a row.
+
+| id | lens, severity | finding (short) | response |
+|---|---|---|---|
+| R5-DIFF-1 | fix diff, low | R4-DIFF-2's fix (each piece of a split order judged by the order's total, 0.3%) held only for minimums computed from the order's first snapshot: a schedule that reads the coin before each piece, as `buyLeg`'s input says, measured each 0.3% from a price that already held a searcher's earlier buys; on chain a 5 SOL order in 13 pieces lost 187 bps (+70,707,128 lamports to him), 10 SOL 327 bps in the model, a 6-piece sell 98 bps; 5.15 and NOTES 59 promised about 0.3% | **Confirmed** (the verifier's correction: the unfixed SDK with fresh reads lost 609 bps, so round 4 cut the loss about 3x). **Applied**, the review's option 1 as the only way to build a piece: `buyLeg`, `buyWithSwap` and `sellLeg` take `order = { start, pieces, received }`, refuse a piece without it, and hold the piece's minimum to `floor(Q * (D - s) / D) - received` (`Q` what the order's pieces deliver in sequence from `start` with no other trade), refusing the piece once the current quote is below it; the order then loses at most `s` against its quote at the start (29 bps on chain, the searcher 0.28%). 5.15, 14.1, T80; `prechecks.test.mjs`, `29-clients`; NOTES 67 |
+| MV-1 | economics, low (reported medium) | the SDK judged the sandwich threshold one trade at a time, so two SDK trades from one snapshot in one block, each at the threshold with 5% (safe alone), were wrapped together: on chain the founder +12,722,874 lamports, an outsider +948,502 (with the due run), sells alike (+15,196,387); 5.15's "at the threshold every attacker class loses at every slippage up to 5%" and T80 false for that case | **Confirmed** (the verifier: the outsider only with the run and from 3%; the victims' loss to the attack about 2.6%, not 3.8%; at 1% only the founder holding the float). **Applied**, the review's rule: at or below the threshold a trade of size `V` may allow at most `floor(2D * (threshold - V) / depth')` (clamped to 0.3% to 5%; default 1% or that maximum), so everything one sandwich can wrap fits under the threshold; config #0 about 2.6% for the smallest trades, 1% up to 0.24 SOL on a fresh coin and 0.68 SOL at pool open, never 5%. 5.15, 7.4, 14.1, 14.3, T80; `prechecks.test.mjs` (one to three victims at the rule's sizes, every run, every class loses), `29-clients` MV-1; NOTES 68 |
+| KR-1 | economics, low | the threshold allowed for one buyback run, but with one SDK buy at it inside a hold through `K` runs of a public backlog the founder profited at `K` = 8 (0.84% of depth, below the keeper's 1% alert) and an outsider at 15, below Theorem M_K's and O25's figures, which assume no other trade | **Confirmed** (the verifier: also at the website's 1%; the model's least `K` is 13 for an outsider, 8 for the founder, 6 for the platform's key, 3 for a founder holding the float). **Applied**: `sandwichRuns = max(1, ceil(buyback_pending / cap'))` runs of `ceil(2t/C)` each in the threshold's cost (`cap'` at the sandwich depth; nothing left from 7.5 caps under config #0, every trade 0.3%); the keeper's alert moves to two caps (0.2% of depth); 7.3 gives the figures with a trade inside the hold; O25 carries them and needs the owner's sign-off again. Not taken: every trade large while more than one cap is pending. 5.15, 7.2, 7.3, 8.4, T76, T80, O25, 14.1; `prechecks.test.mjs`, `29-clients` KR-1 and SDK4-4; NOTES 69 |
+| R5-REG-2 | registry, nit | a devnet-feature binary at the mainnet program id passes the deploy checklist and fails only at the first `approve_launch` (`InvalidAddress`) | **Rejected** by the verifier: it needs a deliberately wrong build (the devnet binary from the committed source carries the throwaway id and fails every instruction elsewhere with `DeclaredProgramIdMismatch`); it fails closed at the first approval, before any time lock exists (8.4's order), and is fixed by an immediate redeploy with no coins or funds involved; which binary is deployed is the verified build's job (8.4, C03), not the account checklist's. No change |
+| R5-REG-3 | registry, nit | a future `vicinity_rewards` upgrade that changes the `Registry` layout, or a close of that program, stops approvals and launches here | **Rejected** by the verifier: OPS-1's accepted fail-closed check, triggered only by the owner's own actions; the coupling is enforced in CI (the committed `vicinity_rewards` IDL is diffed against the build and U12 checks the curve's layout constants against it: one added field fails it); closing `vicinity_rewards` is not a realistic owner action and its real cost is elsewhere (forwards still pay into a vault no program can pay out). No change |
+| R5-CONS-6 | consistency, info | no keeper exists in the repository (nothing calls `buyback_burn` or `coinRentTopUp`), while O25's mitigations rely on it | **Rejected** by the verifier: the specification presents the keeper as website work still to do (1.1, section 14, INT-2's "operational rules in 14.1"), and the status block says only the program, crate, SDK and suites are built. Listing "the keeper and its alerts run" among the launch preconditions is an optional improvement, not a defect. No change |
+
 ### Revision 3: the leftovers of the build's third stage
 
 | item | done |
@@ -3786,3 +3864,6 @@ build follows the text as written and the entry records a reading or a measureme
 | 64 | review round 4: the deploy checklist; no old approval when the old program is closed (above) | as listed above |
 | 65 | review round 4: launch compute over many city ids; the token-account create (above) | as listed above |
 | 66 | review round 4: the checker's flags per call and approval contents (above) | as listed above |
+| 67 | review round 5: a piece of a split order is held to the order's start (above) | as listed above |
+| 68 | review round 5: the slippage at or below the threshold depends on the size (above) | as listed above |
+| 69 | review round 5: the threshold counts every buyback run the backlog pays for (above) | as listed above |

@@ -231,8 +231,8 @@ test('pay with any token (14.1, G03): sol_in is the swap\'s guaranteed output, n
 test('CLI-1 pay with any token: buyWithSwap never builds a buy without its own minimum (14.1)', () => {
   const user = key(); const coinKey = key();
   const swapIx = { programAddress: key(), accounts: [], data: new Uint8Array([1]) };
-  // 0.35 SOL: below config #0's sandwich threshold at launch (0.39 SOL), so up to 5% is allowed (MATH3-1, SDK4-4)
-  const quote = swapQuote({ swapMode: 'ExactIn', outAmount: 354_000_000n, otherAmountThreshold: 350_000_000n });
+  // 0.1 SOL: below config #0's sandwich threshold at launch (0.39 SOL); its size allows up to 1.93% (MATH3-1, SDK4-4, MV-1)
+  const quote = swapQuote({ swapMode: 'ExactIn', outAmount: 101_000_000n, otherAmountThreshold: 100_000_000n });
   // a coin snapshot at launch on config #0
   const coin = { ...S.DEFAULT_TERMS, ...S.stateAtLaunch(1000n), mint: key() };
   const base = { ix: S.ix, user, coin: coinKey, mint: coin.mint, swapInstructions: [swapIx], quote };
@@ -245,8 +245,10 @@ test('CLI-1 pay with any token: buyWithSwap never builds a buy without its own m
   assert.throws(() => S.buyWithSwap({ ...base, coinAccount: coin, slippageBps: 1.5 }), /integer/);
   assert.throws(() => S.buyWithSwap({ ...base, mint: key(), coinAccount: coin, slippageBps: 100 }), /not .*mint|coin of mint/);
   // from the snapshot: the quote of the guaranteed sol_in, less the slippage
-  const q = S.quoteBuy(S.coinTerms(coin), S.coinState(coin), 350_000_000n);
-  for (const bps of [0, 100, 200, 500]) {
+  const q = S.quoteBuy(S.coinTerms(coin), S.coinState(coin), 100_000_000n);
+  assert.equal(S.buySlippagePolicy(coin, 100_000_000n).maxSlippageBps, 193);
+  assert.throws(() => S.buyWithSwap({ ...base, coinAccount: coin, slippageBps: 194 }), /review MV-1/);
+  for (const bps of [0, 100, 150, 193]) {
     const r = S.buyWithSwap({ ...base, coinAccount: coin, slippageBps: bps });
     assert.equal(r.minTokensOut, S.withSlippage(q.tokensOut, bps));
     assert.equal(Buffer.from(r.instructions.at(-1).data).readBigUInt64LE(16), r.minTokensOut, `${bps} bps encoded`);
@@ -261,28 +263,30 @@ test('R3-CLI-1 a buy that completes the curve offers only its charge: buyLeg cap
   const solIn = 20n * 10n ** 9n;
   const q = S.quoteBuy(t, st, solIn);
   assert.deepEqual([q.partial, q.graduates], [true, true]);
-  const leg = S.buyLeg({ solIn, coinAccount: coin, slippageBps: 200 });
+  // the charge (1.03 SOL) is above the threshold, which the 0.26 SOL backlog of that one buy lowers (KR-1): 0.3%
+  assert.equal(S.buySlippagePolicy(coin, solIn).maxSlippageBps, 30);
+  const leg = S.buyLeg({ solIn, coinAccount: coin, slippageBps: 30 });
   assert.equal(leg.solIn, q.charged, 'capped at the charge');
   assert.equal(leg.solIn, S.maxQuoteIn(t, st), '= max_quote_in');
-  assert.equal(leg.minTokensOut, S.withSlippage(q.tokensOut, 200), 'the minimum of the same quote');
+  assert.equal(leg.minTokensOut, S.withSlippage(q.tokensOut, 30), 'the minimum of the same quote');
   assert.deepEqual([leg.quote.partial, leg.quote.graduates, leg.quote.tokensOut, leg.quote.charged], [false, true, q.tokensOut, q.charged]);
   // with an explicit minimum the cap applies too
-  assert.equal(S.buyLeg({ solIn, coinAccount: coin, minTokensOut: S.withSlippage(q.tokensOut, 100) }).solIn, q.charged);
+  assert.equal(S.buyLeg({ solIn, coinAccount: coin, minTokensOut: S.withSlippage(q.tokensOut, 30) }).solIn, q.charged);
   // buyLegMinimum: the uncapped sol_in is refused, the capped one accepted
-  assert.throws(() => S.buyLegMinimum({ solIn, coinAccount: coin, slippageBps: 200 }), (e) => e instanceof S.ComposeError && /completes the curve/.test(e.message) && e.message.includes(String(q.charged)));
-  assert.equal(S.buyLegMinimum({ solIn: q.charged, coinAccount: coin, slippageBps: 200 }), leg.minTokensOut);
+  assert.throws(() => S.buyLegMinimum({ solIn, coinAccount: coin, slippageBps: 30 }), (e) => e instanceof S.ComposeError && /completes the curve/.test(e.message) && e.message.includes(String(q.charged)));
+  assert.equal(S.buyLegMinimum({ solIn: q.charged, coinAccount: coin, slippageBps: 30 }), leg.minTokensOut);
   // buyWithSwap: the buy offers the charge, the swap still delivers its 20 SOL (the rest stays in the wallet)
   const user = key();
-  const r = S.buyWithSwap({ ix: S.ix, user, coin: key(), mint: coin.mint, swapInstructions: [], quote: swapQuote({ swapMode: 'ExactOut', outAmount: solIn, otherAmountThreshold: solIn * 2n }), coinAccount: coin, slippageBps: 200 });
+  const r = S.buyWithSwap({ ix: S.ix, user, coin: key(), mint: coin.mint, swapInstructions: [], quote: swapQuote({ swapMode: 'ExactOut', outAmount: solIn, otherAmountThreshold: solIn * 2n }), coinAccount: coin, slippageBps: 30 });
   assert.deepEqual([r.solIn, r.swapSolIn, r.minTokensOut], [q.charged, solIn, leg.minTokensOut]);
   const data = Buffer.from(r.instructions.at(-1).data);
   assert.deepEqual([data.readBigUInt64LE(8), data.readBigUInt64LE(16)], [q.charged, leg.minTokensOut]);
   // below the remainder, and in the pool, nothing is capped
   for (const [label, state, amount] of [['a buy below the remainder', st, 10n ** 9n / 2n], ['a pool buy', S.quoteBuy(t, st, solIn).newState, 10n ** 9n]]) {
     const c = { ...t, ...state, mint: coin.mint };
-    const l = S.buyLeg({ solIn: amount, coinAccount: c, slippageBps: 100 });
+    const l = S.buyLeg({ solIn: amount, coinAccount: c, slippageBps: 30 });
     assert.equal(l.solIn, amount, label);
-    assert.equal(S.buyLegMinimum({ solIn: amount, coinAccount: c, slippageBps: 100 }), l.minTokensOut, label);
+    assert.equal(S.buyLegMinimum({ solIn: amount, coinAccount: c, slippageBps: 30 }), l.minTokensOut, label);
   }
   // the cap reads the coin: coinAccount is required, also with an explicit minimum
   assert.throws(() => S.buyLeg({ solIn, minTokensOut: 5n }), /needs coinAccount/);
@@ -314,20 +318,28 @@ test('MATH3-1 the buy leg\'s slippage depends on its size: at most 5% up to the 
   assert.equal(S.buyLeg({ solIn: 1_000_000_000n, coinAccount: coin, minTokensOut: q1.tokensOut + 5n }).minTokensOut, q1.tokensOut + 5n, 'a minimum above the quote allows no slippage');
   // and so is buyWithSwap
   assert.throws(() => S.buyWithSwap({ ix: S.ix, user: key(), coin: key(), mint: coin.mint, swapInstructions: [], quote: swapQuote({ swapMode: 'ExactOut', outAmount: 1_000_000_000n, otherAmountThreshold: 2_000_000_000n }), coinAccount: coin, slippageBps: 100 }), /sandwich threshold/);
-  // at the threshold up to 5%; one lamport above it, 0.3%
-  const at = S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: S.MAX_SWAP_SLIPPAGE_BPS });
+  // at the threshold itself the size rule of MV-1 leaves only the 0.3% floor (not large, but V + depth' * s / 2D
+  // would pass the threshold); one lamport above it, large: 0.3%
+  const at = S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: S.LARGE_BUY_MAX_SLIPPAGE_BPS });
   assert.equal(at.large, false);
+  assert.throws(() => S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: S.MAX_SWAP_SLIPPAGE_BPS }), /review MV-1/);
   assert.throws(() => S.buyLeg({ solIn: thr + 1n, coinAccount: coin, slippageBps: 31 }), /sandwich threshold/);
   // the website's default (14.1)
-  assert.deepEqual(S.buySlippagePolicy(coin, thr), { maxSlippageBps: 500, defaultSlippageBps: 100, threshold: thr, charged: thr, large: false });
+  assert.deepEqual(S.buySlippagePolicy(coin, thr), { maxSlippageBps: 30, defaultSlippageBps: 30, threshold: thr, charged: thr, large: false });
   const p1 = S.buySlippagePolicy(coin, 1_000_000_000n);
   assert.deepEqual([p1.maxSlippageBps, p1.defaultSlippageBps, p1.large], [30, 30, true]);
-  // the threshold follows the depth: 40 SOL raised (70 SOL deep), a fresh pool (85 SOL deep)
+  // the threshold follows the depth: 40 SOL raised (70 SOL deep), a fresh pool (85 SOL deep); with at most one cap of
+  // buyback backlog it is 130 bps of the depth, and the backlog the one buy that got there left lowers it (KR-1)
   const st40 = S.quoteBuy(t, st0, S.grossFor(t, 40n * 10n ** 9n)).newState;
-  assert.equal(S.sandwichThreshold(t, st40), (S.depth(t, st40) * 130n) / 10_000n);
-  assert.equal(S.sandwichThreshold(t, st40), 910_011_097n);
+  const oneCap = (st) => ({ ...st, buybackPending: S.buybackCap(t, st) });
+  assert.equal(S.sandwichThreshold(t, oneCap(st40)), (S.depth(t, st40) * 130n) / 10_000n);
+  assert.equal(S.sandwichThreshold(t, oneCap(st40)), 910_011_097n);
+  assert.equal(S.sandwichRuns(t, st40), 2n, 'the 40 SOL buy left 1.76 caps');
+  assert.equal(S.sandwichThreshold(t, st40), (S.depth(t, st40) * 110n) / 10_000n);
   const pool = S.quoteBuy(t, st0, S.maxQuoteIn(t, st0)).newState;
-  assert.equal(S.sandwichThreshold(t, pool), 1_105_000_000n);
+  assert.equal(S.sandwichThreshold(t, oneCap(pool)), 1_105_000_000n);
+  assert.equal(S.sandwichRuns(t, pool), 4n, 'the completing buy left 3.08 caps');
+  assert.equal(S.sandwichThreshold(t, pool), 595_000_000n);
   // the cheapest attacker under other configs: the platform's key (review HR-1), a founder holding the float (R3-DIFF-1)
   const cfg = (l, p, f, h, b) => S.termsFromParams({ ...S.DEFAULT_CONFIG, liquidityBps: l, platformBps: p, founderBps: f, holdersBps: h, buybackBps: b });
   assert.equal(S.cheapestAttackerCostBps(cfg(0n, 120n, 0n, 1n, 1n)), 2n);
@@ -360,7 +372,9 @@ test('R4-DIFF-1, SM-1, SDK4-1 near graduation every SDK buy works: buyLeg caps s
     for (const solIn of [S.MIN_TRADE_LAMPORTS, mqi, L, 20n * L]) {
       const q = S.quoteBuy(T0, st, solIn);
       if (!q.partial) continue; // only at rem 97,500 and MIN_TRADE_LAMPORTS: an exact fill, nothing to cap
-      for (const bps of [0, 100, 500]) {
+      const top = S.buySlippagePolicy(coin, solIn).maxSlippageBps;
+      assert.ok(top >= 100, `rem ${rem}: the last raw units may allow the website default (${top})`);
+      for (const bps of [0, 100, top]) {
         const leg = S.buyLeg({ solIn, coinAccount: coin, slippageBps: bps });
         assert.equal(leg.solIn, mqi, `rem ${rem}, ${solIn}: capped at max_quote_in`);
         assert.deepEqual(leg.quote, S.quoteBuy(T0, st, mqi), 'the quote of max_quote_in');
@@ -390,20 +404,64 @@ test('R4-DIFF-1, SM-1, SDK4-1 near graduation every SDK buy works: buyLeg caps s
   assert.ok(inPool.tokensOut >= leg.minTokensOut, 'and it still gets at least its minimum there (the pool opens at the curve\'s last price)');
 });
 
+/** The state with `caps` caps of buyback backlog, a cap taken at the depth the trade is judged at (KR-1), in the model. */
+const withCaps = (st, caps) => ({ ...st, buybackPending: (S.sandwichDepth(T0, st) * T0.totalFeeBps * BigInt(Math.round(caps * 1000))) / (S.BUYBACK_CAP_DIVISOR * 10_000n * 1000n) });
+const CLASSES5 = { outsider: [], founder: ['founder'], founderFloat: ['founder', 'holders'], platform: ['platform'] };
+const credit5 = (legs, keys) => legs.reduce((x, q) => x + keys.reduce((y, k) => y + q.split[k], 0n), 0n);
+/**
+ * The best sandwich of buys `legs` ({ solIn, min }) landing in one block on state `st` (the SDK's model = the program,
+ * G01): front-run `a`, the legs in order, then every buyback run the bucket pays for, one per interval (the attacker
+ * may sell after any of them), then the back-run. Returns the best result over all classes and front-runs, or null
+ * when no front-run lets every leg pass.
+ */
+function bestWrap(st, legs, { maxFront = 40n * L } = {}) {
+  let best = null;
+  for (let a = S.MIN_TRADE_LAMPORTS; a < maxFront; a += a < L ? 2_000_000n : 10_000_000n) {
+    let f; try { f = S.quoteBuy(T0, st, a); } catch (e) { if (e instanceof S.MathError) break; throw e; }
+    if (f.graduates) break;
+    let s = f.newState; let ok = true;
+    for (const l of legs) { const q = S.quoteBuy(T0, s, l.solIn); if (q.tokensOut < l.min) { ok = false; break; } s = q.newState; }
+    if (!ok) break;
+    let slot = s.lastBuybackSlot;
+    for (let k = 0; k <= 40; k++) {
+      const b = S.quoteSell(T0, s, f.tokensOut);
+      for (const [c, keys] of Object.entries(CLASSES5)) {
+        const p = b.solOut - f.charged + credit5([f, b], keys);
+        if (best === null || p > best.p) best = { p, a, k, who: c };
+      }
+      slot += S.BUYBACK_INTERVAL_SLOTS;
+      const r = S.quoteBuyback(T0, s, slot); if (!r) break; s = r.newState;
+    }
+  }
+  return best;
+}
+/** The largest charge whose policy allows `bps` (bisection on buySlippagePolicy), or 0 when none does. */
+function largestFor(coin, bps) {
+  const thr = S.sandwichThreshold(S.coinTerms(coin), S.coinState(coin));
+  let lo = 0n; let hi = thr + 1n;
+  while (hi - lo > 1n) { const m = (lo + hi) / 2n; if (m >= S.MIN_TRADE_LAMPORTS && S.buySlippagePolicy(coin, m).maxSlippageBps >= bps) lo = m; else hi = m; }
+  return lo;
+}
+
 test('R4-DIFF-3, SDK4-2 near graduation the threshold is judged at the depth of the pool the buy can be pushed into: min(x0 + curve_sol, graduation_sol)', () => {
   const st = stateNearEnd(1_700_000_000n); // 83.3 SOL raised: 113.3 SOL of curve depth, the pool opens at 85 SOL
   assert.equal(S.depth(T0, st), T0.virtualSol + st.curveSol);
   assert.equal(S.sandwichDepth(T0, st), T0.graduationSol);
-  const thr = S.sandwichThreshold(T0, st);
-  assert.equal(thr, (T0.graduationSol * 130n) / 10_000n);
-  assert.equal(thr, 1_105_000_000n);
-  // the review's victim: 1,699,512,804 lamports at 5% (the old curve-depth threshold at 150 bps) is now above the threshold
+  // with at most one cap of backlog (a cap at that depth: 0.085 SOL), 130 bps of 85 SOL
+  assert.equal(S.sandwichThreshold(T0, withCaps(st, 1)), (T0.graduationSol * 130n) / 10_000n);
+  assert.equal(S.sandwichThreshold(T0, withCaps(st, 1)), 1_105_000_000n);
+  // the one buy that got there left 0.26 SOL, 3.0 such caps: four runs counted (KR-1), 70 bps
+  assert.equal(S.sandwichRuns(T0, st), 4n);
+  assert.equal(S.sandwichThreshold(T0, st), 595_000_000n);
+  // the review's victim: 1,699,512,804 lamports at 5% (the old curve-depth threshold at 150 bps) is above the threshold
   const coin = { ...T0, ...st, mint: key() };
   const V = 1_699_512_804n;
   assert.equal(S.quoteBuy(T0, st, V).graduates, false, 'a buy that does not complete the curve');
-  for (const bps of [500, 400, 100]) assert.throws(() => S.buyLeg({ solIn: V, coinAccount: coin, slippageBps: bps }), /sandwich threshold/);
-  assert.equal(S.buyLeg({ solIn: V, coinAccount: coin, slippageBps: 30 }).large, true);
-  assert.equal(S.buySlippagePolicy(coin, V).maxSlippageBps, 30);
+  for (const c of [coin, { ...coin, ...withCaps(st, 1) }]) {
+    for (const bps of [500, 400, 100]) assert.throws(() => S.buyLeg({ solIn: V, coinAccount: c, slippageBps: bps }), /sandwich threshold/);
+    assert.equal(S.buyLeg({ solIn: V, coinAccount: c, slippageBps: 30 }).large, true);
+    assert.equal(S.buySlippagePolicy(c, V).maxSlippageBps, 30);
+  }
   // far from graduation the curve depth is the smaller one and nothing changes
   const st40 = stateNearEnd(45n * L);
   assert.equal(S.sandwichDepth(T0, st40), S.depth(T0, st40));
@@ -413,20 +471,19 @@ test('R4-DIFF-3, SDK4-2 near graduation the threshold is judged at the depth of 
   // the straddle (someone graduates the coin, the attacker buys in the new pool, the victim's curve-quoted buy runs
   // there, the attacker sells; or the attacker graduates the coin himself), in the model, which equals the program
   // (G01): at the old curve-depth threshold (150 bps of x0 + curve_sol) with 5% the founder holding the float
-  // profits; at the new threshold no class profits at any remainder from 1.5 to 3 SOL
-  const classes = { outsider: [], founder: ['founder'], founderFloat: ['founder', 'holders'], platform: ['platform'] };
-  const credit = (legs, keys) => legs.reduce((x, q) => x + keys.reduce((y, k) => y + q.split[k], 0n), 0n);
-  const bestStraddle = (s0, V, min) => {
+  // profits; one buy at the new threshold (one cap of backlog) with 5% loses for every class at every remainder from
+  // 1.5 to 3 SOL, and so does every size the SDK now allows at its largest slippage (MV-1)
+  const bestStraddle = (s0, Vb, min) => {
     const grad = S.quoteBuy(T0, s0, S.maxQuoteIn(T0, s0));
     let best = null;
     for (const self of [false, true]) {
-      for (const keys of Object.values(classes)) {
+      for (const keys of Object.values(CLASSES5)) {
         for (let A = 10_000_000n; A < 20n * L; A += 10_000_000n) {
           const f = S.quoteBuy(T0, grad.newState, A);
-          const v = S.quoteBuy(T0, f.newState, V);
+          const v = S.quoteBuy(T0, f.newState, Vb);
           if (v.tokensOut < min) break;
           const b = S.quoteSell(T0, v.newState, self ? f.tokensOut + grad.tokensOut : f.tokensOut);
-          const p = b.solOut - f.charged - (self ? grad.charged : 0n) + credit(self ? [grad, f, b] : [f, b], keys);
+          const p = b.solOut - f.charged - (self ? grad.charged : 0n) + credit5(self ? [grad, f, b] : [f, b], keys);
           if (best === null || p > best) best = p;
         }
       }
@@ -435,11 +492,17 @@ test('R4-DIFF-3, SDK4-2 near graduation the threshold is judged at the depth of 
   };
   let oldProfits = 0;
   for (const rem of [1_500_000_000n, 1_700_000_000n, 2_000_000_000n, 2_500_000_000n, 3_000_000_000n]) {
-    const s0 = stateNearEnd(rem);
+    const s0 = withCaps(stateNearEnd(rem), 1);
     const c0 = { ...T0, ...s0, mint: key() };
-    const leg = S.buyLeg({ solIn: S.sandwichThreshold(T0, s0), coinAccount: c0, slippageBps: 500 });
-    const now = bestStraddle(s0, leg.solIn, leg.minTokensOut);
-    assert.ok(now === null || now < 0n, `rem ${rem}: the best straddle at the new threshold loses (${now})`);
+    const thr = S.sandwichThreshold(T0, s0);
+    const at5 = bestStraddle(s0, thr, S.withSlippage(S.quoteBuy(T0, s0, thr).tokensOut, 500));
+    assert.ok(at5 === null || at5 < 0n, `rem ${rem}: one buy at the threshold with 5% is straddled at a loss (${at5})`);
+    for (const bps of [100, 200]) {
+      const Vb = largestFor(c0, bps);
+      const leg = S.buyLeg({ solIn: Vb, coinAccount: c0, slippageBps: bps });
+      const now = bestStraddle(s0, leg.solIn, leg.minTokensOut);
+      assert.ok(now === null || now < 0n, `rem ${rem}: the SDK's largest buy at ${bps} bps is straddled at a loss (${now})`);
+    }
     const oldV = ((T0.virtualSol + s0.curveSol) * 150n) / 10_000n;
     const before = bestStraddle(s0, oldV, S.withSlippage(S.quoteBuy(T0, s0, oldV).tokensOut, 500));
     if (before !== null && before > 0n) oldProfits += 1;
@@ -453,25 +516,24 @@ test('SDK4-4 one due buyback run inside the sandwich: the threshold\'s cost leav
   assert.equal(S.buybackRunMarginBps(cfg(100n, 70n, 50n, 30n, 0n)), 0n, 'no buyback share, no run');
   assert.equal(S.sandwichCostBps(cfg(100n, 70n, 50n, 30n, 0n)), 170n, '250 - (50 + 30)');
   assert.equal(S.sandwichCostBps(cfg(0n, 120n, 0n, 1n, 1n)), 0n, 'never below 0');
-  const classes = { outsider: [], founder: ['founder'], founderFloat: ['founder', 'holders'], platform: ['platform'] };
-  const credit = (legs, keys) => legs.reduce((x, q) => x + keys.reduce((y, k) => y + q.split[k], 0n), 0n);
   let best = null; let bestOld = null;
   for (const raised of [0n, 40n, 'pool']) {
     let st = S.stateAtLaunch(0n);
     if (raised === 'pool') st = S.quoteBuy(T0, st, S.maxQuoteIn(T0, st)).newState;
     else if (raised > 0n) st = S.quoteBuy(T0, st, S.grossFor(T0, raised * L)).newState;
-    // a 60 SOL round trip fills buyback_pending above one cap; a run is due
-    const w = S.quoteBuy(T0, st, 60n * L); st = S.quoteSell(T0, w.newState, w.tokensOut).newState;
+    // exactly one cap pending: one full run is due (more backlog lowers the threshold further, KR-1)
+    st = withCaps(st, 1);
+    assert.equal(S.sandwichRuns(T0, st), 1n);
     for (const [label, V] of [['new', S.sandwichThreshold(T0, st)], ['old', (S.depth(T0, st) * S.cheapestAttackerCostBps(T0)) / 10_000n]]) {
       const min = S.withSlippage(S.quoteBuy(T0, st, V).tokensOut, 500);
-      for (const keys of Object.values(classes)) {
+      for (const keys of Object.values(CLASSES5)) {
         for (let A = 5_000_000n; A < 30n * L; A += 5_000_000n) {
           const f = S.quoteBuy(T0, st, A); if (f.graduates) break;
           const v = S.quoteBuy(T0, f.newState, V); if (v.tokensOut < min) break;
           const bb = S.quoteBuyback(T0, v.newState, v.newState.lastBuybackSlot + S.BUYBACK_INTERVAL_SLOTS);
           assert.ok(bb && bb.spent > 0n, 'the run is due');
           const b = S.quoteSell(T0, bb.newState, f.tokensOut);
-          const p = b.solOut - f.charged + credit([f, b], keys);
+          const p = b.solOut - f.charged + credit5([f, b], keys);
           if (label === 'new' && (best === null || p > best)) best = p;
           if (label === 'old' && (bestOld === null || p > bestOld)) bestOld = p;
         }
@@ -482,8 +544,8 @@ test('SDK4-4 one due buyback run inside the sandwich: the threshold\'s cost leav
   assert.ok(best < 0n, `at the new threshold every class loses (${best})`);
 });
 
-test('R4-DIFF-5, SDK4-3 the sell leg: the buy rule on the sell\'s gross (5% at or below the threshold, 0.3% above it), for a minimum given or derived', () => {
-  const st = stateNearEnd(25n * L); // 60 SOL raised: the threshold is 1.3% of min(90, 85) SOL
+test('R4-DIFF-5, SDK4-3 the sell leg: the buy rule on the sell\'s gross (the size rule at or below the threshold, 0.3% above it), for a minimum given or derived', () => {
+  const st = withCaps(stateNearEnd(25n * L), 1); // 60 SOL raised: the threshold is 1.3% of min(90, 85) SOL
   const coin = { ...T0, ...st, mint: key() };
   const thr = S.sandwichThreshold(T0, st);
   assert.equal(thr, 1_105_000_000n);
@@ -496,14 +558,17 @@ test('R4-DIFF-5, SDK4-3 the sell leg: the buy rule on the sell\'s gross (5% at o
   assert.deepEqual([leg.tokensIn, leg.minSolOut, leg.large, leg.threshold], [tokens, S.withSlippage(q.solOut, 30), true, thr]);
   assert.throws(() => S.sellLeg({ tokensIn: tokens, coinAccount: coin, minSolOut: S.withSlippage(q.solOut, 100) }), /sandwich threshold/);
   assert.equal(S.sellLeg({ tokensIn: tokens, coinAccount: coin, minSolOut: S.withSlippage(q.solOut, 30) }).minSolOut, S.withSlippage(q.solOut, 30));
-  // a sell at or below the threshold may allow 5%
-  let small = tokens / 4n; while (S.quoteSell(T0, st, small).gross > thr) small -= small / 50n;
+  // a sell well below the threshold (gross about 0.55 SOL) may allow what its size leaves (MV-1): about 1.3%
+  let small = tokens / 8n; while (S.quoteSell(T0, st, small).gross > thr / 2n) small -= small / 50n;
   const sq = S.quoteSell(T0, st, small);
-  const sl = S.sellLeg({ tokensIn: small, coinAccount: coin, slippageBps: 500 });
-  assert.deepEqual([sl.large, sl.minSolOut], [false, S.withSlippage(sq.solOut, 500)]);
-  assert.throws(() => S.sellLeg({ tokensIn: small, coinAccount: coin, minSolOut: S.withSlippage(sq.solOut, 501) }), /more than 500/);
+  const top = Number((2n * 10_000n * (thr - sq.gross)) / S.sandwichDepth(T0, st));
+  assert.ok(top > 100 && top < 500, `${top}`);
+  const sl = S.sellLeg({ tokensIn: small, coinAccount: coin, slippageBps: top });
+  assert.deepEqual([sl.large, sl.minSolOut], [false, S.withSlippage(sq.solOut, top)]);
+  assert.throws(() => S.sellLeg({ tokensIn: small, coinAccount: coin, slippageBps: top + 1 }), /review MV-1/);
+  assert.throws(() => S.sellLeg({ tokensIn: small, coinAccount: coin, minSolOut: S.withSlippage(sq.solOut, top + 1) }), (e) => /review MV-1/.test(e.message) && e.message.includes(`more than ${top}`));
   // the policy the website shows
-  assert.deepEqual(S.sellSlippagePolicy(coin, small), { maxSlippageBps: 500, defaultSlippageBps: 100, threshold: thr, gross: sq.gross, large: false });
+  assert.deepEqual(S.sellSlippagePolicy(coin, small), { maxSlippageBps: top, defaultSlippageBps: 100, threshold: thr, gross: sq.gross, large: false });
   assert.deepEqual(S.sellSlippagePolicy(coin, tokens), { maxSlippageBps: 30, defaultSlippageBps: 30, threshold: thr, gross: q.gross, large: true });
   // the same guards as the buy leg
   assert.throws(() => S.sellLeg({ tokensIn: tokens, coinAccount: coin }), /needs its own minimum/);
@@ -517,8 +582,9 @@ test('R4-DIFF-5, SDK4-3 the sell leg: the buy rule on the sell\'s gross (5% at o
   let lo = 1n; let hi = 1n; while (!sells(hi)) { lo = hi; hi *= 2n; }
   while (hi - lo > 1n) { const m = (lo + hi) / 2n; if (sells(m)) hi = m; else lo = m; }
   const tiny = hi;
-  assert.equal(S.withSlippage(S.quoteSell(T0, st, tiny).solOut, 500), 0n);
-  assert.equal(S.sellLeg({ tokensIn: tiny, coinAccount: coin, slippageBps: 500 }).minSolOut, 1n);
+  const tinyTop = S.sellSlippagePolicy(coin, tiny).maxSlippageBps;
+  assert.equal(S.withSlippage(S.quoteSell(T0, st, tiny).solOut, tinyTop), 0n);
+  assert.equal(S.sellLeg({ tokensIn: tiny, coinAccount: coin, slippageBps: tinyTop }).minSolOut, 1n);
   // in the pool too
   const pool = S.quoteBuy(T0, st, S.maxQuoteIn(T0, st)).newState;
   assert.throws(() => S.sellLeg({ tokensIn: tokens, coinAccount: { ...T0, ...pool, mint: coin.mint }, slippageBps: 100 }), /sandwich threshold/);
@@ -533,18 +599,227 @@ test('R4-DIFF-2 splitting is no defence: the refusal no longer offers it, and a 
   assert.match(msg, /sandwich threshold/);
   assert.doesNotMatch(msg, /split it into buys of at most/, 'the old advice is gone');
   assert.match(msg, /does not help: an attacker can hold his position across separate transactions/);
-  // a 5 SOL order split into threshold-size pieces: each piece is judged by the order (0.3%), not by its own size (5%)
-  assert.equal(S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: 500 }).large, false, 'alone, a threshold-size buy may allow 5%');
-  assert.throws(() => S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: 100, orderSolIn: 5n * L }), (e) => /part of an order of 5000000000 lamports/.test(e.message));
-  assert.equal(S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: 30, orderSolIn: 5n * L }).large, true);
-  assert.deepEqual([S.buySlippagePolicy(coin, thr, { orderSolIn: 5n * L }).maxSlippageBps, S.buySlippagePolicy(coin, thr, { orderSolIn: thr }).maxSlippageBps], [30, 500]);
-  assert.throws(() => S.buyWithSwap({ ix: S.ix, user: key(), coin: key(), mint: coin.mint, swapInstructions: [], quote: swapQuote({ swapMode: 'ExactOut', outAmount: thr, otherAmountThreshold: thr }), coinAccount: coin, slippageBps: 100, orderSolIn: 5n * L }), /sandwich threshold/);
+  // a 5 SOL order split into half-threshold pieces: each piece is judged by the order (0.3%), not by its own size
+  // (alone a half-threshold buy may allow 1.3%, MV-1); a piece needs the order's start (R5-DIFF-1)
+  const piece = thr / 2n;
+  assert.equal(S.buySlippagePolicy(coin, piece).maxSlippageBps, 130);
+  assert.equal(S.buyLeg({ solIn: piece, coinAccount: coin, slippageBps: 100 }).large, false, 'alone, a half-threshold buy may allow 1%');
+  const order = { start: coin, pieces: [], received: 0n };
+  assert.throws(() => S.buyLeg({ solIn: piece, coinAccount: coin, slippageBps: 100, orderSolIn: 5n * L, order }), (e) => /part of an order of 5000000000 lamports/.test(e.message));
+  assert.equal(S.buyLeg({ solIn: piece, coinAccount: coin, slippageBps: 30, orderSolIn: 5n * L, order }).large, true);
+  assert.deepEqual([S.buySlippagePolicy(coin, piece, { orderSolIn: 5n * L }).maxSlippageBps, S.buySlippagePolicy(coin, piece, { orderSolIn: piece }).maxSlippageBps], [30, 130]);
+  assert.throws(() => S.buyWithSwap({ ix: S.ix, user: key(), coin: key(), mint: coin.mint, swapInstructions: [], quote: swapQuote({ swapMode: 'ExactOut', outAmount: piece, otherAmountThreshold: piece }), coinAccount: coin, slippageBps: 100, orderSolIn: 5n * L, order }), /sandwich threshold/);
   // and sells
-  const st60 = stateNearEnd(25n * L);
+  const st60 = withCaps(stateNearEnd(25n * L), 1);
   const c60 = { ...T0, ...st60, mint: coin.mint };
   const tokens = 1_000_000_000_000n;
-  assert.equal(S.sellLeg({ tokensIn: tokens, coinAccount: c60, slippageBps: 500 }).large, false);
-  assert.throws(() => S.sellLeg({ tokensIn: tokens, coinAccount: c60, slippageBps: 100, orderGross: 10n * L }), /part of an order/);
+  const top = S.sellSlippagePolicy(c60, tokens).maxSlippageBps;
+  assert.ok(top > 100, `${top}`);
+  assert.equal(S.sellLeg({ tokensIn: tokens, coinAccount: c60, slippageBps: top }).large, false);
+  assert.throws(() => S.sellLeg({ tokensIn: tokens, coinAccount: c60, slippageBps: 100, orderGross: 10n * L, order: { start: c60 } }), /part of an order/);
+});
+
+test('MV-1 the slippage a trade at or below the threshold may allow shrinks with its size: V + depth\' * s / 2D <= threshold (at least 0.3%, at most 5%), so that SDK trades read from one snapshot and wrapped together in one block are never sandwiched at a profit', () => {
+  const st0 = S.stateAtLaunch(0n);
+  const coin = { ...T0, ...st0, mint: key() };
+  const thr = S.sandwichThreshold(T0, st0); const dep = S.sandwichDepth(T0, st0);
+  const rule = (V) => { const r = (2n * 10_000n * (thr - V)) / dep; return r >= 500n ? 500 : r <= 30n ? 30 : Number(r); };
+  for (const V of [S.MIN_TRADE_LAMPORTS, 10_000_000n, 100_000_000n, 200_000_000n, 240_000_000n, 300_000_000n, 350_000_000n, thr - 1n, thr]) {
+    const p = S.buySlippagePolicy(coin, V);
+    assert.deepEqual([p.maxSlippageBps, p.defaultSlippageBps, p.large], [rule(V), Math.min(100, rule(V)), false], `${V}`);
+    const q = S.quoteBuy(T0, st0, V);
+    assert.equal(S.buyLeg({ solIn: V, coinAccount: coin, slippageBps: p.maxSlippageBps }).minTokensOut, S.withSlippage(q.tokensOut, p.maxSlippageBps));
+    if (p.maxSlippageBps < 500) {
+      assert.throws(() => S.buyLeg({ solIn: V, coinAccount: coin, slippageBps: p.maxSlippageBps + 1 }), (e) => e instanceof S.ComposeError && /review MV-1/.test(e.message) && e.message.includes(`at most ${p.maxSlippageBps} bps`));
+      assert.throws(() => S.buyLeg({ solIn: V, coinAccount: coin, minTokensOut: S.withSlippage(q.tokensOut, p.maxSlippageBps + 1) }), /review MV-1/);
+    }
+  }
+  // config #0 at launch: about 2.6% for the smallest buy, 1.93% at 0.1 SOL, 1% up to 0.24 SOL, 0.3% from about 0.345 SOL;
+  // 5% would need 250 bps of cost left, and config #0 leaves 130, so no trade may allow 5%
+  assert.deepEqual([S.MIN_TRADE_LAMPORTS, 100_000_000n, 240_000_000n, 345_000_000n].map((V) => S.buySlippagePolicy(coin, V).maxSlippageBps), [259, 193, 100, 30]);
+  // at pool open with at most one cap pending: 1% up to 0.68 SOL
+  const pool = withCaps(S.quoteBuy(T0, st0, S.maxQuoteIn(T0, st0)).newState, 1);
+  const pc = { ...T0, ...pool, mint: coin.mint };
+  assert.equal(S.buySlippagePolicy(pc, 680_000_000n).maxSlippageBps, 100);
+  assert.equal(S.buySlippagePolicy(pc, 690_000_000n).maxSlippageBps, 97);
+  // the review's case: two buys of the threshold at 5% from one snapshot, wrapped with the due run: the founder profits
+  // (the old allowance); the SDK refuses 5% there now
+  const thrP = S.sandwichThreshold(T0, pool);
+  assert.equal(thrP, 1_105_000_000n);
+  const at5 = S.withSlippage(S.quoteBuy(T0, pool, thrP).tokensOut, 500);
+  const old = bestWrap(pool, [{ solIn: thrP, min: at5 }, { solIn: thrP, min: at5 }]);
+  assert.ok(old && old.p > 0n, `two threshold buys at 5% in one block are sandwiched at a profit (${old?.p}, ${old?.who}; review MV-1)`);
+  const alone = bestWrap(pool, [{ solIn: thrP, min: at5 }]);
+  assert.ok(alone.p < 0n, `one alone is not (${alone.p})`);
+  assert.throws(() => S.buyLeg({ solIn: thrP, coinAccount: pc, slippageBps: 500 }), /review MV-1/);
+  // what the SDK allows now: one to three buys from one snapshot, each at the largest size the rule allows for its
+  // slippage (or half of it), every run the bucket pays for inside the hold: every class loses, at launch, at 40 SOL
+  // raised with its backlog and at pool open with one cap and with the completing buy's 3 caps
+  const at40 = S.quoteBuy(T0, st0, S.grossFor(T0, 40n * L)).newState;
+  const report = [];
+  for (const [label, s] of [['launch', st0], ['40 SOL', at40], ['pool, 1 cap', pool], ['pool, 3 caps', S.quoteBuy(T0, st0, S.maxQuoteIn(T0, st0)).newState]]) {
+    const c = { ...T0, ...s, mint: coin.mint };
+    for (const bps of [50, 100, 150, 250]) {
+      const top = largestFor(c, bps);
+      if (top < S.MIN_TRADE_LAMPORTS) continue;
+      for (const n of [1, 2, 3]) {
+        for (const V of [top, top / 2n]) {
+          if (V < S.MIN_TRADE_LAMPORTS) continue;
+          const legs = Array.from({ length: n }, () => { const l = S.buyLeg({ solIn: V, coinAccount: c, slippageBps: bps }); return { solIn: l.solIn, min: l.minTokensOut }; });
+          const r = bestWrap(s, legs);
+          assert.ok(r === null || r.p < 0n, `${label}: ${n} x ${V} at ${bps} bps: the best sandwich loses (${r?.p}, ${r?.who})`);
+        }
+      }
+      report.push(`${label} ${bps}bps<=${top}`);
+    }
+  }
+  // sells alike: the rule on the gross
+  const pTop = S.sellSlippagePolicy(pc, 1_000_000_000_000n);
+  const g = S.quoteSell(T0, pool, 1_000_000_000_000n).gross;
+  assert.equal(pTop.maxSlippageBps, Math.max(30, Math.min(500, Number((2n * 10_000n * (thrP - g)) / S.sandwichDepth(T0, pool)))));
+  console.log(`MV-1 sizes: ${report.join(', ')}; old two threshold buys at 5%: ${old.p} (${old.who})`);
+});
+
+test('KR-1 the threshold counts every buyback run the visible backlog pays for: max(1, ceil(pending / cap\')) runs of 2t/C each, so a hold through K runs with the victim inside never profits at the SDK\'s sizes', () => {
+  const st0 = S.stateAtLaunch(0n);
+  const pool = S.quoteBuy(T0, st0, S.maxQuoteIn(T0, st0)).newState;
+  // the run count and the cost left (config #0: 150 bps less 20 per run)
+  for (const [caps, runs, cost] of [[0, 1n, 130n], [0.5, 1n, 130n], [1, 1n, 130n], [1.01, 2n, 110n], [3, 3n, 90n], [3.08, 4n, 70n], [7, 7n, 10n], [7.01, 8n, 0n], [8.37, 9n, 0n]]) {
+    const s = withCaps(pool, caps);
+    assert.equal(S.sandwichRuns(T0, s), runs, `${caps} caps`);
+    assert.equal(S.buybackRunMarginBps(T0, s), 20n * runs);
+    assert.equal(S.sandwichCostBps(T0, s), cost);
+    assert.equal(S.sandwichThreshold(T0, s), (S.sandwichDepth(T0, s) * cost) / 10_000n);
+  }
+  assert.equal(S.sandwichCostBps(T0), 130n, 'without a state, one run (round 4)');
+  // near graduation the cap is taken at the pool's depth (85 SOL), not the curve's (113 SOL): more runs
+  const near = stateNearEnd(1_700_000_000n);
+  const pend = (S.depth(T0, near) * T0.totalFeeBps) / (S.BUYBACK_CAP_DIVISOR * 10_000n); // one cap at the curve's depth
+  assert.equal(S.sandwichRuns(T0, { ...near, buybackPending: pend }), 2n);
+  // no buyback share: one run of 0
+  const nb = S.termsFromParams({ ...S.DEFAULT_CONFIG, liquidityBps: 100n, platformBps: 70n, founderBps: 50n, holdersBps: 30n, buybackBps: 0n });
+  assert.deepEqual([S.sandwichRuns(nb, { ...pool, buybackPending: 10n ** 12n }), S.buybackRunMarginBps(nb, pool)], [1n, 0n]);
+  // the review's states: a pool with a public backlog of 8.37 and 3.0 caps; the victim's buy at the old (one run)
+  // threshold with 5% (K = 8) or 1% (K = 3): the founder, and the founder holding the float, profit through the runs
+  const oldThr = (s) => (S.sandwichDepth(T0, s) * 130n) / 10_000n;
+  const old8 = withCaps(pool, 8.37); const old3 = withCaps(pool, 3);
+  const v8 = oldThr(old8); const v3 = oldThr(old3);
+  const r8 = bestWrap(old8, [{ solIn: v8, min: S.withSlippage(S.quoteBuy(T0, old8, v8).tokensOut, 500) }]);
+  const r3 = bestWrap(old3, [{ solIn: v3, min: S.withSlippage(S.quoteBuy(T0, old3, v3).tokensOut, 100) }]);
+  assert.ok(r8.p > 0n && r8.k >= 8, `8.37 caps, old threshold at 5%: profit after ${r8.k} runs (${r8.p}, ${r8.who})`);
+  assert.ok(r3.p > 0n && r3.k >= 3, `3 caps, old threshold at 1%: profit after ${r3.k} runs (${r3.p}, ${r3.who})`);
+  // the SDK now: no threshold left at 8.37 caps (every buy 0.3%), 90 bps of depth at 3 caps
+  const c8 = { ...T0, ...old8, mint: key() }; const c3 = { ...T0, ...old3, mint: c8.mint };
+  assert.deepEqual([S.sandwichThreshold(T0, old8), S.buySlippagePolicy(c8, v8).maxSlippageBps, S.buySlippagePolicy(c8, v8).large], [0n, 30, true]);
+  assert.throws(() => S.buyLeg({ solIn: v3, coinAccount: c3, slippageBps: 100 }), /sandwich threshold/);
+  // and at every backlog from 0 to 7 caps, the SDK's largest sizes for 0.5% to 2.5% (one to two victims), held
+  // through every run: every class loses
+  for (const caps of [0, 1, 2, 3, 5, 7]) {
+    const s = withCaps(pool, caps); const c = { ...T0, ...s, mint: c8.mint };
+    for (const bps of [50, 100, 200]) {
+      const V = largestFor(c, bps);
+      if (V < S.MIN_TRADE_LAMPORTS) continue;
+      for (const n of [1, 2]) {
+        const legs = Array.from({ length: n }, () => { const l = S.buyLeg({ solIn: V, coinAccount: c, slippageBps: bps }); return { solIn: l.solIn, min: l.minTokensOut }; });
+        const r = bestWrap(s, legs);
+        assert.ok(r === null || r.p < 0n, `${caps} caps, ${n} x ${V} at ${bps} bps: the best hold loses (${r?.p}, ${r?.who}, K=${r?.k})`);
+      }
+    }
+  }
+  console.log(`KR-1: old threshold, 8.37 caps, 5%: ${r8.p} (${r8.who}, K=${r8.k}); 3 caps, 1%: ${r3.p} (${r3.who}, K=${r3.k})`);
+});
+
+test('R5-DIFF-1 a piece of a split order is held to the order\'s start: orderSolIn needs order, and with pieces re-quoted from fresh reads a sandwich held across them takes at most the order\'s slippage', () => {
+  const st0 = S.stateAtLaunch(0n);
+  const coin = { ...T0, ...st0, mint: key() };
+  const thr = S.sandwichThreshold(T0, st0);
+  const total = 5n * L;
+  // a piece without the order's start is refused; so is an order without its total, another coin's start, pieces
+  // that add up to more than the total
+  assert.throws(() => S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: 30, orderSolIn: total }), (e) => e instanceof S.ComposeError && /needs order: \{ start, pieces, received \}/.test(e.message) && /R5-DIFF-1/.test(e.message));
+  assert.throws(() => S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: 30, order: { start: coin } }), /pass orderSolIn/);
+  assert.throws(() => S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: 30, orderSolIn: total, order: { start: { ...coin, mint: key() } } }), /order.start is the coin of mint/);
+  assert.throws(() => S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: 30, orderSolIn: total, order: { start: coin, pieces: Array(13).fill(thr) } }), /add up to more than orderSolIn/);
+  assert.throws(() => S.sellLeg({ tokensIn: 10n ** 12n, coinAccount: { ...T0, ...stateNearEnd(25n * L), mint: coin.mint }, slippageBps: 30, orderGross: total }), /needs order/);
+  // a whole order in one trade needs no start
+  assert.equal(S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: 30, orderSolIn: thr }).minTokensOut, S.withSlippage(S.quoteBuy(T0, st0, thr).tokensOut, 30));
+  // the first piece read at the start: its own minimum
+  const first = S.buyLeg({ solIn: thr, coinAccount: coin, slippageBps: 30, orderSolIn: total, order: { start: coin } });
+  assert.equal(first.minTokensOut, S.withSlippage(first.quote.tokensOut, 30));
+  // the review's ratchet: 13 pieces, each built from the coin as read just before it is signed; before each one an
+  // outsider buys the most it still clears, and he sells after the last. With minimums re-quoted from each fresh read
+  // (round 4) the order lost 187 bps; anchored to the start it loses at most the 30 bps it allows
+  const run = (anchored, attack) => {
+    let s = st0; let left = total; let got = 0n; const pieces = []; const atk = []; let refused = false;
+    while (left > 0n) {
+      const V = left < thr ? left : thr;
+      const fresh = { ...T0, ...s, mint: coin.mint };
+      let leg;
+      if (anchored) {
+        try { leg = S.buyLeg({ solIn: V, coinAccount: fresh, slippageBps: 30, orderSolIn: total, order: { start: coin, pieces, received: got } }); } catch (e) { if (/used up its slippage/.test(e.message)) { refused = true; break; } throw e; }
+      } else {
+        const q = S.quoteBuy(T0, s, V); leg = { solIn: V, minTokensOut: S.withSlippage(q.tokensOut, 30) }; // round 4: the order's 0.3% on each fresh read
+      }
+      if (attack) {
+        const passes = (a) => S.quoteBuy(T0, S.quoteBuy(T0, s, a).newState, leg.solIn).tokensOut >= leg.minTokensOut;
+        let lo = 0n; let hi = 30n * L; while (hi - lo > 10_000n) { const m = (lo + hi) / 2n; if (m >= S.MIN_TRADE_LAMPORTS && passes(m)) lo = m; else hi = m; }
+        if (lo >= S.MIN_TRADE_LAMPORTS) { const f = S.quoteBuy(T0, s, lo); atk.push(f); s = f.newState; }
+      }
+      const q = S.quoteBuy(T0, s, leg.solIn);
+      assert.ok(q.tokensOut >= leg.minTokensOut, 'every piece built clears its minimum');
+      got += q.tokensOut; s = q.newState; pieces.push(leg.solIn); left -= V;
+    }
+    const held = atk.reduce((x, f) => x + f.tokensOut, 0n); const spent = atk.reduce((x, f) => x + f.charged, 0n);
+    return { got, outsider: held ? S.quoteSell(T0, s, held).solOut - spent : 0n, refused, n: pieces.length };
+  };
+  const plain = run(true, false);
+  assert.equal(plain.n, 13);
+  const before = run(false, true); const after = run(true, true);
+  const loss = (x) => ((plain.got - x.got) * 10_000n) / plain.got;
+  assert.ok(loss(before) >= 150n && before.outsider > 50_000_000n, `fresh reads, round 4: ${loss(before)} bps lost, outsider +${before.outsider}`);
+  assert.ok(!after.refused && loss(after) <= 30n, `anchored: every piece passes and the order loses ${loss(after)} bps`);
+  assert.ok(after.outsider * 10_000n <= total * 30n, `the outsider keeps at most 0.3% of the order (${after.outsider})`);
+  // once the price has moved more than the order allows, the next piece is refused (the order ends)
+  const pumped = S.quoteBuy(T0, st0, 2n * L).newState;
+  assert.throws(() => S.buyLeg({ solIn: thr, coinAccount: { ...T0, ...pumped, mint: coin.mint }, slippageBps: 30, orderSolIn: total, order: { start: coin, pieces: [thr], received: S.quoteBuy(T0, st0, thr).tokensOut } }), /used up its slippage/);
+  // a given minimum below the order's floor is refused
+  // (piece 1 got its whole quote; then someone bought 0.07 SOL, and piece 2 is read at that price)
+  const p1 = S.quoteBuy(T0, st0, thr);
+  const s1 = S.quoteBuy(T0, p1.newState, 70_000_000n).newState;
+  const c1 = { ...T0, ...s1, mint: coin.mint };
+  const ord1 = { start: coin, pieces: [thr], received: p1.tokensOut };
+  const leg2 = S.buyLeg({ solIn: thr, coinAccount: c1, slippageBps: 30, orderSolIn: total, order: ord1 });
+  const q2 = S.quoteBuy(T0, s1, thr);
+  assert.ok(leg2.minTokensOut > S.withSlippage(q2.tokensOut, 30), 'the order\'s floor is above the fresh read\'s minimum');
+  assert.throws(() => S.buyLeg({ solIn: thr, coinAccount: c1, minTokensOut: S.withSlippage(q2.tokensOut, 30), orderSolIn: total, order: ord1 }), /lets the order lose more than 30 bps/);
+  // sells alike: an order of 6 sells, each re-read; an attacker sells ahead of every piece and buys back after the last
+  const drain = (x) => { let y = x; let slot = y.lastBuybackSlot; for (;;) { slot += S.BUYBACK_INTERVAL_SLOTS; const r = S.quoteBuyback(T0, y, slot); if (!r) return y; y = r.newState; } };
+  const sSell = drain(S.quoteBuy(T0, drain(S.quoteBuy(T0, st0, S.maxQuoteIn(T0, st0)).newState), 30n * L).newState); // a pool, 30 SOL bought since
+  const cS = { ...T0, ...sSell, mint: coin.mint };
+  const pieceT = (() => { let t = 10n ** 14n; while (S.quoteSell(T0, sSell, t).gross > S.sandwichThreshold(T0, sSell)) t -= t / 50n; return t; })();
+  const orderGross = S.quoteSell(T0, sSell, pieceT * 6n).gross;
+  const runSell = (anchored, attack) => {
+    let s = sSell; let got = 0n; const pieces = []; let atkSold = 0n; let atkGot = 0n;
+    for (let i = 0; i < 6; i++) {
+      let leg;
+      if (anchored) leg = S.sellLeg({ tokensIn: pieceT, coinAccount: { ...T0, ...s, mint: coin.mint }, slippageBps: 30, orderGross, order: { start: cS, pieces, received: got } });
+      else { const q = S.quoteSell(T0, s, pieceT); leg = { tokensIn: pieceT, minSolOut: S.withSlippage(q.solOut, 30) }; }
+      if (attack) {
+        const passes = (a) => S.quoteSell(T0, S.quoteSell(T0, s, a).newState, pieceT).solOut >= leg.minSolOut;
+        let lo = 0n; let hi = 10n ** 14n; while (hi - lo > 10n ** 9n) { const m = (lo + hi) / 2n; if (m > 0n && passes(m)) lo = m; else hi = m; }
+        if (lo > 0n) { const f = S.quoteSell(T0, s, lo); atkSold += lo; atkGot += f.solOut; s = f.newState; }
+      }
+      const q = S.quoteSell(T0, s, pieceT);
+      assert.ok(q.solOut >= leg.minSolOut);
+      got += q.solOut; s = q.newState; pieces.push(pieceT);
+    }
+    return { got, atkSold, atkGot };
+  };
+  const sp = runSell(true, false); const sb = runSell(false, true); const sa = runSell(true, true);
+  const sLoss = (x) => ((sp.got - x.got) * 10_000n) / sp.got;
+  assert.ok(sLoss(sb) >= 60n, `sells re-quoted from fresh reads: ${sLoss(sb)} bps lost`);
+  assert.ok(sLoss(sa) <= 30n, `sells anchored to the start: ${sLoss(sa)} bps lost`);
+  console.log(`R5-DIFF-1: buys, fresh reads ${loss(before)} bps (outsider +${before.outsider}), anchored ${loss(after)} bps (outsider +${after.outsider}); sells ${sLoss(sb)} / ${sLoss(sa)} bps`);
 });
 
 test('SDK4-5 the swap must deliver native SOL: solInFromSwapQuote and buyWithSwap refuse any other output mint (or a SOL input)', () => {
