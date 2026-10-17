@@ -919,7 +919,22 @@ seeds 1 and 2. `VCURVE_FUZZ_STEPS`, `VCURVE_FUZZ_SEEDS` and `VCURVE_FUZZ_LOG=1` 
 The first long run (seed 7) stopped at step 22,047 on the checker defect of entry 34. The second
 passed that step and stopped at step 75,150 on the I22 probe, in a state that I22's wording misses
 (entry 41). Neither was a program bug, and the program and the model agreed byte for byte at every
-step of both. The predictions also fixed several harness assumptions on the way: the order of checks
+step of both. With both fixed (64beae0), the final runs passed:
+
+| run | transactions | succeeded | failed: predicted by the model | failed: invalid variants | failed: outcome not modelled | time |
+|---|---|---|---|---|---|---|
+| seed 7, 100,000 steps | 95,580 | 56,190 | 22,567 | 14,774 | 2,049 | 51 min |
+| seed 8, 30,000 steps | 28,691 | 17,183 | 6,286 | 4,586 | 636 | 15 min |
+
+The model does not predict the outcome of approvals, launches, configs and settings sent by a
+random key; it adopts what the chain did, and the checker still checks each one. Of the 15,046 and
+4,655 invalid variants, besides those refused, 115 and 36 could not be built (a program id marked
+writable), 26 and 9 replaced an open slot, and 131 and 24 replaced the `program` slot of an
+instruction that emitted nothing.
+
+Each run launched 10 coins and graduated all of them, and ran the I22 probe every 50 steps (2,000
+and 600 probes). The seed 7 run included 431 pauses and reopenings of the old program's launches.
+The predictions also fixed several harness assumptions on the way: the order of checks
 (Anchor's account checks before the math), the rent rule at the end of the transaction (entry 36),
 and wrong-signer variants that must still carry every original signature.
 
@@ -967,7 +982,9 @@ I22 says that once the interval has passed and `buyback_pending > 0`, `buyback_b
 `curve_sol == f(S - 1)`. The long F01 run (seed 7, step 75,150) reached a third case. The run
 spends `b = min(buyback_pending, cap)`, and in the pool it buys `floor(Y * b / (X + b))` coins
 (7.1). When one raw coin costs more than `b` lamports, that is 0, and the run is the no-op of 4.0:
-nothing moves, and the bucket keeps its lamports. On the curve the same happens when `b` is below
+nothing moves, and the bucket keeps its lamports. In the run, a coin on a config with a 9 bps
+buyback share had 24,244 SOL in its pool (2.28 lamports per raw coin) and 1 lamport in its bucket;
+replayed to the same step with the corrected probe, the run went on. On the curve the same happens when `b` is below
 the cost of the next raw coin (`tokens_for(r + b) <= s`), which the curves that V1 to V11 accept
 do not reach in practice (their end price is far below one lamport per raw coin).
 
