@@ -255,3 +255,181 @@ lamports in reality (T12).
 P09b asserts that the gain is at most one lamport per attacker trade (plus one), which is the
 fee-rounding allowance; any value released by the drip (7.5's refused configs gain 0.1 to
 13.7 SOL in the model) would exceed it by many orders of magnitude.
+
+---
+
+Stage 2: the program crate `programs/vicinity-curve` (all 21 instructions), its client IDL
+and its builds. Entries 17 to 26.
+
+### 17. Cargo features besides the three of 3.1 (3.1)
+
+**Spec.** "features: `no-idl` (in the crate's default features ...); `devnet` ...; `halt-all`
+... No other feature."
+
+**Choice.** The three policy features are exactly as specified: `no-idl` is the only default
+feature, `devnet` switches the three compiled ids of 3.2 (`REWARDS_PROGRAM_ID`,
+`LEGACY_PROGRAM_ID`, `LEGACY_LAUNCHPAD`; `FEE_RECIPIENT` and every economic constant are the
+same in every build), and `halt-all` adds the guard of entry 21. The crate also declares
+Anchor's standard tooling features, which change no behaviour of a deployed binary: `cpi` and
+`no-entrypoint` (for crates that call the program), `no-log-ix-name` and `idl-build` (used only
+to generate the client IDL, entry 24), and `short-windows`, accepted and ignored because the
+workspace's CI builds and lints every member with `--features short-windows` (for
+`vicinity_rewards`). Unit tests assert `no-idl` is on by default; anchor-syn 0.31.2's
+dispatcher then returns Anchor error 1000 `IdlInstructionStub` for the IDL tag (X65).
+
+### 18. anchor-spl needs three more features to compile (3.1)
+
+**Spec.** "`anchor-spl = "=0.31.2"` (`default-features = false`, features `token` and
+`metadata`)".
+
+**Issue.** With only those two features anchor-spl does not compile: its `metadata` module
+names `spl_associated_token_account` (`error[E0433]`, checked), and the code Anchor generates
+for the `init` of a mint (`mint::decimals`, `mint::authority`) names
+`anchor_spl::token_interface` and its extension initialisers.
+
+**Choice.** Features `token`, `token_2022`, `token_2022_extensions`, `associated_token` and
+`metadata`. None of the extra code is reachable: every mint, token account and token program
+in the crate is classic SPL Token (`anchor_spl::token` types, `Program<Token>`), no
+instruction takes the associated token program, and the checklist test of entry 25 fails if
+`Token2022`, `token_interface` or `AssociatedToken` ever appears in the crate's code. The
+versions are pinned as specified: `anchor-lang` and `anchor-spl` `=0.31.2`,
+`mpl-token-metadata` `=5.1.1` (what `Cargo.lock` resolves for anchor-spl's `^5`).
+
+### 19. `lto = "fat"` has no effect on this program (3.1, 11.4)
+
+**Spec.** Release profile `overflow-checks = true`, `lto = "fat"`, `codegen-units = 1`,
+`opt-level = 3`.
+
+**Issue.** The workspace profile sets all four, but cargo-build-sbf 4.4.0 warns that a package
+with two crate types (`cdylib` and `lib`, Anchor's default) "precludes link-time
+optimizations". The two deployed programs (`vicinity_rewards`, `vicinity_launchpad`) have the
+same two crate types, so they were built without LTO too.
+
+**Choice.** Kept Anchor's default crate types, as in the two deployed programs. Measured: with
+`crate-type = ["cdylib"]` alone (LTO then applies) the production binary grows from 587,440
+to 635,056 bytes (opt-level 3 inlines more across crates) and still prints no stack warning.
+Whether to drop the `lib` crate type (and with it the `cpi` feature for Rust callers) is left
+to the auditors and the owner; it changes no behaviour.
+
+### 20. Binary size and stack (11.4, C03, C04)
+
+Measured on the build machine (Agave solana-cli 4.3.0, cargo-build-sbf 4.4.0, platform-tools
+v1.57, rustc 1.97.0 host, `anchor-lang` / `anchor-spl` 0.31.2, `mpl-token-metadata` 5.1.1)
+with `npm run vcurve:sbf` at the stage 2 commit:
+
+| build | features | bytes | stack warnings |
+|---|---|---|---|
+| production | default (`no-idl`) | 588,216 | none |
+| devnet | `devnet` | 588,216 | none |
+| halt-all | `halt-all` | 586,880 | none |
+
+The hashes depend on the exact commit and are printed by `npm run vcurve:sbf`; the audit pack
+records them for the frozen commit (C03). All three are above 11.4's target of 450 KB. At
+5,080 lamports per byte the program data account costs about 2.99 SOL of rent, and an upgrade
+buffer (and the halt-all buffer kept ready, 8.3) as much again each. For information only
+(opt-level 3 is specified and kept): the same production build with `opt-level = "z"` for this
+package alone is 457,208 bytes and with `"s"` 489,584 bytes, at a compute cost not yet
+measured. No build prints a cargo-build-sbf "Stack offset ... exceeded" warning, with every
+typed account of `launch`, `approve_launch` and `forward_holders_fees` and the coin in every
+instruction boxed (3.1). CI now builds all three after every push, recompiling the crate so its
+warnings are printed, and fails on any stack warning (`npm run vcurve:sbf`, C04).
+
+### 21. The halt-all guard runs after Anchor's account validation (4.0, 8.3, H02)
+
+**Spec.** 4.0: with `halt-all` the eight outflow handlers "fail with `TradingHalted` before
+anything else"; 8.3: "a few `#[cfg]` lines at the top of eight handlers".
+
+**Issue.** Anchor deserialises and validates the account list (constraints, and the `init` of
+`launch`'s new accounts) before any handler code runs. A guard "at the top of the handler"
+therefore runs after that validation.
+
+**Choice.** As 8.3 describes: `require_not_halted()?` is the first statement of exactly the
+eight handlers (the checklist test of entry 25 asserts it, and that it appears nowhere else),
+and without the feature the function is empty and compiles away. In the halt-all build a
+transaction with a valid account list fails with `TradingHalted` (6043); one with an invalid
+account list fails with the account error first. Either way the transaction reverts and nothing
+is created, moved or written. Moving the check in front of account validation would need a
+hand-written entrypoint around Anchor's dispatcher, which 8.3 does not ask for and which would
+add audit surface to every build.
+
+### 22. `pay_out` refuses a destination equal to the `Coin` (6.5)
+
+**Spec.** The helper's code in 6.5 debits the `Coin`, then reads the destination's balance and
+credits it.
+
+**Issue.** If a caller ever passed the `Coin` itself as the destination, that code would zero
+the bucket, debit and re-credit the same account, and book a payout that moved nothing. No
+caller can do so today (the destinations are a signer, the compiled `FEE_RECIPIENT`, a token
+account and a system-owned wallet).
+
+**Choice.** The helper refuses `to == coin` with `InvalidAddress` (a check that can only refuse)
+and computes both new balances before writing either, so a refusal leaves both untouched. The
+lamport move is a private function (`custody::move_lamports`) that the unit tests run on real
+`AccountInfo`s; `pay_out` reads the `Rent` sysvar and calls it, as in 6.5. Every other line of
+6.5 is unchanged: floor `liabilities_after + min(rent_reserve, live rent)`, `RentFloor` below
+it, `MathOverflow` on an overflowing floor or credit.
+
+### 23. Smaller choices in the handlers (4.4, 4.6, 4.11, 4.13, 4.21)
+
+* `set_pause` signed by the admin with all three arguments `None` succeeds, changes nothing and
+  emits `PauseChanged` with the unchanged flags (4.4 lets the admin set any flag; it names no
+  error for an empty call). The guardian must set at least one flag, as specified.
+* `add_launch_config` requires `next_config_id < u16::MAX`, so ids run from 0 to 65,534 and at
+  most 65,535 configs exist (`ConfigCount`, "65,535 configs reached").
+* `Trade` of the buy that completes the curve has `phase = 0` (where it executed, 4.21), while
+  its `*_after` fields describe the market after the trade, which is the new pool:
+  `virtual_sol_after = pool_sol = R`, `virtual_tokens_after = pool_tokens = P`. The curve's last
+  virtual reserves `(x0 + R, y0 - S)` are in `Graduated` (`last_virtual_sol`,
+  `last_virtual_tokens`). A sell's `Trade` has `partial = false` and `graduated = false`.
+* `BuybackBurned.supply_after` is read from the mint after the burn CPI (the handler reloads
+  the mint account), as 4.21 asks (`mint.supply` after the burn).
+* `transfer_founder` to the same key and `opt_in_payout` while payouts are paused are allowed
+  (4.17 and 4.18 name no check for either); a paused payout key still cannot pay (4.20).
+* The math crate's trade refusals keep their names (`TradeTooSmall`, `ZeroAmount`,
+  `ZeroOutput`, `SellExceedsCurve`); every other math error is `MathOverflow` (entry 8). The
+  handlers keep their own checks in the order of section 4 before the quote and after it, so
+  the error a client sees is the one section 4 names.
+
+### 24. The client IDL (8.4, 14.3)
+
+The deployed binary has no IDL instructions (`no-idl`), so the IDL JSON is generated from the
+source with Anchor's `idl-build` feature, the same step `anchor build` runs, and committed at
+`sdk/idl/vicinity_curve.json` (21 instructions, 6 accounts, 21 events, 51 errors, every
+`#[constant]` with its compiled value). It is the default build's IDL: the mainnet ids of
+`vicinity_rewards` and the old `vicinity_launchpad`; the devnet build differs only in the
+values of `REWARDS_PROGRAM_ID`, `LEGACY_PROGRAM_ID` and `LEGACY_LAUNCHPAD`. Its `address` is
+the throwaway localnet/devnet key (entry 7); mainnet regenerates it after the owner's key is
+put in `declare_id!`. `npm run vcurve:idl` regenerates the file and `npm run vcurve:idl:check`
+diffs a fresh build against it; CI diffs the IDL that `anchor build` writes against it, as for
+the other two programs. The constants `REWARDS_CITY_CONFIG_DISCRIMINATOR` and
+`REWARDS_MODEL_HOLDERS` of 3.2 describe `vicinity_rewards`' layout rather than policy and do
+not carry `#[constant]`, so they are not in the IDL.
+
+### 25. Review checklist tests (4.0, 4.21, 6.5, 8.3, section 4)
+
+`src/checklist.rs` (test only) checks rules that no unit test of a single function can:
+
+* source rules, read from the instruction files as text: the halt-all guard is the first
+  statement of exactly the eight outflow handlers; `pay_out` is called once by each of the five
+  debits of 6.5 and by no other instruction, after `liabilities()` of the updated state, and no
+  CPI follows it except the event CPI (rule of 4.0); no module but `custody.rs` writes lamports;
+  the eight money instructions emit by event CPI and the thirteen settings instructions by
+  `emit!`; no `init_if_needed`, remaining accounts, token approve, revoke, close, freeze or thaw
+  anywhere; `mint_to`, `set_authority` and the Metaplex CPI only in `launch`; `burn` only in
+  `launch` and `buyback_burn`; `transfer_checked` only in `buy` and `sell`; system transfers
+  only in `launch` and `buy`; `close =` only on the approval and the opt-in;
+* the instruction contract against the committed IDL: every instruction's accounts in the order
+  and with the signer and writable flags of its table in section 4, `buy` and `sell` sharing
+  one list of 10 accounts, every instruction's arguments and `ConfigParams`, the
+  instruction, account (`CurveCoin`) and event discriminators, the 21 events, the 51 error
+  codes and the compiled ids of the default build.
+
+They are text and data checks, not proofs; the litesvm suites of stage 3 exercise the same
+rules on the real binary (H02, R02, R02b, L01 to L13, X01 to X65).
+
+### 26. CI additions
+
+`.github/workflows/solana.yml` gains, for `vicinity-curve` only: clippy (`-D warnings`) and the
+unit tests with `--features devnet` and with `--features halt-all`; the diff of the committed
+IDL against `anchor build`'s; and the three SBF builds with the stack check of entry 20. The
+existing programs' steps, IDLs and binaries are unchanged.

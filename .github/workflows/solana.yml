@@ -43,6 +43,13 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo clippy --all-targets --features short-windows -- -D warnings
       - run: cargo test
+      # vicinity_curve's other two builds (VICINITY-CURVE-DESIGN.md 3.1, 8.3):
+      # `devnet` (the compiled devnet ids) and `halt-all` (the emergency build
+      # whose eight outflow instructions refuse with TradingHalted).
+      - run: cargo clippy -p vicinity-curve --all-targets --features devnet -- -D warnings
+      - run: cargo clippy -p vicinity-curve --all-targets --features halt-all -- -D warnings
+      - run: cargo test -p vicinity-curve --features devnet
+      - run: cargo test -p vicinity-curve --features halt-all
   anchor:
     name: anchor build and anchor test
     runs-on: ubuntu-latest
@@ -102,6 +109,14 @@ jobs:
       # dumped from mainnet; the dump script checks their pinned SHA-256.
       - name: Launchpad committed IDL matches the production build
         run: diff target/idl/vicinity_launchpad.json sdk/idl/vicinity_launchpad.json
+      # vicinity_curve: the client IDL is committed (the deployed binary has no
+      # IDL instructions, VICINITY-CURVE-DESIGN.md 8.4); `npm run vcurve:idl`
+      # regenerates it. Then the production, devnet and halt-all SBF builds,
+      # each recompiled, must print no "Stack offset ... exceeded" warning (C04).
+      - name: Curve committed IDL matches the production build
+        run: diff target/idl/vicinity_curve.json sdk/idl/vicinity_curve.json
+      - name: Curve SBF builds (production, devnet, halt-all) without stack warnings
+        run: npm run vcurve:sbf
       - run: npm run sdk-test:launchpad
       - name: Launchpad TypeScript SDK type check
         run: npm run typecheck:launchpad

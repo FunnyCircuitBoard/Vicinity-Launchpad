@@ -2,7 +2,7 @@
   "name": "vicinity-rewards-solana",
   "private": true,
   "version": "0.1.0",
-  "description": "Vicinity on Solana: the vicinity_rewards and vicinity_launchpad programs, their SDK (Merkle, PDAs, instruction builders, curve quotes), tests and scripts.",
+  "description": "Vicinity on Solana: the vicinity_rewards, vicinity_launchpad and vicinity_curve programs, their SDK (Merkle, PDAs, instruction builders, curve quotes), tests and scripts.",
   "license": "MIT",
   "engines": {
     "node": ">=22.12"
@@ -25,7 +25,10 @@
     "launchpad:claim-fees": "node scripts/launchpad/claim-platform-fees.mjs",
     "launchpad:setup": "node scripts/launchpad/setup.mjs",
     "launchpad:devnet-demo": "node scripts/launchpad/devnet-demo.mjs",
-    "launchpad:worker-trade": "node scripts/launchpad/worker-devnet-trade.mjs"
+    "launchpad:worker-trade": "node scripts/launchpad/worker-devnet-trade.mjs",
+    "vcurve:idl": "bash scripts/vcurve/idl.sh write",
+    "vcurve:idl:check": "bash scripts/vcurve/idl.sh check",
+    "vcurve:sbf": "bash scripts/vcurve/sbf-builds.sh"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",

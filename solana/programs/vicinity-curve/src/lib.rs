@@ -42,6 +42,9 @@ pub mod helpers;
 pub mod instructions;
 pub mod state;
 
+#[cfg(test)]
+mod checklist;
+
 use instructions::*;
 
 // Localnet / devnet id: a throwaway keypair kept outside the repository; the

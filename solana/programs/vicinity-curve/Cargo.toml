@@ -46,7 +46,7 @@ anchor-lang = { version = "=0.31.2", features = ["event-cpi"] }
 # `metadata` module names the associated token program id in a wrapper this
 # program never calls. Every token account, mint and program in this crate is
 # classic SPL Token (`anchor_spl::token` types and `Program<Token>`); no
-# instruction takes the associated token program. VICINITY-CURVE-NOTES.md.
+# instruction takes the associated token program. VICINITY-CURVE-NOTES.md entry 18.
 anchor-spl = { version = "=0.31.2", default-features = false, features = ["token", "token_2022", "token_2022_extensions", "associated_token", "metadata"] }
 # Not used directly: pins the exact 5.x version that anchor-spl's `metadata`
 # feature resolves (anchor-spl asks for "^5"), as 3.1 requires.
