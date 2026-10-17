@@ -1,0 +1,766 @@
+//! Small pure helpers, unit-tested below: name and ticker rules, the metadata
+//! URI, payout-key separation, the ProgramData header, the `vicinity_rewards`
+//! CityConfig reader, the old program's `Launchpad` checks and the arithmetic
+//! of the single debit helper (6.5). Nothing here moves money.
+
+use anchor_lang::prelude::*;
+
+use crate::constants::{
+    FEE_RECIPIENT, LEGACY_APPROVAL_SEED, LEGACY_COIN_SEED, LEGACY_LAUNCHES_PAUSED_AT,
+    LEGACY_LAUNCHPAD_DISCRIMINATOR, LEGACY_LAUNCHPAD_LEN, LEGACY_PROGRAM_ID, MAX_NAME_LEN,
+    MAX_SYMBOL_LEN, METADATA_SEED, METADATA_URI_PREFIX, METAPLEX_PROGRAM_ID,
+    REWARDS_CITY_CONFIG_DISCRIMINATOR, REWARDS_MODEL_HOLDERS,
+};
+use crate::errors::CurveError;
+
+/// `METADATA_URI_PREFIX + mint (base58) + ".json"` (3.10). Keyed by the mint,
+/// so a coin's URI cannot be known before the coin exists.
+pub fn metadata_uri(mint: &Pubkey) -> String {
+    let mut s = String::with_capacity(METADATA_URI_PREFIX.len() + 44 + 5);
+    s.push_str(METADATA_URI_PREFIX);
+    s.push_str(&mint.to_string());
+    s.push_str(".json");
+    s
+}
+
+/// 1 to 32 bytes, no control characters and no invisible formatting characters
+/// (T38). UTF-8 is otherwise allowed ("São Paulo"). The name becomes a
+/// permanent Metaplex name, so a right-to-left override or a zero-width space
+/// could never be removed again.
+pub fn check_name(name: &str) -> Result<()> {
+    require!(
+        !name.is_empty()
+            && name.len() <= MAX_NAME_LEN as usize
+            && !name.chars().any(|c| c.is_control() || is_format_char(c)),
+        CurveError::BadName
+    );
+    Ok(())
+}
+
+/// Unicode "format" characters (category Cf) that change direction or are
+/// invisible: soft hyphen, Arabic and Syriac marks, the Mongolian vowel
+/// separator, zero-width spaces and joiners, left-to-right and right-to-left
+/// marks, embeddings, overrides and isolates, invisible operators, the
+/// byte-order mark, interlinear annotation marks and tag characters.
+pub fn is_format_char(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x00AD
+            | 0x0600..=0x0605
+            | 0x061C
+            | 0x06DD
+            | 0x070F
+            | 0x0890..=0x0891
+            | 0x08E2
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x202A..=0x202E
+            | 0x2060..=0x2064
+            | 0x2066..=0x206F
+            | 0xFEFF
+            | 0xFFF9..=0xFFFB
+            | 0x110BD
+            | 0x110CD
+            | 0x13430..=0x1343F
+            | 0x1BCA0..=0x1BCA3
+            | 0x1D173..=0x1D17A
+            | 0xE0001
+            | 0xE0020..=0xE007F
+    )
+}
+
+/// 1 to 10 bytes of `A-Z0-9` (the city ticker from tickers.json).
+pub fn check_symbol(symbol: &str) -> Result<()> {
+    require!(
+        !symbol.is_empty()
+            && symbol.len() <= MAX_SYMBOL_LEN as usize
+            && symbol
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()),
+        CurveError::BadSymbol
+    );
+    Ok(())
+}
+
+/// The ticker zero padded to the 10 bytes of `Coin.symbol` (3.7). The caller
+/// has run `check_symbol` (at most 10 bytes).
+pub fn symbol_bytes(symbol: &str) -> [u8; 10] {
+    let mut out = [0u8; 10];
+    for (o, b) in out.iter_mut().zip(symbol.bytes()) {
+        *o = b;
+    }
+    out
+}
+
+/// The admin, the payout key and the payout wallet are three different keys,
+/// and neither payout key nor payout wallet is `FEE_RECIPIENT` (4.2, 4.5).
+/// Nothing to check while payouts are off (both payout settings zero).
+pub fn check_payout_keys_separate(
+    admin: &Pubkey,
+    payout_authority: &Pubkey,
+    payout_destination: &Pubkey,
+) -> Result<()> {
+    let zero = Pubkey::default();
+    if *payout_authority == zero && *payout_destination == zero {
+        return Ok(());
+    }
+    require!(
+        payout_authority != admin
+            && *payout_authority != FEE_RECIPIENT
+            && payout_destination != payout_authority
+            && payout_destination != admin
+            && *payout_destination != FEE_RECIPIENT,
+        CurveError::PayoutKeyNotSeparate
+    );
+    Ok(())
+}
+
+/// Who may set which pause flag (4.4). `launches`, `payouts`, `buys` are the
+/// instruction's arguments.
+///
+/// * the admin: any flag, to true or false;
+/// * a nonzero `payout_authority`: only `(None, Some(true), None)`;
+/// * a nonzero `guardian`: only `launches` and `buys`, only to `Some(true)`,
+///   `payouts = None`, at least one set.
+///
+/// A key that holds more than one role may do what any of its roles allows.
+pub fn pause_allowed(
+    signer: &Pubkey,
+    admin: &Pubkey,
+    payout_authority: &Pubkey,
+    guardian: &Pubkey,
+    launches: Option<bool>,
+    payouts: Option<bool>,
+    buys: Option<bool>,
+) -> bool {
+    let zero = Pubkey::default();
+    if signer == admin {
+        return true;
+    }
+    let as_payout_key = *payout_authority != zero
+        && signer == payout_authority
+        && launches.is_none()
+        && payouts == Some(true)
+        && buys.is_none();
+    let only_true = |v: Option<bool>| v.is_none() || v == Some(true);
+    let as_guardian = *guardian != zero
+        && signer == guardian
+        && payouts.is_none()
+        && only_true(launches)
+        && only_true(buys)
+        && (launches.is_some() || buys.is_some());
+    as_payout_key || as_guardian
+}
+
+/// Reads the upgrade authority from a BPF upgradeable loader ProgramData
+/// account, parsing the 45-byte bincode header by hand (u32 tag = 3, u64 slot,
+/// u8 option = 1, 32-byte authority). `None` when the data is not a
+/// ProgramData account or the program is immutable.
+pub fn program_data_upgrade_authority(data: &[u8]) -> Option<Pubkey> {
+    if data.len() < 45 {
+        return None;
+    }
+    let tag = u32::from_le_bytes(data[0..4].try_into().ok()?);
+    if tag != 3 || data[12] != 1 {
+        return None;
+    }
+    Some(Pubkey::new_from_array(data[13..45].try_into().ok()?))
+}
+
+/// The fields of a `vicinity_rewards` CityConfig that decide where the
+/// holders' money can go and who publishes its rounds. Layout (Borsh, after
+/// the 8-byte discriminator): authority 32 (byte 8), pending_authority 32
+/// (40), founder 32 (72), city_coin_mint 32 (104), reward_mint 32 (136), vault
+/// 32 (168), reward_model u8 (200), founder_bps u16 LE (201), ...
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RewardsCityConfigView {
+    pub authority: Pubkey,
+    pub pending_authority: Pubkey,
+    pub city_coin_mint: Pubkey,
+    pub reward_mint: Pubkey,
+    pub vault: Pubkey,
+    pub reward_model: u8,
+    pub founder_bps: u16,
+}
+
+/// Reads a CityConfig (discriminator and length checked; `WrongRewardsConfig`).
+pub fn read_rewards_city_config(data: &[u8]) -> Result<RewardsCityConfigView> {
+    require!(
+        data.len() >= 203 && data[0..8] == REWARDS_CITY_CONFIG_DISCRIMINATOR,
+        CurveError::WrongRewardsConfig
+    );
+    let key = |at: usize| -> Result<Pubkey> {
+        let arr: [u8; 32] = data[at..at + 32]
+            .try_into()
+            .map_err(|_| CurveError::WrongRewardsConfig)?;
+        Ok(Pubkey::new_from_array(arr))
+    };
+    Ok(RewardsCityConfigView {
+        authority: key(8)?,
+        pending_authority: key(40)?,
+        city_coin_mint: key(104)?,
+        reward_mint: key(136)?,
+        vault: key(168)?,
+        reward_model: data[200],
+        founder_bps: u16::from_le_bytes([data[201], data[202]]),
+    })
+}
+
+/// The holders' share may only go to a rewards config that pays holders only
+/// (model Holders, 0% founder), in `reward_mint` (WSOL), through the vault we
+/// are about to pay, for this coin (4.15). Under Creator or Split,
+/// `fund_epoch_from_vault` would pay part of it to `config.founder`.
+pub fn check_rewards_config(
+    view: &RewardsCityConfigView,
+    coin_mint: &Pubkey,
+    reward_mint: &Pubkey,
+    vault: &Pubkey,
+) -> Result<()> {
+    require!(
+        view.city_coin_mint == *coin_mint
+            && view.reward_model == REWARDS_MODEL_HOLDERS
+            && view.founder_bps == 0
+            && view.reward_mint == *reward_mint
+            && view.vault == *vault,
+        CurveError::WrongRewardsConfig
+    );
+    Ok(())
+}
+
+/// The rewards config's root publisher must be the admin, with no authority
+/// transfer pending (4.15, SEC-2).
+pub fn check_rewards_authority(view: &RewardsCityConfigView, admin: &Pubkey) -> Result<()> {
+    require!(
+        view.authority == *admin && view.pending_authority == Pubkey::default(),
+        CurveError::WrongRewardsConfig
+    );
+    Ok(())
+}
+
+/// An address nobody has created an account at: no data and owned by the
+/// System program (it may hold lamports; a pre-funded PDA is still empty).
+pub fn is_empty_system_account(account: &AccountInfo) -> bool {
+    account.data_is_empty() && *account.owner == anchor_lang::system_program::ID
+}
+
+/// The old program's `Coin` PDA of a city: `["coin", city_id LE]` under
+/// `LEGACY_PROGRAM_ID` (4.8).
+pub fn legacy_coin_address(city_id: u64) -> Pubkey {
+    Pubkey::find_program_address(
+        &[LEGACY_COIN_SEED, &city_id.to_le_bytes()],
+        &LEGACY_PROGRAM_ID,
+    )
+    .0
+}
+
+/// The old program's `Approval` PDA of a city: `["approval", city_id LE]`
+/// under `LEGACY_PROGRAM_ID` (4.8).
+pub fn legacy_approval_address(city_id: u64) -> Pubkey {
+    Pubkey::find_program_address(
+        &[LEGACY_APPROVAL_SEED, &city_id.to_le_bytes()],
+        &LEGACY_PROGRAM_ID,
+    )
+    .0
+}
+
+/// The Metaplex metadata PDA of a mint: `["metadata", METAPLEX_PROGRAM_ID,
+/// mint]` under `METAPLEX_PROGRAM_ID` (4.10, T6).
+pub fn metadata_address(mint: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(
+        &[METADATA_SEED, METAPLEX_PROGRAM_ID.as_ref(), mint.as_ref()],
+        &METAPLEX_PROGRAM_ID,
+    )
+    .0
+}
+
+/// The bytes at `LEGACY_LAUNCHPAD` are the old program's `Launchpad`: owned by
+/// `legacy_program`, exactly 171 bytes, `Launchpad` discriminator (4.8).
+pub fn legacy_launchpad_bytes_valid(owner: &Pubkey, legacy_program: &Pubkey, data: &[u8]) -> bool {
+    owner == legacy_program
+        && data.len() as u64 == LEGACY_LAUNCHPAD_LEN
+        && data[0..8] == LEGACY_LAUNCHPAD_DISCRIMINATOR
+}
+
+/// The old program's launches are paused: `data[168] == 1` (a Borsh `true`;
+/// 4.8). The caller has checked `legacy_launchpad_bytes_valid`.
+pub fn legacy_launches_paused_bytes(data: &[u8]) -> bool {
+    data.get(LEGACY_LAUNCHES_PAUSED_AT as usize) == Some(&1)
+}
+
+/// `legacy_launchpad_bytes_valid` on an account, against the compiled
+/// `LEGACY_PROGRAM_ID`. A borrow failure counts as invalid.
+pub fn legacy_launchpad_valid(account: &AccountInfo) -> bool {
+    match account.try_borrow_data() {
+        Ok(data) => legacy_launchpad_bytes_valid(account.owner, &LEGACY_PROGRAM_ID, &data),
+        Err(_) => false,
+    }
+}
+
+/// `legacy_launches_paused_bytes` on an account (checked after
+/// `legacy_launchpad_valid`). A borrow failure counts as not paused.
+pub fn legacy_launches_paused(account: &AccountInfo) -> bool {
+    match account.try_borrow_data() {
+        Ok(data) => legacy_launches_paused_bytes(&data),
+        Err(_) => false,
+    }
+}
+
+/// The arithmetic of `pay_out` (6.5): the `Coin`'s balance after a debit of
+/// `amount`, refused unless it keeps `liabilities_after + min(rent_reserve,
+/// rent_live)`.
+///
+/// ```text
+/// floor = liabilities_after + min(rent_reserve, rent_live)    (MathOverflow)
+/// left  = balance - amount                                   (RentFloor if negative)
+/// require left >= floor                                      (RentFloor)
+/// ```
+pub fn debit_after(
+    balance: u64,
+    amount: u64,
+    rent_reserve: u64,
+    rent_live: u64,
+    liabilities_after: u64,
+) -> Result<u64> {
+    let floor = liabilities_after
+        .checked_add(rent_reserve.min(rent_live))
+        .ok_or(CurveError::MathOverflow)?;
+    let left = balance.checked_sub(amount).ok_or(CurveError::RentFloor)?;
+    require!(left >= floor, CurveError::RentFloor);
+    Ok(left)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Deterministic xorshift64*, so the loops need no extra crate.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            self.0 = x;
+            x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        }
+    }
+
+    fn code(r: Result<impl std::fmt::Debug>) -> u32 {
+        match r {
+            Err(Error::AnchorError(e)) => e.error_code_number,
+            other => panic!("expected an Anchor error, got {other:?}"),
+        }
+    }
+
+    // ---- U11 (reused tests): check_name, check_symbol, metadata_uri ----
+
+    #[test]
+    fn u11_uri_is_keyed_by_mint() {
+        let mint = Pubkey::new_from_array([7u8; 32]);
+        let uri = metadata_uri(&mint);
+        assert_eq!(uri, format!("https://vicinity.city/coin-meta/{mint}.json"));
+        assert!(uri.len() <= 200, "Metaplex URI limit");
+        let max = metadata_uri(&Pubkey::new_from_array([255u8; 32]));
+        assert!(max.len() <= 81);
+    }
+
+    #[test]
+    fn u11_names() {
+        assert!(check_name("New York City Coin").is_ok());
+        assert!(check_name("São Paulo").is_ok());
+        assert!(check_name(&"a".repeat(32)).is_ok());
+        assert!(check_name(&"a".repeat(33)).is_err());
+        assert!(check_name("").is_err());
+        assert!(check_name("bad\nname").is_err());
+        assert!(check_name("bad\u{0}").is_err());
+        // 32 bytes is the limit, not 32 characters
+        assert!(check_name(&"é".repeat(17)).is_err());
+        for bad in [
+            "evil\u{202E}nioc",
+            "New\u{200B}York",
+            "\u{200F}Cairo",
+            "Paris\u{2066}",
+            "\u{FEFF}Rome",
+            "Lima\u{00AD}",
+            "Oslo\u{E0041}",
+            "Kyiv\u{2069}",
+        ] {
+            assert_eq!(code(check_name(bad)), 6021, "{bad:?}");
+        }
+        for ok in [
+            "Zürich",
+            "Kraków",
+            "東京",
+            "القاهرة",
+            "Тбилиси",
+            "Reykjavík",
+        ] {
+            assert!(check_name(ok).is_ok(), "{ok}");
+        }
+    }
+
+    #[test]
+    fn u11_symbols() {
+        for ok in ["NYC", "A", "SAOPAULO", "X1", "ABCDEFGHIJ"] {
+            assert!(check_symbol(ok).is_ok(), "{ok}");
+        }
+        for bad in ["", "nyc", "NY C", "ABCDEFGHIJK", "NY-C", "ÉÉ", "$NYC"] {
+            assert_eq!(code(check_symbol(bad)), 6022, "{bad:?}");
+        }
+        assert_eq!(symbol_bytes("NYC"), *b"NYC\0\0\0\0\0\0\0");
+        assert_eq!(symbol_bytes("ABCDEFGHIJ"), *b"ABCDEFGHIJ");
+    }
+
+    #[test]
+    fn payout_keys_separate() {
+        let admin = Pubkey::new_unique();
+        let key = Pubkey::new_unique();
+        let wallet = Pubkey::new_unique();
+        let zero = Pubkey::default();
+        assert!(check_payout_keys_separate(&admin, &key, &wallet).is_ok());
+        assert!(check_payout_keys_separate(&admin, &zero, &zero).is_ok());
+        assert!(check_payout_keys_separate(&FEE_RECIPIENT, &zero, &zero).is_ok());
+        assert!(check_payout_keys_separate(&FEE_RECIPIENT, &key, &wallet).is_ok());
+        for (a, k, w) in [
+            (admin, admin, wallet),
+            (admin, FEE_RECIPIENT, wallet),
+            (admin, key, key),
+            (admin, key, admin),
+            (admin, key, FEE_RECIPIENT),
+            (key, key, wallet),
+            (wallet, key, wallet),
+        ] {
+            assert_eq!(code(check_payout_keys_separate(&a, &k, &w)), 6008);
+        }
+    }
+
+    #[test]
+    fn pause_roles() {
+        let (admin, pk, g, other) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let z = Pubkey::default();
+        let all = [None, Some(false), Some(true)];
+        for l in all {
+            for p in all {
+                for b in all {
+                    // The admin may set anything.
+                    assert!(pause_allowed(&admin, &admin, &pk, &g, l, p, b));
+                    // A stranger may set nothing.
+                    assert!(!pause_allowed(&other, &admin, &pk, &g, l, p, b));
+                    // The payout key may only stop payouts.
+                    let want_pk = l.is_none() && p == Some(true) && b.is_none();
+                    assert_eq!(pause_allowed(&pk, &admin, &pk, &g, l, p, b), want_pk);
+                    // The guardian may only stop launches and buys.
+                    let want_g = p.is_none()
+                        && l != Some(false)
+                        && b != Some(false)
+                        && (l.is_some() || b.is_some());
+                    assert_eq!(pause_allowed(&g, &admin, &pk, &g, l, p, b), want_g);
+                    // Unset roles (zero keys) give nothing, even to the zero key.
+                    assert!(!pause_allowed(&z, &admin, &z, &z, l, p, b));
+                }
+            }
+        }
+    }
+
+    fn program_data(tag: u32, option: u8, auth: [u8; 32]) -> Vec<u8> {
+        let mut d = Vec::new();
+        d.extend_from_slice(&tag.to_le_bytes());
+        d.extend_from_slice(&123u64.to_le_bytes());
+        d.push(option);
+        d.extend_from_slice(&auth);
+        d.extend_from_slice(&[0x7f; 100]);
+        d
+    }
+
+    #[test]
+    fn program_data_header() {
+        let a = [9u8; 32];
+        assert_eq!(
+            program_data_upgrade_authority(&program_data(3, 1, a)),
+            Some(Pubkey::new_from_array(a))
+        );
+        assert_eq!(program_data_upgrade_authority(&program_data(3, 0, a)), None);
+        assert_eq!(program_data_upgrade_authority(&program_data(2, 1, a)), None);
+        assert_eq!(program_data_upgrade_authority(&program_data(1, 1, a)), None);
+        assert_eq!(program_data_upgrade_authority(&[3, 0, 0, 0]), None);
+    }
+
+    fn city_config(
+        authority: Pubkey,
+        pending: Pubkey,
+        model: u8,
+        bps: u16,
+        mint: Pubkey,
+        reward: Pubkey,
+        vault: Pubkey,
+    ) -> Vec<u8> {
+        let mut d = REWARDS_CITY_CONFIG_DISCRIMINATOR.to_vec();
+        d.extend_from_slice(authority.as_ref());
+        d.extend_from_slice(pending.as_ref());
+        d.extend_from_slice(&[2u8; 32]); // founder
+        d.extend_from_slice(mint.as_ref());
+        d.extend_from_slice(reward.as_ref());
+        d.extend_from_slice(vault.as_ref());
+        d.push(model);
+        d.extend_from_slice(&bps.to_le_bytes());
+        d.extend_from_slice(&[0u8; 100]);
+        d
+    }
+
+    #[test]
+    fn rewards_config_rules() {
+        let (admin, mint, vault) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let wsol = crate::constants::NATIVE_MINT;
+        let z = Pubkey::default();
+        let ok = city_config(admin, z, 1, 0, mint, wsol, vault);
+        let v = read_rewards_city_config(&ok).unwrap();
+        assert_eq!(v.authority, admin);
+        assert_eq!(v.pending_authority, z);
+        assert!(check_rewards_config(&v, &mint, &wsol, &vault).is_ok());
+        assert!(check_rewards_authority(&v, &admin).is_ok());
+
+        let bad_economics = [
+            city_config(admin, z, 0, 10_000, mint, wsol, vault), // Creator
+            city_config(admin, z, 2, 2_500, mint, wsol, vault),  // Split
+            city_config(admin, z, 1, 1, mint, wsol, vault),      // founder share
+            city_config(admin, z, 1, 0, Pubkey::new_unique(), wsol, vault),
+            city_config(admin, z, 1, 0, mint, Pubkey::new_unique(), vault),
+            city_config(admin, z, 1, 0, mint, wsol, Pubkey::new_unique()),
+        ];
+        for d in bad_economics {
+            let v = read_rewards_city_config(&d).unwrap();
+            assert_eq!(code(check_rewards_config(&v, &mint, &wsol, &vault)), 6038);
+        }
+        // X47b: a stranger as authority, or a pending transfer, is refused.
+        let stranger = city_config(Pubkey::new_unique(), z, 1, 0, mint, wsol, vault);
+        let v = read_rewards_city_config(&stranger).unwrap();
+        assert_eq!(code(check_rewards_authority(&v, &admin)), 6038);
+        let pending = city_config(admin, Pubkey::new_unique(), 1, 0, mint, wsol, vault);
+        let v = read_rewards_city_config(&pending).unwrap();
+        assert_eq!(code(check_rewards_authority(&v, &admin)), 6038);
+
+        let mut wrong_disc = ok.clone();
+        wrong_disc[0] ^= 1;
+        assert_eq!(code(read_rewards_city_config(&wrong_disc)), 6038);
+        assert_eq!(code(read_rewards_city_config(&ok[..202])), 6038);
+    }
+
+    #[test]
+    fn rewards_discriminator_matches_anchor() {
+        let h = anchor_lang::solana_program::hash::hash(b"account:CityConfig");
+        assert_eq!(h.to_bytes()[..8], REWARDS_CITY_CONFIG_DISCRIMINATOR);
+    }
+
+    #[test]
+    fn legacy_launchpad_checks() {
+        let prog = Pubkey::new_unique();
+        let mut d = vec![0u8; 171];
+        d[0..8].copy_from_slice(&LEGACY_LAUNCHPAD_DISCRIMINATOR);
+        assert!(legacy_launchpad_bytes_valid(&prog, &prog, &d));
+        assert!(!legacy_launches_paused_bytes(&d));
+        d[168] = 1;
+        assert!(legacy_launches_paused_bytes(&d));
+        // Only a Borsh `true` counts as paused.
+        d[168] = 2;
+        assert!(!legacy_launches_paused_bytes(&d));
+        d[168] = 1;
+        // Wrong owner, size or discriminator.
+        assert!(!legacy_launchpad_bytes_valid(
+            &Pubkey::new_unique(),
+            &prog,
+            &d
+        ));
+        assert!(!legacy_launchpad_bytes_valid(&prog, &prog, &d[..170]));
+        let mut longer = d.clone();
+        longer.push(0);
+        assert!(!legacy_launchpad_bytes_valid(&prog, &prog, &longer));
+        let mut other = d.clone();
+        other[0] ^= 1;
+        assert!(!legacy_launchpad_bytes_valid(&prog, &prog, &other));
+    }
+
+    // ---- debit helper arithmetic (6.5) ----
+
+    #[test]
+    fn debit_examples() {
+        // E1 (5.14): rent + 1 SOL; a sell paying out the E2 figure leaves
+        // exactly rent + liabilities.
+        let rent = 5_714_160;
+        let bal = rent + 1_000_000_000;
+        let liab_after = 49_375_000; // the two fees of E1 and E2
+        let out = 950_625_000;
+        assert_eq!(
+            debit_after(bal, out, rent, rent, liab_after).unwrap(),
+            rent + liab_after
+        );
+        // One lamport more breaches the floor.
+        assert_eq!(
+            code(debit_after(bal, out + 1, rent, rent, liab_after)),
+            6037
+        );
+        // More than the balance.
+        assert_eq!(code(debit_after(10, 11, 0, 0, 0)), 6037);
+        // Floor overflow.
+        assert_eq!(code(debit_after(u64::MAX, 0, 1, 1, u64::MAX)), 6044);
+        // A rent increase never raises the floor above the stored rent (X63):
+        // the smaller of the two counts.
+        assert_eq!(
+            debit_after(bal, out, rent, rent + rent / 10, liab_after).unwrap(),
+            rent + liab_after
+        );
+        // A rent decrease lowers it.
+        assert_eq!(
+            debit_after(bal, out + 100, rent, rent - 100, liab_after).unwrap(),
+            rent - 100 + liab_after
+        );
+        // Donations are surplus: a debit may never reach them by itself, but
+        // they are not needed for the floor either.
+        assert_eq!(
+            debit_after(bal + 7, out, rent, rent, liab_after).unwrap(),
+            rent + liab_after + 7
+        );
+    }
+
+    #[test]
+    fn debit_properties() {
+        let mut r = Rng(0x5EED_1234_ABCD_0001);
+        for _ in 0..200_000 {
+            let small = r.next() & 1 == 0;
+            let pick = |r: &mut Rng| {
+                if small {
+                    r.next() % 1_000_000
+                } else {
+                    r.next() >> 2
+                }
+            };
+            let (bal, amount, rr, rl, liab) = (
+                pick(&mut r),
+                pick(&mut r),
+                pick(&mut r),
+                pick(&mut r),
+                pick(&mut r),
+            );
+            let floor = liab as u128 + rr.min(rl) as u128;
+            match debit_after(bal, amount, rr, rl, liab) {
+                Ok(left) => {
+                    assert_eq!(left as u128 + amount as u128, bal as u128);
+                    assert!(left as u128 >= floor);
+                }
+                Err(_) => assert!(
+                    (amount as u128) > bal as u128
+                        || (bal as u128 - amount as u128) < floor
+                        || floor > u64::MAX as u128
+                ),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod pda_tests {
+    use super::*;
+
+    /// T6: the metadata address is Metaplex's own PDA of the mint.
+    #[test]
+    fn metadata_pda_matches_metaplex() {
+        for b in [1u8, 7, 200] {
+            let mint = Pubkey::new_from_array([b; 32]);
+            let (want, _) =
+                anchor_spl::metadata::mpl_token_metadata::accounts::Metadata::find_pda(&mint);
+            assert_eq!(metadata_address(&mint), want);
+        }
+    }
+
+    /// The old program's PDAs are derived under the compiled legacy id.
+    #[test]
+    fn legacy_pdas() {
+        for city in [1u64, 5_128_581, u64::MAX] {
+            let le = city.to_le_bytes();
+            assert_eq!(
+                legacy_coin_address(city),
+                Pubkey::find_program_address(&[b"coin", &le], &LEGACY_PROGRAM_ID).0
+            );
+            assert_eq!(
+                legacy_approval_address(city),
+                Pubkey::find_program_address(&[b"approval", &le], &LEGACY_PROGRAM_ID).0
+            );
+            assert_ne!(legacy_coin_address(city), legacy_approval_address(city));
+        }
+    }
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+
+    fn with_account<R>(owner: Pubkey, data: &mut [u8], f: impl FnOnce(&AccountInfo) -> R) -> R {
+        let key = Pubkey::new_unique();
+        let mut lamports = 1_000_000u64;
+        let info = AccountInfo::new(&key, false, false, &mut lamports, data, &owner, false, 0);
+        f(&info)
+    }
+
+    /// The "nothing here yet" test of 4.8: no data and owned by System; a
+    /// pre-funded address still counts as empty (T55).
+    #[test]
+    fn empty_system_account() {
+        let system = anchor_lang::system_program::ID;
+        assert!(with_account(system, &mut [], is_empty_system_account));
+        assert!(!with_account(system, &mut [0], is_empty_system_account));
+        assert!(!with_account(crate::ID, &mut [], is_empty_system_account));
+        assert!(!with_account(
+            LEGACY_PROGRAM_ID,
+            &mut [0; 171],
+            is_empty_system_account
+        ));
+    }
+
+    /// The old program's `Launchpad` read through an `AccountInfo`: owner,
+    /// size and discriminator, then the pause byte.
+    #[test]
+    fn legacy_launchpad_account() {
+        let mut d = [0u8; 171];
+        d[0..8].copy_from_slice(&LEGACY_LAUNCHPAD_DISCRIMINATOR);
+        assert!(with_account(
+            LEGACY_PROGRAM_ID,
+            &mut d,
+            legacy_launchpad_valid
+        ));
+        assert!(!with_account(
+            LEGACY_PROGRAM_ID,
+            &mut d,
+            legacy_launches_paused
+        ));
+        d[168] = 1;
+        assert!(with_account(
+            LEGACY_PROGRAM_ID,
+            &mut d,
+            legacy_launches_paused
+        ));
+        // Same bytes under another owner (this program, System) are refused.
+        assert!(!with_account(crate::ID, &mut d, legacy_launchpad_valid));
+        let system = anchor_lang::system_program::ID;
+        assert!(!with_account(system, &mut d, legacy_launchpad_valid));
+        // An empty account at the address is refused, not read.
+        assert!(!with_account(
+            LEGACY_PROGRAM_ID,
+            &mut [],
+            legacy_launchpad_valid
+        ));
+        assert!(!with_account(
+            LEGACY_PROGRAM_ID,
+            &mut [],
+            legacy_launches_paused
+        ));
+    }
+}
