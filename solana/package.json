@@ -32,7 +32,7 @@
     "test:vcurve": "node --test tests-vcurve/*.test.mjs",
     "test:curve": "node --test tests-curve/*.test.mjs",
     "sdk-test:curve": "node --test sdk/curve/*.test.mjs",
-    "curve:router": "CARGO_TARGET_DIR=target/curve-router cargo build-sbf --manifest-path tests-curve/router/Cargo.toml --sbf-out-dir target/curve-router/deploy"
+    "curve:router": "CARGO_TARGET_DIR=\"$PWD/target/curve-router\" cargo build-sbf --manifest-path tests-curve/router/Cargo.toml --sbf-out-dir \"$PWD/target/curve-router/deploy\""
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",
