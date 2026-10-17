@@ -524,3 +524,38 @@ test("the pages: the Updates chip and the hint start hidden (the flag-off page i
   assert.doesNotMatch(read("README.md") + read("docs/DEPLOY.md"), /notifications are sent|we notify|sends a notification/i, "still no notifications");
   assert.match(read("docs/DEPLOY.md"), /Switching it off after people used it: posts they deleted stay deleted/, "what switching off does is written down");
 });
+
+/* ---------------- the rows' layout (signed-in test of 17 Oct, F1) ---------------- */
+
+/** The declarations of every rule (inside @media too) whose selector list names `sel` exactly, comments dropped. */
+const bodiesOf = (css, sel) => [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].split(",").map((s) => s.trim()).includes(sel)).map((m) => m[2].trim());
+
+test("the rows' layout (F1): a picture row keeps the text column as wide as a plain row's, the ··· menu open too; replies and the moderators' queue are one column", () => {
+  const css = read("public/style.css"), js = read("public/dashboard.js");
+  // a row is two columns, the vote then the text; the vote spans three rows (meta, body, actions)
+  assert.ok(bodiesOf(css, ".post").some((b) => /display: grid; grid-template-columns: auto minmax\(0, 1fr\);/.test(b)), "the vote column (auto), then the text column");
+  assert.ok(bodiesOf(css, ".post__vote").some((b) => /grid-row: span 3;/.test(b)));
+  // a picture makes four children after the vote: auto-placed, the actions fell into the vote's column and their width (Reply, ···, the open
+  // menu) set it: 109px of 282 at 390 (165px with the menu open, the caption on 3 lines); a plain row's vote column is 44px
+  assert.deepEqual(bodiesOf(css, ".post__vote ~ .post__img"), ["grid-column: 2;"], "the picture stays in the text column");
+  assert.deepEqual(bodiesOf(css, ".post__vote ~ .post__actions"), ["grid-column: 2;"], "the actions stay in the text column");
+  for (const sheet of ["public/style.css", "public/polish-dash.css", "public/polish.css"]) {
+    for (const m of read(sheet).replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (/grid-(column|area)/.test(m[2]) && /\.post__(img|actions|meta|body)\b/.test(m[1])) assert.match(m[1].trim(), /^\.post__vote ~ \.post__img, \.post__vote ~ \.post__actions$/, `${sheet}: nothing else moves a row's parts (${m[1].trim()})`);
+    }
+  }
+  // rows without a vote (a reply, a row in the moderators' queue) are one column: in two, the meta took the first and squeezed the reply's
+  // text to 0px at 320 (69px at 390, 26px with its menu open); the "~" rules above never reach them, so no implicit second column either
+  assert.deepEqual(bodiesOf(css, ".post__replies > .post"), ["grid-template-columns: minmax(0, 1fr);"]);
+  assert.deepEqual(bodiesOf(css, ".posts--compact .post"), ["grid-template-columns: minmax(0, 1fr);"]);
+  // what the rules rely on (public/dashboard.js postEl): the vote first and only on top-level rows; then meta, body, picture, actions
+  const start = js.indexOf("function postEl(");
+  assert.ok(start > 0);
+  const at = (s) => { const i = js.indexOf(s, start); assert.ok(i > start, s); return i; };
+  const order = ["v.append(up, score); li.append(v);", "li.append(meta);", "li.append(img);", "if (actions.children.length) li.append(actions);"].map(at);
+  assert.deepEqual([...order].sort((a, b) => a - b), order, "vote, meta, picture, actions in this order");
+  assert.match(js, /if \(!reply\) \{\n\s+const v = el\("div", "post__vote"\);/, "only top-level rows have a vote");
+  assert.match(js, /postEl\(p, \{ reply: true, queue: true \}\)/, "the queue's rows have none");
+  assert.match(js, /const ul = el\("ul", "post__replies"\);/);
+  assert.match(js, /postEl\(r, \{ reply: true, onDeleted \}\)/, "replies are .post rows inside .post__replies, without a vote");
+});

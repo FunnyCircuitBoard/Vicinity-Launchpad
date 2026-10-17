@@ -1056,3 +1056,16 @@ test("page: the asset list is drawn again only when something changed (the keybo
   assert.equal(p.$(".wsend__asset[aria-checked='true'] .wsend__asset-name").textContent, "$OSWEGO", "wrapped to the last");
   assert.equal(S.calls("/api/wallet/send/build").length, 0, "choosing asks the Worker nothing without an amount and a destination");
 });
+
+test("page CSS (signed-in test of 17 Oct, S1): the confirm screen's emphasised first and last four characters stay on one line (at 1440 the tail broke as '…VEN' / 'U'); the rest of the address still wraps", () => {
+  const css = read("public/wallet-send.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const bodiesOf = (sel) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].split(",").map((s) => s.trim()).includes(sel)).map((m) => m[2].trim());
+  const [addr] = bodiesOf(".wsend__addr"), [ends] = bodiesOf(".wsend__addr b");
+  assert.match(addr, /display: block;/);
+  assert.match(addr, /overflow-wrap: anywhere; word-break: break-all;/, "the rest of the address still wraps anywhere (no sideways scroll at 320)");
+  assert.match(ends, /white-space: nowrap;/, "the emphasised ends never split");
+  assert.match(ends, /font-weight: 800; color: var\(--pin\);/);
+  assert.doesNotMatch(ends, /display:/, "still inline: the line may break before the tail, never inside it");
+  // the markup the rule relies on: <b>first four</b>middle<b>last four</b>
+  assert.ok(read("public/wallet-send.js").includes('ui.addr.replaceChildren(el("b", null, to.slice(0, 4)), to.slice(4, -4), el("b", null, to.slice(-4)));'));
+});
