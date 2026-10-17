@@ -10,6 +10,20 @@
 //   LPLaunch.probe()                         -> Promise<{ on, cluster, configsSet, speedTable } | null>
 //   LPLaunch.founder(card, { cityId, design })  the founder card: approved / signing / done / expired / paused / not approved
 //   LPLaunch.graduate(box, { mint, ticker })    the coin page's "Move to the open market" (then the leftover step)
+//   The launched founder card also shows the coin's founder fees read from the chain (GET /api/fee-status, src/feestatus.js): where
+//   they go, earned, collected (or paid out), what is in the fee vault, what is still in the curve or the pool, and what the Collect
+//   button takes now, each with the accounts it was read from and the time. Its figures replace the "waiting for you" line, which
+//   stays only when that read fails (then nothing else is shown: never a zero that looks real). After graduation the estimate of
+//   what is still in the pool alone may be withheld by the server ("can't be worked out right now"); every other figure stays,
+//   the fee vault too. A reading older than money the card knows has left is never shown: older than this tab's last Collect of the
+//   coin (by chain slot, kept in sessionStorage across reloads), or than the no-store status answer read just now (its Coin-record
+//   counters, which only grow: a lower earned or collected is an older reading, in a new tab or after a reload too; and its own
+//   vault and curve figures), and neither is the "waiting for you" line of a status read before that Collect. A Collect whose
+//   outcome the page cannot tell (sent, not confirmed in time, or sent with no id to follow) takes the figures from before it off
+//   the page as a landed one does, the button stays away until a reload, and this tab's sessionStorage keeps the viewer's clock
+//   time of that moment by coin (so does a Collect that landed with no slot given), so the coin page (public/coin.js) shows no
+//   "Fees so far" of that coin for 5 minutes after it, and neither does this card in that tab when its status cannot tell an older
+//   reading (the status's fee read failed). The time words are drawn again when the tab is seen again (a day may have passed).
 //   LPLaunch.pure                              the helpers test/lp-launch-ui.test.js runs in node
 (() => {
   "use strict";
@@ -62,6 +76,183 @@
     const halves = st && st.fees && typeof st.fees.halves === "string" && st.fees.halves ? ` ${st.fees.halves}` : "";
     return `${at}${halves}`;
   };
+  /** "HH:MM" in the viewer's own clock ("" when the time is not one): "from the chain at 14:05". */
+  function hhmm(isoText) {
+    const t = Date.parse(String(isoText || "")); if (!Number.isFinite(t)) return "";
+    const d = new Date(t); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  /** "14:05" when the time is today in the viewer's own clock, else "14:05 on 19 Oct"; "" when it is not a time. */
+  function whenText(isoText, now = Date.now()) {
+    const at = hhmm(isoText); if (!at) return "";
+    const d = new Date(Date.parse(String(isoText))), today = new Date(now);
+    const same = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+    return same ? at : `${at} on ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  }
+  /** An exact amount from its raw integer (a decimal string) and the token's decimals: "0.042172807"; null when it is not one. */
+  function exactAmount(raw, decimals) {
+    const s = typeof raw === "string" ? raw : "";
+    if (!/^\d{1,30}$/.test(s) || !Number.isInteger(decimals) || decimals < 0 || decimals > 18) return null;
+    const v = BigInt(s), base = 10n ** BigInt(decimals);
+    const frac = (v % base).toString().padStart(decimals, "0").replace(/0+$/, "");
+    return `${(v / base).toLocaleString("en-US")}${frac ? `.${frac}` : ""}`;
+  }
+  /** A Solana address as the answers give one (base58, 32 to 44 characters). */
+  const isAddr = (a) => typeof a === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a);
+  /** A chain slot as the answers give one. */
+  const isSlot = (n) => Number.isSafeInteger(n) && n > 0;
+  /** A time of the viewer's clock in ms (Date.now()). */
+  const isTime = (t) => Number.isSafeInteger(t) && t > 0;
+  /**
+   * How long after a Collect of a coin in this tab whose outcome the page could not tell, or that landed with no slot given (the
+   * viewer's clock time this tab keeps: noteUnclear), the card shows no fee reading of that coin when its status cannot tell an
+   * older one; the coin page waits the same (public/coin.js UNCLEAR_MS). The viewer's clock is only ever compared with itself.
+   */
+  const UNCLEAR_MS = 300000;
+  /** Is `now` inside the wait after such a Collect at `unclearAt` (0: none)? A clock moved back past that moment waits too. */
+  const unclearWait = (unclearAt, now) => Boolean(unclearAt) && (now < unclearAt || now - unclearAt < UNCLEAR_MS);
+  /**
+   * What this tab keeps after its Collects (the text under sessionStorage's "lp-collected-slot", or null), parsed defensively:
+   * { slots: { mint: chain slot }, unclear: { mint: ms } }; an entry that is not a mint with a slot (a time) is dropped, and text that
+   * is not that shape reads as nothing kept. Only this file writes it, always in that shape.
+   */
+  function keptOf(text) {
+    let v = null;
+    try { v = JSON.parse(typeof text === "string" && text ? text : "{}"); } catch { v = null; }
+    const obj = (o) => (o && typeof o === "object" && !Array.isArray(o) ? o : {});
+    const part = (o, ok) => { const out = {}; for (const [k, x] of Object.entries(obj(o))) if (isAddr(k) && ok(x)) out[k] = x; return out; };
+    return { slots: part(obj(v).slots, isSlot), unclear: part(obj(v).unclear, isTime) };
+  }
+  /** A wallet as the site's public answers mask it (src/feestatus.js maskWallet): the first 5 and the last 3 characters. */
+  const maskOf = (w) => (typeof w === "string" && w.length > 8 ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
+  /** What still waits outside the vault moves there only when someone runs a harvest (anyone can; nothing runs one on a schedule). */
+  const HARVEST_NOTE = "it moves to your fee vault when someone runs a harvest; anyone can, and there is no set time";
+  /** Collected is more than earned: what someone sent straight to the fee vault left with a claim (it is never booked as earned). */
+  const MORE_THAN_EARNED = "(more than earned: it includes extra someone sent straight to the fee vault)";
+  /** "a, b and c". */
+  const listText = (parts) => (parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0] || "");
+  /**
+   * The coin's founder fee card for a GET /api/fee-status answer `r` and the launched status `st`: { title, readAt, slot, rows: [[label,
+   * value, source]] } (source null: no figure on that row), or null (then nothing is shown and the old line stays): an answer that did
+   * not come, is about another coin, names a unit the page cannot write or another founder wallet than the one signed in, a status
+   * with no wallet, or any account a figure or a sentence rests on that is not an address. Every figure carries the accounts it was
+   * read from and the time. The counters are the coin's since launch (after a hand-over they include an earlier founder's: the rows
+   * say "this coin's founder" and "since launch").
+   * "In your fee vault" is always there, before graduation and after (an exact figure stays whenever its account read cleanly).
+   * Before graduation the Collect button first runs harvest_curve_fees when the curve holds the city's fees (src/lplaunch.js
+   * founderClaimTx), which books the founder's half into the vault before the claim: "Ready to collect now" is then the vault plus
+   * that half. After graduation the button only claims the vault, so "Ready to collect now" is the vault alone; what is still in the
+   * pool waits for someone's harvest, and the server may withhold that one estimate (pool.estimate "unavailable": its positions could
+   * not all be read), which the card then says instead of a figure. `canCollect`: the card shows the Collect button. Without it no
+   * figure above 0 is called ready to collect (the row says it can't be collected from this page right now; the vault's own row
+   * still shows it), and what is still in the curve waits for a harvest like any other. "Collected since launch" names payouts too
+   * ("Collected or paid out") only when one was paid or the founder agreed to one, and says so when it is more than was earned (what
+   * someone sent straight to the fee vault leaves with the next claim and counts as collected, never as earned). After graduation
+   * the row of what is still out is "Still in the curve and the pool" while the curve still holds the city's fees or its completion
+   * surplus (the figure includes them), else "Still in the pool"; "the pools" when the city also has positions in other pools of the
+   * pair.
+   */
+  function feeCardView(r, st, now = Date.now(), canCollect = true) {
+    if (!r || r.ok !== true || !st || !isAddr(st.mint) || !isAddr(st.wallet) || r.mint !== st.mint || !r.coin || !r.coin.quote || !r.founder || !r.pool || !r.source || !r.source.accounts) return null;
+    const q = r.coin.quote, f = r.founder, acc = r.source.accounts, at = whenText(r.source.readAt, now), grad = r.coin.graduated;
+    if (typeof grad !== "boolean" || !isSlot(r.source.slot) || typeof f.payoutAgreed !== "boolean") return null;
+    if (!at || typeof q.symbol !== "string" || !q.symbol || f.wallet !== maskOf(st.wallet)) return null;
+    // the estimate of what is still in the curve or the pool: whole, or (after graduation only) withheld with no figure
+    const known = r.pool.estimate === "whole", withheld = grad && r.pool.estimate === "unavailable" && f.pendingInPool === null;
+    if (!known && !withheld) return null;
+    // every account a figure or a sentence below rests on must be an address
+    const cited = [acc.coin, acc.founderVault, acc.dbcPool, acc.dbcConfig, acc.payoutOptIn, ...(grad ? [acc.dammPool] : [])];
+    if (grad && known) {
+      if (!Array.isArray(acc.positions) || acc.positions.length === 0 || !Array.isArray(acc.otherDammPools)) return null;
+      cited.push(...acc.positions, ...acc.otherDammPools);
+    }
+    if (!cited.every(isAddr)) return null;
+    if ([f.earned, f.collected, f.paidOut, f.claimable, r.pool.curve, r.pool.surplus, ...(known ? [f.pendingInPool] : [])].some((x) => exactAmount(x, q.decimals) === null)) return null;
+    const amt = (raw) => `${exactAmount(raw, q.decimals)} ${q.symbol}`;
+    const from = (what) => `from the chain at ${at} · ${what}`;
+    const recordName = `coin record ${short(acc.coin)}`, record = from(recordName);
+    const vault = `your fee vault ${short(acc.founderVault)}`;
+    // the curve's figure includes DBC's completion surplus once the curve is full: that share is worked out from its settings too
+    const curve = [`the coin's curve ${short(acc.dbcPool)}`, ...(BigInt(r.pool.surplus) > 0n ? [`its price-curve settings ${short(acc.dbcConfig)}`] : [])];
+    // who can take the vault rests on the record's founder and on the payout agreement's address (none there, or one of this wallet)
+    const goes = from(f.payoutAgreed ? `${recordName} and payout agreement ${short(acc.payoutOptIn)}` : `${recordName}; no payout agreement for this wallet at ${short(acc.payoutOptIn)}`);
+    const paid = BigInt(f.paidOut) > 0n;
+    const rows = [
+      ["Goes to", `${short(st.wallet)} (${f.payoutAgreed ? "only this wallet can collect, or a payout it agreed to" : "only this wallet can collect"})`, goes],
+      ["Earned by this coin's founder since launch", amt(f.earned), record],
+      [paid || f.payoutAgreed ? "Collected or paid out since launch" : "Collected since launch", `${amt(f.collected)}${BigInt(f.collected) > BigInt(f.earned) ? ` ${MORE_THAN_EARNED}` : ""}`, record],
+    ];
+    if (paid) rows.push(["Of that, paid out", `${amt(f.paidOut)} (sent to the payout wallet the founder agreed to)`, record]);
+    // what is still outside the vault, with a word on how it moves only when there is something to move
+    const waiting = (raw, note) => (BigInt(raw) > 0n ? `${amt(raw)} (${note})` : amt(raw));
+    // "Ready to collect now" is what the Collect button on this card moves; with no button, no figure above 0 is called ready
+    const ready = (raw, src) => (canCollect || BigInt(raw) === 0n ? [amt(raw), src] : ["can't be collected from this page right now; reload it to try again", null]);
+    // the vault, read on its own: shown whenever it read cleanly, with or without a Collect button, before graduation and after
+    rows.push(["In your fee vault", amt(f.claimable), from(vault)]);
+    if (!grad) {
+      const takes = BigInt(r.pool.curve) > 0n; // a Collect harvests first (src/lplaunch.js founderClaimTx)
+      rows.push(["Still in the curve", waiting(f.pendingInPool, takes && canCollect ? "the Collect button takes it too" : HARVEST_NOTE), from(listText(curve))]);
+      rows.push(["Ready to collect now", ...ready(takes ? String(BigInt(f.claimable) + BigInt(f.pendingInPool)) : f.claimable, from(takes ? listText([vault, ...curve]) : vault))]);
+    } else {
+      // the curve's fees not harvested yet, or its completion surplus, are in the figure too, and the city's positions in other pools
+      // of the pair: the label says so
+      const pools = known && acc.otherDammPools.length > 0 ? "the pools" : "the pool";
+      const label = BigInt(r.pool.curve) > 0n || BigInt(r.pool.surplus) > 0n ? `Still in the curve and ${pools}` : `Still in ${pools}`;
+      if (known) {
+        const where = [...curve, `its pool ${short(acc.dammPool)}`, ...acc.otherDammPools.map((p) => `pool ${short(p)}`)];
+        where.push(`${acc.positions.length > 1 ? "positions" : "position"} ${acc.positions.map(short).join(", ")}`);
+        rows.push([label, waiting(f.pendingInPool, HARVEST_NOTE), from(listText(where))]);
+      } else {
+        rows.push([label, "can't be worked out right now", null]);
+      }
+      // after graduation Collect claims the vault alone (it never harvests the pool)
+      rows.push(["Ready to collect now", ...ready(f.claimable, from(vault))]);
+    }
+    return { title: "This coin's founder fees, read from the chain", readAt: r.source.readAt, slot: r.source.slot, rows };
+  }
+  /**
+   * May a fee reading `r` be shown after this page's Collect landed at chain slot `collectedSlot` (0: no Collect yet)? Only when the
+   * reading is at that slot or later, so it already shows the money gone. Slots, never clocks: the viewer's clock can be far off the
+   * server's. A Collect whose slot is unknown (Infinity) lets no reading through again on this page.
+   */
+  const freshAfterCollect = (r, collectedSlot) => !collectedSlot || Boolean(r && r.ok === true && r.source && isSlot(r.source.slot) && r.source.slot >= collectedSlot);
+  /**
+   * May the launched status's own "waiting for you" line (its fee figures `f`, st.founderFees) show after this page's Collect landed
+   * at chain slot `collectedSlot` (0: no Collect yet)? Only when the status read them at that slot or later: a node behind the Collect
+   * still shows the money that left. No slot to tell, or a Collect whose slot is unknown (Infinity): not on this page.
+   */
+  const statusFresh = (f, collectedSlot) => Boolean(f) && (!collectedSlot || (isSlot(f.slot) && f.slot >= collectedSlot));
+  const isRaw = (x) => typeof x === "string" && /^\d{1,30}$/.test(x);
+  /**
+   * Can the launched status's own reading `f` (st.founderFees) tell an older fee reading at all? Its vault, its curve and its two
+   * Coin-record counters must be figures (src/lplaunch.js founderFees sets the counters to null when the record did not read). No
+   * status reading at all (null) tells nothing and hides nothing.
+   */
+  const statusTells = (f) => !f || [f.inVaultLamports, f.onCurveLamports, f.earnedLamports, f.collectedLamports].every(isRaw);
+  /**
+   * Is the fee reading `r` older than the launched status's own reading `f` (st.founderFees, no-store, src/lplaunch.js founderFees:
+   * the vault, half the curve's creator fee before graduation, the Coin record's counters, all from one answer, and its chain slot)?
+   * Either rule hides it:
+   *   the counters: the record's founder_accrued (f.earnedLamports) and founder_claimed + founder_paid_out (f.collectedLamports) only
+   *   ever grow (launch sets them to 0; a harvest, a claim and a payout add to them; trades do not change them), so a reading with a
+   *   lower earned or collected than the status is older than a harvest, a Collect or a payout, whatever its slot says. This is what
+   *   catches a reading from before a Collect once a harvest has filled the vault again (a new tab, a reload).
+   *   the balances: the vault only shrinks through a claim or a payout, and before graduation the curve's creator fee only through a
+   *   harvest: a reading that shows more than the status in either is older than one of them, unless it is at the status's slot or
+   *   later (then it is the newer of the two: the vault grew with a harvest or a gift, the curve with trades).
+   * Every doubt hides: a figure of either that is not one (a status whose counters did not read: statusTells), or no slot to tell
+   * (then any reading that shows more). A status with no fee figures at all (its read failed) tells nothing (false).
+   */
+  function olderThanStatus(r, f) {
+    if (!f) return false;
+    if (!statusTells(f)) return true;
+    if (!r || r.ok !== true || !r.founder || !r.pool || !r.coin || !r.source) return true;
+    if (![r.founder.claimable, r.pool.curve, r.founder.earned, r.founder.collected].every(isRaw)) return true;
+    if (BigInt(r.founder.earned) < BigInt(f.earnedLamports) || BigInt(r.founder.collected) < BigInt(f.collectedLamports)) return true;
+    const more = BigInt(r.founder.claimable) > BigInt(f.inVaultLamports) || (r.coin.graduated !== true && BigInt(r.pool.curve) / 2n > BigInt(f.onCurveLamports));
+    if (!more) return false;
+    return !(isSlot(f.slot) && isSlot(r.source.slot) && r.source.slot >= f.slot);
+  }
   /** What the card says for a status answer: { state, tag: [text, class], lines: [...], canLaunch }. */
   function view(st, design = null) {
     const s = st && st.ok ? st.state : "error";
@@ -98,7 +289,7 @@
   /** The status line for lp-sign.js's onStatus(state, signature, extra). */
   const statusText = (s, extra) => (s === "confirming" && extra && extra.unclear ? STATUS.unclear : STATUS[s] || s);
 
-  const pure = { parseSol, solText, coinsText, dateText, leftText, feeNote, shareNote, feesFrom, view, gradView, statusText, NOT_APPROVED, STATUS, MIGRATE_TEXT };
+  const pure = { parseSol, solText, coinsText, dateText, leftText, feeNote, shareNote, feesFrom, view, gradView, statusText, hhmm, whenText, exactAmount, maskOf, isAddr, feeCardView, freshAfterCollect, statusFresh, olderThanStatus, statusTells, keptOf, unclearWait, UNCLEAR_MS, NOT_APPROVED, STATUS, MIGRATE_TEXT };
   const root = typeof window !== "undefined" ? window : globalThis;
   root.LPLaunch = { pure };
   if (typeof document === "undefined" || !root.V) return; // node: the helpers are enough
@@ -170,9 +361,12 @@
   /**
    * One signature, in `box`: build through `build(keys)` (the Worker checks and simulates), show the decoded list and the SOL change,
    * then "Approve in your wallet". Resolves to lp-sign.js's result (the confirmed signature, sent by the wallet itself or, for a
-   * wallet that only signs, by the site's relay) after `onDone`, or null when it stopped (the reason is on screen).
+   * wallet that only signs, by the site's relay) after `onDone`, or null when it stopped (the reason is on screen). `onUnclear(e)`
+   * runs, before that null, when it went out and may have landed but this page cannot tell (not confirmed in time, the wallet's
+   * or the relay's send with no answer to follow): never when the chain said it failed or ran out of time (nothing moved then).
    */
-  async function runStep(box, { expected, cluster, ephemeral = 0, build, approve = "Approve in your wallet", onDone }) {
+  const NOT_LANDED = new Set(["failed", "expired"]); // lp-sign.js: the chain's own answer, so its outcome is known
+  async function runStep(box, { expected, cluster, ephemeral = 0, build, approve = "Approve in your wallet", onDone, onUnclear }) {
     box.replaceChildren(el("p", "muted small", "Preparing: the site builds this transaction and tries it on the blockchain first. Nothing is sent yet."));
     let h;
     try {
@@ -205,7 +399,11 @@
           cancel.disabled = false;
           // it may have landed, or gone out with no id to watch (lp-sign.js `unclear`): never offer to send it twice, and no Cancel
           // that would put "Stopped. Nothing was sent." over these words
-          if (e && (e.signature || e.unclear)) { go.remove(); cancel.remove(); resolve(null); }
+          if (e && (e.signature || e.unclear)) {
+            go.remove(); cancel.remove();
+            if (onUnclear && !NOT_LANDED.has(e.code)) { try { await onUnclear(e); } catch { /* the words above stay */ } }
+            resolve(null);
+          }
         }
       });
       const row = el("div", "lp-row"); row.append(go, cancel);
@@ -230,10 +428,12 @@
 
   /**
    * Fill `card` (#lp-launch: [data-lp-state], [data-lp-net], [data-lp-body]) for the signed-in founder of `cityId`. { on, state }.
-   * `onChange(result)` runs after the card refreshed itself because something landed (a launch, a fee collection).
+   * `onChange(result)` runs after the card refreshed itself because something landed (a launch, a fee collection), or because the
+   * browser brought the page back from its back/forward cache while the card showed a launched coin (restored).
    */
   async function founder(card, opts = {}) {
     const { cityId, design = null } = opts;
+    restored.delete(card);
     const p = await probe();
     if (!p) { card.hidden = true; return { on: false }; }
     const body = card.querySelector("[data-lp-body]"), tag = card.querySelector("[data-lp-state]");
@@ -248,8 +448,29 @@
     body.replaceChildren(...v.lines.map((t) => el("p", v.state === "error" ? "lp-error" : "small", t)));
     const again = async () => { const r = await founder(card, opts); if (typeof opts.onChange === "function") opts.onChange(r); return r; };
     if (v.state === "ready") readyView(body, st, p, again);
-    else if (v.state === "launched") launchedView(body, st, p, again);
+    else if (v.state === "launched") restored.set(card, { ...launchedView(body, st, p, again), again });
     return { on: true, state: v.state };
+  }
+  /**
+   * The launched cards on this page, for the page the browser brings back from its back/forward cache (Back or Forward in this
+   * tab): it comes back as it was left, with figures from before whatever the tab did meanwhile, a Collect of the coin on a later
+   * dashboard page among them (its slot, or the moment of one whose outcome that page could not tell, is in this tab's
+   * sessionStorage). Then each card takes off at once what such a Collect made old (its fee figures, the old line and the Collect
+   * button) and reads the chain again (founder, as after a Collect here); not a card whose own Collect ended with an outcome it could
+   * not tell (its words say what to check, and the button stays away until a reload).
+   */
+  const restored = new Map();
+  if (typeof root.addEventListener === "function") {
+    root.addEventListener("pageshow", (e) => {
+      if (!e || !e.persisted) return;
+      for (const [card, r] of [...restored]) {
+        if (!card.isConnected) { restored.delete(card); continue; }
+        r.hush();
+        if (r.held()) continue;
+        restored.delete(card);
+        Promise.resolve().then(r.again).catch(() => { /* the card keeps what hush left; the next visit reads afresh */ });
+      }
+    });
   }
 
   function readyView(body, st, p, again) {
@@ -319,23 +540,158 @@
     links.append(link("Open your coin's page", st.coinPage), " · ", link("See it on Solscan", st.explorer, true));
     body.append(mint, links);
     const f = st.founderFees;
-    if (!st.yours) { body.append(el("p", "small muted", "The coin's founder on chain is another wallet, so its founder fees are not collected from here.")); return; }
-    if (!f) return;
-    // the founder's part of every trade is the coin's config's figure (src/fees.js through the status answer), never a literal
-    body.append(el("p", "small", `Your founder fees: ${solText(f.totalLamports)} waiting for you (${shareNote(f)}).`));
-    if (BigInt(f.totalLamports || "0") > 0n) {
+    if (!st.yours) { body.append(el("p", "small muted", "The coin's founder on chain is another wallet, so its founder fees are not collected from here.")); return { hush() {}, held: () => false }; }
+    // the founder's part of every trade is the coin's config's figure (src/fees.js through the status answer), never a literal; not
+    // shown when the status read it before this tab's last Collect of the coin landed (statusFresh)
+    const line = f ? el("p", "small", `Your founder fees: ${solText(f.totalLamports)} waiting for you (${shareNote(f)}).`) : null;
+    if (line) { line.hidden = !statusFresh(f, collectedSlot(st.mint)); body.append(line); }
+    // the fees read from the chain (GET /api/fee-status): hidden until that answer is here, and for good when it fails; while shown,
+    // its figures replace the line above (one set of numbers on the card)
+    const fees = el("div", "lp-fees"); fees.hidden = true;
+    body.append(fees);
+    const canCollect = Boolean(f) && BigInt(f.totalLamports || "0") > 0n;
+    feeCard(fees, st, line, canCollect);
+    // what this tab knew of its Collects of the coin when the card was drawn: on a page the browser brings back, a change means one
+    // landed (or may have) on a later page of this tab, and everything on the card from before it goes at once (restored)
+    const noted = () => { const k = keptOf(readKept()); return `${k.slots[st.mint] || 0}:${k.unclear[st.mint] || 0}`; };
+    const seen = noted();
+    let go = null, unclear = false;
+    const kept = {
+      hush() { if (noted() === seen) return; fees.hidden = true; fees.replaceChildren(); if (line) line.hidden = true; if (go) go.hidden = true; },
+      held: () => unclear,
+    };
+    if (!f) return kept;
+    if (canCollect) {
       const flow = el("div", "lp-flow");
-      const go = button("Collect your fees", "btn btn--glass btn--sm", async () => {
+      // the figures on the card are from before the claim: gone at once; readings before `slot` still show the money that left
+      const gone = (slot) => { fees.hidden = true; fees.replaceChildren(); if (line) line.hidden = true; noteCollected(st.mint, slot); };
+      go = button("Collect your fees", "btn btn--glass btn--sm", async () => {
         go.hidden = true;
         const r = await runStep(flow, {
           expected: st.wallet, cluster: p.cluster, approve: "Approve in your wallet",
           build: () => V.api("/api/lp/founder-claim/tx", { cityId: st.cityId, cluster: p.cluster }),
-          onDone: async () => { if (V.toast) V.toast("Fees collected"); await again(); },
+          onDone: async (done) => {
+            // the slot the claim landed in (lp-sign.js, from the status answer); gone before the status round-trip below. With no slot
+            // to tell a reading after it, this tab keeps the moment for the coin page, which then waits as after an unclear Collect
+            const slot = done && isSlot(done.slot) ? done.slot : Infinity;
+            gone(slot);
+            if (slot === Infinity) noteUnclear(st.mint, Date.now());
+            if (V.toast) V.toast("Fees collected");
+            await again();
+          },
+          // it may have landed and this page cannot tell: the figures from before it go as for a landed one, no reading is shown
+          // again on this page (a reload reads the chain afresh and the status's counters tell a reading from before it), the button
+          // stays away (the words on screen say to check first), and this tab keeps the moment for the coin page (noteUnclear)
+          onUnclear: () => { unclear = true; gone(Infinity); noteUnclear(st.mint, Date.now()); },
         });
-        if (!r) go.hidden = false;
+        if (!r && !unclear) go.hidden = false;
       });
       body.append(go, flow);
     }
+    return kept;
+  }
+
+  /**
+   * The chain slot of this tab's last Collect of each coin (freshAfterCollect), by mint: 0 before any, Infinity when the status did
+   * not give the slot (then no reading is shown again on this page). A known slot is kept in this tab's sessionStorage too, so a reload
+   * or the dashboard opened again in this tab keeps the rule; a private window that refuses storage keeps it for the page alone.
+   * The same key keeps, by mint, the viewer's clock time of a Collect whose outcome this page could not tell (noteUnclear), or of one
+   * that landed with no slot given: the coin page (public/coin.js soFarView) shows no "Fees so far" of that coin for 5 minutes after
+   * it, and feeCard no reading of it then when the status cannot tell an older one. One shape, read and written here
+   * only: { slots: { mint: chain slot }, unclear: { mint: ms } }, at most KEEP coins in each.
+   */
+  const collected = new Map();
+  const COLLECTED_KEY = "lp-collected-slot";
+  const KEEP = 20;
+  function readKept() {
+    try { return root.sessionStorage.getItem(COLLECTED_KEY); } catch { return null; } // storage refused: nothing kept
+  }
+  function writeKept(k) {
+    // a few coins at most in each: the oldest notes go first (a note is moved to the end when it is written again)
+    const cap = (o) => { const keys = Object.keys(o); for (const x of keys.slice(0, Math.max(0, keys.length - KEEP))) delete o[x]; return o; };
+    try { root.sessionStorage.setItem(COLLECTED_KEY, JSON.stringify({ slots: cap(k.slots), unclear: cap(k.unclear) })); } catch { /* storage refused: this page's memory only */ }
+  }
+  function collectedSlot(mint) {
+    return Math.max(collected.get(mint) || 0, keptOf(readKept()).slots[mint] || 0);
+  }
+  function noteCollected(mint, slot) {
+    const n = isSlot(slot) ? slot : Infinity;
+    collected.set(mint, Math.max(collected.get(mint) || 0, n));
+    if (n === Infinity) return;
+    const k = keptOf(readKept());
+    const was = k.slots[mint] || 0;
+    delete k.slots[mint];
+    k.slots[mint] = Math.max(was, n); // only chain slots go here
+    writeKept(k);
+  }
+  /** A Collect of `mint` whose outcome this page cannot tell, at the viewer's clock time `at`: kept for the coin page, in this tab. */
+  function noteUnclear(mint, at) {
+    if (!isTime(at)) return;
+    const k = keptOf(readKept());
+    delete k.unclear[mint];
+    k.unclear[mint] = at; // only the viewer's clock times go here
+    writeKept(k);
+  }
+  const FEE_RETRY_MS = 30000, FEE_RETRIES = 8;
+  /**
+   * The fee boxes drawn on this page, each with how to draw its time words again ("14:05", or "14:05 on 19 Oct" once it is not
+   * today): when the tab is seen again (visibilitychange), since a card is not redrawn on a timer and a day may have passed.
+   */
+  const redraws = new Map();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") return;
+    for (const [box, redraw] of [...redraws]) { if (!box.isConnected) redraws.delete(box); else redraw(); }
+  });
+  /**
+   * Fill `box` with the founder's fees read from the chain (feeCardView) and hide `line` (the old "waiting for you" figure), or leave
+   * the box hidden and empty and the line shown (unless the status read it before this tab's last Collect of the coin: statusFresh).
+   * A reading older than money known to have left is not shown: older than this tab's last Collect of the coin (by chain slot), or
+   * than the launched status `st` read just now (olderThanStatus: the fee answer is kept up to a minute at the edge and a minute per
+   * server, so a new tab or a reload could otherwise show a figure from before a Collect). The box then waits and asks again every
+   * 30 seconds while it is on the page, at most FEE_RETRIES times, until a reading has caught up; not when nothing can ever pass on
+   * this page (a Collect whose slot is unknown, or a status whose figures cannot tell: statusTells).
+   * When the status cannot tell an older reading (its fee read failed, or its counters did not read) and this tab kept the moment of
+   * a Collect of the coin whose outcome the page could not tell, or that landed with no slot given (noteUnclear: no slot to tell a
+   * reading by), no reading is shown within the coin page's wait after it (unclearWait, by the viewer's clock against itself), and
+   * nothing is asked again on this page: any of them may be the copy from before that Collect. A reload after the wait reads afresh.
+   */
+  async function feeCard(box, st, line = null, canCollect = true, tries = 0) {
+    const r = await V.api(`/api/fee-status?mint=${enc(st.mint)}`);
+    // the status's own line instead, unless the status read it before this tab's last Collect of the coin landed
+    const hide = () => { redraws.delete(box); box.hidden = true; box.replaceChildren(); if (line) line.hidden = !statusFresh(st.founderFees, collectedSlot(st.mint)); };
+    const after = collectedSlot(st.mint);
+    const blind = (!st.founderFees || !statusTells(st.founderFees)) && unclearWait(keptOf(readKept()).unclear[st.mint] || 0, Date.now());
+    if (blind || !freshAfterCollect(r, after) || olderThanStatus(r, st.founderFees)) {
+      hide();
+      const older = !blind && r && r.ok === true && after !== Infinity && statusTells(st.founderFees);
+      if (older && tries < FEE_RETRIES) setTimeout(() => { if (box.isConnected) feeCard(box, st, line, canCollect, tries + 1); }, FEE_RETRY_MS);
+      return null;
+    }
+    const v = feeCardView(r, st, Date.now(), canCollect);
+    if (!v) { hide(); return null; }
+    const dl = el("dl", "lp-facts"), spans = [];
+    for (const [label, value, src] of v.rows) {
+      dl.append(el("dt", null, label));
+      const dd = el("dd");
+      dd.append(el("span", "lp-fees__val", value));
+      const from = src ? el("span", "lp-fees__src", src) : null;
+      if (from) {
+        from.setAttribute("title", `Read from the chain at ${v.readAt}`);
+        dd.append(" ", from);
+      }
+      spans.push(from);
+      dl.append(dd);
+    }
+    box.replaceChildren(el("p", "lp-fees__title", v.title), dl);
+    box.hidden = false;
+    if (line) line.hidden = true;
+    // the same reading's words with the time worked out again; nothing when the figures went meanwhile (a Collect)
+    redraws.set(box, () => {
+      if (box.hidden || !dl.isConnected) return;
+      const w = feeCardView(r, st, Date.now(), canCollect);
+      if (w) w.rows.forEach(([, , src], i) => { if (src && spans[i]) spans[i].textContent = src; });
+    });
+    return v;
   }
 
   /* =====================================================================

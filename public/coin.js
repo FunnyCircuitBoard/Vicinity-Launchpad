@@ -265,9 +265,123 @@
     const halves = f && f.words && typeof f.words.halves === "string" && f.words.halves ? `. ${f.words.halves}` : "";
     return `Read from this coin's price-curve settings on Solana${shortAddr(f && f.config) ? ` (${shortAddr(f.config)})` : ""}${hhmm(f && f.readAt) ? ` at\u00a0${hhmm(f.readAt)}` : ""}${halves}`;
   };
+  /** An exact amount from its raw integer (a decimal string) and the token's decimals: "0.042172807"; null when it is not one. */
+  function exactAmount(raw, decimals) {
+    const t = str(raw);
+    if (!/^\d{1,30}$/.test(t) || !Number.isInteger(decimals) || decimals < 0 || decimals > 18) return null;
+    const v = BigInt(t), base = 10n ** BigInt(decimals);
+    const frac = (v % base).toString().padStart(decimals, "0").replace(/0+$/, "");
+    return `${(v / base).toLocaleString("en-US")}${frac ? `.${frac}` : ""}`;
+  }
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  /** "14:05" when the time is today in the viewer's own clock, else "14:05 on 19 Oct"; "" when it is not a time. */
+  function whenText(isoText, now = Date.now()) {
+    const at = hhmm(isoText); if (!at) return "";
+    const d = new Date(Date.parse(str(isoText))), today = new Date(now);
+    const same = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+    return same ? at : `${at} on\u00a0${d.getDate()}\u00a0${MONTHS[d.getMonth()]}`;
+  }
+  /** "a, b and c". */
+  const listText = (parts) => (parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0] || "");
+  /** A chain slot as the answers give one. */
+  const isSlot = (n) => Number.isSafeInteger(n) && n > 0;
+  /**
+   * How long after a Collect on the dashboard whose outcome it could not tell (public/lp-launch.js noteUnclear: the viewer's clock
+   * time, by coin, in this tab) this page shows no "Fees so far" of that coin: the transaction can still land until its blockhash
+   * expires (about a minute and a half), and a reading is kept up to a minute at the edge and a minute per server. The viewer's
+   * clock is only ever compared with itself, so the server's clock does not matter. The dashboard's fee card waits the same when its
+   * status cannot tell an older reading (public/lp-launch.js UNCLEAR_MS).
+   */
+  const UNCLEAR_MS = 300000;
+  /** Is `now` inside the wait after an unclear Collect at `unclearAt` (0: none)? A clock moved back past that moment waits too. */
+  const unclearWait = (unclearAt, now) => Boolean(unclearAt) && (now < unclearAt || now - unclearAt < UNCLEAR_MS);
+  /** Where public/lp-launch.js keeps this tab's Collects (it alone writes there): { slots: { mint: chain slot }, unclear: { mint: ms } }. */
+  const COLLECTED_KEY = "lp-collected-slot";
+  /**
+   * This tab's last Collect of `m` on the dashboard (public/lp-launch.js noteCollected and noteUnclear, sessionStorage): { slot, the
+   * chain slot it landed in; unclearAt, the viewer's clock time of one whose outcome the dashboard could not tell } (0: none).
+   */
+  function collectedOf(m) {
+    try {
+      const v = JSON.parse(window.sessionStorage.getItem(COLLECTED_KEY) || "{}");
+      const part = (k) => { const o = v && typeof v === "object" && !Array.isArray(v) ? v[k] : null; return o && typeof o === "object" && !Array.isArray(o) && Object.prototype.hasOwnProperty.call(o, m) ? o[m] : 0; };
+      const slot = part("slots"), at = part("unclear");
+      return { slot: isSlot(slot) ? slot : 0, unclearAt: Number.isSafeInteger(at) && at > 0 ? at : 0 };
+    } catch { return { slot: 0, unclearAt: 0 }; } // storage refused or not that shape (only the dashboard writes it): no Collect known here
+  }
+  /** Collected is more than earned: what someone sent straight to the fee vault left with a claim (it is never booked as earned). */
+  const MORE_THAN_EARNED = "(more than earned: it includes extra someone sent straight to the fee vault)";
+  /**
+   * Moved to the rewards vault is more than was booked for holders: forward_holders_fees moves the whole holder pot
+   * (forward_holders_fees.rs:83), so what someone sent straight to the pot went with it (it is never booked for holders).
+   */
+  const MORE_THAN_BOOKED = "(more than booked: it includes extra someone sent straight to the holder pot)";
+  /**
+   * The "Fees so far" block for a GET /api/fee-status answer (src/feestatus.js): { readAt, slot, rows: [[label, value, source]] }
+   * (source null: no figure on that row), or null (then the block stays hidden): no answer, not this coin, not official, no chain slot,
+   * a unit or a figure the page cannot write, or an account a figure rests on that is not an address; or a reading older than this
+   * tab's last Collect of the coin on the dashboard (`collectedSlot`, the chain slot public/lp-launch.js keeps in sessionStorage; 0:
+   * none), which still shows the money that left; or any reading within UNCLEAR_MS of a Collect of the coin in this tab whose outcome
+   * the dashboard could not tell (`unclearAt`, the viewer's clock time it kept; 0: none). Every figure carries the accounts it was
+   * read from and the time. What moved to the city's accounts is the Coin record's two counters (the founder's part and what was
+   * booked for the holders add up to it); what the fees moved to the rewards vault is the record's own counter "so far", never the
+   * vault's balance (anyone can add to the vault, and rounds take from it), and never called kept; a short note says why when it is
+   * more than was booked for holders (a forward moves the whole pot, extra sent straight to it too). After graduation the server may
+   * withhold the estimate of what is still in the pool alone (pool.estimate "unavailable"), which the block then says instead of a
+   * figure; that row is "Still in the curve and the pool" while the curve still holds the city's fees or its completion surplus, and
+   * says "the pools" when the city also has positions in other pools of the pair.
+   * Nothing about payouts to come: holder reward rounds are not on the site (the block's own sentence).
+   */
+  function soFarView(r, mintNow, now = Date.now(), collectedSlot = 0, unclearAt = 0) {
+    if (!r || r.ok !== true || !isAddr(mintNow) || r.mint !== mintNow || !r.coin || !r.coin.quote || !r.city || !r.founder || !r.holders || !r.pool || !r.source || !r.source.accounts) return null;
+    const q = r.coin.quote, acc = r.source.accounts, at = whenText(r.source.readAt, now), grad = r.coin.graduated;
+    if (typeof grad !== "boolean" || !at || !str(q.symbol) || !isSlot(r.source.slot)) return null;
+    if (collectedSlot && !(r.source.slot >= collectedSlot)) return null;
+    if (unclearWait(unclearAt, now)) return null;
+    // the estimate of what is still in the curve or the pool: whole, or (after graduation only) withheld with no figure
+    const known = r.pool.estimate === "whole", withheld = grad && r.pool.estimate === "unavailable" && r.city.pendingInPool === null;
+    if (!known && !withheld) return null;
+    // every account a figure below rests on must be an address
+    const cited = [acc.coin, acc.holdersPot, acc.dbcPool, acc.dbcConfig, ...(grad ? [acc.dammPool] : [])];
+    if (grad && known) {
+      if (!Array.isArray(acc.positions) || acc.positions.length === 0 || !Array.isArray(acc.otherDammPools)) return null;
+      cited.push(...acc.positions, ...acc.otherDammPools);
+    }
+    if (!cited.every(isAddr)) return null;
+    const amt = (raw) => { const t = exactAmount(raw, q.decimals); return t === null ? null : `${t}\u00a0${q.symbol}`; };
+    const moved = amt(r.city.harvested), still = known ? amt(r.city.pendingInPool) : "", earned = amt(r.founder.earned), collected = amt(r.founder.collected);
+    const hEarned = amt(r.holders.earned), pot = amt(r.holders.pot), fwd = amt(r.holders.forwarded), paidOut = amt(r.founder.paidOut), surplus = amt(r.pool.surplus), curve = amt(r.pool.curve);
+    if ([moved, still, earned, collected, hEarned, pot, fwd, paidOut, surplus, curve].includes(null)) return null;
+    const from = (what) => `from the chain at\u00a0${at} · ${what}`;
+    const record = `coin record ${shortAddr(acc.coin)}`;
+    // the curve's figure includes DBC's completion surplus once the curve is full: that share is worked out from its settings too
+    const where = [`the coin's curve ${shortAddr(acc.dbcPool)}`, ...(/^[1-9]\d*$/.test(str(r.pool.surplus)) ? [`its price-curve settings ${shortAddr(acc.dbcConfig)}`] : [])];
+    if (grad && known) {
+      where.push(`its pool ${shortAddr(acc.dammPool)}`, ...acc.otherDammPools.map((p) => `pool ${shortAddr(p)}`));
+      where.push(`the city's ${acc.positions.length > 1 ? "positions" : "position"} ${acc.positions.map(shortAddr).join(", ")}`);
+    }
+    const forwarded = /^[1-9]\d*$/.test(str(r.holders.forwarded)), paid = /^[1-9]\d*$/.test(str(r.founder.paidOut));
+    // after graduation the curve's fees not harvested yet, or its completion surplus, are in the figure too, and the city's positions
+    // in other pools of the pair: the label says so
+    const pools = grad && known && acc.otherDammPools.length > 0 ? "the pools" : "the pool";
+    const stillLabel = !grad ? "Still in the curve" : /^[1-9]\d*$/.test(str(r.pool.curve)) || /^[1-9]\d*$/.test(str(r.pool.surplus)) ? `Still in the curve and ${pools}` : `Still in ${pools}`;
+    const more = BigInt(str(r.founder.collected)) > BigInt(str(r.founder.earned)) ? ` ${MORE_THAN_EARNED}` : "";
+    const moreFwd = BigInt(str(r.holders.forwarded)) > BigInt(str(r.holders.earned)) ? ` ${MORE_THAN_BOOKED}` : "";
+    return {
+      readAt: str(r.source.readAt), slot: r.source.slot,
+      rows: [
+        ["Moved to the city's accounts so far", moved, from(record)],
+        known ? [stillLabel, /^[1-9]\d*$/.test(str(r.city.pendingInPool)) ? `${still} (it moves to the city's accounts when someone runs a harvest; anyone can)` : still, from(listText(where))]
+          : [stillLabel, "can't be worked out right now", null],
+        ["The founder's part", `${earned} earned, ${collected} ${paid ? "collected or paid out" : "collected"}${more}`, from(record)],
+        ["The holders' part", `${hEarned} booked for holders; kept on chain: ${pot} in the city's holder pot${forwarded ? `; ${fwd} moved to the city's rewards vault so far${moreFwd}` : ""}`,
+          from(`${record}, holder pot ${shortAddr(acc.holdersPot)}`)],
+      ],
+    };
+  }
   const topHolders = (list, n = 5) => (Array.isArray(list) ? [...list] : []).sort((a, b) => (num(b && b.amount) ?? 0) - (num(a && a.amount) ?? 0)).slice(0, n);
 
-  const pure = { isAddr, initialsOf, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, onVicinity, tradingPaused, priceLine, cityAbout, topHolders, hhmm, feesSource, RANGES, UNITS, STYLES };
+  const pure = { isAddr, initialsOf, shortZeros, mintFromUrl, chartFromUrl, urlFor, stateOf, price, money, fullMoney, count, tokens, sol, chip, ago, ageSeconds, firstReason, mask, tilesOf, curveOf, thirdLink, safeLink, tradeView, defaultUnit, chartFoot, legendText, onLaunchLab, onVicinity, tradingPaused, priceLine, cityAbout, topHolders, hhmm, feesSource, whenText, exactAmount, soFarView, unclearWait, UNCLEAR_MS, collectedOf, RANGES, UNITS, STYLES };
   window.VCoin = { pure };
   if (typeof document === "undefined" || !window.V || !window.VChart || !window.VChart.create) return; // node: the helpers are enough
 
@@ -619,6 +733,61 @@
     put($("#coin-fees-src"), feesSource(f));
   }
 
+  /* ----- fees so far: an official city coin, read from the chain (GET /api/fee-status?mint=), asked again at most once a minute, or at
+     the next refresh once a Collect of the coin in this tab made the reading shown old ----- */
+  const SOFAR_MS = 60000;
+  let soFarAsked = null, soFarAt = 0, soFar = null, soFarKey = "", soFarSeq = 0;
+  /**
+   * A Collect of this coin on the dashboard in this tab since the reading shown was asked (the tab came back to this page: Back keeps
+   * it as it was): a reading older than its slot goes, and is asked again now; after one whose outcome the dashboard could not tell,
+   * nothing is shown until the wait is over, and nothing is kept from before it (only a reading asked after the wait shows).
+   */
+  function dropOld() {
+    if (!soFar) return;
+    const c = collectedOf(soFar.mint);
+    if (soFar.view.slot < c.slot) { soFar = null; soFarAt = 0; }
+    else if (unclearWait(c.unclearAt, Date.now())) soFar = null;
+  }
+  function drawSoFar() {
+    dropOld();
+    const v = soFar && soFar.mint === mint ? soFar.view : null;
+    show("#coin-sofar", Boolean(v)); // a failed or missing read shows nothing: never a zero that looks real
+    const list = $("#coin-sofar-list");
+    if (!list) return;
+    const key = v ? JSON.stringify([v.readAt, v.rows]) : "";
+    if (key === soFarKey) return;
+    soFarKey = key;
+    list.replaceChildren(...(v ? v.rows.flatMap(([label, value, src]) => {
+      const dd = el("dd");
+      dd.append(el("span", "coin-sofar__val", value));
+      if (src) {
+        const from = el("span", "coin-foot coin-sofar__src", src);
+        from.setAttribute("title", `Read from the chain at ${v.readAt}`); // the exact time, with its zone (UTC)
+        dd.append(" ", from);
+      }
+      return [el("dt", null, label), dd];
+    }) : []));
+  }
+  function paintSoFar(d) {
+    if (!onVicinity(d) || !isAddr(d.mint)) { soFar = null; drawSoFar(); return; } // $VICINITY and LaunchLab coins: not ours to read
+    dropOld();
+    const now = Date.now();
+    if (soFarAsked !== d.mint || now - soFarAt >= SOFAR_MS || now < soFarAt) {
+      soFarAsked = d.mint; soFarAt = now;
+      const mine = ++soFarSeq; // only the answer to the last ask counts: a slow earlier one never replaces it
+      api(`/api/fee-status?mint=${encodeURIComponent(d.mint)}`).then((r) => {
+        if (mine !== soFarSeq || soFarAsked !== d.mint) return;
+        const c = collectedOf(d.mint);
+        const view = soFarView(r, d.mint, Date.now(), c.slot, c.unclearAt);
+        // never back to an older reading of this coin than the one shown (another server's copy can be from an earlier slot)
+        if (view && soFar && soFar.mint === d.mint && view.slot < soFar.view.slot) { drawSoFar(); return; }
+        soFar = view ? { mint: d.mint, view } : null;
+        drawSoFar();
+      }).catch(() => { if (mine === soFarSeq && soFarAsked === d.mint) { soFar = null; drawSoFar(); } });
+    }
+    drawSoFar();
+  }
+
   /* ----- the chart ----- */
   const chart = window.VChart.create($("#coin-canvas"), { onScrub });
   function chartMsg(text, { retry = false, alt = null, loading = false } = {}) {
@@ -749,7 +918,7 @@
     show("#coin-note", false); show("#coin-main", true); show("#coin-lower", true); show("#coin-sources", true);
     root.removeAttribute("aria-busy");
     document.title = `${str(d.coin.ticker) ? `$${str(d.coin.ticker)}` : str(d.coin.name) || "City coin"}: live price, chart and holders · Vicinity`;
-    paintHead(d, ageS); paintTiles(d, ageS); paintCurve(d); paintLinks(d); paintTrades(d); paintAbout(d); paintFees(d); paintSources(d);
+    paintHead(d, ageS); paintTiles(d, ageS); paintCurve(d); paintLinks(d); paintTrades(d); paintAbout(d); paintFees(d); paintSoFar(d); paintSources(d);
     paintHolders(d);
   }
   function schedule() {
@@ -762,6 +931,9 @@
     if (document.visibilityState === "visible") { if (Date.now() - receivedAt >= REFRESH_MS) load(); else schedule(); }
     else clearTimeout(timer);
   });
+  // Back or Forward brought this page back as the browser kept it: a Collect of the coin on the dashboard in this tab meanwhile
+  // (public/lp-launch.js wrote it to sessionStorage) takes the reading from before it off now, not at the next refresh
+  window.addEventListener("pageshow", (e) => { if (e && e.persisted) drawSoFar(); });
   // the "updated N s ago" words keep time between answers without redrawing anything else
   setInterval(() => {
     if (!data || document.hidden) return;

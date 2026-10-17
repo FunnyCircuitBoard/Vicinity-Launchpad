@@ -71,3 +71,12 @@
 /* Fees (a coin of the Vicinity launchpad): three plain sentences and where the figures come from, read from the coin's own config */
 .coin-fees { display: grid; gap: 8px; }
 .coin-fees .small, .coin-fees .coin-foot { margin: 0; }
+
+/* Fees so far (an official city coin): four rows read from the chain, each with the account and the time it was read */
+.coin-sofar { display: grid; gap: 8px; }
+.coin-sofar .small { margin: 0; }
+.coin-sofar__list { margin: 0; display: grid; gap: var(--sp-2, 8px); font-size: var(--fs-sm, .875rem); line-height: var(--lh-snug, 1.3); }
+.coin-sofar__list dt { color: var(--muted); }
+.coin-sofar__list dd { margin: 0 0 var(--sp-1, 4px); min-width: 0; overflow-wrap: anywhere; }
+.coin-sofar__val { display: block; font-variant-numeric: tabular-nums; }
+.coin-sofar__src { display: block; margin-top: 2px; }

@@ -74,6 +74,10 @@ export const PUBLIC_LIMITS = {
   // GET /official-coins.csv and /api/official-coins (lpSetup on, src/officialcoins.js): the program's Coin records and their pools on an
   // edge-cache miss (the reading then stays 1 minute per server, the answers 10 minutes at the edge); both paths count here
   official_coins: { max: 60, windowMs: MIN },
+  // GET /api/fee-status?mint= (lpSetup on, src/feestatus.js): the official list (kept 1 minute per server) and one getMultipleAccounts
+  // (after graduation usually four reads more, two of them getTokenAccountsByOwner of at most 2 MB each; at most eleven) on an
+  // edge-cache miss (the answer then stays 1 minute at the edge and per server, a failure 15 seconds per server)
+  fee_status:     { max: 60, windowMs: MIN },
 };
 /**
  * A per-WALLET counter on top of the per-connection one (src/swap.js, src/lptrade.js): one wallet cannot burn the Jupiter or RPC

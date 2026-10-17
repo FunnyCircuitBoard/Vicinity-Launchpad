@@ -444,12 +444,24 @@ async function graduateTx(request, env, fetchImpl, now) {
 }
 
 /* ---------------------------------------------------------------- the founder's fees */
-/** What is waiting for the coin's founder: in the founder vault, and the city's share still on the curve (half of it is the founder's). */
-async function founderFees(env, s, coin, fetchImpl) {
+/**
+ * What is waiting for the coin's founder: in the founder vault, and the city's share still on the curve (half of it is the founder's).
+ * `slot`: the chain slot of this reading (null when the node named none). The founder card (public/lp-launch.js olderThanStatus)
+ * refuses a fee reading (GET /api/fee-status, kept up to two minutes) that is older than this one: one whose Coin-record counters
+ * are lower than `earnedLamports` (founder_accrued) or `collectedLamports` (founder_claimed + founder_paid_out), read here in the
+ * SAME call as the vault and the curve (one slot). Those counters only grow (set to 0 by launch, then checked_add at every harvest,
+ * claim and payout), so a lower one is always an older reading. Both are null when the record did not read or decode in that call
+ * (the card then shows no fee reading: it cannot tell).
+ */
+export async function founderFees(env, s, coin, fetchImpl) {
   const L = launchpadPdas(s.programId);
-  const vault = await L.founderVault(await L.coin(coin.cityId));
-  const m = await readAccounts(env, [vault, coin.dbcPool, coin.dbcConfig], fetchImpl);
+  const coinAddr = await L.coin(coin.cityId);
+  const vault = await L.founderVault(coinAddr);
+  const { accounts: m, slot } = await readAccounts(env, [vault, coin.dbcPool, coin.dbcConfig, coinAddr], fetchImpl, { withSlot: true });
   const v = decodeTokenAccount(m.get(vault) || null), pool = decodePool(m.get(coin.dbcPool) || null);
+  // the record as this same answer has it: still this coin's (its mint), or no counters at all
+  const rec = decodeCoin(m.get(coinAddr) || null, s.programId);
+  const counted = rec && rec.mint === coin.mint;
   const inVault = v ? v.amount : 0n;
   const onCurve = pool && !pool.isMigrated ? pool.creatorQuoteFee / 2n : 0n;
   // the founder's part of every trade, from the config the coin launched under (src/fees.js): the curve's figure, the pool's once it
@@ -458,7 +470,8 @@ async function founderFees(env, s, coin, fetchImpl) {
   const S = feeSchedule(decodeConfig(m.get(coin.dbcConfig) || null));
   const graduated = Boolean(pool && pool.isMigrated);
   const sharePct = S ? (graduated ? S.pool.text.founder : S.curve.text.founder) : null;
-  return { inVaultLamports: inVault.toString(), onCurveLamports: onCurve.toString(), totalLamports: (inVault + onCurve).toString(), sharePct, shareUpTo: Boolean(sharePct) && graduated, words: `${sol(inVault + onCurve)} waiting for you` };
+  return { inVaultLamports: inVault.toString(), onCurveLamports: onCurve.toString(), totalLamports: (inVault + onCurve).toString(), sharePct, shareUpTo: Boolean(sharePct) && graduated, words: `${sol(inVault + onCurve)} waiting for you`, slot,
+    earnedLamports: counted ? rec.founderAccrued.toString() : null, collectedLamports: counted ? (rec.founderClaimed + rec.founderPaidOut).toString() : null };
 }
 /** POST /api/lp/founder-claim/tx { cityId, cluster } */
 async function founderClaimTx(request, env, fetchImpl, now) {

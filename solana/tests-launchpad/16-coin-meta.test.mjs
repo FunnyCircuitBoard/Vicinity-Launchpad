@@ -34,7 +34,7 @@ function worldRpc(w, known) {
         const acc = w.account(a);
         if (!acc || String(acc.programAddress) !== program) return false;
         const d = Buffer.from(acc.data);
-        return (cfg.filters || []).every((f) => (f.dataSize != null ? d.length === f.dataSize : Buffer.from(base58Decode(f.memcmp.bytes)).equals(d.subarray(f.memcmp.offset, f.memcmp.offset + 32))));
+        return (cfg.filters || []).every((f) => (f.dataSize != null ? d.length === f.dataSize : ((want) => want.equals(d.subarray(f.memcmp.offset, f.memcmp.offset + want.length)))(Buffer.from(base58Decode(f.memcmp.bytes)))));
       }).map((a) => ({ pubkey: a, account: asRpcAccount(w.account(a)) }));
     } else throw new Error('unexpected ' + method);
     return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result }));

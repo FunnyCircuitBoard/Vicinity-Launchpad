@@ -10,7 +10,8 @@
  *   LP.prepare({ wallet, build, ephemeral, cluster, routes })  -> Promise<handle>   builds; handle.response is what the page shows
  *                                         routes: { send, status } the relay and status paths (default the swap's /api/swap/send and
  *                                         /api/swap/status; the Wallet tab's Send passes /api/wallet/send/relay and /status: the same code)
- *   handle.sign({ onStatus })          -> Promise<{ signature, status, solscan }>   call it straight from the person's tap
+ *   handle.sign({ onStatus })          -> Promise<{ signature, status, solscan, slot }>   call it straight from the person's tap
+ *                                         (slot: the chain slot the status answer gave for the landed transaction, or null)
  *   LP.run({ wallet, build, ephemeral, cluster, onSummary, onStatus })   prepare, then onSummary(response) (resolve true to go
  *                                         on, false to stop), then sign
  *   LP.renderSummary(el, response)     the decoded instruction list and the exact SOL change, in plain words (textContent only)
@@ -305,7 +306,11 @@
       await wait(LP._pollMs);
       const d = await call(`${R.status}?sig=${encodeURIComponent(signature)}&lvbh=${encodeURIComponent(res.lastValidBlockHeight || "")}&cluster=${encodeURIComponent(res.cluster || "mainnet")}`);
       if (d && d.solscan) solscan = d.solscan;
-      if (d && d.ok && (d.status === "confirmed" || d.status === "finalized")) { onStatus("done", signature); return { signature, status: d.status, solscan }; }
+      if (d && d.ok && (d.status === "confirmed" || d.status === "finalized")) {
+        onStatus("done", signature);
+        // the slot it landed in (src/relay.js handleStatus): a later read of the chain can tell whether it already shows this transaction
+        return { signature, status: d.status, solscan, slot: Number.isSafeInteger(d.slot) && d.slot > 0 ? d.slot : null };
+      }
       if (d && d.ok && d.status === "failed") throw Object.assign(err("failed"), { signature, solscan, detail: d });
       if (d && d.ok && d.status === "expired") throw Object.assign(err(alone ? "expired_unclear" : "expired"), { signature, solscan });
       if (d && d._status === 429) deadline += 5_000;

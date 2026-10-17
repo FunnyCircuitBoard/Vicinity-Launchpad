@@ -11,13 +11,14 @@ import { _resetLpKit } from "../src/lpkit.js";
 import { _resetLpCoins } from "../src/lpcoins.js";
 import { _resetProgramPins } from "../src/programpins.js";
 import { ensureOnboardSchema } from "../src/store.js";
-import { feeSplit } from "../src/lplaunch.js";
+import { feeSplit, founderFees } from "../src/lplaunch.js";
+import { lpSetup } from "../src/cluster.js";
 import * as IX from "../src/sol/lplaunch-ix.js";
 import { base58Decode } from "../src/solana.js";
 import { concat, u32le, u64le } from "../src/sol/bytes.js";
 import { decodeHeader } from "../src/sol/message.js";
 import { LAYOUT } from "../src/sol/layout.js";
-import { decodeConfig } from "../src/sol/dbc.js";
+import { decodeCoin, decodeConfig } from "../src/sol/dbc.js";
 import { quoteBuy } from "../src/sol/quote.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas } from "../src/sol/pda.js";
 import { MINT, browser, chain as mainChain, newWorld, person, realClock, setHolding, useClock, advance } from "./helpers/world.js";
@@ -224,6 +225,36 @@ test("status: not approved, expired, paused, a disabled price curve, the setting
   assert.ok(d.founderFees && d.founderFees.words);
   assert.equal(d.founderFees.sharePct, "0.25%", "the founder's part of every trade, read from the config the coin launched under");
   assert.equal(d.founderFees.shareUpTo, false, "on the curve the share is exact");
+  // the chain slot of the status's own fee reading: the founder card refuses an older fee reading that still shows money this one
+  // saw leave (public/lp-launch.js olderThanStatus)
+  w.S.slot = 4242;
+  d = (await status(w)).data;
+  assert.equal(d.founderFees.slot, 4242);
+  // and the Coin record's counters as that same answer has them (founder_accrued; founder_claimed + founder_paid_out): they only grow,
+  // so the card refuses a fee reading with a lower one, whatever its slot (olderThanStatus)
+  setField(w.S, coinAddr, "Coin", "founder_accrued", 900);
+  setField(w.S, coinAddr, "Coin", "founder_claimed", 300);
+  setField(w.S, coinAddr, "Coin", "founder_paid_out", 40);
+  const asked = w.lp.calls("getMultipleAccounts").length;
+  d = (await status(w)).data;
+  assert.deepEqual([d.founderFees.earnedLamports, d.founderFees.collectedLamports, d.founderFees.slot], ["900", "340", 4242]);
+  const rec = decodeCoin({ owner: PROGRAM, data: [w.S.accounts[coinAddr].data, "base64"] }, PROGRAM), vault = await w.L.founderVault(coinAddr);
+  const lists = w.lp.calls("getMultipleAccounts").slice(asked).map((c) => c.params[0]);
+  assert.ok(lists.some((l) => [vault, rec.dbcPool, rec.dbcConfig, coinAddr].every((a) => l.includes(a))), "the record, the vault, the curve and its settings in ONE call (one slot)");
+  // the record missing from that answer, or no longer naming this coin's mint: no counters (null), the rest as read; never a throw
+  const saved = w.S.accounts[coinAddr];
+  delete w.S.accounts[coinAddr];
+  let ff = await founderFees(w.env, lpSetup(w.env), rec, w.fetchImpl);
+  assert.deepEqual([ff.earnedLamports, ff.collectedLamports, ff.slot, typeof ff.inVaultLamports], [null, null, 4242, "string"]);
+  w.S.accounts[coinAddr] = { ...saved };
+  setField(w.S, coinAddr, "Coin", "mint", addr(77));
+  ff = await founderFees(w.env, lpSetup(w.env), rec, w.fetchImpl);
+  assert.deepEqual([ff.earnedLamports, ff.collectedLamports], [null, null]);
+  w.S.accounts[coinAddr] = { ...saved, data: Buffer.from(Buffer.from(saved.data, "base64").subarray(0, 50)).toString("base64") };
+  ff = await founderFees(w.env, lpSetup(w.env), rec, w.fetchImpl);
+  assert.deepEqual([ff.earnedLamports, ff.collectedLamports], [null, null], "bytes that do not decode");
+  w.S.accounts[coinAddr] = saved;
+  assert.deepEqual([(await founderFees(w.env, lpSetup(w.env), rec, w.fetchImpl)).collectedLamports], ["340"]);
   // graduated: the pool's figure, and a ceiling (anyone who adds liquidity later takes part of what the locked positions earn)
   setField(w.S, DEMOV_POOL, "VirtualPool", "is_migrated", 1);
   d = (await status(w)).data;

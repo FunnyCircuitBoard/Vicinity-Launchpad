@@ -115,6 +115,29 @@ async function peek(res, max = 2048) {
 function release(res) {
   try { if (res.body && typeof res.body.cancel === "function") res.body.cancel().catch(() => {}); } catch { /* already read or closed */ }
 }
+/**
+ * The answer's text when it is at most `max` bytes (as sent, after any transfer decoding), else null: the rest is then released
+ * unread, so an answer anyone can make huge (getTokenAccountsByOwner on an account strangers send tokens to) never fills the
+ * Worker's memory.
+ */
+async function textUpTo(res, max) {
+  const said = Number(res.headers && typeof res.headers.get === "function" ? res.headers.get("content-length") : NaN);
+  if (Number.isFinite(said) && said > max) { release(res); return null; }
+  if (!res.body || typeof res.body.getReader !== "function") { const t = await res.text(); return new TextEncoder().encode(t).length > max ? null : t; }
+  const reader = res.body.getReader(), parts = [];
+  let size = 0;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) { reader.cancel().catch(() => {}); return null; }
+    parts.push(value);
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) { all.set(p, at); at += p.byteLength; }
+  return new TextDecoder().decode(all);
+}
 
 /* ---------------------------------------------------------------- the breaker (per server) */
 /**
@@ -200,7 +223,7 @@ function backupUsable(t, fetchImpl, ms) {
 // a failure after which a transaction MAY have gone out: the node got the bytes, or might have, and then no answer came back
 const AMBIGUOUS = (reason) => reason === "timeout" || reason === "network" || reason === "bad_json" || reason === "http_408" || /^http_5\d\d$/.test(reason);
 
-async function attempt(t, body, fetchImpl, timeoutMs, send) {
+async function attempt(t, body, fetchImpl, timeoutMs, send, maxBytes = null) {
   let res;
   try {
     res = await fetchImpl(t.url, { method: "POST", headers: { "content-type": "application/json" }, body, signal: AbortSignal.timeout(timeoutMs) });
@@ -219,7 +242,16 @@ async function attempt(t, body, fetchImpl, timeoutMs, send) {
     return { ok: false, reason, kind, ambiguous: AMBIGUOUS(reason), error: err };
   }
   let data;
-  try { data = await res.json(); } catch { return { ok: false, reason: "bad_json", kind: send ? "busy" : "down", ambiguous: true, error: rpcError("rpc_bad_json") }; }
+  if (maxBytes > 0) {
+    // an answer over the caller's limit is about the request (every node would send the same), not the provider: thrown at once,
+    // with no failover and nothing counted against the node
+    let t;
+    try { t = await textUpTo(res, maxBytes); } catch { return { ok: false, reason: "bad_json", kind: send ? "busy" : "down", ambiguous: true, error: rpcError("rpc_bad_json") }; }
+    if (t === null) throw rpcError("rpc_too_large");
+    try { data = JSON.parse(t); } catch { return { ok: false, reason: "bad_json", kind: send ? "busy" : "down", ambiguous: true, error: rpcError("rpc_bad_json") }; }
+  } else {
+    try { data = await res.json(); } catch { return { ok: false, reason: "bad_json", kind: send ? "busy" : "down", ambiguous: true, error: rpcError("rpc_bad_json") }; }
+  }
   const refused = refusingError(data, send);
   if (!refused) return { ok: true, data };
   const why = providerRefusal(refused, { send });
@@ -234,9 +266,10 @@ async function attempt(t, body, fetchImpl, timeoutMs, send) {
  * error, a 408 or 5xx, an answer that was not JSON). Throws rpc_http_<status> / rpc_timeout / rpc_network / rpc_bad_json when no
  * endpoint gave a JSON answer (with `ambiguous` on the error the same way), and at once on an HTTP status that is about the
  * request (400 ...). `only` restricts the call to one role (the swap status asks the block height of the node that answered the
- * signature status).
+ * signature status). `maxBytes`: an answer longer than that is never read whole; it throws rpc_too_large at once (no failover, the
+ * node not counted as failing: any node would send the same answer).
  */
-export async function rpcPost(env, payload, fetchImpl = fetch, { cluster = null, url = null, timeoutMs = null, send = false, only = null } = {}) {
+export async function rpcPost(env, payload, fetchImpl = fetch, { cluster = null, url = null, timeoutMs = null, send = false, only = null, maxBytes = null } = {}) {
   let targets = rpcTargets(env, { cluster, url });
   if (only) { const one = targets.filter((t) => t.role === only); if (one.length) targets = one; }
   const now = Date.now();
@@ -252,7 +285,7 @@ export async function rpcPost(env, payload, fetchImpl = fetch, { cluster = null,
     if (probe) h.probeUntil = at + ms + 1000;
     let out;
     asked++;
-    try { out = await attempt(t, body, fetchImpl, ms, send); }
+    try { out = await attempt(t, body, fetchImpl, ms, send, maxBytes); }
     finally { if (probe) h.probeUntil = 0; }
     if (out.ok) {
       if (h) { h.openUntil = 0; h.busy = 0; }
