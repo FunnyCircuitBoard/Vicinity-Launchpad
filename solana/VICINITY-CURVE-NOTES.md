@@ -737,3 +737,250 @@ attacks, and victims never pay the fee, so their balances must be exactly unchan
   `FEE_RECIPIENT` but not from the guardian, so the admin could name the guardian (whose table row
   in 8.1 says it cannot touch money) as the payout wallet. Adding `launchpad.guardian` to the rule
   (and the payout wallet to `set_guardian`'s checks) would be a specification change.
+
+### 34. The checker's last gaps: I14 destinations, I21 tokens, I5 and I6 per step, I20 at run time (9, 12 intro, L13)
+
+Entry 29 describes the checker. Four readings were added, and
+`tests-curve/20-checker-gaps.test.mjs` breaks each one on purpose and requires the checker to fail:
+
+* **I14 destinations.** Explaining every lamport difference is not enough: an extra transfer from
+  the payer inside `launch` is explained by its own system instruction. Every inner instruction of
+  a `vicinity_curve` instruction must now go to System, SPL Token, Metaplex (only in `launch`, only
+  CreateMetadataAccountsV3, and inside it only System) or the program's own event CPI. Every system
+  instruction inside one is pinned: an account creation (or Anchor's transfer, allocate and assign
+  over a pre-funded address) only to an account that very instruction creates by its table
+  (`CREATES` in `invariants.mjs`: the Launchpad, a LaunchConfig, an Approval, the Coin, its mint,
+  vault and TickerLock, a PayoutOptIn), from that instruction's payer and for at most the rent of
+  what it creates; any other transfer only to the Coin (a `buy`'s `charged`), `FEE_RECIPIENT` (the
+  launch fee) or, inside Metaplex's CPI, the metadata account it creates (its rent plus Metaplex's
+  0.01 SOL fee, 3.10). The associated token program's top-level creations are pinned to the token
+  account they create. Changing one destination of a real `launch` or `buy`, or adding a foreign
+  CPI, fails the checker.
+* **I21 tokens, enforced on the tests as worded.** I21 says no instruction *in any test* moves
+  lamports or tokens to the admin, the guardian, the payout key, the upgrade authority or the
+  keeper. The program cannot enforce the token half: a buy delivers to any token account of the
+  mint that the `Coin` does not own (14.3), so a role key can buy coins with its own SOL like anyone
+  else. The checker refuses any coin leaving a vault for a token account whose owner, delegate or
+  close authority is a role key (the World's, plus whatever the Launchpad names as admin, pending
+  admin, guardian or payout key before or after the transaction). No suite does this; the test does
+  it on purpose (the admin's and the guardian's token accounts, a buyer's account delegated to the
+  keeper). The program property behind I21, that no program path pays a role key, is the SOL
+  tracer of entry 29.
+* **I6 and I5 per step.** I6 is checked after every `Trade` and `BuybackBurned` event of a coin in
+  its pool phase, in event order, from the events' own after-figures. A transaction with several
+  instructions is therefore checked at every step, not only at its end (the test puts the
+  graduating buy, two pool trades and a buyback in one transaction). I5's `vault == P` is checked
+  explicitly at the end of the instruction that graduates, from the vault balance after each
+  instruction.
+* **I20 at run time.** The ELF of `vicinity_curve`, `vicinity_rewards` and the old program must be
+  the bytes the World loaded, before and after every transaction, successful or failed. The ELF is
+  the ProgramData after its 45-byte header; the header holds the upgrade authority, which X64
+  edits. At every load the World also checks the compiled ids (3.2): the program id, its cluster's
+  `REWARDS_PROGRAM_ID` and `LEGACY_PROGRAM_ID` and the Metaplex id appear in the binary as 32-byte
+  strings, and the other cluster's `REWARDS_PROGRAM_ID`, `LEGACY_PROGRAM_ID` and `LEGACY_LAUNCHPAD`
+  do not. `FEE_RECIPIENT` and the cluster's own `LEGACY_LAUNCHPAD` are compared against immediates
+  in the code (the compiler splits each comparison into four 64-bit constants), so a byte search
+  cannot find them; their run-time witnesses are the tracer (every launch fee and withdrawal reaches
+  `FEE_RECIPIENT`) and `03-approvals` (the account at `LEGACY_LAUNCHPAD` is read at every approval
+  and launch). C03 remains the static check of the build's ids.
+* **CPI callers.** The checker follows calls into `vicinity_curve` from other programs (G02's
+  router, entry 40), each with its own inner instructions, events and depth.
+* **A harness defect found by the long F02 run** (seed 7, step 22,047; fixed in 05c145c). The
+  snapshot read a coin's vault and mint only when its Coin, vault or mint was in the message, while
+  the per-coin checks also covered a coin named only by its metadata account (an invalid `launch`
+  variant). The check then failed on a missing vault reading. Snapshots now cover the same four
+  accounts, and a regression test reproduces the case. It was a defect of the checker, not of the
+  program.
+
+### 35. I18 as tested: the clause about spot value is false for any constant-product market (9 I18, 12.2)
+
+The first clause of I18 (a buy followed by a sell of the coins bought returns less than was
+charged) is P05. The second clause says no address ends a random sequence with more SOL plus coins
+valued at the final spot price than it started with. As worded it cannot hold for a
+constant-product market. A position marked at the marginal price right after the buy that made it
+is worth more than it cost (the convexity term `n^2 / X`), and a net seller's coins are worth less
+at the price its own sell pushed down. `crates/vicinity-curve-math/tests/no_free_value.rs` keeps the
+counterexample (`literal_spot_valuation_is_not_a_property`): from launch on config #0, a 1 SOL buy
+gets 33,774,693,369,781 raw coins, worth 1,006,686,598 lamports at the new spot price but only
+950,625,000 when sold. With several traders an early buyer also gains, legitimately, from later
+buyers.
+
+What is tested instead is free value in the two senses in which it could exist. Coins still held
+are valued at what they sell for at the final state (at most their spot value less the fee):
+
+* **P11a, one address alone.** Start from any reachable state: a random prefix of other traders'
+  operations, injected set-aside liquidity included, then the buyback backlog run down so that no
+  backlog of others can flow to the address. An address that arrives with SOL only then runs a
+  random sequence of buys (partial fills and graduation included), sells, pool trades with drips and
+  buyback runs. It never ends with more than it came with, with no allowance: the fee's rounding in
+  the trader's favour (under one lamport per trade) never outweighs the shares it pays.
+* **P11b, all addresses together.** From launch, four addresses (the first is the founder) buy,
+  sell, run buybacks and collect payouts in random order, then each sells everything it holds.
+  Together they never end with more than they came with, net of the founder fees received.
+
+CI runs 2,048 cases of each. `PROPTEST_CASES=1000000 cargo test --release -p vicinity-curve-math
+--test no_free_value` runs 10^6 of each and passed (108 s). On chain,
+`tests-curve/25-no-free-value.test.mjs` runs the same two properties in litesvm with the checker
+after every transaction. The lone address trades on random configs from reachable states. The
+group trades from launch and also sends coins to each other and receives SOL gifts from outside,
+which are subtracted. CI runs 6 and 4 sequences; `VCURVE_I18_RUNS` raises the number. The
+specification should restate the second clause as P11a and P11b.
+
+### 36. 14.3 misses a third runtime condition; the SDK pre-checks and `initRewardsForCoin` (14.3, T58, 4.15, R03, 14.1)
+
+14.3 names two runtime conditions that make a correct transaction fail: the buyer must be a
+system-owned account without data, and SOL paid to an account holding 0 lamports must be at least
+`rent_min(0)`. A third one follows from the same rent-state rule: **a buyer may end with 0 lamports
+or with at least `rent_min(0)`, never with anything in between.** A rent-exempt wallet may not
+become rent-paying, so a buy that leaves 1 lamport in it fails with `InsufficientFundsForRent`.
+Spending the whole balance, or leaving exactly the minimum, passes (`21-sdk-prechecks.test.mjs`
+measures all three on the real runtime). The rule applies at the end of the transaction, so a buy
+and a sell bundled together are judged by the wallet's final balance (the F01 model applies it that
+way). No program change is needed; 14.3 should list the third condition.
+
+`sdk/curve/prechecks.mjs` checks all three on account snapshots before a transaction is built and
+fails with a `PrecheckError` naming the reason: `BuyerHoldsNoSol`, `BuyerNotSystemAccount`,
+`BuyerCarriesData`, `BuyerCannotPay`, `BuyerLeftBelowRent` for buys (`precheckBuyer`,
+`precheckBuy`), and the 0-lamport rule (`BelowRentExemptMinimum`) for a sell's `user`, a claim's
+founder and a payout's wallet (`precheckSolCredit`, `precheckSell`, `precheckClaim`,
+`precheckPayout`). In litesvm the SDK refuses exactly the transactions the runtime refuses, around
+the boundary on both sides.
+
+`sdk/curve/rewards.mjs` adds `initRewardsForCoin` (R03's last clause). `vicinity_rewards` writes a
+config's economics only in `init_city` and cannot close one, so a wrong config makes
+`forward_holders_fees` fail for that coin forever. The function therefore builds `init_city`,
+simulates it, decodes the CityConfig the simulation would write and runs the program's own two rules
+on it (`check_rewards_config` and the authority rule, with the admin read from the Launchpad) before
+it returns anything to propose. An existing correct config needs nothing, and an existing wrong one
+(or one with an authority transfer pending) is reported as unfixable (`RewardsConfigError`). The
+tests run it against the real `vicinity_rewards` in litesvm and over a fake chain, and the config it
+proposes carries the holders' money.
+
+### 37. G01 at full scale: vectors exported by the Rust crate, replayed by the port and by the program (12.5 G01)
+
+This completes entry 28, which left the 10^4-trade volume of G01 open.
+`crates/vicinity-curve-math/tests/g01_vectors.rs` generates `reference/g01-vectors.json` from a
+fixed seed and requires the committed file to equal it byte for byte (`G01_WRITE=1` rewrites it).
+The file holds 46 coin lives on config #0, on random shares and on random curves from 5.9's search:
+10,145 trades (20 partial fills, 31 graduations, 5,252 pool trades with drips), 1,298 buyback runs
+and the three payouts, with every error. Each operation is one line with every figure and an
+FNV-1a digest of the 24 state fields after it. Every third life stays on the curve so that both
+phases carry volume.
+
+`sdk/curve/g01.test.mjs` replays every operation through the JavaScript port.
+`tests-curve/22-g01-onchain.test.mjs` sends every operation to the program as the transaction it
+describes: each life is launched on its config at its slot, buys and sells come from four holders,
+buybacks run at the recorded slots, and withdrawals, claims and forwards go into a real
+`vicinity_rewards` vault. Each event must carry the vector's numbers, each refusal the vector's
+error, and the Coin must hash to the vector's digest after every operation. The checker runs after
+every transaction (also comparing each event with the port), and the I22 probe runs at the end of
+every life. A fresh World every 8 lives keeps the checker fast (about 16 ms per transaction), and
+holders are topped up out of band, which is not a donation to any program account.
+`VCURVE_G01_LIVES=n` replays only the first n lives. The three implementations agree on every
+figure.
+
+### 38. F01 and F02 at full scale: a seeded fuzz with a model side by side (12.5 F01, F02)
+
+`tests-curve/fuzz.mjs` (driven by `23-fuzz.test.mjs`) picks a random action at every step from a
+seeded generator:
+
+* trades of every size (below the minimum, dust, the completing buy and past it, all of a balance,
+  more than a balance), buybacks at random slots, the three payouts, the payout path;
+* founder transfers, approvals, revocations, launches, configs (valid and invalid);
+* pauses by every key, the old program's pause, guardian and payout settings, admin hand-overs;
+* lamport and coin donations, holder burns and transfers, clock warps;
+* bundles of several instructions in one transaction;
+* invalid variants (F02): one account of a valid instruction of any of the 21 replaced by another
+  plausible account (another coin's accounts, the old program's, other programs, a random key), or
+  its authority replaced by another signer that does sign.
+
+The model (F01) keeps each coin's state with the SDK's port from each action's own inputs, never
+from the events. It predicts success or failure and the error, in the order the runtime and the
+program check things. After every transaction the Coin's 693 bytes must equal the model's state
+written over the bytes `launch` wrote. A failed transaction must have been predicted to fail. An
+invalid variant must fail and move nothing, with three exceptions:
+
+* **Slots the instruction leaves open** (`FREE_SLOTS`). A buy may deliver to any token account of
+  the mint. `withdraw_platform_fees` is permissionless and every other account derives from the
+  coin. A founder of two coins may claim or hand over either. The admin enables whichever config it
+  names.
+* **Variants the runtime cannot build** (a program id marked writable). These are counted as
+  refused.
+* **The Anchor `#[event_cpi]` `program` slot.** That account is read only by the event self-CPI,
+  which fails if it is not the program, so an instruction that emits nothing (a crank or payout with
+  nothing to do) accepts any account there and changes nothing. The checker verifies that no
+  balance and no program account moved. It is a property of Anchor's macro, harmless here, and is
+  noted for the auditors.
+
+The checker runs after every transaction and the I22 probe every 50 steps. CI runs 300 steps on
+seeds 1 and 2. `VCURVE_FUZZ_STEPS`, `VCURVE_FUZZ_SEEDS` and `VCURVE_FUZZ_LOG=1` (progress every
+1,000 steps) set up a long run.
+
+The first long run (seed 7) stopped at step 22,047 on the checker defect of entry 34. The second
+passed that step and stopped at step 75,150 on the I22 probe, in a state that I22's wording misses
+(entry 41). Neither was a program bug, and the program and the model agreed byte for byte at every
+step of both. The predictions also fixed several harness assumptions on the way: the order of checks
+(Anchor's account checks before the math), the rent rule at the end of the transaction (entry 36),
+and wrong-signer variants that must still carry every original signature.
+
+### 39. F03 over the whole V1 to V11 space (12.5 F03, 5.13)
+
+`tests-curve/24-configs-f03.test.mjs` sends `add_launch_config` on chain for every golden config of
+the reference model that fits the instruction's `u16` and `u64` arguments, plus a seeded set built
+around valid curves from 5.9's search. The seeded set holds random shares, every field one step
+either side of a valid value, and each rule broken on purpose. The program must accept exactly the
+configs the model accepts, store each one byte for byte and count it in `next_config_id`. It must
+refuse every other one with the error of its first failing rule in 5.13's order and create nothing.
+Every rule is hit at least four times. A sample of the accepted configs is launched, traded to
+graduation and traded in the pool. `VCURVE_F03_SEED` and `VCURVE_F03_N` widen the seeded set. The
+program and the model agreed on every config.
+
+### 40. G02, G03 and R02b with a mock router instead of a test-only build of the program (12.5, 4.0, 14.3)
+
+`tests-curve/router/` is a small native program, used only by the tests and never deployed. It has
+its own workspace and lock file, is built by `npm run curve:router` (a CI step before the curve
+suites, or on first use by `26-router.test.mjs`) and lives at a fixed address with no key behind
+it. It forwards an instruction (signed by the user, or by a router PDA through `invoke_signed`),
+moves lamports and then CPIs (R02b), and stands in for a swap with a minimum output (G03).
+
+* **G02.** `buy` and `sell` through the router for a signing user and for a router PDA. Balances
+  and events are the user's or the PDA's, and the event self-CPI runs at depth 3. The partial fill's
+  leftover stays with the PDA. A PDA carrying data cannot buy (the system transfer refuses it, and
+  the SDK predicts it).
+* **G03.** A swap that delivers SOL, followed by our buy in the same transaction.
+  `sdk/curve/compose.mjs` takes `sol_in` from the quote's guaranteed output: `outAmount` for
+  ExactOut, `otherAmountThreshold` for ExactIn, never the quoted `outAmount`. With that `sol_in` the
+  buy never spends SOL the user already had, whatever the swap delivers above its minimum; a swap
+  below its minimum fails and moves nothing. The naive `sol_in = outAmount` does spend the user's
+  own SOL when the swap under-delivers.
+* **R02b.** The specification asks for a test-only build of `vicinity_curve` that CPIs
+  `SyncNative` after `pay_out`. The router shows the same runtime rule on the same runtime without a
+  second build of the program: a direct lamport move followed by a CPI to `SyncNative` that lists
+  only the credited WSOL account fails with `UnbalancedInstruction`; the same move followed by a
+  CPI that lists both accounts passes; and the move followed by a top-level `SyncNative` (the
+  pattern of `forward_holders_fees`, 4.15) passes. The p-token `SyncNative` rejects extra accounts,
+  so "listing both" is a self-CPI no-op naming both accounts, followed by `SyncNative`.
+
+### 41. I22's buyback clause misses dust: a bucket worth less than one raw coin waits (9 I22, 7.1, 5.11)
+
+I22 says that once the interval has passed and `buyback_pending > 0`, `buyback_burn` either burns or
+`curve_sol == f(S - 1)`. The long F01 run (seed 7, step 75,150) reached a third case. The run
+spends `b = min(buyback_pending, cap)`, and in the pool it buys `floor(Y * b / (X + b))` coins
+(7.1). When one raw coin costs more than `b` lamports, that is 0, and the run is the no-op of 4.0:
+nothing moves, and the bucket keeps its lamports. On the curve the same happens when `b` is below
+the cost of the next raw coin (`tokens_for(r + b) <= s`), which the curves that V1 to V11 accept
+do not reach in practice (their end price is far below one lamport per raw coin).
+
+A raw coin costs one lamport once the pool's price reaches 10^6 lamports per coin, a fully diluted
+value of about 1,000,000 SOL; on config #0 the pool then holds about 4,200 SOL. The regression
+test in `20-checker-gaps.test.mjs` puts 20,000 SOL in (about 22 lamports per raw coin), lets the
+runs spend the bucket, and then sells 100 raw coins, which adds 6 lamports to the bucket. The run
+is then a no-op. The next ordinary trade's share makes the bucket worth coins, and the following
+run burns. This is the program doing exactly what 7.1 specifies; no program change. It is dust
+waiting for the bucket to grow, not a stuck state, but it is not in I22's list either.
+
+The probe now accepts this case only when the math says the run would buy 0 coins (`Y * b < X + b`
+in the pool, `tokens_for(r + b) <= s` on the curve); a cap of 0, or anything else, still fails.
+The specification should add to I22 "or `b` buys less than one raw coin at the current price", and
+add the bucket's dust below that price to the intended permanent balances of a coin that stops
+trading.

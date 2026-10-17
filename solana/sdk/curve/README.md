@@ -14,6 +14,8 @@ Plain ESM (`.mjs`), BigInt amounts, no Anchor at run time. It follows
 | `instructions.mjs` | builders for all 21 instructions with the fixed account lists of section 4 written out, `forwardHoldersFeesWithSync` (the top-level `SyncNative` of 4.15), `syncNative`, the idempotent associated-token-account create and compute-budget instructions |
 | `prechecks.mjs` | the client pre-checks of 14.3 (T58) on account snapshots, each failing with a `PrecheckError` that says why: the buyer is a system-owned account without data that can pay (`precheckBuyer`, `precheckBuy`; it also refuses a buy that would leave a rent-exempt wallet below the rent-exempt minimum), and SOL to an account holding 0 lamports is at least `rent_min(0)` (`precheckSolCredit`, `precheckSell`, `precheckClaim`, `precheckPayout`) |
 | `rewards.mjs` | the city's `vicinity_rewards` config: `initCityInstruction` (init_city, Holders / 0 / WSOL by default) and `initRewardsForCoin`, which simulates init_city, decodes the CityConfig it would write and runs `check_rewards_config` and the authority rule on it before proposing anything (4.15, R03, 14.1); an existing correct config needs nothing, an existing wrong one is reported as unfixable (`RewardsConfigError`); `simulateWithConnection` adapts a web3.js Connection |
+| `compose.mjs` | "pay with any token" (14.1, G03): `solInFromSwapQuote` (ExactOut: `outAmount`; ExactIn: `otherAmountThreshold`, never the quoted `outAmount`) and `buyWithSwap`, the swap instructions followed by the idempotent token account create and the buy |
+| `g01-vectors.mjs` | the reader of the Rust crate's G01 vectors (`reference/g01-vectors.json`): line parser, config of each life, the state digest |
 
 Instructions come back in `@solana/kit`'s shape `{ programAddress, accounts: [{ address, role }], data }`.
 
@@ -41,7 +43,8 @@ and requires every quote, error and state figure to be equal, and checks the wor
 E1 to E10; `idl.test.mjs` checks every constant, discriminator and error against the committed
 IDL, every builder's account list, flags and argument encoding against the IDL and Anchor's
 encoder, and the account and event decoders against Anchor's encoding; `prechecks.test.mjs`
-checks every pre-check and its edges, the init_city builder against Anchor's encoder and the committed
+checks every pre-check and its edges and `compose.mjs`, the init_city builder against Anchor's encoder and the committed
 `vicinity_rewards` IDL, and `initRewardsForCoin` over a fake chain (`tests-curve/21-sdk-prechecks.test.mjs`
-checks the same predictions against the real programs in litesvm). The parity with the
+checks the same predictions against the real programs in litesvm); `g01.test.mjs` replays every operation of the
+G01 vectors exported by the Rust crate (more than 10^4 trades; `tests-curve/22-g01-onchain.test.mjs` replays them on chain). The parity with the
 program's real results is checked by `tests-curve` after every trade and buyback of every test.

@@ -1007,8 +1007,10 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
  * withdraw_platform_fees and claim_founder_fees succeed (the same rent rule for a
  * founder holding 0 lamports); with a correct rewards
  * config forward_holders_fees succeeds; once the interval has passed and the
- * bucket is not empty buyback_burn burns or curve_sol == f(S - 1); expired
- * approvals can be revoked by anyone. Skips buys and buybacks while buys are
+ * bucket is not empty buyback_burn burns, or curve_sol == f(S - 1), or the run
+ * would buy less than one raw coin at the current price (dust that waits for
+ * the bucket to grow, VICINITY-CURVE-NOTES.md 41); expired approvals can be
+ * revoked by anyone. Skips buys and buybacks while buys are
  * halted, and everything while the halt-all build is loaded.
  */
 export async function probeLiveness(w, { label = 'liveness' } = {}) {
@@ -1060,7 +1062,16 @@ export async function probeLiveness(w, { label = 'liveness' } = {}) {
         const r = await sim([w.ix.buybackBurn({ coin: c.address })], [], `${tag} buyback_burn`);
         assert.equal(r.coin(c.address).buybackCount, c.buybackCount + 1n, `${label}: I22 the buyback burns`);
       } else {
-        assert.ok(c.phase === 0 && c.curveSol === S.curveValue(terms, terms.curveSupply - 1n), `${label}: I22 buyback stuck for ${tag}`);
+        // the two no-ops of 7.1 that are not stuck states: the curve one raw coin before its end (the next buy
+        // graduates the coin), and a run of b = min(buyback_pending, cap) that buys less than one raw coin at the
+        // current price (in the pool Y * b < X + b, on the curve tokens_for(r + b) <= s): dust that burns once the
+        // next trades' shares make the bucket worth a coin (NOTES 41); a cap of 0 or anything else is stuck
+        const cap = S.buybackCap(terms, st);
+        const b = c.buybackPending < cap ? c.buybackPending : cap;
+        const atEnd = c.phase === 0 && c.curveSol === S.curveValue(terms, terms.curveSupply - 1n);
+        const dust = b > 0n && (c.phase === 1 ? c.poolTokens * b < c.poolSol + b : S.tokensFor(terms, c.curveSol + b) <= c.tokensSold);
+        const why = { phase: c.phase, slot: snap.slot, lastBuybackSlot: c.lastBuybackSlot, buybackPending: c.buybackPending, cap, tokensSold: c.tokensSold, curveSol: c.curveSol, poolSol: c.poolSol, poolTokens: c.poolTokens };
+        assert.ok(atEnd || dust, `${label}: I22 buyback stuck for ${tag}: ${JSON.stringify(why, (k, v) => (typeof v === 'bigint' ? v.toString() : v))}`);
       }
     }
   }

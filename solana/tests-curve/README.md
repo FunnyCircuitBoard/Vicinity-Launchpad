@@ -45,3 +45,19 @@ of each test.
 | `12-compute.test.mjs` | C01, C02: compute units of every instruction against the 11.1 budgets, the website's transaction sizes (also written to `target/vcurve-measurements.json`) |
 | `13-checker.test.mjs` | L13: declared donations and holder burns keep every invariant; the checker fails on undeclared ones and on an out-of-band edit; `pay_out` refuses every debit when the liabilities exceed the balance (X31); forged events are refused (T56) |
 | `14-attacks.test.mjs` | X01, X02, X04, X05 and F02 in miniature (every non-signer slot of the seven money instructions substituted: always refused, nothing moves), X32 (cross-coin bleed), X33 (approval replay), X58 (a 0-lamport seller or founder), X65 (the IDL tag returns `IdlInstructionStub`) |
+| `20-checker-gaps.test.mjs` | the checker itself (NOTES 34): I14 destinations pinned, I21 for tokens, I20 at run time (code edits, each cluster's compiled ids), I5 and I6 at every step of a multi-instruction transaction; the two regressions of the long F01/F02 run (a coin named only by its metadata account, buyback dust in an expensive pool) |
+| `21-sdk-prechecks.test.mjs` | 14.3 (T58) against the real runtime: the SDK's pre-checks refuse exactly what the chain refuses (0-lamport destinations, buyers with data or another owner, a buy leaving dust); R03's `initRewardsForCoin` against the real `vicinity_rewards` |
+| `22-g01-onchain.test.mjs` | G01: every operation of the Rust crate's golden vectors (`reference/g01-vectors.json`, more than 10^4 trades) replayed on chain; events, errors and state digests equal (`VCURVE_G01_LIVES=n` for the first n lives) |
+| `23-fuzz.test.mjs` | F01, F02: seeded random sequences over all 21 instructions, valid and invalid, with the model of `fuzz.mjs` side by side (CI: 300 steps on two seeds) |
+| `24-configs-f03.test.mjs` | F03: every golden config and a seeded set across V1 to V11 through `add_launch_config`; a sample launched to graduation |
+| `25-no-free-value.test.mjs` | I18 on chain (NOTES 35): one address alone from reachable states, and all addresses together, never gain (`VCURVE_I18_RUNS`) |
+| `26-router.test.mjs` | G02, G03, R02b with the test-only mock router of `router/` (`npm run curve:router`) |
+
+`fuzz.mjs` is the F01/F02 engine (a seeded generator, the actions, the model and its predictions);
+`router/` is a native program used only by `26-router.test.mjs` and never deployed. Long runs:
+
+```
+VCURVE_FUZZ_STEPS=100000 VCURVE_FUZZ_SEEDS=7 VCURVE_FUZZ_LOG=1 node --test tests-curve/23-fuzz.test.mjs
+VCURVE_I18_RUNS=200 node --test tests-curve/25-no-free-value.test.mjs
+VCURVE_F03_N=5000 node --test tests-curve/24-configs-f03.test.mjs
+```

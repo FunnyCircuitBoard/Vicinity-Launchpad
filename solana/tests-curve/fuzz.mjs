@@ -414,7 +414,7 @@ export class Fuzz {
       [22, 'buy'], [18, 'sell'], [7, 'buyback'], [3, 'withdraw'], [3, 'claim'], [3, 'forward'], [3, 'payout'],
       [1.5, 'opt_in'], [0.7, 'revoke_opt_in'], [0.7, 'transfer_founder'], [1.5, 'approve'], [0.8, 'revoke_approval'], [1.2, 'launch'],
       [1.2, 'add_config'], [0.6, 'set_enabled'], [2, 'set_pause'], [0.3, 'set_guardian'], [0.3, 'set_payout_config'], [0.3, 'admin_handover'],
-      [0.8, 'donate_lamports'], [0.6, 'donate_coins'], [0.6, 'holder_burn'], [0.8, 'holder_transfer'], [4, 'warp'], [4, 'bundle'], [0.1, 'init_launchpad'],
+      [0.4, 'legacy_pause'], [0.8, 'donate_lamports'], [0.6, 'donate_coins'], [0.6, 'holder_burn'], [0.8, 'holder_transfer'], [4, 'warp'], [4, 'bundle'], [0.1, 'init_launchpad'],
       [14, 'invalid'],
     ]);
     const one = (op, label = op.kind) => ({ label, ops: [op], ixs: op.ixs, signers: op.signers ?? (op.signer ? [op.signer] : []) });
@@ -520,6 +520,13 @@ export class Fuzz {
         }
         const next = r.chance(0.2) ? { address: ZERO } : await w.signer(5n);
         return one({ kind: 'propose_admin', signer: admin, ixs: [w.ix.proposeAdmin({ admin: admin.address, newAdmin: next.address })] });
+      }
+      case 'legacy_pause': {
+        // the old program's launches opened or paused again by its admin (8.5): approvals and launches here
+        // must then fail (the checker's I19 holds every successful one to it)
+        const paused = r.chance(0.7);
+        return { label: `legacy set_pause ${paused}`, ops: [{ kind: 'legacy', ixs: [] }],
+          ixs: [w.legacyIx('set_pause', { launches: paused, payouts: null }, { authority: this.registryAdmin.address, launchpad: w.legacyPdas().launchpad })], signers: [this.registryAdmin] };
       }
       case 'donate_lamports': {
         const from = r.pick(this.traders.slice(0, 6));

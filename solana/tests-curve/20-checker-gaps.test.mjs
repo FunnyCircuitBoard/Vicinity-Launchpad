@@ -6,7 +6,8 @@
 // test may make, delivering coins to a role key (I21), program code edited
 // without an upgrade and binaries of the wrong cluster (I20). I5 and I6 are
 // exercised in multi-instruction transactions: a graduation followed by pool
-// trades and a buyback in the same transaction.
+// trades and a buyback in the same transaction. The last two tests are the
+// regressions of the long F01/F02 run (VICINITY-CURVE-NOTES.md 34, 41).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { address } from '@solana/kit';
@@ -180,5 +181,35 @@ test('the checker reads every coin a transaction can touch: a coin loaded only t
   ixs[ixs.length - 1] = { ...buy, accounts: [...buy.accounts, { address: S.metadataAddress(b.mint), role: S.Role.R }] };
   await w.send(ixs, [u], 'buy of A listing the metadata of B');
   w.addHolder(a.mint, u);
+  await w.finish();
+});
+
+test('I22: a buyback bucket worth less than one raw coin in an expensive pool is dust that waits, not a stuck state; the next trade\'s share burns it (found by the long F01 run at step 75,150)', async () => {
+  const w = await World.create();
+  w.probeEach = false;
+  const h = await w.launchCoin({ cityId: 2_050n, symbol: 'DUST' });
+  const whale = await w.signer(1n);
+  w.setRaw(whale.address, Buffer.alloc(0), S.ADDRESSES.system, 1_000_000n * LAMPORTS);
+  let c = w.coinView(h);
+  await w.buy(whale, h, S.maxQuoteIn(S.coinTerms(c), S.coinState(c)), { label: 'graduate' });
+  // 20,000 SOL into the pool: one raw coin now costs about 22 lamports
+  await w.buy(whale, h, 20_000n * LAMPORTS, { label: 'whale buy in the pool' });
+  for (let i = 0; i < 10 && w.coinView(h).buybackPending > 0n; i++) { w.warpSlots(S.BUYBACK_INTERVAL_SLOTS); await w.buyback(h); }
+  assert.equal(w.coinView(h).buybackPending, 0n, 'the runs spent the bucket');
+  await w.sell(whale, h, 100n, { label: 'a dust sell adds a few lamports to the bucket' });
+  c = w.coinView(h);
+  assert.ok(c.buybackPending > 0n && c.poolTokens * c.buybackPending < c.poolSol + c.buybackPending, `the bucket (${c.buybackPending}) is worth less than one raw coin`);
+  w.warpSlots(S.BUYBACK_INTERVAL_SLOTS);
+  assert.equal(S.quoteBuyback(S.coinTerms(c), S.coinState(c), w.svm.getClock().slot), null, 'the run would buy 0 coins');
+  await w.probe('a due bucket worth less than one raw coin'); // the probe accepts the dust
+  const count = c.buybackCount;
+  await w.buyback(h, { label: 'the run is a no-op' });
+  assert.equal(w.coinView(h).buybackCount, count);
+  assert.equal(w.coinView(h).buybackPending, c.buybackPending, 'the dust stays in the bucket');
+  await w.sell(whale, h, 10_000_000n, { label: 'a trade whose share makes the bucket worth coins' });
+  w.warpSlots(S.BUYBACK_INTERVAL_SLOTS);
+  await w.buyback(h, { label: 'the next run burns' });
+  assert.equal(w.coinView(h).buybackCount, count + 1n);
+  assert.equal(w.coinView(h).buybackPending, 0n);
   await w.finish();
 });
