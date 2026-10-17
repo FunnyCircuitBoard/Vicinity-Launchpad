@@ -717,6 +717,8 @@ export function checkTransaction(w, ctx) {
     const got = S.coinState(c);
     for (const k of S.STATE_KEYS) assert.equal(got[k], st[k], `${label}: ${c.symbol} ${k} on chain ${got[k]}, replayed ${st[k]}`);
     for (const k of Object.keys(ext)) assert.equal(c[k], ext[k], `${label}: ${c.symbol} ${k} on chain ${c[k]}, replayed ${ext[k]}`);
+    // and byte for byte: the account before, with the replayed state and payout fields written at their offsets (F01)
+    if (b) assert.ok(encodeCoin(b.raw, st, ext).equals(c.raw), `${label}: ${c.symbol} the Coin's bytes differ from the replayed state`);
     assert.equal(c.tradeSeq - (b?.tradeSeq ?? 0n), trades, 'I16 trade_seq +1 per trade');
     // I6: the account ends at the last pool event's reserves
     if (c.phase === 1 && kPrev !== null) assert.equal(c.poolSol * c.poolTokens, kPrev, `${label}: I6 the pool after the transaction is the last event's`);
@@ -792,6 +794,24 @@ function checkLaunch(w, { c, cl, pre, label, txSlot, txTs, rentMin, tx }) {
   } else assert.equal(feeXfer.length, 0);
   w.coinMeta.set(c.address, { name: ap.name, symbol: ap.symbol });
   w.frozen.set(c.address, frozenBytes(c.raw));
+}
+
+const U128_FIELDS = new Set(['buyVolume', 'sellVolume', 'feesTotal', 'liquidityEarned', 'liquidityAdded', 'platformEarned', 'platformWithdrawn',
+  'founderEarned', 'founderClaimed', 'founderPaidOut', 'holdersEarned', 'holdersForwarded', 'buybackEarned', 'buybackSpent']);
+const I64_FIELDS = new Set(['graduatedAt', 'lastPayoutAt']);
+/** `raw` (a Coin's bytes) with the trade state `st` and the payout fields `ext` written at their offsets (3.7). */
+export function encodeCoin(raw, st, ext) {
+  const out = Buffer.from(raw);
+  const o = S.COIN_OFFSETS;
+  const put = (k, v) => {
+    if (k === 'phase') out[o.phase] = Number(v);
+    else if (k === 'founder') new PublicKey(v).toBuffer().copy(out, o.founder);
+    else if (U128_FIELDS.has(k)) { out.writeBigUInt64LE(BigInt(v) & 0xffffffffffffffffn, o[k]); out.writeBigUInt64LE(BigInt(v) >> 64n, o[k] + 8); } else if (I64_FIELDS.has(k)) out.writeBigInt64LE(BigInt(v), o[k]);
+    else out.writeBigUInt64LE(BigInt(v), o[k]);
+  };
+  for (const k of S.STATE_KEYS) put(k, st[k]);
+  for (const [k, v] of Object.entries(ext)) put(k, v);
+  return out;
 }
 
 // layout_version; bumps, config_id, city_id, mint, vault; symbol, the six fee fields, x0, y0, S, P, R, dust_burned;
