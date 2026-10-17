@@ -92,3 +92,21 @@ snapshot job (read holders, apply eligibility, `allocateProRata`, publish the
 snapshot file, call `fund_epoch`) is specified in `PROGRAM-SPEC.md` section 6
 and belongs to the Worker; `sdk/merkle.mjs` and `sdk/client.ts` are the pieces it
 will reuse.
+
+## `vcurve/`: the vicinity_curve IDL and builds (VICINITY-CURVE-DESIGN.md 8.4, C03, C04)
+
+```sh
+cd solana
+npm run vcurve:idl          # regenerate sdk/idl/vicinity_curve.json from the source
+npm run vcurve:idl:check    # fail if the committed IDL differs from the source
+npm run vcurve:sbf          # production, devnet and halt-all SBF builds
+```
+
+The deployed `vicinity_curve` binary has no IDL instructions (`no-idl` is a
+default feature), so its client IDL is generated with Anchor's `idl-build`
+feature and committed; CI diffs it against `anchor build`'s output.
+`vcurve:sbf` builds the three variants into `target/vcurve-builds/<variant>/`
+(never over `target/deploy`), recompiling the program crate each time so that
+every cargo-build-sbf warning is printed, fails on any "Stack offset ...
+exceeded" warning and prints each binary's size and SHA-256. CI runs it after
+every push. Sizes and the toolchain are recorded in `VICINITY-CURVE-NOTES.md`.

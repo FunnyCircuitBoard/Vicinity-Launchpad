@@ -1,0 +1,4923 @@
+{
+  "address": "nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSYS7tk",
+  "metadata": {
+    "name": "vicinity_curve",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Vicinity Curve: one coin per city with its own bonding curve, graduation into its own pool, fee buckets, payouts and buyback-and-burn, without Meteora (VICINITY-CURVE-DESIGN.md)"
+  },
+  "instructions": [
+    {
+      "name": "accept_admin",
+      "docs": [
+        "4.3. Step two of the admin transfer, signed by the proposed key."
+      ],
+      "discriminator": [
+        112,
+        42,
+        45,
+        90,
+        116,
+        181,
+        13,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "new_admin",
+          "signer": true
+        },
+        {
+          "name": "launchpad",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "add_launch_config",
+      "docs": [
+        "4.6. Add a split and curve for future coins (V1 to V11)."
+      ],
+      "discriminator": [
+        178,
+        122,
+        32,
+        119,
+        221,
+        205,
+        141,
+        74
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "launchpad"
+          ]
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "launchpad",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "launchpad.next_config_id",
+                "account": "Launchpad"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "p",
+          "type": {
+            "defined": {
+              "name": "ConfigParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "approve_launch",
+      "docs": [
+        "4.8. Approve one founder to launch one city's coin."
+      ],
+      "discriminator": [
+        170,
+        53,
+        90,
+        11,
+        30,
+        13,
+        94,
+        205
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Pays the approval rent (refunded on close to `rent_payer = admin`)."
+          ],
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "launchpad"
+          ]
+        },
+        {
+          "name": "launchpad",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "config_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "approval",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112,
+                  114,
+                  111,
+                  118,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "city_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "coin",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "city_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ticker_lock",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  99,
+                  107,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "symbol"
+              }
+            ]
+          }
+        },
+        {
+          "name": "legacy_coin"
+        },
+        {
+          "name": "legacy_approval"
+        },
+        {
+          "name": "legacy_launchpad",
+          "docs": [
+            "read by hand: owner, size and discriminator, then `launches_paused`,",
+            "then its `admin` (this program's admin) and `pending_admin` (zero)."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "city_id",
+          "type": "u64"
+        },
+        {
+          "name": "founder",
+          "type": "pubkey"
+        },
+        {
+          "name": "config_id",
+          "type": "u16"
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "symbol",
+          "type": "string"
+        },
+        {
+          "name": "meta_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "expires_at",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "buy",
+      "docs": [
+        "4.11. Exact-in buy on the curve or in the pool."
+      ],
+      "discriminator": [
+        102,
+        6,
+        61,
+        18,
+        1,
+        218,
+        235,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "docs": [
+            "Pays `charged` lamports by a system transfer, so it must be a",
+            "system-owned account without data (14.3)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "coin",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin.city_id",
+                "account": "CurveCoin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "launchpad",
+          "docs": [
+            "Only `buys_halted` is read."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "coin_vault",
+          "writable": true
+        },
+        {
+          "name": "user_token_account",
+          "docs": [
+            "Any token account of this mint (a router may deliver to an account it",
+            "controls), except one whose authority is the `Coin` PDA (the vault or",
+            "any other), from which coins could never move again."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "sol_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_tokens_out",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "buyback_burn",
+      "docs": [
+        "4.13. Permissionless buyback-and-burn crank."
+      ],
+      "discriminator": [
+        20,
+        254,
+        58,
+        252,
+        209,
+        32,
+        111,
+        97
+      ],
+      "accounts": [
+        {
+          "name": "coin",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin.city_id",
+                "account": "CurveCoin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "launchpad",
+          "docs": [
+            "Only `buys_halted` is read (a buyback is a buy)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "docs": [
+            "Writable: a burn lowers the supply."
+          ],
+          "writable": true
+        },
+        {
+          "name": "coin_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_founder_fees",
+      "docs": [
+        "4.16. The founder takes `founder_pending`."
+      ],
+      "discriminator": [
+        12,
+        232,
+        155,
+        24,
+        29,
+        218,
+        112,
+        189
+      ],
+      "accounts": [
+        {
+          "name": "founder",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "coin"
+          ]
+        },
+        {
+          "name": "coin",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin.city_id",
+                "account": "CurveCoin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "forward_holders_fees",
+      "docs": [
+        "4.15. Permissionless: pay `holders_pending` to the city's checked",
+        "`vicinity_rewards` WSOL vault (followed by a top-level `SyncNative`)."
+      ],
+      "discriminator": [
+        186,
+        118,
+        17,
+        159,
+        254,
+        15,
+        108,
+        10
+      ],
+      "accounts": [
+        {
+          "name": "launchpad",
+          "docs": [
+            "`admin` is read: the rewards config's authority must equal it."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "coin",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin.city_id",
+                "account": "CurveCoin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rewards_city_config",
+          "docs": [
+            "rewards program and the address is derived from the coin mint; the",
+            "handler reads and checks its fields."
+          ]
+        },
+        {
+          "name": "rewards_vault",
+          "docs": [
+            "The city's rewards vault: derived from the config under the rewards",
+            "program, a classic WSOL token account owned by the config PDA."
+          ],
+          "writable": true
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_launchpad",
+      "docs": [
+        "4.1. One-time: create the global `Launchpad`. Only the program's upgrade",
+        "authority can call it; the admin signs too."
+      ],
+      "discriminator": [
+        114,
+        181,
+        7,
+        128,
+        0,
+        24,
+        234,
+        119
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Becomes `launchpad.admin`; signs so the stored admin is a live key."
+          ],
+          "signer": true
+        },
+        {
+          "name": "upgrade_authority",
+          "docs": [
+            "Must be the program's current upgrade authority."
+          ],
+          "signer": true
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "loader and the address is derived from this program id; the handler",
+            "reads the upgrade authority from its 45-byte header."
+          ]
+        },
+        {
+          "name": "launchpad",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "guardian",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "launch",
+      "docs": [
+        "4.10. The approved founder launches the city's coin."
+      ],
+      "discriminator": [
+        153,
+        241,
+        93,
+        225,
+        22,
+        69,
+        74,
+        61
+      ],
+      "accounts": [
+        {
+          "name": "founder",
+          "docs": [
+            "Must be `approval.founder`."
+          ],
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays every rent, the launch fee and Metaplex's own fee (usually the",
+            "founder)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "launchpad",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "approval",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112,
+                  114,
+                  111,
+                  118,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "city_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rent_payer",
+          "writable": true,
+          "relations": [
+            "approval"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "approval.config_id",
+                "account": "Approval"
+              }
+            ]
+          }
+        },
+        {
+          "name": "coin",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "city_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "coin_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ticker_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  99,
+                  107,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "approval.symbol",
+                "account": "Approval"
+              }
+            ]
+          }
+        },
+        {
+          "name": "metadata",
+          "docs": [
+            "by the Metaplex CPI."
+          ],
+          "writable": true
+        },
+        {
+          "name": "fee_recipient",
+          "writable": true
+        },
+        {
+          "name": "legacy_coin"
+        },
+        {
+          "name": "legacy_approval"
+        },
+        {
+          "name": "legacy_launchpad",
+          "docs": [
+            "discriminator), whose launches must be paused and whose admin must be",
+            "this program's admin with no transfer pending (GOV-1)."
+          ]
+        },
+        {
+          "name": "metadata_program"
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Classic SPL Token, never Token-2022 (R3)."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "docs": [
+            "Required by the Metaplex CPI wrapper."
+          ],
+          "address": "SysvarRent111111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "city_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "opt_in_payout",
+      "docs": [
+        "4.18. The founder opts in to daily payouts to the payout wallet."
+      ],
+      "discriminator": [
+        89,
+        18,
+        174,
+        106,
+        197,
+        228,
+        30,
+        139
+      ],
+      "accounts": [
+        {
+          "name": "founder",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "coin"
+          ]
+        },
+        {
+          "name": "launchpad",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "coin",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin.city_id",
+                "account": "CurveCoin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "opt_in",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  121,
+                  111,
+                  117,
+                  116,
+                  95,
+                  111,
+                  112,
+                  116,
+                  95,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "expected_destination",
+          "type": "pubkey"
+        },
+        {
+          "name": "ref_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "payout_founder_fees",
+      "docs": [
+        "4.20. The payout key pays an opted-in founder's share to the payout",
+        "wallet, at most daily."
+      ],
+      "discriminator": [
+        149,
+        146,
+        116,
+        194,
+        121,
+        14,
+        148,
+        155
+      ],
+      "accounts": [
+        {
+          "name": "payout_authority",
+          "signer": true
+        },
+        {
+          "name": "launchpad",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "coin",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin.city_id",
+                "account": "CurveCoin"
+              }
+            ]
+          },
+          "relations": [
+            "opt_in"
+          ]
+        },
+        {
+          "name": "opt_in",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  121,
+                  111,
+                  117,
+                  116,
+                  95,
+                  111,
+                  112,
+                  116,
+                  95,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "destination_wallet",
+          "writable": true
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "propose_admin",
+      "docs": [
+        "4.2. Step one of the admin transfer (zero cancels)."
+      ],
+      "discriminator": [
+        121,
+        214,
+        199,
+        212,
+        87,
+        39,
+        117,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "launchpad"
+          ]
+        },
+        {
+          "name": "launchpad",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_admin",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "revoke_approval",
+      "docs": [
+        "4.9. Close a pending approval (the admin, or anyone once expired)."
+      ],
+      "discriminator": [
+        44,
+        51,
+        184,
+        108,
+        182,
+        202,
+        20,
+        53
+      ],
+      "accounts": [
+        {
+          "name": "by",
+          "signer": true
+        },
+        {
+          "name": "launchpad",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "approval",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112,
+                  114,
+                  111,
+                  118,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "city_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rent_payer",
+          "writable": true,
+          "relations": [
+            "approval"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "city_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "revoke_payout_opt_in",
+      "docs": [
+        "4.19. Close a payout opt-in (current founder or its signer)."
+      ],
+      "discriminator": [
+        152,
+        168,
+        194,
+        21,
+        175,
+        36,
+        9,
+        178
+      ],
+      "accounts": [
+        {
+          "name": "by",
+          "docs": [
+            "`coin.founder` or `opt_in.founder`."
+          ],
+          "signer": true
+        },
+        {
+          "name": "coin",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin.city_id",
+                "account": "CurveCoin"
+              }
+            ]
+          },
+          "relations": [
+            "opt_in"
+          ]
+        },
+        {
+          "name": "opt_in",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  121,
+                  111,
+                  117,
+                  116,
+                  95,
+                  111,
+                  112,
+                  116,
+                  95,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "opt_in_founder",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "sell",
+      "docs": [
+        "4.12. Exact-in sell on the curve or in the pool."
+      ],
+      "discriminator": [
+        51,
+        230,
+        133,
+        164,
+        1,
+        127,
+        131,
+        173
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "docs": [
+            "Owns `user_token_account` and receives `sol_out` lamports. If it holds",
+            "0 lamports, the payout must reach the rent-exempt minimum of an empty",
+            "account or the runtime refuses the transaction (14.3)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "coin",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin.city_id",
+                "account": "CurveCoin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "launchpad",
+          "docs": [
+            "never read, so no setting can stop an exit."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "coin_vault",
+          "writable": true
+        },
+        {
+          "name": "user_token_account",
+          "docs": [
+            "The seller's token account of this mint."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "Unused; keeps the account list identical to `buy`'s."
+          ],
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "tokens_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_sol_out",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_guardian",
+      "docs": [
+        "4.4. Set or clear (zero) the guardian."
+      ],
+      "discriminator": [
+        147,
+        243,
+        50,
+        121,
+        154,
+        164,
+        50,
+        30
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "launchpad"
+          ]
+        },
+        {
+          "name": "launchpad",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "guardian",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "set_launch_config_enabled",
+      "docs": [
+        "4.7. Switch a config on or off for future approvals and launches."
+      ],
+      "discriminator": [
+        123,
+        210,
+        135,
+        55,
+        41,
+        13,
+        19,
+        17
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "launchpad"
+          ]
+        },
+        {
+          "name": "launchpad",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.config_id",
+                "account": "LaunchConfig"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "enabled",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "set_pause",
+      "docs": [
+        "4.4. Pause or resume launches, payouts and buys. The payout key may",
+        "only pause payouts; the guardian may only pause launches and buys."
+      ],
+      "discriminator": [
+        63,
+        32,
+        154,
+        2,
+        56,
+        103,
+        79,
+        45
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The admin, the payout key or the guardian."
+          ],
+          "signer": true
+        },
+        {
+          "name": "launchpad",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "launches",
+          "type": {
+            "option": "bool"
+          }
+        },
+        {
+          "name": "payouts",
+          "type": {
+            "option": "bool"
+          }
+        },
+        {
+          "name": "buys",
+          "type": {
+            "option": "bool"
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_payout_config",
+      "docs": [
+        "4.5. Set (or clear, with two zeros) the payout key and payout wallet."
+      ],
+      "discriminator": [
+        155,
+        25,
+        186,
+        220,
+        197,
+        36,
+        87,
+        42
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "launchpad"
+          ]
+        },
+        {
+          "name": "launchpad",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "payout_authority",
+          "type": "pubkey"
+        },
+        {
+          "name": "payout_destination",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "transfer_founder",
+      "docs": [
+        "4.17. The founder hands the seat to a co-signing key."
+      ],
+      "discriminator": [
+        1,
+        134,
+        85,
+        154,
+        198,
+        242,
+        170,
+        10
+      ],
+      "accounts": [
+        {
+          "name": "founder",
+          "signer": true,
+          "relations": [
+            "coin"
+          ]
+        },
+        {
+          "name": "new_founder",
+          "signer": true
+        },
+        {
+          "name": "launchpad",
+          "docs": [
+            "Read for the guardian and the payout key (the new founder is neither)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "coin",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin.city_id",
+                "account": "CurveCoin"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "withdraw_platform_fees",
+      "docs": [
+        "4.14. Permissionless: pay `platform_pending` to `FEE_RECIPIENT`."
+      ],
+      "discriminator": [
+        87,
+        24,
+        138,
+        122,
+        62,
+        146,
+        186,
+        199
+      ],
+      "accounts": [
+        {
+          "name": "coin",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin.city_id",
+                "account": "CurveCoin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_recipient",
+          "writable": true
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Approval",
+      "discriminator": [
+        233,
+        9,
+        153,
+        49,
+        11,
+        222,
+        59,
+        130
+      ]
+    },
+    {
+      "name": "CurveCoin",
+      "discriminator": [
+        222,
+        133,
+        204,
+        32,
+        124,
+        103,
+        133,
+        230
+      ]
+    },
+    {
+      "name": "LaunchConfig",
+      "discriminator": [
+        18,
+        161,
+        9,
+        224,
+        102,
+        145,
+        29,
+        94
+      ]
+    },
+    {
+      "name": "Launchpad",
+      "discriminator": [
+        247,
+        20,
+        16,
+        242,
+        203,
+        38,
+        169,
+        160
+      ]
+    },
+    {
+      "name": "PayoutOptIn",
+      "discriminator": [
+        81,
+        97,
+        235,
+        48,
+        126,
+        157,
+        111,
+        198
+      ]
+    },
+    {
+      "name": "TickerLock",
+      "discriminator": [
+        239,
+        106,
+        232,
+        87,
+        93,
+        121,
+        8,
+        225
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "AdminChanged",
+      "discriminator": [
+        232,
+        34,
+        31,
+        226,
+        62,
+        18,
+        19,
+        114
+      ]
+    },
+    {
+      "name": "AdminProposed",
+      "discriminator": [
+        129,
+        249,
+        226,
+        227,
+        199,
+        82,
+        110,
+        243
+      ]
+    },
+    {
+      "name": "ApprovalRevoked",
+      "discriminator": [
+        0,
+        143,
+        189,
+        167,
+        179,
+        12,
+        235,
+        123
+      ]
+    },
+    {
+      "name": "BuybackBurned",
+      "discriminator": [
+        186,
+        84,
+        241,
+        202,
+        152,
+        185,
+        0,
+        115
+      ]
+    },
+    {
+      "name": "CoinLaunched",
+      "discriminator": [
+        169,
+        65,
+        49,
+        61,
+        3,
+        18,
+        32,
+        179
+      ]
+    },
+    {
+      "name": "ConfigAdded",
+      "discriminator": [
+        128,
+        219,
+        159,
+        75,
+        72,
+        84,
+        130,
+        225
+      ]
+    },
+    {
+      "name": "ConfigEnabled",
+      "discriminator": [
+        231,
+        124,
+        194,
+        194,
+        54,
+        108,
+        82,
+        52
+      ]
+    },
+    {
+      "name": "FounderFeesClaimed",
+      "discriminator": [
+        111,
+        0,
+        77,
+        153,
+        87,
+        109,
+        200,
+        226
+      ]
+    },
+    {
+      "name": "FounderPaidOut",
+      "discriminator": [
+        227,
+        137,
+        76,
+        122,
+        164,
+        12,
+        73,
+        1
+      ]
+    },
+    {
+      "name": "FounderTransferred",
+      "discriminator": [
+        209,
+        55,
+        221,
+        177,
+        58,
+        215,
+        53,
+        189
+      ]
+    },
+    {
+      "name": "Graduated",
+      "discriminator": [
+        51,
+        241,
+        66,
+        50,
+        140,
+        245,
+        156,
+        192
+      ]
+    },
+    {
+      "name": "GuardianChanged",
+      "discriminator": [
+        152,
+        239,
+        217,
+        24,
+        162,
+        189,
+        236,
+        143
+      ]
+    },
+    {
+      "name": "HoldersFeesForwarded",
+      "discriminator": [
+        230,
+        169,
+        169,
+        68,
+        4,
+        89,
+        94,
+        109
+      ]
+    },
+    {
+      "name": "LaunchApproved",
+      "discriminator": [
+        27,
+        164,
+        238,
+        158,
+        228,
+        136,
+        31,
+        60
+      ]
+    },
+    {
+      "name": "LaunchpadInitialized",
+      "discriminator": [
+        53,
+        108,
+        116,
+        169,
+        67,
+        140,
+        109,
+        98
+      ]
+    },
+    {
+      "name": "PauseChanged",
+      "discriminator": [
+        238,
+        188,
+        213,
+        78,
+        134,
+        209,
+        178,
+        218
+      ]
+    },
+    {
+      "name": "PayoutConfigChanged",
+      "discriminator": [
+        58,
+        122,
+        116,
+        88,
+        134,
+        122,
+        16,
+        183
+      ]
+    },
+    {
+      "name": "PayoutOptInRevoked",
+      "discriminator": [
+        180,
+        218,
+        130,
+        253,
+        235,
+        178,
+        103,
+        199
+      ]
+    },
+    {
+      "name": "PayoutOptedIn",
+      "discriminator": [
+        63,
+        54,
+        202,
+        122,
+        25,
+        59,
+        114,
+        87
+      ]
+    },
+    {
+      "name": "PlatformFeesWithdrawn",
+      "discriminator": [
+        21,
+        216,
+        172,
+        170,
+        221,
+        168,
+        147,
+        193
+      ]
+    },
+    {
+      "name": "Trade",
+      "discriminator": [
+        24,
+        254,
+        218,
+        152,
+        253,
+        43,
+        18,
+        81
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Unauthorized",
+      "msg": "signer is not allowed to do this"
+    },
+    {
+      "code": 6001,
+      "name": "NotUpgradeAuthority",
+      "msg": "signer is not the program's upgrade authority"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidAddress",
+      "msg": "a pinned address, PDA, owner, size or discriminator check failed"
+    },
+    {
+      "code": 6003,
+      "name": "NoPendingAdmin",
+      "msg": "no admin transfer is pending"
+    },
+    {
+      "code": 6004,
+      "name": "NotPendingAdmin",
+      "msg": "signer is not the pending admin"
+    },
+    {
+      "code": 6005,
+      "name": "LaunchesPaused",
+      "msg": "launches are paused"
+    },
+    {
+      "code": 6006,
+      "name": "PayoutsPaused",
+      "msg": "payouts are paused"
+    },
+    {
+      "code": 6007,
+      "name": "PayoutsNotConfigured",
+      "msg": "opted-in payouts are not configured"
+    },
+    {
+      "code": 6008,
+      "name": "PayoutKeyNotSeparate",
+      "msg": "the admin, the payout key and the payout wallet must be three different keys, and neither payout key nor payout wallet may be the guardian or the fee recipient"
+    },
+    {
+      "code": 6009,
+      "name": "ConfigDisabled",
+      "msg": "this launch config is disabled"
+    },
+    {
+      "code": 6010,
+      "name": "ConfigCount",
+      "msg": "65,535 launch configs reached"
+    },
+    {
+      "code": 6011,
+      "name": "ConfigFeeTotal",
+      "msg": "V1: the five fee shares must add up to 1 to 250 basis points"
+    },
+    {
+      "code": 6012,
+      "name": "ConfigFeeShareCap",
+      "msg": "V2: platform share above 1.2%, founder share above 1.0%, or a founder or holders share that leaves less than 0.01% of the fee"
+    },
+    {
+      "code": 6013,
+      "name": "ConfigSupply",
+      "msg": "V3: curve and pool supplies out of range"
+    },
+    {
+      "code": 6014,
+      "name": "ConfigCurveBounds",
+      "msg": "V4: virtual reserves out of range, or a buyback cap could be 0"
+    },
+    {
+      "code": 6015,
+      "name": "ConfigGraduation",
+      "msg": "V5: the curve must complete at exactly graduation_sol (1 to 10,000 SOL) and the last buy must add at least one lamport"
+    },
+    {
+      "code": 6016,
+      "name": "ConfigAbsorption",
+      "msg": "V6: the curve would leave dust (x0 * y0 > (y0 - S)^2)"
+    },
+    {
+      "code": 6017,
+      "name": "ConfigContinuity",
+      "msg": "V7: the pool must open at most 1 part per billion below the curve's last price, never above"
+    },
+    {
+      "code": 6018,
+      "name": "ConfigBuybackMev",
+      "msg": "V8: the buyback could be sandwiched at a profit"
+    },
+    {
+      "code": 6019,
+      "name": "ConfigLaunchFee",
+      "msg": "V9: launch fee above 0.5 SOL"
+    },
+    {
+      "code": 6020,
+      "name": "BadCityId",
+      "msg": "city_id must be at least 1"
+    },
+    {
+      "code": 6021,
+      "name": "BadName",
+      "msg": "coin name must be 1 to 32 bytes of visible characters, with single spaces only between them"
+    },
+    {
+      "code": 6022,
+      "name": "BadSymbol",
+      "msg": "ticker must be 1 to 10 characters A-Z or 0-9"
+    },
+    {
+      "code": 6023,
+      "name": "BadExpiry",
+      "msg": "expiry must be in the future and at most 30 days away"
+    },
+    {
+      "code": 6024,
+      "name": "ApprovalExpired",
+      "msg": "this approval has expired"
+    },
+    {
+      "code": 6025,
+      "name": "ApprovalNotExpired",
+      "msg": "only the admin may revoke an approval that has not expired"
+    },
+    {
+      "code": 6026,
+      "name": "CoinAlreadyLaunched",
+      "msg": "this city already has a coin"
+    },
+    {
+      "code": 6027,
+      "name": "TickerTaken",
+      "msg": "this ticker is already taken"
+    },
+    {
+      "code": 6028,
+      "name": "LegacyCoinExists",
+      "msg": "this city has a coin under vicinity_launchpad"
+    },
+    {
+      "code": 6029,
+      "name": "WrongFounder",
+      "msg": "signer is not this coin's founder"
+    },
+    {
+      "code": 6030,
+      "name": "ZeroAmount",
+      "msg": "amount must be greater than zero"
+    },
+    {
+      "code": 6031,
+      "name": "TradeTooSmall",
+      "msg": "a buy must be at least 0.0001 SOL"
+    },
+    {
+      "code": 6032,
+      "name": "ZeroOutput",
+      "msg": "this trade would return nothing"
+    },
+    {
+      "code": 6033,
+      "name": "SlippageExceeded",
+      "msg": "price moved beyond the slippage limit"
+    },
+    {
+      "code": 6034,
+      "name": "SellExceedsCurve",
+      "msg": "cannot sell more coins than the curve has sold"
+    },
+    {
+      "code": 6035,
+      "name": "SameAccount",
+      "msg": "the user token account belongs to the coin"
+    },
+    {
+      "code": 6036,
+      "name": "WrongTokenAccount",
+      "msg": "wrong token account: other mint, or not owned by the seller"
+    },
+    {
+      "code": 6037,
+      "name": "RentFloor",
+      "msg": "this debit would breach the rent part plus the coin's liabilities"
+    },
+    {
+      "code": 6038,
+      "name": "WrongRewardsConfig",
+      "msg": "the city's rewards config must pay holders only, in WSOL, through this vault, for this coin, with the admin as its authority and no transfer pending"
+    },
+    {
+      "code": 6039,
+      "name": "WrongRewardsVault",
+      "msg": "wrong rewards vault"
+    },
+    {
+      "code": 6040,
+      "name": "DestinationMismatch",
+      "msg": "payout destination does not match"
+    },
+    {
+      "code": 6041,
+      "name": "OptInFounderMismatch",
+      "msg": "the payout opt-in was signed by another founder"
+    },
+    {
+      "code": 6042,
+      "name": "PayoutTooSoon",
+      "msg": "at most one payout per coin per 24 hours"
+    },
+    {
+      "code": 6043,
+      "name": "TradingHalted",
+      "msg": "trading is halted (halt-all build)"
+    },
+    {
+      "code": 6044,
+      "name": "MathOverflow",
+      "msg": "arithmetic overflow"
+    },
+    {
+      "code": 6045,
+      "name": "ConfigDripFarmable",
+      "msg": "V10: the liquidity share must be 0 or below the platform share"
+    },
+    {
+      "code": 6046,
+      "name": "ConfigBuybackHorizon",
+      "msg": "V11: a multi-run buyback hold would pay off too soon"
+    },
+    {
+      "code": 6047,
+      "name": "LegacyApprovalExists",
+      "msg": "this city has a pending approval under vicinity_launchpad"
+    },
+    {
+      "code": 6048,
+      "name": "LegacyLaunchesOpen",
+      "msg": "vicinity_launchpad launches are not paused"
+    },
+    {
+      "code": 6049,
+      "name": "BuysHalted",
+      "msg": "buys are halted"
+    },
+    {
+      "code": 6050,
+      "name": "BadMetaHash",
+      "msg": "meta_hash must not be all zeros"
+    },
+    {
+      "code": 6051,
+      "name": "LegacyAdminMismatch",
+      "msg": "vicinity_launchpad's admin must be this program's admin, with no admin transfer pending"
+    },
+    {
+      "code": 6052,
+      "name": "FeeRecipientRole",
+      "msg": "the fee recipient cannot be the admin, the proposed admin, the guardian, the upgrade authority at init or a coin's founder"
+    },
+    {
+      "code": 6053,
+      "name": "FounderHoldsRole",
+      "msg": "a coin's founder cannot be the guardian or the payout key"
+    }
+  ],
+  "types": [
+    {
+      "name": "AdminChanged",
+      "docs": [
+        "`accept_admin` (4.3)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "old_admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdminProposed",
+      "docs": [
+        "`propose_admin` (4.2); a zero `pending_admin` cancels."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Approval",
+      "docs": [
+        "One per city while pending; seeds `[\"approval\", city_id u64 LE]`; at most",
+        "181 bytes (3.6). Closed by `launch` or `revoke_approval`, rent to",
+        "`rent_payer`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "docs": [
+              "Offset 8."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "founder",
+            "docs": [
+              "Offset 16. The only wallet that may launch this city's coin."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "config_id",
+            "docs": [
+              "Offset 48. The config the coin must use."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "rent_payer",
+            "docs": [
+              "Offset 50. Receives the rent on close."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "meta_hash",
+            "docs": [
+              "Offset 82. SHA-256 of the metadata JSON the website serves (3.10);",
+              "nonzero."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "name",
+            "docs": [
+              "Offset 114. Coin name (`check_name`)."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "docs": [
+              "City ticker, `A-Z0-9` (`check_symbol`)."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "approved_at",
+            "docs": [
+              "Unix time of the approval."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "expires_at",
+            "docs": [
+              "At most 30 days after `approved_at`."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump of `[\"approval\", city_id LE]`."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ApprovalRevoked",
+      "docs": [
+        "`revoke_approval` (4.9)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "by",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BuybackBurned",
+      "docs": [
+        "`buyback_burn` (4.13, 7.1)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "phase",
+            "type": "u8"
+          },
+          {
+            "name": "sol_spent",
+            "docs": [
+              "Lamports moved from `buyback_pending` into the reserve."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "tokens_burned",
+            "docs": [
+              "Raw coins burned by this run."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "cap",
+            "docs": [
+              "`floor(depth * t / (25 * D))` at execution."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "buyback_pending_after",
+            "type": "u64"
+          },
+          {
+            "name": "tokens_burned_total",
+            "docs": [
+              "`Coin.tokens_burned` after this run."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "supply_after",
+            "docs": [
+              "`mint.supply` after the burn."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "virtual_sol_after",
+            "type": "u64"
+          },
+          {
+            "name": "virtual_tokens_after",
+            "type": "u64"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CoinLaunched",
+      "docs": [
+        "`launch` (4.10)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "founder",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "config_id",
+            "type": "u16"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "uri",
+            "docs": [
+              "`METADATA_URI_PREFIX + mint + \".json\"`."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "meta_hash",
+            "docs": [
+              "SHA-256 of the metadata JSON the website serves at `uri` (3.10)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "supply_minted",
+            "docs": [
+              "`COIN_SUPPLY`, minted once."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "dust_burned",
+            "docs": [
+              "`COIN_SUPPLY - curve_supply - pool_supply`, burned in the same",
+              "instruction."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "curve_supply",
+            "type": "u64"
+          },
+          {
+            "name": "pool_supply",
+            "type": "u64"
+          },
+          {
+            "name": "graduation_sol",
+            "type": "u64"
+          },
+          {
+            "name": "virtual_sol",
+            "type": "u64"
+          },
+          {
+            "name": "virtual_tokens",
+            "type": "u64"
+          },
+          {
+            "name": "liquidity_bps",
+            "type": "u16"
+          },
+          {
+            "name": "platform_bps",
+            "type": "u16"
+          },
+          {
+            "name": "founder_bps",
+            "type": "u16"
+          },
+          {
+            "name": "holders_bps",
+            "type": "u16"
+          },
+          {
+            "name": "buyback_bps",
+            "type": "u16"
+          },
+          {
+            "name": "total_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "launch_fee",
+            "docs": [
+              "Lamports paid to `FEE_RECIPIENT` in this instruction."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigAdded",
+      "docs": [
+        "`add_launch_config` (4.6): every field of the new config."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config_id",
+            "type": "u16"
+          },
+          {
+            "name": "liquidity_bps",
+            "type": "u16"
+          },
+          {
+            "name": "platform_bps",
+            "type": "u16"
+          },
+          {
+            "name": "founder_bps",
+            "type": "u16"
+          },
+          {
+            "name": "holders_bps",
+            "type": "u16"
+          },
+          {
+            "name": "buyback_bps",
+            "type": "u16"
+          },
+          {
+            "name": "total_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "virtual_sol",
+            "type": "u64"
+          },
+          {
+            "name": "virtual_tokens",
+            "type": "u64"
+          },
+          {
+            "name": "curve_supply",
+            "type": "u64"
+          },
+          {
+            "name": "pool_supply",
+            "type": "u64"
+          },
+          {
+            "name": "graduation_sol",
+            "type": "u64"
+          },
+          {
+            "name": "launch_fee_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigEnabled",
+      "docs": [
+        "`set_launch_config_enabled` (4.7)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config_id",
+            "type": "u16"
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigParams",
+      "docs": [
+        "The arguments of `add_launch_config` (4.6): what `validate_config` checks."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "liquidity_bps",
+            "type": "u16"
+          },
+          {
+            "name": "platform_bps",
+            "type": "u16"
+          },
+          {
+            "name": "founder_bps",
+            "type": "u16"
+          },
+          {
+            "name": "holders_bps",
+            "type": "u16"
+          },
+          {
+            "name": "buyback_bps",
+            "type": "u16"
+          },
+          {
+            "name": "virtual_sol",
+            "type": "u64"
+          },
+          {
+            "name": "virtual_tokens",
+            "type": "u64"
+          },
+          {
+            "name": "curve_supply",
+            "type": "u64"
+          },
+          {
+            "name": "pool_supply",
+            "type": "u64"
+          },
+          {
+            "name": "graduation_sol",
+            "type": "u64"
+          },
+          {
+            "name": "launch_fee_lamports",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CurveCoin",
+      "docs": [
+        "One per city, permanent; seeds `[\"coin\", city_id u64 LE]`; 693 bytes with",
+        "fixed offsets (3.7). This file calls it `Coin`; the Rust name gives it the",
+        "discriminator `sha256(\"account:CurveCoin\")[..8]`, distinct from the old",
+        "program's `Coin`.",
+        "",
+        "All of the coin's SOL is held as native lamports of this account",
+        "(`rent_reserve` + the reserve of its phase + the five buckets, plus any",
+        "donation); its coins sit in the vault PDA `[\"coin_vault\", coin]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "layout_version",
+            "docs": [
+              "Offset 8. 1."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "phase",
+            "docs": [
+              "Offset 9. 0 Curve, 1 Pool; only 0 to 1, once."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Offset 10."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "mint_bump",
+            "docs": [
+              "Offset 11."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "vault_bump",
+            "docs": [
+              "Offset 12."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "config_id",
+            "docs": [
+              "Offset 13. Config it launched under (display; terms are copied below)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "city_id",
+            "docs": [
+              "Offset 15."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "mint",
+            "docs": [
+              "Offset 23. PDA `[\"mint\", coin]`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "docs": [
+              "Offset 55. PDA `[\"coin_vault\", coin]`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "founder",
+            "docs": [
+              "Offset 87. Receives the founder share; changes only in `transfer_founder`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "symbol",
+            "docs": [
+              "Offset 119. Ticker, zero padded."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                10
+              ]
+            }
+          },
+          {
+            "name": "liquidity_bps",
+            "docs": [
+              "Offset 129. Frozen copy (R4)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "platform_bps",
+            "docs": [
+              "Offset 131."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "founder_bps",
+            "docs": [
+              "Offset 133."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "holders_bps",
+            "docs": [
+              "Offset 135."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "buyback_bps",
+            "docs": [
+              "Offset 137."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "total_fee_bps",
+            "docs": [
+              "Offset 139. `t`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "virtual_sol",
+            "docs": [
+              "Offset 141. `x0`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "virtual_tokens",
+            "docs": [
+              "Offset 149. `y0`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "curve_supply",
+            "docs": [
+              "Offset 157. `S`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pool_supply",
+            "docs": [
+              "Offset 165. `P`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "graduation_sol",
+            "docs": [
+              "Offset 173. `R`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "dust_burned",
+            "docs": [
+              "Offset 181. `COIN_SUPPLY - S - P`, burned at launch."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "tokens_sold",
+            "docs": [
+              "Offset 189. `s`; equals `S` after graduation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "curve_sol",
+            "docs": [
+              "Offset 197. `r = f(s)` on the curve; frozen at `R` after graduation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pool_sol",
+            "docs": [
+              "Offset 205. `X`; 0 on the curve."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pool_tokens",
+            "docs": [
+              "Offset 213. `Y`; 0 on the curve."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "liquidity_pending",
+            "docs": [
+              "Offset 221. `L`: curve-phase liquidity share not yet in the pool."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "platform_pending",
+            "docs": [
+              "Offset 229. Owed to `FEE_RECIPIENT`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "founder_pending",
+            "docs": [
+              "Offset 237. Owed to the founder."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "holders_pending",
+            "docs": [
+              "Offset 245. Owed to the rewards vault."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "buyback_pending",
+            "docs": [
+              "Offset 253. Waiting to be spent on buyback."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "launched_at",
+            "docs": [
+              "Offset 261."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "launch_slot",
+            "docs": [
+              "Offset 269."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "graduated_at",
+            "docs": [
+              "Offset 277. 0 on the curve."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "graduation_slot",
+            "docs": [
+              "Offset 285. 0 on the curve."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "last_buyback_slot",
+            "docs": [
+              "Offset 293. Rate limit (= `launch_slot` until the first buyback)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "last_payout_at",
+            "docs": [
+              "Offset 301. 24-hour payout cooldown."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "payout_seq",
+            "docs": [
+              "Offset 309. Payout receipt number."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "trade_seq",
+            "docs": [
+              "Offset 317. +1 per trade; gap-free."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "buyback_count",
+            "docs": [
+              "Offset 325."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "tokens_burned",
+            "docs": [
+              "Offset 333. Raw coins burned by buybacks."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "buy_volume",
+            "docs": [
+              "Offset 341. Lifetime lamports charged to buyers (fee included)."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "sell_volume",
+            "docs": [
+              "Offset 357. Lifetime gross lamports released to sellers (before fee)."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "fees_total",
+            "docs": [
+              "Offset 373. Lifetime fees."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "liquidity_earned",
+            "docs": [
+              "Offset 389. Lifetime liquidity share, rounding remainders included."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "liquidity_added",
+            "docs": [
+              "Offset 405. Lifetime lamports moved into `pool_sol` by liquidity",
+              "shares and drips."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "platform_earned",
+            "docs": [
+              "Offset 421."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "platform_withdrawn",
+            "docs": [
+              "Offset 437."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "founder_earned",
+            "docs": [
+              "Offset 453."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "founder_claimed",
+            "docs": [
+              "Offset 469."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "founder_paid_out",
+            "docs": [
+              "Offset 485."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "holders_earned",
+            "docs": [
+              "Offset 501."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "holders_forwarded",
+            "docs": [
+              "Offset 517."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "buyback_earned",
+            "docs": [
+              "Offset 533."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "buyback_spent",
+            "docs": [
+              "Offset 549. Lamports moved from the buyback bucket into the reserve."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "meta_hash",
+            "docs": [
+              "Offset 565. Copied from the approval (3.10)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "rent_reserve",
+            "docs": [
+              "Offset 597. `Rent::minimum_balance(693)` at launch: the rent part of",
+              "the account's lamports, used by `pay_out` (6.5)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Offset 605. Zero."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                88
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FounderFeesClaimed",
+      "docs": [
+        "`claim_founder_fees` (4.16)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "founder",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "total_claimed",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FounderPaidOut",
+      "docs": [
+        "`payout_founder_fees` (4.20)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "founder",
+            "type": "pubkey"
+          },
+          {
+            "name": "destination",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "seq",
+            "type": "u64"
+          },
+          {
+            "name": "ref_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "total_paid_out",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FounderTransferred",
+      "docs": [
+        "`transfer_founder` (4.17)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "old",
+            "type": "pubkey"
+          },
+          {
+            "name": "new",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Graduated",
+      "docs": [
+        "The buy that takes the last curve coin (5.6)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool_sol",
+            "docs": [
+              "`R`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pool_tokens",
+            "docs": [
+              "`P`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "liquidity_pending",
+            "docs": [
+              "The curve-phase liquidity set aside for the drip (5.8)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "last_virtual_sol",
+            "docs": [
+              "The curve's last virtual reserves, `(x0 + R, y0 - S)`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "last_virtual_tokens",
+            "type": "u64"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GuardianChanged",
+      "docs": [
+        "`set_guardian` (4.4)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "old",
+            "type": "pubkey"
+          },
+          {
+            "name": "new",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "HoldersFeesForwarded",
+      "docs": [
+        "`forward_holders_fees` (4.15)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "rewards_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_forwarded",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LaunchApproved",
+      "docs": [
+        "`approve_launch` (4.8)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "founder",
+            "type": "pubkey"
+          },
+          {
+            "name": "config_id",
+            "type": "u16"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "meta_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LaunchConfig",
+      "docs": [
+        "One per allowed split and curve; seeds `[\"config\", config_id u16 LE]`;",
+        "144 bytes; immutable except `enabled` (3.5)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config_id",
+            "docs": [
+              "Offset 8. Equals the seed."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "enabled",
+            "docs": [
+              "Offset 10. Admin switch for new approvals and launches only."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Offset 11."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "liquidity_bps",
+            "docs": [
+              "Offset 12. `b_L`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "platform_bps",
+            "docs": [
+              "Offset 14. `b_P`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "founder_bps",
+            "docs": [
+              "Offset 16. `b_F`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "holders_bps",
+            "docs": [
+              "Offset 18. `b_H`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "buyback_bps",
+            "docs": [
+              "Offset 20. `b_B`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "total_fee_bps",
+            "docs": [
+              "Offset 22. Sum of the five."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "virtual_sol",
+            "docs": [
+              "Offset 24. `x0`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "virtual_tokens",
+            "docs": [
+              "Offset 32. `y0`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "curve_supply",
+            "docs": [
+              "Offset 40. `S`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pool_supply",
+            "docs": [
+              "Offset 48. `P`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "graduation_sol",
+            "docs": [
+              "Offset 56. `R`, which must equal `f(S)`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "launch_fee_lamports",
+            "docs": [
+              "Offset 64. Paid to `FEE_RECIPIENT` at launch."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Offset 72."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Offset 80. Zero."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Launchpad",
+      "docs": [
+        "One per program; seeds `[\"launchpad\"]`; 238 bytes (3.4).",
+        "",
+        "There is no fee-recipient field, no program-id field and no coin counter",
+        "(3.2). `buy`, `buyback_burn` and `launch` read `buys_halted`; `sell` never",
+        "reads this account."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "docs": [
+              "Offset 8. Approves launches, adds and enables configs, sets any pause",
+              "flag either way, sets the payout key and wallet and the guardian."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_admin",
+            "docs": [
+              "Offset 40. Second step of an admin transfer; zero = none."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "payout_authority",
+            "docs": [
+              "Offset 72. Key that may run opted-in founder payouts; zero = off."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "payout_destination",
+            "docs": [
+              "Offset 104. System-owned wallet that receives opted-in payouts; zero = off."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "guardian",
+            "docs": [
+              "Offset 136. May only set `launches_paused` and `buys_halted` to true;",
+              "zero = none."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "launches_paused",
+            "docs": [
+              "Offset 168. Blocks `launch`."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "payouts_paused",
+            "docs": [
+              "Offset 169. Blocks `payout_founder_fees`."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "buys_halted",
+            "docs": [
+              "Offset 170. Blocks `buy`, `buyback_burn` and `launch`; never an exit."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "next_config_id",
+            "docs": [
+              "Offset 171. Id of the next `LaunchConfig`; sequential from 0."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Offset 173."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Offset 174. Zero."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LaunchpadInitialized",
+      "docs": [
+        "`init_launchpad` (4.1)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "upgrade_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "guardian",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PauseChanged",
+      "docs": [
+        "`set_pause` (4.4): the flags after the change and who changed them."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "launches_paused",
+            "type": "bool"
+          },
+          {
+            "name": "payouts_paused",
+            "type": "bool"
+          },
+          {
+            "name": "buys_halted",
+            "type": "bool"
+          },
+          {
+            "name": "by",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PayoutConfigChanged",
+      "docs": [
+        "`set_payout_config` (4.5)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "old_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_destination",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_destination",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PayoutOptIn",
+      "docs": [
+        "One per coin while its founder is opted in; seeds `[\"payout_opt_in\",",
+        "coin]`; 145 bytes (3.9)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "coin",
+            "docs": [
+              "Offset 8."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "founder",
+            "docs": [
+              "Offset 40. Who signed; must still equal `coin.founder` at every payout."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "agreed_destination",
+            "docs": [
+              "Offset 72. Copy of `launchpad.payout_destination` when the founder",
+              "signed; every payout must match it and the current setting."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "ref_hash",
+            "docs": [
+              "Offset 104. SHA-256 of the off-chain reference, never a name or an",
+              "account number."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "opted_in_at",
+            "docs": [
+              "Offset 136."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Offset 144."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PayoutOptInRevoked",
+      "docs": [
+        "`revoke_payout_opt_in` (4.19)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "founder",
+            "docs": [
+              "The founder who signed the opt-in."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "by",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PayoutOptedIn",
+      "docs": [
+        "`opt_in_payout` (4.18)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "founder",
+            "type": "pubkey"
+          },
+          {
+            "name": "destination",
+            "type": "pubkey"
+          },
+          {
+            "name": "ref_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlatformFeesWithdrawn",
+      "docs": [
+        "`withdraw_platform_fees` (4.14)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "total_withdrawn",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TickerLock",
+      "docs": [
+        "One per ticker, permanent; seeds `[\"ticker\", symbol bytes]`; 49 bytes (3.8)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "docs": [
+              "Offset 8."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "mint",
+            "docs": [
+              "Offset 16."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Offset 48."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Trade",
+      "docs": [
+        "Every `buy` and `sell` (4.11, 4.12)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "is_buy",
+            "type": "bool"
+          },
+          {
+            "name": "phase",
+            "docs": [
+              "Phase the trade executed in (0 Curve, 1 Pool); a graduating buy",
+              "executes in phase 0."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "sol_in",
+            "docs": [
+              "Buy: lamports offered (`sol_in`). Sell: 0."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "sol_amount",
+            "docs": [
+              "Buy: lamports charged. Sell: gross lamports released before the fee."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "sol_net",
+            "docs": [
+              "Buy: lamports into the curve or pool. Sell: lamports paid to the user."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "token_amount",
+            "docs": [
+              "Raw coins bought or sold."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "fee_liquidity",
+            "type": "u64"
+          },
+          {
+            "name": "fee_platform",
+            "type": "u64"
+          },
+          {
+            "name": "fee_founder",
+            "type": "u64"
+          },
+          {
+            "name": "fee_holders",
+            "type": "u64"
+          },
+          {
+            "name": "fee_buyback",
+            "type": "u64"
+          },
+          {
+            "name": "liquidity_dripped",
+            "docs": [
+              "Lamports moved from `liquidity_pending` into `pool_sol` (0 on the curve)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "partial",
+            "docs": [
+              "`sol_amount < sol_in` (only the buy that completes the curve)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "graduated",
+            "docs": [
+              "This buy completed the curve (a `Graduated` event follows)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "virtual_sol_after",
+            "docs": [
+              "Virtual reserves of the market after the trade: curve",
+              "`(x0 + curve_sol, y0 - tokens_sold)`, pool `(pool_sol, pool_tokens)`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "virtual_tokens_after",
+            "type": "u64"
+          },
+          {
+            "name": "tokens_sold",
+            "type": "u64"
+          },
+          {
+            "name": "curve_sol",
+            "type": "u64"
+          },
+          {
+            "name": "pool_sol",
+            "type": "u64"
+          },
+          {
+            "name": "pool_tokens",
+            "type": "u64"
+          },
+          {
+            "name": "liquidity_pending",
+            "type": "u64"
+          },
+          {
+            "name": "trade_seq",
+            "docs": [
+              "+1 per trade, gap-free per coin."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "APPROVAL_MAX_SECS",
+      "docs": [
+        "An approval lasts at most 30 days."
+      ],
+      "type": "i64",
+      "value": "2592000"
+    },
+    {
+      "name": "BPS",
+      "docs": [
+        "Basis-point denominator `D`."
+      ],
+      "type": "u64",
+      "value": "10000"
+    },
+    {
+      "name": "BUYBACK_CAP_DIVISOR",
+      "docs": [
+        "`C`: a buyback spends at most `depth * total_fee_bps / (C * D)`."
+      ],
+      "type": "u64",
+      "value": "25"
+    },
+    {
+      "name": "BUYBACK_INTERVAL_SLOTS",
+      "docs": [
+        "At most one buyback per coin per interval; the first at least this many",
+        "slots after launch."
+      ],
+      "type": "u64",
+      "value": "150"
+    },
+    {
+      "name": "BUYBACK_MIN_HORIZON_RUNS",
+      "docs": [
+        "V11 horizon for any trader."
+      ],
+      "type": "u64",
+      "value": "20"
+    },
+    {
+      "name": "BUYBACK_MIN_HORIZON_RUNS_FOUNDER",
+      "docs": [
+        "V11 horizon for an attacker credited his own share."
+      ],
+      "type": "u64",
+      "value": "15"
+    },
+    {
+      "name": "COIN_DECIMALS",
+      "docs": [
+        "Decimals of every coin (R8)."
+      ],
+      "type": "u8",
+      "value": "6"
+    },
+    {
+      "name": "COIN_SUPPLY",
+      "docs": [
+        "1,000,000,000 coins at 6 decimals, minted once per coin (R8)."
+      ],
+      "type": "u64",
+      "value": "1000000000000000"
+    },
+    {
+      "name": "CONTINUITY_PPB",
+      "docs": [
+        "V7: the pool opens at most this many parts per 10^9 below the curve's last",
+        "price, never above."
+      ],
+      "type": "u64",
+      "value": "1"
+    },
+    {
+      "name": "FEE_RECIPIENT",
+      "docs": [
+        "R9: the only destination of platform fees and launch fees. Changing it",
+        "needs a program upgrade."
+      ],
+      "type": "pubkey",
+      "value": "13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN"
+    },
+    {
+      "name": "LEGACY_ADMIN_AT",
+      "docs": [
+        "Offset of `admin` in the old program's `Launchpad` (8.5, GOV-1): it must",
+        "be this program's admin at every approval and launch."
+      ],
+      "type": "u64",
+      "value": "8"
+    },
+    {
+      "name": "LEGACY_LAUNCHES_PAUSED_AT",
+      "docs": [
+        "Offset of `launches_paused` in the old program's `Launchpad`."
+      ],
+      "type": "u64",
+      "value": "168"
+    },
+    {
+      "name": "LEGACY_LAUNCHPAD",
+      "docs": [
+        "The old program's global account, `find_program_address([\"launchpad\"],",
+        "LEGACY_PROGRAM_ID)` (mainnet build; unit test U12 checks the derivation)."
+      ],
+      "type": "pubkey",
+      "value": "4g9KRZ76Mpw6HCCu713yEGzm1txdCod3S1SugL7M9GwN"
+    },
+    {
+      "name": "LEGACY_LAUNCHPAD_DISCRIMINATOR",
+      "docs": [
+        "`sha256(\"account:Launchpad\")[..8]`: the old program's `Launchpad`",
+        "discriminator (equal to this program's, the struct keeps its name)."
+      ],
+      "type": {
+        "array": [
+          "u8",
+          8
+        ]
+      },
+      "value": "[247, 20, 16, 242, 203, 38, 169, 160]"
+    },
+    {
+      "name": "LEGACY_LAUNCHPAD_LEN",
+      "docs": [
+        "Size of the old program's `Launchpad` (discriminator, five Pubkeys,",
+        "`launches_paused`, `payouts_paused`, `bump`)."
+      ],
+      "type": "u64",
+      "value": "171"
+    },
+    {
+      "name": "LEGACY_PENDING_ADMIN_AT",
+      "docs": [
+        "Offset of `pending_admin` in the old program's `Launchpad`: it must be",
+        "zero at every approval and launch."
+      ],
+      "type": "u64",
+      "value": "40"
+    },
+    {
+      "name": "LEGACY_PROGRAM_ID",
+      "docs": [
+        "The old `vicinity_launchpad` program whose `Coin`, `Approval` and",
+        "`Launchpad` accounts are checked for R1 (mainnet build)."
+      ],
+      "type": "pubkey",
+      "value": "AkMP9qvAYmb8Vyu63Qhw8Z4ee1fgQbCRKkXWy5r5A1Ai"
+    },
+    {
+      "name": "MAX_DUST_RAW",
+      "docs": [
+        "Most raw units a config may burn at launch."
+      ],
+      "type": "u64",
+      "value": "1000000000"
+    },
+    {
+      "name": "MAX_FOUNDER_FEE_BPS",
+      "docs": [
+        "A founder's share never exceeds 1.0% (V2), and never the whole fee (V2b)."
+      ],
+      "type": "u16",
+      "value": "100"
+    },
+    {
+      "name": "MAX_GRADUATION_LAMPORTS",
+      "docs": [
+        "Largest graduation target, 10,000 SOL."
+      ],
+      "type": "u64",
+      "value": "10000000000000"
+    },
+    {
+      "name": "MAX_LAUNCH_FEE_LAMPORTS",
+      "docs": [
+        "R8 cap on a config's launch fee, 0.5 SOL."
+      ],
+      "type": "u64",
+      "value": "500000000"
+    },
+    {
+      "name": "MAX_NAME_LEN",
+      "docs": [
+        "Longest on-chain coin name (Metaplex limit), in bytes."
+      ],
+      "type": "u8",
+      "value": "32"
+    },
+    {
+      "name": "MAX_PLATFORM_FEE_BPS",
+      "docs": [
+        "Vicinity's own share never exceeds 1.2% (V2)."
+      ],
+      "type": "u16",
+      "value": "120"
+    },
+    {
+      "name": "MAX_SYMBOL_LEN",
+      "docs": [
+        "Longest ticker (Metaplex limit), in bytes of `A-Z0-9`."
+      ],
+      "type": "u8",
+      "value": "10"
+    },
+    {
+      "name": "MAX_TOTAL_FEE_BPS",
+      "docs": [
+        "A config's five shares never add up to more than 2.5% (R2, V1)."
+      ],
+      "type": "u16",
+      "value": "250"
+    },
+    {
+      "name": "MAX_VIRTUAL",
+      "docs": [
+        "Bound on `virtual_sol` and `virtual_tokens` (2^60)."
+      ],
+      "type": "u64",
+      "value": "1152921504606846976"
+    },
+    {
+      "name": "METADATA_URI_PREFIX",
+      "docs": [
+        "Every coin's metadata URI is this prefix, the mint (base58) and \".json\"."
+      ],
+      "type": "string",
+      "value": "\"https://vicinity.city/coin-meta/\""
+    },
+    {
+      "name": "METAPLEX_PROGRAM_ID",
+      "docs": [
+        "Metaplex Token Metadata program (metadata for classic SPL coins)."
+      ],
+      "type": "pubkey",
+      "value": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+    },
+    {
+      "name": "MEV_MAX_PERCENT",
+      "docs": [
+        "V8: the conservative single-run bound is at most this percentage."
+      ],
+      "type": "u64",
+      "value": "99"
+    },
+    {
+      "name": "MIN_GRADUATION_LAMPORTS",
+      "docs": [
+        "Smallest graduation target, 1 SOL."
+      ],
+      "type": "u64",
+      "value": "1000000000"
+    },
+    {
+      "name": "MIN_TOTAL_FEE_BPS",
+      "docs": [
+        "Smallest total fee of a config (V1), and the least a trader credited the",
+        "founder's or the holders' share pays per leg (V2b)."
+      ],
+      "type": "u16",
+      "value": "1"
+    },
+    {
+      "name": "MIN_TRADE_LAMPORTS",
+      "docs": [
+        "Smallest `sol_in` of a buy, 0.0001 SOL; sells have no minimum (O5)."
+      ],
+      "type": "u64",
+      "value": "100000"
+    },
+    {
+      "name": "NATIVE_MINT",
+      "docs": [
+        "Reward mint of every city's rewards vault (WSOL)."
+      ],
+      "type": "pubkey",
+      "value": "So11111111111111111111111111111111111111112"
+    },
+    {
+      "name": "PAYOUT_COOLDOWN_SECS",
+      "docs": [
+        "At most one opted-in payout per coin per 24 hours."
+      ],
+      "type": "i64",
+      "value": "86400"
+    },
+    {
+      "name": "REWARDS_PROGRAM_ID",
+      "docs": [
+        "Owner of every `vicinity_rewards` city config and vault the holders' share",
+        "may go to (mainnet build; the localnet tests load the real program here)."
+      ],
+      "type": "pubkey",
+      "value": "EVwxp3V9YSvsyDEjp39B9wRDQxHR2xF2CNeR8AMRYrgG"
+    }
+  ]
+}

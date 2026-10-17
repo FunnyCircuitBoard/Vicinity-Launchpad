@@ -43,6 +43,13 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo clippy --all-targets --features short-windows -- -D warnings
       - run: cargo test
+      # vicinity_curve's other two builds (VICINITY-CURVE-DESIGN.md 3.1, 8.3):
+      # `devnet` (the compiled devnet ids) and `halt-all` (the emergency build
+      # whose eight outflow instructions refuse with TradingHalted).
+      - run: cargo clippy -p vicinity-curve --all-targets --features devnet -- -D warnings
+      - run: cargo clippy -p vicinity-curve --all-targets --features halt-all -- -D warnings
+      - run: cargo test -p vicinity-curve --features devnet
+      - run: cargo test -p vicinity-curve --features halt-all
   anchor:
     name: anchor build and anchor test
     runs-on: ubuntu-latest
@@ -85,6 +92,9 @@ jobs:
       - run: solana --version | grep -q "${AGAVE_VERSION}" && anchor --version
       - run: npm ci
       - run: npm run sdk-test
+      # vicinity_curve client SDK (sdk/curve): the BigInt math port replays the math crate's
+      # golden vectors; builders, decoders and events against the committed IDL
+      - run: npm run sdk-test:curve
       - run: npm run typecheck
       - name: Production build (no features)
         run: anchor build
@@ -102,6 +112,14 @@ jobs:
       # dumped from mainnet; the dump script checks their pinned SHA-256.
       - name: Launchpad committed IDL matches the production build
         run: diff target/idl/vicinity_launchpad.json sdk/idl/vicinity_launchpad.json
+      # vicinity_curve: the client IDL is committed (the deployed binary has no
+      # IDL instructions, VICINITY-CURVE-DESIGN.md 8.4); `npm run vcurve:idl`
+      # regenerates it. Then the production, devnet and halt-all SBF builds,
+      # each recompiled, must print no "Stack offset ... exceeded" warning (C04).
+      - name: Curve committed IDL matches the production build
+        run: diff target/idl/vicinity_curve.json sdk/idl/vicinity_curve.json
+      - name: Curve SBF builds (production, devnet, halt-all) without stack warnings
+        run: npm run vcurve:sbf
       - run: npm run sdk-test:launchpad
       - name: Launchpad TypeScript SDK type check
         run: npm run typecheck:launchpad
@@ -109,6 +127,21 @@ jobs:
         run: npm run launchpad:fixtures
       - name: Launchpad in-process tests
         run: npm run test:launchpad
+      # vicinity_curve in litesvm: one coin's life on the production build,
+      # then the halt-all build over the live state (every outflow refuses)
+      # and back (stage 2 smoke; it loads the binaries of the "Curve SBF
+      # builds" step and the Metaplex dump of the fixtures step).
+      - name: Curve in-process smoke test (production and halt-all builds)
+        run: npm run test:vcurve
+      # A test-only mock router (tests-curve/router, never deployed) for G02, G03 and R02b of 12.5.
+      - name: Curve test router (G02, G03, R02b)
+        run: npm run curve:router
+      # vicinity_curve lifecycle suites (VICINITY-CURVE-DESIGN.md 12.3 and 12.5) on the
+      # production build of `anchor build` and the halt-all build above, with the committed
+      # mainnet binaries of vicinity_rewards and vicinity_launchpad and the pinned Metaplex
+      # and DBC dumps; every invariant of section 9 after every transaction.
+      - name: Curve in-process lifecycle suites
+        run: npm run test:curve
       # The deadline, sweep and close_claim_status tests need an epoch whose
       # claim window passes during the run: the test-only `short-windows`
       # feature lowers MIN_CLAIM_WINDOW_SECS to 60 s. This rebuilds the program

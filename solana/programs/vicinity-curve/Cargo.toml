@@ -1,0 +1,59 @@
+[package]
+name = "vicinity-curve"
+version = "0.1.0"
+description = "Vicinity Curve: one coin per city with its own bonding curve, graduation into its own pool, fee buckets, payouts and buyback-and-burn, without Meteora (VICINITY-CURVE-DESIGN.md)"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "vicinity_curve"
+
+[features]
+# `no-idl` is a default feature (VICINITY-CURVE-DESIGN.md 3.1 and 8.4): every
+# build, the verifiable build included, leaves Anchor's IDL instructions out of
+# the binary, so nobody can create the legacy on-chain IDL account. The IDL JSON
+# is generated with `idl-build` (`anchor build`) and committed at
+# sdk/idl/vicinity_curve.json.
+default = ["no-idl"]
+no-idl = []
+# Switches the compiled ids of 3.2 (vicinity_rewards, the old
+# vicinity_launchpad and its Launchpad PDA) to the devnet deployments.
+devnet = []
+# The pre-audited emergency build (8.3): the eight instructions that move
+# lamports or tokens out of a Coin or its vault fail with TradingHalted.
+halt-all = []
+# Anchor's standard program features (not policy).
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+# Accepted and ignored: vicinity_rewards' full test run builds the whole
+# workspace with `anchor test -- --features short-windows`, and CI runs clippy
+# with it, so every member must accept the flag. It changes nothing here.
+short-windows = []
+
+[dependencies]
+# Pinned exactly (3.1). `event-cpi`: every money movement is an event CPI (4.21).
+# No `init-if-needed`: every account this program creates uses plain `init` (T29).
+anchor-lang = { version = "=0.31.2", features = ["event-cpi"] }
+# Classic SPL Token and the Metaplex CPI wrapper. Three more features are
+# needed only to compile: `token_2022` and `token_2022_extensions`, because the
+# code Anchor generates for the `init` of a mint names
+# `anchor_spl::token_interface` and its extension initialisers (none is used:
+# no extension constraint is set), and `associated_token`, because anchor-spl's
+# `metadata` module names the associated token program id in a wrapper this
+# program never calls. Every token account, mint and program in this crate is
+# classic SPL Token (`anchor_spl::token` types and `Program<Token>`); no
+# instruction takes the associated token program. VICINITY-CURVE-NOTES.md entry 18.
+anchor-spl = { version = "=0.31.2", default-features = false, features = ["token", "token_2022", "token_2022_extensions", "associated_token", "metadata"] }
+# Not used directly: pins the exact 5.x version that anchor-spl's `metadata`
+# feature resolves (anchor-spl asks for "^5"), as 3.1 requires.
+mpl-token-metadata = "=5.1.1"
+# The pure integer math: the program calls it for every number it computes (5.16).
+vicinity-curve-math = { path = "../../crates/vicinity-curve-math" }
+
+[dev-dependencies]
+# Only for reading the committed vicinity_launchpad IDL in unit test U12.
+serde_json = "1"
