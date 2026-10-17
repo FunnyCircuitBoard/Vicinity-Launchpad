@@ -166,3 +166,17 @@ test('I5 and I6 inside one transaction: the graduating buy, two pool trades and 
   assert.ok(w.tokenBalance(vAta) > 0n);
   await w.finish();
 });
+
+test('the checker reads every coin a transaction can touch: a coin loaded only through its metadata account (found by the long F02 run at step 22,047)', async () => {
+  const w = await World.create();
+  const a = await w.launchCoin({ cityId: 2_040n, symbol: 'META' });
+  const b = await w.launchCoin({ cityId: 2_041n, symbol: 'METB' });
+  const u = await w.signer(10n);
+  // a buy of A that also lists B's metadata account (an extra account the program ignores)
+  const ixs = w.buyIxs(u, a, LAMPORTS, 0n);
+  const buy = ixs[ixs.length - 1];
+  ixs[ixs.length - 1] = { ...buy, accounts: [...buy.accounts, { address: S.metadataAddress(b.mint), role: S.Role.R }] };
+  await w.send(ixs, [u], 'buy of A listing the metadata of B');
+  w.addHolder(a.mint, u);
+  await w.finish();
+});

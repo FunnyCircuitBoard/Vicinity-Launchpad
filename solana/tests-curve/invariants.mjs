@@ -143,7 +143,8 @@ export function snapshot(w, keys) {
     else assert.fail(`unknown account ${acc.address} owned by vicinity_curve (${acc.data.length} bytes)`);
   }
   for (const c of coins.values()) {
-    if (keys && !(keys.has(c.address) || keys.has(c.vault) || keys.has(c.mint))) { c.vaultAmount = undefined; c.mintInfo = { supply: undefined }; continue; }
+    // the same criterion as checkTransaction's: the Coin, its vault, its mint or its metadata loaded
+    if (keys && !(keys.has(c.address) || keys.has(c.vault) || keys.has(c.mint) || keys.has(metadataOf(c.mint)))) { c.vaultAmount = undefined; c.mintInfo = { supply: undefined }; continue; }
     c.vaultAmount = tokenAccountInfo(w.accountInfo(c.vault))?.amount ?? null;
     c.mintInfo = mintInfo(w.accountInfo(c.mint));
   }
@@ -945,10 +946,11 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
     }
   }
   for (const [k, cfg] of post.configs) {
+    const old = pre.configs.get(k);
+    if (old && old.raw.equals(cfg.raw)) continue; // unchanged since the transaction that last checked it
     assert.equal(k, P.config(cfg.configId));
     assert.equal(S.validateConfig(S.configParamsOf(cfg)), true, `${label}: I20 config ${cfg.configId} passes V1 to V11`);
     assert.equal(cfg.totalFeeBps, cfg.liquidityBps + cfg.platformBps + cfg.founderBps + cfg.holdersBps + cfg.buybackBps);
-    const old = pre.configs.get(k);
     if (old) {
       const a = Buffer.from(old.raw); const b = Buffer.from(cfg.raw);
       a[10] = 0; b[10] = 0;
