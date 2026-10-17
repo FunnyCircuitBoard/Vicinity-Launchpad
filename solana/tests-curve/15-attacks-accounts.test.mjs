@@ -16,7 +16,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { address, generateKeyPairSigner } from '@solana/kit';
 import web3 from '@solana/web3.js';
-import { World, S, expectFail, mintInfo, readMetadata, tokenAccountInfo, metaHash, mintData, LAMPORTS, DAY } from './helpers.mjs';
+import { World, S, expectFail, mintInfo, readMetadata, tokenAccountInfo, metaHash, LAMPORTS, DAY } from './helpers.mjs';
 
 const { PublicKey } = web3;
 const R = S.Role;
@@ -130,6 +130,12 @@ test('X06 metadata address at launch: every substitute of the Metaplex PDA is re
   // the Metaplex program slot: another executable program is refused before any CPI
   for (const prog of [S.CLUSTERS.mainnet.rewardsProgram, S.CLUSTERS.mainnet.legacyProgram, S.ADDRESSES.token]) {
     await refuse(w, watch, () => w.send([w.ix.launch({ founder: founder.address, cityId: 1510n, configId: 0, symbol: 'META', rentPayer: w.admin.address, overrides: { metadata_program: prog } })], [founder], `launch with metadata_program ${prog.slice(0, 6)}`), 'InvalidAddress');
+  }
+  // the other fixed slots of launch: the Rent sysvar, System, the fee recipient
+  const randomKey = (await generateKeyPairSigner()).address;
+  for (const [slot, addr, ...codes] of [['rent', randomKey, 'AccountSysvarMismatch', /sysvar|Sysvar/], ['rent', S.ADDRESSES.system, 'AccountSysvarMismatch', /sysvar|Sysvar/],
+    ['system_program', S.ADDRESSES.token, 'InvalidProgramId'], ['fee_recipient', founder.address, 'InvalidAddress'], ['legacy_launchpad', randomKey, 'InvalidAddress'], ['legacy_approval', w.P.legacyApproval(1511n), 'InvalidAddress']]) {
+    await refuse(w, watch, () => w.send([w.ix.launch({ founder: founder.address, cityId: 1510n, configId: 0, symbol: 'META', rentPayer: w.admin.address, overrides: { [slot]: addr } })], [founder], `launch with ${slot} := ${addr.slice(0, 6)}`), ...codes);
   }
   const h = await w.launch({ cityId: 1510n, founder });
   assert.equal(readMetadata(w.accountInfo(right).data).mint, h.mint);

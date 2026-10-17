@@ -19,7 +19,6 @@ import { generateKeyPairSigner } from '@solana/kit';
 import { World, S, expectFail, metaHash, tokenAccountInfo, LAMPORTS, DAY } from './helpers.mjs';
 
 const { PublicKey } = web3;
-const ZERO = S.ADDRESSES.system;
 const pkb = (a) => new PublicKey(String(a)).toBuffer();
 const fingerprint = (w, addrs) => addrs.map((a) => { const x = w.accountInfo(a); return x ? `${a}:${x.lamports}:${x.owner}:${x.data.toString('hex')}` : `${a}:none`; });
 async function refuse(w, watch, fn, ...codes) {
@@ -400,5 +399,73 @@ test('X52, X53 a stolen founder key reaches only founder_pending; a lost one lea
   w.warpSlots(150n);
   await w.buyback(h); await w.withdraw(h); await w.forward(h);
   await w.buy(u, h, 100n * LAMPORTS, { label: 'graduation after the loss' });
+  await w.finish();
+});
+
+// ---------------------------------------------------------------- X44b: hostile but valid configs
+test('X44 the most hostile configs V1 to V11 still accept (10,000 SOL graduation, a 999-coin pool, a 0.01% fee, a 1.5% buyback with a 1% founder share) run a whole life with every invariant, round trips lose, the founder cannot sandwich his buyback, and the buyback cap never reaches 0 (T69)', async () => {
+  const w = await World.create();
+  const D = S.DEFAULT_CONFIG;
+  const derive = (S_, P, R) => { const [x0, y0] = S.deriveCurve(S_, P, R, 64n); return { virtualSol: x0, virtualTokens: y0, curveSupply: S_, poolSupply: P, graduationSol: R }; };
+  const configs = [
+    ['10,000 SOL graduation', { ...D, ...derive(D.curveSupply, D.poolSupply, 10_000_000_000_000n) }],
+    ['a 999-coin pool', { ...D, ...derive(999_000_000_000_000n, 999_000_000_000n, 85_000_000_000n) }],
+    ['a 0.01% fee to the platform only', { ...D, liquidityBps: 0n, platformBps: 1n, founderBps: 0n, holdersBps: 0n, buybackBps: 0n }],
+    ['a 1.5% buyback and a 1% founder share', { ...D, liquidityBps: 0n, platformBps: 0n, founderBps: 100n, holdersBps: 0n, buybackBps: 150n }],
+  ];
+  let city = 1995n;
+  const report = [];
+  for (const [label, p] of configs) {
+    assert.equal(S.configRule(p), null, `${label} passes V1 to V11`);
+    const id = await w.addConfig(p);
+    const founder = await w.signer(0n);
+    w.setRaw(founder.address, Buffer.alloc(0), S.ADDRESSES.system, 30_000n * LAMPORTS);
+    const h = await w.launchCoin({ cityId: city, symbol: `HOST${city}`, configId: id, founder });
+    city++;
+    const terms = S.coinTerms(w.coinView(h));
+    const u = await w.signer(0n);
+    w.setRaw(u.address, Buffer.alloc(0), S.ADDRESSES.system, 30_000n * LAMPORTS);
+    // curve: a round trip loses exactly the fees
+    const b = await w.buy(u, h, 5n * LAMPORTS, { label: `${label}: buy` });
+    const s = await w.sell(u, h, b.q.tokensOut, { label: `${label}: sell back` });
+    assert.equal(b.q.charged - s.q.solOut, b.q.split.fee + s.q.split.fee);
+    // the founder sandwiches his own coin's buyback, credited his share
+    if (terms.buybackBps > 0n) {
+      await w.buy(u, h, 50n * LAMPORTS, { label: `${label}: volume for a backlog` });
+      w.warpSlots(150n);
+      await w.claim(h, founder, { label: 'empty bucket' });
+      const l0 = w.lamportsOf(founder.address);
+      const fb = await w.buy(founder, h, 10n * LAMPORTS, { label: `${label}: founder front-runs` });
+      await w.buyback(h, { label: `${label}: the run` });
+      await w.sell(founder, h, fb.q.tokensOut, { label: `${label}: founder back-runs` });
+      await w.claim(h, founder, { label: 'claim his shares' });
+      const pnl = w.lamportsOf(founder.address) - l0 + w.svm.minimumBalanceForRentExemption(165n);
+      assert.ok(pnl < 0n, `${label}: founder sandwich ${pnl}`);
+      report.push(`${label}: founder sandwich ${(Number(pnl) / 1e9).toFixed(4)} SOL`);
+    }
+    // graduation at exactly R, then the pool: a round trip within 5.15, buybacks, every exit
+    const g = await w.buy(u, h, S.maxQuoteIn(terms, S.coinState(w.coinView(h))), { label: `${label}: graduating buy` });
+    assert.equal(g.q.graduates, true);
+    const c = w.coinView(h);
+    assert.deepEqual([c.poolSol, c.poolTokens], [terms.graduationSol, terms.poolSupply]);
+    const v = await w.signer(500n);
+    const pb = await w.buy(v, h, 2n * LAMPORTS, { label: `${label}: pool buy` });
+    const ps = await w.sell(v, h, pb.q.tokensOut, { label: `${label}: pool sell` });
+    const bound = (pb.q.charged * (S.BPS - terms.totalFeeBps) * (S.BPS - terms.totalFeeBps + 2n * terms.liquidityBps)) / (S.BPS * S.BPS) + 6n;
+    assert.ok(ps.q.solOut <= bound && ps.q.solOut < pb.q.charged, `${label}: pool round trip ${ps.q.solOut} of ${pb.q.charged}`);
+    w.warpSlots(150n);
+    await w.buyback(h, { label: `${label}: pool buyback` });
+    // the whole float sold back into the pool: the reserves stay positive and every bucket can be paid
+    await w.sell(u, h, w.balanceOf(u, h.mint), { label: `${label}: everything sold back` });
+    await w.withdraw(h, { label: `${label}: withdraw` });
+    await w.claim(h, founder, { label: `${label}: claim` });
+    const end = w.coinView(h);
+    assert.ok(end.poolSol >= 1n && end.poolTokens >= 1n);
+    // T69: the pool never falls below R * P / 10^15, so V4 keeps a buyback cap of at least one lamport (no stuck bucket)
+    assert.ok(end.poolSol * S.COIN_SUPPLY >= terms.graduationSol * terms.poolSupply, 'pool SOL above R * P / 10^15');
+    assert.ok(S.buybackCap(terms, S.coinState(end)) >= 1n, 'T69: a cap of at least one lamport');
+    report.push(`${label}: pool after the float came back ${end.poolSol} lamports / ${end.poolTokens} raw units`);
+  }
+  console.log(`X44 hostile configs: ${report.join(' | ')}`);
   await w.finish();
 });

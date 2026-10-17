@@ -443,3 +443,18 @@ test('X21 two graduating-size buys in one transaction: the first graduates, the 
   assert.deepEqual([view(w, h).tokensSold, view(w, h).curveSol], [T.curveSupply, T.graduationSol]);
   await w.finish();
 });
+
+test('X42 the Launchpad marked writable by a trader: trades never write it (any sender may take a write lock on any account he names; NOTES entry 33)', async () => {
+  const w = await World.create();
+  const h = await w.launchCoin({ cityId: 1697n, symbol: 'LOCK' });
+  const u = await trader(w, h, 50n);
+  const lp0 = w.accountInfo(w.P.launchpad()).data;
+  const writable = (ix) => ({ ...ix, accounts: ix.accounts.map((m) => (m.address === w.P.launchpad() ? { ...m, role: S.Role.W } : m)) });
+  const b = await w.send([writable(buyIx(w, u, h, LAMPORTS))], [u], 'buy with the Launchpad writable');
+  const q = b.events.find((e) => e.name === 'Trade').data;
+  await w.send([writable(sellIx(w, u, h, q.token_amount / 2n))], [u], 'sell with the Launchpad writable');
+  w.warpSlots(150n);
+  await w.send([writable(w.ix.buybackBurn({ coin: h.coin }))], [], 'buyback with the Launchpad writable', { feePayer: w.keeper });
+  assert.ok(w.accountInfo(w.P.launchpad()).data.equals(lp0), 'the Launchpad is never written by a trade or a crank');
+  await w.finish();
+});

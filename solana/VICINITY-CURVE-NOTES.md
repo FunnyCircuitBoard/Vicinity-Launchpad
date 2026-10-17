@@ -708,3 +708,32 @@ attacks, and victims never pay the fee, so their balances must be exactly unchan
 * For the checker's owner: `checkFailedTransaction` charges every failed transaction its fee, but a
   transaction refused before execution (a missing or empty fee payer) pays none; X61 sends that case
   through LiteSVM directly.
+* Graduation-boundary sandwiches (file 17): a victim whose own price impact is below twice the fee
+  (a 0.3 SOL buy at 80 SOL raised, 0.53%) cannot be sandwiched at a profit at any front-run size; a
+  victim with 5.39% impact (3 SOL) and 1% slippage can be, by at most 0.000753 SOL, within his
+  tolerance (5.15); a front-run that takes the curve past graduation is refused against the victim's
+  minimum and loses 0.33 SOL. A backlog the founder makes himself by wash trading (0.95 SOL on the
+  curve, 2.85 SOL in the pool) and holds through every run loses 6.3 to 18.1 SOL (7.3); founder wash
+  trading loses 2.00% of its volume on the curve and 1.95% in the pool (7.4).
+
+* X44, the most hostile configs that V1 to V11 still accept, each through a whole life with the
+  checker after every transaction: graduation at 10,000 SOL (x0 = 3,529.5 SOL), a pool of 999 coins
+  (x0 = 0.085 SOL: a 1 SOL first buy takes about 92% of the curve, which is the config's economics,
+  not a defect), a 0.01% fee to the platform only, and a 1.5% buyback with a 1% founder share. Round
+  trips lose, the founder's sandwich of his own buyback loses 0.28 to 0.39 SOL, and after the whole
+  float is sold back the pool keeps at least `R * P / 10^15` and a buyback cap of at least one
+  lamport (T69).
+
+**Observations for the auditors (no change made; each matches the specification as written).**
+
+* Any sender may mark any account he names writable, so an attacker can take write locks on the
+  `Launchpad` in his own transactions; every `buy` and `buyback_burn` reads it (`buys_halted`), and
+  `sell` names it to keep one account list. Trades never write it (X42 checks the bytes), so this is
+  only scheduler contention across all coins, the usual cost of one global halt flag.
+* `user_token_account.owner != coin` (T54) excludes the token accounts of this coin's PDA only; a
+  buyer may still deliver coins to a token account owned by another program's PDA (another coin's
+  PDA included), from which they can never move. That harms only the sender.
+* `check_payout_keys_separate` (4.5) keeps the payout key and wallet apart from the admin and
+  `FEE_RECIPIENT` but not from the guardian, so the admin could name the guardian (whose table row
+  in 8.1 says it cannot touch money) as the payout wallet. Adding `launchpad.guardian` to the rule
+  (and the payout wallet to `set_guardian`'s checks) would be a specification change.

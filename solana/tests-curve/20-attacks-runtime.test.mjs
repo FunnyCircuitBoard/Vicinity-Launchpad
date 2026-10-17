@@ -172,7 +172,6 @@ test('X63 the Rent sysvar raised by 10%: a sell, a claim, a withdrawal and a for
   await w.withdraw(big, { label: 'withdraw under the raised rent' });
   await w.forward(big, { label: 'forward under the raised rent' });
   // the thin coin holds rent_reserve + 650,000 >= the live minimum; a sell taking it below is refused by the runtime's rent rule
-  const c = view(w, thin);
   assert.ok(w.lamportsOf(thin.coin) >= live, 'exempt under the new rent before the sell');
   const q = S.quoteSell(T, st(w, thin), tb.q.tokensOut);
   assert.ok(w.lamportsOf(thin.coin) - q.solOut < live, 'the sell would leave it below the live minimum');
@@ -202,7 +201,6 @@ test('X63 the Rent sysvar raised by 10%: a sell, a claim, a withdrawal and a for
   if (top2 > 0n) await w.send([sysTransfer(donor.address, bare.coin, top2)], [donor], 'top-up of the bare coin', { lamportDonation: { coin: bare.coin, amount: top2 } });
   await w.buy(u, bare, S.MIN_TRADE_LAMPORTS, { label: 'a small buy after the top-up' });
   console.log(`X63: rent ${old} -> ${live} for a Coin; a small buy into an untraded coin below the live minimum was ${smallRefused ? 'refused by the runtime (InsufficientFundsForRent) until a top-up' : 'accepted by the runtime (a credit may leave an account below the minimum)'}`);
-  void c;
   // the old rent back, the probe on again
   w.svm.setRent(rent0);
   w.probeEach = probe;
