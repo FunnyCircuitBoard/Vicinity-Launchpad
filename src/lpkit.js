@@ -222,9 +222,12 @@ export const wholeAccount = (a) => Boolean(a && typeof a === "object" && !Array.
  * `strict` (the official city-coin list, src/officialcoins.js): each entry must be null (no account) or a whole account
  * (wholeAccount), and the answer's own slot must be a slot at or after `minContextSlot`; anything else throws rpc_bad_answer, so a
  * malformed answer can never pass for "no account" or "not a pool". Without it any falsy entry reads as null (no account).
+ * `withSlot` (the founder's status, src/lplaunch.js founderFees): { accounts: that Map, slot } instead, `slot` the latest slot the
+ * answers were at (null when an answer named none), so a page can tell whether another reading is newer.
  */
-export async function readAccounts(env, addresses, fetchImpl = fetch, { commitment = "confirmed", route = null, minContextSlot = null, strict = false } = {}) {
+export async function readAccounts(env, addresses, fetchImpl = fetch, { commitment = "confirmed", route = null, minContextSlot = null, strict = false, withSlot = false } = {}) {
   const out = new Map();
+  let at = 0, slotless = false;
   const list = [...new Set(addresses)];
   const min = Number.isSafeInteger(minContextSlot) && minContextSlot > 0 ? minContextSlot : null;
   const config = { encoding: "base64", commitment, ...(min ? { minContextSlot: min } : {}) };
@@ -239,8 +242,10 @@ export async function readAccounts(env, addresses, fetchImpl = fetch, { commitme
       if (v.some((a) => a !== null && !wholeAccount(a))) throw new Error("rpc_bad_answer");
     }
     chunk.forEach((a, j) => out.set(a, strict ? v[j] : v[j] || null));
+    const slot = r.context && r.context.slot;
+    if (Number.isSafeInteger(slot) && slot > 0) at = Math.max(at, slot); else slotless = true;
   }
-  return out;
+  return withSlot ? { accounts: out, slot: at > 0 && !slotless ? at : null } : out;
 }
 
 /* ---------------------------------------------------------------- the cluster guards */

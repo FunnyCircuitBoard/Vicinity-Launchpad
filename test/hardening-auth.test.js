@@ -115,6 +115,8 @@ test("the numbers: verify 30, transfer 30 and pair 20 per 10 minutes per connect
     fees: { max: 60, windowMs: MIN },
     // the official city coins (GET /official-coins.csv and /api/official-coins, src/officialcoins.js): one chain reading on an edge-cache miss
     official_coins: { max: 60, windowMs: MIN },
+    // one official city coin's fees so far (GET /api/fee-status, src/feestatus.js): one chain reading on an edge-cache miss
+    fee_status: { max: 60, windowMs: MIN },
   });
   assert.deepEqual(STATUS_LIMIT, { max: 60, windowMs: MIN });
   assert.deepEqual(WALLET_LIMIT, { max: 15, windowMs: MIN });

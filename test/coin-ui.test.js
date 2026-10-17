@@ -177,9 +177,17 @@ test("the built page: built from scripts/pages, the Launch tab is current, every
 });
 
 test("the script keeps the rules: only this site's API, no markup from text, outside links only to the sites they name, 30 s refresh only while looked at", () => {
-  assert.doesNotMatch(src, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|\bfetch\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon|console\.|localStorage|sessionStorage|document\.cookie/);
+  assert.doesNotMatch(src, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|\bfetch\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon|console\.|localStorage|document\.cookie/);
+  // storage: one read of what this tab's dashboard kept after a Collect (public/lp-launch.js noteCollected: a chain slot by coin;
+  // noteUnclear: the viewer's clock time of one whose outcome it could not tell), so "Fees so far" never shows a reading from before
+  // it; nothing is ever written
+  assert.deepEqual(src.match(/sessionStorage\.\w+/g), ["sessionStorage.getItem"]);
+  assert.match(src, /JSON\.parse\(window\.sessionStorage\.getItem\(COLLECTED_KEY\) \|\| "\{\}"\)/);
+  assert.match(src, /COLLECTED_KEY = "lp-collected-slot";/);
+  assert.match(read("lp-launch.js"), /const COLLECTED_KEY = "lp-collected-slot";/, "the dashboard's own key");
+  assert.doesNotMatch(src, /setItem|removeItem/);
   const calls = [...src.matchAll(/\bapi\(([^)]*)\)/g)].map((m) => m[1]).sort();
-  assert.deepEqual(calls, ['"/api/holders"', '"/api/official"', "`/api/coin/chart?mint=${encodeURIComponent(mint", "`/api/coin?mint=${encodeURIComponent(mint", "`/api/fees?mint=${encodeURIComponent(d.mint"], "our own API, nothing else (the fees of a launchpad coin come from /api/fees)");
+  assert.deepEqual(calls, ['"/api/holders"', '"/api/official"', "`/api/coin/chart?mint=${encodeURIComponent(mint", "`/api/coin?mint=${encodeURIComponent(mint", "`/api/fee-status?mint=${encodeURIComponent(d.mint", "`/api/fees?mint=${encodeURIComponent(d.mint"], "our own API, nothing else (the fees of a launchpad coin come from /api/fees, its fees so far from /api/fee-status)");
   const hosts = [...new Set([...src.matchAll(/https?:\/\/([a-z0-9.-]+)/g)].map((m) => m[1]))].sort();
   assert.deepEqual(hosts, ["solscan.io", "www.geckoterminal.com", "x.com"], "links only (the trade links come from the server and are checked by safeLink)");
   assert.match(src, /const REFRESH_MS = 30000, BACKOFF = \[30000, 60000, 120000, 300000\], CHART_MS = 60000;/);

@@ -58,7 +58,7 @@ function worldRpc(w) {
         const [program, cfg] = params;
         result = w.svm.getProgramAccounts(kitAddress(program)).filter((x) => {
           const d = Buffer.from(x.data);
-          return (cfg.filters || []).every((f) => (f.dataSize != null ? d.length === f.dataSize : Buffer.from(base58Decode(f.memcmp.bytes)).equals(d.subarray(f.memcmp.offset, f.memcmp.offset + 32))));
+          return (cfg.filters || []).every((f) => (f.dataSize != null ? d.length === f.dataSize : ((want) => want.equals(d.subarray(f.memcmp.offset, f.memcmp.offset + want.length)))(Buffer.from(base58Decode(f.memcmp.bytes)))));
         }).map((x) => ({ pubkey: String(x.address), account: asRpc(x) }));
         break;
       }

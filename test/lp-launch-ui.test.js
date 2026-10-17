@@ -339,7 +339,15 @@ test("the pages: the scripts in order, the stylesheet, no inline code; lp-launch
   assert.match(COIN, /<div class="coin-grad" id="coin-grad" aria-live="polite" hidden>/);
   assert.doesNotMatch(LP_LAUNCH, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|\.style\.|setAttribute\(["']style/);
   assert.doesNotMatch(LP_LAUNCH, /\.id\s*=[^=]|setAttribute\(["']id["']/, "no element ids made");
-  assert.doesNotMatch(LP_LAUNCH, /localStorage|sessionStorage/, "nothing kept in the browser (the one-time keys live only inside lp-sign.js)");
+  // nothing kept in the browser but this tab's Collects (a public chain slot by coin, and the viewer's clock time of a Collect whose
+  // outcome the page could not tell, by coin, in sessionStorage under one key, so a reload never shows fees from before the Collect
+  // and the coin page waits after an unclear one): the one-time keys live only inside lp-sign.js
+  assert.doesNotMatch(LP_LAUNCH, /localStorage/, "nothing kept for longer than the tab");
+  assert.deepEqual([...LP_LAUNCH.matchAll(/sessionStorage\.(\w+)\(([^,)]*)/g)].map((m) => [m[1], m[2]]), [["getItem", "COLLECTED_KEY"], ["setItem", "COLLECTED_KEY"]]);
+  assert.match(LP_LAUNCH, /const COLLECTED_KEY = "lp-collected-slot";/);
+  assert.match(LP_LAUNCH, /JSON\.stringify\(\{ slots: cap\(k\.slots\), unclear: cap\(k\.unclear\) \}\)/, "one shape, written whole");
+  assert.match(LP_LAUNCH, /k\.slots\[mint\] = Math\.max\(was, n\); \/\/ only chain slots go here/);
+  assert.match(LP_LAUNCH, /k\.unclear\[mint\] = at; \/\/ only the viewer's clock times go here/);
   assert.doesNotMatch(CSS, /@import|url\(\s*["']?https?:/, "no outside host");
 });
 
@@ -472,7 +480,7 @@ test("status line: a send whose outcome is unclear (lp-sign.js onStatus extra.un
   // a step that went out, or may have with no id to watch (lp-sign.js `unclear`), is never offered twice; the founder's card also
   // drops its Cancel then, whose "Stopped. Nothing was sent." would otherwise replace these words
   assert.match(ADMIN_LP, /if \(e && \(e\.signature \|\| e\.unclear\)\) go\.remove\(\);/, "a step that went out is never offered twice");
-  assert.match(LP_LAUNCH, /if \(e && \(e\.signature \|\| e\.unclear\)\) \{ go\.remove\(\); cancel\.remove\(\); resolve\(null\); \}/);
+  assert.match(LP_LAUNCH, /if \(e && \(e\.signature \|\| e\.unclear\)\) \{\s+go\.remove\(\); cancel\.remove\(\);\s+if \(onUnclear && !NOT_LANDED\.has\(e\.code\)\) \{ try \{ await onUnclear\(e\); \} catch \{ \/\* the words above stay \*\/ \} \}\s+resolve\(null\);\s+\}/);
 });
 
 test("design v2: the city-coin sheets read the site's tokens with a fallback, the accounts sit in the site's .fold, the card head carries an .ico", () => {

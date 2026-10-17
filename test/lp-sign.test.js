@@ -128,6 +128,7 @@ for (const n of [1, 2, 3]) {
     const out = await LP.run({ wallet: w, build: build(w.address), ephemeral: n, cluster: "devnet", onSummary: (res) => { seen.push(res); return true; }, onStatus: (s) => statuses.push(s) });
     assert.equal(out.status, "confirmed");
     assert.match(out.solscan, /cluster=devnet/);
+    assert.equal(out.slot, 5, "the slot it landed in, as the status answer gave it (a later chain read can tell whether it shows it)");
     assert.equal(w.asked.length, 1);
     assert.equal(w.asked[0].chain, "solana:devnet");
     // what the wallet was shown: the one-time keys' signatures already in place, its own slot (0) still empty

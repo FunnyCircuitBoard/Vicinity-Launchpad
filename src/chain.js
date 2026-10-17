@@ -77,11 +77,12 @@ const rpcTimeout = (env) => { const n = Number(env && env.RPC_TIMEOUT_MS); retur
 /**
  * One JSON-RPC call: { result, role } (role: which endpoint answered, never its URL). `cluster` "devnet" asks the launchpad's devnet
  * node only; `url` is a caller's own first node (the launchpad's LAUNCHPAD_RPC_URL on mainnet, with SOLANA_RPC_URL_BACKUP behind it);
- * `only` keeps the call on one role. A JSON-RPC error throws rpc_<code>, as before.
+ * `only` keeps the call on one role; `maxBytes` refuses a longer answer unread (rpc_too_large, src/rpcpool.js). A JSON-RPC error
+ * throws rpc_<code>, as before.
  */
-export async function rpcAnswer(env, method, params, fetchImpl = fetch, { timeoutMs = null, url = null, cluster = null, only = null } = {}) {
+export async function rpcAnswer(env, method, params, fetchImpl = fetch, { timeoutMs = null, url = null, cluster = null, only = null, maxBytes = null } = {}) {
   const { data, role } = await rpcPost(env, { jsonrpc: "2.0", id: 1, method, params }, fetchImpl,
-    { timeoutMs: timeoutMs > 0 ? timeoutMs : rpcTimeout(env), url, cluster, only });
+    { timeoutMs: timeoutMs > 0 ? timeoutMs : rpcTimeout(env), url, cluster, only, maxBytes });
   if (data && data.error) throw new Error(`rpc_${data.error.code || "error"}`);
   return { result: data ? data.result : undefined, role };
 }

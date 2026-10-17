@@ -89,6 +89,7 @@ export function launchpad(programId) {
     coin: (cityId) => addr([enc.encode("coin"), u64le(cityId)], P),
     holdersPot: (coin) => addr([enc.encode("holders_pot"), b(coin)], P),
     founderVault: (coin) => addr([enc.encode("founder_vault"), b(coin)], P),
+    payoutOptIn: (coin) => addr([enc.encode("payout_opt_in"), b(coin)], P),
   };
 }
 

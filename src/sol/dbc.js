@@ -1,12 +1,13 @@
 /**
  * Account decoders for the accounts a curve trade reads, by the byte offsets generated from the IDLs (src/sol/layout.js):
- * our Coin, Launchpad and LaunchConfig records and Meteora DBC's VirtualPool and PoolConfig. Each decoder checks the owner
+ * our Coin, Launchpad, LaunchConfig and PayoutOptIn records and Meteora DBC's VirtualPool and PoolConfig; and, for a graduated coin's fee status
+ * (src/feestatus.js), the few fields of Meteora DAMM v2's Pool and Position that a position's unclaimed fee needs. Each decoder checks the owner
  * when given, the Anchor discriminator and the size, and returns plain values: addresses as base58, amounts as BigInt.
  * Anything that does not match answers null ("not that account"), never a guess. Parity with the SDK's anchor-based decoders
  * is proven in solana/tests-launchpad/15-worker-builder.test.mjs; the recorded devnet accounts are decoded in test/lptrade.test.js.
  */
 import { base58Encode } from "../solana.js";
-import { readI64, readU128, readU16, readU32, readU64 } from "./bytes.js";
+import { readI64, readU128, readU16, readU32, readU64, readUint } from "./bytes.js";
 import { LAYOUT } from "./layout.js";
 import { PROGRAM_IDS } from "./pda.js";
 
@@ -45,11 +46,16 @@ function decode(account, layout, owner, pick) {
 export const decodeCoin = (account, programId) => decode(account, LAYOUT.Coin, programId, {
   cityId: "city_id", founder: "founder", mint: "mint", quoteMint: "quote_mint", dbcConfig: "dbc_config", dbcPool: "dbc_pool", launchedAt: "launched_at",
   holdersAccrued: "holders_accrued", holdersForwarded: "holders_forwarded", founderAccrued: "founder_accrued", founderClaimed: "founder_claimed",
+  founderPaidOut: "founder_paid_out",
 });
 /** Our global account (["launchpad"]). */
 export const decodeLaunchpad = (account, programId) => decode(account, LAYOUT.Launchpad, programId, {
   admin: "admin", pendingAdmin: "pending_admin", payoutAuthority: "payout_authority", payoutDestination: "payout_destination", rewardsProgram: "rewards_program",
   launchesPaused: "launches_paused", payoutsPaused: "payouts_paused",
+});
+/** A founder's payout opt-in (["payout_opt_in", coin]; exists only while the founder agreed to payouts, payout_founder_fees.rs). */
+export const decodePayoutOptIn = (account, programId) => decode(account, LAYOUT.PayoutOptIn, programId, {
+  coin: "coin", founder: "founder", agreedDestination: "agreed_destination",
 });
 /** A config's allow-list entry (["launch_config", dbc config]). */
 export const decodeLaunchConfig = (account, programId) => decode(account, LAYOUT.LaunchConfig, programId, {
@@ -61,7 +67,34 @@ export const decodePool = (account) => decode(account, LAYOUT.VirtualPool, PROGR
   config: "config", creator: "creator", baseMint: "base_mint", baseVault: "base_vault", quoteVault: "quote_vault",
   baseReserve: "base_reserve", quoteReserve: "quote_reserve", sqrtPrice: "sqrt_price", isMigrated: "is_migrated", migrationProgress: "migration_progress",
   protocolQuoteFee: "protocol_quote_fee", partnerQuoteFee: "partner_quote_fee", creatorQuoteFee: "creator_quote_fee", poolType: "pool_type",
+  isCreatorWithdrawSurplus: "is_creator_withdraw_surplus",
 });
+/** A U256 stored as 32 little-endian bytes (DAMM v2's fee-per-liquidity fields), as a BigInt. */
+const u256 = (bytes, f) => readUint(bytes, f.at, 32);
+/**
+ * Meteora DAMM v2's Pool (a graduated coin's pool): its two mints, its liquidity and the cumulative fee per unit of liquidity of
+ * each token (U256, scaled by 2^128: DAMM v2's LIQUIDITY_SCALE). null when the account is not one.
+ */
+export function decodeDammPool(account) {
+  const a = accountBytes(account), L = LAYOUT.DammPool;
+  if (!a || (a.owner && a.owner !== PROGRAM_IDS.damm) || !matches(a.bytes, L)) return null;
+  const F = L.fields;
+  return {
+    tokenAMint: key(a.bytes, F.token_a_mint), tokenBMint: key(a.bytes, F.token_b_mint), liquidity: readU128(a.bytes, F.liquidity.at),
+    collectFeeMode: a.bytes[F.collect_fee_mode.at], feeAPerLiquidity: u256(a.bytes, F.fee_a_per_liquidity), feeBPerLiquidity: u256(a.bytes, F.fee_b_per_liquidity),
+  };
+}
+/** Meteora DAMM v2's Position: its pool, its NFT's mint, its token-B fee checkpoint and pending fee, and its three liquidities. */
+export function decodeDammPosition(account) {
+  const a = accountBytes(account), L = LAYOUT.DammPosition;
+  if (!a || (a.owner && a.owner !== PROGRAM_IDS.damm) || !matches(a.bytes, L)) return null;
+  const F = L.fields;
+  return {
+    pool: key(a.bytes, F.pool), nftMint: key(a.bytes, F.nft_mint), feeBPerTokenCheckpoint: u256(a.bytes, F.fee_b_per_token_checkpoint),
+    feeBPending: readU64(a.bytes, F.fee_b_pending.at), unlockedLiquidity: readU128(a.bytes, F.unlocked_liquidity.at),
+    vestedLiquidity: readU128(a.bytes, F.vested_liquidity.at), permanentLockedLiquidity: readU128(a.bytes, F.permanent_locked_liquidity.at),
+  };
+}
 /** Meteora's PoolConfig in the shape solana/sdk/launchpad/curve.mjs quotes with (curve[20] as BigInt pairs) plus what the page shows. */
 export function decodeConfig(account) {
   const a = accountBytes(account);
