@@ -9,6 +9,8 @@ import assert from 'node:assert/strict';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { getBase64EncodedWireTransaction } from '@solana/kit';
+import web3 from '@solana/web3.js';
+import { readFileSync } from 'node:fs';
 import { World, S, SOL, LAMPORTS, DAY } from './helpers.mjs';
 
 // 11.1 test budgets (asserted)
@@ -80,5 +82,33 @@ test('C01/C02 compute units per instruction against the 11.1 budgets, and the we
   mkdirSync(join(SOL, 'target'), { recursive: true });
   writeFileSync(join(SOL, 'target', 'vcurve-measurements.json'), JSON.stringify(out, null, 2));
   console.log(`C01/C02 measurements\n${rows.map((r) => `${r.what.padEnd(66)} ${String(r.cu).padStart(7)} CU  (tx ${r.txCu} CU, ${r.size} bytes; budget ${r.budget ?? '-'})`).join('\n')}\nwebsite buy transaction ${webBuySize} bytes, website sell transaction ${webSellSize} bytes`);
+  await w.finish();
+});
+
+test('TL-INFO-1 the launch of a high-bump city (1000, name A, symbol C0) stays within the 230,000 budget and within 11.1\'s measured range; the first buy\'s token-account create costs 13,424 + 1,500 per extra bump iteration of the owner', async () => {
+  const w = await World.create();
+  const founder = await w.signer(10n);
+  await w.approve({ cityId: 1000n, founder, name: 'A', symbol: 'C0' });
+  const h = await w.launch({ cityId: 1000n, founder });
+  const cu = h.res.ixCu[0].cu;
+  assert.ok(cu <= BUDGET.launch, `launch ${cu} CU within the 230,000 budget`);
+  // 11.1 states the range measured over 600 city ids; this city is the worst known one under the localnet id
+  const spec = readFileSync(join(SOL, 'VICINITY-CURVE-DESIGN.md'), 'utf8');
+  const m = /`launch` ([\d,]+) to ([\d,]+) CU over ([\d,]+) city ids/.exec(spec);
+  assert.ok(m, '11.1 states the measured launch range over many city ids');
+  const [lo, hi] = [m[1], m[2]].map((x) => Number(x.replaceAll(',', '')));
+  assert.ok(cu >= lo && cu <= hi, `city 1000's ${cu} CU inside 11.1's ${lo} to ${hi}`);
+  assert.ok(hi > 125_900, 'the range is wider than revision 3\'s single-city figure (review TL-INFO-1)');
+  // the idempotent token-account create of a first buy, on top of the buy's own figure (11.1, 11.3)
+  const sizes = [];
+  for (let i = 0; i < 6; i++) {
+    const u = await w.signer(2n);
+    const r = await w.buy(u, h, 100_000_000n);
+    const ata = r.res.top.find((t) => t.program === S.ADDRESSES.associatedToken);
+    const bump = S.findPda([new web3.PublicKey(String(u.address)).toBuffer(), new web3.PublicKey(S.ADDRESSES.token).toBuffer(), new web3.PublicKey(h.mint).toBuffer()], S.ADDRESSES.associatedToken)[1];
+    assert.equal(ata.cu, 13_424 + 1_500 * (255 - bump), `the create costs 13,424 + 1,500 x ${255 - bump}`);
+    sizes.push(ata.cu);
+  }
+  console.log(`TL-INFO-1: launch of city 1000 ${cu} CU (11.1: ${lo} to ${hi}); token-account creates ${sizes.join(', ')} CU`);
   await w.finish();
 });

@@ -39,11 +39,11 @@ export const ACCOUNT_TABLES = Object.freeze({
   add_launch_config: [['admin', Role.RS], ['payer', Role.WS], ['launchpad', Role.W], ['config', Role.W], ['system_program', Role.R]],
   set_launch_config_enabled: [['admin', Role.RS], ['launchpad', Role.R], ['config', Role.W]],
   approve_launch: [['admin', Role.WS], ['launchpad', Role.R], ['config', Role.R], ['approval', Role.W], ['coin', Role.R], ['ticker_lock', Role.R],
-    ['legacy_coin', Role.R], ['legacy_approval', Role.R], ['legacy_launchpad', Role.R], ['system_program', Role.R]],
+    ['legacy_coin', Role.R], ['legacy_approval', Role.R], ['legacy_launchpad', Role.R], ['rewards_registry', Role.R], ['system_program', Role.R]],
   revoke_approval: [['by', Role.RS], ['launchpad', Role.R], ['approval', Role.W], ['rent_payer', Role.W]],
   launch: [['founder', Role.RS], ['payer', Role.WS], ['launchpad', Role.R], ['approval', Role.W], ['rent_payer', Role.W], ['config', Role.R],
     ['coin', Role.W], ['mint', Role.W], ['coin_vault', Role.W], ['ticker_lock', Role.W], ['metadata', Role.W], ['fee_recipient', Role.W],
-    ['legacy_coin', Role.R], ['legacy_approval', Role.R], ['legacy_launchpad', Role.R], ['metadata_program', Role.R], ['token_program', Role.R],
+    ['legacy_coin', Role.R], ['legacy_approval', Role.R], ['legacy_launchpad', Role.R], ['rewards_registry', Role.R], ['metadata_program', Role.R], ['token_program', Role.R],
     ['system_program', Role.R], ['rent', Role.R], ['event_authority', Role.R], ['program', Role.R]],
   buy: TRADE_ACCOUNTS,
   sell: TRADE_ACCOUNTS,
@@ -142,7 +142,7 @@ export function curveInstructions({ programId = CURVE_PROGRAM_ID, cluster = 'mai
       W('forward_holders_fees').done(), overrides);
   };
   const need = (v, what) => { if (v === undefined || v === null) throw new Error(`${what} missing`); return v; };
-  const legacy = (cityId) => ({ legacy_coin: P.legacyCoin(cityId), legacy_approval: P.legacyApproval(cityId), legacy_launchpad: P.cluster.legacyLaunchpad });
+  const legacy = (cityId) => ({ legacy_coin: P.legacyCoin(cityId), legacy_approval: P.legacyApproval(cityId), legacy_launchpad: P.cluster.legacyLaunchpad, rewards_registry: P.cluster.rewardsRegistry });
 
   return Object.freeze({
     programId: program,
@@ -159,12 +159,29 @@ export function curveInstructions({ programId = CURVE_PROGRAM_ID, cluster = 'mai
       make('propose_admin', { admin, launchpad: P.launchpad() }, W('propose_admin').pubkey(newAdmin).done(), overrides),
     /** 4.3. */
     acceptAdmin: ({ newAdmin, overrides }) => make('accept_admin', { new_admin: newAdmin, launchpad: P.launchpad() }, W('accept_admin').done(), overrides),
-    /** 4.4: each flag `true`, `false` or `null` (unchanged). */
-    /** 4.4: `null` leaves a flag as it is; buybacks are halted only while buys are (review LL-1). */
+    /**
+     * 4.4: `null` leaves a flag as it is; buybacks are halted only while buys are (review LL-1). A call that sets
+     * `buys: false` with `buybacks: null` fails if buybacks were halted meanwhile (by the guardian, during a time
+     * lock): never pair it with `set_guardian` in one proposal (use `guardianRecovery`; reviews R4-DIFF-4, OPS-3).
+     */
     setPause: ({ authority, launches = null, payouts = null, buys = null, buybacks = null, overrides }) =>
       make('set_pause', { authority, launchpad: P.launchpad() }, W('set_pause').optBool(launches).optBool(payouts).optBool(buys).optBool(buybacks).done(), overrides),
     /** 4.4: zero = no guardian. */
     setGuardian: ({ admin, guardian, overrides }) => make('set_guardian', { admin, launchpad: P.launchpad() }, W('set_guardian').pubkey(guardian).done(), overrides),
+    /**
+     * 4.4, 8.3 (reviews R4-DIFF-4, OPS-3): the first proposal of the recovery from a stolen guardian, as one vault
+     * transaction: `[set_guardian(guardian), set_pause(...)]`. The `set_pause` leaves buys as they are and resumes
+     * buybacks (`buybacks: false`), or, with `keepBuybacksHalted`, keeps both halted (`buys: true`, buybacks
+     * untouched); `launches` is passed through (`null` leaves it). Either way `!buybacks_halted || buys_halted`
+     * holds after it whatever the thief sets during the time lock, so the proposal cannot be made to fail and the
+     * thief loses the seat in it. Buys reopen in a later proposal (`setPause({ buys: false })`), after the keeper
+     * has drained every backlog; that one fails closed while buybacks are halted.
+     */
+    guardianRecovery: ({ admin, guardian, launches = null, keepBuybacksHalted = false }) => [
+      make('set_guardian', { admin, launchpad: P.launchpad() }, W('set_guardian').pubkey(guardian).done()),
+      make('set_pause', { authority: admin, launchpad: P.launchpad() },
+        W('set_pause').optBool(launches).optBool(null).optBool(keepBuybacksHalted ? true : null).optBool(keepBuybacksHalted ? null : false).done()),
+    ],
     /** 4.5: two zeros switch payouts off. */
     setPayoutConfig: ({ admin, payoutAuthority, payoutDestination, overrides }) =>
       make('set_payout_config', { admin, launchpad: P.launchpad() },

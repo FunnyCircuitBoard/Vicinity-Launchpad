@@ -520,6 +520,7 @@ fn spec_accounts() -> Vec<(&'static str, Vec<(&'static str, u8)>)> {
                 ("legacy_coin", 0),
                 ("legacy_approval", 0),
                 ("legacy_launchpad", 0),
+                ("rewards_registry", 0),
                 ("system_program", 0),
             ],
         ),
@@ -550,6 +551,7 @@ fn spec_accounts() -> Vec<(&'static str, Vec<(&'static str, u8)>)> {
                 ("legacy_coin", 0),
                 ("legacy_approval", 0),
                 ("legacy_launchpad", 0),
+                ("rewards_registry", 0),
                 ("metadata_program", 0),
                 ("token_program", 0),
                 ("system_program", 0),
@@ -892,13 +894,13 @@ fn idl_events() {
     assert_eq!(got, want);
 }
 
-/// 4.22: 56 codes from 6000, contiguous, in the table's order (the first and
+/// 4.22: 57 codes from 6000, contiguous, in the table's order (the first and
 /// the last few checked by name; errors.rs checks every code).
 #[test]
 fn idl_errors() {
     let idl = idl();
     let errors = idl["errors"].as_array().unwrap();
-    assert_eq!(errors.len(), 56);
+    assert_eq!(errors.len(), 57);
     for (i, e) in errors.iter().enumerate() {
         assert_eq!(e["code"].as_u64().unwrap(), 6000 + i as u64);
     }
@@ -913,6 +915,7 @@ fn idl_errors() {
     assert_eq!(name(53), "FounderHoldsRole");
     assert_eq!(name(54), "BuybacksHalted");
     assert_eq!(name(55), "BuybackHaltWithoutBuyHalt");
+    assert_eq!(name(56), "RewardsRegistryAdminMismatch");
 }
 
 /// 3.2, C03: the committed IDL is the default (mainnet ids) build's, its
@@ -951,6 +954,10 @@ fn idl_address_and_constants() {
     has(
         "LEGACY_LAUNCHPAD",
         cluster::MAINNET_LEGACY_LAUNCHPAD.to_string(),
+    );
+    has(
+        "REWARDS_REGISTRY",
+        cluster::MAINNET_REWARDS_REGISTRY.to_string(),
     );
     has("METAPLEX_PROGRAM_ID", METAPLEX_PROGRAM_ID.to_string());
     has("NATIVE_MINT", NATIVE_MINT.to_string());

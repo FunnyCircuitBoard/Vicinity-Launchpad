@@ -57,9 +57,18 @@ test('program id, cluster ids, constants and discriminators equal the IDL and th
   assert.equal(Number(c.LEGACY_LAUNCHES_PAUSED_AT), S.LEGACY_LAUNCHES_PAUSED_AT);
   assert.equal(Number(c.LEGACY_ADMIN_AT), S.LEGACY_ADMIN_AT);
   assert.equal(Number(c.LEGACY_PENDING_ADMIN_AT), S.LEGACY_PENDING_ADMIN_AT);
+  // OPS-1: vicinity_rewards' registry
+  assert.equal(c.REWARDS_REGISTRY, S.CLUSTERS.mainnet.rewardsRegistry);
+  assert.deepEqual(JSON.parse(c.REWARDS_REGISTRY_DISCRIMINATOR), [...S.REWARDS_REGISTRY_DISCRIMINATOR]);
+  assert.deepEqual([...S.REWARDS_REGISTRY_DISCRIMINATOR], sha8('account:Registry'));
+  assert.equal(Number(c.REWARDS_REGISTRY_LEN), S.REWARDS_REGISTRY_LEN);
+  assert.equal(Number(c.REWARDS_REGISTRY_ADMIN_AT), S.REWARDS_REGISTRY_ADMIN_AT);
+  assert.equal(Number(c.REWARDS_REGISTRY_PENDING_ADMIN_AT), S.REWARDS_REGISTRY_PENDING_ADMIN_AT);
   for (const cl of ['mainnet', 'devnet']) {
     const ids = S.CLUSTERS[cl];
     assert.equal(S.findPda([Buffer.from('launchpad')], ids.legacyProgram)[0], ids.legacyLaunchpad, `${cl} LEGACY_LAUNCHPAD (U12)`);
+    assert.equal(S.findPda([Buffer.from('registry')], ids.rewardsProgram)[0], ids.rewardsRegistry, `${cl} REWARDS_REGISTRY (U12)`);
+    assert.equal(S.curvePdas({ cluster: cl }).rewardsRegistry(), ids.rewardsRegistry);
   }
   // discriminators
   // Anchor's EVENT_IX_TAG is sha256("anchor:event")[..8] read as a big-endian u64 and written little-endian
@@ -153,7 +162,7 @@ test('every builder: the account list of section 4 (names, order, flags) and the
   const rewards = P.rewardsAccounts(mint);
   const expectAt = {
     program_data: P.programData(), launchpad: P.launchpad(), approval: P.approval(city), ticker_lock: P.ticker('NYC'),
-    legacy_coin: P.legacyCoin(city), legacy_approval: P.legacyApproval(city), legacy_launchpad: S.CLUSTERS.mainnet.legacyLaunchpad,
+    legacy_coin: P.legacyCoin(city), legacy_approval: P.legacyApproval(city), legacy_launchpad: S.CLUSTERS.mainnet.legacyLaunchpad, rewards_registry: S.CLUSTERS.mainnet.rewardsRegistry,
     metadata: S.metadataAddress(mint), fee_recipient: S.ADDRESSES.feeRecipient, metadata_program: S.ADDRESSES.metaplex,
     token_program: S.ADDRESSES.token, system_program: S.ADDRESSES.system, rent: S.ADDRESSES.rentSysvar,
     event_authority: P.eventAuthority(), program: S.CURVE_PROGRAM_ID, mint, coin_vault: vault, rewards_city_config: rewards.config,
@@ -186,6 +195,7 @@ test('every builder: the account list of section 4 (names, order, flags) and the
   // the devnet build's legacy ids
   const dv = S.curveInstructions({ cluster: 'devnet' }).approveLaunch(cases.approve_launch[0]);
   assert.equal(dv.accounts[8].address, S.CLUSTERS.devnet.legacyLaunchpad);
+  assert.equal(dv.accounts[9].address, S.CLUSTERS.devnet.rewardsRegistry);
   // overrides put another account into a slot
   const o = S.ix.buy({ ...cases.buy[0], overrides: { mint: k.payer, coin_vault: { address: k.admin, role: S.Role.R } } });
   assert.equal(o.accounts[3].address, k.payer.toBase58());

@@ -533,15 +533,37 @@ export class World {
       claim: (epoch, claimant) => S.findPda([Buffer.from('claim'), pkb(epoch), pkb(claimant)], id)[0],
     };
   }
+  /** vicinity_rewards' registry `admin` and `pending_admin` (bytes 8..40 and 40..72; OPS-1: they must be this program's admin and zero at every approval and launch). */
+  registryAdmins() {
+    const d = this.accountInfo(this.rewardsPdas().registry).data;
+    return { admin: new PublicKey(d.subarray(S.REWARDS_REGISTRY_ADMIN_AT, S.REWARDS_REGISTRY_ADMIN_AT + 32)).toBase58(),
+      pendingAdmin: new PublicKey(d.subarray(S.REWARDS_REGISTRY_PENDING_ADMIN_AT, S.REWARDS_REGISTRY_PENDING_ADMIN_AT + 32)).toBase58() };
+  }
+  /** The registry's two-step admin transfer: `propose_admin` by its current admin, then `accept_admin` by `to` (unless `accept` is false). */
+  async registryHandOver(to, { from = this.signerOf(this.registryAdmins().admin), accept = true } = {}) {
+    const registry = this.rewardsPdas().registry;
+    await this.send([this.rewardsIx('propose_admin', { new_admin: new PublicKey(String(to.address ?? to)) }, { admin: from.address, registry })], [from], 'rewards registry propose_admin');
+    if (!accept) return;
+    await this.send([this.rewardsIx('accept_admin', {}, { new_admin: to.address, registry })], [to], 'rewards registry accept_admin');
+  }
+  /** This program's admin hand-over with every seat that must follow it (4.2, 8.2): the old program's admin and the rewards registry's admin. */
+  async adminHandOver(next) {
+    const old = this.admin;
+    await this.send([this.ix.proposeAdmin({ admin: old.address, newAdmin: next.address })], [old], 'propose_admin');
+    await this.send([this.ix.acceptAdmin({ newAdmin: next.address })], [next], 'accept_admin');
+    this.admin = next;
+    if (this.legacyAdmins().admin === String(old.address)) await this.legacyHandOver(next, { from: old });
+    if (this.registryAdmins().admin === String(old.address)) await this.registryHandOver(next, { from: old });
+  }
   /** The city's rewards config by the real `init_city` (model Holders, 0% founder, WSOL, authority the admin by default). */
   async initRewardsCity(h, { model = 'Holders', founderBps = 0, authority = this.admin, rewardMint = S.ADDRESSES.nativeMint, founder } = {}) {
     const R = this.rewardsPdas();
     const config = R.city(h.mint);
     await this.send([this.rewardsIx('init_city', { reward_model: { [model]: {} }, founder_bps: founderBps, city_tag: Array(32).fill(0) }, {
-      payer: this.payer.address, admin: this.admin.address, registry: R.registry, authority: authority.address,
+      payer: this.payer.address, admin: (this.signerOf(this.registryAdmins().admin) ?? this.admin).address, registry: R.registry, authority: authority.address,
       founder: String(founder ?? h.founder.address), city_coin_mint: h.mint, reward_mint: rewardMint, config, vault: R.vault(config),
       token_program: S.ADDRESSES.token, system_program: S.ADDRESSES.system,
-    })], authority.address === this.admin.address ? [this.admin] : [this.admin, authority], 'rewards init_city');
+    })], [...new Map([this.signerOf(this.registryAdmins().admin) ?? this.admin, authority].map((k) => [String(k.address), k])).values()], 'rewards init_city');
     return { config, vault: R.vault(config) };
   }
 

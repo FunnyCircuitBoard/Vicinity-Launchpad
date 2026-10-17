@@ -72,7 +72,8 @@ export function curvePdas({ programId = CURVE_PROGRAM_ID, cluster = 'mainnet' } 
     legacyCoin: (cityId) => pda([seed('coin'), u64le(cityId)], ids.legacyProgram),
     legacyApproval: (cityId) => pda([seed('approval'), u64le(cityId)], ids.legacyProgram),
     legacyLaunchpad: () => pda([seed('launchpad')], ids.legacyProgram),
-    // vicinity_rewards (4.15)
+    // vicinity_rewards (4.15; the registry, 4.8, 4.10, OPS-1)
+    rewardsRegistry: () => pda([seed('registry')], ids.rewardsProgram),
     rewardsCity: (mint) => pda([seed(SEEDS.rewardsCity), toKey(mint).toBuffer()], ids.rewardsProgram),
     rewardsVault: (cityConfig) => pda([seed(SEEDS.rewardsVault), toKey(cityConfig).toBuffer()], ids.rewardsProgram),
     rewardsAccounts: (mint) => {

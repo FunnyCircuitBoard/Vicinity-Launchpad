@@ -24,7 +24,7 @@
 // `minimumBalanceForRentExemption(0n)`). Nothing here touches the network.
 import { ADDRESSES } from './constants.mjs';
 import { coinState, coinTerms } from './accounts.mjs';
-import { quoteBuy, quoteSell } from './math.mjs';
+import { liabilities, quoteBuy, quoteSell } from './math.mjs';
 
 export class PrecheckError extends Error {
   constructor(code, message) {
@@ -112,4 +112,19 @@ export function precheckClaim({ coin, founderAccount, rentExemptMinimum }) {
 export function precheckPayout({ coin, destinationAccount, rentExemptMinimum }) {
   precheckSolCredit({ destinationAccount, amount: coin.founderPending, rentExemptMinimum, what: 'the founder payout' });
   return coin.founderPending;
+}
+
+/**
+ * The keeper's top-up of a Coin after a change of the rent rate (6.5, T63, 14.1; review OPS-2): the lamports that let
+ * every exit of the coin through, `liabilities + rentExemptMinimum - coinLamports`, or 0. `coin` is the decoded
+ * CurveCoin, `coinLamports` its balance, `rentExemptMinimum` the live rent-exempt minimum of a Coin (693 bytes: RPC
+ * `getMinimumBalanceForRentExemption(693)`). `pay_out` keeps `liabilities + min(rent_reserve, live)` (6.5), but the
+ * runtime refuses any debit that leaves the account below the live minimum, so after a raise of `d` the last `d`
+ * lamports of exits stay frozen until the Coin holds its liabilities plus the live minimum. The trigger is
+ * `coinLamports < liabilities + rentExemptMinimum`, not `coinLamports < rentExemptMinimum`: a coin above the live
+ * minimum can be blocked, and one topped up only to the minimum still is. Lamports donated earlier count.
+ */
+export function coinRentTopUp({ coin, coinLamports, rentExemptMinimum }) {
+  const need = liabilities(coinState(coin)) + big(rentExemptMinimum, 'rentExemptMinimum') - big(coinLamports, 'coinLamports');
+  return need > 0n ? need : 0n;
 }

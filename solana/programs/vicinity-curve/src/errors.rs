@@ -177,6 +177,11 @@ pub enum CurveError {
     /// 6055
     #[msg("buybacks may be halted only while buys are halted: halt buys with them, and resume buybacks before or with buys")]
     BuybackHaltWithoutBuyHalt,
+    /// 6056
+    #[msg(
+        "vicinity_rewards' registry admin must be this program's admin, with no admin transfer pending"
+    )]
+    RewardsRegistryAdminMismatch,
 }
 
 /// The program error for a math crate error (4.22): the trade refusals keep
@@ -230,7 +235,7 @@ mod tests {
     /// 4.22: the codes are fixed; a reordering would break every client.
     #[test]
     fn codes_are_in_spec_order() {
-        let table: [(CurveError, u32); 56] = [
+        let table: [(CurveError, u32); 57] = [
             (CurveError::Unauthorized, 6000),
             (CurveError::NotUpgradeAuthority, 6001),
             (CurveError::InvalidAddress, 6002),
@@ -287,6 +292,7 @@ mod tests {
             (CurveError::FounderHoldsRole, 6053),
             (CurveError::BuybacksHalted, 6054),
             (CurveError::BuybackHaltWithoutBuyHalt, 6055),
+            (CurveError::RewardsRegistryAdminMismatch, 6056),
         ];
         for (e, code) in table {
             assert_eq!(u32::from(e), code, "{e:?}");

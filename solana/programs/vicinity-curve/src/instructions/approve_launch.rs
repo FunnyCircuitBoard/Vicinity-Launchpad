@@ -10,6 +10,13 @@
 //! same multisig could ever reopen it. The same legacy checks run again in
 //! `launch`.
 //!
+//! The `vicinity_rewards` registry's admin, the only key that can create the
+//! coin's rewards config, must also be this program's admin with no transfer
+//! pending (8.4, review OPS-1): a registry admin outside the multisig could
+//! create the config with wrong economics first, and `vicinity_rewards` can
+//! never change it, so the holders' share could never be forwarded. Checked
+//! again in `launch`.
+//!
 //! The founder is never `FEE_RECIPIENT`, the guardian or the payout key (the
 //! founder seat receives money; R2-DIFF-1, SPEC-1); `launch` checks the
 //! signing founder again.
@@ -22,13 +29,14 @@ use anchor_lang::prelude::*;
 
 use crate::constants::{
     APPROVAL_MAX_SECS, APPROVAL_SEED, COIN_SEED, CONFIG_SEED, LAUNCHPAD_SEED, LEGACY_LAUNCHPAD,
-    TICKER_SEED,
+    REWARDS_REGISTRY, TICKER_SEED,
 };
 use crate::errors::CurveError;
 use crate::events::LaunchApproved;
 use crate::helpers::{
     check_founder_key, check_name, check_symbol, is_empty_system_account, legacy_admin_matches,
     legacy_approval_address, legacy_coin_address, legacy_launches_paused, legacy_launchpad_valid,
+    rewards_registry_matches,
 };
 use crate::instructions::now;
 use crate::state::{Approval, LaunchConfig, Launchpad};
@@ -106,6 +114,16 @@ pub struct ApproveLaunch<'info> {
             @ CurveError::LegacyAdminMismatch,
     )]
     pub legacy_launchpad: UncheckedAccount<'info>,
+
+    /// CHECK: `vicinity_rewards`' `Registry` (address compiled per cluster),
+    /// read by hand: owner, size and discriminator, its `admin` this
+    /// program's admin and its `pending_admin` zero (8.4, OPS-1).
+    #[account(
+        constraint = rewards_registry.key() == REWARDS_REGISTRY @ CurveError::InvalidAddress,
+        constraint = rewards_registry_matches(&rewards_registry, &launchpad.admin)
+            @ CurveError::RewardsRegistryAdminMismatch,
+    )]
+    pub rewards_registry: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }

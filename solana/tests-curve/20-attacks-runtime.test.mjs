@@ -6,7 +6,10 @@
 // same slot pays the curve and the flat fee, the first buyback waits 150 slots);
 // X63 the Rent sysvar raised by 10%: a sell, a claim, a withdrawal and a forward
 // still work, a debit below the live minimum of a nearly empty coin is refused,
-// and a top-up restores it.
+// and a top-up restores it; OPS-2 (review round 4): the keeper's trigger and amount
+// are `liabilities + live minimum - lamports` (the SDK's coinRentTopUp), since a
+// coin above the live minimum can be blocked and a top-up to the minimum is not
+// enough.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Rent } from 'litesvm';
@@ -148,6 +151,49 @@ test('X62 launch sniping (closest shape): the founder buys atomically in the lau
 });
 
 // ---------------------------------------------------------------- X63
+const RENT_ERR = /InsufficientFundsForRent|insufficient funds for rent/i;
+test('OPS-2 after a rent raise the keeper tops up liabilities + live minimum - lamports (coinRentTopUp): a coin above the live minimum can be blocked, and one topped up only to the minimum stays blocked', async () => {
+  const w = await World.create();
+  const a = await w.launchCoin({ cityId: 2040n, symbol: 'ABOVE' });
+  const b = await w.launchCoin({ cityId: 2041n, symbol: 'BELOW' });
+  const ua = await w.signer(10n); const ub = await w.signer(10n); const keeper = await w.signer(10n);
+  const ba = await w.buy(ua, a, 2_000_000n, { label: 'a 0.002 SOL buy (coin A)' });
+  const bb = await w.buy(ub, b, 200_000n, { label: 'a 0.0002 SOL buy (coin B)' });
+  const rent0 = w.svm.getRent();
+  const old = w.svm.minimumBalanceForRentExemption(693n);
+  w.svm.setRent(new Rent((rent0.lamportsPerByteYear * 11n) / 10n, rent0.exemptionThreshold, rent0.burnPercent));
+  const live = w.svm.minimumBalanceForRentExemption(693n);
+  const probe = w.probeEach; w.probeEach = false; // the liveness probe assumes the launch-time rent (as in X63)
+  const need = (h) => S.coinRentTopUp({ coin: view(w, h), coinLamports: w.lamportsOf(h.coin), rentExemptMinimum: live });
+  const oldRule = (h) => w.lamportsOf(h.coin) < live; // revision 3's keeper rule: "every Coin below the live minimum"
+  // (a) coin A is above the live minimum, so the old rule never fires, yet its holder's full exit is refused
+  assert.equal(oldRule(a), false);
+  assert.ok(need(a) > 0n, `coinRentTopUp fires for A (${need(a)})`);
+  await expectFail(() => w.sell(ua, a, ba.q.tokensOut, { label: 'A: full sell' }), RENT_ERR);
+  await w.sell(ua, a, ba.q.tokensOut / 2n, { label: 'A: half sell (stays above the minimum)' });
+  await expectFail(() => w.sell(ua, a, w.balanceOf(ua, a.mint), { label: 'A: the rest' }), RENT_ERR);
+  assert.equal(oldRule(a), false, 'the runtime never lets A fall below the minimum, so the old rule never fires');
+  // (b) coin B is below the live minimum; the old rule tops it up to the minimum, and its exits stay refused
+  assert.equal(oldRule(b), true);
+  const toMin = live - w.lamportsOf(b.coin);
+  await w.send([sysTransfer(keeper.address, b.coin, toMin)], [keeper], 'B: top-up to the live minimum', { lamportDonation: { coin: b.coin, amount: toMin } });
+  await expectFail(() => w.sell(ub, b, bb.q.tokensOut, { label: 'B: full sell after the top-up to the minimum' }), RENT_ERR);
+  await expectFail(() => w.claim(b, b.founder, { label: 'B: claim after the top-up to the minimum' }), RENT_ERR);
+  // coinRentTopUp: exactly what is missing, counting what was donated; then every exit goes through
+  for (const h of [a, b]) {
+    const n = need(h);
+    assert.equal(n, S.liabilities(st(w, h)) + live - w.lamportsOf(h.coin));
+    await w.send([sysTransfer(keeper.address, h.coin, n)], [keeper], 'the keeper\'s top-up (coinRentTopUp)', { lamportDonation: { coin: h.coin, amount: n } });
+    assert.equal(need(h), 0n, 'nothing more is needed');
+  }
+  await w.sell(ua, a, w.balanceOf(ua, a.mint), { label: 'A: the rest after the top-up' });
+  await w.sell(ub, b, w.balanceOf(ub, b.mint), { label: 'B: full sell after the top-up' });
+  for (const h of [a, b]) { await w.claim(h, h.founder); await w.withdraw(h); }
+  w.svm.setRent(rent0);
+  w.probeEach = probe;
+  await w.finish();
+});
+
 test('X63 the Rent sysvar raised by 10%: a sell, a claim, a withdrawal and a forward still work; a debit below the live minimum of a nearly empty coin is refused by the runtime; a top-up restores it', async () => {
   const w = await World.create();
   const big = await w.launchCoin({ cityId: 2030n, symbol: 'RICH' });

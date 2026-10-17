@@ -1,9 +1,13 @@
 //! `set_guardian(guardian)` (4.4): the admin sets or clears (zero) the guardian,
 //! whose only power is to set `launches_paused`, `buys_halted` and
-//! `buybacks_halted` to true. To recover from a stolen guardian the admin
-//! replaces the guardian and clears the flags (buybacks first when a backlog
-//! built up, 8.3). The guardian "cannot touch money" (8.1):
-//! it may not be `FEE_RECIPIENT`, the payout key or the payout wallet (GOV-2).
+//! `buybacks_halted` to true. To recover from a stolen guardian the first
+//! proposal replaces the guardian, optionally with a `set_pause` that sets
+//! `buybacks = Some(false)` (or `buys = Some(true)`) and leaves buys halted, so
+//! that the thief's last flag before execution cannot make that `set_pause`
+//! (and with it the replacement) fail; buys reopen in a later proposal after
+//! the keeper has drained the backlogs (4.4, 8.3; reviews R4-DIFF-4, OPS-3).
+//! The guardian "cannot touch money" (8.1): it may not be `FEE_RECIPIENT`,
+//! the payout key or the payout wallet (GOV-2).
 
 use anchor_lang::prelude::*;
 

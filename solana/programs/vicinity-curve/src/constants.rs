@@ -41,6 +41,12 @@ pub mod cluster {
     /// `find_program_address(["launchpad"], DEVNET_LEGACY_PROGRAM_ID)`.
     pub const DEVNET_LEGACY_LAUNCHPAD: Pubkey =
         pubkey!("ppX3a7oUKmZg2aAmxct8LnKdxNAcoGFDowcyzvbTsbw");
+    /// `find_program_address(["registry"], MAINNET_REWARDS_PROGRAM_ID)`.
+    pub const MAINNET_REWARDS_REGISTRY: Pubkey =
+        pubkey!("2i9xvFtxnnToASy7yuaV7eq2aQTstXpLTRYvJ6mUs4yG");
+    /// `find_program_address(["registry"], DEVNET_REWARDS_PROGRAM_ID)`.
+    pub const DEVNET_REWARDS_REGISTRY: Pubkey =
+        pubkey!("2rKKwGGcJEDRJBhdHRPtHQpoxPmq9wPWWj3uMrcRaRg3");
 }
 
 /// Owner of every `vicinity_rewards` city config and vault the holders' share
@@ -72,6 +78,18 @@ pub const LEGACY_LAUNCHPAD: Pubkey = cluster::MAINNET_LEGACY_LAUNCHPAD;
 #[cfg(feature = "devnet")]
 #[constant]
 pub const LEGACY_LAUNCHPAD: Pubkey = cluster::DEVNET_LEGACY_LAUNCHPAD;
+
+/// The `vicinity_rewards` registry, `find_program_address(["registry"],
+/// REWARDS_PROGRAM_ID)` (mainnet build; unit test U12 checks the
+/// derivation). Its admin alone signs `init_city`, so it must be this
+/// program's admin at every approval and launch (8.4, review OPS-1).
+#[cfg(not(feature = "devnet"))]
+#[constant]
+pub const REWARDS_REGISTRY: Pubkey = cluster::MAINNET_REWARDS_REGISTRY;
+/// The `vicinity_rewards` registry (devnet build).
+#[cfg(feature = "devnet")]
+#[constant]
+pub const REWARDS_REGISTRY: Pubkey = cluster::DEVNET_REWARDS_REGISTRY;
 
 /// `sha256("account:Launchpad")[..8]`: the old program's `Launchpad`
 /// discriminator (equal to this program's, the struct keeps its name).
@@ -176,6 +194,22 @@ pub const METAPLEX_PROGRAM_ID: Pubkey = pubkey!("metaqbxxUerdq28cj1RbAWkYQm3ybzj
 #[constant]
 pub const NATIVE_MINT: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
 
+/// `sha256("account:Registry")[..8]` of `vicinity_rewards` (OPS-1).
+#[constant]
+pub const REWARDS_REGISTRY_DISCRIMINATOR: [u8; 8] = [47, 174, 110, 246, 184, 182, 252, 218];
+/// Size of `vicinity_rewards`' `Registry` (discriminator, `admin`,
+/// `pending_admin`, `bump`).
+#[constant]
+pub const REWARDS_REGISTRY_LEN: u64 = 73;
+/// Offset of `admin` in the registry: it must be this program's admin at
+/// every approval and launch (OPS-1).
+#[constant]
+pub const REWARDS_REGISTRY_ADMIN_AT: u64 = 8;
+/// Offset of `pending_admin` in the registry: it must be zero at every
+/// approval and launch.
+#[constant]
+pub const REWARDS_REGISTRY_PENDING_ADMIN_AT: u64 = 40;
+
 /// `sha256("account:CityConfig")[..8]` of `vicinity_rewards`.
 pub const REWARDS_CITY_CONFIG_DISCRIMINATOR: [u8; 8] = [14, 136, 110, 28, 46, 68, 178, 115];
 /// `vicinity_rewards::state::RewardModel::Holders` as Borsh encodes it.
@@ -214,6 +248,8 @@ pub const COIN_VAULT_SEED: &[u8] = b"coin_vault";
 pub const TICKER_SEED: &[u8] = b"ticker";
 /// `["payout_opt_in", coin]`.
 pub const PAYOUT_OPT_IN_SEED: &[u8] = b"payout_opt_in";
+/// `vicinity_rewards`: registry `["registry"]`.
+pub const REWARDS_REGISTRY_SEED: &[u8] = b"registry";
 /// `vicinity_rewards`: city config `["city", city_coin_mint]`.
 pub const REWARDS_CITY_SEED: &[u8] = b"city";
 /// `vicinity_rewards`: vault `["vault", config]`.
@@ -319,6 +355,59 @@ mod tests {
             idl("vicinity_rewards")["address"].as_str().unwrap(),
             cluster::DEVNET_REWARDS_PROGRAM_ID.to_string()
         );
+    }
+
+    /// U12 (OPS-1): `REWARDS_REGISTRY` equals its derivation for each cluster
+    /// build, and its discriminator, size and `admin` / `pending_admin`
+    /// offsets match `vicinity_rewards`' `Registry` (from its committed IDL).
+    #[test]
+    fn u12_rewards_registry_derivation_and_layout() {
+        let derive =
+            |program: &Pubkey| Pubkey::find_program_address(&[REWARDS_REGISTRY_SEED], program).0;
+        assert_eq!(
+            derive(&cluster::MAINNET_REWARDS_PROGRAM_ID),
+            cluster::MAINNET_REWARDS_REGISTRY
+        );
+        assert_eq!(
+            derive(&cluster::DEVNET_REWARDS_PROGRAM_ID),
+            cluster::DEVNET_REWARDS_REGISTRY
+        );
+        assert_eq!(derive(&REWARDS_PROGRAM_ID), REWARDS_REGISTRY);
+        let rewards = idl("vicinity_rewards");
+        assert_eq!(
+            account_discriminator(&rewards, "Registry"),
+            REWARDS_REGISTRY_DISCRIMINATOR.to_vec()
+        );
+        let h = anchor_lang::solana_program::hash::hash(b"account:Registry").to_bytes();
+        assert_eq!(h[..8], REWARDS_REGISTRY_DISCRIMINATOR);
+        let fields = struct_fields(&rewards, "Registry");
+        let len: usize = 8 + fields.iter().map(|f| size_of(&f["type"])).sum::<usize>();
+        assert_eq!(len as u64, REWARDS_REGISTRY_LEN);
+        assert_eq!(offset_of(fields, "admin") as u64, REWARDS_REGISTRY_ADMIN_AT);
+        assert_eq!(
+            offset_of(fields, "pending_admin") as u64,
+            REWARDS_REGISTRY_PENDING_ADMIN_AT
+        );
+        // the registry's seed in vicinity_rewards' own init_registry
+        let init = rewards["instructions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["name"] == "init_registry")
+            .unwrap();
+        let registry = init["accounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["name"] == "registry")
+            .unwrap();
+        let seed: Vec<u8> = registry["pda"]["seeds"][0]["value"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b.as_u64().unwrap() as u8)
+            .collect();
+        assert_eq!(seed, REWARDS_REGISTRY_SEED.to_vec());
     }
 
     /// U12: the legacy discriminator, size and the `launches_paused`, `admin`

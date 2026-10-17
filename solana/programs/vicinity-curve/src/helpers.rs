@@ -1,7 +1,8 @@
 //! Small pure helpers, unit-tested below: name and ticker rules, the metadata
 //! URI, payout-key separation, the ProgramData header, the `vicinity_rewards`
-//! CityConfig reader, the old program's `Launchpad` checks and the arithmetic
-//! of the single debit helper (6.5). Nothing here moves money.
+//! CityConfig reader and registry check, the old program's `Launchpad` checks
+//! and the arithmetic of the single debit helper (6.5). Nothing here moves
+//! money.
 
 use anchor_lang::prelude::*;
 
@@ -10,7 +11,8 @@ use crate::constants::{
     LEGACY_LAUNCHES_PAUSED_AT, LEGACY_LAUNCHPAD_DISCRIMINATOR, LEGACY_LAUNCHPAD_LEN,
     LEGACY_PENDING_ADMIN_AT, LEGACY_PROGRAM_ID, MAX_NAME_LEN, MAX_SYMBOL_LEN, METADATA_SEED,
     METADATA_URI_PREFIX, METAPLEX_PROGRAM_ID, REWARDS_CITY_CONFIG_DISCRIMINATOR,
-    REWARDS_MODEL_HOLDERS,
+    REWARDS_MODEL_HOLDERS, REWARDS_PROGRAM_ID, REWARDS_REGISTRY_ADMIN_AT,
+    REWARDS_REGISTRY_DISCRIMINATOR, REWARDS_REGISTRY_LEN, REWARDS_REGISTRY_PENDING_ADMIN_AT,
 };
 use crate::errors::CurveError;
 
@@ -420,6 +422,41 @@ pub fn legacy_launchpad_valid(account: &AccountInfo) -> bool {
 pub fn legacy_launches_paused(account: &AccountInfo) -> bool {
     match account.try_borrow_data() {
         Ok(data) => legacy_launches_paused_bytes(&data),
+        Err(_) => false,
+    }
+}
+
+/// The bytes at `REWARDS_REGISTRY` are `vicinity_rewards`' `Registry`, and its
+/// admin is this program's admin with no admin transfer pending (8.4, review
+/// OPS-1): owned by `rewards_program`, exactly 73 bytes, `Registry`
+/// discriminator, `data[8..40] == admin`, `data[40..72]` zero. The registry
+/// admin alone signs `init_city`, and `vicinity_rewards` can never change or
+/// close a city's config, so a registry admin outside the multisig could
+/// create a new coin's config with wrong economics before the multisig's
+/// time-locked one and freeze its holders' share for good (O26). Like GOV-1,
+/// approvals and launches fail closed until the registry follows the admin.
+pub fn rewards_registry_bytes_match(
+    owner: &Pubkey,
+    rewards_program: &Pubkey,
+    data: &[u8],
+    admin: &Pubkey,
+) -> bool {
+    let at = REWARDS_REGISTRY_ADMIN_AT as usize;
+    let pending_at = REWARDS_REGISTRY_PENDING_ADMIN_AT as usize;
+    owner == rewards_program
+        && data.len() as u64 == REWARDS_REGISTRY_LEN
+        && data[0..8] == REWARDS_REGISTRY_DISCRIMINATOR
+        && match (data.get(at..at + 32), data.get(pending_at..pending_at + 32)) {
+            (Some(a), Some(p)) => a == admin.as_ref() && p.iter().all(|b| *b == 0),
+            _ => false,
+        }
+}
+
+/// `rewards_registry_bytes_match` on an account, against the compiled
+/// `REWARDS_PROGRAM_ID`. A borrow failure counts as a mismatch.
+pub fn rewards_registry_matches(account: &AccountInfo, admin: &Pubkey) -> bool {
+    match account.try_borrow_data() {
+        Ok(data) => rewards_registry_bytes_match(account.owner, &REWARDS_PROGRAM_ID, &data, admin),
         Err(_) => false,
     }
 }
@@ -1062,6 +1099,88 @@ mod account_tests {
             &mut [0; 171],
             is_empty_system_account
         ));
+    }
+
+    /// OPS-1: `vicinity_rewards`' registry must be owned by it, 73 bytes with
+    /// the `Registry` discriminator, its admin this program's admin and its
+    /// pending admin zero; read through an `AccountInfo` too.
+    #[test]
+    fn rewards_registry_checks() {
+        let admin = Pubkey::new_unique();
+        let other = Pubkey::new_unique();
+        let rewards = REWARDS_PROGRAM_ID;
+        let mut d = vec![0u8; 73];
+        d[0..8].copy_from_slice(&REWARDS_REGISTRY_DISCRIMINATOR);
+        // a zero admin is never this program's admin
+        assert!(!rewards_registry_bytes_match(
+            &rewards, &rewards, &d, &admin
+        ));
+        d[8..40].copy_from_slice(admin.as_ref());
+        d[72] = 253; // the bump does not matter
+        assert!(rewards_registry_bytes_match(&rewards, &rewards, &d, &admin));
+        assert!(!rewards_registry_bytes_match(
+            &rewards, &rewards, &d, &other
+        ));
+        // a pending transfer, to anyone (even to this admin), is refused; one byte is enough
+        for pending in [other, admin] {
+            let mut p = d.clone();
+            p[40..72].copy_from_slice(pending.as_ref());
+            assert!(!rewards_registry_bytes_match(
+                &rewards, &rewards, &p, &admin
+            ));
+        }
+        let mut p = d.clone();
+        p[71] = 1;
+        assert!(!rewards_registry_bytes_match(
+            &rewards, &rewards, &p, &admin
+        ));
+        // another owner, another size, another discriminator
+        assert!(!rewards_registry_bytes_match(
+            &crate::ID,
+            &rewards,
+            &d,
+            &admin
+        ));
+        let system = anchor_lang::system_program::ID;
+        assert!(!rewards_registry_bytes_match(&system, &rewards, &d, &admin));
+        let mut longer = d.clone();
+        longer.push(0);
+        assert!(!rewards_registry_bytes_match(
+            &rewards, &rewards, &longer, &admin
+        ));
+        assert!(!rewards_registry_bytes_match(
+            &rewards,
+            &rewards,
+            &d[..72],
+            &admin
+        ));
+        assert!(!rewards_registry_bytes_match(
+            &rewards,
+            &rewards,
+            &[],
+            &admin
+        ));
+        let mut wrong = d.clone();
+        wrong[0..8].copy_from_slice(&REWARDS_CITY_CONFIG_DISCRIMINATOR);
+        assert!(!rewards_registry_bytes_match(
+            &rewards, &rewards, &wrong, &admin
+        ));
+        // through an AccountInfo
+        let mut e = d.clone();
+        assert!(with_account(rewards, &mut e, |a| rewards_registry_matches(
+            a, &admin
+        )));
+        assert!(!with_account(
+            rewards,
+            &mut e,
+            |a| rewards_registry_matches(a, &other)
+        ));
+        assert!(!with_account(system, &mut e, |a| rewards_registry_matches(
+            a, &admin
+        )));
+        assert!(!with_account(rewards, &mut [], |a| {
+            rewards_registry_matches(a, &admin)
+        }));
     }
 
     /// The old program's `Launchpad` read through an `AccountInfo`: owner,

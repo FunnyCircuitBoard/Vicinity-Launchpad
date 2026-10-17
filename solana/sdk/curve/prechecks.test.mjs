@@ -578,3 +578,36 @@ test('SDK4-6 the README\'s direct buy runs as written (its slippage from buySlip
   const clients = readFileSync(join(here, '..', '..', 'tests-curve', '29-clients.test.mjs'), 'utf8');
   assert.doesNotMatch(clients.slice(0, 3000), /2% to\s*\/\/\s*2\.5%|2% to 2\.5%/);
 });
+
+test('OPS-2 coinRentTopUp: liabilities + the live minimum - lamports, or 0; it counts lamports donated earlier', () => {
+  const c = sampleCoin();
+  const L = S.liabilities(S.coinState(c));
+  assert.ok(L > 0n);
+  const live = 6_285_576n;
+  assert.equal(S.coinRentTopUp({ coin: c, coinLamports: 5_714_160n + L, rentExemptMinimum: live }), live - 5_714_160n, 'the rent raise d');
+  assert.equal(S.coinRentTopUp({ coin: c, coinLamports: live, rentExemptMinimum: live }), L, 'topped up only to the minimum: the liabilities are still missing');
+  assert.equal(S.coinRentTopUp({ coin: c, coinLamports: live + L, rentExemptMinimum: live }), 0n);
+  assert.equal(S.coinRentTopUp({ coin: c, coinLamports: live + L + 7n, rentExemptMinimum: live }), 0n, 'a surplus needs nothing');
+  assert.throws(() => S.coinRentTopUp({ coin: c, coinLamports: 1n }), /rentExemptMinimum missing/);
+});
+
+test('R4-DIFF-4, OPS-3 guardianRecovery: [set_guardian, set_pause] whose flags after it satisfy !buybacks_halted || buys_halted whatever the guardian set', () => {
+  const admin = key(); const g = key();
+  const [sg, sp] = S.ix.guardianRecovery({ admin, guardian: g, launches: false });
+  assert.deepEqual([...sg.data], [...S.ix.setGuardian({ admin, guardian: g }).data]);
+  assert.deepEqual([...sp.data], [...S.ix.setPause({ authority: admin, launches: false, buybacks: false }).data], 'buys untouched, buybacks resumed');
+  const [, keep] = S.ix.guardianRecovery({ admin, guardian: g, keepBuybacksHalted: true });
+  assert.deepEqual([...keep.data], [...S.ix.setPause({ authority: admin, buys: true }).data], 'buys halted explicitly, buybacks untouched');
+  // the rule after the call, for every combination of flags the guardian may have set before it
+  const after = (args, f) => Object.fromEntries(Object.entries(f).map(([k, v]) => [k, args[k] ?? v]));
+  for (const buys of [false, true]) for (const buybacks of [false, true]) {
+    if (buybacks && !buys) continue; // never stored (LL-1)
+    for (const args of [{ launches: false, buybacks: false }, { buys: true }]) {
+      const f = after(args, { launches: true, buys, buybacks });
+      assert.ok(!f.buybacks || f.buys, JSON.stringify({ buys, buybacks, args }));
+    }
+    // the trap: buys reopened with buybacks left unset
+    const f = after({ launches: false, buys: false }, { launches: true, buys, buybacks });
+    if (buybacks) assert.ok(f.buybacks && !f.buys, 'the one-proposal recovery leaves the forbidden state, so set_pause fails');
+  }
+});

@@ -235,6 +235,8 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 | `LEGACY_LAUNCHPAD` | the address `find_program_address(["launchpad"], LEGACY_PROGRAM_ID)`, compiled per cluster; unit test U12 checks the derivation | the old program's global account (171 bytes: discriminator, five Pubkeys, `launches_paused` at byte 168, `payouts_paused` 169, `bump` 170) |
 | `LEGACY_LAUNCHPAD_DISCRIMINATOR` / `LEGACY_LAUNCHPAD_LEN` / `LEGACY_LAUNCHES_PAUSED_AT` | `sha256("account:Launchpad")[..8]` / 171 / 168 | read-only check of the old program's pause (4.8, 4.10) |
 | `LEGACY_ADMIN_AT` / `LEGACY_PENDING_ADMIN_AT` | 8 / 40 | the old program's `admin` and `pending_admin`: at every approval and launch the old admin must be this program's admin with no transfer pending (4.8, 8.5) |
+| `REWARDS_REGISTRY` | the address `find_program_address(["registry"], REWARDS_PROGRAM_ID)`, compiled per cluster (mainnet `2i9xvFtxnnToASy7yuaV7eq2aQTstXpLTRYvJ6mUs4yG`, devnet `2rKKwGGcJEDRJBhdHRPtHQpoxPmq9wPWWj3uMrcRaRg3`); U12 checks the derivation | `vicinity_rewards`' registry, whose admin alone signs `init_city` (review OPS-1) |
+| `REWARDS_REGISTRY_DISCRIMINATOR` / `REWARDS_REGISTRY_LEN` / `REWARDS_REGISTRY_ADMIN_AT` / `REWARDS_REGISTRY_PENDING_ADMIN_AT` | `sha256("account:Registry")[..8]` / 73 / 8 / 40 | at every approval and launch the registry admin must be this program's admin with no transfer pending (4.8, 4.10, 8.4) |
 | `COIN_SUPPLY` | 1,000,000,000,000,000 raw | R8 |
 | `COIN_DECIMALS` | 6 | R8 |
 | `BPS` (`D`) | 10,000 | denominator |
@@ -595,9 +597,28 @@ Checks: `guardian != FEE_RECIPIENT` (`FeeRecipientRole`); `check_payout_keys_sep
 guardian, payout_authority, payout_destination)` (`PayoutKeyNotSeparate`): the guardian is never
 the payout key or the payout wallet (8.1: it cannot touch money). Effect: `guardian = guardian`
 (zero = none). Event (`emit!`) `GuardianChanged { old, new }`.
-To recover from a stolen guardian, the admin replaces the guardian and clears the flags in the
-same proposal, or, if the thief also halted buybacks and backlogs built up, resumes buybacks
-first and buys in a later proposal (8.3).
+
+**Recovering from a stolen guardian (reviews R4-DIFF-4, OPS-3).** The guardian can set flags
+until the moment the admin's proposal executes, and the consistency rule applies to the admin's
+call too. A one-proposal recovery `[set_guardian(new), set_pause(launches = false, buys =
+false)]` with `buybacks` left `None` (the flags as they were when it was written) is therefore
+a trap: the thief halts buybacks late in the time lock, the `set_pause` fails with
+`BuybackHaltWithoutBuyHalt`, the whole vault transaction reverts with `set_guardian`, and the
+thief keeps the seat for another time lock. Written with `buybacks = false`, it instead reopens
+buys and buybacks in the same instant after a time lock of buyback halt, the LL-1 state. The
+recovery is therefore two proposals, which may be approved together:
+1. `[set_guardian(new), set_pause(launches, buybacks = Some(false))]`, buys left as they are
+   (or `buys = Some(true)` and `buybacks = None` when buybacks must stay halted): after it,
+   `!buybacks_halted || buys_halted` holds whatever the thief set, so nothing he does can make
+   it fail, and he loses the seat in that transaction. The SDK builds it
+   (`guardianRecovery`).
+2. Once the keeper has drained every coin's backlog to at most one cap and the figures are
+   published, `set_pause(buys = Some(false))`, which fails closed if buybacks are still halted.
+
+Never put `set_guardian` in the same transaction as a `set_pause` that sets `buys = false`
+with `buybacks` unset. The guardian has this much power over admin proposals: it can make one
+fail once, by setting a flag the proposal did not expect; it cannot change any outcome of a
+proposal written as above.
 
 ### 4.5 `set_payout_config(payout_authority: Pubkey, payout_destination: Pubkey)`
 
@@ -650,7 +671,8 @@ future approvals and launches; live coins never read their config again. Event
 | 7 | `legacy_coin` | | Unchecked; key = `find_program_address(["coin", city_id LE], LEGACY_PROGRAM_ID)` (`InvalidAddress`); `data_is_empty() && owner == System` (`LegacyCoinExists`) |
 | 8 | `legacy_approval` | | Unchecked; key = `find_program_address(["approval", city_id LE], LEGACY_PROGRAM_ID)` (`InvalidAddress`); `data_is_empty() && owner == System` (`LegacyApprovalExists`) |
 | 9 | `legacy_launchpad` | | Unchecked; `address = LEGACY_LAUNCHPAD` (`InvalidAddress`); `owner == LEGACY_PROGRAM_ID`, `data_len == 171`, `data[0..8] == LEGACY_LAUNCHPAD_DISCRIMINATOR` (`InvalidAddress`); `data[168] == 1`, the old program's launches paused (`LegacyLaunchesOpen`); `data[8..40] == launchpad.admin` and `data[40..72] == 0`, the old program's admin is this program's admin with no transfer pending (`LegacyAdminMismatch`) |
-| 10 | `system_program` | | |
+| 10 | `rewards_registry` | | Unchecked; `address = REWARDS_REGISTRY` (`InvalidAddress`), `["registry"]` under `REWARDS_PROGRAM_ID`; `owner == REWARDS_PROGRAM_ID`, `data_len == 73`, `data[0..8] == REWARDS_REGISTRY_DISCRIMINATOR`, `data[8..40] == launchpad.admin` and `data[40..72] == 0`: `vicinity_rewards`' registry admin, the only key that can create the coin's rewards config, is this program's admin with no transfer pending (`RewardsRegistryAdminMismatch`; review OPS-1) |
+| 11 | `system_program` | | |
 
 Checks in order: `city_id >= 1` (`BadCityId`); the founder seat, `check_founder_key(founder,
 guardian, payout_authority)`: `founder != 0` (`InvalidAddress`), `founder != FEE_RECIPIENT`
@@ -672,7 +694,12 @@ revoked. A symbol longer than 32 bytes fails seed derivation before `check_symbo
 refused). Two pending approvals for different cities may name the same ticker; only the
 first launch can create the ticker lock. The legacy checks run again in `launch`. The admin
 check makes reopening the old program need the same multisig and time lock as every admin
-action here (8.5): while the two admins differ, nothing is approved or launched here.
+action here (8.5): while the two admins differ, nothing is approved or launched here. The
+registry check (review OPS-1) closes the same class of hole for the holders' share:
+`init_city` needs only the registry admin's signature, and `vicinity_rewards` can never change
+or close a city's config, so a registry admin outside the multisig could create a new coin's
+config with wrong economics (Creator, `founder_bps` 10,000) before the multisig's time-locked
+`init_city`, and every forward would then fail for good (O26). It runs again in `launch`.
 
 ### 4.9 `revoke_approval(city_id: u64)`
 
@@ -706,11 +733,12 @@ Effect: the approval closes at exit; its rent goes to `rent_payer`. Event (`emit
 | 13 | `legacy_coin` | | as in 4.8 (`InvalidAddress`, `LegacyCoinExists`) |
 | 14 | `legacy_approval` | | as in 4.8 (`InvalidAddress`, `LegacyApprovalExists`) |
 | 15 | `legacy_launchpad` | | as in 4.8 (`InvalidAddress`, `LegacyLaunchesOpen`, `LegacyAdminMismatch`) |
-| 16 | `metadata_program` | | `address = METAPLEX_PROGRAM_ID` (`InvalidAddress`) |
-| 17 | `token_program` | | `Program<Token>` (classic SPL Token) |
-| 18 | `system_program` | | |
-| 19 | `rent` | | sysvar (required by the Metaplex CPI wrapper) |
-| 20-21 | event accounts | | |
+| 16 | `rewards_registry` | | as in 4.8 (`InvalidAddress`, `RewardsRegistryAdminMismatch`) |
+| 17 | `metadata_program` | | `address = METAPLEX_PROGRAM_ID` (`InvalidAddress`) |
+| 18 | `token_program` | | `Program<Token>` (classic SPL Token) |
+| 19 | `system_program` | | |
+| 20 | `rent` | | sysvar (required by the Metaplex CPI wrapper) |
+| 21-22 | event accounts | | |
 
 Checks in order (after the constraints): `!launchpad.launches_paused` (`LaunchesPaused`);
 `!launchpad.buys_halted` (`BuysHalted`); `now <= approval.expires_at` (`ApprovalExpired`);
@@ -1037,6 +1065,7 @@ curve's last virtual reserves are in `Graduated` (NOTES 23).
 | 6053 | `FounderHoldsRole` | a coin's founder named as the guardian or the payout key (4.8, 4.10, 4.17) |
 | 6054 | `BuybacksHalted` | `buybacks_halted` is set (guardian or admin; 4.13) |
 | 6055 | `BuybackHaltWithoutBuyHalt` | `set_pause` would leave `buybacks_halted` set while `buys_halted` is not (4.4, review LL-1) |
+| 6056 | `RewardsRegistryAdminMismatch` | `vicinity_rewards`' registry is not at `REWARDS_REGISTRY`'s owner, size and discriminator, its admin is not this program's admin, or an admin transfer is pending there (4.8, 4.10, review OPS-1) |
 
 Anchor's own errors (for example `ConstraintSeeds`, `AccountNotInitialized`, an `init` on an
 existing account) can appear before ours for some substitutions; tests accept either and
@@ -1801,9 +1830,16 @@ fn pay_out(coin: &AccountInfo, rent_reserve: u64, to: &AccountInfo, amount: u64,
   a debit that leaves its liabilities below `d` is refused by the runtime
   (`InsufficientFundsForRent`) until someone tops the `Coin` up: the last exits of a nearly empty
   coin, and every debit of a coin whose liabilities are already below `d`. Credits (buys) into
-  such a coin are accepted. Anyone can top a `Coin` up (a donation); the keeper tops up every coin
-  below the live minimum after any rent change (14.1, T63). Test X63 raises the `Rent` sysvar by
-  10%.
+  such a coin are accepted. Anyone can top a `Coin` up (a donation). **The keeper's rule (review
+  OPS-2):** after any rent change, for every `Coin`, `need = liabilities + rent_min(693) -
+  lamports` (live rent; the SDK's `coinRentTopUp`), and it transfers `need` when positive. The
+  trigger is `lamports < liabilities + rent_min`, not `lamports < rent_min`: a coin above the live
+  minimum can still be blocked (the runtime never lets it fall below the minimum, so a rule on
+  the minimum never fires for it), and a coin topped up only to the minimum stays blocked
+  (measured: after a 10% raise, a coin holding 2,000,000 lamports of liabilities above its old
+  rent refused its holder's full sell; a coin topped up to the minimum still refused its sell and
+  its founder's claim; `need` let every exit through). Lamports donated earlier count. Test X63
+  raises the `Rent` sysvar by 10%, and the OPS-2 test runs both cases.
 * **Destinations must accept a credit**: the runtime refuses a credit that leaves a
   0-lamport account below the rent-exempt minimum of an empty account (128 x 5,080 = 650,240
   lamports at today's mainnet rate; 890,880 at 6,960). A seller or founder can have 0 lamports
@@ -2163,7 +2199,11 @@ Worst cases:
   and clears the flags (after the time lock); sells, claims, forwards and withdrawals never
   stop. If it halted buybacks too and backlogs built up, the admin resumes buybacks first and
   buys only after the keeper has spent them (8.3; the program never lets buys reopen before
-  buybacks).
+  buybacks). The guardian can also make an admin proposal fail by setting a flag it did not
+  expect (a `set_pause` that reopens buys with `buybacks` unset fails once buybacks are halted);
+  the recovery proposal of 4.4 (`set_guardian` with `set_pause(buybacks = false)`, buys left
+  halted) cannot be made to fail, and buys reopen in a later proposal (reviews R4-DIFF-4,
+  OPS-3).
 * **Stolen payout key**: only opted-in founders' share, only to the agreed wallet, at most
   daily; it can pause payouts but not resume them.
 * **Stolen founder key**: that coin's `founder_pending` only.
@@ -2179,9 +2219,10 @@ program and publishes the holder reward roots, and the website says exactly that
 `propose_admin` then `accept_admin` signed by the new key (a Squads vault signs through a
 proposal). Zero cancels. The payout key and wallet must stay separate from the admin (and the
 guardian) through the hand-over, and the new admin is never `FEE_RECIPIENT`. Each city's rewards
-authority and the old `vicinity_launchpad`'s admin must follow the admin (4.2): until the rewards
-authority follows, forwards wait in `holders_pending`; until the old admin follows, approvals and
-launches fail with `LegacyAdminMismatch`.
+authority, the old `vicinity_launchpad`'s admin and `vicinity_rewards`' registry admin must follow
+the admin (4.2): until the rewards authority follows, forwards wait in `holders_pending`; until the
+old admin follows, approvals and launches fail with `LegacyAdminMismatch`; until the registry admin
+follows, with `RewardsRegistryAdminMismatch` (review OPS-1).
 
 ### 8.3 Emergency brake: the guardian halt and the halt-all build
 
@@ -2192,7 +2233,10 @@ launches fail with `LegacyAdminMismatch`.
   `Launchpad.buys_halted`; `buy` and `launch` then fail with `BuysHalted`. It may also set
   `buybacks_halted`, only while buys are halted (`BuybackHaltWithoutBuyHalt` otherwise); then
   `buyback_burn` fails with `BuybacksHalted`. The guardian can only set flags; only the admin
-  clears them. It is the brake for a bug in the buy path or the curve math, a newly found MEV
+  clears them. A flag set late in a time lock can make an admin `set_pause` written for the
+  earlier flags fail (`BuybackHaltWithoutBuyHalt`), so recovery proposals are written as in
+  4.4: the guardian's replacement with `buybacks = false` and buys left halted, then buys
+  (reviews R4-DIFF-4, OPS-3). It is the brake for a bug in the buy path or the curve math, a newly found MEV
   route, or a hostile upgrade waiting out its time lock (newcomers stop buying in). The
   guardian halts buybacks only when the buybacks themselves are in question (a curve-math bug,
   a buyback MEV route); for a hostile upgrade or a buy-path bug it halts buys alone, and the
@@ -2261,8 +2305,11 @@ launches fail with `LegacyAdminMismatch`.
   not change; only how fast the owner can act on them. The guardian is the fast path for the
   one action that must be fast. Making the program immutable after a long quiet period is a
   later option (bugs could then no longer be fixed).
-* **Preconditions before the first coin launches** (the deploy checklist checks each on
-  chain): `vicinity_rewards` registry admin and upgrade authority are the Squads vault;
+* **Preconditions before the first coin launches** (the deploy checklist,
+  `scripts/vcurve/preflight.mjs`, reads each from the chain and refuses to report ready
+  otherwise; reviews OPS-1, OPS-4): `vicinity_rewards` registry admin (with no transfer pending;
+  `approve_launch` and `launch` also refuse otherwise, `RewardsRegistryAdminMismatch`, review
+  OPS-1) and upgrade authority are the Squads vault;
   `vicinity_launchpad`'s admin is the Squads vault with no pending admin (on mainnet it is the
   owner's wallet `13qRam...`, which is also `FEE_RECIPIENT`: `propose_admin` from that wallet,
   `accept_admin` through the Squads app; `approve_launch` and `launch` refuse until then, 8.5),
@@ -2308,7 +2355,14 @@ Closing the old program (`solana program close` by its upgrade authority) once i
 good would make it unable ever to unpause: its `Launchpad` stays, owned by `LEGACY_PROGRAM_ID`
 with `launches_paused = 1`. It would also freeze its admin field, so a later hand-over of this
 program's admin would stop approvals and launches here until an upgrade of this program; the owner
-decides (O19).
+decides (O19). **Precondition of a close (review OPS-4):** the old program holds no `Approval`
+account (getProgramAccounts on `LEGACY_PROGRAM_ID`; the deploy checklist with
+`--before-legacy-close` refuses otherwise). An old approval is closed only by the old program's
+`revoke_approval` (admin only) or `launch`; after a close neither can run, the account stays
+owned by the closed program for ever, and `approve_launch` and `launch` here refuse its city with
+`LegacyApprovalExists`, also long after it expired (measured with the real old binary and the
+loader's `Close`). So each one is revoked first, while the old program can still run. Making the
+old program immutable instead of closing it keeps its instructions callable and avoids the trap.
 
 ---
 
@@ -2409,7 +2463,8 @@ Global:
   closed; `TickerLock.mint == Coin.mint` for the coin with that symbol; an `Approval` and a
   `Coin` never coexist for a city; **at every approval and at every launch**, the old program
   had no `Coin` and no `Approval` for the city, its launches were paused, and its admin was this
-  program's admin with no transfer pending (8.5).
+  program's admin with no transfer pending (8.5); so was `vicinity_rewards`' registry admin
+  (review OPS-1).
 * **I20 Settings.** The compiled program ids never change without an upgrade; payout key and
   wallet separate from each other, the admin, the guardian and `FEE_RECIPIENT` when set;
   `FEE_RECIPIENT` is never the admin, the pending admin or the guardian; no coin's founder is
@@ -2419,7 +2474,15 @@ Global:
   only in `set_guardian`; `buys_halted` and `buybacks_halted` become true only by the guardian
   or the admin and false only by the admin, and `buybacks_halted` is never set while
   `buys_halted` is not (review LL-1); `next_config_id` equals the number of `LaunchConfig` accounts; a
-  `LaunchConfig` changes only in `enabled`; every `LaunchConfig` passes V1 to V11.
+  `LaunchConfig` changes only in `enabled`; every `LaunchConfig` passes V1 to V11. **Per call
+  (review SM-2):** every successful `buy` and `launch` ran with buys open, every `launch` with
+  launches open, every `buyback_burn` with buybacks open and every `payout_founder_fees` with
+  payouts open, the flags taken as they stood at that call (the `Launchpad` before the
+  transaction, then each earlier `set_pause` of the same transaction); a new `Approval` holds
+  what 4.8 allows (city id at least 1, a founder that is not `FEE_RECIPIENT`, the guardian or the
+  payout key, a nonzero `meta_hash`, an expiry within 30 days of `approved_at`, an enabled
+  config, a valid symbol and name, the admin as rent payer), and a new `PayoutOptIn` names the
+  coin's founder and the payout wallet (4.18).
 * **I21 No admin money path within `vicinity_curve`.** No instruction in any test moves
   lamports or tokens to the admin, the guardian, the payout key, the upgrade authority or the
   keeper; the one exception is an `Approval`'s rent returning to its `rent_payer`, which
@@ -2524,7 +2587,7 @@ Global:
 | T60 | **Re-entrancy** | CPIs only to System, SPL Token, Metaplex and the program's own event CPI; none calls user code | review |
 | T61 | **Malicious caller of a permissionless crank** | no arguments; amounts from state; destinations fixed; the caller receives nothing | X61 |
 | T62 | **Launch sniping** | the founder may buy atomically in the launch transaction; flat fee; first buyback 150 slots after launch; no anti-sniper fee (O20) | design |
-| T63 | **Rent increase** | `pay_out`'s floor uses `min(rent_reserve, live rent)`, so the program never refuses an exit because of a rent increase; the runtime's rent-state rule (SIMD-0392) still refuses a debit that would leave a `Coin` below the live minimum, which after an increase of `d` affects only coins whose remaining liabilities are below `d`: anyone can top a `Coin` up, and the keeper tops up every coin below the live minimum after a rent change (6.5, 14.1) | X63 |
+| T63 | **Rent increase** | `pay_out`'s floor uses `min(rent_reserve, live rent)`, so the program never refuses an exit because of a rent increase; the runtime's rent-state rule (SIMD-0392) still refuses a debit that would leave a `Coin` below the live minimum, which after an increase of `d` affects only coins whose remaining liabilities are below `d`: anyone can top a `Coin` up, and after a rent change the keeper tops up every coin by `liabilities + live minimum - lamports` when positive (`coinRentTopUp`; a coin above the live minimum can be blocked, and one topped up only to the minimum stays blocked; 6.5, 14.1, review OPS-2) | X63; OPS-2 |
 | T64 | **Front-running `init_launchpad`** | only the program's upgrade authority can call it | X64 |
 | T65 | **IDL account squatting** | `no-idl`: no IDL instructions in the binary; IDL published through the Program Metadata program by the upgrade authority | C03; X65 |
 | T66 | **A hostile website or front end building another transaction** | fixed account lists, wallet simulation, IDL published by the upgrade authority; the website holds no key that can approve, halt or move funds | process |
@@ -2534,7 +2597,7 @@ Global:
 | T70 | **Missing or wrong rewards config** | missing: holders' money waits in `holders_pending`, forward works once a correct config exists; wrong: it can never be fixed (no update or close in `vicinity_rewards`), so the SDK simulates and checks before proposing; fallback O26 ; the SDK ignores lamports sent to the config address and reports a config whose only problem is its authority as fixable (4.15) | I22; R01, R03; 29-clients |
 | T71 | **Pending liquidity of a coin that never graduates** | locked by design, counted, disclosed as never used (O2) | I7, I22 |
 | T72 | **Misuse of the halts** | the guardian can only stop buys, buybacks and launches, never exits, and cannot clear its own flags; buybacks only while buys are halted, so no backlog builds in front of open buys (review LL-1); the halt-all build needs an upgrade (multisig, time lock); halt-all refuses every outflow by design | H01 to H03; X43b; LL-1 |
-| T73 | **Stolen guardian** | the same limits; the admin replaces the guardian and clears the flags, buybacks before buys when backlogs built up (8.3) | X43b; LL-1 |
+| T73 | **Stolen guardian**, also one that sets a flag late in the time lock to make the admin's recovery proposal fail (reviews R4-DIFF-4, OPS-3) | the same limits; the admin replaces the guardian with `set_pause(buybacks = false)` and buys left halted (a proposal no flag can make fail; the SDK's `guardianRecovery`), then reopens buys in a later proposal, buybacks before buys when backlogs built up (4.4, 8.3) | X43b; LL-1; 28-governance R4-DIFF-4 |
 | T74 | **Third-party pools for the coin** | cannot be prevented for a classic SPL coin; they pay no Vicinity fee and buybacks and injections carry over to them only past 2.5% plus their fee; labelled (6.6) and listed as an owner-visible risk (13, 14.5) | process |
 | T75 | **CPI after a direct lamport move** (`UnbalancedInstruction`, stuck instruction) | rule of 4.0; `forward_holders_fees` leaves `SyncNative` to a separate top-level instruction | R02, R02b |
 | T76 | **Buying ahead of a public buyback backlog** (hold through several runs), including the backlog a halt of buybacks leaves and the predictable moment buys reopen (review LL-1) | Theorem M_K; 0.1% step; V11 horizon; keeper every interval, alert above 1% of depth, backlog shown on the coin page; buybacks halted only while buys are, resumed first, and the keeper drains every backlog before buys reopen (8.3); the platform's key, credited `b_P`, by the operating rule of 8.4 (7.3, review HR-1); residual risk signed off (O25) | P06b; X25; LL-1; HR-1 |
@@ -2568,9 +2631,19 @@ compute): zero-copy `Coin`, stored event-authority bump, untyped user token acco
 
 Measured on the production build (NOTES 30; C01 asserts every figure against its test budget):
 a curve buy about 26,100 CU and a sell about 23,500; the graduating buy 29,600; pool trades about
-25,500 and 23,500; `buyback_burn` about 20,000; `launch` 110,600 to 125,900; `launch` + token
-account + first buy 165,500 in total; settings instructions 3,800 to 22,700. Every figure is inside
-its test budget.
+25,500 and 23,500; `buyback_burn` about 20,000; `launch` 110,382 to 152,266 CU over 600 city ids
+(median 123,882, p99 145,022; review TL-INFO-1: the spread is the bump searches of the PDAs
+`launch` derives or re-derives, which depend on the city id, the mint and the ticker, about 1,500
+to 1,700 CU per extra iteration; the worst known city under the localnet id, 1000 with name A and
+symbol C0, takes 151,008, asserted by `12-compute`); `launch` + token account + first buy 165,500
+in total for one city; settings instructions 3,800 to 22,700. Every figure is inside its test
+budget. The suggested client limits are per instruction: the website's first buy adds the
+idempotent token-account create, `13,424 + 1,500 x k` CU with `k` the owner's extra bump
+iterations (13,424 to 25,424 over 300 owners; `12-compute` asserts the formula), so a first buy
+takes its limit from a simulation (1.2 x, as for `launch`) or adds 30,000 to the buy's figure. The
+figures depend on the program id (its event-authority and `Launchpad` bumps add about 1,500 to
+2,400 CU per extra iteration to every money instruction) and are measured again once the mainnet
+id exists.
 
 ### 11.2 Account sizes and launch cost
 
@@ -2585,13 +2658,13 @@ lamports) returns to the Squads vault.
 * `buy` / `sell`: 24 bytes of instruction data, 10 accounts. A website buy with two
   compute-budget instructions and an idempotent create of the buyer's token account is about
   550 to 590 bytes (DBC `swap2` today: 731).
-* `launch`: 21 accounts, 1 or 2 signatures (the mint is a PDA, so no mint keypair signs):
+* `launch`: 22 accounts (the rewards registry since review OPS-1), 1 or 2 signatures (the mint is a PDA, so no mint keypair signs):
   about 950 to 1,050 bytes. `launch` plus the founder's first buy (with an idempotent token
   account create) is about 1,100 to 1,200 bytes without a lookup table, too close to the
   1,232-byte limit, so the website uses an address lookup table holding the static accounts
   (System, Token, ATA, Metaplex and Compute Budget programs, the rent sysvar, the event
-  authority, `vicinity_curve`, `FEE_RECIPIENT`, `Launchpad`, `LEGACY_LAUNCHPAD`, the config
-  PDAs): about 800 to 900 bytes with it.
+  authority, `vicinity_curve`, `FEE_RECIPIENT`, `Launchpad`, `LEGACY_LAUNCHPAD`,
+  `REWARDS_REGISTRY`, the config PDAs): about 800 to 900 bytes with it.
 * `approve_launch` goes through a Squads vault transaction (lookup tables supported).
 * Measured (C02, NOTES 30): the website's buy 555 bytes, its sell 513, `launch` alone 920,
   `launch` + token account + first buy 1,031 bytes without and 786 with the lookup table.
@@ -2639,7 +2712,7 @@ find exactly the checker's events, and nothing for a failed one (E01).
 | U09 | overflow and division edges at the bounds of V3 and V4, including `x0 = y0 = 2^60`, `t = 250`; `u64::MAX` inputs return `MathOverflow`, never panic | T14, T15 |
 | U10 | `decode_coin` offsets equal the Borsh layout of the program's `CurveCoin` (round trip); it rejects a wrong owner, a wrong length, `layout_version != 1` and the old program's `Coin` bytes | 3.7, 5.16 |
 | U11 | `check_name` (every default-ignorable code point and blank character, the space rule; review FA-1), `check_symbol`, `metadata_uri` | T38 |
-| U12 | compiled constants: `LEGACY_LAUNCHPAD` equals the derivation for each cluster build; the legacy discriminator, size and the offsets of `launches_paused`, `admin` and `pending_admin` match the old program's `Launchpad` | 3.2 |
+| U12 | compiled constants: `LEGACY_LAUNCHPAD` and `REWARDS_REGISTRY` equal their derivations for each cluster build; the legacy discriminator, size and the offsets of `launches_paused`, `admin` and `pending_admin` match the old program's `Launchpad`; the registry's discriminator, size and `admin` / `pending_admin` offsets match `vicinity_rewards`' `Registry` | 3.2 |
 | V01-V11 | one test per config rule: only that rule violated gives its error; the edge passes; the edge plus one fails (V2 for both caps and V2b at `t - b_F - b_H = 1` and 0; V5 for V5b; V10 at `b_P = b_L + 1` passes and `b_P = b_L` fails) | 5.13, T44 |
 
 ### 12.2 Property tests (P; at least 10^6 cases each)
@@ -2668,7 +2741,7 @@ find exactly the checker's events, and nothing for a failed one (E01).
 | L01 | `init_launchpad` only by the upgrade authority; second call refused; guardian stored |
 | L02 | admin two-step; cancel; separation rule at both steps |
 | L03 | `add_launch_config` for config #0 and edge configs; every V error on chain; `set_launch_config_enabled` |
-| L04 | `approve_launch` (each check and error), `revoke_approval` by the admin and by anyone after expiry, refused before expiry for non-admins; coin, ticker and legacy checks (an old-program `Coin` and `Approval` created with the real old program; its launches open or paused; a wrong-owner or wrong-size account at `LEGACY_LAUNCHPAD`; an old admin other than this program's admin, or a transfer pending there) |
+| L04 | `approve_launch` (each check and error), `revoke_approval` by the admin and by anyone after expiry, refused before expiry for non-admins; coin, ticker and legacy checks (an old-program `Coin` and `Approval` created with the real old program; its launches open or paused; a wrong-owner or wrong-size account at `LEGACY_LAUNCHPAD`; an old admin other than this program's admin, or a transfer pending there; the same for the rewards registry's admin, 28-governance OPS-1) |
 | L05 | `launch`: accounts created; metadata fields; `meta_hash` stored and emitted; supply after the 9.1-coin burn; authorities `None`; fee to `FEE_RECIPIENT`; rent; `rent_reserve`; the legacy checks again at launch (a legacy coin created after approval blocks the launch); the pool-option config (no burn); CU and transaction size with a first buy through the lookup table |
 | L06 | curve trading: buys and sells; slippage; minimum buy; `Trade` events match state |
 | L07 | graduation: exactly at `S` and `R`; partial fill; `rem = 1`; `Graduated`; the next trade uses the pool with the same account list |
@@ -2795,7 +2868,7 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | O16 | Launch fee | **0.05 SOL, all to `FEE_RECIPIENT`** | Another amount per config, up to 0.5 SOL | New config |
 | O17 | Metaplex's own 0.01 SOL metadata fee | **Accepted**: a one-time launch cost paid to Metaplex, not a trading fee; without Metaplex metadata wallets show an unknown token, and Token-2022 metadata would break R3 | none recommended | |
 | O18 | The last buy | **Partial fill**: the buyer pays only for what the curve still had | Continue the rest of the buy in the new pool | Exact-in for routers, but two pricing legs and a fee split across them in one instruction |
-| O19 | The old `vicinity_launchpad` | **Leave it deployed; make the Squads vault its admin, pause its launches and disable its configs before the first approval here, and keep it paused under the vault** (approvals and launches here require all of it, 8.5) | Keep both open; or close the old program once paused | Keeping both open is not possible with this program (approvals and launches refuse while the old one is open or administered by another key). Closing it makes unpausing impossible, but freezes its admin field: a later hand-over of this program's admin would then stop approvals and launches here until an upgrade |
+| O19 | The old `vicinity_launchpad` | **Leave it deployed; make the Squads vault its admin, pause its launches and disable its configs before the first approval here, and keep it paused under the vault** (approvals and launches here require all of it, 8.5) | Keep both open; or close the old program once paused | Keeping both open is not possible with this program (approvals and launches refuse while the old one is open or administered by another key). Closing it makes unpausing impossible, but freezes its admin field: a later hand-over of this program's admin would then stop approvals and launches here until an upgrade; and an old `Approval` still open at the close can never be revoked, so its city is refused here for ever: every one is revoked first (8.5, review OPS-4) |
 | O20 | Anti-sniper launch fee | **None** (flat fee; the founder can buy atomically at launch) | A decaying first-minute fee | Breaks R2's "never above 2.5%"; needs an explicit owner exception |
 | O21 | Donated lamports or coins | **Ignored forever** (not counted, not withdrawable) | A permissionless sweep of surplus into the buyback or holders bucket | Small extra surface |
 | O22 | A lost founder key | **The share stays with that key** (no admin lever) | Admin reassignment | A money power for the admin |
@@ -2869,7 +2942,8 @@ new program, these coins trade only on vicinity.city and through direct program 
   when `buyback_pending` exceeds 1% of depth; `forward_holders_fees` followed by a top-level
   `SyncNative(rewards_vault)` in the same transaction when `holders_pending` exceeds a
   threshold (for example 0.05 SOL); `withdraw_platform_fees` daily; after any change of the
-  rent rate, a top-up of every `Coin` below the live rent-exempt minimum (6.5, T63). All no-ops
+  rent rate, a top-up of every `Coin` by `liabilities + rent_min(693) - lamports` when positive
+  (the SDK's `coinRentTopUp`; 6.5, T63, review OPS-2). All no-ops
   are cheap and batchable; a halt is an error the keeper skips. A halt of buys alone does not
   stop the buybacks, and the keeper keeps running them. After a halt of buybacks (8.3, review
   LL-1), once the admin resumes them with buys still halted, the keeper runs every coin each
@@ -3627,7 +3701,7 @@ a verifier before it was accepted. Severities are the verifier's.
 ### Revision 3: review round 4 of the build (17 October 2026)
 
 The fixes of round 3 and the whole build were reviewed again through five lenses (the round-3
-fix diff, operations, cross-program calls, the state machine, the SDK and docs); each finding
+fix diff, operations, cross-program calls, a fresh audit of the state machine, the SDK and docs); each finding
 was reproduced by a verifier before it was accepted. Severities are the verifier's. Findings
 that several lenses reported share a row.
 
@@ -3640,6 +3714,12 @@ that several lenses reported share a row.
 | R4-DIFF-5, SDK4-3 | fix diff, SDK; low | the size-dependent slippage covered buys only: a sell above the threshold at 1% was sandwiched by any holder for nearly the whole tolerance | **Confirmed**. **Applied**: `sellLeg` and `sellSlippagePolicy` (the buy rule on the sell's gross; a minimum given or derived, at least 1 lamport; no sell without one). 5.15, 7.4, 14.1, T80; `prechecks.test.mjs`, `29-clients`; NOTES 59 |
 | SDK4-5 | SDK, info | `solInFromSwapQuote` never checked that the swap's output is native SOL, so a quote to another token made the buy spend SOL the user already had (G03 depended on the caller) | **Confirmed**. **Applied**: `outputMint` must be the native mint and `inputMint` another one, else `ComposeError`; the unwrap (`wrapAndUnwrapSol`) is documented. 14.1, G03; `prechecks.test.mjs`, `26-router`; NOTES 60 |
 | SDK4-6 | SDK, info | the README's direct-buy example threw on a fresh coin, and 7.4 and the 29-clients header gave round 2's "2% to 2.5%" threshold | **Confirmed**. **Applied**: the README takes its slippage from `buySlippagePolicy` (and shows the sell leg); 7.4 and the header give the SDK's figure. `prechecks.test.mjs` runs the README's lines and checks the texts; NOTES 60 |
+| OPS-1 | operations, low | nothing on chain enforced 8.4's rule that the rewards registry admin is the Squads vault, and no deploy checklist existed: while a hot key (on mainnet the owner's `13qRam...`, also `FEE_RECIPIENT`) held that seat it could create a new coin's `CityConfig` with wrong economics before the vault's time-locked `init_city`, and the coin's holders' share could never be forwarded (O26) | **Confirmed**. **Applied**, fail-closed as GOV-1: `approve_launch` and `launch` read `vicinity_rewards`' registry at the compiled `REWARDS_REGISTRY` (owner, 73 bytes, discriminator) and require its admin to be `launchpad.admin` with no transfer pending (`RewardsRegistryAdminMismatch`, 6056); 8.2 adds the registry admin to the seats that follow an admin hand-over; the deploy checklist `scripts/vcurve/preflight.mjs` reads every 8.4 precondition. 3.2, 4.8, 4.10, 4.22, 8.2, 8.4, I19, U12, L04; IDL, SDK; `28-governance`; NOTES 61, 64 |
+| R4-DIFF-4, OPS-3 | fix diff, operations; low / info | a stolen guardian can make the one-proposal recovery of 4.4 (`set_guardian` with `set_pause(buys = false)`, buybacks unset) fail by halting buybacks late in the time lock (`BuybackHaltWithoutBuyHalt`; `set_guardian` reverts with it); written with `buybacks = false` instead, it reopens buys and buybacks together after a time lock of buyback halt (the LL-1 state) | **Confirmed**. **Applied** (runbook and SDK; the program unchanged): the first proposal replaces the guardian with `set_pause(buybacks = false)` and buys left halted (or `buys = true` when buybacks must stay halted), which no flag can make fail; buys reopen in a second proposal after the drain. The SDK's `guardianRecovery`; 4.4, 8.1 (the guardian can make an unprepared proposal fail once), 8.3, T73 and `set_guardian.rs` say so. `28-governance`, `prechecks.test.mjs`; NOTES 62 |
+| OPS-2 | operations, low | after a rent increase the keeper rule "top up every coin below the live minimum" misses coins above the minimum whose exits are blocked, and a top-up to the minimum still leaves every debit refused | **Confirmed** (the program side is correct). **Applied**: the keeper tops up `liabilities + rent_min(693) - lamports` when positive (the SDK's `coinRentTopUp`); 6.5, T63, 14.1. `20-attacks-runtime` OPS-2 (both cases), `prechecks.test.mjs`; NOTES 63 |
+| OPS-4 | operations, info (reported low) | closing the old program as 8.5 and O19 allow, with an old `Approval` still open, blocks that city here for ever (`LegacyApprovalExists`; nothing can revoke it after the close) | **Confirmed**. **Applied**: the precondition in 8.5 and O19 (no old `Approval` before a close; revoke each first; making the program immutable avoids it) and in the deploy checklist (`--before-legacy-close`). `28-governance` OPS-4 (a real loader `Close`); NOTES 64 |
+| TL-INFO-1 | cross-program calls, info | 11.1 stated `launch` 110,600 to 125,900 CU from one city; over 600 city ids it spans about 110,000 to 152,000 (bump searches), and the suggested buy limits left out the first buy's token-account create | **Confirmed** (no budget exceeded, no funds involved). **Applied**: 11.1 restated from a fresh measurement (110,382 to 152,266 over 600 city ids, city 1000 / A / C0 151,008; the ATA create `13,424 + 1,500 x k`; first buys from a simulation or plus 30,000; re-measured with the mainnet id); 11.3 for the registry account. `12-compute` TL-INFO-1; NOTES 65 |
+| SM-2 | state machine, info | the per-transaction checker never checked that a successful call ran under permitting flags, nor what `approve_launch` and `opt_in_payout` wrote (no program defect) | **Confirmed**. **Applied**: the checker walks the calls with the flags of their moment (earlier `set_pause`s of the same transaction applied) and checks a new approval's and opt-in's contents (I20); the pool-buy and payout probes of I22 are not added (optional). `27-checker-gaps` SM-2; NOTES 66 |
 
 ### Revision 3: the leftovers of the build's third stage
 
@@ -3699,3 +3779,9 @@ build follows the text as written and the entry records a reading or a measureme
 | 58 | review round 4: the sandwich threshold at the pool's depth, less one buyback run (above) | as listed above |
 | 59 | review round 4: splitting is no defence; the sell leg (above) | as listed above |
 | 60 | review round 4: the swap's output mint; the docs follow the SDK (above) | as listed above |
+| 61 | review round 4: the rewards registry's admin at every approval and launch (above) | as listed above |
+| 62 | review round 4: the recovery from a stolen guardian that no flag can make fail (above) | as listed above |
+| 63 | review round 4: the keeper's top-up after a rent change (above) | as listed above |
+| 64 | review round 4: the deploy checklist; no old approval when the old program is closed (above) | as listed above |
+| 65 | review round 4: launch compute over many city ids; the token-account create (above) | as listed above |
+| 66 | review round 4: the checker's flags per call and approval contents (above) | as listed above |

@@ -163,10 +163,11 @@ test('C01/C02 launch, then launch + token account + first buy in one transaction
   assert.ok(launchCu <= 230_000, `launch ${launchCu} CU within the 11.1 test budget`);
   const table = lookupTable(w, [
     S.ADDRESSES.system, S.ADDRESSES.token, S.ADDRESSES.associatedToken, S.ADDRESSES.metaplex, S.ADDRESSES.computeBudget, S.ADDRESSES.rentSysvar,
-    w.P.eventAuthority(), w.programId, S.ADDRESSES.feeRecipient, w.P.launchpad(), S.CLUSTERS.mainnet.legacyLaunchpad, w.P.config(0),
+    w.P.eventAuthority(), w.programId, S.ADDRESSES.feeRecipient, w.P.launchpad(), S.CLUSTERS.mainnet.legacyLaunchpad, w.P.config(0), S.CLUSTERS.mainnet.rewardsRegistry,
   ], w.admin.address);
   const tables = { [table]: [S.ADDRESSES.system, S.ADDRESSES.token, S.ADDRESSES.associatedToken, S.ADDRESSES.metaplex, S.ADDRESSES.computeBudget,
-    S.ADDRESSES.rentSysvar, w.P.eventAuthority(), w.programId, S.ADDRESSES.feeRecipient, w.P.launchpad(), S.CLUSTERS.mainnet.legacyLaunchpad, w.P.config(0)] };
+    S.ADDRESSES.rentSysvar, w.P.eventAuthority(), w.programId, S.ADDRESSES.feeRecipient, w.P.launchpad(), S.CLUSTERS.mainnet.legacyLaunchpad, w.P.config(0),
+    S.CLUSTERS.mainnet.rewardsRegistry] };
   const h = w.handle(71n, founder);
   const ixs = [w.launchIx({ cityId: 71n, founder }), ...w.buyIxs(founder, h, LAMPORTS, 0n)];
   // without the table the transaction is too close to (or over) the 1,232-byte limit (11.3)

@@ -11,12 +11,27 @@
 //     admin nor the guardian (FeeRecipientRole); the guardian can be neither the
 //     payout key nor the payout wallet (PayoutKeyNotSeparate).
 //
+//   * OPS-1 (review round 4): vicinity_rewards' registry admin alone signs init_city, and
+//     a city's config can never be changed, so while a hot key held that seat it could
+//     create a new coin's config with wrong economics before the multisig's and freeze
+//     the holders' share for good. approve_launch and launch now also require the
+//     registry's admin to be launchpad.admin with no transfer pending
+//     (RewardsRegistryAdminMismatch).
+//   * R4-DIFF-4, OPS-3 (review round 4): a stolen guardian could make the one-proposal
+//     recovery fail by halting buybacks late in the time lock; the SDK's
+//     guardianRecovery builds a recovery no flag can make fail.
+//   * OPS-4 (review round 4): the deploy checklist of 8.4 (scripts/vcurve/preflight.mjs)
+//     reads every precondition from the chain; an old Approval left when the old
+//     program is closed blocks its city here forever, so it is a problem before a close.
+//
 // Keys for which the suite has no private key (FEE_RECIPIENT) sign with zeros in a
 // World whose signature checks are off (offlineKey).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import web3 from '@solana/web3.js';
-import { World, S, expectFail, offlineKey, LAMPORTS } from './helpers.mjs';
+import { address } from '@solana/kit';
+import { World, S, expectFail, offlineKey, LAMPORTS, DAY } from './helpers.mjs';
+import { checkDeployPreconditions, checklistAddresses } from '../scripts/vcurve/preflight.mjs';
 
 const { PublicKey } = web3;
 const ZERO = S.ADDRESSES.system;
@@ -66,6 +81,9 @@ test('GOV-1 the old program\'s admin must be the vicinity_curve admin with no tr
   await expectFail(() => w.approve({ cityId: 4103n, founder, symbol: 'CITYD' }), 'LegacyAdminMismatch');
   await expectFail(() => w.launch({ cityId: 4102n, founder, label: 'launch before the old admin followed' }), 'LegacyAdminMismatch');
   await w.legacyHandOver(next, { from: oldAdmin });
+  // and so must vicinity_rewards' registry admin (8.2, OPS-1)
+  await expectFail(() => w.launch({ cityId: 4102n, founder, label: 'launch before the registry admin followed' }), 'RewardsRegistryAdminMismatch');
+  await w.registryHandOver(next, { from: oldAdmin });
   await w.launch({ cityId: 4102n, founder });
   await w.launchCoin({ cityId: 4103n, founder, symbol: 'CITYD' });
 
@@ -220,4 +238,180 @@ test('R2-DIFF-1 init_launchpad refuses FEE_RECIPIENT as the upgrade authority (l
   await w.send([w.ix.initLaunchpad({ payer: w.payer.address, admin: w.admin.address, upgradeAuthority: w.deployer.address, guardian: w.guardian.address })],
     [w.admin, w.deployer], 'init_launchpad');
   await w.finish();
+});
+
+// ---------------------------------------------------------------- review round 4
+const pkb = (a) => new PublicKey(String(a)).toBuffer();
+
+test('OPS-1 the rewards registry\'s admin must be the vicinity_curve admin with no transfer pending, at every approval and every launch; a hot registry admin can no longer squat a coin\'s rewards config', async () => {
+  const w = await World.create({ rewards: false });
+  w.svm.withSigverify(false);
+  // mainnet as recorded in release/mainnet-2026-10-10/BUILD.md: the registry admin is 13qRam, which is also FEE_RECIPIENT
+  const hot = offlineKey(FEE);
+  const R = w.rewardsPdas();
+  const rid = S.CLUSTERS.mainnet.rewardsProgram;
+  await w.send([w.rewardsIx('init_registry', {}, {
+    payer: w.payer.address, upgrade_authority: w.deployer.address, admin: hot.address, program: rid,
+    program_data: S.findPda([pkb(rid)], S.ADDRESSES.upgradeableLoader)[0], registry: R.registry,
+  })], [w.deployer, hot], 'init_registry with the hot admin');
+  assert.equal(R.registry, S.CLUSTERS.mainnet.rewardsRegistry);
+  assert.deepEqual(w.registryAdmins(), { admin: FEE, pendingAdmin: ZERO });
+  const founder = await w.signer(50n);
+  // while the registry has another admin, nothing here can be approved or launched
+  await expectFail(() => w.approve({ cityId: 4200n, founder, symbol: 'REGA' }), 'RewardsRegistryAdminMismatch');
+  // the hand-over 8.4 asks for: registry propose_admin(the vault) by the hot key, accepted by the vault
+  await w.registryHandOver(w.admin, { from: hot, accept: false });
+  await expectFail(() => w.approve({ cityId: 4200n, founder, symbol: 'REGA' }), 'RewardsRegistryAdminMismatch'); // pending: still refused
+  await w.send([w.rewardsIx('accept_admin', {}, { new_admin: w.admin.address, registry: R.registry })], [w.admin], 'registry accept_admin by the vault');
+  assert.deepEqual(w.registryAdmins(), { admin: w.admin.address, pendingAdmin: ZERO });
+  const h = await w.launchCoin({ cityId: 4200n, founder, symbol: 'REGA' });
+  await w.approve({ cityId: 4201n, founder, symbol: 'REGB' });
+  // the finding's attack, replayed: the former registry admin can no longer create the coin's config
+  await expectFail(() => w.send([w.rewardsIx('init_city', { reward_model: { Creator: {} }, founder_bps: 10_000, city_tag: Array(32).fill(0) }, {
+    payer: hot.address, admin: hot.address, registry: R.registry, authority: hot.address, founder: hot.address, city_coin_mint: h.mint,
+    reward_mint: S.ADDRESSES.nativeMint, config: R.city(h.mint), vault: R.vault(R.city(h.mint)), token_program: S.ADDRESSES.token, system_program: S.ADDRESSES.system,
+  })], [hot], 'the hot key\'s init_city (Creator, founder_bps 10000)'), /Unauthorized|0x1770|ConstraintHasOne|has.?one|2001/i);
+  // the vault's own config, and the holders' share is forwarded
+  const u = await w.signer(30n);
+  await w.buy(u, h, 10n * LAMPORTS);
+  await w.initRewardsCity(h);
+  const r = await w.forward(h);
+  assert.ok(r.events[0].data.amount > 0n);
+  // a transfer pending in the registry, to anyone (even to this admin), stops approvals and launches until it is cancelled
+  const stranger = await w.signer(5n);
+  for (const to of [stranger, w.admin]) {
+    await w.send([w.rewardsIx('propose_admin', { new_admin: new PublicKey(String(to.address)) }, { admin: w.admin.address, registry: R.registry })], [w.admin], 'registry propose_admin');
+    await expectFail(() => w.launch({ cityId: 4201n, founder, label: 'launch while the registry admin is being handed over' }), 'RewardsRegistryAdminMismatch');
+    await expectFail(() => w.approve({ cityId: 4202n, founder, symbol: 'REGC' }), 'RewardsRegistryAdminMismatch');
+  }
+  await w.send([w.rewardsIx('propose_admin', { new_admin: new PublicKey(ZERO) }, { admin: w.admin.address, registry: R.registry })], [w.admin], 'registry cancel the transfer');
+  await w.launch({ cityId: 4201n, founder });
+  // the account in the registry slot: only the real registry at the compiled address (owner, size, discriminator)
+  const good = w.accountInfo(R.registry);
+  await expectFail(() => w.send([w.ix.approveLaunch({ admin: w.admin.address, cityId: 4203n, founder: founder.address, configId: 0, name: 'Demo City', symbol: 'REGD',
+    metaHash: Array(32).fill(7), expiresAt: w.now() + DAY, overrides: { rewards_registry: S.CLUSTERS.devnet.rewardsRegistry } })], [w.admin], 'another registry address'), 'InvalidAddress');
+  for (const [what, owner, data] of [
+    ['a System-owned copy', S.ADDRESSES.system, good.data],
+    ['another program\'s copy', S.ADDRESSES.metaplex, good.data],
+    ['one byte longer', S.CLUSTERS.mainnet.rewardsProgram, Buffer.concat([good.data, Buffer.alloc(1)])],
+    ['another discriminator', S.CLUSTERS.mainnet.rewardsProgram, Buffer.concat([Buffer.from(S.REWARDS_CITY_CONFIG_DISCRIMINATOR), good.data.subarray(8)])],
+  ]) {
+    w.setRaw(R.registry, data, owner);
+    await expectFail(() => w.approve({ cityId: 4203n, founder, symbol: 'REGD' }), 'RewardsRegistryAdminMismatch');
+    void what;
+  }
+  w.setRaw(R.registry, good.data, S.CLUSTERS.mainnet.rewardsProgram, good.lamports);
+  // a hand-over of this program's admin: the registry admin follows with the old program's admin (8.2)
+  const next = await w.signer(5n);
+  await w.adminHandOver(next);
+  assert.deepEqual(w.registryAdmins(), { admin: next.address, pendingAdmin: ZERO });
+  await w.launchCoin({ cityId: 4203n, founder, symbol: 'REGD' });
+  await w.finish();
+});
+
+test('R4-DIFF-4, OPS-3 a stolen guardian traps the one-proposal recovery with a late buyback halt; the SDK\'s guardianRecovery cannot be trapped, and buys reopen in a later proposal', async () => {
+  const w = await World.create();
+  const thief = w.guardian;
+  const h = await w.launchCoin({ cityId: 4210n, symbol: 'TRAP' });
+  const u = await w.signer(50n);
+  await w.buy(u, h, 5n * LAMPORTS);
+  await w.send([w.ix.setPause({ authority: thief.address, launches: true, buys: true })], [thief], 'the thief halts launches and buys');
+  const newGuardian = await w.signer(1n);
+  // the recovery as revision 3's 4.4 described it, with the SDK's defaults (buybacks null): valid when it is written
+  const oneProposal = () => [w.ix.setGuardian({ admin: w.admin.address, guardian: newGuardian.address }), w.ix.setPause({ authority: w.admin.address, launches: false, buys: false })];
+  assert.equal((await w.simulate(oneProposal(), [w.admin])).ok, true);
+  const recovery = () => w.ix.guardianRecovery({ admin: w.admin.address, guardian: newGuardian.address, launches: false });
+  assert.equal((await w.simulate(recovery(), [w.admin])).ok, true);
+  // late in the 48-hour time lock the thief halts buybacks (allowed while buys are halted)
+  w.warpSecs(47 * 3600);
+  await w.send([w.ix.setPause({ authority: thief.address, buybacks: true })], [thief], 'the thief halts buybacks late in the time lock');
+  // the one-proposal recovery now fails, set_guardian reverts with it, and retrying changes nothing
+  for (const label of ['the one-proposal recovery', 'the same proposal again']) {
+    await expectFail(() => w.send(oneProposal(), [w.admin], label), 'BuybackHaltWithoutBuyHalt');
+    assert.equal(w.launchpad().guardian, String(thief.address), `${label}: the thief keeps the seat`);
+  }
+  // the SDK's recovery executes whatever the thief set: the guardian is replaced, buybacks resume, buys stay halted
+  await w.send(recovery(), [w.admin], 'guardianRecovery');
+  let lp = w.launchpad();
+  assert.deepEqual([lp.guardian, lp.launchesPaused, lp.buysHalted, lp.buybacksHalted], [String(newGuardian.address), false, true, false]);
+  await expectFail(() => w.send([w.ix.setPause({ authority: thief.address, buybacks: true })], [thief], 'the former guardian'), 'Unauthorized');
+  // the keeper drains the backlog while buys are still refused, then the second proposal reopens buys
+  const back = await w.sell(u, h, w.balanceOf(u, h.mint) / 2n, { label: 'a sell during the halt' });
+  void back;
+  w.warpSlots(Number(S.BUYBACK_INTERVAL_SLOTS));
+  await w.buyback(h, { label: 'the keeper drains' });
+  await expectFail(() => w.buy(u, h, LAMPORTS, { label: 'a buy before the second proposal' }), 'BuysHalted');
+  await w.send([w.ix.setPause({ authority: w.admin.address, buys: false })], [w.admin], 'the second proposal: buys reopen');
+  await w.buy(u, h, LAMPORTS, { label: 'a buy after the recovery' });
+  // with keepBuybacksHalted (buybacks themselves in question) the recovery cannot be trapped either
+  await w.send([w.ix.setPause({ authority: newGuardian.address, buys: true })], [newGuardian], 'the new guardian halts buys');
+  const third = await w.signer(1n);
+  const keep = w.ix.guardianRecovery({ admin: w.admin.address, guardian: third.address, keepBuybacksHalted: true });
+  await w.send([w.ix.setPause({ authority: newGuardian.address, buybacks: true, launches: true })], [newGuardian], 'every flag the guardian can set');
+  await w.send(keep, [w.admin], 'guardianRecovery, buybacks kept halted');
+  lp = w.launchpad();
+  assert.deepEqual([lp.guardian, lp.launchesPaused, lp.buysHalted, lp.buybacksHalted], [String(third.address), true, true, true]);
+  await w.finish();
+});
+
+/** The checklist's snapshot from a World: every address it reads, and the programs' accounts. */
+function checklistSnapshot(w, edit = (a) => a) {
+  const A = checklistAddresses({ programId: w.programId, cluster: 'mainnet' });
+  const keys = ['curveLaunchpad', 'curveProgramData', 'curveConfig0', 'rewardsRegistry', 'rewardsProgramData', 'legacyLaunchpad', 'legacyProgramData'].map((k) => A[k]);
+  const list = (program) => w.svm.getProgramAccounts(address(program)).map((a) => ({ address: String(a.address), owner: String(program), lamports: BigInt(a.lamports), data: Buffer.from(a.data) }));
+  return { accounts: edit(Object.fromEntries(keys.map((k) => [k, w.accountInfo(k)]))), legacyAccounts: list(S.CLUSTERS.mainnet.legacyProgram), curveAccounts: list(w.programId) };
+}
+const codes = (r) => r.map((x) => x.code).sort();
+
+test('OPS-4, OPS-1 the deploy checklist (scripts/vcurve/preflight.mjs) reads 8.4\'s preconditions from the chain; an old Approval is a problem before closing the old program, which would block its city here forever', async () => {
+  const w = await World.create({ dbcProgram: true });
+  const run = (o = {}) => checkDeployPreconditions({ ...checklistSnapshot(w, o.edit), vault: w.admin.address, programId: w.programId, beforeLegacyClose: o.close });
+  // the World's upgrade authority is its deployer: every program's is reported until it is the vault
+  assert.deepEqual(codes(run().problems), ['CURVE_UPGRADE_AUTHORITY', 'LEGACY_UPGRADE_AUTHORITY', 'REWARDS_UPGRADE_AUTHORITY']);
+  for (const id of [w.programId, S.CLUSTERS.mainnet.rewardsProgram, S.CLUSTERS.mainnet.legacyProgram]) {
+    const pd = S.findPda([pkb(id)], S.ADDRESSES.upgradeableLoader)[0];
+    const a = w.accountInfo(pd); const d = Buffer.from(a.data); pkb(w.admin.address).copy(d, 13);
+    w.setRaw(pd, d, S.ADDRESSES.upgradeableLoader, a.lamports);
+  }
+  assert.deepEqual(run(), { problems: [], warnings: [] }, 'every precondition holds');
+  // the old program's config enabled, its launches open, an old approval outstanding
+  await w.legacyEnable(true);
+  assert.deepEqual(codes(run().problems), ['LEGACY_CONFIG_ENABLED']);
+  await w.legacyPause(false);
+  await w.legacyApprove({ cityId: 7001n, founder: await w.signer(1n), symbol: 'OLDX' });
+  assert.deepEqual(codes(run().problems), ['LEGACY_CONFIG_ENABLED', 'LEGACY_LAUNCHES_OPEN']);
+  await w.legacyPause(true);
+  await w.legacyEnable(false);
+  let r = run();
+  assert.deepEqual([codes(r.problems), codes(r.warnings)], [[], ['LEGACY_APPROVAL']], 'an outstanding old approval: a warning');
+  r = run({ close: true });
+  assert.deepEqual(codes(r.problems), ['LEGACY_APPROVAL'], 'before closing the old program: a problem');
+  assert.match(r.problems[0].message, /revoke_approval/);
+  const newFounder = await w.signer(1n);
+  await expectFail(() => w.approve({ cityId: 7001n, founder: newFounder, symbol: 'NEWX' }), 'LegacyApprovalExists');
+  // the registry's admin handed elsewhere (OPS-1), a founder holding a role (doctored snapshot)
+  const stranger = await w.signer(5n);
+  await w.registryHandOver(stranger, { accept: false });
+  assert.deepEqual(codes(run().problems), ['REWARDS_REGISTRY_ADMIN']);
+  await w.send([w.rewardsIx('propose_admin', { new_admin: new PublicKey(ZERO) }, { admin: w.admin.address, registry: w.rewardsPdas().registry })], [w.admin], 'registry cancel');
+  const founder = await w.signer(5n);
+  await w.launchCoin({ cityId: 7010n, founder, symbol: 'ROLE' });
+  const lpKey = w.P.launchpad();
+  // the snapshot doctored as if set_guardian had named that founder (Launchpad.guardian at byte 136, 3.4)
+  const asGuardian = (a) => { const d = Buffer.from(a[lpKey].data); pkb(founder.address).copy(d, 136); return { ...a, [lpKey]: { ...a[lpKey], data: d } }; };
+  assert.ok(codes(run({ edit: asGuardian }).problems).includes('FOUNDER_HOLDS_ROLE'));
+  // OPS-4's trap: the old program closed with the approval outstanding (loader Close, what `solana program close` sends)
+  w.checks = false; w.probeEach = false; // the checker pins the old program's bytes (I20); closing it is the point here
+  const LEG = S.CLUSTERS.mainnet.legacyProgram;
+  const pd = S.findPda([pkb(LEG)], S.ADDRESSES.upgradeableLoader)[0];
+  w.warpSlots(10);
+  await w.send([{ programAddress: S.ADDRESSES.upgradeableLoader, accounts: [{ address: pd, role: S.Role.W }, { address: String(w.admin.address), role: S.Role.W },
+    { address: String(w.admin.address), role: S.Role.WS }, { address: LEG, role: S.Role.W }], data: new Uint8Array([5, 0, 0, 0]) }], [w.admin], 'loader Close of the old program');
+  w.warpSlots(10);
+  assert.ok(w.accountInfo(w.P.legacyApproval(7001n)), 'the old approval survives the close');
+  await expectFail(() => w.legacyRevoke(7001n));
+  w.warpSecs(Number(60n * DAY));
+  await expectFail(() => w.approve({ cityId: 7001n, founder, symbol: 'NEWX' }), 'LegacyApprovalExists');
+  r = run();
+  assert.ok(codes(r.problems).includes('LEGACY_APPROVAL') && !codes(r.problems).includes('LEGACY_UPGRADE_AUTHORITY'), 'after a close the approval is a problem in any mode');
 });

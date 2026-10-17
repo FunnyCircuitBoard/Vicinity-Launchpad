@@ -293,6 +293,13 @@
           ]
         },
         {
+          "name": "rewards_registry",
+          "docs": [
+            "read by hand: owner, size and discriminator, its `admin` this",
+            "program's admin and its `pending_admin` zero (8.4, OPS-1)."
+          ]
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -1078,6 +1085,13 @@
           "docs": [
             "discriminator), whose launches must be paused and whose admin must be",
             "this program's admin with no transfer pending (GOV-1)."
+          ]
+        },
+        {
+          "name": "rewards_registry",
+          "docs": [
+            "read by hand: owner, size and discriminator, its `admin` this",
+            "program's admin and its `pending_admin` zero (8.4, OPS-1)."
           ]
         },
         {
@@ -2802,6 +2816,11 @@
       "code": 6055,
       "name": "BuybackHaltWithoutBuyHalt",
       "msg": "buybacks may be halted only while buys are halted: halt buys with them, and resume buybacks before or with buys"
+    },
+    {
+      "code": 6056,
+      "name": "RewardsRegistryAdminMismatch",
+      "msg": "vicinity_rewards' registry admin must be this program's admin, with no admin transfer pending"
     }
   ],
   "types": [
@@ -4950,6 +4969,57 @@
       ],
       "type": "pubkey",
       "value": "EVwxp3V9YSvsyDEjp39B9wRDQxHR2xF2CNeR8AMRYrgG"
+    },
+    {
+      "name": "REWARDS_REGISTRY",
+      "docs": [
+        "The `vicinity_rewards` registry, `find_program_address([\"registry\"],",
+        "REWARDS_PROGRAM_ID)` (mainnet build; unit test U12 checks the",
+        "derivation). Its admin alone signs `init_city`, so it must be this",
+        "program's admin at every approval and launch (8.4, review OPS-1)."
+      ],
+      "type": "pubkey",
+      "value": "2i9xvFtxnnToASy7yuaV7eq2aQTstXpLTRYvJ6mUs4yG"
+    },
+    {
+      "name": "REWARDS_REGISTRY_ADMIN_AT",
+      "docs": [
+        "Offset of `admin` in the registry: it must be this program's admin at",
+        "every approval and launch (OPS-1)."
+      ],
+      "type": "u64",
+      "value": "8"
+    },
+    {
+      "name": "REWARDS_REGISTRY_DISCRIMINATOR",
+      "docs": [
+        "`sha256(\"account:Registry\")[..8]` of `vicinity_rewards` (OPS-1)."
+      ],
+      "type": {
+        "array": [
+          "u8",
+          8
+        ]
+      },
+      "value": "[47, 174, 110, 246, 184, 182, 252, 218]"
+    },
+    {
+      "name": "REWARDS_REGISTRY_LEN",
+      "docs": [
+        "Size of `vicinity_rewards`' `Registry` (discriminator, `admin`,",
+        "`pending_admin`, `bump`)."
+      ],
+      "type": "u64",
+      "value": "73"
+    },
+    {
+      "name": "REWARDS_REGISTRY_PENDING_ADMIN_AT",
+      "docs": [
+        "Offset of `pending_admin` in the registry: it must be zero at every",
+        "approval and launch."
+      ],
+      "type": "u64",
+      "value": "40"
     }
   ]
 }

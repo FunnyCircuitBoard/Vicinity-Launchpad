@@ -18,7 +18,8 @@
 //! (R4). The approval closes at exit (rent to its `rent_payer`). R1 across
 //! both programs is re-checked here (8.5): no `Coin` and no `Approval` for the
 //! city in the old program, its launches paused, and its admin this program's
-//! admin with no transfer pending (GOV-1). The signing founder is checked
+//! admin with no transfer pending (GOV-1), and so is the `vicinity_rewards`
+//! registry's admin (OPS-1). The signing founder is checked
 //! again against the settings of this moment: never `FEE_RECIPIENT`, the
 //! guardian or the payout key (R2-DIFF-1, SPEC-1). No direct lamport move
 //! happens in `launch`.
@@ -33,7 +34,8 @@ use vicinity_curve_math::{launch_dust, validate_config, State, Terms};
 
 use crate::constants::{
     APPROVAL_SEED, COIN_DECIMALS, COIN_LEN, COIN_SEED, COIN_SUPPLY, COIN_VAULT_SEED, CONFIG_SEED,
-    FEE_RECIPIENT, LAUNCHPAD_SEED, LEGACY_LAUNCHPAD, METAPLEX_PROGRAM_ID, MINT_SEED, TICKER_SEED,
+    FEE_RECIPIENT, LAUNCHPAD_SEED, LEGACY_LAUNCHPAD, METAPLEX_PROGRAM_ID, MINT_SEED,
+    REWARDS_REGISTRY, TICKER_SEED,
 };
 use crate::custody::require_not_halted;
 use crate::errors::{config_err, math_err, CurveError};
@@ -41,7 +43,7 @@ use crate::events::CoinLaunched;
 use crate::helpers::{
     check_founder_key, check_name, check_symbol, is_empty_system_account, legacy_admin_matches,
     legacy_approval_address, legacy_coin_address, legacy_launches_paused, legacy_launchpad_valid,
-    metadata_address, metadata_uri, symbol_bytes,
+    metadata_address, metadata_uri, rewards_registry_matches, symbol_bytes,
 };
 use crate::instructions::{now, with_coin_signer};
 use crate::state::{Approval, CurveCoin, LaunchConfig, Launchpad, TickerLock};
@@ -163,6 +165,16 @@ pub struct Launch<'info> {
             @ CurveError::LegacyAdminMismatch,
     )]
     pub legacy_launchpad: UncheckedAccount<'info>,
+
+    /// CHECK: `vicinity_rewards`' `Registry` (address compiled per cluster),
+    /// read by hand: owner, size and discriminator, its `admin` this
+    /// program's admin and its `pending_admin` zero (8.4, OPS-1).
+    #[account(
+        constraint = rewards_registry.key() == REWARDS_REGISTRY @ CurveError::InvalidAddress,
+        constraint = rewards_registry_matches(&rewards_registry, &launchpad.admin)
+            @ CurveError::RewardsRegistryAdminMismatch,
+    )]
+    pub rewards_registry: UncheckedAccount<'info>,
 
     /// CHECK: the Metaplex Token Metadata program (address pinned).
     #[account(

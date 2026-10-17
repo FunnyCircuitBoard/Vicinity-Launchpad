@@ -44,6 +44,7 @@ const IDS = {
   legacy: PK('AkMP9qvAYmb8Vyu63Qhw8Z4ee1fgQbCRKkXWy5r5A1Ai'),
   legacyLaunchpad: PK('4g9KRZ76Mpw6HCCu713yEGzm1txdCod3S1SugL7M9GwN'),
   rewards: PK('EVwxp3V9YSvsyDEjp39B9wRDQxHR2xF2CNeR8AMRYrgG'),
+  rewardsRegistry: PK('2i9xvFtxnnToASy7yuaV7eq2aQTstXpLTRYvJ6mUs4yG'),
   fee: PK('13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN'),
   token: PK('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'),
   system: PK('11111111111111111111111111111111'),
@@ -163,6 +164,11 @@ test('vicinity_curve smoke: one coin, every outflow, guardian halt, halt-all ove
     PK(admin.address).toBuffer().copy(d, 8);
     setRaw(IDS.legacyLaunchpad, d, IDS.legacy);
   }
+  { // vicinity_rewards' registry, administered by this program's admin (8.4, OPS-1)
+    const d = Buffer.alloc(73); Buffer.from([47, 174, 110, 246, 184, 182, 252, 218]).copy(d, 0); d[72] = 253;
+    PK(admin.address).toBuffer().copy(d, 8);
+    setRaw(IDS.rewardsRegistry, d, IDS.rewards);
+  }
   const c0 = svm.getClock(); c0.unixTimestamp = 1_800_000_000n; c0.slot = 1000n; svm.setClock(c0);
 
   const LAUNCHPAD = pda([Buffer.from('launchpad')]);
@@ -195,14 +201,14 @@ test('vicinity_curve smoke: one coin, every outflow, guardian halt, halt-all ove
     expires_at: new BN((now() + 86_400n).toString()),
   }, {
     admin: A(admin), launchpad: LAUNCHPAD, config: CONFIG0, approval: APPROVAL, coin: COIN, ticker_lock: TICKER,
-    legacy_coin: LEGACY_COIN, legacy_approval: LEGACY_APPROVAL, legacy_launchpad: IDS.legacyLaunchpad, system_program: IDS.system,
+    legacy_coin: LEGACY_COIN, legacy_approval: LEGACY_APPROVAL, legacy_launchpad: IDS.legacyLaunchpad, rewards_registry: IDS.rewardsRegistry, system_program: IDS.system,
   })], [admin], 'approve_launch');
 
   const feeBefore = lam(IDS.fee);
   const launchAccounts = {
     founder: A(founder), payer: A(founder), launchpad: LAUNCHPAD, approval: APPROVAL, rent_payer: A(admin), config: CONFIG0,
     coin: COIN, mint: MINT, coin_vault: VAULT, ticker_lock: TICKER, metadata: METADATA, fee_recipient: IDS.fee,
-    legacy_coin: LEGACY_COIN, legacy_approval: LEGACY_APPROVAL, legacy_launchpad: IDS.legacyLaunchpad,
+    legacy_coin: LEGACY_COIN, legacy_approval: LEGACY_APPROVAL, legacy_launchpad: IDS.legacyLaunchpad, rewards_registry: IDS.rewardsRegistry,
     metadata_program: IDS.metaplex, token_program: IDS.token, system_program: IDS.system, rent: IDS.rent, ...ev,
   };
   const launched = await send([ix('launch', { city_id: new BN(CITY.toString()) }, launchAccounts)], [founder], 'launch');
@@ -362,7 +368,7 @@ test('vicinity_curve smoke: one coin, every outflow, guardian halt, halt-all ove
   }, {
     admin: A(admin), launchpad: LAUNCHPAD, config: CONFIG0, approval: pda([Buffer.from('approval'), u64(CITY2)]), coin: COIN2,
     ticker_lock: pda([Buffer.from('ticker'), Buffer.from('TWO')]), legacy_coin: pda([Buffer.from('coin'), u64(CITY2)], IDS.legacy),
-    legacy_approval: pda([Buffer.from('approval'), u64(CITY2)], IDS.legacy), legacy_launchpad: IDS.legacyLaunchpad, system_program: IDS.system,
+    legacy_approval: pda([Buffer.from('approval'), u64(CITY2)], IDS.legacy), legacy_launchpad: IDS.legacyLaunchpad, rewards_registry: IDS.rewardsRegistry, system_program: IDS.system,
   })], [admin], 'approve city 2 (settings still work under halt-all)');
   const launch2 = {
     ...launchAccounts, approval: pda([Buffer.from('approval'), u64(CITY2)]), coin: COIN2, mint: MINT2,

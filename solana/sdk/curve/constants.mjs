@@ -14,17 +14,19 @@
  */
 export const CURVE_PROGRAM_ID = 'nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSYS7tk';
 
-/** The ids each cluster build compiles in (3.2): the default build is `mainnet`, the `devnet` feature switches all three. */
+/** The ids each cluster build compiles in (3.2): the default build is `mainnet`, the `devnet` feature switches all four (`rewardsRegistry` is `["registry"]` under `rewardsProgram`, OPS-1). */
 export const CLUSTERS = Object.freeze({
   mainnet: Object.freeze({
     rewardsProgram: 'EVwxp3V9YSvsyDEjp39B9wRDQxHR2xF2CNeR8AMRYrgG',
     legacyProgram: 'AkMP9qvAYmb8Vyu63Qhw8Z4ee1fgQbCRKkXWy5r5A1Ai',
     legacyLaunchpad: '4g9KRZ76Mpw6HCCu713yEGzm1txdCod3S1SugL7M9GwN',
+    rewardsRegistry: '2i9xvFtxnnToASy7yuaV7eq2aQTstXpLTRYvJ6mUs4yG',
   }),
   devnet: Object.freeze({
     rewardsProgram: 'Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi',
     legacyProgram: 'Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7',
     legacyLaunchpad: 'ppX3a7oUKmZg2aAmxct8LnKdxNAcoGFDowcyzvbTsbw',
+    rewardsRegistry: '2rKKwGGcJEDRJBhdHRPtHQpoxPmq9wPWWj3uMrcRaRg3',
   }),
 });
 
@@ -81,6 +83,15 @@ export const LEGACY_LAUNCHPAD_LEN = 171;
 export const LEGACY_LAUNCHES_PAUSED_AT = 168;
 export const LEGACY_ADMIN_AT = 8;
 export const LEGACY_PENDING_ADMIN_AT = 40;
+
+/**
+ * vicinity_rewards' `Registry` (8.4, review OPS-1): discriminator, size and the offsets of `admin` and
+ * `pending_admin` (approvals and launches require that admin to be this program's admin with no transfer pending).
+ */
+export const REWARDS_REGISTRY_DISCRIMINATOR = Object.freeze([47, 174, 110, 246, 184, 182, 252, 218]);
+export const REWARDS_REGISTRY_LEN = 73;
+export const REWARDS_REGISTRY_ADMIN_AT = 8;
+export const REWARDS_REGISTRY_PENDING_ADMIN_AT = 40;
 
 /** vicinity_rewards `CityConfig` facts the program reads (4.15). */
 export const REWARDS_CITY_CONFIG_DISCRIMINATOR = Object.freeze([14, 136, 110, 28, 46, 68, 178, 115]);
@@ -186,7 +197,7 @@ export const ERROR_NAMES = Object.freeze([
   'WrongRewardsConfig', 'WrongRewardsVault', 'DestinationMismatch', 'OptInFounderMismatch', 'PayoutTooSoon',
   'TradingHalted', 'MathOverflow', 'ConfigDripFarmable', 'ConfigBuybackHorizon', 'LegacyApprovalExists',
   'LegacyLaunchesOpen', 'BuysHalted', 'BadMetaHash', 'LegacyAdminMismatch', 'FeeRecipientRole', 'FounderHoldsRole',
-  'BuybacksHalted', 'BuybackHaltWithoutBuyHalt',
+  'BuybacksHalted', 'BuybackHaltWithoutBuyHalt', 'RewardsRegistryAdminMismatch',
 ]);
 export const ERROR_CODES = Object.freeze(Object.fromEntries(ERROR_NAMES.map((n, i) => [n, 6000 + i])));
 /** The error name of a custom program error code, or null. */

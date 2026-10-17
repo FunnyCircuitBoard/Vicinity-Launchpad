@@ -8,7 +8,7 @@
 # committed at sdk/idl/vicinity_curve.json. It is the default build's IDL
 # (mainnet ids of vicinity_rewards and the old vicinity_launchpad); the devnet
 # build differs only in the values of the constants REWARDS_PROGRAM_ID,
-# LEGACY_PROGRAM_ID and LEGACY_LAUNCHPAD.
+# LEGACY_PROGRAM_ID, LEGACY_LAUNCHPAD and REWARDS_REGISTRY.
 #
 # Usage (from solana/):
 #   npm run vcurve:idl         regenerate sdk/idl/vicinity_curve.json

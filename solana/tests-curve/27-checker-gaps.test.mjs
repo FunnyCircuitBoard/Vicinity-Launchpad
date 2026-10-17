@@ -8,7 +8,9 @@
 // exercised in multi-instruction transactions: a graduation followed by pool
 // trades and a buyback in the same transaction. Two tests are the regressions
 // of the long F01/F02 run (VICINITY-CURVE-NOTES.md 34, 41); the last one is the
-// failed-transaction check's fee rule (NOTES 47, L2).
+// failed-transaction check's fee rule (NOTES 47, L2). SM-2 (review round 4): the
+// checker holds every call to the flags as they stood at that call, and what
+// approve_launch and opt_in_payout wrote to their rules.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { address } from '@solana/kit';
@@ -16,7 +18,7 @@ import web3 from '@solana/web3.js';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { World, S, LAMPORTS, PATHS, SOL, expectFail, refusedBeforeExecution } from './helpers.mjs';
-import { checkDestinations, compiledIdsProblems, PROGRAM_DATA_HEADER, checkFailedTransaction, snapshot } from './invariants.mjs';
+import { checkDestinations, compiledIdsProblems, PROGRAM_DATA_HEADER, checkFailedTransaction, snapshot, checkTransaction } from './invariants.mjs';
 
 /** A deep copy of a decoded transaction whose `top[i].inner[j]` is replaced by `edit(copy)`. */
 function edited(tx, i, j, edit) {
@@ -239,5 +241,58 @@ test('L2 the failed-transaction check: a transaction refused before execution pa
   assert.throws(() => run(accounts(20_000n), true), /lamports of .* moved/, 'a transaction that ran must have paid its fee');
   assert.throws(() => run(accounts(15_000n), false), /lamports of .* moved/, 'a refused transaction pays nothing');
   assert.throws(() => run(accounts(15_000n, 999n), true), /lamports of .* moved/, 'nothing else moves');
+  await w.finish();
+});
+
+test('SM-2 the checker refuses a successful call made under flags that forbid it (as they stood at that call), and an approval or opt-in whose contents break 4.8 or 4.18', async () => {
+  const w = await World.create();
+  const founder = await w.signer(100n);
+  await w.approve({ cityId: 2_750n, founder, symbol: 'FLAGS' });
+  const approveCtx = w.lastCtx;
+  const h = await w.launch({ cityId: 2_750n, founder });
+  const launchCtx = w.lastCtx;
+  const u = await w.signer(100n);
+  await w.buy(u, h, 20n * LAMPORTS);
+  const buyCtx = w.lastCtx;
+  await w.sell(u, h, w.balanceOf(u, h.mint) / 2n);
+  w.warpSlots(200n);
+  await w.buyback(h);
+  const bbCtx = w.lastCtx;
+  const payoutKey = await w.signer(5n); const wallet = await w.signer(1n);
+  await w.send([w.ix.setPayoutConfig({ admin: w.admin.address, payoutAuthority: payoutKey.address, payoutDestination: wallet.address })], [w.admin], 'set_payout_config');
+  w.payoutKey = payoutKey;
+  await w.send([w.ix.optInPayout({ founder: founder.address, coin: h.coin, expectedDestination: wallet.address, refHash: Array(32).fill(1) })], [founder], 'opt_in_payout');
+  const optCtx = w.lastCtx;
+  await w.payout(h, { destination: wallet.address });
+  const payCtx = w.lastCtx;
+  // a halt and a buy in one transaction: the buy after the halt is refused by the program; the checker steps through the set_pause
+  await w.send([w.ix.setPause({ authority: w.admin.address, buys: true }), w.ix.setPause({ authority: w.admin.address, buys: false }), ...w.buyIxs(u, h, LAMPORTS, 0n)], [w.admin, u], 'halt, resume and buy in one transaction');
+  const stepCtx = w.lastCtx;
+  const run = (ctx) => { try { checkTransaction(w, ctx); return 'accepted'; } catch (e) { return `refused: ${e.message.split('\n')[0]}`; } };
+  const flags = (ctx, edit) => ({ ...ctx, pre: { ...ctx.pre, launchpad: { ...ctx.pre.launchpad, ...edit } }, post: { ...ctx.post, launchpad: { ...ctx.post.launchpad, ...edit } } });
+  for (const [n, c] of [['approve', approveCtx], ['launch', launchCtx], ['buy', buyCtx], ['buyback', bbCtx], ['opt-in', optCtx], ['payout', payCtx], ['halt, resume, buy', stepCtx]]) assert.equal(run(c), 'accepted', `control: ${n}`);
+  for (const [name, ctx, edit] of [
+    ['buy while buys are halted', buyCtx, { buysHalted: true }],
+    ['launch while launches are paused', launchCtx, { launchesPaused: true }],
+    ['launch while buys are halted', launchCtx, { buysHalted: true }],
+    ['buyback_burn while buybacks are halted', bbCtx, { buysHalted: true, buybacksHalted: true }],
+    ['payout_founder_fees while payouts are paused', payCtx, { payoutsPaused: true }],
+  ]) assert.match(run(flags(ctx, edit)), /^refused: .*SM-2/, name);
+  // the same transaction with its set_pause steps reversed (resume, then halt, then buy): refused at the buy
+  const reversed = { ...stepCtx, tx: { ...stepCtx.tx, calls: [stepCtx.tx.calls[1], stepCtx.tx.calls[0], ...stepCtx.tx.calls.slice(2)] } };
+  assert.match(run(reversed), /^refused: .*SM-2 buy succeeded while buys were halted/);
+  // the approval's contents: founder the guardian, a zero meta_hash, an expiry beyond 30 days, another rent payer
+  const ap = [...approveCtx.post.approvals.entries()].find(([k]) => !approveCtx.pre.approvals.has(k));
+  const withApproval = (edit) => ({ ...approveCtx, post: { ...approveCtx.post, approvals: new Map([...approveCtx.post.approvals, [ap[0], { ...ap[1], ...edit }]]) } });
+  for (const [name, edit] of [
+    ['founder = the guardian', { founder: String(w.guardian.address) }], ['founder = FEE_RECIPIENT', { founder: S.ADDRESSES.feeRecipient }],
+    ['a zero meta_hash', { metaHash: new Uint8Array(32) }], ['expiry beyond 30 days', { expiresAt: ap[1].approvedAt + S.APPROVAL_MAX_SECS + 1n }],
+    ['another rent payer', { rentPayer: String(u.address) }], ['a lower-case symbol', { symbol: 'flags' }], ['config 7', { configId: 7 }],
+  ]) assert.match(run(withApproval(edit)), /^refused: .*SM-2/, name);
+  // the opt-in's contents: another destination, another founder
+  const oi = [...optCtx.post.optIns.entries()].find(([k]) => !optCtx.pre.optIns.has(k));
+  const withOptIn = (edit) => ({ ...optCtx, post: { ...optCtx.post, optIns: new Map([...optCtx.post.optIns, [oi[0], { ...oi[1], ...edit }]]) } });
+  assert.match(run(withOptIn({ agreedDestination: String(u.address) })), /^refused: .*SM-2/);
+  assert.match(run(withOptIn({ founder: String(u.address) })), /^refused: .*SM-2/);
   await w.finish();
 });

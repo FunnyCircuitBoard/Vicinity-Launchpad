@@ -285,10 +285,11 @@ export function checkProgramBytes(w, label) {
  * The compiled ids a vicinity_curve binary carries (3.2): the ids stored as
  * plain bytes in its read-only data (the program's own, vicinity_rewards',
  * the old program's and Metaplex's) must be those of `cluster`, and none of
- * the other cluster's. FEE_RECIPIENT and LEGACY_LAUNCHPAD are compared as
- * immediates in the code, not stored whole; the checker sees them at run time
- * instead (every launch fee and withdrawal goes to FEE_RECIPIENT, every
- * approval and launch reads the old Launchpad at its compiled address).
+ * the other cluster's. FEE_RECIPIENT, LEGACY_LAUNCHPAD and REWARDS_REGISTRY
+ * are compared as immediates in the code, not stored whole; the checker sees
+ * them at run time instead (every launch fee and withdrawal goes to
+ * FEE_RECIPIENT, every approval and launch reads the old Launchpad and the
+ * rewards registry at their compiled addresses).
  */
 export function compiledIdsProblems(binary, { programId, cluster }) {
   const b = Buffer.from(binary);
@@ -298,7 +299,7 @@ export function compiledIdsProblems(binary, { programId, cluster }) {
   for (const [what, k] of [['program id', programId], ['REWARDS_PROGRAM_ID', want.rewardsProgram], ['LEGACY_PROGRAM_ID', want.legacyProgram], ['METAPLEX_PROGRAM_ID', S.ADDRESSES.metaplex]]) {
     if (!has(k)) out.push(`${what} ${k} missing`);
   }
-  for (const [what, k] of [['REWARDS_PROGRAM_ID', other.rewardsProgram], ['LEGACY_PROGRAM_ID', other.legacyProgram], ['LEGACY_LAUNCHPAD', other.legacyLaunchpad]]) {
+  for (const [what, k] of [['REWARDS_PROGRAM_ID', other.rewardsProgram], ['LEGACY_PROGRAM_ID', other.legacyProgram], ['LEGACY_LAUNCHPAD', other.legacyLaunchpad], ['REWARDS_REGISTRY', other.rewardsRegistry]]) {
     if (has(k)) out.push(`the other cluster's ${what} ${k} present`);
   }
   return out;
@@ -964,6 +965,60 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
     const oldPending = new PublicKey(lpOld.data.subarray(S.LEGACY_PENDING_ADMIN_AT, S.LEGACY_PENDING_ADMIN_AT + 32)).toBase58();
     assert.ok(pre.launchpad && oldAdmin === pre.launchpad.admin && oldPending === ZERO,
       `${label}: I19 the old program's admin ${oldAdmin} (pending ${oldPending}) is not this program's admin ${pre.launchpad?.admin} at the ${t.name} of city ${city}`);
+    // OPS-1: vicinity_rewards' registry admin (the only key that can create the coin's rewards config) was this program's admin, nothing pending
+    const reg = preAccounts.get(P.cluster.rewardsRegistry);
+    const regOk = reg?.exists && reg.owner === P.cluster.rewardsProgram && reg.data.length === S.REWARDS_REGISTRY_LEN
+      && S.REWARDS_REGISTRY_DISCRIMINATOR.every((x, i) => reg.data[i] === x);
+    assert.ok(regOk, `${label}: OPS-1 no vicinity_rewards registry at the ${t.name} of city ${city}`);
+    const regAdmin = new PublicKey(reg.data.subarray(S.REWARDS_REGISTRY_ADMIN_AT, S.REWARDS_REGISTRY_ADMIN_AT + 32)).toBase58();
+    const regPending = new PublicKey(reg.data.subarray(S.REWARDS_REGISTRY_PENDING_ADMIN_AT, S.REWARDS_REGISTRY_PENDING_ADMIN_AT + 32)).toBase58();
+    assert.ok(regAdmin === pre.launchpad.admin && regPending === ZERO,
+      `${label}: OPS-1 the rewards registry's admin ${regAdmin} (pending ${regPending}) is not this program's admin ${pre.launchpad.admin} at the ${t.name} of city ${city}`);
+  }
+  // SM-2 (review round 4): every call ran under flags that permit it, as they stood at that call: the Launchpad before
+  // the transaction, then each earlier set_pause of the same transaction applied (a successful set_pause stores exactly
+  // its Some arguments). buy and launch need buys open, launch launches open, buyback_burn buybacks open (even a no-op
+  // run checks the flag first), payout_founder_fees payouts open.
+  if (pre.launchpad) {
+    const f = { launches: pre.launchpad.launchesPaused, payouts: pre.launchpad.payoutsPaused, buys: pre.launchpad.buysHalted, buybacks: pre.launchpad.buybacksHalted };
+    for (const t of curveIxs) {
+      if (t.name === 'set_pause') {
+        let at = 8;
+        for (const k of ['launches', 'payouts', 'buys', 'buybacks']) {
+          if (t.data[at] === 1) { f[k] = t.data[at + 1] === 1; at += 2; } else at += 1;
+        }
+        continue;
+      }
+      const need = { buy: ['buys'], launch: ['launches', 'buys'], buyback_burn: ['buybacks'], payout_founder_fees: ['payouts'] }[t.name] ?? [];
+      for (const k of need) assert.ok(!f[k], `${label}: SM-2 ${t.name} succeeded while ${k} were ${k === 'launches' || k === 'payouts' ? 'paused' : 'halted'}`);
+    }
+  }
+  // SM-2: what approve_launch and opt_in_payout wrote is what they may write (4.8, 4.18), checked when it appears
+  for (const [k, ap] of post.approvals) {
+    if (pre.approvals.has(k)) continue;
+    assert.ok(has('approve_launch').length, `${label}: an Approval appeared outside approve_launch`);
+    const lpA = pre.launchpad;
+    assert.ok(ap.cityId >= 1n, `${label}: SM-2 an approval for city 0`);
+    for (const [name, key] of [['FEE_RECIPIENT', S.ADDRESSES.feeRecipient], ['the guardian', lpA.guardian], ['the payout key', lpA.payoutAuthority]]) {
+      if (key && key !== ZERO) assert.notEqual(ap.founder, key, `${label}: SM-2 the approval of city ${ap.cityId} names ${name} as founder`);
+    }
+    assert.ok(ap.metaHash.some((x) => x !== 0), `${label}: SM-2 a zero meta_hash`);
+    assert.ok(ap.expiresAt > ap.approvedAt && ap.expiresAt <= ap.approvedAt + S.APPROVAL_MAX_SECS, `${label}: SM-2 expiry outside (now, now + 30 days]`);
+    assert.equal(ap.approvedAt, post.ts, `${label}: SM-2 approved_at is the clock's`);
+    const cfg = pre.configs.get(P.config(ap.configId));
+    assert.ok(cfg && cfg.enabled, `${label}: SM-2 the approval names config ${ap.configId}, which is missing or disabled`);
+    assert.match(ap.symbol, /^[A-Z0-9]{1,10}$/, `${label}: SM-2 symbol ${ap.symbol}`);
+    const nameBytes = Buffer.byteLength(ap.name, 'utf8');
+    assert.ok(nameBytes >= 1 && nameBytes <= S.MAX_NAME_LEN && !/[\u0000-\u001f\u007f]/.test(ap.name) && !ap.name.startsWith(' ') && !ap.name.endsWith(' '), `${label}: SM-2 name ${JSON.stringify(ap.name)}`);
+    assert.equal(ap.rentPayer, lpA.admin, `${label}: SM-2 the approval's rent payer is not the admin`);
+  }
+  for (const [k, oi] of post.optIns) {
+    if (pre.optIns.has(k)) continue;
+    assert.ok(has('opt_in_payout').length, `${label}: a PayoutOptIn appeared outside opt_in_payout`);
+    const coin = post.coins.get(oi.coin);
+    assert.ok(coin && oi.founder === coin.founder, `${label}: SM-2 the opt-in of ${oi.coin} is not signed by its founder`);
+    assert.ok(pre.launchpad.payoutDestination !== ZERO && oi.agreedDestination === pre.launchpad.payoutDestination, `${label}: SM-2 the opt-in agrees to ${oi.agreedDestination}, not the payout wallet`);
+    assert.equal(k, P.payoutOptIn(oi.coin));
   }
   // I20: settings
   const lp0 = pre.launchpad; const lp = post.launchpad;

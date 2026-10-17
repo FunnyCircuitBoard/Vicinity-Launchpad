@@ -114,7 +114,6 @@ export class Fuzz {
   // ------------------------------------------------------------------ setup
   async setup({ coins, traders }) {
     const w = this.w;
-    this.registryAdmin = w.admin; // vicinity_rewards' registry admin never changes here
     this.traders = [];
     for (let i = 0; i < traders; i++) this.traders.push(await w.signer(20_000n));
     // a trader holding almost nothing and one holding nothing (the rent rules of 14.3)
@@ -185,10 +184,12 @@ export class Fuzz {
     const admin = w.launchpad().admin;
     const authority = w.signerOf(admin);
     await w.send([w.rewardsIx('init_city', { reward_model: { [correct ? 'Holders' : 'Creator']: {} }, founder_bps: correct ? 0 : 10_000, city_tag: Array(32).fill(0) }, {
-      payer: w.payer.address, admin: this.registryAdmin.address, registry: R.registry, authority: admin, founder: String(h.founder.address), city_coin_mint: h.mint,
+      payer: w.payer.address, admin: this.registryAdmin().address, registry: R.registry, authority: admin, founder: String(h.founder.address), city_coin_mint: h.mint,
       reward_mint: S.ADDRESSES.nativeMint, config, vault: R.vault(config), token_program: S.ADDRESSES.token, system_program: S.ADDRESSES.system,
-    })], authority.address === this.registryAdmin.address ? [this.registryAdmin] : [this.registryAdmin, authority], 'rewards init_city');
+    })], authority.address === this.registryAdmin().address ? [this.registryAdmin()] : [this.registryAdmin(), authority], 'rewards init_city');
   }
+  /** vicinity_rewards' registry admin as it stands (it follows this program's admin, OPS-1). */
+  registryAdmin() { return this.w.signerOf(this.w.registryAdmins().admin); }
 
   // ------------------------------------------------------------------ the model
   now() { const c = this.w.svm.getClock(); return { slot: BigInt(c.slot), ts: BigInt(c.unixTimestamp) }; }
@@ -417,12 +418,13 @@ export class Fuzz {
   /**
    * The admin's other seats follow it, as steps (4.2, 8.2, 8.5; NOTES 42 and 44): the old program's admin
    * (`propose_admin` by its current admin, `accept_admin` by this program's admin: until then approvals and
-   * launches here fail with LegacyAdminMismatch) and each city's rewards authority (`propose_authority`,
+   * launches here fail with LegacyAdminMismatch), vicinity_rewards' registry admin (the same two steps: until
+   * then they fail with RewardsRegistryAdminMismatch, OPS-1) and each city's rewards authority (`propose_authority`,
    * `accept_authority`: until then forward_holders_fees fails and the holders' money waits). A step may stop
    * after the proposal (`legacyAccept`, `rewardsAccept` false), leaving a transfer pending for a later run.
    * Every step is computed when it runs, from the chain.
    */
-  followPlans({ legacyAccept = true, rewardsAccept = true } = {}) {
+  followPlans({ legacyAccept = true, registryAccept = true, rewardsAccept = true } = {}) {
     const w = this.w;
     const steps = [];
     const follow = (label, signer, ix) => ({ label, ops: [{ kind: 'follow' }], signers: [signer], ixs: [ix] });
@@ -436,6 +438,19 @@ export class Fuzz {
         const admin = w.launchpad().admin; const old = w.legacyAdmins();
         if (old.admin === admin || old.pendingAdmin !== admin) return null;
         return follow('legacy accept_admin (follow the admin)', w.signerOf(admin), w.legacyIx('accept_admin', {}, { new_admin: admin, launchpad: w.legacyPdas().launchpad }));
+      });
+    }
+    const registry = w.rewardsPdas().registry;
+    steps.push(() => {
+      const admin = w.launchpad().admin; const reg = w.registryAdmins(); const from = w.signerOf(reg.admin);
+      if (reg.admin === admin || reg.pendingAdmin === admin || !from) return null;
+      return follow('rewards registry propose_admin (follow the admin)', from, w.rewardsIx('propose_admin', { new_admin: new PublicKey(admin) }, { admin: reg.admin, registry }));
+    });
+    if (registryAccept) {
+      steps.push(() => {
+        const admin = w.launchpad().admin; const reg = w.registryAdmins();
+        if (reg.admin === admin || reg.pendingAdmin !== admin) return null;
+        return follow('rewards registry accept_admin (follow the admin)', w.signerOf(admin), w.rewardsIx('accept_admin', {}, { new_admin: admin, registry }));
       });
     }
     for (const h of this.coins) {
@@ -582,12 +597,12 @@ export class Fuzz {
         // the old program's launches opened or paused again by its admin (8.5): approvals and launches here
         // must then fail (the checker's I19 holds every successful one to it)
         const paused = r.chance(0.7);
-        const oldAdmin = w.signerOf(w.legacyAdmins().admin) ?? this.registryAdmin;
+        const oldAdmin = w.signerOf(w.legacyAdmins().admin) ?? w.admin;
         return { label: `legacy set_pause ${paused}`, ops: [{ kind: 'legacy', ixs: [] }],
           ixs: [w.legacyIx('set_pause', { launches: paused, payouts: null }, { authority: oldAdmin.address, launchpad: w.legacyPdas().launchpad })], signers: [oldAdmin] };
       }
       case 'follow_admin': {
-        const steps = this.followPlans({ legacyAccept: r.chance(0.85), rewardsAccept: r.chance(0.85) });
+        const steps = this.followPlans({ legacyAccept: r.chance(0.85), registryAccept: r.chance(0.85), rewardsAccept: r.chance(0.85) });
         return steps.length ? steps : this.nextPlan();
       }
       case 'donate_lamports': {
@@ -693,7 +708,7 @@ export class Fuzz {
       const P = w.P;
       this._fixed = [
         P.launchpad(), P.eventAuthority(), P.programData(), w.programId, S.CLUSTERS.mainnet.rewardsProgram, S.CLUSTERS.mainnet.legacyProgram, S.CLUSTERS.mainnet.legacyLaunchpad,
-        S.CLUSTERS.devnet.rewardsProgram, S.CLUSTERS.devnet.legacyLaunchpad, S.ADDRESSES.system, S.ADDRESSES.token, S.ADDRESSES.token2022, S.ADDRESSES.associatedToken, S.ADDRESSES.metaplex,
+        S.CLUSTERS.devnet.rewardsProgram, S.CLUSTERS.devnet.legacyLaunchpad, S.CLUSTERS.mainnet.rewardsRegistry, S.CLUSTERS.devnet.rewardsRegistry, S.ADDRESSES.system, S.ADDRESSES.token, S.ADDRESSES.token2022, S.ADDRESSES.associatedToken, S.ADDRESSES.metaplex,
         S.ADDRESSES.nativeMint, S.ADDRESSES.feeRecipient, S.ADDRESSES.rentSysvar, 'SysvarC1ock11111111111111111111111111111111', S.ADDRESSES.computeBudget,
         new PublicKey(new Uint8Array(32).fill(7)).toBase58(),
       ];

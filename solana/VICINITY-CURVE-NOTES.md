@@ -1735,3 +1735,199 @@ Tests. `prechecks.test.mjs` SDK4-5 (a USDC output, no output mint, a SOL input: 
 SDK4-6 (the README's lines run on a fresh coin, at 40 SOL raised and near graduation; 7.4 and
 the header no longer say 2% to 2.5%). `26-router` G03 and every swap quote of the suites carry
 the mints.
+
+### 61. The rewards registry's admin is checked at every approval and launch (3.2, 4.8, 4.10, 4.22, 8.2, 8.4, I19, U12, L04; review OPS-1)
+
+**Spec.** 8.4's precondition: "`vicinity_rewards` registry admin and upgrade authority are the
+Squads vault", with "the deploy checklist checks each on chain"; no checklist existed
+(`scripts/vcurve/` held `idl.sh` and `sbf-builds.sh`), and nothing in `vicinity_curve` read the
+registry. On mainnet today the registry admin is the owner's hot wallet `13qRam...`, which is also
+`FEE_RECIPIENT` (`release/mainnet-2026-10-10/BUILD.md`).
+
+**Issue.** `vicinity_rewards`' `init_city` needs only the registry admin's signature (it may also
+sign as authority and founder), and the program has no instruction that changes or closes a
+city's economics. While a hot key held the seat, it alone could create a new coin's config
+(Creator, `founder_bps` 10,000) before the multisig's time-locked `init_city`; every
+`forward_holders_fees` then failed with `WrongRewardsConfig`, also after the registry was handed to
+the vault, and the holders' 0.5% waited in `holders_pending` until an upgrade (O26). Reproduced by
+the verifier with the production build and the mainnet `vicinity_rewards`. Low: money frozen, not
+stolen; it needs the precondition skipped and the hot key misused.
+
+**Choice.** The review's fail-closed fix, as GOV-1 did for the old program's admin:
+* `approve_launch` and `launch` take `rewards_registry` (read-only, after `legacy_launchpad`):
+  its address must be `REWARDS_REGISTRY` (`["registry"]` under `REWARDS_PROGRAM_ID`, compiled per
+  cluster, mainnet `2i9xvF...`, devnet `2rKKwG...`; U12 checks both derivations and the layout
+  against the committed `vicinity_rewards` IDL) (`InvalidAddress`), and
+  `rewards_registry_matches`: owner `REWARDS_PROGRAM_ID`, 73 bytes, the `Registry`
+  discriminator, `admin == launchpad.admin`, `pending_admin` zero
+  (`RewardsRegistryAdminMismatch`, 6056, appended). The address is compared as immediates in
+  the code, like `LEGACY_LAUNCHPAD`, so the checker's compiled-ids check lists it only among the
+  other cluster's ids; the checker sees it at run time instead (I19).
+* So nothing is approved or launched while a key outside the multisig holds the registry, and
+  once a coin exists the registry can move only by the vault's own proposal. 8.2: the registry
+  admin follows every hand-over of this program's admin, as the old program's admin does (the
+  suite's `adminHandOver`; the fuzz's `followPlans`). Launch compute rose by about 380 CU.
+* `scripts/vcurve/preflight.mjs`, the deploy checklist 8.4 described, now exists (entry 64).
+* Constants (`REWARDS_REGISTRY`, its discriminator, length and offsets), the IDL, the SDK's
+  account tables (`rewards_registry` in both lists), `CLUSTERS.*.rewardsRegistry`,
+  `pdas.rewardsRegistry()`, the error list and the smoke test follow.
+
+Tests. `28-governance` OPS-1 (signature checks off, the registry administered by `13qRam...` as on
+mainnet): approvals refused with `RewardsRegistryAdminMismatch`, also with the transfer to the
+vault pending; after the vault accepts, a coin launches; the former admin's `init_city` for it is
+refused; the vault's config and a forward work; a pending transfer to anyone (even to the admin)
+refuses launch and approval until cancelled; another address in the slot is `InvalidAddress`,
+and a System-owned or another program's copy, one byte more or another discriminator at the
+compiled address is refused; after `adminHandOver` the registry follows and launches go on. GOV-1's
+test now also hands the registry over. Unit tests `rewards_registry_checks`,
+`u12_rewards_registry_derivation_and_layout`, the checklist's account tables and error count;
+`sdk/curve/idl.test.mjs` (constants, derivations, account tables). Against the previous build the
+OPS-1 test fails at its first approval (that build takes neither the account nor the check; with
+its own account list the hot registry admin's approval is accepted, as the verifier showed).
+
+### 62. The recovery from a stolen guardian is a proposal no flag can make fail (4.4, 8.1, 8.3, T73; reviews R4-DIFF-4, OPS-3)
+
+**Spec.** 4.4: "the admin replaces the guardian and clears the flags in the same proposal"; 8.1 and
+8.3: "the guardian can only set flags"; `set_guardian.rs` said the same.
+
+**Issue.** The consistency rule of `set_pause` (`!buybacks_halted || buys_halted`, entry 53) runs on
+the admin's call too. A recovery `[set_guardian(new), set_pause(launches = false, buys = false)]`
+written with the flags of its day (buybacks `None`, the SDK's default) fails with
+`BuybackHaltWithoutBuyHalt` if the thief halts buybacks late in the 48-hour time lock, and the
+vault transaction reverts `set_guardian` with it: the thief keeps the seat for another time lock.
+Written with `buybacks = false`, the proposal executes but reopens buys and buybacks in the same
+instant after a time lock of buyback halt, the LL-1 state (a backlog of 37.7 caps in the
+verifier's run). Reproduced on chain by both lenses; low and info, no funds at risk, exits never
+stop, and once every flag is set the thief has nothing left to set.
+
+**Choice.** The review's runbook and SDK fix; the program is unchanged:
+* The first proposal is `[set_guardian(new), set_pause(launches, buybacks = Some(false))]` with buys
+  left as they are, or `set_pause(buys = Some(true))` with buybacks untouched when buybacks must
+  stay halted. Either way the rule holds after it whatever the thief set, so it cannot be made to
+  fail, and the thief loses the seat in that transaction. Buys reopen in a second proposal
+  (`set_pause(buys = Some(false))`) after the keeper's drain; that one fails closed while
+  buybacks are halted. Both may be approved together.
+* The SDK builds the first: `ix.guardianRecovery({ admin, guardian, launches, keepBuybacksHalted })`;
+  `setPause`'s comment warns against pairing `buys: false` and `buybacks: null` with `set_guardian`.
+* 4.4 (a recovery paragraph), 8.1 (the guardian can make an unprepared proposal fail once), 8.3,
+  T73 and the `set_guardian.rs` comment say so.
+* Not taken: changing `set_pause` to check only the flags a call changes (it would let the
+  forbidden state be stored), or making the admin's call exempt (the LL-1 state again).
+
+Tests. `28-governance` R4-DIFF-4: the thief halts launches and buys; both recoveries simulate;
+47 hours into the lock the thief halts buybacks; the one-proposal recovery fails twice with
+`BuybackHaltWithoutBuyHalt` and the thief keeps the seat; `guardianRecovery` executes (guardian
+replaced, launches open, buys halted, buybacks resumed), the former guardian is refused, the keeper
+runs, a buy is refused until the second proposal, then works; with `keepBuybacksHalted` after the
+guardian set every flag, the recovery executes and keeps buys and buybacks halted.
+`prechecks.test.mjs`: the helper's encoding and the rule after it for every flag combination.
+Against the previous SDK the test fails at `guardianRecovery` (undefined).
+
+### 63. The keeper's top-up after a rent change: liabilities plus the live minimum (6.5, T63, 14.1; review OPS-2)
+
+**Spec.** 6.5, T63 and 14.1 (from LC-INFO-1's side point, entry 33): "the keeper tops up every coin
+below the live minimum after any rent change".
+
+**Issue.** That rule does not unblock exits. A coin above the live minimum whose remaining exits
+would cross it is refused by the runtime (`InsufficientFundsForRent`), and since the runtime never
+lets it fall below the minimum the rule never fires for it; a coin below the minimum topped up
+exactly to it still refuses its sell and its founder's claim. Measured by the verifier after a 10%
+raise (`d` = 571,416 lamports): coin A with 2,000,000 lamports of liabilities refused its holder's
+full sell, coin B topped up to the minimum refused its sell and claim. The program side
+(`pay_out`'s floor `min(rent_reserve, live)`) is correct. Low: at most `d` per coin, anyone can
+donate, but the documented remedy fails.
+
+**Choice.** The review's rule: after any rent change, for every `Coin`, `need = liabilities +
+rent_min(693) - lamports` (live rent), transferred when positive; the trigger is `lamports <
+liabilities + rent_min`. The SDK's `coinRentTopUp({ coin, coinLamports, rentExemptMinimum })`
+computes it (prechecks.mjs; earlier donations count). 6.5, T63 and 14.1 restated.
+
+Tests. `20-attacks-runtime` OPS-2: both coins after a 10% raise; the old rule does not fire for A
+while its full sell and, after a half sell, its rest are refused; B topped up to the minimum still
+refuses sell and claim; `coinRentTopUp` gives exactly `liabilities + live - lamports`, after it
+nothing more is needed and every sell, claim and withdrawal of both coins goes through.
+`prechecks.test.mjs`: the helper's arithmetic. Against the previous SDK the test fails at
+`coinRentTopUp` (undefined).
+
+### 64. The deploy checklist, and no old Approval when the old program is closed (8.4, 8.5, O19; reviews OPS-4, OPS-1)
+
+**Spec.** 8.4: "the deploy checklist checks each on chain" (none existed); 8.5 and O19 offered closing
+the old program once paused for good, and named only the frozen admin field as its cost.
+
+**Issue.** OPS-4: `approve_launch` and `launch` refuse any account at the old program's Approval
+PDA (`LegacyApprovalExists`), whether or not it expired, and an old approval closes only by the
+old program's `revoke_approval` (admin only) or `launch`. After a loader `Close` of the old
+program (what `solana program close` sends) the account stays for ever, owned by the closed
+program; revoke fails ("Program is not deployed") and the city is refused here permanently
+(verified with the real old binary, 60 days later too). Info: closing is O19's non-default
+alternative and needs an approval left open before the close; mainnet has none today (the finding;
+not checked here).
+
+**Choice.**
+* 8.5 and O19 gain the precondition: before a close, the old program holds no `Approval`
+  (getProgramAccounts on `LEGACY_PROGRAM_ID`); each is revoked first while the program can run;
+  making it immutable instead of closing it avoids the trap.
+* `scripts/vcurve/preflight.mjs` is the checklist 8.4 describes, read-only: from a web3.js
+  Connection (getMultipleAccountsInfo, getProgramAccounts) or a snapshot, it reports
+  `{ problems, warnings }` for vicinity_curve's admin, pending admin, upgrade authority,
+  guardian and config #0, the rewards registry's admin (OPS-1) and upgrade authority, the old
+  program's admin, upgrade authority, pause and configs, every old `Approval` (a warning, a
+  problem with `--before-legacy-close` or once the old program is closed), and coins or
+  approvals whose founder holds a role (8.4's operating rule). The time lock and the published
+  program metadata are confirmed by hand. CLI: `node scripts/vcurve/preflight.mjs --rpc <url>
+  --vault <vault> [--cluster] [--program-id] [--before-legacy-close]`, exit 1 when not ready.
+
+Tests. `28-governance` OPS-4: in a World whose upgrade authorities are moved to the vault, the
+checklist reports nothing; an enabled old config, open old launches, an outstanding old approval
+(warning, then a problem before a close), a registry transfer pending to a stranger and a founder
+named as guardian (a doctored snapshot) are each reported; then the old program is closed with the
+approval open: the approval survives, revoke fails, the city is refused 60 days later, and the
+checklist reports it in any mode. Against the previous tree it fails at its import (no script).
+
+### 65. Launch compute over many city ids; the first buy's token-account create (11.1, 11.3; review TL-INFO-1)
+
+**Spec.** 11.1: "`launch` 110,600 to 125,900"; entry 30: launch varies "from city to city by a few
+thousand units"; the suggested client limits did not mention the website buy's token-account
+create.
+
+**Issue.** Over 600 city ids `launch` spans about 110,000 to 152,000 CU: the bump searches of the
+PDAs it derives or re-derives (coin, mint, vault, ticker, Metaplex metadata, the old program's coin
+and approval) cost about 1,500 to 1,700 CU per extra iteration. City 1000 with name A and symbol C0
+took 150,629 (18 extra iterations); a client that sized launch's limit from the stated range failed
+there. The idempotent ATA create costs `13,424 + 1,500 x k`. Info: every asserted budget (launch
+230,000) and the suggested 300,000 or 1.2 x simulation hold; no funds move.
+
+**Choice.** 11.1 restated from a fresh measurement on this build (with the registry account):
+110,382 to 152,266 over 600 city ids (median 123,882, p99 145,022); city 1000 / A / C0 151,008; ATA
+create 13,424 to 25,424 over 300 owners, with the formula; first buys take their limit from a
+simulation or add 30,000; every figure is re-measured once the mainnet id exists (its bumps move
+every money instruction by 1,500 to 2,400 CU per iteration). 11.3: launch has 22 accounts and the
+lookup table holds `REWARDS_REGISTRY`.
+
+Tests. `12-compute` TL-INFO-1: city 1000 / A / C0 within 230,000 and within the range 11.1 states
+(read from the spec; revision 3's sentence fails it), and six first buys whose ATA create matches
+`13,424 + 1,500 x (255 - bump)`. `04-launch`'s lookup-table test includes the registry.
+
+### 66. The checker holds every call to the flags of its moment, and approvals and opt-ins to their rules (I20, 12; review SM-2)
+
+**Issue.** Coverage, not a program defect: the per-transaction checker never asserted that a
+successful `buy`, `launch`, `buyback_burn` or `payout_founder_fees` ran under permitting flags, nor
+what `approve_launch` and `opt_in_payout` wrote; the verifier replayed real contexts with doctored
+flags and all five were accepted. Only the dedicated suites would have caught a dropped
+`require!`.
+
+**Choice.** `checkTransaction` now walks the calls in order with the flags of the `Launchpad` before
+the transaction, applying each `set_pause`'s `Some` arguments as it passes them: `buy` and `launch`
+need buys open, `launch` launches open, `buyback_burn` buybacks open (the handler checks the flag
+before its no-op return), `payout_founder_fees` payouts open. A new `Approval` must hold what 4.8
+allows (city id at least 1, a founder that is not `FEE_RECIPIENT`, the guardian or the payout key,
+a nonzero `meta_hash`, `approved_at` the clock's and an expiry within 30 days, an enabled config,
+an `A-Z0-9` symbol of 1 to 10 bytes, a name of 1 to 32 bytes without control characters or edge
+spaces, the admin as rent payer); a new `PayoutOptIn` the coin's founder and the payout wallet. I19
+also checks the rewards registry (entry 61). Not done: the I22 probe's pool-buy and payout probes
+(optional hardening in the finding).
+
+Tests. `27-checker-gaps` SM-2: the real contexts pass; doctored flags (buy, launch twice, buyback,
+payout) are refused with SM-2's messages; a transaction that halts, resumes and buys passes, and
+the same calls reordered (resume, halt, buy) are refused at the buy; seven doctored approvals and
+two doctored opt-ins are refused. Against the previous checker every doctored case is accepted.
