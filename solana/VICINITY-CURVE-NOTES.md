@@ -307,7 +307,8 @@ same two crate types, so they were built without LTO too.
 
 **Choice.** Kept Anchor's default crate types, as in the two deployed programs. Measured: with
 `crate-type = ["cdylib"]` alone (LTO then applies) the production binary grows from 587,440
-to 635,056 bytes (opt-level 3 inlines more across crates) and still prints no stack warning.
+to 635,056 bytes (both measured at commit 965597a, before entry 22 added 776 bytes; opt-level 3
+inlines more across crates) and still prints no stack warning.
 Whether to drop the `lib` crate type (and with it the `cpi` feature for Rust callers) is left
 to the auditors and the owner; it changes no behaviour.
 
@@ -315,20 +316,21 @@ to the auditors and the owner; it changes no behaviour.
 
 Measured on the build machine (Agave solana-cli 4.3.0, cargo-build-sbf 4.4.0, platform-tools
 v1.57, rustc 1.97.0 host, `anchor-lang` / `anchor-spl` 0.31.2, `mpl-token-metadata` 5.1.1)
-with `npm run vcurve:sbf` at the stage 2 commit:
+with `npm run vcurve:sbf` at commits 0a6d6d9 to e278593 (the program code does not change between
+them; the same three hashes each time):
 
-| build | features | bytes | stack warnings |
-|---|---|---|---|
-| production | default (`no-idl`) | 588,216 | none |
-| devnet | `devnet` | 588,216 | none |
-| halt-all | `halt-all` | 586,880 | none |
+| build | features | bytes | SHA-256 | stack warnings |
+|---|---|---|---|---|
+| production | default (`no-idl`) | 588,216 | `9fe330024bab29d4eca56a2a0c58971da590b7e4ac46c4c5f34ae148f13c0f94` | none |
+| devnet | `devnet` | 588,216 | `1107b82ff6d1e0c0e7624c4f1f46cbfc3935c091ca3b5c72a4aa9b172699a734` | none |
+| halt-all | `halt-all` | 586,880 | `e4d7ab8adc27e4bb8a7326cad1bb64a4e3b1e34bab64c9fb541485565c4d0c2b` | none |
 
-The hashes depend on the exact commit and are printed by `npm run vcurve:sbf`; the audit pack
-records them for the frozen commit (C03). All three are above 11.4's target of 450 KB. At
+These hashes are for a throwaway program id and a commit that is not frozen; the audit pack
+records the hashes of the frozen commit's verifiable build (C03). All three are above 11.4's target of 450 KB. At
 5,080 lamports per byte the program data account costs about 2.99 SOL of rent, and an upgrade
 buffer (and the halt-all buffer kept ready, 8.3) as much again each. For information only
-(opt-level 3 is specified and kept): the same production build with `opt-level = "z"` for this
-package alone is 457,208 bytes and with `"s"` 489,584 bytes, at a compute cost not yet
+(opt-level 3 is specified and kept): the production build of commit 965597a with `opt-level = "z"`
+for this package alone is 457,208 bytes and with `"s"` 489,584 bytes (587,440 at opt-level 3), at a compute cost not yet
 measured. No build prints a cargo-build-sbf "Stack offset ... exceeded" warning, with every
 typed account of `launch`, `approve_launch` and `forward_holders_fees` and the coin in every
 instruction boxed (3.1). "Typed account" is read as every deserialised `Account<...>`: `Signer`,
