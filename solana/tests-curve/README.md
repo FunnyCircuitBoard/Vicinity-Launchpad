@@ -17,7 +17,8 @@ and a fixed clock. `VCURVE_SO` and `VCURVE_HALT_ALL_SO` point at other builds.
 
 Every transaction goes through `World.send`. After every successful
 transaction `invariants.mjs` checks every invariant of
-`VICINITY-CURVE-DESIGN.md` section 9 (I1 to I22): SOL by the lamport difference
+`VICINITY-CURVE-DESIGN.md` section 9 (I1 to I22, except I18, which the property tests
+and `25-no-free-value` cover): SOL by the lamport difference
 of every account in the message, explained by the fee, the system and native
 token instructions that executed, the money events of `vicinity_curve` and
 Anchor's closes; tokens from the token instructions that executed; each coin's

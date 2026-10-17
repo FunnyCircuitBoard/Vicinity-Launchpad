@@ -2,10 +2,12 @@
 
 Status: specification for the build and for the outside audit, revision 3, 17 October 2026.
 Revision 3 folds in the implementation notes of the build (`VICINITY-CURVE-NOTES.md` entries 1 to
-56: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
-CLI-2, CLI-3), 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1) and 3 (R3-DIFF-1, MATH3-2, LL-1, R3-CLI-1,
-MATH3-1, HR-1) of the build; revision 2 answered the security, math, runtime and integration review
-of revision 1. Appendix C lists every finding of each review, what changed and the parts that were
+74: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
+CLI-2, CLI-3), 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1), 3 (R3-DIFF-1, MATH3-2, LL-1, R3-CLI-1,
+MATH3-1, HR-1), 4 (R4-DIFF-1 to R4-DIFF-5, SM-1, SM-2, SDK4-1 to SDK4-6, OPS-1 to OPS-4,
+TL-INFO-1) and 5 (R5-DIFF-1 to R5-DIFF-3, R5-REG-1, MV-1, KR-1, R5-CONS-1 to R5-CONS-5) of the
+build; revision 2 answered the security, math, runtime and integration review of revision 1.
+Appendix C lists every finding of each review, what changed and the parts that were
 not applied, with reasons, and the notes folded in. The program, its math crate, its client SDK and
 its test suites are built (branch `feat/vicinity-curve`); nothing has been deployed or signed.
 Devnet uses a throwaway program key only. Mainnet needs the owner, the Squads vault `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X`
@@ -142,7 +144,10 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 * The pure integer math crate `vicinity-curve-math`, which the program calls for every
   number it computes, and which an SDK, an indexer or an aggregator adapter can reuse.
 * The integration contract with `vicinity_rewards` as deployed (read its `CityConfig`,
-  credit its WSOL vault).
+  credit its WSOL vault, and read its `Registry` at every approval and launch: its admin must be
+  this program's admin with nothing pending, review OPS-1), and with the old
+  `vicinity_launchpad` as deployed (read its `Launchpad`, `Coin` and `Approval` accounts at every
+  approval and launch, 8.5).
 * What the website and aggregators must change (section 14), the test plan (section 12) and
   the owner decisions (section 13).
 
@@ -268,7 +273,8 @@ The localnet test suite loads `vicinity_rewards` and the old `vicinity_launchpad
 their mainnet addresses (litesvm can place a program at any address), so the binary the tests
 exercise is the mainnet binary (the committed release binaries of `release/mainnet-2026-10-10`,
 SHA-256 checked: an Anchor program runs only at its own `declare_id!`, so builds with the devnet ids
-cannot serve there; NOTES 27); only the `devnet` feature changes the three ids (C03 records
+cannot serve there; NOTES 27); only the `devnet` feature changes the four ids (`REWARDS_PROGRAM_ID`,
+`LEGACY_PROGRAM_ID`, `LEGACY_LAUNCHPAD` and `REWARDS_REGISTRY`; C03 records
 the ids compiled into each binary).
 
 ### 3.3 Addresses, sizes and rent
@@ -1828,7 +1834,7 @@ counters; "burned by buybacks" = `tokens_burned`; "burned at launch" = `dust_bur
 | holders | `forward_holders_fees` | anyone | all of `holders_pending` | the city's derived `vicinity_rewards` WSOL vault under a Holders-only config whose authority is the admin | a missing or wrong rewards config (money waits); `halt-all` |
 | buyback | `buyback_burn` | anyone | `min(buyback_pending, cap)` | none: lamports move into the reserve, coins are burned | rate limit; `buybacks_halted`; `halt-all` |
 | liquidity | none | - | - | stays in the pool, or set aside forever if the coin never graduates | - |
-| launch fee | `launch` | the founder | `launch_fee_lamports` | `FEE_RECIPIENT` | `launches_paused`; `buys_halted`; the old program's launches open; `halt-all` |
+| launch fee | `launch` | the founder | `launch_fee_lamports` | `FEE_RECIPIENT` | `launches_paused`; `buys_halted`; the config disabled (`ConfigDisabled`); the old program's launches open, a `Coin` or `Approval` of the city there, or its admin not this program's (`LegacyLaunchesOpen`, `LegacyCoinExists`, `LegacyApprovalExists`, `LegacyAdminMismatch`); the rewards registry's admin not this program's (`RewardsRegistryAdminMismatch`); `halt-all` |
 
 There is no other instruction that moves a lamport out of a `Coin` or a token out of a vault.
 
@@ -1981,7 +1987,11 @@ buyback_burn():                                                   // permissionl
   bounds to give a cap of at least 1 lamport. On the default config the smallest possible
   cap is 30,000,853 lamports on the curve and 17,586,500 lamports in the pool (depth at
   least 17.5865 SOL). A run is a no-op only when the bucket is empty, the interval has not
-  passed, or the curve holds `f(S - 1)` (the next user buy graduates the coin, I22).
+  passed, the curve holds `f(S - 1)` (the next user buy graduates the coin, I22), or in the
+  pool `b` buys less than one raw coin at the current price (`pool_tokens * b < pool_sol + b`,
+  which needs a price above 1 lamport per raw unit, about 4,200 SOL of depth under config #0:
+  dust that waits until later shares make it worth a raw unit; I22, NOTES 41, review R5-CONS-4).
+  On the curve that case cannot happen: by Lemma C3 one lamport buys at least 2,434 raw units.
 
 ### 7.2 Caps, rate limit and backlog
 
@@ -2444,7 +2454,7 @@ R5-DIFF-3).
 
 ---
 
-## 9. Invariants (asserted after every successful transaction of every test)
+## 9. Invariants (asserted after every successful transaction of every test, except I18)
 
 Notation as in 5.1. `rent_min` = the rent-exempt minimum of 693 bytes from the `Rent`
 sysvar. "Without donations" means no lamports or coins were sent to the `Coin` or the vault
@@ -2522,7 +2532,8 @@ Per coin:
 * **I17 Partial fill.** A buy with `charged < sol_in` graduates the coin, delivers exactly
   `S - s_before` coins, has `c = R - curve_sol_before >= 1` and
   `charged == floor((c - 1)*D/(D - t)) + 1` and `charged - fee == c`.
-* **I18 No free value.** (Property tests P05, P11a, P11b and `tests-curve/25-no-free-value`.)
+* **I18 No free value.** (Property tests P05, P11a, P11b and `tests-curve/25-no-free-value`; the
+  per-transaction checker does not assert it, review R5-CONS-5.)
   A buy followed by a sell of the coins bought, from any reachable state, returns less than was
   charged (P05). Coins still held are valued at what they sell for at the final state (at most
   their spot value less the fee), and: **P11a**, one address alone, arriving with SOL only at any
@@ -2717,8 +2728,10 @@ a curve buy about 26,100 CU and a sell about 23,500; the graduating buy 29,600; 
 (median 123,882, p99 145,022; review TL-INFO-1: the spread is the bump searches of the PDAs
 `launch` derives or re-derives, which depend on the city id, the mint and the ticker, about 1,500
 to 1,700 CU per extra iteration; the worst known city under the localnet id, 1000 with name A and
-symbol C0, takes 151,008, asserted by `12-compute`); `launch` + token account + first buy 165,500
-in total for one city; settings instructions 3,800 to 22,700. Every figure is inside its test
+symbol C0, takes 151,008, asserted by `12-compute`); `launch` + token account + first buy about
+165,000 to 171,000 in total for one city (169,519 in the last run: the founder's token-account bump
+varies with its key); settings instructions 3,900 to 23,200 (re-measured after reviews OPS-1 and
+R5-CONS-1). Every figure is inside its test
 budget. The suggested client limits are per instruction: the website's first buy adds the
 idempotent token-account create, about `13,430 + 1,500 x k` CU with `k` the owner's extra bump
 iterations (13,424 to 25,424 over 300 owners; the base is the associated token program's own cost
@@ -2749,15 +2762,17 @@ lamports) returns to the Squads vault.
   authority, `vicinity_curve`, `FEE_RECIPIENT`, `Launchpad`, `LEGACY_LAUNCHPAD`,
   `REWARDS_REGISTRY`, the config PDAs): about 800 to 900 bytes with it.
 * `approve_launch` goes through a Squads vault transaction (lookup tables supported).
-* Measured (C02, NOTES 30): the website's buy 555 bytes, its sell 513, `launch` alone 920,
-  `launch` + token account + first buy 1,031 bytes without and 786 with the lookup table.
+* Measured (C02, NOTES 30; again after review OPS-1 added the registry account, review
+  R5-CONS-5): the website's buy 555 bytes, its sell 513, `launch` alone 953, `launch` + token
+  account + first buy 1,064 bytes without and 788 with the lookup table.
 
 ### 11.4 Program binary
 
 Target: at most 450 KB (today's `vicinity_launchpad` is 433,960 bytes with Meteora's
 interfaces). The Metaplex wrapper of anchor-spl adds code; `no-idl` removes Anchor's six IDL
-handlers; measure (C03). Measured: 591,296 bytes for the production build of revision 3
-(cargo-build-sbf 4.4.0, platform-tools v1.57; NOTES 20), above the target, which costs rent, not
+handlers; measure (C03). Measured: 605,664 bytes for the production build of revision 3 after
+review round 5 (`npm run vcurve:sbf`; cargo-build-sbf 4.4.0, platform-tools v1.57; NOTES 20), above
+the target, which costs rent, not
 behaviour; no build prints a stack warning (C04). The program data account rent at 5,080 lamports per byte is about
 2.3 SOL for 450 KB; an upgrade needs a buffer of the same size, and so does the halt-all
 buffer kept ready.
@@ -3828,6 +3843,8 @@ several lenses reported share a row.
 | R5-DIFF-2, R5-CONS-2 | fix diff, consistency; info / low | 8.4's operating rule says the deploy checklist compares a new guardian or payout key with every `Coin.founder` before the proposal is signed, and the OPS-1 row says the checklist reads every 8.4 precondition; the checklist had no input for a proposed key (extra options were silently ignored), so `set_guardian(founder)` could be signed and executed with no warning, and the guardian then held the founder's claim | **Confirmed** (the config #0 sub-point, a non-default config #0 passing, not confirmed as an inconsistency; a warning added anyway). **Applied**: `checkProposedRoleKey` and `checkDeployPreconditions({ proposed })` check a proposed guardian, payout key or payout wallet against every coin's and pending approval's founder and the keys the program keeps the role apart from; unknown options are refused; the CLI takes `--proposed-guardian`, `--proposed-payout-authority` (`--proposed-payout-key`) and `--proposed-payout-destination` and refuses unknown options; 8.4 and the OPS-1 row corrected. `28-governance`; NOTES 71 |
 | R5-DIFF-3, R5-CONS-3 | fix diff, consistency; info | making the old program immutable, which 8.5, O19 and OPS-4 recommend, made the checklist report `LEGACY_UPGRADE_AUTHORITY` for ever | **Confirmed** (reproduced with a real loader `SetAuthority` to none). **Applied**: for the old program only, an immutable ProgramData passes with a `LEGACY_IMMUTABLE` warning (`programDataState`); its approvals stay warnings; 8.4 says "the Squads vault, or none". `28-governance`; NOTES 72 |
 | R5-REG-1 | registry, info | an admin hand-over under the time lock stops approvals and launches for a time lock or two; the no-gap order (the new vault's accepts and an approval in one transaction) works on chain but the suite's checker rejected it, reading the seats from before the transaction | **Confirmed for the checker only** (the outage itself is the accepted fail-closed rule, 4.2, 8.2, and O11; with both proposals approved together the gap is seconds). The verifier also found the reverse: a mutant without the old-admin check approved inside `[old propose_admin(stranger), approve_launch]` and the checker accepted it. **Applied**: the checker walks the calls with the seats of their moment (this program's, the old program's and the registry's `propose_admin` / `accept_admin`, the old `set_pause`, `set_guardian`, `set_payout_config`) for I19, OPS-1 and SM-2's approval contents, and checks that the walk ends at the accounts after the transaction; 8.2 gains the no-gap recipe. Not built: an SDK helper for the two halves (optional). I19, 8.2; `27-checker-gaps`; NOTES 73 |
+| R5-CONS-4 | consistency, info | 7.1 said a buyback run is a no-op only when the bucket is empty, the interval has not passed or the curve holds `f(S - 1)`; the pool's dust case (a run that buys less than one raw coin, I22, NOTES 41, the 27-checker-gaps dust test) was missing | **Confirmed** (reproduced: a 6-lamport bucket in an expensive pool, the run a no-op). **Applied**: 7.1 states the fourth case as I22 does, and that on the curve it cannot happen (Lemma C3). Documentation only; NOTES 74 |
+| R5-CONS-5 | consistency, info | the status block (notes 1 to 56, rounds 1 to 3), 1.1 (no registry read), 3.2 ("the three ids"), 4.2 (the registry admin not among the seats that follow), 6.4 (the launch fee's refusals), section 9's title (I18 is not checked per transaction) and the measured figures of 11.1, 11.3 and 11.4 predated round 4 | **Confirmed**, each statement checked. **Applied**: the status block (notes 1 to 74, rounds 1 to 5), 1.1 (the registry and the old program's accounts read at every approval and launch), 3.2 (the four ids), 4.2, 6.4, section 9's title and I18 (property-tested only) and the `tests-curve` README, 11.1 (launch with the first buy about 165,000 to 171,000 CU, 169,519 in the last run; settings 3,900 to 23,200), 11.3 (launch 953 bytes; with the first buy 1,064 without and 788 with the lookup table) and 11.4 (605,664 bytes after round 5's program change), measured on this build. Every figure stays inside its budget and the 1,232-byte limit. NOTES 74 |
 | R5-REG-2 | registry, nit | a devnet-feature binary at the mainnet program id passes the deploy checklist and fails only at the first `approve_launch` (`InvalidAddress`) | **Rejected** by the verifier: it needs a deliberately wrong build (the devnet binary from the committed source carries the throwaway id and fails every instruction elsewhere with `DeclaredProgramIdMismatch`); it fails closed at the first approval, before any time lock exists (8.4's order), and is fixed by an immediate redeploy with no coins or funds involved; which binary is deployed is the verified build's job (8.4, C03), not the account checklist's. No change |
 | R5-REG-3 | registry, nit | a future `vicinity_rewards` upgrade that changes the `Registry` layout, or a close of that program, stops approvals and launches here | **Rejected** by the verifier: OPS-1's accepted fail-closed check, triggered only by the owner's own actions; the coupling is enforced in CI (the committed `vicinity_rewards` IDL is diffed against the build and U12 checks the curve's layout constants against it: one added field fails it); closing `vicinity_rewards` is not a realistic owner action and its real cost is elsewhere (forwards still pay into a vault no program can pay out). No change |
 | R5-CONS-6 | consistency, info | no keeper exists in the repository (nothing calls `buyback_burn` or `coinRentTopUp`), while O25's mitigations rely on it | **Rejected** by the verifier: the specification presents the keeper as website work still to do (1.1, section 14, INT-2's "operational rules in 14.1"), and the status block says only the program, crate, SDK and suites are built. Listing "the keeper and its alerts run" among the launch preconditions is an optional improvement, not a defect. No change |
@@ -3903,3 +3920,4 @@ build follows the text as written and the entry records a reading or a measureme
 | 71 | review round 5: the checklist checks a proposed role key before the proposal is signed (above) | as listed above |
 | 72 | review round 5: an immutable old program meets the checklist (above) | as listed above |
 | 73 | review round 5: the checker reads the seats of each call as they stood at it (above) | as listed above |
+| 74 | review round 5: the text brought up to date with rounds 4 and 5 (above) | as listed above |

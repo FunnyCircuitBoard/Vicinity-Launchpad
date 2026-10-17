@@ -2186,3 +2186,28 @@ the city launches; a real approval replayed with an old `propose_admin`, a regis
 I19 or OPS-1; the same old `propose_admin` after the approval is accepted, and without its account change it
 is refused by the walk's end check. Against the previous checker the bundled transaction is refused and the
 three doctored contexts are accepted.
+
+### 74. The text brought up to date with rounds 4 and 5 (status, 1.1, 3.2, 4.2, 6.4, 7.1, 9, I18, 11.1, 11.3, 11.4; reviews R5-CONS-4, R5-CONS-5)
+
+**Issue.** Documentation only, each statement checked by the verifier: 7.1 listed three cases in which a
+buyback run is a no-op and left out the pool's dust case that I22, entry 41 and the 27-checker-gaps test
+document (R5-CONS-4: a 6-lamport bucket in an expensive pool, the run a no-op); the status block named
+entries 1 to 56 and review rounds 1 to 3; 1.1's integration contract did not mention the registry read
+of review OPS-1; 3.2 said "the three ids" for the four the devnet feature switches; 4.2 named only the
+old program's admin among the seats that follow a hand-over; 6.4's launch-fee row omitted five
+refusals; section 9's title promised per-transaction checks that I18 does not get (it is property-tested,
+as its own text says); 11.1, 11.3 and 11.4 gave figures from before the registry account (R5-CONS-5).
+
+**Choice.** Each text corrected: 7.1 states the fourth case as I22 does and that the curve cannot reach it
+(Lemma C3: one lamport buys at least 2,434 raw units); the status block names entries 1 to 74 and rounds
+1 to 5; 1.1 names the registry and the old program's accounts read at every approval and launch; 3.2 names
+the four ids; 4.2 names the registry admin (`RewardsRegistryAdminMismatch`); 6.4's launch fee lists every
+refusal of `launch`; section 9's title and I18, and the `tests-curve` README, say that I18 is
+property-tested only; 11.1, 11.3 and 11.4 are re-measured on this build (after round 5's program change):
+`launch` with the token account and the first buy about 165,000 to 171,000 CU (169,519 in the last run;
+the founder's token-account bump varies with its random key, which is why the verifier measured 166,519),
+settings instructions 3,900 to 23,200, `launch` 953 bytes, with the first buy 1,064 without and 788 with
+the lookup table, the production binary 605,664 bytes. Every figure stays inside its budget.
+
+Tests. None needed beyond the suites' own measurements (`04-launch` C01/C02, `12-compute`), which print
+these figures; `prechecks.test.mjs` and `12-compute` still read the spec sections they check.
