@@ -173,6 +173,9 @@ test('X44, X45 a stolen admin key: hostile configs are refused (V1 to V11), live
     ['revision 1\'s founder split (50, 0, 170, 0, 30)', shares(50, 0, 170, 0, 30)], ['a founder-favouring buyback split (50, 0, 100, 0, 30)', shares(50, 0, 100, 0, 30)],
     ['a buyback a founder can sandwich (0, 20, 100, 0, 30)', shares(0, 20, 100, 0, 30)], ['a farmable drip (100, 50, 50, 50, 0)', shares(100, 50, 50, 50, 0)],
     ['all to liquidity (250, 0, 0, 0, 0)', shares(250, 0, 0, 0, 0)], ['a launch fee of 0.5 SOL + 1', { ...D, launchFeeLamports: 500_000_001n }],
+    // review ECON-1 (V2b): without a buyback share V8 and V11 do not run; the founder (or a holder of the float) credited the whole fee
+    ['the founder takes the whole fee (0, 0, 100, 0, 0)', shares(0, 0, 100, 0, 0)], ['the holders take the whole fee (0, 0, 0, 250, 0)', shares(0, 0, 0, 250, 0)],
+    ['a 0.01% fee all to the founder (0, 0, 1, 0, 0)', shares(0, 0, 1, 0, 0)],
     ['a curve that leaves dust', { ...D, virtualTokens: D.virtualTokens + 10_000_000_000_000n }], ['a pool that opens above the curve', { ...D, virtualSol: D.virtualSol - 50_000_000n }],
   ];
   for (const [label, p] of hostile) {
@@ -403,7 +406,7 @@ test('X52, X53 a stolen founder key reaches only founder_pending; a lost one lea
 });
 
 // ---------------------------------------------------------------- X44b: hostile but valid configs
-test('X44 the most hostile configs V1 to V11 still accept (10,000 SOL graduation, a 999-coin pool, a 0.01% fee, a 1.5% buyback with a 1% founder share) run a whole life with every invariant, round trips lose, the founder cannot sandwich his buyback, and the buyback cap never reaches 0 (T69)', async () => {
+test('X44 the most hostile configs V1 to V11 still accept (10,000 SOL graduation, a 999-coin pool, a 0.01% fee, a 1.5% buyback with a 1% founder share, a 1% founder share with 0.01% or 0.2% left) run a whole life with every invariant, round trips lose, wash trades by the founder lose, the founder cannot sandwich his buyback, and the buyback cap never reaches 0 (T69)', async () => {
   const w = await World.create();
   const D = S.DEFAULT_CONFIG;
   const derive = (S_, P, R) => { const [x0, y0] = S.deriveCurve(S_, P, R, 64n); return { virtualSol: x0, virtualTokens: y0, curveSupply: S_, poolSupply: P, graduationSol: R }; };
@@ -412,6 +415,9 @@ test('X44 the most hostile configs V1 to V11 still accept (10,000 SOL graduation
     ['a 999-coin pool', { ...D, ...derive(999_000_000_000_000n, 999_000_000_000n, 85_000_000_000n) }],
     ['a 0.01% fee to the platform only', { ...D, liquidityBps: 0n, platformBps: 1n, founderBps: 0n, holdersBps: 0n, buybackBps: 0n }],
     ['a 1.5% buyback and a 1% founder share', { ...D, liquidityBps: 0n, platformBps: 0n, founderBps: 100n, holdersBps: 0n, buybackBps: 150n }],
+    // review ECON-1: the smallest net fee V2b leaves a founder (0.01%), and the review's second config (0.2%)
+    ['a 1% founder share with 0.01% left (0, 1, 100, 0, 0)', { ...D, liquidityBps: 0n, platformBps: 1n, founderBps: 100n, holdersBps: 0n, buybackBps: 0n }],
+    ['a 1% founder share with 0.2% left (0, 20, 100, 0, 0)', { ...D, liquidityBps: 0n, platformBps: 20n, founderBps: 100n, holdersBps: 0n, buybackBps: 0n }],
   ];
   let city = 1995n;
   const report = [];
@@ -443,6 +449,18 @@ test('X44 the most hostile configs V1 to V11 still accept (10,000 SOL graduation
       assert.ok(pnl < 0n, `${label}: founder sandwich ${pnl}`);
       report.push(`${label}: founder sandwich ${(Number(pnl) / 1e9).toFixed(4)} SOL`);
     }
+    // 7.4 and V2b (review ECON-1): the founder's own wash trade on the curve loses, his share of both legs credited
+    // back, by at least MIN_TOTAL_FEE_BPS of each leg (with or without a buyback share)
+    await w.claim(h, founder, { label: `${label}: claim before the wash trade` });
+    const hadAta = w.exists(w.ata(founder.address, h.mint));
+    const f0 = w.lamportsOf(founder.address);
+    const fw = await w.buy(founder, h, 10n * LAMPORTS, { label: `${label}: founder wash buy` });
+    const fs = await w.sell(founder, h, fw.q.tokensOut, { label: `${label}: founder wash sell` });
+    await w.claim(h, founder, { label: `${label}: the founder claims his shares of the wash trade` });
+    const wash = w.lamportsOf(founder.address) - f0 + (hadAta ? 0n : w.svm.minimumBalanceForRentExemption(165n));
+    assert.equal(-wash, fw.q.split.fee - fw.q.split.founder + fs.q.split.fee - fs.q.split.founder, `${label}: the founder pays his net fee`);
+    assert.ok(-wash >= (fw.q.charged + fs.q.solOut) * S.MIN_TOTAL_FEE_BPS / S.BPS - 2n, `${label}: at least 0.01% of each leg (${wash})`);
+    report.push(`${label}: founder wash 10 SOL ${(Number(wash) / 1e9).toFixed(6)} SOL`);
     // graduation at exactly R, then the pool: a round trip within 5.15, buybacks, every exit
     const g = await w.buy(u, h, S.maxQuoteIn(terms, S.coinState(w.coinView(h))), { label: `${label}: graduating buy` });
     assert.equal(g.q.graduates, true);

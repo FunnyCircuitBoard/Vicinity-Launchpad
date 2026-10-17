@@ -309,6 +309,14 @@ def gen_validate(rng, n):
             v = mutate(rng, rng.choice(bases))
         c = Cfg(v['x0'], v['y0'], v['S'], v['P'], v['R'], bps=tuple(v['bps']), validate=False)
         out.append(dict(params=v, rule=first_rule(c, v['fee'])))
+    # V2b (review ECON-1), fixed cases after the seeded ones (no random draw, so every other vector is unchanged):
+    # the founder or the holders credited the whole fee, the 1-bp edge, and configs that stay valid
+    for bps in ([0, 0, 100, 0, 0], [0, 0, 0, 100, 0], [0, 0, 1, 0, 0], [0, 0, 0, 250, 0], [0, 1, 100, 0, 0],
+                [0, 1, 0, 100, 0], [0, 20, 100, 0, 0], [0, 1, 0, 0, 0], [0, 0, 100, 0, 1]):
+        b = DEFAULT
+        v = dict(bps=list(bps), x0=b.x0, y0=b.y0, S=b.S, P=b.P, R=b.R, fee=0)
+        c = Cfg(b.x0, b.y0, b.S, b.P, b.R, bps=tuple(bps), validate=False)
+        out.append(dict(params=v, rule=first_rule(c, 0)))
     return out
 
 

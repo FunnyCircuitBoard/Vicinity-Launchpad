@@ -83,6 +83,64 @@ fn v02_share_caps() {
     );
 }
 
+/// V2b (review ECON-1): a trader credited the founder's or the holders' share
+/// still pays at least `MIN_TOTAL_FEE_BPS` per leg, also in a config without a
+/// buyback share (where V8 and V11 do not run): `t - max(b_F, b_H) >= 1`.
+#[test]
+fn v02b_credited_share_leaves_the_minimum_fee() {
+    // the review's configs: the founder (or the holders) take the whole fee
+    for bps in [
+        [0, 0, 100, 0, 0],
+        [0, 0, 0, 100, 0],
+        [0, 0, 1, 0, 0],
+        [0, 0, 0, 250, 0],
+    ] {
+        assert_eq!(
+            err(&with_bps(bps)),
+            Some(ConfigError::FeeShareCap),
+            "{bps:?}"
+        );
+        later_bps_rules_pass(&with_bps(bps));
+    }
+    // the edge: one basis point left passes, for the founder and for the holders
+    for bps in [
+        [0, 1, 100, 0, 0],
+        [0, 1, 0, 100, 0],
+        [0, 1, 100, 100, 0],
+        [1, 2, 100, 0, 0],
+    ] {
+        assert_eq!(err(&with_bps(bps)), None, "{bps:?}");
+    }
+    // the review's smaller platform share passes (the founder's net fee is 0.2% per leg)
+    assert_eq!(err(&with_bps([0, 20, 100, 0, 0])), None);
+    // X44b's platform-only 0.01% config is untouched: nobody is credited
+    assert_eq!(err(&with_bps([0, 1, 0, 0, 0])), None);
+    // with a buyback share V8 already bounded the founder's credited round trip
+    assert_eq!(
+        err(&with_bps([0, 0, 100, 0, 1])),
+        Some(ConfigError::BuybackMev)
+    );
+    // exhaustive over small shares on the default curve: V2 fails exactly when a cap or V2b fails
+    for f in 0..=101u16 {
+        for h in [0u16, 1, 50, 100, 101] {
+            for rest in [0u16, 1, 2, 70] {
+                let p = with_bps([0, rest, f, h, 0]);
+                let t = rest as u32 + f as u32 + h as u32;
+                if t == 0 || t > 250 {
+                    continue;
+                }
+                let v2 = f > 100 || (f.max(h) as u32) + 1 > t;
+                assert_eq!(
+                    err(&p) == Some(ConfigError::FeeShareCap),
+                    v2,
+                    "{:?}",
+                    [0, rest, f, h, 0]
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn v03_supply() {
     // dust = MAX_DUST_RAW passes and dust + 1 fails; both curves derived by 5.9's search

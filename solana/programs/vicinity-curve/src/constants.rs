@@ -105,13 +105,14 @@ pub const BPS: u64 = m::BPS;
 /// A config's five shares never add up to more than 2.5% (R2, V1).
 #[constant]
 pub const MAX_TOTAL_FEE_BPS: u16 = m::MAX_TOTAL_FEE_BPS;
-/// Smallest total fee of a config (V1).
+/// Smallest total fee of a config (V1), and the least a trader credited the
+/// founder's or the holders' share pays per leg (V2b).
 #[constant]
 pub const MIN_TOTAL_FEE_BPS: u16 = m::MIN_TOTAL_FEE_BPS;
 /// Vicinity's own share never exceeds 1.2% (V2).
 #[constant]
 pub const MAX_PLATFORM_FEE_BPS: u16 = m::MAX_PLATFORM_FEE_BPS;
-/// A founder's share never exceeds 1.0% (V2).
+/// A founder's share never exceeds 1.0% (V2), and never the whole fee (V2b).
 #[constant]
 pub const MAX_FOUNDER_FEE_BPS: u16 = m::MAX_FOUNDER_FEE_BPS;
 /// Smallest `sol_in` of a buy, 0.0001 SOL; sells have no minimum (O5).

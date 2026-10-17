@@ -1244,3 +1244,49 @@ the upgrade authority); unit tests `founder_seat_rules` and the review checklist
 `FEE_RECIPIENT`, the guardian or the payout key, after every transaction); the fuzz model predicts
 the refusals of `transfer_founder`. Against the previous build both new governance tests fail at their
 first refusal (the approval of `FEE_RECIPIENT` and the initialisation succeed).
+
+### 50. V2b: a share credited back never leaves a trader trading for free (5.13, 3.2, 5.15, 7.4, T44, X44, G01; review ECON-1)
+
+**Spec.** 3.2: `MAX_FOUNDER_FEE_BPS` "bounds what a founder gets back from sandwiching or wash-trading
+his own coin"; 7.4: "the founder ... and Vicinity ... both lose by trading against themselves";
+5.15: a sandwich needs the victim's impact to exceed "about twice the fee".
+
+**Issue.** V8 and V11, the rules that credit the founder (and a holder of the float) his own share,
+run only when `buyback_bps > 0`, and V2 caps `founder_bps` at 100 but not against the total. So
+(0, 0, 100, 0, 0) passed V1 to V11 in the crate, the SDK and the program: every lamport of fee went
+back to the founder through `claim_founder_fees`, his 10 SOL wash round trip cost 0 lamports on the
+curve, and around 0.3 SOL and 1 SOL buys made with the website's 1% to 2% slippage he took about
+99 bps and 199 bps of each buy (the verifier's on-chain measurements). (0, 20, 100, 0, 0) also
+passed. The exposure equals what any outsider has on X44's accepted 0.01% platform-only config,
+which is why the verifier rated it low; the defect is that 3.2, 7.4 and 5.15 claimed more than the
+rules enforced.
+
+**Choice.** A rule, the safer reading, decided together with the minimum fee as the verifier
+suggested: **V2b** `max(b_F, b_H) + MIN_TOTAL_FEE_BPS <= t`, part of V2 (`ConfigFeeShareCap`, whose
+message now names it), so no new error code. A trader credited the founder's share, or the holders'
+share as V8 and V11 credit a holder of the float, still pays at least 0.01% per leg net, with or
+without a buyback share, exactly the floor every outsider pays (`MIN_TOTAL_FEE_BPS`, V1). It refuses
+(0, 0, 100, 0, 0), (0, 0, 0, 100, 0) and any config where one credited share is the whole fee; it
+keeps X44's platform-only (0, 1, 0, 0, 0) and the review's (0, 20, 100, 0, 0) (the founder then pays
+0.2% per leg). Not taken: the review's stronger forms (V8's credited bound with a zero step, or
+`t - max(b_F, b_H) >= 100`) would also refuse X44's accepted 0.01% config and contradict
+`MIN_TOTAL_FEE_BPS = 1`. The platform's own wallet is not covered (its share can be the whole fee
+in X44's config); 7.4 now says so. Default config #0 passes V2b with `t - m = 200`.
+
+Built in the crate (`validate_config`), the SDK port (`validateConfig`), the reference model
+(`reference/model.py` and its copy in Appendix A) and the program (through the crate, at
+`add_launch_config` and again at every `launch`). The golden vectors gain nine fixed V2b cases after
+the seeded ones (`generate_vectors.py`; no random draw, so every other vector is unchanged), replayed
+by `differential.rs`, `sdk/curve/math.test.mjs` and on chain by F03, whose generated set also breaks
+V2b on purpose. 5.15 and 7.4 now state each trader's cost per leg (`t`, `t - b_F`, at most `t - b_H`)
+and what a small net fee allows.
+
+Tests. `config_rules.rs` `v02b_credited_share_leaves_the_minimum_fee` (the review's configs refused,
+the 1-bp edge passes, an exhaustive sweep of small shares); `19-attacks-admin` X44 (the founder or
+the holders credited the whole fee refused on chain with `ConfigFeeShareCap`; the accepted hostile
+configs, now including (0, 1, 100, 0, 0) and (0, 20, 100, 0, 0), run a whole life in which the
+founder's own 10 SOL wash round trip, his shares claimed back, loses exactly his net fee and at least
+0.01% of each leg; measured 10 SOL round trips: 3.95% under config #0, 0.0199% under (0, 1, 100, 0, 0),
+0.3976% under (0, 20, 100, 0, 0)). Against the previous build, the crate test and X44 fail at their
+first refusal (the model and the program accept (0, 0, 100, 0, 0)). The reference checks
+(`checks.py`) print the same output before and after V2b.

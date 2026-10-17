@@ -477,9 +477,14 @@ export function v11Sides(pIn) {
 export function validateConfig(pIn) {
   const p = configParams(pIn);
   const t = totalFeeBps(p);
-  new Rule('FeeTotal').check(t >= MIN_TOTAL_FEE_BPS && t <= MAX_TOTAL_FEE_BPS);
-  new Rule('FeeShareCap').check(p.platformBps <= MAX_PLATFORM_FEE_BPS && p.founderBps <= MAX_FOUNDER_FEE_BPS);
-  let r = new Rule('Supply');
+  let r = new Rule('FeeTotal');
+  r.check(t >= MIN_TOTAL_FEE_BPS && t <= MAX_TOTAL_FEE_BPS);
+  r = new Rule('FeeShareCap');
+  r.check(p.platformBps <= MAX_PLATFORM_FEE_BPS && p.founderBps <= MAX_FOUNDER_FEE_BPS);
+  // V2b (review ECON-1): a trader credited the founder's or the holders' share still pays MIN_TOTAL_FEE_BPS per leg
+  const credited = p.founderBps > p.holdersBps ? p.founderBps : p.holdersBps;
+  r.check(credited + MIN_TOTAL_FEE_BPS <= t);
+  r = new Rule('Supply');
   const s = p.curveSupply; const pp = p.poolSupply;
   r.check(s >= 1n && pp >= 1n);
   const soldAndPool = r.add(s, pp);

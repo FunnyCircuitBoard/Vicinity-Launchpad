@@ -40,7 +40,8 @@ pub enum MathError {
 pub enum ConfigError {
     /// V1: `1 <= t <= 250`.
     FeeTotal,
-    /// V2: platform above 1.2% or founder above 1.0%.
+    /// V2: platform above 1.2% or founder above 1.0%; V2b: the founder's or
+    /// the holders' share leaves less than `MIN_TOTAL_FEE_BPS` of the fee.
     FeeShareCap,
     /// V3: supplies.
     Supply,

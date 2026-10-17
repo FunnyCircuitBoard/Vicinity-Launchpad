@@ -2579,7 +2579,7 @@
     {
       "code": 6012,
       "name": "ConfigFeeShareCap",
-      "msg": "V2: platform share above 1.2% or founder share above 1.0%"
+      "msg": "V2: platform share above 1.2%, founder share above 1.0%, or a founder or holders share that leaves less than 0.01% of the fee"
     },
     {
       "code": 6013,
@@ -4784,7 +4784,7 @@
     {
       "name": "MAX_FOUNDER_FEE_BPS",
       "docs": [
-        "A founder's share never exceeds 1.0% (V2)."
+        "A founder's share never exceeds 1.0% (V2), and never the whole fee (V2b)."
       ],
       "type": "u16",
       "value": "100"
@@ -4880,7 +4880,8 @@
     {
       "name": "MIN_TOTAL_FEE_BPS",
       "docs": [
-        "Smallest total fee of a config (V1)."
+        "Smallest total fee of a config (V1), and the least a trader credited the",
+        "founder's or the holders' share pays per leg (V2b)."
       ],
       "type": "u16",
       "value": "1"

@@ -17,13 +17,14 @@ pub const BPS: u64 = 10_000;
 pub const MAX_TOTAL_FEE_BPS: u16 = 250;
 
 /// Smallest total fee a config may have (V1): keeps the buyback cap and the MEV
-/// bounds meaningful.
+/// bounds meaningful. Also the least a trader credited the founder's or the
+/// holders' share pays per leg (V2b).
 pub const MIN_TOTAL_FEE_BPS: u16 = 1;
 
 /// Vicinity's own share never exceeds 1.2% (V2).
 pub const MAX_PLATFORM_FEE_BPS: u16 = 120;
 
-/// A founder's share never exceeds 1.0% (V2).
+/// A founder's share never exceeds 1.0% (V2), and never the whole fee (V2b).
 pub const MAX_FOUNDER_FEE_BPS: u16 = 100;
 
 /// Smallest `sol_in` of a buy, 0.0001 SOL (5.2, O5). Sells have no minimum.

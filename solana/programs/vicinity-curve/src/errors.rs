@@ -44,7 +44,7 @@ pub enum CurveError {
     #[msg("V1: the five fee shares must add up to 1 to 250 basis points")]
     ConfigFeeTotal,
     /// 6012
-    #[msg("V2: platform share above 1.2% or founder share above 1.0%")]
+    #[msg("V2: platform share above 1.2%, founder share above 1.0%, or a founder or holders share that leaves less than 0.01% of the fee")]
     ConfigFeeShareCap,
     /// 6013
     #[msg("V3: curve and pool supplies out of range")]
