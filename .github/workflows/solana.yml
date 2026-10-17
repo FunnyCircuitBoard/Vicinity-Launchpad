@@ -92,6 +92,9 @@ jobs:
       - run: solana --version | grep -q "${AGAVE_VERSION}" && anchor --version
       - run: npm ci
       - run: npm run sdk-test
+      # vicinity_curve client SDK (sdk/curve): the BigInt math port replays the math crate's
+      # golden vectors; builders, decoders and events against the committed IDL
+      - run: npm run sdk-test:curve
       - run: npm run typecheck
       - name: Production build (no features)
         run: anchor build
@@ -130,6 +133,12 @@ jobs:
       # builds" step and the Metaplex dump of the fixtures step).
       - name: Curve in-process smoke test (production and halt-all builds)
         run: npm run test:vcurve
+      # vicinity_curve lifecycle suites (VICINITY-CURVE-DESIGN.md 12.3 and 12.5) on the
+      # production build of `anchor build` and the halt-all build above, with the committed
+      # mainnet binaries of vicinity_rewards and vicinity_launchpad and the pinned Metaplex
+      # and DBC dumps; every invariant of section 9 after every transaction.
+      - name: Curve in-process lifecycle suites
+        run: npm run test:curve
       # The deadline, sweep and close_claim_status tests need an epoch whose
       # claim window passes during the run: the test-only `short-windows`
       # feature lowers MIN_CLAIM_WINDOW_SECS to 60 s. This rebuilds the program

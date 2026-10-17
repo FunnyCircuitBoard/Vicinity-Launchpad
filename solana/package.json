@@ -29,7 +29,9 @@
     "vcurve:idl": "bash scripts/vcurve/idl.sh write",
     "vcurve:idl:check": "bash scripts/vcurve/idl.sh check",
     "vcurve:sbf": "bash scripts/vcurve/sbf-builds.sh",
-    "test:vcurve": "node --test tests-vcurve/*.test.mjs"
+    "test:vcurve": "node --test tests-vcurve/*.test.mjs",
+    "test:curve": "node --test tests-curve/*.test.mjs",
+    "sdk-test:curve": "node --test sdk/curve/*.test.mjs"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",
