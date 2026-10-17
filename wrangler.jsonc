@@ -88,9 +88,10 @@
     // tab exactly as before (no Send button, the three /api/wallet/send/* paths answer 404 like any unknown path).
     "WALLET_SEND": "off",
     // Community feed v2 (src/flags.js feedV2On): the "update" post kind, delete your own post, mute, the author's city on every
-    // national post, one confirmation before the first national post. OFF until the owner switches it on: "on" (change the value,
-    // do not delete the line: keep_vars) in a pull request; anything else is the feed exactly as before.
-    "FEED_V2": "off"
+    // national post, one confirmation before the first national post. ON since 17 Oct 2026, by the owner ("switch on all the
+    // builds"). To switch off: "off" (change the value, do not delete the line: keep_vars) in a pull request; anything else than
+    // "on" is the feed exactly as before.
+    "FEED_V2": "on"
   },
   "assets": {
     "directory": "./public",
