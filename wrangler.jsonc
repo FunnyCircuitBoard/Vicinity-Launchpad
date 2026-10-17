@@ -84,10 +84,11 @@
     // anything else than "on" is the site exactly as before.
     "NOTIFY": "on",
     // Send from the dashboard's Wallet tab (src/flags.js walletSendOn, src/walletsend.js): SOL, $VICINITY or a city coin from the linked
-    // wallet to an address the person types; the Worker builds and checks, the person's own wallet signs, nothing is held here. OFF until
-    // the owner switches it on: "on" (change the value, do not delete the line: keep_vars) in a pull request; anything else is the Wallet
-    // tab exactly as before (no Send button, the three /api/wallet/send/* paths answer 404 like any unknown path).
-    "WALLET_SEND": "off",
+    // wallet to an address the person types; the Worker builds and checks, the person's own wallet signs, nothing is held here. ON since
+    // 17 Oct 2026, by the owner ("switch on all the builds"). To switch off: "off" (change the value, do not delete the line: keep_vars)
+    // in a pull request; anything else than "on" is the Wallet tab exactly as before (no Send button, the three /api/wallet/send/* paths
+    // answer 404 like any unknown path).
+    "WALLET_SEND": "on",
     // Community feed v2 (src/flags.js feedV2On): the "update" post kind, delete your own post, mute, the author's city on every
     // national post, one confirmation before the first national post. ON since 17 Oct 2026, by the owner ("switch on all the
     // builds"). To switch off: "off" (change the value, do not delete the line: keep_vars) in a pull request; anything else than
