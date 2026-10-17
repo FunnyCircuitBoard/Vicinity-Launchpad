@@ -2624,7 +2624,7 @@
     {
       "code": 6021,
       "name": "BadName",
-      "msg": "coin name must be 1 to 32 bytes without control or invisible formatting characters"
+      "msg": "coin name must be 1 to 32 bytes of visible characters, with single spaces only between them"
     },
     {
       "code": 6022,

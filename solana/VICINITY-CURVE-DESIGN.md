@@ -2,8 +2,8 @@
 
 Status: specification for the build and for the outside audit, revision 3, 17 October 2026.
 Revision 3 folds in the implementation notes of the build (`VICINITY-CURVE-NOTES.md` entries 1 to
-50: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
-CLI-2, CLI-3) and 2 (R2-DIFF-1, SPEC-1, ECON-1) of the build; revision 2 answered the security, math, runtime and integration review
+51: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
+CLI-2, CLI-3) and 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1) of the build; revision 2 answered the security, math, runtime and integration review
 of revision 1. Appendix C lists every finding of each review, what changed and the parts that were
 not applied, with reasons, and the notes folded in. The program, its math crate, its client SDK and
 its test suites are built (branch `feat/vicinity-curve`); nothing has been deployed or signed.
@@ -345,7 +345,7 @@ default burns `COIN_SUPPLY - S - P = 9,100,000` raw (9.1 coins) at launch (O3).
 | 48 | `config_id` | u16 | the config the coin must use |
 | 50 | `rent_payer` | Pubkey | receives the rent on close |
 | 82 | `meta_hash` | [u8; 32] | SHA-256 of the exact metadata JSON the website will serve at the coin's URI (3.10); nonzero |
-| 114 | `name` | String (4 + at most 32 bytes) | coin name (`check_name`: no control or invisible formatting characters) |
+| 114 | `name` | String (4 + at most 32 bytes) | coin name (`check_name`: visible characters only, single spaces between them; T38) |
 | .. | `symbol` | String (4 + at most 10 bytes) | city ticker, `A-Z0-9` (`check_symbol`) |
 | .. | `approved_at` | i64 | |
 | .. | `expires_at` | i64 | at most 30 days after `approved_at` |
@@ -644,7 +644,10 @@ guardian, payout_authority)`: `founder != 0` (`InvalidAddress`), `founder != FEE
 (`FeeRecipientRole`), `founder` neither the guardian nor the payout key (`FounderHoldsRole`);
 the founder receives the coin's founder share, so the seat never goes to a key that may not
 touch money (8.1; the admin may be a founder; reviews R2-DIFF-1, SPEC-1);
-`check_name(name)` (`BadName`); `check_symbol(symbol)` (`BadSymbol`);
+`check_name(name)` (`BadName`: 1 to 32 bytes; no control character, no Unicode
+default-ignorable code point or other invisible format character, no blank character (spaces
+other than U+0020, line and paragraph separators, the braille blank, the musical null notehead),
+and U+0020 only as a single space between two characters; review FA-1); `check_symbol(symbol)` (`BadSymbol`);
 `meta_hash != [0; 32]` (`BadMetaHash`);
 `now < expires_at <= now + APPROVAL_MAX_SECS` (`BadExpiry`).
 Effects: `city_id, founder, config_id, rent_payer = admin, meta_hash, name, symbol,
@@ -984,7 +987,7 @@ curve's last virtual reserves are in `Graduated` (NOTES 23).
 | 6018 | `ConfigBuybackMev` | V8 |
 | 6019 | `ConfigLaunchFee` | V9 |
 | 6020 | `BadCityId` | |
-| 6021 | `BadName` | |
+| 6021 | `BadName` | the name breaks `check_name` (4.8) |
 | 6022 | `BadSymbol` | |
 | 6023 | `BadExpiry` | |
 | 6024 | `ApprovalExpired` | |
@@ -2342,7 +2345,7 @@ Global:
 | T35 | **Ticker squatting inside the program** | `TickerLock` per ticker, permanent; approve refuses a locked ticker | I19; X35 |
 | T36 | **Look-alike tokens outside the program** | cannot be prevented on Solana; the on-chain `Coin` / `TickerLock` registry (filtered by program owner) is the official list; hosted metadata only for registry mints | process; 14.1 |
 | T37 | **Metadata spoofing or later edit** | on-chain name, symbol and URI are created by the program from the approval and immutable (`is_mutable = false`, update authority the `Coin` PDA). The JSON at the URI is served by the website and is not immutable: its SHA-256 is approved by the admin, stored in `Coin.meta_hash` and emitted; the website serves it write-once with a content-addressed image. A compromised website can still change what it serves; anyone comparing the hash detects it | I11; L05 |
-| T38 | **Unicode spoofing in names** (right-to-left override, zero-width) | `check_name` refuses control and invisible formatting characters (reused, tested) | U11 |
+| T38 | **Unicode spoofing in names** (right-to-left override, zero-width, Hangul fillers and other blanks, stray spaces) | `check_name` refuses control characters, every default-ignorable code point and other invisible format character, every blank character, and a leading, trailing or doubled space (4.8; review FA-1), at approval and again at launch, before the name becomes immutable metadata; the server's `nameProblem` applies the same rule. Look-alike letters of other scripts and canonically equivalent spellings remain possible: names are not unique, the ticker is the identifier | U11; X38 |
 | T39 | **Supply inflation or freezing** | mint authority set to `None` after the single `mint_to`; freeze authority `None` from creation | I11; X39 |
 | T40 | **Re-selling burned coins** | burns are SPL `burn` from the vault; they leave the reserve and the supply together; holder burns only lower the supply | I10, I11; X40b |
 | T41 | **Compute exhaustion** | every path O(1); no loops over accounts; no remaining accounts | C01 |
@@ -2481,7 +2484,7 @@ find exactly the checker's events, and nothing for a failed one (E01).
 | U08 | buyback quotes: cap, `S - 1` cap, all no-op cases, `spent <= b`; a state with `curve_sol = f(S - 1)` and `s` on the last flat step below `S - 1` (2,433 raw units at the default; not reachable by instructions, 5.3) is a no-op | 7.1, I15, I22 |
 | U09 | overflow and division edges at the bounds of V3 and V4, including `x0 = y0 = 2^60`, `t = 250`; `u64::MAX` inputs return `MathOverflow`, never panic | T14, T15 |
 | U10 | `decode_coin` offsets equal the Borsh layout of the program's `CurveCoin` (round trip); it rejects a wrong owner, a wrong length, `layout_version != 1` and the old program's `Coin` bytes | 3.7, 5.16 |
-| U11 | `check_name`, `check_symbol`, `metadata_uri` (reused tests) | T38 |
+| U11 | `check_name` (every default-ignorable code point and blank character, the space rule; review FA-1), `check_symbol`, `metadata_uri` | T38 |
 | U12 | compiled constants: `LEGACY_LAUNCHPAD` equals the derivation for each cluster build; the legacy discriminator, size and the offsets of `launches_paused`, `admin` and `pending_admin` match the old program's `Launchpad` | 3.2 |
 | V01-V11 | one test per config rule: only that rule violated gives its error; the edge passes; the edge plus one fails (V2 for both caps and V2b at `t - m = 1` and 0; V5 for V5b; V10 at `b_P = b_L + 1` passes and `b_P = b_L` fails) | 5.13, T44 |
 
@@ -3424,6 +3427,7 @@ verifier before it was accepted. Severities are the verifier's.
 | R2-DIFF-1 | fix diff, info | revision 3's 8.1 said `FEE_RECIPIENT` "cannot sign anything; hold any role" and I21 relied on it, but the program accepted it as a coin's founder (approve, launch, claim, opt in, transfer) and as the upgrade authority at `init_launchpad` | **Confirmed**. **Applied**, enforcing where the program can see it: `FeeRecipientRole` for the founder in `approve_launch`, `launch` and `transfer_founder`, and for the upgrade authority in `init_launchpad`; 8.1's row says what holds (it trades like any wallet, holds no seat), and later moves of the upgrade authority are 8.4's operating rule (the loader's `SetAuthority` is outside the program, as the verifier noted). 4.1, 4.8, 4.10, 4.17, 4.22, 8.1, 8.4, I21, T77; `28-governance`; NOTES 49 |
 | SPEC-1 | conformance, low | the guardian (and `FEE_RECIPIENT`) could hold a coin's founder seat and receive its founder share, against 8.1 ("cannot touch money") and I21 (the checker fails at the claim) | **Confirmed**. **Applied** with R2-DIFF-1: `check_founder_key` also refuses the guardian and the payout key (`FounderHoldsRole`, 6053) at every approval, launch and founder transfer; `transfer_founder` reads the `Launchpad` (one account added; IDL and SDK). The admin stays allowed as a founder (8.1's worst case; it chooses every founder anyway), and I21 now says so instead of claiming no program path pays a role key; a later `set_guardian` or `set_payout_config` naming an existing founder cannot be detected on chain and is 8.4's operating rule and a checker rule (I20). 4.8, 4.10, 4.17, 4.22, 8.1, 8.4, I20, I21, T52, T77; `28-governance`, checklist test; NOTES 49 |
 | ECON-1 | attacker, low (reported medium) | without a buyback share V8 and V11 do not run and V2 caps only `b_F <= 100`, so (0, 0, 100, 0, 0) passed V1 to V11: the founder got his whole fee back, wash-traded for free and took about 99 to 199 bps of buys made at 1% to 2% slippage, against 3.2, 5.15 and 7.4 | **Confirmed**. **Applied** as the verifier suggested, decided with the minimum fee: **V2b** `max(b_F, b_H) + MIN_TOTAL_FEE_BPS <= t` (part of V2, `ConfigFeeShareCap`; no new code): a trader credited the founder's or the holders' share pays at least 0.01% per leg, the floor every outsider pays. **Not applied**: the review's stronger forms (V8's credited bound with a zero step, or `t - m >= 100`), which would also refuse X44's accepted 0.01% platform-only config and contradict `MIN_TOTAL_FEE_BPS = 1`; the platform's own wallet stays uncovered (7.4 says so). Crate, SDK port, reference model (Appendix A), golden vectors (nine fixed V2b cases), F03. 3.2, 4.22, 5.13, 5.15, 7.4, T44, 12.1, 12.4; `config_rules.rs`, X44; NOTES 50 |
+| FA-1 | fresh audit, low | `check_name` let Unicode default-ignorable code points that are not format characters (the Hangul fillers, the combining grapheme joiner, variation selectors and others) and blank characters into the immutable Metaplex name: "Paris" plus a Hangul filler looked exactly like "Paris"; the server's `nameProblem` had the same gap | **Confirmed**, with the verifier's two corrections (only the four Hangul fillers pass the website's own design route; U+2028 and U+2029 were kept on purpose as U11 neighbours). **Applied**, the safer reading of T38: `check_name` refuses every `Default_Ignorable_Code_Point` and other format character, every blank character (spaces other than U+0020, U+2028, U+2029, U+2800, U+1D159) and a leading, trailing or doubled U+0020; `nameProblem` mirrors it. Look-alike letters and canonical equivalents remain (names are not unique; the ticker is the identifier); the retired old program keeps its weaker rule. 3.6, 4.8, 4.22, T38, U11; U11, X38, `test/lpadmin.test.js`; NOTES 51 |
 
 ### Revision 3: the leftovers of the build's third stage
 
@@ -3473,3 +3477,4 @@ build follows the text as written and the entry records a reading or a measureme
 | 42 to 48 | review round 1 and the leftovers (above) | as listed above |
 | 49 | review round 2: the founder seat (above) | as listed above |
 | 50 | review round 2: V2b (above) | as listed above |
+| 51 | review round 2: names with invisible or blank characters (above) | as listed above |

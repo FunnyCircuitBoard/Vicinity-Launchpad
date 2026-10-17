@@ -1290,3 +1290,41 @@ founder's own 10 SOL wash round trip, his shares claimed back, loses exactly his
 0.3976% under (0, 20, 100, 0, 0)). Against the previous build, the crate test and X44 fail at their
 first refusal (the model and the program accept (0, 0, 100, 0, 0)). The reference checks
 (`checks.py`) print the same output before and after V2b.
+
+### 51. `check_name` refuses every invisible and blank character and stray spaces (3.6, 4.8, 4.10, T38, U11, X38; review FA-1)
+
+**Spec.** T38: "`check_name` refuses control and invisible formatting characters".
+
+**Issue.** `is_format_char` listed the format characters (category Cf) that change direction or are
+invisible, but not the rest of Unicode's default-ignorable code points, which are letters or marks
+by category: the Hangul fillers U+3164, U+115F, U+1160 and U+FFA0 (Lo), the combining grapheme
+joiner U+034F, the Khmer inherent vowels, the variation selectors, the Mongolian free variation
+selectors and the reserved ignorables. Blank characters passed too (no-break and typographic
+spaces, the line and paragraph separators, the braille blank U+2800), and so did a leading,
+trailing or doubled U+0020, or a name that is a single space. `approve_launch` and `launch` accepted
+"Paris" followed by a Hangul filler, and the immutable Metaplex name stored it byte for byte: a name
+that looks exactly like another, or a blank name, made permanent. The server's mirror `nameProblem`
+(`src/lpadmin.js`) had the same gap. On the website's own design route (`src/coins.js`, `NAME_RE`
+and the trim) only the four Hangul fillers got through; the others reach the chain only through an
+approval built outside the website (the verifier's correction). No funds at risk: the ticker stays
+the unique identifier, the admin approval is a manual gate, and names are not unique anyway.
+
+**Choice.** The safer reading of T38, "every character of the name is visible": `check_name` refuses
+control characters, every `Default_Ignorable_Code_Point` of DerivedCoreProperties.txt plus the
+other format characters already listed (`is_format_char`), the blank characters (`is_blank_char`:
+spaces other than U+0020, U+2028, U+2029, U+2800, U+1D159), and a U+0020 at the start, at the end or
+next to another one. U+2028 and U+2029, which U11 had kept allowed as neighbours on purpose (the
+verifier's second correction), are refused as blank: a coin name has no use for a line break. The
+error stays `BadName` (its message now says so). `nameProblem` mirrors the rule and the website
+applies it to every approval it prepares. Not addressed, and stated in T38: look-alike letters of
+other scripts and canonically equivalent spellings ("é" as one or two code points); names are not
+unique and the ticker is the identifier. The old `vicinity_launchpad` (deployed, paused for good,
+8.5) keeps its weaker `check_name`; its approvals now go through the stricter `nameProblem`.
+
+Tests. U11 `u11_default_ignorables_and_blanks` (all 4,194 listed code points refused alone, first,
+inside and last; the review's names; the visible neighbours of each range allowed; the space rule)
+and the updated neighbour list of `u11_exhaustive_small_inputs`; `15-attacks-accounts` X38 on chain
+(the new code points inside and at the end of a name, the review's names, blank names and the space
+rule refused by `approve_launch`; ordinary names, now with spaces, still launch);
+`test/lpadmin.test.js` for `nameProblem`. Against the previous build, U11 fails on U+034F and X38 at
+its first new code point (the approval succeeds).

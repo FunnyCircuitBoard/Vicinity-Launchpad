@@ -252,20 +252,30 @@ test('X37 the metadata cannot be edited later: Metaplex refuses every update (im
 });
 
 // ---------------------------------------------------------------- X38
-test('X38 Unicode spoofing: every control and invisible formatting character is refused in a name; ordinary UTF-8 city names pass', async () => {
+test('X38 Unicode spoofing: every control, invisible (default-ignorable or format) and blank character, and a leading, trailing or doubled space, is refused in a name; ordinary UTF-8 city names pass', async () => {
   const w = await World.create();
   const founder = await w.signer(10n);
   const send = (cityId, name, symbol) => w.send([w.ix.approveLaunch({ admin: w.admin.address, cityId, founder: founder.address, configId: 0, name, symbol, metaHash: metaHash(name), expiresAt: w.now() + DAY })], [w.admin], `approve ${JSON.stringify(name)}`);
   const bad = [0x00, 0x09, 0x0a, 0x1b, 0x7f, 0x85, 0x9f, 0xad, 0x600, 0x605, 0x61c, 0x6dd, 0x70f, 0x890, 0x8e2, 0x180e, 0x200b, 0x200c, 0x200d, 0x200e, 0x200f,
     0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2060, 0x2061, 0x2064, 0x2066, 0x2067, 0x2068, 0x2069, 0x206f, 0xfeff, 0xfff9, 0xfffb, 0x110bd, 0x13430, 0x1bca0,
-    0x1d173, 0xe0001, 0xe0041, 0xe007f];
+    0x1d173, 0xe0001, 0xe0041, 0xe007f,
+    // review FA-1: the rest of Unicode's default-ignorable code points (the Hangul fillers, the combining grapheme joiner,
+    // Khmer inherent vowels, Mongolian and other variation selectors, reserved ignorables) and blank characters
+    0x34f, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180f, 0x2065, 0x3164, 0xfe00, 0xfe0f, 0xffa0, 0xfff0, 0xfff8, 0xe0000, 0xe0100, 0xe0fff,
+    0xa0, 0x1680, 0x2000, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x2800, 0x3000, 0x1d159];
   let city = 1550n;
   for (const cp of bad) {
-    const name = `Pa${String.fromCodePoint(cp)}ris`;
+    for (const name of [`Pa${String.fromCodePoint(cp)}ris`, `Paris${String.fromCodePoint(cp)}`]) {
+      await expectFail(() => send(city, name, 'PARIS'), 'BadName');
+      assert.equal(w.approval(city), null);
+    }
+  }
+  // the review's names, which looked exactly like "Paris" in the approval and in the immutable metadata; blank names; spaces
+  for (const name of ['Paris\u3164', 'Pari\u034Fs', '\u3164\u3164\u3164', ' ', ' Paris', 'Paris ', 'New  York']) {
     await expectFail(() => send(city, name, 'PARIS'), 'BadName');
     assert.equal(w.approval(city), null);
   }
-  for (const name of ['São Paulo', 'Zürich', '東京', 'Москва', 'Kraków-Śródmieście', "N'Djamena", 'x'.repeat(32), 'é'.repeat(16)]) {
+  for (const name of ['São Paulo', 'Zürich', '東京', 'Москва', 'Kraków-Śródmieście', "N'Djamena", 'New York City Coin', 'x'.repeat(32), 'é'.repeat(16)]) {
     city++;
     await send(city, name, `C${city}`);
     assert.equal(w.approval(city).name, name);

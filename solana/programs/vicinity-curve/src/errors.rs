@@ -71,7 +71,7 @@ pub enum CurveError {
     #[msg("city_id must be at least 1")]
     BadCityId,
     /// 6021
-    #[msg("coin name must be 1 to 32 bytes without control or invisible formatting characters")]
+    #[msg("coin name must be 1 to 32 bytes of visible characters, with single spaces only between them")]
     BadName,
     /// 6022
     #[msg("ticker must be 1 to 10 characters A-Z or 0-9")]

@@ -24,49 +24,85 @@ pub fn metadata_uri(mint: &Pubkey) -> String {
     s
 }
 
-/// 1 to 32 bytes, no control characters and no invisible formatting characters
-/// (T38). UTF-8 is otherwise allowed ("São Paulo"). The name becomes a
-/// permanent Metaplex name, so a right-to-left override or a zero-width space
-/// could never be removed again.
+/// 1 to 32 bytes of visible characters (T38; review FA-1). Refused: control
+/// characters, every invisible character (`is_format_char`: Unicode's
+/// default-ignorable code points and the other format characters), every
+/// blank character (`is_blank_char`), and a U+0020 space at the start, at the
+/// end or next to another one. UTF-8 is otherwise allowed ("São Paulo"). The
+/// name becomes a permanent Metaplex name, so a right-to-left override, a
+/// zero-width space or a Hangul filler that looks like nothing could never be
+/// removed again. (Look-alike letters of other scripts and canonically
+/// equivalent spellings remain possible; names are not unique, the ticker is
+/// the identifier.)
 pub fn check_name(name: &str) -> Result<()> {
     require!(
         !name.is_empty()
             && name.len() <= MAX_NAME_LEN as usize
-            && !name.chars().any(|c| c.is_control() || is_format_char(c)),
+            && !name
+                .chars()
+                .any(|c| c.is_control() || is_format_char(c) || is_blank_char(c))
+            && !name.starts_with(' ')
+            && !name.ends_with(' ')
+            && !name.contains("  "),
         CurveError::BadName
     );
     Ok(())
 }
 
-/// Unicode "format" characters (category Cf) that change direction or are
-/// invisible: soft hyphen, Arabic and Syriac marks, the Mongolian vowel
-/// separator, zero-width spaces and joiners, left-to-right and right-to-left
-/// marks, embeddings, overrides and isolates, invisible operators, the
-/// byte-order mark, interlinear annotation marks and tag characters.
+/// Invisible characters: every Unicode `Default_Ignorable_Code_Point`
+/// (DerivedCoreProperties.txt: soft hyphen, combining grapheme joiner, Arabic
+/// letter mark, the Hangul fillers, Khmer inherent vowels, Mongolian free
+/// variation selectors and vowel separator, zero-width spaces and joiners,
+/// left-to-right and right-to-left marks, embeddings, overrides and isolates,
+/// invisible operators, variation selectors, the byte-order mark, the
+/// reserved U+FFF0 to U+FFF8, shorthand format controls, musical beam and
+/// phrase controls, and the whole tag and variation-selector-supplement block
+/// U+E0000 to U+E0FFF), and the other format characters (category Cf) that
+/// change layout without a glyph of their own: Arabic number signs, the end
+/// of ayah, the Syriac abbreviation mark, the Arabic pound and piastre marks,
+/// the interlinear annotation marks, Kaithi number signs and the Egyptian
+/// hieroglyph format controls.
 pub fn is_format_char(c: char) -> bool {
     matches!(
         c as u32,
         0x00AD
+            | 0x034F
             | 0x0600..=0x0605
             | 0x061C
             | 0x06DD
             | 0x070F
             | 0x0890..=0x0891
             | 0x08E2
-            | 0x180E
+            | 0x115F..=0x1160
+            | 0x17B4..=0x17B5
+            | 0x180B..=0x180F
             | 0x200B..=0x200F
             | 0x202A..=0x202E
-            | 0x2060..=0x2064
-            | 0x2066..=0x206F
+            | 0x2060..=0x206F
+            | 0x3164
+            | 0xFE00..=0xFE0F
             | 0xFEFF
-            | 0xFFF9..=0xFFFB
+            | 0xFFA0
+            | 0xFFF0..=0xFFFB
             | 0x110BD
             | 0x110CD
             | 0x13430..=0x1343F
             | 0x1BCA0..=0x1BCA3
             | 0x1D173..=0x1D17A
-            | 0xE0001
-            | 0xE0020..=0xE007F
+            | 0xE0000..=0xE0FFF
+    )
+}
+
+/// Blank characters, which render as empty space and would make a name look
+/// like a shorter one: every space separator other than U+0020 (no-break,
+/// Ogham, the typographic spaces U+2000 to U+200A, narrow no-break, medium
+/// mathematical, ideographic), the line and paragraph separators, the braille
+/// blank and the musical null notehead.
+pub fn is_blank_char(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x00A0 | 0x1680 | 0x2000
+            ..=0x200A | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x2800 | 0x3000 | 0x1D159
     )
 }
 
@@ -465,6 +501,95 @@ mod tests {
         }
     }
 
+    /// FA-1: every Unicode `Default_Ignorable_Code_Point` (DerivedCoreProperties.txt)
+    /// and every blank character is refused alone, at the start, inside and at
+    /// the end of a name (the review's names looked exactly like "Paris"); the
+    /// code points next to each range stay allowed; U+0020 only as a single
+    /// space between two other characters.
+    #[test]
+    fn u11_default_ignorables_and_blanks() {
+        const DEFAULT_IGNORABLE: [(u32, u32); 17] = [
+            (0x00AD, 0x00AD),
+            (0x034F, 0x034F),
+            (0x061C, 0x061C),
+            (0x115F, 0x1160),
+            (0x17B4, 0x17B5),
+            (0x180B, 0x180F),
+            (0x200B, 0x200F),
+            (0x202A, 0x202E),
+            (0x2060, 0x206F),
+            (0x3164, 0x3164),
+            (0xFE00, 0xFE0F),
+            (0xFEFF, 0xFEFF),
+            (0xFFA0, 0xFFA0),
+            (0xFFF0, 0xFFF8),
+            (0x1BCA0, 0x1BCA3),
+            (0x1D173, 0x1D17A),
+            (0xE0000, 0xE0FFF),
+        ];
+        const BLANK: [(u32, u32); 9] = [
+            (0x00A0, 0x00A0),
+            (0x1680, 0x1680),
+            (0x2000, 0x200A),
+            (0x2028, 0x2029),
+            (0x202F, 0x202F),
+            (0x205F, 0x205F),
+            (0x2800, 0x2800),
+            (0x3000, 0x3000),
+            (0x1D159, 0x1D159),
+        ];
+        let mut n = 0;
+        for &(lo, hi) in DEFAULT_IGNORABLE.iter().chain(BLANK.iter()) {
+            for cp in lo..=hi {
+                let c = char::from_u32(cp).unwrap();
+                for name in [
+                    c.to_string(),
+                    format!("{c}Paris"),
+                    format!("Pa{c}ris"),
+                    format!("Paris{c}"),
+                ] {
+                    assert_eq!(code(check_name(&name)), 6021, "U+{cp:04X} in {name:?}");
+                }
+                n += 1;
+            }
+        }
+        assert_eq!(n, 4_194);
+        // the review's names, accepted end to end before (Metaplex stored them as given)
+        for name in [
+            "Paris\u{3164}",
+            "Pari\u{034F}s",
+            "\u{3164}\u{3164}\u{3164}",
+            "Paris\u{2800}",
+        ] {
+            assert_eq!(code(check_name(name)), 6021, "{name:?}");
+        }
+        // the code points next to each range are visible and stay allowed
+        for cp in [
+            0x00ACu32, 0x00AE, 0x034E, 0x0350, 0x061B, 0x061D, 0x115E, 0x1161, 0x17B3, 0x17B6,
+            0x180A, 0x1810, 0x2010, 0x2027, 0x2030, 0x2070, 0x3163, 0x3165, 0xFDFC, 0xFE10, 0xFEFC,
+            0xFF9F, 0xFFA1, 0xFFFC, 0x1BC9F, 0x1D158, 0x1D15A, 0x1D172, 0x1D17B, 0x00A1, 0x169C,
+            0x1681, 0x27FF, 0x2801, 0x3001, 0x205E,
+        ] {
+            let c = char::from_u32(cp).unwrap();
+            assert!(check_name(&format!("Pa{c}ris")).is_ok(), "U+{cp:04X}");
+        }
+        // spaces: one U+0020 between two characters, never at either end or doubled
+        for ok in ["New York", "New York City Coin", "A B", "Rio de Janeiro"] {
+            assert!(check_name(ok).is_ok(), "{ok:?}");
+        }
+        for bad in [
+            " ",
+            "  ",
+            " Paris",
+            "Paris ",
+            "New  York",
+            "New York ",
+            "\u{3164} ",
+        ] {
+            assert_eq!(code(check_name(bad)), 6021, "{bad:?}");
+        }
+    }
+
     #[test]
     fn u11_symbols() {
         for ok in ["NYC", "A", "SAOPAULO", "X1", "ABCDEFGHIJ"] {
@@ -506,9 +631,7 @@ mod tests {
             assert_eq!(code(check_name(&format!("Ab{c}cd"))), 6021, "U+{cp:04X}");
         }
         // Neighbours of the listed ranges stay allowed.
-        for cp in [
-            0x00AEu32, 0x0606, 0x2010, 0x2029, 0x202F, 0x2065, 0x2070, 0xFFFC,
-        ] {
+        for cp in [0x00AEu32, 0x0606, 0x2010, 0x2070, 0xFFFC] {
             let c = char::from_u32(cp).unwrap();
             assert!(check_name(&format!("City{c}")).is_ok(), "U+{cp:04X}");
         }
