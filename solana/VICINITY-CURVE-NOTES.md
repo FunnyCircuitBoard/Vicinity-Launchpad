@@ -498,7 +498,8 @@ mainnet, BUILD.md), at their mainnet addresses, after checking each against that
 `SHA256SUMS`, and `target/deploy/vicinity_curve.so` (the production build of `anchor build`;
 `VCURVE_SO` overrides). So the program under test is the production binary and both programs it
 talks to are the mainnet programs: `forward_holders_fees` credits a vault made by the real
-`init_city`, and the old program's `Launchpad`, `Approval` and `Coin` are made by the old program itself (its
+`init_city`, the real `fund_epoch_from_vault` books it and a holder claims with a Merkle proof (R01),
+and the old program's `Launchpad`, `Approval` and `Coin` are made by the old program itself (its
 `init_launchpad`, `set_pause`, `approve_launch` and, through Meteora DBC, `launch`). The Metaplex and
 DBC dumps come from `scripts/launchpad/fetch-fixtures.sh`, and the suite checks their pinned
 SHA-256 again. The stage 2 smoke test (`tests-vcurve`) keeps its crafted accounts.
@@ -558,3 +559,52 @@ readings of section 9, where the text needed one:
   minimum); withdraw, claim and (with a correct rewards config) forward succeed; a due buyback burns
   or the curve sits at `f(S - 1)`; anyone can revoke an expired approval. Buys and buybacks are
   skipped while buys are halted, everything while the halt-all build is loaded.
+
+### 30. Compute units and transaction sizes, measured (11.1, 11.3, C01, C02)
+
+Measured by `tests-curve/12-compute.test.mjs` and `04-launch.test.mjs` on the production build of
+`anchor build` (`target/deploy/vicinity_curve.so`, SHA-256 `9fe33002...` of entry 20: the program
+code has not changed since stage 2; litesvm 1.5.0). The figure is the
+instruction's own consumption from the runtime's "consumed" log line; every one is inside its 11.1
+test budget, which the test asserts.
+
+| instruction | measured CU | 11.1 estimate | 11.1 test budget |
+|---|---|---|---|
+| `buy` on the curve | 26,032 to 26,075 | 31,000 to 42,000 | 48,000 |
+| `sell` on the curve | 23,353 to 23,619 | 28,000 to 39,000 | 48,000 |
+| `buy` that graduates (partial fill) | 29,556 | plus 3,000 to 6,000 | 55,000 |
+| `buy` in the pool | 25,460 | 31,000 to 42,000 | 48,000 |
+| `sell` in the pool | 23,505 | 28,000 to 39,000 | 48,000 |
+| `buyback_burn` on the curve / in the pool | 20,342 / 19,788 | 26,000 to 35,000 | 48,000 |
+| `withdraw_platform_fees` / `claim_founder_fees` | 12,482 / 13,015 | 12,000 to 18,000 | 25,000 |
+| `payout_founder_fees` | 18,679 | 15,000 to 22,000 | 30,000 |
+| `forward_holders_fees` (the top-level `SyncNative` after it: about 200 more) | 27,020 | 20,000 to 32,000 | 40,000 |
+| `launch` | 110,635 to 125,867 | 125,000 to 190,000 | 230,000 |
+| `launch` + idempotent token account + first `buy`, one transaction (total) | 165,470 | 175,000 to 260,000 | 400,000 suggested |
+| `approve_launch` | 22,107 | 5,000 to 30,000 | 50,000 |
+| `add_launch_config`, `set_launch_config_enabled`, `set_pause`, `set_guardian`, `opt_in_payout`, `transfer_founder` | 14,798, 6,054, 3,851, 3,772, 13,654, 6,552 | 5,000 to 30,000 | 50,000 |
+
+`launch` and `forward_holders_fees` vary from city to city by a few thousand units: both derive
+PDAs whose bump search depends on the city (the Metaplex metadata of the mint; the rewards config
+and vault of the mint). The website should keep using 1.2 times the simulated figure, as 11.1 says.
+
+Transaction sizes (C02): the website's buy (compute-unit limit and price, idempotent creation of
+the buyer's token account, `buy`) is 555 bytes, its sell (limit, price, `sell`) 513 bytes; `launch`
+alone 920 bytes (founder and payer the same key); `launch` + token account + first `buy` 1,031 bytes
+without a lookup table and 786 bytes with the table of 11.3 (System, Token, associated token,
+Metaplex and Compute Budget programs, the rent sysvar, the event authority, `vicinity_curve`,
+`FEE_RECIPIENT`, `Launchpad`, `LEGACY_LAUNCHPAD`, config #0). The 11.3 estimates were 550 to 590,
+950 to 1,050, 1,100 to 1,200 and 800 to 900 bytes; the combined launch fits the 1,232-byte limit even
+without the table (201 bytes to spare with one signer), so the table is a margin, not a necessity.
+
+### 31. X31 forced by editing the Coin rather than by a test-only build (12.4 X31, 6.5)
+
+**Spec.** X31: "rent floor (forced by a test-only build that skips bookkeeping, proving `pay_out`
+refuses)".
+
+**Choice.** No program code was added for tests. `tests-curve/13-checker.test.mjs` edits a live
+`Coin` out of band so that its liabilities exceed its lamports by one (`founder_pending + 1`), then
+shows that `claim_founder_fees`, `withdraw_platform_fees` and `sell` all fail with `RentFloor` and
+that nothing moves (the failed-transaction check). That is the state a bookkeeping bug would leave,
+and the refusal comes from the same `pay_out` floor; a separate test-only build would only add a
+binary that is not the audited one.

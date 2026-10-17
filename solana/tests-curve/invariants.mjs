@@ -355,6 +355,14 @@ export function checkTransaction(w, ctx) {
     }
   }
 
+  // declared out-of-band movements count from this transaction on (I9, I10, I11)
+  if (opts.lamportDonation) {
+    const { coin, amount } = opts.lamportDonation;
+    w.lamportDonations.set(coin, (w.lamportDonations.get(coin) ?? 0n) + amount);
+  }
+  for (const [coin, amount] of tokenFlows.donated) w.tokenDonations.set(coin, (w.tokenDonations.get(coin) ?? 0n) + amount);
+  for (const [mint, amount] of tokenFlows.holderBurned) w.holderBurns.set(mint, (w.holderBurns.get(mint) ?? 0n) + amount);
+
   // ------------------------------------------------ per coin: replay the events, then I1 to I11
   const txSlot = post.slot; const txTs = post.ts;
   const rentMin = w.svm.minimumBalanceForRentExemption(BigInt(S.ACCOUNT_LEN.CurveCoin));
@@ -499,15 +507,6 @@ export function checkTransaction(w, ctx) {
     }
     const holderBurned = tokenFlows.holderBurned.get(c.mint) ?? 0n;
     if (b) assert.equal(c.mintInfo.supply, b.mintInfo.supply - tokensBurned - holderBurned, `${label}: I15 mint supply falls exactly by the burns`);
-    if (holderBurned) w.holderBurns.set(c.mint, (w.holderBurns.get(c.mint) ?? 0n) + holderBurned);
-    if (tokenFlows.donated.get(addr)) w.tokenDonations.set(addr, (w.tokenDonations.get(addr) ?? 0n) + tokenFlows.donated.get(addr));
-  }
-  if (opts.lamportDonation) {
-    const { coin, amount } = opts.lamportDonation;
-    w.lamportDonations.set(coin, (w.lamportDonations.get(coin) ?? 0n) + amount);
-    // re-check I9 with the donation counted
-    const c = post.coins.get(coin);
-    if (c) assert.equal(c.lamports, c.rentReserve + S.liabilities(S.coinState(c)) + w.lamportDonations.get(coin), 'I9 with donations');
   }
 
   checkGlobal(w, { pre, post, tx, label, preAccounts });
