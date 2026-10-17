@@ -14,24 +14,27 @@ Plain ESM (`.mjs`), BigInt amounts, no Anchor at run time. It follows
 | `instructions.mjs` | builders for all 21 instructions with the fixed account lists of section 4 written out, `forwardHoldersFeesWithSync` (the top-level `SyncNative` of 4.15), `syncNative`, the idempotent associated-token-account create and compute-budget instructions |
 | `prechecks.mjs` | the client pre-checks of 14.3 (T58) on account snapshots, each failing with a `PrecheckError` that says why: the buyer is a system-owned account without data that can pay (`precheckBuyer`, `precheckBuy`; it also refuses a buy that would leave a rent-exempt wallet below the rent-exempt minimum), and SOL to an account holding 0 lamports is at least `rent_min(0)` (`precheckSolCredit`, `precheckSell`, `precheckClaim`, `precheckPayout`) |
 | `rewards.mjs` | the city's `vicinity_rewards` config: `initCityInstruction` (init_city, Holders / 0 / WSOL by default) and `initRewardsForCoin`, which simulates init_city, decodes the CityConfig it would write and runs `check_rewards_config` and the authority rule on it before proposing anything (4.15, R03, 14.1); lamports someone sent to the config address are no config (init_city creates over them, T55); an existing correct config needs nothing, one whose only problem is its authority is fixable (`AuthorityNotAdmin`: propose_authority / accept_authority), one with wrong economics is not (`ExistsWrong`, O26); `simulateWithConnection` adapts a web3.js Connection |
-| `compose.mjs` | "pay with any token" (14.1, G03): `solInFromSwapQuote` (ExactOut: `outAmount`; ExactIn: `otherAmountThreshold`, never the quoted `outAmount`) and `buyWithSwap`, the swap instructions followed by the idempotent token account create and the buy, which always carries its own `min_tokens_out` (`minTokensOut`, or the coin's snapshot and `slippageBps` up to 500; without one the helper throws, since a buy without a minimum can be sandwiched) |
+| `compose.mjs` | the buy leg and "pay with any token" (14.1, 14.3, G03): `buyLeg` quotes the buy on the coin's snapshot, caps `sol_in` at the charge of a buy that completes the curve (`max_quote_in`; review R3-CLI-1) and gives its `min_tokens_out` (`minTokensOut`, or `slippageBps` up to 500; without one it throws, since a buy without a minimum can be sandwiched); `buyLegMinimum` refuses an uncapped `sol_in`; `solInFromSwapQuote` (ExactOut: `outAmount`; ExactIn: `otherAmountThreshold`, never the quoted `outAmount`) and `buyWithSwap`, the swap instructions followed by the idempotent token account create and the buy of `buyLeg` |
 | `g01-vectors.mjs` | the reader of the Rust crate's G01 vectors (`reference/g01-vectors.json`): line parser, config of each life, the state digest |
 
 Instructions come back in `@solana/kit`'s shape `{ programAddress, accounts: [{ address, role }], data }`.
 
 ```js
-import { curveInstructions, decodeCurveCoin, coinTerms, coinState, quoteBuy, withSlippage } from './sdk/curve/index.mjs';
+import { curveInstructions, decodeCurveCoin, coinTerms, coinState, quoteBuy, buyLeg } from './sdk/curve/index.mjs';
 const ix = curveInstructions({ programId, cluster: 'mainnet' });
 const coin = decodeCurveCoin(await getAccount(ix.pdas.coin(cityId)), { programId });
 const q = quoteBuy(coinTerms(coin), coinState(coin), 1_000_000_000n);       // q.charged, q.tokensOut, q.graduates, ...
-const buy = ix.buy({ user, cityId, solIn: 1_000_000_000n, minTokensOut: withSlippage(q.tokensOut, 100) });
+// the buy leg: sol_in capped at the charge when the buy completes the curve (never offer more than the
+// partial quote priced: if another buy graduates the coin first, the rest would be charged in the pool)
+const leg = buyLeg({ solIn: 1_000_000_000n, coinAccount: coin, slippageBps: 100 });
+const buy = ix.buy({ user, cityId, solIn: leg.solIn, minTokensOut: leg.minTokensOut });
 ```
 
 Pay with any token (the buy leg's minimum from the coin as read before signing):
 
 ```js
-const { instructions, solIn, minTokensOut } = buyWithSwap({ ix, user, coin: ix.pdas.coin(cityId), mint: coin.mint,
-  swapInstructions, quote, coinAccount: coin, slippageBps: 100 });
+const { instructions, solIn, minTokensOut, swapSolIn } = buyWithSwap({ ix, user, coin: ix.pdas.coin(cityId), mint: coin.mint,
+  swapInstructions, quote, coinAccount: coin, slippageBps: 100 }); // solIn <= swapSolIn; the rest stays in the wallet
 ```
 
 Pre-checks and the rewards config before sending:

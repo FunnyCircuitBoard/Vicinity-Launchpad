@@ -1450,3 +1450,50 @@ the admin) and its I22 probe (buybacks while `buybacks_halted` is clear); the fu
 `BuybacksHalted` and `BuybackHaltWithoutBuyHalt`. Against the previous build, H01 fails at its
 first `set_pause` (the event has no `buybacks_halted`) and the LL-1 test at its first `set_pause`
 (`Unauthorized`: the old program reads only three arguments).
+
+### 54. The buy that completes the curve offers only its charge (5.4, 14.1, 14.3, T79, G03; review R3-CLI-1)
+
+**Spec.** 14.3: "A router can cap its input with `max_quote_in` to keep exact-in semantics, or treat
+`charged < sol_in` as the amount used." `sdk/curve/compose.mjs` (entry 44): "A buy that completes the
+curve charges less than sol_in (partial fill); the rest of what the swap delivered stays in the
+user's wallet." The README's direct buy: `ix.buy({ solIn: 1 SOL, minTokensOut: withSlippage(q.tokensOut, 100) })`.
+
+**Issue.** Near graduation, `buyLegMinimum` took the buy leg's minimum from a partial quote (which
+prices only the remainder, about 1 SOL at 84 SOL raised) while `buyWithSwap` kept `sol_in` at
+everything the swap delivered. If any other buy graduated the coin first, the same instruction ran
+in the pool, was charged all of `sol_in` and still cleared the small minimum: the minimum no longer
+limited the price. The verifier's on-chain cases: a 20 SOL buy at 2% paid 4.9 times the quoted
+price and the searcher (graduate, then a 94.75 SOL pool buy, then sell) took 10.77 SOL; 100 SOL,
+15 times and 79.6 SOL; even with no attacker, a race with an honest completing buy charged the
+victim 20 SOL instead of 1.03 SOL. The program behaves as specified (M13's strict minimum assumes
+clients size the completing buy with `max_quote_in`, as 14.2 says); the defect is in the SDK and in
+14.3's guidance. Nothing on the website imports `sdk/curve` yet.
+
+**Choice.** The review's client fix, built so that the SDK cannot produce the unsafe pair:
+* `buyLeg({ solIn, coinAccount, slippageBps | minTokensOut, mint })` quotes `solIn` on the coin as
+  read before signing; when the quote is a partial fill it caps `solIn` at the quote's charge
+  (equal to `max_quote_in` at that state) and takes the minimum from that same quote. It returns
+  `{ solIn, minTokensOut, quote }`. `coinAccount` is now required, also with an explicit
+  `minTokensOut`, since the cap reads it.
+* `buyWithSwap` uses it: the buy offers the capped `solIn`; it also returns `swapSolIn`, what the
+  swap is guaranteed to deliver; the difference stays in the wallet.
+* `buyLegMinimum` (kept for callers that build the buy themselves) refuses a `solIn` that `buyLeg`
+  would cap, with a message that names the charge to offer.
+* The README's direct buy uses `buyLeg`.
+* 14.3 now requires routers to cap at `max_quote_in` and take the minimum from that quote; 5.4
+  says why; T79 ("forcing a victim out of a partial fill") sits next to T17.
+* Not taken: M13's price-limit option, or a `max_charge` argument. The price limit would not help
+  (the minimum was computed for the smaller charge, so `tokens_out * sol_in >= min * charged` still
+  holds in the pool), and a new argument changes every client's instruction for a case the client
+  rule closes. With the cap, the same bundle makes the victim's buy fail with `SlippageExceeded`.
+
+Tests. `29-clients` R3-CLI-1, against the real program with the checker on: two config #0 coins at
+84 SOL raised; `buyWithSwap` for a 20 SOL ExactIn swap at 2% offers exactly the partial quote's
+charge (= `max_quote_in`) with that quote's minimum, both encoded; `buyLegMinimum` refuses the
+uncapped pair; the searcher's bundle (graduate, then 94.75 SOL in the pool) runs; a simulation of
+the uncapped pair shows it would be charged all 20 SOL and pass; the capped buy fails with
+`SlippageExceeded` and the victim pays nothing; on the twin coin an honest buyer completes the
+curve first and the capped buy then pays at most its charge. `sdk/curve/prechecks.test.mjs`: the cap
+in `buyLeg` (with a slippage or an explicit minimum), `buyLegMinimum`'s refusal and its acceptance
+of the capped `solIn`, no cap below the remainder or in the pool, `coinAccount` required. Against
+the previous SDK, the 29-clients test fails at its first assertion (`solIn` is 20 SOL).

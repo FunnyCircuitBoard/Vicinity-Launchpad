@@ -14,6 +14,11 @@
 //     initRewardsForCoin report an unfixable wrong config; it now proposes
 //     init_city over the pre-funded address, and reports an authority problem as
 //     fixable (propose_authority / accept_authority), not as O26.
+//   * R3-CLI-1 (review round 3): near graduation buyWithSwap took the buy leg's
+//     minimum from the partial quote but offered the swap's whole output; once
+//     someone else graduated the coin, the buy ran in the pool, was charged all
+//     of it and still cleared the minimum. The leg now offers only the partial
+//     quote's charge (max_quote_in), and the same bundle makes the buy fail.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import web3 from '@solana/web3.js';
@@ -127,5 +132,66 @@ test('CLI-3 lamports sent to the city\'s rewards config and vault addresses: ini
   assert.equal((await S.initRewardsForCoin({ ...base, authority: next.address })).already, true);
   await w.buy(u, h, LAMPORTS);
   await w.forward(h, { label: 'forward after the authority followed the admin' });
+  await w.finish();
+});
+
+test('R3-CLI-1 a buy that completes the curve offers only its charge: buyWithSwap caps sol_in at the partial quote\'s charge, so a searcher who graduates the coin first makes the victim\'s buy fail instead of charging all of sol_in in the pool', async () => {
+  const w = await World.create();
+  const h = await w.launchCoin({ cityId: 2_903n, symbol: 'PARTL' });
+  const race = await w.launchCoin({ cityId: 2_904n, symbol: 'RACE' });
+  const whale = await w.signer(0n);
+  w.setRaw(whale.address, Buffer.alloc(0), S.ADDRESSES.system, 2_000n * LAMPORTS);
+  const terms = S.coinTerms(w.coinView(h));
+  // both curves brought to 84 SOL: about 1 SOL left before graduation
+  for (const c of [h, race]) await w.buy(whale, c, S.grossFor(terms, 84n * LAMPORTS), { label: 'the curve to 84 SOL' });
+  const victim = await w.signer(30n);
+  const solIn = 20n * LAMPORTS;
+  // "pay with any token": the swap delivers at least 20 SOL (ExactIn), the website's 2% on the buy leg
+  const quote = { swapMode: 'ExactIn', outAmount: solIn + 200_000_000n, otherAmountThreshold: solIn };
+  const c0 = w.coinView(h);
+  const q = S.quoteBuy(terms, S.coinState(c0), solIn);
+  assert.deepEqual([q.partial, q.graduates], [true, true], 'a 20 SOL buy completes the curve');
+  const built = S.buyWithSwap({ ix: w.ix, user: victim.address, coin: h.coin, mint: h.mint, swapInstructions: [], quote, coinAccount: c0, slippageBps: 200 });
+  assert.equal(built.solIn, q.charged, 'the buy offers only the partial quote\'s charge');
+  assert.equal(built.swapSolIn, solIn, 'the swap is still guaranteed 20 SOL');
+  assert.equal(built.solIn, S.maxQuoteIn(terms, S.coinState(c0)), '= max_quote_in');
+  assert.equal(built.minTokensOut, S.withSlippage(q.tokensOut, 200));
+  const data = Buffer.from(built.instructions.at(-1).data);
+  assert.deepEqual([data.readBigUInt64LE(8), data.readBigUInt64LE(16)], [built.solIn, built.minTokensOut], 'sol_in and min_tokens_out encoded');
+  // the old helper's pair (minimum of the partial quote, sol_in uncapped) is refused, not built
+  assert.throws(() => S.buyLegMinimum({ solIn, coinAccount: c0, slippageBps: 200 }), (e) => e instanceof S.ComposeError && /completes the curve/.test(e.message));
+  // the searcher's bundle ahead of the victim: graduate the coin, then buy in the new pool
+  await w.buy(whale, h, S.maxQuoteIn(terms, S.coinState(w.coinView(h))), { label: 'the searcher graduates the coin' });
+  await w.buy(whale, h, 94_750_000_000n, { label: 'the searcher buys in the new pool' });
+  // what the uncapped pair would do now: charged all 20 SOL in the pool and still clear the small minimum (simulated only)
+  const ata = w.ata(victim.address, h.mint);
+  const naive = await w.simulate([S.createAssociatedTokenAccountIdempotent({ payer: victim.address, owner: victim.address, mint: h.mint }),
+    w.ix.buy({ user: victim.address, coin: h.coin, userTokenAccount: ata, solIn, minTokensOut: built.minTokensOut })], [victim], { feePayer: w.payer });
+  assert.ok(naive.ok, 'the uncapped buy would go through');
+  const charged = naive.coin(h.coin).buyVolume - w.coinView(h).buyVolume;
+  assert.equal(charged, solIn, 'and be charged all of sol_in');
+  // the capped buy: SlippageExceeded, and the victim pays nothing
+  const v0 = w.lamportsOf(victim.address);
+  const coin0 = w.accountInfo(h.coin);
+  await expectFail(() => w.send(built.instructions, [victim], 'the victim\'s capped buy after the bundle', { feePayer: w.payer }), 'SlippageExceeded');
+  assert.equal(w.lamportsOf(victim.address), v0, 'the victim paid nothing');
+  assert.ok(w.accountInfo(h.coin).data.equals(coin0.data), 'the coin did not move');
+  // an honest race on the second coin: another buyer completes the curve first; the capped buy pays at most its charge
+  const rq = S.quoteBuy(terms, S.coinState(w.coinView(race)), solIn);
+  const leg = S.buyWithSwap({ ix: w.ix, user: victim.address, coin: race.coin, mint: race.mint, swapInstructions: [], quote, coinAccount: w.coinView(race), slippageBps: 200 });
+  assert.equal(leg.solIn, rq.charged);
+  const other = await w.signer(10n);
+  await w.buy(other, race, 2n * LAMPORTS, { label: 'another buyer completes the curve' });
+  const inPool = S.quoteBuy(terms, S.coinState(w.coinView(race)), leg.solIn);
+  const r0 = w.lamportsOf(victim.address);
+  const ataRent = w.svm.minimumBalanceForRentExemption(165n);
+  if (inPool.tokensOut >= leg.minTokensOut) {
+    await w.send(leg.instructions, [victim], 'the capped buy after the race', { feePayer: w.payer });
+    w.addHolder(race.mint, victim);
+    assert.equal(r0 - w.lamportsOf(victim.address), leg.solIn + ataRent, 'charged exactly its capped sol_in');
+  } else {
+    await expectFail(() => w.send(leg.instructions, [victim], 'the capped buy after the race', { feePayer: w.payer }), 'SlippageExceeded');
+    assert.equal(w.lamportsOf(victim.address), r0, 'refused, nothing paid');
+  }
   await w.finish();
 });

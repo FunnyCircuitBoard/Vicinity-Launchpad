@@ -213,8 +213,10 @@ test('pay with any token (14.1, G03): sol_in is the swap\'s guaranteed output, n
   assert.throws(() => S.solInFromSwapQuote({}), /unknown swapMode/);
   const user = key(); const mint = key(); const coin = key();
   const swapIx = { programAddress: key(), accounts: [], data: new Uint8Array([1]) };
-  const { instructions, solIn, minTokensOut } = S.buyWithSwap({ ix: S.ix, user, coin, mint, swapInstructions: [swapIx], quote: { swapMode: 'ExactIn', outAmount: 500_000n, otherAmountThreshold: 400_000n }, minTokensOut: 7n });
+  const coinAccount = { ...S.DEFAULT_TERMS, ...S.stateAtLaunch(0n), mint };
+  const { instructions, solIn, minTokensOut, swapSolIn } = S.buyWithSwap({ ix: S.ix, user, coin, mint, swapInstructions: [swapIx], quote: { swapMode: 'ExactIn', outAmount: 500_000n, otherAmountThreshold: 400_000n }, coinAccount, minTokensOut: 7n });
   assert.equal(solIn, 400_000n);
+  assert.equal(swapSolIn, 400_000n);
   assert.equal(minTokensOut, 7n);
   assert.deepEqual(instructions.map((x) => x.programAddress), [swapIx.programAddress, S.ADDRESSES.associatedToken, S.CURVE_PROGRAM_ID]);
   assert.equal(Buffer.from(instructions[2].data).readBigUInt64LE(8), 400_000n, 'the buy\'s sol_in');
@@ -245,4 +247,38 @@ test('CLI-1 pay with any token: buyWithSwap never builds a buy without its own m
     assert.equal(Buffer.from(r.instructions.at(-1).data).readBigUInt64LE(16), r.minTokensOut, `${bps} bps encoded`);
     assert.ok(r.minTokensOut > 0n);
   }
+});
+
+test('R3-CLI-1 a buy that completes the curve offers only its charge: buyLeg caps sol_in at the partial quote\'s charge (max_quote_in) and takes the minimum from that quote; buyLegMinimum refuses the uncapped pair', () => {
+  const t = S.DEFAULT_TERMS;
+  const st = S.quoteBuy(t, S.stateAtLaunch(0n), S.grossFor(t, 84n * 10n ** 9n)).newState;
+  const coin = { ...t, ...st, mint: key() };
+  const solIn = 20n * 10n ** 9n;
+  const q = S.quoteBuy(t, st, solIn);
+  assert.deepEqual([q.partial, q.graduates], [true, true]);
+  const leg = S.buyLeg({ solIn, coinAccount: coin, slippageBps: 200 });
+  assert.equal(leg.solIn, q.charged, 'capped at the charge');
+  assert.equal(leg.solIn, S.maxQuoteIn(t, st), '= max_quote_in');
+  assert.equal(leg.minTokensOut, S.withSlippage(q.tokensOut, 200), 'the minimum of the same quote');
+  assert.deepEqual([leg.quote.partial, leg.quote.graduates, leg.quote.tokensOut, leg.quote.charged], [false, true, q.tokensOut, q.charged]);
+  // with an explicit minimum the cap applies too
+  assert.equal(S.buyLeg({ solIn, coinAccount: coin, minTokensOut: 5n }).solIn, q.charged);
+  // buyLegMinimum: the uncapped sol_in is refused, the capped one accepted
+  assert.throws(() => S.buyLegMinimum({ solIn, coinAccount: coin, slippageBps: 200 }), (e) => e instanceof S.ComposeError && /completes the curve/.test(e.message) && e.message.includes(String(q.charged)));
+  assert.equal(S.buyLegMinimum({ solIn: q.charged, coinAccount: coin, slippageBps: 200 }), leg.minTokensOut);
+  // buyWithSwap: the buy offers the charge, the swap still delivers its 20 SOL (the rest stays in the wallet)
+  const user = key();
+  const r = S.buyWithSwap({ ix: S.ix, user, coin: key(), mint: coin.mint, swapInstructions: [], quote: { swapMode: 'ExactOut', outAmount: solIn, otherAmountThreshold: solIn * 2n }, coinAccount: coin, slippageBps: 200 });
+  assert.deepEqual([r.solIn, r.swapSolIn, r.minTokensOut], [q.charged, solIn, leg.minTokensOut]);
+  const data = Buffer.from(r.instructions.at(-1).data);
+  assert.deepEqual([data.readBigUInt64LE(8), data.readBigUInt64LE(16)], [q.charged, leg.minTokensOut]);
+  // below the remainder, and in the pool, nothing is capped
+  for (const [label, state, amount] of [['a buy below the remainder', st, 10n ** 9n / 2n], ['a pool buy', S.quoteBuy(t, st, solIn).newState, solIn]]) {
+    const c = { ...t, ...state, mint: coin.mint };
+    const l = S.buyLeg({ solIn: amount, coinAccount: c, slippageBps: 100 });
+    assert.equal(l.solIn, amount, label);
+    assert.equal(S.buyLegMinimum({ solIn: amount, coinAccount: c, slippageBps: 100 }), l.minTokensOut, label);
+  }
+  // the cap reads the coin: coinAccount is required, also with an explicit minimum
+  assert.throws(() => S.buyLeg({ solIn, minTokensOut: 5n }), /needs coinAccount/);
 });

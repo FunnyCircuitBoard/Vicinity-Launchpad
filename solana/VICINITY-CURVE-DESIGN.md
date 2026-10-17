@@ -2,8 +2,9 @@
 
 Status: specification for the build and for the outside audit, revision 3, 17 October 2026.
 Revision 3 folds in the implementation notes of the build (`VICINITY-CURVE-NOTES.md` entries 1 to
-53: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
-CLI-2, CLI-3), 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1) and 3 (R3-DIFF-1, MATH3-2, LL-1) of the build; revision 2 answered the security, math, runtime and integration review
+54: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
+CLI-2, CLI-3), 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1) and 3 (R3-DIFF-1, MATH3-2, LL-1, R3-CLI-1) of
+the build; revision 2 answered the security, math, runtime and integration review
 of revision 1. Appendix C lists every finding of each review, what changed and the parts that were
 not applied, with reasons, and the notes folded in. The program, its math crate, its client SDK and
 its test suites are built (branch `feat/vicinity-curve`); nothing has been deployed or signed.
@@ -1198,6 +1199,15 @@ Properties:
   refused, pays nothing and can re-quote. `max_quote_in(coin) = max(MIN_TRADE_LAMPORTS,
   floor((rem - 1) * D / (D - t)) + 1)` (math crate) is the `sol_in` that completes the curve
   exactly.
+* The strict minimum limits the price only for the `sol_in` it was quoted for. A client that
+  offers more than `max_quote_in` with a minimum taken from the partial quote (which prices
+  only the remainder) loses its price limit if someone else graduates the coin first: the buy
+  then runs in the pool, is charged all of `sol_in`, and still clears the small minimum (review
+  R3-CLI-1: a 20 SOL "pay with any token" buy near graduation paid 4.9 times the quoted price,
+  and a searcher took 10.77 SOL). So every client offers at most `max_quote_in` on a buy that
+  completes the curve (14.1, 14.3; the SDK's `buyLeg` caps it), and the extra SOL stays in the
+  wallet. The program cannot tell the two cases apart; M13's price limit would not help
+  either, since the minimum was computed for the smaller charge.
 * The buy does not continue into the new pool in the same instruction (O18): one pricing path
   per instruction; the next trade uses the pool.
 
@@ -2375,6 +2385,7 @@ Global:
 | T15 | **Division by zero** | `y0 > S >= s`; `x0 + q > 0`; `X + n > 0`; `Y + t > 0`; `D - t >= 9,750`; `t >= 1` | U09 |
 | T16 | **Partial-fill abuse** (be charged for coins not received, or take the last coins cheap) | only `charged = gross_for(c)` is taken; Lemma G gives net exactly `c`; tokens exactly `S - s` | I17; U07; X16 |
 | T17 | **Forcing a victim into a partial fill** | strict `min_tokens_out` refuses it; the victim pays nothing | X17 |
+| T79 | **Forcing a victim out of a partial fill**: a buy signed near graduation with `sol_in` above the remainder and the partial quote's minimum is run in the pool after someone else graduates the coin, charged all of `sol_in` (review R3-CLI-1) | clients offer at most `max_quote_in` with the minimum of that quote (the SDK's `buyLeg`, `buyWithSwap`; `buyLegMinimum` refuses the uncapped pair; 5.4, 14.1, 14.3); the program then refuses the buy (`SlippageExceeded`) and the victim pays nothing | 29-clients |
 | T18 | **Selling more than the curve sold** | `tokens_in <= tokens_sold` (`SellExceedsCurve`) | X18 |
 | T19 | **Graduation front-running** ("pop") | pool opens at most 1e-9 below the curve's last price, never above (V7; default 2.0e-12); the curve-phase liquidity is not dumped into the pool | I5; L07; X19 |
 | T20 | **Pool pre-creation or graduation griefing** | the pool is the coin's own account; there is no address to pre-create and nothing external to fail | design; L07 |
@@ -2665,7 +2676,7 @@ X65 the IDL instruction tag returns `IdlInstructionStub`.
 | T75 (CPI after lamport move) | R02, R02b |
 | R11 integration | G01, G02, G03, E01, C02 |
 | T56 (events) | X56, E01 |
-| T77, T78 (roles, client minimum) | 28-governance, 29-clients |
+| T77, T78, T79 (roles, client minimum, the completing buy) | 28-governance, 29-clients |
 
 ---
 
@@ -2746,7 +2757,10 @@ new program, these coins trade only on vicinity.city and through direct program 
   user already had (G03). The buy leg carries its own `min_tokens_out`: the quote of that
   `sol_in` on the coin, less the slippage. The swap's minimum says nothing about the curve's
   price, and a buy without a minimum can be sandwiched (a 5 SOL buy into a fresh coin lost 68% of
-  its coins in review CLI-1), so the SDK's `buyWithSwap` refuses to build one without it.
+  its coins in review CLI-1), so the SDK's `buyWithSwap` refuses to build one without it. A buy
+  that completes the curve offers only the quote's charge (`max_quote_in`), whatever the swap
+  delivers; the rest stays in the wallet (5.4, review R3-CLI-1). The SDK's `buyLeg` does both
+  for the direct buy too.
 * **Crank** (server; fee-payer-only key with no authority): per coin, `buyback_burn` every
   interval while `buyback_pending > 0` (a missed interval grows the backlog, 7.3); an alert
   when `buyback_pending` exceeds 1% of depth; `forward_holders_fees` followed by a top-level
@@ -2823,8 +2837,11 @@ source. Written confirmation is required before the audit freeze; if any of them
 take O10 then.
 
 **Partial fill.** Only the buy that completes the curve can use less than `sol_in`; the quote
-reports `charged`, `partial` and `graduates`. A router can cap its input with
-`max_quote_in` to keep exact-in semantics, or treat `charged < sol_in` as the amount used.
+reports `charged`, `partial` and `graduates`. A router must cap its input at `max_quote_in`
+(the quote's `charged`) and take its minimum from that same quote. Offering more with the
+partial quote's minimum is unsafe: if another buy graduates the coin first, the same
+instruction runs in the pool, is charged all of `sol_in` and still clears the minimum, so the
+minimum no longer limits the price (5.4, T79, review R3-CLI-1).
 
 ### 14.4 Jupiter adapter (a later step)
 
@@ -3496,6 +3513,7 @@ a verifier before it was accepted. Severities are the verifier's.
 | R3-DIFF-1 | fix diff, low | V2b bounded `max(b_F, b_H)`, but a founder who also holds the float is credited both shares: (0, 0, 50, 50, 0), (0, 0, 100, 1, 0), (0, 0, 100, 150, 0) and (0, 0, 1, 1, 0) passed V1 to V11, and his wash trade cost exactly 0 net on chain (ECON-1 only partly closed; 7.4's "in every config" false) | **Confirmed**. **Applied** as proposed: **V2b** `b_F + b_H + MIN_TOTAL_FEE_BPS <= t` (the same as `b_L + b_P + b_B >= 1`; `ConfigFeeShareCap`, no new code). It keeps config #0, X44's configs and every edge the spec names; no golden vector changes (nine fixed cases appended). When `b_B > 0`, V8 and V11 still credit only `m = max(b_F, b_H)` (MATH-3's modelling), now said in 5.13. Crate, SDK port, reference model (Appendix A), I3. 3.2, 4.22, 5.13, 5.15, 7.4, I3, T44, 12.1, 12.4; `config_rules.rs`, X44, F03; NOTES 52 |
 | MATH3-2 | math, info | the same gap as R3-DIFF-1, seen from the math: configs whose founder and holders shares make the whole fee pass, and a founder holding the eligible float trades for exactly 0 net fee | **Confirmed**. **Applied** with R3-DIFF-1 (the sum form, which still accepts every X44 config); 3.2's `MAX_FOUNDER_FEE_BPS` row and NOTES 50 corrected. NOTES 52 |
 | LL-1 | lifecycle, low (reported medium) | one flag, `buys_halted`, stopped user buys and buybacks alike, while every sell still booked its 0.3% into `buyback_pending`: during a guardian halt a mostly sold pool built a backlog many times `u*` (14.9% of depth), the keeper could not spend it, and the first buyer after the admin's publicly scheduled clear took a large share (+1.24 SOL on 20 SOL) | **Confirmed**. **Applied**, the safer of the two proposals (a separate flag rather than leaving buybacks unhaltable): `Launchpad.buybacks_halted` (offset 174, from the reserved bytes; size unchanged) blocks `buyback_burn` (`BuybacksHalted`, 6054); `buys_halted` now blocks only `buy` and `launch`; `set_pause` takes a fourth argument and refuses any result with buybacks halted and buys open (`BuybackHaltWithoutBuyHalt`, 6055), for every signer, so a buyback halt goes with a buy halt and buys never reopen before buybacks. A halt of buys alone leaves the keeper running; after a halt of both the admin resumes buybacks first, the keeper drains every backlog while buys are still refused, and buys reopen in a later proposal (8.3 runbook, 14.1). IDL, SDK builder, decoder and event. 3.4, 4.0, 4.4, 4.13, 4.21, 4.22, 6.4, 7.1, 7.2, 8.1, 8.3, I20, I22, T72, T73, T76, O9, O25, 12.3, 12.5, 14.1, 14.3; H01, L12, X43b, the LL-1 test, the fuzz model, the checker (I20); NOTES 53 |
+| R3-CLI-1 | clients, medium (reported high) | on a buy that completes the curve, `buyWithSwap` (and the README's direct buy) took `min_tokens_out` from the partial quote but left `sol_in` at the full amount; once a searcher (or any buyer) graduated the coin first, the same buy ran in the pool, was charged all of `sol_in` and still cleared the small minimum (20 SOL at 4.9 times the quoted price; 10.77 SOL taken); 14.3 told routers they may "treat `charged < sol_in` as the amount used" | **Confirmed** (an SDK and guidance defect; the program behaves as specified). **Applied**: the SDK's new `buyLeg` (used by `buyWithSwap`) caps `sol_in` at the partial quote's charge (`max_quote_in`) and takes the minimum from that quote; it needs the coin snapshot; `buyLegMinimum` refuses an uncapped `sol_in`; `buyWithSwap` also returns the swap's guaranteed output (the difference stays in the wallet). The README's direct buy uses `buyLeg`. 14.3 now requires the cap; 5.4 explains why; T79 added next to T17. M13's price limit was not taken: the minimum was computed for the smaller charge, so it would not help. 5.4, 14.1, 14.3, T79; `29-clients`, `prechecks.test.mjs`; NOTES 54 |
 | HR-2 | roles, info | a thief of a founder key can move the seat with `transfer_founder` and take every later founder fee | **Rejected** by the verifier: the recorded design (4.17 and T52: the seat moves only with both signatures and the admin can never reassign it; O22). The copied key could claim every later accrual without a transfer anyway, and the legitimate founder can use the transfer first. No change |
 | HR-3 | roles, info | a stolen `FEE_RECIPIENT` key takes the platform's income until an upgrade | **Rejected** by the verifier: recorded (R9, 3.2: changing `FEE_RECIPIENT` needs an upgrade; 6.4 and 8.3: platform withdrawals are not pausable by design); no holder's, founder's or third party's money is reachable. A cold wallet or a Squads vault as `FEE_RECIPIENT` before the mainnet build is an operational choice for the owner. No change |
 
@@ -3550,3 +3568,4 @@ build follows the text as written and the entry records a reading or a measureme
 | 51 | review round 2: names with invisible or blank characters (above) | as listed above |
 | 52 | review round 3: V2b bounds the sum of the founder's and the holders' shares (above) | as listed above |
 | 53 | review round 3: a separate buyback halt, set only while buys are halted (above) | as listed above |
+| 54 | review round 3: the completing buy offers only its charge (above) | as listed above |
