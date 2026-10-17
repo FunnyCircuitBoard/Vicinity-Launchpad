@@ -3,10 +3,14 @@
 // the coin and ticker checks, and the checks against the old program (8.5): an
 // old-program Approval and Coin created by the real old vicinity_launchpad (its
 // mainnet binary), its launches open or paused, and a wrong-owner, wrong-size or
-// missing account at LEGACY_LAUNCHPAD.
+// missing account at LEGACY_LAUNCHPAD, or one whose admin is not this program's admin
+// (GOV-1; tests-curve/28-governance.test.mjs runs the real old program's hand-over).
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import web3 from '@solana/web3.js';
 import { World, S, expectFail, metaHash, DAY } from './helpers.mjs';
+
+const pkb = (a) => new web3.PublicKey(String(a)).toBuffer();
 
 const ZERO = S.ADDRESSES.system;
 
@@ -115,11 +119,12 @@ test('L04 the old program: its Approval, its Coin and its launches block approva
   await w.finish();
 });
 
-test('L04 a wrong-owner, wrong-size, wrong-discriminator or missing account at LEGACY_LAUNCHPAD is refused', async () => {
+test('L04 a wrong-owner, wrong-size, wrong-discriminator or missing account at LEGACY_LAUNCHPAD is refused; so is one whose admin is not this program\'s admin or has a transfer pending (GOV-1)', async () => {
   const w = await World.create({ legacy: 'none' });
   const founder = await w.signer();
   const at = S.CLUSTERS.mainnet.legacyLaunchpad;
   const good = Buffer.alloc(171); Buffer.from(S.LEGACY_LAUNCHPAD_DISCRIMINATOR).copy(good); good[168] = 1;
+  pkb(w.admin.address).copy(good, S.LEGACY_ADMIN_AT);
   // missing (a System account with no data)
   await expectFail(() => w.approve({ cityId: 31n, founder, symbol: 'MISS' }), 'InvalidAddress');
   // right bytes, wrong owner (the devnet build of the old program, and vicinity_rewards)
@@ -140,7 +145,20 @@ test('L04 a wrong-owner, wrong-size, wrong-discriminator or missing account at L
   const open = Buffer.from(good); open[168] = 0;
   w.setRaw(at, open, S.CLUSTERS.mainnet.legacyProgram);
   await expectFail(() => w.approve({ cityId: 31n, founder, symbol: 'OPEN' }), 'LegacyLaunchesOpen');
-  // the old program's own account, launches paused
+  // paused, but administered by another key, by nobody (zero), or with a transfer pending to anyone (GOV-1)
+  const stranger = await w.signer(0n);
+  for (const [what, edit] of [
+    ['another admin', (d) => pkb(stranger.address).copy(d, S.LEGACY_ADMIN_AT)],
+    ['a zero admin', (d) => d.fill(0, S.LEGACY_ADMIN_AT, S.LEGACY_ADMIN_AT + 32)],
+    ['a transfer pending to a stranger', (d) => pkb(stranger.address).copy(d, S.LEGACY_PENDING_ADMIN_AT)],
+    ['a transfer pending to this admin', (d) => pkb(w.admin.address).copy(d, S.LEGACY_PENDING_ADMIN_AT)],
+  ]) {
+    const d = Buffer.from(good); edit(d);
+    w.setRaw(at, d, S.CLUSTERS.mainnet.legacyProgram);
+    await expectFail(() => w.approve({ cityId: 31n, founder, symbol: 'ADMN' }), 'LegacyAdminMismatch');
+    void what;
+  }
+  // the old program's own account, launches paused, administered by this program's admin
   w.setRaw(at, good, S.CLUSTERS.mainnet.legacyProgram);
   await w.approve({ cityId: 31n, founder, symbol: 'GOOD' });
   await w.launch({ cityId: 31n, founder });

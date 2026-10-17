@@ -5,8 +5,10 @@
 //!
 //! R1 across both programs (8.5, M16): the city must have no `Coin` here, the
 //! ticker no `TickerLock`, and the old `vicinity_launchpad` program no `Coin`
-//! and no `Approval` for the city, with its launches paused. The same legacy
-//! checks run again in `launch`.
+//! and no `Approval` for the city, with its launches paused and its admin this
+//! program's admin with no admin transfer pending (GOV-1), so that only the
+//! same multisig could ever reopen it. The same legacy checks run again in
+//! `launch`.
 //!
 //! A second approval for the same city fails at `init` until the first is used
 //! or revoked. A symbol longer than 32 bytes fails the ticker seed derivation
@@ -21,8 +23,8 @@ use crate::constants::{
 use crate::errors::CurveError;
 use crate::events::LaunchApproved;
 use crate::helpers::{
-    check_name, check_symbol, is_empty_system_account, legacy_approval_address,
-    legacy_coin_address, legacy_launches_paused, legacy_launchpad_valid,
+    check_name, check_symbol, is_empty_system_account, legacy_admin_matches,
+    legacy_approval_address, legacy_coin_address, legacy_launches_paused, legacy_launchpad_valid,
 };
 use crate::instructions::now;
 use crate::state::{Approval, LaunchConfig, Launchpad};
@@ -90,11 +92,14 @@ pub struct ApproveLaunch<'info> {
     pub legacy_approval: UncheckedAccount<'info>,
 
     /// CHECK: the old program's `Launchpad` (address compiled per cluster),
-    /// read by hand: owner, size and discriminator, then `launches_paused`.
+    /// read by hand: owner, size and discriminator, then `launches_paused`,
+    /// then its `admin` (this program's admin) and `pending_admin` (zero).
     #[account(
         constraint = legacy_launchpad.key() == LEGACY_LAUNCHPAD @ CurveError::InvalidAddress,
         constraint = legacy_launchpad_valid(&legacy_launchpad) @ CurveError::InvalidAddress,
         constraint = legacy_launches_paused(&legacy_launchpad) @ CurveError::LegacyLaunchesOpen,
+        constraint = legacy_admin_matches(&legacy_launchpad, &launchpad.admin)
+            @ CurveError::LegacyAdminMismatch,
     )]
     pub legacy_launchpad: UncheckedAccount<'info>,
 

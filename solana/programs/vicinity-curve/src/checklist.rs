@@ -14,7 +14,7 @@
 //!   IDL `sdk/idl/vicinity_curve.json` (generated from this crate with the
 //!   `idl-build` feature; CI diffs it against the build): every instruction's
 //!   accounts in the order, with the signer and writable flags, of its table,
-//!   its arguments, the account discriminators, the 21 events, the 51 error
+//!   its arguments, the account discriminators, the 21 events, the 53 error
 //!   codes and the compiled ids of the default (mainnet) build.
 
 use serde_json::{json, Value};
@@ -874,13 +874,13 @@ fn idl_events() {
     assert_eq!(got, want);
 }
 
-/// 4.22: 51 codes from 6000, contiguous, in the table's order (the first and
+/// 4.22: 53 codes from 6000, contiguous, in the table's order (the first and
 /// the last few checked by name; errors.rs checks every code).
 #[test]
 fn idl_errors() {
     let idl = idl();
     let errors = idl["errors"].as_array().unwrap();
-    assert_eq!(errors.len(), 51);
+    assert_eq!(errors.len(), 53);
     for (i, e) in errors.iter().enumerate() {
         assert_eq!(e["code"].as_u64().unwrap(), 6000 + i as u64);
     }
@@ -890,6 +890,8 @@ fn idl_errors() {
     assert_eq!(name(44), "MathOverflow");
     assert_eq!(name(49), "BuysHalted");
     assert_eq!(name(50), "BadMetaHash");
+    assert_eq!(name(51), "LegacyAdminMismatch");
+    assert_eq!(name(52), "FeeRecipientRole");
 }
 
 /// 3.2, C03: the committed IDL is the default (mainnet ids) build's, its

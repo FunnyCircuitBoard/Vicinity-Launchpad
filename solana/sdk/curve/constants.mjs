@@ -71,10 +71,16 @@ export const MAX_NAME_LEN = 32;
 export const MAX_SYMBOL_LEN = 10;
 export const DERIVE_CURVE_RADIUS = 20_000n;
 
-/** The old program's `Launchpad` (3.2): discriminator, size and the byte of `launches_paused`. */
+/**
+ * The old program's `Launchpad` (3.2): discriminator, size, the byte of `launches_paused`, and the offsets of
+ * `admin` and `pending_admin` (8.5, GOV-1: approvals and launches require that admin to be this program's admin
+ * with no transfer pending).
+ */
 export const LEGACY_LAUNCHPAD_DISCRIMINATOR = Object.freeze([247, 20, 16, 242, 203, 38, 169, 160]);
 export const LEGACY_LAUNCHPAD_LEN = 171;
 export const LEGACY_LAUNCHES_PAUSED_AT = 168;
+export const LEGACY_ADMIN_AT = 8;
+export const LEGACY_PENDING_ADMIN_AT = 40;
 
 /** vicinity_rewards `CityConfig` facts the program reads (4.15). */
 export const REWARDS_CITY_CONFIG_DISCRIMINATOR = Object.freeze([14, 136, 110, 28, 46, 68, 178, 115]);
@@ -179,7 +185,7 @@ export const ERROR_NAMES = Object.freeze([
   'TradeTooSmall', 'ZeroOutput', 'SlippageExceeded', 'SellExceedsCurve', 'SameAccount', 'WrongTokenAccount', 'RentFloor',
   'WrongRewardsConfig', 'WrongRewardsVault', 'DestinationMismatch', 'OptInFounderMismatch', 'PayoutTooSoon',
   'TradingHalted', 'MathOverflow', 'ConfigDripFarmable', 'ConfigBuybackHorizon', 'LegacyApprovalExists',
-  'LegacyLaunchesOpen', 'BuysHalted', 'BadMetaHash',
+  'LegacyLaunchesOpen', 'BuysHalted', 'BadMetaHash', 'LegacyAdminMismatch', 'FeeRecipientRole',
 ]);
 export const ERROR_CODES = Object.freeze(Object.fromEntries(ERROR_NAMES.map((n, i) => [n, 6000 + i])));
 /** The error name of a custom program error code, or null. */

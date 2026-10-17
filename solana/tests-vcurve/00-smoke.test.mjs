@@ -158,8 +158,9 @@ test('vicinity_curve smoke: one coin, every outflow, guardian halt, halt-all ove
     const d = Buffer.from(a.data); d[12] = 1; PK(deployer.address).toBuffer().copy(d, 13);
     svm.setAccount({ ...a, address: address(pd.toBase58()), data: new Uint8Array(d) });
   }
-  { // the old program's Launchpad, launches paused
+  { // the old program's Launchpad, launches paused, administered by this program's admin (8.4, 8.5)
     const d = Buffer.alloc(171); Buffer.from([247, 20, 16, 242, 203, 38, 169, 160]).copy(d, 0); d[168] = 1;
+    PK(admin.address).toBuffer().copy(d, 8);
     setRaw(IDS.legacyLaunchpad, d, IDS.legacy);
   }
   const c0 = svm.getClock(); c0.unixTimestamp = 1_800_000_000n; c0.slot = 1000n; svm.setClock(c0);

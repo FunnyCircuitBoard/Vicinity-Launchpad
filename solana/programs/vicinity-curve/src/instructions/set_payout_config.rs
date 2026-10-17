@@ -1,9 +1,10 @@
 //! `set_payout_config(payout_authority, payout_destination)` (4.5).
 //!
 //! Two zeros switch opted-in payouts off. Otherwise both must be nonzero and
-//! separate: the payout key is not the admin or `FEE_RECIPIENT`; the payout
-//! wallet is not the payout key, the admin or `FEE_RECIPIENT`. Existing
-//! opt-ins naming another wallet stop working; they are never redirected.
+//! separate: the payout key is not the admin, the guardian or `FEE_RECIPIENT`;
+//! the payout wallet is not the payout key, the admin, the guardian or
+//! `FEE_RECIPIENT` (GOV-2). Existing opt-ins naming another wallet stop
+//! working; they are never redirected.
 
 use anchor_lang::prelude::*;
 
@@ -39,7 +40,12 @@ pub fn handle_set_payout_config(
             payout_authority != zero && payout_destination != zero,
             CurveError::InvalidAddress
         );
-        check_payout_keys_separate(&lp.admin, &payout_authority, &payout_destination)?;
+        check_payout_keys_separate(
+            &lp.admin,
+            &lp.guardian,
+            &payout_authority,
+            &payout_destination,
+        )?;
     }
     let (old_authority, old_destination) = (lp.payout_authority, lp.payout_destination);
     lp.payout_authority = payout_authority;

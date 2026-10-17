@@ -288,7 +288,8 @@
         {
           "name": "legacy_launchpad",
           "docs": [
-            "read by hand: owner, size and discriminator, then `launches_paused`."
+            "read by hand: owner, size and discriminator, then `launches_paused`,",
+            "then its `admin` (this program's admin) and `pending_admin` (zero)."
           ]
         },
         {
@@ -1075,7 +1076,8 @@
         {
           "name": "legacy_launchpad",
           "docs": [
-            "discriminator), whose launches must be paused."
+            "discriminator), whose launches must be paused and whose admin must be",
+            "this program's admin with no transfer pending (GOV-1)."
           ]
         },
         {
@@ -2533,7 +2535,7 @@
     {
       "code": 6008,
       "name": "PayoutKeyNotSeparate",
-      "msg": "the admin, the payout key and the payout wallet must be three different keys, and neither payout key nor payout wallet may be the fee recipient"
+      "msg": "the admin, the payout key and the payout wallet must be three different keys, and neither payout key nor payout wallet may be the guardian or the fee recipient"
     },
     {
       "code": 6009,
@@ -2744,6 +2746,16 @@
       "code": 6050,
       "name": "BadMetaHash",
       "msg": "meta_hash must not be all zeros"
+    },
+    {
+      "code": 6051,
+      "name": "LegacyAdminMismatch",
+      "msg": "vicinity_launchpad's admin must be this program's admin, with no admin transfer pending"
+    },
+    {
+      "code": 6052,
+      "name": "FeeRecipientRole",
+      "msg": "the fee recipient cannot be the admin, the proposed admin or the guardian"
     }
   ],
   "types": [
@@ -4666,6 +4678,15 @@
       "value": "13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN"
     },
     {
+      "name": "LEGACY_ADMIN_AT",
+      "docs": [
+        "Offset of `admin` in the old program's `Launchpad` (8.5, GOV-1): it must",
+        "be this program's admin at every approval and launch."
+      ],
+      "type": "u64",
+      "value": "8"
+    },
+    {
       "name": "LEGACY_LAUNCHES_PAUSED_AT",
       "docs": [
         "Offset of `launches_paused` in the old program's `Launchpad`."
@@ -4704,6 +4725,15 @@
       ],
       "type": "u64",
       "value": "171"
+    },
+    {
+      "name": "LEGACY_PENDING_ADMIN_AT",
+      "docs": [
+        "Offset of `pending_admin` in the old program's `Launchpad`: it must be",
+        "zero at every approval and launch."
+      ],
+      "type": "u64",
+      "value": "40"
     },
     {
       "name": "LEGACY_PROGRAM_ID",

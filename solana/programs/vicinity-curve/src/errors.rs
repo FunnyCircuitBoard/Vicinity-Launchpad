@@ -32,7 +32,7 @@ pub enum CurveError {
     #[msg("opted-in payouts are not configured")]
     PayoutsNotConfigured,
     /// 6008
-    #[msg("the admin, the payout key and the payout wallet must be three different keys, and neither payout key nor payout wallet may be the fee recipient")]
+    #[msg("the admin, the payout key and the payout wallet must be three different keys, and neither payout key nor payout wallet may be the guardian or the fee recipient")]
     PayoutKeyNotSeparate,
     /// 6009
     #[msg("this launch config is disabled")]
@@ -160,6 +160,14 @@ pub enum CurveError {
     /// 6050
     #[msg("meta_hash must not be all zeros")]
     BadMetaHash,
+    /// 6051
+    #[msg(
+        "vicinity_launchpad's admin must be this program's admin, with no admin transfer pending"
+    )]
+    LegacyAdminMismatch,
+    /// 6052
+    #[msg("the fee recipient cannot be the admin, the proposed admin or the guardian")]
+    FeeRecipientRole,
 }
 
 /// The program error for a math crate error (4.22): the trade refusals keep
@@ -213,7 +221,7 @@ mod tests {
     /// 4.22: the codes are fixed; a reordering would break every client.
     #[test]
     fn codes_are_in_spec_order() {
-        let table: [(CurveError, u32); 51] = [
+        let table: [(CurveError, u32); 53] = [
             (CurveError::Unauthorized, 6000),
             (CurveError::NotUpgradeAuthority, 6001),
             (CurveError::InvalidAddress, 6002),
@@ -265,6 +273,8 @@ mod tests {
             (CurveError::LegacyLaunchesOpen, 6048),
             (CurveError::BuysHalted, 6049),
             (CurveError::BadMetaHash, 6050),
+            (CurveError::LegacyAdminMismatch, 6051),
+            (CurveError::FeeRecipientRole, 6052),
         ];
         for (e, code) in table {
             assert_eq!(u32::from(e), code, "{e:?}");

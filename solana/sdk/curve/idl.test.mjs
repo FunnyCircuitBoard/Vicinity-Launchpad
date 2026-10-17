@@ -55,6 +55,8 @@ test('program id, cluster ids, constants and discriminators equal the IDL and th
   assert.deepEqual(JSON.parse(c.LEGACY_LAUNCHPAD_DISCRIMINATOR), [...S.LEGACY_LAUNCHPAD_DISCRIMINATOR]);
   assert.equal(Number(c.LEGACY_LAUNCHPAD_LEN), S.LEGACY_LAUNCHPAD_LEN);
   assert.equal(Number(c.LEGACY_LAUNCHES_PAUSED_AT), S.LEGACY_LAUNCHES_PAUSED_AT);
+  assert.equal(Number(c.LEGACY_ADMIN_AT), S.LEGACY_ADMIN_AT);
+  assert.equal(Number(c.LEGACY_PENDING_ADMIN_AT), S.LEGACY_PENDING_ADMIN_AT);
   for (const cl of ['mainnet', 'devnet']) {
     const ids = S.CLUSTERS[cl];
     assert.equal(S.findPda([Buffer.from('launchpad')], ids.legacyProgram)[0], ids.legacyLaunchpad, `${cl} LEGACY_LAUNCHPAD (U12)`);

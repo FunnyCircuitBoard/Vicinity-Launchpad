@@ -84,6 +84,14 @@ pub const LEGACY_LAUNCHPAD_LEN: u64 = 171;
 /// Offset of `launches_paused` in the old program's `Launchpad`.
 #[constant]
 pub const LEGACY_LAUNCHES_PAUSED_AT: u64 = 168;
+/// Offset of `admin` in the old program's `Launchpad` (8.5, GOV-1): it must
+/// be this program's admin at every approval and launch.
+#[constant]
+pub const LEGACY_ADMIN_AT: u64 = 8;
+/// Offset of `pending_admin` in the old program's `Launchpad`: it must be
+/// zero at every approval and launch.
+#[constant]
+pub const LEGACY_PENDING_ADMIN_AT: u64 = 40;
 
 /// 1,000,000,000 coins at 6 decimals, minted once per coin (R8).
 #[constant]
@@ -311,7 +319,8 @@ mod tests {
         );
     }
 
-    /// U12: the legacy discriminator, size and `launches_paused` offset match
+    /// U12: the legacy discriminator, size and the `launches_paused`, `admin`
+    /// and `pending_admin` offsets match
     /// the old program's `Launchpad` (from its committed IDL), and its `Coin`
     /// and `Approval` seeds are the ones this program derives.
     #[test]
@@ -329,6 +338,12 @@ mod tests {
         assert_eq!(
             offset_of(fields, "launches_paused") as u64,
             LEGACY_LAUNCHES_PAUSED_AT
+        );
+        // GOV-1: the admin and pending admin this program compares
+        assert_eq!(offset_of(fields, "admin") as u64, LEGACY_ADMIN_AT);
+        assert_eq!(
+            offset_of(fields, "pending_admin") as u64,
+            LEGACY_PENDING_ADMIN_AT
         );
         assert_eq!(fields.iter().filter(|f| f["type"] == "pubkey").count(), 5);
 

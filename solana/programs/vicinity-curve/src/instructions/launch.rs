@@ -17,8 +17,9 @@
 //! The terms (split and curve) are copied from the config and frozen forever
 //! (R4). The approval closes at exit (rent to its `rent_payer`). R1 across
 //! both programs is re-checked here (8.5): no `Coin` and no `Approval` for the
-//! city in the old program, and its launches paused. No direct lamport move
-//! happens in `launch`.
+//! city in the old program, its launches paused, and its admin this program's
+//! admin with no transfer pending (GOV-1). No direct lamport move happens in
+//! `launch`.
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{self, Transfer};
@@ -36,9 +37,9 @@ use crate::custody::require_not_halted;
 use crate::errors::{config_err, math_err, CurveError};
 use crate::events::CoinLaunched;
 use crate::helpers::{
-    check_name, check_symbol, is_empty_system_account, legacy_approval_address,
-    legacy_coin_address, legacy_launches_paused, legacy_launchpad_valid, metadata_address,
-    metadata_uri, symbol_bytes,
+    check_name, check_symbol, is_empty_system_account, legacy_admin_matches,
+    legacy_approval_address, legacy_coin_address, legacy_launches_paused, legacy_launchpad_valid,
+    metadata_address, metadata_uri, symbol_bytes,
 };
 use crate::instructions::{now, with_coin_signer};
 use crate::state::{Approval, CurveCoin, LaunchConfig, Launchpad, TickerLock};
@@ -150,11 +151,14 @@ pub struct Launch<'info> {
     pub legacy_approval: UncheckedAccount<'info>,
 
     /// CHECK: the old program's `Launchpad`, read by hand (owner, size,
-    /// discriminator), whose launches must be paused.
+    /// discriminator), whose launches must be paused and whose admin must be
+    /// this program's admin with no transfer pending (GOV-1).
     #[account(
         constraint = legacy_launchpad.key() == LEGACY_LAUNCHPAD @ CurveError::InvalidAddress,
         constraint = legacy_launchpad_valid(&legacy_launchpad) @ CurveError::InvalidAddress,
         constraint = legacy_launches_paused(&legacy_launchpad) @ CurveError::LegacyLaunchesOpen,
+        constraint = legacy_admin_matches(&legacy_launchpad, &launchpad.admin)
+            @ CurveError::LegacyAdminMismatch,
     )]
     pub legacy_launchpad: UncheckedAccount<'info>,
 

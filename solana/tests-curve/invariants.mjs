@@ -945,7 +945,8 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
   assert.equal(post.tickers.size, post.coins.size, `${label}: I19 one TickerLock per coin`);
   for (const [k, t] of pre.tickers) assert.ok(post.tickers.has(k) && post.tickers.get(k).raw.equals(t.raw), `${label}: I19 a TickerLock changed or closed`);
   for (const [k, a] of post.approvals) assert.equal(k, P.approval(a.cityId));
-  // at every approval and every launch: the old program had no Coin and no Approval for the city and its launches were paused
+  // at every approval and every launch: the old program had no Coin and no Approval for the city, its launches were
+  // paused, and its admin was this program's admin with no transfer pending (8.5, GOV-1: only the same multisig could reopen it)
   for (const t of [...has('approve_launch'), ...has('launch')]) {
     const city = t.data.readBigUInt64LE(8);
     const empty = (k) => { const a = preAccounts.get(k); return !a?.exists || (a.owner === ZERO && a.data.length === 0); };
@@ -953,14 +954,22 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts }) {
     const paused = lpOld?.exists && lpOld.owner === P.cluster.legacyProgram && lpOld.data.length === S.LEGACY_LAUNCHPAD_LEN
       && S.LEGACY_LAUNCHPAD_DISCRIMINATOR.every((x, i) => lpOld.data[i] === x) && lpOld.data[S.LEGACY_LAUNCHES_PAUSED_AT] === 1;
     assert.ok(empty(P.legacyCoin(city)) && empty(P.legacyApproval(city)) && paused, `${label}: I19 the old program could launch city ${city}`);
+    const oldAdmin = new PublicKey(lpOld.data.subarray(S.LEGACY_ADMIN_AT, S.LEGACY_ADMIN_AT + 32)).toBase58();
+    const oldPending = new PublicKey(lpOld.data.subarray(S.LEGACY_PENDING_ADMIN_AT, S.LEGACY_PENDING_ADMIN_AT + 32)).toBase58();
+    assert.ok(pre.launchpad && oldAdmin === pre.launchpad.admin && oldPending === ZERO,
+      `${label}: I19 the old program's admin ${oldAdmin} (pending ${oldPending}) is not this program's admin ${pre.launchpad?.admin} at the ${t.name} of city ${city}`);
   }
   // I20: settings
   const lp0 = pre.launchpad; const lp = post.launchpad;
   if (lp) {
     if (lp.payoutAuthority !== ZERO || lp.payoutDestination !== ZERO) {
       assert.ok(lp.payoutAuthority !== ZERO && lp.payoutDestination !== ZERO, `${label}: I20 payout keys both set`);
-      assert.ok(lp.payoutAuthority !== lp.admin && lp.payoutAuthority !== S.ADDRESSES.feeRecipient, `${label}: I20 payout key separate`);
-      assert.ok(![lp.payoutAuthority, lp.admin, S.ADDRESSES.feeRecipient].includes(lp.payoutDestination), `${label}: I20 payout wallet separate`);
+      assert.ok(![lp.admin, lp.guardian, S.ADDRESSES.feeRecipient].includes(lp.payoutAuthority), `${label}: I20 payout key separate`);
+      assert.ok(![lp.payoutAuthority, lp.admin, lp.guardian, S.ADDRESSES.feeRecipient].includes(lp.payoutDestination), `${label}: I20 payout wallet separate`);
+    }
+    // GOV-2: FEE_RECIPIENT only receives
+    for (const [k, v] of [['admin', lp.admin], ['pending admin', lp.pendingAdmin], ['guardian', lp.guardian]]) {
+      assert.notEqual(v, S.ADDRESSES.feeRecipient, `${label}: I20 FEE_RECIPIENT is the ${k}`);
     }
     assert.equal(lp.address, P.launchpad());
     assert.equal(lp.nextConfigId, post.configs.size, `${label}: I20 next_config_id = number of configs`);

@@ -99,6 +99,12 @@ export function mintData({ supply = 0n, decimals = 6, mintAuthority = null, free
   return Buffer.concat([opt(mintAuthority), u64b(supply), Buffer.from([decimals, 1]), opt(freezeAuthority)]);
 }
 export const metaHash = (s) => [...createHash('sha256').update(String(s)).digest()];
+/**
+ * A key whose holder signs off-line (a Phantom wallet such as FEE_RECIPIENT, for which the suite has no private
+ * key): it "signs" with zeros, so only a World with signature checks switched off
+ * (`w.svm.withSigverify(false)`) accepts its transactions. Used to show what such a key could do.
+ */
+export const offlineKey = (addr) => ({ address: address(String(addr)), signTransactions: async (txs) => txs.map(() => ({ [String(addr)]: new Uint8Array(64) })) });
 // litesvm's TransactionErrorFieldless is a const enum (no runtime object): its names, in order
 const FIELDLESS = ['AccountInUse', 'AccountLoadedTwice', 'AccountNotFound', 'ProgramAccountNotFound', 'InsufficientFundsForFee', 'InvalidAccountForFee',
   'AlreadyProcessed', 'BlockhashNotFound', 'CallChainTooDeep', 'MissingSignatureForFee', 'InvalidAccountIndex', 'SignatureFailure', 'InvalidProgramForExecution',
@@ -506,18 +512,36 @@ export class World {
       founderVault: (coin) => S.findPda([Buffer.from('founder_vault'), pkb(coin)], id)[0],
     };
   }
-  /** The old program's real `init_launchpad`, then (by default) its launches paused, as 8.5 requires before the first approval here. */
-  async legacyInit({ paused = true } = {}) {
+  /**
+   * The old program's real `init_launchpad`, then (by default) its launches paused, as 8.5 requires before the
+   * first approval here. Its admin is this World's admin (8.4: the same Squads vault administers both programs,
+   * GOV-1) unless `admin` names another key.
+   */
+  async legacyInit({ paused = true, admin = this.admin } = {}) {
     const L = this.legacyPdas();
+    this.legacyAdmin = admin;
     await this.send([this.legacyIx('init_launchpad', {}, {
-      payer: this.payer.address, admin: this.admin.address, upgrade_authority: this.deployer.address,
+      payer: this.payer.address, admin: admin.address, upgrade_authority: this.deployer.address,
       program_data: S.findPda([pkb(S.CLUSTERS.mainnet.legacyProgram)], S.ADDRESSES.upgradeableLoader)[0],
       rewards_program: S.CLUSTERS.mainnet.rewardsProgram, launchpad: L.launchpad,
-    })], [this.admin, this.deployer], 'legacy init_launchpad');
+    })], [admin, this.deployer], 'legacy init_launchpad');
     if (paused) await this.legacyPause(true);
   }
-  async legacyPause(launches) {
-    await this.send([this.legacyIx('set_pause', { launches, payouts: null }, { authority: this.admin.address, launchpad: this.legacyPdas().launchpad })], [this.admin], `legacy set_pause ${launches}`);
+  async legacyPause(launches, { by = this.legacyAdmin ?? this.admin } = {}) {
+    await this.send([this.legacyIx('set_pause', { launches, payouts: null }, { authority: by.address, launchpad: this.legacyPdas().launchpad })], [by], `legacy set_pause ${launches}`);
+  }
+  /** The old program's `admin` and `pending_admin` (its Launchpad bytes 8..40 and 40..72). */
+  legacyAdmins() {
+    const d = this.accountInfo(this.legacyPdas().launchpad).data;
+    return { admin: new PublicKey(d.subarray(8, 40)).toBase58(), pendingAdmin: new PublicKey(d.subarray(40, 72)).toBase58() };
+  }
+  /** The old program's two-step admin transfer: `propose_admin` by its current admin, then `accept_admin` by `to` (unless `accept` is false). */
+  async legacyHandOver(to, { from = this.legacyAdmin ?? this.admin, accept = true } = {}) {
+    const launchpad = this.legacyPdas().launchpad;
+    await this.send([this.legacyIx('propose_admin', { new_admin: new PublicKey(String(to.address ?? to)) }, { admin: from.address, launchpad })], [from], 'legacy propose_admin');
+    if (!accept) return;
+    await this.send([this.legacyIx('accept_admin', {}, { new_admin: to.address, launchpad })], [to], 'legacy accept_admin');
+    this.legacyAdmin = to;
   }
   /** A Meteora DBC config and its old-program launch config (needs `dbcProgram: true`). */
   async legacyConfig() {
@@ -525,26 +549,36 @@ export class World {
     const cfg = await generateKeyPairSigner();
     await this.send([createConfigIx({ config: cfg.address, quoteMint: S.ADDRESSES.nativeMint, payer: this.payer.address, params: vicinityConfigParams() })], [cfg], 'dbc create_config');
     const L = this.legacyPdas();
+    const A = this.legacyAdmin ?? this.admin;
     await this.send([this.legacyIx('add_launch_config', {}, {
-      admin: this.admin.address, payer: this.payer.address, launchpad: L.launchpad, dbc_config: cfg.address, quote_mint: S.ADDRESSES.nativeMint,
+      admin: A.address, payer: this.payer.address, launchpad: L.launchpad, dbc_config: cfg.address, quote_mint: S.ADDRESSES.nativeMint,
       launch_config: L.launchConfig(cfg.address),
-    })], [this.admin], 'legacy add_launch_config');
+    })], [A], 'legacy add_launch_config');
     this.legacyDbcConfig = String(cfg.address);
     return this.legacyDbcConfig;
+  }
+  /** The old program's `set_launch_config_enabled` on its DBC launch config (8.5: disabled before the first approval here). */
+  async legacyEnable(enabled, { by = this.legacyAdmin ?? this.admin } = {}) {
+    const cfg = await this.legacyConfig();
+    const L = this.legacyPdas();
+    await this.send([this.legacyIx('set_launch_config_enabled', { enabled }, { admin: by.address, launchpad: L.launchpad, launch_config: L.launchConfig(cfg) })], [by], `legacy set_launch_config_enabled ${enabled}`);
   }
   /** An `Approval` for `cityId` created by the old program itself. */
   async legacyApprove({ cityId, founder, name = 'Old City', symbol = 'OLD', ttl = 7n * DAY }) {
     const cfg = await this.legacyConfig();
     const L = this.legacyPdas();
+    const A = this.legacyAdmin ?? this.admin;
     await this.send([this.legacyIx('approve_launch', {
       city_id: new BN(String(cityId)), founder: new PublicKey(String(founder.address ?? founder)), name, symbol, expires_at: new BN(String(this.now() + ttl)),
-    }, { admin: this.admin.address, launchpad: L.launchpad, launch_config: L.launchConfig(cfg), approval: L.approval(cityId), coin: L.coin(cityId) })], [this.admin], 'legacy approve_launch');
+    }, { admin: A.address, launchpad: L.launchpad, launch_config: L.launchConfig(cfg), approval: L.approval(cityId), coin: L.coin(cityId) })], [A], 'legacy approve_launch');
+    (this.legacyRentPayers ??= new Map()).set(String(cityId), String(A.address));
   }
   async legacyRevoke(cityId) {
     const L = this.legacyPdas();
+    const A = this.legacyAdmin ?? this.admin;
     await this.send([this.legacyIx('revoke_approval', { city_id: new BN(String(cityId)) }, {
-      admin: this.admin.address, launchpad: L.launchpad, approval: L.approval(cityId), rent_payer: this.admin.address,
-    })], [this.admin], 'legacy revoke_approval');
+      admin: A.address, launchpad: L.launchpad, approval: L.approval(cityId), rent_payer: this.legacyRentPayers?.get(String(cityId)) ?? A.address,
+    })], [A], 'legacy revoke_approval');
   }
   /** A `Coin` for `cityId` launched through the old program and Meteora DBC (its launches must be open). */
   async legacyLaunch({ cityId, founder }) {
@@ -555,7 +589,7 @@ export class World {
     const pool = dbc.pool(cfg, base.address, S.ADDRESSES.nativeMint);
     await this.send([this.legacyIx('launch', { city_id: new BN(String(cityId)) }, {
       founder: founder.address, payer: founder.address, base_mint: base.address, launchpad: L.launchpad, approval: L.approval(cityId),
-      rent_payer: this.admin.address, launch_config: L.launchConfig(cfg), coin, holders_pot: L.holdersPot(coin), founder_vault: L.founderVault(coin),
+      rent_payer: this.legacyRentPayers?.get(String(cityId)) ?? (this.legacyAdmin ?? this.admin).address, launch_config: L.launchConfig(cfg), coin, holders_pot: L.holdersPot(coin), founder_vault: L.founderVault(coin),
       dbc_config: cfg, dbc_pool: pool, dbc_base_vault: dbc.tokenVault(base.address, pool), dbc_quote_vault: dbc.tokenVault(S.ADDRESSES.nativeMint, pool),
       mint_metadata: dbc.metadata(base.address), quote_mint: S.ADDRESSES.nativeMint, dbc_event_authority: dbc.eventAuthority(),
     })], [founder, base], 'legacy launch', { cu: 400_000 });

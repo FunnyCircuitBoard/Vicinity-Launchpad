@@ -6,10 +6,11 @@
 use anchor_lang::prelude::*;
 
 use crate::constants::{
-    FEE_RECIPIENT, LEGACY_APPROVAL_SEED, LEGACY_COIN_SEED, LEGACY_LAUNCHES_PAUSED_AT,
-    LEGACY_LAUNCHPAD_DISCRIMINATOR, LEGACY_LAUNCHPAD_LEN, LEGACY_PROGRAM_ID, MAX_NAME_LEN,
-    MAX_SYMBOL_LEN, METADATA_SEED, METADATA_URI_PREFIX, METAPLEX_PROGRAM_ID,
-    REWARDS_CITY_CONFIG_DISCRIMINATOR, REWARDS_MODEL_HOLDERS,
+    FEE_RECIPIENT, LEGACY_ADMIN_AT, LEGACY_APPROVAL_SEED, LEGACY_COIN_SEED,
+    LEGACY_LAUNCHES_PAUSED_AT, LEGACY_LAUNCHPAD_DISCRIMINATOR, LEGACY_LAUNCHPAD_LEN,
+    LEGACY_PENDING_ADMIN_AT, LEGACY_PROGRAM_ID, MAX_NAME_LEN, MAX_SYMBOL_LEN, METADATA_SEED,
+    METADATA_URI_PREFIX, METAPLEX_PROGRAM_ID, REWARDS_CITY_CONFIG_DISCRIMINATOR,
+    REWARDS_MODEL_HOLDERS,
 };
 use crate::errors::CurveError;
 
@@ -93,10 +94,13 @@ pub fn symbol_bytes(symbol: &str) -> [u8; 10] {
 }
 
 /// The admin, the payout key and the payout wallet are three different keys,
-/// and neither payout key nor payout wallet is `FEE_RECIPIENT` (4.2, 4.5).
-/// Nothing to check while payouts are off (both payout settings zero).
+/// and neither payout key nor payout wallet is the guardian or `FEE_RECIPIENT`
+/// (4.2, 4.4, 4.5; GOV-2: the guardian "cannot touch money", 8.1). Nothing to
+/// check while payouts are off (both payout settings zero). A zero guardian
+/// (none) never equals a set payout key or wallet.
 pub fn check_payout_keys_separate(
     admin: &Pubkey,
+    guardian: &Pubkey,
     payout_authority: &Pubkey,
     payout_destination: &Pubkey,
 ) -> Result<()> {
@@ -106,12 +110,24 @@ pub fn check_payout_keys_separate(
     }
     require!(
         payout_authority != admin
+            && payout_authority != guardian
             && *payout_authority != FEE_RECIPIENT
             && payout_destination != payout_authority
             && payout_destination != admin
+            && payout_destination != guardian
             && *payout_destination != FEE_RECIPIENT,
         CurveError::PayoutKeyNotSeparate
     );
+    Ok(())
+}
+
+/// `FEE_RECIPIENT` only receives (8.1: "it signs nothing"): it may never be the
+/// admin, the proposed admin or the guardian (GOV-2). A hot wallet that is
+/// also the platform-fee wallet would otherwise approve launches and, through
+/// `forward_holders_fees`' authority rule (4.15), publish every city's
+/// holder reward roots, or hold the guardian's halt and receive withdrawals.
+pub fn check_not_fee_recipient(key: &Pubkey) -> Result<()> {
+    require!(*key != FEE_RECIPIENT, CurveError::FeeRecipientRole);
     Ok(())
 }
 
@@ -287,6 +303,30 @@ pub fn legacy_launches_paused_bytes(data: &[u8]) -> bool {
     data.get(LEGACY_LAUNCHES_PAUSED_AT as usize) == Some(&1)
 }
 
+/// The old program's admin is this program's admin and no admin transfer is
+/// pending there (8.5, GOV-1): `data[8..40] == admin` and `data[40..72]`
+/// zero. Then reopening the old program's launches (which would break R1 in
+/// the other direction, O19) needs the same multisig and time lock as every
+/// admin action here, never a key outside it. The caller has checked
+/// `legacy_launchpad_bytes_valid` (171 bytes).
+pub fn legacy_admin_matches_bytes(data: &[u8], admin: &Pubkey) -> bool {
+    let at = LEGACY_ADMIN_AT as usize;
+    let pending_at = LEGACY_PENDING_ADMIN_AT as usize;
+    match (data.get(at..at + 32), data.get(pending_at..pending_at + 32)) {
+        (Some(a), Some(p)) => a == admin.as_ref() && p.iter().all(|b| *b == 0),
+        _ => false,
+    }
+}
+
+/// `legacy_admin_matches_bytes` on an account (checked after
+/// `legacy_launchpad_valid`). A borrow failure counts as a mismatch.
+pub fn legacy_admin_matches(account: &AccountInfo, admin: &Pubkey) -> bool {
+    match account.try_borrow_data() {
+        Ok(data) => legacy_admin_matches_bytes(&data, admin),
+        Err(_) => false,
+    }
+}
+
 /// `legacy_launchpad_bytes_valid` on an account, against the compiled
 /// `LEGACY_PROGRAM_ID`. A borrow failure counts as invalid.
 pub fn legacy_launchpad_valid(account: &AccountInfo) -> bool {
@@ -454,24 +494,39 @@ mod tests {
     #[test]
     fn payout_keys_separate() {
         let admin = Pubkey::new_unique();
+        let guardian = Pubkey::new_unique();
         let key = Pubkey::new_unique();
         let wallet = Pubkey::new_unique();
         let zero = Pubkey::default();
-        assert!(check_payout_keys_separate(&admin, &key, &wallet).is_ok());
-        assert!(check_payout_keys_separate(&admin, &zero, &zero).is_ok());
-        assert!(check_payout_keys_separate(&FEE_RECIPIENT, &zero, &zero).is_ok());
-        assert!(check_payout_keys_separate(&FEE_RECIPIENT, &key, &wallet).is_ok());
-        for (a, k, w) in [
-            (admin, admin, wallet),
-            (admin, FEE_RECIPIENT, wallet),
-            (admin, key, key),
-            (admin, key, admin),
-            (admin, key, FEE_RECIPIENT),
-            (key, key, wallet),
-            (wallet, key, wallet),
-        ] {
-            assert_eq!(code(check_payout_keys_separate(&a, &k, &w)), 6008);
+        for g in [guardian, zero] {
+            assert!(check_payout_keys_separate(&admin, &g, &key, &wallet).is_ok());
+            assert!(check_payout_keys_separate(&admin, &g, &zero, &zero).is_ok());
         }
+        // payouts off: nothing to check, whoever the other keys are
+        assert!(check_payout_keys_separate(&FEE_RECIPIENT, &FEE_RECIPIENT, &zero, &zero).is_ok());
+        assert!(check_payout_keys_separate(&FEE_RECIPIENT, &guardian, &key, &wallet).is_ok());
+        for (a, g, k, w) in [
+            (admin, guardian, admin, wallet),
+            (admin, guardian, FEE_RECIPIENT, wallet),
+            (admin, guardian, key, key),
+            (admin, guardian, key, admin),
+            (admin, guardian, key, FEE_RECIPIENT),
+            (key, guardian, key, wallet),
+            (wallet, guardian, key, wallet),
+            // GOV-2: the guardian is neither payout key nor payout wallet
+            (admin, key, key, wallet),
+            (admin, wallet, key, wallet),
+        ] {
+            assert_eq!(code(check_payout_keys_separate(&a, &g, &k, &w)), 6008);
+        }
+    }
+
+    /// GOV-2: FEE_RECIPIENT is refused as admin, proposed admin or guardian.
+    #[test]
+    fn fee_recipient_has_no_role() {
+        assert_eq!(code(check_not_fee_recipient(&FEE_RECIPIENT)), 6052);
+        assert!(check_not_fee_recipient(&Pubkey::new_unique()).is_ok());
+        assert!(check_not_fee_recipient(&Pubkey::default()).is_ok());
     }
 
     #[test]
@@ -626,6 +681,38 @@ mod tests {
         let mut other = d.clone();
         other[0] ^= 1;
         assert!(!legacy_launchpad_bytes_valid(&prog, &prog, &other));
+    }
+
+    /// GOV-1: the old program's admin (bytes 8..40) must be this program's
+    /// admin and its pending admin (40..72) zero.
+    #[test]
+    fn legacy_admin_checks() {
+        let admin = Pubkey::new_unique();
+        let other = Pubkey::new_unique();
+        let mut d = vec![0u8; 171];
+        d[0..8].copy_from_slice(&LEGACY_LAUNCHPAD_DISCRIMINATOR);
+        // a zero admin is never this program's admin
+        assert!(!legacy_admin_matches_bytes(&d, &admin));
+        d[8..40].copy_from_slice(admin.as_ref());
+        assert!(legacy_admin_matches_bytes(&d, &admin));
+        assert!(!legacy_admin_matches_bytes(&d, &other));
+        // a pending transfer, to anyone (even to this admin), is refused
+        for pending in [other, admin] {
+            let mut p = d.clone();
+            p[40..72].copy_from_slice(pending.as_ref());
+            assert!(!legacy_admin_matches_bytes(&p, &admin));
+        }
+        // one byte of the pending admin is enough
+        let mut p = d.clone();
+        p[71] = 1;
+        assert!(!legacy_admin_matches_bytes(&p, &admin));
+        // the other fields do not matter
+        let mut q = d.clone();
+        q[72..168].fill(9);
+        q[168] = 1;
+        assert!(legacy_admin_matches_bytes(&q, &admin));
+        // too short to hold both fields
+        assert!(!legacy_admin_matches_bytes(&d[..71], &admin));
     }
 
     // ---- debit helper arithmetic (6.5) ----
@@ -801,5 +888,17 @@ mod account_tests {
             &mut [],
             legacy_launches_paused
         ));
+        // GOV-1 through an AccountInfo
+        let admin = Pubkey::new_unique();
+        assert!(!with_account(LEGACY_PROGRAM_ID, &mut d, |a| {
+            legacy_admin_matches(a, &admin)
+        }));
+        d[8..40].copy_from_slice(admin.as_ref());
+        assert!(with_account(LEGACY_PROGRAM_ID, &mut d, |a| {
+            legacy_admin_matches(a, &admin)
+        }));
+        assert!(!with_account(LEGACY_PROGRAM_ID, &mut [], |a| {
+            legacy_admin_matches(a, &admin)
+        }));
     }
 }

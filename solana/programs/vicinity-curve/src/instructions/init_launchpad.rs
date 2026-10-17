@@ -3,7 +3,8 @@
 //!
 //! Only the program's upgrade authority can call it, so nobody can race the
 //! deployer to the `["launchpad"]` PDA (T64). The admin signs too, so the
-//! stored admin is a live key. The ids of the programs this program talks to
+//! stored admin is a live key. Neither the admin nor the guardian may be
+//! `FEE_RECIPIENT` (GOV-2), which only receives. The ids of the programs this program talks to
 //! are compiled constants (3.2), not arguments. The ProgramData header is
 //! parsed by hand (`helpers::program_data_upgrade_authority`).
 
@@ -13,7 +14,7 @@ use anchor_lang::solana_program::bpf_loader_upgradeable;
 use crate::constants::LAUNCHPAD_SEED;
 use crate::errors::CurveError;
 use crate::events::LaunchpadInitialized;
-use crate::helpers::program_data_upgrade_authority;
+use crate::helpers::{check_not_fee_recipient, program_data_upgrade_authority};
 use crate::state::Launchpad;
 
 #[derive(Accounts)]
@@ -60,6 +61,8 @@ pub fn handle_init_launchpad(ctx: Context<InitLaunchpad>, guardian: Pubkey) -> R
         authority == Some(ctx.accounts.upgrade_authority.key()),
         CurveError::NotUpgradeAuthority
     );
+    check_not_fee_recipient(&ctx.accounts.admin.key())?;
+    check_not_fee_recipient(&guardian)?;
 
     let lp = &mut ctx.accounts.launchpad;
     lp.admin = ctx.accounts.admin.key();

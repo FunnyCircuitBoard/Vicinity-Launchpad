@@ -423,7 +423,8 @@ it, `MathOverflow` on an overflowing floor or credit.
 
 The deployed binary has no IDL instructions (`no-idl`), so the IDL JSON is generated from the
 source with Anchor's `idl-build` feature, the same step `anchor build` runs, and committed at
-`sdk/idl/vicinity_curve.json` (21 instructions, 6 accounts, 21 events, 51 errors, every
+`sdk/idl/vicinity_curve.json` (21 instructions, 6 accounts, 21 events, 51 errors (53 since
+entries 42 and 43), every
 `#[constant]` with its compiled value). It is the default build's IDL: the mainnet ids of
 `vicinity_rewards` and the old `vicinity_launchpad`; the devnet build differs only in the
 values of `REWARDS_PROGRAM_ID`, `LEGACY_PROGRAM_ID` and `LEGACY_LAUNCHPAD`. Its `address` is
@@ -462,7 +463,7 @@ not carry `#[constant]`, so they are not in the IDL.
   and with the signer and writable flags of its table in section 4, `buy` and `sell` sharing
   one list of 10 accounts, every instruction's arguments and `ConfigParams`, the
   instruction, account (`CurveCoin`) and event discriminators, the 21 events, the 51 error
-  codes and the compiled ids of the default build.
+  codes (53 since entries 42 and 43) and the compiled ids of the default build.
 
 They are text and data checks, not proofs; the litesvm suites of stage 3 exercise the same
 rules on the real binary (H02, R02, R02b, L01 to L13, X01 to X65).
@@ -733,10 +734,10 @@ attacks, and victims never pay the fee, so their balances must be exactly unchan
 * `user_token_account.owner != coin` (T54) excludes the token accounts of this coin's PDA only; a
   buyer may still deliver coins to a token account owned by another program's PDA (another coin's
   PDA included), from which they can never move. That harms only the sender.
-* `check_payout_keys_separate` (4.5) keeps the payout key and wallet apart from the admin and
+* `check_payout_keys_separate` (4.5) kept the payout key and wallet apart from the admin and
   `FEE_RECIPIENT` but not from the guardian, so the admin could name the guardian (whose table row
-  in 8.1 says it cannot touch money) as the payout wallet. Adding `launchpad.guardian` to the rule
-  (and the payout wallet to `set_guardian`'s checks) would be a specification change.
+  in 8.1 says it cannot touch money) as the payout wallet. *Resolved by entry 43 (review GOV-2):
+  the rule now takes the guardian, `set_guardian` runs it, and `FEE_RECIPIENT` can hold no role.*
 
 ### 34. The checker's last gaps: I14 destinations, I21 tokens, I5 and I6 per step, I20 at run time (9, 12 intro, L13)
 
@@ -1001,3 +1002,79 @@ in the pool, `tokens_for(r + b) <= s` on the curve); a cap of 0, or anything els
 The specification should add to I22 "or `b` buys less than one raw coin at the current price", and
 add the bucket's dust below that price to the intended permanent balances of a coin that stops
 trading.
+
+---
+
+Review round 1 (findings GOV-1, GOV-2, CLI-1, CLI-2, CLI-3 and the leftovers of stage 3). Entries 42
+onwards. The specification's revision 3 records each change in its own sections and in Appendix C.
+
+### 42. The old program's admin must be this program's admin (8.1, 8.4, 8.5, O19, I19, T34, T67; review GOV-1)
+
+**Spec.** 8.5 keeps R1 in the other direction by keeping the old `vicinity_launchpad` paused
+(O19) and accepts that "if the old admin ever unpaused it ... a city launched here could then be
+launched again". 8.1 assumes that admin is the Squads vault; 8.4's preconditions name the rewards
+registry admin but not the old program's admin.
+
+**Issue.** On mainnet the old program's admin is the owner's wallet `13qRam...`, which is also
+`FEE_RECIPIENT` (`release/mainnet-2026-10-10/BUILD.md`, setup step 1), and `docs/MAINNET.md` leaves
+moving it out of the launch. `approve_launch` and `launch` checked the old `Launchpad`'s owner, size,
+discriminator and paused byte only. That one key, with no multisig and no time lock, could reopen
+the old program (every approval and launch here then fails with `LegacyLaunchesOpen`), approve and
+launch a second coin there for a city launched here (R1 broken for good, and the duplicate in the
+official list, which 14.1 builds from both programs' `Coin` accounts), pause it again so that
+launches here resume, or block a pending launch here with an old approval made while paused. Once
+it had reopened the old program, neither the Squads vault nor the guardian could pause it again.
+
+**Choice.** Both fixes, the safer reading. Process: 8.4's preconditions now require the old
+program's admin to be the Squads vault with no transfer pending (its upgrade authority already is,
+BUILD.md), and 8.5 recommends closing the old program once it is paused for good. Code, failing
+closed: `approve_launch` and `launch` require the old `Launchpad`'s `admin` (bytes 8..40,
+`LEGACY_ADMIN_AT`) to equal `launchpad.admin` and its `pending_admin` (bytes 40..72,
+`LEGACY_PENDING_ADMIN_AT`) to be zero, else `LegacyAdminMismatch` (6051, appended). The check is the
+last constraint on `legacy_launchpad`, so the errors come in the order `InvalidAddress`,
+`LegacyLaunchesOpen`, `LegacyAdminMismatch`. Reopening the old program now needs the same multisig
+and time lock as any admin action here; while the two programs are not under the same admin,
+nothing is approved or launched here. A hand-over of this program's admin must be followed by the
+old program's (its `propose_admin` by its admin, `accept_admin` by the new one): until then
+approvals and launches here fail. No account list changes; the IDL gains the error and the two
+offsets as constants (53 errors).
+
+Tests. `tests-curve/28-governance.test.mjs` replays the review's scenario with the mainnet binary of
+the old program and `13qRam` signing off line: approvals are refused while it is the old admin and
+while a transfer to the vault is pending, work after the hand-over, and the former admin can no
+longer pause or enable anything there; a transfer pending in the old program, to anyone, stops
+approvals and launches here until it is cancelled; a hand-over of this program's admin stops them
+until the old admin follows. `03-approvals` L04 crafts the old `Launchpad` with another admin, a
+zero admin and a transfer pending to a stranger or to this admin. Unit tests `legacy_admin_checks`
+and U12's offsets. The checker's I19 now also requires, at every approval and launch, the old
+admin equal to this program's admin before the transaction and no transfer pending. Against the
+previous build the first governance test fails at its first refusal (the approval succeeds).
+
+### 43. `FEE_RECIPIENT` holds no role; the guardian is neither payout key nor payout wallet (4.1 to 4.5, 8.1, I20, I21; review GOV-2)
+
+**Spec.** 8.1: `FEE_RECIPIENT` "signs nothing"; the guardian "cannot touch money". 4.1 to 4.4
+stored the admin and the guardian unchecked; 4.5's separation rule did not name the guardian.
+
+**Issue.** `init_launchpad`, `propose_admin` and `accept_admin` accepted `FEE_RECIPIENT` as admin,
+and `init_launchpad` and `set_guardian` as guardian. `forward_holders_fees` binds every city's
+reward authority to the admin (4.15), so a `FEE_RECIPIENT` admin would also publish every city's
+holder roots, and with the guardian equal to `FEE_RECIPIENT` the permissionless
+`withdraw_platform_fees` pays the guardian (the checker's I21 fails). `set_payout_config` accepted
+the guardian as payout key, and as payout wallet (entry 33's third observation).
+
+**Choice.** A new error `FeeRecipientRole` (6052): `init_launchpad` refuses `FEE_RECIPIENT` as admin
+or guardian, `propose_admin` (nonzero) and `accept_admin` as admin, `set_guardian` as guardian.
+`check_payout_keys_separate` takes the guardian: the payout key and the payout wallet are neither
+the guardian nor, as before, the admin, each other or `FEE_RECIPIENT`; `set_payout_config`,
+`propose_admin`, `accept_admin` and now `set_guardian` (with the new guardian) run it
+(`PayoutKeyNotSeparate`, whose message now names the guardian). A zero guardian never equals a set
+payout key or wallet. The checks only refuse and add no state. Entry 33's third observation is
+resolved. The program still cannot keep every other hot wallet out of the admin seat; 4.1's "the
+same Squads vault" stays a precondition of 8.4.
+
+Tests. `28-governance` (each instruction refuses `FEE_RECIPIENT`, signed off line where it must
+sign; `accept_admin` of a pending `FEE_RECIPIENT` written out of band; the guardian as payout key or
+wallet refused both ways, and allowed again once payouts are off; a withdrawal after the refused
+`set_guardian`); unit tests `payout_keys_separate` and `fee_recipient_has_no_role`; the checker's
+I20 (payout keys separate from the guardian; `FEE_RECIPIENT` is never the admin, the pending admin
+or the guardian).
