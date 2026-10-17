@@ -26,11 +26,15 @@ for variant in production devnet halt-all; do
   # A new mtime makes cargo recompile the crate, so its warnings are printed.
   touch programs/vicinity-curve/src/lib.rs
   cargo build-sbf --manifest-path "$MANIFEST" --sbf-out-dir "$out" ${features[@]+"${features[@]}"} 2>&1 | tee "$log"
-  if ! grep -q "Compiling vicinity-curve " "$log"; then
+  # CI sets CARGO_TERM_COLOR=always, which puts colour codes between "Compiling"
+  # and the crate name: search a copy of the log with the codes removed.
+  plain="target/vcurve-builds/$variant.plain.log"
+  sed 's/\x1b\[[0-9;]*m//g' "$log" > "$plain"
+  if ! grep -q "Compiling vicinity-curve " "$plain"; then
     echo "FAIL: the $variant build did not recompile the program crate" >&2
     status=1
   fi
-  if grep -qi "stack offset" "$log"; then
+  if grep -qi "stack offset" "$plain"; then
     echo "FAIL: stack offset warning in the $variant build (C04)" >&2
     status=1
   fi
