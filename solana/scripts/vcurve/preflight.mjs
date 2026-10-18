@@ -24,22 +24,29 @@
 //     would be refused here forever (LegacyApprovalExists); otherwise each is
 //     a warning (its city is refused here until it is revoked or used);
 //   * no Coin's founder and no pending Approval's founder is FEE_RECIPIENT,
-//     the guardian or the payout key (8.4's operating rule, R2-DIFF-1, SPEC-1);
+//     the guardian, the payout key or the launch approver (8.4's operating
+//     rule, R2-DIFF-1, SPEC-1, 4.24); the launch approver holds no other seat;
 //   * a proposed key (reviews R5-DIFF-2, R5-CONS-2): before a set_guardian or
 //     set_payout_config proposal is signed, `--proposed-guardian`,
 //     `--proposed-payout-authority` (alias `--proposed-payout-key`) and
 //     `--proposed-payout-destination` check the key against every Coin's and
 //     pending Approval's founder (the program cannot list the coins when those
-//     settings change) and against the keys the program keeps it apart from.
+//     settings change) and against the keys the program keeps it apart from;
+//     before a set_launch_approver proposal, `--proposed-launch-approver` does
+//     the same for the launch approver (8.4, 8.6; NOTES 76): never a founder,
+//     FEE_RECIPIENT, the admin, the vault, the proposed admin, the guardian or
+//     a payout key, and a proposed guardian or payout key is never the approver.
 // Not checkable here: the Squads time lock (a property of the multisig), that
-// the guardian multisig has no time lock of its own, and the published program
-// metadata; the operator confirms them by hand.
+// the guardian multisig has no time lock of its own, that the proposed launch
+// approver is no member key of the vault's or the guardian's multisig, and the
+// published program metadata; the operator confirms them by hand.
 //
 // Usage (from solana/):
 //   node scripts/vcurve/preflight.mjs --rpc <url> --vault <squads vault>
 //     [--cluster mainnet|devnet] [--program-id <vicinity_curve id>]
 //     [--before-legacy-close] [--proposed-guardian <key>]
 //     [--proposed-payout-authority <key>] [--proposed-payout-destination <key>]
+//     [--proposed-launch-approver <key>]
 // Exit status 1 when any problem is found, 2 on a usage error (an unknown
 // option included).
 import web3 from '@solana/web3.js';
@@ -113,11 +120,11 @@ export function foundersOf(curveAccounts, { programId = CURVE_PROGRAM_ID } = {})
   return out;
 }
 
-const ROLES = Object.freeze({ guardian: 'the guardian', payoutAuthority: 'the payout key', payoutDestination: 'the payout wallet' });
+const ROLES = Object.freeze({ guardian: 'the guardian', payoutAuthority: 'the payout key', payoutDestination: 'the payout wallet', launchApprover: 'the launch approver' });
 /**
  * The problems of a proposed role key, before the set_guardian or set_payout_config proposal that names it is signed
- * (8.4's operating rule; reviews SPEC-1, R5-DIFF-2, R5-CONS-2). `role` is 'guardian', 'payoutAuthority' or
- * 'payoutDestination'; `lp` the decoded Launchpad (with any other proposed key of the same proposal applied);
+ * (8.4's operating rule; reviews SPEC-1, R5-DIFF-2, R5-CONS-2), or the set_launch_approver proposal (4.24, 8.4).
+ * `role` is 'guardian', 'payoutAuthority', 'payoutDestination' or 'launchApprover'; `lp` the decoded Launchpad (with any other proposed key of the same proposal applied);
  * `curveAccounts` vicinity_curve's accounts. The program refuses a founder as guardian or payout key only at approve_launch,
  * launch and transfer_founder, and cannot list the coins when these settings change; it refuses FEE_RECIPIENT and the
  * keys a role must stay apart from itself, which this repeats so that nothing is proposed that would fail or mislead.
@@ -131,8 +138,22 @@ export function checkProposedRoleKey({ role, key, lp, curveAccounts = [], vault,
   const bad = (code, message) => problems.push({ code, message: `proposed ${name} ${key}: ${message}` });
   if (key === ZERO) {
     if (role === 'guardian') warnings.push({ code: 'PROPOSED_NO_GUARDIAN', message: 'the proposal removes the guardian: the only brake would then wait for the time lock (O9)' });
+    if (role === 'launchApprover') warnings.push({ code: 'PROPOSED_NO_LAUNCH_APPROVER', message: 'the proposal removes the launch approver: the stored batches are cleared and batch launches stop; the per-city path remains (4.24)' });
     return { problems, warnings };
   }
+  if (role === 'launchApprover') {
+    // the approver holds no other seat and is never a founder (4.24, I25): the program refuses the keys of its seats at
+    // set_launch_approver and refuses the approver as a founder from then on, but cannot list the coins it founded before
+    for (const { founder, what } of foundersOf(curveAccounts, { programId })) {
+      if (founder === key) bad('PROPOSED_KEY_IS_FOUNDER', `${what} names it as founder, so the approver would hold that founder seat and its claim (4.24, I25); the program cannot see this when the approver is set`);
+    }
+    if (key === ADDRESSES.feeRecipient) bad('PROPOSED_KEY_FEE_RECIPIENT', 'it is FEE_RECIPIENT, which holds no role (GOV-2); the program refuses it');
+    const seats = [['the vault', String(vault ?? '')], ['the admin', lp?.admin], ['the proposed admin', lp?.pendingAdmin], ['the guardian', lp?.guardian], ['the payout key', lp?.payoutAuthority], ['the payout wallet', lp?.payoutDestination]];
+    const held = seats.filter(([, k]) => k && k !== ZERO && k === key).map(([what]) => what);
+    if (held.length) bad('PROPOSED_APPROVER_HOLDS_ROLE', `it is ${held.join(' and ')}; the launch approver holds no other seat (4.24, ApproverHoldsRole); the program refuses it`);
+    return { problems, warnings };
+  }
+  if (lp && lp.launchApprover && lp.launchApprover !== ZERO && lp.launchApprover === key) bad('PROPOSED_KEY_IS_APPROVER', 'it is the launch approver, which holds no other seat (4.24, ApproverHoldsRole); the program refuses it');
   for (const { founder, what } of foundersOf(curveAccounts, { programId })) {
     if (founder !== key) continue;
     if (role === 'payoutDestination') warnings.push({ code: 'PROPOSED_KEY_IS_FOUNDER', message: `proposed ${name} ${key} is the founder of ${what.replace(/^the /, '')}: it would receive the payouts of the founders who opt in, its own included` });
@@ -154,12 +175,12 @@ export function checkProposedRoleKey({ role, key, lp, curveAccounts = [], vault,
 }
 
 const OPTIONS = new Set(['accounts', 'legacyAccounts', 'curveAccounts', 'vault', 'programId', 'cluster', 'beforeLegacyClose', 'proposed']);
-const PROPOSED = new Set(['guardian', 'payoutAuthority', 'payoutDestination']);
+const PROPOSED = new Set(['guardian', 'payoutAuthority', 'payoutDestination', 'launchApprover']);
 
 /**
  * The checklist on a snapshot: `accounts` maps each address of `checklistAddresses` to its account (or null);
  * `legacyAccounts` are the old program's accounts (getProgramAccounts) and `curveAccounts` vicinity_curve's;
- * `proposed` = `{ guardian, payoutAuthority, payoutDestination }` (any of them) checks the keys a proposal would set
+ * `proposed` = `{ guardian, payoutAuthority, payoutDestination, launchApprover }` (any of them) checks the keys a proposal would set
  * (checkProposedRoleKey). Unknown options are refused, so a misspelt check is never skipped silently.
  * Returns `{ problems, warnings }`, each a list of `{ code, message }`.
  */
@@ -238,14 +259,20 @@ export function checkDeployPreconditions(opts) {
   }
   // founders holding a role
   if (lp) {
-    const roles = [['FEE_RECIPIENT', ADDRESSES.feeRecipient], ['the guardian', lp.guardian], ['the payout key', lp.payoutAuthority]].filter(([, k]) => k && k !== ZERO);
+    const roles = [['FEE_RECIPIENT', ADDRESSES.feeRecipient], ['the guardian', lp.guardian], ['the payout key', lp.payoutAuthority], ['the launch approver', lp.launchApprover]].filter(([, k]) => k && k !== ZERO);
     for (const { founder, what } of foundersOf(curveAccounts, { programId })) {
       for (const [name, k] of roles) if (founder === k) bad('FOUNDER_HOLDS_ROLE', `${what} names ${name} (${k}) as founder (8.4)`);
+    }
+    // the launch approver holds no other seat (4.24, I25; the program keeps this both ways, the checklist reads it again)
+    if (lp.launchApprover && lp.launchApprover !== ZERO) {
+      const held = [['the vault', vault], ['the admin', lp.admin], ['the proposed admin', lp.pendingAdmin], ['the guardian', lp.guardian], ['the payout key', lp.payoutAuthority], ['the payout wallet', lp.payoutDestination], ['FEE_RECIPIENT', ADDRESSES.feeRecipient]]
+        .filter(([, k]) => k && k !== ZERO && k === lp.launchApprover).map(([name]) => name);
+      if (held.length) bad('APPROVER_HOLDS_ROLE', `the launch approver ${lp.launchApprover} is ${held.join(' and ')} (4.24)`);
     }
   }
   // the keys a proposal would set (reviews R5-DIFF-2, R5-CONS-2): each against the Launchpad with the proposal's other keys applied
   const after = lp ? { ...lp, ...Object.fromEntries(Object.entries(proposed).filter(([, v]) => v !== undefined && v !== null).map(([k, v]) => [k, String(v)])) } : null;
-  for (const role of ['guardian', 'payoutAuthority', 'payoutDestination']) {
+  for (const role of ['guardian', 'payoutAuthority', 'payoutDestination', 'launchApprover']) {
     if (proposed[role] === undefined || proposed[role] === null) continue;
     const r = checkProposedRoleKey({ role, key: proposed[role], lp: after, curveAccounts, vault, programId });
     problems.push(...r.problems); warnings.push(...r.warnings);
@@ -265,9 +292,10 @@ export async function fetchChecklistSnapshot(connection, { programId = CURVE_PRO
 }
 
 const USAGE = 'usage: node scripts/vcurve/preflight.mjs --rpc <url> --vault <squads vault> [--cluster mainnet|devnet] [--program-id <id>] [--before-legacy-close] '
-  + '[--proposed-guardian <key>] [--proposed-payout-authority <key>] [--proposed-payout-destination <key>]';
+  + '[--proposed-guardian <key>] [--proposed-payout-authority <key>] [--proposed-payout-destination <key>] [--proposed-launch-approver <key>]';
 const VALUE_FLAGS = new Map([['--rpc', 'rpc'], ['--vault', 'vault'], ['--cluster', 'cluster'], ['--program-id', 'programId'], ['--proposed-guardian', 'guardian'],
-  ['--proposed-payout-authority', 'payoutAuthority'], ['--proposed-payout-key', 'payoutAuthority'], ['--proposed-payout-destination', 'payoutDestination']]);
+  ['--proposed-payout-authority', 'payoutAuthority'], ['--proposed-payout-key', 'payoutAuthority'], ['--proposed-payout-destination', 'payoutDestination'],
+  ['--proposed-launch-approver', 'launchApprover']]);
 const BOOL_FLAGS = new Map([['--before-legacy-close', 'beforeLegacyClose']]);
 
 /** The CLI's options, or `{ error }` (an unknown option, a missing value, an invalid key). */
@@ -280,7 +308,7 @@ export function parseArgs(argv) {
     const v = argv[++i];
     if (v === undefined || v.startsWith('--')) return { error: `${a} needs a value` };
     const k = VALUE_FLAGS.get(a);
-    if (['guardian', 'payoutAuthority', 'payoutDestination'].includes(k)) {
+    if (PROPOSED.has(k)) {
       try { o.proposed[k] = new PublicKey(v).toBase58(); } catch { return { error: `${a}: not a public key: ${v}` }; }
     } else o[k] = v;
   }
