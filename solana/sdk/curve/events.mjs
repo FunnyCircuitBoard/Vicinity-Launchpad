@@ -1,4 +1,4 @@
-// Decoders of the 21 vicinity_curve events (VICINITY-CURVE-DESIGN.md 4.21).
+// Decoders of the 26 vicinity_curve events (VICINITY-CURVE-DESIGN.md 4.21).
 //
 // Money movements are emitted by event CPI (`emit_cpi!`): an inner instruction
 // to vicinity_curve whose only account is the event authority PDA
@@ -69,11 +69,19 @@ export const EVENT_FIELDS = Object.freeze({
   PayoutOptInRevoked: [['city_id', 'u64'], ['founder', 'pubkey'], ['by', 'pubkey']],
   FounderPaidOut: [['city_id', 'u64'], ['founder', 'pubkey'], ['destination', 'pubkey'], ['amount', 'u64'], ['seq', 'u64'],
     ['ref_hash', 'bytes32'], ['total_paid_out', 'u128']],
+  // the batch launch approval (4.21, 4.23 to 4.27)
+  LaunchedFromBatch: [['city_id', 'u64'], ['founder', 'pubkey'], ['mint', 'pubkey'], ['config_id', 'u16'], ['batch_seq', 'u64'],
+    ['root', 'bytes32'], ['leaf', 'bytes32']],
+  LaunchBatchInitialized: [['by', 'pubkey']],
+  LaunchApproverChanged: [['old', 'pubkey'], ['new', 'pubkey'], ['latest_seq', 'u64']],
+  LaunchBatchPublished: [['seq', 'u64'], ['root', 'bytes32'], ['leaf_count', 'u32'], ['valid_from', 'i64'], ['valid_until', 'i64'],
+    ['publisher', 'pubkey'], ['published_at', 'i64'], ['previous_seq', 'u64'], ['replaced_seq', 'u64']],
+  LaunchBatchCleared: [['by', 'pubkey'], ['latest_seq', 'u64'], ['previous_seq', 'u64'], ['halted', 'bool']],
 });
 
-/** Events emitted by event CPI (money movements); the other thirteen are `emit!` logs. */
+/** Events emitted by event CPI (money movements and launches); the other seventeen are `emit!` logs. */
 export const CPI_EVENTS = Object.freeze(['CoinLaunched', 'Trade', 'Graduated', 'BuybackBurned', 'PlatformFeesWithdrawn',
-  'HoldersFeesForwarded', 'FounderFeesClaimed', 'FounderPaidOut']);
+  'HoldersFeesForwarded', 'FounderFeesClaimed', 'FounderPaidOut', 'LaunchedFromBatch']);
 
 const sameBytes = (a, b, at = 0) => b.every((x, i) => a[at + i] === x);
 
@@ -87,6 +95,7 @@ function decodeFields(fields, bytes, start) {
       case 'u8': need(1); out[name] = bytes[at]; at += 1; break;
       case 'bool': need(1); if (bytes[at] > 1) throw new Error(`bad bool ${name}`); out[name] = bytes[at] === 1; at += 1; break;
       case 'u16': need(2); out[name] = BigInt(v.getUint16(at, true)); at += 2; break;
+      case 'u32': need(4); out[name] = BigInt(v.getUint32(at, true)); at += 4; break;
       case 'u64': need(8); out[name] = v.getBigUint64(at, true); at += 8; break;
       case 'i64': need(8); out[name] = v.getBigInt64(at, true); at += 8; break;
       case 'u128': need(16); out[name] = v.getBigUint64(at, true) + (v.getBigUint64(at + 8, true) << 64n); at += 16; break;

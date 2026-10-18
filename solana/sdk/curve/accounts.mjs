@@ -1,5 +1,5 @@
-// Fixed-offset decoders of the six vicinity_curve accounts (VICINITY-CURVE-DESIGN.md
-// 3.4 to 3.9) and of the vicinity_rewards CityConfig fields the program reads
+// Fixed-offset decoders of the seven vicinity_curve accounts (VICINITY-CURVE-DESIGN.md
+// 3.4 to 3.9, 3.11) and of the vicinity_rewards CityConfig fields the program reads
 // (4.15). No Anchor, no IDL: every field is read at its offset.
 //
 // Every decoder checks the account's owner (the vicinity_curve program id) as
@@ -77,8 +77,21 @@ export function decodeLaunchpad(account, opts) {
   return {
     admin: r.key(8), pendingAdmin: r.key(40), payoutAuthority: r.key(72), payoutDestination: r.key(104), guardian: r.key(136),
     launchesPaused: r.bool(168), payoutsPaused: r.bool(169), buysHalted: r.bool(170), nextConfigId: r.u16(171), bump: r.u8(173),
-    buybacksHalted: r.bool(174),
+    buybacksHalted: r.bool(174), launchApprover: r.key(175),
   };
+}
+
+/** One `BatchRecord` of a `LaunchBatch` at `at` (3.11; 109 bytes). */
+function batchRecord(r, at) {
+  return {
+    seq: r.u64(at), root: r.bytes(at + 8, 32), leafCount: r.u32(at + 40), validFrom: r.i64(at + 44), validUntil: r.i64(at + 52),
+    publishedAt: r.i64(at + 60), publishedSlot: r.u64(at + 68), publisher: r.key(at + 76), cleared: r.bool(at + 108),
+  };
+}
+/** `LaunchBatch` (3.11; 260 bytes): the halt and the two stored batch records, `latest` and `previous`. */
+export function decodeLaunchBatch(account, opts) {
+  const r = open(account, 'LaunchBatch', opts);
+  return { bump: r.u8(8), halted: r.bool(9), latest: batchRecord(r, 10), previous: batchRecord(r, 119) };
 }
 
 /** `LaunchConfig` (3.5; 144 bytes). */
@@ -178,7 +191,7 @@ export function decodePayoutOptIn(account, opts) {
 
 const DECODERS = {
   Launchpad: decodeLaunchpad, LaunchConfig: decodeLaunchConfig, Approval: decodeApproval, CurveCoin: decodeCurveCoin,
-  TickerLock: decodeTickerLock, PayoutOptIn: decodePayoutOptIn,
+  TickerLock: decodeTickerLock, PayoutOptIn: decodePayoutOptIn, LaunchBatch: decodeLaunchBatch,
 };
 /** The account type of a vicinity_curve account by owner and discriminator, or null. */
 export function accountType(account, { programId = CURVE_PROGRAM_ID } = {}) {

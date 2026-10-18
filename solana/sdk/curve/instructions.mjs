@@ -1,4 +1,4 @@
-// Instruction builders for all 21 vicinity_curve instructions, with the exact
+// Instruction builders for all 26 vicinity_curve instructions, with the exact
 // fixed account lists of VICINITY-CURVE-DESIGN.md section 4 written out below
 // (no IDL lookup at run time; sdk/curve/instructions.test.mjs checks every list,
 // flag, discriminator and argument encoding against the committed IDL and
@@ -58,6 +58,16 @@ export const ACCOUNT_TABLES = Object.freeze({
   revoke_payout_opt_in: [['by', Role.RS], ['coin', Role.R], ['opt_in', Role.W], ['opt_in_founder', Role.W]],
   payout_founder_fees: [['payout_authority', Role.RS], ['launchpad', Role.R], ['coin', Role.W], ['opt_in', Role.R],
     ['destination_wallet', Role.W], ['event_authority', Role.R], ['program', Role.R]],
+  // the batch launch approval (4.23 to 4.27)
+  init_launch_batch: [['admin', Role.RS], ['payer', Role.WS], ['launchpad', Role.R], ['launch_batch', Role.W], ['system_program', Role.R]],
+  set_launch_approver: [['admin', Role.RS], ['launchpad', Role.W], ['launch_batch', Role.W]],
+  publish_launch_batch: [['approver', Role.RS], ['launchpad', Role.R], ['launch_batch', Role.W]],
+  clear_launch_batch: [['authority', Role.RS], ['launchpad', Role.R], ['launch_batch', Role.W]],
+  launch_from_batch: [['founder', Role.RS], ['payer', Role.WS], ['launchpad', Role.R], ['launch_batch', Role.R], ['approval', Role.R],
+    ['config', Role.R], ['coin', Role.W], ['mint', Role.W], ['coin_vault', Role.W], ['ticker_lock', Role.W], ['metadata', Role.W],
+    ['fee_recipient', Role.W], ['legacy_coin', Role.R], ['legacy_approval', Role.R], ['legacy_launchpad', Role.R], ['rewards_registry', Role.R],
+    ['metadata_program', Role.R], ['token_program', Role.R], ['system_program', Role.R], ['rent', Role.R], ['event_authority', Role.R],
+    ['program', Role.R]],
 });
 
 // ---------------------------------------------------------------- Borsh writer
@@ -68,6 +78,11 @@ class Writer {
   bool(b) { if (typeof b !== 'boolean') throw new TypeError(`bool expected, got ${b}`); return this.raw(Uint8Array.of(b ? 1 : 0)); }
   optBool(b) { return b === null || b === undefined ? this.raw(Uint8Array.of(0)) : this.raw(Uint8Array.of(1, b ? 1 : 0)); }
   u16(n) { return this.raw(u16le(n)); }
+  u32(n) {
+    const v = Number(n);
+    if (!Number.isInteger(v) || v < 0 || v > 0xffffffff) throw new RangeError(`u32: ${n}`);
+    const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v, true); return this.raw(b);
+  }
   u64(n) { return this.raw(u64le(n)); }
   i64(n) {
     const v = BigInt(n);
@@ -79,6 +94,13 @@ class Writer {
     const x = Uint8Array.from(b);
     if (x.length !== 32) throw new RangeError(`32 bytes expected, got ${x.length}`);
     return this.raw(x);
+  }
+  /** Borsh `Vec<[u8; 32]>`: a u32 length, then each 32-byte hash. */
+  vecBytes32(list) {
+    if (!Array.isArray(list)) throw new TypeError('a list of 32-byte hashes expected');
+    this.u32(list.length);
+    for (const h of list) this.bytes32(h);
+    return this;
   }
   string(s) {
     const b = new TextEncoder().encode(String(s));
@@ -283,6 +305,39 @@ export function curveInstructions({ programId = CURVE_PROGRAM_ID, cluster = 'mai
       return make('payout_founder_fees', {
         payout_authority: payoutAuthority, launchpad: P.launchpad(), coin: c, opt_in: P.payoutOptIn(c), destination_wallet: destination, ...evt,
       }, W('payout_founder_fees').done(), overrides);
+    },
+
+    // ------------------------------------------------ 4.23 to 4.27: the batch launch approval (emit!, and emit_cpi! for the launch)
+    /** 4.23: one time, by the admin; the batch path stays off until `setLaunchApprover`. */
+    initLaunchBatch: ({ admin, payer = admin, overrides }) =>
+      make('init_launch_batch', { admin, payer, launchpad: P.launchpad(), launch_batch: P.launchBatch(), system_program: ADDRESSES.system },
+        W('init_launch_batch').done(), overrides),
+    /** 4.24: the admin; zero turns the batch path off. Every call clears both stored batches and lifts a halt. */
+    setLaunchApprover: ({ admin, approver, overrides }) =>
+      make('set_launch_approver', { admin, launchpad: P.launchpad(), launch_batch: P.launchBatch() }, W('set_launch_approver').pubkey(approver).done(), overrides),
+    /**
+     * 4.25: the raw builder; the owner's unsigned publication with the checks of the program is
+     * `preparePublishLaunchBatch` (batch.mjs), which takes `seq` from the account and the window from the clock.
+     */
+    publishLaunchBatch: ({ approver, seq, root, leafCount, validFrom, validUntil, overrides }) =>
+      make('publish_launch_batch', { approver, launchpad: P.launchpad(), launch_batch: P.launchBatch() },
+        W('publish_launch_batch').u64(seq).bytes32(root).u32(leafCount).i64(validFrom).i64(validUntil).done(), overrides),
+    /** 4.26: the admin, the launch approver or the guardian; a pure stop, `halt` refuses publications until the admin's `setLaunchApprover`. */
+    clearLaunchBatch: ({ authority, halt = false, overrides }) =>
+      make('clear_launch_batch', { authority, launchpad: P.launchpad(), launch_batch: P.launchBatch() }, W('clear_launch_batch').bool(halt).done(), overrides),
+    /**
+     * 4.27: the founder named in the batch in force launches with his entry's fields and proof (`launchBatchArgs` of
+     * batch.mjs gives them). `symbol` seeds the ticker lock and `configId` the config, as in `launch`. The founder may
+     * append a `buy` (the atomic first buy, 11.3).
+     */
+    launchFromBatch: ({ founder, payer = founder, cityId, batchSeq, configId, name, symbol, metaHash, proof, overrides }) => {
+      const { coin, mint, vault } = P.coinAccounts(cityId);
+      return make('launch_from_batch', {
+        founder, payer, launchpad: P.launchpad(), launch_batch: P.launchBatch(), approval: P.approval(cityId), config: P.config(configId),
+        coin, mint, coin_vault: vault, ticker_lock: overrides?.ticker_lock ? null : P.ticker(symbol), metadata: metadataAddress(mint),
+        fee_recipient: ADDRESSES.feeRecipient, ...legacy(cityId), metadata_program: ADDRESSES.metaplex, token_program: ADDRESSES.token,
+        system_program: ADDRESSES.system, rent: ADDRESSES.rentSysvar, ...evt,
+      }, W('launch_from_batch').u64(cityId).u64(batchSeq).u16(configId).string(name).string(symbol).bytes32(metaHash).vecBytes32(proof).done(), overrides);
     },
   });
 }

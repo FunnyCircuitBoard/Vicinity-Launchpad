@@ -1,8 +1,8 @@
 // The SDK against the program's committed IDL (sdk/idl/vicinity_curve.json) and
 // Anchor's own Borsh coder: every constant, discriminator and error code; the
-// fixed account list of each of the 21 builders (names, order, signer and
+// fixed account list of each of the 26 builders (names, order, signer and
 // writable flags, the PDAs and fixed addresses they fill in); the argument
-// encoding of each builder; the six account decoders on accounts Anchor
+// encoding of each builder; the seven account decoders on accounts Anchor
 // encodes; the event decoders on events Anchor encodes. The SDK itself does
 // not read the IDL at run time.
 import test from 'node:test';
@@ -40,7 +40,13 @@ test('program id, cluster ids, constants and discriminators equal the IDL and th
     MIN_GRADUATION_LAMPORTS: S.MIN_GRADUATION_LAMPORTS, MAX_GRADUATION_LAMPORTS: S.MAX_GRADUATION_LAMPORTS,
     CONTINUITY_PPB: S.CONTINUITY_PPB, MAX_LAUNCH_FEE_LAMPORTS: S.MAX_LAUNCH_FEE_LAMPORTS, APPROVAL_MAX_SECS: S.APPROVAL_MAX_SECS,
     PAYOUT_COOLDOWN_SECS: S.PAYOUT_COOLDOWN_SECS,
+    // the batch launch approval (3.2)
+    BATCH_REVIEW_SECS: S.BATCH_REVIEW_SECS, BATCH_MAX_LEAD_SECS: S.BATCH_MAX_LEAD_SECS, BATCH_MAX_VALIDITY_SECS: S.BATCH_MAX_VALIDITY_SECS,
+    MAX_BATCH_LEAVES: BigInt(S.MAX_BATCH_LEAVES), MAX_BATCH_PROOF_LEN: BigInt(S.MAX_BATCH_PROOF_LEN), LAUNCH_LEAF_VERSION: BigInt(S.LAUNCH_LEAF_VERSION),
+    MERKLE_LEAF_PREFIX: BigInt(S.MERKLE_LEAF_PREFIX), MERKLE_NODE_PREFIX: BigInt(S.MERKLE_NODE_PREFIX),
   })) assert.equal(num(n), v, n);
+  assert.deepEqual(JSON.parse(c.LAUNCH_LEAF_TAG), [...Buffer.from(S.LAUNCH_LEAF_TAG)]);
+  assert.equal(S.LAUNCH_LEAF_TAG.length, 26);
   assert.equal(Number(c.COIN_DECIMALS), S.COIN_DECIMALS);
   assert.equal(Number(c.MAX_NAME_LEN), S.MAX_NAME_LEN);
   assert.equal(Number(c.MAX_SYMBOL_LEN), S.MAX_SYMBOL_LEN);
@@ -77,7 +83,7 @@ test('program id, cluster ids, constants and discriminators equal the IDL and th
     assert.deepEqual(S.INSTRUCTION_DISCRIMINATORS[i.name], i.discriminator, i.name);
     assert.deepEqual(i.discriminator, sha8(`global:${i.name}`));
   }
-  assert.equal(Object.keys(S.INSTRUCTION_DISCRIMINATORS).length, 21);
+  assert.equal(Object.keys(S.INSTRUCTION_DISCRIMINATORS).length, 26);
   for (const a of idl.accounts) {
     assert.deepEqual(S.ACCOUNT_DISCRIMINATORS[a.name], a.discriminator, a.name);
     assert.deepEqual(a.discriminator, sha8(`account:${a.name}`));
@@ -88,12 +94,14 @@ test('program id, cluster ids, constants and discriminators equal the IDL and th
     assert.deepEqual(S.EVENT_DISCRIMINATORS[e.name], e.discriminator, e.name);
     assert.deepEqual(e.discriminator, sha8(`event:${e.name}`));
   }
-  assert.equal(Object.keys(S.EVENT_DISCRIMINATORS).length, 21);
+  assert.equal(Object.keys(S.EVENT_DISCRIMINATORS).length, 26);
   // errors
   assert.equal(idl.errors.length, S.ERROR_NAMES.length);
   for (const e of idl.errors) assert.equal(S.ERROR_CODES[e.name], e.code, e.name);
   assert.equal(S.errorName(6049), 'BuysHalted');
   assert.deepEqual([S.errorName(6054), S.errorName(6055)], ['BuybacksHalted', 'BuybackHaltWithoutBuyHalt']);
+  assert.deepEqual([S.errorName(6058), S.errorName(6065), S.errorName(6070), S.errorName(6071)], ['LaunchApproverNotSet', 'BatchSuperseded', 'InvalidProof', 'ApprovalPending']);
+  assert.equal(S.ERROR_NAMES.length, 72);
   // the math crate's PROGRAM_ID and CurveCoin discriminator (decode_coin)
   const rs = readFileSync(join(SOL, 'crates', 'vicinity-curve-math', 'src', 'constants.rs'), 'utf8');
   const grab = (name) => {
@@ -109,8 +117,10 @@ function samples() {
   const city = 5_128_581n;
   const k = {
     payer: key(), admin: key(), up: key(), guardian: key(), newAdmin: key(), founder: key(), user: key(), uta: key(),
-    pa: key(), pd: key(), rentPayer: key(), newFounder: key(), by: key(), dest: key(),
+    pa: key(), pd: key(), rentPayer: key(), newFounder: key(), by: key(), dest: key(), approver: key(),
   };
+  const root = bytes32();
+  const proof = [bytes32(), bytes32(), bytes32()];
   const meta = bytes32();
   const params = {
     liquidityBps: 50, platformBps: 70, founderBps: 50, holdersBps: 50, buybackBps: 30, virtualSol: 30_000_853_639n,
@@ -148,6 +158,13 @@ function samples() {
       opt_in_payout: [{ founder: k.founder, cityId: city, expectedDestination: k.dest, refHash: meta }, { expected_destination: k.dest, ref_hash: meta }],
       revoke_payout_opt_in: [{ by: k.by, cityId: city, optInFounder: k.founder }, {}],
       payout_founder_fees: [{ payoutAuthority: k.pa, cityId: city, destination: k.dest }, {}],
+      init_launch_batch: [{ admin: k.admin, payer: k.payer }, {}],
+      set_launch_approver: [{ admin: k.admin, approver: k.approver }, { approver: k.approver }],
+      publish_launch_batch: [{ approver: k.approver, seq: 7n, root, leafCount: 512, validFrom: 1_800_043_200n, validUntil: 1_800_172_800n },
+        { seq: new BN(7), root, leaf_count: 512, valid_from: new BN('1800043200'), valid_until: new BN('1800172800') }],
+      clear_launch_batch: [{ authority: k.guardian, halt: true }, { halt: true }],
+      launch_from_batch: [{ founder: k.founder, payer: k.payer, cityId: city, batchSeq: 7n, configId: 0, name: 'New York', symbol: 'NYC', metaHash: meta, proof },
+        { city_id: new BN(city.toString()), batch_seq: new BN(7), config_id: 0, name: 'New York', symbol: 'NYC', meta_hash: meta, proof }],
     },
   };
 }
@@ -155,7 +172,7 @@ const camel = (s) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
 test('every builder: the account list of section 4 (names, order, flags) and the IDL argument encoding', () => {
   const { k, city, cases } = samples();
-  assert.equal(Object.keys(cases).length, 21);
+  assert.equal(Object.keys(cases).length, 26);
   assert.deepEqual(Object.keys(S.ACCOUNT_TABLES).sort(), idl.instructions.map((i) => i.name).sort());
   const P = S.curvePdas();
   const { coin, mint, vault } = P.coinAccounts(city);
@@ -166,7 +183,7 @@ test('every builder: the account list of section 4 (names, order, flags) and the
     metadata: S.metadataAddress(mint), fee_recipient: S.ADDRESSES.feeRecipient, metadata_program: S.ADDRESSES.metaplex,
     token_program: S.ADDRESSES.token, system_program: S.ADDRESSES.system, rent: S.ADDRESSES.rentSysvar,
     event_authority: P.eventAuthority(), program: S.CURVE_PROGRAM_ID, mint, coin_vault: vault, rewards_city_config: rewards.config,
-    rewards_vault: rewards.vault, opt_in: P.payoutOptIn(coin), user_token_account: k.uta.toBase58(),
+    rewards_vault: rewards.vault, opt_in: P.payoutOptIn(coin), user_token_account: k.uta.toBase58(), launch_batch: P.launchBatch(),
   };
   for (const def of idl.instructions) {
     const [args, anchorArgs] = cases[def.name];
@@ -184,6 +201,13 @@ test('every builder: the account list of section 4 (names, order, flags) and the
     const data = coder.instruction.encode(def.name, anchorArgs);
     assert.deepEqual([...built.data], [...data], `${def.name} data`);
   }
+  // the batch launch: the city's (empty) approval PDA, the config named in the call, the call's ticker
+  const lfb = S.ix.launchFromBatch(cases.launch_from_batch[0]);
+  assert.equal(lfb.accounts[4].address, P.approval(city));
+  assert.equal(lfb.accounts[5].address, P.config(0));
+  assert.equal(lfb.accounts[9].address, P.ticker('NYC'));
+  assert.equal(S.ACCOUNT_TABLES.launch_from_batch.length, S.ACCOUNT_TABLES.launch.length, '4.27: the same 22 accounts as launch');
+  assert.equal(P.launchBatch(), S.findPda([Buffer.from('launch_batch')], S.CURVE_PROGRAM_ID)[0]);
   // approve_launch's coin slot is the city's Coin PDA too
   assert.equal(S.ix.approveLaunch(cases.approve_launch[0]).accounts[4].address, coin);
   // buy and sell share one list of 10 accounts
@@ -213,7 +237,8 @@ test('every builder: the account list of section 4 (names, order, flags) and the
 /** Offsets of an IDL struct's fields (Borsh, fixed types only). */
 function idlOffsets(name) {
   const def = idl.types.find((t) => t.name === name).type.fields;
-  const size = (t) => (typeof t === 'string' ? { u8: 1, bool: 1, u16: 2, u64: 8, i64: 8, u128: 16, pubkey: 32 }[t] : t.array[1] * size(t.array[0]));
+  const size = (t) => (typeof t === 'string' ? { u8: 1, bool: 1, u16: 2, u32: 4, u64: 8, i64: 8, u128: 16, pubkey: 32 }[t]
+    : t.defined ? idl.types.find((x) => x.name === t.defined.name).type.fields.reduce((n, f) => n + size(f.type), 0) : t.array[1] * size(t.array[0]));
   const out = {};
   let at = 8;
   for (const f of def) { out[f.name] = at; at += size(f.type); }
@@ -232,6 +257,9 @@ test('account decoders equal Anchor decoding; owner, length and discriminator ar
   assert.equal(idlOffsets('LaunchConfig').end, S.ACCOUNT_LEN.LaunchConfig);
   assert.equal(idlOffsets('TickerLock').end, S.ACCOUNT_LEN.TickerLock);
   assert.equal(idlOffsets('PayoutOptIn').end, S.ACCOUNT_LEN.PayoutOptIn);
+  assert.equal(idlOffsets('LaunchBatch').end, S.ACCOUNT_LEN.LaunchBatch);
+  assert.deepEqual(idlOffsets('LaunchBatch').out, { bump: 8, halted: 9, latest: 10, previous: 119, _reserved: 228 });
+  assert.equal(idlOffsets('Launchpad').out.launch_approver, 175);
 
   const owner = S.CURVE_PROGRAM_ID;
   const enc = async (name, obj, len) => {
@@ -254,9 +282,21 @@ test('account decoders equal Anchor decoding; owner, length and discriminator ar
     for (let round = 0; round < 25; round++) {
       const lp = {
         admin: key(), pending_admin: key(), payout_authority: key(), payout_destination: key(), guardian: key(), launches_paused: round % 2 === 0,
-        payouts_paused: round % 3 === 0, buys_halted: round % 5 === 0, next_config_id: rnd16(), bump: round, buybacks_halted: round % 10 === 0, _reserved: Array(63).fill(0),
+        payouts_paused: round % 3 === 0, buys_halted: round % 5 === 0, next_config_id: rnd16(), bump: round, buybacks_halted: round % 10 === 0,
+        launch_approver: key(), _reserved: Array(31).fill(0),
       };
       check(S.decodeLaunchpad(await enc('Launchpad', lp)), lp);
+      const rec = () => ({
+        seq: new BN(rnd64().toString()), root: bytes32(), leaf_count: randomBytes(4).readUInt32LE(0), valid_from: new BN(String(BigInt.asIntN(64, rnd64()))),
+        valid_until: new BN(String(BigInt.asIntN(64, rnd64()))), published_at: new BN(1_800_000_000 + round), published_slot: new BN(rnd64().toString()),
+        publisher: key(), cleared: round % 2 === 0,
+      });
+      const lbObj = { bump: round, halted: round % 3 === 1, latest: rec(), previous: rec(), _reserved: Array(32).fill(0) };
+      const lbAcc = await enc('LaunchBatch', lbObj);
+      const lb = S.decodeLaunchBatch(lbAcc);
+      assert.equal(lb.bump, lbObj.bump); assert.equal(lb.halted, lbObj.halted);
+      for (const which of ['latest', 'previous']) check(lb[which], lbObj[which]);
+      assert.equal(S.decodeAny(lbAcc).type, 'LaunchBatch');
       const cfg = {
         config_id: rnd16(), enabled: round % 2 === 1, bump: 255 - round, liquidity_bps: rnd16(), platform_bps: rnd16(), founder_bps: rnd16(),
         holders_bps: rnd16(), buyback_bps: rnd16(), total_fee_bps: rnd16(), virtual_sol: new BN(rnd64().toString()),
@@ -308,7 +348,7 @@ test('account decoders equal Anchor decoding; owner, length and discriminator ar
     assert.throws(() => S.decodeTickerLock({ owner, data: bad }), (e) => e.code === 'WrongDiscriminator');
     const lpBytes = await enc('Launchpad', {
       admin: key(), pending_admin: key(), payout_authority: key(), payout_destination: key(), guardian: key(), launches_paused: false,
-      payouts_paused: false, buys_halted: false, next_config_id: 0, bump: 1, buybacks_halted: false, _reserved: Array(63).fill(0),
+      payouts_paused: false, buys_halted: false, next_config_id: 0, bump: 1, buybacks_halted: false, launch_approver: key(), _reserved: Array(31).fill(0),
     });
     // the old program's Launchpad has the same discriminator: the owner tells them apart (3.7)
     assert.throws(() => S.decodeLaunchpad({ owner: S.CLUSTERS.mainnet.legacyProgram, data: lpBytes.data }), (e) => e.code === 'WrongOwner');
@@ -326,7 +366,7 @@ test('account decoders equal Anchor decoding; owner, length and discriminator ar
   })();
 });
 
-test('event decoders equal Anchor encoding for all 21 events; event CPIs need the event authority', () => {
+test('event decoders equal Anchor encoding for all 26 events; event CPIs need the event authority', () => {
   const types = Object.fromEntries(idl.types.map((t) => [t.name, t]));
   assert.deepEqual(Object.keys(S.EVENT_FIELDS).sort(), idl.events.map((e) => e.name).sort());
   const tmap = (t) => (typeof t === 'string' ? t : t.array ? 'bytes32' : JSON.stringify(t));
@@ -334,7 +374,7 @@ test('event decoders equal Anchor encoding for all 21 events; event CPIs need th
     assert.deepEqual(S.EVENT_FIELDS[e.name], types[e.name].type.fields.map((f) => [f.name, tmap(f.type)]), e.name);
   }
   const sample = (type) => ({
-    u8: 3, bool: true, u16: rnd16(), u64: new BN(rnd64().toString()), i64: new BN(-7), u128: new BN(rnd128().toString()),
+    u8: 3, bool: true, u16: rnd16(), u32: randomBytes(4).readUInt32LE(0), u64: new BN(rnd64().toString()), i64: new BN(-7), u128: new BN(rnd128().toString()),
     pubkey: key(), string: 'Zürich', bytes32: bytes32(),
   })[type];
   for (const [name, fields] of Object.entries(S.EVENT_FIELDS)) {
@@ -348,7 +388,7 @@ test('event decoders equal Anchor encoding for all 21 events; event CPIs need th
       if (t === 'pubkey') assert.equal(got, v.toBase58());
       else if (BN.isBN(v)) assert.equal(BigInt(got), BigInt(v.toString()), `${name}.${f}`);
       else if (t === 'bytes32') assert.deepEqual([...got], v);
-      else if (t === 'u16') assert.equal(got, BigInt(v));
+      else if (t === 'u16' || t === 'u32') assert.equal(got, BigInt(v));
       else assert.equal(got, v, `${name}.${f}`);
     }
     // the same bytes decoded by Anchor
@@ -362,7 +402,7 @@ test('event decoders equal Anchor encoding for all 21 events; event CPIs need th
     assert.equal(S.decodeEventCpi({ programId: S.CLUSTERS.mainnet.legacyProgram, accounts: [ea], data: cpiData }), null);
     assert.equal(S.decodeEventCpi({ programId: S.CURVE_PROGRAM_ID, accounts: [ea], data: bytes }), null);
   }
-  assert.equal(S.CPI_EVENTS.length, 8);
+  assert.equal(S.CPI_EVENTS.length, 9);
   // emit! logs: only from vicinity_curve's own frames
   const pc = Buffer.concat([Buffer.from(S.EVENT_DISCRIMINATORS.ApprovalRevoked), coder.types.encode('ApprovalRevoked', { city_id: new BN(9), by: key() })]).toString('base64');
   const logs = [`Program ${S.CURVE_PROGRAM_ID} invoke [1]`, `Program data: ${pc}`, `Program ${S.ADDRESSES.token} invoke [2]`, `Program data: ${pc}`,

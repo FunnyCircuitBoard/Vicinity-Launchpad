@@ -74,6 +74,21 @@ export const MAX_SYMBOL_LEN = 10;
 export const DERIVE_CURVE_RADIUS = 20_000n;
 
 /**
+ * The batch launch approval (3.2, 3.11, 3.12, 4.25, 8.6): the review window from publication to `valid_from`, the
+ * latest `valid_from` and the longest validity (seconds, inclusive bounds), the most leaves in a batch and the longest
+ * proof, the leaf's domain tag (26 ASCII bytes), version and the Merkle prefixes (those of vicinity_rewards).
+ */
+export const BATCH_REVIEW_SECS = 43_200n;
+export const BATCH_MAX_LEAD_SECS = 172_800n;
+export const BATCH_MAX_VALIDITY_SECS = 172_800n;
+export const MAX_BATCH_LEAVES = 512;
+export const MAX_BATCH_PROOF_LEN = 9;
+export const LAUNCH_LEAF_TAG = 'vicinity_curve/launch_leaf';
+export const LAUNCH_LEAF_VERSION = 1;
+export const MERKLE_LEAF_PREFIX = 0x00;
+export const MERKLE_NODE_PREFIX = 0x01;
+
+/**
  * The old program's `Launchpad` (3.2): discriminator, size, the byte of `launches_paused`, and the offsets of
  * `admin` and `pending_admin` (8.5, GOV-1: approvals and launches require that admin to be this program's admin
  * with no transfer pending).
@@ -107,6 +122,7 @@ export const SEEDS = Object.freeze({
   coinVault: 'coin_vault',
   ticker: 'ticker',
   payoutOptIn: 'payout_opt_in',
+  launchBatch: 'launch_batch',
   eventAuthority: '__event_authority',
   rewardsCity: 'city',
   rewardsVault: 'vault',
@@ -121,19 +137,21 @@ export const ACCOUNT_LEN = Object.freeze({
   CurveCoin: 693,
   TickerLock: 49,
   PayoutOptIn: 145,
+  LaunchBatch: 260,
 });
 
 /** `sha256("account:<Name>")[..8]`. `Launchpad`, `Approval` and `PayoutOptIn` equal the old program's: decoders check the owner too (3.7). */
 export const ACCOUNT_DISCRIMINATORS = Object.freeze({
   Approval: [233, 9, 153, 49, 11, 222, 59, 130],
   CurveCoin: [222, 133, 204, 32, 124, 103, 133, 230],
+  LaunchBatch: [86, 207, 179, 29, 120, 144, 126, 62],
   LaunchConfig: [18, 161, 9, 224, 102, 145, 29, 94],
   Launchpad: [247, 20, 16, 242, 203, 38, 169, 160],
   PayoutOptIn: [81, 97, 235, 48, 126, 157, 111, 198],
   TickerLock: [239, 106, 232, 87, 93, 121, 8, 225],
 });
 
-/** `sha256("global:<name>")[..8]` of the 21 instructions (4.1 to 4.20). */
+/** `sha256("global:<name>")[..8]` of the 26 instructions (4.1 to 4.20, 4.23 to 4.27). */
 export const INSTRUCTION_DISCRIMINATORS = Object.freeze({
   init_launchpad: [114, 181, 7, 128, 0, 24, 234, 119],
   propose_admin: [121, 214, 199, 212, 87, 39, 117, 234],
@@ -156,12 +174,17 @@ export const INSTRUCTION_DISCRIMINATORS = Object.freeze({
   opt_in_payout: [89, 18, 174, 106, 197, 228, 30, 139],
   revoke_payout_opt_in: [152, 168, 194, 21, 175, 36, 9, 178],
   payout_founder_fees: [149, 146, 116, 194, 121, 14, 148, 155],
+  init_launch_batch: [187, 189, 83, 229, 154, 119, 6, 166],
+  set_launch_approver: [102, 190, 197, 180, 66, 20, 73, 52],
+  publish_launch_batch: [169, 37, 225, 102, 0, 38, 245, 83],
+  clear_launch_batch: [164, 8, 253, 89, 225, 21, 223, 10],
+  launch_from_batch: [16, 6, 70, 96, 231, 210, 207, 145],
 });
 
 /** Anchor's EVENT_IX_TAG (0x1d9acb512ea545e4, written little-endian): the first 8 bytes of every event CPI's data (4.21). */
 export const EVENT_IX_TAG = Object.freeze([0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d]);
 
-/** `sha256("event:<Name>")[..8]` of the 21 events (4.21). */
+/** `sha256("event:<Name>")[..8]` of the 26 events (4.21). */
 export const EVENT_DISCRIMINATORS = Object.freeze({
   AdminChanged: [232, 34, 31, 226, 62, 18, 19, 114],
   AdminProposed: [129, 249, 226, 227, 199, 82, 110, 243],
@@ -177,6 +200,11 @@ export const EVENT_DISCRIMINATORS = Object.freeze({
   GuardianChanged: [152, 239, 217, 24, 162, 189, 236, 143],
   HoldersFeesForwarded: [230, 169, 169, 68, 4, 89, 94, 109],
   LaunchApproved: [27, 164, 238, 158, 228, 136, 31, 60],
+  LaunchApproverChanged: [15, 214, 54, 122, 155, 54, 30, 171],
+  LaunchBatchCleared: [254, 201, 149, 70, 250, 170, 23, 241],
+  LaunchBatchInitialized: [89, 226, 226, 122, 88, 140, 44, 114],
+  LaunchBatchPublished: [68, 132, 172, 244, 136, 17, 84, 19],
+  LaunchedFromBatch: [124, 201, 118, 151, 74, 11, 24, 242],
   LaunchpadInitialized: [53, 108, 116, 169, 67, 140, 109, 98],
   PauseChanged: [238, 188, 213, 78, 134, 209, 178, 218],
   PayoutConfigChanged: [58, 122, 116, 88, 134, 122, 16, 183],
@@ -198,6 +226,10 @@ export const ERROR_NAMES = Object.freeze([
   'TradingHalted', 'MathOverflow', 'ConfigDripFarmable', 'ConfigBuybackHorizon', 'LegacyApprovalExists',
   'LegacyLaunchesOpen', 'BuysHalted', 'BadMetaHash', 'LegacyAdminMismatch', 'FeeRecipientRole', 'FounderHoldsRole',
   'BuybacksHalted', 'BuybackHaltWithoutBuyHalt', 'RewardsRegistryAdminMismatch', 'GuardianIsAdmin',
+  // the batch launch approval (4.22, 6058 to 6071)
+  'LaunchApproverNotSet', 'ApproverHoldsRole', 'BatchSeqMismatch', 'BadBatchRoot', 'BadLeafCount', 'BadBatchWindow',
+  'BatchesHalted', 'BatchSuperseded', 'BatchCleared', 'BatchNotYetValid', 'BatchExpired', 'ProofTooLong', 'InvalidProof',
+  'ApprovalPending',
 ]);
 export const ERROR_CODES = Object.freeze(Object.fromEntries(ERROR_NAMES.map((n, i) => [n, 6000 + i])));
 /** The error name of a custom program error code, or null. */

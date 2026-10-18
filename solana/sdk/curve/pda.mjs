@@ -61,6 +61,8 @@ export function curvePdas({ programId = CURVE_PROGRAM_ID, cluster = 'mainnet' } 
     /** `["ticker", symbol bytes]`: the symbol as given (approve_launch derives it before checking it). */
     ticker: (symbol) => pda([seed(SEEDS.ticker), seed(symbol)], P),
     payoutOptIn: (coin) => pda([seed(SEEDS.payoutOptIn), coinOf(coin)], P),
+    /** `["launch_batch"]` (3.11): the two stored launch batches and the halt of the batch path. */
+    launchBatch: () => pda([seed(SEEDS.launchBatch)], P),
     eventAuthority: () => pda([seed(SEEDS.eventAuthority)], P),
     programData: () => pda([toKey(P).toBuffer()], ADDRESSES.upgradeableLoader),
     /** The coin, its mint and its vault for a city. */

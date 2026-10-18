@@ -11,3 +11,4 @@ export * from './instructions.mjs';
 export * from './prechecks.mjs';
 export * from './rewards.mjs';
 export * from './compose.mjs';
+export * from './batch.mjs';
