@@ -50,6 +50,33 @@ export async function countryCities(env, cc) {
   countryCache.set(cc, list);
   return list;
 }
+let namesCache = null;
+/** { countries: { CC: name }, admin: { "CC.ADM1": name } } from the head of cities.json (parsed once; the city rows are not). */
+async function placeNames(env) {
+  if (namesCache) return namesCache;
+  const text = await citiesText(env);
+  const part = (key, next) => {
+    const at = text.indexOf(`"${key}":{`), end = text.indexOf(`},"${next}":`, at);
+    return at >= 0 && end > at ? JSON.parse(text.slice(at + key.length + 3, end + 1)) : null;
+  };
+  let countries = part("countries", "admin"), admin = part("admin", "byCountry");
+  if (!countries || !admin) { const all = JSON.parse(text); countries = all.countries || {}; admin = all.admin || {}; }
+  namesCache = { countries, admin };
+  return namesCache;
+}
+/**
+ * One city of the list by its id, in the country the caller knows it is in (a seat's or a design's country): { id, name, country,
+ * regionCode, region, countryName }, the region and country names from the list's own tables (region null for the few places the
+ * list has none for), or null when the id is not a city of that country. Throws when the list cannot be read.
+ */
+export async function cityRecord(env, cityId, cc) {
+  const list = await countryCities(env, cc);
+  const row = list && list.find((c) => c.id === String(cityId));
+  if (!row) return null;
+  const { countries, admin } = await placeNames(env);
+  return { id: row.id, name: row.name, country: cc, regionCode: row.admin || null, region: (row.admin && admin[`${cc}.${row.admin}`]) || null, countryName: countries[cc] || null };
+}
+
 /**
  * A country's city boundary file (public/data/bounds/XX.txt, format in geo.js) as text, or null if
  * there isn't one (then claims fall back to the old distance rule). Kept for the worker's lifetime.
@@ -64,7 +91,7 @@ export async function countryBounds(env, cc) {
   boundsCache.set(cc, text);
   return text;
 }
-export const _resetCityCache = () => { textCache = null; countryCache.clear(); boundsCache.clear(); };
+export const _resetCityCache = () => { textCache = null; namesCache = null; countryCache.clear(); boundsCache.clear(); };
 
 /** Distance in km between two points on Earth. */
 export function distanceKm(lat1, lon1, lat2, lon2) {

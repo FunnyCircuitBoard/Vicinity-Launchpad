@@ -28,6 +28,7 @@ import { IMAGE_TYPES, PICTURE_MAX_AGE, bytesApproved } from "./logos.js";
 import { LAYOUT } from "./sol/layout.js";
 import { publicLimit } from "./guards.js";
 import { chainMetadata, findCoin, knownMissing, rememberMissing } from "./lpcoins.js";
+import { artBytes, artUrl, bindVersion, boundArtOf, versionForCoin } from "./coinart-store.js";
 
 /* ---------------------------------------------------------------- the JSON (a port of metadata.mts, kept byte-for-byte in parity) */
 export const VICINITY_BRAND = Object.freeze({
@@ -71,7 +72,8 @@ export function coinMetadataJson(i) {
     launchpad: VICINITY_BRAND.name,
     launchpadLogo: VICINITY_BRAND.logo,
     network: VICINITY_BRAND.network,
-    city: { id: cityId, name: i.city.name, ...(i.city.country ? { country: i.city.country } : {}), ticker: i.city.ticker },
+    city: { id: cityId, name: i.city.name, ...(i.city.country ? { country: i.city.country } : {}), ...(i.city.region ? { region: i.city.region } : {}),
+      ...(i.city.countryName ? { countryName: i.city.countryName } : {}), ticker: i.city.ticker },
     showName: true,
     attributes: [
       { trait_type: "Launchpad", value: VICINITY_BRAND.name },
@@ -91,6 +93,15 @@ export function coinMetadataJson(i) {
  */
 export async function metaJsonFor(env, row, md) {
   await ensureSchema(env.DB);
+  // a coin launched with a ready-made version (src/coinready.js, COIN_V2_READY): its picture and every word from that version, built
+  // here and never from a request, whatever the switches say now (src/coinart-store.js versionForCoin: the version bound to this mint,
+  // or the city's chosen one while it is still the design, with the chain's name and symbol and its picture intact)
+  const v = await versionForCoin(env, { cityId: String(row.city_id), mint: row.mint, name: md.name, symbol: md.symbol });
+  if (v) {
+    const c = v.content.city;
+    return coinMetadataJson({ mint: row.mint, name: md.name, symbol: md.symbol, pitch: v.description, image: artUrl(v.art_sha256),
+      city: { id: row.city_id, name: c.name, country: c.country, region: c.region || undefined, countryName: c.countryName || undefined, ticker: md.symbol } });
+  }
   const city = await env.DB.prepare("SELECT city_name, country, pitch FROM city_coins WHERE city_id = ?").bind(String(row.city_id)).first();
   const pitch = city && city.pitch && !PITCH_BAD.test(city.pitch) ? city.pitch : undefined;
   return coinMetadataJson({ mint: row.mint, name: md.name, symbol: md.symbol, pitch,
@@ -99,6 +110,7 @@ export async function metaJsonFor(env, row, md) {
 
 /* ---------------------------------------------------------------- the route */
 const PATH = /^\/coin-meta\/([1-9A-HJ-NP-Za-km-z]{32,44})\.(json|png)$/;
+const ART_PATH = /^\/coin-meta\/art\/([0-9a-f]{64})\.png$/;
 const base = { ...SECURITY_HEADERS, "Access-Control-Allow-Origin": "*", "X-Content-Type-Options": "nosniff" };
 const answer = (request, body, status, headers) => new Response(request.method === "HEAD" ? null : body, { status, headers: { ...base, ...headers } });
 const jsonAnswer = (request, data, status, maxAge) => answer(request, typeof data === "string" ? data : JSON.stringify(data), status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": `public, max-age=${maxAge}` });
@@ -109,7 +121,10 @@ const passOn = (request, res) => new Response(request.method === "HEAD" ? null :
 /** GET|HEAD /coin-meta/* (src/index.js sends every /coin-meta/ path here, before the static files). */
 export async function handleCoinMeta(request, env, fetchImpl = fetch, now = Date.now()) {
   if (request.method !== "GET" && request.method !== "HEAD") return answer(request, JSON.stringify({ ok: false, error: "method_not_allowed" }), 405, { "Content-Type": "application/json; charset=utf-8", Allow: "GET, HEAD", "Cache-Control": "no-store" });
-  const m = PATH.exec(new URL(request.url).pathname);
+  const path = new URL(request.url).pathname;
+  const art = ART_PATH.exec(path);
+  if (art) return env.DB ? artAnswer(request, env, art[1], now) : notFound(request);
+  const m = PATH.exec(path);
   if (!m || !isSolanaAddress(m[1]) || !env.DB) return notFound(request);
   const [, mint, kind] = m;
   let f;
@@ -135,6 +150,8 @@ async function metadata(request, env, row, fetchImpl, now) {
   let md;
   try { md = await chainMetadata(env, row.mint, fetchImpl); } catch (e) { console.error("coin-meta metadata read failed", codeOf(e)); return jsonAnswer(request, { ok: false, error: "unavailable" }, 503, 10); }
   if (!md || md.uri !== metadataUriFor(row.mint)) { rememberMissing(row.mint, now); return notFound(request); }
+  // the JSON is being built for the first time here (like the launch record would have): a ready-made version is bound to the coin now
+  try { await bindVersion(env, { cityId: String(row.city_id), mint: row.mint, name: md.name, symbol: md.symbol }, now); } catch (e) { console.error("coin-meta: version not bound", codeOf(e)); }
   let meta;
   try { meta = JSON.stringify(await metaJsonFor(env, row, md)); } catch (e) { console.error("coin-meta JSON refused", codeOf(e)); return notFound(request); }
   await env.DB.prepare("UPDATE lp_coins SET meta_json = ?, meta_at = ? WHERE mint = ?").bind(meta, iso(now), row.mint).run();
@@ -143,6 +160,11 @@ async function metadata(request, env, row, fetchImpl, now) {
 
 /** The APPROVED picture (src/logos.js), only while its bytes still hash to the coin's logo_hash; else the badge (no picture, waiting, taken down). */
 async function image(request, env, row) {
+  // a coin launched with a ready-made version: its permanent, content-addressed picture (wallets that guess this URL still find it)
+  try {
+    const sha = await boundArtOf(env.DB, row.mint);
+    if (sha) return new Response(null, { status: 302, headers: { ...base, Location: `/coin-meta/art/${sha}.png`, "Cache-Control": "public, max-age=86400" } });
+  } catch (e) { console.error("coin-meta art lookup failed", codeOf(e)); }
   try {
     await ensureLogoSchema(env.DB);
     const logo = await env.DB.prepare(`SELECT m.type, m.bytes, c.logo_hash FROM city_coins c JOIN media m ON m.id = c.approved_media_id
@@ -152,4 +174,27 @@ async function image(request, env, row) {
     }
   } catch (e) { console.error("coin-meta logo read failed", codeOf(e)); }
   return new Response(null, { status: 302, headers: { ...base, Location: "/brand/vicinity-512.png", "Cache-Control": "public, max-age=300" } });
+}
+
+/**
+ * GET|HEAD /coin-meta/art/<sha256>.png: a city-coin picture (src/coinart-store.js coin_art), named by the SHA-256 of its bytes. Served
+ * whenever its row exists and its bytes still hash to the name, WHATEVER ANY SWITCH SAYS (a launched coin's metadata names this URL for
+ * ever); immutable, so browsers, wallets and Cloudflare's cache keep it a year. The edge cache answers repeats; a miss reads the
+ * database once and counts against coin_meta per connection. A name with no picture (or a database the switch never touched): 404.
+ */
+async function artAnswer(request, env, sha, now) {
+  const cache = typeof caches !== "undefined" ? caches.default : null;
+  const key = new Request(`https://cache.vicinity.internal/coin-meta/art/${sha}.png`);
+  if (cache) {
+    try { const hit = await cache.match(key); if (hit) return request.method === "HEAD" ? new Response(null, hit) : hit; } catch { /* a cache failure is a miss */ }
+  }
+  const slow = await publicLimit(env, request, "coin_meta", now);
+  if (slow) return passOn(request, slow);
+  let pic;
+  try { pic = await artBytes(env.DB, sha); } catch (e) { console.error("coin art read failed", codeOf(e)); return jsonAnswer(request, { ok: false, error: "unavailable" }, 503, 10); }
+  if (!pic) return notFound(request);
+  const headers = { ...base, "Content-Type": pic.type, "Cache-Control": "public, max-age=31536000, immutable", "Content-Security-Policy": "default-src 'none'; sandbox",
+    "Content-Disposition": "inline", "Content-Length": String(pic.bytes.length), ETag: `"${sha}"` };
+  if (cache) { try { await cache.put(key, new Response(pic.bytes, { status: 200, headers })); } catch { /* the cache is a convenience */ } }
+  return new Response(request.method === "HEAD" ? null : pic.bytes, { status: 200, headers });
 }

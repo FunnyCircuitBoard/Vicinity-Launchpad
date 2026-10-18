@@ -29,6 +29,7 @@ import { priceInQuote } from "./sol/quote.js";
 import { LAYOUT } from "./sol/layout.js";
 import { decodeMetadata, metadataAddress } from "./sol/metaplex.js";
 import { metaJsonFor, metadataUriFor } from "./coinmeta.js";
+import { bindVersion } from "./coinart-store.js";
 
 export const COIN_SIZE = LAYOUT.Coin.size; // 243
 export const COIN_MINT_OFFSET = LAYOUT.Coin.fields.mint.at; // 48
@@ -239,6 +240,9 @@ export async function recordLaunchedCoin(env, { cityId = null, mint = null, coin
   const locked = await lockDesign(env, row, { name: md ? md.name : row.name, quoteMint: c.quoteMint }, now);
   // the metadata JSON is built once, from the chain's name and symbol, and served from here for ever (src/coinmeta.js)
   if (md && md.uri === metadataUriFor(c.mint)) {
+    // a coin launched with a ready-made version (src/coinready.js): that version is bound to this mint now, once, so its picture and
+    // words stay the coin's for ever (src/coinart-store.js); the JSON below is built from it
+    try { await bindVersion(env, { cityId: city, mint: c.mint, name: md.name, symbol: md.symbol }, now); } catch (e) { console.error("lp record: version not bound", codeOf(e)); }
     try {
       const meta = await metaJsonFor(env, row, md);
       await db.prepare("UPDATE lp_coins SET meta_json = ?, meta_at = ?, name = COALESCE(name, ?), symbol = COALESCE(symbol, ?) WHERE mint = ?").bind(JSON.stringify(meta), iso(now), md.name, md.symbol, c.mint).run();

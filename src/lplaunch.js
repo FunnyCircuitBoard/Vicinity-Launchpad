@@ -32,6 +32,7 @@ import { access } from "./access.js";
 import { isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { lpSetup } from "./cluster.js";
+import { coinV2ReadyOn } from "./flags.js";
 import { buildTx, checkCluster, checkGenesis, checkedRoute, readAccounts, respond } from "./lpkit.js";
 import { liveSeatOfUser } from "./roles.js";
 import { stillFounder } from "./seats.js";
@@ -309,6 +310,14 @@ async function launchTx(request, env, fetchImpl, now) {
   try { st = await launchState(env, s, cityId, fetchImpl); } catch (e) { console.error("launch read failed", codeOf(e)); return err("rpc_unavailable", "The blockchain could not be reached just now. Nothing was built. Try again in a minute.", 503); }
   const p = launchProblem(st, s, who.wallet, Math.floor(now / 1000), { slack: EXPIRY_SLACK_S });
   if (p) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });
+  // COIN_V2_READY=on: a ticker launches once. The live program does not lock tickers, so a symbol another city already launched with
+  // (lp_coins) is refused here before anything is built (scripts/cities/tickers.mjs pins every launched ticker in the city list too)
+  if (coinV2ReadyOn(env) && st.approval) {
+    let other = null;
+    try { other = await env.DB.prepare("SELECT city_id FROM lp_coins WHERE symbol = ? AND city_id <> ? LIMIT 1").bind(st.approval.symbol, String(cityId)).first(); }
+    catch (e) { if (!/no such table/i.test(String((e && e.message) || e))) throw e; }
+    if (other) return err("symbol_taken", `$${st.approval.symbol} has already launched for another city, so it can't launch twice. Nothing was built. Tell us and we'll sort it out.`, 409, { state: "paused" });
+  }
   // never a launch on a Meteora build the team has not tested (409), nor one blind while that cannot be read (503); read fresh (the
   // deploy slots again, on the node whose genesis hash was checked), so an upgrade a minute ago is seen now
   const pr = await meteoraHold(env, fetchImpl, now, { fresh: true, route: checkedRoute(env, g) });

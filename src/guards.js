@@ -78,6 +78,9 @@ export const PUBLIC_LIMITS = {
   // (after graduation usually four reads more, two of them getTokenAccountsByOwner of at most 2 MB each; at most eleven) on an
   // edge-cache miss (the answer then stays 1 minute at the edge and per server, a failure 15 seconds per server)
   fee_status:     { max: 60, windowMs: MIN },
+  // GET /api/coins/ready?city= (COIN_V2_READY=on, src/coinready.js): the database, the city list and, for the city's founder, one
+  // balance and one approval read; never a drawing (pictures are made only by the founder's own POST, once per coin version)
+  coin_ready:     { max: 60, windowMs: MIN },
 };
 /**
  * A per-WALLET counter on top of the per-connection one (src/swap.js, src/lptrade.js): one wallet cannot burn the Jupiter or RPC

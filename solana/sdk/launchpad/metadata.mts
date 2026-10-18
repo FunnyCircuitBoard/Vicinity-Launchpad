@@ -53,7 +53,8 @@ export function checkSymbol(symbol: string): string | null {
   return /^[A-Z0-9]{1,10}$/.test(symbol) ? null : `symbol must be 1 to ${MAX_SYMBOL_BYTES} characters of A-Z and 0-9`;
 }
 
-export interface CityInfo { id: bigint | number; name: string; country?: string; ticker: string }
+/** region and countryName: the Vicinity city list's names, given for a coin made from a ready-made version (the Worker's src/coinready.js). */
+export interface CityInfo { id: bigint | number; name: string; country?: string; region?: string; countryName?: string; ticker: string }
 export interface CoinMetadataInput {
   mint: Address;
   /** the on-chain name (the founder's coin name, at most 32 bytes) */
@@ -71,7 +72,7 @@ export interface CoinMetadataInput {
 export interface CoinMetadataJson {
   name: string; symbol: string; description: string; image: string; external_url: string;
   createdOn: string; launchpad: string; launchpadLogo: string; network: string;
-  city: { id: number; name: string; country?: string; ticker: string };
+  city: { id: number; name: string; country?: string; region?: string; countryName?: string; ticker: string };
   showName: boolean;
   attributes: { trait_type: string; value: string }[];
   twitter?: string; telegram?: string; website: string;
@@ -102,7 +103,8 @@ export function coinMetadataJson(i: CoinMetadataInput): CoinMetadataJson {
     launchpad: VICINITY_BRAND.name,
     launchpadLogo: VICINITY_BRAND.logo,
     network: VICINITY_BRAND.network,
-    city: { id: cityId, name: i.city.name, ...(i.city.country ? { country: i.city.country } : {}), ticker: i.city.ticker },
+    city: { id: cityId, name: i.city.name, ...(i.city.country ? { country: i.city.country } : {}), ...(i.city.region ? { region: i.city.region } : {}),
+      ...(i.city.countryName ? { countryName: i.city.countryName } : {}), ticker: i.city.ticker },
     showName: true,
     attributes: [
       { trait_type: 'Launchpad', value: VICINITY_BRAND.name },

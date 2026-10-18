@@ -34,6 +34,9 @@ test('the Worker\'s port (src/coinmeta.js) builds the very same JSON, and refuse
     { mint: MINT, name: 'NYC', symbol: 'NYC', city: NYC, image: 'https://vicinity.city/media/abc.png', pitch: 'Five boroughs, one coin.', twitter: 'https://x.com/nyccoin', telegram: 'https://t.me/nyc' },
     { mint: 'Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7', name: 'São Paulo Moeda ✓', symbol: 'SAO', city: { id: 3448439n, name: 'São Paulo', ticker: 'SAO' } },
     { mint: MINT, name: 'x'.repeat(32), symbol: 'ABCDEFGHIJ', city: { id: 1, name: 'A', country: 'FR', ticker: 'ABCDEFGHIJ' }, pitch: '  Spaces around.  ' },
+    // a ready-made coin (COIN_V2_READY): its content-addressed picture, the list's region and country name, the default description
+    { mint: MINT, name: 'Utica', symbol: 'UTICA', city: { id: 5142056, name: 'Utica', country: 'US', region: 'New York', countryName: 'United States', ticker: 'UTICA' },
+      image: `https://vicinity.city/coin-meta/art/${'ab'.repeat(32)}.png`, pitch: 'The city coin of Utica, New York, United States.' },
   ];
   for (const c of cases) assert.deepEqual(Worker.coinMetadataJson(c), coinMetadataJson(c), c.name);
   const bad = [
