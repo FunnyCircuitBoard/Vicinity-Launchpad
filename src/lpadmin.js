@@ -760,7 +760,7 @@ const symbolOk = (t) => typeof t === "string" && /^[A-Z0-9]{1,10}$/.test(t);
 async function candidateList(env, ctx, fetchImpl, now) {
   const s = lpSetup(env), db = env.DB;
   await ensureLogoSchema(db);
-  const rows = (await db.prepare(`SELECT cc.city_id, cc.city_name, cc.country, cc.name, cc.pitch, cc.media_id, cc.approved_media_id, cc.logo_status, cc.updated_at, cc.pair, cc.mint, cc.seat_id,
+  const rows = (await db.prepare(`SELECT cc.city_id, cc.city_name, cc.country, cc.name, cc.pitch, cc.media_id, cc.approved_media_id, cc.logo_status, cc.updated_at, cc.pair, cc.mint, cc.pending_mint, cc.seat_id,
       s.id AS live_seat, s.status AS seat_status, s.wallet AS seat_wallet, u.wallet AS user_wallet, u.handle
     FROM city_coins cc
     LEFT JOIN seats s ON s.city_id = cc.city_id AND s.status IN ('provisional', 'active', 'grace', 'steward')
@@ -833,6 +833,8 @@ async function candidateList(env, ctx, fetchImpl, now) {
     else if (!r.user_wallet || r.user_wallet !== r.seat_wallet) reasons.push(`The founder's account now uses another wallet (${r.user_wallet || "none"}) than the one that holds the seat (${r.seat_wallet}). Approve only the wallet that will sign the launch.`);
     let readyCoin = null;
     if (ready) {
+      // one city, one coin: a Raydium LaunchLab contract still waiting for a check (recorded before the switch) is settled first
+      if (r.pending_mint) reasons.push("A Raydium LaunchLab contract for this city is waiting for a check. A city has one coin: reject or accept that contract first (Coin contracts), then approve.");
       const other = t ? takenBy.get(t.ticker) : null;
       if (other && other !== String(id)) reasons.push(`The ticker ${t.ticker} is already launched or approved for another city (${other}). Nothing is approved twice: the city list must give this city another ticker first.`);
       const c = await chosenOf(db, r.city_id);

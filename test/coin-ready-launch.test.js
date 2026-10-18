@@ -169,6 +169,13 @@ test("switch on: a studio design the founder never replaced, or a ticker another
   assert.equal((await w.post(w.owner, "/api/admin/lp/approve/tx", { cluster: "devnet", ...seenOf(c) })).error, "blocked");
   await w.useCoin();
   assert.equal((await w.card()).ok, true);
+  // a Raydium LaunchLab contract waiting for a check (recorded before the switch): one city, one coin, nothing approved until it is settled
+  await w.env.DB.prepare("UPDATE city_coins SET pending_mint = ?, pending_at = ? WHERE city_id = ?").bind(fresh(), "2026-10-19T00:00:00.000Z", UTICA).run();
+  c = await w.card();
+  assert.equal(c.ok, false);
+  assert.match(c.reasons.join(" "), /LaunchLab contract for this city is waiting for a check/);
+  await w.env.DB.prepare("UPDATE city_coins SET pending_mint = NULL, pending_at = NULL WHERE city_id = ?").bind(UTICA).run();
+  assert.equal((await w.card()).ok, true);
   // another city launched with UTICA (a moved ticker): never approved twice
   await ensureLpCoinsSchema(w.env.DB);
   await w.env.DB.prepare(`INSERT INTO lp_coins (cluster, program_id, city_id, mint, coin, founder, name, symbol, quote_mint, dbc_config, dbc_pool, recorded_at)

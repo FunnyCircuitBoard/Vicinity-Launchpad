@@ -548,8 +548,12 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/coins/mint":
     case "/api/coins/mint/decide":
       // COIN_V2_READY=on: a city's one coin launches on the Vicinity launchpad only; a Raydium LaunchLab contract is never recorded
-      // as a city's coin (it could become a second coin for a city that also launches here)
-      if (coinV2ReadyOn(env) && method === "POST") return json({ ok: false, error: "launchpad_only", message: "City coins launch on the Vicinity launchpad now. A contract made elsewhere can't be recorded as a city's coin." }, 409);
+      // as a city's coin (it could become a second coin for a city that also launches here). A contract still waiting for a check
+      // can be REJECTED (approve: false), so a city held up by one is not stuck until the switch goes off; it is never accepted.
+      if (coinV2ReadyOn(env) && method === "POST") {
+        const rejecting = path === "/api/coins/mint/decide" && (await request.clone().json().catch(() => null))?.approve === false;
+        if (!rejecting) return json({ ok: false, error: "launchpad_only", message: "City coins launch on the Vicinity launchpad now. A contract made elsewhere can't be recorded as a city's coin." }, 409);
+      }
       return only("POST") || (path === "/api/coins/mint" ? handleProposeMint(request, env, fetchImpl) : handleDecideMint(request, env, fetchImpl));
     // the ready-made coin (COIN_V2_READY=on, src/coinready.js): with the switch off these are unknown paths (404) for every method
     case "/api/coins/ready":

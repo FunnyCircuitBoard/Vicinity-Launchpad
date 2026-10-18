@@ -252,6 +252,17 @@ test("every check again on the server: wallet, ban, waiting contract, launched c
     .bind(UTICA, f.uid, "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "2026-10-20T00:00:00Z", "2026-10-20T00:00:00Z", "2026-10-20T00:00:00Z").run();
   assert.equal((await gateOf()).code, "legacy_contract");
   await refused("legacy_contract");
+  // while the switch is on, an admin can still REJECT that contract (it settles the city), never accept it
+  const adm = await person(env);
+  env.ADMIN_WALLETS = adm.w.address;
+  const accept = await adm.send("/api/coins/mint/decide", { method: "POST", body: { city: UTICA, mint: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", approve: true, note: "x" } });
+  assert.deepEqual([accept.status, (await accept.json()).error], [409, "launchpad_only"]);
+  const reject = await adm.post("/api/coins/mint/decide", { city: UTICA, mint: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", approve: false, note: "One city, one coin: it launches on the Vicinity launchpad." });
+  assert.equal(reject.ok, true, JSON.stringify(reject));
+  assert.equal((await row("SELECT pending_mint FROM city_coins WHERE city_id = ?", UTICA)).pending_mint, null);
+  assert.equal(await gateOf(), null, "settled: the founder can use the coin");
+  delete env.ADMIN_WALLETS;
+  await env.DB.prepare("UPDATE city_coins SET pending_mint = ? WHERE city_id = ?").bind("7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", UTICA).run();
   // launched (recorded the old way)
   await env.DB.prepare("UPDATE city_coins SET pending_mint = NULL, mint = ? WHERE city_id = ?").bind("7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", UTICA).run();
   assert.equal((await gateOf()).code, "launched");
