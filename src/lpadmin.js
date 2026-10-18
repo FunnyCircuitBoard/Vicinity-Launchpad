@@ -43,7 +43,7 @@ import { iso } from "./policy.js";
 import { lpSetup } from "./cluster.js";
 import { ensureLogoSchema } from "./store.js";
 import { coinV2ReadyOn } from "./flags.js";
-import { chosenOf } from "./coinart-store.js";
+import { chosenOf, clearApproved, ensureReadySchema, markApprovedStatement } from "./coinart-store.js";
 import { buildTx, checkCluster, checkGenesis, checkedRoute, lpRpc, readAccounts, respond } from "./lpkit.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas, programDataAddress } from "./sol/pda.js";
 import { createAtaIdempotent } from "./sol/ix.js";
@@ -53,7 +53,7 @@ import { fromBase64, readI64, readU32, readU64 } from "./sol/bytes.js";
 import { compileLegacy, MAX_TX_BYTES, wrapUnsigned } from "./sol/message.js";
 import { DBC_CONFIG_DEFAULTS, DBC_PROGRAM_SHA256, EXPECTED_POOL_CONFIG } from "./sol/dbc-config-data.js";
 import { checkMultisig } from "./sol/squads.js";
-import { holdDesign } from "./lpcoins.js";
+import { holdDesign, unknownSymbols } from "./lpcoins.js";
 import { feeSchedule } from "./fees.js";
 import { _forgetProgramHashes, fingerprint, programHashes, programRefusal, programSummary } from "./programpins.js";
 import * as IX from "./sol/lpadmin-ix.js";
@@ -788,7 +788,9 @@ async function candidateList(env, ctx, fetchImpl, now) {
   // on chain names it (the registry gives each city its own, but a regenerated list could move one: scripts/cities/tickers.mjs pins them)
   const ready = coinV2ReadyOn(env);
   const takenBy = new Map(); // symbol -> the other city's id, launched or approved
+  let unknown = []; // cities whose launched coin's symbol this site could not read: any ticker may be theirs
   if (ready) {
+    unknown = await unknownSymbols(env, "", fetchImpl);
     try {
       for (const x of (await db.prepare("SELECT city_id, symbol FROM lp_coins WHERE symbol IS NOT NULL").all()).results) takenBy.set(x.symbol, `${x.city_id}`);
     } catch (e) { if (!/no such table/i.test(String((e && e.message) || e))) throw e; }
@@ -816,6 +818,8 @@ async function candidateList(env, ctx, fetchImpl, now) {
         if (!r.live_seat) warnings.push("The approved wallet no longer holds the founder seat (the city has no founder now), but it can still launch this city's coin on chain until the approval expires. Revoke it.");
         else if (r.seat_wallet !== ap.founder) warnings.push(`The approved wallet no longer holds the founder seat (it is now ${r.seat_wallet}), but it can still launch this city's coin on chain until the approval expires. Revoke it.`);
         else if (!["active", "steward"].includes(r.seat_status)) warnings.push(`The founder's seat is ${r.seat_status === "grace" ? "in its grace period (their balance fell below the bar)" : r.seat_status === "provisional" ? "not final (still in its appeal window)" : r.seat_status}. This website will not let them launch, but the approval still works on chain until it expires. Revoke it unless they recover soon.`);
+        // one city, one coin: a contract sent through the old Raydium LaunchLab path still waits for this city (it may be a coin already)
+        if (r.pending_mint) warnings.push("A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already). This website will not let the founder launch while it waits, but the approval still works on chain until it expires. Revoke it, then settle that contract (Contracts waiting for a check, in the Moderate tab).");
       }
       approvals.push({ ...base, approval: { founder: ap.founder, name: ap.name, symbol: ap.symbol, expiresAt: iso(ap.expiresAt * 1000), expired, rentPayer: ap.rentPayer },
         seat: { wallet: r.seat_wallet || null, status: r.live_seat ? r.seat_status : null }, warnings });
@@ -833,12 +837,12 @@ async function candidateList(env, ctx, fetchImpl, now) {
     else if (!r.user_wallet || r.user_wallet !== r.seat_wallet) reasons.push(`The founder's account now uses another wallet (${r.user_wallet || "none"}) than the one that holds the seat (${r.seat_wallet}). Approve only the wallet that will sign the launch.`);
     let readyCoin = null;
     if (ready) {
-      // one city, one coin: a Raydium LaunchLab contract still waiting for a check (recorded before the switch) is settled first
-      if (r.pending_mint) reasons.push("A Raydium LaunchLab contract for this city is waiting for a check. A city has one coin: reject or accept that contract first (Coin contracts), then approve.");
+      // (a Raydium LaunchLab contract still waiting for this city is the reason src/lpadmin.js gives on every candidate, switch or not)
+      if (unknown.some((x) => x !== String(id))) reasons.push(`A coin launched for another city (${unknown.filter((x) => x !== String(id)).join(", ")}) has a ticker this site could not read from the blockchain yet, so nothing is approved until it is known. Reload in a minute.`);
       const other = t ? takenBy.get(t.ticker) : null;
       if (other && other !== String(id)) reasons.push(`The ticker ${t.ticker} is already launched or approved for another city (${other}). Nothing is approved twice: the city list must give this city another ticker first.`);
       const c = await chosenOf(db, r.city_id);
-      if (c && c.current && t && c.symbol === t.ticker && c.name === r.name) readyCoin = { version: c.content_hash.slice(0, 8), contentHash: c.content_hash, art: `/coin-meta/art/${c.art_sha256}.png` };
+      if (c && c.current && t && c.symbol === t.ticker && c.name === r.name) readyCoin = { version: c.content_hash.slice(0, 8), contentHash: c.content_hash, template: c.template_version, art: `/coin-meta/art/${c.art_sha256}.png` };
       else reasons.push(c && c.current ? "The founder's chosen Vicinity coin no longer matches the city list (its ticker or name changed). The founder must use the coin again." : "The founder has not chosen the Vicinity coin yet (\"Use this coin\" in their Founder tab).");
     }
     const warnings = [];
@@ -875,8 +879,19 @@ async function approveTx(env, ctx, body, fetchImpl, now, route = null) {
   // the owner approves what his page showed him: the card sends the coin's name, ticker, founder wallet and the time the design was
   // last saved, and nothing is built when any of them changed since (a founder renaming the coin while the card was on screen)
   const seen = { name: body.name, symbol: body.symbol, founder: body.founder, designAt: body.designAt };
-  if (seen.name !== c.name || seen.symbol !== c.symbol || seen.founder !== c.founder || seen.designAt !== c.designAt) {
-    return err("design_changed", "This coin's design changed since the page showed it to you (its name, ticker, founder, description or logo). Nothing was built. Reload the page, check the city again, then approve.", 409, { cityId: String(cityId) });
+  const changed = () => err("design_changed", "This coin's design changed since the page showed it to you (its name, ticker, founder, description, picture or version). Nothing was built. Reload the page, check the city again, then approve.", 409, { cityId: String(cityId) });
+  if (seen.name !== c.name || seen.symbol !== c.symbol || seen.founder !== c.founder || seen.designAt !== c.designAt) return changed();
+  // COIN_V2_READY=on: the approval stands for one exact ready-made version, the one whose picture and version the card showed (its
+  // picture and words go into the coin's metadata for ever: src/coinart-store.js binds only a version an approval was built from)
+  const ready = coinV2ReadyOn(env);
+  if (ready) {
+    if (!c.ready || body.contentHash !== c.ready.contentHash) return changed();
+    // the hold FIRST (src/coinready.js checks it inside every write of "Use this coin"), then the design read again: a choice that
+    // landed between the card's read and the hold is seen here, and nothing is built from a version the owner did not see
+    await holdDesign(env, cityId, now);
+    const row = await env.DB.prepare("SELECT updated_at, name FROM city_coins WHERE city_id = ?").bind(String(cityId)).first();
+    const now2 = await chosenOf(env.DB, String(cityId), { fresh: true });
+    if (!row || row.updated_at !== c.designAt || row.name !== c.name || !now2 || !now2.current || now2.content_hash !== c.ready.contentHash) return changed();
   }
   const nowS = Math.floor(now / 1000);
   // the program refuses more than 30 days after ITS clock: ten minutes of slack at the longest choice
@@ -887,7 +902,8 @@ async function approveTx(env, ctx, body, fetchImpl, now, route = null) {
   if (r.ok) {
     // from now until this transaction lands (or its blockhash dies), and then for as long as the approval is on chain, the founder
     // cannot change the design (src/coins.js handleDesign): what the owner approved is what launches and what /coin-meta shows
-    await holdDesign(env, cityId, now);
+    if (ready) { await ensureReadySchema(env.DB); await markApprovedStatement(env.DB, { cityId, contentHash: c.ready.contentHash, designAt: c.designAt }).run(); } // held above already
+    else { await holdDesign(env, cityId, now); await clearApproved(env.DB, cityId); } // not built from a ready-made version: it binds none
     Object.assign(r, { step: "approve", cityId: String(cityId), record: { step: "approve", params: { cityId: String(cityId) } }, approve: { name: c.name, symbol: c.symbol, founder: c.founder, expiresAt: iso(expiresAt * 1000), days } });
   }
   return respond(r);

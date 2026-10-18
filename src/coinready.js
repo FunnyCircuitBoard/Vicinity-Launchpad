@@ -9,15 +9,23 @@
  *
  *   GET  /api/coins/ready?city=<id>      the city's founder: the coin, its version and why it can or cannot be used now (`gate`). It
  *                                        changes nothing (no grace period starts here: src/seats.js holdsFounderAmount, not
- *                                        stillFounder; no table is made; no picture is drawn). Anyone else: a preview, only for a
- *                                        city that has a founder and no launched coin, labelled "Preview, not launched", with the
- *                                        picture only when one was already made. Counted per connection (coin_ready, 60 a minute).
+ *                                        stillFounder, and a low balance is said as that, below_amount; no table is made; no
+ *                                        picture is drawn). Everyone, the founder too: `preview`, labelled "Preview, not launched",
+ *                                        only for a city that has a founder and whose coin this IS (previewOf: none for a launched
+ *                                        coin, a waiting Raydium LaunchLab contract, or a design row that is not the chosen ready-made
+ *                                        version, such as an earlier studio design or one approved before the switch), with the
+ *                                        chosen version's own ticker, name and picture, or the defaults' (the picture only when one was
+ *                                        already made). Counted per connection (coin_ready, 60 a minute).
  *   POST /api/coins/ready/art {cityId}   the founder's page asks for its picture the first time: drawn ONCE per version (SVG SHA-256
  *                                        + template version) and stored (coin_art). Never drawn on a GET or for anyone else.
  *                                        20 an hour per account (atomic counter, counted before the work).
  *   POST /api/coins/ready/use {cityId, contentHash}   "Use this coin" (a wallet proof in the last 30 minutes). The page sends the
  *                                        hash of the version it showed; anything changed since (the list, the template) is 409
- *                                        coin_changed and nothing is written. 10 a day per account (atomic counter).
+ *                                        coin_changed and nothing is written. Every write of it is conditional, in the database
+ *                                        itself, on the design row being untouched, not launched, with no LaunchLab contract waiting
+ *                                        and no live hold of the owner's approval (src/lpcoins.js holdDesign): an approval being
+ *                                        built meanwhile wins, and nothing of the choice is written (409 held). A new founder of the
+ *                                        city chooses again (the choice names its seat). 10 a day per account (atomic counter).
  *
  * Every route checks it all again on the server: the switch (404 otherwise, like an unknown path), the caller is the city's active
  * founder (seat active or steward, account wallet = seat wallet, founder amount held live, no ban), the city id and the ticker come
@@ -32,7 +40,7 @@ import { holdsFounderAmount, stillFounder } from "./seats.js";
 import { check, limitKey } from "./limits.js";
 import { ensureLimitsSchema, ensureLogoSchema, ensureSchema } from "./store.js";
 import { publicLimit } from "./guards.js";
-import { designFrozen } from "./lpcoins.js";
+import { designFrozen, unknownSymbols } from "./lpcoins.js";
 import { DEFAULT_PAIR, SOURCE, coinDefaults } from "./coindefaults.js";
 import { TEMPLATE_VERSION, coinSvg, sha256Hex } from "./coinart.js";
 import { artBySvg, artPath, chosenOf, ensureReadySchema, storeArtStatement } from "./coinart-store.js";
@@ -49,11 +57,13 @@ export const GATES = Object.freeze({
   no_wallet: "Link a wallet first: your coin is launched and paid from it.",
   wallet_mismatch: "Your founder seat is held by another wallet. Sign in with that wallet to choose the coin.",
   in_grace: "Your balance is below the founder amount, so your seat is in its grace period. Hold the founder amount again to continue.",
+  below_amount: "Your balance is below the founder amount. Hold it again to choose your coin; if it stays below, your seat enters its grace period.",
   banned: "You can't choose or launch a coin while your account is suspended. The Home tab shows until when, and how to appeal.",
   launched: "This city's coin has launched. Its design is fixed for good.",
   legacy_contract: "A contract for this city is waiting for a check. Nothing can launch until that's settled.",
   symbol_taken: "This ticker is already launched, approved or chosen for another city. Tell us and we'll sort it out before anything launches.",
-  approved: "Your coin is approved on the blockchain with its current design, so it launches as approved. To change it, the owner withdraws the approval first.",
+  ticker_unchecked: "We couldn't confirm that this ticker isn't already launched for another city. Nothing changed. Try again in a minute.",
+  approved: "Your coin is approved on the blockchain with its current design. It launches exactly as approved.",
   held: "The owner is approving your coin right now, so its design is fixed for a few minutes. Try again in 5 minutes.",
   rpc_unavailable: "We couldn't check the blockchain just now. Nothing changed. Try again in a minute.",
 });
@@ -87,23 +97,25 @@ async function renderPng(svg) {
   console.log("coin art drawn", `${png.length} bytes`, `${Date.now() - t0} ms`);
   return png;
 }
-const svgOf = (d, templateVersion = TEMPLATE_VERSION) => coinSvg({ ticker: d.ticker, city: d.city.name, templateVersion });
+// the city line is the coin's name (the registry name, or its shortened form: src/coindefaults.js NAME_OVERRIDES), never a name the
+// coin itself does not carry
+const svgOf = (d, templateVersion = TEMPLATE_VERSION) => coinSvg({ ticker: d.ticker, city: d.name, templateVersion });
 /** The stored picture of a coin's defaults: { sha256 } or null. Reads only. */
 async function storedArt(env, d) {
   const svg = svgOf(d);
   const row = await artBySvg(env.DB, await sha256Hex(svg), TEMPLATE_VERSION);
   return row ? { sha256: row.sha256 } : null;
 }
-/** The picture of a coin's defaults, drawn and stored now if it never was (only from a POST of the switch). */
+/** The picture of a coin's defaults, drawn and stored now if it never was (only from a POST of the switch; every read fresh). */
 async function ensureArt(env, d, now) {
   const svg = svgOf(d), svgSha = await sha256Hex(svg);
-  const known = await artBySvg(env.DB, svgSha, TEMPLATE_VERSION);
+  const known = await artBySvg(env.DB, svgSha, TEMPLATE_VERSION, { fresh: true });
   if (known) return { sha256: known.sha256 };
   const png = await renderPng(svg);
   const sha = await sha256Hex(png);
   await storeArtStatement(env.DB, { sha256: sha, svgSha256: svgSha, templateVersion: TEMPLATE_VERSION, bytes: png, now }).run();
   // two servers drawing at once both write the same bytes under the same name; the (svg, version) row that won is the one served
-  const row = await artBySvg(env.DB, svgSha, TEMPLATE_VERSION);
+  const row = await artBySvg(env.DB, svgSha, TEMPLATE_VERSION, { fresh: true });
   return { sha256: row ? row.sha256 : sha };
 }
 
@@ -121,8 +133,11 @@ async function coinState(env, cityId) {
  * chosen with "Use this coin" (coin_ready)? The registry gives every city its own ticker, but a regenerated list could move one
  * (scripts/cities/tickers.mjs pins every launched one), so this is checked again before anything is recorded.
  */
-export async function symbolTaken(env, cityId, symbol) {
+export async function symbolTaken(env, cityId, symbol, fetchImpl = fetch, { chain = true } = {}) {
   const db = env.DB, c = String(cityId);
+  // a recorded coin whose symbol was never read (lp_coins.symbol NULL) is read from the chain now; one still unknown may be this ticker
+  // (a preview, which reads no chain, leaves that to the checks before anything is recorded)
+  if (chain && (await unknownSymbols(env, c, fetchImpl)).length) return "unknown";
   if (await optional(() => db.prepare("SELECT city_id FROM lp_coins WHERE symbol = ? AND city_id <> ? LIMIT 1").bind(symbol, c).first())) return "launched";
   if (await optional(() => db.prepare(`SELECT a.city_id FROM lp_approvals_log a WHERE a.action = 'approve' AND a.symbol = ? AND a.city_id <> ?
       AND NOT EXISTS (SELECT 1 FROM lp_approvals_log b WHERE b.city_id = a.city_id AND b.cluster = a.cluster AND b.program_id = a.program_id
@@ -138,14 +153,18 @@ const gate = (code) => ({ code, message: GATES[code] });
 async function coinGate(env, { u, seat, d, live, cityId, fetchImpl, now }) {
   if (!u.wallet) return gate("no_wallet");
   if (u.wallet !== seat.wallet) return gate("wallet_mismatch");
+  // the grace period is named only when the seat is in it; a balance that is merely low (seen by a route that starts nothing) is said as that
+  if (seat.status === "grace") return gate("in_grace");
+  if (!LIVE.includes(seat.status)) return gate("not_founder");
   if (live === "error") return gate("rpc_unavailable");
-  if (!live || !LIVE.includes(seat.status)) return gate("in_grace");
+  if (!live) return gate(stewardInGrace(seat, now) ? "in_grace" : "below_amount");
   if ((await activeBan(env.DB, u.id, u.home_country, now)) || (await activeBan(env.DB, u.id, seat.country, now))) return gate("banned");
   if (!d.ok) return { code: d.code, message: d.message };
   const st = await coinState(env, cityId);
   if (st.launched) return gate("launched");
   if (st.pending) return gate("legacy_contract");
-  if (await symbolTaken(env, cityId, d.ticker)) return gate("symbol_taken");
+  const taken = await symbolTaken(env, cityId, d.ticker, fetchImpl);
+  if (taken) return gate(taken === "unknown" ? "ticker_unchecked" : "symbol_taken");
   let frozen;
   try { frozen = await designFrozen(env, cityId, fetchImpl, now); } catch { return gate("rpc_unavailable"); }
   if (frozen === "launched") return gate("launched");
@@ -153,35 +172,65 @@ async function coinGate(env, { u, seat, d, live, cityId, fetchImpl, now }) {
   return null;
 }
 const liveCheck = async (env, seat, fetchImpl) => { try { return await holdsFounderAmount(env, seat, fetchImpl); } catch { return "error"; } };
+/** A steward's seat in its grace period (stewards stay stewards in grace, with a deadline ahead: src/seats.js enterGrace). */
+const stewardInGrace = (seat, now) => seat.status === "steward" && Boolean(seat.grace_until) && Date.parse(seat.grace_until) > now;
 
 /* ---------------------------------------------------------------- the answers */
+const designRowOf = (env, cityId) => env.DB.prepare("SELECT updated_at FROM city_coins WHERE city_id = ?").bind(String(cityId)).first();
+/**
+ * The preview of the coin this city WILL launch, or null (the one rule for the founder's page and everyone else's; reads only, no
+ * chain read). Only for a city that has a founder; never for a launched coin (shown as itself), a city with a Raydium LaunchLab
+ * contract waiting (it may have that coin already), or a city whose design row is not the chosen ready-made version (an earlier studio
+ * design, one approved on chain before the switch, or one changed since the choice: the approval path takes that row, not this
+ * coin). The chosen version is shown with its own ticker, name and picture; with no design row yet, the defaults.
+ */
+async function previewOf(env, cityId, { seat, d, c, design }) {
+  if (!seat || !["active", "steward", "grace"].includes(seat.status)) return null;
+  const st = await coinState(env, cityId);
+  if (st.launched || st.pending) return null;
+  const chosenNow = Boolean(c && c.current && c.content);
+  if (design && !chosenNow) return null;
+  // a ticker another city launched, holds an approval for or chose cannot launch here: no preview of it
+  const ticker = chosenNow ? c.symbol : d && d.ok ? d.ticker : null;
+  if (ticker && (await symbolTaken(env, cityId, ticker, fetch, { chain: false }))) return null;
+  if (chosenNow) {
+    const city = c.content.city || {};
+    return { label: PREVIEW_LABEL, ticker: c.symbol, name: c.name, description: c.description, chosen: true, version: versionLabel(c.content_hash),
+      city: { name: city.name || null, region: city.region || null, countryName: city.countryName || null }, art: artPath(c.art_sha256) };
+  }
+  if (!d || !d.ok) return null;
+  const art = await storedArt(env, d);
+  return { label: PREVIEW_LABEL, ticker: d.ticker, name: d.name, description: d.description, chosen: false,
+    city: { name: d.city.name, region: d.city.region, countryName: d.city.countryName }, art: art ? artPath(art.sha256) : null };
+}
 async function founderView(env, { u, seat, cityId, fetchImpl, now, live }) {
   const d = await coinDefaults(env, cityId, seat.country);
   const g = await coinGate(env, { u, seat, d, live, cityId, fetchImpl, now });
-  if (!d.ok) return { ok: true, mode: "founder", city: { id: cityId, name: seat.city_name, country: seat.country }, coin: null, chosen: null, gate: g };
+  const c = await chosenOf(env.DB, cityId, { fresh: true });
+  const design = await designRowOf(env, cityId);
+  const preview = await previewOf(env, cityId, { seat, d, c, design });
+  // chosen: the city's choice, with its own words; mine: chosen with THIS founder's seat (a former founder's choice is not theirs)
+  const chosen = c ? { contentHash: c.content_hash, version: versionLabel(c.content_hash), at: c.chosen_at, current: c.current, art: artPath(c.art_sha256), launched: Boolean(c.mint),
+    ticker: c.symbol, name: c.name, mine: c.seat_id === seat.id } : null;
+  // earlier: the city's design row is not the chosen ready-made coin (a studio design made before; it is kept, but it is not launched)
+  const earlier = Boolean(design && !(c && c.current));
+  if (!d.ok) return { ok: true, mode: "founder", city: { id: cityId, name: seat.city_name, country: seat.country }, coin: null, chosen, inUse: false, earlier, gate: g, preview };
   const art = await storedArt(env, d);
   const contentHash = art ? await sha256Hex(canonicalContent({ city: d.city, name: d.name, symbol: d.ticker, description: d.description, artSha256: art.sha256, templateVersion: TEMPLATE_VERSION })) : null;
-  const c = await chosenOf(env.DB, cityId);
-  const chosen = c ? { contentHash: c.content_hash, version: versionLabel(c.content_hash), at: c.chosen_at, current: c.current, art: artPath(c.art_sha256), launched: Boolean(c.mint) } : null;
   return {
     ok: true, mode: "founder",
     city: { id: d.city.id, name: d.city.name, region: d.city.region, regionCode: d.city.regionCode, country: d.city.country, countryName: d.city.countryName },
     coin: { ticker: d.ticker, name: d.name, description: d.description, pair: d.pair, templateVersion: TEMPLATE_VERSION, source: SOURCE,
       art: art ? artPath(art.sha256) : null, contentHash, version: versionLabel(contentHash) },
-    chosen, inUse: Boolean(chosen && chosen.current && contentHash && chosen.contentHash === contentHash), gate: g,
+    chosen, inUse: Boolean(chosen && chosen.current && chosen.mine && contentHash && chosen.contentHash === contentHash), earlier, gate: g, preview,
   };
 }
 async function previewView(env, cityId) {
-  const none = { ok: true, mode: "preview", preview: null };
   const seat = await liveSeatOfCity(env.DB, cityId);
-  if (!seat || !["active", "steward", "grace"].includes(seat.status)) return none; // previews only for a city that has a founder
-  if ((await coinState(env, cityId)).launched) return none; // a launched coin is shown as itself, never as a preview
+  if (!seat) return { ok: true, mode: "preview", preview: null };
   const d = await coinDefaults(env, cityId, seat.country);
-  if (!d.ok) return none;
   const c = await chosenOf(env.DB, cityId);
-  const art = c && c.current ? { sha256: c.art_sha256 } : await storedArt(env, d);
-  return { ok: true, mode: "preview", preview: { label: PREVIEW_LABEL, ticker: d.ticker, name: d.name, description: d.description,
-    city: { name: d.city.name, region: d.city.region, countryName: d.city.countryName }, art: art ? artPath(art.sha256) : null } };
+  return { ok: true, mode: "preview", preview: await previewOf(env, cityId, { seat, d, c, design: await designRowOf(env, cityId) }) };
 }
 
 const fail = (error, status, extra = {}) => json({ ok: false, error, ...(GATES[error] ? { message: GATES[error] } : {}), ...extra }, status);
@@ -235,7 +284,7 @@ export async function handleReadyArt(request, env, fetchImpl = fetch, now = Date
   if (slow) return slow;
   const live = await liveCheck(env, seat, fetchImpl);
   if (live === "error") return fail("rpc_unavailable", 503);
-  if (!live) return fail("in_grace", 403);
+  if (!live) return fail("below_amount", 403); // looked at only: no grace period starts here
   const d = await coinDefaults(env, w.cityId, seat.country);
   if (!d.ok) return json({ ok: false, error: d.code, message: d.message }, d.code === "list_unavailable" ? 503 : 409);
   await ensureReadySchema(env.DB);
@@ -276,45 +325,68 @@ export async function handleReadyUse(request, env, fetchImpl = fetch, now = Date
   const view = () => founderView(env, { u, seat, cityId, fetchImpl, now, live: true });
   // the founder confirms exactly what their page showed: a list or template change since then is a new version, shown first
   if (echo !== hash) return json({ ...(await view()), ok: false, error: "coin_changed", message: "Your coin changed since this page loaded. Check it again, then use it." }, 409);
-  const before = await chosenOf(env.DB, cityId);
-  if (before && before.current && before.content_hash === hash) return json({ ...(await view()), already: true });
+  const before = await chosenOf(env.DB, cityId, { fresh: true });
+  // already this founder's choice and still the design: nothing to write. A choice made with another seat (a former founder's) is made
+  // again, so the design row names this founder's seat (the owner approves only a design of the current founder: src/lpadmin.js)
+  if (before && before.current && before.content_hash === hash && before.seat_id === seat.id) return json({ ...(await view()), already: true });
 
-  const db = env.DB, at = iso(now);
+  const db = env.DB, at = iso(now), hold = holdKey(cityId);
   const old = await db.prepare("SELECT * FROM city_coins WHERE city_id = ?").bind(cityId).first();
   const stmts = [
     db.prepare(`INSERT OR IGNORE INTO coin_versions (city_id, origin, content_json, content_hash, name, symbol, description, art_sha256, template_version, created_by, created_at)
       VALUES (?, 'default', ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(cityId, content, hash, d.name, d.ticker, d.description, art.sha256, TEMPLATE_VERSION, u.id, at),
   ];
+  // the owner's approval being built right now (src/lpcoins.js holdDesign, written BEFORE src/lpadmin.js approveTx reads the design
+  // again and builds) wins over this choice: checked again inside every write, not only by the gate above, so a choice and an
+  // approval that cross never leave the approval naming one version while another is written
+  const noHold = "NOT EXISTS (SELECT 1 FROM settings WHERE key = ? AND value > ?)";
   // every write after the design row's own is conditional on it: if that row launched or got a LaunchLab contract in the meantime
-  // (its update is skipped), nothing else is written either
-  const ours = "EXISTS (SELECT 1 FROM city_coins WHERE city_id = ? AND updated_at = ? AND mint IS NULL AND pending_mint IS NULL)";
+  // (its update is skipped), or an approval is being built, nothing else is written either
+  const ours = `EXISTS (SELECT 1 FROM city_coins WHERE city_id = ? AND updated_at = ? AND mint IS NULL AND pending_mint IS NULL) AND ${noHold}`;
+  const oursArgs = [cityId, at, hold, at];
   // the founder's earlier studio design is kept, whole, before the row becomes the ready-made coin (never on a mere visit)
   const legacy = old && !(before && before.current);
   if (legacy) {
     stmts.push(db.prepare(`INSERT INTO coin_legacy_designs (city_id, design_json, copied_at, copied_by) SELECT ?, ?, ?, ? WHERE ${ours}`)
-      .bind(cityId, JSON.stringify(old), at, u.id, cityId, old.updated_at));
+      .bind(cityId, JSON.stringify(old), at, u.id, ...oursArgs));
   }
   stmts.push(db.prepare(`INSERT INTO city_coins (city_id, city_name, country, seat_id, user_id, name, pitch, pair, color, media_id, updated_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ink', NULL, ?, ?)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'ink', NULL, ?, ? WHERE ${noHold}
       ON CONFLICT(city_id) DO UPDATE SET seat_id = excluded.seat_id, user_id = excluded.user_id, name = excluded.name, pitch = excluded.pitch, pair = excluded.pair,
         color = excluded.color, media_id = NULL, approved_media_id = NULL, logo_hash = NULL, logo_status = NULL, logo_reason = NULL, logo_note = NULL,
         logo_reviewed_at = NULL, logo_reviewed_by = NULL, updated_at = excluded.updated_at
-      WHERE city_coins.mint IS NULL AND city_coins.pending_mint IS NULL`)
-    .bind(cityId, seat.city_name, seat.country, seat.id, u.id, d.name, d.description, d.pair, at, at));
-  stmts.push(db.prepare(`INSERT INTO coin_ready (city_id, version_id, content_hash, symbol, design_at, seat_id, user_id, chosen_at)
-      SELECT ?, (SELECT id FROM coin_versions WHERE city_id = ? AND content_hash = ?), ?, ?, ?, ?, ?, ? WHERE ${ours}
+      WHERE city_coins.mint IS NULL AND city_coins.pending_mint IS NULL AND ${noHold}`)
+    .bind(cityId, seat.city_name, seat.country, seat.id, u.id, d.name, d.description, d.pair, at, at, hold, at, hold, at));
+  // a new choice is not approved by anyone yet: approved_hash is set only by the owner's approval built from it (src/lpadmin.js)
+  stmts.push(db.prepare(`INSERT INTO coin_ready (city_id, version_id, content_hash, symbol, design_at, seat_id, user_id, chosen_at, approved_hash)
+      SELECT ?, (SELECT id FROM coin_versions WHERE city_id = ? AND content_hash = ?), ?, ?, ?, ?, ?, ?, NULL WHERE ${ours}
       ON CONFLICT(city_id) DO UPDATE SET version_id = excluded.version_id, content_hash = excluded.content_hash, symbol = excluded.symbol,
-        design_at = excluded.design_at, seat_id = excluded.seat_id, user_id = excluded.user_id, chosen_at = excluded.chosen_at
-      WHERE coin_ready.mint IS NULL`).bind(cityId, cityId, hash, hash, d.ticker, at, seat.id, u.id, at, cityId, at));
+        design_at = excluded.design_at, seat_id = excluded.seat_id, user_id = excluded.user_id, chosen_at = excluded.chosen_at, approved_hash = NULL
+      WHERE coin_ready.mint IS NULL`).bind(cityId, cityId, hash, hash, d.ticker, at, seat.id, u.id, at, ...oursArgs));
   stmts.push(db.prepare(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, note, created_at, state)
       SELECT ?, 'founder', 'coin_design', 'city_coin', NULL, ?, ?, ?, 'design', ?, ?, 'done' WHERE ${ours}`)
-    .bind(u.id, u.id, seat.country, cityId, `${seat.city_name}: the Vicinity coin $${d.ticker} "${d.name}", version ${versionLabel(hash)}${legacy ? " (the earlier design is kept aside)" : ""}`, at, cityId, at));
+    .bind(u.id, u.id, seat.country, cityId, `${seat.city_name}: the Vicinity coin $${d.ticker} "${d.name}", version ${versionLabel(hash)}${legacy ? " (the earlier design is kept aside)" : ""}`, at, ...oursArgs));
   try { await db.batch(stmts); }
   catch (e) {
     if (/UNIQUE/i.test(String((e && e.message) || e))) return fail("symbol_taken", 409);
     throw e;
   }
-  const after = await chosenOf(db, cityId);
-  if (!after || !after.current || after.content_hash !== hash) return fail("launched", 409); // the row was launched or claimed meanwhile: nothing of ours stands
+  const after = await chosenOf(db, cityId, { fresh: true });
+  if (!after || !after.current || after.content_hash !== hash || after.seat_id !== seat.id) {
+    // nothing of ours stands: say why, as the gate would have
+    const why = await notWritten(env, cityId, now);
+    return why === "coin_changed" ? json({ ...(await view()), ok: false, error: "coin_changed", message: "Your coin changed since this page loaded. Check it again, then use it." }, 409) : fail(why, 409);
+  }
   return json({ ...(await view()), used: true });
+}
+/** The settings key of the owner's approval hold for a city (src/lpcoins.js holdDesign writes it; designFrozen reads it). */
+const holdKey = (cityId) => `lp_design_hold:${String(cityId)}`;
+/** Why "Use this coin" wrote nothing although its checks passed: the owner started approving, the coin launched or got a contract. */
+async function notWritten(env, cityId, now) {
+  const h = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(holdKey(cityId)).first();
+  if (h && Date.parse(h.value) > now) return "held";
+  const st = await coinState(env, cityId);
+  if (st.launched) return "launched";
+  if (st.pending) return "legacy_contract";
+  return "coin_changed";
 }

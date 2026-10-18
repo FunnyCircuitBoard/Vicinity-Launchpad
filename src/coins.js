@@ -33,6 +33,7 @@ import { designFrozen, rebuildMetaJson } from "./lpcoins.js";
 import { adminRoleOf } from "./admin.js";
 import { clearedStatement, pendingStatement, publicLogo, rejectLogo, reviewView } from "./logos.js";
 import { notify, pictureReason } from "./notify.js";
+import { coinV2ReadyOn } from "./flags.js";
 
 const C = POLICY.coins;
 
@@ -228,6 +229,9 @@ export async function handleDecideMint(request, env, fetchImpl = fetch, now = Da
   let seen = "";
   if (body.approve === true) {
     if (!mint) return json({ ok: false, error: "mint_required" }, 400);
+    // COIN_V2_READY=on (src/coinready.js): a city's one coin launches on the Vicinity launchpad, so a contract is never RECORDED as a
+    // city's coin (it could become a second coin); a waiting one can still be rejected (below), which settles the city
+    if (coinV2ReadyOn(env)) return json({ ok: false, error: "launchpad_only", message: "City coins launch on the Vicinity launchpad now, so a waiting Raydium LaunchLab contract can only be rejected, not recorded. Nothing was changed." }, 409);
     let facts;
     try { facts = await mintInfo(env, mint, fetchImpl); }
     catch (e) { console.error("mint check failed", String(e)); return json({ ok: false, error: "chain_unavailable" }, 503); }

@@ -42,15 +42,19 @@ const COLORS = Object.freeze({
 
 /**
  * Every template version, frozen. `t1` is the vector redraw of the owner's picture (DESIGN 2.1-2.4): ticker caps centred on y 264,
- * at most 330 px wide, cap height 80 at most; the city between two rules on y 339 (or on two lines around y 335); "VICINITY CITY" on
- * the bottom arc. The text-fitting numbers live in the version, so a later version can move or resize the text without moving t1's.
+ * at most 330 px wide, cap height 80 at most; the city between two rules on y 339; "VICINITY CITY" on the bottom arc. A city name
+ * on two lines (around y 338) takes more room, so there the ticker is at most 84 px and centred on y 250: whatever the letters (the
+ * $ and Q tails of the Bold, the stacked accents of the Medium, up to 1.116 em), at least 10 px stay clear between the ticker and the
+ * first city line (test/coinart.test.js checks every two-line coin of the city list). That two-line rule was set on 18 Oct 2026,
+ * before any t1 coin was stored or launched. The text-fitting numbers live in the version, so a later version can move or resize the
+ * text without moving t1's.
  */
 export const TEMPLATES = Object.freeze({
   t1: Object.freeze({
     version: "t1", base: "vector", fonts: FONT_SHA256, resvg: RESVG_VERSION,
-    ticker: Object.freeze({ start: 80 / 0.7, maxWidth: 330, min: 40, track: 0.01, centerY: 264 }),
+    ticker: Object.freeze({ start: 80 / 0.7, maxWidth: 330, min: 40, track: 0.01, centerY: 264, twoLineMax: 84, twoLineCenterY: 250 }),
     city: Object.freeze({ start: 30, track: 0.22, centerY: 339, band: 340, rule: 64, ruleMin: 18, gap: 12, min: 18,
-      twoLineMax: 24, twoLineWidth: 300, twoLineCenterY: 335, lineHeight: 1.15, floor: 14 }),
+      twoLineMax: 24, twoLineWidth: 300, twoLineCenterY: 338, lineHeight: 1.15, floor: 14 }),
     arc: Object.freeze({ r: 158, size: 19, spacing: 6, text: "VICINITY CITY" }),
   }),
 });
@@ -129,7 +133,10 @@ export function fitCoin({ ticker, city, templateVersion = TEMPLATE_VERSION, temp
       cs = Math.max(C.floor, cs);
     }
   }
-  return { template: t.version, ticker: text, tickerSize: ts, tickerWidth: textWidth(text, METRICS.bold, ts, T.track), city: name, lines, citySize: cs, rule, centerY };
+  // a city on two lines: the ticker smaller and higher, so the two never touch (the version's numbers; see TEMPLATES)
+  let tickerCenterY = T.centerY;
+  if (lines.length === 2 && T.twoLineMax) { ts = Math.min(ts, T.twoLineMax); tickerCenterY = T.twoLineCenterY; }
+  return { template: t.version, ticker: text, tickerSize: ts, tickerCenterY, tickerWidth: textWidth(text, METRICS.bold, ts, T.track), city: name, lines, citySize: cs, rule, centerY };
 }
 
 /** The base of a vector version: the rings, the navy field and the map pin, as in the owner's picture (DESIGN 2.1). */
@@ -153,7 +160,7 @@ function paintedBase(dataUri) {
 function textLayers(f, t) {
   const c = COLORS, C = t.city;
   const out = [];
-  const tb = t.ticker.centerY + 0.35 * f.tickerSize; // caps (0.7 em) centred on centerY
+  const tb = f.tickerCenterY + 0.35 * f.tickerSize; // caps (0.7 em) centred on the ticker's centre line
   out.push(`<text x="256" y="${n2(tb)}" text-anchor="middle" font-family="Space Grotesk" font-weight="700" font-size="${n2(f.tickerSize)}" letter-spacing="${n2(t.ticker.track * f.tickerSize)}" fill="url(#cream)" stroke="${c.edge}" stroke-width="1.20" paint-order="stroke">${esc(f.ticker)}</text>`);
   const cityText = (line, y) => `<text x="256" y="${n2(y)}" text-anchor="middle" font-family="Space Grotesk" font-weight="500" font-size="${n2(f.citySize)}" letter-spacing="${n2(C.track * f.citySize)}" fill="${c.cream}">${esc(line)}</text>`;
   if (f.lines.length === 1) {

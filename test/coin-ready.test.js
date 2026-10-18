@@ -93,10 +93,12 @@ test("the founder's coin comes from the registry: ticker, name, city, region, co
   assert.deepEqual([v.coin.art, v.coin.contentHash, v.coin.version, v.chosen, v.inUse, v.gate], [null, null, null, null, false, null], "no picture yet: none is drawn on a GET");
   assert.equal(renders, 0);
   for (const t of NEW_TABLES) assert.equal((await tables()).includes(t), false, `a GET makes no ${t}`);
-  // a founder whose balance fell below the bar: the GET says so, and does NOT start the grace period (a POST would)
+  // a founder whose balance fell below the bar: the GET says so, as a low balance (not a grace period it does not start: a POST would)
   setHolding(f.w.address, 10);
   const low = await view(f);
-  assert.deepEqual(low.gate, { code: "in_grace", message: GATES.in_grace });
+  assert.deepEqual(low.gate, { code: "below_amount", message: GATES.below_amount });
+  assert.equal(GATES.below_amount, "Your balance is below the founder amount. Hold it again to choose your coin; if it stays below, your seat enters its grace period.");
+  assert.doesNotMatch(low.gate.message, /is in its grace period/, "never says the seat is in grace when it is not");
   assert.equal((await row("SELECT status, grace_until FROM seats WHERE user_id = ?", f.uid)).status, "active", "no side effect: still active");
   assert.equal((await row("SELECT grace_until FROM seats WHERE user_id = ?", f.uid)).grace_until, null);
   assert.equal((await f.send(`/api/coins/ready?city=${UTICA}`)).headers.get("cache-control"), "no-store");
@@ -154,7 +156,7 @@ test("the picture route is the founder's only: signed out, cross-site, another c
   const other = await person(env, { home: IN_UTICA, holds: 2_000_000 });
   assert.equal((await art(other)).error, "not_founder");
   setHolding(f.w.address, 10);
-  assert.equal((await art(f)).error, "in_grace", "no picture for a founder below the bar");
+  assert.equal((await art(f)).error, "below_amount", "no picture for a founder below the bar (said as a low balance: nothing starts a grace period here)");
   assert.equal((await row("SELECT status FROM seats WHERE user_id = ?", f.uid)).status, "active", "and no grace started by it");
   setHolding(f.w.address, 2_000_000);
   for (let i = 0; i < READY_LIMITS.art.max - 1; i++) assert.equal((await art(f)).ok, true); // the grace answer above was counted too
@@ -197,13 +199,14 @@ test("Use this coin: a fresh proof and the exact version shown; the row becomes 
   assert.deepEqual([again.ok, again.already], [true, true]);
   assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM mod_actions WHERE action = 'coin_design'").first()).n, 1);
   assert.equal(renders, 1);
-  // while the switch is on, the old studio and the LaunchLab contract routes are closed
+  // while the switch is on, the old studio and the LaunchLab contract route are closed; deciding on a contract is an admin's (checked
+  // first, like always: the founder is refused as not an admin, before anything of the request is read)
   const d = await f.send("/api/coins/design", { method: "POST", body: { name: "Moon", pitch: "", pair: "SOL", color: "gold" } });
   assert.deepEqual([d.status, (await d.json()).error], [409, "use_ready_coin"]);
-  for (const p of ["/api/coins/mint", "/api/coins/mint/decide"]) {
-    const m = await f.send(p, { method: "POST", body: { mint: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", city: UTICA } });
-    assert.deepEqual([m.status, (await m.json()).error], [409, "launchpad_only"], p);
-  }
+  const m = await f.send("/api/coins/mint", { method: "POST", body: { mint: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU" } });
+  assert.deepEqual([m.status, (await m.json()).error], [409, "launchpad_only"]);
+  const dm = await f.send("/api/coins/mint/decide", { method: "POST", body: { mint: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", city: UTICA, approve: true } });
+  assert.deepEqual([dm.status, (await dm.json()).error], [403, "not_allowed"]);
   assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM city_coins WHERE pending_mint IS NOT NULL").first()).n, 0);
 });
 
@@ -391,7 +394,7 @@ test("previews: only for a city that has a founder, labelled Preview, not launch
   assert.deepEqual(await view(visitor, SYRACUSE), { ok: true, mode: "preview", preview: null });
   const f = await founder();
   const p = await view(visitor);
-  assert.deepEqual(p.preview, { label: PREVIEW_LABEL, ticker: "UTICA", name: "Utica", description: "The city coin of Utica, New York, United States.",
+  assert.deepEqual(p.preview, { label: PREVIEW_LABEL, ticker: "UTICA", name: "Utica", description: "The city coin of Utica, New York, United States.", chosen: false,
     city: { name: "Utica", region: "New York", countryName: "United States" }, art: null });
   assert.equal(PREVIEW_LABEL, "Preview, not launched");
   assert.equal(renders, 0, "a visitor never makes a picture");

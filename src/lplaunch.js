@@ -40,7 +40,7 @@ import { iso } from "./policy.js";
 import { keyLimit, publicLimit, walletLimit } from "./guards.js";
 import { displayTicker } from "./tickers.js";
 import { decodeApproval } from "./lpadmin.js";
-import { coinByMint, recordedByMint } from "./lpcoins.js";
+import { coinByMint, recordedByMint, unknownSymbols } from "./lpcoins.js";
 import { programHashes, programRefusal } from "./programpins.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas } from "./sol/pda.js";
 import { accountBytes, decodeCoin, decodeConfig, decodeLaunchConfig, decodeLaunchpad, decodePool, decodeTokenAccount } from "./sol/dbc.js";
@@ -219,6 +219,18 @@ function launchProblem(st, s, wallet, nowS, { slack = 0 } = {}) {
   return null;
 }
 
+/**
+ * One city, one coin, whatever the switches say: a contract sent for this city through the old Raydium LaunchLab path (src/coins.js
+ * city_coins.pending_mint) that still waits for a check may be a coin already, so nothing launches here until an admin settles it.
+ */
+export const LEGACY_CONTRACT_WAITING = "A contract sent for this city through the old Raydium LaunchLab path is still waiting. Nothing can launch until an admin settles it.";
+async function legacyContractWaiting(env, cityId) {
+  try {
+    const row = await env.DB.prepare("SELECT pending_mint FROM city_coins WHERE city_id = ?").bind(String(cityId)).first();
+    return Boolean(row && row.pending_mint);
+  } catch (e) { if (/no such table/i.test(String((e && e.message) || e))) return false; throw e; }
+}
+
 /* ---------------------------------------------------------------- GET /api/lp/launch/status */
 async function launchStatus(request, env, fetchImpl, now) {
   const s = lpSetup(env), q = new URL(request.url).searchParams;
@@ -270,6 +282,7 @@ async function launchStatus(request, env, fetchImpl, now) {
   }
   let p = launchProblem(st, s, who.wallet, nowS);
   if (p && p.error === "founder_mismatch") return err(p.error, p.message, 403, { state: p.state, approval: out.approval });
+  if (!p && (await legacyContractWaiting(env, cityId))) p = { state: "paused", error: "legacy_contract", message: LEGACY_CONTRACT_WAITING };
   // otherwise ready: Meteora's programs must still be the tested builds (the card says why launches wait, before the founder presses)
   if (!p) { const h = await meteoraHold(env, fetchImpl, now); if (h) p = { state: "paused", error: h.error, message: h.message }; }
   out.state = p ? p.state : "ready";
@@ -305,6 +318,7 @@ async function launchTx(request, env, fetchImpl, now) {
   if (!g.ok) return respond(g);
   const f = await founderOf(env, who.u, cityId, now, fetchImpl);
   if (f.error) return f.error;
+  if (await legacyContractWaiting(env, cityId)) return err("legacy_contract", `${LEGACY_CONTRACT_WAITING} Nothing was built.`, 409, { state: "paused" });
 
   let st;
   try { st = await launchState(env, s, cityId, fetchImpl); } catch (e) { console.error("launch read failed", codeOf(e)); return err("rpc_unavailable", "The blockchain could not be reached just now. Nothing was built. Try again in a minute.", 503); }
@@ -313,6 +327,8 @@ async function launchTx(request, env, fetchImpl, now) {
   // COIN_V2_READY=on: a ticker launches once. The live program does not lock tickers, so a symbol another city already launched with
   // (lp_coins) is refused here before anything is built (scripts/cities/tickers.mjs pins every launched ticker in the city list too)
   if (coinV2ReadyOn(env) && st.approval) {
+    // a recorded coin whose symbol the site never read is read now; one still unknown may be this ticker: refused, never assumed free
+    if ((await unknownSymbols(env, cityId, fetchImpl)).length) return err("symbol_unchecked", "A coin launched for another city has a ticker this site could not read from the blockchain yet, so it can't be sure yours is free. Nothing was built. Try again in a minute.", 503, { state: "paused" });
     let other = null;
     try { other = await env.DB.prepare("SELECT city_id FROM lp_coins WHERE symbol = ? AND city_id <> ? LIMIT 1").bind(st.approval.symbol, String(cityId)).first(); }
     catch (e) { if (!/no such table/i.test(String((e && e.message) || e))) throw e; }

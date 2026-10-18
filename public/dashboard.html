@@ -426,16 +426,17 @@
             <section class="card coin-ready" id="coin-ready" aria-labelledby="coin-ready-title" hidden>
               <div class="coin-ready__head">
                 <div><p class="kicker">City coin · made by Vicinity</p><h2 class="h2--sm" id="coin-ready-title">Your city coin</h2></div>
-                <span class="tag" id="cr-state">Checking…</span>
+                <span class="tag" id="cr-state" tabindex="-1">Checking…</span>
               </div>
               <p class="coin-ready__place small" id="cr-place"></p>
+              <p class="small coin-ready__caption"><span class="ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg></span>Set by Vicinity. Every city coin uses the same Vicinity design, filled in from the Vicinity city list, so nothing here can be edited.</p>
               <div class="coin-ready__body">
                 <figure class="coin-ready__art">
                   <img id="cr-art" width="240" height="240" alt="" hidden>
                   <span class="coin-ready__wait small" id="cr-art-wait">Drawing your coin…</span>
                 </figure>
                 <dl class="coin-ready__facts">
-                  <div><dt>Ticker</dt><dd><strong id="cr-ticker">$—</strong><span class="tiny muted coin-ready__src">from the Vicinity city list</span></dd></div>
+                  <div class="coin-ready__ticker"><dt>Ticker</dt><dd><strong id="cr-ticker">$—</strong></dd></div>
                   <div><dt>Coin name</dt><dd id="cr-name">—</dd></div>
                   <div><dt>City</dt><dd id="cr-city">—</dd></div>
                   <div id="cr-region-row"><dt>State / region</dt><dd id="cr-region">—</dd></div>
@@ -444,8 +445,8 @@
                   <div class="coin-ready__wide"><dt>Description</dt><dd id="cr-desc">—</dd></div>
                 </dl>
               </div>
+              <p class="tiny muted coin-ready__src">The ticker, the name and the place come from the Vicinity city list.</p>
               <p class="tiny muted coin-ready__version" id="cr-version"></p>
-              <p class="small coin-ready__caption"><span class="ico ico--sm" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg></span>Set by Vicinity. Every city coin uses the same Vicinity design, filled in from the Vicinity city list, so nothing here can be edited.</p>
               <p class="small coin-ready__gate" id="cr-gate" role="status" hidden></p>
               <div class="coin-ready__actions">
                 <button class="btn btn--primary" type="button" id="cr-use" disabled>Use this coin</button>
@@ -872,7 +873,7 @@
             <summary class="role-row__head"><span class="role__icon ico ico--gold" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M4 17.5 3 8l5 4 4-6.5 4 6.5 5-4-1 9.5z"/><path d="M4.5 20.5h15"/></svg></span><div><h3>City Founder</h3><p class="tiny muted">Chosen by the city · vote ×2</p></div><span class="role-row__chev" aria-hidden="true"></span></summary>
             <div class="role-row__body">
             <div><p class="role-row__when">Any time</p><ul><li>Set your home community (it must be set 7 days before you apply).</li><li>Bring your locals in: they'll endorse the founder.</li><li>Hold the founder amount for 7 days straight: balances are checked at random times.</li></ul></div>
-            <div><p class="role-row__when">Since $VICINITY launched</p><ul><li>Apply from inside the city. The first qualified claimer becomes Seed Steward at once: a 90-day probation, confirmed early by 50 verified local holders, and locals can challenge (10 endorsements force an election).</li><li>If several claim together, a 72-hour window scores them: 50% local endorsements, 30% contribution, 20% holdings (capped at 2×). Then 48 hours for objections.</li><li>Your bar is set by city size (100K to 1M $VICINITY). Friends can found together: 3 to 5 verified locals can pool as a squad.</li><li>Moderate the city's feed (hides need a second person). Drop below the amount and moderation pauses; 7 days to fix it (48 hours for a Seed Steward) or the seat reopens.</li><li>Design the city's coin: name, logo, colour and a short pitch; it launches paired with SOL. Public, logged, and locked once it launches.</li><li>At the Launchpad: first right to launch the city's one official coin.</li></ul></div>
+            <div><p class="role-row__when">Since $VICINITY launched</p><ul><li>Apply from inside the city. The first qualified claimer becomes Seed Steward at once: a 90-day probation, confirmed early by 50 verified local holders, and locals can challenge (10 endorsements force an election).</li><li>If several claim together, a 72-hour window scores them: 50% local endorsements, 30% contribution, 20% holdings (capped at 2×). Then 48 hours for objections.</li><li>Your bar is set by city size (100K to 1M $VICINITY). Friends can found together: 3 to 5 verified locals can pool as a squad.</li><li>Moderate the city's feed (hides need a second person). Drop below the amount and moderation pauses; 7 days to fix it (48 hours for a Seed Steward) or the seat reopens.</li><li data-coin-designed>Design the city's coin: name, logo, colour and a short pitch; it launches paired with SOL. Public, logged, and locked once it launches.</li><li data-coin-ready hidden>Choose the city's coin: made by Vicinity from the city list (its ticker, name and picture); it launches paired with SOL once Vicinity's owner approves it on the blockchain. Public, logged, and fixed once it launches.</li><li>At the Launchpad: first right to launch the city's one official coin.</li></ul></div>
             </div>
           </details>
           <details class="card role-row" data-role="manager">

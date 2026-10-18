@@ -546,15 +546,13 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (coinV2ReadyOn(env) && method === "POST") return json({ ok: false, error: "use_ready_coin", message: "Your city's coin is made from the Vicinity design now. Use the coin in your Founder tab." }, 409);
       return only("POST") || handleDesign(request, env, fetchImpl);
     case "/api/coins/mint":
+      // COIN_V2_READY=on: a city's one coin launches on the Vicinity launchpad only, so a founder can't send a Raydium LaunchLab
+      // contract (nothing is read: no body, no founder check). An admin's decision on a contract sent before goes to handleDecideMint,
+      // which refuses to RECORD one while the switch is on and lets a rejection (with a reason) through, so such a city can be settled
+      if (coinV2ReadyOn(env) && method === "POST") return json({ ok: false, error: "launchpad_only", message: "City coins launch on the Vicinity launchpad now, so a Raydium LaunchLab contract can't be added here. Nothing was changed." }, 409);
+      return only("POST") || handleProposeMint(request, env, fetchImpl);
     case "/api/coins/mint/decide":
-      // COIN_V2_READY=on: a city's one coin launches on the Vicinity launchpad only; a Raydium LaunchLab contract is never recorded
-      // as a city's coin (it could become a second coin for a city that also launches here). A contract still waiting for a check
-      // can be REJECTED (approve: false), so a city held up by one is not stuck until the switch goes off; it is never accepted.
-      if (coinV2ReadyOn(env) && method === "POST") {
-        const rejecting = path === "/api/coins/mint/decide" && (await request.clone().json().catch(() => null))?.approve === false;
-        if (!rejecting) return json({ ok: false, error: "launchpad_only", message: "City coins launch on the Vicinity launchpad now. A contract made elsewhere can't be recorded as a city's coin." }, 409);
-      }
-      return only("POST") || (path === "/api/coins/mint" ? handleProposeMint(request, env, fetchImpl) : handleDecideMint(request, env, fetchImpl));
+      return only("POST") || handleDecideMint(request, env, fetchImpl);
     // the ready-made coin (COIN_V2_READY=on, src/coinready.js): with the switch off these are unknown paths (404) for every method
     case "/api/coins/ready":
       if (!coinV2ReadyOn(env)) return json({ error: "not_found" }, 404);

@@ -12,8 +12,10 @@ const CSS = readFileSync(new URL("../public/coin-ready.css", import.meta.url), "
 const HASH = "3f9a2c1b" + "a".repeat(56), ART = `/coin-meta/art/${"b".repeat(64)}.png`;
 const CITY = { id: "5142056", name: "Utica", region: "New York", regionCode: "NY", country: "US", countryName: "United States" };
 const COIN = { ticker: "UTICA", name: "Utica", description: "The city coin of Utica, New York, United States.", pair: "SOL", templateVersion: "t1", source: "Vicinity city list" };
-const founderView = (over = {}) => ({ ok: true, mode: "founder", city: CITY, coin: { ...COIN, art: null, contentHash: null, version: null }, chosen: null, inUse: false, gate: null, ...over });
-const drawn = (over = {}) => founderView({ coin: { ...COIN, art: ART, contentHash: HASH, version: HASH.slice(0, 8) }, ...over });
+const PREVIEW = (over = {}) => ({ label: "Preview, not launched", ticker: "UTICA", name: "Utica", description: COIN.description, chosen: false, city: { name: "Utica", region: "New York", countryName: "United States" }, art: null, ...over });
+const founderView = (over = {}) => ({ ok: true, mode: "founder", city: CITY, coin: { ...COIN, art: null, contentHash: null, version: null }, chosen: null, inUse: false, earlier: false, gate: null, preview: PREVIEW(), ...over });
+const drawn = (over = {}) => founderView({ coin: { ...COIN, art: ART, contentHash: HASH, version: HASH.slice(0, 8) }, preview: PREVIEW({ art: ART }), ...over });
+const CHOSEN = { contentHash: HASH, version: HASH.slice(0, 8), at: "2026-10-18T10:00:00Z", current: true, art: ART, launched: false, ticker: "UTICA", name: "Utica", mine: true };
 
 function founderMe({ ready = true } = {}) {
   const me = memberMe({ wallet: ADDR, launched: true, amount: 2_000_000, rank: 3 });
@@ -43,7 +45,7 @@ test("switch on, the founder: the coin read-only in the Founder tab, one action;
     api: async (path, body) => {
       if (path.startsWith("/api/coins/ready?")) return view;
       if (path === "/api/coins/ready/art") { posts.push(["art", body]); view = drawn(); return view; }
-      if (path === "/api/coins/ready/use") { posts.push(["use", body]); view = drawn({ inUse: true, chosen: { contentHash: HASH, version: HASH.slice(0, 8), at: "2026-10-18T10:00:00Z", current: true, art: ART, launched: false }, used: true }); return view; }
+      if (path === "/api/coins/ready/use") { posts.push(["use", body]); view = drawn({ inUse: true, chosen: CHOSEN, preview: PREVIEW({ art: ART, chosen: true, version: HASH.slice(0, 8) }), used: true }); return view; }
       return undefined;
     },
   });
@@ -59,12 +61,12 @@ test("switch on, the founder: the coin read-only in the Founder tab, one action;
   assert.equal(page.text("#cr-place"), "Utica · New York · United States");
   assert.equal(page.$("#cr-art").getAttribute("src"), ART);
   assert.equal(page.$("#cr-art").alt, "$UTICA coin: the Vicinity city coin design");
-  assert.equal(page.text("#cr-version"), `Vicinity design t1 · Version ${HASH.slice(0, 8)}`);
+  assert.equal(page.text("#cr-version"), `Design version ${HASH.slice(0, 8)}`);
   assert.match(page.text(".coin-ready__caption"), /Set by Vicinity\. Every city coin uses the same Vicinity design, filled in from the Vicinity city list, so nothing here can be edited\./);
   assert.equal(page.$$("#coin-ready input, #coin-ready textarea, #coin-ready select").length, 0, "nothing to type in: read-only facts");
   assert.equal(page.$$("#coin-ready button").length, 1, "one action");
   const use = page.$("#cr-use");
-  assert.deepEqual([use.disabled, use.textContent, page.text("#cr-state")], [false, "Use this coin", "Ready"]);
+  assert.deepEqual([use.disabled, use.textContent, page.text("#cr-state")], [false, "Use this coin", "Ready to choose"]);
   // the preview in the city's coin card, labelled
   assert.equal(page.$("#coin-preview").hidden, false);
   assert.equal(page.text("#coin-preview-tag"), "Preview, not launched");
@@ -73,6 +75,7 @@ test("switch on, the founder: the coin read-only in the Founder tab, one action;
   assert.deepEqual(posts[1], ["use", { cityId: "5142056", contentHash: HASH }], "exactly the version on screen");
   assert.deepEqual([page.text("#cr-state"), use.hidden], ["Your coin", true]);
   assert.match(page.text("#cr-note"), /This is your coin's design now\. Next, Vicinity's owner approves it on the blockchain/);
+  assert.equal(page.text("#coin-preview-note"), "This is the coin you chose. Nothing has launched yet.", "the City tab's note follows the choice");
   assert.ok(page.toasts.includes("$UTICA is your coin"));
   assert.ok(page.calls.filter((c) => c.path.startsWith("/api/coins?city=")).length >= 2, "the coin card reads the new design");
 });
@@ -98,14 +101,14 @@ test("a gate says why and keeps the action off (no picture drawn); a changed ver
   await page.advance(100);
   assert.equal(page.$("#cr-err").hidden, false);
   assert.match(page.text("#cr-err"), /Your coin changed since this page loaded/);
-  assert.equal(page.text("#cr-version"), `Vicinity design t1 · Version ${NEW.slice(0, 8)}`);
+  assert.equal(page.text("#cr-version"), `Design version ${NEW.slice(0, 8)}`);
   assert.equal(page.$("#cr-use").disabled, false, "the new version can be checked and used");
 });
 
 test("a member of a city with a founder sees the preview labelled; without a founder (or off) the coin card is as before", async () => {
   const me = memberMe({ wallet: ADDR });
   me.coinV2Ready = true;
-  let preview = { label: "Preview, not launched", ticker: "UTICA", name: "Utica", description: "The city coin of Utica, New York, United States.", city: { name: "Utica", region: "New York", countryName: "United States" }, art: ART };
+  let preview = PREVIEW({ art: ART });
   let page = await openDashboard({ me, api: async (p) => (p.startsWith("/api/coins/ready?") ? { ok: true, mode: "preview", preview } : undefined) });
   await page.advance(1000);
   assert.equal(page.$("#coin-ready").hidden, true, "the founder's card is the founder's");
@@ -121,7 +124,19 @@ test("a member of a city with a founder sees the preview labelled; without a fou
   await page.advance(1000);
   assert.equal(page.$("#coin-preview").hidden, true);
   assert.notEqual(page.text("#coin-status"), "Not launched");
-  assert.equal(page.text("#coin-kicker"), "City coin · designed by the City Founder", "without a preview, the card as before");
+  // no preview and no design (here: a city with no founder): with the switch on, the card says who makes the coin now, never that a
+  // founder designs it
+  assert.equal(page.text("#coin-kicker"), "City coin · made by Vicinity");
+  assert.equal(page.text("#coin-status"), "No founder yet");
+  assert.equal(page.text("#coin-note"), "Every city coin is made by Vicinity from the city list; the founder chooses it and launches it once Vicinity's owner approves it on the blockchain. The seat is still open: see the founder path.");
+  assert.doesNotMatch(page.text("#coin") || "", /designs this coin|hasn't designed/);
+  // the switch off: the card exactly as before
+  const off = memberMe({ wallet: ADDR });
+  page = await openDashboard({ me: off });
+  await page.advance(1000);
+  assert.equal(page.text("#coin-kicker"), "City coin · designed by the City Founder");
+  assert.equal(page.text("#coin-status"), "Not designed yet");
+  assert.match(page.text("#coin-note"), /founder designs this coin: its name, logo, colour and what it's paired with/);
 });
 
 test("coin-ready.js builds nothing from text, asks only its own routes, loads its own stylesheet; the CSS has no outside host", () => {

@@ -1,4 +1,4 @@
 {
-  "about": "Every LAUNCHED city coin's on-chain symbol, by GeoNames city id. scripts/cities/tickers.mjs gives these cities exactly these tickers, gives them to nobody else, and fails the build if one cannot hold. Add a line in the same pull request as anything else when a city coin launches; never change or remove one. Empty on 17 Oct 2026: the live site's /api/coins and /api/official-coins listed no launched city coin.",
+  "about": "Every LAUNCHED city coin's on-chain symbol, by GeoNames city id. scripts/cities/tickers.mjs gives these cities exactly these tickers, gives them to nobody else, and fails the build if one cannot hold, or if a coin on the official list of launched city coins (/api/official-coins, read from the chain) is not pinned here to its on-chain symbol. Add a line when a city coin launches; never change or remove one. The build publishes a copy at public/data/ticker-pins.json. Empty on 17 Oct 2026: the live site's /api/coins and /api/official-coins listed no launched city coin.",
   "pins": {}
 }

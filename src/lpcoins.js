@@ -182,6 +182,24 @@ export async function chainMetadata(env, mint, fetchImpl = fetch) {
   return md && md.mint === mint ? md : null;
 }
 /**
+ * Recorded coins of OTHER cities whose symbol this site does not know (lp_coins.symbol is NULL when the chain's metadata could not be
+ * read at record time): each is read from the chain now and stored. Returns the city ids still unknown, which the "ticker already
+ * launched" checks treat as a possible clash (src/coinready.js, src/lpadmin.js, src/lplaunch.js: COIN_V2_READY) rather than as free.
+ */
+export async function unknownSymbols(env, exceptCityId, fetchImpl = fetch) {
+  let rows;
+  try { rows = (await env.DB.prepare("SELECT city_id, mint FROM lp_coins WHERE symbol IS NULL AND city_id <> ? LIMIT 20").bind(String(exceptCityId)).all()).results; }
+  catch (e) { if (/no such table/i.test(String((e && e.message) || e))) return []; throw e; }
+  const left = [];
+  for (const r of rows) {
+    let md = null;
+    try { md = await chainMetadata(env, r.mint, fetchImpl); } catch (e) { console.error("lp symbol read failed", codeOf(e)); }
+    if (md && md.symbol) await env.DB.prepare("UPDATE lp_coins SET name = COALESCE(name, ?), symbol = COALESCE(symbol, ?) WHERE mint = ?").bind(md.name, md.symbol, r.mint).run();
+    else left.push(String(r.city_id));
+  }
+  return left;
+}
+/**
  * The launch transaction: the oldest signature of the coin's Metaplex metadata account, which the launch creates and nothing
  * touches afterwards (immutable metadata; not the Coin record: approve_launch already reads that address), when its whole
  * history fits in one page (else null).
@@ -264,6 +282,9 @@ async function lockDesign(env, row, chain, now) {
   const name = chain && typeof chain.name === "string" && chain.name ? chain.name : null;
   const pair = chain ? pairOfQuote(chain.quoteMint) : null;
   const usable = pair && ["SOL", "USDC"].includes(pair) ? pair : null; // RAY/USDT are not quote mints the design form can name truthfully here
+  // a contract still waiting from the old Raydium LaunchLab path is dropped by this update (one city, one coin): the log line names it
+  const was = await db.prepare("SELECT pending_mint FROM city_coins WHERE city_id = ? AND mint IS NULL").bind(String(row.city_id)).first().catch(() => null);
+  const dropped = was && was.pending_mint ? ` A Raydium LaunchLab contract that was still waiting for this city (${was.pending_mint}) was dropped: one city has one coin.` : "";
   let r;
   try {
     r = await db.prepare(`UPDATE city_coins SET mint = ?, pending_mint = NULL, pending_at = NULL, launched_at = ?, launched_by = NULL,
@@ -284,7 +305,7 @@ async function lockDesign(env, row, chain, now) {
   await db.prepare(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, note, created_at, state)
       VALUES (?, 'founder', 'coin_launched', 'city_coin', NULL, ?, ?, ?, 'launch', ?, ?, 'done')`)
     .bind(design.user_id, design.user_id, design.country, String(row.city_id),
-      `${design.city_name}: launched on the Vicinity launchpad (Solana ${row.cluster}), contract ${row.mint}. Recorded from the blockchain; the coin design is locked.`, iso(now)).run();
+      `${design.city_name}: launched on the Vicinity launchpad (Solana ${row.cluster}), contract ${row.mint}. Recorded from the blockchain; the coin design is locked.${dropped}`, iso(now)).run();
   return true;
 }
 

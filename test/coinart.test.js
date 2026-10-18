@@ -20,12 +20,13 @@ const registry = [];
 for (const list of Object.values(cities.byCountry)) for (const r of list) { const v = tickers[String(r[0])]; if (v) registry.push({ id: String(r[0]), name: r[1], ticker: typeof v === "string" ? v : v[0] }); }
 const byId = (id) => registry.find((r) => r.id === String(id));
 
-// UTICA, NYC, KUALALUM (two words, one line), Greifswald (two lines), Herāt (a mark), MOHAMMADPU (the smallest ticker of all)
+// UTICA, NYC, KUALALUM (two words, one line), West Bloomfield Township (two lines: the smaller, higher ticker), Herāt (a mark),
+// MOHAMMADPU (the smallest ticker of all)
 const GOLDEN = {
   5142056: { svg: "a72121c72cbe7270f7b8bbc3aa0fb5854b130763237254f240806f8d8ec1ec41", png: "8108d332deaaf1cfd28dfe94a1fa3c14d7a227815384114e3227ef55a63ab34e" },
   5128581: { svg: "4a5f02542f0a28450545c1d963d5a783e9ae80f28cd3d81bbf67ad26415fdec9", png: "1869a20eb700f51b866b0b9e0b6ffa26c83a5513198ae2563ce8f13ec8dc96fa" },
   1735161: { svg: "1a60c69e283ed7c009654a17a00c75f1b9489b850a0912d8546c01252f34845b", png: "06923d5e2930f6ace43ab01fe97af274aa1d1e0754ae8e6b41b36dd4d0284618" },
-  2917788: { svg: "32f511799a54bb2a4538cfbe93434ed72354539e4208765d88b8786ffba91cc8", png: "694f958c154fec468265c26bb5db42a4a33b94ecdf94216077b68297f525f2be" },
+  7259621: { svg: "ecd92cf8fc64d1d9a29fdebf12ed26269f8a7b78a72857b8952665449d69a679", png: "1cff496f13bee747cdf87e6e3f57aed4f3a3a19f909a71707cf354f90ae5e31b" },
   1140026: { svg: "3ea11bf5ddaa110ed4964e48567e264811dcad12fc6bff9bdb4d95ca0de8287d", png: "c16b1e715f5bffc279ff20d217aff8766d0907b0cd867fee0aa568d92f5891b9" },
   1194041: { svg: "8827a8110092f04506b05c8f693bedbc4f5b3522f726510eff1ad4b95891aa0d", png: "66f82ed6d81320a16b4e3f1156158d1354b97d24018d6c3eeccdfd9a15212011" },
 };
@@ -136,6 +137,38 @@ test("the renderer: the wasm starts once, on the first picture only; a failed st
   assert.deepEqual([...(await already("<svg/>"))], [1, 2, 3], "a second renderer in the same isolate reuses the module");
   const wrong = makeRenderer({ initWasm: async () => {}, Resvg: class { render() { return { width: 10, height: 10, asPng: () => new Uint8Array(1) }; } }, wasm: {}, fonts: [new Uint8Array(1), new Uint8Array(1)] });
   await assert.rejects(wrong("<svg/>"), /not 512x512/);
+});
+
+test("a city on two lines never touches the ticker: every two-line coin of the list, drawn, keeps at least 10 clear pixel rows between them", async () => {
+  // the two-line rule (smaller, higher ticker; the city block a little lower) is in the numbers, for every letter of both fonts
+  const T = TEMPLATES.t1.ticker, C = TEMPLATES.t1.city;
+  const tickerBottom = T.twoLineCenterY + 0.35 * T.twoLineMax + 0.18 * T.twoLineMax; // the deepest Bold tail (Q, 0.180 em) at the largest size
+  const lineOneTop = C.twoLineCenterY - 0.5 * C.lineHeight * C.twoLineMax + 0.35 * C.twoLineMax - 1.116 * C.twoLineMax; // the tallest Medium accent (1.116 em)
+  assert.ok(lineOneTop - tickerBottom >= 10, `${(lineOneTop - tickerBottom).toFixed(1)} px`);
+  assert.ok(T.twoLineCenterY - 0.35 * T.twoLineMax >= 216, "the caps stay 10 px under the pin");
+  // and as drawn: every registry coin on two lines, with its coin name (src/coindefaults.js shortens three)
+  const { NAME_OVERRIDES } = await import("../src/coindefaults.js");
+  const { createRequire } = await import("node:module");
+  const require = createRequire(import.meta.url);
+  const { initWasm, Resvg } = await import("@resvg/resvg-wasm");
+  try { await initWasm(await WebAssembly.compile(readFileSync(require.resolve("@resvg/resvg-wasm/index_bg.wasm")))); } catch (e) { if (!/Already initialized/i.test(String(e && e.message))) throw e; }
+  const fonts = ["Bold", "Medium"].map((w) => new Uint8Array(file(`src/assets/fonts/SpaceGrotesk-${w}.ttf`)));
+  let checked = 0;
+  for (const r of registry) {
+    const name = NAME_OVERRIDES[r.id] || r.name;
+    const f = fitCoin({ ticker: r.ticker, city: name });
+    if (f.lines.length !== 2) continue;
+    assert.ok(f.tickerSize <= 84 && f.tickerCenterY === 250, r.name);
+    const rv = new Resvg(coinSvg({ ticker: r.ticker, city: name }), { fitTo: { mode: "width", value: 512 }, font: { fontBuffers: fonts, loadSystemFonts: false, defaultFontFamily: "Space Grotesk" } });
+    const img = rv.render(), px = img.pixels;
+    const ink = (y) => { for (let x = 60; x < 452; x++) { const o = (y * 512 + x) * 4; if (px[o] > 200 && px[o + 1] > 170 && px[o + 2] > 140) return true; } return false; };
+    let y = 250; while (y < 440 && ink(y)) y++; // the ticker's last row
+    let s = y; while (s < 440 && !ink(s)) s++; // the city's first row
+    assert.ok(s - y >= 10, `${r.ticker} ${name}: ${s - y} clear rows`);
+    img.free(); rv.free();
+    checked++;
+  }
+  assert.ok(checked >= 100, `${checked} two-line coins`);
 });
 
 test("a later painted version layers the same text on the owner's blank coin, and never changes t1", async () => {

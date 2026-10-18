@@ -116,6 +116,7 @@
       fact(dl, "Coin name", f.name);
       fact(dl, "Ticker", `$${f.symbol}`);
       fact(dl, "Founder wallet (only it can launch)", addr(f.founder));
+      if (c.ready) fact(dl, "Picture and description (the coin's metadata, for ever)", `Vicinity design ${c.ready.template || "t1"}, version ${c.ready.version}`);
       fact(dl, "Can launch until", `${new Date(f.expiresAt).toLocaleString()} (${f.expiresAt.slice(0, 16).replace("T", " ")} UTC)`);
       wrap.append(dl, el("p", "muted small", "Check the name and the founder wallet once more. Your wallet will not show them: it only shows the accounts and the SOL."));
       return { node: wrap };
@@ -253,13 +254,25 @@
       fact(dl, "Coin", `${c.name} · $${c.ticker || "?"} · paired with ${c.pair}`);
       fact(dl, "Founder", c.founder ? addr(`${c.handle ? `@${c.handle} · ` : ""}${c.founder}`) : "No founder seat");
       fact(dl, "Description (wallets and Jupiter show it for ever)", c.pitch || "None: the standard text is used");
-      // the picture is checked separately (Moderation › Pictures): only an approved one is ever shown; the launch does not wait for it.
-      // The badge lines speak of the chain's image URL (/coin-meta/<mint>.png, what wallets show); the site shows the city's initials.
-      fact(dl, "Picture", c.approved && c.logoStatus !== "approved" ? `An approved picture shows; a newer one ${c.logoStatus === "rejected" ? "was not approved" : "waits for a check (Moderation › Pictures)"}`
-        : c.logoStatus === "approved" ? "Approved (on the coin page; you can still take it down later)"
-          : c.logoStatus === "rejected" ? "Not approved: wallets show the Vicinity badge until the founder sends another"
-            : c.logo ? "Waiting for a check (Moderation › Pictures): wallets show the Vicinity badge until it is approved" : "None: the Vicinity badge is used");
-      card.append(dl);
+      if (c.ready) {
+        // the ready-made coin (COIN_V2_READY): this exact picture and version go into the coin's metadata for ever once it launches
+        // (src/coinart-store.js binds only the version an approval was built from), so the owner sees them before approving
+        fact(dl, "Picture (wallets show it, for ever)", `Vicinity design ${c.ready.template || "t1"}, version ${c.ready.version}: this exact picture goes into the coin metadata for ever`);
+        const fig = el("figure", "lp-ready-art");
+        const img = el("img");
+        img.setAttribute("src", c.ready.art); img.setAttribute("width", "160"); img.setAttribute("height", "160");
+        img.alt = `$${c.symbol || c.ticker || ""} coin picture: Vicinity design ${c.ready.template || "t1"}, version ${c.ready.version}`;
+        fig.append(img);
+        card.append(dl, fig);
+      } else {
+        // the picture is checked separately (Moderation › Pictures): only an approved one is ever shown; the launch does not wait for it.
+        // The badge lines speak of the chain's image URL (/coin-meta/<mint>.png, what wallets show); the site shows the city's initials.
+        fact(dl, "Picture", c.approved && c.logoStatus !== "approved" ? `An approved picture shows; a newer one ${c.logoStatus === "rejected" ? "was not approved" : "waits for a check (Moderation › Pictures)"}`
+          : c.logoStatus === "approved" ? "Approved (on the coin page; you can still take it down later)"
+            : c.logoStatus === "rejected" ? "Not approved: wallets show the Vicinity badge until the founder sends another"
+              : c.logo ? "Waiting for a check (Moderation › Pictures): wallets show the Vicinity badge until it is approved" : "None: the Vicinity badge is used");
+        card.append(dl);
+      }
       for (const wmsg of c.warnings || []) card.append(el("p", "lp-warn", wmsg));
       const box = el("div", "lp-step__box");
       if (c.ok) {
@@ -268,8 +281,9 @@
         sel.value = "7";
         const lab = el("label", "field"); lab.append(el("span", "fieldset__label", "The founder can launch within"), sel);
         const row = el("div", "admin-row");
-        // the card sends what it shows: the site builds nothing if the design changed since (reload and look again)
-        const seen = { cityId: c.cityId, name: c.name, symbol: c.symbol, founder: c.founder, designAt: c.designAt };
+        // the card sends what it shows: the site builds nothing if the design changed since (reload and look again); with the
+        // ready-made coin, the exact version too (its picture is the one above)
+        const seen = { cityId: c.cityId, name: c.name, symbol: c.symbol, founder: c.founder, designAt: c.designAt, ...(c.ready ? { contentHash: c.ready.contentHash } : {}) };
         const approve = btn("Approve on chain", () => signFlow(box, { path: "/api/admin/lp/approve/tx", body: { ...seen, expiryDays: Number(sel.value) }, check: approveCheck(c), after: rerender }), "btn btn--primary");
         if (hold) { approve.disabled = true; approve.title = hold; approve.setAttribute("aria-describedby", `lp-hold-${c.cityId}`); }
         row.append(lab, approve);

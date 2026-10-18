@@ -20,15 +20,22 @@ page covers how it works and what was measured.
 
 ## Storage and serving
 
-- `coin_art`: the PNG bytes, keyed by their own SHA-256, with one row per (SVG SHA-256, template version). A picture is drawn only by
-  `POST /api/coins/ready/art`, the first time the founder's page asks for it. A GET never draws, and no page view draws either. Drawing
-  is limited to 20 an hour per account, counted atomically before the work.
+- `coin_art`: the PNG bytes, keyed by their own SHA-256, with one row per (SVG SHA-256, template version). A picture is drawn only by the
+  founder's own POSTs: `POST /api/coins/ready/art` (the first time the founder's page asks for it; 20 an hour per account) and, when it was
+  never drawn, `POST /api/coins/ready/use` (10 a day per account); both counted atomically before the work. A GET never draws, and no page
+  view draws either. A first drawing costs about 260 to 470 ms of CPU in the Worker (the wasm starts, then the picture): more than the Free
+  plan's 10 ms per request allows, so this switch needs the Workers Paid plan. The `coin art drawn` log line times the drawing with
+  `Date.now()`, which does not advance during CPU work in production, so it under-reports there.
 - `coin_versions`: one row per (city, content hash). `coin_ready` holds the city's chosen version (one per city), with UNIQUE constraints
   on `symbol` and `mint`. `coin_legacy_designs` keeps a whole copy of an earlier studio design, taken before "Use this coin" replaces it.
-  The tables are created by the first write (migration `2026-10-18-coin-ready`), and nothing is dropped.
+  The tables are created by the first write (migration `2026-10-18-coin-ready`), and nothing is dropped. `coin_ready.approved_hash` is the
+  version the owner's approval was built from (`src/lpadmin.js` approveTx, only with the switch on; a new "Use this coin" clears it).
 - `GET /coin-meta/art/<sha256>.png` serves a stored picture with `Cache-Control: public, max-age=31536000, immutable`. It re-hashes the
-  bytes before serving them. It serves **whatever the switch says**, and so does a launched coin's `/coin-meta/<mint>.json`. At launch
-  (`src/lpcoins.js`) the version is bound to the mint, and from then on that JSON names the hash-addressed picture.
+  bytes before serving them. It serves **whatever the switch says**, and so does a launched coin's `/coin-meta/<mint>.json`. When the launch
+  is recorded (`src/lpcoins.js`) the version is bound to the mint, but only if the switch is on at that moment, the choice is still the
+  city's design, the owner's approval was built from that very version, and the chain's name and symbol are the version's. From then on that
+  JSON names the hash-addressed picture, whatever the switch says. Anything else gets the old JSON (the Vicinity badge): a version that was
+  chosen while the switch was on is never published after it is turned off.
 
 ## Templates are immutable
 
@@ -39,9 +46,14 @@ keeps its `t1` picture forever, because the picture is stored by its own hash an
 ## Tickers stay put
 
 `scripts/cities/ticker-pins.json` pins every launched coin's on-chain symbol. `npm run tickers` fails, and writes nothing, if a rebuilt list
-would move a pinned ticker or hand it to another city (`test/ticker-pins.test.js`). The file is empty today because the live site lists no
-launched city coin. Before an approval and before a launch, the server also checks the symbol against `lp_coins`, approvals that were not
-revoked, and other chosen coins.
+would move a pinned ticker or hand it to another city, or if a coin on the official list of launched city coins (`/api/official-coins`, read
+from the chain; `--official <file>` for a saved copy) is not pinned to its own symbol (`test/ticker-pins.test.js`). The file is empty today
+because the live site lists no launched city coin. The pins are published at `public/data/ticker-pins.json` for the Cities page's fallback.
+With the switch on, the server checks a ticker again, each route against its own list:
+- "Use this coin" (`src/coinready.js`): coins recorded in `lp_coins` (one whose symbol was never read is read from the chain, or blocks),
+  approvals in `lp_approvals_log` not revoked since, and other cities' chosen coins (`coin_ready`, unique by symbol).
+- The owner's candidates and approval (`src/lpadmin.js`): `lp_coins` (same rule for an unread symbol) and the approvals on chain.
+- The launch (`src/lplaunch.js`): `lp_coins` (same rule).
 
 ## Measured (18 Oct 2026)
 
@@ -61,7 +73,8 @@ revoked, and other chosen coins.
 
 ## Not in stage 1
 
-There is no upload of any kind. Requesting a change (another picture, ticker or name) with a person's review, and writing your own description
+A city with a Raydium LaunchLab contract still waiting is stage 0's (`fix/close-launchlab-path`, merged first): its candidates skip it, an
+admin can only reject the contract, and nothing launches while it waits. There is no upload of any kind. Requesting a change (another picture, ticker or name) with a person's review, and writing your own description
 with screening, come in later stages. The site's launchpad cards and coin page do not show the template picture yet. They keep the city's
 initials on its colour, while wallets and explorers get the picture from the launched coin's metadata. The template look and the rules text
 (`docs/RULES-V7-DRAFT.md`) wait for the owner.

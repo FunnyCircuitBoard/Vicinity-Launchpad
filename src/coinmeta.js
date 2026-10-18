@@ -94,8 +94,9 @@ export function coinMetadataJson(i) {
 export async function metaJsonFor(env, row, md) {
   await ensureSchema(env.DB);
   // a coin launched with a ready-made version (src/coinready.js, COIN_V2_READY): its picture and every word from that version, built
-  // here and never from a request, whatever the switches say now (src/coinart-store.js versionForCoin: the version bound to this mint,
-  // or the city's chosen one while it is still the design, with the chain's name and symbol and its picture intact)
+  // here and never from a request, whatever the switches say now (src/coinart-store.js versionForCoin: only the version BOUND to this
+  // mint when its launch was recorded with the switch on and the owner's approval built from it, with the chain's name and symbol and
+  // its picture intact; anything else gets the JSON below)
   const v = await versionForCoin(env, { cityId: String(row.city_id), mint: row.mint, name: md.name, symbol: md.symbol });
   if (v) {
     const c = v.content.city;
@@ -154,7 +155,9 @@ async function metadata(request, env, row, fetchImpl, now) {
   try { await bindVersion(env, { cityId: String(row.city_id), mint: row.mint, name: md.name, symbol: md.symbol }, now); } catch (e) { console.error("coin-meta: version not bound", codeOf(e)); }
   let meta;
   try { meta = JSON.stringify(await metaJsonFor(env, row, md)); } catch (e) { console.error("coin-meta JSON refused", codeOf(e)); return notFound(request); }
-  await env.DB.prepare("UPDATE lp_coins SET meta_json = ?, meta_at = ? WHERE mint = ?").bind(meta, iso(now), row.mint).run();
+  // the chain's name and symbol too, where the launch record could not read them (src/lpcoins.js stores them only then): the
+  // "ticker already launched" checks read lp_coins.symbol (src/coinready.js, src/lpadmin.js, src/lplaunch.js)
+  await env.DB.prepare("UPDATE lp_coins SET meta_json = ?, meta_at = ?, name = COALESCE(name, ?), symbol = COALESCE(symbol, ?) WHERE mint = ?").bind(meta, iso(now), md.name, md.symbol, row.mint).run();
   return jsonAnswer(request, meta, 200, 3600);
 }
 

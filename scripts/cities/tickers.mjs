@@ -9,7 +9,11 @@
 // rebuilt from the whole city list, so adding a town could otherwise move a ticker (a bigger "Springfield" takes $SPRINGF and the
 // launched one becomes $SPRINGFMA). A pinned city keeps its ticker, no other city can be given it, and the build FAILS (nothing is
 // written) when a pin cannot hold: the city left the list or became a "part", a pin is not a ticker, or two pins share one.
-// When a city coin launches, its city id and on-chain symbol go into the pins file in the same pull request as anything else.
+// When a city coin launches, its city id and on-chain symbol go into the pins file. Launches happen on chain, not in a pull request, so
+// the build does not trust the pins file alone: before anything is written it reads the official list of launched city coins (the live
+// site's /api/official-coins, read from the chain; or a saved copy with --official <file>) and FAILS unless every launched coin's city
+// is pinned to exactly its on-chain symbol (verifyLaunchedPinned). The pins are also published (public/data/ticker-pins.json) so the
+// Cities page's fallback, which computes tickers itself when tickers.json can't be loaded, keeps them too.
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import "../../public/ticker.js";
@@ -43,6 +47,26 @@ export function verifyPins(out, pins) {
   return true;
 }
 
+/**
+ * Throws unless every launched city coin is pinned to exactly its on-chain symbol. `official`: the /api/official-coins answer
+ * ({ ok, coins: [{ cityId, ticker }] }); a list that is not readable, or a coin whose symbol it could not read, fails too (never
+ * "nothing launched" by default).
+ */
+export function verifyLaunchedPinned(official, pins) {
+  if (!official || official.ok !== true || !Array.isArray(official.coins)) throw new Error("the official list of launched city coins could not be read, so the pins can't be checked: nothing was written");
+  for (const c of official.coins) {
+    const id = String(c && c.cityId), t = c && c.ticker;
+    if (!/^\d{1,19}$/.test(id) || typeof t !== "string" || !/^[A-Z0-9]{1,10}$/.test(t)) throw new Error(`launched coin of city ${id}: its on-chain ticker is not known (${JSON.stringify(t)}), so the pins can't be checked: nothing was written`);
+    if (pins[id] !== t) throw new Error(`launched coin $${t} (city ${id}) is not pinned: add "${id}": "${t}" to ${PINS_FILE} first (it has ${pins[id] ? `$${pins[id]}` : "nothing"})`);
+  }
+  return true;
+}
+/** Where the official list is read from by default: the live site (mainnet), which reads it from the chain. */
+export const OFFICIAL_URL = "https://vicinity.city/api/official-coins";
+export const PUBLIC_PINS = pub("data/ticker-pins.json");
+/** The published copy of the pins (public/data/ticker-pins.json): the same map, for the Cities page's fallback. */
+export const publicPins = (pins = loadPins()) => JSON.stringify({ pins });
+
 /** tickers.json's content. `cities`, `parts` and `pins` default to the committed files (the tests hand in their own). */
 export function buildTickers({ cities = null, parts = null, pins = null } = {}) {
   const list = cities || JSON.parse(readFileSync(pub("data/cities.json"), "utf8"));
@@ -58,7 +82,11 @@ export function buildTickers({ cities = null, parts = null, pins = null } = {}) 
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const at = process.argv.indexOf("--official");
+  const official = at > 0 ? JSON.parse(readFileSync(process.argv[at + 1], "utf8")) : await fetch(OFFICIAL_URL).then((r) => r.json()).catch((e) => { console.error("official coins:", String(e && e.message)); return null; });
+  verifyLaunchedPinned(official, loadPins()); // throws: nothing is written
   const out = buildTickers();
   writeFileSync(pub("data/tickers.json"), JSON.stringify(out));
-  console.log("tickers ready:", Object.keys(out).length, "communities");
+  writeFileSync(PUBLIC_PINS, publicPins());
+  console.log("tickers ready:", Object.keys(out).length, "communities;", official.coins.length, "launched coins, all pinned");
 }

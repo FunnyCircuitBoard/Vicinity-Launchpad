@@ -13,17 +13,21 @@
 .coin-ready__art img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 18px 30px rgba(7, 13, 24, .38)); }
 .coin-ready__wait { text-align: center; color: var(--muted, #93A0B6); padding: 0 18px; }
 .coin-ready__art:has(img[hidden]) { border-radius: 50%; border: 2px dashed var(--line-2, rgba(128, 128, 128, .3)); background: var(--card-2, rgba(128, 128, 128, .06)); }
-.coin-ready__facts { margin: 0; width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; min-width: 0; }
-.coin-ready__facts > div { min-width: 0; padding: 10px 12px; border-radius: var(--r-chip, 12px); background: var(--card-2, rgba(128, 128, 128, .06)); border: 1px solid var(--line, rgba(128, 128, 128, .16)); }
+/* read-only facts: plain rows with a divider (no filled, bordered boxes that read like inputs) */
+.coin-ready__facts { margin: 0; width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; min-width: 0; }
+.coin-ready__facts > div { min-width: 0; padding: 9px 0; border-bottom: 1px solid var(--line, rgba(128, 128, 128, .16)); }
 .coin-ready__facts > div[hidden] { display: none; }
 .coin-ready__facts dt { margin: 0 0 2px; font-size: var(--fs-xs, .75rem); font-weight: 600; color: var(--muted, #93A0B6); }
 .coin-ready__facts dd { margin: 0; font-weight: 600; color: var(--text, inherit); overflow-wrap: anywhere; }
-.coin-ready__facts dd strong { font: 700 1.05rem var(--display, inherit); color: var(--gold-text, inherit); margin-right: 6px; }
-.coin-ready__src { display: block; font-weight: 500; }
-.coin-ready__wide { grid-column: 1 / -1; }
+/* a ticker is one word: never broken inside (up to 10 letters, the widest $MOHAMMADPU) */
+.coin-ready__facts dd strong { font: 700 1.05rem var(--display, inherit); color: var(--gold-text, inherit); white-space: nowrap; }
+.coin-ready__src { margin: -6px 0 0; }
+.coin-ready__wide { grid-column: 1 / -1; border-bottom: 0 !important; }
 .coin-ready__wide dd { font-weight: 500; line-height: 1.45; }
 .coin-ready__version { margin: -4px 0 0; text-align: center; font-variant-numeric: tabular-nums; }
-.coin-ready__caption { margin: 0; display: flex; gap: 8px; align-items: flex-start; color: var(--text-2, inherit); }
+.coin-ready__caption { margin: -6px 0 0; display: flex; gap: 8px; align-items: flex-start; color: var(--text-2, inherit); }
+#cr-state:focus { outline: none; }
+#cr-state:focus-visible { outline: 3px solid var(--focus, #F25C24); outline-offset: 2px; }
 .coin-ready__caption .ico { flex: none; margin-top: 2px; color: var(--muted, #93A0B6); }
 .coin-ready__gate { margin: 0; padding: 10px 12px; border-radius: var(--r-chip, 12px); border: 1px solid rgba(255, 213, 138, .45); background: rgba(255, 213, 138, .1); color: var(--text, inherit); }
 .coin-ready__actions { display: grid; gap: 8px; }
@@ -31,6 +35,8 @@
 .coin-ready__actions .btn[hidden] { display: none; }
 .coin-ready__note { margin: 0; color: var(--text-2, inherit); }
 .coin-ready__note:empty { display: none; }
+/* phones: the ticker has the whole row, so even a 10-letter ticker is never cut or broken (360 to 440 px wide) */
+@media (max-width: 440px) { .coin-ready__ticker { grid-column: 1 / -1; } }
 @media (min-width: 720px) {
   .coin-ready__body { grid-template-columns: 240px minmax(0, 1fr); align-items: start; justify-items: stretch; gap: 22px; }
   .coin-ready__art { width: 240px; }

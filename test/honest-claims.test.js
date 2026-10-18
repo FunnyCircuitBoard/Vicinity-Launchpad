@@ -80,7 +80,9 @@ test("honest claims: Founding Supporters are promised nothing, and city coins pa
     const roles = h.slice(h.indexOf('<section class="section section--panel" id="roles">'));
     assert.ok(roles.length < h.length, `${f}: the Roles box`);
     assert.match(roles, /<li>Founding Supporters are the holders by 14-day average balance at the snapshot\. Its rules are published; no date is set yet and no benefit is promised\.<\/li>/, f);
-    assert.match(roles, /<li>Design the city's coin: name, logo, colour and a short pitch; it launches paired with SOL\. Public, logged, and locked once it launches\.<\/li>/, f);
+    assert.match(roles, /<li data-coin-designed>Design the city's coin: name, logo, colour and a short pitch; it launches paired with SOL\. Public, logged, and locked once it launches\.<\/li>/, f);
+    // the ready-made coin's line (COIN_V2_READY=on, public/dashboard.js swaps the two): hidden in the page as served
+    assert.match(roles, /<li data-coin-ready hidden>Choose the city's coin: made by Vicinity from the city list \(its ticker, name and picture\); it launches paired with SOL once Vicinity's owner approves it on the blockchain\. Public, logged, and fixed once it launches\.<\/li>/, f);
     assert.doesNotMatch(roles, /USDC|\bRAY\b/, `${f}: the Roles box names no pair a city coin cannot launch with`);
   }
   for (const f of ["scripts/pages/src/rules.html", "public/rules.html"]) {

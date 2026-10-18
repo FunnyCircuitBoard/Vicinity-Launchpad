@@ -73,9 +73,15 @@
   const notifyOn = () => { const m = me(); return Boolean(m && typeof m.unread === "number"); };
   // the ready-made city coin (COIN_V2_READY=on): /api/me carries coinV2Ready only while the switch is on; the coin is then chosen in #coin-ready
   const readyOn = () => { const m = me(); return Boolean(m && m.coinV2Ready === true); };
+  // the last answer of GET /api/coins/ready (public/coin-ready.js tells it through dashboard.js; COIN_V2_READY=on): the founder's own
+  // view ({ mode: "founder", coin, inUse, gate, ... }) or a preview; null until it is known
+  let readyCoin = null, readyKnown = false;
+  const readyFounder = () => (readyCoin && readyCoin.mode === "founder" ? readyCoin : null);
   // with the city-coin launch on (lp, public/lp-launch.js): the chain's word wins, so this fact agrees with the launch card's tag
-  // (with the ready-made coin on, nobody designs a coin: it is ready to choose, then chosen and not launched yet)
-  const coinState = () => (!coin ? (readyOn() ? "Ready to choose" : "Not designed yet") : coin.launched || (lp.on && lp.state === "launched") ? "Live" : coin.waiting ? "Contract being checked"
+  // (with the ready-made coin on, nobody designs a coin: the founder chooses it, then it is chosen and not launched yet; a city with
+  // no founder has nobody to choose it)
+  const unchosen = () => { const m = me(), s = m && m.community && m.community.seat; return !s ? "No founder yet" : s.you ? "Ready to choose" : "Not chosen yet"; };
+  const coinState = () => (!coin ? (readyOn() ? unchosen() : "Not designed yet") : coin.launched || (lp.on && lp.state === "launched") ? "Live" : coin.waiting ? "Contract being checked"
     : lp.on && lp.state === "ready" ? "Approved" : readyOn() ? "Not launched yet" : "Designed");
 
   /* ---------- set-up: the cards move into their panels, the old two-column tools retire ---------- */
@@ -436,7 +442,9 @@
     if (w && w.canEndorse && !w.myEndorsement && !(w.applicants || []).some((a) => a.you)) add("Endorse a founder", `${w.applicants.length} applying to found ${c.name} · ${left(w.closesAt)}`, "info", "founder", "#p-window");
     const e = n && n.election;
     if (e && e.canVote && !e.myVote) add("Vote for your Country Manager", `Election closes ${left(e.closesAt)}`, "info", "community", "#national");
-    if (seated && coinKnown && !coin && readyOn()) add(`${seat.city}'s coin is ready`, "The Vicinity design with your city's ticker, from the city list. Check it, then use it.", "ok", "founder", "#coin-ready");
+    // the ready-made coin (COIN_V2_READY): said only once the founder's coin answer has a coin (a city the list has no ticker for gets none)
+    const rf = readyFounder(), rcoin = Boolean(rf && rf.coin);
+    if (readyOn()) { if (seated && coinKnown && rcoin && !rf.inUse && !rf.gate && (!coin || (!coin.launched && !coin.waiting))) add(coin ? `Choose ${seat.city}'s coin` : `${seat.city}'s coin is ready`, coin ? "Your earlier design is kept, but city coins are made by Vicinity now. Check yours, then use it." : "The Vicinity design with your city's ticker, from the city list. Check it, then use it.", "ok", "founder", "#coin-ready"); }
     else if (seated && coinKnown && !coin) add(`Design ${seat.city}'s coin`, "Name, pitch, pair, colour, logo (shown once checked). Public and logged.", "ok", "founder", "#coin-studio");
     if (seated && coin && !coin.mint && !coin.waiting && !lp.on && !readyOn()) add("Add your coin's contract", "Launched it on Raydium LaunchLab? Send the address for a check.", "ok", "founder", "#cs-mint");
     if (seated && lp.on && lp.state === "ready") add("Launch your city coin", "An admin approved it. One signature in your wallet.", "ok", "founder", "#lp-launch");
@@ -620,7 +628,16 @@
     if (st === "provisional") { note.textContent = "No founder powers yet. Locals can object until then; if no objection is upheld, you become the founder."; button("Founder path", "btn btn--primary", () => goTo("#progress")); }
     else if (st === "grace") { note.textContent = `Hold ${fmt(seat.threshold)} $VICINITY again before the deadline or the seat reopens. Moderation is paused meanwhile.`; button("Buy & swap", "btn btn--primary", () => goTo("#trade")); }
     else if (!coinKnown) { note.textContent = ""; go.hidden = true; fcardAction = null; }
-    else if (!coin && readyOn()) { note.textContent = `${seat.city}'s coin is ready: the Vicinity design with its ticker, from the city list. Check it, then use it.`; button("See your city coin", "btn btn--primary", () => goTo("#coin-ready")); }
+    // the ready-made coin (COIN_V2_READY): until the founder has chosen it ("Use this coin"), the card sends them to it, BEFORE the
+    // launch's words (an approval of an earlier studio design aside: that one launches as approved)
+    else if (readyOn() && readyFirst()) {
+      const rf = readyFounder();
+      if (!rf && !readyKnown) { note.textContent = "Checking your city coin…"; go.hidden = true; fcardAction = null; }
+      else if (!rf) { note.textContent = "City coins are made by Vicinity from the city list now: yours is in your Founder tab."; button("See your city coin", "btn btn--glass", () => goTo("#coin-ready")); }
+      else if (!rf.coin) { note.textContent = rf.gate ? rf.gate.message : ""; button("See your city coin", "btn btn--glass", () => goTo("#coin-ready")); }
+      else if (!coin) { note.textContent = `${seat.city}'s coin is ready: the Vicinity design with its ticker, from the city list. Check it, then use it.`; button("See your city coin", "btn btn--primary", () => goTo("#coin-ready")); }
+      else { note.textContent = "Choose your city coin above (Use this coin); then Vicinity's owner approves it on the blockchain."; button("See your city coin", "btn btn--primary", () => goTo("#coin-ready")); }
+    }
     else if (!coin) { note.textContent = `Your coin, your call. Design ${seat.city}'s coin: everyone in ${seat.city} sees it.`; button("Design the city coin", "btn btn--primary", () => goTo("#coin-studio")); }
     else if (coin.launched) { note.textContent = `${seat.city}'s coin is live. Its design is locked for good, as the rules promise.`; button("Manage city coin", "btn btn--primary", () => goTo("#coin", { noAlias: true })); }
     else if (coin.waiting) { note.textContent = "An admin is checking the contract. Once recorded, the design is locked and it becomes the one official coin."; button("See the coin", "btn btn--glass", () => goTo("#coin", { noAlias: true })); }
@@ -637,6 +654,17 @@
     else { note.textContent = "Launch it on Raydium LaunchLab, then add the contract here. An admin (never you) checks and records it."; button("Add the contract", "btn btn--primary", () => goTo("#cs-mint")); }
     $("#fcard-alt").hidden = !((st === "active" || st === "steward") && modOn());
     $("#fcard-meter").hidden = st !== "steward";
+  }
+
+  /**
+   * COIN_V2_READY: the Founder card points at the ready-made coin first: no design yet, or a design that is not the chosen ready-made
+   * coin (an earlier studio design, or a choice made stale) while nothing is approved or launched with it.
+   */
+  function readyFirst() {
+    if (!coin) return true;
+    if (coin.launched || coin.waiting || (lp.on && (lp.state === "ready" || lp.state === "launched"))) return false;
+    const rf = readyFounder();
+    return !rf || !rf.inUse;
   }
 
   /* ---------- the studio card wraps the existing form; a few sentences point at tabs instead of "below" or "on the right" ---------- */
@@ -814,6 +842,12 @@
     const d = me(); if (!d) return;
     today(d); cityHeader(d); founderCard(d); studioSync(); postProcess(); balancesDraw();
   }
+  /** The ready-made coin's answer (public/coin-ready.js, through dashboard.js): the Today strip, the City header and the Founder card follow it. */
+  function setReady(r) {
+    readyCoin = r || null; readyKnown = true;
+    const d = me(); if (!d) return;
+    today(d); cityHeader(d); founderCard(d);
+  }
   function mod(d) {
     lastMod = d || null;
     reflow(() => { gate(); badge(); }); // /api/mod answers after the strip is on screen: the bar re-divides as one glide
@@ -838,6 +872,6 @@
     const ready = Boolean(r && !r.loading && r.balances && m);
     return { data: r, rows: ready ? walletRows(r, { vicMint: c.vicMint || null, coin: c.coin || null, community: m.community || null }) : null };
   }
-  window.VDash = { init, render, coin: setCoin, lp: setLp, mod, coinQueue, wallet, walletRows, walletState, unread: (n) => reflow(() => unreadBadge(n)), start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS),
+  window.VDash = { init, render, coin: setCoin, lp: setLp, ready: setReady, mod, coinQueue, wallet, walletRows, walletState, unread: (n) => reflow(() => unreadBadge(n)), start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS),
     pill: Object.freeze({ box: pillBox, frames: pillFrames, fromStyle: pillFromStyle, ms: PILL_MS, followMs: FOLLOW_MS, easing: PILL_EASE, easeIn: PILL_IN, easeOut: PILL_OUT }) };
 })();

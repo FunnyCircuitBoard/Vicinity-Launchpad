@@ -183,6 +183,9 @@ test("status tag: Live / Contract being checked / Designed, and the countdown on
   assert.deepEqual(plain(P.statusLabel({ status: "upcoming" }, { now: NOW })), ["Opens soon", "tag--gold"]);
   assert.equal(P.notLiveWhy({ status: "waiting" }), "Trades once an admin records the contract.");
   assert.equal(P.notLiveWhy({ status: "designed" }), "Trades once the founder launches it on Raydium LaunchLab.");
+  // the ready-made city coin on (/api/official coinV2Ready, COIN_V2_READY): a city coin launches on the Vicinity launchpad, never LaunchLab
+  assert.equal(P.notLiveWhy({ status: "designed" }, true), "Trades once its founder launches it on the Vicinity launchpad.");
+  assert.equal(P.notLiveWhy({ status: "waiting" }, true), "Trades once an admin records the contract.");
   assert.equal(P.notLiveWhy({ kind: "vicinity", status: "upcoming" }), "Trades once $VICINITY launches on Raydium LaunchLab.");
 });
 test("founder line: the handle or the masked wallet, the role, never a full address", () => {
@@ -293,7 +296,7 @@ test("design v4: the hero is the tagline and one button; below the coins only th
   // the swap switch is read in the same breath (swapOn decides what the card's Buy does), but the only way IN is still launchpadV2 === true
   // (and /api/official's cityCoins only swaps the sources fold's "recorded by Vicinity" for "on the Vicinity launchpad": lpCopy, and
   // shows the Fees card from GET /api/fees: paintFees, test/fees-ui.test.js)
-  assert.match(part, /let swapOn = false;\s*(\/\/[^\n]*\n\s*)*const lpCopy = \(on\) => \{ for \(const e of \$\$\("\[data-launchlab-copy\]"\)\) e\.hidden = on; for \(const e of \$\$\("\[data-lp-only\]"\)\) e\.hidden = !on; \};\s*official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); if \(o && o\.cityCoins\) \{ lpCopy\(true\); paintFees\(\); \} if \(o && o\.launchpadV2 === true\) start\(\); else sec\.hidden = true; \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true; otherwise the section goes");
+  assert.match(part, /let swapOn = false;\s*(\/\/[^\n]*\n\s*)*const lpCopy = \(on\) => \{ for \(const e of \$\$\("\[data-launchlab-copy\]"\)\) e\.hidden = on; for \(const e of \$\$\("\[data-lp-only\]"\)\) e\.hidden = !on; \};\s*official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); readyOn = Boolean\(o && o\.coinV2Ready === true\); if \(o && o\.cityCoins\) \{ lpCopy\(true\); paintFees\(\); \} if \(o && o\.launchpadV2 === true\) start\(\); else sec\.hidden = true; \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true; otherwise the section goes");
   assert.match(part, /if \(typeof document === "undefined" \|\| !window\.V\) return;/);
   assert.deepEqual([...part.matchAll(/\bapi\(([^)]*)\)/g)].map((m) => m[1]).sort(), ['"/api/fees"', '"/api/launchpad"', "`/api/coin/chart?mint=${encodeURIComponent(mint", "`/api/coin/chart?mint=${encodeURIComponent(mint"],
     "the fee schedule (only with the city-coin setting), the list, and each live coin's chart (its sparkline, 24 h then 7 d): nothing else");

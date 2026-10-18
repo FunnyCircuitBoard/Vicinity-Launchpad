@@ -180,6 +180,7 @@
   const agoText = (s) => (!(s >= 0) ? "" : s < 5 ? "Updated just now" : s < 60 ? `Updated ${s} s ago` : s < 3600 ? `Updated ${Math.floor(s / 60)} min ago` : `Updated ${Math.floor(s / 3600)} h ago`);
 
   /* ----- words on a card ----- */
+  let readyOn = false; // /api/official coinV2Ready (COIN_V2_READY=on): set once that answer is in
   const STATUS = { live: ["Live", "tag--ok"], waiting: ["Contract being checked", "tag--warn"], designed: ["Designed", ""], upcoming: ["Opens soon", "tag--gold"] };
   /** The status tag: text and extra class. $VICINITY before its mint carries the countdown. */
   function statusLabel(c, { now = Date.now(), opensAt = null } = {}) {
@@ -188,7 +189,9 @@
     return s;
   }
   /** Why a coin cannot be bought yet, in plain words. */
-  const notLiveWhy = (c) => (c && c.status === "waiting" ? "Trades once an admin records the contract." : c && c.kind === "vicinity" ? "Trades once $VICINITY launches on Raydium LaunchLab." : "Trades once the founder launches it on Raydium LaunchLab.");
+  // ready: the ready-made city coin is on (/api/official coinV2Ready, COIN_V2_READY): a city coin launches on the Vicinity launchpad
+  const notLiveWhy = (c, ready = readyOn) => (c && c.status === "waiting" ? "Trades once an admin records the contract." : c && c.kind === "vicinity" ? "Trades once $VICINITY launches on Raydium LaunchLab."
+    : ready ? "Trades once its founder launches it on the Vicinity launchpad." : "Trades once the founder launches it on Raydium LaunchLab.");
   /** The founder line: the handle, or the masked wallet (never a full address, even if the server slipped). */
   function founderText(f) {
     if (!f || (!f.handle && !f.wallet)) return "No founder yet";
@@ -686,7 +689,7 @@
     else if (cities) { retry.hidden = true; }
     else if (none) { say("No city coin is live yet", opensAt() <= now ? "The first city coin appears here the moment its founder's contract is confirmed." : "The Launchpad opens at 10:10 AM New York time."); retry.hidden = true; }
     else if (filtered) { say("No city coin matches", "Try another word, or clear the filters."); retry.hidden = true; }
-    else if (state.tab === "upcoming") { say("Nothing waiting", "No coin is waiting right now. A city's coin shows here as soon as its founder designs it."); retry.hidden = true; }
+    else if (state.tab === "upcoming") { say("Nothing waiting", `No coin is waiting right now. A city's coin shows here as soon as its founder ${readyOn ? "chooses" : "designs"} it.`); retry.hidden = true; }
     else if (state.tab === "new") { say("Nothing new", `No coin went live in the last ${NEW_DAYS} days.`); retry.hidden = true; }
     else { say("No city coin is live yet", "The first city coin appears here the moment its founder's contract is confirmed."); retry.hidden = true; }
     empty.hidden = !(data || fails) || Boolean(data && cities);
@@ -829,5 +832,5 @@
   // the coin page and the admin tab follow): the sources fold names it instead of Raydium LaunchLab. Without it nothing changes.
   // The section ships visible (its placeholders hold the room: nothing jumps); with the switch off it goes, and nothing is asked for.
   const lpCopy = (on) => { for (const e of $$("[data-launchlab-copy]")) e.hidden = on; for (const e of $$("[data-lp-only]")) e.hidden = !on; };
-  official.then((o) => { swapOn = Boolean(o && o.swap === true); if (o && o.cityCoins) { lpCopy(true); paintFees(); } if (o && o.launchpadV2 === true) start(); else sec.hidden = true; });
+  official.then((o) => { swapOn = Boolean(o && o.swap === true); readyOn = Boolean(o && o.coinV2Ready === true); if (o && o.cityCoins) { lpCopy(true); paintFees(); } if (o && o.launchpadV2 === true) start(); else sec.hidden = true; });
 })();

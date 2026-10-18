@@ -254,3 +254,23 @@ test("a cancelled wallet: the page says so and records nothing", async () => {
   assert.equal(t.calls.some((c) => c.path === "/api/admin/lp/record"), false);
   assert.ok(t.button("Cancel"), "the owner can close it");
 });
+
+test("COIN_V2_READY: a ready-made coin's card shows the exact picture and version that go into its metadata (never the badge line), and approving sends that version", async () => {
+  const HASH = "3f9a2c1b" + "e".repeat(56), ART = `/coin-meta/art/${"b".repeat(64)}.png`;
+  const ready = { ...CANDIDATES.candidates[0], name: "New York City", pitch: "The city coin of New York City, New York, United States.", logo: false, logoStatus: null, approved: false,
+    ready: { version: HASH.slice(0, 8), contentHash: HASH, template: "t1", art: ART } };
+  const bodies = [];
+  const t = await tab({ answers: {
+    "/api/admin/lp/status": statusOf(), "/api/admin/lp/candidates": { ...CANDIDATES, candidates: [ready] },
+    "/api/admin/lp/approve/tx": (b) => { bodies.push(b); return { ok: true, step: "approve", cluster: "mainnet", summary: [approveEntry({ name: "New York City" })], record: { step: "approve", params: { cityId: b.cityId } } }; },
+  } });
+  assert.match(t.text(), new RegExp(`Picture \\(wallets show it, for ever\\)Vicinity design t1, version ${HASH.slice(0, 8)}: this exact picture goes into the coin metadata for ever`));
+  assert.doesNotMatch(t.text(), /the Vicinity badge is used|wallets show the Vicinity badge/, "a ready-made coin never shows the badge line");
+  const img = t.panel.querySelector(".lp-ready-art img");
+  assert.ok(img, "the picture itself is on the card");
+  assert.equal(img.getAttribute("src"), ART);
+  assert.match(img.alt, new RegExp(`version ${HASH.slice(0, 8)}`));
+  t.button("Approve on chain").click(); await tick();
+  assert.equal(plain(bodies[0]).contentHash, HASH, "the approval names the exact version the card showed");
+  assert.match(t.panel.querySelector(".lp-approve").textContent, new RegExp(`Picture and description \\(the coin's metadata, for ever\\)Vicinity design t1, version ${HASH.slice(0, 8)}`));
+});
