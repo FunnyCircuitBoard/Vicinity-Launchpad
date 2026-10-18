@@ -21,7 +21,7 @@ no-idl = []
 # Switches the compiled ids of 3.2 (vicinity_rewards, the old
 # vicinity_launchpad and its Launchpad PDA) to the devnet deployments.
 devnet = []
-# The pre-audited emergency build (8.3): the eight instructions that move
+# The pre-audited emergency build (8.3): the nine instructions that move
 # lamports or tokens out of a Coin or its vault fail with TradingHalted.
 halt-all = []
 # Anchor's standard program features (not policy).

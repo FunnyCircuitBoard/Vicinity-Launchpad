@@ -171,6 +171,21 @@ pub struct FounderPaidOut {
     pub total_paid_out: u128,
 }
 
+/// `launch_from_batch` (4.27), emitted right after its `CoinLaunched`: the
+/// batch and the leaf the launch was checked against.
+#[event]
+pub struct LaunchedFromBatch {
+    pub city_id: u64,
+    pub founder: Pubkey,
+    pub mint: Pubkey,
+    pub config_id: u16,
+    pub batch_seq: u64,
+    /// The root of that batch (3.11).
+    pub root: [u8; 32],
+    /// The leaf built from the call's arguments and its signer (3.12).
+    pub leaf: [u8; 32],
+}
+
 // ---- emit! (settings) ----
 
 /// `init_launchpad` (4.1).
@@ -291,4 +306,48 @@ pub struct PayoutOptInRevoked {
     /// The founder who signed the opt-in.
     pub founder: Pubkey,
     pub by: Pubkey,
+}
+
+/// `init_launch_batch` (4.23).
+#[event]
+pub struct LaunchBatchInitialized {
+    pub by: Pubkey,
+}
+
+/// `set_launch_approver` (4.24): every change clears both stored batches and
+/// lifts a halt.
+#[event]
+pub struct LaunchApproverChanged {
+    pub old: Pubkey,
+    pub new: Pubkey,
+    /// `LaunchBatch.latest.seq` when the approver changed (both records are
+    /// cleared by it).
+    pub latest_seq: u64,
+}
+
+/// `publish_launch_batch` (4.25).
+#[event]
+pub struct LaunchBatchPublished {
+    pub seq: u64,
+    pub root: [u8; 32],
+    pub leaf_count: u32,
+    pub valid_from: i64,
+    pub valid_until: i64,
+    pub publisher: Pubkey,
+    pub published_at: i64,
+    /// `LaunchBatch.previous.seq` after the publication.
+    pub previous_seq: u64,
+    /// The pending batch this one replaced (still in its review window), 0
+    /// for none.
+    pub replaced_seq: u64,
+}
+
+/// `clear_launch_batch` (4.26), also when nothing changed.
+#[event]
+pub struct LaunchBatchCleared {
+    pub by: Pubkey,
+    pub latest_seq: u64,
+    pub previous_seq: u64,
+    /// `LaunchBatch.halted` after the call.
+    pub halted: bool,
 }

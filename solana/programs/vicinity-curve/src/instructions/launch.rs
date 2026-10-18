@@ -21,8 +21,11 @@
 //! admin with no transfer pending (GOV-1), and so is the `vicinity_rewards`
 //! registry's admin (OPS-1). The signing founder is checked
 //! again against the settings of this moment: never `FEE_RECIPIENT`, the
-//! guardian or the payout key (R2-DIFF-1, SPEC-1). No direct lamport move
-//! happens in `launch`.
+//! guardian, the payout key or the launch approver (R2-DIFF-1, SPEC-1, 4.24).
+//! No direct lamport move happens in `launch`.
+//!
+//! Effects 1 to 7 are one function, `launch_coin`, which `launch_from_batch`
+//! (4.27) calls too, so the two launch paths cannot drift apart.
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{self, Transfer};
@@ -208,28 +211,128 @@ pub fn handle_launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {
         &a.founder.key(),
         &a.launchpad.guardian,
         &a.launchpad.payout_authority,
+        &a.launchpad.launch_approver,
     )?;
     let params = a.config.params();
     validate_config(&params).map_err(config_err)?;
     check_name(&a.approval.name)?;
     check_symbol(&a.approval.symbol)?;
 
-    let terms = Terms::from_params(&params).map_err(math_err)?;
+    // Effects 1 to 7 (shared with launch_from_batch, 4.27).
+    let bumps = CreatedBumps {
+        coin: ctx.bumps.coin,
+        mint: ctx.bumps.mint,
+        vault: ctx.bumps.coin_vault,
+        ticker: ctx.bumps.ticker_lock,
+    };
+    let what = LaunchWhat {
+        city_id,
+        founder: a.approval.founder,
+        config_id: a.approval.config_id,
+        name: a.approval.name.clone(),
+        symbol: a.approval.symbol.clone(),
+        meta_hash: a.approval.meta_hash,
+        params,
+        timestamp,
+        slot,
+    };
+    let a = &mut *ctx.accounts;
+    let done = launch_coin(
+        &LaunchTargets {
+            payer: &a.payer,
+            fee_recipient: &a.fee_recipient,
+            metadata: &a.metadata,
+            metadata_program: &a.metadata_program,
+            mint: &a.mint,
+            coin_vault: &a.coin_vault,
+            token_program: &a.token_program,
+            system_program: &a.system_program,
+            rent: &a.rent,
+        },
+        &mut a.coin,
+        &mut a.ticker_lock,
+        &what,
+        bumps,
+    )?;
+
+    // 8. The approval closes at exit (rent to rent_payer).
+    emit_cpi!(coin_launched(&what, &done));
+    Ok(())
+}
+
+/// The bumps of the accounts a launch creates.
+#[derive(Clone, Copy)]
+pub struct CreatedBumps {
+    pub coin: u8,
+    pub mint: u8,
+    pub vault: u8,
+    pub ticker: u8,
+}
+
+/// What is launched: from the `Approval` (4.10) or from the batch leaf the
+/// call proved (4.27), and the config's parameters at this moment.
+pub struct LaunchWhat {
+    pub city_id: u64,
+    pub founder: Pubkey,
+    pub config_id: u16,
+    pub name: String,
+    pub symbol: String,
+    pub meta_hash: [u8; 32],
+    pub params: vicinity_curve_math::ConfigParams,
+    pub timestamp: i64,
+    pub slot: u64,
+}
+
+/// The accounts effects 1 to 7 read or sign with (both launch paths list them
+/// with the same constraints).
+pub struct LaunchTargets<'a, 'info> {
+    pub payer: &'a Signer<'info>,
+    pub fee_recipient: &'a UncheckedAccount<'info>,
+    pub metadata: &'a UncheckedAccount<'info>,
+    pub metadata_program: &'a UncheckedAccount<'info>,
+    pub mint: &'a Account<'info, Mint>,
+    pub coin_vault: &'a Account<'info, TokenAccount>,
+    pub token_program: &'a Program<'info, Token>,
+    pub system_program: &'a Program<'info, System>,
+    pub rent: &'a Sysvar<'info, Rent>,
+}
+
+/// What effects 1 to 7 produced, for `CoinLaunched`.
+pub struct LaunchDone {
+    pub terms: Terms,
+    pub dust: u64,
+    pub launch_fee: u64,
+    pub mint: Pubkey,
+    pub vault: Pubkey,
+    pub uri: String,
+}
+
+/// Effects 1 to 7 of 4.10, in this order, for both launch paths (4.10, 4.27:
+/// "through the same function", so the two cannot drift apart). The caller
+/// has run every check of its section. No direct lamport move happens here.
+pub fn launch_coin<'info>(
+    t: &LaunchTargets<'_, 'info>,
+    coin: &mut Account<'info, CurveCoin>,
+    ticker_lock: &mut Account<'info, TickerLock>,
+    what: &LaunchWhat,
+    bumps: CreatedBumps,
+) -> Result<LaunchDone> {
+    let terms = Terms::from_params(&what.params).map_err(math_err)?;
     let dust = launch_dust(&terms).map_err(math_err)?;
-    let launch_fee = params.launch_fee_lamports;
-    let mint_key = a.mint.key();
-    let vault_key = a.coin_vault.key();
+    let launch_fee = what.params.launch_fee_lamports;
+    let mint_key = t.mint.key();
+    let vault_key = t.coin_vault.key();
     let uri = metadata_uri(&mint_key);
-    let coin_bump = ctx.bumps.coin;
+    let coin_info = coin.to_account_info();
 
     // 1. Launch fee: payer -> FEE_RECIPIENT.
     if launch_fee > 0 {
         system_program::transfer(
             CpiContext::new(
-                a.system_program.to_account_info(),
+                t.system_program.to_account_info(),
                 Transfer {
-                    from: a.payer.to_account_info(),
-                    to: a.fee_recipient.to_account_info(),
+                    from: t.payer.to_account_info(),
+                    to: t.fee_recipient.to_account_info(),
                 },
             ),
             launch_fee,
@@ -237,24 +340,24 @@ pub fn handle_launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {
     }
 
     // 2. to 5., signed by the Coin PDA.
-    with_coin_signer(city_id, coin_bump, |signer| -> Result<()> {
+    with_coin_signer(what.city_id, bumps.coin, |signer| -> Result<()> {
         create_metadata_accounts_v3(
             CpiContext::new_with_signer(
-                a.metadata_program.to_account_info(),
+                t.metadata_program.to_account_info(),
                 CreateMetadataAccountsV3 {
-                    metadata: a.metadata.to_account_info(),
-                    mint: a.mint.to_account_info(),
-                    mint_authority: a.coin.to_account_info(),
-                    payer: a.payer.to_account_info(),
-                    update_authority: a.coin.to_account_info(),
-                    system_program: a.system_program.to_account_info(),
-                    rent: a.rent.to_account_info(),
+                    metadata: t.metadata.to_account_info(),
+                    mint: t.mint.to_account_info(),
+                    mint_authority: coin_info.clone(),
+                    payer: t.payer.to_account_info(),
+                    update_authority: coin_info.clone(),
+                    system_program: t.system_program.to_account_info(),
+                    rent: t.rent.to_account_info(),
                 },
                 signer,
             ),
             DataV2 {
-                name: a.approval.name.clone(),
-                symbol: a.approval.symbol.clone(),
+                name: what.name.clone(),
+                symbol: what.symbol.clone(),
                 uri: uri.clone(),
                 seller_fee_basis_points: 0,
                 creators: None,
@@ -267,11 +370,11 @@ pub fn handle_launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {
         )?;
         token::mint_to(
             CpiContext::new_with_signer(
-                a.token_program.to_account_info(),
+                t.token_program.to_account_info(),
                 MintTo {
-                    mint: a.mint.to_account_info(),
-                    to: a.coin_vault.to_account_info(),
-                    authority: a.coin.to_account_info(),
+                    mint: t.mint.to_account_info(),
+                    to: t.coin_vault.to_account_info(),
+                    authority: coin_info.clone(),
                 },
                 signer,
             ),
@@ -280,11 +383,11 @@ pub fn handle_launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {
         if dust > 0 {
             token::burn(
                 CpiContext::new_with_signer(
-                    a.token_program.to_account_info(),
+                    t.token_program.to_account_info(),
                     Burn {
-                        mint: a.mint.to_account_info(),
-                        from: a.coin_vault.to_account_info(),
-                        authority: a.coin.to_account_info(),
+                        mint: t.mint.to_account_info(),
+                        from: t.coin_vault.to_account_info(),
+                        authority: coin_info.clone(),
                     },
                     signer,
                 ),
@@ -293,10 +396,10 @@ pub fn handle_launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {
         }
         token::set_authority(
             CpiContext::new_with_signer(
-                a.token_program.to_account_info(),
+                t.token_program.to_account_info(),
                 SetAuthority {
-                    current_authority: a.coin.to_account_info(),
-                    account_or_mint: a.mint.to_account_info(),
+                    current_authority: coin_info.clone(),
+                    account_or_mint: t.mint.to_account_info(),
                 },
                 signer,
             ),
@@ -306,25 +409,19 @@ pub fn handle_launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {
     })?;
 
     // 6. The Coin record: frozen terms, launch state, every other field 0.
-    let founder = a.approval.founder;
-    let config_id = a.approval.config_id;
-    let meta_hash = a.approval.meta_hash;
-    let symbol = symbol_bytes(&a.approval.symbol);
-    let mint_bump = ctx.bumps.mint;
-    let vault_bump = ctx.bumps.coin_vault;
     let rent_reserve = Rent::get()?.minimum_balance(COIN_LEN);
     {
-        let c = &mut ctx.accounts.coin;
+        let c = &mut **coin;
         c.layout_version = vicinity_curve_math::constants::COIN_LAYOUT_VERSION;
-        c.bump = coin_bump;
-        c.mint_bump = mint_bump;
-        c.vault_bump = vault_bump;
-        c.config_id = config_id;
-        c.city_id = city_id;
+        c.bump = bumps.coin;
+        c.mint_bump = bumps.mint;
+        c.vault_bump = bumps.vault;
+        c.config_id = what.config_id;
+        c.city_id = what.city_id;
         c.mint = mint_key;
         c.vault = vault_key;
-        c.founder = founder;
-        c.symbol = symbol;
+        c.founder = what.founder;
+        c.symbol = symbol_bytes(&what.symbol);
         c.liquidity_bps = terms.liquidity_bps;
         c.platform_bps = terms.platform_bps;
         c.founder_bps = terms.founder_bps;
@@ -339,9 +436,9 @@ pub fn handle_launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {
         c.dust_burned = dust;
         // Phase Curve, reserves, buckets and lifetime counters 0,
         // last_buyback_slot = launch_slot (the first buyback waits 150 slots).
-        c.apply_state(&State::at_launch(slot));
-        c.launched_at = timestamp;
-        c.launch_slot = slot;
+        c.apply_state(&State::at_launch(what.slot));
+        c.launched_at = what.timestamp;
+        c.launch_slot = what.slot;
         c.graduated_at = 0;
         c.graduation_slot = 0;
         c.last_payout_at = 0;
@@ -350,7 +447,7 @@ pub fn handle_launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {
         c.founder_claimed = 0;
         c.founder_paid_out = 0;
         c.holders_forwarded = 0;
-        c.meta_hash = meta_hash;
+        c.meta_hash = what.meta_hash;
         // The rent part of the account's lamports (6.5); a pre-funded Coin
         // address keeps the extra lamports as a donation.
         c.rent_reserve = rent_reserve;
@@ -359,40 +456,49 @@ pub fn handle_launch(ctx: Context<Launch>, city_id: u64) -> Result<()> {
 
     // 7. The ticker lock.
     {
-        let t = &mut ctx.accounts.ticker_lock;
-        t.city_id = city_id;
-        t.mint = mint_key;
-        t.bump = ctx.bumps.ticker_lock;
+        let tl = &mut **ticker_lock;
+        tl.city_id = what.city_id;
+        tl.mint = mint_key;
+        tl.bump = bumps.ticker;
     }
-
-    // 8. The approval closes at exit (rent to rent_payer).
-    let a = &ctx.accounts;
-    emit_cpi!(CoinLaunched {
-        city_id,
-        founder,
+    Ok(LaunchDone {
+        terms,
+        dust,
+        launch_fee,
         mint: mint_key,
         vault: vault_key,
-        config_id,
-        name: a.approval.name.clone(),
-        symbol: a.approval.symbol.clone(),
         uri,
-        meta_hash,
+    })
+}
+
+/// `CoinLaunched` (4.21) of a launch by either path.
+pub fn coin_launched(what: &LaunchWhat, done: &LaunchDone) -> CoinLaunched {
+    let t = &done.terms;
+    CoinLaunched {
+        city_id: what.city_id,
+        founder: what.founder,
+        mint: done.mint,
+        vault: done.vault,
+        config_id: what.config_id,
+        name: what.name.clone(),
+        symbol: what.symbol.clone(),
+        uri: done.uri.clone(),
+        meta_hash: what.meta_hash,
         supply_minted: COIN_SUPPLY,
-        dust_burned: dust,
-        curve_supply: terms.curve_supply,
-        pool_supply: terms.pool_supply,
-        graduation_sol: terms.graduation_sol,
-        virtual_sol: terms.virtual_sol,
-        virtual_tokens: terms.virtual_tokens,
-        liquidity_bps: terms.liquidity_bps,
-        platform_bps: terms.platform_bps,
-        founder_bps: terms.founder_bps,
-        holders_bps: terms.holders_bps,
-        buyback_bps: terms.buyback_bps,
-        total_fee_bps: terms.total_fee_bps,
-        launch_fee,
-        slot,
-        timestamp,
-    });
-    Ok(())
+        dust_burned: done.dust,
+        curve_supply: t.curve_supply,
+        pool_supply: t.pool_supply,
+        graduation_sol: t.graduation_sol,
+        virtual_sol: t.virtual_sol,
+        virtual_tokens: t.virtual_tokens,
+        liquidity_bps: t.liquidity_bps,
+        platform_bps: t.platform_bps,
+        founder_bps: t.founder_bps,
+        holders_bps: t.holders_bps,
+        buyback_bps: t.buyback_bps,
+        total_fee_bps: t.total_fee_bps,
+        launch_fee: done.launch_fee,
+        slot: what.slot,
+        timestamp: what.timestamp,
+    }
 }

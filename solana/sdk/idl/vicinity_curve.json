@@ -673,6 +673,84 @@
       "args": []
     },
     {
+      "name": "clear_launch_batch",
+      "docs": [
+        "4.26. The admin, the launch approver or the guardian ends every stored",
+        "batch, optionally halting publication: a pure stop."
+      ],
+      "discriminator": [
+        164,
+        8,
+        253,
+        89,
+        225,
+        21,
+        223,
+        10
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "launchpad",
+          "docs": [
+            "`admin`, `guardian` and `launch_approver` are read."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "launch_batch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  95,
+                  98,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "halt",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "name": "forward_holders_fees",
       "docs": [
         "4.15. Permissionless: pay `holders_pending` to the city's checked",
@@ -781,6 +859,88 @@
         },
         {
           "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_launch_batch",
+      "docs": [
+        "4.23. One-time: the admin creates the `LaunchBatch` account (the batch",
+        "path stays off until a launch approver is set)."
+      ],
+      "discriminator": [
+        187,
+        189,
+        83,
+        229,
+        154,
+        119,
+        6,
+        166
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "launchpad"
+          ]
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "launchpad",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "launch_batch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  95,
+                  98,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
@@ -1156,6 +1316,357 @@
       ]
     },
     {
+      "name": "launch_from_batch",
+      "docs": [
+        "4.27. A founder named in the batch in force launches the city's coin",
+        "with a Merkle proof of his entry; every rule of a per-city launch",
+        "applies."
+      ],
+      "discriminator": [
+        16,
+        6,
+        70,
+        96,
+        231,
+        210,
+        207,
+        145
+      ],
+      "accounts": [
+        {
+          "name": "founder",
+          "docs": [
+            "The leaf's founder: the leaf is built with this key."
+          ],
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays every rent, the launch fee and Metaplex's own fee (usually the",
+            "founder)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "launchpad",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "launch_batch",
+          "docs": [
+            "Read only: a batch launch never writes `LaunchBatch`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  95,
+                  98,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "approval",
+          "docs": [
+            "pending per-city approval wins over any batch (4.8, 4.27)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  112,
+                  112,
+                  114,
+                  111,
+                  118,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "city_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "config_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "coin",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "city_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "coin_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ticker_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  99,
+                  107,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "symbol"
+              }
+            ]
+          }
+        },
+        {
+          "name": "metadata",
+          "docs": [
+            "by the Metaplex CPI."
+          ],
+          "writable": true
+        },
+        {
+          "name": "fee_recipient",
+          "writable": true
+        },
+        {
+          "name": "legacy_coin"
+        },
+        {
+          "name": "legacy_approval"
+        },
+        {
+          "name": "legacy_launchpad",
+          "docs": [
+            "discriminator), whose launches must be paused and whose admin must be",
+            "this program's admin with no transfer pending (GOV-1)."
+          ]
+        },
+        {
+          "name": "rewards_registry",
+          "docs": [
+            "read by hand: owner, size and discriminator, its `admin` this",
+            "program's admin and its `pending_admin` zero (8.4, OPS-1)."
+          ]
+        },
+        {
+          "name": "metadata_program"
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Classic SPL Token, never Token-2022 (R3)."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "docs": [
+            "Required by the Metaplex CPI wrapper."
+          ],
+          "address": "SysvarRent111111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "city_id",
+          "type": "u64"
+        },
+        {
+          "name": "batch_seq",
+          "type": "u64"
+        },
+        {
+          "name": "config_id",
+          "type": "u16"
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "symbol",
+          "type": "string"
+        },
+        {
+          "name": "meta_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "proof",
+          "type": {
+            "vec": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "opt_in_payout",
       "docs": [
         "4.18. The founder opts in to daily payouts to the payout wallet."
@@ -1457,6 +1968,105 @@
         {
           "name": "new_admin",
           "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "publish_launch_batch",
+      "docs": [
+        "4.25. The launch approver publishes a batch of launch approvals (a",
+        "Merkle root), in force no sooner than 12 hours later, for at most 48."
+      ],
+      "discriminator": [
+        169,
+        37,
+        225,
+        102,
+        0,
+        38,
+        245,
+        83
+      ],
+      "accounts": [
+        {
+          "name": "approver",
+          "signer": true
+        },
+        {
+          "name": "launchpad",
+          "docs": [
+            "Only `launch_approver` is read."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "launch_batch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  95,
+                  98,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "seq",
+          "type": "u64"
+        },
+        {
+          "name": "root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "leaf_count",
+          "type": "u32"
+        },
+        {
+          "name": "valid_from",
+          "type": "i64"
+        },
+        {
+          "name": "valid_until",
+          "type": "i64"
         }
       ]
     },
@@ -1820,6 +2430,85 @@
       ]
     },
     {
+      "name": "set_launch_approver",
+      "docs": [
+        "4.24. The admin sets, rotates or removes (zero) the launch approver;",
+        "every call clears both stored batches and lifts a halt."
+      ],
+      "discriminator": [
+        102,
+        190,
+        197,
+        180,
+        66,
+        20,
+        73,
+        52
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "launchpad"
+          ]
+        },
+        {
+          "name": "launchpad",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  97,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "launch_batch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  95,
+                  98,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "approver",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "set_launch_config_enabled",
       "docs": [
         "4.7. Switch a config on or off for future approvals and launches."
@@ -2057,7 +2746,8 @@
         {
           "name": "launchpad",
           "docs": [
-            "Read for the guardian and the payout key (the new founder is neither)."
+            "Read for the guardian, the payout key and the launch approver (the new",
+            "founder is none of them)."
           ],
           "pda": {
             "seeds": [
@@ -2206,6 +2896,19 @@
         103,
         133,
         230
+      ]
+    },
+    {
+      "name": "LaunchBatch",
+      "discriminator": [
+        86,
+        207,
+        179,
+        29,
+        120,
+        144,
+        126,
+        62
       ]
     },
     {
@@ -2442,6 +3145,71 @@
         136,
         31,
         60
+      ]
+    },
+    {
+      "name": "LaunchApproverChanged",
+      "discriminator": [
+        15,
+        214,
+        54,
+        122,
+        155,
+        54,
+        30,
+        171
+      ]
+    },
+    {
+      "name": "LaunchBatchCleared",
+      "discriminator": [
+        254,
+        201,
+        149,
+        70,
+        250,
+        170,
+        23,
+        241
+      ]
+    },
+    {
+      "name": "LaunchBatchInitialized",
+      "discriminator": [
+        89,
+        226,
+        226,
+        122,
+        88,
+        140,
+        44,
+        114
+      ]
+    },
+    {
+      "name": "LaunchBatchPublished",
+      "discriminator": [
+        68,
+        132,
+        172,
+        244,
+        136,
+        17,
+        84,
+        19
+      ]
+    },
+    {
+      "name": "LaunchedFromBatch",
+      "discriminator": [
+        124,
+        201,
+        118,
+        151,
+        74,
+        11,
+        24,
+        242
       ]
     },
     {
@@ -2800,12 +3568,12 @@
     {
       "code": 6052,
       "name": "FeeRecipientRole",
-      "msg": "the fee recipient cannot be the admin, the proposed admin, the guardian, the upgrade authority at init or a coin's founder"
+      "msg": "the fee recipient cannot be the admin, the proposed admin, the guardian, the launch approver, the upgrade authority at init or a coin's founder"
     },
     {
       "code": 6053,
       "name": "FounderHoldsRole",
-      "msg": "a coin's founder cannot be the guardian or the payout key"
+      "msg": "a coin's founder cannot be the guardian, the payout key or the launch approver"
     },
     {
       "code": 6054,
@@ -2826,6 +3594,76 @@
       "code": 6057,
       "name": "GuardianIsAdmin",
       "msg": "the guardian cannot be the admin or the proposed admin: its halt must not wait for the admin's time lock"
+    },
+    {
+      "code": 6058,
+      "name": "LaunchApproverNotSet",
+      "msg": "no launch approver is set: launches through a batch are off"
+    },
+    {
+      "code": 6059,
+      "name": "ApproverHoldsRole",
+      "msg": "the launch approver cannot be the admin, the proposed admin, the guardian, the payout key or the payout wallet"
+    },
+    {
+      "code": 6060,
+      "name": "BatchSeqMismatch",
+      "msg": "a launch batch must carry the latest batch's number plus one"
+    },
+    {
+      "code": 6061,
+      "name": "BadBatchRoot",
+      "msg": "a launch batch root must not be all zeros"
+    },
+    {
+      "code": 6062,
+      "name": "BadLeafCount",
+      "msg": "a launch batch must have 1 to 512 leaves"
+    },
+    {
+      "code": 6063,
+      "name": "BadBatchWindow",
+      "msg": "a launch batch must take force 12 to 48 hours after publication and last at most 48 hours"
+    },
+    {
+      "code": 6064,
+      "name": "BatchesHalted",
+      "msg": "launch batches are halted until the admin sets the launch approver again"
+    },
+    {
+      "code": 6065,
+      "name": "BatchSuperseded",
+      "msg": "this launch batch is not in force: superseded, replaced, unknown or signed by a former approver"
+    },
+    {
+      "code": 6066,
+      "name": "BatchCleared",
+      "msg": "this launch batch was cleared"
+    },
+    {
+      "code": 6067,
+      "name": "BatchNotYetValid",
+      "msg": "this launch batch has not taken force yet"
+    },
+    {
+      "code": 6068,
+      "name": "BatchExpired",
+      "msg": "this launch batch has expired"
+    },
+    {
+      "code": 6069,
+      "name": "ProofTooLong",
+      "msg": "the proof has more hashes than the batch's tree is deep"
+    },
+    {
+      "code": 6070,
+      "name": "InvalidProof",
+      "msg": "the launch does not match the batch: the founder, city, config, name, ticker or metadata hash differs from the signed list"
+    },
+    {
+      "code": 6071,
+      "name": "ApprovalPending",
+      "msg": "this city has a pending approval: launch it with launch, not from a batch"
     }
   ],
   "types": [
@@ -2971,6 +3809,90 @@
           {
             "name": "by",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BatchRecord",
+      "docs": [
+        "One batch of launch approvals as the launch approver published it",
+        "(3.11): Borsh, fixed size, 109 bytes. `publish_launch_batch` writes a",
+        "record whole; afterwards only `cleared` changes."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seq",
+            "docs": [
+              "Offset 0. Batch sequence number, gap-free from 1; 0 = no batch."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "root",
+            "docs": [
+              "Offset 8. Merkle root of the batch's leaves (3.12); nonzero."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "leaf_count",
+            "docs": [
+              "Offset 40. 1 to `MAX_BATCH_LEAVES`."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "valid_from",
+            "docs": [
+              "Offset 44. Unix time; at least `published_at + BATCH_REVIEW_SECS`, at",
+              "most `published_at + BATCH_MAX_LEAD_SECS`."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "valid_until",
+            "docs": [
+              "Offset 52. After `valid_from`, at most `valid_from +",
+              "BATCH_MAX_VALIDITY_SECS`; the window is inclusive at both ends."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "published_at",
+            "docs": [
+              "Offset 60."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "published_slot",
+            "docs": [
+              "Offset 68."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "publisher",
+            "docs": [
+              "Offset 76. The launch approver who signed it."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "cleared",
+            "docs": [
+              "Offset 108. Set by every `clear_launch_batch` and every change of the",
+              "approver; never unset (a publication writes a new record)."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -4022,6 +4944,206 @@
       }
     },
     {
+      "name": "LaunchApproverChanged",
+      "docs": [
+        "`set_launch_approver` (4.24): every change clears both stored batches and",
+        "lifts a halt."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "old",
+            "type": "pubkey"
+          },
+          {
+            "name": "new",
+            "type": "pubkey"
+          },
+          {
+            "name": "latest_seq",
+            "docs": [
+              "`LaunchBatch.latest.seq` when the approver changed (both records are",
+              "cleared by it)."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LaunchBatch",
+      "docs": [
+        "One per program; seeds `[\"launch_batch\"]`; 260 bytes (3.11). The two",
+        "most recent batch records the launch approver published, and the halt of",
+        "the batch path. Created once by the admin (`init_launch_batch`); written",
+        "only by `set_launch_approver`, `publish_launch_batch` and",
+        "`clear_launch_batch`; read by `launch_from_batch`; never read by a trade;",
+        "never closed. Which record is in force at a moment is",
+        "`batch::batch_in_force` (8.6)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "docs": [
+              "Offset 8."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "halted",
+            "docs": [
+              "Offset 9. Set by `clear_launch_batch(halt = true)`; refuses every",
+              "publication and every batch launch; reset only by the admin's",
+              "`set_launch_approver`."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "latest",
+            "docs": [
+              "Offset 10. The most recently published batch."
+            ],
+            "type": {
+              "defined": {
+                "name": "BatchRecord"
+              }
+            }
+          },
+          {
+            "name": "previous",
+            "docs": [
+              "Offset 119. The batch `latest` superseded; in force until",
+              "`latest.valid_from` (8.6)."
+            ],
+            "type": {
+              "defined": {
+                "name": "BatchRecord"
+              }
+            }
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Offset 228. Zero."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LaunchBatchCleared",
+      "docs": [
+        "`clear_launch_batch` (4.26), also when nothing changed."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "by",
+            "type": "pubkey"
+          },
+          {
+            "name": "latest_seq",
+            "type": "u64"
+          },
+          {
+            "name": "previous_seq",
+            "type": "u64"
+          },
+          {
+            "name": "halted",
+            "docs": [
+              "`LaunchBatch.halted` after the call."
+            ],
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LaunchBatchInitialized",
+      "docs": [
+        "`init_launch_batch` (4.23)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "by",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LaunchBatchPublished",
+      "docs": [
+        "`publish_launch_batch` (4.25)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seq",
+            "type": "u64"
+          },
+          {
+            "name": "root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "leaf_count",
+            "type": "u32"
+          },
+          {
+            "name": "valid_from",
+            "type": "i64"
+          },
+          {
+            "name": "valid_until",
+            "type": "i64"
+          },
+          {
+            "name": "publisher",
+            "type": "pubkey"
+          },
+          {
+            "name": "published_at",
+            "type": "i64"
+          },
+          {
+            "name": "previous_seq",
+            "docs": [
+              "`LaunchBatch.previous.seq` after the publication."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "replaced_seq",
+            "docs": [
+              "The pending batch this one replaced (still in its review window), 0",
+              "for none."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "LaunchConfig",
       "docs": [
         "One per allowed split and curve; seeds `[\"config\", config_id u16 LE]`;",
@@ -4158,6 +5280,62 @@
       }
     },
     {
+      "name": "LaunchedFromBatch",
+      "docs": [
+        "`launch_from_batch` (4.27), emitted right after its `CoinLaunched`: the",
+        "batch and the leaf the launch was checked against."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "city_id",
+            "type": "u64"
+          },
+          {
+            "name": "founder",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "config_id",
+            "type": "u16"
+          },
+          {
+            "name": "batch_seq",
+            "type": "u64"
+          },
+          {
+            "name": "root",
+            "docs": [
+              "The root of that batch (3.11)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "leaf",
+            "docs": [
+              "The leaf built from the call's arguments and its signer (3.12)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Launchpad",
       "docs": [
         "One per program; seeds `[\"launchpad\"]`; 238 bytes (3.4).",
@@ -4166,7 +5344,9 @@
         "(3.2). `buy` and `launch` read `buys_halted`, `buyback_burn` reads",
         "`buybacks_halted`; `sell` never reads this account.",
         "`buybacks_halted` implies `buys_halted` (`set_pause` refuses anything else,",
-        "review LL-1): no buyback backlog can build while anyone can buy ahead of it."
+        "review LL-1): no buyback backlog can build while anyone can buy ahead of it.",
+        "`launch_approver` is kept apart from every other role in both directions",
+        "(4.2, 4.4, 4.5, 4.24) and from every founder seat (`check_founder_key`)."
       ],
       "type": {
         "kind": "struct",
@@ -4252,14 +5432,25 @@
             "type": "bool"
           },
           {
+            "name": "launch_approver",
+            "docs": [
+              "Offset 175. The launch approver (3.4, 8.1): may only publish and clear",
+              "launch batches (4.25, 4.26); zero = none, the batch path off (the",
+              "default after `init_launchpad`). Written only by the admin's",
+              "`set_launch_approver` (4.24). Taken from the reserved bytes: the size",
+              "and every other offset are unchanged."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "_reserved",
             "docs": [
-              "Offset 175. Zero."
+              "Offset 207. Zero."
             ],
             "type": {
               "array": [
                 "u8",
-                63
+                31
               ]
             }
           }
@@ -4687,6 +5878,34 @@
       "value": "2592000"
     },
     {
+      "name": "BATCH_MAX_LEAD_SECS",
+      "docs": [
+        "Latest `valid_from` after publication: a list is never signed long",
+        "before it takes force (4.25)."
+      ],
+      "type": "i64",
+      "value": "172800"
+    },
+    {
+      "name": "BATCH_MAX_VALIDITY_SECS",
+      "docs": [
+        "Longest window from `valid_from` to `valid_until` (4.25, O31)."
+      ],
+      "type": "i64",
+      "value": "172800"
+    },
+    {
+      "name": "BATCH_REVIEW_SECS",
+      "docs": [
+        "Least time from a launch batch's publication to its `valid_from`: the",
+        "review window in which the site's monitor recomputes the root, a second",
+        "person checks the new entries, and the guardian, the owner or the admin",
+        "can clear it (4.25, 8.6; owner decision O30)."
+      ],
+      "type": "i64",
+      "value": "43200"
+    },
+    {
       "name": "BPS",
       "docs": [
         "Basis-point denominator `D`."
@@ -4762,6 +5981,27 @@
       "value": "13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN"
     },
     {
+      "name": "LAUNCH_LEAF_TAG",
+      "docs": [
+        "Domain tag of a launch leaf (3.12): 26 ASCII bytes."
+      ],
+      "type": {
+        "array": [
+          "u8",
+          26
+        ]
+      },
+      "value": "[118, 105, 99, 105, 110, 105, 116, 121, 95, 99, 117, 114, 118, 101, 47, 108, 97, 117, 110, 99, 104, 95, 108, 101, 97, 102]"
+    },
+    {
+      "name": "LAUNCH_LEAF_VERSION",
+      "docs": [
+        "Version byte of a launch leaf (3.12); a later layout takes 2."
+      ],
+      "type": "u8",
+      "value": "1"
+    },
+    {
       "name": "LEGACY_ADMIN_AT",
       "docs": [
         "Offset of `admin` in the old program's `Launchpad` (8.5, GOV-1): it must",
@@ -4827,6 +6067,22 @@
       ],
       "type": "pubkey",
       "value": "AkMP9qvAYmb8Vyu63Qhw8Z4ee1fgQbCRKkXWy5r5A1Ai"
+    },
+    {
+      "name": "MAX_BATCH_LEAVES",
+      "docs": [
+        "Most leaves in one launch batch (8.6, 11.3)."
+      ],
+      "type": "u32",
+      "value": "512"
+    },
+    {
+      "name": "MAX_BATCH_PROOF_LEN",
+      "docs": [
+        "Longest proof a batch launch accepts: `ceil(log2(MAX_BATCH_LEAVES))`."
+      ],
+      "type": "u8",
+      "value": "9"
     },
     {
       "name": "MAX_DUST_RAW",
@@ -4900,6 +6156,22 @@
       ],
       "type": "u64",
       "value": "1152921504606846976"
+    },
+    {
+      "name": "MERKLE_LEAF_PREFIX",
+      "docs": [
+        "First byte of a leaf preimage (as `vicinity_rewards`' `merkle.rs`)."
+      ],
+      "type": "u8",
+      "value": "0"
+    },
+    {
+      "name": "MERKLE_NODE_PREFIX",
+      "docs": [
+        "First byte of an inner-node preimage (as `vicinity_rewards`' `merkle.rs`)."
+      ],
+      "type": "u8",
+      "value": "1"
     },
     {
       "name": "METADATA_URI_PREFIX",

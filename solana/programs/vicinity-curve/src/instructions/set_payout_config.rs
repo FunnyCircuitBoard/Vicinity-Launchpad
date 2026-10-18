@@ -3,7 +3,8 @@
 //! Two zeros switch opted-in payouts off. Otherwise both must be nonzero and
 //! separate: the payout key is not the admin, the guardian or `FEE_RECIPIENT`;
 //! the payout wallet is not the payout key, the admin, the guardian or
-//! `FEE_RECIPIENT` (GOV-2). Existing opt-ins naming another wallet stop
+//! `FEE_RECIPIENT` (GOV-2); neither is the launch approver, which never
+//! touches money (4.24). Existing opt-ins naming another wallet stop
 //! working; they are never redirected.
 
 use anchor_lang::prelude::*;
@@ -11,7 +12,7 @@ use anchor_lang::prelude::*;
 use crate::constants::LAUNCHPAD_SEED;
 use crate::errors::CurveError;
 use crate::events::PayoutConfigChanged;
-use crate::helpers::check_payout_keys_separate;
+use crate::helpers::{check_not_approver, check_payout_keys_separate};
 use crate::state::Launchpad;
 
 #[derive(Accounts)]
@@ -46,6 +47,8 @@ pub fn handle_set_payout_config(
             &payout_authority,
             &payout_destination,
         )?;
+        check_not_approver(&payout_authority, &lp.launch_approver)?;
+        check_not_approver(&payout_destination, &lp.launch_approver)?;
     }
     let (old_authority, old_destination) = (lp.payout_authority, lp.payout_destination);
     lp.payout_authority = payout_authority;

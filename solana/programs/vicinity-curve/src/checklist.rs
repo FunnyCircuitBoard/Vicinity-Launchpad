@@ -3,24 +3,25 @@
 //! Two kinds of check that no unit test of a single function can make:
 //!
 //! * **Source rules** read the instruction files as text: the halt-all guard
-//!   tops exactly the eight outflow handlers (4.0, 8.3); lamports leave a
+//!   tops exactly the nine outflow handlers (4.0, 8.3); lamports leave a
 //!   `Coin` only through `custody::pay_out`, in exactly the five debits of 6.5,
 //!   after the bookkeeping, and only the event CPI follows it (rule of 4.0);
 //!   money instructions emit by event CPI and settings instructions by `emit!`
 //!   (4.21, M20); no `init_if_needed`, no remaining accounts, no token
 //!   approve, close, freeze or thaw, and `mint_to` / `set_authority` only in
-//!   `launch` (T29, T30, T41, I14).
+//!   `launch` (T29, T30, T41, I14); the launch approver and `LaunchBatch` are
+//!   written only where 4.23 to 4.26 say (I24, I25).
 //! * **The instruction contract** of section 4 against the committed client
 //!   IDL `sdk/idl/vicinity_curve.json` (generated from this crate with the
 //!   `idl-build` feature; CI diffs it against the build): every instruction's
 //!   accounts in the order, with the signer and writable flags, of its table,
-//!   its arguments, the account discriminators, the 21 events, the 54 error
+//!   its arguments, the account discriminators, the 26 events, the 72 error
 //!   codes and the compiled ids of the default (mainnet) build.
 
 use serde_json::{json, Value};
 
 /// Every instruction file, by instruction name.
-const SOURCES: [(&str, &str); 21] = [
+const SOURCES: [(&str, &str); 26] = [
     ("accept_admin", include_str!("instructions/accept_admin.rs")),
     (
         "add_launch_config",
@@ -37,14 +38,26 @@ const SOURCES: [(&str, &str); 21] = [
         include_str!("instructions/claim_founder_fees.rs"),
     ),
     (
+        "clear_launch_batch",
+        include_str!("instructions/clear_launch_batch.rs"),
+    ),
+    (
         "forward_holders_fees",
         include_str!("instructions/forward_holders_fees.rs"),
+    ),
+    (
+        "init_launch_batch",
+        include_str!("instructions/init_launch_batch.rs"),
     ),
     (
         "init_launchpad",
         include_str!("instructions/init_launchpad.rs"),
     ),
     ("launch", include_str!("instructions/launch.rs")),
+    (
+        "launch_from_batch",
+        include_str!("instructions/launch_from_batch.rs"),
+    ),
     (
         "opt_in_payout",
         include_str!("instructions/opt_in_payout.rs"),
@@ -58,6 +71,10 @@ const SOURCES: [(&str, &str); 21] = [
         include_str!("instructions/propose_admin.rs"),
     ),
     (
+        "publish_launch_batch",
+        include_str!("instructions/publish_launch_batch.rs"),
+    ),
+    (
         "revoke_approval",
         include_str!("instructions/revoke_approval.rs"),
     ),
@@ -67,6 +84,10 @@ const SOURCES: [(&str, &str); 21] = [
     ),
     ("sell", include_str!("instructions/sell.rs")),
     ("set_guardian", include_str!("instructions/set_guardian.rs")),
+    (
+        "set_launch_approver",
+        include_str!("instructions/set_launch_approver.rs"),
+    ),
     (
         "set_launch_config_enabled",
         include_str!("instructions/set_launch_config_enabled.rs"),
@@ -87,8 +108,9 @@ const SOURCES: [(&str, &str); 21] = [
 ];
 
 /// The other source files of the crate (non-test parts are checked).
-const OTHER_SOURCES: [(&str, &str); 7] = [
+const OTHER_SOURCES: [(&str, &str); 8] = [
     ("lib.rs", include_str!("lib.rs")),
+    ("batch.rs", include_str!("batch.rs")),
     ("constants.rs", include_str!("constants.rs")),
     ("custody.rs", include_str!("custody.rs")),
     ("errors.rs", include_str!("errors.rs")),
@@ -97,10 +119,11 @@ const OTHER_SOURCES: [(&str, &str); 7] = [
     ("state.rs", include_str!("state.rs")),
 ];
 
-/// 4.0 and 8.3: the eight handlers that move lamports or tokens out of a
-/// `Coin` or its vault.
-const OUTFLOWS: [&str; 8] = [
+/// 4.0 and 8.3: the nine handlers that move lamports or tokens out of a
+/// `Coin` or its vault, or create one.
+const OUTFLOWS: [&str; 9] = [
     "launch",
+    "launch_from_batch",
     "buy",
     "sell",
     "buyback_burn",
@@ -157,9 +180,9 @@ fn every_instruction_file_has_its_handler() {
 }
 
 /// 4.0, 8.3: `require_not_halted()?` is the first statement of exactly the
-/// eight outflow handlers, and appears nowhere else.
+/// nine outflow handlers, and appears nowhere else.
 #[test]
-fn halt_all_guard_tops_exactly_the_eight_outflows() {
+fn halt_all_guard_tops_exactly_the_nine_outflows() {
     for (name, src) in SOURCES {
         if OUTFLOWS.contains(&name) {
             assert_eq!(
@@ -336,7 +359,13 @@ fn pause_flags_and_launchpad_keys() {
     };
     want(
         ".buys_halted",
-        vec!["buy", "launch", "init_launchpad", "set_pause"],
+        vec![
+            "buy",
+            "launch",
+            "launch_from_batch",
+            "init_launchpad",
+            "set_pause",
+        ],
     );
     want(
         ".buybacks_halted",
@@ -344,7 +373,7 @@ fn pause_flags_and_launchpad_keys() {
     );
     want(
         ".launches_paused",
-        vec!["launch", "init_launchpad", "set_pause"],
+        vec!["launch", "launch_from_batch", "init_launchpad", "set_pause"],
     );
     want(
         ".payouts_paused",
@@ -359,6 +388,10 @@ fn pause_flags_and_launchpad_keys() {
         vec!["init_launchpad", "set_payout_config"],
     );
     want(".guardian =", vec!["init_launchpad", "set_guardian"]);
+    want(
+        ".launch_approver =",
+        vec!["init_launchpad", "set_launch_approver"],
+    );
     want(".admin =", vec!["init_launchpad", "accept_admin"]);
     want(
         ".pending_admin =",
@@ -380,16 +413,130 @@ fn pause_flags_and_launchpad_keys() {
 }
 
 /// R2-DIFF-1, SPEC-1: every instruction that names a founder checks the seat
-/// (`check_founder_key`: never zero, `FEE_RECIPIENT`, the guardian or the
-/// payout key): `approve_launch` the founder it names, `launch` the signing
-/// founder again, `transfer_founder` the new founder. No other instruction
-/// writes or names a founder.
+/// (`check_founder_key`: never zero, `FEE_RECIPIENT`, the guardian, the payout
+/// key or the launch approver): `approve_launch` the founder it names,
+/// `launch` and `launch_from_batch` the signing founder, `transfer_founder`
+/// the new founder. No other instruction writes or names a founder; each
+/// call passes the launch approver (4.24).
 #[test]
 fn founder_seat_checked_wherever_a_founder_is_named() {
     let mut got = mentioned_in("check_founder_key(");
     got.sort_unstable();
-    assert_eq!(got, ["approve_launch", "launch", "transfer_founder"]);
+    assert_eq!(
+        got,
+        [
+            "approve_launch",
+            "launch",
+            "launch_from_batch",
+            "transfer_founder"
+        ]
+    );
     assert_eq!(mentioned_in("a.founder = founder"), ["approve_launch"]);
+    for name in got {
+        let src = without_comments(SOURCES.iter().find(|(n, _)| *n == name).unwrap().1);
+        let at = src.find("check_founder_key(").unwrap();
+        let call = &src[at..at + src[at..].find(")?").unwrap()];
+        assert!(call.contains(".launch_approver"), "{name}: {call}");
+    }
+}
+
+/// 4.2, 4.4, 4.5, 4.24, I25: the launch approver holds no other seat, both
+/// ways: `set_launch_approver` checks the new approver against every role
+/// (`check_approver_separate`); `propose_admin`, `accept_admin`,
+/// `set_guardian` and `set_payout_config` check the key they set against the
+/// approver (`check_not_approver`); only the three keys of 4.26 clear.
+#[test]
+fn launch_approver_kept_apart_both_ways() {
+    let sorted = |what: &str| {
+        let mut v = mentioned_in(what);
+        v.sort_unstable();
+        v
+    };
+    assert_eq!(sorted("check_approver_separate("), ["set_launch_approver"]);
+    assert_eq!(
+        sorted("check_not_approver("),
+        [
+            "accept_admin",
+            "propose_admin",
+            "set_guardian",
+            "set_payout_config"
+        ]
+    );
+    let payout = without_comments(
+        SOURCES
+            .iter()
+            .find(|(n, _)| *n == "set_payout_config")
+            .unwrap()
+            .1,
+    );
+    assert!(payout.contains("check_not_approver(&payout_authority"));
+    assert!(payout.contains("check_not_approver(&payout_destination"));
+    assert_eq!(sorted("may_clear_batches("), ["clear_launch_batch"]);
+}
+
+/// 3.11, 4.23 to 4.27, I24: `LaunchBatch` is created only by
+/// `init_launch_batch`, written only by `set_launch_approver`,
+/// `publish_launch_batch` and `clear_launch_batch`, read by
+/// `launch_from_batch` and touched by nothing else; `halted` becomes true
+/// only in a clear and false only in init and `set_launch_approver`; a
+/// record's `cleared` is only ever set to true (a publication writes a new
+/// record whole, through `batch::apply_publication`); the approver's own
+/// instructions never write `Launchpad`.
+#[test]
+fn launch_batch_writers() {
+    let sorted = |what: &str| {
+        let mut v = mentioned_in(what);
+        v.sort_unstable();
+        v
+    };
+    assert_eq!(
+        sorted("LaunchBatch>"),
+        [
+            "clear_launch_batch",
+            "init_launch_batch",
+            "launch_from_batch",
+            "publish_launch_batch",
+            "set_launch_approver"
+        ]
+    );
+    assert_eq!(sorted(".halted = true"), ["clear_launch_batch"]);
+    assert_eq!(
+        sorted(".halted = false"),
+        ["init_launch_batch", "set_launch_approver"]
+    );
+    assert_eq!(
+        sorted(".cleared = true"),
+        ["clear_launch_batch", "set_launch_approver"]
+    );
+    assert!(sorted(".cleared = false").is_empty());
+    assert_eq!(sorted("apply_publication("), ["publish_launch_batch"]);
+    assert_eq!(sorted(".latest ="), ["init_launch_batch"]);
+    assert_eq!(sorted(".previous ="), ["init_launch_batch"]);
+    // the approver's instructions: Launchpad read-only
+    let idl = idl();
+    for name in [
+        "publish_launch_batch",
+        "clear_launch_batch",
+        "launch_from_batch",
+    ] {
+        let lp = instruction(&idl, name)["accounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["name"] == "launchpad")
+            .unwrap()
+            .clone();
+        assert_eq!(flags(&lp), 0, "{name}: Launchpad read-only");
+    }
+    // the batch launch reads LaunchBatch and never writes it
+    let lb = instruction(&idl, "launch_from_batch")["accounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["name"] == "launch_batch")
+        .unwrap()
+        .clone();
+    assert_eq!(flags(&lb), 0);
 }
 
 /// I1, I2, R4: the frozen terms and identity of a `Coin` are written once, in
@@ -620,6 +767,53 @@ fn spec_accounts() -> Vec<(&'static str, Vec<(&'static str, u8)>)> {
                 ("destination_wallet", W),
             ]),
         ),
+        (
+            "init_launch_batch",
+            vec![
+                ("admin", S),
+                ("payer", SW),
+                ("launchpad", 0),
+                ("launch_batch", W),
+                ("system_program", 0),
+            ],
+        ),
+        (
+            "set_launch_approver",
+            vec![("admin", S), ("launchpad", W), ("launch_batch", W)],
+        ),
+        (
+            "publish_launch_batch",
+            vec![("approver", S), ("launchpad", 0), ("launch_batch", W)],
+        ),
+        (
+            "clear_launch_batch",
+            vec![("authority", S), ("launchpad", 0), ("launch_batch", W)],
+        ),
+        (
+            "launch_from_batch",
+            with_events(vec![
+                ("founder", S),
+                ("payer", SW),
+                ("launchpad", 0),
+                ("launch_batch", 0),
+                ("approval", 0),
+                ("config", 0),
+                ("coin", W),
+                ("mint", W),
+                ("coin_vault", W),
+                ("ticker_lock", W),
+                ("metadata", W),
+                ("fee_recipient", W),
+                ("legacy_coin", 0),
+                ("legacy_approval", 0),
+                ("legacy_launchpad", 0),
+                ("rewards_registry", 0),
+                ("metadata_program", 0),
+                ("token_program", 0),
+                ("system_program", 0),
+                ("rent", 0),
+            ]),
+        ),
     ]
 }
 
@@ -638,14 +832,14 @@ fn flags(account: &Value) -> u8 {
     (s as u8) * S + (w as u8) * W
 }
 
-/// Section 4: 21 instructions; each one's accounts in the order and with the
+/// Section 4: 26 instructions; each one's accounts in the order and with the
 /// signer and writable flags of its table.
 #[test]
 fn idl_accounts_match_the_section_4_tables() {
     let idl = idl();
     let spec = spec_accounts();
-    assert_eq!(spec.len(), 21);
-    assert_eq!(idl["instructions"].as_array().unwrap().len(), 21);
+    assert_eq!(spec.len(), 26);
+    assert_eq!(idl["instructions"].as_array().unwrap().len(), 26);
     for (name, want) in spec {
         let got: Vec<(String, u8)> = instruction(&idl, name)["accounts"]
             .as_array()
@@ -753,8 +947,33 @@ fn idl_arguments_match_section_4() {
         ),
         ("revoke_payout_opt_in", vec![]),
         ("payout_founder_fees", vec![]),
+        ("init_launch_batch", vec![]),
+        ("set_launch_approver", vec![("approver", json!("pubkey"))]),
+        (
+            "publish_launch_batch",
+            vec![
+                ("seq", json!("u64")),
+                ("root", json!({"array": ["u8", 32]})),
+                ("leaf_count", json!("u32")),
+                ("valid_from", json!("i64")),
+                ("valid_until", json!("i64")),
+            ],
+        ),
+        ("clear_launch_batch", vec![("halt", json!("bool"))]),
+        (
+            "launch_from_batch",
+            vec![
+                ("city_id", json!("u64")),
+                ("batch_seq", json!("u64")),
+                ("config_id", json!("u16")),
+                ("name", json!("string")),
+                ("symbol", json!("string")),
+                ("meta_hash", json!({"array": ["u8", 32]})),
+                ("proof", json!({"vec": {"array": ["u8", 32]}})),
+            ],
+        ),
     ];
-    assert_eq!(want.len(), 21);
+    assert_eq!(want.len(), 26);
     for (name, args) in want {
         let got = instruction(&idl, name)["args"].as_array().unwrap().clone();
         let want: Vec<Value> = args
@@ -830,6 +1049,7 @@ fn idl_discriminators() {
         [
             "Approval",
             "CurveCoin",
+            "LaunchBatch",
             "LaunchConfig",
             "Launchpad",
             "PayoutOptIn",
@@ -856,7 +1076,7 @@ fn idl_discriminators() {
     }
 }
 
-/// 4.21: the eight event-CPI events and the thirteen settings events.
+/// 4.21: the nine event-CPI events and the seventeen settings events.
 #[test]
 fn idl_events() {
     let idl = idl();
@@ -889,18 +1109,23 @@ fn idl_events() {
         "FounderTransferred",
         "PayoutOptedIn",
         "PayoutOptInRevoked",
+        "LaunchedFromBatch",
+        "LaunchBatchInitialized",
+        "LaunchApproverChanged",
+        "LaunchBatchPublished",
+        "LaunchBatchCleared",
     ];
     want.sort_unstable();
     assert_eq!(got, want);
 }
 
-/// 4.22: 58 codes from 6000, contiguous, in the table's order (the first and
+/// 4.22: 72 codes from 6000, contiguous, in the table's order (the first and
 /// the last few checked by name; errors.rs checks every code).
 #[test]
 fn idl_errors() {
     let idl = idl();
     let errors = idl["errors"].as_array().unwrap();
-    assert_eq!(errors.len(), 58);
+    assert_eq!(errors.len(), 72);
     for (i, e) in errors.iter().enumerate() {
         assert_eq!(e["code"].as_u64().unwrap(), 6000 + i as u64);
     }
@@ -917,6 +1142,25 @@ fn idl_errors() {
     assert_eq!(name(55), "BuybackHaltWithoutBuyHalt");
     assert_eq!(name(56), "RewardsRegistryAdminMismatch");
     assert_eq!(name(57), "GuardianIsAdmin");
+    let batch = [
+        "LaunchApproverNotSet",
+        "ApproverHoldsRole",
+        "BatchSeqMismatch",
+        "BadBatchRoot",
+        "BadLeafCount",
+        "BadBatchWindow",
+        "BatchesHalted",
+        "BatchSuperseded",
+        "BatchCleared",
+        "BatchNotYetValid",
+        "BatchExpired",
+        "ProofTooLong",
+        "InvalidProof",
+        "ApprovalPending",
+    ];
+    for (k, n) in batch.iter().enumerate() {
+        assert_eq!(name(58 + k), *n, "{}", 6058 + k);
+    }
 }
 
 /// 3.2, C03: the committed IDL is the default (mainnet ids) build's, its
@@ -974,4 +1218,24 @@ fn idl_address_and_constants() {
         MAX_LAUNCH_FEE_LAMPORTS.to_string(),
     );
     has("METADATA_URI_PREFIX", METADATA_URI_PREFIX.to_string());
+    // the batch launch approval (3.2)
+    has("BATCH_REVIEW_SECS", BATCH_REVIEW_SECS.to_string());
+    has("BATCH_MAX_LEAD_SECS", BATCH_MAX_LEAD_SECS.to_string());
+    has(
+        "BATCH_MAX_VALIDITY_SECS",
+        BATCH_MAX_VALIDITY_SECS.to_string(),
+    );
+    has("MAX_BATCH_LEAVES", MAX_BATCH_LEAVES.to_string());
+    has("MAX_BATCH_PROOF_LEN", MAX_BATCH_PROOF_LEN.to_string());
+    has("LAUNCH_LEAF_VERSION", LAUNCH_LEAF_VERSION.to_string());
+    has("MERKLE_LEAF_PREFIX", MERKLE_LEAF_PREFIX.to_string());
+    has("MERKLE_NODE_PREFIX", MERKLE_NODE_PREFIX.to_string());
+    let tag: Vec<u8> = serde_json::from_str(&constants["LAUNCH_LEAF_TAG"]).unwrap();
+    assert_eq!(tag, LAUNCH_LEAF_TAG.to_vec());
+    assert_eq!(&tag[..], b"vicinity_curve/launch_leaf");
+    assert_eq!(MAX_BATCH_LEAVES, 512);
+    assert_eq!(
+        MAX_BATCH_PROOF_LEN as u32,
+        crate::batch::tree_depth(MAX_BATCH_LEAVES)
+    );
 }

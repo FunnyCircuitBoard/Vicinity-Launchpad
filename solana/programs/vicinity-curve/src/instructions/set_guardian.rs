@@ -7,8 +7,10 @@
 //! (and with it the replacement) fail; buys reopen in a later proposal after
 //! the keeper has drained the backlogs (4.4, 8.3; reviews R4-DIFF-4, OPS-3).
 //! The guardian "cannot touch money" (8.1): it may not be `FEE_RECIPIENT`,
-//! the payout key or the payout wallet (GOV-2); and it is not the admin or
-//! the proposed admin, whose actions wait for the time lock (R5-CONS-1).
+//! the payout key or the payout wallet (GOV-2); it is not the admin or the
+//! proposed admin, whose actions wait for the time lock (R5-CONS-1); and it is
+//! not the launch approver: the key that stops a wrong batch is never the key
+//! that signs it (4.24, 8.6).
 
 use anchor_lang::prelude::*;
 
@@ -16,7 +18,8 @@ use crate::constants::LAUNCHPAD_SEED;
 use crate::errors::CurveError;
 use crate::events::GuardianChanged;
 use crate::helpers::{
-    check_guardian_separate, check_not_fee_recipient, check_payout_keys_separate,
+    check_guardian_separate, check_not_approver, check_not_fee_recipient,
+    check_payout_keys_separate,
 };
 use crate::state::Launchpad;
 
@@ -43,6 +46,7 @@ pub fn handle_set_guardian(ctx: Context<SetGuardian>, guardian: Pubkey) -> Resul
         &lp.payout_destination,
     )?;
     check_guardian_separate(&guardian, &lp.admin, &lp.pending_admin)?;
+    check_not_approver(&guardian, &lp.launch_approver)?;
     let old = lp.guardian;
     lp.guardian = guardian;
     emit!(GuardianChanged { old, new: guardian });

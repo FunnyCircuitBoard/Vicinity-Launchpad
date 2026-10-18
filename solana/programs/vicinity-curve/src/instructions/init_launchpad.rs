@@ -83,7 +83,9 @@ pub fn handle_init_launchpad(ctx: Context<InitLaunchpad>, guardian: Pubkey) -> R
     lp.buybacks_halted = false;
     lp.next_config_id = 0;
     lp.bump = ctx.bumps.launchpad;
-    lp._reserved = [0; 63];
+    // the batch path starts off (4.24: only set_launch_approver turns it on)
+    lp.launch_approver = Pubkey::default();
+    lp._reserved = [0; 31];
     emit!(LaunchpadInitialized {
         admin: lp.admin,
         upgrade_authority: ctx.accounts.upgrade_authority.key(),

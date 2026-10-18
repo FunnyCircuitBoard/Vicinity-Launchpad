@@ -2,7 +2,8 @@
 # The three vicinity_curve SBF builds (VICINITY-CURVE-DESIGN.md 3.1, 8.3, C03,
 # C04): production (default features: `no-idl`, mainnet ids), devnet (the
 # compiled devnet ids of 3.2) and halt-all (the pre-audited emergency build:
-# the eight outflow instructions refuse with TradingHalted).
+# the nine handlers that move lamports or tokens, launch_from_batch among them,
+# refuse with TradingHalted).
 #
 # Each build recompiles the program crate itself (dependencies stay cached),
 # so cargo-build-sbf prints every warning, and the script fails on any

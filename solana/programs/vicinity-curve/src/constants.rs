@@ -178,6 +178,40 @@ pub const APPROVAL_MAX_SECS: i64 = 30 * 86_400;
 /// At most one opted-in payout per coin per 24 hours.
 #[constant]
 pub const PAYOUT_COOLDOWN_SECS: i64 = 86_400;
+
+// ---- the batch launch approval (3.2, 3.11, 3.12, 4.23 to 4.27, 8.6) ----
+
+/// Least time from a launch batch's publication to its `valid_from`: the
+/// review window in which the site's monitor recomputes the root, a second
+/// person checks the new entries, and the guardian, the owner or the admin
+/// can clear it (4.25, 8.6; owner decision O30).
+#[constant]
+pub const BATCH_REVIEW_SECS: i64 = 43_200;
+/// Latest `valid_from` after publication: a list is never signed long
+/// before it takes force (4.25).
+#[constant]
+pub const BATCH_MAX_LEAD_SECS: i64 = 172_800;
+/// Longest window from `valid_from` to `valid_until` (4.25, O31).
+#[constant]
+pub const BATCH_MAX_VALIDITY_SECS: i64 = 172_800;
+/// Most leaves in one launch batch (8.6, 11.3).
+#[constant]
+pub const MAX_BATCH_LEAVES: u32 = 512;
+/// Longest proof a batch launch accepts: `ceil(log2(MAX_BATCH_LEAVES))`.
+#[constant]
+pub const MAX_BATCH_PROOF_LEN: u8 = 9;
+/// Domain tag of a launch leaf (3.12): 26 ASCII bytes.
+#[constant]
+pub const LAUNCH_LEAF_TAG: [u8; 26] = *b"vicinity_curve/launch_leaf";
+/// Version byte of a launch leaf (3.12); a later layout takes 2.
+#[constant]
+pub const LAUNCH_LEAF_VERSION: u8 = 1;
+/// First byte of a leaf preimage (as `vicinity_rewards`' `merkle.rs`).
+#[constant]
+pub const MERKLE_LEAF_PREFIX: u8 = 0x00;
+/// First byte of an inner-node preimage (as `vicinity_rewards`' `merkle.rs`).
+#[constant]
+pub const MERKLE_NODE_PREFIX: u8 = 0x01;
 /// Every coin's metadata URI is this prefix, the mint (base58) and ".json".
 #[constant]
 pub const METADATA_URI_PREFIX: &str = "https://vicinity.city/coin-meta/";
@@ -229,6 +263,8 @@ pub const COIN_LEN: usize = m::COIN_ACCOUNT_LEN;
 pub const TICKER_LOCK_LEN: usize = 49;
 /// `PayoutOptIn` (3.9).
 pub const PAYOUT_OPT_IN_LEN: usize = 145;
+/// `LaunchBatch` (3.11).
+pub const LAUNCH_BATCH_LEN: usize = 260;
 
 // ---- seeds (3.2) ----
 
@@ -248,6 +284,8 @@ pub const COIN_VAULT_SEED: &[u8] = b"coin_vault";
 pub const TICKER_SEED: &[u8] = b"ticker";
 /// `["payout_opt_in", coin]`.
 pub const PAYOUT_OPT_IN_SEED: &[u8] = b"payout_opt_in";
+/// `["launch_batch"]` (3.11).
+pub const LAUNCH_BATCH_SEED: &[u8] = b"launch_batch";
 /// `vicinity_rewards`: registry `["registry"]`.
 pub const REWARDS_REGISTRY_SEED: &[u8] = b"registry";
 /// `vicinity_rewards`: city config `["city", city_coin_mint]`.

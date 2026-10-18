@@ -17,9 +17,9 @@
 //! never change it, so the holders' share could never be forwarded. Checked
 //! again in `launch`.
 //!
-//! The founder is never `FEE_RECIPIENT`, the guardian or the payout key (the
-//! founder seat receives money; R2-DIFF-1, SPEC-1); `launch` checks the
-//! signing founder again.
+//! The founder is never `FEE_RECIPIENT`, the guardian, the payout key or the
+//! launch approver (the founder seat receives money; R2-DIFF-1, SPEC-1,
+//! 4.24); `launch` checks the signing founder again.
 //!
 //! A second approval for the same city fails at `init` until the first is used
 //! or revoked. A symbol longer than 32 bytes fails the ticker seed derivation
@@ -141,7 +141,12 @@ pub fn handle_approve_launch(
 ) -> Result<()> {
     require!(city_id >= 1, CurveError::BadCityId);
     let lp = &ctx.accounts.launchpad;
-    check_founder_key(&founder, &lp.guardian, &lp.payout_authority)?;
+    check_founder_key(
+        &founder,
+        &lp.guardian,
+        &lp.payout_authority,
+        &lp.launch_approver,
+    )?;
     check_name(&name)?;
     check_symbol(&symbol)?;
     require!(meta_hash != [0u8; 32], CurveError::BadMetaHash);

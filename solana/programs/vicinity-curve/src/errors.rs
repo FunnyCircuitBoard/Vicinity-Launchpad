@@ -166,10 +166,10 @@ pub enum CurveError {
     )]
     LegacyAdminMismatch,
     /// 6052
-    #[msg("the fee recipient cannot be the admin, the proposed admin, the guardian, the upgrade authority at init or a coin's founder")]
+    #[msg("the fee recipient cannot be the admin, the proposed admin, the guardian, the launch approver, the upgrade authority at init or a coin's founder")]
     FeeRecipientRole,
     /// 6053
-    #[msg("a coin's founder cannot be the guardian or the payout key")]
+    #[msg("a coin's founder cannot be the guardian, the payout key or the launch approver")]
     FounderHoldsRole,
     /// 6054
     #[msg("buybacks are halted")]
@@ -185,6 +185,50 @@ pub enum CurveError {
     /// 6057
     #[msg("the guardian cannot be the admin or the proposed admin: its halt must not wait for the admin's time lock")]
     GuardianIsAdmin,
+    /// 6058
+    #[msg("no launch approver is set: launches through a batch are off")]
+    LaunchApproverNotSet,
+    /// 6059
+    #[msg("the launch approver cannot be the admin, the proposed admin, the guardian, the payout key or the payout wallet")]
+    ApproverHoldsRole,
+    /// 6060
+    #[msg("a launch batch must carry the latest batch's number plus one")]
+    BatchSeqMismatch,
+    /// 6061
+    #[msg("a launch batch root must not be all zeros")]
+    BadBatchRoot,
+    /// 6062
+    #[msg("a launch batch must have 1 to 512 leaves")]
+    BadLeafCount,
+    /// 6063
+    #[msg(
+        "a launch batch must take force 12 to 48 hours after publication and last at most 48 hours"
+    )]
+    BadBatchWindow,
+    /// 6064
+    #[msg("launch batches are halted until the admin sets the launch approver again")]
+    BatchesHalted,
+    /// 6065
+    #[msg("this launch batch is not in force: superseded, replaced, unknown or signed by a former approver")]
+    BatchSuperseded,
+    /// 6066
+    #[msg("this launch batch was cleared")]
+    BatchCleared,
+    /// 6067
+    #[msg("this launch batch has not taken force yet")]
+    BatchNotYetValid,
+    /// 6068
+    #[msg("this launch batch has expired")]
+    BatchExpired,
+    /// 6069
+    #[msg("the proof has more hashes than the batch's tree is deep")]
+    ProofTooLong,
+    /// 6070
+    #[msg("the launch does not match the batch: the founder, city, config, name, ticker or metadata hash differs from the signed list")]
+    InvalidProof,
+    /// 6071
+    #[msg("this city has a pending approval: launch it with launch, not from a batch")]
+    ApprovalPending,
 }
 
 /// The program error for a math crate error (4.22): the trade refusals keep
@@ -238,7 +282,7 @@ mod tests {
     /// 4.22: the codes are fixed; a reordering would break every client.
     #[test]
     fn codes_are_in_spec_order() {
-        let table: [(CurveError, u32); 58] = [
+        let table: [(CurveError, u32); 72] = [
             (CurveError::Unauthorized, 6000),
             (CurveError::NotUpgradeAuthority, 6001),
             (CurveError::InvalidAddress, 6002),
@@ -297,6 +341,20 @@ mod tests {
             (CurveError::BuybackHaltWithoutBuyHalt, 6055),
             (CurveError::RewardsRegistryAdminMismatch, 6056),
             (CurveError::GuardianIsAdmin, 6057),
+            (CurveError::LaunchApproverNotSet, 6058),
+            (CurveError::ApproverHoldsRole, 6059),
+            (CurveError::BatchSeqMismatch, 6060),
+            (CurveError::BadBatchRoot, 6061),
+            (CurveError::BadLeafCount, 6062),
+            (CurveError::BadBatchWindow, 6063),
+            (CurveError::BatchesHalted, 6064),
+            (CurveError::BatchSuperseded, 6065),
+            (CurveError::BatchCleared, 6066),
+            (CurveError::BatchNotYetValid, 6067),
+            (CurveError::BatchExpired, 6068),
+            (CurveError::ProofTooLong, 6069),
+            (CurveError::InvalidProof, 6070),
+            (CurveError::ApprovalPending, 6071),
         ];
         for (e, code) in table {
             assert_eq!(u32::from(e), code, "{e:?}");

@@ -191,29 +191,80 @@ pub fn check_not_fee_recipient(key: &Pubkey) -> Result<()> {
     Ok(())
 }
 
-/// The founder seat (4.8, 4.10, 4.17; review R2-DIFF-1, SPEC-1). A founder
-/// receives the coin's founder share (4.16, 4.20), so the seat never goes to a
-/// key that may not touch money: not zero (`InvalidAddress`), not
+/// The founder seat (4.8, 4.10, 4.17, 4.27; review R2-DIFF-1, SPEC-1). A
+/// founder receives the coin's founder share (4.16, 4.20), so the seat never
+/// goes to a key that may not touch money: not zero (`InvalidAddress`), not
 /// `FEE_RECIPIENT` (`FeeRecipientRole`; it only receives platform and launch
-/// fees), not the guardian (it only brakes) and not the payout key (it only
-/// pays opted-in founders to the payout wallet) (`FounderHoldsRole`). A zero
-/// guardian or payout key (none) never equals a nonzero founder. The admin may
-/// be a founder: it chooses every founder anyway (8.1). Checked against the
-/// settings of the moment: a later `set_guardian` or `set_payout_config`
-/// naming a key that already holds a seat is not detected (the program cannot
-/// enumerate coins; 8.4).
+/// fees), not the guardian (it only brakes), not the payout key (it only pays
+/// opted-in founders to the payout wallet) and not the launch approver (it
+/// only publishes and clears launch batches, 4.24) (`FounderHoldsRole`). A
+/// zero guardian, payout key or approver (none) never equals a nonzero
+/// founder. The admin may be a founder: it chooses every founder anyway (8.1).
+/// Checked against the settings of the moment: a later `set_guardian`,
+/// `set_payout_config` or `set_launch_approver` naming a key that already
+/// holds a seat is not detected (the program cannot enumerate coins; 8.4).
 pub fn check_founder_key(
     founder: &Pubkey,
     guardian: &Pubkey,
     payout_authority: &Pubkey,
+    launch_approver: &Pubkey,
 ) -> Result<()> {
     require!(*founder != Pubkey::default(), CurveError::InvalidAddress);
     check_not_fee_recipient(founder)?;
     require!(
-        founder != guardian && founder != payout_authority,
+        founder != guardian && founder != payout_authority && founder != launch_approver,
         CurveError::FounderHoldsRole
     );
     Ok(())
+}
+
+/// A key being set into another role is not the launch approver (4.2, 4.4,
+/// 4.5; `ApproverHoldsRole`): the key that signs batches holds no other seat,
+/// and the key that stops a wrong batch (the guardian) is never the key that
+/// signs it. A zero approver (none) matches nothing, and so does a zero key.
+pub fn check_not_approver(key: &Pubkey, launch_approver: &Pubkey) -> Result<()> {
+    let zero = Pubkey::default();
+    require!(
+        *launch_approver == zero || *key == zero || key != launch_approver,
+        CurveError::ApproverHoldsRole
+    );
+    Ok(())
+}
+
+/// The launch approver a `set_launch_approver` would store (4.24): not
+/// `FEE_RECIPIENT` (`FeeRecipientRole`), and not the admin, a nonzero pending
+/// admin, a nonzero guardian, a nonzero payout key or a nonzero payout wallet
+/// (`ApproverHoldsRole`): the approver can only publish and clear batches and
+/// never touches money (8.1, I25). A zero approver turns the batch path off
+/// and needs no check.
+pub fn check_approver_separate(approver: &Pubkey, lp: &crate::state::Launchpad) -> Result<()> {
+    let zero = Pubkey::default();
+    if *approver == zero {
+        return Ok(());
+    }
+    check_not_fee_recipient(approver)?;
+    for role in [
+        &lp.admin,
+        &lp.pending_admin,
+        &lp.guardian,
+        &lp.payout_authority,
+        &lp.payout_destination,
+    ] {
+        require!(
+            *role == zero || role != approver,
+            CurveError::ApproverHoldsRole
+        );
+    }
+    Ok(())
+}
+
+/// Who may clear launch batches (4.26): the admin, the nonzero launch
+/// approver or the nonzero guardian. A clear is a pure stop.
+pub fn may_clear_batches(signer: &Pubkey, lp: &crate::state::Launchpad) -> bool {
+    let zero = Pubkey::default();
+    *signer == lp.admin
+        || (lp.launch_approver != zero && *signer == lp.launch_approver)
+        || (lp.guardian != zero && *signer == lp.guardian)
 }
 
 /// The arguments of `set_pause` (4.4): `None` leaves a flag as it is.
@@ -788,26 +839,122 @@ mod tests {
             Pubkey::new_unique(),
         );
         let zero = Pubkey::default();
-        assert!(check_founder_key(&founder, &guardian, &payout_key).is_ok());
-        assert!(check_founder_key(&founder, &zero, &zero).is_ok());
-        assert_eq!(code(check_founder_key(&zero, &guardian, &payout_key)), 6002);
-        assert_eq!(code(check_founder_key(&zero, &zero, &zero)), 6002);
-        for (g, k) in [(guardian, payout_key), (zero, zero)] {
-            assert_eq!(code(check_founder_key(&FEE_RECIPIENT, &g, &k)), 6052);
+        let approver = Pubkey::new_unique();
+        assert!(check_founder_key(&founder, &guardian, &payout_key, &approver).is_ok());
+        assert!(check_founder_key(&founder, &zero, &zero, &zero).is_ok());
+        assert_eq!(
+            code(check_founder_key(&zero, &guardian, &payout_key, &approver)),
+            6002
+        );
+        assert_eq!(code(check_founder_key(&zero, &zero, &zero, &zero)), 6002);
+        for (g, k, a) in [(guardian, payout_key, approver), (zero, zero, zero)] {
+            assert_eq!(code(check_founder_key(&FEE_RECIPIENT, &g, &k, &a)), 6052);
         }
         assert_eq!(
-            code(check_founder_key(&guardian, &guardian, &payout_key)),
+            code(check_founder_key(
+                &guardian,
+                &guardian,
+                &payout_key,
+                &approver
+            )),
             6053
         );
-        assert_eq!(code(check_founder_key(&guardian, &guardian, &zero)), 6053);
         assert_eq!(
-            code(check_founder_key(&payout_key, &guardian, &payout_key)),
+            code(check_founder_key(&guardian, &guardian, &zero, &zero)),
             6053
         );
         assert_eq!(
-            code(check_founder_key(&payout_key, &zero, &payout_key)),
+            code(check_founder_key(
+                &payout_key,
+                &guardian,
+                &payout_key,
+                &zero
+            )),
             6053
         );
+        assert_eq!(
+            code(check_founder_key(&payout_key, &zero, &payout_key, &zero)),
+            6053
+        );
+        // the batch approval (4.24, 4.27): the launch approver is never a founder
+        assert_eq!(
+            code(check_founder_key(
+                &approver,
+                &guardian,
+                &payout_key,
+                &approver
+            )),
+            6053
+        );
+        assert_eq!(
+            code(check_founder_key(&approver, &zero, &zero, &approver)),
+            6053
+        );
+    }
+
+    /// 4.2, 4.4, 4.5, 4.24 (I25): the launch approver holds no other seat, in
+    /// both directions; zero keys and a zero approver refuse nobody.
+    #[test]
+    fn launch_approver_separation() {
+        let zero = Pubkey::default();
+        let (a, p, g, k, w, x) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let lp = crate::state::Launchpad {
+            admin: a,
+            pending_admin: p,
+            payout_authority: k,
+            payout_destination: w,
+            guardian: g,
+            launches_paused: false,
+            payouts_paused: false,
+            buys_halted: false,
+            next_config_id: 0,
+            bump: 255,
+            buybacks_halted: false,
+            launch_approver: x,
+            _reserved: [0; 31],
+        };
+        assert!(check_approver_separate(&x, &lp).is_ok());
+        assert!(check_approver_separate(&zero, &lp).is_ok());
+        assert_eq!(code(check_approver_separate(&FEE_RECIPIENT, &lp)), 6052);
+        for role in [a, p, g, k, w] {
+            assert_eq!(code(check_approver_separate(&role, &lp)), 6059);
+        }
+        // unset roles (zero) refuse nobody
+        let bare = crate::state::Launchpad {
+            pending_admin: zero,
+            guardian: zero,
+            payout_authority: zero,
+            payout_destination: zero,
+            ..lp.clone()
+        };
+        assert!(check_approver_separate(&p, &bare).is_ok());
+        assert_eq!(code(check_approver_separate(&a, &bare)), 6059);
+        // the other direction
+        assert!(check_not_approver(&a, &x).is_ok());
+        assert!(check_not_approver(&x, &zero).is_ok());
+        assert!(check_not_approver(&zero, &x).is_ok());
+        assert_eq!(code(check_not_approver(&x, &x)), 6059);
+        // who may clear: the admin, the approver and the guardian, nobody else
+        for s in [a, x, g] {
+            assert!(may_clear_batches(&s, &lp));
+        }
+        for s in [p, k, w, zero, Pubkey::new_unique()] {
+            assert!(!may_clear_batches(&s, &lp), "{s}");
+        }
+        let unset = crate::state::Launchpad {
+            launch_approver: zero,
+            guardian: zero,
+            ..lp.clone()
+        };
+        assert!(!may_clear_batches(&zero, &unset));
+        assert!(may_clear_batches(&a, &unset));
     }
 
     #[test]

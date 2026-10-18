@@ -3,9 +3,9 @@
 //! first); an existing payout opt-in stops working (it names the old founder).
 //! The admin can never change a founder.
 //!
-//! The new founder is never `FEE_RECIPIENT`, the guardian or the payout key
-//! (the founder seat receives money; R2-DIFF-1, SPEC-1), so the instruction
-//! reads the `Launchpad` (read-only, seed-pinned).
+//! The new founder is never `FEE_RECIPIENT`, the guardian, the payout key or
+//! the launch approver (the founder seat receives money; R2-DIFF-1, SPEC-1,
+//! 4.24), so the instruction reads the `Launchpad` (read-only, seed-pinned).
 
 use anchor_lang::prelude::*;
 
@@ -21,7 +21,8 @@ pub struct TransferFounder<'info> {
 
     pub new_founder: Signer<'info>,
 
-    /// Read for the guardian and the payout key (the new founder is neither).
+    /// Read for the guardian, the payout key and the launch approver (the new
+    /// founder is none of them).
     #[account(seeds = [LAUNCHPAD_SEED], bump = launchpad.bump)]
     pub launchpad: Box<Account<'info, Launchpad>>,
 
@@ -37,7 +38,12 @@ pub struct TransferFounder<'info> {
 pub fn handle_transfer_founder(ctx: Context<TransferFounder>) -> Result<()> {
     let new = ctx.accounts.new_founder.key();
     let lp = &ctx.accounts.launchpad;
-    check_founder_key(&new, &lp.guardian, &lp.payout_authority)?;
+    check_founder_key(
+        &new,
+        &lp.guardian,
+        &lp.payout_authority,
+        &lp.launch_approver,
+    )?;
     let coin = &mut ctx.accounts.coin;
     let old = coin.founder;
     coin.founder = new;

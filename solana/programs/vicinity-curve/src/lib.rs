@@ -21,7 +21,7 @@
 //!
 //! Features (3.1): `no-idl` (default: no Anchor IDL instructions in any build,
 //! 8.4), `devnet` (the compiled ids of 3.2), `halt-all` (the pre-audited
-//! emergency build: the eight outflow instructions refuse, 8.3) and
+//! emergency build: the nine outflow instructions refuse, 8.3) and
 //! `short-windows` (accepted and ignored).
 
 // Anchor 0.31 macros emit cfg flags that rustc does not know about.
@@ -34,6 +34,7 @@
 
 use anchor_lang::prelude::*;
 
+pub mod batch;
 pub mod constants;
 pub mod custody;
 pub mod errors;
@@ -208,6 +209,63 @@ pub mod vicinity_curve {
     pub fn payout_founder_fees(ctx: Context<PayoutFounderFees>) -> Result<()> {
         instructions::payout_founder_fees::handle_payout_founder_fees(ctx)
     }
+
+    /// 4.23. One-time: the admin creates the `LaunchBatch` account (the batch
+    /// path stays off until a launch approver is set).
+    pub fn init_launch_batch(ctx: Context<InitLaunchBatch>) -> Result<()> {
+        instructions::init_launch_batch::handle_init_launch_batch(ctx)
+    }
+
+    /// 4.24. The admin sets, rotates or removes (zero) the launch approver;
+    /// every call clears both stored batches and lifts a halt.
+    pub fn set_launch_approver(ctx: Context<SetLaunchApprover>, approver: Pubkey) -> Result<()> {
+        instructions::set_launch_approver::handle_set_launch_approver(ctx, approver)
+    }
+
+    /// 4.25. The launch approver publishes a batch of launch approvals (a
+    /// Merkle root), in force no sooner than 12 hours later, for at most 48.
+    pub fn publish_launch_batch(
+        ctx: Context<PublishLaunchBatch>,
+        seq: u64,
+        root: [u8; 32],
+        leaf_count: u32,
+        valid_from: i64,
+        valid_until: i64,
+    ) -> Result<()> {
+        instructions::publish_launch_batch::handle_publish_launch_batch(
+            ctx,
+            seq,
+            root,
+            leaf_count,
+            valid_from,
+            valid_until,
+        )
+    }
+
+    /// 4.26. The admin, the launch approver or the guardian ends every stored
+    /// batch, optionally halting publication: a pure stop.
+    pub fn clear_launch_batch(ctx: Context<ClearLaunchBatch>, halt: bool) -> Result<()> {
+        instructions::clear_launch_batch::handle_clear_launch_batch(ctx, halt)
+    }
+
+    /// 4.27. A founder named in the batch in force launches the city's coin
+    /// with a Merkle proof of his entry; every rule of a per-city launch
+    /// applies.
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_from_batch(
+        ctx: Context<LaunchFromBatch>,
+        city_id: u64,
+        batch_seq: u64,
+        config_id: u16,
+        name: String,
+        symbol: String,
+        meta_hash: [u8; 32],
+        proof: Vec<[u8; 32]>,
+    ) -> Result<()> {
+        instructions::launch_from_batch::handle_launch_from_batch(
+            ctx, city_id, batch_seq, config_id, name, symbol, meta_hash, proof,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -225,6 +283,14 @@ mod tests {
                 "init_launchpad",
             ),
             (crate::instruction::Launch::DISCRIMINATOR, "launch"),
+            (
+                crate::instruction::LaunchFromBatch::DISCRIMINATOR,
+                "launch_from_batch",
+            ),
+            (
+                crate::instruction::PublishLaunchBatch::DISCRIMINATOR,
+                "publish_launch_batch",
+            ),
             (crate::instruction::Buy::DISCRIMINATOR, "buy"),
             (crate::instruction::Sell::DISCRIMINATOR, "sell"),
             (

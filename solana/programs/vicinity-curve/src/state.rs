@@ -7,7 +7,8 @@ use anchor_lang::prelude::*;
 use vicinity_curve_math::{Phase, State, Terms};
 
 use crate::constants::{
-    APPROVAL_LEN, COIN_LEN, LAUNCHPAD_LEN, LAUNCH_CONFIG_LEN, PAYOUT_OPT_IN_LEN, TICKER_LOCK_LEN,
+    APPROVAL_LEN, COIN_LEN, LAUNCHPAD_LEN, LAUNCH_BATCH_LEN, LAUNCH_CONFIG_LEN, PAYOUT_OPT_IN_LEN,
+    TICKER_LOCK_LEN,
 };
 use crate::errors::CurveError;
 
@@ -18,6 +19,8 @@ use crate::errors::CurveError;
 /// `buybacks_halted`; `sell` never reads this account.
 /// `buybacks_halted` implies `buys_halted` (`set_pause` refuses anything else,
 /// review LL-1): no buyback backlog can build while anyone can buy ahead of it.
+/// `launch_approver` is kept apart from every other role in both directions
+/// (4.2, 4.4, 4.5, 4.24) and from every founder seat (`check_founder_key`).
 #[account]
 #[derive(InitSpace)]
 pub struct Launchpad {
@@ -46,8 +49,14 @@ pub struct Launchpad {
     /// Offset 174. Blocks `buyback_burn`; set only while `buys_halted` is
     /// (review LL-1). Taken from the reserved bytes: the size is unchanged.
     pub buybacks_halted: bool,
-    /// Offset 175. Zero.
-    pub _reserved: [u8; 63],
+    /// Offset 175. The launch approver (3.4, 8.1): may only publish and clear
+    /// launch batches (4.25, 4.26); zero = none, the batch path off (the
+    /// default after `init_launchpad`). Written only by the admin's
+    /// `set_launch_approver` (4.24). Taken from the reserved bytes: the size
+    /// and every other offset are unchanged.
+    pub launch_approver: Pubkey,
+    /// Offset 207. Zero.
+    pub _reserved: [u8; 31],
 }
 
 /// One per allowed split and curve; seeds `["config", config_id u16 LE]`;
@@ -393,6 +402,61 @@ pub struct PayoutOptIn {
     pub bump: u8,
 }
 
+/// One batch of launch approvals as the launch approver published it
+/// (3.11): Borsh, fixed size, 109 bytes. `publish_launch_batch` writes a
+/// record whole; afterwards only `cleared` changes.
+#[derive(
+    AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace,
+)]
+pub struct BatchRecord {
+    /// Offset 0. Batch sequence number, gap-free from 1; 0 = no batch.
+    pub seq: u64,
+    /// Offset 8. Merkle root of the batch's leaves (3.12); nonzero.
+    pub root: [u8; 32],
+    /// Offset 40. 1 to `MAX_BATCH_LEAVES`.
+    pub leaf_count: u32,
+    /// Offset 44. Unix time; at least `published_at + BATCH_REVIEW_SECS`, at
+    /// most `published_at + BATCH_MAX_LEAD_SECS`.
+    pub valid_from: i64,
+    /// Offset 52. After `valid_from`, at most `valid_from +
+    /// BATCH_MAX_VALIDITY_SECS`; the window is inclusive at both ends.
+    pub valid_until: i64,
+    /// Offset 60.
+    pub published_at: i64,
+    /// Offset 68.
+    pub published_slot: u64,
+    /// Offset 76. The launch approver who signed it.
+    pub publisher: Pubkey,
+    /// Offset 108. Set by every `clear_launch_batch` and every change of the
+    /// approver; never unset (a publication writes a new record).
+    pub cleared: bool,
+}
+
+/// One per program; seeds `["launch_batch"]`; 260 bytes (3.11). The two
+/// most recent batch records the launch approver published, and the halt of
+/// the batch path. Created once by the admin (`init_launch_batch`); written
+/// only by `set_launch_approver`, `publish_launch_batch` and
+/// `clear_launch_batch`; read by `launch_from_batch`; never read by a trade;
+/// never closed. Which record is in force at a moment is
+/// `batch::batch_in_force` (8.6).
+#[account]
+#[derive(InitSpace)]
+pub struct LaunchBatch {
+    /// Offset 8.
+    pub bump: u8,
+    /// Offset 9. Set by `clear_launch_batch(halt = true)`; refuses every
+    /// publication and every batch launch; reset only by the admin's
+    /// `set_launch_approver`.
+    pub halted: bool,
+    /// Offset 10. The most recently published batch.
+    pub latest: BatchRecord,
+    /// Offset 119. The batch `latest` superseded; in force until
+    /// `latest.valid_from` (8.6).
+    pub previous: BatchRecord,
+    /// Offset 228. Zero.
+    pub _reserved: [u8; 32],
+}
+
 // Sizes of 3.3, discriminator included.
 const _: () = assert!(8 + Launchpad::INIT_SPACE == LAUNCHPAD_LEN);
 const _: () = assert!(8 + LaunchConfig::INIT_SPACE == LAUNCH_CONFIG_LEN);
@@ -401,6 +465,8 @@ const _: () = assert!(8 + CurveCoin::INIT_SPACE == COIN_LEN);
 const _: () = assert!(8 + TickerLock::INIT_SPACE == TICKER_LOCK_LEN);
 const _: () = assert!(8 + PayoutOptIn::INIT_SPACE == PAYOUT_OPT_IN_LEN);
 const _: () = assert!(COIN_LEN == 693);
+const _: () = assert!(BatchRecord::INIT_SPACE == 109);
+const _: () = assert!(8 + LaunchBatch::INIT_SPACE == LAUNCH_BATCH_LEN);
 
 #[cfg(test)]
 mod tests {
@@ -441,7 +507,8 @@ mod tests {
             next_config_id: 0xBEEF,
             bump: 254,
             buybacks_halted: true,
-            _reserved: [0; 63],
+            launch_approver: key(6),
+            _reserved: [0; 31],
         };
         let d = bytes(&lp);
         assert_eq!(d.len(), LAUNCHPAD_LEN);
@@ -453,7 +520,54 @@ mod tests {
         assert_eq!(u16_at(&d, 171), 0xBEEF);
         assert_eq!(d[173], 254);
         assert_eq!(d[174], 1, "buybacks_halted at 174");
-        assert!(d[175..238].iter().all(|b| *b == 0));
+        assert_eq!(d[175..207], [6; 32], "launch_approver at 175 (3.4)");
+        assert!(d[207..238].iter().all(|b| *b == 0));
+    }
+
+    /// U13 (3.11): `LaunchBatch` and its two `BatchRecord`s at the offsets of
+    /// the table, 260 bytes in all.
+    #[test]
+    fn launch_batch_offsets_of_3_11() {
+        let rec = |b: u8| BatchRecord {
+            seq: 0x0101_0101_0101_0100 + b as u64,
+            root: [b; 32],
+            leaf_count: 0x0202_0200 + b as u32,
+            valid_from: -(b as i64) - 1_000,
+            valid_until: (b as i64) + 2_000,
+            published_at: (b as i64) + 3_000,
+            published_slot: (b as u64) + 4_000,
+            publisher: key(b.wrapping_add(100)),
+            cleared: b % 2 == 1,
+        };
+        let lb = LaunchBatch {
+            bump: 251,
+            halted: true,
+            latest: rec(7),
+            previous: rec(8),
+            _reserved: [0; 32],
+        };
+        let d = bytes(&lb);
+        assert_eq!(d.len(), LAUNCH_BATCH_LEN);
+        assert_eq!(&d[0..8], LaunchBatch::DISCRIMINATOR);
+        let h = anchor_lang::solana_program::hash::hash(b"account:LaunchBatch").to_bytes();
+        assert_eq!(LaunchBatch::DISCRIMINATOR, &h[..8]);
+        assert_eq!((d[8], d[9]), (251, 1));
+        for (base, b) in [(10usize, 7u8), (119, 8)] {
+            let r = rec(b);
+            assert_eq!(u64_at(&d, base), r.seq, "seq at {base}");
+            assert_eq!(d[base + 8..base + 40], [b; 32], "root");
+            assert_eq!(
+                u32::from_le_bytes(d[base + 40..base + 44].try_into().unwrap()),
+                r.leaf_count
+            );
+            assert_eq!(i64_at(&d, base + 44), r.valid_from);
+            assert_eq!(i64_at(&d, base + 52), r.valid_until);
+            assert_eq!(i64_at(&d, base + 60), r.published_at);
+            assert_eq!(u64_at(&d, base + 68), r.published_slot);
+            assert_eq!(d[base + 76..base + 108], [b.wrapping_add(100); 32]);
+            assert_eq!(d[base + 108], r.cleared as u8);
+        }
+        assert!(d[228..260].iter().all(|b| *b == 0));
     }
 
     #[test]

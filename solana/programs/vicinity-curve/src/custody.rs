@@ -77,10 +77,11 @@ fn move_lamports(
     Ok(())
 }
 
-/// The halt-all build (8.3): the eight handlers that move lamports or tokens
-/// out of a `Coin` or its vault (`launch`, `buy`, `sell`, `buyback_burn`,
-/// `withdraw_platform_fees`, `forward_holders_fees`, `claim_founder_fees`,
-/// `payout_founder_fees`) call this first and fail with `TradingHalted`.
+/// The halt-all build (8.3): the nine handlers that move lamports or tokens
+/// out of a `Coin` or its vault, or create one (`launch`, `launch_from_batch`,
+/// `buy`, `sell`, `buyback_burn`, `withdraw_platform_fees`,
+/// `forward_holders_fees`, `claim_founder_fees`, `payout_founder_fees`) call
+/// this first and fail with `TradingHalted`.
 #[cfg(feature = "halt-all")]
 pub fn require_not_halted() -> Result<()> {
     err!(crate::errors::CurveError::TradingHalted)
