@@ -93,7 +93,8 @@ body.is-dv2 .dash::before { content: none; }
 /* ---------- D2c: a phone (owner, 17 Oct 2026: "make the tabs on top in icons", "clean and smooth"). The strip is one floating glass bar
    under the header, inset and rounded like it. Every tab is its line icon (24 viewBox, stroke 1.7) on an equal share of the bar, a
    44 px target; the glass pill sits behind the chosen tab's icon (dashboard-v2.js boxOf) and the chosen tab's name shows small under
-   it, so the screen always says where you are. Each tab keeps its name for screen readers (aria-label) and as a tooltip (title).
+   it, so the screen always says where you are. Each tab keeps its name for screen readers (aria-label), said once (no title: it
+   was read out again as a description).
    Profile is not in a phone's strip: the header's one avatar opens it (owner: "remove one"), and wears the current ring while the
    Profile tab is open (polish.css .hdr-avatar.is-current). A member's seven tabs fit from 360 px as they are, and a 320 px screen
    (.is-flush below), a moderator's eight a 360 px one (.is-flush). Should the tabs still not fit (a moderator on a 320 px screen, a
@@ -122,8 +123,9 @@ body.is-dv2 .dash::before { content: none; }
   .dv2 .dtabs:not(.has-ind) .dtab[aria-selected="true"] .dtab__ico { background: var(--card-2); } /* until the pill has measured its tab */
   .dv2 .dtabs .dtab__badge { position: absolute; top: 0; left: calc(50% + 4px); min-width: 18px; height: 18px; padding: 0 4px; font-size: .68rem; }
   /* Moderate is the strip's last tab when it shows: its badge is placed from the right, the same spot for one digit, but never past the
-     tab's edge (from the left it stuck out 4 px and made a moderator's 8 tabs at 360 px scroll by those 4 px) */
-  .dv2 .dtabs #tab-moderate .dtab__badge { left: auto; right: max(0px, calc(50% - 22px)); }
+     tab's edge (from the left it stuck out 4 px and made a moderator's 8 tabs at 360 px scroll by those 4 px), and 2 px clear of it, so
+     on a 44 px tab flush with the strip's edge it stays inside the strip's rounded corner and its border line */
+  .dv2 .dtabs #tab-moderate .dtab__badge { left: auto; right: max(2px, calc(50% - 22px)); }
   /* the same for the name under the last tab (Founder, or Moderate when it shows): centred when the tab is wider than the name, pulled in
      from the right edge (2 px clear of it) when it is not (a 44 px tab), so the chosen name is never cut at the strip's edge and a hidden one never makes
      the row scroll. The name's half width in em (Inter 600: Founder 4.0em, Moderate 4.6em), so it follows the text size */
@@ -133,6 +135,11 @@ body.is-dv2 .dash::before { content: none; }
   .dv2 .dtabs :is(#tab-founder, #tab-moderate)[aria-selected="true"] .dtab__text { transform: none; }
   .dv2 .dtabs .dtab.is-alert .dtab__text::after { content: none; } /* Home's alert dot (a notice on it) sits on the icon, like a badge */
   .dv2 .dtabs .dtab.is-alert .dtab__ico::after { content: ""; position: absolute; top: 5px; left: calc(50% + 8px); width: 8px; height: 8px; border-radius: 50%; background: var(--pin); box-shadow: 0 0 0 2px var(--bg-2); }
+  /* the Profile tab is open (from the avatar): no tab of the strip is chosen and no name shows under an icon, so the icons sit in the
+     middle of the strip (8 px lower, set at once: the pill measures the icons the moment another tab is chosen), their badges with them */
+  .dv2 .dtabs:has(#tab-profile[aria-selected="true"]) .dtab { padding-top: 11px; }
+  .dv2 .dtabs:has(#tab-profile[aria-selected="true"]) .dtab__badge { top: 8px; }
+  .dv2 .dtabs:has(#tab-profile[aria-selected="true"]) .dtab.is-alert .dtab__ico::after { top: 13px; }
   /* the edge fades end in the strip's own colour (the strong glass over the opaque strip: within 1/255 of it) */
   .dv2 .dtabs.is-scrollable::before { background: linear-gradient(270deg, transparent, var(--glass-bg-strong)); }
   .dv2 .dtabs.is-scrollable::after { background: linear-gradient(90deg, transparent, var(--glass-bg-strong)); }

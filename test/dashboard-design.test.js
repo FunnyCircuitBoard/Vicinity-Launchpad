@@ -68,11 +68,11 @@ test("D2: short visible words where the strip needs them; each accessible name c
   assert.match(rank, /aria-label="Rankings"/); assert.match(rank, /<span class="dtab__text dtab__long">Rankings<\/span><span class="dtab__text dtab__short" aria-hidden="true">Rank<\/span>/);
   assert.ok("Rankings".startsWith("Rank"), "the short word starts the name (WCAG 2.5.3)");
   const mod = tag("tab-moderate");
-  assert.match(mod, /aria-label="Moderate" title="Moderate" hidden>/); assert.match(mod, /<span class="dtab__text dtab__short" aria-hidden="true">Mod<\/span>/);
+  assert.match(mod, /aria-label="Moderate" hidden>/); assert.match(mod, /<span class="dtab__text dtab__short" aria-hidden="true">Mod<\/span>/);
   assert.match(v2, /\$\("#tab-moderate"\)\.setAttribute\("aria-label", total \? `Moderate, \$\{total\} to review` : "Moderate"\);/, "the count stays in the name");
   // Profile (owner, 17 Oct 2026): its line icon like every tab; the person's initial is the header's one avatar now, not a second one here
   const me = tag("tab-profile");
-  assert.match(me, /aria-label="Profile" title="Profile"><span class="dtab__ico" aria-hidden="true"><svg [^>]*>[\s\S]*?<\/svg><\/span><span class="dtab__text dtab__long">Profile<\/span><\/a>/);
+  assert.match(me, /aria-label="Profile"><span class="dtab__ico" aria-hidden="true"><svg [^>]*>[\s\S]*?<\/svg><\/span><span class="dtab__text dtab__long">Profile<\/span><\/a>/);
   assert.doesNotMatch(html, /dtab__av/, "no initial in the strip");
   // the stylesheet: a phone shows icons (the chosen tab's whole name under its icon, never a short word); the short words remain for
   // a crowded tablet strip (the fit steps)
@@ -83,8 +83,8 @@ test("D2: short visible words where the strip needs them; each accessible name c
   // Notifications, test/notify.test.js) show as icons, named
   assert.doesNotMatch(css, /is-tight/, "no tab is hidden to make room");
   assert.match(css, /\.dv2 \.dtabs\.is-compact :is\(#tab-founder, #tab-moderate\) \.dtab__text \{ display: none; \}/);
-  assert.match(tag("tab-founder"), /aria-label="Founder" title="Founder"><span class="dtab__ico" aria-hidden="true"><svg /, "the icon-only Founder tab keeps its name");
-  assert.match(mod, /aria-label="Moderate" title="Moderate" hidden><span class="dtab__ico" aria-hidden="true"><svg /);
+  assert.match(tag("tab-founder"), /aria-label="Founder"><span class="dtab__ico" aria-hidden="true"><svg /, "the icon-only Founder tab keeps its name");
+  assert.match(mod, /aria-label="Moderate" hidden><span class="dtab__ico" aria-hidden="true"><svg /);
   // the router: the fit check (a phone's icons only scroll or fit), the nearest scroll, keyboard skips a tab that stepped out
   assert.match(v2, /const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];\n\s+strip\.classList\.remove\(\.\.\.steps, "is-flush"\);\n\s+for \(const step of icons \? \["is-flush", "is-scrollable"\] : steps\) \{ if \(!over\(\)\) break; strip\.classList\.add\(step\); \}/);
   assert.doesNotMatch(v2, /\(lr\.width - tr\.width\) \/ 2/, "never centred: Home is never pushed out");

@@ -56,8 +56,13 @@ test("the tabs fill the whole bar from 601 px (nothing gathered to the left): a 
   assert.match(css, /\.dv2 \.dtab \{ flex: 1 0 auto; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 8px;/);
   // 601 px: Profile takes the same share and padding as every tab (equal gaps between the words); its one rule of its own is a phone's
   // (up to 600 px: not in the strip, the header's avatar opens it, test/phone-dash.test.js)
-  assert.deepEqual(rules.filter((r) => /#tab-profile\b/.test(r.head)).map((r) => `${r.head} { ${r.body.trim()} }`), [".dv2 #tab-profile { display: none; }"]);
-  assert.ok(media("(max-width: 600px)").some((b) => b.includes(".dv2 #tab-profile { display: none; }")), "and it is a phone's");
+  // (and, a phone's too, the strip's icons sit in its middle while the Profile tab is open: review UX-5)
+  const own = [".dv2 #tab-profile { display: none; }",
+    '.dv2 .dtabs:has(#tab-profile[aria-selected="true"]) .dtab { padding-top: 11px; }',
+    '.dv2 .dtabs:has(#tab-profile[aria-selected="true"]) .dtab__badge { top: 8px; }',
+    '.dv2 .dtabs:has(#tab-profile[aria-selected="true"]) .dtab.is-alert .dtab__ico::after { top: 13px; }'];
+  assert.deepEqual(rules.filter((r) => /#tab-profile\b/.test(r.head)).map((r) => `${r.head} { ${r.body.trim()} }`), own);
+  for (const r of own) assert.ok(media("(max-width: 600px)").some((b) => b.includes(r)), `and it is a phone's: ${r}`);
   // a computer: one equal part each, never narrower than its words, the same padding for all
   const wide = media("(min-width: 1000px)").join("\n");
   assert.ok(wide, "the 1000 px block (the strip lines up with the cards)");

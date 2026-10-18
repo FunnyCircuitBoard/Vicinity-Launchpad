@@ -6,14 +6,14 @@
 //     small popover on a computer; the keyboard moves into it and stays there, Escape, the close button and a tap outside close it and
 //     the keyboard goes back to the avatar. On the dashboard the three open in place (dashboard-v2.js V.accountGo).
 //   * a phone's tab strip is icons (public/polish-dash.css D2c, dashboard-v2.js ICONS): one line icon per tab (24 viewBox, stroke 1.7),
-//     each named (aria-label) with a tooltip (title), the glass pill behind the chosen tab's icon and its name under it; the row scrolls
+//     each named (aria-label, said once: no title), the glass pill behind the chosen tab's icon and its name under it; the row scrolls
 //     on its own with snap when the tabs do not fit, never the page. A computer keeps the words.
 // The markup and the stylesheets are pinned here; the scripts run on the real built pages in the node DOMs of test/helpers. How it
 // looks and moves (390 and 1440 px, both themes, reduced motion, a swipe down) is checked in real Chromium against the real Worker.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { newEvent, openPage } from "./helpers/pagedom.js";
+import { dispatch, newEvent, openPage } from "./helpers/pagedom.js";
 import { ADDR, memberMe, openDashboard } from "./helpers/dashpage.js";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
@@ -31,7 +31,7 @@ test("every page's header: Log in for a visitor, and one avatar button for a mem
   for (const f of PAGES) {
     const h = read("public/" + f), header = h.match(/<header class="site-header" data-header>[\s\S]*?<\/header>/)[0];
     assert.equal((header.match(/data-account-avatar/g) || []).length, 1, `${f}: one avatar`);
-    assert.match(header, /<button class="hdr-avatar" type="button" data-account-avatar aria-haspopup="dialog" aria-expanded="false" aria-controls="acct-panel" aria-label="Profile, account and settings" title="Profile, account and settings" hidden><span class="hdr-avatar__face" data-account-initial aria-hidden="true"><\/span><\/button>/, f);
+    assert.match(header, /<button class="hdr-avatar" type="button" data-account-avatar aria-haspopup="dialog" aria-expanded="false" aria-controls="acct-panel" aria-label="Profile, account and settings" hidden><span class="hdr-avatar__face" data-account-initial aria-hidden="true"><\/span><\/button>/, f);
     assert.equal((h.match(/id="acct-sheet"/g) || []).length, 1, `${f}: one account sheet`);
     assert.equal((h.match(/id="acct-panel" role="dialog"/g) || []).length, 1, `${f}: the avatar controls the dialog itself, not its wrapper`);
     assert.doesNotMatch(h, /\sstyle="|<script>(?!<\/script>)|<style/, `${f}: nothing inline (the security policy)`);
@@ -170,13 +170,14 @@ test("the dashboard: the sheet's three open in place (no reload): Profile the Pr
 });
 
 /* ---------- a phone's tabs: icons ---------- */
-test("every tab has its line icon (24 viewBox, stroke 1.7, currentColor), a name (aria-label) and a tooltip (title), in today's order", () => {
+test("every tab has its line icon (24 viewBox, stroke 1.7, currentColor) and a name (aria-label), said once (no title), in today's order", () => {
   const ids = [...html.matchAll(/<a class="dtab" id="tab-(\w+)"/g)].map((m) => m[1]);
   assert.deepEqual(ids, TABS);
   const names = { home: "Home", wallet: "Wallet", city: "City", community: "Community feed", notify: "Notifications", rankings: "Rankings", founder: "Founder", moderate: "Moderate", profile: "Profile" };
   for (const id of TABS) {
     const t = tabTag(id);
-    assert.match(t, new RegExp(`aria-label="${names[id]}" title="${names[id]}"`), id);
+    assert.match(t, new RegExp(`aria-label="${names[id]}"[ >]`), id);
+    assert.doesNotMatch(t, /\stitle="/, `${id}: no title (review A11Y-2: a screen reader said the name again as its description)`);
     assert.match(t, /<span class="dtab__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1\.7" stroke-linecap="round" stroke-linejoin="round" focusable="false">/, `${id}: the icon`);
     assert.match(t, /<span class="dtab__text( dtab__long)?">[^<]+<\/span>/, `${id}: its word (a computer, and under the icon when chosen on a phone)`);
   }
@@ -280,9 +281,10 @@ test("narrow phones (.is-flush, only when the tabs do not fit as they are): 8 ta
   assert.ok(8 * tabMin <= tight(360), `a moderator's 8 tabs at 360 px, tight: ${8 * tabMin} of ${tight(360)}`);
   assert.ok(8 * tabMin <= tight(375), `8 tabs at 375 px, tight (still lined up with the header): ${8 * tabMin} of ${tight(375)}`);
   assert.ok(8 * tabMin <= row(390), `8 tabs at 390 px as they are: ${8 * tabMin} of ${row(390)}`);
-  // nothing pokes out of the last tab to make the row scroll: Moderate's badge is placed from the right, never past the tab's edge
-  // (at 44 px, right 0: the badge's left at 26 px, the same spot as the other badges' 50% + 4 px)
-  assert.match(phone, /\.dv2 \.dtabs #tab-moderate \.dtab__badge \{ left: auto; right: max\(0px, calc\(50% - 22px\)\); \}/);
+  // nothing pokes out of the last tab to make the row scroll: Moderate's badge is placed from the right, never past the tab's edge,
+  // and 2 px clear of it (review UX-3: flush with the strip's edge at 320-375 px, its cap was cut by the strip's 16 px corner and
+  // covered its border line; at 44 px the badge's left is at 24 px, beside the other badges' 50% + 4 px)
+  assert.match(phone, /\.dv2 \.dtabs #tab-moderate \.dtab__badge \{ left: auto; right: max\(2px, calc\(50% - 22px\)\); \}/);
   assert.match(phone, /\.dv2 \.dtabs \.dtab__badge \{ position: absolute; top: 0; left: calc\(50% \+ 4px\); min-width: 18px;/);
   // and the name under the last tab, centred when it has room, pulled in from the right edge when it has not
   assert.match(phone, /\.dv2 \.dtabs #tab-founder \.dtab__text \{ right: max\(2px, calc\(50% - 2em\)\); \}/);
@@ -361,4 +363,78 @@ test("the account sheet holds the page behind it still: html.acct-open from open
   assert.match(polish, /@media \(max-width: 600px\) \{ html\.acct-open \{ overflow: hidden; \} \}/);
   assert.match(polish, /\.acct__scrim \{[^}]*touch-action: none; \}/);
   assert.match(site, /move\(false, \(\) => \{ if \(state !== "closing"\) return; state = "closed"; sheet\.hidden = true; document\.documentElement\.classList\.remove\("acct-open"\); stopAnims\(\); \}\);/, "unlocked when the close has finished, not by a close that a new open overtook");
+});
+
+/* ---------- the recheck of 18 Oct 2026 (UX-2, UX-6, A11Y-1) ---------- */
+test("leaving a page closes the account sheet at once (review A11Y-1): a page the browser keeps and brings back (the back/forward cache: an iPhone's swipe back, Android's Back) never comes back with the sheet up and the page held still", async () => {
+  const p = await openPage("token.html", { agreed: "2026-10-01", me: ME });
+  const root = p.doc.documentElement, btn = p.$("[data-account-avatar]"), sheet = p.$("#acct-sheet");
+  const state = () => [sheet.hidden, btn.getAttribute("aria-expanded"), root.classList.contains("acct-open")];
+  const fire = (type) => dispatch(p.window, newEvent(type, { bubbles: false, persisted: true }), p.window);
+  btn.click();
+  assert.deepEqual(state(), [false, "true", true], "open, the page held still");
+  fire("pagehide"); // a link in the sheet (Profile, Account, Settings on another page), Log out, or Back
+  assert.deepEqual(state(), [true, "false", false], "closed at once: no sheet, the avatar says so, the page scrolls");
+  fire("pageshow");
+  assert.deepEqual(state(), [true, "false", false], "and so it comes back");
+  // the sheet works as before
+  btn.click();
+  assert.deepEqual(state(), [false, "true", true]);
+  p.press("Escape");
+  assert.deepEqual(state(), [true, "false", false]);
+  fire("pagehide"); // a closed sheet: nothing to do
+  assert.deepEqual(state(), [true, "false", false]);
+  assert.match(site, /window\.addEventListener\("pagehide", \(\) => \{\n\s+if \(state === "closed"\) return;\n\s+stopAnims\(\); drag = null; panel\.style\.transform = "";\n\s+state = "closed"; sheet\.hidden = true;/, "a slide out on its way is stopped and finished too");
+});
+
+test("Log out, then Back to the page kept from before (review A11Y-1): it is drawn again for the signed-out person, never with the member's avatar and name; a page brought back otherwise is left as it was", async () => {
+  const p = await openPage("token.html", { agreed: "2026-10-01", me: ME });
+  const went = [];
+  p.window.location = { assign: (u) => went.push(["assign", u]), reload: () => went.push(["reload"]) };
+  const fire = (type) => dispatch(p.window, newEvent(type, { bubbles: false, persisted: true }), p.window);
+  fire("pageshow");
+  assert.deepEqual(went, [], "brought back without a Log out: as it was");
+  p.$("[data-account-avatar]").click();
+  p.$("[data-acct-logout]").click();
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  assert.ok(p.calls.some((c) => c.path === "/api/auth/logout"), "signed out");
+  assert.deepEqual(went, [["assign", "/"]], "then the home page");
+  fire("pagehide");
+  assert.equal(p.$("#acct-sheet").hidden, true, "the sheet is not kept open");
+  fire("pageshow");
+  assert.deepEqual(went, [["assign", "/"], ["reload"]], "Back: the page loads again (signed out)");
+});
+
+test("a notched iPhone in a full-screen web view (review UX-2): the phone header sits under the status bar in the page as where it sticks, and --header-h (its bottom edge) follows, so the dashboard's strip, the anchors and the sheets stay under it; a Safari tab (inset 0) is unchanged", () => {
+  const style = read("public/style.css");
+  const phoneHeader = style.match(/@media \(max-width: 900px\) \{\n  :root \{ --header-h: [^}]+\}\n  \.site-header \{[^}]+\}/);
+  assert.ok(phoneHeader, "the phone header's block sets --header-h with the header");
+  assert.match(phoneHeader[0], /:root \{ --header-h: calc\(max\(8px, env\(safe-area-inset-top\)\) \+ 52px\); \}/);
+  assert.match(phoneHeader[0], /\.site-header \{ top: max\(8px, env\(safe-area-inset-top\)\); width: auto; height: 52px; margin: max\(8px, env\(safe-area-inset-top\)\) 8px 0;/, "its place in the page is where it sticks (no overlap at the top of the page either)");
+  // the arithmetic from the rules themselves, for a Safari tab (inset 0), an iPhone 14 (47 px) and an iPhone 15 Pro (59 px): where the
+  // header sticks and how tall it is, against --header-h and the strip's sticky top (6 px under it; measured before: 33 and 45 px under)
+  const [, varMin, varAdd] = phoneHeader[0].match(/--header-h: calc\(max\((\d+)px, env\(safe-area-inset-top\)\) \+ (\d+)px\)/).map(Number);
+  const [, topMin] = phoneHeader[0].match(/\.site-header \{ top: max\((\d+)px, env\(safe-area-inset-top\)\);/).map(Number);
+  const [, height] = phoneHeader[0].match(/\.site-header \{[^}]* height: (\d+)px;/).map(Number);
+  const [, gap] = pdash.match(/\.dv2 \.dtabs \{ top: calc\(var\(--header-h, 60px\) \+ (\d+)px\);/).map(Number);
+  for (const inset of [0, 47, 59]) {
+    const headerBottom = Math.max(topMin, inset) + height, headerH = Math.max(varMin, inset) + varAdd;
+    assert.equal(headerH, headerBottom, `inset ${inset}: --header-h is the header's bottom edge`);
+    assert.equal(headerH + gap - headerBottom, 6, `inset ${inset}: the strip sticks 6 px under the header, never beneath it`);
+  }
+  assert.equal(Math.max(varMin, 0) + varAdd, 60, "a Safari tab: the same 60 px as before");
+  assert.match(style, /--header-h: 60px; --sticky-top: calc\(var\(--header-h\) \+ 12px\);/, "(the token's value without an inset, and from 901 px 68)");
+  // everything that sits under the header reads the variable
+  assert.match(pdash, /\.dv2 \.dtabs \{ top: calc\(var\(--header-h, 60px\) \+ 6px\);/);
+  assert.match(style, /scroll-padding-top: calc\(var\(--header-h\) \+ 16px\)/);
+  assert.match(polish, /\.acct__panel \{ left: auto; bottom: auto; top: calc\(var\(--header-h\) \+ 8px\);/);
+  assert.match(pdash, /\[data-page="dashboard"\] \.dv2-skel \.skel--tabs \{ height: 60px; margin: 6px calc\(8px - var\(--wrap-pad, 16px\)\) 0; border-radius: 16px; \}/, "the placeholder strip follows the header in the page too");
+});
+
+test("the phone tab bar is strong glass (review UX-6): page text scrolling under it never ghosts through its labels, like the dashboard's opaque strip and the scrolled header", () => {
+  const style = read("public/style.css");
+  const bar = style.match(/@media \(max-width: 900px\) \{\n  \.tabbar \{ display: grid;[^}]*\}/)[0];
+  assert.match(bar, /background: var\(--glass-bg-strong\);/);
+  assert.doesNotMatch(bar, /background: var\(--glass-bg\);/);
+  assert.match(style, /\.site-header\.is-scrolled \{ background: var\(--glass-bg-strong\); \}/, "the same glass as the scrolled header");
 });

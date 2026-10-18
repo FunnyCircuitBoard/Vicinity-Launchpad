@@ -497,11 +497,24 @@
       e.preventDefault(); close(false);
       go((a.getAttribute("href") || "").split("#")[1] || "profile");
     });
+    let loggedOut = false;
     $("[data-acct-logout]", sheet).addEventListener("click", async (e) => {
       e.currentTarget.disabled = true;
       await api("/api/auth/logout", {});
+      loggedOut = true;
       location.assign("/");
     });
+    // leaving the page (a link in the sheet, Log out, Back): the sheet goes at once, so a page the browser keeps and brings back (the
+    // back/forward cache: an iPhone's swipe back, Android's Back) is never shown with the sheet up and the page held still under it;
+    // and a page left by Log out is drawn again for the signed-out person, never with the member's avatar and name
+    window.addEventListener("pagehide", () => {
+      if (state === "closed") return;
+      stopAnims(); drag = null; panel.style.transform = "";
+      state = "closed"; sheet.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      document.documentElement.classList.remove("acct-open");
+    });
+    window.addEventListener("pageshow", (e) => { if (e && e.persisted && loggedOut) location.reload(); });
     // a phone: the sheet follows a finger dragging it down from its top, and goes once it is pulled far enough (or flicked)
     panel.addEventListener("pointerdown", (e) => {
       if (state !== "open" || e.pointerType === "mouse" || !phone() || panel.scrollTop > 0) return;

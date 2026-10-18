@@ -73,7 +73,7 @@ test("the markup: the Wallet tab after Home, its panel with the Receive and Bala
     const panels = [...page.matchAll(/<section class="dpanel" id="panel-([a-z]+)"/g)].map((m) => m[1]);
     assert.deepEqual(panels.slice(0, 3), ["home", "wallet", "city"], `${name}: the panels in the same order`);
   }
-  assert.match(html, /<a class="dtab" id="tab-wallet" role="tab" href="#wallet" data-tab="wallet" aria-controls="panel-wallet" aria-selected="false" tabindex="-1" aria-label="Wallet" title="Wallet"><span class="dtab__ico" aria-hidden="true"><svg [^>]*><rect /, "named Wallet, with an icon (a phone's strip, a crowded tablet strip)");
+  assert.match(html, /<a class="dtab" id="tab-wallet" role="tab" href="#wallet" data-tab="wallet" aria-controls="panel-wallet" aria-selected="false" tabindex="-1" aria-label="Wallet"><span class="dtab__ico" aria-hidden="true"><svg [^>]*><rect /, "named Wallet, with an icon (a phone's strip, a crowded tablet strip)");
   assert.match(html, /<section class="dpanel" id="panel-wallet" role="tabpanel" aria-labelledby="tab-wallet" tabindex="0" hidden>/);
   // Receive
   assert.match(html, /<section class="card wtab" id="wt-receive" aria-labelledby="wt-receive-title" hidden>/);

@@ -187,7 +187,7 @@ test("the ARIA tab strip: one tablist, nine tabs that control nine panels, Moder
 
 test("the Wallet tab (wallet onboarding, step 1): second in the strip, after Home and before City, with its own panel and its two static cards; the deep link #wallet opens it", async () => {
   assert.deepEqual(TABS.slice(0, 3), ["home", "wallet", "city"]);
-  assert.match(html, /<a class="dtab" id="tab-wallet" role="tab" href="#wallet" data-tab="wallet" aria-controls="panel-wallet" aria-selected="false" tabindex="-1" aria-label="Wallet" title="Wallet"><span class="dtab__ico" aria-hidden="true"><svg /, "named, with an icon (a phone's strip, a crowded tablet strip)");
+  assert.match(html, /<a class="dtab" id="tab-wallet" role="tab" href="#wallet" data-tab="wallet" aria-controls="panel-wallet" aria-selected="false" tabindex="-1" aria-label="Wallet"><span class="dtab__ico" aria-hidden="true"><svg /, "named, with an icon (a phone's strip, a crowded tablet strip)");
   assert.match(html, /<span class="dtab__text">Wallet<\/span><\/a>/);
   assert.match(html, /<section class="dpanel" id="panel-wallet" role="tabpanel" aria-labelledby="tab-wallet" tabindex="0" hidden>/);
   for (const id of ["panel-wallet", "tab-wallet", "wt-receive", "wt-balances"]) assert.equal(count(id), 1, id);

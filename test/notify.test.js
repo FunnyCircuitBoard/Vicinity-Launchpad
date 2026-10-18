@@ -661,7 +661,7 @@ test("page: the empty state; the switch off is today's page (no tab, no request,
   assert.deepEqual(errors, []);
   // the markup is hidden until the switch is on, and dashboard-v2.js names only ids the page has
   const html = read("public/dashboard.html");
-  assert.match(html, /<a class="dtab" id="tab-notify" role="tab" href="#notify" data-tab="notify" aria-controls="panel-notify" aria-selected="false" tabindex="-1" aria-label="Notifications" title="Notifications" hidden>/);
+  assert.match(html, /<a class="dtab" id="tab-notify" role="tab" href="#notify" data-tab="notify" aria-controls="panel-notify" aria-selected="false" tabindex="-1" aria-label="Notifications" hidden>/);
   assert.match(html, /<section class="dpanel" id="panel-notify" role="tabpanel" aria-labelledby="tab-notify" tabindex="0" hidden>/);
   assert.match(html, /<button class="btn btn--glass btn--sm" type="button" id="nt-all" hidden>Mark all read<\/button>/);
   const css = read("public/polish-dash.css");

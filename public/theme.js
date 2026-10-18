@@ -31,6 +31,9 @@
   // the first paint, so a page can hold the room of what a guest will see while it asks the server (style.css: the signed-out dashboard,
   // the header's Sign up).
   try { if (localStorage.getItem("vicinity-account") !== "1" && localStorage.getItem("vicinity:dash-v2") !== "1") root.dataset.guest = ""; } catch {}
+  // Someone whose last visit here was the tabbed dashboard (dashboard.js's key): its placeholders show from the first paint (style.css),
+  // not once dashboard.js has run, so a returning member never sees the public rules at the top of the page first
+  try { if (localStorage.getItem("vicinity:dash-v2") === "1") root.dataset.dashV2 = ""; } catch {}
 
   document.addEventListener("DOMContentLoaded", () => {
     apply(root.dataset.theme);

@@ -138,7 +138,7 @@ ${nav}
       <div class="site-header__actions">
         ${themeToggle("theme-toggle")}
         <a class="btn btn--ghost btn--sm account-btn" href="/connect?mode=login" data-account><span class="btn__dot" aria-hidden="true"></span><span data-account-label>Log in</span></a>
-        <button class="hdr-avatar" type="button" data-account-avatar aria-haspopup="dialog" aria-expanded="false" aria-controls="acct-panel" aria-label="Profile, account and settings" title="Profile, account and settings" hidden><span class="hdr-avatar__face" data-account-initial aria-hidden="true"></span></button>
+        <button class="hdr-avatar" type="button" data-account-avatar aria-haspopup="dialog" aria-expanded="false" aria-controls="acct-panel" aria-label="Profile, account and settings" hidden><span class="hdr-avatar__face" data-account-initial aria-hidden="true"></span></button>
         <a class="btn btn--primary btn--sm hdr-signup has-ring" href="/connect" data-signup>Sign up</a>
       </div>
     </div>
