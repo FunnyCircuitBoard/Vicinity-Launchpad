@@ -40,7 +40,7 @@
 }
 
 /* the preview in the city's coin card: the coin as it will look, labelled, instead of an earlier design that would not launch */
-#coin.has-preview .coin-show { display: none; }
+#coin.has-preview .coin-show, #coin.has-preview #coin-note:empty { display: none; }
 .coin-preview { display: flex; align-items: center; gap: 16px; margin: 8px 0 4px; min-width: 0; }
 .coin-preview[hidden] { display: none; }
 .coin-preview__art { flex: none; width: 112px; height: 112px; object-fit: contain; filter: drop-shadow(0 12px 22px rgba(7, 13, 24, .32)); }

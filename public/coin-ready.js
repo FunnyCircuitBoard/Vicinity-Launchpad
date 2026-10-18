@@ -18,7 +18,7 @@
     sign_in: "Sign in again, then try again.",
     offline: "You seem to be offline. Nothing changed. Try again in a minute.",
   };
-  let ctx = null, seq = 0, last = null, drawingFor = null, busy = false;
+  let ctx = null, seq = 0, last = null, drawingFor = null, busy = false, kickerWas = null;
 
   function styled() {
     if (Array.from(document.querySelectorAll('link[rel="stylesheet"]')).some((l) => /\/coin-ready\.css$/.test(l.getAttribute("href") || ""))) return;
@@ -78,10 +78,12 @@
 
   /* ---------- the coin card's preview ---------- */
   function paintPreview(p, { founder = false } = {}) {
-    const box = $("#coin-preview"), coinCard = $("#coin");
+    const box = $("#coin-preview"), coinCard = $("#coin"), kick = $("#coin-kicker");
     if (!box || !coinCard) return;
-    if (!p) { box.hidden = true; coinCard.classList.remove("has-preview"); return; }
+    // the card's eyebrow says who made what it shows: the founder's design as before, or Vicinity's coin while the preview stands in
+    if (!p) { box.hidden = true; coinCard.classList.remove("has-preview"); if (kick && kickerWas != null) { kick.textContent = kickerWas; kickerWas = null; } return; }
     box.hidden = false; coinCard.classList.add("has-preview");
+    if (kick) { if (kickerWas == null) kickerWas = kick.textContent; kick.textContent = "City coin · made by Vicinity"; }
     const img = $("#coin-preview-art");
     if (p.art) { if (img.getAttribute("src") !== p.art) img.setAttribute("src", p.art); img.alt = altOf(p.ticker); img.hidden = false; }
     else { img.hidden = true; img.removeAttribute("src"); }

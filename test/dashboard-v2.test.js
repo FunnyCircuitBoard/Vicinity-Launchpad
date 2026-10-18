@@ -63,7 +63,7 @@ const TABLE = {
   city: ["city-subnav", "community", "cc-face", "cc-name", "cc-ticker", "ch-status", "cc-members", "cc-holders", "cc-founder", "ch-locals", "ch-locals-n", "ch-coin", "ch-coin-v", "cc-fomo", "cc-top", "cc-share",
     "coin", "coin-title", "coin-city", "coin-status", "coin-art", "coin-logo", "coin-art-face", "coin-name", "coin-ticker", "coin-pair", "coin-pitch", "coin-by", "coin-logo-state", "coin-contract", "coin-mint", "coin-mint-copy", "coin-note",
     // the ready-made coin's preview (COIN_V2_READY=on, public/coin-ready.js): hidden markup inside #coin until that file fills it
-    "coin-preview", "coin-preview-art", "coin-preview-tag", "coin-preview-ticker", "coin-preview-name", "coin-preview-note",
+    "coin-kicker", "coin-preview", "coin-preview-art", "coin-preview-tag", "coin-preview-ticker", "coin-preview-name", "coin-preview-note",
     "city-about", "ca-title", "ca-city", "ca-ticker", "ca-ticker-note", "ca-country", "ca-threshold", "ca-map", "request", "req-form", "req-name", "req-mine", "req-err"],
   community: ["feed", "f-city", "f-country", "c-hint", "composer", "c-text", "c-pic-label", "c-pic", "c-preview", "c-count", "c-post", "c-err", "f-note", "posts", "f-more", "national", "nc-name", "nc-members", "nc-manager", "nc-election"],
   rankings: ["rankings-card", "rk-title", "rk-state", "rk-tiles", "rk-global", "rk-global-rank", "rk-global-sub", "rk-global-gap", "rk-country", "rk-country-label", "rk-country-rank", "rk-country-sub", "rk-country-note",

@@ -114,12 +114,14 @@ test("a member of a city with a founder sees the preview labelled; without a fou
   assert.match(page.text("#coin-preview-note"), /once Utica's founder launches it.*nothing has launched yet/);
   assert.equal(page.$("#coin-preview-art").getAttribute("src"), ART);
   assert.equal(page.text("#coin-status"), "Not launched");
+  assert.equal(page.text("#coin-kicker"), "City coin · made by Vicinity", "the eyebrow says who made what the card shows");
   assert.equal(page.calls.filter((c) => c.path === "/api/coins/ready/art").length, 0, "a member never asks for a picture");
   preview = null;
   page = await openDashboard({ me, api: async (p) => (p.startsWith("/api/coins/ready?") ? { ok: true, mode: "preview", preview } : undefined) });
   await page.advance(1000);
   assert.equal(page.$("#coin-preview").hidden, true);
   assert.notEqual(page.text("#coin-status"), "Not launched");
+  assert.equal(page.text("#coin-kicker"), "City coin · designed by the City Founder", "without a preview, the card as before");
 });
 
 test("coin-ready.js builds nothing from text, asks only its own routes, loads its own stylesheet; the CSS has no outside host", () => {
