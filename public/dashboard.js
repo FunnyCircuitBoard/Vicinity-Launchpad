@@ -544,6 +544,7 @@
     if (noticesOn()) noticesSync(d); // in-app notices (NOTIFY=on): the header's count, and a list on screen follows a changed count
     if (v2 && d.walletSend === true) loadWalletSend(); // Send in the Wallet tab: fetched the first time the switch is seen on
     if (wsend) wsend.render(d);
+    if (d.coinV2Ready === true) loadCoinReady(); // the ready-made city coin (COIN_V2_READY=on): fetched the first time the switch is seen on
   }
 
   /* ---------- in-app notices (NOTIFY=on: /api/me carries `unread`, a number): the Notifications tab's list, marking read, the five controls ---------- */
@@ -1217,6 +1218,7 @@
     if (!r || r.ok === false) return;
     coinData = r.coin || null; coinPairs = r.pairs || coinPairs; vicMint = r.vicinity || null;
     renderCoin(); renderTrade(); v2Coin(); lpMount();
+    if (cready) cready.render(me); // after the coin card: its preview stands in that card
     if (me.roles && me.roles.admin) loadCoinQueue();
   }
   function paintCoin({ name, color, logo, pair }) {
@@ -1255,7 +1257,8 @@
       : cd ? (cd.launched ? `The one official ${c.ticker ? tk : `${c.name} coin`}. Buy or swap it in the panel on the right.` : `Designed by ${c.name}'s founder. It launches on ${lpOn ? "the Vicinity launchpad" : "Raydium LaunchLab"}.`)
       : seat ? `${seat.name}, ${c.name}'s founder, hasn't designed the coin yet. It'll appear here the moment they do.`
       : `${c.name}'s founder designs this coin: its name, logo, colour and what it's paired with. The seat is still open: see the founder path.`;
-    $("#coin-studio").hidden = !mine || Boolean(cd && cd.launched);
+    // with the ready-made coin on (COIN_V2_READY), the coin is made by Vicinity and chosen in its own card: the old studio stays hidden
+    $("#coin-studio").hidden = !mine || Boolean(cd && cd.launched) || me.coinV2Ready === true;
     if (mine && !studioDirty) fillStudio();
   }
   const countPitch = () => ($("#cs-count").textContent = `${$("#cs-pitch").value.length}/200`);
@@ -1451,6 +1454,21 @@
       if (me) wsend.render(me);
     };
     s.onerror = () => { wsendAsked = false; }; // the next /api/me tries again
+    document.head.append(s);
+  }
+  /* ---------- the ready-made city coin (COIN_V2_READY=on): its code is fetched ONLY when /api/me says coinV2Ready, so with the switch off this page never asks for it ---------- */
+  // public/coin-ready.js fills the founder's #coin-ready card (the coin made from the city list, "Use this coin") and the preview in #coin
+  let cready = null, creadyAsked = false;
+  function loadCoinReady() {
+    if (cready || creadyAsked) return;
+    creadyAsked = true;
+    const s = document.createElement("script"); s.src = "/coin-ready.js";
+    s.onload = () => {
+      if (!window.VCoinReady) { creadyAsked = false; return; }
+      cready = window.VCoinReady.init({ api, sensitive, toast, changed: () => loadCoin() });
+      if (me) cready.render(me);
+    };
+    s.onerror = () => { creadyAsked = false; }; // the next /api/me tries again
     document.head.append(s);
   }
   let qrP = null;
