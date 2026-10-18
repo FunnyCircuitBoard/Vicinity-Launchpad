@@ -688,3 +688,30 @@ test("copy: the README, docs/DEPLOY.md and src/profiles.js say no messaging and 
   assert.match(terms, /<strong>Notices\.<\/strong> Notices from us under these Terms will be posted on the Website, in the Services, or sent electronically\. You consent to receive all communications electronically\./);
   assert.doesNotMatch(terms, /in-app notice|Notifications tab/i, "no new Terms wording for the tab");
 });
+
+test("the switches (signed-in test of 17 Oct, N1): the track is a 44x26 pill drawn by ::before, not a square background on the 52x44 input; role=switch, aria-checked, the 44 px target and the focus ring stay", () => {
+  const css = read("public/polish-dash.css"), html = read("public/dashboard.html"), js = read("public/dashboard.js");
+  const bodiesOf = (sel) => [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].split(",").map((s) => s.trim()).includes(sel)).map((m) => m[2].trim());
+  const px = (body, prop) => { const m = body.match(new RegExp(`(?:^|[; ])${prop}: (-?\\d+)px`)); assert.ok(m, `${prop} in "${body}"`); return Number(m[1]); };
+  const [input] = bodiesOf(".dv2 .nt-switch");
+  assert.equal(px(input, "width"), 52); assert.equal(px(input, "height"), 44, "the 44 px target");
+  assert.match(input, /appearance: none;/);
+  assert.match(input, /background: none;/, "nothing drawn on the input: a 44x26 background on it kept square corners whatever its border-radius");
+  for (const m of css.matchAll(/\.nt-switch[^{]*\{([^}]*)\}/g)) assert.doesNotMatch(m[1], /background-(image|size)|linear-gradient/, "no gradient track left");
+  // the track: centred in the target, its radius half its height (a pill)
+  const [track] = bodiesOf(".dv2 .nt-switch::before");
+  assert.match(track, /content: ""; position: absolute;/);
+  const t = { top: px(track, "top"), left: px(track, "left"), w: px(track, "width"), h: px(track, "height"), r: px(track, "border-radius") };
+  assert.deepEqual(t, { top: 9, left: 4, w: 44, h: 26, r: 13 });
+  assert.equal(t.left * 2 + t.w, 52); assert.equal(t.top * 2 + t.h, 44); assert.equal(t.r * 2, t.h, "rounded ends");
+  assert.match(track, /background: var\(--line-2\);/, "off: the quiet line colour");
+  assert.deepEqual(bodiesOf(".dv2 .nt-switch:checked::before"), ["background: var(--ok-text, #37C29A);"], "on: green");
+  // the knob inside the track, 3 px in from either end
+  const [knob] = bodiesOf(".dv2 .nt-switch::after"), [on] = bodiesOf(".dv2 .nt-switch:checked::after");
+  assert.equal(px(knob, "top"), t.top + 3); assert.equal(px(knob, "left"), t.left + 3);
+  assert.equal(px(on, "left") + px(knob, "width"), t.left + t.w - 3);
+  assert.match(knob, /border-radius: 50%;/);
+  assert.deepEqual(bodiesOf(".dv2 .nt-switch:focus-visible"), ["outline: 2px solid var(--pin); outline-offset: -2px;"], "the focus ring, on the rounded 52x44 box");
+  assert.equal([...html.matchAll(/<input class="nt-switch" type="checkbox" role="switch" id="ntp-[a-z]+" data-pref="[a-z]+" checked>/g)].length, 5, "five switches, role=switch");
+  assert.match(js, /inp\.setAttribute\("aria-checked", String\(inp\.checked\)\)/, "aria-checked follows the state");
+});
