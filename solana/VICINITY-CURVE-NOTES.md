@@ -4,7 +4,8 @@ Companion to `VICINITY-CURVE-DESIGN.md`, revision 3 (entries 1 to 41 were writte
 revision 2, commit ee62c31; revision 3 folds every entry in, and its Appendix C says where;
 entries 42 to 48 answer review round 1 of the build, entries 49 to 51 review round 2, 52 to 56
 review round 3, 57 to 66 review round 4, 67 to 74 review round 5; entry 75 records the
-specification of the owner's batch launch approval, which is not built yet). The
+specification of the owner's batch launch approval, entry 76 its build and entry 77 the mutation
+tests of its rules). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -2272,3 +2273,115 @@ entries, accepted and disclosed by default).
 CK1 (the checker's I23 to I25 with the batch state of each call's moment), C01 and C02 (the worst-case
 transaction), H02, D01. Nothing in this entry changes a fee value or a fee-share rule, and no existing test
 changes until the program does.
+
+### 76. The batch launch approval built (1.1, 3.11, 3.12, 4.23 to 4.27, 8.4, 8.6, 9, 11.1, 11.3, 11.4, 12, 14.1; NOTES 75)
+
+**Spec.** Entry 75 and the sections it lists: the program's five instructions, `LaunchBatch`, the leaf of 3.12,
+8.6's in-force rule, I23 to I25, the SDK's batch module, and the tests U13, P12, L14, X66 to X76, F01, F02, CK1,
+C01, C02 and H02.
+
+**Choice.** Built as specified; the places where the build had to choose:
+* **Program.** `batch.rs` holds the pure functions (`launch_leaf`, `node_hash`, `verify_proof`, `tree_depth`,
+  `max_proof_len`, `batch_window_ok`, `batch_in_force`, `apply_publication`) so that U13 and P12 test them without a
+  runtime; the five handlers call them. `launch_from_batch` and `launch` share one function for effects 1 to 7
+  (`launch::launch_coin`), so a batch launch creates exactly what a per-city launch creates; its bumps struct is
+  `CreatedBumps` because Anchor already generates `LaunchBumps` for the `Launch` accounts. Errors 6058 to 6071 are
+  appended after 6057 (`LaunchApproverNotSet`, `ApproverHoldsRole`, `BatchSeqMismatch`, `BadBatchRoot`,
+  `BadLeafCount`, `BadBatchWindow`, `BatchesHalted`, `BatchSuperseded`, `BatchCleared`, `BatchNotYetValid`,
+  `BatchExpired`, `ProofTooLong`, `InvalidProof`, `ApprovalPending`); `LaunchedFromBatch` is an event CPI like the
+  other money events, the four settings events are `emit!` like the other settings events. `accept_admin` checks
+  `ApproverHoldsRole` again although no instruction sequence can reach it (`propose_admin` refuses the approver and
+  `set_launch_approver` refuses the pending admin): kept as defence in depth, as the guardian check there is. The
+  halt-all build refuses `launch_from_batch` (nine handlers now).
+* **The 13-level proof.** The task asked for the compute of a 13-level proof within budget; the specification caps
+  every proof at `MAX_BATCH_PROOF_LEN` = 9 (512 leaves, so the batch launch with the first buy fits one
+  transaction), and the program refuses 13 hashes with `ProofTooLong` before any hashing. `30-batch` C01 therefore
+  measures the proof's cost by length on one city, founder and name (154,188 CU with no hash to 156,370 with 9:
+  about 242 CU per hash), extrapolates 13 levels to about 157,340 CU (inside the 250,000 budget, so the cap is about
+  transaction size, not compute) and shows the 13-hash proof refused.
+* **Measurements** (11.1, 11.3, 11.4): `init_launch_batch` 10,396 CU, `set_launch_approver` 7,479,
+  `publish_launch_batch` 7,174, `clear_launch_batch` 6,761, `launch_from_batch` with a 9-hash proof about 127,740 (city
+  801 of `12-compute`; `launch` 118,646 for city 800 in the same run); the worst batch launch with the token account
+  and first buy about 178,000 to 179,300 CU (the founder's token-account bump varies) and 1,142 bytes with the lookup table (1,449 without); `publish_launch_batch` 346 bytes.
+  One finding for the website: without the lookup table `launch_from_batch` alone with 9 hashes is 1,312 bytes, over
+  the 1,232-byte limit (litesvm does not enforce it); without the table only about 5 hashes fit, so the website
+  builds every batch launch with the table (11.3 says so). The production binary grew from 605,664 to 728,256
+  bytes (devnet 728,256, halt-all 727,032; no stack warning), about 0.62 SOL more rent for the program data and
+  for each buffer.
+* **The shared fixture** (U13): `sdk/fixtures/launch-batch.json` holds the worked example of 3.12 in full and, for
+  trees of 1 to 70 and 512 leaves, the root, the depth, a SHA-256 over every leaf and one over every proof, and the
+  first, middle and last proofs in full. Both sides regenerate every leaf and proof and compare the digests: every
+  proof is checked, and the file stays at 124 KB instead of several megabytes.
+* **SDK.** `sdk/curve/batch.mjs` mirrors `batch.rs`; `batchRefusal` returns the program's errors in its order,
+  which the checker and the fuzz model use as their reference for 8.6. `preparePublishLaunchBatch` refuses what the
+  program would refuse (no approver, another signer, halted, a wrong number, another program's list, a bad window).
+* **Checker** (CK1, I23 to I25): `batchWalk` walks `LaunchBatch` through the calls of each transaction in execution
+  order with the seats of each call's moment (the seat walk of entry 73, which now also follows
+  `set_launch_approver`), recomputes each publication's record and each batch launch's leaf with the SDK, folds the
+  proof, and requires the walk to end at the account after the transaction. `31-batch-checker` doctors real
+  contexts (a clear, a supersession, the window, the root, the halt, the approver, a pending approval, a founder
+  holding a role, a publication by a stranger or while halted or recorded differently, a skipped number, a clear by
+  a key that may not clear, a write by a buy, an approver holding a seat) and each is refused.
+* **Fuzz** (F01, F02): `fuzz.mjs` adds approver rotations (including role keys and a stranger signing), publications
+  valid and invalid (a stranger, a skipped or repeated number, a zero root, a leaf count out of range or not the
+  list's, each bad window), clears by every key with and without halt, clock moves to the window's edges, and batch
+  launches (the founder's own, another signer, a changed name, ticker, config or metadata hash, a cut or padded
+  proof, another batch's number, a city with its coin or a pending approval, a locked ticker, a founder holding a
+  role); role keys offered to the approver's seat and back. The model predicts each outcome and error in the
+  program's order (two simultaneous account-level failures predict some failure, since Anchor's order among account
+  constraints is not modelled) and `LaunchBatch`'s 260 bytes must equal its own after every transaction. Eight seeds
+  of 2,500 steps agreed throughout (the last four: 247 publications, 181 accepted; 235 batch launches, 29 of
+  them launched and the rest refused with the predicted error; 37 clears; 32 rotations). A longer run:
+  `VCURVE_FUZZ_STEPS=100000 node --test tests-curve/23-fuzz.test.mjs`.
+* **Tools.** The owner's verifier `scripts/vcurve/batch.mjs verify` (8.4 step 2: re-reads the chain, rebuilds the
+  tree from the file and refuses a file whose root is not its entries', re-checks every entry, prints the day's
+  changes and the unsigned `publish_launch_batch`) and `check` (the monitor's comparison of the stored record with
+  the list) are built, and the deploy checklist takes `--proposed-launch-approver` (the key against every founder,
+  which the program cannot see when the key is set, and every seat; a proposed guardian or payout key that is the
+  approver; an approver holding a founder seat). Not built: the monitor process (paging, the site's database), the
+  website's batch page and D01's batch rehearsal on devnet.
+
+Tests. Program: U13 (the worked example, the fixture, every field changed, leaf and node preimages, proofs cut,
+padded, of a neighbour), P12 (random batches, the in-force rule against a direct model), the offsets of
+`LaunchBatch` and `Launchpad`, the error table, the review checklist (26 instructions, the new writers). litesvm:
+`30-batch` (L14, X66 to X76, C01, C02, every rule of `approve_launch` and `launch` at a batch launch, X67 and
+X69), `31-batch-checker` (CK1), `32-batch-checklist`, `33-batch-verifier`, `11-halts` H02 and H03 with
+`launch_from_batch`, `12-compute` with the five instructions, `23-fuzz`. SDK: `batch.test.mjs`. Nothing here changes
+a fee value or a fee-share rule.
+
+### 77. Each batch rule shown necessary by a mutant build that a test refuses (4.23 to 4.27, 8.3, 8.6, 12; NOTES 76)
+
+**Spec.** Every rule of the batch launch approval has a test that fails without it (the task's acceptance rule,
+in the manner of the mutants of entries 34 and 73).
+
+**Choice.** `scripts/vcurve/batch-mutants.py` builds 43 mutant programs, each with one rule removed or weakened,
+and runs `30-batch` (H02 of `11-halts` for the halt-all mutant) against each, twice: with the per-transaction
+checker, and with it off (`MUTANT_CHECKS_OFF=1`), so that an explicit assertion, not only the checker, refuses
+each mutant. The mutants: publication by any signer, while halted, with a merely increasing number, with a zero
+root, with any leaf count, without the 12-hour review, without the 48-hour lead or validity cap, always moving
+`latest` to `previous`; a clear by anyone; `set_launch_approver` without the separation check, without clearing
+the records, without lifting the halt; a guardian, payout key, payout wallet or proposed admin that may be the
+approver, and `approve_launch` and `transfer_founder` without the approver in `check_founder_key`; a batch
+launch while launches are paused, while buys are halted, without the approver check, while the path is halted;
+`batch_in_force` taking `previous` after the newer batch began, ignoring the publisher, ignoring the clear,
+before `valid_from`, after `valid_until`; city 0; a founder holding a role; a zero metadata hash; an invalid
+name; the proof's length unbounded; the proof not verified; a pending approval ignored; a disabled config; the
+old program's launches open, its admin, the registry's admin, the old `Coin`, the old `Approval`; another
+metadata account; the halt-all build without `require_not_halted` in `launch_from_batch`.
+
+The first run found two rules no explicit assertion pinned, and the tests were tightened: (1) `batch_in_force`'s
+publisher check: every approver change also clears both records, so a former approver's batch was refused
+anyway, with `BatchCleared` instead of the specified `BatchSuperseded` (the publisher is checked before the
+clear, 4.22, 4.27), and the test accepted either; it now requires `BatchSuperseded`. (2) The records cleared by
+`set_launch_approver`: with the checker on, every test refused that mutant (I24 replays the clear), but without
+it no assertion did, because every rotation tested came after a clear or named another key; a new test re-sets
+the same key while one batch is in force and the next is pending, and both must stop with `BatchCleared`. Before
+this entry's work the rules of `approve_launch` and `launch` at a batch launch (the old program's accounts, the
+registry, a disabled config, city 0) had no batch-path test either; entry 76's `30-batch` test of them was
+written for these mutants. Result: all 43 mutants killed in both modes. The rules the mutants do not cover are
+those of the leaf and proof functions themselves (each leaf field, the domain tag, the node prefix, the odd-node
+promotion), which U13 pins byte for byte against the SDK and the shared fixture, and the layout and account
+constraints Anchor generates (seeds, `init`, owners), which X66 and F02 substitute.
+
+Tests. `scripts/vcurve/batch-mutants.py` (about 1.5 minutes per mutant); the two tightened assertions are in
+`30-batch` (rotation and clears; the same-key re-set).

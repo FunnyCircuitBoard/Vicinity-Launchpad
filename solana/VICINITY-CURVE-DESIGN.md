@@ -2,7 +2,8 @@
 
 Status: specification for the build and for the outside audit, revision 3, 17 October 2026.
 Revision 3 folds in the implementation notes of the build (`VICINITY-CURVE-NOTES.md` entries 1 to
-74: every clarification and accepted deviation) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
+74: every clarification and accepted deviation; entries 75 to 77 specify the batch launch approval
+and record its build and its mutation tests) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
 CLI-2, CLI-3), 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1), 3 (R3-DIFF-1, MATH3-2, LL-1, R3-CLI-1,
 MATH3-1, HR-1), 4 (R4-DIFF-1 to R4-DIFF-5, SM-1, SM-2, SDK4-1 to SDK4-6, OPS-1 to OPS-4,
 TL-INFO-1) and 5 (R5-DIFF-1 to R5-DIFF-3, R5-REG-1, MV-1, KR-1, R5-CONS-1 to R5-CONS-5) of the
@@ -12,7 +13,9 @@ not applied, with reasons, and the notes folded in. Revision 3 also specifies th
 **batch launch approval** of 17 October 2026 (a separate launch approver signs one Merkle root a
 day naming every eligible founder, whose launches then need no per-launch signature: 1.4, 3.2,
 3.4, 3.11, 3.12, 4.23 to 4.27, 8.1, 8.4, 8.6, I23 to I25, T81 to T91, O30 to O33, 14.1; NOTES 75);
-that part is specified and not yet built. The program, its math crate, its client SDK and
+it is built with the rest (program, SDK, checker, fuzz model, tests, the owner's batch verifier
+and the checklist's `--proposed-launch-approver`; NOTES 76 and 77), except the monitor process and
+the website's batch page (14.1). The program, its math crate, its client SDK and
 its test suites are built (branch `feat/vicinity-curve`); nothing has been deployed or signed.
 Devnet uses a throwaway program key only. Mainnet needs the owner, the Squads vault `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X`
 (2 of 3) and the outside audit. The existing programs `vicinity_launchpad`
@@ -151,7 +154,7 @@ Rows M3, M4, M7, M8, M11, M12, M16 and M21 were revised after the review (Append
 
 * The Anchor program `vicinity_curve` (new program id), its 26 instructions, its accounts,
   events and errors (the five instructions of the batch launch approval, 4.23 to 4.27, and its
-  account, 3.11, are specified and not yet built).
+  account, 3.11, are built with the rest, NOTES 76).
 * The pure integer math crate `vicinity-curve-math`, which the program calls for every
   number it computes, and which an SDK, an indexer or an aggregator adapter can reuse.
 * The integration contract with `vicinity_rewards` as deployed (read its `CityConfig`,
@@ -2863,7 +2866,7 @@ call (I19).
      added, removed or changed), and sends the changes to the owner and the guardian members
      through the monitor's own channel, not only the website.
   2. *The owner verifies on his own computer*: the batch verifier (`scripts/vcurve/batch.mjs
-     verify <list file>`, to be built with the SDK of 14.1) re-reads the chain (`Launchpad`,
+     verify <list file>`, built on the SDK of 14.1, NOTES 76) re-reads the chain (`Launchpad`,
      `LaunchBatch`, each city's `Coin`, `Approval` and `TickerLock`, the old program's accounts,
      the configs), re-checks every entry, recomputes the root, prints the changes and builds the
      unsigned `publish_launch_batch` (`seq = latest.seq + 1`, `valid_from = now + 12 hours + 10
@@ -3176,7 +3179,7 @@ Global:
   remainders in `liquidity_pending`; the buyback bucket's dust below the price of one raw coin in
   a coin that stops trading; donations.
 
-Batch launch approval (8.6; specified, asserted once built, each per call with the `Launchpad`
+Batch launch approval (8.6; asserted by the checker after every transaction of every suite, NOTES 76, each per call with the `Launchpad`
 and `LaunchBatch` of that call's moment: the accounts before the transaction with every earlier
 `set_launch_approver`, `publish_launch_batch`, `clear_launch_batch`, `set_pause`, `set_guardian`,
 `set_payout_config`, `propose_admin` and `accept_admin` of the same transaction applied, as the
@@ -3329,8 +3332,8 @@ checker's seat walk already does for I19):
 | `launch` | 125,000 to 190,000 | Metaplex CPI dominates (today's launch through DBC and Metaplex measured 154,600 to 173,704); four `init`s; `mint_to`; dust `burn`; `set_authority`; two `find_program_address` under the old program | 230,000 | 300,000 |
 | `launch` + idempotent ATA create + first `buy`, one transaction | 175,000 to 260,000 | the sum of the three | asserted by C01 | 400,000, or 1.2 x the simulated figure (as the Worker already does for trades) |
 | admin and settings instructions | 5,000 to 30,000 | `approve_launch` includes two `find_program_address` under the old program | 50,000 | 60,000 |
-| `launch_from_batch` (estimate, not built) | `launch` plus 8,000 to 20,000 | `LaunchBatch` load and check (about 2,000); the empty `approval` PDA re-derived (one bump search, 1,500 to 10,000); the leaf hash (about 160 CU for a preimage of up to 186 bytes) and at most 9 node hashes (about 120 CU each: the `sol_sha256` syscall's base cost plus its per-byte cost); the second event CPI (about 5,000) | 250,000 | 300,000, or 1.2 x the simulated figure |
-| `publish_launch_batch`, `clear_launch_batch`, `set_launch_approver`, `init_launch_batch` (estimates) | 4,000 to 15,000 | one or two account loads, no CPI except `init`'s | 50,000 | 60,000 |
+| `launch_from_batch` (estimated before it was built; measured below) | `launch` plus 8,000 to 20,000 | `LaunchBatch` load and check (about 2,000); the empty `approval` PDA re-derived (one bump search, 1,500 to 10,000); the leaf hash (about 160 CU for a preimage of up to 186 bytes) and at most 9 node hashes (about 120 CU each: the `sol_sha256` syscall's base cost plus its per-byte cost); the second event CPI (about 5,000) | 250,000 | 300,000, or 1.2 x the simulated figure |
+| `publish_launch_batch`, `clear_launch_batch`, `set_launch_approver`, `init_launch_batch` (estimated before they were built; measured below) | 4,000 to 15,000 | one or two account loads, no CPI except `init`'s | 50,000 | 60,000 |
 
 Reference: Meteora DBC `swap2` measured 29,987 to 39,598 CU (LAUNCHPAD-AUDIT.md 5.1), so a
 trade here should cost about the same. If the efficient SPL Token implementation is live on
@@ -3347,7 +3350,15 @@ to 1,700 CU per extra iteration; the worst known city under the localnet id, 100
 symbol C0, takes 151,008, asserted by `12-compute`); `launch` + token account + first buy about
 165,000 to 171,000 in total for one city (169,519 in the last run: the founder's token-account bump
 varies with its key); settings instructions 3,900 to 23,200 (re-measured after reviews OPS-1 and
-R5-CONS-1). Every figure is inside its test
+R5-CONS-1). The batch launch approval (NOTES 76): `init_launch_batch` 10,396, `set_launch_approver`
+7,479, `publish_launch_batch` 7,174, `clear_launch_batch` 6,761; `launch_from_batch` with a full 9-hash
+proof (512 leaves) about 127,740 CU for city 801 of `12-compute` (127,734 and 127,742 in two runs), against `launch` 118,646 for city 800 in the same
+run; each proof hash costs about 242 CU (`30-batch` C01: 154,188 CU with no hash to 156,370 with 9 for one
+city, name and founder), so the 13-level proof of a 2^13-leaf tree, which the program refuses
+(`MAX_BATCH_PROOF_LEN` 9, `ProofTooLong` before any hashing), would add about 3,150 CU, well inside the
+250,000 budget; the worst batch launch with the founder's token account and first buy (9 hashes, a 32-byte
+name, a 10-byte ticker) about 178,000 to 179,300 CU in one transaction (177,763 and 179,279 in two runs: the
+founder's token-account bump varies with its random key). Every figure is inside its test
 budget. The suggested client limits are per instruction: the website's first buy adds the
 idempotent token-account create, about `13,430 + 1,500 x k` CU with `k` the owner's extra bump
 iterations (13,424 to 25,424 over 300 owners; the base is the associated token program's own cost
@@ -3380,7 +3391,7 @@ lamports), is paid once, and a daily publication costs the approver only its tra
   authority, `vicinity_curve`, `FEE_RECIPIENT`, `Launchpad`, `LEGACY_LAUNCHPAD`,
   `REWARDS_REGISTRY`, the config PDAs): about 800 to 900 bytes with it.
 * `approve_launch` goes through a Squads vault transaction (lookup tables supported).
-* `launch_from_batch` (estimate, not built): the same 22 accounts as `launch` (`LaunchBatch`, a
+* `launch_from_batch` (estimated before it was built; measured below): the same 22 accounts as `launch` (`LaunchBatch`, a
   static address, goes in the lookup table; the city's empty `approval` replaces the closed
   approval and its rent payer), plus at most 96 bytes of arguments (city, batch, config, a name of
   up to 32 bytes, a ticker of up to 10, the metadata hash, the proof's length) and 32 bytes per
@@ -3394,15 +3405,22 @@ lamports), is paid once, and a daily publication costs the approver only its tra
   the approver alone.
 * Measured (C02, NOTES 30; again after review OPS-1 added the registry account, review
   R5-CONS-5): the website's buy 555 bytes, its sell 513, `launch` alone 953, `launch` + token
-  account + first buy 1,064 bytes without and 788 with the lookup table.
+  account + first buy 1,064 bytes without and 788 with the lookup table. The batch path (C02,
+  NOTES 76): `publish_launch_batch` 346 bytes; `launch_from_batch` with the token account and first buy
+  in the worst case (9 hashes, a 32-byte name, a 10-byte ticker) 1,142 bytes with the lookup table
+  (1,449 without); `launch_from_batch` alone with a 9-hash proof 1,312 bytes without the table. Without the
+  table a batch launch alone fits only up to about 5 proof hashes (32 leaves), so the website always
+  builds it with the lookup table, as it does `launch` with the first buy.
 
 ### 11.4 Program binary
 
 Target: at most 450 KB (today's `vicinity_launchpad` is 433,960 bytes with Meteora's
 interfaces). The Metaplex wrapper of anchor-spl adds code; `no-idl` removes Anchor's six IDL
 handlers; measure (C03). Measured: 605,664 bytes for the production build of revision 3 after
-review round 5 (`npm run vcurve:sbf`; cargo-build-sbf 4.4.0, platform-tools v1.57; NOTES 20), above
-the target, which costs rent, not
+review round 5, and 728,256 bytes with the batch launch approval (devnet 728,256, halt-all 727,032;
+`npm run vcurve:sbf`; cargo-build-sbf 4.4.0, platform-tools v1.57; NOTES 20 and 76), above
+the target, which costs rent (about 0.62 SOL more for the program data account and as much for each
+buffer), not
 behaviour; no build prints a stack warning (C04). The program data account rent at 5,080 lamports per byte is about
 2.3 SOL for 450 KB; an upgrade needs a buffer of the same size, and so does the halt-all
 buffer kept ready.
@@ -3522,7 +3540,7 @@ sell, a claim, a withdrawal and a forward still work, a debit below the live min
 nearly empty coin is refused, and a top-up restores it; X64 `init_launchpad` by a stranger;
 X65 the IDL instruction tag returns `IdlInstructionStub`.
 
-Batch launch approval (specified, to be built with it): X66 forged proofs (each leaf field
+Batch launch approval (built: `30-batch`, with X67's leaf and node preimages also in U13; NOTES 76): X66 forged proofs (each leaf field
 changed, another entry's proof, a leaf hash passed as an argument cannot exist, a proof of 10
 hashes); X67 an inner node presented as a leaf (its children as the "name" bytes cannot produce a
 valid leaf preimage) and a proof with a leaf in place of a node; X68 a valid leaf of batch N used
@@ -3558,14 +3576,14 @@ X76 clock warps around `valid_from` and `valid_until`, and publication windows a
 | C04 | CI fails on any cargo-build-sbf "Stack offset ... exceeded" warning |
 | H01 | guardian halt: `launch` and `buy` refuse with `BuysHalted` while `buyback_burn` keeps running; with buybacks halted too, `buyback_burn` refuses with `BuybacksHalted`; `sell`, claims, forwards, withdrawals and payouts work; only the admin clears, buybacks first |
 | LL-1 | a halt of buys and buybacks over a mostly sold pool: buybacks cannot be halted alone, buys cannot reopen before buybacks, the keeper drains the backlog while buys are halted, and the first buyer after the clear loses; on a twin coin left undrained he would profit (review LL-1) |
-| H02 | `halt-all` build: every outflow (`sell`, `withdraw_platform_fees`, `forward_holders_fees`, `claim_founder_fees`, `payout_founder_fees`, `buyback_burn`, `buy`, `launch`, and `launch_from_batch` once built) refuses with `TradingHalted` |
+| H02 | `halt-all` build: every outflow (`sell`, `withdraw_platform_fees`, `forward_holders_fees`, `claim_founder_fees`, `payout_founder_fees`, `buyback_burn`, `buy`, `launch` and `launch_from_batch`) refuses with `TradingHalted`, while settings, a batch publication among them, still work |
 | H03 | the `halt-all` build deployed over live coin state produced by the normal build, then upgraded back to the normal build: every coin's state and balances unchanged and fully working; the halt buffer is rebuilt from the deployed commit after every upgrade |
 | R01 | real `vicinity_rewards` in the same VM: create a WSOL Holders config (authority the admin) for a new coin; run the real `forward_holders_fees` followed by a top-level `SyncNative`; then `SyncNative` and `fund_epoch_from_vault`; claim with a Merkle proof |
 | R02 | the real `forward_holders_fees` with `amount > 0`, then `SyncNative` in the same transaction: the vault's `amount` grows by exactly `amount` and the `Coin`'s lamports drop by the same |
 | R02b | documentation test: a CPI of `SyncNative(rewards_vault)` after a direct lamport move fails with `UnbalancedInstruction` (the rule of 4.0), shown with a test-only mock router on the same runtime instead of a test-only build of the program (NOTES 40) |
 | R03 | a rewards config with the wrong model makes `forward_holders_fees` fail every time and nothing moves (it can never be fixed); one with a stranger authority fails until that authority hands over to the admin (`propose_authority` / `accept_authority`); the SDK's `initRewardsForCoin` refuses to propose either, reports the stranger authority as fixable and the wrong model as unfixable, and proposes `init_city` over a pre-funded config address |
 | D01 | devnet rehearsal with a throwaway program key (`devnet` build): init, config #0, approve, launch, trade to graduation, buybacks, forwards, claims, withdrawals, guardian halt; addresses recorded. No mainnet. With the batch approval: a throwaway approver key, one batch through the site's list, the verifier and the monitor, a launch from it after the window, a clear |
-| CK1 | the per-transaction checker (once the batch approval is built): I23 to I25 after every transaction of every suite, with the `Launchpad` and `LaunchBatch` of each call's moment (the seat walk of NOTES 73 extended with `set_launch_approver`, `publish_launch_batch` and `clear_launch_batch`); every `launch_from_batch` leaf recomputed with the SDK from the call's instruction data and signer and folded through its proof; a doctored context (a launch after a clear, under a superseded root, outside the window, with a proof against another root, or a publication by a stranger) is refused by the checker, as `27-checker-gaps` does for the existing rules |
+| CK1 | the per-transaction checker (built: `invariants.mjs`, `31-batch-checker`; NOTES 76): I23 to I25 after every transaction of every suite, with the `Launchpad` and `LaunchBatch` of each call's moment (the seat walk of NOTES 73 extended with `set_launch_approver`, `publish_launch_batch` and `clear_launch_batch`); every `launch_from_batch` leaf recomputed with the SDK from the call's instruction data and signer and folded through its proof; a doctored context (a launch after a clear, under a superseded root, outside the window, with a proof against another root, or a publication by a stranger) is refused by the checker, as `27-checker-gaps` does for the existing rules |
 
 ### 12.6 Invariant and threat coverage
 
@@ -3655,10 +3673,10 @@ for the batch launch approval he chose on 17 October 2026, **O30** (the 12-hour 
 * **New SDK module** (`sdk/curve/`, JavaScript with BigInt; NOTES 28): a port of the math crate with
   golden vectors from the Rust crate (G01); account decoders for `Launchpad`,
   `LaunchConfig`, `Approval`, `CurveCoin`, `TickerLock`, `PayoutOptIn`, each checking the
-  program owner as well as the discriminator; instruction builders for all 21 instructions;
+  program owner as well as the discriminator; instruction builders for all 26 instructions;
   PDA helpers (`coin`, `mint`, `coin_vault`, `ticker`, `config`, `approval`, `payout_opt_in`,
-  event authority, the old program's `coin`, `approval` and `launchpad`).
-* **Batch module** (to be built with the batch approval; `sdk/curve/batch.mjs`): `launchLeaf`
+  `launch_batch`, event authority, the old program's `coin`, `approval` and `launchpad`).
+* **Batch module** (built; `sdk/curve/batch.mjs`, NOTES 76): `launchLeaf`
   (3.12, byte for byte); `buildLaunchBatch(entries, chain?)`, which checks each entry as the
   program will (`check_name`, `check_symbol`, a nonzero metadata hash, a config id, the founder
   key against every role of the given `Launchpad`, and with chain state no coin here or in the old
@@ -3672,7 +3690,8 @@ for the batch launch approval he chose on 17 October 2026, **O30** (the 12-hour 
   refuse), `ix.clearLaunchBatch` and `ix.launchFromBatch` (with the founder's first buy, as for
   `launch`); the fixture `sdk/fixtures/launch-batch.json` shared with the program's unit test
   (U13). The batch verifier `scripts/vcurve/batch.mjs` (`verify`, `check`) and the deploy
-  checklist's `--proposed-launch-approver` use it.
+  checklist's `--proposed-launch-approver` use it (both built: `33-batch-verifier`,
+  `32-batch-checklist`; NOTES 76).
 * **Approvals**: the admin page prepares an `approve_launch` proposal for the Squads vault,
   including the SHA-256 of the coin's metadata JSON; members approve in Squads. The site never
   holds the admin key. With the batch approval this is the path for exceptions; the daily batch
@@ -3687,7 +3706,9 @@ for the batch launch approval he chose on 17 October 2026, **O30** (the 12-hour 
   generated on the site. A founder in the batch in force gets the same transaction with
   `launch_from_batch` and his entry and proof in place of `launch`, once the batch has taken force
   and after the site has re-checked his eligibility and the chain (8.4).
-* **Batch monitor** (a process apart from the website, holding no key): after every
+* **Batch monitor** (a process apart from the website, holding no key; its on-chain comparison is
+  `scripts/vcurve/batch.mjs check`, built; the process around it, paging and the site's database, is
+  not built yet, NOTES 76): after every
   `LaunchBatchPublished` it reads `LaunchBatch`, rebuilds the list from the site's database,
   compares the root, `leaf_count`, window and publisher, and pages the owner and every guardian
   member on any difference or on a publication nobody prepared; it sends the day's new entries to
@@ -4612,12 +4633,14 @@ build follows the text as written and the entry records a reading or a measureme
 | 72 | review round 5: an immutable old program meets the checklist (above) | as listed above |
 | 73 | review round 5: the checker reads the seats of each call as they stood at it (above) | as listed above |
 | 74 | review round 5: the text brought up to date with rounds 4 and 5 (above) | as listed above |
-| 75 | the owner's batch launch approval, specified, not yet built (below) | as listed below |
+| 75 | the owner's batch launch approval, specified before it was built (below) | as listed below |
+| 76 | the batch launch approval built: program, SDK, checker, fuzz model, tests and measurements (below) | 1.1, 9, 11.1, 11.3, 11.4, 12.4, 12.5, 14.1 |
+| 77 | the batch rules each shown necessary by a mutant build that a test refuses (below) | 12 |
 
 ### Revision 3: the owner's batch launch approval (17 October 2026)
 
-Not a review finding: an owner decision, specified here before it is built (NOTES 75), and part of
-the same outside audit. The decision, verbatim: "In the new custom program, I sign one batch
+Not a review finding: an owner decision, specified here before it was built (NOTES 75), built
+on `feat/vicinity-curve` (NOTES 76, mutation results in NOTES 77), and part of the same outside audit. The decision, verbatim: "In the new custom program, I sign one batch
 approval (say daily) covering every eligible founder, and their launches then go through with no
 per-launch step. No key ever sits on the website. It's covered by the same outside audit."
 
@@ -4637,3 +4660,11 @@ The per-city path (`approve_launch`, `revoke_approval`, `launch`) keeps its acco
 effects and events; its one change is that `check_founder_key` also refuses the launch approver,
 so that the approver never receives a founder share (I21, I25). No fee value or fee-share rule
 changes.
+
+Build status (NOTES 76): built and tested are the program's five instructions, its account and
+events, the founder and role checks, the SDK's batch module, builders, decoders, account tables and
+IDL, the checker's I23 to I25, the fuzz model, U13, P12, L14, X66 to X76, F01, F02, CK1, C01, C02,
+H02 and H03, the owner's batch verifier `scripts/vcurve/batch.mjs` (`verify`, and `check`, the
+monitor's comparison) and the deploy checklist's `--proposed-launch-approver`. Not built yet: the
+monitor process (paging, the site's database), the website's batch page and D01's batch rehearsal
+(14.1, 12.5).
