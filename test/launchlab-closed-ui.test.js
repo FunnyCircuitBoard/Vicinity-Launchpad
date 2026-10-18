@@ -1,8 +1,9 @@
 // The dashboard while the Vicinity launchpad is set up (/api/official cityCoins, then the probe GET /api/lp/launch/status answers on):
-// the old Raydium LaunchLab path is closed on the server (test/launchlab-closed.test.js), so the page shows none of it. The founder's
-// "add the contract" field already hides then (test/lp-launch-ui.test.js); here: the admins' queue of contracts waiting for a check
-// (its Record and Reject would only be refused) is not asked for and stays hidden, and a founder whose contract was sent before the
-// launchpad was set up is not told an admin is checking it. With the settings off the page is exactly as before.
+// the old Raydium LaunchLab path is closed on the server (test/launchlab-closed.test.js): a contract can't be sent or recorded, and one
+// sent before can only be rejected. The founder's "add the contract" field already hides then (test/lp-launch-ui.test.js); here: the
+// admins' queue of contracts waiting for a check shows Reject only (no Record), with one line saying why, and a founder whose contract
+// was sent before the launchpad was set up is told it waits and nothing can launch until an admin settles it, not that an admin is
+// checking it. With the settings off the page is exactly as before.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
@@ -13,7 +14,7 @@ const LP_LAUNCH = readFileSync(new URL("../public/lp-launch.js", import.meta.url
 const PENDING = "PendMint1111111111111111111111111111111111111";
 const WAITING = { ok: true, waiting: [{ city: "5128581", cityName: "New York City", country: "US", name: "Big Apple", pair: "SOL", pendingMint: PENDING, pendingAt: "2026-10-09T12:00:00Z", designerId: 3 }] };
 const coinOf = (over = {}) => ({ ok: true, coin: { city: "5142056", cityName: "Utica", country: "US", name: "Utica Coin", pitch: "", pair: "SOL", pairMint: "So11111111111111111111111111111111111111112", color: "gold", logo: null, mint: null, launched: false, waiting: false, by: "SwiftHarbor10", updatedAt: "2026-10-09T12:00:00Z", ...over }, pairs: null, vicinity: null });
-const LEGACY = "A contract for this city is waiting for a check. Nothing can launch until that's settled.";
+const LEGACY = "A contract sent for this city through the old Raydium LaunchLab path is still waiting. Nothing can launch until an admin settles it.";
 
 function adminMe() {
   const me = memberMe({ wallet: ADDR, launched: true, amount: 10, rank: 3 });
@@ -47,17 +48,16 @@ async function open({ me, gate, coin = coinOf() }) {
   return page;
 }
 
-test("launchpad set up: the admins' queue of LaunchLab contracts is not asked for again and stays hidden (no Record, no Reject, no count)", async () => {
+test("launchpad set up: the admins' queue of waiting LaunchLab contracts shows Reject only (recording is closed), and says why", async () => {
   const page = await open({ me: adminMe(), gate: true });
-  const asked = page.callsTo("/api/coins").filter((c) => c.path === "/api/coins?waiting=1").length;
-  await page.advance(61_000);
-  await page.flush(60);
-  assert.equal(page.callsTo("/api/coins").filter((c) => c.path === "/api/coins?waiting=1").length, asked, "once the probe says the launchpad is on, the queue is not asked for");
-  assert.equal(page.$("#coin-admin").hidden, true);
-  assert.equal(page.$("#coin-admin-card").hidden, true);
-  assert.equal(page.$("#coin-waiting").children.length, 0, "no Record or Reject buttons");
-  assert.doesNotMatch(page.text("#today-list") || "", /coin contracts? to check/);
-  assert.equal(page.calls.filter((c) => c.path === "/api/coins/mint/decide").length, 0);
+  assert.ok(page.callsTo("/api/coins").some((c) => c.path === "/api/coins?waiting=1"), "the queue is asked for: a waiting contract still needs settling");
+  assert.equal(page.$("#coin-admin").hidden, false);
+  assert.match(page.text("#coin-waiting"), /New York City/);
+  assert.match(page.text("#coin-waiting"), new RegExp(PENDING));
+  assert.doesNotMatch(page.text("#coin-waiting"), /Record it/, "no Record: the server refuses it");
+  assert.match(page.text("#coin-waiting"), /Reject/);
+  assert.match(page.text("#coin-waiting"), /can't be recorded as the city's coin\. Reject it to settle the city/);
+  assert.equal(page.calls.filter((c) => c.path === "/api/coins/mint/decide").length, 0, "nothing is sent until an admin acts");
 });
 
 test("launchpad settings off: the admins' queue is exactly as before (asked, shown with Record and Reject)", async () => {

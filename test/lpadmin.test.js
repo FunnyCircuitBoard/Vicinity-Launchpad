@@ -694,15 +694,18 @@ test("approval candidates: a city whose Raydium LaunchLab contract is still wait
   assert.deepEqual([by(5128581).ok, by(5128581).reasons], [true, []]);
   const uti = by(5142056);
   assert.equal(uti.ok, false);
-  assert.deepEqual(uti.reasons, ["A Raydium LaunchLab contract for this city is still waiting for a check (it was sent through the old path before the launchpad was set up). One city has one coin, so this city is skipped until the team settles that contract."]);
+  assert.deepEqual(uti.reasons, ["A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already, and one city has one coin). It can't be recorded any more: reject it under Contracts waiting for a check (Moderate tab), then approve this city."]);
   assert.ok(!JSON.stringify(r).includes(addr(105)), "the waiting address itself is not in the answer");
   const from = w.chain.S.log.length;
   const a = await w.call("/api/admin/lp/approve/tx", seenOf(uti));
   assert.deepEqual([a.status, a.data.error, a.data.reasons], [409, "blocked", uti.reasons]);
   assert.equal(built(w, from), 0, "nothing built");
   assert.equal((await w.env.DB.prepare("SELECT pending_mint FROM city_coins WHERE city_id = '5142056'").first()).pending_mint, addr(105), "the waiting contract is left as it is");
-  // once that contract is settled (the team rejects it with the launchpad's settings off), the city is a candidate like any other
-  await w.env.DB.prepare("UPDATE city_coins SET pending_mint = NULL, pending_at = NULL WHERE city_id = '5142056'").run();
+  // the card's own remedy works with the launchpad set up: recording it is refused, rejecting it (with a reason) settles the city,
+  // which is then a candidate like any other
+  assert.equal((await w.call("/api/coins/mint/decide", { city: "5142056", mint: addr(105), approve: true, note: "Checked" })).data.error, "launchpad_only");
+  const rej = await w.call("/api/coins/mint/decide", { city: "5142056", mint: addr(105), approve: false, note: "One city, one coin: it launches on the Vicinity launchpad." });
+  assert.equal(rej.data.ok, true, JSON.stringify(rej.data));
   const r2 = (await w.call("/api/admin/lp/candidates")).data;
   assert.equal(r2.candidates.find((c) => c.cityId === "5142056").ok, true);
 });

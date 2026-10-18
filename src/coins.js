@@ -8,8 +8,10 @@
  *   Public   every design is public (GET /api/coins; the picture once approved) and every change is in the public log (/api/audit).
  *   Launch   once the coin is live, the founder submits its contract address; an admin who isn't that founder
  *            checks it and records it. From then on the design is locked, so it always matches the blockchain.
- *            That old Raydium LaunchLab path is closed while the Vicinity launchpad is set up (lpSetup, src/cluster.js): both of
- *            its routes refuse with 409 launchpad_only and change nothing, so no city can get a second coin through it.
+ *            That old Raydium LaunchLab path is closed while the Vicinity launchpad is set up (lpSetup, src/cluster.js), so no city
+ *            can get a second coin through it: a founder can't send a contract (409 launchpad_only, nothing read or written), and an
+ *            admin can't record one; a contract that was sent before can only be REJECTED (with a reason, by an admin who isn't
+ *            that founder), which settles the city (approvals skip it and launches wait while it waits: src/lpadmin.js, src/lplaunch.js).
  *            On the Vicinity launchpad (src/lpcoins.js, only while its settings are there) the design locks earlier: from the
  *            moment the owner builds the on-chain approval, because the approval fixes the name and ticker on chain and the
  *            owner approved the design he saw (the description goes into the coin's /coin-meta JSON for ever).
@@ -190,18 +192,19 @@ export async function handleDesign(request, env, fetchImpl = fetch, now = Date.n
 
 /**
  * The old Raydium LaunchLab path (a founder submits a contract, an admin records it) while the Vicinity launchpad is set up
- * (lpSetup, the same gate that hides that path on the dashboard): 409 launchpad_only, asked before anything else, so nothing is
- * read or written (not even the founder check, which can start a grace period). With the launchpad's settings off: null, and the
- * path works exactly as before.
+ * (lpSetup, the same gate that hides that path on the dashboard): 409 launchpad_only. A founder's submission is refused before
+ * anything else, so nothing is read or written (not even the founder check, which can start a grace period); an admin's decision
+ * is refused only when it would RECORD the contract (a rejection settles the city and goes through). With the launchpad's settings
+ * off: null, and the path works exactly as before.
  */
 function launchLabClosed(env, what) {
   if (!lpSetup(env).on) return null;
-  return json({ ok: false, error: "launchpad_only", message: `City coins launch on the Vicinity launchpad now, so ${what} here. Nothing was changed.` }, 409);
+  return json({ ok: false, error: "launchpad_only", message: `City coins launch on the Vicinity launchpad now, so ${what}. Nothing was changed.` }, 409);
 }
 
 /** POST /api/coins/mint { mint } — the founder: "our coin is live, this is its contract". An admin checks it. */
 export async function handleProposeMint(request, env, fetchImpl = fetch, now = Date.now()) {
-  const closed = launchLabClosed(env, "a Raydium LaunchLab contract can't be added");
+  const closed = launchLabClosed(env, "a Raydium LaunchLab contract can't be added here");
   if (closed) return closed;
   const f = await founder(request, env, now, fetchImpl);
   if (f.error) return f.error;
@@ -231,14 +234,15 @@ export async function handleProposeMint(request, env, fetchImpl = fetch, now = D
  * page that ships today sends none), but when one is sent it must match too.
  */
 export async function handleDecideMint(request, env, fetchImpl = fetch, now = Date.now()) {
-  const closed = launchLabClosed(env, "a Raydium LaunchLab contract can't be recorded or rejected");
-  if (closed) return closed;
   const a = await admin(request, env, now, fetchImpl);
   if (a.error) return a.error;
   const db = env.DB, body = await readJson(request);
   const coin = body && await coinOf(db, String(body.city || ""));
   if (!coin || !coin.pending_mint) return json({ ok: false, error: "not_found" }, 404);
   if (coin.user_id === a.u.id) return json({ ok: false, error: "needs_second_person" }, 403);
+  // while the launchpad is set up a waiting contract is never recorded as the city's coin (one city, one coin); rejecting it, with
+  // a reason, still works below: that settles the city, so its coin can be approved and launched on the Vicinity launchpad
+  if (body.approve === true) { const closed = launchLabClosed(env, "a waiting Raydium LaunchLab contract can only be rejected, not recorded"); if (closed) return closed; }
   const note = cleanText(body.note, 300);
   if (note == null) return json({ ok: false, error: "too_long", max: 300 }, 400);
   const mint = typeof body.mint === "string" ? body.mint.trim() : "";

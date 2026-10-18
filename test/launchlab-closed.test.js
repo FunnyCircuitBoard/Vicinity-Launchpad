@@ -1,9 +1,11 @@
 // The old Raydium LaunchLab path (a founder sends a contract with POST /api/coins/mint, an admin records it with POST
 // /api/coins/mint/decide) is closed while the Vicinity launchpad is set up (lpSetup, src/cluster.js: the same gate that hides that
-// path on the dashboard). Both routes answer 409 launchpad_only before anything else, so nothing is read or written: no contract
-// waits, none is recorded or rejected, no line goes into the public log, the chain is not asked, and the founder check (which puts
-// a seat into its grace period on a low balance) does not run. With the launchpad's settings missing or incomplete the path works
-// exactly as before (test/coins.test.js and test/hardening-coins.test.js cover it there).
+// path on the dashboard). A founder's contract is refused with 409 launchpad_only before anything else, so nothing is read or
+// written: no contract waits, no line goes into the public log, the chain is not asked, and the founder check (which puts a seat
+// into its grace period on a low balance) does not run. An admin can never RECORD a contract that was sent before (409, nothing
+// changes, the chain is not asked), but can still REJECT it (a reason, an admin who isn't that founder, as always): that is the one
+// way to settle such a city, so its coin can be approved and launched on the launchpad. With the launchpad's settings missing or
+// incomplete the path works exactly as before (test/coins.test.js and test/hardening-coins.test.js cover it there).
 import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -71,7 +73,7 @@ test("launchpad set up: the refusal comes before the founder check, so a founder
   assert.deepEqual([seat.status, seat.grace_until], ["active", null], "the seat is exactly as it was");
 });
 
-test("launchpad set up: an admin's POST /api/coins/mint/decide (record or reject) is refused with launchpad_only and the waiting contract stays as it was", async () => {
+test("launchpad set up: an admin can't RECORD a waiting contract (409, nothing changes, the chain is not asked), but can REJECT it, which settles the city", async () => {
   // a contract sent through the old path before the launchpad was set up
   const f = await founderWithDesign();
   assert.equal((await f.post("/api/coins/mint", { mint: COIN_A })).coin.waiting, true);
@@ -81,14 +83,10 @@ test("launchpad set up: an admin's POST /api/coins/mint/decide (record or reject
   env.ADMIN_WALLETS = adm.w.address;
   Object.assign(env, LP_ON);
   const c = counted();
-  for (const body of [
-    { city: UTICA, mint: COIN_A, approve: true, note: "Checked on the blockchain" },
-    { city: UTICA, mint: COIN_A, approve: false, note: "Not this one" },
-    { city: UTICA, approve: false, note: "Not this one" },
-  ]) {
+  for (const body of [{ city: UTICA, mint: COIN_A, approve: true, note: "Checked on the blockchain" }, { city: UTICA, approve: true, note: "" }]) {
     const r = await send(adm, "/api/coins/mint/decide", body, c.fetchImpl);
     assert.deepEqual([r.status, r.data.ok, r.data.error], [409, false, "launchpad_only"], JSON.stringify(body));
-    assert.match(r.data.message, /^City coins launch on the Vicinity launchpad now, so a Raydium LaunchLab contract can't be recorded or rejected here\. Nothing was changed\.$/);
+    assert.equal(r.data.message, "City coins launch on the Vicinity launchpad now, so a waiting Raydium LaunchLab contract can only be rejected, not recorded. Nothing was changed.");
   }
   assert.deepEqual({ ...(await row()) }, before, "still waiting, nothing recorded");
   assert.deepEqual(await launchLines(), ["coin_contract_submitted"], "only the line from before the launchpad was set up");
@@ -96,6 +94,23 @@ test("launchpad set up: an admin's POST /api/coins/mint/decide (record or reject
   // the founder cannot send another one meanwhile
   assert.equal((await send(f, "/api/coins/mint", { mint: "9yQNxyWbF1sYxXb7nq3zJ4sz2tnLoqa4v8bbWbAdwLBS" })).data.error, "launchpad_only");
   assert.equal((await row()).pending_mint, COIN_A);
+  // a rejection keeps every rule it always had: signed in, an admin, never the founder's own, with a reason
+  assert.equal((await send(browser(env), "/api/coins/mint/decide", { city: UTICA, approve: false, note: "x" })).status, 401);
+  const member = await person(env);
+  assert.deepEqual([(await send(member, "/api/coins/mint/decide", { city: UTICA, approve: false, note: "x" })).data.error], ["not_allowed"]);
+  env.ADMIN_WALLETS = `${adm.w.address},${f.w.address}`;
+  assert.equal((await send(f, "/api/coins/mint/decide", { city: UTICA, approve: false, note: "mine" })).data.error, "needs_second_person");
+  env.ADMIN_WALLETS = adm.w.address;
+  assert.equal((await send(adm, "/api/coins/mint/decide", { city: UTICA, approve: false, note: "" })).data.error, "reason_required");
+  assert.equal((await row()).pending_mint, COIN_A, "none of those changed anything");
+  // the rejection itself: the contract no longer waits, the public log says so, the chain was not asked
+  const rej = await send(adm, "/api/coins/mint/decide", { city: UTICA, mint: COIN_A, approve: false, note: "One city, one coin: it launches on the Vicinity launchpad." }, c.fetchImpl);
+  assert.deepEqual([rej.status, rej.data.ok, rej.data.coin.waiting, rej.data.coin.launched], [200, true, false, false], JSON.stringify(rej.data));
+  assert.deepEqual({ ...(await row()) }, { mint: null, pending_mint: null, pending_at: null, launched_at: null, launched_by: null });
+  assert.deepEqual(await launchLines(), ["coin_contract_submitted", "coin_contract_rejected"]);
+  assert.deepEqual(c.log, [], "a rejection asks nothing of the chain");
+  // nothing left to decide
+  assert.equal((await send(adm, "/api/coins/mint/decide", { city: UTICA, approve: false, note: "again" })).data.error, "not_found");
 });
 
 test("launchpad settings missing or incomplete (the devnet defaults never count): the LaunchLab path works exactly as before", async () => {

@@ -57,8 +57,9 @@
   let reflowing = false;
   // the launch on our own launchpad (public/lp-launch.js through dashboard.js): { on, state } once known; off = the LaunchLab path
   let lp = { on: false, state: null };
-  // a contract sent through the old LaunchLab path before the launchpad was set up: with lp.on nobody records it (src/coins.js)
-  const LEGACY_CONTRACT = "A contract for this city is waiting for a check. Nothing can launch until that's settled.";
+  // a contract sent through the old LaunchLab path before the launchpad was set up: with lp.on nobody records it, an admin can only
+  // reject it (src/coins.js), and nothing launches while it waits (src/lplaunch.js says the same words)
+  const LEGACY_CONTRACT = "A contract sent for this city through the old Raydium LaunchLab path is still waiting. Nothing can launch until an admin settles it.";
   const me = () => (ctx ? ctx.me() : null);
   const countryName = (cc) => (ctx ? ctx.countryName(cc) : cc);
   const behavior = () => (window.V.reduced ? "auto" : "smooth");
@@ -438,7 +439,7 @@
     if (seated && coinKnown && !coin) add(`Design ${seat.city}'s coin`, "Name, pitch, pair, colour, logo (shown once checked). Public and logged.", "ok", "founder", "#coin-studio");
     if (seated && coin && !coin.mint && !coin.waiting && !lp.on) add("Add your coin's contract", "Launched it on Raydium LaunchLab? Send the address for a check.", "ok", "founder", "#cs-mint");
     if (seated && lp.on && lp.state === "ready") add("Launch your city coin", "An admin approved it. One signature in your wallet.", "ok", "founder", "#lp-launch");
-    // with the Vicinity launchpad set up, nobody checks a contract sent through the old LaunchLab path (src/coins.js closes it)
+    // with the Vicinity launchpad set up, a contract sent through the old LaunchLab path is never recorded, only rejected (src/coins.js)
     if (seated && coin && coin.waiting) add("Contract being checked", lp.on ? LEGACY_CONTRACT : "An admin checks it on the blockchain. Nothing to do.", "info", "city", "#coin", true);
     const q = queueCounts();
     if (modOn() && q.total > 0) add(`${q.total} waiting for you`, q.parts.join(" · "), "warn", "moderate", q.total === q.counts.coins ? "#coin-admin" : "#mod");

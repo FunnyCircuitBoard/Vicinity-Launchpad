@@ -799,6 +799,8 @@ async function candidateList(env, ctx, fetchImpl, now) {
         if (!r.live_seat) warnings.push("The approved wallet no longer holds the founder seat (the city has no founder now), but it can still launch this city's coin on chain until the approval expires. Revoke it.");
         else if (r.seat_wallet !== ap.founder) warnings.push(`The approved wallet no longer holds the founder seat (it is now ${r.seat_wallet}), but it can still launch this city's coin on chain until the approval expires. Revoke it.`);
         else if (!["active", "steward"].includes(r.seat_status)) warnings.push(`The founder's seat is ${r.seat_status === "grace" ? "in its grace period (their balance fell below the bar)" : r.seat_status === "provisional" ? "not final (still in its appeal window)" : r.seat_status}. This website will not let them launch, but the approval still works on chain until it expires. Revoke it unless they recover soon.`);
+        // one city, one coin: a contract sent through the old Raydium LaunchLab path still waits for this city (it may be a coin already)
+        if (r.pending_mint) warnings.push("A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already). This website will not let the founder launch while it waits, but the approval still works on chain until it expires. Revoke it, then settle that contract (Contracts waiting for a check, in the Moderate tab).");
       }
       approvals.push({ ...base, approval: { founder: ap.founder, name: ap.name, symbol: ap.symbol, expiresAt: iso(ap.expiresAt * 1000), expired, rentPayer: ap.rentPayer },
         seat: { wallet: r.seat_wallet || null, status: r.live_seat ? r.seat_status : null }, warnings });
@@ -806,8 +808,8 @@ async function candidateList(env, ctx, fetchImpl, now) {
     }
     const reasons = [...global];
     // a contract sent through the old Raydium LaunchLab path before the launchpad was set up (src/coins.js closes that path now):
-    // the city may already have a coin there, and one city has one coin, so it is skipped until the team settles that contract
-    if (r.pending_mint) reasons.push("A Raydium LaunchLab contract for this city is still waiting for a check (it was sent through the old path before the launchpad was set up). One city has one coin, so this city is skipped until the team settles that contract.");
+    // the city may already have a coin there, and one city has one coin, so it is skipped until an admin rejects that contract
+    if (r.pending_mint) reasons.push("A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already, and one city has one coin). It can't be recorded any more: reject it under Contracts waiting for a check (Moderate tab), then approve this city.");
     if (r.pair !== "SOL") reasons.push(`The coin is paired with ${r.pair}; only SOL-paired coins can launch on the Vicinity curve for now. The founder must pick SOL.`);
     const np = nameProblem(r.name);
     if (np) reasons.push(np);

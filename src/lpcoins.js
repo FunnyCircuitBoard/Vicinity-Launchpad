@@ -260,6 +260,9 @@ async function lockDesign(env, row, chain, now) {
   const name = chain && typeof chain.name === "string" && chain.name ? chain.name : null;
   const pair = chain ? pairOfQuote(chain.quoteMint) : null;
   const usable = pair && ["SOL", "USDC"].includes(pair) ? pair : null; // RAY/USDT are not quote mints the design form can name truthfully here
+  // a contract still waiting from the old Raydium LaunchLab path is dropped by this update (one city, one coin): the log line names it
+  const was = await db.prepare("SELECT pending_mint FROM city_coins WHERE city_id = ? AND mint IS NULL").bind(String(row.city_id)).first().catch(() => null);
+  const dropped = was && was.pending_mint ? ` A Raydium LaunchLab contract that was still waiting for this city (${was.pending_mint}) was dropped: one city has one coin.` : "";
   let r;
   try {
     r = await db.prepare(`UPDATE city_coins SET mint = ?, pending_mint = NULL, pending_at = NULL, launched_at = ?, launched_by = NULL,
@@ -280,7 +283,7 @@ async function lockDesign(env, row, chain, now) {
   await db.prepare(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, note, created_at, state)
       VALUES (?, 'founder', 'coin_launched', 'city_coin', NULL, ?, ?, ?, 'launch', ?, ?, 'done')`)
     .bind(design.user_id, design.user_id, design.country, String(row.city_id),
-      `${design.city_name}: launched on the Vicinity launchpad (Solana ${row.cluster}), contract ${row.mint}. Recorded from the blockchain; the coin design is locked.`, iso(now)).run();
+      `${design.city_name}: launched on the Vicinity launchpad (Solana ${row.cluster}), contract ${row.mint}. Recorded from the blockchain; the coin design is locked.${dropped}`, iso(now)).run();
   return true;
 }
 
