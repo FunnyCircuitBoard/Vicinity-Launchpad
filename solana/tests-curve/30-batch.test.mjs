@@ -291,7 +291,7 @@ test('L14 clears by the approver, the admin and the guardian, with and without h
   // rotation to a new key: every batch ends; the old key can no longer publish or clear; numbers continue
   const next = await w.signer(5n);
   await w.send([w.ix.setLaunchApprover({ admin: w.admin.address, approver: next.address })], [w.admin], 'rotate the approver');
-  await expectFail(() => w.launchFromBatch({ batch: bt, cityId: 203n, founder: c, label: 'a former approver\'s batch' }), 'BatchSuperseded', 'BatchCleared');
+  await expectFail(() => w.launchFromBatch({ batch: bt, cityId: 203n, founder: c, label: 'a former approver\'s batch (its publisher is no longer the approver: checked before the clear, 4.27)' }), 'BatchSuperseded');
   await expectFail(() => w.publishBatch(list.slice(2), { approver }), 'Unauthorized');
   await expectFail(() => clear(w, approver, true, 'the former approver clears'), 'Unauthorized');
   w.approver = next;
@@ -645,5 +645,27 @@ test('X67, X69 an inner node or a leaf in a wrong place of a proof is refused; a
   await bad([L[1][0], L[1][1]], 'the level above in place of the leaf');
   await expectFail(() => w.launchFromBatch({ batch: bt, cityId: 6101n, founder: fs[0], edit: { proof: [L[0][1], L[1][1], L[2][0]] }, label: 'the root appended: three hashes for four leaves' }), 'ProofTooLong');
   await w.launchFromBatch({ batch: bt, cityId: 6101n, founder: fs[0] });
+  await w.finish();
+});
+
+test('L14 set_launch_approver clears both stored records even with the same key and no clear before it: the batch in force and the pending one stop at once; the next publication works', async () => {
+  const w = await World.create();
+  const approver = await w.initBatchPath();
+  const [a, b] = [await w.signer(20n), await w.signer(20n)];
+  const b1 = await w.publishBatch([{ cityId: 2101n, founder: a, symbol: 'ROTA' }]);
+  w.warpTo(b1.validFrom);
+  const b2 = await w.publishBatch([{ cityId: 2102n, founder: b, symbol: 'ROTB' }]);
+  assert.equal(S.batchRefusal(w.launchBatch(), w.launchpad(), 1n, w.now()), null, 'batch 1 in force, batch 2 pending');
+  await w.send([w.ix.setLaunchApprover({ admin: w.admin.address, approver: approver.address })], [w.admin], 'set_launch_approver (the same key)');
+  const lb = w.launchBatch();
+  assert.deepEqual([lb.previous.seq, lb.previous.cleared, lb.latest.seq, lb.latest.cleared, lb.halted], [1n, true, 2n, true, false]);
+  await expectFail(() => w.launchFromBatch({ batch: b1, cityId: 2101n, founder: a, label: 'batch 1 after the re-set' }), 'BatchCleared');
+  w.warpTo(b2.validFrom);
+  await expectFail(() => w.launchFromBatch({ batch: b2, cityId: 2102n, founder: b, label: 'batch 2 after the re-set' }), 'BatchCleared');
+  const b3 = await w.publishBatch([{ cityId: 2101n, founder: a, symbol: 'ROTA' }, { cityId: 2102n, founder: b, symbol: 'ROTB' }]);
+  assert.equal(b3.batchSeq, 3n);
+  w.warpTo(b3.validFrom);
+  await w.launchFromBatch({ batch: b3, cityId: 2101n, founder: a });
+  await w.launchFromBatch({ batch: b3, cityId: 2102n, founder: b });
   await w.finish();
 });
