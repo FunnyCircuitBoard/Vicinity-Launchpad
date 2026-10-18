@@ -50,17 +50,17 @@ const ACCOUNT_LINKS = [
 ];
 const ACCOUNT_SHEET = `  <div class="acct" id="acct-sheet" data-acct hidden>
     <div class="acct__scrim" data-acct-close></div>
-    <div class="acct__panel" role="dialog" aria-modal="true" aria-labelledby="acct-name" tabindex="-1">
+    <div class="acct__panel" id="acct-panel" role="dialog" aria-modal="true" aria-label="Your account" tabindex="-1">
       <span class="acct__grab" aria-hidden="true"></span>
       <div class="acct__who">
         <span class="acct__av" data-acct-initial aria-hidden="true"></span>
         <div class="acct__id">
-          <p class="acct__name" id="acct-name" data-acct-name>Your account</p>
+          <p class="acct__name" data-acct-name>Your account</p>
           <p class="acct__home">${SHEET_ICON('<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/>')}<span data-acct-home></span></p>
         </div>
         <button class="acct__x" type="button" data-acct-close aria-label="Close">${SHEET_ICON('<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>')}</button>
       </div>
-      <nav class="acct__nav" aria-label="Your account">
+      <nav class="acct__nav" aria-label="Account menu">
         <ul class="acct__links">
 ${ACCOUNT_LINKS.map(([k, href, label, hint, paths]) => `          <li><a class="acct__link" href="${href}" data-acct-go="${k}"><span class="acct__ico">${SHEET_ICON(paths)}</span><span class="acct__text"><strong>${label}</strong><span>${hint}</span></span><span class="acct__chev" aria-hidden="true">${SHEET_ICON('<path d="M9.5 6l6 6-6 6"/>')}</span></a></li>`).join("\n")}
         </ul>
@@ -138,7 +138,7 @@ ${nav}
       <div class="site-header__actions">
         ${themeToggle("theme-toggle")}
         <a class="btn btn--ghost btn--sm account-btn" href="/connect?mode=login" data-account><span class="btn__dot" aria-hidden="true"></span><span data-account-label>Log in</span></a>
-        <button class="hdr-avatar" type="button" data-account-avatar aria-haspopup="dialog" aria-expanded="false" aria-controls="acct-sheet" aria-label="Profile, account and settings" title="Profile, account and settings" hidden><span class="hdr-avatar__face" data-account-initial aria-hidden="true"></span></button>
+        <button class="hdr-avatar" type="button" data-account-avatar aria-haspopup="dialog" aria-expanded="false" aria-controls="acct-panel" aria-label="Profile, account and settings" title="Profile, account and settings" hidden><span class="hdr-avatar__face" data-account-initial aria-hidden="true"></span></button>
         <a class="btn btn--primary btn--sm hdr-signup has-ring" href="/connect" data-signup>Sign up</a>
       </div>
     </div>

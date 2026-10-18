@@ -77,6 +77,7 @@ body.is-dv2 .dash::before { content: none; }
 /* only if it still does not fit (a very large text setting) it scrolls, with a fade on the side that has more */
 .dv2 .dtabs.is-scrollable::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 32px; z-index: 1; pointer-events: none; opacity: 0; background: linear-gradient(270deg, transparent, var(--glass)); }
 .dv2 .dtabs.is-scrollable.is-scrolled::before { opacity: 1; }
+.dv2 .dtabs.is-scrollable.is-end::after { opacity: 0; } /* scrolled to the end: nothing more on the right, so no fade over the last tab */
 .dv2 .dtabs.is-scrollable .dtab { flex: none; }
 /* the tabs fill the whole bar from 601 px (owner, 12 Oct 2026: they were "gathered to the left" with half the bar empty). A tablet:
    every tab grows from its words by the same share of the room left (flex: 1 0 auto, the same padding), so the gaps between the words
@@ -93,17 +94,23 @@ body.is-dv2 .dash::before { content: none; }
    under the header, inset and rounded like it. Every tab is its line icon (24 viewBox, stroke 1.7) on an equal share of the bar, a
    44 px target; the glass pill sits behind the chosen tab's icon (dashboard-v2.js boxOf) and the chosen tab's name shows small under
    it, so the screen always says where you are. Each tab keeps its name for screen readers (aria-label) and as a tooltip (title).
-   Should the tabs not fit (a moderator's nine, a 320 px screen), the row scrolls on its own, snapping to whole tabs (dashboard-v2.js
-   .is-scrollable); the page never scrolls sideways. The same query as dashboard-v2.js ICONS. ---------- */
+   Profile is not in a phone's strip: the header's one avatar opens it (owner: "remove one"), and wears the current ring while the
+   Profile tab is open (polish.css .hdr-avatar.is-current). A member's seven tabs fit from 360 px as they are, and a 320 px screen
+   (.is-flush below), a moderator's eight a 360 px one (.is-flush). Should the tabs still not fit (a moderator on a 320 px screen, a
+   large text setting), the row scrolls on its own, snapping to whole tabs, with a fade on each side that has more (dashboard-v2.js
+   .is-scrollable, .is-scrolled, .is-end); the page never scrolls sideways.
+   The same query as dashboard-v2.js ICONS. ---------- */
 @media (max-width: 600px) {
-  /* the header and the strip stand on one calm band of the page's own colour once it scrolls (two spread shadows of the strip: around it,
-     and up behind the header), so nothing reads through the glass or between the two bars; the cards pass under a clean edge */
+  /* the strip is opaque: the strong glass colour laid on the page's own colour, no backdrop blur, so nothing scrolling under it reads
+     through its icons or names. The header and the strip stand on one calm band of the page's colour once it scrolls (two spread shadows
+     of the strip: around it, and up behind the header), so nothing shows between the two bars; the cards pass under a clean edge */
   .dv2 .dtabs { top: calc(var(--header-h, 60px) + 6px); margin: 6px calc(8px - var(--wrap-pad, 16px)) var(--dd-gap); overflow: hidden; border: 0; border-radius: 16px;
-    background: var(--glass-bg-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    background: linear-gradient(var(--glass-bg-strong), var(--glass-bg-strong)), var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none;
     box-shadow: inset 0 0 0 1px var(--glass-border), var(--glass-hi), 0 0 0 8px var(--bg), 0 -64px 0 8px var(--bg); }
   .dv2 .dtabs__list { gap: 0; padding: 4px; scroll-snap-type: x mandatory; scroll-padding-inline: 4px; }
   .dv2 .dtabs .dtab { flex: 1 1 0; flex-direction: column; justify-content: flex-start; gap: 0; min-width: 44px; min-height: 52px; padding: 3px 0 0; border-radius: 12px; scroll-snap-align: start; }
-  .dv2 .dtabs.is-scrollable .dtab { flex: 0 0 48px; }
+  .dv2 .dtabs.is-scrollable .dtab { flex: 0 0 44px; } /* a row that scrolls shows part of the next tab: the cue that there is more */
+  .dv2 #tab-profile { display: none; } /* the header's avatar is a phone's way in (dashboard-v2.js inStrip) */
   .dv2 .dtabs .dtab:hover { background: none; }
   .dv2 .dtabs .dtab__ico { display: grid; place-items: center; width: 44px; height: 30px; border-radius: 999px; }
   .dv2 .dtabs .dtab__ico svg { width: 22px; height: 22px; }
@@ -114,11 +121,28 @@ body.is-dv2 .dash::before { content: none; }
   .dv2 .dtabs .dtab[aria-selected="true"] .dtab__text { opacity: 1; transform: translate(-50%, 0); }
   .dv2 .dtabs:not(.has-ind) .dtab[aria-selected="true"] .dtab__ico { background: var(--card-2); } /* until the pill has measured its tab */
   .dv2 .dtabs .dtab__badge { position: absolute; top: 0; left: calc(50% + 4px); min-width: 18px; height: 18px; padding: 0 4px; font-size: .68rem; }
+  /* Moderate is the strip's last tab when it shows: its badge is placed from the right, the same spot for one digit, but never past the
+     tab's edge (from the left it stuck out 4 px and made a moderator's 8 tabs at 360 px scroll by those 4 px) */
+  .dv2 .dtabs #tab-moderate .dtab__badge { left: auto; right: max(0px, calc(50% - 22px)); }
+  /* the same for the name under the last tab (Founder, or Moderate when it shows): centred when the tab is wider than the name, pulled in
+     from the right edge (2 px clear of it) when it is not (a 44 px tab), so the chosen name is never cut at the strip's edge and a hidden one never makes
+     the row scroll. The name's half width in em (Inter 600: Founder 4.0em, Moderate 4.6em), so it follows the text size */
+  .dv2 .dtabs :is(#tab-founder, #tab-moderate) .dtab__text { left: auto; transform: translate(0, 3px); }
+  .dv2 .dtabs #tab-founder .dtab__text { right: max(2px, calc(50% - 2em)); }
+  .dv2 .dtabs #tab-moderate .dtab__text { right: max(2px, calc(50% - 2.3em)); }
+  .dv2 .dtabs :is(#tab-founder, #tab-moderate)[aria-selected="true"] .dtab__text { transform: none; }
   .dv2 .dtabs .dtab.is-alert .dtab__text::after { content: none; } /* Home's alert dot (a notice on it) sits on the icon, like a badge */
   .dv2 .dtabs .dtab.is-alert .dtab__ico::after { content: ""; position: absolute; top: 5px; left: calc(50% + 8px); width: 8px; height: 8px; border-radius: 50%; background: var(--pin); box-shadow: 0 0 0 2px var(--bg-2); }
+  /* the edge fades end in the strip's own colour (the strong glass over the opaque strip: within 1/255 of it) */
   .dv2 .dtabs.is-scrollable::before { background: linear-gradient(270deg, transparent, var(--glass-bg-strong)); }
   .dv2 .dtabs.is-scrollable::after { background: linear-gradient(90deg, transparent, var(--glass-bg-strong)); }
 }
+/* a phone whose tabs do not fit at 44 px each (dashboard-v2.js measure: .is-flush, only then, so the strip otherwise stays lined up with
+   the header): the row loses its inner padding, and below 375 px the strip also reaches 4 px from the screen's edges. A moderator's
+   8 tabs then fit 375 px (359 px) and 360 px (352 px, the most common Android width), a member's 7 fit 320 px (312 px); only past
+   that does the row scroll (.is-scrollable) */
+@media (max-width: 600px) { .dv2 .dtabs.is-flush .dtabs__list { padding-inline: 0; scroll-padding-inline: 0; } }
+@media (max-width: 374px) { .dv2 .dtabs.is-flush { margin-inline: calc(4px - var(--wrap-pad, 16px)); } }
 
 /* ---------- the panels: one rhythm, one card surface ---------- */
 .dv2 .dpanel { gap: var(--dd-gap); }
@@ -164,7 +188,6 @@ body.is-dv2 .dash::before { content: none; }
 .dv2 .nt-switch:checked { background-image: linear-gradient(var(--ok-text, #37C29A), var(--ok-text, #37C29A)); }
 .dv2 .nt-switch:checked::after { left: 25px; }
 .dv2 .nt-switch:focus-visible { outline: 2px solid var(--pin); outline-offset: -2px; }
-/* the header's avatar carries the unread count too (dashboard.js; polish.css draws it), never read out: the tab's name says it */
 
 /* ---------- D3: the profiles notice, one short banner ---------- */
 .dv2 .pf-notice { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; margin: 0; padding: 4px 4px 4px 14px; border-radius: var(--r-card, 18px); border: 1px solid rgba(255,90,54,.3); background: var(--accent-soft, rgba(255,90,54,.1)); }

@@ -43,12 +43,14 @@ input, select, textarea { min-height: 44px; }
 
 /* ---------- signed in: one avatar, top right, and the account sheet it opens (owner, 17 Oct 2026: "keep a single avatar in the top-right
    that opens Profile, Account and Settings; show the username inside that screen") ----------
-   The avatar (site.js accountSheet) is the member's initial in a warm disc, a 44 px target; on the dashboard it carries the unread count
-   (dashboard.js .hdr-n, never read out: the Notifications tab's name says it). A browser that has shown a member here holds back "Log in"
-   and keeps the avatar's room before the first answer (theme.js data-guest), so the header never flashes a Log in it then takes back. */
+   The avatar (site.js accountSheet) is the member's initial in a warm disc, a 44 px target, and nothing else: the unread count is on the
+   dashboard's Notifications tab only (one count on the screen, where it leads). A browser that has shown a member here holds back
+   "Log in" and keeps the avatar's room (unseen, never a Tab stop) before the first answer (theme.js data-guest), so the header never
+   flashes a Log in it then takes back and nothing in it moves when the avatar shows. The !important beats style.css's
+   [hidden] { display: none !important } (the same pattern as its .dash-out.is-pending). */
 .hdr-avatar { position: relative; flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0; margin: 0 -2px 0 0; border: 0; border-radius: 50%; background: none; color: var(--text); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .hdr-avatar[hidden] { display: none; }
-:root:not([data-guest]) .hdr-avatar[hidden]:not(.is-off) { display: inline-grid; visibility: hidden; }
+:root:not([data-guest]) .hdr-avatar[hidden]:not(.is-off) { display: inline-grid !important; visibility: hidden; }
 :root:not([data-guest]) [data-account]:not(.is-shown) { display: none; }
 .hdr-avatar__face, .acct__av { display: grid; place-items: center; border-radius: 50%; color: var(--text); font-family: var(--display); font-weight: 700;
   background: linear-gradient(145deg, rgba(255,90,54,.34), rgba(255,200,87,.16)); box-shadow: inset 0 0 0 1px rgba(255,138,91,.5), inset 0 1px 0 rgba(255,255,255,.12); }
@@ -56,15 +58,21 @@ input, select, textarea { min-height: 44px; }
 .hdr-avatar__face { width: 34px; height: 34px; font-size: .92rem; line-height: 1; }
 .hdr-avatar:hover .hdr-avatar__face, .hdr-avatar[aria-expanded="true"] .hdr-avatar__face { box-shadow: inset 0 0 0 1px rgba(255,138,91,.5), 0 0 0 3px var(--accent-soft); }
 .hdr-avatar:focus-visible { outline: 2px solid var(--pin); outline-offset: 0; }
-.hdr-avatar .hdr-n { position: absolute; top: 1px; right: 0; display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--pin); color: #fff; font: 700 .68rem/1 var(--display); box-shadow: 0 0 0 2px var(--bg-2); }
-.hdr-avatar .hdr-n[hidden] { display: none; }
-:root[data-theme="light"] .hdr-avatar .hdr-n { background: var(--pin-2); } /* 5.5:1 under white */
+/* a phone's dashboard on its Profile tab (dashboard-v2.js; Profile has no tab in a phone's strip): the avatar wears the chosen tab's
+   ember ring, so the screen still says where you are */
+@media (max-width: 600px) {
+  .hdr-avatar.is-current .hdr-avatar__face { box-shadow: inset 0 0 0 1px rgba(255,138,91,.5), 0 0 0 2px var(--bg-2), 0 0 0 4px var(--pin); }
+  :root[data-theme="light"] .hdr-avatar.is-current .hdr-avatar__face { box-shadow: inset 0 0 0 1px rgba(184,67,15,.35), 0 0 0 2px var(--bg-2), 0 0 0 4px #CF3A1A; }
+}
 
 /* the sheet: a phone's bottom sheet over a dimmed page (a grab handle, swipe it down to close); from 601 px a small popover under the
    avatar, lined up with the header's right edge. One opaque layer, 44 px+ rows; the same query as site.js SHEET_MQ */
 .acct { position: fixed; inset: 0; z-index: 85; }
 .acct[hidden] { display: none; }
-.acct__scrim { position: absolute; inset: 0; background: rgba(3,7,14,.56); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+/* a modal sheet holds the page behind it still: a finger dragging on the dimmed page scrolls nothing (touch-action), and on a phone the
+   page itself does not scroll while the sheet is open (site.js sets html.acct-open from opening until the sheet has gone) */
+.acct__scrim { position: absolute; inset: 0; background: rgba(3,7,14,.56); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); touch-action: none; }
+@media (max-width: 600px) { html.acct-open { overflow: hidden; } }
 :root[data-theme="light"] .acct__scrim { background: rgba(11,22,38,.3); }
 .acct__panel { position: absolute; left: 0; right: 0; bottom: 0; max-height: min(86vh, 640px); overflow-y: auto; overscroll-behavior: contain;
   padding: 8px 16px calc(14px + env(safe-area-inset-bottom)); border-radius: 22px 22px 0 0; background: var(--bg-2);
@@ -83,7 +91,7 @@ input, select, textarea { min-height: 44px; }
 .acct__x:hover { background: var(--card-2); color: var(--text); }
 .acct__links { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 2px; }
 .acct__link { display: flex; align-items: center; gap: 12px; min-height: 56px; margin: 0 -8px; padding: 8px; border-radius: 14px; color: var(--text); text-decoration: none; }
-.acct__link:hover { background: var(--card-2); }
+.acct__link:hover, .acct__link[aria-current="true"] { background: var(--card-2); } /* (aria-current: the dashboard's Profile tab is open, dashboard-v2.js) */
 .acct__link:focus-visible { outline: 2px solid var(--pin); outline-offset: -2px; }
 .acct__ico { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: var(--card-2); color: var(--text-2); }
 .acct__ico svg { width: 20px; height: 20px; }

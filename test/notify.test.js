@@ -555,14 +555,14 @@ async function noticesPage({ notices = NOTICES, unread = 2, prefs = { reply: tru
   return { ...p, errors };
 }
 
-test("page: the Notifications tab shows with the switch on (after Feed, the bell, the unread count in its badge, its name and the header), the list opens with unread rows marked and links to the right tab, the shown rows count as read after 2 s, Mark all read, the five controls save on change; no console errors", async () => {
+test("page: the Notifications tab shows with the switch on (after Feed, the bell, the unread count in its badge and its name, none on the header), the list opens with unread rows marked and links to the right tab, the shown rows count as read after 2 s, Mark all read, the five controls save on change; no console errors", async () => {
   const p = await noticesPage();
   const tab = p.$("#tab-notify");
   assert.equal(tab.hidden, false, "the tab shows");
   assert.deepEqual([...p.$$(".dtab")].map((t) => t.id).slice(3, 6), ["tab-community", "tab-notify", "tab-rankings"], "right after Feed (Home, Wallet, City before)");
   assert.ok(tab.querySelector(".dtab__ico svg"), "a bell");
   assert.deepEqual([p.text("#tab-notify-n"), p.$("#tab-notify-n").hidden, tab.getAttribute("aria-label")], ["2", false, "Notifications, 2 unread"]);
-  assert.equal(p.text("[data-account-avatar] .hdr-n"), "2", "the header's avatar carries the count");
+  assert.equal(p.$("[data-account-avatar] .hdr-n"), null, "one count on the screen: the tab's, never a second one on the header's avatar (its sheet has no list)");
   assert.equal(p.callsTo("/api/notices").length, 0, "nothing is asked until the tab opens");
   assert.equal(p.$("#panel-notify").hidden, true);
   // open the tab
@@ -588,7 +588,7 @@ test("page: the Notifications tab shows with the switch on (after Feed, the bell
     assert.deepEqual([inp.checked, inp.getAttribute("role"), inp.getAttribute("aria-checked"), inp.getAttribute("type")], [on, "switch", String(on), "checkbox"], k);
     assert.ok(p.$(`label[for="ntp-${k}"]`), `${k} has a label`);
   }
-  // 2 s on the tab: the two unread rows are marked read, the badge and the header count go, the button hides
+  // 2 s on the tab: the two unread rows are marked read, the badge goes, the button hides
   assert.equal(p.callsTo("/api/notices/read").length, 0);
   await p.advance(1900);
   assert.equal(p.callsTo("/api/notices/read").length, 0, "not yet");
@@ -598,7 +598,7 @@ test("page: the Notifications tab shows with the switch on (after Feed, the bell
   assert.deepEqual(reads[0].body, { ids: [31, 30] });
   assert.deepEqual([...p.$$("#nt-list .nt-row")].map((r) => r.classList.contains("is-unread")), [false, false, false]);
   assert.equal(p.$("#nt-list .sr-only"), null, "the spoken 'Unread' goes with it");
-  assert.deepEqual([p.$("#tab-notify-n").hidden, tab.getAttribute("aria-label"), p.$("[data-account-avatar] .hdr-n").hidden], [true, "Notifications", true]);
+  assert.deepEqual([p.$("#tab-notify-n").hidden, tab.getAttribute("aria-label"), p.$("[data-account-avatar] .hdr-n")], [true, "Notifications", null]);
   assert.equal(p.$("#nt-all").hidden, true);
   // Mark all read (a later visit with new rows): one POST { all: true }
   p.$("#nt-all").hidden = false;

@@ -22,7 +22,8 @@
 //   moderate  -> #panel-moderate   #mod, #coin-admin-card (gets #coin-admin out of #coin)
 //   profile   -> #panel-profile    #profile-modal (as an in-flow block), #roles-fold (gets #roles)
 //   strip                          #dash-tabs (#dash-tablist, the #tab-* links, the glass pill .dtabs__ind and the #panel-* sections above)
-//                                  (a phone, ICONS: every tab is its line icon, the chosen one's name under it, the pill behind the icon)
+//                                  (a phone, ICONS: every tab is its line icon, the chosen one's name under it, the pill behind the icon;
+//                                  no Profile tab in the strip: the header's avatar opens it, inStrip / keyStop)
 (() => {
   "use strict";
   const { $, $$, el, fmt, mask, copy } = window.V;
@@ -105,7 +106,7 @@
     try { history.scrollRestoration = "manual"; } catch {}
     $("#dash-main").addEventListener("click", onClick);
     $("#dash-tablist").addEventListener("keydown", onKey);
-    $("#dash-tablist").addEventListener("scroll", () => $("#dash-tabs").classList.toggle("is-scrolled", $("#dash-tablist").scrollLeft > 4), { passive: true });
+    $("#dash-tablist").addEventListener("scroll", edges, { passive: true });
     $("#fcard-go").addEventListener("click", () => { if (fcardAction) fcardAction(); });
     $("#wt-copy").addEventListener("click", copyAddress);
     $("#wt-refresh").addEventListener("click", () => { if (ctx && ctx.readWallet) ctx.readWallet(); });
@@ -165,7 +166,7 @@
   /** Only when the strip scrolls (200% text): bring the tab into view by the least distance ("nearest"), so Home is never pushed out. */
   function centerTab(tab) {
     const list = $("#dash-tablist"), t = byId("tab-" + tab);
-    if (!list || !t || list.scrollWidth <= list.clientWidth + 1) return;
+    if (!list || !t || !inStrip(t) || list.scrollWidth <= list.clientWidth + 1) return;
     const lr = list.getBoundingClientRect(), tr = t.getBoundingClientRect(), pad = 28;
     const dx = tr.left < lr.left + pad ? tr.left - lr.left - pad : tr.right > lr.right - pad ? tr.right - lr.right + pad : 0;
     if (dx) list.scrollTo({ left: list.scrollLeft + dx, behavior: behavior() });
@@ -174,7 +175,9 @@
    * The strip fits the screen: every tab whole and shown, no sideways strip. Should seven tabs not fit (a moderator on a phone), one step
    * at a time: the gaps close (.is-snug), "Rankings" says "Rank" (.is-short), Founder and Moderate show as their icons (.is-compact). The
    * tabs never shrink below their words, so a tight strip is seen as one. Only if it still does not fit (a large text setting) does the
-   * strip scroll (.is-scrollable, with edge fades). Then the glass pill goes to the chosen tab (place): `how` is "slide" for a tab the
+   * strip scroll (.is-scrollable, with edge fades). A phone's icons (ICONS) have two steps: the row drops its inner padding and, below
+   * 375 px, the strip widens to 4 px from the screen's edges (.is-flush: only when needed, so the strip otherwise lines up with the
+   * header), then it scrolls. Then the glass pill goes to the chosen tab (place): `how` is "slide" for a tab the
    * person chose, "follow" while the tabs glide to new places (reflow), else it is set at once, or a slide on its way turns there in
    * the time it had left. While the tabs are measured the pill is parked at no size, so where it was a moment ago (a wider strip)
    * never counts as overflow.
@@ -182,12 +185,37 @@
   function measure(how) {
     const list = $("#dash-tablist"), strip = $("#dash-tabs");
     if (!list || !strip) return;
-    const over = () => list.scrollWidth > list.clientWidth + 1;
+    // (a phone's icons: any whole pixel over counts, so a moderator's 8 tabs at 375 px, 1 px too wide as they are, go flush and fit;
+    // the words' strip keeps a pixel of slack for its sub-pixel word widths)
+    const icons = iconMode(), over = () => list.scrollWidth > list.clientWidth + (icons ? 0 : 1);
     const left = park();
     const steps = ["is-snug", "is-short", "is-compact", "is-scrollable"];
-    strip.classList.remove(...steps);
-    for (const step of iconMode() ? ["is-scrollable"] : steps) { if (!over()) break; strip.classList.add(step); } // icons: they scroll (with snap) or fit
+    strip.classList.remove(...steps, "is-flush");
+    for (const step of icons ? ["is-flush", "is-scrollable"] : steps) { if (!over()) break; strip.classList.add(step); } // icons: tighter, then they scroll (with snap)
+    edges();
+    keyStop();
     place(how || (reflowing ? "follow" : ""), left);
+  }
+  /** A row that scrolls: a fade on each side that has more (.is-scrolled: some tabs are off to the left; .is-end: none to the right). */
+  function edges() {
+    const list = $("#dash-tablist"), strip = $("#dash-tabs");
+    if (!list || !strip) return;
+    strip.classList.toggle("is-scrolled", list.scrollLeft > 4);
+    strip.classList.toggle("is-end", list.scrollLeft >= list.scrollWidth - list.clientWidth - 4);
+  }
+  /**
+   * A phone: Profile has no tab in the strip (polish-dash.css D2c; owner, 17 Oct 2026: "remove one", "keep a single avatar in the
+   * top-right that opens Profile, Account and Settings"): the header's avatar opens it. While it is the chosen tab, the avatar wears the
+   * chosen ring (polish.css .hdr-avatar.is-current) and the sheet's Profile row says it is the current place, and the strip's one Tab
+   * stop is Home (the chosen tab is not there to take it), so the keyboard still reaches the strip. A computer: every tab is in it.
+   */
+  function inStrip(t) { return Boolean(t) && !t.hidden && !(t.dataset.tab === "profile" && iconMode()); }
+  function keyStop() {
+    const tabs = $$(".dtab", $("#dash-tablist")), chosen = byId("tab-" + active), stop = inStrip(chosen) ? chosen : byId("tab-home");
+    for (const t of tabs) t.setAttribute("tabindex", t === stop ? "0" : "-1");
+    const onProfile = active === "profile", av = $("[data-account-avatar]"), row = $('[data-acct-go="profile"]');
+    if (av) av.classList.toggle("is-current", onProfile && iconMode());
+    if (row) { if (onProfile) row.setAttribute("aria-current", "true"); else row.removeAttribute("aria-current"); }
   }
 
   /* ---------- the glass pill: one marker behind the chosen tab that slides (and stretches a little) to the next one ---------- */
@@ -261,8 +289,8 @@
   function place(how = "", left = 0) {
     const list = $("#dash-tablist"), strip = $("#dash-tabs"), ind = pillEl(), tab = byId("tab-" + active);
     if (!list || !strip || !ind) return;
-    const tr = tab && !tab.hidden ? boxOf(tab) : null, lr = list.getBoundingClientRect();
-    if (!tr || !tr.width || !lr.width) { // not laid out (a hidden strip) or no chosen tab: the tab's own look, no pill
+    const tr = inStrip(tab) ? boxOf(tab) : null, lr = list.getBoundingClientRect();
+    if (!tr || !tr.width || !lr.width) { // not laid out (a hidden strip), or the chosen tab is not in the strip (a phone's Profile): no pill
       if (pillAnim) { pillAnim.cancel(); pillAnim = null; }
       pill = null; strip.classList.remove("has-ind");
       return;
@@ -362,7 +390,7 @@
     if (ALIAS[h]) { e.preventDefault(); goTo(href); }
   }
   function onKey(e) {
-    const tabs = $$(".dtab", $("#dash-tablist")).filter((t) => !t.hidden && t.getClientRects().length); // (a tab stepped out of a tight strip is skipped)
+    const tabs = $$(".dtab", $("#dash-tablist")).filter((t) => inStrip(t) && t.getClientRects().length); // (a tab not in the strip is skipped: a phone's Profile)
     const cur = tabs.indexOf(document.activeElement);
     let next = -1;
     if (e.key === "ArrowRight") next = cur < 0 ? 0 : (cur + 1) % tabs.length;

@@ -432,6 +432,7 @@
       $("[data-acct-name]", sheet).textContent = who;
       $("[data-acct-home]", sheet).textContent = u.home ? `${u.home.name}, ${country(u.home.country)}` : "No home community yet";
       btn.setAttribute("aria-label", `Profile, account and settings (${who})`);
+      panel.setAttribute("aria-label", `Your account, ${who}`); // the dialog's name: what it is, then whose (not the username alone)
     };
     setAccount(user);
     btn.hidden = false;
@@ -457,6 +458,7 @@
       if (state === "open") return;
       state = "open";
       sheet.hidden = false;
+      document.documentElement.classList.add("acct-open"); // a phone: the page behind the sheet holds still (polish.css)
       btn.setAttribute("aria-expanded", "true");
       // a finger dragging the sheet down moves it (a phone): anywhere on it while it has nothing to scroll, else from its top (polish.css)
       panel.style.touchAction = phone() && panel.scrollHeight <= panel.clientHeight + 1 ? "none" : "";
@@ -469,7 +471,7 @@
       if (state !== "open") return;
       state = "closing";
       btn.setAttribute("aria-expanded", "false");
-      move(false, () => { if (state !== "closing") return; state = "closed"; sheet.hidden = true; stopAnims(); });
+      move(false, () => { if (state !== "closing") return; state = "closed"; sheet.hidden = true; document.documentElement.classList.remove("acct-open"); stopAnims(); });
       drag = null;
       if (restore) btn.focus({ preventScroll: true });
     }

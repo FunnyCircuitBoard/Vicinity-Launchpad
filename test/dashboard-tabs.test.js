@@ -54,7 +54,10 @@ function loadV2() {
 test("the tabs fill the whole bar from 601 px (nothing gathered to the left): a tablet shares the room left equally, a computer gives each tab one equal part; a tablet keeps its fit steps", () => {
   // every tab grows from its words (the base rule), Profile too (its word, no exception of its own since the header's avatar took the initial)
   assert.match(css, /\.dv2 \.dtab \{ flex: 1 0 auto; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 8px;/);
-  assert.doesNotMatch(css, /#tab-profile \{/, "601 px: Profile takes the same share and padding as every tab (equal gaps between the words)");
+  // 601 px: Profile takes the same share and padding as every tab (equal gaps between the words); its one rule of its own is a phone's
+  // (up to 600 px: not in the strip, the header's avatar opens it, test/phone-dash.test.js)
+  assert.deepEqual(rules.filter((r) => /#tab-profile\b/.test(r.head)).map((r) => `${r.head} { ${r.body.trim()} }`), [".dv2 #tab-profile { display: none; }"]);
+  assert.ok(media("(max-width: 600px)").some((b) => b.includes(".dv2 #tab-profile { display: none; }")), "and it is a phone's");
   // a computer: one equal part each, never narrower than its words, the same padding for all
   const wide = media("(min-width: 1000px)").join("\n");
   assert.ok(wide, "the 1000 px block (the strip lines up with the cards)");
@@ -380,7 +383,7 @@ test("the pill never counts as overflow: the fit check parks it at no size first
   assert.ok(seen.length > 0 && seen.every((w) => w === "0px"), `the fit check saw the pill at ${seen.join(", ")}`);
   assert.doesNotMatch(strip.className, /is-snug|is-short|is-compact|is-scrollable/, "no fit step for a pill left behind");
   assert.equal(ind.style.width, "54px", "back on Home");
-  assert.match(v2, /const left = park\(\);\n\s+const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];\n\s+strip\.classList\.remove\(\.\.\.steps\);\n\s+for \(const step of iconMode\(\) \? \["is-scrollable"\] : steps\) \{ if \(!over\(\)\) break; strip\.classList\.add\(step\); \}[^\n]*\n\s+place\(how \|\| \(reflowing \? "follow" : ""\), left\);/);
+  assert.match(v2, /const left = park\(\);\n\s+const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];\n\s+strip\.classList\.remove\(\.\.\.steps, "is-flush"\);\n\s+for \(const step of icons \? \["is-flush", "is-scrollable"\] : steps\) \{ if \(!over\(\)\) break; strip\.classList\.add\(step\); \}[^\n]*\n\s+edges\(\);\n\s+keyStop\(\);\n\s+place\(how \|\| \(reflowing \? "follow" : ""\), left\);/);
   assert.match(v2, /window\.addEventListener\("resize", \(\) => \{ const w = window\.innerWidth; if \(typeof w === "number" && w === lastWidth\) return; lastWidth = w; measure\(\); \}\);/, "a resize is never taken for a slide, and only a new width re-fits");
   assert.match(v2, /if \(document\.fonts && document\.fonts\.ready\) document\.fonts\.ready\.then\(\(\) => measure\(\)\);/, "the fit check runs again once the fonts are in");
 });

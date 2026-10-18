@@ -86,9 +86,10 @@ test("D2: short visible words where the strip needs them; each accessible name c
   assert.match(tag("tab-founder"), /aria-label="Founder" title="Founder"><span class="dtab__ico" aria-hidden="true"><svg /, "the icon-only Founder tab keeps its name");
   assert.match(mod, /aria-label="Moderate" title="Moderate" hidden><span class="dtab__ico" aria-hidden="true"><svg /);
   // the router: the fit check (a phone's icons only scroll or fit), the nearest scroll, keyboard skips a tab that stepped out
-  assert.match(v2, /const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];\n\s+strip\.classList\.remove\(\.\.\.steps\);\n\s+for \(const step of iconMode\(\) \? \["is-scrollable"\] : steps\) \{ if \(!over\(\)\) break; strip\.classList\.add\(step\); \}/);
+  assert.match(v2, /const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];\n\s+strip\.classList\.remove\(\.\.\.steps, "is-flush"\);\n\s+for \(const step of icons \? \["is-flush", "is-scrollable"\] : steps\) \{ if \(!over\(\)\) break; strip\.classList\.add\(step\); \}/);
   assert.doesNotMatch(v2, /\(lr\.width - tr\.width\) \/ 2/, "never centred: Home is never pushed out");
-  assert.match(v2, /\.filter\(\(t\) => !t\.hidden && t\.getClientRects\(\)\.length\)/);
+  assert.match(v2, /\.filter\(\(t\) => inStrip\(t\) && t\.getClientRects\(\)\.length\)/);
+  assert.match(v2, /function inStrip\(t\) \{ return Boolean\(t\) && !t\.hidden && !\(t\.dataset\.tab === "profile" && iconMode\(\)\); \}/, "a hidden tab, or a phone's Profile (the avatar opens it)");
   // a short visible word stays the start of the strip's titles too
   assert.match(v2, /const LABEL = \{ home: "Home", wallet: "Wallet", city: "City", community: "Community", notify: "Notifications", rankings: "Rankings", founder: "Founder", moderate: "Moderate", profile: "Profile" \};/);
 });

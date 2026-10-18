@@ -563,17 +563,12 @@
     a.append(dot, text, at); li.append(a);
     return li;
   }
-  /** The unread count everywhere it shows: the tab's badge (dashboard-v2.js) and the header's avatar. */
+  /** The unread count: on the Notifications tab only (its badge and its name, dashboard-v2.js). The header's avatar carries no second
+   *  count: one number on the screen, on the tab it leads to (the avatar's sheet has no notifications list). */
   function setUnread(n) {
     const k = Math.max(0, Number(n) || 0);
     if (me) me.unread = k;
     if (v2) v2.unread(k);
-    const b = $("[data-account-avatar]");
-    if (!b) return;
-    let s = b.querySelector(".hdr-n");
-    if (!s && !k) return; // nothing to show, nothing made
-    if (!s) { s = el("span", "hdr-n"); s.setAttribute("aria-hidden", "true"); b.append(s); } // (the tab carries the count in its name)
-    s.textContent = k ? String(k) : ""; s.hidden = !k;
   }
   function noticesSync(d) {
     setUnread(d.unread);
