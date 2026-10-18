@@ -1,7 +1,7 @@
 // F01 and F02 at full scale (VICINITY-CURVE-DESIGN.md 12.5): seeded random
-// sequences over all 21 instructions, valid and invalid, with the invariant
+// sequences over all 26 instructions, valid and invalid, with the invariant
 // checker after every transaction, a model of every coin run side by side
-// (each Coin byte-equal to the model after every transaction), every
+// (each Coin and LaunchBatch byte-equal to the model after every transaction), every
 // prediction of success, failure and error checked, and the I22 probe every 50
 // steps. See fuzz.mjs.
 //

@@ -1,7 +1,7 @@
 // F01 and F02 at full scale (VICINITY-CURVE-DESIGN.md 12.5): random sequences
-// over every one of the 21 instructions in litesvm, valid and invalid, with
+// over every one of the 26 instructions in litesvm, valid and invalid, with
 // the invariant checker after every transaction and a reference model of
-// every coin run side by side.
+// every coin, and of the LaunchBatch account, run side by side.
 //
 //   * Every step picks an action at random (seeded): trades of every size
 //     (below the minimum, dust, the completing buy and past it, all of a
@@ -15,6 +15,18 @@
 //     instructions in one transaction, and invalid variants (F02): one account
 //     of a valid instruction replaced by another plausible account, or its
 //     authority replaced by another signer.
+//   * The batch launch approval (4.23 to 4.27): the launch approver set,
+//     rotated, removed or offered a key that holds another seat; publications
+//     valid and invalid (a stranger, a skipped or repeated number, a zero root,
+//     a leaf count out of range or not the list's, a window too soon, too far
+//     or too long); clears by every key, with and without the halt; the clock
+//     moved to a batch's window edges; batch launches valid and invalid (a
+//     founder not the leaf's, a name, ticker, config or metadata hash not the
+//     leaf's, a proof cut or padded, another batch's number, a city with its
+//     coin or a pending approval, a locked ticker, a founder holding a role);
+//     and role keys offered to the approver's seat and back (ApproverHoldsRole).
+//     The model predicts every outcome and error in the program's order, and
+//     after every transaction LaunchBatch's 260 bytes must equal the model's.
 //   * The model (F01): each coin's state is kept by the SDK's math port from
 //     each action's own inputs (never from the events), predicts whether each
 //     trade, crank and payout succeeds or fails and with which error, and after
@@ -84,6 +96,7 @@ const AUTHORITY = Object.freeze({
   propose_admin: 'admin', set_guardian: 'admin', set_payout_config: 'admin', add_launch_config: 'admin', set_launch_config_enabled: 'admin',
   approve_launch: 'admin', claim_founder_fees: 'founder', opt_in_payout: 'founder', transfer_founder: 'founder', payout_founder_fees: 'payout_authority',
   launch: 'founder', accept_admin: 'new_admin',
+  set_launch_approver: 'admin', publish_launch_batch: 'approver', clear_launch_batch: 'authority', launch_from_batch: 'founder',
 });
 
 const errorIn = (e, name) => new RegExp(`\\b${name}\\b`).test(`${e.logs.join('\n')}\n${e.errText}`);
@@ -104,6 +117,8 @@ export class Fuzz {
     this.coins = []; // handles
     this.approvalsMade = [];
     this.founders = new Map(); // coin -> signer (current founder)
+    this.bm = null; // the model of LaunchBatch (decoded form)
+    this.batches = new Map(); // published seq -> the SDK's built batch, plus `founders` (city -> signer)
     this.nextCity = 9_000_000n;
     this.symbols = 0;
     this.stats = { steps: 0, txs: 0, ok: 0, failed: 0, predictedFail: 0, invalid: 0, invalidRefused: 0, freeAccepted: 0, byAction: {} };
@@ -123,6 +138,13 @@ export class Fuzz {
     this.payoutKey = await w.signer(5n); this.payoutKey2 = await w.signer(5n); this.payoutWallet = await w.signer(1n);
     await w.send([w.ix.setPayoutConfig({ admin: w.admin.address, payoutAuthority: this.payoutKey.address, payoutDestination: this.payoutWallet.address })], [w.admin], 'set_payout_config');
     w.payoutKey = this.payoutKey;
+    // the batch launch approval (4.23 to 4.27): LaunchBatch, two approver keys, mostly one of them set from the start
+    this.approverKeys = [await w.signer(5n), await w.signer(5n)];
+    this.fillerFounder = await w.signer(500n);
+    await w.send([w.ix.initLaunchBatch({ admin: w.admin.address, payer: w.payer.address })], [w.admin], 'init_launch_batch');
+    if (this.r.chance(0.85)) await w.send([w.ix.setLaunchApprover({ admin: w.admin.address, approver: this.approverKeys[0].address })], [w.admin], 'set_launch_approver');
+    this.bm = w.launchBatch();
+    this.batchRaw = Buffer.from(w.accountInfo(w.P.launchBatch()).data);
     // configs: #0, random shares on #0's curve, and a small curve that graduates quickly
     this.configs = [0];
     for (let k = 0; k < 40 && this.configs.length < 2; k++) {
@@ -292,7 +314,7 @@ export class Fuzz {
         if (String(op.signer.address) !== coinModel.ext.founder) return fail('WrongFounder');
         // the founder seat (R2-DIFF-1, SPEC-1): never FEE_RECIPIENT, the guardian or the payout key
         if (String(op.newFounder) === String(S.ADDRESSES.feeRecipient)) return fail('FeeRecipientRole');
-        if ([lp.guardian, lp.payoutAuthority].includes(String(op.newFounder))) return fail('FounderHoldsRole');
+        if ([lp.guardian, lp.payoutAuthority, lp.launchApprover].includes(String(op.newFounder))) return fail('FounderHoldsRole');
         coinModel.ext.founder = op.newFounder;
         return { ok: true };
       case 'add_config': {
@@ -310,7 +332,66 @@ export class Fuzz {
         return { ok: true };
       }
       case 'init_launchpad': return fail(null);
-      default: return { any: true };
+      // ---------------------------------------------------------------- the batch launch approval (4.23 to 4.27)
+      case 'set_launch_approver': {
+        if (String(op.signer.address) !== lp.admin) return fail('Unauthorized');
+        const a = op.approver;
+        if (a !== ZERO) {
+          if (a === String(S.ADDRESSES.feeRecipient)) return fail('FeeRecipientRole');
+          if ([lp.admin, lp.pendingAdmin, lp.guardian, lp.payoutAuthority, lp.payoutDestination].some((k) => k !== ZERO && k === a)) return fail('ApproverHoldsRole');
+        }
+        ctx.bm.latest.cleared = true; ctx.bm.previous.cleared = true; ctx.bm.halted = false;
+        return { ok: true };
+      }
+      case 'publish': {
+        const by = String(op.signer.address);
+        if (lp.launchApprover === ZERO || by !== lp.launchApprover) return fail('Unauthorized');
+        if (ctx.bm.halted) return fail('BatchesHalted');
+        if (op.seq !== ctx.bm.latest.seq + 1n) return fail('BatchSeqMismatch');
+        if (op.root.every((x) => x === 0)) return fail('BadBatchRoot');
+        if (op.leafCount < 1 || op.leafCount > S.MAX_BATCH_LEAVES) return fail('BadLeafCount');
+        if (!S.publishWindowOk(ts, op.validFrom, op.validUntil)) return fail('BadBatchWindow');
+        const rec = { seq: op.seq, root: Uint8Array.from(op.root), leafCount: op.leafCount, validFrom: op.validFrom, validUntil: op.validUntil, publishedAt: ts, publishedSlot: slot, publisher: by, cleared: false };
+        // 8.6: a begun latest becomes previous; a pending one is replaced
+        if (ctx.bm.latest.seq !== 0n && ts >= ctx.bm.latest.validFrom) ctx.bm.previous = ctx.bm.latest;
+        ctx.bm.latest = rec;
+        return { ok: true };
+      }
+      case 'clear': {
+        const by = String(op.signer.address);
+        const may = by === lp.admin || (lp.launchApprover !== ZERO && by === lp.launchApprover) || (lp.guardian !== ZERO && by === lp.guardian);
+        if (!may) return fail('Unauthorized');
+        ctx.bm.latest.cleared = true; ctx.bm.previous.cleared = true;
+        if (op.halt) ctx.bm.halted = true;
+        return { ok: true };
+      }
+      case 'batch_launch': {
+        // Anchor's account checks first (their order is not modelled: two at once predict some failure), then the handler's in its order
+        const anchor = [];
+        if (w.approval(op.cityId)) anchor.push('ApprovalPending');
+        const cfg = w.exists(w.P.config(op.configId)) ? w.config(op.configId) : null;
+        if (!cfg) anchor.push('AccountNotInitialized'); else if (!cfg.enabled) anchor.push('ConfigDisabled');
+        if (w.exists(w.P.coin(op.cityId))) anchor.push(null);
+        if (w.exists(w.P.ticker(op.symbol))) anchor.push(null);
+        const old = w.accountInfo(w.legacyPdas().launchpad);
+        if (old.data[S.LEGACY_LAUNCHES_PAUSED_AT] !== 1) anchor.push('LegacyLaunchesOpen');
+        const oa = w.legacyAdmins(); if (oa.admin !== lp.admin || oa.pendingAdmin !== ZERO) anchor.push('LegacyAdminMismatch');
+        const ra = w.registryAdmins(); if (ra.admin !== lp.admin || ra.pendingAdmin !== ZERO) anchor.push('RewardsRegistryAdminMismatch');
+        if (anchor.length) return fail(anchor.length === 1 ? anchor[0] : null, `account checks: ${anchor.join(', ')}`);
+        if (lp.launchesPaused) return fail('LaunchesPaused');
+        if (lp.buysHalted) return fail('BuysHalted');
+        const refusal = S.batchRefusal(ctx.bm, lp, op.batchSeq, ts);
+        if (refusal) return fail(refusal);
+        const founder = String(op.signer.address);
+        if (founder === String(S.ADDRESSES.feeRecipient)) return fail('FeeRecipientRole');
+        if ([lp.guardian, lp.payoutAuthority, lp.launchApprover].some((k) => k !== ZERO && k === founder)) return fail('FounderHoldsRole');
+        const b = op.batchSeq === ctx.bm.latest.seq ? ctx.bm.latest : ctx.bm.previous;
+        if (op.proof.length > S.maxProofLen(b.leafCount)) return fail('ProofTooLong');
+        const leaf = S.launchLeaf({ programId: w.programId, batchSeq: op.batchSeq, cityId: op.cityId, founder, configId: op.configId, metaHash: op.metaHash, name: op.name, symbol: op.symbol });
+        if (!S.verifyLaunchProof({ root: b.root, leaf, proof: op.proof, leafCount: b.leafCount })) return fail('InvalidProof');
+        return { ok: true };
+      }
+      default: return op.expect ? fail(op.expect) : { any: true };
     }
   }
 
@@ -478,6 +559,115 @@ export class Fuzz {
     return steps;
   }
 
+  // ------------------------------------------------------------------ the batch launch approval (4.23 to 4.27)
+  /** `set_launch_approver` by the admin (or not): one of the two approver keys, none, or a key holding another seat. */
+  async setApproverPlan() {
+    const w = this.w; const r = this.r; const lp = w.launchpad();
+    const admin = r.chance(0.93) ? w.signerOf(lp.admin) : r.pick([...this.strangers, this.approverKeys[0]]);
+    const k = r.int(20);
+    const approver = k < 12 ? String(this.approverKeys[0].address) : k < 16 ? String(this.approverKeys[1].address) : k < 17 ? ZERO
+      : r.pick([lp.admin, lp.guardian, lp.payoutAuthority, lp.payoutDestination, lp.pendingAdmin, String(S.ADDRESSES.feeRecipient)].filter((x) => x !== ZERO));
+    return { kind: 'set_launch_approver', signer: admin, approver, ixs: [w.ix.setLaunchApprover({ admin: admin.address, approver })] };
+  }
+  /**
+   * The day's list built with the SDK for the next number and published by the approver, valid or not. Entries are
+   * mostly fresh cities and founders; some name a city that has its coin, a city with a pending approval, a locked
+   * ticker, a disabled config or a founder holding a role (the publication does not look at entries: the launch fails).
+   */
+  async publishPlan() {
+    const w = this.w; const r = this.r; const lp = w.launchpad(); const bm = this.bm;
+    const next = bm.latest.seq + 1n;
+    const n = r.chance(0.12) ? 16 + r.int(80) : 1 + r.int(4);
+    const pending = this.approvalsMade.filter((a) => w.approval(a.cityId));
+    const list = []; const cities = new Set(); const symbols = new Set();
+    for (let i = 0; i < n; i++) {
+      const k = r.int(50);
+      let cityId = this.nextCity++;
+      if (k === 0 && this.coins.length) cityId = r.pick(this.coins).cityId;
+      else if (k === 1 && pending.length) cityId = r.pick(pending).cityId;
+      let symbol = this.symbol();
+      if (k === 2 && this.coins.length) symbol = w.coinView(r.pick(this.coins)).symbol;
+      let founder = i < 6 ? await w.signer(30n) : this.fillerFounder;
+      if (k === 3) founder = r.pick([w.signerOf(lp.guardian), w.signerOf(lp.launchApprover), w.signerOf(lp.payoutAuthority)].filter(Boolean)) ?? founder;
+      if (cities.has(cityId) || symbols.has(symbol)) continue;
+      cities.add(cityId); symbols.add(symbol);
+      list.push({ cityId, founder, symbol, name: `Batch City ${cityId}`, configId: r.pick(this.configs), metaHash: metaHash(`b${cityId}:${symbol}`) });
+    }
+    const built = S.buildLaunchBatch(w.batchEntries(list), { programId: w.programId, batchSeq: next });
+    built.founders = new Map(list.map((e) => [BigInt(e.cityId), e.founder]));
+    const t = w.now();
+    let win = S.defaultPublishWindow(t);
+    if (r.chance(0.3)) { const f = t + S.BATCH_REVIEW_SECS + r.below(S.BATCH_MAX_LEAD_SECS - S.BATCH_REVIEW_SECS + 1n); win = { validFrom: f, validUntil: f + 1n + r.below(S.BATCH_MAX_VALIDITY_SECS) }; }
+    let seq = next; let root = built.root; let leafCount = built.leafCount;
+    let signer = w.signerOf(lp.launchApprover) ?? this.approverKeys[0];
+    const v = r.int(100);
+    if (v < 4) seq = r.chance(0.5) ? bm.latest.seq : next + 1n;
+    else if (v < 6) root = new Uint8Array(32);
+    else if (v < 8) leafCount = r.chance(0.5) ? 0 : S.MAX_BATCH_LEAVES + 1;
+    else if (v < 10) leafCount = r.chance(0.5) ? Math.max(1, built.leafCount - 1) : built.leafCount + 1; // accepted; proofs then fit or not
+    else if (v < 16) {
+      const f = t + S.BATCH_REVIEW_SECS + 60n;
+      win = r.pick([
+        { validFrom: t + S.BATCH_REVIEW_SECS - 1n, validUntil: t + S.BATCH_REVIEW_SECS + DAY },
+        { validFrom: t + S.BATCH_MAX_LEAD_SECS + 1n, validUntil: t + S.BATCH_MAX_LEAD_SECS + DAY },
+        { validFrom: f, validUntil: f },
+        { validFrom: f, validUntil: f + S.BATCH_MAX_VALIDITY_SECS + 1n },
+        { validFrom: t + S.BATCH_REVIEW_SECS, validUntil: t + S.BATCH_REVIEW_SECS + S.BATCH_MAX_VALIDITY_SECS },
+      ]);
+    } else if (v < 20) signer = r.pick([w.signerOf(lp.admin), w.signerOf(lp.guardian) ?? w.guardian, this.approverKeys[1], r.pick(this.traders)]);
+    return { kind: 'publish', signer, seq, root, leafCount, ...win, built,
+      ixs: [w.ix.publishLaunchBatch({ approver: signer.address, seq, root, leafCount, ...win })] };
+  }
+  /** `clear_launch_batch` by the approver, the admin, the guardian or someone else, sometimes with the halt. */
+  clearPlan() {
+    const w = this.w; const r = this.r; const lp = w.launchpad();
+    const who = r.weighted([[3, w.signerOf(lp.launchApprover)], [2, w.signerOf(lp.admin)], [2, w.signerOf(lp.guardian)], [1, r.pick(this.traders)], [1, this.approverKeys[1]]].filter(([, x]) => x));
+    const halt = r.chance(0.25);
+    return { kind: 'clear', signer: who, halt, ixs: [w.ix.clearLaunchBatch({ authority: who.address, halt })] };
+  }
+  /** Entries of the stored batches whose city has no coin yet: `{ seq, built, e }`. */
+  batchCandidates() {
+    const out = [];
+    for (const [seq, built] of this.batches) for (const e of built.entries) if (!this.w.exists(this.w.P.coin(e.cityId))) out.push({ seq, built, e });
+    return out;
+  }
+  /** A batch launch: mostly a city of the batch in force by its founder with his proof; sometimes one field not the leaf's. */
+  batchLaunchPlan() {
+    const w = this.w; const r = this.r;
+    if (this.coins.length >= 16) return null;
+    const all = this.batchCandidates();
+    if (!all.length) return null;
+    const lp = w.launchpad();
+    const L = this.bm.latest;
+    // mostly the founder comes once the day's list is in force
+    if (L.seq !== 0n && !L.cleared && w.now() < L.validFrom && r.chance(0.6)) w.warpTo(L.validFrom + BigInt(r.int(3_600)));
+    const now = w.now();
+    const inForce = all.filter((c) => S.batchRefusal(this.bm, lp, c.seq, now) === null);
+    const c = inForce.length && r.chance(0.85) ? r.pick(inForce) : r.pick(all);
+    const args = S.launchBatchArgs(c.built, c.e.cityId);
+    let founder = c.built.founders.get(c.e.cityId);
+    const edit = {};
+    const v = r.int(100);
+    if (v < 5) founder = r.pick(this.traders.slice(0, 6));
+    else if (v < 7) edit.name = `${args.name}x`;
+    else if (v < 9) edit.symbol = this.symbol();
+    else if (v < 10) edit.configId = r.pick(this.configs);
+    else if (v < 11) edit.metaHash = metaHash(`other${this.stats.steps}`);
+    else if (v < 13 && args.proof.length) edit.proof = args.proof.slice(0, -1);
+    else if (v < 15) edit.proof = [...args.proof, Uint8Array.from(metaHash(`pad${this.stats.steps}`))];
+    else if (v < 16 && this.batches.size > 1) edit.batchSeq = r.pick([...this.batches.keys()].filter((x) => x !== c.seq));
+    const a = { ...args, ...edit };
+    return { kind: 'batch_launch', signer: founder, cityId: a.cityId, batchSeq: a.batchSeq, configId: a.configId, name: a.name, symbol: a.symbol, metaHash: a.metaHash, proof: a.proof,
+      ixs: [w.ix.launchFromBatch({ ...a, founder: founder.address, payer: founder.address })] };
+  }
+  /** The clock moved to an edge of the latest batch's window (its start, inside it, its last second, just past it). */
+  batchWarp() {
+    const w = this.w; const L = this.bm.latest; const now = w.now();
+    if (L.seq === 0n) return;
+    const ts = [L.validFrom, L.validFrom + BigInt(this.r.int(7_200)), L.validUntil, L.validUntil + 1n].filter((t) => t > now);
+    if (ts.length) w.warpTo(this.r.pick(ts));
+  }
+
   /** One random action as a plan `{ label, ops, ixs, signers, opts, invalid? }`. */
   async nextPlan() {
     const w = this.w; const r = this.r;
@@ -487,6 +677,7 @@ export class Fuzz {
       [1.5, 'opt_in'], [0.7, 'revoke_opt_in'], [0.7, 'transfer_founder'], [1.5, 'approve'], [0.8, 'revoke_approval'], [1.2, 'launch'],
       [1.2, 'add_config'], [0.6, 'set_enabled'], [2, 'set_pause'], [0.3, 'set_guardian'], [0.3, 'set_payout_config'], [0.3, 'admin_handover'], [0.3, 'follow_admin'],
       [0.4, 'legacy_pause'], [0.8, 'donate_lamports'], [0.6, 'donate_coins'], [0.6, 'holder_burn'], [0.8, 'holder_transfer'], [4, 'warp'], [4, 'bundle'], [0.1, 'init_launchpad'],
+      [0.4, 'set_launch_approver'], [2.5, 'publish'], [0.4, 'clear'], [3, 'batch_launch'], [1.5, 'batch_warp'],
       [14, 'invalid'],
     ]);
     const one = (op, label = op.kind) => ({ label, ops: [op], ixs: op.ixs, signers: op.signers ?? (op.signer ? [op.signer] : []) });
@@ -513,7 +704,8 @@ export class Fuzz {
       }
       case 'transfer_founder': {
         const founder = this.founders.get(h.coin);
-        const next = r.chance(0.5) ? await w.signer(5n) : r.pick(this.traders);
+        const ap = w.signerOf(w.launchpad().launchApprover);
+        const next = ap && r.chance(0.05) ? ap : r.chance(0.5) ? await w.signer(5n) : r.pick(this.traders);
         return one({ kind: 'transfer_founder', coin: h.coin, signer: founder, signers: [founder, next], newFounder: next.address, newSigner: next,
           ixs: [w.ix.transferFounder({ founder: founder.address, newFounder: next.address, coin: h.coin })] });
       }
@@ -565,7 +757,7 @@ export class Fuzz {
       }
       case 'set_pause': {
         const lp = w.launchpad();
-        const who = r.weighted([[4, w.signerOf(lp.admin)], [2, w.signerOf(lp.guardian) ?? w.guardian], [1, w.signerOf(lp.payoutAuthority) ?? this.payoutKey], [1, r.pick(this.traders)]]);
+        const who = r.weighted([[4, w.signerOf(lp.admin)], [2, w.signerOf(lp.guardian) ?? w.guardian], [1, w.signerOf(lp.payoutAuthority) ?? this.payoutKey], [1, r.pick(this.traders)], [0.5, w.signerOf(lp.launchApprover)]].filter(([, x]) => x));
         const v = () => (r.chance(0.5) ? null : r.chance(0.5));
         // the admin mostly clears: trading should not stay halted for long
         const flags = who.address === lp.admin && r.chance(0.6) ? { launches: false, payouts: false, buys: false, buybacks: false } : { launches: v(), payouts: v(), buys: v(), buybacks: v() };
@@ -573,11 +765,19 @@ export class Fuzz {
       }
       case 'set_guardian': {
         const admin = w.signerOf(w.launchpad().admin);
+        const ap = w.launchpad().launchApprover;
+        if (ap !== ZERO && r.chance(0.08)) return one({ kind: 'set_guardian', signer: admin, expect: 'ApproverHoldsRole', ixs: [w.ix.setGuardian({ admin: admin.address, guardian: ap })] });
         const g = r.chance(0.8) ? w.guardian : r.chance(0.5) ? await w.signer(1n) : { address: ZERO };
         return one({ kind: 'set_guardian', signer: admin, ixs: [w.ix.setGuardian({ admin: admin.address, guardian: g.address })] });
       }
       case 'set_payout_config': {
         const admin = w.signerOf(w.launchpad().admin);
+        const ap = w.launchpad().launchApprover;
+        if (ap !== ZERO && r.chance(0.08)) {
+          const asKey = r.chance(0.5);
+          return one({ kind: 'set_payout_config', signer: admin, expect: 'ApproverHoldsRole',
+            ixs: [w.ix.setPayoutConfig({ admin: admin.address, payoutAuthority: asKey ? ap : this.payoutKey.address, payoutDestination: asKey ? this.payoutWallet.address : ap })] });
+        }
         const off = r.chance(0.2);
         const key = off ? ZERO : r.chance(0.8) ? this.payoutKey.address : this.payoutKey2.address;
         const dest = off ? ZERO : r.chance(0.9) ? this.payoutWallet.address : r.pick([admin.address, S.ADDRESSES.feeRecipient, this.r.pick(this.traders).address]);
@@ -590,6 +790,7 @@ export class Fuzz {
           const next = w.signerOf(lp.pendingAdmin);
           return one({ kind: 'accept_admin', signer: next, ixs: [w.ix.acceptAdmin({ newAdmin: next.address })] });
         }
+        if (lp.launchApprover !== ZERO && r.chance(0.08)) return one({ kind: 'propose_admin', signer: admin, expect: 'ApproverHoldsRole', ixs: [w.ix.proposeAdmin({ admin: admin.address, newAdmin: lp.launchApprover })] });
         const next = r.chance(0.2) ? { address: ZERO } : await w.signer(5n);
         return one({ kind: 'propose_admin', signer: admin, ixs: [w.ix.proposeAdmin({ admin: admin.address, newAdmin: next.address })] });
       }
@@ -650,6 +851,11 @@ export class Fuzz {
         if (signers.length > 6) return this.nextPlan();
         return { label: `bundle ${ops.map((o) => o.kind).join('+')}`, ops, ixs: ops.flatMap((o) => o.ixs), signers };
       }
+      case 'set_launch_approver': return one(await this.setApproverPlan());
+      case 'publish': return one(await this.publishPlan());
+      case 'clear': return one(this.clearPlan());
+      case 'batch_launch': { const op = this.batchLaunchPlan(); return op ? one(op) : this.nextPlan(); }
+      case 'batch_warp': this.batchWarp(); return null;
       case 'init_launchpad':
         return one({ kind: 'init_launchpad', ixs: [w.ix.initLaunchpad({ payer: w.payer.address, admin: w.admin.address, upgradeAuthority: w.deployer.address, guardian: w.guardian.address })], signers: [w.admin, w.deployer] });
       case 'invalid': return this.invalidPlan(h);
@@ -679,6 +885,18 @@ export class Fuzz {
       bases.push(() => ({ kind: 'launch', signer: a.founder, ixs: [w.ix.launch({ founder: a.founder.address, payer: a.founder.address, cityId: a.cityId, configId: ap.configId, symbol: ap.symbol, rentPayer: ap.rentPayer })] }));
       bases.push(() => ({ kind: 'revoke_approval', signer: admin, ixs: [w.ix.revokeApproval({ by: admin.address, cityId: a.cityId, rentPayer: ap.rentPayer })] }));
     }
+    // the batch launch approval's instructions (4.23 to 4.27)
+    const ap = w.signerOf(lp.launchApprover);
+    if (ap && !this.bm.halted) {
+      bases.push(() => { const f = w.now() + S.BATCH_REVIEW_SECS + 600n; return { kind: 'publish', signer: ap, ixs: [w.ix.publishLaunchBatch({ approver: ap.address, seq: this.bm.latest.seq + 1n, root: metaHash(`f02 ${this.stats.steps}`), leafCount: 3, validFrom: f, validUntil: f + DAY })] }; });
+    }
+    bases.push(() => ({ kind: 'clear', signer: admin, ixs: [w.ix.clearLaunchBatch({ authority: admin.address, halt: false })] }));
+    bases.push(() => ({ kind: 'set_launch_approver', signer: admin, ixs: [w.ix.setLaunchApprover({ admin: admin.address, approver: this.approverKeys[0].address })] }));
+    const inForce = this.batchCandidates().filter((c) => S.batchRefusal(this.bm, lp, c.seq, w.now()) === null);
+    if (inForce.length) {
+      const c = r.pick(inForce); const a = S.launchBatchArgs(c.built, c.e.cityId); const f = c.built.founders.get(c.e.cityId);
+      bases.push(() => ({ kind: 'batch_launch', signer: f, ixs: [w.ix.launchFromBatch({ ...a, founder: f.address, payer: f.address })] }));
+    }
     const base = r.pick(bases)();
     const ixIndex = base.ixs.length - 1 - (base.kind === 'forward' ? 1 : 0); // the vicinity_curve instruction (forward is followed by SyncNative)
     const ix = base.ixs[ixIndex];
@@ -688,7 +906,8 @@ export class Fuzz {
     // a wrong signer for an instruction with one authority, or a replaced non-signer account
     if (AUTHORITY[name] && r.chance(0.3)) {
       const slot = table.findIndex(([n]) => n === AUTHORITY[name]);
-      const authorised = new Set([lp.admin, lp.pendingAdmin, lp.payoutAuthority, w.coinView(h).founder].filter((k) => k !== ZERO));
+      const authorised = new Set([lp.admin, lp.pendingAdmin, lp.payoutAuthority, lp.launchApprover, w.coinView(h).founder].filter((k) => k !== ZERO));
+      if (name === 'clear_launch_batch' && lp.guardian !== ZERO) authorised.add(lp.guardian); // the guardian may clear too
       const other = r.pick([...this.traders, ...this.strangers, w.guardian, w.keeper].filter((s) => !authorised.has(String(s.address)) && s.address !== ix.accounts[slot].address));
       const ixs = base.ixs.map((x, i) => (i !== ixIndex ? x : { ...x, accounts: x.accounts.map((a, j) => (j === slot ? { ...a, address: String(other.address) } : a)) }));
       return { label: `F02 ${name}: ${AUTHORITY[name]} replaced by another signer`, ops: [{ kind: 'invalid' }], ixs, signers: [...signers.filter((s) => s.address !== other.address), other], invalid: { name, slot: AUTHORITY[name] } };
@@ -707,7 +926,7 @@ export class Fuzz {
     if (!this._fixed) {
       const P = w.P;
       this._fixed = [
-        P.launchpad(), P.eventAuthority(), P.programData(), w.programId, S.CLUSTERS.mainnet.rewardsProgram, S.CLUSTERS.mainnet.legacyProgram, S.CLUSTERS.mainnet.legacyLaunchpad,
+        P.launchpad(), P.launchBatch(), P.eventAuthority(), P.programData(), w.programId, S.CLUSTERS.mainnet.rewardsProgram, S.CLUSTERS.mainnet.legacyProgram, S.CLUSTERS.mainnet.legacyLaunchpad,
         S.CLUSTERS.devnet.rewardsProgram, S.CLUSTERS.devnet.legacyLaunchpad, S.CLUSTERS.mainnet.rewardsRegistry, S.CLUSTERS.devnet.rewardsRegistry, S.ADDRESSES.system, S.ADDRESSES.token, S.ADDRESSES.token2022, S.ADDRESSES.associatedToken, S.ADDRESSES.metaplex,
         S.ADDRESSES.nativeMint, S.ADDRESSES.feeRecipient, S.ADDRESSES.rentSysvar, 'SysvarC1ock11111111111111111111111111111111', S.ADDRESSES.computeBudget,
         new PublicKey(new Uint8Array(32).fill(7)).toBase58(),
@@ -718,6 +937,9 @@ export class Fuzz {
       out.push(c.coin, c.mint, c.vault, w.P.payoutOptIn(c.coin), S.metadataAddress(c.mint), w.P.rewardsAccounts(c.mint).config, w.P.rewardsAccounts(c.mint).vault, w.P.legacyCoin(c.cityId));
     }
     for (const id of this.configs) out.push(w.P.config(id));
+    // the batch path's slots: another city's approval PDA, a batch city's (F02 of 12.5)
+    for (const c of this.coins.slice(0, 4)) out.push(w.P.approval(c.cityId));
+    for (const { e } of this.batchCandidates().slice(0, 4)) out.push(w.P.approval(e.cityId), w.P.coin(e.cityId));
     // role keys themselves (system accounts), but token accounts only of traders and the payout wallet: a buy
     // may deliver to any token account of the mint (FREE_SLOTS), and the checker refuses deliveries to role keys (I21)
     for (const u of [w.admin, w.guardian, this.payoutKey]) out.push(String(u.address));
@@ -746,7 +968,7 @@ export class Fuzz {
     const st = this.stats.byAction[act] ?? (this.stats.byAction[act] = { ok: 0, fail: 0 });
     // the model's prediction, on a copy
     const m = new Map([...this.model].map(([k, v]) => [k, clone(v)]));
-    const ctx = { lp: w.launchpad(), lam: new Map(), tok: new Map(), created: new Set(), ataMissing: new Set(plan.ops.filter((o) => o.missing).map((o) => `${o.user}:${o.mint}`)) };
+    const ctx = { lp: w.launchpad(), bm: clone(this.bm), lam: new Map(), tok: new Map(), created: new Set(), ataMissing: new Set(plan.ops.filter((o) => o.missing).map((o) => `${o.user}:${o.mint}`)) };
     let predicted = { ok: true }; let anyOutcome = false;
     if (!plan.invalid) {
       for (const op of plan.ops) {
@@ -774,6 +996,7 @@ export class Fuzz {
     this.stats.txs++;
     if (err) {
       this.stats.failed++; st.fail++;
+      this.compareBatch(plan.label);
       if (plan.invalid) { this.stats.invalid++; this.stats.invalidRefused++; return; }
       if (predicted.fail) {
         this.stats.predictedFail++;
@@ -785,6 +1008,7 @@ export class Fuzz {
     }
     this.stats.ok++; st.ok++;
     if (plan.invalid) {
+      this.compareBatch(plan.label);
       this.stats.invalid++;
       // Anchor's #[event_cpi] `program` account is read only by the event self-CPI, which fails without it; an
       // instruction that emits nothing (a payout or crank with nothing to do) accepts any account there and changes
@@ -800,7 +1024,13 @@ export class Fuzz {
     assert.ok(!predicted.fail, `step ${this.stats.steps} ${plan.label}: the model expected ${predicted.err ?? 'a failure'} of ${predicted.op} (${predicted.why ?? ''}), the program accepted it`);
     // apply to the model and compare every coin the transaction touched, byte for byte
     if (anyOutcome) this.afterAny(plan, res); else for (const [k, v] of m) this.model.set(k, v);
+    this.bm = ctx.bm;
     for (const op of plan.ops) {
+      if (op.kind === 'publish') {
+        this.batches.set(op.seq, op.built);
+        for (const k of [...this.batches.keys()]) if (k + 3n < op.seq) this.batches.delete(k);
+      }
+      if (op.kind === 'batch_launch') { const c = w.P.coin(op.cityId); this.registerLaunch(c, op.signer); this.pendingRewards = c; }
       if (op.kind === 'buy' && op.holder) w.addHolder(op.mint, op.holder);
       if (op.kind === 'transfer_founder') this.founders.set(op.coin, op.newSigner);
       if (op.kind === 'accept_admin') {
@@ -810,6 +1040,18 @@ export class Fuzz {
       }
     }
     this.compare(res);
+    this.compareBatch(plan.label);
+  }
+
+  /** LaunchBatch's 260 bytes against the model's (F01 for the batch path). */
+  compareBatch(label) {
+    const w = this.w;
+    const raw = Buffer.from(w.accountInfo(w.P.launchBatch()).data);
+    const want = encodeLaunchBatch(this.batchRaw, this.bm);
+    if (!want.equals(raw)) {
+      const show = (b) => JSON.stringify(b, (k, v) => (typeof v === 'bigint' ? v.toString() : v instanceof Uint8Array ? Buffer.from(v).toString('hex') : v));
+      assert.fail(`F01 step ${this.stats.steps} ${label}: LaunchBatch differs from the model\nchain ${show(w.launchBatch())}\nmodel ${show(this.bm)}`);
+    }
   }
 
   /** After an instruction the model does not predict (settings, approvals, launches): adopt what the chain did. */
@@ -878,7 +1120,20 @@ export class Fuzz {
   }
 }
 
-const describe = (op) => JSON.stringify(Object.fromEntries(Object.entries(op).filter(([k]) => !['ixs', 'h', 'signer', 'signers', 'holder', 'newSigner', 'params'].includes(k))), (k, v) => (typeof v === 'bigint' ? v.toString() : v));
+const describe = (op) => JSON.stringify(Object.fromEntries(Object.entries(op).filter(([k]) => !['ixs', 'h', 'signer', 'signers', 'holder', 'newSigner', 'params', 'built', 'proof', 'root'].includes(k))), (k, v) => (typeof v === 'bigint' ? v.toString() : v));
+
+/** `LaunchBatch` (3.11) written from the model over the account's first bytes (discriminator, bump, reserved). */
+export function encodeLaunchBatch(raw, bm) {
+  const out = Buffer.from(raw);
+  out[9] = bm.halted ? 1 : 0;
+  const rec = (x, at) => {
+    out.writeBigUInt64LE(BigInt(x.seq), at); Buffer.from(x.root).copy(out, at + 8); out.writeUInt32LE(Number(x.leafCount), at + 40);
+    out.writeBigInt64LE(BigInt(x.validFrom), at + 44); out.writeBigInt64LE(BigInt(x.validUntil), at + 52); out.writeBigInt64LE(BigInt(x.publishedAt), at + 60);
+    out.writeBigUInt64LE(BigInt(x.publishedSlot), at + 68); new PublicKey(x.publisher).toBuffer().copy(out, at + 76); out[at + 108] = x.cleared ? 1 : 0;
+  };
+  rec(bm.latest, 10); rec(bm.previous, 119);
+  return out;
+}
 
 /** pause_allowed of the program (helpers.rs), for the model. */
 function pauseAllowed(signer, lp, { launches, payouts, buys, buybacks }) {

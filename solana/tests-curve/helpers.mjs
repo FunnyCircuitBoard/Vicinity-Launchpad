@@ -225,6 +225,8 @@ export class World {
     this.payer = await this.signer(10_000n);
     this.keeper = await this.signer();
     this.payoutKey = null;
+    // the launch approver (4.24): a key of its own, set only by initBatchPath / set_launch_approver
+    this.approver = null;
     svm.airdrop(address(S.ADDRESSES.feeRecipient), lamports(LAMPORTS)); // a funded wallet on mainnet (6.5)
     if (legacy !== 'none') await this.legacyInit({ paused: legacy === 'paused' });
     if (rewards) {
@@ -257,7 +259,7 @@ export class World {
   }
   signerOf(addr) { return this.signers.get(String(addr)) ?? null; }
   roleKeys() {
-    return [this.admin, this.guardian, this.payoutKey, this.deployer, this.keeper].filter(Boolean).map((s) => String(s.address));
+    return [this.admin, this.guardian, this.payoutKey, this.deployer, this.keeper, this.approver].filter(Boolean).map((s) => String(s.address));
   }
   setRaw(addr, data, owner, lam) {
     const d = new Uint8Array(data);
@@ -321,6 +323,7 @@ export class World {
 
   // ------------------------------------------------ state readers
   launchpad() { return S.decodeLaunchpad(this.accountInfo(this.P.launchpad()), { programId: this.programId }); }
+  launchBatch() { const a = this.accountInfo(this.P.launchBatch()); return a ? S.decodeLaunchBatch(a, { programId: this.programId }) : null; }
   config(id) { return S.decodeLaunchConfig(this.accountInfo(this.P.config(id)), { programId: this.programId }); }
   approval(cityId) { const a = this.accountInfo(this.P.approval(cityId)); return a ? S.decodeApproval(a, { programId: this.programId }) : null; }
   coinView(h) { return S.decodeCurveCoin(this.accountInfo(h.coin ?? h.address ?? h), { programId: this.programId }); }
@@ -462,6 +465,48 @@ export class World {
     const res = await this.send([ix], signers, label);
     return { ...this.handle(cityId, founder), res };
   }
+  // ------------------------------------------------ the batch launch approval (4.23 to 4.27)
+  /** `init_launch_batch` (once) and `set_launch_approver(approver)` by the admin; returns the approver. */
+  async initBatchPath({ approver, admin = this.admin } = {}) {
+    approver = approver ?? this.approver ?? await this.signer(5n);
+    if (!this.launchBatch()) await this.send([this.ix.initLaunchBatch({ admin: admin.address, payer: this.payer.address })], [admin], 'init_launch_batch');
+    await this.send([this.ix.setLaunchApprover({ admin: admin.address, approver: approver.address })], [admin], 'set_launch_approver');
+    this.approver = approver;
+    return approver;
+  }
+  /** Entries for a batch: `{ cityId, founder (signer or key), name?, symbol, configId?, metaHash? }`, with the World's defaults. */
+  batchEntries(list) {
+    return list.map((e) => ({ name: 'Demo City', configId: 0, ...e, founder: String(e.founder.address ?? e.founder), metaHash: e.metaHash ?? metaHash(`${e.cityId}:${e.symbol}`) }));
+  }
+  /**
+   * Build a batch with the SDK for the next number and publish it, signed by `approver` (the World's by default), with the
+   * SDK's default window (or `validFrom` / `validUntil`, or `leadSecs` / `validitySecs` from now). Returns the built batch.
+   */
+  async publishBatch(list, { approver = this.approver, seq, validFrom, validUntil, leadSecs, validitySecs, leafCount, root, label = 'publish_launch_batch', feePayer } = {}) {
+    const lb = this.launchBatch();
+    const batchSeq = seq ?? (lb ? lb.latest.seq + 1n : 1n);
+    const batch = S.buildLaunchBatch(this.batchEntries(list), { programId: this.programId, batchSeq });
+    let w;
+    if (validFrom !== undefined) w = { validFrom: BigInt(validFrom), validUntil: BigInt(validUntil) };
+    else if (leadSecs !== undefined) { const f = this.now() + BigInt(leadSecs); w = { validFrom: f, validUntil: f + BigInt(validitySecs ?? 36n * 3_600n) }; }
+    else w = S.defaultPublishWindow(this.now());
+    const ix = this.ix.publishLaunchBatch({ approver: approver.address, seq: batchSeq, root: root ?? batch.root, leafCount: leafCount ?? batch.leafCount, ...w });
+    const res = await this.send([ix], [approver], label, feePayer ? { feePayer } : { feePayer: approver });
+    return { ...batch, ...w, res };
+  }
+  /** Warp the clock to `t` (seconds), moving slots by 2.5 per second. */
+  warpTo(t) { const d = BigInt(t) - this.now(); if (d > 0n) this.warpSecs(d); }
+  /** `launch_from_batch` for a city of a built batch, signed by `founder` (and `payer`); `edit` changes the call's arguments. */
+  launchFromBatchIx({ batch, cityId, founder, payer, edit = {}, overrides }) {
+    const args = S.launchBatchArgs(batch, cityId);
+    return this.ix.launchFromBatch({ ...args, ...edit, founder: founder.address, payer: (payer ?? founder).address, overrides });
+  }
+  async launchFromBatch({ batch, cityId, founder, payer, edit, label = 'launch_from_batch', extra = [], o = {} }) {
+    const signers = [founder]; if (payer) signers.push(payer);
+    const res = await this.send([this.launchFromBatchIx({ batch, cityId, founder, payer, edit }), ...extra], signers, label, o);
+    return { ...this.handle(cityId, founder), res };
+  }
+
   /** Approve and launch a coin. */
   async launchCoin({ cityId, founder, name = 'Demo City', symbol = 'DEMO', configId = 0 } = {}) {
     founder = founder ?? await this.signer();

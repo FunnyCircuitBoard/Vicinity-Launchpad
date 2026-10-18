@@ -45,6 +45,16 @@
 //     the transaction field by field (G01 parity with the program's real results,
 //     I12, I15, I16, I17); then the per-coin invariants I1 to I11 on the account
 //     and the global ones I19 to I21.
+//   * the batch launch approval (I23 to I25, 8.6): the LaunchBatch account walked
+//     through every call of the transaction (init_launch_batch, set_launch_approver,
+//     publish_launch_batch, clear_launch_batch) from the account before it, each
+//     call checked against the seats and the batch state of its moment, and the
+//     walk must end at the account after the transaction; every launch_from_batch
+//     re-checked from its own instruction data and signer: the batch it names in
+//     force at that call (the SDK's batchRefusal), the leaf rebuilt with the SDK and
+//     folded through the proof to that batch's root within the depth bound, no
+//     Approval for the city at that moment, and the new Coin holding exactly the
+//     leaf's founder, config terms, symbol, name and meta_hash.
 // Per failed transaction: no account of the message changed except the fee
 // payer's fee, and no vicinity_curve account changed at all.
 import assert from 'node:assert/strict';
@@ -68,8 +78,12 @@ export const CREATES = Object.freeze({
   add_launch_config: { payer: 'payer', accounts: ['config'] },
   approve_launch: { payer: 'admin', accounts: ['approval'] },
   launch: { payer: 'payer', accounts: ['coin', 'mint', 'coin_vault', 'ticker_lock'], metaplex: 'metadata' },
+  launch_from_batch: { payer: 'payer', accounts: ['coin', 'mint', 'coin_vault', 'ticker_lock'], metaplex: 'metadata' },
   opt_in_payout: { payer: 'founder', accounts: ['opt_in'] },
+  init_launch_batch: { payer: 'payer', accounts: ['launch_batch'] },
 });
+/** The two instructions that create a coin (4.10, 4.27). */
+export const LAUNCHES = Object.freeze(['launch', 'launch_from_batch']);
 // PDA derivations are memoised: the checker derives the same few addresses for every coin after
 // every transaction, and each derivation costs a hash and a curve check per bump tried.
 const memo = new Map();
@@ -129,7 +143,7 @@ export function snapshot(w, keys) {
   const programId = w.programId;
   const accounts = new Map();
   const coins = new Map(); const configs = new Map(); const approvals = new Map(); const tickers = new Map(); const optIns = new Map();
-  let launchpad = null;
+  let launchpad = null; let launchBatch = null;
   for (const a of w.svm.getProgramAccounts(address(programId))) {
     const acc = { address: String(a.address), owner: String(a.programAddress), lamports: BigInt(a.lamports), data: Buffer.from(a.data) };
     accounts.set(acc.address, acc);
@@ -140,6 +154,7 @@ export function snapshot(w, keys) {
     else if (type === 'TickerLock') tickers.set(acc.address, { ...S.decodeTickerLock(acc, { programId }), address: acc.address, raw: acc.data });
     else if (type === 'PayoutOptIn') optIns.set(acc.address, { ...S.decodePayoutOptIn(acc, { programId }), address: acc.address, lamports: acc.lamports });
     else if (type === 'Launchpad') launchpad = { ...S.decodeLaunchpad(acc, { programId }), address: acc.address };
+    else if (type === 'LaunchBatch') launchBatch = { ...S.decodeLaunchBatch(acc, { programId }), address: acc.address, raw: acc.data };
     else assert.fail(`unknown account ${acc.address} owned by vicinity_curve (${acc.data.length} bytes)`);
   }
   for (const c of coins.values()) {
@@ -149,7 +164,7 @@ export function snapshot(w, keys) {
     c.mintInfo = mintInfo(w.accountInfo(c.mint));
   }
   const clock = w.svm.getClock();
-  return { slot: BigInt(clock.slot), ts: BigInt(clock.unixTimestamp), accounts, coins, configs, approvals, tickers, optIns, launchpad };
+  return { slot: BigInt(clock.slot), ts: BigInt(clock.unixTimestamp), accounts, coins, configs, approvals, tickers, optIns, launchpad, launchBatch };
 }
 
 // ---------------------------------------------------------------- the transaction
@@ -304,12 +319,12 @@ export function compiledIdsProblems(binary, { programId, cluster }) {
   }
   return out;
 }
-/** I21's keys: the World's role keys and whatever the Launchpad names as admin, pending admin, guardian or payout key, before or after. */
+/** I21's keys: the World's role keys and whatever the Launchpad names as admin, pending admin, guardian, payout key or launch approver, before or after. */
 export function roleKeysOf(w, pre, post) {
   const out = new Set(w.roleKeys());
   for (const lp of [pre?.launchpad, post?.launchpad]) {
     if (!lp) continue;
-    for (const k of [lp.admin, lp.pendingAdmin, lp.guardian, lp.payoutAuthority]) if (k && k !== ZERO) out.add(k);
+    for (const k of [lp.admin, lp.pendingAdmin, lp.guardian, lp.payoutAuthority, lp.launchApprover]) if (k && k !== ZERO) out.add(k);
   }
   return [...out];
 }
@@ -369,7 +384,7 @@ export function checkDestinations(w, { tx, preAccounts, postAccounts, label }) {
           assert.ok(s.kind === 'transfer' && s.to === accountOf(t, 'coin'), `${label}: I14 buy's ${s.kind} to ${s.to}, not the Coin`);
           continue;
         }
-        if (t.name === 'launch' && s.kind === 'transfer' && s.to === S.ADDRESSES.feeRecipient) continue; // the launch fee (checkLaunch: exactly the config's)
+        if (LAUNCHES.includes(t.name) && s.kind === 'transfer' && s.to === S.ADDRESSES.feeRecipient) continue; // the launch fee (checkLaunch: exactly the config's)
         assert.ok(created.has(s.to), `${label}: I14 ${t.name}'s ${s.kind} to ${s.to}, which it does not create`);
         if (s.kind === 'create_account' || s.kind === 'assign') assert.equal(s.owner, created.get(s.to), `${label}: I14 ${s.to} assigned to ${s.owner}`);
       }
@@ -567,7 +582,7 @@ export function checkTransaction(w, ctx) {
       }
       case 8: case 15: {
         if (vaults.has(a[0])) {
-          assert.ok(topName === 'buyback_burn' || topName === 'launch', `${label}: a burn from a vault outside buyback_burn and launch`);
+          assert.ok(topName === 'buyback_burn' || LAUNCHES.includes(topName), `${label}: a burn from a vault outside buyback_burn and a launch`);
           bump(tokenFlows.burned, vaults.get(a[0]), amount);
           stepVault(vaults.get(a[0]), ix.top.index, -amount);
         } else if (mints.has(a[1])) {
@@ -578,7 +593,7 @@ export function checkTransaction(w, ctx) {
       }
       case 7: case 14:
         if (mints.has(a[0])) {
-          assert.equal(topName, 'launch', `${label}: mint_to outside launch`);
+          assert.ok(LAUNCHES.includes(topName), `${label}: mint_to outside a launch`);
           assert.equal(a[1], post.coins.get(mints.get(a[0])).vault, 'minted into the vault');
           assert.equal(amount, S.COIN_SUPPLY, 'exactly COIN_SUPPLY, once');
           stepVault(mints.get(a[0]), ix.top.index, amount);
@@ -586,7 +601,7 @@ export function checkTransaction(w, ctx) {
         break;
       case 6:
         if (mints.has(a[0]) || vaults.has(a[0])) {
-          assert.equal(topName, 'launch', `${label}: set_authority on a coin account outside launch`);
+          assert.ok(LAUNCHES.includes(topName), `${label}: set_authority on a coin account outside a launch`);
           assert.ok(mints.has(a[0]) && ix.data[1] === 0 && ix.data[2] === 0, 'only the mint authority, to None');
         }
         break;
@@ -594,7 +609,7 @@ export function checkTransaction(w, ctx) {
         assert.ok(!vaults.has(a[0]) && !(tag >= 10 && mints.has(a[1])), `${label}: token instruction ${tag} on a vault or mint`);
         break;
       case 0: case 20: case 1: case 16: case 18:
-        if (mints.has(a[0]) || vaults.has(a[0])) assert.equal(topName, 'launch', `${label}: initialize of a coin account outside launch`);
+        if (mints.has(a[0]) || vaults.has(a[0])) assert.ok(LAUNCHES.includes(topName), `${label}: initialize of a coin account outside a launch`);
         break;
       default: break;
     }
@@ -630,7 +645,7 @@ export function checkTransaction(w, ctx) {
       const cl = events.find((e) => e.name === 'CoinLaunched');
       assert.ok(cl, `${label}: a new Coin without CoinLaunched`);
       launched = true;
-      checkLaunch(w, { c, cl, pre, label, txSlot, txTs, rentMin, tx });
+      checkLaunch(w, { c, cl, pre, label, txSlot, txTs, rentMin, tx, preAccounts });
       st = S.stateAtLaunch(txSlot);
       ext = { founder: c.founder, platformWithdrawn: 0n, founderClaimed: 0n, founderPaidOut: 0n, holdersForwarded: 0n, payoutSeq: 0n, lastPayoutAt: 0n, graduatedAt: 0n, graduationSlot: 0n };
     } else {
@@ -800,19 +815,55 @@ export function checkTransaction(w, ctx) {
   checkGlobal(w, { pre, post, tx, label, preAccounts, postAccounts });
 }
 
-/** CoinLaunched and the new Coin against the approval and the config it consumed (4.10, I2, I19). */
+/** The arguments of `launch_from_batch` from its instruction data (4.27). */
+export function batchLaunchArgs(data) {
+  const d = Buffer.from(data);
+  let at = 8;
+  const u64 = () => { const v = d.readBigUInt64LE(at); at += 8; return v; };
+  const str = () => { const n = d.readUInt32LE(at); at += 4; const v = d.subarray(at, at + n).toString('utf8'); at += n; return v; };
+  const cityId = u64(); const batchSeq = u64(); const configId = d.readUInt16LE(at); at += 2;
+  const name = str(); const symbol = str();
+  const metaHash = Uint8Array.from(d.subarray(at, at + 32)); at += 32;
+  const n = d.readUInt32LE(at); at += 4;
+  const proof = [];
+  for (let k = 0; k < n; k++) { proof.push(Uint8Array.from(d.subarray(at, at + 32))); at += 32; }
+  assert.equal(at, d.length, 'launch_from_batch data has trailing bytes');
+  return { cityId, batchSeq, configId, name, symbol, metaHash, proof };
+}
+
+/**
+ * CoinLaunched and the new Coin against what the launch consumed (4.10, 4.27, I2, I19, I23): for `launch`, the Approval
+ * and its config; for `launch_from_batch`, the call's own arguments and signer (the leaf), checked against the batch in
+ * force at that call by checkBatchLaunches (checkGlobal), and the config the call names.
+ */
 function checkLaunch(w, { c, cl, pre, label, txSlot, txTs, rentMin, tx }) {
   const P = w.P;
   const d = cl.data;
-  assert.equal(cl.top.name, 'launch');
-  const ap = pre.approvals.get(P.approval(c.cityId));
-  assert.ok(ap, `${label}: launch without an approval`);
+  assert.ok(LAUNCHES.includes(cl.top.name), `${label}: CoinLaunched from ${cl.top.name}`);
+  let ap;
+  if (cl.top.name === 'launch') {
+    ap = pre.approvals.get(P.approval(c.cityId));
+    assert.ok(ap, `${label}: launch without an approval`);
+    assert.ok(txTs <= ap.expiresAt, 'not expired');
+  } else {
+    const a = batchLaunchArgs(cl.top.data);
+    assert.equal(a.cityId, c.cityId, `${label}: the batch launch's city`);
+    // I23: the leaf's fields are what the Coin holds (the signer is the founder)
+    ap = { founder: cl.top.accounts[0], symbol: a.symbol, name: a.name, configId: a.configId, metaHash: a.metaHash };
+    const ev = cl.top.events.find((e) => e.name === 'LaunchedFromBatch');
+    assert.ok(ev, `${label}: launch_from_batch without LaunchedFromBatch`);
+    const leaf = S.launchLeaf({ programId: w.programId, batchSeq: a.batchSeq, cityId: a.cityId, founder: ap.founder, configId: a.configId, metaHash: a.metaHash, name: a.name, symbol: a.symbol });
+    assert.deepEqual([ev.data.city_id, ev.data.founder, ev.data.mint, ev.data.config_id, ev.data.batch_seq], [c.cityId, ap.founder, c.mint, BigInt(a.configId), a.batchSeq], `${label}: LaunchedFromBatch fields`);
+    assert.deepEqual([...ev.data.leaf], [...leaf], `${label}: LaunchedFromBatch.leaf is the leaf of the call`);
+    const order = cl.top.events.map((e) => e.name);
+    assert.ok(order.indexOf('LaunchedFromBatch') === order.indexOf('CoinLaunched') + 1, `${label}: LaunchedFromBatch right after CoinLaunched`);
+  }
   const cfg = pre.configs.get(P.config(ap.configId));
   assert.ok(cfg && cfg.enabled, 'an enabled config');
   assert.equal(c.address, P.coin(c.cityId)); assert.equal(c.bump, P.coinWithBump(c.cityId)[1]);
   assert.equal(c.mint, P.mint(c.address)); assert.equal(c.vault, P.coinVault(c.address));
   assert.equal(c.founder, ap.founder); assert.equal(c.symbol, ap.symbol); assert.equal(c.configId, ap.configId);
-  assert.deepEqual([...c.metaHash], [...ap.metaHash], 'meta_hash copied from the approval');
+  assert.deepEqual([...c.metaHash], [...ap.metaHash], 'meta_hash copied from the approval or the leaf');
   for (const k of ['liquidityBps', 'platformBps', 'founderBps', 'holdersBps', 'buybackBps', 'totalFeeBps', 'virtualSol', 'virtualTokens', 'curveSupply', 'poolSupply', 'graduationSol']) {
     assert.equal(c[k], cfg[k], `terms copied: ${k}`);
   }
@@ -820,7 +871,6 @@ function checkLaunch(w, { c, cl, pre, label, txSlot, txTs, rentMin, tx }) {
   assert.equal(c.dustBurned, dust);
   assert.deepEqual([c.layoutVersion, c.phase, c.launchedAt, c.launchSlot, c.lastBuybackSlot, c.rentReserve], [1, 0, txTs, txSlot, txSlot, rentMin]);
   assert.ok(tx.signers.has(ap.founder), 'the approved founder signed');
-  assert.ok(txTs <= ap.expiresAt, 'not expired');
   // the event
   assert.deepEqual([d.founder, d.mint, d.vault, d.config_id, d.name, d.symbol, d.uri], [c.founder, c.mint, c.vault, BigInt(ap.configId), ap.name, ap.symbol, S.metadataUri(c.mint)]);
   assert.deepEqual([...d.meta_hash], [...ap.metaHash]);
@@ -969,14 +1019,17 @@ function seatAccounts(w, accounts) {
 export function seatWalk(w, { pre, tx, preAccounts }) {
   const P = w.P;
   const lp = pre.launchpad;
-  const s = { admin: lp?.admin ?? null, pendingAdmin: lp?.pendingAdmin ?? ZERO, guardian: lp?.guardian ?? ZERO, payoutAuthority: lp?.payoutAuthority ?? ZERO, payoutDestination: lp?.payoutDestination ?? ZERO, ...seatAccounts(w, preAccounts) };
+  const s = { admin: lp?.admin ?? null, pendingAdmin: lp?.pendingAdmin ?? ZERO, guardian: lp?.guardian ?? ZERO, payoutAuthority: lp?.payoutAuthority ?? ZERO, payoutDestination: lp?.payoutDestination ?? ZERO, launchApprover: lp?.launchApprover ?? ZERO, ...seatAccounts(w, preAccounts) };
   const at = new Map();
+  const order = [];
   const curve = (c) => {
     at.set(c, { ...s });
+    order.push(c);
     if (c.name === 'propose_admin') s.pendingAdmin = keyAtData(c.data, 8);
     else if (c.name === 'accept_admin') { s.admin = s.pendingAdmin; s.pendingAdmin = ZERO; }
     else if (c.name === 'set_guardian') s.guardian = keyAtData(c.data, 8);
     else if (c.name === 'set_payout_config') { s.payoutAuthority = keyAtData(c.data, 8); s.payoutDestination = keyAtData(c.data, 40); }
+    else if (c.name === 'set_launch_approver') s.launchApprover = keyAtData(c.data, 8);
   };
   const other = (ix) => {
     const name = seatIxName(ix.data);
@@ -994,8 +1047,131 @@ export function seatWalk(w, { pre, tx, preAccounts }) {
     if (t.program === w.programId) { const c = t.calls.find((x) => !x.viaCpi); if (c) curve(c); } else other(t);
     t.inner.forEach((ii, j) => { const c = t.calls.find((x) => x.viaCpi && x.innerAt === j); if (c) curve(c); else other(ii); });
   }
-  return { at, last: s };
+  return { at, last: s, order };
 }
+
+const MAX_U64 = (1n << 64n) - 1n;
+const cloneRecord = (r) => ({ ...r, root: Uint8Array.from(r.root) });
+const cloneBatch = (lb) => (lb ? { bump: lb.bump, halted: lb.halted, latest: cloneRecord(lb.latest), previous: cloneRecord(lb.previous) } : null);
+const sameRecord = (a, b) => a.seq === b.seq && Buffer.from(a.root).equals(Buffer.from(b.root)) && a.leafCount === b.leafCount && a.validFrom === b.validFrom
+  && a.validUntil === b.validUntil && a.publishedAt === b.publishedAt && a.publishedSlot === b.publishedSlot && a.publisher === b.publisher && a.cleared === b.cleared;
+const zeroRecord = () => ({ seq: 0n, root: new Uint8Array(32), leafCount: 0, validFrom: 0n, validUntil: 0n, publishedAt: 0n, publishedSlot: 0n, publisher: ZERO, cleared: false });
+/**
+ * I23 and I24 (8.6): `LaunchBatch` walked through the transaction's calls in execution order (seatWalk's order), from
+ * the account before it: init_launch_batch creates it zeroed; set_launch_approver (the admin of its moment) clears both
+ * records and lifts the halt; publish_launch_batch (the approver of its moment, the path not halted, the gap-free
+ * number, a nonzero root, 1 to 512 leaves, the window of 4.25 at the cluster's clock) moves `latest` to `previous` if
+ * it had begun and writes the new record; clear_launch_batch (the admin, the approver or the guardian of its moment)
+ * clears both and, with `halt`, halts. Each launch_from_batch is checked against the state of its moment: the
+ * approver set, the path not halted, the batch it names in force (the SDK's batchRefusal, 4.27 check 3), the proof
+ * within min(9, depth) and folding the leaf rebuilt from the call's data and signer to that batch's root, no Approval
+ * for the city at that moment, the founder none of the role keys of that moment. Every event of these calls is
+ * compared with the walk. The walk must end at the account after the transaction.
+ */
+export function batchWalk(w, { pre, post, tx, seats, label }) {
+  const P = w.P;
+  const now = post.ts; const slot = post.slot;
+  let lb = cloneBatch(pre.launchBatch);
+  const approvals = new Set([...pre.approvals.values()].map((a) => a.cityId));
+  const launchedHere = [];
+  const ev = (c, name) => { const e = c.events.filter((x) => x.name === name); assert.equal(e.length, 1, `${label}: ${c.name} emits one ${name}`); return e[0].data; };
+  for (const c of seats.order) {
+    const m = seats.at.get(c);
+    const signer = c.accounts[0];
+    const city = () => Buffer.from(c.data).readBigUInt64LE(8);
+    switch (c.name) {
+      case 'init_launch_batch': {
+        assert.equal(lb, null, `${label}: I24 a second LaunchBatch`);
+        assert.equal(signer, m.admin, `${label}: init_launch_batch by the admin of its moment`);
+        lb = { bump: post.launchBatch?.bump, halted: false, latest: zeroRecord(), previous: zeroRecord() };
+        assert.equal(ev(c, 'LaunchBatchInitialized').by, signer);
+        break;
+      }
+      case 'set_launch_approver': {
+        assert.ok(lb, `${label}: set_launch_approver without a LaunchBatch`);
+        assert.equal(signer, m.admin, `${label}: I24 set_launch_approver by the admin of its moment`);
+        const e = ev(c, 'LaunchApproverChanged');
+        assert.deepEqual([e.old, e.new, e.latest_seq], [m.launchApprover, keyAtData(c.data, 8), lb.latest.seq], `${label}: LaunchApproverChanged`);
+        lb.latest.cleared = true; lb.previous.cleared = true; lb.halted = false;
+        break;
+      }
+      case 'publish_launch_batch': {
+        assert.ok(lb, `${label}: a publication without a LaunchBatch`);
+        const d = Buffer.from(c.data);
+        const rec = { seq: d.readBigUInt64LE(8), root: Uint8Array.from(d.subarray(16, 48)), leafCount: d.readUInt32LE(48), validFrom: d.readBigInt64LE(52),
+          validUntil: d.readBigInt64LE(60), publishedAt: now, publishedSlot: slot, publisher: signer, cleared: false };
+        assert.ok(m.launchApprover !== ZERO && signer === m.launchApprover, `${label}: I24 a publication not signed by the approver ${m.launchApprover} of its moment`);
+        assert.ok(!lb.halted, `${label}: I24 a publication while the batch path was halted`);
+        assert.equal(rec.seq, lb.latest.seq + 1n, `${label}: I24 latest.seq grows by exactly 1`);
+        assert.ok(rec.seq <= MAX_U64);
+        assert.ok(rec.root.some((x) => x !== 0), `${label}: I24 a zero root`);
+        assert.ok(rec.leafCount >= 1 && rec.leafCount <= S.MAX_BATCH_LEAVES, `${label}: I24 leaf count ${rec.leafCount}`);
+        assert.ok(S.publishWindowOk(now, rec.validFrom, rec.validUntil), `${label}: I24 window ${rec.validFrom}..${rec.validUntil} at ${now}`);
+        let replaced = 0n;
+        if (lb.latest.seq !== 0n && now >= lb.latest.validFrom) lb.previous = lb.latest; else if (lb.latest.seq !== 0n) replaced = lb.latest.seq;
+        lb.latest = rec;
+        const e = ev(c, 'LaunchBatchPublished');
+        assert.deepEqual([e.seq, toHexB(e.root), e.leaf_count, e.valid_from, e.valid_until, e.publisher, e.published_at, e.previous_seq, e.replaced_seq],
+          [rec.seq, toHexB(rec.root), BigInt(rec.leafCount), rec.validFrom, rec.validUntil, signer, now, lb.previous.seq, replaced], `${label}: LaunchBatchPublished`);
+        break;
+      }
+      case 'clear_launch_batch': {
+        assert.ok(lb, `${label}: a clear without a LaunchBatch`);
+        const allowed = [m.admin, m.launchApprover, m.guardian].filter((k) => k && k !== ZERO);
+        assert.ok(allowed.includes(signer), `${label}: I24 a clear by ${signer}, who is not the admin, the approver or the guardian of its moment`);
+        lb.latest.cleared = true; lb.previous.cleared = true;
+        if (c.data[8] === 1) lb.halted = true;
+        const e = ev(c, 'LaunchBatchCleared');
+        assert.deepEqual([e.by, e.latest_seq, e.previous_seq, e.halted], [signer, lb.latest.seq, lb.previous.seq, lb.halted], `${label}: LaunchBatchCleared`);
+        break;
+      }
+      case 'approve_launch': approvals.add(city()); break;
+      case 'launch': case 'revoke_approval': approvals.delete(city()); break;
+      case 'launch_from_batch': {
+        // I23: no launch without a valid proof, inside the window, not cleared, not superseded, no pending approval
+        const a = batchLaunchArgs(c.data);
+        assert.ok(m.launchApprover !== ZERO, `${label}: I23 a batch launch while no launch approver was set`);
+        assert.ok(lb, `${label}: I23 a batch launch without a LaunchBatch`);
+        const refusal = S.batchRefusal(lb, { launchApprover: m.launchApprover }, a.batchSeq, now);
+        assert.equal(refusal, null, `${label}: I23 a batch launch of city ${a.cityId} from batch ${a.batchSeq}, which was not in force (${refusal})`);
+        const b = a.batchSeq === lb.latest.seq ? lb.latest : lb.previous;
+        assert.ok(a.proof.length <= S.maxProofLen(b.leafCount), `${label}: I23 a proof of ${a.proof.length} hashes for ${b.leafCount} leaves`);
+        const leaf = S.launchLeaf({ programId: w.programId, batchSeq: a.batchSeq, cityId: a.cityId, founder: signer, configId: a.configId, metaHash: a.metaHash, name: a.name, symbol: a.symbol });
+        assert.ok(S.verifyLaunchProof({ root: b.root, leaf, proof: a.proof, leafCount: b.leafCount }), `${label}: I23 the leaf of city ${a.cityId} does not fold to batch ${a.batchSeq}'s root`);
+        assert.ok(!approvals.has(a.cityId), `${label}: I23 a batch launch of city ${a.cityId} while its Approval existed`);
+        for (const [what, k] of [['FEE_RECIPIENT', S.ADDRESSES.feeRecipient], ['the guardian', m.guardian], ['the payout key', m.payoutAuthority], ['the launch approver', m.launchApprover]]) {
+          if (k && k !== ZERO) assert.notEqual(signer, k, `${label}: I23 the batch launch's founder is ${what} of its moment`);
+        }
+        assert.equal(toHexB(ev(c, 'LaunchedFromBatch').root), toHexB(b.root), `${label}: LaunchedFromBatch.root`);
+        launchedHere.push(a.cityId);
+        break;
+      }
+      default: break;
+    }
+  }
+  // the walk ends at the account after the transaction (it read every write: I24's "written only by")
+  const after = post.launchBatch;
+  if (!after) assert.equal(lb, null, `${label}: I24 the LaunchBatch vanished`);
+  else {
+    assert.ok(lb, `${label}: I24 a LaunchBatch appeared outside init_launch_batch`);
+    assert.equal(after.address, P.launchBatch(), `${label}: the LaunchBatch address`);
+    assert.equal(after.bump, S.findPda([Buffer.from('launch_batch')], w.programId)[1]);
+    assert.equal(after.halted, lb.halted, `${label}: I24 the walk's halted`);
+    assert.ok(sameRecord(after.latest, lb.latest), `${label}: I24 the walk's latest record`);
+    assert.ok(sameRecord(after.previous, lb.previous), `${label}: I24 the walk's previous record`);
+    assert.ok(after.raw.subarray(228).every((x) => x === 0), `${label}: LaunchBatch _reserved not zero`);
+    // every stored record with seq > 0 holds what a publication may write
+    for (const r of [after.latest, after.previous]) {
+      if (r.seq === 0n) continue;
+      assert.ok(r.root.some((x) => x !== 0) && r.leafCount >= 1 && r.leafCount <= S.MAX_BATCH_LEAVES, `${label}: I24 record ${r.seq}`);
+      assert.ok(r.publishedAt + S.BATCH_REVIEW_SECS <= r.validFrom && r.validFrom <= r.publishedAt + S.BATCH_MAX_LEAD_SECS, `${label}: I24 record ${r.seq}'s lead`);
+      assert.ok(r.validFrom < r.validUntil && r.validUntil <= r.validFrom + S.BATCH_MAX_VALIDITY_SECS, `${label}: I24 record ${r.seq}'s validity`);
+    }
+    assert.ok(after.previous.seq < after.latest.seq || (after.previous.seq === 0n && after.latest.seq === 0n), `${label}: I24 previous.seq < latest.seq`);
+  }
+  return { launchedHere };
+}
+const toHexB = (b) => Buffer.from(b).toString('hex');
 
 /** I19, I20 and the settings rules after a transaction. */
 function checkGlobal(w, { pre, post, tx, label, preAccounts, postAccounts }) {
@@ -1018,7 +1194,7 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts, postAccounts }) {
   // reopen it); the rewards registry's admin too (OPS-1). The seats as they stood at that call (review R5-REG-1): an
   // earlier hand-over step of the same transaction counts, as the program reads it.
   const seats = seatWalk(w, { pre, tx, preAccounts });
-  for (const t of [...has('approve_launch'), ...has('launch')]) {
+  for (const t of [...has('approve_launch'), ...has('launch'), ...has('launch_from_batch')]) {
     const city = t.data.readBigUInt64LE(8);
     const m = seats.at.get(t);
     const empty = (k) => { const a = preAccounts.get(k); return !a?.exists || (a.owner === ZERO && a.data.length === 0); };
@@ -1032,7 +1208,7 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts, postAccounts }) {
   }
   // the walk ends where the accounts are after the transaction (it read every step that moves a seat)
   if (pre.launchpad && post.launchpad) {
-    for (const k of ['admin', 'pendingAdmin', 'guardian', 'payoutAuthority', 'payoutDestination']) assert.equal(seats.last[k], post.launchpad[k], `${label}: the seat walk's ${k}`);
+    for (const k of ['admin', 'pendingAdmin', 'guardian', 'payoutAuthority', 'payoutDestination', 'launchApprover']) assert.equal(seats.last[k], post.launchpad[k], `${label}: the seat walk's ${k}`);
   }
   if (postAccounts) {
     const after = seatAccounts(w, postAccounts);
@@ -1053,7 +1229,7 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts, postAccounts }) {
         }
         continue;
       }
-      const need = { buy: ['buys'], launch: ['launches', 'buys'], buyback_burn: ['buybacks'], payout_founder_fees: ['payouts'] }[t.name] ?? [];
+      const need = { buy: ['buys'], launch: ['launches', 'buys'], launch_from_batch: ['launches', 'buys'], buyback_burn: ['buybacks'], payout_founder_fees: ['payouts'] }[t.name] ?? [];
       for (const k of need) assert.ok(!f[k], `${label}: SM-2 ${t.name} succeeded while ${k} were ${k === 'launches' || k === 'payouts' ? 'paused' : 'halted'}`);
     }
   }
@@ -1065,7 +1241,7 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts, postAccounts }) {
     const lpA = approveAt.get(ap.cityId); // the admin, guardian and payout key at that approve_launch (R5-REG-1)
     assert.ok(lpA, `${label}: SM-2 the approval of city ${ap.cityId} has no approve_launch of that city`);
     assert.ok(ap.cityId >= 1n, `${label}: SM-2 an approval for city 0`);
-    for (const [name, key] of [['FEE_RECIPIENT', S.ADDRESSES.feeRecipient], ['the guardian', lpA.guardian], ['the payout key', lpA.payoutAuthority]]) {
+    for (const [name, key] of [['FEE_RECIPIENT', S.ADDRESSES.feeRecipient], ['the guardian', lpA.guardian], ['the payout key', lpA.payoutAuthority], ['the launch approver', lpA.launchApprover]]) {
       if (key && key !== ZERO) assert.notEqual(ap.founder, key, `${label}: SM-2 the approval of city ${ap.cityId} names ${name} as founder`);
     }
     assert.ok(ap.metaHash.some((x) => x !== 0), `${label}: SM-2 a zero meta_hash`);
@@ -1100,12 +1276,20 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts, postAccounts }) {
     for (const [k, v] of [['admin', lp.admin], ['pending admin', lp.pendingAdmin], ['guardian', lp.guardian]]) {
       assert.notEqual(v, S.ADDRESSES.feeRecipient, `${label}: I20 FEE_RECIPIENT is the ${k}`);
     }
-    // R2-DIFF-1, SPEC-1: no coin's founder is FEE_RECIPIENT, the guardian or the payout key. The program refuses them at
-    // approve_launch, launch and transfer_founder; a later set_guardian or set_payout_config naming a founder is not
-    // detected on chain (8.4), so for those two keys this is a rule the tests keep.
+    // R2-DIFF-1, SPEC-1: no coin's founder is FEE_RECIPIENT, the guardian, the payout key or the launch approver. The
+    // program refuses them at approve_launch, launch, launch_from_batch and transfer_founder; a later set_guardian,
+    // set_payout_config or set_launch_approver naming a founder is not detected on chain (8.4), so for those keys this
+    // is a rule the tests keep.
     for (const c of post.coins.values()) {
-      for (const [k, v] of [['FEE_RECIPIENT', S.ADDRESSES.feeRecipient], ['the guardian', lp.guardian], ['the payout key', lp.payoutAuthority]]) {
+      for (const [k, v] of [['FEE_RECIPIENT', S.ADDRESSES.feeRecipient], ['the guardian', lp.guardian], ['the payout key', lp.payoutAuthority], ['the launch approver', lp.launchApprover]]) {
         if (v && v !== ZERO) assert.notEqual(c.founder, v, `${label}: I20 the founder of city ${c.cityId} is ${k}`);
+      }
+    }
+    // I25: a set launch approver holds no other seat and never touches money (4.24)
+    if (lp.launchApprover !== ZERO) {
+      for (const [k, v] of [['FEE_RECIPIENT', S.ADDRESSES.feeRecipient], ['the admin', lp.admin], ['the pending admin', lp.pendingAdmin], ['the guardian', lp.guardian],
+        ['the payout key', lp.payoutAuthority], ['the payout wallet', lp.payoutDestination]]) {
+        if (v && v !== ZERO) assert.notEqual(lp.launchApprover, v, `${label}: I25 the launch approver is ${k}`);
       }
     }
     assert.equal(lp.address, P.launchpad());
@@ -1113,6 +1297,7 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts, postAccounts }) {
     assert.equal(lp.nextConfigId, post.configs.size, `${label}: I20 next_config_id = number of configs`);
     if (lp0) {
       if (lp.guardian !== lp0.guardian) assert.ok(has('set_guardian').length, `${label}: I20 guardian changed outside set_guardian`);
+      if (lp.launchApprover !== lp0.launchApprover) assert.ok(has('set_launch_approver').length, `${label}: I20 the launch approver changed outside set_launch_approver`);
       if (lp.admin !== lp0.admin) assert.ok(has('accept_admin').length, `${label}: admin changed outside accept_admin`);
       if (lp.pendingAdmin !== lp0.pendingAdmin) assert.ok(has('propose_admin').length || has('accept_admin').length, `${label}: pending admin changed`);
       if (lp.payoutAuthority !== lp0.payoutAuthority || lp.payoutDestination !== lp0.payoutDestination) assert.ok(has('set_payout_config').length, `${label}: payout keys changed`);
@@ -1143,6 +1328,15 @@ function checkGlobal(w, { pre, post, tx, label, preAccounts, postAccounts }) {
     } else assert.ok(has('add_launch_config').length, `${label}: a config appeared outside add_launch_config`);
   }
   for (const k of pre.configs.keys()) assert.ok(post.configs.has(k), `${label}: a LaunchConfig closed`);
+  // I23, I24: the batch state walked through the transaction, each batch launch held to the batch of its moment
+  const walked = batchWalk(w, { pre, post, tx, seats, label });
+  // I23: every new Coin comes from a launch that closed its Approval, or from a batch launch the walk accepted
+  for (const c of post.coins.values()) {
+    if (pre.coins.has(c.address)) continue;
+    const viaLaunch = has('launch').some((t) => t.data.readBigUInt64LE(8) === c.cityId) && !post.approvals.has(P.approval(c.cityId));
+    const viaBatch = walked.launchedHere.includes(c.cityId);
+    assert.ok(viaLaunch !== viaBatch, `${label}: I23 the Coin of city ${c.cityId} came from neither path, or from both`);
+  }
 }
 
 // ---------------------------------------------------------------- I22 liveness

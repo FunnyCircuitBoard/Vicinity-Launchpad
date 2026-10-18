@@ -4,9 +4,10 @@
 // and payouts go on, and only the admin clears it; buybacks are halted only
 // while buys are, so after a halt of both the admin resumes buybacks first and
 // the keeper spends each backlog before anyone can buy ahead of it (review LL-1);
-// the halt-all build, deployed over live state, refuses all eight outflow
-// instructions with TradingHalted and moves nothing, and the production build
-// deployed back works again.
+// the halt-all build, deployed over live state, refuses all nine handlers that
+// move lamports or tokens (the eight outflows and launch_from_batch) with
+// TradingHalted and moves nothing, while settings (a batch publication among
+// them) still work, and the production build deployed back works again.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -114,7 +115,7 @@ test('H01 the guardian halt: buys and launches refuse, buybacks too once halted 
   await w.finish();
 });
 
-test('H02, H03 the halt-all build over live state: all eight outflows refuse with TradingHalted, nothing moves, settings still work; the production build back works', async (t) => {
+test('H02, H03 the halt-all build over live state: all nine handlers that move money (launch_from_batch among them) refuse with TradingHalted, nothing moves, settings and batch publication still work; the production build back works', async (t) => {
   if (!existsSync(PATHS.curveHaltAll)) throw new Error(`missing ${PATHS.curveHaltAll}: run "npm run vcurve:sbf"`);
   const w = await World.create();
   const curve = await w.launchCoin({ cityId: 710n, symbol: 'HCURVE' });
@@ -130,6 +131,11 @@ test('H02, H03 the halt-all build over live state: all eight outflows refuse wit
   const founder3 = await w.signer(1n);
   await w.approve({ cityId: 712n, founder: founder3, symbol: 'HNEXT' });
   w.warpSlots(200n); w.warpSecs(2n * DAY);
+  // a launch batch in force for two more founders (4.27)
+  await w.initBatchPath();
+  const [bf1, bf2] = [await w.signer(1n), await w.signer(1n)];
+  const bt = await w.publishBatch([{ cityId: 714n, founder: bf1, symbol: 'HBATCH' }, { cityId: 715n, founder: bf2, symbol: 'HBATCHB' }]);
+  w.warpTo(bt.validFrom);
   const snap = new Map([curve, pool].map((h) => [h.coin, { data: w.accountInfo(h.coin).data, lamports: w.lamportsOf(h.coin), vault: w.tokenBalance(h.vault) }]));
   w.loadCurve(PATHS.curveHaltAll);
   const refuse = (label, fn) => expectFail(fn, 'TradingHalted').then(() => t.diagnostic(`halt-all refuses ${label}`));
@@ -143,6 +149,11 @@ test('H02, H03 the halt-all build over live state: all eight outflows refuse wit
     await refuse('payout_founder_fees', () => w.payout(h, { destination: wallet.address, label: 'payout (halt-all)' }));
   }
   await refuse('launch', () => w.launch({ cityId: 712n, founder: founder3, label: 'launch (halt-all)' }));
+  await refuse('launch_from_batch', () => w.launchFromBatch({ batch: bt, cityId: 714n, founder: bf1, label: 'launch_from_batch (halt-all)' }));
+  // the batch path's settings still work: the next day's list is published (batch 1 stays in force until its valid_from)
+  const bf3 = await w.signer(1n);
+  const bt2 = await w.publishBatch([{ cityId: 716n, founder: bf3, symbol: 'HBATCHC' }], { label: 'publish_launch_batch (halt-all)' });
+  assert.equal(w.launchBatch().previous.seq, 1n, 'batch 1 moved to previous');
   // settings instructions still work under the halt-all build
   const founder4 = await w.signer(1n);
   await w.approve({ cityId: 713n, founder: founder4, symbol: 'HLATER' });
@@ -169,6 +180,10 @@ test('H02, H03 the halt-all build over live state: all eight outflows refuse wit
   await w.claim(curve, curve.founder, { label: 'claim after restore' });
   await w.launch({ cityId: 712n, founder: founder3 });
   await w.launch({ cityId: 713n, founder: founder4 });
+  await w.launchFromBatch({ batch: bt, cityId: 714n, founder: bf1, label: 'launch_from_batch after restore (batch 1, previous)' });
+  w.warpTo(bt2.validFrom);
+  await w.launchFromBatch({ batch: bt2, cityId: 716n, founder: bf3, label: 'launch_from_batch after restore (batch 2)' });
+  await expectFail(() => w.launchFromBatch({ batch: bt, cityId: 715n, founder: bf2, label: 'batch 1 superseded' }), 'BatchSuperseded');
   await w.finish();
 });
 

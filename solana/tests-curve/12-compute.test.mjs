@@ -1,7 +1,8 @@
 // C01, C02 (11.1, 11.3): compute units of every instruction, measured on the
 // production build in one coin's life (buy and sell before and after
 // graduation, the graduating buy, buybacks in both phases, every outflow,
-// launch, the settings instructions), each asserted against its 11.1 test
+// launch, the settings instructions, the batch launch approval's five
+// instructions), each asserted against its 11.1 test
 // budget; and the sizes of the website's transactions. The figures are printed
 // (and written to target/vcurve-measurements.json) for VICINITY-CURVE-NOTES.md.
 import test from 'node:test';
@@ -16,7 +17,7 @@ import { World, S, SOL, LAMPORTS, DAY } from './helpers.mjs';
 // 11.1 test budgets (asserted)
 const BUDGET = {
   buy: 48_000, 'buy (graduates)': 55_000, sell: 48_000, buyback_burn: 48_000, withdraw_platform_fees: 25_000, claim_founder_fees: 25_000,
-  payout_founder_fees: 30_000, forward_holders_fees: 40_000, launch: 230_000, settings: 50_000,
+  payout_founder_fees: 30_000, forward_holders_fees: 40_000, launch: 230_000, settings: 50_000, launch_from_batch: 250_000,
 };
 
 test('C01/C02 compute units per instruction against the 11.1 budgets, and the website\'s transaction sizes', async () => {
@@ -78,6 +79,21 @@ test('C01/C02 compute units per instruction against the 11.1 budgets, and the we
   w.warpSecs(DAY);
   record('payout_founder_fees', await w.payout(h, { destination: wallet.address }), BUDGET.payout_founder_fees);
   record('transfer_founder', await w.send([w.ix.transferFounder({ founder: founder.address, newFounder: stranger.address, coin: h.coin })], [founder, stranger], 'transfer_founder'), BUDGET.settings);
+  // the batch launch approval (4.23 to 4.27): its four settings instructions and a batch launch with a full proof
+  const approver = await w.signer(2n);
+  record('init_launch_batch', await w.send([w.ix.initLaunchBatch({ admin: w.admin.address, payer: w.payer.address })], [w.admin], 'init_launch_batch'), BUDGET.settings);
+  record('set_launch_approver', await w.send([w.ix.setLaunchApprover({ admin: w.admin.address, approver: approver.address })], [w.admin], 'set_launch_approver'), BUDGET.settings);
+  w.approver = approver;
+  const bf = await w.signer(10n);
+  const many = [{ cityId: 801n, founder: bf, symbol: 'CUBATCH' }];
+  for (let i = 0; i < 511; i++) many.push({ cityId: 10_000n + BigInt(i), founder: stranger, symbol: `B${i}` });
+  const bt = await w.publishBatch(many);
+  record('publish_launch_batch', bt.res, BUDGET.settings);
+  w.warpTo(bt.validFrom);
+  const lb = await w.launchFromBatch({ batch: bt, cityId: 801n, founder: bf });
+  assert.equal(S.launchBatchArgs(bt, 801n).proof.length, 9, 'a full 9-hash proof (512 leaves)');
+  record('launch_from_batch (512 leaves, 9-hash proof)', lb.res, BUDGET.launch_from_batch);
+  record('clear_launch_batch', await w.send([w.ix.clearLaunchBatch({ authority: w.guardian.address, halt: true })], [w.guardian], 'clear_launch_batch (halt)'), BUDGET.settings);
   const out = { toolchain: 'production build of `anchor build` (target/deploy/vicinity_curve.so)', rows, webBuySize, webSellSize };
   mkdirSync(join(SOL, 'target'), { recursive: true });
   writeFileSync(join(SOL, 'target', 'vcurve-measurements.json'), JSON.stringify(out, null, 2));
