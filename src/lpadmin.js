@@ -43,6 +43,7 @@ import { iso } from "./policy.js";
 import { lpSetup } from "./cluster.js";
 import { ensureLogoSchema } from "./store.js";
 import { coinV2ReadyOn } from "./flags.js";
+import { BLANK_CHARS, FORMAT_CHARS } from "./text.js";
 import { chosenOf, clearApproved, ensureReadySchema, markApprovedStatement } from "./coinart-store.js";
 import { buildTx, checkCluster, checkGenesis, checkedRoute, lpRpc, readAccounts, respond } from "./lpkit.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas, programDataAddress } from "./sol/pda.js";
@@ -727,15 +728,6 @@ async function summary(env, ctx, fetchImpl, now) {
 
 /* ---------------------------------------------------------------- per city: candidates, approve, revoke */
 const cityIdOf = (v) => (typeof v === "string" || typeof v === "number") && /^\d{1,19}$/.test(String(v)) && BigInt(v) > 0n && BigInt(v) < U64_MAX ? BigInt(v) : null;
-// Invisible characters: every Unicode default-ignorable code point and the other format characters, then blank characters:
-// spaces other than U+0020, line and paragraph separators, the braille blank and the musical null notehead. Security review FA-1:
-// "Paris" followed by a Hangul filler looked exactly like "Paris" and would have been written into the coin's permanent name.
-const FORMAT_CHARS = [[0xad, 0xad], [0x34f, 0x34f], [0x600, 0x605], [0x61c, 0x61c], [0x6dd, 0x6dd], [0x70f, 0x70f], [0x890, 0x891], [0x8e2, 0x8e2],
-  [0x115f, 0x1160], [0x17b4, 0x17b5], [0x180b, 0x180f], [0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x206f], [0x3164, 0x3164], [0xfe00, 0xfe0f],
-  [0xfeff, 0xfeff], [0xffa0, 0xffa0], [0xfff0, 0xfffb], [0x110bd, 0x110bd], [0x110cd, 0x110cd], [0x13430, 0x1343f], [0x1bca0, 0x1bca3],
-  [0x1d173, 0x1d17a], [0xe0000, 0xe0fff]];
-const BLANK_CHARS = [[0xa0, 0xa0], [0x1680, 0x1680], [0x2000, 0x200a], [0x2028, 0x2029], [0x202f, 0x202f], [0x205f, 0x205f], [0x2800, 0x2800],
-  [0x3000, 0x3000], [0x1d159, 0x1d159]];
 /**
  * A coin name the website will prepare an approval for: 1 to 32 UTF-8 bytes (the program's limit), no control, invisible or
  * blank character, and U+0020 only as a single space between two characters. The vicinity_launchpad program itself checks less

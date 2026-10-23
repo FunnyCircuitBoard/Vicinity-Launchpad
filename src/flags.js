@@ -87,3 +87,22 @@ export const walletSendOn = (env) => String((env && env.WALLET_SEND) ?? "").trim
  * (/coin-meta/art/<sha256>.png) and its /coin-meta JSON keep being served (src/coinmeta.js): a launched coin's picture never goes away.
  */
 export const coinV2ReadyOn = (env) => String((env && env.COIN_V2_READY) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * COIN_V2_REVIEW=on turns on the second stage of the new city-coin flow, on top of the first (it does nothing unless COIN_V2_READY is on
+ * too): "Request changes" (a separate draft for another picture, ticker or name, reviewed by a person against its exact content hash;
+ * submitting it pauses the launch until an admin or the owner decides), the review status cards (Pending, Approved, Changes needed, each
+ * with a plain reason), the founder's own description with automatic screening (src/screen.js: a pass is used at once, a flag pauses
+ * the launch only if the founder sends it for review, a block or a screening error never counts as approval), and the admin queue "Coin
+ * reviews" (src/coinreview.js). The routes /api/coins/review*, /api/admin/coins/reviews*, the key `review` on GET /api/coins/ready, the
+ * key coinReviews on /api/admin/me and /api/admin/overview, the coin_requests and coin_screenings tables (lazy, additive) exist only
+ * then. Exactly "on" (trimmed, any letter case) AND COIN_V2_READY on; anything else is the site exactly as before.
+ */
+export const coinV2ReviewOn = (env) => coinV2ReadyOn(env) && String((env && env.COIN_V2_REVIEW) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * COIN_V2_BATCH=on is reserved for the owner's daily launch-approval batch (DESIGN 6.5 / 9.4: one signing round a day for every eligible
+ * founder's coin, the owner's own wallet signing each transaction; no key on the website). It is NOT built yet: today this switch changes
+ * nothing, whatever it says. Exactly "on" (trimmed, any letter case) AND COIN_V2_READY on, once it is built.
+ */
+export const coinV2BatchOn = (env) => coinV2ReadyOn(env) && String((env && env.COIN_V2_BATCH) ?? "").trim().toLowerCase() === "on";
