@@ -42,6 +42,9 @@ import { lpSetup } from "./cluster.js";
 import { adminRoleOf } from "./admin.js";
 import { clearedStatement, pendingStatement, publicLogo, rejectLogo, reviewView } from "./logos.js";
 import { notify, pictureReason } from "./notify.js";
+import { coinV2ReadyOn } from "./flags.js";
+import { boundArtOf, chosenOf, madeByOf } from "./coinart-store.js";
+import { choiceHolds } from "./coinready.js";
 
 const C = POLICY.coins;
 
@@ -132,7 +135,20 @@ export async function handleCoins(request, env, fetchImpl = fetch, now = Date.no
     const row = await coinOf(env.DB, q.get("city"));
     let mine = false;
     if (row) { const a = await access(request, env, now, { write: false }); mine = !a.error && await seesReview(env, a.u, row); }
-    return json({ coin: coinView(row, { mine }), pairs, vicinity, ...closed });
+    const coin = coinView(row, { mine });
+    // who made the design (madeBy "vicinity": the ready-made coin, src/coinart-store.js madeByOf), so the coin card never calls Vicinity's
+    // coin the founder's design, and whether it is chosen (chosen: false for a choice the city list moved away from since: Vicinity's
+    // design still, but nobody's choice now; src/coinready.js choiceHolds). Looked up only with the switch on or for a launched coin (a
+    // version bound to it), so with the switch off and nothing launched the answer and the reads are as they always were
+    if (coin && (coinV2ReadyOn(env) || row.mint)) {
+      let by = null;
+      try {
+        const choice = await chosenOf(env.DB, row.city_id);
+        by = await madeByOf(env, { mint: row.mint, updatedAt: row.updated_at }, choice, () => choiceHolds(env, { cityId: row.city_id, country: row.country }, choice));
+      } catch (e) { console.error("coin maker unknown", String((e && e.message) || e).slice(0, 80)); }
+      if (by) { coin.madeBy = by.by; coin.chosen = by.chosen; }
+    }
+    return json({ coin, pairs, vicinity, ...closed });
   }
   const rows = (await env.DB.prepare(`${SELECT} ORDER BY c.updated_at DESC LIMIT 20000`).all()).results;
   return json({ coins: rows.map((r) => coinView(r)), pairs, vicinity, ...closed });
@@ -294,6 +310,9 @@ export async function handleDecideMint(request, env, fetchImpl = fetch, now = Da
   let seen = "";
   if (body.approve === true) {
     if (!mint) return json({ ok: false, error: "mint_required" }, 400);
+    // COIN_V2_READY=on (src/coinready.js): a city's one coin launches on the Vicinity launchpad, so a contract is never RECORDED as a
+    // city's coin (it could become a second coin); a waiting one can still be rejected (below), which settles the city
+    if (coinV2ReadyOn(env)) return json({ ok: false, error: "launchpad_only", message: "City coins launch on the Vicinity launchpad now, so a waiting Raydium LaunchLab contract can only be rejected, not recorded. Nothing was changed." }, 409);
     let facts;
     try { facts = await mintInfo(env, mint, fetchImpl); }
     catch (e) { console.error("mint check failed", String(e)); return json({ ok: false, error: "chain_unavailable" }, 503); }
@@ -342,6 +361,12 @@ export async function handleTakedown(request, env, fetchImpl = fetch, now = Date
     await notify(env, { to: coin.user_id, kind: "picture", ref: coin.city_id, href: "/dashboard#founder", now, text: `Your coin picture was taken down: ${pictureReason(reason)}.` });
   }
   else if (body.what === "text" && !coin.mint) await db.prepare("UPDATE city_coins SET name = city_name, pitch = NULL, updated_at = ? WHERE city_id = ?").bind(iso(now), coin.city_id).run();
+  // a coin launched with a ready-made version (COIN_V2_READY, src/coinart-store.js): its published description is that version's, the
+  // default sentence from the city list (src/coinmeta.js never reads the design row's text for it), so there is no founder's text to take
+  // down and the public log would claim a removal that did not happen
+  else if (body.what === "text" && (await boundArtOf(db, coin.mint))) {
+    return json({ ok: false, error: "system_text", message: "This coin's description is Vicinity's own sentence from the city list (it launched with the Vicinity design), not the founder's text, so there is nothing to take down. Nothing was changed." }, 409);
+  }
   else if (body.what === "text" && coin.pitch && (await recordedOnLaunchpad(env, coin.mint))) {
     // a coin launched on the Vicinity launchpad: its name is on chain for ever, but its description lives in the /coin-meta JSON
     // this site serves, so the description is removed there too (rebuilt with the default text; caches keep the old one an hour)

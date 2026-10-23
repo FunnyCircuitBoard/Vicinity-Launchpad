@@ -89,6 +89,12 @@
     // in a pull request; anything else than "on" is the Wallet tab exactly as before (no Send button, the three /api/wallet/send/* paths
     // answer 404 like any unknown path).
     "WALLET_SEND": "on",
+    // The ready-made city coin, stage 1 of the new coin flow (src/flags.js coinV2ReadyOn, src/coinready.js): the founder's Founder tab
+    // shows the Vicinity coin already made from the city list (template t1, src/coinart.js), read-only, with "Use this coin", which
+    // records that exact version for the owner's approval and the launch as today. OFF: built and tested dark on 18 Oct 2026; the
+    // template look is not signed off and the rules text (docs/RULES-V7-DRAFT.md) is not published yet. "on" only after the owner's
+    // go; anything else than "on" is the site exactly as before (change the value, do not delete the line: keep_vars).
+    "COIN_V2_READY": "off",
     // Community feed v2 (src/flags.js feedV2On): the "update" post kind, delete your own post, mute, the author's city on every
     // national post, one confirmation before the first national post. ON since 17 Oct 2026, by the owner ("switch on all the
     // builds"). To switch off: "off" (change the value, do not delete the line: keep_vars) in a pull request; anything else than
@@ -113,6 +119,10 @@
     { "pattern": "vicinity.city", "custom_domain": true },
     { "pattern": "www.vicinity.city", "custom_domain": true }
   ],
+  // The two fonts the city-coin picture is drawn with (src/coinart-wasm.js imports them): plain bytes, not code. The renderer's wasm
+  // (@resvg/resvg-wasm/index_bg.wasm) is a CompiledWasm module by wrangler's default rule: compiled when the isolate starts (about 5 ms);
+  // only its instantiation and the first drawing are lazy (src/coinart-wasm.js).
+  "rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }],
   // The database; the code creates and upgrades its tables the first time they're used.
   "d1_databases": [{ "binding": "DB", "database_name": "vicinity-claims", "database_id": "e0e01286-ca8f-49dd-82c0-638fa24abb40" }],
   // Every 10 minutes: balance history, founder seats, elections, moderation expiry, snapshots (src/jobs.js)

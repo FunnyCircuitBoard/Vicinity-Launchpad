@@ -72,3 +72,18 @@ export { swapOn, launchpadTradingOn } from "./cluster.js";
  * anything else, unset included, is the Wallet tab as it is: no Send control, and the three paths answer like any unknown path (404).
  */
 export const walletSendOn = (env) => String((env && env.WALLET_SEND) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * COIN_V2_READY=on turns on the first stage of the new city-coin flow (src/coinready.js): the founder's Founder tab shows a coin that is
+ * already made (the Vicinity template drawn with the city's registry ticker and name, src/coinart.js; the name, city, region, country and
+ * a default description from the Vicinity city list), read-only, with one action, "Use this coin", which records that exact version
+ * (its content hash) as the city's design for the existing admin approval and launch; launches then publish the template picture and
+ * the server-built metadata (only for a version the owner's approval was built from while it is on). Everyone else in a city that has a
+ * founder sees it labelled "Preview, not launched". While on, the old studio (POST /api/coins/design) and a founder's Raydium LaunchLab
+ * contract (POST /api/coins/mint) answer 409, and an admin can only reject a contract still waiting (POST /api/coins/mint/decide).
+ * The routes GET /api/coins/ready, POST /api/coins/ready/art and POST /api/coins/ready/use, the key coinV2Ready on /api/me and /api/official, the
+ * coin_art, coin_versions, coin_ready and coin_legacy_designs tables (lazy, additive) exist only then. Exactly "on" (trimmed, any letter
+ * case); anything else, unset included, is the site exactly as before. Whatever this says, a recorded coin's picture
+ * (/coin-meta/art/<sha256>.png) and its /coin-meta JSON keep being served (src/coinmeta.js): a launched coin's picture never goes away.
+ */
+export const coinV2ReadyOn = (env) => String((env && env.COIN_V2_READY) ?? "").trim().toLowerCase() === "on";

@@ -120,9 +120,11 @@
     } else if (seat && seat.status === "active") {
       p.icon = "👑"; p.ico = ["crown", "gold"]; p.title = `City Founder of ${seat.city}`;
       p.tag = { text: "Active", cls: "tag--ok" };
-      p.lead = `You moderate ${seat.city}, design its coin and your vote counts ×${weight}. Keep ${fmt(seat.threshold)} $VICINITY: below it, moderation pauses at once.`;
+      // with the ready-made coin on (COIN_V2_READY), the founder chooses the coin Vicinity made from the city list, never designs one
+      const ready = d.coinV2Ready === true;
+      p.lead = `You moderate ${seat.city}, ${ready ? "choose and launch its coin (made by Vicinity from the city list)" : "design its coin"} and your vote counts ×${weight}. Keep ${fmt(seat.threshold)} $VICINITY: below it, moderation pauses at once.`;
       p.meters.push(meter(`Your holding vs your bar (${fmt(seat.threshold)})`, pct(d.holding.amount, seat.threshold), `${fmt(d.holding.amount)} $VICINITY`, d.holding.amount >= seat.threshold ? "ok" : "bad"));
-      p.tools.push(jump("Design the city's coin", "#coin"), jump("Moderator tools", "#mod"), invite); resign(seat);
+      p.tools.push(ready ? jump("Your city coin", "#coin-ready") : jump("Design the city's coin", "#coin"), jump("Moderator tools", "#mod"), invite); resign(seat);
     } else if (d.level === "holder") {
       p.icon = "🏅"; p.ico = ["medal", "ok"]; p.title = `Holder in ${city}`;
       // (the tabbed dashboard drops the pill: the meter right under it says the same percentage)

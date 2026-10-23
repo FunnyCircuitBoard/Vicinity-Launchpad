@@ -1922,11 +1922,13 @@
     }));
   }
   // neighbourhoods that are part of another city don't get a coin of their own
-  // One list of tickers for every page (public/data/tickers.json); computed here only if that file can't be loaded
-  let tickerFile = null;
+  // One list of tickers for every page (public/data/tickers.json); computed here only if that file can't be loaded, and then with every
+  // launched coin's ticker pinned (public/data/ticker-pins.json, the copy scripts/cities/tickers.mjs publishes): a ticker on the
+  // blockchain never moves to another city on this page either
+  let tickerFile = null, pinFile = null;
   function retick() {
     if (tickerFile) tickers = new Map(Object.entries(tickerFile).map(([id, v]) => [id, typeof v === "string" ? { ticker: v, base: v, shared: 1 } : { ticker: v[0], base: v[1], shared: v[2] }]));
-    else tickers = window.vicinityTicker ? window.vicinityTicker.assign(cities.filter((c) => !parts.has(c.id))) : new Map();
+    else tickers = window.vicinityTicker ? window.vicinityTicker.assign(cities.filter((c) => !parts.has(c.id)), { pinned: (pinFile && pinFile.pins) || null }) : new Map();
   }
 
   let lastRefresh = 0;
@@ -1980,6 +1982,8 @@
         fetch("/data/tickers.json").then((r) => r.json()).catch(() => null),      // every community's ticker (computed here if missing)
       ]);
       tickerFile = tf;
+      // only when the list is missing: the launched tickers, so the fallback keeps them (no request at all otherwise)
+      if (!tf) pinFile = await fetch("/data/ticker-pins.json").then((r) => r.json()).catch(() => null);
       countries = data.countries; admin = data.admin;
       readPalette();
       world = wd ? Object.entries(wd.countries).map(([cc, enc]) => { const area = enc.map((poly) => poly.map((r) => decodeRing(r, wd.unit))); return { cc, area, box: boxOf(area), path: toPath(area) }; }) : [];

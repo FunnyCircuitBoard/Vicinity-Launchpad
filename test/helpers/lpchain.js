@@ -63,6 +63,16 @@ export function layoutData(name, values) {
   return Buffer.from(out).toString("base64");
 }
 
+/** An Approval account of `program` as approve_launch writes it (179 bytes, the program's InitSpace): { owner, data }. */
+export function approvalAccount({ cityId, founder, dbcConfig = SOL_CONFIG, rentPayer = addr(5), name = "Utica Coin", symbol = "UTICA", approvedAt = 1, expiresAt, program = PROGRAM }) {
+  const enc = new TextEncoder();
+  const str = (s) => concat([u32le(enc.encode(s).length), enc.encode(s)]);
+  const body = concat([Uint8Array.of(233, 9, 153, 49, 11, 222, 59, 130), u64le(BigInt(cityId)), base58Decode(founder), base58Decode(dbcConfig), base58Decode(rentPayer), str(name), str(symbol),
+    u64le(BigInt(approvedAt)), u64le(BigInt(expiresAt)), Uint8Array.of(254)]);
+  const out = new Uint8Array(179); out.set(body);
+  return { owner: program, data: Buffer.from(out).toString("base64") };
+}
+
 /** Metaplex MetadataV1 bytes as the program writes them (name padded to 32, symbol to 10, uri to 200 with NULs). */
 export function metaplexData({ updateAuthority = "11111111111111111111111111111111", mint, name, symbol, uri }) {
   const enc = new TextEncoder();

@@ -549,6 +549,10 @@
     if (noticesOn()) noticesSync(d); // in-app notices (NOTIFY=on): the header's count, and a list on screen follows a changed count
     if (v2 && d.walletSend === true) loadWalletSend(); // Send in the Wallet tab: fetched the first time the switch is seen on
     if (wsend) wsend.render(d);
+    if (d.coinV2Ready === true) loadCoinReady(); // the ready-made city coin (COIN_V2_READY=on): fetched the first time the switch is seen on
+    // the roles list says who makes the coin: the founder's design, or (switch on) the coin Vicinity makes and the founder chooses
+    $$("[data-coin-designed]").forEach((e) => (e.hidden = d.coinV2Ready === true));
+    $$("[data-coin-ready]").forEach((e) => (e.hidden = d.coinV2Ready !== true));
   }
 
   /* ---------- in-app notices (NOTIFY=on: /api/me carries `unread`, a number): the Notifications tab's list, marking read, the five controls ---------- */
@@ -818,7 +822,7 @@
       : c.window ? `Choosing · ${c.window.applicants.length} applying` : "Open seat 🔥";
     const others = c.members - 1;
     $("#cc-fomo").textContent = c.seat && c.seat.you
-      ? `You're ${c.name}'s founder. Bring your locals in, and design ${c.name}'s coin so they can see what's coming.`
+      ? `You're ${c.name}'s founder. Bring your locals in, and ${d.coinV2Ready === true ? "check and use" : "design"} ${c.name}'s coin so they can see what's coming.`
       : c.seat
       ? `${c.name} has a founder. Climb the local board: the top holders here are the first people the city sees.`
       : c.window ? `${c.name} is choosing its founder right now (${left(c.window.closesAt)}). Locals' endorsements count most.`
@@ -1220,6 +1224,7 @@
     coinData = r.coin || null; coinPairs = r.pairs || coinPairs; vicMint = r.vicinity || null;
     labSaid(r);
     renderCoin(); renderTrade(); v2Coin(); lpMount();
+    if (cready) cready.render(me); // after the coin card: its preview stands in that card
     if (me.roles && me.roles.admin) loadCoinQueue();
   }
   function paintCoin({ name, color, logo, pair }) {
@@ -1241,25 +1246,47 @@
     $("#coin-city").textContent = c.name;
     $$("[data-city-ticker]").forEach((e) => (e.textContent = c.ticker ? tk : `${c.name} coin`));
     const st = $("#coin-status");
+    // with the ready-made coin on (COIN_V2_READY) nobody designs a coin: Vicinity makes it from the city list and the founder chooses it.
+    // byV: the server says this design row IS Vicinity's ready-made coin (chosen, or launched with it: src/coins.js madeBy), so it is
+    // never called the founder's design, launched or not, with a founder now or not. chosenV: and that choice still holds (the server's
+    // chosen: false for one the city list moved away from since, src/coinready.js choiceHolds: nobody chose the coin the list gives
+    // the city now, so it is never "Chosen" nor "chosen <date>")
+    const rdy = me.coinV2Ready === true, founded = Boolean(seat && ["active", "steward", "grace"].includes(seat.status));
+    const byV = Boolean(cd && cd.madeBy === "vicinity"), chosenV = byV && cd.chosen !== false;
     st.className = "tag " + (cd && cd.launched ? "tag--ok" : cd && cd.waiting ? "tag--warn" : cd ? "tag--gold" : "");
-    st.textContent = cd && cd.launched ? "● Live" : cd && cd.waiting ? (lpOn ? "Old contract waiting" : "Contract being checked") : cd ? "Designed" : "Not designed yet";
+    st.textContent = cd && cd.launched ? "● Live" : cd && cd.waiting ? (lpOn ? "Old contract waiting" : "Contract being checked")
+      : cd ? (byV ? (!founded ? "Not launched" : chosenV ? "Chosen" : "Not chosen yet") : "Designed") : rdy ? (founded ? "Not chosen yet" : "No founder yet") : "Not designed yet";
+    const kick = $("#coin-kicker"); // coin-ready.js names Vicinity here while its preview stands in, and puts these words back after
+    kick.dataset.base = (rdy && !cd) || byV ? "City coin · made by Vicinity" : "City coin · designed by the City Founder";
+    kick.textContent = kick.dataset.base;
     // the founder sees their working picture (the server sends logoDraft to them and the staff only); everyone else the approved one or none
     if (!(mine && studioDirty)) paintCoin(cd ? { ...cd, logo: mine ? cd.logoDraft || cd.logo : cd.logo } : { name: c.name, color: "gold", logo: null, pair: null });
     $("#coin-pitch").textContent = cd ? cd.pitch : "";
-    $("#coin-by").textContent = cd ? `Designed by ${cd.by || "the City Founder"} · updated ${date(cd.updatedAt)}` : "";
+    $("#coin-by").textContent = !cd ? "" : byV ? (chosenV ? `Made by Vicinity from the city list · chosen ${date(cd.updatedAt)}` : "Made by Vicinity from the city list")
+      : `Designed by ${cd.by || "the City Founder"} · updated ${date(cd.updatedAt)}`;
     logoState(mine ? cd : null);
     $("#coin-contract").hidden = !(cd && cd.mint);
     // a short chip (the whole address is the copy button's name and the chip's title); Copy copies the whole address
     if (cd && cd.mint) { $("#coin-mint").textContent = cd.mint; $("#coin-mint").title = cd.mint; $("#coin-mint-copy").setAttribute("aria-label", `Copy the contract address ${cd.mint}`); }
     tickerLine();
-    $("#coin-note").textContent = mine
-      ? (cd ? (cd.launched ? `${c.name}'s coin is live. Its design is locked, as the rules promise.` : "Change anything until your coin launches. Every save is public in the log.")
+    const MADE = "Every city coin is made by Vicinity from the city list; the founder chooses it and launches it once Vicinity's owner approves it on the blockchain.";
+    $("#coin-note").textContent = rdy && !cd
+      ? (mine ? `${c.name}'s coin is ready in your Founder tab: check it, then use it.` : seat ? `${MADE} ${seat.name}, ${c.name}'s ${founded ? "founder" : "chosen founder"}, hasn't chosen it yet.` : `${MADE} The seat is still open: see the founder path.`)
+      : mine
+      ? (cd ? (cd.launched ? `${c.name}'s coin is live. Its design is locked, as the rules promise.`
+        : rdy ? (byV && !chosenV ? "Your city coin is made by Vicinity, and the city list changed since it was chosen: see your Founder tab. Nothing has launched yet."
+          : "Your city coin is the one made by Vicinity, in your Founder tab. Nothing has launched yet.")
+          : "Change anything until your coin launches. Every save is public in the log.")
         : `Your coin, your call. Design ${c.name}'s coin below: everyone in ${c.name} will see it.`)
-      : cd ? (cd.launched ? `The one official ${c.ticker ? tk : `${c.name} coin`}. Buy or swap it in the panel on the right.` : `Designed by ${c.name}'s founder. It launches on ${lpOn ? "the Vicinity launchpad" : "Raydium LaunchLab"}.`)
+      : cd ? (cd.launched ? `The one official ${c.ticker ? tk : `${c.name} coin`}. Buy or swap it in the panel on the right.`
+        : byV ? "Made by Vicinity from the city list. Nothing has launched yet." : rdy ? `Designed by ${c.name}'s founder. Nothing has launched yet.`
+          : `Designed by ${c.name}'s founder. It launches on ${lpOn ? "the Vicinity launchpad" : "Raydium LaunchLab"}.`)
       : seat ? `${seat.name}, ${c.name}'s founder, hasn't designed the coin yet. It'll appear here the moment they do.`
       : `${c.name}'s founder designs this coin: its name, logo, colour and what it's paired with. The seat is still open: see the founder path.`;
-    $("#coin-studio").hidden = !mine || Boolean(cd && cd.launched);
+    // with the ready-made coin on (COIN_V2_READY), the coin is made by Vicinity and chosen in its own card: the old studio stays hidden
+    $("#coin-studio").hidden = !mine || Boolean(cd && cd.launched) || me.coinV2Ready === true;
     if (mine && !studioDirty) fillStudio();
+    if (cready) cready.repaint(); // the ready-made coin's preview, painted earlier, stands in this card again
   }
   const countPitch = () => ($("#cs-count").textContent = `${$("#cs-pitch").value.length}/200`);
   // the founder's one line about their picture's check (src/logos.js): nobody else gets these fields, so nobody else sees a line.
@@ -1375,7 +1402,8 @@
     if (lpCity === c.id) return;
     lpCity = c.id;
     if (v2) v2.lp({ on: true, state: null }); // the launchpad's words at once (state null: the status is on its way), never the old path's
-    const r = await L.founder(card, { cityId: c.id, design: coinData, onChange: (x) => { if (v2) v2.lp(x); loadCoin(); } }); // launched: the coin card follows
+    // ready: with the ready-made coin on (COIN_V2_READY), the card points at "Use this coin", never at the studio it hides
+    const r = await L.founder(card, { cityId: c.id, design: coinData, ready: me.coinV2Ready === true, onChange: (x) => { if (v2) v2.lp(x); loadCoin(); } }); // launched: the coin card follows
     if (coinData && coinData.launched && r.state !== "launched") card.hidden = true; // launched on Raydium LaunchLab before: nothing to launch here
     if (v2) v2.lp(r);
   }
@@ -1482,6 +1510,22 @@
       if (me) wsend.render(me);
     };
     s.onerror = () => { wsendAsked = false; }; // the next /api/me tries again
+    document.head.append(s);
+  }
+  /* ---------- the ready-made city coin (COIN_V2_READY=on): its code is fetched ONLY when /api/me says coinV2Ready, so with the switch off this page never asks for it ---------- */
+  // public/coin-ready.js fills the founder's #coin-ready card (the coin made from the city list, "Use this coin") and the preview in #coin
+  let cready = null, creadyAsked = false;
+  function loadCoinReady() {
+    if (cready || creadyAsked) return;
+    creadyAsked = true;
+    const s = document.createElement("script"); s.src = "/coin-ready.js";
+    s.onload = () => {
+      if (!window.VCoinReady) { creadyAsked = false; return; }
+      // onState: every ready-coin answer goes to the tabbed dashboard too (its Today strip and Founder card speak from it)
+      cready = window.VCoinReady.init({ api, sensitive, toast, changed: () => loadCoin(), onState: (r) => { if (v2 && typeof v2.ready === "function") v2.ready(r); } });
+      if (me) cready.render(me);
+    };
+    s.onerror = () => { creadyAsked = false; }; // the next /api/me tries again
     document.head.append(s);
   }
   let qrP = null;

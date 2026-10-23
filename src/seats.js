@@ -616,6 +616,19 @@ export async function stillFounder(env, seat, now, fetchImpl = fetch) {
   return false;
 }
 
+/**
+ * stillFounder WITHOUT its consequence, for pages that only look (GET routes must change nothing): true when the seat is active or a
+ * steward's and its live backing balance (the squad's pooled, for a squad seat) is at the founder amount, false otherwise. Nothing is
+ * written: a low balance does NOT start the grace period here (the scheduled job and the next real founder action do that). Throws
+ * when the balances cannot be read, so the caller says so instead of guessing.
+ */
+export async function holdsFounderAmount(env, seat, fetchImpl = fetch) {
+  if (!seat || (seat.status !== "active" && seat.status !== "steward")) return false;
+  const wallets = await seatWallets(env.DB, seat);
+  const balances = Object.fromEntries((await amountsFor(env, wallets, fetchImpl)).entries());
+  return (await seatBalance(env.DB, seat, balances)) >= seat.threshold;
+}
+
 /** The scheduled job's part: close windows, make seats final, confirm stewards, grace and release. */
 export async function advanceSeats(env, now = Date.now(), fetchImpl = fetch) {
   const db = env.DB;

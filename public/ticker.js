@@ -34,8 +34,12 @@
    * Give every city a unique ticker.
    * cities: [{ id, name, cc, adm, pop }] → Map(id → { ticker, base, shared })
    *   shared = how many listed cities have the same base ticker (1 = unique).
+   * pinned (optional): { id: ticker } of every city whose coin has LAUNCHED (scripts/cities/ticker-pins.json). A launched coin's
+   *   ticker is on the blockchain for ever, so its city keeps it whatever the list becomes (a new town with the same name and more
+   *   people would otherwise take the plain ticker), and no other city can be given it.
    */
-  function assign(cities) {
+  function assign(cities, { pinned = null } = {}) {
+    const pins = new Map(Object.entries(pinned || {}).map(([id, t]) => [String(id), t]));
     const groups = new Map();
     for (const c of cities) {
       const b = baseTicker(c.name) || c.cc + "CITY";
@@ -43,7 +47,9 @@
       groups.get(b).push(c);
     }
     const out = new Map(), used = new Set();
+    for (const c of cities) if (pins.has(String(c.id))) used.add(pins.get(String(c.id))); // reserved before anyone is given a ticker
     const take = (c, t, base, shared) => {
+      if (pins.has(String(c.id))) { out.set(c.id, { ticker: pins.get(String(c.id)), base, shared }); return; }
       let final = t, n = 2;
       while (used.has(final)) { const s = String(n++); final = t.slice(0, MAX - s.length) + s; }
       used.add(final); out.set(c.id, { ticker: final, base, shared });

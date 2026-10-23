@@ -29,6 +29,7 @@ import { priceInQuote } from "./sol/quote.js";
 import { LAYOUT } from "./sol/layout.js";
 import { decodeMetadata, metadataAddress } from "./sol/metaplex.js";
 import { metaJsonFor, metadataUriFor } from "./coinmeta.js";
+import { bindVersion } from "./coinart-store.js";
 
 export const COIN_SIZE = LAYOUT.Coin.size; // 243
 export const COIN_MINT_OFFSET = LAYOUT.Coin.fields.mint.at; // 48
@@ -181,6 +182,30 @@ export async function chainMetadata(env, mint, fetchImpl = fetch) {
   return md && md.mint === mint ? md : null;
 }
 /**
+ * Recorded coins of OTHER cities whose symbol this site does not know (lp_coins.symbol is NULL when the chain's metadata could not be
+ * read at record time), on THIS site's launchpad (lpSetup's cluster and program: a row of another network can neither be read through
+ * this one's RPC nor launch here): up to 20 are read from the chain now and stored. Returns the city ids still unknown afterwards, ALL
+ * of them (read now or not), which the "ticker already launched" checks treat as a possible clash (src/coinready.js, src/lpadmin.js,
+ * src/lplaunch.js: COIN_V2_READY) rather than as free.
+ */
+export async function unknownSymbols(env, exceptCityId, fetchImpl = fetch) {
+  const s = lpSetup(env);
+  if (!s.on || !env.DB) return [];
+  const where = "FROM lp_coins WHERE symbol IS NULL AND city_id <> ? AND cluster = ? AND program_id = ?";
+  const args = [String(exceptCityId), s.cluster, s.programId];
+  let rows;
+  try { rows = (await env.DB.prepare(`SELECT city_id, mint ${where} LIMIT 20`).bind(...args).all()).results; }
+  catch (e) { if (/no such table/i.test(String((e && e.message) || e))) return []; throw e; }
+  if (!rows.length) return [];
+  for (const r of rows) {
+    let md = null;
+    try { md = await chainMetadata(env, r.mint, fetchImpl); } catch (e) { console.error("lp symbol read failed", codeOf(e)); }
+    if (md && md.symbol) await env.DB.prepare("UPDATE lp_coins SET name = COALESCE(name, ?), symbol = COALESCE(symbol, ?) WHERE mint = ?").bind(md.name, md.symbol, r.mint).run();
+  }
+  // whatever is still unknown, beyond the 20 read now too: never assumed free
+  return (await env.DB.prepare(`SELECT city_id ${where}`).bind(...args).all()).results.map((r) => String(r.city_id));
+}
+/**
  * The launch transaction: the oldest signature of the coin's Metaplex metadata account, which the launch creates and nothing
  * touches afterwards (immutable metadata; not the Coin record: approve_launch already reads that address), when its whole
  * history fits in one page (else null).
@@ -239,11 +264,19 @@ export async function recordLaunchedCoin(env, { cityId = null, mint = null, coin
   const locked = await lockDesign(env, row, { name: md ? md.name : row.name, quoteMint: c.quoteMint }, now);
   // the metadata JSON is built once, from the chain's name and symbol, and served from here for ever (src/coinmeta.js)
   if (md && md.uri === metadataUriFor(c.mint)) {
-    try {
-      const meta = await metaJsonFor(env, row, md);
-      await db.prepare("UPDATE lp_coins SET meta_json = ?, meta_at = ?, name = COALESCE(name, ?), symbol = COALESCE(symbol, ?) WHERE mint = ?").bind(JSON.stringify(meta), iso(now), md.name, md.symbol, c.mint).run();
-      row = { ...row, meta_json: JSON.stringify(meta), meta_at: iso(now) };
-    } catch (e) { console.error("lp record: metadata JSON not built", codeOf(e)); }
+    // a coin launched with a ready-made version (src/coinready.js): that version is bound to this mint now, once, so its picture and
+    // words stay the coin's for ever (src/coinart-store.js); the JSON below is built from it. A bind that FAILED (a database error, not
+    // a "no") decides nothing: no JSON is stored, so the next record (the page, the sweep) or the first /coin-meta read tries again;
+    // a JSON stored now would be served for ever without the version's picture
+    let decided = true;
+    try { await bindVersion(env, { cityId: city, mint: c.mint, name: md.name, symbol: md.symbol }, now); } catch (e) { decided = false; console.error("lp record: version not bound", codeOf(e)); }
+    if (decided) {
+      try {
+        const meta = await metaJsonFor(env, row, md);
+        await db.prepare("UPDATE lp_coins SET meta_json = ?, meta_at = ?, name = COALESCE(name, ?), symbol = COALESCE(symbol, ?) WHERE mint = ?").bind(JSON.stringify(meta), iso(now), md.name, md.symbol, c.mint).run();
+        row = { ...row, meta_json: JSON.stringify(meta), meta_at: iso(now) };
+      } catch (e) { console.error("lp record: metadata JSON not built", codeOf(e)); }
+    }
   }
   return { ok: true, recorded: !known, row, locked };
 }

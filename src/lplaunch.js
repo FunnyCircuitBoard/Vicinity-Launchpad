@@ -32,6 +32,7 @@ import { access } from "./access.js";
 import { isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { lpSetup } from "./cluster.js";
+import { coinV2ReadyOn } from "./flags.js";
 import { buildTx, checkCluster, checkGenesis, checkedRoute, readAccounts, respond } from "./lpkit.js";
 import { liveSeatOfUser } from "./roles.js";
 import { stillFounder } from "./seats.js";
@@ -39,7 +40,7 @@ import { iso } from "./policy.js";
 import { keyLimit, publicLimit, walletLimit } from "./guards.js";
 import { displayTicker } from "./tickers.js";
 import { decodeApproval } from "./lpadmin.js";
-import { coinByMint, recordedByMint } from "./lpcoins.js";
+import { coinByMint, recordedByMint, unknownSymbols } from "./lpcoins.js";
 import { programHashes, programRefusal } from "./programpins.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas } from "./sol/pda.js";
 import { accountBytes, decodeCoin, decodeConfig, decodeLaunchConfig, decodeLaunchpad, decodePool, decodeTokenAccount } from "./sol/dbc.js";
@@ -328,6 +329,16 @@ async function launchTx(request, env, fetchImpl, now) {
   if (p && (p.error === "already_launched" || p.error === "founder_mismatch")) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });
   if (await legacyContractWaiting(env, cityId)) return err("legacy_contract", `${LEGACY_CONTRACT_WAITING} Nothing was built.`, 409, { state: "paused" });
   if (p) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });
+  // COIN_V2_READY=on: a ticker launches once. The live program does not lock tickers, so a symbol another city already launched with
+  // (lp_coins) is refused here before anything is built (scripts/cities/tickers.mjs pins every launched ticker in the city list too)
+  if (coinV2ReadyOn(env) && st.approval) {
+    // a recorded coin whose symbol the site never read is read now; one still unknown may be this ticker: refused, never assumed free
+    if ((await unknownSymbols(env, cityId, fetchImpl)).length) return err("symbol_unchecked", "A coin launched for another city has a ticker this site could not read from the blockchain yet, so it can't be sure yours is free. Nothing was built. Try again in a minute.", 503, { state: "paused" });
+    let other = null;
+    try { other = await env.DB.prepare("SELECT city_id FROM lp_coins WHERE symbol = ? AND city_id <> ? AND cluster = ? AND program_id = ? LIMIT 1").bind(st.approval.symbol, String(cityId), s.cluster, s.programId).first(); }
+    catch (e) { if (!/no such table/i.test(String((e && e.message) || e))) throw e; }
+    if (other) return err("symbol_taken", `$${st.approval.symbol} has already launched for another city, so it can't launch twice. Nothing was built. Tell us and we'll sort it out.`, 409, { state: "paused" });
+  }
   // never a launch on a Meteora build the team has not tested (409), nor one blind while that cannot be read (503); read fresh (the
   // deploy slots again, on the node whose genesis hash was checked), so an upgrade a minute ago is seen now
   const pr = await meteoraHold(env, fetchImpl, now, { fresh: true, route: checkedRoute(env, g) });

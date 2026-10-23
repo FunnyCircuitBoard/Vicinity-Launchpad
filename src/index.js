@@ -91,7 +91,8 @@ import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots,
 import { managerOf } from "./roles.js";
 import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown, jupiterPrices, officialCityCoin, wantedMints } from "./coins.js";
 import { runJobs } from "./jobs.js";
-import { feedV2On, launchpadV2On, notifyOn, profilesOn, v2On, walletSendOn } from "./flags.js";
+import { coinV2ReadyOn, feedV2On, launchpadV2On, notifyOn, profilesOn, v2On, walletSendOn } from "./flags.js";
+import { handleReady, handleReadyArt, handleReadyUse } from "./coinready.js";
 import { handleSendBuild } from "./walletsend.js";
 import { linkAccountFor, routeWalletLink } from "./walletlink.js";
 import { routeV2 } from "./signup.js";
@@ -541,11 +542,27 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       return cached("coins", 30, () => handleCoins(request, env, fetchImpl));
     }
     case "/api/coins/design":
+      // COIN_V2_READY=on: every coin is the ready-made Vicinity coin ("Use this coin", src/coinready.js); the old studio stays closed
+      if (coinV2ReadyOn(env) && method === "POST") return json({ ok: false, error: "use_ready_coin", message: "Your city's coin is made from the Vicinity design now. Use the coin in your Founder tab." }, 409);
       return only("POST") || handleDesign(request, env, fetchImpl);
     case "/api/coins/mint":
+      // COIN_V2_READY=on: a city's one coin launches on the Vicinity launchpad only, so a founder can't send a Raydium LaunchLab
+      // contract (nothing is read: no body, no founder check). An admin's decision on a contract sent before goes to handleDecideMint,
+      // which refuses to RECORD one while the switch is on and lets a rejection (with a reason) through, so such a city can be settled
+      if (coinV2ReadyOn(env) && method === "POST") return json({ ok: false, error: "launchpad_only", message: "City coins launch on the Vicinity launchpad now, so a Raydium LaunchLab contract can't be added here. Nothing was changed." }, 409);
       return only("POST") || handleProposeMint(request, env, fetchImpl);
     case "/api/coins/mint/decide":
       return only("POST") || handleDecideMint(request, env, fetchImpl);
+    // the ready-made coin (COIN_V2_READY=on, src/coinready.js): with the switch off these are unknown paths (404) for every method
+    case "/api/coins/ready":
+      if (!coinV2ReadyOn(env)) return json({ error: "not_found" }, 404);
+      return only("GET") || handleReady(request, env, fetchImpl);
+    case "/api/coins/ready/art":
+      if (!coinV2ReadyOn(env)) return json({ error: "not_found" }, 404);
+      return only("POST") || handleReadyArt(request, env, fetchImpl);
+    case "/api/coins/ready/use":
+      if (!coinV2ReadyOn(env)) return json({ error: "not_found" }, 404);
+      return only("POST") || handleReadyUse(request, env, fetchImpl);
     case "/api/coins/takedown":
       return only("POST") || handleTakedown(request, env, fetchImpl);
     case "/api/prices":

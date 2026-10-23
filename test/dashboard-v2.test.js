@@ -62,12 +62,17 @@ const TABLE = {
     "badges", "bg-n-earned", "bg-n-locked", "badge-grid", "trade", "trade-title", "trade-state", "tr-amt", "tr-in", "tr-in-usd", "tr-flip", "tr-out", "tr-outk", "tr-rate", "tr-go", "tr-go-2", "tr-note"],
   city: ["city-subnav", "community", "cc-face", "cc-name", "cc-ticker", "ch-status", "cc-members", "cc-holders", "cc-founder", "ch-locals", "ch-locals-n", "ch-coin", "ch-coin-v", "cc-fomo", "cc-top", "cc-share",
     "coin", "coin-title", "coin-city", "coin-status", "coin-art", "coin-logo", "coin-art-face", "coin-name", "coin-ticker", "coin-pair", "coin-pitch", "coin-by", "coin-logo-state", "coin-contract", "coin-mint", "coin-mint-copy", "coin-note",
+    // the ready-made coin's preview (COIN_V2_READY=on, public/coin-ready.js): hidden markup inside #coin until that file fills it
+    "coin-kicker", "coin-preview", "coin-preview-art", "coin-preview-tag", "coin-preview-ticker", "coin-preview-name", "coin-preview-note",
     "city-about", "ca-title", "ca-city", "ca-ticker", "ca-ticker-note", "ca-country", "ca-threshold", "ca-map", "request", "req-form", "req-name", "req-mine", "req-err"],
   community: ["feed", "f-city", "f-country", "c-hint", "composer", "c-text", "c-pic-label", "c-pic", "c-preview", "c-count", "c-post", "c-err", "f-note", "posts", "f-more", "national", "nc-name", "nc-members", "nc-manager", "nc-election"],
   rankings: ["rankings-card", "rk-title", "rk-state", "rk-tiles", "rk-global", "rk-global-rank", "rk-global-sub", "rk-global-gap", "rk-country", "rk-country-label", "rk-country-rank", "rk-country-sub", "rk-country-note",
     "rk-city", "rk-city-label", "rk-city-rank", "rk-city-sub", "rk-city-note", "rk-note"],
   founder: ["fcard", "fcard-kicker", "fcard-state", "fcard-title", "fcard-who", "fcard-pick", "fcard-since-label", "fcard-since", "fcard-coin", "fcard-clock-row", "fcard-clock-label", "fcard-clock", "fcard-note", "fcard-go", "fcard-alt", "fcard-meter",
     "lp-launch", "lp-launch-title",
+    // the ready-made city coin (COIN_V2_READY=on, public/coin-ready.js): hidden markup until /api/me carries coinV2Ready
+    "coin-ready", "coin-ready-title", "cr-state", "cr-place", "cr-art", "cr-art-wait", "cr-ticker", "cr-name", "cr-city", "cr-region-row", "cr-region", "cr-country", "cr-pair", "cr-desc",
+    "cr-version", "cr-gate", "cr-use", "cr-note", "cr-err",
     "progress", "progress-title", "p-city", "p-pct", "fs-state", "p-bar", "p-steps", "fs-rank", "fs-rank-text", "fs-rank-note", "p-panel", "p-window", "p-error", "squad",
     "studio-card", "studio-title", "studio-city", "studio-state", "coin-studio", "studio-step-1", "cs-name", "cs-ticker-label", "cs-ticker", "cs-pitch", "cs-count", "studio-step-2", "studio-step-3", "cs-logo", "cs-logo-remove", "cs-save", "cs-err", "cs-mint", "cs-mint-send", "danger-zone", "danger-body", "founder-foot"],
   moderate: ["mod", "mod-scope", "mod-sections", "coin-admin-card", "coin-admin", "coin-admin-title", "coin-waiting"],

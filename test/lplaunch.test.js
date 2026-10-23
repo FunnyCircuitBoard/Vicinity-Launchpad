@@ -420,3 +420,20 @@ test("founder-claim: only the coin's founder on chain; the curve's city share is
   assert.equal(r.data.summary[3].accounts[0].address, await ata(w.wallet, ADDRESSES.wsol));
   assert.equal((await w.call("/api/lp/founder-claim/tx", { cityId: "1" })).data.error, "not_launched");
 });
+
+test("COIN_V2_READY=on: a ticker another city already launched with is refused before anything is built; off, the launch is as before", async () => {
+  const { ensureLpCoinsSchema } = await import("../src/lpcoins.js");
+  for (const ready of [null, "on"]) {
+    const w = await world({ env: ready ? { COIN_V2_READY: ready } : {} });
+    await ensureLpCoinsSchema(w.env.DB);
+    await w.env.DB.prepare(`INSERT INTO lp_coins (cluster, program_id, city_id, mint, coin, founder, name, symbol, quote_mint, dbc_config, dbc_pool, recorded_at)
+      VALUES ('devnet', ?, '5140405', ?, 'c', 'f', 'Syracuse', 'UTICA', 'q', 'd', 'p', 'now')`).bind(PROGRAM, addr(77)).run();
+    const r = await w.call("/api/lp/launch/tx", { cityId: CITY, mint: addr(90) });
+    if (!ready) { assert.equal(r.status, 200, JSON.stringify(r.data)); continue; }
+    assert.deepEqual([r.status, r.data.error], [409, "symbol_taken"]);
+    assert.match(r.data.message, /\$UTICA has already launched for another city.*Nothing was built/);
+    assert.equal(w.S.log.filter((l) => l.method === "simulateTransaction").length, 0, "nothing built");
+    await w.env.DB.prepare("DELETE FROM lp_coins").run();
+    assert.equal((await w.call("/api/lp/launch/tx", { cityId: CITY, mint: addr(91) })).status, 200, "its own ticker launches as before");
+  }
+});
