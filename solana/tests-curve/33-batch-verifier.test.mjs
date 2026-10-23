@@ -20,6 +20,8 @@
 // (R8-NEW-1).
 // Review round 9: confirm and the alarm read the publication's own block (getBlock at its published slot), so a flood of
 // transactions naming LaunchBatch no longer hides it, and a transaction not found is never called a theft (R9-TOOLS-2).
+// The verification of round 9: the writer is any publish_launch_batch of the record, whatever bytes follow its
+// arguments (the program ignores them), so a thief's republication with a byte appended is the stolen-key alarm (R9-CHECK-1).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -33,7 +35,7 @@ import { World, S, SOL, rpcStub, expectFail } from './helpers.mjs';
 import {
   verifyListFile, checkStoredBatch, batchAddresses, allAddresses, parseArgs, changeLines, recordLive, archiveEntry, confirmPublication,
   decodePageTransaction, checkPageTransaction, messageHash, holderCandidateEntries, rpcProvider, rpcUrlsProblem, writeArchiveEntry, readArchive,
-  archiveKey, compareChainViews, CLOCK_SYSVAR, presenceOnlyAddresses, landedPublicationHashes,
+  archiveKey, compareChainViews, CLOCK_SYSVAR, presenceOnlyAddresses, landedPublicationHashes, landedPublications, PUBLISH_DATA_LEN,
 } from '../scripts/vcurve/batch.mjs';
 
 const snapshot = (w, entries) => Object.fromEntries(allAddresses(batchAddresses(entries, { programId: w.programId })).map((k) => [k, w.accountInfo(k)]));
@@ -1125,11 +1127,11 @@ test('R9-TOOLS-2 (review round 9) confirm and the alarm read the publication\'s 
     // someone holding the approver key ... so the key is stolen: have a guardian member clear it with halt now"
     c = await cli(['verify', sc.put('f4.json', listFile(w, [A, B, C, D], 4n)), ...args], sc.env);
     assert.equal(c.code, 1, c.out);
-    assert.match(c.out, /PROBLEM LATEST_NOT_ARCHIVED: .* it has the list, window and signer of a list you verified .* but the transaction that wrote it was not found on the RPCs read: retry in a minute, or read it through a third provider; not finding it proves nothing\. If you signed exactly that transaction, confirm it once it is found: node scripts\/vcurve\/batch\.mjs confirm 3 /);
+    assert.match(c.out, /PROBLEM LATEST_NOT_ARCHIVED: .* it has the list, window and signer of a list you verified .* but the transaction that wrote it was not found on the RPCs read \(no publish_launch_batch of this record at all, with or without bytes after its arguments, in the block of its slot; review R9-CHECK-1\): retry in a minute, or read it through a third provider; not finding it proves nothing\. If you signed exactly that transaction, confirm it once it is found: node scripts\/vcurve\/batch\.mjs confirm 3 /);
     assert.doesNotMatch(c.out, /another one|so the key is stolen/);
     c = await confirm(3, L3.root);
     assert.equal(c.code, 1, c.out);
-    assert.match(c.out, /PROBLEM TX_NOT_FOUND: no successful transaction in the block of slot \d+ carries this publication on the RPCs read: retry in a minute, or run confirm through a third provider; not finding it proves nothing/);
+    assert.match(c.out, /PROBLEM TX_NOT_FOUND: no successful transaction in the block of slot \d+ carries this publication on the RPCs read \(no publish_launch_batch of this record at all, with or without bytes after its arguments\): .* retry in a minute, or run confirm through a third provider; not finding it proves nothing/);
     assert.doesNotMatch(c.out, /page the guardian members/);
     assert.match(c.out, /^1 problem\(s\): retry in a minute, or read the chain through a third provider/m);
     // an RPC that cannot serve the block is named, and is no verdict either
@@ -1159,11 +1161,78 @@ test('R9-TOOLS-2 (review round 9) confirm and the alarm read the publication\'s 
       assert.deepEqual(await landedPublicationHashes(craftedStub.url, at), [messageHash(outerTx.message.serialize())]);
       crafted = block(pubData, { InstructionError: [0, 'Custom'] });
       assert.deepEqual(await landedPublicationHashes(craftedStub.url, at), [], 'a failed transaction wrote nothing');
+      // review R9-CHECK-1: bytes after the arguments do not hide a writer (the program ignores them); it is found, with its length
       crafted = block(Buffer.concat([pubData, Buffer.from([0])]));
-      assert.deepEqual(await landedPublicationHashes(craftedStub.url, at), [], 'only the exact publication');
+      assert.deepEqual(await landedPublications(craftedStub.url, at), [{ messageHash: messageHash(outerTx.message.serialize()), dataLength: PUBLISH_DATA_LEN + 1 }]);
+      crafted = block(pubData.subarray(0, PUBLISH_DATA_LEN - 1));
+      assert.deepEqual(await landedPublicationHashes(craftedStub.url, at), [], 'data too short for the arguments is no publication (the program refuses it)');
+      const otherWindow = Buffer.from(pubData); otherWindow.writeBigInt64LE(record.validUntil + 1n, 60);
+      crafted = block(otherWindow);
+      assert.deepEqual(await landedPublicationHashes(craftedStub.url, at), [], 'another window is another record');
     } finally { await craftedStub.close(); }
   } finally {
     await rpc.close(); await rpc2.close(); await unread.close();
+    sc.done();
+  }
+  await w.finish();
+});
+
+test('R9-CHECK-1 (verification of round 9) the program takes a publish_launch_batch with bytes after its arguments (Anchor\'s deserialize reads what it needs) and writes the same record: a thief with the approver key who republishes the verified batch so, while the owner\'s own transaction never lands, is the stolen-key alarm in confirm and verify, never a transaction not found', async () => {
+  const w = await World.create();
+  const approver = await w.initBatchPath();
+  const fs = []; for (let i = 0; i < 4; i++) fs.push(await w.signer(20n));
+  const sc = scratch();
+  const rpc = await rpcStub(w); const rpc2 = await rpcStub(w, { host: '127.0.0.2' });
+  const rpcs = ['--rpc', rpc.url, '--rpc', rpc2.url];
+  const args = [...rpcs, '--approver', String(approver.address), '--program-id', String(w.programId), '--archive', sc.archive];
+  const confirm = (seq, root) => cli(['confirm', String(seq), root, ...rpcs, '--archive', sc.archive, '--program-id', String(w.programId)], sc.env);
+  try {
+    const A = { cityId: 9911n, founder: fs[0], symbol: 'GA' }; const B = { cityId: 9912n, founder: fs[1], symbol: 'GB' };
+    const C = { cityId: 9913n, founder: fs[2], symbol: 'GC' }; const D = { cityId: 9914n, founder: fs[3], symbol: 'GD' };
+    await publishConfirmed(w, approver, sc, rpcs, 'g1.json', listFile(w, [A, B], 1n));
+    w.warpTo(w.launchBatch().latest.validFrom);
+    // the owner verifies batch 2; his transaction never lands (a compromised website drops it)
+    const L2 = listFile(w, [A, B, C], 2n);
+    let c = await cli(['verify', sc.put('g2.json', L2), ...args], sc.env);
+    assert.equal(c.code, 0, c.out);
+    const verifiedHash = /message hash (\S+):/.exec(c.out)[1];
+    const win = windowOf(c.out);
+    // the thief sends the same number, root, leaf count and window with one 0 byte appended to the data
+    const ix = w.ix.publishLaunchBatch({ approver: approver.address, seq: 2n, root: Buffer.from(L2.root, 'hex'), leafCount: L2.leafCount, ...win });
+    const padded = { ...ix, data: Uint8Array.from([...ix.data, 0]) };
+    assert.equal(padded.data.length, PUBLISH_DATA_LEN + 1);
+    // the website's page building such a publication is refused by name (before: "carries no single publish_launch_batch")
+    c = await cli(['verify', sc.put('g2.json', L2), ...args, '--tx', pageTxOf([padded], approver.address, w.svm.latestBlockhash())], sc.env);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, /PROBLEM TX_PUBLISH_DATA: its publish_launch_batch has 69 bytes of data, not the 68 of its discriminator and arguments/);
+    assert.match(c.out, /^1 problem\(s\): do not sign$/m);
+    w.warpSecs(30);
+    await w.send([padded], [approver], 'the thief republishes batch 2 with one byte appended', { feePayer: approver });
+    const L = w.launchBatch().latest;
+    assert.deepEqual([L.seq, hex(L.root), L.leafCount, L.validFrom, L.validUntil, L.publisher], [2n, L2.root, L2.leafCount, win.validFrom, win.validUntil, String(approver.address)],
+      'the program accepted it and wrote exactly the record of the verified list and window');
+    // before: exit 1, "PROBLEM TX_NOT_FOUND ... not finding it proves nothing" and "retry in a minute"
+    c = await confirm(2, L2.root);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, new RegExp(`PROBLEM NOT_YOUR_TRANSACTION: batch 2 was written by the transaction with message hash \\S+, not the one you verified \\(${verifiedHash}\\)`));
+    assert.match(c.out, /warning TX_EXTRA_DATA: the transaction with message hash \S+ wrote batch 2 with a publish_launch_batch of 69 bytes \(1 after its arguments/);
+    assert.match(c.out, /page the guardian members/);
+    assert.doesNotMatch(c.out, /TX_NOT_FOUND|proves nothing|retry in a minute/);
+    assert.ok(!existsSync(join(sc.archive, String(w.programId), 'signed', `2-${L2.root}.json`)), 'the thief\'s batch 2 is no baseline');
+    // and the next verify: the stolen-key alarm, not "not found"
+    c = await cli(['verify', sc.put('g3.json', listFile(w, [A, B, C, D], 3n)), ...args], sc.env);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, /PROBLEM LATEST_NOT_ARCHIVED: .* it has the list, window and signer of a list you verified .* but the transaction that wrote it is another one \(message hash \S+\): a republication by someone holding the approver key, not the transaction you verified, so the key is stolen: have a guardian member clear it with halt now/);
+    assert.match(c.out, /warning TX_EXTRA_DATA: the transaction with message hash \S+ wrote batch 2 with a publish_launch_batch of 69 bytes/);
+    assert.doesNotMatch(c.out, /was not found on the RPCs read|proves nothing|run: node scripts\/vcurve\/batch\.mjs confirm/);
+    assert.doesNotMatch(c.out, /unsigned publish_launch_batch/);
+    // the pieces: the trailing-byte publication is found, as its own transaction (not the verified one), and named in the alarm
+    const landed = await landedPublicationHashes(rpc.url, { launchBatch: w.P.launchBatch(), record: L, programId: w.programId });
+    assert.equal(landed.length, 1, 'the trailing-byte publication is found');
+    assert.notEqual(landed[0], verifiedHash);
+    assert.ok(c.out.includes(`another one (message hash ${landed[0]})`), c.out);
+  } finally {
+    await rpc.close(); await rpc2.close();
     sc.done();
   }
   await w.finish();

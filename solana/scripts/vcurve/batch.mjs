@@ -33,8 +33,11 @@
 //     be exactly a list in `pending/` (number, root, leaf count, window, the current approver as publisher), not
 //     cleared, and the transaction that wrote it must be the one he verified, by its message hash, on every RPC (review
 //     R8-DIFF-2), read from the block of the record's `published_slot`, so no flood of transactions naming LaunchBatch can
-//     hide it (review R9-TOOLS-2); only then does the list move to `signed/`, the next day's baseline. A transaction not
-//     found (or a block an RPC cannot serve) is a reason to retry or read through a third provider, never a theft.
+//     hide it (review R9-TOOLS-2); only then does the list move to `signed/`, the next day's baseline. The transaction
+//     that wrote it is any publish_launch_batch of this record in that block, by its discriminator and decoded
+//     arguments, whatever bytes follow them (the program ignores them), so a thief's republication with bytes appended
+//     is another message hash, the stolen-key alarm (review R9-CHECK-1). A block with no publication of the record at
+//     all (or one an RPC cannot serve) is a reason to retry or read through a third provider, never a theft.
 //     Several pending lists for that number (one he refused) are refused unless `--discard-others` moves them to
 //     `refused/`. Any other difference: page the guardian.
 //   check <list or archive file>: the monitor, after a publication. The stored `latest` record must be the file's batch:
@@ -209,7 +212,7 @@ const asEntries = (xs, kind) => (xs ?? []).map((x) => { try { const e = x?.list?
  * read) decides whether the record with a verified window is the transaction he verified (review R8-DIFF-2): a
  * republication by someone else has another message, and then `confirm` is not suggested. No transaction found (`[]`),
  * or one the RPCs could not read (`null`), is never taken for a republication (review R9-TOOLS-2): only a transaction
- * found with another message hash is.
+ * found with another message hash is, bytes appended to its publish_launch_batch included (review R9-CHECK-1).
  */
 function notConfirmedMessage(r, prepared, what, landed) {
   const exact = prepared.find((e) => sameArchived(e, r));
@@ -219,7 +222,8 @@ function notConfirmedMessage(r, prepared, what, landed) {
   if (exact) {
     const verified = `a list you verified (prepared ${exact.raw.preparedAt ? iso(exact.raw.preparedAt) : 'earlier'}, window ${iso(exact.record.validFrom)} to ${iso(exact.record.validUntil)}, message hash ${exact.raw.messageHash ?? 'not kept'})`;
     if (landed === null || (Array.isArray(landed) && !landed.length)) {
-      const why = landed === null ? 'could not be established on the RPCs read (an RPC did not serve its block, or they disagree: see above)' : 'was not found on the RPCs read';
+      const why = landed === null ? 'could not be established on the RPCs read (an RPC did not serve its block, or they disagree: see above)'
+        : 'was not found on the RPCs read (no publish_launch_batch of this record at all, with or without bytes after its arguments, in the block of its slot; review R9-CHECK-1)';
       return `${head}: it has the list, window and signer of ${verified}, but the transaction that wrote it ${why}: `
         + 'retry in a minute, or read it through a third provider; not finding it proves nothing. '
         + `If you signed exactly that transaction, confirm it once it is found: node scripts/vcurve/batch.mjs confirm ${r.seq} ${toHex(r.root)}. If you did not sign it, the approver key is stolen: ${stop} (review R9-TOOLS-2)`;
@@ -565,11 +569,12 @@ export function checkPageTransaction(tx, publish, { approver }) {
  * exactly a list in `pending` (number, root, leaf count, window, the current approver), published by the current
  * approver within a window the program accepts, not cleared, the path not halted; other pending lists of that number
  * (ones he verified and did not sign) are a problem unless `discardOthers`. `landed` (the message hashes of the
- * successful transactions that wrote this record, read from every RPC by `landedPublicationHashes`) must hold the
- * pending list's message hash: the same list and window published by anyone else is another message (another
- * blockhash), so a thief's republication of a refused list is never confirmed (review R8-DIFF-2); the CLI always reads
- * it, and only a caller that leaves it undefined skips the check. None found is `TX_NOT_FOUND`, a reason to retry, never
- * a theft (review R9-TOOLS-2). Returns `{ problems, entry, others, already }`.
+ * successful transactions that wrote this record, read from every RPC by `landedPublications`: any publish_launch_batch
+ * of this record, whatever bytes follow its arguments, review R9-CHECK-1) must hold the pending list's message hash: the
+ * same list and window published by anyone else is another message (another blockhash, or bytes appended to the data),
+ * so a thief's republication of a refused list is never confirmed (review R8-DIFF-2); the CLI always reads it, and only
+ * a caller that leaves it undefined skips the check. None found is `TX_NOT_FOUND`, a reason to retry, never a theft
+ * (review R9-TOOLS-2). Returns `{ problems, entry, others, already }`.
  */
 export function confirmPublication({ seq, root, pending = [], archive = [], accounts, landed, discardOthers = false, programId = CURVE_PROGRAM_ID, cluster = 'mainnet' }) {
   const problems = [];
@@ -594,8 +599,10 @@ export function confirmPublication({ seq, root, pending = [], archive = [], acco
   if (entry && landed !== undefined) {
     const mine = entry.raw.messageHash;
     if (!mine) bad('NO_MESSAGE_HASH', 'the list you verified was kept without the message hash of its transaction, so the transaction that wrote it cannot be compared: verify it again and sign the new transaction');
-    else if (!landed?.length) bad('TX_NOT_FOUND', `no successful transaction in the block of slot ${L.publishedSlot} carries this publication on the RPCs read: retry in a minute, or run confirm through a third provider; not finding it proves nothing (review R9-TOOLS-2)`);
-    else if (!landed.includes(mine)) {
+    else if (!landed?.length) {
+      bad('TX_NOT_FOUND', `no successful transaction in the block of slot ${L.publishedSlot} carries this publication on the RPCs read (no publish_launch_batch of this record at all, with or without bytes after its arguments): `
+        + 'that block holds the transaction that wrote the record, so the RPCs served it incomplete or are behind: retry in a minute, or run confirm through a third provider; not finding it proves nothing (reviews R9-TOOLS-2, R9-CHECK-1)');
+    } else if (!landed.includes(mine)) {
       bad('NOT_YOUR_TRANSACTION', `batch ${want} was written by the transaction with message hash ${landed.join(', ')}, not the one you verified (${mine}): the same list and window published by someone holding the approver key, so the key is stolen: have a guardian member clear it with halt now (guardian-stop.mjs --clear, 8.4 step 5; review R8-DIFF-2)`);
     }
   }
@@ -796,26 +803,38 @@ async function rpcCall(url, method, params) {
   if (j.error) throw new Error(`${method}: ${j.error.message ?? JSON.stringify(j.error)}`);
   return j.result;
 }
-/** The data of the `publish_launch_batch` that wrote a stored record. */
+/**
+ * The length of a `publish_launch_batch`'s data as this verifier and the website's batch page build it: its
+ * discriminator and its five arguments (seq u64, root [u8; 32], leaf_count u32, valid_from i64, valid_until i64).
+ */
+export const PUBLISH_DATA_LEN = 8 + 8 + 32 + 4 + 8 + 8;
+/** The data of the `publish_launch_batch` that wrote a stored record, as this verifier builds it (`PUBLISH_DATA_LEN` bytes). */
 const publishData = (r) => {
-  const d = Buffer.alloc(8 + 8 + 32 + 4 + 8 + 8);
+  const d = Buffer.alloc(PUBLISH_DATA_LEN);
   KIND.publish.copy(d, 0); d.writeBigUInt64LE(r.seq, 8); Buffer.from(r.root).copy(d, 16); d.writeUInt32LE(r.leafCount, 48); d.writeBigInt64LE(r.validFrom, 52); d.writeBigInt64LE(r.validUntil, 60);
   return d;
 };
 /**
- * The message hashes of the successful transactions that wrote the stored `record` (review R8-DIFF-2), read from one RPC:
- * those in the block of the record's `published_slot` (getBlock, base64, every transaction) that carry exactly its
- * `publish_launch_batch` (number, root, leaf count and window) as an instruction of this program, at the top level or
- * as an inner instruction (a call through another program), and name `LaunchBatch`. One read of the publication's own
- * block, whatever the length of LaunchBatch's history: the round-8 version paged back through at most 20,000 of its
- * signatures, which anyone could flood past (review R9-TOOLS-2). Throws when the RPC does not serve the block.
+ * The successful transactions that wrote the stored `record` (review R8-DIFF-2), read from one RPC: `[{ messageHash,
+ * dataLength }]`, sorted by message hash. They are those in the block of the record's `published_slot` (getBlock, base64,
+ * every transaction) that name `LaunchBatch` and carry a `publish_launch_batch` of this program (its discriminator), at
+ * the top level or as an inner instruction (a call through another program), whose arguments, decoded, are the record's
+ * number, root, leaf count and window, whatever bytes follow them: the program (Anchor's deserialize) reads its
+ * arguments and ignores the rest of the data, so a publication with bytes appended writes the very record of a list the
+ * owner verified from another message (review R9-CHECK-1). Only the whole message hash then says whether a writer is
+ * the transaction he verified. `dataLength` is the length of that data (the longest, when the transaction carries
+ * several): `PUBLISH_DATA_LEN` for every publication this verifier or the website builds. One read of the
+ * publication's own block, whatever the length of LaunchBatch's history: the round-8 version paged back through at
+ * most 20,000 of its signatures, which anyone could flood past (review R9-TOOLS-2). Throws when the RPC does not serve
+ * the block.
  */
-export async function landedPublicationHashes(url, { launchBatch, record, programId = CURVE_PROGRAM_ID }) {
+export async function landedPublications(url, { launchBatch, record, programId = CURVE_PROGRAM_ID }) {
   const want = publishData(record);
   const block = await rpcCall(url, 'getBlock', [Number(record.publishedSlot), { encoding: 'base64', transactionDetails: 'full', maxSupportedTransactionVersion: 0, commitment: 'confirmed', rewards: false }]);
   if (!block || !Array.isArray(block.transactions)) throw new Error(`getBlock: no block at slot ${record.publishedSlot}`);
-  const ours = (program, data) => program === String(programId) && Boolean(data) && Buffer.from(data).equals(want);
-  const out = new Set();
+  // the discriminator and the decoded arguments (every byte pattern of them decodes, so their bytes are them), never the length
+  const ours = (program, data) => program === String(programId) && Boolean(data) && data.length >= PUBLISH_DATA_LEN && Buffer.from(data).subarray(0, PUBLISH_DATA_LEN).equals(want);
+  const out = new Map();
   for (const t of block.transactions) {
     if (!t?.meta || t.meta.err !== null || !Array.isArray(t.transaction)) continue;
     let d;
@@ -823,27 +842,37 @@ export async function landedPublicationHashes(url, { launchBatch, record, progra
     const loaded = t.meta.loadedAddresses ?? {};
     const keys = [...d.keys, ...(loaded.writable ?? []), ...(loaded.readonly ?? [])].map(String);
     if (!keys.includes(String(launchBatch))) continue;
-    const top = d.instructions.some((ix) => ours(ix.program, ix.data));
-    const inner = (Array.isArray(t.meta.innerInstructions) ? t.meta.innerInstructions : []).some((g) => (Array.isArray(g?.instructions) ? g.instructions : [])
-      .some((ii) => ours(keys[ii?.programIdIndex], typeof ii?.data === 'string' ? unbase58(ii.data) : null)));
-    if (top || inner) out.add(messageHash(d.messageBytes));
+    const inner = (Array.isArray(t.meta.innerInstructions) ? t.meta.innerInstructions : []).flatMap((g) => (Array.isArray(g?.instructions) ? g.instructions : [])
+      .map((ii) => ({ program: keys[ii?.programIdIndex], data: typeof ii?.data === 'string' ? unbase58(ii.data) : null })));
+    const lengths = [...d.instructions, ...inner].filter((ix) => ours(ix.program, ix.data)).map((ix) => ix.data.length);
+    if (!lengths.length) continue;
+    const h = messageHash(d.messageBytes);
+    out.set(h, Math.max(out.get(h) ?? 0, ...lengths));
   }
-  return [...out].sort();
+  return [...out].map(([h, dataLength]) => ({ messageHash: h, dataLength })).sort((a, b) => (a.messageHash < b.messageHash ? -1 : a.messageHash > b.messageHash ? 1 : 0));
 }
+/** The message hashes of `landedPublications`. */
+export const landedPublicationHashes = async (url, args) => (await landedPublications(url, args)).map((x) => x.messageHash);
 /**
- * `landedPublicationHashes` from every RPC, compared: `{ hashes, problems }`. An RPC that cannot serve the block is
- * `TX_UNREAD`, named by host (review R9-TOOLS-2); RPCs naming different transactions are `RPC_DISAGREE`.
+ * `landedPublications` from every RPC, compared: `{ hashes, warnings, problems }`. An RPC that cannot serve the block
+ * is `TX_UNREAD`, named by host (review R9-TOOLS-2); RPCs naming different transactions (or data lengths) are
+ * `RPC_DISAGREE`. A writer whose `publish_launch_batch` carries bytes after its arguments is named in a `TX_EXTRA_DATA`
+ * warning (review R9-CHECK-1): no publication this verifier or the website builds has any, so it is never the
+ * transaction the owner verified, and its message hash is what `confirm` and the alarm compare.
  */
 async function readLanded(urls, args) {
-  const views = await Promise.all(urls.map((u) => landedPublicationHashes(u, args).then((h) => ({ h }), (e) => ({ error: String(e?.message ?? e).split('\n')[0].slice(0, 160) }))));
+  const views = await Promise.all(urls.map((u) => landedPublications(u, args).then((rows) => ({ rows }), (e) => ({ error: String(e?.message ?? e).split('\n')[0].slice(0, 160) }))));
   const unread = views.map((v, i) => (v.error ? `${rpcName(urls[i], i)}: ${v.error}` : null)).filter(Boolean);
   if (unread.length) {
-    return { hashes: null, problems: [{ code: 'TX_UNREAD', message: `the block of slot ${args.record.publishedSlot} (the publication's) was not read on ${unread.join('; ')}: retry in a minute, or read it through a third provider; this proves nothing either way (review R9-TOOLS-2)` }] };
+    return { hashes: null, warnings: [], problems: [{ code: 'TX_UNREAD', message: `the block of slot ${args.record.publishedSlot} (the publication's) was not read on ${unread.join('; ')}: retry in a minute, or read it through a third provider; this proves nothing either way (review R9-TOOLS-2)` }] };
   }
-  if (views.some((v) => v.h.join() !== views[0].h.join())) {
-    return { hashes: null, problems: [{ code: 'RPC_DISAGREE', message: `the RPCs name different transactions as the one that wrote batch ${args.record.seq} (${views.map((v) => v.h.join(', ') || 'none').join(' and ')}): one of them is lying or behind` }] };
+  const text = (rows) => rows.map((x) => `${x.messageHash}:${x.dataLength}`).join();
+  if (views.some((v) => text(v.rows) !== text(views[0].rows))) {
+    return { hashes: null, warnings: [], problems: [{ code: 'RPC_DISAGREE', message: `the RPCs name different transactions as the one that wrote batch ${args.record.seq} (${views.map((v) => v.rows.map((x) => x.messageHash).join(', ') || 'none').join(' and ')}): one of them is lying or behind` }] };
   }
-  return { hashes: views[0].h, problems: [] };
+  const rows = views[0].rows;
+  const warnings = rows.filter((x) => x.dataLength !== PUBLISH_DATA_LEN).map((x) => ({ code: 'TX_EXTRA_DATA', message: `the transaction with message hash ${x.messageHash} wrote batch ${args.record.seq} with a publish_launch_batch of ${x.dataLength} bytes (${x.dataLength - PUBLISH_DATA_LEN} after its arguments, which the program ignores): neither this verifier nor the website's batch page ever builds one, so it is not a transaction you verified, whatever its list and window (review R9-CHECK-1)` }));
+  return { hashes: rows.map((x) => x.messageHash), warnings, problems: [] };
 }
 
 // ---------------------------------------------------------------- the command line
@@ -939,6 +968,7 @@ async function main(argv) {
       // review R8-DIFF-2: the transaction that wrote the record must be the one he verified, on every RPC
       const landedView = await readLanded(o.rpc, { launchBatch: P.launchBatch(), record: L, programId });
       if (landedView.problems.length) return report(landedView.problems, tailOf(landedView.problems, retry));
+      for (const x of landedView.warnings) console.log(`warning ${x.code}: ${x.message}`);
       r = confirmPublication({ ...args, landed: landedView.hashes });
     }
     if (r.problems.length) return report(r.problems, tailOf(r.problems, page));
@@ -976,7 +1006,14 @@ async function main(argv) {
   let pageTx = null;
   if (o.tx !== undefined) {
     try { pageTx = decodePageTransaction(o.tx, { programId }); } catch (e) { console.log(`PROBLEM BAD_TX: ${e.message}\n1 problem(s): do not sign`); return 1; }
-    if (!pageTx.publish) { console.log('PROBLEM TX_NO_PUBLICATION: the transaction carries no single publish_launch_batch of this program\n1 problem(s): do not sign'); return 1; }
+    if (!pageTx.publish) {
+      const pubs = pageTx.instructions.filter((ix) => ix.program === String(programId) && kindOf(ix) === 'publish');
+      // review R9-CHECK-1: the program ignores bytes after the arguments, and no transaction built here carries any
+      console.log(pubs.length === 1 ? `PROBLEM TX_PUBLISH_DATA: its publish_launch_batch has ${pubs[0].data.length} bytes of data, not the ${PUBLISH_DATA_LEN} of its discriminator and arguments: neither this verifier nor the website's batch page builds one so (review R9-CHECK-1)`
+        : 'PROBLEM TX_NO_PUBLICATION: the transaction carries no single publish_launch_batch of this program');
+      console.log('1 problem(s): do not sign');
+      return 1;
+    }
   }
   const dir = archiveDir(o);
   const arch = dir ? open(dir) : { signed: [], pending: [], ignored: [] };
@@ -998,7 +1035,7 @@ async function main(argv) {
     correct: Boolean(o.correct), pageWindow: Boolean(pageTx), validFrom: pageTx ? pageTx.publish.validFrom : o.validFrom, validUntil: pageTx ? pageTx.publish.validUntil : o.validUntil, programId, cluster,
   };
   let r = verifyListFile(args);
-  const landedProblems = [];
+  const landedProblems = []; const landedWarnings = [];
   if (r.needLanded.length) {
     // review R8-DIFF-2: a live record with the window of a pending list: the transaction that wrote it decides what the alarm says
     // a transaction that cannot be read or compared is reported, and the alarm then says it was not found (never a
@@ -1006,12 +1043,12 @@ async function main(argv) {
     const landed = new Map();
     for (const rec of r.needLanded) {
       const x = await readLanded(o.rpc, { launchBatch: P.launchBatch(), record: rec, programId });
-      landedProblems.push(...x.problems);
+      landedProblems.push(...x.problems); landedWarnings.push(...x.warnings);
       landed.set(String(rec.seq), x.hashes);
     }
     r = verifyListFile({ ...args, landed });
   }
-  for (const w of r.warnings) console.log(`warning ${w.code}: ${w.message}`);
+  for (const w of [...r.warnings, ...landedWarnings]) console.log(`warning ${w.code}: ${w.message}`);
   for (const p of [...landedProblems, ...r.problems]) console.log(`PROBLEM ${p.code}: ${p.message}`);
   for (const line of changeLines(r)) console.log(line);
   if (!r.publish || landedProblems.length) { dontSign(r.problems.length + landedProblems.length); return 1; }

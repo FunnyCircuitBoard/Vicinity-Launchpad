@@ -172,7 +172,13 @@ R8-DIFF-2); it reads that transaction from the block of the record's
 `published_slot`, so no flood of transactions naming LaunchBatch can hide it, and
 a transaction not found (`TX_NOT_FOUND`) or a block an RPC cannot serve
 (`TX_UNREAD`) is a reason to retry or read through a third provider, never a
-theft; the alarm of `verify` says the same (review R9-TOOLS-2). The archive's MAC key is `~/.vicinity-curve/archive.key`, never a
+theft; the alarm of `verify` says the same (review R9-TOOLS-2). The transaction
+that wrote the record is any `publish_launch_batch` of it in that block, by its
+discriminator and decoded arguments, whatever bytes follow them: the program
+ignores them, so a thief's republication with bytes appended is found, named
+(`warning TX_EXTRA_DATA`) and, being another message hash, is the stolen-key
+alarm (`NOT_YOUR_TRANSACTION`); `verify --tx` refuses a page transaction whose
+publication is not exactly 68 bytes (`TX_PUBLISH_DATA`; review R9-CHECK-1). The archive's MAC key is `~/.vicinity-curve/archive.key`, never a
 file inside an archive folder, and must be 32 bytes; every run names the
 folder and the key's fingerprint and warns when the folder is not the one used
 last (review R8-DIFF-5). An approver that is not a wallet key is refused

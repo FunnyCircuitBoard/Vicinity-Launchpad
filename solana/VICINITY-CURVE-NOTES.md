@@ -7,7 +7,7 @@ review round 3, 57 to 66 review round 4, 67 to 74 review round 5; entry 75 recor
 specification of the owner's batch launch approval, entry 76 its build and entry 77 the mutation
 tests of its rules; entries 78 to 82 answer review round 6, of the batch launch approval,
 entries 83 to 90 review round 7, entries 91 to 96 review round 8, entries 97 and 98 the
-verification of round 8, and entries 99 to 102 review round 9). The
+verification of round 8, entries 99 to 102 review round 9 and entry 103 its verification). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -3286,3 +3286,51 @@ against config #0's 0.31% (3 caps); the checklist, silent before the config is a
 config), reports it as not ready, and as a warning once the admin disables it. `sdk/curve/math.test.mjs`: the rule at
 the edge, one basis point past it, with a smaller total fee, and without a buyback share. The long reproduction (30
 minutes of trading and the outsider's hold) is the verifier's; this test pins the mechanism and the check.
+
+### 103. The transaction that wrote a record is found by its publication's arguments, whatever bytes follow them (8.4 step 3, T85, T89, 14.1; verification of round 9, R9-CHECK-1)
+
+**Spec.** Entry 100: `landedPublicationHashes` keeps the successful transactions that carry "exactly the record's
+`publish_launch_batch`"; "the key is stolen" is kept for a transaction found with another message hash, and a
+transaction not found is `TX_NOT_FOUND`, "retry ... not finding it proves nothing".
+
+**Issue.** "Exactly" was the 68 bytes of the data (discriminator and five arguments). The program's entry point, as
+Anchor 0.31 generates it, decodes the arguments with Borsh's `deserialize`, which reads what it needs and ignores what
+follows, so `publish_launch_batch` with bytes appended is accepted and writes the very record of its arguments. A
+thief with the approver key could therefore republish a list the owner verified, with its window, by appending one 0
+byte, while the owner's own transaction never landed (a compromised website drops it): the stored record is exactly
+the pending list, `landedPublicationHashes` found no transaction, `confirm` said `TX_NOT_FOUND` with round 9's retry
+tail, and the next `verify` said "was not found on the RPCs read ... not finding it proves nothing", where it should
+have raised the stolen-key alarm. Reproduced in litesvm against the production build through the real CLI (the
+program accepted the 69-byte publication; exit 1 with `TX_NOT_FOUND` and "retry in a minute"). Low: the alarm's
+other sentence ("If you did not sign it, the approver key is stolen") still stood, but the tool's verdict was the
+benign one.
+
+**Choice.** No program change (which instruction data the program accepts is not changed after round 6; the binary is
+unchanged). In the tools:
+* `landedPublications` (with `landedPublicationHashes` its message hashes) identifies a writer by the instruction's
+  program, the `publish_launch_batch` discriminator and its decoded arguments: any successful transaction in the block
+  of the record's `published_slot` that names `LaunchBatch` and carries, at the top level or as an inner instruction,
+  a publication of this program whose first 68 bytes are the record's (every byte pattern of the five arguments decodes,
+  so equal bytes are equal arguments), whatever its length; shorter data is no publication (the program refuses it).
+  It returns each writer's message hash and the length of that data. `confirm` and the alarm then compare the whole
+  message hash with the verified one, as before: bytes appended make another message, so the thief's republication is
+  `NOT_YOUR_TRANSACTION` ("so the key is stolen: have a guardian member clear it with halt now", the guardian paged)
+  and, in `verify`, "the transaction that wrote it is another one ... so the key is stolen". Only a block with no
+  publication of the record at all is `TX_NOT_FOUND`, whose text now says so ("no publish_launch_batch of this record
+  at all, with or without bytes after its arguments": that block holds the record's writer, so the RPCs served it
+  incomplete or are behind), and so does the alarm's "not found".
+* A writer whose data is not 68 bytes is named in `warning TX_EXTRA_DATA: the transaction with message hash ... wrote
+  batch N with a publish_launch_batch of 69 bytes (1 after its arguments, which the program ignores): neither this
+  verifier nor the website's batch page ever builds one, so it is not a transaction you verified`, printed by `confirm`
+  and `verify` next to the verdict. The two RPCs must also agree on each writer's data length (`RPC_DISAGREE`).
+* `verify --tx`: a page transaction whose single publication is not 68 bytes was already refused (no publication to
+  check, `TX_NO_PUBLICATION`); it is now named `TX_PUBLISH_DATA` with its length.
+
+Tests. `33-batch-verifier` R9-CHECK-1 (the real CLI, two RPC stubs, the production build): batch 1 confirmed; batch 2
+verified, the owner's transaction never sent; the page's transaction with a 69-byte publication is `TX_PUBLISH_DATA`;
+the thief's 69-byte publication of the same number, root, leaf count and window is accepted and writes exactly that
+record; `confirm` exits 1 with `warning TX_EXTRA_DATA`, `NOT_YOUR_TRANSACTION` naming both hashes and the paging tail,
+never `TX_NOT_FOUND`, "proves nothing" or "retry" (before: `TX_NOT_FOUND`, "retry in a minute"), and nothing becomes a
+baseline; the next `verify` gives the stolen-key alarm naming the thief's hash, never "not found" or a suggested
+`confirm`, and no transaction. R9-TOOLS-2's crafted block: the inner publication with one byte appended is found with
+`dataLength` 69 (before: not found), data one byte short is not, nor another window.
