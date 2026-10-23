@@ -7,7 +7,8 @@ review round 3, 57 to 66 review round 4, 67 to 74 review round 5; entry 75 recor
 specification of the owner's batch launch approval, entry 76 its build and entry 77 the mutation
 tests of its rules; entries 78 to 82 answer review round 6, of the batch launch approval,
 entries 83 to 90 review round 7, entries 91 to 96 review round 8, entries 97 and 98 the
-verification of round 8, entries 99 to 102 review round 9 and entry 103 its verification). The
+verification of round 8, entries 99 to 102 review round 9, entry 103 its verification and entry 104 review
+round 10). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -3334,3 +3335,47 @@ never `TX_NOT_FOUND`, "proves nothing" or "retry" (before: `TX_NOT_FOUND`, "retr
 baseline; the next `verify` gives the stolen-key alarm naming the thief's hash, never "not found" or a suggested
 `confirm`, and no transaction. R9-TOOLS-2's crafted block: the inner publication with one byte appended is found with
 `dataLength` 69 (before: not found), data one byte short is not, nor another window.
+
+### 104. Bytes after an instruction's arguments: the checker decodes `launch_from_batch` by prefix, as the program does; the four `#[instruction]` prefixes are pinned (4.0, 4.27, 9 I23, 12; review round 10, R10-FRESH-1)
+
+**Spec.** 4.0 described the city-level instructions' `city_id` argument and 4.27 the arguments of `launch_from_batch`;
+nothing said what happens to bytes after the arguments. NOTES 103 recorded that the program ignores them (Anchor 0.31's
+Borsh `deserialize`) and made the off-chain tools match for `publish_launch_batch` only. The checker's `batchLaunchArgs`
+(`tests-curve/invariants.mjs`, used by `checkLaunch` and by the walk of I23 in `checkGlobal`) asserted that the proof
+ended exactly at the end of the data ("launch_from_batch data has trailing bytes").
+
+**Issue.** The program accepts `launch_from_batch` with bytes after its proof and launches exactly the coin of its
+arguments; the checker then threw in `World.send`, a false failure for a valid transaction (reproduced on the production
+build, sha256 `0a5beef2...`: with one 0 byte appended the coin exists afterwards; with `VCURVE_INVARIANTS=off` it is the
+coin of the same call without the byte). No on-chain impact: Anchor 0.31 decodes the handler's arguments
+(`instruction::<Name>::deserialize(&mut &data[..])`, anchor-syn `codegen/program/handlers.rs`) and the account struct's
+`#[instruction(..)]` arguments (`__Args::deserialize(&mut __ix_data)`, `codegen/accounts/try_accounts.rs`) as prefixes
+of the same bytes after the discriminator; each of the four attributes (`approve_launch`: `city_id, founder, config_id,
+name, symbol`; `launch_from_batch`: `city_id, batch_seq, config_id, name, symbol`; `launch` and `revoke_approval`:
+`city_id`) lists exactly the handler's leading parameters, in order and with their types; and no handler stores, hashes
+or emits raw instruction data (the batch leaf is rebuilt from the decoded arguments and the signer). But no test sent
+these four instructions with bytes appended (only `buyback_burn`, X61, and `publish_launch_batch`, R9-CHECK-1), and no
+test compared the attributes with the handlers, so a later reorder or retype of one attribute would have shown up only
+indirectly. No SDK, tool or website code decodes `launch_from_batch` data; an indexer modelled on the checker's decoder
+would have dropped a genuine launch. Info.
+
+**Choice.** No program change (the binary and the IDL are unchanged; which instruction data the program accepts is not
+changed after round 6). `batchLaunchArgs` decodes by prefix, as the program does: it stops after the proof, refuses data
+shorter than the arguments (which the program refuses too) and returns the count of bytes after them as `trailing`, which
+nothing judges. 4.0 now states the rule: every instruction ignores bytes after its arguments, the four city-level
+instructions read their leading arguments a second time in their account structs, and an off-chain reader that
+establishes what the program did (the checker, the verifier's `confirm` and alarm, an indexer) decodes by prefix;
+`verify --tx`, which checks a transaction before the owner signs it, still refuses a publication that is not exactly
+the one it builds (`TX_PUBLISH_DATA`, entry 103).
+
+Tests. `30-batch` R10-FRESH-1, on the production build with the checker on: from one state each call is simulated as
+built and then sent with bytes appended, and every account of the message and every event (decoded by the SDK from the
+simulation, by the checker from the transaction) must be the same: `approve_launch` with 9 bytes (a u64 naming another
+city's pending approval, then the byte 0x01) and with 8 bytes of 0xff; `launch` with a u64 naming the other pending city;
+`revoke_approval` with the same u64 (the other city's approval untouched, its coin not created); `launch_from_batch` with
+a u64 naming another city of the batch, a u64 naming batch 2 and a 0 byte (the checker's decoder reads the same arguments
+and counts 17 bytes after them), and with one 0 byte (the review's case). Before the change the first padded
+`launch_from_batch` failed in the checker with "launch_from_batch data has trailing bytes". A second test reads
+`lib.rs` and `instructions/*.rs`: the four account structs, and only they, carry `#[instruction(..)]`, each the start of
+its handler's parameters; the same check refuses `launch_from_batch`'s attribute with `city_id` and `batch_seq` swapped
+and `approve_launch`'s with `config_id` retyped as `u64`.

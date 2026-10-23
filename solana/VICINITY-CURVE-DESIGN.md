@@ -4,14 +4,14 @@ Status: specification for the build and for the outside audit, revision 3, 17 Oc
 Revision 3 folds in the implementation notes of the build (`VICINITY-CURVE-NOTES.md` entries 1 to
 74: every clarification and accepted deviation; entries 75 to 77 specify the batch launch approval
 and record its build and its mutation tests; entries 78 to 82 answer review round 6, entries 83
-to 90 review round 7, entries 91 to 96 review round 8 and entries 97 and 98 its verification, entries 99 to 102 review round 9 and entry 103 its verification) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
+to 90 review round 7, entries 91 to 96 review round 8 and entries 97 and 98 its verification, entries 99 to 102 review round 9, entry 103 its verification and entry 104 review round 10) and answers review rounds 1 (GOV-1, GOV-2, CLI-1,
 CLI-2, CLI-3), 2 (R2-DIFF-1, SPEC-1, ECON-1, FA-1), 3 (R3-DIFF-1, MATH3-2, LL-1, R3-CLI-1,
 MATH3-1, HR-1), 4 (R4-DIFF-1 to R4-DIFF-5, SM-1, SM-2, SDK4-1 to SDK4-6, OPS-1 to OPS-4,
 TL-INFO-1), 5 (R5-DIFF-1 to R5-DIFF-3, R5-REG-1, MV-1, KR-1, R5-CONS-1 to R5-CONS-5), 6 (the
 batch launch approval: R6-DIFF-1, R6-DIFF-2, MK-1, R6-RT-1 to R6-RT-3; MK-2 rejected) and 7 (R7-BA-1,
 R7-BA-2, R7-CONF-1 to R7-CONF-5, R7-1 to R7-4; R7-FRESH-1 rejected) and 8 (the tools around it: R8-OPS-1 to
 R8-OPS-3, R8-DIFF-1 to R8-DIFF-7; its verification: R8-NEW-1 and the residual of R8-OPS-2) and 9 (R9-TOOLS-1 to
-R9-TOOLS-3, R9-PF-1; open owner decision O36; its verification: R9-CHECK-1) of the build; revision 2 answered the security, math, runtime and integration review of revision 1.
+R9-TOOLS-3, R9-PF-1; open owner decision O36; its verification: R9-CHECK-1) and 10 (R10-FRESH-1) of the build; revision 2 answered the security, math, runtime and integration review of revision 1.
 Appendix C lists every finding of each review, what changed and the parts that were
 not applied, with reasons, and the notes folded in. Revision 3 also specifies the owner's
 **batch launch approval** of 17 October 2026 (a separate launch approver signs one Merkle root a
@@ -685,6 +685,18 @@ program and the SDK.
   `bump = coin.bump` (owner, discriminator and address all checked). **City-level
   instructions** (`approve_launch`, `revoke_approval`, `launch`, `launch_from_batch`) take
   `city_id` because it seeds an account being created or closed.
+* **Instruction data**: 8 bytes of discriminator, then the arguments in Borsh. Anchor 0.31 decodes
+  them as a prefix (`deserialize`), so bytes after the arguments are ignored by every
+  instruction and change nothing: the same accounts, effects and events as the call without
+  them. The four city-level instructions read their leading arguments a second time in their
+  account structs (`#[instruction(..)]`: `approve_launch` the first five, `launch_from_batch`
+  the first five, `launch` and `revoke_approval` `city_id`), which must be exactly the
+  handler's leading parameters, in order and with their types; no handler stores, hashes or
+  emits raw instruction data. Off-chain readers that establish what the program did (the
+  checker, the verifier's `confirm` and alarm, an indexer) decode by prefix and do not refuse
+  what follows; only `verify --tx`, which checks a transaction before the owner signs it,
+  refuses a publication that is not exactly the one it builds (`TX_PUBLISH_DATA`). NOTES 103,
+  104; review R10-FRESH-1; `30-batch` pins the program's side, `33-batch-verifier` the verifier's.
 * **Event accounts**: `#[event_cpi]` appends `event_authority` (PDA `["__event_authority"]`)
   and `program` as the last two accounts. Instructions that move money or tokens emit with
   `emit_cpi!`, and so do `set_launch_approver`, `publish_launch_batch` and
@@ -4912,6 +4924,18 @@ found one residual, reproduced and fixed the same way (the last row, "verificati
 | R9-PF-1 | program funds, low | `validate_config` bounds a buyback share only by the single-run bound (V8) and the horizon (V11), but one run spends at most `depth * t / (C*D)` whatever `b_B`, while the bucket accrues `b_B` of every trade: under (0, 0, 0, 0, 250), which V1 to V11 accept, the keeper running every interval keeps up only with 4% of the depth per interval (config #0: a third), a backlog above `u*` becomes the normal state of a traded coin (8 SOL per minute: 3.64% of depth after 30 minutes, and an outsider holding through 36 runs gained 1.8%; config #0 on the same schedule: no backlog, -4.9%), and 7.2, O25 and O1 stated the keeper's binding rate for config #0's share only | **Confirmed** (reproduced on the production build with the checker on). **Applied** without a change of which fee splits the program accepts (the task's rule; the same treatment as HR-1 and O29): 7.2 states the general binding rate `depth * t / (C * b_B)` per interval and scales the burst and rate by `30 / b_B`; 5.13 notes that V1 to V11 do not bound it; O25 is signed off for configs within config #0's keep-up only; O1's buyback variant now needs O36. A new operating rule of 8.4 keeps every config at `C * b_B <= 3t` (`K_B` = 3: config #0 exactly at the edge): the SDK's `buybackKeepUp` gives the keep-up of a config before it is proposed, and the deploy checklist reports every enabled config outside the rule as not ready (`CONFIG_BUYBACK_THROUGHPUT`; a disabled one is a warning, its coins keep the split). **Not applied, open owner decision O36**: a rule V12 in `validate_config` (`C * b_B <= K_B * t`, with `K_B` = 3, or 8 to keep O1's alternative; crate, program, SDK, model and vectors, a new error appended), or a per-run cap scaled by `b_B`. 5.13, 7.2, 8.4, T76, O1, O25, O36, 14.1; `18-attacks-buyback` (the graduating buy alone: 2.56% of depth and 25 caps under (0, 0, 0, 0, 250) against 0.31% and 3 caps under config #0; the checklist silent before, now reporting it, a warning once disabled), `sdk/curve/math.test.mjs`; NOTES 102 |
 | R9-CHECK-1 | verification of round 9, low | R9-TOOLS-2's `landedPublicationHashes` matched a writer only when its `publish_launch_batch` data equalled the 68 bytes of the record's publication, but the program (Anchor 0.31's `deserialize`) accepts the instruction with bytes after its arguments and writes the identical record: with batch 1 confirmed and the owner's verified batch 2 never landing (a compromised website drops it), a thief with the approver key sending the same number, root, leaf count and window with one 0 byte appended was accepted, and `confirm` and `verify` reported `TX_NOT_FOUND` / "not found ... proves nothing", which round 9 made benign, instead of the stolen-key alarm | **Confirmed** (reproduced through the real CLI on the production build: the 69-byte publication accepted, `confirm` exit 1 with `TX_NOT_FOUND` and "retry in a minute"). **Applied** without a program change: `landedPublications` identifies a writer by the program, the `publish_launch_batch` discriminator and its decoded arguments (any successful publication in the block of `published_slot`, top level or inner, whose arguments are the record's, whatever follows them), returning each writer's message hash and data length; `confirm` and the alarm compare the whole message hash as before, so bytes appended are `NOT_YOUR_TRANSACTION` and "the transaction that wrote it is another one ... so the key is stolen"; only a block with no publication of the record at all is `TX_NOT_FOUND`, whose text now says so; a writer whose data is not 68 bytes is named (`warning TX_EXTRA_DATA`), both RPCs must agree on its length, and `verify --tx` names a page publication that is not 68 bytes (`TX_PUBLISH_DATA`). 8.4 step 3, T89, 14.1, the scripts' README; `33-batch-verifier` (the thief's 69-byte republication: `confirm` `NOT_YOUR_TRANSACTION` with the paging tail, `verify` the stolen-key alarm, before both "not found"; the page's 69-byte publication `TX_PUBLISH_DATA`; the crafted inner publication with a byte appended found with its length, one byte short or another window not); NOTES 103 |
 
+### Revision 3: review round 10 of the build (23 October 2026)
+
+The program was reviewed fresh (the instructions that read their arguments twice, with bytes
+after them); the finding was reproduced on the production build (sha256 `0a5beef2...`) with
+the section-9 checker on and off before it was accepted. The severity is the verifier's. No
+fee value or fee-share rule changed, and neither the program binary nor its IDL changed: the
+fix is in the checker, the tests and this text.
+
+| id | lens, severity | finding (short) | response |
+|---|---|---|---|
+| R10-FRESH-1 | program (fresh), info | the program accepts `launch_from_batch` with bytes after its proof and launches exactly the coin of its arguments (Anchor 0.31 decodes the handler's arguments and the account struct's `#[instruction(..)]` arguments as prefixes of the same bytes; each of the four attributes is exactly the handler's leading parameters; no handler stores, hashes or emits raw data), but the checker's `batchLaunchArgs` asserted that the data ended at the proof, so `World.send` failed a valid launch ("launch_from_batch data has trailing bytes"); and no test sent `approve_launch`, `revoke_approval`, `launch` or `launch_from_batch` with bytes appended or compared the attributes with the handlers, so a reordered attribute would show up only indirectly. No on-chain impact; no SDK, tool or website code decodes `launch_from_batch` data | **Confirmed** (one 0 byte appended: the checker threw while the coin existed; with the checker off, the coin of the same call without the byte; the other three with bytes appended passed the checker). **Applied** without a program change: `batchLaunchArgs` decodes by prefix, as the program does (it stops after the proof, refuses data shorter than the arguments and counts the bytes after them as `trailing`); 4.0 states the rule for instruction data and the `#[instruction(..)]` prefixes. `30-batch` R10-FRESH-1: from one state each call simulated as built and sent with bytes appended (a u64 naming another pending city after the arguments of `approve_launch`, `launch` and `revoke_approval`; 8 bytes of 0xff; a u64 naming another city of the batch, one naming batch 2 and a 0 byte after the proof of `launch_from_batch`; one 0 byte) writes the same accounts and gives the same events, through the checker (before: the checker's failure); a source check that each `#[instruction(..)]` is the start of its handler's parameters, which refuses a swapped or retyped attribute. NOTES 104 |
+
 ### Revision 3: the leftovers of the build's third stage
 
 | item | done |
@@ -5013,6 +5037,7 @@ build follows the text as written and the entry records a reading or a measureme
 | 101 | review round 9: two RPCs that disagree on the stop end the rounds and are reported (above) | as listed above |
 | 102 | review round 9: the buyback share against the per-run cap; 8.4's operating rule; open owner decision O36 (above) | as listed above |
 | 103 | verification of round 9: the transaction that wrote a record found by its publication's arguments, whatever bytes follow them (above) | as listed above |
+| 104 | review round 10: bytes after an instruction's arguments; the checker decodes `launch_from_batch` by prefix; the `#[instruction]` prefixes pinned (above) | 4.0; as listed above |
 
 ### Revision 3: the owner's batch launch approval (17 October 2026)
 

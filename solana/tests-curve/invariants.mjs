@@ -859,7 +859,12 @@ export function checkTransaction(w, ctx) {
   checkGlobal(w, { pre, post, tx, label, preAccounts, postAccounts });
 }
 
-/** The arguments of `launch_from_batch` from its instruction data (4.27). */
+/**
+ * The arguments of `launch_from_batch` from its instruction data (4.27), decoded by prefix as the program decodes them
+ * (Anchor 0.31's Borsh `deserialize`, for the handler and for the `#[instruction]` of its account struct alike): bytes
+ * after the proof are ignored and only counted in `trailing` (4.0; review R10-FRESH-1, NOTES 104). Data too short for
+ * the arguments is refused, as the program refuses it.
+ */
 export function batchLaunchArgs(data) {
   const d = Buffer.from(data);
   let at = 8;
@@ -871,8 +876,8 @@ export function batchLaunchArgs(data) {
   const n = d.readUInt32LE(at); at += 4;
   const proof = [];
   for (let k = 0; k < n; k++) { proof.push(Uint8Array.from(d.subarray(at, at + 32))); at += 32; }
-  assert.equal(at, d.length, 'launch_from_batch data has trailing bytes');
-  return { cityId, batchSeq, configId, name, symbol, metaHash, proof };
+  assert.ok(at <= d.length, `launch_from_batch data of ${d.length} bytes is shorter than its arguments (${at})`);
+  return { cityId, batchSeq, configId, name, symbol, metaHash, proof, trailing: d.length - at };
 }
 
 /**

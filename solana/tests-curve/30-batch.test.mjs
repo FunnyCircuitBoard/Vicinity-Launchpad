@@ -6,12 +6,17 @@
 // approval, role, pause, halt, a second launch); replay and stolen-key scenarios; the approver signing everything else
 // refused; every rule of approve_launch and launch at the batch launch (the old program, the registry, a disabled
 // config, city 0); inner nodes and leaves in wrong places of a proof; a publication resent or prepared twice from one
-// state; compute units and the worst-case transaction size. Every transaction runs through the checker (I1 to I25).
+// state; compute units and the worst-case transaction size; review R10-FRESH-1 (NOTES 104): bytes after the arguments of
+// the four instructions that read their leading arguments again in their account structs change nothing, and each
+// #[instruction(..)] is the start of its handler's parameters. Every transaction runs through the checker (I1 to I25).
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { getBase64EncodedWireTransaction } from '@solana/kit';
 import web3 from '@solana/web3.js';
-import { World, S, expectFail, LAMPORTS, DAY, metaHash } from './helpers.mjs';
+import { World, S, expectFail, LAMPORTS, DAY, metaHash, rpcTransaction, SOL } from './helpers.mjs';
+import { batchLaunchArgs } from './invariants.mjs';
 
 const H = 3_600n;
 const ALT_PROGRAM = 'AddressLookupTab1e1111111111111111111111111';
@@ -705,4 +710,90 @@ test('R6-RT-3 (review round 6) a publication, a clear and a change of approver p
     assert.deepEqual(ix.accounts.slice(-2).map((a) => [a.address, a.role]), [[w.P.eventAuthority(), S.Role.R], [w.programId, S.Role.R]]);
   }
   await w.finish();
+});
+
+test('R10-FRESH-1 (review round 10) bytes after the arguments change nothing: approve_launch, revoke_approval, launch and launch_from_batch, which read their leading arguments again in their account structs (#[instruction]), sent with bytes appended (among them a u64 naming another pending city, or another city and batch) write exactly the accounts and give exactly the events of the same call without them from the same state, and pass the checker', async () => {
+  const w = await World.create();
+  await w.initBatchPath();
+  const u64 = (v) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(v)); return [...b]; };
+  const padded = (ix, bytes) => ({ ...ix, data: Uint8Array.from([...ix.data, ...bytes]) });
+  const state = (a) => (!a || BigInt(a.lamports) === 0n ? 'none' : `${BigInt(a.lamports)} ${String(a.owner ?? a.programAddress)} ${Buffer.from(a.data).toString('hex')}`);
+  const evs = (events) => events.map((e) => `${e.name}:${JSON.stringify(e.data, (k, v) => (typeof v === 'bigint' ? v.toString() : v instanceof Uint8Array ? [...v] : v))}`);
+  /** `ix` simulated as it is, then sent with `bytes` after its arguments (through the checker) from the same state: the same accounts and events. */
+  const same = async (ix, signers, bytes, label) => {
+    const tx = await w.buildTx([ix], signers);
+    const sim = w.svm.simulateTransaction(tx);
+    assert.notEqual(typeof sim.err, 'function', `${label} without the bytes is accepted`);
+    const plain = S.decodeTransactionEvents(rpcTransaction(tx.messageBytes, { inner: sim.meta().innerInstructions(), logs: sim.meta().logs() }), { programId: w.programId });
+    const after = sim.postAccounts();
+    const r = await w.send([padded(ix, bytes)], signers, `${label} with ${bytes.length} bytes after its arguments`);
+    assert.ok(plain.length > 0, `${label}: events to compare`);
+    assert.deepEqual(evs(r.events), evs(plain), `${label}: the same events`);
+    for (const a of after) assert.equal(state(w.accountInfo(a.address)), state(a), `${label}: ${a.address} as without the bytes`);
+    return r;
+  };
+  const [fa, fb, fc, fd, fe] = [await w.signer(100n), await w.signer(100n), await w.signer(100n), await w.signer(100n), await w.signer(100n)];
+  const [A, B, C, D, E] = [9_701n, 9_702n, 9_703n, 9_704n, 9_705n];
+  const approveIx = (cityId, founder, symbol) => w.ix.approveLaunch({ admin: w.admin.address, cityId, founder: founder.address, configId: 0, name: 'Demo City', symbol,
+    metaHash: metaHash(`${cityId}:${symbol}`), expiresAt: w.now() + 7n * DAY });
+  // B pending, then A approved with 9 bytes after expires_at, the first 8 naming B; C with 8 bytes of 0xff
+  await w.approve({ cityId: B, founder: fb, symbol: 'PADB' });
+  const approvalB = state(w.accountInfo(w.P.approval(B)));
+  await same(approveIx(A, fa, 'PADA'), [w.admin], [...u64(B), 0x01], 'approve_launch');
+  await same(approveIx(C, fc, 'PADC'), [w.admin], new Array(8).fill(0xff), 'approve_launch');
+  assert.deepEqual([w.approval(A).founder, w.approval(A).symbol, w.approval(C).founder], [fa.address, 'PADA', fc.address]);
+  // launch of A with a u64 naming B after city_id: A's coin, B's approval untouched and B not launched
+  const la = await same(w.launchIx({ cityId: A, founder: fa }), [fa], u64(B), 'launch');
+  assert.deepEqual(la.events.map((e) => e.name), ['CoinLaunched']);
+  assert.equal(w.coinView(w.handle(A, fa)).founder, fa.address);
+  // revoke_approval of C with a u64 naming B after city_id: C's approval closed, B's untouched
+  await same(w.ix.revokeApproval({ by: w.admin.address, cityId: C, rentPayer: w.approval(C).rentPayer }), [w.admin], u64(B), 'revoke_approval');
+  assert.equal(w.approval(C), null);
+  assert.equal(state(w.accountInfo(w.P.approval(B))), approvalB, 'B\'s approval is untouched');
+  assert.equal(w.exists(w.handle(B, fb).coin), false, 'B is not launched');
+  // launch_from_batch: E with a u64 naming D (another city of the batch) and a u64 naming batch 2 after its proof, then one 0 byte;
+  // D with one 0 byte (the review's case); the checker decodes the arguments by prefix, as the program does (Anchor's deserialize)
+  const b = await w.publishBatch([{ cityId: D, founder: fd, symbol: 'PADD' }, { cityId: E, founder: fe, symbol: 'PADE' }]);
+  w.warpTo(b.validFrom);
+  const ixE = w.launchFromBatchIx({ batch: b, cityId: E, founder: fe });
+  const tail = [...u64(D), ...u64(2n), 0x00];
+  assert.deepEqual(batchLaunchArgs(padded(ixE, tail).data), { ...batchLaunchArgs(ixE.data), trailing: tail.length }, 'the checker reads the same arguments');
+  const le = await same(ixE, [fe], tail, 'launch_from_batch');
+  assert.deepEqual(le.events.map((e) => e.name), ['CoinLaunched', 'LaunchedFromBatch']);
+  assert.deepEqual([le.events[1].data.city_id, le.events[1].data.batch_seq, le.events[1].data.founder], [E, 1n, fe.address]);
+  assert.equal(w.exists(w.handle(D, fd).coin), false, 'D is not launched by E\'s call');
+  await same(w.launchFromBatchIx({ batch: b, cityId: D, founder: fd }), [fd], [0x00], 'launch_from_batch');
+  assert.deepEqual([w.coinView(w.handle(D, fd)).founder, w.coinView(w.handle(E, fe)).founder, w.coinView(w.handle(E, fe)).symbol], [fd.address, fe.address, 'PADE']);
+  await w.finish();
+});
+
+test('R10-FRESH-1 (review round 10) every #[instruction(..)] of an account struct lists exactly the leading parameters of its handler, in order and with their types, so that both read the same bytes of the instruction data; a reordered or retyped attribute is refused', () => {
+  const src = join(SOL, 'programs', 'vicinity-curve', 'src');
+  const params = (s) => s.split(',').map((p) => p.trim()).filter(Boolean).map((p) => p.replace(/\s+/g, ' '));
+  /** [struct, its #[instruction] parameters] of every account struct that has one. */
+  const attributes = (files) => files.flatMap((text) => [...text.matchAll(/#\[instruction\(([^\]]*)\)\]\s*(?:#\[[^\]]*\]\s*)*pub struct (\w+)/g)].map((m) => [m[2], params(m[1])]));
+  /** The handler parameters after `ctx` by account struct, from lib.rs. */
+  const handlers = (lib) => new Map([...lib.matchAll(/pub fn (\w+)\(\s*ctx: Context<(\w+)>\s*,?([^)]*)\)\s*->\s*Result/g)].map((m) => [m[2], { name: m[1], params: params(m[3]) }]));
+  const problems = (files, lib) => {
+    const hs = handlers(lib); const out = [];
+    for (const [struct, attr] of attributes(files)) {
+      const h = hs.get(struct);
+      if (!h) { out.push(`${struct}: no handler`); continue; }
+      if (JSON.stringify(h.params.slice(0, attr.length)) !== JSON.stringify(attr)) out.push(`${h.name}: #[instruction(${attr.join(', ')})] is not the start of (${h.params.join(', ')})`);
+    }
+    return out;
+  };
+  const dir = join(src, 'instructions');
+  const files = readdirSync(dir).filter((f) => f.endsWith('.rs')).map((f) => readFileSync(join(dir, f), 'utf8'));
+  const lib = readFileSync(join(src, 'lib.rs'), 'utf8');
+  const found = attributes(files);
+  assert.equal(found.length, files.join('\n').split('#[instruction(').length - 1, 'every #[instruction(..)] read');
+  assert.deepEqual(found.map(([s]) => s).sort(), ['ApproveLaunch', 'Launch', 'LaunchFromBatch', 'RevokeApproval'], 'the four city-level instructions, and only they, re-read arguments');
+  assert.deepEqual(problems(files, lib), []);
+  assert.deepEqual(handlers(lib).get('LaunchFromBatch').params, ['city_id: u64', 'batch_seq: u64', 'config_id: u16', 'name: String', 'symbol: String', 'meta_hash: [u8; 32]', 'proof: Vec<[u8; 32]>']);
+  // the check refuses an attribute reordered (city_id and batch_seq swapped) or retyped (config_id as u64)
+  const swapped = files.map((t) => t.replace('#[instruction(city_id: u64, batch_seq: u64,', '#[instruction(batch_seq: u64, city_id: u64,'));
+  assert.deepEqual(problems(swapped, lib).map((p) => p.split(':')[0]), ['launch_from_batch']);
+  const retyped = files.map((t) => t.replace('founder: Pubkey, config_id: u16,', 'founder: Pubkey, config_id: u64,'));
+  assert.deepEqual(problems(retyped, lib).map((p) => p.split(':')[0]), ['approve_launch']);
 });
